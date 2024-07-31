@@ -1030,53 +1030,48 @@ AbstractTensor MmaSwizzler::scheduleMmaOutputAllocation(AbstractTensor t) {
   // Memory format for hopper mma:
   // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#wgmma-64n16-d
 
-  // Assume last 2 dims, for example [M64, N24] or [M64, N24, R]
-  NVF_ERROR(t.size() >= 2);
-  bool has_reduction = t[-1]->isReduction();
+  // Assume last 2 dims, for example [M64, N24, R]
+  NVF_ERROR(t.size() >= 3);
 
-  int64_t m_pos = has_reduction ? -3 : -2;
-  int64_t n_pos = has_reduction ? -2 : -1;
+  int64_t m_pos = -3;
+  int64_t n_pos = -2;
 
   //   m    n
-  // [M64, N24  (,R)]
+  // [M64, N24, R]
   t.split(m_pos--, 8);
   t.split(m_pos--, 2);
   //   m           n
-  // [M4, M2, M8, N24  (,R)]
+  // [M4, M2, M8, N24, R]
   t.split(n_pos, 8);
   t.split(n_pos, 2);
 
   n_pos -= 2;
   m_pos -= 2;
   //  m           n
-  // [M4, M2, M8, N3, N4, N2  (,R)]
+  // [M4, M2, M8, N3, N4, N2, R)]
 
   t.reorder({{m_pos + 1, n_pos + 1}, {n_pos + 1, m_pos + 2}});
   //  m           n
-  // [M4, M8, N4, N3, M2, N2  (,R)]
+  // [M4, M8, N4, N3, M2, N2, R]
   t.merge(m_pos++);
   t.merge(m_pos++);
 
   //       m
-  // [WarpGroup128, N3, M2, N2  (,R)]
+  // [WarpGroup128, N3, M2, N2, R]
 
-  if (has_reduction) {
-    t.split(-1, 2);
-    t.split(-2, 4);
-    m_pos -= 2;
-    //       m
-    // [WarpGroup128, N3, M2, N2, Ro, R4, R2]
-  }
+  t.split(-1, 2);
+  t.split(-2, 4);
+  m_pos -= 2;
+  //       m
+  // [WarpGroup128, N3, M2, N2, Ro, R4, R2]
 
   t[m_pos]->parallelize(ParallelType::TIDx);
 
-  if (has_reduction) {
-    // Set instruction loops for mma reduce
-    int64_t pos = -1;
-    while (pos > m_pos) {
-      auto id = t[pos--];
-      id->parallelize(ParallelType::Mma);
-    }
+  // Set instruction loops for mma reduce
+  int64_t pos = -1;
+  while (pos > m_pos) {
+    auto id = t[pos--];
+    id->parallelize(ParallelType::Mma);
   }
   return t;
 }

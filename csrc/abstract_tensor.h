@@ -132,10 +132,12 @@ using AbstractId = dynamic_type::DynamicType<
 // example:
 //
 // Example 10:
-//   AbstractTensor v({{}, {}}); // [null, null]
-//   v.split(0, 2); // [null, null, null]
-//   v.merge(0); // [null, null]
-//   v.swizzle(SwizzleType::XOR, 0, 1); // [null, null]
+//   IterDomain *id0;
+//   AbstractTensor v({{}, {}, id0}); // [null, null, id0]
+//   v.split(0, 2); // [null, null, null, id0]
+//   v.merge(0); // [null, null, id0]
+//   v.swizzle(SwizzleType::XOR, 0, 1); // [null, null, id0]
+//   auto vv = v.strip(); // [id0]
 
 struct AbstractTensor {
   std::vector<AbstractId> domain;
@@ -168,6 +170,10 @@ struct AbstractTensor {
 
   decltype(auto) size() const {
     return domain.size();
+  }
+
+  decltype(auto) empty() const {
+    return domain.empty();
   }
 
   decltype(auto) begin() {
@@ -218,6 +224,17 @@ struct AbstractTensor {
     return domain.crend();
   }
 
+  AbstractTensor& pushBack(AbstractId id) {
+    domain.push_back(std::move(id));
+    return *this;
+  }
+  
+  template<typename... Args>
+  AbstractTensor& emplaceBack(Args&&... args) {
+    domain.emplace_back(std::forward<Args>(args)...);
+    return *this;
+  }
+
   template <typename T>
   bool operator==(T&& t) const {
     if constexpr (std::is_same_v<AbstractTensor, std::decay_t<T>>) {
@@ -232,38 +249,41 @@ struct AbstractTensor {
     return !operator==(std::forward<T>(t));
   }
 
-  void split(int64_t axis, Val* factor, bool inner_split = true);
-  void split(int64_t axis, int64_t factor, bool inner_split = true);
+  AbstractTensor& split(int64_t axis, Val* factor, bool inner_split = true);
+  AbstractTensor& split(int64_t axis, int64_t factor, bool inner_split = true);
 
-  void merge(int64_t axis_o, int64_t axis_i);
-  void merge(int64_t axis) {
-    merge(axis, axis + 1);
+  AbstractTensor& merge(int64_t axis_o, int64_t axis_i);
+  AbstractTensor& merge(int64_t axis) {
+    return merge(axis, axis + 1);
   }
 
-  void reorder(const std::unordered_map<int64_t, int64_t>& old2new);
-  void reorder(
+  AbstractTensor& reorder(const std::unordered_map<int64_t, int64_t>& old2new);
+  AbstractTensor& reorder(
       const std::initializer_list<std::pair<const int64_t, int64_t>>& old2new) {
     return reorder(std::unordered_map<int64_t, int64_t>(old2new));
   }
   // old2new[index] = permutation[index]
-  void reorder(const std::vector<int64_t>& permutation);
-  void reorder(const std::initializer_list<int64_t>& permutation) {
-    reorder(std::vector<int64_t>(permutation));
+  AbstractTensor& reorder(const std::vector<int64_t>& permutation);
+  AbstractTensor& reorder(const std::initializer_list<int64_t>& permutation) {
+    return reorder(std::vector<int64_t>(permutation));
   }
 
   // Both `from` and `to` are inclusive.
-  void flatten(int64_t from = 0, int64_t to = -1);
+  AbstractTensor& flatten(int64_t from = 0, int64_t to = -1);
 
-  void swizzle(SwizzleType swizzle_type, int64_t x, int64_t y);
+  AbstractTensor& swizzle(SwizzleType swizzle_type, int64_t x, int64_t y);
 
   // Temporary helper for legacy swizzle, should be removed eventually.
   // This is a copy-paste of AbstractTensor::swizzle(SwizzleType
-  void swizzle(Swizzle2DType swizzle_type, int64_t x, int64_t y);
+  AbstractTensor& swizzle(Swizzle2DType swizzle_type, int64_t x, int64_t y);
 
   // Unzip the AbstractTensor to separate tensors. For example, if this
   // AbstractTensor is [dim0={id0, id1}, dim1={id2, id3}], then the return value
   // will be {AbstractTensor{id0, id2}, AbstractTensor{id1, id3}}.
   std::vector<AbstractTensor> unzip() const;
+
+  // Remove all the null elements.
+  AbstractTensor& strip();
 };
 
 } // namespace nvfuser
