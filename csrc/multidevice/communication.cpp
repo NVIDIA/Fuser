@@ -214,12 +214,17 @@ std::string Communication::toString(const int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "Communication " << name() << " ("
                           << "type=" << type() << ", "
-                          << "team=(" << team() << "), ";
+                          << "team=(" << team() << ")";
   if (hasRoot(type())) {
-    ss << "root=" << root() << ", ";
+    ss << ", root=" << root();
   }
-  ss << (inputs().empty() ? "" : "Input=" + in()->toString()) << ", "
-     << (outputs().empty() ? "" : "Output=" + out()->toString()) << ")\n";
+  if (!inputs().empty()) {
+    ss << ", input=" << in();
+  }
+  if (!outputs().empty()) {
+    ss << ", output=" << out();
+  }
+  ss << ")\n";
   return ss.str();
 }
 
