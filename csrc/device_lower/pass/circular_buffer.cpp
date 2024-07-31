@@ -394,7 +394,7 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
           break;
         }
 
-        // Skip expr if it is not circular buffer expression
+        // Skip expression if it is not circular buffer expression
         TensorView* out_tv = ir_utils::getTvOutput(expr);
         bool is_circular_buffer_load_expr = std::any_of(
             circular_buffer_load_exprs_.begin(),
@@ -414,11 +414,6 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
           break;
         }
 
-        // Handle cpAsyncBulk type LoadStoreOp that is registered with token
-        //
-        // See AllocationInserter for details when and how token map is filled
-        // with data
-        //
         // Replace cpAsyncBulk type LoadStoreOp with:
         //  if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
         //    for (int64_t loop_idx : irange(stages-1)) {
@@ -430,7 +425,6 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
 
         LoadStoreOp* ldst = expr->as<LoadStoreOp>();
 
-        // NOTE What happens with multiple ldst for different tensors?
         // There should be a single mbarrier_arrive_tx_ for all ldst in current
         // stage.
         NVF_ERROR(mbarrier_arrive_tx_ == nullptr);
@@ -483,15 +477,19 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
 
         // Handle cpAsyncBulk type LoadStoreOp that is registered with token
         //
-        // See AllocationInserter for details when and how token map is filled
-        // with data
-        //
-        // Before waiting at the mbarrier for the current stage, we
-        // launch the load operation for the next available stage. The
-        // last buffer in the pipeline is the first available after the
-        // prologue loop launches the initial wave of tma loads.
-        //
         // current_compute_stage = loop_index % stage_depth
+        // current_load_stage = (loop_index + (stage_depth - 1)) % stage_depth)
+        //
+        // Replace LoadStoreOp with:
+        //  if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
+        //    tokens[current_load_stage] =
+        //      mbarrier::arriveExpectTx(mbarrier[current_load_stage]);
+        //    cpAsyncBulk(mbarrier[current_load_stage], ...);
+        //  }
+        //  mbarrier::wait(token[current_stage]);
+        //
+        // Where mbarrier and token are shared memory arrays bound to the
+        // LoadStoreOp
         if (current_compute_stage_ == nullptr) {
           current_compute_stage_ = IrBuilder::modExpr(
               circular_buffer_loop_->index(),
@@ -507,7 +505,6 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
               current_compute_stage_->definition());
         }
 
-        // current_load_stage = (loop_index + (stage_depth - 1)) % stage_depth)
         if (current_load_stage_ == nullptr) {
           current_load_stage_ = IrBuilder::modExpr(
               IrBuilder::addExpr(
@@ -527,20 +524,8 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
               current_load_stage_->definition());
         }
 
-        // Replace LoadStoreOp with:
-        //  if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
-        //    tokens[next_stage] =
-        //      mbarrier::arriveExpectTx(mbarrier[next_stage]);
-        //    cpAsyncBulk(mbarrier[next_stage], ...);
-        //  }
-        //  mbarrier::wait(token[current_stage]);
-        //
-        // Where mbarrier and token are shared memory arrays bound to the
-        // LoadStoreOp
-
         LoadStoreOp* ldst = expr->as<LoadStoreOp>();
 
-        // NOTE What happens with multiple ldst for different tensors
         // There should be a single mbarrier_arrive_tx_ for all ldst in current
         // stage.
         NVF_ERROR(mbarrier_arrive_tx_ == nullptr);
@@ -591,7 +576,7 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
           break;
         }
 
-        // Construct mBarrier::wait for last stage
+        // Construct mBarrier::wait for epilogue
         LoadStoreOp* ldst = expr->as<LoadStoreOp>();
         Val* epilogue_compute_stage = IrBuilder::modExpr(
             cloned_top_level_loop_->index(),
