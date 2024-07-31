@@ -150,7 +150,7 @@ TEST_F(MultiDeviceTutorial, CommunicatorAndC10d) {
 // following test is the one of Device Mesh, which allows us to select the
 // devices on which the tensors will be sharded.
 TEST_F(MultiDeviceTutorial, DeviceMeshesNoResharding) {
-  Communicator* const communicator = communicator_;
+  Communicator* const communicator_ = communicator_;
 
   // MODEL DEFINITION
   // Let us define a model expressing a simple memcpy
@@ -162,7 +162,7 @@ TEST_F(MultiDeviceTutorial, DeviceMeshesNoResharding) {
   TensorView* tv1 = set(tv0); // "set" means "copy"
   fusion.addOutput(tv1);
 
-  const bool verbose_print = verbose_ && communicator->deviceId() == 0;
+  const bool verbose_print = verbose_ && communicator_->deviceId() == 0;
 
   if (verbose_print) {
     // Print a concise representation of the fusion expressions
@@ -186,12 +186,12 @@ TEST_F(MultiDeviceTutorial, DeviceMeshesNoResharding) {
   DeviceMesh mesh_one({1});
   // We can also consider the mesh of device indices "0" "2"
   DeviceMesh mesh_zero_and_two({0, 2});
-  // Or the mesh containing all available devices in the world communicator
-  std::vector<int64_t> all_devices(communicator->size());
+  // Or the mesh containing all available devices in the world communicator_
+  std::vector<int64_t> all_devices(communicator_->size());
   std::iota(
       all_devices.begin(),
       all_devices.end(),
-      0); // all_devices = [0,1,..., communicator->size()-1]
+      0); // all_devices = [0,1,..., communicator_->size()-1]
   DeviceMesh mesh_full(all_devices);
   // However, it is forbidden to define a mesh with duplicates indices:
   EXPECT_ANY_THROW(DeviceMesh mesh_with_duplicates({1, 1}));
@@ -226,16 +226,16 @@ TEST_F(MultiDeviceTutorial, DeviceMeshesNoResharding) {
   // Set up the input
   constexpr int64_t tensor_size = 128;
   const c10::TensorOptions tensor_options =
-      at::TensorOptions().device(communicator->device()).dtype(at::kFloat);
+      at::TensorOptions().device(communicator_->device()).dtype(at::kFloat);
   // each rank allocate a tensor a on different device
   at::Tensor input = at::randn({tensor_size}, tensor_options);
   {
     // EXECUTION
     // This class is responsible for managing a single device (given by
-    // communicator->deviceId()) in a SPMD multidevice program. Recall that each
+    // communicator_->deviceId()) in a SPMD multidevice program. Recall that each
     // rank manages one and only one GPU.
     MultiDeviceExecutor multidevice_executor(
-        std::make_unique<Fusion>(fusion), *communicator);
+        std::make_unique<Fusion>(fusion), *communicator_);
     if (verbose_print) {
       fusion.printMath();
       fusion.printKernel();
@@ -258,7 +258,7 @@ TEST_F(MultiDeviceTutorial, DeviceMeshesNoResharding) {
   {
     // EXECUTION
     MultiDeviceExecutor multidevice_executor(
-        std::make_unique<Fusion>(fusion), *communicator);
+        std::make_unique<Fusion>(fusion), *communicator_);
     // here, the compute is done on device 0 only. Other devices don't even read
     // the input's data. However, the shape of the input is used to infer the
     // concrete shape of tv0 and subsequent tensors' shape. Therefore, we still
@@ -267,7 +267,7 @@ TEST_F(MultiDeviceTutorial, DeviceMeshesNoResharding) {
 
     // VALIDATION
     // Only device 0 receives a non-void output
-    if (communicator->deviceId() == 0) {
+    if (communicator_->deviceId() == 0) {
       EXPECT_TRUE(output.equal(input));
     } else {
       EXPECT_EQ(output.numel(), 0);
@@ -377,22 +377,22 @@ TEST_F(MultiDeviceTutorial, SimplePipelining) {
 
 // While DeviceMesh allows us to select on which device a Tensor is
 // materialized, we are so far only able to either fully replicate a tensor or
-// not materialize it at all. Let us now introduce a new scheduling primitive
-// which allows to shard tensors accross devices. This new primitive consists of
-// a new parallel type `ParallelType::DIDx`, applied to a tensor's axis by doing
-// tv->axis(0)->parallelize(ParallelType::DIDx). This is similar to how Fuser
-// classically sets parallel strategy, using ParallelType::TIDx (for
-// parallelizing an axis accross threads) and ParallelType::BIDx (for
-// parallelizing an axis accross blocks). Here, "D" in DIDx stands for "device",
-// and this parallel type indicates we want to parallelize an axis accross
-// devices. Let us consider for example a tensor tv of shape {4,128}, assigned
-// with the device mesh (0,1,2,3), which outermost axis is parallelized with
-// DIDx. It means that each device will materialize a tensor of shape {1,128}
-// representing a slice of the global tensor.
+// not materialize it at all on given devices. Let us now introduce a new
+// scheduling primitive which allows to shard tensors accross devices. This new
+// primitive consists of a new parallel type `ParallelType::DIDx`, applied to a
+// tensor's axis by doing tv->axis(0)->parallelize(ParallelType::DIDx). This is
+// similar to how Fuser classically sets parallel strategy, using
+// ParallelType::TIDx (for parallelizing an axis accross threads) and
+// ParallelType::BIDx (for parallelizing an axis accross blocks). Here, "D" in
+// DIDx stands for "device", and this parallel type indicates we want to
+// parallelize an axis accross devices. Let us consider for example a tensor tv
+// of shape {4,128}, assigned with the device mesh (0,1,2,3), which outermost
+// axis is parallelized with DIDx. It means that each device will materialize a
+// tensor of shape {1,128} representing a slice of the global tensor.
 
 // Note 1: the extent of the DeviceMesh always needs to match the tensor's axis
 // extent. This is similar to the fact that, in Fuser single device, if an axis
-// of extent 32 is parallelized accros threads, then the launch param blockDim
+// of extent 32 is parallelized with TIDx, then the launch param blockDim
 // (i.e. the number of threads per blocks) will be chosen equal to 32.
 
 // Note 2: sharding a tensor (i.e. parallelizing an axis with DIDx) is
@@ -401,8 +401,6 @@ TEST_F(MultiDeviceTutorial, SimplePipelining) {
 // different to BIDx and TIDx parallel, where we don't access the physical
 // threads and blocks to map to.
 TEST_F(MultiDeviceTutorial, TensorShardingAndResharding) {
-  Communicator* const communicator = communicator_;
-
   // MODEL DEFINITION
   // Let us define a model expressing a simple memcpy
   Fusion fusion;
@@ -416,11 +414,11 @@ TEST_F(MultiDeviceTutorial, TensorShardingAndResharding) {
   // MULTIDEVICE SCHEDULING
   // Let us define, as in previous tests, a 1D Device Mesh comprised of all
   // available device IDs
-  std::vector<int64_t> all_devices(communicator->size());
+  std::vector<int64_t> all_devices(communicator_->size());
   std::iota(
       all_devices.begin(),
       all_devices.end(),
-      0); // all_devices = [0,1,..., communicator->size()-1]
+      0); // all_devices = [0,1,..., communicator_->size()-1]
   DeviceMesh mesh_full(all_devices);
   // Let us set tv0 and tv1's mesh:
   tv0->setDeviceMesh(mesh_full);
@@ -438,13 +436,13 @@ TEST_F(MultiDeviceTutorial, TensorShardingAndResharding) {
   // It means that each device will own a slice of the the full tensors. In
   // particular, it implies that tv0's and tv1's outermost axis extent equals
   // the number of devices. The shapes of tv0 and tv1 are thus
-  // [communicator->size(), ?]
-  const bool verbose_print = verbose_ && communicator->deviceId() == 0;
+  // [communicator_->size(), ?]
+  const bool verbose_print = verbose_ && communicator_->deviceId() == 0;
   if (verbose_print) {
     std::cout << "tv0: " << tv0->toString() << std::endl;
     std::cout << "tv1: " << tv1->toString() << std::endl;
   }
-  // However, the outermost axis with extent `communicator->size()`is not
+  // However, the outermost axis with extent `communicator_->size()`is not
   // materialized on one device, but accross devices, therefore, each device
   // allocate a tensor of shape {1, ?}, representing a slice of the global
   // tensor.
@@ -453,7 +451,7 @@ TEST_F(MultiDeviceTutorial, TensorShardingAndResharding) {
   // Set up the input
   constexpr int64_t tensor_size = 128;
   const c10::TensorOptions tensor_options =
-      at::TensorOptions().device(communicator->device()).dtype(at::kFloat);
+      at::TensorOptions().device(communicator_->device()).dtype(at::kFloat);
   // each rank allocate a tensor a on different device.
   // Note here that the outermost axis needs to have extent 1 because
   // tv0->axis(0) is sharded
@@ -467,7 +465,7 @@ TEST_F(MultiDeviceTutorial, TensorShardingAndResharding) {
     // inter-device communication is needed; Executing the fusion is purely
     // local and consists of a simple kernel.
     MultiDeviceExecutor multidevice_executor(
-        std::make_unique<Fusion>(fusion), *communicator);
+        std::make_unique<Fusion>(fusion), *communicator_);
     if (verbose_print) {
       fusion.printMath();
       fusion.printKernel();
@@ -500,7 +498,7 @@ TEST_F(MultiDeviceTutorial, TensorShardingAndResharding) {
   {
     // EXECUTION
     MultiDeviceExecutor multidevice_executor(
-        std::make_unique<Fusion>(fusion), *communicator);
+        std::make_unique<Fusion>(fusion), *communicator_);
     // Since the input is sharded and the output is replicated, a network
     // communication is needed to share the data between devices. Here, a
     // "MPI-Allgather" communication is needed.
@@ -521,7 +519,8 @@ TEST_F(MultiDeviceTutorial, TensorShardingAndResharding) {
 
     // VALIDATION
     EXPECT_TRUE(
-        output.slice(0, communicator->deviceId(), communicator->deviceId() + 1)
+        output
+            .slice(0, communicator_->deviceId(), communicator_->deviceId() + 1)
             .equal(input));
   }
 
@@ -543,7 +542,7 @@ TEST_F(MultiDeviceTutorial, TensorShardingAndResharding) {
   {
     // EXECUTION
     MultiDeviceExecutor multidevice_executor(
-        std::make_unique<Fusion>(fusion), *communicator);
+        std::make_unique<Fusion>(fusion), *communicator_);
     if (verbose_print) {
       multidevice_executor.print();
       // Printout is reproduced here for convenience, run on 8 devices:
@@ -560,12 +559,13 @@ TEST_F(MultiDeviceTutorial, TensorShardingAndResharding) {
     at::Tensor output = multidevice_executor.runWithInput({input}).at(0);
 
     // VALIDATION
-    if (communicator->deviceId() == 0) {
+    if (communicator_->deviceId() == 0) {
       // device 0 produces the full output, which one slice corresponds to
       // device 0's input
       EXPECT_TRUE(
           output
-              .slice(0, communicator->deviceId(), communicator->deviceId() + 1)
+              .slice(
+                  0, communicator_->deviceId(), communicator_->deviceId() + 1)
               .equal(input));
     } else {
       // Other devices do not produce any output
@@ -589,7 +589,7 @@ TEST_F(MultiDeviceTutorial, TensorShardingAndResharding) {
   {
     // EXECUTION
     MultiDeviceExecutor multidevice_executor(
-        std::make_unique<Fusion>(fusion), *communicator);
+        std::make_unique<Fusion>(fusion), *communicator_);
     if (verbose_print) {
       multidevice_executor.print();
       // Printout is reproduced here for convenience, run on 8 devices:
@@ -605,17 +605,17 @@ TEST_F(MultiDeviceTutorial, TensorShardingAndResharding) {
 
     // Note here that, contrarily to what we saw before, the first axis extent
     // must not be "1" but must equal the number of devices.
-    input = at::randn({communicator->size(), tensor_size}, tensor_options);
+    input = at::randn({communicator_->size(), tensor_size}, tensor_options);
 
     at::Tensor output = multidevice_executor.runWithInput({input}).at(0);
 
     // VALIDATION
     // Each device receives a slice of the global input.
-    if (communicator->deviceId() == 0) {
+    if (communicator_->deviceId() == 0) {
       //  Device 0, which owns the full input, can compare the obtained output
       //  with a certain slice of the input.
       EXPECT_TRUE(output.equal(input.slice(
-          0, communicator->deviceId(), communicator->deviceId() + 1)));
+          0, communicator_->deviceId(), communicator_->deviceId() + 1)));
     } else {
       EXPECT_EQ(output.sizes()[0], 1);
       EXPECT_EQ(output.sizes()[1], input.sizes()[1]);
