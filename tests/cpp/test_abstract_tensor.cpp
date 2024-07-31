@@ -756,7 +756,7 @@ TEST_F(AbstractTensorTest, Zip) {
   EXPECT_EQ(v[1], expect1);
 }
 
-TEST_F(AbstractTensorTest, Stack) {
+TEST_F(AbstractTensorTest, AddRow) {
   auto id0 = newID();
   auto id1 = newID();
   auto id2 = newID();
@@ -765,7 +765,7 @@ TEST_F(AbstractTensorTest, Stack) {
   auto id5 = newID();
   AbstractTensor v({{id0, id1}, {id2, id3}});
   AbstractTensor v2({id4, id5});
-  v.stack(v2);
+  v.addRow(v2);
   ASSERT_EQ(v.size(), 2);
   AbstractId expect0{id0, id1, id4};
   AbstractId expect1{id2, id3, id5};
