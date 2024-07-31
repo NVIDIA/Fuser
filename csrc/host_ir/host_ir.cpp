@@ -116,9 +116,10 @@ bool PostOnStream::sameAs(const Statement* other) const {
   return false;
 }
 
-Stream::Stream(IrBuilderPasskey passkey) : Val(passkey, ValType::Stream) {};
+Stream::Stream(IrBuilderPasskey passkey) : Val(passkey, ValType::Stream) {}
 
-Stream::Stream(const Stream* src, IrCloner* ir_cloner) : Val(src, ir_cloner) {};
+Stream::Stream(const Stream* src, IrCloner* ir_cloner) : Val(src, ir_cloner) {}
+
 NVFUSER_DEFINE_CLONE(Stream)
 
 std::string Stream::toString(int indent_size) const {
@@ -170,7 +171,8 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(Wait)
 
 std::string Wait::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "Wait Communication " << communication()->name();
+  indent(ss, indent_size) << "Wait Communication " << communication()->name()
+                          << "\n";
   return ss.str();
 }
 
