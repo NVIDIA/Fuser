@@ -347,23 +347,9 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
     }
 
     // mbarrier::wait occurs in Main and Epilogue loops.
-    //
-    // Pseudo-code example:
-    //  mbarrier::wait(mbarriers[stage], mbarrier_tokens[stage]);
     if (mbarrier_wait_ != nullptr && cloned_scopes_.size() == 1) {
       NVF_ERROR(cloned_scopes_.back() == &cloned_top_level_loop_->body());
-
-      // The Mbarrier Wait condition is a single thread and the expected bytes
-      // for TMA operation. Since the total number of threads is unknown, we
-      // use a block sync to prevent race conditions.
-      kir::BlockSync* sync_expr =
-          IrBuilder::create<kir::BlockSync>(/*war_sync=*/true);
-      cloned_top_level_loop_->body().push_back(sync_expr);
-
-      // TODO Use total number of threads of CTA with mbarrier_wait
-      // TODO Create analysis to determine when block sync is required
-      cloned_top_level_loop_->body().push_back(mbarrier_wait_);
-      mbarrier_wait_ = nullptr;
+      createMBarrierWait();
     }
   }
 
@@ -611,8 +597,14 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
             cloned_top_level_loop_->index(),
             IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
 
+        NVF_ERROR(
+            mbarrier_wait_ == nullptr,
+            "Expected mbarrier_wait to inactive for current TMA operation");
+        mbarrier_wait_ = createMbarrierWait(ldst, epilogue_compute_stage);
+
         // If last cloned scope is the cloned_top_level_loop body, then add
-        // mbarrier::wait
+        // mbarrier::wait immediately. Otherwise, we are in a nested for-loop
+        // and should wait until we return to top-level for loop.
         int64_t active_for_loops = std::count_if(
             for_loop_id_stack_.begin(),
             for_loop_id_stack_.end(),
@@ -620,17 +612,8 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
               return id->getParallelType() == ParallelType::Serial;
             });
         if (active_for_loops == 1) {
-          cloned_scopes_.back()->push_back(
-              createMbarrierWait(ldst, epilogue_compute_stage));
-          break;
+          createMBarrierWait();
         }
-
-        // Otherwise, we are in a nested for-loop and should wait until we
-        // return to top-level for loop.
-        NVF_ERROR(
-            mbarrier_wait_ == nullptr,
-            "Expected mbarrier_wait to inactive for current TMA operation");
-        mbarrier_wait_ = createMbarrierWait(ldst, epilogue_compute_stage);
         break;
       }
       case CircularBufferLoopStage::NotApplicable: {
@@ -641,6 +624,13 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
 
   // This function selects a single thread to launch tma load and mbarrier
   // arrive_expected_tx operations.
+  //
+  // Pseudo-code example:
+  //  if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
+  //    tokens[next_stage] =
+  //      mbarrier::arriveExpectTx(mbarrier[next_stage]);
+  //    cpAsyncBulk(mbarrier[next_stage], ...);
+  //  }
   void createTmaLoadBlock(Expr* load_expr) {
     kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
     Scope& body = if_expr->thenBody();
@@ -648,6 +638,25 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
     body.push_back(load_expr);
     cloned_scopes_.back()->push_back(if_expr);
     mbarrier_arrive_tx_ = nullptr;
+  }
+
+  // This function adds mbarrier::wait to top level cloned loop.
+  //
+  // Pseudo-code example:
+  //  mbarrier::wait(mbarriers[stage], mbarrier_tokens[stage]);
+  void createMBarrierWait() {
+    // The Mbarrier Wait condition is a single thread and the expected bytes
+    // for TMA operation. Since the total number of threads is unknown, we
+    // use a block sync to prevent race conditions.
+    kir::BlockSync* sync_expr =
+        IrBuilder::create<kir::BlockSync>(/*war_sync=*/true);
+    cloned_top_level_loop_->body().push_back(sync_expr);
+
+    // TODO Use total number of threads of CTA with mbarrier_wait
+    // TODO Create analysis to determine when block sync is required
+    cloned_top_level_loop_->body().push_back(mbarrier_wait_);
+
+    mbarrier_wait_ = nullptr;
   }
 
   // This function creates kir::MBarrierArriveExpectTx for given LoadStoreOp and
