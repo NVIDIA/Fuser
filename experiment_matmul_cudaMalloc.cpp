@@ -113,7 +113,9 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
-  constexpr int I = 8; // number of iterations
+  constexpr int I = 4; // number of iterations changing stream
+  constexpr int J = 4; // number of iterations reusing streams and buffer
+  constexpr int L = 2; // number of iterations reusing streams
 
   std::cout << "M=" << M << std::endl;
   std::cout << "N=" << N << std::endl;
@@ -135,64 +137,68 @@ int main(int argc, char* argv[]) {
   }
 
   torch::Device device(torch::kCUDA);
-  // input tensors
-  std::vector<at::Tensor> mat1;
-  std::vector<at::Tensor> mat2;
-  // output tensors
-  std::vector<at::Tensor> unreduced_results;
-  std::vector<at::Tensor> results;
-  for (int i = 0; i < I; ++i) {
-    if (stream_mode == StreamMode::AllocateAndPostOnDifferentStreams) {
-      setCurrentCUDAStream(streams[i]);
-    }
-    mat1.push_back(torch::rand({M, K}, device));
-    mat2.push_back(torch::rand({K, N}, device));
-    if (compute_mode == ComputeMode::Unfused) {
-      unreduced_results.push_back(torch::empty({M, K, N}, device));
-    }
-    if (compute_mode == ComputeMode::MatmulOut ||
-        compute_mode == ComputeMode::Unfused) {
-      results.push_back(torch::empty({M, N}, device));
-    }
-  }
-
-  cudaDeviceSynchronize();
-
-  // Matmul execution
-  for (int i = 0; i < I; ++i) {
-    if (use_streams) {
-      setCurrentCUDAStream(streams[i]);
-    }
-    switch (compute_mode) {
-      case ComputeMode::Matmul:
-        results.push_back(torch::matmul(mat1[i], mat2[i]));
-        break;
-      case ComputeMode::MatmulOut:
-        torch::matmul_out(results[i], mat1[i], mat2[i]);
-        break;
-      case ComputeMode::Unfused:
-        at::mul_out(
-            unreduced_results[i], mat1[i].unsqueeze(-1), mat2[i].unsqueeze(-3));
-        at::sum_out(results[i], unreduced_results[i], {-2});
-        break;
-      default:
-        assert(false);
-        break;
-    }
-  }
-
-  // Stream sync
-  if (use_streams) {
+  for (int l = 0; l < L; ++l) {
+    // input tensors
+    std::vector<at::Tensor> mat1;
+    std::vector<at::Tensor> mat2;
+    // output tensors
+    std::vector<at::Tensor> unreduced_results;
+    std::vector<at::Tensor> results;
     for (int i = 0; i < I; ++i) {
-      streams[i].synchronize();
+      if (stream_mode == StreamMode::AllocateAndPostOnDifferentStreams) {
+        setCurrentCUDAStream(streams[i]);
+      }
+      mat1.push_back(torch::rand({M, K}, device));
+      mat2.push_back(torch::rand({K, N}, device));
+      if (compute_mode == ComputeMode::Unfused) {
+        unreduced_results.push_back(torch::empty({M, K, N}, device));
+      }
+      if (compute_mode == ComputeMode::MatmulOut ||
+          compute_mode == ComputeMode::Unfused) {
+        results.push_back(torch::empty({M, N}, device));
+      }
     }
-  } else {
-    torch::cuda::synchronize();
-  }
 
-  // "Validation"
-  for (int i = 0; i < I; ++i) {
-    assert(results.at(i).numel() > 0);
+    cudaDeviceSynchronize();
+
+    // Matmul execution
+    for (int j = 0; j < J; ++j) {
+      for (int i = 0; i < I; ++i) {
+        if (use_streams) {
+          setCurrentCUDAStream(streams[i]);
+        }
+        switch (compute_mode) {
+          case ComputeMode::Matmul:
+            results.push_back(torch::matmul(mat1[i], mat2[i]));
+            break;
+          case ComputeMode::MatmulOut:
+            torch::matmul_out(results[i], mat1[i], mat2[i]);
+            break;
+          case ComputeMode::Unfused:
+            at::mul_out(
+                unreduced_results[i], mat1[i].unsqueeze(-1), mat2[i].unsqueeze(-3));
+            at::sum_out(results[i], unreduced_results[i], {-2});
+            break;
+          default:
+            assert(false);
+            break;
+        }
+      }
+
+      // Stream sync
+      if (use_streams) {
+        for (int i = 0; i < I; ++i) {
+          streams[i].synchronize();
+        }
+      } else {
+        torch::cuda::synchronize();
+      }
+
+      // "Validation"
+      for (int i = 0; i < I; ++i) {
+        assert(results.at(i).numel() > 0);
+      }
+    }
   }
 
   return 0;
