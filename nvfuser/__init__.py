@@ -118,7 +118,7 @@ class FusionDefinition(_C._FusionDefinition):
                     msg += f"    {input_as_string},\n"
             msg += "]"
             msg += "\nfd.execute(inputs)\n"
-        msg += "```\n"
+
         return msg
     
     def getReproErrorString(self, section: str, inputs: list | None = None):
@@ -127,8 +127,10 @@ class FusionDefinition(_C._FusionDefinition):
             "If you believe this is a bug or need assistance, please file an issue at "
             "https://github.com/NVIDIA/Fuser/issues/new\n"
             f"Here's a script to reproduce the error:\n"
+            "```python\n"
             )
         msg += self.getReproString(inputs)
+        msg += "```\n"
         return msg
 
     def definition(self):
