@@ -4332,8 +4332,8 @@ TEST_F(PredicateIndexingTest, UnswitchConsolidationDifferentThreading) {
   // patterns: one with TIDy and TIDx and another with TIDx and
   // TIDy. Specifically, the unswitch predicate should consist of:
   //
-  // (bidx * 8 + tidy) * 16 + tidx
-  // (bidx * 8 + tidx) * 16 + tidy
+  // (bidx * 8 + tidy) * 16 + tidx < i0
+  // (bidx * 8 + tidx) * 16 + tidy < i0
   //
   // Additionally, since tidx and tidy are both used for different
   // extents, there should be parallel domain predicates as well. The
