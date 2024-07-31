@@ -423,12 +423,14 @@ AbstractTensor AbstractTensor::zip(std::vector<AbstractTensor> tensors) {
         "Can not stack AbstractTensors with different number of domains.");
   }
 
+  result.domain.reserve(tensors[0].domain.size());
   for (auto i : c10::irange(tensors[0].domain.size())) {
     std::vector<AbstractId> domain;
-    for (const auto& tensor : tensors) {
-      domain.push_back(std::move(tensor.domain[i]));
+    domain.reserve(tensors.size());
+    for (auto& tensor : tensors) {
+      domain.emplace_back(std::move(tensor.domain[i]));
     }
-    result.domain.push_back(std::move(domain));
+    result.domain.emplace_back(std::move(domain));
   }
 
   return result;
@@ -440,7 +442,7 @@ AbstractTensor& AbstractTensor::stack(AbstractTensor tensor) {
       "Can not stack AbstractTensors with different number of domains.");
 
   for (auto i : c10::irange(domain.size())) {
-    domain[i].as<std::vector>().push_back(std::move(tensor.domain[i]));
+    domain[i].as<std::vector>().emplace_back(std::move(tensor.domain[i]));
   }
 
   return *this;
