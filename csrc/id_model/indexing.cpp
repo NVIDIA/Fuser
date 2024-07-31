@@ -184,7 +184,8 @@ class AllocationDomainSetup : private kir::IrVisitor {
     if (tv->hasAllocation()) {
       // Honor the allocation domain if the tensor is global or local memory
       if (tv->getMemoryType() == MemoryType::Global ||
-          tv->getMemoryType() == MemoryType::Local) {
+          (tv->definition()->isA<MmaOp>() &&
+           isHopper(tv->definition()->as<MmaOp>()->macro()))) {
         use_set_allocation_domain = true;
       } else if (tv->getMemoryType() == MemoryType::Shared) {
         // If it's a shared memory tensor, the set domain is likely
