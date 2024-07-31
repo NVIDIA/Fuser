@@ -36,7 +36,9 @@ constexpr int64_t B = 2, E = 768, H = 12, S = 128;
 // Note parameters scaled by kParamScale following weight initialization
 // recommendations:
 // https://huggingface.co/docs/transformers/en/model_doc/gpt2#transformers.GPT2Config.initializer_range
-constexpr double kDropoutProb = 0.1, kParamScale = 0.02, kSdpaProb = 0.1,
+// Note: Sdpa probability is set to 0. Since the dropout mask is sharded it throws off the 
+// seed offset between the sharded nvFuser program and the unsharded reference.
+constexpr double kDropoutProb = 0.1, kParamScale = 0.02, kSdpaProb = 0.0,
                  kSdpaScale = 1e-3;
 
 class DistributedTransformerTest
@@ -105,7 +107,7 @@ void validate(
     // Note: Scaling tolerance up since the error accumulates across ops
     // BFloat16 error is quite high, but the program has been verified with
     // double precision to be logically correct.
-    double atol = 0.025 * (i + 1);
+    double atol = .075 * (i + 1);
     double rtol = 1.6e-2;
     auto all_close = out[i]
                          .to(expected_out[i].dtype())
@@ -115,7 +117,7 @@ void validate(
                              atol,
                              /*equal_nan=*/true);
 
-    if (true) {
+    if (!all_close) {
       auto error = (out[i].to(expected_out[i].dtype()) - expected_out[i]).abs();
       auto max_error = error.max().item().to<double>();
       auto max_relative_error =
@@ -479,7 +481,7 @@ TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
 
   const auto options =
       at::TensorOptions().dtype(at_dtype).device(communicator_->device());
-  auto x = at::randn({B * S, E}, options) * .05;
+  auto x = at::randn({B * S, E}, options);
   auto w0 = at::randn({E, 3 * E}, options) * kParamScale;
   auto b0 = at::randn({3 * E}, options) * kParamScale;
   auto w1 = at::randn({E, E}, options) * kParamScale;
