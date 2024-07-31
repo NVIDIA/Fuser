@@ -408,7 +408,7 @@ class NVF_API TensorView : public Val {
   //!  this should be used on the tvs that are either inputs/outputs of an
   //!  MmaOp, or any tv's that are involved in prolog/epilog fusions and need to
   //!  have a matching thread swizzle with the mma operand/result.
-  //! More detail on usage see [WarpMmaSwizzler] in scheduler/mma_utils.h .
+  //! More detail on usage see [MmaSwizzler] in scheduler/mma_utils.h .
   void applyMmaSwizzle(MmaOperand operand);
   void applyMmaSwizzle(MmaInputSmemSwizzle swizzle);
 
