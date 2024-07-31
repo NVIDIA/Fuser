@@ -712,4 +712,16 @@ TEST_F(AbstractTensorTest, UnzipBroadcasting) {
   EXPECT_EQ(ub[1], expect1);
 }
 
+TEST_F(AbstractTensorTest, Parallelize) {
+  auto id0 = newID();
+  auto id1 = newID();
+  auto id2 = newID();
+  AbstractTensor v({id0, {id1, id2}});
+  v.parallelize(0, ParallelType::TIDx);
+  EXPECT_EQ(id0->getParallelType(), ParallelType::TIDx);
+  v.parallelize(1, ParallelType::TIDy);
+  EXPECT_EQ(id1->getParallelType(), ParallelType::TIDy);
+  EXPECT_EQ(id2->getParallelType(), ParallelType::TIDy);
+}
+
 } // namespace nvfuser

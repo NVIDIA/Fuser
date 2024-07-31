@@ -2715,12 +2715,8 @@ TEST_F(GpuViewTest, FusionMismatchingReshape) {
   schedule.split(0, 128);
 #if 0
   // TODO: sync analysis is not working yet
-  for (auto id : static_cast<std::vector<IterDomain*>>(schedule[0])) {
-    id->parallelize(ParallelType::BIDx);
-  }
-  for (auto id : static_cast<std::vector<IterDomain*>>(schedule[1])) {
-    id->parallelize(ParallelType::TIDx);
-  }
+  schedule.parallelize(0, ParallelType::BIDx);
+  schedule.parallelize(1, ParallelType::TIDx);
 #endif
 
   // Now, tv5 looks like:

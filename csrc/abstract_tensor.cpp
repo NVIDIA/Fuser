@@ -413,4 +413,41 @@ std::vector<AbstractTensor> AbstractTensor::unzip() const {
   return result;
 }
 
+namespace {
+
+struct DispatchParallelize {
+  template <typename INPUT>
+  void operator()(ParallelType parallel_type, INPUT&& in) const {
+    using IN = std::decay_t<INPUT>;
+    if constexpr (std::is_same_v<IN, std::monostate>) {
+      return;
+    } else if constexpr (std::is_same_v<IN, IterDomain*>) {
+      return in->parallelize(parallel_type);
+    } else if constexpr (std::is_same_v<IN, ValGroupAndItsGraph>) {
+      // TODO: instead of throwing an error, should we just parallelize all IDs
+      // in the ValGroup? This behavior only makes sense for the loop graph, so
+      // we are disabling it for now to avoid unexpected behavior. If in the
+      // future, it does turn out that we need to commonly manually construct a
+      // loop graph, we can turn this on.
+      NVF_ERROR(false, "Parallelizing ValGroup is not supported");
+    } else if constexpr (std::is_same_v<IN, std::vector<AbstractId>>) {
+      for (auto& aid : in) {
+        AbstractId::dispatch((*this), parallel_type, aid);
+      }
+    } else {
+      NVF_CHECK(false, "Unsupported type in AbstractTensor::split");
+    }
+  }
+};
+
+} // namespace
+
+AbstractTensor& AbstractTensor::parallelize(
+    int64_t axis,
+    ParallelType parallel_type) {
+  axis = wrapDim(axis, (int64_t)domain.size());
+  AbstractId::dispatch(DispatchParallelize{}, parallel_type, domain[axis]);
+  return *this;
+}
+
 } // namespace nvfuser
