@@ -217,25 +217,25 @@ class AllocationDomainSetup : private kir::IrVisitor {
         allocation_domains = tv->getAllocationDomain();
         contiguity = tv->domain()->contiguity();
       } else {
-        std::unordered_set<IterDomain*> exclude_ids;
+        std::unordered_set<IterDomain*> exclude_ca_ids;
         for (auto i : c10::irange(tv->getComputeAtPosition())) {
           auto ca_id = tv->axis(i);
           if (!ir_utils::isMemorySharedAcross(
                   tv->getMemoryType(), ca_id->getParallelType())) {
-            exclude_ids.insert(ca_id);
+            exclude_ca_ids.insert(ca_id);
           }
         }
         for (auto i : c10::irange(tv->getAllocationDomain().size())) {
           auto id = tv->getAllocationDomain()[i];
-          if (exclude_ids.find(id) == exclude_ids.end()) {
+          if (exclude_ca_ids.find(id) == exclude_ca_ids.end()) {
             allocation_domains.push_back(id);
             contiguity.push_back(tv->domain()->contiguity()[i]);
           } else {
-            exclude_ids.erase(id);
+            exclude_ca_ids.erase(id);
           }
         }
         NVF_ERROR(
-            exclude_ids.empty(),
+            exclude_ca_ids.empty(),
             "The non-allocating compute-at IDs are not found in the allocation domain. ",
             "It is unclear how to allocate the tensor: ",
             tv->toString(),

@@ -11,6 +11,7 @@
 #include <expr_simplifier.h>
 #include <instrumentation.h>
 #include <ir/iostream.h>
+#include <ir/utils.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
 
@@ -174,54 +175,47 @@ class AllocationInserter : public kir::ExprMutator {
 
     info.allocation_domains = std::make_unique<std::vector<IterDomain*>>();
 
-    for (const auto axis_i : c10::irange(info.buffer->nDims())) {
-      const auto local_id = info.buffer->axis(axis_i);
-
-      // Don't use reduction/stride/broadcast/device axis in the
-      // allocation computation
-      if (local_id->isReduction() || local_id->isStride() ||
-          local_id->isBroadcast() || local_id->isDeviceDim()) {
-        continue;
+    std::unordered_set<IterDomain*> exclude_ca_ids;
+    for (auto i : c10::irange(info.alloc_pos)) {
+      auto ca_id = info.buffer->axis(i);
+      if (!ir_utils::isMemorySharedAcross(
+              info.buffer->getMemoryType(), ca_id->getParallelType())) {
+        exclude_ca_ids.insert(ca_id);
       }
-
-      auto concrete_id = gpu_lower->caMap()->getConcreteMappedID(
-          info.buffer->axis(axis_i), IdMappingMode::LOOP);
-      const bool is_block_dim =
-          isParallelTypeBlockDim(concrete_id->getParallelType());
-      const bool is_thread_dim =
-          isParallelTypeThreadDim(concrete_id->getParallelType());
-      const bool is_thread =
-          isParallelTypeThread(concrete_id->getParallelType());
-
-      if (axis_i < info.alloc_pos) {
-        // Even when the axis is outside the allocation position, if the
-        // tensor is shared with respect to the axis, the buffer size
-        // needs to be expanded for the axis. Sharing occurs in two
-        // cases: 1) the tensor is on shared memory with the axis
-        // parallelized by TIDs, and 2) the tensor is on global memory
-        // with the axis parallelized by TIDs or BIDs.
-        if (!((memory_type == MemoryType::Shared && is_thread_dim) ||
-              (memory_type == MemoryType::Global && is_thread))) {
-          continue;
-        }
-        alloc_domains.push_back(info.buffer->axis(axis_i));
-      } else {
-        if (
-            // If shared memory, don't use any IDs bound to a grid dimension
-            (memory_type == MemoryType::Shared && is_block_dim) ||
-            // If local memory, don't use any IDs bound to a grid or block
-            // dimension
-            (memory_type == MemoryType::Local && is_thread)) {
-          continue;
-        }
-        alloc_domains.push_back(info.buffer->axis(axis_i));
-      }
-
-      auto extent = concrete_id->extent();
-
-      alloc_dims.push_back(extent);
-      info.allocation_domains->push_back(local_id);
     }
+
+    const std::vector<IterDomain*>& domain_to_alloc =
+        info.buffer->hasAllocation() ? info.buffer->getAllocationDomain()
+                                     : info.buffer->getLoopDomain();
+
+    for (auto id : domain_to_alloc) {
+      if (exclude_ca_ids.find(id) == exclude_ca_ids.end()) {
+        // Don't use reduction/stride/broadcast/device axis in the
+        // allocation computation
+        if (id->isReduction() || id->isStride() || id->isBroadcast() ||
+            id->isDeviceDim()) {
+          continue;
+        }
+        if (ir_utils::isMemoryPartitionedAcross(
+                info.buffer->getMemoryType(), id->getParallelType())) {
+          continue;
+        }
+        info.allocation_domains->push_back(id);
+        if (gpu_lower->caMap()->idExistsInMap(id, IdMappingMode::LOOP)) {
+          id = gpu_lower->caMap()->getConcreteMappedID(id, IdMappingMode::LOOP);
+        }
+        alloc_dims.push_back(id->extent());
+      } else {
+        exclude_ca_ids.erase(id);
+      }
+    }
+    NVF_ERROR(
+        exclude_ca_ids.empty(),
+        "The non-allocating compute-at IDs are not found in the allocation domain. ",
+        "It is unclear how to allocate the tensor: ",
+        info.buffer->toString(),
+        " allocation domain: ",
+        ir_utils::toString(info.buffer->getAllocationDomain()));
 
     return alloc_dims;
   }
