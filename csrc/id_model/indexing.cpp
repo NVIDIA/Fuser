@@ -772,7 +772,7 @@ ParallelType getParallelType(const ValGroup& loop_group) {
 } // namespace
 
 TensorIndexer::TensorIndexer(IdModel& id_model)
-    : id_model_(id_model), concrete_info_(id_model_.fusion()) {
+    : id_model_(id_model) {
   buildLoopIndexMap();
 
   if (getenv("DOT")) {

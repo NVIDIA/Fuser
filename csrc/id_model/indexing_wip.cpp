@@ -32,7 +32,6 @@ std::pair<std::deque<ValGroup>, std::deque<Val*>> TensorIndexer::
           contiguity,
           reverse(traversal_path),
           traversalGraph(),
-          concrete_info_,
           false);
 
   // Find contiguous domains to index
@@ -145,7 +144,6 @@ std::vector<PredicateInfo> TensorIndexer::getPredicatesWIP(
           std::vector<bool>(predicate_domains.size(), true),
           reverse(index_info.traversal_path),
           traversalGraph(),
-          concrete_info_,
           true);
 
   auto getCoveredPredicatedDomains =

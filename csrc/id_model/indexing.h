@@ -198,7 +198,6 @@ class TensorIndexer {
   // Using non-const references of IdModel because traversalGraph() returns a
   // non-const reference
   IdModel& id_model_;
-  const ConcretizedBroadcastDomains concrete_info_;
 
   // Mappings from loop groups to their indices. Serial loops will
   // be mapped a unique loop index Val. Parallel loops will be mapped

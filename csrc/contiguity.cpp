@@ -15,7 +15,7 @@ namespace nvfuser {
 
 OrderedIdInformation::OrderedIdInformation(
     const std::vector<IterDomain*>& alloc_domain,
-    const ConcretizedBroadcastDomains& concrete_info)
+    std::shared_ptr<const ConcretizedBroadcastDomains> concrete_info)
     : active_ids_(alloc_domain), concrete_info_(concrete_info) {
   if (alloc_domain.empty()) {
     return;
@@ -103,26 +103,6 @@ void OrderedIdInformation::handle(Merge* merge) {
     return;
   }
 
-  if (using_id_graph_) {
-    // In the IdGraph-based traversal, merging with broadcast is a
-    // trivial expr. It should not appear in the indexing path.
-    // No, it's not always the case. For example, it may be necessary
-    // to get to a broadcast domain via a Merge op, and then that
-    // broadcast may turn into a non-broadcast domain with resize. In
-    // this case, to get to the broadcast domain, the Merge op would
-    // have a broadcast as an input.
-#if 0
-    NVF_ERROR(
-        !merge->inner()->isBroadcast(),
-        "Unexpected broadcast merge: ",
-        merge->toString());
-    NVF_ERROR(
-        !merge->outer()->isBroadcast(),
-        "Unexpected broadcast merge: ",
-        merge->toString());
-#endif
-  }
-
   auto inner_pos = getActiveIdPos(merge->inner());
   auto outer_pos = getActiveIdPos(merge->outer());
 
@@ -142,20 +122,6 @@ void OrderedIdInformation::handle(Merge* merge) {
   const auto& inner_alloc_ids = inner_alloc_ids_it->second;
   const auto& outer_alloc_ids = outer_alloc_ids_it->second;
 
-  // TODO: Concretization may prevent contiguous indexing or vectorization.
-  //  It prevents contiguous indexing if the concretization is within the IDs
-  //  that are used for indexing.
-  //  For vectorization it just means we need to make sure the extents of the
-  //  axes to the right of the broadcast allocation domain in the contigous
-  //  merge is bigger than the vectorization dimension. And that the tensor
-  //  buffer supports the vector word size (always done).
-#if 0
-  bool outer_is_concretized_bcast = merge->outer()->isBroadcast() &&
-      concrete_info_.isConcretized(merge->outer());
-
-  bool inner_is_concretized_bcast = merge->inner()->isBroadcast() &&
-      concrete_info_.isConcretized(merge->inner());
-#endif
   // Update maps
   // Find the position inner would have to have to be considered ordered
   auto pos_after_outer = outer_pos + 1;
@@ -164,13 +130,13 @@ void OrderedIdInformation::handle(Merge* merge) {
       // Can't be considered ordered after a nullptr
       break;
     }
-    // When using IdModle, reduction domains are excluded from
+    // When using IdModel, reduction domains are excluded from
     // allocation domains but loop promotion may pick reduciton
     // domains, which should just be treated as normal domains.
     if (!using_id_graph_) {
       if (active_ids_[pos_after_outer]->isReduction() ||
           ((active_ids_[pos_after_outer]->isBroadcast() &&
-            !concrete_info_.isConcretized(active_ids_[pos_after_outer])))) {
+            !isConcretized(active_ids_[pos_after_outer])))) {
         // Skip reduction or broadcast axes that aren't concretized in the
         // fusion
         continue;
@@ -191,12 +157,23 @@ void OrderedIdInformation::handle(Merge* merge) {
       // However, merging over a broadcast should be fine.
       inner_pos <= pos_after_outer;
 
-  // I don't think this is necessary
-#if 0
-  out_ordered = out_ordered &&
-      !inner_is_concretized_bcast &&
-      !outer_is_concretized_bcast;
-#endif
+  if (!using_id_graph_) {
+    // TODO: Concretization may prevent contiguous indexing or vectorization.
+    //  It prevents contiguous indexing if the concretization is within the IDs
+    //  that are used for indexing.
+    //  For vectorization it just means we need to make sure the extents of the
+    //  axes to the right of the broadcast allocation domain in the contigous
+    //  merge is bigger than the vectorization dimension. And that the tensor
+    //  buffer supports the vector word size (always done).
+    //
+    // This shouldn't matter when using the IdModel-based indexer
+    bool outer_is_concretized_bcast =
+        merge->outer()->isBroadcast() && isConcretized(merge->outer());
+    bool inner_is_concretized_bcast =
+        merge->inner()->isBroadcast() && isConcretized(merge->inner());
+    out_ordered = out_ordered && !inner_is_concretized_bcast &&
+        !outer_is_concretized_bcast;
+  }
 
   if (out_ordered) {
     consistently_ordered_ids_.emplace(merge->out());
@@ -529,7 +506,7 @@ ContigIDs::ContigIDs(
         std::make_shared<ConcretizedBroadcastDomains>(ids[0]->fusion());
 
     consistent_transform_info_ = std::make_unique<const OrderedIdInformation>(
-        OrderedIdInformation::get(ids, alloc_domain, *concrete_info_));
+        OrderedIdInformation::get(ids, alloc_domain, concrete_info_));
   }
   build(ids);
 }
@@ -557,7 +534,7 @@ ContigIDs::ContigIDs(
       ignore_indexability_(ignore_indexability),
       ignore_consistent_ordering_(ignore_consistent_ordering),
       consistent_transform_info_(std::make_unique<const OrderedIdInformation>(
-          OrderedIdInformation::get(ids, alloc_domain, *concrete_info_))),
+          OrderedIdInformation::get(ids, alloc_domain, concrete_info_))),
       non_divisible_id_info_(ids, alloc_domain, divisible_splits_) {
   build(ids);
 }

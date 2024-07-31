@@ -32,7 +32,7 @@ class OrderedIdInformation : public OptInDispatch {
   static OrderedIdInformation get(
       const std::vector<IterDomain*>& ids,
       const std::vector<IterDomain*>& alloc_domain,
-      const ConcretizedBroadcastDomains& concrete_info) {
+      std::shared_ptr<const ConcretizedBroadcastDomains> concrete_info) {
     OrderedIdInformation info(alloc_domain, concrete_info);
     info.traverseTo(ids);
     return info;
@@ -56,7 +56,8 @@ class OrderedIdInformation : public OptInDispatch {
  protected:
   OrderedIdInformation(
       const std::vector<IterDomain*>& alloc_domain,
-      const ConcretizedBroadcastDomains& concrete_info);
+      std::shared_ptr<const ConcretizedBroadcastDomains> concrete_info =
+          nullptr);
 
   virtual void traverseTo(const std::vector<IterDomain*>& ids);
 
@@ -88,6 +89,11 @@ class OrderedIdInformation : public OptInDispatch {
   void handle(Swizzle2D* swizzle) override;
 
   void handle(Resize* resize) override;
+
+  bool isConcretized(IterDomain* id) const {
+    NVF_ERROR(concrete_info_ != nullptr);
+    return concrete_info_->isConcretized(id);
+  }
 
   // Track which allocation ids were used to generate each iter domain
   std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>>
@@ -130,7 +136,7 @@ class OrderedIdInformation : public OptInDispatch {
   // TODO: This constraint is more conservative than necessary as it's only if
   // the domain is concretized within the local indexing, not in the entire
   // fusion.
-  const ConcretizedBroadcastDomains& concrete_info_;
+  std::shared_ptr<const ConcretizedBroadcastDomains> concrete_info_;
 
   // TODO: Temporary WAR to do ContigIDGroup-specific processing
   bool using_id_graph_ = false;
