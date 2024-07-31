@@ -150,28 +150,26 @@ TEST_F(MultiDeviceTutorial, CommunicatorAndC10d) {
 // following test is the one of Device Mesh, which allows us to select the
 // devices on which the tensors will be sharded.
 TEST_F(MultiDeviceTutorial, DeviceMeshesNoResharding) {
-  Communicator* const communicator_ = communicator_;
-
   // MODEL DEFINITION
   // Let us define a model expressing a simple memcpy
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
 
   TensorView* tv0 = makeContigTensor(1);
-  fusion.addInput(tv0);
+  fusion->addInput(tv0);
   TensorView* tv1 = set(tv0); // "set" means "copy"
-  fusion.addOutput(tv1);
+  fusion->addOutput(tv1);
 
   const bool verbose_print = verbose_ && communicator_->deviceId() == 0;
 
   if (verbose_print) {
     // Print a concise representation of the fusion expressions
-    fusion.printMath();
+    fusion->printMath();
 
     // Generate and print a CUDA kernel. Notice that at this point the
     // genereated code is just a sequential kernel as we have not
     // scheduled the fusion yet.
-    fusion.printKernel();
+    fusion->printKernel();
   }
 
   // MULTIDEVICE SCHEDULING
@@ -235,10 +233,10 @@ TEST_F(MultiDeviceTutorial, DeviceMeshesNoResharding) {
     // communicator_->deviceId()) in a SPMD multidevice program. Recall that each
     // rank manages one and only one GPU.
     MultiDeviceExecutor multidevice_executor(
-        std::make_unique<Fusion>(fusion), *communicator_);
+        std::make_unique<Fusion>(*fusion), *communicator_);
     if (verbose_print) {
-      fusion.printMath();
-      fusion.printKernel();
+      fusion->printMath();
+      fusion->printKernel();
       multidevice_executor.print();
     }
 
@@ -258,7 +256,7 @@ TEST_F(MultiDeviceTutorial, DeviceMeshesNoResharding) {
   {
     // EXECUTION
     MultiDeviceExecutor multidevice_executor(
-        std::make_unique<Fusion>(fusion), *communicator_);
+        std::move(fusion), *communicator_);
     // here, the compute is done on device 0 only. Other devices don't even read
     // the input's data. However, the shape of the input is used to infer the
     // concrete shape of tv0 and subsequent tensors' shape. Therefore, we still
@@ -282,17 +280,17 @@ TEST_F(MultiDeviceTutorial, DeviceMeshesNoResharding) {
 // Stages.
 TEST_F(MultiDeviceTutorial, SimplePipelining) {
   // MODEL DEFINITION
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
 
   constexpr int64_t tensor_size = 128;
   TensorView* tv0 = makeContigConcreteTensor({tensor_size});
-  fusion.addInput(tv0);
+  fusion->addInput(tv0);
   TensorView* tv1 = add(tv0, tv0);
   // this will be the separation between our two pipeline stages.
   TensorView* tv2 = set(tv1); // "set" means "copy"
   TensorView* tv3 = mul(tv2, tv2);
-  fusion.addOutput(tv3);
+  fusion->addOutput(tv3);
 
   // MULTIDEVICE SCHEDULING
   DeviceMesh mesh_zero({0});
@@ -309,7 +307,7 @@ TEST_F(MultiDeviceTutorial, SimplePipelining) {
   // More precisely, to produce tv2, we need device 0 to send tv1 to device 1.
 
   MultiDeviceExecutor multidevice_executor(
-      std::make_unique<Fusion>(fusion), *communicator_);
+      std::move(fusion), *communicator_);
   if (verbose_ && communicator_->deviceId() < 2) {
     std::cout << "Device ID = " << communicator_->deviceId() << std::endl;
     multidevice_executor.print();
@@ -403,13 +401,13 @@ TEST_F(MultiDeviceTutorial, SimplePipelining) {
 TEST_F(MultiDeviceTutorial, TensorShardingAndResharding) {
   // MODEL DEFINITION
   // Let us define a model expressing a simple memcpy
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
 
   TensorView* tv0 = makeContigTensor(2);
-  fusion.addInput(tv0);
+  fusion->addInput(tv0);
   TensorView* tv1 = set(tv0); // "set" means "copy"
-  fusion.addOutput(tv1);
+  fusion->addOutput(tv1);
 
   // MULTIDEVICE SCHEDULING
   // Let us define, as in previous tests, a 1D Device Mesh comprised of all
@@ -465,10 +463,10 @@ TEST_F(MultiDeviceTutorial, TensorShardingAndResharding) {
     // inter-device communication is needed; Executing the fusion is purely
     // local and consists of a simple kernel.
     MultiDeviceExecutor multidevice_executor(
-        std::make_unique<Fusion>(fusion), *communicator_);
+        std::make_unique<Fusion>(*fusion), *communicator_);
     if (verbose_print) {
-      fusion.printMath();
-      fusion.printKernel();
+      fusion->printMath();
+      fusion->printKernel();
       multidevice_executor.print();
     }
 
@@ -498,7 +496,7 @@ TEST_F(MultiDeviceTutorial, TensorShardingAndResharding) {
   {
     // EXECUTION
     MultiDeviceExecutor multidevice_executor(
-        std::make_unique<Fusion>(fusion), *communicator_);
+        std::make_unique<Fusion>(*fusion), *communicator_);
     // Since the input is sharded and the output is replicated, a network
     // communication is needed to share the data between devices. Here, a
     // "MPI-Allgather" communication is needed.
@@ -542,7 +540,7 @@ TEST_F(MultiDeviceTutorial, TensorShardingAndResharding) {
   {
     // EXECUTION
     MultiDeviceExecutor multidevice_executor(
-        std::make_unique<Fusion>(fusion), *communicator_);
+        std::make_unique<Fusion>(*fusion), *communicator_);
     if (verbose_print) {
       multidevice_executor.print();
       // Printout is reproduced here for convenience, run on 8 devices:
@@ -589,7 +587,7 @@ TEST_F(MultiDeviceTutorial, TensorShardingAndResharding) {
   {
     // EXECUTION
     MultiDeviceExecutor multidevice_executor(
-        std::make_unique<Fusion>(fusion), *communicator_);
+        std::move(fusion), *communicator_);
     if (verbose_print) {
       multidevice_executor.print();
       // Printout is reproduced here for convenience, run on 8 devices:
