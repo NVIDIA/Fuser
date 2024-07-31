@@ -968,7 +968,7 @@ IndexingInfo TensorIndexer::computeIndex(
 
   IdGraphIndexCompute index_compute(traversalGraph(), initial_index_map);
 
-  // In addition to indeices themselves, keep track of the
+  // In addition to indices themselves, keep track of the
   // dependency from each domain to loop domains. This dependency is
   // represented as a map from ValGroup of the traversal graph to
   // ValGroup of the LOOP graph.
