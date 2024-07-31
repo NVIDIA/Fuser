@@ -64,14 +64,10 @@ class FusionDefinition(_C._FusionDefinition):
             logger.exception(self.getReproErrorString("defining"))
             raise
 
-    def getReproErrorString(self, section: str, inputs: list | None = None):
+    def getReproString(self, inputs: list | None = None) -> str:
         msg = (
-            f"An error occurred while {section} nvFuser FusionDefinition {self.id()}.\n"
-            "If you believe this is a bug or need assistance, please file an issue at "
-            "https://github.com/NVIDIA/Fuser/issues/new\n"
-            f"Here's a script to reproduce the error:\n"
-            "```python\n"
-            "# CUDA devices:\n"
+        "```python\n"
+        "# CUDA devices:\n"
         )
         for i in range(torch.cuda.device_count()):
             msg += f"#  {0}: {torch.cuda.get_device_name(i)}\n"
@@ -123,6 +119,16 @@ class FusionDefinition(_C._FusionDefinition):
             msg += "]"
             msg += "\nfd.execute(inputs)\n"
         msg += "```\n"
+        return msg
+    
+    def getReproErrorString(self, section: str, inputs: list | None = None):
+        msg = (
+            f"An error occurred while {section} nvFuser FusionDefinition {self.id()}.\n"
+            "If you believe this is a bug or need assistance, please file an issue at "
+            "https://github.com/NVIDIA/Fuser/issues/new\n"
+            f"Here's a script to reproduce the error:\n"
+            )
+        msg += self.getReproString(inputs)
         return msg
 
     def definition(self):
