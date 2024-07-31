@@ -4482,7 +4482,9 @@ class TestNvFuserFrontend(TestCase):
 
     @unittest.skipIf(is_pre_ampere(), "Only supported on Ampere and newer devices.")
     def test_sdpa_fwd(self):
-        def fusion_default_dropout(fd: FusionDefinition):
+        def fusion_func(
+            fd: FusionDefinition, has_dropout: bool, has_causal: bool, has_scale: bool
+        ):
             q = fd.define_tensor(
                 shape=[-1, -1, -1, -1],
                 contiguity=[True, True, True, True],
@@ -4501,62 +4503,15 @@ class TestNvFuserFrontend(TestCase):
                 dtype=DataType.BFloat16,
                 is_cpu=False,
             )
-            is_causal = fd.define_scalar(None, dtype=DataType.Bool)
-            scale = fd.define_scalar(None, dtype=DataType.Double)
+            dropout_p, is_causal, scale = None, None, None
+            if has_dropout:
+                dropout_p = fd.define_scalar(None, dtype=DataType.Double)
+            if has_causal:
+                is_causal = fd.define_scalar(None, dtype=DataType.Bool)
+            if has_scale:
+                scale = fd.define_scalar(None, dtype=DataType.Double)
             attn, *intermediate_results = fd.ops.sdpfa_fwd(
-                q, k, v, is_causal=is_causal, scale=scale
-            )
-            fd.add_output(attn)
-
-        def fusion_default_causal(fd: FusionDefinition):
-            q = fd.define_tensor(
-                shape=[-1, -1, -1, -1],
-                contiguity=[True, True, True, True],
-                dtype=DataType.BFloat16,
-                is_cpu=False,
-            )
-            k = fd.define_tensor(
-                shape=[-1, -1, -1, -1],
-                contiguity=[True, True, True, True],
-                dtype=DataType.BFloat16,
-                is_cpu=False,
-            )
-            v = fd.define_tensor(
-                shape=[-1, -1, -1, -1],
-                contiguity=[True, True, True, True],
-                dtype=DataType.BFloat16,
-                is_cpu=False,
-            )
-            dropout_p = fd.define_scalar(None, dtype=DataType.Double)
-            scale = fd.define_scalar(None, dtype=DataType.Double)
-            attn, *intermediate_results = fd.ops.sdpfa_fwd(
-                q, k, v, dropout_p=dropout_p, scale=scale
-            )
-            fd.add_output(attn)
-
-        def fusion_default_scale(fd: FusionDefinition):
-            q = fd.define_tensor(
-                shape=[-1, -1, -1, -1],
-                contiguity=[True, True, True, True],
-                dtype=DataType.BFloat16,
-                is_cpu=False,
-            )
-            k = fd.define_tensor(
-                shape=[-1, -1, -1, -1],
-                contiguity=[True, True, True, True],
-                dtype=DataType.BFloat16,
-                is_cpu=False,
-            )
-            v = fd.define_tensor(
-                shape=[-1, -1, -1, -1],
-                contiguity=[True, True, True, True],
-                dtype=DataType.BFloat16,
-                is_cpu=False,
-            )
-            dropout_p = fd.define_scalar(None, dtype=DataType.Double)
-            is_causal = fd.define_scalar(None, dtype=DataType.Bool)
-            attn, *intermediate_results = fd.ops.sdpfa_fwd(
-                q, k, v, dropout_p=dropout_p, is_causal=is_causal
+                q, k, v, dropout_p, is_causal, scale
             )
             fd.add_output(attn)
 
@@ -4567,51 +4522,42 @@ class TestNvFuserFrontend(TestCase):
             torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda:0"),
         ]
 
-        dropout_vals = [0.0, 0.2]
-        is_causal_vals = [False, True]
-        scale_vals = [1 / E**0.5, 1e-3]
+        dropout_vals = [None, 0.0]
+        is_causal_vals = [None, True, False]
+        scale_vals = [None, 1 / E**0.5, 1e-3]
 
         # TODO: Try to move this to pytest_ops.py. Currently, it does not work since the API between nvFuser and torch differs.
-
-        # Dropout value is not set to exercise default values
-        for is_causal, scale in itertools.product(is_causal_vals, scale_vals):
-            with self.subTest(is_causal=is_causal, scale=scale):
+        for dropout_p, is_causal, scale in itertools.product(
+            dropout_vals, is_causal_vals, scale_vals
+        ):
+            with self.subTest(dropout_p=dropout_p, is_causal=is_causal, scale=scale):
                 # Reset the FusionCache or the fusion would not recompile for all subtests, failing checks in exec_nvfuser.
                 FusionCache.reset()
-                nvf_out, _ = self.exec_nvfuser(
-                    fusion_default_dropout, [*qkv, is_causal, scale]
-                )
-                ref_out = F.scaled_dot_product_attention(
-                    *qkv, is_causal=is_causal, scale=scale
-                )
-                torch.testing.assert_close(nvf_out[0], ref_out)
+                has_dropout = True if dropout_p is not None else False
+                has_causal = True if is_causal is not None else False
+                has_scale = True if scale is not None else False
+                inputs = [*qkv]
+                for param in [dropout_p, is_causal, scale]:
+                    if param is not None:
+                        inputs.append(param)
+                with torch.random.fork_rng(range(torch.cuda.device_count())):
+                    nvf_out, _ = self.exec_nvfuser(
+                        partial(
+                            fusion_func,
+                            has_dropout=has_dropout,
+                            has_causal=has_causal,
+                            has_scale=has_scale,
+                        ),
+                        inputs,
+                    )
 
-        # is_causal is not set to exercise default values
-        for dropout_p, scale in itertools.product(dropout_vals, scale_vals):
-            with self.subTest(dropout_p=dropout_p, scale=scale):
-                # Reset the FusionCache or the fusion would not recompile for all subtests, failing checks in exec_nvfuser.
-                FusionCache.reset()
-                nvf_out, _ = self.exec_nvfuser(
-                    fusion_default_causal, [*qkv, dropout_p, scale]
-                )
-                torch.manual_seed(0)
-                ref_out = F.scaled_dot_product_attention(
-                    *qkv, dropout_p=dropout_p, scale=scale
-                )
-                torch.testing.assert_close(nvf_out[0], ref_out)
-
-        # scale is not set to exercise default values
-        for dropout_p, is_causal in itertools.product(dropout_vals, is_causal_vals):
-            with self.subTest(dropout_p=dropout_p, is_causal=is_causal):
-                # Reset the FusionCache or the fusion would not recompile for all subtests, failing checks in exec_nvfuser.
-                FusionCache.reset()
-                nvf_out, _ = self.exec_nvfuser(
-                    fusion_default_scale, [*qkv, dropout_p, is_causal]
-                )
-                torch.manual_seed(0)
-                ref_out = F.scaled_dot_product_attention(
-                    *qkv, dropout_p=dropout_p, is_causal=is_causal
-                )
+                # Torch does not accept NoneType dropout_p, is_causal.
+                dropout_p = 0.0 if dropout_p is None else dropout_p
+                is_causal = False if is_causal is None else is_causal
+                with torch.random.fork_rng(range(torch.cuda.device_count())):
+                    ref_out = F.scaled_dot_product_attention(
+                        *qkv, dropout_p=dropout_p, is_causal=is_causal, scale=scale
+                    )
                 torch.testing.assert_close(nvf_out[0], ref_out)
 
 
