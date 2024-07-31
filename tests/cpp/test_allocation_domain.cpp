@@ -1436,4 +1436,29 @@ TEST_F(AllocationDomainTest, ClearReductionIterDomainsPatch) {
       tv1->getContiguity(), ElementsAre(contig_copy[0], contig_copy[2]));
 }
 
+
+// NVFUSER_DUMP=scheduler_params,launch_param,cuda_to_file,fusion_ir ./nvfuser_tests --gtest_filter=*PlayGround
+TEST_F(AllocationDomainTest, PlayGround) {
+  // preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass> guard(false);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  const int64_t n=1024, c=256, h=16, w=16, g=32;
+  // n, h, w, c
+  // auto tv0 = makeContigTensor(4);
+  auto tv0 = makeContigConcreteTensor({n, c, h, w});
+  tv0->setAllocationDomain(
+      {tv0->axis(0), tv0->axis(2), tv0->axis(3), tv0->axis(1)}, true);
+  auto tv1 = reshape(tv0, {n, c, h, w}, {n, g, c / g, h, w});
+  auto tv2 = sum(tv1, {-1, -2, -3});
+  fusion->addInput(tv0);
+  fusion->addOutput(tv2);
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor t0 =
+      at::randn({n * c * h * w}) 
+          .cuda()
+          .as_strided({n, c, h, w}, {c*h*w, 1, w*c, c});
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({t0});
+  testValidate(fec.fusion(), out_tensors, {t0}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
