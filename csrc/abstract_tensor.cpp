@@ -435,7 +435,7 @@ struct DispatchParallelize {
         AbstractId::dispatch((*this), parallel_type, aid);
       }
     } else {
-      NVF_CHECK(false, "Unsupported type in AbstractTensor::split");
+      NVF_CHECK(false, "Unsupported type in AbstractTensor::parallelize");
     }
   }
 };
