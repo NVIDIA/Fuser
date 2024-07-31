@@ -363,6 +363,7 @@ class MultipleMatmulScheduler {
   }
 
   void scheduleMmaResults() {
+    NVF_ERROR(false, "scheduleMmaResults is not yet implemented");
   }
 
   void schedulePrologues() {
