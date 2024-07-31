@@ -2696,7 +2696,7 @@ TEST_F(GpuViewTest, FusionMismatchingReshape) {
 
   // Now, `schedule` is like the logical domain of tv2 and tv4. So let's append
   // tv2 and tv4 to it so we can parallelizing all of them all together.
-  schedule.stack(tv2->getLogicalDomain()).stack(tv4->getLogicalDomain());
+  schedule.addRow(tv2->getLogicalDomain()).addRow(tv4->getLogicalDomain());
 
   // Parallelize all tensors as [BIDx, TIDx]
   schedule.merge(0);
