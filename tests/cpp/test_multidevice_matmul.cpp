@@ -389,4 +389,42 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutNT_ReduceScatter) {
                                     ->heuristic();
   EXPECT_EQ(heuristic, ScheduleHeuristic::ExprEval);
 }
+
+// Reproduces #2721.
+TEST_F(DistributedMatmulTest, DISABLED_PresegPreservesSharding) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto mesh = DeviceMesh::createForNumDevices(communicator_->size());
+
+  TensorView* x = makeContigTensor(2);
+  TensorView* w = makeContigTensor(3);
+  fusion->addInput(x);
+  fusion->addInput(w);
+
+  TensorView* w_t = transpose(w, 1, 2);
+  TensorView* mm = matmul(x, w_t);
+  TensorView* mm_t = transpose(mm, 1, 2);
+  fusion->addOutput(mm_t);
+
+  for (auto tv : {x}) {
+    tv->setDeviceMesh(mesh);
+  }
+  for (auto tv : {w, w_t, mm, mm_t}) {
+    tv->setDeviceMesh(mesh);
+    tv->axis(0)->parallelize(ParallelType::DIDx);
+  }
+
+  const auto options = at::TensorOptions().device(communicator_->device());
+  auto x_tensor = at::randn({12, 48}, options);
+  auto w0_tensor = at::randn({1, 36, 48}, options);
+
+  hir::HostIrExecutorParams executor_params{
+      .use_fusion_executor_cache = true,
+      .skip_auto_scheduling = false,
+      .cache_fusion_executor = false};
+  MultiDeviceExecutor runtime(
+      std::move(fusion), *communicator_, executor_params);
+  runtime.runWithInput({x_tensor, w0_tensor});
+}
+
 } // namespace nvfuser
