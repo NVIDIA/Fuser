@@ -188,20 +188,22 @@ std::vector<IterDomain*> mapMatmulOpIterDomains(
   std::vector<IterDomain*> mapping(out_size, nullptr);
   auto inp_size = (int64_t)input_domain.size();
 
-  if (inp_size == 1) {
-    // Only reduction axis {K}
-    mapping[out_size - 1] = input_domain[0];
-    return mapping;
-  }
-
   // Input A to matmul: {*, M, K}
   // Input B to matmul: {*, K, N}
   auto kpos = input_position == 0 ? inp_size - 1 : inp_size - 2;
+  bool k_bcast = input_domain.at(kpos)->isBroadcast();
+  int64_t red_dims = k_bcast ? 0 : 1;
 
-  // Last position is a reduction dimension mapping to K
-  mapping[out_size - 1] = input_domain.at(kpos);
+  // Last position is a reduction dimension mapping to K if K is not broadcast.
+  if (!k_bcast) {
+    mapping[out_size - 1] = input_domain.at(kpos);;
+  }
 
-  for (auto out_idx = (int64_t)out_size - 2, inp_idx = inp_size - 1;
+  if (inp_size == 1){
+    return mapping;
+  }
+  
+  for (auto out_idx = (int64_t)out_size - 1 - red_dims, inp_idx = inp_size - 1;
        inp_idx >= 0;
        inp_idx--) {
     if (inp_idx != kpos) {
@@ -211,7 +213,7 @@ std::vector<IterDomain*> mapMatmulOpIterDomains(
     // Consider [iM, iK] x [iK]: [iM, rK]. Since out_size < inp_size,
     // input A and output are not right-aligned. In this case, the output index
     // pointer should not be moved when the reduction axis is encountered.
-    else if (inp_size <= (int64_t)out_size - 1) {
+    else if (inp_size <= (int64_t)out_size - red_dims) {
       out_idx--;
     }
   }
