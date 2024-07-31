@@ -424,12 +424,11 @@ struct DispatchParallelize {
     } else if constexpr (std::is_same_v<IN, IterDomain*>) {
       return in->parallelize(parallel_type);
     } else if constexpr (std::is_same_v<IN, ValGroupAndItsGraph>) {
-      // TODO: instead of throwing an error, should we just parallelize all IDs
-      // in the ValGroup? This behavior only makes sense for the loop graph, so
-      // we are disabling it for now to avoid unexpected behavior. If in the
-      // future, it does turn out that we need to commonly manually construct a
-      // loop graph, we can turn this on.
-      NVF_ERROR(false, "Parallelizing ValGroup is not supported");
+      for (auto val : *in.group) {
+        auto id = dynamic_cast<IterDomain*>(val);
+        NVF_ERROR(id, "Can not parallelize non-IterDomain in ValGroup.");
+        id->parallelize(parallel_type);
+      }
     } else if constexpr (std::is_same_v<IN, std::vector<AbstractId>>) {
       for (auto& aid : in) {
         AbstractId::dispatch((*this), parallel_type, aid);

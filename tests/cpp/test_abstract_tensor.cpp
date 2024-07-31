@@ -722,6 +722,17 @@ TEST_F(AbstractTensorTest, Parallelize) {
   v.parallelize(1, ParallelType::TIDy);
   EXPECT_EQ(id1->getParallelType(), ParallelType::TIDy);
   EXPECT_EQ(id2->getParallelType(), ParallelType::TIDy);
+
+  ValGraph g;
+  g.initializeVal(id0);
+  g.initializeVal(id1);
+  g.mapVals(id0, id1);
+  ValGroupAndItsGraph g0{g.toGroup(id0), &g};
+  AbstractTensor vv({g0});
+  vv.parallelize(0, ParallelType::BIDx);
+  EXPECT_EQ(id0->getParallelType(), ParallelType::BIDx);
+  EXPECT_EQ(id1->getParallelType(), ParallelType::BIDx);
+  EXPECT_EQ(id2->getParallelType(), ParallelType::TIDy);
 }
 
 } // namespace nvfuser
