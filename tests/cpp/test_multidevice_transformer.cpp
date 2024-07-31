@@ -81,16 +81,16 @@ namespace {
 TensorView* replicated_dropout(
     TensorView* x,
     const double kProb,
-    Fusion* fusion,
-    DeviceMesh mesh) {
+    DeviceMesh mesh,
+    int64_t seed_offset=0) {
   // Need to modify two things before we can use the existing dropout function
   // in composite.cpp (1) Sharding propagation breaks at rand_like because it
   // creates a fresh TV. (2) The philox seed and offset must be set to ensure
   // the masks are identical across processes.
   TensorView* x_float = castOp(DataType::Float, x);
   const double kScale = 1.0 / (1.0 - kProb);
-  Val* philox_seed = fusion->zeroVal();
-  Val* philox_offset = fusion->zeroVal();
+  Val* philox_seed = IrBuilder::create<Val>(getATenRandomSeed());
+  Val* philox_offset = IrBuilder::create<Val>(seed_offset);
   TensorView* rand_vals = rand_like(x_float, philox_seed, philox_offset);
   TensorView* mask = lt(rand_vals, IrBuilder::create<Val>(1.0 - kProb));
   TensorView* apply_mask = mul(x_float, mask);
@@ -212,7 +212,7 @@ std::vector<TensorView*> mlp(
   TensorView* bcast_bias = broadcast(b1, {true, false});
   TensorView* linear2 = add(matmul2, bcast_bias);
   // Dropout
-  TensorView* dropout = replicated_dropout(linear2, kDropoutProb, fusion, mesh);
+  TensorView* dropout = replicated_dropout(linear2, kDropoutProb, mesh);
 
   // Sharding
   // (TODO) TVs where sharding propagation breaks down:
@@ -346,6 +346,9 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
   auto w1 = at::randn({4 * E, E}, options) * kParamScale;
   auto b1 = at::randn({E}, options) * kParamScale;
 
+  // Note: resetting the seed, so that offset is reset to 0.
+  // nvFuser program is responsible for using the correct offsets
+  // so that correctness check passes.
   at::manual_seed(getATenRandomSeed());
   std::vector<at::Tensor> reference_outs =
       reference_mlp(x, w0, b0, w1, b1, at_dtype);
@@ -363,7 +366,6 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
       reference_outs[2],
       reference_outs[3]};
 
-  at::manual_seed(getATenRandomSeed());
   MultiDeviceExecutor runtime(
       std::move(fusion), *communicator_, executor_params_);
   auto outputs = runtime.runWithInput(inputs);
