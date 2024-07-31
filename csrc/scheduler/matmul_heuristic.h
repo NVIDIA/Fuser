@@ -29,6 +29,7 @@ class MatmulParams : public HeuristicParams {
   struct CircularBufferOptions {
     bool circular_buffer_smem_write = false;
     bool circular_buffer_smem_read = false;
+    bool circular_buffer_registers_read = false;
     // This parameter controls the number of circular
     // buffering stages to use when loading operands a and b.
     //
@@ -42,6 +43,8 @@ class MatmulParams : public HeuristicParams {
     bool operator==(const CircularBufferOptions& other) const {
       return other.circular_buffer_smem_write == circular_buffer_smem_write &&
           other.circular_buffer_smem_read == circular_buffer_smem_read &&
+          other.circular_buffer_registers_read ==
+          circular_buffer_registers_read &&
           other.smem_circular_buffer_stage == smem_circular_buffer_stage;
     }
 
