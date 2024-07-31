@@ -230,8 +230,8 @@ TEST_F(MultiDeviceTutorial, DeviceMeshesNoResharding) {
   {
     // EXECUTION
     // This class is responsible for managing a single device (given by
-    // communicator_->deviceId()) in a SPMD multidevice program. Recall that each
-    // rank manages one and only one GPU.
+    // communicator_->deviceId()) in a SPMD multidevice program. Recall that
+    // each rank manages one and only one GPU.
     MultiDeviceExecutor multidevice_executor(
         std::make_unique<Fusion>(*fusion), *communicator_);
     if (verbose_print) {
@@ -255,8 +255,7 @@ TEST_F(MultiDeviceTutorial, DeviceMeshesNoResharding) {
   // RUNTIME
   {
     // EXECUTION
-    MultiDeviceExecutor multidevice_executor(
-        std::move(fusion), *communicator_);
+    MultiDeviceExecutor multidevice_executor(std::move(fusion), *communicator_);
     // here, the compute is done on device 0 only. Other devices don't even read
     // the input's data. However, the shape of the input is used to infer the
     // concrete shape of tv0 and subsequent tensors' shape. Therefore, we still
@@ -306,8 +305,7 @@ TEST_F(MultiDeviceTutorial, SimplePipelining) {
   // device 1. This implies that a network communication needs to be executed.
   // More precisely, to produce tv2, we need device 0 to send tv1 to device 1.
 
-  MultiDeviceExecutor multidevice_executor(
-      std::move(fusion), *communicator_);
+  MultiDeviceExecutor multidevice_executor(std::move(fusion), *communicator_);
   if (verbose_ && communicator_->deviceId() < 2) {
     std::cout << "Device ID = " << communicator_->deviceId() << std::endl;
     multidevice_executor.print();
@@ -586,8 +584,7 @@ TEST_F(MultiDeviceTutorial, TensorShardingAndResharding) {
   // "0"
   {
     // EXECUTION
-    MultiDeviceExecutor multidevice_executor(
-        std::move(fusion), *communicator_);
+    MultiDeviceExecutor multidevice_executor(std::move(fusion), *communicator_);
     if (verbose_print) {
       multidevice_executor.print();
       // Printout is reproduced here for convenience, run on 8 devices:
