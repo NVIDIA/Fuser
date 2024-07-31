@@ -137,8 +137,8 @@ using AbstractId = dynamic_type::DynamicType<
 //   auto z = AbstractTensor::zip({v0, v1});
 // Then z will be [{id0, id1}, {id2, id3}].
 //
-// Besides, you can stack another AbstractTensor into the current AbstractTensor.
-// For example:
+// Besides, you can stack another AbstractTensor into the current
+// AbstractTensor. For example:
 //
 // Example 11:
 //   IterDomain *id0, *id1, *id2, *id3, *id4, *id5;
