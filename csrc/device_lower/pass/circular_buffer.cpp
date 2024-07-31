@@ -341,25 +341,8 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
       } else {
         // mbarrier::arriveExpectTx and TMA load operations occur in prologue
         // and main loops.
-        //
-        // Pseudo-code example:
-        // if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
-        //   mbarrier_tokens[stage] = mbarrier::arriveExpectTx(mbarriers[stage],
-        //                                                     expected_tx);
-        //   for (...) {
-        //     Hopper::cpAsyncBulkTensorTileG2S(
-        //       Hopper::CpAsyncBulkTensorTileG2SIndex<num_dims>{
-        //         tma_descriptor, global_index, mbarrier[stage] },
-        //       shared_index(stage, num_stages));
-        //   }
-        // }
         NVF_ERROR(cloned_scopes_.front() == &cloned_top_level_loop_->body());
-        kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
-        Scope& body = if_expr->thenBody();
-        body.push_back(mbarrier_arrive_tx_);
-        body.push_back(cloned_loop);
-        cloned_scopes_.back()->push_back(if_expr);
-        mbarrier_arrive_tx_ = nullptr;
+        createTmaLoadBlock(cloned_loop);
       }
     }
 
@@ -489,12 +472,7 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
               return id->getParallelType() == ParallelType::Serial;
             });
         if (active_for_loops == 1) {
-          kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
-          Scope& body = if_expr->thenBody();
-          body.push_back(mbarrier_arrive_tx_);
-          body.push_back(new_ldst);
-          cloned_scopes_.back()->push_back(if_expr);
-          mbarrier_arrive_tx_ = nullptr;
+          createTmaLoadBlock(new_ldst);
           break;
         }
 
@@ -604,12 +582,7 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
               return id->getParallelType() == ParallelType::Serial;
             });
         if (active_for_loops == 1) {
-          kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
-          Scope& body = if_expr->thenBody();
-          body.push_back(mbarrier_arrive_tx_);
-          body.push_back(ldst);
-          cloned_scopes_.back()->push_back(if_expr);
-          mbarrier_arrive_tx_ = nullptr;
+          createTmaLoadBlock(ldst);
           break;
         }
 
@@ -664,6 +637,17 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
         NVF_ERROR(false, "Unsupported loop mode, got: ", loop_type_);
       }
     }
+  }
+
+  // This function selects a single thread to launch tma load and mbarrier
+  // arrive_expected_tx operations.
+  void createTmaLoadBlock(Expr* load_expr) {
+    kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
+    Scope& body = if_expr->thenBody();
+    body.push_back(mbarrier_arrive_tx_);
+    body.push_back(load_expr);
+    cloned_scopes_.back()->push_back(if_expr);
+    mbarrier_arrive_tx_ = nullptr;
   }
 
   // This function creates kir::MBarrierArriveExpectTx for given LoadStoreOp and
