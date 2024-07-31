@@ -4522,10 +4522,10 @@ class TestNvFuserFrontend(TestCase):
             torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda:0"),
         ]
 
-        dropout_vals = [None, 0.0]
+        dropout_vals = [None, 0.0, 0.2]
         is_causal_vals = [None, True, False]
         scale_vals = [None, 1 / E**0.5, 1e-3]
-
+        torch.manual_seed(0)
         # TODO: Try to move this to pytest_ops.py. Currently, it does not work since the API between nvFuser and torch differs.
         for dropout_p, is_causal, scale in itertools.product(
             dropout_vals, is_causal_vals, scale_vals
