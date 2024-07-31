@@ -144,7 +144,7 @@ using AbstractId = dynamic_type::DynamicType<
 //   IterDomain *id0, *id1, *id2, *id3, *id4, *id5;
 //   AbstractTensor v0({{id0, id1}, {id2, id3}});
 //   AbstractTensor v1({id4, id5});
-//   v0.stack(v1);
+//   v0.addRow(v1);
 // In the above example, we can visualize v0 as:
 //        dim0   dim1
 //   row0  id0    id2
