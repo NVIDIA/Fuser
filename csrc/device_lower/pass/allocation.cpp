@@ -177,12 +177,12 @@ class AllocationInserter : public kir::ExprMutator {
 
     if ((info.buffer->definition()->isA<MmaOp>() &&
          isHopper(info.buffer->definition()->as<MmaOp>()->macro()))) {
-      std::unordered_set<IterDomain*> exclude_ids;
+      std::unordered_set<IterDomain*> exclude_ca_ids;
       for (auto i : c10::irange(info.alloc_pos)) {
         auto ca_id = info.buffer->axis(i);
         if (!ir_utils::isMemorySharedAcross(
                 info.buffer->getMemoryType(), ca_id->getParallelType())) {
-          exclude_ids.insert(ca_id);
+          exclude_ca_ids.insert(ca_id);
         }
       }
 
@@ -191,7 +191,7 @@ class AllocationInserter : public kir::ExprMutator {
                                        : info.buffer->getLoopDomain();
 
       for (auto id : domain_to_alloc) {
-        if (exclude_ids.find(id) == exclude_ids.end()) {
+        if (exclude_ca_ids.find(id) == exclude_ca_ids.end()) {
           // Don't use reduction/stride/broadcast/device axis in the
           // allocation computation
           if (id->isReduction() || id->isStride() || id->isBroadcast() ||
@@ -209,11 +209,11 @@ class AllocationInserter : public kir::ExprMutator {
           }
           alloc_dims.push_back(id->extent());
         } else {
-          exclude_ids.erase(id);
+          exclude_ca_ids.erase(id);
         }
       }
       NVF_ERROR(
-          exclude_ids.empty(),
+          exclude_ca_ids.empty(),
           "The non-allocating compute-at IDs are not found in the allocation domain. ",
           "It is unclear how to allocate the tensor: ",
           info.buffer->toString(),

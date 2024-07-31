@@ -375,7 +375,6 @@ TEST_P(HopperRS, SingleTile) {
   tv0->merge(1);
   tv0->merge(1);
   tv0->axis(1)->parallelize(ParallelType::TIDx);
-  tv0->setAllocationDomain(tv0->getLoopDomain(), true);
 
   tv1->applyMmaSwizzle(swizzle_b);
 
@@ -480,7 +479,6 @@ TEST_P(HopperRS, FullSwizzle) {
   tv0->merge(2);
   tv0->merge(2);
   tv0->axis(2)->parallelize(ParallelType::TIDx);
-  tv0->setAllocationDomain(tv0->getLoopDomain(), true);
 
   tv1->applyMmaSwizzle(swizzle_b);
 
@@ -586,7 +584,6 @@ TEST_P(HopperRS, SingleTileWithTMALoad) {
   tv0->merge(1);
   tv0->merge(1);
   tv0->axis(1)->parallelize(ParallelType::TIDx);
-  tv0->setAllocationDomain(tv0->getLoopDomain(), true);
 
   moveInnerBroadcastLeft(tv1);
   tv1->applyMmaSwizzleForTMALoad(swizzle_b);
@@ -667,7 +664,6 @@ TEST_P(HopperRS, SingleTileWithTMALoadStore) {
   tv0->merge(1);
   tv0->merge(1);
   tv0->axis(1)->parallelize(ParallelType::TIDx);
-  tv0->setAllocationDomain(tv0->getLoopDomain(), true);
 
   moveInnerBroadcastLeft(tv1);
   tv1->applyMmaSwizzleForTMALoad(swizzle_b);
@@ -753,7 +749,6 @@ TEST_P(HopperRS, SingleTileWithTMALoadOuterDimNotSplit) {
   tv0->merge(1);
   tv0->merge(1);
   tv0->axis(1)->parallelize(ParallelType::TIDx);
-  tv0->setAllocationDomain(tv0->getLoopDomain(), true);
 
   // In this case we don't split the outer dimension, thus having
   // fewer TMA loads.
