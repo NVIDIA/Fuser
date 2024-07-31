@@ -1096,9 +1096,9 @@ IndexingInfo TensorIndexer::computeIndex(
 
   // Initialize the loop dependency mappings
   for (const auto& loop_domain : loop_domains) {
-    const auto& traversal_graph_group =
-        traversalGraph().toGroup(loop_domain);
-    const auto& loop_graph_group = id_model_.idGraph(IdMappingMode::LOOP).toGroup(loop_domain);
+    const auto& traversal_graph_group = traversalGraph().toGroup(loop_domain);
+    const auto& loop_graph_group =
+        id_model_.idGraph(IdMappingMode::LOOP).toGroup(loop_domain);
     loop_group_dependencies[traversal_graph_group].pushBack(loop_graph_group);
   }
 

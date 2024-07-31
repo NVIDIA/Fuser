@@ -483,7 +483,6 @@ TEST_F(MoveSplitCatTest, OuterSplit) {
 }
 
 TEST_F(MoveSplitCatTest, MultiplePairs) {
-  GTEST_SKIP() << "TODO";
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 

@@ -231,8 +231,8 @@ std::vector<PredicateInfo> TensorIndexer::getPredicatesWIP(
           predicate_domain->extent());
       info.predicated_domains_ = {predicate_domain};
       // Set the used loop ID groups for this predicated domain
-      const ValGroups& loop_deps =
-          index_info.loop_group_dependencies.at(traversalGraph().toGroup(predicate_domain));
+      const ValGroups& loop_deps = index_info.loop_group_dependencies.at(
+          traversalGraph().toGroup(predicate_domain));
       for (const auto& loop_dep : loop_deps) {
         info.loop_domains_.insert(loop_dep->front()->as<IterDomain>());
       }
@@ -247,9 +247,9 @@ std::vector<PredicateInfo> TensorIndexer::getPredicatesWIP(
     }
 
     // Set the used loop ID groups for this predicated domain
-    const auto& predicated_domain_group =
-        enableContigIndexing() ? contig_domain_group :
-        traversalGraph().toGroup(predicate_domain);
+    const auto& predicated_domain_group = enableContigIndexing()
+        ? contig_domain_group
+        : traversalGraph().toGroup(predicate_domain);
     const ValGroups& loop_deps =
         index_info.loop_group_dependencies.at(predicated_domain_group);
     for (const auto& loop_dep : loop_deps) {
