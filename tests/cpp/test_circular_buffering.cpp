@@ -1334,7 +1334,8 @@ TEST_P(TmaCircularBufferingTest, Matmul) {
   TensorView* tv5 = sum(tv4, {1}); // M, R, N
   fusion->addOutput(tv5);
 
-  TensorView* tv6 = tv5->cacheBefore();
+  TensorView* tv6 = tv5->cacheBefore(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv6->setMemoryType(MemoryType::Shared);
 
   // For register circular buffering
   TensorView* tv0_cache_local = tv0->cacheAfter();
@@ -1388,6 +1389,7 @@ TEST_P(TmaCircularBufferingTest, Matmul) {
   tv0_cache_local->computeAt(tv6_rf, -1);
   tv1_cache_local->computeAt(tv6_rf, -1);
 
+  // Parallelize
   tv5->axis(0)->parallelize(ParallelType::BIDx);
   tv5->axis(1)->parallelize(ParallelType::BIDy);
   tv5->axis(-3)->parallelize(ParallelType::TIDy);
@@ -1410,6 +1412,12 @@ TEST_P(TmaCircularBufferingTest, Matmul) {
 
   tv0_cache_smem->circularBuffer(number_of_stages);
   tv1_cache_smem->circularBuffer(number_of_stages);
+
+  // Apply ParallelType::Bulk to global output tensor.
+  tv5->axis(-4)->parallelize(ParallelType::Bulk);
+  tv5->axis(-3)->parallelize(ParallelType::Bulk);
+  tv5->axis(-2)->parallelize(ParallelType::Bulk);
+  tv5->axis(-1)->parallelize(ParallelType::Bulk);
 
   constexpr int64_t K = 1024;
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
