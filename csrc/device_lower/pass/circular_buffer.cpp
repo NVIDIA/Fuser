@@ -367,15 +367,74 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
 
     NVF_ERROR(!cloned_scopes_.empty());
 
+    bool mbarrier_token_exists =
+        GpuLower::current()->ldstMBarrierTokenMap().count(expr) != 0;
+
+    bool is_ignorable_tma_smem_alloc =
+        (GpuLower::current()->mBarrierTokenSmemAllocSet().count(expr) != 0);
+
+    bool is_ignorable_mbarrier_init =
+        (expr->isA<kir::MBarrierInit>() && mbarrier_token_exists);
+
+    bool is_ignorable_mbarrier_inval =
+        (expr->isA<kir::MBarrierInvalidate>() && mbarrier_token_exists);
+
     switch (loop_type_) {
       case CircularBufferLoopStage::Prolog: {
-        return handlePrologueLoop(expr);
+        // Skip expression if it is not circular buffer expression
+        TensorView* out_tv = ir_utils::getTvOutput(expr);
+        bool is_circular_buffer_load_expr = std::any_of(
+            circular_buffer_load_exprs_.begin(),
+            circular_buffer_load_exprs_.end(),
+            [out_tv](Expr* load_expr) {
+              TensorView* circular_buffer_tv = ir_utils::getTvOutput(load_expr);
+              NVF_ERROR(circular_buffer_tv != nullptr);
+              return out_tv == circular_buffer_tv;
+            });
+        if (!is_circular_buffer_load_expr) {
+          break;
+        }
+
+        // NOTE: There can be circular buffered TVs without TMA load exprs.
+        if (!mbarrier_token_exists) {
+          cloned_scopes_.back()->push_back(expr);
+          break;
+        }
+        handlePrologueLoop(expr);
+        break;
       }
       case CircularBufferLoopStage::Main: {
-        return handleMainLoop(expr);
+        // Skip shared memory allocation, mbarrier initialize and mbarrier
+        // invalidate
+        if (is_ignorable_tma_smem_alloc || is_ignorable_mbarrier_init ||
+            is_ignorable_mbarrier_inval) {
+          break;
+        }
+
+        // Add expression if not circular-buffered load store operation
+        if (!expr->isA<LoadStoreOp>() || !mbarrier_token_exists) {
+          cloned_scopes_.back()->push_back(expr);
+          break;
+        }
+
+        handleMainLoop(expr);
+        break;
       }
       case CircularBufferLoopStage::Epilog: {
-        return handleEpilogLoop(expr);
+        // Skip shared memory allocation, mbarrier initialize and mbarrier
+        // invalidate
+        if (is_ignorable_tma_smem_alloc || is_ignorable_mbarrier_init ||
+            is_ignorable_mbarrier_inval) {
+          break;
+        }
+
+        // Add expression if not circular-buffered load store operation
+        if (!expr->isA<LoadStoreOp>() || !mbarrier_token_exists) {
+          cloned_scopes_.back()->push_back(expr);
+          break;
+        }
+        handleEpilogLoop(expr);
+        break;
       }
       case CircularBufferLoopStage::NotApplicable: {
         NVF_ERROR(false, "Unsupported loop mode, got: ", loop_type_);
@@ -396,28 +455,6 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
 
     // Skip if not LoadStoreOp expression
     if (!expr->isA<LoadStoreOp>()) {
-      return;
-    }
-
-    // Skip expression if it is not circular buffer expression
-    TensorView* out_tv = ir_utils::getTvOutput(expr);
-    bool is_circular_buffer_load_expr = std::any_of(
-        circular_buffer_load_exprs_.begin(),
-        circular_buffer_load_exprs_.end(),
-        [out_tv](Expr* load_expr) {
-          TensorView* circular_buffer_tv = ir_utils::getTvOutput(load_expr);
-          NVF_ERROR(circular_buffer_tv != nullptr);
-          return out_tv == circular_buffer_tv;
-        });
-    if (!is_circular_buffer_load_expr) {
-      return;
-    }
-
-    // NOTE: There can be circular buffered TVs without TMA load exprs.
-    bool mbarrier_token_exists =
-        GpuLower::current()->ldstMBarrierTokenMap().count(expr) != 0;
-    if (!mbarrier_token_exists) {
-      cloned_scopes_.back()->push_back(expr);
       return;
     }
 
@@ -474,32 +511,7 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
   // Where mbarrier and token are shared memory arrays bound to the
   // LoadStoreOp
   void handleMainLoop(Expr* expr) {
-    NVF_ERROR(expr != nullptr);
-
-    bool mbarrier_token_exists =
-        GpuLower::current()->ldstMBarrierTokenMap().count(expr) != 0;
-
-    bool is_ignorable_tma_smem_alloc =
-        (GpuLower::current()->mBarrierTokenSmemAllocSet().count(expr) != 0);
-
-    bool is_ignorable_mbarrier_init =
-        (expr->isA<kir::MBarrierInit>() && mbarrier_token_exists);
-
-    bool is_ignorable_mbarrier_inval =
-        (expr->isA<kir::MBarrierInvalidate>() && mbarrier_token_exists);
-
-    // Skip shared memory allocation, mbarrier initialize and mbarrier
-    // invalidate
-    if (is_ignorable_tma_smem_alloc || is_ignorable_mbarrier_init ||
-        is_ignorable_mbarrier_inval) {
-      return;
-    }
-
-    // Add expression if not circular-buffered load store operation
-    if (!expr->isA<LoadStoreOp>() || !mbarrier_token_exists) {
-      cloned_scopes_.back()->push_back(expr);
-      return;
-    }
+    NVF_ERROR(expr != nullptr && expr->isA<LoadStoreOp>());
 
     int64_t stage_depth =
         GpuLower::current()->circularBufferInfo().getStageDepthFor(
@@ -578,32 +590,7 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
   }
 
   void handleEpilogLoop(Expr* expr) {
-    NVF_ERROR(expr != nullptr);
-
-    bool mbarrier_token_exists =
-        GpuLower::current()->ldstMBarrierTokenMap().count(expr) != 0;
-
-    bool is_ignorable_tma_smem_alloc =
-        (GpuLower::current()->mBarrierTokenSmemAllocSet().count(expr) != 0);
-
-    bool is_ignorable_mbarrier_init =
-        (expr->isA<kir::MBarrierInit>() && mbarrier_token_exists);
-
-    bool is_ignorable_mbarrier_inval =
-        (expr->isA<kir::MBarrierInvalidate>() && mbarrier_token_exists);
-
-    // Skip shared memory allocation, mbarrier initialize and mbarrier
-    // invalidate
-    if (is_ignorable_tma_smem_alloc || is_ignorable_mbarrier_init ||
-        is_ignorable_mbarrier_inval) {
-      return;
-    }
-
-    // Add expression if not circular-buffered load store operation
-    if (!expr->isA<LoadStoreOp>() || !mbarrier_token_exists) {
-      cloned_scopes_.back()->push_back(expr);
-      return;
-    }
+    NVF_ERROR(expr != nullptr && expr->isA<LoadStoreOp>());
 
     // Construct mBarrier::wait for epilogue
     LoadStoreOp* ldst = expr->as<LoadStoreOp>();
