@@ -885,8 +885,10 @@ TEST_P(TmaCircularBufferingTest, SingleDim) {
 
   TensorView* reference = tv1;
 
-  // [M] -> [M/bid, bid]
+  // Constants
   constexpr size_t bulk_inner_dim = 32;
+
+  // [M] -> [M/bid, bid]
   reference->split(-1, bulk_inner_dim);
 
   // Propagate Transformations
@@ -928,6 +930,7 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnroll) {
 
   TensorView* reference = tv1;
 
+  // Constants
   constexpr size_t unroll_dim = 4;
   constexpr size_t bulk_inner_dim = 32;
 
@@ -940,8 +943,10 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnroll) {
   TransformPropagatorWithCheck propagator(reference);
   MaxLogicalDomainInfoSpanningTree(reference).traverse(&propagator);
 
+  // ComputeAt
   tv0->computeAt(tv1, 1);
 
+  // Apply Unroll
   tv1->axis(1)->parallelize(ParallelType::Unroll);
 
   // Circular Buffer with TMA loads
@@ -983,6 +988,7 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnswitch) {
 
   TensorView* reference = tv1;
 
+  // Constants
   constexpr size_t unroll_dim = 4;
   constexpr size_t bulk_inner_dim = 32;
 
@@ -995,8 +1001,10 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnswitch) {
   TransformPropagatorWithCheck propagator(reference);
   MaxLogicalDomainInfoSpanningTree(reference).traverse(&propagator);
 
+  // ComputeAt
   tv0->computeAt(tv1, 1);
 
+  // Apply Unswitch
   tv1->axis(1)->parallelize(ParallelType::Unswitch);
 
   // Circular Buffer with TMA loads
@@ -1037,8 +1045,11 @@ TEST_P(TmaCircularBufferingTest, MultiDim) {
   tv2->setMemoryType(MemoryType::Shared);
 
   TensorView* reference = tv1;
+
+  // Constants
   constexpr int64_t tma_outer_dim = 4;
   constexpr int64_t tma_inner_dim = 32;
+
   // [M, N] -> [M, N/bid, bid]
   reference->split(-1, tma_inner_dim);
   // [M, N/bid, bid] -> [M/bod, bod, N/bid, bid]
@@ -1103,7 +1114,10 @@ TEST_P(TmaCircularBufferingTest, Pointwise) {
   tv4->setMemoryType(MemoryType::Shared);
 
   TensorView* reference = tv2;
+
+  // Constants
   constexpr int64_t bulk_inner_dim = 32;
+
   // [M, N] -> [M, N/bid, bid]
   reference->split(-1, bulk_inner_dim);
 
@@ -1122,7 +1136,7 @@ TEST_P(TmaCircularBufferingTest, Pointwise) {
   tv4->axis(0)->parallelize(ParallelType::BIDx);
   tv4->circularBuffer(number_of_stages);
 
-  // split reference to parallelize TMA tile
+  // Split reference to parallelize TMA tile
   reference->split(-1, 32);
   reference->axis(0)->parallelize(ParallelType::BIDx);
   reference->axis(-1)->parallelize(ParallelType::TIDx);
@@ -1155,10 +1169,10 @@ TEST_P(TmaCircularBufferingTest, Reduction) {
   tv2->setMemoryType(MemoryType::Shared);
 
   TensorView* reference = tv1;
-  // TODO If examples_per_cta == num_stages, then cuda kernel is malformed.
 
   constexpr int64_t examples_per_cta = 4;
   constexpr int64_t bulk_inner_dim = 256;
+
   // [M, N] -> [M/epc, epc, N]
   reference->split(0, examples_per_cta);
   // [M/epc, epc, N] -> [M/epc, epc, N/bid, bid]
@@ -1173,9 +1187,11 @@ TEST_P(TmaCircularBufferingTest, Reduction) {
   constexpr int64_t tdx = 128;
   reference->split(-1, tdx);
 
+  // Parallelize
   reference->axis(0)->parallelize(ParallelType::BIDx);
   reference->axis(-1)->parallelize(ParallelType::TIDx);
 
+  // InlineMost automatically handles vectorize and tma dimensions
   inlineMost();
 
   // Circular Buffer with TMA loads
@@ -1208,6 +1224,8 @@ TEST_P(TmaCircularBufferingTest, Persistent) {
   TensorView* x = makeContigTensor(2, aten_to_data_type(dtype));
   fusion->addInput(x);
 
+  // Algorithm:
+  // x_norm = (x - x_mean) / sqrt(x_var)
   Val* num_elem = x->getLoopDomain().at(reduction_axis)->extent();
 
   TensorView* sum_x = sum(x, {reduction_axis}, /*keepdim=*/false);
@@ -1224,12 +1242,15 @@ TEST_P(TmaCircularBufferingTest, Persistent) {
   TensorView* x_norm = div(sub(x, bcast_mean), sqrt(bcast_var));
   fusion->addOutput(x_norm);
 
-  // Create cache_tvs
+  // Load input from global to shared memory
   TensorView* x_cache_smem =
       x->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
   x_cache_smem->setMemoryType(MemoryType::Shared);
 
+  // Load input from shared memory to registers
   x_cache_smem->cacheAfter();
+
+  // Store results in registers
   x_norm->cacheBefore();
 
   std::vector<TensorView*> reduction_tvs =
@@ -1243,14 +1264,19 @@ TEST_P(TmaCircularBufferingTest, Persistent) {
   int64_t elem_per_compute_thread = tensor_inner_dim / width / vectorize;
   constexpr int64_t examples_per_cta = 4;
 
+  // Since multi-dim CpAsyncBulk has a size limit of 256 per dimension,
+  // we require multiple TMA operations to load the entire example in shared
+  // memory for pointwise kernel.
+  //
   // Define TMA Box
-  // split: [I0, I2, 32]
-  // load entire example in shared memory
+  // logical domain: [I1, I2]
   x_cache_smem->split(0, examples_per_cta);
+  // split: [I0 / 4, 4, I2]
   x_cache_smem->split(-1, 256);
+  // split: [I0/4, 4, I2/256, 256]
 
   // Schedule reference_tv
-  //   root domain: [I1, I2]
+  //   logical domain: [I1, I2]
   //         split: [I1, I2/V (width / tdx), V]
   reference_tv->split(-1, vectorize);
   //         split: [I1, EPCT, I2/V/EPCT (tdx), V]
@@ -1334,6 +1360,7 @@ TEST_P(TmaCircularBufferingTest, Matmul) {
   TensorView* tv5 = sum(tv4, {1}); // M, R, N
   fusion->addOutput(tv5);
 
+  // CpAsyncBulk Store
   TensorView* tv6 = tv5->cacheBefore(LoadStoreOpType::CpAsyncBulkTensorTile);
   tv6->setMemoryType(MemoryType::Shared);
 
@@ -1341,7 +1368,7 @@ TEST_P(TmaCircularBufferingTest, Matmul) {
   TensorView* tv0_cache_local = tv0->cacheAfter();
   TensorView* tv1_cache_local = tv1->cacheAfter();
 
-  // For smem circular buffering
+  // For shared memory circular buffering
   TensorView* tv0_cache_smem =
       tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
   TensorView* tv1_cache_smem =
@@ -1434,14 +1461,12 @@ TEST_P(TmaCircularBufferingTest, Matmul) {
       fusion.get(), cg_outputs, {t0, t1}, {aten_output}, __LINE__, __FILE__);
 }
 
-// TODO Add runtime check to determine that we can run a full pipeline.
-// TODO Increase maximum buffer range to 10
-// Test circular buffer from 2 to 4 stages
+// Test circular buffer from 2 to 5 stages
 INSTANTIATE_TEST_SUITE_P(
     Hopper,
     TmaCircularBufferingTest,
     testing::Combine(
-        ::testing::Range(2, 4),
+        ::testing::Range(2, 5),
         testing::Values(128, 500, 1024),
         testing::Values(128, 1024)));
 
