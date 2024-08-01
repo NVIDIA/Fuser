@@ -162,22 +162,6 @@ void ContigIDGroups::handle(Merge* merge, Direction direction) {
     alloc_to_contig_ids_[alloc_id] = graph_.toGroup(merge->out());
   }
 
-  // Still necessary?
-#if 0
-  auto all_within_vals = DependencyCheck::getAllValsBetween(
-      {alloc_domain_.begin(), alloc_domain_.end()}, {merge->out()});
-  auto all_within_ids = ir_utils::filterByType<IterDomain>(all_within_vals);
-
-  std::unordered_set<IterDomain*> within_id_set(
-      all_within_ids.begin(), all_within_ids.end());
-
-  within_id_set.erase(merge->out());
-  within_contig_ids_[merge->out()] = within_id_set;
-  for (auto id : all_within_ids) {
-    contig_ids_.erase(id);
-  }
-#endif
-
   VERBOSE() << "Contig merge ouput: " << merge->out()->toString() << std::endl;
 
   contig_ids_.emplace(graph_.toGroup(merge->out()));

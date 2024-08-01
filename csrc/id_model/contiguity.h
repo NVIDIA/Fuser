@@ -102,10 +102,6 @@ class ContigIDGroups {
     NVF_ERROR(!eg->empty());
     Expr* expr = eg->front();
 
-    if (isInputFinal(expr, direction)) {
-      return;
-    }
-
     // Currently not propagating any contiguity information with
     // swizzles as contiguity is generally not preserved after swizzles.
     // But in follow ups we could gradually add back a few special
@@ -126,15 +122,6 @@ class ContigIDGroups {
 
   void handle(Resize* resize, Direction direction);
 
-  bool isInputFinal(Expr* expr, Direction direction) const {
-    const auto& inputs =
-        direction == Direction::Forward ? expr->inputs() : expr->outputs();
-    return std::any_of(inputs.begin(), inputs.end(), [this](Val* inp) -> bool {
-      return final_id_groups_.find(graph_.toGroup(inp)) !=
-          final_id_groups_.end();
-    });
-  }
-
   const std::unordered_set<ValGroup>& contigIDs() const {
     return contig_ids_;
   }
@@ -152,10 +139,12 @@ class ContigIDGroups {
   const std::vector<IterDomain*> alloc_domains_;
   // Contiguity of alloc_domains_
   const std::vector<bool> contiguity_;
-  const std::unordered_set<ValGroup> final_id_groups_;
   const bool is_predicate_pass_;
   std::unique_ptr<const OrderedIdGroupInformation> consistent_transform_info_;
+
+  // Contig domain groups
   std::unordered_set<ValGroup> contig_ids_;
+  // Mapping of allocation domains to contig groups
   std::unordered_map<IterDomain*, ValGroup> alloc_to_contig_ids_;
   // All domains that have dependencies with resize ops
   std::unordered_set<ValGroup> resize_deps_;

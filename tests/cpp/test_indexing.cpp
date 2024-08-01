@@ -4480,4 +4480,62 @@ TEST_F(PredicateIndexingTest, UnswitchConsolidationDifferentThreading) {
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
+// Same fusion as SimplePointwise1 but with contig indexing
+TEST_F(IndexingTest, ContigIndexing1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(2);
+  fusion.addInput(tv0);
+
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
+  fusion.addOutput(tv2);
+
+  tv2->flatten();
+  tv2->split(0, 4);
+
+  TransformPropagator propagator(tv2);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
+
+  tv1->inlineAt(1);
+
+  // Because of contig indexing, the index of tv0 and tv2 should be
+  // just: i0 * 4 + i1.
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
+        const override {
+      bool as_consumer = maybe_consumer == nullptr;
+      auto consumer_tv = as_consumer ? tv : maybe_consumer;
+      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      switch (tv->name()) {
+        case 0: {
+          NVF_ERROR(!as_consumer);
+          return addExpr(
+              mulExpr(loop_indices.at(0), consumer_tv->axis(1)->extent()),
+              loop_indices.at(1));
+        }
+        case 1: {
+          return loop_indices.at(1);
+        }
+        case 2: {
+          NVF_ERROR(as_consumer);
+          return addExpr(
+              mulExpr(loop_indices.at(0), consumer_tv->axis(1)->extent()),
+              loop_indices.at(1));
+        }
+        default:
+          NVF_ERROR(false, "Unexpected tensor: ", tv->toString());
+          break;
+      }
+      return nullptr;
+    }
+  };
+
+  IndexValidator<GetReference>::validate(&fusion, true);
+}
+
 } // namespace nvfuser
