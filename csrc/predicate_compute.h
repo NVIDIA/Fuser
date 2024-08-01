@@ -84,10 +84,13 @@ class UnswitchPredicateKey {
  public:
   UnswitchPredicateKey();
 
+  // Parameter loop_ids represents the loop domains used for the
+  // predicated domain
   UnswitchPredicateKey(
       IterDomain* predicated_consumer_id,
       TensorView* consumer_tv,
-      IterDomain* predicated_concrete_id);
+      IterDomain* predicated_concrete_id,
+      std::unordered_set<IterDomain*> loop_ids);
 
   bool operator==(const UnswitchPredicateKey& other) const {
     return predicated_concrete_id_ == other.predicated_concrete_id_ &&
@@ -116,6 +119,8 @@ class UnswitchPredicateKey {
  private:
   //! Predicated concrete domain
   IterDomain* predicated_concrete_id_ = nullptr;
+  //! Dependent loop domains
+  std::unordered_set<IterDomain*> loop_ids_;
   //! Store parallelized concrete domains
   std::unordered_map<ParallelType, IterDomain*> parallel_concrete_ids_;
 };

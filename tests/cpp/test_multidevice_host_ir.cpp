@@ -70,8 +70,7 @@ TEST_P(MultiDeviceHostIrTest, SingleFusionSingleComm) {
   FusionGuard::setCurFusion(hic.get());
 
   // [Step 3a)] Create a HostUnit Ir holding the fusions
-  auto hu =
-      IrBuilder::createInContainer<HostUnit>(hic.get(), std::move(fusion));
+  auto hu = IrBuilder::create<HostUnit>(std::move(fusion));
 
   // [Step 4)] Create TensorViews at the Host level
   IrCloner ir_cloner(hic.get());
@@ -85,19 +84,18 @@ TEST_P(MultiDeviceHostIrTest, SingleFusionSingleComm) {
   // [Step 5)a.] Create PostOnStream Irs representing executing the Fusion
   std::vector<Val*> compute_inputs = {tv0};
   std::vector<Val*> compute_outputs = {tv1};
-  auto post_compute = IrBuilder::createInContainer<PostOnStream>(
-      hic.get(), hu, compute_inputs, compute_outputs);
+  auto post_compute =
+      IrBuilder::create<PostOnStream>(hu, compute_inputs, compute_outputs);
   // [Step 5)b.] Create Communication Ir representing executing the Fusion
   auto communication_input = tv1->as<TensorView>();
   auto communication_output = tv2->as<TensorView>();
 
-  auto communication = IrBuilder::createInContainer<Communication>(
-      hic.get(),
+  auto communication = IrBuilder::create<Communication>(
       CommunicationType::Allgather,
       communication_output,
       communication_input,
       mesh.vector());
-  auto wait = IrBuilder::createInContainer<Wait>(hic.get(), communication);
+  auto wait = IrBuilder::create<Wait>(communication);
 
   // [Step 6)] Define the Host program
   hic->pushBackTopLevelExprs(post_compute);
@@ -163,8 +161,7 @@ TEST_P(MultiDeviceHostIrTest, SingleCommTwoFusionAndWait) {
   FusionGuard::setCurFusion(hic.get());
 
   // [Step 3a)] Create a HostUnit Ir holding the fusions
-  auto hu =
-      IrBuilder::createInContainer<HostUnit>(hic.get(), std::move(fusion));
+  auto hu = IrBuilder::create<HostUnit>(std::move(fusion));
 
   // [Step 4)] Create TensorViews at the Host level
   IrCloner ir_cloner(hic.get());
@@ -178,18 +175,17 @@ TEST_P(MultiDeviceHostIrTest, SingleCommTwoFusionAndWait) {
   // [Step 5)a.] Create PostOnStream Irs representing executing the Fusion
   std::vector<Val*> compute_inputs = {tv0};
   std::vector<Val*> compute_outputs = {tv1};
-  auto post_compute = IrBuilder::createInContainer<PostOnStream>(
-      hic.get(), hu, compute_inputs, compute_outputs);
+  auto post_compute =
+      IrBuilder::create<PostOnStream>(hu, compute_inputs, compute_outputs);
   // [Step 5)b.] Create Communication Ir representing executing the Fusion
   TensorView* communication_input = tv1->as<TensorView>();
   TensorView* communication_output = tv2->as<TensorView>();
-  auto communication = IrBuilder::createInContainer<Communication>(
-      hic.get(),
+  auto communication = IrBuilder::create<Communication>(
       CommunicationType::Allgather,
       communication_output,
       communication_input,
       mesh.vector());
-  auto wait = IrBuilder::createInContainer<Wait>(hic.get(), communication);
+  auto wait = IrBuilder::create<Wait>(communication);
 
   // [Step 6)] Define the Host program
   hic->pushBackTopLevelExprs(post_compute);
