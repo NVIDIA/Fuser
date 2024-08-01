@@ -53,7 +53,8 @@ class OverlapTest : public MultiDeviceTest {
   int64_t num_devices_;
   int64_t my_device_index_;
   std::vector<int64_t> all_devices_;
-  at::Tensor ta_, tb_, tc_locally_reduced_, tc_, tc_expected_;
+  at::Tensor ta_unsharded_, tb_unsharded_;
+  at::Tensor ta_, tb_, tc_locally_reduced_, tc_;
   // stores the backend
   c10d::Backend* world_communicator_;
 
@@ -72,6 +73,13 @@ class OverlapTest : public MultiDeviceTest {
     world_communicator_ =
         communicator_->getBackendForTeam(all_devices_, params.backend_type);
 
+    // Debug print
+    if (communicator_->deviceId() == 0 && debug_print) {
+      debug() << params << std::endl;
+    }
+  }
+
+  void allocateIO() {
     // Define I/O and intermediate Tensor shapes
     std::vector<int64_t> ta_unsharded_sizes = {
         params.S, num_devices_, params.M / params.S, params.K / num_devices_};
@@ -92,12 +100,12 @@ class OverlapTest : public MultiDeviceTest {
     // validating data correctness.
     at::TensorOptions options =
         at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
-    auto ta_unsharded = at::randn(ta_unsharded_sizes, options);
-    auto tb_unsharded = at::randn(tb_unsharded_sizes, options);
+    ta_unsharded_ = at::randn(ta_unsharded_sizes, options);
+    tb_unsharded_ = at::randn(tb_unsharded_sizes, options);
     ta_ = at::empty(ta_sizes, options);
-    ta_.copy_(ta_unsharded.select(1, my_device_index_));
+    ta_.copy_(ta_unsharded_.select(1, my_device_index_));
     tb_ = at::empty(tb_sizes, options);
-    tb_.copy_(tb_unsharded.select(0, my_device_index_));
+    tb_.copy_(tb_unsharded_.select(0, my_device_index_));
 
     // We pre-allocate the output and some intermediate buffers so we do not
     // rely on torch allocator, which do not behave well with multi-stream
@@ -105,9 +113,20 @@ class OverlapTest : public MultiDeviceTest {
     tc_locally_reduced_ = at::empty(tc_locally_reduced_sizes, options);
     tc_ = at::empty(tc_sizes, options);
 
+    // Debug print
+    if (communicator_->deviceId() == 0 && debug_print) {
+      debug() << "ta_sizes()=" << ta_.sizes() << std::endl
+              << "tb_sizes()=" << tb_.sizes() << std::endl
+              << "tc_locally_reduced_sizes()=" << tc_locally_reduced_.sizes()
+              << std::endl
+              << "tc_sizes()=" << tc_.sizes() << std::endl;
+    }
+  }
+
+  void validate() {
     // compute the expected output for data correctness validation
     auto tc_unsharded_unreduced =
-        ta_unsharded.unsqueeze(-1) * tb_unsharded.unsqueeze(-3).unsqueeze(0);
+        ta_unsharded_.unsqueeze(-1) * tb_unsharded_.unsqueeze(-3).unsqueeze(0);
     auto tc_unsharded_expected = at::sum(tc_unsharded_unreduced, {1, 3});
     auto tc_unsharded_expected_reshaped = at::reshape(
         tc_unsharded_expected,
@@ -115,24 +134,12 @@ class OverlapTest : public MultiDeviceTest {
          num_devices_,
          params.M / (params.S * num_devices_),
          params.N});
-    tc_expected_ = tc_unsharded_expected_reshaped.select(1, my_device_index_);
+    auto tc_expected_ =
+        tc_unsharded_expected_reshaped.select(1, my_device_index_);
 
-    // Debug print
-    if (communicator_->deviceId() == 0 && debug_print) {
-      debug() << params << std::endl
-              << "ta_.sizes()=" << ta_.sizes() << std::endl
-              << "tb_.sizes()=" << tb_.sizes() << std::endl
-              << "tc_locally_reduced_.sizes()=" << tc_locally_reduced_.sizes()
-              << std::endl
-              << "tc_.sizes()=" << tc_.sizes() << std::endl;
-    }
-  }
-
-  void computeATen(
-      at::Tensor ta_j,
-      at::Tensor tb_j,
-      at::Tensor tc_locally_reduced_j) {
-    torch::matmul_out(tc_locally_reduced_j, ta_j, tb_j);
+    EXPECT_TRUE(tc_.allclose(tc_expected_, 1e-1, 1e-1))
+        << "Unexpected results, obtained:" << tc_
+        << "\n expected: " << tc_expected_;
   }
 };
 // clang-format off
@@ -200,6 +207,8 @@ TEST_F(OverlapTest, ReduceScatterBasedPipeliningATenImplementation) {
         /*isHighPriority=*/false, my_device_index_);
   });
 
+  allocateIO();
+
   for (auto j : c10::irange(params.S)) {
     // define the sliced tensors
     auto ta_j = ta_.select(0, j);
@@ -209,7 +218,7 @@ TEST_F(OverlapTest, ReduceScatterBasedPipeliningATenImplementation) {
     setCurrentCUDAStream(streams.at(j % streams.size()));
 
     // local compute
-    computeATen(ta_j, tb_, tc_locally_reduced_j);
+    torch::matmul_out(tc_locally_reduced_j, ta_j, tb_);
     // communication
     world_communicator_->_reduce_scatter_base(tc_j, tc_locally_reduced_j)
         ->wait();
@@ -221,19 +230,16 @@ TEST_F(OverlapTest, ReduceScatterBasedPipeliningATenImplementation) {
     stream.synchronize();
   }
 
-  // validation
-  EXPECT_TRUE(tc_.allclose(tc_expected_, 1e-1, 1e-1))
-      << "Unexpected results, obtained:" << tc_
-      << "\n expected: " << tc_expected_;
+  validate();
 }
 
 TEST_F(OverlapTest, ReduceScatterBasedPipeliningHostIrImplementation) {
   auto hic = std::make_unique<hir::HostIrContainer>();
   FusionGuard::setCurFusion(hic.get());
 
-  TensorView* tva = makeSymbolicTensor(ta_.dim());
-  TensorView* tvb = makeSymbolicTensor(tb_.dim());
-  TensorView* tvc = makeSymbolicTensor(tc_.dim());
+  TensorView* tva = makeSymbolicTensor(3);
+  TensorView* tvb = makeSymbolicTensor(2);
+  TensorView* tvc = makeSymbolicTensor(3);
   hic->addInput(tva);
   hic->addInput(tvb);
   hic->addInput(tvc);
@@ -305,13 +311,13 @@ TEST_F(OverlapTest, ReduceScatterBasedPipeliningHostIrImplementation) {
   hic->addOutput(tvc_locally_reduced_j);
 
   hir::HostIrExecutor hie(std::move(hic), communicator_);
+
+  allocateIO();
   std::unordered_map<Val*, c10::IValue> inputs = {
       {tva, ta_}, {tvb, tb_}, {tvc, tc_}};
-  hie.runWithInput(std::move(inputs));
 
-  EXPECT_TRUE(tc_.allclose(tc_expected_, 1e-1, 1e-1))
-      << "Unexpected results, obtained:" << tc_
-      << "\n expected: " << tc_expected_;
+  hie.runWithInput(std::move(inputs));
+  validate();
 }
 
 } // namespace nvfuser
