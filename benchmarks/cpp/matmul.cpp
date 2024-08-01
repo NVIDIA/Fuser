@@ -478,10 +478,8 @@ static void NvFuserScheduler_MatmulSplitKReduction(
 }
 // ----------------------------- Benchmark Instantiation-------
 
-#define LegacyMs \
-  { 2048 }
-#define LegacyNs \
-  { 3456 }
+#define LegacyMs {2048}
+#define LegacyNs {3456}
 #define LegacyKs benchmark::CreateDenseRange(512, 4096, /*step=*/512)
 
 // clang-format off
@@ -535,8 +533,7 @@ static void NvFuserScheduler_MatmulSplitKReduction(
 // size. Below you will find all the factors of 108, which is the number of SMs
 // on an A100. Note that 8warp uses tile size (256, 128) in which case SplitKMs
 // should be changed to 256.
-#define SplitKMs \
-  { 128, 256 }
+#define SplitKMs {128, 256}
 
 // Dynamically find all valid values of N that divide number of SMs
 static std::vector<long int> splitKNs(long int tileN = 128) {
@@ -549,15 +546,11 @@ static std::vector<long int> splitKNs(long int tileN = 128) {
   }
   return Ns;
 }
-#define SplitKKs \
-  { 65536 }
+#define SplitKKs {65536}
 
-#define Layouts \
-  { MmaLayout::TT, MmaLayout::TN, MmaLayout::NT, MmaLayout::NN }
-#define NumWarps \
-  { 4, 8 }
-#define NumStages \
-  { 3, 4, 5 }
+#define Layouts {MmaLayout::TT, MmaLayout::TN, MmaLayout::NT, MmaLayout::NN}
+#define NumWarps {4, 8}
+#define NumStages {3, 4, 5}
 
 //! Simple cartesian product of three integers. Used to emulate ArgsProduct
 template <typename T>
