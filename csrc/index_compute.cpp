@@ -493,6 +493,11 @@ IndexCompute::IndexCompute(
       preferred_paths_(std::move(preferred_paths)),
       unswitched_loop_domains_(std::move(unswitched_loop_domains)) {
   FUSER_PERF_SCOPE("GpuLower::Lower::IndexCompute::IndexCompute");
+
+  if (isOptionDisabled(DisableOption::ContigIndexing)) {
+    contig_ids_.clear();
+  }
+
   // Make sure we recompute any indices we can that map to a contiguous access
   // in physical memory.
   const auto& within_contig = contig_finder.withinContigIDs();
