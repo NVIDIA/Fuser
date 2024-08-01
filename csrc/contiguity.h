@@ -61,22 +61,6 @@ class OrderedIdInformation : public OptInDispatch {
 
   virtual void traverseTo(const std::vector<IterDomain*>& ids);
 
-  virtual std::vector<IterDomain*>::const_iterator findActiveId(
-      IterDomain* id) const {
-    return std::find(active_ids_.begin(), active_ids_.end(), id);
-  }
-
-  bool isActiveId(IterDomain* id) const;
-
-  int64_t getActiveIdPos(IterDomain* id) const;
-
-  virtual std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>>::
-      const_iterator
-      findAllocIDs(IterDomain* id) const {
-    return id_to_alloc_ids_.find(id);
-  }
-
- protected:
   // Returns if the id in active_ids should be in exclusively_consumes_allocs_
   bool checkExclusivelyConsumesAllocs(IterDomain* id);
 
@@ -90,11 +74,33 @@ class OrderedIdInformation : public OptInDispatch {
 
   void handle(Resize* resize) override;
 
+  virtual std::vector<IterDomain*>::const_iterator findActiveId(
+      IterDomain* id) const {
+    return std::find(active_ids_.begin(), active_ids_.end(), id);
+  }
+
+  bool isActiveId(IterDomain* id) const {
+    return findActiveId(id) != active_ids_.end();
+  }
+
+  int64_t getActiveIdPos(IterDomain* id) const {
+    auto it = findActiveId(id);
+    NVF_ERROR(it != active_ids_.end());
+    return std::distance(active_ids_.begin(), it);
+  }
+
+  virtual std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>>::
+      const_iterator
+      findAllocIDs(IterDomain* id) const {
+    return id_to_alloc_ids_.find(id);
+  }
+
   bool isConcretized(IterDomain* id) const {
     NVF_ERROR(concrete_info_ != nullptr);
     return concrete_info_->isConcretized(id);
   }
 
+ protected:
   // Track which allocation ids were used to generate each iter domain
   std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>>
       id_to_alloc_ids_;

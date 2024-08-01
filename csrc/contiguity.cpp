@@ -47,19 +47,9 @@ void OrderedIdInformation::traverseTo(const std::vector<IterDomain*>& ids) {
   }
 }
 
-bool OrderedIdInformation::isActiveId(IterDomain* id) const {
-  return findActiveId(id) != active_ids_.end();
-}
-
-int64_t OrderedIdInformation::getActiveIdPos(IterDomain* id) const {
-  auto it = findActiveId(id);
-  NVF_ERROR(it != active_ids_.end());
-  return std::distance(active_ids_.begin(), it);
-}
-
 bool OrderedIdInformation::checkExclusivelyConsumesAllocs(IterDomain* id) {
   NVF_ERROR(
-      findActiveId(id) != active_ids_.end(),
+      isActiveId(id),
       "Error replaying transforms in contiguous ID checker, expected ",
       id->toString(),
       " to be in the active ID set.");
@@ -97,30 +87,21 @@ bool OrderedIdInformation::checkExclusivelyConsumesAllocs(IterDomain* id) {
 }
 
 void OrderedIdInformation::handle(Merge* merge) {
-  // If either aren't in active_ids_ it means the inputs were detected to not be
+  // If either aren't an active ID, it means the inputs were detected to not be
   // ordered correctly before hitting this expression.
   if (!isActiveId(merge->inner()) || !isActiveId(merge->outer())) {
     return;
   }
 
-  auto inner_pos = getActiveIdPos(merge->inner());
-  auto outer_pos = getActiveIdPos(merge->outer());
+  const auto inner_pos = getActiveIdPos(merge->inner());
+  const auto outer_pos = getActiveIdPos(merge->outer());
 
-  // Find inputs in the ordered transforms map
-  bool inner_ordered = isConsistentlyOrdered(merge->inner());
-  bool outer_ordered = isConsistentlyOrdered(merge->outer());
+  const bool inner_ordered = isConsistentlyOrdered(merge->inner());
+  const bool outer_ordered = isConsistentlyOrdered(merge->outer());
 
   // Get allocation ids of the two inputs
-  const auto inner_alloc_ids_it = findAllocIDs(merge->inner());
-  const auto outer_alloc_ids_it = findAllocIDs(merge->outer());
-
-  NVF_ERROR(
-      inner_alloc_ids_it != id_to_alloc_ids_.end() &&
-          outer_alloc_ids_it != id_to_alloc_ids_.end(),
-      "Error replaying transforms in contiguous ID checker.");
-
-  const auto& inner_alloc_ids = inner_alloc_ids_it->second;
-  const auto& outer_alloc_ids = outer_alloc_ids_it->second;
+  const auto& inner_alloc_ids = findAllocIDs(merge->inner())->second;
+  const auto& outer_alloc_ids = findAllocIDs(merge->outer())->second;
 
   // Update maps
   // Find the position inner would have to have to be considered ordered
@@ -235,19 +216,12 @@ void OrderedIdInformation::handle(Split* split) {
     return;
   }
 
-  auto in_pos = getActiveIdPos(split->in());
+  const auto in_pos = getActiveIdPos(split->in());
 
-  // Find the input in the ordered transforms map
-  bool in_ordered = isConsistentlyOrdered(split->in());
+  const bool in_ordered = isConsistentlyOrdered(split->in());
 
   // Get allocation ids of the input
-  const auto in_alloc_ids_it = findAllocIDs(split->in());
-
-  NVF_ERROR(
-      in_alloc_ids_it != id_to_alloc_ids_.end(),
-      "Error replaying transforms in contiguous ID checker.");
-
-  VectorOfUniqueEntries<IterDomain*> in_alloc_ids = in_alloc_ids_it->second;
+  const auto& in_alloc_ids = findAllocIDs(split->in())->second;
 
   // Update map for outputs
   // Remove inputs from the active_ids_ and insert the output ID
@@ -272,24 +246,15 @@ void OrderedIdInformation::handle(Swizzle* swizzle) {
     return;
   }
 
-  auto in_x_pos = getActiveIdPos(swizzle->inX());
-  auto in_y_pos = getActiveIdPos(swizzle->inY());
+  const auto in_x_pos = getActiveIdPos(swizzle->inX());
+  const auto in_y_pos = getActiveIdPos(swizzle->inY());
 
-  // Find inputs in the ordered transforms map
-  bool in_x_ordered = isConsistentlyOrdered(swizzle->inX());
-  bool in_y_ordered = isConsistentlyOrdered(swizzle->inY());
+  const bool in_x_ordered = isConsistentlyOrdered(swizzle->inX());
+  const bool in_y_ordered = isConsistentlyOrdered(swizzle->inY());
 
   // Get allocation ids of the two inputs
-  const auto in_x_alloc_ids_it = findAllocIDs(swizzle->inX());
-  const auto in_y_alloc_ids_it = findAllocIDs(swizzle->inY());
-
-  NVF_ERROR(
-      in_x_alloc_ids_it != id_to_alloc_ids_.end() &&
-          in_y_alloc_ids_it != id_to_alloc_ids_.end(),
-      "Error replaying transforms in contiguous ID checker.");
-
-  const auto& in_x_alloc_ids = in_x_alloc_ids_it->second;
-  const auto& in_y_alloc_ids = in_y_alloc_ids_it->second;
+  const auto& in_x_alloc_ids = findAllocIDs(swizzle->inX())->second;
+  const auto& in_y_alloc_ids = findAllocIDs(swizzle->inY())->second;
 
   // Update map for outputs
   // Remove inputs from the active_ids_ and insert the output ID
@@ -328,29 +293,19 @@ void OrderedIdInformation::handle(Swizzle* swizzle) {
 // Swizzle generally can't be contiguous because of the non-affine nature of it,
 // but we can still analyze the operation in the same way as merge/split.
 void OrderedIdInformation::handle(Swizzle2D* swizzle) {
-  // Find inputs in the active_ids_ vector
   if (!isActiveId(swizzle->inX()) || !isActiveId(swizzle->inY())) {
     return;
   }
 
-  auto in_x_pos = getActiveIdPos(swizzle->inX());
-  auto in_y_pos = getActiveIdPos(swizzle->inY());
+  const auto in_x_pos = getActiveIdPos(swizzle->inX());
+  const auto in_y_pos = getActiveIdPos(swizzle->inY());
 
-  // Find inputs in the ordered transforms map
-  bool in_x_ordered = isConsistentlyOrdered(swizzle->inX());
-  bool in_y_ordered = isConsistentlyOrdered(swizzle->inY());
+  const bool in_x_ordered = isConsistentlyOrdered(swizzle->inX());
+  const bool in_y_ordered = isConsistentlyOrdered(swizzle->inY());
 
   // Get allocation ids of the two inputs
-  const auto in_x_alloc_ids_it = findAllocIDs(swizzle->inX());
-  const auto in_y_alloc_ids_it = findAllocIDs(swizzle->inY());
-
-  NVF_ERROR(
-      in_x_alloc_ids_it != id_to_alloc_ids_.end() &&
-          in_y_alloc_ids_it != id_to_alloc_ids_.end(),
-      "Error replaying transforms in contiguous ID checker.");
-
-  const auto& in_x_alloc_ids = in_x_alloc_ids_it->second;
-  const auto& in_y_alloc_ids = in_y_alloc_ids_it->second;
+  const auto& in_x_alloc_ids = findAllocIDs(swizzle->inX())->second;
+  const auto& in_y_alloc_ids = findAllocIDs(swizzle->inY())->second;
 
   // Update map for outputs
   // Remove inputs from the active_ids_ and insert the output ID
@@ -393,17 +348,10 @@ void OrderedIdInformation::handle(Resize* resize) {
 
   auto in_pos = getActiveIdPos(resize->in());
 
-  // Find inputs in the ordered transforms map
-  bool in_ordered = isConsistentlyOrdered(resize->in());
+  const bool in_ordered = isConsistentlyOrdered(resize->in());
 
   // Get allocation ids of the two inputs
-  const auto in_alloc_ids_it = findAllocIDs(resize->in());
-
-  NVF_ERROR(
-      in_alloc_ids_it != id_to_alloc_ids_.end(),
-      "Error replaying transforms in contiguous ID checker.");
-
-  const auto& in_alloc_ids = in_alloc_ids_it->second;
+  const auto& in_alloc_ids = findAllocIDs(resize->in())->second;
 
   // Update map for outputs
   // Remove inputs from the active_ids_ and insert the output ID
@@ -603,9 +551,10 @@ void ContigIDs::build(const std::vector<IterDomain*>& ids) {
 }
 
 void ContigIDs::handle(Merge* merge) {
-  if (getenv("DISABLE_CONTIG_INDEXING")) {
+  if (isOptionDisabled(DisableOption::ContigIndexing)) {
     return;
   }
+
   // If output is not consistently ordered or doesn't solely consume all
   // allocation domains in its dependencies, then it can't be a contiguously
   // indexable iterdomain.

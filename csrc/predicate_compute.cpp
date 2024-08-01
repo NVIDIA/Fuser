@@ -278,6 +278,11 @@ UnswitchPredicateKey::UnswitchPredicateKey(
   //
   // TODO: Clean up once the migration to the new indexer is
   // completed.
+  //
+  // When loop_ids_ is not empty, the correct loop domains are already
+  // given to this class. That's the case when using the new
+  // indexer. When given, use them to figure out which parallel type
+  // is used for which loop domain.
   if (!loop_ids_.empty()) {
     for (auto loop_id : loop_ids_) {
       auto pt = loop_id->getParallelType();
@@ -296,15 +301,13 @@ UnswitchPredicateKey::UnswitchPredicateKey(
       }
     }
     return;
-  } else {
-    std::copy_if(
-        consumer_tv->getLoopDomain().begin(),
-        consumer_tv->getLoopDomain().end(),
-        std::back_inserter(all_parallelized_consumer_loop_ids),
-        [](IterDomain* x) {
-          return isParallelTypeThread(x->getParallelType());
-        });
   }
+
+  std::copy_if(
+      consumer_tv->getLoopDomain().begin(),
+      consumer_tv->getLoopDomain().end(),
+      std::back_inserter(all_parallelized_consumer_loop_ids),
+      [](IterDomain* x) { return isParallelTypeThread(x->getParallelType()); });
 
   // If the consumer domais are not parallelized at all, no need to
   // differentiate keys based on how the predicated id is parallelized

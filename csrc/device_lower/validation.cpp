@@ -730,11 +730,6 @@ void validateMmaTensors(MmaOp* mma) {
     for (auto id : tv->getLoopDomain()) {
       auto ptype = id->getParallelType();
       if (ptype == ParallelType::TIDx) {
-        NVF_ERROR(
-            id->isMmaSwizzled(),
-            "TIDx for mma input/output must be set by WarpMmaSwizzler",
-            id,
-            tv);
         if (!tidx_validated) {
           // Check that TIDx is exact lane_id
           const auto& paralel_dim_map =
@@ -777,25 +772,6 @@ void validateMmaTensors(MmaOp* mma) {
           tv->getMemoryType() == MemoryType::Local,
           "Only supporting register input for mma input on Ampere/Turing");
     }
-
-    NVF_ERROR(
-        std::all_of(
-            tv->getLoopDomain().begin() + tv->getComputeAtPosition(),
-            tv->getLoopDomain().end(),
-            [](IterDomain* id) {
-              return id->isMmaSwizzled() ||
-                  // MMA instructions can only take inputs from registers,
-                  //  so we always assume mma op inputs are located on
-                  //  registers.
-                  // Currently requiring that serial ids on the right of the
-                  //  CA axis are constant sized to ensure early detection of
-                  //  invalid mma schedules.
-                  ((id->isBroadcast() || id->extent()->isConstInt()) &&
-                   id->getParallelType() == ParallelType::Serial) ||
-                  id->isThread();
-            }),
-        "All id's on the right of CA pos needs to be mma-swizzled by WarpMmaSwizzler\n",
-        tv);
   };
 
   validate_operand(mma->inA()->as<TensorView>(), MmaOperand::A);

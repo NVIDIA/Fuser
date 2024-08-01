@@ -55,7 +55,6 @@ class OrderedIdGroupInformation : public OrderedIdInformation {
     }
   }
 
- protected:
   // Traversal is based on the AlmostExact graph, so matching of iter
   // domains also needs to be done with the same graph
   std::vector<IterDomain*>::const_iterator findActiveId(

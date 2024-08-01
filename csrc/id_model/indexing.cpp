@@ -1088,7 +1088,7 @@ IndexingInfo TensorIndexer::computeIndex(
 
   IdGraphIndexCompute index_compute(traversalGraph(), initial_index_map);
 
-  // In addition to indeices themselves, keep track of the
+  // In addition to indices themselves, keep track of the
   // dependency from each domain to loop domains. This dependency is
   // represented as a map from ValGroup of the traversal graph to
   // ValGroup of the LOOP graph.
@@ -1291,7 +1291,7 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
   if (!lower_utils::isReductionInitExpr(expr)) {
     for (const auto& [eg, direction] : index_info.traversal_path) {
       // NOTE: Fundamentally, the problem of non divisiblity should be
-      // checked while traversing the indexng path. Currently, it uses
+      // checked while traversing the indexing path. Currently, it uses
       // the information gathered in a tensor-by-tensor basis. This
       // should be fine currently, but may not work if, e.g., the
       // indexing path involved both backward and forward traversals.
@@ -1305,9 +1305,6 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
       IterDomain* non_divisible_domain = split_to_predicate->in();
       const auto& non_divisible_domain_group =
           traversalGraph().toGroup(non_divisible_domain);
-
-      VERBOSE() << "Non-divisible predicate: "
-                << non_divisible_domain->toString() << std::endl;
 
       PredicateInfo info;
       info.loop_stage_ = loop_stage;

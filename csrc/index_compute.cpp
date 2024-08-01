@@ -495,8 +495,7 @@ IndexCompute::IndexCompute(
       unswitched_loop_domains_(std::move(unswitched_loop_domains)) {
   FUSER_PERF_SCOPE("GpuLower::Lower::IndexCompute::IndexCompute");
 
-  if (getenv("DISABLE_CONTIG_INDEXING")) {
-    std::cerr << "Disabling contig indexing\n";
+  if (isOptionDisabled(DisableOption::ContigIndexing)) {
     contig_ids_.clear();
   }
 
