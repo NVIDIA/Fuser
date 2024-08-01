@@ -392,48 +392,36 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
               return out_tv == circular_buffer_tv;
             });
         if (!is_circular_buffer_load_expr) {
-          break;
+          return;
         }
 
         // NOTE: There can be circular buffered TVs without TMA load exprs.
         if (!mbarrier_token_exists) {
           cloned_scopes_.back()->push_back(expr);
-          break;
+          return;
         }
-        handlePrologueLoop(expr);
-        break;
+        return handlePrologueLoop(expr);
       }
-      case CircularBufferLoopStage::Main: {
-        // Skip shared memory allocation, mbarrier initialize and mbarrier
-        // invalidate
-        if (is_ignorable_tma_smem_alloc || is_ignorable_mbarrier_init ||
-            is_ignorable_mbarrier_inval) {
-          break;
-        }
-
-        // Add expression if not circular-buffered load store operation
-        if (!expr->isA<LoadStoreOp>() || !mbarrier_token_exists) {
-          cloned_scopes_.back()->push_back(expr);
-          break;
-        }
-
-        handleMainLoop(expr);
-        break;
-      }
+      case CircularBufferLoopStage::Main:
       case CircularBufferLoopStage::Epilog: {
         // Skip shared memory allocation, mbarrier initialize and mbarrier
         // invalidate
         if (is_ignorable_tma_smem_alloc || is_ignorable_mbarrier_init ||
             is_ignorable_mbarrier_inval) {
-          break;
+          return;
         }
 
         // Add expression if not circular-buffered load store operation
         if (!expr->isA<LoadStoreOp>() || !mbarrier_token_exists) {
           cloned_scopes_.back()->push_back(expr);
-          break;
+          return;
         }
-        handleEpilogLoop(expr);
+
+        if (loop_type_ == CircularBufferLoopStage::Main) {
+          return handleMainLoop(expr);
+        } else {
+          return handleEpilogLoop(expr);
+        }
         break;
       }
       case CircularBufferLoopStage::NotApplicable: {
