@@ -171,7 +171,8 @@ void replaceSymbolicSizes(Fusion* fusion) {
   auto extent_simplification_map = getSimplificationMap(fusion);
 
   // We now need to map replacement scalars to their targets in tensor_dim_map
-  // if they exist. To do this we compose extent_simplification_map with tensor_dim_map.
+  // if they exist. To do this we compose extent_simplification_map with
+  // tensor_dim_map.
   for (auto extent_entry : extent_simplification_map) {
     auto orig_extent = extent_entry.first;
     auto simplified_extent = extent_entry.second;
