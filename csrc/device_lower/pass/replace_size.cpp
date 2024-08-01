@@ -43,7 +43,6 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
 
   std::unordered_map<Val*, Val*> simplification_map;
 
-  int i = 0;
   for (const ValGroup& group : graph.disjointValSets().disjointSets()) {
     // For each ValGroup, find a single extent to use for all extents of
     // IterDomains in the group. These are chosen in descending order of
@@ -63,7 +62,7 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
         rep = id;
         continue;
       }
-      bool id_is_const = id->isConstInt();
+      bool id_is_const = id->getMaybeExpandedExtent()->isConstInt();
       if (id_is_const) {
         if (!group_is_const || id->name() < rep->name()) {
           rep = id;
@@ -90,13 +89,10 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
       }
     }
     NVF_ERROR(rep != nullptr);
-    Val* rep_ext = rep->extent();
+    Val* rep_ext = rep->getMaybeExpandedExtent();
     for (Val* v : *group) {
       auto* id = v->as<IterDomain>();
-      if (id->isBroadcast() || id->isGatherScatter()) {
-        continue;
-      }
-      Val* ext = id->extent();
+      Val* ext = id->getMaybeExpandedExtent();
       if (!ext->sameAs(rep_ext)) {
         simplification_map.emplace(ext, rep_ext);
       }
@@ -173,22 +169,27 @@ void replaceSymbolicSizes(Fusion* fusion) {
 
   // Use a minimal number of sizes from provided tensors.
   auto extent_simplification_map = getSimplificationMap(fusion);
+
+  // We now need to map replacement scalars to their targets in tensor_dim_map
+  // if they exist. To do this we compose extent_simplification_map with tensor_dim_map.
   for (auto extent_entry : extent_simplification_map) {
     auto orig_extent = extent_entry.first;
     auto simplified_extent = extent_entry.second;
-    if (tensor_dim_map.count(orig_extent)) {
-      if (tensor_dim_map.count(simplified_extent)) {
-        tensor_dim_map[orig_extent] = tensor_dim_map[simplified_extent];
-      } else {
-        tensor_dim_map[orig_extent] = simplified_extent;
-      }
-    } else {
-      tensor_dim_map[orig_extent] = simplified_extent;
+    auto it = tensor_dim_map.find(simplified_extent);
+    if (it != tensor_dim_map.end()) {
+      extent_simplification_map[orig_extent] = it->second;
+    }
+  }
+  // Now add entries from tensor_dim_map, being careful not to overwrite
+  // existing replacements.
+  for (auto [tensor_dim, meta_expr] : tensor_dim_map) {
+    if (extent_simplification_map.count(tensor_dim) == 0) {
+      extent_simplification_map[tensor_dim] = meta_expr;
     }
   }
 
   // Run mutation on the fusion with the tensor_dim_map
-  ir_utils::replaceValue(fusion, tensor_dim_map);
+  ir_utils::replaceValue(fusion, extent_simplification_map);
 }
 
 } // namespace nvfuser
