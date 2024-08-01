@@ -432,13 +432,9 @@ TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
   auto tv_output = makeConcreteTensor(attn_shape, DataType::Half);
   auto tv_logsumexp = makeConcreteTensor({n, h, l}, DataType::Float);
   auto tv_maxq = makeConcreteTensor({}, DataType::Int);
-  tv_maxq->setCpuScalar(true);
   auto tv_maxk = makeConcreteTensor({}, DataType::Int);
-  tv_maxk->setCpuScalar(true);
   auto tv_seed = makeConcreteTensor({}, DataType::Int);
-  tv_seed->setCpuScalar(true);
   auto tv_offset = makeConcreteTensor({}, DataType::Int);
-  tv_offset->setCpuScalar(true);
 
   fusion->addInput(tv_grad_output);
   fusion->addInput(tvq);
@@ -562,13 +558,9 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
   auto tv_output = makeSymbolicTensor(attn_shape, DataType::Half);
   auto tv_logsumexp = makeSymbolicTensor({n, h, l}, DataType::Float);
   auto tv_maxq = makeSymbolicTensor({}, DataType::Int);
-  tv_maxq->setCpuScalar(true);
   auto tv_maxk = makeSymbolicTensor({}, DataType::Int);
-  tv_maxk->setCpuScalar(true);
   auto tv_seed = makeSymbolicTensor({}, DataType::Int);
-  tv_seed->setCpuScalar(true);
   auto tv_offset = makeSymbolicTensor({}, DataType::Int);
-  tv_offset->setCpuScalar(true);
 
   fusion->addInput(tv_grad_output);
   fusion->addInput(tvq);
@@ -726,12 +718,6 @@ TEST_F(SDPATest, AttnFwdBwd) {
       /*dropout_p=*/IrBuilder::create<Val>(0.0),
       /*is_causal=*/IrBuilder::create<Val>(false),
       /*scale=*/nullptr);
-
-  // Set query_seq_len, key_seq_len as CPU scalars
-  sdpa_fwd_out.query_seq_len->setCpuScalar(true);
-  sdpa_fwd_out.key_seq_len->setCpuScalar(true);
-  sdpa_fwd_out.philox_seed->setCpuScalar(true);
-  sdpa_fwd_out.philox_offset->setCpuScalar(true);
 
   auto tv_grad_output = makeConcreteTensor(attn_shape, DataType::Half);
   fusion->addInput(tv_grad_output);

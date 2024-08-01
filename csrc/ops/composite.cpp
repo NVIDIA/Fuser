@@ -490,10 +490,14 @@ SdpfaFwdResult sdpfa_fwd(
 
   TensorView* query_seq_len = TensorViewBuilder().dtype(DataType::Int).build();
   TensorView* key_seq_len = TensorViewBuilder().dtype(DataType::Int).build();
+  query_seq_len->setCpuScalar(true);
+  key_seq_len->setCpuScalar(true);
 
   // Scalar tensors of int64_t dtype.
   TensorView* philox_seed = TensorViewBuilder().dtype(DataType::Int).build();
   TensorView* philox_offset = TensorViewBuilder().dtype(DataType::Int).build();
+  philox_seed->setCpuScalar(true);
+  philox_offset->setCpuScalar(true);
 
   // Thunder metadata represents debug_attn_mask of type int64_t, although the
   // debug_attn_mask is of query.dtype. Since we use return_debug_mask=false in
@@ -579,6 +583,12 @@ SdpfaBwdResult sdpfa_bwd(
       "Expected is_causal to be a scalar boolean.");
   NVF_CHECK(
       !scale || scale->isScalar(), "Expected scale to be a scalar double.");
+
+  // Mark CPU scalar tensors.
+  query_seq_len->setCpuScalar(true);
+  key_seq_len->setCpuScalar(true);
+  philox_seed->setCpuScalar(true);
+  philox_offset->setCpuScalar(true);
 
   // Query: [N,H,L,E], Key: [N,H,S,E], Value: [N,H,S,Ev] Output: [N,H,L,Ev]
   TensorView* grad_query = ops::newOutputTV({query}, query->dtype());
