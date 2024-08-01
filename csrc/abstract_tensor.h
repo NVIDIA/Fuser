@@ -129,10 +129,38 @@ using AbstractId = dynamic_type::DynamicType<
 //   auto uz = v.unzip();
 // Then uz will be {AbstractTensor{id0, id2}, AbstractTensor{id1, id2}}
 //
+// The opposite operation of unzip is zip. For example:
+//
+// Example 10:
+//   IterDomain *id0, *id1, *id2, *id3;
+//   AbstractTensor v0({id0, id2});
+//   AbstractTensor v1({id1, id3});
+//   auto z = AbstractTensor::zip({v0, v1});
+// Then z will be [{id0, id1}, {id2, id3}].
+//
+// Besides, you can also add a new "row" into the current
+// AbstractTensor. For example:
+//
+// Example 11:
+//   IterDomain *id0, *id1, *id2, *id3, *id4, *id5;
+//   AbstractTensor v0({{id0, id1}, {id2, id3}});
+//   AbstractTensor v1({id4, id5});
+//   v0.addRow(v1);
+// In the above example, we can visualize v0 as:
+//        dim0   dim1
+//   row0  id0    id2
+//   row1  id1    id3
+// after adding a new row v1, we will get:
+//        dim0   dim1
+//   row0  id0    id2
+//   row1  id1    id3
+//   row2  id4    id5
+// In another word, v0 will become [{id0, id1, id4}, {id2, id3, id5}].
+//
 // AbstractId in AbstractTensor can be place holders std::monostate{}. For
 // example:
 //
-// Example 10:
+// Example 12:
 //   IterDomain *id0;
 //   AbstractTensor v({{}, {}, id0}); // [null, null, id0]
 //   v.split(0, 2); // [null, null, null, id0]
@@ -284,6 +312,27 @@ struct AbstractTensor {
   // AbstractTensor is [dim0={id0, id1}, dim1={id2, id3}], then the return value
   // will be {AbstractTensor{id0, id2}, AbstractTensor{id1, id3}}.
   std::vector<AbstractTensor> unzip() const;
+
+  // Zip multiple AbstractTensors into a single AbstractTensor. For example, if
+  // the input is {AbstractTensor{id0, id2}, AbstractTensor{id1, id3}}, then the
+  // return value will be [dim0={id0, id1}, dim1={id2, id3}].
+  static AbstractTensor zip(std::vector<AbstractTensor> tensors);
+
+  // Add a new row to the current AbstractTensor. For example, if the current
+  // AbstractTensor is [dim0={id0, id1}, dim1={id2, id3}], it is helpful to
+  // visualize it as:
+  //        dim0   dim1
+  //   row0  id0    id2
+  //   row1  id1    id3
+  // If we add a new row [dim0=id4, dim1=id5], then the current AbstractTensor
+  // will become:
+  //        dim0   dim1
+  //   row0  id0    id2
+  //   row1  id1    id3
+  //   row2  id4    id5
+  // in another word, the return value will be an AbstractTensor:
+  // [dim0={id0, id1, id4}, dim1={id2, id3, id5}].
+  AbstractTensor& addRow(AbstractTensor tensor);
 
   // Remove all the null elements.
   AbstractTensor& strip();

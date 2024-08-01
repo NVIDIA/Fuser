@@ -482,6 +482,46 @@ AbstractTensor& AbstractTensor::parallelize(
   return *this;
 }
 
+AbstractTensor AbstractTensor::zip(std::vector<AbstractTensor> tensors) {
+  NVF_CHECK(!tensors.empty(), "Can not stack an empty list of AbstractTensor");
+
+  AbstractTensor result;
+  for (const auto& tensor : tensors) {
+    NVF_CHECK(
+        tensor.domain.size() == tensors[0].domain.size(),
+        "Can not stack AbstractTensors with different number of domains.");
+  }
+
+  result.domain.reserve(tensors[0].domain.size());
+  for (auto i : c10::irange(tensors[0].domain.size())) {
+    std::vector<AbstractId> domain;
+    domain.reserve(tensors.size());
+    for (auto& tensor : tensors) {
+      domain.emplace_back(std::move(tensor.domain[i]));
+    }
+    result.domain.emplace_back(std::move(domain));
+  }
+
+  return result;
+}
+
+AbstractTensor& AbstractTensor::addRow(AbstractTensor tensor) {
+  NVF_CHECK(
+      domain.size() == tensor.domain.size(),
+      "Can not add a new row with different number of domains.");
+  NVF_CHECK(
+      std::all_of(
+          domain.begin(),
+          domain.end(),
+          [](const AbstractId& aid) { return aid.is<std::vector>(); }),
+      "Can not add a new row to an AbstractTensor with non-vector domains.")
+
+  for (auto i : c10::irange(domain.size())) {
+    domain[i].as<std::vector>().emplace_back(std::move(tensor.domain[i]));
+  }
+  return *this;
+}
+
 AbstractTensor& AbstractTensor::strip() {
   AbstractTensor result;
   for (const auto& aid : domain) {

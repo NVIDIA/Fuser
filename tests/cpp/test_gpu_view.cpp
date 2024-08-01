@@ -2680,17 +2680,8 @@ TEST_F(GpuViewTest, FusionMismatchingReshape) {
   // the reference tensor and the entire fusion will be scheduled like tv4.
 
   // Now, let's schedule tv1, tv3, and tv5 to be like tv4's logical domain:
-  AbstractTensor schedule({
-      {tv1->getLogicalDomain()[0],
-       tv3->getRootDomain()[0],
-       tv5_root[0]}, // dim 0
-      {tv1->getLogicalDomain()[1],
-       tv3->getRootDomain()[1],
-       tv5_root[1]}, // dim 1
-      {tv1->getLogicalDomain()[2],
-       tv3->getRootDomain()[2],
-       tv5_root[2]}, // dim 2
-  });
+  auto schedule = AbstractTensor::zip(
+      {tv1->getLogicalDomain(), tv3->getRootDomain(), tv5_root});
   schedule.merge(0);
 
   // Now, tv5 looks like:
@@ -2705,10 +2696,7 @@ TEST_F(GpuViewTest, FusionMismatchingReshape) {
 
   // Now, `schedule` is like the logical domain of tv2 and tv4. So let's append
   // tv2 and tv4 to it so we can parallelizing all of them all together.
-  schedule[0].as<std::vector>().push_back(tv2->getLogicalDomain()[0]);
-  schedule[0].as<std::vector>().push_back(tv4->getLogicalDomain()[0]);
-  schedule[1].as<std::vector>().push_back(tv2->getLogicalDomain()[1]);
-  schedule[1].as<std::vector>().push_back(tv4->getLogicalDomain()[1]);
+  schedule.addRow(tv2->getLogicalDomain()).addRow(tv4->getLogicalDomain());
 
   // Parallelize all tensors as [BIDx, TIDx]
   schedule.merge(0);
