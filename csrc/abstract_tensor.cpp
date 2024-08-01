@@ -446,6 +446,42 @@ std::vector<AbstractTensor> AbstractTensor::unzip() const {
   return result;
 }
 
+namespace {
+
+struct DispatchParallelize {
+  template <typename INPUT>
+  void operator()(ParallelType parallel_type, INPUT&& in) const {
+    using IN = std::decay_t<INPUT>;
+    if constexpr (std::is_same_v<IN, std::monostate>) {
+      return;
+    } else if constexpr (std::is_same_v<IN, IterDomain*>) {
+      return in->parallelize(parallel_type);
+    } else if constexpr (std::is_same_v<IN, ValGroupAndItsGraph>) {
+      for (auto val : *in.group) {
+        auto id = dynamic_cast<IterDomain*>(val);
+        NVF_ERROR(id, "Can not parallelize non-IterDomain in ValGroup.");
+        id->parallelize(parallel_type);
+      }
+    } else if constexpr (std::is_same_v<IN, std::vector<AbstractId>>) {
+      for (auto& aid : in) {
+        AbstractId::dispatch((*this), parallel_type, aid);
+      }
+    } else {
+      NVF_CHECK(false, "Unsupported type in AbstractTensor::parallelize");
+    }
+  }
+};
+
+} // namespace
+
+AbstractTensor& AbstractTensor::parallelize(
+    int64_t axis,
+    ParallelType parallel_type) {
+  axis = wrapDim(axis, (int64_t)domain.size());
+  AbstractId::dispatch(DispatchParallelize{}, parallel_type, domain[axis]);
+  return *this;
+}
+
 AbstractTensor AbstractTensor::zip(std::vector<AbstractTensor> tensors) {
   NVF_CHECK(!tensors.empty(), "Can not stack an empty list of AbstractTensor");
 

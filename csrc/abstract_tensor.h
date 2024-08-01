@@ -9,6 +9,7 @@
 
 #include <ir/builder.h>
 #include <ir/internal_base_nodes.h>
+#include <type.h>
 #include <val_graph.h>
 
 #ifndef DYNAMIC_TYPE_CHECK
@@ -276,6 +277,8 @@ struct AbstractTensor {
   bool operator!=(T&& t) const {
     return !operator==(std::forward<T>(t));
   }
+
+  AbstractTensor& parallelize(int64_t axis, ParallelType parallel_type);
 
   AbstractTensor& split(int64_t axis, Val* factor, bool inner_split = true);
   AbstractTensor& split(int64_t axis, int64_t factor, bool inner_split = true);
