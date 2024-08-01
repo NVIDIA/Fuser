@@ -67,8 +67,6 @@ class FusionState {
   NVF_API void addInput(Val* input);
   //! Adds a Tensor/Scalar output to the Fusion object
   NVF_API void addOutput(Val* output);
-  //! Adds a Tensor/Scalar output to the Fusion object
-  void addOutput(Val* output, const std::vector<int64_t>& permutation);
   //! Alias an Output to Input in the Fusion object
   NVF_API void aliasOutputToInput(Val* output, Val* input);
 

@@ -102,8 +102,7 @@ TEST_P(HostIrTest, SingleFusion) {
   auto hic = std::make_unique<HostIrContainer>();
   FusionGuard::setCurFusion(hic.get());
   // [Step 3)] Create a HostUnit Ir holding the created fusion
-  auto host_unit =
-      IrBuilder::createInContainer<HostUnit>(hic.get(), std::move(fusion));
+  auto host_unit = IrBuilder::create<HostUnit>(std::move(fusion));
 
   // [Step 4)] Create TensorViews representing the Fusion's I/O at the Host
   // level
@@ -115,8 +114,8 @@ TEST_P(HostIrTest, SingleFusion) {
 
   // [Step 5)] Create a PostOnStream Ir representing executing the Fusion with
   // given I/O
-  auto post_on_stream = IrBuilder::createInContainer<PostOnStream>(
-      hic.get(), host_unit, post_on_stream_inputs, post_on_stream_outputs);
+  auto post_on_stream = IrBuilder::create<PostOnStream>(
+      host_unit, post_on_stream_inputs, post_on_stream_outputs);
 
   // [Step 6)] Define the Host program by adding PostOnStream to the container's
   // top level expression
@@ -183,10 +182,10 @@ TEST_P(HostIrTest, TwoFusions) {
   FusionGuard::setCurFusion(hic.get());
 
   // [Step 3)] Create two HostUnit Irs holding the fusions
-  auto host_unit_0 = IrBuilder::createInContainer<HostUnit>(
-      hic.get(), std::make_unique<Fusion>(fusion_0));
-  auto host_unit_1 = IrBuilder::createInContainer<HostUnit>(
-      hic.get(), std::make_unique<Fusion>(fusion_1));
+  auto host_unit_0 =
+      IrBuilder::create<HostUnit>(std::make_unique<Fusion>(fusion_0));
+  auto host_unit_1 =
+      IrBuilder::create<HostUnit>(std::make_unique<Fusion>(fusion_1));
 
   // [Step 4)a.] Create TensorViews representing the first Fusions I/O at the
   // Host level
@@ -197,8 +196,7 @@ TEST_P(HostIrTest, TwoFusions) {
       ir_cloner.clone(host_unit_0->fusion_to_execute()->outputs().at(0))};
   // [Step 5)a.] Create a PostOnStream Ir representing executing the first
   // Fusion with given I/O
-  auto post_on_stream_0 = IrBuilder::createInContainer<PostOnStream>(
-      hic.get(),
+  auto post_on_stream_0 = IrBuilder::create<PostOnStream>(
       host_unit_0,
       std::move(post_on_stream_inputs_0),
       post_on_stream_outputs_0);
@@ -210,8 +208,7 @@ TEST_P(HostIrTest, TwoFusions) {
       ir_cloner.clone(host_unit_1->fusion_to_execute()->outputs().at(0))};
   // [Step 5)b.] Create a PostOnStream Ir representing executing the second
   // Fusion with given I/O
-  auto post_on_stream_1 = IrBuilder::createInContainer<PostOnStream>(
-      hic.get(),
+  auto post_on_stream_1 = IrBuilder::create<PostOnStream>(
       host_unit_1,
       std::move(post_on_stream_inputs_1),
       post_on_stream_outputs_1);
@@ -288,12 +285,12 @@ TEST_P(HostIrTest, ThreeFusions) {
   auto hic = std::make_unique<HostIrContainer>();
   FusionGuard::setCurFusion(hic.get());
   // [Step 3)] Create HostUnit Irs holding the fusions
-  auto host_unit_0 = IrBuilder::createInContainer<HostUnit>(
-      hic.get(), std::make_unique<Fusion>(fusion_0));
-  auto host_unit_1 = IrBuilder::createInContainer<HostUnit>(
-      hic.get(), std::make_unique<Fusion>(fusion_1));
-  auto host_unit_2 = IrBuilder::createInContainer<HostUnit>(
-      hic.get(), std::make_unique<Fusion>(fusion_2));
+  auto host_unit_0 =
+      IrBuilder::create<HostUnit>(std::make_unique<Fusion>(fusion_0));
+  auto host_unit_1 =
+      IrBuilder::create<HostUnit>(std::make_unique<Fusion>(fusion_1));
+  auto host_unit_2 =
+      IrBuilder::create<HostUnit>(std::make_unique<Fusion>(fusion_2));
 
   // [Step 4)a.] Create TensorViews representing the first Fusions I/O at the
   // Host level
@@ -309,8 +306,7 @@ TEST_P(HostIrTest, ThreeFusions) {
   std::vector<Val*> post_on_stream_outputs_0 = clone({tv1_0, tv2_0});
   // [Step 5)a.] Create a PostOnStream Ir representing executing the first
   // Fusion with given I/O
-  auto post_on_stream_0 = IrBuilder::createInContainer<PostOnStream>(
-      hic.get(),
+  auto post_on_stream_0 = IrBuilder::create<PostOnStream>(
       host_unit_0,
       std::move(post_on_stream_inputs_0),
       post_on_stream_outputs_0);
@@ -321,8 +317,7 @@ TEST_P(HostIrTest, ThreeFusions) {
   std::vector<Val*> post_on_stream_outputs_1 = clone({tv2_1});
   // [Step 5)b.] Create a PostOnStream Ir representing executing the first
   // Fusion with given I/O
-  auto post_on_stream_1 = IrBuilder::createInContainer<PostOnStream>(
-      hic.get(),
+  auto post_on_stream_1 = IrBuilder::create<PostOnStream>(
       host_unit_1,
       std::move(post_on_stream_inputs_1),
       post_on_stream_outputs_1);
@@ -334,8 +329,7 @@ TEST_P(HostIrTest, ThreeFusions) {
   std::vector<Val*> post_on_stream_outputs_2 = clone({tv2_2});
   // [Step 5)c.] Create a PostOnStream Ir representing executing the first
   // Fusion with given I/O
-  auto post_on_stream_2 = IrBuilder::createInContainer<PostOnStream>(
-      hic.get(),
+  auto post_on_stream_2 = IrBuilder::create<PostOnStream>(
       host_unit_2,
       std::move(post_on_stream_inputs_2),
       post_on_stream_outputs_2);
@@ -479,9 +473,9 @@ using StreamTest = NVFuserTest;
 // the host program
 TEST_F(StreamTest, HostIrSetStream) {
   auto hic = std::make_unique<HostIrContainer>();
-  auto stream = IrBuilder::createInContainer<Stream>(hic.get());
-  auto set_stream =
-      IrBuilder::createInContainer<SetCurrentStream>(hic.get(), stream);
+  FusionGuard fg(hic.get());
+  auto stream = IrBuilder::create<Stream>();
+  auto set_stream = IrBuilder::create<SetCurrentStream>(stream);
   hic->pushBackTopLevelExprs(set_stream);
 
   HostIrExecutor hie(std::move(hic));
@@ -496,14 +490,14 @@ TEST_F(StreamTest, HostIrSetStream) {
 TEST_F(StreamTest, HostIrDefaultStream) {
   auto change_stream = [](bool use_default_stream) {
     auto hic = std::make_unique<HostIrContainer>();
+    FusionGuard fg(hic.get());
     Stream* stream;
     if (use_default_stream) {
       stream = hic->getDefaultStream();
     } else {
-      stream = IrBuilder::createInContainer<Stream>(hic.get());
+      stream = IrBuilder::create<Stream>();
     }
-    auto set_stream =
-        IrBuilder::createInContainer<SetCurrentStream>(hic.get(), stream);
+    auto set_stream = IrBuilder::create<SetCurrentStream>(stream);
     hic->pushBackTopLevelExprs(set_stream);
     HostIrExecutor hie(std::move(hic));
     hie.runWithInput({});
@@ -516,6 +510,58 @@ TEST_F(StreamTest, HostIrDefaultStream) {
   change_stream(/*use_default_stream=*/true);
   EXPECT_EQ(
       c10::cuda::getDefaultCUDAStream(0), c10::cuda::getCurrentCUDAStream(0));
+}
+
+TEST_F(StreamTest, ByIndex) {
+  constexpr int64_t kStreamIndex1 = 2;
+  constexpr int64_t kStreamIndex2 = 3;
+  static_assert(kStreamIndex1 != kStreamIndex2);
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+  auto stream1 =
+      IrBuilder::create<Stream>(IrBuilder::create<Val>(kStreamIndex1));
+  auto stream1_prime =
+      IrBuilder::create<Stream>(IrBuilder::create<Val>(kStreamIndex1));
+  auto stream2 =
+      IrBuilder::create<Stream>(IrBuilder::create<Val>(kStreamIndex2));
+
+  hic->pushBackTopLevelExprs(IrBuilder::create<SetCurrentStream>(stream1));
+  hic->pushBackTopLevelExprs(
+      IrBuilder::create<SetCurrentStream>(stream1_prime));
+  hic->pushBackTopLevelExprs(IrBuilder::create<SetCurrentStream>(stream2));
+
+  HostIrExecutor hie(std::move(hic));
+  hie.runWithInput({});
+
+  const std::unordered_map<
+      std::variant<int64_t, Stream*>,
+      c10::cuda::CUDAStream>& streams = hie.getCudaStreams();
+  // This stream hashtable should contain the default stream and only rwo extra
+  // streams, cached with the integer index "2" and "3" as keys
+  EXPECT_EQ(streams.size(), 3);
+  for (auto it : streams) {
+    auto key = it.first;
+    if (std::holds_alternative<int64_t>(key)) {
+      EXPECT_NE(streams.at(key), c10::cuda::getDefaultCUDAStream(0))
+          << "newly created stream should not coincide with default stream";
+      auto index = std::get<int64_t>(key);
+      if (index == kStreamIndex1) {
+        EXPECT_NE(streams.at(key), c10::cuda::getCurrentCUDAStream(0))
+            << "Stream " << index << " should not be the current active stream";
+      } else if (index == kStreamIndex2) {
+        EXPECT_EQ(streams.at(key), c10::cuda::getCurrentCUDAStream(0))
+            << "Stream " << index << " should be the current active stream";
+      } else {
+        FAIL() << "stream's index " << index << "should be " << kStreamIndex1
+               << " or " << kStreamIndex2;
+      }
+    } else if (std::holds_alternative<Stream*>(key)) {
+      EXPECT_EQ(streams.at(key), c10::cuda::getDefaultCUDAStream(0));
+    } else {
+      FAIL() << "stream key of unsupported type";
+    }
+  }
 }
 
 using StreamHostIrTestParams = std::tuple<bool, int, int>;
@@ -547,12 +593,11 @@ TEST_P(StreamHostIrTest, SingleFusionMultipleStreams) {
   // Create N different Streams
   std::vector<Stream*> streams;
   for (int i = 0; i < n_streams; i++) {
-    streams.push_back(IrBuilder::createInContainer<Stream>(hic.get()));
+    streams.push_back(IrBuilder::create<Stream>());
   }
 
   // [Step 3)] Create a HostUnit Ir holding the created fusion
-  auto host_unit =
-      IrBuilder::createInContainer<HostUnit>(hic.get(), std::move(fusion));
+  auto host_unit = IrBuilder::create<HostUnit>(std::move(fusion));
 
   // [Step 4)] Create TensorViews representing the Fusion's inputs at the Host
   // level
@@ -570,12 +615,12 @@ TEST_P(StreamHostIrTest, SingleFusionMultipleStreams) {
 
     // [Step 5)] Create a PostOnStream Ir representing executing the Fusion with
     // given I/O
-    auto post_on_stream = IrBuilder::createInContainer<PostOnStream>(
-        hic.get(), host_unit, post_on_stream_inputs, post_on_stream_outputs);
+    auto post_on_stream = IrBuilder::create<PostOnStream>(
+        host_unit, post_on_stream_inputs, post_on_stream_outputs);
 
     // Set the Stream
-    auto set_stream = IrBuilder::createInContainer<SetCurrentStream>(
-        hic.get(), streams[i % streams.size()]);
+    auto set_stream =
+        IrBuilder::create<SetCurrentStream>(streams[i % streams.size()]);
 
     // [Step 6)] Define the Host program by adding PostOnStream to the
     // container's top level expression

@@ -65,6 +65,25 @@ class OrderedIdInformation : public OptInDispatch {
 
   void handle(Resize* resize) override;
 
+  auto findActiveId(IterDomain* id) const {
+    return std::find(active_ids_.begin(), active_ids_.end(), id);
+  }
+
+  bool isActiveId(IterDomain* id) const {
+    return findActiveId(id) != active_ids_.end();
+  }
+
+  int64_t getActiveIdPos(IterDomain* id) const {
+    auto it = findActiveId(id);
+    NVF_ERROR(it != active_ids_.end());
+    return std::distance(active_ids_.begin(), it);
+  }
+
+  auto findAllocIDs(IterDomain* id) const {
+    return id_to_alloc_ids_.find(id);
+  }
+
+ private:
   // Track which allocation ids were used to generate each iter domain
   std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>>
       id_to_alloc_ids_;

@@ -85,6 +85,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/contiguity.cpp
   ${NVFUSER_SRCS_DIR}/debug.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/bank_conflict.cpp
+  ${NVFUSER_SRCS_DIR}/device_lower/analysis/circular_buffer.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/device_version.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/divisible_split.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/fused_reduction.cpp
@@ -236,6 +237,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/utils.cpp
   ${NVFUSER_SRCS_DIR}/val_graph.cpp
   ${NVFUSER_SRCS_DIR}/val_graph_visitor.cpp
+  ${NVFUSER_SRCS_DIR}/validator_utils.cpp
 )
 
 # We don't link CUPTI for MSVC
@@ -511,7 +513,6 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_exceptions.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_expr_simplifier.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_expr_sort.cpp
-  ${NVFUSER_ROOT}/tests/cpp/test_gather.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu1.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu2.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu3.cpp
@@ -542,6 +543,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_resize.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_reduction_pointwise.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_scalar_hoisting.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_scatter_gather.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_sdpa_node.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_segmentation.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_serial_gridreduce.cpp
@@ -563,7 +565,10 @@ if(BUILD_TEST)
 endif()
 
 function(add_test_without_main TEST_NAME TEST_SRC ADDITIONAL_LINK)
-  list(APPEND TEST_SRC ${NVFUSER_ROOT}/tests/cpp/utils.cpp)
+  list(APPEND TEST_SRC
+    ${NVFUSER_ROOT}/tests/cpp/utils.cpp
+    ${NVFUSER_ROOT}/tests/cpp/validator.cpp
+  )
   add_executable(${TEST_NAME} ${TEST_SRC})
   set_property(TARGET ${TEST_NAME} PROPERTY CXX_STANDARD ${NVFUSER_CPP_STANDARD})
   target_compile_definitions(${TEST_NAME} PRIVATE USE_GTEST)
@@ -620,13 +625,21 @@ if(BUILD_TEST)
   add_test_without_main(test_multidevice "${MULTIDEVICE_TEST_SRCS}" "")
   list(APPEND TEST_BINARIES test_multidevice)
 
+  set(MULTIDEVICE_TUTORIAL_SRCS)
+  list(APPEND MULTIDEVICE_TUTORIAL_SRCS
+    ${NVFUSER_ROOT}/tests/cpp/multidevice.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_multidevice_tutorial.cpp
+  )
+  add_test_without_main(tutorial_multidevice "${MULTIDEVICE_TUTORIAL_SRCS}" "")
+  list(APPEND TEST_BINARIES tutorial_multidevice)
+
   add_test(test_view "${NVFUSER_ROOT}/tests/cpp/test_gpu_view.cpp" "")
   list(APPEND TEST_BINARIES test_view)
 
   set(MATMUL_TEST_SRCS)
   list(APPEND MATMUL_TEST_SRCS
     ${NVFUSER_ROOT}/tests/cpp/test_translate_mma.cpp
-    ${NVFUSER_ROOT}/tests/cpp/test_gpu_tensorcore.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_matmul.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_matmul_aten_evaluation.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_matmul_sass.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_matmul_scheduler.cpp

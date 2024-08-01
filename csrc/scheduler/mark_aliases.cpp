@@ -25,31 +25,29 @@ void markAliases(Fusion* fusion) {
     fusion->printMath();
   }
 
-  const AliasAnalysisResult analysis = findAliases(
-      fusion,
-      /*can_override_empty_allocation_domain=*/false,
-      /*may_alias_intermediate=*/false);
+  const AliasAnalysisResult analysis =
+      findAliases(fusion, /*can_override_empty_allocation_domain=*/false);
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerVerbose)) {
     vlog("Alias analysis result:\n", analysis.toString(/*indent_size=*/1));
   }
 
-  for (TensorView* out :
-       ir_utils::filterByType<TensorView>(fusion->outputs())) {
-    if (fusion->getOutputAlias(out).type != AllocationType::New) {
+  for (auto* out : ir_utils::filterByType<TensorView>(fusion->outputs())) {
+    // AllocationType::ReuseBuffer requires the output to be updated in place
+    // so it can't be computed as an alias.
+    if (fusion->getOutputAlias(out).type == AllocationType::ReuseBuffer) {
       continue;
     }
 
-    TensorView* aliased_io = analysis.getNearestAliasedIo(out);
-    if (aliased_io == nullptr) {
-      continue;
+    if (TensorView* aliased_io = analysis.getRoot(out)) {
+      if (aliased_io->isFusionInput() || aliased_io->isFusionOutput()) {
+        fusion->aliasOutputToInput(out, aliased_io, AllocationType::Evaluate);
+        vlog(
+            "Marked ",
+            ir_utils::varName(out),
+            " as an alias of ",
+            ir_utils::varName(aliased_io));
+      }
     }
-
-    fusion->aliasOutputToInput(out, aliased_io, AllocationType::Evaluate);
-    vlog(
-        "Marked ",
-        ir_utils::varName(out),
-        " as an alias of ",
-        ir_utils::varName(aliased_io));
   }
 }
 

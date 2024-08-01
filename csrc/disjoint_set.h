@@ -248,11 +248,11 @@ class VectorOfUniqueEntries {
   }
 
   auto rbegin() {
-    return vector_.begin();
+    return vector_.rbegin();
   }
 
   auto rend() {
-    return vector_.end();
+    return vector_.rend();
   }
 
   T& at(int64_t pos) {

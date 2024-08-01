@@ -210,8 +210,38 @@ class AllocationDomainSetup : private kir::IrVisitor {
     }
 
     if (use_set_allocation_domain) {
-      allocation_domains = tv->getAllocationDomain();
-      contiguity = tv->domain()->contiguity();
+      if (tv->getMemoryType() == MemoryType::Global) {
+        // For global memory tensors we always allocate the entire tensor
+        // TODO: do we really want to treat global memory tensors differently?
+        // need to think about this more.
+        allocation_domains = tv->getAllocationDomain();
+        contiguity = tv->domain()->contiguity();
+      } else {
+        std::unordered_set<IterDomain*> exclude_ids;
+        for (auto i : c10::irange(tv->getComputeAtPosition())) {
+          auto ca_id = tv->axis(i);
+          if (!ir_utils::isMemorySharedAcross(
+                  tv->getMemoryType(), ca_id->getParallelType())) {
+            exclude_ids.insert(ca_id);
+          }
+        }
+        for (auto i : c10::irange(tv->getAllocationDomain().size())) {
+          auto id = tv->getAllocationDomain()[i];
+          if (exclude_ids.find(id) == exclude_ids.end()) {
+            allocation_domains.push_back(id);
+            contiguity.push_back(tv->domain()->contiguity()[i]);
+          } else {
+            exclude_ids.erase(id);
+          }
+        }
+        NVF_ERROR(
+            exclude_ids.empty(),
+            "The non-allocating compute-at IDs are not found in the allocation domain. ",
+            "It is unclear how to allocate the tensor: ",
+            tv->toString(),
+            " allocation domain: ",
+            ir_utils::toString(tv->getAllocationDomain()));
+      }
     } else {
       // If allocation domain is not set, assume that:
       // - Global: logical domains
@@ -938,11 +968,43 @@ IndexingInfo TensorIndexer::computeIndex(
 
   IdGraphIndexCompute index_compute(traversalGraph(), initial_index_map);
 
-  for (const auto& [expr_group, direction] : traversal_path) {
-    index_compute.propagate(expr_group, direction);
+  // In addition to indices themselves, keep track of the
+  // dependency from each domain to loop domains. This dependency is
+  // represented as a map from ValGroup of the traversal graph to
+  // ValGroup of the LOOP graph.
+  std::unordered_map<ValGroup, ValGroups> loop_group_dependencies;
+
+  // Initialize the loop dependency mappings
+  for (const auto& loop_domain : loop_domains) {
+    const auto& traversal_graph_group = traversalGraph().toGroup(loop_domain);
+    const auto& loop_graph_group =
+        id_model_.idGraph(IdMappingMode::LOOP).toGroup(loop_domain);
+    loop_group_dependencies[traversal_graph_group].pushBack(loop_graph_group);
   }
 
-  IndexingInfo info{loop_domains, traversal_path, index_compute.indexMap()};
+  for (const auto& [expr_group, direction] : traversal_path) {
+    index_compute.propagate(expr_group, direction);
+
+    // Propagate loop dependencies from inputs to outputs
+    const auto input_groups = direction == Direction::Forward
+        ? traversalGraph().inputGroups(expr_group)
+        : traversalGraph().outputGroups(expr_group);
+    const auto output_groups = direction == Direction::Forward
+        ? traversalGraph().outputGroups(expr_group)
+        : traversalGraph().inputGroups(expr_group);
+    for (const auto& output : output_groups) {
+      for (const auto& input : input_groups) {
+        const auto& input_loop_groups = loop_group_dependencies.at(input);
+        loop_group_dependencies[output].pushBack(input_loop_groups);
+      }
+    }
+  }
+
+  IndexingInfo info{
+      loop_domains,
+      traversal_path,
+      index_compute.indexMap(),
+      loop_group_dependencies};
   return info;
 }
 
@@ -1028,6 +1090,7 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
           for_loops,
           index_map,
           traversalGraph(),
+          index_info.traversal_path,
           id_model_,
           /*is_start_predicate=*/true,
           /*unswitched_loop=*/unswitched_loop);
@@ -1038,16 +1101,25 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
           for_loops,
           index_map,
           traversalGraph(),
+          index_info.traversal_path,
           id_model_,
           /*is_start_predicate=*/false,
           /*unswitched_loop=*/unswitched_loop);
+
+  const std::vector<PredicateDomainInfo> non_divisible_split_predicates =
+      getNonDivisibleConsumerDomainsToPredicate(tv);
+
+  const CircularBufferLoopStage loop_stage = getCircularBufferLoopStage(
+      tv, for_loops, id_model_.idGraph(IdMappingMode::LOOP));
 
   std::vector<PredicateInfo> info_vec;
   info_vec.reserve(predicate_domains.size());
 
   // Follow the same approach as Index::getReferenceRootPredicates.
   for (const auto& predicate_domain : predicate_domains) {
-    auto idx_it = index_map.find(traversalGraph().toGroup(predicate_domain));
+    const auto& predicate_domain_group =
+        traversalGraph().toGroup(predicate_domain);
+    auto idx_it = index_map.find(predicate_domain_group);
     NVF_ERROR(
         idx_it != index_map.end(),
         "Index not found for ",
@@ -1069,6 +1141,7 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
     NVF_ERROR(!predicate_domain->maybePartial());
     info.start_offset_ = tv->fusion()->zeroVal();
     info.stop_offset_ = tv->fusion()->zeroVal();
+    info.loop_stage_ = loop_stage;
 
     info.start_predicate_ = SimplifyingIrBuilder::geExpr(
         SimplifyingIrBuilder::addExpr(start_idx, info.start_offset_), zero_val);
@@ -1079,7 +1152,65 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
 
     info.predicated_domains_ = {predicate_domain};
 
+    // Set the used loop ID groups for this predicated domain
+    const ValGroups& loop_deps =
+        index_info.loop_group_dependencies.at(predicate_domain_group);
+    for (const auto& loop_dep : loop_deps) {
+      info.loop_domains_.insert(loop_dep->front()->as<IterDomain>());
+    }
+
     info_vec.emplace_back(info);
+  }
+
+  // Add predicates for non-divisible splits.
+  // If this is a reduction init expr, then no need to take care of
+  // non divisible splits
+  if (!lower_utils::isReductionInitExpr(expr)) {
+    for (const auto& [eg, direction] : index_info.traversal_path) {
+      // NOTE: Fundamentally, the problem of non divisiblity should be
+      // checked while traversing the indexing path. Currently, it uses
+      // the information gathered in a tensor-by-tensor basis. This
+      // should be fine currently, but may not work if, e.g., the
+      // indexing path involved both backward and forward traversals.
+      if (!isNonDivisibleSplit(eg)) {
+        continue;
+      }
+
+      NVF_ERROR(eg->front()->isA<Split>());
+      auto split_to_predicate = eg->front()->as<Split>();
+
+      IterDomain* non_divisible_domain = split_to_predicate->in();
+      const auto& non_divisible_domain_group =
+          traversalGraph().toGroup(non_divisible_domain);
+
+      PredicateInfo info;
+      info.loop_stage_ = loop_stage;
+      // The start predicate should always be true
+      info.start_offset_ = zero_val;
+      info.start_predicate_ = non_divisible_domain->fusion()->trueVal();
+
+      info.stop_offset_ = zero_val;
+
+      auto idx_it = index_map.find(non_divisible_domain_group);
+      NVF_ERROR(
+          idx_it != index_map.end(),
+          "Index not found for non-divisible split domain: ",
+          non_divisible_domain->toString());
+
+      auto idx =
+          ir_utils::replaceValRecursively(idx_it->second, replacement_map_stop);
+      info.stop_predicate_ =
+          SimplifyingIrBuilder::ltExpr(idx, non_divisible_domain->extent());
+      info.predicated_domains_ = {non_divisible_domain};
+
+      const ValGroups& loop_deps =
+          index_info.loop_group_dependencies.at(non_divisible_domain_group);
+      for (const auto& loop_dep : loop_deps) {
+        info.loop_domains_.insert(loop_dep->front()->as<IterDomain>());
+      }
+
+      info_vec.emplace_back(info);
+    }
   }
 
   return info_vec;

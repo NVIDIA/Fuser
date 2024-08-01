@@ -347,7 +347,7 @@ TEST_F(PredicateEliminationTest, 8) {
 
   std::vector<int64_t> reduction_axes = {0, 2, 3};
 
-  Val* num_features = IrBuilder::createInContainer<Val>(tv1->container(), 1.0);
+  Val* num_features = IrBuilder::create<Val>(1.0);
   for (const auto dim : reduction_axes) {
     num_features = mul(num_features, tv1->getLoopDomain()[dim]->extent());
   }

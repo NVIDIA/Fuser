@@ -68,6 +68,10 @@ class HostIrExecutor final : public OptInDispatch {
     return fec_;
   };
 
+  const auto& getCudaStreams() {
+    return streams_;
+  }
+
  private:
   using OptInDispatch::handle;
   void handle(SetCurrentStream* set_current_stream) override;
@@ -87,7 +91,8 @@ class HostIrExecutor final : public OptInDispatch {
   // Cache Fusions, FusionExecutors
   std::unordered_map<HostUnit*, FusionExecutor> fe_;
   std::unordered_map<HostUnit*, FusionExecutorCache> fec_;
-  std::unordered_map<Stream*, c10::cuda::CUDAStream> streams_;
+  using StreamKey = std::variant<int64_t, Stream*>;
+  std::unordered_map<StreamKey, c10::cuda::CUDAStream> streams_;
   std::unordered_map<Communication*, c10::intrusive_ptr<c10d::Work>> works_;
 };
 

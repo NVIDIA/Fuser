@@ -66,6 +66,19 @@ class CombineMulSumAsMmaTestWithLayout
   MmaLayout layout;
   void SetUp() override {
     layout = GetParam();
+    // These test are enable for Turing and newer. Temporarily
+    // we are skipping Hopper since the matmul for it is under development.
+    auto lower_major = 8;
+    auto lower_minor = 0;
+    auto upper_major = 9;
+    auto upper_minor = 0;
+    if (cudaArchGuardShouldSkip(
+            lower_major, lower_minor, upper_major, upper_minor)) {
+      GTEST_SKIP() << "CombineMulSumAsMmaTest skipped "
+                   << "Requires GPU capability between  " << lower_major << "."
+                   << lower_minor << "and " << upper_major << "." << upper_minor
+                   << " to run.\n";
+    }
     NVFuserTest::SetUp();
   }
 };

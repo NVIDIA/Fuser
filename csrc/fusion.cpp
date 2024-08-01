@@ -58,8 +58,6 @@ void swap(Fusion& a, Fusion& b) noexcept {
   swap(a.outputs_, b.outputs_);
 
   swap(a.io_alias_, b.io_alias_);
-  swap(a.permuted_input_map_, b.permuted_input_map_);
-  swap(a.permuted_output_map_, b.permuted_output_map_);
 }
 
 std::unique_ptr<SegmentedFusion> Fusion::segment(
@@ -95,9 +93,6 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
         .aliased_io = copied_input,
         .hide_output = alias_info.hide_output};
   }
-
-  to->permuted_input_map_ = from->permuted_input_map_;
-  to->permuted_output_map_ = from->permuted_output_map_;
 
   to->all_tv_uses_valid_ = from->all_tv_uses_valid_;
   // This should never be true on copy, but copying for completeness.
@@ -170,8 +165,6 @@ void Fusion::clear() noexcept {
 
   io_alias_.clear();
 
-  permuted_input_map_.clear();
-  permuted_output_map_.clear();
   managed_data_.clear();
   managed_named_data_.clear();
 

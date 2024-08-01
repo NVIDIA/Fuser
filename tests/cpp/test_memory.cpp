@@ -456,7 +456,7 @@ TEST_P(TMASimpleLdstTest, Load) {
 
   scheduleTile({tv1, tv2}, tile, swizzle);
   tv1->setAllocationDomain(tv1->getLoopDomain(), true);
-  mma_utils::WarpMmaSwizzler::parallelizeAsBulkSkippingFirstIDs(
+  mma_utils::MmaSwizzler::parallelizeAsBulkSkippingFirstIDs(
       tv1, 1 /* skip the first ID*/);
   parallelizeAllDimsExceptFirstAsTIDx(tv2);
 
@@ -527,7 +527,7 @@ TEST_P(TMALoadTestWithABroadcastDim, LoadWithBroadcast) {
     tv1->swizzleTMABox(swizzle);
     tv2->swizzleTMABox(swizzle);
   }
-  mma_utils::WarpMmaSwizzler::parallelizeAsBulkSkippingFirstIDs(
+  mma_utils::MmaSwizzler::parallelizeAsBulkSkippingFirstIDs(
       tv1, 3 /* skip the first three IDs*/);
 
   tv1->setAllocationDomain(tv1->getLoopDomain(), true);
@@ -577,7 +577,7 @@ TEST_P(TMASimpleLdstTest, Store) {
 
   scheduleTile({tv1, tv2}, tile, swizzle);
   tv1->setAllocationDomain(tv1->getLoopDomain(), true);
-  mma_utils::WarpMmaSwizzler::parallelizeAsBulkSkippingFirstIDs(tv2, 1);
+  mma_utils::MmaSwizzler::parallelizeAsBulkSkippingFirstIDs(tv2, 1);
   parallelizeAllDimsExceptFirstAsTIDx(tv1);
 
   auto options =
@@ -1115,7 +1115,7 @@ TEST_F(TMAIndexingTest, NonTrivialGmemAllocationDomain1) {
   tv0->setAllocationDomain(tv0->getLoopDomain(), true);
   scheduleTile({tv1, tv2}, {128, items_of_32_bytes}, MmaInputSmemSwizzle::B32);
   tv1->setAllocationDomain(tv1->getLoopDomain(), true);
-  mma_utils::WarpMmaSwizzler::parallelizeAsBulkSkippingFirstIDs(
+  mma_utils::MmaSwizzler::parallelizeAsBulkSkippingFirstIDs(
       tv1, 1 /* skip the first ID*/);
   parallelizeAllDimsExceptFirstAsTIDx(tv2);
 

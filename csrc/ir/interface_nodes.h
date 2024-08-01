@@ -282,8 +282,9 @@ class NVF_API TensorView : public Val {
       int64_t position,
       ComputeAtMode mode = ComputeAtMode::Standard);
 
-  //! Create a new broadcast IterDomain with extent one in the loop domain
-  TensorView* broadcast(int64_t axis);
+  //! Create a new broadcast IterDomain with the given extent in the loop domain
+  TensorView* broadcast(int64_t axis, int64_t extent = 1);
+  TensorView* broadcast(int64_t axis, Val* extent);
 
   // Split "axis" into 2 axes
   //! inner_split dictates if the factor section of the split should be inside
@@ -408,7 +409,7 @@ class NVF_API TensorView : public Val {
   //!  this should be used on the tvs that are either inputs/outputs of an
   //!  MmaOp, or any tv's that are involved in prolog/epilog fusions and need to
   //!  have a matching thread swizzle with the mma operand/result.
-  //! More detail on usage see [WarpMmaSwizzler] in scheduler/mma_utils.h .
+  //! More detail on usage see [MmaSwizzler] in scheduler/mma_utils.h .
   void applyMmaSwizzle(MmaOperand operand);
   void applyMmaSwizzle(MmaInputSmemSwizzle swizzle);
 

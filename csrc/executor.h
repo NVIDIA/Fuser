@@ -59,18 +59,6 @@ class FusionExecutor : public NonCopyable {
   // NVF_API was added for nvfuser_extension. See examples/sinh_extension.
   NVF_API FusionExecutor();
 
-  // Unsafe compilation that's useful for debugging kernels, iterating over
-  // slight modifications of a generated kernel
-  void debugCompileFusionFromStr(
-      Fusion* fusion,
-      const std::string& code,
-      const std::string& name,
-      int64_t fusion_id,
-      int64_t concrete_id,
-      int64_t runtime_id,
-      int64_t group_id,
-      CompileOptions options = CompileOptions());
-
   //! This function is useful for parallel compilation of segmented fusions.
   //! It returns non-allocated KernelArgumentHolder, representing the output
   //! sizes from kernel execution.

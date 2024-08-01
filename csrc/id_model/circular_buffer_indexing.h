@@ -47,4 +47,10 @@ Val* getOffsetForCircularBufferTensor(
     bool as_consumer,
     const std::vector<ForLoop*>& for_loops);
 
+// Find the circular buffering stage of a given circular buffered tensor
+CircularBufferLoopStage getCircularBufferLoopStage(
+    const TensorView* circular_buffer_tv,
+    const std::vector<ForLoop*>& for_loops,
+    const ValGraph& loop_graph);
+
 } // namespace nvfuser

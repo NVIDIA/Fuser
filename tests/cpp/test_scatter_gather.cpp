@@ -5,10 +5,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <csrc/exceptions.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
+#include <torch/torch.h>
+
+#include <exceptions.h>
 #include <executor.h>
 #include <inlining.h>
 #include <ir/all_nodes.h>
@@ -16,11 +18,8 @@
 #include <kernel_cache.h>
 #include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>
-
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
-
-#include <torch/torch.h>
 
 namespace nvfuser {
 
@@ -1123,7 +1122,10 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorTranspose3) {
   auto tv3 = broadcast(tv1, {true, false, false});
   auto tv4 = take_along_axis(tv2, tv3, 2);
   auto tv5 = transpose(tv4, 1, 2);
-  fusion.addOutput(tv5);
+  // Without the `add`, the transpose will be taken by NoOp, defeating the
+  // purpose of testing PointWise.
+  auto tv6 = add(tv5, tv5);
+  fusion.addOutput(tv6);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
