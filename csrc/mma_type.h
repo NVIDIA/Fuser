@@ -210,7 +210,7 @@ enum class MmaLayout { NT = 0, TT, TN, NN };
 enum class UnitDim { K, M_or_N };
 
 //! Utility to annotate which input of mma this option struct describes
-enum class MmaOperand { Accumulator = 0, A, B };
+enum class MmaOperand { A, B };
 
 //! GPU arch check for macro type
 inline bool isTuring(MmaMacro macro) {
