@@ -625,6 +625,14 @@ if(BUILD_TEST)
   add_test_without_main(test_multidevice "${MULTIDEVICE_TEST_SRCS}" "")
   list(APPEND TEST_BINARIES test_multidevice)
 
+  set(MULTIDEVICE_TUTORIAL_SRCS)
+  list(APPEND MULTIDEVICE_TUTORIAL_SRCS
+    ${NVFUSER_ROOT}/tests/cpp/multidevice.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_multidevice_tutorial.cpp
+  )
+  add_test_without_main(tutorial_multidevice "${MULTIDEVICE_TUTORIAL_SRCS}" "")
+  list(APPEND TEST_BINARIES tutorial_multidevice)
+
   add_test(test_view "${NVFUSER_ROOT}/tests/cpp/test_gpu_view.cpp" "")
   list(APPEND TEST_BINARIES test_view)
 
