@@ -48,10 +48,6 @@ class DeviceMesh final {
     return static_cast<int64_t>(vector_.size());
   }
 
-  bool empty() const {
-    return vector_.empty();
-  }
-
   // Returns a vector containing the device indices of the mesh
   const std::vector<DeviceIdxType>& vector() const {
     return vector_;

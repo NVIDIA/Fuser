@@ -418,9 +418,8 @@ TensorView* newOutputTV(const std::vector<Val*>& vals, DataType dtype) {
   // Find the first input that has a mesh. This seems arbitrary, but is at this
   // moment safest because it's consistent with PropagateShardingsPass.
   for (auto* tv : ir_utils::filterByType<TensorView>(vals)) {
-    const DeviceMesh& mesh = tv->getDeviceMesh();
-    if (!mesh.empty()) {
-      new_mesh = mesh;
+    if (tv->hasDeviceMesh()) {
+      new_mesh = tv->getDeviceMesh();
       break;
     }
   }
