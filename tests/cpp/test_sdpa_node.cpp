@@ -55,8 +55,8 @@ auto validateSdpaFwdOutputs = [](std::vector<at::Tensor> nvf_out,
        philox_seed,
        philox_offset,
        debug_attn_mask] = aten_out;
-  // nvf_out = {attn, log_sumexp, philox_seed, philox_offset}. 
-  // Since, dropout_p = 0.0 to validate outputs, 
+  // nvf_out = {attn, log_sumexp, philox_seed, philox_offset}.
+  // Since, dropout_p = 0.0 to validate outputs,
   // philox_seed and philox_offset are uninitialized empty tensors with
   // garbage values for this case, so we skip validating those values.
   EXPECT_TRUE(at::allclose(nvf_out[0], attn));
@@ -459,14 +459,7 @@ TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
   at::Tensor grad_out = at::randn(attn_shape, options);
 
   std::vector<c10::IValue> sdpa_bwd_inputs = {
-      grad_out,
-      q,
-      k,
-      v,
-      output,
-      log_sumexp,
-      philox_seed,
-      philox_offset};
+      grad_out, q, k, v, output, log_sumexp, philox_seed, philox_offset};
 
   FusionExecutorCache fec(std::move(fusion));
   auto out = fec.runFusionWithInputs(sdpa_bwd_inputs);
@@ -575,14 +568,7 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
   at::Tensor grad_out = at::randn(attn_shape, options);
 
   std::vector<c10::IValue> sdpa_bwd_inputs = {
-      grad_out,
-      q,
-      k,
-      v,
-      output,
-      log_sumexp,
-      philox_seed,
-      philox_offset};
+      grad_out, q, k, v, output, log_sumexp, philox_seed, philox_offset};
 
   FusionExecutorCache fec(std::move(fusion));
   auto out = fec.runFusionWithInputs(sdpa_bwd_inputs);

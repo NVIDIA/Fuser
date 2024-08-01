@@ -4422,13 +4422,10 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
   }
 
   // We ignore cum_seq_q/k outputs since they are undefined tensors for
-  // non-nested tensors. We do not store query/key_seq_len since they can be computed in non-nested tensor directly.
-  // debug_attn_mask is ignored since `return_debug_mask=false`.
-  return {
-      output,
-      log_sumexp,
-      philox_seed,
-      philox_offset};
+  // non-nested tensors. We do not store query/key_seq_len since they can be
+  // computed in non-nested tensor directly. debug_attn_mask is ignored since
+  // `return_debug_mask=false`.
+  return {output, log_sumexp, philox_seed, philox_offset};
 }
 
 std::string Scope::toString(int indent_size) const {

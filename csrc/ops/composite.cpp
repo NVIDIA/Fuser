@@ -452,11 +452,11 @@ SdpfaFwdResult sdpfa_fwd(
   NVF_CHECK(
       !scale || scale->isScalar(), "Expected scale to be a scalar double.");
 
-  // Query: [DIDx(D)?,N,H,L,E], Key: [DIDx(D)?,N,H,S,E], Value: [DIDx(D)?,N,H,S,Ev] Output: [DIDx(D)?,N,H,L,Ev]
-  // N, H are mapped for all inputs to outputs. L is mapped from query to
-  // output. Ev is mapped from value to output. Note: There is no mapping for S,
-  // E. This may change in the future if we add additional reduction ids to the
-  // output.
+  // Query: [DIDx(D)?,N,H,L,E], Key: [DIDx(D)?,N,H,S,E], Value:
+  // [DIDx(D)?,N,H,S,Ev] Output: [DIDx(D)?,N,H,L,Ev] N, H are mapped for all
+  // inputs to outputs. L is mapped from query to output. Ev is mapped from
+  // value to output. Note: There is no mapping for S, E. This may change in the
+  // future if we add additional reduction ids to the output.
   auto ndims_out = query_domain.size();
 
   // TensorView for attention output
@@ -514,11 +514,7 @@ SdpfaFwdResult sdpfa_fwd(
       dropout_p,
       is_causal,
       scale);
-  return {
-      output,
-      log_sumexp,
-      philox_seed,
-      philox_offset};
+  return {output, log_sumexp, philox_seed, philox_offset};
 }
 
 SdpfaBwdResult sdpfa_bwd(
