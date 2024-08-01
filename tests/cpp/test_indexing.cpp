@@ -222,6 +222,30 @@ std::unique_ptr<GpuLower> lowerForPredicateTesting(Fusion* fusion) {
   return lower;
 }
 
+void compareRecursively(Val* x, Val* y) {
+  std::cout << "Checking " << x->toInlineString() << ", " << y->toInlineString()
+            << std::endl;
+  if (x->sameAs(y)) {
+    std::cout << "Same: " << x->toString() << " (" << x->dtype()
+              << ")"
+                 ", "
+              << y->toString() << " (" << y->dtype() << ")" << std::endl;
+  } else if (x->definition() != nullptr) {
+    auto x_def = x->definition();
+    auto y_def = y->definition();
+    NVF_ERROR(y_def != nullptr);
+    NVF_ERROR(x_def->inputs().size() == y_def->inputs().size());
+    for (auto i : c10::irange(x->definition()->inputs().size())) {
+      std::cout << "Checking input " << i << std::endl;
+      compareRecursively(x_def->input(i), y_def->input(i));
+    }
+  } else {
+    std::cout << "Not same: " << x->toString() << " (" << x->dtype() << ") "
+              << ", " << y->toString() << " (" << y->dtype() << ") "
+              << std::endl;
+  }
+}
+
 template <typename GetReference>
 class IndexValidator : public kir::IrVisitor {
  public:
@@ -290,6 +314,9 @@ class IndexValidator : public kir::IrVisitor {
           << (out_ti != nullptr ? "producer" : "consumer")
           << "\nRef: " << ref->toInlineString()
           << "\nActual: " << actual->toInlineString();
+      if (!actual->sameAs(ref)) {
+        compareRecursively(actual, ref);
+      }
       return;
     }
 
@@ -312,8 +339,8 @@ class IndexValidator : public kir::IrVisitor {
       bool enable_contig_indexing,
       Args... args) {
     EnableOptionsGuard enable_options_guard;
-    EnableOptionsGuard::getCurOptions().set(
-        EnableOption::IdModel, {"consumer_index", "producer_index"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    // EnableOption::IdModel, {"consumer_index", "producer_index"});
 
     // Disable simplifications to make the pattern matching of sameAs work
     DisableOptionsGuard disable_options_guard;
@@ -327,9 +354,9 @@ class IndexValidator : public kir::IrVisitor {
 
     kir::Kernel* kernel = nullptr;
     // Suppress warnings due to using dynamic register tensors
-    testing::internal::CaptureStderr();
+    // testing::internal::CaptureStderr();
     kernel = lower.run();
-    std::cerr << testing::internal::GetCapturedStderr();
+    // std::cerr << testing::internal::GetCapturedStderr();
 
     IndexValidator<GetReference> validator(
         lower, GetReference(lower.tensorIndexer(), lower.idModel(), args...));
@@ -418,30 +445,6 @@ class PredicateIndexValidator : public kir::IrVisitor {
     }
 
     // If no ref is obtained, skip validation
-  }
-
-  void compareRecursively(Val* x, Val* y) {
-    std::cout << "Checking " << x->toInlineString() << ", "
-              << y->toInlineString() << std::endl;
-    if (x->sameAs(y)) {
-      std::cout << "Same: " << x->toString() << " (" << x->dtype()
-                << ")"
-                   ", "
-                << y->toString() << " (" << y->dtype() << ")" << std::endl;
-    } else if (x->definition() != nullptr) {
-      auto x_def = x->definition();
-      auto y_def = y->definition();
-      NVF_ERROR(y_def != nullptr);
-      NVF_ERROR(x_def->inputs().size() == y_def->inputs().size());
-      for (auto i : c10::irange(x->definition()->inputs().size())) {
-        std::cout << "Checking input " << i << std::endl;
-        compareRecursively(x_def->input(i), y_def->input(i));
-      }
-    } else {
-      std::cout << "Not same: " << x->toString() << " (" << x->dtype() << ") "
-                << ", " << y->toString() << " (" << y->dtype() << ") "
-                << std::endl;
-    }
   }
 
   void validateOuterPredicate(
@@ -4536,6 +4539,102 @@ TEST_F(IndexingTest, ContigIndexing1) {
   };
 
   IndexValidator<GetReference>::validate(&fusion, true);
+}
+
+TEST_F(IndexingTest, ContigIndexing2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // Innermost dimension is non contiguous but the other two
+  // dimensions are contiguous.
+  auto tv0 = TensorViewBuilder()
+                 .ndims(3)
+                 .dtype(DataType::Float)
+                 .contiguity({true, true, false})
+                 .build();
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  // [I0, I1, I2]
+  tv1->merge(1);
+  // [I0, I1*I2]
+
+  // Since the i1 contig flag is true, the merge is contiguous even
+  // though i2 is not contiguos. The producer index of tv0 should be:
+  // i0 * I0_stride + i1 * I2_stride. The stride of I0 should be
+  // calculated as I2_stride * I2_extent * I1_extent.
+  //
+  // As for tv1, since it's fully contiguous, it should also be i0 *
+  // I0_stride + i1. Here, I0_stride should be I2_extent * I1_extent.
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
+        const override {
+      bool as_consumer = maybe_consumer == nullptr;
+      auto consumer_tv = as_consumer ? tv : maybe_consumer;
+      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      switch (tv->name()) {
+        case 0: {
+          NVF_ERROR(!as_consumer);
+          auto i0_stride = mulExpr(
+              mulExpr(
+                  IrBuilder::getItemExpr(
+                      IrBuilder::getAttrExpr(
+                          IrBuilder::metadataExpr(tv), "alloc_stride"),
+                      IrBuilder::create<Val>(2, DataType::Int)),
+                  tv->getLogicalDomain().at(2)->extent()),
+              tv->getLogicalDomain().at(1)->extent());
+          auto i2_stride = IrBuilder::getItemExpr(
+              IrBuilder::getAttrExpr(
+                  IrBuilder::metadataExpr(tv), "alloc_stride"),
+              IrBuilder::create<Val>(2, DataType::Int));
+          return addExpr(
+              mulExpr(loop_indices.at(0), i0_stride),
+              mulExpr(loop_indices.at(1), i2_stride));
+        }
+        case 1: {
+          NVF_ERROR(as_consumer);
+          return addExpr(
+              mulExpr(
+                  loop_indices.at(0),
+                  mulExpr(
+                      consumer_tv->getLogicalDomain().at(2)->extent(),
+                      consumer_tv->getLogicalDomain().at(1)->extent())),
+              loop_indices.at(1));
+        }
+        default:
+          NVF_ERROR(false, "Unexpected tensor: ", tv->toString());
+          break;
+      }
+      return nullptr;
+    }
+  };
+
+  IndexValidator<GetReference>::validate(&fusion, true);
+}
+
+TEST_F(IndexingTest, ContigIndexing3) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = makeContigTensor(2);
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv0);
+  auto tv3 = broadcast(tv2, {true, false});
+  auto tv4 = add(tv3, tv1);
+  fusion.addOutput(tv4);
+
+  tv4->merge(0);
+
+  fusion.printMath();
+  fusion.printKernel();
 }
 
 } // namespace nvfuser
