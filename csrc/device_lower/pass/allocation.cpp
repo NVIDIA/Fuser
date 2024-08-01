@@ -188,6 +188,13 @@ class AllocationInserter : public kir::ExprMutator {
     // domain? We need to think about this carefully and come up with a
     // clear design. For now, we just allocate the loop domain for historical
     // reasons for all cases except for the Hopper MMA output tensor.
+    //
+    // Hopper MMA output tensor is a special case because the loop domain
+    // is scheduled in a way that the entire tile is parallelized by MMA, and
+    // The TIDx parallelization is a new broadcast dimension that is not
+    // connected to any other IterDomains. This way of scheduling effectively
+    // makes the loop domain 128x larger than the allocation domain, because
+    // the allocation domain is sharded on threads but the loop domain is not.
     if ((info.buffer->definition()->isA<MmaOp>() &&
          isHopper(info.buffer->definition()->as<MmaOp>()->macro()))) {
       std::unordered_set<IterDomain*> exclude_ca_ids;
