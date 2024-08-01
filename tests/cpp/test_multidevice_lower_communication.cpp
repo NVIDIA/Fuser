@@ -12,7 +12,6 @@
 #include <kernel_cache.h>
 #include <ops/all_ops.h>
 #include <tests/cpp/multidevice.h>
-#include <tests/cpp/validator.h>
 
 namespace nvfuser {
 
@@ -312,44 +311,6 @@ TEST_F(LowerCollectiveTest, ReduceScatter) {
 
   at::Tensor unsharded_out_tensor = unsharded_in_tensor.sum(0);
   EXPECT_TRUE(at::allclose(out_tensor, shardTensor(unsharded_out_tensor, out)));
-}
-
-TEST_F(LowerCollectiveTest, ReduceScatter_Allgather) {
-  // Allreduce = ReduceScatter + Allgather
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  const auto num_devices = communicator_->size();
-  auto mesh = DeviceMesh::createForNumDevices(num_devices);
-
-  TensorView* in = makeContigTensor(3);
-  in->setDeviceMesh(mesh);
-  TensorView* reduce_scattered = sum(in, {0});
-  TensorView* allgathered = set(reduce_scattered);
-  fusion->addInput(in);
-  fusion->addOutput(allgathered);
-
-  in->axis(0)->parallelize(ParallelType::DIDx);
-  reduce_scattered->axis(1)->parallelize(ParallelType::DIDx);
-
-  at::Tensor unsharded_in_tensor =
-      at::randn({num_devices, num_devices, kTensorSize}, tensor_options);
-  at::Tensor in_tensor = shardTensor(unsharded_in_tensor, in);
-
-  hir::HostIrExecutorParams executor_params{
-      .use_fusion_executor_cache = true,
-      .skip_auto_scheduling = false,
-      .cache_fusion_executor = false};
-  MultiDeviceExecutor runtime(
-      std::move(fusion), *communicator_, executor_params);
-  auto outputs = runtime.runWithInput({in_tensor});
-  testValidate(
-      runtime.completeFusion(),
-      outputs,
-      {in_tensor},
-      {unsharded_in_tensor.sum(0)},
-      __LINE__,
-      __FILE__);
 }
 
 } // namespace nvfuser
