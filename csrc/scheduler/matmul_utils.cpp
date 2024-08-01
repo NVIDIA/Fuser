@@ -126,6 +126,11 @@ inline bool initCoreHeuristics(
   {
     // NOTE: compilation errors when async is enabled on Turing devices
     if (isAmpere(params->mma_macro)) {
+      // Find the number of circular buffer stages so that the entire pipeline
+      // is filled.
+      //
+      // The axes of the mma tensorviews are permuted to [B, M, N, K],
+      // so K / cta_tile_k is the circular buffer axis for both operands.
       int64_t k_stages =
           ceilDiv(problem_shape[(size_t)MatmulDimRole::K], cta_tile.k);
       int64_t stages = std::min(k_stages, 3L);
