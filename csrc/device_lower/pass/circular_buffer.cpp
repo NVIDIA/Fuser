@@ -392,6 +392,8 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
   //    }
   //  }
   void handlePrologueLoop(Expr* expr) {
+    NVF_ERROR(expr != nullptr);
+
     // Skip if not LoadStoreOp expression
     if (!expr->isA<LoadStoreOp>()) {
       return;
@@ -472,6 +474,8 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
   // Where mbarrier and token are shared memory arrays bound to the
   // LoadStoreOp
   void handleMainLoop(Expr* expr) {
+    NVF_ERROR(expr != nullptr);
+
     bool mbarrier_token_exists =
         GpuLower::current()->ldstMBarrierTokenMap().count(expr) != 0;
 
@@ -574,6 +578,8 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
   }
 
   void handleEpilogLoop(Expr* expr) {
+    NVF_ERROR(expr != nullptr);
+
     bool mbarrier_token_exists =
         GpuLower::current()->ldstMBarrierTokenMap().count(expr) != 0;
 
@@ -623,11 +629,12 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
   //      mbarrier::arriveExpectTx(mbarrier[next_stage]);
   //    cpAsyncBulk(mbarrier[next_stage], ...);
   //  }
-  void addTmaLoadBlock(Expr* load_expr) {
+  void addTmaLoadBlock(Expr* expr) {
+    NVF_ERROR(expr != nullptr);
     kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
     Scope& body = if_expr->thenBody();
     body.push_back(mbarrier_arrive_tx_);
-    body.push_back(load_expr);
+    body.push_back(expr);
     cloned_scopes_.back()->push_back(if_expr);
     mbarrier_arrive_tx_ = nullptr;
   }
@@ -635,8 +642,11 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
   // This function adds mbarrier::wait to top level cloned loop.
   //
   // Pseudo-code example:
+  //  __syncthreads();
   //  mbarrier::wait(mbarriers[stage], mbarrier_tokens[stage]);
   void addSynchronousMbarrierWait() {
+    NVF_ERROR(mbarrier_wait_ != nullptr);
+
     // The Mbarrier Wait condition is a single thread and the expected bytes
     // for TMA operation. Since the total number of threads is unknown, we
     // use a block sync to prevent race conditions.
@@ -667,6 +677,9 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
   kir::MBarrierArriveExpectTx* createMbarrierArriveExpectTx(
       LoadStoreOp* ldst,
       Val* loop_index) {
+    NVF_ERROR(ldst != nullptr);
+    NVF_ERROR(loop_index != nullptr);
+
     TensorView* consumer_tv = ldst->out()->as<TensorView>();
     NVF_ERROR(
         GpuLower::current()->consumerToTMAInfo().count(consumer_tv),
@@ -727,6 +740,9 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
   // This function creates kir::MBarrierWait for given LoadStoreOp and circular
   // buffer stage.
   kir::MBarrierWait* createMbarrierWait(LoadStoreOp* ldst, Val* loop_index) {
+    NVF_ERROR(ldst != nullptr);
+    NVF_ERROR(loop_index != nullptr);
+
     // Get mbarrier_token for this circular buffer stage.
     TensorView* all_mbarriers = GpuLower::current()->ldstMBarrierMap().at(ldst);
     kir::TensorIndex* stage_mbarrier =
