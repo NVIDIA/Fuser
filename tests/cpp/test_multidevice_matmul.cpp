@@ -419,12 +419,8 @@ TEST_F(DistributedMatmulTest, PresegPreservesSharding) {
   auto w_tensor = at::randn({mesh.size(), 36, 48}, options);
   auto sharded_w_tensor = shardTensor(w_tensor, w);
 
-  hir::HostIrExecutorParams executor_params{
-      .use_fusion_executor_cache = true,
-      .skip_auto_scheduling = false,
-      .cache_fusion_executor = false};
   MultiDeviceExecutor runtime(
-      std::move(fusion), *communicator_, executor_params);
+      std::move(fusion), *communicator_, executor_params_);
   std::vector<c10::IValue> inputs({x_tensor, sharded_w_tensor});
   std::vector<at::Tensor> outputs = runtime.runWithInput(inputs);
 
