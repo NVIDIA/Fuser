@@ -116,7 +116,9 @@ void checkLinearOpIdMapping(
   // bias (optional): [out_features]/[]
   // output = [*, (out_features), rK]
 
-  ASSERT_EQ(output->nDims(), input->nDims() + weight->nDims() - 1);
+  bool k_bcast = input->axis(-1)->isBroadcast();
+  int64_t red_dims = k_bcast ? 0 : 1;
+  ASSERT_EQ(output->nDims(), input->nDims() + weight->nDims() - 2 + red_dims);
 
   // Check that the first input_size - 1 dims are mapped for input
   for (auto i : c10::irange(input->nDims() - 1)) {
@@ -127,10 +129,10 @@ void checkLinearOpIdMapping(
   // Check out_features dim is mapped in weight & bias if present.
   if (weight->nDims() > 1) {
     if (!weight->axis(0)->isBroadcast()) {
-      EXPECT_TRUE(checkMapped(vg, weight->axis(0), output->axis(-2)));
+      EXPECT_TRUE(checkMapped(vg, weight->axis(0), output->axis(-1 - red_dims)));
     }
     if (bias != nullptr && bias->nDims() > 0 && !bias->axis(0)->isBroadcast()) {
-      EXPECT_TRUE(checkMapped(vg, bias->axis(0), output->axis(-2)));
+      EXPECT_TRUE(checkMapped(vg, bias->axis(0), output->axis(-1 - red_dims)));
     }
   }
   // Check mapping for reduction axis in input and weight

@@ -64,32 +64,38 @@ static TensorView* newForLinear(
   auto input_domain = TensorDomain::noReductions(input->getLogicalDomain());
   auto weight_domain = TensorDomain::noReductions(weight->getLogicalDomain());
 
+  // Output has a reduction axis rK if K is not bcast
+  bool k_bcast = input_domain.back()->isBroadcast();
+  size_t red_dims = k_bcast ? 0 : 1;
+
   // Linear: a = {*, in_features}, b = {out_features, in_features} /
-  // {in_features}.The linear output is {*, (out_features), rK}.
-  // The first out_size -2 dimensions are as the first input, followed by
-  // out_features (if present) and an additional reduction axis K.
-  auto ndims_out = input_domain.size() + weight_domain.size() - 1;
+  // {in_features}.The linear output is {*, (out_features), rK?}.
+  // Reduction K is present only when K is not bcast.
+  auto ndims_out = (input_domain.size() - 1) + (weight_domain.size() - 1) + red_dims;
 
   const std::vector<IterDomain*>& mapping_a =
-      ops::mapLinearOpIterDomains(input_domain, 0, ndims_out);
+      ops::mapLinearOpIterDomains(input_domain, 0, ndims_out, k_bcast);
   const std::vector<IterDomain*>& mapping_b =
-      ops::mapLinearOpIterDomains(weight_domain, 1, ndims_out);
+      ops::mapLinearOpIterDomains(weight_domain, 1, ndims_out, k_bcast);
   std::vector<IterDomain*> mapping_bias(ndims_out, nullptr);
   if (bias != nullptr) {
     auto bias_domain = TensorDomain::noReductions(bias->getLogicalDomain());
-    mapping_bias = ops::mapLinearOpIterDomains(bias_domain, 2, ndims_out);
+    mapping_bias = ops::mapLinearOpIterDomains(bias_domain, 2, ndims_out, k_bcast);
   }
 
   std::vector<IterDomain*> out_domain(ndims_out, nullptr);
 
-  for (auto idx : c10::irange(ndims_out - 1)) {
+  for (auto idx : c10::irange(ndims_out - red_dims)) {
     out_domain[idx] = ops::newOutputIterDomain(
         {mapping_a.at(idx), mapping_b.at(idx), mapping_bias.at(idx)});
   }
-  // Specify the iterdomain for K as reduction
-  out_domain[ndims_out - 1] = ops::newOutputIterDomain(
-      {mapping_a.back(), mapping_b.back()},
-      /*force_iter_type=*/IterType::Reduction);
+
+  if (!k_bcast){
+    // Specify the iterdomain for K as reduction
+    out_domain[ndims_out - 1] = ops::newOutputIterDomain(
+        {mapping_a.back(), mapping_b.back()},
+        /*force_iter_type=*/IterType::Reduction);    
+  }
 
   TensorDomain* td = IrBuilder::create<TensorDomain>(
       out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
@@ -336,7 +342,7 @@ static TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
   auto ndims_b = orig_domain_b.size();
   
   // Output has a reduction axis rK if K is not bcast
-  bool k_bcast = tv_a->axis(-1)->isBroadcast();
+  bool k_bcast = orig_domain_a.back()->isBroadcast();
   size_t red_dims = k_bcast ? 0 : 1;
 
   // Matmul output size is same as the higher dimensional input size if both A/B

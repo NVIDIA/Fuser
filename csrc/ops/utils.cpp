@@ -227,7 +227,8 @@ std::vector<IterDomain*> mapMatmulOpIterDomains(
 std::vector<IterDomain*> mapLinearOpIterDomains(
     const std::vector<IterDomain*>& input_domain,
     int64_t input_position,
-    size_t out_size) {
+    size_t out_size,
+    bool k_bcast) {
   std::vector<IterDomain*> mapping(out_size, nullptr);
   auto inp_size = input_domain.size();
 
@@ -236,29 +237,37 @@ std::vector<IterDomain*> mapLinearOpIterDomains(
       "Input position must be 0, 1, or 2. Found ",
       input_position);
 
+  auto red_dims = k_bcast ? 0 : 1;
+
   // Input A: {*, M, K}
   // Input B: {*, N, K} / {K}
   // Bias: {N} / {}
+
+  // Map K if K is not bcast
+  if (input_position != 2 && !k_bcast){
+    mapping[out_size - 1] = input_domain.back();
+  }  
+
   switch (input_position) {
     case 0: {
-      // Linear output is same as input for all but the last dimension
+      // Linear output is same as input for inp_size - 1 dimensions.
+      // K is already mapped above if not broadcast.
       for (auto inx : c10::irange(inp_size - 1)) {
         mapping[inx] = input_domain[inx];
       }
-      mapping[out_size - 1] = input_domain.back();
       break;
     }
     case 1: {
-      for (auto inx : c10::irange(inp_size)) {
-        // Map N, K to the last two positions of the output.
-        mapping[out_size - 1 - inx] = input_domain[inp_size - 1 - inx];
+      // Map N / out_features if present
+      if (inp_size > 1){
+        mapping[out_size - 1 - red_dims] = input_domain.front();
       }
       break;
     }
     case 2: {
       if (inp_size > 0) {
         // Bias is 1D tensor of shape {out_features}
-        mapping[out_size - 2] = input_domain[0];
+        mapping[out_size - 1 - red_dims] = input_domain.front();
       }
       break;
     }
