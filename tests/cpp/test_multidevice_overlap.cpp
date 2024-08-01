@@ -28,9 +28,9 @@ struct OverlapTestParams {
   // network backend type
   CommunicatorBackend backend_type = CommunicatorBackend::nccl;
 
-  // overlap optimization parameters
-  bool use_different_streams =
-      true; // whether to change CUDA stream at each iteration
+  // Overlap optimization parameters
+  // Change CUDA stream at each iteration in a Round-Robin fashion
+  int64_t number_of_streams = 3;
 };
 
 std::ostream& operator<<(std::ostream& out, const OverlapTestParams& params) {
@@ -41,8 +41,7 @@ std::ostream& operator<<(std::ostream& out, const OverlapTestParams& params) {
       << indent << "K=" << params.K << "\n"
       << indent << "N=" << params.N << "\n"
       << indent << "S=" << params.S << "\n"
-      << indent << "use_different_streams=" << params.use_different_streams
-      << "\n"
+      << indent << "number_of_streams=" << params.number_of_streams << "\n"
       << "}";
   return out;
 }
@@ -196,18 +195,18 @@ class OverlapTest : public MultiDeviceTest {
 // clang-format on
 TEST_F(OverlapTest, ReduceScatterBasedPipeliningATenImplementation) {
   std::vector<c10::cuda::CUDAStream> streams;
+  std::generate_n(std::back_inserter(streams), params.number_of_streams, [=]() {
+    return c10::cuda::getStreamFromPool(
+        /*isHighPriority=*/false, my_device_index_);
+  });
+
   for (auto j : c10::irange(params.S)) {
     // define the sliced tensors
     auto ta_j = ta_.select(0, j);
     auto tc_locally_reduced_j = tc_locally_reduced_.select(0, j);
     auto tc_j = tc_.select(0, j);
 
-    if (params.use_different_streams) {
-      auto new_stream = c10::cuda::getStreamFromPool(
-          /*isHighPriority=*/false, my_device_index_);
-      streams.push_back(new_stream);
-      setCurrentCUDAStream(new_stream);
-    }
+    setCurrentCUDAStream(streams.at(j % streams.size()));
 
     // local compute
     computeATen(ta_j, tb_, tc_locally_reduced_j);
@@ -255,6 +254,10 @@ TEST_F(OverlapTest, ReduceScatterBasedPipeliningHostIrImplementation) {
       /*unroll_required=*/false,
       CircularBufferLoopStage::NotApplicable);
 
+  auto* stream_index = mod(j, IrBuilder::create<Val>(params.number_of_streams));
+  auto* set_stream = IrBuilder::create<hir::SetCurrentStream>(
+      IrBuilder::create<hir::Stream>(stream_index));
+
   TensorView* tva_j = select(tva, 0, j);
   TensorView* tvc_j = select(tvc, 0, j);
   TensorView* tvc_locally_reduced_j =
@@ -285,6 +288,7 @@ TEST_F(OverlapTest, ReduceScatterBasedPipeliningHostIrImplementation) {
   // PostOnStrean(HostUnit(.)), in which case the ops would be codegen-ed and
   // compiled.
   std::vector<Expr*> loop_body = {
+      set_stream,
       tva_j->definition(),
       tvc_j->definition(),
       tvc_locally_reduced_j->definition(),
@@ -292,12 +296,6 @@ TEST_F(OverlapTest, ReduceScatterBasedPipeliningHostIrImplementation) {
       wait};
   for (Expr* expr : loop_body) {
     for_loop->body().push_back(expr);
-  }
-  if (params.use_different_streams) {
-    for_loop->body().insert(
-        /*pos=*/0,
-        IrBuilder::create<hir::SetCurrentStream>(
-            IrBuilder::create<hir::Stream>(j)));
   }
 
   hic->pushBackTopLevelExprs(for_loop);
