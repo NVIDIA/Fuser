@@ -79,57 +79,5 @@ inline bool isEffectiveUnswitchLoop(ForLoop* fl) {
   return true;
 }
 
-inline std::vector<ForLoop*> getMaxPathLoops(
-    const std::vector<ForLoop*>& for_loops) {
-  std::vector<ForLoop*> unswitched_domains;
-
-  bool within_unswitch = false;
-
-  for (const auto fl : for_loops) {
-    auto parallel_type = fl->iter_domain()->getParallelType();
-
-    if (parallel_type == ParallelType::Unswitch ||
-        parallel_type == ParallelType::Unroll) {
-      within_unswitch = true;
-    }
-
-    // Don't unswitch threaded loops even when unswitched
-    if (fl->iter_domain()->isThread() ||
-        (fl->iter_domain()->getParallelType() != ParallelType::Vectorize &&
-         !within_unswitch && !lower_utils::predicateAtEnd(fl))) {
-      continue;
-    } else {
-      unswitched_domains.push_back(fl);
-    }
-  }
-
-  return unswitched_domains;
-}
-
-// TODO: Use this from getPredicateIndexReplacementMap
-inline std::unordered_set<ValGroup> getMaxPathLoopDomains(
-    TensorView* consumer_tv,
-    const std::vector<ForLoop*>& for_loops,
-    const ValGraph& loop_graph,
-    const ValGraph& traversal_graph) {
-  auto unswitched_loops = getMaxPathLoops(for_loops);
-  std::unordered_set<ValGroup> max_path_loop_domains;
-
-  for (auto loop_domain : consumer_tv->getLoopDomain()) {
-    const auto& loop_group = loop_graph.toGroup(loop_domain);
-    auto it = std::find_if(
-        unswitched_loops.begin(),
-        unswitched_loops.end(),
-        [&loop_group](ForLoop* fl) -> bool {
-          return loop_group->has(fl->iter_domain());
-        });
-    if (it != unswitched_loops.end()) {
-      max_path_loop_domains.emplace(traversal_graph.toGroup(loop_domain));
-    }
-  }
-
-  return max_path_loop_domains;
-}
-
 } // namespace indexing_utils
 } // namespace nvfuser
