@@ -126,14 +126,14 @@ inline bool initCoreHeuristics(
   {
     // NOTE: compilation errors when async is enabled on Turing devices
     if (isAmpere(params->mma_macro)) {
-      int64_t m_stages =
-          ceilDiv(problem_shape[(size_t)MatmulDimRole::M], cta_tile.m);
-      int64_t stages = std::min(m_stages, 3L);
+      int64_t k_stages =
+          ceilDiv(problem_shape[(size_t)MatmulDimRole::K], cta_tile.k);
+      int64_t stages = std::min(k_stages, 3L);
 
       params->circular_buffer_options.circular_buffer_smem_write =
           (stages != 1);
       params->circular_buffer_options.circular_buffer_smem_read = true;
-      params->circular_buffer_options.smem_circular_buffer_stage = stages;
+      params->circular_buffer_options.smem_circular_buffer_stage = (int)stages;
     }
   }
 
