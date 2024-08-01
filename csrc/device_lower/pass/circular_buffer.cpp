@@ -379,6 +379,7 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
     bool is_ignorable_mbarrier_inval =
         (expr->isA<kir::MBarrierInvalidate>() && mbarrier_token_exists);
 
+    // Short-Circuit
     switch (loop_type_) {
       case CircularBufferLoopStage::Prolog: {
         // Skip expression if it is not circular buffer expression
@@ -394,18 +395,17 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
         if (!is_circular_buffer_load_expr) {
           return;
         }
-
         // NOTE: There can be circular buffered TVs without TMA load exprs.
         if (!mbarrier_token_exists) {
           cloned_scopes_.back()->push_back(expr);
           return;
         }
-        return handlePrologueLoop(expr);
+        break;
       }
       case CircularBufferLoopStage::Main:
       case CircularBufferLoopStage::Epilog: {
         // Skip shared memory allocation, mbarrier initialize and mbarrier
-        // invalidate
+        // invalidate for main and epilog loops
         if (is_ignorable_tma_smem_alloc || is_ignorable_mbarrier_init ||
             is_ignorable_mbarrier_inval) {
           return;
@@ -416,13 +416,22 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
           cloned_scopes_.back()->push_back(expr);
           return;
         }
-
-        if (loop_type_ == CircularBufferLoopStage::Main) {
-          return handleMainLoop(expr);
-        } else {
-          return handleEpilogLoop(expr);
-        }
         break;
+      }
+      case CircularBufferLoopStage::NotApplicable: {
+        NVF_ERROR(false, "Unsupported loop mode, got: ", loop_type_);
+      }
+    }
+
+    switch (loop_type_) {
+      case CircularBufferLoopStage::Prolog: {
+        return handlePrologueLoop(expr);
+      }
+      case CircularBufferLoopStage::Main: {
+        return handleMainLoop(expr);
+      }
+      case CircularBufferLoopStage::Epilog: {
+        return handleEpilogLoop(expr);
       }
       case CircularBufferLoopStage::NotApplicable: {
         NVF_ERROR(false, "Unsupported loop mode, got: ", loop_type_);
