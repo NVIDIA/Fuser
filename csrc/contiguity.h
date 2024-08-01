@@ -59,7 +59,7 @@ class OrderedIdInformation : public OptInDispatch {
       std::shared_ptr<const ConcretizedBroadcastDomains> concrete_info =
           nullptr);
 
-  virtual void traverseTo(const std::vector<IterDomain*>& ids);
+  void traverseTo(const std::vector<IterDomain*>& ids);
 
   // Returns if the id in active_ids should be in exclusively_consumes_allocs_
   bool checkExclusivelyConsumesAllocs(IterDomain* id);

@@ -26,6 +26,8 @@ class OrderedIdGroupInformation : public OrderedIdInformation {
     return info;
   }
 
+  // Traversal is based on the AlmostExact graph, so matching of iter
+  // domains also needs to be done with the same graph
   bool isConsistentlyOrdered(IterDomain* id) const override {
     return std::find_if(
                consistently_ordered_ids_.begin(),
@@ -55,8 +57,6 @@ class OrderedIdGroupInformation : public OrderedIdInformation {
     }
   }
 
-  // Traversal is based on the AlmostExact graph, so matching of iter
-  // domains also needs to be done with the same graph
   std::vector<IterDomain*>::const_iterator findActiveId(
       IterDomain* id) const override {
     NVF_ERROR(id != nullptr);
@@ -86,6 +86,81 @@ class OrderedIdGroupInformation : public OrderedIdInformation {
 
  private:
   const ValGraph& graph_;
+};
+
+// Adapted from ContigIDs
+class ContigIDGroups {
+ public:
+  ContigIDGroups(
+      const std::vector<IterDomain*>& alloc_domains,
+      const std::vector<bool>& contiguity,
+      const ExprPath<ExprGroup>& path_from_alloc,
+      const ValGraph& graph,
+      bool is_predicate_pass);
+
+  void dispatch(const ExprGroup& eg, Direction direction) {
+    NVF_ERROR(!eg->empty());
+    Expr* expr = eg->front();
+
+    if (isInputFinal(expr, direction)) {
+      return;
+    }
+
+    // Currently not propagating any contiguity information with
+    // swizzles as contiguity is generally not preserved after swizzles.
+    // But in follow ups we could gradually add back a few special
+    // cases, depending on specific swizzle type and axes.
+
+    if (auto merge = dynamic_cast<Merge*>(expr)) {
+      handle(merge, direction);
+    } else if (auto split = dynamic_cast<Split*>(expr)) {
+      handle(split, direction);
+    } else if (auto resize = dynamic_cast<Resize*>(expr)) {
+      handle(resize, direction);
+    }
+  }
+
+  void handle(Merge* merge, Direction direction);
+
+  void handle(Split* split, Direction direction);
+
+  void handle(Resize* resize, Direction direction);
+
+  bool isInputFinal(Expr* expr, Direction direction) const {
+    const auto& inputs =
+        direction == Direction::Forward ? expr->inputs() : expr->outputs();
+    return std::any_of(inputs.begin(), inputs.end(), [this](Val* inp) -> bool {
+      return final_id_groups_.find(graph_.toGroup(inp)) !=
+          final_id_groups_.end();
+    });
+  }
+
+  const std::unordered_set<ValGroup>& contigIDs() const {
+    return contig_ids_;
+  }
+
+  const std::unordered_map<IterDomain*, ValGroup>& allocToContigIDs() const {
+    return alloc_to_contig_ids_;
+  }
+
+ private:
+  // Indexing traversal graph.
+  const ValGraph& graph_;
+  // Domains to analyze contiguity. They are typically allocation
+  // domains but if this is a predicate indexing pass, they are
+  // likely logical domains.
+  const std::vector<IterDomain*> alloc_domains_;
+  // Contiguity of alloc_domains_
+  const std::vector<bool> contiguity_;
+  const std::unordered_set<ValGroup> final_id_groups_;
+  const bool is_predicate_pass_;
+  std::unique_ptr<const OrderedIdGroupInformation> consistent_transform_info_;
+  std::unordered_set<ValGroup> contig_ids_;
+  std::unordered_map<IterDomain*, ValGroup> alloc_to_contig_ids_;
+  // All domains that have dependencies with resize ops
+  std::unordered_set<ValGroup> resize_deps_;
+  // All domains that have dependencies with non-divisible split ops
+  std::unordered_set<ValGroup> non_divisible_deps_;
 };
 
 std::unordered_map<IterDomain*, ValGroup> getContigDomains(
