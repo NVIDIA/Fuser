@@ -65,6 +65,7 @@ static TensorView* newForLinear(
   auto weight_domain = TensorDomain::noReductions(weight->getLogicalDomain());
 
   // Output has a reduction axis rK if K is not bcast
+  NVF_CHECK(input_domain.back()->isBroadcast() == weight_domain.back()->isBroadcast(), "K should be broadcast in both inputs and weights, or neither.");
   bool k_bcast = input_domain.back()->isBroadcast();
   size_t red_dims = k_bcast ? 0 : 1;
 
@@ -339,9 +340,12 @@ namespace {
 static TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
   auto orig_domain_a = TensorDomain::noReductions(tv_a->getLogicalDomain());
   auto orig_domain_b = TensorDomain::noReductions(tv_b->getLogicalDomain());
-
+  
   auto ndims_a = orig_domain_a.size();
   auto ndims_b = orig_domain_b.size();
+
+  auto b_kpos = orig_domain_b.size() > 1 ? ndims_b - 2 : ndims_b - 1;
+  NVF_CHECK(orig_domain_a.back()->isBroadcast() == orig_domain_b.at(b_kpos)->isBroadcast(), "K should be broadcast in both A and B, or neither.");
 
   // Output has a reduction axis rK if K is not bcast
   bool k_bcast = orig_domain_a.back()->isBroadcast();
