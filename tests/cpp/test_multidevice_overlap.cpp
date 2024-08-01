@@ -29,6 +29,8 @@ struct OverlapTestParams {
   CommunicatorBackend backend_type = CommunicatorBackend::nccl;
 
   // Overlap optimization parameters
+  // repeats the full experiment (i.e. allocation+compute+validation)
+  int64_t number_of_iterations = 4;
   // Change CUDA stream at each iteration in a Round-Robin fashion
   int64_t number_of_streams = 3;
 };
@@ -207,30 +209,33 @@ TEST_F(OverlapTest, ReduceScatterBasedPipeliningATenImplementation) {
         /*isHighPriority=*/false, my_device_index_);
   });
 
-  allocateIO();
+  for ([[maybe_unused]] const auto& _ :
+       c10::irange(params.number_of_iterations)) {
+    allocateIO();
 
-  for (auto j : c10::irange(params.S)) {
-    // define the sliced tensors
-    auto ta_j = ta_.select(0, j);
-    auto tc_locally_reduced_j = tc_locally_reduced_.select(0, j);
-    auto tc_j = tc_.select(0, j);
+    for (auto j : c10::irange(params.S)) {
+      // define the sliced tensors
+      auto ta_j = ta_.select(0, j);
+      auto tc_locally_reduced_j = tc_locally_reduced_.select(0, j);
+      auto tc_j = tc_.select(0, j);
 
-    setCurrentCUDAStream(streams.at(j % streams.size()));
+      setCurrentCUDAStream(streams.at(j % streams.size()));
 
-    // local compute
-    torch::matmul_out(tc_locally_reduced_j, ta_j, tb_);
-    // communication
-    world_communicator_->_reduce_scatter_base(tc_j, tc_locally_reduced_j)
-        ->wait();
+      // local compute
+      torch::matmul_out(tc_locally_reduced_j, ta_j, tb_);
+      // communication
+      world_communicator_->_reduce_scatter_base(tc_j, tc_locally_reduced_j)
+          ->wait();
+    }
+
+    // synchronize default stream with all other streams
+    setCurrentCUDAStream(c10::cuda::getDefaultCUDAStream());
+    for (auto stream : streams) {
+      stream.synchronize();
+    }
+
+    validate();
   }
-
-  // synchronize default stream with all other streams
-  setCurrentCUDAStream(c10::cuda::getDefaultCUDAStream());
-  for (auto stream : streams) {
-    stream.synchronize();
-  }
-
-  validate();
 }
 
 TEST_F(OverlapTest, ReduceScatterBasedPipeliningHostIrImplementation) {
@@ -312,12 +317,15 @@ TEST_F(OverlapTest, ReduceScatterBasedPipeliningHostIrImplementation) {
 
   hir::HostIrExecutor hie(std::move(hic), communicator_);
 
-  allocateIO();
-  std::unordered_map<Val*, c10::IValue> inputs = {
-      {tva, ta_}, {tvb, tb_}, {tvc, tc_}};
+  for ([[maybe_unused]] const auto& _ :
+       c10::irange(params.number_of_iterations)) {
+    allocateIO();
+    std::unordered_map<Val*, c10::IValue> inputs = {
+        {tva, ta_}, {tvb, tb_}, {tvc, tc_}};
 
-  hie.runWithInput(std::move(inputs));
-  validate();
+    hie.runWithInput(std::move(inputs));
+    validate();
+  }
 }
 
 } // namespace nvfuser
