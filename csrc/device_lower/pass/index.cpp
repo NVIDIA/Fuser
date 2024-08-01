@@ -1624,6 +1624,10 @@ void IndexLowering::handle(const MmaOp* mma) {
     // smem.
     auto tv = mma->inB()->as<TensorView>();
     auto swizzle = getSwizzleMode(tv);
+    // Because the entire tile is parallelized on MMA, which are trivial
+    // loops and always have zero loop variables, the result of lowerSrcIndex
+    // will be the address of the first element of the tile, which happens to
+    // be the information we need to provide to the hardware.
     auto base_addr = lowerSrcIndex(tv, mma->out(), {}, true)
                          ->as<kir::TensorIndex>()
                          ->index();
