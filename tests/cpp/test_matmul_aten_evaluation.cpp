@@ -66,7 +66,7 @@ void checkMatmulOpIdMapping(
     out_ndims = std::max(A->nDims(), B->nDims()) - 1 + red_dims;
   }
   ASSERT_EQ(output->nDims(), out_ndims);
-  
+
   if (A->nDims() > 1) {
     int out_mpos = B->nDims() > 1 ? -2 - red_dims : -1 - red_dims;
     EXPECT_TRUE(checkMapped(vg, A->axis(-2), output->axis(out_mpos))); // M
@@ -86,7 +86,8 @@ void checkMatmulOpIdMapping(
   // Note that A and B can have different dimensions, so here we count
   // backwards from the innermost batch dimension. Then we check that the axis
   // exists (is not negative) and is not Broadcast before checking mapping.
-  int batch_ndims = output->nDims() - (B->nDims() > 1) - (A->nDims() > 1) - red_dims;
+  int batch_ndims =
+      output->nDims() - (B->nDims() > 1) - (A->nDims() > 1) - red_dims;
   for (int64_t i : c10::irange(batch_ndims)) {
     int64_t i_a = A->nDims() - 3 - i;
     int64_t i_b = B->nDims() - 3 - i;
@@ -129,7 +130,8 @@ void checkLinearOpIdMapping(
   // Check out_features dim is mapped in weight & bias if present.
   if (weight->nDims() > 1) {
     if (!weight->axis(0)->isBroadcast()) {
-      EXPECT_TRUE(checkMapped(vg, weight->axis(0), output->axis(-1 - red_dims)));
+      EXPECT_TRUE(
+          checkMapped(vg, weight->axis(0), output->axis(-1 - red_dims)));
     }
     if (bias != nullptr && bias->nDims() > 0 && !bias->axis(0)->isBroadcast()) {
       EXPECT_TRUE(checkMapped(vg, bias->axis(0), output->axis(-1 - red_dims)));

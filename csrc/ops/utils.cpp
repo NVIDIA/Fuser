@@ -191,7 +191,7 @@ std::vector<IterDomain*> mapMatmulOpIterDomains(
   // Input A to matmul: {*, M, K}
   // Input B to matmul: {*, K, N}
   auto kpos = inp_size - 1;
-  if (input_position == 1 && inp_size > 1){
+  if (input_position == 1 && inp_size > 1) {
     kpos = inp_size - 2;
   }
   bool k_bcast = input_domain.at(kpos)->isBroadcast();
@@ -199,13 +199,14 @@ std::vector<IterDomain*> mapMatmulOpIterDomains(
 
   // Last position is a reduction dimension mapping to K if K is not broadcast.
   if (!k_bcast) {
-    mapping[out_size - 1] = input_domain.at(kpos);;
+    mapping[out_size - 1] = input_domain.at(kpos);
+    ;
   }
 
-  if (inp_size == 1){
+  if (inp_size == 1) {
     return mapping;
   }
-  
+
   for (auto out_idx = (int64_t)out_size - 1 - red_dims, inp_idx = inp_size - 1;
        inp_idx >= 0;
        inp_idx--) {
@@ -244,9 +245,9 @@ std::vector<IterDomain*> mapLinearOpIterDomains(
   // Bias: {N} / {}
 
   // Map K if K is not bcast
-  if (input_position != 2 && !k_bcast){
+  if (input_position != 2 && !k_bcast) {
     mapping[out_size - 1] = input_domain.back();
-  }  
+  }
 
   switch (input_position) {
     case 0: {
@@ -259,7 +260,7 @@ std::vector<IterDomain*> mapLinearOpIterDomains(
     }
     case 1: {
       // Map N / out_features if present
-      if (inp_size > 1){
+      if (inp_size > 1) {
         mapping[out_size - 1 - red_dims] = input_domain.front();
       }
       break;
