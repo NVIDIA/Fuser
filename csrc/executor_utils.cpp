@@ -702,6 +702,7 @@ ExpressionEvaluator bindInputs(
   ExpressionEvaluator expr_eval;
   const auto& inputs = kernel->inputs();
   for (const auto i : c10::irange(inputs.size())) {
+    checkInputType(i, inputs[i], *args[i]);
     // NOTE: we bind all inputs here, including at::Tensors. This means that
     // expr_eval will create a PolymorphicValue containing *args[i], which means
     // that at::Tensor's lifetime will be at least as long as that of expr_eval.
@@ -1484,6 +1485,45 @@ std::unique_ptr<ParallelExtentMap> getParallelIterExtents(
   }
 
   return parallel_iter_extents_ptr;
+}
+
+void checkInputType(size_t pos, Val* input, const PolymorphicValue& arg) {
+  DataType arg_dtype = DataType::Null;
+  if (arg.is<at::Tensor>()) {
+    arg_dtype = aten_to_data_type(arg.as<at::Tensor>().scalar_type());
+  } else if (arg.is<int64_t>()) {
+    arg_dtype = DataType::Int;
+  } else if (arg.is<double>()) {
+    arg_dtype = DataType::Double;
+  } else if (arg.is<std::complex<double>>()) {
+    arg_dtype = DataType::ComplexDouble;
+  }
+  if (input->isA<TensorView>() != arg.is<at::Tensor>() ||
+      arg_dtype != input->dtype()) {
+    std::stringstream arg_ss;
+    if (arg.is<at::Tensor>()) {
+      arg_ss << arg_dtype << " tensor";
+    } else if (arg.is<int64_t>()) {
+      arg_ss << arg_dtype << " scalar " << arg.as<int64_t>();
+    } else if (arg.is<double>()) {
+      arg_ss << arg_dtype << " scalar " << arg.as<double>();
+    } else if (arg.is<std::complex<double>>()) {
+      arg_ss << arg_dtype << " scalar " << arg.as<std::complex<double>>();
+    }
+    NVF_ERROR(
+        input->isA<TensorView>() == arg.is<at::Tensor>() &&
+            arg_dtype == input->dtype(),
+        "Mismatch in input type: argument ",
+        pos,
+        " (",
+        input->toString(),
+        ") should be a ",
+        input->dtype(),
+        input->isA<TensorView>() ? " tensor" : " scalar",
+        " but ",
+        arg_ss.str(),
+        " was provided.");
+  }
 }
 
 } // namespace executor_utils

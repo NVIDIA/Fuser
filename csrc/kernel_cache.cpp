@@ -122,6 +122,11 @@ class ArgumentManager {
     auto original_args_size = fusion_args_.size();
     // Bind args in the tensor_map
     for (const auto i : c10::irange(original_args_size)) {
+      // Input types will be checked in ExpressionEvaluator::bindInputs also,
+      // but that will be called on each segment separately. In order to
+      // provide the argument number and give a better error message, we check
+      // the types here also.
+      executor_utils::checkInputType(i, fusion_inputs[i], *fusion_args_[i]);
       tensor_map_.emplace(fusion_inputs[i], fusion_args_[i]);
       // Bind tensorview inputs values in case some segmented group
       //  needs it down the road.

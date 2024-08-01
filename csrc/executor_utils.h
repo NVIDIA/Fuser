@@ -300,5 +300,8 @@ void queryTargetGPUVersion(
     int64_t& minor,
     bool& compile_to_sass);
 
+//! Assert that an input is of the proper type to be bound to a Val
+void checkInputType(size_t pos, Val* input_val, const PolymorphicValue& arg);
+
 } // namespace executor_utils
 } // namespace nvfuser

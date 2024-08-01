@@ -4458,6 +4458,42 @@ class TestNvFuserFrontend(TestCase):
         for i in range(num_out):
             self.assertEqual(nvf_out[i].data_ptr(), inputs[0].data_ptr())
 
+    # Test that we properly raise an error when passing inputs with the wrong types
+    def test_mismatched_input_types(self):
+        inputs = [
+            2.0,
+            torch.rand((15,), dtype=torch.float32, device="cuda:0"),
+        ]
+
+        def fusion_func(fd: FusionDefinition):
+            T0 = fd.define_tensor(
+                shape=[-1],
+                contiguity=[True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[0],
+            )
+            s0 = fd.define_scalar()
+            T1 = fd.ops.mul(T0, s0)
+            fd.add_output(T1)
+
+        with FusionDefinition() as fd:
+            fusion_func(fd)
+
+        try:
+            import pytest
+        except ImportError:
+            self.skipTest("Could not import pytest")
+
+        with pytest.raises(
+            Exception,
+            match=re.escape(
+                "Mismatch in input type: argument 0 (T0_g[ iS0{i0} ])"
+                " should be a float tensor but double scalar 2 was provided"
+            ),
+        ):
+            nvf_out = fd.execute(inputs)
+
 
 if __name__ == "__main__":
     run_tests()
