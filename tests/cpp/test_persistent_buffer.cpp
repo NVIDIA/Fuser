@@ -1245,4 +1245,32 @@ TEST_F(PersistentBufferTest, PostReductionBroadcastCheckMultiBcastDims) {
   testValidate(fusion, cg_outputs, {t0, t1}, {t4}, __LINE__, __FILE__);
 }
 
+// For issue-2685
+TEST_F(PersistentBufferTest, SmemPersistentNotSupportedIn3DReduction) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  DataType input_dtype = DataType::Float;
+  const std::vector<int64_t> input_shape = {2, 288, 120, 160};
+  auto tv0 = makeContigTensor(input_shape.size(), input_dtype);
+  fusion->addInput(tv0);
+  auto tv1 = sum(tv0, {0, 2, 3});
+  auto tv2 = broadcast(tv1, std::vector<bool>{true, false, true, true});
+  auto tv7 = div(tv0, tv2);
+  fusion->addOutput(tv7);
+
+  auto options = at::TensorOptions()
+                     .dtype(data_type_to_aten(input_dtype))
+                     .device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+
+  FusionExecutorCache fec(std::move(fusion));
+  std::vector<c10::IValue> aten_inputs = {t0};
+  auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
+
+  // should be segmented since buffer size is larger than 32K and smem
+  // persistent is not supported yet for 3D reduction.
+  EXPECT_TRUE(fec.getMostRecentKernelRuntime()->isSegmented());
+
+  testValidate(fec.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
+}
 } // namespace nvfuser
