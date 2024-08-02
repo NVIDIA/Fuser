@@ -8,7 +8,6 @@ from functools import partial
 import itertools
 import math
 import random
-import re
 from typing import List, Callable
 import tempfile
 import unittest
@@ -31,6 +30,8 @@ from nvfuser import (
     compute_tensor_descriptor,
 )
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
+
+from utils import check_captured_python_definition
 
 
 RUN_NVFUSER = RUN_CUDA and not TEST_WITH_ROCM
@@ -152,32 +153,16 @@ class TestNvFuserFrontend(TestCase):
     def exec_nvfuser(
         self, fusion_func, inputs, *, new_fusion_expected=True, device=None
     ):
-        inputs_cap = deepcopy(inputs)
         fc = FusionCache.get()
         before_fusions = fc.num_fusions()
+        inputs_cap = deepcopy(inputs)
 
         # Execute a fusion function and capture the string python definition
         with FusionDefinition() as fd:
             fusion_func(fd)
-        fd_str = fd.__repr__()
         torch.manual_seed(0)
         out = fd.execute(inputs, device=device)
-
-        # Execute the python definition that was captured
-        try:
-            func_name = re.findall("(nvfuser_fusion_id\\d+)", fd_str.split("\n")[1])[0]
-            exec(fd_str)
-            with FusionDefinition() as fd_cap:
-                eval(func_name)(fd_cap)
-            torch.manual_seed(0)
-            out_cap = fd_cap.execute(inputs_cap, device=device)
-        except Exception as err:
-            print("\nException For Printed FusionDefinition:")
-            print(
-                "(A failure here suggests a mismatch in functionality between the original definition and the printed definition.)"
-            )
-            print(fd_str)
-            raise err
+        out_cap = check_captured_python_definition(fd, inputs_cap, device)
 
         # Make sure the original and captured definitions match
         for idx in range(len(out)):
