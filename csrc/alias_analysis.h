@@ -65,7 +65,7 @@ class AliasAnalysisResult {
   // returns the `TensorView`'s initial layout.
   Layout preferredLayout(const Val* alias) const;
 
-  std::string toString(int indent_size) const;
+  std::string toString(int indent_size = 0) const;
 
   // Returns the mapped value in `alias_to_root_` or null.
   TensorView* getRoot(const TensorView* alias) const;
