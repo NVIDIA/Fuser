@@ -452,11 +452,11 @@ SdpfaFwdResult sdpfa_fwd(
   NVF_CHECK(
       !scale || scale->isScalar(), "Expected scale to be a scalar double.");
 
-  // Query: [N,H,L,E], Key: [N,H,S,E], Value: [N,H,S,Ev] Output: [N,H,L,Ev]
-  // N, H are mapped for all inputs to outputs. L is mapped from query to
-  // output. Ev is mapped from value to output. Note: There is no mapping for S,
-  // E. This may change in the future if we add additional reduction ids to the
-  // output.
+  // Query: [DIDx(D)?,N,H,L,E], Key: [DIDx(D)?,N,H,S,E], Value:
+  // [DIDx(D)?,N,H,S,Ev] Output: [DIDx(D)?,N,H,L,Ev] N, H are mapped for all
+  // inputs to outputs. L is mapped from query to output. Ev is mapped from
+  // value to output. Note: There is no mapping for S, E. This may change in the
+  // future if we add additional reduction ids to the output.
   auto ndims_out = query_domain.size();
 
   // TensorView for attention output
@@ -474,7 +474,7 @@ SdpfaFwdResult sdpfa_fwd(
       out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
   TensorView* output = IrBuilder::create<TensorView>(attn_td, query->dtype());
 
-  // TensorView for log_sumexp [N, H, L]
+  // TensorView for log_sumexp [DIDx(D)?,N, H, L]
   std::vector<IterDomain*> log_sumexp_dom(ndims_out - 1, nullptr);
   for (auto idx : c10::irange(ndims_out - 2)) {
     log_sumexp_dom[idx] = ops::newOutputIterDomain(
@@ -488,22 +488,11 @@ SdpfaFwdResult sdpfa_fwd(
   TensorView* log_sumexp =
       IrBuilder::create<TensorView>(log_sumexp_td, DataType::Float);
 
-  TensorView* query_seq_len = TensorViewBuilder().dtype(DataType::Int).build();
-  TensorView* key_seq_len = TensorViewBuilder().dtype(DataType::Int).build();
-  query_seq_len->setCpuScalar(true);
-  key_seq_len->setCpuScalar(true);
-
   // Scalar tensors of int64_t dtype.
   TensorView* philox_seed = TensorViewBuilder().dtype(DataType::Int).build();
   TensorView* philox_offset = TensorViewBuilder().dtype(DataType::Int).build();
   philox_seed->setCpuScalar(true);
   philox_offset->setCpuScalar(true);
-
-  // Thunder metadata represents debug_attn_mask of type int64_t, although the
-  // debug_attn_mask is of query.dtype. Since we use return_debug_mask=false in
-  // the internal flash attention call, this is a scalar zero tensor.
-  TensorView* debug_attn_mask =
-      TensorViewBuilder().dtype(query->dtype()).build();
 
   // Set default values for dropout_p (0.0), is_causal(false)
   if (dropout_p == nullptr) {
@@ -517,25 +506,15 @@ SdpfaFwdResult sdpfa_fwd(
   IrBuilder::create<SdpaFwdOp>(
       output,
       log_sumexp,
-      query_seq_len,
-      key_seq_len,
       philox_seed,
       philox_offset,
-      debug_attn_mask,
       query,
       key,
       value,
       dropout_p,
       is_causal,
       scale);
-  return {
-      output,
-      log_sumexp,
-      query_seq_len,
-      key_seq_len,
-      philox_seed,
-      philox_offset,
-      debug_attn_mask};
+  return {output, log_sumexp, philox_seed, philox_offset};
 }
 
 SdpfaBwdResult sdpfa_bwd(
@@ -545,8 +524,6 @@ SdpfaBwdResult sdpfa_bwd(
     TensorView* value,
     TensorView* output,
     TensorView* log_sumexp,
-    TensorView* query_seq_len,
-    TensorView* key_seq_len,
     Val* dropout_p,
     Val* is_causal,
     TensorView* philox_seed,
@@ -585,8 +562,6 @@ SdpfaBwdResult sdpfa_bwd(
       !scale || scale->isScalar(), "Expected scale to be a scalar double.");
 
   // Mark CPU scalar tensors.
-  query_seq_len->setCpuScalar(true);
-  key_seq_len->setCpuScalar(true);
   philox_seed->setCpuScalar(true);
   philox_offset->setCpuScalar(true);
 
@@ -605,8 +580,6 @@ SdpfaBwdResult sdpfa_bwd(
       value,
       output,
       log_sumexp,
-      query_seq_len,
-      key_seq_len,
       dropout_p,
       is_causal,
       philox_seed,
