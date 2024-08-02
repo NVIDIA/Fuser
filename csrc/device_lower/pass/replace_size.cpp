@@ -62,8 +62,9 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
         rep = id;
         continue;
       }
-      bool id_is_const = id->getMaybeExpandedExtent()->isConstInt();
-      if (id_is_const) {
+      Val* ext = id->extent();
+      bool ext_is_const = ext->isConstInt();
+      if (ext_is_const) {
         if (!group_is_const || id->name() < rep->name()) {
           rep = id;
           // This lets us avoid repeating the costly isConstInt check
@@ -89,10 +90,10 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
       }
     }
     NVF_ERROR(rep != nullptr);
-    Val* rep_ext = rep->getMaybeExpandedExtent();
+    Val* rep_ext = rep->extent();
     for (Val* v : *group) {
       auto* id = v->as<IterDomain>();
-      Val* ext = id->getMaybeExpandedExtent();
+      Val* ext = id->extent();
       if (!ext->sameAs(rep_ext)) {
         simplification_map.emplace(ext, rep_ext);
       }
