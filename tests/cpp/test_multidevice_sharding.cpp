@@ -196,13 +196,16 @@ TEST_F(MultideviceShardingTest, ReduceScatter_Allgather) {
 
   TensorView* in = makeContigTensor(3);
   in->setDeviceMesh(mesh);
-  TensorView* reduce_scattered = sum(in, {0});
-  TensorView* allgathered = set(reduce_scattered);
-  fusion->addInput(in);
-  fusion->addOutput(allgathered);
-
   in->axis(0)->parallelize(ParallelType::DIDx);
-  reduce_scattered->axis(1)->parallelize(ParallelType::DIDx);
+
+  TensorView* out = sum(in, {0});
+  out->axis(1)->parallelize(ParallelType::DIDx);
+
+  out = set(out);
+  out->axis(0)->parallelize(ParallelType::Serial);
+
+  fusion->addInput(in);
+  fusion->addOutput(out);
 
   at::Tensor unsharded_in_tensor =
       at::randn({num_devices, num_devices, 4}, tensor_options);
