@@ -31,8 +31,12 @@ from nvfuser import (
 )
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 
-from utils import check_captured_python_definition
-
+from utils import (
+    is_pre_volta,
+    is_pre_ampere,
+    is_pre_hopper,
+    check_captured_python_definition,
+)
 
 RUN_NVFUSER = RUN_CUDA and not TEST_WITH_ROCM
 
@@ -49,27 +53,6 @@ RUN_NVFUSER = RUN_CUDA and not TEST_WITH_ROCM
 # Normally, these files are deleted after each test.
 env_var_debug_serde = os.getenv("DEBUG_SERDE")
 debug_serde: bool = env_var_debug_serde in ("true", "1")
-
-
-def is_pre_volta():
-    if not RUN_NVFUSER:
-        return False
-    prop = torch.cuda.get_device_properties(torch.cuda.current_device())
-    return prop.major < 7
-
-
-def is_pre_ampere():
-    if not RUN_NVFUSER:
-        return False
-    prop = torch.cuda.get_device_properties(torch.cuda.current_device())
-    return prop.major < 8
-
-
-def is_pre_hopper():
-    if not RUN_NVFUSER:
-        return False
-    prop = torch.cuda.get_device_properties(torch.cuda.current_device())
-    return prop.major < 9
 
 
 def setUpModule():

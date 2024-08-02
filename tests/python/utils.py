@@ -4,7 +4,29 @@
 # Owner(s): ["module: nvfuser"]
 
 import torch
-from nvfuser import (FusionDefinition, DataType)
+from nvfuser import FusionDefinition, DataType
+
+
+def is_pre_volta():
+    if not RUN_NVFUSER:
+        return False
+    prop = torch.cuda.get_device_properties(torch.cuda.current_device())
+    return prop.major < 7
+
+
+def is_pre_ampere():
+    if not RUN_NVFUSER:
+        return False
+    prop = torch.cuda.get_device_properties(torch.cuda.current_device())
+    return prop.major < 8
+
+
+def is_pre_hopper():
+    if not RUN_NVFUSER:
+        return False
+    prop = torch.cuda.get_device_properties(torch.cuda.current_device())
+    return prop.major < 9
+
 
 def check_captured_python_definition(fd, inputs, device):
     import re
