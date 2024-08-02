@@ -1445,10 +1445,6 @@ std::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
     auto evaluator_precomputed_values =
         std::make_unique<PrecomputedValues>(fusion_to_run);
     evaluator_precomputed_values->bindInputs(group_runtime_inputs);
-    // TODO Remove binding the original fusion inputs when creating heuristics
-    // for fusion segment.
-    evaluator_precomputed_values->bindValues(
-        group_to_run->getCompleteFusionInputs(), args);
     evaluator_precomputed_values->evaluate();
 
     // Get all tensorviews for segmented fusion
