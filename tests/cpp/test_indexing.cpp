@@ -33,6 +33,7 @@ namespace nvfuser {
 
 using IndexingTest = NVFuserTest;
 using PredicateIndexingTest = NVFuserFixtureParamTest<bool>;
+using ContigIndexingTest = NVFuserTest;
 
 namespace {
 
@@ -4484,7 +4485,7 @@ TEST_F(PredicateIndexingTest, UnswitchConsolidationDifferentThreading) {
 }
 
 // Same fusion as SimplePointwise1 but with contig indexing
-TEST_F(IndexingTest, ContigIndexing1) {
+TEST_F(ContigIndexingTest, SimplePointwise) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -4541,7 +4542,7 @@ TEST_F(IndexingTest, ContigIndexing1) {
   IndexValidator<GetReference>::validate(&fusion, true);
 }
 
-TEST_F(IndexingTest, ContigIndexing2) {
+TEST_F(ContigIndexingTest, NonContigInnermost) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -4617,7 +4618,8 @@ TEST_F(IndexingTest, ContigIndexing2) {
   IndexValidator<GetReference>::validate(&fusion, true);
 }
 
-TEST_F(IndexingTest, ContigIndexing3) {
+// Contig indexing with broadcast inlining
+TEST_F(ContigIndexingTest, BroadcastInlining) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -4633,8 +4635,171 @@ TEST_F(IndexingTest, ContigIndexing3) {
 
   tv4->merge(0);
 
+  TransformPropagator propagator(tv4);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
+
+  inlineMost();
+
+  // t4 is indexed at the merge output domain, so its index should be
+  // just its sole loop index. t2 and t3 are fully inlined
+  // intermediate tensors, so their indices are just zero. Since t1 is
+  // contiguous, it's also just indexed with the loop index. t0, on
+  // the other hand, needs to back traverse the merge since its sole
+  // index domain corresponds to the inner merge input domain.
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
+        const override {
+      bool as_consumer = maybe_consumer == nullptr;
+      auto consumer_tv = as_consumer ? tv : maybe_consumer;
+      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      switch (tv->name()) {
+        case 0: {
+          NVF_ERROR(!as_consumer);
+          return modExpr(
+              loop_indices.at(0), tv->getLogicalDomain().at(0)->extent());
+        }
+        case 1: {
+          NVF_ERROR(!as_consumer);
+          return loop_indices.at(0);
+        }
+        case 2:
+        case 3:
+          return tv->fusion()->zeroVal();
+        case 4: {
+          NVF_ERROR(as_consumer);
+          return loop_indices.at(0);
+        }
+        default:
+          NVF_ERROR(false, "Unexpected tensor: ", tv->toString());
+          break;
+      }
+      return nullptr;
+    }
+  };
+
+  IndexValidator<GetReference>::validate(&fusion, true);
+}
+
+// Merge after resize is not allowed to do contig indexing even when
+// the original input domains are contiguous.
+TEST_F(ContigIndexingTest, Resize) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape({11, 30});
+
+  NVF_CHECK(shape[1] % 2 == 0);
+
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = slice(tv0, {0, shape[1] / 2}, {shape[0], shape[1]});
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1));
+  fusion.addOutput(tv2);
+
   fusion.printMath();
   fusion.printKernel();
+
+  // Contig merge
+  tv2->merge(0);
+
+  TransformPropagator propagator(tv2);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
+
+  // All tensors except for tv0 are indexed at the output of the merge
+  // op, so their indices should be just loop_indices[0]. However, for
+  // tv0, since the merge follows a resize, indexing is done at the
+  // resize input domain.
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
+        const override {
+      bool as_consumer = maybe_consumer == nullptr;
+      auto consumer_tv = as_consumer ? tv : maybe_consumer;
+      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      switch (tv->name()) {
+        case 0: {
+          NVF_ERROR(!as_consumer);
+          auto id0 = mulExpr(
+              divExpr(
+                  loop_indices.at(0),
+                  consumer_tv->getLogicalDomain().at(1)->extent()),
+              tv->getLogicalDomain().at(1)->extent());
+          auto resize = dynamic_cast<Resize*>(
+              consumer_tv->getLogicalDomain().at(1)->definition());
+          NVF_ERROR(resize != nullptr);
+          auto id1 = subExpr(
+              modExpr(
+                  loop_indices.at(0),
+                  consumer_tv->getLogicalDomain().at(1)->extent()),
+              resize->leftExpand());
+          return addExpr(id0, id1);
+        }
+        case 1:
+        case 2:
+          return loop_indices.at(0);
+        default:
+          NVF_ERROR(false, "Unexpected tensor: ", tv->toString());
+          break;
+      }
+      return nullptr;
+    }
+  };
+
+  IndexValidator<GetReference>::validate(&fusion, true);
+}
+
+// Contiguous tensor but merge order breaks contiguity
+TEST_F(ContigIndexingTest, NonConsistentMerge) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(3);
+  fusion.addInput(tv0);
+
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1));
+  fusion.addOutput(tv1);
+
+  tv1->merge(0, 2);
+  tv1->merge(0, 1);
+
+  TransformPropagator propagator(tv1);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
+
+  // Make sure both tv0 and tv1 are indexed without contig indexing
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
+        const override {
+      bool as_consumer = maybe_consumer == nullptr;
+      auto consumer_tv = as_consumer ? tv : maybe_consumer;
+      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+
+      auto id0 = divExpr(
+          divExpr(loop_indices.at(0), tv->getLogicalDomain().at(1)->extent()),
+          tv->getLogicalDomain().at(2)->extent());
+      auto id0_extent = mulExpr(
+          tv->getLogicalDomain().at(2)->extent(),
+          tv->getLogicalDomain().at(1)->extent());
+      auto id1 =
+          modExpr(loop_indices.at(0), tv->getLogicalDomain().at(1)->extent());
+      auto id1_extent = tv->getLogicalDomain().at(2)->extent();
+      auto id2 = modExpr(
+          divExpr(loop_indices.at(0), tv->getLogicalDomain().at(1)->extent()),
+          tv->getLogicalDomain().at(2)->extent());
+      return addExpr(
+          addExpr(mulExpr(id0, id0_extent), mulExpr(id1, id1_extent)), id2);
+    }
+  };
+
+  IndexValidator<GetReference>::validate(&fusion, true);
 }
 
 } // namespace nvfuser
