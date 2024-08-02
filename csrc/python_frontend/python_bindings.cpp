@@ -2951,11 +2951,7 @@ void initNvFuserPythonBindings(PyObject* module) {
              fd->recordingState(log_sumexp()),
              fd->recordingState(philox_seed()),
              fd->recordingState(philox_offset())}));
-        return std::make_tuple(
-            output,
-            log_sumexp,
-            philox_seed,
-            philox_offset);
+        return std::make_tuple(output, log_sumexp, philox_seed, philox_offset);
       },
       py::arg("query"),
       py::arg("key"),
