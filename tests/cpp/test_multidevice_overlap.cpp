@@ -20,9 +20,12 @@ namespace nvfuser {
 
 struct OverlapTestParams {
   // Tensors sizes
-  int64_t M = std::pow(2, 6);
-  int64_t K = std::pow(2, 5);
-  int64_t N = std::pow(2, 4);
+  int64_t LOG2_M = (std::getenv("LOG2_M"))? std::atoi(std::getenv("LOG2_M")) : 10;
+  int64_t LOG2_K = (std::getenv("LOG2_K"))? std::atoi(std::getenv("LOG2_K")) : 10;
+  int64_t LOG2_N = (std::getenv("LOG2_N"))? std::atoi(std::getenv("LOG2_N")) : 10;
+  int64_t M = std::pow(2, LOG2_M);
+  int64_t K = std::pow(2, LOG2_K);
+  int64_t N = std::pow(2, LOG2_N);
   int64_t S = std::pow(2, 3);
 
   // network backend type
@@ -100,20 +103,21 @@ class OverlapTest : public MultiDeviceTest {
     // full unsharded input on each rank makes it possible to compute the
     // expected result locally, hence, this way of doing is convenient for
     // validating data correctness.
-    at::TensorOptions options =
-        at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
-    ta_unsharded_ = at::randn(ta_unsharded_sizes, options);
-    tb_unsharded_ = at::randn(tb_unsharded_sizes, options);
-    ta_ = at::empty(ta_sizes, options);
+    auto cpu_options = at::TensorOptions().dtype(at::kFloat);
+    at::TensorOptions gpu_options = cpu_options.device(communicator_->device());
+
+    ta_unsharded_ = at::randn(ta_unsharded_sizes, cpu_options);
+    tb_unsharded_ = at::randn(tb_unsharded_sizes, cpu_options);
+    ta_ = at::empty(ta_sizes, gpu_options);
     ta_.copy_(ta_unsharded_.select(1, my_device_index_));
-    tb_ = at::empty(tb_sizes, options);
+    tb_ = at::empty(tb_sizes, gpu_options);
     tb_.copy_(tb_unsharded_.select(0, my_device_index_));
 
     // We pre-allocate the output and some intermediate buffers so we do not
     // rely on torch allocator, which do not behave well with multi-stream
     // programming.
-    tc_locally_reduced_ = at::empty(tc_locally_reduced_sizes, options);
-    tc_ = at::empty(tc_sizes, options);
+    tc_locally_reduced_ = at::empty(tc_locally_reduced_sizes, gpu_options);
+    tc_ = at::empty(tc_sizes, gpu_options);
 
     // Debug print
     if (communicator_->deviceId() == 0 && debug_print) {
@@ -139,7 +143,7 @@ class OverlapTest : public MultiDeviceTest {
     auto tc_expected_ =
         tc_unsharded_expected_reshaped.select(1, my_device_index_);
 
-    EXPECT_TRUE(tc_.allclose(tc_expected_, 1e-1, 1e-1))
+    EXPECT_TRUE(tc_.to(torch::kCPU).allclose(tc_expected_, 1e-1, 1e-1))
         << "Unexpected results, obtained:" << tc_
         << "\n expected: " << tc_expected_;
   }
@@ -226,12 +230,6 @@ TEST_F(OverlapTest, ReduceScatterBasedPipeliningATenImplementation) {
       // communication
       world_communicator_->_reduce_scatter_base(tc_j, tc_locally_reduced_j)
           ->wait();
-    }
-
-    // synchronize default stream with all other streams
-    setCurrentCUDAStream(c10::cuda::getDefaultCUDAStream());
-    for (auto stream : streams) {
-      stream.synchronize();
     }
 
     validate();
