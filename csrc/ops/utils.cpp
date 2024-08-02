@@ -188,20 +188,26 @@ std::vector<IterDomain*> mapMatmulOpIterDomains(
   std::vector<IterDomain*> mapping(out_size, nullptr);
   auto inp_size = (int64_t)input_domain.size();
 
+  // Input A to matmul: {*, M, K}
+  // Input B to matmul: {*, K, N}
+  auto kpos = inp_size - 1;
+  if (input_position == 1 && inp_size > 1) {
+    kpos = inp_size - 2;
+  }
+  bool k_bcast = input_domain.at(kpos)->isBroadcast();
+  int64_t red_dims = k_bcast ? 0 : 1;
+
+  // Last position is a reduction dimension mapping to K if K is not broadcast.
+  if (!k_bcast) {
+    mapping[out_size - 1] = input_domain.at(kpos);
+    ;
+  }
+
   if (inp_size == 1) {
-    // Only reduction axis {K}
-    mapping[out_size - 1] = input_domain[0];
     return mapping;
   }
 
-  // Input A to matmul: {*, M, K}
-  // Input B to matmul: {*, K, N}
-  auto kpos = input_position == 0 ? inp_size - 1 : inp_size - 2;
-
-  // Last position is a reduction dimension mapping to K
-  mapping[out_size - 1] = input_domain.at(kpos);
-
-  for (auto out_idx = (int64_t)out_size - 2, inp_idx = inp_size - 1;
+  for (auto out_idx = (int64_t)out_size - 1 - red_dims, inp_idx = inp_size - 1;
        inp_idx >= 0;
        inp_idx--) {
     if (inp_idx != kpos) {
@@ -211,7 +217,7 @@ std::vector<IterDomain*> mapMatmulOpIterDomains(
     // Consider [iM, iK] x [iK]: [iM, rK]. Since out_size < inp_size,
     // input A and output are not right-aligned. In this case, the output index
     // pointer should not be moved when the reduction axis is encountered.
-    else if (inp_size <= (int64_t)out_size - 1) {
+    else if (inp_size <= (int64_t)out_size - red_dims) {
       out_idx--;
     }
   }
@@ -222,7 +228,8 @@ std::vector<IterDomain*> mapMatmulOpIterDomains(
 std::vector<IterDomain*> mapLinearOpIterDomains(
     const std::vector<IterDomain*>& input_domain,
     int64_t input_position,
-    size_t out_size) {
+    size_t out_size,
+    bool k_bcast) {
   std::vector<IterDomain*> mapping(out_size, nullptr);
   auto inp_size = input_domain.size();
 
@@ -231,29 +238,37 @@ std::vector<IterDomain*> mapLinearOpIterDomains(
       "Input position must be 0, 1, or 2. Found ",
       input_position);
 
+  auto red_dims = k_bcast ? 0 : 1;
+
   // Input A: {*, M, K}
   // Input B: {*, N, K} / {K}
   // Bias: {N} / {}
+
+  // Map K if K is not bcast
+  if (input_position != 2 && !k_bcast) {
+    mapping[out_size - 1] = input_domain.back();
+  }
+
   switch (input_position) {
     case 0: {
-      // Linear output is same as input for all but the last dimension
+      // Linear output is same as input for inp_size - 1 dimensions.
+      // K is already mapped above if not broadcast.
       for (auto inx : c10::irange(inp_size - 1)) {
         mapping[inx] = input_domain[inx];
       }
-      mapping[out_size - 1] = input_domain.back();
       break;
     }
     case 1: {
-      for (auto inx : c10::irange(inp_size)) {
-        // Map N, K to the last two positions of the output.
-        mapping[out_size - 1 - inx] = input_domain[inp_size - 1 - inx];
+      // Map N / out_features if present
+      if (inp_size > 1) {
+        mapping[out_size - 1 - red_dims] = input_domain.front();
       }
       break;
     }
     case 2: {
       if (inp_size > 0) {
         // Bias is 1D tensor of shape {out_features}
-        mapping[out_size - 2] = input_domain[0];
+        mapping[out_size - 1 - red_dims] = input_domain.front();
       }
       break;
     }

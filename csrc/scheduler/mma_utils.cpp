@@ -1809,13 +1809,14 @@ DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
 
   } else if (output->definition()->isA<LinearOp>()) {
     const std::vector<IterDomain*>& out_logical = output->getLogicalDomain();
+    bool k_bcast = A->getLogicalDomain().back()->isBroadcast();
     return matmulOrLinearOpDimRoles(
         permissive_graph,
         out_logical,
         ops::mapLinearOpIterDomains(
-            A->getLogicalDomain(), 0, out_logical.size()),
+            A->getLogicalDomain(), 0, out_logical.size(), k_bcast),
         ops::mapLinearOpIterDomains(
-            B->getLogicalDomain(), 1, out_logical.size()));
+            B->getLogicalDomain(), 1, out_logical.size(), k_bcast));
   }
 
   // The code below handles MmaOp or mul-sum patterns

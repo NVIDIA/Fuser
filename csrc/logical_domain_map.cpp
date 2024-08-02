@@ -214,6 +214,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
       NVF_ERROR(false, "Producer did not match any LinearOp input.")
     }
 
+    bool k_bcast = op->inA()->as<TensorView>()->axis(-1)->isBroadcast();
     // LinearOp:
     // inputs (0) = {*, in_features}
     // weight (1) = {out_features, in_features} / {in_features}
@@ -221,7 +222,8 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     // output = {*, out_features} / {*}
 
     const std::vector<IterDomain*>& aligned_producer_ids =
-        ops::mapLinearOpIterDomains(producer_logical, input_position, out_size);
+        ops::mapLinearOpIterDomains(
+            producer_logical, input_position, out_size, k_bcast);
     pairwiseMapAllIds(aligned_producer_ids, consumer_root);
     return dom_map;
   }
