@@ -44,7 +44,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
       const std::unordered_set<Expr*>& exclude = {}) {
     CircularBufferLoopCloner cloner(
         circular_buffer_loop, circular_buffer_load_exprs, loop_type, exclude);
-    cloner.clone();
+    cloner.duplicate();
     return cloner.cloned_top_level_loop_;
   }
 
@@ -61,7 +61,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
 
   using kir::IrVisitor::handle;
 
-  void clone() {
+  void duplicate() {
     // Cloning the circular buffer loop as follows:
     //
     // Prologue: 0 to 1
@@ -76,21 +76,33 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
         GpuLower::current()->circularBufferInfo().getStageDepthFor(
             circular_buffer_loop_->iter_domain());
 
-    if (loop_type_ == CircularBufferLoopStage::Prolog) {
-      NVF_ERROR(start->isZeroInt());
-      stop = SimplifyingIrBuilder::create<Val>(
-          int64_t(stage_depth - 1), DataType::Index);
-    } else if (
-        loop_type_ == CircularBufferLoopStage::Main &&
-        requireEpilogue(circular_buffer_load_exprs_)) {
-      stop = IrBuilder::subExpr(
-          circular_buffer_loop_->stop(),
-          SimplifyingIrBuilder::create<Val>(stage_depth - 1, DataType::Index));
-    } else if (loop_type_ == CircularBufferLoopStage::Epilog) {
-      NVF_ERROR(requireEpilogue(circular_buffer_load_exprs_));
-      start = IrBuilder::subExpr(
-          circular_buffer_loop_->stop(),
-          SimplifyingIrBuilder::create<Val>(stage_depth - 1, DataType::Index));
+    switch (loop_type_) {
+      case CircularBufferLoopStage::Prolog: {
+        NVF_ERROR(start->isZeroInt());
+        stop = SimplifyingIrBuilder::create<Val>(
+            int64_t(stage_depth - 1), DataType::Index);
+        break;
+      }
+      case CircularBufferLoopStage::Main: {
+        if (requireEpilogue(circular_buffer_load_exprs_)) {
+          stop = IrBuilder::subExpr(
+              circular_buffer_loop_->stop(),
+              SimplifyingIrBuilder::create<Val>(
+                  stage_depth - 1, DataType::Index));
+        }
+        break;
+      }
+      case CircularBufferLoopStage::Epilog: {
+        NVF_ERROR(requireEpilogue(circular_buffer_load_exprs_));
+        start = IrBuilder::subExpr(
+            circular_buffer_loop_->stop(),
+            SimplifyingIrBuilder::create<Val>(
+                stage_depth - 1, DataType::Index));
+        break;
+      }
+      case CircularBufferLoopStage::NotApplicable: {
+        NVF_ERROR(false, "Unsupported loop mode, got: ", loop_type_);
+      }
     }
 
     cloned_top_level_loop_ = IrBuilder::create<ForLoop>(
@@ -327,7 +339,7 @@ class CircularBufferInserter : private kir::ExprMutator {
   static std::vector<Expr*> run(
       const std::vector<Expr*>& exprs,
       InsertionInfo insertion_info) {
-    auto inserted_exprs = exprs;
+    std::vector<Expr*> inserted_exprs = exprs;
     while (!insertion_info.empty()) {
       CircularBufferInserter inserter(inserted_exprs, insertion_info);
       inserted_exprs = inserter.exprs_;
@@ -496,7 +508,7 @@ class CircularBufferInserter : private kir::ExprMutator {
     NVF_ERROR(
         !main_loop->body().empty(),
         "Circular buffer sync insertion: empty main loop.");
-    auto& exprs = main_loop->body().exprs();
+    const std::vector<Expr*>& exprs = main_loop->body().exprs();
     // Note: This pass explicitly assumes that WAR sync has been
     //  inserted so would need to be updated if we re-order the
     //  passes. Cleanups suggested in [Circular Buffer Sync]
