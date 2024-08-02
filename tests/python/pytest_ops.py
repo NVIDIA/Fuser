@@ -17,8 +17,6 @@ from typing import Callable
 
 from nvfuser import FusionCache, FusionDefinition
 
-from utils import is_pre_volta
-
 
 def parse_args_fusion_execution(opinfo: OpInfo, *args):
     if len(args) == 0:

@@ -4,7 +4,11 @@
 # Owner(s): ["module: nvfuser"]
 
 import torch
-from nvfuser import FusionDefinition, DataType
+from torch.testing._internal.common_utils import TEST_WITH_ROCM
+from torch.testing._internal.jit_utils import RUN_CUDA
+from nvfuser import FusionDefinition
+
+RUN_NVFUSER = RUN_CUDA and not TEST_WITH_ROCM
 
 
 def is_pre_volta():
@@ -28,18 +32,30 @@ def is_pre_hopper():
     return prop.major < 9
 
 
-def check_captured_python_definition(fd, inputs, device):
+# Get string representation for FusionDefinition
+# Run captured python definition
+# Check that the result of captured python definition matches original results
+def check_captured_python_definition(reference_outputs, fd, inputs, device=None):
     import re
 
-    # Execute the python definition that was captured
     try:
         fd_str = fd.__repr__()
         func_name = re.findall("(nvfuser_fusion_id\\d+)", fd_str.split("\n")[1])[0]
         exec(fd_str)
+
+        # Execute the python definition that was captured
         with FusionDefinition() as fd_cap:
             eval(func_name)(fd_cap)
+
         torch.manual_seed(0)
-        return fd_cap.execute(inputs, device=device)
+        captured_outputs = fd_cap.execute(inputs, device=device)
+        # Make sure the original and captured definitions match
+        return all(
+            [
+                torch.allclose(ref_out, captured_outputs[idx], equal_nan=True)
+                for idx, ref_out in enumerate(reference_outputs)
+            ]
+        )
     except Exception as err:
         print("\nException For Printed FusionDefinition:")
         print(

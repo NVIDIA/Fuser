@@ -145,11 +145,9 @@ class TestNvFuserFrontend(TestCase):
             fusion_func(fd)
         torch.manual_seed(0)
         out = fd.execute(inputs, device=device)
-        out_cap = check_captured_python_definition(fd, inputs_cap, device)
 
-        # Make sure the original and captured definitions match
-        for idx in range(len(out)):
-            self.assertEqual(out[idx], out_cap[idx])
+        self.assertTrue(check_captured_python_definition(out, fd, inputs_cap, device))
+
         self.assertEqual(fc.num_fusions() - before_fusions, int(new_fusion_expected))
         return out, fd
 
