@@ -16,7 +16,7 @@ namespace nvfuser {
 OrderedIdInformation::OrderedIdInformation(
     const std::vector<IterDomain*>& alloc_domain,
     std::shared_ptr<const ConcretizedBroadcastDomains> concrete_info)
-    : active_ids_(alloc_domain), concrete_info_(concrete_info) {
+    : active_ids_(alloc_domain), concrete_info_(std::move(concrete_info)) {
   if (alloc_domain.empty()) {
     return;
   }
