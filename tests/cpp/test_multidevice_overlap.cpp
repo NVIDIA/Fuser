@@ -20,9 +20,9 @@ namespace nvfuser {
 
 struct OverlapTestParams {
   // Tensors sizes
-  int64_t LOG2_M = (std::getenv("LOG2_M"))? std::atoi(std::getenv("LOG2_M")) : 10;
-  int64_t LOG2_K = (std::getenv("LOG2_K"))? std::atoi(std::getenv("LOG2_K")) : 10;
-  int64_t LOG2_N = (std::getenv("LOG2_N"))? std::atoi(std::getenv("LOG2_N")) : 10;
+  int64_t LOG2_M = (std::getenv("NVFUSER_OVERLAP_LOG2_M"))? std::atoi(std::getenv("NVFUSER_OVERLAP_LOG2_M")) : 10;
+  int64_t LOG2_K = (std::getenv("NVFUSER_OVERLAP_LOG2_K"))? std::atoi(std::getenv("NVFUSER_OVERLAP_LOG2_K")) : 10;
+  int64_t LOG2_N = (std::getenv("NVFUSER_OVERLAP_LOG2_N"))? std::atoi(std::getenv("NVFUSER_OVERLAP_LOG2_N")) : 10;
   int64_t M = std::pow(2, LOG2_M);
   int64_t K = std::pow(2, LOG2_K);
   int64_t N = std::pow(2, LOG2_N);
@@ -82,6 +82,8 @@ class OverlapTest : public MultiDeviceTest {
     if (communicator_->deviceId() == 0 && debug_print) {
       debug() << params << std::endl;
     }
+
+    allocateIO();
   }
 
   void allocateIO() {
@@ -106,12 +108,10 @@ class OverlapTest : public MultiDeviceTest {
     auto cpu_options = at::TensorOptions().dtype(at::kFloat);
     at::TensorOptions gpu_options = cpu_options.device(communicator_->device());
 
-    ta_unsharded_ = at::randn(ta_unsharded_sizes, cpu_options);
-    tb_unsharded_ = at::randn(tb_unsharded_sizes, cpu_options);
+    ta_unsharded_ = at::empty(ta_unsharded_sizes, cpu_options);
+    tb_unsharded_ = at::empty(tb_unsharded_sizes, cpu_options);
     ta_ = at::empty(ta_sizes, gpu_options);
-    ta_.copy_(ta_unsharded_.select(1, my_device_index_));
     tb_ = at::empty(tb_sizes, gpu_options);
-    tb_.copy_(tb_unsharded_.select(0, my_device_index_));
 
     // We pre-allocate the output and some intermediate buffers so we do not
     // rely on torch allocator, which do not behave well with multi-stream
@@ -127,6 +127,12 @@ class OverlapTest : public MultiDeviceTest {
               << std::endl
               << "tc_sizes()=" << tc_.sizes() << std::endl;
     }
+  }
+  void initializeIO() {
+    ta_unsharded_.uniform_();
+    tb_unsharded_.uniform_();
+    ta_.copy_(ta_unsharded_.select(1, my_device_index_));
+    tb_.copy_(tb_unsharded_.select(0, my_device_index_));
   }
 
   void validate() {
@@ -215,7 +221,7 @@ TEST_F(OverlapTest, ReduceScatterBasedPipeliningATenImplementation) {
 
   for ([[maybe_unused]] const auto& _ :
        c10::irange(params.number_of_iterations)) {
-    allocateIO();
+    initializeIO();
 
     for (auto j : c10::irange(params.S)) {
       int64_t stream_index = j % streams.size();
@@ -233,9 +239,8 @@ TEST_F(OverlapTest, ReduceScatterBasedPipeliningATenImplementation) {
       world_communicator_->_reduce_scatter_base(tc_j, tc_locally_reduced_j)
           ->wait();
     }
-
-    validate();
   }
+  validate();
 }
 
 TEST_F(OverlapTest, ReduceScatterBasedPipeliningHostIrImplementation) {
@@ -319,13 +324,13 @@ TEST_F(OverlapTest, ReduceScatterBasedPipeliningHostIrImplementation) {
 
   for ([[maybe_unused]] const auto& _ :
        c10::irange(params.number_of_iterations)) {
-    allocateIO();
+    initializeIO();
     std::unordered_map<Val*, c10::IValue> inputs = {
         {tva, ta_}, {tvb, tb_}, {tvc, tc_}};
 
     hie.runWithInput(std::move(inputs));
-    validate();
   }
+  validate();
 }
 
 } // namespace nvfuser
