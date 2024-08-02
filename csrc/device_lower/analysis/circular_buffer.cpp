@@ -239,14 +239,6 @@ IterDomain* CircularBufferInfo::getCircularBufferAxis(
   return getTvInfo(tv).circular_buffer_axis;
 }
 
-IterDomain* CircularBufferInfo::getCircularBufferAxis(const TensorView* tv) {
-  if (!tv->isCircularBuffered()) {
-    return nullptr;
-  }
-
-  return getTvInfo(tv).circular_buffer_axis;
-}
-
 int64_t CircularBufferInfo::getStageDepthFor(
     IterDomain* circular_buffer_axis) const {
   auto concrete_id = GpuLower::current()->caMap()->getConcreteMappedID(

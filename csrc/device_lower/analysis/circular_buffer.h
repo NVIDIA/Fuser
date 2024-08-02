@@ -33,8 +33,6 @@ class CircularBufferInfo {
 
   IterDomain* getCircularBufferAxis(const TensorView* tv) const;
 
-  IterDomain* getCircularBufferAxis(const TensorView* tv);
-
   //! Get all valid circular buffer TensorViews
   std::vector<const TensorView*> getCircularBufferTvs() const;
 
