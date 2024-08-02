@@ -48,7 +48,7 @@ void IdGraphIndexCompute::handle(Merge* merge) {
     auto outer_idx = getIndex(merge->outer());
     auto inner_idx = getIndex(merge->inner());
     auto out_idx = SimplifyingIrBuilder::addExpr(
-        SimplifyingIrBuilder::mulExpr(inner_ext, outer_idx), inner_idx);
+        SimplifyingIrBuilder::mulExpr(outer_idx, inner_ext), inner_idx);
     setIndex(merge->out(), out_idx);
   } else {
     auto out_idx = getIndex(merge->out());
