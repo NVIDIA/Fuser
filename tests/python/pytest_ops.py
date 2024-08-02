@@ -10,7 +10,7 @@ from copy import deepcopy
 
 from benchmarks.python.core import clear_cuda_cache
 from pytest_fusion_definitions import default_fd_fn, parse_inputs_fusion_definition
-from pytest_framework import create_op_test
+from pytest_framework import create_op_test, atexit_serde_create_op_test
 from pytest_core import ReferenceType, OpInfo, SampleInput
 from pytest_opinfos import opinfos
 from pytest_utils import ArgumentType, is_tensor, requiresJAX
@@ -199,7 +199,9 @@ def serde_test_fn(op: OpInfo, dtype: torch.dtype):
             return result
 
 
-@create_op_test(tuple(op for op in opinfos if op.sample_input_generator is not None))
+@atexit_serde_create_op_test(
+    tuple(op for op in opinfos if op.sample_input_generator is not None)
+)
 def test_correctness(op: OpInfo, dtype: torch.dtype):
     return serde_test_fn(op, dtype)
 

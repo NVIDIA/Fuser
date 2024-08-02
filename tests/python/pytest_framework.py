@@ -58,3 +58,25 @@ class create_op_test:
                 )
                 # Adds the instantiated test to the requested scope
                 self.scope[test.__name__] = test
+
+
+# This pseudo-decorator enables automatic serialization upon program exit and
+# tests deserializing the default workspace upon creating the tests. Do not
+# apply to the error testing functions that can corrupt the FusionCache.
+class atexit_serde_create_op_test(create_op_test):
+    def __init__(self, opinfos, *, scope=None):
+        from utils import debug_serde
+        from nvfuser import FusionCache
+
+        if not debug_serde:
+            from nvfuser import enable_automatic_serialization
+
+            # Turn on default serialization upon program exit
+            enable_automatic_serialization()
+
+        # Automatically load common workplace
+        fc = FusionCache.get()
+        # Clear FusionCache because the tests expect a new fusion to be generated.
+        FusionCache.reset()
+
+        create_op_test.__init__(self, opinfos, scope=scope)
