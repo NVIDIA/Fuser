@@ -49,7 +49,7 @@ int64_t getCircularBufferAxisPosition(const TensorView* tv) {
       "Valid circular buffer axis not found due to Unroll. ",
       tv->toString());
 
-  int64_t valid_pos = tv->getLoopDomain().size();
+  int64_t valid_pos = (int64_t)tv->getLoopDomain().size();
   // Skip parallelized or broadcast axes
   for (int64_t i = unroll_or_ca_pos - 1; i >= 0; --i) {
     auto pt = tv->axis(i)->getParallelType();
