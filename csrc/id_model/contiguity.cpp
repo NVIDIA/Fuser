@@ -90,7 +90,8 @@ void ContigIDGroups::handle(Merge* merge, Direction direction) {
     return;
   }
 
-  VERBOSE() << "ContigIDGroups::handle: " << merge->toString();
+  std::cerr << "ContigIDGroups::handle: " << merge->toString()
+            << "predicate pass: " << is_predicate_pass_ << std::endl;
 
   const bool is_indexing_pass = !is_predicate_pass_;
   const bool ignore_consistent_ordering = is_predicate_pass_;
@@ -122,7 +123,9 @@ void ContigIDGroups::handle(Merge* merge, Direction direction) {
     VectorOfUniqueEntries<IterDomain*> alloc_ids = alloc_ids_it->second;
     for (auto alloc_id_i : c10::irange(alloc_domains_.size())) {
       auto alloc_id = alloc_domains_[alloc_id_i];
-      NVF_ERROR(alloc_ids.has(alloc_id));
+      if (!alloc_ids.has(alloc_id)) {
+        continue;
+      }
       alloc_ids.erase(alloc_id);
       // If we're indexing:
       // we could still potentially consider this ID linearly indexable, as we
@@ -132,8 +135,6 @@ void ContigIDGroups::handle(Merge* merge, Direction direction) {
       // then we don't have this same constraint, we can just ignore
       // contiguity of the allocations all together.
       auto alloc_contiguity = contiguity_.at(alloc_id_i);
-      // Index of merged reductions can always be coalesced, so considering
-      // reduction as true contiguity.
       if (!alloc_contiguity && !alloc_ids.empty()) {
         return;
       }

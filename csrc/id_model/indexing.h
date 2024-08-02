@@ -11,6 +11,7 @@
 #include <id_model/id_model.h>
 #include <ir/base_nodes.h>
 #include <ir/interface_nodes.h>
+#include <options.h>
 #include <type.h>
 #include <val_graph_visitor.h>
 
@@ -55,14 +56,8 @@ class TensorIndexer {
   // non-const reference
   TensorIndexer(IdModel& id_model);
 
-  // Enable or disable contig indexing
-  TensorIndexer& enableContigIndexing(bool b) {
-    enable_contig_indexing_ = b;
-    return *this;
-  }
-
-  bool enableContigIndexing() const {
-    return enable_contig_indexing_;
+  bool isContigIndexingEnabled() const {
+    return !isOptionDisabled(DisableOption::ContigIndexing);
   }
 
   // Get a linear index of a given tensor appearing in a given expr, either
@@ -204,9 +199,6 @@ class TensorIndexer {
   // to NamedScalar such as "threadIdx.x". This map needs to be built
   // once and can be reused for different tensors.
   std::unordered_map<ValGroup, Val*> loop_index_map_;
-
-  // Take advantage of contiguous indexing if enabled
-  bool enable_contig_indexing_ = true;
 
   // Allocation info for each tensor. Must be filled before computing
   // the index of each tensor

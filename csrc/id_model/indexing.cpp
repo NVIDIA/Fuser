@@ -980,7 +980,7 @@ Val* TensorIndexer::getLinearIndex(
   std::deque<ValGroup> contig_alloc_groups;
   std::deque<Val*> contig_strides;
 
-  if (enableContigIndexing()) {
+  if (isContigIndexingEnabled()) {
     VERBOSE() << "Contig indexing enabled\n";
     const auto& contig_alloc_strides = getContigDomainsAndStrides(
         alloc_info.domains,

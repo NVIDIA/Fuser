@@ -180,7 +180,7 @@ std::vector<PredicateInfo> TensorIndexer::getPredicatesWIP(
               << std::endl;
 
     auto idx_it = index_map.find(traversalGraph().toGroup(predicate_domain));
-    if (enableContigIndexing()) {
+    if (isContigIndexingEnabled()) {
       if (already_indexed_domains.find(contig_domain_group) !=
           already_indexed_domains.end()) {
         VERBOSE() << "Already indexed: " << predicate_domain->toString()
@@ -223,7 +223,7 @@ std::vector<PredicateInfo> TensorIndexer::getPredicatesWIP(
     VERBOSE() << "Before replacement: " << idx->toInlineString()
               << " after: " << stop_idx->toInlineString() << std::endl;
 
-    if (!enableContigIndexing()) {
+    if (!isContigIndexingEnabled()) {
       info.stop_predicate_ = SimplifyingIrBuilder::ltExpr(
           SimplifyingIrBuilder::addExpr(stop_idx, info.stop_offset_),
           predicate_domain->extent());
@@ -245,7 +245,7 @@ std::vector<PredicateInfo> TensorIndexer::getPredicatesWIP(
     }
 
     // Set the used loop ID groups for this predicated domain
-    const auto& predicated_domain_group = enableContigIndexing()
+    const auto& predicated_domain_group = isContigIndexingEnabled()
         ? contig_domain_group
         : traversalGraph().toGroup(predicate_domain);
     const ValGroups& loop_deps =
