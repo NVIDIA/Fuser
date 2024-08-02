@@ -446,6 +446,82 @@ std::vector<AbstractTensor> AbstractTensor::unzip() const {
   return result;
 }
 
+namespace {
+
+struct DispatchParallelize {
+  template <typename INPUT>
+  void operator()(ParallelType parallel_type, INPUT&& in) const {
+    using IN = std::decay_t<INPUT>;
+    if constexpr (std::is_same_v<IN, std::monostate>) {
+      return;
+    } else if constexpr (std::is_same_v<IN, IterDomain*>) {
+      return in->parallelize(parallel_type);
+    } else if constexpr (std::is_same_v<IN, ValGroupAndItsGraph>) {
+      for (auto val : *in.group) {
+        auto id = dynamic_cast<IterDomain*>(val);
+        NVF_ERROR(id, "Can not parallelize non-IterDomain in ValGroup.");
+        id->parallelize(parallel_type);
+      }
+    } else if constexpr (std::is_same_v<IN, std::vector<AbstractId>>) {
+      for (auto& aid : in) {
+        AbstractId::dispatch((*this), parallel_type, aid);
+      }
+    } else {
+      NVF_CHECK(false, "Unsupported type in AbstractTensor::parallelize");
+    }
+  }
+};
+
+} // namespace
+
+AbstractTensor& AbstractTensor::parallelize(
+    int64_t axis,
+    ParallelType parallel_type) {
+  axis = wrapDim(axis, (int64_t)domain.size());
+  AbstractId::dispatch(DispatchParallelize{}, parallel_type, domain[axis]);
+  return *this;
+}
+
+AbstractTensor AbstractTensor::zip(std::vector<AbstractTensor> tensors) {
+  NVF_CHECK(!tensors.empty(), "Can not stack an empty list of AbstractTensor");
+
+  AbstractTensor result;
+  for (const auto& tensor : tensors) {
+    NVF_CHECK(
+        tensor.domain.size() == tensors[0].domain.size(),
+        "Can not stack AbstractTensors with different number of domains.");
+  }
+
+  result.domain.reserve(tensors[0].domain.size());
+  for (auto i : c10::irange(tensors[0].domain.size())) {
+    std::vector<AbstractId> domain;
+    domain.reserve(tensors.size());
+    for (auto& tensor : tensors) {
+      domain.emplace_back(std::move(tensor.domain[i]));
+    }
+    result.domain.emplace_back(std::move(domain));
+  }
+
+  return result;
+}
+
+AbstractTensor& AbstractTensor::addRow(AbstractTensor tensor) {
+  NVF_CHECK(
+      domain.size() == tensor.domain.size(),
+      "Can not add a new row with different number of domains.");
+  NVF_CHECK(
+      std::all_of(
+          domain.begin(),
+          domain.end(),
+          [](const AbstractId& aid) { return aid.is<std::vector>(); }),
+      "Can not add a new row to an AbstractTensor with non-vector domains.")
+
+  for (auto i : c10::irange(domain.size())) {
+    domain[i].as<std::vector>().emplace_back(std::move(tensor.domain[i]));
+  }
+  return *this;
+}
+
 AbstractTensor& AbstractTensor::strip() {
   AbstractTensor result;
   for (const auto& aid : domain) {

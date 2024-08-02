@@ -714,9 +714,7 @@ TEST_F(SwizzleTest, Transpose1) {
   loop.split(0, 32);
   loop.reorder({{1, 2}});
   loop.merge(0);
-  for (auto id : loop[0].as<std::vector>()) {
-    id->parallelize(ParallelType::BIDx);
-  }
+  loop.parallelize(0, ParallelType::BIDx);
   // BIDx, 32, 32
 
   auto smem_alloc = loop.unzip()[0];
@@ -726,9 +724,7 @@ TEST_F(SwizzleTest, Transpose1) {
   std::swap(loop[1][1], loop[2][1]);
   loop.merge(1);
   loop.split(1, 256);
-  for (auto id : loop[2].as<std::vector>()) {
-    id->parallelize(ParallelType::TIDx);
-  }
+  loop.parallelize(2, ParallelType::TIDx);
   // BIDx, 4, TIDx
 
   auto uz = loop.unzip();
