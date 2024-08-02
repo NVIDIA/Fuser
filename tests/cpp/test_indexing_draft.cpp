@@ -1569,5 +1569,4 @@ TEST_F(IndexingTestDraft, Unswitch2) {
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
-
 } // namespace nvfuser

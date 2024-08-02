@@ -349,9 +349,11 @@ class IndexValidator : public kir::IrVisitor {
     DisableOptionsGuard::getCurOptions().set(DisableOption::IndexHoist);
     // Magic zero is not yet supported
     DisableOptionsGuard::getCurOptions().set(DisableOption::MagicZero);
+    if (!enable_contig_indexing) {
+      DisableOptionsGuard::getCurOptions().set(DisableOption::ContigIndexing);
+    }
 
     GpuLower lower(fusion);
-    lower.tensorIndexer().enableContigIndexing(enable_contig_indexing);
 
     kir::Kernel* kernel = nullptr;
     // Suppress warnings due to using dynamic register tensors
@@ -489,9 +491,11 @@ class PredicateIndexValidator : public kir::IrVisitor {
     DisableOptionsGuard::getCurOptions().set(DisableOption::MagicZero);
     DisableOptionsGuard::getCurOptions().set(
         DisableOption::PredicateElimination);
+    if (!enable_contig_indexing) {
+      DisableOptionsGuard::getCurOptions().set(DisableOption::ContigIndexing);
+    }
 
     GpuLower lower(fusion);
-    lower.tensorIndexer().enableContigIndexing(enable_contig_indexing);
 
     kir::Kernel* kernel = nullptr;
     // Suppress warnings due to using dynamic register tensors
@@ -4800,6 +4804,106 @@ TEST_F(ContigIndexingTest, NonConsistentMerge) {
   };
 
   IndexValidator<GetReference>::validate(&fusion, true);
+}
+
+TEST_F(ContigIndexingTest, ConcretizedBroadcastMerge) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // [I0, I1]
+  auto tv0 = makeContigTensor(2);
+  fusion.addInput(tv0);
+  // [I0, I1, I2]
+  auto tv1 = makeContigTensor(3);
+  fusion.addInput(tv1);
+
+  auto tv2 = broadcast(tv0, {false, false, true});
+  auto tv3 = add(tv2, tv1);
+  fusion.addOutput(tv3);
+
+  tv3->merge(1, 2);
+  tv3->merge(0, 1);
+
+  TransformPropagator propagator(tv3);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
+
+  tv3->axis(0)->parallelize(ParallelType::TIDx);
+  scheduler_utils::parallelizeAllLike(tv3);
+
+  tv2->setMemoryType(MemoryType::Shared);
+
+  // tv2's broadcast domain is concretized. Previously, this would
+  // have prevented contig indexing.
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
+        const override {
+      // Only interested in tv2 here since that's the one that has a
+      // concretized broadcast domain
+      if (tv->name() != 2) {
+        return nullptr;
+      }
+
+      bool as_consumer = maybe_consumer == nullptr;
+      auto consumer_tv = as_consumer ? tv : maybe_consumer;
+      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+
+      // When indexed as a consumer, the second merge is a contig
+      // merge, so the index should be just threadIdx.x
+      if (as_consumer) {
+        return loop_indices.at(0);
+      }
+
+      // When indexed as a producer of tv1, the loop domain has all
+      // the concrete domains merged, so it needs to be
+      // decomposed. Specifically, the loop domain, threadIdx.x, should be
+      // decomposed as:
+      //
+      // Index of the outer logical domain: tidx / (I1 * I2)
+      // Index of the inner logical domain: tidx % (I1 * I2) / I2
+      //
+      // Since the allocation domain of t2 is (I0 * I1), the final
+      // index is (tidx / (I1 * I2) * I1 + tidx % (I1 * I2) / I2)
+
+      auto logical0 = divExpr(
+          loop_indices.at(0),
+          mulExpr(
+              consumer_tv->getLogicalDomain().at(1)->extent(),
+              consumer_tv->getLogicalDomain().at(2)->extent()));
+
+      auto logical1 = divExpr(
+          modExpr(
+              loop_indices.at(0),
+              mulExpr(
+                  consumer_tv->getLogicalDomain().at(1)->extent(),
+                  consumer_tv->getLogicalDomain().at(2)->extent())),
+          consumer_tv->getLogicalDomain().at(2)->extent());
+
+      auto alloc0 = addExpr(
+          mulExpr(logical0, tv->getLogicalDomain().at(1)->extent()), logical1);
+
+      return alloc0;
+    }
+  };
+
+  IndexValidator<GetReference>::validate(&fusion, true);
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({5, 6}, options);
+  auto t1 = at::randn({5, 6, 7}, options);
+  std::vector<c10::IValue> aten_inputs = {t0, t1};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
