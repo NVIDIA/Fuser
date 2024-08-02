@@ -62,8 +62,6 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
   using kir::IrVisitor::handle;
 
   void clone() {
-    const auto gpu_lower = GpuLower::current();
-
     // Cloning the circular buffer loop as follows:
     //
     // Prologue: 0 to 1
@@ -74,7 +72,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
         circular_buffer_loop_->iter_domain(), loop_type_);
     auto start = circular_buffer_loop_->start();
     auto stop = circular_buffer_loop_->stop();
-    auto stage_depth = gpu_lower->circularBufferInfo().getStageDepthFor(
+    auto stage_depth = GpuLower::current()->circularBufferInfo().getStageDepthFor(
         circular_buffer_loop_->iter_domain());
 
     if (loop_type_ == CircularBufferLoopStage::Prolog) {
@@ -99,7 +97,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
         index,
         start,
         stop,
-        gpu_lower->kernel()->oneVal(),
+        GpuLower::current()->kernel()->oneVal(),
         false,
         nullptr,
         circular_buffer_loop_->isUnrollRequired(),
@@ -238,8 +236,6 @@ class CircularBufferLoopNestInspector : private kir::IrVisitor {
   // Collect circular buffer related information on a expr
   //  that is a memory load, i.e. a LoadStore or a Set.
   void handlePossibleLoadExpr(Expr* expr) {
-    const auto gpu_lower = GpuLower::current();
-
     auto out_tv = ir_utils::getTvOutput(expr);
 
     if (out_tv == nullptr) {
@@ -252,7 +248,7 @@ class CircularBufferLoopNestInspector : private kir::IrVisitor {
     }
 
     auto circular_buffer_loop =
-        gpu_lower->circularBufferInfo().getCircularBufferLoop(
+        GpuLower::current()->circularBufferInfo().getCircularBufferLoop(
             out_tv, for_loops_);
 
     NVF_ERROR(
