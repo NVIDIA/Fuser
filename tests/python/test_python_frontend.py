@@ -138,6 +138,8 @@ class TestNvFuserFrontend(TestCase):
     ):
         fc = FusionCache.get()
         before_fusions = fc.num_fusions()
+        # Copy inputs because aliased outputs can modify inputs when running
+        # FusionDefinition
         inputs_cap = deepcopy(inputs)
 
         # Execute a fusion function and capture the string python definition

@@ -6,6 +6,7 @@
 import torch
 import pytest
 import numpy as np
+from copy import deepcopy
 
 from benchmarks.python.core import clear_cuda_cache
 from pytest_fusion_definitions import default_fd_fn, parse_inputs_fusion_definition
@@ -16,6 +17,8 @@ from pytest_utils import ArgumentType, is_tensor, requiresJAX
 from typing import Callable
 
 from nvfuser import FusionCache, FusionDefinition
+
+from utils import check_captured_python_definition
 
 
 def parse_args_fusion_execution(opinfo: OpInfo, *args):
@@ -46,7 +49,11 @@ def parse_args_fusion_execution(opinfo: OpInfo, *args):
 def torch_correctness_test_fn(fd_fn: Callable, nvf_op: OpInfo, sample: SampleInput):
     with FusionDefinition() as fd:
         fd_fn(fd, nvf_op, *sample.args, **sample.kwargs)
-    nvfuser_result = fd.execute(parse_args_fusion_execution(nvf_op, *sample.args))
+    inputs = parse_args_fusion_execution(nvf_op, *sample.args)
+    inputs_cap = deepcopy(inputs)
+    nvfuser_result = fd.execute(inputs)
+    assert check_captured_python_definition(nvfuser_result, fd, inputs_cap)
+
     torch_result = nvf_op.reference(*sample.args, **sample.kwargs)
 
     if isinstance(nvfuser_result, Exception):
@@ -55,7 +62,8 @@ def torch_correctness_test_fn(fd_fn: Callable, nvf_op: OpInfo, sample: SampleInp
     if len(nvfuser_result) == 1:
         nvfuser_result = nvfuser_result[0]
 
-    # TODO If dtype is fp16 or bf16, skip dtype check because nvfuser promotes to fp32 but does not return original dtype.
+    # TODO If dtype is fp16 or bf16, skip dtype check because nvfuser promotes
+    # to fp32 but does not return original dtype.
     # TODO Add specific dtype tolerances
     torch.testing.assert_close(
         nvfuser_result, torch_result, equal_nan=True, atol=1e-3, rtol=0
@@ -66,7 +74,10 @@ def torch_correctness_test_fn(fd_fn: Callable, nvf_op: OpInfo, sample: SampleInp
 def jax_correctness_test_fn(fd_fn: Callable, nvf_op: OpInfo, sample: SampleInput):
     with FusionDefinition() as fd:
         fd_fn(fd, nvf_op, *sample.args, **sample.kwargs)
-    nvfuser_result = fd.execute(parse_args_fusion_execution(nvf_op, *sample.args))
+    inputs = parse_args_fusion_execution(nvf_op, *sample.args)
+    inputs_cap = deepcopy(inputs)
+    nvfuser_result = fd.execute(inputs)
+    assert check_captured_python_definition(nvfuser_result, fd, inputs_cap)
 
     jax_sample = sample.jax()
     jax_result = nvf_op.reference(*jax_sample.args, **jax_sample.kwargs)
@@ -95,7 +106,10 @@ def python_correctness_test_fn(fd_fn: Callable, nvf_op: OpInfo, sample: SampleIn
 
     with FusionDefinition() as fd:
         fd_fn(fd, nvf_op, *sample.args)
-    nvfuser_result = fd.execute(parse_args_fusion_execution(nvf_op, *sample.args))
+    inputs = parse_args_fusion_execution(nvf_op, *sample.args)
+    inputs_cap = deepcopy(inputs)
+    nvfuser_result = fd.execute(inputs)
+    assert check_captured_python_definition(nvfuser_result, fd, inputs_cap)
 
     # expect only single result from function
     assert len(nvfuser_result) == 1

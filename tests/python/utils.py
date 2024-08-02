@@ -6,7 +6,9 @@
 import torch
 from torch.testing._internal.common_utils import TEST_WITH_ROCM
 from torch.testing._internal.jit_utils import RUN_CUDA
-from nvfuser import FusionDefinition
+
+# flake8: noqa
+from nvfuser import FusionDefinition, DataType
 
 RUN_NVFUSER = RUN_CUDA and not TEST_WITH_ROCM
 
