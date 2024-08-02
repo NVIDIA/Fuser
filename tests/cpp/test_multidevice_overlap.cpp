@@ -94,7 +94,7 @@ class OverlapTest : public MultiDeviceTest {
         num_devices_, params.K / num_devices_, params.N};
     std::vector<int64_t> tb_sizes = {params.K / num_devices_, params.N};
     std::vector<int64_t> tc_locally_reduced_sizes = {
-        params.S, params.M / params.S, params.N};
+        std::min(params.S, params.number_of_streams), params.M / params.S, params.N}; // we need at most `number_of_streams` slices
     std::vector<int64_t> tc_sizes = {
         params.S, params.M / (params.S * num_devices_), params.N};
 
@@ -218,12 +218,14 @@ TEST_F(OverlapTest, ReduceScatterBasedPipeliningATenImplementation) {
     allocateIO();
 
     for (auto j : c10::irange(params.S)) {
+      int64_t stream_index = j % streams.size();
+      setCurrentCUDAStream(streams.at(stream_index));
+
       // define the sliced tensors
       auto ta_j = ta_.select(0, j);
-      auto tc_locally_reduced_j = tc_locally_reduced_.select(0, j);
+      auto tc_locally_reduced_j = tc_locally_reduced_.select(0, stream_index);
       auto tc_j = tc_.select(0, j);
 
-      setCurrentCUDAStream(streams.at(j % streams.size()));
 
       // local compute
       torch::matmul_out(tc_locally_reduced_j, ta_j, tb_);
