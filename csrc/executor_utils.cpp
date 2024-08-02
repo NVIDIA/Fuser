@@ -705,7 +705,18 @@ ExpressionEvaluator bindInputs(
     // NOTE: we bind all inputs here, including at::Tensors. This means that
     // expr_eval will create a PolymorphicValue containing *args[i], which means
     // that at::Tensor's lifetime will be at least as long as that of expr_eval.
-    expr_eval.bind(inputs[i], *args[i], true);
+    try {
+      expr_eval.bind(inputs[i], *args[i], true);
+    } catch (const nvfError& e) {
+      std::stringstream ss;
+      ss << "When trying to run the provided host program,"
+         << " there was an error with the provided input " << i
+         << ". Provided input was:\n  ";
+      ss << PolymorphicValue_functions::toString(*args[i]);
+      ss << "\n  which does not match the expected input:\n  ";
+      ss << inputs[i]->toString() << "\n";
+      NVF_THROW(ss.str());
+    }
   }
 
   return expr_eval;
