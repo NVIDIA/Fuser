@@ -4540,24 +4540,23 @@ class TestNvFuserFrontend(TestCase):
                 for param in [dropout_p, is_causal, scale]:
                     if param is not None:
                         inputs.append(param)
-                with torch.random.fork_rng(range(torch.cuda.device_count())):
-                    nvf_out, _ = self.exec_nvfuser(
-                        partial(
-                            fusion_func,
-                            has_dropout=has_dropout,
-                            has_causal=has_causal,
-                            has_scale=has_scale,
-                        ),
-                        inputs,
-                    )
+                nvf_out, _ = self.exec_nvfuser(
+                    partial(
+                        fusion_func,
+                        has_dropout=has_dropout,
+                        has_causal=has_causal,
+                        has_scale=has_scale,
+                    ),
+                    inputs,
+                )
 
                 # Torch does not accept NoneType dropout_p, is_causal.
                 dropout_p = 0.0 if dropout_p is None else dropout_p
                 is_causal = False if is_causal is None else is_causal
-                with torch.random.fork_rng(range(torch.cuda.device_count())):
-                    ref_out = F.scaled_dot_product_attention(
-                        *qkv, dropout_p=dropout_p, is_causal=is_causal, scale=scale
-                    )
+                torch.manual_seed(0)
+                ref_out = F.scaled_dot_product_attention(
+                    *qkv, dropout_p=dropout_p, is_causal=is_causal, scale=scale
+                )
                 torch.testing.assert_close(nvf_out[0], ref_out)
 
 

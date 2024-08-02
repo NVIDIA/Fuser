@@ -2927,11 +2927,8 @@ void initNvFuserPythonBindings(PyObject* module) {
         size_t ndims = query.dims;
         Tensor output = fd->defineTensor(/*dims=*/ndims);
         Tensor log_sumexp = fd->defineTensor(/*dims=*/ndims - 1);
-        Tensor query_seq_len = fd->defineTensor(/*dims=*/0);
-        Tensor key_seq_len = fd->defineTensor(/*dims=*/0);
         Tensor philox_seed = fd->defineTensor(/*dims=*/0);
         Tensor philox_offset = fd->defineTensor(/*dims=*/0);
-        Tensor debug_attn_mask = fd->defineTensor(/*dims=*/0);
 
         auto dropout_p_state = dropout_p.has_value()
             ? fd->recordingState(dropout_p.value()())
@@ -2952,19 +2949,13 @@ void initNvFuserPythonBindings(PyObject* module) {
              scale_state},
             {fd->recordingState(output()),
              fd->recordingState(log_sumexp()),
-             fd->recordingState(query_seq_len()),
-             fd->recordingState(key_seq_len()),
              fd->recordingState(philox_seed()),
-             fd->recordingState(philox_offset()),
-             fd->recordingState(debug_attn_mask())}));
+             fd->recordingState(philox_offset())}));
         return std::make_tuple(
             output,
             log_sumexp,
-            query_seq_len,
-            key_seq_len,
             philox_seed,
-            philox_offset,
-            debug_attn_mask);
+            philox_offset);
       },
       py::arg("query"),
       py::arg("key"),
