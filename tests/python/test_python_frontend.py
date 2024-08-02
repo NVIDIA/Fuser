@@ -3123,6 +3123,26 @@ class TestNvFuserFrontend(TestCase):
         torch_ref = inputs[0] * (inputs[1] * inputs[2]).unsqueeze(-1)
         self.assertEqual(nvf_out[0], torch_ref)
 
+    def test_issue2755(self):
+        def fusion_func(fd: FusionDefinition) -> None:
+            t0 = fd.define_tensor(shape=[-1])
+            t1 = fd.ops.slice(
+                t0,
+                start_indices=[0],
+                end_indices=[5],
+            )
+            t2 = fd.ops.neg(t1)
+            t3 = fd.ops.slice(
+                t2,
+                start_indices=[0],
+                end_indices=[2],
+            )
+            t4 = fd.ops.neg(t3)
+            fd.add_output(t4)
+
+        inputs = [torch.randn((10,), dtype=torch.float32, device="cuda:0")]
+        self.exec_nvfuser(fusion_func, inputs)
+
     # Test that expand+pad does not cause indexing error, and that no scalars
     # are lost during segmentation.
     # See https://github.com/NVIDIA/Fuser/issues/1277
