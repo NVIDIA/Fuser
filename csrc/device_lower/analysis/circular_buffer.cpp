@@ -49,7 +49,7 @@ int64_t getCircularBufferAxisPosition(const TensorView* tv) {
       "Valid circular buffer axis not found due to Unroll. ",
       tv->toString());
 
-  int64_t valid_pos = -1;
+  int64_t valid_pos = tv->getLoopDomain().size();
   // Skip parallelized or broadcast axes
   for (int64_t i = unroll_or_ca_pos - 1; i >= 0; --i) {
     auto pt = tv->axis(i)->getParallelType();
@@ -58,7 +58,6 @@ int64_t getCircularBufferAxisPosition(const TensorView* tv) {
       break;
     }
   }
-
   return valid_pos;
 }
 
@@ -308,7 +307,11 @@ std::vector<const TensorView*> CircularBufferInfo::getCircularBufferTvs()
 }
 
 IterDomain* getCircularBufferAxis(const TensorView* tv) {
-  return tv->axis(getCircularBufferAxisPosition(tv));
+  int64_t cb_axis = getCircularBufferAxisPosition(tv);
+  if (cb_axis == (int64_t)tv->getLoopDomain().size()) {
+    return nullptr;
+  }
+  return tv->axis(cb_axis);
 }
 
 } // namespace nvfuser
