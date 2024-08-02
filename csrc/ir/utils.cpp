@@ -814,10 +814,13 @@ std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion) {
 }
 
 void validateDomainEquivalence(
-    const std::vector<IterDomain*>& dom0,
-    const std::vector<IterDomain*>& dom1) {
+    std::vector<IterDomain*> dom0,
+    const std::vector<IterDomain*>& dom1,
+    const std::vector<IterDomain*>& additional_ids) {
   std::unordered_set<Val*> dom0_set(dom0.begin(), dom0.end());
   std::unordered_set<Val*> dom1_set(dom1.begin(), dom1.end());
+  std::unordered_set<Val*> additional_ids_set(
+      additional_ids.begin(), additional_ids.end());
 
   // empty domain are equivalent.
   if (dom0.empty() && dom1.empty()) {
@@ -833,6 +836,7 @@ void validateDomainEquivalence(
       "Duplicated entry is detected in dom1: ",
       toDelimitedString(dom1));
 
+  dom0.insert(dom0.end(), additional_ids.begin(), additional_ids.end());
   auto exprs = IRBFS::getExprsBetween(
       {dom0.begin(), dom0.end()}, {dom1.begin(), dom1.end()}, false);
 
@@ -856,7 +860,16 @@ void validateDomainEquivalence(
       from = expr->outputs();
       to = expr->inputs();
     }
+    if (std::all_of(from.begin(), from.end(), [&](Val* v) {
+          return additional_ids_set.count(v);
+        })) {
+      additional_ids_set.insert(to.begin(), to.end());
+      continue;
+    }
     for (auto v : to) {
+      if (additional_ids_set.count(v)) {
+        continue;
+      }
       NVF_ERROR(
           frontier.insert(v).second,
           "Invalid derived domain due to dependent expr: ",
@@ -865,7 +878,8 @@ void validateDomainEquivalence(
           v->toString());
     }
     for (auto v : from) {
-      bool ignorable = v->as<IterDomain>()->isBroadcast();
+      bool ignorable =
+          v->as<IterDomain>()->isBroadcast() || additional_ids_set.count(v);
       NVF_ERROR(
           frontier.erase(v) == 1 || ignorable,
           "Invalid derived domain due to dependent expr: ",
@@ -905,12 +919,14 @@ void validateDomainEquivalence(
             dom1.end(),
             [&](auto id) {
               return id->getIterType() == IterType::Symbolic ||
-                  frontier.count(id);
+                  id->isBroadcast() || frontier.count(id);
             }),
         "dom0 and dom1 are not equal. dom0: ",
         toDelimitedString(dom0),
         ". dom1: ",
-        toDelimitedString(dom1));
+        toDelimitedString(dom1),
+        ". frontier: ",
+        toDelimitedString(frontier));
   }
   if (!dom1_has_symbolic) {
     // dom1 fully covers frontier
