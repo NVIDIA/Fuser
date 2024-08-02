@@ -57,7 +57,14 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
       : circular_buffer_loop_(circular_buffer_loop),
         circular_buffer_load_exprs_(circular_buffer_load_exprs),
         loop_type_(loop_type),
-        exclude_(exclude) {}
+        exclude_(exclude) {
+    std::transform(
+        circular_buffer_load_exprs_.begin(),
+        circular_buffer_load_exprs_.end(),
+        std::inserter(
+            circular_buffer_load_tvs_, circular_buffer_load_tvs_.begin()),
+        [](Expr* load_expr) { return ir_utils::getTvOutput(load_expr); });
+  }
 
   using kir::IrVisitor::handle;
 
@@ -155,23 +162,13 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
 
     NVF_ERROR(!cloned_scopes_.empty());
 
-    // In Prologue and Epilogue, either load expressions or anything
-    // else are copied. Note that there can be multiple expressions defining
-    // circular buffered TVs (e.g., buffer initialization).
-
-    TensorView* out_tv = ir_utils::getTvOutput(expr);
-    bool is_circular_buffer_load_expr = std::any_of(
-        circular_buffer_load_exprs_.begin(),
-        circular_buffer_load_exprs_.end(),
-        [out_tv](Expr* load_expr) {
-          TensorView* circular_buffer_tv = ir_utils::getTvOutput(load_expr);
-          NVF_ERROR(circular_buffer_tv != nullptr);
-          return out_tv == circular_buffer_tv;
-        });
-
     switch (loop_type_) {
       case CircularBufferLoopStage::Prolog: {
-        if (is_circular_buffer_load_expr) {
+        // In Prologue, only copy the load expressions.
+        // NOTE that there can be multiple expressions defining
+        // circular buffered TVs (e.g., buffer initialization).
+        TensorView* out_tv = ir_utils::getTvOutput(expr);
+        if (circular_buffer_load_tvs_.count(out_tv) > 0) {
           cloned_scopes_.back()->push_back(expr);
         }
         break;
@@ -181,7 +178,9 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
         break;
       }
       case CircularBufferLoopStage::Epilog: {
-        if (!is_circular_buffer_load_expr) {
+        // In Epilogue, copy everything except circular buffer load expressions.
+        TensorView* out_tv = ir_utils::getTvOutput(expr);
+        if (circular_buffer_load_tvs_.count(out_tv) == 0) {
           cloned_scopes_.back()->push_back(expr);
         }
         break;
@@ -197,6 +196,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
   const std::vector<Expr*>& circular_buffer_load_exprs_;
   const CircularBufferLoopStage loop_type_;
 
+  std::unordered_set<TensorView*> circular_buffer_load_tvs_;
   ForLoop* cloned_top_level_loop_ = nullptr;
   std::deque<Scope*> cloned_scopes_;
   const std::unordered_set<Expr*>& exclude_;
@@ -264,7 +264,7 @@ class CircularBufferLoopNestInspector : private kir::IrVisitor {
   void handlePossibleLoadExpr(Expr* expr) {
     TensorView* out_tv = ir_utils::getTvOutput(expr);
 
-    // Short-Circuite
+    // Short-Circuit
     if (out_tv == nullptr) {
       return;
     }
