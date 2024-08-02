@@ -2993,7 +2993,8 @@ TensorDomain::TensorDomain(
   NVF_CHECK(
       loop_domain_.empty() == logical_domain_.empty(),
       "logical domain and loop domain can only be both empty or neither empty");
-  ir_utils::validateDomainEquivalence(logical_domain_, loop_domain_);
+  ir_utils::validateDomainEquivalence(
+      logical_domain_, loop_domain_, additional_ids_);
 
   // resetDomains initializes other member variables, required by clang-tidy
   resetDomains();
@@ -3017,9 +3018,11 @@ TensorDomain::TensorDomain(
   NVF_CHECK(
       loop_domain_.empty() == logical_domain_.empty(),
       "logical domain and loop domain can only be both empty or neither empty");
-  ir_utils::validateDomainEquivalence(logical_domain_, loop_domain_);
+  ir_utils::validateDomainEquivalence(
+      logical_domain_, loop_domain_, additional_ids_);
   if (!root_domain_.empty()) {
-    ir_utils::validateDomainEquivalence(logical_domain_, root_domain_);
+    ir_utils::validateDomainEquivalence(
+        logical_domain_, root_domain_, additional_ids_);
   }
 
   // resetDomains initializes other member variables, required by clang-tidy
@@ -3046,12 +3049,15 @@ TensorDomain::TensorDomain(
   NVF_CHECK(
       loop_domain_.empty() == logical_domain_.empty(),
       "logical domain and loop domain can only be both empty or neither empty");
-  ir_utils::validateDomainEquivalence(logical_domain_, loop_domain_);
+  ir_utils::validateDomainEquivalence(
+      logical_domain_, loop_domain_, additional_ids_);
   if (!root_domain_.empty()) {
-    ir_utils::validateDomainEquivalence(logical_domain_, root_domain_);
+    ir_utils::validateDomainEquivalence(
+        logical_domain_, root_domain_, additional_ids_);
   }
   if (!allocation_domain_.empty()) {
-    ir_utils::validateDomainEquivalence(logical_domain_, allocation_domain_);
+    ir_utils::validateDomainEquivalence(
+        logical_domain_, allocation_domain_, additional_ids_);
   }
 
   // resetDomains initializes other member variables, required by clang-tidy
@@ -3319,9 +3325,9 @@ int64_t TensorDomain::rootPosOf(IterDomain* id) const {
   return std::distance(maybeRoot().begin(), it);
 }
 
-void TensorDomain::broadcast(int64_t axis) {
+void TensorDomain::broadcast(int64_t axis, Val* extent) {
   axis = nvfuser::wrapDim(axis, nDims() + 1);
-  IterDomain* id = IterDomainBuilder(fusion()->zeroVal(), fusion()->oneVal())
+  IterDomain* id = IterDomainBuilder(fusion()->zeroVal(), extent)
                        .iter_type(IterType::Broadcast)
                        .build();
   loop_domain_.insert(loop_domain_.begin() + axis, id);
@@ -3596,7 +3602,8 @@ std::pair<TensorDomain*, TensorDomain*> TensorDomain::rFactor(
 }
 
 void TensorDomain::setLoopDomain(std::vector<IterDomain*> new_loop_domain) {
-  ir_utils::validateDomainEquivalence(logical_domain_, new_loop_domain);
+  ir_utils::validateDomainEquivalence(
+      logical_domain_, new_loop_domain, additional_ids_);
   loop_domain_ = std::move(new_loop_domain);
   resetDomains();
 }
@@ -3606,7 +3613,8 @@ void TensorDomain::setAllocationDomain(
     std::vector<std::optional<bool>> new_contiguity) {
   validateContiguity(new_allocation_domain, new_contiguity);
 
-  ir_utils::validateDomainEquivalence(logical_domain_, new_allocation_domain);
+  ir_utils::validateDomainEquivalence(
+      logical_domain_, new_allocation_domain, additional_ids_);
 
   allocation_domain_ = std::move(new_allocation_domain);
   contiguity_ = std::move(new_contiguity);
