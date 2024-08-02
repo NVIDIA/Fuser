@@ -18,7 +18,33 @@ from typing import Callable
 
 from nvfuser import FusionCache, FusionDefinition
 
-from utils import check_captured_python_definition
+from utils import check_captured_python_definition, debug_serde, basic_serde_check
+
+
+def serde_check(test_fn: Callable):
+    """
+    A decorator to verify that serialization works with the given exec_nvfuser
+    function. Currently, it uses serialization to rebuild the FusionCache
+    structure.
+    """
+
+    def inner_fn(*args, **kwargs):
+        # NOTE: For debug purposes, clear FusionCache before running first test
+        # so the behavior is more deterministic (PR #1848).
+        if debug_serde:
+            FusionCache.reset()
+            assert FusionCache.get().num_fusions() == 0
+
+        # Populate FusionCache
+        test_fn(*args, **kwargs)
+
+        # Serialize and Deserialize FusionCache
+        basic_serde_check()
+
+        # Run test with repopulated FusionCache
+        return test_fn(*args, **kwargs)
+
+    return inner_fn
 
 
 def parse_args_fusion_execution(opinfo: OpInfo, *args):
@@ -163,13 +189,19 @@ def correctness_test_fn(
         pytest.xfail("Reference function is not defined for this correctness test.")
 
 
-@create_op_test(tuple(op for op in opinfos if op.sample_input_generator is not None))
-def test_correctness(op: OpInfo, dtype: torch.dtype):
+# Run serde check for each operation and dtype but not for each sample input.
+@serde_check
+def serde_test_fn(op: OpInfo, dtype: torch.dtype):
     clear_cuda_cache()
     for sample in op.sample_input_generator(op, dtype):
         result = correctness_test_fn(op.reference_type, op, sample)
         if result is not None:
             return result
+
+
+@create_op_test(tuple(op for op in opinfos if op.sample_input_generator is not None))
+def test_correctness(op: OpInfo, dtype: torch.dtype):
+    return serde_test_fn(op, dtype)
 
 
 # ****** Check a Definition Operation is not added to a Schedule ******
