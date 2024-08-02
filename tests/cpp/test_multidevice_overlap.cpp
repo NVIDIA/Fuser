@@ -20,19 +20,16 @@ namespace nvfuser {
 
 struct OverlapTestParams {
   // Tensors sizes
-  int64_t LOG2_M = (std::getenv("NVFUSER_OVERLAP_LOG2_M"))? std::atoi(std::getenv("NVFUSER_OVERLAP_LOG2_M")) : 10;
-  int64_t LOG2_K = (std::getenv("NVFUSER_OVERLAP_LOG2_K"))? std::atoi(std::getenv("NVFUSER_OVERLAP_LOG2_K")) : 10;
-  int64_t LOG2_N = (std::getenv("NVFUSER_OVERLAP_LOG2_N"))? std::atoi(std::getenv("NVFUSER_OVERLAP_LOG2_N")) : 10;
-  int64_t M = std::pow(2, LOG2_M);
-  int64_t K = std::pow(2, LOG2_K);
-  int64_t N = std::pow(2, LOG2_N);
+  int64_t M = std::pow(2, 6);
+  int64_t K = std::pow(2, 5);
+  int64_t N = std::pow(2, 4);
   int64_t S = std::pow(2, 3);
 
   // network backend type
   CommunicatorBackend backend_type = CommunicatorBackend::nccl;
 
   // Overlap optimization parameters
-  // repeats the full experiment (i.e. allocation+compute+validation)
+  // fill input with new random values and repeat the operation
   int64_t number_of_iterations = 4;
   // Change CUDA stream at each iteration in a Round-Robin fashion
   int64_t number_of_streams = 3;
@@ -47,7 +44,8 @@ std::ostream& operator<<(std::ostream& out, const OverlapTestParams& params) {
       << indent << "N=" << params.N << "\n"
       << indent << "S=" << params.S << "\n"
       << indent << "number_of_streams=" << params.number_of_streams << "\n"
-      << "}";
+      << indent << "number_of_iterations=" << params.number_of_iterations
+      << "\n}";
   return out;
 }
 
@@ -83,10 +81,6 @@ class OverlapTest : public MultiDeviceTest {
       debug() << params << std::endl;
     }
 
-    allocateIO();
-  }
-
-  void allocateIO() {
     // Define I/O and intermediate Tensor shapes
     std::vector<int64_t> ta_unsharded_sizes = {
         params.S, num_devices_, params.M / params.S, params.K / num_devices_};
@@ -96,7 +90,9 @@ class OverlapTest : public MultiDeviceTest {
         num_devices_, params.K / num_devices_, params.N};
     std::vector<int64_t> tb_sizes = {params.K / num_devices_, params.N};
     std::vector<int64_t> tc_locally_reduced_sizes = {
-        std::min(params.S, params.number_of_streams), params.M / params.S, params.N}; // we need at most `number_of_streams` slices
+        std::min(params.S, params.number_of_streams),
+        params.M / params.S,
+        params.N}; // we need at most `number_of_streams` slices
     std::vector<int64_t> tc_sizes = {
         params.S, params.M / (params.S * num_devices_), params.N};
 
@@ -128,6 +124,7 @@ class OverlapTest : public MultiDeviceTest {
               << "tc_sizes()=" << tc_.sizes() << std::endl;
     }
   }
+
   void initializeIO() {
     ta_unsharded_.uniform_();
     tb_unsharded_.uniform_();
@@ -232,7 +229,6 @@ TEST_F(OverlapTest, ReduceScatterBasedPipeliningATenImplementation) {
       auto tc_locally_reduced_j = tc_locally_reduced_.select(0, stream_index);
       auto tc_j = tc_.select(0, j);
 
-
       // local compute
       torch::matmul_out(tc_locally_reduced_j, ta_j, tb_);
       // communication
@@ -247,9 +243,9 @@ TEST_F(OverlapTest, ReduceScatterBasedPipeliningHostIrImplementation) {
   auto hic = std::make_unique<hir::HostIrContainer>();
   FusionGuard::setCurFusion(hic.get());
 
-  TensorView* tva = makeSymbolicTensor(3);
-  TensorView* tvb = makeSymbolicTensor(2);
-  TensorView* tvc = makeSymbolicTensor(3);
+  TensorView* tva = makeSymbolicTensor(ta_.dim());
+  TensorView* tvb = makeSymbolicTensor(tb_.dim());
+  TensorView* tvc = makeSymbolicTensor(tc_.dim());
   hic->addInput(tva);
   hic->addInput(tvb);
   hic->addInput(tvc);
