@@ -211,10 +211,13 @@ class OverlapTest : public MultiDeviceTest {
 // clang-format on
 TEST_F(OverlapTest, ReduceScatterBasedPipeliningATenImplementation) {
   std::vector<c10::cuda::CUDAStream> streams;
-  std::generate_n(std::back_inserter(streams), params.number_of_streams, [my_device_index=my_device_index_]() {
-    return c10::cuda::getStreamFromPool(
-        /*isHighPriority=*/false, my_device_index);
-  });
+  std::generate_n(
+      std::back_inserter(streams),
+      params.number_of_streams,
+      [my_device_index = my_device_index_]() {
+        return c10::cuda::getStreamFromPool(
+            /*isHighPriority=*/false, my_device_index);
+      });
 
   for ([[maybe_unused]] const auto& _ :
        c10::irange(params.number_of_iterations)) {
