@@ -54,6 +54,7 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
     // name().
     bool group_is_const = false;
     IterDomain* rep = nullptr;
+    std::unordered_set<Val*> dynamic_scalars;
     for (Val* v : *group) {
       auto* id = dynamic_cast<IterDomain*>(v);
       NVF_ERROR(
@@ -64,6 +65,10 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
       }
       Val* ext = id->extent();
       bool ext_is_const = ext->isConstInt();
+      if (!ext_is_const) {
+        dynamic_scalars.insert(ext);
+      }
+
       if (ext_is_const) {
         if (!group_is_const || id->name() < rep->name()) {
           rep = id;
@@ -94,7 +99,8 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
     for (Val* v : *group) {
       auto* id = v->as<IterDomain>();
       Val* ext = id->extent();
-      if (!ext->sameAs(rep_ext)) {
+      // Don't remap constants or rep_ext itself
+      if (!ext->sameAs(rep_ext) && dynamic_scalars.count(ext)) {
         simplification_map.emplace(ext, rep_ext);
       }
     }
