@@ -50,8 +50,8 @@ TEST_F(AliasAnalysisTest, View_SymbolicTensor) {
   TensorView* out = reshape(in, {in_shape[0], mul(in_shape[1], in_shape[2])});
   fusion.addOutput(out);
 
-  AliasAnalysisResult alias_analysis = findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getRoot(out), in);
+  AliasAnalysisResult analysis = findAliases(&fusion);
+  EXPECT_EQ(analysis.getRoot(out), in);
 }
 
 TEST_F(AliasAnalysisTest, ChainOfViews) {
@@ -68,8 +68,8 @@ TEST_F(AliasAnalysisTest, ChainOfViews) {
   TensorView* out = reshape(intermediate, intermediate_shape, out_shape);
   fusion.addOutput(out);
 
-  AliasAnalysisResult alias_analysis = findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getRoot(out), in);
+  AliasAnalysisResult analysis = findAliases(&fusion);
+  EXPECT_EQ(analysis.getRoot(out), in);
 }
 
 TEST_F(AliasAnalysisTest, View_Contiguous) {
@@ -84,9 +84,9 @@ TEST_F(AliasAnalysisTest, View_Contiguous) {
   TensorView* out = reshape(in, in_shape, out_shape);
   fusion.addOutput(out);
 
-  AliasAnalysisResult alias_analysis = findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getRoot(out), in);
-  Layout preferred_layout = alias_analysis.preferredLayout(out);
+  AliasAnalysisResult analysis = findAliases(&fusion);
+  EXPECT_EQ(analysis.getRoot(out), in);
+  Layout preferred_layout = analysis.preferredLayout(out);
   EXPECT_THAT(
       preferred_layout.allocation_domain,
       ElementsAre(out->axis(0), out->axis(1)));
@@ -109,8 +109,8 @@ TEST_F(AliasAnalysisTest, View_MergeNonContiguous) {
   TensorView* out = reshape(in, in_shape, out_shape);
   fusion.addOutput(out);
 
-  AliasAnalysisResult alias_analysis = findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getRoot(out), nullptr);
+  AliasAnalysisResult analysis = findAliases(&fusion);
+  EXPECT_EQ(analysis.getRoot(out), nullptr);
 }
 
 TEST_F(AliasAnalysisTest, Set) {
@@ -124,12 +124,12 @@ TEST_F(AliasAnalysisTest, Set) {
 
   in->setAllocationDomain({in->axis(1), in->axis(2), in->axis(0)}, true);
 
-  AliasAnalysisResult alias_analysis = findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getRoot(out), in);
+  AliasAnalysisResult analysis = findAliases(&fusion);
+  EXPECT_EQ(analysis.getRoot(out), in);
 
   const std::vector<IterDomain*>& out_logical = out->getLogicalDomain();
   EXPECT_THAT(
-      alias_analysis.preferredLayout(out).allocation_domain,
+      analysis.preferredLayout(out).allocation_domain,
       ElementsAre(out_logical[1], out_logical[2], out_logical[0]));
 }
 
@@ -144,12 +144,12 @@ TEST_F(AliasAnalysisTest, Permute) {
   TensorView* out = permute(in, {1, 2, 0});
   fusion.addOutput(out);
 
-  AliasAnalysisResult alias_analysis = findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getRoot(out), in);
+  AliasAnalysisResult analysis = findAliases(&fusion);
+  EXPECT_EQ(analysis.getRoot(out), in);
 
   const std::vector<IterDomain*>& out_logical = out->getLogicalDomain();
   EXPECT_THAT(
-      alias_analysis.preferredLayout(out).allocation_domain,
+      analysis.preferredLayout(out).allocation_domain,
       ElementsAre(out_logical[2], out_logical[0], out_logical[1]));
 }
 
@@ -172,8 +172,8 @@ TEST_F(AliasAnalysisTest, View_SplitExpandedBroadcast) {
       reshape(in, {IrBuilder::create<Val>(40), IrBuilder::create<Val>(3)});
   fusion.addOutput(out);
 
-  AliasAnalysisResult alias_analysis = findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getRoot(out), nullptr);
+  AliasAnalysisResult analysis = findAliases(&fusion);
+  EXPECT_EQ(analysis.getRoot(out), nullptr);
 }
 
 TEST_F(AliasAnalysisTest, View_ForwardExpandedBroadcast) {
@@ -191,8 +191,8 @@ TEST_F(AliasAnalysisTest, View_ForwardExpandedBroadcast) {
   TensorView* out = reshape(in, {4, 5, 6}, {20, -1});
   fusion.addOutput(out);
 
-  AliasAnalysisResult alias_analysis = findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getRoot(out), in);
+  AliasAnalysisResult analysis = findAliases(&fusion);
+  EXPECT_EQ(analysis.getRoot(out), in);
 
   // Verify the last dimension isn't expanded physically.
   FusionExecutor fe;
@@ -219,8 +219,8 @@ TEST_F(AliasAnalysisTest, View_MergeExpandedBroadcast) {
   TensorView* out = reshape(in, {4, 5, 6}, {4, -1});
   fusion.addOutput(out);
 
-  AliasAnalysisResult alias_analysis = findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getRoot(out), nullptr);
+  AliasAnalysisResult analysis = findAliases(&fusion);
+  EXPECT_EQ(analysis.getRoot(out), nullptr);
 }
 
 TEST_F(AliasAnalysisTest, TrivialSlice) {
@@ -233,8 +233,8 @@ TEST_F(AliasAnalysisTest, TrivialSlice) {
   out = reshape(out, {2, 3}, {6});
   fusion.addOutput(out);
 
-  AliasAnalysisResult alias_analysis = findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getRoot(out), in);
+  AliasAnalysisResult analysis = findAliases(&fusion);
+  EXPECT_EQ(analysis.getRoot(out), in);
 }
 
 TEST_F(AliasAnalysisTest, MergeTriviallySlicedDimensions) {
@@ -247,8 +247,8 @@ TEST_F(AliasAnalysisTest, MergeTriviallySlicedDimensions) {
   out = reshape(out, {2, 2, 5}, {2, 10});
   fusion.addOutput(out);
 
-  AliasAnalysisResult alias_analysis = findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getRoot(out), in);
+  AliasAnalysisResult analysis = findAliases(&fusion);
+  EXPECT_EQ(analysis.getRoot(out), in);
 }
 
 TEST_F(AliasAnalysisTest, MergeSlicedDimensions) {
@@ -261,8 +261,8 @@ TEST_F(AliasAnalysisTest, MergeSlicedDimensions) {
   TensorView* out = reshape(slice_out, {2, 2, 5}, {4, 5});
   fusion.addOutput(out);
 
-  AliasAnalysisResult alias_analysis = findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getRoot(out), nullptr);
+  AliasAnalysisResult analysis = findAliases(&fusion);
+  EXPECT_EQ(analysis.getRoot(out), nullptr);
 }
 
 TEST_F(AliasAnalysisTest, BroadcastExpandDimensions) {
@@ -279,8 +279,29 @@ TEST_F(AliasAnalysisTest, BroadcastExpandDimensions) {
        broadcast_tv->axis(2)->extent()});
   fusion.addOutput(expanded_tv);
 
-  AliasAnalysisResult alias_analysis = findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getRoot(expanded_tv), in);
+  AliasAnalysisResult analysis = findAliases(&fusion);
+  EXPECT_EQ(analysis.getRoot(expanded_tv), in);
+}
+
+TEST_F(AliasAnalysisTest, NoAliasForReshardingExprs) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int kNumDevices = 4;
+  auto mesh = DeviceMesh::createForNumDevices(kNumDevices);
+
+  TensorView* in = makeContigTensor(2);
+  TensorView* out = set(in);
+
+  in->setDeviceMesh(mesh);
+  in->axis(0)->parallelize(ParallelType::DIDx);
+  out->setDeviceMesh(mesh);
+
+  fusion.addInput(in);
+  fusion.addOutput(out);
+
+  AliasAnalysisResult analysis = findAliases(&fusion);
+  EXPECT_TRUE(analysis.getRoot(out) == nullptr);
 }
 
 using AliasTest = NVFuserTest;
@@ -1407,8 +1428,8 @@ TEST_F(AliasTest, FusionExecutor) {
   fusion.addOutput(out);
 
   // Sanity-check that `out` is a valid alias of `in`.
-  AliasAnalysisResult alias_analysis = findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getRoot(out), in);
+  AliasAnalysisResult analysis = findAliases(&fusion);
+  EXPECT_EQ(analysis.getRoot(out), in);
 
   // Mark them alias so FusionExecutor::runFusion expression-evaluates the
   // output on the host instead of launching a CUDA kernel.

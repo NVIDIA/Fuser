@@ -236,14 +236,14 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     //   value = [DIDx(D)?, N, H, S, Ev]
     // Consumers:
     //   output = [DIDx(D)?, N, H, L, Ev]
-    //   logsumexp = [N, H, L]
+    //   logsumexp = [DIDx(D)?, N, H, L]
     // Note: S, E are not mapped together in the producers and do not have any
     // mapping to the consumer.
 
     size_t num_device_dim = producer_logical.at(0)->isDeviceDim() ? 1 : 0;
     // Map N, H from any input (query/key/value)
     for (auto idx : c10::irange(consumer_root.size())) {
-      if (idx >= num_device_dim && idx < (2 + num_device_dim)) {
+      if (idx < (2 + num_device_dim)) {
         updatePairwiseLogicalDomainMap(
             producer_logical.at(idx), consumer_root.at(idx));
       }
@@ -257,11 +257,6 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
         updatePairwiseLogicalDomainMap(
             producer_logical.at(idx), consumer_root.at(idx));
       }
-    }
-    // Map D from any input (query/key/value) to output only.
-    if (num_device_dim == 1 && consumer_root.size() > 3) {
-      updatePairwiseLogicalDomainMap(
-          producer_logical.at(0), consumer_root.at(0));
     }
     return dom_map;
   }
