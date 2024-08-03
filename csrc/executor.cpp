@@ -1921,7 +1921,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   if (host_ir_container_ != nullptr) {
     if (outputs.empty()) {
       std::vector<GlobalBufferInfo> output_info = getBufferInfos(
-          expr_eval, PrimDataType::Int, host_ir_container_.get()->outputs());
+          expr_eval, PrimDataType::Int, host_ir_container_->outputs());
       outputs = allocateOutputs(
           host_ir_container_.get(), output_info, options_.device, expr_eval);
     }
