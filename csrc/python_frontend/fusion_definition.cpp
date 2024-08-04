@@ -6,7 +6,7 @@
  */
 // clang-format on
 #include <debug.h>
-#include <executor_kernel_arg.h>
+#include <fusion_executor/executor_kernel_arg.h>
 #include <fusion_profiler.h>
 #include <instrumentation.h>
 #include <multidevice/communicator.h>

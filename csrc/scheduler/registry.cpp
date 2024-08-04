@@ -6,7 +6,7 @@
  */
 // clang-format on
 #include <ATen/cuda/CUDAContext.h>
-#include <executor_utils.h>
+#include <fusion_executor/executor_utils.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/matmul_utils.h>

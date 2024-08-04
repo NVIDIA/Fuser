@@ -7,9 +7,9 @@
 // clang-format on
 #include <gtest/gtest.h>
 
-#include <executor.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
+#include <fusion_executor/executor.h>
 #include <fusion_segmenter.h>
 #include <ir/all_nodes.h>
 #include <ir/interface_nodes.h>

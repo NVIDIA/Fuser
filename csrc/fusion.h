@@ -11,7 +11,7 @@
 #include <exceptions.h>
 
 #include <debug.h>
-#include <executor_params.h>
+#include <fusion_executor/executor_params.h>
 #include <ir/base_nodes.h>
 #include <ir/container.h>
 #include <iter_visitor.h>

@@ -11,7 +11,7 @@
 #include <torch/torch.h>
 
 #include <exceptions.h>
-#include <executor.h>
+#include <fusion_executor/executor.h>
 #include <inlining.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>

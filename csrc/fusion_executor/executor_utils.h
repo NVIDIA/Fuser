@@ -17,9 +17,9 @@
 
 #include <cuda_utils.h>
 #include <device_lower/lower2device.h>
-#include <executor_kernel_arg.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
+#include <fusion_executor/executor_kernel_arg.h>
 #include <ir/all_nodes.h>
 #include <kernel.h>
 

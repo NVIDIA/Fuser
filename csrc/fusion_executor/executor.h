@@ -8,10 +8,10 @@
 #pragma once
 #include <device_lower/lower2device.h>
 #include <exceptions.h>
-#include <executor_params.h>
-#include <executor_utils.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
+#include <fusion_executor/executor_params.h>
+#include <fusion_executor/executor_utils.h>
 #include <host_ir/container.h>
 #include <ir/all_nodes.h>
 #include <ir/cloner.h>

@@ -11,8 +11,8 @@
 #include <tests/cpp/validator.h>
 
 #include <exceptions.h>
-#include <executor.h>
 #include <fusion.h>
+#include <fusion_executor/executor.h>
 #include <ir/all_nodes.h>
 #include <ops/all_ops.h>
 #include <scheduler/mma_utils.h>

@@ -10,8 +10,8 @@
 #include <dynamic_transform.h>
 #include <evaluator_common.h>
 #include <exceptions.h>
-#include <executor.h>
 #include <fusion.h>
+#include <fusion_executor/executor.h>
 #include <fusion_segmenter.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/registry.h>

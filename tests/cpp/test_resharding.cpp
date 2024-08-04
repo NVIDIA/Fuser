@@ -8,8 +8,8 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include <executor_kernel_arg.h>
 #include <fusion.h>
+#include <fusion_executor/executor_kernel_arg.h>
 #include <fusion_segmenter.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>

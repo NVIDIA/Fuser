@@ -7,10 +7,10 @@
 // clang-format on
 #include <device_lower/utils.h>
 #include <dynamic_transform.h>
-#include <executor_kernel_arg.h>
-#include <executor_utils.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
+#include <fusion_executor/executor_kernel_arg.h>
+#include <fusion_executor/executor_utils.h>
 #include <ir/cloner.h>
 #include <ir/utils.h>
 #include <ops/alias.h>

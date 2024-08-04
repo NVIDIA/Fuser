@@ -14,10 +14,10 @@
 #include <device_lower/analysis/divisible_split.h>
 #include <device_lower/lower2device.h>
 #include <disjoint_set.h>
-#include <executor.h>
-#include <executor_params.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
+#include <fusion_executor/executor.h>
+#include <fusion_executor/executor_params.h>
 #include <fusion_segmenter.h>
 #include <inlining.h>
 #include <ir/all_nodes.h>
