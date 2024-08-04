@@ -16,6 +16,7 @@
 #endif
 #include <torch/cuda.h>
 
+#include <fusion_executor/allocations.h>
 #include <fusion_segmenter.h>
 #include <ir/all_nodes.h>
 #include <multidevice/utils.h>

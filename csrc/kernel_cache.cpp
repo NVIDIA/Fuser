@@ -10,6 +10,7 @@
 #include <debug.h>
 #include <driver_api.h>
 #include <dynamic_transform.h>
+#include <fusion_executor/allocations.h>
 #include <fusion_executor/executor_params.h>
 #include <fusion_executor/executor_utils.h>
 #include <fusion_profiler.h>
@@ -1219,8 +1220,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
 
     auto fusion_to_run = segmented_fusion_->makeFusion(group_to_run).second;
     auto group_runtime_outputs =
-        executors_[group_to_run->groupId()].inferOutputSizes(
-            fusion_to_run.get(), group_runtime_inputs);
+        inferOutputSizes(fusion_to_run.get(), group_runtime_inputs);
 
     // map output args to tensor map
     args_manager.updateWithSegmentOutputs(
@@ -1487,11 +1487,11 @@ std::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
     }
 
     // Generate metadata for the fusion's outputs
-    auto group_runtime_outputs = executors_.at(group_to_run->groupId())
-                                     .inferOutputSizes(
-                                         fusion_to_run,
-                                         group_runtime_inputs,
-                                         evaluator_precomputed_values.get());
+    auto group_runtime_outputs = inferOutputSizes(
+        fusion_to_run,
+        group_runtime_inputs,
+        evaluator_precomputed_values.get());
+
     args_manager.updateWithSegmentOutputs(
         group_to_run->outputs(), group_runtime_outputs, group_id);
   }
