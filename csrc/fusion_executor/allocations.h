@@ -25,19 +25,6 @@ struct GlobalBufferInfo {
   bool is_profile_buffer = false;
 };
 
-bool shouldFillAllocationWithNan();
-NVF_API void setFillAllocationWithNan(bool value);
-
-void fillTensorWithNan(at::Tensor& t);
-
-//! Used in distributed setting where we only want to
-//!  allocate output space and receive output data from
-//!  a different rank instead of computing them.
-std::vector<at::Tensor> allocOutputSpace(
-    const at::ArrayRef<c10::IValue>& inputs,
-    Fusion* fusion,
-    const c10::Device& device);
-
 //! This function is useful for parallel compilation of segmented fusions.
 //! It returns non-allocated KernelArgumentHolder, representing the output
 //! sizes from kernel execution.
@@ -56,16 +43,30 @@ int64_t computeSharedMemory(
     DataType index_type,
     int64_t smem_offset = 0);
 
-// Infer the sizes and strides of an output tensor
-std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
-    TensorView* tv,
-    ExpressionEvaluator& expr_eval);
-
 // Infer the shape of an intemediate tensor using kir::Allocate. This
 // is not ideal but still necessary when tensors are expanded with halo
 std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfIntermediate(
     const TensorView* tv,
     const kir::Allocate* alloc,
+    ExpressionEvaluator& expr_eval);
+
+bool shouldFillAllocationWithNan();
+
+NVF_API void setFillAllocationWithNan(bool value);
+
+void fillTensorWithNan(at::Tensor& t);
+
+//! Used in distributed setting where we only want to
+//!  allocate output space and receive output data from
+//!  a different rank instead of computing them.
+std::vector<at::Tensor> allocOutputSpace(
+    const at::ArrayRef<c10::IValue>& inputs,
+    Fusion* fusion,
+    const c10::Device& device);
+
+// Infer the sizes and strides of an output tensor
+std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
+    TensorView* tv,
     ExpressionEvaluator& expr_eval);
 
 // Allocate output tensors for a given fusion. Outputs may alias inputs, in
@@ -75,6 +76,14 @@ std::vector<at::Tensor> allocateOutputs(
     const std::vector<GlobalBufferInfo>& output_info,
     const c10::Device& device,
     ExpressionEvaluator& ee);
+
+//! Used in distributed setting where we only want to
+//!  allocate output space and receive output data from
+//!  a different rank instead of computing them.
+std::vector<at::Tensor> allocOutputSpace(
+    const at::ArrayRef<c10::IValue>& inputs,
+    Fusion* fusion,
+    const c10::Device& device);
 
 //! Return information necessary for allocating output tensors. Input
 //! and output tensors are allowed to alias each other, which is
