@@ -408,6 +408,8 @@ NVF_API bool isReductionTvOp(const Expr*);
 // Returns if Expr is a pointwise op op with TensorView or TensorIndex
 bool isPointwiseTvOp(const Expr* expr);
 
+bool isSegmentSet(const Expr* e);
+
 // Returns all non-trivial view operations. We shouldn't have trivial view
 // operations but this function is to simply make sure if we ever do we don't
 // pull them in.
@@ -499,9 +501,14 @@ std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion);
 //! Then [I0, I1, I8, I9] is equivalent to [I6, I7, I2, I3]. [I0, I1, I2, I3] is
 //! equivalent to [I6, I7, I8, I9]. But [I0, I1, I8, I3] is NOT equivalent to
 //! [I6, I7, I2, I9]
+//!
+//! Broadcast IterDomains are ignored in this check, because we consider them as
+//! placeholders and allow them to be created (and annihilated?) arbitrarily as
+//! needed for convenience.
 NVF_API void validateDomainEquivalence(
-    const std::vector<IterDomain*>& dom0,
-    const std::vector<IterDomain*>& dom1);
+    std::vector<IterDomain*> dom0,
+    const std::vector<IterDomain*>& dom1,
+    const std::vector<IterDomain*>& additional_ids = {});
 
 //! Check if all the inputs required to compute needed_val are known
 template <

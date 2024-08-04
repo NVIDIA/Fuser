@@ -4458,6 +4458,39 @@ class TestNvFuserFrontend(TestCase):
         for i in range(num_out):
             self.assertEqual(nvf_out[i].data_ptr(), inputs[0].data_ptr())
 
+    # Tests broadcast reduction axis in matmul: Issue #2532.
+    def test_repro_issue2532(self):
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.define_tensor(
+                shape=[-1, -1, 1],
+                contiguity=[True, None, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[2, 0, 1],
+            )
+            T1 = fd.define_tensor(
+                shape=[-1, 1, -1],
+                contiguity=[True, None, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[2, 1, 0],
+            )
+            T2 = fd.ops.sum(T1, dims=[0, 1], keepdim=False, dtype=DataType.Null)
+            T3 = fd.ops.matmul(T0, T1)
+            T4 = fd.ops.sum(T3, dims=[0], keepdim=False, dtype=DataType.Null)
+            fd.add_output(T2)
+            fd.add_output(T4)
+
+        inputs = [
+            torch.randn((262400,), dtype=torch.float32, device="cuda:0").as_strided(
+                (1025, 256, 1), (256, 1, 256)
+            ),
+            torch.randn((1049600,), dtype=torch.float32, device="cuda:0").as_strided(
+                (1025, 1, 1024), (1024, 1024, 1)
+            ),
+        ]
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
 
 if __name__ == "__main__":
     run_tests()

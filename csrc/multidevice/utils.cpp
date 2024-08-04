@@ -103,7 +103,7 @@ std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getShardingChanges
   return std::make_pair(shard_additions, shard_deletions);
 }
 
-bool isSharded(TensorView* tv) {
+bool isSharded(const TensorView* tv) {
   bool is_sharded = false;
   auto rids = TensorDomain::noReductions(tv->getLogicalDomain());
   auto ids = TensorDomain::noReductions(tv->getLoopDomain());
@@ -126,14 +126,16 @@ bool isSharded(TensorView* tv) {
   return is_sharded;
 }
 
-int64_t numDeviceDims(TensorView* tv) {
+int64_t numDeviceDims(const TensorView* tv) {
   return std::count_if(
       tv->getLoopDomain().begin(),
       tv->getLoopDomain().end(),
       [](IterDomain* id) { return id->isDeviceDim(); });
 }
 
-bool haveDifferentShardings(TensorView* producer, TensorView* consumer) {
+bool haveDifferentShardings(
+    const TensorView* producer,
+    const TensorView* consumer) {
   // exit early in the unsharded case for performance
   if (!producer->hasDeviceMesh() && !consumer->hasDeviceMesh()) {
     return false;
@@ -167,17 +169,22 @@ bool haveDifferentShardings(TensorView* producer, TensorView* consumer) {
   return false;
 }
 
-bool isResharding(Expr* expr) {
-  // we don't use getTvsWithDifferentSharding because it creates a computeAtMap,
+bool isResharding(const Expr* expr) {
+  if (!ir_utils::isTvOp(expr)) {
+    return false;
+  }
+
+  // We don't use getTvsWithDifferentSharding because it creates a computeAtMap,
   // which is too costly
-  for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
-    for (auto output : ir_utils::filterByType<TensorView>(expr->outputs())) {
+  for (auto* input : ir_utils::filterByType<TensorView>(expr->inputs())) {
+    for (auto* output : ir_utils::filterByType<TensorView>(expr->outputs())) {
       // exit early in the unsharded case for performance
       if (haveDifferentShardings(input, output)) {
         return true;
       }
     }
   }
+
   return false;
 }
 

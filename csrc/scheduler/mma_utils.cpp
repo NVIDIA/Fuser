@@ -7,18 +7,21 @@
 // clang-format on
 
 #include <ATen/cuda/CUDAContext.h>
+
+#include <abstract_tensor.h>
 #include <device_lower/utils.h>
 #include <expr_evaluator.h>
 #include <id_model/id_model.h>
 #include <ir/printer.h>
 #include <logical_domain_map.h>
+#include <mma_type.h>
 #include <ops/all_ops.h>
 #include <ops/utils.h>
 #include <scheduler/mma_utils.h>
 #include <scheduler/utils.h>
 #include <val_graph.h>
 #include <variant>
-#include "mma_type.h"
+
 namespace nvfuser {
 
 namespace mma_utils {
@@ -621,12 +624,6 @@ void checkDimSize(
   }
 }
 
-void setWarpMapped(TensorView* tv, int64_t number_of_dims) {
-  for (int64_t id : c10::irange(number_of_dims)) {
-    tv->axis(-id - 1)->toMmaSwizzled();
-  }
-}
-
 namespace {
 
 // Utility function for mma domain mapping:
@@ -774,7 +771,7 @@ bool isLdMatrixTranspose(const LoadStoreOp* ldst) {
   return producer->getMaybeAllocationDomain().back() != id_in_proc_rfactor;
 }
 
-void WarpMmaSwizzler::scheduleLdMatrix(TensorView* tv, MmaOperand operand) {
+void MmaSwizzler::scheduleLdMatrix(TensorView* tv, MmaOperand operand) {
   NVF_CHECK(tv->definition()->isA<LoadStoreOp>());
   bool transpose = isLdMatrixTranspose(tv->definition()->as<LoadStoreOp>());
   // For A, we have an extra outer dim (-6), which is the "warp group". For
@@ -834,10 +831,9 @@ void WarpMmaSwizzler::scheduleLdMatrix(TensorView* tv, MmaOperand operand) {
   tv->axis(-2)->parallelize(ParallelType::TIDx);
   // TODO: this is not really vectorization. Change its parallel type to Mma.
   tv->axis(-1)->parallelize(ParallelType::Vectorize);
-  setWarpMapped(tv, 2);
 }
 
-void WarpMmaSwizzler::parallelizeAsBulkSkippingFirstIDs(
+void MmaSwizzler::parallelizeAsBulkSkippingFirstIDs(
     TensorView* tv,
     int64_t first_ids_to_skip) {
   auto skip = 0;
@@ -854,7 +850,7 @@ void WarpMmaSwizzler::parallelizeAsBulkSkippingFirstIDs(
 // not splitting the outer dimension. This only works when
 // the inner-dimension is not split, that is the inner dim
 // is less or equal to the swizzle size (in bytes).
-void WarpMmaSwizzler::scheduleTMALoadForMma(
+void MmaSwizzler::scheduleTMALoadForMma(
     TensorView* tv,
     MmaInputSmemSwizzle swizzle,
     bool permute_outer_dim) {
@@ -905,11 +901,9 @@ void WarpMmaSwizzler::scheduleTMALoadForMma(
 
   // Set the allocation to the loop domain.
   tv->setAllocationDomain(tv->getLoopDomain(), true);
-  // Set all IDs as swizzled.
-  setWarpMapped(tv, static_cast<int64_t>(tv->getLoopDomain().size()));
 }
 
-void WarpMmaSwizzler::scheduleOperandRead(TensorView* tv, MmaOperand operand) {
+void MmaSwizzler::scheduleOperandRead(TensorView* tv, MmaOperand operand) {
   // This function works for all mma ops, regardless of the architecture.
   // Operand A and B are slightly different in the sense that operand A can be
   // (>=16)x16 matrix, but operand B can only be 8x16 or 16x16. For operand A,
@@ -995,7 +989,7 @@ void WarpMmaSwizzler::scheduleOperandRead(TensorView* tv, MmaOperand operand) {
 
 // Reference:
 // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#asynchronous-warpgroup-level-matrix-shared-memory-layout-swizzling-modes
-void WarpMmaSwizzler::scheduleOperandRead(
+void MmaSwizzler::scheduleOperandRead(
     TensorView* tv,
     MmaInputSmemSwizzle swizzle) {
   if (swizzle == MmaInputSmemSwizzle::None) {
@@ -1029,7 +1023,7 @@ void WarpMmaSwizzler::scheduleOperandRead(
   tv->setAllocationDomain(tv->getLoopDomain(), true);
 }
 
-void WarpMmaSwizzler::scheduleMmaWarpOutput(TensorView* tv) {
+AbstractTensor MmaSwizzler::scheduleMmaOutputAllocation(AbstractTensor t) {
   // This function works for all mma ops, regardless of the architecture. The
   // Hopper one is the most general one. For earlier architectures, we will have
   // some dimensions with size 1 after split, this is fine.
@@ -1037,55 +1031,53 @@ void WarpMmaSwizzler::scheduleMmaWarpOutput(TensorView* tv) {
   // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#wgmma-64n16-d
 
   // Assume last 2 dims, for example [M64, N24] or [M64, N24, R]
-  NVF_ERROR(tv->nDims() >= 2);
-  bool is_mma_output = tv->definition()->isA<MmaOp>();
+  NVF_ERROR(t.size() >= 2);
+  bool has_reduction = t[-1]->isReduction();
 
-  int m_pos = is_mma_output ? -3 : -2;
-  int n_pos = is_mma_output ? -2 : -1;
+  int64_t m_pos = has_reduction ? -3 : -2;
+  int64_t n_pos = has_reduction ? -2 : -1;
 
   //   m    n
   // [M64, N24  (,R)]
-  tv->split(m_pos--, 8);
-  tv->split(m_pos--, 2);
+  t.split(m_pos--, 8);
+  t.split(m_pos--, 2);
   //   m           n
   // [M4, M2, M8, N24  (,R)]
-  tv->split(n_pos, 8);
-  tv->split(n_pos, 2);
+  t.split(n_pos, 8);
+  t.split(n_pos, 2);
 
   n_pos -= 2;
   m_pos -= 2;
   //  m           n
   // [M4, M2, M8, N3, N4, N2  (,R)]
 
-  tv->reorder({{m_pos + 1, n_pos + 1}, {n_pos + 1, m_pos + 2}});
+  t.reorder({{m_pos + 1, n_pos + 1}, {n_pos + 1, m_pos + 2}});
   //  m           n
   // [M4, M8, N4, N3, M2, N2  (,R)]
-  tv->merge(m_pos++);
-  tv->merge(m_pos++);
+  t.merge(m_pos++);
+  t.merge(m_pos++);
 
   //       m
   // [WarpGroup128, N3, M2, N2  (,R)]
 
-  if (is_mma_output) {
-    tv->split(-1, 2);
-    tv->split(-2, 4);
+  if (has_reduction) {
+    t.split(-1, 2);
+    t.split(-2, 4);
     m_pos -= 2;
     //       m
     // [WarpGroup128, N3, M2, N2, Ro, R4, R2]
   }
 
-  NVF_CHECK(tv->definition() != nullptr);
+  t.parallelize(m_pos, ParallelType::TIDx);
 
-  tv->axis(m_pos)->parallelize(ParallelType::TIDx);
-
-  if (is_mma_output) {
+  if (has_reduction) {
     // Set instruction loops for mma reduce
-    int pos = -1;
+    int64_t pos = -1;
     while (pos > m_pos) {
-      tv->axis(pos--)->parallelize(ParallelType::Mma);
+      t.parallelize(pos--, ParallelType::Mma);
     }
-    setWarpMapped(tv, 7);
   }
+  return t;
 }
 
 std::vector<MatmulDimRole> canonicalizeMmaTvOrdering(
@@ -1193,7 +1185,7 @@ void scheduleTMAStoreForMmaOutput(TensorView* tv, int64_t m, int64_t n) {
   tv->split(-1, n);
   // [MO(1), MI(m), NO(1), NI(n)] -> [MO(1), NO(1), MI(m), NI(n)]
   tv->reorder({{-2, -3}});
-  mma_utils::WarpMmaSwizzler::parallelizeAsBulkSkippingFirstIDs(tv, 2);
+  mma_utils::MmaSwizzler::parallelizeAsBulkSkippingFirstIDs(tv, 2);
 }
 
 MatmulOperandInnerDimsOpt getOperandInnerDims(Fusion* fusion) {
@@ -1817,13 +1809,14 @@ DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
 
   } else if (output->definition()->isA<LinearOp>()) {
     const std::vector<IterDomain*>& out_logical = output->getLogicalDomain();
+    bool k_bcast = A->getLogicalDomain().back()->isBroadcast();
     return matmulOrLinearOpDimRoles(
         permissive_graph,
         out_logical,
         ops::mapLinearOpIterDomains(
-            A->getLogicalDomain(), 0, out_logical.size()),
+            A->getLogicalDomain(), 0, out_logical.size(), k_bcast),
         ops::mapLinearOpIterDomains(
-            B->getLogicalDomain(), 1, out_logical.size()));
+            B->getLogicalDomain(), 1, out_logical.size(), k_bcast));
   }
 
   // The code below handles MmaOp or mul-sum patterns

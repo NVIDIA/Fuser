@@ -16,6 +16,7 @@
 #include <fusion.h>
 #include <id_model/id_model.h>
 #include <id_model/indexing.h>
+#include <id_model/indexing_utils.h>
 #include <id_model/to_string.h>
 #include <inlining.h>
 #include <ir/builder.h>
@@ -29,7 +30,7 @@
 namespace nvfuser {
 
 using IndexingTest = NVFuserTest;
-using PredicateIndexingTest = NVFuserTest;
+using PredicateIndexingTest = NVFuserFixtureParamTest<bool>;
 
 namespace {
 
@@ -39,6 +40,17 @@ std::vector<Val*> getLoopIndices(TensorView* tv, const TensorIndexer& indexer) {
     loop_indices.push_back(indexer.getLoopIndex(loop_id));
   }
   return loop_indices;
+}
+
+std::vector<IterDomain*> getLoopDomains(
+    TensorView* tv,
+    const IdModel& id_model) {
+  std::vector<IterDomain*> loop_domains;
+  for (auto loop_id : tv->getLoopDomain()) {
+    loop_domains.push_back(indexing_utils::getLoopPromotion(loop_id, id_model));
+  }
+
+  return loop_domains;
 }
 
 template <typename... Args>
@@ -95,6 +107,33 @@ Val* createInt(int64_t i) {
   return IrBuilder::create<Val>(i, DataType::Index);
 }
 
+// Predicates should be a composite val that should look like (((x &&
+// y) && z). To make it easier to read error messages, decompose the
+// composite predicate to each component and print each in a separate
+// line.
+std::string prettyPrintPredicate(Val* pred) {
+  std::deque<Val*> pred_list;
+
+  while (true) {
+    NVF_ERROR(pred != nullptr);
+    if (auto bop = dynamic_cast<BinaryOp*>(pred->definition());
+        bop != nullptr && bop->getBinaryOpType() == BinaryOpType::LogicalAnd) {
+      pred_list.push_front(bop->input(1));
+      pred = bop->input(0);
+    } else {
+      pred_list.push_front(pred);
+      break;
+    }
+  }
+
+  std::stringstream ss;
+  for (auto each_pred : pred_list) {
+    ss << each_pred->toInlineString() << "\n";
+  }
+
+  return ss.str();
+}
+
 // AbstractGetReference and IndexValidator are used to validate
 // lowered index vals. Each test subclasses either or both of
 // getLinearIndex and getLinearIndexString of
@@ -102,7 +141,8 @@ Val* createInt(int64_t i) {
 // validate each tensor indices.
 class AbstractGetReference {
  public:
-  AbstractGetReference(const TensorIndexer& indexer) : indexer_(indexer) {}
+  AbstractGetReference(const TensorIndexer& indexer, const IdModel& id_model)
+      : indexer_(indexer), id_model_(id_model) {}
   virtual ~AbstractGetReference() = default;
 
   // Returns the index of a given tensor. If maybe_consumer is not
@@ -149,6 +189,7 @@ class AbstractGetReference {
 
  protected:
   const TensorIndexer& indexer_;
+  const IdModel& id_model_;
   // These could be getLinearIndex parameters, but it's just easier to
   // add them here since the function signature doesn't need to change.
   std::vector<ForLoop*> for_loops_;
@@ -250,7 +291,7 @@ class IndexValidator : public kir::IrVisitor {
     testing::internal::GetCapturedStderr();
 
     IndexValidator<GetReference> validator(
-        lower, GetReference(lower.tensorIndexer(), args...));
+        lower, GetReference(lower.tensorIndexer(), lower.idModel(), args...));
 
     FusionGuard fg(kernel);
     validator.handle(kernel->topLevelExprs());
@@ -277,6 +318,8 @@ class PredicateIndexValidator : public kir::IrVisitor {
 
     get_ref_.setForLoops(for_loops_);
 
+    CircularBufferLoopStage loop_stage = CircularBufferLoopStage::NotApplicable;
+
     if (auto loop_it = std::find_if(
             for_loops_.begin(),
             for_loops_.end(),
@@ -286,7 +329,8 @@ class PredicateIndexValidator : public kir::IrVisitor {
             });
         loop_it != for_loops_.end()) {
       auto loop = *loop_it;
-      get_ref_.setCircularBufferInfo(loop->circularBufferLoopStage());
+      loop_stage = loop->circularBufferLoopStage();
+      get_ref_.setCircularBufferInfo(loop_stage);
     }
 
     auto out_ti = expr->output(0)->as<kir::TensorIndex>();
@@ -312,7 +356,7 @@ class PredicateIndexValidator : public kir::IrVisitor {
         continue;
       }
 
-      validateOuterPredicate(out_ti, ite->predicate()->value());
+      validateOuterPredicate(out_ti, ite->predicate()->value(), loop_stage);
       break;
     }
 
@@ -334,14 +378,23 @@ class PredicateIndexValidator : public kir::IrVisitor {
     // If no ref is obtained, skip validation
   }
 
-  void validateOuterPredicate(kir::TensorIndex* ti, Val* actual) {
+  void validateOuterPredicate(
+      kir::TensorIndex* ti,
+      Val* actual,
+      CircularBufferLoopStage loop_stage) {
     TensorView* tv = ti->view();
     Val* ref = get_ref_.getOuterPredicate(tv);
     if (ref != nullptr) {
+      std::stringstream loop_stage_msg;
+      if (loop_stage != CircularBufferLoopStage::NotApplicable) {
+        loop_stage_msg << " in " << loop_stage;
+      }
+      std::stringstream actual_str;
       EXPECT_TRUE(actual->sameAs(ref))
           << "Validation failure of outer predicate for "
-          << ti->view()->toString() << "\nRef: " << ref->toInlineString()
-          << "\nActual: " << actual->toInlineString();
+          << ti->view()->toString() << loop_stage_msg.str() << "\nRef:\n"
+          << prettyPrintPredicate(ref) << "Actual:\n"
+          << prettyPrintPredicate(actual);
       return;
     }
 
@@ -352,7 +405,7 @@ class PredicateIndexValidator : public kir::IrVisitor {
   static void validate(Fusion* fusion, Args... args) {
     EnableOptionsGuard enable_options_guard;
     EnableOptionsGuard::getCurOptions().set(
-        EnableOption::IdModel, {"inline_predicate", "unswitch_predicate"});
+        EnableOption::IdModel, {"predicate"});
 
     // Disable simplifications to make the pattern matching of sameAs work
     DisableOptionsGuard disable_options_guard;
@@ -372,7 +425,7 @@ class PredicateIndexValidator : public kir::IrVisitor {
     testing::internal::GetCapturedStderr();
 
     PredicateIndexValidator<GetReference> validator(
-        lower, GetReference(lower.tensorIndexer(), args...));
+        lower, GetReference(lower.tensorIndexer(), lower.idModel(), args...));
 
     FusionGuard fg(kernel);
     validator.handle(kernel->topLevelExprs());
@@ -405,8 +458,8 @@ TEST_F(IndexingTest, SimplePointwise1) {
   tv1->inlineAt(1);
 
   struct GetReference : AbstractGetReference {
-    GetReference(const TensorIndexer& indexer)
-        : AbstractGetReference(indexer) {}
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
 
     Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
         const override {
@@ -512,8 +565,8 @@ TEST_F(IndexingTest, SimplePointwise2) {
   // contribute to the index
 
   struct GetReference : AbstractGetReference {
-    GetReference(const TensorIndexer& indexer)
-        : AbstractGetReference(indexer) {}
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
 
     Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
         const override {
@@ -572,8 +625,8 @@ TEST_F(IndexingTest, SimpleReduction) {
   fusion.addOutput(tv2);
 
   struct GetReference : AbstractGetReference {
-    GetReference(const TensorIndexer& indexer)
-        : AbstractGetReference(indexer) {}
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
 
     Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
         const override {
@@ -633,8 +686,8 @@ TEST_F(IndexingTest, PromotionToReductionDomain) {
   // mistakenly excluded the domain from indexing.
 
   struct GetReference : AbstractGetReference {
-    GetReference(const TensorIndexer& indexer)
-        : AbstractGetReference(indexer) {}
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
 
     Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
         const override {
@@ -674,8 +727,8 @@ TEST_F(IndexingTest, AllocationDomain) {
   tv1->setAllocationDomain(tv1_transposed, true);
 
   struct GetReference : AbstractGetReference {
-    GetReference(const TensorIndexer& indexer)
-        : AbstractGetReference(indexer) {}
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
 
     Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
         const override {
@@ -734,8 +787,8 @@ TEST_F(IndexingTest, Reshape) {
   inlineMost();
 
   struct GetReference : AbstractGetReference {
-    GetReference(const TensorIndexer& indexer)
-        : AbstractGetReference(indexer) {}
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
 
     Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
         const override {
@@ -805,8 +858,8 @@ TEST_F(IndexingTest, SimpleBroadcast1) {
   fusion.addOutput(tv2);
 
   struct GetReference : AbstractGetReference {
-    GetReference(const TensorIndexer& indexer)
-        : AbstractGetReference(indexer) {}
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
 
     Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
         const override {
@@ -853,8 +906,8 @@ TEST_F(IndexingTest, SimpleBroadcast2) {
   // indices, respecitvely.
 
   struct GetReference : AbstractGetReference {
-    GetReference(const TensorIndexer& indexer)
-        : AbstractGetReference(indexer) {}
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
 
     // tv0 is a global memory tensor, so the indexing is done with its
     // allocation domain, which is mapped with the merge of the two
@@ -911,8 +964,8 @@ TEST_F(IndexingTest, SimpleBroadcast3) {
   inlineMost();
 
   struct GetReference : AbstractGetReference {
-    GetReference(const TensorIndexer& indexer)
-        : AbstractGetReference(indexer) {}
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
 
     Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
         const override {
@@ -990,8 +1043,8 @@ TEST_F(IndexingTest, SimpleBroadcast4) {
   // is also just the inner loop index of the loop domains of tv4.
 
   struct GetReference : AbstractGetReference {
-    GetReference(const TensorIndexer& indexer)
-        : AbstractGetReference(indexer) {}
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
 
     Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
         const override {
@@ -1027,8 +1080,8 @@ TEST_F(IndexingTest, MultiDevice1DNoSplitMerge) {
   tv1->axis(0)->parallelize(ParallelType::DIDx);
 
   struct GetReference : AbstractGetReference {
-    GetReference(const TensorIndexer& indexer)
-        : AbstractGetReference(indexer) {}
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
 
     Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
         const override {
@@ -1059,8 +1112,8 @@ TEST_F(IndexingTest, MultiDevice1DSplit) {
   tv1->axis(0)->parallelize(ParallelType::DIDx);
 
   struct GetReference : AbstractGetReference {
-    GetReference(const TensorIndexer& indexer)
-        : AbstractGetReference(indexer) {}
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
 
     Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
         const override {
@@ -1096,8 +1149,8 @@ TEST_F(IndexingTest, MultiDevice2D) {
   tv1->axis(0)->parallelize(ParallelType::DIDx);
 
   struct GetReference : AbstractGetReference {
-    GetReference(const TensorIndexer& indexer)
-        : AbstractGetReference(indexer) {}
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
 
     Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
         const override {
@@ -1142,8 +1195,8 @@ TEST_F(IndexingTest, MultiDevice2DLeafAllocation) {
   tv1->setAllocationDomain(tv1->getLoopDomain(), true);
 
   struct GetReference : AbstractGetReference {
-    GetReference(const TensorIndexer& indexer)
-        : AbstractGetReference(indexer) {}
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
 
     Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
         const override {
@@ -1178,8 +1231,8 @@ TEST_F(IndexingTest, MultiDevice2DTranspose) {
   tv1->axis(0)->parallelize(ParallelType::DIDx);
 
   struct GetReference : AbstractGetReference {
-    GetReference(const TensorIndexer& indexer)
-        : AbstractGetReference(indexer) {}
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
 
     Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
         const override {
@@ -1234,8 +1287,8 @@ TEST_F(IndexingTest, PromotedBroadcast) {
   // inlined, the resulting index of tv2 should just be zero.
 
   struct GetReference : AbstractGetReference {
-    GetReference(const TensorIndexer& indexer)
-        : AbstractGetReference(indexer) {}
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
 
     Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
         const override {
@@ -1281,8 +1334,8 @@ TEST_F(IndexingTest, SimpleVectorize) {
   scheduler_utils::parallelizeAllLike(tv2, ir_utils::allTvs(&fusion));
 
   struct GetReference : AbstractGetReference {
-    GetReference(const TensorIndexer& indexer)
-        : AbstractGetReference(indexer) {}
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
 
     Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
         const override {
@@ -1353,8 +1406,8 @@ TEST_F(IndexingTest, NonInnermostVectorize) {
   tv3->axis(2)->parallelize(ParallelType::Vectorize);
 
   struct GetReference : AbstractGetReference {
-    GetReference(const TensorIndexer& indexer)
-        : AbstractGetReference(indexer) {}
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
 
     Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
         const override {
@@ -1415,8 +1468,8 @@ TEST_F(IndexingTest, AlmostExactTraversalWithNonOneBroadcast) {
   inlineAllAt(tv3, 1, true);
 
   struct GetReference : AbstractGetReference {
-    GetReference(const TensorIndexer& indexer)
-        : AbstractGetReference(indexer) {}
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
 
     Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
         const override {
@@ -1469,8 +1522,8 @@ TEST_F(IndexingTest, Swizzle) {
   tv1->setAllocationDomain(alloc.as<IterDomain*>(), true);
 
   struct GetReference : AbstractGetReference {
-    GetReference(const TensorIndexer& indexer)
-        : AbstractGetReference(indexer) {}
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
 
     Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
         const override {
@@ -1535,8 +1588,8 @@ TEST_F(IndexingTest, SimpleUnroll) {
   // isn't a scalar but has the unroll domain. Make sure the domain is
   // indeed indexed.
   struct GetReference : AbstractGetReference {
-    GetReference(const TensorIndexer& indexer)
-        : AbstractGetReference(indexer) {}
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
 
     Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
         const override {
@@ -1598,8 +1651,8 @@ TEST_F(IndexingTest, InlinedUnroll) {
 
   // Make sure tv2 is indexed with the innermost loop domain
   struct GetReference : AbstractGetReference {
-    GetReference(const TensorIndexer& indexer)
-        : AbstractGetReference(indexer) {}
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
 
     Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
         const override {
@@ -1660,8 +1713,11 @@ TEST_F(IndexingTest, SmemAllocationDomainForTranspose) {
   // Validate the smem tensor index. Its allocation domain should be
   // [32, 32], where each "32" comes from I1 and I0, respectively.
   struct GetReference : AbstractGetReference {
-    GetReference(const TensorIndexer& indexer, StmtNameType smem_tv_name)
-        : AbstractGetReference(indexer), smem_tv_name(smem_tv_name) {}
+    GetReference(
+        const TensorIndexer& indexer,
+        const IdModel& id_model,
+        StmtNameType smem_tv_name)
+        : AbstractGetReference(indexer, id_model), smem_tv_name(smem_tv_name) {}
 
     Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
         const override {
@@ -1767,8 +1823,8 @@ TEST_F(IndexingTest, ResizePath) {
   // [32, 32], where each "32" comes from I1 and I0, respectively.
 
   struct GetReference : AbstractGetReference {
-    GetReference(const TensorIndexer& indexer)
-        : AbstractGetReference(indexer) {}
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
 
     Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
         const override {
@@ -1796,7 +1852,9 @@ TEST_F(IndexingTest, ResizePath) {
           return addExpr(
               mulExpr(
                   loop_indices.at(0), tv->getLogicalDomain().at(1)->extent()),
-              addExpr(loop_indices.at(1), IrBuilder::create<Val>(15)));
+              addExpr(
+                  loop_indices.at(1),
+                  IrBuilder::create<Val>(15, DataType::Index)));
         }
         default:
           return nullptr;
@@ -1837,8 +1895,8 @@ TEST_F(IndexingTest, DoubleBuffering1) {
   tv1->circularBuffer(/*number_of_stages=*/2);
 
   struct GetReference : AbstractGetReference {
-    GetReference(const TensorIndexer& indexer)
-        : AbstractGetReference(indexer) {}
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
 
     Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
         const override {
@@ -1947,8 +2005,8 @@ TEST_F(IndexingTest, DoubleBuffering4) {
   // - Producer of the producer of the circular buffered tensor
   // - Circular buffered tensor itself
   struct GetReference : AbstractGetReference {
-    GetReference(const TensorIndexer& indexer)
-        : AbstractGetReference(indexer) {}
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
 
     Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
         const override {
@@ -2061,8 +2119,8 @@ TEST_F(IndexingTest, DoubleBuffering6) {
   // - Producer of the producer of the circular buffered tensor
   // - Circular buffered tensor itself
   struct GetReference : AbstractGetReference {
-    GetReference(const TensorIndexer& indexer)
-        : AbstractGetReference(indexer) {}
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
 
     Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
         const override {
@@ -2198,8 +2256,8 @@ TEST_F(IndexingTest, CircularBuffering1) {
   tv1->circularBuffer(/*number_of_stages=*/4);
 
   struct GetReference : AbstractGetReference {
-    GetReference(const TensorIndexer& indexer)
-        : AbstractGetReference(indexer) {}
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
 
     Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
         const override {
@@ -2328,8 +2386,8 @@ TEST_F(IndexingTest, CircularBuffering2) {
   // - Producer of the producer of the circular buffered tensor
   // - Circular buffered tensor itself
   struct GetReference : AbstractGetReference {
-    GetReference(const TensorIndexer& indexer)
-        : AbstractGetReference(indexer) {}
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
 
     Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
         const override {
@@ -2462,8 +2520,8 @@ TEST_F(PredicateIndexingTest, SimplePointwise1) {
   tv1->inlineAt(1);
 
   struct GetReference : AbstractGetReference {
-    GetReference(const TensorIndexer& indexer)
-        : AbstractGetReference(indexer) {}
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
 
     Val* getInlinePredicate(TensorView* tv) const override {
       std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
@@ -2514,8 +2572,8 @@ TEST_F(PredicateIndexingTest, ReductionRfactor) {
   inlineMost();
 
   struct GetReference : AbstractGetReference {
-    GetReference(const TensorIndexer& indexer)
-        : AbstractGetReference(indexer) {}
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
 
     Val* getInlinePredicate(TensorView* tv) const override {
       std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
@@ -2609,8 +2667,8 @@ TEST_F(PredicateIndexingTest, SimpleUnroll) {
   tv2->axis(2)->parallelize(ParallelType::TIDx);
 
   struct GetReference : AbstractGetReference {
-    GetReference(const TensorIndexer& indexer)
-        : AbstractGetReference(indexer) {}
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
 
     // T2 should look like:
     //
@@ -2691,8 +2749,8 @@ TEST_F(PredicateIndexingTest, SimpleUnswitch) {
   // iUS10{4}, iS8{8}, ithreadIdx.x6{128} ] ca_pos( 4 ) produce_pos( 4 )
 
   struct GetReference : AbstractGetReference {
-    GetReference(const TensorIndexer& indexer)
-        : AbstractGetReference(indexer) {}
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
 
     // The unswitch predicate should look like:
     //
@@ -2767,8 +2825,8 @@ TEST_F(PredicateIndexingTest, SimpleVectorize) {
   // Both tv1 and tv2 are vectorized. Their predicates are the same as
   // this is a simple memcpy.
   struct GetReference : AbstractGetReference {
-    GetReference(const TensorIndexer& indexer)
-        : AbstractGetReference(indexer) {}
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
 
     Val* getInlinePredicate(TensorView* tv) const override {
       std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
@@ -2842,8 +2900,8 @@ TEST_F(PredicateIndexingTest, NonInnermostVectorize) {
   // not innermost. Make sure only the vectorized domain is predicated with
   // (extent - 1).
   struct GetReference : AbstractGetReference {
-    GetReference(const TensorIndexer& indexer)
-        : AbstractGetReference(indexer) {}
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
 
     Val* getInlinePredicate(TensorView* tv) const override {
       if (tv->name() != 1 && tv->name() != 3) {
@@ -2872,6 +2930,1481 @@ TEST_F(PredicateIndexingTest, NonInnermostVectorize) {
   };
 
   PredicateIndexValidator<GetReference>::validate(&fusion);
+}
+
+// Same fusion as IndexingTest.DoubleBuffering1
+TEST_F(PredicateIndexingTest, DoubleBuffering1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  tv1->setMemoryType(MemoryType::Shared);
+
+  tv3->split(-1, 128);
+  tv3->split(-1, 32);
+  TransformPropagatorWithCheck propagator(tv3);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
+
+  tv1->inlineAt(-2);
+  tv2->inlineAt(-2);
+
+  tv3->axis(-2)->parallelize(ParallelType::BIDx);
+  tv3->axis(-1)->parallelize(ParallelType::TIDx);
+  scheduler_utils::parallelizeAllLike(tv3);
+
+  tv1->circularBuffer(/*number_of_stages=*/2);
+
+  // T1_s[ iS12{( ceilDiv(i0, 128) )}, iblockIdx.x14{( ceilDiv(128, 32) )},
+  // ithreadIdx.x15{32} ] ca_pos( 2 )
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    Val* getInlinePredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+
+      // Don't care tensors outside circular buffered loops
+      if (circular_buffer_loop_stage_ ==
+          CircularBufferLoopStage::NotApplicable) {
+        return nullptr;
+      }
+
+      // All other tensors are just predicated as usual
+      if (tv->name() != 1) {
+        return nullptr;
+      }
+
+      // No epilog for this fusion
+      NVF_ERROR(
+          circular_buffer_loop_stage_ == CircularBufferLoopStage::Prolog ||
+          circular_buffer_loop_stage_ == CircularBufferLoopStage::Main);
+
+      auto circular_buffer_index = for_loops_.at(0)->index();
+
+      if (circular_buffer_loop_stage_ == CircularBufferLoopStage::Prolog) {
+        // bidx.x * 32 + tid.x >= 0 &&
+        // bidx.x * 32 + tid.x < N
+        auto idx = addExpr(
+            mulExpr(loop_indices.at(1), tv->axis(2)->extent()),
+            loop_indices.at(2));
+        return andExpr(
+            geExpr(idx, tv->fusion()->zeroVal()),
+            ltExpr(idx, tv->getLogicalDomain().at(0)->extent()));
+      } else {
+        // (i + 1) * 128 + bidx.x * 32 + tid.x >= 0 &&
+        // (i + 1) * 128 + bidx.x * 32 + tid.x < N
+        auto idx = addExpr(
+            mulExpr(
+                addExpr(circular_buffer_index, tv->fusion()->oneVal()),
+                createInt(128)),
+            addExpr(
+                mulExpr(loop_indices.at(1), tv->axis(2)->extent()),
+                loop_indices.at(2)));
+        return andExpr(
+            geExpr(idx, tv->fusion()->zeroVal()),
+            ltExpr(idx, tv->getLogicalDomain().at(0)->extent()));
+      }
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({1000}, options);
+  std::vector<c10::IValue> inputs = {t0};
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, inputs);
+  auto outputs = fe.runFusion(inputs);
+
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
+// Same fusion ad IndexingTest.CircularBuffering1
+TEST_F(PredicateIndexingTest, CircularBuffering1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  tv1->setMemoryType(MemoryType::Shared);
+
+  tv3->split(-1, 128);
+  tv3->split(-1, 32);
+  TransformPropagatorWithCheck propagator(tv3);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
+
+  tv1->inlineAt(-2);
+  tv2->inlineAt(-2);
+
+  tv3->axis(-2)->parallelize(ParallelType::BIDx);
+  tv3->axis(-1)->parallelize(ParallelType::TIDx);
+  scheduler_utils::parallelizeAllLike(tv3);
+
+  tv1->circularBuffer(/*number_of_stages=*/4);
+
+  // T1_s[ iS12{( ceilDiv(i0, 128) )}, iblockIdx.x14{( ceilDiv(128, 32) )},
+  // ithreadIdx.x15{32} ] ca_pos( 2 )
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    Val* getInlinePredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+
+      // Don't care tensors outside circular buffered loops
+      if (circular_buffer_loop_stage_ ==
+          CircularBufferLoopStage::NotApplicable) {
+        return nullptr;
+      }
+
+      // All other tensors are just predicated as usual
+      if (tv->name() != 1) {
+        return nullptr;
+      }
+
+      // No epilog for this fusion
+      NVF_ERROR(
+          circular_buffer_loop_stage_ == CircularBufferLoopStage::Prolog ||
+          circular_buffer_loop_stage_ == CircularBufferLoopStage::Main);
+
+      auto circular_buffer_index = for_loops_.at(0)->index();
+
+      Val* idx = nullptr;
+      if (circular_buffer_loop_stage_ == CircularBufferLoopStage::Prolog) {
+        // i * 128 + bidx.x * 32 + tid.x >= 0 &&
+        // i * 128 + bidx.x * 32 + tid.x < N
+        idx = addExpr(
+            mulExpr(circular_buffer_index, createInt(128)),
+            addExpr(
+                mulExpr(loop_indices.at(1), tv->axis(2)->extent()),
+                loop_indices.at(2)));
+      } else {
+        // (i + 3) * 128 + bidx.x * 32 + tid.x >= 0 &&
+        // (i + 3) * 128 + bidx.x * 32 + tid.x < N
+        idx = addExpr(
+            mulExpr(
+                addExpr(circular_buffer_index, createInt(3)), createInt(128)),
+            addExpr(
+                mulExpr(loop_indices.at(1), tv->axis(2)->extent()),
+                loop_indices.at(2)));
+      }
+
+      return andExpr(
+          geExpr(idx, tv->fusion()->zeroVal()),
+          ltExpr(idx, tv->getLogicalDomain().at(0)->extent()));
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({1000}, options);
+  std::vector<c10::IValue> inputs = {t0};
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, inputs);
+  auto outputs = fe.runFusion(inputs);
+
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
+// Same fusion as IndexingTest.CircularBuffering2. Combination of
+// circular buffering and unrolling
+TEST_F(PredicateIndexingTest, UnrolledCircularBuffering) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = set(tv1);
+  auto tv3 = add(tv2, IrBuilder::create<Val>(1.0));
+  fusion.addOutput(tv3);
+
+  tv1->setMemoryType(MemoryType::Shared);
+
+  // [I0]
+  tv3->split(-1, 256);
+  // [I0/256, 256]
+  tv3->split(-1, 8);
+  // [I0/256, 256/8, 8]
+  tv3->split(-2, 4);
+  // [I0/256, 256/8/4, 4, 8]
+  tv3->split(-2, 2);
+  // [I0/256, 256/8/4, 4/2, 2, 8]
+
+  TransformPropagatorWithCheck propagator(tv3);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
+
+  tv0->computeAt(tv3, 1);
+  tv2->computeAt(tv3, -1);
+
+  tv3->axis(0)->parallelize(ParallelType::BIDx);
+  tv3->axis(2)->parallelize(ParallelType::Unroll);
+  tv3->axis(4)->parallelize(ParallelType::TIDx);
+
+  // axis(1) will be circular buffered
+  tv2->circularBuffer(/*number_of_stages=*/4);
+
+  // [I0/256, 256/8/4, 4/2, 2, 8]
+  //    +        +       +      +
+  //    |        |       |      +-- TIDx
+  //    |        |       +-- unroll
+  //    |        +-- circular buffering
+  //    +-- BIDx
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    Val* getOuterPredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+
+      // Don't care tensors outside circular buffered loops
+      if (circular_buffer_loop_stage_ ==
+          CircularBufferLoopStage::NotApplicable) {
+        return nullptr;
+      }
+
+      // All other tensors are just predicated as usual
+      if (tv->name() != 2) {
+        return nullptr;
+      }
+
+      // Circular buffer tensor itself should not appear in Epilogue as
+      // a consumer
+      NVF_ERROR(
+          circular_buffer_loop_stage_ == CircularBufferLoopStage::Prolog ||
+          circular_buffer_loop_stage_ == CircularBufferLoopStage::Main);
+
+      auto circular_buffer_index = for_loops_.at(1)->index();
+
+      auto zero = tv->fusion()->zeroVal();
+      auto one = tv->fusion()->oneVal();
+
+      // The base index is:
+      //
+      // i0 * 256 + ((i1 * 4 + (i2 * 2 + i3)) * 16 + tidx)
+      //
+      // Here, i1 and i2 correspond to the circular buffer loop and
+      // the unroll loop, respectively.
+
+      Val* start_idx = nullptr;
+      Val* stop_idx = nullptr;
+      if (circular_buffer_loop_stage_ == CircularBufferLoopStage::Prolog) {
+        // Start index: i0 * 256 + ((i1 * 4 + (0 * 2 + 0)) * 8 +
+        // tidx)
+        // Stop index: i0 * 256 + (((i1 + 3) * 4 + (1 * 2 + 1)) * 8 + tidx)
+        start_idx = addExpr(
+            mulExpr(loop_indices.at(0), createInt(256)),
+            addExpr(
+                mulExpr(
+                    addExpr(
+                        mulExpr(circular_buffer_index, createInt(4)),
+                        IrBuilder::addExpr(
+                            IrBuilder::mulExpr(zero, tv->axis(3)->extent()),
+                            zero)),
+                    tv->axis(4)->extent()),
+                loop_indices.at(4)));
+        stop_idx = addExpr(
+            mulExpr(loop_indices.at(0), createInt(256)),
+            addExpr(
+                mulExpr(
+                    addExpr(
+                        mulExpr(circular_buffer_index, createInt(4)),
+                        addExpr(
+                            mulExpr(
+                                subExpr(tv->axis(2)->extent(), one),
+                                tv->axis(3)->extent()),
+                            one)),
+                    tv->axis(4)->extent()),
+                loop_indices.at(4)));
+      } else {
+        NVF_ERROR(circular_buffer_loop_stage_ == CircularBufferLoopStage::Main);
+        // Start index: i0 * 256 + (((i1) * 4 + (0 * 2 + 0)) * 8 +
+        // tidx)
+        // Stop index: i0 * 256 + (((i1 + 3) * 4 + (1 * 2 + 1)) * 8 + tidx)
+        start_idx = addExpr(
+            mulExpr(loop_indices.at(0), createInt(256)),
+            addExpr(
+                mulExpr(
+                    addExpr(
+                        mulExpr(circular_buffer_index, createInt(4)),
+                        IrBuilder::addExpr(
+                            IrBuilder::mulExpr(zero, tv->axis(3)->extent()),
+                            zero)),
+                    tv->axis(4)->extent()),
+                loop_indices.at(4)));
+        stop_idx = addExpr(
+            mulExpr(loop_indices.at(0), createInt(256)),
+            addExpr(
+                mulExpr(
+                    addExpr(
+                        mulExpr(
+                            addExpr(circular_buffer_index, createInt(3)),
+                            createInt(4)),
+                        addExpr(
+                            mulExpr(
+                                subExpr(tv->axis(2)->extent(), one),
+                                tv->axis(3)->extent()),
+                            one)),
+                    tv->axis(4)->extent()),
+                loop_indices.at(4)));
+      }
+
+      return andExpr(
+          geExpr(start_idx, zero),
+          ltExpr(stop_idx, tv->getLogicalDomain().at(0)->extent()));
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({1000}, options);
+  std::vector<c10::IValue> inputs = {t0};
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, inputs);
+  auto outputs = fe.runFusion(inputs);
+
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
+// Completely unswitched circular buffering
+TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
+  fusion.addOutput(tv2);
+
+  tv2->split(0, 4);
+  tv2->split(0, 1);
+  TransformPropagatorWithCheck propagator(tv2);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
+
+  tv1->inlineAt(-1);
+
+  // [I0/4/1, 1, 4]
+  //          ^  ^
+  //          |  +-- circular bufer
+  //          |
+  //          +-- unswitch
+  tv1->circularBuffer(/*number_of_stages=*/2);
+  tv1->axis(1)->parallelize(ParallelType::Unswitch);
+
+  // T1_l[ iS9{( ceilDiv(( ceilDiv(i0, 4) ), 1) )}, iUS10{1}, iS8{4} ] ca_pos( 3
+  // )
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    Val* getOuterPredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+
+      auto zero = tv->fusion()->zeroVal();
+
+      // The base index is:
+      //
+      // i0 * 4 + i2
+      //
+      // where i2 is the circular buffer index. The index of iUS10 is
+      // not included as its extent is 1.
+
+      // Start index: i0 * 4
+      Val* start_idx = mulExpr(loop_indices.at(0), createInt(4));
+
+      // Stop index: i0 * 4 + 4
+      // Note that it isn't "i0 * 4 + 3" since i2 is circular buffered
+      // and there's no epilog, so the main loop has a read of (i2 +
+      // 1).
+      Val* stop_idx =
+          addExpr(mulExpr(loop_indices.at(0), createInt(4)), createInt(4));
+
+      return andExpr(
+          geExpr(start_idx, zero),
+          ltExpr(stop_idx, tv->getLogicalDomain().at(0)->extent()));
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({99}, options);
+  std::vector<c10::IValue> inputs = {t0};
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, inputs);
+  auto outputs = fe.runFusion(inputs);
+
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
+// Mostly the same as UnswitchedCircularBuffering1 but with Vectorize
+TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
+  fusion.addOutput(tv2);
+
+  // Vectorize
+  tv2->split(0, 4);
+  // Circular buffering
+  tv2->split(0, 128);
+  // Unswitch
+  tv2->split(0, 1);
+
+  TransformPropagatorWithCheck propagator(tv2);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
+
+  tv1->inlineAt(3);
+
+  // [I0/4/128/1, 1, 128, 4]
+  //      +       +   +   +
+  //      |       |   |   +-- vectorize
+  //      |       |   +-- circular buffering
+  //      |       +-- unswitch
+  //      +-- BIDx
+  tv1->circularBuffer(/*number_of_stages=*/3);
+  tv1->axis(3)->parallelize(ParallelType::Vectorize);
+  tv1->axis(1)->parallelize(ParallelType::Unswitch);
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    Val* getOuterPredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+
+      auto zero = tv->fusion()->zeroVal();
+
+      // The base index is:
+      //
+      // (i0 * 128 + i2) * 4 + i3
+      //
+      // where i2 is the circular buffer index. Here, i3 corresponds
+      // to the vectorization. Since it's vectorized, the predicate
+      // uses 0 for start and (vec_factor - 1) for stop
+
+      // Start index: (i0 * 128 + 0) * 4 + 0
+      Val* start_idx = IrBuilder::addExpr(
+          mulExpr(
+              IrBuilder::addExpr(
+                  mulExpr(loop_indices.at(0), createInt(128)), zero),
+              createInt(4)),
+          zero);
+      // Stop index: (i0 * 128 + 129) * 4 + 3
+      Val* stop_idx = addExpr(
+          mulExpr(
+              addExpr(
+                  mulExpr(loop_indices.at(0), createInt(128)), createInt(129)),
+              createInt(4)),
+          createInt(3));
+
+      return andExpr(
+          geExpr(start_idx, zero),
+          ltExpr(stop_idx, tv->getLogicalDomain().at(0)->extent()));
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({1000}, options);
+  std::vector<c10::IValue> inputs = {t0};
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, inputs);
+  auto outputs = fe.runFusion(inputs);
+
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
+// Test circular buffering with unswitch. This fusion has a non
+// circular-buffered tensor that is unswitched together with a circular-buffered
+// tensor. The order between the circular buffered and non circular buffered
+// tensors should not affect the unswitch predicate, which should
+// always be generated based on the circular buffered tensor as it has
+// more restrictive conditions.
+TEST_P(PredicateIndexingTest, UnswitchedCircularBuffering3) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = makeContigTensor(1);
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv0);
+  auto tv3 = set(tv1);
+  auto tv4 = add(tv2, tv3);
+  fusion.addOutput(tv4);
+
+  // Vectorize
+  tv4->split(0, 4);
+  // Circular buffering
+  tv4->split(0, 128);
+  // Unswitch
+  tv4->split(0, 1);
+
+  TransformPropagatorWithCheck propagator(tv4);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
+
+  inlineAllAt(tv4, 3);
+
+  // [I0/4/128/1, 1, 128, 4]
+  //      +       +   +   +
+  //      |       |   |   +-- vectorize
+  //      |       |   +-- circular buffering
+  //      |       +-- unswitch
+  //      +-- BIDx
+  tv3->axis(3)->parallelize(ParallelType::Vectorize);
+  tv2->axis(3)->parallelize(ParallelType::Vectorize);
+
+  tv4->axis(0)->parallelize(ParallelType::BIDx);
+  tv4->axis(1)->parallelize(ParallelType::Unswitch);
+
+  // Only one of the two inputs is circular buffered
+  if (GetParam()) {
+    tv2->circularBuffer(/*number_of_stages=*/3);
+  } else {
+    tv3->circularBuffer(/*number_of_stages=*/3);
+  }
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    Val* getOuterPredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+
+      auto zero = tv->fusion()->zeroVal();
+
+      // The base index is:
+      //
+      // (i0 * 128 + i2) * 4 + i3
+      //
+      // where i2 is the circular buffer index. Here, i3 corresponds
+      // to the vectorization. Since it's vectorized, the predicate
+      // uses 0 for start and (vec_factor - 1) for stop
+
+      // Start index: (i0 * 128 + 0) * 4 + 0
+      Val* start_idx = IrBuilder::addExpr(
+          mulExpr(
+              IrBuilder::addExpr(
+                  mulExpr(loop_indices.at(0), createInt(128)), zero),
+              createInt(4)),
+          zero);
+      // Stop index: (i0 * 128 + 129) * 4 + 3
+      Val* stop_idx = addExpr(
+          mulExpr(
+              addExpr(
+                  mulExpr(loop_indices.at(0), createInt(128)), createInt(129)),
+              createInt(4)),
+          createInt(3));
+
+      return andExpr(
+          geExpr(start_idx, zero),
+          ltExpr(stop_idx, tv->getLogicalDomain().at(0)->extent()));
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({1000}, options);
+  at::Tensor t1 = at::randn({1000}, options);
+  std::vector<c10::IValue> inputs = {t0, t1};
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, inputs);
+  auto outputs = fe.runFusion(inputs);
+
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    PredicateIndexingTest,
+    testing::Bool(),
+    testing::PrintToStringParamName());
+
+// Repro for the issue with unswitched double buffer loops
+// (https://github.com/NVIDIA/Fuser/issues/2159)
+TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering4) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
+  fusion.addOutput(tv2);
+
+  tv2->split(-1, 8);
+  tv2->split(0, 1, false);
+  TransformPropagatorWithCheck propagator(tv2);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
+
+  tv1->inlineAt(2);
+
+  tv2->axis(0)->parallelize(ParallelType::Unswitch);
+  scheduler_utils::parallelizeAllLike(tv2);
+
+  tv1->circularBuffer(/*number_of_stages=*/2);
+
+  // [ 1, i0/8/1, 8 ]
+  //   +     +
+  //   |     +-- circular buffering
+  //   +-- unswitch
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    Val* getOuterPredicate(TensorView* tv) const override {
+      auto one = tv->fusion()->oneVal();
+
+      // The base index is:
+      //
+      // (i1 * 8) + i2
+      //
+      // where i1 is the circular buffer index.
+      //
+      // Start index is 0 * 8 + 0, so it's completely eliminated by
+      // SimplifyingIrBuilder
+
+      // Stop index: ((tv->axis(1)->extent() - 1) + 1) * 8 + 7
+      Val* stop_idx = addExpr(
+          mulExpr(
+              addExpr(subExpr(tv->axis(1)->extent(), one), one), createInt(8)),
+          createInt(7));
+
+      return ltExpr(stop_idx, tv->getLogicalDomain().at(0)->extent());
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion);
+
+  // Running this fusion with the legacy indexer would result in an
+  // error if run with compute-sanitizer.
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({16}, options);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0});
+  auto cg_outputs = fe.runFusion({t0});
+
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
+}
+
+// Same fusion as NVFuserTest.FusionNonDivisibleSplit1_CUDA. Just
+// check if proper predicates are generated.
+TEST_F(PredicateIndexingTest, NonDivisibleSplit1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = sum(tv0, {0});
+  fusion.addOutput(tv1);
+
+  // [I]
+  tv1->split(0, 5);
+  // [ceilDiv(I, 5), 5]
+
+  // This second split is non-divisible. The split domain must be predicated.
+  tv1->split(1, 3);
+  // [ceilDiv(I, 5), 2, 3]
+
+  auto tv2 = sum(tv0, {0});
+  fusion.addOutput(tv2);
+
+  // tv2 shouldn't need to have another predicate
+  tv2->split(0, 4);
+  tv2->split(1, 2);
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    Val* getInlinePredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+      auto zero = tv->fusion()->zeroVal();
+
+      // Initialization exprs should not be predicated
+      if (for_loops_.empty()) {
+        return tv->fusion()->trueVal();
+      }
+
+      // The predicate for the logical domain is:
+      //
+      // (i0 * first_split_factor + i1 * second_split_factor + i2) >=
+      // 0 &&
+      // (i0 * first_split_factor + i1 * second_split_factor + i2) <
+      // logical_size
+
+      IterDomain* second_split_input =
+          tv->axis(1)->definition()->input(0)->as<IterDomain>();
+
+      Val* second_split_idx = addExpr(
+          mulExpr(loop_indices.at(1), tv->axis(2)->extent()),
+          loop_indices.at(2));
+
+      Val* logical_idx = addExpr(
+          mulExpr(loop_indices.at(0), second_split_input->extent()),
+          second_split_idx);
+
+      Val* cond = andExpr(
+          geExpr(logical_idx, zero),
+          ltExpr(logical_idx, tv->getLogicalDomain().at(0)->extent()));
+
+      // In the case of tv1, since the second split is non divisible,
+      // it should have a predicate to protect the non-divisible split
+      // input, which should be:
+      //
+      // i1 * second_split_factor + i2 < first_split_factor
+
+      if (tv->name() == 1) {
+        cond = andExpr(
+            cond, ltExpr(second_split_idx, second_split_input->extent()));
+      }
+
+      return cond;
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion);
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({999}, options);
+  std::vector<c10::IValue> aten_inputs = {t0};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto outputs = fe.runFusion(aten_inputs);
+
+  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+}
+
+// Mostly same pattern as NonDivisibleSplit1 but with unswitch. The
+// non divisible split predicate should also appear in the unswitch
+// predicate.
+TEST_F(PredicateIndexingTest, NonDivisibleSplitWithUnswitch) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  // [I]
+  tv1->split(0, 5);
+  // [ceilDiv(I, 5), 5]
+
+  // This second split is non-divisible. The split domain must be predicated.
+  tv1->split(1, 3);
+  // [ceilDiv(I, 5), 2, 3]
+
+  // Schedule tv2 in the same way as tv1. tv2 should also have a non
+  // divisible split predicate.
+  TransformPropagatorWithCheck propagator(tv1);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
+
+  tv1->inlineAt(-1);
+  tv2->axis(0)->parallelize(ParallelType::BIDx);
+  tv2->axis(1)->parallelize(ParallelType::Unswitch);
+  tv2->axis(2)->parallelize(ParallelType::TIDx);
+
+  // In this case, tv1 and tv2 are unswitched together. Both should
+  // yield the same non divisible split predicate. The final unswitch
+  // predicate should only have one.
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    Val* getOuterPredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+      auto zero = tv->fusion()->zeroVal();
+      auto one = tv->fusion()->oneVal();
+
+      IterDomain* second_split_input =
+          tv->axis(1)->definition()->input(0)->as<IterDomain>();
+
+      Val* second_split_start_idx = addExpr(
+          IrBuilder::mulExpr(zero, tv->axis(2)->extent()), loop_indices.at(2));
+
+      Val* second_split_stop_idx = addExpr(
+          mulExpr(subExpr(tv->axis(1)->extent(), one), tv->axis(2)->extent()),
+          loop_indices.at(2));
+
+      Val* logical_start_idx = addExpr(
+          mulExpr(loop_indices.at(0), second_split_input->extent()),
+          second_split_start_idx);
+
+      Val* logical_stop_idx = addExpr(
+          mulExpr(loop_indices.at(0), second_split_input->extent()),
+          second_split_stop_idx);
+
+      Val* cond = andExpr(
+          geExpr(logical_start_idx, zero),
+          ltExpr(logical_stop_idx, tv->getLogicalDomain().at(0)->extent()));
+
+      // Non divisible split. Only the stop predicate is included.
+      cond = andExpr(
+          cond, ltExpr(second_split_stop_idx, second_split_input->extent()));
+
+      return cond;
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion);
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({999}, options);
+  std::vector<c10::IValue> aten_inputs = {t0};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto outputs = fe.runFusion(aten_inputs);
+
+  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+}
+
+// Testing non divisible split predicate with circular buffering
+TEST_F(PredicateIndexingTest, NonDivisibleSplitWithCircularBuffering) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  // [I]
+  tv1->split(0, 10);
+  // [ceilDiv(I, 10), 10]
+
+  // This second split is non-divisible. The split domain must be predicated.
+  tv1->split(1, 3);
+  // [ceilDiv(I, 10), 4, 3]
+
+  TransformPropagatorWithCheck propagator(tv1);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
+
+  tv1->inlineAt(2);
+  tv2->axis(0)->parallelize(ParallelType::TIDx);
+
+  tv1->circularBuffer(3);
+
+  // tv1 is circular buffered at its axis(1). The non divisible split
+  // predicate should use the incremented index for the axis.
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    Val* getInlinePredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+      auto zero = tv->fusion()->zeroVal();
+      auto circular_buffer_index = for_loops_.at(1)->index();
+
+      // Only interested in validating the circular buffer tensor
+      if (tv->name() != 1) {
+        return nullptr;
+      }
+
+      NVF_ERROR(
+          circular_buffer_loop_stage_ == CircularBufferLoopStage::Prolog ||
+          circular_buffer_loop_stage_ == CircularBufferLoopStage::Main);
+
+      // Increment should be zero for prolog and two for main
+      auto increment =
+          circular_buffer_loop_stage_ == CircularBufferLoopStage::Prolog ? 0
+                                                                         : 2;
+
+      IterDomain* second_split_input =
+          tv->axis(1)->definition()->input(0)->as<IterDomain>();
+
+      Val* second_split_idx = addExpr(
+          mulExpr(
+              addExpr(circular_buffer_index, createInt(increment)),
+              tv->axis(2)->extent()),
+          loop_indices.at(2));
+
+      Val* logical_idx = addExpr(
+          mulExpr(loop_indices.at(0), second_split_input->extent()),
+          second_split_idx);
+
+      Val* cond = andExpr(
+          geExpr(logical_idx, zero),
+          ltExpr(logical_idx, tv->getLogicalDomain().at(0)->extent()));
+
+      // Non divisible split. Only the stop predicate is included.
+      cond =
+          andExpr(cond, ltExpr(second_split_idx, second_split_input->extent()));
+
+      return cond;
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion);
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({999}, options);
+  std::vector<c10::IValue> aten_inputs = {t0};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto outputs = fe.runFusion(aten_inputs);
+
+  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+}
+
+// Non divisible split with unswitched circularing. The non divisible
+// predicate should only use the one generated from the main loop and
+// the one from the prolog loop should not appear in the unswitch
+// predicate.
+TEST_F(
+    PredicateIndexingTest,
+    NonDivisibleSplitWithUnswitchedCircularBuffering) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  // [I]
+  tv1->split(0, 10);
+  // [ceilDiv(I, 10), 10]
+
+  // This second split is non-divisible. The split domain must be predicated.
+  tv1->split(1, 3);
+  // [ceilDiv(I, 10), 4, 3]
+
+  tv1->split(0, 1);
+  // [ceilDiv(I, 10), 1, 4, 3]
+
+  TransformPropagatorWithCheck propagator(tv1);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
+
+  tv1->inlineAt(3);
+  tv2->axis(0)->parallelize(ParallelType::BIDx);
+  tv2->axis(1)->parallelize(ParallelType::Unswitch);
+  tv2->axis(-1)->parallelize(ParallelType::TIDx);
+  tv1->axis(-1)->parallelize(ParallelType::TIDx);
+
+  tv1->circularBuffer(3);
+
+  // tv1 is circular buffered at its axis(1). The non divisible split
+  // predicate should use the incremented index for the axis.
+
+  // The unswitch predicate should look like:
+  //
+  // blockIdx.x * 10 + (0 * 3) + threadIdx.x >= 0 &&
+  // blockIdx.x * 10 + ((ceilDiv(10, 3) - 1) + 2) * 3 + threadIdx.x <
+  // T0.logical_size[0] &&
+  // ((ceilDiv(10, 3) - 1) + 2) * 3 + threadIdx.x < 10
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    Val* getOuterPredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+      auto zero = tv->fusion()->zeroVal();
+      auto one = tv->fusion()->oneVal();
+
+      IterDomain* second_split_input =
+          tv->axis(-1)->definition()->input(0)->as<IterDomain>();
+
+      int64_t increment = 2;
+
+      // (0 * 3) + threadIdx.x
+      Val* second_split_start_idx = addExpr(
+          IrBuilder::mulExpr(zero, tv->axis(3)->extent()), loop_indices.at(3));
+      // blockIdx.x * 10 + second_split_start_idx
+      Val* logical_start_idx = addExpr(
+          mulExpr(loop_indices.at(0), second_split_input->extent()),
+          second_split_start_idx);
+
+      // ((ceilDiv(10, 3) - 1) + 2) * 3 + threadIdx.x
+      Val* second_split_stop_idx = addExpr(
+          mulExpr(
+              addExpr(
+                  subExpr(tv->axis(2)->extent(), one), createInt(increment)),
+              tv->axis(3)->extent()),
+          loop_indices.at(3));
+      // blockIdx.x * 10 + second_split_stop_idx
+      Val* logical_stop_idx = addExpr(
+          mulExpr(loop_indices.at(0), second_split_input->extent()),
+          second_split_stop_idx);
+
+      Val* cond = andExpr(
+          geExpr(logical_start_idx, zero),
+          ltExpr(logical_stop_idx, tv->getLogicalDomain().at(0)->extent()));
+
+      // Non divisible split
+      cond = andExpr(
+          cond, ltExpr(second_split_stop_idx, second_split_input->extent()));
+
+      return cond;
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion);
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({999}, options);
+  std::vector<c10::IValue> aten_inputs = {t0};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto outputs = fe.runFusion(aten_inputs);
+
+  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+}
+
+// Repro of unswitch predicate issue #681
+TEST_P(PredicateIndexingTest, UnswitchPredicateIssueRepro681) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+
+  auto tv1 = sum(tv0, {0, 1});
+  fusion.addOutput(tv1);
+
+  // [i0, i1]
+  tv1->split(1, 4);
+  // [i0, i1/4, 4]
+  tv1->merge(0);
+  // [i0*i1/4, 4]
+  tv1->split(0, 4);
+  // [i0*i1/4/4, 4, 4]
+  tv1->split(0, 1);
+  // [i0*i1/4/4, 1, 4, 4]
+
+  tv1->axis(1)->parallelize(ParallelType::Unswitch);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({4, 10}, options);
+  std::vector<c10::IValue> aten_inputs = {t0};
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    Val* getOuterPredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+      auto zero = tv->fusion()->zeroVal();
+      auto one = tv->fusion()->oneVal();
+      auto merge =
+          dynamic_cast<Merge*>(tv->getLogicalDomain().at(0)->uses().at(0));
+      NVF_ERROR(merge != nullptr);
+
+      auto merge_out_start_idx =
+          IrBuilder::addExpr(mulExpr(loop_indices.at(0), createInt(4)), zero);
+
+      auto merge_out_stop_idx = IrBuilder::addExpr(
+          mulExpr(loop_indices.at(0), createInt(4)), createInt(3));
+
+      auto logical_id0_start_idx =
+          divExpr(merge_out_start_idx, merge->inner()->extent());
+      auto logical_id0_stop_idx =
+          divExpr(merge_out_stop_idx, merge->inner()->extent());
+
+      auto pred = andExpr(
+          geExpr(logical_id0_start_idx, zero),
+          ltExpr(logical_id0_stop_idx, tv->getLogicalDomain().at(0)->extent()));
+
+      // Due to the modulo of the merge inner propagation, these are
+      // generated by using zero or extent-1 for the merge inner path
+      // propagation
+      auto logical_id1_stop_idx = addExpr(
+          mulExpr(subExpr(merge->inner()->extent(), one), createInt(4)),
+          createInt(3));
+
+      pred = andExpr(
+          pred,
+          ltExpr(logical_id1_stop_idx, tv->getLogicalDomain().at(1)->extent()));
+
+      return pred;
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion);
+
+  EnableOptionsGuard enable_options_guard;
+  if (GetParam()) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  } else {
+    EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
+  }
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto outputs = fe.runFusion(aten_inputs);
+
+  auto ref = t0.to(at::kDouble).sum();
+
+  testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+}
+
+// Testing unswitched non-divisible predicates. For a given tensor,
+// its required unswitch predicates should be generated from its
+// indexing path, not its logical to loop dependencies. In this test,
+// the tv2 transformation has an non-divisible split that needs to be
+// predicated, but since it's inline into tv3, the acual non-divisible
+// split should be based on tv3.
+TEST_F(PredicateIndexingTest, NonDivisibleSplitWithUnswitchAndBroadcast) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv1);
+
+  auto tv2 = broadcast(tv0, {false, true});
+  auto tv3 = add(tv2, tv1);
+  fusion.addOutput(tv3);
+
+  // [i0, i1]
+  tv3->merge(0);
+  // [i0*i1]
+
+  tv3->split(0, 100);
+  // [i0*i1/100, 100]
+
+  // This split needs to predicated as a non-divisible split
+  tv3->split(1, 16);
+  // [i0*i1/100, 100/16, 16]
+
+  tv3->split(0, 1);
+  // [i0*i1/100/1, 1, 100/16, 16]
+
+  TransformPropagatorWithCheck propagator(tv3);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
+
+  inlineMost();
+
+  tv3->axis(1)->parallelize(ParallelType::Unswitch);
+  tv3->axis(-2)->parallelize(ParallelType::TIDy);
+  tv3->axis(-1)->parallelize(ParallelType::TIDx);
+
+  // The reference is tv3. tv2 lacks the inner concrete domain. Since
+  // tv2 is fully inlined, the effective loop domains should be the
+  // same for both tensors.
+  //
+  // The unswitch predicates should be:
+  //
+  // i0_idx >= 0
+  // i0_idx < i0
+  // i1_idx >= 0
+  // i1_idx < i1
+  //
+  // Additionally, since the split by 16 is non-divisible, it should
+  // also have:
+  //
+  // threadIdx.y * 16 + threadIdx.x < 100
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    Val* getOuterPredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+      std::vector<IterDomain*> loop_domains = getLoopDomains(tv, id_model_);
+      auto zero = tv->fusion()->zeroVal();
+
+      auto non_divisible_split_to_predicate =
+          dynamic_cast<Split*>(loop_domains.at(2)->definition());
+      NVF_ERROR(non_divisible_split_to_predicate != nullptr);
+
+      auto first_merge_out_id = loop_domains.at(0)
+                                    ->definition()
+                                    ->input(0)
+                                    ->definition()
+                                    ->input(0)
+                                    ->as<IterDomain>();
+      auto ref_logical_id0 =
+          first_merge_out_id->definition()->input(0)->as<IterDomain>();
+      auto ref_logical_id1 =
+          first_merge_out_id->definition()->input(1)->as<IterDomain>();
+
+      auto non_divisible_domain_start_idx = addExpr(
+          mulExpr(loop_indices.at(2), createInt(16)), loop_indices.at(3));
+      auto non_divisible_domain_stop_idx = addExpr(
+          mulExpr(loop_indices.at(2), createInt(16)), loop_indices.at(3));
+
+      auto merge_out_start_idx = addExpr(
+          mulExpr(loop_indices.at(0), createInt(100)),
+          non_divisible_domain_start_idx);
+
+      auto merge_out_stop_idx = addExpr(
+          mulExpr(loop_indices.at(0), createInt(100)),
+          non_divisible_domain_stop_idx);
+
+      auto logical_id0_start_idx =
+          divExpr(merge_out_start_idx, ref_logical_id1->extent());
+      auto logical_id0_stop_idx =
+          divExpr(merge_out_stop_idx, ref_logical_id1->extent());
+
+      auto logical_id1_start_idx =
+          modExpr(merge_out_start_idx, ref_logical_id1->extent());
+      auto logical_id1_stop_idx =
+          modExpr(merge_out_stop_idx, ref_logical_id1->extent());
+
+      // Since tv2 is first visited, the unswitch predicate should
+      // look like:
+      //
+      // i0_idx >= 0 // generated for tv2
+      // i0_idx < i0 // generated for tv2
+      // threadIdx.y * 16 + threadIdx.x < 100 // generated for tv2
+      // i1_idx >= 0 // generated for tv3
+      // i1_idx < i1 // generated for tv3
+      //
+      // Note that the unswitch predicate comes before the predicates
+      // for i1.
+
+      // i0_idx >= 0
+      Val* pred = geExpr(logical_id0_start_idx, zero);
+
+      // i0_idx < i0
+      pred = andExpr(
+          pred, ltExpr(logical_id0_stop_idx, ref_logical_id0->extent()));
+
+      // threadIdx.y * 16 + threadIdx.x < 100
+      pred = andExpr(
+          pred,
+          ltExpr(
+              non_divisible_domain_stop_idx,
+              non_divisible_split_to_predicate->in()->extent()));
+
+      // i1_idx >= 0
+      pred = andExpr(pred, geExpr(logical_id1_start_idx, zero));
+      // i1_idx < i1
+      pred = andExpr(
+          pred, ltExpr(logical_id1_stop_idx, ref_logical_id1->extent()));
+
+      return pred;
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({5}, options);
+  at::Tensor t1 = at::randn({5, 100}, options);
+  std::vector<c10::IValue> aten_inputs = {t0, t1};
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto outputs = fe.runFusion(aten_inputs);
+
+  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+}
+
+TEST_F(PredicateIndexingTest, UnswitchConsolidationDifferentThreading) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(1);
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv0);
+  auto tv3 = set(tv1);
+  auto tv4 = add(tv2, tv3);
+  fusion.addOutput(tv4);
+
+  // [i0]
+  tv4->split(0, 16);
+  // [i0/16, 16]
+  tv4->split(0, 8);
+  // [i0/10/8, 8, 16]
+  tv4->split(0, 1);
+  // [i0/10/8/1, 1, 8, 16]
+
+  TransformPropagatorWithCheck propagator(tv4);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
+
+  inlineAllAt(tv4, 2);
+
+  tv2->setMemoryType(MemoryType::Shared);
+  tv3->setMemoryType(MemoryType::Shared);
+
+  tv4->axis(0)->parallelize(ParallelType::BIDx);
+  tv4->axis(1)->parallelize(ParallelType::Unswitch);
+  tv4->axis(2)->parallelize(ParallelType::TIDy);
+  tv4->axis(3)->parallelize(ParallelType::TIDx);
+
+  tv2->axis(2)->parallelize(ParallelType::TIDy);
+  tv2->axis(3)->parallelize(ParallelType::TIDx);
+
+  tv3->axis(2)->parallelize(ParallelType::TIDx);
+  tv3->axis(3)->parallelize(ParallelType::TIDy);
+
+  // All tensors are unswitched but with different TID
+  // parallelization. tv2 and tv4 are parallelized as [TIDy, TIDx],
+  // whereas tv3 is as [TIDx,TIDy]. These two domains are both
+  // unswitched, so the unswitch predicate should include both
+  // patterns: one with TIDy and TIDx and another with TIDx and
+  // TIDy. Specifically, the unswitch predicate should consist of:
+  //
+  // (bidx * 8 + tidy) * 16 + tidx < i0
+  // (bidx * 8 + tidx) * 16 + tidy < i0
+  //
+  // Additionally, since tidx and tidy are both used for different
+  // extents, there should be parallel domain predicates as well. The
+  // overall predicate should look like as follows:
+  //
+  // tidx < 8 && tidy < 8 &&
+  // (bidx * 8 + tidx) * 16 + tidy >= 0 &&
+  // (bidx * 8 + tidx) * 16 + tidy < i0 &&
+  // (bidx * 8 + tidy) * 16 + tidx >= 0 &&
+  // (bidx * 8 + tidy) * 16 + tidx < i0
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    Val* getOuterPredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+      std::vector<IterDomain*> loop_domains = getLoopDomains(tv, id_model_);
+      auto zero = tv->fusion()->zeroVal();
+
+      // Parallel domain indices
+      int tidx_offset = tv->name() == 3 ? 2 : 3;
+      int tidy_offset = tv->name() == 3 ? 3 : 2;
+
+      Val* pred = ltExpr(loop_indices.at(tidx_offset), createInt(8));
+      pred = andExpr(pred, ltExpr(loop_indices.at(tidy_offset), createInt(8)));
+
+      // (bidx * 8 + tidx) * 16 + tidy >= 0 &&
+      // (bidx * 8 + tidx) * 16 + tidy < i0
+      auto tv3_idx = addExpr(
+          mulExpr(
+              addExpr(
+                  mulExpr(loop_indices.at(0), createInt(8)),
+                  loop_indices.at(tidx_offset)),
+              createInt(16)),
+          loop_indices.at(tidy_offset));
+      pred = andExpr(pred, geExpr(tv3_idx, zero));
+      pred = andExpr(
+          pred, ltExpr(tv3_idx, tv->getLogicalDomain().at(0)->extent()));
+
+      // (bidx * 8 + tidy) * 16 + tidx >= 0 &&
+      // (bidx * 8 + tidy) * 16 + tidx < i0
+      auto tv2_idx = addExpr(
+          mulExpr(
+              addExpr(
+                  mulExpr(loop_indices.at(0), createInt(8)),
+                  loop_indices.at(tidy_offset)),
+              createInt(16)),
+          loop_indices.at(tidx_offset));
+      pred = andExpr(pred, geExpr(tv2_idx, zero));
+      pred = andExpr(
+          pred, ltExpr(tv2_idx, tv->getLogicalDomain().at(0)->extent()));
+
+      return pred;
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({1000}, options);
+  at::Tensor t1 = at::randn({1000}, options);
+  std::vector<c10::IValue> aten_inputs = {t0, t1};
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto outputs = fe.runFusion(aten_inputs);
+
+  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

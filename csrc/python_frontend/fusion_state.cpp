@@ -164,15 +164,6 @@ void FusionState::addOutput(Val* output) {
   fusion_->addOutput(output);
 }
 
-void FusionState::addOutput(
-    Val* output,
-    const std::vector<int64_t>& permutation) {
-  NVF_CHECK(fusion_ != nullptr, "Fusion is undefined.");
-  fusion_->addOutput(output);
-  fusion_->setPermutationOnOutput(
-      (int)fusion_->outputs().size() - 1, permutation);
-}
-
 void FusionState::aliasOutputToInput(Val* output, Val* input) {
   NVF_CHECK(fusion_ != nullptr, "Fusion is undefined.");
   // We haven't exposed AllocationType to Python API. For now, use
