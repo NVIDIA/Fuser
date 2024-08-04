@@ -16,8 +16,9 @@ namespace nvfuser::python_frontend {
 struct RecordFunctor;
 
 struct State {
-  State(size_t _index, serde::StateType _stype)
-      : index(_index), stype(_stype) {}
+  State() : index(0), stype(serde::StateType::None), parent(nullptr) {}
+  State(size_t _index, serde::StateType _stype, const RecordFunctor* _parent = nullptr)
+      : index(_index), stype(_stype), parent(_parent) {}
 
   bool operator==(const State& other) const;
   bool operator!=(const State& other) const;
@@ -26,6 +27,8 @@ struct State {
   size_t index;
   //! StateType is either: Tensor, Scalar, or Vector
   serde::StateType stype;
+  //! Parent Fusion Record
+  const RecordFunctor* parent;
 };
 
 NVF_API std::ostream& operator<<(std::ostream& os, const State& state);

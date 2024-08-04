@@ -31,18 +31,23 @@ bool State::operator!=(const State& other) const {
 
 // Generalized printing of State
 std::ostream& operator<<(std::ostream& os, const State& state) {
-  if (state.stype == serde::StateType::Scalar) {
-    os << "S";
-  } else if (state.stype == serde::StateType::Tensor) {
-    os << "T";
-  } else if (state.stype == serde::StateType::Vector) {
-    os << "V";
-  } else if (state.stype == serde::StateType::None) {
-    os << "None";
+  NVF_CHECK(state.parent != nullptr, "The State object's parent record is null! Index: ", state.index);
+  if (state.parent->inlineDef()) {
+    state.parent->print(os);
   } else {
-    NVF_ERROR(false, "Unsupported StateType");
+    if (state.stype == serde::StateType::Scalar) {
+      os << "S";
+    } else if (state.stype == serde::StateType::Tensor) {
+      os << "T";
+    } else if (state.stype == serde::StateType::Vector) {
+      os << "V";
+    } else if (state.stype == serde::StateType::None) {
+      os << "None";
+    } else {
+      NVF_ERROR(false, "Unsupported StateType");
+    }
+    os << state.index;
   }
-  os << state.index;
   return os;
 }
 
@@ -81,6 +86,15 @@ void FusionState::addRecord(RecordFunctor* record) {
   FUSER_PERF_SCOPE("FusionContainer::addRecord");
   recording_.emplace_back(record);
   num_recording_states_ += record->numOutputs();
+  for(const auto& out : record->outputs()) {
+    if (out.index < recording_state_.size()) {
+      recording_state_.at(out.index).parent = record;
+    } else { 
+      // NOTE: This condition might occur during deserialization
+      recording_state_.resize(out.index + 1);
+      recording_state_.at(out.index) = out;
+    }
+  }
 }
 
 Fusion* FusionState::fusion() {
