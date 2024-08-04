@@ -52,24 +52,10 @@ std::string debug_str(const at::Tensor& tensor) {
   ss << "Tensor:";
   ss << " device: " << tensor.device();
   ss << ", dtype: " << tensor.dtype();
-  ss << ", shape[";
-  for (size_t i = 0; i < tensor.sizes().size(); ++i) {
-    if (i != 0) {
-      ss << ", ";
-    }
-    ss << tensor.size(i);
-  }
-  ss << "]";
+  ss << ", shape: " << tensor.sizes();
 
   if (!tensor.is_contiguous()) {
-    ss << ", strides: [";
-    for (size_t i = 0; i < tensor.strides().size(); ++i) {
-      ss << tensor.stride(i);
-      if (i < tensor.strides().size() - 1) {
-        ss << ", ";
-      }
-    }
-    ss << "]";
+    ss << ", strides: " << tensor.strides();
   }
   return ss.str();
 }
