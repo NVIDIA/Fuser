@@ -1291,7 +1291,6 @@ void TensorView::clearReductionIterDomains() {
 
 
 void TensorView::clearBroadcastIterDomains(const std::vector<bool>& broadcast_dims_to_be_removed) {
-      printTransforms();
   NVF_ERROR(
       getLoopDomain() == getLogicalDomain(),
       "should not call clearBroadcastIterDomains on already transformed TensorDomains, Transforms: ");
