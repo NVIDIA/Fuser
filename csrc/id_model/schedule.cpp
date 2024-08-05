@@ -10,10 +10,47 @@
 
 namespace nvfuser {
 
+IterDomain* representativeId(const ValGroup& vg) {
+  IterDomain* rep = nullptr;
+
+  auto preferNewIterType = [&rep](IterDomain* new_id) {
+    if (rep->isReduction()) {
+      return new_id->isBroadcast() || new_id->isIteration();
+    } else if (rep->isBroadcast()) {
+      return new_id->isIteration();
+    } else if (rep->isIteration()) {
+      return false;
+    } else {
+      // Prefer anything else to a non-iter, non-bcast, non-reduction ID
+      return true;
+    }
+  };
+
+  auto preferNewExtent = [&rep](IterDomain* new_id) {
+    if (!rep->hasExpandedExtent() && new_id->hasExpandedExtent()) {
+      // Prefer non-expanded dimensions
+      return true;
+    }
+    // Prefer constant extent IDs to symbolic
+    return !rep->getMaybeExpandedExtent()->isConstInt() &&
+        new_id->getMaybeExpandedExtent()->isConstInt();
+  };
+
+  for (Val* v : *vg) {
+    if (auto id = dynamic_cast<IterDomain*>(v); id &&
+        (rep == nullptr || preferNewIterType(id) ||
+         (id->getIterType() == rep->getIterType() && preferNewExtent(id)))) {
+      rep = id;
+    }
+  }
+  NVF_ERROR(rep != nullptr, "Could not find any IterDomains in ValGroup");
+  return rep;
+}
+
 ValGroup merge(ValGraph* graph, const ValGroup& g0, const ValGroup& g1) {
   NVF_ERROR(!g0->empty() && !g1->empty(), "ValGroup can not be empty");
-  auto g0_id = g0->front()->as<IterDomain>();
-  auto g1_id = g1->front()->as<IterDomain>();
+  auto g0_id = representativeId(g0);
+  auto g1_id = representativeId(g1);
   NVF_ERROR(
       graph->hasGroup(g0_id) && graph->toGroup(g0_id) == g0,
       "Invalid g0 given: g0 is not in the given ValGraph");
@@ -51,7 +88,7 @@ std::pair<ValGroup, ValGroup> split(
     Val* factor,
     bool inner_split) {
   NVF_ERROR(!g->empty(), "ValGroup can not be empty");
-  auto g_id = g->front()->as<IterDomain>();
+  auto g_id = representativeId(g);
   NVF_ERROR(
       graph->hasGroup(g_id) && graph->toGroup(g_id) == g,
       "Invalid g given: g is not in the given ValGraph");
@@ -98,8 +135,8 @@ std::pair<ValGroup, ValGroup> swizzle(
     const ValGroup& g0,
     const ValGroup& g1) {
   NVF_ERROR(!g0->empty() && !g1->empty(), "ValGroup can not be empty");
-  auto g0_id = g0->front()->as<IterDomain>();
-  auto g1_id = g1->front()->as<IterDomain>();
+  auto g0_id = representativeId(g0);
+  auto g1_id = representativeId(g1);
   NVF_ERROR(
       graph->hasGroup(g0_id) && graph->toGroup(g0_id) == g0,
       "Invalid g0 given: g0 is not in the given ValGraph");
