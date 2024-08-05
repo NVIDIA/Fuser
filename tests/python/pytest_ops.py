@@ -18,10 +18,10 @@ from typing import Callable
 
 from nvfuser import FusionCache, FusionDefinition
 
-from utils import check_captured_python_definition, debug_serde, basic_serde_check
+from utils import check_captured_python_definition, debug_serde, basic_serde_check_ops
 
 
-def serde_check(test_fn: Callable):
+def serde_check_ops(test_fn: Callable):
     """
     The pytest framework decorator only checks per-operator and per-dtype.
     It doesn't check every single sample input. We check more input variations
@@ -191,7 +191,7 @@ def correctness_test_fn(
 
 
 # Run serde check for each operation and dtype but not for each sample input.
-@serde_check
+@serde_check_ops
 def serde_test_fn(op: OpInfo, dtype: torch.dtype):
     clear_cuda_cache()
     for sample in op.sample_input_generator(op, dtype):
