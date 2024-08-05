@@ -378,4 +378,25 @@ TEST_F(RemoveBcastSqueezeTest, BcastPointwiseSqueeze) {
   testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
+TEST_F(RemoveBcastSqueezeTest, InputSqueeze) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  DataType input_dtype = DataType::Float;
+  auto tv0 = makeContigConcreteTensor({1, 32}, input_dtype);
+  fusion->addInput(tv0);
+  auto tv1 = squeeze(tv0, std::vector<bool>{true, false});
+  fusion->addOutput(tv1);
+
+  preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
+      fusion.get());
+  EXPECT_TRUE(ir_utils::hasOpsOfType<SqueezeOp>(fusion.get()));
+
+  // run fusion
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({1, 32}, options);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser

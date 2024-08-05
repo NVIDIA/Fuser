@@ -34,12 +34,12 @@ namespace nvfuser::preseg_passes {
   OptimizationPass<RemoveEmptyPass>::runPass(fusion);
   // removes consecutive cast operations
   OptimizationPass<ConsecutiveCastPass>::runPass(fusion);
+  OptimizationPass<RemoveBcastSqueeze>::runPass(fusion);
   OptimizationPass<AddAxiomsPass>::runPass(fusion);
   OptimizationPass<MoveSplitCatPass>::runPass(fusion);
   OptimizationPass<MarkAliasesPreparePass>::runPass(fusion);
   OptimizationPass<ExactMappedExtentSubstitutionPass>::runPass(fusion);
   OptimizationPass<AllocationDomainPass>::runPass(fusion);
-  OptimizationPass<RemoveBcastSqueeze>::runPass(fusion);
 }
 
 } // namespace nvfuser::preseg_passes

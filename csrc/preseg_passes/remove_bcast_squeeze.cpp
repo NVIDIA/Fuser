@@ -13,15 +13,6 @@
 namespace nvfuser::preseg_passes {
 
 namespace {
-inline bool isMultipleConsumersOrProducers(TensorView* tv) {
-  if (ir_utils::producerTvsOf(tv).size() > 1) {
-    return true;
-  }
-  if (ir_utils::consumerTvsOf(tv).size() > 1) {
-    return true;
-  }
-  return false;
-}
 // Remove broadcast-squeeze and squeeze-broadcast patterns
 // Limitation: only support one producer and one consumer for tensors between
 // broadcast and squeeze
@@ -49,17 +40,18 @@ void removeBcastSqueeze(Fusion* fusion) {
         auto bcast_tv = squeeze->in()->as<TensorView>();
         // If this bcast tv has multiple consumers, don't remove the broadcast
         // id
-        if (isMultipleConsumersOrProducers(bcast_tv)) {
+        if (ir_utils::consumerTvsOf(bcast_tv).size() > 1) {
           continue;
         }
         std::vector<TensorView*> tvs_between_bcast_squeeze{bcast_tv};
         bool can_remove_bcast_id = true;
         // walk up the producer-consumer chain to find the broadcast op or an
         // input tv, all the tensors in between should has only one producer.
-        while (!bcast_tv->definition()->isA<BroadcastOp>() &&
-               !bcast_tv->isFusionInput()) {
-          if (!isMultipleConsumersOrProducers(bcast_tv)) {
-            bcast_tv = ir_utils::getSoleProducerTv(bcast_tv);
+        while (!bcast_tv->definition()->isA<BroadcastOp>()) {
+          const auto& producers = ir_utils::producerTvsOf(bcast_tv);
+          const auto& consumers = ir_utils::consumerTvsOf(bcast_tv);
+          if (producers.size() == 1 && consumers.size() == 1) {
+            bcast_tv = producers.at(0);
             tvs_between_bcast_squeeze.push_back(bcast_tv);
           } else {
             can_remove_bcast_id = false;
