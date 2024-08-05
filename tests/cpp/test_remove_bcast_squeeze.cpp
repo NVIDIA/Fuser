@@ -83,12 +83,12 @@ TEST_F(RemoveBcastSqueezeTest, BcastSqueezeMultipleUses) {
   fusion->addOutput(tv4);
   fusion->addOutput(tv5);
 
-  // preseg_passes should remove squeeze only since broadcast output is
-  // also used by another op tv5 = add(tv2, tvb).
+  // preseg_passes can remove squeeze, however we prefer to have less bcast
+  // Ids, so squeeze is not removed.
   preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
       fusion.get());
   EXPECT_TRUE(ir_utils::hasOpsOfType<BroadcastOp>(fusion.get()));
-  EXPECT_FALSE(ir_utils::hasOpsOfType<SqueezeOp>(fusion.get()));
+  EXPECT_TRUE(ir_utils::hasOpsOfType<SqueezeOp>(fusion.get()));
 
   // run fusion
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -137,7 +137,6 @@ TEST_F(RemoveBcastSqueezeTest, BcastSqueezeOutputBcast) {
   // output
   preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
       fusion.get());
-  fusion->printMath();
   EXPECT_TRUE(ir_utils::hasOpsOfType<BroadcastOp>(fusion.get()));
   EXPECT_FALSE(ir_utils::hasOpsOfType<SqueezeOp>(fusion.get()));
 }

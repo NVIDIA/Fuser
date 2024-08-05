@@ -13,6 +13,15 @@
 namespace nvfuser::preseg_passes {
 
 namespace {
+  inline bool isMultipleConsumersOrProducers(TensorView* tv) {
+  if(ir_utils::producerTvsOf(tv).size() > 1){
+    return true;
+  }
+  if(ir_utils::consumerTvsOf(tv).size() > 1){
+    return true;
+  }
+  return false;
+}
 // Remove broadcast-squeeze and squeeze-broadcast patterns
 void removeBcastSqueeze(Fusion* fusion) {
   // set of exprs that are already processed
@@ -47,6 +56,10 @@ void removeBcastSqueeze(Fusion* fusion) {
       // }
 
       auto bcast_tv = squeeze->in()->as<TensorView>();
+      // If this bcast tv has multiple consumers, don't remove the broadcast id
+      if(isMultipleConsumersOrProducers(bcast_tv)){
+        continue;
+      }
       std::vector<TensorView*> tvs_between_bcast_squeeze{bcast_tv};
       // don't want to remove bcast Id from fusion outputs
       bool can_remove_bcast_id = !bcast_tv->isFusionOutput();
@@ -57,6 +70,9 @@ void removeBcastSqueeze(Fusion* fusion) {
              !bcast_tv->isFusionInput() && can_remove_bcast_id) {
         const auto& producers = ir_utils::producerTvsOf(bcast_tv);
         const auto& consumers = ir_utils::consumerTvsOf(bcast_tv);
+        std::cout << bcast_tv->toString() << " has " << producers.size()
+                  << " producers and " << consumers.size() << " consumers"
+                  << std::endl;
         if (producers.size() == 1 && consumers.size() == 1 &&
             !producers.at(0)->isFusionOutput()) {
           bcast_tv = producers.at(0);
