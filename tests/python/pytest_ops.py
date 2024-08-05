@@ -18,7 +18,7 @@ from typing import Callable
 
 from nvfuser import FusionCache, FusionDefinition
 
-from utils import check_captured_python_definition, debug_serde, basic_serde_check_ops
+from utils import check_captured_python_definition, debug_serde, basic_serde_check
 
 
 def serde_check_ops(test_fn: Callable):
