@@ -216,7 +216,6 @@ std::vector<TensorView*> mlp_backwards(
     TensorView* w0,
     TensorView* b0,
     TensorView* w1,
-    Fusion* fusion,
     DeviceMesh& mesh,
     DataType dtype) {
   // Activation recomputation
@@ -252,12 +251,12 @@ std::vector<TensorView*> mlp_backwards(
   TensorView* matmul0_grad_w = transpose(matmul0_grad_w_t, 1, 2);
   TensorView* matmul0_grad_b = sum(gelu_grad, {1});
 
+  // Sharding the inputs and outputs. 
   for (auto tv :
        {x,
         grad,
         mask,
         dropout_grad,
-        matmul1_grad_x,
         matmul1_grad_b,
         matmul0_grad_x}) {
     tv->setDeviceMesh(mesh);
@@ -267,18 +266,14 @@ std::vector<TensorView*> mlp_backwards(
        {w0,
         b0,
         w1,
-        matmul0,
-        matmul1_grad_x,
         matmul1_grad_w,
-        matmul1_grad_w_t,
         gelu_grad,
-        matmul0_grad_w_t,
         matmul0_grad_w,
-        matmul0_grad_x_partial,
         matmul0_grad_b}) {
     tv->setDeviceMesh(mesh);
     tv->axis(0)->parallelize(ParallelType::DIDx);
   }
+
   std::vector<TensorView*> outputs = {
       dropout_grad,
       matmul1_grad_w,
@@ -359,6 +354,7 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
 }
 
 TEST_P(DistributedTransformerTest, MLP_Backward) {
+  preseg_passes::OptimizationPassGuard<preseg_passes::PropagateShardingsPass> guard(false);
   auto dtype = GetParam();
   at::ScalarType at_dtype = data_type_to_aten(dtype);
   auto fusion = std::make_unique<Fusion>();
@@ -380,11 +376,30 @@ TEST_P(DistributedTransformerTest, MLP_Backward) {
   fusion->addInput(w1);
 
   std::vector<TensorView*> tv_outs =
-      mlp_backwards(grad, x, mask, w0, b0, w1, fusion.get(), mesh, dtype);
+      mlp_backwards(grad, x, mask, w0, b0, w1, mesh, dtype);
 
   for (TensorView* tv : tv_outs) {
     fusion->addOutput(tv);
   }
+
+  // matmul1_grad_w, gelu_grad, matmul0_grad_w, matmul0_grad_b
+  std::unordered_set<TensorView*> sharded_outs = {tv_outs[1], tv_outs[3], tv_outs[4], tv_outs[5]};
+  auto all_tvs = scheduler_utils::getAllTvsFrom({w0, w1, b0}, sharded_outs);
+  std::vector<TensorView*> tvs_like_w0;
+  std::copy_if(all_tvs.begin(), all_tvs.end(),
+                 std::back_inserter(tvs_like_w0),
+                 [](TensorView* tv) {return !tv->hasDeviceMesh();});
+
+  // dropout_grad, matmul1_grad_b, matmul0_grad_x
+  std::unordered_set<TensorView*> unsharded_outs = {tv_outs[0], tv_outs[2], tv_outs[6]};
+  std::vector<TensorView*> tvs_like_x;
+  all_tvs = scheduler_utils::getAllTvsFrom({x, mask, grad}, unsharded_outs);
+  std::copy_if(all_tvs.begin(), all_tvs.end(),
+                 std::back_inserter(tvs_like_x),
+                 [](TensorView* tv) {return !tv->hasDeviceMesh();});
+  
+  shardAllLike(x, tvs_like_x);
+  shardAllLike(w0, tvs_like_w0);
 
   const auto options =
       at::TensorOptions().dtype(at_dtype).device(communicator_->device());
@@ -419,6 +434,49 @@ TEST_P(DistributedTransformerTest, MLP_Backward) {
   auto outputs = runtime.runWithInput(inputs);
 
   validate(expected_outputs, outputs);
+}
+
+TEST_F(DistributedTransformerTest, ShardMatmul) {
+    std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto mesh = DeviceMesh::createForNumDevices(communicator_->size());
+
+  int M = 256, N = 64, K = 64;
+  int Mo = D;
+  int Mi = M / Mo;
+  std::vector<int> a_shape = {Mo, Mi, K};
+  std::vector<int> b_shape = {N, K};
+
+  TensorView* a = makeContigTensor(2, DataType::Half); // (M,K)
+  TensorView* b = makeContigTensor(3, DataType::Half); // (No, K, Ni)
+  TensorView* c = matmul(a, b); //(No,M,Ni,r)
+
+  fusion->addInput(a);
+  fusion->addInput(b);
+  fusion->addOutput(c);
+
+  // Sharding M dimension
+  auto all_sharded_tvs = {b};
+  for (auto tv : all_sharded_tvs) {
+    tv->axis(0)->parallelize(ParallelType::DIDx);
+    tv->setDeviceMesh(mesh);
+  }
+  a->setDeviceMesh(mesh);
+
+  shardAllLike(b, {c});
+  std::cout << "Tensorview C " << c->toString() << std::endl;
+
+   const auto options =
+      at::TensorOptions().dtype(at::kHalf).device(communicator_->device());
+  at::Tensor x_ = at::randn({M, K}, options);
+  at::Tensor w0_ = at::randn({N, K}, options).view({D, K, N/D});
+  std::vector<c10::IValue> inputs = {shardTensor(x_, a), shardTensor(w0_, b)};
+  // auto expected_output = shardTensor(out, c);
+
+  MultiDeviceExecutor runtime(
+      std::move(fusion), *communicator_, executor_params_);
+  auto outputs = runtime.runWithInput(inputs);
+  std::cout << "Outputs size " << outputs[0].sizes();
 }
 
 INSTANTIATE_TEST_SUITE_P(
