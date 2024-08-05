@@ -4525,12 +4525,13 @@ class TestNvFuserFrontend(TestCase):
         dropout_vals = [None, 0.0, 0.2]
         is_causal_vals = [None, True, False]
         scale_vals = [None, 1 / E**0.5, 1e-3]
-        torch.manual_seed(0)
         # TODO: Try to move this to pytest_ops.py. Currently, it does not work since the API between nvFuser and torch differs.
         for dropout_p, is_causal, scale in itertools.product(
             dropout_vals, is_causal_vals, scale_vals
         ):
             with self.subTest(dropout_p=dropout_p, is_causal=is_causal, scale=scale):
+                from torch.nn.attention import SDPBackend, sdpa_kernel
+
                 # Reset the FusionCache or the fusion would not recompile for all subtests, failing checks in exec_nvfuser.
                 FusionCache.reset()
                 has_dropout = True if dropout_p is not None else False
@@ -4553,10 +4554,12 @@ class TestNvFuserFrontend(TestCase):
                 # Torch does not accept NoneType dropout_p, is_causal.
                 dropout_p = 0.0 if dropout_p is None else dropout_p
                 is_causal = False if is_causal is None else is_causal
-                torch.manual_seed(0)
-                ref_out = F.scaled_dot_product_attention(
-                    *qkv, dropout_p=dropout_p, is_causal=is_causal, scale=scale
-                )
+
+                with sdpa_kernel(SDPBackend.FLASH_ATTENTION):
+                    torch.manual_seed(0)
+                    ref_out = F.scaled_dot_product_attention(
+                        *qkv, dropout_p=dropout_p, is_causal=is_causal, scale=scale
+                    )
                 torch.testing.assert_close(nvf_out[0], ref_out)
 
 
