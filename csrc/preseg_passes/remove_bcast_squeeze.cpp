@@ -13,11 +13,13 @@
 namespace nvfuser::preseg_passes {
 
 namespace {
-  inline bool isMultipleConsumersOrProducers(TensorView* tv) {
-  if(ir_utils::producerTvsOf(tv).size() > 1){
+inline bool isMultipleConsumersOrProducers(TensorView* tv) {
+  if (ir_utils::producerTvsOf(tv).size() > 1) {
+    std::cout << "multiple producers" << std::endl;
     return true;
   }
-  if(ir_utils::consumerTvsOf(tv).size() > 1){
+  if (ir_utils::consumerTvsOf(tv).size() > 1) {
+    std::cout << "multiple consumer" << std::endl;
     return true;
   }
   return false;
@@ -57,25 +59,19 @@ void removeBcastSqueeze(Fusion* fusion) {
 
       auto bcast_tv = squeeze->in()->as<TensorView>();
       // If this bcast tv has multiple consumers, don't remove the broadcast id
-      if(isMultipleConsumersOrProducers(bcast_tv)){
+      if (isMultipleConsumersOrProducers(bcast_tv)) {
         continue;
       }
       std::vector<TensorView*> tvs_between_bcast_squeeze{bcast_tv};
       // don't want to remove bcast Id from fusion outputs
-      bool can_remove_bcast_id = !bcast_tv->isFusionOutput();
+      bool can_remove_bcast_id = true;
       // walk up the producer-consumer chain to find the broadcast op or an
       // input tv, all the tensors in between should has only one producer.
       // TODO: extend to allow multiple producers.
       while (!bcast_tv->definition()->isA<BroadcastOp>() &&
-             !bcast_tv->isFusionInput() && can_remove_bcast_id) {
-        const auto& producers = ir_utils::producerTvsOf(bcast_tv);
-        const auto& consumers = ir_utils::consumerTvsOf(bcast_tv);
-        std::cout << bcast_tv->toString() << " has " << producers.size()
-                  << " producers and " << consumers.size() << " consumers"
-                  << std::endl;
-        if (producers.size() == 1 && consumers.size() == 1 &&
-            !producers.at(0)->isFusionOutput()) {
-          bcast_tv = producers.at(0);
+             !bcast_tv->isFusionInput()) {
+        if (!isMultipleConsumersOrProducers(bcast_tv)) {
+          bcast_tv = ir_utils::getSoleProducerTv(bcast_tv);
           tvs_between_bcast_squeeze.push_back(bcast_tv);
         } else {
           can_remove_bcast_id = false;
@@ -90,6 +86,7 @@ void removeBcastSqueeze(Fusion* fusion) {
       // For valid case, we can remove the broadcast id from all tensors
       // between broadcast and squeeze and replace bcast and squeeze with set
       if (auto bcast = dynamic_cast<BroadcastOp*>(bcast_tv->definition())) {
+        std::cout << "found bcast " << bcast->toString() << std::endl;
         if (bcast->getBroadcastDimFlags() == squeeze->getSqueezeDimFlags()) {
           for (auto tv : tvs_between_bcast_squeeze) {
             tv->clearBroadcastIterDomains(bcast->getBroadcastDimFlags());
