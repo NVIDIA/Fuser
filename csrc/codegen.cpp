@@ -1246,6 +1246,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     auto optype = ldst->opType();
     NVF_ERROR(
         optype != LoadStoreOpType::LdMatrix &&
+            optype != LoadStoreOpType::StMatrix &&
             optype != LoadStoreOpType::CpAsync,
         "ldmatrix and cp.async should be lowered as kir::Asm");
 

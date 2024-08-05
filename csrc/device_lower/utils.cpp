@@ -180,6 +180,13 @@ bool isLdMatrixOp(const Expr* expr) {
   return false;
 }
 
+bool isStMatrixOp(const Expr* expr) {
+  if (auto ldst = dynamic_cast<const LoadStoreOp*>(expr)) {
+    return ldst->opType() == LoadStoreOpType::StMatrix;
+  }
+  return false;
+}
+
 bool isCpAsyncOp(const Expr* expr) {
   if (auto ldst = dynamic_cast<const LoadStoreOp*>(expr)) {
     return ldst->opType() == LoadStoreOpType::CpAsync;
