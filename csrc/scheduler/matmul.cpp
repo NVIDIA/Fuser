@@ -1305,21 +1305,18 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   }
 
   if (params.circular_buffer_options.circular_buffer_smem_read) {
-    constexpr int64_t number_of_stages = 2;
-
-    IterDomain* acr_axis = getCircularBufferAxis(acr);
-    NVF_ERROR(acr_axis != nullptr);
-    if (acr_axis->extent()->isConstScalar() &&
-        acr_axis->extent()->evaluate() >= number_of_stages) {
-      acr->circularBuffer(number_of_stages);
-    }
-
-    IterDomain* bcr_axis = getCircularBufferAxis(bcr);
-    NVF_ERROR(bcr_axis != nullptr);
-    if (bcr_axis->extent()->isConstScalar() &&
-        bcr_axis->extent()->evaluate() >= number_of_stages) {
-      bcr->circularBuffer(number_of_stages);
-    }
+    // Only apply circular buffering if we can fill the entire pipeline.
+    auto safely_apply_circular_buffering = [](TensorView* tv) {
+      constexpr int64_t number_of_stages = 2;
+      IterDomain* cb_axis = getCircularBufferAxis(tv);
+      NVF_ERROR(cb_axis != nullptr);
+      NVF_ERROR(cb_axis->extent()->isConstScalar());
+      if (cb_axis->extent()->evaluate() >= number_of_stages) {
+        tv->circularBuffer(number_of_stages);
+      }
+    };
+    safely_apply_circular_buffering(acr);
+    safely_apply_circular_buffering(bcr);
   }
 
   if (params.circular_buffer_options.circular_buffer_smem_read &&
