@@ -436,49 +436,6 @@ TEST_P(DistributedTransformerTest, MLP_Backward) {
   validate(expected_outputs, outputs);
 }
 
-TEST_F(DistributedTransformerTest, ShardMatmul) {
-    std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-  auto mesh = DeviceMesh::createForNumDevices(communicator_->size());
-
-  int M = 256, N = 64, K = 64;
-  int Mo = D;
-  int Mi = M / Mo;
-  std::vector<int> a_shape = {Mo, Mi, K};
-  std::vector<int> b_shape = {N, K};
-
-  TensorView* a = makeContigTensor(2, DataType::Half); // (M,K)
-  TensorView* b = makeContigTensor(3, DataType::Half); // (No, K, Ni)
-  TensorView* c = matmul(a, b); //(No,M,Ni,r)
-
-  fusion->addInput(a);
-  fusion->addInput(b);
-  fusion->addOutput(c);
-
-  // Sharding M dimension
-  auto all_sharded_tvs = {b};
-  for (auto tv : all_sharded_tvs) {
-    tv->axis(0)->parallelize(ParallelType::DIDx);
-    tv->setDeviceMesh(mesh);
-  }
-  a->setDeviceMesh(mesh);
-
-  shardAllLike(b, {c});
-  std::cout << "Tensorview C " << c->toString() << std::endl;
-
-   const auto options =
-      at::TensorOptions().dtype(at::kHalf).device(communicator_->device());
-  at::Tensor x_ = at::randn({M, K}, options);
-  at::Tensor w0_ = at::randn({N, K}, options).view({D, K, N/D});
-  std::vector<c10::IValue> inputs = {shardTensor(x_, a), shardTensor(w0_, b)};
-  // auto expected_output = shardTensor(out, c);
-
-  MultiDeviceExecutor runtime(
-      std::move(fusion), *communicator_, executor_params_);
-  auto outputs = runtime.runWithInput(inputs);
-  std::cout << "Outputs size " << outputs[0].sizes();
-}
-
 INSTANTIATE_TEST_SUITE_P(
     ,
     DistributedTransformerTest,
