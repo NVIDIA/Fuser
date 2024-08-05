@@ -481,12 +481,6 @@ void GpuLower::analysis(Fusion* fusion) {
   fuseReductionsAndBroadcasts(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "fuseReductionsAndBroadcasts");
 
-  // Want to run this after parallel map is
-  // created. vectorized_accesses_ and vectorized_set_info_ are
-  // filled.
-  validateAndCollectVectorizeInfo(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "validateAndCollectVectorizeInfo");
-
   // Depends on ComputeAtMap
   validateAndConvertIterDomainGrouping(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateAndConvertIterDomainGrouping");
@@ -526,6 +520,12 @@ void GpuLower::analysis(Fusion* fusion) {
   if (this->requiresIdModel() || isOptionEnabled(EnableOption::IdModel)) {
     tensor_indexer_ = std::make_unique<TensorIndexer>(*id_model_);
   }
+
+  // Want to run this after parallel map is
+  // created. vectorized_accesses_ and vectorized_set_info_ are
+  // filled. Requires TensorIndexer.
+  validateAndCollectVectorizeInfo(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "validateAndCollectVectorizeInfo");
 
   consumerToTMAInfo() = getConsumerToTMAInfoMap(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "getConsumerToTMAInfoMap");
