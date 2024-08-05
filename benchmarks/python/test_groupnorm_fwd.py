@@ -4,7 +4,7 @@
 import pytest
 from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from .core import run_benchmark, clear_cuda_cache
+from .core import run_benchmark, clear_cuda_cache, clear_dynamo_cache
 import torch
 import thunder
 from thunder.executors.nvfuserex import nvfuserex
@@ -160,6 +160,8 @@ def test_groupnorm_fwd_baseline_benchmark(
     compile: bool,
 ):
     clear_cuda_cache()
+    if compile:
+        clear_dynamo_cache()
     N, C, H, W = size
     x = torch.randn(size, device="cuda", dtype=dtype)
     weight = torch.randn(C, device="cuda", dtype=dtype)

@@ -701,8 +701,17 @@ TEST_F(MatmulTest, MatmulMatmulAmpere) {
 
   // Schedule mma output
   // ---------------------------------------------------------------------------
-  tv4c->applyMmaSwizzle(MmaOperand::Accumulator);
-  tv4->applyMmaSwizzle(MmaOperand::Accumulator);
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv4c->getLoopDomain());
+    tv4c->setLoopDomain(s.as<IterDomain*>());
+    tv4c->setAllocationDomain(s.as<IterDomain*>(), true);
+  }
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv4->getLoopDomain());
+    tv4->setLoopDomain(s.as<IterDomain*>());
+  }
 
   // Schedule gemm 1:
   // ------------------------------------------------------------------
@@ -763,10 +772,27 @@ TEST_F(MatmulTest, MatmulMatmulAmpere) {
 
   // Schedule mma output
   // ---------------------------------------------------------------------------
-  tv3c->applyMmaSwizzle(MmaOperand::Accumulator);
-  tv3cw->applyMmaSwizzle(MmaOperand::Accumulator);
-  tv3h->applyMmaSwizzle(MmaOperand::Accumulator);
-  tv3->applyMmaSwizzle(MmaOperand::Accumulator);
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv3c->getLoopDomain());
+    tv3c->setLoopDomain(s.as<IterDomain*>());
+    tv3c->setAllocationDomain(s.as<IterDomain*>(), true);
+  }
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv3cw->getLoopDomain());
+    tv3cw->setLoopDomain(s.as<IterDomain*>());
+  }
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv3h->getLoopDomain());
+    tv3h->setLoopDomain(s.as<IterDomain*>());
+  }
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv3->getLoopDomain());
+    tv3->setLoopDomain(s.as<IterDomain*>());
+  }
   tv3cw->setMemoryType(MemoryType::Shared);
 
   // Parallelize
@@ -986,8 +1012,17 @@ TEST_F(MatmulTest, MatmulSoftmaxMatmulAmpere) {
 
   // Schedule mma output
   // ---------------------------------------------------------------------------
-  tv4c->applyMmaSwizzle(MmaOperand::Accumulator);
-  tv4->applyMmaSwizzle(MmaOperand::Accumulator);
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv4c->getLoopDomain());
+    tv4c->setLoopDomain(s.as<IterDomain*>());
+    tv4c->setAllocationDomain(s.as<IterDomain*>(), true);
+  }
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv4->getLoopDomain());
+    tv4->setLoopDomain(s.as<IterDomain*>());
+  }
 
   // Schedule gemm 1:
   // ------------------------------------------------------------------
@@ -1057,8 +1092,17 @@ TEST_F(MatmulTest, MatmulSoftmaxMatmulAmpere) {
   // // Schedule mma output
   // //
   // ---------------------------------------------------------------------------
-  tv3c->applyMmaSwizzle(MmaOperand::Accumulator);
-  tv3->applyMmaSwizzle(MmaOperand::Accumulator);
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv3c->getLoopDomain());
+    tv3c->setLoopDomain(s.as<IterDomain*>());
+    tv3c->setAllocationDomain(s.as<IterDomain*>(), true);
+  }
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv3->getLoopDomain());
+    tv3->setLoopDomain(s.as<IterDomain*>());
+  }
 
   // Put tv3 result in smem
   tv3->setMemoryType(MemoryType::Shared);
@@ -1322,8 +1366,17 @@ TEST_F(MatmulTest, AmpereMatmulTNCpAsync) {
 
   // Schedule mma output
   // ---------------------------------------------------------------------------
-  tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
-  tv2->applyMmaSwizzle(MmaOperand::Accumulator);
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2c->getLoopDomain());
+    tv2c->setLoopDomain(s.as<IterDomain*>());
+    tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+  }
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2->getLoopDomain());
+    tv2->setLoopDomain(s.as<IterDomain*>());
+  }
 
   // Parallelize
   //  0   1  2  3   4   5  6  7  8  9  10
@@ -1480,8 +1533,17 @@ TEST_F(MatmulTest, AmpereStridedBatchedMatmulTN) {
 
   // Schedule mma output
   // ---------------------------------------------------------------------------
-  tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
-  tv2->applyMmaSwizzle(MmaOperand::Accumulator);
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2c->getLoopDomain());
+    tv2c->setLoopDomain(s.as<IterDomain*>());
+    tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+  }
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2->getLoopDomain());
+    tv2->setLoopDomain(s.as<IterDomain*>());
+  }
 
   // Parallelize
   //  0   1  2  3   4   5  6  7   8  9  10
@@ -1639,8 +1701,17 @@ TEST_F(MatmulTest, AmpereViewMatmulTN) {
 
   // Schedule mma output
   // ---------------------------------------------------------------------------
-  tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
-  tv2->applyMmaSwizzle(MmaOperand::Accumulator);
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2c->getLoopDomain());
+    tv2c->setLoopDomain(s.as<IterDomain*>());
+    tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+  }
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2->getLoopDomain());
+    tv2->setLoopDomain(s.as<IterDomain*>());
+  }
 
   // Inline the reshape op with the shared mem write minus
   //  the vectorization axes for now.
@@ -1816,8 +1887,17 @@ TEST_F(MatmulTest, AmpereMatmulTNSwizzled) {
   tv1b->applyMmaSwizzle(MmaOperand::B);
 
   // Schedule mma output
-  tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
-  tv2->applyMmaSwizzle(MmaOperand::Accumulator);
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2c->getLoopDomain());
+    tv2c->setLoopDomain(s.as<IterDomain*>());
+    tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+  }
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2->getLoopDomain());
+    tv2->setLoopDomain(s.as<IterDomain*>());
+  }
 
   // Parallelize
   //  0   1  2  3   4   5  6   7  8  9  10

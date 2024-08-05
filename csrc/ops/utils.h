@@ -73,7 +73,8 @@ std::vector<IterDomain*> mapMatmulOpIterDomains(
 std::vector<IterDomain*> mapLinearOpIterDomains(
     const std::vector<IterDomain*>& input_domain,
     int64_t input_position,
-    size_t out_size);
+    size_t out_size,
+    bool k_bcast);
 
 // Takes a vector of aligned input iterdomains to create the output iterdomain.
 // This is used if the input iterdomains are not trivially mapped to the output

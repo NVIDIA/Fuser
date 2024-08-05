@@ -195,61 +195,6 @@ std::string FusionExecutor::getStructuredCode() const {
   return getStructuredCode(kernelString(), kernel()->indexType());
 }
 
-// TODO: come up with a more user friendly interface
-void FusionExecutor::debugCompileFusionFromStr(
-    Fusion* fusion,
-    const std::string& code,
-    const std::string& name,
-    int64_t fusion_id,
-    int64_t concrete_id,
-    int64_t runtime_id,
-    int64_t group_id,
-    CompileOptions options) {
-  options_ = options;
-
-  if (isDebugDumpEnabled(DebugDumpOption::FusionIr)) {
-    fusion->print();
-  } else if (isDebugDumpEnabled(DebugDumpOption::FusionIrMath)) {
-    fusion->printMath();
-  }
-
-  if (isDebugDumpEnabled(DebugDumpOption::CudaFull)) {
-    debug() << "\n==== codegen output for kernel: " << kernelName()
-            << " ====" << std::endl
-            << code << std::endl
-            << "======================================\n"
-            << std::endl;
-  }
-
-  lowered_ = std::make_unique<GpuLower>(fusion);
-  lowered_->run();
-  const auto kernel = lowered_->kernel();
-  createKernelId(
-      ScheduleHeuristic::None, fusion_id, concrete_id, runtime_id, group_id);
-  setUsedTVs();
-
-  if (isDebugDumpEnabled(DebugDumpOption::KernelIr)) {
-    kernel->print();
-  }
-
-  const auto& kernel_summary = kernel->summary();
-
-  if (!kernel_summary.static_smem_allocations.empty()) {
-    ExpressionEvaluator static_evaluator;
-    const auto static_smem_size = computeSharedMemory(
-        static_evaluator,
-        kernel_summary.static_smem_allocations,
-        kernel->indexType());
-    NVF_ERROR(
-        static_smem_size < max_static_smem_,
-        "The static shared memory allocation is larger than available memory.");
-  }
-
-  compiled_kernel_ =
-      executor_utils::getCompiledKernel(std::nullopt, code, name, kernel_id_);
-  NVF_ERROR(validKernelId(), "Invalid kernel id for FusionExecutor.");
-}
-
 void FusionExecutor::compileFusion(
     Fusion* fusion,
     const KernelArgumentHolder& args,
@@ -1916,6 +1861,7 @@ std::vector<at::Tensor> FusionExecutor::evaluateFusionOutputs(
     for (const auto& out_val : fusion()->outputs()) {
       auto out_tensor =
           expr_eval.evaluate(out_val->as<TensorView>()).as<at::Tensor>();
+      expr_eval.bind(out_val, out_tensor);
       outputs.emplace_back(out_tensor);
     }
   }
