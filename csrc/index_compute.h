@@ -390,6 +390,10 @@ class PredicateInfo {
     return predicated_domains_;
   }
 
+  const auto& loopDomains() const {
+    return loop_domains_;
+  }
+
   CircularBufferLoopStage loopStage() const {
     return loop_stage_;
   }
@@ -409,6 +413,8 @@ class PredicateInfo {
   Val* stop_offset_ = nullptr;
   // Track which domains are covered by the generated predicates
   std::unordered_set<IterDomain*> predicated_domains_;
+  // Loops domains used for the predicate domains
+  std::unordered_set<IterDomain*> loop_domains_;
   // Circular buffer loop stage if applicable
   CircularBufferLoopStage loop_stage_ = CircularBufferLoopStage::NotApplicable;
 };

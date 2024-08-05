@@ -598,8 +598,8 @@ class TensorDomain : public Val {
   //! Returns a position of a root domain
   int64_t rootPosOf(IterDomain* id) const;
 
-  //! Create a new broadcast IterDomain with extent one in the loop domain
-  void broadcast(int64_t axis);
+  //! Create a new broadcast IterDomain with the given extent in the loop domain
+  void broadcast(int64_t axis, Val* extent);
 
   // Split "axis" into 2 axes
   //! inner_split dictates if the factor section of the split should be inside
