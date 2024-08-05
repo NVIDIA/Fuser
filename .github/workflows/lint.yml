@@ -27,6 +27,22 @@ jobs:
           # test that file is empty
           test ! -s missing-header-files.txt
 
+  lean:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checking proofs of theorems
+        working-directory: ${{ env.working_directory }}
+        run: |
+          wget -q https://raw.githubusercontent.com/leanprover-community/mathlib4/master/scripts/install_debian.sh
+          bash install_debian.sh
+          rm -f install_debian.sh
+          source ~/.profile
+          elan self update
+          elan default leanprover/lean4:v4.9.0-rc2
+          cd doc
+          lake build
+
   clang-tidy:
     runs-on: ubuntu-latest
     steps:
