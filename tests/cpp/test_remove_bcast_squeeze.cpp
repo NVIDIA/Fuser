@@ -133,10 +133,11 @@ TEST_F(RemoveBcastSqueezeTest, BcastSqueezeOutputBcast) {
   fusion->addOutput(tv2);
   fusion->addOutput(tv4);
 
-  // preseg_passes should remove squeeze but not broadcast scine tv2 is an
+  // preseg_passes should remove squeeze but not broadcast since tv2 is an
   // output
   preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
       fusion.get());
+  fusion->printMath();
   EXPECT_TRUE(ir_utils::hasOpsOfType<BroadcastOp>(fusion.get()));
   EXPECT_FALSE(ir_utils::hasOpsOfType<SqueezeOp>(fusion.get()));
 }
@@ -301,13 +302,16 @@ TEST_F(RemoveBcastSqueezeTest, BcastSqueezeBcast) {
   auto tv4 = broadcast(tv3, {false, false, true});
   auto tv5 = set(tv4);
   fusion->addOutput(tv5);
+  fusion->printMath();
 
-  // preseg_passes should remove the first broadcast and squeeze
+  // preseg_passes should remove the squeeze-broadcast
   preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
       fusion.get());
+  fusion->printMath();
   EXPECT_TRUE(ir_utils::hasOpsOfType<BroadcastOp>(fusion.get()));
   EXPECT_FALSE(ir_utils::hasOpsOfType<SqueezeOp>(fusion.get()));
 }
+
 
 TEST_F(RemoveBcastSqueezeTest, BcastSqueezeBcastSqueeze) {
   auto fusion = std::make_unique<Fusion>();
@@ -350,4 +354,32 @@ TEST_F(RemoveBcastSqueezeTest, BcastSqueezeSqueezeBcast) {
   EXPECT_FALSE(ir_utils::hasOpsOfType<BroadcastOp>(fusion.get()));
   EXPECT_FALSE(ir_utils::hasOpsOfType<SqueezeOp>(fusion.get()));
 }
+
+TEST_F(RemoveBcastSqueezeTest, BcastPointwiseSqueeze) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  DataType input_dtype = DataType::Float;
+  auto tv0 = makeContigTensor(2, input_dtype);
+  fusion->addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = broadcast(tv1, {false, false, true});
+  auto tv3 = exp(tv2);
+  auto tv4 = squeeze(tv3, std::vector<bool>{false, false, true});
+  auto tv5 = mul(tv4, tv4);
+  fusion->addOutput(tv5);
+
+  // preseg_passes should remove the broadcast and squeeze
+  preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
+      fusion.get());
+  EXPECT_FALSE(ir_utils::hasOpsOfType<BroadcastOp>(fusion.get()));
+  EXPECT_FALSE(ir_utils::hasOpsOfType<SqueezeOp>(fusion.get()));
+
+  // run fusion
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({32, 32}, options);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser

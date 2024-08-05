@@ -1289,6 +1289,53 @@ void TensorView::clearReductionIterDomains() {
   }
 }
 
+
+void TensorView::clearBroadcastIterDomains(const std::vector<bool>& broadcast_dims_to_be_removed) {
+      printTransforms();
+  NVF_ERROR(
+      getLoopDomain() == getLogicalDomain(),
+      "should not call clearBroadcastIterDomains on already transformed TensorDomains, Transforms: ");
+
+  const std::vector<IterDomain*>& logical = getLogicalDomain();
+  const std::vector<IterDomain*>& alloc = getMaybeAllocationDomain();
+
+  NVF_ERROR(
+      std::is_permutation(
+          logical.begin(), logical.end(), alloc.begin(), alloc.end()),
+      "should not call clearBroadcastIterDomains on transformed allocation domain");
+
+  std::vector<IterDomain*> new_logical;
+  std::vector<IterDomain*> new_alloc;
+  std::vector<std::optional<bool>> new_contig;
+  for (const auto i : c10::irange(logical.size())) {
+    auto logical_i = logical.at(i);
+    if (!logical_i->isBroadcast() || !broadcast_dims_to_be_removed.at(i)){
+      new_logical.push_back(logical_i);
+    }
+    // contig flag is specified for on allocation domain
+    auto alloc_i = alloc.at(i);
+    if (!alloc_i->isBroadcast() || !broadcast_dims_to_be_removed.at(i)) {
+      new_alloc.push_back(alloc_i);
+      new_contig.push_back(domain()->contiguity().at(i));
+    }
+  }
+
+  if (new_alloc == new_logical) {
+    // if new allocation domain is identical to new logical domain, we don't need
+    // to specify allocation domain
+    setDomain(
+        IrBuilder::createInContainer<TensorDomain>(container(), new_logical, new_contig));
+  } else {
+    setDomain(IrBuilder::createInContainer<TensorDomain>(
+        container(),
+        std::vector<IterDomain*>(),
+        new_logical,
+        new_alloc,
+        new_logical,
+        new_contig));
+  }
+}
+
 void TensorView::circularBuffer(int64_t number_of_stages) {
   // Early correctness checking. May miss eventual errors as the
   // checks depend on memory types and parallelization, which may not

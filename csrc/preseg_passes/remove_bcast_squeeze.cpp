@@ -10,29 +10,79 @@
 #include <logical_domain_map.h>
 #include <options.h>
 #include <preseg_passes/remove_bcast_squeeze.h>
-
 namespace nvfuser::preseg_passes {
 
 namespace {
 // Remove broadcast-squeeze and squeeze-broadcast patterns
-// TODO: still remove when have intermediate ops between broadcast and squeeze
 void removeBcastSqueeze(Fusion* fusion) {
+  // set of exprs that are already processed
+  std::unordered_set<Expr*> processed_exprs;
   // Iterate backwards over fusion expressions.
   // This will ensure we don't process expressions that are no longer valid
   // after replacement.
   auto exprs = fusion->exprs();
   for (auto it = std::rbegin(exprs); it != std::rend(exprs); it++) {
     Expr* expr = *it;
+    if (processed_exprs.find(expr) != processed_exprs.end()) {
+      std::cout << "skip " << expr->toString() << std::endl;
+      continue;
+    }
+    std::cout << "visiting " << expr->toString() << std::endl;
     // step-1: find and remove broadcast + squeeze pattern
-    // before: Y = broadcast(X); Z = squeeze(Y);  M = someOp(Z)
-    // after : M = someOp(X)
-    // conditions: (1) broadcast and squeeze have the same dim flags
+    // before: Y0 = broadcast(X); Yn = PointwiseOps(Y0), Z = squeeze(Yn);
+    //         M = someOp(Z)
+    // after : M = someOp(PointwiseOps(X))
+    // broadcast Ids are removed from all tensors between broadcast and
+    // squeeze
     if (auto squeeze = dynamic_cast<SqueezeOp*>(expr)) {
-      if (auto bcast =
-              dynamic_cast<BroadcastOp*>(squeeze->in()->definition())) {
+      // if (auto bcast =
+      //         dynamic_cast<BroadcastOp*>(squeeze->in()->definition())) {
+      //   if (bcast->getBroadcastDimFlags() == squeeze->getSqueezeDimFlags()) {
+      //     ir_utils::replaceValInAllExprInputsAndFusionOutputs(
+      //         squeeze->out(), bcast->in());
+      //     std::cout << "\n after removing s+b" << std::endl;
+      //     fusion->printMath();
+      //     continue;
+      //   }
+      // }
+
+      auto bcast_tv = squeeze->in()->as<TensorView>();
+      std::vector<TensorView*> tvs_between_bcast_squeeze{bcast_tv};
+      // don't want to remove bcast Id from fusion outputs
+      bool can_remove_bcast_id = !bcast_tv->isFusionOutput();
+      // walk up the producer-consumer chain to find the broadcast op or an
+      // input tv, all the tensors in between should has only one producer.
+      // TODO: extend to allow multiple producers.
+      while (!bcast_tv->definition()->isA<BroadcastOp>() &&
+             !bcast_tv->isFusionInput() && can_remove_bcast_id) {
+        const auto& producers = ir_utils::producerTvsOf(bcast_tv);
+        const auto& consumers = ir_utils::consumerTvsOf(bcast_tv);
+        if (producers.size() == 1 && consumers.size() == 1 &&
+            !producers.at(0)->isFusionOutput()) {
+          bcast_tv = producers.at(0);
+          tvs_between_bcast_squeeze.push_back(bcast_tv);
+        } else {
+          can_remove_bcast_id = false;
+          break;
+        }
+      }
+      // if can't remove the broadcast id, e.g. output, continue to next expr
+      if (!can_remove_bcast_id) {
+        continue;
+      }
+
+      // For valid case, we can remove the broadcast id from all tensors
+      // between broadcast and squeeze and replace bcast and squeeze with set
+      if (auto bcast = dynamic_cast<BroadcastOp*>(bcast_tv->definition())) {
         if (bcast->getBroadcastDimFlags() == squeeze->getSqueezeDimFlags()) {
-          ir_utils::replaceValInAllExprInputsAndFusionOutputs(
-              squeeze->out(), bcast->in());
+          for (auto tv : tvs_between_bcast_squeeze) {
+            tv->clearBroadcastIterDomains(bcast->getBroadcastDimFlags());
+          }
+          // convert bcast & squeeze to set
+          IrBuilder::create<LoadStoreOp>(
+              LoadStoreOpType::Set, bcast->out(), bcast->in());
+          IrBuilder::create<LoadStoreOp>(
+              LoadStoreOpType::Set, squeeze->out(), squeeze->in());
         }
       }
     }
@@ -46,6 +96,10 @@ void removeBcastSqueeze(Fusion* fusion) {
         if (bcast->getBroadcastDimFlags() == squeeze->getSqueezeDimFlags()) {
           ir_utils::replaceValInAllExprInputsAndFusionOutputs(
               bcast->out(), squeeze->in());
+          // output of squeeze is no longer used
+          processed_exprs.insert(squeeze);
+          std::cout << "\n after removing s+b" << std::endl;
+          fusion->printMath();
         }
       }
     }
