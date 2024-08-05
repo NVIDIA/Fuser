@@ -1861,6 +1861,7 @@ std::vector<at::Tensor> FusionExecutor::evaluateFusionOutputs(
     for (const auto& out_val : fusion()->outputs()) {
       auto out_tensor =
           expr_eval.evaluate(out_val->as<TensorView>()).as<at::Tensor>();
+      expr_eval.bind(out_val, out_tensor);
       outputs.emplace_back(out_tensor);
     }
   }
