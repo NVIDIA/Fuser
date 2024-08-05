@@ -68,23 +68,26 @@ inline std::optional<MmaMacro> getMmaOp(
   }
 }
 
-//! Find the number of circular buffer stages so that the entire pipeline
-//! is filled given problem and heuristics.
-void limitCircularBuffering(
-    CircularBufferOptions& circular_buffer_options,
-    int64_t matrix_k,
-    int64_t splitk_factor,
-    int64_t cta_tile_k) {
+//! Find the number of circular buffer stages for shared memory operands, so
+//! that the entire pipeline is filled given problem and heuristics.
+void limitCircularBufferingSmemOperands(
+    std::shared_ptr<MatmulParams> params,
+    const ProblemShape& problem_shape) {
+  // Short-Circuit: Skip if matmul params do not use circular buffering
+  if (!params->circular_buffer_options.circular_buffer_smem_write) {
+    return;
+  }
+
   // The axes of the mma tensorviews are permuted to [B, M, N, K],
   // so K / cta_tile_k is the circular buffer axis for both operands.
-  int64_t params_stage = circular_buffer_options.smem_circular_buffer_stage;
-  int64_t numerator = ceilDiv(matrix_k, splitk_factor);
-  int64_t k_stages = ceilDiv(numerator, cta_tile_k);
-  int64_t stages =
-      std::min(k_stages, circular_buffer_options.smem_circular_buffer_stage);
+  int64_t numerator =
+      ceilDiv(problem_shape[(size_t)MatmulDimRole::K], params->splitk_factor);
+  int64_t k_stages = ceilDiv(numerator, params->tile_sizes.cta_tile.k);
+  int64_t stages = std::min(
+      k_stages,
+      (int64_t)params->circular_buffer_options.smem_circular_buffer_stage);
 
   params->circular_buffer_options.circular_buffer_smem_write = (stages != 1);
-  params->circular_buffer_options.circular_buffer_smem_read = true;
   params->circular_buffer_options.smem_circular_buffer_stage = (int)stages;
 }
 
@@ -892,12 +895,9 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
     NVF_ERROR(status, "Initialization of core part of heuristics failed.");
   }
 
-  // Ensure that entire pipeline is filled for given problem and heuristics.
-  limitCircularBuffering(
-      params->circular_buffer_options,
-      problem_shape[(size_t)MatmulDimRole::K],
-      params->splitk_factor,
-      params->tile_sizes.cta_tile);
+  // Ensure that entire pipeline is filled for shared memory operands given
+  // problem and heuristics.
+  limitCircularBufferingSmemOperands(params, problem_shape);
 
   // Disable magic zero for matmul kernels
   params->cparams.enable_magic_zero = false;
