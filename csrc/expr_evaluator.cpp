@@ -14,13 +14,39 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
+#include <polymorphic_value.h>
 
+#include <cxxabi.h>
 #include <functional>
 #include <iostream>
 
 namespace nvfuser {
 
 namespace {
+
+// Given a value, if it is not a fusion input, return the empty string. If it is
+// a fusion input return a string like "input 2 ". This helper is used to
+// provide more informative error messages when a malformed input is received.
+std::string getInputPosString(const Val* val) {
+  if (!val->isFusionInput()) {
+    return "";
+  }
+  // Get position
+  const std::vector<Val*>& inputs = val->fusion()->inputs();
+  int64_t pos = -1;
+  for (size_t i : c10::irange(inputs.size())) {
+    if (inputs[i] == val) {
+      pos = (int64_t)i;
+      break;
+    }
+  }
+  NVF_ERROR(
+      pos != -1,
+      "val->isFusionInput() is true but val cannot be found in fusion inputs: ",
+      val->toString());
+  std::stringstream ss;
+  return "input " + std::to_string(pos) + ", ";
+}
 
 void validateValWithConcreteValue(
     const Val* value,
@@ -29,17 +55,19 @@ void validateValWithConcreteValue(
     NVF_CHECK(
         concrete_value.is<at::Tensor>(),
         "Expected ",
+        getInputPosString(tv),
         tv->toString(),
-        " to be bound to an at::Tensor, but got ",
-        concrete_value.type().name());
+        ", to be an at::Tensor but got scalar ",
+        concrete_value);
     const auto& t = concrete_value.as<at::Tensor>();
     auto expect_dim =
         (int64_t)TensorDomain::noReductions(tv->getLogicalDomain()).size();
     NVF_CHECK(
         t.dim() == expect_dim,
         "Expected ",
+        getInputPosString(tv),
         tv->toString(),
-        " to be bound to a tensor of rank ",
+        ", to be bound to a tensor of rank ",
         expect_dim,
         ", but got a tensor of rank ",
         t.dim());
@@ -48,8 +76,9 @@ void validateValWithConcreteValue(
         (value->dtype() == DataType::Index && isIntegralType(actual_dtype)) ||
             (value->dtype() == actual_dtype),
         "Expected ",
+        getInputPosString(tv),
         tv->toString(),
-        " to be bound to a tensor of dtype ",
+        ", to be bound to a tensor of dtype ",
         value->dtype(),
         ", but got a tensor of dtype ",
         actual_dtype);
@@ -61,8 +90,9 @@ void validateValWithConcreteValue(
       NVF_CHECK(
           is_cpu_scalar(t) || is_meta_scalar(t),
           "Expected ",
+          getInputPosString(tv),
           tv->toString(),
-          " to be bound to a CPU or meta scalar tensor "
+          ", to be bound to a CPU or meta scalar tensor "
           ", but got a tensor on device ",
           t.device(),
           " with ",
@@ -72,14 +102,29 @@ void validateValWithConcreteValue(
       NVF_CHECK(
           !t.defined() || t.is_cuda() || t.is_meta(),
           "Expected ",
+          getInputPosString(tv),
           tv->toString(),
-          " to be bound to a CUDA or meta tensor, but got a tensor on device ",
+          ", to be bound to a CUDA or meta tensor, but got a tensor on device ",
           t.device());
     }
   } else {
     NVF_CHECK(
+        !concrete_value.is<at::Tensor>(),
+        "Expected ",
+        getInputPosString(value),
+        value->toString(),
+        ", to be a scalar but got ",
+        aten_to_data_type(concrete_value.as<at::Tensor>().scalar_type()),
+        " tensor of rank ",
+        concrete_value.as<at::Tensor>().dim());
+
+    NVF_CHECK(
         hasCompatibleDataType(concrete_value, value->dtype()),
-        "Scalar value is not compatible with the given data type.");
+        "Scalar value ",
+        concrete_value,
+        " is not compatible with the expected data type: ",
+        value->dtype(),
+        ".");
   }
 }
 
@@ -109,6 +154,7 @@ void ExpressionEvaluator::bind_(
     NVF_CHECK(
         same,
         "Tried to bind to a value: ",
+        getInputPosString(value),
         value->toInlineString(),
         "(which evaluated to ",
         toString(evaluated_value),
@@ -121,8 +167,9 @@ void ExpressionEvaluator::bind_(
     NVF_ERROR(
         t.dim() == (int64_t)logical_domain.size(),
         "Expected ",
+        getInputPosString(tv),
         tv->toString(),
-        " to be bound to a tensor of rank ",
+        ", to be bound to a tensor of rank ",
         logical_domain.size(),
         ", but got a tensor of rank ",
         t.dim());
@@ -134,7 +181,9 @@ void ExpressionEvaluator::bind_(
             t.size(i) == 1 || t.stride(i) == 0,
             "IterDomain ",
             id->toString(),
-            " in TensorView ",
+            " in ",
+            getInputPosString(tv),
+            "TensorView ",
             tv->toString(),
             " has expanded extent but input tensor has size ",
             t.size(i),
@@ -155,6 +204,7 @@ void ExpressionEvaluator::bind_(
             1 == t.size(i),
             "TensorView ",
             tv->toString(),
+            getInputPosString(tv),
             " IterDomain ",
             id->toString(),
             "is sharded and must have size 1, but input tensor has size ",
@@ -163,6 +213,7 @@ void ExpressionEvaluator::bind_(
             tv->getDeviceMesh().size() > 0,
             "TV ",
             tv->toString(),
+            getInputPosString(tv),
             " has an empty DeviceMesh with DID parallelization")
         bind_(
             logical_domain[i]->extent(),

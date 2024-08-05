@@ -4460,10 +4460,8 @@ class TestNvFuserFrontend(TestCase):
 
     # Test that we properly raise an error when passing inputs with the wrong types
     def test_mismatched_input_types(self):
-        inputs = [
-            2.0,
-            torch.rand((15,), dtype=torch.float32, device="cuda:0"),
-        ]
+        scalar_inp = 2.0
+        tensor_inp = torch.rand((15,), dtype=torch.float32, device="cuda:0")
 
         def fusion_func(fd: FusionDefinition):
             T0 = fd.define_tensor(
@@ -4488,11 +4486,36 @@ class TestNvFuserFrontend(TestCase):
         with pytest.raises(
             Exception,
             match=re.escape(
-                "Mismatch in input type: argument 0 (T0_g[ iS0{i0} ])"
-                " should be a float tensor but double scalar 2 was provided"
+                "Expected input 0, T0_g[ iS0{i0} ], to be an at::Tensor but got scalar 2"
             ),
         ):
-            nvf_out = fd.execute(inputs)
+            nvf_out = fd.execute([scalar_inp, scalar_inp])
+
+        with pytest.raises(
+            Exception,
+            match=re.escape(
+                "Expected input 1, d2, to be a scalar but got float tensor of rank 1"
+            ),
+        ):
+            nvf_out = fd.execute([tensor_inp, tensor_inp])
+
+        with pytest.raises(
+            Exception,
+            match=re.escape(
+                "Expected input 0, T0_g[ iS0{i0} ], to be bound to a tensor of dtype float,"
+                " but got a tensor of dtype __half"
+            ),
+        ):
+            wrong_tensor_inp = torch.rand((15,), dtype=torch.float16, device="cuda:0")
+            nvf_out = fd.execute([wrong_tensor_inp, 2.0])
+
+        with pytest.raises(
+            Exception,
+            match=re.escape(
+                "Scalar value (2,1) is not compatible with the expected data type: double."
+            ),
+        ):
+            nvf_out = fd.execute([tensor_inp, 2.0 + 1.0j])
 
 
 if __name__ == "__main__":
