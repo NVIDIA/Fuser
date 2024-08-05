@@ -77,14 +77,6 @@ std::vector<at::Tensor> allocateOutputs(
     const c10::Device& device,
     ExpressionEvaluator& ee);
 
-//! Used in distributed setting where we only want to
-//!  allocate output space and receive output data from
-//!  a different rank instead of computing them.
-std::vector<at::Tensor> allocOutputSpace(
-    const at::ArrayRef<c10::IValue>& inputs,
-    Fusion* fusion,
-    const c10::Device& device);
-
 //! Return information necessary for allocating output tensors. Input
 //! and output tensors are allowed to alias each other, which is
 //! specified by the list of int pairs of input and output indices
