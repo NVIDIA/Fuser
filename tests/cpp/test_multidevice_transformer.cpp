@@ -21,6 +21,7 @@
 #include <preseg_passes/allocation_order_inference.h>
 #include <preseg_passes/mark_aliases_prepare.h>
 #include <preseg_passes/move_split_cat.h>
+#include <preseg_passes/propagate_shardings.h>
 #include <preseg_passes/optimization_pass.h>
 #include <scheduler/mma_utils.h>
 #include <scheduler/utils.h>
@@ -78,27 +79,6 @@ class DistributedTransformerTest
 };
 
 namespace {
-TensorView* replicated_dropout(
-    TensorView* x,
-    const double kProb,
-    Fusion* fusion,
-    DeviceMesh mesh) {
-  // Need to modify two things before we can use the existing dropout function
-  // in composite.cpp (1) Sharding propagation breaks at rand_like because it
-  // creates a fresh TV. (2) The philox seed and offset must be set to ensure
-  // the masks are identical across processes.
-  TensorView* x_float = castOp(DataType::Float, x);
-  const double kScale = 1.0 / (1.0 - kProb);
-  Val* philox_seed = fusion->zeroVal();
-  Val* philox_offset = fusion->zeroVal();
-  TensorView* rand_vals = rand_like(x_float, philox_seed, philox_offset);
-  TensorView* mask = lt(rand_vals, IrBuilder::create<Val>(1.0 - kProb));
-  TensorView* apply_mask = mul(x_float, mask);
-  TensorView* dropout = mul(apply_mask, IrBuilder::create<Val>(kScale));
-  rand_vals->setDeviceMesh(mesh);
-  return dropout;
-}
-
 void validate(
     std::vector<at::Tensor> expected_out,
     std::vector<at::Tensor> out) {
@@ -195,7 +175,6 @@ std::vector<TensorView*> mlp(
     TensorView* b0,
     TensorView* w1,
     TensorView* b1,
-    Fusion* fusion,
     DeviceMesh& mesh,
     DataType dtype) {
   // Linear #1
@@ -212,14 +191,14 @@ std::vector<TensorView*> mlp(
   TensorView* bcast_bias = broadcast(b1, {true, false});
   TensorView* linear2 = add(matmul2, bcast_bias);
   // Dropout
-  TensorView* dropout = replicated_dropout(linear2, kDropoutProb, fusion, mesh);
+  // linear2 = castOp(DataType::Float, linear2);
+  Val* prob = IrBuilder::create<Val>(1.0 - kDropoutProb);
+  Val * scale = IrBuilder::create<Val>(1.0 / (1.0 - kDropoutProb));
+  auto dout = dropout(linear2, prob, scale).output;
+  // auto dout = replicated_dropout(linear2, kDropoutProb);
 
   // Sharding
-  // (TODO) TVs where sharding propagation breaks down:
-  // linear_int0: broadcasts where a device dim axis is broadcasted.
-  // rand_vals: rand_like creates a fresh new TV.
-  // TVs replicated on each device.
-  for (auto tv : {x, b1, matmul2, linear2, dropout}) {
+  for (auto tv : {x, b1, matmul2, linear2, dout}) {
     tv->setDeviceMesh(mesh);
   }
   for (auto tv : {w0, b0, w1, linear1, gelu}) {
@@ -227,7 +206,7 @@ std::vector<TensorView*> mlp(
     tv->axis(0)->parallelize(ParallelType::DIDx);
   }
 
-  return {linear1, gelu, linear2, dropout};
+  return {linear1, gelu, linear2, dout};
 }
 
 std::vector<TensorView*> mlp_backwards(
@@ -313,6 +292,7 @@ std::vector<TensorView*> mlp_backwards(
 } // namespace
 
 TEST_P(DistributedTransformerTest, MLP_Layer) {
+  preseg_passes::OptimizationPassGuard<preseg_passes::PropagateShardingsPass> guard(false);
   auto dtype = GetParam();
   at::ScalarType at_dtype = data_type_to_aten(dtype);
   auto fusion = std::make_unique<Fusion>();
@@ -332,11 +312,19 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
   fusion->addInput(tvb1);
 
   std::vector<TensorView*> tvsout =
-      mlp(tvx, tvw0, tvb0, tvw1, tvb1, fusion.get(), mesh, dtype);
+      mlp(tvx, tvw0, tvb0, tvw1, tvb1, mesh, dtype);
 
   for (TensorView* tv : tvsout) {
     fusion->addOutput(tv);
   }
+
+  // tvsout[3] = dropout
+  auto all_tvs = scheduler_utils::getAllTvsFrom({tvw0}, {tvsout[3]});
+  std::vector<TensorView*> tvs_to_shard;
+  std::copy_if(all_tvs.begin(), all_tvs.end(),
+                 std::back_inserter(tvs_to_shard),
+                 [](TensorView* tv) {return !tv->hasDeviceMesh();});
+  shardAllLike(tvw0, tvs_to_shard);
 
   const auto options =
       at::TensorOptions().dtype(at_dtype).device(communicator_->device());
@@ -363,9 +351,9 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
       reference_outs[2],
       reference_outs[3]};
 
-  at::manual_seed(getATenRandomSeed());
   MultiDeviceExecutor runtime(
       std::move(fusion), *communicator_, executor_params_);
+  at::manual_seed(getATenRandomSeed());
   auto outputs = runtime.runWithInput(inputs);
   validate(expected_outputs, outputs);
 }
