@@ -166,7 +166,8 @@ std::vector<at::Tensor> scheduleCompileAndRun(
   }
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-        tv2->getLoopDomain());
+                 AbstractTensor(tv2->getLoopDomain()).emplaceBack())
+                 .strip();
     tv2->setLoopDomain(s.as<IterDomain*>());
   }
 
@@ -393,7 +394,8 @@ TEST_P(HopperRS, SingleTile) {
   }
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-        tv2->getLoopDomain());
+                 AbstractTensor(tv2->getLoopDomain()).emplaceBack())
+                 .strip();
     tv2->setLoopDomain(s.as<IterDomain*>());
   }
 
@@ -468,7 +470,8 @@ TEST_P(HopperRS, SingleTileWithTMALoad) {
   }
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-        tv2->getLoopDomain());
+                 AbstractTensor(tv2->getLoopDomain()).emplaceBack())
+                 .strip();
     tv2->setLoopDomain(s.as<IterDomain*>());
   }
 
@@ -552,7 +555,8 @@ TEST_P(HopperRS, SingleTileWithTMALoadStore) {
   }
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-        tv2->getLoopDomain());
+                 AbstractTensor(tv2->getLoopDomain()).emplaceBack())
+                 .strip();
     tv2->setLoopDomain(s.as<IterDomain*>());
   }
 
@@ -629,7 +633,8 @@ TEST_P(HopperRS, SingleTileWithTMALoadOuterDimNotSplit) {
   }
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-        tv2->getLoopDomain());
+                 AbstractTensor(tv2->getLoopDomain()).emplaceBack())
+                 .strip();
     tv2->setLoopDomain(s.as<IterDomain*>());
   }
 
@@ -814,7 +819,8 @@ TEST_P(HopperSS, SingleTile) {
   }
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-        tv2->getLoopDomain());
+                 AbstractTensor(tv2->getLoopDomain()).emplaceBack())
+                 .strip();
     tv2->setLoopDomain(s.as<IterDomain*>());
   }
 
@@ -923,7 +929,8 @@ TEST_P(HopperSS, SingleTileWithTMALoad) {
   }
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-        tv2->getLoopDomain());
+                 AbstractTensor(tv2->getLoopDomain()).emplaceBack())
+                 .strip();
     tv2->setLoopDomain(s.as<IterDomain*>());
   }
 
