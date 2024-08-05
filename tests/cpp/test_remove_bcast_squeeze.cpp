@@ -301,16 +301,13 @@ TEST_F(RemoveBcastSqueezeTest, BcastSqueezeBcast) {
   auto tv4 = broadcast(tv3, {false, false, true});
   auto tv5 = set(tv4);
   fusion->addOutput(tv5);
-  fusion->printMath();
 
   // preseg_passes should remove the squeeze-broadcast
   preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
       fusion.get());
-  fusion->printMath();
   EXPECT_TRUE(ir_utils::hasOpsOfType<BroadcastOp>(fusion.get()));
   EXPECT_FALSE(ir_utils::hasOpsOfType<SqueezeOp>(fusion.get()));
 }
-
 
 TEST_F(RemoveBcastSqueezeTest, BcastSqueezeBcastSqueeze) {
   auto fusion = std::make_unique<Fusion>();

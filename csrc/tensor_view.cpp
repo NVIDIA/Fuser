@@ -1289,8 +1289,8 @@ void TensorView::clearReductionIterDomains() {
   }
 }
 
-
-void TensorView::clearBroadcastIterDomains(const std::vector<bool>& broadcast_dims_to_be_removed) {
+void TensorView::clearBroadcastIterDomains(
+    const std::vector<bool>& broadcast_dims_to_be_removed) {
   NVF_ERROR(
       getLoopDomain() == getLogicalDomain(),
       "should not call clearBroadcastIterDomains on already transformed TensorDomains, Transforms: ");
@@ -1308,7 +1308,7 @@ void TensorView::clearBroadcastIterDomains(const std::vector<bool>& broadcast_di
   std::vector<std::optional<bool>> new_contig;
   for (const auto i : c10::irange(logical.size())) {
     auto logical_i = logical.at(i);
-    if (!logical_i->isBroadcast() || !broadcast_dims_to_be_removed.at(i)){
+    if (!logical_i->isBroadcast() || !broadcast_dims_to_be_removed.at(i)) {
       new_logical.push_back(logical_i);
     }
     // contig flag is specified for on allocation domain
@@ -1320,10 +1320,10 @@ void TensorView::clearBroadcastIterDomains(const std::vector<bool>& broadcast_di
   }
 
   if (new_alloc == new_logical) {
-    // if new allocation domain is identical to new logical domain, we don't need
-    // to specify allocation domain
-    setDomain(
-        IrBuilder::createInContainer<TensorDomain>(container(), new_logical, new_contig));
+    // if new allocation domain is identical to new logical domain, we don't
+    // need to specify allocation domain
+    setDomain(IrBuilder::createInContainer<TensorDomain>(
+        container(), new_logical, new_contig));
   } else {
     setDomain(IrBuilder::createInContainer<TensorDomain>(
         container(),

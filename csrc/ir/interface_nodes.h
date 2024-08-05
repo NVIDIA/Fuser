@@ -270,8 +270,9 @@ class NVF_API TensorView : public Val {
   void clearReductionIterDomains();
 
   //! This is used when we squeeze out broadcasted dimensions.
-  void clearBroadcastIterDomains(const std::vector<bool>& broadcast_dims_to_be_removed);
-  
+  void clearBroadcastIterDomains(
+      const std::vector<bool>& broadcast_dims_to_be_removed);
+
   //! Compute this TensorView relative to a consumer position, -1 will
   //! compute tensors inline with each other, 0 doesn't share
   //! any loop nests between the tensors. It's an error when the given
