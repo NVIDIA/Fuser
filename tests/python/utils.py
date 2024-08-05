@@ -4,32 +4,24 @@
 # Owner(s): ["module: nvfuser"]
 
 import torch
-from torch.testing._internal.common_utils import TEST_WITH_ROCM
-from torch.testing._internal.jit_utils import RUN_CUDA
 
+# flake8 complains about DataType being unused in this file but it is necessary
+# to run captured fusion definition.
 # flake8: noqa
 from nvfuser import FusionDefinition, DataType
 
-RUN_NVFUSER = RUN_CUDA and not TEST_WITH_ROCM
-
 
 def is_pre_volta():
-    if not RUN_NVFUSER:
-        return False
     prop = torch.cuda.get_device_properties(torch.cuda.current_device())
     return prop.major < 7
 
 
 def is_pre_ampere():
-    if not RUN_NVFUSER:
-        return False
     prop = torch.cuda.get_device_properties(torch.cuda.current_device())
     return prop.major < 8
 
 
 def is_pre_hopper():
-    if not RUN_NVFUSER:
-        return False
     prop = torch.cuda.get_device_properties(torch.cuda.current_device())
     return prop.major < 9
 
