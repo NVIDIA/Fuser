@@ -16,7 +16,6 @@
 #include <logical_domain_map.h>
 #include <polymorphic_value.h>
 
-#include <cxxabi.h>
 #include <functional>
 #include <iostream>
 
