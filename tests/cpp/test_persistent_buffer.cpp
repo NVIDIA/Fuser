@@ -1250,7 +1250,7 @@ TEST_F(PersistentBufferTest, SmemPersistentNotSupportedIn3DReduction) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   DataType input_dtype = DataType::Float;
-  const std::vector<int64_t> input_shape = {2, 288, 120, 160};
+  const std::vector<int64_t> input_shape = {2, 4, 120, 160};
   auto tv0 = makeContigTensor(input_shape.size(), input_dtype);
   fusion->addInput(tv0);
   auto tv1 = sum(tv0, {0, 2, 3});
