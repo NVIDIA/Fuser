@@ -68,6 +68,26 @@ inline std::optional<MmaMacro> getMmaOp(
   }
 }
 
+//! Find the number of circular buffer stages so that the entire pipeline
+//! is filled given problem and heuristics.
+void limitCircularBuffering(
+    CircularBufferOptions& circular_buffer_options,
+    int64_t matrix_k,
+    int64_t splitk_factor,
+    int64_t cta_tile_k) {
+  // The axes of the mma tensorviews are permuted to [B, M, N, K],
+  // so K / cta_tile_k is the circular buffer axis for both operands.
+  int64_t params_stage = circular_buffer_options.smem_circular_buffer_stage;
+  int64_t numerator = ceilDiv(matrix_k, splitk_factor);
+  int64_t k_stages = ceilDiv(numerator, cta_tile_k);
+  int64_t stages =
+      std::min(k_stages, circular_buffer_options.smem_circular_buffer_stage);
+
+  params->circular_buffer_options.circular_buffer_smem_write = (stages != 1);
+  params->circular_buffer_options.circular_buffer_smem_read = true;
+  params->circular_buffer_options.smem_circular_buffer_stage = (int)stages;
+}
+
 //! A wrapper for core heuristics initialization.
 //! We should have already set params->mma_macro before calling this function.
 inline bool initCoreHeuristics(
@@ -126,19 +146,11 @@ inline bool initCoreHeuristics(
   {
     // NOTE: compilation errors when async is enabled on Turing devices
     if (isAmpere(params->mma_macro)) {
-      // Find the number of circular buffer stages so that the entire pipeline
-      // is filled.
-      //
-      // The axes of the mma tensorviews are permuted to [B, M, N, K],
-      // so K / cta_tile_k is the circular buffer axis for both operands.
-      int64_t k_stages =
-          ceilDiv(problem_shape[(size_t)MatmulDimRole::K], cta_tile.k);
-      int64_t stages = std::min(k_stages, 3L);
+      constexpr int stages = 3;
 
-      params->circular_buffer_options.circular_buffer_smem_write =
-          (stages != 1);
+      params->circular_buffer_options.circular_buffer_smem_write = true;
       params->circular_buffer_options.circular_buffer_smem_read = true;
-      params->circular_buffer_options.smem_circular_buffer_stage = (int)stages;
+      params->circular_buffer_options.smem_circular_buffer_stage = stages;
     }
   }
 
@@ -879,6 +891,13 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
     auto status = initCoreHeuristics(params, problem_shape, tensor_roles);
     NVF_ERROR(status, "Initialization of core part of heuristics failed.");
   }
+
+  // Ensure that entire pipeline is filled for given problem and heuristics.
+  limitCircularBuffering(
+      params->circular_buffer_options,
+      problem_shape[(size_t)MatmulDimRole::K],
+      params->splitk_factor,
+      params->tile_sizes.cta_tile);
 
   // Disable magic zero for matmul kernels
   params->cparams.enable_magic_zero = false;
