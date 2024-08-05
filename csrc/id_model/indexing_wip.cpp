@@ -106,10 +106,7 @@ std::vector<PredicateInfo> TensorIndexer::getPredicatesWIP(
             << std::endl;
 
   const IndexingInfo& index_info = computeIndex(
-      expr,
-      traversalGraph().toGroups(predicate_domains),
-      for_loops,
-      is_unswitch);
+      expr, traversalGraph().toGroups(predicate_domains), for_loops);
 
   const std::unordered_map<ValGroup, Val*>& index_map = index_info.index_map;
 
@@ -322,8 +319,8 @@ std::vector<Val*> TensorIndexer::getPerDimIndex(
   VERBOSE() << "getPerDimIndex of " << toDelimitedString(index_domains)
             << " in " << expr->toString() << std::endl;
 
-  const auto& index_info = computeIndex(
-      expr, traversalGraph().toGroups(index_domains), for_loops, false);
+  const auto& index_info =
+      computeIndex(expr, traversalGraph().toGroups(index_domains), for_loops);
 
   const auto& index_map = index_info.index_map;
 

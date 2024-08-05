@@ -24,6 +24,7 @@
 #include <ir/graphviz.h>
 #include <ir/utils.h>
 #include <kernel_ir_dispatch.h>
+#include <swizzle.h>
 #include <val_graph_visitor.h>
 
 #include <algorithm>
@@ -924,8 +925,8 @@ std::vector<Val*> TensorIndexer::getIndexFor(
     bool as_consumer,
     const ValGroups& index_groups,
     const std::vector<ForLoop*>& for_loops) const {
-  auto info = computeIndex(expr, index_groups, for_loops, false);
-  const std::unordered_map<Val*, Val*> replacement_map = getIndexReplacementMap(
+  auto info = computeIndex(expr, index_groups, for_loops);
+  const auto& replacement_map = getIndexReplacementMap(
       expr, as_consumer, info.loop_domains, for_loops, info.index_map);
 
   std::vector<Val*> result;
@@ -970,13 +971,12 @@ Val* TensorIndexer::getLinearIndex(
             << std::endl;
 
   const auto& index_info = computeIndex(
-      expr, traversalGraph().toGroups(alloc_info.domains), for_loops, false);
+      expr, traversalGraph().toGroups(alloc_info.domains), for_loops);
   const auto& index_map = index_info.index_map;
+  const auto& replacement_map = getIndexReplacementMap(
+      expr, as_consumer, index_info.loop_domains, for_loops, index_map);
 
-  // ValGroups may not be suitable here. It should be fine currently,
-  // but if we ever want to support self-mapped allocation domains, we
-  // should not deduplicate the domain groups. Use deque as that's
-  // convenient for getContigDomainsAndStrides.
+  // Use deque as that's convenient for getContigDomainsAndStrides.
   std::deque<ValGroup> contig_alloc_groups;
   std::deque<Val*> contig_strides;
 
@@ -1000,8 +1000,6 @@ Val* TensorIndexer::getLinearIndex(
         });
     contig_strides = {alloc_info.strides.begin(), alloc_info.strides.end()};
   }
-  const auto& replacement_map = getIndexReplacementMap(
-      expr, as_consumer, index_info.loop_domains, for_loops, index_map);
 
   // Linearize the indices with strides.
   Val* linear_index = tv->fusion()->zeroVal();
@@ -1063,8 +1061,7 @@ std::vector<IterDomain*> TensorIndexer::getLoopDomains(const Expr* expr) const {
 IndexingInfo TensorIndexer::computeIndex(
     const Expr* expr,
     const ValGroups& index_groups,
-    const std::vector<ForLoop*>& for_loops,
-    bool is_unswitch) const {
+    const std::vector<ForLoop*>& for_loops) const {
   VERBOSE() << "computeIndex of " << expr->toString() << std::endl;
 
   const auto loop_domains = getLoopDomains(expr);

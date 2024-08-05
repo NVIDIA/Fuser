@@ -9,6 +9,7 @@
 
 #include <device_lower/analysis/trivial_broadcast.h>
 #include <id_model/id_model.h>
+#include <id_model/indexing_traversal.h>
 #include <ir/base_nodes.h>
 #include <ir/interface_nodes.h>
 #include <options.h>
@@ -142,8 +143,7 @@ class TensorIndexer {
   IndexingInfo computeIndex(
       const Expr* expr,
       const ValGroups& index_groups,
-      const std::vector<ForLoop*>& for_loops,
-      bool is_unswitch = false) const;
+      const std::vector<ForLoop*>& for_loops) const;
 
   // Propagate the loop indices of a given list of loop domains to the
   // traversal graph (i.e., the AlmostExact graph). Uses the loop
