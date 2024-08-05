@@ -3123,6 +3123,7 @@ class TestNvFuserFrontend(TestCase):
         torch_ref = inputs[0] * (inputs[1] * inputs[2]).unsqueeze(-1)
         self.assertEqual(nvf_out[0], torch_ref)
 
+    # We expect this to fail on branch `wjy/input` but to pass on ToT.
     def test_issue2755(self):
         def fusion_func(fd: FusionDefinition) -> None:
             t0 = fd.define_tensor(shape=[-1])
