@@ -573,12 +573,12 @@ TEST_P(HopperRS, FullSwizzle) {
   // Inline gmem->register load into the MMA expression at 1.
   // The shared loop is the loop over multiple tiles.
   tv0->inlineAt(1);
-  // If TN, then the inner dim is K, then the shared loop is a reduction loop.
-  // This reduction loop does not exist in the register->gmem store, so nothing
-  // to inline.
-  // If TT, then the inner dim is N, then the shared loop is not a reduction
-  // loop. This shared loop exists in the register->gmem store, so we will
-  // inline the MMA expression into the register->gmem store.
+  // If TN, then the dim with multiple tiles is K, then the shared loop is a
+  // reduction loop. This reduction loop does not exist in the register->gmem
+  // store, so nothing to inline.
+  // If TT, then the dim with multiple tiles is N, then the shared loop is not a
+  // reduction loop. This shared loop exists in the register->gmem store, so we
+  // will inline the MMA expression into the register->gmem store.
   if (layout == MmaLayout::TT) {
     tv2c->inlineAt(1);
   }
