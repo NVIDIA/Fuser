@@ -61,8 +61,13 @@ class create_op_test:
 
 
 # This pseudo-decorator enables automatic serialization upon program exit and
-# tests deserializing the default workspace upon creating the tests. Do not
-# apply to the error testing functions that can corrupt the FusionCache.
+# tests deserializing the default workspace upon creating the tests.
+#
+# Serializing error test cases corrupts the serialized binary. We call
+# FusionCache.reset() to clear the cache after running an error test in
+# `test_python_frontend.py'. In the pytest framework, the error tests are
+# separate from the correctness tests. Only apply this decorator to the
+# correctness tests to avoid calling FusionCache.reset().
 class atexit_serde_create_op_test(create_op_test):
     def __init__(self, opinfos, *, scope=None):
         from utils import debug_serde

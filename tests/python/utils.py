@@ -87,6 +87,10 @@ env_var_debug_serde = os.getenv("DEBUG_SERDE")
 debug_serde: bool = env_var_debug_serde in ("true", "1")
 
 
+# The pytest framework and test_python_frontend.py use different arguments for
+# testing, so we need specific `serde_check` decorators for both frameworks.
+# basic_serde_check is the common part between them. It serializes the cache,
+# deletes it, and then deserialized to recreate the cache.
 def basic_serde_check():
     # If DEBUG_SERDE is enabled, the temporary file is not deleted
     # automatically

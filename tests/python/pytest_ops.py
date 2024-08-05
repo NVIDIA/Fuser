@@ -23,9 +23,10 @@ from utils import check_captured_python_definition, debug_serde, basic_serde_che
 
 def serde_check(test_fn: Callable):
     """
-    A decorator to verify that serialization works with the given exec_nvfuser
-    function. Currently, it uses serialization to rebuild the FusionCache
-    structure.
+    The pytest framework decorator only checks per-operator and per-dtype.
+    It doesn't check every single sample input. We check more input variations
+    in the pytest benchmarks than test_python_frontend.py. This is a timesaving
+    measure.
     """
 
     def inner_fn(*args, **kwargs):
