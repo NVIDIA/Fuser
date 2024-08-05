@@ -83,16 +83,9 @@ def serde_check(test_fn: Callable):
 
 
 def setUpModule():
-    if not debug_serde:
-        from nvfuser import enable_automatic_serialization
+    from utils import atexit_serde_check
 
-        # Turn on default serialization upon program exit
-        enable_automatic_serialization()
-
-    # Automatically load common workplace
-    fc = FusionCache.get()
-    # Clear FusionCache because the tests expect a new fusion to be generated.
-    FusionCache.reset()
+    atexit_serde_check()
 
 
 @unittest.skipIf(not RUN_NVFUSER, "requires CUDA")

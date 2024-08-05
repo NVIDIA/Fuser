@@ -116,3 +116,23 @@ def basic_serde_check():
                 raise RuntimeError(
                     "***** Use DEBUG_SERDE=true to debug serialization failure."
                 )
+
+
+# Enable automatic serialization upon program exit and test deserializing the
+# default workspace. NOTE: Serializing error test cases corrupts the serialized
+# binary. Call FusionCache.reset() to clear the cache after running an error
+# test in `test_python_frontend.py'.
+def atexit_serde_check():
+    from utils import debug_serde
+    from nvfuser import FusionCache
+
+    if not debug_serde:
+        from nvfuser import enable_automatic_serialization
+
+        # Turn on default serialization upon program exit
+        enable_automatic_serialization()
+
+    # Automatically load common workplace
+    fc = FusionCache.get()
+    # Clear FusionCache because the tests expect a new fusion to be generated.
+    FusionCache.reset()

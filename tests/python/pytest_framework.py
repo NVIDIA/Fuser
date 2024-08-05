@@ -70,18 +70,8 @@ class create_op_test:
 # correctness tests to avoid calling FusionCache.reset().
 class atexit_serde_create_op_test(create_op_test):
     def __init__(self, opinfos, *, scope=None):
-        from utils import debug_serde
-        from nvfuser import FusionCache
+        from utils import atexit_serde_check
 
-        if not debug_serde:
-            from nvfuser import enable_automatic_serialization
-
-            # Turn on default serialization upon program exit
-            enable_automatic_serialization()
-
-        # Automatically load common workplace
-        fc = FusionCache.get()
-        # Clear FusionCache because the tests expect a new fusion to be generated.
-        FusionCache.reset()
+        atexit_serde_check()
 
         create_op_test.__init__(self, opinfos, scope=scope)
