@@ -29,11 +29,8 @@ constexpr int64_t n = 16, h = 32, l = 64, s = 128, e = 64;
 auto addSdpaFwdOutputs = [](Fusion* fusion, SdpfaFwdResult output) {
   fusion->addOutput(output.output);
   fusion->addOutput(output.log_sumexp);
-  fusion->addOutput(output.query_seq_len);
-  fusion->addOutput(output.key_seq_len);
   fusion->addOutput(output.philox_seed);
   fusion->addOutput(output.philox_offset);
-  fusion->addOutput(output.debug_attn_mask);
 };
 
 using AtenSdpaOut = std::tuple<
@@ -58,15 +55,12 @@ auto validateSdpaFwdOutputs = [](std::vector<at::Tensor> nvf_out,
        philox_seed,
        philox_offset,
        debug_attn_mask] = aten_out;
-  // nvf_out = {attn, log_sumexp, query_seq_len, key_seq_len, philox_seed,
-  // philox_offset, debug_attn_mask}. Since, dropout_p = 0.0 to validate
-  // outputs, philox_seed and philox_offset are uninitialized empty tensors with
+  // nvf_out = {attn, log_sumexp, philox_seed, philox_offset}.
+  // Since, dropout_p = 0.0 to validate outputs,
+  // philox_seed and philox_offset are uninitialized empty tensors with
   // garbage values for this case, so we skip validating those values.
   EXPECT_TRUE(at::allclose(nvf_out[0], attn));
   EXPECT_TRUE(at::allclose(nvf_out[1], log_sumexp));
-  EXPECT_EQ(nvf_out[2].item<int64_t>(), query_seq_len);
-  EXPECT_EQ(nvf_out[3].item<int64_t>(), key_seq_len);
-  EXPECT_TRUE(at::equal(nvf_out[6], debug_attn_mask));
 };
 
 void checkSdpaFwdMapping(Fusion* fusion, Expr* op) {
@@ -431,8 +425,6 @@ TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
   auto tvv = makeConcreteTensor(kv_shape, DataType::Half);
   auto tv_output = makeConcreteTensor(attn_shape, DataType::Half);
   auto tv_logsumexp = makeConcreteTensor({n, h, l}, DataType::Float);
-  auto tv_maxq = makeConcreteTensor({}, DataType::Int);
-  auto tv_maxk = makeConcreteTensor({}, DataType::Int);
   auto tv_seed = makeConcreteTensor({}, DataType::Int);
   auto tv_offset = makeConcreteTensor({}, DataType::Int);
 
@@ -442,8 +434,6 @@ TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
   fusion->addInput(tvv);
   fusion->addInput(tv_output);
   fusion->addInput(tv_logsumexp);
-  fusion->addInput(tv_maxq);
-  fusion->addInput(tv_maxk);
   fusion->addInput(tv_seed);
   fusion->addInput(tv_offset);
 
@@ -454,8 +444,6 @@ TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
       tvv,
       tv_output,
       tv_logsumexp,
-      tv_maxq,
-      tv_maxk,
       /*dropout_p=*/IrBuilder::create<Val>(dropout_p),
       /*is_causal=*/IrBuilder::create<Val>(is_causal),
       tv_seed,
@@ -471,18 +459,7 @@ TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
   at::Tensor grad_out = at::randn(attn_shape, options);
 
   std::vector<c10::IValue> sdpa_bwd_inputs = {
-      grad_out,
-      q,
-      k,
-      v,
-      output,
-      log_sumexp,
-      // max_q/k are represented as CPU scalar tensors in nvFuser and integers
-      // in ATen.
-      at::scalar_tensor(*query_seq_len.maybe_as_int(), at::dtype(at::kLong)),
-      at::scalar_tensor(*key_seq_len.maybe_as_int(), at::dtype(at::kLong)),
-      philox_seed,
-      philox_offset};
+      grad_out, q, k, v, output, log_sumexp, philox_seed, philox_offset};
 
   FusionExecutorCache fec(std::move(fusion));
   auto out = fec.runFusionWithInputs(sdpa_bwd_inputs);
@@ -557,8 +534,6 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
   auto tvv = makeSymbolicTensor(kv_shape, DataType::Half);
   auto tv_output = makeSymbolicTensor(attn_shape, DataType::Half);
   auto tv_logsumexp = makeSymbolicTensor({n, h, l}, DataType::Float);
-  auto tv_maxq = makeSymbolicTensor({}, DataType::Int);
-  auto tv_maxk = makeSymbolicTensor({}, DataType::Int);
   auto tv_seed = makeSymbolicTensor({}, DataType::Int);
   auto tv_offset = makeSymbolicTensor({}, DataType::Int);
 
@@ -568,8 +543,6 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
   fusion->addInput(tvv);
   fusion->addInput(tv_output);
   fusion->addInput(tv_logsumexp);
-  fusion->addInput(tv_maxq);
-  fusion->addInput(tv_maxk);
   fusion->addInput(tv_seed);
   fusion->addInput(tv_offset);
 
@@ -580,8 +553,6 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
       tvv,
       tv_output,
       tv_logsumexp,
-      tv_maxq,
-      tv_maxk,
       /*dropout_p=*/IrBuilder::create<Val>(dropout_p),
       /*is_causal=*/IrBuilder::create<Val>(is_causal),
       tv_seed,
@@ -597,18 +568,7 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
   at::Tensor grad_out = at::randn(attn_shape, options);
 
   std::vector<c10::IValue> sdpa_bwd_inputs = {
-      grad_out,
-      q,
-      k,
-      v,
-      output,
-      log_sumexp,
-      // max_q/k are represented as CPU scalar tensors in nvFuser and integers
-      // in ATen.
-      at::scalar_tensor(*query_seq_len.maybe_as_int(), at::dtype(at::kLong)),
-      at::scalar_tensor(*key_seq_len.maybe_as_int(), at::dtype(at::kLong)),
-      philox_seed,
-      philox_offset};
+      grad_out, q, k, v, output, log_sumexp, philox_seed, philox_offset};
 
   FusionExecutorCache fec(std::move(fusion));
   auto out = fec.runFusionWithInputs(sdpa_bwd_inputs);
@@ -729,8 +689,6 @@ TEST_F(SDPATest, AttnFwdBwd) {
       tvv,
       sdpa_fwd_out.output,
       sdpa_fwd_out.log_sumexp,
-      sdpa_fwd_out.query_seq_len,
-      sdpa_fwd_out.key_seq_len,
       /*dropout_p=*/IrBuilder::create<Val>(0.0),
       /*is_causal=*/IrBuilder::create<Val>(false),
       sdpa_fwd_out.philox_seed,
