@@ -107,7 +107,8 @@ fi
 # save current commit and current head so we can switch back to branch
 currentcommit=$(git describe --always --long)
 origcommit=$currentcommit
-orighead=$(git symbolic-ref --short HEAD)
+# When head is detached, symbolic-ref will fail. Then we just use the commit SHA.
+orighead=$(git symbolic-ref --short HEAD || git rev-parse HEAD)
 
 comparecommit=$(git describe --always --long "$comparetoref")
 
@@ -121,7 +122,7 @@ scriptdir=$(mktemp -d -t codediffXXXXXX)
 cp -r "$nvfuserdir/tools/codediff/"* "$scriptdir/"
 
 movecudafiles() {
-    find . -maxdepth 1 -name '__tmp_kernel*.cu' -o -name '__tmp_kernel*.ptx' -exec mv '{}' "$1" \;
+    find . -maxdepth 1 \( -name '__tmp_kernel*.cu' -o -name '__tmp_kernel*.ptx' \) -exec mv '{}' "$1" \;
 }
 
 cleanup() {
@@ -135,7 +136,7 @@ cleanup() {
         movecudafiles "$backupdir"
     fi
 
-    git switch "$orighead"
+    git -c advice.detachedHead=false checkout "$orighead"
     git submodule update --init --recursive
 
     rm -rf "$scriptdir"
