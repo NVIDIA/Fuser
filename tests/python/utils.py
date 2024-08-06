@@ -7,34 +7,25 @@ import os
 from copy import deepcopy
 from typing import Callable
 import tempfile
-
 import torch
-from torch.testing._internal.common_utils import TEST_WITH_ROCM
-from torch.testing._internal.jit_utils import RUN_CUDA
 
+# flake8 complains about DataType being unused in this file but it is necessary
+# to run captured fusion definition.
 # flake8: noqa
 from nvfuser import FusionCache, FusionDefinition, DataType
 
-RUN_NVFUSER = RUN_CUDA and not TEST_WITH_ROCM
-
 
 def is_pre_volta():
-    if not RUN_NVFUSER:
-        return False
     prop = torch.cuda.get_device_properties(torch.cuda.current_device())
     return prop.major < 7
 
 
 def is_pre_ampere():
-    if not RUN_NVFUSER:
-        return False
     prop = torch.cuda.get_device_properties(torch.cuda.current_device())
     return prop.major < 8
 
 
 def is_pre_hopper():
-    if not RUN_NVFUSER:
-        return False
     prop = torch.cuda.get_device_properties(torch.cuda.current_device())
     return prop.major < 9
 
@@ -123,7 +114,6 @@ def basic_serde_check():
 # binary. Call FusionCache.reset() to clear the cache after running an error
 # test in `test_python_frontend.py'.
 def atexit_serde_check():
-    from utils import debug_serde
     from nvfuser import FusionCache
 
     if not debug_serde:
