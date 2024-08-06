@@ -2911,8 +2911,8 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("correction") = 1,
       py::arg("keepdim") = false,
       py::return_value_policy::reference);
-    
-    nvf_ops.def(
+
+  ops.def(
       "sdpfa_bwd",
       [](FusionDefinition::Operators& self,
          Tensor grad_output,
@@ -3458,3 +3458,4 @@ void cleanup() {
 }
 
 } // namespace nvfuser::python_frontend
+    

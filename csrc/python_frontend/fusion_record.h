@@ -2816,7 +2816,7 @@ struct SdpaBwdOpRecord : RecordFunctor {
     auto value = fd.getFusionState(args_.at(3).index)->as<TensorView>();
     auto output = fd.getFusionState(args_.at(4).index)->as<TensorView>();
     auto log_sumexp = fd.getFusionState(args_.at(5).index)->as<TensorView>();
-    
+
     auto dropout_p = (args_.at(6).stype == serde::StateType::Scalar)
         ? fd.getFusionState(args_.at(6).index)->as<Val>()
         : nullptr;
@@ -2825,8 +2825,7 @@ struct SdpaBwdOpRecord : RecordFunctor {
         : nullptr;
 
     auto philox_seed = fd.getFusionState(args_.at(8).index)->as<TensorView>();
-    auto philox_offset =
-        fd.getFusionState(args_.at(9).index)->as<TensorView>();
+    auto philox_offset = fd.getFusionState(args_.at(9).index)->as<TensorView>();
 
     auto scale = (args_.at(10).stype == serde::StateType::Scalar)
         ? fd.getFusionState(args_.at(10).index)->as<Val>()

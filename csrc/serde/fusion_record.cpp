@@ -317,9 +317,7 @@ void RecordFunctorFactory::registerAllParsers() {
 
   auto deserializeSdpaBwdRecord = [&](const RecordFunctor* buffer) {
     return new python_frontend::SdpaBwdOpRecord(
-      parseStateArgs(buffer->args()),
-      parseStateArgs(buffer->outputs())
-    );
+        parseStateArgs(buffer->args()), parseStateArgs(buffer->outputs()));
   };
   registerParser(RecordType::SdpaBwdOp, deserializeSdpaBwdRecord);
   // END OpRecord Parsers
