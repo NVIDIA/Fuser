@@ -203,10 +203,9 @@ class FusionDefinition(_C._FusionDefinition):
             self._finalize_definition()
 
         # If schedule is defined by child class, make a schedule for inputs
-        if self._exists_schedule(inputs) and (
+        if not self._exists_schedule(inputs) and (
             super(type(self), self).schedule != self.schedule
         ):
-            print("here")
             self._setup_schedule(inputs)
             self.schedule()
             self._finalize_schedule(inputs)

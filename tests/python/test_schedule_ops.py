@@ -1103,6 +1103,12 @@ class TestScheduleOps(TestCase):
         self.assertEqual(nvf_out[0], torch_ref)
 
     def test_inputs_with_different_devices(self):
+        """
+        Test case for issue 2056. Run the same fusion definition with inputs on
+        different devices. The python frontend should create a new user
+        schedule for inputs on different devices.
+        """
+
         class FDScheduler(FusionDefinition):
             def definition(self):
                 self.t0 = fd.define_tensor(
@@ -1118,24 +1124,18 @@ class TestScheduleOps(TestCase):
                 # Apply reduction schedule
                 _apply_scheduler_helper(fd.sched, SchedulerHeuristic.reduction)
 
-        # Create definition
+        # Create Definition
         fd = FDScheduler()
 
-        # execute with device 0
-        inputs = [
-            torch.randn(8, 8, 8, dtype=torch.float32, device="cuda:0"),
-        ]
-        torch_ref = inputs[0].sum(-1)
-        nvf_out = fd.execute(inputs)
-        self.assertEqual(nvf_out[0], torch_ref)
-
-        # execute with device 1
-        inputs = [
-            torch.randn(8, 8, 8, dtype=torch.float32, device="cuda:1"),
-        ]
-        torch_ref = inputs[0].sum(-1)
-        fd.execute(inputs)
-        self.assertEqual(nvf_out[0], torch_ref)
+        # Execute FusionDefinition with device 0 and 1
+        devices = ["cuda:0", "cuda:1"]
+        for device in devices:
+            inputs = [
+                torch.randn(8, 8, 8, dtype=torch.float32, device=device),
+            ]
+            torch_ref = inputs[0].sum(-1)
+            nvf_out = fd.execute(inputs)
+            self.assertEqual(nvf_out[0], torch_ref)
 
 
 if __name__ == "__main__":
