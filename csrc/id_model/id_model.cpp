@@ -934,5 +934,4 @@ void IdModel::validateAndPropagatePType() {
   }
 }
 
-
 } // namespace nvfuser
