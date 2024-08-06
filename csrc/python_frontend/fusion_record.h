@@ -2816,22 +2816,20 @@ struct SdpaBwdOpRecord : RecordFunctor {
     auto value = fd.getFusionState(args_.at(3).index)->as<TensorView>();
     auto output = fd.getFusionState(args_.at(4).index)->as<TensorView>();
     auto log_sumexp = fd.getFusionState(args_.at(5).index)->as<TensorView>();
-    auto query_seq_len = fd.getFusionState(args_.at(6).index)->as<TensorView>();
-    auto key_seq_len = fd.getFusionState(args_.at(7).index)->as<TensorView>();
-
-    auto dropout_p = (args_.at(8).stype == serde::StateType::Scalar)
-        ? fd.getFusionState(args_.at(8).index)->as<Val>()
+    
+    auto dropout_p = (args_.at(6).stype == serde::StateType::Scalar)
+        ? fd.getFusionState(args_.at(6).index)->as<Val>()
         : nullptr;
-    auto is_causal = (args_.at(9).stype == serde::StateType::Scalar)
-        ? fd.getFusionState(args_.at(9).index)->as<Val>()
+    auto is_causal = (args_.at(7).stype == serde::StateType::Scalar)
+        ? fd.getFusionState(args_.at(7).index)->as<Val>()
         : nullptr;
 
-    auto philox_seed = fd.getFusionState(args_.at(10).index)->as<TensorView>();
+    auto philox_seed = fd.getFusionState(args_.at(8).index)->as<TensorView>();
     auto philox_offset =
-        fd.getFusionState(args_.at(11).index)->as<TensorView>();
+        fd.getFusionState(args_.at(9).index)->as<TensorView>();
 
-    auto scale = (args_.at(12).stype == serde::StateType::Scalar)
-        ? fd.getFusionState(args_.at(12).index)->as<Val>()
+    auto scale = (args_.at(10).stype == serde::StateType::Scalar)
+        ? fd.getFusionState(args_.at(10).index)->as<Val>()
         : nullptr;
 
     auto grad = sdpfa_bwd(
@@ -2841,8 +2839,6 @@ struct SdpaBwdOpRecord : RecordFunctor {
         value,
         output,
         log_sumexp,
-        query_seq_len,
-        key_seq_len,
         dropout_p,
         is_causal,
         philox_seed,
