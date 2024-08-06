@@ -440,6 +440,7 @@ FusionSchedules* FusionCache::queryFusionSchedules(size_t fusion_id) const {
   NVF_CHECK(ptr != nullptr, "Unexpected null FusionSchedules object.");
   return ptr;
 }
+
 std::optional<size_t> FusionCache::queryUserScheduleId(
     const FusionSchedules* scheds,
     const at::ArrayRef<c10::IValue>& inputs) {
@@ -455,6 +456,7 @@ std::optional<size_t> FusionCache::queryUserScheduleId(
   }
   return result;
 }
+
 const UserSchedule& FusionCache::queryUserSchedule(
     const FusionSchedules* scheds,
     size_t id,
@@ -467,6 +469,28 @@ const UserSchedule& FusionCache::queryUserSchedule(
   NVF_CHECK(
       user_sched != user_scheds.end(), "Lookup of non-existent user schedule!");
   return user_sched->second.at(device);
+}
+
+bool FusionCache::existsUserSchedule(
+    const FusionSchedules* scheds,
+    const at::ArrayRef<c10::IValue>& inputs,
+    int device) {
+  // Short-Circuit: No user schedules
+  if (scheds->user_def_schedules.empty()) {
+    return false;
+  }
+
+  // Short-Circuit: User schedule does not exist for fusion and inputs.
+  InputsIdLookup::IdLookupReturn input_id =
+      user_def_input_encodings_.lookupId(inputs);
+  auto user_sched_iter = scheds->user_def_schedules.find(input_id.id);
+  if (user_sched_iter == scheds->user_def_schedules.end()) {
+    return false;
+  }
+
+  // A vector of user schedules exists for fusion and inputs.
+  // Now, check that user schedule exists for specified device.
+  return device < (int)user_sched_iter->second.size();
 }
 
 TrieNode* FusionCache::createChild(TrieNode* node, RecordFunctor* rec) {

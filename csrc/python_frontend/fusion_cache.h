@@ -189,6 +189,11 @@ class FusionCache {
       RecordFunctor* rec) const;
   //! Query a Fusion's Schedules based on fusion id or cache id
   FusionSchedules* queryFusionSchedules(size_t fusion_id) const;
+  //! Determine if a user schedule exists for given inputs.
+  bool existsUserSchedule(
+      const FusionSchedules* scheds,
+      const at::ArrayRef<c10::IValue>& inputs,
+      int device);
   //! Lookup the User Schedule Id and return null if one does not exist.
   //! NOTE: this method cannot be const because the InputsIdLookup can
   //! cause a modification to that data member for cache eviction.

@@ -169,6 +169,16 @@ void FusionDefinition::updateSymbolicStates(
   }
 }
 
+bool FusionDefinition::existsSchedule(const at::ArrayRef<c10::IValue>& inputs) {
+  FUSER_PERF_SCOPE("FusionDefinition::existsSchedule");
+  NVF_CHECK(id().has_value(), "FusionDefinition definition does not exist!");
+  FusionSchedules* scheds = fusionCache()->queryFusionSchedules(id().value());
+  int8_t device = getCommonDeviceCUDA(inputs);
+  NVF_CHECK(
+      inputs.empty() || device > -1, "Inputs are not all on the same device!");
+  return fusionCache()->existsUserSchedule(scheds, inputs, device);
+}
+
 void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
   FUSER_PERF_SCOPE("FusionDefinition::setupSchedule");
   NVF_CHECK(id().has_value(), "FusionDefinition definition does not exist!");
@@ -176,7 +186,6 @@ void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
   int8_t device = getCommonDeviceCUDA(inputs);
   NVF_CHECK(
       inputs.empty() || device > -1, "Inputs are not all on the same device!");
-  NVF_CHECK(user_sched_ == nullptr, "Expected User Scheduler to be null!");
   user_sched_ = fusionCache()->createUserSchedule(scheds, inputs, device);
 
   // Building a new Fusion container for scheduling with definition such that
@@ -272,8 +281,6 @@ std::vector<at::Tensor> FusionDefinition::execute(
     ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
   }
 
-  // NOTE: queryUserSchedule is broken, see issue:
-  // https://github.com/NVIDIA/Fuser/issues/2056
   if (!override_user_schedule) {
     auto device = getCommonDeviceCUDA(inputs, selected_device);
     NVF_CHECK(

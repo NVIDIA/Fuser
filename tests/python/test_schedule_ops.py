@@ -1102,6 +1102,37 @@ class TestScheduleOps(TestCase):
         torch_ref = torch.abs(inputs[0]).reshape(inputs[1].shape) + inputs[1]
         self.assertEqual(nvf_out[0], torch_ref)
 
+    def test_inputs_with_different_devices(self):
+        class FDScheduler(FusionDefinition):
+            def definition(self):
+                self.t0 = fd.define_tensor(
+                    shape=[-1, -1, -1],
+                    contiguity=[True, True, True],
+                    dtype=DataType.Float,
+                    is_cpu=False,
+                )
+                self.t1 = self.ops.sum(self.t0, dim=-1)
+                self.add_output(self.t1)
+
+            def schedule(self):
+                # Apply reduction schedule
+                _apply_scheduler_helper(fd.sched, SchedulerHeuristic.reduction)
+
+        # Create definition
+        fd = FDScheduler()
+
+        # execute with device 0
+        inputs = [
+            torch.randn(8, 8, 8, dtype=torch.float32, device="cuda:0"),
+        ]
+        fd.execute(inputs)
+
+        # execute with device 1
+        inputs = [
+            torch.randn(8, 8, 8, dtype=torch.float32, device="cuda:1"),
+        ]
+        fd.execute(inputs)
+
 
 if __name__ == "__main__":
     run_tests()

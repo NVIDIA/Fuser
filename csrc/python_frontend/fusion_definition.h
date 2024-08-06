@@ -171,6 +171,9 @@ class NVF_API FusionDefinition : public FusionState {
   //! Exit Python Context Manager -- Triggers Fusion IR build if it is not
   //! cached
   NVF_API void finalizeDefinition();
+  //! Check that a user schedule exists for FusionDefinition and input
+  //! arguments on device.
+  NVF_API bool existsSchedule(const at::ArrayRef<c10::IValue>& inputs);
   //! Setup user scheduling of a fusion
   //! Copies fusion object and sets up FusionGuard
   NVF_API void setupSchedule(const at::ArrayRef<c10::IValue>& inputs);
