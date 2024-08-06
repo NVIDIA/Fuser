@@ -909,7 +909,6 @@ int64_t TransformReplay::getMatchedLeafPosWithoutReplayCasP(
   // Allow replay through indexing exprs
   const auto pairwise_map =
       PairwiseLogicalDomainMap(producer, consumer).mapIndexedDomains(true);
-  id_map p2c_logical_map = pairwise_map.mapProducerToConsumer();
 
   // IterDomains in `producer` root that are not reduction
   const auto producer_domain = producer->getLoopDomain();
@@ -920,17 +919,6 @@ int64_t TransformReplay::getMatchedLeafPosWithoutReplayCasP(
 
   // IterDomains in `consumer` root also in `producer` root
   const auto consumer_domain = consumer->getLoopDomain();
-
-  std::unordered_set<Val*> mapped_consumer_roots;
-  for (auto entry : p2c_logical_map) {
-    mapped_consumer_roots.emplace(entry.second);
-  }
-
-  auto unskippable_consumer_ids_vec = DependencyCheck::getAllValsBetween(
-      mapped_consumer_roots, {consumer_domain.begin(), consumer_domain.end()});
-
-  std::unordered_set<Val*> unskippable_consumer_ids(
-      unskippable_consumer_ids_vec.begin(), unskippable_consumer_ids_vec.end());
 
   auto it_producer = producer_domain.begin();
   auto it_consumer = consumer_domain.begin();
@@ -959,11 +947,6 @@ int64_t TransformReplay::getMatchedLeafPosWithoutReplayCasP(
     }
 
     auto consumer_id = *it_consumer;
-    if (unskippable_consumer_ids.count(consumer_id) == 0) {
-      ++it_consumer;
-      ++mismatched_consumer_pos;
-      continue;
-    }
 
     if (disjoint_sets.permissiveAreMapped(producer_id, consumer_id)) {
       ++mismatched_producer_pos;
