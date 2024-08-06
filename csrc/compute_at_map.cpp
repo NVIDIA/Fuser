@@ -374,6 +374,7 @@ void IterDomainGraph::build(Fusion* fusion) {
       if (first_output_tv == nullptr) {
         first_output_tv = c_tv;
       } else {
+        if (ir_utils::hasUniformSiblings(expr)){
         // Map multi outputs of an expression to each other. c is current
         // output, and f as first output. Keep consistent with the later section
         // of producer and consumers. Which here producer is now "first output",
@@ -430,6 +431,7 @@ void IterDomainGraph::build(Fusion* fusion) {
           for (auto id1 : disjoint_set) {
             loop_nodes_.mapEntries(id0, id1);
           }
+        }
         }
       }
 
