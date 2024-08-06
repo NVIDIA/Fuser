@@ -12,6 +12,7 @@
 #include <kernel_cache.h>
 #include <ops/all_ops.h>
 #include <tests/cpp/multidevice.h>
+#include <tests/cpp/validator.h>
 
 namespace nvfuser {
 
@@ -375,7 +376,13 @@ TEST_F(LowerCollectiveTest, ReduceScatter_Add) {
 
   at::Tensor expected_out_tensor =
       shardTensor(unsharded_in_tensor.sum(0), reduce_scattered) + num_devices;
-  EXPECT_TRUE(at::allclose(out_tensor, expected_out_tensor));
+  testValidate(
+      fec.fusion(),
+      {out_tensor},
+      {in_tensor},
+      {expected_out_tensor},
+      __LINE__,
+      __FILE__);
 }
 
 } // namespace nvfuser
