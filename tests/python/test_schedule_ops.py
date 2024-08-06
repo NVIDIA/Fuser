@@ -1125,13 +1125,17 @@ class TestScheduleOps(TestCase):
         inputs = [
             torch.randn(8, 8, 8, dtype=torch.float32, device="cuda:0"),
         ]
-        fd.execute(inputs)
+        torch_ref = inputs[0].sum(-1)
+        nvf_out = fd.execute(inputs)
+        self.assertEqual(nvf_out[0], torch_ref)
 
         # execute with device 1
         inputs = [
             torch.randn(8, 8, 8, dtype=torch.float32, device="cuda:1"),
         ]
+        torch_ref = inputs[0].sum(-1)
         fd.execute(inputs)
+        self.assertEqual(nvf_out[0], torch_ref)
 
 
 if __name__ == "__main__":
