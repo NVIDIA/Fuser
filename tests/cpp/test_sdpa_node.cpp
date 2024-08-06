@@ -14,8 +14,8 @@
 #include <ops/utils.h>
 #include <preseg_passes/allocation_order_inference.h>
 #include <preseg_passes/move_split_cat.h>
-#include <preseg_passes/propagate_shardings.h>
 #include <preseg_passes/optimization_pass.h>
+#include <preseg_passes/propagate_shardings.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
@@ -64,10 +64,13 @@ auto validateSdpaFwdOutputs = [](std::vector<at::Tensor> nvf_out,
   EXPECT_TRUE(at::allclose(nvf_out[1], log_sumexp));
 };
 
+// Check SDPAFwdOp mapping in IdModel and ComputeAtMap.
 void checkSdpaFwdMapping(Fusion* fusion, Expr* op) {
   IdModel id_model(fusion);
   const ValGraph& vg = id_model.idGraph(IdMappingMode::EXACT);
   vg.validateConsistency();
+
+  ComputeAtMap compute_at_map(fusion);
 
   auto sdpa_op = dynamic_cast<SdpaFwdOp*>(op);
   ASSERT_TRUE(sdpa_op != nullptr);
@@ -83,11 +86,6 @@ void checkSdpaFwdMapping(Fusion* fusion, Expr* op) {
   Note: S, E are not mapped together in the producers and do not have any
   mapping to the consumer.
   */
-
-  ComputeAtMap compute_at_map(fusion);
-  auto checkComputeAtMapping = [&compute_at_map](IterDomain* x, IterDomain* y){
-    EXPECT_TRUE(compute_at_map.areMapped(x, y, IdMappingMode::EXACT));
-  };
 
   for (auto producer : sdpa_op->inputs()) {
     for (auto consumer : sdpa_op->outputs()) {
@@ -109,25 +107,37 @@ void checkSdpaFwdMapping(Fusion* fusion, Expr* op) {
       for (auto idx : c10::irange(consumer_ids.size())) {
         if (idx < (2 + num_device_dim)) {
           checkMapped(vg, producer_ids.at(idx), consumer_ids.at(idx));
-          checkComputeAt(producer_ids.at(idx), consumer_ids.at(idx));
+          EXPECT_TRUE(compute_at_map.areMapped(
+              producer_ids.at(idx),
+              consumer_ids.at(idx),
+              IdMappingMode::EXACT));
         } else if (
             idx == (2 + num_device_dim) && producer->sameAs(sdpa_op->query())) {
           checkMapped(vg, producer_ids.at(idx), consumer_ids.at(idx));
-          checkComputeAt(producer_ids.at(idx), consumer_ids.at(idx));
+          EXPECT_TRUE(compute_at_map.areMapped(
+              producer_ids.at(idx),
+              consumer_ids.at(idx),
+              IdMappingMode::EXACT));
         } else if (
             idx == (3 + num_device_dim) && producer->sameAs(sdpa_op->value())) {
           checkMapped(vg, producer_ids.at(idx), consumer_ids.at(idx));
-          checkComputeAt(producer_ids.at(idx), consumer_ids.at(idx));
+          EXPECT_TRUE(compute_at_map.areMapped(
+              producer_ids.at(idx),
+              consumer_ids.at(idx),
+              IdMappingMode::EXACT));
         }
       }
     }
   }
 }
 
+// Check SDPABwdOp mapping in IdModel and ComputeAtMap.
 void checkSdpaBwdMapping(Fusion* fusion, Expr* op) {
   IdModel id_model(fusion);
   const ValGraph& vg = id_model.idGraph(IdMappingMode::EXACT);
   vg.validateConsistency();
+
+  ComputeAtMap compute_at_map(fusion);
 
   auto sdpa_op = dynamic_cast<SdpaBwdOp*>(op);
   ASSERT_TRUE(sdpa_op != nullptr);
@@ -174,10 +184,22 @@ void checkSdpaBwdMapping(Fusion* fusion, Expr* op) {
       for (auto idx : c10::irange(consumer_ids.size())) {
         if (idx < 2) {
           checkMapped(vg, producer_ids.at(idx), consumer_ids.at(idx));
+          EXPECT_TRUE(compute_at_map.areMapped(
+              producer_ids.at(idx),
+              consumer_ids.at(idx),
+              IdMappingMode::EXACT));
         } else if (idx == 2 && (producer_has_s == consumer_has_s)) {
           checkMapped(vg, producer_ids.at(idx), consumer_ids.at(idx));
+          EXPECT_TRUE(compute_at_map.areMapped(
+              producer_ids.at(idx),
+              consumer_ids.at(idx),
+              IdMappingMode::EXACT));
         } else if (idx == 3 && (producer_has_e == consumer_has_e)) {
           checkMapped(vg, producer_ids.at(idx), consumer_ids.at(idx));
+          EXPECT_TRUE(compute_at_map.areMapped(
+              producer_ids.at(idx),
+              consumer_ids.at(idx),
+              IdMappingMode::EXACT));
         }
       }
     }
