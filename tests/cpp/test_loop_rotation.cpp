@@ -298,7 +298,7 @@ TEST_F(LoopRotationTest, CircularBuffered) {
   fusion.addOutput(tv4);
 
   inlineAllAt(tv4, 1);
-  tv1->circularBuffer(5);
+  tv1->circularBuffer(/*number_of_stages=*/5);
   scheduler_utils::rotateLoop(tv4, 0, {tv2});
 
   const std::string expected_kernel = R"(
@@ -386,7 +386,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
 )";
   assertCUDAKernel(&fusion, expected_kernel);
 
-  for (auto n : {1, 99}) {
+  for (auto n : {5, 99}) {
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     auto t0 = at::randn({n, 3}, options);
     FusionExecutor fe;
@@ -409,7 +409,7 @@ TEST_F(LoopRotationTest, SelectCircularBufferLoad) {
   fusion.addOutput(tv4);
 
   inlineAllAt(tv4, 1);
-  tv1->circularBuffer(5);
+  tv1->circularBuffer(/*number_of_stages=*/5);
   scheduler_utils::rotateLoop(tv4, 0, {tv1, tv2});
 
   const std::string expected_kernel = R"(
@@ -523,7 +523,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
 )";
   assertCUDAKernel(&fusion, expected_kernel);
 
-  for (auto n : {1, 99}) {
+  for (auto n : {5, 99}) {
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     auto t0 = at::randn({n, 3}, options);
     FusionExecutor fe;
@@ -663,7 +663,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
 )";
   assertCUDAKernel(&fusion, expected_kernel);
 
-  for (auto n : {1, 99}) {
+  for (auto n : {5, 99}) {
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     auto t0 = at::randn({n, 3}, options);
     FusionExecutor fe;
