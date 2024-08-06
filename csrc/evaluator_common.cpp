@@ -334,8 +334,12 @@ void PrecomputedValues::bindTensorMetaData(
       "Something went wrong configuring launch. Inputs do not match.");
 
   for (const auto dim : c10::irange(logical_domain.size())) {
-    auto dim_size = tensor.size(static_cast<int64_t>(dim));
     IterDomain* id = logical_domain[dim];
+    auto dim_size = tensor.size(static_cast<int64_t>(dim));
+    if (id->isDeviceDim()) {
+      dim_size = tv->getDeviceMesh().size();
+    }
+
     if (id->hasExpandedExtent()) {
       Val* extent = id->extent();
       Val* expanded_extent = id->expandedExtent();

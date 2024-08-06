@@ -323,6 +323,26 @@ inferAndValidateAllocationSizesAndStrides(
   return {std::move(sizes), std::move(strides)};
 }
 
+namespace {
+std::pair<std::vector<int64_t>, std::vector<int64_t>> unshardedSizesAndStrides(
+    TensorView* tv,
+    c10::IntArrayRef sizes,
+    c10::IntArrayRef strides) {
+  std::vector<int64_t> unsharded_sizes(sizes.size());
+  std::vector<int64_t> unsharded_strides(strides.size());
+  for (const auto i : c10::irange(sizes.size())) {
+    if (tv->getLogicalDomain()[i]->isDeviceDim()) {
+      unsharded_sizes[i] = tv->getDeviceMesh().size();
+      unsharded_strides[i] = 0;
+    } else {
+      unsharded_sizes[i] = sizes[i];
+      unsharded_strides[i] = strides[i];
+    }
+  }
+  return {unsharded_sizes, unsharded_strides};
+}
+} // namespace
+
 std::vector<PolymorphicValue> GetMetaData::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
@@ -330,9 +350,9 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
   NVF_ERROR(
       in()->isA<TensorView>(),
       "Currently, GetMetaData only supports TensorView");
-  TensorView* tv = in()->as<TensorView>();
+  auto* tv = in()->as<TensorView>();
 
-  const at::Tensor& input = inputs.at(0).as<at::Tensor>();
+  const auto& input = inputs[0].as<at::Tensor>();
 
   NVF_ERROR(
       input.is_cuda() || input.is_meta(),
@@ -343,11 +363,21 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
   metadata->dtype =
       std::get<PrimDataType>(aten_to_data_type(input.scalar_type()).type);
   metadata->data = input.data_ptr();
-  // If tensor is sharded then logical_size and logical_stride will
-  // refer to size and stride of the sharded tensor.
-  metadata->logical_size = input.sizes();
-  metadata->logical_stride = input.strides();
+
+  if (isSharded(tv)) {
+    auto [unsharded_sizes, unsharded_strides] =
+        unshardedSizesAndStrides(tv, input.sizes(), input.strides());
+    metadata->logical_size_data = std::move(unsharded_sizes);
+    metadata->logical_size = c10::makeArrayRef(metadata->logical_size_data);
+    metadata->logical_stride_data = std::move(unsharded_strides);
+    metadata->logical_stride = c10::makeArrayRef(metadata->logical_stride_data);
+  } else {
+    metadata->logical_size = input.sizes();
+    metadata->logical_stride = input.strides();
+  }
+
   if (tv->hasAllocation()) {
+    // FIXME: update sharded sizes and strides.
     auto allocation_data =
         inferAndValidateAllocationSizesAndStrides(input, tv, ee);
     metadata->alloc_size_data = std::move(allocation_data.first);
@@ -355,8 +385,8 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
     metadata->alloc_stride_data = std::move(allocation_data.second);
     metadata->alloc_stride = c10::makeArrayRef(metadata->alloc_stride_data);
   } else {
-    metadata->alloc_size = input.sizes();
-    metadata->alloc_stride = input.strides();
+    metadata->alloc_size = metadata->logical_size;
+    metadata->alloc_stride = metadata->logical_stride;
     // TODO: validateAllocationSizesAndStrides
   }
   return {PolymorphicValue(std::move(struct_))};
