@@ -175,7 +175,13 @@ bool MaxLogicalDomainInfoSpanningTree::DomainInfo::operator<(
       std::count_if(rr.info.begin(), rr.info.end(), [](const IDInfo& i) {
         return i.is_complete;
       });
-  return l_complete < r_complete;
+
+
+  if (l_complete != r_complete) {
+    return l_complete < r_complete;
+  }
+
+  return num_mapped_domains < rr.num_mapped_domains;
 }
 
 namespace {
@@ -249,6 +255,8 @@ MaxLogicalDomainInfoSpanningTree::computeInfoP2C(
   auto pairwise_map = PairwiseLogicalDomainMap(producer, consumer);
   auto p2c_map = pairwise_map.mapProducerToConsumer();
 
+  result.num_mapped_domains = (int64_t)p2c_map.size();
+
   for (auto& info : producer_root_id_info) {
     IDInfo consumer_info;
     consumer_info.is_complete = info.is_complete;
@@ -304,6 +312,8 @@ MaxLogicalDomainInfoSpanningTree::computeInfoC2P(
 
   auto pairwise_map = PairwiseLogicalDomainMap(producer, consumer);
   auto c2p_map = pairwise_map.mapConsumerToProducer();
+
+  result.num_mapped_domains = (int64_t)c2p_map.size();
 
   for (auto& info : consumer_root_id_info) {
     IDInfo producer_info;
