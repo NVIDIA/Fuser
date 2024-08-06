@@ -8,7 +8,6 @@ from functools import partial
 import itertools
 import math
 import random
-import re
 from typing import List, Callable
 import tempfile
 import unittest
@@ -32,6 +31,12 @@ from nvfuser import (
 )
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 
+from utils import (
+    is_pre_volta,
+    is_pre_ampere,
+    is_pre_hopper,
+    check_captured_python_definition,
+)
 
 RUN_NVFUSER = RUN_CUDA and not TEST_WITH_ROCM
 
@@ -48,27 +53,6 @@ RUN_NVFUSER = RUN_CUDA and not TEST_WITH_ROCM
 # Normally, these files are deleted after each test.
 env_var_debug_serde = os.getenv("DEBUG_SERDE")
 debug_serde: bool = env_var_debug_serde in ("true", "1")
-
-
-def is_pre_volta():
-    if not RUN_NVFUSER:
-        return False
-    prop = torch.cuda.get_device_properties(torch.cuda.current_device())
-    return prop.major < 7
-
-
-def is_pre_ampere():
-    if not RUN_NVFUSER:
-        return False
-    prop = torch.cuda.get_device_properties(torch.cuda.current_device())
-    return prop.major < 8
-
-
-def is_pre_hopper():
-    if not RUN_NVFUSER:
-        return False
-    prop = torch.cuda.get_device_properties(torch.cuda.current_device())
-    return prop.major < 9
 
 
 def setUpModule():
@@ -152,36 +136,20 @@ class TestNvFuserFrontend(TestCase):
     def exec_nvfuser(
         self, fusion_func, inputs, *, new_fusion_expected=True, device=None
     ):
-        inputs_cap = deepcopy(inputs)
         fc = FusionCache.get()
         before_fusions = fc.num_fusions()
+        # Copy inputs because aliased outputs can modify inputs when running
+        # FusionDefinition
+        inputs_cap = deepcopy(inputs)
 
         # Execute a fusion function and capture the string python definition
         with FusionDefinition() as fd:
             fusion_func(fd)
-        fd_str = fd.__repr__()
         torch.manual_seed(0)
         out = fd.execute(inputs, device=device)
 
-        # Execute the python definition that was captured
-        try:
-            func_name = re.findall("(nvfuser_fusion_id\\d+)", fd_str.split("\n")[1])[0]
-            exec(fd_str)
-            with FusionDefinition() as fd_cap:
-                eval(func_name)(fd_cap)
-            torch.manual_seed(0)
-            out_cap = fd_cap.execute(inputs_cap, device=device)
-        except Exception as err:
-            print("\nException For Printed FusionDefinition:")
-            print(
-                "(A failure here suggests a mismatch in functionality between the original definition and the printed definition.)"
-            )
-            print(fd_str)
-            raise err
+        self.assertTrue(check_captured_python_definition(out, fd, inputs_cap, device))
 
-        # Make sure the original and captured definitions match
-        for idx in range(len(out)):
-            self.assertEqual(out[idx], out_cap[idx])
         self.assertEqual(fc.num_fusions() - before_fusions, int(new_fusion_expected))
         return out, fd
 
