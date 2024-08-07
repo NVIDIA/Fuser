@@ -4671,8 +4671,12 @@ Val* ForLoop::step() const {
 
 Val* ForLoop::simplifiedStop() const {
   if (simplified_stop_ == nullptr) {
-    simplified_stop_ =
-        GpuLower::current()->commonScalarMap().hoistScalar(stop(), {});
+    if (stop()->isConstScalar()) {
+      simplified_stop_ = stop();
+    } else {
+      simplified_stop_ =
+          GpuLower::current()->commonScalarMap().hoistScalar(stop(), {});
+    }
   }
   return simplified_stop_;
 }
@@ -4713,6 +4717,11 @@ bool ForLoop::isTrivial() const {
   if (start()->isZeroInt() && simplifiedStop()->isOneInt() &&
       step()->isOneInt()) {
     return true;
+  }
+
+  // NOTE Remove by using expression simplifier to replace index with constant
+  if (circularBufferLoopStage() == CircularBufferLoopStage::Epilog) {
+    return false;
   }
 
   // Another extent-1 loop: for (int i = N - 1; i < N; ++i) {
