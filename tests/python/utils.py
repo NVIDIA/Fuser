@@ -174,6 +174,11 @@ def serde_check(test_fn: Callable):
 
     return inner_fn
 
+
+'''
+Base class for any test class that needs to verify serialization 
+and run captured string representations of FusionDefinition.
+'''
 class NVFuserTest(TestCase):
     @classmethod
     def setup_class(cls):
