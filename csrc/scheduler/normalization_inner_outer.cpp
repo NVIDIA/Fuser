@@ -489,21 +489,12 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
 //! registers, this function will return that batch value. Otherwise, it will
 //! return nullopt except when ignore_register_size_limit is true where it will
 //! return whatever the batch value is.
-// This exception is needed because the register usage in canScheduleRuntime is
-// based on std::min(project_buffer, not_project_buffer). However, in
-// getPersistentHeuristics() we enforce project_buffer to input if dtype=float
-// and feature size <=14K. It leads to register spills but still faster than
-// unprojected version due to the reuse of a input para in this grid persistent
-// kernel. This is a tmp solution before we have a new persistent heuristics,
-// where the projection should not soley based on size of buffers.
-std::pair<std::optional<int64_t>, int64_t>
-getOptionalInnerOuterPersistentBufferBatches(
+std::pair<int64_t, int64_t> getBufferBatchSizeAndThreadsPerBlock(
     const int64_t inner_dim_numel,
     const int64_t outer_dim_numel,
     const int64_t persistent_buffer_size,
     const int64_t vectorize_factor,
-    const int64_t warp_size,
-    const bool ignore_register_size_limit) {
+    const int64_t warp_size) {
   // if inner_dim_numel <= 1024, we are doing multiple reductions per block
   // with a constant batch size of 1 if vectorized. See Step 5 of
   // innerOuterPersistentHeuristic. Although batch size is 1, each thread also
@@ -572,28 +563,7 @@ getOptionalInnerOuterPersistentBufferBatches(
     threads_per_block += warp_size;
     inner_batch = ceilDiv(after_vectorization, threads_per_block);
   }
-  // The maximum feature size can be processed without register spills and
-  // fusion segmentation for fp16 is 14K. Here, we can allow register spills to
-  // avoid fusion segmentation by incrase maximum batch size by 3. This allows
-  // us to process up to 20K features (14K + 256*8*3).
-  // Performance on A100-80G:
-  // (1) shape= 16384 x 16384, 1300 GB/s, time_us mean(var)= 1245.08 (8.89703),
-  // 64 bytes stack frame, 64 bytes spill stores, 128 bytes spill loads. (2)
-  // shape= 16384 x 18432, 1070 GB/s, time_us mean(var)= 1683.87 (19.527), 192
-  // bytes stack frame, 192 bytes spill stores, 384 bytes spill loads.
-  // (3) shape= 16384 x 20480, 730 GB/s time_us mean(var)= 2766.64 (12.3883),
-  // 320 bytes stack frame, 320 bytes spill stores, 640 bytes spill loads. As a
-  // ref, the segmented version takes time_us mean(var)= 2841.91 (5.20231)
-  // without considering the overhead of fusion segmentation.
-  // (4) Disable this optimization if vectorize_factor is 1 due to high register
-  // usage in cases can't be vectorized.
-  const int64_t batch_max_reg_spill =
-      vectorize_factor > 1 ? batch_max + 3 : batch_max;
-  if (ignore_register_size_limit || inner_batch <= batch_max_reg_spill) {
-    return std::make_pair(inner_batch, threads_per_block);
-  } else {
-    return std::make_pair(std::nullopt, -1);
-  }
+  return std::make_pair(inner_batch, threads_per_block);
 }
 
 } // namespace
@@ -643,22 +613,6 @@ bool InnerOuterPersistentKernelScheduler::canScheduleRunTime(
     scheduler_debug_utils::canScheduleRejectReason(
         heuristicType(),
         "not enough registers or shared memory for persistence");
-    return false;
-  }
-
-  // check if we can schedule the combined reductions with a reasonable
-  // batch size without register spills.
-  if (!getOptionalInnerOuterPersistentBufferBatches(
-           properties.total_reduction_numel,
-           properties.total_iteration_numel,
-           buffer_params.regs_buffer_size,
-           (int64_t)vectorize_factor,
-           warp_size,
-           false)
-           .first.has_value()) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(),
-        "Required batch number is larger than available batch number! Will cause register spills!");
     return false;
   }
 
@@ -804,35 +758,17 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
 
   // Step-1, set InnerParams reduction dim: inner_vect, inner_batch,
   // threads_per_block (bdimx * bdimy). Start threads_per_block from a quarter
-  // warp, gradually increase it. Runtime checkCombinedReductionShape ensures
-  // inner_dim_numel is dividable by the multiplication of a quarter warp and
-  // vectorize_factor.
+  // warp, gradually increase it.
   iop.inner_vect = (int64_t)vectorize_factor;
 
-  // ignore_register_size_limit will return a valid batch size.
-  // This is needed because we enforced projection for fp32 if the feature size
-  // is less or equal 14K. It leads to register spills but still faster than the
-  // unprojected version due to the reuse of a input para in this grid
-  // persistent kernel. However, when we do register usage check in
-  // canScheduleRuntime, the enforced projection is not considered. Thus,
-  // max_persistent_buffer_size used here is larger than the value used in
-  // canScheduleRuntime.
-  // This is a tmp solution before we have a new persistent heuristics, where
-  // the projection is not solely based on size of buffers. The enforced buffer
-  // projection is not considered in canScheduleRuntime Thus,
-  constexpr bool ignore_register_size_limit = true;
-  const auto& batch_and_block_size =
-      getOptionalInnerOuterPersistentBufferBatches(
+  const auto [persistent_batch, threads_per_block] =
+      getBufferBatchSizeAndThreadsPerBlock(
           inner_dim_numel,
           outer_dim_numel,
           regs_buffer_size,
           iop.inner_vect,
-          dev_prop->warpSize,
-          ignore_register_size_limit);
-  auto opt_inner_batch = batch_and_block_size.first;
-  NVF_ERROR(opt_inner_batch.has_value());
-  iop.inner_batch = opt_inner_batch.value();
-  int64_t threads_per_block = batch_and_block_size.second;
+          dev_prop->warpSize);
+  iop.inner_batch = persistent_batch;
 
   NVF_ERROR(
       iop.inner_vect * iop.inner_batch * threads_per_block >= inner_dim_numel,
