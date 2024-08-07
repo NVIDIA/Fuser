@@ -28,10 +28,8 @@ TEST_P(MultideviceShardingTest, UnshardedGlobalInput) {
   FusionGuard fg(fusion.get());
   int num_devices = communicator_->size();
   auto mesh = DeviceMesh::createForNumDevices(num_devices);
-  std::vector<int64_t> input_size = {2, 3, 2, 4};
-  int sharded_output_dim = 3;
+  std::vector<int64_t> input_size = {2, 3, 2, num_devices};
   input_size[sharded_dim] = num_devices;
-  input_size[sharded_output_dim] = num_devices;
 
   TensorView* tv0 = creates_concrete_tensor
       ? makeContigConcreteTensor(input_size)
@@ -47,7 +45,7 @@ TEST_P(MultideviceShardingTest, UnshardedGlobalInput) {
 
   tv1->axis(sharded_dim)->parallelize(ParallelType::DIDx);
   tv2->axis(sharded_dim)->parallelize(ParallelType::DIDx);
-  tv3->axis(sharded_output_dim)->parallelize(ParallelType::DIDx);
+  tv3->axis(-1)->parallelize(ParallelType::DIDx);
 
   std::vector<TensorView*> tvs = {tv0, tv1, tv2, tv3};
   for (auto tv : tvs) {
