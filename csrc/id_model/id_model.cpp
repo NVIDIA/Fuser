@@ -300,7 +300,7 @@ void IdModel::buildExactGraph() {
       }
     }
 
-    if (hasUniformSiblings(expr)) {
+    if (ir_utils::hasUniformSiblings(expr)) {
       for (auto other_tv_output : other_tv_outputs) {
         NVF_ERROR(
             other_tv_output->getMaybeRootDomain().size() ==
@@ -561,7 +561,7 @@ StatefulInliningInfo buildStatefulInliningInfo(
       }
     }
 
-    if (hasUniformSiblings(expr)) {
+    if (ir_utils::hasUniformSiblings(expr)) {
       // Siblings should always be mapped
       auto consumer_tvs = ir_utils::filterByType<TensorView>(expr->outputs());
       if (consumer_tvs.size() > 1) {
@@ -932,10 +932,6 @@ void IdModel::validateAndPropagatePType() {
       id->as<IterDomain>()->parallelize(common_ptype);
     }
   }
-}
-
-bool hasUniformSiblings(Expr* expr) {
-  return !expr->isOneOf<SdpaFwdOp, SdpaBwdOp>();
 }
 
 } // namespace nvfuser
