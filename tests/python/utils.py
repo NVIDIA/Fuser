@@ -46,8 +46,9 @@ def check_captured_python_definition(reference_outputs, fd, inputs, device=None)
         with FusionDefinition() as fd_cap:
             eval(func_name)(fd_cap)
 
-        with torch.random.fork_rng(devices=[torch.cuda.current_device()]):
-            captured_outputs = fd_cap.execute(inputs, device=device)
+        torch.manual_seed(0)
+        
+        captured_outputs = fd_cap.execute(inputs, device=device)
         # Make sure the original and captured definitions match
         # torch.allclose does not work with fp8 datatype, so cast to fp64.
         return all(
@@ -186,7 +187,6 @@ class NVFuserTest(TestCase):
         Setup is run once at the class level, before running any tests of the class.
         `atexit_serde_check` enables automatic serialization at the end of the test suite.
         '''
-        torch.manual_seed(0)
         atexit_serde_check()
 
     # Helper function to verify the nvfuser output and make sure the string
@@ -196,9 +196,6 @@ class NVFuserTest(TestCase):
     def exec_nvfuser(
         self, fusion_func, inputs, *, new_fusion_expected=True, device=None
     ):  
-        # Resetting the torch seed in case a test function modified it.
-        # Ideally, this should not be needed and individual test functions should reset the RNG state or use torch.random.fork_rng_state
-        torch.manual_seed(0)
         fc = FusionCache.get()
         before_fusions = fc.num_fusions()
         # Copy inputs because aliased outputs can modify inputs when running
@@ -208,8 +205,8 @@ class NVFuserTest(TestCase):
         # Execute a fusion function and capture the string python definition
         with FusionDefinition() as fd:
             fusion_func(fd)
-        with torch.random.fork_rng(devices=[torch.cuda.current_device()]):
-            out = fd.execute(inputs, device=device)
+        torch.manual_seed(0)
+        out = fd.execute(inputs, device=device)
 
         self.assertTrue(check_captured_python_definition(out, fd, inputs_cap, device))
 
