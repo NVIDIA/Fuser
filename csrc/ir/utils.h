@@ -650,6 +650,7 @@ std::optional<std::vector<int64_t>> computePermutation(
 
 bool hasTrivialAllocationDomain(const TensorView* tv);
 
+// Returns true if all expr outputs should be mapped unconditionally
 bool hasUniformSiblings(Expr* expr);
 
 // Returns true if memory_type is partitioned in parallel_type. See
