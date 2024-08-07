@@ -32,7 +32,8 @@ void insertReshardingsBefore(Fusion* fusion) {
   // Remove this after we refactor this as a pre-segmenter pass.
   FusionGuard fg(fusion);
   for (auto expr : fusion->exprs()) {
-    if (isLowerableToCommunication(expr) || shouldReshardAfter(expr) || expr->isA<SdpaFwdOp>()) {
+    if (isLowerableToCommunication(expr) || shouldReshardAfter(expr) ||
+        expr->isA<SdpaFwdOp>()) {
       continue;
     }
 
@@ -81,7 +82,8 @@ void insertReshardingsAfter(Fusion* fusion) {
   auto exprs = fusion->exprs();
   for (auto it = std::rbegin(exprs); it != std::rend(exprs); it++) {
     Expr* expr = *it;
-    if (isLowerableToCommunication(expr) || !shouldReshardAfter(expr) || expr->isA<SdpaFwdOp>()) {
+    if (isLowerableToCommunication(expr) || !shouldReshardAfter(expr) ||
+        expr->isA<SdpaFwdOp>()) {
       continue;
     }
 

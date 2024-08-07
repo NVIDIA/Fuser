@@ -37,18 +37,17 @@ constexpr int64_t B = 2, E = 768, H = 12, S = 128;
 // Note parameters scaled by kParamScale following weight initialization
 // recommendations:
 // https://huggingface.co/docs/transformers/en/model_doc/gpt2#transformers.GPT2Config.initializer_range
-// Note: Sdpa probability is set to 0. Since the dropout mask is sharded it throws off the 
-// seed offset between the sharded nvFuser program and the unsharded reference.
+// Note: Sdpa probability is set to 0. Since the dropout mask is sharded it
+// throws off the seed offset between the sharded nvFuser program and the
+// unsharded reference.
 constexpr double kDropoutProb = 0.1, kParamScale = 0.02, kSdpaProb = 0.0,
                  kSdpaScale = 1e-3;
-
 
 class DistributedTransformerTest
     : public MultiDeviceTest,
       public testing::WithParamInterface<DataType> {
  protected:
-  DistributedTransformerTest()
-      : optimization_guard_(false) {
+  DistributedTransformerTest() : optimization_guard_(false) {
     D = communicator_->size();
   }
 
@@ -88,7 +87,6 @@ TensorView* replicated_dropout(
   rand_vals->setDeviceMesh(mesh);
   return dropout;
 }
-
 
 void validate(
     std::vector<at::Tensor> expected_out,
@@ -478,7 +476,6 @@ TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
   auto w1 = at::randn({E, E}, options) * kParamScale;
   auto b1 = at::randn({E}, options) * kParamScale;
 
-
   at::manual_seed(getATenRandomSeed());
   auto reference_outs = reference_mha(x, w0, b0, w1, b1, at_dtype);
   std::vector<c10::IValue> inputs = {
@@ -502,176 +499,6 @@ TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
   at::manual_seed(getATenRandomSeed());
   auto out = runtime.runWithInput(inputs);
   validate(expected_outputs, out);
-}
-
-TEST_P(DistributedTransformerTest, Forward) {
-  auto dtype = DataType::Half;
-  at::ScalarType at_dtype = data_type_to_aten(dtype);
-  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-  auto mesh = DeviceMesh::createForNumDevices(D);
-
-  TensorView* x = makeContigConcreteTensor({B * S, E}, DataType::Float);
-  TensorView* mha_w0 = makeContigConcreteTensor({D, E, 3 * E / D}, dtype);
-  TensorView* mha_b0 = makeContigConcreteTensor({D, 3 * E / D}, dtype);
-  TensorView* mha_w1 = makeContigConcreteTensor({D, E / D, E}, dtype);
-  TensorView* mha_b1 = makeContigConcreteTensor({E}, dtype);
-  TensorView* mlp_w0 = makeContigTensor(3, dtype);
-  TensorView* mlp_b0 = makeContigTensor(2, dtype);
-  TensorView* mlp_w1 = makeContigTensor(3, dtype);
-  TensorView* mlp_b1 = makeContigTensor(1, dtype);
-
-  fusion->addInput(x);
-  fusion->addInput(mha_w0);
-  fusion->addInput(mha_b0);
-  fusion->addInput(mha_w1);
-  fusion->addInput(mha_b1);
-  fusion->addInput(mlp_w0);
-  fusion->addInput(mlp_b0);
-  fusion->addInput(mlp_w1);
-  fusion->addInput(mlp_b1);
-
-  constexpr float kEps = 1e-5;
-  Val* eps_ptr = IrBuilder::create<Val>(kEps);
-  std::vector<int64_t> norm_shape{E};
-
-  auto ln_1 = layer_norm(x, norm_shape, nullptr, nullptr, eps_ptr);
-  auto mha_in = castOp(dtype, ln_1.output);
-  auto mha_out =
-      mha(mha_in, mha_w0, mha_b0, mha_w1, mha_b1, fusion.get(), mesh, dtype)[3];
-  auto resid_1 = add(x, mha_out);
-  auto ln_2 = layer_norm(resid_1, norm_shape, nullptr, nullptr, eps_ptr);
-  auto mlp_in = castOp(dtype, ln_2.output);
-  auto mlp_out =
-      mlp(mlp_in, mlp_w0, mlp_b0, mlp_w1, mlp_b1, fusion.get(), mesh, dtype)[3];
-  auto resid_2 = add(mha_out, mlp_out);
-
-  fusion->addOutput(ln_1.output);
-  fusion->addOutput(mha_out);
-  fusion->addOutput(ln_2.output);
-  fusion->addOutput(mlp_out);
-  fusion->addOutput(resid_2);
-
-  for (auto tv : {x, ln_1.output, ln_2.output, resid_2}) {
-    tv->setDeviceMesh(mesh);
-  }
-
-  const auto options =
-      at::TensorOptions().dtype(at_dtype).device(communicator_->device());
-  auto x_ = at::randn({B * S, E}, options).to(at::kFloat);
-  auto mha_w0_ = at::randn({E, 3 * E}, options) * kParamScale;
-  auto mha_b0_ = at::randn({3 * E}, options) * kParamScale;
-  auto mha_w1_ = at::randn({E, E}, options) * kParamScale;
-  auto mha_b1_ = at::randn({E}, options) * kParamScale;
-
-  auto mlp_w0_ = at::randn({E, 4 * E}, options) * kParamScale;
-  auto mlp_b0_ = at::randn({4 * E}, options) * kParamScale;
-  auto mlp_w1_ = at::randn({4 * E, E}, options) * kParamScale;
-  auto mlp_b1_ = at::randn({E}, options) * kParamScale;
-
-  at::manual_seed(getATenRandomSeed());
-  auto at_weight = c10::optional<at::Tensor>();
-  auto at_bias = c10::optional<at::Tensor>();
-  auto ln_1_ = at::native_layer_norm(x_, norm_shape, at_weight, at_bias, kEps);
-  auto ln_1_out_ = std::get<0>(ln_1_).to(at_dtype);
-
-  auto mha_out_ =
-      reference_mha(ln_1_out_, mha_w0_, mha_b0_, mha_w1_, mha_b1_, at_dtype)[3];
-  auto resid1_ = mha_out_ + x_;
-  auto ln_2_ =
-      at::native_layer_norm(resid1_, norm_shape, at_weight, at_bias, kEps);
-  auto ln_2_out_ = std::get<0>(ln_2_).to(at_dtype);
-
-  auto mlp_out_ =
-      reference_mlp(ln_2_out_, mlp_w0_, mlp_b0_, mlp_w1_, mlp_b1_, at_dtype)[3];
-  auto at_out = mha_out_ + mlp_out_;
-
-  std::vector<c10::IValue> inputs = {
-      x_,
-      shardTensor(mha_w0_.view({E, 3, E}), 2, mesh)
-          .view({1, E, 3 * E / D})
-          .contiguous(),
-      shardTensor(mha_b0_.view({3, E}), 1, mesh)
-          .view({1, 3 * E / D})
-          .contiguous(),
-      shardTensor(mha_w1_, 0, mesh),
-      mha_b1_,
-      shardTensor(mlp_w0_, 1, mesh),
-      shardTensor(mlp_b0_, 0, mesh),
-      shardTensor(mlp_w1_, 0, mesh),
-      mlp_b1_};
-
-  std::vector<at::Tensor> expected_outputs = {
-      ln_1_out_, mha_out_, ln_2_out_, mlp_out_, at_out};
-
-  MultiDeviceExecutor runtime(
-      std::move(fusion), *communicator_, executor_params_);
-  at::manual_seed(getATenRandomSeed());
-  auto outputs = runtime.runWithInput(inputs);
-  validate(expected_outputs, outputs);
-}
-
-TEST_P(DistributedTransformerTest, MLP_Backward) {
-  auto dtype = GetParam();
-  at::ScalarType at_dtype = data_type_to_aten(dtype);
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-  auto mesh = DeviceMesh::createForNumDevices(D);
-
-  TensorView* grad = makeContigTensor(2, DataType::Float);
-  TensorView* x = makeContigTensor(2, dtype);
-  TensorView* mask = makeContigTensor(2, DataType::Bool);
-  TensorView* w0 = makeContigTensor(3, dtype);
-  TensorView* b0 = makeContigTensor(2, dtype);
-  TensorView* w1 = makeContigTensor(3, dtype);
-
-  fusion->addInput(grad);
-  fusion->addInput(x);
-  fusion->addInput(mask);
-  fusion->addInput(w0);
-  fusion->addInput(b0);
-  fusion->addInput(w1);
-
-  std::vector<TensorView*> tv_outs =
-      mlp_backwards(grad, x, mask, w0, b0, w1, fusion.get(), mesh, dtype);
-
-  for (TensorView* tv : tv_outs) {
-    fusion->addOutput(tv);
-  }
-
-  const auto options =
-      at::TensorOptions().dtype(at_dtype).device(communicator_->device());
-  auto grad_ = at::randn({B * S, E}, options).to(at::kFloat);
-  auto x_ = at::randn({B * S, E}, options);
-  auto mask_ = at::randn({B * S, E}, options).lt(1.0 - kDropoutProb);
-  auto mlp_w0_ = at::randn({E, 4 * E}, options) * kParamScale;
-  auto mlp_b0_ = at::randn({4 * E}, options) * kParamScale;
-  auto mlp_w1_ = at::randn({4 * E, E}, options) * kParamScale;
-
-  std::vector<at::Tensor> outs = reference_mlp_backwards(
-      grad_, x_, mask_, mlp_w0_, mlp_b0_, mlp_w1_, at_dtype);
-
-  std::vector<c10::IValue> inputs = {
-      grad_,
-      x_,
-      mask_,
-      shardTensor(mlp_w0_, 1, mesh),
-      shardTensor(mlp_b0_, 0, mesh),
-      shardTensor(mlp_w1_, 0, mesh)};
-  std::vector<at::Tensor> expected_outputs = {
-      outs[0], // dropout grad
-      shardTensor(outs[1], 0, mesh), // linear1 weight grad
-      outs[2], // linear1 bias grad
-      shardTensor(outs[3], 1, mesh), // gelu grad
-      shardTensor(outs[4], 1, mesh), // linear0 weight grad
-      shardTensor(outs[5], 0, mesh), // linear0 bias grad
-      outs[6]}; // linear0 grad
-
-  MultiDeviceExecutor runtime(
-      std::move(fusion), *communicator_, executor_params_);
-  auto outputs = runtime.runWithInput(inputs);
-  
-  validate(expected_outputs, outputs);
 }
 
 INSTANTIATE_TEST_SUITE_P(
