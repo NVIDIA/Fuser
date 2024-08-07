@@ -333,6 +333,9 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> unshardedSizesAndStrides(
   for (const auto i : c10::irange(sizes.size())) {
     if (tv->getLogicalDomain()[i]->isDeviceDim()) {
       unsharded_sizes[i] = tv->getDeviceMesh().size();
+      // This probably doesn't matter in practice unless a kernel accidentally
+      // tries to access the data on another rank. To be safe, set the stride
+      // to zero, analogous to an expanded broadcast dimension.
       unsharded_strides[i] = 0;
     } else {
       unsharded_sizes[i] = sizes[i];
@@ -356,7 +359,8 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
 
   NVF_ERROR(
       input.is_cuda() || input.is_meta(),
-      "GetMetaData expects a CUDA tensor as input, but got undefined tensor");
+      "GetMetaData expects a CUDA/meta tensor as input, but got: ",
+      input);
 
   std::shared_ptr<Struct> struct_ = std::make_shared<TensorMetaData>();
   TensorMetaData* metadata = (TensorMetaData*)struct_.get();
