@@ -918,8 +918,6 @@ Val* TensorIndexer::getLinearIndex(
 
   const auto alloc_info = getIndexingAllocationInfo(tv);
 
-  const auto& index_groups = traversalGraph().toGroups(alloc_info.domains);
-
   const auto [contig_indices, contig_strides] =
       getContigIndexFor(expr, as_consumer, alloc_info, for_loops);
 
