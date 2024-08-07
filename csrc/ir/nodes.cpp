@@ -4719,11 +4719,6 @@ bool ForLoop::isTrivial() const {
     return true;
   }
 
-  // NOTE Remove by using expression simplifier to replace index with constant
-  if (circularBufferLoopStage() == CircularBufferLoopStage::Epilog) {
-    return false;
-  }
-
   // Another extent-1 loop: for (int i = N - 1; i < N; ++i) {
   if (start()->definition() != nullptr &&
       start()->definition()->isA<BinaryOp>() &&
