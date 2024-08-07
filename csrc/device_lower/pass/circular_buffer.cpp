@@ -594,9 +594,11 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
     int64_t stage_depth =
         GpuLower::current()->circularBufferInfo().getStageDepthFor(
             circular_buffer_loop_->iter_domain());
+    Val* index = (cloned_top_level_loop_->isTrivial())
+        ? cloned_top_level_loop_->start()
+        : cloned_top_level_loop_->index();
     Val* epilogue_compute_stage = IrBuilder::modExpr(
-        cloned_top_level_loop_->index(),
-        IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
+        index, IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
 
     NVF_ERROR(
         mbarrier_wait_ == nullptr,
