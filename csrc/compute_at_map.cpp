@@ -371,10 +371,10 @@ void IterDomainGraph::build(Fusion* fusion) {
     TensorView* first_output_tv = nullptr;
 
     for (auto c_tv : tv_outputs) {
-      if (first_output_tv == nullptr) {
-        first_output_tv = c_tv;
-      } else {
-        if (ir_utils::hasUniformSiblings(expr)) {
+      if (ir_utils::hasUniformSiblings(expr)) {
+        if (first_output_tv == nullptr) {
+          first_output_tv = c_tv;
+        } else {
           // Map multi outputs of an expression to each other. c is current
           // output, and f as first output. Keep consistent with the later
           // section of producer and consumers. Which here producer is now
