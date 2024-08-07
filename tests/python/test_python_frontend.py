@@ -39,11 +39,6 @@ from utils import (
 )
 import pytest
 
-def setUpModule():
-    from utils import atexit_serde_check
-
-    atexit_serde_check()
-
 @unittest.skipIf(is_pre_volta(), "Only supported on Volta and newer devices.")
 class TestNvFuserFrontend(NVFuserTest):
     def test_basic(self):
@@ -4361,12 +4356,8 @@ class TestNvFuserFrontend(NVFuserTest):
                 is_causal = False if is_causal is None else is_causal
 
                 with sdpa_kernel(SDPBackend.FLASH_ATTENTION):
-                    torch.manual_seed(0)
-                    ref_out = F.scaled_dot_product_attention(
-                        *qkv, dropout_p=dropout_p, is_causal=is_causal, scale=scale
-                    )
+                    with torch.random.fork_rng(devices=[torch.cuda.current_device()]):
+                        ref_out = F.scaled_dot_product_attention(
+                            *qkv, dropout_p=dropout_p, is_causal=is_causal, scale=scale
+                        )
                 torch.testing.assert_close(nvf_out[0], ref_out)
-
-
-if __name__ == "__main__":
-    run_tests()
