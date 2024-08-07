@@ -377,7 +377,6 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
   }
 
   if (tv->hasAllocation()) {
-    // FIXME: update sharded sizes and strides.
     auto allocation_data =
         inferAndValidateAllocationSizesAndStrides(input, tv, ee);
     metadata->alloc_size_data = std::move(allocation_data.first);
