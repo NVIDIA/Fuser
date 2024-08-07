@@ -207,7 +207,6 @@ std::vector<TensorView*> mlp(
     TensorView* b0,
     TensorView* w1,
     TensorView* b1,
-    Fusion* fusion,
     DeviceMesh& mesh,
     DataType dtype) {
   // Linear #1
@@ -248,7 +247,6 @@ std::vector<TensorView*> mha(
     TensorView* b0,
     TensorView* w1,
     TensorView* b1,
-    Fusion* fusion,
     DeviceMesh& mesh,
     DataType dtype) {
   // Linear 1
@@ -263,7 +261,7 @@ std::vector<TensorView*> mha(
         slice(qkv, {0, 0, 0, E / D * i}, {D, B, S, E / D * (i + 1)});
     TensorView* tv_reshape =
         reshape(tv_slice, {D, B, S, E / D}, {D, B, S, H / D, E / H});
-    TensorView* tv_trans = transpose(tv_reshape, 2, 3); // D, B, H/D, S, E/H
+    TensorView* tv_trans = transpose(tv_reshape, 2, 3);
     TensorView* tv_cast = castOp(dtype, tv_trans);
     qkv_reshaped.push_back(tv_cast);
     // Explicitly shard qkv before calling SDPA node
@@ -280,14 +278,13 @@ std::vector<TensorView*> mha(
       IrBuilder::create<Val>(kSdpaProb),
       IrBuilder::create<Val>(true),
       IrBuilder::create<Val>(kSdpaScale));
-  TensorView* sdpa_output = sdpa.output; // D, B, H/D, S, E/H
+  TensorView* sdpa_output = sdpa.output;
   // Linear projection
-  TensorView* sdpa_transpose =
-      transpose(sdpa_output, 2, 3); // D, B, S, H/D, E/H
+  TensorView* sdpa_transpose = transpose(sdpa_output, 2, 3);
   TensorView* sdpa_reshape =
       reshape(sdpa_transpose, {D, B, S, H / D, E / H}, {D, B * S, E / D});
-  TensorView* mm2 = matmul(sdpa_reshape, w1); // D, B*S, E/D * D, E/D, E
-  TensorView* mm2_ar = sum(mm2, {0}); // allreduce rD, B*S, E
+  TensorView* mm2 = matmul(sdpa_reshape, w1);
+  TensorView* mm2_ar = sum(mm2, {0}); // allreduce
   TensorView* b1_bcast = broadcast(b1, {true, false});
   TensorView* linear2 = add(mm2_ar, b1_bcast);
   // Dropout
@@ -310,7 +307,6 @@ std::vector<TensorView*> mlp_backwards(
     TensorView* w0,
     TensorView* b0,
     TensorView* w1,
-    Fusion* fusion,
     DeviceMesh& mesh,
     DataType dtype) {
   // Activation recomputation
@@ -405,7 +401,7 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
   fusion->addInput(tvb1);
 
   std::vector<TensorView*> tvsout =
-      mlp(tvx, tvw0, tvb0, tvw1, tvb1, fusion.get(), mesh, dtype);
+      mlp(tvx, tvw0, tvb0, tvw1, tvb1, mesh, dtype);
 
   for (TensorView* tv : tvsout) {
     fusion->addOutput(tv);
@@ -419,6 +415,8 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
   auto w1 = at::randn({4 * E, E}, options) * kParamScale;
   auto b1 = at::randn({E}, options) * kParamScale;
 
+  // Note: resetting the seed before reference and nvFuser
+  // execution so that random vals are the same.
   at::manual_seed(getATenRandomSeed());
   std::vector<at::Tensor> reference_outs =
       reference_mlp(x, w0, b0, w1, b1, at_dtype);
@@ -462,7 +460,7 @@ TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
   fusion->addInput(tvw1);
   fusion->addInput(tvb1);
 
-  auto tv_outs = mha(tvx, tvw0, tvb0, tvw1, tvb1, fusion.get(), mesh, dtype);
+  auto tv_outs = mha(tvx, tvw0, tvb0, tvw1, tvb1, mesh, dtype);
 
   for (auto tv : tv_outs) {
     fusion->addOutput(tv);
@@ -523,7 +521,7 @@ TEST_P(DistributedTransformerTest, MLP_Backward) {
   fusion->addInput(w1);
 
   std::vector<TensorView*> tv_outs =
-      mlp_backwards(grad, x, mask, w0, b0, w1, fusion.get(), mesh, dtype);
+      mlp_backwards(grad, x, mask, w0, b0, w1, mesh, dtype);
 
   for (TensorView* tv : tv_outs) {
     fusion->addOutput(tv);
