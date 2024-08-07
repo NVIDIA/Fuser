@@ -103,7 +103,7 @@ bool InnerPersistentKernelScheduler::canScheduleRunTime(
   // check reduction properties, don't use shared memory persistent if 3D
   // reduction
   bool can_use_smem_persistent =
-      properties.total_reduction_numel == properties.inner_most_dimension_ndims;
+      properties.total_reduction_numel == properties.inner_most_dimension_numel;
 
   // pair of persistent_buffer_size and available_persistent_buffer_size
   const std::pair<int64_t, int64_t> buffer_size = getPersistentBufferSize(
