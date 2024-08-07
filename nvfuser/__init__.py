@@ -202,10 +202,16 @@ class FusionDefinition(_C._FusionDefinition):
             self.definition()
             self._finalize_definition()
 
-        # If schedule is defined by child class, make a schedule for inputs
-        if not self._exists_schedule(inputs) and (
-            super(type(self), self).schedule != self.schedule
-        ):
+        # If schedule is defined by child class and schedule is not defined for
+        # inputs, make a schedule.
+        is_fusion_definition_child_class = (
+            type(self) != FusionDefinition
+        ) and issubclass(type(self), FusionDefinition)
+        defined_schedule = (
+            is_fusion_definition_child_class
+            and super(type(self), self).schedule != self.schedule
+        )
+        if defined_schedule and not self._exists_schedule(inputs):
             self._setup_schedule(inputs)
             self.schedule()
             self._finalize_schedule(inputs)
