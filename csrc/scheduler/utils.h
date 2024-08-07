@@ -32,7 +32,13 @@ namespace scheduler_utils {
 // but it's hard to get a better one.
 constexpr int64_t register_file_size_full = (int64_t)256 * 1024;
 constexpr int64_t register_file_size = register_file_size_full / 2;
-constexpr int64_t register_file_size_56k = (int64_t)56 * 4 * 1024;
+
+// Allow innerOuterPersistent scheduler to use 49K registers for persistent buffer
+// It is a large value to allow the scheduler to process case with large hidden size
+// without using smem persistent which is slower than register persistent, but also
+// not too large to avoid register spills which may drastically slow down the kernel
+// see https://github.com/NVIDIA/Fuser/issues/2741
+constexpr int64_t register_file_size_49k = (int64_t)49 * 4 * 1024;
 
 // Empirically observed number. Not guaranteed to be a good estimate
 constexpr int64_t register_overhead = 40l;

@@ -32,6 +32,13 @@ class InnerOuterPersistentKernelScheduler : public SchedulerEntry {
   constexpr static int64_t threads_per_block_min = 128l;
   constexpr static int64_t threads_per_block_max = 256l;
 
+  // Allow innerOuterPersistent scheduler to use 49K registers for persistent
+  // buffer It is a large value to allow the scheduler to process case with
+  // large hidden size without using smem persistent which is slower than
+  // register persistent, but also not too large to avoid register spills which
+  // may drastically slow down the kernel see
+  // https://github.com/NVIDIA/Fuser/issues/2741
+  constexpr static int64_t buffer_register_file_size = (int64_t)49 * 4 * 1024;
   explicit InnerOuterPersistentKernelScheduler(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
