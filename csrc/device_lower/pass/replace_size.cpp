@@ -41,6 +41,15 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
   id_model.buildExactGraph();
   ValGraph& graph = id_model.idGraph(IdMappingMode::EXACT);
 
+  std::unordered_set<IterDomain*> fusion_input_ids;
+  for (Val* v : fusion->inputs()) {
+    if (auto* tv = dynamic_cast<TensorView*>(v)) {
+      for (IterDomain* id : tv->getLogicalDomain()) {
+        fusion_input_ids.insert(id);
+      }
+    }
+  }
+
   std::unordered_map<Val*, Val*> simplification_map;
 
   for (const ValGroup& group : graph.disjointValSets().disjointSets()) {
@@ -54,13 +63,16 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
     // name().
     bool group_is_const = false;
     IterDomain* rep = nullptr;
+    bool rep_is_input_id = false;
     std::unordered_set<Val*> dynamic_scalars;
     for (Val* v : *group) {
       auto* id = dynamic_cast<IterDomain*>(v);
       NVF_ERROR(
           id != nullptr, "Expected only IterDomains in exact graph ValGroups");
+      bool is_input_id = fusion_input_ids.count(id) > 0;
       if (rep == nullptr) {
         rep = id;
+        rep_is_input_id = is_input_id;
         continue;
       }
       Val* ext = id->extent();
@@ -74,22 +86,26 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
           rep = id;
           // This lets us avoid repeating the costly isConstInt check
           group_is_const = true;
+          rep_is_input_id = is_input_id;
           continue;
         }
-      } else if (id->isFusionInput()) {
+      } else if (is_input_id) {
         if (group_is_const) {
           continue;
         }
-        if (!rep->isFusionInput() || id->name() < rep->name()) {
+        if (!rep_is_input_id || id->name() < rep->name()) {
           rep = id;
+          rep_is_input_id = is_input_id;
           continue;
         }
       } else {
         // id is a non-input TV
-        if (group_is_const || rep->isFusionInput()) {
+        if (group_is_const || rep_is_input_id) {
           continue;
         }
         if (id->name() < rep->name()) {
+          rep = id;
+          rep_is_input_id = is_input_id;
           continue;
         }
       }
