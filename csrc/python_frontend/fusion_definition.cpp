@@ -247,7 +247,7 @@ void FusionDefinition::finalizeSchedule(
   // Remove the schedule-only states.
   size_t num_states_to_remove =
       recording_state_.size() - num_recording_states_presched_;
-  for (size_t _ : c10::irange(num_states_to_remove)) {
+  for (size_t rnd = 0; rnd < num_states_to_remove; ++rnd) {
     recording_state_.pop_back();
   }
   num_recording_states_presched_ = 0;
