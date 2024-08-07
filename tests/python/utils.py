@@ -175,6 +175,11 @@ def serde_check(test_fn: Callable):
     return inner_fn
 
 class NVFuserTest(TestCase):
+    @classmethod
+    def setup_class(cls):
+        torch.manual_seed(0)
+        atexit_serde_check()
+
     # Helper function to verify the nvfuser output and make sure the string
     # definition based on the FusionDefinition is executable and matches the
     # original definition
