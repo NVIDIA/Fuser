@@ -8466,6 +8466,56 @@ TEST_F(NVFuserTest, MultipleDifferentSizeGridReduction) {
   testValidate(&fusion, cg_outputs, inputs, __LINE__, __FILE__);
 }
 
+// Repro of issue #2770
+TEST_F(NVFuserTest, SmallOuterBlockReductionWithTIDy) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape{100, 2, 128};
+
+  auto tv0 = makeContigConcreteTensor({shape[0] * shape[1], shape[2]});
+  fusion.addInput(tv0);
+
+  auto tv1 = reshape(
+      tv0,
+      {IrBuilder::create<Val>(shape[0]),
+       IrBuilder::create<Val>(shape[1]),
+       IrBuilder::create<Val>(shape[2])});
+  auto tv2 = sum(tv1, {1});
+  fusion.addOutput(tv2);
+
+  // Copy unscheduled fusion for later use in validation
+  auto unsched_fusion_ptr = std::make_unique<Fusion>(fusion);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({shape[0] * shape[1], shape[2]}, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  std::shared_ptr<ReductionParams> reduction_params =
+      getReductionHeuristics(&fusion, inputs);
+  NVF_CHECK(reduction_params, "Reduction heuristic failed!");
+  scheduleReduction(&fusion, *reduction_params);
+
+  // The reduction domain is just size 2. We don't need to parallelize
+  // it with TIDy, but the scheduler should just use TIDy always with
+  // blockDim.y == 1 to promote kernel reuse.
+  EXPECT_TRUE(
+      std::find_if(
+          tv1->getLoopDomain().begin(),
+          tv1->getLoopDomain().end(),
+          [](auto loop_id) {
+            return loop_id->getParallelType() == ParallelType::TIDy;
+          }) != tv1->getLoopDomain().end())
+      << "Expected to have a TIDy-parallelized domain: " << tv1->toString();
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, inputs, reduction_params->lparams);
+  auto outputs = fe.runFusion(inputs, reduction_params->lparams);
+
+  testValidate(unsched_fusion_ptr.get(), outputs, inputs, __LINE__, __FILE__);
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

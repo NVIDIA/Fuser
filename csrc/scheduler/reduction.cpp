@@ -603,8 +603,15 @@ std::shared_ptr<ReductionParams> heuristicParaToSchedulerPara(
   // bool flip_grid = gidim > 1 && gidim < 8;
   const bool flip_grid = false;
   auto rparams = std::make_shared<ReductionParams>();
-  // cross grid implies cross block
-  rparams->cross_block_inner_reduction = hp.bdimy > 1 || hp.grdim > 1;
+
+  // bidmy can be just 1 for very small reduction domains, so we could
+  // specialize the schedule for such cases by not using
+  // TIDy. However, unless the effect of the specialization is
+  // demonstrated to be
+  // significant, here reuse is
+  // preferred by always using TIDx
+  rparams->cross_block_inner_reduction = true;
+
   rparams->cross_grid_inner_reduction = hp.grdim > 1;
   if (rparams->cross_grid_inner_reduction) {
     rparams->split_grid_dim_inner_reduction = true;
