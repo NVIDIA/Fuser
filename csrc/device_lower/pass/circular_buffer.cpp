@@ -92,7 +92,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
       }
       case CircularBufferLoopStage::Main: {
         if (requireEpilogue(circular_buffer_load_exprs_)) {
-          stop = IrBuilder::subExpr(
+          stop = SimplifyingIrBuilder::subExpr(
               circular_buffer_loop_->stop(),
               SimplifyingIrBuilder::create<Val>(
                   stage_depth - 1, DataType::Index));
@@ -101,7 +101,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
       }
       case CircularBufferLoopStage::Epilog: {
         NVF_ERROR(requireEpilogue(circular_buffer_load_exprs_));
-        start = IrBuilder::subExpr(
+        start = SimplifyingIrBuilder::subExpr(
             circular_buffer_loop_->stop(),
             SimplifyingIrBuilder::create<Val>(
                 stage_depth - 1, DataType::Index));
