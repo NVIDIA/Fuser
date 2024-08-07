@@ -15,6 +15,7 @@ import torch.nn.functional as F
 from torch.testing._internal.common_utils import run_tests
 import torch._refs as refs
 import torch._prims as prims
+import unittest
 
 from nvfuser import (
     FusionDefinition,
@@ -34,86 +35,17 @@ from utils import (
     check_captured_python_definition,
     basic_serde_check,
     debug_serde,
+    NVFuserTest
 )
 import pytest
-
-RUN_NVFUSER = RUN_CUDA and not TEST_WITH_ROCM
-
 
 def setUpModule():
     from utils import atexit_serde_check
 
     atexit_serde_check()
 
-
-def serde_check(test_fn: Callable):
-    """
-    A decorator to verify that serialization works with the given exec_nvfuser
-    function. Currently, it uses serialization to rebuild the FusionCache
-    structure.
-    """
-
-    def inner_fn(*args, **kwargs):
-        self, fusion_func, inputs = args
-
-        # NOTE: For debug purposes, clear FusionCache before running first test
-        # so the behavior is more deterministic (PR #1848).
-        is_new_fusion_expected = kwargs.get("new_fusion_expected", True)
-        if debug_serde and is_new_fusion_expected:
-            FusionCache.reset()
-            assert FusionCache.get().num_fusions() == 0
-
-        # skip_serde_check is only used by the decorator so remove it before
-        # running test_fn
-        skip_serde_check = kwargs.pop("skip_serde_check", False)
-        if skip_serde_check:
-            return test_fn(self, fusion_func, inputs, **kwargs)
-
-        # Run test to populate FusionCache. Deep copy inputs for this run but
-        # not the final run. When a fusion output aliases an input, it will
-        # change the input value for subsequent function calls. Therefore, only
-        # the final run should take the original tensors and potentially update
-        # their values.
-        inputs_copy = deepcopy(inputs)
-        test_fn(self, fusion_func, inputs_copy, **kwargs)
-
-        # Serialize and Deserialize FusionCache
-        basic_serde_check()
-
-        # Run test with repopulated FusionCache
-        kwargs["new_fusion_expected"] = False
-        return test_fn(self, fusion_func, inputs, **kwargs)
-
-    return inner_fn
-
-
-@unittest.skipIf(not RUN_NVFUSER, "requires CUDA")
 @unittest.skipIf(is_pre_volta(), "Only supported on Volta and newer devices.")
-class TestNvFuserFrontend(TestCase):
-    # Helper function to verify the nvfuser output and make sure the string
-    # definition based on the FusionDefinition is executable and matches the
-    # original definition
-    @serde_check
-    def exec_nvfuser(
-        self, fusion_func, inputs, *, new_fusion_expected=True, device=None
-    ):
-        fc = FusionCache.get()
-        before_fusions = fc.num_fusions()
-        # Copy inputs because aliased outputs can modify inputs when running
-        # FusionDefinition
-        inputs_cap = deepcopy(inputs)
-
-        # Execute a fusion function and capture the string python definition
-        with FusionDefinition() as fd:
-            fusion_func(fd)
-        torch.manual_seed(0)
-        out = fd.execute(inputs, device=device)
-
-        self.assertTrue(check_captured_python_definition(out, fd, inputs_cap, device))
-
-        self.assertEqual(fc.num_fusions() - before_fusions, int(new_fusion_expected))
-        return out, fd
-
+class TestNvFuserFrontend(NVFuserTest):
     def test_basic(self):
         inputs = [
             torch.ones(2, 4, 8, device="cuda"),
@@ -4293,39 +4225,6 @@ class TestNvFuserFrontend(TestCase):
         self.assertEqual(num_out, 3)
         for i in range(num_out):
             self.assertEqual(nvf_out[i].data_ptr(), inputs[0].data_ptr())
-
-    # Tests broadcast reduction axis in matmul: Issue #2532.
-    def test_repro_issue2532(self):
-        def fusion_func(fd: FusionDefinition) -> None:
-            T0 = fd.define_tensor(
-                shape=[-1, -1, 1],
-                contiguity=[True, None, True],
-                dtype=DataType.Float,
-                is_cpu=False,
-                stride_order=[2, 0, 1],
-            )
-            T1 = fd.define_tensor(
-                shape=[-1, 1, -1],
-                contiguity=[True, None, True],
-                dtype=DataType.Float,
-                is_cpu=False,
-                stride_order=[2, 1, 0],
-            )
-            T2 = fd.ops.sum(T1, dims=[0, 1], keepdim=False, dtype=DataType.Null)
-            T3 = fd.ops.matmul(T0, T1)
-            T4 = fd.ops.sum(T3, dims=[0], keepdim=False, dtype=DataType.Null)
-            fd.add_output(T2)
-            fd.add_output(T4)
-
-        inputs = [
-            torch.randn((262400,), dtype=torch.float32, device="cuda:0").as_strided(
-                (1025, 256, 1), (256, 1, 256)
-            ),
-            torch.randn((1049600,), dtype=torch.float32, device="cuda:0").as_strided(
-                (1025, 1, 1024), (1024, 1024, 1)
-            ),
-        ]
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
     # Test that we properly raise an error when passing inputs with the wrong types
     def test_mismatched_input_types(self):
