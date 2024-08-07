@@ -194,6 +194,8 @@ void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
   // members that represent tensors would refer to the IR objects in the
   // original and not the copy needed for scheduling.
   buildFusionIr(user_sched_->schedule.get());
+  NVF_ERROR(num_recording_states_presched_ == 0);
+  num_recording_states_presched_ = recording_state_.size();
 
   // Add TensorViews created by composite operations to Python FusionDefinition.
   findHiddenTensorViews(user_sched_->schedule.get());
@@ -240,6 +242,15 @@ void FusionDefinition::finalizeSchedule(
   user_sched_->runtime_info.reset();
   prev_fusion_ = nullptr;
   user_sched_ = nullptr;
+
+  // Scheduling the fusion can add states to recording_state.
+  // Remove the schedule-only states.
+  size_t num_states_to_remove =
+      recording_state_.size() - num_recording_states_presched_;
+  for (size_t _ : c10::irange(num_states_to_remove)) {
+    recording_state_.pop_back();
+  }
+  num_recording_states_presched_ = 0;
 }
 
 void FusionDefinition::print(std::ostream& os) const {

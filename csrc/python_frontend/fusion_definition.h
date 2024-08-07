@@ -281,6 +281,8 @@ class NVF_API FusionDefinition : public FusionState {
   Fusion* prev_fusion_;
   //! Data member for holding the current user schedule object
   UserSchedule* user_sched_;
+  //! Number of recording_states_ before applying user schedule
+  int64_t num_recording_states_presched_ = 0;
 
  public:
   //! The Operators are not directly defined in this header.  They are defined
