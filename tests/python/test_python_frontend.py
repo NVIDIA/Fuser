@@ -2431,7 +2431,7 @@ class TestNvFuserFrontend(NVFuserTest):
                 t2 = t1 * u
                 fd.add_output(t2)
 
-            # self.exec_nvfuser tests printing and serde, so run that for each definition first
+            # exec_nvfuser tests printing and serde, so run that for each definition first
             self.exec_nvfuser(partial(fusion_func, deterministic=False), inputs)
             self.exec_nvfuser(
                 partial(fusion_func, deterministic=True), [inputs[0], 0, 0]
