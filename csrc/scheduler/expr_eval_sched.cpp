@@ -15,6 +15,12 @@ namespace nvfuser {
 
 // Check if the fusion has a single MatmulOp/LinearOp node
 bool ExprEvalScheduler::canScheduleCompileTime(Fusion* fusion) {
+  if (scheduler_utils::isResharding(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        heuristicType(), "Fusion is resharding.");
+    return false;
+  }
+
   auto exprs = fusion->exprs();
   if (exprs.size() != 1) {
     scheduler_debug_utils::canScheduleRejectReason(
