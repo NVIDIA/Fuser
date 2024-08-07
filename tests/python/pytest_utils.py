@@ -6,16 +6,9 @@
 import pytest
 import torch
 from torch.testing import make_tensor
-from typing import Optional, Callable
+from typing import Optional
 from functools import wraps
 from enum import Enum, auto
-import os
-import re
-import tempfile
-from copy import deepcopy
-from nvfuser import FusionDefinition, FusionCache, DataType
-from torch.testing._internal.common_utils import TestCase, TEST_WITH_ROCM
-from torch.testing._internal.jit_utils import RUN_CUDA
 
 try:
     # flake8: noqa
@@ -183,5 +176,3 @@ def is_integer_dtype(dtype: torch.dtype):
 
 def is_tensor(a):
     return isinstance(a, torch.Tensor)
-
-
