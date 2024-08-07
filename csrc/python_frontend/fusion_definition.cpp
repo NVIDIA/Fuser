@@ -105,6 +105,9 @@ void FusionDefinition::finalizeDefinition() {
     trie_node_ = child_node.value();
     fusion_id_ = std::optional<size_t>(trie_node_->fusion_id);
   }
+
+  NVF_ERROR(num_recording_states_presched_ == 0);
+  num_recording_states_presched_ = recording_state_.size();
 }
 
 void FusionDefinition::findHiddenTensorViews(Fusion* fusion) {
@@ -194,8 +197,6 @@ void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
   // members that represent tensors would refer to the IR objects in the
   // original and not the copy needed for scheduling.
   buildFusionIr(user_sched_->schedule.get());
-  NVF_ERROR(num_recording_states_presched_ == 0);
-  num_recording_states_presched_ = recording_state_.size();
 
   // Add TensorViews created by composite operations to Python FusionDefinition.
   findHiddenTensorViews(user_sched_->schedule.get());
@@ -250,7 +251,6 @@ void FusionDefinition::finalizeSchedule(
   for (size_t rnd = 0; rnd < num_states_to_remove; ++rnd) {
     recording_state_.pop_back();
   }
-  num_recording_states_presched_ = 0;
 }
 
 void FusionDefinition::print(std::ostream& os) const {
