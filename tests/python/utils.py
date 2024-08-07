@@ -16,6 +16,7 @@ from nvfuser import FusionCache, FusionDefinition, DataType
 
 from torch.testing._internal.common_utils import TestCase
 
+
 def is_pre_volta():
     prop = torch.cuda.get_device_properties(torch.cuda.current_device())
     return prop.major < 7
@@ -47,7 +48,6 @@ def check_captured_python_definition(reference_outputs, fd, inputs, device=None)
             eval(func_name)(fd_cap)
 
         torch.manual_seed(0)
-        
         captured_outputs = fd_cap.execute(inputs, device=device)
         # Make sure the original and captured definitions match
         # torch.allclose does not work with fp8 datatype, so cast to fp64.
@@ -176,17 +176,19 @@ def serde_check(test_fn: Callable):
     return inner_fn
 
 
-'''
-Base class for any test class that needs to verify serialization 
+"""
+Base class for any test class that needs to verify serialization
 and run captured string representations of FusionDefinition.
-'''
+"""
+
+
 class NVFuserTest(TestCase):
     @classmethod
     def setup_class(cls):
-        '''
+        """
         Setup is run once at the class level, before running any tests of the class.
         `atexit_serde_check` enables automatic serialization at the end of the test suite.
-        '''
+        """
         atexit_serde_check()
 
     # Helper function to verify the nvfuser output and make sure the string
@@ -195,7 +197,7 @@ class NVFuserTest(TestCase):
     @serde_check
     def exec_nvfuser(
         self, fusion_func, inputs, *, new_fusion_expected=True, device=None
-    ):  
+    ):
         fc = FusionCache.get()
         before_fusions = fc.num_fusions()
         # Copy inputs because aliased outputs can modify inputs when running
