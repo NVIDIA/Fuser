@@ -648,15 +648,14 @@ bool InnerOuterPersistentKernelScheduler::canScheduleRunTime(
 
   // check if we can schedule the combined reductions with a reasonable
   // batch size without register spills.
-  if (!normalization_scheduler_utils::
-           getOptionalInnerOuterPersistentBufferBatches(
-               properties.total_reduction_numel,
-               properties.total_iteration_numel,
-               buffer_params.regs_buffer_size,
-               (int64_t)vectorize_factor,
-               warp_size,
-               false)
-               .first.has_value()) {
+  if (!getOptionalInnerOuterPersistentBufferBatches(
+           properties.total_reduction_numel,
+           properties.total_iteration_numel,
+           buffer_params.regs_buffer_size,
+           (int64_t)vectorize_factor,
+           warp_size,
+           false)
+           .first.has_value()) {
     scheduler_debug_utils::canScheduleRejectReason(
         heuristicType(),
         "Required batch number is larger than available batch number! Will cause register spills!");
@@ -822,7 +821,7 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
   // the projection is not solely based on size of buffers. The enforced buffer
   // projection is not considered in canScheduleRuntime Thus,
   constexpr bool ignore_register_size_limit = true;
-  const auto& batch_and_block_size = normalization_scheduler_utils::
+  const auto& batch_and_block_size =
       getOptionalInnerOuterPersistentBufferBatches(
           inner_dim_numel,
           outer_dim_numel,
