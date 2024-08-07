@@ -604,7 +604,7 @@ std::shared_ptr<ReductionParams> heuristicParaToSchedulerPara(
   const bool flip_grid = false;
   auto rparams = std::make_shared<ReductionParams>();
   // cross grid implies cross block
-  rparams->cross_block_inner_reduction = hp.bdimy > 1 || hp.grdim > 1;
+  rparams->cross_block_inner_reduction = hp.bdimy >= 1 || hp.grdim > 1;
   rparams->cross_grid_inner_reduction = hp.grdim > 1;
   if (rparams->cross_grid_inner_reduction) {
     rparams->split_grid_dim_inner_reduction = true;
