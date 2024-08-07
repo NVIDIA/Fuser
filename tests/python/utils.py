@@ -48,9 +48,14 @@ def check_captured_python_definition(reference_outputs, fd, inputs, device=None)
         torch.manual_seed(0)
         captured_outputs = fd_cap.execute(inputs, device=device)
         # Make sure the original and captured definitions match
+        # torch.allclose does not work with fp8 datatype, so cast to fp64.
         return all(
             [
-                torch.allclose(ref_out, captured_outputs[idx], equal_nan=True)
+                torch.allclose(
+                    ref_out.to(torch.float64),
+                    captured_outputs[idx].to(torch.float64),
+                    equal_nan=True,
+                )
                 for idx, ref_out in enumerate(reference_outputs)
             ]
         )
