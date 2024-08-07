@@ -4,7 +4,7 @@
 import pytest
 from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from .core import run_benchmark, clear_cuda_cache, unary_bwd_torch
+from .core import run_benchmark, clear_cuda_cache, clear_dynamo_cache, unary_bwd_torch
 import torch
 from .global_params import generate_attn_inputs, FLOAT_DTYPES, PROMOTE_DTYPES
 
@@ -119,7 +119,8 @@ def test_huggingface_attn_bwd_baseline_benchmark(
     compile: bool,
 ):
     clear_cuda_cache()
-
+    if compile:
+        clear_dynamo_cache()
     batch_size, seq_len, nh, n_embd = size
     dropout_p = 0.2
     inputs = torch.randn(
