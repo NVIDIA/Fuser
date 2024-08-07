@@ -4,7 +4,7 @@
 import pytest
 from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from .core import run_benchmark, clear_cuda_cache, unary_bwd_torch
+from .core import run_benchmark, clear_cuda_cache, clear_dynamo_cache, unary_bwd_torch
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
 import numpy as np
@@ -92,7 +92,8 @@ def test_rmsnorm_bwd_nvf_benchmark(
     eps: float = 1e-5,
 ):
     clear_cuda_cache()
-
+    if compile:
+        clear_dynamo_cache()
     inputs = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
     grads = torch.randn(size, device="cuda", dtype=dtype)
     weights = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)

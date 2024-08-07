@@ -2911,8 +2911,58 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("correction") = 1,
       py::arg("keepdim") = false,
       py::return_value_policy::reference);
-  //! The SchedOperators class is a nested class of FusionDefinition to allow
-  //! the user to query the class for the list of schedule operators.
+  nvf_ops.def(
+      "sdpfa_fwd",
+      [](FusionDefinition::Operators& self,
+         Tensor query,
+         Tensor key,
+         Tensor value,
+         std::optional<Scalar> dropout_p,
+         std::optional<Scalar> is_causal,
+         std::optional<Scalar> scale) -> decltype(auto) {
+        FUSER_PERF_SCOPE("Operators.sdpfa_fwd");
+        NVF_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        size_t ndims = query.dims;
+        Tensor output = fd->defineTensor(/*dims=*/ndims);
+        Tensor log_sumexp = fd->defineTensor(/*dims=*/ndims - 1);
+        Tensor philox_seed = fd->defineTensor(/*dims=*/0);
+        Tensor philox_offset = fd->defineTensor(/*dims=*/0);
+
+        auto dropout_p_state = dropout_p.has_value()
+            ? fd->recordingState(dropout_p.value()())
+            : State(/*_index=*/0, /*_stype=*/serde::StateType::None);
+        auto is_causal_state = is_causal.has_value()
+            ? fd->recordingState(is_causal.value()())
+            : State(/*_index=*/0, /*_stype=*/serde::StateType::None);
+        auto scale_state = scale.has_value()
+            ? fd->recordingState(scale.value()())
+            : State(/*_index=*/0, /*_stype=*/serde::StateType::None);
+
+        fd->defineRecord(new SdpaFwdOpRecord(
+            {fd->recordingState(query()),
+             fd->recordingState(key()),
+             fd->recordingState(value()),
+             dropout_p_state,
+             is_causal_state,
+             scale_state},
+            {fd->recordingState(output()),
+             fd->recordingState(log_sumexp()),
+             fd->recordingState(philox_seed()),
+             fd->recordingState(philox_offset())}));
+        return std::make_tuple(output, log_sumexp, philox_seed, philox_offset);
+      },
+      py::arg("query"),
+      py::arg("key"),
+      py::arg("value"),
+      py::arg("dropout_p").none(true) = py::none(),
+      py::arg("is_causal").none(true) = py::none(),
+      py::arg("scale").none(true) = py::none(),
+      py::return_value_policy::reference);
+
+  //! The ScedOperators class is a nested class of FusionDefinition to allow the
+  //! user to query the class for the list of schedule operators.
   //!
   //! Example:
   //!   help(FusionDefinition.SchedOperators)
