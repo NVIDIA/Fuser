@@ -281,21 +281,22 @@ TensorView* scheduleReductionTV(
   // In the case of outer grid persistence, make sure the vectorized
   // domain placed at the innermost position.
   // TODO: Why isn't this the case by default?
-  if (is_outer_grid_persistence) {
-    int64_t vec_id_cur_pos = -1;
-    std::unordered_map<int64_t, int64_t> vec_reorder_map;
-    for (const auto i : c10::irange(reduction_rf_tv->nDims())) {
-      auto id = reduction_rf_tv->axis(i);
-      if (id->getParallelType() == ParallelType::Vectorize) {
-        vec_id_cur_pos = i;
-        vec_reorder_map[i] = -1;
-      } else if (vec_id_cur_pos >= 0) {
-        vec_reorder_map[i] = i - 1;
-      }
-    }
-    NVF_ERROR(vec_id_cur_pos != -1, "Vectorized ID not found");
-    reduction_rf_tv->reorder(vec_reorder_map);
-  }
+  // maybe due to bug in sortAndRFactor
+  // if (is_outer_grid_persistence) {
+  //   int64_t vec_id_cur_pos = -1;
+  //   std::unordered_map<int64_t, int64_t> vec_reorder_map;
+  //   for (const auto i : c10::irange(reduction_rf_tv->nDims())) {
+  //     auto id = reduction_rf_tv->axis(i);
+  //     if (id->getParallelType() == ParallelType::Vectorize) {
+  //       vec_id_cur_pos = i;
+  //       vec_reorder_map[i] = -1;
+  //     } else if (vec_id_cur_pos >= 0) {
+  //       vec_reorder_map[i] = i - 1;
+  //     }
+  //   }
+  //   NVF_ERROR(vec_id_cur_pos != -1, "Vectorized ID not found");
+  //   reduction_rf_tv->reorder(vec_reorder_map);
+  // }
 
   return reduction_rf_tv;
 }
@@ -540,6 +541,15 @@ int idPos(const IterDomain* id) {
   }
   inner_most--;
 
+  // Iter and unrolled
+  if (!id->isReduction() &&
+      (id->getParallelType() == ParallelType::Unroll ||
+       id->getParallelType() == ParallelType::Vectorize ||
+       id->getParallelType() == ParallelType::MisalignedVectorize)) {
+    return inner_most;
+  }
+  inner_most--;
+
   // Reduction and constant
   if (id->isReduction() && id->extent()->isConstScalar()) {
     return inner_most;
@@ -560,15 +570,6 @@ int idPos(const IterDomain* id) {
 
   // Broadcast
   if (id->isBroadcast() || id->isImplicitBroadcast()) {
-    return inner_most;
-  }
-  inner_most--;
-
-  // Iter and unrolled
-  if (!id->isReduction() &&
-      (id->getParallelType() == ParallelType::Unroll ||
-       id->getParallelType() == ParallelType::Vectorize ||
-       id->getParallelType() == ParallelType::MisalignedVectorize)) {
     return inner_most;
   }
   inner_most--;
