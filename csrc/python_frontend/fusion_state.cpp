@@ -32,17 +32,16 @@ bool State::operator!=(const State& other) const {
 // Generalized printing of State
 std::ostream& operator<<(std::ostream& os, const State& state) {
   if (state.stype == serde::StateType::Scalar) {
-    os << "S";
+    os << "S" << state.index;
   } else if (state.stype == serde::StateType::Tensor) {
-    os << "T";
+    os << "T" << state.index;
   } else if (state.stype == serde::StateType::Vector) {
-    os << "V";
+    os << "V" << state.index;
   } else if (state.stype == serde::StateType::None) {
     os << "None";
   } else {
     NVF_ERROR(false, "Unsupported StateType");
   }
-  os << state.index;
   return os;
 }
 
@@ -148,15 +147,6 @@ void FusionState::addInput(Val* input) {
 void FusionState::addOutput(Val* output) {
   NVF_CHECK(fusion_ != nullptr, "Fusion is undefined.");
   fusion_->addOutput(output);
-}
-
-void FusionState::addOutput(
-    Val* output,
-    const std::vector<int64_t>& permutation) {
-  NVF_CHECK(fusion_ != nullptr, "Fusion is undefined.");
-  fusion_->addOutput(output);
-  fusion_->setPermutationOnOutput(
-      (int)fusion_->outputs().size() - 1, permutation);
 }
 
 void FusionState::aliasOutputToInput(Val* output, Val* input) {

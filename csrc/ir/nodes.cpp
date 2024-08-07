@@ -2296,15 +2296,13 @@ IterDomainBuilder::IterDomainBuilder(const IterDomain* id)
       iter_type_(id->getIterType()),
       is_rfactor_domain_(id->isRFactorProduct()),
       is_padded_dimension_(id->hasPaddingToMultipleOfWarp()),
-      padded_to_size_(id->getMaybeSizeAfterPadding()),
-      is_mma_swizzled_(id->isMmaSwizzled()) {}
+      padded_to_size_(id->getMaybeSizeAfterPadding()) {}
 
 IterDomainBuilder& IterDomainBuilder::resetSchedulingParams() {
   parallel_type_ = ParallelType::Serial;
   is_rfactor_domain_ = false;
   is_padded_dimension_ = false;
   padded_to_size_ = std::nullopt;
-  is_mma_swizzled_ = false;
   return *this;
 }
 
@@ -2361,11 +2359,6 @@ IterDomainBuilder& IterDomainBuilder::padded_to_size(
   return *this;
 }
 
-IterDomainBuilder& IterDomainBuilder::is_mma_swizzled(bool _is_mma_swizzled) {
-  is_mma_swizzled_ = _is_mma_swizzled;
-  return *this;
-}
-
 IterDomain* IterDomainBuilder::build() const {
   NVF_ERROR(
       start_ != nullptr && extent_ != nullptr,
@@ -2383,8 +2376,7 @@ IterDomain::IterDomain(
     IterType iter_type,
     bool is_rfactor_domain,
     bool is_padded_dimension,
-    std::optional<int64_t> padded_to_size,
-    bool is_mma_swizzled)
+    std::optional<int64_t> padded_to_size)
     : Val(passkey, ValType::IterDomain),
       start_(start),
       extent_(extent),
@@ -2396,8 +2388,7 @@ IterDomain::IterDomain(
       iter_type_(iter_type),
       is_rfactor_domain_(is_rfactor_domain),
       is_padded_dimension_(is_padded_dimension),
-      padded_to_size_(padded_to_size),
-      is_mma_swizzled_(is_mma_swizzled) {
+      padded_to_size_(padded_to_size) {
   // NOTE: We previously asserted !(isRFactorProduct() && isBroadcast()), i.e.
   // that an IterDomain could not be both a broadcast and an logical domain.
   // However, since the introduction of the resize op, we now have a legitimate
@@ -2442,8 +2433,7 @@ IterDomain::IterDomain(IrBuilderPasskey passkey, const IterDomainBuilder& args)
           args.iter_type_,
           args.is_rfactor_domain_,
           args.is_padded_dimension_,
-          args.padded_to_size_,
-          args.is_mma_swizzled_) {}
+          args.padded_to_size_) {}
 
 IterDomain::IterDomain(const IterDomain* src, IrCloner* ir_cloner)
     : Val(src, ir_cloner),
@@ -2457,8 +2447,7 @@ IterDomain::IterDomain(const IterDomain* src, IrCloner* ir_cloner)
       iter_type_(src->iter_type_),
       is_rfactor_domain_(src->is_rfactor_domain_),
       is_padded_dimension_(src->is_padded_dimension_),
-      padded_to_size_(src->padded_to_size_),
-      is_mma_swizzled_(src->is_mma_swizzled_) {}
+      padded_to_size_(src->padded_to_size_) {}
 
 NVFUSER_DEFINE_CLONE(IterDomain)
 
@@ -2483,7 +2472,6 @@ bool IterDomain::sameAs(const Statement* other) const {
   // is_rfactor_domain_
   // is_padded_dimension_
   // padded_to_size_
-  // is_mma_swizzled_
 
   // Do not take is_rfactor_domain_ into account. IterDomain's are
   // considered the same if they are rfactor or not.
@@ -2499,8 +2487,7 @@ bool IterDomain::sameAs(const Statement* other) const {
       getParallelType() == other_id->getParallelType() &&
       getIterType() == other_id->getIterType() &&
       hasPaddingToMultipleOfWarp() == other_id->hasPaddingToMultipleOfWarp() &&
-      getMaybeSizeAfterPadding() == other_id->getMaybeSizeAfterPadding() &&
-      isMmaSwizzled() == other_id->isMmaSwizzled();
+      getMaybeSizeAfterPadding() == other_id->getMaybeSizeAfterPadding();
 }
 
 std::string IterDomain::toString(int indent_size) const {
@@ -2895,20 +2882,6 @@ void IterDomain::parallelize(ParallelType t) {
         getIterType());
   }
 
-  if (isMmaSwizzled()) {
-    // Mma swizzled axes represent data representation within a warp
-    //  so only allow updates that keep the parallelization within
-    //  a warp.
-    // Note && TODO: this check is actually used to allow indexing path
-    //  to make copies of the iterdomains. We might eventually just want
-    //  to lock these parallel types and not allowing any changes once
-    //  they are swizzled.
-    NVF_CHECK(
-        t == ParallelType::Vectorize || t == ParallelType::TIDx ||
-            t == ParallelType::Serial || t == ParallelType::Mma,
-        "Parallel type other than serial, tidx, vectorize not allowed for mma swizzled ids");
-  }
-
   parallel_type_ = t;
 }
 
@@ -3020,7 +2993,8 @@ TensorDomain::TensorDomain(
   NVF_CHECK(
       loop_domain_.empty() == logical_domain_.empty(),
       "logical domain and loop domain can only be both empty or neither empty");
-  ir_utils::validateDomainEquivalence(logical_domain_, loop_domain_);
+  ir_utils::validateDomainEquivalence(
+      logical_domain_, loop_domain_, additional_ids_);
 
   // resetDomains initializes other member variables, required by clang-tidy
   resetDomains();
@@ -3044,9 +3018,11 @@ TensorDomain::TensorDomain(
   NVF_CHECK(
       loop_domain_.empty() == logical_domain_.empty(),
       "logical domain and loop domain can only be both empty or neither empty");
-  ir_utils::validateDomainEquivalence(logical_domain_, loop_domain_);
+  ir_utils::validateDomainEquivalence(
+      logical_domain_, loop_domain_, additional_ids_);
   if (!root_domain_.empty()) {
-    ir_utils::validateDomainEquivalence(logical_domain_, root_domain_);
+    ir_utils::validateDomainEquivalence(
+        logical_domain_, root_domain_, additional_ids_);
   }
 
   // resetDomains initializes other member variables, required by clang-tidy
@@ -3073,12 +3049,15 @@ TensorDomain::TensorDomain(
   NVF_CHECK(
       loop_domain_.empty() == logical_domain_.empty(),
       "logical domain and loop domain can only be both empty or neither empty");
-  ir_utils::validateDomainEquivalence(logical_domain_, loop_domain_);
+  ir_utils::validateDomainEquivalence(
+      logical_domain_, loop_domain_, additional_ids_);
   if (!root_domain_.empty()) {
-    ir_utils::validateDomainEquivalence(logical_domain_, root_domain_);
+    ir_utils::validateDomainEquivalence(
+        logical_domain_, root_domain_, additional_ids_);
   }
   if (!allocation_domain_.empty()) {
-    ir_utils::validateDomainEquivalence(logical_domain_, allocation_domain_);
+    ir_utils::validateDomainEquivalence(
+        logical_domain_, allocation_domain_, additional_ids_);
   }
 
   // resetDomains initializes other member variables, required by clang-tidy
@@ -3346,9 +3325,9 @@ int64_t TensorDomain::rootPosOf(IterDomain* id) const {
   return std::distance(maybeRoot().begin(), it);
 }
 
-void TensorDomain::broadcast(int64_t axis) {
+void TensorDomain::broadcast(int64_t axis, Val* extent) {
   axis = nvfuser::wrapDim(axis, nDims() + 1);
-  IterDomain* id = IterDomainBuilder(fusion()->zeroVal(), fusion()->oneVal())
+  IterDomain* id = IterDomainBuilder(fusion()->zeroVal(), extent)
                        .iter_type(IterType::Broadcast)
                        .build();
   loop_domain_.insert(loop_domain_.begin() + axis, id);
@@ -3360,10 +3339,6 @@ void TensorDomain::split(int64_t axis, Val* factor, bool inner_split) {
   axis = wrapDim(axis);
 
   IterDomain* id = this->axis(axis);
-
-  NVF_ERROR(
-      !id->isMmaSwizzled(),
-      "Further transformation on warp mapped id's not allowed.");
 
   auto split_ids = IterDomain::split(id, factor, inner_split);
   loop_domain_.erase(loop_domain_.begin() + axis);
@@ -3384,10 +3359,6 @@ void TensorDomain::merge(int64_t axis_o, int64_t axis_i) {
 
   IterDomain* first = axis(axis_o);
   IterDomain* second = axis(axis_i);
-
-  NVF_ERROR(
-      !first->isMmaSwizzled() && !second->isMmaSwizzled(),
-      "Further transformation on warp mapped id's not allowed.");
 
   IterDomain* merged_id = IterDomain::merge(first, second);
 
@@ -3631,7 +3602,8 @@ std::pair<TensorDomain*, TensorDomain*> TensorDomain::rFactor(
 }
 
 void TensorDomain::setLoopDomain(std::vector<IterDomain*> new_loop_domain) {
-  ir_utils::validateDomainEquivalence(logical_domain_, new_loop_domain);
+  ir_utils::validateDomainEquivalence(
+      logical_domain_, new_loop_domain, additional_ids_);
   loop_domain_ = std::move(new_loop_domain);
   resetDomains();
 }
@@ -3641,7 +3613,8 @@ void TensorDomain::setAllocationDomain(
     std::vector<std::optional<bool>> new_contiguity) {
   validateContiguity(new_allocation_domain, new_contiguity);
 
-  ir_utils::validateDomainEquivalence(logical_domain_, new_allocation_domain);
+  ir_utils::validateDomainEquivalence(
+      logical_domain_, new_allocation_domain, additional_ids_);
 
   allocation_domain_ = std::move(new_allocation_domain);
   contiguity_ = std::move(new_contiguity);
@@ -4326,11 +4299,8 @@ SdpaFwdOp::SdpaFwdOp(
     IrBuilderPasskey passkey,
     TensorView* output,
     TensorView* log_sumexp,
-    TensorView* query_seq_len,
-    TensorView* key_seq_len,
     TensorView* philox_seed,
     TensorView* philox_offset,
-    TensorView* debug_attn_mask,
     Val* query,
     Val* key,
     Val* value,
@@ -4340,11 +4310,8 @@ SdpaFwdOp::SdpaFwdOp(
     : Expr(passkey) {
   addOutput(output);
   addOutput(log_sumexp);
-  addOutput(query_seq_len);
-  addOutput(key_seq_len);
   addOutput(philox_seed);
   addOutput(philox_offset);
-  addOutput(debug_attn_mask);
 
   addInput(query);
   addInput(key);
@@ -4403,7 +4370,7 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
 
   // Flash attention requires the last dimension to be padded to 8.
   // https://github.com/pytorch/pytorch/blob/c27882ffa8c1c7e4cf8ebc6c2f879e5b6c8814ad/aten/src/ATen/native/transformers/attention.cpp#L675-L677
-  const auto last_dim_size = query.sizes()[3];
+  const auto last_dim_size = query.size(-1);
   auto pad_last_dim = [last_dim_size](
                           at::Tensor inp, int alignment_size) -> at::Tensor {
     if (last_dim_size % alignment_size == 0) {
@@ -4444,29 +4411,21 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
               scale);
 
   // If the inputs were padded, slice the output to restore the original size
-  if (output.sizes()[3] != last_dim_size) {
+  if (output.size(-1) != last_dim_size) {
     output = output.slice(-1, 0, last_dim_size);
   }
 
   // Add back the device dim axis for output.
   if (handle_device_dim) {
     output = output.unsqueeze(0);
+    log_sumexp = log_sumexp.unsqueeze(0);
   }
 
-  // Query and key seq len are of type c10::SymInt -> convert them to CPU scalar
-  // tensors to support adding them as fusion outputs.
   // We ignore cum_seq_q/k outputs since they are undefined tensors for
-  // non-nested tensors.
-  return {
-      output,
-      log_sumexp,
-      at::scalar_tensor(
-          *query_seq_len.maybe_as_int(), at::device(at::kCPU).dtype(at::kLong)),
-      at::scalar_tensor(
-          *key_seq_len.maybe_as_int(), at::device(at::kCPU).dtype(at::kLong)),
-      philox_seed,
-      philox_offset,
-      debug_attn_mask};
+  // non-nested tensors. We do not store query/key_seq_len since they can be
+  // computed in non-nested tensor directly. debug_attn_mask is ignored since
+  // `return_debug_mask=false`.
+  return {output, log_sumexp, philox_seed, philox_offset};
 }
 
 std::string Scope::toString(int indent_size) const {
@@ -4834,8 +4793,6 @@ SdpaBwdOp::SdpaBwdOp(
     TensorView* value,
     TensorView* output,
     TensorView* log_sumexp,
-    TensorView* max_q,
-    TensorView* max_k,
     Val* dropout_p,
     Val* is_causal,
     TensorView* philox_seed,
@@ -4851,8 +4808,6 @@ SdpaBwdOp::SdpaBwdOp(
   addInput(value);
   addInput(output);
   addInput(log_sumexp);
-  addInput(max_q);
-  addInput(max_k);
   addInput(dropout_p);
   addInput(is_causal);
   addInput(philox_seed);
@@ -4879,10 +4834,6 @@ std::string SdpaBwdOp::toString(int indent_size) const {
   indent(ss, indent_size + 1)
       << "          logsum_exp = " << logsumexp()->toString() << ",\n";
   indent(ss, indent_size + 1)
-      << "          max_q = " << max_q()->toString() << ",\n";
-  indent(ss, indent_size + 1)
-      << "          max_k = " << max_k()->toString() << ",\n";
-  indent(ss, indent_size + 1)
       << "          dropout_p = " << dropout_p()->toInlineString() << ",\n";
   indent(ss, indent_size + 1)
       << "          is_causal = " << is_causal()->toInlineString() << ",\n";
@@ -4908,17 +4859,17 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
   // Backward tensor inputs: grad_input, query, key, value, output, logsumexp,
   // max_q/k
   std::vector<at::Tensor> bwd_inputs;
-  for (auto idx : c10::irange(8)) {
+  for (auto idx : c10::irange(6)) {
     bwd_inputs.emplace_back(inputs.at(idx).as<at::Tensor>());
   }
-  const auto dropout_p = inputs.at(8).as<double>();
-  const auto is_causal = inputs.at(9).as<bool>();
-  const auto philox_seed = inputs.at(10).as<at::Tensor>();
-  const auto philox_offset = inputs.at(11).as<at::Tensor>();
+  const auto dropout_p = inputs.at(6).as<double>();
+  const auto is_causal = inputs.at(7).as<bool>();
+  const auto philox_seed = inputs.at(8).as<at::Tensor>();
+  const auto philox_offset = inputs.at(9).as<at::Tensor>();
 
   // Flash attention requires the last dimension to be padded to 8.
   // https://github.com/pytorch/pytorch/blob/c27882ffa8c1c7e4cf8ebc6c2f879e5b6c8814ad/aten/src/ATen/native/transformers/attention.cpp#L675-L677
-  const auto last_dim_size = bwd_inputs[0].sizes()[3];
+  const auto last_dim_size = bwd_inputs[0].size(-1);
   auto pad_last_dim = [last_dim_size](
                           at::Tensor inp, int alignment_size) -> at::Tensor {
     if (last_dim_size % alignment_size == 0) {
@@ -4930,7 +4881,7 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
   };
 
   // Conmpute scale using original size of last dimension
-  double scale = inputs.size() > 12 ? inputs.back().as<double>()
+  double scale = inputs.size() > 10 ? inputs.back().as<double>()
                                     : 1.0 / std::sqrt(last_dim_size);
 
   // ATen reference:
@@ -4947,8 +4898,8 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
           /*cum_seq_q=*/at::Tensor(),
           /*cum_seq_k=*/at::Tensor(),
           // Note: ATen implementation expects max_q/max_k as scalars.
-          /*max_q=*/bwd_inputs[6].item<int64_t>(),
-          /*max_k=*/bwd_inputs[7].item<int64_t>(),
+          /*max_q=*/bwd_inputs[1].size(2),
+          /*max_k=*/bwd_inputs[2].size(2),
           /*dropout_p=*/dropout_p,
           /*is_causal=*/is_causal,
           /*philox_seed=*/philox_seed,
@@ -4957,7 +4908,7 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
 
   // If the inputs were padded, slice the gradsto restore the original size
   auto slice_last_dim = [last_dim_size](at::Tensor output) -> at::Tensor {
-    if (output.sizes()[3] != last_dim_size) {
+    if (output.size(-1) != last_dim_size) {
       return output;
     }
     return output.slice(-1, 0, last_dim_size);

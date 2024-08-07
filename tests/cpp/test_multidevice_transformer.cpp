@@ -32,6 +32,7 @@ namespace nvfuser {
 namespace {
 int64_t D = 1;
 }
+
 constexpr int64_t B = 2, E = 768, H = 12, S = 128;
 // Note parameters scaled by kParamScale following weight initialization
 // recommendations:
@@ -41,14 +42,13 @@ constexpr int64_t B = 2, E = 768, H = 12, S = 128;
 constexpr double kDropoutProb = 0.1, kParamScale = 0.02, kSdpaProb = 0.0,
                  kSdpaScale = 1e-3;
 
+
 class DistributedTransformerTest
     : public MultiDeviceTest,
       public testing::WithParamInterface<DataType> {
  protected:
   DistributedTransformerTest()
-      : optimization_guard_(false),
-        allocation_order_guard_(false),
-        alias_guard_(false) {
+      : optimization_guard_(false) {
     D = communicator_->size();
   }
 
@@ -69,16 +69,8 @@ class DistributedTransformerTest
       .cache_fusion_executor = false};
 
  private:
-  // Note: `MoveSplitCat` and `AllocationDomain` preseg passes use ID model.
-  // `SdpaFwdOp` currently does not work with ID model since it requires all
-  // sibling outputs to have the same root domain.
-  //  This will be modified in a future PR.
   preseg_passes::OptimizationPassGuard<preseg_passes::MoveSplitCatPass>
       optimization_guard_;
-  preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
-      allocation_order_guard_;
-  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
-      alias_guard_;
 };
 
 namespace {
@@ -87,7 +79,6 @@ TensorView* replicated_dropout(
     const double kProb,
     DeviceMesh mesh) {
   // Sharding propagation breaks at rand_like because it creates a fresh TV.
-  // Explicitly shard rand_vals.
   TensorView* x_float = castOp(DataType::Float, x);
   const double kScale = 1.0 / (1.0 - kProb);
   TensorView* rand_vals = rand_like(x_float);
@@ -107,7 +98,7 @@ void validate(
     // Note: Scaling tolerance up since the error accumulates across ops
     // BFloat16 error is quite high, but the program has been verified with
     // double precision to be logically correct.
-    double atol = .075 * (i + 1);
+    double atol = 0.075 * (i + 1);
     double rtol = 1.6e-2;
     auto all_close = out[i]
                          .to(expected_out[i].dtype())
@@ -513,68 +504,6 @@ TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
   validate(expected_outputs, out);
 }
 
-TEST_P(DistributedTransformerTest, MLP_Backward) {
-  auto dtype = GetParam();
-  at::ScalarType at_dtype = data_type_to_aten(dtype);
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-  auto mesh = DeviceMesh::createForNumDevices(D);
-
-  TensorView* grad = makeContigTensor(2, DataType::Float);
-  TensorView* x = makeContigTensor(2, dtype);
-  TensorView* mask = makeContigTensor(2, DataType::Bool);
-  TensorView* w0 = makeContigTensor(3, dtype);
-  TensorView* b0 = makeContigTensor(2, dtype);
-  TensorView* w1 = makeContigTensor(3, dtype);
-
-  fusion->addInput(grad);
-  fusion->addInput(x);
-  fusion->addInput(mask);
-  fusion->addInput(w0);
-  fusion->addInput(b0);
-  fusion->addInput(w1);
-
-  std::vector<TensorView*> tv_outs =
-      mlp_backwards(grad, x, mask, w0, b0, w1, fusion.get(), mesh, dtype);
-
-  for (TensorView* tv : tv_outs) {
-    fusion->addOutput(tv);
-  }
-
-  const auto options =
-      at::TensorOptions().dtype(at_dtype).device(communicator_->device());
-  auto grad_ = at::randn({B * S, E}, options).to(at::kFloat);
-  auto x_ = at::randn({B * S, E}, options);
-  auto mask_ = at::randn({B * S, E}, options).lt(1.0 - kDropoutProb);
-  auto mlp_w0_ = at::randn({E, 4 * E}, options) * kParamScale;
-  auto mlp_b0_ = at::randn({4 * E}, options) * kParamScale;
-  auto mlp_w1_ = at::randn({4 * E, E}, options) * kParamScale;
-
-  std::vector<at::Tensor> outs = reference_mlp_backwards(
-      grad_, x_, mask_, mlp_w0_, mlp_b0_, mlp_w1_, at_dtype);
-
-  std::vector<c10::IValue> inputs = {
-      grad_,
-      x_,
-      mask_,
-      shardTensor(mlp_w0_, 1, mesh),
-      shardTensor(mlp_b0_, 0, mesh),
-      shardTensor(mlp_w1_, 0, mesh)};
-  std::vector<at::Tensor> expected_outputs = {
-      outs[0], // dropout grad
-      shardTensor(outs[1], 0, mesh), // linear1 weight grad
-      outs[2], // linear1 bias grad
-      shardTensor(outs[3], 1, mesh), // gelu grad
-      shardTensor(outs[4], 1, mesh), // linear0 weight grad
-      shardTensor(outs[5], 0, mesh), // linear0 bias grad
-      outs[6]}; // linear0 grad
-
-  MultiDeviceExecutor runtime(
-      std::move(fusion), *communicator_, executor_params_);
-  auto outputs = runtime.runWithInput(inputs);
-  validate(expected_outputs, outputs);
-}
-
 TEST_P(DistributedTransformerTest, Forward) {
   auto dtype = DataType::Half;
   at::ScalarType at_dtype = data_type_to_aten(dtype);
@@ -679,6 +608,69 @@ TEST_P(DistributedTransformerTest, Forward) {
       std::move(fusion), *communicator_, executor_params_);
   at::manual_seed(getATenRandomSeed());
   auto outputs = runtime.runWithInput(inputs);
+  validate(expected_outputs, outputs);
+}
+
+TEST_P(DistributedTransformerTest, MLP_Backward) {
+  auto dtype = GetParam();
+  at::ScalarType at_dtype = data_type_to_aten(dtype);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto mesh = DeviceMesh::createForNumDevices(D);
+
+  TensorView* grad = makeContigTensor(2, DataType::Float);
+  TensorView* x = makeContigTensor(2, dtype);
+  TensorView* mask = makeContigTensor(2, DataType::Bool);
+  TensorView* w0 = makeContigTensor(3, dtype);
+  TensorView* b0 = makeContigTensor(2, dtype);
+  TensorView* w1 = makeContigTensor(3, dtype);
+
+  fusion->addInput(grad);
+  fusion->addInput(x);
+  fusion->addInput(mask);
+  fusion->addInput(w0);
+  fusion->addInput(b0);
+  fusion->addInput(w1);
+
+  std::vector<TensorView*> tv_outs =
+      mlp_backwards(grad, x, mask, w0, b0, w1, fusion.get(), mesh, dtype);
+
+  for (TensorView* tv : tv_outs) {
+    fusion->addOutput(tv);
+  }
+
+  const auto options =
+      at::TensorOptions().dtype(at_dtype).device(communicator_->device());
+  auto grad_ = at::randn({B * S, E}, options).to(at::kFloat);
+  auto x_ = at::randn({B * S, E}, options);
+  auto mask_ = at::randn({B * S, E}, options).lt(1.0 - kDropoutProb);
+  auto mlp_w0_ = at::randn({E, 4 * E}, options) * kParamScale;
+  auto mlp_b0_ = at::randn({4 * E}, options) * kParamScale;
+  auto mlp_w1_ = at::randn({4 * E, E}, options) * kParamScale;
+
+  std::vector<at::Tensor> outs = reference_mlp_backwards(
+      grad_, x_, mask_, mlp_w0_, mlp_b0_, mlp_w1_, at_dtype);
+
+  std::vector<c10::IValue> inputs = {
+      grad_,
+      x_,
+      mask_,
+      shardTensor(mlp_w0_, 1, mesh),
+      shardTensor(mlp_b0_, 0, mesh),
+      shardTensor(mlp_w1_, 0, mesh)};
+  std::vector<at::Tensor> expected_outputs = {
+      outs[0], // dropout grad
+      shardTensor(outs[1], 0, mesh), // linear1 weight grad
+      outs[2], // linear1 bias grad
+      shardTensor(outs[3], 1, mesh), // gelu grad
+      shardTensor(outs[4], 1, mesh), // linear0 weight grad
+      shardTensor(outs[5], 0, mesh), // linear0 bias grad
+      outs[6]}; // linear0 grad
+
+  MultiDeviceExecutor runtime(
+      std::move(fusion), *communicator_, executor_params_);
+  auto outputs = runtime.runWithInput(inputs);
+  
   validate(expected_outputs, outputs);
 }
 

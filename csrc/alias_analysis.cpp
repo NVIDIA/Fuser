@@ -17,6 +17,7 @@
 #include <ir/utils.h>
 #include <linked_hash_map.h>
 #include <logical_domain_map.h>
+#include <multidevice/utils.h>
 
 namespace nvfuser {
 
@@ -236,12 +237,16 @@ void AliasFinder::handle(const ViewOp* view) {
   analysis_.add(out, in, std::move(out_logical_layout));
 }
 
-void AliasFinder::handle(const LoadStoreOp* permute) {
-  TensorView* in = dynamic_cast<TensorView*>(permute->in());
+void AliasFinder::handle(const LoadStoreOp* set) {
+  if (isResharding(set)) {
+    return;
+  }
+
+  TensorView* in = dynamic_cast<TensorView*>(set->in());
   if (in == nullptr) {
     return;
   }
-  TensorView* out = permute->out()->as<TensorView>();
+  TensorView* out = set->out()->as<TensorView>();
 
   // Compute `out`'s preferred allocation domain for aliasing.
   //
