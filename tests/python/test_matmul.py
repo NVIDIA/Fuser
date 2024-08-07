@@ -9,7 +9,7 @@ from utils import NVFuserTest
 import itertools
 from functools import partial
 import torch.nn.functional as F
-import pytest
+
 
 class TestMatmul(NVFuserTest):
     def test_matmul(self):

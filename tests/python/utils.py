@@ -177,6 +177,10 @@ def serde_check(test_fn: Callable):
 class NVFuserTest(TestCase):
     @classmethod
     def setup_class(cls):
+        '''
+        Setup is run once at the class level, before running any tests of the class.
+        `atexit_serde_check` enables automatic serialization at the end of the test suite.
+        '''
         torch.manual_seed(0)
         atexit_serde_check()
 
@@ -186,7 +190,10 @@ class NVFuserTest(TestCase):
     @serde_check
     def exec_nvfuser(
         self, fusion_func, inputs, *, new_fusion_expected=True, device=None
-    ):
+    ):  
+        # Resetting the torch seed in case a test function modified it.
+        # Ideally, this should not be needed and individual test functions should reset the RNG state or use torch.random.fork_rng_state
+        torch.manual_seed(0)
         fc = FusionCache.get()
         before_fusions = fc.num_fusions()
         # Copy inputs because aliased outputs can modify inputs when running

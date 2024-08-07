@@ -12,10 +12,8 @@ from typing import List
 
 import torch
 import torch.nn.functional as F
-from torch.testing._internal.common_utils import run_tests
 import torch._refs as refs
 import torch._prims as prims
-import unittest
 
 from nvfuser import (
     FusionDefinition,
@@ -32,14 +30,13 @@ from utils import (
     is_pre_volta,
     is_pre_ampere,
     is_pre_hopper,
-    check_captured_python_definition,
-    basic_serde_check,
     debug_serde,
-    NVFuserTest
+    NVFuserTest,
 )
 import pytest
 
-@unittest.skipIf(is_pre_volta(), "Only supported on Volta and newer devices.")
+
+@pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
 class TestNvFuserFrontend(NVFuserTest):
     def test_basic(self):
         inputs = [
@@ -2446,6 +2443,8 @@ class TestNvFuserFrontend(NVFuserTest):
             with FusionDefinition() as fd_det:
                 fusion_func(fd_det, deterministic=True)
 
+            # Get the current RNG state to restore after this test.
+            state = torch.cuda.get_rng_state()
             # Test with three different random seeds
             for _ in range(3):
                 max_seed = 2**63 - 1
@@ -2464,6 +2463,8 @@ class TestNvFuserFrontend(NVFuserTest):
                     zip(stateful_sequence, stateless_sequence)
                 ):
                     torch.testing.assert_close(sful[0], sless[0])
+            # Restore the RNG state
+            torch.cuda.set_rng_state(state)
 
     # Test expand to zero is replaced with expanded extent and not 1
     # see https://github.com/NVIDIA/Fuser/issues/603
@@ -4280,7 +4281,9 @@ class TestNvFuserFrontend(NVFuserTest):
         ):
             nvf_out = fd.execute([tensor_inp, 2.0 + 1.0j])
 
-    @unittest.skipIf(is_pre_ampere(), "Only supported on Ampere and newer devices.")
+    @pytest.mark.skipif(
+        is_pre_ampere(), reason="Only supported on Ampere and newer devices."
+    )
     def test_sdpa_fwd(self):
         def fusion_func(
             fd: FusionDefinition, has_dropout: bool, has_causal: bool, has_scale: bool
@@ -4355,8 +4358,8 @@ class TestNvFuserFrontend(NVFuserTest):
                 dropout_p = 0.0 if dropout_p is None else dropout_p
                 is_causal = False if is_causal is None else is_causal
 
-                with sdpa_kernel(SDPBackend.FLASH_ATTENTION):
-                    with torch.random.fork_rng(devices=[torch.cuda.current_device()]):
+                with torch.random.fork_rng(devices=[torch.cuda.current_device()]):
+                    with sdpa_kernel(SDPBackend.FLASH_ATTENTION):
                         ref_out = F.scaled_dot_product_attention(
                             *qkv, dropout_p=dropout_p, is_causal=is_causal, scale=scale
                         )
