@@ -501,6 +501,69 @@ TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
   validate(expected_outputs, out);
 }
 
+TEST_P(DistributedTransformerTest, MLP_Backward) {
+  auto dtype = GetParam();
+  at::ScalarType at_dtype = data_type_to_aten(dtype);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto mesh = DeviceMesh::createForNumDevices(D);
+
+  TensorView* grad = makeContigTensor(2, DataType::Float);
+  TensorView* x = makeContigTensor(2, dtype);
+  TensorView* mask = makeContigTensor(2, DataType::Bool);
+  TensorView* w0 = makeContigTensor(3, dtype);
+  TensorView* b0 = makeContigTensor(2, dtype);
+  TensorView* w1 = makeContigTensor(3, dtype);
+
+  fusion->addInput(grad);
+  fusion->addInput(x);
+  fusion->addInput(mask);
+  fusion->addInput(w0);
+  fusion->addInput(b0);
+  fusion->addInput(w1);
+
+  std::vector<TensorView*> tv_outs =
+      mlp_backwards(grad, x, mask, w0, b0, w1, fusion.get(), mesh, dtype);
+
+  for (TensorView* tv : tv_outs) {
+    fusion->addOutput(tv);
+  }
+
+  const auto options =
+      at::TensorOptions().dtype(at_dtype).device(communicator_->device());
+  auto grad_ = at::randn({B * S, E}, options).to(at::kFloat);
+  auto x_ = at::randn({B * S, E}, options);
+  auto mask_ = at::randn({B * S, E}, options).lt(1.0 - kDropoutProb);
+  auto mlp_w0_ = at::randn({E, 4 * E}, options) * kParamScale;
+  auto mlp_b0_ = at::randn({4 * E}, options) * kParamScale;
+  auto mlp_w1_ = at::randn({4 * E, E}, options) * kParamScale;
+
+  std::vector<at::Tensor> outs = reference_mlp_backwards(
+      grad_, x_, mask_, mlp_w0_, mlp_b0_, mlp_w1_, at_dtype);
+
+  std::vector<c10::IValue> inputs = {
+      grad_,
+      x_,
+      mask_,
+      shardTensor(mlp_w0_, 1, mesh),
+      shardTensor(mlp_b0_, 0, mesh),
+      shardTensor(mlp_w1_, 0, mesh)};
+  std::vector<at::Tensor> expected_outputs = {
+      outs[0], // dropout grad
+      shardTensor(outs[1], 0, mesh), // linear1 weight grad
+      outs[2], // linear1 bias grad
+      shardTensor(outs[3], 1, mesh), // gelu grad
+      shardTensor(outs[4], 1, mesh), // linear0 weight grad
+      shardTensor(outs[5], 0, mesh), // linear0 bias grad
+      outs[6]}; // linear0 grad
+
+  MultiDeviceExecutor runtime(
+      std::move(fusion), *communicator_, executor_params_);
+  auto outputs = runtime.runWithInput(inputs);
+
+  validate(expected_outputs, outputs);
+}
+
 INSTANTIATE_TEST_SUITE_P(
     ,
     DistributedTransformerTest,

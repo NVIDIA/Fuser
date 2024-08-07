@@ -155,14 +155,10 @@ bool haveDifferentShardings(
       PairwiseLogicalDomainMap(producer, consumer).mapProducerToConsumer();
   for (auto p_id : TensorDomain::noReductions(producer->getLogicalDomain())) {
     auto p2c_map_it = p2c_map.find(p_id);
-    NVF_ERROR(
-        p2c_map_it != p2c_map.end(),
-        "the producer ",
-        producer,
-        " has a dimension ",
-        p_id,
-        " that is not mapped to its consumer ",
-        consumer);
+    if (p2c_map_it == p2c_map.end()) {
+      continue;
+    }
+
     auto c_id = p2c_map_it->second;
     if (p_id->getParallelType() != c_id->getParallelType() &&
         (p_id->isDeviceDim() || c_id->isDeviceDim())) {
@@ -174,7 +170,7 @@ bool haveDifferentShardings(
 }
 
 bool isResharding(const Expr* expr) {
-  if (!ir_utils::isTvOp(expr) || expr->isA<SdpaFwdOp>()) {
+  if (!ir_utils::isTvOp(expr)) {
     return false;
   }
 
