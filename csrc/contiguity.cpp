@@ -147,7 +147,12 @@ void OrderedIdInformation::handle(Merge* merge) {
     //  merge is bigger than the vectorization dimension. And that the tensor
     //  buffer supports the vector word size (always done).
     //
-    // This shouldn't matter when using the IdModel-based indexer
+    // This shouldn't matter when using the IdModel-based
+    // indexer. When concretized, that should be reflected with the
+    // indexing path, and as long as the indexing path has a
+    // contiguous merge, its output should be safe to index. See
+    // also ContigIndexingTest.ConcretizedBroadcastMerge for a
+    // concrete example.
     bool outer_is_concretized_bcast =
         merge->outer()->isBroadcast() && isConcretized(merge->outer());
     bool inner_is_concretized_bcast =

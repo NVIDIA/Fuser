@@ -53,6 +53,12 @@ class OrderedIdInformation : public OptInDispatch {
         exclusively_consumes_allocs_.end();
   }
 
+  virtual std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>>::
+      const_iterator
+      findAllocIDs(IterDomain* id) const {
+    return id_to_alloc_ids_.find(id);
+  }
+
  protected:
   OrderedIdInformation(
       const std::vector<IterDomain*>& alloc_domain,
@@ -87,12 +93,6 @@ class OrderedIdInformation : public OptInDispatch {
     auto it = findActiveId(id);
     NVF_ERROR(it != active_ids_.end());
     return std::distance(active_ids_.begin(), it);
-  }
-
-  virtual std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>>::
-      const_iterator
-      findAllocIDs(IterDomain* id) const {
-    return id_to_alloc_ids_.find(id);
   }
 
   bool isConcretized(IterDomain* id) const {

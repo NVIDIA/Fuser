@@ -15,12 +15,10 @@ ContigIDGroups::ContigIDGroups(
     const std::vector<IterDomain*>& alloc_domains,
     std::vector<bool> contiguity,
     const ExprPath<ExprGroup>& path_from_alloc,
-    const ValGraph& graph,
-    bool is_predicate_pass)
+    const ValGraph& graph)
     : graph_(graph),
       alloc_domains_(alloc_domains),
       contiguity_(std::move(contiguity)),
-      is_predicate_pass_(is_predicate_pass),
       consistent_transform_info_(
           std::make_unique<const OrderedIdGroupInformation>(
               OrderedIdGroupInformation::get(
@@ -89,14 +87,10 @@ void ContigIDGroups::handle(Merge* merge, Direction direction) {
     return;
   }
 
-  const bool is_indexing_pass = !is_predicate_pass_;
-  const bool ignore_consistent_ordering = is_predicate_pass_;
-
   // If output is not consistently ordered or doesn't solely consume all
   // allocation domains in its dependencies, then it can't be a contiguously
   // indexable iterdomain.
-  if (!(ignore_consistent_ordering ||
-        consistent_transform_info_->isConsistentlyOrdered(merge->out()))) {
+  if (!consistent_transform_info_->isConsistentlyOrdered(merge->out())) {
     return;
   }
 
@@ -105,46 +99,22 @@ void ContigIDGroups::handle(Merge* merge, Direction direction) {
   }
 
   // Check allocation domains for contiguity
-  auto alloc_ids_it =
-      consistent_transform_info_->idToAllocIds().find(merge->out());
-
-  NVF_ERROR(
-      alloc_ids_it != consistent_transform_info_->idToAllocIds().end(),
-      "\nError in contiguous analysis, merge info doesn't exist for:\n",
-      merge->toString(),
-      "\nId: ",
-      merge->out()->toString());
-
-  if (is_indexing_pass) {
-    VectorOfUniqueEntries<IterDomain*> alloc_ids = alloc_ids_it->second;
-    for (auto alloc_id_i : c10::irange(alloc_domains_.size())) {
-      auto alloc_id = alloc_domains_[alloc_id_i];
-      if (!alloc_ids.has(alloc_id)) {
-        continue;
-      }
-      alloc_ids.erase(alloc_id);
-      // If we're indexing:
-      // we could still potentially consider this ID linearly indexable, as we
-      // could multiple the index by the last allocation's stride.
-      //
-      // If we're computing predicates (ignore_consistent_ordering_==true),
-      // then we don't have this same constraint, we can just ignore
-      // contiguity of the allocations all together.
-      auto alloc_contiguity = contiguity_.at(alloc_id_i);
-      if (!alloc_contiguity && !alloc_ids.empty()) {
-        return;
-      }
+  auto alloc_ids_it = consistent_transform_info_->findAllocIDs(merge->out());
+  VectorOfUniqueEntries<IterDomain*> alloc_ids = alloc_ids_it->second;
+  for (auto alloc_id_i : c10::irange(alloc_domains_.size())) {
+    auto alloc_id = alloc_domains_[alloc_id_i];
+    if (!alloc_ids.has(alloc_id)) {
+      continue;
     }
-  }
-
-  // If there's a non-divisible
-  // split in the history of merge->out then the extents of the inputs
-  // and also the outputs may be expanded due to ceilDiv. Predicate
-  // indexng needs to avoid contiguous indexing. Non-predicate
-  // indexing should have no such constraint.
-  if (is_predicate_pass_ &&
-      non_divisible_deps_.count(graph_.toGroup(merge->out()))) {
-    return;
+    alloc_ids.erase(alloc_id);
+    auto alloc_contiguity = contiguity_.at(alloc_id_i);
+    // If we're indexing:
+    // we could still potentially consider this ID linearly indexable, as we
+    // could multiple the index by the last allocation's stride. See
+    // ContigIndexingTest.NonContigInnermost for a concrete example.
+    if (!alloc_contiguity && !alloc_ids.empty()) {
+      return;
+    }
   }
 
   // Don't allow contig indexing after resize as we need traverse back
@@ -191,17 +161,12 @@ void ContigIDGroups::handle(Resize* resize, Direction direction) {
 }
 
 std::unordered_map<IterDomain*, ValGroup> getContigDomains(
-    const std::vector<IterDomain*>& index_domains,
-    const std::vector<bool>& contiguity,
-    const ExprPath<ExprGroup>& path_from_index_domains,
-    const ValGraph& graph,
-    bool is_predicate_pass) {
+    const std::vector<IterDomain*>& alloc_domains,
+    const std::vector<bool>& alloc_contiguity,
+    const ExprPath<ExprGroup>& path_from_alloc,
+    const ValGraph& graph) {
   ContigIDGroups contig_finder(
-      index_domains,
-      contiguity,
-      path_from_index_domains,
-      graph,
-      is_predicate_pass);
+      alloc_domains, alloc_contiguity, path_from_alloc, graph);
 
   return contig_finder.allocToContigIDs();
 }

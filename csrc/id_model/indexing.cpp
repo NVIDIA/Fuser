@@ -1226,8 +1226,7 @@ std::pair<std::vector<ValGroup>, std::vector<Val*>> TensorIndexer::
           alloc_info.domains,
           alloc_info.contiguity,
           reverse(traversal_path),
-          traversalGraph(),
-          false);
+          traversalGraph());
 
   // Find contiguous domains to index
   std::unordered_set<ValGroup> already_indexed_domains;

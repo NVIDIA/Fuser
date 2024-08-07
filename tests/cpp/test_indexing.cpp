@@ -4499,7 +4499,7 @@ TEST_F(ContigIndexingTest, NonContigInnermost) {
   // [I0, I1*I2]
 
   // Since the i1 contig flag is true, the merge is contiguous even
-  // though i2 is not contiguos. The producer index of tv0 should be:
+  // though i2 is not contiguous. The producer index of tv0 should be:
   // i0 * I0_stride + i1 * I2_stride. The stride of I0 should be
   // calculated as I2_stride * I2_extent * I1_extent.
   //
