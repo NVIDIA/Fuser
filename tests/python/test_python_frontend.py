@@ -4527,11 +4527,11 @@ class TestNvFuserFrontend(TestCase):
             )
             dropout_p, is_causal, scale = None, None, None
             if has_dropout:
-                dropout_p = fd.define_scalar(None, dtype=DataType.Double)
+                dropout_p = fd.define_scalar(value=None, dtype=DataType.Double)
             if has_causal:
-                is_causal = fd.define_scalar(None, dtype=DataType.Bool)
+                is_causal = fd.define_scalar(value=None, dtype=DataType.Bool)
             if has_scale:
-                scale = fd.define_scalar(None, dtype=DataType.Double)
+                scale = fd.define_scalar(value=None, dtype=DataType.Double)
             attn, *intermediate_results = fd.ops.sdpfa_fwd(
                 q, k, v, dropout_p, is_causal, scale
             )
@@ -4651,11 +4651,11 @@ class TestNvFuserFrontend(TestCase):
 
             dropout_p, is_causal, scale = None, None, None
             if has_dropout:
-                dropout_p = fd.define_scalar(None, dtype=DataType.Double)
+                dropout_p = fd.define_scalar(value=None, dtype=DataType.Double)
             if has_causal:
-                is_causal = fd.define_scalar(None, dtype=DataType.Bool)
+                is_causal = fd.define_scalar(value=None, dtype=DataType.Bool)
             if has_scale:
-                scale = fd.define_scalar(None, dtype=DataType.Double)
+                scale = fd.define_scalar(value=None, dtype=DataType.Double)
 
             grad_query, grad_key, grad_value = fd.ops.sdpfa_bwd(
                 grad_output,
@@ -4789,11 +4789,11 @@ class TestNvFuserFrontend(TestCase):
 
             dropout_p, is_causal, scale = None, None, None
             if has_dropout:
-                dropout_p = fd.define_scalar(None, dtype=DataType.Double)
+                dropout_p = fd.define_scalar(value=None, dtype=DataType.Double)
             if has_causal:
-                is_causal = fd.define_scalar(None, dtype=DataType.Bool)
+                is_causal = fd.define_scalar(value=None, dtype=DataType.Bool)
             if has_scale:
-                scale = fd.define_scalar(None, dtype=DataType.Double)
+                scale = fd.define_scalar(value=None, dtype=DataType.Double)
 
             output, log_sumexp, philox_seed, philox_offset = fd.ops.sdpfa_fwd(
                 q, k, v, dropout_p, is_causal, scale

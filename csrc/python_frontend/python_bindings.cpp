@@ -2931,19 +2931,19 @@ void initNvFuserPythonBindings(PyObject* module) {
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;
         size_t ndims = query.dims;
-        Tensor grad_query = fd->defineTensor(ndims);
-        Tensor grad_key = fd->defineTensor(ndims);
-        Tensor grad_value = fd->defineTensor(ndims);
+        Tensor grad_query = fd->defineTensor(/*dims=*/ndims);
+        Tensor grad_key = fd->defineTensor(/*dims=*/ndims);
+        Tensor grad_value = fd->defineTensor(/*dims=*/ndims);
 
         auto dropout_p_state = dropout_p.has_value()
             ? fd->recordingState(dropout_p.value()())
-            : State(0, serde::StateType::None);
+            : State(/*_index=*/0, /*_stype=*/serde::StateType::None);
         auto is_causal_state = is_causal.has_value()
             ? fd->recordingState(is_causal.value()())
-            : State(0, serde::StateType::None);
+            : State(/*_index=*/0, /*_stype=*/serde::StateType::None);
         auto scale_state = scale.has_value()
             ? fd->recordingState(scale.value()())
-            : State(0, serde::StateType::None);
+            : State(/*_index=*/0, /*_stype=*/serde::StateType::None);
 
         fd->defineRecord(new SdpaBwdOpRecord(
             {fd->recordingState(grad_output()),
