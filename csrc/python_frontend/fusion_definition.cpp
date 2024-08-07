@@ -107,7 +107,7 @@ void FusionDefinition::finalizeDefinition() {
   }
 
   NVF_ERROR(num_recording_states_presched_ == 0);
-  num_recording_states_presched_ = recording_state_.size();
+  num_recording_states_presched_ = (int64_t)recording_state_.size();
 }
 
 void FusionDefinition::findHiddenTensorViews(Fusion* fusion) {
