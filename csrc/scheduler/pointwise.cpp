@@ -209,12 +209,30 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
   const std::unordered_map<int64_t, int64_t>& logical_reorder_map =
       logical_reorder_map_entry.get();
 
+  std::cout << "\nbefore reorder: " << largest_out->toString() << std::endl;
+  largest_out->printTransforms();
+
+  std::cout << "\nlogical_reorder_map.empty(): " << logical_reorder_map.empty() << std::endl;
+  for(auto [i, j] : logical_reorder_map) {
+    std::cout << "(" << i << ", " << j << "), ";
+  }
+  std::cout << std::endl;
   auto ref_root = largest_out->getLogicalDomain();
   // reorder of root to align with logical map should always help with indexing,
   // even when vectorization isn't used.
   if (!logical_reorder_map.empty()) {
     ref_root = TensorDomain::orderedAs(ref_root, logical_reorder_map);
   }
+
+  std::cout << "\nafter reorder: " << largest_out->toString() << std::endl;
+  largest_out->printTransforms();
+
+  std::cout << "\nref_root: ";
+  for(auto id : ref_root) {
+    std::cout << id->toString() << ", ";
+  }
+  std::cout << std::endl;
+
   // We always cacheBefore output at the beginning of the scheduling. And after
   // cacheBefore, the reference tensor will have all reduction IDs removed.
   ref_root = TensorDomain::noDevices(TensorDomain::noReductions(ref_root));
