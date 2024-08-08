@@ -9,6 +9,7 @@
 #include <compute_at_map.h>
 #include <device_lower/utils.h>
 #include <ir/internal_base_nodes.h>
+#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
 #include <multidevice/lower_communication.h>
@@ -103,37 +104,43 @@ std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getShardingChanges
   return std::make_pair(shard_additions, shard_deletions);
 }
 
-bool isSharded(TensorView* tv) {
+bool isSharded(const TensorView* tv) {
   bool is_sharded = false;
-  auto rids = TensorDomain::noReductions(tv->getLogicalDomain());
-  auto ids = TensorDomain::noReductions(tv->getLoopDomain());
-  for (auto i : c10::irange(ids.size())) {
+  const auto& logical_ids = TensorDomain::noReductions(tv->getLogicalDomain());
+  const auto& loop_ids = TensorDomain::noReductions(tv->getLoopDomain());
+  for (auto i : c10::irange(loop_ids.size())) {
+    if (!loop_ids[i]->isDeviceDim()) {
+      continue;
+    }
+
     // Only one axis can be sharded on DIDx.
     NVF_ERROR(
-        !(is_sharded && ids[i]->isDeviceDim()),
+        !is_sharded,
         "Multiple IterDomains parallelized on DIDx in TensorView ",
-        tv->toString());
+        tv);
 
-    if (ids[i]->isDeviceDim()) {
-      // Currently do not support split/merge on a device dimension.
-      NVF_ERROR(
-          std::find(rids.begin(), rids.end(), ids[i]) != rids.end(),
-          "Cannot parallelize DIDx on a split/merge axis ",
-          ids[i]->toString());
-      is_sharded = true;
-    }
+    // Currently do not support split/merge on a device dimension.
+    NVF_ERROR(
+        std::find(logical_ids.begin(), logical_ids.end(), loop_ids[i]) !=
+            logical_ids.end(),
+        "Cannot parallelize DIDx on a split/merge axis ",
+        loop_ids[i]);
+
+    is_sharded = true;
   }
   return is_sharded;
 }
 
-int64_t numDeviceDims(TensorView* tv) {
+int64_t numDeviceDims(const TensorView* tv) {
   return std::count_if(
       tv->getLoopDomain().begin(),
       tv->getLoopDomain().end(),
       [](IterDomain* id) { return id->isDeviceDim(); });
 }
 
-bool haveDifferentShardings(TensorView* producer, TensorView* consumer) {
+bool haveDifferentShardings(
+    const TensorView* producer,
+    const TensorView* consumer) {
   // exit early in the unsharded case for performance
   if (!producer->hasDeviceMesh() && !consumer->hasDeviceMesh()) {
     return false;
@@ -167,20 +174,22 @@ bool haveDifferentShardings(TensorView* producer, TensorView* consumer) {
   return false;
 }
 
-bool isResharding(Expr* expr) {
+bool isResharding(const Expr* expr) {
   if (!ir_utils::isTvOp(expr)) {
     return false;
   }
-  // we don't use getTvsWithDifferentSharding because it creates a computeAtMap,
+
+  // We don't use getTvsWithDifferentSharding because it creates a computeAtMap,
   // which is too costly
-  for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
-    for (auto output : ir_utils::filterByType<TensorView>(expr->outputs())) {
+  for (auto* input : ir_utils::filterByType<TensorView>(expr->inputs())) {
+    for (auto* output : ir_utils::filterByType<TensorView>(expr->outputs())) {
       // exit early in the unsharded case for performance
       if (haveDifferentShardings(input, output)) {
         return true;
       }
     }
   }
+
   return false;
 }
 

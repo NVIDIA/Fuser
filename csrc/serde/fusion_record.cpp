@@ -308,6 +308,12 @@ void RecordFunctorFactory::registerAllParsers() {
         Val*>(ternary_alpha_val, RecordType::Ternary_Alpha_VAL, buffer);
   };
   registerParser(RecordType::Ternary_Alpha_VAL, ternary_alpha_val_parser);
+
+  auto deserializeSdpaFwdRecord = [&](const RecordFunctor* buffer) {
+    return new python_frontend::SdpaFwdOpRecord(
+        parseStateArgs(buffer->args()), parseStateArgs(buffer->outputs()));
+  };
+  registerParser(RecordType::SdpaFwdOp, deserializeSdpaFwdRecord);
   // END OpRecord Parsers
 
   // START Reduction Parsers
