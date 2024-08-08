@@ -27,7 +27,7 @@ bool ExprEvalScheduler::canScheduleCompileTime(Fusion* fusion) {
   }
 
   if (exprs.front()->isOneOf<LinearOp, MatmulOp>()) {
-    if (!isOptionDisabled(DisableOption::MatmulExprEval)) {
+    if (isOptionDisabled(DisableOption::MatmulExprEval)) {
       scheduler_debug_utils::canScheduleRejectReason(
           heuristicType(),
           "Matmul ATen evaluation was disabled by NVFUSER_DISABLE=matmul_expr_eval");
