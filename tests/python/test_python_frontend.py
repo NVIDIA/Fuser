@@ -4584,6 +4584,55 @@ class TestNvFuserFrontend(TestCase):
                     )
                 torch.testing.assert_close(nvf_out[0], ref_out)
 
+    # Test that replaced sizes using input tensor metadata are successfully computed
+    # See https://github.com/NVIDIA/Fuser/pull/2714 which surfaced this in
+    # failing thunder test
+    # thunder.tests.test_core.test_bsym_toposort_nvfuser_cuda_thunder.dtypes.float32
+    def test_replaced_sizes_pr2714(self):
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.define_tensor(
+                shape=[-1, -1],
+                contiguity=[True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[1, 0],
+            )
+            T1 = fd.define_tensor(
+                shape=[-1, -1],
+                contiguity=[True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[1, 0],
+            )
+            T2 = fd.ops.exp(T0)
+            T3 = fd.ops.tanh(T1)
+            S4 = fd.define_scalar(4, dtype=DataType.Int)
+            V5 = fd.define_vector([S4], dtype=DataType.Int)
+            T6 = fd.ops.reshape(T2, new_shape=V5)
+            S7 = fd.define_scalar(4, dtype=DataType.Int)
+            V8 = fd.define_vector([S7], dtype=DataType.Int)
+            T9 = fd.ops.reshape(T3, new_shape=V8)
+            T10 = fd.ops.add(T6, T9)
+            T11 = fd.ops.reciprocal(T0)
+            T12 = fd.ops.mul(T3, T11)
+            S13 = fd.define_scalar(2.00000, dtype=DataType.Double)
+            S14 = fd.ops.reciprocal(S13)
+            T15 = fd.ops.mul(T10, S14)
+            fd.add_output(T10)
+            fd.add_output(T12)
+            fd.add_output(T15)
+
+        inputs = [
+            torch.randn((4,), dtype=torch.float32, device="cuda:0").as_strided(
+                (2, 2), (2, 1)
+            ),
+            torch.randn((4,), dtype=torch.float32, device="cuda:0").as_strided(
+                (2, 2), (2, 1)
+            ),
+        ]
+
+        self.exec_nvfuser(fusion_func, inputs)
+
 
 if __name__ == "__main__":
     run_tests()
