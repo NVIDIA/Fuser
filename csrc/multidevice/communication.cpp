@@ -154,28 +154,6 @@ Communication::Communication(
   addInput(in);
   addOutput(out);
   addDataAttribute(type);
-  addDataAttribute(DeviceMesh());
-  addDataAttribute(team);
-  addDataAttribute(root);
-  addDataAttribute(red_op);
-  addDataAttribute(scattered_axis);
-
-  validate();
-}
-
-Communication::Communication(
-    IrBuilderPasskey passkey,
-    CommunicationType type,
-    DeviceMesh mesh,
-    Team team,
-    DeviceIdxType root,
-    RedOpType red_op,
-    int64_t scattered_axis)
-    : Expr(passkey) {
-  NVF_ERROR(mesh.size() > 0, "The mesh size must be greater than 0.");
-
-  addDataAttribute(type);
-  addDataAttribute(mesh);
   addDataAttribute(team);
   addDataAttribute(root);
   addDataAttribute(red_op);

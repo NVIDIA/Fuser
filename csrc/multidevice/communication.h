@@ -61,21 +61,6 @@ class Communication : public Expr {
       RedOpType red_op = RedOpType::UNUSED,
       int64_t scattered_axis = -1);
 
-  // Currently, it's only used by CommuniationTest for conciseness. In the
-  // future, it may be used to construct `Communication`s inside a
-  // `PostOnStream`, which if needed can take I/O TVs from the containing
-  // `PostOnStream`.
-  Communication(
-      IrBuilderPasskey passkey,
-      CommunicationType type,
-      DeviceMesh mesh,
-      Team team, // All devices involved in this communication. It must include
-                 // `root`. It can be a subset of `root`+`mesh` in case of 2D
-                 // sharding.
-      DeviceIdxType root = -1,
-      RedOpType red_op = RedOpType::UNUSED,
-      int64_t scattered_axis = -1);
-
   Communication(const Communication& other) = delete;
   Communication& operator=(const Communication& other) = delete;
   Communication(Communication&& other) = delete;
@@ -102,12 +87,11 @@ class Communication : public Expr {
   }
 
   const DeviceMesh& senderMesh() const {
-    return inputs().empty() ? attribute<DeviceMesh>(1) : in()->getDeviceMesh();
+    return in()->getDeviceMesh();
   }
 
   const DeviceMesh& receiverMesh() const {
-    return outputs().empty() ? attribute<DeviceMesh>(1)
-                             : out()->getDeviceMesh();
+    return out()->getDeviceMesh();
   }
 
   const Team& team() const {
