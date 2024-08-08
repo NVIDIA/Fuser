@@ -11,6 +11,7 @@
 #include <ir/builder.h>
 #include <multidevice/communication.h>
 #include <multidevice/communicator.h>
+#include <ops/utils.h>
 #include <tests/cpp/multidevice.h>
 
 #include <iostream>
@@ -94,9 +95,13 @@ TEST_P(CommunicationTest, Gather) {
 }
 
 TEST_P(CommunicationTest, Allgather) {
-  IrContainer container;
-  auto communication = IrBuilder::createInContainer<Communication>(
-      &container, CommunicationType::Allgather, full_mesh_, all_ranks_);
+  hir::HostIrContainer container;
+  FusionGuard fg(&container);
+  auto* in = makeContigTensor(2);
+  in->setDeviceMesh(full_mesh_);
+  auto* out = ops::newValLike(in, in->dtype())->as<TensorView>();
+  auto communication = IrBuilder::create<Communication>(
+      CommunicationType::Allgather, in, out, all_ranks_);
 
   at::Tensor input_tensor = at::empty({1, kTensorSize}, tensor_options);
   at::Tensor output_tensor =
