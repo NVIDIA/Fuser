@@ -18,7 +18,7 @@ ContigIDGroups::ContigIDGroups(
     const ValGraph& graph)
     : graph_(graph),
       alloc_domains_(alloc_domains),
-      contiguity_(std::move(contiguity)),
+      alloc_contiguity_(std::move(contiguity)),
       consistent_transform_info_(
           std::make_unique<const OrderedIdGroupInformation>(
               OrderedIdGroupInformation::get(
@@ -30,11 +30,11 @@ ContigIDGroups::ContigIDGroups(
   }
 
   NVF_ERROR(
-      alloc_domains_.size() == contiguity_.size(),
+      alloc_domains_.size() == alloc_contiguity_.size(),
       "Arguments don't match ",
       alloc_domains_.size(),
       " != ",
-      contiguity_.size());
+      alloc_contiguity_.size());
 
   for (const auto index_domain_i : c10::irange(alloc_domains_.size())) {
     IterDomain* index_domain = alloc_domains_.at(index_domain_i);
@@ -45,7 +45,7 @@ ContigIDGroups::ContigIDGroups(
 
     alloc_to_contig_ids_[index_domain] = graph_.toGroup(index_domain);
 
-    auto alloc_contiguity = contiguity_.at(index_domain_i);
+    auto alloc_contiguity = alloc_contiguity_.at(index_domain_i);
 
     if (alloc_contiguity &&
         index_domain->getIterType() != IterType::GatherScatter) {
@@ -66,14 +66,6 @@ ContigIDGroups::ContigIDGroups(
         })) {
       for (const auto& out : outputs) {
         resize_deps_.insert(out);
-      }
-    }
-
-    if (std::any_of(inputs.begin(), inputs.end(), [&](const ValGroup& inp) {
-          return non_divisible_deps_.count(inp) > 0;
-        })) {
-      for (const auto& out : outputs) {
-        non_divisible_deps_.insert(out);
       }
     }
 
@@ -107,7 +99,7 @@ void ContigIDGroups::handle(Merge* merge, Direction direction) {
       continue;
     }
     alloc_ids.erase(alloc_id);
-    auto alloc_contiguity = contiguity_.at(alloc_id_i);
+    auto alloc_contiguity = alloc_contiguity_.at(alloc_id_i);
     // If we're indexing:
     // we could still potentially consider this ID linearly indexable, as we
     // could multiple the index by the last allocation's stride. See
@@ -130,26 +122,6 @@ void ContigIDGroups::handle(Merge* merge, Direction direction) {
   }
 
   contig_ids_.emplace(graph_.toGroup(merge->out()));
-}
-
-// Avoid contiguous indexing if going through non-divisible
-// splits. Not all non-divisible splits need specific predicates, so
-// this condition could be relaxed.
-void ContigIDGroups::handle(Split* split, Direction direction) {
-  if (direction == Direction::Forward) {
-    const auto& divisible_splits = GpuLower::current()->divisibleSplitSet();
-    const ExprGroup& split_group = graph_.toGroup(split);
-    bool divisible = std::any_of(
-        divisible_splits.begin(),
-        divisible_splits.end(),
-        [&](Split* divisible_split) -> bool {
-          return split_group->has(divisible_split);
-        });
-    if (!divisible) {
-      non_divisible_deps_.emplace(graph_.toGroup(split->outer()));
-      non_divisible_deps_.emplace(graph_.toGroup(split->inner()));
-    }
-  }
 }
 
 void ContigIDGroups::handle(Resize* resize, Direction direction) {
