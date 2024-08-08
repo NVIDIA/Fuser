@@ -29,10 +29,6 @@
 
 namespace nvfuser {
 
-namespace {
-int64_t D = 1;
-}
-
 constexpr int64_t B = 2, E = 768, H = 12, S = 128;
 // Note parameters scaled by kParamScale following weight initialization
 // recommendations:
@@ -47,9 +43,8 @@ class DistributedTransformerTest
     : public MultiDeviceTest,
       public testing::WithParamInterface<DataType> {
  protected:
-  DistributedTransformerTest() : optimization_guard_(false) {
-    D = communicator_->size();
-  }
+  DistributedTransformerTest()
+      : D(communicator_->size()), optimization_guard_(false) {}
 
   void SetUp() {
     MultiDeviceTest::SetUp();
@@ -67,6 +62,7 @@ class DistributedTransformerTest
       .skip_auto_scheduling = false,
       .cache_fusion_executor = false};
 
+  const int64_t D; // number of devices
  private:
   preseg_passes::OptimizationPassGuard<preseg_passes::MoveSplitCatPass>
       optimization_guard_;
@@ -254,6 +250,7 @@ std::vector<TensorView*> mha(
   TensorView* proj_bias_bcast = broadcast(b0, {false, true, false});
   TensorView* qkv1 = add(mm, proj_bias_bcast);
   // Forming the q,k,v vectors:
+  auto D = w0->axis(0)->extent()->value().as<int64_t>();
   TensorView* qkv = reshape(qkv1, {D, B * S, 3 * E / D}, {D, B, S, 3 * E / D});
   std::vector<TensorView*> qkv_reshaped = {};
   for (auto i : c10::irange(3)) {
@@ -443,7 +440,7 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
 
 TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
   auto dtype = GetParam();
-  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   auto mesh = DeviceMesh::createForNumDevices(D);
   at::ScalarType at_dtype = data_type_to_aten(dtype);
@@ -478,10 +475,8 @@ TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
   auto reference_outs = reference_mha(x, w0, b0, w1, b1, at_dtype);
   std::vector<c10::IValue> inputs = {
       x,
-      shardTensor(w0.view({E, 3, E}), 2, mesh)
-          .view({1, E, 3 * E / D})
-          .contiguous(),
-      shardTensor(b0.view({3, E}), 1, mesh).view({1, 3 * E / D}).contiguous(),
+      shardTensor(w0.view({E, 3, E}), 2, mesh).view({1, E, 3 * E / D}),
+      shardTensor(b0.view({3, E}), 1, mesh).view({1, 3 * E / D}),
       shardTensor(w1, 0, mesh),
       b1};
   std::vector<at::Tensor> expected_outputs = {
