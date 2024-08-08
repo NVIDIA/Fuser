@@ -192,6 +192,7 @@ void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
   NVF_CHECK(
       inputs.empty() || device > -1, "Inputs are not all on the same device!");
 
+  // NOTE: Clear user schedule state in setupSchedule.
   // Scheduling the fusion can add states to recording_state.
   // Remove any schedule-only states before applying new schedule.
   size_t num_states_to_remove =
@@ -253,6 +254,9 @@ void FusionDefinition::finalizeSchedule(
   FusionGuard::setCurFusion(prev_fusion_);
   user_sched_->runtime_info.reset();
   prev_fusion_ = nullptr;
+
+  // NOTE: Clear user schedule state in setupSchedule.
+  // Users can access schedule objects after scheduling the fusion.
 }
 
 void FusionDefinition::print(std::ostream& os) const {
