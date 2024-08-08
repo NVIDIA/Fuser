@@ -652,6 +652,15 @@ void initNvFuserPythonBindings(PyObject* module) {
             inst::Trace::instance()->endEvent(nullptr);
           })
       .def(
+          "_exist_schedule",
+          [](FusionDefinition& self, const py::iterable& iter) {
+            std::vector<c10::IValue> inputs;
+            for (py::handle obj : iter) {
+              inputs.push_back(torch::jit::toIValue(obj, c10::AnyType::get()));
+            }
+            self.existSchedule(inputs);
+          })
+      .def(
           "_setup_schedule",
           [](FusionDefinition& self, const py::iterable& iter) {
             // Instrumentation to mark the beginning of a schedule
