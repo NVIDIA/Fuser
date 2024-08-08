@@ -2559,4 +2559,41 @@ TEST_F(OuterReductionTest, IterGroupedMultipleReductions) {
       lparams);
 }
 
+// Repro of https://github.com/NVIDIA/Fuser/pull/2766
+TEST_F(NVFuserTest, SmallOuterBlockReductionIssue2766) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape{100, 2, 128};
+
+  auto tv0 = makeContigTensor(2);
+  fusion.addInput(tv0);
+
+  auto tv1 = reshape(
+      tv0,
+      {IrBuilder::create<Val>(shape[0]),
+       IrBuilder::create<Val>(shape[1]),
+       IrBuilder::create<Val>(shape[2])});
+  auto tv2 = sum(tv1, {1});
+  fusion.addOutput(tv2);
+
+  // Previously, after the extent replacement of the lowering, the reduction
+  // reference tensor got a reduction domain of a static size, which is just 1,
+  // but the pre-reshape tensors still kept using symbolic extents. Before
+  // https://github.com/NVIDIA/Fuser/pull/2714, the scheduler decided to not use
+  // TIDy because the reference tensor has a static size of 1, but since the
+  // other tensors still had dynamic sizes, it resulted in the dynamic
+  // allocation error.
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({shape[0] * shape[1], shape[2]}, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto outputs = fec.runFusionWithInputs(inputs);
+
+  testValidate(fec.fusion(), outputs, inputs, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
