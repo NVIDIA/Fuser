@@ -549,6 +549,7 @@ class NVFuserTest : public ::testing::Test {
 
  private:
   bool capturing_ = false;
+  EnableOptionsGuard enable_options_guard;
 };
 
 class HopperBase : public NVFuserTest {

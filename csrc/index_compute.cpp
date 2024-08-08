@@ -19,6 +19,7 @@
 #include <device_lower/utils.h>
 #include <device_lower/validation.h>
 #include <expr_simplifier.h>
+#include <id_model/indexing.h>
 #include <id_model/utils.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
@@ -1627,9 +1628,18 @@ std::vector<Val*> Index::getProducerPerDimLogicalIndex(
     const std::vector<ForLoop*>& loops,
     const std::unordered_set<ForLoop*>& rotated_loops,
     const std::unordered_map<IterDomain*, Val*>& override_index) {
-  auto guard = ir_utils::allocateToLogicalDomainGuard(producer_tv, false);
-  return getProducerAllocationIndices(
-      producer_tv, consumer_tv, loops, rotated_loops, override_index);
+  if (isIdModelOptionEnabled(IdModelEnableOption::ProducerIndex) &&
+      GpuLower::current()->isTensorIndexerEnabled()) {
+    return GpuLower::current()->tensorIndexer().getPerDimIndex(
+        producer_tv,
+        producer_tv->getLogicalDomain(),
+        consumer_tv->definition(),
+        loops);
+  } else {
+    auto guard = ir_utils::allocateToLogicalDomainGuard(producer_tv, false);
+    return getProducerAllocationIndices(
+        producer_tv, consumer_tv, loops, rotated_loops, override_index);
+  }
 }
 
 std::vector<Val*> Index::getStrides(TensorView* tv) {
@@ -2228,6 +2238,7 @@ kir::TensorIndex* Index::getConsumerIndex(
   }
 
   index = GpuLower::current()->commonScalarMap().hoistScalar(index, loops);
+
   return SimplifyingIrBuilder::create<kir::TensorIndex>(
       consumer, index, as_type);
 }
@@ -2476,6 +2487,7 @@ std::vector<PredicateInfo> Index::getReferenceRootPredicates(
 
   for (const auto& contig_id_entry : contig_id_infos) {
     auto contig_id = contig_id_entry.id;
+
     // No predicates needed for braodcasted indices.
     if (contig_id->isBroadcast()) {
       continue;
@@ -2492,7 +2504,11 @@ std::vector<PredicateInfo> Index::getReferenceRootPredicates(
     // generated in lower_misaligned_vectorization.
     //
     // Can not omit stop index even if it is zero. This is important for empty
-    // tensor support, because in empty tensor the extent of an ID can be zero
+    // tensor support, because in empty tensor the extent of an ID can
+    // be zero
+    // This also happens with buffer initialization loops for
+    // reductions, where reduction domains do not have corresponding
+    // loops.
     if (consumer_stop_indexing_it == consumer_stop_index_map.end()) {
       continue;
     }

@@ -12,10 +12,11 @@
 #include <id_model/indexing_traversal.h>
 #include <ir/base_nodes.h>
 #include <ir/interface_nodes.h>
+#include <options.h>
 #include <type.h>
 #include <val_graph_visitor.h>
 
-// Just for RootPredicateInfo. Should be moved to its own header file
+// Just for PredicateInfo. Should be moved to its own header file
 #include <index_compute.h>
 
 #include <unordered_map>
@@ -35,6 +36,7 @@ struct IndexingInfo {
 struct IndexingAllocationInfo {
   std::vector<IterDomain*> domains;
   std::vector<Val*> strides;
+  std::vector<bool> contiguity;
 };
 
 // The basic algorithm of indexing is:
@@ -54,6 +56,10 @@ class TensorIndexer {
   // Using non-const references of IdModel because traversalGraph() returns a
   // non-const reference
   TensorIndexer(IdModel& id_model);
+
+  bool isContigIndexingEnabled() const {
+    return !isOptionDisabled(DisableOption::ContigIndexing);
+  }
 
   // Get a linear index of a given tensor appearing in a given expr, either
   // as a consumer or a producer. The predicate indexing will have a
@@ -101,6 +107,21 @@ class TensorIndexer {
       const std::vector<ForLoop*>& for_loops,
       ForLoop* unswitched_loop = nullptr) const;
 
+  std::vector<PredicateInfo> getPredicatesWIP(
+      TensorView* tv,
+      const Expr* expr,
+      const std::vector<ForLoop*>& for_loops,
+      ForLoop* unswitched_loop = nullptr) const;
+
+  // TODO: Drop tv
+  std::vector<Val*> getPerDimIndex(
+      TensorView* tv,
+      const std::vector<IterDomain*>& index_domains,
+      const Expr* expr,
+      const std::vector<ForLoop*>& loops);
+
+  static bool isSupported(Fusion* fusion);
+
  private:
   // Build a map of loop groups to their index Vals. See the comment
   // on loop_index_map_.
@@ -141,6 +162,12 @@ class TensorIndexer {
   // just zero. For example, a loop group with an extent of one, i.e.,
   // a broadcast-only loop group, should just use zero.
   bool shouldUseZeroIndex(const ValGroup& loop_group) const;
+
+  std::pair<std::deque<ValGroup>, std::deque<Val*>> getContigDomainsAndStrides(
+      const std::vector<IterDomain*>& allocation_domains,
+      const std::vector<Val*>& strides,
+      const std::vector<bool>& contiguity,
+      const ExprPath<ExprGroup>& traversal_path) const;
 
   // Get a replace map for tensor indexing. Examples include replacing
   // an index of a vectorized loop with zero.

@@ -220,6 +220,7 @@ class ValGraph {
   // mappings.
   void validateConsistency() const;
 
+ public:
   void addUniqueUses(const ValGroup& id_group, const ExprGroup& uses) {
     unique_uses_.at(id_group).pushBack(uses);
   }
@@ -239,6 +240,19 @@ class ValGraph {
   // when the forward parameter is true. This should
   // be the only call in ValGraph to mapThroughExpr.
   void maybeMapThroughExprs(Expr* expr0, Expr* expr1, bool forward);
+
+  // Removes expressions from unique_definitions_ and unique_uses_ that return
+  // mappings from IdGraph::isTrivialExpr
+  void removeTrivialExprs();
+
+  // Removes the provided expression group from unique_definitions_ and
+  // unique_uses_ breaking traversal through them.
+  void eraseExprGroup(const ExprGroup& expr_group);
+
+  // Returns if the expression group has an input id group that matches an
+  // output id group. This means traversing on this expression doesn't actually
+  // do anything.
+  bool isTrivialExprGroup(const ExprGroup& expr_group) const;
 
   // Can't back prop through merge without making sure one input actually
   // matches. This can be done on a map or extent basis.
@@ -437,5 +451,17 @@ struct SelfMapping {
 std::optional<SelfMapping> hasSelfMapping(
     const TensorView* tv,
     const ValGraph& id_graph);
+
+class ValGraphDotPrinter {
+ private:
+  ValGraphDotPrinter(const ValGraph& graph);
+
+ public:
+  static std::string getString(const ValGraph& graph);
+
+ private:
+  const ValGraph& graph_;
+  std::stringstream dot_;
+};
 
 } // namespace nvfuser

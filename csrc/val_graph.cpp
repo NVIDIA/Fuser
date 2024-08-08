@@ -6,8 +6,11 @@
  */
 // clang-format on
 #include <id_model/to_string.h>
+#include <id_model/utils.h>
 #include <ir/utils.h>
 #include <val_graph.h>
+
+#include <memory>
 
 namespace nvfuser {
 
@@ -30,9 +33,7 @@ ValGraph::ValGraph(const ValGraph& other)
       new_expr_groups.pushBack(toGroup(orig_expr_group->front()));
     }
 
-    NVF_ERROR(
-        unique_definitions_.emplace(new_val_group, std::move(new_expr_groups))
-            .second);
+    unique_definitions_[new_val_group] = new_expr_groups;
   }
 
   for (const auto& [orig_val_group, orig_expr_groups] : other.unique_uses_) {
@@ -268,10 +269,6 @@ void ValGraph::initializeVal(
     const VectorOfUniqueEntries<Expr*>& uses) {
   const ValGroup& val_disjoint_set =
       disjoint_vals_.initializeSet(val).first->second;
-
-  // For now, the definition of a val should be unique. Remove this
-  // assertion as necessary
-  NVF_ERROR(definitions.size() <= 1);
 
   ExprGroups def_groups;
   for (auto def : definitions) {
@@ -563,6 +560,56 @@ bool ValGraph::mapThroughExpr(Expr* first, Expr* second, bool forward) {
   return true;
 }
 
+void ValGraph::removeTrivialExprs() {
+  ExprGroups trivial_expr_groups;
+  // This seems like it shouls just be a copy if.
+  for (const ExprGroup& expr_group : disjointExprSets().disjointSets()) {
+    if (isTrivialExprGroup(expr_group)) {
+      trivial_expr_groups.pushBack(expr_group);
+    }
+  }
+
+  // Clear out expressions that map inputs and outputs to the same group
+  // from definitions and uses. They shouldn't be important in traversal, and
+  // will break the terminal input/terminal output logic of traversal. Similar
+  // to what's drafted in buildIndexGraph
+  for (const ExprGroup& trivial_expr_group : trivial_expr_groups) {
+    // Complexity of erase not good as both disjoint set and vector of unique
+    // entries require a vector find to erase an entry.
+    eraseExprGroup(trivial_expr_group);
+  }
+}
+
+// Complexity here is not great. We might want a better complexity version when
+// erasing multiple expr_groups.
+void ValGraph::eraseExprGroup(const ExprGroup& expr_group) {
+  // Erase entries that exist in unique_definitions_ and unique_uses_
+  for (const ValGroup& id_group : disjointValSets().disjointSets()) {
+    // Make sure the entries exists
+    NVF_ERROR(
+        unique_definitions_.find(id_group) != unique_definitions_.end(),
+        "Broken definitions, couldn't find entry for id group, ",
+        nvfuser::toString(id_group, 0, true));
+    NVF_ERROR(
+        unique_uses_.find(id_group) != unique_uses_.end(),
+        "Broken uses, couldn't find entry for id group, ",
+        nvfuser::toString(id_group, 0, true));
+
+    unique_definitions_[id_group].erase(expr_group);
+    unique_uses_[id_group].erase(expr_group);
+  }
+
+  for (auto expr : *expr_group) {
+    disjoint_exprs_.erase(expr);
+  }
+}
+
+bool ValGraph::isTrivialExprGroup(const ExprGroup& expr_group) const {
+  return !ValGroups(inputGroups(expr_group))
+              .computeIntersect(ValGroups(outputGroups(expr_group)))
+              .empty();
+}
+
 void ValGraph::validateConsistency() const {
   // Check the consistency of the mapping information. Specifically:
   // 1. All ValGroup and ExprGroup sets are not empty. This may not be
@@ -696,6 +743,86 @@ std::optional<SelfMapping> hasSelfMapping(
         .id1 = mapped->first, .id2 = mapped->second, .where = "Leaf"};
   }
   return std::nullopt;
+}
+
+ValGraphDotPrinter::ValGraphDotPrinter(const ValGraph& graph) : graph_(graph) {
+  dot_ << "digraph ValGraph {\n";
+
+  const std::string indent = "  ";
+
+  // Use the pointer value as the name and attach a label with the
+  // val names
+  std::unordered_map<ValGroup, std::string> val_names;
+  for (const auto& val_group : graph_.disjointValSets().disjointSets()) {
+    std::stringstream name;
+    name << "val_" << val_group.get();
+    val_names.emplace(val_group, name.str());
+  }
+
+  std::unordered_map<ExprGroup, std::string> expr_names;
+  for (const auto& group : graph_.disjointExprSets().disjointSets()) {
+    std::stringstream name;
+    name << "expr_" << group.get();
+    expr_names.emplace(group, name.str());
+  }
+
+  auto getGroupLabel = [](const auto& group) -> std::string {
+    std::set<StmtNameType> names;
+    for (const auto val : *group) {
+      names.insert(val->name());
+    }
+    std::stringstream ss;
+    const int line_limit = 5;
+    int wrap_counter = 0;
+    bool first_name = true;
+    for (const auto& name : names) {
+      if (wrap_counter == line_limit) {
+        ss << "\n";
+        wrap_counter = 0;
+      } else if (!first_name) {
+        ss << " ";
+      }
+      ss << name;
+      first_name = false;
+      ++wrap_counter;
+    }
+    return ss.str();
+  };
+
+  for (const auto& val_group : graph_.disjointValSets().disjointSets()) {
+    dot_ << indent << val_names.at(val_group)
+         << " [label=\"V: " << getGroupLabel(val_group) << "\"];\n";
+  }
+
+  for (const auto& expr_group : graph_.disjointExprSets().disjointSets()) {
+    dot_ << indent << expr_names.at(expr_group)
+         << " [label=\"E: " << getGroupLabel(expr_group) << "\"];\n";
+  }
+
+  for (const auto& val_group : graph_.disjointValSets().disjointSets()) {
+    dot_ << indent << "// Definitions of " << nvfuser::toString(val_group)
+         << "\n";
+    for (const auto& def : graph_.getDefinitions(val_group)) {
+      dot_ << indent << expr_names.at(def) << " -> " << val_names.at(val_group)
+           << "\n";
+    }
+
+    dot_ << indent << "// Uses of " << nvfuser::toString(val_group) << "\n";
+
+    for (const auto& use : graph_.getUses(val_group)) {
+      dot_ << indent << val_names.at(val_group) << " -> " << expr_names.at(use)
+           << "\n";
+    }
+
+    dot_ << "\n";
+  }
+
+  dot_ << "}\n";
+}
+
+std::string ValGraphDotPrinter::getString(const ValGraph& graph) {
+  ValGraphDotPrinter printer(graph);
+  return printer.dot_.str();
 }
 
 } // namespace nvfuser
