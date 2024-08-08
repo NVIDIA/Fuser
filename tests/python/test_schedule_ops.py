@@ -7,7 +7,8 @@ from typing import Callable
 import unittest
 
 import torch
-from torch.testing._internal.common_utils import run_tests, TEST_WITH_ROCM, TestCase
+from utils import is_pre_volta, is_pre_hopper
+from torch.testing._internal.common_utils import run_tests, TestCase
 from torch.testing._internal.jit_utils import RUN_CUDA
 
 from nvfuser import (
@@ -25,22 +26,6 @@ all_scheduler_heuristics = [
     for heuristic, _ in SchedulerHeuristic.__entries.values()
     if not SchedulerHeuristic.none
 ]
-
-RUN_NVFUSER = RUN_CUDA and not TEST_WITH_ROCM
-
-
-def is_pre_volta():
-    if not RUN_NVFUSER:
-        return False
-    prop = torch.cuda.get_device_properties(torch.cuda.current_device())
-    return prop.major < 7
-
-
-def is_pre_hopper():
-    if not RUN_NVFUSER:
-        return False
-    prop = torch.cuda.get_device_properties(torch.cuda.current_device())
-    return prop.major < 9
 
 
 # A helper function to test heuristic schedulers with user schedules
@@ -70,7 +55,7 @@ def _apply_scheduler_helper(schedule, selected_heuristic):
     schedule.schedule(selected_heuristic)
 
 
-@unittest.skipIf(not RUN_NVFUSER, "requires CUDA")
+@unittest.skipIf(not RUN_CUDA, "requires CUDA")
 @unittest.skipIf(is_pre_volta(), "Only supported on Volta and newer devices.")
 class TestScheduleOps(TestCase):
     def sched_op_in_definition_error(self, sched_op_fn: Callable):
