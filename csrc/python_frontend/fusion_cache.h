@@ -190,7 +190,7 @@ class FusionCache {
   //! Query a Fusion's Schedules based on fusion id or cache id
   FusionSchedules* queryFusionSchedules(size_t fusion_id) const;
   //! Determine if a user schedule exists for given inputs.
-  bool existsUserSchedule(
+  bool existUserSchedule(
       const FusionSchedules* scheds,
       const at::ArrayRef<c10::IValue>& inputs,
       int device);

@@ -471,7 +471,7 @@ const UserSchedule& FusionCache::queryUserSchedule(
   return user_sched->second.at(device);
 }
 
-bool FusionCache::existsUserSchedule(
+bool FusionCache::existUserSchedule(
     const FusionSchedules* scheds,
     const at::ArrayRef<c10::IValue>& inputs,
     int device) {
