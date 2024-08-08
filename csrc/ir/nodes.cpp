@@ -4679,6 +4679,11 @@ Val* ForLoop::simplifiedStop() const {
 }
 
 bool ForLoop::isTrivial() const {
+  // Indexing Issue with Circular Buffer
+  if (circularBufferLoopStage() == CircularBufferLoopStage::Main) {
+    return false;
+  }
+
   // These loops are not materialized
   if (vectorize() || iter_domain()->isBroadcast() ||
       iter_domain()->isStride() || iter_domain()->isMma() ||

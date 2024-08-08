@@ -539,13 +539,10 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
         GpuLower::current()->circularBufferInfo().getStageDepthFor(
             circular_buffer_loop_->iter_domain());
 
-    // NOTE Requires NVFUSER_DISABLE=expr_simplify to pass TMA tests
-    Val* index = (cloned_top_level_loop_->isTrivial())
-        ? cloned_top_level_loop_->start()
-        : cloned_top_level_loop_->index();
     if (current_compute_stage_ == nullptr) {
       current_compute_stage_ = IrBuilder::modExpr(
-          index, IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
+          cloned_top_level_loop_->index(),
+          IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
       kir::Allocate* current_compute_stage_alloc =
           IrBuilder::create<kir::Allocate>(
               current_compute_stage_,
@@ -560,7 +557,7 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
     if (current_load_stage_ == nullptr) {
       current_load_stage_ = IrBuilder::modExpr(
           IrBuilder::addExpr(
-              index,
+              cloned_top_level_loop_->index(),
               IrBuilder::subExpr(
                   IrBuilder::create<Val>(stage_depth, PrimDataType::Index),
                   IrBuilder::create<Val>(1L, PrimDataType::Index))),
