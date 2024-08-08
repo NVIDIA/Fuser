@@ -211,6 +211,7 @@ class NVF_API MaxLogicalDomainInfoSpanningTree : public MaxInfoSpanningTree {
 
   struct DomainInfo : public Information {
     std::vector<IDInfo> info;
+    int64_t num_mapped_domains = 0;
     operator bool() const override;
     bool operator<(const Information& r) const override;
   };
