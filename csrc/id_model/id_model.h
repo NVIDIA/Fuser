@@ -295,7 +295,4 @@ std::unordered_map<ValGroup, IterDomain*> updateValGroupIdMap(
     const std::unordered_map<ValGroup, IterDomain*>& stale_map,
     ValGraph& new_graph);
 
-// Returns true if all expr outputs should be mapped unconditionally
-bool hasUniformSiblings(Expr* expr);
-
 } // namespace nvfuser
