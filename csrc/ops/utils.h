@@ -8,7 +8,8 @@
 #pragma once
 
 #include <exceptions.h>
-#include <ir/all_nodes.h>
+#include <ir/base_nodes.h>
+#include <ir/interface_nodes.h>
 #include <scheduler/matmul_utils.h>
 #include <type.h>
 #include <visibility.h>
