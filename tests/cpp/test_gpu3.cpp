@@ -5031,6 +5031,15 @@ TEST_F(NVFuserTest, FusionPropagateVectorizePredicate_CUDA) {
         auto cond_inputs = InputsOf::output(cond);
         auto index_it =
             std::find(cond_inputs.begin(), cond_inputs.end(), loop_index);
+        auto vec_factor_it =
+            std::find_if(cond_inputs.begin(), cond_inputs.end(), [](Val* inp) {
+              auto int_val = inp->value();
+              return int_val.hasValue() &&
+                  (int_val.as<int64_t>() == vec_factor - 1 ||
+                   int_val.as<int64_t>() == -(vec_factor - 1));
+            });
+        // If vectorized, the predicate should use (vec_factor - 1) or
+        // -(vec_factor - 1) rather than the loop index.
         if (vectorized_) {
           NVF_CHECK(
               index_it == cond_inputs.end(),
@@ -5038,11 +5047,23 @@ TEST_F(NVFuserTest, FusionPropagateVectorizePredicate_CUDA) {
               loop_index->toInlineString(),
               " in ",
               cond->toInlineString());
+          NVF_CHECK(
+              vec_factor_it != cond_inputs.end(),
+              "Expected to have ",
+              vec_factor - 1,
+              " in ",
+              cond->toInlineString());
         } else {
           NVF_CHECK(
               index_it != cond_inputs.end(),
               "Expected to have ",
               loop_index->toInlineString(),
+              " in ",
+              cond->toInlineString());
+          NVF_CHECK(
+              vec_factor_it == cond_inputs.end(),
+              "Not expected to have ",
+              vec_factor - 1,
               " in ",
               cond->toInlineString());
         }
