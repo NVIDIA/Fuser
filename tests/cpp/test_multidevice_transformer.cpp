@@ -18,10 +18,6 @@
 #include <ir/utils.h>
 #include <mma_type.h>
 #include <ops/all_ops.h>
-#include <preseg_passes/allocation_order_inference.h>
-#include <preseg_passes/mark_aliases_prepare.h>
-#include <preseg_passes/move_split_cat.h>
-#include <preseg_passes/optimization_pass.h>
 #include <scheduler/mma_utils.h>
 #include <scheduler/utils.h>
 #include <tests/cpp/multidevice.h>
@@ -43,8 +39,7 @@ class DistributedTransformerTest
     : public MultiDeviceTest,
       public testing::WithParamInterface<DataType> {
  protected:
-  DistributedTransformerTest()
-      : D(communicator_->size()), optimization_guard_(false) {}
+  DistributedTransformerTest() : D(communicator_->size()) {}
 
   void SetUp() {
     MultiDeviceTest::SetUp();
@@ -63,16 +58,13 @@ class DistributedTransformerTest
       .cache_fusion_executor = false};
 
   const int64_t D; // number of devices
- private:
-  preseg_passes::OptimizationPassGuard<preseg_passes::MoveSplitCatPass>
-      optimization_guard_;
 };
 
 namespace {
 TensorView* replicated_dropout(
     TensorView* x,
     const double kProb,
-    DeviceMesh mesh) {
+    const DeviceMesh mesh) {
   // Sharding propagation breaks at rand_like because it creates a fresh TV.
   TensorView* x_float = castOp(DataType::Float, x);
   const double kScale = 1.0 / (1.0 - kProb);
@@ -203,7 +195,7 @@ std::vector<TensorView*> mlp(
     TensorView* b0,
     TensorView* w1,
     TensorView* b1,
-    DeviceMesh& mesh,
+    const DeviceMesh& mesh,
     DataType dtype) {
   // Linear #1
   TensorView* matmul1 = matmul(x, w0);
@@ -243,7 +235,7 @@ std::vector<TensorView*> mha(
     TensorView* b0,
     TensorView* w1,
     TensorView* b1,
-    DeviceMesh& mesh,
+    const DeviceMesh& mesh,
     DataType dtype) {
   // Linear 1
   TensorView* mm = matmul(x, w0);
@@ -304,7 +296,7 @@ std::vector<TensorView*> mlp_backwards(
     TensorView* w0,
     TensorView* b0,
     TensorView* w1,
-    DeviceMesh& mesh,
+    const DeviceMesh& mesh,
     DataType dtype) {
   // Activation recomputation
   TensorView* matmul0 = matmul(x, w0);
@@ -383,7 +375,7 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
   at::ScalarType at_dtype = data_type_to_aten(dtype);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  auto mesh = DeviceMesh::createForNumDevices(D);
+  const auto mesh = DeviceMesh::createForNumDevices(D);
 
   TensorView* tvx = makeContigTensor(2, dtype);
   TensorView* tvw0 = makeContigTensor(3, dtype);
@@ -442,7 +434,7 @@ TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
   auto dtype = GetParam();
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  auto mesh = DeviceMesh::createForNumDevices(D);
+  const auto mesh = DeviceMesh::createForNumDevices(D);
   at::ScalarType at_dtype = data_type_to_aten(dtype);
 
   TensorView* tvx = makeContigConcreteTensor({B * S, E}, dtype);
@@ -481,8 +473,7 @@ TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
       b1};
   std::vector<at::Tensor> expected_outputs = {
       shardTensor(reference_outs[0].view({B, S, 3, E}), 3, mesh)
-          .view({1, B, S, 3 * E / D})
-          .contiguous(),
+          .view({1, B, S, 3 * E / D}),
       shardTensor(reference_outs[1], 1, mesh),
       reference_outs[2],
       reference_outs[3]};
@@ -499,7 +490,7 @@ TEST_P(DistributedTransformerTest, MLP_Backward) {
   at::ScalarType at_dtype = data_type_to_aten(dtype);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  auto mesh = DeviceMesh::createForNumDevices(D);
+  const auto mesh = DeviceMesh::createForNumDevices(D);
 
   TensorView* grad = makeContigTensor(2, DataType::Float);
   TensorView* x = makeContigTensor(2, dtype);
