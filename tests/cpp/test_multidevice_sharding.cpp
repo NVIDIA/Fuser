@@ -104,6 +104,23 @@ TEST_P(MultideviceShardingTest, ShardGlobalInput) {
       runtime.completeFusion(), outputs, inputs, {x1, x2}, __LINE__, __FILE__);
 }
 
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    MultideviceShardingTest,
+    testing::Combine(testing::Bool(), testing::Values(0, 1)),
+    [](const testing::TestParamInfo<std::tuple<bool, int>>& info)
+        -> std::string {
+      // Not sure why the following doesn't work:
+      //   auto [creates_concrete_tensor, sharded_dim] = info.param;
+      bool creates_concrete_tensor;
+      int sharded_dim;
+      std::tie(creates_concrete_tensor, sharded_dim) = info.param;
+      std::ostringstream os;
+      os << (creates_concrete_tensor ? "concrete" : "symbolic")
+         << "_sharded_along_dim_" << sharded_dim;
+      return os.str();
+    });
+
 TEST_F(MultideviceShardingTest, Slice) {
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -184,21 +201,44 @@ TEST_F(MultideviceShardingTest, LayerNorm) {
       __FILE__);
 }
 
-INSTANTIATE_TEST_SUITE_P(
-    ,
-    MultideviceShardingTest,
-    testing::Combine(testing::Bool(), testing::Values(0, 1)),
-    [](const testing::TestParamInfo<std::tuple<bool, int>>& info)
-        -> std::string {
-      // Not sure why the following doesn't work:
-      //   auto [creates_concrete_tensor, sharded_dim] = info.param;
-      bool creates_concrete_tensor;
-      int sharded_dim;
-      std::tie(creates_concrete_tensor, sharded_dim) = info.param;
-      std::ostringstream os;
-      os << (creates_concrete_tensor ? "concrete" : "symbolic")
-         << "_sharded_along_dim_" << sharded_dim;
-      return os.str();
-    });
+TEST_F(MultideviceShardingTest, Issue2758) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto num_devices = communicator_->size();
+  auto mesh = DeviceMesh::createForNumDevices(num_devices);
+
+  TensorView* in = makeContigTensor(3);
+  in->setDeviceMesh(mesh);
+  in->axis(0)->parallelize(ParallelType::DIDx);
+
+  // ReduceScatter
+  TensorView* reduce_scattered = sum(in, {0});
+  reduce_scattered->axis(1)->parallelize(ParallelType::DIDx);
+
+  // Add the size of dimension 1 of `in`, which is num_devices.
+  TensorView* out = add(reduce_scattered, shape(in)[1]);
+
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  at::Tensor unsharded_in_tensor =
+      at::zeros({num_devices, num_devices, 4}, tensor_options);
+  at::Tensor in_tensor = shardTensor(unsharded_in_tensor, in);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor out_tensor = fec.runFusionWithInputs({in_tensor})[0];
+
+  at::Tensor expected_out_tensor =
+      shardTensor(unsharded_in_tensor.sum(0), reduce_scattered) +
+      in_tensor.size(1);
+  testValidate(
+      fec.fusion(),
+      {out_tensor},
+      {in_tensor},
+      {expected_out_tensor},
+      __LINE__,
+      __FILE__);
+}
 
 } // namespace nvfuser
