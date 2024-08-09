@@ -549,7 +549,7 @@ TEST_P(DistributedTransformerTest, MLP_Backward) {
 }
 
 TEST_P(DistributedTransformerTest, Forward) {
-  auto dtype = DataType::Half;
+  auto dtype = GetParam();
   at::ScalarType at_dtype = data_type_to_aten(dtype);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -576,14 +576,16 @@ TEST_P(DistributedTransformerTest, Forward) {
   fusion->addInput(mlp_b1);
 
   constexpr float kEps = 1e-5;
-  Val* eps_ptr = IrBuilder::create<Val>(kEps);
+  auto eps = IrBuilder::create<Val>(kEps);
   std::vector<int64_t> norm_shape{E};
 
-  auto ln_1 = layer_norm(x, norm_shape, nullptr, nullptr, eps_ptr);
+  auto ln_1 =
+      layer_norm(x, norm_shape, /*weight=*/nullptr, /*bias=*/nullptr, eps);
   auto mha_in = castOp(dtype, ln_1.output);
   auto mha_out = mha(mha_in, mha_w0, mha_b0, mha_w1, mha_b1, mesh, dtype)[3];
   auto resid_1 = add(x, mha_out);
-  auto ln_2 = layer_norm(resid_1, norm_shape, nullptr, nullptr, eps_ptr);
+  auto ln_2 = layer_norm(
+      resid_1, norm_shape, /*weight=*/nullptr, /*bias=*/nullptr, eps);
   auto mlp_in = castOp(dtype, ln_2.output);
   auto mlp_out = mlp(mlp_in, mlp_w0, mlp_b0, mlp_w1, mlp_b1, mesh, dtype)[3];
   auto resid_2 = add(mha_out, mlp_out);
@@ -612,16 +614,19 @@ TEST_P(DistributedTransformerTest, Forward) {
   auto mlp_b1_ = at::randn({E}, options) * kParamScale;
 
   at::manual_seed(getATenRandomSeed());
-  auto at_weight = c10::optional<at::Tensor>();
-  auto at_bias = c10::optional<at::Tensor>();
-  auto ln_1_ = at::native_layer_norm(x_, norm_shape, at_weight, at_bias, kEps);
+  auto ln_1_ = at::native_layer_norm(
+      x_, norm_shape, /*weight=*/std::nullopt, /*bias=*/std::nullopt, kEps);
   auto ln_1_out_ = std::get<0>(ln_1_).to(at_dtype);
 
   auto mha_out_ =
       reference_mha(ln_1_out_, mha_w0_, mha_b0_, mha_w1_, mha_b1_, at_dtype)[3];
   auto resid1_ = mha_out_ + x_;
-  auto ln_2_ =
-      at::native_layer_norm(resid1_, norm_shape, at_weight, at_bias, kEps);
+  auto ln_2_ = at::native_layer_norm(
+      resid1_,
+      norm_shape,
+      /*weight=*/std::nullopt,
+      /*bias=*/std::nullopt,
+      kEps);
   auto ln_2_out_ = std::get<0>(ln_2_).to(at_dtype);
 
   auto mlp_out_ =
@@ -630,12 +635,8 @@ TEST_P(DistributedTransformerTest, Forward) {
 
   std::vector<c10::IValue> inputs = {
       x_,
-      shardTensor(mha_w0_.view({E, 3, E}), 2, mesh)
-          .view({1, E, 3 * E / D})
-          .contiguous(),
-      shardTensor(mha_b0_.view({3, E}), 1, mesh)
-          .view({1, 3 * E / D})
-          .contiguous(),
+      shardTensor(mha_w0_.view({E, 3, E}), 2, mesh).view({1, E, 3 * E / D}),
+      shardTensor(mha_b0_.view({3, E}), 1, mesh).view({1, 3 * E / D}),
       shardTensor(mha_w1_, 0, mesh),
       mha_b1_,
       shardTensor(mlp_w0_, 1, mesh),
