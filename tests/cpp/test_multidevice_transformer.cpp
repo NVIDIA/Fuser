@@ -551,9 +551,9 @@ TEST_P(DistributedTransformerTest, MLP_Backward) {
 TEST_P(DistributedTransformerTest, Forward) {
   auto dtype = DataType::Half;
   at::ScalarType at_dtype = data_type_to_aten(dtype);
-  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  auto mesh = DeviceMesh::createForNumDevices(D);
+  const auto mesh = DeviceMesh::createForNumDevices(D);
 
   TensorView* x = makeContigConcreteTensor({B * S, E}, DataType::Float);
   TensorView* mha_w0 = makeContigConcreteTensor({D, E, 3 * E / D}, dtype);
