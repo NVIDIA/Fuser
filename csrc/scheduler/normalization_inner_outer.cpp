@@ -382,6 +382,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
           persistent_buffer_info,
           persistent_buffer_size_info,
           ScheduleHeuristic::InnerOuterPersistent,
+          /*can_use_smem_persistent=*/true,
           outer_broadcast_tvs.empty());
 
   auto total_buffer_size = buffer_params.project_to_input

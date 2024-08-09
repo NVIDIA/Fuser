@@ -42,7 +42,8 @@ std::pair<int64_t, int64_t> getPersistentBufferSize(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache,
-    const std::vector<TensorView*>& reduction_tvs) {
+    const std::vector<TensorView*>& reduction_tvs,
+    const bool can_use_smem_persistent) {
   auto persistent_buffer_info_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::PersistentBufferInfo>(
           data_cache, [&fusion]() {
@@ -61,14 +62,17 @@ std::pair<int64_t, int64_t> getPersistentBufferSize(
           runtime_info,
           persistent_buffer_info,
           persistent_buffer_size_info,
-          ScheduleHeuristic::InnerPersistent);
+          ScheduleHeuristic::InnerPersistent,
+          can_use_smem_persistent);
   auto persistent_buffer_size = project_persistent_buffers
       ? persistent_buffer_size_info.projected_persistent_buffer_size
       : persistent_buffer_size_info.persistent_buffer_size;
 
   int64_t available_persistent_buffer_size = normalization_scheduler_utils::
       getMaxRegOrSharedMemorySizeForPersistentBuffer(
-          runtime_info, persistent_buffer_info.persistent_buffers);
+          runtime_info,
+          persistent_buffer_info.persistent_buffers,
+          can_use_smem_persistent);
   return std::make_pair(
       persistent_buffer_size, available_persistent_buffer_size);
 }
@@ -96,9 +100,14 @@ bool InnerPersistentKernelScheduler::canScheduleRunTime(
 
   const int64_t warp_size = at::cuda::getCurrentDeviceProperties()->warpSize;
 
+  // check reduction properties, don't use shared memory persistent if 3D
+  // reduction
+  bool can_use_smem_persistent =
+      properties.total_reduction_numel == properties.inner_most_dimension_numel;
+
   // pair of persistent_buffer_size and available_persistent_buffer_size
-  const std::pair<int64_t, int64_t> buffer_size =
-      getPersistentBufferSize(fusion, runtime_info, data_cache, reduction_tvs);
+  const std::pair<int64_t, int64_t> buffer_size = getPersistentBufferSize(
+      fusion, runtime_info, data_cache, reduction_tvs, can_use_smem_persistent);
   const int64_t persistent_buffer_size = buffer_size.first;
   const int64_t available_persistent_buffer_size = buffer_size.second;
 
@@ -108,7 +117,9 @@ bool InnerPersistentKernelScheduler::canScheduleRunTime(
   if (persistent_buffer_size > available_persistent_buffer_size) {
     scheduler_debug_utils::canScheduleRejectReason(
         heuristicType(),
-        "not enough registers or shared memory for persistence");
+        can_use_smem_persistent
+            ? "not enough registers or shared memory for persistence."
+            : "not enough registers for persistence and shared memory persistence is not supported yet.");
     return false;
   }
 

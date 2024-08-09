@@ -1245,4 +1245,85 @@ TEST_F(PersistentBufferTest, PostReductionBroadcastCheckMultiBcastDims) {
   testValidate(fusion, cg_outputs, {t0, t1}, {t4}, __LINE__, __FILE__);
 }
 
+TEST_F(PersistentBufferTest, SmemPersistentNotSupportedIn3DReduction) {
+  // 1024 elements is added to ensure the buffer size is larger than
+  // max allowed register file size to trigger the use of smem persistent buffer
+  // or segmentation.
+  const int64_t max_element_for_reg_persistent =
+      scheduler_utils::register_file_size / scheduler_utils::bytes_per_register;
+  DataType input_dtype = DataType::Float;
+  const int64_t total_elements = max_element_for_reg_persistent + 1024;
+  const std::vector<int64_t> input_shape = {2, 64, 2, total_elements / (2 * 2)};
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeContigTensor(input_shape.size(), input_dtype);
+  fusion->addInput(tv0);
+  auto tv1 = sum(tv0, {0, 2, 3});
+  auto tv2 = broadcast(tv1, std::vector<bool>{true, false, true, true});
+  auto tv7 = div(tv0, tv2);
+  fusion->addOutput(tv7);
+
+  auto options = at::TensorOptions()
+                     .dtype(data_type_to_aten(input_dtype))
+                     .device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+
+  FusionExecutorCache fec(std::move(fusion));
+  std::vector<c10::IValue> aten_inputs = {t0};
+  auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
+
+  // should be segmented since buffer size is larger than 32K and smem
+  // persistent is not supported yet for 3D reduction.
+  EXPECT_TRUE(fec.getMostRecentKernelRuntime()->isSegmented());
+
+  testValidate(fec.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
+}
+
+TEST_F(PersistentBufferTest, SmemPersistent2DReduction) {
+  // 1024 elements is added to ensure the buffer size is larger than
+  // max allowed register file size to trigger the use of smem persistent buffer
+  // or segmentation.
+  const int64_t max_element_for_reg_persistent =
+      scheduler_utils::register_file_size / scheduler_utils::bytes_per_register;
+  DataType input_dtype = DataType::Float;
+  const int64_t total_elements = max_element_for_reg_persistent + 1024;
+  const std::vector<int64_t> input_shape = {64, 2, 2, total_elements / (2 * 2)};
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeContigTensor(input_shape.size(), input_dtype);
+  fusion->addInput(tv0);
+  auto tv1 = sum(tv0, {1, 2, 3});
+  auto tv2 = broadcast(tv1, std::vector<bool>{false, true, true, true});
+  auto tv7 = div(tv0, tv2);
+  fusion->addOutput(tv7);
+
+  // If device doesn't have enough shared memory, skip this test
+  int64_t smem_overhead = scheduler_utils::getSharedMemoryOverheadPerBlock(
+      fusion.get(), scheduler_utils::getReductionTvs(fusion.get()));
+  const size_t required_smem_size =
+      smem_overhead + total_elements * dataTypeSize(input_dtype);
+  REQUIRE_DEVICE_SMEM_SIZE(required_smem_size, 0);
+
+  // Schedule through magic scheduler and test the use of smem persistent buffer
+  auto options = at::TensorOptions()
+                     .dtype(data_type_to_aten(input_dtype))
+                     .device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+  std::vector<c10::IValue> aten_inputs = {t0};
+  SchedulerRuntimeInfo runtime_info(fusion.get(), aten_inputs);
+  ASSERT_TRUE(SchedulerEntry::canSchedule(
+      ScheduleHeuristic::InnerPersistent, fusion.get(), runtime_info));
+  auto scheduler = SchedulerEntry::makeEntry(
+      ScheduleHeuristic::InnerPersistent, fusion.get(), runtime_info);
+  EXPECT_FALSE(scheduler->reductionParams().smem_persistent_buffers.empty());
+  scheduler->schedule(fusion.get());
+
+  // Run the fusion and validate the results
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), aten_inputs);
+  auto cg_outputs =
+      fe.runFusion(aten_inputs, scheduler->reductionParams().lparams);
+  auto t1 = t0 / t0.sum({1, 2, 3}, true);
+  testValidate(fusion.get(), cg_outputs, aten_inputs, {t1}, __LINE__, __FILE__);
+}
 } // namespace nvfuser
