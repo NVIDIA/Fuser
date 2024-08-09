@@ -18,10 +18,6 @@
 #include <ir/utils.h>
 #include <mma_type.h>
 #include <ops/all_ops.h>
-#include <preseg_passes/allocation_order_inference.h>
-#include <preseg_passes/mark_aliases_prepare.h>
-#include <preseg_passes/move_split_cat.h>
-#include <preseg_passes/optimization_pass.h>
 #include <scheduler/mma_utils.h>
 #include <scheduler/utils.h>
 #include <tests/cpp/multidevice.h>
@@ -33,17 +29,17 @@ constexpr int64_t B = 2, E = 768, H = 12, S = 128;
 // Note parameters scaled by kParamScale following weight initialization
 // recommendations:
 // https://huggingface.co/docs/transformers/en/model_doc/gpt2#transformers.GPT2Config.initializer_range
-constexpr double kDropoutProb = 0.1, kParamScale = 0.02;
+// Note: Sdpa probability is set to 0. Since the dropout mask is sharded it
+// throws off the seed offset between the sharded nvFuser program and the
+// unsharded reference.
+constexpr double kDropoutProb = 0.1, kParamScale = 0.02, kSdpaProb = 0.0,
+                 kSdpaScale = 1e-3;
 
 class DistributedTransformerTest
     : public MultiDeviceTest,
       public testing::WithParamInterface<DataType> {
  protected:
-  DistributedTransformerTest()
-      : D(communicator_->size()),
-        optimization_guard_(false),
-        allocation_order_guard_(false),
-        alias_guard_(false) {}
+  DistributedTransformerTest() : D(communicator_->size()) {}
 
   void SetUp() {
     MultiDeviceTest::SetUp();
@@ -61,27 +57,14 @@ class DistributedTransformerTest
       .skip_auto_scheduling = false,
       .cache_fusion_executor = false};
 
- public:
   const int64_t D; // number of devices
-
- private:
-  // Note: `MoveSplitCat` and `AllocationDomain` preseg passes use ID model.
-  // `SdpaFwdOp` currently does not work with ID model since it requires all
-  // sibling outputs to have the same root domain.
-  //  This will be modified in a future PR.
-  preseg_passes::OptimizationPassGuard<preseg_passes::MoveSplitCatPass>
-      optimization_guard_;
-  preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
-      allocation_order_guard_;
-  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
-      alias_guard_;
 };
 
 namespace {
 TensorView* replicated_dropout(
     TensorView* x,
     const double kProb,
-    DeviceMesh mesh) {
+    const DeviceMesh mesh) {
   // Sharding propagation breaks at rand_like because it creates a fresh TV.
   TensorView* x_float = castOp(DataType::Float, x);
   const double kScale = 1.0 / (1.0 - kProb);
@@ -143,6 +126,29 @@ std::vector<at::Tensor> reference_mlp(
   return {linear0, gelu, linear1, dropout};
 }
 
+std::vector<at::Tensor> reference_mha(
+    at::Tensor x,
+    at::Tensor w0,
+    at::Tensor b0,
+    at::Tensor w1,
+    at::Tensor b1,
+    at::ScalarType at_dtype) {
+  auto m = at::matmul(x, w0).add(b0).view({B, S, 3 * E});
+  auto qkv_vec = m.split(E, 2);
+  for (auto i = 0; i < 3; i++) {
+    qkv_vec[i] =
+        qkv_vec[i].reshape({B, S, H, E / H}).transpose(2, 1).to(at_dtype);
+  }
+  auto sdpa_out = at::_scaled_dot_product_flash_attention(
+      qkv_vec[0], qkv_vec[1], qkv_vec[2], kSdpaProb, true, false, kSdpaScale);
+  auto sdpa = std::get<0>(sdpa_out);
+  // Reassemble heads (B, H, S, E/H) to (B, S, H, E/H) to (B, S, E)
+  auto y = sdpa.transpose(1, 2).reshape({B * S, E});
+  auto y_proj = at::matmul(y, w1).add(b1);
+  auto y_dropout = at::dropout(y_proj.to(at::kFloat), kDropoutProb, true);
+  return {m, sdpa, y_proj, y_dropout};
+}
+
 std::vector<at::Tensor> reference_mlp_backwards(
     at::Tensor grad,
     at::Tensor x,
@@ -189,8 +195,7 @@ std::vector<TensorView*> mlp(
     TensorView* b0,
     TensorView* w1,
     TensorView* b1,
-    Fusion* fusion,
-    DeviceMesh& mesh,
+    const DeviceMesh& mesh,
     DataType dtype) {
   // Linear #1
   TensorView* matmul1 = matmul(x, w0);
@@ -224,6 +229,66 @@ std::vector<TensorView*> mlp(
   return {linear1, gelu, linear2, dropout};
 }
 
+std::vector<TensorView*> mha(
+    TensorView* x,
+    TensorView* w0,
+    TensorView* b0,
+    TensorView* w1,
+    TensorView* b1,
+    const DeviceMesh& mesh,
+    DataType dtype) {
+  // Linear 1
+  TensorView* mm = matmul(x, w0);
+  TensorView* proj_bias_bcast = broadcast(b0, {false, true, false});
+  TensorView* qkv1 = add(mm, proj_bias_bcast);
+  // Forming the q,k,v vectors:
+  auto D = w0->axis(0)->extent()->value().as<int64_t>();
+  TensorView* qkv = reshape(qkv1, {D, B * S, 3 * E / D}, {D, B, S, 3 * E / D});
+  std::vector<TensorView*> qkv_reshaped = {};
+  for (auto i : c10::irange(3)) {
+    TensorView* tv_slice =
+        slice(qkv, {0, 0, 0, E / D * i}, {D, B, S, E / D * (i + 1)});
+    TensorView* tv_reshape =
+        reshape(tv_slice, {D, B, S, E / D}, {D, B, S, H / D, E / H});
+    TensorView* tv_trans = transpose(tv_reshape, 2, 3);
+    TensorView* tv_cast = castOp(dtype, tv_trans);
+    qkv_reshaped.push_back(tv_cast);
+    // Explicitly shard qkv before calling SDPA node
+    for (auto tv : {tv_slice, tv_reshape, tv_trans, tv_cast}) {
+      tv->setDeviceMesh(mesh);
+      tv->axis(0)->parallelize(ParallelType::DIDx);
+    }
+  }
+  // SDPA
+  SdpfaFwdResult sdpa = sdpfa_fwd(
+      qkv_reshaped[0],
+      qkv_reshaped[1],
+      qkv_reshaped[2],
+      IrBuilder::create<Val>(kSdpaProb),
+      IrBuilder::create<Val>(true),
+      IrBuilder::create<Val>(kSdpaScale));
+  TensorView* sdpa_output = sdpa.output;
+  // Linear projection
+  TensorView* sdpa_transpose = transpose(sdpa_output, 2, 3);
+  TensorView* sdpa_reshape =
+      reshape(sdpa_transpose, {D, B, S, H / D, E / H}, {D, B * S, E / D});
+  TensorView* mm2 = matmul(sdpa_reshape, w1);
+  TensorView* mm2_ar = sum(mm2, {0}); // allreduce
+  TensorView* b1_bcast = broadcast(b1, {true, false});
+  TensorView* linear2 = add(mm2_ar, b1_bcast);
+  // Dropout
+  TensorView* dropout = replicated_dropout(linear2, kDropoutProb, mesh);
+
+  for (auto tv : {x, b1, mm2_ar, linear2, dropout}) {
+    tv->setDeviceMesh(mesh);
+  }
+  for (auto tv : {w0, b0, w1, proj_bias_bcast, mm, mm2, qkv, sdpa_output}) {
+    tv->setDeviceMesh(mesh);
+    tv->axis(0)->parallelize(ParallelType::DIDx);
+  }
+  return {qkv, sdpa_output, linear2, dropout};
+}
+
 std::vector<TensorView*> mlp_backwards(
     TensorView* grad,
     TensorView* x,
@@ -231,8 +296,7 @@ std::vector<TensorView*> mlp_backwards(
     TensorView* w0,
     TensorView* b0,
     TensorView* w1,
-    Fusion* fusion,
-    DeviceMesh& mesh,
+    const DeviceMesh& mesh,
     DataType dtype) {
   // Activation recomputation
   TensorView* matmul0 = matmul(x, w0);
@@ -311,7 +375,7 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
   at::ScalarType at_dtype = data_type_to_aten(dtype);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  auto mesh = DeviceMesh::createForNumDevices(D);
+  const auto mesh = DeviceMesh::createForNumDevices(D);
 
   TensorView* tvx = makeContigTensor(2, dtype);
   TensorView* tvw0 = makeContigTensor(3, dtype);
@@ -326,7 +390,7 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
   fusion->addInput(tvb1);
 
   std::vector<TensorView*> tvsout =
-      mlp(tvx, tvw0, tvb0, tvw1, tvb1, fusion.get(), mesh, dtype);
+      mlp(tvx, tvw0, tvb0, tvw1, tvb1, mesh, dtype);
 
   for (TensorView* tv : tvsout) {
     fusion->addOutput(tv);
@@ -366,12 +430,67 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
   validate(expected_outputs, outputs);
 }
 
+TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
+  auto dtype = GetParam();
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  const auto mesh = DeviceMesh::createForNumDevices(D);
+  at::ScalarType at_dtype = data_type_to_aten(dtype);
+
+  TensorView* tvx = makeContigConcreteTensor({B * S, E}, dtype);
+  TensorView* tvw0 = makeContigConcreteTensor({D, E, 3 * E / D}, dtype);
+  TensorView* tvb0 = makeContigConcreteTensor({D, 3 * E / D}, dtype);
+  TensorView* tvw1 = makeContigConcreteTensor({D, E / D, E}, dtype);
+  TensorView* tvb1 = makeContigConcreteTensor({E}, dtype);
+
+  fusion->addInput(tvx);
+  fusion->addInput(tvw0);
+  fusion->addInput(tvb0);
+  fusion->addInput(tvw1);
+  fusion->addInput(tvb1);
+
+  auto tv_outs = mha(tvx, tvw0, tvb0, tvw1, tvb1, mesh, dtype);
+
+  for (auto tv : tv_outs) {
+    fusion->addOutput(tv);
+  }
+
+  const auto options =
+      at::TensorOptions().dtype(at_dtype).device(communicator_->device());
+  auto x = at::randn({B * S, E}, options);
+  auto w0 = at::randn({E, 3 * E}, options) * kParamScale;
+  auto b0 = at::randn({3 * E}, options) * kParamScale;
+  auto w1 = at::randn({E, E}, options) * kParamScale;
+  auto b1 = at::randn({E}, options) * kParamScale;
+
+  at::manual_seed(getATenRandomSeed());
+  auto reference_outs = reference_mha(x, w0, b0, w1, b1, at_dtype);
+  std::vector<c10::IValue> inputs = {
+      x,
+      shardTensor(w0.view({E, 3, E}), 2, mesh).view({1, E, 3 * E / D}),
+      shardTensor(b0.view({3, E}), 1, mesh).view({1, 3 * E / D}),
+      shardTensor(w1, 0, mesh),
+      b1};
+  std::vector<at::Tensor> expected_outputs = {
+      shardTensor(reference_outs[0].view({B, S, 3, E}), 3, mesh)
+          .view({1, B, S, 3 * E / D}),
+      shardTensor(reference_outs[1], 1, mesh),
+      reference_outs[2],
+      reference_outs[3]};
+
+  MultiDeviceExecutor runtime(
+      std::move(fusion), *communicator_, executor_params_);
+  at::manual_seed(getATenRandomSeed());
+  auto out = runtime.runWithInput(inputs);
+  validate(expected_outputs, out);
+}
+
 TEST_P(DistributedTransformerTest, MLP_Backward) {
   auto dtype = GetParam();
   at::ScalarType at_dtype = data_type_to_aten(dtype);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  auto mesh = DeviceMesh::createForNumDevices(D);
+  const auto mesh = DeviceMesh::createForNumDevices(D);
 
   TensorView* grad = makeContigTensor(2, DataType::Float);
   TensorView* x = makeContigTensor(2, dtype);
@@ -388,7 +507,7 @@ TEST_P(DistributedTransformerTest, MLP_Backward) {
   fusion->addInput(w1);
 
   std::vector<TensorView*> tv_outs =
-      mlp_backwards(grad, x, mask, w0, b0, w1, fusion.get(), mesh, dtype);
+      mlp_backwards(grad, x, mask, w0, b0, w1, mesh, dtype);
 
   for (TensorView* tv : tv_outs) {
     fusion->addOutput(tv);
