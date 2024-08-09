@@ -412,6 +412,204 @@ TEST_P(HopperRS, SingleTile) {
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
+// There are only three possible swizzle modes for smem operands of Hopper MMA:
+// 32 byte, 64 byte, and 128 byte. Depending on the layout and the macro, the
+// inner size may be smaller than the swizzle size. For example, if the macro is
+// M64_N8_K16, and the layout is TT, then K is the inner dim, so the inner size
+// is 16 items, that is, 32 bytes. If the swizzle mode is 128 byte, then the
+// inner size is only 1/4 of the swizzle size. In the SingleTile test, we will
+// just pad the inner dim to match the swizzle size, which is a 4x waste of smem
+// space. In this test, instead of padding the inner dim, we will use four tiles
+// to cover the entire swizzle size, so there is no waste of smem space. Note
+// that composing four tiles to form a single swizzle pattern means that the
+// memory layout of these four tiles will be interleaved with each other. The
+// kernel we are getting is like this:
+//
+// For TN layout where the inner dimension is a reduction:
+//   load operand B from gmem to smem;
+//   accumulator = 0;
+//   for i in tiles:
+//     load operand A from gmem to register;
+//     accumulator += A * B;
+//   store accumulator to gmem;
+//
+// For TT layout where the inner dimension is not a reduction:
+//   load operand B from gmem to smem;
+//   for i in tiles:
+//     load operand A from gmem to register;
+//     accumulator = 0;
+//     accumulator += A * B;
+//     store accumulator to gmem;
+TEST_P(HopperRS, FullSwizzle) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto swizzle_size = getBytesFromSwizzle(swizzle_b) / dataTypeSize(dtype);
+  auto inner_size = layout == MmaLayout::TT ? getN(macro) : getK(macro);
+
+  if (swizzle_size / inner_size <= 1) {
+    GTEST_SKIP()
+        << "Already tested in SingleTile, not interested in testing it again";
+  }
+
+  if (swizzle_size % inner_size != 0) {
+    GTEST_SKIP()
+        << "We will be using swizzle size as CTA tile size, so it must be divisible";
+  }
+
+  const auto k_axis = layout == MmaLayout::TT ? 1 : 2;
+
+  auto shapes = layout == MmaLayout::TT
+      ? matmulAtInputShape3DHopperRS(
+            getM(macro), swizzle_size, getK(macro), layout)
+      : matmulAtInputShape3DHopperRS(
+            getM(macro), getN(macro), swizzle_size, layout);
+
+  auto tv0 = makeConcreteTensor(shapes.first, dtype);
+  auto tv1 = makeConcreteTensor(shapes.second, dtype);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  // Just doing a gmem->register copy
+  tv0 = set(tv0);
+  // Just doing a gmem->smem copy
+  tv1 = set(tv1);
+  tv1->setMemoryType(MemoryType::Shared);
+
+  auto tv2 = fusedMultiplySum(tv0, tv1, {k_axis});
+
+  fusion.addOutput(tv2);
+
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
+  NVF_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+  mma_ops.front()->setMacro(macro);
+
+  auto tv2c = tv2->cacheBefore();
+
+  moveInnerBroadcastLeft(tv0); // n, m, k
+
+  // Split the inner dimension by the inner size, and reorder the outer
+  // of the split to dim 0.
+  if (layout == MmaLayout::TN) {
+    // inner is K, and K has multiple tiles
+    tv0->split(2, inner_size);
+    tv0->reorder({{-2, 0}});
+    // ko, n, m, ki
+  } else {
+    // inner is N, and N has multiple tiles
+    tv0->split(0, inner_size);
+    // no, ni, m, k
+  }
+
+  // Now, the inner 2 dimensions are a single MMA tile
+  tv0->applyMmaSwizzle(MmaOperand::A);
+
+  tv0->merge(2);
+  tv0->merge(2);
+  tv0->axis(2)->parallelize(ParallelType::TIDx);
+
+  // Just schedule tv1 the same way as in SingleTile. Note that although
+  // the schedule are the same, the memory layout of tv1 is different.
+  // For example, assume that the inner size is 16, and the swizzle size is 64.
+  // For the case of SingleTile, the input tensor size will be 16, so the inner
+  // dimension will be split as:
+  //   1, 64 = split(16, 64)
+  // For the case of FullSwizzle, the input tensor size will be 64, so the inner
+  // dimension will be split as:
+  //   1, 64 = split(64, 64)
+  tv1->applyMmaSwizzle(swizzle_b);
+  naivelyParallelize(tv1);
+
+  // Split the inner dimension by the inner size, and reorder the outer
+  // of the split to dim 0.
+  tv2c->split(-1, inner_size);
+  tv2c->reorder({{-2, 0}});
+
+  // Now, the inner 3 dimensions are a single MMA tile.
+  // In the loop domain, just parallelize all of them as Mma.
+  tv2c->axis(1)->parallelize(ParallelType::Mma);
+  tv2c->axis(2)->parallelize(ParallelType::Mma);
+  tv2c->axis(3)->parallelize(ParallelType::Mma);
+
+  if (layout == MmaLayout::TT) {
+    // [M, K, N] -> [M, N, K]
+    tv2c->reorder({{-1, -2}});
+  }
+
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2c->getLoopDomain());
+    tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+  }
+
+  // Create a dummy broadcasting IterDomain to denote that this instruction
+  // is a collective operation over 128 threads. This is a newly created
+  // broadcasting IterDomain and is not connected to other IterDomains in the
+  // TensorDomain. The reason for doing so is because the MMA instruction is
+  // really a collective operation over 128 threads, and by definition there is
+  // no per-thread assignment like "this thread works on this part of the
+  // tensor". It is actually all threads working on all data. For this reason,
+  // the threadIdx.x should not appear anywhere in the index of the tensor.
+  tv2c->broadcast(1, 128);
+  tv2c->axis(1)->parallelize(ParallelType::TIDx);
+
+  if (layout == MmaLayout::TT) {
+    // If TN, then the inner dim is K, which is also the reduction dimension.
+    // For this case, K does not exist in tv2, so nothing to split.
+    // If TT, then the inner dim is N, which is not the reduction dimension.
+    // For this case, N exists in tv2, so we need to split it.
+    tv2->split(-1, inner_size);
+    tv2->reorder({{-2, 0}});
+  }
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2->getLoopDomain());
+    tv2->setLoopDomain(s.as<IterDomain*>());
+  }
+
+  // Inline gmem->register load into the MMA expression at 1.
+  // The shared loop is the loop over multiple tiles.
+  tv0->inlineAt(1);
+  // If TN, then the dim with multiple tiles is K, then the shared loop is a
+  // reduction loop. This reduction loop does not exist in the register->gmem
+  // store, so nothing to inline.
+  // If TT, then the dim with multiple tiles is N, then the shared loop is not a
+  // reduction loop. This shared loop exists in the register->gmem store, so we
+  // will inline the MMA expression into the register->gmem store.
+  if (layout == MmaLayout::TT) {
+    tv2c->inlineAt(1);
+  }
+
+  auto inputs =
+      (layout == MmaLayout::TT ? matmulAtInput3DHopperRS(
+                                     getM(macro),
+                                     swizzle_size,
+                                     getK(macro),
+                                     layout,
+                                     data_type_to_aten(dtype))
+                               : matmulAtInput3DHopperRS(
+                                     getM(macro),
+                                     getN(macro),
+                                     swizzle_size,
+                                     layout,
+                                     data_type_to_aten(dtype)));
+
+  FusionExecutor fe;
+  fe.compileFusion(
+      &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
+
+  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+
+  auto tref = atMatmul(
+      inputs.first.squeeze().to(at::kFloat),
+      inputs.second.squeeze().to(at::kFloat),
+      layout);
+  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+}
+
 TEST_P(HopperRS, SingleTileWithTMALoad) {
   Fusion fusion;
   FusionGuard fg(&fusion);

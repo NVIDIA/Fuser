@@ -339,6 +339,9 @@ bool requiresIdModel(Fusion* fusion) {
         return true;
       }
     }
+    if (expr->isA<MmaOp>()) {
+      return true;
+    }
   }
   // If a tensor does not have a nice root->logical/allocation->loop
   // linear transformation history, use IdModel.

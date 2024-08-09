@@ -271,7 +271,8 @@ class ComputeAtMap {
 
   // Returns if the ID actually has a disjoint set meaning it has been processed
   // in the creation of the compute at map.
-  bool idExistsInMap(IterDomain* id) const;
+  bool idExistsInMap(IterDomain* id, IdMappingMode mode = IdMappingMode::EXACT)
+      const;
 
   //! Returns the pre-allocated index variable integer used in
   //!  the ForLoop corresponding to the given IterDomain.

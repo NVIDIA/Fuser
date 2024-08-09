@@ -1514,9 +1514,9 @@ const DisjointSets<IterDomain*>& ComputeAtMap::getIdSets(
   NVF_ERROR(false, "Error with mapping mode provided.");
 }
 
-bool ComputeAtMap::idExistsInMap(IterDomain* id) const {
-  return getIdSets(IdMappingMode::EXACT).disjointSetMap().find(id) !=
-      getIdSets(IdMappingMode::EXACT).disjointSetMap().end();
+bool ComputeAtMap::idExistsInMap(IterDomain* id, IdMappingMode mode) const {
+  return getIdSets(mode).disjointSetMap().find(id) !=
+      getIdSets(mode).disjointSetMap().end();
 }
 
 VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
