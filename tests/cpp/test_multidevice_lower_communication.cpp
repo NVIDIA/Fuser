@@ -223,7 +223,9 @@ TEST_F(LowerCollectiveTest, Broadcast) {
 
   FusionExecutorCache fec(std::move(fusion));
   at::Tensor out_tensor = fec.runFusionWithInputs({in_tensor})[0];
-  assertIsCompiledToHostIrContainer(fec);
+  if (num_devices > 1) {
+    assertIsCompiledToHostIrContainer(fec);
+  }
 
   EXPECT_TRUE(
       at::equal(out_tensor, unsharded_tensor.slice(0, kRoot, kRoot + 1)));
@@ -282,6 +284,36 @@ TEST_F(LowerCollectiveTest, Allreduce) {
   FusionExecutorCache fec(std::move(fusion));
   at::Tensor out_tensor = fec.runFusionWithInputs({in_tensor})[0];
   assertIsCompiledToHostIrContainer(fec);
+
+  EXPECT_TRUE(at::allclose(out_tensor, unsharded_in_tensor.sum(0)));
+}
+
+TEST_F(LowerCollectiveTest, Allreduce_Concrete) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto num_devices = communicator_->size();
+  TensorView* in = makeContigConcreteTensor({num_devices, kTensorSize});
+  // When `num_devices` is 1, the `sum` becomes a `SqueezeOp`, a good test for
+  // lowering.
+  TensorView* out = sum(in, {0});
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  auto mesh = DeviceMesh::createForNumDevices(num_devices);
+  in->setDeviceMesh(mesh);
+  out->setDeviceMesh(mesh);
+  in->axis(0)->parallelize(ParallelType::DIDx);
+
+  at::Tensor unsharded_in_tensor =
+      at::randn({num_devices, kTensorSize}, tensor_options);
+  at::Tensor in_tensor = shardTensor(unsharded_in_tensor, in);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor out_tensor = fec.runFusionWithInputs({in_tensor})[0];
+  if (num_devices > 1) {
+    assertIsCompiledToHostIrContainer(fec);
+  }
 
   EXPECT_TRUE(at::allclose(out_tensor, unsharded_in_tensor.sum(0)));
 }

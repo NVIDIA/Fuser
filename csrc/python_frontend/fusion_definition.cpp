@@ -105,6 +105,11 @@ void FusionDefinition::finalizeDefinition() {
     trie_node_ = child_node.value();
     fusion_id_ = std::optional<size_t>(trie_node_->fusion_id);
   }
+
+  NVF_ERROR(
+      num_recording_states_presched_ == 0,
+      "Expected number of recording states for prescheduled fusion to be uninitialized.");
+  num_recording_states_presched_ = (int64_t)recording_state_.size();
 }
 
 void FusionDefinition::findHiddenTensorViews(Fusion* fusion) {
@@ -169,6 +174,16 @@ void FusionDefinition::updateSymbolicStates(
   }
 }
 
+bool FusionDefinition::existSchedule(const at::ArrayRef<c10::IValue>& inputs) {
+  FUSER_PERF_SCOPE("FusionDefinition::existsSchedule");
+  NVF_CHECK(id().has_value(), "FusionDefinition definition does not exist!");
+  FusionSchedules* scheds = fusionCache()->queryFusionSchedules(id().value());
+  int8_t device = getCommonDeviceCUDA(inputs);
+  NVF_CHECK(
+      inputs.empty() || device > -1, "Inputs are not all on the same device!");
+  return fusionCache()->existUserSchedule(scheds, inputs, device);
+}
+
 void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
   FUSER_PERF_SCOPE("FusionDefinition::setupSchedule");
   NVF_CHECK(id().has_value(), "FusionDefinition definition does not exist!");
@@ -176,7 +191,16 @@ void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
   int8_t device = getCommonDeviceCUDA(inputs);
   NVF_CHECK(
       inputs.empty() || device > -1, "Inputs are not all on the same device!");
-  NVF_CHECK(user_sched_ == nullptr, "Expected User Scheduler to be null!");
+
+  // NOTE: Clear user schedule state in setupSchedule.
+  // Scheduling the fusion can add states to recording_state.
+  // Remove any schedule-only states before applying new schedule.
+  size_t num_states_to_remove =
+      recording_state_.size() - num_recording_states_presched_;
+  for (size_t rnd = 0; rnd < num_states_to_remove; ++rnd) {
+    recording_state_.pop_back();
+  }
+
   user_sched_ = fusionCache()->createUserSchedule(scheds, inputs, device);
 
   // Building a new Fusion container for scheduling with definition such that
@@ -230,7 +254,9 @@ void FusionDefinition::finalizeSchedule(
   FusionGuard::setCurFusion(prev_fusion_);
   user_sched_->runtime_info.reset();
   prev_fusion_ = nullptr;
-  user_sched_ = nullptr;
+
+  // NOTE: Clear user schedule state in setupSchedule.
+  // Users can access schedule objects after scheduling the fusion.
 }
 
 void FusionDefinition::print(std::ostream& os) const {
@@ -272,8 +298,6 @@ std::vector<at::Tensor> FusionDefinition::execute(
     ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
   }
 
-  // NOTE: queryUserSchedule is broken, see issue:
-  // https://github.com/NVIDIA/Fuser/issues/2056
   if (!override_user_schedule) {
     auto device = getCommonDeviceCUDA(inputs, selected_device);
     NVF_CHECK(
