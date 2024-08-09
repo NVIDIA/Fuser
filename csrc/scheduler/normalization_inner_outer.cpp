@@ -481,14 +481,14 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   return buffer_params;
 }
 
-//! Calculate the persistent buffer batches and threads per block.
-//! Start from a large value of inner_dim_numel / (inner_vect * warpSize/4),
-//! gradually reduce to small values but not smaller than a threshold determined
-//! by inner_dim_numel and outer_dim_numel. If the persistent buffer batch is
-//! smaller than the maximum allowed batch which is determined by the avilable
-//! registers, this function will return that batch value. Otherwise, it will
-//! return nullopt except when ignore_register_size_limit is true where it will
-//! return whatever the batch value is.
+// Calculate the persistent buffer batches and threads per block.
+// Start from a large value of inner_dim_numel / (inner_vect * warpSize/4),
+// gradually reduce to small values but not smaller than a threshold determined
+// by inner_dim_numel and outer_dim_numel. If the persistent buffer batch is
+// smaller than the maximum allowed batch which is determined by the avilable
+// registers, this function will return that batch value. Otherwise, it will
+// return nullopt except when ignore_register_size_limit is true where it will
+// return whatever the batch value is.
 // This exception is needed because the register usage in canScheduleRuntime is
 // based on std::min(project_buffer, not_project_buffer). However, in
 // getPersistentHeuristics() we enforce project_buffer to input if dtype=float
