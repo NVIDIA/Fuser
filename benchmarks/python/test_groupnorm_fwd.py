@@ -6,9 +6,23 @@ from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import run_benchmark, clear_cuda_cache, clear_dynamo_cache
 import torch
+import thunder
+from thunder.executors.nvfuserex import nvfuserex
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
 
 
+def get_n_groups(C):
+    # start num_groups from 1 and increase to 32 at max
+    # 32 is a widely used value for num_groups
+    # it doesn't make sense to use num_groups > C
+    num_groups = 1
+    while num_groups * 2 <= 32 and C % (num_groups * 2) == 0:
+        num_groups *= 2
+    return num_groups
+
+
+# This version is based on requires_grad = False.
+# When requires_grad = True, two additional tensors (T4, T14) are added to outputs.
 def groupnorm_fwd_fusion(
     fd: FusionDefinition,
     dtype: DataType,
@@ -103,12 +117,7 @@ def test_groupnorm_fwd_nvf_benchmark(
     x = torch.randn(size, device="cuda", dtype=dtype)
     weight = torch.randn(C, device="cuda", dtype=dtype)
     bias = torch.randn(C, device="cuda", dtype=dtype)
-    # start num_groups from 1 and increase to 32 at max
-    # 32 is a widely used value for num_groups
-    # it doesn't make sense to use num_groups > C
-    num_groups = 1
-    while num_groups * 2 <= 32 and C % (num_groups * 2) == 0:
-        num_groups *= 2
+    num_groups = get_n_groups(C)
 
     with FusionDefinition() as fd:
         groupnorm_fwd_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype), num_groups)
@@ -119,6 +128,26 @@ def test_groupnorm_fwd_nvf_benchmark(
 
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, [x, weight, bias])
+
+
+@pytest.mark.parametrize("size", generate_input_sizes(dims=4))
+@pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+def test_groupnorm_fwd_thunder_benchmark(
+    benchmark,
+    size: tuple,
+    dtype: torch.dtype,
+):
+    clear_cuda_cache()
+    N, C, H, W = size
+    x = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
+    weight = torch.randn(C, device="cuda", dtype=dtype, requires_grad=True)
+    bias = torch.randn(C, device="cuda", dtype=dtype, requires_grad=True)
+    num_groups = get_n_groups(C)
+    # thunder compiled model
+    groupnorm_fwd_jit = thunder.jit(
+        groupnorm_fwd, nv_enable_bookend=False, executors=[nvfuserex]
+    )
+    run_benchmark(benchmark, groupnorm_fwd_jit, [x, weight, bias, num_groups])
 
 
 @pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
@@ -137,11 +166,7 @@ def test_groupnorm_fwd_baseline_benchmark(
     x = torch.randn(size, device="cuda", dtype=dtype)
     weight = torch.randn(C, device="cuda", dtype=dtype)
     bias = torch.randn(C, device="cuda", dtype=dtype)
-
-    # start num_groups from 1 and increase to 32 at max
-    num_groups = 1
-    while num_groups * 2 <= 32 and C % (num_groups * 2) == 0:
-        num_groups *= 2
+    num_groups = get_n_groups(C)
 
     run_benchmark(
         benchmark,
