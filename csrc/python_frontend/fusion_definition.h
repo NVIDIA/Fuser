@@ -171,6 +171,9 @@ class NVF_API FusionDefinition : public FusionState {
   //! Exit Python Context Manager -- Triggers Fusion IR build if it is not
   //! cached
   NVF_API void finalizeDefinition();
+  //! Check that a user schedule exists for FusionDefinition and input
+  //! arguments on device.
+  NVF_API bool existSchedule(const at::ArrayRef<c10::IValue>& inputs);
   //! Setup user scheduling of a fusion
   //! Copies fusion object and sets up FusionGuard
   NVF_API void setupSchedule(const at::ArrayRef<c10::IValue>& inputs);
@@ -278,6 +281,8 @@ class NVF_API FusionDefinition : public FusionState {
   Fusion* prev_fusion_;
   //! Data member for holding the current user schedule object
   UserSchedule* user_sched_;
+  //! Number of recording_states_ before applying user schedule
+  int64_t num_recording_states_presched_ = 0;
 
  public:
   //! The Operators are not directly defined in this header.  They are defined
