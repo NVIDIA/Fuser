@@ -481,14 +481,14 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   return buffer_params;
 }
 
-//! Calculate the persistent buffer batches and threads per block.
-//! Start from a large value of inner_dim_numel / (inner_vect * warpSize/4),
-//! gradually reduce to small values but not smaller than a threshold determined
-//! by inner_dim_numel and outer_dim_numel. If the persistent buffer batch is
-//! smaller than the maximum allowed batch which is determined by the avilable
-//! registers, this function will return that batch value. Otherwise, it will
-//! return nullopt except when ignore_register_size_limit is true where it will
-//! return whatever the batch value is.
+// Calculate the persistent buffer batches and threads per block.
+// Start from a large value of inner_dim_numel / (inner_vect * warpSize/4),
+// gradually reduce to small values but not smaller than a threshold determined
+// by inner_dim_numel and outer_dim_numel. If the persistent buffer batch is
+// smaller than the maximum allowed batch which is determined by the avilable
+// registers, this function will return that batch value. Otherwise, it will
+// return nullopt except when ignore_register_size_limit is true where it will
+// return whatever the batch value is.
 std::pair<int64_t, int64_t> getBufferBatchSizeAndThreadsPerBlock(
     const int64_t inner_dim_numel,
     const int64_t outer_dim_numel,
@@ -524,13 +524,13 @@ std::pair<int64_t, int64_t> getBufferBatchSizeAndThreadsPerBlock(
     }
     return 1l;
   };
-  //! Each thread can use a maximum of 255 registers, and assume 40 of them are
-  //! reserved for indexing and other purposes. So, each thread can use up to
-  //! 215 registers for persistent buffer. Calculate number of buffer batches
-  //! using these 215 registers. total_buffer_bytes is the total size of
-  //! persistent buffers in bytes. reduction_elements is the number of elements
-  //! in the reduction domain. vectorization_factor is the vectorization factor
-  //! of inputs and outputs.
+  // Each thread can use a maximum of 255 registers, and assume 40 of them are
+  // reserved for indexing and other purposes. So, each thread can use up to
+  // 215 registers for persistent buffer. Calculate number of buffer batches
+  // using these 215 registers. total_buffer_bytes is the total size of
+  // persistent buffers in bytes. reduction_elements is the number of elements
+  // in the reduction domain. vectorization_factor is the vectorization factor
+  // of inputs and outputs.
   auto getMaximumInnerOuterPersistentBufferBatch = [&]() -> int64_t {
     int64_t register_per_batch = ceilDiv(
         persistent_buffer_size / inner_dim_numel * vectorize_factor,

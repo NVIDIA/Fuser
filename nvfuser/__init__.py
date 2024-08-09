@@ -186,7 +186,6 @@ class FusionDefinition(_C._FusionDefinition):
         Returns:
             List[Tensor]
         """
-        func_based_def = False
         self.profiled = profile
 
         if device is not None:
@@ -202,10 +201,17 @@ class FusionDefinition(_C._FusionDefinition):
             self._setup_definition()
             self.definition()
             self._finalize_definition()
-            func_based_def = True
 
-        # If schedule is defined by child class, make a schedule for inputs
-        if func_based_def and (super(type(self), self).schedule != self.schedule):
+        # If schedule is defined by child class and schedule is not defined for
+        # inputs, make a schedule.
+        is_fusion_definition_child_class = (
+            type(self) != FusionDefinition
+        ) and issubclass(type(self), FusionDefinition)
+        defined_schedule = (
+            is_fusion_definition_child_class
+            and super(type(self), self).schedule != self.schedule
+        )
+        if defined_schedule and not self._exist_schedule(inputs):
             self._setup_schedule(inputs)
             self.schedule()
             self._finalize_schedule(inputs)
