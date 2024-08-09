@@ -838,6 +838,14 @@ Val* u32IndexScalarSmemTv(TensorView* smem_tv) {
   return u32addr;
 }
 
+Val* u32IndexScalarSmemTv(kir::TensorIndex* index) {
+  auto ptr_address = IrBuilder::addressExpr(index);
+  auto u32addr = IrBuilder::create<Val>(DataType::SMemAddress);
+  IrBuilder::create<UnaryOp>(
+      UnaryOpType::ToUnsignedSmemAddr, u32addr, ptr_address);
+  return u32addr;
+}
+
 Val* getGridSyncBufferSize(const ParallelTypeBitmap& ptb) {
   // See the comment above for getGridCommWorkBufferSize.
   NVF_ERROR(
