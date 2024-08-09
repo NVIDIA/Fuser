@@ -117,7 +117,9 @@ bool InnerPersistentKernelScheduler::canScheduleRunTime(
   if (persistent_buffer_size > available_persistent_buffer_size) {
     scheduler_debug_utils::canScheduleRejectReason(
         heuristicType(),
-        "not enough registers or shared memory for persistence");
+        can_use_smem_persistent
+            ? "not enough registers or shared memory for persistence."
+            : "not enough registers for persistence and shared memory persistence is not supported yet.");
     return false;
   }
 
