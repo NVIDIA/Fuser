@@ -11,7 +11,7 @@ from thunder.executors.nvfuserex import nvfuserex
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
 
 
-def get_n_goups(C):
+def get_n_groups(C):
     # start num_groups from 1 and increase to 32 at max
     # 32 is a widely used value for num_groups
     # it doesn't make sense to use num_groups > C
@@ -117,7 +117,7 @@ def test_groupnorm_fwd_nvf_benchmark(
     x = torch.randn(size, device="cuda", dtype=dtype)
     weight = torch.randn(C, device="cuda", dtype=dtype)
     bias = torch.randn(C, device="cuda", dtype=dtype)
-    num_groups = get_n_goups(C)
+    num_groups = get_n_groups(C)
 
     with FusionDefinition() as fd:
         groupnorm_fwd_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype), num_groups)
@@ -142,7 +142,7 @@ def test_groupnorm_fwd_thunder_benchmark(
     x = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
     weight = torch.randn(C, device="cuda", dtype=dtype, requires_grad=True)
     bias = torch.randn(C, device="cuda", dtype=dtype, requires_grad=True)
-    num_groups = get_n_goups(C)
+    num_groups = get_n_groups(C)
     # thunder compiled model
     groupnorm_fwd_jit = thunder.jit(
         groupnorm_fwd, nv_enable_bookend=False, executors=[nvfuserex]
@@ -166,7 +166,7 @@ def test_groupnorm_fwd_baseline_benchmark(
     x = torch.randn(size, device="cuda", dtype=dtype)
     weight = torch.randn(C, device="cuda", dtype=dtype)
     bias = torch.randn(C, device="cuda", dtype=dtype)
-    num_groups = get_n_goups(C)
+    num_groups = get_n_groups(C)
 
     run_benchmark(
         benchmark,
