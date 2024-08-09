@@ -6,7 +6,6 @@
  */
 // clang-format on
 
-#include <compute_at_map.h>
 #include <device_lower/utils.h>
 #include <ir/internal_base_nodes.h>
 #include <ir/iostream.h>
