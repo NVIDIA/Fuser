@@ -584,6 +584,15 @@ SdpfaBwdResult sdpfa_bwd(
   NVF_CHECK(
       !scale || scale->isScalar(), "Expected scale to be a scalar double.");
 
+  // Set default values for dropout_p (0.0), is_causal(false)
+  if (dropout_p == nullptr) {
+    dropout_p = IrBuilder::create<Val>(0.0, DataType::Double);
+  }
+
+  if (is_causal == nullptr) {
+    is_causal = IrBuilder::create<Val>(false, DataType::Bool);
+  }
+
   // Mark CPU scalar tensors.
   philox_seed->setCpuScalar(true);
   philox_offset->setCpuScalar(true);
