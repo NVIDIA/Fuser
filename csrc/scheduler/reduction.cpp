@@ -1067,6 +1067,12 @@ void ReductionScheduler::schedule(Fusion* fusion) {
 
 //! Check if the reduction heuristics apply in given fusion
 bool ReductionScheduler::canScheduleCompileTime(Fusion* fusion) {
+  if (scheduler_utils::isResharding(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        heuristicType(), "Fusion is resharding.");
+    return false;
+  }
+
   // Needs at least one reduction to consider.
   if (!ir_utils::hasAnyReductionOps(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(

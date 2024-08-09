@@ -32,7 +32,13 @@ PointWiseScheduler::PointWiseScheduler(
 }
 
 bool PointWiseScheduler::canScheduleCompileTime(Fusion* fusion) {
-  //   Currently using the same path as the scheduler
+  if (scheduler_utils::isResharding(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        heuristicType(), "Fusion is resharding.");
+    return false;
+  }
+
+  // Currently using the same path as the scheduler
   // to eliminate mismatch between canSchedule and
   // schedule pointwise.
   if (!hasReferenceTensorView(fusion)) {
