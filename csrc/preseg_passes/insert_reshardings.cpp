@@ -49,7 +49,11 @@ void insertReshardingsBefore(Fusion* fusion) {
       continue;
     }
 
-    auto output = expr->outputs().at(0)->as<TensorView>();
+    if (!expr->output(0)->isA<TensorView>()) {
+      continue;
+    }
+    auto output = expr->output(0)->as<TensorView>();
+
     std::unordered_set<TensorView*> inputs;
     for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
       if (haveDifferentShardings(input, output)) {
@@ -85,7 +89,11 @@ void insertReshardingsAfter(Fusion* fusion) {
       continue;
     }
 
-    auto output = expr->outputs().at(0)->as<TensorView>();
+    if (!expr->output(0)->isA<TensorView>()) {
+      continue;
+    }
+    auto output = expr->output(0)->as<TensorView>();
+
     std::unordered_set<TensorView*> inputs;
     for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
       if (haveDifferentShardings(input, output)) {
