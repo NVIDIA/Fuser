@@ -6,7 +6,6 @@
  */
 // clang-format on
 
-#include <compute_at_map.h>
 #include <device_lower/utils.h>
 #include <ir/internal_base_nodes.h>
 #include <ir/iostream.h>
@@ -156,14 +155,10 @@ bool haveDifferentShardings(
       PairwiseLogicalDomainMap(producer, consumer).mapProducerToConsumer();
   for (auto p_id : TensorDomain::noReductions(producer->getLogicalDomain())) {
     auto p2c_map_it = p2c_map.find(p_id);
-    NVF_ERROR(
-        p2c_map_it != p2c_map.end(),
-        "the producer ",
-        producer,
-        " has a dimension ",
-        p_id,
-        " that is not mapped to its consumer ",
-        consumer);
+    if (p2c_map_it == p2c_map.end()) {
+      continue;
+    }
+
     auto c_id = p2c_map_it->second;
     if (p_id->getParallelType() != c_id->getParallelType() &&
         (p_id->isDeviceDim() || c_id->isDeviceDim())) {
