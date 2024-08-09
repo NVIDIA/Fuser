@@ -1587,6 +1587,8 @@ void FusionExecutor::initializeExecutorEntry(
   executor_utils::validateVectorizedTensors(
       kernel(), args, outputs, compileTimeDataCache(), expr_eval);
 
+  executor_utils::validateCircularBuffering(kernel(), expr_eval);
+
   std::vector<GlobalBufferInfo> output_info;
 
   if (outputs.empty()) {
