@@ -59,7 +59,7 @@ class GridSerializationSyncInserter : kir::ExprMutator {
       ParallelTypeBitmap sync_pattern;
       auto out = rop->out()->as<TensorView>();
       NVF_ERROR(out != nullptr);
-      for (int i : c10::irange((int)out->nDims())) {
+      for (int64_t i : c10::irange(out->nDims())) {
         IterDomain* ax = out->axis(i);
         if (!ax->isReduction()) {
           continue;
@@ -97,7 +97,7 @@ class GridSerializationSyncInserter : kir::ExprMutator {
   void dispatch(Expr* expr) override {
     // We will detect top-level exprs here that require serialization and
     // insert the required syncs before and after those exprs.
-    if (auto loop = dynamic_cast<kir::ForLoop*>(expr);
+    if (auto loop = dynamic_cast<ForLoop*>(expr);
         cur_top_level_expr_ != nullptr || (loop && loop->isTrivial())) {
       // Never sync around trivial loops since they do not appear in the
       // generated CUDA code. Also avoid redefining cur_top_level_expr_ if it
@@ -127,7 +127,8 @@ class GridSerializationSyncInserter : kir::ExprMutator {
     kir::Allocate* alloc = lower_utils::allocGlobalBufferForGridComm(
         lower_utils::getGridSyncBufferSize(cur_expr_sync_pattern_.value()),
         DataType::Int,
-        true);
+        /*zero_init=*/true,
+        /*resets_to_zero=*/true);
     auto wait = IrBuilder::create<kir::BlockSerializeWait>(
         cur_expr_sync_pattern_.value(), alloc->buffer());
     registerInsertBefore(cur_top_level_expr_, alloc);

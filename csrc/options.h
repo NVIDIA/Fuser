@@ -10,6 +10,7 @@
 #include <exceptions.h>
 #include <visibility.h>
 
+#include <algorithm>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -21,6 +22,16 @@ namespace nvfuser {
 //! These can be set through the `NVFUSER_DUMP` environment variable
 //!
 enum class DebugDumpOption {
+  FunctionTrace, //!< Dump the function trace of selected internal function. The
+                 //!< function of interest needs to be instrumented with
+                 //!< DEBUG_PRINT_SCOPE and optionally RECORD_AND_RETURN before
+                 //!< it can be traced. If RECORD_AND_RETURN is not used,
+                 //!< function tracing will still work, but it will not be able
+                 //!< to print the return value and the line of the return
+                 //!< statement. If you are interested in tracing a specific
+                 //!< function while developing a PR, you are recommended to
+                 //!< keep the instrumentation code in your PR and so later
+                 //!< people can use it after committed to the main branch.
   FusionIrOriginal, //!< Dump the original fusion IR built by the Python API
   FusionIrConcretized, //!< Dump the Fusion IR after concretization
   FusionIrPreseg, //!< Dump the Fusion IR after pre-segmenter optimization and
@@ -42,16 +53,15 @@ enum class DebugDumpOption {
   FusionSegments, //!< Dump Segmented Fusion Graph
   FusionSegmenterLog, //!< Dump Detailed Segmenter Logging
   FusionArgs, //!< Print the runtime fusion arguments
+  GlobalZeroedMemory, //!< Print the log for zeroed global memory allocator
+  HostIr, //!< Dump the Host IR program
   KernelArgs, //!< Print the runtime kernel arguments when launching kernels
-  EffectiveBandwidth, //! Measure kernel performance and print effective
-                      //! bandwidth
   FusionSegmentsDrawing, //!< Dump Segmented Fusion Graph
   PrintPtxasLog, //!< Print the ptxas verbose log including register usage
   BufferReuseInfo, //!< Dump the analysis details of local/shared buffer re-use
   SchedulerDebug, //! Dump scheduler heuristic parameters
   SchedulerVerbose, //! Dump detailed scheduler logging
   ParallelDimensions, //!< Dump known parallel dimensions
-  Halo, //! Halo information of tensors
   PerfDebugVerbose, //! When running kernels, print verbose information
                     //! associated with what's running
   PreSegmenterLogging,
@@ -71,6 +81,7 @@ enum class DebugDumpOption {
   LoopRotation, //! Print loop rotation log
   Occupancy, // Dump occupancy
   IndexType, //! Print the index type of the launched kernel
+  PredicateElimination, //! Print the predicate elimination information
   EndOfOption //! Placeholder for counting the number of elements
 };
 
@@ -79,14 +90,16 @@ enum class DebugDumpOption {
 //! These can be set through the `NVFUSER_ENABLE` environment variable
 //!
 enum class EnableOption {
+  FuseMatmul, //! Enable automatic fusion of matmul and linear ops
   IdModel, //! Enable IdModel
   KernelDb, //! Enable Kernel Database
   KernelProfile, //! Enable intra-kernel performance profiling
   MemoryPromotion, //! Enable promotion of memory types for non-pointwise ops
   StaticFusionCount, //! Enable using single static count in kernel name
+  ReuseZeroedMemory, //! Re-use zeroed memory used for grid synchronization
   WarnRegisterSpill, //! Enable warnings of register spill
-  MatmulExprEval, //! Enable ATen evaluation for the entire fusion containing
-                  //! matmul
+  IoToLowerPrecision, //! Enable castInputOutputToLowerPrecision. #1889 explains
+                      //! why we disabled it by default.
   EndOfOption //! Placeholder for counting the number of elements
 };
 
@@ -97,6 +110,7 @@ enum class EnableOption {
 enum class DisableOption {
   CompileToSass, //! Disable direct compilation to sass so the ptx can be
                  //! examined
+  ContigIndexing, //! Disable contiguous indexing
   ExprSimplify, //! Disable expression simplifier
   Fallback, //! Disable fallback
   Fma, //! Disable FMA instructions
@@ -104,6 +118,8 @@ enum class DisableOption {
                               //! grouped grid welford kernel
   IndexHoist, //! Disable index hoisting
   MagicZero, //! Disable nvfuser_zero
+  MatmulExprEval, //! Disable ATen evaluation for the entire fusion containing
+                  //! matmul
   Nvtx, //! Disable NVTX instrumentation
   ParallelCompile, //! Disable compiling Fusion segments in parallel
   ParallelSerde, //! Disable deserializing FusionExecutorCache in parallel
@@ -157,6 +173,14 @@ class Options {
     return options_.at(option);
   }
 
+  bool hasArg(OptionEnum option, const std::string& arg) const {
+    if (!has(option)) {
+      return false;
+    }
+    const auto& args = getArgs(option);
+    return std::find(args.begin(), args.end(), arg) != args.end();
+  }
+
   void set(OptionEnum option_type, std::vector<std::string> option = {}) {
     options_[option_type] = option;
   }
@@ -206,6 +230,8 @@ NVF_API bool isDebugDumpEnabled(DebugDumpOption option);
 
 const std::vector<std::string>& getDebugDumpArguments(DebugDumpOption option);
 
+bool hasDebugDumpArgument(DebugDumpOption option, const std::string& arg);
+
 // Enable options
 template <>
 NVF_API std::unordered_map<EnableOption, std::vector<std::string>> Options<
@@ -216,6 +242,8 @@ using EnableOptions = Options<EnableOption>;
 bool isOptionEnabled(EnableOption option);
 
 const std::vector<std::string>& getEnableOptionArguments(EnableOption option);
+
+bool hasEnableOptionArgument(EnableOption option, const std::string& arg);
 
 template <>
 NVF_API Options<EnableOption>& OptionsGuard<EnableOption>::getCurOptions();
@@ -233,6 +261,8 @@ NVF_API bool isOptionDisabled(DisableOption option);
 
 const std::vector<std::string>& getDisableOptionArguments(DisableOption option);
 
+bool hasDisableOptionArgument(DisableOption option, const std::string& arg);
+
 template <>
 NVF_API Options<DisableOption>& OptionsGuard<DisableOption>::getCurOptions();
 
@@ -248,7 +278,7 @@ using ProfilerOptions = Options<ProfilerOption>;
 
 // Specific queries for the Profiler Options
 bool isProfilerEnabled();
-bool isProfilerEnabledWithoutCupti();
+bool isProfilerEnabledWithCupti();
 bool isProfilerPrintingEnabled();
 bool isProfilerPrintingVerbose();
 

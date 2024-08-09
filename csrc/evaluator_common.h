@@ -142,11 +142,20 @@ class NaiveValueMachine {
 class PrecomputedValues {
  public:
   PrecomputedValues() = delete;
+  NVF_API PrecomputedValues(PrecomputedValues&&) = default;
 
   NVF_API explicit PrecomputedValues(Fusion* fusion);
 
-  //! Bind concrete values from fusion runtime inputs
+  NVF_API ~PrecomputedValues();
+
+  //! Bind a list of concrete values to the fusion's runtime inputs.
   void bindInputs(const KernelArgumentHolder& args);
+
+  //! Bind a list of concrete values to a list of fusion values. The two lists
+  //! must have the same size.
+  void bindValues(
+      const std::vector<Val*>& values,
+      const KernelArgumentHolder& args);
 
   using ParallelExtentMap =
       std::unordered_map<ParallelType, std::vector<const Val*>>;
@@ -162,7 +171,7 @@ class PrecomputedValues {
   void bindConcreteParallelTypeValue(ParallelType pt, PolymorphicValue value);
 
   //! Returns if the workspace contains evaluated results.
-  bool ready() {
+  bool hasValidValues() {
     return has_valid_values_;
   }
 
@@ -226,10 +235,6 @@ class PrecomputedValues {
   //!  infer instructions from the workspace.
   void initializeIntegerMachine() {
     value_machine_ = std::make_unique<NaiveValueMachine>(*this);
-  }
-
-  bool hasValidValues() {
-    return has_valid_values_;
   }
 
   //! Iterate through all the named scalars corresponding

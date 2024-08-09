@@ -44,7 +44,8 @@ std::string getSerdeTmpFile() {
 
 std::string getSerdeFile(std::optional<int64_t> device_id) {
   auto device_prop = (device_id.has_value())
-      ? at::cuda::getDeviceProperties(device_id.value())
+      ? at::cuda::getDeviceProperties(
+            static_cast<c10::DeviceIndex>(device_id.value()))
       : at::cuda::getCurrentDeviceProperties();
   int cuda_major = 0;
   int cuda_minor = 0;
@@ -114,7 +115,8 @@ const serde::FusionCache* verifyFusionCache(
 
   // Check device major and minor versions
   auto device_prop = (device_id.has_value())
-      ? at::cuda::getDeviceProperties(device_id.value())
+      ? at::cuda::getDeviceProperties(
+            static_cast<c10::DeviceIndex>(device_id.value()))
       : at::cuda::getCurrentDeviceProperties();
   NVF_CHECK(
       device_prop->major == fusion_cache_buffer->device_major() &&
@@ -186,6 +188,34 @@ FusionCache* FusionCache::singleton_ = nullptr;
 UserSchedule::UserSchedule() : schedule(nullptr), executor(nullptr) {
   schedule = std::make_unique<Fusion>();
   executor = std::make_unique<FusionExecutor>();
+}
+
+bool UserSchedule::canSchedule(const ScheduleHeuristic& heuristic) {
+  return SchedulerEntry::canSchedule(heuristic, fusion(), *runtimeInfo());
+}
+
+std::tuple<bool, std::string> UserSchedule::canScheduleDebug(
+    const ScheduleHeuristic& heuristic) {
+  // Enable collection of messages from canScheduleRejectReason
+  DebugDumpOptionsGuard debug_dump_options_guard;
+  DebugDumpOptionsGuard::getCurOptions().set(
+      DebugDumpOption::FusionSegmenterLog);
+
+  // Send debug messages to stringstream
+  std::stringstream ss;
+  DebugStreamGuard dsg(ss);
+
+  bool can_schedule = canSchedule(heuristic);
+  return std::make_tuple(can_schedule, ss.str());
+}
+
+void UserSchedule::scheduleWithHeuristic(const ScheduleHeuristic& heuristic) {
+  NVF_CHECK(
+      heuristic_scheduler == nullptr,
+      "Heuristic Scheduler is already defined for this UserSchedule");
+  heuristic_scheduler =
+      SchedulerEntry::makeEntry(heuristic, fusion(), *runtimeInfo());
+  heuristic_scheduler->schedule(fusion());
 }
 
 FusionSchedules::FusionSchedules(int64_t fusion_id)
@@ -410,6 +440,7 @@ FusionSchedules* FusionCache::queryFusionSchedules(size_t fusion_id) const {
   NVF_CHECK(ptr != nullptr, "Unexpected null FusionSchedules object.");
   return ptr;
 }
+
 std::optional<size_t> FusionCache::queryUserScheduleId(
     const FusionSchedules* scheds,
     const at::ArrayRef<c10::IValue>& inputs) {
@@ -425,6 +456,7 @@ std::optional<size_t> FusionCache::queryUserScheduleId(
   }
   return result;
 }
+
 const UserSchedule& FusionCache::queryUserSchedule(
     const FusionSchedules* scheds,
     size_t id,
@@ -437,6 +469,28 @@ const UserSchedule& FusionCache::queryUserSchedule(
   NVF_CHECK(
       user_sched != user_scheds.end(), "Lookup of non-existent user schedule!");
   return user_sched->second.at(device);
+}
+
+bool FusionCache::existUserSchedule(
+    const FusionSchedules* scheds,
+    const at::ArrayRef<c10::IValue>& inputs,
+    int device) {
+  // Short-Circuit: No user schedules
+  if (scheds->user_def_schedules.empty()) {
+    return false;
+  }
+
+  // Short-Circuit: User schedule does not exist for fusion and inputs.
+  InputsIdLookup::IdLookupReturn input_id =
+      user_def_input_encodings_.lookupId(inputs);
+  auto user_sched_iter = scheds->user_def_schedules.find(input_id.id);
+  if (user_sched_iter == scheds->user_def_schedules.end()) {
+    return false;
+  }
+
+  // A vector of user schedules exists for fusion and inputs.
+  // Now, check that user schedule exists for specified device.
+  return device < (int)user_sched_iter->second.size();
 }
 
 TrieNode* FusionCache::createChild(TrieNode* node, RecordFunctor* rec) {

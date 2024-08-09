@@ -29,6 +29,8 @@ std::string toString(ScheduleHeuristic sh) {
       return "transpose";
     case ScheduleHeuristic::Matmul:
       return "matmul";
+    case ScheduleHeuristic::ExprEval:
+      return "expr_eval";
     case ScheduleHeuristic::None:
       return "none";
     default:

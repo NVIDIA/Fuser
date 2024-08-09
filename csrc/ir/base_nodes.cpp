@@ -218,19 +218,21 @@ PolymorphicValue Val::evaluate() {
 }
 
 bool Val::isZero() const {
-  return value().hasValue() && value() == 0;
+  return value().hasValue() && (bool)(value() == 0.0);
 }
 
 bool Val::isZeroInt() const {
-  return value().hasValue() && value().is<int64_t>() && value() == 0;
+  return value().hasValue() && value().is<int64_t>() &&
+      value().as<int64_t>() == 0;
 }
 
 bool Val::isOne() const {
-  return value().hasValue() && value() == 1;
+  return value().hasValue() && (bool)(value() == 1.0);
 }
 
 bool Val::isOneInt() const {
-  return value().hasValue() && value().is<int64_t>() && value() == 1;
+  return value().hasValue() && value().is<int64_t>() &&
+      value().as<int64_t>() == 1;
 }
 
 bool Val::isTrue() const {
@@ -401,8 +403,23 @@ std::vector<PolymorphicValue> Expr::evaluate(
       "Please override the evaluate method");
 }
 
+std::vector<PolymorphicValue> Expr::evaluate(
+    const ExpressionEvaluator& ee,
+    std::unordered_map<const Val*, PolymorphicValue>& known_values) const {
+  std::vector<PolymorphicValue> expr_inputs;
+  expr_inputs.reserve(inputs().size());
+  for (auto inp : inputs()) {
+    const auto& eval_i = ee.evaluate(inp, known_values);
+    if (!eval_i.hasValue()) {
+      return {std::monostate{}};
+    }
+    expr_inputs.emplace_back(eval_i);
+  }
+  return this->evaluate(ee, expr_inputs);
+}
+
 void Expr::addDataAttribute(PolymorphicValue attr) {
-  addAttribute(IrBuilder::create<Val>(container(), std::move(attr)));
+  addAttribute(IrBuilder::createInContainer<Val>(container(), std::move(attr)));
 }
 
 } // namespace nvfuser

@@ -21,26 +21,45 @@
     EXPECT_EQ((op DoubleInt64BoolVec(2L)).as<decltype(op 2L)>(), (op 2L));    \
     EXPECT_THAT(                                                              \
         [&]() { op DoubleInt64Bool(); },                                      \
-        ::testing::ThrowsMessage<std::runtime_error>(                         \
-            ::testing::HasSubstr("Cannot compute ")));                        \
+        ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(    \
+            "Result is dynamic but not convertible to result type")));        \
     EXPECT_THAT(                                                              \
         [&]() { op DoubleInt64BoolVec(std::vector<DoubleInt64BoolVec>{}); },  \
-        ::testing::ThrowsMessage<std::runtime_error>(                         \
-            ::testing::HasSubstr("Cannot compute ")));                        \
+        ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(    \
+            "Result is dynamic but not convertible to result type")));        \
     static_assert(op opcheck<int_or_bool##SomeType>);                         \
-    static_assert(!(op opcheck<SomeTypes>));                                  \
     EXPECT_THAT(                                                              \
         [&]() { op int_or_bool##SomeType(SomeType{}); },                      \
-        ::testing::ThrowsMessage<std::runtime_error>(                         \
-            ::testing::HasSubstr("Cannot compute ")));                        \
+        ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(    \
+            "Result is dynamic but not convertible to result type")));        \
   }
 
 TEST_UNARY_OP(Positive, +, Int);
 TEST_UNARY_OP(Negative, -, Int);
 TEST_UNARY_OP(BinaryNot, ~, Int);
-TEST_UNARY_OP(LogicalNot, !, Bool);
-
 #undef TEST_UNARY_OP
+
+TEST_F(DynamicTypeTest, LogicalNot) {
+  static_assert(!opcheck<DoubleInt64Bool>);
+  static_assert(!opcheck<DoubleInt64BoolVec>);
+  static_assert(std::is_same_v<decltype(!DoubleInt64Bool(2L)), bool>);
+  static_assert((!DoubleInt64Bool(2L)) == (!2L));
+  static_assert(std::is_same_v<decltype(!DoubleInt64BoolVec(2L)), bool>);
+  EXPECT_EQ(!DoubleInt64BoolVec(2L), (!2L));
+  EXPECT_THAT(
+      [&]() { !DoubleInt64Bool(); },
+      ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(
+          "Result is dynamic but not convertible to result type")));
+  EXPECT_THAT(
+      [&]() { !DoubleInt64BoolVec(std::vector<DoubleInt64BoolVec>{}); },
+      ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(
+          "Result is dynamic but not convertible to result type")));
+  static_assert(!opcheck<BoolSomeType>);
+  EXPECT_THAT(
+      [&]() { !BoolSomeType(SomeType{}); },
+      ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(
+          "Result is dynamic but not convertible to result type")));
+}
 
 TEST_F(DynamicTypeTest, UnaryOpAdvancedTyping) {
   struct Type1 {};
@@ -49,16 +68,20 @@ TEST_F(DynamicTypeTest, UnaryOpAdvancedTyping) {
       return Type1{};
     }
   };
-  // not defined compile time because +Type2 is not in type list
-  static_assert(!(+opcheck<DynamicType<NoContainers, Type2, SomeType>>));
+  // defined compile time because +Type2 is defined
+  static_assert(+opcheck<DynamicType<NoContainers, Type2, SomeType>>);
+  static_assert(
+      std::is_same_v<
+          decltype(+std::declval<DynamicType<NoContainers, Type2, SomeType>>()),
+          Type1>);
   // defined compile time because +int is in type list
   static_assert(+opcheck<DynamicType<NoContainers, Type2, int>>);
   // runtime error because +Type2 is not in type list
   auto bad = [&]() { +DynamicType<NoContainers, Type2, int>(Type2{}); };
   EXPECT_THAT(
       bad,
-      ::testing::ThrowsMessage<std::runtime_error>(
-          ::testing::HasSubstr("Cannot compute ")));
+      ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(
+          "Result is dynamic but not convertible to result type")));
 }
 
 TEST_F(DynamicTypeTest, Star) {
@@ -98,7 +121,6 @@ TEST_F(DynamicTypeTest, PlusPlusMinusMinus) {
         },
         ::testing::ThrowsMessage<std::runtime_error>(
             ::testing::HasSubstr("Cannot compute ")));
-    static_assert(!(++opcheck<SomeTypes&>));
   }
   // --x
   {
@@ -121,7 +143,6 @@ TEST_F(DynamicTypeTest, PlusPlusMinusMinus) {
         },
         ::testing::ThrowsMessage<std::runtime_error>(
             ::testing::HasSubstr("Cannot compute ")));
-    static_assert(!(--opcheck<SomeTypes&>));
   }
   // x++
   {
@@ -143,7 +164,6 @@ TEST_F(DynamicTypeTest, PlusPlusMinusMinus) {
         },
         ::testing::ThrowsMessage<std::runtime_error>(
             ::testing::HasSubstr("Cannot compute ")));
-    static_assert(!(opcheck<SomeTypes&> ++));
   }
   // x--
   {
@@ -165,6 +185,5 @@ TEST_F(DynamicTypeTest, PlusPlusMinusMinus) {
         },
         ::testing::ThrowsMessage<std::runtime_error>(
             ::testing::HasSubstr("Cannot compute ")));
-    static_assert(!(opcheck<SomeTypes&> --));
   }
 }

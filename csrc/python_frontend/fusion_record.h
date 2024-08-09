@@ -817,10 +817,11 @@ struct BroadcastOpRecord : RecordFunctor {
     auto result = false;
     if (auto child_ptr = dynamic_cast<const BroadcastOpRecord*>(&other)) {
       result = RecordFunctor::operator==(other);
-      result &= std::equal(
-          is_broadcast_dim_.begin(),
-          is_broadcast_dim_.end(),
-          child_ptr->is_broadcast_dim_.begin());
+      result = result &&
+          std::equal(
+                   is_broadcast_dim_.begin(),
+                   is_broadcast_dim_.end(),
+                   child_ptr->is_broadcast_dim_.begin());
     }
     return result;
   }
@@ -1200,7 +1201,7 @@ struct TensorRecord : RecordFunctor {
       // correctly with `contig_index` and `index`.
       //
       // stride_order[i] indicates that:
-      //   `rfactor_domain[i]` (and therefore `root_domain[i]` for input) maps
+      //   `logical_domain[i]` (and therefore `root_domain[i]` for input) maps
       //   to `alloc_domain[rank - 1 - stride_order_[i]]`
       //
       // Hence `index` on root domain would be corresponding to the contiguity
@@ -1217,7 +1218,6 @@ struct TensorRecord : RecordFunctor {
     }
 
     auto tv = TensorViewBuilder()
-                  .ndims(shape_.size())
                   .contiguity(contiguity_)
                   .shape(shape_)
                   .dtype(dtype_)
@@ -1460,9 +1460,9 @@ struct ReductionOpRecord : RecordFunctor {
       std::string _name,
       serde::RecordType record_type,
       std::function<
-          TensorView*(TensorView*, const std::vector<int>&, bool, DataType)>
+          TensorView*(TensorView*, const std::vector<int64_t>&, bool, DataType)>
           fusion_op,
-      std::vector<int> axes,
+      std::vector<int64_t> axes,
       bool keep_dim,
       PrimDataType dtype)
       : RecordFunctor(
@@ -1514,13 +1514,13 @@ struct ReductionOpRecord : RecordFunctor {
             (*fusion_op_.template target<
 
                  TensorView* (*)(TensorView*,
-                                 const std::vector<int>&,
+                                 const std::vector<int64_t>&,
                                  bool,
                                  DataType)>() ==
              *child_ptr->fusion_op_.template target<
 
                  TensorView* (*)(TensorView*,
-                                 const std::vector<int>&,
+                                 const std::vector<int64_t>&,
                                  bool,
                                  DataType)>());
         if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
@@ -1528,14 +1528,14 @@ struct ReductionOpRecord : RecordFunctor {
                   << (size_t)*fusion_op_.template target<
 
                          TensorView* (*)(TensorView*,
-                                         const std::vector<int>&,
+                                         const std::vector<int64_t>&,
                                          bool,
                                          DataType)>()
                   << "] [other: 0x" << std::hex
                   << (size_t)*child_ptr->fusion_op_.template target<
 
                          TensorView* (*)(TensorView*,
-                                         const std::vector<int>&,
+                                         const std::vector<int64_t>&,
                                          bool,
                                          DataType)>()
                   << "]\n";
@@ -1597,10 +1597,10 @@ struct ReductionOpRecord : RecordFunctor {
  private:
   //! nvFuser arith function signature for a given reduction operation
   std::function<
-      TensorView*(TensorView*, const std::vector<int>&, bool, DataType)>
+      TensorView*(TensorView*, const std::vector<int64_t>&, bool, DataType)>
       fusion_op_;
   //! The tensor dimensions to reduce
-  std::vector<int> axes_;
+  std::vector<int64_t> axes_;
   //! Indicates whether to keep the reduced dimension(s).
   bool keep_dim_;
   //! The output data type.
@@ -1635,7 +1635,7 @@ struct IndexSelectOpRecord : RecordFunctor {
     auto arg1 = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
     auto arg3 = fd.getFusionState(args_.at(1).index)->template as<TensorView>();
 
-    Val* output = index_select(arg1, (int)dim_, arg3);
+    Val* output = index_select(arg1, dim_, arg3);
     fd.setFusionState(outputs_.at(0).index, output);
   }
 
@@ -1679,7 +1679,7 @@ struct TorchGatherOpRecord : RecordFunctor {
     auto arg1 = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
     auto arg3 = fd.getFusionState(args_.at(1).index)->template as<TensorView>();
 
-    Val* output = torch_gather(arg1, (int)dim_, arg3);
+    Val* output = torch_gather(arg1, dim_, arg3);
     fd.setFusionState(outputs_.at(0).index, output);
   }
 
@@ -2039,7 +2039,7 @@ struct NormOpRecord : RecordFunctor {
       std::vector<State> outputs,
       std::string name,
       serde::RecordType type,
-      std::vector<int> axes,
+      std::vector<int64_t> axes,
       int64_t correction,
       bool keep_dim)
       : RecordFunctor(std::move(args), std::move(outputs), name, type),
@@ -2120,7 +2120,7 @@ struct NormOpRecord : RecordFunctor {
 
  protected:
   //! Dimensions of tensor to reduce for variance calculation
-  std::vector<int> axes_;
+  std::vector<int64_t> axes_;
   //! Bessel's correction value
   int64_t correction_;
   //! Indicates whether to keep the reduced dimension(s).
@@ -2131,7 +2131,7 @@ struct VarianceOpRecord : NormOpRecord {
   VarianceOpRecord(
       std::vector<State> args,
       std::vector<State> outputs,
-      std::vector<int> axes,
+      std::vector<int64_t> axes,
       int64_t correction,
       bool keep_dim)
       : NormOpRecord(
@@ -2160,7 +2160,7 @@ struct VarianceMeanOpRecord : NormOpRecord {
   VarianceMeanOpRecord(
       std::vector<State> args,
       std::vector<State> outputs,
-      std::vector<int> axes,
+      std::vector<int64_t> axes,
       int64_t correction,
       bool keep_dim)
       : NormOpRecord(
@@ -2762,6 +2762,91 @@ struct VectorRecord : RecordFunctor {
  private:
   //! Scalar data type.
   PrimDataType dtype_;
+};
+
+struct SdpaFwdOpRecord : RecordFunctor {
+  SdpaFwdOpRecord(std::vector<State> args, std::vector<State> outputs)
+      : RecordFunctor(
+            std::move(args),
+            std::move(outputs),
+            "ops.sdpfa_fwd",
+            serde::RecordType::SdpaFwdOp) {}
+  ~SdpaFwdOpRecord() override = default;
+  RecordFunctor* clone() final {
+    return new SdpaFwdOpRecord(*this);
+  }
+
+  void operator()(FusionState& fd) final {
+    auto query = fd.getFusionState(args_.at(0).index)->as<TensorView>();
+    auto key = fd.getFusionState(args_.at(1).index)->as<TensorView>();
+    auto value = fd.getFusionState(args_.at(2).index)->as<TensorView>();
+    auto dropout_p = (args_.at(3).stype == serde::StateType::Scalar)
+        ? fd.getFusionState(args_.at(3).index)->as<Val>()
+        : nullptr;
+    auto is_causal = (args_.at(4).stype == serde::StateType::Scalar)
+        ? fd.getFusionState(args_.at(4).index)->as<Val>()
+        : nullptr;
+    auto scale = (args_.at(5).stype == serde::StateType::Scalar)
+        ? fd.getFusionState(args_.at(5).index)->as<Val>()
+        : nullptr;
+    auto output = sdpfa_fwd(query, key, value, dropout_p, is_causal, scale);
+    fd.setFusionState(outputs_.at(0).index, output.output);
+    fd.setFusionState(outputs_.at(1).index, output.log_sumexp);
+    fd.setFusionState(outputs_.at(2).index, output.philox_seed);
+    fd.setFusionState(outputs_.at(3).index, output.philox_offset);
+  }
+};
+
+struct SdpaBwdOpRecord : RecordFunctor {
+  SdpaBwdOpRecord(std::vector<State> args, std::vector<State> outputs)
+      : RecordFunctor(
+            std::move(args),
+            std::move(outputs),
+            "ops.sdpfa_bwd",
+            serde::RecordType::SdpaBwdOp) {}
+  ~SdpaBwdOpRecord() override = default;
+  RecordFunctor* clone() final {
+    return new SdpaBwdOpRecord(*this);
+  }
+
+  void operator()(FusionState& fd) final {
+    auto grad_output = fd.getFusionState(args_.at(0).index)->as<TensorView>();
+    auto query = fd.getFusionState(args_.at(1).index)->as<TensorView>();
+    auto key = fd.getFusionState(args_.at(2).index)->as<TensorView>();
+    auto value = fd.getFusionState(args_.at(3).index)->as<TensorView>();
+    auto output = fd.getFusionState(args_.at(4).index)->as<TensorView>();
+    auto log_sumexp = fd.getFusionState(args_.at(5).index)->as<TensorView>();
+
+    auto dropout_p = (args_.at(6).stype == serde::StateType::Scalar)
+        ? fd.getFusionState(args_.at(6).index)->as<Val>()
+        : nullptr;
+    auto is_causal = (args_.at(7).stype == serde::StateType::Scalar)
+        ? fd.getFusionState(args_.at(7).index)->as<Val>()
+        : nullptr;
+
+    auto philox_seed = fd.getFusionState(args_.at(8).index)->as<TensorView>();
+    auto philox_offset = fd.getFusionState(args_.at(9).index)->as<TensorView>();
+
+    auto scale = (args_.at(10).stype == serde::StateType::Scalar)
+        ? fd.getFusionState(args_.at(10).index)->as<Val>()
+        : nullptr;
+
+    auto grad = sdpfa_bwd(
+        grad_output,
+        query,
+        key,
+        value,
+        output,
+        log_sumexp,
+        dropout_p,
+        is_causal,
+        philox_seed,
+        philox_offset,
+        scale);
+    fd.setFusionState(outputs_.at(0).index, grad.grad_query);
+    fd.setFusionState(outputs_.at(1).index, grad.grad_key);
+    fd.setFusionState(outputs_.at(2).index, grad.grad_value);
+  }
 };
 
 } // namespace nvfuser::python_frontend

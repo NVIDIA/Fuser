@@ -149,6 +149,10 @@ namespace nvfuser {
  * considered together, since it's hard to account for partial dimensions that
  * are being broadcasted. So for view it's primarily an all or nothing situation
  * when it comes to the 2D pointwise scheduler.
+ *
+ * DID axes, which are not allocated, are ignored in the analysis.
+ * Specifically, two fusions that only differ by DID axes result in
+ * the same scheduling decisions.
  */
 
 class SchedulerRuntimeInfo;

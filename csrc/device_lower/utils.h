@@ -30,7 +30,7 @@ using IterDomainMap = std::unordered_map<IterDomain*, IterDomain*>;
 namespace scope_utils {
 
 //! Create an **empty** Forloop and copy the metadata.
-kir::ForLoop* cloneForLoop(kir::ForLoop* for_loop);
+ForLoop* cloneForLoop(ForLoop* for_loop);
 
 //! Create an **empty** IfThenElse and copy the metadata.
 kir::IfThenElse* cloneIfThenElse(kir::IfThenElse* ite);
@@ -71,9 +71,9 @@ NVF_API ir_utils::TVDomainGuard overrideContiguityGuard(
     bool contiguity);
 
 // Create a TVDomainGuard that temporarily setting allocation domain as
-// getMaybeRFactorDomain() from a TensorView, contiguity are filled all true or
+// getLogicalDomain() from a TensorView, contiguity are filled all true or
 // all false
-ir_utils::TVDomainGuard allocateToRFactorDomainGuard(
+ir_utils::TVDomainGuard allocateToLogicalDomainGuard(
     TensorView* tv,
     bool contiguity);
 
@@ -257,12 +257,13 @@ bool hasBlockSync(const Expr* expr, const ThreadPredicateMap& pred_map);
 kir::Allocate* allocGlobalBufferForGridComm(
     Val* buffer_size,
     DataType dtype,
-    bool zero_init);
+    bool zero_init,
+    bool resets_to_zero = false);
 
 struct BasicAllocInfo {
   // The for loop that the initialization of this allocation must be
   // placed in, nullptr if not within a loop
-  kir::ForLoop* init_for_loop = nullptr;
+  ForLoop* init_for_loop = nullptr;
 
   // Keep track of the actual allocation loop. This can be different
   // from init_for_loop only with unswitched shared memory allocations,
@@ -271,19 +272,19 @@ struct BasicAllocInfo {
   // outside lower_allocation is likely looking for init_for_loop which is
   // more directly related to how large an allocation is and how it's used.
   // (see issue #1133).
-  kir::ForLoop* alloc_for_loop = nullptr;
+  ForLoop* alloc_for_loop = nullptr;
 
   // The allocation position relative to buffer IDs, it could be outside the
   // compute at position if it's shared memory with a compute at inside an
   // unswitch
-  size_t alloc_pos = 0;
+  int64_t alloc_pos = 0;
 };
 
 // Fill the above allocation struct based on provided information. id_map is
 // used if we're looking at a producer tensor but loops on a consumer tensor.
 BasicAllocInfo getAllocInformation(
     const TensorView* tv,
-    const std::vector<kir::ForLoop*>& loops,
+    const std::vector<ForLoop*>& loops,
     const std::unordered_map<IterDomain*, IterDomain*>& id_map = {},
     bool use_id_map = false);
 
@@ -311,6 +312,43 @@ Val* getGridSyncBufferSize(const ParallelTypeBitmap& bitmap);
 //! The fusion outputs to be computed through expression evaluator are
 //! filtered out.
 std::vector<Val*> getFusionOutputsRequiringCodegen(Fusion* fusion);
+
+//! Get the number of threads in a tensor view. Note that this function
+//! only cares about the given tensor view itself, not the entire fusion.
+//! That is, for example, if the tensor view is [TIDx{3}], but the entire
+//! fusion has blockDim.x = 128, this function will return 3 instead of 128.
+Val* getNumThreadsInTensorView(TensorView* tv);
+
+//! Get the unit dimensions of A and B for the given MmaOp.
+std::array<UnitDim, 2> getMmaLayout(const MmaOp* expr);
+
+//! Check if the given tv has a root domain -> loop domain linear
+//! transformation. This is a temporary check used to incrementally enable
+//! IdModel. Eventually, this should be removed.
+bool hasRootToLoopLinearTransformations(const TensorView* tv);
+
+// Returns true if expr is an expression that initializes a reduction
+// buffer.
+bool isReductionInitExpr(const Expr* expr);
+
+// Return true if it is sufficient to predicate the end of the loop
+// iteration. An aligned vectorized loop is one example where it is
+// guaranteed to be valid by the validation checks. More generally,
+// the divisible split set is used to find such loops. The divisible
+// split set contains splits used in view transformations as well as
+// those whose output domains are vectorized. View transformations
+// guarantee that any split involved is divisible, whereas
+// vectorization only guarantees that the overall root extent is
+// divisible by the split factor. Thus, if a loop IterDomain is
+// an output of a split included in the divisible view splits, we can
+// just predicate the end of the loop iteration. If a loop IterDomain
+// is an output of a divisible split due to vectorization, it is only
+// valid when the loop IterDomain is mapped with the vectorized inner
+// output IterDomain. If it is mapped with an outer IterDomain, since
+// the split input IterDomain may be an output IterDomain of a
+// non-divisible split, we still need to predicate each loop iteration
+// value.
+bool predicateAtEnd(ForLoop* loop);
 
 } // namespace lower_utils
 

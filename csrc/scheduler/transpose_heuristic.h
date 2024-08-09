@@ -21,34 +21,34 @@ namespace nvfuser {
 // are equivelent!
 class TransposeParams : public HeuristicParams {
  public:
-  static constexpr size_t getMaxThreadsPerBlock() {
+  static constexpr int64_t getMaxThreadsPerBlock() {
     return 128;
   }
 
-  static constexpr size_t getDefaultTileSize() {
+  static constexpr int64_t getDefaultTileSize() {
     return 32;
   }
 
   // See note [Supporting small transpose dimensions], all dims are positions in
   // reference1
-  std::vector<std::pair<size_t, size_t>> split_before_tiling = {};
-  std::vector<size_t> dims_merged_with_1 = {};
-  std::vector<size_t> dims_merged_with_2 = {};
+  std::vector<std::pair<int64_t, int64_t>> split_before_tiling = {};
+  std::vector<int64_t> dims_merged_with_1 = {};
+  std::vector<int64_t> dims_merged_with_2 = {};
 
   // Vectorization factor for tensors in the first group
-  size_t vectorize_factor1 = 1;
+  int64_t vectorize_factor1 = 1;
 
   // Vectorization factor for tensors in the second group
-  size_t vectorize_factor2 = 1;
+  int64_t vectorize_factor2 = 1;
 
   // TODO: support symbolic tile size
   // https://github.com/csarofeen/pytorch/pull/1854#discussion_r928143729
 
   // Tile size for the inner most dim of tensors in the first group
-  size_t tile_size1 = getDefaultTileSize();
+  int64_t tile_size1 = getDefaultTileSize();
 
   // Tile size for the inner most dim of tensors in the second group
-  size_t tile_size2 = getDefaultTileSize();
+  int64_t tile_size2 = getDefaultTileSize();
 
   using HeuristicParams::HeuristicParams;
 
@@ -73,25 +73,25 @@ class TransposeParams : public HeuristicParams {
   std::string toString() const override {
     std::stringstream ss;
     ss << "\n===== Transpose Parameters ========\n"
-       << (tag == "" ? "" : "Tag: ") << tag << " Transpose Characteristics:\n"
+       << (tag.empty() ? "" : "Tag: ") << tag << " Transpose Characteristics:\n"
        << " BlckX: " << lparams.bdimx() << "\n";
     ss << " input tile size: " << tile_size1 << "\n";
     ss << " output tile size: " << tile_size2 << "\n";
-    int elements_per_tile = tile_size1 * tile_size2;
+    int64_t elements_per_tile = tile_size1 * tile_size2;
     ss << " elements per tile: " << elements_per_tile << "\n";
-    int elements_per_thread = elements_per_tile / lparams.bdimx();
+    int64_t elements_per_thread = elements_per_tile / lparams.bdimx();
     ss << " elements per thread: " << elements_per_thread << "\n";
     if (vectorize_factor1 > 1) {
       ss << "Vectorize group 1, Factor: " << vectorize_factor1 << "\n";
     }
-    int unroll_factor1 = elements_per_thread / vectorize_factor1;
+    int64_t unroll_factor1 = elements_per_thread / vectorize_factor1;
     if (unroll_factor1 > 1) {
       ss << "Unroll group 1, Factor: " << unroll_factor1 << "\n";
     }
     if (vectorize_factor2 > 1) {
       ss << "Vectorize group 2, Factor: " << vectorize_factor2 << "\n";
     }
-    int unroll_factor2 = elements_per_thread / vectorize_factor2;
+    int64_t unroll_factor2 = elements_per_thread / vectorize_factor2;
     if (unroll_factor2 > 1) {
       ss << "Unroll group 2, Factor: " << unroll_factor2 << "\n";
     }
@@ -154,10 +154,10 @@ class TransposeParams : public HeuristicParams {
     return std::make_shared<TransposeParams>(*this);
   }
 
-  int getThreadsPerBlock() const {
-    size_t tile_vectors1 = ceilDiv(tile_size1 * tile_size2, vectorize_factor1);
-    size_t tile_vectors2 = ceilDiv(tile_size1 * tile_size2, vectorize_factor2);
-    size_t tile_vectors = std::min(tile_vectors1, tile_vectors2);
+  int64_t getThreadsPerBlock() const {
+    int64_t tile_vectors1 = ceilDiv(tile_size1 * tile_size2, vectorize_factor1);
+    int64_t tile_vectors2 = ceilDiv(tile_size1 * tile_size2, vectorize_factor2);
+    int64_t tile_vectors = std::min(tile_vectors1, tile_vectors2);
     return std::min(getMaxThreadsPerBlock(), tile_vectors);
   }
 };

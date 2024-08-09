@@ -7,7 +7,6 @@
 // clang-format on
 #include <debug.h>
 #include <device_lower/lower2device.h>
-#include <expr_evaluator.h>
 #include <instrumentation.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
@@ -32,12 +31,6 @@ class KernelIrScanner : private IrVisitor {
   explicit KernelIrScanner(const Kernel* kernel) {
     index_type_ = kernel->indexType();
     IrVisitor::handle(kernel->topLevelExprs());
-    const auto gpu_lower = GpuLower::current();
-    for (auto split : gpu_lower->nonDivisibleSplitInfo().splitsToValidate()) {
-      auto extent = split->in()->extent();
-      auto factor = split->factor();
-      summary_.splits_to_validate.emplace_back(extent, factor);
-    }
   }
 
   const auto& summary() const {
@@ -45,6 +38,22 @@ class KernelIrScanner : private IrVisitor {
   }
 
  private:
+  inline int64_t getNumOfGroupedIterations(GroupedReductionOp* grouped_rop) {
+    int64_t num_grouped_iterations = 1;
+    auto out_tv = ir_utils::getTvOutput(grouped_rop);
+    for (auto axis : out_tv->getLoopDomain()) {
+      if (axis->getParallelType() == ParallelType::Group) {
+        num_grouped_iterations *= axis->extent()->value().as<int64_t>();
+      }
+    }
+    NVF_ERROR(
+        num_grouped_iterations == 2 || num_grouped_iterations == 4 ||
+            num_grouped_iterations == 8 || num_grouped_iterations == 16,
+        "Iteration grouped reduction only support grouping 2, 4, 8, or 16 iterations, but found ",
+        num_grouped_iterations);
+    return num_grouped_iterations;
+  }
+
   using IrVisitor::dispatch;
   using IrVisitor::handle;
   void dispatch(Expr* expr) final {
@@ -128,21 +137,9 @@ class KernelIrScanner : private IrVisitor {
     }
     // process iteration grouped reduction
     summary_.has_iter_grouped_reductions = true;
-    int num_grouped_iterations = 1;
-    auto out_tv = ir_utils::getTvOutput(grouped_rop);
-    for (auto axis : out_tv->getLeafDomain()) {
-      if (axis->getParallelType() == ParallelType::Group) {
-        num_grouped_iterations *= (int)axis->extent()->value();
-      }
-    }
+    int64_t num_grouped_iterations = getNumOfGroupedIterations(grouped_rop);
     summary_.num_grouped_iterations =
         std::max(summary_.num_grouped_iterations, num_grouped_iterations);
-
-    NVF_ERROR(
-        num_grouped_iterations == 2 || num_grouped_iterations == 4 ||
-            num_grouped_iterations == 8 || num_grouped_iterations == 16,
-        "Iteration grouped reduction only support grouping 2, 4, 8, or 16 iterations, but found ",
-        num_grouped_iterations);
   }
 
   void handle(GridWelford* grid_welford) final {
@@ -169,6 +166,12 @@ class KernelIrScanner : private IrVisitor {
     summary_.has_grid_reductions = true;
     if (grid_reduction->isAllreduce()) {
       summary_.has_cooperative_grid_reduction = true;
+    } else if (grid_reduction->numHorizontallyGroupedExprs() == 1) {
+      // non-persistent iteration domain grouped reduction
+      summary_.has_iter_grouped_reductions = true;
+      summary_.num_grouped_iterations = std::max(
+          summary_.num_grouped_iterations,
+          getNumOfGroupedIterations(grid_reduction->as<GroupedReductionOp>()));
     }
   }
 
@@ -192,8 +195,8 @@ class KernelIrScanner : private IrVisitor {
           tidy_val->isConstInt(),
           "TIDy is expected to be a const int: ",
           tidy_val->toInlineString());
-      auto tidx = static_cast<int>(tidx_val->evaluate());
-      auto tidy = static_cast<int>(tidy_val->evaluate());
+      auto tidx = tidx_val->evaluate().as<int64_t>();
+      auto tidy = tidy_val->evaluate().as<int64_t>();
       summary_.outer_grouped_grid_welford_largest_smem_size = std::max(
           summary_.outer_grouped_grid_welford_largest_smem_size,
           grid_welford->getSmemBufferSize(tidx, tidy, 1));
@@ -279,7 +282,7 @@ class ValidateAllocation : private OptOutConstDispatch {
         if (tv == nullptr) {
           continue;
         }
-        for (const auto& axis : tv->getLeafDomain()) {
+        for (const auto& axis : tv->getLoopDomain()) {
           if (!GpuLower::current()->caMap()->areMapped(
                   loop_id, axis, IdMappingMode::LOOP)) {
             continue;
@@ -345,11 +348,12 @@ void Kernel::finalize(std::vector<Expr*> top_level_exprs) {
   ValidateAllocation::validate(this);
   analyze();
   // Make sure this is after analyze as it sets summary_
+  summary_.validations = GpuLower::current()->validations();
   summary_.vectorized_accesses = GpuLower::current()->vectorizedAccesses();
   summary_.vectorized_set_info = GpuLower::current()->vectorizedSetInfo();
   summary_.sync_map = GpuLower::current()->syncMap();
-  summary_.parallel_dimension_map_ =
-      GpuLower::current()->parallelDimensionMap();
+  summary_.parallel_dimension_map = GpuLower::current()->parallelDimensionMap();
+  summary_.circular_buffer_info = GpuLower::current()->circularBufferInfo();
   summary_.min_device_version = GpuLower::current()->minDeviceVersion();
   summary_.min_device_version_reason =
       GpuLower::current()->minDeviceVersionReason();
@@ -440,7 +444,7 @@ void KernelPerformanceProfile::registerExpr(const Expr* expr) {
   expr_entry_map_.emplace(expr, slot);
 }
 
-int KernelPerformanceProfile::getNewIndex() {
+int64_t KernelPerformanceProfile::getNewIndex() {
   return num_profile_entries_++;
 }
 
@@ -448,21 +452,22 @@ bool KernelPerformanceProfile::isProfiled(const Expr* expr) const {
   return expr_entry_map_.find(expr) != expr_entry_map_.end();
 }
 
-std::optional<int> KernelPerformanceProfile::getIndex(const Expr* expr) const {
+std::optional<int64_t> KernelPerformanceProfile::getIndex(
+    const Expr* expr) const {
   auto it = expr_entry_map_.find(expr);
   if (it == expr_entry_map_.end()) {
-    return std::optional<int>();
+    return std::optional<int64_t>();
   } else {
     return it->second;
   }
 }
 
-std::array<int, 2> KernelPerformanceProfile::getIndicesInProfileBuffer(
+std::array<int64_t, 2> KernelPerformanceProfile::getIndicesInProfileBuffer(
     const Expr* expr) const {
   NVF_ERROR(isProfiled(expr), "Not a profiled expression: ", expr->toString());
 
-  int cycle_index = getIndex(expr).value() * 2;
-  int count_index = cycle_index + 1;
+  int64_t cycle_index = getIndex(expr).value() * 2;
+  int64_t count_index = cycle_index + 1;
 
   return {cycle_index, count_index};
 }

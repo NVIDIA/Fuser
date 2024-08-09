@@ -7,9 +7,9 @@
 // clang-format on
 #include <debug.h>
 #include <ir/utils.h>
+#include <logical_domain_map.h>
 #include <options.h>
 #include <preseg_passes/exact_mapped_extent_substitution.h>
-#include <root_domain_map.h>
 
 namespace nvfuser::preseg_passes {
 
@@ -19,8 +19,8 @@ namespace {
 // Skip domain whose extent is derived e.g. iS12{( i0 * i2 )}
 // e.g. in this set { iS11{( i0 * i2 )}rf; iS12{( i0 * i2 )}; iS14{i3} } from
 // NVFuserTest.SymbolicSqueeze, we can't substitute {i0 * i2} with {i3},
-// otherwise, ValidateDomainEquivalence fails. If we really want to substitute,
-// we may need to skip or modify ValidateDomainEquivalence.
+// otherwise, validateDomainEquivalence fails. If we really want to substitute,
+// we may need to skip or modify validateDomainEquivalence.
 inline bool isNonSubstitutableID(const IterDomain* id) {
   return (id->isBroadcast() && !id->hasExpandedExtent()) || id->definition() ||
       id->getMaybeExpandedExtent()->definition();
@@ -30,7 +30,7 @@ void exactMappedExtentSubstitution(Fusion* fusion) {
   // map non-const extents to const extents
   std::unordered_map<Val*, Val*> replacement_map;
 
-  const auto mapped_sets = ExactRootDomainMap(fusion).getMappedSets();
+  const auto mapped_sets = ExactLogicalDomainMap(fusion).getMappedSets();
   // Loop over each exact root domain set
   for (const auto& set_ptr : mapped_sets.disjointSets()) {
     // (1) pick a const extent
@@ -77,22 +77,16 @@ void exactMappedExtentSubstitution(Fusion* fusion) {
 
 void ExactMappedExtentSubstitutionPass::runPass(Fusion* fusion) {
   if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
-    debug() << "Fusion before exactMappedExtentSubstitutionPass:" << std::endl;
-    fusion->printMath();
-    debug() << "ExactRootDomainMap before exactMappedExtentSubstitutionPass:"
-            << std::endl;
-    const auto mapped_sets = ExactRootDomainMap(fusion).getMappedSets();
+    debug() << "ExactLogicalDomainMap before " << name() << ":" << std::endl;
+    const auto mapped_sets = ExactLogicalDomainMap(fusion).getMappedSets();
     debug() << mapped_sets.toString() << std::endl;
   }
 
   exactMappedExtentSubstitution(fusion);
 
   if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
-    debug() << "Fusion after exactMappedExtentSubstitutionPass:" << std::endl;
-    fusion->printMath();
-    debug() << "ExactRootDomainMap after exactMappedExtentSubstitutionPass:"
-            << std::endl;
-    const auto mapped_sets = ExactRootDomainMap(fusion).getMappedSets();
+    debug() << "ExactLogicalDomainMap after " << name() << ":" << std::endl;
+    const auto mapped_sets = ExactLogicalDomainMap(fusion).getMappedSets();
     debug() << mapped_sets.toString() << std::endl;
   }
 }

@@ -6,7 +6,9 @@
  */
 // clang-format on
 #include <id_model/id_model.h>
+#include <id_model/loop_promotion.h>
 #include <id_model/to_string.h>
+#include <id_model/transform_replay.h>
 #include <id_model/validation_utils.h>
 
 #include <device_lower/analysis/trivial_broadcast.h>
@@ -14,8 +16,9 @@
 #include <device_lower/utils.h>
 #include <disjoint_set.h>
 #include <ir/utils.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 #include <transform_iter.h>
+#include <val_graph_visitor.h>
 
 #include <memory>
 #include <tuple>
@@ -51,8 +54,9 @@ void mapThroughLoopSwizzles(ValGraph& graph) {
 } // namespace
 
 void IdModel::assertNoSelfMapping() {
+  const ValGraph& exact_graph = idGraph(IdMappingMode::EXACT);
   for (TensorView* tv : tvs_) {
-    std::optional<SelfMapping> self_mapping = hasSelfMapping(tv);
+    std::optional<SelfMapping> self_mapping = hasSelfMapping(tv, exact_graph);
     NVF_CHECK(
         !self_mapping.has_value(),
         "Unsupported domain mapping detected in ",
@@ -71,7 +75,11 @@ IdModel::IdModel(
     const std::vector<Expr*>& exprs,
     const std::vector<TensorView*>& additional_tvs,
     bool build_graphs,
-    bool allow_self_mapping) {
+    bool allow_self_mapping,
+    LoopPromotionMapBuilderCallback* loop_promotion_map_builder_callback)
+    : allow_self_mapping_(allow_self_mapping),
+      loop_promotion_map_builder_callback_(
+          loop_promotion_map_builder_callback) {
   std::copy_if(
       exprs.begin(),
       exprs.end(),
@@ -86,6 +94,10 @@ IdModel::IdModel(
 
   tvs_ = all_tvs.vector();
 
+  NVF_ERROR(!tvs_.empty(), "No tensor to build IdModel for");
+
+  fusion_ = tvs_.front()->fusion();
+
   // Add uses and definitions to all iter domains.
   buildIterDomainDefinitionsAndUses();
 
@@ -98,8 +110,13 @@ IdModel::IdModel(
     Fusion* fusion,
     bool build_graphs,
     bool allow_self_mapping,
-    bool validate)
-    : allow_self_mapping_(allow_self_mapping), validate_(validate) {
+    bool validate,
+    LoopPromotionMapBuilderCallback* loop_promotion_map_builder_callback)
+    : fusion_(fusion),
+      allow_self_mapping_(allow_self_mapping),
+      validate_(validate),
+      loop_promotion_map_builder_callback_(
+          loop_promotion_map_builder_callback) {
   auto all_exprs = fusion->exprs();
   std::copy_if(
       all_exprs.begin(),
@@ -151,102 +168,9 @@ ValGraph& IdModel::idGraph(IdMappingMode mode) {
   return graph_it->second;
 }
 
-namespace {
-
-// Returns the first pair of id's in ids detected to match each other on the
-// exact ID graph. TODO: what this is really looking for is if
-// there's any overlapping between the iter domains in the provided set.
-//
-// i.e. if we have:
-// tv0 = arange(6).reshape({3, 2})
-// tv1 = tv0[3, 2].t()
-// tv2 = tv0[3, 2].reshape({2, 3})
-// tv3 = tv1 + tv2
-//
-// Then we can see this overlap in the tv3 expression as:
-//
-// tv0 = { {0, 1, 2},
-//         {3, 4, 5} }
-//
-// tv1 = { {0, 3},
-//         {1, 4},
-//         {2, 5} }
-//
-// tv2 = { {0, 1},
-//         {2, 3},
-//         {4, 5} }
-//
-// The elements in tv1 {3, 1, 4, 2}, map respectively to the elements in tv2
-// {1, 2, 3, 4}. The reason this is so important is it means that generating
-// tv3 is no longer a trivially parallelizable problem (if we include the dag
-// all the way to tv0). So tv0's axes cannot be inlined across both the tv0
-// and tv1 path. This breaks some assumptions we have today in schedulers that
-// will assume tv2 can be trivially inlined/parallelized. Instead we'd need to
-// take into consideration the effective communication going on here, so that
-// we pull multiple values of tv0 to compute tv3.
-//
-// Note, however, that the above example is not detectable at this
-// moment as the self mapping is partial through reshape. The analysis
-// below would need to be extended to consider producer and consumers
-// of domains as well rather than just root, rfactor and leaf domains.
-std::optional<std::pair<IterDomain*, IterDomain*>> detectMappablePair(
-    const std::vector<IterDomain*>& ids,
-    const IdModel& id_graph,
-    const IdMappingMode mode) {
-  size_t n = ids.size();
-  for (size_t i1 = 0; i1 < n; i1++) {
-    IterDomain* id1 = ids[i1];
-    for (size_t i2 = i1 + 1; i2 < n; i2++) {
-      IterDomain* id2 = ids[i2];
-      if (id_graph.idGraph(mode).disjointValSets().permissiveAreMapped(
-              id1, id2)) {
-        return std::make_pair(id1, id2);
-      }
-    }
-  }
-
-  return std::nullopt;
-}
-
-} // namespace
-
-std::optional<SelfMapping> IdModel::hasSelfMapping(const TensorView* tv) const {
-  std::optional<std::pair<IterDomain*, IterDomain*>> mapped =
-      detectMappablePair(tv->getRootDomain(), *this, IdMappingMode::EXACT);
-  // Root domains.
-  if (mapped.has_value()) {
-    return SelfMapping{
-        .id1 = mapped->first, .id2 = mapped->second, .where = "Root"};
-  }
-
-  // Rfactor domains
-  if (tv->hasRFactor()) {
-    mapped =
-        detectMappablePair(tv->getRFactorDomain(), *this, IdMappingMode::EXACT);
-    if (mapped.has_value()) {
-      return SelfMapping{
-          .id1 = mapped->first, .id2 = mapped->second, .where = "RFactor"};
-    }
-  }
-
-  // Leaf domains
-  // TODO: Exact map isn't quite right here, it should be based on the index
-  // map. However, it should also be impossible for index map to generate a
-  // case like this.
-  mapped = detectMappablePair(tv->getLeafDomain(), *this, IdMappingMode::EXACT);
-  if (mapped.has_value()) {
-    return SelfMapping{
-        .id1 = mapped->first, .id2 = mapped->second, .where = "Leaf"};
-  }
-  return std::nullopt;
-}
-
 void IdModel::buildIterDomainDefinitionsAndUses() {
   for (const auto tv : tvs_) {
-    VectorOfUniqueEntries<IterDomain*> root_domain_ids{
-        tv->getRootDomain().begin(), tv->getRootDomain().end()};
-
-    std::vector<IterDomain*> all_ids = ir_utils::allIDsOf(tv);
+    std::vector<IterDomain*> all_ids = tv->domain()->allIDs();
 
     // Check if this domain is a consumer of a view-like operation
     const bool view_like_domain = tv->domain()->hasViewLikeRFactor();
@@ -257,9 +181,9 @@ void IdModel::buildIterDomainDefinitionsAndUses() {
         // If the tensor domain is a view like domain, and the iteration
         // domain is marked as an rfactor product and is in the rfactor
         // domain, it's a view like rfactor iteration domain
-        const auto& rfactor_domain = tv->domain()->maybeRFactor();
-        if (std::find(rfactor_domain.begin(), rfactor_domain.end(), id) !=
-            rfactor_domain.end()) {
+        const auto& logical_domain = tv->domain()->logical();
+        if (std::find(logical_domain.begin(), logical_domain.end(), id) !=
+            logical_domain.end()) {
           view_rfactor_ids_.emplace(id);
         }
       }
@@ -274,7 +198,7 @@ void IdModel::buildIterDomainDefinitionsAndUses() {
 
       Expr* def = id->definition();
 
-      if (def == nullptr || root_domain_ids.has(id)) {
+      if (def == nullptr) {
         continue;
       }
 
@@ -311,7 +235,7 @@ std::string IdModel::toString() const {
   return ss.str();
 }
 
-ValGraph IdModel::initializeIdGraph(bool propagate_through_exprs) {
+ValGraph IdModel::initializeIdGraph(bool propagate_through_exprs) const {
   ValGraph id_graph(propagate_through_exprs);
 
   // To deterministically initialize the graph, the order of adding
@@ -359,35 +283,49 @@ void IdModel::buildExactGraph() {
         all_tv_outputs.begin(), all_tv_outputs.end());
     other_tv_outputs.pop_front();
 
-    for (auto other_tv_output : other_tv_outputs) {
-      // Sibling tv's must be exactly mapped with eachother so simply zip
-      // their leaf iter domains.
-
-      NVF_ERROR(
-          other_tv_output->getRootDomain().size() ==
-              c_tv->getRootDomain().size(),
-          "Multiple outputs with mismatched TV domains is not supported.");
-
-      for (auto domain_i : c10::irange(c_tv->getRootDomain().size())) {
-        auto c_id = c_tv->getRootDomain()[domain_i];
-        auto o_id = other_tv_output->getRootDomain()[domain_i];
-        idGraph(IdMappingMode::EXACT).mapVals(o_id, c_id);
-      }
-    }
-
     // Map producer-consumer relationships based on the root domain map
     auto tv_inputs = ir_utils::filterByType<TensorView>(expr->inputs());
     for (auto p_tv : tv_inputs) {
       // For exact mapings do not map any broadcast dimensions to
       // non-broadcast dimensions. Prevent any broadcasted axes being mapped
       // to non-broadcasted axes.
-      auto exact_c2p_root_map = PairwiseRootDomainMap(p_tv, c_tv)
-                                    .mapBroadcast(false)
-                                    .mapConsumerToProducer();
+      auto exact_c2p_logical_map = PairwiseLogicalDomainMap(p_tv, c_tv)
+                                       .mapBroadcast(false)
+                                       .mapConsumerToProducer();
 
-      for (auto c_id : getSortedKeys(exact_c2p_root_map, Statement::lessThan)) {
-        auto p_id = exact_c2p_root_map.at(c_id);
+      for (auto c_id :
+           getSortedKeys(exact_c2p_logical_map, Statement::lessThan)) {
+        auto p_id = exact_c2p_logical_map.at(c_id);
         idGraph(IdMappingMode::EXACT).mapVals(c_id, p_id);
+      }
+    }
+
+    if (ir_utils::hasUniformSiblings(expr)) {
+      for (auto other_tv_output : other_tv_outputs) {
+        NVF_ERROR(
+            other_tv_output->getMaybeRootDomain().size() ==
+                c_tv->getMaybeRootDomain().size(),
+            "Multiple outputs with mismatched TV domains is not supported.");
+
+        for (auto domain_i : c10::irange(c_tv->getMaybeRootDomain().size())) {
+          auto c_id = c_tv->getMaybeRootDomain()[domain_i];
+          auto o_id = other_tv_output->getMaybeRootDomain()[domain_i];
+          idGraph(IdMappingMode::EXACT).mapVals(o_id, c_id);
+        }
+      }
+    } else {
+      for (auto p_tv : tv_inputs) {
+        for (auto c_tv : other_tv_outputs) {
+          auto exact_c2p_root_map = PairwiseLogicalDomainMap(p_tv, c_tv)
+                                        .mapBroadcast(false)
+                                        .mapConsumerToProducer();
+
+          for (auto c_id :
+               getSortedKeys(exact_c2p_root_map, Statement::lessThan)) {
+            auto p_id = exact_c2p_root_map.at(c_id);
+            idGraph(IdMappingMode::EXACT).mapVals(c_id, p_id);
+          }
+        }
       }
     }
 
@@ -405,15 +343,17 @@ namespace {
 std::vector<std::vector<Val*>> getTriviallyMappedIds(Expr* expr) {
   std::vector<std::vector<Val*>> mapped_ids;
   if (auto merge = dynamic_cast<Merge*>(expr)) {
-    if (merge->inner()->extent()->isOneInt()) {
+    // Size-one domains should be broadcast, so just checking
+    // isBroadcast should be sufficient, but just in case if there's
+    // any missing conversion to broadcast
+    if (merge->inner()->isBroadcast() || merge->inner()->extent()->isOneInt()) {
       mapped_ids.push_back({merge->outer(), merge->out()});
     }
-    if (merge->outer()->extent()->isOneInt()) {
+    if (merge->outer()->isBroadcast() || merge->outer()->extent()->isOneInt()) {
       mapped_ids.push_back({merge->inner(), merge->out()});
     }
   } else if (auto split = dynamic_cast<Split*>(expr)) {
-    if (split->factor()->isOneInt() && split->startOffset()->isZeroInt() &&
-        split->stopOffset()->isZeroInt()) {
+    if (split->factor()->isOneInt()) {
       if (split->innerSplit()) {
         mapped_ids.push_back({split->in(), split->outer()});
       } else {
@@ -524,10 +464,10 @@ void IdModel::buildPermissiveGraph() {
         }
       }
 
-      auto permissive_c2p_root_map =
-          PairwiseRootDomainMap(p_tv, c_tv).mapBroadcast(true);
+      auto permissive_c2p_logical_map =
+          PairwiseLogicalDomainMap(p_tv, c_tv).mapBroadcast(true);
 
-      for (auto entry : permissive_c2p_root_map.mapConsumerToProducer()) {
+      for (auto entry : permissive_c2p_logical_map.mapConsumerToProducer()) {
         idGraph(IdMappingMode::PERMISSIVE).mapVals(entry.first, entry.second);
       }
     }
@@ -543,7 +483,7 @@ namespace {
 std::vector<std::pair<IterDomain*, IterDomain*>> resolvedRootBroadcasts(
     TensorView* producer,
     TensorView* consumer) {
-  auto p2c_map = PairwiseRootDomainMap(producer, consumer)
+  auto p2c_map = PairwiseLogicalDomainMap(producer, consumer)
                      .mapBroadcast(true)
                      .mapProducerToConsumer();
 
@@ -574,19 +514,18 @@ std::vector<std::pair<IterDomain*, IterDomain*>> resolvedRootBroadcasts(
 // Grab inlining relationships
 StatefulInliningInfo buildStatefulInliningInfo(
     const std::vector<Expr*>& exprs,
-    const ValGraph& exact_graph,
     const ValGraph& permissive_graph) {
   StatefulInliningInfo info;
   for (auto expr : exprs) {
     for (auto producer_tv :
          ir_utils::filterByType<TensorView>(expr->inputs())) {
-      const auto& producer_root = producer_tv->getMaybeRFactorDomain();
-      const auto& producer_domain = producer_tv->domain()->leaf();
+      const auto& producer_logical = producer_tv->getLogicalDomain();
+      const auto& producer_domain = producer_tv->domain()->loop();
 
       // Grab all iteration domains in producer that its compute at iter domains
       // depend on.
       auto ca_dep_vals = DependencyCheck::getAllValsBetween(
-          {producer_root.begin(), producer_root.end()},
+          {producer_logical.begin(), producer_logical.end()},
           {producer_domain.begin(),
            producer_domain.begin() + producer_tv->getComputeAtPosition()});
       auto ca_deps_filter = ir_utils::filterByType<IterDomain>(ca_dep_vals);
@@ -599,8 +538,8 @@ StatefulInliningInfo buildStatefulInliningInfo(
       // mappings of CA domains and broadcast resolution
       for (auto consumer_tv :
            ir_utils::filterByType<TensorView>(expr->outputs())) {
-        auto all_producer_ids = ir_utils::allIDsOf(producer_tv);
-        auto all_consumer_ids = ir_utils::allIDsOf(consumer_tv);
+        auto all_producer_ids = producer_tv->domain()->allIDs();
+        auto all_consumer_ids = consumer_tv->domain()->allIDs();
 
         auto p2c_permissive_map = permissive_graph.buildMapBetween(
             all_producer_ids, all_consumer_ids);
@@ -618,6 +557,30 @@ StatefulInliningInfo buildStatefulInliningInfo(
 
         for (const auto& [p_root_id, c_root_id] : resolved_bcast_domains) {
           info.p2c_root_broadcast_resolution_map[p_root_id].pushBack(c_root_id);
+        }
+      }
+    }
+
+    if (ir_utils::hasUniformSiblings(expr)) {
+      // Siblings should always be mapped
+      auto consumer_tvs = ir_utils::filterByType<TensorView>(expr->outputs());
+      if (consumer_tvs.size() > 1) {
+        auto all_consumer_ids = consumer_tvs.vector().at(0)->domain()->allIDs();
+        info.ordered_sibling_ids.pushBack(
+            {all_consumer_ids.begin(), all_consumer_ids.end()});
+        for (const auto i : c10::irange(1, consumer_tvs.size())) {
+          auto consumer_tv_i = consumer_tvs.vector().at(i);
+          auto all_consumer_i_ids = consumer_tv_i->domain()->allIDs();
+
+          auto sibling_map = permissive_graph.buildMapBetween(
+              all_consumer_ids, all_consumer_i_ids);
+
+          for (const auto& [c_id_1, c_ids] : sibling_map) {
+            // Note that c_ids can have multiple domains as this graph
+            // is a Permissive graph and there may be broadcast merged
+            // domains
+            info.sibling_maps[c_id_1->as<IterDomain>()].pushBack(c_ids);
+          }
         }
       }
     }
@@ -643,6 +606,17 @@ void IdModel::initializeLoopGraph(const StatefulInliningInfo& info) {
       }
     }
   }
+
+  // Similarly maps all sibling domains
+  for (IterDomain* id : info.ordered_sibling_ids) {
+    auto entry_it = info.sibling_maps.find(id);
+    if (entry_it != info.sibling_maps.end()) {
+      const VectorOfUniqueEntries<Val*>& sibling_ids = entry_it->second;
+      for (Val* sibling_id : sibling_ids) {
+        idGraph(IdMappingMode::LOOP).mapVals(id, sibling_id);
+      }
+    }
+  }
 }
 
 void IdModel::buildLoopGraph() {
@@ -650,185 +624,21 @@ void IdModel::buildLoopGraph() {
   maybeBuildGraph(IdMappingMode::EXACT);
   maybeBuildGraph(IdMappingMode::PERMISSIVE);
 
-  const StatefulInliningInfo inlining_info = buildStatefulInliningInfo(
-      tv_exprs_,
-      idGraph(IdMappingMode::EXACT),
-      idGraph(IdMappingMode::PERMISSIVE));
+  const StatefulInliningInfo inlining_info =
+      buildStatefulInliningInfo(tv_exprs_, idGraph(IdMappingMode::PERMISSIVE));
 
   initializeLoopGraph(inlining_info);
 
-  loop_promotion_map_ = buildLoopPromotionMap(inlining_info);
+  validateLoopGraphHasNoSelfMappedLeafDomains();
+
+  loop_promotion_map_ = LoopPromotionMapBuilder::get(
+      *this, inlining_info, loop_promotion_map_builder_callback_);
+
+  // New domains are added. Make sure there's still no self mapping in
+  // the loop domains
+  validateLoopGraphHasNoSelfMappedLeafDomains();
 
   idGraph(IdMappingMode::LOOP).validateConsistency();
-}
-
-std::unordered_map<ValGroup, IterDomain*> IdModel::buildLoopPromotionMap(
-    const StatefulInliningInfo& inlining_info) {
-  // Make an intersection of the exact and loop map. This will group together
-  // entries in each loop group that are exact with each other. This provides a
-  // better graph to do promotion and replays.
-  //
-  // It's tempting to use the intersection of the almost exact and loop, but we
-  // need to model broadcast promotion, and if we have two tensors like:
-  //
-  // T1[i0, b1] = T0[i0]
-  // T2[i0, b2] = T0[i0]
-  // Then resolution of:
-  // T4 = T1[i0, b1] + T3[i0, i1]
-  // T6 = T2[i0, b2] + T5[i0, i2]
-  //
-  // Then merge(0, 1) with all tensors except for T0
-  //
-  // The almost exact map will map i0, i0*b1, and i0*b2 together, but b1 and b2
-  // are being resolved to i1 and i2 respectively. So we want to have separate
-  // entries so we can have an easy to process promotion map.
-  //
-  // Loop is a permissive like map, it could have many entries, use the exact
-  // map as the one we iterate on to reduce complexity as it hopefully has
-  // smaller groups and this algorithm scales with the number of groups *
-  // (number of entries in groups ^ 2)
-  //
-  // iel stands for Intersection of the Exact and Loop graphs.
-  ValGraph iel_graph = buildIntersection(
-      idGraph(IdMappingMode::EXACT), idGraph(IdMappingMode::LOOP), false);
-
-  // Step 1: Build a map of the IEL groups of root broadcast domains
-  // to resolving domains.
-  std::unordered_map<ValGroup, IterDomain*> iel_promotion_map =
-      buildInlineRootResolutionMap(iel_graph, inlining_info);
-
-  // This is not a right map to return but just a placeholder since
-  // the loop promotion map is not yet completely merged. It will be
-  // replaced by a proper map.
-  return iel_promotion_map;
-}
-
-std::unordered_map<ValGroup, IterDomain*> IdModel::buildInlineRootResolutionMap(
-    const ValGraph& iel_graph,
-    const StatefulInliningInfo& info) {
-  std::unordered_map<ValGroup, IterDomain*> iel_promotion_map;
-
-  // This should probably work just on terminating inputs, as we shouldn't be
-  // able to modify a broadcast domain between root and rfactor which would be
-  // required to resolve a non input broadcast domain. But for now leaving it as
-  // traversal on all broadcast groups.
-  //
-
-  // We first visit all broadcast root domains. If a broadcast is
-  // resovled, see if it's promoted. Note that a domain be resolved to
-  // a domain that may not be loop mapped, yet it can still be
-  // promoted. In other words, there can be a domain that is exactly
-  // mapped with the resolving domain *and* is mapped with the
-  // broadcast domain by the loop map. The algorihm here is:
-  //
-  // 1. For a broadcast domain, find the domain that the broadcast is
-  //    resolved to.
-  // 2. If the resolving domain is also loop-mapped with the
-  //    broadcast, that is the promotion domain, but the resolving
-  //    domain may not be loop mapped as mentioned above. Instead,
-  //    find all loop-mapped domains with the broadcast domain and
-  //    pick one that is exactly mapped with the resolving domain
-  //
-  // Note again this process is only done for root domains. Once we
-  // find promotion relationships for root domains, we propagate the
-  // mappings to derived domains
-  for (const ValGroup& iel_group : iel_graph.disjointValSets().disjointSets()) {
-    NVF_ERROR(!iel_group->empty());
-
-    IterDomain* iel_group_id = iel_group->front()->as<IterDomain>();
-
-    if (!iel_group_id->isBroadcast()) {
-      continue;
-    }
-
-    // Collect all the exact groups of the resolutions of the broadcast id's
-    ValGroups resolved_exact_groups;
-    for (Val* bcast_id : *iel_group) {
-      if (auto p2c_root_broadcast_resolution_map_it =
-              info.p2c_root_broadcast_resolution_map.find(
-                  bcast_id->as<IterDomain>());
-          p2c_root_broadcast_resolution_map_it !=
-          info.p2c_root_broadcast_resolution_map.end()) {
-        resolved_exact_groups.pushBack(
-            idGraph(IdMappingMode::EXACT)
-                .toGroups(p2c_root_broadcast_resolution_map_it->second));
-      }
-    }
-
-    if (resolved_exact_groups.empty()) {
-      // No resolution
-      continue;
-    }
-
-    // resolved_exact_groups is a list of IDs that resolves the
-    // broadcast. We only care those that are also in the same loop
-    // group, and there must be just one or none. Otherwise, the
-    // resolution is ambiguous.
-
-    // Collect all the exact groups in the loop set containing this iel_group
-    const ValGroup& loop_group =
-        idGraph(IdMappingMode::LOOP).toGroup(iel_group_id);
-    ValGroups loop_covered_exact_groups =
-        idGraph(IdMappingMode::EXACT).toGroups(*loop_group);
-
-    // The intersection of the exact groups that the broadcast domains can be
-    // broadcasted to, and those that exist within the same loop groop are is
-    // the promotion needed for this iel_group. The promotion should
-    // be none or unique.
-    ValGroups loop_exact_resolved_intersection =
-        resolved_exact_groups.computeIntersect(loop_covered_exact_groups);
-
-    if (loop_exact_resolved_intersection.empty()) {
-      // No promotion
-      continue;
-    }
-
-    if (loop_exact_resolved_intersection.size() > 1) {
-      // Ambiguous promotion. This should not happen.
-      std::stringstream err_msg;
-      err_msg
-          << "Invalid multiple broadcast resolution within shared loops detected, group:\n  "
-          << iel_group->toString() << "\nIs being broadcasted to:";
-      for (const ValGroup& entry : loop_exact_resolved_intersection) {
-        err_msg << "\n  " << entry->toString();
-      }
-      NVF_ERROR(false, err_msg.str());
-    }
-
-    const ValGroup& exact_resolution_group =
-        loop_exact_resolved_intersection.front();
-
-    // Within the loop group, find the IDs that the broadcast IDs are
-    // resolved to
-    VectorOfUniqueEntries<Val*> resolved_ids =
-        exact_resolution_group->computeIntersect(*loop_group);
-
-    NVF_ERROR(!resolved_ids.empty());
-
-    // All the IDs in resolved_ids are mapped with both of the exact
-    // and loop graphs, so any of them can be used as an IEL promotion
-    // ID. Just to make it extra clear, look for corresponding
-    // groups in the IEL graph and make sure there's only one such group.
-    ValGroups promoted_iel_groups = iel_graph.toGroups(resolved_ids);
-
-    NVF_ERROR(!promoted_iel_groups.empty());
-
-    if (promoted_iel_groups.size() > 1) {
-      std::stringstream err_msg;
-      err_msg
-          << "Invalid multiple broadcast resolution within shared loops detected, group:\n  "
-          << iel_group->toString() << "\nIs being broadcasted to:";
-      for (const ValGroup& entry : promoted_iel_groups) {
-        err_msg << "\n  " << entry->toString();
-      }
-      NVF_ERROR(false, err_msg.str());
-    }
-
-    iel_promotion_map[iel_group] =
-        promoted_iel_groups.front()->front()->as<IterDomain>();
-  }
-
-  return iel_promotion_map;
 }
 
 void IdModel::buildAllGraphs() {
@@ -862,10 +672,8 @@ void IdModel::buildAllGraphs() {
   }
 
   buildAlmostExactGraph();
-  if (validate_) {
-    validator->checkAlmostExactGraphEquivalence(
-        idGraph(IdMappingMode::ALMOSTEXACT));
-  }
+  // Skip validating the almost exact graph as the IdModel graph also
+  // maps non-size-one broadcast domains
 
   buildPermissiveGraph();
   // Validation is not implemented when compliment mapping is enabled
@@ -907,7 +715,7 @@ void IdModel::maybeBuildGraph(IdMappingMode mode) {
 ValGraph IdModel::buildIntersection(
     const ValGraph& graph0,
     const ValGraph& graph1,
-    bool propagate_exprs) {
+    bool propagate_exprs) const {
   ValGraph intersection = initializeIdGraph(propagate_exprs);
   for (const ValGroup& group0 : graph0.disjointValSets().disjointSets()) {
     auto set_size = group0->size();
@@ -924,6 +732,206 @@ ValGraph IdModel::buildIntersection(
     }
   }
   return intersection;
+}
+
+// Replay Expr but with the inputs provided.
+Expr* IdModel::addReplayAs(std::vector<IterDomain*> new_inputs, Expr* expr) {
+  // Figure out which graphs are already initialized to make sure we add the new
+  // expression to them.
+  std::vector<IdMappingMode> initialized_modes;
+  for (auto mode : kIdMappingModes) {
+    auto graph_it = id_graphs_.find(mode);
+    if (graph_it == id_graphs_.end()) {
+      continue;
+    }
+
+    auto& graph = graph_it->second;
+    if (graph.disjointValSets().disjointSetMap().empty()) {
+      continue;
+    }
+
+    initialized_modes.push_back(mode);
+  }
+
+  // Replace the provided inputs with IterType::Iteration domains as
+  // reduction domains cannot be merged with non-reduction domains.
+  if (std::any_of(
+          new_inputs.begin(),
+          new_inputs.end(),
+          [](IterDomain* id) { return id->isReduction(); }) &&
+      std::any_of(new_inputs.begin(), new_inputs.end(), [](IterDomain* id) {
+        return !id->isReduction();
+      })) {
+    // Inputs have mismatched type, replace new_inputs
+    auto tmp_inputs = new_inputs;
+    for (const auto i : c10::irange(new_inputs.size())) {
+      new_inputs.at(i) = IterDomainBuilder(tmp_inputs.at(i))
+                             .iter_type(IterType::Iteration)
+                             .build();
+      id_definitions_[new_inputs.at(i)];
+      id_uses_[new_inputs.at(i)];
+      for (auto mode : initialized_modes) {
+        idGraph(mode).initializeVal(
+            new_inputs.at(i), idGraph(mode).toGroup(tmp_inputs.at(i)));
+      }
+    }
+  }
+
+  const std::vector<IterDomain*> orig_input_ids =
+      ir_utils::filterByType<IterDomain>(expr->inputs()).vector();
+
+  // Sanity check of the original inputs
+  {
+    NVF_ERROR(
+        new_inputs.size() == orig_input_ids.size(),
+        "Invalid number of inputs: ",
+        new_inputs.size(),
+        " does not match number of iter domain inputs for ",
+        expr->toString());
+
+    for (auto mode : initialized_modes) {
+      for (auto inp : orig_input_ids) {
+        NVF_ERROR(
+            idGraph(mode).hasGroup(inp),
+            "All inputs for replay need to be initialized in all graphs, ",
+            inp->toString(),
+            " was not found in mode: ",
+            mode);
+      }
+    }
+  }
+
+  // Create the new expression with provided inputs
+  auto replay = ReplayTransform::replayAs(new_inputs, expr);
+  NVF_ERROR(replay != nullptr, "no replay found");
+
+  for (auto out_id : ir_utils::filterByType<IterDomain>(replay->outputs())) {
+    id_definitions_[out_id].pushBack(replay);
+    // out_id is a new IterDomain with no use expr yet. Initialize its
+    // use mapping with an empty set
+    NVF_ERROR(id_uses_.emplace(out_id, VectorOfUniqueEntries<Expr*>{}).second);
+  }
+
+  // Add the expression to the uses of the inputs
+  for (auto inp_id : ir_utils::filterByType<IterDomain>(replay->inputs())) {
+    // inp_id should not be a new domain, so just make sure it has a
+    // def mapping.
+    NVF_ERROR(id_definitions_.find(inp_id) != id_definitions_.end());
+    id_uses_[inp_id].pushBack(replay);
+  }
+
+  // Initialize output iter domains in the graphs
+  for (auto mode : initialized_modes) {
+    auto& graph = idGraph(mode);
+
+    // Initialize output ids in map. The replay expr will be
+    // registered as a definition by registerExpr
+    for (auto out_id : ir_utils::filterByType<IterDomain>(replay->outputs())) {
+      graph.initializeVal(out_id, {}, {});
+    }
+
+    graph.registerExpr(replay);
+
+    // Propagate through all the uses of the iter domain groups of the inputs
+    // with the new expression.
+    // Gather all use expressions from inputs
+    VectorOfUniqueEntries<Expr*> representative_uses;
+    for (IterDomain* inp : new_inputs) {
+      for (const ExprGroup& use_group : graph.getUses(graph.toGroup(inp))) {
+        NVF_ERROR(!use_group->empty());
+        representative_uses.pushBack(use_group->front());
+      }
+    }
+
+    for (auto rep_use : representative_uses) {
+      graph.maybeMapThroughExprs(rep_use, replay, true);
+    }
+  }
+
+  return replay;
+}
+
+void IdModel::validateLoopGraphHasNoSelfMappedLeafDomains() const {
+  for (auto tv : tvs_) {
+    auto self_mappped_loop_pair =
+        detectSelfMapping(tv->domain()->loop(), idGraph(IdMappingMode::LOOP));
+    NVF_ERROR(
+        !self_mappped_loop_pair.has_value(),
+        "Detected loop domains are mapped in the loop graph. Tensor: ",
+        tv->toString(),
+        ". Mapped loop domains: ",
+        self_mappped_loop_pair->first->toString(),
+        " and ",
+        self_mappped_loop_pair->second->toString());
+  }
+}
+
+std::unordered_map<ValGroup, IterDomain*> updateValGroupIdMap(
+    const std::unordered_map<ValGroup, IterDomain*>& stale_map,
+    ValGraph& new_graph) {
+  std::unordered_map<ValGroup, IterDomain*> new_map;
+
+  for (const auto& [stale_group, mapped_id] : stale_map) {
+    const ValGroups& new_groups = new_graph.toGroups(*stale_group);
+    NVF_ERROR(
+        new_groups.size() == 1,
+        "\nUpdate map assumes that new graph is equivalent to old graph plus extra mappings.\n",
+        "i.e. all mappings in new_graph should exist in the graph stale_map was produced on.\n",
+        "old:",
+        nvfuser::toString(stale_group),
+        "new: ",
+        nvfuser::toString(new_groups));
+    NVF_ERROR(
+        new_map.emplace(new_groups.front(), mapped_id).second,
+        "Expected only a single mapping but multiple entries detected for ",
+        nvfuser::toString(new_groups.front()));
+  }
+  return new_map;
+}
+
+// Mostly just copied from ComputeAtMap::validateAndPropagatePType
+void IdModel::validateAndPropagatePType() {
+  for (const ValGroup& loop_group :
+       idGraph(IdMappingMode::LOOP).disjointValSets().disjointSets()) {
+    ParallelType common_ptype = ParallelType::Serial;
+    for (Val* id : *loop_group) {
+      auto id_ptype = id->as<IterDomain>()->getParallelType();
+      NVF_ERROR(
+          id_ptype == common_ptype || id_ptype == ParallelType::Serial ||
+              common_ptype == ParallelType::Serial,
+          "Issue validating parallel type disjoint ptype is, ",
+          common_ptype,
+          " but found in the set the id: ",
+          id->toString());
+      common_ptype =
+          common_ptype == ParallelType::Serial ? id_ptype : common_ptype;
+    }
+
+    for (auto id : *loop_group) {
+      // Due to the broadcast forwarding, not all IDs in a loop group
+      // are indeed loop domains. For example, an ID may be used in a
+      // merge whose output is also in this loop group.
+      bool not_a_loop_domain = false;
+      for (auto expr : id->uses()) {
+        if (auto merge = dynamic_cast<Merge*>(expr);
+            merge != nullptr && loop_group->has(merge->out())) {
+          not_a_loop_domain = true;
+          break;
+        }
+        // This is another case of input-output mappings
+        if (auto swizzle2d = dynamic_cast<Swizzle2D*>(expr);
+            swizzle2d != nullptr &&
+            swizzle2d->swizzleMode() == SwizzleMode::Loop) {
+          not_a_loop_domain = true;
+          break;
+        }
+      }
+      if (not_a_loop_domain) {
+        continue;
+      }
+      id->as<IterDomain>()->parallelize(common_ptype);
+    }
+  }
 }
 
 } // namespace nvfuser

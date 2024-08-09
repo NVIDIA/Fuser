@@ -11,7 +11,7 @@
 #include <ir/all_nodes.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 #include <transform_iter.h>
 
 #include <c10/util/irange.h>
@@ -126,8 +126,9 @@ TensorView* getCommonConsumer(TensorView* producer, TensorView* consumer) {
   // after consumer
   for (const auto& tv_chain : all_chains) {
     for (auto tv : tv_chain) {
-      if (tv != consumer)
+      if (tv != consumer) {
         common_consumers.erase(tv);
+      }
     }
   }
 
@@ -220,7 +221,7 @@ void ComputeAt::runAt(
   auto selected = getPropagationSubgraph(producer, consumer);
   ComputeAtSelector selector(selected);
 
-  MaxRootDomainInfoSpanningTree path(consumer, consumer_position, &selector);
+  MaxLogicalDomainInfoSpanningTree path(consumer, consumer_position, &selector);
 
   if (mode == ComputeAtMode::MostInlined) {
     MostInlinedTransformPropagator propagator;

@@ -10,5 +10,9 @@
 
 PYBIND11_MODULE(EXTENSION_NAME, m) {
   m.doc() = "nvfuser C API python binding"; // optional module docstring
+
   nvfuser::python_frontend::initNvFuserPythonBindings(m.ptr());
+
+  auto cleanup = []() -> void { nvfuser::python_frontend::cleanup(); };
+  m.add_object("_cleanup", py::capsule(cleanup));
 }

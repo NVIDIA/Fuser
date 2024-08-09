@@ -28,7 +28,7 @@ using DoubleInt64Bool =
     DynamicType<NoContainers, double, int64_t, bool, NonInstantiable>;
 struct DoubleInt64BoolTwo {
   constexpr operator DoubleInt64Bool() const {
-    return {2L};
+    return 2L;
   }
 };
 // Note: because std::vector does not has trivial destructor, we can not
@@ -46,10 +46,8 @@ struct DoubleInt64BoolVecTwo {
   constexpr
 #endif
   operator DoubleInt64BoolVec() const {
-    return {2L};
+    return 2L;
   }
 };
 using IntSomeType = DynamicType<NoContainers, int, SomeType, NonInstantiable>;
 using BoolSomeType = DynamicType<NoContainers, bool, SomeType, NonInstantiable>;
-using SomeTypes =
-    DynamicType<NoContainers, SomeType, SomeType, NonInstantiable>;

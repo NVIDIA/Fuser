@@ -10,6 +10,7 @@
 #include <device_lower/lower2device.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
+#include <id_model/utils.h>
 #include <index_compute.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
@@ -71,17 +72,17 @@ Val* ParallelizedDomainPredicate::PredicateInfo::getPredicate() const {
 namespace {
 
 std::unordered_set<Val*> getNonUnswitchedRootDomains(
-    const std::vector<kir::ForLoop*>& loops,
+    const std::vector<ForLoop*>& loops,
     size_t unswitched_loop_index) {
-  std::vector<Val*> non_unswited_leaf_domains;
+  std::vector<Val*> non_unswited_loop_domains;
   std::transform(
       loops.begin(),
       loops.begin() + (int64_t)unswitched_loop_index,
-      std::back_inserter(non_unswited_leaf_domains),
-      [&](kir::ForLoop* loop) { return loop->iter_domain(); });
+      std::back_inserter(non_unswited_loop_domains),
+      [&](ForLoop* loop) { return loop->iter_domain(); });
 
   auto non_unswitched_inputs =
-      IterVisitor::getInputsTo(non_unswited_leaf_domains);
+      IterVisitor::getInputsTo(non_unswited_loop_domains);
 
   auto non_unswitched_root_doms =
       ir_utils::filterByType<IterDomain>(non_unswitched_inputs);
@@ -123,8 +124,8 @@ bool isFullyUnswitched(
 std::unordered_map<ParallelType, ParallelizedDomainPredicate::PredicateInfo>
 ParallelizedDomainPredicate::getPredicateMap(
     const Expr* expr,
-    const std::vector<kir::ForLoop*>& loops,
-    kir::ForLoop* unswitched_loop) {
+    const std::vector<ForLoop*>& loops,
+    ForLoop* unswitched_loop) {
   const auto gpu_lower = GpuLower::current();
   auto output_tvs = ir_utils::getTvs(expr->outputs());
 
@@ -174,13 +175,13 @@ ParallelizedDomainPredicate::getPredicateMap(
     for (auto tv : output_tvs) {
       // Check if the loop domain is used by the output tensor
       auto it = std::find_if(
-          tv->getLeafDomain().begin(),
-          tv->getLeafDomain().end(),
+          tv->getLoopDomain().begin(),
+          tv->getLoopDomain().end(),
           [&](auto tv_id) {
             return gpu_lower->caMap()->areMapped(
                 loop_id, tv_id, IdMappingMode::EXACT);
           });
-      if (it == tv->getLeafDomain().end()) {
+      if (it == tv->getLoopDomain().end()) {
         continue;
       }
 
@@ -194,8 +195,9 @@ ParallelizedDomainPredicate::getPredicateMap(
       // If it's a root domain, it should be covered by the root
       // predicates, so no extra predicate is required.
       if (std::find(
-              tv->getRootDomain().begin(), tv->getRootDomain().end(), tv_id) !=
-          tv->getRootDomain().end()) {
+              tv->getMaybeRootDomain().begin(),
+              tv->getMaybeRootDomain().end(),
+              tv_id) != tv->getMaybeRootDomain().end()) {
         continue;
       }
 
@@ -218,7 +220,9 @@ ParallelizedDomainPredicate::getPredicateMap(
 
 Val* ParallelizedDomainPredicate::getPredicate(
     const Expr* expr,
-    const std::vector<kir::ForLoop*>& loops) {
+    const std::vector<ForLoop*>& loops) {
+  DEBUG_PRINT_SCOPE_NAME(
+      "ParallelizedDomainPredicate::getPredicate", "expr = ", expr);
   auto pred_map = getPredicateMap(expr, loops);
 
   Val* pred = GpuLower::current()->kernel()->trueVal();
@@ -233,7 +237,7 @@ Val* ParallelizedDomainPredicate::getPredicate(
   }
 
   NVF_ERROR(pred != nullptr);
-  return pred;
+  RECORD_AND_RETURN(pred);
 }
 
 UnswitchPredicateKey::UnswitchPredicateKey()
@@ -251,35 +255,75 @@ UnswitchPredicateKey::UnswitchPredicateKey()
 UnswitchPredicateKey::UnswitchPredicateKey(
     IterDomain* predicated_consumer_id,
     TensorView* consumer_tv,
-    IterDomain* predicated_concrete_id)
-    : predicated_concrete_id_(predicated_concrete_id) {
+    IterDomain* predicated_concrete_id,
+    std::unordered_set<IterDomain*> loop_ids)
+    : predicated_concrete_id_(predicated_concrete_id),
+      loop_ids_(std::move(loop_ids)) {
   // Initialize the parallelized domain map
+  // TODO: Add DID
   for (auto pt : kParallelTypeThreads) {
     parallel_concrete_ids_.insert({pt, nullptr});
   }
 
-  std::vector<Val*> all_parallelized_consumer_leaf_ids;
+  std::vector<Val*> all_parallelized_consumer_loop_ids;
+
+  // Identify which parallel type is used for which loop domain for
+  // this index. This information is obtained here for the legacy method by
+  // looking at the dependency between the predicated domain and the
+  // loop domains of the tensor. However, in the case of the new
+  // indexer, that information is not readily available since the
+  // indexing graph needs to be traversed. Instead, the loop
+  // dependency information is given to this constructor in the case
+  // of the new indexer.
+  //
+  // TODO: Clean up once the migration to the new indexer is
+  // completed.
+  //
+  // When loop_ids_ is not empty, the correct loop domains are already
+  // given to this class. That's the case when using the new
+  // indexer. When given, use them to figure out which parallel type
+  // is used for which loop domain.
+  if (!loop_ids_.empty()) {
+    for (auto loop_id : loop_ids_) {
+      auto pt = loop_id->getParallelType();
+      // DID is ignored.
+      // TODO: support DID
+      if (isParallelTypeThread(pt)) {
+        // This map is supposed to contain CA conrete IDs but as long
+        // as they are uniquely mapped to some representative domains,
+        // it should work.
+        parallel_concrete_ids_.at(pt) = GpuLower::current()
+                                            ->tensorIndexer()
+                                            .traversalGraph()
+                                            .toGroup(loop_id)
+                                            ->front()
+                                            ->as<IterDomain>();
+      }
+    }
+    return;
+  }
+
   std::copy_if(
-      consumer_tv->getLeafDomain().begin(),
-      consumer_tv->getLeafDomain().end(),
-      std::back_inserter(all_parallelized_consumer_leaf_ids),
+      consumer_tv->getLoopDomain().begin(),
+      consumer_tv->getLoopDomain().end(),
+      std::back_inserter(all_parallelized_consumer_loop_ids),
       [](IterDomain* x) { return isParallelTypeThread(x->getParallelType()); });
 
   // If the consumer domais are not parallelized at all, no need to
   // differentiate keys based on how the predicated id is parallelized
-  if (all_parallelized_consumer_leaf_ids.empty()) {
+  if (all_parallelized_consumer_loop_ids.empty()) {
     return;
   }
 
   // All domains that are parallelized descendants of predicated_consumer_id
   auto all_parallelized_consumer_ids = DependencyCheck::getAllValsBetween(
-      {predicated_consumer_id}, all_parallelized_consumer_leaf_ids);
-  // Just pick leaf domains
-  std::vector<IterDomain*> parallelized_consumer_leaf_ids;
+      {predicated_consumer_id}, all_parallelized_consumer_loop_ids);
+  // Just pick loop domains
+  std::vector<IterDomain*> parallelized_consumer_loop_ids;
   std::copy_if(
-      consumer_tv->getLeafDomain().begin(),
-      consumer_tv->getLeafDomain().end(),
-      std::back_inserter(parallelized_consumer_leaf_ids),
+      consumer_tv->getLoopDomain().begin(),
+      consumer_tv->getLoopDomain().end(),
+      std::back_inserter(parallelized_consumer_loop_ids),
       [&](IterDomain* x) {
         return std::find(
                    all_parallelized_consumer_ids.begin(),
@@ -287,18 +331,18 @@ UnswitchPredicateKey::UnswitchPredicateKey(
                    x) != all_parallelized_consumer_ids.end();
       });
 
-  if (parallelized_consumer_leaf_ids.empty()) {
-    // None of the parallelized leaf domains are derived from
+  if (parallelized_consumer_loop_ids.empty()) {
+    // None of the parallelized loop domains are derived from
     // predicated_consumer_id
     return;
   }
 
   // Find the corresponding concrete id for each parallel type
-  for (auto consumer_leaf : parallelized_consumer_leaf_ids) {
-    auto pt = consumer_leaf->getParallelType();
-    auto concrete_leaf = GpuLower::current()->caMap()->getConcreteMappedID(
-        consumer_leaf, IdMappingMode::EXACT);
-    parallel_concrete_ids_.at(pt) = concrete_leaf;
+  for (auto consumer_loop : parallelized_consumer_loop_ids) {
+    auto pt = consumer_loop->getParallelType();
+    auto concrete_loop = GpuLower::current()->caMap()->getConcreteMappedID(
+        consumer_loop, IdMappingMode::EXACT);
+    parallel_concrete_ids_.at(pt) = concrete_loop;
   }
 }
 
@@ -333,10 +377,17 @@ std::size_t UnswitchPredicateKeyHash::operator()(
 
 Val* PredicateCompute::getInlinePredicate(
     const Expr* expr,
-    const std::vector<kir::ForLoop*>& loops,
-    const std::unordered_set<kir::ForLoop*>& rotated_loops,
+    const std::vector<ForLoop*>& loops,
+    const std::unordered_set<ForLoop*>& rotated_loops,
     Val* thread_pred,
     PredicateType pred_type) {
+  DEBUG_PRINT_SCOPE(
+      "expr = ",
+      expr,
+      "thread_pred = ",
+      thread_pred,
+      "pred_type = ",
+      pred_type);
   FUSER_PERF_SCOPE("GpuLower::Lower::getInlinePredicate");
 
   const auto gpu_lower = GpuLower::current();
@@ -346,28 +397,41 @@ Val* PredicateCompute::getInlinePredicate(
     thread_pred = gpu_lower->kernel()->trueVal();
     // If it is a initilization op, return immediately.
     if (ir_utils::isTensorScalarFillOp(expr)) {
-      return thread_pred;
+      RECORD_AND_RETURN(thread_pred);
     }
   }
 
   if (loops.empty()) {
     NVF_ERROR(thread_pred != nullptr);
-    return thread_pred;
+    RECORD_AND_RETURN(thread_pred);
   }
 
   auto out_tv = ir_utils::getTvOutput(expr);
   NVF_ERROR(out_tv != nullptr, "Missing TensorView output");
 
   if (gpu_lower->predicateElimination().canOmitPredicate(expr)) {
-    return thread_pred;
+    RECORD_AND_RETURN(thread_pred);
   }
 
-  auto pred_info_vec = Index::getReferenceRootPredicates(
-      out_tv,
-      loops,
-      rotated_loops,
-      nullptr,
-      pred_type == PredicateType::Padding);
+  auto parallel_dom_pred =
+      ParallelizedDomainPredicate::getPredicate(expr, loops);
+  NVF_ERROR(parallel_dom_pred != nullptr);
+
+  // TMA handles out-of-bounds accesses in hardware, so parallel_dom_pred
+  // itself is sufficient to predicate the accesses.
+  if (ir_utils::isCpAsyncBulk(expr)) {
+    RECORD_AND_RETURN(parallel_dom_pred);
+  }
+
+  std::vector<PredicateInfo> pred_info_vec;
+  if (isIdModelOptionEnabled(IdModelEnableOption::InlinePredicate) &&
+      GpuLower::current()->isTensorIndexerEnabled()) {
+    pred_info_vec =
+        gpu_lower->tensorIndexer().getPredicates(out_tv, expr, loops);
+  } else {
+    pred_info_vec = Index::getReferenceRootPredicates(
+        out_tv, loops, rotated_loops, nullptr);
+  }
 
   std::vector<Val*> preds;
 
@@ -381,7 +445,7 @@ Val* PredicateCompute::getInlinePredicate(
   bool non_zero_start_found = false;
   for (const auto& pred_info : pred_info_vec) {
     if (pred_type == PredicateType::ReductionWrite) {
-      const auto& consumer_ids = pred_info.rootIds();
+      const auto& consumer_ids = pred_info.predicatedDomains();
       bool pred_for_reduction_axis = false;
       for (auto consumer_id : consumer_ids) {
         if (consumer_id->isReduction()) {
@@ -406,12 +470,8 @@ Val* PredicateCompute::getInlinePredicate(
   // use the same predicate for reads. nullptr is returned then.
   if (pred_type == PredicateType::ReductionWrite && !non_zero_start_found &&
       !out_tv->domain()->hasGridReduction()) {
-    return nullptr;
+    RECORD_AND_RETURN(nullptr);
   }
-
-  auto parallel_dom_pred =
-      ParallelizedDomainPredicate::getPredicate(expr, loops);
-  NVF_ERROR(parallel_dom_pred != nullptr);
 
   preds.push_back(parallel_dom_pred);
 
@@ -420,7 +480,7 @@ Val* PredicateCompute::getInlinePredicate(
   }
 
   if (preds.empty()) {
-    return GpuLower::current()->kernel()->trueVal();
+    RECORD_AND_RETURN(GpuLower::current()->kernel()->trueVal());
   }
 
   Val* cond = preds[0];
@@ -428,12 +488,12 @@ Val* PredicateCompute::getInlinePredicate(
     cond = SimplifyingIrBuilder::logicalAndExpr(cond, preds[i]);
   }
 
-  return cond;
+  RECORD_AND_RETURN(cond);
 }
 
 Val* UnswitchPredicate::get(
-    const std::vector<kir::ForLoop*>& outer_loops,
-    kir::ForLoop* unrolled_loop) {
+    const std::vector<ForLoop*>& outer_loops,
+    ForLoop* unrolled_loop) {
   FUSER_PERF_SCOPE("GpuLower::Lower::UnswitchPredicate::get");
 
   UnswitchPredicate up(outer_loops, unrolled_loop);
@@ -462,8 +522,16 @@ void UnswitchPredicate::predicateOn(Expr* tv_expr) {
   auto out_tv = ir_utils::getTvOutput(tv_expr);
   NVF_ERROR(out_tv != nullptr, "Missing TensorView output");
 
-  auto ref_pred_info = Index::getReferenceRootPredicates(
-      out_tv, for_loops_, rotated_loop_, unrolled_loop_, false);
+  std::vector<PredicateInfo> ref_pred_info;
+
+  if (isIdModelOptionEnabled(IdModelEnableOption::UnswitchPredicate) &&
+      GpuLower::current()->isTensorIndexerEnabled()) {
+    ref_pred_info = gpu_lower->tensorIndexer().getPredicates(
+        out_tv, tv_expr, for_loops_, unrolled_loop_);
+  } else {
+    ref_pred_info = Index::getReferenceRootPredicates(
+        out_tv, for_loops_, rotated_loop_, unrolled_loop_);
+  }
 
   // If RootPredicateInfo has a static predicate that is more
   // restrictive than the current one, replace the current with the
@@ -477,7 +545,7 @@ void UnswitchPredicate::predicateOn(Expr* tv_expr) {
     NVF_ERROR(pred_info.startPredicate() != nullptr);
     NVF_ERROR(pred_info.stopPredicate() != nullptr);
 
-    const auto& root_ids = pred_info.rootIds();
+    const auto& root_ids = pred_info.predicatedDomains();
 
     bool add_pred = false;
 
@@ -493,7 +561,8 @@ void UnswitchPredicate::predicateOn(Expr* tv_expr) {
         continue;
       }
 
-      UnswitchPredicateKey key(root_id, out_tv, concrete_root_id);
+      UnswitchPredicateKey key(
+          root_id, out_tv, concrete_root_id, pred_info.loopDomains());
       auto inserted = predicated_keys_.insert(key).second;
       add_pred = add_pred || inserted;
 
@@ -528,6 +597,11 @@ void UnswitchPredicate::predicateOn(Expr* tv_expr) {
 
       // To look up this MergedPredicates for other predicates
       // generated for the same predicate key
+      // TODO: This seems to assume the merge logic is only necessary
+      // for shift predicates. Now that it's removed, it should be
+      // possible to clean this up.
+      // TODO: This doesn't seem to work if circular buffer predicates
+      // are involved with contig indexing.
       if (root_ids.size() == 1) {
         merged_pred.predicate_key = first_key;
       }
@@ -554,15 +628,17 @@ void UnswitchPredicate::predicateOn(Expr* tv_expr) {
     // If a corresponding MergedPredicates is found, merge both the
     // start and stop offsets.
     if (merged_pred_it != pending_predicates_.end()) {
-      mergeUnswitchPredicateOffsets(
+      mergeUnswitchPredicates(
           pred_info.startPredicate(),
           pred_info.startOffset(),
+          pred_info.loopStage(),
           merged_pred_it->start,
           true);
 
-      mergeUnswitchPredicateOffsets(
+      mergeUnswitchPredicates(
           pred_info.stopPredicate(),
           pred_info.stopOffset(),
+          pred_info.loopStage(),
           merged_pred_it->stop,
           false);
     }
@@ -592,7 +668,7 @@ void UnswitchPredicate::addParallelizedDomainPredicates(Expr* tv_expr) {
   }
 }
 
-void UnswitchPredicate::openLoop(kir::ForLoop* fl) {
+void UnswitchPredicate::openLoop(ForLoop* fl) {
   FUSER_PERF_SCOPE("GpuLower::Lower::UnswitchPredicate::openLoop");
 
   for_loops_.push_back(fl);
@@ -602,7 +678,7 @@ void UnswitchPredicate::openLoop(kir::ForLoop* fl) {
       predicateOn(expr);
     } else if (auto ite = dynamic_cast<kir::IfThenElse*>(expr)) {
       openIte(ite);
-    } else if (auto for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
+    } else if (auto for_loop = dynamic_cast<ForLoop*>(expr)) {
       openLoop(for_loop);
     }
   }
@@ -640,7 +716,7 @@ void UnswitchPredicate::openIte(kir::IfThenElse* ite) {
       predicateOn(expr);
     } else if (auto ite = dynamic_cast<kir::IfThenElse*>(expr)) {
       openIte(ite);
-    } else if (auto for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
+    } else if (auto for_loop = dynamic_cast<ForLoop*>(expr)) {
       openLoop(for_loop);
     }
   }
@@ -669,18 +745,97 @@ void UnswitchPredicate::finalize() {
   }
 }
 
-void UnswitchPredicate::mergeUnswitchPredicateOffsets(
+void UnswitchPredicate::mergeUnswitchPredicates(
     Val* predicate,
     Val* offset,
+    CircularBufferLoopStage loop_stage,
     MergedPredicates::Info& merged_predicate_info,
     bool is_start) {
-  auto is_more_restrictive = [&is_start](auto new_val, auto current_val) {
+  auto is_more_restrictive_static_offset = [&is_start](
+                                               auto new_val, auto current_val) {
     if (is_start) {
       return new_val < current_val;
     } else {
       return new_val > current_val;
     }
   };
+
+  // This feels like a hacky WAR but when we have predicates generated
+  // from certain circular buffer loops, they should have more
+  // restrictive conditions. Only the most restrictive one should be
+  // used. If this is not done, we could end up having an unswitch
+  // predicate like: idx(i) < N && idx(i + 1) < N, which obvously has
+  // redundancy. This check is meant to keep only the second term,
+  // i.e., idx(i + 1) < N.
+  auto is_more_restrictive_loop_stage =
+      [&is_start](
+          CircularBufferLoopStage new_stage,
+          CircularBufferLoopStage existing_stage) -> bool {
+    NVF_ERROR(
+        existing_stage == CircularBufferLoopStage::Prolog ||
+            existing_stage == CircularBufferLoopStage::Main ||
+            existing_stage == CircularBufferLoopStage::Epilog ||
+            existing_stage == CircularBufferLoopStage::NotApplicable,
+        "Unknown stage: ",
+        existing_stage);
+    NVF_ERROR(
+        new_stage == CircularBufferLoopStage::Prolog ||
+            new_stage == CircularBufferLoopStage::Main ||
+            new_stage == CircularBufferLoopStage::Epilog ||
+            new_stage == CircularBufferLoopStage::NotApplicable,
+        "Unknown stage: ",
+        new_stage);
+
+    // For the start predicate, prologue and main are more restrictive
+    // than main and epilogue, respectively.
+    // If non circular buffer predicacate exists,
+    // that should just work too
+    //
+    // For the stop predicate, epilogue should be more restrictive
+    // than main. If the current stage is prologue or non circular
+    // buffer, main or epilogue should be more restrictive.
+    if (is_start) {
+      return (existing_stage == CircularBufferLoopStage::Main &&
+              (new_stage == CircularBufferLoopStage::NotApplicable ||
+               new_stage == CircularBufferLoopStage::Prolog)) ||
+          (existing_stage == CircularBufferLoopStage::Epilog &&
+           (new_stage != CircularBufferLoopStage::Epilog));
+    } else {
+      return (existing_stage == CircularBufferLoopStage::Main &&
+              (new_stage == CircularBufferLoopStage::Epilog)) ||
+          (existing_stage == CircularBufferLoopStage::Prolog &&
+           (new_stage == CircularBufferLoopStage::Main ||
+            new_stage == CircularBufferLoopStage::Epilog)) ||
+          (existing_stage == CircularBufferLoopStage::NotApplicable &&
+           (new_stage == CircularBufferLoopStage::Main ||
+            new_stage == CircularBufferLoopStage::Epilog));
+    }
+  };
+
+  if (merged_predicate_info.loop_stage !=
+          CircularBufferLoopStage::NotApplicable ||
+      loop_stage != CircularBufferLoopStage::NotApplicable) {
+    NVF_ERROR(
+        merged_predicate_info.dynamic_preds.empty(),
+        "Dynamic predicates not supported with circular buffering");
+    NVF_ERROR(
+        merged_predicate_info.static_offset == 0,
+        "Non-zero static ofset not supported with circular buffering: ",
+        merged_predicate_info.static_offset);
+    NVF_ERROR(
+        offset->isZero(),
+        "Non-zero static ofset not supported with circular buffering: ",
+        offset->toInlineString());
+    // If merged_predicate_info.static_pred is nullptr, nothing is
+    // set yet.
+    if (merged_predicate_info.static_pred == nullptr ||
+        is_more_restrictive_loop_stage(
+            loop_stage, merged_predicate_info.loop_stage)) {
+      merged_predicate_info.static_pred = predicate;
+      merged_predicate_info.loop_stage = loop_stage;
+    }
+    return;
+  }
 
   auto offset_int = dynamic_cast<Val*>(offset);
   // If it's a static predicate, replace the current one if it's
@@ -691,7 +846,7 @@ void UnswitchPredicate::mergeUnswitchPredicateOffsets(
     auto& static_pred = merged_predicate_info.static_pred;
     auto& static_offset = merged_predicate_info.static_offset;
     if (static_pred == nullptr ||
-        is_more_restrictive(offset_const, static_offset)) {
+        is_more_restrictive_static_offset(offset_const, static_offset)) {
       static_pred = predicate;
       static_offset = offset_const;
     }
@@ -701,8 +856,8 @@ void UnswitchPredicate::mergeUnswitchPredicateOffsets(
 }
 
 UnswitchPredicate::UnswitchPredicate(
-    std::vector<kir::ForLoop*> outer_loops,
-    kir::ForLoop* unrolled_loop)
+    std::vector<ForLoop*> outer_loops,
+    ForLoop* unrolled_loop)
     : for_loops_(std::move(outer_loops)), unrolled_loop_(unrolled_loop) {
   openLoop(unrolled_loop);
   finalize();

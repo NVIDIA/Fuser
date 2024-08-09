@@ -93,6 +93,8 @@ enum RecordType: int {
     VarianceOp,
     VarianceMeanOp,
     Vector,
+    SdpaFwdOp,
+    SdpaBwdOp
 }
 
 // =====================================================================================
@@ -212,6 +214,7 @@ table GlobalBufferInfo {
   strides : [long];
   dtype : long;
   zero_init : bool;
+  resets_to_zero : bool;
   is_profile_buffer : bool;
   is_fusion_output : bool;
 }
@@ -261,7 +264,7 @@ table Dimension {
 
 // Data for NormOpRecord
 table Norm {
-  axes: [int];
+  axes: [long];
   correction: long;
   keep_dim: bool;
 }
@@ -283,7 +286,7 @@ table Dims {
 
 // Data for ReductionOpRecord
 table Reduction {
-  axes: [int];
+  axes: [long];
   keep_dim: bool;
   dtype: long;
 }

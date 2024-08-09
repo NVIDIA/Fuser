@@ -15,6 +15,7 @@
 
 namespace nvfuser {
 
+//! See doc/reading/divisibility-of-split.md#predication
 //! If an IterDomain is split and its inner output domain is
 //! eventually split too, the second split must be divisible or the
 //! inner domain must be predicated. This class finds Split
@@ -67,6 +68,9 @@ class NVF_API NonDivisibleSplitInfo : public IterVisitor {
   //! Remove redundant predicates as divisibility may be validated at
   //! run time
   void removeRedundancy();
+
+  //! Add validations to GpuLower::current()->validations()
+  void addValidations();
 
  private:
   //! Split expressions whose input domain must be predicated

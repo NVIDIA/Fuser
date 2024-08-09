@@ -667,4 +667,328 @@ __device__ void serialReductionStep(
   }
 }
 
+// check required transactions based on data type and vectorization factor
+// ensure each thread in each transaction has no more than 16 bytes which
+// is the maximum allowed vectorization width.
+template <typename T, int vec_size>
+constexpr __device__ int getTransactions() {
+  constexpr int total_bytes = vec_size * sizeof(T);
+  return total_bytes <= 16 ? 1 : total_bytes / 16;
+}
+
+template <typename T, int vec_size>
+constexpr __device__ int getElementsPerTransaction() {
+  return vec_size * sizeof(T) <= 16 ? vec_size : 16 / sizeof(T);
+}
+
+// calculate elements per section
+__inline__ __device__ nvfuser_index_t getElementsPerSection(
+    nvfuser_index_t row_len,
+    nvfuser_index_t col_len,
+    nvfuser_index_t elements_per_thread) {
+  return row_len * col_len * elements_per_thread;
+}
+
+// calculate offset within a section
+__inline__ __device__ nvfuser_index_t getOffsetWithinSection(
+    nvfuser_index_t row_len,
+    nvfuser_index_t row_id,
+    nvfuser_index_t col_id,
+    nvfuser_index_t elements_per_thread) {
+  return (row_id * row_len + col_id) * elements_per_thread;
+}
+// vectorized reduction
+template <
+    bool X_THREAD,
+    bool Y_THREAD,
+    bool Z_THREAD,
+    bool Aligned,
+    int vec_size,
+    typename T,
+    typename Func>
+__device__ void iterGroupedGridReduceLastBlock(
+    T* out,
+    const volatile T* in,
+    const nvfuser_index_t
+        grid_reduction_segment_size, // Number of reductions across
+                                     // grid reduce dimensions
+    const nvfuser_index_t
+        block_segment_size, // Number of reductions across the block
+    Func reduction_op,
+    T* shared_buf,
+    bool write_pred,
+    T init_val,
+    const nvfuser_index_t grid_segment_size,
+    const nvfuser_index_t idx_in_grid_segment) {
+  // We have to do num_reductions across reduction_size. The reductions are
+  // contiguous, but offset by reduction_size. There is an entry in "in" for
+  // every block, and every thread marked as true. Threads in dimensions marked
+  // as false can be used to parallelize the reduction.
+
+  // Find the reduction id of the participating threads
+  const auto block_reduction_segment_idx =
+      index_utils::maskedOffset<X_THREAD, Y_THREAD, Z_THREAD>(
+          threadIdx, blockDim);
+
+  // Find an id associated within a reduction segment for all
+  // "non-participating" threads, which will parallelize the reductions for the
+  // "participating" threads
+  const auto id_in_block_segment =
+      index_utils::maskedOffset<!X_THREAD, !Y_THREAD, !Z_THREAD>(
+          threadIdx, blockDim);
+
+  // index into iteration dim.
+  // Its calculation is same to that in [iterGroupedGridReduce]. Becuase when
+  // [iterGroupedGridReduceLastBlock] is called from [iterGroupedGridReduce],
+  // X_THREAD, Y_THREAD, Z_THREAD are flipped.
+  const auto thread_offset =
+      index_utils::maskedOffset<X_THREAD, Y_THREAD, Z_THREAD>(
+          threadIdx, blockDim);
+
+  // Stride by the "non-participating" threads
+  const auto input_stride_for_thread_in_segment =
+      index_utils::maskedSize<!X_THREAD, !Y_THREAD, !Z_THREAD>(blockDim);
+
+  // T inp = init_val;
+  T inp[vec_size];
+#pragma unroll
+  for (int i = 0; i < vec_size; i++) {
+    inp[i] = init_val;
+  }
+
+  // Max vectorized load/store size is 16 bytes, if each thread has more than
+  // 16 bytes, split into multiple sections to ensure each thread occupies only
+  // 16 bytes at most. For example, if each thread has 8 fp32 which occupies 32
+  // bytes, split into 2 sections, in each secdtion each thread holds 4 fp32 or
+  // 16 bytes. Thread-0 processes elements [0,7], the first 4 elements [0,3] are
+  // stored in the first section and the last 4 elements [4,7] are stored in the
+  // 2nd section. The data layout in gmem is:
+  //         |-----------section 1-----------|-----------section 2-----------|
+  // TIDx:   |000|001|002|003|004|005|006|007|000|001|002|003|004|005|006|007|
+  // GMEM:   |000|016|032|048|064|080|096|112|128|144|160|176|192|208|224|240|
+  // Element:|000|008|016|024|032|040|048|056|004|012|020|028|036|044|052|060|
+  // This layout ensures coalesced access to gmem and each transaction loads 128
+  // bytes.
+  constexpr auto n_transactions = getTransactions<T, vec_size>();
+  constexpr auto n_elements_per_transaction =
+      getElementsPerTransaction<T, vec_size>();
+  const auto elements_per_section = getElementsPerSection(
+      block_segment_size * grid_segment_size, // row len
+      grid_reduction_segment_size, // col len
+      n_elements_per_transaction);
+  // Block stride across the reduction until we only have one value per thread
+  for (nvfuser_index_t reduction_i = id_in_block_segment;
+       reduction_i < grid_reduction_segment_size;
+       reduction_i += input_stride_for_thread_in_segment) {
+    auto offset_in_section = getOffsetWithinSection(
+        block_segment_size * grid_segment_size, // row len
+        reduction_i, // row id
+        block_segment_size * idx_in_grid_segment + thread_offset, // col id
+        n_elements_per_transaction);
+
+#pragma unroll
+    for (auto i = 0; i < n_transactions; i++) {
+      auto i_offset = i * n_elements_per_transaction;
+      T in_reg[n_elements_per_transaction];
+      loadGlobalToLocal<T, n_elements_per_transaction, true, CacheOp::Global>(
+          &in_reg[0],
+          const_cast<T*>(in + elements_per_section * i + offset_in_section));
+#pragma unroll
+      for (auto j = 0; j < n_elements_per_transaction; j++) {
+        reduction_op(inp[i_offset + j], in_reg[j]);
+      }
+    }
+  }
+
+  // Block reduce the per thread values into per "participating" thread values
+  // T inp_tmp = init_val;
+  T inp_tmp[vec_size];
+#pragma unroll
+  for (int i = 0; i < vec_size; i++) {
+    inp_tmp[i] = init_val;
+  }
+  blockIterGroupedYdimReduce<Aligned, vec_size>(
+      inp_tmp, inp, reduction_op, shared_buf, true, init_val);
+  const bool should_write = (X_THREAD || threadIdx.x == 0) &&
+      (Y_THREAD || threadIdx.y == 0) && (Z_THREAD || threadIdx.z == 0);
+  if (should_write && write_pred) {
+#pragma unroll
+    for (int i = 0; i < vec_size; i++) {
+      reduction_op(out[i], inp_tmp[i]);
+    }
+  }
+}
+
+// Main algorithm is same to gridReduce: start with block reduce then write
+// results to gmem, the last block load from gmem and finalize with a block
+// reduction. Main differences:
+// (1) each thread in the iter dim does [vec_size] reductions instead of 1.
+// (2) using [blockIterGroupedYdimReduce] instead of [blockReduce].
+// (3) ensures vectorized load/store to gmem.
+// Specifically, the new para [vec_size] is the vecotrization factor in the
+// iteration dimension. It is used in outer reduction to reduce calling this
+// grid reduction from [vec_size] times to only 1 time. Its value is limited
+// to 1, 2, 4, 8, 16 based on the hardware support and input data type.
+template <
+    bool X_BLOCK,
+    bool Y_BLOCK,
+    bool Z_BLOCK,
+    bool X_THREAD,
+    bool Y_THREAD,
+    bool Z_THREAD,
+    bool PERSISTENT_REDUCTION,
+    bool Aligned,
+    int vec_size,
+    typename T,
+    typename Func>
+__device__ void iterGroupedGridReduce(
+    T* out,
+    const T* inp_val,
+    Func reduction_op,
+    volatile T* work_buf,
+    int64_t* sync_flags,
+    T* shared_buf,
+    bool read_pred,
+    bool write_pred,
+    T init_val) {
+  // inp or block reduction results
+  T block_reduction_val[vec_size];
+
+  // Do block reduction when required
+  if (X_THREAD || Y_THREAD || Z_THREAD) {
+#pragma unroll
+    for (int i = 0; i < vec_size; i++) {
+      block_reduction_val[i] = init_val;
+    }
+    blockIterGroupedYdimReduce<Aligned, vec_size>(
+        block_reduction_val,
+        inp_val,
+        reduction_op,
+        shared_buf,
+        read_pred,
+        true,
+        init_val);
+  } else if (read_pred) {
+#pragma unroll
+    for (int i = 0; i < vec_size; i++) {
+      block_reduction_val[i] = inp_val[i];
+    }
+  }
+
+  // Number of values to reduce in the reduction segment
+  const auto grid_reduction_segment_size =
+      index_utils::maskedSize<X_BLOCK, Y_BLOCK, Z_BLOCK>(gridDim);
+
+  // Index of the reduction we're performing out of the
+  // grid_reduction_segment_size
+  const auto idx_in_grid_segment =
+      index_utils::maskedOffset<!X_BLOCK, !Y_BLOCK, !Z_BLOCK>(
+          blockIdx, gridDim);
+
+  // Number of reductions in each block
+  const auto block_segment_size =
+      index_utils::maskedSize<!X_THREAD, !Y_THREAD, !Z_THREAD>(blockDim);
+
+  // Number of reductions in the grid
+  const nvfuser_index_t grid_segment_size = PERSISTENT_REDUCTION
+      ? 1
+      : index_utils::maskedSize<!X_BLOCK, !Y_BLOCK, !Z_BLOCK>(gridDim);
+
+  // advance to the offset for this segment
+  // index of reduction * size of the reduction * size of threads
+  if ((!X_THREAD || threadIdx.x == 0) && (!Y_THREAD || threadIdx.y == 0) &&
+      (!Z_THREAD || threadIdx.z == 0)) {
+    auto block_offset =
+        index_utils::maskedOffset<X_BLOCK, Y_BLOCK, Z_BLOCK>(blockIdx, gridDim);
+    auto thread_offset =
+        index_utils::maskedOffset<!X_THREAD, !Y_THREAD, !Z_THREAD>(
+            threadIdx, blockDim);
+
+    // Max vectorized load/store size is 16 bytes, if each thread has more than
+    // 16 bytes, split into multiple sections to ensure each thread occupies
+    // only 16 bytes at most. For example, if each thread has 8 fp32 which
+    // occupies 32 bytes, split into 2 sections, in each secdtion each thread
+    // holds 4 fp32 or 16 bytes. Thread-0 processes elements [0,7], the first 4
+    // elements [0,3] are stored in the first section and the last 4 elements
+    // [4,7] are stored in the 2nd section. The data layout in gmem is:
+    //         |-----------section 1-----------|-----------section 2-----------|
+    // TIDx:   |000|001|002|003|004|005|006|007|000|001|002|003|004|005|006|007|
+    // GMEM:   |000|016|032|048|064|080|096|112|128|144|160|176|192|208|224|240|
+    // Element:|000|008|016|024|032|040|048|056|004|012|020|028|036|044|052|060|
+    // This layout ensures coalesced access to gmem and each transaction loads
+    // 128 bytes.
+    constexpr auto n_transactions = getTransactions<T, vec_size>();
+    constexpr auto n_elements_per_transaction =
+        getElementsPerTransaction<T, vec_size>();
+
+    // get elements per section, used to offset between different sections
+    // number of elements in each thread: [n_elements_per_transaction]
+    // number of threads in each row: [block_segment_size] * [grid_segment_size]
+    // number of rows in each section: [grid_reduction_segment_size]
+    auto elements_per_section = getElementsPerSection(
+        block_segment_size * grid_segment_size, // row len
+        grid_reduction_segment_size, // col len
+        n_elements_per_transaction);
+
+    // index to the right position in [work_buf] to store block reduction
+    // results. Consider a typical outer reduction case where iteration dim is
+    // TIDx and BIDx and reduction dim is TIDy and BIDy. block_offset = BIDy
+    // block_segment_size = blockDim.x
+    // grid_segment_size = gridDim.x
+    // idx_in_grid_segment = BIDx
+    // thread_offset = TIDx
+    auto offset_in_section = getOffsetWithinSection(
+        block_segment_size * grid_segment_size, // row len
+        block_offset, // row id
+        block_segment_size * idx_in_grid_segment + thread_offset, // col id
+        n_elements_per_transaction);
+
+#pragma unroll
+    for (int i = 0; i < n_transactions; i++) {
+      loadLocalToGlobal<T, n_elements_per_transaction, true>(
+          &work_buf[elements_per_section * i + offset_in_section],
+          &block_reduction_val[i * n_elements_per_transaction]);
+    }
+  }
+
+  if (PERSISTENT_REDUCTION) {
+    grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION, Aligned>(
+        sync_flags[idx_in_grid_segment], grid_reduction_segment_size);
+
+  } else {
+    // there is only one vectorized call
+    grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION, Aligned>(
+        sync_flags[idx_in_grid_segment], grid_reduction_segment_size);
+  }
+
+  bool last_block =
+      index_utils::maskedIsLast<X_BLOCK, Y_BLOCK, Z_BLOCK>(blockIdx, gridDim);
+
+  if (last_block) {
+    // Cleanup with block reduction
+    iterGroupedGridReduceLastBlock<
+        !X_THREAD,
+        !Y_THREAD,
+        !Z_THREAD,
+        Aligned,
+        vec_size>(
+        out,
+        (T*)work_buf,
+        grid_reduction_segment_size,
+        block_segment_size,
+        reduction_op,
+        shared_buf,
+        write_pred,
+        init_val,
+        grid_segment_size,
+        idx_in_grid_segment);
+  }
+
+  if (PERSISTENT_REDUCTION) {
+    // Make sure we're done with global memory before we allow the kernel to
+    // continue
+    grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION, Aligned>(
+        sync_flags[idx_in_grid_segment], grid_reduction_segment_size);
+  }
+}
 } // namespace reduction

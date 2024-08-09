@@ -10,7 +10,7 @@
 #include <ir/base_nodes.h>
 #include <ir/internal_nodes.h>
 #include <ir/utils.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 #include <scheduler/cache_policy_refiner.h>
 #include <scheduler/debug_utils.h>
 
@@ -37,16 +37,16 @@ bool pointwiseExpands(const Expr* expr, const TensorView* in_tv) {
   }
   const auto* out_tv = out->as<TensorView>();
 
-  auto root_domain_map = PairwiseRootDomainMap(in_tv, out_tv)
-                             .mapBroadcast(true)
-                             .mapProducerToConsumer();
+  auto logical_domain_map = PairwiseLogicalDomainMap(in_tv, out_tv)
+                                .mapBroadcast(true)
+                                .mapProducerToConsumer();
   return std::find_if(
-             root_domain_map.begin(),
-             root_domain_map.end(),
+             logical_domain_map.begin(),
+             logical_domain_map.end(),
              [](const auto& mapping) {
                return mapping.first->isBroadcast() &&
                    !mapping.second->isBroadcast();
-             }) != root_domain_map.end();
+             }) != logical_domain_map.end();
 }
 
 bool isLoadGlobalToLocal(const Expr* expr) {

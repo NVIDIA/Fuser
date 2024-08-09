@@ -35,4 +35,11 @@ std::string getMatmulRunTimeRejectReason(
     HeuristicSummary* data_cache,
     SchedulerRuntimeInfo& runtime_info);
 
+//! This is a utility to determine whether we can use cp.async to load the
+//! operands A and B. Heuristic plugins can use this to help them set
+//! async_gmem_load_operands.
+bool NVF_API isCpAsyncOperandLoadSupported(
+    const MatmulParams* params,
+    int64_t min_dtype_size);
+
 } // namespace nvfuser

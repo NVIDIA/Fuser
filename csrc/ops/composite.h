@@ -47,16 +47,17 @@ NVF_API LstmResult lstm(
     TensorView* cell_x,
     TensorView* out_x);
 
-// Matmul functions are temporary internal functions for testing purposes only
-// NOTE: These functions have the following restrictions:
-// 1. M, N, and K dimensions must be multiples of 8
-// 2. Tensors must be contiguously defined.
-// 3. Inputs must be FP16/BF16
-// 4. Heuristic support only exists for Ampere
-NVF_API TensorView* _matmul_nn(TensorView* a, TensorView* b);
-NVF_API TensorView* _matmul_nt(TensorView* a, TensorView* b);
-NVF_API TensorView* _matmul_tn(TensorView* a, TensorView* b);
-NVF_API TensorView* _matmul_tt(TensorView* a, TensorView* b);
+// Linear functions which takes in two tensors of shapes input[* , in_features],
+// weight[out_features, in_features] / [in_features] and an optional bias of
+// shape [out_features] or 0D scalar. Bias can only be given if weight is a 2-D
+// tensor.
+TensorView* linear(TensorView* input, TensorView* weight, TensorView* bias);
+// This is an implementation detail to reflect when linear is called
+// without a bias. This calls the above function. We use this function
+// since it simplifies creating a Python API which takes optional arguments.
+// Other options include using lambdas or creating a new RecordFunctor for
+// Linear.
+TensorView* linear(TensorView* input, TensorView* weight);
 
 NVF_API TensorView* sign(TensorView* x);
 NVF_API Val* sign(Val* x);
@@ -69,5 +70,50 @@ TensorView* tanh_backward(TensorView* dy, TensorView* tanh_x);
 TensorView* leaky_relu(TensorView* x, Val* negative_slope);
 
 NVF_API TensorView* view_as_real(TensorView* x);
+
+// Matmul function which takes in tensors with the shapes
+// A[*, M, K] / A[K] and B[*, K, N] / B[K], but the tensors may have different
+// layouts via strides. This has the same functionality as torch.matmul
+TensorView* matmul(TensorView* tv_a, TensorView* tv_b);
+
+// Scaled Dot Product Flash Attention Forward Result
+struct SdpfaFwdResult {
+  TensorView* output = nullptr;
+  TensorView* log_sumexp = nullptr;
+  TensorView* philox_seed = nullptr;
+  TensorView* philox_offset = nullptr;
+};
+
+// Scaled Dot Product Flash Attention Forward API.
+// Returns the same output as at::_scaled_dot_product_flash_attention
+SdpfaFwdResult sdpfa_fwd(
+    TensorView* query,
+    TensorView* key,
+    TensorView* value,
+    Val* dropout_p,
+    Val* is_causal,
+    Val* scale);
+
+// Scaled Dot Product Flash Attention Backward Result
+struct SdpfaBwdResult {
+  TensorView* grad_query = nullptr;
+  TensorView* grad_key = nullptr;
+  TensorView* grad_value = nullptr;
+};
+
+// Scaled Dot Product Flash Attention Backward API.
+// Returns the same output as at::_scaled_dot_product_flash_attention_backward
+SdpfaBwdResult sdpfa_bwd(
+    TensorView* grad_output,
+    TensorView* query,
+    TensorView* key,
+    TensorView* value,
+    TensorView* output,
+    TensorView* log_sumexp,
+    Val* dropout_p,
+    Val* is_causal,
+    TensorView* philox_seed,
+    TensorView* philox_offset,
+    Val* scale);
 
 } // namespace nvfuser

@@ -7,7 +7,9 @@
 // clang-format on
 #pragma once
 
+#include <bfs.h>
 #include <disjoint_set.h>
+#include <id_model/to_string.h>
 #include <ir/all_nodes.h>
 #include <val_graph.h>
 
@@ -116,6 +118,82 @@ class ValGraphStmtSort : public ValGraphVisitor {
 
   ExprGroups sorted_exprs_;
   ValGroups sorted_vals_;
+};
+
+class ValGraphDefinitions {
+  const ValGraph& graph_;
+
+ public:
+  ValGraphDefinitions(const ValGraph& graph) : graph_(graph) {}
+  decltype(auto) operator()(const ValGroup& val_group) const {
+    return graph_.getDefinitions(val_group);
+  }
+};
+
+class ValGraphUses {
+  const ValGraph& graph_;
+
+ public:
+  ValGraphUses(const ValGraph& graph) : graph_(graph) {}
+  decltype(auto) operator()(const ValGroup& val_group) const {
+    return graph_.getUses(val_group);
+  }
+};
+
+class ValGraphInputs {
+  const ValGraph& graph_;
+
+ public:
+  ValGraphInputs(const ValGraph& graph) : graph_(graph) {}
+  decltype(auto) operator()(const ExprGroup& expr_group) const {
+    return graph_.inputGroups(expr_group);
+  }
+};
+
+class ValGraphOutputs {
+  const ValGraph& graph_;
+
+ public:
+  ValGraphOutputs(const ValGraph& graph) : graph_(graph) {}
+  decltype(auto) operator()(const ExprGroup& expr_group) const {
+    return graph_.outputGroups(expr_group);
+  }
+};
+
+class ValGraphBFS : public BFS<
+                        ExprGroup,
+                        ValGroup,
+                        ValGraphDefinitions,
+                        ValGraphUses,
+                        ValGraphInputs,
+                        ValGraphOutputs> {
+ protected:
+  ValGraphBFS(
+      const ValGraph& graph,
+      std::vector<NodeType> from_groups,
+      std::vector<NodeType> to_groups)
+      : BFS(ValGraphDefinitions(graph),
+            ValGraphUses(graph),
+            ValGraphInputs(graph),
+            ValGraphOutputs(graph),
+            std::move(from_groups),
+            std::move(to_groups)) {}
+
+ public:
+  // Find the shortest path from the from_groups_ to to_groups_ on a
+  // given graph. Dependency between vals and exprs must be satisfied.
+  // It is an error if no valid path is found.
+  static ExprPath getExprsBetween(
+      const ValGraph& graph,
+      const ValGroups& from,
+      const ValGroups& to) {
+    ValGraphBFS bfs(
+        graph,
+        {from.vector().begin(), from.vector().end()},
+        {to.vector().begin(), to.vector().end()});
+    bfs.traverse();
+    return bfs.getShortestExprPath();
+  }
 };
 
 } // namespace nvfuser

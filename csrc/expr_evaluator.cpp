@@ -13,7 +13,8 @@
 #include <ir/all_nodes.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
+#include <polymorphic_value.h>
 
 #include <functional>
 #include <iostream>
@@ -22,6 +23,30 @@ namespace nvfuser {
 
 namespace {
 
+// Given a value, if it is not a fusion input, return the empty string. If it is
+// a fusion input return a string like "input 2 ". This helper is used to
+// provide more informative error messages when a malformed input is received.
+std::string getInputPosString(const Val* val) {
+  if (!val->isFusionInput()) {
+    return "";
+  }
+  // Get position
+  const std::vector<Val*>& inputs = val->fusion()->inputs();
+  int64_t pos = -1;
+  for (size_t i : c10::irange(inputs.size())) {
+    if (inputs[i] == val) {
+      pos = (int64_t)i;
+      break;
+    }
+  }
+  NVF_ERROR(
+      pos != -1,
+      "val->isFusionInput() is true but val cannot be found in fusion inputs: ",
+      val->toString());
+  std::stringstream ss;
+  return "input " + std::to_string(pos) + ", ";
+}
+
 void validateValWithConcreteValue(
     const Val* value,
     const PolymorphicValue& concrete_value) {
@@ -29,17 +54,19 @@ void validateValWithConcreteValue(
     NVF_CHECK(
         concrete_value.is<at::Tensor>(),
         "Expected ",
+        getInputPosString(tv),
         tv->toString(),
-        " to be bound to an at::Tensor, but got ",
-        concrete_value.type().name());
+        ", to be an at::Tensor but got scalar ",
+        concrete_value);
     const auto& t = concrete_value.as<at::Tensor>();
     auto expect_dim =
-        (int64_t)TensorDomain::noReductions(tv->getMaybeRFactorDomain()).size();
+        (int64_t)TensorDomain::noReductions(tv->getLogicalDomain()).size();
     NVF_CHECK(
         t.dim() == expect_dim,
         "Expected ",
+        getInputPosString(tv),
         tv->toString(),
-        " to be bound to a tensor of rank ",
+        ", to be bound to a tensor of rank ",
         expect_dim,
         ", but got a tensor of rank ",
         t.dim());
@@ -48,17 +75,23 @@ void validateValWithConcreteValue(
         (value->dtype() == DataType::Index && isIntegralType(actual_dtype)) ||
             (value->dtype() == actual_dtype),
         "Expected ",
+        getInputPosString(tv),
         tv->toString(),
-        " to be bound to a tensor of dtype ",
+        ", to be bound to a tensor of dtype ",
         value->dtype(),
         ", but got a tensor of dtype ",
         actual_dtype);
+    // Intermediate tensorviews marked as CPU scalars will be created as meta
+    // tensors during compilation. For example, for fusions containing SDPA fwd
+    // and bwd, some outputs of the fwd op (philox seed, philox offset) are CPU
+    // scalars.
     if (tv->isCpuScalar()) {
       NVF_CHECK(
-          is_cpu_scalar(t),
+          is_cpu_scalar(t) || is_meta_scalar(t),
           "Expected ",
+          getInputPosString(tv),
           tv->toString(),
-          " to be bound to a CPU scalar tensor "
+          ", to be bound to a CPU or meta scalar tensor "
           ", but got a tensor on device ",
           t.device(),
           " with ",
@@ -66,16 +99,31 @@ void validateValWithConcreteValue(
           " elements");
     } else {
       NVF_CHECK(
-          t.is_cuda() || t.is_meta(),
+          !t.defined() || t.is_cuda() || t.is_meta(),
           "Expected ",
+          getInputPosString(tv),
           tv->toString(),
-          " to be bound to a CUDA or meta tensor, but got a tensor on device ",
+          ", to be bound to a CUDA or meta tensor, but got a tensor on device ",
           t.device());
     }
   } else {
     NVF_CHECK(
+        !concrete_value.is<at::Tensor>(),
+        "Expected ",
+        getInputPosString(value),
+        value->toString(),
+        ", to be a scalar but got ",
+        aten_to_data_type(concrete_value.as<at::Tensor>().scalar_type()),
+        " tensor of rank ",
+        concrete_value.as<at::Tensor>().dim());
+
+    NVF_CHECK(
         hasCompatibleDataType(concrete_value, value->dtype()),
-        "Scalar value is not compatible with the given data type.");
+        "Scalar value ",
+        concrete_value,
+        " is not compatible with the expected data type: ",
+        value->dtype(),
+        ".");
   }
 }
 
@@ -105,6 +153,7 @@ void ExpressionEvaluator::bind_(
     NVF_CHECK(
         same,
         "Tried to bind to a value: ",
+        getInputPosString(value),
         value->toInlineString(),
         "(which evaluated to ",
         toString(evaluated_value),
@@ -113,25 +162,27 @@ void ExpressionEvaluator::bind_(
   }
   if (auto tv = dynamic_cast<const TensorView*>(value)) {
     const auto& t = concrete_value.as<at::Tensor>();
-    auto rfactor_domain =
-        TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+    auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
     NVF_ERROR(
-        t.dim() == (int64_t)rfactor_domain.size(),
+        t.dim() == (int64_t)logical_domain.size(),
         "Expected ",
+        getInputPosString(tv),
         tv->toString(),
-        " to be bound to a tensor of rank ",
-        rfactor_domain.size(),
+        ", to be bound to a tensor of rank ",
+        logical_domain.size(),
         ", but got a tensor of rank ",
         t.dim());
     for (auto i : c10::irange(t.dim())) {
-      auto id = rfactor_domain[i];
+      auto id = logical_domain[i];
       if (id->hasExpandedExtent()) {
         // Verify that t is also expanded
         NVF_ERROR(
             t.size(i) == 1 || t.stride(i) == 0,
             "IterDomain ",
             id->toString(),
-            " in TensorView ",
+            " in ",
+            getInputPosString(tv),
+            "TensorView ",
             tv->toString(),
             " has expanded extent but input tensor has size ",
             t.size(i),
@@ -140,17 +191,35 @@ void ExpressionEvaluator::bind_(
             " in dimension ",
             i);
         bind_(
-            rfactor_domain[i]->expandedExtent(), t.size(i), evaluate_validate);
-      } else if (rfactor_domain[i]->isDeviceDim()) {
+            logical_domain[i]->expandedExtent(), t.size(i), evaluate_validate);
+      } else if (logical_domain[i]->isDeviceDim()) {
         // Currently we have the restrictions:
-        // (1) Devices parallelized axis extent == number of devices
+        // (1) Devices parallelized axis extent == DeviceMesh's extent
         // (2) Device parallelized axis cannot be split or merged
-        // Therefore, the device parallelized extents will always be 1.
-        // Ignore concrete extents because they hold the unsharded extents.
+        // Therefore, the device parallelized extents will always be allocated
+        // with size 1, but the symbolic axis extent is binded with the extent
+        // of the DeviceMesh
         NVF_CHECK(
-            1 == t.size(i), "Tried to bind a constant value 1 as ", t.size(0));
+            1 == t.size(i),
+            "TensorView ",
+            tv->toString(),
+            getInputPosString(tv),
+            " IterDomain ",
+            id->toString(),
+            "is sharded and must have size 1, but input tensor has size ",
+            t.size(i));
+        NVF_CHECK(
+            tv->getDeviceMesh().size() > 0,
+            "TV ",
+            tv->toString(),
+            getInputPosString(tv),
+            " has an empty DeviceMesh with DID parallelization")
+        bind_(
+            logical_domain[i]->extent(),
+            (int)tv->getDeviceMesh().size(),
+            evaluate_validate);
       } else {
-        bind_(rfactor_domain[i]->extent(), t.size(i), evaluate_validate);
+        bind_(logical_domain[i]->extent(), t.size(i), evaluate_validate);
       }
     }
   }
@@ -191,18 +260,18 @@ const PolymorphicValue& ExpressionEvaluator::evaluate(ParallelType pt) {
 }
 
 const PolymorphicValue& ExpressionEvaluator::evaluate(const Val* value) {
-  return evaluateHelper(value, known_values_);
+  return evaluate(value, known_values_);
 }
 
 PolymorphicValue ExpressionEvaluator::evaluate(const Val* value) const {
   std::unordered_map<const Val*, PolymorphicValue> known_values;
-  return evaluateHelper(value, known_values);
+  return evaluate(value, known_values);
 }
 
-const PolymorphicValue& ExpressionEvaluator::evaluateHelper(
+const PolymorphicValue& ExpressionEvaluator::evaluate(
     const Val* value,
     std::unordered_map<const Val*, PolymorphicValue>& known_values) const {
-  if (precomputed_values_ && precomputed_values_->ready()) {
+  if (precomputed_values_ && precomputed_values_->hasValidValues()) {
     if (precomputed_values_->getMaybeValueFor(value).hasValue()) {
       return precomputed_values_->getMaybeValueFor(value);
     }
@@ -213,16 +282,7 @@ const PolymorphicValue& ExpressionEvaluator::evaluateHelper(
   if (!maybe_concrete_value.get().hasValue()) {
     if (auto def = value->definition()) {
       FUSER_PERF_SCOPE("ExpressionEvaluator::evaluate");
-      std::vector<PolymorphicValue> inputs;
-      inputs.reserve(def->inputs().size());
-      for (auto i : def->inputs()) {
-        const auto& eval_i = evaluate(i);
-        if (!eval_i.hasValue()) {
-          return null_;
-        }
-        inputs.emplace_back(eval_i);
-      }
-      auto outputs = def->evaluate(*this, inputs);
+      auto outputs = def->evaluate(*this, known_values);
       for (auto i : c10::irange(def->outputs().size())) {
         known_values[def->output(i)] = std::move(outputs[i]);
       }
@@ -287,7 +347,7 @@ void ExpressionEvaluator::propagateBoundValuesThroughExactMaps(Fusion* fusion) {
   // We map Symbolic IterDomains here only if their extents match. This avoids
   // mapping between symbolic domains that might concretize to an (Iteration,
   // Broadcast) pair from a resolved broadcast.
-  const auto mapped_sets = ExactRootDomainMap(fusion).getMappedSets();
+  const auto mapped_sets = ExactLogicalDomainMap(fusion).getMappedSets();
 
   for (const auto& set : mapped_sets.disjointSets()) {
     int64_t known_size = -1;

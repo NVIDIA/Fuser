@@ -15,25 +15,31 @@
 
 namespace nvfuser {
 
-NVF_API TensorView* select(TensorView* tv, int dim, Val* index);
+NVF_API TensorView* select(TensorView* tv, int64_t dim, Val* index);
 
 // index_select
-NVF_API TensorView* index_select(TensorView* input, int dim, TensorView* index);
+NVF_API TensorView* index_select(
+    TensorView* input,
+    int64_t dim,
+    TensorView* index);
 
 // torch.gather
-NVF_API TensorView* torch_gather(TensorView* input, int dim, TensorView* index);
+NVF_API TensorView* torch_gather(
+    TensorView* input,
+    int64_t dim,
+    TensorView* index);
 
 // torch.scatter
 TensorView* scatterOp(
     ScatterOpType type,
     TensorView* self,
-    int dim,
+    int64_t dim,
     TensorView* index,
     TensorView* src);
 
 NVF_API TensorView* scatter(
     TensorView* self,
-    int dim,
+    int64_t dim,
     TensorView* index,
     TensorView* src);
 

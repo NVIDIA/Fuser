@@ -12,6 +12,7 @@
 
 #include <executor_kernel_arg.h>
 #include <instrumentation.h>
+#include <polymorphic_value.h>
 #include <serde/polymorphic_value.h>
 #include <tensor_metadata.h>
 
@@ -119,7 +120,7 @@ void KernelArgumentHolder::pushTensorProxy(
     const std::vector<int64_t>& strides,
     at::ScalarType dtype) {
   NVF_ERROR(strides.size() == sizes.size());
-  auto meta_tensor = at::detail::empty_strided_meta(
+  auto meta_tensor = at::empty_strided(
       sizes,
       strides,
       dtype,
@@ -368,8 +369,8 @@ std::vector<std::byte> getKernelArgument(
     if (tv->isCpuScalar()) {
       return polymorphicValueToBytes(pv, tv->dtype(), index_type);
     } else {
-      auto metadata_val = IrBuilder::metadataExpr(tv);
-      auto metadata = ee.evaluate(metadata_val);
+      const Val* metadata_val = IrBuilder::metadataExpr(tv);
+      const PolymorphicValue& metadata = ee.evaluate(metadata_val);
       return polymorphicValueToBytes(
           metadata, metadata_val->dtype(), index_type);
     }

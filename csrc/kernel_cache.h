@@ -97,14 +97,15 @@ void prepareRuntimeOrder(SegmentedFusion*, RuntimeWorkSpace&);
 //! executors_ objects from the flatbuffer binary.
 class FusionKernelRuntime {
  public:
-  NVF_API explicit FusionKernelRuntime(
+  explicit FusionKernelRuntime(
       std::unique_ptr<Fusion> fusion,
       const KernelArgumentHolder& inputs,
       const serde::FusionKernelRuntime* serde_buffer = nullptr,
       std::optional<PrimDataType> forced_index_type = std::nullopt,
       int64_t fusion_id = 0,
       int64_t concrete_id = 0,
-      int64_t runtime_id = 0);
+      int64_t runtime_id = 0,
+      bool auto_schedule = true);
 
   //! Type notations within FusionKernelRuntime Context
   using HashType = size_t;
@@ -118,7 +119,7 @@ class FusionKernelRuntime {
     }
   }
 
-  //! query if we already have a compiled kernel for execution
+  //! query if we have already attempted compilation
   bool isCompiled() {
     std::lock_guard<std::mutex> guard(mutex_);
     return std::all_of(
@@ -194,17 +195,17 @@ class FusionKernelRuntime {
   }
 
   //! Returns if this runtime is segmented
-  bool isSegmented() {
+  bool isSegmented() const {
     return is_segmented_;
   }
 
   //! Returns the fusion segments if applicable
-  SegmentedFusion* fusionSegments() {
+  SegmentedFusion* fusionSegments() const {
     return segmented_fusion_.get();
   }
 
   //! Returns the list of heuristics in this runtime
-  FusionHeuristics* schedulerHeuristics() {
+  FusionHeuristics* schedulerHeuristics() const {
     return heuristics_.get();
   }
 
@@ -212,7 +213,7 @@ class FusionKernelRuntime {
   //!  most recent kernel launch.
   //! TODO: have a interface for grabbing all recent logs. Need to put a buffer
   //! space for recent logs
-  ExecutorLog getMostRecentExecutorLog() {
+  ExecutorLog getMostRecentExecutorLog() const {
     NVF_ERROR(profiling_, "Executor log is only produced in profiling mode");
     return most_recent_executor_log_;
   }
@@ -273,7 +274,7 @@ class FusionKernelRuntime {
   KernelArgumentHolder args_metadata_;
 
   //! Heuristics object holding scheduler entries for all segments
-  std::unique_ptr<FusionHeuristics> heuristics_;
+  HeuristicsPtr heuristics_;
 
   // Checks if this runtime instance is for a single-kernel fusion (false) or a
   //  segmented fusion (true).
@@ -284,12 +285,6 @@ class FusionKernelRuntime {
 
   //! Pre-allocated runtime workspace to speed up kernel launch preparation.
   RuntimeWorkSpace runtime_workspace_;
-
-  //! Utility to speed up value evaluation at runtime
-  std::unique_ptr<PrecomputedValues> precomputed_values_;
-
-  //! Cache of all tensors in the complete fusion
-  std::vector<TensorView*> all_tvs_;
 
   //! store number of arguments in KernelArgumentHolder after each segment
   //! used to check if arguments are erased if not being used in the following
@@ -321,6 +316,9 @@ class FusionKernelRuntime {
 
   // The heuristics and executor for most recent kernel launch
   ExecutorLog most_recent_executor_log_;
+
+  // Whether to auto schedule the Fusion. If set to false, scheduling is skipped
+  const bool auto_schedule_;
 };
 
 //! Encoding an input set to unique id, which is used to short-cut cache entry
@@ -339,7 +337,7 @@ class InputsIdLookup : public NonCopyable {
   //! constructor where maximum cache size is fixed during init
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init,cppcoreguidelines-avoid-magic-numbers)
   explicit InputsIdLookup(size_t max_cache_size = 100)
-      : max_cache_size_(max_cache_size){};
+      : max_cache_size_(max_cache_size) {}
 
   //! struct to hold return value for lookupId.
   struct IdLookupReturn {
@@ -359,7 +357,7 @@ class InputsIdLookup : public NonCopyable {
   //! structure of the concretized Fusion might depend on not only the extents
   //! of input tensors, but on input scalars. For example,
   //!
-  //!    auto s = IrBuilder::create<int>();
+  //!    auto s = IrBuilder::create<Val>();
   //!    auto tv1 = reshape(tv0, {IrBuilder::create<Val>(-1), s});
   //!
   //!
@@ -514,7 +512,8 @@ class FusionExecutorCache {
   //! fusion executor is taking the ownership of `fusion`
   NVF_API explicit FusionExecutorCache(
       std::unique_ptr<Fusion> fusion,
-      int64_t fusion_id = 0);
+      int64_t fusion_id = 0,
+      bool auto_schedule = true);
 
   //! Execute fusion graph with given inputs, create `FusionExecutor` as needed
   //! Note this function also handles permutation & input update outside of
@@ -756,6 +755,9 @@ class FusionExecutorCache {
   // ID of fusion in python frontend fusion cache, which maps to a single
   // FusionExecutorCache.
   int64_t fusion_id_ = -1;
+
+  // Whether to auto schedule the Fusion. If set to false, scheduling is skipped
+  const bool auto_schedule_;
 };
 
 } // namespace nvfuser

@@ -50,7 +50,6 @@ class AsyncWait;
 class AsyncCommit;
 class InitMagicZero;
 class UpdateMagicZero;
-class ForLoop;
 class IfThenElse;
 class GridReduction;
 class GroupedGridReduction;
@@ -60,7 +59,6 @@ class GroupedGridWelford;
 class AllocateFusedReduction;
 
 // Expr container
-class Scope;
 
 class Predicate final : public Val {
  public:
@@ -92,8 +90,7 @@ class Predicate final : public Val {
   Val* thread_pred() const {
     NVF_ERROR(
         ptype_ == PredicateType::Inline ||
-        ptype_ == PredicateType::Misaligned || ptype_ == PredicateType::Shift ||
-        ptype_ == PredicateType::Padding ||
+        ptype_ == PredicateType::Misaligned ||
         ptype_ == PredicateType::ReductionWrite);
     return thread_pred_;
   }
@@ -257,12 +254,17 @@ class NVF_API Allocate final : public Expr {
   //! Allocation of a multi-dimensional buffer
   //!
   //! param shape Size of each dimension
+  //! param zero_init Should this memory be zero-initialized?
+  //! param resets_to_zero Will this memory be set to zero upon completion of
+  //!   this kernel?
+  //! param alias Is this an alias of previously-allocated memory
   explicit Allocate(
       IrBuilderPasskey passkey,
       Val* buffer,
       MemoryType memory_type,
       std::vector<Val*> shape = {},
       bool zero_init = false,
+      bool resets_to_zero = false,
       Allocate* alias = nullptr);
 
   //! Allocation of a non-dimensional buffer
@@ -273,7 +275,8 @@ class NVF_API Allocate final : public Expr {
       Val* buffer,
       MemoryType memory_type,
       Val* size,
-      bool zero_init = false);
+      bool zero_init = false,
+      bool resets_to_zero = false);
 
   const char* getOpString() const override {
     return "Allocate";
@@ -300,21 +303,54 @@ class NVF_API Allocate final : public Expr {
   //! Size of each dimension
   std::vector<Val*> shape() const {
     std::vector<Val*> result;
-    result.reserve(attributes().size() - 5);
-    for (auto i = attributes().begin() + 5; i != attributes().end(); ++i) {
+    result.reserve(attributes().size() - 6);
+    for (auto i = attributes().begin() + 6; i != attributes().end(); ++i) {
       result.emplace_back((*i)->as<Val>());
     }
     return result;
   }
 
+  //! Does this allocation require its memory to be initialized to zero before
+  //! this kernel is launched? If this is true, then an additional memset
+  //! kernel might be launched before the current Fusion kernel is launched in
+  //! order to guarantee that this buffer is filled with zeroes (see
+  //! resetsToZero() below).
   bool zeroInit() const {
     return attribute<bool>(2);
+  }
+
+  //! Is this buffer guaranteed to be reset to all zero values at the end of
+  //! this kernel? This is used to avoid an additional memset kernel launch for
+  //! buffers that require zeroed memory (see zeroInit() above).
+  //!
+  //! A common use case for zeroInit() allocations is semaphore buffers that
+  //! hold counters starting at zero. Typically, each participating thread would
+  //! increment the counter and the last thread would leave the counter in a
+  //! non-zeroed state. The next time that kernel is run, it can no longer
+  //! re-use the non-zero semaphore buffer, so FusionExecutor will launch
+  //! at::zeroes to allocate a new buffer, resulting in a memset kernel launch.
+  //!
+  //! Instead, if the last thread resets the counter to zero, then the buffer
+  //! can be re-used, and at::zeroes need only be run at the first kernel
+  //! launch. If resetsToZero() is true, then FusionExecutor will use
+  //! contigZeroedTensor() and releaseZeroedMemory() from global_allocator.h to
+  //! reuse zeroed memory avoiding the additional kernel launch.
+  //!
+  //! Whenever possible, we should try to guarantee that resetsToZero() is true
+  //! if zeroInit() is true by modifying our code to clean up global counters,
+  //! because the latency penalty of an additional kernel launch should be
+  //! greater than that required to reset this memory at the end of the fusion.
+  //! The exception is when a kernel is launched only a single time, in which
+  //! case resetting the memory is unnecessary, but we expect that kernels will
+  //! instead be launched many times.
+  bool resetsToZero() const {
+    return attribute<bool>(3);
   }
 
   // This alias tracks the next Allocate node in a linked chain of aliases
   // If the alias is nullptr, then the Allocate node uses memory in the kernel
   const Allocate* alias() const {
-    return dynamic_cast<const Allocate*>(attribute(3));
+    return dynamic_cast<const Allocate*>(attribute(4));
   }
 
   // Set the address of a shared memory allocation within the dynamic shared
@@ -329,14 +365,14 @@ class NVF_API Allocate final : public Expr {
         address() == nullptr,
         "Attempted to set address twice for allocation ",
         toString());
-    attributes_[4] = addr;
+    attributes_[5] = addr;
   }
 
   // This is an integer scalar describing the byte address within the dynamic
   // shared memory array for a shared memory allocation. For memory types other
   // than Shared, or before allocation, this function might return nullptr.
   Val* address() const {
-    return attributeVal(4);
+    return attributeVal(5);
   }
 };
 
@@ -680,217 +716,6 @@ class UpdateMagicZero final : public Expr {
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
-};
-
-// TODO(kir): promote to IR node
-class Scope {
- public:
-  explicit Scope(Expr* owner) : owner_(owner) {}
-
-  std::string toString(int indent_size = 0) const;
-
-  const std::vector<Expr*>& exprs() const {
-    return exprs_;
-  }
-
-  bool empty() const {
-    return exprs_.empty();
-  }
-
-  auto size() const {
-    return exprs_.size();
-  }
-
-  auto& at(size_t i) {
-    return exprs_.at(i);
-  }
-
-  auto& at(size_t i) const {
-    return exprs_.at(i);
-  }
-
-  auto& operator[](size_t i) {
-    return at(i);
-  }
-
-  auto& operator[](size_t i) const {
-    return at(i);
-  }
-
-  // Insert expr before expression at pos
-  std::vector<Expr*>::iterator insert(size_t pos, Expr* expr);
-
-  // Insert expr before ref
-  std::vector<Expr*>::iterator insert_before(Expr* ref, Expr* expr);
-
-  // Insert expr after ref
-  std::vector<Expr*>::iterator insert_after(Expr* ref, Expr* expr);
-
-  void push_back(Expr* e) {
-    exprs_.push_back(e);
-  }
-
-  // Erase expr at pos
-  void erase(size_t pos);
-
-  // Erase expr ref
-  void erase(Expr* ref);
-
-  bool contains(Expr* expr) const;
-
-  void clear();
-
-  Expr* owner() const {
-    return owner_;
-  }
-
-  bool operator==(const Scope&) const {
-    NVF_ERROR(false, "Should not reach here");
-  }
-
-  // Insert expr before pos
-  std::vector<Expr*>::iterator insert(
-      std::vector<Expr*>::const_iterator pos,
-      Expr* expr);
-
- private:
-  // Erase expr at pos
-  void erase(std::vector<Expr*>::const_iterator pos);
-
- private:
-  std::vector<Expr*> exprs_;
-
-  //! Owner exprssion of this scope, e.g., IfThenElse
-  Expr* owner_ = nullptr;
-};
-
-//! ForLoop provides scoping around an int iterator from 0 to range. Exprs
-//! placed in its body are considered inside the scope of the for loop. In the
-//! future the implementation should look quite different so that we can do
-//! proper dependency annalysis like in Fusion.
-//!
-//! TODO(kir): this is not a real expression
-//!
-//! ForLoop may represent a part of an iteration domain representend
-//! by iter_domain_. In that case, the loop extent field, extent_, may
-//! be smaller than the extent of iter_domain_.
-class NVF_API ForLoop final : public Expr {
- public:
-  using Expr::Expr;
-
-  //! By default, start and stop are the same as those of iter_domain.
-  //! Step is one by default.
-  //!
-  //! TODO: cleaner way to set options?
-  ForLoop(
-      IrBuilderPasskey passkey,
-      IterDomain* iter_domain,
-      Val* index,
-      Val* start,
-      Val* stop,
-      Val* step,
-      bool vectorize,
-      Val* vectorize_shift,
-      bool unroll_required,
-      DoubleBufferLoopStage double_buffer_loop_stage);
-
-  ForLoop(
-      IrBuilderPasskey passkey,
-      IterDomain* iter_domain,
-      Val* index,
-      DoubleBufferLoopStage double_buffer_loop_stage);
-
-  ForLoop(IrBuilderPasskey passkey, IterDomain* iter_domain);
-
-  ForLoop(IrBuilderPasskey passkey, const ForLoop* other);
-
-  NVFUSER_DECLARE_CLONE_AND_CREATE
-
-  const char* getOpString() const override {
-    return "ForLoop";
-  }
-
-  std::string toString(int indent_size = 0) const override;
-  std::string toInlineString(int indent_size = 0) const override;
-
-  Val* index() const {
-    return input(0);
-  }
-
-  Val* indexOrStartIfTrivial() const {
-    return isTrivial() ? start() : index();
-  }
-
-  Val* start() const;
-
-  Val* stop() const;
-
-  Val* step() const;
-
-  Val* simplifiedStop() const;
-
-  // [pre | vectorize | post] <= inner-most, merged root domain
-  // shift_ is applied to vectorize and post sections.
-  Val* vectorize_shift() const {
-    return attributeVal(4);
-  }
-
-  IterDomain* iter_domain() const {
-    return input(1)->as<IterDomain>();
-  }
-
-  // TODO: Return pointer instead of reference to be more consistent
-  Scope& body() {
-    return attribute<Scope>(7);
-  }
-
-  const Scope& body() const {
-    return attribute<Scope>(7);
-  }
-
-  bool empty() const {
-    return body().empty();
-  }
-
-  // vectorize is true when the for-loop contains a vectorize set
-  // the flag is used to omit the for-loop from the kernel
-  bool vectorize() const {
-    return attribute<bool>(3);
-  }
-
-  //! True if unrolled (i.e., "#pragma unroll" is attached)
-  bool isUnrolled() const;
-
-  //! True if unroll is required for avoiding stack allocation
-  bool isUnrollRequired() const {
-    return attribute<bool>(5);
-  }
-
-  //! Set unrolling required
-  void requireUnroll() {
-    attribute<bool>(5) = true;
-  }
-
-  //! True if no actual for-loop is materialized
-  bool isTrivial() const;
-
-  //! True if loop is grouped reduction/welford
-  bool isGroup() const;
-
-  //! Returns the stage of a double buffered iterdomain
-  //!  that this for loop materializes.
-  auto doubleBufferLoopStage() const {
-    return attribute<DoubleBufferLoopStage>(6);
-  }
-
- private:
-  //! Returns if a loop could be unrolled.
-  bool isUnrollable() const;
-
-  //! Not storing this as an attribute because this is only a cache for
-  //! simplifiedStop. We are not interested in keeping this across clone/serde,
-  //! etc.
-  mutable Val* simplified_stop_ = nullptr;
 };
 
 //! IfThenElse provides scoping for an boolean operator. Exprs placed in its
@@ -1310,7 +1135,7 @@ class NVF_API GroupedGridWelford final : public GroupedWelfordOp {
   }
 
   //! Return the required smem buffer size
-  int getSmemBufferSize(int bdimx, int bdimy, int bdimz) const;
+  int64_t getSmemBufferSize(int64_t bdimx, int64_t bdimy, int64_t bdimz) const;
 };
 
 //! Represents a WelfordOp with the division by count is hoisted out

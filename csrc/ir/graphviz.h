@@ -113,4 +113,7 @@ class IrGraphGenerator : private OptInConstDispatch {
   ExprColorMap* expr_color_map_ = nullptr;
 };
 
+// Generates a DOT graph representation of fusion transform
+std::string irTransformToDot(Fusion* fusion);
+
 } // namespace nvfuser

@@ -5,8 +5,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#pragma once
+
 #include <preseg_passes/optimization_pass.h>
-#include <visibility.h>
 
 namespace nvfuser::preseg_passes {
 
@@ -17,7 +18,10 @@ class MarkAliasesPreparePass : public OptimizationPass<MarkAliasesPreparePass> {
   friend class OptimizationPass<MarkAliasesPreparePass>;
 
  protected:
-  NVF_API static void runPass(Fusion* fusion);
+  static void runPass(Fusion* fusion);
+  static std::string name() {
+    return "MarkAliasesPreparePass";
+  }
 };
 
 } // namespace nvfuser::preseg_passes

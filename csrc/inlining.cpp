@@ -7,7 +7,7 @@
 // clang-format on
 #include <inlining.h>
 #include <ir/utils.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 #include <transform_iter.h>
 
 #include <utility>
@@ -27,21 +27,22 @@ void MaxPosCalculator::buildUnmappableDims(bool compute_at_only) {
   if (compute_at_only) {
     return;
   }
-  ComputeAtRootDomainMap root_map;
-  root_map.build();
+  ComputeAtLogicalDomainMap logical_map;
+  logical_map.build();
   auto all_tvs = ir_utils::allTvs(FusionGuard::getCurFusion());
   for (auto tv : all_tvs) {
     auto consumers = ir_utils::consumerTvsOf(tv);
     for (auto consumer : consumers) {
       // Grab dimensions in producer and consumer that are mappable to eachother
-      // based on the computeAtRootDomainMap. This will tell us which dimensions
-      // can be inlined based on avoiding trying to inline reduction structures.
+      // based on the computeAtLogicalDomainMap. This will tell us which
+      // dimensions can be inlined based on avoiding trying to inline reduction
+      // structures.
       auto mappable_roots =
-          root_map.getMappableDims(tv->domain(), consumer->domain());
-      for (auto tv_root_id : tv->getMaybeRFactorDomain()) {
-        if (mappable_roots.find(tv_root_id) == mappable_roots.end() &&
-            !ir_utils::isSqueezedID(tv, tv_root_id)) {
-          unmappable_dims_.emplace(tv_root_id);
+          logical_map.getMappableDims(tv->domain(), consumer->domain());
+      for (auto tv_logical_id : tv->getLogicalDomain()) {
+        if (mappable_roots.find(tv_logical_id) == mappable_roots.end() &&
+            !ir_utils::isSqueezedID(tv, tv_logical_id)) {
+          unmappable_dims_.emplace(tv_logical_id);
         }
       }
     }
@@ -70,18 +71,20 @@ bool MaxPosCalculator::isAllowedID(
     // BestEffort and MostInlined modes, avoid Unroll as well.
     bool is_vectorize = isParallelTypeVectorize(id->getParallelType()) ||
         id->getParallelType() == ParallelType::Group ||
-        (best_effort && id->getParallelType() == ParallelType::Unroll);
+        (best_effort && id->getParallelType() == ParallelType::Unroll) ||
+        id->getParallelType() == ParallelType::Bulk;
     allowed = allowed && !is_vectorize;
   }
 
   if (!allow_unmappable) {
-    auto root_dom = tv->getMaybeRFactorDomain();
-    std::unordered_set<Val*> root_dom_set(root_dom.begin(), root_dom.end());
-    auto all_vals = DependencyCheck::getAllValsBetween(root_dom_set, {id});
+    auto logical_dom = tv->getLogicalDomain();
+    std::unordered_set<Val*> logical_dom_set(
+        logical_dom.begin(), logical_dom.end());
+    auto all_vals = DependencyCheck::getAllValsBetween(logical_dom_set, {id});
     bool is_unmappable = false;
     for (auto val : all_vals) {
       auto id = val->as<IterDomain>();
-      if (root_dom_set.count(val) > 0 && unmappable_dims_.count(id) > 0) {
+      if (logical_dom_set.count(val) > 0 && unmappable_dims_.count(id) > 0) {
         is_unmappable = true;
         break;
       }
@@ -98,7 +101,7 @@ size_t MaxPosCalculator::getMaxPosSelf(
     bool allow_reduction,
     bool allow_vectorize,
     bool allow_unmappable) const {
-  auto dom = tv->getLeafDomain();
+  auto dom = tv->getLoopDomain();
   auto iter = std::find_if(
       dom.begin(),
       dom.end(),
@@ -127,9 +130,9 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
     TensorView* producer,
     TensorView* consumer,
     bool best_effort) const {
-  auto pairwise_root_map = PairwiseRootDomainMap(producer, consumer);
-  auto replay_CasP =
-      BestEffortReplay::replayCasP(consumer, producer, -1, pairwise_root_map);
+  auto pairwise_logical_map = PairwiseLogicalDomainMap(producer, consumer);
+  auto replay_CasP = BestEffortReplay::replayCasP(
+      consumer, producer, -1, pairwise_logical_map);
   auto p2c_replay_map = replay_CasP.getReplay();
 
   for (const auto producer_pos : c10::irange(producer->nDims())) {
@@ -137,10 +140,10 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
     // not inline into this position, otherwise the max producer position of
     // the consumer will become invalid and expression sort will fail.
     if (TransformReplay::getMatchedLeafPosWithoutReplayCasP(
-            consumer, producer, (int)producer_pos + 1) < 0) {
+            consumer, producer, producer_pos + 1) < 0) {
       return producer_pos;
     }
-    auto map_it = p2c_replay_map.find(producer->axis((int)producer_pos));
+    auto map_it = p2c_replay_map.find(producer->axis(producer_pos));
     if (map_it != p2c_replay_map.end()) {
       auto c_id = map_it->second;
       if (!isAllowedID(c_id, consumer, best_effort, true, false, true)) {
@@ -202,11 +205,11 @@ namespace {
 // Find the positions of `selected` tensors that is mapped to the given position
 // in the reference tensor.
 class FindMappedPositions : public MaxInfoSpanningTree::Propagator {
-  std::unordered_map<TensorView*, size_t>& output_;
+  std::unordered_map<TensorView*, int64_t>& output_;
 
  public:
   FindMappedPositions(
-      std::unordered_map<TensorView*, size_t>& output,
+      std::unordered_map<TensorView*, int64_t>& output,
       TensorView* reference,
       int64_t reference_pos);
 
@@ -218,7 +221,7 @@ class FindMappedPositions : public MaxInfoSpanningTree::Propagator {
 };
 
 FindMappedPositions::FindMappedPositions(
-    std::unordered_map<TensorView*, size_t>& output,
+    std::unordered_map<TensorView*, int64_t>& output,
     TensorView* reference,
     int64_t reference_pos)
     : output_(output) {
@@ -238,7 +241,7 @@ FindMappedPositions::FindMappedPositions(
 }
 
 void FindMappedPositions::propagateC2P(TensorView* from, TensorView* to) {
-  int from_pos = (int)output_.at(from);
+  int64_t from_pos = output_.at(from);
   auto to_pos =
       TransformReplay::getMatchedLeafPosWithoutReplayPasC(to, from, from_pos);
   // If there is no matching position found, we compute the highest matched
@@ -252,7 +255,7 @@ void FindMappedPositions::propagateC2P(TensorView* from, TensorView* to) {
 }
 
 void FindMappedPositions::propagateP2C(TensorView* from, TensorView* to) {
-  int from_pos = (int)output_.at(from);
+  int64_t from_pos = output_.at(from);
   auto to_pos =
       TransformReplay::getMatchedLeafPosWithoutReplayCasP(to, from, from_pos);
   // If there is no matching position found, we compute the highest matched
@@ -277,11 +280,11 @@ void FindMappedPositions::propagateSibling(TensorView* from, TensorView* to) {
   output_[to] = from_pos;
 }
 
-std::unordered_map<TensorView*, size_t> getPositionsMappedTo(
+std::unordered_map<TensorView*, int64_t> getPositionsMappedTo(
     TensorView* reference_tv,
     int64_t reference_pos) {
-  std::unordered_map<TensorView*, size_t> mapped_positions;
-  MaxRootDomainInfoSpanningTree tree(reference_tv, reference_pos);
+  std::unordered_map<TensorView*, int64_t> mapped_positions;
+  MaxLogicalDomainInfoSpanningTree tree(reference_tv, reference_pos);
   FindMappedPositions propagator(mapped_positions, reference_tv, reference_pos);
   tree.traverse(&propagator);
   return mapped_positions;

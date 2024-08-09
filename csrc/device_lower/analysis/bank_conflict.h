@@ -44,7 +44,8 @@ namespace nvfuser {
 // Returns (expression, input conflict ways, output conflict ways)
 // way == 0 --> not applicable (for example, tensor is not a smem tensor)
 // way == 1 --> no conflict
-NVF_API std::unordered_map<const Expr*, std::pair<int, int>> getBankConflictInfo(
+NVF_API std::unordered_map<const Expr*, std::pair<int64_t, int64_t>>
+getBankConflictInfo(
     const kir::Kernel* kernel,
     LaunchParams launch_params = {},
     const std::unordered_map<Val*, PolymorphicValue>& known_values = {});

@@ -65,6 +65,14 @@ class KernelArgumentHolder {
     return arguments_.at(ind).get();
   };
 
+  auto begin() const {
+    return arguments_.begin();
+  }
+
+  auto end() const {
+    return arguments_.end();
+  }
+
   auto cbegin() const {
     return arguments_.cbegin();
   }

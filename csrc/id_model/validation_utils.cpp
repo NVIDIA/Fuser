@@ -89,9 +89,7 @@ bool exprsMap(
     auto first_split = first->as<Split>();
     auto second_split = second->as<Split>();
     if (!first_split->factor()->sameAs(second_split->factor()) ||
-        first_split->innerSplit() != second_split->innerSplit() ||
-        !first_split->startOffset()->sameAs(second_split->startOffset()) ||
-        !first_split->stopOffset()->sameAs(second_split->stopOffset())) {
+        first_split->innerSplit() != second_split->innerSplit()) {
       return false;
     }
   }
@@ -121,7 +119,7 @@ bool exprsMap(
 IdModelValidator::IdModelValidator(Fusion* fusion, bool allow_self_mapping)
     : ca_map_(fusion, allow_self_mapping) {
   for (auto tv : ir_utils::allTvs(fusion)) {
-    for (auto id : ir_utils::allIDsOf(tv)) {
+    for (auto id : tv->domain()->allIDs()) {
       if (id->definition() && id->definition()->isA<Swizzle2D>()) {
         has_swizzle_ = true;
         break;

@@ -203,3 +203,32 @@ TEST_F(DynamicTypeTest, SetTheoreticNaturalNumbers) {
 }
 
 #undef insert
+
+TEST_F(DynamicTypeTest, InitializerList) {
+  using IntFloatOrVec = DynamicType<Containers<std::vector>, int, float>;
+  IntFloatOrVec x({{1, 2}, {3, {4, 5.0f, {6}}}});
+  EXPECT_TRUE(x.is<std::vector>());
+  EXPECT_EQ(x.as<std::vector>().size(), 2);
+
+  EXPECT_TRUE(x[0].is<std::vector>());
+  EXPECT_EQ(x[0].as<std::vector>().size(), 2);
+  EXPECT_TRUE(x[0][0].is<int>());
+  EXPECT_EQ(x[0][0], 1);
+  EXPECT_TRUE(x[0][1].is<int>());
+  EXPECT_EQ(x[0][1], 2);
+
+  EXPECT_TRUE(x[1].is<std::vector>());
+  EXPECT_EQ(x[1].as<std::vector>().size(), 2);
+  EXPECT_TRUE(x[1][0].is<int>());
+  EXPECT_EQ(x[1][0], 3);
+  EXPECT_TRUE(x[1][1].is<std::vector>());
+  EXPECT_EQ(x[1][1].as<std::vector>().size(), 3);
+  EXPECT_TRUE(x[1][1][0].is<int>());
+  EXPECT_EQ(x[1][1][0], 4);
+  EXPECT_TRUE(x[1][1][1].is<float>());
+  EXPECT_EQ(x[1][1][1], 5.0f);
+  EXPECT_TRUE(x[1][1][2].is<std::vector>());
+  EXPECT_EQ(x[1][1][2].as<std::vector>().size(), 1);
+  EXPECT_TRUE(x[1][1][2][0].is<int>());
+  EXPECT_EQ(x[1][1][2][0], 6);
+}

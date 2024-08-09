@@ -10,6 +10,7 @@
 #include <disjoint_set.h>
 #include <ir/all_nodes.h>
 
+#include <iostream>
 #include <string>
 #include <type_traits>
 #include <unordered_map>
@@ -29,9 +30,9 @@ namespace nvfuser {
 // T1 = set(T0);
 // T2 = set(T1);
 //
-// T0: root [I0, I1], leaf [I0, I1]
-// T1: root [I2, I3], leaf [I2*I3/4, 4]
-// T2: root [I4, I5], leaf [I4*I5/4, 4]
+// T0: root [I0, I1], loop [I0, I1]
+// T1: root [I2, I3], loop [I2*I3/4, 4]
+// T2: root [I4, I5], loop [I4*I5/4, 4]
 //
 // The Exact ValGraph consists of ValGroups of:
 //
@@ -185,7 +186,9 @@ class ValGraph {
   std::string toString() const;
 
   // Initializes entries for the provided Val with its definitions and
-  // uses.
+  // uses. The provided Val will have its own new ValGroup, each item in the
+  // definitions and uses will become a new ExprGroup, and these new ExprGroups
+  // will be the definitions and uses of the new ValGroup.
   void initializeVal(
       Val* val,
       const VectorOfUniqueEntries<Expr*>& definitions,
@@ -194,6 +197,18 @@ class ValGraph {
   // Same as the above exept val->definition() and val->uses() are
   // used
   void initializeVal(Val* val);
+
+  // Initializes entries for the provided Val. The provided Val will be added to
+  // the provided existing ValGroup. There will be no changes on the definitions
+  // and uses of the provided ValGroup.
+  void initializeVal(Val* v, ValGroup vg) {
+    disjoint_vals_.appendToSet(v, vg);
+  }
+
+  // Add expr to the disjoint sets as a sole group. Used for
+  // registering replayed domains and exprs. Error if the expr is
+  // already registered.
+  void registerExpr(Expr* expr);
 
   // Returns true if first and second are expressions through which
   // this ValGraph has matching inputs (if forward), or outputs (if not
@@ -237,7 +252,8 @@ class ValGraph {
     auto extent_match = [](IterDomain* id0, IterDomain* id1) -> bool {
       return id0->extent()->sameAs(id1->extent()) ||
           (id0->extent()->isConstInt() && id1->extent()->isConstInt() &&
-           id0->extent()->evaluate() == id1->extent()->evaluate());
+           id0->extent()->evaluate().as<int64_t>() ==
+               id1->extent()->evaluate().as<int64_t>());
     };
 
     // If one pair of the domains are mapped in the given graph, the
@@ -342,5 +358,84 @@ class ValGraph {
 
   std::unordered_map<ValGroup, ExprGroups> unique_uses_;
 };
+
+struct ValGroupAndItsGraph {
+  ValGroup group;
+  ValGraph* graph;
+  bool operator==(const ValGroupAndItsGraph& other) const {
+    return group == other.group && graph == other.graph;
+  }
+  bool operator!=(const ValGroupAndItsGraph& other) const {
+    return !operator==(other);
+  }
+};
+
+inline std::ostream& operator<<(
+    std::ostream& os,
+    const ValGroupAndItsGraph& g) {
+  return os << g.group;
+}
+
+// Returns the first pair of id's in ids detected to match each other on the
+// given ID graph. TODO: what this is really looking for is if
+// there's any overlapping between the iter domains in the provided set.
+//
+// i.e. if we have:
+// tv0 = arange(6).reshape({3, 2})
+// tv1 = tv0[3, 2].t()
+// tv2 = tv0[3, 2].reshape({2, 3})
+// tv3 = tv1 + tv2
+//
+// Then we can see this overlap in the tv3 expression as:
+//
+// tv0 = { {0, 1, 2},
+//         {3, 4, 5} }
+//
+// tv1 = { {0, 3},
+//         {1, 4},
+//         {2, 5} }
+//
+// tv2 = { {0, 1},
+//         {2, 3},
+//         {4, 5} }
+//
+// The elements in tv1 {3, 1, 4, 2}, map respectively to the elements in tv2
+// {1, 2, 3, 4}. The reason this is so important is it means that generating
+// tv3 is no longer a trivially parallelizable problem (if we include the dag
+// all the way to tv0). So tv0's axes cannot be inlined across both the tv0
+// and tv1 path. This breaks some assumptions we have today in schedulers that
+// will assume tv2 can be trivially inlined/parallelized. Instead we'd need to
+// take into consideration the effective communication going on here, so that
+// we pull multiple values of tv0 to compute tv3.
+//
+// Note, however, that the above example is not detectable at this
+// moment as the self mapping is partial through reshape. The analysis
+// below would need to be extended to consider producer and consumers
+// of domains as well rather than just root, logical and loop domains.
+std::optional<std::pair<IterDomain*, IterDomain*>> detectSelfMapping(
+    const std::vector<IterDomain*>& ids,
+    const ValGraph& id_graph);
+
+struct SelfMapping {
+  IterDomain* id1;
+  IterDomain* id2;
+  // For debugging, records which domain `id1` and `id2` belong to. This value
+  // is either "Root", "Logical", or "Leaf". Consider making it an enum.
+  std::string where;
+};
+
+// Returns if a self mapping was detected that would invalidate assumptions of
+// the overall lowering system.
+//
+// It is assumed that for any tensor represented by a list of domains,
+// those domains should never be mapped with each other. It may be
+// possible to lift this assumption, but it's unclear if it could
+// matter in practice.
+//
+// TODO: Can we make this more of an alias analysis?
+// Ref: https://github.com/csarofeen/pytorch/pull/1954#discussion_r961940498
+std::optional<SelfMapping> hasSelfMapping(
+    const TensorView* tv,
+    const ValGraph& id_graph);
 
 } // namespace nvfuser

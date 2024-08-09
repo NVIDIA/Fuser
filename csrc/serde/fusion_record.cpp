@@ -55,7 +55,7 @@ python_frontend::RecordFunctor* deserializeOpRecord(
 python_frontend::RecordFunctor* deserializeReductionRecord(
     std::function<TensorView*(
         TensorView*,
-        const std::vector<int>&,
+        const std::vector<int64_t>&,
         bool,
         nvfuser::DataType)> fusion_op,
     RecordType record_type,
@@ -308,6 +308,18 @@ void RecordFunctorFactory::registerAllParsers() {
         Val*>(ternary_alpha_val, RecordType::Ternary_Alpha_VAL, buffer);
   };
   registerParser(RecordType::Ternary_Alpha_VAL, ternary_alpha_val_parser);
+
+  auto deserializeSdpaFwdRecord = [&](const RecordFunctor* buffer) {
+    return new python_frontend::SdpaFwdOpRecord(
+        parseStateArgs(buffer->args()), parseStateArgs(buffer->outputs()));
+  };
+  registerParser(RecordType::SdpaFwdOp, deserializeSdpaFwdRecord);
+
+  auto deserializeSdpaBwdRecord = [&](const RecordFunctor* buffer) {
+    return new python_frontend::SdpaBwdOpRecord(
+        parseStateArgs(buffer->args()), parseStateArgs(buffer->outputs()));
+  };
+  registerParser(RecordType::SdpaBwdOp, deserializeSdpaBwdRecord);
   // END OpRecord Parsers
 
   // START Reduction Parsers
@@ -625,6 +637,12 @@ void RecordFunctorFactory::setupFunctionMaps() {
       ("ops." op_str),                             \
       static_cast<TensorView* (*)(TensorView*, TensorView*)>(op_name));
 
+#define NVFUSER_TERNARY_TV_ONLY_OP(op_str, op_name)                        \
+  ternary_tv.emplace(                                                      \
+      ("ops." op_str),                                                     \
+      static_cast<TensorView* (*)(TensorView*, TensorView*, TensorView*)>( \
+          op_name));
+
 #define NVFUSER_BINARY_TV_OP(op_str, op_name)                           \
   binary_tv.emplace(                                                    \
       ("ops." op_str),                                                  \
@@ -768,10 +786,9 @@ void RecordFunctorFactory::setupFunctionMaps() {
   NVFUSER_UNARY_TV_OP("real", real)
   NVFUSER_UNARY_TV_OP("imag", imag)
 
-  NVFUSER_BINARY_TV_ONLY_OP("_matmul_nn", _matmul_nn)
-  NVFUSER_BINARY_TV_ONLY_OP("_matmul_nt", _matmul_nt)
-  NVFUSER_BINARY_TV_ONLY_OP("_matmul_tn", _matmul_tn)
-  NVFUSER_BINARY_TV_ONLY_OP("_matmul_tt", _matmul_tt)
+  NVFUSER_BINARY_TV_ONLY_OP("matmul", matmul)
+  NVFUSER_BINARY_TV_ONLY_OP("linear", linear)
+  NVFUSER_TERNARY_TV_ONLY_OP("linear", linear)
 
   NVFUSER_BINARY_TV_OP("add", add)
   NVFUSER_BINARY_TV_OP("atan2", atan2)
