@@ -830,7 +830,7 @@ class TmaCircularBufferingTest
     auto reference_cpu = reference_cpu_data.accessor<data_type, 1>();
     auto result_cpu = result_cpu_data.accessor<data_type, 1>();
 
-    constexpr double tolerance = 1e-5;
+    constexpr double tolerance = 1e-3;
     for (int64_t pos = 0; pos < tensor_dim; ++pos) {
       if (fabs((double)result_cpu[pos] - (double)reference_cpu[pos]) >
           tolerance) {
@@ -852,7 +852,7 @@ class TmaCircularBufferingTest
     auto reference_cpu = reference_cpu_data.accessor<data_type, 2>();
     auto result_cpu = result_cpu_data.accessor<data_type, 2>();
 
-    constexpr double tolerance = 1e-5;
+    constexpr double tolerance = 1e-3;
     for (int64_t out_pos = 0; out_pos < tensor_outer_dim; ++out_pos) {
       for (int64_t in_pos = 0; in_pos < tensor_inner_dim; ++in_pos) {
         if (fabs(
@@ -910,6 +910,7 @@ TEST_P(TmaCircularBufferingTest, SingleDim) {
   fe.compileFusion(fusion.get(), {t0});
 
   std::vector<at::Tensor> cg_outputs = fe.runFusion({t0});
+  compare<float>(tensor_inner_dim, cg_outputs.front(), t1);
   testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
 
@@ -968,6 +969,7 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnroll) {
   }
 
   std::vector<at::Tensor> cg_outputs = fe.runFusion({t0});
+  compare<float>(tensor_inner_dim, cg_outputs.front(), t1);
   testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
 
@@ -1026,6 +1028,7 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnswitch) {
   }
 
   std::vector<at::Tensor> cg_outputs = fe.runFusion({t0});
+  compare<float>(tensor_inner_dim, cg_outputs.front(), t1);
   testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
 
@@ -1150,6 +1153,7 @@ TEST_P(TmaCircularBufferingTest, Pointwise) {
   fe.compileFusion(fusion.get(), {t0, t1});
 
   std::vector<at::Tensor> cg_outputs = fe.runFusion({t0, t1});
+  compare<float>(tensor_outer_dim, tensor_inner_dim, cg_outputs.front(), t2);
   testValidate(fusion.get(), cg_outputs, {t0, t1}, {t2}, __LINE__, __FILE__);
 }
 
@@ -1207,6 +1211,7 @@ TEST_P(TmaCircularBufferingTest, Reduction) {
   fe.compileFusion(fusion.get(), {t0});
 
   std::vector<at::Tensor> cg_outputs = fe.runFusion({t0});
+  compare<float>(tensor_outer_dim, cg_outputs.front(), t1);
   testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
 
@@ -1457,6 +1462,7 @@ TEST_P(TmaCircularBufferingTest, Matmul) {
   fe.compileFusion(fusion.get(), {t0, t1});
 
   std::vector<at::Tensor> cg_outputs = fe.runFusion({t0, t1});
+  compare<float>(tensor_outer_dim, tensor_inner_dim, cg_outputs.front(), aten_output);
   testValidate(
       fusion.get(), cg_outputs, {t0, t1}, {aten_output}, __LINE__, __FILE__);
 }
