@@ -307,7 +307,7 @@ kir::Kernel* GpuLower::run() {
   // Reorder expressions for loop-nest generation respecting computeAt
   // relationships
   auto exprs_lowered = reorderExprsForComputeAt();
-  dumpExprsIfEnabled(exprs_lowered, "reorderExprsForComputeAt");
+  dumpExprsIfEnabled(exprs_lowered, "reorderExprsForComputeAt", true);
 
   commonScalarMap().initialize(exprs_lowered);
 
@@ -320,7 +320,13 @@ kir::Kernel* GpuLower::run() {
 
   for (auto [name, pass] : passes()) {
     exprs_lowered = pass(exprs_lowered);
-    dumpExprsIfEnabled(exprs_lowered, name);
+    bool force_dump = false;
+    if (name == "LoopNestGenerator" || name == "IndexLowering" ||
+        name == "lowerToInlinePtx") {
+      std::cout << "yay " << std::endl;
+      force_dump = true;
+    }
+    dumpExprsIfEnabled(exprs_lowered, name, force_dump);
   }
 
   // We now have the lowered expressions, finalize the kernel IR. This function

@@ -2532,7 +2532,7 @@ TEST_F(StMatrixTest, Regular) {
   fusion.addOutput(tv4);
 
   tv2->applyMmaSwizzle(operand);
-  tv3->applyMmaSwizzle(operand);
+  // tv3->applyMmaSwizzle(operand);
 
   // tv3->merge(0);
   // tv3->merge(0);
