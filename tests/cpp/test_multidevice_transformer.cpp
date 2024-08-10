@@ -548,6 +548,112 @@ TEST_P(DistributedTransformerTest, MLP_Backward) {
   validate(expected_outputs, outputs);
 }
 
+TEST_P(DistributedTransformerTest, Forward) {
+  auto dtype = GetParam();
+  at::ScalarType at_dtype = data_type_to_aten(dtype);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  const auto mesh = DeviceMesh::createForNumDevices(D);
+
+  TensorView* x = makeContigConcreteTensor({B * S, E}, DataType::Float);
+  TensorView* mha_w0 = makeContigConcreteTensor({D, E, 3 * E / D}, dtype);
+  TensorView* mha_b0 = makeContigConcreteTensor({D, 3 * E / D}, dtype);
+  TensorView* mha_w1 = makeContigConcreteTensor({D, E / D, E}, dtype);
+  TensorView* mha_b1 = makeContigConcreteTensor({E}, dtype);
+  TensorView* mlp_w0 = makeContigTensor(3, dtype);
+  TensorView* mlp_b0 = makeContigTensor(2, dtype);
+  TensorView* mlp_w1 = makeContigTensor(3, dtype);
+  TensorView* mlp_b1 = makeContigTensor(1, dtype);
+
+  fusion->addInput(x);
+  fusion->addInput(mha_w0);
+  fusion->addInput(mha_b0);
+  fusion->addInput(mha_w1);
+  fusion->addInput(mha_b1);
+  fusion->addInput(mlp_w0);
+  fusion->addInput(mlp_b0);
+  fusion->addInput(mlp_w1);
+  fusion->addInput(mlp_b1);
+
+  constexpr float kEps = 1e-5;
+  auto eps = IrBuilder::create<Val>(kEps);
+  std::vector<int64_t> norm_shape{E};
+
+  auto ln_1 =
+      layer_norm(x, norm_shape, /*weight=*/nullptr, /*bias=*/nullptr, eps);
+  auto mha_in = castOp(dtype, ln_1.output);
+  auto mha_out = mha(mha_in, mha_w0, mha_b0, mha_w1, mha_b1, mesh, dtype)[3];
+  auto resid_1 = add(x, mha_out);
+  auto ln_2 = layer_norm(
+      resid_1, norm_shape, /*weight=*/nullptr, /*bias=*/nullptr, eps);
+  auto mlp_in = castOp(dtype, ln_2.output);
+  auto mlp_out = mlp(mlp_in, mlp_w0, mlp_b0, mlp_w1, mlp_b1, mesh, dtype)[3];
+  auto resid_2 = add(mha_out, mlp_out);
+
+  fusion->addOutput(ln_1.output);
+  fusion->addOutput(mha_out);
+  fusion->addOutput(ln_2.output);
+  fusion->addOutput(mlp_out);
+  fusion->addOutput(resid_2);
+
+  for (auto tv : {x, ln_1.output, ln_2.output, resid_2}) {
+    tv->setDeviceMesh(mesh);
+  }
+
+  const auto options =
+      at::TensorOptions().dtype(at_dtype).device(communicator_->device());
+  auto x_ = at::randn({B * S, E}, options).to(at::kFloat);
+  auto mha_w0_ = at::randn({E, 3 * E}, options) * kParamScale;
+  auto mha_b0_ = at::randn({3 * E}, options) * kParamScale;
+  auto mha_w1_ = at::randn({E, E}, options) * kParamScale;
+  auto mha_b1_ = at::randn({E}, options) * kParamScale;
+
+  auto mlp_w0_ = at::randn({E, 4 * E}, options) * kParamScale;
+  auto mlp_b0_ = at::randn({4 * E}, options) * kParamScale;
+  auto mlp_w1_ = at::randn({4 * E, E}, options) * kParamScale;
+  auto mlp_b1_ = at::randn({E}, options) * kParamScale;
+
+  at::manual_seed(getATenRandomSeed());
+  auto ln_1_ = at::native_layer_norm(
+      x_, norm_shape, /*weight=*/std::nullopt, /*bias=*/std::nullopt, kEps);
+  auto ln_1_out_ = std::get<0>(ln_1_).to(at_dtype);
+
+  auto mha_out_ =
+      reference_mha(ln_1_out_, mha_w0_, mha_b0_, mha_w1_, mha_b1_, at_dtype)[3];
+  auto resid1_ = mha_out_ + x_;
+  auto ln_2_ = at::native_layer_norm(
+      resid1_,
+      norm_shape,
+      /*weight=*/std::nullopt,
+      /*bias=*/std::nullopt,
+      kEps);
+  auto ln_2_out_ = std::get<0>(ln_2_).to(at_dtype);
+
+  auto mlp_out_ =
+      reference_mlp(ln_2_out_, mlp_w0_, mlp_b0_, mlp_w1_, mlp_b1_, at_dtype)[3];
+  auto at_out = mha_out_ + mlp_out_;
+
+  std::vector<c10::IValue> inputs = {
+      x_,
+      shardTensor(mha_w0_.view({E, 3, E}), 2, mesh).view({1, E, 3 * E / D}),
+      shardTensor(mha_b0_.view({3, E}), 1, mesh).view({1, 3 * E / D}),
+      shardTensor(mha_w1_, 0, mesh),
+      mha_b1_,
+      shardTensor(mlp_w0_, 1, mesh),
+      shardTensor(mlp_b0_, 0, mesh),
+      shardTensor(mlp_w1_, 0, mesh),
+      mlp_b1_};
+
+  std::vector<at::Tensor> expected_outputs = {
+      ln_1_out_, mha_out_, ln_2_out_, mlp_out_, at_out};
+
+  MultiDeviceExecutor runtime(
+      std::move(fusion), *communicator_, executor_params_);
+  at::manual_seed(getATenRandomSeed());
+  auto outputs = runtime.runWithInput(inputs);
+  validate(expected_outputs, outputs);
+}
+
 INSTANTIATE_TEST_SUITE_P(
     ,
     DistributedTransformerTest,
