@@ -51,7 +51,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
     cloner.duplicate();
     return cloner.cloned_top_level_loop_;
   }
-  virtual ~CircularBufferLoopCloner() = default;
+  ~CircularBufferLoopCloner() override = default;
 
  protected:
   CircularBufferLoopCloner(
@@ -136,12 +136,21 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
         ? cloned_top_level_loop_
         : IrBuilder::create<ForLoop>(fl);
 
+    // Add to stack
+    for_loop_id_stack_.push_back(fl->iter_domain());
     cloned_scopes_.push_back(&cloned_loop->body());
 
+    // Process for-loop
     kir::IrVisitor::handle(fl);
 
+    // Pop from stack
     cloned_scopes_.pop_back();
 
+    processForLoop(cloned_loop);
+  }
+
+  // Specific for-loop handling
+  virtual void processForLoop(ForLoop* cloned_loop) {
     // Add the cloned loop into the parent loop body only when the
     // cloned loop contains expressions.
     if (!cloned_loop->body().empty() && !cloned_scopes_.empty()) {
@@ -154,7 +163,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
   }
 
   void dispatch(Expr* expr) override {
-    // skip expression if it is in exclude set
+    // Skip expression if it is in exclude set
     if (exclude_.count(expr) > 0) {
       return;
     }
@@ -167,6 +176,11 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
 
     NVF_ERROR(!cloned_scopes_.empty());
 
+    processExpr(expr);
+  }
+
+  // Specific expression handling
+  virtual void processExpr(Expr* expr) {
     switch (loop_type_) {
       case CircularBufferLoopStage::Prolog: {
         // In Prologue, only copy the load expressions.
@@ -205,6 +219,9 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
   ForLoop* cloned_top_level_loop_ = nullptr;
   std::deque<Scope*> cloned_scopes_;
   const std::unordered_set<Expr*>& exclude_;
+
+  // Track iterDomain associated with each for-loop
+  std::vector<IterDomain*> for_loop_id_stack_;
 };
 
 // TODO Replace with elect_sync ptx
@@ -337,22 +354,7 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
             loop_type,
             exclude) {}
 
-  void handle(ForLoop* fl) final {
-    ForLoop* cloned_loop = fl == circular_buffer_loop_
-        ? cloned_top_level_loop_
-        : IrBuilder::create<ForLoop>(fl);
-
-    // Add to stack
-    for_loop_id_stack_.push_back(fl->iter_domain());
-    cloned_scopes_.push_back(&cloned_loop->body());
-
-    // Process for-loop
-    kir::IrVisitor::handle(fl);
-
-    // Pop from stack
-    for_loop_id_stack_.pop_back();
-    cloned_scopes_.pop_back();
-
+  void processForLoop(ForLoop* cloned_loop) final {
     // Skip if there is not an active for-loop structure
     if (cloned_scopes_.empty()) {
       return;
@@ -378,20 +380,7 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
     }
   }
 
-  void dispatch(Expr* expr) final {
-    // skip expression if it is in exclude set
-    if (exclude_.count(expr) > 0) {
-      return;
-    }
-
-    // Handle ForLoop and IfThenElse expr separately
-    if (expr->isA<ForLoop>() || expr->isA<kir::IfThenElse>()) {
-      kir::IrVisitor::dispatch(expr);
-      return;
-    }
-
-    NVF_ERROR(!cloned_scopes_.empty());
-
+  void processExpr(Expr* expr) final {
     bool mbarrier_token_exists =
         GpuLower::current()->ldstMBarrierTokenMap().count(expr) != 0;
 
@@ -771,9 +760,6 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
   }
 
  private:
-  // Track iterDomain associated with each for-loop
-  std::vector<IterDomain*> for_loop_id_stack_;
-
   // Mbarrier_Wait to add to cloned_top_level_loop
   kir::MBarrierWait* mbarrier_wait_ = nullptr;
 
@@ -796,7 +782,7 @@ class GatherMBarrierAllocations : public kir::IrVisitor {
   }
 
  private:
-  GatherMBarrierAllocations() {}
+  GatherMBarrierAllocations() = default;
 
   using kir::IrVisitor::handle;
 
@@ -1143,7 +1129,7 @@ class CircularBufferInserter : private kir::ExprMutator {
     }
 
     kir::IfThenElse* pre_prologue_init = createCpAsyncBulkFixtures(
-        circular_buffer_loop, loads, /*is_pre_prologue=*/true);
+        circular_buffer_loop, loads, /*is_pre_prologue_stage=*/true);
     NVF_ERROR(pre_prologue_init != nullptr);
     registerInsertBefore(circular_buffer_loop, pre_prologue_init);
 
@@ -1183,7 +1169,7 @@ class CircularBufferInserter : private kir::ExprMutator {
     //  - if selected_thread:
     //  - Invalidated mbarrier for all stages
     kir::IfThenElse* post_epilogue_inval = createCpAsyncBulkFixtures(
-        circular_buffer_loop, loads, /*is_pre_prologue=*/false);
+        circular_buffer_loop, loads, /*is_pre_prologue_stage=*/false);
     NVF_ERROR(post_epilogue_inval != nullptr);
     registerInsertAfter(epilogue_loop, post_epilogue_inval);
   }
