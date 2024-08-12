@@ -6,6 +6,7 @@
  */
 // clang-format on
 
+#include <ir/iostream.h>
 #include <multidevice/communicator.h>
 #include <ops/all_ops.h>
 #include <tests/cpp/multidevice.h>
@@ -200,13 +201,13 @@ TEST_F(MultiDeviceTutorial, DeviceMeshesNoResharding) {
   tv0->setDeviceMesh(mesh_zero);
   // means that tv0 is only present on device "0".
   if (verbose_print) {
-    std::cout << tv0->toString() << std::endl;
+    std::cout << tv0 << std::endl;
   }
   // Alternatively:
   tv0->setDeviceMesh(mesh_full);
   // means that tv0 is replicated on all the devices.
   if (verbose_print) {
-    std::cout << tv0->toString() << std::endl;
+    std::cout << tv0 << std::endl;
   }
 
   // Let us exercise this notion by examining two simple situations where we set
@@ -222,11 +223,11 @@ TEST_F(MultiDeviceTutorial, DeviceMeshesNoResharding) {
 
   // RUNTIME
   // Set up the input
-  constexpr int64_t tensor_size = 128;
+  constexpr int64_t kTensorSize = 128;
   const c10::TensorOptions tensor_options =
       at::TensorOptions().device(communicator_->device()).dtype(at::kFloat);
   // each rank allocate a tensor a on different device
-  at::Tensor input = at::randn({tensor_size}, tensor_options);
+  at::Tensor input = at::randn({kTensorSize}, tensor_options);
   {
     // EXECUTION
     // This class is responsible for managing a single device (given by
@@ -282,8 +283,8 @@ TEST_F(MultiDeviceTutorial, SimplePipelining) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  constexpr int64_t tensor_size = 128;
-  TensorView* tv0 = makeContigConcreteTensor({tensor_size});
+  constexpr int64_t kTensorSize = 128;
+  TensorView* tv0 = makeContigConcreteTensor({kTensorSize});
   fusion->addInput(tv0);
   TensorView* tv1 = add(tv0, tv0);
   // this will be the separation between our two pipeline stages.
@@ -359,7 +360,7 @@ TEST_F(MultiDeviceTutorial, SimplePipelining) {
   const c10::TensorOptions tensor_options =
       at::TensorOptions().device(communicator_->device()).dtype(at::kFloat);
   // each rank allocates a tensor on a different device
-  at::Tensor input = at::ones({tensor_size}, tensor_options);
+  at::Tensor input = at::ones({kTensorSize}, tensor_options);
   at::Tensor output = multidevice_executor.runWithInput({input}).at(0);
 
   // VALIDATION
@@ -409,13 +410,9 @@ TEST_F(MultiDeviceTutorial, TensorShardingAndResharding) {
 
   // MULTIDEVICE SCHEDULING
   // Let us define, as in previous tests, a 1D Device Mesh comprised of all
-  // available device IDs
-  std::vector<int64_t> all_devices(communicator_->size());
-  std::iota(
-      all_devices.begin(),
-      all_devices.end(),
-      0); // all_devices = [0,1,..., communicator_->size()-1]
-  DeviceMesh mesh_full(all_devices);
+  // available device IDs, i.e., [0,1,..., communicator_->size()-1]
+  auto mesh_full = DeviceMesh::createForNumDevices(communicator_->size());
+  ;
   // Let us set tv0 and tv1's mesh:
   tv0->setDeviceMesh(mesh_full);
   tv1->setDeviceMesh(mesh_full);
@@ -435,8 +432,8 @@ TEST_F(MultiDeviceTutorial, TensorShardingAndResharding) {
   // [communicator_->size(), ?]
   const bool verbose_print = verbose_ && communicator_->deviceId() == 0;
   if (verbose_print) {
-    std::cout << "tv0: " << tv0->toString() << std::endl;
-    std::cout << "tv1: " << tv1->toString() << std::endl;
+    std::cout << "tv0: " << tv0 << std::endl;
+    std::cout << "tv1: " << tv1 << std::endl;
   }
   // However, the outermost axis with extent `communicator_->size()`is not
   // materialized on one device, but accross devices, therefore, each device
@@ -445,13 +442,13 @@ TEST_F(MultiDeviceTutorial, TensorShardingAndResharding) {
 
   // RUNTIME
   // Set up the input
-  constexpr int64_t tensor_size = 128;
-  const c10::TensorOptions tensor_options =
+  constexpr int64_t kTensorSize = 128;
+  const auto tensor_options =
       at::TensorOptions().device(communicator_->device()).dtype(at::kFloat);
   // each rank allocate a tensor a on different device.
   // Note here that the outermost axis needs to have extent 1 because
   // tv0->axis(0) is sharded
-  at::Tensor input = at::randn({1, tensor_size}, tensor_options);
+  at::Tensor input = at::randn({1, kTensorSize}, tensor_options);
   {
     // EXECUTION
     // Note that each device only copies a slice of the tv0 to a slice of tv1
@@ -600,7 +597,7 @@ TEST_F(MultiDeviceTutorial, TensorShardingAndResharding) {
 
     // Note here that, contrarily to what we saw before, the first axis extent
     // must not be "1" but must equal the number of devices.
-    input = at::randn({communicator_->size(), tensor_size}, tensor_options);
+    input = at::randn({communicator_->size(), kTensorSize}, tensor_options);
 
     at::Tensor output = multidevice_executor.runWithInput({input}).at(0);
 
