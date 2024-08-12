@@ -618,34 +618,62 @@ TEST_F(MultiDeviceTutorial, TensorShardingAndResharding) {
   }
 }
 
-// We have seen how to multidevice-schedule a Fusion by setting tensors' sharding, i.e., setting device mesh and setting axis parallel type to DIDx.
+// We have seen how to multidevice-schedule a Fusion by setting tensors'
+// sharding, i.e., setting device mesh and setting axis parallel type to DIDx.
 
-// At the time where this comment is written, we only support 1D tensor sharding, i.e., we have not introduced yet multidimensional meshes and other parallel types such as DIDy and DIDz. This will be done in the future. Let us poit out by the way that 1D multidevice parallelism already covers interesting real-world scenarios, such as Transformer with Tensor Parallel, see `tests/cpp/test_multidevice_transformer.cpp`.
+// At the time where this comment is written, we only support 1D tensor
+// sharding, i.e., we have not introduced yet multidimensional meshes and other
+// parallel types such as DIDy and DIDz. This will be done in the future. Let us
+// poit out by the way that 1D multidevice parallelism already covers
+// interesting real-world scenarios, such as Transformer with Tensor Parallel,
+// see `tests/cpp/test_multidevice_transformer.cpp`.
 
-// Let us now explore lower than the mere multidevice scheduling API and introduce the host IR. In classical single-device nvFuser, the "host program" could be summarized as launching one or a couple of CUDA Kernels. When dealing with multiple devices, the host plays a more proeminent role because it needs to orchestrate and synchronize compute Kernels and Communications (which are necessarily CPU-initiated when using NCCL or UCC). Other examples, not necessarily tied to multidevice setting, rely on complex host orchestration, such as multi streaming, kernel pipelining, overlap technics, using CUDA Graphs, etc.
+// Let us now explore lower than the mere multidevice scheduling API and
+// introduce the host IR. In classical single-device nvFuser, the "host program"
+// could be summarized as launching one or a couple of CUDA Kernels. When
+// dealing with multiple devices, the host plays a more proeminent role because
+// it needs to orchestrate and synchronize compute Kernels and Communications
+// (which are necessarily CPU-initiated when using NCCL or UCC). Other examples,
+// not necessarily tied to multidevice setting, rely on complex host
+// orchestration, such as multi streaming, kernel pipelining, overlap technics,
+// using CUDA Graphs, etc.
 
-// These examples suggest that Fuser should be able to reason about the interplay between host and device execution. This motivates the introduction of "host IRs" to represent the host program, in an abstract/symbolic way, allowing us reason about the host program, apply optimizations passes, and possibly compile it (in the future).
-
-// The host program is typically generated automatically during lowering. This is what is done at the instantiation of MultiDeviceExecutor, and what gets printed by `MultiDeviceExecutor::print()`. However, the Host Ir API has been designed to allow a fully manual host programmation. This is what we are going to introduce in the following tests.
+// These examples suggest that Fuser should be able to reason about the
+// interplay between host and device execution. This motivates the introduction
+// of "host IRs" to represent the host program, in an abstract/symbolic way,
+// allowing us reason about the host program, apply optimizations passes, and
+// possibly compile it (in the future).
 
 // The HostIr component is comprised of three parts:
 // - Host IRs: each IR represents an elementary host operation
 // - HostIrContainer: represents the host program
 // - HostIrExecutor: executes a HostIrContainer
-// In the first test, we will show how to express through host IRs a simple host program consisting of simply launching a fusion.
+
+// The host program is typically generated automatically during lowering. This
+// is what is done at the instantiation of MultiDeviceExecutor, and what gets
+// printed by `MultiDeviceExecutor::print()`. However, the Host Ir API has been
+// designed to allow a fully manual host programmation. This is what we are
+// going to introduce in the following tests.
+
+// In the first test, we will show how to express through host IRs a simple host
+// program consisting of simply launching a fusion.
 namespace {
 
-// Let us consider an arbitrary fusion. We assume for simplicity (but without loss of generality) that the fusion has one input and one output which are both a 2D tensor.
+// Let us consider an arbitrary fusion. We assume for simplicity (but without
+// loss of generality) that the fusion has one input and one output which are
+// both a 2D tensor.
 
 constexpr int64_t nDims = 2;
 
-std::unique_ptr<Fusion> CreateArbitraryFusion () {
+std::unique_ptr<Fusion> CreateArbitraryFusion() {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   auto tv0 = makeSymbolicTensor(nDims);
   fusion->addInput(tv0);
   auto tv1 = mul(tv0, IrBuilder::create<Val>(2.));
-  tv1->setMemoryType(MemoryType::Global); // to avoid an error of the type "Allocations must be based on constant integers for local memory"
+  tv1->setMemoryType(
+      MemoryType::Global); // to avoid an error of the type "Allocations must be
+                           // based on constant integers for local memory"
   auto tv2 = add(tv1, IrBuilder::create<Val>(1.));
   fusion->addOutput(tv2);
   return fusion;
@@ -655,35 +683,44 @@ std::unique_ptr<Fusion> CreateArbitraryFusion () {
 
 namespace hir { // HostIr has its own namespace "hir"
 
-//  Let us start with the simplest non-trivial host program possible: compiling and running a single Fusion. It is a good starting point to understand the Host Ir semantics. The host program could be illustrated as follows:
+//  Let us start with the simplest non-trivial host program possible: compiling
+//  and running a single Fusion. It is a good starting point to understand the
+//  Host Ir semantics. The host program could be illustrated as follows:
 /*
   | tv0: input
   | tv1 = Fusion0 (tv0)
   | tv1: output
 */
 TEST_F(MultiDeviceTutorial, HostIrLaunchingFusion) {
-  // Instantiate an HostIrContainer. This container is used to 1) register the Host IRs, and 2) represent the Host program through its `std::vector<Expr*> top_level_exprs_`.
+  // Instantiate an HostIrContainer. This container is used to 1) register the
+  // Host IRs, and 2) represent the Host program through its `std::vector<Expr*>
+  // top_level_exprs_`.
   auto hic = std::make_unique<HostIrContainer>();
   FusionGuard fg(hic.get());
 
-  // The first Host IR we introduce is called `HostUnit`. It is used to represent a fusion definition at the host IR level.
+  // The first Host IR we introduce is called `HostUnit`. It is used to
+  // represent a fusion definition at the host IR level.
   auto host_unit = IrBuilder::create<HostUnit>(CreateArbitraryFusion());
 
-  // We then create an IR `PostOnStream` which represents compiling+executing the fusion with some I/O.
+  // We then create an IR `PostOnStream` which represents compiling+executing
+  // the fusion with some I/O.
   auto input = makeSymbolicTensor(nDims);
   auto output = makeSymbolicTensor(nDims);
-  auto post_fusion = IrBuilder::create<PostOnStream>(host_unit, std::vector<Val*>({input}), std::vector<Val*>({output}));
+  auto post_fusion = IrBuilder::create<PostOnStream>(
+      host_unit, std::vector<Val*>({input}), std::vector<Val*>({output}));
 
   // Let us add "post_fusion" to the host program
   hic->pushBackTopLevelExprs(post_fusion);
 
-  // Define the Host program's global I/O. (This step could potentially be automated in the future, at least partially)
+  // Define the Host program's global I/O. (This step could potentially be
+  // automated out in the future, at least partially)
   hic->addInput(input);
   hic->addOutput(output);
 
   if (verbose_ && communicator_->deviceId() == 0) {
     hic->print(debug());
     // We reproduce, for convenience, what gets printed:
+    // clang-format off
     /*
     %HostIrContainer { (T0_g[ iS0{i0}, iS1{i2} ]) -> (T1_g[ iS2{i3}, iS3{i4} ]) :
       PostOnStream (HostUnit0, Inputs:{T0_g[ iS0{i0}, iS1{i2} ], }, Outputs:{T1_g[ iS2{i3}, iS3{i4} ], })
@@ -691,18 +728,21 @@ TEST_F(MultiDeviceTutorial, HostIrLaunchingFusion) {
     HostUnit0: [...]
     } // %HostIrContainer
     */
-  //  the "[...]" contains the result of Fusion::printMath(), which we omit here.
+    //  clang-format on
+    //  the "[...]" contains the result of Fusion::printMath(), which we omit
+    //  here.
   }
 
-  // define concrete inputs
-  at::Tensor aten_input = at::randn({16,32}, at::TensorOptions().device(communicator_->device()));
+  // define a concrete input
+  at::Tensor aten_input =
+      at::randn({16, 32}, at::TensorOptions().device(communicator_->device()));
 
   // Let us now execute the Host program.
   HostIrExecutor hie(std::move(hic));
   auto outputs = hie.runWithInput({{input, aten_input}});
 
   // validate the result
-  GTEST_EXPECT_TRUE(torch::allclose(2*aten_input + 1, outputs.at(0)));
+  GTEST_EXPECT_TRUE(torch::allclose(2 * aten_input + 1, outputs.at(0)));
 }
 
 } // namespace hir
