@@ -95,19 +95,19 @@ class Communication : public Expr {
   }
 
   const Team& team() const {
-    return attribute<Team>(2);
+    return attribute<Team>(1);
   }
 
   DeviceIdxType root() const {
-    return attribute<DeviceIdxType>(3);
+    return attribute<DeviceIdxType>(2);
   }
 
   RedOpType reduceOp() const {
-    return attribute<RedOpType>(4);
+    return attribute<RedOpType>(3);
   }
 
   int64_t scatteredAxis() const {
-    return attribute<int64_t>(5);
+    return attribute<int64_t>(4);
   }
 
   // PyTorch's process group expects the root to be specified
