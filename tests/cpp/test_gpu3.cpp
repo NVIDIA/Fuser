@@ -8171,68 +8171,120 @@ TEST_F(NVFuserTest, BroadcastFromNowhere) {
   };
 
   std::unordered_set<IterDomain*> all_ids;
-  auto tv0 = makeSymbolicTensor(1);
+  auto tv0 = makeSymbolicTensor(1); // [I]
   all_ids.insert(tv0->axis(0));
   EXPECT_EQ(all_ids, us(tv0->getLoopDomain()));
   EXPECT_EQ(all_ids, us(tv0->domain()->allIDs()));
   ir_utils::validateDomainEquivalence(
-      tv0->getLoopDomain(), tv0->getLogicalDomain());
+      tv0->getLoopDomain(),
+      tv0->getLogicalDomain(),
+      tv0->domain()->additionalIDs());
+  ir_utils::validateDomainEquivalence(
+      tv0->getLogicalDomain(),
+      tv0->getLoopDomain(),
+      tv0->domain()->additionalIDs());
 
-  tv0->broadcast(0);
+  tv0->broadcast(0); // [b, I]
   EXPECT_TRUE(tv0->axis(0)->isBroadcast());
+  EXPECT_EQ(tv0->axis(0)->extent()->value(), 1);
   EXPECT_EQ(all_ids.count(tv0->axis(0)), 0);
   all_ids.insert(tv0->axis(0));
   EXPECT_EQ(all_ids, us(tv0->getLoopDomain()));
   EXPECT_EQ(all_ids, us(tv0->domain()->allIDs()));
   ir_utils::validateDomainEquivalence(
-      tv0->getLoopDomain(), tv0->getLogicalDomain());
+      tv0->getLoopDomain(),
+      tv0->getLogicalDomain(),
+      tv0->domain()->additionalIDs());
+  ir_utils::validateDomainEquivalence(
+      tv0->getLogicalDomain(),
+      tv0->getLoopDomain(),
+      tv0->domain()->additionalIDs());
 
-  tv0->broadcast(2);
+  tv0->broadcast(2, 2); // [b, I, b]
   EXPECT_TRUE(tv0->axis(2)->isBroadcast());
+  EXPECT_EQ(tv0->axis(2)->extent()->value(), 2);
   EXPECT_EQ(all_ids.count(tv0->axis(2)), 0);
   all_ids.insert(tv0->axis(2));
   EXPECT_EQ(all_ids, us(tv0->getLoopDomain()));
   EXPECT_EQ(all_ids, us(tv0->domain()->allIDs()));
   ir_utils::validateDomainEquivalence(
-      tv0->getLoopDomain(), tv0->getLogicalDomain());
+      tv0->getLoopDomain(),
+      tv0->getLogicalDomain(),
+      tv0->domain()->additionalIDs());
+  ir_utils::validateDomainEquivalence(
+      tv0->getLogicalDomain(),
+      tv0->getLoopDomain(),
+      tv0->domain()->additionalIDs());
 
-  tv0->broadcast(-1);
-  EXPECT_TRUE(tv0->axis(3)->isBroadcast());
+  tv0->broadcast(-1, 3); // [b, I, b, b]
+  EXPECT_TRUE(tv0->axis(-1)->isBroadcast());
+  EXPECT_EQ(tv0->axis(-1)->extent()->value(), 3);
   EXPECT_EQ(all_ids.count(tv0->axis(3)), 0);
   all_ids.insert(tv0->axis(3));
   EXPECT_EQ(all_ids, us(tv0->getLoopDomain()));
   EXPECT_EQ(all_ids, us(tv0->domain()->allIDs()));
   ir_utils::validateDomainEquivalence(
-      tv0->getLoopDomain(), tv0->getLogicalDomain());
+      tv0->getLoopDomain(),
+      tv0->getLogicalDomain(),
+      tv0->domain()->additionalIDs());
+  ir_utils::validateDomainEquivalence(
+      tv0->getLogicalDomain(),
+      tv0->getLoopDomain(),
+      tv0->domain()->additionalIDs());
 
-  tv0->broadcast(1);
+  tv0->broadcast(1, 4); // [b, b, I, b, b]
   EXPECT_TRUE(tv0->axis(1)->isBroadcast());
+  EXPECT_EQ(tv0->axis(1)->extent()->value(), 4);
   EXPECT_EQ(all_ids.count(tv0->axis(1)), 0);
   all_ids.insert(tv0->axis(1));
   EXPECT_EQ(all_ids, us(tv0->getLoopDomain()));
   EXPECT_EQ(all_ids, us(tv0->domain()->allIDs()));
   ir_utils::validateDomainEquivalence(
-      tv0->getLoopDomain(), tv0->getLogicalDomain());
+      tv0->getLoopDomain(),
+      tv0->getLogicalDomain(),
+      tv0->domain()->additionalIDs());
+  ir_utils::validateDomainEquivalence(
+      tv0->getLogicalDomain(),
+      tv0->getLoopDomain(),
+      tv0->domain()->additionalIDs());
 
-  tv0->merge(1);
+  tv0->merge(1); // [b, b*I, b, b]
   all_ids.insert(tv0->axis(1));
   EXPECT_EQ(all_ids, us(tv0->domain()->allIDs()));
   ir_utils::validateDomainEquivalence(
-      tv0->getLoopDomain(), tv0->getLogicalDomain());
+      tv0->getLoopDomain(),
+      tv0->getLogicalDomain(),
+      tv0->domain()->additionalIDs());
+  ir_utils::validateDomainEquivalence(
+      tv0->getLogicalDomain(),
+      tv0->getLoopDomain(),
+      tv0->domain()->additionalIDs());
 
-  tv0->merge(2);
+  tv0->merge(2); // [b, b*I, b*b]
   EXPECT_TRUE(tv0->axis(2)->isBroadcast());
   all_ids.insert(tv0->axis(2));
   EXPECT_EQ(all_ids, us(tv0->domain()->allIDs()));
   ir_utils::validateDomainEquivalence(
-      tv0->getLoopDomain(), tv0->getLogicalDomain());
+      tv0->getLoopDomain(),
+      tv0->getLogicalDomain(),
+      tv0->domain()->additionalIDs());
+  ir_utils::validateDomainEquivalence(
+      tv0->getLogicalDomain(),
+      tv0->getLoopDomain(),
+      tv0->domain()->additionalIDs());
 
   while (tv0->nDims() > 1) {
     tv0->merge(0);
     all_ids.insert(tv0->axis(0));
     EXPECT_EQ(all_ids, us(tv0->domain()->allIDs()));
     ir_utils::validateDomainEquivalence(
-        tv0->getLoopDomain(), tv0->getLogicalDomain());
+        tv0->getLoopDomain(),
+        tv0->getLogicalDomain(),
+        tv0->domain()->additionalIDs());
+    ir_utils::validateDomainEquivalence(
+        tv0->getLogicalDomain(),
+        tv0->getLoopDomain(),
+        tv0->domain()->additionalIDs());
   }
 
   auto tv1 = makeSymbolicTensor(0);
@@ -8240,26 +8292,50 @@ TEST_F(NVFuserTest, BroadcastFromNowhere) {
   EXPECT_TRUE(tv1->getLoopDomain().empty());
   EXPECT_TRUE(tv1->domain()->allIDs().empty());
   ir_utils::validateDomainEquivalence(
-      tv1->getLoopDomain(), tv1->getLogicalDomain());
+      tv1->getLoopDomain(),
+      tv1->getLogicalDomain(),
+      tv1->domain()->additionalIDs());
+  ir_utils::validateDomainEquivalence(
+      tv1->getLogicalDomain(),
+      tv1->getLoopDomain(),
+      tv1->domain()->additionalIDs());
 
   tv1->broadcast(0);
   EXPECT_TRUE(tv1->axis(0)->isBroadcast());
   EXPECT_EQ(us({tv1->axis(0)}), us(tv1->domain()->allIDs()));
   ir_utils::validateDomainEquivalence(
-      tv1->getLoopDomain(), tv1->getLogicalDomain());
+      tv1->getLoopDomain(),
+      tv1->getLogicalDomain(),
+      tv1->domain()->additionalIDs());
+  ir_utils::validateDomainEquivalence(
+      tv1->getLogicalDomain(),
+      tv1->getLoopDomain(),
+      tv1->domain()->additionalIDs());
 
   auto tv2 = makeSymbolicTensor(0);
   EXPECT_EQ(tv2->nDims(), 0);
   EXPECT_TRUE(tv2->getLoopDomain().empty());
   EXPECT_TRUE(tv2->domain()->allIDs().empty());
   ir_utils::validateDomainEquivalence(
-      tv2->getLoopDomain(), tv2->getLogicalDomain());
+      tv2->getLoopDomain(),
+      tv2->getLogicalDomain(),
+      tv2->domain()->additionalIDs());
+  ir_utils::validateDomainEquivalence(
+      tv2->getLogicalDomain(),
+      tv2->getLoopDomain(),
+      tv2->domain()->additionalIDs());
 
   tv2->broadcast(-1);
   EXPECT_TRUE(tv2->axis(0)->isBroadcast());
   EXPECT_EQ(us({tv2->axis(0)}), us(tv2->domain()->allIDs()));
   ir_utils::validateDomainEquivalence(
-      tv2->getLoopDomain(), tv2->getLogicalDomain());
+      tv2->getLoopDomain(),
+      tv2->getLogicalDomain(),
+      tv2->domain()->additionalIDs());
+  ir_utils::validateDomainEquivalence(
+      tv2->getLogicalDomain(),
+      tv2->getLoopDomain(),
+      tv2->domain()->additionalIDs());
 }
 
 TEST_F(NVFuserTest, BroadcastFromNowhereFusion) {

@@ -63,9 +63,9 @@ TEST_F(DistributedMatmulTest, MulSum_LayoutTN_NoComms) {
   // MmaLayout::TN A(T), B(N), C(T)
   // A and C are sharded on dimension M
   // Tests local matmul with no communication
-  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  auto mesh = DeviceMesh::createForNumDevices(communicator_->size());
+  auto mesh = DeviceMesh::createForNumDevices(num_devices_);
   int M = 256, N = 64, K = 64;
   int Mo = num_devices_;
   int Mi = M / Mo;
@@ -129,9 +129,9 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutTN_NoComms) {
   // MmaLayout::TN A(T), B(N), C(T)
   // A and C are sharded on dimension M
   // Tests local matmul with no communication
-  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  auto mesh = DeviceMesh::createForNumDevices(communicator_->size());
+  auto mesh = DeviceMesh::createForNumDevices(num_devices_);
 
   int M = 256, N = 64, K = 64;
   int Mo = num_devices_;
@@ -198,9 +198,9 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutTN_Allgather) {
   // MmaLayout::TN matmul A(T), B(N), C(T)
   // A is sharded on dimension M
   // Tests local matmul + allgather
-  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  auto mesh = DeviceMesh::createForNumDevices(communicator_->size());
+  auto mesh = DeviceMesh::createForNumDevices(num_devices_);
 
   int M = 256, N = 64, K = 64;
   int Mo = num_devices_;
@@ -266,7 +266,7 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutNT_AllReduce) {
   // Tests local matmul + allreduce
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  auto mesh = DeviceMesh::createForNumDevices(communicator_->size());
+  auto mesh = DeviceMesh::createForNumDevices(num_devices_);
 
   int M = 128, N = 64, K = 128;
   int Ko = num_devices_, Ki = K / Ko;
@@ -325,7 +325,7 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutNT_ReduceScatter) {
   // Tests local matmul + reduce scatter
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  auto mesh = DeviceMesh::createForNumDevices(communicator_->size());
+  auto mesh = DeviceMesh::createForNumDevices(num_devices_);
 
   int M = 128, N = 64, K = 128;
   int Ko = num_devices_, Ki = K / Ko;
@@ -389,4 +389,52 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutNT_ReduceScatter) {
                                     ->heuristic();
   EXPECT_EQ(heuristic, ScheduleHeuristic::ExprEval);
 }
+
+// Reproduces #2721.
+TEST_F(DistributedMatmulTest, PresegPreservesSharding) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto mesh = DeviceMesh::createForNumDevices(communicator_->size());
+
+  TensorView* x = makeContigTensor(2);
+  TensorView* w = makeContigTensor(3);
+  fusion->addInput(x);
+  fusion->addInput(w);
+
+  TensorView* w_t = transpose(w, 1, 2);
+  TensorView* mm = matmul(x, w_t);
+  TensorView* mm_t = transpose(mm, 1, 2);
+  fusion->addOutput(mm_t);
+
+  for (auto tv : {x}) {
+    tv->setDeviceMesh(mesh);
+  }
+  for (auto tv : {w, w_t, mm, mm_t}) {
+    tv->setDeviceMesh(mesh);
+    tv->axis(0)->parallelize(ParallelType::DIDx);
+  }
+
+  const auto options = at::TensorOptions().device(communicator_->device());
+  auto x_tensor = at::randn({12, 48}, options);
+  auto w_tensor = at::randn({mesh.size(), 36, 48}, options);
+  auto sharded_w_tensor = shardTensor(w_tensor, w);
+
+  MultiDeviceExecutor runtime(
+      std::move(fusion), *communicator_, executor_params_);
+  std::vector<c10::IValue> inputs({x_tensor, sharded_w_tensor});
+  std::vector<at::Tensor> outputs = runtime.runWithInput(inputs);
+
+  at::Tensor expected_mm_t_tensor =
+      atMatmul(x_tensor, w_tensor.view({mesh.size() * 36, 48}), MmaLayout::TN)
+          .transpose(0, 1)
+          .view({mesh.size(), 36, 12});
+  testValidate(
+      runtime.completeFusion(),
+      outputs,
+      inputs,
+      {shardTensor(expected_mm_t_tensor, mm_t)},
+      __LINE__,
+      __FILE__);
+}
+
 } // namespace nvfuser

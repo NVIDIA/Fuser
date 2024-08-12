@@ -113,7 +113,9 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
   // Create a temporary CircularBufferOptions with full circular buffering, for
   // estimating shared memory size.
   MatmulParams::CircularBufferOptions circular_buffer_options{
-      true, true, smem_circular_buffer_stage};
+      /*circular_buffer_smem_write=*/true,
+      /*circular_buffer_smem_read=*/true,
+      smem_circular_buffer_stage};
 
   const auto [smem_a, smem_b, smem_c] =
       computeSharedMemorySizes(gemm_tile, circular_buffer_options, data_types);
@@ -1068,14 +1070,13 @@ AbstractTensor MmaSwizzler::scheduleMmaOutputAllocation(AbstractTensor t) {
     // [WarpGroup128, N3, M2, N2, Ro, R4, R2]
   }
 
-  t[m_pos]->parallelize(ParallelType::TIDx);
+  t.parallelize(m_pos, ParallelType::TIDx);
 
   if (has_reduction) {
     // Set instruction loops for mma reduce
     int64_t pos = -1;
     while (pos > m_pos) {
-      auto id = t[pos--];
-      id->parallelize(ParallelType::Mma);
+      t.parallelize(pos--, ParallelType::Mma);
     }
   }
   return t;
@@ -1810,13 +1811,14 @@ DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
 
   } else if (output->definition()->isA<LinearOp>()) {
     const std::vector<IterDomain*>& out_logical = output->getLogicalDomain();
+    bool k_bcast = A->getLogicalDomain().back()->isBroadcast();
     return matmulOrLinearOpDimRoles(
         permissive_graph,
         out_logical,
         ops::mapLinearOpIterDomains(
-            A->getLogicalDomain(), 0, out_logical.size()),
+            A->getLogicalDomain(), 0, out_logical.size(), k_bcast),
         ops::mapLinearOpIterDomains(
-            B->getLogicalDomain(), 1, out_logical.size()));
+            B->getLogicalDomain(), 1, out_logical.size(), k_bcast));
   }
 
   // The code below handles MmaOp or mul-sum patterns

@@ -860,7 +860,8 @@ int64_t getVectorizationFactor(
         runtime_info.expressionEvaluator().evaluate(inner_size_it->second);
     NVF_ERROR(
         inner_size_opt.hasValue(),
-        "Vectorization heuristic could not evaluate inner most size.");
+        "Vectorization heuristic could not evaluate inner most size: ",
+        inner_size_it->second);
 
     max_vec_size = std::min(
         scheduler_utils::maxVectorizationWidth(inner_size_opt.as<int64_t>()),

@@ -9,6 +9,7 @@
 
 #include <exceptions.h>
 
+#include <device_lower/analysis/circular_buffer.h>
 #include <device_lower/analysis/sync_information.h>
 #include <device_lower/pass/warp_reduce.h>
 #include <fusion.h>
@@ -121,6 +122,9 @@ struct KernelSummary {
 
   //! Plain text description of why min_device_version_ is required
   std::string min_device_version_reason;
+
+  //! Track Circular Buffer TensorViews
+  CircularBufferInfo circular_buffer_info;
 };
 
 class KernelPerformanceProfile {
