@@ -13,8 +13,8 @@
 #include <multidevice/communicator.h>
 #include <tests/cpp/multidevice.h>
 
-#include <ops/utils.h>
 #include <ops/arith.h>
+#include <ops/utils.h>
 
 #include <iostream>
 
@@ -360,8 +360,13 @@ TEST_P(CommunicationTest, ReduceScatter) {
   in->setDeviceMesh(full_mesh_);
   auto* out = sum(ops::newValLike(in, in->dtype())->as<TensorView>(), {0});
   auto communication = IrBuilder::create<Communication>(
-      CommunicationType::ReduceScatter, out, in, all_ranks_, /*root=*/ -1,
-      kReductionOp, /*scattered_axis=*/ 1);
+      CommunicationType::ReduceScatter,
+      out,
+      in,
+      all_ranks_,
+      /*root=*/ -1,
+      kReductionOp,
+      /*scattered_axis=*/ 1);
 
   const int num_devices = communicator_->size();
   const int device_id = communicator_->deviceId();
