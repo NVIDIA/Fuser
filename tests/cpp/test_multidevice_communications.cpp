@@ -14,6 +14,7 @@
 #include <tests/cpp/multidevice.h>
 
 #include <ops/utils.h>
+#include <ops/arith.h>
 
 #include <iostream>
 
@@ -292,7 +293,7 @@ TEST_P(CommunicationTest, Reduce) {
   FusionGuard fg(&container);
   auto* in = makeContigTensor(2);
   in->setDeviceMesh(full_mesh_);
-  auto* out = ops::newValLike(in, in->dtype())->as<TensorView>();
+  auto* out = sum(ops::newValLike(in, in->dtype())->as<TensorView>(), {0});
   auto communication = IrBuilder::create<Communication>(
       CommunicationType::Reduce, out, in, all_ranks_, kRoot, kReductionOp);
 
@@ -326,7 +327,7 @@ TEST_P(CommunicationTest, Allreduce) {
   FusionGuard fg(&container);
   auto* in = makeContigTensor(2);
   in->setDeviceMesh(full_mesh_);
-  auto* out = ops::newValLike(in, in->dtype())->as<TensorView>();
+  auto* out = sum(ops::newValLike(in, in->dtype())->as<TensorView>(), {0});
   auto communication = IrBuilder::create<Communication>(
       CommunicationType::Allreduce, out, in, all_ranks_, -1, kReductionOp);
 
@@ -357,9 +358,9 @@ TEST_P(CommunicationTest, ReduceScatter) {
   FusionGuard fg(&container);
   auto* in = makeContigTensor(2);
   in->setDeviceMesh(full_mesh_);
-  auto* out = ops::newValLike(in, in->dtype())->as<TensorView>();
+  auto* out = sum(ops::newValLike(in, in->dtype())->as<TensorView>(), {0});
   auto communication = IrBuilder::create<Communication>(
-      CommunicationType::Allreduce, out, in, all_ranks_, /*root=*/ -1,
+      CommunicationType::ReduceScatter, out, in, all_ranks_, /*root=*/ -1,
       kReductionOp, /*scattered_axis=*/ 1);
 
   const int num_devices = communicator_->size();
