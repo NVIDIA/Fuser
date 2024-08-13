@@ -188,13 +188,9 @@ TEST_F(MultiDeviceTutorial, DeviceMeshesNoResharding) {
   DeviceMesh mesh_one({1});
   // We can also consider the mesh of device indices "0" "2"
   DeviceMesh mesh_zero_and_two({0, 2});
-  // Or the mesh containing all available devices in the world communicator_
-  std::vector<int64_t> all_devices(communicator_->size());
-  std::iota(
-      all_devices.begin(),
-      all_devices.end(),
-      0); // all_devices = [0,1,..., communicator_->size()-1]
-  DeviceMesh mesh_full(all_devices);
+  // Or the mesh containing all available devices in the world communicator_,
+  // i.e.,[0,1,..., communicator_->size()-1]
+  auto mesh_full = DeviceMesh::createForNumDevices(communicator_->size());
   // However, it is forbidden to define a mesh with duplicates indices:
   EXPECT_ANY_THROW(DeviceMesh mesh_with_duplicates({1, 1}));
 
@@ -415,7 +411,7 @@ TEST_F(MultiDeviceTutorial, TensorShardingAndResharding) {
   // Let us define, as in previous tests, a 1D Device Mesh comprised of all
   // available device IDs, i.e., [0,1,..., communicator_->size()-1]
   auto mesh_full = DeviceMesh::createForNumDevices(communicator_->size());
-  ;
+
   // Let us set tv0 and tv1's mesh:
   tv0->setDeviceMesh(mesh_full);
   tv1->setDeviceMesh(mesh_full);
