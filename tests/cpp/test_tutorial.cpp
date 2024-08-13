@@ -176,10 +176,12 @@ TEST_F(Tutorial, Reduction) {
   FusionGuard fg(&fusion);
 
   // Create a 2D tensor
+  // tv0 [i1, i2]
   TensorView* tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
 
   // Reduce the second dimension
+  // tv1 [i1, r2]
   auto tv1 = sum(tv0, {1});
   fusion.addOutput(tv1);
 

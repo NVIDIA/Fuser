@@ -656,7 +656,7 @@ TEST_F(MultiDeviceTutorial, TensorShardingAndResharding) {
 //  Host Ir semantics. The host program could be illustrated as follows:
 /*
   | tv0: input
-  | tv1 = Fusion0 (tv0)
+  | tv1 = Fusion (tv0)
   | tv1: output
 */
 
@@ -667,19 +667,19 @@ TEST_F(MultiDeviceTutorial, HostIrLaunchingFusion) {
   // loss of generality) that the fusion has one input and one output which are
   // both a 2D tensor.
   constexpr int64_t nDims = 2;
-  auto CreateFusion = [nDims] () -> std::unique_ptr<Fusion> {
+  auto CreateFusion = [nDims]() -> std::unique_ptr<Fusion> {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
-    auto tv0 = makeSymbolicTensor(nDims);
+    TensorView* tv0 = makeSymbolicTensor(nDims);
     fusion->addInput(tv0);
     auto tv1 = mul(tv0, IrBuilder::create<Val>(2.));
     tv1->setMemoryType(
-        MemoryType::Global); // to avoid an error of the type "Allocations must be
-                            // based on constant integers for local memory"
+        MemoryType::Global); // to avoid an error of the type "Allocations must
+                             // be based on constant integers for local memory"
     auto tv2 = add(tv1, IrBuilder::create<Val>(1.));
     fusion->addOutput(tv2);
     return fusion;
-  }
+  };
 
   // Instantiate an HostIrContainer. This container is used to 1) register the
   // Host IRs, and 2) represent the Host program through its `std::vector<Expr*>
@@ -689,14 +689,14 @@ TEST_F(MultiDeviceTutorial, HostIrLaunchingFusion) {
 
   // The first Host IR we introduce is called `HostUnit`. It is used to
   // represent a fusion definition at the host IR level.
-  auto host_unit = IrBuilder::create<HostUnit>(CreateFusion());
+  auto fusion = IrBuilder::create<HostUnit>(CreateFusion());
 
   // We then create an IR `PostOnStream` which represents compiling+executing
   // the fusion with some I/O.
-  auto input = makeSymbolicTensor(nDims);
-  auto output = makeSymbolicTensor(nDims);
+  TensorView* input = makeSymbolicTensor(nDims);
+  TensorView* output = makeSymbolicTensor(nDims);
   auto post_fusion = IrBuilder::create<PostOnStream>(
-      host_unit, std::vector<Val*>({input}), std::vector<Val*>({output}));
+      fusion, std::vector<Val*>({input}), std::vector<Val*>({output}));
 
   // Let us add "post_fusion" to the host program
   hic->pushBackTopLevelExprs(post_fusion);
@@ -732,6 +732,133 @@ TEST_F(MultiDeviceTutorial, HostIrLaunchingFusion) {
 
   // validate the result
   GTEST_EXPECT_TRUE(torch::allclose(2 * aten_input + 1, outputs.at(0)));
+}
+
+
+// Let us now present a case where the host program consists of launching three fusions, with a non-linear dependency between the respective I/O. The host program could be illustrated as follows:
+/*
+  | tv0: input
+  | (tv1, tv2) = Fusion0 (tv0)
+  | tv3 = Fusion1 (tv1)
+  | tv4 = Fusion2 (tv2, tv3)
+  | tv5 = Fusion1 (tv4)
+  | tv5: output
+*/
+
+TEST_F(MultiDeviceTutorial, HostIrLaunchingThreeFusions) {
+  // Let us consider an arbitrary fusion. We assume for simplicity (but without
+  // loss of generality) that the fusion has one input and one output which are
+  // both a 2D tensor.
+  constexpr int64_t nDims = 2;
+  auto CreateFusion0 = [nDims] () -> std::unique_ptr<Fusion> {
+    auto fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
+    TensorView* tv0 = makeSymbolicTensor(nDims);
+    fusion->addInput(tv0);
+    auto tv1 = mul(tv0, IrBuilder::create<Val>(2.));
+    fusion->addOutput(tv1);
+    auto tv2 = add(tv1, IrBuilder::create<Val>(1.));
+    fusion->addOutput(tv2);
+    return fusion;
+  };
+  auto CreateFusion1 = [nDims] () -> std::unique_ptr<Fusion> {
+    auto fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
+    TensorView* tv1 = makeSymbolicTensor(nDims);
+    fusion->addInput(tv1);
+    auto tv3 = add(tv1, IrBuilder::create<Val>(2.));
+    fusion->addOutput(tv3);
+    return fusion;
+  };
+  auto CreateFusion2 = [nDims] () -> std::unique_ptr<Fusion> {
+    auto fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
+    TensorView* tv2 = makeSymbolicTensor(nDims);
+    TensorView* tv3 = makeSymbolicTensor(nDims);
+    fusion->addInput(tv2);
+    fusion->addInput(tv3);
+    auto tv4 = add(tv2, tv3);
+    fusion->addOutput(tv4);
+    return fusion;
+  };
+
+  // Instantiate an HostIrContainer
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  // Create the HostUnit holding the fusions
+  auto fusion0 = IrBuilder::create<HostUnit>(CreateFusion0());
+  auto fusion1 = IrBuilder::create<HostUnit>(CreateFusion1());
+  auto fusion2 = IrBuilder::create<HostUnit>(CreateFusion2());
+
+  // Create TensorViews that are dealt with at the host level
+  TensorView* tv0 = makeSymbolicTensor(nDims);
+  TensorView* tv1 = makeSymbolicTensor(nDims);
+  TensorView* tv2 = makeSymbolicTensor(nDims);
+  TensorView* tv3 = makeSymbolicTensor(nDims);
+  TensorView* tv4 = makeSymbolicTensor(nDims);
+  TensorView* tv5 = makeSymbolicTensor(nDims);
+
+  // Create the IR representing executing the fusion with some I/O
+  auto post_fusion0 = IrBuilder::create<PostOnStream>(
+      fusion0,
+      /*inputs=*/std::vector<Val*>({tv0}),
+      /*outputs=*/std::vector<Val*>({tv1,tv2}));
+  auto post_fusion1 = IrBuilder::create<PostOnStream>(
+      fusion1,
+      /*inputs=*/std::vector<Val*>({tv1}),
+      /*outputs=*/std::vector<Val*>({tv3}));
+  auto post_fusion2 = IrBuilder::create<PostOnStream>(
+      fusion2,
+      /*inputs=*/std::vector<Val*>({tv2,tv3}),
+      /*outputs=*/std::vector<Val*>({tv4}));
+  // Note that the same host unit can be reused multiple times
+  auto post_fusion1_bis = IrBuilder::create<PostOnStream>(
+      fusion1,
+      /*inputs=*/std::vector<Val*>({tv4}),
+      /*outputs=*/std::vector<Val*>({tv5}));
+
+  // Let us create the host program
+  hic->pushBackTopLevelExprs(post_fusion0);
+  hic->pushBackTopLevelExprs(post_fusion1);
+  hic->pushBackTopLevelExprs(post_fusion2);
+  hic->pushBackTopLevelExprs(post_fusion1_bis);
+
+  // Define the Host program's global I/O
+  hic->addInput(tv0);
+  hic->addOutput(tv5);
+
+  if (verbose_ && communicator_->deviceId() == 0) {
+    hic->print(debug());
+    // We reproduce, for convenience, what gets printed:
+    // clang-format off
+    /*
+    %HostIrContainer { (T0_g[ iS0{i0}, iS1{i2} ]) -> (T5_g[ iS10{i11}, iS11{i12} ]) :
+      PostOnStream (HostUnit0, Inputs:{T0_g[ iS0{i0}, iS1{i2} ], }, Outputs:{T1_l[ iS2{i3}, iS3{i4} ], T2_l[ iS4{i5}, iS5{i6} ], })
+      PostOnStream (HostUnit1, Inputs:{T1_l[ iS2{i3}, iS3{i4} ], }, Outputs:{T3_l[ iS6{i7}, iS7{i8} ], })
+      PostOnStream (HostUnit2, Inputs:{T2_l[ iS4{i5}, iS5{i6} ], T3_l[ iS6{i7}, iS7{i8} ], }, Outputs:{T4_l[ iS8{i9}, iS9{i10} ], })
+      PostOnStream (HostUnit1, Inputs:{T4_l[ iS8{i9}, iS9{i10} ], }, Outputs:{T5_g[ iS10{i11}, iS11{i12} ], })
+
+    HostUnit2: [...]
+    HostUnit1: [...]
+    HostUnit0: [...]
+    } // %HostIrContainer
+    */
+    //  clang-format on
+    //  the "[...]" contains the result of Fusion::printMath(), which we omit
+    //  here.
+  }
+
+  // define a concrete input
+  at::Tensor aten_tv0 =
+      at::randn({16, 32}, at::TensorOptions().device(communicator_->device()));
+
+  // Let us now execute the Host program.
+  HostIrExecutor hie(std::move(hic));
+  auto outputs = hie.runWithInput({{tv0, aten_tv0}});
+
+  // validate the result
+  GTEST_EXPECT_TRUE(torch::allclose(4 * aten_tv0 + 5, outputs.at(0)));
 }
 
 } // namespace hir
