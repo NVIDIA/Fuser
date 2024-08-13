@@ -104,6 +104,9 @@ class OverlapTest : public MultiDeviceTest {
     auto cpu_options = at::TensorOptions().dtype(at::kFloat);
     at::TensorOptions gpu_options = cpu_options.device(communicator_->device());
 
+    // Unsharded tensors are large and only used for validating data corectness.
+    // Therefore, to improve GPU memory footprint, we allocate those tensors on
+    // the CPU
     ta_unsharded_ = at::empty(ta_unsharded_sizes, cpu_options);
     tb_unsharded_ = at::empty(tb_unsharded_sizes, cpu_options);
     ta_ = at::empty(ta_sizes, gpu_options);
