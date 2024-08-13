@@ -651,34 +651,6 @@ TEST_F(MultiDeviceTutorial, TensorShardingAndResharding) {
 // designed to allow a fully manual host programmation. This is what we are
 // going to introduce in the following tests.
 
-// In the first test, we will show how to express through host IRs a simple host
-// program consisting of simply launching a fusion.
-namespace {
-
-// Let us consider an arbitrary fusion. We assume for simplicity (but without
-// loss of generality) that the fusion has one input and one output which are
-// both a 2D tensor.
-
-constexpr int64_t nDims = 2;
-
-std::unique_ptr<Fusion> CreateArbitraryFusion() {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-  auto tv0 = makeSymbolicTensor(nDims);
-  fusion->addInput(tv0);
-  auto tv1 = mul(tv0, IrBuilder::create<Val>(2.));
-  tv1->setMemoryType(
-      MemoryType::Global); // to avoid an error of the type "Allocations must be
-                           // based on constant integers for local memory"
-  auto tv2 = add(tv1, IrBuilder::create<Val>(1.));
-  fusion->addOutput(tv2);
-  return fusion;
-}
-
-} // namespace
-
-namespace hir { // HostIr has its own namespace "hir"
-
 //  Let us start with the simplest non-trivial host program possible: compiling
 //  and running a single Fusion. It is a good starting point to understand the
 //  Host Ir semantics. The host program could be illustrated as follows:
@@ -687,7 +659,28 @@ namespace hir { // HostIr has its own namespace "hir"
   | tv1 = Fusion0 (tv0)
   | tv1: output
 */
+
+namespace hir { // HostIr has its own namespace "hir"
+
 TEST_F(MultiDeviceTutorial, HostIrLaunchingFusion) {
+  // Let us consider an arbitrary fusion. We assume for simplicity (but without
+  // loss of generality) that the fusion has one input and one output which are
+  // both a 2D tensor.
+  constexpr int64_t nDims = 2;
+  auto CreateFusion = [nDims] () -> std::unique_ptr<Fusion> {
+    auto fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
+    auto tv0 = makeSymbolicTensor(nDims);
+    fusion->addInput(tv0);
+    auto tv1 = mul(tv0, IrBuilder::create<Val>(2.));
+    tv1->setMemoryType(
+        MemoryType::Global); // to avoid an error of the type "Allocations must be
+                            // based on constant integers for local memory"
+    auto tv2 = add(tv1, IrBuilder::create<Val>(1.));
+    fusion->addOutput(tv2);
+    return fusion;
+  }
+
   // Instantiate an HostIrContainer. This container is used to 1) register the
   // Host IRs, and 2) represent the Host program through its `std::vector<Expr*>
   // top_level_exprs_`.
@@ -696,7 +689,7 @@ TEST_F(MultiDeviceTutorial, HostIrLaunchingFusion) {
 
   // The first Host IR we introduce is called `HostUnit`. It is used to
   // represent a fusion definition at the host IR level.
-  auto host_unit = IrBuilder::create<HostUnit>(CreateArbitraryFusion());
+  auto host_unit = IrBuilder::create<HostUnit>(CreateFusion());
 
   // We then create an IR `PostOnStream` which represents compiling+executing
   // the fusion with some I/O.
