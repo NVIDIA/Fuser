@@ -528,6 +528,9 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
         GpuLower::current()->circularBufferInfo().getStageDepthFor(
             circular_buffer_loop_->iter_domain());
 
+    // TODO Use indexOrStartIfTrivial. Currently, we encounter an indexing issue
+    // with the next load stage if the main loop is trivial.
+
     if (current_compute_stage_ == nullptr) {
       current_compute_stage_ = IrBuilder::modExpr(
           cloned_top_level_loop_->index(),
@@ -608,11 +611,9 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
     int64_t stage_depth =
         GpuLower::current()->circularBufferInfo().getStageDepthFor(
             circular_buffer_loop_->iter_domain());
-    Val* index = (cloned_top_level_loop_->isTrivial())
-        ? cloned_top_level_loop_->start()
-        : cloned_top_level_loop_->index();
     Val* epilogue_compute_stage = IrBuilder::modExpr(
-        index, IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
+        cloned_top_level_loop_->indexOrStartIfTrivial(),
+        IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
 
     NVF_ERROR(
         mbarrier_wait_ == nullptr,
