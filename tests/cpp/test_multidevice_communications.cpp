@@ -294,7 +294,7 @@ TEST_P(CommunicationTest, Reduce) {
   FusionGuard fg(&container);
   auto* in = makeContigTensor(2);
   in->setDeviceMesh(full_mesh_);
-  auto* out = sum(ops::newValLike(in, in->dtype())->as<TensorView>(), {0});
+  auto* out = newForReduction(in, {0});
   auto communication = IrBuilder::create<Communication>(
       CommunicationType::Reduce, out, in, all_ranks_, kRoot, kReductionOp);
 
@@ -328,9 +328,14 @@ TEST_P(CommunicationTest, Allreduce) {
   FusionGuard fg(&container);
   auto* in = makeContigTensor(2);
   in->setDeviceMesh(full_mesh_);
-  auto* out = sum(ops::newValLike(in, in->dtype())->as<TensorView>(), {0});
+  auto* out = newForReduction(in, {0});
   auto communication = IrBuilder::create<Communication>(
-      CommunicationType::Allreduce, out, in, all_ranks_, -1, kReductionOp);
+      CommunicationType::Allreduce,
+      out,
+      in,
+      all_ranks_,
+      /*root=*/-1,
+      kReductionOp);
 
   at::Tensor input_tensor = at::empty({1, kTensorSize}, tensor_options);
   at::Tensor output_tensor = at::empty({kTensorSize}, tensor_options);
@@ -359,7 +364,7 @@ TEST_P(CommunicationTest, ReduceScatter) {
   FusionGuard fg(&container);
   auto* in = makeContigTensor(2);
   in->setDeviceMesh(full_mesh_);
-  auto* out = sum(ops::newValLike(in, in->dtype())->as<TensorView>(), {0});
+  auto* out = newForReduction(in, {0});
   auto communication = IrBuilder::create<Communication>(
       CommunicationType::ReduceScatter,
       out,
