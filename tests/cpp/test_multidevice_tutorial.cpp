@@ -698,8 +698,9 @@ TEST_F(MultiDeviceTutorial, HostIrLaunchingFusion) {
   auto post_fusion = IrBuilder::create<PostOnStream>(
       fusion, std::vector<Val*>({input}), std::vector<Val*>({output}));
 
-  // Let us add "post_fusion" to the host program, and define the program's global I/O. These step will probably be
-  // automated out and simplified in the future
+  // Let us add "post_fusion" to the host program, and define the program's
+  // global I/O. These step will probably be automated out and simplified in the
+  // future
   hic->pushBackTopLevelExprs(post_fusion);
   hic->addInput(input);
   hic->addOutput(output);
@@ -859,15 +860,16 @@ TEST_F(MultiDeviceTutorial, HostIrLaunchingThreeFusions) {
 }
 
 
-// Let us now present a case where the host program consists of launching three fusions, with a non-linear dependency between the respective I/O. The host program could be illustrated as follows:
+// Let us now present a real world scenario, used in transformer, where we need to execute a matmul followed by a Reduce-Scatter MPI collective. This is the first example we provide where host IRs are used in a multidevice setting. The host program can be summarized as follows:
 /*
-  | tv0: input
-  | (tv1, tv2) = Fusion0 (tv0)
-  | tv3 = Fusion1 (tv1)
-  | tv4 = Fusion2 (tv2, tv3)
-  | tv5 = Fusion1 (tv4)
-  | tv5: output
+  | tva, tvb: inputs
+  | tvc = Matmul(tva, tvb)
+  | tvd = Reduce-Scatter (tvc)
+  | Wait for the completion of Reduce-Scatter
+  | tvd: output
 */
+// here, all the tensors are implicitely sharded tensors accross devices.
+// `Matmul` and MPI-collectives are Host IRs that can be used directly in the host program.
 
 TEST_F(MultiDeviceTutorial, HostIrGemmReduceScatter) {
   // Instantiate an HostIrContainer
@@ -919,24 +921,19 @@ TEST_F(MultiDeviceTutorial, HostIrGemmReduceScatter) {
     // We reproduce, for convenience, what gets printed:
     // clang-format off
     /*
-    %HostIrContainer { (T0_g[ iS0{i0}, iS1{i2} ]) -> (T5_g[ iS10{i11}, iS11{i12} ]) :
-      PostOnStream (HostUnit0, Inputs:{T0_g[ iS0{i0}, iS1{i2} ], }, Outputs:{T1_l[ iS2{i3}, iS3{i4} ], T2_l[ iS4{i5}, iS5{i6} ], })
-      PostOnStream (HostUnit1, Inputs:{T1_l[ iS2{i3}, iS3{i4} ], }, Outputs:{T3_l[ iS6{i7}, iS7{i8} ], })
-      PostOnStream (HostUnit2, Inputs:{T2_l[ iS4{i5}, iS5{i6} ], T3_l[ iS6{i7}, iS7{i8} ], }, Outputs:{T4_l[ iS8{i9}, iS9{i10} ], })
-      PostOnStream (HostUnit1, Inputs:{T4_l[ iS8{i9}, iS9{i10} ], }, Outputs:{T5_g[ iS10{i11}, iS11{i12} ], })
-
-    HostUnit2: [...]
-    HostUnit1: [...]
-    HostUnit0: [...]
+    %HostIrContainer { (T0_g[ iS0{i0}, iS1{i2} ], T1_g[ iS2{i3}, iS3{i4} ], T3_g[ iS7{i11}, iS8{i12} ] (DeviceMesh{0 1 2 3 4 5 6 7})) -> (T3_g[ iS7{i11}, iS8{i12} ] (DeviceMesh{0 1 2 3 4 5 6 7})) :
+      T2_l[ iS4{i0}, iS5{i4}, rS6{i2} ] (DeviceMesh{0 1 2 3 4 5 6 7})
+        = matmul(T0_g[ iS0{i0}, iS1{i2} ],
+                  T1_g[ iS2{i3}, iS3{i4} ])
+      Communication 1 (type=ReduceScatter, team=(0 1 2 3 4 5 6 7), input=T2_l[ iS4{i0}, iS5{i4}, rS6{i2} ] (DeviceMesh{0 1 2 3 4 5 6 7}), output=T3_g[ iS7{i11}, iS8{i12} ] (DeviceMesh{0 1 2 3 4 5 6 7}))
+      Wait Communication 1
     } // %HostIrContainer
     */
     //  clang-format on
-    //  the "[...]" contains the result of Fusion::printMath(), which we omit
-    //  here.
   }
 
   // define a concrete input
-  constexpr int64_t M = 32;
+  constexpr int64_t M = 1680;
   constexpr int64_t K = 16;
   constexpr int64_t N = 64;
   ASSERT_EQ(M % communicator_->size(), 0) << "the test must be launched with a number of devices n that divides M=" << M << ", but we have n=" << communicator_->size();
