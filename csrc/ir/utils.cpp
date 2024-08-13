@@ -1107,6 +1107,9 @@ bool hasTrivialAllocationDomain(const TensorView* tv) {
   return TensorDomain::noBroadcasts(TensorDomain::noReductions(logical)) ==
       TensorDomain::noBroadcasts(TensorDomain::noReductions(alloc));
 }
+bool hasUniformSiblings(Expr* expr) {
+  return !expr->isOneOf<SdpaFwdOp, SdpaBwdOp>();
+}
 
 } // namespace nvfuser::ir_utils
 

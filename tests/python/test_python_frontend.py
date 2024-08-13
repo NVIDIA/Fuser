@@ -7,12 +7,10 @@ from copy import deepcopy
 from functools import partial
 import itertools
 import math
-import random
 import re
+import random
 from typing import List, Callable
-import tempfile
 import unittest
-import os
 
 import torch
 import torch.nn.functional as F
@@ -32,62 +30,29 @@ from nvfuser import (
 )
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 
+from utils import (
+    is_pre_volta,
+    is_pre_ampere,
+    is_pre_hopper,
+    check_captured_python_definition,
+    basic_serde_check,
+    debug_serde,
+)
 
 RUN_NVFUSER = RUN_CUDA and not TEST_WITH_ROCM
 
-# This DEBUG_SERDE environment flag is used to debug serialization failures.
-#
-# 1) It disables automatically saving FusionCache upon program exit. Therefore,
-# it has to be a global flag not per-test.
-#
-# 2) It resets the FusionCache after each test, which is useful for isolating
-# failures. Note, some failures only occur when running multiple tests
-# together and accumulating fusions in the cache.
-#
-# 3) It keeps the temporary files that are created during serde_check.
-# Normally, these files are deleted after each test.
-env_var_debug_serde = os.getenv("DEBUG_SERDE")
-debug_serde: bool = env_var_debug_serde in ("true", "1")
-
-
-def is_pre_volta():
-    if not RUN_NVFUSER:
-        return False
-    prop = torch.cuda.get_device_properties(torch.cuda.current_device())
-    return prop.major < 7
-
-
-def is_pre_ampere():
-    if not RUN_NVFUSER:
-        return False
-    prop = torch.cuda.get_device_properties(torch.cuda.current_device())
-    return prop.major < 8
-
-
-def is_pre_hopper():
-    if not RUN_NVFUSER:
-        return False
-    prop = torch.cuda.get_device_properties(torch.cuda.current_device())
-    return prop.major < 9
-
 
 def setUpModule():
-    if not debug_serde:
-        from nvfuser import enable_automatic_serialization
+    from utils import atexit_serde_check
 
-        # Turn on default serialization upon program exit
-        enable_automatic_serialization()
-
-    # Automatically load common workplace
-    fc = FusionCache.get()
-    # Clear FusionCache because the tests expect a new fusion to be generated.
-    FusionCache.reset()
+    atexit_serde_check()
 
 
 def serde_check(test_fn: Callable):
     """
-    A decorator to verify that serialization works with the given exec_nvfuser function.
-    Currently, it uses serialization to rebuild the FusionCache structure.
+    A decorator to verify that serialization works with the given exec_nvfuser
+    function. Currently, it uses serialization to rebuild the FusionCache
+    structure.
     """
 
     def inner_fn(*args, **kwargs):
@@ -100,7 +65,8 @@ def serde_check(test_fn: Callable):
             FusionCache.reset()
             assert FusionCache.get().num_fusions() == 0
 
-        # skip_serde_check is only used by the decorator so remove it before running test_fn
+        # skip_serde_check is only used by the decorator so remove it before
+        # running test_fn
         skip_serde_check = kwargs.pop("skip_serde_check", False)
         if skip_serde_check:
             return test_fn(self, fusion_func, inputs, **kwargs)
@@ -113,27 +79,8 @@ def serde_check(test_fn: Callable):
         inputs_copy = deepcopy(inputs)
         test_fn(self, fusion_func, inputs_copy, **kwargs)
 
-        # If DEBUG_SERDE is enabled, the temporary file is not deleted automatically
-        with tempfile.NamedTemporaryFile(delete=(not debug_serde)) as tmp:
-            try:
-                # Serialize FusionCache
-                fc = FusionCache.get()
-                fc.serialize(tmp.name)
-
-                FusionCache.reset()
-
-                # Get new FusionCache because the previous one was destroyed by the reset call.
-                fc = FusionCache.get()
-                fc.deserialize(tmp.name)
-            except Exception as e:
-                if debug_serde:
-                    raise RuntimeError(
-                        f"***** {tmp.name} contains the serialized binary for this failure."
-                    )
-                else:
-                    raise RuntimeError(
-                        "***** Use DEBUG_SERDE=true to debug serialization failure."
-                    )
+        # Serialize and Deserialize FusionCache
+        basic_serde_check()
 
         # Run test with repopulated FusionCache
         kwargs["new_fusion_expected"] = False
@@ -152,36 +99,20 @@ class TestNvFuserFrontend(TestCase):
     def exec_nvfuser(
         self, fusion_func, inputs, *, new_fusion_expected=True, device=None
     ):
-        inputs_cap = deepcopy(inputs)
         fc = FusionCache.get()
         before_fusions = fc.num_fusions()
+        # Copy inputs because aliased outputs can modify inputs when running
+        # FusionDefinition
+        inputs_cap = deepcopy(inputs)
 
         # Execute a fusion function and capture the string python definition
         with FusionDefinition() as fd:
             fusion_func(fd)
-        fd_str = fd.__repr__()
         torch.manual_seed(0)
         out = fd.execute(inputs, device=device)
 
-        # Execute the python definition that was captured
-        try:
-            func_name = re.findall("(nvfuser_fusion_id\\d+)", fd_str.split("\n")[1])[0]
-            exec(fd_str)
-            with FusionDefinition() as fd_cap:
-                eval(func_name)(fd_cap)
-            torch.manual_seed(0)
-            out_cap = fd_cap.execute(inputs_cap, device=device)
-        except Exception as err:
-            print("\nException For Printed FusionDefinition:")
-            print(
-                "(A failure here suggests a mismatch in functionality between the original definition and the printed definition.)"
-            )
-            print(fd_str)
-            raise err
+        self.assertTrue(check_captured_python_definition(out, fd, inputs_cap, device))
 
-        # Make sure the original and captured definitions match
-        for idx in range(len(out)):
-            self.assertEqual(out[idx], out_cap[idx])
         self.assertEqual(fc.num_fusions() - before_fusions, int(new_fusion_expected))
         return out, fd
 
@@ -3123,6 +3054,27 @@ class TestNvFuserFrontend(TestCase):
         torch_ref = inputs[0] * (inputs[1] * inputs[2]).unsqueeze(-1)
         self.assertEqual(nvf_out[0], torch_ref)
 
+    # We expect this to fail on branch `wjy/input` but to pass on ToT.
+    def test_issue2755(self):
+        def fusion_func(fd: FusionDefinition) -> None:
+            t0 = fd.define_tensor(shape=[-1])
+            t1 = fd.ops.slice(
+                t0,
+                start_indices=[0],
+                end_indices=[5],
+            )
+            t2 = fd.ops.neg(t1)
+            t3 = fd.ops.slice(
+                t2,
+                start_indices=[0],
+                end_indices=[2],
+            )
+            t4 = fd.ops.neg(t3)
+            fd.add_output(t4)
+
+        inputs = [torch.randn((10,), dtype=torch.float32, device="cuda:0")]
+        self.exec_nvfuser(fusion_func, inputs)
+
     # Test that expand+pad does not cause indexing error, and that no scalars
     # are lost during segmentation.
     # See https://github.com/NVIDIA/Fuser/issues/1277
@@ -4490,6 +4442,444 @@ class TestNvFuserFrontend(TestCase):
             ),
         ]
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+    # Test that we properly raise an error when passing inputs with the wrong types
+    def test_mismatched_input_types(self):
+        scalar_inp = 2.0
+        tensor_inp = torch.rand((15,), dtype=torch.float32, device="cuda:0")
+
+        def fusion_func(fd: FusionDefinition):
+            T0 = fd.define_tensor(
+                shape=[-1],
+                contiguity=[True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[0],
+            )
+            s0 = fd.define_scalar()
+            T1 = fd.ops.mul(T0, s0)
+            fd.add_output(T1)
+
+        with FusionDefinition() as fd:
+            fusion_func(fd)
+
+        try:
+            import pytest
+        except ImportError:
+            self.skipTest("Could not import pytest")
+
+        with pytest.raises(
+            Exception,
+            match=re.escape(
+                "Expected input 0, T0_g[ iS0{i0} ], to be an at::Tensor but got scalar 2"
+            ),
+        ):
+            nvf_out = fd.execute([scalar_inp, scalar_inp])
+
+        with pytest.raises(
+            Exception,
+            match=re.escape(
+                "Expected input 1, d2, to be a scalar but got float tensor of rank 1"
+            ),
+        ):
+            nvf_out = fd.execute([tensor_inp, tensor_inp])
+
+        with pytest.raises(
+            Exception,
+            match=re.escape(
+                "Expected input 0, T0_g[ iS0{i0} ], to be bound to a tensor of dtype float,"
+                " but got a tensor of dtype __half"
+            ),
+        ):
+            wrong_tensor_inp = torch.rand((15,), dtype=torch.float16, device="cuda:0")
+            nvf_out = fd.execute([wrong_tensor_inp, 2.0])
+
+        with pytest.raises(
+            Exception,
+            match=re.escape(
+                "Scalar value (2,1) is not compatible with the expected data type: double."
+            ),
+        ):
+            nvf_out = fd.execute([tensor_inp, 2.0 + 1.0j])
+
+    @unittest.skipIf(is_pre_ampere(), "Only supported on Ampere and newer devices.")
+    def test_sdpa_fwd(self):
+        def fusion_func(
+            fd: FusionDefinition, has_dropout: bool, has_causal: bool, has_scale: bool
+        ):
+            q = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                contiguity=[True, True, True, True],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+            )
+            k = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                contiguity=[True, True, True, True],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+            )
+            v = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                contiguity=[True, True, True, True],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+            )
+            dropout_p, is_causal, scale = None, None, None
+            if has_dropout:
+                dropout_p = fd.define_scalar(value=None, dtype=DataType.Double)
+            if has_causal:
+                is_causal = fd.define_scalar(value=None, dtype=DataType.Bool)
+            if has_scale:
+                scale = fd.define_scalar(value=None, dtype=DataType.Double)
+            attn, *intermediate_results = fd.ops.sdpfa_fwd(
+                q, k, v, dropout_p, is_causal, scale
+            )
+            fd.add_output(attn)
+
+        N, H, L, S, E = 4, 8, 16, 16, 8
+        qkv = [
+            torch.randn((N, H, L, E), dtype=torch.bfloat16, device="cuda:0"),
+            torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda:0"),
+            torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda:0"),
+        ]
+
+        dropout_vals = [None, 0.0, 0.2]
+        is_causal_vals = [None, True, False]
+        scale_vals = [None, 1 / E**0.5, 1e-3]
+        # TODO: Try to move this to pytest_ops.py. Currently, it does not work since the API between nvFuser and torch differs.
+        for dropout_p, is_causal, scale in itertools.product(
+            dropout_vals, is_causal_vals, scale_vals
+        ):
+            with self.subTest(dropout_p=dropout_p, is_causal=is_causal, scale=scale):
+                from torch.nn.attention import SDPBackend, sdpa_kernel
+
+                # Reset the FusionCache or the fusion would not recompile for all subtests, failing checks in exec_nvfuser.
+                FusionCache.reset()
+                has_dropout = True if dropout_p is not None else False
+                has_causal = True if is_causal is not None else False
+                has_scale = True if scale is not None else False
+                inputs = [*qkv]
+                for param in [dropout_p, is_causal, scale]:
+                    if param is not None:
+                        inputs.append(param)
+                nvf_out, _ = self.exec_nvfuser(
+                    partial(
+                        fusion_func,
+                        has_dropout=has_dropout,
+                        has_causal=has_causal,
+                        has_scale=has_scale,
+                    ),
+                    inputs,
+                )
+
+                # Torch does not accept NoneType dropout_p, is_causal.
+                dropout_p = 0.0 if dropout_p is None else dropout_p
+                is_causal = False if is_causal is None else is_causal
+
+                with sdpa_kernel(SDPBackend.FLASH_ATTENTION):
+                    torch.manual_seed(0)
+                    ref_out = F.scaled_dot_product_attention(
+                        *qkv, dropout_p=dropout_p, is_causal=is_causal, scale=scale
+                    )
+                torch.testing.assert_close(nvf_out[0], ref_out)
+
+    @unittest.skipIf(is_pre_ampere(), "Only supported on Ampere and newer devices.")
+    def test_sdpa_bwd(self):
+        N, H, L, S, E = 4, 8, 16, 16, 8
+
+        grad_output = torch.randn((N, H, L, E), dtype=torch.bfloat16, device="cuda:0")
+        q = torch.randn((N, H, L, E), dtype=torch.bfloat16, device="cuda:0")
+        k = torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda:0")
+        v = torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda:0")
+
+        dropout_vals = [None, 0.0, 0.2]
+        is_causal_vals = [None, True, False]
+        scale_vals = [None, 1 / E**0.5, 1e-3]
+
+        def fusion_func(
+            fd: FusionDefinition, has_dropout: bool, has_causal: bool, has_scale: bool
+        ):
+            grad_output = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                contiguity=[True, True, True, True],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+            )
+            q = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                contiguity=[True, True, True, True],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+            )
+            k = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                contiguity=[True, True, True, True],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+            )
+            v = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                contiguity=[True, True, True, True],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+            )
+            output = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                contiguity=[True, True, True, True],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+            )
+            log_sumexp = fd.define_tensor(
+                shape=[-1, -1, -1],
+                contiguity=[True, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+            )
+            philox_seed = fd.define_tensor(
+                shape=[],
+                contiguity=[],
+                dtype=DataType.Int,
+                is_cpu=True,
+            )
+            philox_offset = fd.define_tensor(
+                shape=[],
+                contiguity=[],
+                dtype=DataType.Int,
+                is_cpu=True,
+            )
+
+            dropout_p, is_causal, scale = None, None, None
+            if has_dropout:
+                dropout_p = fd.define_scalar(value=None, dtype=DataType.Double)
+            if has_causal:
+                is_causal = fd.define_scalar(value=None, dtype=DataType.Bool)
+            if has_scale:
+                scale = fd.define_scalar(value=None, dtype=DataType.Double)
+
+            grad_query, grad_key, grad_value = fd.ops.sdpfa_bwd(
+                grad_output,
+                q,
+                k,
+                v,
+                output,
+                log_sumexp,
+                dropout_p,
+                is_causal,
+                philox_seed,
+                philox_offset,
+                scale,
+            )
+            fd.add_output(grad_query)
+            fd.add_output(grad_key)
+            fd.add_output(grad_value)
+
+        for dropout_p, is_causal, scale in itertools.product(
+            dropout_vals, is_causal_vals, scale_vals
+        ):
+            with self.subTest(dropout_p=dropout_p, is_causal=is_causal, scale=scale):
+                # Torch does not accept NoneType dropout_p, is_causal.
+                at_dropout_p = 0.0 if dropout_p is None else dropout_p
+                at_is_causal = False if is_causal is None else is_causal
+
+                (
+                    output,
+                    log_sumexp,
+                    cum_seq_q,
+                    cum_seq_k,
+                    query_seq_len,
+                    key_seq_len,
+                    philox_seed,
+                    philox_offset,
+                    _,
+                ) = torch.ops.aten._scaled_dot_product_flash_attention(
+                    q,
+                    k,
+                    v,
+                    at_dropout_p,
+                    at_is_causal,
+                    return_debug_mask=False,
+                    scale=scale,
+                )
+                ref_grad = torch.ops.aten._scaled_dot_product_flash_attention_backward(
+                    grad_output,
+                    q,
+                    k,
+                    v,
+                    output,
+                    log_sumexp,
+                    cum_seq_q,
+                    cum_seq_k,
+                    query_seq_len,
+                    key_seq_len,
+                    at_dropout_p,
+                    at_is_causal,
+                    philox_seed,
+                    philox_offset,
+                    scale=scale,
+                )
+
+                # Reset the FusionCache or the fusion would not recompile for all subtests, failing checks in exec_nvfuser.
+                FusionCache.reset()
+                has_dropout = True if dropout_p is not None else False
+                has_causal = True if is_causal is not None else False
+                has_scale = True if scale is not None else False
+
+                inputs = [
+                    grad_output,
+                    q,
+                    k,
+                    v,
+                    output,
+                    log_sumexp,
+                    philox_seed,
+                    philox_offset,
+                ]
+                for param in [dropout_p, is_causal, scale]:
+                    if param is not None:
+                        inputs.append(param)
+
+                nvf_out, _ = self.exec_nvfuser(
+                    partial(
+                        fusion_func,
+                        has_dropout=has_dropout,
+                        has_causal=has_causal,
+                        has_scale=has_scale,
+                    ),
+                    inputs,
+                )
+                torch.testing.assert_close(nvf_out[0], ref_grad[0])
+                torch.testing.assert_close(nvf_out[1], ref_grad[1])
+                torch.testing.assert_close(nvf_out[2], ref_grad[2])
+
+    def test_sdpa_fwd_bwd(self):
+        N, H, L, S, E = 4, 8, 16, 16, 8
+
+        dropout_vals = [None, 0.0, 0.2]
+        is_causal_vals = [None, True, False]
+        scale_vals = [None, 1 / E**0.5, 1e-3]
+
+        def fusion_func(
+            fd: FusionDefinition, has_dropout: bool, has_causal: bool, has_scale: bool
+        ):
+            q = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                contiguity=[True, True, True, True],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+            )
+            k = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                contiguity=[True, True, True, True],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+            )
+            v = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                contiguity=[True, True, True, True],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+            )
+            grad_out = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                contiguity=[True, True, True, True],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+            )
+
+            dropout_p, is_causal, scale = None, None, None
+            if has_dropout:
+                dropout_p = fd.define_scalar(value=None, dtype=DataType.Double)
+            if has_causal:
+                is_causal = fd.define_scalar(value=None, dtype=DataType.Bool)
+            if has_scale:
+                scale = fd.define_scalar(value=None, dtype=DataType.Double)
+
+            output, log_sumexp, philox_seed, philox_offset = fd.ops.sdpfa_fwd(
+                q, k, v, dropout_p, is_causal, scale
+            )
+            grad_query, grad_key, grad_value = fd.ops.sdpfa_bwd(
+                grad_out,
+                q,
+                k,
+                v,
+                output,
+                log_sumexp,
+                dropout_p,
+                is_causal,
+                philox_seed,
+                philox_offset,
+                scale,
+            )
+
+            fd.add_output(output)
+            fd.add_output(grad_query)
+            fd.add_output(grad_key)
+            fd.add_output(grad_value)
+
+        for dropout_p, is_causal, scale in itertools.product(
+            dropout_vals, is_causal_vals, scale_vals
+        ):
+            with self.subTest(dropout_p=dropout_p, is_causal=is_causal, scale=scale):
+                from torch.nn.attention import SDPBackend, sdpa_kernel
+
+                q = torch.randn(
+                    (N, H, L, E),
+                    dtype=torch.bfloat16,
+                    device="cuda:0",
+                    requires_grad=True,
+                )
+                k = torch.randn(
+                    (N, H, S, E),
+                    dtype=torch.bfloat16,
+                    device="cuda:0",
+                    requires_grad=True,
+                )
+                v = torch.randn(
+                    (N, H, S, E),
+                    dtype=torch.bfloat16,
+                    device="cuda:0",
+                    requires_grad=True,
+                )
+                grad_output = torch.randn(
+                    (N, H, L, E), dtype=torch.bfloat16, device="cuda:0"
+                )
+
+                # Reset the FusionCache or the fusion would not recompile for all subtests, failing checks in exec_nvfuser.
+                FusionCache.reset()
+                has_dropout = True if dropout_p is not None else False
+                has_causal = True if is_causal is not None else False
+                has_scale = True if scale is not None else False
+
+                inputs = [q, k, v, grad_output]
+                for param in [dropout_p, is_causal, scale]:
+                    if param is not None:
+                        inputs.append(param)
+
+                # Torch does not accept NoneType dropout_p, is_causal.
+                dropout_p = 0.0 if dropout_p is None else dropout_p
+                is_causal = False if is_causal is None else is_causal
+
+                with sdpa_kernel(SDPBackend.FLASH_ATTENTION):
+                    torch.manual_seed(0)
+                    ref_out = F.scaled_dot_product_attention(
+                        q, k, v, dropout_p=dropout_p, is_causal=is_causal, scale=scale
+                    )
+                    ref_out.backward(grad_output)
+
+                nvf_out, _ = self.exec_nvfuser(
+                    partial(
+                        fusion_func,
+                        has_dropout=has_dropout,
+                        has_causal=has_causal,
+                        has_scale=has_scale,
+                    ),
+                    inputs,
+                )
+                torch.testing.assert_close(nvf_out[0], ref_out)
+                torch.testing.assert_close(nvf_out[1], q.grad)
+                torch.testing.assert_close(nvf_out[2], k.grad)
+                torch.testing.assert_close(nvf_out[3], v.grad)
 
 
 if __name__ == "__main__":

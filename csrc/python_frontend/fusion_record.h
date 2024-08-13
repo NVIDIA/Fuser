@@ -2829,6 +2829,91 @@ struct VectorRecord : RecordFunctor {
   PrimDataType dtype_;
 };
 
+struct SdpaFwdOpRecord : RecordFunctor {
+  SdpaFwdOpRecord(std::vector<State> args, std::vector<State> outputs)
+      : RecordFunctor(
+            std::move(args),
+            std::move(outputs),
+            "ops.sdpfa_fwd",
+            serde::RecordType::SdpaFwdOp) {}
+  ~SdpaFwdOpRecord() override = default;
+  RecordFunctor* clone() final {
+    return new SdpaFwdOpRecord(*this);
+  }
+
+  void operator()(FusionState& fd) final {
+    auto query = fd.getFusionState(args_.at(0).index)->as<TensorView>();
+    auto key = fd.getFusionState(args_.at(1).index)->as<TensorView>();
+    auto value = fd.getFusionState(args_.at(2).index)->as<TensorView>();
+    auto dropout_p = (args_.at(3).stype == serde::StateType::Scalar)
+        ? fd.getFusionState(args_.at(3).index)->as<Val>()
+        : nullptr;
+    auto is_causal = (args_.at(4).stype == serde::StateType::Scalar)
+        ? fd.getFusionState(args_.at(4).index)->as<Val>()
+        : nullptr;
+    auto scale = (args_.at(5).stype == serde::StateType::Scalar)
+        ? fd.getFusionState(args_.at(5).index)->as<Val>()
+        : nullptr;
+    auto output = sdpfa_fwd(query, key, value, dropout_p, is_causal, scale);
+    fd.setFusionState(outputs_.at(0).index, output.output);
+    fd.setFusionState(outputs_.at(1).index, output.log_sumexp);
+    fd.setFusionState(outputs_.at(2).index, output.philox_seed);
+    fd.setFusionState(outputs_.at(3).index, output.philox_offset);
+  }
+};
+
+struct SdpaBwdOpRecord : RecordFunctor {
+  SdpaBwdOpRecord(std::vector<State> args, std::vector<State> outputs)
+      : RecordFunctor(
+            std::move(args),
+            std::move(outputs),
+            "ops.sdpfa_bwd",
+            serde::RecordType::SdpaBwdOp) {}
+  ~SdpaBwdOpRecord() override = default;
+  RecordFunctor* clone() final {
+    return new SdpaBwdOpRecord(*this);
+  }
+
+  void operator()(FusionState& fd) final {
+    auto grad_output = fd.getFusionState(args_.at(0).index)->as<TensorView>();
+    auto query = fd.getFusionState(args_.at(1).index)->as<TensorView>();
+    auto key = fd.getFusionState(args_.at(2).index)->as<TensorView>();
+    auto value = fd.getFusionState(args_.at(3).index)->as<TensorView>();
+    auto output = fd.getFusionState(args_.at(4).index)->as<TensorView>();
+    auto log_sumexp = fd.getFusionState(args_.at(5).index)->as<TensorView>();
+
+    auto dropout_p = (args_.at(6).stype == serde::StateType::Scalar)
+        ? fd.getFusionState(args_.at(6).index)->as<Val>()
+        : nullptr;
+    auto is_causal = (args_.at(7).stype == serde::StateType::Scalar)
+        ? fd.getFusionState(args_.at(7).index)->as<Val>()
+        : nullptr;
+
+    auto philox_seed = fd.getFusionState(args_.at(8).index)->as<TensorView>();
+    auto philox_offset = fd.getFusionState(args_.at(9).index)->as<TensorView>();
+
+    auto scale = (args_.at(10).stype == serde::StateType::Scalar)
+        ? fd.getFusionState(args_.at(10).index)->as<Val>()
+        : nullptr;
+
+    auto grad = sdpfa_bwd(
+        grad_output,
+        query,
+        key,
+        value,
+        output,
+        log_sumexp,
+        dropout_p,
+        is_causal,
+        philox_seed,
+        philox_offset,
+        scale);
+    fd.setFusionState(outputs_.at(0).index, grad.grad_query);
+    fd.setFusionState(outputs_.at(1).index, grad.grad_key);
+    fd.setFusionState(outputs_.at(2).index, grad.grad_value);
+  }
+};
+
 } // namespace nvfuser::python_frontend
 
 //! Creating the template specialized hash and equal_to functions for a

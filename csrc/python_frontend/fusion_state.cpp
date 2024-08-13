@@ -36,17 +36,16 @@ std::ostream& operator<<(std::ostream& os, const State& state) {
     state.parent->print(os);
   } else {
     if (state.stype == serde::StateType::Scalar) {
-      os << "S";
+      os << "S" << state.index;
     } else if (state.stype == serde::StateType::Tensor) {
-      os << "T";
+      os << "T" << state.index;
     } else if (state.stype == serde::StateType::Vector) {
-      os << "V";
+      os << "V" << state.index;
     } else if (state.stype == serde::StateType::None) {
       os << "None";
     } else {
       NVF_ERROR(false, "Unsupported StateType");
     }
-    os << state.index;
   }
   return os;
 }
