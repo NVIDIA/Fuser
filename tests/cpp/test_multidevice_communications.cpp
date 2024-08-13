@@ -224,6 +224,7 @@ TEST_P(CommunicationTest, SendRecv) {
   in->setDeviceMesh(full_mesh_);
   auto* out = ops::newValLike(in, in->dtype())->as<TensorView>();
   auto communication = IrBuilder::create<Communication>(
+
     CommunicationType::SendRecv, out, in, Team({sender, receiver}), sender);
 
   at::Tensor input_tensor;
@@ -364,9 +365,9 @@ TEST_P(CommunicationTest, ReduceScatter) {
       out,
       in,
       all_ranks_,
-      /*root=*/ -1,
+      /*root=*/-1,
       kReductionOp,
-      /*scattered_axis=*/ 1);
+      /*scattered_axis=*/1);
 
   const int num_devices = communicator_->size();
   const int device_id = communicator_->deviceId();
