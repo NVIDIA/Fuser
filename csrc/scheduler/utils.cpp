@@ -677,7 +677,7 @@ ReductionTvProperties getReductionProperties(
   NVF_ERROR(tv != nullptr);
 
   bool fastest_dim_reduction = isFastestDimReduction(tv);
-
+   std::cout << "fastest_dim_reduction: " << fastest_dim_reduction << std::endl;
   // Tracks the dimensionality of the problem starts on inner most dim and works
   // outward
   int64_t dimensionality = 1;
@@ -690,7 +690,7 @@ ReductionTvProperties getReductionProperties(
   // Start from the inner most dimension, and work outwards. If this is a 3D
   // pattern, i.e. theres a pattern like [r0, r1, i2, r3] or [i0, r1, r2, i3,
   // i4] then compute the inner most dimension to compute separately.
-  const auto& root_dom = tv->getMaybeRootDomain();
+  const auto& root_dom = tv->getMaybeAllocationDomain();
   for (size_t i = root_dom.size(); i > 0; i--) {
     auto id = root_dom[i - 1];
     if (id->isBroadcast()) {
@@ -2223,6 +2223,8 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
 }
 
 bool isFastestDimReduction(TensorView* tv) {
+  std::cout << tv->toString() << std::endl;
+  tv->printTransforms();
   for (auto it = tv->getMaybeAllocationDomain().rbegin();
        it != tv->getMaybeAllocationDomain().rend();
        ++it) {

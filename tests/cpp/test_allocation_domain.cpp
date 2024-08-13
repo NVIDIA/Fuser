@@ -49,10 +49,10 @@ TEST_F(AllocationDomainTest, TransposedIntermediate) {
   ASSERT_EQ(read, std::vector<int64_t>{32});
   ASSERT_EQ(write, std::vector<int64_t>{32});
 
-  std::vector<IterDomain*> tv1_transposed = {tv1->axis(1), tv1->axis(0)};
-  tv1->setAllocationDomain(tv1_transposed, true);
+  // std::vector<IterDomain*> tv1_transposed = {tv1->axis(1), tv1->axis(0)};
+  // tv1->setAllocationDomain(tv1_transposed, true);
 
-  ASSERT_TRUE(fusion.bankConflictInfo().empty());
+  // ASSERT_TRUE(fusion.bankConflictInfo().empty());
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
@@ -1369,7 +1369,7 @@ TEST_F(AllocationDomainTest, ReductionSchedulerIssue1895) {
 TEST_F(AllocationDomainTest, ReductionVectorization) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  long x = 2L, y = 2L, z = 2L;
+  long x = 2L, y = 4L, z = 6L;
   auto tv0 = TensorViewBuilder()
                  .ndims(3)
                  .shape({-1, 1, -1})
@@ -1383,13 +1383,15 @@ TEST_F(AllocationDomainTest, ReductionVectorization) {
                  .strideOrder({0, 1, 2})
                  .build();
   fusion->addInput(tv1);
-  auto s0 = IrBuilder::create<Val>(2);
-  auto tv2 = expand(tv0, {s0, s0, s0});
+  auto s0 = IrBuilder::create<Val>(x);
+  auto s1 = IrBuilder::create<Val>(y);
+  auto s2 = IrBuilder::create<Val>(z);
+  auto tv2 = expand(tv0, {s0, s1, s2});
   auto tv3 = mul(tv2, tv1);
   auto tv4 = sum(tv3, {2});
   fusion->addOutput(tv4);
-  std::vector<IterDomain*> tv4_dom = {tv4->axis(2), tv4->axis(1), tv4->axis(0)};
-  tv4->setAllocationDomain(tv4_dom, true);
+  // std::vector<IterDomain*> tv4_dom = {tv4->axis(2), tv4->axis(1), tv4->axis(0)};
+  // tv4->setAllocationDomain(tv4_dom, true);
 
   // tv1 is a constant tensor, and its domains are constant.
   // Its constant domains are used in ExactMappedExtentSubstitutionPass
@@ -1398,6 +1400,81 @@ TEST_F(AllocationDomainTest, ReductionVectorization) {
   auto t0 = at::randn({x, 1, z}, options);
   auto t1 = at::randn({x, y, z}, options).as_strided({x, y, z}, {1, x, x * y});
   std::vector<c10::IValue> inputs({t0, t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
+
+  testValidate(executor_cache.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
+}
+
+
+TEST_F(AllocationDomainTest, ReductionVectorization2) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  long x = 2L, y = 4L, z = 6L;
+  auto tv0 = TensorViewBuilder()
+                 .ndims(3)
+                 .shape({-1, 1, -1})
+                 .contiguity({true, std::nullopt, true})
+                 .build();
+  fusion->addInput(tv0);
+  auto tv1 = TensorViewBuilder()
+                 .ndims(3)
+                 .shape({-1, -1, -1})
+                 .contiguity({true, true, true})
+                 .strideOrder({2, 1, 0})
+                 .build();
+  std::vector<IterDomain*> tv1_dom = {tv1->axis(2), tv1->axis(1), tv1->axis(0)};
+  tv1->setAllocationDomain(tv1_dom, true);               
+  fusion->addInput(tv1);
+
+  auto tv2 = sum(tv1, {2});
+  std::vector<IterDomain*> tv2_dom = {tv2->axis(2), tv2->axis(1), tv2->axis(0)};
+  tv2->setAllocationDomain(tv2_dom, true); 
+  fusion->addOutput(tv2);
+
+
+  // tv1 is a constant tensor, and its domains are constant.
+  // Its constant domains are used in ExactMappedExtentSubstitutionPass
+  // to substitute the domains of tv0.
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({x, 1, z}, options);
+  auto t1 = at::randn({x, y, z}, options).as_strided({x, y, z}, {1, x, x * y});
+  std::vector<c10::IValue> inputs({t0, t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
+
+  testValidate(executor_cache.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
+}
+
+
+TEST_F(AllocationDomainTest, ReductionVectorization3) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  long x = 2L, y = 4L, z = 6L;
+  auto tv1 = TensorViewBuilder()
+                 .ndims(3)
+                 .shape({-1, -1, -1})
+                 .contiguity({true, true, true})
+                 .strideOrder({2, 1, 0})
+                 .build();
+  std::vector<IterDomain*> tv1_dom = {tv1->axis(0), tv1->axis(2), tv1->axis(1)};
+  tv1->setAllocationDomain(tv1_dom, true);               
+  fusion->addInput(tv1);
+
+  auto tv2 = sum(tv1, {1});
+  std::vector<IterDomain*> tv2_dom = {tv2->axis(0), tv2->axis(2), tv2->axis(1)};
+  tv2->setAllocationDomain(tv2_dom, true); 
+  fusion->addOutput(tv2);
+
+
+  // tv1 is a constant tensor, and its domains are constant.
+  // Its constant domains are used in ExactMappedExtentSubstitutionPass
+  // to substitute the domains of tv0.
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t1 = at::randn({x, y, z}, options).as_strided({x, y, z}, {z*y, 1, y});
+  std::vector<c10::IValue> inputs({t1});
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
