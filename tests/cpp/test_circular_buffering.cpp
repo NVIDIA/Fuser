@@ -1462,7 +1462,8 @@ TEST_P(TmaCircularBufferingTest, Matmul) {
   fe.compileFusion(fusion.get(), {t0, t1});
 
   std::vector<at::Tensor> cg_outputs = fe.runFusion({t0, t1});
-  compare<float>(tensor_outer_dim, tensor_inner_dim, cg_outputs.front(), aten_output);
+  compare<float>(
+      tensor_outer_dim, tensor_inner_dim, cg_outputs.front(), aten_output);
   testValidate(
       fusion.get(), cg_outputs, {t0, t1}, {aten_output}, __LINE__, __FILE__);
 }
