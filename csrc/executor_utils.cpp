@@ -673,6 +673,25 @@ void validateMisalignedVectorizedTensors(
 
 } // namespace
 
+void validateCircularBuffering(
+    kir::Kernel* kernel,
+    ExpressionEvaluator& expr_eval) {
+  const CircularBufferInfo& cb_info = kernel->summary().circular_buffer_info;
+  for (const TensorView* cb_tv : cb_info.getCircularBufferTvs()) {
+    IterDomain* axis = cb_info.getCircularBufferAxis(cb_tv);
+    NVF_ERROR(axis != nullptr);
+    PolymorphicValue runtime_axis_size = expr_eval.evaluate(axis->extent());
+    NVF_ERROR(
+        runtime_axis_size >= cb_tv->circularBufferDepth(),
+        "This kernel fails to fill the circular buffer pipeline at runtime. ",
+        "The extent of the circular buffer axis is ",
+        runtime_axis_size,
+        " while ",
+        cb_tv->circularBufferDepth(),
+        " is the number of stages in the circular buffer.");
+  }
+}
+
 void validateVectorizedTensors(
     kir::Kernel* kernel,
     const KernelArgumentHolder& args,

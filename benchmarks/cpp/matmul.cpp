@@ -61,6 +61,8 @@ void setupMatmul(Fusion* fusion, MmaLayout layout, MatmulParams params) {
 
   fusion->addOutput(d);
 
+  preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(fusion);
+
   scheduleMatmul(fusion, params);
 }
 
@@ -161,8 +163,6 @@ static void SingleMatmulBase(
   // Define fusion graph
   setupMatmul(fusion, layout, params);
 
-  preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(fusion);
-
   KernelArgumentHolder args = KernelArgumentHolder::createKernelArgumentHolder(
       {inputs.first, inputs.second});
 
@@ -248,8 +248,9 @@ MatmulParams getMatmulParams(
   params.mma_macro = MmaMacro::Ampere_16_16_16;
   params.tile_sizes = gemm_tile;
   params.async_gmem_load_operands = true;
-  params.circular_buffer_options.circular_buffer_smem_write = true;
-  params.circular_buffer_options.circular_buffer_smem_read = true;
+  params.circular_buffer_options.circular_buffer_smem_write =
+      (stage_number > 1);
+  params.circular_buffer_options.circular_buffer_smem_read = (stage_number > 1);
   params.circular_buffer_options.smem_circular_buffer_stage = stage_number;
   params.splitk_factor = splitk_factor;
   std::tie(params.use_smem_epilogue, params.promote_prologue_smem_reuse) =
@@ -375,7 +376,6 @@ static void NvFuserScheduler_Matmul(
     bool partitionedk = false,
     bool use_smem_epilogue = false) {
   int num_warps = benchmark_state.range(3);
-  int number_of_stage = benchmark_state.range(4);
 
   auto cta_tile = GemmTile(32 * num_warps, 128, 32);
 
@@ -384,6 +384,9 @@ static void NvFuserScheduler_Matmul(
     int N = benchmark_state.range(1);
     splitk_factor = computeAutoSplitKFactor(M, N, cta_tile.m, cta_tile.n);
   }
+
+  int k_stages = ceilDiv(benchmark_state.range(2), cta_tile.k);
+  int number_of_stage = std::min(k_stages, (int)benchmark_state.range(4));
 
   auto params = getMatmulParams(
       cta_tile, number_of_stage, layout, partitionedk ? 1 : splitk_factor);

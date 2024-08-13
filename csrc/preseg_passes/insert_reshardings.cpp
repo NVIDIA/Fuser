@@ -22,8 +22,10 @@ namespace {
 // the outputs. Currently, we reshard the outputs when there is only one
 // input, otherwise we reshard the inputs. This heuristic should be smarter
 // and attempt to minimize communication.
+// We do no support resharding multi-output expressions. Fusions may contain
+// multi-output expressions if they don't require resharding.
 bool shouldReshardAfter(Expr* expr) {
-  return expr->inputs().size() == 1;
+  return expr->inputs().size() == 1 && expr->outputs().size() == 1;
 }
 
 void insertReshardingsBefore(Fusion* fusion) {
@@ -33,15 +35,25 @@ void insertReshardingsBefore(Fusion* fusion) {
     if (isLowerableToCommunication(expr) || shouldReshardAfter(expr)) {
       continue;
     }
-    NVF_ERROR(
-        ir_utils::isTvOp(expr),
-        "Non-tv op is not supported yet: ",
-        expr->toString());
-    NVF_ERROR(
-        expr->outputs().size() == 1,
-        "multi-output expressions are not supported");
 
-    auto output = expr->outputs().at(0)->as<TensorView>();
+    // Verify that multi-output expression requires no resharding.
+    if (expr->outputs().size() > 1) {
+      for (auto output : ir_utils::filterByType<TensorView>(expr->outputs())) {
+        for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
+          NVF_CHECK(
+              !haveDifferentShardings(input, output),
+              "Cannot handle resharding a multi-output expression ",
+              expr->toString());
+        }
+      }
+      continue;
+    }
+
+    if (!expr->output(0)->isA<TensorView>()) {
+      continue;
+    }
+    auto output = expr->output(0)->as<TensorView>();
+
     std::unordered_set<TensorView*> inputs;
     for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
       if (haveDifferentShardings(input, output)) {
@@ -76,15 +88,12 @@ void insertReshardingsAfter(Fusion* fusion) {
     if (isLowerableToCommunication(expr) || !shouldReshardAfter(expr)) {
       continue;
     }
-    NVF_ERROR(
-        ir_utils::isTvOp(expr),
-        "Non-tv op is not supported yet: ",
-        expr->toString());
-    NVF_ERROR(
-        expr->outputs().size() == 1,
-        "multi-output expressions are not supported");
 
-    auto output = expr->outputs().at(0)->as<TensorView>();
+    if (!expr->output(0)->isA<TensorView>()) {
+      continue;
+    }
+    auto output = expr->output(0)->as<TensorView>();
+
     std::unordered_set<TensorView*> inputs;
     for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
       if (haveDifferentShardings(input, output)) {

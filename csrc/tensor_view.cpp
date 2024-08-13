@@ -7,8 +7,8 @@
 // clang-format on
 #include <c10/util/irange.h>
 #include <compute_at.h>
+#include <device_lower/analysis/circular_buffer.h>
 #include <device_lower/lower2device.h>
-#include <device_lower/pass/circular_buffer.h>
 #include <exceptions.h>
 #include <fusion.h>
 #include <inlining.h>
@@ -460,6 +460,15 @@ void TensorView::clearComputeWith() {
 
   // compute_with_consumers_ should still be empty
   NVF_ERROR(compute_with_consumers_.empty());
+}
+
+TensorView* TensorView::broadcast(int64_t axis, int64_t extent) {
+  return broadcast(axis, IrBuilder::create<Val>(extent, DataType::Index));
+}
+
+TensorView* TensorView::broadcast(int64_t axis, Val* extent) {
+  domain()->broadcast(axis, extent);
+  return this;
 }
 
 TensorView* TensorView::split(int64_t axis, Val* factor, bool inner_split) {
@@ -1300,18 +1309,12 @@ bool TensorView::isEmptyTensor() const {
 
 void TensorView::applyMmaSwizzle(MmaOperand operand) {
   switch (operand) {
-    case MmaOperand::Accumulator:
-      mma_utils::WarpMmaSwizzler::scheduleMmaWarpOutput(this);
-      if (definition()->isA<MmaOp>()) {
-        setAllocationDomain(getLoopDomain(), true);
-      }
-      break;
     case MmaOperand::A:
     case MmaOperand::B:
-      mma_utils::WarpMmaSwizzler::scheduleOperandRead(this, operand);
+      mma_utils::MmaSwizzler::scheduleOperandRead(this, operand);
       if (ir_utils::isLdMatrixOp(definition())) {
         setAllocationDomain(getLoopDomain(), true);
-        mma_utils::WarpMmaSwizzler::scheduleLdMatrix(this, operand);
+        mma_utils::MmaSwizzler::scheduleLdMatrix(this, operand);
       }
       break;
     default:
@@ -1324,7 +1327,7 @@ void TensorView::applyMmaSwizzle(MmaInputSmemSwizzle swizzle) {
   NVF_ERROR(
       getMemoryType() == MemoryType::Shared,
       "Shared memory swizzle is only supported for shared memory");
-  mma_utils::WarpMmaSwizzler::scheduleOperandRead(this, swizzle);
+  mma_utils::MmaSwizzler::scheduleOperandRead(this, swizzle);
 }
 
 void TensorView::swizzleTMABox(MmaInputSmemSwizzle swizzle) {
@@ -1366,7 +1369,7 @@ void TensorView::applyMmaSwizzleForTMALoad(
       definition()->as<LoadStoreOp>()->opType() ==
           LoadStoreOpType::CpAsyncBulkTensorTile,
       "Operation requires a TMA operation");
-  mma_utils::WarpMmaSwizzler::scheduleTMALoadForMma(
+  mma_utils::MmaSwizzler::scheduleTMALoadForMma(
       this, swizzle, permute_outer_dim);
 }
 

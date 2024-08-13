@@ -390,6 +390,14 @@ class PredicateInfo {
     return predicated_domains_;
   }
 
+  const auto& loopDomains() const {
+    return loop_domains_;
+  }
+
+  CircularBufferLoopStage loopStage() const {
+    return loop_stage_;
+  }
+
   //! Return a false RootPredicateInfo, i.e., both start and stop
   //! predicates are false.
   static PredicateInfo getFalseInfo();
@@ -405,6 +413,10 @@ class PredicateInfo {
   Val* stop_offset_ = nullptr;
   // Track which domains are covered by the generated predicates
   std::unordered_set<IterDomain*> predicated_domains_;
+  // Loops domains used for the predicate domains
+  std::unordered_set<IterDomain*> loop_domains_;
+  // Circular buffer loop stage if applicable
+  CircularBufferLoopStage loop_stage_ = CircularBufferLoopStage::NotApplicable;
 };
 
 // Simple interface for IndexCompute
@@ -617,5 +629,23 @@ void ensureStaticIndexing(
     ForLoop* alloc_loop,
     const std::vector<ForLoop*>& loops,
     const std::unordered_map<IterDomain*, IterDomain*>& id_map = {});
+
+struct PredicateDomainInfo {
+ public:
+  // Iteration domain to predicate
+  IterDomain* id = nullptr;
+  // The set of iteration domains that make up the id. If this is for
+  // a non-divisible split, the set only contains the id itself. This
+  // set is used to remove redundant predicates when gathering
+  // unswitch predicates.
+  std::unordered_set<IterDomain*> covered_ids;
+  // True if this predicate is for an intermediate domain. Examples
+  // include domains with non-divisible split and resized domains.
+  bool is_intermediate_domain = false;
+};
+
+// Get all domains that need to be predicated due to non-divisible splits
+std::vector<PredicateDomainInfo> getNonDivisibleConsumerDomainsToPredicate(
+    TensorView* consumer_tv);
 
 } // namespace nvfuser
