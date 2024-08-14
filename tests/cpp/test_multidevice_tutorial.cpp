@@ -668,7 +668,7 @@ TEST_F(MultiDeviceTutorial, HostIrLaunchingFusion) {
   // loss of generality) that the fusion has one input and one output which are
   // both a 2D tensor.
   constexpr int64_t kNDims = 2;
-  auto CreateFusion = [kNDims]() -> std::unique_ptr<Fusion> {
+  auto CreateFusion = []() -> std::unique_ptr<Fusion> {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
     TensorView* tv0 = makeSymbolicTensor(kNDims);
@@ -751,7 +751,7 @@ TEST_F(MultiDeviceTutorial, HostIrLaunchingThreeFusions) {
   // loss of generality) that the fusion has one input and one output which are
   // both a 2D tensor.
   constexpr int64_t kNDims = 2;
-  auto CreateFusion0 = [kNDims]() -> std::unique_ptr<Fusion> {
+  auto CreateFusion0 = []() -> std::unique_ptr<Fusion> {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
     TensorView* tv0 = makeSymbolicTensor(kNDims);
@@ -762,7 +762,7 @@ TEST_F(MultiDeviceTutorial, HostIrLaunchingThreeFusions) {
     fusion->addOutput(tv2);
     return fusion;
   };
-  auto CreateFusion1 = [kNDims]() -> std::unique_ptr<Fusion> {
+  auto CreateFusion1 = []() -> std::unique_ptr<Fusion> {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
     TensorView* tv1 = makeSymbolicTensor(kNDims);
@@ -771,7 +771,7 @@ TEST_F(MultiDeviceTutorial, HostIrLaunchingThreeFusions) {
     fusion->addOutput(tv3);
     return fusion;
   };
-  auto CreateFusion2 = [kNDims]() -> std::unique_ptr<Fusion> {
+  auto CreateFusion2 = []() -> std::unique_ptr<Fusion> {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
     TensorView* tv2 = makeSymbolicTensor(kNDims);
@@ -992,7 +992,7 @@ TEST_F(MultiDeviceTutorial, HostIrKernekPipelining) {
   constexpr int64_t kPipelineAxis = 0;
   constexpr int64_t kNumberOfStreams = 4;
 
-  auto CreateFusion0 = [kNDims]() -> std::unique_ptr<Fusion> {
+  auto CreateFusion0 = []() -> std::unique_ptr<Fusion> {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
     TensorView* tv0 = makeSymbolicTensor(
@@ -1002,7 +1002,7 @@ TEST_F(MultiDeviceTutorial, HostIrKernekPipelining) {
     fusion->addOutput(tv1);
     return fusion;
   };
-  auto CreateFusion1 = [kNDims]() -> std::unique_ptr<Fusion> {
+  auto CreateFusion1 = []() -> std::unique_ptr<Fusion> {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
     TensorView* tv1 = makeSymbolicTensor(
