@@ -716,7 +716,7 @@ TEST_F(MultiDeviceTutorial, HostIrLaunchingFusion) {
     HostUnit0: [...]
     } // %HostIrContainer
     */
-    //  clang-format on
+    // clang-format on
     //  the "[...]" contains the result of Fusion::printMath(), which we omit
     //  here.
   }
@@ -733,8 +733,9 @@ TEST_F(MultiDeviceTutorial, HostIrLaunchingFusion) {
   GTEST_EXPECT_TRUE(torch::allclose(2 * aten_input + 1, outputs.at(0)));
 }
 
-
-// Let us now present a case where the host program consists of launching three fusions, with a non-linear dependency between the respective I/O. The host program could be illustrated as follows:
+// Let us now present a case where the host program consists of launching three
+// fusions, with a non-linear dependency between the respective I/O. The host
+// program could be illustrated as follows:
 /*
   | tv0: input
   | (tv1, tv2) = Fusion0 (tv0)
@@ -749,7 +750,7 @@ TEST_F(MultiDeviceTutorial, HostIrLaunchingThreeFusions) {
   // loss of generality) that the fusion has one input and one output which are
   // both a 2D tensor.
   constexpr int64_t nDims = 2;
-  auto CreateFusion0 = [nDims] () -> std::unique_ptr<Fusion> {
+  auto CreateFusion0 = [nDims]() -> std::unique_ptr<Fusion> {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
     TensorView* tv0 = makeSymbolicTensor(nDims);
@@ -760,7 +761,7 @@ TEST_F(MultiDeviceTutorial, HostIrLaunchingThreeFusions) {
     fusion->addOutput(tv2);
     return fusion;
   };
-  auto CreateFusion1 = [nDims] () -> std::unique_ptr<Fusion> {
+  auto CreateFusion1 = [nDims]() -> std::unique_ptr<Fusion> {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
     TensorView* tv1 = makeSymbolicTensor(nDims);
@@ -769,7 +770,7 @@ TEST_F(MultiDeviceTutorial, HostIrLaunchingThreeFusions) {
     fusion->addOutput(tv3);
     return fusion;
   };
-  auto CreateFusion2 = [nDims] () -> std::unique_ptr<Fusion> {
+  auto CreateFusion2 = [nDims]() -> std::unique_ptr<Fusion> {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
     TensorView* tv2 = makeSymbolicTensor(nDims);
@@ -802,14 +803,14 @@ TEST_F(MultiDeviceTutorial, HostIrLaunchingThreeFusions) {
   auto post_fusion0 = IrBuilder::create<PostOnStream>(
       fusion0,
       /*inputs=*/std::vector<Val*>({tv0}),
-      /*outputs=*/std::vector<Val*>({tv1,tv2}));
+      /*outputs=*/std::vector<Val*>({tv1, tv2}));
   auto post_fusion1 = IrBuilder::create<PostOnStream>(
       fusion1,
       /*inputs=*/std::vector<Val*>({tv1}),
       /*outputs=*/std::vector<Val*>({tv3}));
   auto post_fusion2 = IrBuilder::create<PostOnStream>(
       fusion2,
-      /*inputs=*/std::vector<Val*>({tv2,tv3}),
+      /*inputs=*/std::vector<Val*>({tv2, tv3}),
       /*outputs=*/std::vector<Val*>({tv4}));
   // Note that the same host unit can be reused multiple times
   auto post_fusion1_bis = IrBuilder::create<PostOnStream>(
@@ -842,7 +843,7 @@ TEST_F(MultiDeviceTutorial, HostIrLaunchingThreeFusions) {
     HostUnit0: [...]
     } // %HostIrContainer
     */
-    //  clang-format on
+    // clang-format on
     //  the "[...]" contains the result of Fusion::printMath(), which we omit
     //  here.
   }
@@ -859,8 +860,10 @@ TEST_F(MultiDeviceTutorial, HostIrLaunchingThreeFusions) {
   GTEST_EXPECT_TRUE(torch::allclose(4 * aten_tv0 + 5, outputs.at(0)));
 }
 
-
-// Let us now present a real world scenario, used in transformer, where we need to execute a matmul followed by a Reduce-Scatter MPI collective. This is the first example we provide where host IRs are used in a multidevice setting. The host program can be summarized as follows:
+// Let us now present a real world scenario, used in transformer, where we need
+// to execute a matmul followed by a Reduce-Scatter MPI collective. This is the
+// first example we provide where host IRs are used in a multidevice setting.
+// The host program can be summarized as follows:
 /*
   | tva, tvb: inputs
   | tvc = Matmul(tva, tvb)
@@ -869,8 +872,8 @@ TEST_F(MultiDeviceTutorial, HostIrLaunchingThreeFusions) {
   | tvd: output
 */
 // here, all the tensors are implicitely sharded tensors accross devices.
-// `Matmul` and MPI-collectives are Host IRs that can be used directly in the host program.
-
+// `Matmul` and MPI-collectives are Host IRs that can be used directly in the
+// host program.
 TEST_F(MultiDeviceTutorial, HostIrGemmReduceScatter) {
   // Instantiate an HostIrContainer
   auto hic = std::make_unique<HostIrContainer>();
@@ -879,12 +882,15 @@ TEST_F(MultiDeviceTutorial, HostIrGemmReduceScatter) {
   constexpr int64_t nDims = 2;
   TensorView* tva = makeSymbolicTensor(nDims);
   TensorView* tvb = makeSymbolicTensor(nDims);
-  // some ops, like MatMulOp are natively supported as HostIrs, and do not need to be implemented as a Fusion
+  // some ops, like MatMulOp are natively supported as HostIrs, and do not need
+  // to be implemented as a Fusion
   TensorView* tvc = matmul(tva, tvb);
   Expr* matmul_op = tvc->definition();
 
   TensorView* tvd = makeSymbolicTensor(nDims);
-  // Before defining the communication (reduce-scatter) that produces tvd from tvc, it is required to set tvd and tvc device mesh (this might be removed in the future)
+  // Before defining the communication (reduce-scatter) that produces tvd from
+  // tvc, it is required to set tvd and tvc device mesh (this might be removed
+  // in the future)
   std::vector<int64_t> all_devices(communicator_->size());
   std::iota(
       all_devices.begin(),
@@ -895,15 +901,17 @@ TEST_F(MultiDeviceTutorial, HostIrGemmReduceScatter) {
   tvd->setDeviceMesh(mesh_full);
 
   auto* reduce_scatter = IrBuilder::create<Communication>(
-    CommunicationType::ReduceScatter,
-    /*out=*/tvd,
-    /*in=*/tvc,
-    /*team=*/all_devices,
-    /*(unused)root=*/-1,
-    RedOpType::SUM,
-    /*scattered_axis=*/0);
+      CommunicationType::ReduceScatter,
+      /*out=*/tvd,
+      /*in=*/tvc,
+      /*team=*/all_devices,
+      /*(unused)root=*/-1,
+      RedOpType::SUM,
+      /*scattered_axis=*/0);
 
-  // Since communications are non-blocking, it is always required to wait for a posted communication. Node that "wait" blocks the stream but not the CPU (except for barrier)
+  // Since communications are non-blocking, it is always required to wait for a
+  // posted communication. Node that "wait" blocks the stream but not the CPU
+  // (except for barrier)
   auto* wait = IrBuilder::create<hir::Wait>(reduce_scatter);
 
   // Let us create the host program and the I/O
@@ -913,7 +921,8 @@ TEST_F(MultiDeviceTutorial, HostIrGemmReduceScatter) {
 
   hic->addInput(tva);
   hic->addInput(tvb);
-  hic->addInput(tvd); // a buffer must be provided for tvd, this is why it is tagged as an input
+  hic->addInput(tvd); // a buffer must be provided for tvd, this is why it is
+                      // tagged as an input
   hic->addOutput(tvd);
 
   if (verbose_ && communicator_->deviceId() == 0) {
@@ -929,26 +938,27 @@ TEST_F(MultiDeviceTutorial, HostIrGemmReduceScatter) {
       Wait Communication 1
     } // %HostIrContainer
     */
-    //  clang-format on
+    // clang-format on
   }
 
   // define a concrete input
   constexpr int64_t M = 1680;
   constexpr int64_t K = 16;
   constexpr int64_t N = 64;
-  ASSERT_EQ(M % communicator_->size(), 0) << "the test must be launched with a number of devices n that divides M=" << M << ", but we have n=" << communicator_->size();
+  ASSERT_EQ(M % communicator_->size(), 0)
+      << "the test must be launched with a number of devices n that divides M="
+      << M << ", but we have n=" << communicator_->size();
 
   auto options = at::TensorOptions().device(communicator_->device());
-  at::Tensor aten_tva =
-      at::randn({M, K}, options);
-  at::Tensor aten_tvb =
-      at::randn({K, N}, options);
-  at::Tensor aten_tvd =
-      at::empty({M / communicator_->size(), N}, options);
+  at::Tensor aten_tva = at::randn({M, K}, options);
+  at::Tensor aten_tvb = at::randn({K, N}, options);
+  at::Tensor aten_tvd = at::empty({M / communicator_->size(), N}, options);
 
-  // Let us now execute the Host program. When multidevice are requested, we need to pass a pointer to a Communicator
+  // Let us now execute the Host program. When multidevice is requested, we
+  // need to pass a pointer to a Communicator
   HostIrExecutor hie(std::move(hic), communicator_);
-  auto outputs = hie.runWithInput({{tva, aten_tva}, {tvb, aten_tvb}, {tvd, aten_tvd}});
+  auto outputs =
+      hie.runWithInput({{tva, aten_tva}, {tvb, aten_tvb}, {tvd, aten_tvd}});
 
   // "validate" the result
   EXPECT_EQ(outputs.at(0).numel(), (M * N) / communicator_->size());
