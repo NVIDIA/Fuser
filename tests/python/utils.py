@@ -135,7 +135,7 @@ def atexit_serde_check():
     FusionCache.reset()
 
 
-def serde_check(test_fn: Callable):
+def nvfusertest_serde_check(test_fn: Callable):
     """
     A decorator to verify that serialization works with the given exec_nvfuser
     function. Currently, it uses serialization to rebuild the FusionCache
@@ -194,7 +194,7 @@ class NVFuserTest(TestCase):
     # Helper function to verify the nvfuser output and make sure the string
     # definition based on the FusionDefinition is executable and matches the
     # original definition
-    @serde_check
+    @nvfusertest_serde_check
     def exec_nvfuser(
         self, fusion_func, inputs, *, new_fusion_expected=True, device=None
     ):
