@@ -72,7 +72,7 @@ TEST_P(CommunicationTest, Gather) {
   auto* in = makeContigTensor(2);
   in->setDeviceMesh(full_mesh_);
   auto* out = ops::newValLike(in, in->dtype())->as<TensorView>();
-  auto communication = IrBuilder::create<Communication>(
+  auto* communication = IrBuilder::create<Communication>(
       CommunicationType::Gather, out, in, all_ranks_, kRoot);
 
   at::Tensor input_tensor = at::empty({1, kTensorSize}, tensor_options);
