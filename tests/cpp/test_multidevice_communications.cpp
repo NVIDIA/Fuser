@@ -361,7 +361,7 @@ TEST_P(CommunicationTest, Allreduce) {
 TEST_P(CommunicationTest, ReduceScatter) {
   hir::HostIrContainer container;
   FusionGuard fg(&container);
-  auto* in = makeContigTensor(2);
+  auto* in = makeContigTensor(3);
   in->setDeviceMesh(full_mesh_);
   auto* out = newForReduction(in, {0});
   auto communication = IrBuilder::create<Communication>(
