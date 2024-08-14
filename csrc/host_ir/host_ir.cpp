@@ -102,13 +102,12 @@ std::string PostOnStream::toString(int indent_size) const {
   std::for_each(outputs().begin(), outputs().end(), [&ss](auto output) {
     ss << output->toString(0) << ", ";
   });
-  ss << "})";
+  ss << "})" << std::endl;
   return ss.str();
 }
 
-// TODO: implement better ?
 std::string PostOnStream::toInlineString(int indent_size) const {
-  return toString(indent_size);
+  NVF_CHECK(false, "Can not be printed inline");
 }
 
 // TODO: implement
@@ -160,13 +159,14 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(SetCurrentStream)
 
 std::string SetCurrentStream::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "SetCurrentStream to " << stream()->toString();
+  indent(ss, indent_size) << "SetCurrentStream to " << stream()->toString()
+                          << std::endl;
   return ss.str();
 }
 
 // TODO: implement better ?
 std::string SetCurrentStream::toInlineString(int indent_size) const {
-  return toString(indent_size);
+  NVF_CHECK(false, "Cannot be printed inline");
 }
 
 // TODO: implement
@@ -187,13 +187,13 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(Wait)
 std::string Wait::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "Wait Communication " << communication()->name()
-                          << "\n";
+                          << std::endl;
   return ss.str();
 }
 
 // TODO: implement better ?
 std::string Wait::toInlineString(int indent_size) const {
-  return toString(indent_size);
+  NVF_CHECK(false, "Cannot be printed inline");
 }
 
 // TODO: implement
