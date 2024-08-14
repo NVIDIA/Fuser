@@ -652,6 +652,15 @@ void initNvFuserPythonBindings(PyObject* module) {
             inst::Trace::instance()->endEvent(nullptr);
           })
       .def(
+          "_exist_schedule",
+          [](FusionDefinition& self, const py::iterable& iter) {
+            std::vector<c10::IValue> inputs;
+            for (py::handle obj : iter) {
+              inputs.push_back(torch::jit::toIValue(obj, c10::AnyType::get()));
+            }
+            self.existSchedule(inputs);
+          })
+      .def(
           "_setup_schedule",
           [](FusionDefinition& self, const py::iterable& iter) {
             // Instrumentation to mark the beginning of a schedule
@@ -2911,6 +2920,70 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("correction") = 1,
       py::arg("keepdim") = false,
       py::return_value_policy::reference);
+
+  nvf_ops.def(
+      "sdpfa_bwd",
+      [](FusionDefinition::Operators& self,
+         Tensor grad_output,
+         Tensor query,
+         Tensor key,
+         Tensor value,
+         Tensor output,
+         Tensor log_sumexp,
+         std::optional<Scalar> dropout_p,
+         std::optional<Scalar> is_causal,
+         Tensor philox_seed,
+         Tensor philox_offset,
+         std::optional<Scalar> scale) -> decltype(auto) {
+        FUSER_PERF_SCOPE("Operators.sdpfa_bwd");
+        NVF_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        size_t ndims = query.dims;
+        Tensor grad_query = fd->defineTensor(/*dims=*/ndims);
+        Tensor grad_key = fd->defineTensor(/*dims=*/ndims);
+        Tensor grad_value = fd->defineTensor(/*dims=*/ndims);
+
+        auto dropout_p_state = dropout_p.has_value()
+            ? fd->recordingState(dropout_p.value()())
+            : State(/*_index=*/0, /*_stype=*/serde::StateType::None);
+        auto is_causal_state = is_causal.has_value()
+            ? fd->recordingState(is_causal.value()())
+            : State(/*_index=*/0, /*_stype=*/serde::StateType::None);
+        auto scale_state = scale.has_value()
+            ? fd->recordingState(scale.value()())
+            : State(/*_index=*/0, /*_stype=*/serde::StateType::None);
+
+        fd->defineRecord(new SdpaBwdOpRecord(
+            {fd->recordingState(grad_output()),
+             fd->recordingState(query()),
+             fd->recordingState(key()),
+             fd->recordingState(value()),
+             fd->recordingState(output()),
+             fd->recordingState(log_sumexp()),
+             dropout_p_state,
+             is_causal_state,
+             fd->recordingState(philox_seed()),
+             fd->recordingState(philox_offset()),
+             scale_state},
+            {fd->recordingState(grad_query()),
+             fd->recordingState(grad_key()),
+             fd->recordingState(grad_value())}));
+        return std::make_tuple(grad_query, grad_key, grad_value);
+      },
+      py::arg("grad_output"),
+      py::arg("query"),
+      py::arg("key"),
+      py::arg("value"),
+      py::arg("output"),
+      py::arg("log_sumexp"),
+      py::arg("dropout_p").none(true) = py::none(),
+      py::arg("is_causal").none(true) = py::none(),
+      py::arg("philox_seed"),
+      py::arg("philox_offset"),
+      py::arg("scale").none(true) = py::none(),
+      py::return_value_policy::reference);
+
   nvf_ops.def(
       "sdpfa_fwd",
       [](FusionDefinition::Operators& self,

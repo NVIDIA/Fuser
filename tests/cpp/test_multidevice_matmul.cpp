@@ -63,9 +63,9 @@ TEST_F(DistributedMatmulTest, MulSum_LayoutTN_NoComms) {
   // MmaLayout::TN A(T), B(N), C(T)
   // A and C are sharded on dimension M
   // Tests local matmul with no communication
-  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  auto mesh = DeviceMesh::createForNumDevices(communicator_->size());
+  auto mesh = DeviceMesh::createForNumDevices(num_devices_);
   int M = 256, N = 64, K = 64;
   int Mo = num_devices_;
   int Mi = M / Mo;
@@ -129,9 +129,9 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutTN_NoComms) {
   // MmaLayout::TN A(T), B(N), C(T)
   // A and C are sharded on dimension M
   // Tests local matmul with no communication
-  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  auto mesh = DeviceMesh::createForNumDevices(communicator_->size());
+  auto mesh = DeviceMesh::createForNumDevices(num_devices_);
 
   int M = 256, N = 64, K = 64;
   int Mo = num_devices_;
@@ -198,9 +198,9 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutTN_Allgather) {
   // MmaLayout::TN matmul A(T), B(N), C(T)
   // A is sharded on dimension M
   // Tests local matmul + allgather
-  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  auto mesh = DeviceMesh::createForNumDevices(communicator_->size());
+  auto mesh = DeviceMesh::createForNumDevices(num_devices_);
 
   int M = 256, N = 64, K = 64;
   int Mo = num_devices_;
@@ -266,7 +266,7 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutNT_AllReduce) {
   // Tests local matmul + allreduce
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  auto mesh = DeviceMesh::createForNumDevices(communicator_->size());
+  auto mesh = DeviceMesh::createForNumDevices(num_devices_);
 
   int M = 128, N = 64, K = 128;
   int Ko = num_devices_, Ki = K / Ko;
@@ -325,7 +325,7 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutNT_ReduceScatter) {
   // Tests local matmul + reduce scatter
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  auto mesh = DeviceMesh::createForNumDevices(communicator_->size());
+  auto mesh = DeviceMesh::createForNumDevices(num_devices_);
 
   int M = 128, N = 64, K = 128;
   int Ko = num_devices_, Ki = K / Ko;
