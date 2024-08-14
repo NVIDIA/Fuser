@@ -4527,7 +4527,9 @@ class TestNvFuserFrontend(NVFuserTest):
                     )
                 torch.testing.assert_close(nvf_out[0], ref_out)
 
-    @unittest.skipIf(is_pre_ampere(), "Only supported on Ampere and newer devices.")
+    @pytest.mark.skipif(
+        is_pre_ampere(), reason="Only supported on Ampere and newer devices."
+    )
     def test_sdpa_bwd(self):
         N, H, L, S, E = 4, 8, 16, 16, 8
 
@@ -4695,6 +4697,9 @@ class TestNvFuserFrontend(NVFuserTest):
                 torch.testing.assert_close(nvf_out[1], ref_grad[1])
                 torch.testing.assert_close(nvf_out[2], ref_grad[2])
 
+    @pytest.mark.skipif(
+        is_pre_ampere(), reason="Only supported on Ampere and newer devices."
+    )
     def test_sdpa_fwd_bwd(self):
         N, H, L, S, E = 4, 8, 16, 16, 8
 
