@@ -93,8 +93,7 @@ NVF_API TensorView* binaryOp(
     TensorView* v2,
     const TypePromotionConfig& config);
 
-// Return a new TensorView based on tv but with all reduction axes' IterDomain
-// as Reduction
+// Return a new TensorView consistent with reducing `tv` on specified `axes`
 NVF_API TensorView* newForReduction(
     TensorView* tv,
     const std::vector<unsigned int>& axes,
