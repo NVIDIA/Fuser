@@ -533,7 +533,7 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
 
     if (current_compute_stage_ == nullptr) {
       current_compute_stage_ = IrBuilder::modExpr(
-          cloned_top_level_loop_->index(),
+          cloned_top_level_loop_->indexOrStartIfTrivial(),
           IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
       kir::Allocate* current_compute_stage_alloc =
           IrBuilder::create<kir::Allocate>(
@@ -549,7 +549,7 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
     if (current_load_stage_ == nullptr) {
       current_load_stage_ = IrBuilder::modExpr(
           IrBuilder::addExpr(
-              cloned_top_level_loop_->index(),
+              cloned_top_level_loop_->indexOrStartIfTrivial(),
               IrBuilder::subExpr(
                   IrBuilder::create<Val>(stage_depth, PrimDataType::Index),
                   IrBuilder::create<Val>(1L, PrimDataType::Index))),
@@ -1154,7 +1154,8 @@ class CircularBufferInserter : private kir::ExprMutator {
 
     // Exclude duplicating allocations if main loop is trivial
     std::unordered_set<Expr*> alloc_in_main;
-    getAllocInTrivialLoop(main_loop, alloc_in_main);
+    // TODO Disable for persistent kernels
+    // getAllocInTrivialLoop(main_loop, alloc_in_main);
 
     // Epilogue loop:
     //  - wait only

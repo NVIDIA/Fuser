@@ -4679,17 +4679,6 @@ Val* ForLoop::simplifiedStop() const {
 }
 
 bool ForLoop::isTrivial() const {
-  // TODO Indexing issue with circular buffering
-  //
-  // When the for loop is trivial, the start index is zero.
-  // During indexing, simplifying ir builder removes a zero addition.
-  // The loop index is replaced with an addition with (stage_depth-1) offset.
-  // This replacement fails because the loop index is removed by simplifying ir
-  // builder.
-  if (circularBufferLoopStage() == CircularBufferLoopStage::Main) {
-    return false;
-  }
-
   // These loops are not materialized
   if (vectorize() || iter_domain()->isBroadcast() ||
       iter_domain()->isStride() || iter_domain()->isMma() ||

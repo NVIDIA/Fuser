@@ -25,7 +25,14 @@ void IdGraphIndexCompute::handle(Split* split) {
   } else {
     auto outer_idx = getIndex(split->outer());
     auto inner_idx = getIndex(split->inner());
-    auto in_idx = SimplifyingIrBuilder::addExpr(
+    // TODO Indexing issue with circular buffering
+    //
+    // When the for loop is trivial, the start index is zero.
+    // During indexing, simplifying ir builder removes a zero addition.
+    // The loop index is replaced with an addition with (stage_depth-1) offset.
+    // This replacement fails because the loop index is removed by simplifying
+    // ir builder.
+    auto in_idx = IrBuilder::addExpr(
         SimplifyingIrBuilder::mulExpr(outer_idx, inner_extent), inner_idx);
     setIndex(split->in(), in_idx);
   }
