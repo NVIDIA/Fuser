@@ -3,8 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
 import re
-import torch
-from nvfuser import FusionDefinition, DataType
+from nvfuser import FusionDefinition, DataType  # noqa: F401
 
 
 def find_first_mismatch(str1, str2):
