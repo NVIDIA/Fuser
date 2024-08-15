@@ -5,10 +5,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <fusion.h>
 #include <gtest/gtest.h>
-#include <multidevice/executor.h>
-#include <multidevice/utils.h>
+
+#include <fusion.h>
+#include <kernel_cache.h>
 #include <ops/all_ops.h>
 #include <tests/cpp/multidevice.h>
 #include <tests/cpp/validator.h>
@@ -57,15 +57,10 @@ TEST_P(MultideviceShardingTest, UnshardedGlobalInput) {
   auto x1 = shardTensor(x0, tv1);
   auto x2 = x1 + x1;
   auto x3 = shardTensor(at::sum(x0 + x0, {sharded_dim}), tv3);
-  MultiDeviceExecutor runtime(std::move(fusion), *communicator_);
-  auto outputs = runtime.runWithInput(inputs);
-  testValidate(
-      runtime.completeFusion(),
-      outputs,
-      inputs,
-      {x1, x2, x3},
-      __LINE__,
-      __FILE__);
+  FusionExecutorCache fec(std::move(fusion));
+  auto outputs = fec.runFusionWithInputs(inputs);
+
+  testValidate(fec.fusion(), outputs, inputs, {x1, x2, x3}, __LINE__, __FILE__);
 }
 
 // Test memory allocation of multidevice fusion with sharded input
@@ -98,10 +93,9 @@ TEST_P(MultideviceShardingTest, ShardGlobalInput) {
   auto x1 = at::randn(unsharded_input_size, tensor_options);
   std::vector<c10::IValue> inputs = {shardTensor(x1, tv0)};
   auto x2 = x1 * 2;
-  MultiDeviceExecutor runtime(std::move(fusion), *communicator_);
-  auto outputs = runtime.runWithInput(inputs);
-  testValidate(
-      runtime.completeFusion(), outputs, inputs, {x1, x2}, __LINE__, __FILE__);
+  FusionExecutorCache fec(std::move(fusion));
+  auto outputs = fec.runFusionWithInputs(inputs);
+  testValidate(fec.fusion(), outputs, inputs, {x1, x2}, __LINE__, __FILE__);
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -145,11 +139,11 @@ TEST_F(MultideviceShardingTest, Slice) {
   auto expected_out = aten_x.split(4, 2);
   std::vector<c10::IValue> inputs = {{shardTensor(aten_x, x)}};
 
-  MultiDeviceExecutor runtime(std::move(fusion), *communicator_);
-  auto out = runtime.runWithInput(inputs);
+  FusionExecutorCache fec(std::move(fusion));
+  auto outputs = fec.runFusionWithInputs(inputs);
   testValidate(
-      runtime.completeFusion(),
-      out,
+      fec.fusion(),
+      outputs,
       inputs,
       {shardTensor(expected_out[0], x), shardTensor(expected_out[1], x)},
       __LINE__,
@@ -182,17 +176,12 @@ TEST_F(MultideviceShardingTest, LayerNorm) {
   auto aten_outputs =
       at::native_layer_norm(aten_x, norm_shape, aten_weight, aten_bias, kEps);
 
-  hir::HostIrExecutorParams executor_params{
-      .use_fusion_executor_cache = true,
-      .skip_auto_scheduling = false,
-      .cache_fusion_executor = false};
-  MultiDeviceExecutor runtime(
-      std::move(fusion), *communicator_, executor_params);
-  auto out = runtime.runWithInput({aten_x});
+  FusionExecutorCache fec(std::move(fusion));
+  auto outputs = fec.runFusionWithInputs({aten_x});
 
   testValidate(
-      runtime.completeFusion(),
-      out,
+      fec.fusion(),
+      outputs,
       {aten_x},
       {std::get<0>(aten_outputs),
        std::get<1>(aten_outputs),
