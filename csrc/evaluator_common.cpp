@@ -337,7 +337,7 @@ void PrecomputedValues::bindTensorMetaData(
     IterDomain* id = logical_domain[dim];
     auto dim_size = tensor.size(static_cast<int64_t>(dim));
     if (id->isDeviceDim()) {
-      dim_size = tv->getDeviceMesh().size();
+      dim_size = tv->getDeviceMesh().size(id->getParallelType());
     }
 
     if (id->hasExpandedExtent()) {

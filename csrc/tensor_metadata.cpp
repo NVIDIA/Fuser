@@ -331,8 +331,9 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> unshardedSizesAndStrides(
   std::vector<int64_t> unsharded_sizes(sizes.size());
   std::vector<int64_t> unsharded_strides(strides.size());
   for (const auto i : c10::irange(sizes.size())) {
-    if (tv->getLogicalDomain()[i]->isDeviceDim()) {
-      unsharded_sizes[i] = tv->getDeviceMesh().size();
+    IterDomain* id = tv->getLogicalDomain()[i];
+    if (id->isDeviceDim()) {
+      unsharded_sizes[i] = tv->getDeviceMesh().size(id->getParallelType());
       // This probably doesn't matter in practice unless a kernel accidentally
       // tries to access the data on another rank. To be safe, set the stride
       // to zero, analogous to an expanded broadcast dimension.
