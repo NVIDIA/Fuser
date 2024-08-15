@@ -86,14 +86,6 @@ class Communication : public Expr {
     return input(0)->as<TensorView>();
   }
 
-  const DeviceMesh& senderMesh() const {
-    return in()->getDeviceMesh();
-  }
-
-  const DeviceMesh& receiverMesh() const {
-    return out()->getDeviceMesh();
-  }
-
   const Team& team() const {
     return attribute<Team>(1);
   }
