@@ -52,7 +52,9 @@ struct RecordFunctor {
         outputs_(std::move(_outputs)),
         name_(std::move(_name)),
         record_type_(_record_type),
-        inline_def_(_inline_def && !isOptionDisabled(DisableOption::PythonInlineDefinitions)) {
+        inline_def_(
+            _inline_def &&
+            !isOptionDisabled(DisableOption::PythonInlineDefinitions)) {
     // Set this Record as the parent of each output
     for (auto& out : outputs_) {
       out.parent = this;
@@ -156,7 +158,9 @@ struct RecordFunctor {
   //! The base print function when printing Record for a given FusionState
   //! in python formated code.
   virtual void print(std::ostream& os, bool close_function = true) const {
-    NVF_ERROR(!inline_def_, "The default print function does not handle inline definitions!");
+    NVF_ERROR(
+        !inline_def_,
+        "The default print function does not handle inline definitions!");
     bool first_output = true;
     for (auto& output : outputs_) {
       if (first_output) {
@@ -1852,12 +1856,18 @@ struct ScalarRecord : RecordFunctor {
 
   void print(std::ostream& os, bool close_function = true) const final {
     if (inline_def_) {
-      NVF_CHECK(value_.hasValue(), "Only ScalarRecords with values support inline definitions!");
+      NVF_CHECK(
+          value_.hasValue(),
+          "Only ScalarRecords with values support inline definitions!");
       if (value_.is<bool>()) {
-        NVF_CHECK(dtype_ == PrimDataType::Bool, "A ScalarRecord for Bool inline definition not have a matching data type!");
+        NVF_CHECK(
+            dtype_ == PrimDataType::Bool,
+            "A ScalarRecord for Bool inline definition not have a matching data type!");
         os << ((bool)value_ ? "True" : "False");
       } else if (value_.is<double>()) {
-        NVF_CHECK(dtype_ == PrimDataType::Double, "A ScalarRecord for Double inline definition not have a matching data type!");
+        NVF_CHECK(
+            dtype_ == PrimDataType::Double,
+            "A ScalarRecord for Double inline definition not have a matching data type!");
         if (std::isinf(value_.as<double>())) {
           if (std::signbit(value_.as<double>())) {
             os << "float(\"-inf\")";
@@ -1870,10 +1880,14 @@ struct ScalarRecord : RecordFunctor {
           os << std::showpoint << value_.as<double>();
         }
       } else if (value_.is<int64_t>()) {
-        NVF_CHECK(dtype_ == PrimDataType::Int, "A ScalarRecord for Int inline definition not have a matching data type!");
+        NVF_CHECK(
+            dtype_ == PrimDataType::Int,
+            "A ScalarRecord for Int inline definition not have a matching data type!");
         os << value_;
       } else {
-        NVF_ERROR(false, "A ScalarRecord with an unsupported inline definition type!");
+        NVF_ERROR(
+            false,
+            "A ScalarRecord with an unsupported inline definition type!");
       }
     } else {
       RecordFunctor::print(os, false);
@@ -1904,9 +1918,9 @@ struct ScalarRecord : RecordFunctor {
       } else {
         os << "None";
       }
-     
+
       os << ", dtype=" << dtypeToPyString(dtype_);
-     
+
       if (close_function) {
         os << ")";
       }

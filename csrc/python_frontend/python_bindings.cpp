@@ -39,7 +39,10 @@ namespace nvfuser::python_frontend {
 // bindings. Ideally, these would be templated lambda functions but those
 // are not available without C++20.
 namespace {
-Vector define_vector_base_fn(FusionDefinition& fd, std::vector<Scalar>& args, bool inline_def = false) {
+Vector define_vector_base_fn(
+    FusionDefinition& fd,
+    std::vector<Scalar>& args,
+    bool inline_def = false) {
   FUSER_PERF_SCOPE("python_frontend::define_vector_base_fn");
   NVF_CHECK(!fd.completed(), "Attempting to add to a completed definition!");
   std::vector<State> inputs;
@@ -48,8 +51,8 @@ Vector define_vector_base_fn(FusionDefinition& fd, std::vector<Scalar>& args, bo
     inputs.push_back(fd.recordingState(arg()));
   }
   Vector out = fd.defineVector(inputs.size());
-  fd.defineRecord(
-      new VectorRecord(inputs, {fd.recordingState(out())}, DataType::Int, inline_def));
+  fd.defineRecord(new VectorRecord(
+      inputs, {fd.recordingState(out())}, DataType::Int, inline_def));
   return out;
 }
 
@@ -73,7 +76,10 @@ Vector define_vector_fn(
           " was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1).");
       Scalar out = self.defineScalar();
       self.defineRecord(new ScalarRecord(
-          {self.recordingState(out())}, py::cast<int64_t>(item), DataType::Int, true));
+          {self.recordingState(out())},
+          py::cast<int64_t>(item),
+          DataType::Int,
+          true));
       args.emplace_back(out);
     } else if (py::isinstance<Scalar>(item)) {
       args.emplace_back(py::cast<Scalar>(item));

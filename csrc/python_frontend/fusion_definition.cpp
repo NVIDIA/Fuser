@@ -268,7 +268,7 @@ void FusionDefinition::print(std::ostream& os) const {
   os << "(fd : FusionDefinition) -> None :\n";
   os << std::dec;
   for (auto& rec : recording_) {
-   // Skip inline defined records
+    // Skip inline defined records
     if (!rec.get()->inlineDef()) {
       os << "    ";
       rec->print(os);
