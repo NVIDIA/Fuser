@@ -43,7 +43,7 @@ from .core import run_benchmark, clear_cuda_cache
 import torch
 
 
-def create_transformer_forward(fd: FusionDefinition) -> None:
+def transformer_forward_fusion(fd: FusionDefinition) -> None:
     T0 = fd.define_tensor(
         shape=[1, -1, -1],
         contiguity=[None, True, True],
@@ -339,48 +339,48 @@ def test_transformer_forward(
     clear_cuda_cache()
 
     with FusionDefinition() as fd:
-        create_transformer_forward(fd)
+        transformer_forward_fusion(fd)
 
     inputs = [
-        torch.randn((25165824,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+        torch.randn(25165824, dtype=torch.bfloat16, device="cuda:0").as_strided(
             (1, 2048, 12288), (25165824, 12288, 1)
         ),
-        torch.randn((12288,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+        torch.randn(12288, dtype=torch.bfloat16, device="cuda:0").as_strided(
             (12288,), (1,)
         ),
-        torch.randn((12288,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+        torch.randn(12288, dtype=torch.bfloat16, device="cuda:0").as_strided(
             (12288,), (1,)
         ),
-        torch.randn((452984832,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+        torch.randn(452984832, dtype=torch.bfloat16, device="cuda:0").as_strided(
             (36864, 12288), (12288, 1)
         ),
-        torch.randn((36864,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+        torch.randn(36864, dtype=torch.bfloat16, device="cuda:0").as_strided(
             (36864,), (1,)
         ),
-        torch.randn((150994944,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+        torch.randn(150994944, dtype=torch.bfloat16, device="cuda:0").as_strided(
             (12288, 12288), (12288, 1)
         ),
-        torch.randn((12288,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+        torch.randn(12288, dtype=torch.bfloat16, device="cuda:0").as_strided(
             (12288,), (1,)
         ),
         29,
         203641485758702,
-        torch.randn((12288,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+        torch.randn(12288, dtype=torch.bfloat16, device="cuda:0").as_strided(
             (12288,), (1,)
         ),
-        torch.randn((12288,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+        torch.randn(12288, dtype=torch.bfloat16, device="cuda:0").as_strided(
             (12288,), (1,)
         ),
-        torch.randn((603979776,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+        torch.randn(603979776, dtype=torch.bfloat16, device="cuda:0").as_strided(
             (49152, 12288), (12288, 1)
         ),
-        torch.randn((49152,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+        torch.randn(49152, dtype=torch.bfloat16, device="cuda:0").as_strided(
             (49152,), (1,)
         ),
-        torch.randn((603979776,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+        torch.randn(603979776, dtype=torch.bfloat16, device="cuda:0").as_strided(
             (12288, 49152), (49152, 1)
         ),
-        torch.randn((12288,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+        torch.randn(12288, dtype=torch.bfloat16, device="cuda:0").as_strided(
             (12288,), (1,)
         ),
         30,
@@ -391,7 +391,7 @@ def test_transformer_forward(
         run_benchmark(benchmark, fd.execute, inputs)
 
 
-def create_transformer_backward(fd: FusionDefinition) -> None:
+def transformer_backward_fusion(fd: FusionDefinition) -> None:
     T0 = fd.define_tensor(
         shape=[1, -1, -1],
         contiguity=[None, True, True],
@@ -1000,68 +1000,68 @@ def test_transformer_backward(
     clear_cuda_cache()
 
     with FusionDefinition() as fd:
-        create_transformer_backward(fd)
+        transformer_backward_fusion(fd)
 
     inputs = [
-        torch.randn((25165824,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+        torch.randn(25165824, dtype=torch.bfloat16, device="cuda:0").as_strided(
             (1, 2048, 12288), (25165824, 12288, 1)
         ),
-        torch.randn((2048,), dtype=torch.float32, device="cuda:0").as_strided(
+        torch.randn(2048, dtype=torch.float32, device="cuda:0").as_strided(
             (1, 2048), (2048, 1)
         ),
-        torch.randn((2048,), dtype=torch.float32, device="cuda:0").as_strided(
+        torch.randn(2048, dtype=torch.float32, device="cuda:0").as_strided(
             (1, 2048, 1), (2048, 1, 1)
         ),
-        torch.randn((12288,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+        torch.randn(12288, dtype=torch.bfloat16, device="cuda:0").as_strided(
             (12288,), (1,)
         ),
-        torch.randn((12288,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+        torch.randn(12288, dtype=torch.bfloat16, device="cuda:0").as_strided(
             (12288,), (1,)
         ),
-        torch.randn((452984832,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+        torch.randn(452984832, dtype=torch.bfloat16, device="cuda:0").as_strided(
             (36864, 12288), (12288, 1)
         ),
-        torch.randn((36864,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+        torch.randn(36864, dtype=torch.bfloat16, device="cuda:0").as_strided(
             (36864,), (1,)
         ),
-        torch.randn((25165824,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+        torch.randn(25165824, dtype=torch.bfloat16, device="cuda:0").as_strided(
             (1, 96, 2048, 128), (25165824, 128, 12288, 1)
         ),
-        torch.randn((150994944,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+        torch.randn(150994944, dtype=torch.bfloat16, device="cuda:0").as_strided(
             (12288, 12288), (12288, 1)
         ),
-        torch.randn((12288,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+        torch.randn(12288, dtype=torch.bfloat16, device="cuda:0").as_strided(
             (12288,), (1,)
         ),
         29,
         203641485758702,
-        torch.randn((2048,), dtype=torch.float32, device="cuda:0").as_strided(
+        torch.randn(2048, dtype=torch.float32, device="cuda:0").as_strided(
             (1, 2048), (2048, 1)
         ),
-        torch.randn((2048,), dtype=torch.float32, device="cuda:0").as_strided(
+        torch.randn(2048, dtype=torch.float32, device="cuda:0").as_strided(
             (1, 2048, 1), (2048, 1, 1)
         ),
-        torch.randn((12288,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+        torch.randn(12288, dtype=torch.bfloat16, device="cuda:0").as_strided(
             (12288,), (1,)
         ),
-        torch.randn((12288,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+        torch.randn(12288, dtype=torch.bfloat16, device="cuda:0").as_strided(
             (12288,), (1,)
         ),
-        torch.randn((603979776,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+        torch.randn(603979776, dtype=torch.bfloat16, device="cuda:0").as_strided(
             (49152, 12288), (12288, 1)
         ),
-        torch.randn((49152,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+        torch.randn(49152, dtype=torch.bfloat16, device="cuda:0").as_strided(
             (49152,), (1,)
         ),
         30,
         203641485758702,
-        torch.randn((25165824,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+        torch.randn(25165824, dtype=torch.bfloat16, device="cuda:0").as_strided(
             (1, 2048, 12288), (25165824, 12288, 1)
         ),
-        torch.randn((603979776,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+        torch.randn(603979776, dtype=torch.bfloat16, device="cuda:0").as_strided(
             (12288, 49152), (49152, 1)
         ),
-        torch.randn((196608,), dtype=torch.float32, device="cuda:0").as_strided(
+        torch.randn(196608, dtype=torch.float32, device="cuda:0").as_strided(
             (1, 96, 2048), (196608, 2048, 1)
         ),
         torch.randint(0, 10, (1,), dtype=torch.int64, device="cpu").as_strided((), ()),
