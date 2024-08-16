@@ -266,6 +266,7 @@ INSTANTIATE_TEST_SUITE_P(
     Bcast_sharded,
     PipelineTestTwoStages,
     testing::Combine(
+        // TODO(#2794): add back CommunicatorBackend::ucc
         testing::Values(CommunicatorBackend::nccl),
         testing::Values(mesh3, mesh4),
         testing::Values(mesh3, mesh4),
