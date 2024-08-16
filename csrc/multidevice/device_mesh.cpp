@@ -53,7 +53,7 @@ int64_t DeviceMesh::size(const ParallelType parallel_type) const {
   NVF_ERROR(
       parallel_type == ParallelType::DIDx,
       "We support only 1-D sharding for now.");
-  return vector_.size();
+  return size();
 }
 
 } // namespace nvfuser
