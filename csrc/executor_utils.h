@@ -13,6 +13,8 @@
 
 #include <cuda_runtime.h>
 
+#include <nvrtc.h>
+
 #include <torch/csrc/jit/ir/ir.h>
 
 #include <cuda_utils.h>
@@ -306,6 +308,32 @@ void queryTargetGPUVersion(
     int64_t& major,
     int64_t& minor,
     bool& compile_to_sass);
+
+//! Utility class to invoke nvrtcCompileProgram. Mainly for setting up
+//! the c-str options.
+class NvrtcCompileDriver {
+ public:
+  void setOption(const std::string& opt) {
+    options_.push_back(opt);
+  }
+
+  const std::vector<std::string>& options() const {
+    return options_;
+  }
+
+  std::string invoke(nvrtcProgram program, const std::string& src) const;
+
+ private:
+  // Get options that can be passed to nvrtcCompileProgram
+  std::vector<const char*> getOptions() const;
+
+  std::vector<std::string> options_;
+};
+
+void createNvrtcProgram(
+    nvrtcProgram& program,
+    const std::string& id,
+    const std::string& full_src_code);
 
 } // namespace executor_utils
 } // namespace nvfuser

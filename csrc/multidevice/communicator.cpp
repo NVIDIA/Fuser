@@ -289,7 +289,9 @@ void Communicator::barrier(std::optional<CommunicatorBackend> backend) {
   // CPU properly:
   // https://github.com/pytorch/pytorch/blob/7e4329c258306cc14303895e5f1e6036b009e74f/torch/csrc/distributed/c10d/ProcessGroupNCCL.cpp#L3905-L3912.
   c10d::BarrierOptions options{.device_ids = {local_rank()}};
+  std::cerr << "[" << local_rank() << "] enters barrier" << std::endl;
   getWorld(backend)->barrier(options)->wait();
+  std::cerr << "[" << local_rank() << "] exits barrier" << std::endl;
 }
 
 } // namespace nvfuser

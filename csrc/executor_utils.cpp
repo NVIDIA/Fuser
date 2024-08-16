@@ -411,8 +411,6 @@ void validateAlignedVectorizeExtents(
   //     info.word_size);
 }
 
-namespace {
-
 // Return offsets of the first points accessed as well as sliced root
 // domains. Currently only non-zero when tensor is sliced.
 std::pair<std::unordered_set<size_t>, std::unordered_set<IterDomain*>>
@@ -466,8 +464,6 @@ getTensorOffsets(
 
   return std::make_pair(offsets, sliced_domains);
 }
-
-} // namespace
 
 void validateAlignedVectorizedFusionInputOutput(
     const at::Tensor& aten_tensor,
@@ -730,6 +726,47 @@ ExpressionEvaluator bindInputs(
   return expr_eval;
 }
 
+std::string NvrtcCompileDriver::invoke(
+    nvrtcProgram program,
+    const std::string& src) const {
+  FUSER_PERF_SCOPE("executor_utils::Nvrtc::CompileProgram");
+  auto opts = getOptions();
+  auto result =
+      nvrtcCompileProgram(program, static_cast<int>(opts.size()), opts.data());
+  size_t logsize = 0;
+  NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLogSize(program, &logsize));
+  // The log size, as returned by 'nvrtcGetProgramLogSize', appears larger
+  // than its actual size by 2. This discrepancy was noticed in NVRTC
+  // version 12.1. The log returned from 'nvrtcGetProgramLog' terminates with
+  // a NULL character, ensuring it's safe to use 'std::vector<char>' for
+  // storage before converting it to 'std::string'.
+  std::vector<char> log_backing_buf(logsize);
+  char* log_buf = log_backing_buf.data();
+  NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLog(program, log_buf));
+  if (result != NVRTC_SUCCESS) {
+    // Print CUDA starting at first global function
+    size_t kernel_start = src.find("__global__");
+    NVF_ERROR(
+        false,
+        "\n",
+        src.substr(kernel_start),
+        "\nCUDA NVRTC compile error: ",
+        log_buf);
+  }
+  if (isDebugDumpEnabled(DebugDumpOption::PrintPtxasLog)) {
+    debug() << log_buf << std::endl;
+  }
+  return std::string(log_buf);
+}
+
+std::vector<const char*> NvrtcCompileDriver::getOptions() const {
+  std::vector<const char*> opts(options_.size());
+  for (const auto i : c10::irange(options_.size())) {
+    opts.at(i) = options_.at(i).c_str();
+  }
+  return opts;
+}
+
 namespace {
 
 std::vector<char> compileNvrtcProgramToPtx(const nvrtcProgram& program) {
@@ -814,63 +851,6 @@ std::optional<int64_t> getMaxRegCount(
     return std::optional<int64_t>();
   }
 }
-
-//! Utility class to invoke nvrtcCompileProgram. Mainly for setting up
-//! the c-str options.
-class NvrtcCompileDriver {
- public:
-  void setOption(const std::string& opt) {
-    options_.push_back(opt);
-  }
-
-  const std::vector<std::string>& options() const {
-    return options_;
-  }
-
-  std::string invoke(nvrtcProgram program, const std::string& src) const {
-    FUSER_PERF_SCOPE("executor_utils::Nvrtc::CompileProgram");
-    auto opts = getOptions();
-    auto result = nvrtcCompileProgram(
-        program, static_cast<int>(opts.size()), opts.data());
-    size_t logsize = 0;
-    NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLogSize(program, &logsize));
-    // The log size, as returned by 'nvrtcGetProgramLogSize', appears larger
-    // than its actual size by 2. This discrepancy was noticed in NVRTC
-    // version 12.1. The log returned from 'nvrtcGetProgramLog' terminates with
-    // a NULL character, ensuring it's safe to use 'std::vector<char>' for
-    // storage before converting it to 'std::string'.
-    std::vector<char> log_backing_buf(logsize);
-    char* log_buf = log_backing_buf.data();
-    NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLog(program, log_buf));
-    if (result != NVRTC_SUCCESS) {
-      // Print CUDA starting at first global function
-      size_t kernel_start = src.find("__global__");
-      NVF_ERROR(
-          false,
-          "\n",
-          src.substr(kernel_start),
-          "\nCUDA NVRTC compile error: ",
-          log_buf);
-    }
-    if (isDebugDumpEnabled(DebugDumpOption::PrintPtxasLog)) {
-      debug() << log_buf << std::endl;
-    }
-    return std::string(log_buf);
-  }
-
- private:
-  // Get options that can be passed to nvrtcCompileProgram
-  std::vector<const char*> getOptions() const {
-    std::vector<const char*> opts(options_.size());
-    for (const auto i : c10::irange(options_.size())) {
-      opts.at(i) = options_.at(i).c_str();
-    }
-    return opts;
-  }
-
- private:
-  std::vector<std::string> options_;
-};
 
 //! Utility class to invoke cuModuleLoadDataEx. Similar to
 //! NvrtcCompileDriver, the main task is to set up the option lists
