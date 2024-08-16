@@ -676,5 +676,9 @@ int64_t getSharedMemoryOverheadPerBlock(
 // Returns true if any Expr in `fusion` is resharding.
 bool isResharding(Fusion* fusion);
 
+void moveNonConcretizedBroadcastInnermost(
+    Fusion* fusion,
+    const std::unordered_set<TensorView*>& ignored_tvs = {});
+
 } // namespace scheduler_utils
 } // namespace nvfuser

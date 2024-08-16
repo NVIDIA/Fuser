@@ -11,6 +11,7 @@
 
 #include <contiguity.h>
 #include <expr_evaluator.h>
+#include <id_model/id_model.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
@@ -2538,6 +2539,61 @@ bool isResharding(Fusion* fusion) {
   const std::vector<Expr*>& exprs = fusion->exprs();
   return std::any_of(
       exprs.begin(), exprs.end(), [](Expr* e) { return isResharding(e); });
+}
+
+void moveNonConcretizedBroadcastInnermost(
+    Fusion* fusion,
+    const std::unordered_set<TensorView*>& ignored_tvs) {
+  if (getenv("OLD")) {
+    return;
+  }
+  IdModel id_model(fusion);
+  const auto& exact_model = id_model.idGraph(IdMappingMode::EXACT);
+  ValGroups ignored_groups;
+  for (auto ignored_tv : ignored_tvs) {
+    for (auto id : ignored_tv->domain()->allIDs()) {
+      if (id->isBroadcast()) {
+        ignored_groups.pushBack(exact_model.toGroup(id));
+      }
+    }
+  }
+  for (auto tv : ir_utils::allTvs(fusion)) {
+    std::vector<int64_t> broadcast_to_move;
+    for (const auto i : c10::irange(tv->getLoopDomain().size())) {
+      auto loop_id = tv->getLoopDomain().at(i);
+      if (!loop_id->isBroadcast()) {
+        continue;
+      }
+
+      const auto& id_group = exact_model.toGroup(loop_id);
+      if (ignored_groups.has(id_group)) {
+        continue;
+      }
+
+      if (std::any_of(id_group->begin(), id_group->end(), [](Val* id) -> bool {
+            return !id->as<IterDomain>()->isBroadcast();
+          })) {
+        continue;
+      }
+
+      // Found
+      broadcast_to_move.push_back((int64_t)i);
+    }
+
+    if (broadcast_to_move.empty()) {
+      continue;
+    }
+
+    std::unordered_map<int64_t, int64_t> old2new;
+    int64_t move_to_pos =
+        (int64_t)(tv->getLoopDomain().size() - broadcast_to_move.size());
+    for (const auto i : broadcast_to_move) {
+      old2new[i] = move_to_pos;
+      ++move_to_pos;
+    }
+
+    tv->reorder(old2new);
+  }
 }
 
 } // namespace scheduler_utils
