@@ -91,7 +91,7 @@ class FusionDefinition(_C._FusionDefinition):
                         sz += (szi - 1) * stri
                     if i.dtype.is_floating_point:
                         msg += (
-                            f"    torch.randn(({sz},), dtype={i.dtype}, device='{i.device}')"
+                            f"    torch.randn({sz}, dtype={i.dtype}, device='{i.device}')"
                             f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
                         )
                     else:
