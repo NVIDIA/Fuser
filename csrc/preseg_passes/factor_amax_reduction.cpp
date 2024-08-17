@@ -188,7 +188,7 @@ bool findReductionDefinition(TensorView* tv, BinaryOpType op_type) {
 // Detect amax pattern using a finite state machine.
 //
 // There are six states in FSM.
-// Start, Broadcast, Cast, Max-Reduction, Pass, Fail
+// Start, Broadcast, Cast, Max-Reduction, Abs, Fail
 //
 // Pass State: Abs
 // Fail States: Start, Invalid
