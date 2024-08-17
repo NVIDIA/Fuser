@@ -466,6 +466,7 @@ table RecordFunctor {
   name: string;
   type: RecordType;
   data: RecordData;
+  inline_def: bool;
 }
 
 // The trie node is represents a Node in the trie structure.
