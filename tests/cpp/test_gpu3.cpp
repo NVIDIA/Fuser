@@ -8466,6 +8466,9 @@ TEST_F(NVFuserTest, MultipleDifferentSizeGridReduction) {
   testValidate(&fusion, cg_outputs, inputs, __LINE__, __FILE__);
 }
 
+TEST_F(NVFuserTest, CITEST) {
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
