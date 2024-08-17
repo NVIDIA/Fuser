@@ -108,7 +108,6 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"cuda_to_file", DebugDumpOption::CudaToFile},
       {"debug_info", DebugDumpOption::DebugInfo},
       {"draw_segmented_fusion", DebugDumpOption::FusionSegmentsDrawing},
-      {"dump_eff_bandwidth", DebugDumpOption::EffectiveBandwidth},
       {"expr_simplify", DebugDumpOption::ExprSimplification},
       {"expr_sort", DebugDumpOption::ExprSort},
       {"expr_sort_verbose", DebugDumpOption::ExprSortVerbose},
@@ -171,6 +170,7 @@ std::unordered_map<DisableOption, std::vector<std::string>> Options<
     DisableOption>::getOptionsFromEnv() {
   const std::unordered_map<std::string, DisableOption> available_options = {
       {"compile_to_sass", DisableOption::CompileToSass},
+      {"contig_indexing", DisableOption::ContigIndexing},
       {"expr_simplify", DisableOption::ExprSimplify},
       {"fallback", DisableOption::Fallback},
       {"fma", DisableOption::Fma},

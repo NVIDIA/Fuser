@@ -372,7 +372,7 @@ void SegmentedGroup::finalize() {
 }
 
 std::ostream& operator<<(std::ostream& os, const SegmentedGroup* group) {
-  os << "g{";
+  os << toString(group->heuristic()) << "{";
   auto expr_to_print = group->exprs();
   std::sort(
       expr_to_print.begin(),
@@ -390,12 +390,11 @@ std::ostream& operator<<(std::ostream& os, const SegmentedGroup* group) {
   if (group->isMerged()) {
     os << " (merged)";
   }
-  os << "\n";
   return os;
 }
 
 void SegmentedGroup::print() const {
-  debug() << this << "\n";
+  debug() << this << std::endl;
 }
 
 bool SegmentedGroup::isFusionInputGroup() const {
@@ -410,12 +409,12 @@ std::string toString(const SegmentedGroup* group) {
 
 std::ostream& operator<<(std::ostream& os, const SegmentedEdge* edge) {
   os << "e{ " << edge->from << " -> " << edge->to << "("
-     << edge->val->toString() << ") }\n";
+     << edge->val->toString() << ") }";
   return os;
 }
 
 void SegmentedEdge::print() const {
-  debug() << this << "\n";
+  debug() << this << std::endl;
 }
 
 std::string toString(const SegmentedEdge* edge) {
@@ -1107,25 +1106,27 @@ void detailGroupPrint(std::ostream& os, const SegmentedGroup* group) {
   if (group->heuristic() != ScheduleHeuristic::None) {
     os << "(" << toString(group->heuristic()) << ")";
   }
-  os << "\n";
-  os << "inputs: \n";
+  os << std::endl;
+  os << "group id: " << group->groupId() << std::endl;
+  os << "inputs:" << std::endl;
   for (auto input : sort_val_by_name(getAllInputs(group))) {
-    os << input << " " << input->getDataType().value() << "\n";
+    indent(os, 1) << input << " " << input->getDataType().value() << std::endl;
   }
-  os << "outputs: \n";
+  os << "outputs:" << std::endl;
   for (auto output : sort_val_by_name(getAllOutputs(group))) {
-    os << output << " " << output->getDataType().value() << "\n";
+    indent(os, 1) << output << " " << output->getDataType().value()
+                  << std::endl;
   }
 
-  os << "\n\n";
+  os << std::endl << std::endl;
 
   auto expr_to_print = groupExprPrintSorting(group->exprs());
 
   for (const auto i : c10::irange(expr_to_print.size())) {
     os << expr_to_print[i]->toString();
-    os << "(" << expr_to_print[i]->name() << ")\n";
+    os << "(" << expr_to_print[i]->name() << ")" << std::endl;
   }
-  os << "}\n\n";
+  os << "}" << std::endl << std::endl;
 }
 
 //! Insert casts for an intermediate tensorview, i.e. ones
@@ -2495,7 +2496,7 @@ class FusionSegmentGuard : public NonCopyable {
     }
 
     for (auto new_out : new_outputs) {
-      fusion_->addOutput(new_out);
+      fusion_->addOutputInternal(new_out);
     }
   }
 
@@ -2523,7 +2524,7 @@ class FusionSegmentGuard : public NonCopyable {
     }
 
     for (auto old_out : old_outputs_) {
-      fusion_->addOutput(old_out);
+      fusion_->addOutputInternal(old_out);
     }
   }
 
@@ -3989,6 +3990,23 @@ UnaryOp* shouldForward(Val* v) {
   // group that ought to work in theory but doesn't work in practice with the
   // downstream logic. See #1813 for an example.
   if (unary_use->out()->isFusionOutput()) {
+    return nullptr;
+  }
+
+  // prevent forward to a SegmenterSet, which could cause unary op forward to a
+  // no-op segment. See issue: https://github.com/NVIDIA/Fuser/issues/2658
+  if (std::any_of(
+          unary_use->out()->uses().begin(),
+          unary_use->out()->uses().end(),
+          [](const Expr* next_use) {
+            if (const LoadStoreOp* use =
+                    dynamic_cast<const LoadStoreOp*>(next_use)) {
+              if (use->opType() == LoadStoreOpType::SegmenterSet) {
+                return true;
+              }
+            }
+            return false;
+          })) {
     return nullptr;
   }
 

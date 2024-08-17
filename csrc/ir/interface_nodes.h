@@ -282,6 +282,10 @@ class NVF_API TensorView : public Val {
       int64_t position,
       ComputeAtMode mode = ComputeAtMode::Standard);
 
+  //! Create a new broadcast IterDomain with the given extent in the loop domain
+  TensorView* broadcast(int64_t axis, int64_t extent = 1);
+  TensorView* broadcast(int64_t axis, Val* extent);
+
   // Split "axis" into 2 axes
   //! inner_split dictates if the factor section of the split should be inside
   //! the
@@ -405,9 +409,23 @@ class NVF_API TensorView : public Val {
   //!  this should be used on the tvs that are either inputs/outputs of an
   //!  MmaOp, or any tv's that are involved in prolog/epilog fusions and need to
   //!  have a matching thread swizzle with the mma operand/result.
-  //! More detail on usage see [WarpMmaSwizzler] in scheduler/mma_utils.h .
+  //! More detail on usage see [MmaSwizzler] in scheduler/mma_utils.h .
   void applyMmaSwizzle(MmaOperand operand);
   void applyMmaSwizzle(MmaInputSmemSwizzle swizzle);
+
+  //! Function to schedule the swizzled TMA box.
+  //! This functions works on the assumption that the TMA box is 2D
+  //! and the inner-dimension is less or equal to the swizzle size.
+  //! This doesn't work for the swizzle none mode. For more details
+  //! refer to the figure doc/dev/tma/swizzle.svg
+  void swizzleTMABox(MmaInputSmemSwizzle swizzle);
+
+  //! Transforms the innermost iterdomains according to the given mma swizzle,
+  //!  this should be used on the tvs that are inputs of a MmaOp or are loaded
+  //!  using TMA.
+  void applyMmaSwizzleForTMALoad(
+      MmaInputSmemSwizzle swizzle,
+      bool permute_outer_dim = true);
 
   //! Returns if this tensor view has swizzle operator on its tensor domain.
   //!  This is the temporary flag for indicating that the new swizzle

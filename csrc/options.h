@@ -56,8 +56,6 @@ enum class DebugDumpOption {
   GlobalZeroedMemory, //!< Print the log for zeroed global memory allocator
   HostIr, //!< Dump the Host IR program
   KernelArgs, //!< Print the runtime kernel arguments when launching kernels
-  EffectiveBandwidth, //! Measure kernel performance and print effective
-                      //! bandwidth
   FusionSegmentsDrawing, //!< Dump Segmented Fusion Graph
   PrintPtxasLog, //!< Print the ptxas verbose log including register usage
   BufferReuseInfo, //!< Dump the analysis details of local/shared buffer re-use
@@ -112,6 +110,7 @@ enum class EnableOption {
 enum class DisableOption {
   CompileToSass, //! Disable direct compilation to sass so the ptx can be
                  //! examined
+  ContigIndexing, //! Disable contiguous indexing
   ExprSimplify, //! Disable expression simplifier
   Fallback, //! Disable fallback
   Fma, //! Disable FMA instructions

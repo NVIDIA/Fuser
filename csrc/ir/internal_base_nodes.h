@@ -57,7 +57,6 @@ class IterDomainBuilder {
   IterDomainBuilder& is_rfactor_domain(bool _is_rfactor_domain);
   IterDomainBuilder& is_padded_dimension(bool _is_padded_dimension);
   IterDomainBuilder& padded_to_size(std::optional<int64_t> _padded_to_size);
-  IterDomainBuilder& is_mma_swizzled(bool _is_mma_swizzled);
 
   NVF_API IterDomain* build() const;
 
@@ -75,7 +74,6 @@ class IterDomainBuilder {
   bool is_rfactor_domain_ = false;
   bool is_padded_dimension_ = false;
   std::optional<int64_t> padded_to_size_ = std::nullopt;
-  bool is_mma_swizzled_ = false;
 };
 
 //! Simply a representation of an annotated 1D iterable from start to extent.
@@ -98,8 +96,7 @@ class NVF_API IterDomain : public Val {
       IterType iter_type,
       bool is_rfactor_domain,
       bool is_padded_dimension,
-      std::optional<int64_t> padded_to_size_,
-      bool is_mma_swizzled);
+      std::optional<int64_t> padded_to_size);
 
   IterDomain(const IterDomain* src, IrCloner* ir_cloner);
 
@@ -334,7 +331,7 @@ class NVF_API IterDomain : public Val {
   //! In the actual mma macros, the loopnests it implements is a
   //!  transformed version of above to match the mma swizzle.
   //!  So it's different implicit loopnest for different macros.
-  //!  WarpMmaSwizzler will label the instruction loops case-by-case.
+  //!  MmaSwizzler will label the instruction loops case-by-case.
   bool isMma() const {
     return parallel_type_ == ParallelType::Mma;
   }
@@ -355,26 +352,6 @@ class NVF_API IterDomain : public Val {
       IterDomain* in_x,
       IterDomain* in_y,
       SwizzleMode swizzle_mode = SwizzleMode::Data);
-
-  bool isMmaSwizzled() const {
-    return is_mma_swizzled_;
-  }
-
-  //! Used by WarpMmaSwizzler, this is an utility for WarpMmaSwizzler
-  //!  to lock the thread swizzled iterdomains.
-  //! Only true for the iterdomains produced by WarpMmaSwizzler.
-  //! Mma ops require specific swizzle patterns
-  //!  and this label utility is to prevent any further transform on the
-  //!  iterdomains involved in the swizzle so that the pattern remain correct in
-  //!  generated code.
-  //!
-  //! Note:
-  //!    Used only through WarpMmaSwizzler only and mma validation relies on
-  //!    this
-  //!  flag being set on the correct iterdomains.
-  void toMmaSwizzled() {
-    is_mma_swizzled_ = true;
-  }
 
  protected:
   friend TensorDomain;
@@ -406,11 +383,6 @@ class NVF_API IterDomain : public Val {
   bool is_rfactor_domain_ = false;
   bool is_padded_dimension_ = false;
   std::optional<int64_t> padded_to_size_ = std::nullopt;
-
-  //! Tracks if this id represents a thread swizzled loop or
-  //!   models an implicit loop within instructions. Should not make
-  //!   any changes once an id is warp mapped.
-  bool is_mma_swizzled_ = false;
 };
 
 //! TensorDomain holds a vector of IterDomains. It holds an IterDomain for every
@@ -573,9 +545,22 @@ class TensorDomain : public Val {
     return loop_domain_;
   }
 
+  // Get all IDs that is on the shortest path between any of the domains
+  // (logical domain, root domain, loop domain, allocation domain) following
+  // definition and uses path. Return values are topologically ordered and
+  // unique.
+  std::vector<IterDomain*> allIDs() const;
+
   const std::vector<IterDomain*>& maybeAllocation() const {
     return hasAllocation() ? allocation_domain_ : logical();
   };
+
+  // Additional IDs that are not on the path from one of
+  // root/logical/allocation/loop domain to another. We need to keep track of
+  // these IDs to ensure that we can find all paths/IDs of interest.
+  const std::vector<IterDomain*>& additionalIDs() const {
+    return additional_ids_;
+  }
 
   // Set the loop domain of this TensorDomain.
   NVF_API void setLoopDomain(std::vector<IterDomain*> new_loop_domain);
@@ -612,6 +597,9 @@ class TensorDomain : public Val {
 
   //! Returns a position of a root domain
   int64_t rootPosOf(IterDomain* id) const;
+
+  //! Create a new broadcast IterDomain with the given extent in the loop domain
+  void broadcast(int64_t axis, Val* extent);
 
   // Split "axis" into 2 axes
   //! inner_split dictates if the factor section of the split should be inside
@@ -679,6 +667,7 @@ class TensorDomain : public Val {
   const std::vector<IterDomain*> logical_domain_;
   std::vector<IterDomain*> allocation_domain_;
   std::vector<IterDomain*> loop_domain_;
+  std::vector<IterDomain*> additional_ids_;
 
   std::vector<IterDomain*> no_bcast_domain_;
   std::vector<IterDomain*> no_reduction_domain_;

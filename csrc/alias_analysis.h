@@ -13,7 +13,6 @@
 
 #include <fusion.h>
 #include <ir/interface_nodes.h>
-#include <visibility.h>
 
 namespace nvfuser {
 
@@ -24,7 +23,7 @@ struct Layout {
   // The size of `allocation_domain` and therefore the size of `contiguity`.
   int64_t size() const;
 
-  NVF_API std::string toString(int indent_size = 0) const;
+  std::string toString(int indent_size = 0) const;
 
   // Returns whether this layout is compliant with `required`. This is
   // uni-directional. For example, `contiguity=[t,t]` is compliant with
@@ -62,14 +61,14 @@ class AliasAnalysisResult {
   // `can_override_empty_allocation_domain`.
   void finalize(bool can_override_empty_allocation_domain);
 
-  // Returns the preferred layout. If `alias` is not in `preferred_layout_`,
+  // Returns the preferred layout. If `alias` is not in `alias_to_source_`,
   // returns the `TensorView`'s initial layout.
-  NVF_API Layout preferredLayout(const Val* alias) const;
+  Layout preferredLayout(const Val* alias) const;
 
-  std::string toString(int indent_size) const;
+  std::string toString(int indent_size = 0) const;
 
   // Returns the mapped value in `alias_to_root_` or null.
-  TensorView* getNearestAliasedIo(const TensorView* alias) const;
+  TensorView* getRoot(const TensorView* alias) const;
 
  private:
   // Maps an alias (e.g. the output of a `ViewOp`) to its direct source (e.g.
@@ -80,10 +79,8 @@ class AliasAnalysisResult {
   std::unordered_map<const TensorView*, std::pair<TensorView*, Layout>>
       alias_to_source_;
 
-  // Maps an alias to its nearest, transitively aliased fusion input/output, if
-  // its preferred layout is compliant with its actual layout.
-  //
-  // TODO(wujingyue): consider to merge `alias_to_source_` and `alias_to_root_`.
+  // Maps an alias to its "highest ancestor" according to `alias_to_source_`,
+  // if its preferred layout is compliant with its actual layout.
   std::unordered_map<const TensorView*, TensorView*> alias_to_root_;
 };
 
@@ -112,7 +109,8 @@ class AliasAnalysisResult {
 // schedulers. The former, used by MarkAliasesPreparePass, updates layouts to
 // enable aliases; the latter, used by NoOpScheduler, calls
 // Fusion::aliasOutputToInput to mark aliases.
-NVF_API AliasAnalysisResult
-findAliases(Fusion* fusion, bool can_override_empty_allocation_domain = true);
+AliasAnalysisResult findAliases(
+    Fusion* fusion,
+    bool can_override_empty_allocation_domain = true);
 
 } // namespace nvfuser

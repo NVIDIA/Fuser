@@ -9,6 +9,7 @@
 
 #include <c10/util/ArrayRef.h>
 #include <c10/util/irange.h>
+#include <debug.h>
 #include <fusion_profiler.h>
 #include <inlining.h>
 #include <instrumentation.h>
@@ -20,6 +21,8 @@
 #include <python_frontend/fusion_definition.h>
 #include <python_frontend/fusion_record.h>
 #include <python_frontend/python_bindings.h>
+#include <scheduler/heuristic_types.h>
+#include <scheduler/registry.h>
 #include <torch/csrc/jit/python/pybind_utils.h>
 #include <transform_replay.h>
 #include <iostream>
@@ -445,6 +448,19 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("shared", MemoryType::Shared)
       .value("global", MemoryType::Global);
 
+  //! Scheduler Type for scheduling
+  py::enum_<ScheduleHeuristic>(nvfuser, "SchedulerHeuristic")
+      .value("none", ScheduleHeuristic::None)
+      .value("no_op", ScheduleHeuristic::NoOp)
+      .value("pointwise", ScheduleHeuristic::PointWise)
+      .value("matmul", ScheduleHeuristic::Matmul)
+      .value("reduction", ScheduleHeuristic::Reduction)
+      .value("inner_persistent", ScheduleHeuristic::InnerPersistent)
+      .value("inner_outer_persistent", ScheduleHeuristic::InnerOuterPersistent)
+      .value("outer_persistent", ScheduleHeuristic::OuterPersistent)
+      .value("transpose", ScheduleHeuristic::Transpose)
+      .value("expr_eval", ScheduleHeuristic::ExprEval);
+
   nvfuser.def("compute_contiguity", computeContiguity);
   nvfuser.def("compute_tensor_descriptor", computeTensorDescriptor);
   nvfuser.def("serialize", serialize);
@@ -634,6 +650,15 @@ void initNvFuserPythonBindings(PyObject* module) {
             self.finalizeDefinition();
             // Mark the end of a definition
             inst::Trace::instance()->endEvent(nullptr);
+          })
+      .def(
+          "_exist_schedule",
+          [](FusionDefinition& self, const py::iterable& iter) {
+            std::vector<c10::IValue> inputs;
+            for (py::handle obj : iter) {
+              inputs.push_back(torch::jit::toIValue(obj, c10::AnyType::get()));
+            }
+            self.existSchedule(inputs);
           })
       .def(
           "_setup_schedule",
@@ -2895,6 +2920,120 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("correction") = 1,
       py::arg("keepdim") = false,
       py::return_value_policy::reference);
+
+  nvf_ops.def(
+      "sdpfa_bwd",
+      [](FusionDefinition::Operators& self,
+         Tensor grad_output,
+         Tensor query,
+         Tensor key,
+         Tensor value,
+         Tensor output,
+         Tensor log_sumexp,
+         std::optional<Scalar> dropout_p,
+         std::optional<Scalar> is_causal,
+         Tensor philox_seed,
+         Tensor philox_offset,
+         std::optional<Scalar> scale) -> decltype(auto) {
+        FUSER_PERF_SCOPE("Operators.sdpfa_bwd");
+        NVF_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        size_t ndims = query.dims;
+        Tensor grad_query = fd->defineTensor(/*dims=*/ndims);
+        Tensor grad_key = fd->defineTensor(/*dims=*/ndims);
+        Tensor grad_value = fd->defineTensor(/*dims=*/ndims);
+
+        auto dropout_p_state = dropout_p.has_value()
+            ? fd->recordingState(dropout_p.value()())
+            : State(/*_index=*/0, /*_stype=*/serde::StateType::None);
+        auto is_causal_state = is_causal.has_value()
+            ? fd->recordingState(is_causal.value()())
+            : State(/*_index=*/0, /*_stype=*/serde::StateType::None);
+        auto scale_state = scale.has_value()
+            ? fd->recordingState(scale.value()())
+            : State(/*_index=*/0, /*_stype=*/serde::StateType::None);
+
+        fd->defineRecord(new SdpaBwdOpRecord(
+            {fd->recordingState(grad_output()),
+             fd->recordingState(query()),
+             fd->recordingState(key()),
+             fd->recordingState(value()),
+             fd->recordingState(output()),
+             fd->recordingState(log_sumexp()),
+             dropout_p_state,
+             is_causal_state,
+             fd->recordingState(philox_seed()),
+             fd->recordingState(philox_offset()),
+             scale_state},
+            {fd->recordingState(grad_query()),
+             fd->recordingState(grad_key()),
+             fd->recordingState(grad_value())}));
+        return std::make_tuple(grad_query, grad_key, grad_value);
+      },
+      py::arg("grad_output"),
+      py::arg("query"),
+      py::arg("key"),
+      py::arg("value"),
+      py::arg("output"),
+      py::arg("log_sumexp"),
+      py::arg("dropout_p").none(true) = py::none(),
+      py::arg("is_causal").none(true) = py::none(),
+      py::arg("philox_seed"),
+      py::arg("philox_offset"),
+      py::arg("scale").none(true) = py::none(),
+      py::return_value_policy::reference);
+
+  nvf_ops.def(
+      "sdpfa_fwd",
+      [](FusionDefinition::Operators& self,
+         Tensor query,
+         Tensor key,
+         Tensor value,
+         std::optional<Scalar> dropout_p,
+         std::optional<Scalar> is_causal,
+         std::optional<Scalar> scale) -> decltype(auto) {
+        FUSER_PERF_SCOPE("Operators.sdpfa_fwd");
+        NVF_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        size_t ndims = query.dims;
+        Tensor output = fd->defineTensor(/*dims=*/ndims);
+        Tensor log_sumexp = fd->defineTensor(/*dims=*/ndims - 1);
+        Tensor philox_seed = fd->defineTensor(/*dims=*/0);
+        Tensor philox_offset = fd->defineTensor(/*dims=*/0);
+
+        auto dropout_p_state = dropout_p.has_value()
+            ? fd->recordingState(dropout_p.value()())
+            : State(/*_index=*/0, /*_stype=*/serde::StateType::None);
+        auto is_causal_state = is_causal.has_value()
+            ? fd->recordingState(is_causal.value()())
+            : State(/*_index=*/0, /*_stype=*/serde::StateType::None);
+        auto scale_state = scale.has_value()
+            ? fd->recordingState(scale.value()())
+            : State(/*_index=*/0, /*_stype=*/serde::StateType::None);
+
+        fd->defineRecord(new SdpaFwdOpRecord(
+            {fd->recordingState(query()),
+             fd->recordingState(key()),
+             fd->recordingState(value()),
+             dropout_p_state,
+             is_causal_state,
+             scale_state},
+            {fd->recordingState(output()),
+             fd->recordingState(log_sumexp()),
+             fd->recordingState(philox_seed()),
+             fd->recordingState(philox_offset())}));
+        return std::make_tuple(output, log_sumexp, philox_seed, philox_offset);
+      },
+      py::arg("query"),
+      py::arg("key"),
+      py::arg("value"),
+      py::arg("dropout_p").none(true) = py::none(),
+      py::arg("is_causal").none(true) = py::none(),
+      py::arg("scale").none(true) = py::none(),
+      py::return_value_policy::reference);
+
   //! The ScedOperators class is a nested class of FusionDefinition to allow the
   //! user to query the class for the list of schedule operators.
   //!
@@ -3069,6 +3208,19 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("tensor"),
       py::arg("op_type") = LoadStoreOpType::Set);
   nvf_sched.def(
+      "cache_fork",
+      [](FusionDefinition::SchedOperators& self, Tensor tensor) -> Tensor {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        TensorView* input_tv =
+            fd->getFusionState(tensor.index)->template as<TensorView>();
+        TensorView* output_tv = input_tv->cacheFork();
+        return fd->addTensor(output_tv);
+      },
+      py::arg("tensor"));
+  nvf_sched.def(
       "set_memory_type",
       [](FusionDefinition::SchedOperators& self,
          Tensor tensor,
@@ -3100,7 +3252,7 @@ void initNvFuserPythonBindings(PyObject* module) {
         if (selected_tensors.empty()) {
           // Propagate scheduler transformations on reference TensorView to the
           // rest of the fusion.
-          MaxRootDomainInfoSpanningTree(reference_tv).traverse(&propagator);
+          MaxLogicalDomainInfoSpanningTree(reference_tv).traverse(&propagator);
         } else {
           // Propagate scheduler transformations on reference TensorView to the
           // subset of the fusion.
@@ -3115,7 +3267,7 @@ void initNvFuserPythonBindings(PyObject* module) {
               });
           SetSelector selector(
               {selected_tv_set.begin(), selected_tv_set.end()});
-          MaxRootDomainInfoSpanningTree(reference_tv, &selector)
+          MaxLogicalDomainInfoSpanningTree(reference_tv, &selector)
               .traverse(&propagator);
         }
       },
@@ -3266,5 +3418,52 @@ void initNvFuserPythonBindings(PyObject* module) {
             !isResharding(tv->definition()));
       },
       py::arg("tensor"));
+  nvf_sched.def(
+      "can_schedule",
+      [](FusionDefinition::SchedOperators& self,
+         const ScheduleHeuristic& heuristic) {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        return self.fusion_definition->userSchedule()->canScheduleDebug(
+            heuristic);
+      },
+      py::arg("heuristic"));
+  nvf_sched.def(
+      "find_compatible_schedulers", [](FusionDefinition::SchedOperators& self) {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+
+        std::vector<ScheduleHeuristic> valid_heuristics;
+        valid_heuristics.reserve(all_heuristics_in_priority_order.size());
+        std::copy_if(
+            all_heuristics_in_priority_order.begin(),
+            all_heuristics_in_priority_order.end(),
+            std::back_inserter(valid_heuristics),
+            [sched = self.fusion_definition->userSchedule()](
+                ScheduleHeuristic heuristic) {
+              return sched->canSchedule(heuristic);
+            });
+        return valid_heuristics;
+      });
+  nvf_sched.def(
+      "schedule",
+      [](FusionDefinition::SchedOperators& self,
+         const ScheduleHeuristic& heuristic) {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        UserSchedule* sched = self.fusion_definition->userSchedule();
+        auto&& [can_schedule, error_msg] = sched->canScheduleDebug(heuristic);
+        NVF_CHECK(can_schedule, error_msg);
+        sched->scheduleWithHeuristic(heuristic);
+      },
+      py::arg("heuristic"));
 }
+
+void cleanup() {
+  Communicator::getInstance().cleanup();
+}
+
 } // namespace nvfuser::python_frontend

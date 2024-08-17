@@ -408,6 +408,8 @@ NVF_API bool isReductionTvOp(const Expr*);
 // Returns if Expr is a pointwise op op with TensorView or TensorIndex
 bool isPointwiseTvOp(const Expr* expr);
 
+bool isSegmentSet(const Expr* e);
+
 // Returns all non-trivial view operations. We shouldn't have trivial view
 // operations but this function is to simply make sure if we ever do we don't
 // pull them in.
@@ -463,10 +465,6 @@ IterDomain* getIndexedProducerID(const Expr* expr);
 // indirectly accessed.
 IterDomain* getConsumerOfIndexedProducerID(const Expr* expr);
 
-// Get all IDs of a tensor. Returned values are topologicaly ordered, and
-// unique.
-std::vector<IterDomain*> allIDsOf(const TensorView* tv);
-
 // Check if the given tv is first argment of index_select(lookup, dim, indices)
 bool isIndexSelectLookupTv(const TensorView* tv);
 
@@ -504,19 +502,13 @@ std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion);
 //! equivalent to [I6, I7, I8, I9]. But [I0, I1, I8, I3] is NOT equivalent to
 //! [I6, I7, I2, I9]
 //!
-//! Please note that there are still limitations in validateDomainEquivalence
-//! that there are valid cases that will be rejected by this function. For
-//! example, if we have the following structure:
-//!    I0.........I0
-//!   /  \       /  \.
-//! I0/4  4    I0/5  5
-//! then [I0/4, 4] and [I0/5, 5] are equivalent, but validateDomainEquivalence
-//! will reject this case. This is because our IR visitor is only capable of
-//! traversing the IR in a single direction. We should lift this limitation in
-//! the future.
+//! Broadcast IterDomains are ignored in this check, because we consider them as
+//! placeholders and allow them to be created (and annihilated?) arbitrarily as
+//! needed for convenience.
 NVF_API void validateDomainEquivalence(
-    const std::vector<IterDomain*>& dom0,
-    const std::vector<IterDomain*>& dom1);
+    std::vector<IterDomain*> dom0,
+    const std::vector<IterDomain*>& dom1,
+    const std::vector<IterDomain*>& additional_ids = {});
 
 //! Check if all the inputs required to compute needed_val are known
 template <
@@ -657,6 +649,9 @@ std::optional<std::vector<int64_t>> computePermutation(
 }
 
 bool hasTrivialAllocationDomain(const TensorView* tv);
+
+// Returns true if all expr outputs should be mapped unconditionally
+bool hasUniformSiblings(Expr* expr);
 
 // Returns true if memory_type is partitioned in parallel_type. See
 // also isMemorySharedAcross. Specifically, isMemorySharedAcross == true does

@@ -10,7 +10,7 @@
 #include <device_lower/lower2device.h>
 #include <disjoint_set.h>
 #include <ir/utils.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 #include <transform_iter.h>
 
 #include <tuple>
@@ -344,7 +344,7 @@ void IterDomainGraph::build(Fusion* fusion) {
   // Initialize a node for every iteration domain
   for (auto tv : ir_utils::allTvs(fusion)) {
     const auto& domain = tv->getLoopDomain();
-    auto all_ids = ir_utils::allIDsOf(tv);
+    auto all_ids = tv->domain()->allIDs();
 
     for (auto id : all_ids) {
       // Check if this id is an logical id in the logical domain
@@ -371,64 +371,66 @@ void IterDomainGraph::build(Fusion* fusion) {
     TensorView* first_output_tv = nullptr;
 
     for (auto c_tv : tv_outputs) {
-      if (first_output_tv == nullptr) {
-        first_output_tv = c_tv;
-      } else {
-        // Map multi outputs of an expression to each other. c is current
-        // output, and f as first output. Keep consistent with the later section
-        // of producer and consumers. Which here producer is now "first output",
-        // and consumer is still consumer. One exception is how the
-        // domains left of CA positions are handled in the Parallel
-        // map. Those domains are not mapped in producer and consumer
-        // mappings as they do not share loops, but are mapped in the
-        // case of mapping multiple outputs since they do share the
-        // same loops.
+      if (ir_utils::hasUniformSiblings(expr)) {
+        if (first_output_tv == nullptr) {
+          first_output_tv = c_tv;
+        } else {
+          // Map multi outputs of an expression to each other. c is current
+          // output, and f as first output. Keep consistent with the later
+          // section of producer and consumers. Which here producer is now
+          // "first output", and consumer is still consumer. One exception is
+          // how the domains left of CA positions are handled in the Parallel
+          // map. Those domains are not mapped in producer and consumer
+          // mappings as they do not share loops, but are mapped in the
+          // case of mapping multiple outputs since they do share the
+          // same loops.
 
-        NVF_ERROR(
-            c_tv->getMaybeRootDomain().size() ==
-                first_output_tv->getMaybeRootDomain().size(),
-            "Multiple outputs with mismatched dimensions is not supported. ",
-            "Only supported case is welford op where all outputs tvs have identical domains.");
-        // p->f, c->c
-        std::unordered_map<IterDomain*, IterDomain*> c2f_root_map;
-        for (const auto i :
-             c10::irange(first_output_tv->getMaybeRootDomain().size())) {
-          c2f_root_map.insert(std::make_pair(
-              c_tv->getMaybeRootDomain()[i],
-              first_output_tv->getMaybeRootDomain()[i]));
-        }
-
-        // Multi output mapping, outputs are required to have the same domain
-        // and same transformations, so they can be mapped in permissive/exact,
-        // and when within compute at position of getLoopDomain() in the
-        // parallel map.
-        auto replay_FasC = BestEffortReplay(
-            first_output_tv->getLoopDomain(),
-            c_tv->getLoopDomain(),
-            c2f_root_map);
-
-        // Map the entire replay map between the multiple
-        // consumers
-        auto c2f_disjoint_sets = replay_FasC.getIterDomainEquivalence();
-        for (const auto& disjoint_set : c2f_disjoint_sets.disjointSets()) {
-          if (disjoint_set->empty()) {
-            continue;
+          NVF_ERROR(
+              c_tv->getMaybeRootDomain().size() ==
+                  first_output_tv->getMaybeRootDomain().size(),
+              "Multiple outputs with mismatched dimensions is not supported. ",
+              "Only supported case is welford op where all outputs tvs have identical domains.");
+          // p->f, c->c
+          std::unordered_map<IterDomain*, IterDomain*> c2f_root_map;
+          for (const auto i :
+               c10::irange(first_output_tv->getMaybeRootDomain().size())) {
+            c2f_root_map.insert(std::make_pair(
+                c_tv->getMaybeRootDomain()[i],
+                first_output_tv->getMaybeRootDomain()[i]));
           }
-          auto id0 = *disjoint_set->begin();
-          for (auto id1 : disjoint_set->vector()) {
-            permissive_nodes_.mapEntries(id0, id1);
-            permissive_resize_nodes_.mapEntries(id0, id1);
-            exact_nodes_.mapEntries(id0, id1);
-            sibling_sets_.mapEntries(id0, id1);
-          }
-        }
 
-        // Map all entries for the Loop map as they share the same loops.
-        for (auto f_id : first_output_tv->getLoopDomain()) {
-          auto disjoint_set = c2f_disjoint_sets.getDisjointSetOf(f_id);
-          auto id0 = *(disjoint_set.begin());
-          for (auto id1 : disjoint_set) {
-            loop_nodes_.mapEntries(id0, id1);
+          // Multi output mapping, outputs are required to have the same domain
+          // and same transformations, so they can be mapped in
+          // permissive/exact, and when within compute at position of
+          // getLoopDomain() in the parallel map.
+          auto replay_FasC = BestEffortReplay(
+              first_output_tv->getLoopDomain(),
+              c_tv->getLoopDomain(),
+              c2f_root_map);
+
+          // Map the entire replay map between the multiple
+          // consumers
+          auto c2f_disjoint_sets = replay_FasC.getIterDomainEquivalence();
+          for (const auto& disjoint_set : c2f_disjoint_sets.disjointSets()) {
+            if (disjoint_set->empty()) {
+              continue;
+            }
+            auto id0 = *disjoint_set->begin();
+            for (auto id1 : disjoint_set->vector()) {
+              permissive_nodes_.mapEntries(id0, id1);
+              permissive_resize_nodes_.mapEntries(id0, id1);
+              exact_nodes_.mapEntries(id0, id1);
+              sibling_sets_.mapEntries(id0, id1);
+            }
+          }
+
+          // Map all entries for the Loop map as they share the same loops.
+          for (auto f_id : first_output_tv->getLoopDomain()) {
+            auto disjoint_set = c2f_disjoint_sets.getDisjointSetOf(f_id);
+            auto id0 = *(disjoint_set.begin());
+            for (auto id1 : disjoint_set) {
+              loop_nodes_.mapEntries(id0, id1);
+            }
           }
         }
       }
@@ -436,7 +438,7 @@ void IterDomainGraph::build(Fusion* fusion) {
       auto tv_inputs = ir_utils::filterByType<TensorView>(expr->inputs());
 
       for (auto p_tv : tv_inputs) {
-        auto pairwise_map = PairwiseRootDomainMap(p_tv, c_tv);
+        auto pairwise_map = PairwiseLogicalDomainMap(p_tv, c_tv);
 
         // Look for matching ID transformations in producer and consumer, replay
         // producer as consumer. We use the symmetric API of BestEffortReplay so
@@ -459,7 +461,7 @@ void IterDomainGraph::build(Fusion* fusion) {
         // Note on the boolean flags: swizzles and resizes are skipped
         // in the permissive-resize map
         const auto pairwise_resize_map =
-            PairwiseRootDomainMap(p_tv, c_tv).mapIndexedDomains(true);
+            PairwiseLogicalDomainMap(p_tv, c_tv).mapIndexedDomains(true);
         const auto permissive_resize_disjoint_sets =
             BestEffortReplay::replayPasC(
                 p_tv, c_tv, -1, pairwise_resize_map, true, true, true)
@@ -468,13 +470,15 @@ void IterDomainGraph::build(Fusion* fusion) {
         // For exact mapings do not map any broadcast dimensions to
         // non-broadcast dimensions. Prevent any broadcasted axes being mapped
         // to non-broadcasted axes.
-        auto exact_c2p_root_map = PairwiseRootDomainMap(p_tv, c_tv)
-                                      .mapBroadcast(false)
-                                      .mapConsumerToProducer();
+        auto exact_c2p_logical_map = PairwiseLogicalDomainMap(p_tv, c_tv)
+                                         .mapBroadcast(false)
+                                         .mapConsumerToProducer();
 
         // Same as permissive above but for exact
         auto exact_replay_PasC = BestEffortReplay(
-            p_tv->getLoopDomain(), c_tv->getLoopDomain(), exact_c2p_root_map);
+            p_tv->getLoopDomain(),
+            c_tv->getLoopDomain(),
+            exact_c2p_logical_map);
 
         const auto& exact_c2p_map = exact_replay_PasC.getReplay();
 
@@ -491,8 +495,8 @@ void IterDomainGraph::build(Fusion* fusion) {
           mapMaybeSwizzleOp(exact_nodes_, c_id);
         }
 
-        auto p_ids_vec = ir_utils::allIDsOf(p_tv);
-        auto c_ids_vec = ir_utils::allIDsOf(c_tv);
+        auto p_ids_vec = p_tv->domain()->allIDs();
+        auto c_ids_vec = c_tv->domain()->allIDs();
         std::unordered_set<IterDomain*> p_ids(
             p_ids_vec.begin(), p_ids_vec.end());
         std::unordered_set<IterDomain*> c_ids(

@@ -9,6 +9,9 @@
 #include <c10/cuda/CUDAStream.h>
 #include <c10/util/ArrayRef.h>
 #include <fusion.h>
+#include <host_ir/container.h>
+#include <host_ir/executor.h>
+#include <host_ir/host_ir.h>
 #include <ir/utils.h>
 #include <ops/all_ops.h>
 #include <tests/cpp/multidevice.h>
@@ -25,9 +28,11 @@ struct OverlapTestParams {
   // network backend type
   CommunicatorBackend backend_type = CommunicatorBackend::nccl;
 
-  // overlap optimization parameters
-  bool use_different_streams =
-      true; // whether to change CUDA stream at each iteration
+  // Overlap optimization parameters
+  // fill input with new random values and repeat the operation
+  int64_t number_of_iterations = 4;
+  // Change CUDA stream at each iteration in a Round-Robin fashion
+  int64_t number_of_streams = 3;
 };
 
 std::ostream& operator<<(std::ostream& out, const OverlapTestParams& params) {
@@ -38,9 +43,9 @@ std::ostream& operator<<(std::ostream& out, const OverlapTestParams& params) {
       << indent << "K=" << params.K << "\n"
       << indent << "N=" << params.N << "\n"
       << indent << "S=" << params.S << "\n"
-      << indent << "use_different_streams=" << params.use_different_streams
-      << "\n"
-      << "}";
+      << indent << "number_of_streams=" << params.number_of_streams << "\n"
+      << indent << "number_of_iterations=" << params.number_of_iterations
+      << "\n}";
   return out;
 }
 
@@ -50,7 +55,9 @@ class OverlapTest : public MultiDeviceTest {
 
   int64_t num_devices_;
   int64_t my_device_index_;
-  at::Tensor ta_, tb_, tc_locally_reduced_, tc_, tc_expected_;
+  std::vector<int64_t> all_devices_;
+  at::Tensor ta_unsharded_, tb_unsharded_;
+  at::Tensor ta_, tb_, tc_locally_reduced_, tc_;
   // stores the backend
   c10d::Backend* world_communicator_;
 
@@ -65,45 +72,73 @@ class OverlapTest : public MultiDeviceTest {
     // Setup the world communicators
     std::vector<int64_t> devices(num_devices_);
     std::iota(devices.begin(), devices.end(), 0);
+    all_devices_ = std::move(devices);
     world_communicator_ =
-        communicator_->getBackendForTeam(devices, params.backend_type);
+        communicator_->getBackendForTeam(all_devices_, params.backend_type);
+
+    // Debug print
+    if (communicator_->deviceId() == 0 && debug_print) {
+      debug() << params << std::endl;
+    }
 
     // Define I/O and intermediate Tensor shapes
     std::vector<int64_t> ta_unsharded_sizes = {
         params.S, num_devices_, params.M / params.S, params.K / num_devices_};
     std::vector<int64_t> ta_sizes = {
-        params.S, 1, params.M / params.S, params.K / num_devices_};
+        params.S, params.M / params.S, params.K / num_devices_};
     std::vector<int64_t> tb_unsharded_sizes = {
-        1, num_devices_, params.K / num_devices_, params.N};
-    std::vector<int64_t> tb_sizes = {1, 1, params.K / num_devices_, params.N};
+        num_devices_, params.K / num_devices_, params.N};
+    std::vector<int64_t> tb_sizes = {params.K / num_devices_, params.N};
     std::vector<int64_t> tc_locally_reduced_sizes = {
-        params.S, 1, params.M / params.S, params.N};
+        std::min(params.S, params.number_of_streams),
+        params.M / params.S,
+        params.N}; // we need at most `number_of_streams` slices
     std::vector<int64_t> tc_sizes = {
-        params.S, 1, params.M / (params.S * num_devices_), params.N};
+        params.S, params.M / (params.S * num_devices_), params.N};
 
     // Set up input tensors. We create the full unsharded tensors and define the
     // actual input as the shard corresponding to the current device. Having the
     // full unsharded input on each rank makes it possible to compute the
     // expected result locally, hence, this way of doing is convenient for
     // validating data correctness.
-    at::TensorOptions options =
-        at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
-    auto ta_unsharded = at::randn(ta_unsharded_sizes, options);
-    auto tb_unsharded = at::randn(tb_unsharded_sizes, options);
-    ta_ = at::empty(ta_sizes, options);
-    ta_.copy_(getSlice(ta_unsharded, 1, my_device_index_));
-    tb_ = at::empty(tb_sizes, options);
-    tb_.copy_(getSlice(tb_unsharded, 1, my_device_index_));
+    auto cpu_options = at::TensorOptions().dtype(at::kFloat);
+    at::TensorOptions gpu_options = cpu_options.device(communicator_->device());
+
+    // Unsharded tensors are large and only used for validating data corectness.
+    // Therefore, to improve GPU memory footprint, we allocate those tensors on
+    // the CPU
+    ta_unsharded_ = at::empty(ta_unsharded_sizes, cpu_options);
+    tb_unsharded_ = at::empty(tb_unsharded_sizes, cpu_options);
+    ta_ = at::empty(ta_sizes, gpu_options);
+    tb_ = at::empty(tb_sizes, gpu_options);
 
     // We pre-allocate the output and some intermediate buffers so we do not
     // rely on torch allocator, which do not behave well with multi-stream
     // programming.
-    tc_locally_reduced_ = at::empty(tc_locally_reduced_sizes, options);
-    tc_ = at::empty(tc_sizes, options);
+    tc_locally_reduced_ = at::empty(tc_locally_reduced_sizes, gpu_options);
+    tc_ = at::empty(tc_sizes, gpu_options);
 
+    // Debug print
+    if (communicator_->deviceId() == 0 && debug_print) {
+      debug() << "ta_sizes()=" << ta_.sizes() << std::endl
+              << "tb_sizes()=" << tb_.sizes() << std::endl
+              << "tc_locally_reduced_sizes()=" << tc_locally_reduced_.sizes()
+              << std::endl
+              << "tc_sizes()=" << tc_.sizes() << std::endl;
+    }
+  }
+
+  void initializeIO() {
+    ta_unsharded_.uniform_();
+    tb_unsharded_.uniform_();
+    ta_.copy_(ta_unsharded_.select(1, my_device_index_));
+    tb_.copy_(tb_unsharded_.select(0, my_device_index_));
+  }
+
+  void validate() {
     // compute the expected output for data correctness validation
     auto tc_unsharded_unreduced =
-        ta_unsharded.unsqueeze(-1) * tb_unsharded.unsqueeze(-3);
+        ta_unsharded_.unsqueeze(-1) * tb_unsharded_.unsqueeze(-3).unsqueeze(0);
     auto tc_unsharded_expected = at::sum(tc_unsharded_unreduced, {1, 3});
     auto tc_unsharded_expected_reshaped = at::reshape(
         tc_unsharded_expected,
@@ -111,29 +146,12 @@ class OverlapTest : public MultiDeviceTest {
          num_devices_,
          params.M / (params.S * num_devices_),
          params.N});
-    tc_expected_ =
-        getSlice(tc_unsharded_expected_reshaped, 1, my_device_index_);
+    auto tc_expected_ =
+        tc_unsharded_expected_reshaped.select(1, my_device_index_);
 
-    // Debug print
-    if (communicator_->deviceId() == 0 && debug_print) {
-      debug() << params << std::endl
-              << "ta_.sizes()=" << ta_.sizes() << std::endl
-              << "tb_.sizes()=" << tb_.sizes() << std::endl
-              << "tc_locally_reduced_.sizes()=" << tc_locally_reduced_.sizes()
-              << std::endl
-              << "tc_.sizes()=" << tc_.sizes() << std::endl;
-    }
-  }
-
-  at::Tensor getSlice(at::Tensor t, int64_t axis, int64_t index) {
-    return t.slice(axis, index, index + 1);
-  }
-
-  void computeATen(
-      at::Tensor ta_j,
-      at::Tensor tb_j,
-      at::Tensor tc_locally_reduced_j) {
-    torch::matmul_out(tc_locally_reduced_j, ta_j, tb_j);
+    EXPECT_TRUE(tc_.to(torch::kCPU).allclose(tc_expected_, 1e-1, 1e-1))
+        << "Unexpected results, obtained:" << tc_
+        << "\n expected: " << tc_expected_;
   }
 };
 // clang-format off
@@ -194,38 +212,127 @@ class OverlapTest : public MultiDeviceTest {
 //      the second is scattered. This is why we choose the layouts to be
 //      [S, sharded_axis, M, ...]
 // clang-format on
-TEST_F(OverlapTest, SimpleComputeComm) {
+TEST_F(OverlapTest, ReduceScatterBasedPipeliningATenImplementation) {
   std::vector<c10::cuda::CUDAStream> streams;
-  for (auto j : c10::irange(params.S)) {
-    // define the sliced tensors
-    auto ta_j = getSlice(ta_, 0, j);
-    auto tc_locally_reduced_j = getSlice(tc_locally_reduced_, 0, j);
-    auto tc_j = getSlice(tc_, 0, j);
+  std::generate_n(
+      std::back_inserter(streams),
+      params.number_of_streams,
+      [my_device_index = my_device_index_]() {
+        return c10::cuda::getStreamFromPool(
+            /*isHighPriority=*/false, my_device_index);
+      });
 
-    if (params.use_different_streams) {
-      auto new_stream = c10::cuda::getStreamFromPool(
-          /*isHighPriority=*/false, my_device_index_);
-      streams.push_back(new_stream);
-      setCurrentCUDAStream(new_stream);
+  for ([[maybe_unused]] const auto& _ :
+       c10::irange(params.number_of_iterations)) {
+    initializeIO();
+
+    for (auto j : c10::irange(params.S)) {
+      int64_t stream_index = j % streams.size();
+      setCurrentCUDAStream(streams.at(stream_index));
+
+      // define the sliced tensors
+      auto ta_j = ta_.select(0, j);
+      auto tc_locally_reduced_j = tc_locally_reduced_.select(0, stream_index);
+      auto tc_j = tc_.select(0, j);
+
+      // local compute
+      torch::matmul_out(tc_locally_reduced_j, ta_j, tb_);
+      // communication
+      world_communicator_->_reduce_scatter_base(tc_j, tc_locally_reduced_j)
+          ->wait();
     }
+  }
+  validate();
+}
 
-    // local compute
-    computeATen(ta_j, tb_, tc_locally_reduced_j);
-    // communication
-    world_communicator_->_reduce_scatter_base(tc_j, tc_locally_reduced_j)
-        ->wait();
+TEST_F(OverlapTest, ReduceScatterBasedPipeliningHostIrImplementation) {
+  auto hic = std::make_unique<hir::HostIrContainer>();
+  FusionGuard::setCurFusion(hic.get());
+
+  TensorView* tva = makeSymbolicTensor(ta_.dim());
+  TensorView* tvb = makeSymbolicTensor(tb_.dim());
+  TensorView* tvc = makeSymbolicTensor(tc_.dim());
+  hic->addInput(tva);
+  hic->addInput(tvb);
+  hic->addInput(tvc);
+
+  auto* j =
+      IrBuilder::create<Val>(DataType::Index); // running index of the for-loop
+  auto* start = hic->zeroVal();
+  auto* stop = IrBuilder::create<Val>(params.S, DataType::Index);
+  auto* step = hic->oneVal();
+  auto* for_loop = IrBuilder::create<ForLoop>(
+      /*IterDomain=*/tva->axis(0),
+      /*index=*/j,
+      start,
+      stop,
+      step,
+      /*vectorize=*/false,
+      /*vectorize_shift=*/nullptr,
+      /*unroll_required=*/false,
+      CircularBufferLoopStage::NotApplicable);
+
+  auto* stream_index = mod(j, IrBuilder::create<Val>(params.number_of_streams));
+  auto* set_stream = IrBuilder::create<hir::SetCurrentStream>(
+      IrBuilder::create<hir::Stream>(stream_index));
+
+  TensorView* tva_j = select(tva, 0, j);
+  TensorView* tvc_j = select(tvc, 0, j);
+  TensorView* tvc_locally_reduced_j =
+      matmul(tva_j, tvb); // ideally we should use the preallocated global
+                          // buffer tc_locally_reduced, but ExpressionEvaluator
+                          // do not support preallocated output buffer.
+
+  // Setting the DeviceMesh of the communication's I/O is artificial but
+  // required at this point
+  DeviceMesh full_mesh(all_devices_);
+  tvc_j->setDeviceMesh(full_mesh);
+  tvc_locally_reduced_j->setDeviceMesh(full_mesh);
+
+  auto* communication = IrBuilder::create<Communication>(
+      CommunicationType::ReduceScatter,
+      /*out=*/tvc_j,
+      /*in=*/tvc_locally_reduced_j,
+      /*team=*/all_devices_,
+      /*(unused)root=*/-1,
+      RedOpType::SUM,
+      /*scattered_axis=*/0);
+  auto* wait = IrBuilder::create<hir::Wait>(communication);
+
+  // Slice and MatmulOp are present directly as Host IRs in the HostIrContainer.
+  // It means that they are going to be executed at the host level (actually,
+  // through ExpressionEvaluator). Alternatively, they could be embedded in a
+  // separate Fusion and be added to the HostIrConainter through
+  // PostOnStrean(HostUnit(.)), in which case the ops would be codegen-ed and
+  // compiled.
+  std::vector<Expr*> loop_body = {
+      set_stream,
+      tva_j->definition(),
+      tvc_j->definition(),
+      tvc_locally_reduced_j->definition(),
+      communication,
+      wait};
+  for (Expr* expr : loop_body) {
+    for_loop->body().push_back(expr);
   }
 
-  // synchronize default stream with all other streams
-  setCurrentCUDAStream(c10::cuda::getDefaultCUDAStream());
-  for (auto stream : streams) {
-    stream.synchronize();
-  }
+  hic->pushBackTopLevelExprs(for_loop);
 
-  // validation
-  EXPECT_TRUE(tc_.allclose(tc_expected_, 1e-1, 1e-1))
-      << "Unexpected results, obtained:" << tc_
-      << "\n expected: " << tc_expected_;
+  // The following line is artificial but necessary to make
+  // tva_j->isProducerOf(tvc_locally_reduced_j) == true
+  hic->addOutput(tvc_locally_reduced_j);
+
+  hir::HostIrExecutor hie(std::move(hic), communicator_);
+
+  for ([[maybe_unused]] const auto& _ :
+       c10::irange(params.number_of_iterations)) {
+    initializeIO();
+    std::unordered_map<Val*, c10::IValue> inputs = {
+        {tva, ta_}, {tvb, tb_}, {tvc, tc_}};
+
+    hie.runWithInput(std::move(inputs));
+  }
+  validate();
 }
 
 } // namespace nvfuser

@@ -12,7 +12,7 @@
 #include <exceptions.h>
 #include <index_compute.h>
 #include <kernel_ir.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 
 namespace nvfuser {
 
@@ -84,10 +84,13 @@ class UnswitchPredicateKey {
  public:
   UnswitchPredicateKey();
 
+  // Parameter loop_ids represents the loop domains used for the
+  // predicated domain
   UnswitchPredicateKey(
       IterDomain* predicated_consumer_id,
       TensorView* consumer_tv,
-      IterDomain* predicated_concrete_id);
+      IterDomain* predicated_concrete_id,
+      std::unordered_set<IterDomain*> loop_ids);
 
   bool operator==(const UnswitchPredicateKey& other) const {
     return predicated_concrete_id_ == other.predicated_concrete_id_ &&
@@ -116,6 +119,8 @@ class UnswitchPredicateKey {
  private:
   //! Predicated concrete domain
   IterDomain* predicated_concrete_id_ = nullptr;
+  //! Dependent loop domains
+  std::unordered_set<IterDomain*> loop_ids_;
   //! Store parallelized concrete domains
   std::unordered_map<ParallelType, IterDomain*> parallel_concrete_ids_;
 };
@@ -124,8 +129,13 @@ struct UnswitchPredicateKeyHash {
   std::size_t operator()(const UnswitchPredicateKey& key) const;
 };
 
+// Generate predicates for loops that are unswitched, unrolled or
+// vectorized loops
 class UnswitchPredicate {
  public:
+  // Get a predicate for a loop that is unswitched, unrolled or
+  // vectorized. The outer_loops parameter represents the outer loops
+  // of the unswitched/unrolled/vectorized loop.
   static Val* get(
       const std::vector<ForLoop*>& outer_loops,
       ForLoop* unrolled_loop);
@@ -142,6 +152,11 @@ class UnswitchPredicate {
       PolymorphicValue static_offset = 0L;
       //! List of dynamic predicates.
       std::vector<Val*> dynamic_preds;
+      //! Circular buffer loop stage if applicable. The predicate
+      //! generated in the main loop where no epilogue is generated
+      //! needs to be used.
+      CircularBufferLoopStage loop_stage =
+          CircularBufferLoopStage::NotApplicable;
     };
     UnswitchPredicateKey predicate_key;
     Info start;
@@ -162,9 +177,10 @@ class UnswitchPredicate {
   //! Merge predicates as much as possible. If a predicate offset is
   //! static, only pick the most restrictive one, e.g., the one with the
   //! minimum offset for the start predication.
-  void mergeUnswitchPredicateOffsets(
+  void mergeUnswitchPredicates(
       Val* predicate,
       Val* offset,
+      CircularBufferLoopStage loop_stage,
       MergedPredicates::Info& merged_predicate_info,
       bool is_start);
 

@@ -23,8 +23,8 @@
 #include <iter_visitor.h>
 #include <kernel_cache.h>
 #include <kernel_ir.h>
+#include <logical_domain_map.h>
 #include <ops/all_ops.h>
-#include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>
@@ -227,7 +227,7 @@ INSTANTIATE_TEST_SUITE_P(
     Gather,
     PipelineTestTwoStages,
     testing::Combine(
-        testing::Values(CommunicatorBackend::nccl),
+        testing::Values(CommunicatorBackend::nccl, CommunicatorBackend::ucc),
         all_meshes,
         all_meshes,
         testing::Values(true),
@@ -240,7 +240,7 @@ INSTANTIATE_TEST_SUITE_P(
     Scatter,
     PipelineTestTwoStages,
     testing::Combine(
-        testing::Values(CommunicatorBackend::nccl),
+        testing::Values(CommunicatorBackend::nccl, CommunicatorBackend::ucc),
         all_meshes,
         all_meshes,
         testing::Values(false),
@@ -253,7 +253,7 @@ INSTANTIATE_TEST_SUITE_P(
     Bcast,
     PipelineTestTwoStages,
     testing::Combine(
-        testing::Values(CommunicatorBackend::nccl),
+        testing::Values(CommunicatorBackend::nccl, CommunicatorBackend::ucc),
         all_meshes,
         all_meshes,
         testing::Values(false),
@@ -266,6 +266,7 @@ INSTANTIATE_TEST_SUITE_P(
     Bcast_sharded,
     PipelineTestTwoStages,
     testing::Combine(
+        // TODO(#2794): add back CommunicatorBackend::ucc
         testing::Values(CommunicatorBackend::nccl),
         testing::Values(mesh3, mesh4),
         testing::Values(mesh3, mesh4),
@@ -279,7 +280,7 @@ INSTANTIATE_TEST_SUITE_P(
     Bcast_sharded_same_mesh,
     PipelineTestTwoStages,
     testing::Combine(
-        testing::Values(CommunicatorBackend::nccl),
+        testing::Values(CommunicatorBackend::nccl, CommunicatorBackend::ucc),
         testing::Values(mesh0, mesh1),
         testing::Values(mesh_null), // the same mesh is used for all tensors
         testing::Values(true),
@@ -292,7 +293,7 @@ INSTANTIATE_TEST_SUITE_P(
     Reduce,
     PipelineTestTwoStages,
     testing::Combine(
-        testing::Values(CommunicatorBackend::nccl),
+        testing::Values(CommunicatorBackend::nccl, CommunicatorBackend::ucc),
         all_nontrivial_meshes,
         all_meshes,
         testing::Values(true),
@@ -305,7 +306,7 @@ INSTANTIATE_TEST_SUITE_P(
     ReduceScatter,
     PipelineTestTwoStages,
     testing::Combine(
-        testing::Values(CommunicatorBackend::nccl),
+        testing::Values(CommunicatorBackend::nccl, CommunicatorBackend::ucc),
         all_nontrivial_meshes,
         testing::Values(mesh_null), // the same mesh is used for all tensors
         testing::Values(true),
@@ -320,7 +321,7 @@ INSTANTIATE_TEST_SUITE_P(
     DISABLED_FusionExecutorCache_Reduce,
     PipelineTestTwoStages,
     testing::Combine(
-        testing::Values(CommunicatorBackend::nccl),
+        testing::Values(CommunicatorBackend::nccl, CommunicatorBackend::ucc),
         all_nontrivial_meshes,
         all_meshes,
         testing::Values(true),
@@ -333,7 +334,7 @@ INSTANTIATE_TEST_SUITE_P(
     DISABLED_FusionExecutorCache_ReduceScatter,
     PipelineTestTwoStages,
     testing::Combine(
-        testing::Values(CommunicatorBackend::nccl),
+        testing::Values(CommunicatorBackend::nccl, CommunicatorBackend::ucc),
         all_nontrivial_meshes,
         testing::Values(mesh_null), // the same mesh is used for all tensors
         testing::Values(true),
@@ -341,99 +342,6 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(true),
         testing::Values(0, 1),
         testing::Values(true)));
-
-// TODO: UCC PipelineTestTwoStages are hanging in UCC barrier
-// when number of processes > number of gpus required by test.
-INSTANTIATE_TEST_SUITE_P(
-    DISABLED_UCC_Gather,
-    PipelineTestTwoStages,
-    testing::Combine(
-        testing::Values(CommunicatorBackend::ucc),
-        all_meshes,
-        all_meshes,
-        testing::Values(true),
-        testing::Values(false),
-        testing::Values(false),
-        testing::Values(0, 1),
-        testing::Bool()));
-
-INSTANTIATE_TEST_SUITE_P(
-    DISABLED_UCC_Scatter,
-    PipelineTestTwoStages,
-    testing::Combine(
-        testing::Values(CommunicatorBackend::ucc),
-        all_meshes,
-        all_meshes,
-        testing::Values(false),
-        testing::Values(true),
-        testing::Values(false),
-        testing::Values(0, 1),
-        testing::Bool()));
-
-INSTANTIATE_TEST_SUITE_P(
-    DISABLED_UCC_Bcast,
-    PipelineTestTwoStages,
-    testing::Combine(
-        testing::Values(CommunicatorBackend::ucc),
-        all_meshes,
-        all_meshes,
-        testing::Values(false),
-        testing::Values(false),
-        testing::Values(false),
-        testing::Values(0, 1),
-        testing::Bool()));
-
-INSTANTIATE_TEST_SUITE_P(
-    DISABLED_UCC_Bcast_sharded,
-    PipelineTestTwoStages,
-    testing::Combine(
-        testing::Values(CommunicatorBackend::ucc),
-        testing::Values(mesh3, mesh4),
-        testing::Values(mesh3, mesh4),
-        testing::Values(true),
-        testing::Values(true),
-        testing::Values(false),
-        testing::Values(0, 1),
-        testing::Bool()));
-
-INSTANTIATE_TEST_SUITE_P(
-    DISABLED_UCC_Bcast_sharded_same_mesh,
-    PipelineTestTwoStages,
-    testing::Combine(
-        testing::Values(CommunicatorBackend::ucc),
-        testing::Values(mesh0, mesh1),
-        testing::Values(mesh_null), // the same mesh is used for all tensors
-        testing::Values(true),
-        testing::Values(true),
-        testing::Values(false),
-        testing::Values(0, 1),
-        testing::Bool()));
-
-INSTANTIATE_TEST_SUITE_P(
-    DISABLED_UCC_Reduce,
-    PipelineTestTwoStages,
-    testing::Combine(
-        testing::Values(CommunicatorBackend::ucc),
-        all_nontrivial_meshes,
-        all_meshes,
-        testing::Values(true),
-        testing::Values(false),
-        testing::Values(true),
-        testing::Values(0, 1),
-        testing::Bool()));
-
-INSTANTIATE_TEST_SUITE_P(
-    DISABLED_UCC_ReduceScatter,
-    PipelineTestTwoStages,
-    testing::Combine(
-        testing::Values(CommunicatorBackend::ucc),
-        all_nontrivial_meshes,
-        testing::Values(mesh_null), // the same mesh is used for all tensors
-        testing::Values(true),
-        testing::Values(true),
-        testing::Values(true),
-        testing::Values(0, 1),
-        testing::Bool()));
 
 // Different scheduling modes used in
 // PipelineTestStagedReduction.StagedReduction

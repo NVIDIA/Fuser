@@ -21,6 +21,7 @@
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <kernel.h>
+#include <ops/alias.h>
 #include <ops/arith.h>
 
 #include <iterator>
@@ -57,8 +58,6 @@ void swap(Fusion& a, Fusion& b) noexcept {
   swap(a.outputs_, b.outputs_);
 
   swap(a.io_alias_, b.io_alias_);
-  swap(a.permuted_input_map_, b.permuted_input_map_);
-  swap(a.permuted_output_map_, b.permuted_output_map_);
 }
 
 std::unique_ptr<SegmentedFusion> Fusion::segment(
@@ -94,9 +93,6 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
         .aliased_io = copied_input,
         .hide_output = alias_info.hide_output};
   }
-
-  to->permuted_input_map_ = from->permuted_input_map_;
-  to->permuted_output_map_ = from->permuted_output_map_;
 
   to->all_tv_uses_valid_ = from->all_tv_uses_valid_;
   // This should never be true on copy, but copying for completeness.
@@ -169,8 +165,6 @@ void Fusion::clear() noexcept {
 
   io_alias_.clear();
 
-  permuted_input_map_.clear();
-  permuted_output_map_.clear();
   managed_data_.clear();
   managed_named_data_.clear();
 
@@ -259,19 +253,7 @@ void Fusion::addInput(Val* input) {
   all_tv_uses_valid_ = false;
 }
 
-void Fusion::addOutput(Val* output) {
-  // We currently don't support explicitly outputing aliased inputs. This is
-  // because they are already marked as output for in-place update. It's tricky
-  // to allow marking them explicitly as real output, since that requires us to
-  // register/identify output not only by `Val*` pointer, but also by indices;
-  // it also requires us to magically arrange `outputs_` entries in proper order
-  // ^^^ this doesn't look intuitive on `outputs_` in fusion.
-  // I think we can solve this by marking addOutput on io_alias_ keys after
-  // fusion is fully defined. Tracking this in #1488
-  // Apparently we can't do this neither at the time. I think segmentation
-  // unfortunately would call addOutput after we marked io_alias_ map.
-  // NVF_CHECK(io_alias_.count(output) == 0,
-  //     "can't register aliased output as real output");
+void Fusion::addOutputInternal(Val* output) {
   assertInContainer(output, "Cannot register output ");
   NVF_CHECK(
       output->isA<TensorView>(),
@@ -283,6 +265,23 @@ void Fusion::addOutput(Val* output) {
   output->setIsFusionOutput(true);
 
   all_tv_uses_valid_ = false;
+}
+
+void Fusion::addOutput(Val* output) {
+  // special handling for returning aliased output. We just need to remove its
+  // existing entry in the outputs_ used for inplace update
+  if (io_alias_.count(output) != 0) {
+    // if previous output is only added for aliasing purpose, we should remove
+    // the previous entry and add a new one. Otherwise, it may be positioned
+    // wrong in the output list.
+    if (io_alias_[output].hide_output) {
+      removeOutput(output);
+    }
+    // output shouldn't be hidden any more
+    io_alias_[output].hide_output = false;
+  }
+
+  addOutputInternal(output);
 }
 
 void Fusion::removeInput(Val* input) {
@@ -646,7 +645,7 @@ std::vector<Val*> Fusion::usedMathVals() {
   const auto inputs = InputsOf::outputs(outputs());
   auto used_math_vals = DependencyCheck::getAllValsBetween(
       {inputs.begin(), inputs.end()}, outputs());
-  // When an expre has multiple outputs and only some of them are
+  // When an expression has multiple outputs and only some of them are
   // used, the rest aren't included in used_math_vals as they are not
   // used. However, we want them to be included as they must show up
   // in the fusion.
@@ -813,6 +812,11 @@ void Fusion::aliasOutputToInput(
     output = castOp(input->getDataType().value(), output);
   }
 
+  if (output->isFusionInput()) {
+    // ensure that codegen produce a write operation on the buffer.
+    output = set(output);
+  }
+
   NVF_ERROR(
       isAliasCompatible(input, output),
       "The input and output values are not alias-compatible.");
@@ -824,9 +828,9 @@ void Fusion::aliasOutputToInput(
       .aliased_io = input,
       .hide_output = !output->isFusionOutput()};
 
-  // TODO: output should be marked at the end of fusion definition #1488
+  // only add output when it's not in outputs_
   if (!output->isFusionOutput()) {
-    addOutput(output);
+    addOutputInternal(output);
   }
 }
 

@@ -158,8 +158,17 @@ std::vector<at::Tensor> scheduleCompileAndRun(
   tv1->merge(1);
   tv1->axis(1)->parallelize(ParallelType::TIDx);
 
-  tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
-  tv2->applyMmaSwizzle(MmaOperand::Accumulator);
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2c->getLoopDomain());
+    tv2c->setLoopDomain(s.as<IterDomain*>());
+    tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+  }
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2->getLoopDomain());
+    tv2->setLoopDomain(s.as<IterDomain*>());
+  }
 
   FusionExecutor fe;
   fe.compileFusion(
@@ -274,16 +283,6 @@ INSTANTIATE_TEST_SUITE_P(
         all_dtypes),
     testName);
 
-class HopperBase : public NVFuserTest {
- protected:
-  void SetUp() override {
-    if (cudaArchGuardShouldSkip(9, 0)) {
-      GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
-    }
-    NVFuserTest::SetUp();
-  }
-};
-
 // For smem mma input tensors, the schedule does not matter, we just naively
 // parallelize it so the test runs faster.
 void naivelyParallelize(TensorView* tv) {
@@ -293,43 +292,6 @@ void naivelyParallelize(TensorView* tv) {
   tv->split(0, 128);
   tv->axis(1)->parallelize(ParallelType::TIDx);
 }
-
-auto all_mma_layouts =
-    testing::Values(MmaLayout::TT, MmaLayout::TN, MmaLayout::NT, MmaLayout::NN);
-
-auto all_hopper_macros = testing::Values(
-    MmaMacro::Hopper_64_8_16,
-    MmaMacro::Hopper_64_16_16,
-    MmaMacro::Hopper_64_24_16,
-    MmaMacro::Hopper_64_32_16,
-    MmaMacro::Hopper_64_40_16,
-    MmaMacro::Hopper_64_48_16,
-    MmaMacro::Hopper_64_56_16,
-    MmaMacro::Hopper_64_64_16,
-    MmaMacro::Hopper_64_72_16,
-    MmaMacro::Hopper_64_80_16,
-    MmaMacro::Hopper_64_88_16,
-    MmaMacro::Hopper_64_96_16,
-    MmaMacro::Hopper_64_104_16,
-    MmaMacro::Hopper_64_112_16,
-    MmaMacro::Hopper_64_120_16,
-    MmaMacro::Hopper_64_128_16,
-    MmaMacro::Hopper_64_136_16,
-    MmaMacro::Hopper_64_144_16,
-    MmaMacro::Hopper_64_152_16,
-    MmaMacro::Hopper_64_160_16,
-    MmaMacro::Hopper_64_168_16,
-    MmaMacro::Hopper_64_176_16,
-    MmaMacro::Hopper_64_184_16,
-    MmaMacro::Hopper_64_192_16,
-    MmaMacro::Hopper_64_200_16,
-    MmaMacro::Hopper_64_208_16,
-    MmaMacro::Hopper_64_216_16,
-    MmaMacro::Hopper_64_224_16,
-    MmaMacro::Hopper_64_232_16,
-    MmaMacro::Hopper_64_240_16,
-    MmaMacro::Hopper_64_248_16,
-    MmaMacro::Hopper_64_256_16);
 
 using HopperMmaRSTestParams =
     std::tuple<MmaMacro, PrimDataType, MmaLayout, MmaInputSmemSwizzle>;
@@ -423,8 +385,17 @@ TEST_P(HopperRS, SingleTile) {
     tv2c->reorder({{-1, -2}});
   }
 
-  tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
-  tv2->applyMmaSwizzle(MmaOperand::Accumulator);
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2c->getLoopDomain());
+    tv2c->setLoopDomain(s.as<IterDomain*>());
+    tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+  }
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2->getLoopDomain());
+    tv2->setLoopDomain(s.as<IterDomain*>());
+  }
 
   auto inputs = matmulAtInput3DHopperRS(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
@@ -439,46 +410,6 @@ TEST_P(HopperRS, SingleTile) {
       inputs.second.squeeze().to(at::kFloat),
       layout);
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
-}
-
-void scheduleTMALoadWhereOuterDimIsSplit(
-    TensorView* tv,
-    MmaInputSmemSwizzle swizzle,
-    DataType dtype) {
-  // We move the broadcast dim to be the left most.
-  moveInnerBroadcastLeft(tv);
-
-  if (swizzle == MmaInputSmemSwizzle::None) {
-    // For no-swizzle case, the entire tile are divided into 8x8 core matrices,
-    // and each core matrix resides in a contiguous 8*8*2 bytes region in shared
-    // memory. [K, M]
-    tv->split(-2, 8);
-    tv->split(-1, 8);
-    // [Ko, K8, Mo, M8]
-    tv->reorder({{-2, -3}});
-    // [Ko, Mo, K8, M8]
-    return;
-  }
-
-  // {B, K, N}
-  // {B, KO, 8, N}
-  //  We use 8 because it's 128 / getBytesFromSwizzle(swizzle)  *
-  //  getBytesFromSwizzle(swizzle) / 16
-  tv->split(-2, 8);
-
-  // {B, KO, KI(8), NO(2), NI(16)}
-  tv->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSize(dtype));
-
-  // {B, NO, KO, KI(8), NI(16) }
-  tv->reorder({{2, 3}, {3, 2}});
-
-  // {B, NO, KO, KIO(2), KII(4),  NI(16) }
-  tv->split(-2, (128 / (getBytesFromSwizzle(swizzle))));
-
-  // {B, NO, KO, KIO(2), KII(4),  NIO(2), NII(8) }
-  tv->split(-1, (core_matrix_width_bytes / dataTypeSize(dtype)));
-
-  tv->swizzle(SwizzleType::XOR, -4, -2);
 }
 
 TEST_P(HopperRS, SingleTileWithTMALoad) {
@@ -521,30 +452,25 @@ TEST_P(HopperRS, SingleTileWithTMALoad) {
   tv0->merge(1);
   tv0->axis(1)->parallelize(ParallelType::TIDx);
 
-  scheduleTMALoadWhereOuterDimIsSplit(tv1, swizzle_b, dtype);
-  tv1->setAllocationDomain(tv1->getLoopDomain(), true);
-
-  int skip = 0;
-  int count = 3;
-  for (auto id : tv1->getLoopDomain()) {
-    if (skip < count) {
-      skip++;
-      continue;
-    }
-    id->parallelize(ParallelType::Bulk);
-  }
-
-  // This is stop the validation from complaining
-  // about IDs not being swizzled.
-  mma_utils::setWarpMapped(tv1, tv1->getLoopDomain().size());
+  moveInnerBroadcastLeft(tv1);
+  tv1->applyMmaSwizzleForTMALoad(swizzle_b);
 
   if (layout == MmaLayout::TT) {
     // [M, K, N] -> [M, N, K]
     tv2c->reorder({{-1, -2}});
   }
 
-  tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
-  tv2->applyMmaSwizzle(MmaOperand::Accumulator);
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2c->getLoopDomain());
+    tv2c->setLoopDomain(s.as<IterDomain*>());
+    tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+  }
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2->getLoopDomain());
+    tv2->setLoopDomain(s.as<IterDomain*>());
+  }
 
   auto inputs = matmulAtInput3DHopperRS(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
@@ -561,46 +487,90 @@ TEST_P(HopperRS, SingleTileWithTMALoad) {
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
-void scheduleTMALoadOuterDimNotSplit(
-    TensorView* tv,
-    MmaInputSmemSwizzle swizzle,
-    DataType dtype) {
-  // We move the broadcast dim to be the left most.
-  moveInnerBroadcastLeft(tv);
+TEST_P(HopperRS, SingleTileWithTMALoadStore) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
 
-  if (swizzle == MmaInputSmemSwizzle::None) {
-    // For no-swizzle case, the entire tile are divided into 8x8 core matrices,
-    // and each core matrix resides in a contiguous 8*8*2 bytes region in shared
-    // memory. [K, M]
-    tv->split(-2, 8);
-    tv->split(-1, 8);
-    // [Ko, K8, Mo, M8]
-    tv->reorder({{-2, -3}});
-    // [Ko, Mo, K8, M8]
-    return;
+  auto shapes = matmulAtInputShape3DHopperRS(
+      getM(macro), getN(macro), getK(macro), layout);
+
+  auto tv0 = makeContigConcreteTensor(shapes.first, dtype);
+  auto tv1 = makeContigConcreteTensor(shapes.second, dtype);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  // Just doing a gmem->register copy
+  tv0 = set(tv0);
+  // Just doing a gmem->smem copy
+  tv1 = set(tv1);
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  auto tv2 = fusedMultiplySum(tv0, tv1, {layout == MmaLayout::TT ? 1 : 2});
+
+  auto tv3 = set(tv2);
+  tv2->setMemoryType(MemoryType::Shared);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  fusion.addOutput(tv3);
+
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
+  NVF_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+  mma_ops.front()->setMacro(macro);
+
+  auto tv2c = tv2->cacheBefore();
+
+  moveInnerBroadcastLeft(tv0);
+  tv0->applyMmaSwizzle(MmaOperand::A);
+
+  tv0->merge(1);
+  tv0->merge(1);
+  tv0->axis(1)->parallelize(ParallelType::TIDx);
+
+  moveInnerBroadcastLeft(tv1);
+  tv1->applyMmaSwizzleForTMALoad(swizzle_b);
+
+  if (layout == MmaLayout::TT) {
+    // [M, K, N] -> [M, N, K]
+    tv2c->reorder({{-1, -2}});
   }
 
-  // {B, N, K}
-  // {B, NO, N_dim, K}
-  tv->split(-2, tv->axis(-2)->extent());
+  EXPECT_TRUE(tv2c->getMemoryType() == MemoryType::Local);
+  EXPECT_TRUE(tv2->getMemoryType() == MemoryType::Shared);
+  EXPECT_TRUE(tv3->getMemoryType() == MemoryType::Global);
 
-  // {B, NO, N_dim, KO, KI (32/64/128)}
-  tv->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSize(dtype));
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2c->getLoopDomain());
+    tv2c->setLoopDomain(s.as<IterDomain*>());
+    tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+  }
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2->getLoopDomain());
+    tv2->setLoopDomain(s.as<IterDomain*>());
+  }
 
-  // {B, NO, KO, N_dim, KI }
-  tv->reorder({{2, 3}, {3, 2}});
+  mma_utils::scheduleTMAStoreForMmaOutput(tv3, getM(macro), getN(macro));
 
-  // {B, NO, KO, N_dim_O, N_128/(32, 64, 128),  KI}
-  tv->split(-2, (128 / (getBytesFromSwizzle(swizzle))));
+  auto inputs = matmulAtInput3DHopperRS(
+      getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
 
-  // {B, NO, KO, N_dim_O, N_128/(32, 64, 128),  KIO, KII}
-  tv->split(-1, (core_matrix_width_bytes / dataTypeSize(dtype)));
+  FusionExecutor fe;
+  fe.compileFusion(
+      &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
 
-  // split N_dim_O by N/16 N =swizzle size (32/64/128)
-  // {B, NO, KO, N_dim_O/(swizzle_size/16), N_128/(32, 64, 128),  KIO, KII}
-  tv->split(-4, (getBytesFromSwizzle(swizzle) / 16));
-
-  tv->swizzle(SwizzleType::XOR, -4, -2);
+  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  auto tref = atMatmul(
+      inputs.first.squeeze().to(at::kFloat),
+      inputs.second.squeeze().to(at::kFloat),
+      layout);
+  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
 TEST_P(HopperRS, SingleTileWithTMALoadOuterDimNotSplit) {
@@ -649,30 +619,19 @@ TEST_P(HopperRS, SingleTileWithTMALoadOuterDimNotSplit) {
 
   // In this case we don't split the outer dimension, thus having
   // fewer TMA loads.
-  scheduleTMALoadOuterDimNotSplit(tv1, swizzle_b, dtype);
-  tv1->setAllocationDomain(tv1->getLoopDomain(), true);
+  tv1->applyMmaSwizzleForTMALoad(swizzle_b, /* don't split outer dim*/ false);
 
-  int skip = 0;
-  int count = 3;
-  for (auto id : tv1->getLoopDomain()) {
-    if (skip < count) {
-      skip++;
-      continue;
-    }
-    id->parallelize(ParallelType::Bulk);
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2c->getLoopDomain());
+    tv2c->setLoopDomain(s.as<IterDomain*>());
+    tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
   }
-
-  // This is stop the validation from complaining
-  // about IDs not being swizzled.
-  mma_utils::setWarpMapped(tv1, tv1->getLoopDomain().size());
-
-  if (layout == MmaLayout::TT) {
-    // [M, K, N] -> [M, N, K]
-    tv2c->reorder({{-1, -2}});
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2->getLoopDomain());
+    tv2->setLoopDomain(s.as<IterDomain*>());
   }
-
-  tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
-  tv2->applyMmaSwizzle(MmaOperand::Accumulator);
 
   auto inputs = matmulAtInput3DHopperRS(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
@@ -705,7 +664,7 @@ INSTANTIATE_TEST_SUITE_P(
     MmaTest,
     HopperRS,
     testing::Combine(
-        all_hopper_macros,
+        kAllHopperMacros,
         all_dtypes,
         testing::Values(MmaLayout::TT, MmaLayout::TN),
         kAllSmemSwizzleModes),
@@ -847,8 +806,17 @@ TEST_P(HopperSS, SingleTile) {
   naivelyParallelize(tv0);
   naivelyParallelize(tv1);
 
-  tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
-  tv2->applyMmaSwizzle(MmaOperand::Accumulator);
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2c->getLoopDomain());
+    tv2c->setLoopDomain(s.as<IterDomain*>());
+    tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+  }
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2->getLoopDomain());
+    tv2->setLoopDomain(s.as<IterDomain*>());
+  }
 
   auto inputs = matmulAtInput3DHopperSS(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
@@ -937,38 +905,27 @@ TEST_P(HopperSS, SingleTileWithTMALoad) {
 
   auto tv2c = tv2->cacheBefore();
 
-  scheduleTMALoadWhereOuterDimIsSplit(tv0, swizzle_a, dtype);
-  tv0->setAllocationDomain(tv0->getLoopDomain(), true);
-  scheduleTMALoadWhereOuterDimIsSplit(tv1, swizzle_b, dtype);
-  tv1->setAllocationDomain(tv1->getLoopDomain(), true);
-
-  auto bulk_parallelize = [](TensorView* tv) {
-    int skip = 0;
-    int count = 3;
-    for (auto id : tv->getLoopDomain()) {
-      if (skip < count) {
-        skip++;
-        continue;
-      }
-      id->parallelize(ParallelType::Bulk);
-    }
-  };
-
-  bulk_parallelize(tv0);
-  bulk_parallelize(tv1);
+  moveInnerBroadcastLeft(tv0);
+  moveInnerBroadcastLeft(tv1);
+  tv0->applyMmaSwizzleForTMALoad(swizzle_a);
+  tv1->applyMmaSwizzleForTMALoad(swizzle_b);
 
   // For smem mma input tensors, the schedule does not matter, we just naively
   // parallelize it so the test runs faster.
   tv0->axis(1)->parallelize(ParallelType::TIDx);
   tv1->axis(1)->parallelize(ParallelType::TIDx);
 
-  // This is stop the validation from complaining
-  // about IDs not being swizzled.
-  mma_utils::setWarpMapped(tv0, tv0->getLoopDomain().size());
-  mma_utils::setWarpMapped(tv1, tv1->getLoopDomain().size());
-
-  tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
-  tv2->applyMmaSwizzle(MmaOperand::Accumulator);
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2c->getLoopDomain());
+    tv2c->setLoopDomain(s.as<IterDomain*>());
+    tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+  }
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2->getLoopDomain());
+    tv2->setLoopDomain(s.as<IterDomain*>());
+  }
 
   auto inputs = matmulAtInput3DHopperSS(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
@@ -1001,9 +958,9 @@ INSTANTIATE_TEST_SUITE_P(
     MmaTest,
     HopperSS,
     testing::Combine(
-        all_hopper_macros,
+        kAllHopperMacros,
         all_dtypes,
-        all_mma_layouts,
+        kAllSupportedMmaLayout,
         kAllSmemSwizzleModes,
         kAllSmemSwizzleModes),
     testNameHopperSS);

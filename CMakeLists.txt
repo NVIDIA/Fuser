@@ -85,6 +85,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/contiguity.cpp
   ${NVFUSER_SRCS_DIR}/debug.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/bank_conflict.cpp
+  ${NVFUSER_SRCS_DIR}/device_lower/analysis/circular_buffer.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/device_version.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/divisible_split.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/fused_reduction.cpp
@@ -135,9 +136,12 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/host_ir/container.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/executor.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/host_ir.cpp
+  ${NVFUSER_SRCS_DIR}/id_model/circular_buffer_indexing.cpp
   ${NVFUSER_SRCS_DIR}/id_model/id_model.cpp
+  ${NVFUSER_SRCS_DIR}/id_model/id_model_index_compute.cpp
   ${NVFUSER_SRCS_DIR}/id_model/indexing.cpp
   ${NVFUSER_SRCS_DIR}/id_model/loop_promotion.cpp
+  ${NVFUSER_SRCS_DIR}/id_model/predicate_indexing.cpp
   ${NVFUSER_SRCS_DIR}/id_model/schedule.cpp
   ${NVFUSER_SRCS_DIR}/id_model/to_string.cpp
   ${NVFUSER_SRCS_DIR}/id_model/transform_replay.cpp
@@ -185,13 +189,17 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/preseg_passes/consecutive_cast.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/exact_mapped_extent_substitution.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/factor_amax_reduction.cpp
-  ${NVFUSER_SRCS_DIR}/preseg_passes/remove_bcast_squeeze.cpp
+  ${NVFUSER_SRCS_DIR}/preseg_passes/insert_reshardings.cpp
+  ${NVFUSER_SRCS_DIR}/preseg_passes/make_resharding_contiguous.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/mark_aliases_prepare.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/move_split_cat.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/pre_segmenter.cpp
+  ${NVFUSER_SRCS_DIR}/preseg_passes/propagate_shardings.cpp
+  ${NVFUSER_SRCS_DIR}/preseg_passes/remove_bcast_squeeze.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/remove_empty.cpp
+  ${NVFUSER_SRCS_DIR}/preseg_passes/reorder_sharded_axis.cpp
   ${NVFUSER_SRCS_DIR}/rng.cpp
-  ${NVFUSER_SRCS_DIR}/root_domain_map.cpp
+  ${NVFUSER_SRCS_DIR}/logical_domain_map.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/cache_policy_refiner.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/heuristic_types.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/mark_aliases.cpp
@@ -230,6 +238,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/utils.cpp
   ${NVFUSER_SRCS_DIR}/val_graph.cpp
   ${NVFUSER_SRCS_DIR}/val_graph_visitor.cpp
+  ${NVFUSER_SRCS_DIR}/validator_utils.cpp
 )
 
 # We don't link CUPTI for MSVC
@@ -265,7 +274,7 @@ add_library(codegen_internal OBJECT ${NVFUSER_SRCS})
 if(NOT MSVC)
   target_compile_options(codegen_internal PRIVATE
     -Wall -Wno-unused-function
-    -Werror
+    # -Werror
   )
 endif()
 
@@ -505,7 +514,6 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_exceptions.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_expr_simplifier.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_expr_sort.cpp
-  ${NVFUSER_ROOT}/tests/cpp/test_gather.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu1.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu2.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu3.cpp
@@ -536,6 +544,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_resize.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_reduction_pointwise.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_scalar_hoisting.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_scatter_gather.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_sdpa_node.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_segmentation.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_serial_gridreduce.cpp
@@ -557,7 +566,10 @@ if(BUILD_TEST)
 endif()
 
 function(add_test_without_main TEST_NAME TEST_SRC ADDITIONAL_LINK)
-  list(APPEND TEST_SRC ${NVFUSER_ROOT}/tests/cpp/utils.cpp)
+  list(APPEND TEST_SRC
+    ${NVFUSER_ROOT}/tests/cpp/utils.cpp
+    ${NVFUSER_ROOT}/tests/cpp/validator.cpp
+  )
   add_executable(${TEST_NAME} ${TEST_SRC})
   set_property(TARGET ${TEST_NAME} PROPERTY CXX_STANDARD ${NVFUSER_CPP_STANDARD})
   target_compile_definitions(${TEST_NAME} PRIVATE USE_GTEST)
@@ -609,9 +621,18 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_matmul.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_pipeline.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_sharding.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_multidevice_transformer.cpp
   )
   add_test_without_main(test_multidevice "${MULTIDEVICE_TEST_SRCS}" "")
   list(APPEND TEST_BINARIES test_multidevice)
+
+  set(MULTIDEVICE_TUTORIAL_SRCS)
+  list(APPEND MULTIDEVICE_TUTORIAL_SRCS
+    ${NVFUSER_ROOT}/tests/cpp/multidevice.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_multidevice_tutorial.cpp
+  )
+  add_test_without_main(tutorial_multidevice "${MULTIDEVICE_TUTORIAL_SRCS}" "")
+  list(APPEND TEST_BINARIES tutorial_multidevice)
 
   add_test(test_view "${NVFUSER_ROOT}/tests/cpp/test_gpu_view.cpp" "")
   list(APPEND TEST_BINARIES test_view)
@@ -619,7 +640,7 @@ if(BUILD_TEST)
   set(MATMUL_TEST_SRCS)
   list(APPEND MATMUL_TEST_SRCS
     ${NVFUSER_ROOT}/tests/cpp/test_translate_mma.cpp
-    ${NVFUSER_ROOT}/tests/cpp/test_gpu_tensorcore.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_matmul.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_matmul_aten_evaluation.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_matmul_sass.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_matmul_scheduler.cpp

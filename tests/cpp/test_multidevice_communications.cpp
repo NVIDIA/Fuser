@@ -13,6 +13,9 @@
 #include <multidevice/communicator.h>
 #include <tests/cpp/multidevice.h>
 
+#include <ops/arith.h>
+#include <ops/utils.h>
+
 #include <iostream>
 
 namespace nvfuser {
@@ -37,20 +40,23 @@ class CommunicationTest
       c10d::ReduceOp::RedOpType::SUM;
   const DeviceMesh full_mesh_;
   const Team all_ranks_;
-  c10d::Backend* backend_;
+  c10d::Backend* backend_ = nullptr;
 };
 
 CommunicationTest::CommunicationTest()
     : full_mesh_(DeviceMesh::createForNumDevices(communicator_->size())),
-      all_ranks_(full_mesh_.vector()),
-      backend_(communicator_->getBackendForTeam(all_ranks_, GetParam())) {}
+      all_ranks_(full_mesh_.vector()) {}
 
 void CommunicationTest::SetUp() {
   MultiDeviceTest::SetUp();
 
-  if (!communicator_->isBackendAvailable(GetParam())) {
-    GTEST_SKIP() << "Backend not available";
+  const CommunicatorBackend backend_type = GetParam();
+  if (!communicator_->isBackendAvailable(backend_type)) {
+    GTEST_SKIP() << "Backend not available: " << backend_type;
   }
+  // getBackendForTeam throws an error if the requested backend type isn't
+  // available. Therefore, we call it after the isBackendAvailable check.
+  backend_ = communicator_->getBackendForTeam(all_ranks_, backend_type);
 }
 
 void CommunicationTest::validate(at::Tensor obtained, at::Tensor expected) {
@@ -61,9 +67,13 @@ void CommunicationTest::validate(at::Tensor obtained, at::Tensor expected) {
 }
 
 TEST_P(CommunicationTest, Gather) {
-  IrContainer container;
-  auto communication = IrBuilder::createInContainer<Communication>(
-      &container, CommunicationType::Gather, full_mesh_, all_ranks_, kRoot);
+  hir::HostIrContainer container;
+  FusionGuard fg(&container);
+  auto* in = makeContigTensor(2);
+  in->setDeviceMesh(full_mesh_);
+  auto* out = ops::newValLike(in, in->dtype())->as<TensorView>();
+  auto* communication = IrBuilder::create<Communication>(
+      CommunicationType::Gather, out, in, all_ranks_, kRoot);
 
   at::Tensor input_tensor = at::empty({1, kTensorSize}, tensor_options);
   at::Tensor output_tensor =
@@ -91,9 +101,13 @@ TEST_P(CommunicationTest, Gather) {
 }
 
 TEST_P(CommunicationTest, Allgather) {
-  IrContainer container;
-  auto communication = IrBuilder::createInContainer<Communication>(
-      &container, CommunicationType::Allgather, full_mesh_, all_ranks_);
+  hir::HostIrContainer container;
+  FusionGuard fg(&container);
+  auto* in = makeContigTensor(2);
+  in->setDeviceMesh(full_mesh_);
+  auto* out = ops::newValLike(in, in->dtype())->as<TensorView>();
+  auto communication = IrBuilder::create<Communication>(
+      CommunicationType::Allgather, out, in, all_ranks_);
 
   at::Tensor input_tensor = at::empty({1, kTensorSize}, tensor_options);
   at::Tensor output_tensor =
@@ -119,9 +133,13 @@ TEST_P(CommunicationTest, Allgather) {
 }
 
 TEST_P(CommunicationTest, Scatter) {
-  IrContainer container;
-  auto communication = IrBuilder::createInContainer<Communication>(
-      &container, CommunicationType::Scatter, full_mesh_, all_ranks_, kRoot);
+  hir::HostIrContainer container;
+  FusionGuard fg(&container);
+  auto* in = makeContigTensor(2);
+  in->setDeviceMesh(full_mesh_);
+  auto* out = ops::newValLike(in, in->dtype())->as<TensorView>();
+  auto communication = IrBuilder::create<Communication>(
+      CommunicationType::Scatter, out, in, all_ranks_, kRoot);
 
   at::Tensor input_tensor;
   if (communicator_->deviceId() == kRoot) {
@@ -154,9 +172,13 @@ TEST_P(CommunicationTest, Scatter) {
 }
 
 TEST_P(CommunicationTest, Broadcast) {
-  IrContainer container;
-  auto communication = IrBuilder::createInContainer<Communication>(
-      &container, CommunicationType::Broadcast, full_mesh_, all_ranks_, kRoot);
+  hir::HostIrContainer container;
+  FusionGuard fg(&container);
+  auto* in = makeContigTensor(2);
+  in->setDeviceMesh(full_mesh_);
+  auto* out = ops::newValLike(in, in->dtype())->as<TensorView>();
+  auto communication = IrBuilder::create<Communication>(
+      CommunicationType::Broadcast, out, in, all_ranks_, kRoot);
 
   at::Tensor input_tensor;
   if (communicator_->deviceId() == kRoot) {
@@ -184,9 +206,6 @@ TEST_P(CommunicationTest, Broadcast) {
 }
 
 TEST_P(CommunicationTest, SendRecv) {
-  if (GetParam() == CommunicatorBackend::ucc) {
-    GTEST_SKIP() << "Disabling because of UCC hangs, see issue #2091";
-  }
   if (communicator_->size() < 2 || torch::cuda::device_count() < 2) {
     GTEST_SKIP() << "This test needs at least 2 GPUs and 2 ranks.";
   }
@@ -199,13 +218,13 @@ TEST_P(CommunicationTest, SendRecv) {
     return;
   }
 
-  IrContainer container;
-  auto* communication = IrBuilder::createInContainer<Communication>(
-      &container,
-      CommunicationType::SendRecv,
-      DeviceMesh({receiver}),
-      /*team=*/Team({sender, receiver}),
-      /*root=*/sender);
+  hir::HostIrContainer container;
+  FusionGuard fg(&container);
+  auto* in = makeContigTensor(2);
+  in->setDeviceMesh(full_mesh_);
+  auto* out = ops::newValLike(in, in->dtype())->as<TensorView>();
+  auto communication = IrBuilder::create<Communication>(
+      CommunicationType::SendRecv, out, in, Team({sender, receiver}), sender);
 
   at::Tensor input_tensor;
   at::Tensor output_tensor;
@@ -241,13 +260,13 @@ TEST_P(CommunicationTest, SendRecvToSelf) {
     return;
   }
 
-  IrContainer container;
-  auto* communication = IrBuilder::createInContainer<Communication>(
-      &container,
-      CommunicationType::SendRecv,
-      DeviceMesh({sender}),
-      /*team=*/Team({sender}),
-      /*root=*/sender);
+  hir::HostIrContainer container;
+  FusionGuard fg(&container);
+  auto* in = makeContigTensor(2);
+  in->setDeviceMesh(full_mesh_);
+  auto* out = ops::newValLike(in, in->dtype())->as<TensorView>();
+  auto communication = IrBuilder::create<Communication>(
+      CommunicationType::SendRecv, out, in, Team({sender}), sender);
 
   at::Tensor input_tensor = at::empty({kTensorSize}, tensor_options);
   at::Tensor output_tensor = at::empty_like(input_tensor);
@@ -270,14 +289,13 @@ TEST_P(CommunicationTest, SendRecvToSelf) {
 }
 
 TEST_P(CommunicationTest, Reduce) {
-  IrContainer container;
-  auto* communication = IrBuilder::createInContainer<Communication>(
-      &container,
-      CommunicationType::Reduce,
-      full_mesh_,
-      all_ranks_,
-      kRoot,
-      kReductionOp);
+  hir::HostIrContainer container;
+  FusionGuard fg(&container);
+  auto* in = makeContigTensor(2);
+  in->setDeviceMesh(full_mesh_);
+  auto* out = newForReduction(in, {0});
+  auto communication = IrBuilder::create<Communication>(
+      CommunicationType::Reduce, out, in, all_ranks_, kRoot, kReductionOp);
 
   at::Tensor input_tensor = at::empty({1, kTensorSize}, tensor_options);
   at::Tensor output_tensor = at::empty({kTensorSize}, tensor_options);
@@ -305,11 +323,15 @@ TEST_P(CommunicationTest, Reduce) {
 }
 
 TEST_P(CommunicationTest, Allreduce) {
-  IrContainer container;
-  auto* communication = IrBuilder::createInContainer<Communication>(
-      &container,
+  hir::HostIrContainer container;
+  FusionGuard fg(&container);
+  auto* in = makeContigTensor(2);
+  in->setDeviceMesh(full_mesh_);
+  auto* out = newForReduction(in, {0});
+  auto communication = IrBuilder::create<Communication>(
       CommunicationType::Allreduce,
-      full_mesh_,
+      out,
+      in,
       all_ranks_,
       /*root=*/-1,
       kReductionOp);
@@ -337,11 +359,15 @@ TEST_P(CommunicationTest, Allreduce) {
 }
 
 TEST_P(CommunicationTest, ReduceScatter) {
-  IrContainer container;
-  auto* communication = IrBuilder::createInContainer<Communication>(
-      &container,
+  hir::HostIrContainer container;
+  FusionGuard fg(&container);
+  auto* in = makeContigTensor(3);
+  in->setDeviceMesh(full_mesh_);
+  auto* out = newForReduction(in, {0});
+  auto communication = IrBuilder::create<Communication>(
       CommunicationType::ReduceScatter,
-      full_mesh_,
+      out,
+      in,
       all_ranks_,
       /*root=*/-1,
       kReductionOp,

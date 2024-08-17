@@ -16,7 +16,8 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <linked_hash_map.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
+#include <multidevice/utils.h>
 
 namespace nvfuser {
 
@@ -144,7 +145,7 @@ std::pair<bool, std::optional<bool>> mergeContiguity(
   }
 
   std::unordered_map<IterDomain*, IterDomain*> in_logical_to_out_root =
-      PairwiseRootDomainMap(in, out).mapProducerToConsumer();
+      PairwiseLogicalDomainMap(in, out).mapProducerToConsumer();
 
   Layout preferred_out_layout;
   for (const auto i : c10::irange(preferred_in_layout.size())) {
@@ -236,12 +237,16 @@ void AliasFinder::handle(const ViewOp* view) {
   analysis_.add(out, in, std::move(out_logical_layout));
 }
 
-void AliasFinder::handle(const LoadStoreOp* permute) {
-  TensorView* in = dynamic_cast<TensorView*>(permute->in());
+void AliasFinder::handle(const LoadStoreOp* set) {
+  if (isResharding(set)) {
+    return;
+  }
+
+  TensorView* in = dynamic_cast<TensorView*>(set->in());
   if (in == nullptr) {
     return;
   }
-  TensorView* out = permute->out()->as<TensorView>();
+  TensorView* out = set->out()->as<TensorView>();
 
   // Compute `out`'s preferred allocation domain for aliasing.
   //
@@ -410,10 +415,8 @@ void AliasAnalysisResult::add(
       i->second.first);
 }
 
-TensorView* AliasAnalysisResult::getNearestAliasedIo(
-    const TensorView* alias) const {
-  const auto i = alias_to_root_.find(alias);
-  return i == alias_to_root_.end() ? nullptr : i->second;
+TensorView* AliasAnalysisResult::getRoot(const TensorView* alias) const {
+  return getOrDefault(alias_to_root_, alias);
 }
 
 namespace {
@@ -430,23 +433,22 @@ bool okToRelayout(
 
 void AliasAnalysisResult::finalize(
     const bool can_override_empty_allocation_domain) {
-  for (auto [alias, root_and_layout] : alias_to_source_) {
-    auto [root, preferred_layout] = root_and_layout;
-    // Walks up the `alias_to_source_` chain.
-    while (root != nullptr && !root->isFusionInput() &&
-           !root->isFusionOutput()) {
-      const auto i = alias_to_source_.find(root);
-      root = (i == alias_to_source_.end() ? nullptr : i->second.first);
-    }
-    if (root == nullptr) {
-      continue;
-    }
+  for (auto [alias, source_and_layout] : alias_to_source_) {
+    auto [root, preferred_layout] = source_and_layout;
 
     if (!okToRelayout(
             alias, preferred_layout, can_override_empty_allocation_domain)) {
       continue;
     }
 
+    // Walks up the `alias_to_source_` chain.
+    while (true) {
+      const auto i = alias_to_source_.find(root);
+      if (i == alias_to_source_.end()) {
+        break;
+      }
+      root = i->second.first;
+    }
     alias_to_root_[alias] = root;
   }
 }

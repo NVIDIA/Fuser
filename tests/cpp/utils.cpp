@@ -548,34 +548,6 @@ bool isSchedulerInUse(
   return false;
 }
 
-void validateSegmentation(
-    FusionKernelRuntime* runtime,
-    const std::vector<ScheduleHeuristic>& expected_heuristics) {
-  const auto& segment_groups = runtime->fusionSegments()->groups();
-
-  NVF_CHECK(
-      segment_groups.size() == expected_heuristics.size(),
-      "Unexpected segments. Expected: ",
-      expected_heuristics.size(),
-      ". Actual: ",
-      segment_groups.size());
-
-  // Assumes up to two segments exist for simplicity
-  NVF_ERROR(
-      segment_groups.size() <= 2, "True segment order analysis is required");
-
-  for (auto& group : segment_groups) {
-    int64_t segment_order = group->producer_edges.empty() ? 0 : 1;
-    NVF_CHECK(
-        group->heuristic() == expected_heuristics.at(segment_order),
-        "Expected to use the ",
-        expected_heuristics.at(segment_order),
-        " scheduler but ",
-        group->heuristic(),
-        " was used");
-  }
-}
-
 TensorView* biasEpilogue(TensorView* tensor, TensorView* bias) {
   NVF_CHECK(
       tensor->dtype() == bias->dtype(),
@@ -788,13 +760,13 @@ MmaLayout getMatmulProblemLayout(Fusion* fusion) {
 }
 
 // get supported floating data types
-std::vector<DataType> getFloatingDataTypes() {
+std::vector<DataType> getFloatingDataTypes(bool include_complex) {
   std::vector<DataType> dtypes = {
-      DataType::Double,
-      DataType::Float,
-      DataType::Half,
-      DataType::ComplexFloat,
-      DataType::ComplexDouble};
+      DataType::Double, DataType::Float, DataType::Half};
+  if (include_complex) {
+    dtypes.push_back(DataType::ComplexFloat);
+    dtypes.push_back(DataType::ComplexDouble);
+  }
 #if defined(CUDA_VERSION) && CUDA_VERSION >= 11000
   if (at::cuda::getDeviceProperties(0)->major >= 8) {
     dtypes.push_back(DataType::BFloat16);

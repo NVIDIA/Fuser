@@ -16,19 +16,19 @@
 
 namespace nvfuser {
 
-//! Generic interface for mapping root domains of a producer-consumer pair.
-class RootDomainMap : public PolymorphicBase {
+//! Generic interface for mapping logical domains of a producer-consumer pair.
+class LogicalDomainMap : public PolymorphicBase {
  public:
   //! Return a map from a producer TensorDomain to a consumer
   //! TensorDomain
   //!
   //! \param producer A producer TensorDomain
   //! \param consumer A consumer TensorDomain
-  //! \param root_dims_to_map Maps only producer root domains in this set
+  //! \param dims_to_map Maps only producer logical domains in this set
   std::unordered_map<IterDomain*, IterDomain*> mapProducerToConsumer(
       const TensorDomain* producer,
       const TensorDomain* consumer,
-      const std::unordered_set<IterDomain*>& root_dims_to_map) const;
+      const std::unordered_set<IterDomain*>& dims_to_map) const;
 
   //! Return a map from a producer TensorDomain to a consumer
   //! TensorDomain
@@ -44,11 +44,11 @@ class RootDomainMap : public PolymorphicBase {
   //!
   //! \param consumer A consumer TensorDomain
   //! \param producer A producer TensorDomain
-  //! \param root_dims_to_map Maps only consumer root domains in this set
+  //! \param dims_to_map Maps only consumer root domains in this set
   std::unordered_map<IterDomain*, IterDomain*> mapConsumerToProducer(
       const TensorDomain* consumer,
       const TensorDomain* producer,
-      const std::unordered_set<IterDomain*>& root_dims_to_map) const;
+      const std::unordered_set<IterDomain*>& dims_to_map) const;
 
   //! Return a map from a consumer TensorDomain to a producer
   //! TensorDomain
@@ -60,27 +60,27 @@ class RootDomainMap : public PolymorphicBase {
       const TensorDomain* producer) const;
 
  protected:
-  //! Return a map between root IterDomains of a producer-consumer
+  //! Return a map between logical IterDomains of a producer-consumer
   //! pair.
   //!
   //! \param producer A producer TensorDomain
   //! \param consumer A consumer TensorDomain
-  //! \param root_dims_to_map Maps only from IterDomains in this set
+  //! \param dims_to_map Maps only from IterDomains in this set
   //! \param producer_to_consumer Maps from producer to consumer if true
   virtual std::unordered_map<IterDomain*, IterDomain*> map(
       const TensorDomain* producer,
       const TensorDomain* consumer,
-      const std::unordered_set<IterDomain*>& root_dims_to_map,
+      const std::unordered_set<IterDomain*>& dims_to_map,
       bool producer_to_consumer) const = 0;
 };
 
-//! Maps root domains of a producer-consumer pair. This class only
+//! Maps logical domains of a producer-consumer pair. This class only
 //! looks at the given pair of TensorViews and does not take into
 //! consideration the constraints of the computeAt transformation,
 //! i.e., unable to compute the same tensors multiple times. This
 //! should not be used for transformations implementing computeAt, but
 //! should be valid otherwise.
-class NVF_API PairwiseRootDomainMap : public RootDomainMap {
+class PairwiseLogicalDomainMap : public LogicalDomainMap {
  public:
   //! When require_same_extent is false, domains that may have
   //! different extents are also mapped. For example, IDs of lookup
@@ -90,11 +90,11 @@ class NVF_API PairwiseRootDomainMap : public RootDomainMap {
   //!
   //! \param producer The producer tensor of a producer-consumer pair.
   //! \param consumer The consumer tensor of a producer-consumer pair.
-  explicit PairwiseRootDomainMap(
+  PairwiseLogicalDomainMap(
       const TensorView* producer,
       const TensorView* consumer);
 
-  PairwiseRootDomainMap& mapBroadcast(bool b) {
+  PairwiseLogicalDomainMap& mapBroadcast(bool b) {
     map_broadcast_ = b;
     return *this;
   }
@@ -102,17 +102,17 @@ class NVF_API PairwiseRootDomainMap : public RootDomainMap {
   //! If b is true: map symbolic domains with other IterDomains even if their
   //! extents don't match. If b is false (default): map symbolic domains with
   //! other IterDomains only if their extents match.
-  PairwiseRootDomainMap& mapSymbolic(bool b) {
+  PairwiseLogicalDomainMap& mapSymbolic(bool b) {
     map_symbolic_ = b;
     return *this;
   }
 
-  PairwiseRootDomainMap& mapDifferentExtents(bool b) {
+  PairwiseLogicalDomainMap& mapDifferentExtents(bool b) {
     map_different_extents_ = b;
     return *this;
   }
 
-  PairwiseRootDomainMap& mapIndexedDomains(bool b) {
+  PairwiseLogicalDomainMap& mapIndexedDomains(bool b) {
     map_indexed_domains_ = b;
     return *this;
   }
@@ -127,20 +127,20 @@ class NVF_API PairwiseRootDomainMap : public RootDomainMap {
 
   std::string toString() const;
 
-  // Helper methods on top of RootDomainMap::mapProducerToConsumer and
-  // RootDomainMap::mapConsumerToProducer. This way, the caller doesn't have to
-  // specify the producer domain and the consumer domain, which is redundant and
-  // error-prone.
+  // Helper methods on top of LogicalDomainMap::mapProducerToConsumer and
+  // LogicalDomainMap::mapConsumerToProducer. This way, the caller doesn't have
+  // to specify the producer domain and the consumer domain, which is redundant
+  // and error-prone.
   std::unordered_map<IterDomain*, IterDomain*> mapProducerToConsumer(
-      const std::unordered_set<IterDomain*>* root_dims_to_map = nullptr) const;
+      const std::unordered_set<IterDomain*>* dims_to_map = nullptr) const;
   std::unordered_map<IterDomain*, IterDomain*> mapConsumerToProducer(
-      const std::unordered_set<IterDomain*>* root_dims_to_map = nullptr) const;
+      const std::unordered_set<IterDomain*>* dims_to_map = nullptr) const;
 
  protected:
   std::unordered_map<IterDomain*, IterDomain*> map(
       const TensorDomain* producer,
       const TensorDomain* consumer,
-      const std::unordered_set<IterDomain*>& root_dims_to_map,
+      const std::unordered_set<IterDomain*>& dims_to_map,
       bool producer_to_consumer) const override;
 
  private:
@@ -163,13 +163,13 @@ class NVF_API PairwiseRootDomainMap : public RootDomainMap {
 };
 
 //! Represents an iteration domain of a TensorDomain. Only used for
-//! root domain mapping.
+//! logical domain mapping.
 //!
 //! Note that an IterDomain object may be reused
 //! across multiple TensorDomains, but an IterDomain in a
 //! TensorDomain may not be necessarily mappable to the same
 //! IterDomain used in a different TensorDomain. Thus, for the purpose
-//! of root domain mapping, an iteration domain needs to be identified
+//! of logical domain mapping, an iteration domain needs to be identified
 //! with an IterDomain and its TensorDomain.
 class DomainKey {
  public:
@@ -216,7 +216,7 @@ using DomainKeySet = std::unordered_set<DomainKey, DomainKeyHash>;
 template <typename Mapped>
 using DomainKeyMap = std::unordered_map<DomainKey, Mapped, DomainKeyHash>;
 
-class ComputeAtRootDomainMap;
+class ComputeAtLogicalDomainMap;
 
 //! A helper class to find all DomainKeys that are consumers of
 //! reduction outputs. Such consumer IterDomains may not be mapped to
@@ -231,10 +231,10 @@ class UnmappableReductionDomains : private IterVisitor {
   //! reduction output domain to be mapped with a consumer domain of
   //! the redution. It needs to be avoided as computing consumers of
   //! reduction outputs within the corresponding reduction loop is not
-  //! possible. This routine is used to build root domain mappings.
+  //! possible. This routine is used to build logical domain mappings.
   bool isReductionOutputMapped(
       const DomainKeySet& consumer_domains,
-      const ComputeAtRootDomainMap& root_map) const;
+      const ComputeAtLogicalDomainMap& logical_map) const;
 
   std::string toString() const;
 
@@ -254,7 +254,7 @@ class UnmappableReductionDomains : private IterVisitor {
   DomainKeyMap<DomainKeySet> reduction_domain_inputs_;
 };
 
-//! Models root-domain mappings for computeAt
+//! Models logical-domain mappings for computeAt
 //!
 //! Two iteration domains are mapped when computeAt of one iteration
 //! domain is possible at another iteration domain. Consider a simple
@@ -267,8 +267,8 @@ class UnmappableReductionDomains : private IterVisitor {
 //! fail. Currently, the only use of this class is getMappableDims,
 //! which just grabs any domain that is mappable, which works no
 //! matter view is used or not.
-class NVF_API ComputeAtRootDomainMap : public RootDomainMap {
-  friend class ComputeAtRootDomainMapBuilder;
+class NVF_API ComputeAtLogicalDomainMap : public LogicalDomainMap {
+  friend class ComputeAtLogicalDomainMapBuilder;
 
  public:
   //! Builds a mapping table by analyzing the current
@@ -300,7 +300,7 @@ class NVF_API ComputeAtRootDomainMap : public RootDomainMap {
   //!
   //! This is for the computeAt transformation, where TensorViews are
   //! updated with new TensorDomains. Since they keep using the same
-  //! root doamins, the root mapping remains valid but needs to
+  //! logical doamins, the logical mapping remains valid but needs to
   //! reflect the use of new TensorDomains as aliases of the existing
   //! ones.
   //!
@@ -312,23 +312,22 @@ class NVF_API ComputeAtRootDomainMap : public RootDomainMap {
   //!
   //! Unlike the other map functions, two TensorDomains do not need to
   //! be a producer-consumer pair. Since they may not be a
-  //! producer-consumer pair, this function requires proper root
-  //! domains, which may be root or logical domains. Also, no error
-  //! check is done as we do not assume producer-consumer
-  //! relationship.
+  //! producer-consumer pair, this function requires proper domains, which may
+  //! be root or logical domains. Also, no error check is done as we do not
+  //! assume producer-consumer relationship.
   //!
   //! Note that an exception is thrown when a domain is found to be
   //! mapped to multiple domains, which can happen with views.
   //!
   //! \param from_td A TensorDomain from which a map is created
-  //! \param from_root A root domain of from_td
+  //! \param from_dom A root/logical domain of from_td
   //! \param to_td A TensorDomain to which a map is created
-  //! \param to_root A root domain of to_td
+  //! \param to_dom A root/logical domain of to_td
   std::unordered_map<IterDomain*, IterDomain*> mapBestEffort(
       const TensorDomain* from_td,
-      const std::vector<IterDomain*>& from_root,
+      const std::vector<IterDomain*>& from_dom,
       const TensorDomain* to_td,
-      const std::vector<IterDomain*>& to_root) const;
+      const std::vector<IterDomain*>& to_dom) const;
 
   // Returns an unordered set of all iter domains in producer and consumer that
   // can map to eachother
@@ -370,17 +369,17 @@ class NVF_API ComputeAtRootDomainMap : public RootDomainMap {
       const TensorDomain* td,
       const IterDomain* id);
 
-  //! Return a map between root IterDomains of a producer-consumer
+  //! Return a map between logical IterDomains of a producer-consumer
   //! pair.
   //!
   //! \param producer A producer TensorDomain
   //! \param consumer A consumer TensorDomain
-  //! \param root_dims_to_map Maps only from IterDomains in this set
+  //! \param dims_to_map Maps only from IterDomains in this set
   //! \param producer_to_consumer Maps from producer to consumer if true
   std::unordered_map<IterDomain*, IterDomain*> map(
       const TensorDomain* producer,
       const TensorDomain* consumer,
-      const std::unordered_set<IterDomain*>& root_dims_to_map,
+      const std::unordered_set<IterDomain*>& dims_to_map,
       bool producer_to_consumer) const override;
 
  private:
@@ -402,14 +401,14 @@ class NVF_API ComputeAtRootDomainMap : public RootDomainMap {
   std::unordered_set<IterDomain*> window_axes_;
 };
 
-//! Create a DisjointSets of root IterDomains by traversing the
+//! Create a DisjointSets of logical IterDomains by traversing the
 //! current fusion entirely. IterDomains that can be mapped each
 //! other with computeAt are grouped into the same subset in the
 //! DisjointSets.
-class ComputeAtRootDomainMapBuilder : private BackwardVisitor {
+class ComputeAtLogicalDomainMapBuilder : private BackwardVisitor {
  public:
-  explicit ComputeAtRootDomainMapBuilder(
-      ComputeAtRootDomainMap& root_map,
+  explicit ComputeAtLogicalDomainMapBuilder(
+      ComputeAtLogicalDomainMap& logical_map,
       bool map_through_reduction = false);
 
  private:
@@ -426,7 +425,7 @@ class ComputeAtRootDomainMapBuilder : private BackwardVisitor {
   bool isInvalid(const DomainKeySet& domains) const;
 
   //! Track a pair of producer-consumer domains as potentially mappable. Inserts
-  //! entries into pending_map_, but does not add anything into the root_map_
+  //! entries into pending_map_, but does not add anything into the logical_map_
   //! (added when handle is called on a TensorView). Maybe mapped will, however,
   //! immediately propagate broadcast iter domains.
   void setMaybeMapped(
@@ -534,7 +533,7 @@ class ComputeAtRootDomainMapBuilder : private BackwardVisitor {
   bool safeToMap(const DomainKeySet& domains);
 
  private:
-  ComputeAtRootDomainMap& root_map_;
+  ComputeAtLogicalDomainMap& logical_map_;
   //! Keep track of what we want to try and map
   DomainKeyMap<DomainKeySet> pending_map_;
   std::unordered_set<Expr*> visited_;
@@ -548,11 +547,11 @@ class ComputeAtRootDomainMapBuilder : private BackwardVisitor {
   bool map_through_reduction_ = false;
 };
 
-//! Maps root domains of an entire fusion. Does not map broadcast
+//! Maps logical domains of an entire fusion. Does not map broadcast
 //! domains with non-broadcast domains.
-class NVF_API ExactRootDomainMap : public RootDomainMap {
+class NVF_API ExactLogicalDomainMap : public LogicalDomainMap {
  public:
-  ExactRootDomainMap(Fusion* fusion);
+  ExactLogicalDomainMap(Fusion* fusion);
 
   bool areMapped(const IterDomain* id_a, const IterDomain* id_b) const;
 
@@ -564,7 +563,7 @@ class NVF_API ExactRootDomainMap : public RootDomainMap {
   std::unordered_map<IterDomain*, IterDomain*> map(
       const TensorDomain* producer,
       const TensorDomain* consumer,
-      const std::unordered_set<IterDomain*>& root_dims_to_map,
+      const std::unordered_set<IterDomain*>& dims_to_map,
       bool producer_to_consumer) const override;
 
  private:

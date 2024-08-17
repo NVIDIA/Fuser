@@ -10,6 +10,7 @@
 #include <exceptions.h>
 
 #include <compute_at_map.h>
+#include <device_lower/analysis/circular_buffer.h>
 #include <device_lower/analysis/fused_reduction.h>
 #include <device_lower/analysis/predicate_elimination.h>
 #include <device_lower/analysis/sync_information.h>
@@ -29,10 +30,10 @@
 #include <ir/all_nodes.h>
 #include <kernel.h>
 #include <kernel_ir.h>
+#include <logical_domain_map.h>
 #include <non_divisible_split.h>
 #include <options.h>
 #include <parallel_dimension_map.h>
-#include <root_domain_map.h>
 #include <vectorization_info.h>
 #include <visibility.h>
 

@@ -28,6 +28,12 @@ TransposeScheduler::TransposeScheduler(
 }
 
 bool TransposeScheduler::canScheduleCompileTime(Fusion* fusion) {
+  if (scheduler_utils::isResharding(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        heuristicType(), "Fusion is resharding.");
+    return false;
+  }
+
   // Check that inputs of all select/gather-like ops are fusion inputs
   if (registry_utils::rejectScheduleForMemoryPromotion(
           fusion, heuristicType())) {
@@ -148,7 +154,7 @@ void moveReductionsOut(TensorView* tv, int n) {
 // the path of potential propagation checking if there's any incompatible
 // propagation that would not be resolved.
 struct TransposeViewPropagator : public MaxInfoSpanningTree::Propagator {
-  void propagateC2P(TensorView* from, TensorView* to) override{};
+  void propagateC2P(TensorView* from, TensorView* to) override {}
   void propagateP2C(TensorView* from, TensorView* to) override {
     // short-cut to skip if we know we are already rejecting the fusion for
     // transpose scheduler
@@ -164,7 +170,7 @@ struct TransposeViewPropagator : public MaxInfoSpanningTree::Propagator {
       should_reject = true;
     };
   };
-  void propagateSibling(TensorView* from, TensorView* to) override{};
+  void propagateSibling(TensorView* from, TensorView* to) override {}
   ~TransposeViewPropagator() override = default;
 
   bool shouldReject() {
@@ -800,7 +806,7 @@ std::string getTransposeRuntimeRejectReason(
     // doing dry-run on the first traverse. Since the following twos are only
     // used for scheduling tiling, which is not going to cause issue, since we
     // are only tiling on the merged virtual innermost dimensions.
-    MaxRootDomainInfoSpanningTree entire_dag(reference1);
+    MaxLogicalDomainInfoSpanningTree entire_dag(reference1);
     entire_dag.traverse(&propagator);
     if (propagator.shouldReject()) {
       return "transpose scheduler could potentially trigger incoherent transform propagation";
@@ -1219,10 +1225,12 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
   // as: [i0 * i1/tile1 * i2/tile2, r1, r2, tile1, tile2]
   int64_t rhs_i = reference1->nDims() - 3;
   for (int64_t lhs_i = reference1->nDims() - 4; lhs_i >= 0; lhs_i--) {
-    if (reference1->axis(lhs_i)->isReduction()) {
+    if (reference1->axis(lhs_i)->isReduction() ||
+        reference1->axis(lhs_i)->isDeviceDim()) {
       continue;
     }
-    if (reference1->axis(rhs_i)->isReduction()) {
+    if (reference1->axis(rhs_i)->isReduction() ||
+        reference1->axis(rhs_i)->isDeviceDim()) {
       rhs_i = lhs_i;
       continue;
     }
@@ -1240,7 +1248,7 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
 
   // Propagate transformations so far to the entire DAG
   TransformPropagator propagator(reference1);
-  MaxRootDomainInfoSpanningTree entire_dag(reference1);
+  MaxLogicalDomainInfoSpanningTree entire_dag(reference1);
   entire_dag.traverse(&propagator);
   scheduler_utils::parallelizeAllLike(reference1);
 
@@ -1275,7 +1283,7 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
         fusion,
         {grouped_inputs_outputs[0].begin(), grouped_inputs_outputs[0].end()});
     SetSelector selector({all_tvs_except1.begin(), all_tvs_except1.end()});
-    MaxRootDomainInfoSpanningTree entire_dag_except1(reference2, &selector);
+    MaxLogicalDomainInfoSpanningTree entire_dag_except1(reference2, &selector);
     TransformPropagator propagator(reference2);
     entire_dag_except1.traverse(&propagator);
   }
@@ -1363,7 +1371,7 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
     auto all_tvs_except2 =
         ir_utils::allTvsExcept(fusion, group2_and_cached_inputs);
     SetSelector selector({all_tvs_except2.begin(), all_tvs_except2.end()});
-    MaxRootDomainInfoSpanningTree entire_dag_except_outputs(
+    MaxLogicalDomainInfoSpanningTree entire_dag_except_outputs(
         reference1, &selector);
     TransformPropagator propagator(reference1);
     entire_dag_except_outputs.traverse(&propagator);

@@ -2205,8 +2205,6 @@ class LinearOp : public Expr {
 SDPA node with same functionality at::_scaled_dot_product_flash_attention
 output = [N, H, L, Ev]
 logsumexp = [N, H, L]
-cum_seq_q = [N + 1,]
-cum_seq_k = [N + 1,]
 query_seq_len = scalar(int)
 key_seq_len = scalar(int)
 philox_seed = scalar tensor
@@ -2239,13 +2237,8 @@ class SdpaFwdOp : public Expr {
       IrBuilderPasskey,
       TensorView* output,
       TensorView* log_sumexp,
-      TensorView* cum_seq_q,
-      TensorView* cum_seq_k,
-      TensorView* query_seq_len,
-      TensorView* key_seq_len,
       TensorView* philox_seed,
       TensorView* philox_offset,
-      TensorView* debug_attn_mask,
       Val* query,
       Val* key,
       Val* value,
@@ -2521,10 +2514,6 @@ key = [N, H, S, E]
 value = [N, H, S, Ev]
 output = [N, H, L, Ev]
 logsumexp = [N, H, L]
-cum_seq_q = [N + 1,] (undefined tensor for non-nested tensor)
-cum_seq_k = [N + 1,] (undefined tensor for non-nested tensor)
-query_seq_len = scalar(int)
-key_seq_len = scalar(int)
 dropout_p = scalar(double)
 is_causal = scalar(bool)
 philox_seed = scalar CPU tensor
@@ -2556,10 +2545,6 @@ class SdpaBwdOp : public Expr {
       TensorView* value,
       TensorView* output,
       TensorView* log_sumexp,
-      TensorView* cum_seq_q,
-      TensorView* cum_seq_k,
-      TensorView* query_seq_len,
-      TensorView* key_seq_len,
       Val* dropout_p,
       Val* is_causal,
       TensorView* philox_seed,
@@ -2611,41 +2596,25 @@ class SdpaBwdOp : public Expr {
     return input(5);
   }
 
-  Val* cum_seq_q() const {
+  Val* dropout_p() const {
     return input(6);
   }
 
-  Val* cum_seq_k() const {
+  Val* is_causal() const {
     return input(7);
   }
 
-  Val* max_q() const {
+  Val* philox_seed() const {
     return input(8);
   }
 
-  Val* max_k() const {
+  Val* philox_offset() const {
     return input(9);
   }
 
-  Val* dropout_p() const {
-    return input(10);
-  }
-
-  Val* is_causal() const {
-    return input(11);
-  }
-
-  Val* philox_seed() const {
-    return input(12);
-  }
-
-  Val* philox_offset() const {
-    return input(13);
-  }
-
   Val* scale() const {
-    if (inputs().size() > 14) {
-      return input(14);
+    if (inputs().size() > 10) {
+      return input(10);
     }
     return nullptr;
   }

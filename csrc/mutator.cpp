@@ -98,14 +98,28 @@ void OptOutMutator::mutate(IterDomain* id) {
       stop_offset->sameAs(id->stopOffset())) {
     return;
   }
-  registerMutation(
-      id,
-      IterDomainBuilder(id)
-          .start(start)
-          .extent(extent)
-          .stop_offset(stop_offset)
-          .expanded_extent(expanded_extent)
-          .build());
+  auto new_id = IterDomainBuilder(id)
+                    .start(start)
+                    .extent(extent)
+                    .stop_offset(stop_offset)
+                    .expanded_extent(expanded_extent)
+                    .build();
+
+  // This guarantees we replace id in all downstream expressions
+  registerMutation(id, new_id);
+
+  // Preserve definition if it exists in id. This is important since otherwise
+  // we might disconnect the root to logical transform path. For example if id
+  // is one output of a Split operation and the other output is unmodified,
+  // then we must avoid replacing only one of the outputs with a new IterDomain
+  // with no definition. See https://github.com/NVIDIA/Fuser/issues/2671 for an
+  // example of this happening. In that case T1.size(0) / 32 in Outer split:
+  // T1.size(0) by factor 32 -> 32, T1.size(0) / 32 is replaced by T4.size(1).
+  // The replacement only affects one output of Split, leading to the error
+  // described above.
+  if (Expr* def = id->definition()) {
+    mutateExprOutputsOnly(def);
+  }
 }
 
 void OptOutMutator::mutate(TensorDomain* td) {
