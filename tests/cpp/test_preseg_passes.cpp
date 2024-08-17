@@ -937,7 +937,7 @@ TEST_F(NVFuserTest, FusionFactorAmaxBroadcast_CUDA) {
   FusionGuard fg(fusion_ptr.get());
 
   TensorView* tv0 = makeContigTensor(2, DataType::Float);
-  TensorView* tv1 = makeContigTensor(2, DataType::Float);
+  TensorView* tv1 = makeContigTensor(0, DataType::Float);
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
@@ -949,14 +949,14 @@ TEST_F(NVFuserTest, FusionFactorAmaxBroadcast_CUDA) {
 
   // Full Amax Reduction
   TensorView* tv5 = abs(tv4);
-  TensorView* tv6 = max(tv5, {0, 1}, /*keepdim=*/true);
+  TensorView* tv6 = max(tv5, {0, 1}, /*keepdim=*/false);
 
   // Amax Aliased Output
   fusion.aliasOutputToInput(tv6, tv1, AllocationType::ReuseBuffer);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor x = at::randn({32, 1228}, options);
-  at::Tensor fp8_amax_history = at::zeros({1, 1}, options);
+  at::Tensor fp8_amax_history = at::zeros({}, options);
   std::vector<c10::IValue> aten_inputs = {x, fp8_amax_history};
 
   auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
