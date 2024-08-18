@@ -1042,12 +1042,19 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
         // If this for-loop is a circular buffer loop, the loop index
         // may need to have an additional offset
         if (!as_consumer) {
+          Val* base_index =
+              replacement_index != nullptr ? replacement_index : cur_index;
           if (auto circular_buffer_offset =
                   getLoopIndexOffsetForProducerOfCircularBuffer(
                       expr, for_loop, id_model_)) {
             replacement_index = SimplifyingIrBuilder::addExpr(
-                replacement_index != nullptr ? replacement_index : cur_index,
+                for_loop->isTrivial() ? for_loop->start() : base_index,
                 circular_buffer_offset);
+          } else if (
+              for_loop->circularBufferLoopStage() !=
+              CircularBufferLoopStage::NotApplicable) {
+            replacement_index =
+                for_loop->isTrivial() ? for_loop->start() : base_index;
           }
         }
       }

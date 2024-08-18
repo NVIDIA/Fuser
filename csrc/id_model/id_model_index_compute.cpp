@@ -32,7 +32,7 @@ void IdGraphIndexCompute::handle(Split* split) {
     // The loop index is replaced with an addition with (stage_depth-1) offset.
     // This replacement fails because the loop index is removed by simplifying
     // ir builder.
-    auto in_idx = IrBuilder::addExpr(
+    auto in_idx = SimplifyingIrBuilder::addExpr(
         SimplifyingIrBuilder::mulExpr(outer_idx, inner_extent), inner_idx);
     setIndex(split->in(), in_idx);
   }
