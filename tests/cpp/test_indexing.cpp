@@ -3343,15 +3343,18 @@ TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering1) {
       // where i2 is the circular buffer index. The index of iUS10 is
       // not included as its extent is 1.
 
-      // Start index: i0 * 4
-      Val* start_idx = mulExpr(loop_indices.at(0), createInt(4));
+      // NOTE: Expression Simplification is disabled in PredicateIndexValidator,
+      // so trivial addition appears in the expression.
+      // Start index: i0 * 4 + 0
+      Val* start_idx = IrBuilder::addExpr(
+          IrBuilder::mulExpr(loop_indices.at(0), createInt(4)), createInt(0));
 
       // Stop index: i0 * 4 + 4
       // Note that it isn't "i0 * 4 + 3" since i2 is circular buffered
       // and there's no epilog, so the main loop has a read of (i2 +
       // 1).
-      Val* stop_idx =
-          addExpr(mulExpr(loop_indices.at(0), createInt(4)), createInt(4));
+      Val* stop_idx = IrBuilder::addExpr(
+          IrBuilder::mulExpr(loop_indices.at(0), createInt(4)), createInt(4));
 
       return andExpr(
           geExpr(start_idx, zero),

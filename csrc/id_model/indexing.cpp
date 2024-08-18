@@ -1151,10 +1151,12 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
     info.loop_stage_ = loop_stage;
 
     info.start_predicate_ = SimplifyingIrBuilder::geExpr(
-        SimplifyingIrBuilder::addExpr(start_idx, info.start_offset_), zero_val);
+        SimplifyingIrBuilder::addExpr(simplifyExpr(start_idx), zero_val),
+        zero_val);
 
     info.stop_predicate_ = SimplifyingIrBuilder::ltExpr(
-        SimplifyingIrBuilder::addExpr(stop_idx, info.stop_offset_),
+        SimplifyingIrBuilder::addExpr(
+            simplifyExpr(stop_idx), info.stop_offset_),
         predicate_domain->extent());
 
     info.predicated_domains_ = {predicate_domain};
