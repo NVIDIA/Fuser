@@ -794,6 +794,33 @@ TEST_F(AliasTest, DoNotOverSegment_WithForks) {
   // EXPECT_TRUE(out_tensors[1].is_alias_of(out_tensors[0]));
 }
 
+TEST_F(AliasTest, DoNotOverSegment_AllAliasWithForks) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigTensor(2);
+  TensorView* t = flatten(in);
+  TensorView* out0 = reshape(t, {in->axis(0)->extent(), in->axis(1)->extent()});
+  TensorView* out1 = reshape(t, {in->axis(1)->extent(), in->axis(0)->extent()});
+
+  fusion->addInput(in);
+  fusion->addOutput(out0);
+  fusion->addOutput(out1);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({2, 3}).cuda();
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+
+  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      ElementsAre(HeuristicIs(ScheduleHeuristic::NoOp)));
+
+  EXPECT_TRUE(out_tensors[0].is_alias_of(in_tensor));
+  EXPECT_TRUE(out_tensors[1].is_alias_of(in_tensor));
+}
+
 TEST_F(AliasTest, Broadcast) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
