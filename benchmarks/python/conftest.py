@@ -130,5 +130,5 @@ def pytest_collection_modifyitems(session, config, items):
     if not run_thunder:
         skip_thunder = pytest.mark.skip(reason="need --benchmark-thunder option to run")
         for item in items:
-            if "thunder_benchmark" in item.nodeid:
+            if "thunder" in item.nodeid:
                 item.add_marker(skip_thunder)
