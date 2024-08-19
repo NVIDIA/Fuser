@@ -14,7 +14,7 @@
 using namespace nvfuser::inst;
 
 namespace nvfuser::python_frontend {
-  
+
 bool State::inlineDef() const {
   return inline_def_;
 }

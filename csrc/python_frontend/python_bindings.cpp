@@ -94,6 +94,14 @@ Vector define_vector_fn(
   return define_vector_base_fn(self, args, inline_def);
 }
 
+template <class ITERABLE>
+Vector define_vector_explicit_fn(
+    FusionDefinition& self,
+    ITERABLE& values,
+    PrimDataType dtype = DataType::Int) {
+  return define_vector_fn<ITERABLE>(self, values, false);
+}
+
 template <class ShapeType>
 Vector ShapeAsVector(ShapeType shape, FusionDefinition& fd) {
   static_assert(
@@ -1063,15 +1071,15 @@ void initNvFuserPythonBindings(PyObject* module) {
   // of constant values.
   fusion_def.def(
       "define_vector",
-      define_vector_fn<py::list>,
+      define_vector_explicit_fn<py::list>,
       py::arg("values"),
-      py::arg("inline_def") = false,
+      py::arg("dtype") = DataType::Int,
       py::return_value_policy::reference);
   fusion_def.def(
       "define_vector",
-      define_vector_fn<py::tuple>,
+      define_vector_explicit_fn<py::tuple>,
       py::arg("values"),
-      py::arg("inline_def") = false,
+      py::arg("dtype") = DataType::Int,
       py::return_value_policy::reference);
 
   fusion_def.def(

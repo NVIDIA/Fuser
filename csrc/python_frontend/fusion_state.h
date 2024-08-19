@@ -16,13 +16,20 @@ namespace nvfuser::python_frontend {
 struct RecordFunctor;
 
 struct State {
-  State() : index(0), stype(serde::StateType::None), inline_def_(false), parent_(nullptr) {}
+  State()
+      : index(0),
+        stype(serde::StateType::None),
+        inline_def_(false),
+        parent_(nullptr) {}
   State(
       size_t _index,
       serde::StateType _stype,
       bool inline_def = false,
       const RecordFunctor* parent = nullptr)
-      : index(_index), stype(_stype), inline_def_(inline_def), parent_(parent) {}
+      : index(_index),
+        stype(_stype),
+        inline_def_(inline_def),
+        parent_(parent) {}
 
   bool inlineDef() const;
   void setInlineDef(bool value);

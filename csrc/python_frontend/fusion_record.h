@@ -90,9 +90,9 @@ struct RecordFunctor {
     for (auto output : outputs_) {
       output_hash ^= ((output.index << 1) ^ static_cast<size_t>(output.stype));
     }
-    //return (static_cast<size_t>(inline_def_) << 63) |
-    //    ((static_cast<size_t>(record_type_) & 0x7f) << 56) |
-    //    ((output_hash & 0xff) << 48) | ((arg_hash & 0xffff) << 32);
+    // return (static_cast<size_t>(inline_def_) << 63) |
+    //     ((static_cast<size_t>(record_type_) & 0x7f) << 56) |
+    //     ((output_hash & 0xff) << 48) | ((arg_hash & 0xffff) << 32);
     return ((static_cast<size_t>(record_type_) & 0xff) << 56) |
         ((output_hash & 0xff) << 48) | ((arg_hash & 0xffff) << 32);
   }
@@ -104,7 +104,7 @@ struct RecordFunctor {
     result = result && (args_.size() == other.args_.size()) &&
         (outputs_.size() == other.outputs_.size());
     result = result && (arg_names_ == other.arg_names_);
-    //result = result && (inline_def_ == other.inline_def_);
+    // result = result && (inline_def_ == other.inline_def_);
     if (result) {
       for (size_t i = 0; i < args_.size(); ++i) {
         if ((args_[i].index != other.args_[i].index) ||
