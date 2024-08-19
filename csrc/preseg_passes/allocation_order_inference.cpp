@@ -76,7 +76,6 @@ void mapAllocationDomain(
     const TensorView* ref,
     TensorView* target) {
   const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
-  std::cout << exact_graph.disjointValSets().toString() << std::endl;
 
   std::vector<IterDomain*> ref_alloc_domain = ref->getMaybeAllocationDomain();
   // reverse ref_alloc_domain, so a range based loop would iterate through from
@@ -332,8 +331,6 @@ void inferenceAllocationOrder(
 
     // propagate allocation domain if we still have a candidate.
     if (ref) {
-      std::cout << "Propagate allocation domain from " << ref->name()
-                << " to " << dst->name() << std::endl;
       mapAllocationDomain(id_model, ref, dst);
     }
   }
@@ -366,10 +363,8 @@ void AllocationDomainPass::runPass(Fusion* fusion) {
   for (TensorView* redu_tv : reduction_tvs) {
     dsts.push_back(redu_tv);
   }
-  fusion->print();
   // propagate allocation domain from sources to destinations
   inferenceAllocationOrder(fusion, srcs, dsts);
-  fusion->print();
 }
 
 } // namespace nvfuser::preseg_passes

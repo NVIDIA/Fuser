@@ -1475,4 +1475,66 @@ TEST_F(AllocationDomainTest, ReductionWithAllocationDomain) {
       cloned_fusion.get(), cg_outputs, inputs, __LINE__, __FILE__, "", lparams);
 }
 
+TEST_F(AllocationDomainTest, GroupNormChannelLast) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  constexpr int64_t n = 2, c = 128, h = 16, w = 16, g = 32;
+  const std::vector<int64_t> input_shape = {n, c, h, w};
+  const std::vector<int64_t> group_shape = {n, g, c / g, h, w};
+  const std::vector<int64_t> input_shape_wb = {c};
+  const std::vector<int64_t> group_shape_wb = {g, c / g};
+  DataType dtype = DataType::Half;
+  auto tv0 = makeContigTensor(input_shape.size(), dtype);
+  auto tv1 = makeContigTensor(input_shape_wb.size(), DataType::Float);
+  auto tv2 = makeContigTensor(input_shape_wb.size(), DataType::Float);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+  // channel last, n, h, w, c
+  tv0->setAllocationDomain(
+      {tv0->axis(0), tv0->axis(2), tv0->axis(3), tv0->axis(1)}, true);
+  auto tv3 = castOp(DataType::Float, tv0);
+  // reshape from {N, C, H, W} to {N, G, C / G, H, W}
+  auto tv4 = reshape(tv3, input_shape, group_shape);
+  // normalization
+  auto tv5 = sum(tv4, {-1, -2, -3});
+  auto tv6 = broadcast(tv5, {false, false, true, true, true});
+  auto tv7 = div(tv4, tv6);
+  // reshape scale and bias
+  auto tv8 = reshape(tv1, input_shape_wb, group_shape_wb);
+  auto tv9 = reshape(tv2, input_shape_wb, group_shape_wb);
+  // apply scale and bias
+  auto tv10 = broadcast(tv8, {true, false, false, true, true});
+  auto tv11 = broadcast(tv9, {true, false, false, true, true});
+  auto tv12 = mul(tv7, tv10);
+  auto tv13 = add(tv12, tv11);
+  auto tv14 = castOp(dtype, tv13);
+  // reshape back to input shape, segmented as a NoOp
+  auto tv15 = reshape(tv14, group_shape, input_shape);
+  fusion->addOutput(tv15);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto options_wb = at::TensorOptions()
+                        .dtype(data_type_to_aten(DataType::Float))
+                        .device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options).as_strided({n, c, h, w}, {c * h * w, 1, w * c, c});
+  auto tw = at::randn(input_shape_wb, options_wb);
+  auto tb = at::randn(input_shape_wb, options_wb);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, tw, tb});
+  auto seg_groups =
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
+
+  EXPECT_THAT(
+      seg_groups,
+      testing::UnorderedElementsAre(
+          HeuristicIs(ScheduleHeuristic::InnerPersistent),
+          HeuristicIs(ScheduleHeuristic::NoOp)));
+
+  testValidate(
+      executor_cache.fusion(), cg_outputs, {t0, tw, tb}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
