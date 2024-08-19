@@ -37,7 +37,7 @@ void exactMappedExtentSubstitution(Fusion* fusion) {
   const DisjointSets<Val*>& val_sets = exact_graph.disjointValSets();
 
   // Loop over each set of values
-  for (auto set_ptr : val_sets.disjointSets()) {
+  for (const auto set_ptr : val_sets.disjointSets()) {
     // (1) pick a const extent
     // (2) if no const extent, pick the var with the lowest name()
     Val* const_extent = nullptr;
