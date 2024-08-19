@@ -668,7 +668,7 @@ TEST_F(MultiDeviceTutorial, HostIrLaunchingFusion) {
   // loss of generality) that the fusion has one input and one output which are
   // both a 2D tensor.
   constexpr int64_t kNDims = 2;
-  auto CreateFusion = []() -> std::unique_ptr<Fusion> {
+  auto create_fusion = []() -> std::unique_ptr<Fusion> {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
     TensorView* tv0 = makeSymbolicTensor(kNDims);
@@ -690,7 +690,7 @@ TEST_F(MultiDeviceTutorial, HostIrLaunchingFusion) {
 
   // The first Host IR we introduce is called `HostUnit`. It is used to
   // represent a fusion definition at the host IR level.
-  auto fusion = IrBuilder::create<HostUnit>(CreateFusion());
+  auto fusion = IrBuilder::create<HostUnit>(create_fusion());
 
   // We then create an IR `PostOnStream` which represents compiling+executing
   // the fusion with some I/O.
@@ -731,7 +731,7 @@ TEST_F(MultiDeviceTutorial, HostIrLaunchingFusion) {
   auto outputs = hie.runWithInput({{input, aten_input}});
 
   // validate the result
-  GTEST_EXPECT_TRUE(torch::allclose(2 * aten_input + 1, outputs.at(0)));
+  EXPECT_TRUE(torch::allclose(2 * aten_input + 1, outputs.at(0)));
 }
 
 // Let us now present a case where the host program consists of launching three
@@ -751,7 +751,7 @@ TEST_F(MultiDeviceTutorial, HostIrLaunchingThreeFusions) {
   // loss of generality) that the fusion has one input and one output which are
   // both a 2D tensor.
   constexpr int64_t kNDims = 2;
-  auto CreateFusion0 = []() -> std::unique_ptr<Fusion> {
+  auto create_fusion_0 = []() -> std::unique_ptr<Fusion> {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
     TensorView* tv0 = makeSymbolicTensor(kNDims);
@@ -762,7 +762,7 @@ TEST_F(MultiDeviceTutorial, HostIrLaunchingThreeFusions) {
     fusion->addOutput(tv2);
     return fusion;
   };
-  auto CreateFusion1 = []() -> std::unique_ptr<Fusion> {
+  auto create_fusion_1 = []() -> std::unique_ptr<Fusion> {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
     TensorView* tv1 = makeSymbolicTensor(kNDims);
@@ -771,7 +771,7 @@ TEST_F(MultiDeviceTutorial, HostIrLaunchingThreeFusions) {
     fusion->addOutput(tv3);
     return fusion;
   };
-  auto CreateFusion2 = []() -> std::unique_ptr<Fusion> {
+  auto create_fusion_2 = []() -> std::unique_ptr<Fusion> {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
     TensorView* tv2 = makeSymbolicTensor(kNDims);
@@ -788,9 +788,9 @@ TEST_F(MultiDeviceTutorial, HostIrLaunchingThreeFusions) {
   FusionGuard fg(hic.get());
 
   // Create the HostUnit holding the fusions
-  auto fusion0 = IrBuilder::create<HostUnit>(CreateFusion0());
-  auto fusion1 = IrBuilder::create<HostUnit>(CreateFusion1());
-  auto fusion2 = IrBuilder::create<HostUnit>(CreateFusion2());
+  auto fusion0 = IrBuilder::create<HostUnit>(create_fusion_0());
+  auto fusion1 = IrBuilder::create<HostUnit>(create_fusion_1());
+  auto fusion2 = IrBuilder::create<HostUnit>(create_fusion_2());
 
   // Create TensorViews that are dealt with at the host level
   TensorView* tv0 = makeSymbolicTensor(kNDims);
@@ -858,7 +858,7 @@ TEST_F(MultiDeviceTutorial, HostIrLaunchingThreeFusions) {
   auto outputs = hie.runWithInput({{tv0, aten_tv0}});
 
   // validate the result
-  GTEST_EXPECT_TRUE(torch::allclose(4 * aten_tv0 + 5, outputs.at(0)));
+  EXPECT_TRUE(torch::allclose(4 * aten_tv0 + 5, outputs.at(0)));
 }
 
 // Let us now present a real world scenario, used in transformer, where we need
@@ -992,7 +992,7 @@ TEST_F(MultiDeviceTutorial, HostIrKernekPipelining) {
   constexpr int64_t kPipelineAxis = 0;
   constexpr int64_t kNumberOfStreams = 4;
 
-  auto CreateFusion0 = []() -> std::unique_ptr<Fusion> {
+  auto create_fusion_0 = []() -> std::unique_ptr<Fusion> {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
     TensorView* tv0 = makeSymbolicTensor(
@@ -1002,7 +1002,7 @@ TEST_F(MultiDeviceTutorial, HostIrKernekPipelining) {
     fusion->addOutput(tv1);
     return fusion;
   };
-  auto CreateFusion1 = []() -> std::unique_ptr<Fusion> {
+  auto create_fusion_1 = []() -> std::unique_ptr<Fusion> {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
     TensorView* tv1 = makeSymbolicTensor(
@@ -1027,7 +1027,7 @@ TEST_F(MultiDeviceTutorial, HostIrKernekPipelining) {
   // the for-loop's body.
   auto* index = IrBuilder::create<Val>(DataType::Index);
   auto* for_loop = IrBuilder::create<ForLoop>(
-      /*IterDomain=*/tv2->axis(0),
+      tv2->axis(0),
       index,
       /*start=*/hic->zeroVal(),
       /*stop=*/tv2->axis(0)->extent(),
@@ -1050,14 +1050,14 @@ TEST_F(MultiDeviceTutorial, HostIrKernekPipelining) {
 
   // We post the two fusions with appropriate I/O
   auto post_fusion0 = IrBuilder::create<PostOnStream>(
-      IrBuilder::create<HostUnit>(CreateFusion0()),
+      IrBuilder::create<HostUnit>(create_fusion_0()),
       /*inputs=*/std::vector<Val*>({tv0_i}),
       /*outputs=*/std::vector<Val*>({tv1_i}));
   // Note that tv2_i is both an Input and an Output here. The I/O are actually
   // aliased in the Fusion. We do so because the global buffer tv2 is
   // preallocated and tv2_i is a selection of this global buffer.
   auto post_fusion1 = IrBuilder::create<PostOnStream>(
-      IrBuilder::create<HostUnit>(CreateFusion1()),
+      IrBuilder::create<HostUnit>(create_fusion_1()),
       /*inputs=*/std::vector<Val*>({tv1_i, tv2_i}),
       /*outputs=*/std::vector<Val*>({tv2_i}));
 
@@ -1110,8 +1110,10 @@ TEST_F(MultiDeviceTutorial, HostIrKernekPipelining) {
   // Let us now execute the Host program. We indicate to use FusionExecutorCache
   // to execute the fusions -- this way, we don't need to recompile at each
   // iteration.
-  HostIrExecutor hie(
-      std::move(hic), nullptr, {.use_fusion_executor_cache = true});
+  HostIrExecutor hie
+      std::move(hic),
+      /*communicator=*/nullptr,
+      {.use_fusion_executor_cache = true});
   auto outputs = hie.runWithInput({{tv0, aten_tv0}, {tv2, aten_tv2}});
 
   // validate the result
