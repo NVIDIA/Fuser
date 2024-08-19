@@ -340,7 +340,6 @@ void inferenceAllocationOrder(
 }
 
 void AllocationDomainPass::runPass(Fusion* fusion) {
-  fusion->printMath();
   // mark input TensorViews as propagation sources
   auto input_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
   std::vector<TensorView*> srcs(input_tvs.begin(), input_tvs.end());
@@ -367,8 +366,10 @@ void AllocationDomainPass::runPass(Fusion* fusion) {
   for (TensorView* redu_tv : reduction_tvs) {
     dsts.push_back(redu_tv);
   }
+  fusion->print();
   // propagate allocation domain from sources to destinations
   inferenceAllocationOrder(fusion, srcs, dsts);
+  fusion->print();
 }
 
 } // namespace nvfuser::preseg_passes

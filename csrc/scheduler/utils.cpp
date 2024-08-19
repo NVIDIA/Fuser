@@ -677,7 +677,6 @@ ReductionTvProperties getReductionProperties(
   NVF_ERROR(tv != nullptr);
 
   bool fastest_dim_reduction = isFastestDimReduction(tv);
-   std::cout << "fastest_dim_reduction: " << fastest_dim_reduction << std::endl;
   // Tracks the dimensionality of the problem starts on inner most dim and works
   // outward
   int64_t dimensionality = 1;
@@ -2223,8 +2222,6 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
 }
 
 bool isFastestDimReduction(TensorView* tv) {
-  std::cout << tv->toString() << std::endl;
-  tv->printTransforms();
   for (auto it = tv->getMaybeAllocationDomain().rbegin();
        it != tv->getMaybeAllocationDomain().rend();
        ++it) {

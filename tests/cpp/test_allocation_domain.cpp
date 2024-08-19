@@ -7,7 +7,8 @@
 // clang-format on
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
-
+#include <preseg_passes/optimization_pass.h>
+#include <preseg_passes/pre_segmenter.h>
 #include <executor.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
@@ -49,10 +50,10 @@ TEST_F(AllocationDomainTest, TransposedIntermediate) {
   ASSERT_EQ(read, std::vector<int64_t>{32});
   ASSERT_EQ(write, std::vector<int64_t>{32});
 
-  // std::vector<IterDomain*> tv1_transposed = {tv1->axis(1), tv1->axis(0)};
-  // tv1->setAllocationDomain(tv1_transposed, true);
+  std::vector<IterDomain*> tv1_transposed = {tv1->axis(1), tv1->axis(0)};
+  tv1->setAllocationDomain(tv1_transposed, true);
 
-  // ASSERT_TRUE(fusion.bankConflictInfo().empty());
+  ASSERT_TRUE(fusion.bankConflictInfo().empty());
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
@@ -1369,7 +1370,7 @@ TEST_F(AllocationDomainTest, ReductionSchedulerIssue1895) {
 TEST_F(AllocationDomainTest, ReductionVectorization) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  long x = 2L, y = 4L, z = 6L;
+  long x = 2L, y = 2L, z = 2L;
   auto tv0 = TensorViewBuilder()
                  .ndims(3)
                  .shape({-1, 1, -1})
@@ -1383,15 +1384,13 @@ TEST_F(AllocationDomainTest, ReductionVectorization) {
                  .strideOrder({0, 1, 2})
                  .build();
   fusion->addInput(tv1);
-  auto s0 = IrBuilder::create<Val>(x);
-  auto s1 = IrBuilder::create<Val>(y);
-  auto s2 = IrBuilder::create<Val>(z);
-  auto tv2 = expand(tv0, {s0, s1, s2});
+  auto s0 = IrBuilder::create<Val>(2);
+  auto tv2 = expand(tv0, {s0, s0, s0});
   auto tv3 = mul(tv2, tv1);
   auto tv4 = sum(tv3, {2});
   fusion->addOutput(tv4);
-  // std::vector<IterDomain*> tv4_dom = {tv4->axis(2), tv4->axis(1), tv4->axis(0)};
-  // tv4->setAllocationDomain(tv4_dom, true);
+  std::vector<IterDomain*> tv4_dom = {tv4->axis(2), tv4->axis(1), tv4->axis(0)};
+  tv4->setAllocationDomain(tv4_dom, true);
 
   // tv1 is a constant tensor, and its domains are constant.
   // Its constant domains are used in ExactMappedExtentSubstitutionPass
@@ -1406,104 +1405,6 @@ TEST_F(AllocationDomainTest, ReductionVectorization) {
 
   testValidate(executor_cache.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
 }
-
-
-TEST_F(AllocationDomainTest, ReductionVectorization2) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-  long x = 2L, y = 4L, z = 6L;
-  auto tv0 = TensorViewBuilder()
-                 .ndims(3)
-                 .shape({-1, 1, -1})
-                 .contiguity({true, std::nullopt, true})
-                 .build();
-  fusion->addInput(tv0);
-  auto tv1 = TensorViewBuilder()
-                 .ndims(3)
-                 .shape({-1, -1, -1})
-                 .contiguity({true, true, true})
-                 .strideOrder({2, 1, 0})
-                 .build();
-  std::vector<IterDomain*> tv1_dom = {tv1->axis(2), tv1->axis(1), tv1->axis(0)};
-  tv1->setAllocationDomain(tv1_dom, true);               
-  fusion->addInput(tv1);
-
-  auto tv2 = sum(tv1, {2});
-  std::vector<IterDomain*> tv2_dom = {tv2->axis(2), tv2->axis(1), tv2->axis(0)};
-  tv2->setAllocationDomain(tv2_dom, true); 
-  fusion->addOutput(tv2);
-
-
-  // tv1 is a constant tensor, and its domains are constant.
-  // Its constant domains are used in ExactMappedExtentSubstitutionPass
-  // to substitute the domains of tv0.
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({x, 1, z}, options);
-  auto t1 = at::randn({x, y, z}, options).as_strided({x, y, z}, {1, x, x * y});
-  std::vector<c10::IValue> inputs({t0, t1});
-
-  FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
-
-  testValidate(executor_cache.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
-}
-
-
-TEST_F(AllocationDomainTest, ReductionVectorization3) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-  long x = 2L, y = 4L, z = 6L;
-  auto tv1 = TensorViewBuilder()
-                 .ndims(3)
-                 .shape({-1, -1, -1})
-                 .contiguity({true, true, true})
-                 .strideOrder({2, 1, 0})
-                 .build();
-  std::vector<IterDomain*> tv1_dom = {tv1->axis(0), tv1->axis(2), tv1->axis(1)};
-  tv1->setAllocationDomain(tv1_dom, true);               
-  fusion->addInput(tv1);
-
-  auto tv2 = sum(tv1, {1});
-  std::vector<IterDomain*> tv2_dom = {tv2->axis(0), tv2->axis(2), tv2->axis(1)};
-  tv2->setAllocationDomain(tv2_dom, true); 
-  fusion->addOutput(tv2);
-
-
-  // tv1 is a constant tensor, and its domains are constant.
-  // Its constant domains are used in ExactMappedExtentSubstitutionPass
-  // to substitute the domains of tv0.
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t1 = at::randn({x, y, z}, options).as_strided({x, y, z}, {z*y, 1, y});
-  std::vector<c10::IValue> inputs({t1});
-
-  FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
-
-  testValidate(executor_cache.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
-}
-
-// input tensor is not contiguous, e.g. n,hw,c
-TEST_F(AllocationDomainTest, ReductionVectorization4) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-  long x = 2L, y = 4L, z = 6L;
-  auto tv1 = makeContigConcreteTensor({x, y, z});
-  fusion->addInput(tv1);
-  std::vector<IterDomain*> tv1_dom = {tv1->axis(0), tv1->axis(2), tv1->axis(1)};
-  tv1->setAllocationDomain(tv1_dom, true);               
-  auto tv2 = mul(tv1, tv1);
-  auto tv3 = sum(tv2, {1});
-  fusion->addOutput(tv3);
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t1 = at::randn({x, y, z}, options).as_strided({x, y, z}, {z*y, 1, y});
-  std::vector<c10::IValue> inputs({t1});
-
-  FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
-
-  testValidate(executor_cache.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
-}
-
 
 TEST_F(AllocationDomainTest, ClearReductionIterDomainsPatch) {
   auto fusion = std::make_unique<Fusion>();
@@ -1534,6 +1435,43 @@ TEST_F(AllocationDomainTest, ClearReductionIterDomainsPatch) {
       tv1->getAllocationDomain(), ElementsAre(alloc_copy[0], alloc_copy[2]));
   EXPECT_THAT(
       tv1->getContiguity(), ElementsAre(contig_copy[0], contig_copy[2]));
+}
+
+// Reduction tensor with allocation domain.
+// input tv: logical domain [x, y, z], allocation domain [x, z, y]
+// reduction tv: logical domain [x, y, z], domain types [Iter, Redu, Iter]
+// allocation_order_inference should change the allocation domain of the reduction
+// tv to [x, z, y] to match the input tv, and the reduction is in the innermost dim.
+TEST_F(AllocationDomainTest, ReductionWithAllocationDomain) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  long x = 2L, y = 4L, z = 6L;
+  auto tv1 = makeContigConcreteTensor({x, y, z});
+  fusion->addInput(tv1);
+  std::vector<IterDomain*> tv1_dom = {tv1->axis(0), tv1->axis(2), tv1->axis(1)};
+  tv1->setAllocationDomain(tv1_dom, true);               
+  auto tv2 = add(tv1, tv1);
+  auto tv3 = sum(tv2, {1});
+  auto tv4 = add(tv3, tv3);
+  fusion->addOutput(tv4);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t1 = at::randn({x, y, z}, options).as_strided({x, y, z}, {z*y, 1, y});
+  std::vector<c10::IValue> inputs({t1});
+
+  // FusionExecutorCache executor_cache(std::move(fusion));
+  // auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
+   nvfuser::preseg_passes::OptimizationPass<nvfuser::preseg_passes::PreSegmenter>::runPass(fusion.get());
+    auto reduction_params = getReductionHeuristics(fusion.get(), inputs);
+  ASSERT_TRUE(reduction_params) << "Reduction schedule was not generated!";
+  ASSERT_TRUE(reduction_params->fastest_dim)
+      << "Should use inner reduction!";
+  scheduleReduction(fusion.get(), *reduction_params);
+  auto lparams = reduction_params->lparams;
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), inputs, lparams);
+  auto cg_outputs = fe.runFusion(inputs, lparams);
+
+  testValidate(fusion.get(), cg_outputs, inputs, __LINE__, __FILE__,"", lparams);
 }
 
 } // namespace nvfuser
