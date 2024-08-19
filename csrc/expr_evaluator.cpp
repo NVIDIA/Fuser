@@ -209,14 +209,15 @@ void ExpressionEvaluator::bind_(
             "is sharded and must have size 1, but input tensor has size ",
             t.size(i));
         NVF_CHECK(
-            tv->getDeviceMesh().size() > 0,
+            tv->hasDeviceMesh(),
             "TV ",
             tv->toString(),
             getInputPosString(tv),
             " has an empty DeviceMesh with DID parallelization")
         bind_(
             logical_domain[i]->extent(),
-            (int)tv->getDeviceMesh().size(),
+            static_cast<int>(
+                tv->getDeviceMesh().size(logical_domain[i]->getParallelType())),
             evaluate_validate);
       } else {
         bind_(logical_domain[i]->extent(), t.size(i), evaluate_validate);
