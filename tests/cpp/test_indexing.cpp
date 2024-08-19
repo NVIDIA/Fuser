@@ -1918,9 +1918,15 @@ TEST_F(IndexingTest, DoubleBuffering1) {
       switch (tv->name()) {
         case 0: {
           if (circular_buffer_loop_stage_ == CircularBufferLoopStage::Prolog) {
-            return addExpr(
-                mulExpr(loop_indices.at(1), tv->axis(2)->extent()),
-                loop_indices.at(2));
+            // NOTE: Expression Simplification is disabled in IndexValidator,
+            // so trivial index expression appears in the expression.
+            Val* zero = tv->fusion()->zeroVal();
+            return IrBuilder::addExpr(
+                IrBuilder::mulExpr(zero, createInt(128)),
+                IrBuilder::addExpr(
+                    IrBuilder::mulExpr(
+                        loop_indices.at(1), tv->axis(2)->extent()),
+                    loop_indices.at(2)));
           } else if (
               circular_buffer_loop_stage_ == CircularBufferLoopStage::Main) {
             return addExpr(
@@ -2990,11 +2996,17 @@ TEST_F(PredicateIndexingTest, DoubleBuffering1) {
       auto circular_buffer_index = for_loops_.at(0)->index();
 
       if (circular_buffer_loop_stage_ == CircularBufferLoopStage::Prolog) {
-        // bidx.x * 32 + tid.x >= 0 &&
-        // bidx.x * 32 + tid.x < N
-        auto idx = addExpr(
-            mulExpr(loop_indices.at(1), tv->axis(2)->extent()),
-            loop_indices.at(2));
+        // 0 * 128 + bidx.x * 32 + tid.x >= 0 &&
+        // 0 * 128 + bidx.x * 32 + tid.x < N
+        // NOTE: Expression Simplification is disabled in
+        // PredicateIndexValidator, so trivial index expression appears in the
+        // expression.
+        Val* zero = tv->fusion()->zeroVal();
+        auto idx = IrBuilder::addExpr(
+            IrBuilder::mulExpr(zero, createInt(128)),
+            IrBuilder::addExpr(
+                IrBuilder::mulExpr(loop_indices.at(1), tv->axis(2)->extent()),
+                loop_indices.at(2)));
         return andExpr(
             geExpr(idx, tv->fusion()->zeroVal()),
             ltExpr(idx, tv->getLogicalDomain().at(0)->extent()));

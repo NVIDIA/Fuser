@@ -884,8 +884,8 @@ std::vector<Val*> TensorIndexer::getIndexFor(
     auto it = info.index_map.find(g);
     NVF_ERROR(
         it != info.index_map.end(), "Index not found for ", g->toString());
-    result.push_back(
-        ir_utils::replaceValRecursively(it->second, replacement_map));
+    result.push_back(simplifyExpr(
+        ir_utils::replaceValRecursively(it->second, replacement_map)));
   }
   return result;
 }
@@ -1133,9 +1133,10 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
         predicate_domain->toString());
 
     Val* idx = idx_it->second;
-    Val* start_idx =
-        ir_utils::replaceValRecursively(idx, replacement_map_start);
-    Val* stop_idx = ir_utils::replaceValRecursively(idx, replacement_map_stop);
+    Val* start_idx = simplifyExpr(
+        ir_utils::replaceValRecursively(idx, replacement_map_start));
+    Val* stop_idx = simplifyExpr(
+        ir_utils::replaceValRecursively(idx, replacement_map_stop));
 
     // Generate predicates as follows:
     //
@@ -1151,12 +1152,10 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
     info.loop_stage_ = loop_stage;
 
     info.start_predicate_ = SimplifyingIrBuilder::geExpr(
-        SimplifyingIrBuilder::addExpr(simplifyExpr(start_idx), zero_val),
-        zero_val);
+        SimplifyingIrBuilder::addExpr(start_idx, zero_val), zero_val);
 
     info.stop_predicate_ = SimplifyingIrBuilder::ltExpr(
-        SimplifyingIrBuilder::addExpr(
-            simplifyExpr(stop_idx), info.stop_offset_),
+        SimplifyingIrBuilder::addExpr(stop_idx, info.stop_offset_),
         predicate_domain->extent());
 
     info.predicated_domains_ = {predicate_domain};
