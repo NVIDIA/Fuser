@@ -1482,6 +1482,29 @@ TEST_F(AllocationDomainTest, ReductionVectorization3) {
   testValidate(executor_cache.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
 }
 
+// input tensor is not contiguous, e.g. n,hw,c
+TEST_F(AllocationDomainTest, ReductionVectorization4) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  long x = 2L, y = 4L, z = 6L;
+  auto tv1 = makeContigConcreteTensor({x, y, z});
+  fusion->addInput(tv1);
+  std::vector<IterDomain*> tv1_dom = {tv1->axis(0), tv1->axis(2), tv1->axis(1)};
+  tv1->setAllocationDomain(tv1_dom, true);               
+  auto tv2 = mul(tv1, tv1);
+  auto tv3 = sum(tv2, {1});
+  fusion->addOutput(tv3);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t1 = at::randn({x, y, z}, options).as_strided({x, y, z}, {z*y, 1, y});
+  std::vector<c10::IValue> inputs({t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
+
+  testValidate(executor_cache.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
+}
+
+
 TEST_F(AllocationDomainTest, ClearReductionIterDomainsPatch) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
