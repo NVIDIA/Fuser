@@ -12,7 +12,7 @@ from torch.testing import make_tensor
 import random
 from numbers import Number
 
-from pytest_core import OpInfo, SampleInput, ErrorSample, Domain
+from opinfo_core import OpInfo, SampleInput, ErrorSample, Domain
 from utils import (
     make_number,
     find_nonmatching_dtype,

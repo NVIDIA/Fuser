@@ -5,14 +5,14 @@
 
 import math
 import torch
-from pytest_core import OpInfo, ReferenceType, Domain
-from pytest_fusion_definitions import (
+from opinfo_core import OpInfo, ReferenceType, Domain
+from opinfo_fusion_definitions import (
     api_test_fd_fn,
     tensor_input_fd_fn,
     tensor_api_test_fd_fn,
     vector_api_test_fd_fn,
 )
-from pytest_input_generators import (
+from opinfo_input_generators import (
     broadcast_error_generator,
     broadcast_in_dim_generator,
     broadcast_in_dim_error_generator,
