@@ -1110,7 +1110,7 @@ TEST_F(MultiDeviceTutorial, HostIrKernekPipelining) {
   // Let us now execute the Host program. We indicate to use FusionExecutorCache
   // to execute the fusions -- this way, we don't need to recompile at each
   // iteration.
-  HostIrExecutor hie
+  HostIrExecutor hie(
       std::move(hic),
       /*communicator=*/nullptr,
       {.use_fusion_executor_cache = true});
