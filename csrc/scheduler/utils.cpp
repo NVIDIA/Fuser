@@ -2544,11 +2544,9 @@ bool isResharding(Fusion* fusion) {
 void moveNonConcretizedBroadcastInnermost(
     Fusion* fusion,
     const std::unordered_set<TensorView*>& ignored_tvs) {
-  if (getenv("OLD")) {
-    return;
-  }
   IdModel id_model(fusion);
   const auto& exact_model = id_model.idGraph(IdMappingMode::EXACT);
+
   ValGroups ignored_groups;
   for (auto ignored_tv : ignored_tvs) {
     for (auto id : ignored_tv->domain()->allIDs()) {
@@ -2557,6 +2555,7 @@ void moveNonConcretizedBroadcastInnermost(
       }
     }
   }
+
   for (auto tv : ir_utils::allTvs(fusion)) {
     std::vector<int64_t> broadcast_to_move;
     for (const auto i : c10::irange(tv->getLoopDomain().size())) {
@@ -2570,13 +2569,14 @@ void moveNonConcretizedBroadcastInnermost(
         continue;
       }
 
+      // If the exact group has a non-broadcast domain, it means it's
+      // concretized
       if (std::any_of(id_group->begin(), id_group->end(), [](Val* id) -> bool {
             return !id->as<IterDomain>()->isBroadcast();
           })) {
         continue;
       }
 
-      // Found
       broadcast_to_move.push_back((int64_t)i);
     }
 

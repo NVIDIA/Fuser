@@ -676,6 +676,16 @@ int64_t getSharedMemoryOverheadPerBlock(
 // Returns true if any Expr in `fusion` is resharding.
 bool isResharding(Fusion* fusion);
 
+// Move non-concretized broadcast domains to innermost
+// positions. Broadcast domains mapped with any domains of given tvs
+// are ignored.
+//
+// This is meant to prevent broadcast domains from interfering
+// inlining. Transform propagation from a reference tensor would not
+// do anything with non-concretized broadcast domains that are not
+// mapped with the reference tensor. If they happened to be at the
+// outermost position, the tensor wouldn't be inlined at all. See
+// issue #2686 and PR #2799.
 void moveNonConcretizedBroadcastInnermost(
     Fusion* fusion,
     const std::unordered_set<TensorView*>& ignored_tvs = {});

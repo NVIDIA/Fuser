@@ -8467,6 +8467,7 @@ TEST_F(NVFuserTest, MultipleDifferentSizeGridReduction) {
   testValidate(&fusion, cg_outputs, inputs, __LINE__, __FILE__);
 }
 
+// See PR #2799
 TEST_F(NVFuserTest, MoveNonConcretizedBroadcastInNormalization) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr.get();
@@ -8501,12 +8502,11 @@ TEST_F(NVFuserTest, MoveNonConcretizedBroadcastInNormalization) {
 
   testValidate(&fusion_copy, outputs, inputs, __LINE__, __FILE__);
 
-  // tv2 and tv3 have non-concretized broadcasts
+  // tv2 and tv3 have non-concretized broadcasts. Make sure they are
+  // moved to the innermost position of the loop domain
   for (auto tv : {tv2, tv3}) {
     auto broadcast_domain = tv->getLogicalDomain().at(0);
     ASSERT_TRUE(broadcast_domain->isBroadcast());
-    // Make sure the broadcast domain is moved innermost position of
-    // the loop domain
     EXPECT_EQ(tv->getLoopDomain().back(), broadcast_domain)
         << "Non-concretized broadcast should be moved to the innermost position: "
         << tv->toString();
@@ -8533,6 +8533,7 @@ TEST_F(NVFuserTest, MoveNonConcretizedBroadcastInNormalization) {
   }
 }
 
+// See PR #2799
 TEST_F(NVFuserTest, MoveNonConcretizedBroadcastInPointwise) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr.get();
@@ -8565,13 +8566,12 @@ TEST_F(NVFuserTest, MoveNonConcretizedBroadcastInPointwise) {
 
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 
-  // tv2 and tv3 have two non-concretized broadcasts
+  // tv2 and tv3 have non-concretized broadcasts. Make sure they are
+  // moved to the innermost position of the loop domain
   for (auto tv : {tv2, tv3}) {
     for (const auto i : c10::irange(2)) {
       auto broadcast_domain = tv->getLogicalDomain().at(i);
       ASSERT_TRUE(broadcast_domain->isBroadcast());
-      // Make sure the broadcast domain is moved innermost position of
-      // the loop domain
       EXPECT_EQ(
           tv->getLoopDomain().at(tv->getLoopDomain().size() - 2 + i),
           broadcast_domain)
@@ -8601,6 +8601,7 @@ TEST_F(NVFuserTest, MoveNonConcretizedBroadcastInPointwise) {
   }
 }
 
+// See PR #2799
 TEST_F(NVFuserTest, MoveNonConcretizedBroadcastInReduction) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr.get();
@@ -8636,12 +8637,11 @@ TEST_F(NVFuserTest, MoveNonConcretizedBroadcastInReduction) {
 
   testValidate(&fusion_copy, outputs, inputs, __LINE__, __FILE__);
 
-  // tv2 and tv3 have two non-concretized broadcasts
+  // tv2 and tv3 have non-concretized broadcasts. Make sure they are
+  // moved to the innermost position of the loop domain
   for (auto tv : {tv2, tv3}) {
     auto broadcast_domain = tv->getLogicalDomain().at(0);
     ASSERT_TRUE(broadcast_domain->isBroadcast());
-    // Make sure the broadcast domain is moved innermost position of
-    // the loop domain
     EXPECT_EQ(tv->getLoopDomain().back(), broadcast_domain)
         << "Non-concretized broadcast should be moved to the innermost position: "
         << tv->toString();
@@ -8668,7 +8668,7 @@ TEST_F(NVFuserTest, MoveNonConcretizedBroadcastInReduction) {
   }
 }
 
-// See issue #2685
+// See issue #2685 and PR #2799
 TEST_F(NVFuserTest, Issue2685Repro) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr.get();
