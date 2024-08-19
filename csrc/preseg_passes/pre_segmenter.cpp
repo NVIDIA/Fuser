@@ -15,6 +15,7 @@
 #include <preseg_passes/allocation_order_inference.h>
 #include <preseg_passes/consecutive_cast.h>
 #include <preseg_passes/exact_mapped_extent_substitution.h>
+#include <preseg_passes/factor_amax_reduction.h>
 #include <preseg_passes/insert_reshardings.h>
 #include <preseg_passes/make_resharding_contiguous.h>
 #include <preseg_passes/mark_aliases_prepare.h>
@@ -51,6 +52,7 @@ namespace nvfuser::preseg_passes {
   OptimizationPass<ExactMappedExtentSubstitutionPass>::runPass(fusion);
   OptimizationPass<AllocationDomainPass>::runPass(fusion);
   OptimizationPass<RemoveBcastSqueeze>::runPass(fusion);
+  OptimizationPass<FactorAmaxReductionPass>::runPass(fusion);
 }
 
 } // namespace nvfuser::preseg_passes
