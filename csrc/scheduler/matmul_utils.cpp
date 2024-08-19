@@ -716,6 +716,7 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   // 4. Check if fusion represents expressions that are recognized by matmul
   // 5. Check if the input layout for the matmul pattern can be determined
   // scheduler.
+  // 6. Check if the fusion is resharding.
 
   // #0
   {
@@ -796,6 +797,11 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
       mma_utils::getOperandInnerDims(id_model, id_roles, tensor_roles);
   if (!input_layout_opt.isValid()) {
     return input_layout_opt.getErrorMsg();
+  }
+
+  // #6
+  if (scheduler_utils::isResharding(fusion)) {
+    return "Fusion is resharding.";
   }
 
   return "";

@@ -372,7 +372,7 @@ void SegmentedGroup::finalize() {
 }
 
 std::ostream& operator<<(std::ostream& os, const SegmentedGroup* group) {
-  os << "g{";
+  os << toString(group->heuristic()) << "{";
   auto expr_to_print = group->exprs();
   std::sort(
       expr_to_print.begin(),
@@ -390,12 +390,11 @@ std::ostream& operator<<(std::ostream& os, const SegmentedGroup* group) {
   if (group->isMerged()) {
     os << " (merged)";
   }
-  os << "\n";
   return os;
 }
 
 void SegmentedGroup::print() const {
-  debug() << this << "\n";
+  debug() << this << std::endl;
 }
 
 bool SegmentedGroup::isFusionInputGroup() const {
@@ -410,12 +409,12 @@ std::string toString(const SegmentedGroup* group) {
 
 std::ostream& operator<<(std::ostream& os, const SegmentedEdge* edge) {
   os << "e{ " << edge->from << " -> " << edge->to << "("
-     << edge->val->toString() << ") }\n";
+     << edge->val->toString() << ") }";
   return os;
 }
 
 void SegmentedEdge::print() const {
-  debug() << this << "\n";
+  debug() << this << std::endl;
 }
 
 std::string toString(const SegmentedEdge* edge) {
