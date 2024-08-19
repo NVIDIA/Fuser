@@ -51,7 +51,7 @@ from pytest_input_generators import (
     linear_input_generator,
     linear_error_generator,
 )
-from pytest_utils import (
+from utils import (
     bool_int_dtypes,
     complex_dtypes,
     full_precision_float_dtypes,
@@ -62,7 +62,7 @@ from pytest_utils import (
 )
 from functools import partial
 
-from pytest_utils import JAX_AVAILABLE
+from utils import JAX_AVAILABLE
 
 if JAX_AVAILABLE:
     import jax

@@ -13,7 +13,7 @@ import random
 from numbers import Number
 
 from pytest_core import OpInfo, SampleInput, ErrorSample, Domain
-from pytest_utils import (
+from utils import (
     make_number,
     find_nonmatching_dtype,
     is_floating_dtype,
