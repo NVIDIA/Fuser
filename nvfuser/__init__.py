@@ -53,6 +53,7 @@ class FusionDefinition(_C._FusionDefinition):
     def __init__(self, id=None, max_length=1024):
         super(FusionDefinition, self).__init__(id, max_length)
         self.profiled = False
+        self.inputs = None
 
     def __enter__(self):
         return self._setup_definition()
@@ -63,72 +64,6 @@ class FusionDefinition(_C._FusionDefinition):
         except Exception as err:
             logger.exception(self.getReproErrorString("defining"))
             raise
-
-    def getReproString(self, inputs: list | None = None) -> str:
-        msg = "# CUDA devices:\n"
-        for i in range(torch.cuda.device_count()):
-            msg += f"#  {0}: {torch.cuda.get_device_name(i)}\n"
-        msg += (
-            f"# torch version: {torch.__version__}\n"
-            f"# cuda version: {torch.version.cuda}\n"
-            f"# nvfuser version: {version()}\n"
-            "import torch\n"
-            "from nvfuser import FusionDefinition, DataType\n"
-            f"{self}"
-            "with FusionDefinition() as fd:\n"
-            f"    nvfuser_fusion_id{self.id()}(fd)\n"
-        )
-        if inputs is not None:
-            msg += "\ninputs = [\n"
-            for i in inputs:
-                if isinstance(i, torch.Tensor):
-                    # max linear index determines number of elements to generate
-                    sz = 1
-                    for szi, stri in zip(i.size(), i.stride()):
-                        if szi == 0:
-                            sz = 0
-                            break
-                        sz += (szi - 1) * stri
-                    if i.dtype.is_floating_point:
-                        msg += (
-                            f"    torch.randn({sz}, dtype={i.dtype}, device='{i.device}')"
-                            f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
-                        )
-                    else:
-                        upper_bound = 2 if i.dtype == torch.bool else 10
-                        msg += (
-                            f"    torch.randint(0, {upper_bound}, ({sz},), dtype={i.dtype}, device='{i.device}')"
-                            f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
-                        )
-                else:
-                    input_as_string = str(i)
-                    # `nan` and `inf` are stringified as is, which are not
-                    # defined in Python. So we replace them with `float("nan")`
-                    # and `float("inf")`. `-inf` is replaced with
-                    # `-float("inf")`, which equals `float("-inf")`.
-                    input_as_string = re.sub(
-                        r"\binf\b", 'float("inf")', input_as_string
-                    )
-                    input_as_string = re.sub(
-                        r"\bnan\b", 'float("nan")', input_as_string
-                    )
-                    msg += f"    {input_as_string},\n"
-            msg += "]"
-            msg += "\nfd.execute(inputs)\n"
-
-        return msg
-
-    def getReproErrorString(self, section: str, inputs: list | None = None):
-        msg = (
-            f"An error occurred while {section} nvFuser FusionDefinition {self.id()}.\n"
-            "If you believe this is a bug or need assistance, please file an issue at "
-            "https://github.com/NVIDIA/Fuser/issues/new\n"
-            f"Here's a script to reproduce the error:\n"
-            "```python\n"
-        )
-        msg += self.getReproString(inputs)
-        msg += "```\n"
-        return msg
 
     def definition(self):
         raise NotImplementedError("definition() should be implemented by child class!")
@@ -144,6 +79,7 @@ class FusionDefinition(_C._FusionDefinition):
         override_user_schedule=False,
         capture_debug_output=False,
         profile=False,
+        save_repro_state=False,
     ):
         """
         Executes an nvFuser set of kernels for a given Fusion
@@ -182,6 +118,8 @@ class FusionDefinition(_C._FusionDefinition):
                 debugging information as a string. If True, the string can be
                 retrieved after execution using :meth:`get_debug_output`. If False,
                 then that method will return None when called.
+            save_repro_state (bool): Saves the inputs for last_repro_script() to
+                provide a provide a reproduction script.
 
         Returns:
             List[Tensor]
@@ -216,6 +154,9 @@ class FusionDefinition(_C._FusionDefinition):
             self.schedule()
             self._finalize_schedule(inputs)
 
+        if save_repro_state:
+            self.inputs = inputs
+
         result = None
         try:
             result = self._execute(
@@ -226,7 +167,7 @@ class FusionDefinition(_C._FusionDefinition):
                 profile=profile,
             )
         except Exception as err:
-            logger.exception(self.getReproErrorString("executing", inputs))
+            logger.exception(self._repro_error_str("executing", inputs))
             raise
 
         return result
@@ -377,6 +318,81 @@ class FusionDefinition(_C._FusionDefinition):
             )
 
         return fp
+
+    def last_repro_script(self) -> str:
+        assert (
+            self.inputs is not None
+        ), "fd.last_repro_script() cannot provide a repro because fd.execute(inputs, save_repro_state=True) was not set!"
+        script = self.repro_script_for(self.inputs)
+        # Release the input tensors after usage
+        self.inputs = None
+        return script
+
+    def repro_script_for(self, inputs: list | None = None) -> str:
+        msg = "# CUDA devices:\n"
+        for i in range(torch.cuda.device_count()):
+            msg += f"#  {0}: {torch.cuda.get_device_name(i)}\n"
+        msg += (
+            f"# torch version: {torch.__version__}\n"
+            f"# cuda version: {torch.version.cuda}\n"
+            f"# nvfuser version: {version()}\n"
+            "import torch\n"
+            "from nvfuser import FusionDefinition, DataType\n"
+            f"{self}"
+            "with FusionDefinition() as fd:\n"
+            f"    nvfuser_fusion_id{self.id()}(fd)\n"
+        )
+        if inputs is not None:
+            msg += "\ninputs = [\n"
+            for i in inputs:
+                if isinstance(i, torch.Tensor):
+                    # max linear index determines number of elements to generate
+                    sz = 1
+                    for szi, stri in zip(i.size(), i.stride()):
+                        if szi == 0:
+                            sz = 0
+                            break
+                        sz += (szi - 1) * stri
+                    if i.dtype.is_floating_point:
+                        msg += (
+                            f"    torch.randn({sz}, dtype={i.dtype}, device='{i.device}')"
+                            f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
+                        )
+                    else:
+                        upper_bound = 2 if i.dtype == torch.bool else 10
+                        msg += (
+                            f"    torch.randint(0, {upper_bound}, ({sz},), dtype={i.dtype}, device='{i.device}')"
+                            f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
+                        )
+                else:
+                    input_as_string = str(i)
+                    # `nan` and `inf` are stringified as is, which are not
+                    # defined in Python. So we replace them with `float("nan")`
+                    # and `float("inf")`. `-inf` is replaced with
+                    # `-float("inf")`, which equals `float("-inf")`.
+                    input_as_string = re.sub(
+                        r"\binf\b", 'float("inf")', input_as_string
+                    )
+                    input_as_string = re.sub(
+                        r"\bnan\b", 'float("nan")', input_as_string
+                    )
+                    msg += f"    {input_as_string},\n"
+            msg += "]"
+            msg += "\nfd.execute(inputs)\n"
+
+        return msg
+
+    def _repro_error_str(self, section: str, inputs: list | None = None):
+        msg = (
+            f"An error occurred while {section} nvFuser FusionDefinition {self.id()}.\n"
+            "If you believe this is a bug or need assistance, please file an issue at "
+            "https://github.com/NVIDIA/Fuser/issues/new\n"
+            f"Here's a script to reproduce the error:\n"
+            "```python\n"
+        )
+        msg += self.repro_script_for(inputs)
+        msg += "```\n"
+        return msg
 
     def validate(
         self,
