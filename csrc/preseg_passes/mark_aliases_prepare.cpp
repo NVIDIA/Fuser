@@ -32,6 +32,14 @@ struct Use {
   }
 };
 
+std::ostream& operator<<(std::ostream& os, const Use& use) {
+  os << use.use_of;
+  if (use.user != nullptr) {
+    os << " used by " << use.user;
+  }
+  return os;
+}
+
 // A helper function that walks up from `out` until reaching a non-meta op or a
 // fusion input. Returns where it stops.
 Use findUseToSegment(
@@ -68,15 +76,33 @@ std::unordered_set<Expr*> exprsDependedByNonAliases(
 
 // Inserts a `segment_set` after `use_of` and redirect aliasing users to
 // use the `segment_set`.
-void insertSegmentSetAfter(
-    std::vector<Use>::const_iterator first_user,
-    std::vector<Use>::const_iterator last_user) {
+template <typename InputIter>
+void insertSegmentSetAfter(InputIter first_user, InputIter last_user) {
   TensorView* use_of = first_user->use_of;
+
+  std::vector<Expr*> users;
+  users.reserve(use_of->uses().size());
+  if (first_user->user != nullptr) {
+    std::transform(
+        first_user, last_user, std::back_inserter(users), [](const Use& use) {
+          return use.user;
+        });
+  } else {
+    first_user++;
+    std::copy_if(
+        use_of->uses().begin(),
+        use_of->uses().end(),
+        std::back_inserter(users),
+        [first_user, last_user](Expr* user) {
+          return std::find_if(first_user, last_user, [user](const Use& use) {
+                   return use.user == user;
+                 }) == last_user;
+        });
+  }
 
   // There are a few corner cases where we don't need to add a
   // `segment_set`. If `use_of` is only used by aliases, ...
-  if (static_cast<size_t>(std::distance(first_user, last_user)) ==
-      use_of->uses().size()) {
+  if (users.size() == use_of->uses().size()) {
     if (use_of->isFusionInput()) {
       // Putting a `segment_set` between a fusion input and its users is
       // unnecessary.
@@ -92,15 +118,13 @@ void insertSegmentSetAfter(
 
   // If all aliasing users are `segment_set`, don't create another
   // `segment_set`.
-  if (std::all_of(first_user, last_user, [](const Use& use) {
-        return ir_utils::isSegmentSet(use.user);
-      })) {
+  if (std::all_of(users.begin(), users.end(), ir_utils::isSegmentSet)) {
     return;
   }
 
   // The general case.
   TensorView* copy = segment_set(use_of);
-  // Inherit the allocation domain from `use_of`. This is important to pass
+  // Inherit the allocation domain from `use_of`. This is needed for cases like
   // AliasTest.Bookend_SegmentSetPreservesAllocation.
   TensorDomain* replayed_domain =
       TransformReplay::replayCasP(
@@ -110,12 +134,22 @@ void insertSegmentSetAfter(
     copy->setAllocationDomain(
         replayed_domain->allocation(), replayed_domain->contiguity());
   }
-  std::for_each(first_user, last_user, [&](const Use& use) {
-    ir_utils::replaceValInExprInputs(use.user, use_of, copy);
+  std::for_each(users.begin(), users.end(), [&](Expr* user) {
+    ir_utils::replaceValInExprInputs(user, use_of, copy);
   });
   if (use_of->isFusionOutput()) {
     use_of->fusion()->replaceOutput(use_of, copy);
   }
+}
+
+bool isMetaOp(const AliasAnalysisResult& analysis, Expr* e) {
+  return std::all_of(
+      e->outputs().begin(), e->outputs().end(), [&analysis](Val* out) {
+        if (auto* out_tv = dynamic_cast<TensorView*>(out)) {
+          return analysis.getRoot(out_tv) != nullptr;
+        }
+        return false;
+      });
 }
 
 } // namespace
@@ -174,28 +208,59 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
   // examples. This is the reason behind `depended_by_non_aliases`.
   const std::unordered_set<Expr*>& depended_by_non_aliases =
       exprsDependedByNonAliases(analysis, fusion);
-  std::vector<Use> uses_to_segment;
-  uses_to_segment.reserve(fusion->outputs().size());
+  std::set<Use> uses_to_segment;
   for (auto* out : ir_utils::filterByType<TensorView>(fusion->outputs())) {
     Use use_to_segment =
         findUseToSegment(out, analysis, depended_by_non_aliases);
     if (use_to_segment.use_of != out) {
-      uses_to_segment.push_back(use_to_segment);
+      uses_to_segment.insert(use_to_segment);
     }
   }
 
-  // The remaining are optimizations to reduce the number of `segment_set`s
-  // inserted.
-  //
-  // Group `uses_to_segment` by `use_of` and remove duplicates.
-  std::sort(uses_to_segment.begin(), uses_to_segment.end());
-  uses_to_segment.erase(
-      std::unique(uses_to_segment.begin(), uses_to_segment.end()),
-      uses_to_segment.end());
+  std::queue<TensorView*> frontier;
+  for (auto* tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
+    frontier.push(tv);
+  }
+  while (!frontier.empty()) {
+    TensorView* tv = frontier.front();
+    frontier.pop();
+
+    auto should_enqueue_users = [&analysis](TensorView* tv) {
+      if (!std::all_of(
+              tv->uses().begin(), tv->uses().end(), [&analysis](Expr* e) {
+                return isMetaOp(analysis, e);
+              })) {
+        return false;
+      }
+
+      if (tv->uses().size() > 1 &&
+          !std::all_of(
+              tv->uses().begin(),
+              tv->uses().end(),
+              std::mem_fn(&Expr::isA<SliceOp>))) {
+        return false;
+      }
+
+      return true;
+    };
+    if (should_enqueue_users(tv)) {
+      for (Expr* user : tv->uses()) {
+        if (uses_to_segment.count(Use{tv, user})) {
+          continue;
+        }
+        for (auto* user_out :
+             ir_utils::filterByType<TensorView>(user->outputs())) {
+          frontier.push(user_out);
+        }
+      }
+    } else {
+      uses_to_segment.insert(Use{tv, nullptr});
+    }
+  }
 
   if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
     for (const auto& use : uses_to_segment) {
-      debug() << "Will put a segment_set at " << use.user << std::endl;
+      debug() << "Will put a segment_set at " << use << std::endl;
     }
   }
 
