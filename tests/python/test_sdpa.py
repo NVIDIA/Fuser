@@ -12,7 +12,10 @@ from functools import partial
 import torch.nn.functional as F
 
 
-@pytest.mark.skipif(is_pre_ampere(), reason="Flash Attention is only supported on Ampere and newer devices.")
+@pytest.mark.skipif(
+    is_pre_ampere(),
+    reason="Flash Attention is only supported on Ampere and newer devices.",
+)
 class TestSdpa(NVFuserTest):
     def test_sdpa_fwd(self):
         def fusion_func(

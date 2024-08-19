@@ -4107,7 +4107,6 @@ class TestNvFuserFrontend(NVFuserTest):
                     match_pairs.item() < 3
                 ), f"At least three entries match in {output}"
 
-
     def test_reshape_dynamic(self):
         inputs = [
             32,
@@ -4281,4 +4280,3 @@ class TestNvFuserFrontend(NVFuserTest):
             ),
         ):
             nvf_out = fd.execute([tensor_inp, 2.0 + 1.0j])
-

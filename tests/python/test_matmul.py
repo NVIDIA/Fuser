@@ -11,6 +11,7 @@ from functools import partial
 import itertools
 import torch.nn.functional as F
 
+
 @pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
 class TestMatmul(NVFuserTest):
     def test_matmul(self):
@@ -104,7 +105,7 @@ class TestMatmul(NVFuserTest):
                 eager_out = F.linear(input=inp, weight=wt, bias=use_bias)
                 fp16_nvf_out = nvf_out[0]
                 torch.testing.assert_close(fp16_nvf_out, eager_out, atol=1e-3, rtol=0)
-    
+
     def test_matmul_issue_2354(self):
         inputs = [
             torch.randn((8, 4), dtype=torch.float32, device="cuda:0"),
