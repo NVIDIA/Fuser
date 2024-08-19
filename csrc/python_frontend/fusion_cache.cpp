@@ -351,12 +351,10 @@ void FusionCache::print(std::ostream& os) const {
       }
 
       os << node->fusion_id << ":" << std::endl;
-      std::cout << "Fusion ID " << node->fusion_id << std::endl;
       std::for_each(
           rev_fusion_records.rbegin(),
           rev_fusion_records.rend(),
           [&os](const auto elem) {
-            std::cout << "Record" << std::endl;
             os << "    ";
             elem->record->print(os);
             os << std::endl;

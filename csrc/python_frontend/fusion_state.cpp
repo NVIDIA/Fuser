@@ -106,19 +106,30 @@ void FusionState::addRecord(RecordFunctor* record) {
   recording_.emplace_back(record);
   num_recording_states_ += record->numOutputs();
   RecordFunctor* state_record = recording_.back().get();
+
+  // NOTE: when the outputs are added to the Record constructor,
+  // the parent is not constructed.  Therefore, the information has to be
+  // propagated when the Record is added to the FusionState.
   for (const auto& out : state_record->outputs()) {
-    if (out.index >= recording_state_.size()) {
-      // NOTE: This condition might occur during deserialization
-      recording_state_.resize(out.index + 1);
-      recording_state_.at(out.index) = out;
+    if (state_record->inlineDef()) {
+      NVF_CHECK(
+          out.index < recording_state_.size(),
+          "Output state is not found in recording_state! Index: ",
+          out.index,
+          " Size: ",
+          recording_state_.size());
+      recording_state_.at(out.index).setParent(state_record);
+      recording_state_.at(out.index).setInlineDef(state_record->inlineDef());
     }
-    recording_state_.at(out.index).setParent(state_record);
-    recording_state_.at(out.index).setInlineDef(state_record->inlineDef());
   }
+  // Precautionary check of the record's argument state when an argument
+  // is inline.
   for (auto& arg : state_record->args()) {
-    if (arg.inlineDef() && (arg.parent() == nullptr)) {
-      arg.setParent(recording_state_.at(arg.index).parent());
-      arg.setInlineDef(recording_state_.at(arg.index).parent()->inlineDef());
+    if (arg.inlineDef()) {
+      NVF_CHECK(
+          arg.parent(),
+          "An inline argument has a null parent pointer! ",
+          arg.index)
     }
   }
 }

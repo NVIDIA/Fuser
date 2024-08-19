@@ -90,9 +90,8 @@ struct RecordFunctor {
     for (auto output : outputs_) {
       output_hash ^= ((output.index << 1) ^ static_cast<size_t>(output.stype));
     }
-    // return (static_cast<size_t>(inline_def_) << 63) |
-    //     ((static_cast<size_t>(record_type_) & 0x7f) << 56) |
-    //     ((output_hash & 0xff) << 48) | ((arg_hash & 0xffff) << 32);
+    // NOTE: The inline_def is not part of the hash as it is not used for
+    // comparison
     return ((static_cast<size_t>(record_type_) & 0xff) << 56) |
         ((output_hash & 0xff) << 48) | ((arg_hash & 0xffff) << 32);
   }
@@ -104,7 +103,6 @@ struct RecordFunctor {
     result = result && (args_.size() == other.args_.size()) &&
         (outputs_.size() == other.outputs_.size());
     result = result && (arg_names_ == other.arg_names_);
-    // result = result && (inline_def_ == other.inline_def_);
     if (result) {
       for (size_t i = 0; i < args_.size(); ++i) {
         if ((args_[i].index != other.args_[i].index) ||
@@ -123,6 +121,8 @@ struct RecordFunctor {
         }
       }
     }
+    // NOTE: The inline_def is not part of the equality operator as it is not
+    // used for comparison
     return result;
   }
 
@@ -1908,6 +1908,9 @@ struct ScalarRecord : RecordFunctor {
             false,
             "A ScalarRecord with an unsupported inline definition type!");
       }
+      // NOTE: close_function is not relevant for the inline definition as the
+      // printing is specific to each operator and not partially done with the
+      // base class print method.
     } else {
       RecordFunctor::print(os, false);
       if (value_.hasValue()) {
