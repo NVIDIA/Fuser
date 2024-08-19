@@ -16,12 +16,19 @@ namespace nvfuser::python_frontend {
 struct RecordFunctor;
 
 struct State {
-  State() : index(0), stype(serde::StateType::None), parent(nullptr) {}
+  State() : index(0), stype(serde::StateType::None), inline_def_(false), parent_(nullptr) {}
   State(
       size_t _index,
       serde::StateType _stype,
-      const RecordFunctor* _parent = nullptr)
-      : index(_index), stype(_stype), parent(_parent) {}
+      bool inline_def = false,
+      const RecordFunctor* parent = nullptr)
+      : index(_index), stype(_stype), inline_def_(inline_def), parent_(parent) {}
+
+  bool inlineDef() const;
+  void setInlineDef(bool value);
+
+  const RecordFunctor* parent() const;
+  void setParent(const RecordFunctor* record);
 
   bool operator==(const State& other) const;
   bool operator!=(const State& other) const;
@@ -30,8 +37,11 @@ struct State {
   size_t index;
   //! StateType is either: Tensor, Scalar, or Vector
   serde::StateType stype;
+
+ private:
+  bool inline_def_;
   //! Parent Fusion Record
-  const RecordFunctor* parent;
+  const RecordFunctor* parent_;
 };
 
 NVF_API std::ostream& operator<<(std::ostream& os, const State& state);

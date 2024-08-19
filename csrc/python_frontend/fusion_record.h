@@ -57,7 +57,21 @@ struct RecordFunctor {
             !isOptionDisabled(DisableOption::PythonInlineDefinitions)) {
     // Set this Record as the parent of each output
     for (auto& out : outputs_) {
-      out.parent = this;
+      out.setInlineDef(inline_def_);
+      out.setParent(this);
+    }
+  }
+  RecordFunctor(const RecordFunctor& other)
+      : args_(other.args_),
+        arg_names_(other.arg_names_),
+        outputs_(other.outputs_),
+        name_(other.name_),
+        record_type_(other.record_type_),
+        inline_def_(other.inline_def_) {
+    // Set this Record as the parent of each output
+    for (auto& out : outputs_) {
+      out.setInlineDef(inline_def_);
+      out.setParent(this);
     }
   }
   virtual ~RecordFunctor() = default;
@@ -76,8 +90,10 @@ struct RecordFunctor {
     for (auto output : outputs_) {
       output_hash ^= ((output.index << 1) ^ static_cast<size_t>(output.stype));
     }
-    return (static_cast<size_t>(inline_def_) << 63) |
-        ((static_cast<size_t>(record_type_) & 0x7f) << 56) |
+    //return (static_cast<size_t>(inline_def_) << 63) |
+    //    ((static_cast<size_t>(record_type_) & 0x7f) << 56) |
+    //    ((output_hash & 0xff) << 48) | ((arg_hash & 0xffff) << 32);
+    return ((static_cast<size_t>(record_type_) & 0xff) << 56) |
         ((output_hash & 0xff) << 48) | ((arg_hash & 0xffff) << 32);
   }
 
@@ -88,7 +104,7 @@ struct RecordFunctor {
     result = result && (args_.size() == other.args_.size()) &&
         (outputs_.size() == other.outputs_.size());
     result = result && (arg_names_ == other.arg_names_);
-    result = result && (inline_def_ == other.inline_def_);
+    //result = result && (inline_def_ == other.inline_def_);
     if (result) {
       for (size_t i = 0; i < args_.size(); ++i) {
         if ((args_[i].index != other.args_[i].index) ||
@@ -204,6 +220,9 @@ struct RecordFunctor {
 
   const std::vector<State>& outputs() const {
     return outputs_;
+  }
+  std::vector<State>& args() {
+    return args_;
   }
 
   serde::RecordType recordType() const {

@@ -1065,13 +1065,13 @@ void initNvFuserPythonBindings(PyObject* module) {
       "define_vector",
       define_vector_fn<py::list>,
       py::arg("values"),
-      py::arg("dtype") = DataType::Int,
+      py::arg("inline_def") = false,
       py::return_value_policy::reference);
   fusion_def.def(
       "define_vector",
       define_vector_fn<py::tuple>,
       py::arg("values"),
-      py::arg("dtype") = DataType::Int,
+      py::arg("inline_def") = false,
       py::return_value_policy::reference);
 
   fusion_def.def(

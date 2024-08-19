@@ -14,6 +14,20 @@
 using namespace nvfuser::inst;
 
 namespace nvfuser::python_frontend {
+  
+bool State::inlineDef() const {
+  return inline_def_;
+}
+void State::setInlineDef(bool value) {
+  inline_def_ = value;
+}
+
+const RecordFunctor* State::parent() const {
+  return parent_;
+}
+void State::setParent(const RecordFunctor* record) {
+  parent_ = record;
+}
 
 bool State::operator==(const State& other) const {
   NVF_ERROR(
@@ -31,12 +45,15 @@ bool State::operator!=(const State& other) const {
 
 // Generalized printing of State
 std::ostream& operator<<(std::ostream& os, const State& state) {
-  NVF_CHECK(
-      state.parent != nullptr,
-      "The State object's parent record is null! Index: ",
-      state.index);
-  if (state.parent->inlineDef()) {
-    state.parent->print(os);
+  if (state.inlineDef()) {
+    NVF_CHECK(
+        state.parent() != nullptr,
+        "The State object's parent record is null! Index: ",
+        state.index);
+    NVF_CHECK(
+        state.parent()->inlineDef(),
+        "The State Object's Parent record is not set with an inline definition!");
+    state.parent()->print(os);
   } else {
     if (state.stype == serde::StateType::Scalar) {
       os << "S" << state.index;
@@ -88,13 +105,21 @@ void FusionState::addRecord(RecordFunctor* record) {
   FUSER_PERF_SCOPE("FusionContainer::addRecord");
   recording_.emplace_back(record);
   num_recording_states_ += record->numOutputs();
-  for (const auto& out : record->outputs()) {
+  RecordFunctor* state_record = recording_.back().get();
+  for (const auto& out : state_record->outputs()) {
     if (out.index >= recording_state_.size()) {
       // NOTE: This condition might occur during deserialization
       recording_state_.resize(out.index + 1);
       recording_state_.at(out.index) = out;
     }
-    recording_state_.at(out.index).parent = record;
+    recording_state_.at(out.index).setParent(state_record);
+    recording_state_.at(out.index).setInlineDef(state_record->inlineDef());
+  }
+  for (auto& arg : state_record->args()) {
+    if (arg.inlineDef() && (arg.parent() == nullptr)) {
+      arg.setParent(recording_state_.at(arg.index).parent());
+      arg.setInlineDef(recording_state_.at(arg.index).parent()->inlineDef());
+    }
   }
 }
 

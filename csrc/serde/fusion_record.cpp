@@ -411,8 +411,7 @@ void RecordFunctorFactory::registerAllParsers() {
     return new python_frontend::ScalarRecord(
         parseStateArgs(buffer->outputs()),
         deserializePolymorphicValue(buffer->data_as_Scalar()),
-        mapToNvfuserDtype(buffer->data_as_Scalar()->dtype()),
-        buffer->inline_def());
+        mapToNvfuserDtype(buffer->data_as_Scalar()->dtype()));
   };
   registerParser(RecordType::Scalar, deserializeScalarRecord);
 
@@ -622,8 +621,7 @@ void RecordFunctorFactory::registerAllParsers() {
     return new python_frontend::VectorRecord(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
-        mapToNvfuserDtype(data->dtype()),
-        buffer->inline_def());
+        mapToNvfuserDtype(data->dtype()));
   };
   registerParser(RecordType::Vector, deserializeVectorRecord);
 }
