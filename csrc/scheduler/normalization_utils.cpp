@@ -718,11 +718,15 @@ void checkReductionTvForScheduling(Fusion* fusion, TensorView* ref_red_tv) {
 
 int64_t getMaxRegOrSharedMemorySizeForPersistentBuffer(
     SchedulerRuntimeInfo& runtime_info,
-    const std::vector<TensorView*>& persistent_buffers) {
+    const std::vector<TensorView*>& persistent_buffers,
+    const bool can_use_smem_persistent) {
   // Init to register file size, which is half of the full register file size
   int64_t available_persistent_buffer_size =
       scheduler_utils::register_file_size;
-
+  // shared memory persistent is not implemented for 3D inner reduction
+  if (!can_use_smem_persistent) {
+    return available_persistent_buffer_size;
+  }
   // Check available shared memory
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
   const int64_t max_shared_memory_size =
@@ -757,6 +761,7 @@ bool isProjectBufferToInputs(
     const scheduler_utils::PersistentBufferSizeReturn&
         persistent_buffer_size_info,
     const ScheduleHeuristic sh,
+    const bool can_use_smem_persistent,
     const bool check_projected_buffer_size) {
   // don't project if there are view ops and no buffer can be projected
   bool can_project = ir_utils::getViewOps(fusion).empty() &&
@@ -782,7 +787,9 @@ bool isProjectBufferToInputs(
   if (sh != ScheduleHeuristic::InnerOuterPersistent) {
     int64_t max_available_buffer =
         getMaxRegOrSharedMemorySizeForPersistentBuffer(
-            runtime_info, persistent_buffer_info.persistent_buffers);
+            runtime_info,
+            persistent_buffer_info.persistent_buffers,
+            can_use_smem_persistent);
     if (max_available_buffer <
         persistent_buffer_size_info.persistent_buffer_size) {
       return true;
@@ -916,12 +923,15 @@ PersistentKernelProperties getPersistentKernelProperties(
 
   // (6) Project to input when it can reduce buffer size and the gains of
   // reducing buffer size is larger than the pains of recalculations.
+  bool can_use_smem_persistent =
+      properties.inner_most_dimension_numel == properties.total_reduction_numel;
   bool project_persistent_buffers = isProjectBufferToInputs(
       fusion,
       runtime_info,
       persistent_buffer_info,
       persistent_buffer_size_info,
-      heuristic);
+      heuristic,
+      can_use_smem_persistent);
   auto max_persistent_buffer_size = project_persistent_buffers
       ? persistent_buffer_size_info.projected_persistent_buffer_size
       : persistent_buffer_size_info.persistent_buffer_size;
@@ -982,6 +992,12 @@ PersistentKernelProperties getPersistentKernelProperties(
 }
 
 bool checkOpsAndInputs(Fusion* fusion, ScheduleHeuristic schedule_heuristic) {
+  if (scheduler_utils::isResharding(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedule_heuristic, "Fusion is resharding.");
+    return false;
+  }
+
   // Needs at least one reduction to consider.
   if (!ir_utils::hasAnyReductionOps(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
