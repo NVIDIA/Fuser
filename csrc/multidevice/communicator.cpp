@@ -58,7 +58,10 @@ bool parseEnv(
   if (!env) {
     env = std::getenv("WORLD_RANK");
     if (!env) {
-      return false;
+      env = std::getenv("SLURM_PROCID");
+      if (!env) {
+        return false;
+      }
     }
   }
   rank = std::atoi(env);
@@ -68,7 +71,10 @@ bool parseEnv(
   if (!env) {
     env = std::getenv("WORLD_SIZE");
     if (!env) {
-      return false;
+      env = std::getenv("SLURM_NTASKS");
+      if (!env) {
+        return false;
+      }
     }
   }
   size = std::atoi(env);
@@ -78,7 +84,10 @@ bool parseEnv(
   if (!env) {
     env = std::getenv("WORLD_LOCAL_RANK");
     if (!env) {
-      return false;
+      env = std::getenv("SLURM_LOCALID");
+      if (!env) {
+        return false;
+      }
     }
   }
   local_rank = std::atoi(env);
@@ -88,7 +97,10 @@ bool parseEnv(
   if (!env) {
     env = std::getenv("WORLD_LOCAL_SIZE");
     if (!env) {
-      return false;
+      env = std::getenv("SLURM_NTASKS_PER_NODE");
+      if (!env) {
+        return false;
+      }
     }
   }
   local_size = std::atoi(env);
