@@ -19,23 +19,16 @@ struct State {
   State()
       : index(0),
         stype(serde::StateType::None),
-        inline_def_(false),
-        parent_(nullptr) {}
+        inline_def_record_(std::nullopt) {}
   State(
       size_t _index,
       serde::StateType _stype,
-      bool inline_def = false,
-      const RecordFunctor* parent = nullptr)
-      : index(_index),
-        stype(_stype),
-        inline_def_(inline_def),
-        parent_(parent) {}
+      std::optional<const RecordFunctor*> inline_def_record = std::nullopt)
+      : index(_index), stype(_stype), inline_def_record_(inline_def_record) {}
 
   bool inlineDef() const;
-  void setInlineDef(bool value);
-
-  const RecordFunctor* parent() const;
-  void setParent(const RecordFunctor* record);
+  void setInlineDefRecord(const RecordFunctor* record);
+  const RecordFunctor* inlineDefRecord() const;
 
   bool operator==(const State& other) const;
   bool operator!=(const State& other) const;
@@ -46,9 +39,8 @@ struct State {
   serde::StateType stype;
 
  private:
-  bool inline_def_;
-  //! Parent Fusion Record
-  const RecordFunctor* parent_;
+  // This data member is only set if this state is inline defined!
+  std::optional<const RecordFunctor*> inline_def_record_;
 };
 
 NVF_API std::ostream& operator<<(std::ostream& os, const State& state);

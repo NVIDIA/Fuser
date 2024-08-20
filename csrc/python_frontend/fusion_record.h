@@ -56,9 +56,10 @@ struct RecordFunctor {
             _inline_def &&
             !isOptionDisabled(DisableOption::PythonInlineDefinitions)) {
     // Set this Record as the parent of each output
-    for (auto& out : outputs_) {
-      out.setInlineDef(inline_def_);
-      out.setParent(this);
+    if (inline_def_) {
+      for (auto& out : outputs_) {
+        out.setInlineDefRecord(this);
+      }
     }
   }
   RecordFunctor(const RecordFunctor& other)
@@ -69,9 +70,10 @@ struct RecordFunctor {
         record_type_(other.record_type_),
         inline_def_(other.inline_def_) {
     // Set this Record as the parent of each output
-    for (auto& out : outputs_) {
-      out.setInlineDef(inline_def_);
-      out.setParent(this);
+    if (inline_def_) {
+      for (auto& out : outputs_) {
+        out.setInlineDefRecord(this);
+      }
     }
   }
   virtual ~RecordFunctor() = default;

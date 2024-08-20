@@ -16,17 +16,19 @@ using namespace nvfuser::inst;
 namespace nvfuser::python_frontend {
 
 bool State::inlineDef() const {
-  return inline_def_;
+  return inline_def_record_.has_value();
 }
-void State::setInlineDef(bool value) {
-  inline_def_ = value;
+void State::setInlineDefRecord(const RecordFunctor* record) {
+  NVF_CHECK(
+      record, "Attemped to set the record for an inline definition as Null!");
+  inline_def_record_ = std::optional<const RecordFunctor*>(record);
 }
-
-const RecordFunctor* State::parent() const {
-  return parent_;
-}
-void State::setParent(const RecordFunctor* record) {
-  parent_ = record;
+const RecordFunctor* State::inlineDefRecord() const {
+  NVF_CHECK(
+      inlineDef(),
+      "Attempting to query the inline definition Record State that is not inline defined!");
+  NVF_CHECK(inline_def_record_.value(), "Inline definition Record is Null!");
+  return inline_def_record_.value();
 }
 
 bool State::operator==(const State& other) const {
@@ -47,13 +49,9 @@ bool State::operator!=(const State& other) const {
 std::ostream& operator<<(std::ostream& os, const State& state) {
   if (state.inlineDef()) {
     NVF_CHECK(
-        state.parent() != nullptr,
-        "The State object's parent record is null! Index: ",
-        state.index);
-    NVF_CHECK(
-        state.parent()->inlineDef(),
-        "The State Object's Parent record is not set with an inline definition!");
-    state.parent()->print(os);
+        state.inlineDefRecord()->inlineDef(),
+        "The State Object's definition record is not set with an inline definition!");
+    state.inlineDefRecord()->print(os);
   } else {
     if (state.stype == serde::StateType::Scalar) {
       os << "S" << state.index;
@@ -108,7 +106,7 @@ void FusionState::addRecord(RecordFunctor* record) {
   RecordFunctor* state_record = recording_.back().get();
 
   // NOTE: when the outputs are added to the Record constructor,
-  // the parent is not constructed.  Therefore, the information has to be
+  // the Record is not constructed.  Therefore, the information has to be
   // propagated when the Record is added to the FusionState.
   for (const auto& out : state_record->outputs()) {
     if (state_record->inlineDef()) {
@@ -118,18 +116,7 @@ void FusionState::addRecord(RecordFunctor* record) {
           out.index,
           " Size: ",
           recording_state_.size());
-      recording_state_.at(out.index).setParent(state_record);
-      recording_state_.at(out.index).setInlineDef(state_record->inlineDef());
-    }
-  }
-  // Precautionary check of the record's argument state when an argument
-  // is inline.
-  for (auto& arg : state_record->args()) {
-    if (arg.inlineDef()) {
-      NVF_CHECK(
-          arg.parent(),
-          "An inline argument has a null parent pointer! ",
-          arg.index)
+      recording_state_.at(out.index).setInlineDefRecord(state_record);
     }
   }
 }
