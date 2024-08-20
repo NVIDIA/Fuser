@@ -62,7 +62,7 @@ class FusionDefinition(_C._FusionDefinition):
         try:
             self._finalize_definition()
         except Exception as err:
-            logger.exception(self.getReproErrorString("defining"))
+            logger.exception(self._repro_error_str("defining"))
             raise
 
     def definition(self):
@@ -78,8 +78,9 @@ class FusionDefinition(_C._FusionDefinition):
         device=None,
         override_user_schedule=False,
         capture_debug_output=False,
+        print_repro=False,
         profile=False,
-        save_repro_state=False,
+        save_repro_inputs=False,
     ):
         """
         Executes an nvFuser set of kernels for a given Fusion
@@ -114,11 +115,13 @@ class FusionDefinition(_C._FusionDefinition):
                 must either tell NVFuser where to run the resulting kernel, or
                 let it default to 0. Note that passing this option providing
                 and input tensors that lie on another device is an error.
+            print_repro (bool): Prints a reproduction script to stdout.
+            profile (bool): Captures a CUPTI based profile of a fusion.
             capture_debug_output (bool): Whether to capture any printed
                 debugging information as a string. If True, the string can be
                 retrieved after execution using :meth:`get_debug_output`. If False,
                 then that method will return None when called.
-            save_repro_state (bool): Saves the inputs for last_repro_script() to
+            save_repro_inputs (bool): Saves the inputs for last_repro_script() to
                 provide a provide a reproduction script.
 
         Returns:
@@ -154,7 +157,7 @@ class FusionDefinition(_C._FusionDefinition):
             self.schedule()
             self._finalize_schedule(inputs)
 
-        if save_repro_state:
+        if save_repro_inputs:
             self.inputs = inputs
 
         result = None
@@ -166,6 +169,8 @@ class FusionDefinition(_C._FusionDefinition):
                 capture_debug_output=capture_debug_output,
                 profile=profile,
             )
+            if print_repro:
+                print(self.repro_script_for(inputs))
         except Exception as err:
             logger.exception(self._repro_error_str("executing", inputs))
             raise
@@ -329,7 +334,7 @@ class FusionDefinition(_C._FusionDefinition):
         return script
 
     def repro_script_for(self, inputs: list | None = None) -> str:
-        msg = "# CUDA devices:\n"
+        msg = "\n# CUDA devices:\n"
         for i in range(torch.cuda.device_count()):
             msg += f"#  {0}: {torch.cuda.get_device_name(i)}\n"
         msg += (
