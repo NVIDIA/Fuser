@@ -103,8 +103,6 @@ std::vector<Val*> collectRuntimeUsedValues(Fusion* fusion) {
         ret.push_back(id->expandedExtent());
       }
     }
-    Val* metadata = fusion->metadataOf(tv);
-    ret.push_back(metadata);
   }
   for (auto inp : fusion->inputs()) {
     if (!inp->isA<TensorView>()) {
