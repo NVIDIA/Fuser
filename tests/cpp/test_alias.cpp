@@ -503,11 +503,12 @@ TEST_F(AliasTest, AliasOutputBeforeNonAliasOutput) {
   at::Tensor slice_out_tensor = out_tensors[0];
   EXPECT_TRUE(slice_out_tensor.is_alias_of(in_tensor));
 
-  const FusionExecutor& fe = onlyExecutorInMostRecentRuntime(fec);
-  EXPECT_FALSE(storesToOutput(fe, /*out_index=*/0))
-      << "The generated CUDA kernel shouldn't store data to output 0:"
-      << std::endl
-      << fe.kernelString();
+  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      UnorderedElementsAre(
+          HeuristicIs(ScheduleHeuristic::NoOp),
+          HeuristicIs(ScheduleHeuristic::PointWise)));
 }
 
 TEST_F(AliasTest, Set_NoAliasForIncompatibleLayout) {
