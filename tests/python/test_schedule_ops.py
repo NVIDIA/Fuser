@@ -12,6 +12,7 @@ from torch.testing._internal.common_utils import run_tests, TestCase
 from torch.testing._internal.jit_utils import RUN_CUDA
 
 from nvfuser import (
+    FusionCache,
     FusionDefinition,
     DataType,
     ParallelType,
@@ -82,6 +83,9 @@ class TestScheduleOps(TestCase):
             fd = DefError()
             _ = fd.execute(inputs)
 
+        # reset cache to avoid follow up test picking up the manual user schedule
+        FusionCache.get().reset()
+
     def check_input_error(
         self, sched_fn: Callable, error_msg: str, error_type=RuntimeError
     ):
@@ -107,6 +111,9 @@ class TestScheduleOps(TestCase):
         with self.assertRaisesRegex(error_type, error_msg):
             fd = InputError()
             _ = fd.execute(inputs)
+
+        # reset cache to avoid follow up test picking up the manual user schedule
+        FusionCache.get().reset()
 
     def valid_use(self, sched_op_fn: Callable):
         """
