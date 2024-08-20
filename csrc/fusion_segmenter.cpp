@@ -1796,11 +1796,11 @@ std::ostream& operator<<(
   os << "Segmented_Fusion{ \n";
   os << "groups: \n";
   for (const auto g : sorted_groups_to_print) {
-    os << g << "\n";
+    os << "  " << g << "\n";
   }
   os << "edges: \n";
   for (const auto e : sorted_edges_to_print) {
-    os << e << "\n";
+    os << "  " << e << "\n";
   }
   os << "\ngroup details:\n";
   for (const auto g : sorted_groups_to_print) {
