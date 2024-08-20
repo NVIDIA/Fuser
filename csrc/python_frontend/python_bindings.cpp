@@ -121,7 +121,7 @@ Vector ShapeAsVector(ShapeType shape, FusionDefinition& fd) {
     // ```
     // would not work because the compiler would try to instantiate
     // define_vector_fn<Vector> and fail.
-    return define_vector_fn<ShapeType>(fd, shape, true);
+    return define_vector_fn<ShapeType>(fd, shape, /*inline_def=*/true);
   }
 }
 
