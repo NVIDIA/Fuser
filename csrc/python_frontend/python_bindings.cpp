@@ -99,7 +99,7 @@ Vector define_vector_explicit_fn(
     FusionDefinition& self,
     ITERABLE& values,
     PrimDataType dtype = DataType::Int) {
-  return define_vector_fn<ITERABLE>(self, values, false);
+  return define_vector_fn<ITERABLE>(self, values, /*inline_def=*/false);
 }
 
 template <class ShapeType>
