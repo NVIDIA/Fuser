@@ -2545,13 +2545,14 @@ void moveNonConcretizedBroadcastInnermost(
     Fusion* fusion,
     const std::unordered_set<TensorView*>& ignored_tvs) {
   IdModel id_model(fusion);
-  const auto& exact_model = id_model.idGraph(IdMappingMode::EXACT);
+  const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+  const auto& permissive_graph = id_model.idGraph(IdMappingMode::PERMISSIVE);
 
   ValGroups ignored_groups;
   for (auto ignored_tv : ignored_tvs) {
     for (auto id : ignored_tv->domain()->allIDs()) {
       if (id->isBroadcast()) {
-        ignored_groups.pushBack(exact_model.toGroup(id));
+        ignored_groups.pushBack(exact_graph.toGroup(id));
       }
     }
   }
@@ -2564,16 +2565,22 @@ void moveNonConcretizedBroadcastInnermost(
         continue;
       }
 
-      const auto& id_group = exact_model.toGroup(loop_id);
-      if (ignored_groups.has(id_group)) {
+      if (ignored_groups.has(exact_graph.toGroup(loop_id))) {
         continue;
       }
 
-      // If the exact group has a non-broadcast domain, it means it's
-      // concretized
-      if (std::any_of(id_group->begin(), id_group->end(), [](Val* id) -> bool {
-            return !id->as<IterDomain>()->isBroadcast();
-          })) {
+      // If the permissive group has a non-broadcast domain, it means it's
+      // concretized.
+      // TODO: Add a separate analysis for detecting concretized
+      // broadcast domains using the Exact graph and replace the use
+      // of the Permissive graph.
+      const auto& permissive_group = permissive_graph.toGroup(loop_id);
+      if (std::any_of(
+              permissive_group->begin(),
+              permissive_group->end(),
+              [](Val* id) -> bool {
+                return !id->as<IterDomain>()->isBroadcast();
+              })) {
         continue;
       }
 
