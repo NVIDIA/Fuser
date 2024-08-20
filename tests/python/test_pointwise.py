@@ -1,7 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024-present NVIDIA CORPORATION & AFFILIATES.
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
-import pytest
 import torch
 from nvfuser import FusionDefinition, DataType
 
@@ -67,6 +66,3 @@ def test_issue_2395():
         ),
     )
 
-
-if __name__ == "__main__":
-    pytest.main(["-v", __file__])

@@ -32,7 +32,3 @@ def test_validate_precomputed_values():
     )
     # Cmoparing any number to NaN results in False.
     torch.testing.assert_close(outs[0].cpu(), torch.full((2, 5), False))
-
-
-if __name__ == "__main__":
-    pytest.main(["-v", __file__])
