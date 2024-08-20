@@ -144,6 +144,11 @@ TEST_F(PolymorphicValueTest, Struct) {
     b->*"y" = 2.71828;
     EXPECT_EQ(b->*"x", PolymorphicValue(2788));
     EXPECT_EQ(b->*"y", PolymorphicValue(2.71828));
+
+    // At this point this struct and the one created earlier have the exact
+    // same structure and values, so they should compare as equal
+    EXPECT_EQ(a, b);
+
     b->*"x" = 299792458;
     b->*"y" = 3.1415926;
     EXPECT_EQ(b->*"x", PolymorphicValue(299792458));
