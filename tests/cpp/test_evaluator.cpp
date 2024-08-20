@@ -480,16 +480,17 @@ TEST_F(ExprEvalTest, TensorMetaData) {
   checkIntValue(evaluator, stride0, 128L);
   checkIntValue(evaluator, stride1, 1L);
 
-  std::ostringstream ss;
-  DebugStreamGuard dsg(ss);
-
-  evaluator.print();
   {
     // Now bind a PrecomputedValues and print
     PrecomputedValues pv(&fusion);
     evaluator.bindPrecomputedValues(&pv);
     pv.bindInputs(KernelArgumentHolder::createKernelArgumentHolder({a}));
+
+    // Test that printing works and shows that we have bound something to T0
+    std::ostringstream ss;
+    DebugStreamGuard dsg(ss);
     evaluator.print();
+    EXPECT_THAT(ss.str(), testing::HasSubstr("( getMetaData(T0) )"));
   }
 }
 
