@@ -79,7 +79,7 @@ Vector define_vector_fn(
           {self.recordingState(out())},
           py::cast<int64_t>(item),
           DataType::Int,
-          true));
+          /*inline_def=*/true));
       args.emplace_back(out);
     } else if (py::isinstance<Scalar>(item)) {
       args.emplace_back(py::cast<Scalar>(item));
