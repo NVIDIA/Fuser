@@ -65,4 +65,3 @@ def test_issue_2395():
             torch.logical_or(ins[0] == 1, ins[2].unsqueeze(-1) == 1), 0, ins[1]
         ),
     )
-

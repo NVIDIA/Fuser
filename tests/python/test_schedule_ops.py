@@ -4,11 +4,10 @@
 # Owner(s): ["module: nvfuser"]
 
 from typing import Callable
-import unittest
 
 import torch
 from utils import is_pre_volta, is_pre_hopper
-from torch.testing._internal.common_utils import run_tests, TestCase
+from torch.testing._internal.common_utils import TestCase
 from torch.testing._internal.jit_utils import RUN_CUDA
 import pytest
 
@@ -1088,7 +1087,9 @@ class TestScheduleOps(TestCase):
         torch_ref = torch.abs(inputs[0]).reshape(inputs[1].shape) + inputs[1]
         self.assertEqual(nvf_out[0], torch_ref)
 
-    @pytest.mark.skipif(torch.cuda.device_count() < 2, reason="More than 1 GPU required")
+    @pytest.mark.skipif(
+        torch.cuda.device_count() < 2, reason="More than 1 GPU required"
+    )
     def test_inputs_with_different_devices(self):
         """
         Test case for issue 2056. Run the same fusion definition with inputs on
