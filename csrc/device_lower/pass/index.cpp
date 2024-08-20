@@ -1511,12 +1511,23 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
       // For MMA accumulator initialization
       as_type = getMmaOutType(ldst->out()->as<TensorView>());
     }
-    in = lowerSrcIndex(
-        ldst->in(),
-        ldst->out(),
-        {},
-        ir_utils::isLdMatrixOp(ldst) || ir_utils::isCpAsyncOp(ldst));
-    out = lowerDstIndex(ldst->out(), {}, ir_utils::isCpAsyncOp(ldst), as_type);
+
+    if (ir_utils::isStMatrixOp(ldst)) {
+      in = IrBuilder::create<Val>(0, DataType::Index);
+      auto x = IrBuilder::create<Val>(16, DataType::Index);
+      out = IrBuilder::mulExpr(
+          x, IrBuilder::create<NamedScalar>("threadIdx.x", DataType::Index));
+      std::cout << "out" << out->toInlineString();
+      std::cout << "in" << in->toInlineString();
+    } else {
+      in = lowerSrcIndex(
+          ldst->in(),
+          ldst->out(),
+          {},
+          ir_utils::isLdMatrixOp(ldst) || ir_utils::isCpAsyncOp(ldst));
+      out =
+          lowerDstIndex(ldst->out(), {}, ir_utils::isCpAsyncOp(ldst), as_type);
+    }
     auto new_ldst =
         IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())
             ->withPredicate(ldst->predicate());
