@@ -1510,6 +1510,10 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
     } else if (ldst->out()->definition()->isA<MmaOp>()) {
       // For MMA accumulator initialization
       as_type = getMmaOutType(ldst->out()->as<TensorView>());
+    } else if (ir_utils::isStMatrixOp(ldst)) {
+      as_type = ArrayType{
+          std::make_shared<DataType>(DataType::UInt32),
+          (size_t)ir_utils::getVectorizeSize(ldst->in()->as<TensorView>()) / 2};
     }
 
     if (ir_utils::isStMatrixOp(ldst)) {
@@ -1521,8 +1525,13 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
       in = IrBuilder::create<kir::TensorIndex>(
           dynamic_cast<TensorView*>(ldst->in()), x1, as_type);
 
+      auto xx =
+          IrBuilder::baseAddressExpr(dynamic_cast<TensorView*>(ldst->out()));
+
+      auto yy = IrBuilder::addExpr(xx, x2);
+
       out = IrBuilder::create<kir::TensorIndex>(
-          dynamic_cast<TensorView*>(ldst->out()), x2, as_type);
+          dynamic_cast<TensorView*>(ldst->out()), yy, DataType::Null);
 
       std::cout << "out" << out->toInlineString();
       std::cout << "in" << in->toInlineString();

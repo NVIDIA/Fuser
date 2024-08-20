@@ -2543,8 +2543,8 @@ TEST_F(StMatrixTest, Regular) {
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, LaunchParams(), matmul_cparams);
-  auto cg_outputs = fe.runFusion({t0});
   fusion.printKernel();
+  auto cg_outputs = fe.runFusion({t0});
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
