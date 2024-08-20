@@ -1257,6 +1257,8 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
     HeuristicSummary* data_cache) {
   FUSER_PERF_SCOPE("getReductionHeuristics");
 
+  fusion->print();
+
   FusionGuard fg(fusion);
 
   auto reduction_tv_entry =
@@ -1300,13 +1302,47 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
           });
 
   auto& unrollable_inputs_outputs = unrollable_inputs_outputs_entry.get();
+  std::cout << "\n============================" << std::endl;
+  for(auto tv : unrollable_inputs_outputs) {
+    std::cout << "unrollable_inputs_outputs: " << tv->toString() << std::endl;
+  }
+  std::cout << "============================" << std::endl;
+
+  std::cout << "\n before reorder ============================" << std::endl;
+  std::cout << "reduced_tv: " << reduced_tv->toString() << std::endl;
+  reduced_tv->printTransforms();
+  auto logical_reorder_map_entry =
+      HeuristicSummaryEntry<HeuristicCompileTime::LogicalReorderMap>(
+          data_cache, [&fusion, &reduced_tv]() {
+            // // NOTE: logical_reorder_map is only applied for fusion without view
+            // // op yet.
+            // if (!ir_utils::getViewOps(fusion).empty()) {
+            //   return std::make_unique<std::unordered_map<int64_t, int64_t>>();
+            // }
+            return std::make_unique<std::unordered_map<int64_t, int64_t>>(
+                scheduler_utils::maybeLogicalReorderAsAllocationMap(
+                    reduced_tv));
+          });
+  const std::unordered_map<int64_t, int64_t>& logical_reorder_map =
+      logical_reorder_map_entry.get();
+
+  auto ref_logical = reduced_tv->getLogicalDomain();
+  // reorder of root to align with logical map should always help with indexing,
+  // even when vectorization isn't used.
+  if (!logical_reorder_map.empty()) {
+    ref_logical = TensorDomain::orderedAs(ref_logical, logical_reorder_map);
+  }
+  std::cout << " after reorder ============================" << std::endl;
+  std::cout << "reduced_tv: " << reduced_tv->toString() << std::endl;
+  reduced_tv->printTransforms();
 
   const auto vectorize_factor = vectorize_helper::getVectorizationFactor(
       runtime_info,
       reduced_tv,
       data_cache,
       vectorize_helper::getVectorizationBreakPointOfReductionProducer(
-          reduction_tv, reduced_tv, properties.inner_most_dimension_ndims));
+          reduction_tv, reduced_tv, properties.inner_most_dimension_ndims),
+      logical_reorder_map);
 
   // Base max dtype and n_tensor_inputs on tensors that are vectorizable (i.e.
   // share inner dimension with data pattern we're looking at).

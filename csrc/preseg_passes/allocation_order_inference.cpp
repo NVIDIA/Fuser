@@ -362,6 +362,10 @@ void AllocationDomainPass::runPass(Fusion* fusion) {
   // add reduction tvs to dsts
   for (TensorView* redu_tv : reduction_tvs) {
     dsts.push_back(redu_tv);
+    auto reduced_tv = ir_utils::getSoleProducerTv(redu_tv);
+    if(!reduced_tv->isFusionInput()) {
+      dsts.push_back(reduced_tv);
+    }
   }
   // propagate allocation domain from sources to destinations
   inferenceAllocationOrder(fusion, srcs, dsts);

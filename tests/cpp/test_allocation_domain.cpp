@@ -1446,7 +1446,7 @@ TEST_F(AllocationDomainTest, ClearReductionIterDomainsPatch) {
 TEST_F(AllocationDomainTest, ReductionWithAllocationDomain) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  long x = 2L, y = 4L, z = 6L;
+  long x = 3L, y = 1024L, z = 65L;
   auto tv1 = makeContigConcreteTensor({x, y, z});
   fusion->addInput(tv1);
   std::vector<IterDomain*> tv1_dom = {tv1->axis(0), tv1->axis(2), tv1->axis(1)};
@@ -1457,6 +1457,36 @@ TEST_F(AllocationDomainTest, ReductionWithAllocationDomain) {
   fusion->addOutput(tv4);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t1 = at::randn({x, y, z}, options).as_strided({x, y, z}, {z * y, 1, y});
+  std::vector<c10::IValue> inputs({t1});
+
+  // Needs to use unscheduled fusion to use expr eval in testValidate
+  auto cloned_fusion = std::make_unique<Fusion>(*fusion);
+  nvfuser::preseg_passes::OptimizationPass<
+      nvfuser::preseg_passes::PreSegmenter>::runPass(fusion.get());
+  auto reduction_params = getReductionHeuristics(fusion.get(), inputs);
+  ASSERT_TRUE(reduction_params) << "Reduction schedule was not generated!";
+  ASSERT_TRUE(reduction_params->fastest_dim) << "Should use inner reduction!";
+  scheduleReduction(fusion.get(), *reduction_params);
+  auto lparams = reduction_params->lparams;
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), inputs, lparams);
+  auto cg_outputs = fe.runFusion(inputs, lparams);
+  testValidate(
+      cloned_fusion.get(), cg_outputs, inputs, __LINE__, __FILE__, "", lparams);
+}
+
+TEST_F(AllocationDomainTest, ReductionSimple) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  long x = 3L, y = 65L, z = 1024L;
+  auto tv1 = makeContigConcreteTensor({x, y, z});
+  fusion->addInput(tv1);
+  auto tv2 = add(tv1, tv1);
+  auto tv3 = sum(tv2, {-1});
+  auto tv4 = add(tv3, tv3);
+  fusion->addOutput(tv4);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t1 = at::randn({x, y, z}, options).as_strided({x, y, z}, {z * y, z, 1});
   std::vector<c10::IValue> inputs({t1});
 
   // Needs to use unscheduled fusion to use expr eval in testValidate
