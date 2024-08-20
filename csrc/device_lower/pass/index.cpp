@@ -1513,10 +1513,17 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
     }
 
     if (ir_utils::isStMatrixOp(ldst)) {
-      in = IrBuilder::create<Val>(0, DataType::Index);
+      auto x1 = IrBuilder::create<Val>(0, DataType::Index);
       auto x = IrBuilder::create<Val>(16, DataType::Index);
-      out = IrBuilder::mulExpr(
+      auto x2 = IrBuilder::mulExpr(
           x, IrBuilder::create<NamedScalar>("threadIdx.x", DataType::Index));
+
+      in = IrBuilder::create<kir::TensorIndex>(
+          dynamic_cast<TensorView*>(ldst->in()), x1, as_type);
+
+      out = IrBuilder::create<kir::TensorIndex>(
+          dynamic_cast<TensorView*>(ldst->out()), x2, as_type);
+
       std::cout << "out" << out->toInlineString();
       std::cout << "in" << in->toInlineString();
     } else {
