@@ -133,4 +133,8 @@ NVF_API TensorView* slice(
     const std::vector<int64_t>& starts,
     const std::vector<int64_t>& stops);
 
+// Splits `in`'s dimension `dim` into `num_slices` slices. All but the last
+// slice will be of size `floor(dim_size/num_slices)`.
+std::vector<TensorView*> split(TensorView* in, int64_t dim, int64_t num_slices);
+
 } // namespace nvfuser

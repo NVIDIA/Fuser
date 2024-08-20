@@ -840,4 +840,29 @@ TensorView* slice(
   return slice(inp, slices);
 }
 
+std::vector<TensorView*> split(
+    TensorView* in,
+    int64_t dim,
+    const int64_t num_slices) {
+  const auto in_logical = TensorDomain::noReductions(in->getLogicalDomain());
+  const auto num_dims = static_cast<int64_t>(in_logical.size());
+  dim = wrapDim(dim, num_dims);
+  Val* dim_size = in_logical[dim]->extent();
+  Val* slice_size = SimplifyingIrBuilder::divExpr(
+      dim_size, IrBuilder::create<Val>(num_slices));
+
+  std::vector<TensorView*> slices;
+  slices.reserve(num_slices);
+  std::vector<Slice> ranges(num_dims);
+  for (auto i : c10::irange(num_slices)) {
+    ranges[dim].start = ranges[dim].stop;
+    ranges[dim].stop =
+        (i == num_slices - 1 ? nullptr
+                             : SimplifyingIrBuilder::mulExpr(
+                                   slice_size, IrBuilder::create<Val>(i + 1)));
+    slices.push_back(slice(in, ranges));
+  }
+  return slices;
+}
+
 } // namespace nvfuser

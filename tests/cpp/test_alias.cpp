@@ -263,11 +263,7 @@ TEST_F(AliasTest, SliceViewPermute) {
   TensorView* in =
       makeContigConcreteTensor({batches, seq_length, features * 3});
   fusion->addInput(in);
-  std::vector<TensorView*> splits({
-      slice(in, {0, 0, 0}, {batches, seq_length, features}),
-      slice(in, {0, 0, features}, {batches, seq_length, features * 2}),
-      slice(in, {0, 0, features * 2}, {batches, seq_length, features * 3}),
-  });
+  std::vector<TensorView*> splits = split(in, /*dim=*/-1, /*num_slices=*/3);
   for (TensorView* split : splits) {
     split = reshape(
         split,
