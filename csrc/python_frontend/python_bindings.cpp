@@ -658,7 +658,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             for (py::handle obj : iter) {
               inputs.push_back(torch::jit::toIValue(obj, c10::AnyType::get()));
             }
-            self.existSchedule(inputs);
+            return self.existSchedule(inputs);
           })
       .def(
           "_setup_schedule",
