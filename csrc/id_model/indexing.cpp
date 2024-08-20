@@ -884,8 +884,8 @@ std::vector<Val*> TensorIndexer::getIndexFor(
     auto it = info.index_map.find(g);
     NVF_ERROR(
         it != info.index_map.end(), "Index not found for ", g->toString());
-    result.push_back(simplifyExpr(
-        ir_utils::replaceValRecursively(it->second, replacement_map)));
+    result.push_back(
+        ir_utils::replaceValRecursively(it->second, replacement_map));
   }
   return result;
 }
@@ -1039,22 +1039,23 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
       // happens when loop_id is a reduction domain and this loop-nest
       // is for initializing the reduction buffer.
       if (for_loop != nullptr) {
-        // If this for-loop is a circular buffer loop, the loop index
-        // may need to have an additional offset
-        if (!as_consumer) {
+        // Replace circular buffer index with zero value if for-loop is trivial
+        if (for_loop->circularBufferLoopStage() !=
+            CircularBufferLoopStage::NotApplicable) {
           Val* base_index =
               replacement_index != nullptr ? replacement_index : cur_index;
+          replacement_index =
+              for_loop->isTrivial() ? for_loop->start() : base_index;
+        }
+
+        // If this for-loop is a circular buffer loop, the loop index
+        // may need to have an additional offset.
+        if (!as_consumer) {
           if (auto circular_buffer_offset =
                   getLoopIndexOffsetForProducerOfCircularBuffer(
                       expr, for_loop, id_model_)) {
             replacement_index = SimplifyingIrBuilder::addExpr(
-                for_loop->isTrivial() ? for_loop->start() : base_index,
-                circular_buffer_offset);
-          } else if (
-              for_loop->circularBufferLoopStage() !=
-              CircularBufferLoopStage::NotApplicable) {
-            replacement_index =
-                for_loop->isTrivial() ? for_loop->start() : base_index;
+                replacement_index, circular_buffer_offset);
           }
         }
       }
@@ -1133,10 +1134,9 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
         predicate_domain->toString());
 
     Val* idx = idx_it->second;
-    Val* start_idx = simplifyExpr(
-        ir_utils::replaceValRecursively(idx, replacement_map_start));
-    Val* stop_idx = simplifyExpr(
-        ir_utils::replaceValRecursively(idx, replacement_map_stop));
+    Val* start_idx =
+        ir_utils::replaceValRecursively(idx, replacement_map_start);
+    Val* stop_idx = ir_utils::replaceValRecursively(idx, replacement_map_stop);
 
     // Generate predicates as follows:
     //
@@ -1152,7 +1152,7 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
     info.loop_stage_ = loop_stage;
 
     info.start_predicate_ = SimplifyingIrBuilder::geExpr(
-        SimplifyingIrBuilder::addExpr(start_idx, zero_val), zero_val);
+        SimplifyingIrBuilder::addExpr(start_idx, info.start_offset_), zero_val);
 
     info.stop_predicate_ = SimplifyingIrBuilder::ltExpr(
         SimplifyingIrBuilder::addExpr(stop_idx, info.stop_offset_),
