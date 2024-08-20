@@ -39,4 +39,3 @@ bool StructHandle::operator==(const StructHandle& other) const {
 }
 
 } // namespace nvfuser
-
