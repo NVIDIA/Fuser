@@ -8,9 +8,7 @@
 import torch
 from nvfuser import (
     FusionDefinition,
-    DataType,
     ParallelType,
-    MemoryType,
 )
 
 
