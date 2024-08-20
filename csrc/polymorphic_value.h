@@ -185,11 +185,7 @@ class StructHandle {
   StructHandle& operator=(const StructHandle& other) = default;
   StructHandle& operator=(StructHandle&& other) = default;
 
-  //! This is a shallow comparison operator that just checks whether we point to
-  //! the same exact Struct
-  bool operator==(const StructHandle& other) const {
-    return struct_ptr_ == other.struct_ptr_;
-  }
+  bool operator==(const StructHandle& other) const;
 
   template <typename T>
   bool is() const {
@@ -235,7 +231,7 @@ inline std::string toString(const PolymorphicValue& v) {
   } else if (v.is<std::monostate>()) {
     ss << "std::monostate";
   } else {
-    ss << v;
+    // ss << v;
   }
   return ss.str();
 }
