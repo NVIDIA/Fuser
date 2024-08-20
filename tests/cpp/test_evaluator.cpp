@@ -453,6 +453,7 @@ TEST_F(ExprEvalTest, TensorMetaData) {
   FusionGuard fg(&fusion);
 
   TensorView* tv = makeSymbolicTensor(2);
+  fusion.addInput(tv);
   auto metadata = IrBuilder::metadataExpr(tv);
   auto data = IrBuilder::getAttrExpr(metadata, "data");
   auto sizes = IrBuilder::getAttrExpr(metadata, "logical_size");
@@ -478,6 +479,18 @@ TEST_F(ExprEvalTest, TensorMetaData) {
   checkIntValue(evaluator, size1, 128L);
   checkIntValue(evaluator, stride0, 128L);
   checkIntValue(evaluator, stride1, 1L);
+
+  std::ostringstream ss;
+  DebugStreamGuard dsg(ss);
+
+  evaluator.print();
+  {
+    // Now bind a PrecomputedValues and print
+    PrecomputedValues pv(&fusion);
+    evaluator.bindPrecomputedValues(&pv);
+    pv.bindInputs(KernelArgumentHolder::createKernelArgumentHolder({a}));
+    evaluator.print();
+  }
 }
 
 TEST_F(ExprEvalTest, Validation) {
