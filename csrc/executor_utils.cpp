@@ -240,10 +240,6 @@ bool checkValidMisalignedTensors(
   }
 }
 
-} // namespace
-
-namespace {
-
 // Finds a fusion input or output tensor, this function is used to grab tensors
 // to validate the strides of the tensors for vectorization.
 //
@@ -411,8 +407,6 @@ void validateAlignedVectorizeExtents(
   //     info.word_size);
 }
 
-namespace {
-
 // Return offsets of the first points accessed as well as sliced root
 // domains. Currently only non-zero when tensor is sliced.
 std::pair<std::unordered_set<size_t>, std::unordered_set<IterDomain*>>
@@ -466,8 +460,6 @@ getTensorOffsets(
 
   return std::make_pair(offsets, sliced_domains);
 }
-
-} // namespace
 
 void validateAlignedVectorizedFusionInputOutput(
     const at::Tensor& aten_tensor,

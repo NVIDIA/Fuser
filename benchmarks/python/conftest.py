@@ -21,7 +21,11 @@ def pytest_addoption(parser):
         action="store_true",
         help="Benchmarks torch eager mode.",
     )
-
+    parser.addoption(
+        "--benchmark-thunder",
+        action="store_true",
+        help="Benchmarks thunder jit.",
+    )
     parser.addoption(
         "--benchmark-torchcompile",
         action="store_true",
@@ -96,6 +100,7 @@ def pytest_collection_modifyitems(session, config, items):
         compile = true: torch.compile benchmark
     """
     run_eager = config.getoption("--benchmark-eager")
+    run_thunder = config.getoption("--benchmark-thunder")
     run_torchcompile = config.getoption("--benchmark-torchcompile")
 
     if not run_eager:
@@ -121,3 +126,9 @@ def pytest_collection_modifyitems(session, config, items):
                 and item.callspec.params["compile"]
             ):
                 item.add_marker(skip_torchcompile)
+
+    if not run_thunder:
+        skip_thunder = pytest.mark.skip(reason="need --benchmark-thunder option to run")
+        for item in items:
+            if "thunder" in item.nodeid:
+                item.add_marker(skip_thunder)
