@@ -135,6 +135,7 @@ class TestScheduleOps(TestCase):
         nvf_user_out = fd.execute(inputs)
         nvf_out = fd.execute(inputs, override_user_schedule=True)
         self.assertEqual(nvf_user_out, nvf_out)
+        self.assertTrue(fd._exist_schedule(inputs))
 
     def test_print(self):
         """
