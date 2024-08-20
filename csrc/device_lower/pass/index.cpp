@@ -1481,7 +1481,8 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
         ldst, mbarrier_index, for_loops_, rotated_loop_);
 
     // indexing ldst op
-    Val* out = lowerDstIndex(ldst->out(), {}, true);
+    Val* out = lowerDstIndex(
+        ldst->out(), /*override_index=*/{}, /*generate_pointer=*/true);
     Expr* new_ldst =
         IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())
             ->withPredicate(ldst->predicate());
@@ -1507,7 +1508,8 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
         state, mbarrier_index, expect_bytes));
 
     // indexing ldst op
-    Val* out = lowerDstIndex(ldst->out(), {}, true);
+    Val* out = lowerDstIndex(
+        ldst->out(), /*override_index=*/{}, /*generate_pointer=*/true);
     Expr* new_ldst =
         IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())
             ->withPredicate(ldst->predicate());
