@@ -231,7 +231,7 @@ inline std::string toString(const PolymorphicValue& v) {
   } else if (v.is<std::monostate>()) {
     ss << "std::monostate";
   } else {
-    // ss << v;
+    ss << v;
   }
   return ss.str();
 }
