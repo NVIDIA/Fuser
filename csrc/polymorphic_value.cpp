@@ -29,11 +29,12 @@ std::string toString(const PolymorphicValue& v) {
     ss << "StructHandle<" << type.name << ">{";
     bool first = true;
     for (size_t i : c10::irange(type.fields.size())) {
-      if (!first) {
+      if (first) {
+        first = false;
+      } else {
         ss << ", ";
       }
-      first = false;
-      std::string fieldname = type.fields.at(i).name;
+      const std::string& fieldname = type.fields.at(i).name;
       ss << fieldname << "=";
       ss << toString(hdl->*(fieldname));
     }
