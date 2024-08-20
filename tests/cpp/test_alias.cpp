@@ -1196,6 +1196,30 @@ TEST_F(AliasTest, InplaceUpdate) {
       UnorderedElementsAre(HeuristicIs(ScheduleHeuristic::PointWise)));
 }
 
+TEST_F(AliasTest, Bookend_SegmentSetPreservesAllocation) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({2, 3});
+  TensorView* permute_out = permute(in, {1, 0});
+  TensorView* compute_out = mul(in, in);
+  fusion->addInput(in);
+  fusion->addOutput(permute_out);
+  fusion->addOutput(compute_out);
+
+  in->setAllocationDomain({in->axis(1), in->axis(0)}, true);
+  permute_out->setAllocationDomain(
+      {permute_out->axis(0), permute_out->axis(1)}, true);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({3, 2}).cuda().transpose(0, 1);
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+
+  at::Tensor permute_out_tensor = out_tensors[0];
+  EXPECT_TRUE(permute_out_tensor.is_alias_of(in_tensor));
+}
+
 TEST_F(AliasTest, Bookend_InputsAndOutputs) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
