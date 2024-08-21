@@ -136,24 +136,22 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
 
     // Add to stack
     for_loop_stack_.push_back(cloned_loop);
-    cloned_scopes_.push_back(&cloned_loop->body());
 
     // Process for-loop
     kir::IrVisitor::handle(fl);
 
     // Pop from stack
     for_loop_stack_.pop_back();
-    cloned_scopes_.pop_back();
 
+    // Specific handling of for-loop
     processForLoop(cloned_loop);
   }
 
-  // Specific for-loop handling
   virtual void processForLoop(ForLoop* cloned_loop) {
     // Add the cloned loop into the parent loop body only when the
     // cloned loop contains expressions.
-    if (!cloned_loop->body().empty() && !cloned_scopes_.empty()) {
-      cloned_scopes_.back()->push_back(cloned_loop);
+    if (!cloned_loop->body().empty() && !for_loop_stack_.empty()) {
+      for_loop_stack_.back()->body().push_back(cloned_loop);
     }
   }
 
@@ -173,12 +171,12 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
       return;
     }
 
-    NVF_ERROR(!cloned_scopes_.empty());
+    NVF_ERROR(!for_loop_stack_.empty());
 
+    // Specific expression handling
     processExpr(expr);
   }
 
-  // Specific expression handling
   virtual void processExpr(Expr* expr) {
     switch (loop_type_) {
       case CircularBufferLoopStage::Prolog: {
@@ -187,19 +185,19 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
         // circular buffered TVs (e.g., buffer initialization).
         TensorView* out_tv = ir_utils::getTvOutput(expr);
         if (circular_buffer_load_tvs_.count(out_tv) > 0) {
-          cloned_scopes_.back()->push_back(expr);
+          for_loop_stack_.back()->body().push_back(expr);
         }
         break;
       }
       case CircularBufferLoopStage::Main: {
-        cloned_scopes_.back()->push_back(expr);
+        for_loop_stack_.back()->body().push_back(expr);
         break;
       }
       case CircularBufferLoopStage::Epilog: {
         // In Epilogue, copy everything except circular buffer load expressions.
         TensorView* out_tv = ir_utils::getTvOutput(expr);
         if (circular_buffer_load_tvs_.count(out_tv) == 0) {
-          cloned_scopes_.back()->push_back(expr);
+          for_loop_stack_.back()->body().push_back(expr);
         }
         break;
       }
@@ -216,9 +214,8 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
 
   std::unordered_set<TensorView*> circular_buffer_load_tvs_;
   ForLoop* cloned_top_level_loop_ = nullptr;
-  std::deque<Scope*> cloned_scopes_;
-  const std::unordered_set<Expr*>& exclude_;
   std::vector<ForLoop*> for_loop_stack_;
+  const std::unordered_set<Expr*>& exclude_;
 };
 
 // TODO Replace with elect_sync ptx
@@ -353,26 +350,26 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
 
   void processForLoop(ForLoop* cloned_loop) final {
     // Skip if there is not an active for-loop structure
-    if (cloned_scopes_.empty()) {
+    if (for_loop_stack_.empty()) {
       return;
     }
 
     if (!cloned_loop->body().empty()) {
-      if (mbarrier_arrive_tx_ == nullptr || cloned_scopes_.size() > 1) {
+      if (mbarrier_arrive_tx_ == nullptr || for_loop_stack_.size() > 1) {
         // Add cloned for_loop when mbarrier_arrive_tx_ is not active or
         // we are within a nested for-loop structure
-        cloned_scopes_.back()->push_back(cloned_loop);
+        for_loop_stack_.back()->body().push_back(cloned_loop);
       } else {
         // mbarrier::arriveExpectTx and TMA load operations occur in prologue
         // and main loops.
-        NVF_ERROR(cloned_scopes_.front() == &cloned_top_level_loop_->body());
+        NVF_ERROR(for_loop_stack_.front() == cloned_top_level_loop_);
         addTmaLoadBlock(cloned_loop);
       }
     }
 
     // mbarrier::wait occurs in Main and Epilogue loops.
-    if (mbarrier_wait_ != nullptr && cloned_scopes_.size() == 1) {
-      NVF_ERROR(cloned_scopes_.back() == &cloned_top_level_loop_->body());
+    if (mbarrier_wait_ != nullptr && for_loop_stack_.size() == 1) {
+      NVF_ERROR(for_loop_stack_.back() == cloned_top_level_loop_);
       addSynchronousMbarrierWait();
     }
   }
@@ -408,7 +405,7 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
         }
         // NOTE: There can be circular buffered TVs without TMA load exprs.
         if (!mbarrier_token_exists) {
-          cloned_scopes_.back()->push_back(expr);
+          for_loop_stack_.back()->body().push_back(expr);
           return;
         }
         break;
@@ -424,7 +421,7 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
 
         // Add expression if not circular-buffered load store operation
         if (!expr->isA<LoadStoreOp>() || !mbarrier_token_exists) {
-          cloned_scopes_.back()->push_back(expr);
+          for_loop_stack_.back()->body().push_back(expr);
           return;
         }
         break;
@@ -498,7 +495,7 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
 
     // Otherwise, we are in a nested for-loop and should wait until we
     // return to top-level for loop.
-    cloned_scopes_.back()->push_back(new_ldst);
+    for_loop_stack_.back()->body().push_back(new_ldst);
   }
 
   // Handle cpAsyncBulk type LoadStoreOp that is registered with token
@@ -590,7 +587,7 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
 
     // Otherwise, we are in a nested for-loop and should wait until we
     // return to top-level for loop.
-    cloned_scopes_.back()->push_back(ldst);
+    for_loop_stack_.back()->body().push_back(ldst);
   }
 
   void handleEpilogLoop(Expr* expr) {
@@ -626,7 +623,7 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
     Scope& body = if_expr->thenBody();
     body.push_back(mbarrier_arrive_tx_);
     body.push_back(expr);
-    cloned_scopes_.back()->push_back(if_expr);
+    for_loop_stack_.back()->body().push_back(if_expr);
     mbarrier_arrive_tx_ = nullptr;
   }
 
