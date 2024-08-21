@@ -1912,6 +1912,7 @@ void IndexLowering::handle(const PadOp* pad) {
             SimplifyingIrBuilder::ltExpr(
                 producer_idx, producer_root_id->getMaybeExpandedExtent())));
   }
+  pred = GpuLower::current()->commonScalarMap().hoistScalar(pred, for_loops_);
 
   pushBack(IrBuilder::create<TernaryOp>(
       TernaryOpType::Where, out, pred, in, pad_val));
