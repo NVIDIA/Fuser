@@ -396,27 +396,27 @@ void DynamicTransformConcretizationInfo::analyzeResizes(
         "Found non-dynamic Resize in initial concretization info: ",
         op->toString());
 
-    auto extent_val = expr_eval->evaluate(out_id->getMaybeExpandedExtent());
+    PolymorphicValue input_extent =
+        expr_eval->evaluate(op->in()->getMaybeExpandedExtent());
     NVF_ERROR(
-        extent_val.hasValue(),
-        "Cannot evaluate the extent of a resized domain: ",
-        out_id->toString());
-    NVF_ERROR(
-        extent_val.is<int64_t>(),
-        "Invalid evaluated value of resized domain extent: ",
-        out_id->toString());
-    auto extent_int = extent_val.as<int64_t>();
-    NVF_ERROR(
-        extent_int >= 0,
-        "Invalid resized domain extent ",
-        extent_int,
-        " for domain ",
-        out_id->toString());
+        input_extent.hasValue(),
+        "Could not compute input extent to dynamic resize ",
+        op->toString());
 
-    auto iter_type =
-        extent_int == 1 ? IterType::Broadcast : IterType::Iteration;
+    PolymorphicValue left_expand = expr_eval->evaluate(op->leftExpand());
+    NVF_ERROR(
+        left_expand.hasValue(),
+        "Could not compute left expand of dynamic resize ",
+        op->toString());
 
-    resize_itertypes_.emplace_back(id_index, iter_type);
+    PolymorphicValue right_expand = expr_eval->evaluate(op->rightExpand());
+    NVF_ERROR(
+        right_expand.hasValue(),
+        "Could not compute right expand of dynamic resize ",
+        op->toString());
+
+    resize_extents_.emplace_back(
+        id_index, ConcreteResize{input_extent, left_expand, right_expand});
   }
 }
 
@@ -505,7 +505,7 @@ bool DynamicTransformConcretizationInfo::operator==(
   }
 
   if (reshape_transforms_.size() != other.reshape_transforms_.size() ||
-      resize_itertypes_.size() != other.resize_itertypes_.size() ||
+      resize_extents_.size() != other.resize_extents_.size() ||
       empty_extents_.size() != other.empty_extents_.size() ||
       factory_output_itertypes_.size() !=
           other.factory_output_itertypes_.size()) {
@@ -520,10 +520,8 @@ bool DynamicTransformConcretizationInfo::operator==(
     }
   }
 
-  for (const auto i : c10::irange((int64_t)resize_itertypes_.size())) {
-    const auto& itertype = resize_itertypes_.at(i);
-    const auto& other_itertype = other.resize_itertypes_.at(i);
-    if (itertype != other_itertype) {
+  for (const auto i : c10::irange((int64_t)resize_extents_.size())) {
+    if (resize_extents_[i] != other.resize_extents_[i]) {
       return false;
     }
   }
@@ -577,12 +575,15 @@ std::string DynamicTransformConcretizationInfo::toString() const {
   }
   indent(ss, 1) << "Resize:\n";
   NVF_ERROR(
-      resize_itertypes_.size() ==
+      resize_extents_.size() ==
       initial_info_->getDynamicResizedIterDomains().size());
-  for (const auto& [id_index, iter_type] : resize_itertypes_) {
+  for (const auto& [id_index, concrete_resize] : resize_extents_) {
+    const auto& [input_extent, left_expand, right_expand] = concrete_resize;
     auto id = initial_info_->getDynamicResizedIterDomains().at(id_index);
-    indent(ss, 2) << id->toString() << " (index=" << id_index << "), "
-                  << iter_type << "\n";
+    indent(ss, 2) << id->toString() << " (index=" << id_index << "),"
+                  << " input_extent=" << input_extent
+                  << " left_expand=" << left_expand
+                  << " right_expand=" << right_expand << "\n";
   }
   indent(ss, 1) << "Expand:\n";
   NVF_ERROR(
@@ -931,7 +932,13 @@ void DynamicTransformConcretizer::concretizeReshape() {
 
 void DynamicTransformConcretizer::concretizeResize() {
   // Concretize each resize op.
-  for (const auto& [id_index, iter_type] : info_->getResizeIterTypes()) {
+  for (const auto& [id_index, concrete_resize] : info_->getResizeExtents()) {
+    const auto& [input_extent, left_expand, right_expand] = concrete_resize;
+
+    IterType iter_type = input_extent + left_expand + right_expand == 1
+        ? IterType::Broadcast
+        : IterType::Iteration;
+
     auto id = info_->initialInfo()->getDynamicResizedIterDomains().at(id_index);
     NVF_CHECK(
         id->definition() && id->definition()->isA<Resize>(),
@@ -1490,17 +1497,17 @@ size_t DynamicTransformConcretizationInfo::hash() const {
   for (const auto& extent_idx : getEmptyExtents()) {
     hashCombine(hash, (size_t)extent_idx);
   }
-  for (const auto& [id, iter_type] : getResizeIterTypes()) {
-    hashCombine(hash, (size_t)iter_type);
+  for (const auto& [id, concrete_resize] : getResizeExtents()) {
+    const auto& [input_extent, left_expand, right_expand] = concrete_resize;
+    hashCombine(hash, (size_t)input_extent);
+    hashCombine(hash, (size_t)left_expand);
+    hashCombine(hash, (size_t)right_expand);
   }
   for (const auto& pair_vec : getFactoryOutputIterTypes()) {
     for (const auto& [pos, iter_type] : pair_vec) {
       hashCombine(hash, pos);
       hashCombine(hash, (size_t)iter_type);
     }
-  }
-  for (const auto& [id, iter_type] : getResizeIterTypes()) {
-    hashCombine(hash, (size_t)iter_type);
   }
   for (const auto& [id, expand_axes] : getExpandAxes()) {
     hashCombine(hash, (size_t)id);
