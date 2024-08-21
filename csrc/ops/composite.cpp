@@ -565,15 +565,40 @@ SdpfaBwdResult sdpfa_bwd(
   auto key_domain = TensorDomain::noReductions(key->getLogicalDomain());
   auto value_domain = TensorDomain::noReductions(value->getLogicalDomain());
 
+  // Temporary handling of DID parallelization see
+  // https://github.com/NVIDIA/Fuser/issues/2563
+  bool has_device_dim = (query_domain.size() == 5);
+  if (has_device_dim) {
+    NVF_CHECK(
+        query_domain[0]->isDeviceDim(),
+        "Only suport DID parallelization on outermost axis");
+    NVF_CHECK(
+        key_domain[0]->isDeviceDim(),
+        "Only suport DID parallelization on outermost axis");
+    NVF_CHECK(
+        value_domain[0]->isDeviceDim(),
+        "Only suport DID parallelization on outermost axis");
+    NVF_CHECK(
+        grad_output->axis(0)->isDeviceDim(),
+        "Only suport DID parallelization on outermost axis");
+    NVF_CHECK(
+        output->axis(0)->isDeviceDim(),
+        "Only suport DID parallelization on outermost axis");
+  }
+
+  auto concrete_query_size = TensorDomain::noDevices(query_domain).size();
+  auto concrete_key_size = TensorDomain::noDevices(key_domain).size();
+  auto concrete_value_size = TensorDomain::noDevices(value_domain).size();
+
   NVF_CHECK(
-      query_domain.size() == 4 && key_domain.size() == 4 &&
-          value_domain.size() == 4,
+      concrete_query_size == 4 && concrete_key_size == 4 &&
+          concrete_value_size == 4,
       "Expected query, key, and value to be 4D but got: ",
-      query_domain.size(),
+      concrete_query_size,
       " ",
-      key_domain.size(),
+      concrete_key_size,
       " ,and ",
-      value_domain.size());
+      concrete_value_size);
 
   NVF_CHECK(
       !dropout_p || dropout_p->isScalar(),
