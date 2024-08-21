@@ -594,5 +594,4 @@ T pow(T a, T b) {
   }
 }
 
-
 } // namespace nvfuser
