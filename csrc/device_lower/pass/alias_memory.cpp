@@ -885,12 +885,14 @@ class AllocationInfoMap : private kir::IrVisitor {
       }
     };
 
+    // The liveness of the mbarrier and its token are mapped together.
+    // The token is the mbarrier state of the last phase.
     if (auto init = dynamic_cast<kir::MBarrierInit*>(expr)) {
       mark_liveness(init->mbarrier()->as<TensorView>(), /*is_write=*/true);
 
-      // Register life time start for a smem placeholder with tokens
-      //  returned by MBarrierArriveExpectTx / MBarrierArrive
-      if (GpuLower::current()->ldstMBarrierTokenMap().count(expr)) {
+      // Register start of lifetime for a mbarrier token returned by
+      // MBarrierArriveExpectTx and MBarrierArrive.
+      if (GpuLower::current()->ldstMBarrierTokenMap().count(expr) > 0) {
         mark_liveness(
             GpuLower::current()->ldstMBarrierTokenMap()[expr],
             /*is_write=*/true);
@@ -898,9 +900,9 @@ class AllocationInfoMap : private kir::IrVisitor {
     } else if (auto inval = dynamic_cast<kir::MBarrierInvalidate*>(expr)) {
       mark_liveness(inval->mbarrier()->as<TensorView>(), /*is_write=*/false);
 
-      // Register life time end for a smem placeholder with tokens
-      //  returned by MBarrierArriveExpectTx / MBarrierArrive
-      if (GpuLower::current()->ldstMBarrierTokenMap().count(expr)) {
+      // Register end of lifetime for a mbarrier token returned by
+      // returned by MBarrierArriveExpectTx and MBarrierArrive
+      if (GpuLower::current()->ldstMBarrierTokenMap().count(expr) > 0) {
         mark_liveness(
             GpuLower::current()->ldstMBarrierTokenMap()[expr],
             /*is_write=*/false);
