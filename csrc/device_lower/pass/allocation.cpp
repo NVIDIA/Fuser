@@ -9,6 +9,7 @@
 #include <device_lower/pass/allocation.h>
 #include <expr_evaluator.h>
 #include <expr_simplifier.h>
+#include <id_model/indexing_utils.h>
 #include <instrumentation.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
@@ -197,6 +198,8 @@ class AllocationInserter : public kir::ExprMutator {
     // the allocation domain is sharded on threads but the loop domain is not.
     if ((info.buffer->definition()->isA<MmaOp>() &&
          isHopper(info.buffer->definition()->as<MmaOp>()->macro()))) {
+      const IdModel& id_model = GpuLower::current()->idModel();
+
       std::unordered_set<IterDomain*> exclude_ca_ids;
       for (auto i : c10::irange(info.alloc_pos)) {
         auto ca_id = info.buffer->axis(i);
@@ -223,10 +226,18 @@ class AllocationInserter : public kir::ExprMutator {
             continue;
           }
           info.allocation_domains->push_back(id);
-          if (gpu_lower->caMap()->idExistsInMap(id, IdMappingMode::LOOP)) {
-            id = gpu_lower->caMap()->getConcreteMappedID(
-                id, IdMappingMode::LOOP);
+
+          // Loop promotion may affect allocations. Promotions of intermediate
+          // domains may not be defined correctly. Only consider loop domains
+          // for now.
+          bool is_loop = std::find(
+                             info.buffer->getLoopDomain().begin(),
+                             info.buffer->getLoopDomain().end(),
+                             id) != info.buffer->getLoopDomain().end();
+          if (is_loop) {
+            id = indexing_utils::getLoopPromotion(id, id_model);
           }
+
           alloc_dims.push_back(id->extent());
         } else {
           exclude_ca_ids.erase(id);
