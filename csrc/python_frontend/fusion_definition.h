@@ -166,6 +166,9 @@ class NVF_API FusionDefinition : public FusionState {
   FusionDefinition& operator=(const FusionDefinition& fd) = delete;
   FusionDefinition& operator=(FusionDefinition&& fd) = delete;
 
+  //! Create python FusionDefinition from cpp Fusion
+  FusionDefinition(const Fusion* fusion);
+
   //! Enter Python Context Manager -- Reset trie for new cache lookup
   NVF_API FusionDefinition* setupDefinition();
   //! Exit Python Context Manager -- Triggers Fusion IR build if it is not

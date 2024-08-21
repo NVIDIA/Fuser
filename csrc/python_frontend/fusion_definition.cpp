@@ -66,6 +66,106 @@ FusionDefinition::FusionDefinition(std::optional<size_t> id, size_t max_length)
       ops(this),
       sched(this) {}
 
+FusionDefinition::FusionDefinition(const Fusion* fusion)
+    : FusionState(),
+      max_length_(256),
+      fusion_id_(std::nullopt_t),
+      fusion_cache_(FusionCache::get()),
+      trie_node_(nullptr),
+      prev_fusion_(nullptr),
+      user_sched_(nullptr),
+      ops(this),
+      sched(this) {
+  // nvfuser::Val - defineScalar, defineTensor, and defineTensor
+  // nvfuser::Expr - defineRecord
+
+  std::unordered_map<nvfuser::Val*, size_t> map_val_to_fd_index;
+  std::deque<nvfuser::Expr*> to_visit;
+
+  // Handle Fusion inputs
+  for (nvfuser::Val* v : fusion->inputs()) {
+    // Add inputs to FusionDefinition
+
+    // TODO Only handle TensorViews
+    NVF_ERROR(v->isA<TensorView>());
+
+    TensorView* tv = v->as<TensorView>();
+
+    Tensor output = defineTensor(tv->nDims());
+    /*
+    defineRecord(new TensorRecord(
+              {recordingState(output())},
+              shape,
+              contiguity,
+              dtype,
+              is_cpu,
+              stride_order));
+    */
+    map_val_to_fd_index.emplace(v, output());
+
+    // Add uses for input value to to_visit
+    for (Expr* e : v->uses()) {
+      to_visit.push_back(e);
+    }
+  }
+
+  // Topological search of expressions
+  std::unordered_set<nvfuser::Expr*> visited;
+  while (!to_visit.empty()) {
+    Expr* e = to_visit.front();
+    to_visit.pop_front();
+
+    // short-circuit: skip if visited
+    if (visited.count(e) > 0) {
+      continue;
+    }
+
+    visited.insert(e);
+
+    // TODO Only handle BinaryOp Add
+    NVF_ERROR(e->isA<BinaryOp>());
+    BinaryOp* bop = e->as<BinaryOp>();
+    NVF_ERROR(bop->lhs()->isA<TensorView>());
+    NVF_ERROR(bop->rhs()->isA<TensorView>());
+
+    // Create RecordFunctor given inputs, outputs, and attributes.
+    // Add output to values
+    TensorView* arg1 = bop->lhs()->as<TensorView>();
+    TensorView* arg2 = bop->rhs()->as<TensorView>();
+    size_t arg1_index = map_val_to_fd_index.at(bop->lhs());
+    size_t arg2_index = map_val_to_fd_index.at(bop->rhs());
+
+    Tensor output = fd->defineTensor(arg1->nDims());
+    /*
+    defineRecord(new OpRecord<TensorView*, TensorView*, TensorView*>(
+          {recordingState(arg1_index), fd->recordingState(arg2_index)},
+          {recordingState(output())},
+          ("ops." op_str),
+          serde::RecordType::Binary_TV,
+          static_cast<TensorView* (*)(TensorView*, TensorView*)>(op_name)));
+    */
+    map_val_to_fd_index.emplace(v, output());
+
+    // Add output uses to to_visit
+    for (Val* v : e->outputs()) {
+      for (Expr* e : v->uses()) {
+        to_visit.push_back(e);
+      }
+    }
+  }
+
+  // Outputs and Aliasing
+  for (nvfuser::Val* v : fusion->outputs()) {
+    // TODO Handle only TensorViews
+    NVF_ERROR(v->isA<TensorView>());
+
+    // Add fusion outputs to FusionDefinition
+    size_t output_index = map_val_to_fd_index.at(v);
+    defineRecord(new OutputRecord<TensorView>(
+        {recordingState(output_index)}, serde::RecordType::OutputTv));
+  }
+}
+
 FusionCache* FusionDefinition::fusionCache() const {
   NVF_ERROR(fusion_cache_ != nullptr, "FusionCache pointer is null!");
   return fusion_cache_;
@@ -203,14 +303,15 @@ void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
 
   user_sched_ = fusionCache()->createUserSchedule(scheds, inputs, device);
 
-  // Building a new Fusion container for scheduling with definition such that
-  // the definition's tensor data members refer to the corresponding IR objects
-  // needed for scheduling. A simple copy of the container would mean the data
-  // members that represent tensors would refer to the IR objects in the
-  // original and not the copy needed for scheduling.
+  // Building a new Fusion container for scheduling with definition such
+  // that the definition's tensor data members refer to the corresponding IR
+  // objects needed for scheduling. A simple copy of the container would
+  // mean the data members that represent tensors would refer to the IR
+  // objects in the original and not the copy needed for scheduling.
   buildFusionIr(user_sched_->schedule.get());
 
-  // Add TensorViews created by composite operations to Python FusionDefinition.
+  // Add TensorViews created by composite operations to Python
+  // FusionDefinition.
   findHiddenTensorViews(user_sched_->schedule.get());
 
   KernelArgumentHolder args =
@@ -357,9 +458,9 @@ std::vector<at::Tensor> FusionDefinition::execute(
     }
   }
 
-  // when `!override_user_schedule == true`, it *could* have produced an output
-  // already at this point and we would not want to overwrite generated output
-  // through user scheduled kernel.
+  // when `!override_user_schedule == true`, it *could* have produced an
+  // output already at this point and we would not want to overwrite
+  // generated output through user scheduled kernel.
   if (outputs.empty()) {
     outputs = scheds->auto_gen_schedules->runFusionWithInputs(
         inputs, std::nullopt, selected_device);
