@@ -952,7 +952,7 @@ int64_t getVectorizationFactorTransposeGroup(
 int64_t getVectorizationBreakPointOfReductionProducer(
     TensorView* reduction_consumer,
     TensorView* reduction_producer,
-    int64_t consumer_innermost_ndims) {
+    int64_t producer_innermost_ndims) {
   NVF_ERROR(
       reduction_consumer->definition() != nullptr &&
           ir_utils::isReductionOp(reduction_consumer->definition()) &&
@@ -968,7 +968,7 @@ int64_t getVectorizationBreakPointOfReductionProducer(
             << std::endl;
   std::cout << "reduction_producer= " << reduction_producer->toString()
             << std::endl;
-  std::cout << "consumer_innermost_ndims= " << consumer_innermost_ndims
+  std::cout << "producer_innermost_ndims= " << producer_innermost_ndims
             << std::endl;
 
   // Find the conrresponding producer break point. To the right of the
@@ -977,11 +977,30 @@ int64_t getVectorizationBreakPointOfReductionProducer(
   int64_t break_point = (int64_t)(reduction_producer->nDims());
   std::cout << "init break_point= " << break_point << std::endl;
 
+
+  return (int64_t)(reduction_producer->nDims()) - producer_innermost_ndims;
+
   // short-cut to to return break point when no c2p mapping is going to be
   // performed
-  if (consumer_innermost_ndims == 0) {
+  if (producer_innermost_ndims == 0) {
     return break_point;
   }
+
+  // auto id_model = IdModel(fusion, /*build_graphs=*/false);
+  // id_model.buildExactGraph();
+  // const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+  // const DisjointSets<Val*>& val_sets = exact_graph.disjointValSets();
+  // for (auto p_alloc_id : reduced_tv->getMaybeAllocationDomain()) {
+  //   for (auto c_logical_id : reduction_tv->getLogicalDomain()) {
+  //     if (val_sets.strictAreMapped(p_alloc_id, c_logical_id)) {
+  //       producer_alloc_to_reduction_logical[p_alloc_id] = c_logical_id;
+  //       break;
+  //     }
+  //   }
+  // }
+  // for (auto [k, v] : producer_alloc_to_reduction_logical) {
+  //   std::cout << k->toString() << " -> " << v->toString() << std::endl;
+  // }
 
   const auto c2p =
       PairwiseLogicalDomainMap(reduction_producer, reduction_consumer)
@@ -991,7 +1010,7 @@ int64_t getVectorizationBreakPointOfReductionProducer(
   // innermost consumer IDs
   std::unordered_set<IterDomain*> producer_innermost_ids;
   for (auto it = reduction_consumer->getMaybeAllocationDomain().begin() +
-           ((int64_t)reduction_consumer->nDims() - consumer_innermost_ndims);
+           ((int64_t)reduction_consumer->nDims() - producer_innermost_ndims);
        it != reduction_consumer->getMaybeAllocationDomain().end();
        ++it) {
     auto consumer_id = *it;
@@ -1011,7 +1030,7 @@ int64_t getVectorizationBreakPointOfReductionProducer(
        it != reduction_producer->getMaybeAllocationDomain().rend();
        ++it) {
     auto producer_rf_id = *it;
-
+    std::cout << "\nproducer_rf_id= " << producer_rf_id->toString() << std::endl;
     // If the mapped producer ID is also a reduction domain, the
     // producer should be a fusion input as our
     // reduction/normalization scheduler do not support fusing
@@ -1043,7 +1062,8 @@ int64_t getVectorizationBreakPointOfReductionProducer(
 
     // Neither reduction nor mapped to consumer innermost IDs.
     // This should not happen
-    NVF_ERROR(false, "Unexpected producer RF ID: ", producer_rf_id->toString())
+    reduction_producer->printTransforms();
+    NVF_ERROR(false, "Unexpected producer RF ID: ", producer_rf_id->toString(), " in ", reduction_producer->toString());
   }
   std::cout << "final break_point= " << break_point << std::endl;
 
