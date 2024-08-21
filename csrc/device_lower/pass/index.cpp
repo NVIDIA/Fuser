@@ -1507,34 +1507,32 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
           std::make_shared<DataType>(DataType::UInt32),
           (size_t)ir_utils::getVectorizeSize(ldst->out()->as<TensorView>()) /
               2};
-    } else if (ldst->out()->definition()->isA<MmaOp>()) {
-      // For MMA accumulator initialization
-      as_type = getMmaOutType(ldst->out()->as<TensorView>());
     } else if (ir_utils::isStMatrixOp(ldst)) {
       as_type = ArrayType{
           std::make_shared<DataType>(DataType::UInt32),
           (size_t)ir_utils::getVectorizeSize(ldst->in()->as<TensorView>()) / 2};
+    } else if (ldst->out()->definition()->isA<MmaOp>()) {
+      // For MMA accumulator initialization
+      as_type = getMmaOutType(ldst->out()->as<TensorView>());
     }
 
     if (ir_utils::isStMatrixOp(ldst)) {
-      auto x1 = IrBuilder::create<Val>(0, DataType::Index);
-      auto x = IrBuilder::create<Val>(16, DataType::Index);
-      auto x2 = IrBuilder::mulExpr(
-          x, IrBuilder::create<NamedScalar>("threadIdx.x", DataType::Index));
-
+      // Currently we create hard coded indexing for stmatrix which works on 8x8
+      // matrices. T_local[0]
       in = IrBuilder::create<kir::TensorIndex>(
-          dynamic_cast<TensorView*>(ldst->in()), x1, as_type);
+          dynamic_cast<TensorView*>(ldst->in()),
+          IrBuilder::create<Val>(0, DataType::Index),
+          as_type);
 
-      auto xx =
-          IrBuilder::baseAddressExpr(dynamic_cast<TensorView*>(ldst->out()));
-
-      auto yy = IrBuilder::addExpr(xx, x2);
+      // T_shared[toSmem(T_shared) + 16 * tidx.x]
+      auto out_index = IrBuilder::addExpr(
+          IrBuilder::baseAddressExpr(dynamic_cast<TensorView*>(ldst->out())),
+          IrBuilder::mulExpr(
+              IrBuilder::create<Val>(16, DataType::Index),
+              IrBuilder::create<NamedScalar>("threadIdx.x", DataType::Index)));
 
       out = IrBuilder::create<kir::TensorIndex>(
-          dynamic_cast<TensorView*>(ldst->out()), yy, DataType::Null);
-
-      std::cout << "out" << out->toInlineString();
-      std::cout << "in" << in->toInlineString();
+          dynamic_cast<TensorView*>(ldst->out()), out_index, DataType::Null);
     } else {
       in = lowerSrcIndex(
           ldst->in(),

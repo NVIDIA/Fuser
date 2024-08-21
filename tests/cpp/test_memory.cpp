@@ -2532,18 +2532,13 @@ TEST_F(StMatrixTest, Regular) {
   fusion.addOutput(tv4);
 
   tv2->applyMmaSwizzle(operand);
-  // tv3->applyMmaSwizzle(operand);
-
-  // tv3->merge(0);
-  // tv3->merge(0);
-  // tv3->axis(0)->parallelize(ParallelType::TIDx);
+  // We do not schedule tv3 as yet.
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   auto t0 = at::randn({sizeM, sizeN}, options);
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, LaunchParams(), matmul_cparams);
-  fusion.printKernel();
   auto cg_outputs = fe.runFusion({t0});
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);

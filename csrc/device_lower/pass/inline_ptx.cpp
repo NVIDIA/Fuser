@@ -79,6 +79,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
       ss << ".m8n8.shared.b16";
       registerReplace(
           ldst,
+          // stmatrix has no output.
           IrBuilder::create<kir::Asm>(
               ss.str(),
               std::vector<Val*>{},
