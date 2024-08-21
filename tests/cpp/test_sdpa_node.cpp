@@ -190,13 +190,15 @@ void checkSdpaBwdMapping(Fusion* fusion, Expr* op) {
               producer_ids.at(idx),
               consumer_ids.at(idx),
               IdMappingMode::EXACT));
-        } else if (idx == (2 + num_device_dim) && (producer_has_s == consumer_has_s)) {
+        } else if (
+            idx == (2 + num_device_dim) && (producer_has_s == consumer_has_s)) {
           checkMapped(vg, producer_ids.at(idx), consumer_ids.at(idx));
           EXPECT_TRUE(compute_at_map.areMapped(
               producer_ids.at(idx),
               consumer_ids.at(idx),
               IdMappingMode::EXACT));
-        } else if (idx == (3 + num_device_dim) && (producer_has_e == consumer_has_e)) {
+        } else if (
+            idx == (3 + num_device_dim) && (producer_has_e == consumer_has_e)) {
           checkMapped(vg, producer_ids.at(idx), consumer_ids.at(idx));
           EXPECT_TRUE(compute_at_map.areMapped(
               producer_ids.at(idx),
@@ -830,21 +832,21 @@ TEST_F(SDPATest, Sharded_SdpaFwd) {
 
 // TODO: Remove/update when https://github.com/NVIDIA/Fuser/issues/2563 is
 // resolved.
-TEST_F(SDPATest, Sharded_AttenBwd) {
+TEST_F(SDPATest, Sharded_SdpaBwd) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
   at::manual_seed(0);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   constexpr int64_t d = 4;
   auto mesh = DeviceMesh::createForNumDevices(d);
-  std::vector<int64_t> q_shape({d, n, h/d, l, e});
-  std::vector<int64_t> kv_shape({d, n, h/d, s, e});
-  std::vector<int64_t> attn_shape({d, n, h/d, l, e});
+  std::vector<int64_t> q_shape({d, n, h / d, l, e});
+  std::vector<int64_t> kv_shape({d, n, h / d, s, e});
+  std::vector<int64_t> attn_shape({d, n, h / d, l, e});
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-  at::Tensor q = at::randn({n, h/d, l, e}, options);
-  at::Tensor k = at::randn({n, h/d, s, e}, options);
-  at::Tensor v = at::randn({n, h/d, s, e}, options);
+  at::Tensor q = at::randn({n, h / d, l, e}, options);
+  at::Tensor k = at::randn({n, h / d, s, e}, options);
+  at::Tensor v = at::randn({n, h / d, s, e}, options);
 
   double dropout_p = 0.2;
   bool is_causal = false;
@@ -874,7 +876,7 @@ TEST_F(SDPATest, Sharded_AttenBwd) {
   auto tvk = makeConcreteTensor(kv_shape, DataType::Half);
   auto tvv = makeConcreteTensor(kv_shape, DataType::Half);
   auto tv_output = makeConcreteTensor(attn_shape, DataType::Half);
-  auto tv_logsumexp = makeConcreteTensor({d, n, h/d, l}, DataType::Float);
+  auto tv_logsumexp = makeConcreteTensor({d, n, h / d, l}, DataType::Float);
   auto tv_seed = makeConcreteTensor({}, DataType::Int);
   auto tv_offset = makeConcreteTensor({}, DataType::Int);
 
@@ -887,7 +889,8 @@ TEST_F(SDPATest, Sharded_AttenBwd) {
   fusion->addInput(tv_seed);
   fusion->addInput(tv_offset);
 
-  for (TensorView* tv : {tvq, tvk, tvv, tv_grad_output, tv_output, tv_logsumexp}) {
+  for (TensorView* tv :
+       {tvq, tvk, tvv, tv_grad_output, tv_output, tv_logsumexp}) {
     tv->setDeviceMesh(mesh);
     tv->axis(0)->parallelize(ParallelType::DIDx);
   }
@@ -905,7 +908,8 @@ TEST_F(SDPATest, Sharded_AttenBwd) {
       tv_offset,
       /*scale=*/nullptr);
 
-  for (TensorView* tv : {tvgrad.grad_query, tvgrad.grad_key, tvgrad.grad_value}) {
+  for (TensorView* tv :
+       {tvgrad.grad_query, tvgrad.grad_key, tvgrad.grad_value}) {
     tv->setDeviceMesh(mesh);
     tv->axis(0)->parallelize(ParallelType::DIDx);
     fusion->addOutput(tv);
@@ -913,13 +917,17 @@ TEST_F(SDPATest, Sharded_AttenBwd) {
 
   checkSdpaBwdMapping(fusion.get(), tvgrad.grad_query->definition());
 
-  at::Tensor grad_out = at::randn({n, h/d, l, e}, options);
+  at::Tensor grad_out = at::randn({n, h / d, l, e}, options);
 
   std::vector<c10::IValue> sdpa_bwd_inputs = {
-      grad_out.unsqueeze(0), q.unsqueeze(0), 
-      k.unsqueeze(0), v.unsqueeze(0), 
-      output.unsqueeze(0), log_sumexp.unsqueeze(0), 
-      philox_seed, philox_offset};
+      grad_out.unsqueeze(0),
+      q.unsqueeze(0),
+      k.unsqueeze(0),
+      v.unsqueeze(0),
+      output.unsqueeze(0),
+      log_sumexp.unsqueeze(0),
+      philox_seed,
+      philox_offset};
 
   FusionExecutorCache fec(std::move(fusion));
   auto out = fec.runFusionWithInputs(sdpa_bwd_inputs);
@@ -946,11 +954,12 @@ TEST_F(SDPATest, Sharded_AttenBwd) {
       fec.fusion(),
       out,
       sdpa_bwd_inputs,
-      {ref_grad_query.unsqueeze(0), ref_grad_key.unsqueeze(0), ref_grad_value.unsqueeze(0)},
+      {ref_grad_query.unsqueeze(0),
+       ref_grad_key.unsqueeze(0),
+       ref_grad_value.unsqueeze(0)},
       __LINE__,
       __FILE__);
 }
-
 
 TEST_F(SDPATest, ComputeAt) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
