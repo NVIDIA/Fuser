@@ -2555,7 +2555,7 @@ TEST_F(NVFuserTest, FusionSqueeze1_CUDA) {
   // [I, B]
   auto tv1 = sum(tv0, {1}, true);
   // [I]
-  auto tv2 = squeeze(tv1, std::vector<int64_t>{1});
+  auto tv2 = squeeze(tv1, {1});
   fusion.addOutput(tv2);
 
   NVF_CHECK(tv2->nDims() == 1, "Unexpected squeeze result: ", tv2->toString());
@@ -2565,7 +2565,7 @@ TEST_F(NVFuserTest, FusionSqueeze1_CUDA) {
   // tv3 has only one non-reduction axis. The extent of the first axis
   // is not one, so squeeze should fail.
   // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
-  ASSERT_ANY_THROW(squeeze(tv3, std::vector<int64_t>{1}));
+  ASSERT_ANY_THROW(squeeze(tv3, {1}));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({10, 11}, options);
