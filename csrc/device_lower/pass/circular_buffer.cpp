@@ -135,14 +135,14 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
         : IrBuilder::create<ForLoop>(fl);
 
     // Add to stack
-    for_loop_id_stack_.push_back(fl->iter_domain());
+    for_loop_stack_.push_back(cloned_loop);
     cloned_scopes_.push_back(&cloned_loop->body());
 
     // Process for-loop
     kir::IrVisitor::handle(fl);
 
     // Pop from stack
-    for_loop_id_stack_.pop_back();
+    for_loop_stack_.pop_back();
     cloned_scopes_.pop_back();
 
     processForLoop(cloned_loop);
@@ -218,9 +218,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
   ForLoop* cloned_top_level_loop_ = nullptr;
   std::deque<Scope*> cloned_scopes_;
   const std::unordered_set<Expr*>& exclude_;
-
-  // Track iterDomain associated with each for-loop
-  std::vector<IterDomain*> for_loop_id_stack_;
+  std::vector<ForLoop*> for_loop_stack_;
 };
 
 // TODO Replace with elect_sync ptx
@@ -491,10 +489,8 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
     // If last cloned scope is the cloned_top_level_loop body, then add
     // mbarrier::arriveExpectTx and new loadStoreOp.
     int64_t active_for_loops = std::count_if(
-        for_loop_id_stack_.begin(),
-        for_loop_id_stack_.end(),
-        [](IterDomain* id) {
-          return id->getParallelType() == ParallelType::Serial;
+        for_loop_stack_.begin(), for_loop_stack_.end(), [](ForLoop* fl) {
+          return fl->iter_domain()->getParallelType() == ParallelType::Serial;
         });
     if (active_for_loops == 1) {
       return addTmaLoadBlock(new_ldst);
@@ -584,10 +580,8 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
     // If last cloned scope is the cloned_top_level_loop body, then add
     // mbarrier::arriveExpectTx and new loadStoreOp.
     int64_t active_for_loops = std::count_if(
-        for_loop_id_stack_.begin(),
-        for_loop_id_stack_.end(),
-        [](IterDomain* id) {
-          return id->getParallelType() == ParallelType::Serial;
+        for_loop_stack_.begin(), for_loop_stack_.end(), [](ForLoop* fl) {
+          return fl->iter_domain()->getParallelType() == ParallelType::Serial;
         });
     if (active_for_loops == 1) {
       addTmaLoadBlock(ldst);
