@@ -432,8 +432,7 @@ void propagateParallelization(
     std::unordered_set<TensorView*> are_unrolled;
 
     auto reduced_tv = ir_utils::getSoleProducerTv(reference_tv);
-    std::cout << "reduced_tv: " << reduced_tv->toString() << std::endl;
-    std::cout << "reference_tv: " << reference_tv->toString() << std::endl;
+
     // Grab all tensor views that should be vectorized
     auto vectorizable_inputs_outputs =
         scheduler_utils::getInputsOutputsWithInnerDim(reduced_tv, true, true);

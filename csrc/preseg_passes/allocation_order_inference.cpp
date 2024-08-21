@@ -340,11 +340,11 @@ void AllocationDomainPass::runPass(Fusion* fusion) {
   // mark input TensorViews as propagation sources
   auto input_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
   std::vector<TensorView*> srcs(input_tvs.begin(), input_tvs.end());
-  // mark output and reduction tvs as propagation destinations
+  // mark output, reduction tvs, and reduced tvs as propagation destinations
   auto output_tvs = ir_utils::filterByType<TensorView>(fusion->outputs());
   auto reduction_tvs = scheduler_utils::getReductionTvs(fusion);
   std::vector<TensorView*> dsts;
-  dsts.reserve(output_tvs.size() + reduction_tvs.size());
+  dsts.reserve(output_tvs.size() + 2 * reduction_tvs.size());
   // TODO: instead of exclusion to propagation, this pass should mark it clear
   // that the propagated allocation order is strictly an optimization hint,
   // rather than a semantic requirement coming from computation definition.
