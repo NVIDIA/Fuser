@@ -3,25 +3,21 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Owner(s): ["module: nvfuser"]
 
-from copy import deepcopy
 from functools import partial
 import itertools
 import math
 import re
 import random
-from typing import List, Callable
-import unittest
+from typing import List
 
 import torch
 import torch.nn.functional as F
-from torch.testing._internal.common_utils import run_tests, TEST_WITH_ROCM, TestCase
-from torch.testing._internal.jit_utils import RUN_CUDA
 import torch._refs as refs
 import torch._prims as prims
 
 from nvfuser import (
-    FusionCache,
     FusionDefinition,
+    FusionCache,
     DataType,
     Tensor,
     version,
@@ -34,88 +30,14 @@ from utils import (
     is_pre_volta,
     is_pre_ampere,
     is_pre_hopper,
-    check_captured_python_definition,
-    basic_serde_check,
     debug_serde,
+    NVFuserTest,
 )
-
-RUN_NVFUSER = RUN_CUDA and not TEST_WITH_ROCM
-
-
-def setUpModule():
-    from utils import atexit_serde_check
-
-    atexit_serde_check()
+import pytest
 
 
-def serde_check(test_fn: Callable):
-    """
-    A decorator to verify that serialization works with the given exec_nvfuser
-    function. Currently, it uses serialization to rebuild the FusionCache
-    structure.
-    """
-
-    def inner_fn(*args, **kwargs):
-        self, fusion_func, inputs = args
-
-        # NOTE: For debug purposes, clear FusionCache before running first test
-        # so the behavior is more deterministic (PR #1848).
-        is_new_fusion_expected = kwargs.get("new_fusion_expected", True)
-        if debug_serde and is_new_fusion_expected:
-            FusionCache.reset()
-            assert FusionCache.get().num_fusions() == 0
-
-        # skip_serde_check is only used by the decorator so remove it before
-        # running test_fn
-        skip_serde_check = kwargs.pop("skip_serde_check", False)
-        if skip_serde_check:
-            return test_fn(self, fusion_func, inputs, **kwargs)
-
-        # Run test to populate FusionCache. Deep copy inputs for this run but
-        # not the final run. When a fusion output aliases an input, it will
-        # change the input value for subsequent function calls. Therefore, only
-        # the final run should take the original tensors and potentially update
-        # their values.
-        inputs_copy = deepcopy(inputs)
-        test_fn(self, fusion_func, inputs_copy, **kwargs)
-
-        # Serialize and Deserialize FusionCache
-        basic_serde_check()
-
-        # Run test with repopulated FusionCache
-        kwargs["new_fusion_expected"] = False
-        return test_fn(self, fusion_func, inputs, **kwargs)
-
-    return inner_fn
-
-
-@unittest.skipIf(not RUN_NVFUSER, "requires CUDA")
-@unittest.skipIf(is_pre_volta(), "Only supported on Volta and newer devices.")
-class TestNvFuserFrontend(TestCase):
-    # Helper function to verify the nvfuser output and make sure the string
-    # definition based on the FusionDefinition is executable and matches the
-    # original definition
-    @serde_check
-    def exec_nvfuser(
-        self, fusion_func, inputs, *, new_fusion_expected=True, device=None
-    ):
-        fc = FusionCache.get()
-        before_fusions = fc.num_fusions()
-        # Copy inputs because aliased outputs can modify inputs when running
-        # FusionDefinition
-        inputs_cap = deepcopy(inputs)
-
-        # Execute a fusion function and capture the string python definition
-        with FusionDefinition() as fd:
-            fusion_func(fd)
-        torch.manual_seed(0)
-        out = fd.execute(inputs, device=device)
-
-        self.assertTrue(check_captured_python_definition(out, fd, inputs_cap, device))
-
-        self.assertEqual(fc.num_fusions() - before_fusions, int(new_fusion_expected))
-        return out, fd
-
+@pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
+class TestNvFuserFrontend(NVFuserTest):
     def test_basic(self):
         inputs = [
             torch.ones(2, 4, 8, device="cuda"),
@@ -195,7 +117,9 @@ class TestNvFuserFrontend(TestCase):
         eager_out = torch.relu(inputs[0].to(torch.half) + inputs[1].to(torch.half))
         self.assertEqual(eager_out, nvf_out[0])
 
-    @unittest.skipIf(is_pre_hopper(), "Only supported on Hopper and newer devices.")
+    @pytest.mark.skipif(
+        is_pre_hopper(), reason="Only supported on Hopper and newer devices."
+    )
     def test_cast_fp8(self):
         def fn(in_type, out_type):
             inputs = [
@@ -2273,8 +2197,9 @@ class TestNvFuserFrontend(TestCase):
             fd = SchedError()
             _ = fd.execute(inputs)
 
-    @unittest.skipIf(
-        torch.cuda.device_count() < 2, "test_selected_device requires multiple GPUs"
+    @pytest.mark.skipif(
+        torch.cuda.device_count() < 2,
+        reason="test_selected_device requires multiple GPUs",
     )
     def test_selected_device(self):
         """
@@ -2299,98 +2224,6 @@ class TestNvFuserFrontend(TestCase):
         self.assertEqual(eager_out, nvf_out[0])
 
         self.assertTrue(nvf_out[0].device.index == 1)
-
-    def test_matmul(self):
-        m = 24
-        n = 16
-        k = 8
-        inputs_tt = [
-            torch.randn(m, k, device="cuda", dtype=torch.float16),
-            torch.randn(k, n, device="cuda", dtype=torch.float16),
-        ]
-
-        inputs_tn = [
-            inputs_tt[0].clone(),
-            inputs_tt[1].clone().as_strided(size=[k, n], stride=[1, k]),
-        ]
-
-        inputs_nt = [
-            inputs_tt[0].clone().as_strided(size=[m, k], stride=[1, m]),
-            inputs_tt[1].clone(),
-        ]
-
-        inputs_tn = [inputs_tt[0].clone(), inputs_tn[1].clone()]
-
-        inputs_nn = [inputs_nt[0].clone(), inputs_tn[1].clone()]
-
-        def fusion_func(fd: FusionDefinition, inps) -> None:
-            t0 = fd.from_pytorch(inps[0])
-            t1 = fd.from_pytorch(inps[1])
-            t2 = fd.ops.matmul(t0, t1)
-            fd.add_output(t2)
-
-        for inps in [inputs_tt, inputs_tn, inputs_nt, inputs_nn]:
-            nvf_out, _ = self.exec_nvfuser(partial(fusion_func, inps=inps), inps)
-            eager_out = torch.matmul(inps[0], inps[1])
-            fp16_nvf_out = nvf_out[0]
-            self.assertEqual(eager_out, fp16_nvf_out)
-
-    def test_linear(self):
-        m = 24
-        n = 16
-        k = 8
-        bias0d = torch.tensor(3.14, device="cuda", dtype=torch.float16)
-        bias1d = torch.randn(n, device="cuda", dtype=torch.float16)
-
-        inputs_mk_nk = [
-            torch.randn(m, k, device="cuda", dtype=torch.float16),
-            torch.randn(n, k, device="cuda", dtype=torch.float16),
-        ]
-
-        inputs_mk_kn = [
-            inputs_mk_nk[0].clone(),
-            inputs_mk_nk[1].clone().as_strided(size=[n, k], stride=[1, n]),
-        ]
-
-        inputs_km_nk = [
-            inputs_mk_nk[0].clone().as_strided(size=[m, k], stride=[1, m]),
-            inputs_mk_nk[1].clone(),
-        ]
-
-        inputs_km_kn = [
-            inputs_km_nk[0].clone(),
-            inputs_mk_kn[1].clone(),
-        ]
-
-        def fusion_func(
-            fd: FusionDefinition,
-            inp: torch.Tensor,
-            wt: torch.Tensor,
-            bias: torch.Tensor | None,
-        ) -> None:
-            t0 = fd.from_pytorch(inp)
-            t1 = fd.from_pytorch(wt)
-            if bias is not None:
-                t2 = fd.from_pytorch(bias)
-                t_out = fd.ops.linear(t0, t1, t2)
-            else:
-                t_out = fd.ops.linear(t0, t1)
-            fd.add_output(t_out)
-
-        in_tensors = [inputs_mk_nk, inputs_mk_kn, inputs_km_nk, inputs_km_kn]
-        use_bias = [None, bias0d, bias1d]
-        for [inp, wt], use_bias in list(itertools.product(in_tensors, use_bias)):
-            with self.subTest(inp=inp, wt=wt, use_bias=use_bias):
-                input_tensors = (
-                    (inp, wt, use_bias) if use_bias is not None else (inp, wt)
-                )
-                nvf_out, _ = self.exec_nvfuser(
-                    partial(fusion_func, inp=inp, wt=wt, bias=use_bias),
-                    input_tensors,
-                )
-                eager_out = F.linear(input=inp, weight=wt, bias=use_bias)
-                fp16_nvf_out = nvf_out[0]
-                torch.testing.assert_close(fp16_nvf_out, eager_out, atol=1e-3, rtol=0)
 
     def test_integer_division(self):
         inputs = [
@@ -2610,6 +2443,8 @@ class TestNvFuserFrontend(TestCase):
             with FusionDefinition() as fd_det:
                 fusion_func(fd_det, deterministic=True)
 
+            # Get the current RNG state to restore after this test.
+            state = torch.cuda.get_rng_state()
             # Test with three different random seeds
             for _ in range(3):
                 max_seed = 2**63 - 1
@@ -2628,6 +2463,8 @@ class TestNvFuserFrontend(TestCase):
                     zip(stateful_sequence, stateless_sequence)
                 ):
                     torch.testing.assert_close(sful[0], sless[0])
+            # Restore the RNG state
+            torch.cuda.set_rng_state(state)
 
     # Test expand to zero is replaced with expanded extent and not 1
     # see https://github.com/NVIDIA/Fuser/issues/603
@@ -2966,7 +2803,9 @@ class TestNvFuserFrontend(TestCase):
     # Test that inputs are properly forwarded when an input is used in multiple
     # UnaryOps, some having one and others having multiple further uses.
     # See https://github.com/NVIDIA/Fuser/issues/1301#issuecomment-1812470502
-    @unittest.skipIf(is_pre_ampere(), "Only supported on Ampere and newer devices.")
+    @pytest.mark.skipif(
+        is_pre_ampere(), reason="Only supported on Ampere and newer devices."
+    )
     def test_issue1310(self):
         inputs = [torch.randn((16, 128, 768), dtype=torch.bfloat16, device="cuda:0")]
 
@@ -3399,7 +3238,9 @@ class TestNvFuserFrontend(TestCase):
 
         self.exec_nvfuser(fusion_func, [])
 
-    @unittest.skipIf(is_pre_ampere(), "Only supported on Ampere and newer devices.")
+    @pytest.mark.skipif(
+        is_pre_ampere(), reason="Only supported on Ampere and newer devices."
+    )
     def test_issue1706(self):
         inputs = [
             1e-6,
@@ -3582,7 +3423,9 @@ class TestNvFuserFrontend(TestCase):
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
     # https://github.com/NVIDIA/Fuser/issues/1953
-    @unittest.skipIf(is_pre_ampere(), "Only supported on Ampere and newer devices.")
+    @pytest.mark.skipif(
+        is_pre_ampere(), reason="Only supported on Ampere and newer devices."
+    )
     def test_issue1953(self):
         inputs = [
             128,
@@ -3782,7 +3625,9 @@ class TestNvFuserFrontend(TestCase):
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
     # See https://github.com/NVIDIA/Fuser/issues/2275
-    @unittest.skipIf(is_pre_ampere(), "Only supported on Ampere and newer devices.")
+    @pytest.mark.skipif(
+        is_pre_ampere(), reason="Only supported on Ampere and newer devices."
+    )
     def test_unpadded_catop_issue2275_repro1(self):
         inputs = [
             torch.randn((4096,), dtype=torch.bfloat16, device="cuda:0").as_strided(
@@ -3927,7 +3772,9 @@ class TestNvFuserFrontend(TestCase):
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
     # See https://github.com/NVIDIA/Fuser/issues/2275
-    @unittest.skipIf(is_pre_ampere(), "Only supported on Ampere and newer devices.")
+    @pytest.mark.skipif(
+        is_pre_ampere(), reason="Only supported on Ampere and newer devices."
+    )
     def test_unpadded_catop_issue2275_repro2(self):
         inputs = [
             torch.randn((2, 32, 4096, 128), dtype=torch.bfloat16, device="cuda:0")
@@ -3971,7 +3818,9 @@ class TestNvFuserFrontend(TestCase):
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
     # See https://github.com/NVIDIA/Fuser/issues/2317
-    @unittest.skipIf(is_pre_ampere(), "Only supported on Ampere and newer devices.")
+    @pytest.mark.skipif(
+        is_pre_ampere(), reason="Only supported on Ampere and newer devices."
+    )
     def test_reduction_transpose_sched_issue2317(self):
         inputs = [
             torch.randn((16, 25, 128, 64), dtype=torch.bfloat16, device="cuda:0"),
@@ -4258,43 +4107,6 @@ class TestNvFuserFrontend(TestCase):
                     match_pairs.item() < 3
                 ), f"At least three entries match in {output}"
 
-    def test_matmul_issue_2354(self):
-        inputs = [
-            torch.randn((8, 4), dtype=torch.float32, device="cuda:0"),
-            torch.randn(
-                (
-                    6,
-                    2,
-                    4,
-                ),
-                dtype=torch.float32,
-                device="cuda:0",
-            ),
-        ]
-
-        def fusion_func(fd: FusionDefinition):
-            T0 = fd.define_tensor(
-                shape=[-1, -1],
-                contiguity=[True, True],
-                dtype=DataType.Float,
-                is_cpu=False,
-                stride_order=[1, 0],
-            )
-            T1 = fd.define_tensor(
-                shape=[-1, -1, -1],
-                contiguity=[True, True, True],
-                dtype=DataType.Float,
-                is_cpu=False,
-                stride_order=[2, 1, 0],
-            )
-            T2 = fd.ops.linear(T1, T0)
-            S3 = fd.define_scalar(1.41421, dtype=DataType.Double)
-            T4 = fd.ops.mul(T2, S3)
-            fd.add_output(T2)
-            fd.add_output(T4)
-
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
-
     def test_reshape_dynamic(self):
         inputs = [
             32,
@@ -4410,39 +4222,6 @@ class TestNvFuserFrontend(TestCase):
         for i in range(num_out):
             self.assertEqual(nvf_out[i].data_ptr(), inputs[0].data_ptr())
 
-    # Tests broadcast reduction axis in matmul: Issue #2532.
-    def test_repro_issue2532(self):
-        def fusion_func(fd: FusionDefinition) -> None:
-            T0 = fd.define_tensor(
-                shape=[-1, -1, 1],
-                contiguity=[True, None, True],
-                dtype=DataType.Float,
-                is_cpu=False,
-                stride_order=[2, 0, 1],
-            )
-            T1 = fd.define_tensor(
-                shape=[-1, 1, -1],
-                contiguity=[True, None, True],
-                dtype=DataType.Float,
-                is_cpu=False,
-                stride_order=[2, 1, 0],
-            )
-            T2 = fd.ops.sum(T1, dims=[0, 1], keepdim=False, dtype=DataType.Null)
-            T3 = fd.ops.matmul(T0, T1)
-            T4 = fd.ops.sum(T3, dims=[0], keepdim=False, dtype=DataType.Null)
-            fd.add_output(T2)
-            fd.add_output(T4)
-
-        inputs = [
-            torch.randn((262400,), dtype=torch.float32, device="cuda:0").as_strided(
-                (1025, 256, 1), (256, 1, 256)
-            ),
-            torch.randn((1049600,), dtype=torch.float32, device="cuda:0").as_strided(
-                (1025, 1, 1024), (1024, 1024, 1)
-            ),
-        ]
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
-
     # Test that we properly raise an error when passing inputs with the wrong types
     def test_mismatched_input_types(self):
         scalar_inp = 2.0
@@ -4501,89 +4280,3 @@ class TestNvFuserFrontend(TestCase):
             ),
         ):
             nvf_out = fd.execute([tensor_inp, 2.0 + 1.0j])
-
-    @unittest.skipIf(is_pre_ampere(), "Only supported on Ampere and newer devices.")
-    def test_sdpa_fwd(self):
-        def fusion_func(
-            fd: FusionDefinition, has_dropout: bool, has_causal: bool, has_scale: bool
-        ):
-            q = fd.define_tensor(
-                shape=[-1, -1, -1, -1],
-                contiguity=[True, True, True, True],
-                dtype=DataType.BFloat16,
-                is_cpu=False,
-            )
-            k = fd.define_tensor(
-                shape=[-1, -1, -1, -1],
-                contiguity=[True, True, True, True],
-                dtype=DataType.BFloat16,
-                is_cpu=False,
-            )
-            v = fd.define_tensor(
-                shape=[-1, -1, -1, -1],
-                contiguity=[True, True, True, True],
-                dtype=DataType.BFloat16,
-                is_cpu=False,
-            )
-            dropout_p, is_causal, scale = None, None, None
-            if has_dropout:
-                dropout_p = fd.define_scalar(None, dtype=DataType.Double)
-            if has_causal:
-                is_causal = fd.define_scalar(None, dtype=DataType.Bool)
-            if has_scale:
-                scale = fd.define_scalar(None, dtype=DataType.Double)
-            attn, *intermediate_results = fd.ops.sdpfa_fwd(
-                q, k, v, dropout_p, is_causal, scale
-            )
-            fd.add_output(attn)
-
-        N, H, L, S, E = 4, 8, 16, 16, 8
-        qkv = [
-            torch.randn((N, H, L, E), dtype=torch.bfloat16, device="cuda:0"),
-            torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda:0"),
-            torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda:0"),
-        ]
-
-        dropout_vals = [None, 0.0, 0.2]
-        is_causal_vals = [None, True, False]
-        scale_vals = [None, 1 / E**0.5, 1e-3]
-        # TODO: Try to move this to pytest_ops.py. Currently, it does not work since the API between nvFuser and torch differs.
-        for dropout_p, is_causal, scale in itertools.product(
-            dropout_vals, is_causal_vals, scale_vals
-        ):
-            with self.subTest(dropout_p=dropout_p, is_causal=is_causal, scale=scale):
-                from torch.nn.attention import SDPBackend, sdpa_kernel
-
-                # Reset the FusionCache or the fusion would not recompile for all subtests, failing checks in exec_nvfuser.
-                FusionCache.reset()
-                has_dropout = True if dropout_p is not None else False
-                has_causal = True if is_causal is not None else False
-                has_scale = True if scale is not None else False
-                inputs = [*qkv]
-                for param in [dropout_p, is_causal, scale]:
-                    if param is not None:
-                        inputs.append(param)
-                nvf_out, _ = self.exec_nvfuser(
-                    partial(
-                        fusion_func,
-                        has_dropout=has_dropout,
-                        has_causal=has_causal,
-                        has_scale=has_scale,
-                    ),
-                    inputs,
-                )
-
-                # Torch does not accept NoneType dropout_p, is_causal.
-                dropout_p = 0.0 if dropout_p is None else dropout_p
-                is_causal = False if is_causal is None else is_causal
-
-                with sdpa_kernel(SDPBackend.FLASH_ATTENTION):
-                    torch.manual_seed(0)
-                    ref_out = F.scaled_dot_product_attention(
-                        *qkv, dropout_p=dropout_p, is_causal=is_causal, scale=scale
-                    )
-                torch.testing.assert_close(nvf_out[0], ref_out)
-
-
-if __name__ == "__main__":
-    run_tests()

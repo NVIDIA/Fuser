@@ -6,7 +6,6 @@
  */
 // clang-format on
 
-#include <compute_at_map.h>
 #include <device_lower/utils.h>
 #include <ir/internal_base_nodes.h>
 #include <ir/iostream.h>
@@ -152,19 +151,18 @@ bool haveDifferentShardings(
   // Create a map between producer's and consumer's IterDomains. We iterate
   // over producer's iterdomain and compare sharding type with consumer's
   // iterdomain
-  const auto p2c_map =
+  const std::unordered_map<IterDomain*, IterDomain*>& p2c =
       PairwiseLogicalDomainMap(producer, consumer).mapProducerToConsumer();
   for (auto p_id : TensorDomain::noReductions(producer->getLogicalDomain())) {
-    auto p2c_map_it = p2c_map.find(p_id);
-    NVF_ERROR(
-        p2c_map_it != p2c_map.end(),
-        "the producer ",
-        producer,
-        " has a dimension ",
-        p_id,
-        " that is not mapped to its consumer ",
-        consumer);
-    auto c_id = p2c_map_it->second;
+    const auto i = p2c.find(p_id);
+    if (i == p2c.end()) {
+      // This happens e.g. when `p_id` is squeezed. Even if `p_id` is
+      // parallelized on DID, the squeezed dimension is size-1 and doesn't
+      // trigger resharding.
+      continue;
+    }
+
+    auto c_id = i->second;
     if (p_id->getParallelType() != c_id->getParallelType() &&
         (p_id->isDeviceDim() || c_id->isDeviceDim())) {
       // Mismatch found

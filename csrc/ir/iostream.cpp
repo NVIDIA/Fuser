@@ -103,7 +103,7 @@ void IrPrinter::handle(const hir::HostIrContainer* host_ir_container) {
   // host_ir_container body
   indent_size_++;
   for (auto expr : host_ir_container->topLevelExprs()) {
-    os() << expr->toString(indent_size_) << std::endl;
+    os() << expr->toString(indent_size_);
   }
   indent_size_--;
   for (auto* host_unit : ir_utils::filterByType<hir::HostUnit>(
