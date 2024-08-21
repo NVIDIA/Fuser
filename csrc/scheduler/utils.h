@@ -680,10 +680,15 @@ bool isResharding(Fusion* fusion);
 // positions. Broadcast domains mapped with any domains of given tvs
 // are ignored.
 //
-// This is meant to prevent broadcast domains from interfering
-// inlining. Transform propagation from a reference tensor would not
-// do anything with non-concretized broadcast domains that are not
-// mapped with the reference tensor. If they happened to be at the
+// The goal here is to find domains that are not scheduled by
+// propagation from reference tensors (i.e., ignored_tvs). All
+// schedulers make sure to include only schedulable domains but they
+// may also allow to have non-concretized broadcast domains that have
+// no mapping with any of reference tensors. Since they are
+// non-concretized, they should be safe to ignore. Ideally, they
+// should just be removed from the fusion. For now, they are moved to
+// innermost positions to prevent them from interfering
+// inlining. If they happened to be at the
 // outermost position, the tensor wouldn't be inlined at all. See
 // issue #2686 and PR #2799.
 void moveNonConcretizedBroadcastInnermost(

@@ -2548,6 +2548,19 @@ void moveNonConcretizedBroadcastInnermost(
   const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
   const auto& permissive_graph = id_model.idGraph(IdMappingMode::PERMISSIVE);
 
+  // This function is meant to be used as a preprocessing step of each
+  // segment scheduling. The goal is to find unmapped non-concretized
+  // broadcast domains. It is not meant to find all unmapped dangling
+  // domains. Any non-broadcast or concretized broadcast domains
+  // should be guaranteed to be mapped with reference tensors, i.e.,
+  // ignored_tvs. They should be taken care by the respective
+  // scheduler.
+  //
+  // As such, all non-broadcast domains are skipped. Furthermore, any
+  // domains that can be reachable from (i.e., mapped with)
+  // ignored_tvs can be skipped. Since only broadcast domains are
+  // considered, the exact mapping is enough to find such
+  // domains.
   ValGroups ignored_groups;
   for (auto ignored_tv : ignored_tvs) {
     for (auto id : ignored_tv->domain()->allIDs()) {
