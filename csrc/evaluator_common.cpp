@@ -56,10 +56,16 @@ std::vector<Val*> makeSortedEvaluationList(std::vector<Val*> input) {
       to_sort.pop_back();
     } else {
       bool ready_to_pop = true;
-      for (auto producer : getImmediateProducers(top_val)) {
-        if (!visited.count(producer)) {
-          ready_to_pop = false;
-          to_sort.push_back(producer);
+      // Struct types must be bound directly. This is because it would
+      // otherwise require us to compute T0 just to compute GetMetaData(T0),
+      // for example. We skip computing producers of Structs here in order to
+      // avoid computing the TensorViews themselves.
+      if (!isStructType(top_val->dtype())) {
+        for (auto producer : getImmediateProducers(top_val)) {
+          if (!visited.count(producer)) {
+            ready_to_pop = false;
+            to_sort.push_back(producer);
+          }
         }
       }
       if (ready_to_pop) {
@@ -200,7 +206,9 @@ void PrecomputedValues::initializeValueList(
   // Fill in constants and assign evaluator indices
   for (const auto i : c10::irange(num_of_values_)) {
     // Use an expression evaluator to test if value is const
-    if (sorted_value_list[i]->isConstScalar()) {
+    // Structs must be bound directly
+    if (!isStructType(sorted_value_list[i]->dtype()) &&
+        sorted_value_list[i]->isConstScalar()) {
       is_constant_[i] = true;
       values_[i] = sorted_value_list[i]->evaluate();
     }
