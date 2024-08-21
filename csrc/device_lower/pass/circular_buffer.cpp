@@ -528,9 +528,6 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
         GpuLower::current()->circularBufferInfo().getStageDepthFor(
             circular_buffer_loop_->iter_domain());
 
-    // TODO Use indexOrStartIfTrivial. Currently, we encounter an indexing issue
-    // with the next load stage if the main loop is trivial.
-
     if (current_compute_stage_ == nullptr) {
       current_compute_stage_ = IrBuilder::modExpr(
           cloned_top_level_loop_->indexOrStartIfTrivial(),
@@ -1152,19 +1149,16 @@ class CircularBufferInserter : private kir::ExprMutator {
         circular_buffer_loop, loads, CircularBufferLoopStage::Main);
     registerReplace(circular_buffer_loop, main_loop);
 
-    // Exclude duplicating allocations if main loop is trivial
-    std::unordered_set<Expr*> alloc_in_main;
-    // TODO Disable for persistent kernels
-    // getAllocInTrivialLoop(main_loop, alloc_in_main);
+    // We can use exclude argument in TmaCircularBufferLoopCloner clone to
+    // avoid duplicating allocations if main loop is trivial. However, this
+    // causes the warp_reduce pass to fail with persistent kernels because it
+    // cannot find the allocation for reduction operation.
 
     // Epilogue loop:
     //  - wait only
     //  - mbarrier_wait
     ForLoop* epilogue_loop = TmaCircularBufferLoopCloner::clone(
-        circular_buffer_loop,
-        loads,
-        CircularBufferLoopStage::Epilog,
-        alloc_in_main);
+        circular_buffer_loop, loads, CircularBufferLoopStage::Epilog);
     registerInsertAfter(circular_buffer_loop, epilogue_loop);
 
     // Post-epilogue loop:
