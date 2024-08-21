@@ -64,8 +64,6 @@ void insertReshardingsBefore(Fusion* fusion) {
       // TODO: here we should add a mechanism to potentially reuse the
       // inserted resharding accross all the consumer of the resharded tensor.
       // This way we could avoid wasteful resharding set insertion.
-
-      std::cout << "Resharding inserted " << input->toString() << std::endl;
       TensorView* new_input = set(input);
       new_inputs.push_back(new_input);
       expr = ir_utils::replaceValInExprInputs(expr, input, new_input);

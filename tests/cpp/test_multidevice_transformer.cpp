@@ -191,14 +191,12 @@ std::vector<TensorView*> mlp(
   TensorView* bcast_bias = broadcast(b1, {true, false});
   TensorView* linear2 = add(matmul2, bcast_bias);
   // Dropout
-  // linear2 = castOp(DataType::Float, linear2);
   Val* prob = IrBuilder::create<Val>(1.0 - kDropoutProb);
   Val * scale = IrBuilder::create<Val>(1.0 / (1.0 - kDropoutProb));
-  auto dout = dropout(linear2, prob, scale).output;
-  // auto dout = replicated_dropout(linear2, kDropoutProb);
+  auto dropout_result = dropout(linear2, prob, scale).output;
 
-  // Sharding
-  for (auto tv : {x, b1, matmul2, linear2, dout}) {
+  // Manual sharding annotations
+  for (auto tv : {x, b1, matmul2, linear2, dropout_result}) {
     tv->setDeviceMesh(mesh);
   }
   for (auto tv : {w0, b0, w1, linear1, gelu}) {
@@ -206,7 +204,7 @@ std::vector<TensorView*> mlp(
     tv->axis(0)->parallelize(ParallelType::DIDx);
   }
 
-  return {linear1, gelu, linear2, dout};
+  return {linear1, gelu, linear2, dropout_result};
 }
 
 std::vector<TensorView*> mlp_backwards(
@@ -251,7 +249,7 @@ std::vector<TensorView*> mlp_backwards(
   TensorView* matmul0_grad_w = transpose(matmul0_grad_w_t, 1, 2);
   TensorView* matmul0_grad_b = sum(gelu_grad, {1});
 
-  // Sharding the inputs and outputs. 
+  // Manaul sharding annotations
   for (auto tv :
        {x,
         grad,
@@ -287,6 +285,7 @@ std::vector<TensorView*> mlp_backwards(
 } // namespace
 
 TEST_P(DistributedTransformerTest, MLP_Layer) {
+  // Temporary until we automate the new sharding propagation pass.
   preseg_passes::OptimizationPassGuard<preseg_passes::PropagateShardingsPass> guard(false);
   auto dtype = GetParam();
   at::ScalarType at_dtype = data_type_to_aten(dtype);
@@ -313,8 +312,7 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
     fusion->addOutput(tv);
   }
 
-  // tvsout[3] = dropout
-  auto all_tvs = scheduler_utils::getAllTvsFrom({tvw0}, {tvsout[3]});
+  auto all_tvs = scheduler_utils::getAllTvsFrom({tvw0}, {/*dropout_result*/tvsout[3]});
   std::vector<TensorView*> tvs_to_shard;
   std::copy_if(all_tvs.begin(), all_tvs.end(),
                  std::back_inserter(tvs_to_shard),
