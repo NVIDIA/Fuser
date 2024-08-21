@@ -221,20 +221,7 @@ using PolymorphicValue = dynamic_type::DynamicType<
 
 namespace PolymorphicValue_functions {
 
-inline std::string toString(const PolymorphicValue& v) {
-  std::stringstream ss;
-  if (v.is<at::Tensor>()) {
-    const auto& t = v.as<at::Tensor>();
-    ss << "Tensor(sizes=" << t.sizes() << ", "
-       << "stride=" << t.strides() << ", dtype=" << t.dtype()
-       << ", device=" << t.device() << ", data_ptr=" << t.data_ptr() << ")";
-  } else if (v.is<std::monostate>()) {
-    ss << "std::monostate";
-  } else {
-    ss << v;
-  }
-  return ss.str();
-}
+std::string toString(const PolymorphicValue& v);
 
 template <typename T>
 inline bool isNan(const T& a) {
