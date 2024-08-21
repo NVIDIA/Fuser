@@ -339,11 +339,11 @@ int64_t getVectorizationFactorTransposeGroup(
 //
 //! \param reduction_consumer
 //! \param reduction_producer
-//! \param consumer_innermost_ndims Innermost consumer domains to vectorize
+//! \param producer_innermost_ndims Innermost consumer domains to vectorize
 int64_t getVectorizationBreakPointOfReductionProducer(
     TensorView* reduction_consumer,
     TensorView* reduction_producer,
-    int64_t consumer_innermost_ndims);
+    int64_t producer_innermost_ndims);
 
 } // namespace vectorize_helper
 } // namespace nvfuser

@@ -669,7 +669,156 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
   return persistent_buffer_info;
 }
 
-ReductionTvProperties getReductionProperties(
+bool isInputOfFastestDimReduction(
+    TensorView* reduced_tv,
+    const std::unordered_map<IterDomain*, IterDomain*>&
+        producer_alloc_to_reduction_logical) {
+  for (auto it = reduced_tv->getMaybeAllocationDomain().rbegin();
+       it != reduced_tv->getMaybeAllocationDomain().rend();
+       ++it) {
+    // skip reduciton domain in reduced_tv, e.g.
+    // NVFuserTest.FusionSegmentReduceSoftmax_CUDA
+    if ((*it)->isReduction()) {
+      continue;
+    }
+    NVF_ERROR(
+        producer_alloc_to_reduction_logical.find(*it) !=
+            producer_alloc_to_reduction_logical.end(),
+        "Could not find ",
+        (*it)->toString(),
+        " in producer_alloc_to_reduction_logical.");
+    auto redu_logical_id = producer_alloc_to_reduction_logical.at(*it);
+    if (redu_logical_id->isBroadcast()) {
+      continue;
+    } else if (redu_logical_id->isReduction()) {
+      return true;
+    } else {
+      return false;
+    }
+  }
+
+  return false;
+}
+
+ReductionTvProperties getReductionProperties_new(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    TensorView* reduction_tv) {
+  FusionGuard fg(fusion);
+
+  NVF_ERROR(reduction_tv != nullptr);
+
+  // map from producer's allocation domain to reduction tv's logical domain
+  std::unordered_map<IterDomain*, IterDomain*>
+      producer_alloc_to_reduction_logical;
+  auto reduced_tv = ir_utils::getSoleProducerTv(reduction_tv);
+  auto id_model = IdModel(fusion, /*build_graphs=*/false);
+  id_model.buildExactGraph();
+  const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+  const DisjointSets<Val*>& val_sets = exact_graph.disjointValSets();
+  for (auto p_alloc_id : reduced_tv->getMaybeAllocationDomain()) {
+    for (auto c_logical_id : reduction_tv->getLogicalDomain()) {
+      if (val_sets.strictAreMapped(p_alloc_id, c_logical_id)) {
+        producer_alloc_to_reduction_logical[p_alloc_id] = c_logical_id;
+        break;
+      }
+    }
+  }
+  // fusion->print();
+  for (auto [k, v] : producer_alloc_to_reduction_logical) {
+    std::cout << "producer_alloc_to_reduction_logical: " << k->toString()
+              << " -> " << v->toString() << std::endl;
+  }
+
+  // check reduction properties using the producer's allocation domain
+  bool fastest_dim_reduction = isInputOfFastestDimReduction(
+      reduced_tv, producer_alloc_to_reduction_logical);
+  std::cout << "fastest_dim_reduction: " << fastest_dim_reduction << std::endl;
+  // Tracks the dimensionality of the problem starts on inner most dim and works
+  // outward
+  int64_t dimensionality = 1;
+  // Initialize for dimensionality analysis
+  bool cur_dim_is_reduction = fastest_dim_reduction;
+  // Compute the size of the inner most dimension
+  int64_t inner_most_dimension_numel = 1;
+  int64_t inner_most_dimension_ndims = 0;
+
+  // Start from the inner most dimension, and work outwards. If this is a 3D
+  // pattern, i.e. theres a pattern like [r0, r1, i2, r3] or [i0, r1, r2, i3,
+  // i4] then compute the inner most dimension to compute separately.
+  reduced_tv->printTransforms();
+  const auto& maybe_alloc_dom = reduced_tv->getMaybeAllocationDomain();
+  for (size_t i = maybe_alloc_dom.size(); i > 0; i--) {
+    std::cout << i << std::endl;
+    // skip reduciton domain in reduced_tv, e.g.
+    // NVFuserTest.FusionSegmentReduceSoftmax_CUDA
+    if (maybe_alloc_dom[i - 1]->isReduction()) {
+      continue;
+    }
+    NVF_ERROR(
+        producer_alloc_to_reduction_logical.find(maybe_alloc_dom[i - 1]) !=
+            producer_alloc_to_reduction_logical.end(),
+        "Could not find ",
+        maybe_alloc_dom[i - 1]->toString(),
+        " in producer_alloc_to_reduction_logical.");
+    auto id = producer_alloc_to_reduction_logical.at(maybe_alloc_dom[i - 1]);
+    if (id->isBroadcast()) {
+      continue;
+    }
+    if (id->isReduction() != cur_dim_is_reduction) {
+      dimensionality++;
+      cur_dim_is_reduction = !cur_dim_is_reduction;
+    } else if (dimensionality == 1) {
+      auto inferred_val =
+          runtime_info.expressionEvaluator().evaluate(id->extent());
+      NVF_ERROR(inferred_val.hasValue(), "Error inferring reduction size.");
+      inner_most_dimension_numel =
+          inner_most_dimension_numel * inferred_val.as<int64_t>();
+      inner_most_dimension_ndims++;
+    }
+  }
+
+  // Non reduction element count
+  int64_t total_iteration_numel = 1;
+  // Reduction element count
+  int64_t total_reduction_numel = 1;
+
+  for (auto id : maybe_alloc_dom) {
+    // skip reduciton domain in reduced_tv, e.g.
+    // NVFuserTest.FusionSegmentReduceSoftmax_CUDA
+    if (id->isReduction()) {
+      continue;
+    }
+    auto inferred_val =
+        runtime_info.expressionEvaluator().evaluate(id->extent());
+    NVF_ERROR(
+        inferred_val.hasValue(),
+        "Error inferring dimensions of reduction fusion.");
+    NVF_ERROR(
+        producer_alloc_to_reduction_logical.find(id) !=
+            producer_alloc_to_reduction_logical.end(),
+        "Could not find ",
+        id->toString(),
+        " in producer_alloc_to_reduction_logical.");
+    if (producer_alloc_to_reduction_logical.at(id)->isReduction()) {
+      total_reduction_numel *= inferred_val.as<int64_t>();
+    } else {
+      total_iteration_numel *= inferred_val.as<int64_t>();
+    }
+  }
+
+  ReductionTvProperties properties;
+  properties.total_reduction_numel = total_reduction_numel;
+  properties.total_iteration_numel = total_iteration_numel;
+  properties.fastest_dim_reduction = fastest_dim_reduction;
+  properties.inner_most_dimension_numel = inner_most_dimension_numel;
+  properties.inner_most_dimension_ndims = inner_most_dimension_ndims;
+  properties.dimensionality = dimensionality;
+
+  return properties;
+}
+
+ReductionTvProperties getReductionProperties_main(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     TensorView* tv) {
@@ -737,6 +886,17 @@ ReductionTvProperties getReductionProperties(
   properties.dimensionality = dimensionality;
 
   return properties;
+}
+
+ReductionTvProperties getReductionProperties(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    TensorView* tv) {
+  if (std::getenv("USE_MAIN") != nullptr) {
+    return getReductionProperties_main(fusion, runtime_info, tv);
+  } else {
+    return getReductionProperties_new(fusion, runtime_info, tv);
+  }
 }
 
 namespace {

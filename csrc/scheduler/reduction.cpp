@@ -1400,8 +1400,13 @@ void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
         "If all dims are reduction, should be sending it to fastest dim scheduler.");
   }
 
+  std::cout << "before sched reduction_tv: " << reduction_tv->toString() << std::endl;
+  reduction_tv->printTransforms();
+
   TensorView* reference_tv = reduction_scheduler_utils::scheduleReductionTV(
       rparams, reduction_tv, has_iter_axis);
+  std::cout << "after sched reduction_tv: " << reduction_tv->toString() << std::endl;
+  reduction_tv->printTransforms();
 
   // Reduction tensor views and rfactor tensor views are setup. Let's finish off
   // the scheduling, particularly inlining and unrolling.
@@ -1437,12 +1442,15 @@ void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
       cached_outputs);
 
   scheduler_utils::promoteProducerMemoryTypes(fusion, cached_inputs);
-
+  std::cout << "after promoteProducerMemoryTypes reduction_tv: " << reduction_tv->toString() << std::endl;
+  reduction_tv->printTransforms();
   // TODO(#1401): We could let segmentation split a partially alias-producing
   // fusion into an alias-only segment and the rest. This way, the rest of the
   // fusion (which has fewer expressions) can potentially find a better
   // scheduler and we need to call markAliases only in NoOpScheduler.
   markAliases(fusion);
+  std::cout << "after markAliases reduction_tv: " << reduction_tv->toString() << std::endl;
+  reduction_tv->printTransforms();  
 }
 
 } // namespace nvfuser

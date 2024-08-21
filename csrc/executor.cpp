@@ -1041,6 +1041,9 @@ std::vector<at::Tensor> allocateOutputs(
     ExpressionEvaluator& ee) {
   FUSER_PERF_SCOPE("allocateOutputs");
 
+  std::cout << "\n================================allocateOutputs" << std::endl;
+  fusion->print();
+  
   const auto num_outs = output_info.size();
 
   // Sort the outputs so we compute aliases after allocating non-aliases. The
