@@ -1030,19 +1030,6 @@ class CircularBufferLoopNestInspector : private kir::IrVisitor {
 
 namespace {
 
-// In the case where the main loop is trivial (for example, ldmatrix in
-// matmul kernel), we need to be careful when copying epilog loop. For
-// example, if the main loop is:
-//   for (int i = 0; i < 1; ++i) {
-//     ...
-//     float T1[2];
-//     T1 = ...
-//     ...
-//   }
-// Because trivial loop is not generated, the allocation of T1 will be
-// one level above in the generated scope. So when we copy epilog, we
-// need to make sure we don't copy these allocation so that there is no
-// duplicate allocation.
 void getAllocInTrivialLoop(ForLoop* fl, std::unordered_set<Expr*>& output) {
   if (!fl->isTrivial()) {
     return;
@@ -1257,8 +1244,8 @@ class CircularBufferInserter : private kir::ExprMutator {
 
       // The main loop will generate some async loads from invalid regions.
       // These populate the current cp.async group and they fill the smem with
-      // zero. Subsequent code might assume an empty cp.async group (for
-      // example an unparallelized batch matmul), or might re-use memory (WAW
+      // zero. Subsequent code might assume an empty cp.async group (for example
+      // an unparallelized batch matmul), or might re-use memory (WAW
       // hazard, see https://github.com/NVIDIA/Fuser/issues/2000). For safety,
       // we drain the group after the loops by waiting on these transfers.
       kir::AsyncWait* cp_async_wait_all =
@@ -1267,7 +1254,19 @@ class CircularBufferInserter : private kir::ExprMutator {
     }
 
     if (requireEpilogue(loads)) {
-      // Exclude duplicating allocations if main loop is trivial
+      // In the case where the main loop is trivial (for example, ldmatrix in
+      // matmul kernel), we need to be careful when copying epilog loop. For
+      // example, if the main loop is:
+      //   for (int i = 0; i < 1; ++i) {
+      //     ...
+      //     float T1[2];
+      //     T1 = ...
+      //     ...
+      //   }
+      // Because trivial loop is not generated, the allocation of T1 will be
+      // one level above in the generated scope. So when we copy epilog, we
+      // need to make sure we don't copy these allocation so that there is no
+      // duplicate allocation.
       std::unordered_set<Expr*> alloc_in_main;
       getAllocInTrivialLoop(main_loop, alloc_in_main);
       ForLoop* epilogue_loop = CircularBufferLoopCloner::clone(
@@ -1319,9 +1318,9 @@ class CircularBufferInserter : private kir::ExprMutator {
           return expr->isA<kir::BlockSync>();
         });
     if (block_sync_it == rend) {
-      // If there's no sync, i.e. no tensor needs cross thread communication.
-      // We still need a wait but it can just be anywhere after the
-      // cp.async.commit in the loop. Chose to place at the end arbitrarily.
+      // If there's no sync, i.e. no tensor needs cross thread communication. We
+      // still need a wait but it can just be anywhere after the cp.async.commit
+      // in the loop. Chose to place at the end arbitrarily.
       main_loop->body().insert_after(exprs.back(), cp_async_wait);
     } else {
       // If a sync has been inserted, wait needs to be placed before the sync.
