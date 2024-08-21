@@ -49,7 +49,6 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
     cloner.duplicate();
     return cloner.cloned_top_level_loop_;
   }
-  ~CircularBufferLoopCloner() override = default;
 
  protected:
   CircularBufferLoopCloner(
@@ -334,7 +333,6 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
     cloner.duplicate();
     return cloner.cloned_top_level_loop_;
   }
-  ~TmaCircularBufferLoopCloner() override = default;
 
  private:
   TmaCircularBufferLoopCloner(
