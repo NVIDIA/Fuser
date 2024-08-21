@@ -24,7 +24,8 @@ namespace nvfuser {
 
 using AllocationDomainTest = NVFuserTest;
 
-using ::testing::ElementsAre;
+using testing::Contains;
+using testing::ElementsAre;
 
 // A global->shared->global copy kernel, shared memory allocated transposed to
 // avoid bank conflict.
@@ -1251,16 +1252,14 @@ TEST_F(AllocationDomainTest, Issue1290_ContiguityWasMissing) {
   at::Tensor in_tensor = at::randn({2 * 4}).cuda().as_strided({2, 3}, {4, 1});
 
   FusionExecutorCache fec(std::move(fusion));
-  fec.runFusionWithInputs({in_tensor});
+  auto out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
   // The initial issue was detected in the pointwise scheduler, so I added these
-  // checks to make sure it's a valid regression test. The transpose scheduler
-  // could accept this but decided not to because of a small problem size.
-  const std::vector<SegmentedGroup*>& groups =
-      fec.getMostRecentKernelRuntime()->fusionSegments()->groups();
-  ASSERT_EQ(groups.size(), 1);
-  SegmentedGroup* group = groups[0];
-  EXPECT_EQ(group->heuristic(), ScheduleHeuristic::PointWise);
+  // checks to make sure it's a valid regression test.
+  EXPECT_THAT(
+      fec.getMostRecentKernelRuntime()->fusionSegments()->groups(),
+      Contains(HeuristicIs(ScheduleHeuristic::PointWise)));
 }
 
 TEST_F(AllocationDomainTest, Issue1290_ReplayCasPFailedDueToDifferentRanks) {

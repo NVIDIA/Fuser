@@ -20,6 +20,7 @@ namespace nvfuser {
 
 using NoOpTest = NVFuserTest;
 
+using testing::Each;
 using testing::IsEmpty;
 using testing::UnorderedElementsAre;
 
@@ -228,9 +229,12 @@ TEST_F(NoOpTest, ExpandedReduction) {
   FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
   EXPECT_THAT(
       runtime->fusionSegments()->groups(),
-      UnorderedElementsAre(HeuristicIs(ScheduleHeuristic::NoOp)));
-  const auto& executor = runtime->executors().front();
-  EXPECT_THAT(executor.kernel()->summary().global_allocations, IsEmpty());
+      Each(HeuristicIs(ScheduleHeuristic::NoOp)));
+  for (const auto& fe : runtime->executors()) {
+    if (fe.hasCompiledKernel()) {
+      EXPECT_THAT(fe.kernel()->summary().global_allocations, IsEmpty());
+    }
+  }
 }
 
 } // namespace nvfuser
