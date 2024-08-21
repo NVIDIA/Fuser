@@ -144,6 +144,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
     kir::IrVisitor::handle(fl);
 
     // Pop from stack
+    for_loop_id_stack_.pop_back();
     cloned_scopes_.pop_back();
 
     processForLoop(cloned_loop);
@@ -1263,10 +1264,10 @@ class CircularBufferInserter : private kir::ExprMutator {
       //     T1 = ...
       //     ...
       //   }
-      // Because trivial loop is not generated, the allocation of T1 will be
-      // one level above in the generated scope. So when we copy epilog, we
-      // need to make sure we don't copy these allocation so that there is no
-      // duplicate allocation.
+      // Because trivial loop is not generated, the allocation of T1 will be one
+      // level above in the generated scope. So when we copy epilog, we need to
+      // make sure we don't copy these allocation so that there is no duplicate
+      // allocation.
       std::unordered_set<Expr*> alloc_in_main;
       getAllocInTrivialLoop(main_loop, alloc_in_main);
       ForLoop* epilogue_loop = CircularBufferLoopCloner::clone(
