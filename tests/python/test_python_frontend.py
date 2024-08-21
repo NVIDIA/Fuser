@@ -5,9 +5,11 @@
 
 from functools import partial
 import itertools
+import io
 import math
 import re
 import random
+import sys
 from typing import List
 
 import torch
@@ -4280,3 +4282,95 @@ class TestNvFuserFrontend(NVFuserTest):
             ),
         ):
             nvf_out = fd.execute([tensor_inp, 2.0 + 1.0j])
+
+    def test_repro_script_generation(self):
+        expected_str = """
+# CUDA devices:
+#  0: NVIDIA A100 80GB PCIe
+# torch version: 2.5.0a0+git25d5a81
+# cuda version: 12.6
+# nvfuser version: 0.2.10+gitb2e3f89
+import torch
+from nvfuser import FusionDefinition, DataType
+
+def nvfuser_fusion_id0(fd : FusionDefinition) -> None :
+    T0 = fd.define_tensor(shape=[-1, -1], contiguity=[True, True], dtype=DataType.Float, is_cpu=False, stride_order=[1, 0])
+    T1 = fd.define_tensor(shape=[-1, -1], contiguity=[True, True], dtype=DataType.Float, is_cpu=False, stride_order=[1, 0])
+    T2 = fd.ops.mul(T0, T1)
+    fd.add_output(T2)
+
+with FusionDefinition() as fd:
+    nvfuser_fusion_id0(fd)
+
+inputs = [
+    torch.randn(16, dtype=torch.float32, device='cuda:0').as_strided((4, 4), (4, 1)),
+    torch.randn(16, dtype=torch.float32, device='cuda:0').as_strided((4, 4), (4, 1)),
+]
+fd.execute(inputs)
+"""
+
+        inputs = [
+            torch.randn(4, 4, device="cuda:0"),
+            torch.randn(4, 4, device="cuda:0"),
+        ]
+
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.from_pytorch(inputs[1])
+            t2 = fd.ops.mul(t0, t1)
+            fd.add_output(t2)
+
+        with FusionDefinition() as fd:
+            fusion_func(fd)
+
+        # Strip white space before and after script
+        expected_str = expected_str.strip()
+        expected_lines = expected_str.split("\n")
+
+        # Test fd.execute(inputs, print_repro=True)
+        old_stdout = sys.stdout
+        test_stdout = sys.stdout = io.StringIO()
+
+        fd.execute(inputs, print_repro=True)
+
+        sys.stdout = old_stdout
+
+        comp_str = test_stdout.getvalue()
+        comp_str = comp_str.strip()
+        comp_lines = comp_str.split("\n")
+
+        assert len(expected_lines) == len(
+            comp_lines
+        ), "Reproduction script does not have the expected number of lines! Expected: {} Actual: {}".format(
+            len(expected_lines), len(comp_lines)
+        )
+        # Don't compare the first 5 lines as they may be device and cuda specific
+        assert (
+            expected_lines[5:] == comp_lines[5:]
+        ), "Reproduction script does not match expected output!"
+
+        # Test fd.execute(inputs, save_repro_inputs=True) ; fd.last_repro_script()
+        fd.execute(inputs, save_repro_inputs=True)
+
+        comp_str = fd.last_repro_script()
+        comp_str = comp_str.strip()
+        comp_lines = comp_str.split("\n")
+
+        assert len(expected_lines) == len(
+            comp_lines
+        ), "Reproduction script does not have the expected number of lines! Expected: {} Actual: {}".format(
+            len(expected_lines), len(comp_lines)
+        )
+        # Don't compare the first 5 lines as they may be device and cuda specific
+        assert (
+            expected_lines[5:] == comp_lines[5:]
+        ), "Reproduction script does not match expected output!"
+
+        # Second query of fd.last_repro_script() is expected to assert so the inputs are not held onto
+        with pytest.raises(
+            AssertionError,
+            match=re.escape(
+                "fd.last_repro_script() cannot provide a repro because fd.execute(inputs, save_repro_state=True) was not set!"
+            ),
+        ):
+            fd.last_repro_script()
