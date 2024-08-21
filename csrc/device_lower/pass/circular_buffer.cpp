@@ -8,8 +8,6 @@
 #include <device_lower/lower2device.h>
 #include <ir/utils.h>
 #include <kernel_ir.h>
-#include <transform_iter.h>
-#include <transform_replay.h>
 
 #include <device_lower/pass/circular_buffer.h>
 
