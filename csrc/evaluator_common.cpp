@@ -178,10 +178,10 @@ void PrecomputedValues::bindValues(
   for (const auto i : c10::irange((int64_t)inputs.size())) {
     const auto input = inputs[i];
     NVF_ERROR(input != nullptr);
-    if (auto tensor_input = dynamic_cast<TensorView*>(input)) {
+    if (auto* tv = dynamic_cast<TensorView*>(input)) {
       const auto& tensor = args[i]->as<at::Tensor>();
       if (!tensor.is_cpu()) {
-        bindTensorMetaData(tensor_input, tensor);
+        bindTensorMetaData(tv, tensor);
       }
     } else {
       bindValue(input->evaluatorIndex(), *args[i]);
@@ -224,8 +224,8 @@ void PrecomputedValues::print() const {
   debug() << "Precomputed Values:\n";
   for (auto i : c10::irange(symbols_.size())) {
     if (defined_[i]) {
-      debug() << symbols_[i]->toInlineString() << " = " << values_[i]
-              << std::endl;
+      debug() << symbols_[i]->toInlineString() << " = "
+              << PolymorphicValue_functions::toString(values_[i]) << std::endl;
     }
   }
 }
@@ -336,15 +336,20 @@ void PrecomputedValues::bindTensorMetaData(
       "Something went wrong configuring launch. Inputs do not match.");
 
   for (const auto dim : c10::irange(logical_domain.size())) {
-    auto value = tensor.size((int64_t)dim);
-    if (logical_domain[dim]->hasExpandedExtent()) {
-      auto extent = logical_domain[dim]->extent();
-      auto expanded_extent = logical_domain[dim]->expandedExtent();
+    IterDomain* id = logical_domain[dim];
+    auto dim_size = tensor.size(static_cast<int64_t>(dim));
+    if (id->isDeviceDim()) {
+      dim_size = tv->getDeviceMesh().size(id->getParallelType());
+    }
+
+    if (id->hasExpandedExtent()) {
+      Val* extent = id->extent();
+      Val* expanded_extent = id->expandedExtent();
       bindValue(extent->evaluatorIndex(), 1L);
-      bindValue(expanded_extent->evaluatorIndex(), value);
+      bindValue(expanded_extent->evaluatorIndex(), dim_size);
     } else {
-      auto extent = logical_domain[dim]->extent();
-      bindValue(extent->evaluatorIndex(), value);
+      Val* extent = id->extent();
+      bindValue(extent->evaluatorIndex(), dim_size);
     }
   }
 

@@ -7,7 +7,8 @@ from typing import Callable
 import unittest
 
 import torch
-from torch.testing._internal.common_utils import run_tests, TEST_WITH_ROCM, TestCase
+from utils import is_pre_volta, is_pre_hopper
+from torch.testing._internal.common_utils import run_tests, TestCase
 from torch.testing._internal.jit_utils import RUN_CUDA
 
 from nvfuser import (
@@ -25,22 +26,6 @@ all_scheduler_heuristics = [
     for heuristic, _ in SchedulerHeuristic.__entries.values()
     if not SchedulerHeuristic.none
 ]
-
-RUN_NVFUSER = RUN_CUDA and not TEST_WITH_ROCM
-
-
-def is_pre_volta():
-    if not RUN_NVFUSER:
-        return False
-    prop = torch.cuda.get_device_properties(torch.cuda.current_device())
-    return prop.major < 7
-
-
-def is_pre_hopper():
-    if not RUN_NVFUSER:
-        return False
-    prop = torch.cuda.get_device_properties(torch.cuda.current_device())
-    return prop.major < 9
 
 
 # A helper function to test heuristic schedulers with user schedules
@@ -70,7 +55,7 @@ def _apply_scheduler_helper(schedule, selected_heuristic):
     schedule.schedule(selected_heuristic)
 
 
-@unittest.skipIf(not RUN_NVFUSER, "requires CUDA")
+@unittest.skipIf(not RUN_CUDA, "requires CUDA")
 @unittest.skipIf(is_pre_volta(), "Only supported on Volta and newer devices.")
 class TestScheduleOps(TestCase):
     def sched_op_in_definition_error(self, sched_op_fn: Callable):
@@ -1101,6 +1086,42 @@ class TestScheduleOps(TestCase):
         nvf_out = fd.execute(inputs)
         torch_ref = torch.abs(inputs[0]).reshape(inputs[1].shape) + inputs[1]
         self.assertEqual(nvf_out[0], torch_ref)
+
+    @unittest.skipIf(torch.cuda.device_count() < 2, "More than 1 GPU required")
+    def test_inputs_with_different_devices(self):
+        """
+        Test case for issue 2056. Run the same fusion definition with inputs on
+        different devices. The python frontend should create a new user
+        schedule for inputs on different devices.
+        """
+
+        class FDScheduler(FusionDefinition):
+            def definition(self):
+                self.t0 = fd.define_tensor(
+                    shape=[-1, -1, -1],
+                    contiguity=[True, True, True],
+                    dtype=DataType.Float,
+                    is_cpu=False,
+                )
+                self.t1 = self.ops.sum(self.t0, dim=-1)
+                self.add_output(self.t1)
+
+            def schedule(self):
+                # Apply reduction schedule
+                _apply_scheduler_helper(fd.sched, SchedulerHeuristic.reduction)
+
+        # Create Definition
+        fd = FDScheduler()
+
+        # Execute FusionDefinition with device 0 and 1
+        devices = ["cuda:0", "cuda:1"]
+        for device in devices:
+            inputs = [
+                torch.randn(8, 8, 8, dtype=torch.float32, device=device),
+            ]
+            torch_ref = inputs[0].sum(-1)
+            nvf_out = fd.execute(inputs)
+            self.assertEqual(nvf_out[0], torch_ref)
 
 
 if __name__ == "__main__":

@@ -13,6 +13,7 @@
 #include <expr_evaluator.h>
 #include <expr_simplifier.h>
 #include <ir/builder.h>
+#include <ir/iostream.h>
 #include <iter_visitor.h>
 #include <scheduler/registry.h>
 
