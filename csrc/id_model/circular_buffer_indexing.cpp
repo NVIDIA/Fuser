@@ -27,7 +27,9 @@ Val* getLoopIndexOfCircularBufferLoop(
   }
 
   if (fl->circularBufferLoopStage() != CircularBufferLoopStage::NotApplicable) {
-    return fl->indexOrStartIfTrivial();
+    // Always return index even if for-loop is trivial.
+    // Simplify index with substitution.
+    return fl->index();
   } else {
     return nullptr;
   }
