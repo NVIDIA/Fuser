@@ -1493,7 +1493,7 @@ TEST_F(AllocationDomainTest, OuterReductionWithAllocationDomain) {
   auto tv4 = add(tv3, tv3);
   fusion->addOutput(tv4);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t1 = at::randn({x, y, z}, options).as_strided({x, y, z}, {1, x, x*y});
+  auto t1 = at::randn({x, y, z}, options).as_strided({x, y, z}, {1, x, x * y});
   std::vector<c10::IValue> inputs({t1});
 
   // Needs to use unscheduled fusion to use expr eval in testValidate

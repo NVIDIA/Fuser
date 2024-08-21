@@ -363,7 +363,7 @@ void AllocationDomainPass::runPass(Fusion* fusion) {
   for (TensorView* redu_tv : reduction_tvs) {
     dsts.push_back(redu_tv);
     auto reduced_tv = ir_utils::getSoleProducerTv(redu_tv);
-    if(!reduced_tv->isFusionInput()) {
+    if (!reduced_tv->isFusionInput()) {
       dsts.push_back(reduced_tv);
     }
   }
