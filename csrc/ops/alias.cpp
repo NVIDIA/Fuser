@@ -844,6 +844,8 @@ std::vector<TensorView*> chunk(
     TensorView* in,
     const int64_t chunks,
     int64_t dim) {
+  NVF_CHECK(chunks > 0);
+
   const auto in_logical = TensorDomain::noReductions(in->getLogicalDomain());
   const auto num_dims = static_cast<int64_t>(in_logical.size());
   dim = wrapDim(dim, num_dims);
