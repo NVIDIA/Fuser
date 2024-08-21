@@ -30,7 +30,7 @@ run_test './bin/test_python_frontend'
 run_test './bin/test_profiler'
 
 run_test 'pytest tests/python/test_ops.py'
-run_test 'python tests/python/test_python_frontend.py'
+run_test 'pytest tests/python/test_python_frontend.py'
 run_test 'pytest tests/python/test_schedule_ops.py'
 
 if $failed_tests;
