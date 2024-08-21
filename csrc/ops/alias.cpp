@@ -840,26 +840,26 @@ TensorView* slice(
   return slice(inp, slices);
 }
 
-std::vector<TensorView*> split(
+std::vector<TensorView*> chunk(
     TensorView* in,
-    int64_t dim,
-    const int64_t num_slices) {
+    const int64_t chunks,
+    int64_t dim) {
   const auto in_logical = TensorDomain::noReductions(in->getLogicalDomain());
   const auto num_dims = static_cast<int64_t>(in_logical.size());
   dim = wrapDim(dim, num_dims);
   Val* dim_size = in_logical[dim]->extent();
-  Val* slice_size = SimplifyingIrBuilder::divExpr(
-      dim_size, IrBuilder::create<Val>(num_slices));
+  Val* slice_size = SimplifyingIrBuilder::ceilDivExpr(
+      dim_size, IrBuilder::create<Val>(chunks));
 
   std::vector<TensorView*> slices;
-  slices.reserve(num_slices);
+  slices.reserve(chunks);
   std::vector<Slice> ranges(num_dims);
-  for (auto i : c10::irange(num_slices)) {
+  for (auto i : c10::irange(chunks)) {
     ranges[dim].start = ranges[dim].stop;
     ranges[dim].stop =
-        (i == num_slices - 1 ? nullptr
-                             : SimplifyingIrBuilder::mulExpr(
-                                   slice_size, IrBuilder::create<Val>(i + 1)));
+        (i == chunks - 1 ? nullptr
+                         : SimplifyingIrBuilder::mulExpr(
+                               slice_size, IrBuilder::create<Val>(i + 1)));
     slices.push_back(slice(in, ranges));
   }
   return slices;
