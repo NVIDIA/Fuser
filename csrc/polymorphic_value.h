@@ -221,7 +221,7 @@ using PolymorphicValue = dynamic_type::DynamicType<
 
 namespace PolymorphicValue_functions {
 
-std::string toString(const PolymorphicValue& v);
+NVF_API std::string toString(const PolymorphicValue& v);
 
 template <typename T>
 inline bool isNan(const T& a) {
