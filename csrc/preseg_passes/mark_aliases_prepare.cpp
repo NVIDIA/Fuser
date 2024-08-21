@@ -18,6 +18,24 @@ namespace nvfuser::preseg_passes {
 
 namespace {
 
+// Represents a use of `use_of` by `user`. This is to mark locations to segment
+// so meta ops form a no-op region. When `user` is not null, we expect to
+// segment between `use_of` and `user`, e.g.,
+//
+//   use_of -> [segment_set] -> copy of use_of -> [user]
+//
+// This happens due to bookending from outputs.
+//
+// When `user` is null, we expect to segment between `use_of` and all its
+// users, e.g.,
+//
+//   use_of -> [segment_set] -> copy of use_of -> [user_0]
+//                                             |
+//                                             +> [user_1]
+//                                             |
+//                                             +> [user_2]
+//
+// This happens due to bookending from inputs.
 struct Use {
   TensorView* use_of;
   Expr* user;
@@ -74,37 +92,60 @@ std::unordered_set<Expr*> exprsDependedByNonAliases(
   return {depended_by_non_aliases.begin(), depended_by_non_aliases.end()};
 }
 
-// Inserts a `segment_set` after `use_of` and redirect aliasing users to
-// use the `segment_set`.
+// Inserts a `segment_set` after `use_of` to separate meta and non-meta ops.
 template <typename InputIter>
 void insertSegmentSetAfter(InputIter first_user, InputIter last_user) {
   TensorView* use_of = first_user->use_of;
 
   std::vector<Expr*> users;
   users.reserve(use_of->uses().size());
-  if (first_user->user != nullptr) {
-    std::transform(
-        first_user, last_user, std::back_inserter(users), [](const Use& use) {
-          return use.user;
-        });
-  } else {
+  // `uses_to_segment` is sorted so `nullptr` if exists appears first.
+  if (first_user->user == nullptr) {
+    // This is an optimization to make fewer segments. In the
+    // following example, if bookending wants to segment (a) between `use_of`
+    // and all its users, (b) between `use_of` and `user_0`, and (c) between
+    // `use_of` and `user_1`. We can instead segment only between `use_of` and
+    // `user_2`, the complement set of [`first_user`, `last_user`). This is
+    // valid because the ops before `use_of`, those after `user_0`, and those
+    // after `user_1` are all meta ops that can be merged into one no-op
+    // segment.
+    //
+    //   use_of | -> | [user 0]
+    //            |
+    //            +> | [user 1]
+    //            |
+    //            +> [user 2]
+    //
+    //   ==>
+    //
+    //   use_of -> [user 0]
+    //          |
+    //          +> [user 1]
+    //          |
+    //          +> | [user 2]
     first_user++;
+    std::unordered_set<Expr*> to_remove;
+    std::for_each(first_user, last_user, [&](const Use& use) {
+      to_remove.insert(use.user);
+    });
     std::copy_if(
         use_of->uses().begin(),
         use_of->uses().end(),
         std::back_inserter(users),
-        [first_user, last_user](Expr* user) {
-          return std::find_if(first_user, last_user, [user](const Use& use) {
-                   return use.user == user;
-                 }) == last_user;
+        [&](Expr* user) { return to_remove.count(user) == 0; });
+  } else {
+    std::transform(
+        first_user, last_user, std::back_inserter(users), [](const Use& use) {
+          return use.user;
         });
   }
 
-  // There are a few corner cases where we don't need to add a
-  // `segment_set`. If `use_of` is only used by aliases, ...
+  // There are a few corner cases where we can avoid adding a
+  // `segment_set`. If a segment_set is to be added between `use_of` and all
+  // its users, ...
   if (users.size() == use_of->uses().size()) {
     if (use_of->isFusionInput()) {
-      // Putting a `segment_set` between a fusion input and its users is
+      // Putting a `segment_set` between a fusion input and all its users is
       // unnecessary.
       return;
     }
@@ -116,7 +157,7 @@ void insertSegmentSetAfter(InputIter first_user, InputIter last_user) {
     }
   }
 
-  // If all aliasing users are `segment_set`, don't create another
+  // If all users to segment are `segment_set`, don't create another
   // `segment_set`.
   if (std::all_of(users.begin(), users.end(), ir_utils::isSegmentSet)) {
     return;
@@ -134,6 +175,25 @@ void insertSegmentSetAfter(InputIter first_user, InputIter last_user) {
     copy->setAllocationDomain(
         replayed_domain->allocation(), replayed_domain->contiguity());
   }
+  // This is an optimization to make fewer segments. In the following example,
+  // we could literally add two `segment_set`s, one before `user_0` and the
+  // other before `user_1`. However, because these `segment_set`s are implied
+  // by bookending, the ops after `user_0` and those after `user_1` are all
+  // meta and can be merged into one no-op segment.
+  //
+  //   use_of -> | [user_0]
+  //          |
+  //          +> | [user_1]
+  //          |
+  //          +> [user_2]
+  //
+  //   =>
+  //
+  //   use_of -> [segment_set] -> copy -> [user_0]
+  //          |                        |
+  //          |                        +> [user 1]
+  //          |
+  //          +> [user_2]
   std::for_each(users.begin(), users.end(), [&](Expr* user) {
     ir_utils::replaceValInExprInputs(user, use_of, copy);
   });
@@ -190,8 +250,12 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
     }
   }
 
-  // The following emulates the bookend optimization. Only the output end is
-  // implemented at this moment. In general, the algorithm tries to walk up
+  // The following emulates the bookend optimization. This is done in two
+  // steps: the first step bookends the outputs and the second step does the
+  // inputs. TODO(wujingyue): extract this into a function. I'm adding the new
+  // logic in place just to make review easier.
+  //
+  // Step 1: for outputs, the algorithm tries to walk up
   // from each fusion output until reaching a non-alias, and put a
   // `segment_set` there so the meta ops that are skipped form a no-op segment.
   //
@@ -217,6 +281,16 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
     }
   }
 
+  // Step 2: for inputs, the algorithm tries to walk down from each fusion
+  // input until reaching a non-meta or a fork. Stopping at the fork is to
+  // avoid feeding the same data via multiple inputs, e.g.,
+  //
+  //   in -> reshape_0 -> mul
+  //    |                  ^
+  //    +--> reshape_1 ----+
+  //
+  // If we separate `reshape_0` and `reshape_1` from `mul`, the pointwise
+  // kernel would take double the input.
   std::queue<TensorView*> frontier;
   for (auto* tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
     frontier.push(tv);
@@ -226,6 +300,7 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
     frontier.pop();
 
     auto should_enqueue_users = [&analysis](TensorView* tv) {
+      // Stop at a non-meta op.
       if (!std::all_of(
               tv->uses().begin(), tv->uses().end(), [&analysis](Expr* e) {
                 return isMetaOp(analysis, e);
@@ -233,7 +308,10 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
         return false;
       }
 
+      // Stop at a fork.
       if (tv->uses().size() > 1 &&
+          // The only exception is when the fork happens to be a split, which
+          // is a common pattern in RoPE.
           !std::all_of(
               tv->uses().begin(),
               tv->uses().end(),
@@ -245,6 +323,9 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
     };
     if (should_enqueue_users(tv)) {
       for (Expr* user : tv->uses()) {
+        // If the use of `tv` by `user` is going to be segmented due to
+        // bookending outputs, stop there. We could keep bookending but further
+        // segmenting a meta-op region is useless.
         if (uses_to_segment.count(Use{tv, user})) {
           continue;
         }
@@ -254,6 +335,8 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
         }
       }
     } else {
+      // Will insert a segment_set between `tv` and all its users. See
+      // Use::user for more details.
       uses_to_segment.insert(Use{tv, nullptr});
     }
   }
