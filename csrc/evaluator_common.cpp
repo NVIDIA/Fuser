@@ -564,6 +564,9 @@ void NaiveValueMachine::runUnaryOp(int index) {
     case UnaryOpType::BitwiseNot:
       dest = ~src;
       break;
+    case UnaryOpType::Reciprocal:
+      dest = 1.0 / src;
+      break;
     case UnaryOpType::Signbit:
       dest = signbit(src);
       break;
@@ -660,6 +663,9 @@ void NaiveValueMachine::runBinaryOp(int index) {
       break;
     case BinaryOpType::Fmod:
       dest = fmod(lhs, rhs);
+      break;
+    case BinaryOpType::Pow:
+      dest = pow(lhs, rhs);
       break;
     default:
       NVF_CHECK(false, "Unexpected operator type ", bop_type_[index]);
