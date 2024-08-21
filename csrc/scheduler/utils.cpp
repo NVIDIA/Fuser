@@ -1323,8 +1323,6 @@ IterDomain* projectIdToRFactor(
 
 IterDomain* innerMostAllocDim(TensorView* tv) {
   const auto& alloc_domain = tv->getMaybeAllocationDomain();
-  std::cout << "innerMostAllocDim: " << tv->toString() << std::endl;
-  tv->printTransforms();
 
   if (tv->nDims() == 0) {
     return nullptr;
@@ -1488,16 +1486,12 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
   if (inner_most_id == nullptr) {
     return {};
   }
-  std::cout << "inner_most_id: " << inner_most_id->toString() << std::endl;
   FindAllMappedDims all_mapped_root_dims(
       reference_tv, inner_most_id, inner_only, vectorize_pass);
   MaxLogicalDomainInfoSpanningTree tree(reference_tv);
   tree.traverse(&all_mapped_root_dims);
 
   auto vectorizable_dims = all_mapped_root_dims.get();
-  for(auto id : vectorizable_dims) {
-    std::cout << "vectorizable_dims: " << id->toString() << std::endl;
-  }
 
   std::vector<TensorView*> vectorizable_tensors;
 

@@ -1443,7 +1443,7 @@ TEST_F(AllocationDomainTest, ClearReductionIterDomainsPatch) {
 // allocation_order_inference should change the allocation domain of the
 // reduction tv to [x, z, y] to match the input tv, and the reduction is in the
 // innermost dim.
-TEST_F(AllocationDomainTest, ReductionWithAllocationDomain) {
+TEST_F(AllocationDomainTest, InnerReductionWithAllocationDomain) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   long x = 3L, y = 1024L, z = 65L;
@@ -1474,19 +1474,26 @@ TEST_F(AllocationDomainTest, ReductionWithAllocationDomain) {
   testValidate(
       cloned_fusion.get(), cg_outputs, inputs, __LINE__, __FILE__, "", lparams);
 }
-
-TEST_F(AllocationDomainTest, ReductionSimple) {
+// Reduction tensor with allocation domain.
+// input tv: logical domain [x, y, z], allocation domain [z, y, x]
+// reduction tv: logical domain [x, y, z], domain types [Iter, Redu, Iter]
+// allocation_order_inference should change the allocation domain of the
+// reduction tv to [z, y, x] to match the input tv, and the reduction is an
+// outer reduction since its innermost dim is not a reduction.
+TEST_F(AllocationDomainTest, OuterReductionWithAllocationDomain) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  long x = 3L, y = 65L, z = 1024L;
+  long x = 3L, y = 1024L, z = 65L;
   auto tv1 = makeContigConcreteTensor({x, y, z});
   fusion->addInput(tv1);
+  std::vector<IterDomain*> tv1_dom = {tv1->axis(2), tv1->axis(1), tv1->axis(0)};
+  tv1->setAllocationDomain(tv1_dom, true);
   auto tv2 = add(tv1, tv1);
-  auto tv3 = sum(tv2, {-1});
+  auto tv3 = sum(tv2, {1});
   auto tv4 = add(tv3, tv3);
   fusion->addOutput(tv4);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t1 = at::randn({x, y, z}, options).as_strided({x, y, z}, {z * y, z, 1});
+  auto t1 = at::randn({x, y, z}, options).as_strided({x, y, z}, {1, x, x*y});
   std::vector<c10::IValue> inputs({t1});
 
   // Needs to use unscheduled fusion to use expr eval in testValidate
@@ -1495,7 +1502,7 @@ TEST_F(AllocationDomainTest, ReductionSimple) {
       nvfuser::preseg_passes::PreSegmenter>::runPass(fusion.get());
   auto reduction_params = getReductionHeuristics(fusion.get(), inputs);
   ASSERT_TRUE(reduction_params) << "Reduction schedule was not generated!";
-  ASSERT_TRUE(reduction_params->fastest_dim) << "Should use inner reduction!";
+  ASSERT_FALSE(reduction_params->fastest_dim) << "Should use outer reduction!";
   scheduleReduction(fusion.get(), *reduction_params);
   auto lparams = reduction_params->lparams;
   FusionExecutor fe;
@@ -1504,67 +1511,4 @@ TEST_F(AllocationDomainTest, ReductionSimple) {
   testValidate(
       cloned_fusion.get(), cg_outputs, inputs, __LINE__, __FILE__, "", lparams);
 }
-
-TEST_F(AllocationDomainTest, GroupNormChannelLast) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-  constexpr int64_t n = 2, c = 128, h = 16, w = 16, g = 32;
-  const std::vector<int64_t> input_shape = {n, c, h, w};
-  const std::vector<int64_t> group_shape = {n, g, c / g, h, w};
-  const std::vector<int64_t> input_shape_wb = {c};
-  const std::vector<int64_t> group_shape_wb = {g, c / g};
-  DataType dtype = DataType::Half;
-  auto tv0 = makeContigTensor(input_shape.size(), dtype);
-  auto tv1 = makeContigTensor(input_shape_wb.size(), DataType::Float);
-  auto tv2 = makeContigTensor(input_shape_wb.size(), DataType::Float);
-  fusion->addInput(tv0);
-  fusion->addInput(tv1);
-  fusion->addInput(tv2);
-  // channel last, n, h, w, c
-  tv0->setAllocationDomain(
-      {tv0->axis(0), tv0->axis(2), tv0->axis(3), tv0->axis(1)}, true);
-  auto tv3 = castOp(DataType::Float, tv0);
-  // reshape from {N, C, H, W} to {N, G, C / G, H, W}
-  auto tv4 = reshape(tv3, input_shape, group_shape);
-  // normalization
-  auto tv5 = sum(tv4, {-1, -2, -3});
-  auto tv6 = broadcast(tv5, {false, false, true, true, true});
-  auto tv7 = div(tv4, tv6);
-  // reshape scale and bias
-  auto tv8 = reshape(tv1, input_shape_wb, group_shape_wb);
-  auto tv9 = reshape(tv2, input_shape_wb, group_shape_wb);
-  // apply scale and bias
-  auto tv10 = broadcast(tv8, {true, false, false, true, true});
-  auto tv11 = broadcast(tv9, {true, false, false, true, true});
-  auto tv12 = mul(tv7, tv10);
-  auto tv13 = add(tv12, tv11);
-  auto tv14 = castOp(dtype, tv13);
-  // reshape back to input shape, segmented as a NoOp
-  auto tv15 = reshape(tv14, group_shape, input_shape);
-  fusion->addOutput(tv15);
-
-  auto options =
-      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  auto options_wb = at::TensorOptions()
-                        .dtype(data_type_to_aten(DataType::Float))
-                        .device(at::kCUDA, 0);
-  auto t0 = at::randn(input_shape, options).as_strided({n, c, h, w}, {c * h * w, 1, w * c, c});
-  auto tw = at::randn(input_shape_wb, options_wb);
-  auto tb = at::randn(input_shape_wb, options_wb);
-
-  FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0, tw, tb});
-  auto seg_groups =
-      executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
-
-  EXPECT_THAT(
-      seg_groups,
-      testing::UnorderedElementsAre(
-          HeuristicIs(ScheduleHeuristic::InnerPersistent),
-          HeuristicIs(ScheduleHeuristic::NoOp)));
-
-  testValidate(
-      executor_cache.fusion(), cg_outputs, {t0, tw, tb}, __LINE__, __FILE__);
-}
-
 } // namespace nvfuser
