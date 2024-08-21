@@ -11,6 +11,7 @@
 
 #include <contiguity.h>
 #include <expr_evaluator.h>
+#include <id_model/id_model.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
@@ -2538,6 +2539,81 @@ bool isResharding(Fusion* fusion) {
   const std::vector<Expr*>& exprs = fusion->exprs();
   return std::any_of(
       exprs.begin(), exprs.end(), [](Expr* e) { return isResharding(e); });
+}
+
+void moveNonConcretizedBroadcastInnermost(
+    Fusion* fusion,
+    const std::unordered_set<TensorView*>& ignored_tvs) {
+  IdModel id_model(fusion);
+  const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+  const auto& permissive_graph = id_model.idGraph(IdMappingMode::PERMISSIVE);
+
+  // This function is meant to be used as a preprocessing step of each
+  // segment scheduling. The goal is to find unmapped non-concretized
+  // broadcast domains. It is not meant to find all unmapped dangling
+  // domains. Any non-broadcast or concretized broadcast domains
+  // should be guaranteed to be mapped with reference tensors, i.e.,
+  // ignored_tvs. They should be taken care by the respective
+  // scheduler.
+  //
+  // As such, all non-broadcast domains are skipped. Furthermore, any
+  // domains that can be reachable from (i.e., mapped with)
+  // ignored_tvs can be skipped. Since only broadcast domains are
+  // considered, the exact mapping is enough to find such
+  // domains.
+  ValGroups ignored_groups;
+  for (auto ignored_tv : ignored_tvs) {
+    for (auto id : ignored_tv->domain()->allIDs()) {
+      if (id->isBroadcast()) {
+        ignored_groups.pushBack(exact_graph.toGroup(id));
+      }
+    }
+  }
+
+  for (auto tv : ir_utils::allTvs(fusion)) {
+    std::vector<int64_t> broadcast_to_move;
+    for (const auto i : c10::irange(tv->getLoopDomain().size())) {
+      auto loop_id = tv->getLoopDomain().at(i);
+      if (!loop_id->isBroadcast()) {
+        continue;
+      }
+
+      if (ignored_groups.has(exact_graph.toGroup(loop_id))) {
+        continue;
+      }
+
+      // If the permissive group has a non-broadcast domain, it means it's
+      // concretized.
+      // TODO: Add a separate analysis for detecting concretized
+      // broadcast domains using the Exact graph and replace the use
+      // of the Permissive graph.
+      const auto& permissive_group = permissive_graph.toGroup(loop_id);
+      if (std::any_of(
+              permissive_group->begin(),
+              permissive_group->end(),
+              [](Val* id) -> bool {
+                return !id->as<IterDomain>()->isBroadcast();
+              })) {
+        continue;
+      }
+
+      broadcast_to_move.push_back((int64_t)i);
+    }
+
+    if (broadcast_to_move.empty()) {
+      continue;
+    }
+
+    std::unordered_map<int64_t, int64_t> old2new;
+    int64_t move_to_pos =
+        (int64_t)(tv->getLoopDomain().size() - broadcast_to_move.size());
+    for (const auto i : broadcast_to_move) {
+      old2new[i] = move_to_pos;
+      ++move_to_pos;
+    }
+
+    tv->reorder(old2new);
+  }
 }
 
 } // namespace scheduler_utils
