@@ -1047,15 +1047,23 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
       // happens when loop_id is a reduction domain and this loop-nest
       // is for initializing the reduction buffer.
       if (for_loop != nullptr) {
+        // Replace circular buffer index with zero value if for-loop is trivial
+        if (for_loop->circularBufferLoopStage() !=
+            CircularBufferLoopStage::NotApplicable) {
+          Val* base_index =
+              replacement_index != nullptr ? replacement_index : cur_index;
+          replacement_index =
+              for_loop->isTrivial() ? for_loop->start() : base_index;
+        }
+
         // If this for-loop is a circular buffer loop, the loop index
-        // may need to have an additional offset
+        // may need to have an additional offset.
         if (!as_consumer) {
           if (auto circular_buffer_offset =
                   getLoopIndexOffsetForProducerOfCircularBuffer(
                       expr, for_loop, id_model_)) {
             replacement_index = SimplifyingIrBuilder::addExpr(
-                replacement_index != nullptr ? replacement_index : cur_index,
-                circular_buffer_offset);
+                replacement_index, circular_buffer_offset);
           }
         }
       }
