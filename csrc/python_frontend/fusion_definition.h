@@ -29,8 +29,9 @@ struct TrieNode;
 
 NVF_API const char* dtypeToPyString(PrimDataType t);
 
-//! The Tensor and Scalar classes are used to define separate function signtures
-//! in the FusionDefinition to identify the appropriate Operator function.
+//! The Tensor and Scalar classes are used to define separate function
+//! signatures in the FusionDefinition to identify the appropriate Operator
+//! function.
 //!
 //! Example:
 //!
@@ -170,6 +171,9 @@ class NVF_API FusionDefinition : public FusionState {
   //! Exit Python Context Manager -- Triggers Fusion IR build if it is not
   //! cached
   NVF_API void finalizeDefinition();
+  //! Check that a user schedule exists for FusionDefinition and input
+  //! arguments on device.
+  NVF_API bool existSchedule(const at::ArrayRef<c10::IValue>& inputs);
   //! Setup user scheduling of a fusion
   //! Copies fusion object and sets up FusionGuard
   NVF_API void setupSchedule(const at::ArrayRef<c10::IValue>& inputs);
@@ -251,6 +255,13 @@ class NVF_API FusionDefinition : public FusionState {
   FusionCache* fusionCache() const;
   //! Return a prescheduled Fusion object
   Fusion* preschedFusion();
+  //! Composite operations can create hidden TensorViews in the CPP fusion
+  //! These TensorViews are not visible from python definition. This function
+  //! finds and adds them to FusionDefinition
+  void findHiddenTensorViews(Fusion* fusion);
+  //! Update Symbolic FusionStates after DynamicTransform pass
+  void updateSymbolicStates(
+      const std::unordered_map<Val*, Val*>& symbolic_to_concretized_map);
 
   //! Holds the defined maximum length of a FusionDefinition in order to
   //! prevent a run away error. The user should feel free to increase this
@@ -270,6 +281,8 @@ class NVF_API FusionDefinition : public FusionState {
   Fusion* prev_fusion_;
   //! Data member for holding the current user schedule object
   UserSchedule* user_sched_;
+  //! Number of recording_states_ before applying user schedule
+  int64_t num_recording_states_presched_ = 0;
 
  public:
   //! The Operators are not directly defined in this header.  They are defined

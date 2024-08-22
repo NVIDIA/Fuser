@@ -19,21 +19,16 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
   for (Expr* expr : fusion->exprs()) {
     const auto& inputs = ir_utils::filterByType<TensorView>(expr->inputs());
     const auto& outputs = ir_utils::filterByType<TensorView>(expr->outputs());
-    if (inputs.empty()) {
+
+    auto i = std::find_if(
+        inputs.begin(), inputs.end(), std::mem_fn(&TensorView::hasDeviceMesh));
+    if (i == inputs.end()) {
       continue;
     }
-    TensorView* input_with_mesh = nullptr;
-    for (TensorView* tv : inputs) {
-      NVF_CHECK(
-          tv->hasDeviceMesh(),
-          "Tensor ",
-          tv->toString(),
-          " should be assigned a DeviceMesh");
-      if (input_with_mesh == nullptr) {
-        input_with_mesh = tv;
-      }
-    }
+    TensorView* input_with_mesh = *i;
 
+    // Note: Tvs without a mesh are assumed to have no manual sharding
+    // annotation and are sharded like the first producer Tv.
     std::vector<TensorView*> outputs_without_mesh;
     for (TensorView* tv : outputs) {
       if (!tv->hasDeviceMesh()) {
@@ -42,6 +37,30 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
     }
     shardAllLike(input_with_mesh, outputs_without_mesh);
   }
+
+  // Validate that meshes are assigned to all TensorViews or none.
+  TensorView* tv_with_mesh = nullptr;
+  TensorView* tv_without_mesh = nullptr;
+  for (TensorView* tv : ir_utils::allTvs(fusion)) {
+    auto update_if_null = [](TensorView*& lhs, TensorView* rhs) {
+      if (lhs == nullptr) {
+        lhs = rhs;
+      }
+    };
+
+    if (tv->hasDeviceMesh()) {
+      update_if_null(tv_with_mesh, tv);
+    } else {
+      update_if_null(tv_without_mesh, tv);
+    }
+  }
+  NVF_CHECK(
+      tv_with_mesh == nullptr || tv_without_mesh == nullptr,
+      "Found ",
+      tv_with_mesh,
+      " assigned a mesh and ",
+      tv_without_mesh,
+      " not.");
 }
 
 } // namespace nvfuser::preseg_passes

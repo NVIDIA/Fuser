@@ -154,28 +154,6 @@ Communication::Communication(
   addInput(in);
   addOutput(out);
   addDataAttribute(type);
-  addDataAttribute(DeviceMesh());
-  addDataAttribute(team);
-  addDataAttribute(root);
-  addDataAttribute(red_op);
-  addDataAttribute(scattered_axis);
-
-  validate();
-}
-
-Communication::Communication(
-    IrBuilderPasskey passkey,
-    CommunicationType type,
-    DeviceMesh mesh,
-    Team team,
-    DeviceIdxType root,
-    RedOpType red_op,
-    int64_t scattered_axis)
-    : Expr(passkey) {
-  NVF_ERROR(mesh.size() > 0, "The mesh size must be greater than 0.");
-
-  addDataAttribute(type);
-  addDataAttribute(mesh);
   addDataAttribute(team);
   addDataAttribute(root);
   addDataAttribute(red_op);
@@ -214,12 +192,17 @@ std::string Communication::toString(const int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "Communication " << name() << " ("
                           << "type=" << type() << ", "
-                          << "team=(" << team() << "), ";
+                          << "team=(" << team() << ")";
   if (hasRoot(type())) {
-    ss << "root=" << root() << ", ";
+    ss << ", root=" << root();
   }
-  ss << (inputs().empty() ? "" : "Input=" + in()->toString()) << ", "
-     << (outputs().empty() ? "" : "Output=" + out()->toString()) << ")";
+  if (!inputs().empty()) {
+    ss << ", input=" << in();
+  }
+  if (!outputs().empty()) {
+    ss << ", output=" << out();
+  }
+  ss << ")\n";
   return ss.str();
 }
 
@@ -235,7 +218,7 @@ c10::intrusive_ptr<c10d::Work> postBroadcast(
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
   if (my_device_index == communication->root()) {
-    if (communication->receiverMesh().has(communication->root())) {
+    if (communication->out()->getDeviceMesh().has(communication->root())) {
       // Do a local copy and the subsequent broadcast will be in place. Consider
       // ProcessGroupNCCL::_broadcast_oop so ncclBroadcast doesn't wait for the
       // local copy to complete.
@@ -262,7 +245,7 @@ c10::intrusive_ptr<c10d::Work> postGather(
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
   if (my_device_index == communication->root() &&
-      !communication->senderMesh().has(communication->root())) {
+      !communication->in()->getDeviceMesh().has(communication->root())) {
     // This is likely a suboptimal way to allocate tensors for nccl. To benefit
     // from zero copy
     // (https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/usage/bufferreg.html),
@@ -280,7 +263,7 @@ c10::intrusive_ptr<c10d::Work> postGather(
     int64_t j = 0;
     for (auto i : c10::irange(communication->team().size())) {
       if (root_relative_index == static_cast<DeviceIdxType>(i) &&
-          !communication->senderMesh().has(communication->root())) {
+          !communication->in()->getDeviceMesh().has(communication->root())) {
         output_tensors[0].push_back(input_tensor);
         continue;
       }
@@ -321,7 +304,7 @@ c10::intrusive_ptr<c10d::Work> postScatter(
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
   if (my_device_index == communication->root() &&
-      !communication->receiverMesh().has(communication->root())) {
+      !communication->out()->getDeviceMesh().has(communication->root())) {
     output_tensor = at::empty_like(input_tensor.slice(0, 0, 1));
   }
   std::vector<at::Tensor> output_tensors({output_tensor});
@@ -333,7 +316,7 @@ c10::intrusive_ptr<c10d::Work> postScatter(
     int64_t j = 0;
     for (auto i : c10::irange(communication->team().size())) {
       if (root_relative_index == static_cast<DeviceIdxType>(i) &&
-          !communication->receiverMesh().has(communication->root())) {
+          !communication->out()->getDeviceMesh().has(communication->root())) {
         input_tensors.front().push_back(output_tensor);
         continue;
       }
@@ -357,7 +340,7 @@ c10::intrusive_ptr<c10d::Work> postReduce(
     at::Tensor output_tensor) {
   at::Tensor tensor;
   if (my_device_index == communication->root()) {
-    if (communication->senderMesh().has(communication->root())) {
+    if (communication->in()->getDeviceMesh().has(communication->root())) {
       doLocalCopy(output_tensor, input_tensor);
       tensor = output_tensor;
     } else {

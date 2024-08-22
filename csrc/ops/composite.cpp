@@ -64,32 +64,43 @@ static TensorView* newForLinear(
   auto input_domain = TensorDomain::noReductions(input->getLogicalDomain());
   auto weight_domain = TensorDomain::noReductions(weight->getLogicalDomain());
 
+  // Output has a reduction axis rK if K is not bcast
+  NVF_CHECK(
+      input_domain.back()->isBroadcast() == weight_domain.back()->isBroadcast(),
+      "K should be broadcast in both inputs and weights, or neither.");
+  bool k_bcast = input_domain.back()->isBroadcast();
+  size_t red_dims = k_bcast ? 0 : 1;
+
   // Linear: a = {*, in_features}, b = {out_features, in_features} /
-  // {in_features}.The linear output is {*, (out_features), rK}.
-  // The first out_size -2 dimensions are as the first input, followed by
-  // out_features (if present) and an additional reduction axis K.
-  auto ndims_out = input_domain.size() + weight_domain.size() - 1;
+  // {in_features}.The linear output is {*, (out_features), rK?}.
+  // Reduction K is present only when K is not bcast.
+  auto ndims_out =
+      (input_domain.size() - 1) + (weight_domain.size() - 1) + red_dims;
 
   const std::vector<IterDomain*>& mapping_a =
-      ops::mapLinearOpIterDomains(input_domain, 0, ndims_out);
+      ops::mapLinearOpIterDomains(input_domain, 0, ndims_out, k_bcast);
   const std::vector<IterDomain*>& mapping_b =
-      ops::mapLinearOpIterDomains(weight_domain, 1, ndims_out);
+      ops::mapLinearOpIterDomains(weight_domain, 1, ndims_out, k_bcast);
   std::vector<IterDomain*> mapping_bias(ndims_out, nullptr);
   if (bias != nullptr) {
     auto bias_domain = TensorDomain::noReductions(bias->getLogicalDomain());
-    mapping_bias = ops::mapLinearOpIterDomains(bias_domain, 2, ndims_out);
+    mapping_bias =
+        ops::mapLinearOpIterDomains(bias_domain, 2, ndims_out, k_bcast);
   }
 
   std::vector<IterDomain*> out_domain(ndims_out, nullptr);
 
-  for (auto idx : c10::irange(ndims_out - 1)) {
+  for (auto idx : c10::irange(ndims_out - red_dims)) {
     out_domain[idx] = ops::newOutputIterDomain(
         {mapping_a.at(idx), mapping_b.at(idx), mapping_bias.at(idx)});
   }
-  // Specify the iterdomain for K as reduction
-  out_domain[ndims_out - 1] = ops::newOutputIterDomain(
-      {mapping_a.back(), mapping_b.back()},
-      /*force_iter_type=*/IterType::Reduction);
+
+  if (!k_bcast) {
+    // Specify the iterdomain for K as reduction
+    out_domain[ndims_out - 1] = ops::newOutputIterDomain(
+        {mapping_a.back(), mapping_b.back()},
+        /*force_iter_type=*/IterType::Reduction);
+  }
 
   TensorDomain* td = IrBuilder::create<TensorDomain>(
       out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
@@ -335,14 +346,25 @@ static TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
   auto ndims_a = orig_domain_a.size();
   auto ndims_b = orig_domain_b.size();
 
+  auto b_kpos = orig_domain_b.size() > 1 ? ndims_b - 2 : ndims_b - 1;
+  NVF_CHECK(
+      orig_domain_a.back()->isBroadcast() ==
+          orig_domain_b.at(b_kpos)->isBroadcast(),
+      "K should be broadcast in both A and B, or neither.");
+
+  // Output has a reduction axis rK if K is not bcast
+  bool k_bcast = orig_domain_a.back()->isBroadcast();
+  size_t red_dims = k_bcast ? 0 : 1;
+
   // Matmul output size is same as the higher dimensional input size if both A/B
-  // > 1D, but with 1 additional IterType::Reduction axis rK.
-  auto ndims_out = std::max(ndims_a, ndims_b) + 1;
+  // > 1D, but with 1 additional IterType::Reduction axis rK if K is not
+  // broadcast.
+  auto ndims_out = std::max(ndims_a, ndims_b) + red_dims;
   if (std::min(ndims_a, ndims_b) == 1) {
     // If one of the inputs is 1D, the output size is the same as the higher
     // dimensional input size, since we will include a Reduction axis for K in
     // the output. For example: [iM, iK] x [iK] -> [iM, rK]
-    ndims_out = std::max(ndims_a, ndims_b);
+    ndims_out = std::max(ndims_a, ndims_b) - 1 + red_dims;
   }
 
   std::vector<IterDomain*> out_domain(ndims_out, nullptr);
@@ -352,14 +374,15 @@ static TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
   const std::vector<IterDomain*>& mapping_b =
       ops::mapMatmulOpIterDomains(orig_domain_b, 1, ndims_out);
 
-  for (auto idx : c10::irange(ndims_out - 1)) {
+  for (auto idx : c10::irange(ndims_out - red_dims)) {
     out_domain[idx] =
         ops::newOutputIterDomain({mapping_a.at(idx), mapping_b.at(idx)});
   }
-
-  out_domain[ndims_out - 1] = ops::newOutputIterDomain(
-      {mapping_a.back(), mapping_b.back()},
-      /*force_iter_type=*/IterType::Reduction);
+  if (!k_bcast) {
+    out_domain[ndims_out - 1] = ops::newOutputIterDomain(
+        {mapping_a.back(), mapping_b.back()},
+        /*force_iter_type=*/IterType::Reduction);
+  }
 
   TensorDomain* td = IrBuilder::create<TensorDomain>(
       out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
@@ -452,11 +475,11 @@ SdpfaFwdResult sdpfa_fwd(
   NVF_CHECK(
       !scale || scale->isScalar(), "Expected scale to be a scalar double.");
 
-  // Query: [N,H,L,E], Key: [N,H,S,E], Value: [N,H,S,Ev] Output: [N,H,L,Ev]
-  // N, H are mapped for all inputs to outputs. L is mapped from query to
-  // output. Ev is mapped from value to output. Note: There is no mapping for S,
-  // E. This may change in the future if we add additional reduction ids to the
-  // output.
+  // Query: [DIDx(D)?,N,H,L,E], Key: [DIDx(D)?,N,H,S,E], Value:
+  // [DIDx(D)?,N,H,S,Ev] Output: [DIDx(D)?,N,H,L,Ev] N, H are mapped for all
+  // inputs to outputs. L is mapped from query to output. Ev is mapped from
+  // value to output. Note: There is no mapping for S, E. This may change in the
+  // future if we add additional reduction ids to the output.
   auto ndims_out = query_domain.size();
 
   // TensorView for attention output
@@ -474,7 +497,7 @@ SdpfaFwdResult sdpfa_fwd(
       out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
   TensorView* output = IrBuilder::create<TensorView>(attn_td, query->dtype());
 
-  // TensorView for log_sumexp [N, H, L]
+  // TensorView for log_sumexp [DIDx(D)?,N, H, L]
   std::vector<IterDomain*> log_sumexp_dom(ndims_out - 1, nullptr);
   for (auto idx : c10::irange(ndims_out - 2)) {
     log_sumexp_dom[idx] = ops::newOutputIterDomain(
@@ -488,44 +511,11 @@ SdpfaFwdResult sdpfa_fwd(
   TensorView* log_sumexp =
       IrBuilder::create<TensorView>(log_sumexp_td, DataType::Float);
 
-  // Create a new Tensorview for cum_seq_q, cum_seq_k of shape (N + 1)
-  auto batch_idx = has_device_dim ? 1 : 0;
-  auto newForCumulativeSeq = [&]() -> TensorView* {
-    IterDomain* batch_id = ops::newOutputIterDomain(
-        {query_domain.at(batch_idx),
-         key_domain.at(batch_idx),
-         value_domain.at(batch_idx)});
-    IterDomain* resized_batch_id = IterDomain::resize(
-        batch_id,
-        IrBuilder::create<Val>(0, DataType::Index),
-        IrBuilder::create<Val>(1, DataType::Index),
-        /*mark_as_rfactor=*/true);
-
-    return IrBuilder::create<TensorView>(
-        IrBuilder::create<TensorDomain>(
-            std::vector({batch_id}),
-            std::vector({resized_batch_id}),
-            std::vector({resized_batch_id}),
-            TensorDomain::getContiguityFilledWith(
-                std::vector({resized_batch_id}), true)),
-        DataType::Int);
-  };
-
-  TensorView* cum_seq_q = newForCumulativeSeq();
-  TensorView* cum_seq_k = newForCumulativeSeq();
-
-  TensorView* query_seq_len = TensorViewBuilder().dtype(DataType::Int).build();
-  TensorView* key_seq_len = TensorViewBuilder().dtype(DataType::Int).build();
-
   // Scalar tensors of int64_t dtype.
   TensorView* philox_seed = TensorViewBuilder().dtype(DataType::Int).build();
   TensorView* philox_offset = TensorViewBuilder().dtype(DataType::Int).build();
-
-  // Thunder metadata represents debug_attn_mask of type int64_t, although the
-  // debug_attn_mask is of query.dtype. Since we use return_debug_mask=false in
-  // the internal flash attention call, this is a scalar zero tensor.
-  TensorView* debug_attn_mask =
-      TensorViewBuilder().dtype(query->dtype()).build();
+  philox_seed->setCpuScalar(true);
+  philox_offset->setCpuScalar(true);
 
   // Set default values for dropout_p (0.0), is_causal(false)
   if (dropout_p == nullptr) {
@@ -539,29 +529,15 @@ SdpfaFwdResult sdpfa_fwd(
   IrBuilder::create<SdpaFwdOp>(
       output,
       log_sumexp,
-      cum_seq_q,
-      cum_seq_k,
-      query_seq_len,
-      key_seq_len,
       philox_seed,
       philox_offset,
-      debug_attn_mask,
       query,
       key,
       value,
       dropout_p,
       is_causal,
       scale);
-  return {
-      output,
-      log_sumexp,
-      cum_seq_q,
-      cum_seq_k,
-      query_seq_len,
-      key_seq_len,
-      philox_seed,
-      philox_offset,
-      debug_attn_mask};
+  return {output, log_sumexp, philox_seed, philox_offset};
 }
 
 SdpfaBwdResult sdpfa_bwd(
@@ -571,10 +547,6 @@ SdpfaBwdResult sdpfa_bwd(
     TensorView* value,
     TensorView* output,
     TensorView* log_sumexp,
-    TensorView* cum_seq_q,
-    TensorView* cum_seq_k,
-    TensorView* query_seq_len,
-    TensorView* key_seq_len,
     Val* dropout_p,
     Val* is_causal,
     TensorView* philox_seed,
@@ -612,6 +584,19 @@ SdpfaBwdResult sdpfa_bwd(
   NVF_CHECK(
       !scale || scale->isScalar(), "Expected scale to be a scalar double.");
 
+  // Set default values for dropout_p (0.0), is_causal(false)
+  if (dropout_p == nullptr) {
+    dropout_p = IrBuilder::create<Val>(0.0, DataType::Double);
+  }
+
+  if (is_causal == nullptr) {
+    is_causal = IrBuilder::create<Val>(false, DataType::Bool);
+  }
+
+  // Mark CPU scalar tensors.
+  philox_seed->setCpuScalar(true);
+  philox_offset->setCpuScalar(true);
+
   // Query: [N,H,L,E], Key: [N,H,S,E], Value: [N,H,S,Ev] Output: [N,H,L,Ev]
   TensorView* grad_query = ops::newOutputTV({query}, query->dtype());
   TensorView* grad_key = ops::newOutputTV({key}, key->dtype());
@@ -627,10 +612,6 @@ SdpfaBwdResult sdpfa_bwd(
       value,
       output,
       log_sumexp,
-      cum_seq_q,
-      cum_seq_k,
-      query_seq_len,
-      key_seq_len,
       dropout_p,
       is_causal,
       philox_seed,

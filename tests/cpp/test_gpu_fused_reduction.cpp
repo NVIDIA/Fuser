@@ -1339,8 +1339,7 @@ TEST_F(NVFuserTest, FusionPersistentBNBackwardAllreduce_CUDA) {
 
   if (weight == nullptr) {
     grad_scale =
-        mul(broadcast(invstd, broadcast_mask),
-            IrBuilder::createInContainer<Val>(input->container(), 1.0));
+        mul(broadcast(invstd, broadcast_mask), IrBuilder::create<Val>(1.0));
   } else {
     grad_scale = mul(
         broadcast(invstd, broadcast_mask), broadcast(weight, broadcast_mask));

@@ -5,10 +5,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <csrc/exceptions.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
+#include <torch/torch.h>
+
+#include <exceptions.h>
 #include <executor.h>
 #include <inlining.h>
 #include <ir/all_nodes.h>
@@ -16,15 +18,12 @@
 #include <kernel_cache.h>
 #include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>
-
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
-#include <torch/torch.h>
-
 namespace nvfuser {
 
-class IndexingOpTest : public NVFuserTest {};
+using ScatterGatherTest = NVFuserTest;
 
 namespace {
 auto randomVector(int64_t low, int64_t high, int rank) {
@@ -78,7 +77,7 @@ at::Tensor generateScatter2DIndex(
 
 } // namespace
 
-TEST_F(IndexingOpTest, Scatter1DIndexZerosSelfTvSameShape_CUDA) {
+TEST_F(ScatterGatherTest, Scatter1DIndexZerosSelfTvSameShape) {
   const std::vector<std::vector<int64_t>> input_dims = {{2, 2}};
 
   const std::vector<std::vector<int64_t>> src_dims = {{2, 2}};
@@ -128,7 +127,7 @@ TEST_F(IndexingOpTest, Scatter1DIndexZerosSelfTvSameShape_CUDA) {
 
 // Test the correctness of gather operator in different dimensions and selcted
 // dim.
-TEST_F(IndexingOpTest, TorchGatherAllRankAllSelectedDim_CUDA) {
+TEST_F(ScatterGatherTest, TorchGatherAllRankAllSelectedDim) {
   const int max_dim_size = 64;
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
@@ -168,7 +167,7 @@ TEST_F(IndexingOpTest, TorchGatherAllRankAllSelectedDim_CUDA) {
   }
 }
 // Test the fusion support of gather operator(producer) and elemetwise(consumer)
-TEST_F(IndexingOpTest, TorchGatherAddMul_CUDA) {
+TEST_F(ScatterGatherTest, TorchGatherAddMul) {
   const int max_dim_size = 64;
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
@@ -207,7 +206,7 @@ TEST_F(IndexingOpTest, TorchGatherAddMul_CUDA) {
   }
 }
 // Test the fusion support of index tensor as fusion input in gather operator
-TEST_F(IndexingOpTest, AddGatherSumAdd_CUDA) {
+TEST_F(ScatterGatherTest, AddGatherSumAdd) {
   const int max_dim_size = 8;
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
@@ -251,7 +250,7 @@ TEST_F(IndexingOpTest, AddGatherSumAdd_CUDA) {
   }
 }
 // Test the fusion support of gather operator and reduce
-TEST_F(IndexingOpTest, TorchGatherSumAdd_CUDA) {
+TEST_F(ScatterGatherTest, TorchGatherSumAdd) {
   const int max_dim_size = 32;
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
@@ -300,7 +299,7 @@ TEST_F(IndexingOpTest, TorchGatherSumAdd_CUDA) {
   }
 }
 // Test the correctness when input/index tensor is very large
-TEST_F(IndexingOpTest, TorchGatherAddMulHugeSize_CUDA) {
+TEST_F(ScatterGatherTest, TorchGatherAddMulHugeSize) {
   const int max_dim_size = 16384;
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
@@ -340,7 +339,7 @@ TEST_F(IndexingOpTest, TorchGatherAddMulHugeSize_CUDA) {
   }
 }
 // Test the fusion support of input tensor as fusion input
-TEST_F(IndexingOpTest, TorchGatherInput_CUDA) {
+TEST_F(ScatterGatherTest, TorchGatherInput) {
   const int rank = 2;
 
   auto fusion_ptr = std::make_unique<Fusion>();
@@ -367,7 +366,7 @@ TEST_F(IndexingOpTest, TorchGatherInput_CUDA) {
 
 // Test when then extent of iteration domain is euqal to one, and the iteration
 // type is broadcast (IndexTv), used in RGCN model.
-TEST_F(IndexingOpTest, TorchGatherIndexTvExtentIsOne_CUDA) {
+TEST_F(ScatterGatherTest, TorchGatherIndexTvExtentIsOne) {
   std::vector<int64_t> input_dims{16384, 60};
   std::vector<int64_t> index_dims{16384, 1};
   const int max_selected_index = 60;
@@ -411,7 +410,7 @@ TEST_F(IndexingOpTest, TorchGatherIndexTvExtentIsOne_CUDA) {
 }
 
 // Test take_along_axis with a broadcast index tensor
-TEST_F(IndexingOpTest, TakeAlongBroadcastIndex_CUDA) {
+TEST_F(ScatterGatherTest, TakeAlongBroadcastIndex) {
   for (const auto index_dim : {1, 3}) {
     auto fusion_ptr = std::make_unique<Fusion>();
     Fusion& fusion = *fusion_ptr.get();
@@ -449,7 +448,7 @@ TEST_F(IndexingOpTest, TakeAlongBroadcastIndex_CUDA) {
   }
 }
 
-TEST_F(IndexingOpTest, GatherBroadcastInput_CUDA) {
+TEST_F(ScatterGatherTest, GatherBroadcastInput) {
   for (const auto is_take_along : {false, true}) {
     // torch_gather not supported yet. The issue is one of the index
     // tensor has a broadcast domain, but its corresponding input
@@ -510,7 +509,7 @@ TEST_F(IndexingOpTest, GatherBroadcastInput_CUDA) {
 }
 
 // Test take_along_axis with non fusion inputs
-TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorPointwise1_CUDA) {
+TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorPointwise1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -596,7 +595,7 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorPointwise1_CUDA) {
 }
 
 // Same as the above but with the pointwise scheduler
-TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorPointwise2_CUDA) {
+TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorPointwise2) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -634,7 +633,7 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorPointwise2_CUDA) {
 // Reduction then take_along_axis. This is currently segmented due to
 // the post-reduction rule as documented in
 // https://github.com/NVIDIA/Fuser/issues/260
-TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorReduction1_CUDA) {
+TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorReduction1) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -668,7 +667,7 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorReduction1_CUDA) {
 
 // take_along_axis to broadcast, squeeze, then reduction. Segmented
 // before the reduction
-TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorReduction2_CUDA) {
+TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorReduction2) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -707,7 +706,7 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorReduction2_CUDA) {
 }
 
 // take_along_axis then reduction. Should not be segmented.
-TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorReduction3_CUDA) {
+TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorReduction3) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -746,8 +745,9 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorReduction3_CUDA) {
 
 // Similar to TakeAlongAxisIntermediateTensorReduction2, but no
 // squeeze of the consumer ID of the indexed domain. Should not be segmented.
-TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorReduction4_CUDA) {
-  GTEST_SKIP() << "Disabled due to a bug. See #292";
+//
+// Disabled due to #293.
+TEST_F(ScatterGatherTest, DISABLED_TakeAlongAxisIntermediateTensorReduction4) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -786,7 +786,7 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorReduction4_CUDA) {
 }
 
 // Normalization then take_along_axis
-TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorNormalization1_CUDA) {
+TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorNormalization1) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -830,7 +830,7 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorNormalization1_CUDA) {
 // take_along_dim to broadcast, squeeze, then normalization. Segmented
 // as the input dim to take_along_dim cannot be scheduled by the
 // reduction tv
-TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorNormalization2_CUDA) {
+TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorNormalization2) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -872,7 +872,7 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorNormalization2_CUDA) {
 }
 
 // take_along_axis then normalization. Should not be segmented.
-TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorNormalization3_CUDA) {
+TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorNormalization3) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -917,8 +917,8 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorNormalization3_CUDA) {
 // Normalization, then take_along_axis, then reduction. Similar
 // pattern as cross entropy.
 TEST_F(
-    IndexingOpTest,
-    TakeAlongAxisIntermediateTensorNormalizationAndReduction1_CUDA) {
+    ScatterGatherTest,
+    TakeAlongAxisIntermediateTensorNormalizationAndReduction1) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -964,8 +964,8 @@ TEST_F(
 // final reduction pattern is compatible with the first reduction, so
 // no segmentation should be done
 TEST_F(
-    IndexingOpTest,
-    TakeAlongAxisIntermediateTensorNormalizationAndReduction2_CUDA) {
+    ScatterGatherTest,
+    TakeAlongAxisIntermediateTensorNormalizationAndReduction2) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -1010,7 +1010,7 @@ TEST_F(
 }
 
 // take_along_axis then transpose
-TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorTranspose1_CUDA) {
+TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorTranspose1) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -1058,7 +1058,7 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorTranspose1_CUDA) {
 // Transpose scheduler due to a limitation of the analysis for the
 // scheduler. See DomainMap::findReferenceFor in transpose.cpp for
 // more details.
-TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorTranspose2_CUDA) {
+TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorTranspose2) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -1099,7 +1099,7 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorTranspose2_CUDA) {
 
 // transpose the dimension produced by take_along_axis. Currently not
 // supported by the transpose scheduler
-TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorTranspose3_CUDA) {
+TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorTranspose3) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -1122,7 +1122,10 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorTranspose3_CUDA) {
   auto tv3 = broadcast(tv1, {true, false, false});
   auto tv4 = take_along_axis(tv2, tv3, 2);
   auto tv5 = transpose(tv4, 1, 2);
-  fusion.addOutput(tv5);
+  // Without the `add`, the transpose will be taken by NoOp, defeating the
+  // purpose of testing PointWise.
+  auto tv6 = add(tv5, tv5);
+  fusion.addOutput(tv6);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
@@ -1141,7 +1144,7 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorTranspose3_CUDA) {
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
-TEST_F(IndexingOpTest, TakeAlongAxisCrossEntropyLoss_CUDA) {
+TEST_F(ScatterGatherTest, TakeAlongAxisCrossEntropyLoss) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
@@ -1219,7 +1222,7 @@ TEST_F(IndexingOpTest, TakeAlongAxisCrossEntropyLoss_CUDA) {
 }
 
 // Test grouped reduction on IterType::GatherScatter
-TEST_F(IndexingOpTest, GatherIterGoupedReduction_CUDA) {
+TEST_F(ScatterGatherTest, GatherIterGoupedReduction) {
   const int max_dim_size = 128;
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);

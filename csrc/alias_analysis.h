@@ -65,10 +65,10 @@ class AliasAnalysisResult {
   // returns the `TensorView`'s initial layout.
   Layout preferredLayout(const Val* alias) const;
 
-  std::string toString(int indent_size) const;
+  std::string toString(int indent_size = 0) const;
 
   // Returns the mapped value in `alias_to_root_` or null.
-  TensorView* getNearestAliasedIo(const TensorView* alias) const;
+  TensorView* getRoot(const TensorView* alias) const;
 
  private:
   // Maps an alias (e.g. the output of a `ViewOp`) to its direct source (e.g.
@@ -79,10 +79,8 @@ class AliasAnalysisResult {
   std::unordered_map<const TensorView*, std::pair<TensorView*, Layout>>
       alias_to_source_;
 
-  // Maps an alias to its nearest, transitively aliased fusion input/output, if
-  // its preferred layout is compliant with its actual layout.
-  //
-  // TODO(wujingyue): consider to merge `alias_to_source_` and `alias_to_root_`.
+  // Maps an alias to its "highest ancestor" according to `alias_to_source_`,
+  // if its preferred layout is compliant with its actual layout.
   std::unordered_map<const TensorView*, TensorView*> alias_to_root_;
 };
 

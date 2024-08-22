@@ -16,8 +16,19 @@ namespace nvfuser::python_frontend {
 struct RecordFunctor;
 
 struct State {
-  State(size_t _index, serde::StateType _stype)
-      : index(_index), stype(_stype) {}
+  State()
+      : index(0),
+        stype(serde::StateType::None),
+        inline_def_record_(std::nullopt) {}
+  State(
+      size_t _index,
+      serde::StateType _stype,
+      std::optional<const RecordFunctor*> inline_def_record = std::nullopt)
+      : index(_index), stype(_stype), inline_def_record_(inline_def_record) {}
+
+  bool inlineDef() const;
+  void setInlineDefRecord(const RecordFunctor* record);
+  const RecordFunctor* inlineDefRecord() const;
 
   bool operator==(const State& other) const;
   bool operator!=(const State& other) const;
@@ -26,6 +37,10 @@ struct State {
   size_t index;
   //! StateType is either: Tensor, Scalar, or Vector
   serde::StateType stype;
+
+ private:
+  // This data member is only set if this state is inline defined!
+  std::optional<const RecordFunctor*> inline_def_record_;
 };
 
 NVF_API std::ostream& operator<<(std::ostream& os, const State& state);
@@ -67,8 +82,6 @@ class FusionState {
   NVF_API void addInput(Val* input);
   //! Adds a Tensor/Scalar output to the Fusion object
   NVF_API void addOutput(Val* output);
-  //! Adds a Tensor/Scalar output to the Fusion object
-  void addOutput(Val* output, const std::vector<int64_t>& permutation);
   //! Alias an Output to Input in the Fusion object
   NVF_API void aliasOutputToInput(Val* output, Val* input);
 

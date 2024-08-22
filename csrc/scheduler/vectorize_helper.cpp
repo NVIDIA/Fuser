@@ -13,6 +13,7 @@
 #include <expr_evaluator.h>
 #include <expr_simplifier.h>
 #include <ir/builder.h>
+#include <ir/iostream.h>
 #include <iter_visitor.h>
 #include <scheduler/registry.h>
 
@@ -860,7 +861,8 @@ int64_t getVectorizationFactor(
         runtime_info.expressionEvaluator().evaluate(inner_size_it->second);
     NVF_ERROR(
         inner_size_opt.hasValue(),
-        "Vectorization heuristic could not evaluate inner most size.");
+        "Vectorization heuristic could not evaluate inner most size: ",
+        inner_size_it->second);
 
     max_vec_size = std::min(
         scheduler_utils::maxVectorizationWidth(inner_size_opt.as<int64_t>()),

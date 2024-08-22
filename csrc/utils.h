@@ -60,6 +60,8 @@ bool is_zero_sized_tensor(const std::shared_ptr<c10::TensorType>& tensor_type);
 bool is_cpu_scalar(const at::Tensor& tensor);
 bool is_cpu_scalar(const c10::TensorType& tensor_type);
 
+bool is_meta_scalar(const at::Tensor& tensor);
+
 //! Find common device among tensor inputs. If no tensor inputs are found and
 //! the selected_device argument is omitted, a default value of 0 is returned.
 //! If no tensor inputs are found and selected_device is provided,
@@ -564,6 +566,32 @@ inline int64_t wrapDim(int64_t dim, int64_t ndim) {
       ". total index: ",
       ndim);
   return dim;
+}
+
+// This is the same as the pow utility included in runtime/helpers.cu. It is
+// included here to facilitate matching host-side computation.
+template <typename T>
+T pow(T a, T b) {
+  if (b < 0) {
+    if (a == 1) {
+      return 1;
+    } else if (a == -1) {
+      auto negative = (-b) % static_cast<T>(2);
+      return negative ? -1 : 1;
+    } else {
+      return 0;
+    }
+  } else {
+    T result = 1;
+    while (b) {
+      if (b & 1) {
+        result *= a;
+      }
+      b /= 2;
+      a *= a;
+    }
+    return result;
+  }
 }
 
 } // namespace nvfuser

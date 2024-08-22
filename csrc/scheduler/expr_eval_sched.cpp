@@ -15,20 +15,36 @@ namespace nvfuser {
 
 // Check if the fusion has a single MatmulOp/LinearOp node
 bool ExprEvalScheduler::canScheduleCompileTime(Fusion* fusion) {
-  auto exprs = fusion->exprs();
-  if (!isOptionDisabled(DisableOption::MatmulExprEval)) {
-    if (exprs.size() == 1 &&
-        (exprs.front()->isOneOf<LinearOp, MatmulOp, SdpaFwdOp>())) {
-      return true;
-    }
+  if (scheduler_utils::isResharding(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(),
-        "Fusion must contain a single expression of type MatmulOp or LinearOp");
-  } else {
-    scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(),
-        "Matmul ATen evaluation was disabled by NVFUSER_DISABLE=matmul_expr_eval");
+        heuristicType(), "Fusion is resharding.");
+    return false;
   }
+
+  auto exprs = fusion->exprs();
+  if (exprs.size() != 1) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        heuristicType(), "Fusion must contain only a single expression.");
+    return false;
+  }
+
+  if (exprs.front()->isOneOf<SdpaFwdOp, SdpaBwdOp>()) {
+    return true;
+  }
+
+  if (exprs.front()->isOneOf<LinearOp, MatmulOp>()) {
+    if (isOptionDisabled(DisableOption::MatmulExprEval)) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          heuristicType(),
+          "Matmul ATen evaluation was disabled by NVFUSER_DISABLE=matmul_expr_eval");
+      return false;
+    }
+    return true;
+  }
+
+  scheduler_debug_utils::canScheduleRejectReason(
+      heuristicType(),
+      "Fusion must contain only a single expression of type MatmulOp/LinearOp/SdpaFwdOp/SdpaBwdOp");
   return false;
 }
 

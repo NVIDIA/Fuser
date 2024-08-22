@@ -21,6 +21,7 @@
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <kernel.h>
+#include <ops/alias.h>
 #include <ops/arith.h>
 
 #include <iterator>
@@ -57,8 +58,6 @@ void swap(Fusion& a, Fusion& b) noexcept {
   swap(a.outputs_, b.outputs_);
 
   swap(a.io_alias_, b.io_alias_);
-  swap(a.permuted_input_map_, b.permuted_input_map_);
-  swap(a.permuted_output_map_, b.permuted_output_map_);
 }
 
 std::unique_ptr<SegmentedFusion> Fusion::segment(
@@ -94,9 +93,6 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
         .aliased_io = copied_input,
         .hide_output = alias_info.hide_output};
   }
-
-  to->permuted_input_map_ = from->permuted_input_map_;
-  to->permuted_output_map_ = from->permuted_output_map_;
 
   to->all_tv_uses_valid_ = from->all_tv_uses_valid_;
   // This should never be true on copy, but copying for completeness.
@@ -169,8 +165,6 @@ void Fusion::clear() noexcept {
 
   io_alias_.clear();
 
-  permuted_input_map_.clear();
-  permuted_output_map_.clear();
   managed_data_.clear();
   managed_named_data_.clear();
 
@@ -651,7 +645,7 @@ std::vector<Val*> Fusion::usedMathVals() {
   const auto inputs = InputsOf::outputs(outputs());
   auto used_math_vals = DependencyCheck::getAllValsBetween(
       {inputs.begin(), inputs.end()}, outputs());
-  // When an expre has multiple outputs and only some of them are
+  // When an expression has multiple outputs and only some of them are
   // used, the rest aren't included in used_math_vals as they are not
   // used. However, we want them to be included as they must show up
   // in the fusion.
@@ -816,6 +810,11 @@ void Fusion::aliasOutputToInput(
 
   if (input->getDataType().value() != output->getDataType().value()) {
     output = castOp(input->getDataType().value(), output);
+  }
+
+  if (output->isFusionInput()) {
+    // ensure that codegen produce a write operation on the buffer.
+    output = set(output);
   }
 
   NVF_ERROR(

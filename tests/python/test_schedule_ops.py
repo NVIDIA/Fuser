@@ -4,13 +4,15 @@
 # Owner(s): ["module: nvfuser"]
 
 from typing import Callable
-import unittest
 
 import torch
-from torch.testing._internal.common_utils import run_tests, TEST_WITH_ROCM, TestCase
+from utils import is_pre_volta, is_pre_hopper
+from torch.testing._internal.common_utils import TestCase
 from torch.testing._internal.jit_utils import RUN_CUDA
+import pytest
 
 from nvfuser import (
+    FusionCache,
     FusionDefinition,
     DataType,
     ParallelType,
@@ -25,22 +27,6 @@ all_scheduler_heuristics = [
     for heuristic, _ in SchedulerHeuristic.__entries.values()
     if not SchedulerHeuristic.none
 ]
-
-RUN_NVFUSER = RUN_CUDA and not TEST_WITH_ROCM
-
-
-def is_pre_volta():
-    if not RUN_NVFUSER:
-        return False
-    prop = torch.cuda.get_device_properties(torch.cuda.current_device())
-    return prop.major < 7
-
-
-def is_pre_hopper():
-    if not RUN_NVFUSER:
-        return False
-    prop = torch.cuda.get_device_properties(torch.cuda.current_device())
-    return prop.major < 9
 
 
 # A helper function to test heuristic schedulers with user schedules
@@ -70,8 +56,8 @@ def _apply_scheduler_helper(schedule, selected_heuristic):
     schedule.schedule(selected_heuristic)
 
 
-@unittest.skipIf(not RUN_NVFUSER, "requires CUDA")
-@unittest.skipIf(is_pre_volta(), "Only supported on Volta and newer devices.")
+@pytest.mark.skipif(not RUN_CUDA, reason="requires CUDA")
+@pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
 class TestScheduleOps(TestCase):
     def sched_op_in_definition_error(self, sched_op_fn: Callable):
         """
@@ -96,6 +82,9 @@ class TestScheduleOps(TestCase):
         ):
             fd = DefError()
             _ = fd.execute(inputs)
+
+        # reset cache to avoid follow up test picking up the manual user schedule
+        FusionCache.get().reset()
 
     def check_input_error(
         self, sched_fn: Callable, error_msg: str, error_type=RuntimeError
@@ -122,6 +111,9 @@ class TestScheduleOps(TestCase):
         with self.assertRaisesRegex(error_type, error_msg):
             fd = InputError()
             _ = fd.execute(inputs)
+
+        # reset cache to avoid follow up test picking up the manual user schedule
+        FusionCache.get().reset()
 
     def valid_use(self, sched_op_fn: Callable):
         """
@@ -150,6 +142,7 @@ class TestScheduleOps(TestCase):
         nvf_user_out = fd.execute(inputs)
         nvf_out = fd.execute(inputs, override_user_schedule=True)
         self.assertEqual(nvf_user_out, nvf_out)
+        self.assertTrue(fd._exist_schedule(inputs))
 
     def test_print(self):
         """
@@ -671,19 +664,13 @@ class TestScheduleOps(TestCase):
                 self.s0 = fd.define_scalar(1e-6, dtype=DataType.Double)
                 self.norm_const = fd.define_scalar(tensor_size, dtype=DataType.Int)
 
-                self.sum0 = fd.ops.sum(self.t0, dims=[-1])
-                # NOTE Manually broadcast because fusion definition cannot
-                # access hidden reduction tensor view.
-                self.bcast_sum0 = fd.ops.broadcast(self.sum0, [False, True])
+                self.bcast_sum0 = fd.ops.sum(self.t0, dims=[-1], keepdim=True)
                 self.mean = fd.ops.div(self.bcast_sum0, self.norm_const)
                 self.add_output(self.mean)
 
                 self.diff = fd.ops.sub(self.t0, self.mean)
                 self.diff_sq = fd.ops.mul(self.diff, self.diff)
-                self.sum1 = fd.ops.sum(self.diff_sq, dims=[-1])
-                # NOTE Manually broadcast because fusion definition cannot
-                # access hidden reduction tensor view.
-                self.bcast_sum1 = fd.ops.broadcast(self.sum1, [False, True])
+                self.bcast_sum1 = fd.ops.sum(self.diff_sq, dims=[-1], keepdim=True)
                 self.var = fd.ops.div(self.bcast_sum1, self.norm_const)
 
                 self.t0_diff = fd.ops.sub(self.t0, self.mean)
@@ -761,19 +748,13 @@ class TestScheduleOps(TestCase):
                 self.norm_const = fd.define_scalar(tensor_size, dtype=DataType.Int)
 
                 self.mean_cast = fd.ops.cast(self.t0, dtype=DataType.Float)
-                self.sum0 = fd.ops.sum(self.mean_cast, dims=[-1])
-                # NOTE Manually broadcast because fusion definition cannot
-                # access hidden reduction tensor view.
-                self.bcast_sum0 = fd.ops.broadcast(self.sum0, [False, True])
+                self.bcast_sum0 = fd.ops.sum(self.mean_cast, dims=[-1], keepdim=True)
                 self.mean = fd.ops.div(self.bcast_sum0, self.norm_const)
 
                 self.var_cast = fd.ops.cast(self.t0, dtype=DataType.Float)
                 self.diff = fd.ops.sub(self.var_cast, self.mean)
                 self.diff_sq = fd.ops.mul(self.diff, self.diff)
-                self.sum1 = fd.ops.sum(self.diff_sq, dims=[-1])
-                # NOTE Manually broadcast because fusion definition cannot
-                # access hidden reduction tensor view.
-                self.bcast_sum1 = fd.ops.broadcast(self.sum1, [False, True])
+                self.bcast_sum1 = fd.ops.sum(self.diff_sq, dims=[-1], keepdim=True)
                 self.var = fd.ops.div(self.bcast_sum1, self.norm_const)
 
                 self.t0_cast = fd.ops.cast(self.t0, dtype=DataType.Float)
@@ -949,18 +930,12 @@ class TestScheduleOps(TestCase):
                 self.s0 = fd.define_scalar(1e-6, dtype=DataType.Double)
                 self.norm_const = fd.define_scalar(tensor_size, dtype=DataType.Int)
 
-                self.sum0 = fd.ops.sum(self.t0, dims=[-1])
-                # NOTE Manually broadcast because fusion definition cannot
-                # access hidden reduction tensor view.
-                self.bcast_sum0 = fd.ops.broadcast(self.sum0, [False, True])
+                self.bcast_sum0 = fd.ops.sum(self.t0, dims=[-1], keepdim=True)
                 self.mean = fd.ops.div(self.bcast_sum0, self.norm_const)
 
                 self.diff = fd.ops.sub(self.t0, self.mean)
                 self.diff_sq = fd.ops.mul(self.diff, self.diff)
-                self.sum1 = fd.ops.sum(self.diff_sq, dims=[-1])
-                # NOTE Manually broadcast because fusion definition cannot
-                # access hidden reduction tensor view.
-                self.bcast_sum1 = fd.ops.broadcast(self.sum1, [False, True])
+                self.bcast_sum1 = fd.ops.sum(self.diff_sq, dims=[-1], keepdim=True)
                 self.var = fd.ops.div(self.bcast_sum1, self.norm_const)
 
                 self.t0_diff = fd.ops.sub(self.t0, self.mean)
@@ -977,6 +952,65 @@ class TestScheduleOps(TestCase):
         var, mean = torch.var_mean(inputs[0], dim=-1, correction=0, keepdim=True)
         eager_out = (inputs[0] - mean) / torch.sqrt(var + 1e-6)
         self.assertEqual(eager_out, nvf_out[0])
+
+    def test_batch_norm_auto_scheduler(self):
+        batch_size = 16
+        num_channels = 128
+        height = 12
+        width = 76
+        momentum = 1e-1
+        eps = 1e-5
+        inputs = [
+            torch.randn((batch_size, num_channels, height, width), device="cuda"),
+            torch.randn((num_channels,), device="cuda"),
+            torch.randn((num_channels,), device="cuda"),
+            torch.randn((num_channels,), device="cuda"),
+            torch.randn((num_channels,), device="cuda"),
+            momentum,
+            eps,
+        ]
+
+        class BatchNorm(FusionDefinition):
+            def definition(self):
+                a = fd.from_pytorch(inputs[0])
+                w = fd.from_pytorch(inputs[1])
+                b = fd.from_pytorch(inputs[2])
+                running_mean = fd.from_pytorch(inputs[3])
+                running_invstd = fd.from_pytorch(inputs[4])
+                momentum = fd.define_scalar(dtype=DataType.Double)
+                eps = fd.define_scalar(dtype=DataType.Double)
+                a_norm, new_mean, new_invstd = fd.ops.batch_norm(
+                    a,
+                    w,
+                    b,
+                    running_mean,
+                    running_invstd,
+                    momentum,
+                    eps,
+                    training := True,
+                    channels_last := False,
+                )
+                fd.add_output(a_norm)
+
+            def schedule(self):
+                # Apply selected scheduler
+                _apply_scheduler_helper(fd.sched, SchedulerHeuristic.inner_persistent)
+
+        fd = BatchNorm()
+        nvf_out = fd.execute(inputs)
+        torch_ref = torch.nn.functional.batch_norm(
+            inputs[0],
+            running_mean := inputs[3],
+            running_var := inputs[4],
+            weight := inputs[1],
+            bias := inputs[2],
+            training=True,
+            momentum=momentum,
+            eps=eps,
+        )
+        self.assertEqual(nvf_out[0], inputs[3])
+        self.assertEqual(nvf_out[1], inputs[4])
+        self.assertEqual(nvf_out[2], torch_ref)
 
     def test_matmul_auto_scheduler(self):
         """
@@ -1043,11 +1077,16 @@ class TestScheduleOps(TestCase):
                 bias_shape = fd.define_vector([S0, S1, S2, S3], dtype=DataType.Int)
 
                 tv1 = fd.ops.abs(x)
-                x_reshape = fd.ops.reshape(tv1, new_shape=bias_shape)
-                y = fd.ops.add(x_reshape, bias)
+                self.x_reshape = fd.ops.reshape(tv1, new_shape=bias_shape)
+                y = fd.ops.add(self.x_reshape, bias)
                 fd.add_output(y)
 
             def schedule(self):
+                assert len(fd.sched.tensors()) == 5
+                # check that we do not get Segmentation Fault when accessing a
+                # tensor that was transformed from symbolic to concrete
+                assert len(fd.sched.to_string(self.x_reshape)) > 0
+
                 # Apply selected scheduler
                 _apply_scheduler_helper(fd.sched, SchedulerHeuristic.pointwise)
 
@@ -1056,6 +1095,40 @@ class TestScheduleOps(TestCase):
         torch_ref = torch.abs(inputs[0]).reshape(inputs[1].shape) + inputs[1]
         self.assertEqual(nvf_out[0], torch_ref)
 
+    @pytest.mark.skipif(
+        torch.cuda.device_count() < 2, reason="More than 1 GPU required"
+    )
+    def test_inputs_with_different_devices(self):
+        """
+        Test case for issue 2056. Run the same fusion definition with inputs on
+        different devices. The python frontend should create a new user
+        schedule for inputs on different devices.
+        """
 
-if __name__ == "__main__":
-    run_tests()
+        class FDScheduler(FusionDefinition):
+            def definition(self):
+                self.t0 = fd.define_tensor(
+                    shape=[-1, -1, -1],
+                    contiguity=[True, True, True],
+                    dtype=DataType.Float,
+                    is_cpu=False,
+                )
+                self.t1 = self.ops.sum(self.t0, dim=-1)
+                self.add_output(self.t1)
+
+            def schedule(self):
+                # Apply reduction schedule
+                _apply_scheduler_helper(fd.sched, SchedulerHeuristic.reduction)
+
+        # Create Definition
+        fd = FDScheduler()
+
+        # Execute FusionDefinition with device 0 and 1
+        devices = ["cuda:0", "cuda:1"]
+        for device in devices:
+            inputs = [
+                torch.randn(8, 8, 8, dtype=torch.float32, device=device),
+            ]
+            torch_ref = inputs[0].sum(-1)
+            nvf_out = fd.execute(inputs)
+            self.assertEqual(nvf_out[0], torch_ref)

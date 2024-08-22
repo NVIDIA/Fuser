@@ -79,16 +79,23 @@ std::vector<at::Tensor> HostIrExecutor::runWithInput(
 
 void HostIrExecutor::handle(SetCurrentStream* set_current_stream) {
   Stream* stream = set_current_stream->stream();
-  if (streams_.find(stream) == streams_.end()) {
+  StreamKey stream_key = stream;
+  // if stream points to an index, it represents the dynamic value of that index
+  if (Val* index = stream->index(); index != nullptr) {
+    auto value = expr_evaluator_.evaluate(index);
+    NVF_ERROR(value.hasValue() && value.is<int64_t>());
+    stream_key = value.as<int64_t>();
+  }
+  if (streams_.find(stream_key) == streams_.end()) {
     auto i = (communicator_ != nullptr && communicator_->is_available())
         ? communicator_->deviceId()
         : 0;
     streams_.insert(
-        {stream,
+        {stream_key,
          c10::cuda::getStreamFromPool(
              /*isHighPriority=*/false, static_cast<c10::DeviceIndex>(i))});
   }
-  setCurrentCUDAStream(streams_.at(stream));
+  setCurrentCUDAStream(streams_.at(stream_key));
 }
 
 void HostIrExecutor::handle(PostOnStream* post_ir) {
@@ -186,17 +193,49 @@ void HostIrExecutor::handle(Wait* wait) {
   works_.erase(communication);
 }
 
+namespace {
+
+void allConsumerValsOfHelper(
+    Val* val,
+    std::unordered_set<Val*>& visisted_vals) {
+  if (visisted_vals.find(val) != visisted_vals.end()) {
+    return;
+  }
+  visisted_vals.insert(val);
+  for (Val* consumer : ir_utils::consumerValsOf(val)) {
+    allConsumerValsOfHelper(consumer, visisted_vals);
+  }
+}
+
+// Return all (not only direct) consumers of vals, this function can be used on
+// any vals and will return consumers through Exprs.
+//
+// Warning: returned val's are not guaranteed to be between fusion inputs and
+// outputs. This function simply uses val->definition() or val->uses() which is
+// limited to not go through fusion inputs/outputs, but if on a path that isn't
+// strictly between fusion inputs/outputs, it could effectively return dead
+// code.
+std::unordered_set<Val*> allConsumerValsOf(Val* val) {
+  std::unordered_set<Val*> consumer_vals;
+  allConsumerValsOfHelper(val, consumer_vals);
+  return consumer_vals;
+}
+
+} // namespace
+
 void HostIrExecutor::handle(ForLoop* for_loop) {
-  NVF_ERROR(for_loop->start()->isConstInt());
-  NVF_ERROR(for_loop->step()->isConstInt());
-  NVF_ERROR(for_loop->stop()->isConstInt());
-  auto start = for_loop->start()->value().as<int64_t>();
-  auto step = for_loop->step()->value().as<int64_t>();
-  auto stop = for_loop->stop()->value().as<int64_t>();
+  auto start = expr_evaluator_.evaluate(for_loop->start()).as<int64_t>();
+  auto step = expr_evaluator_.evaluate(for_loop->step()).as<int64_t>();
+  auto stop = expr_evaluator_.evaluate(for_loop->stop()).as<int64_t>();
 
   for (auto i = start; i < stop; i += step) {
+    // invalidate i and its consumers before binding
+    expr_evaluator_.invalidate(for_loop->index());
+    for (auto consumer : allConsumerValsOf(for_loop->index())) {
+      expr_evaluator_.invalidate(consumer);
+    }
+    expr_evaluator_.bind(for_loop->index(), i);
     for (Expr* expr : for_loop->body().exprs()) {
-      expr_evaluator_.bind(for_loop->index(), i);
       dispatch(expr);
     }
   }
@@ -230,6 +269,10 @@ void HostIrExecutor::handle(SliceOp* slice_op) {
 
 void HostIrExecutor::handle(MatmulOp* matmul_op) {
   return handleWithExpressionEvaluator(matmul_op, expr_evaluator_);
+}
+
+void HostIrExecutor::handle(SelectOp* select_op) {
+  return handleWithExpressionEvaluator(select_op, expr_evaluator_);
 }
 
 } // namespace hir
