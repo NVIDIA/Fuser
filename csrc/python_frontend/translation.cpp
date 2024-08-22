@@ -8,6 +8,7 @@
 //
 #include <dispatch.h>
 #include <python_frontend/translation.h>
+#include <vector>
 
 namespace nvfuser::python_frontend {
 
@@ -56,6 +57,7 @@ class FusionTranslator : public OptInConstDispatch {
 
       visited.insert(e);
 
+      // Create RecordFunctor given inputs, outputs, and attributes.
       OptOutConstDispatch::dispatch(e);
 
       // Add output uses to to_visit
@@ -83,24 +85,42 @@ class FusionTranslator : public OptInConstDispatch {
         {fd_->recordingState(output_index)}, serde::RecordType::OutputTv));
   }
 
+  template <typename ResultType, typename... ArgTypes>
+  void handleOpRecord(
+      const Expr* e,
+      std::string op_name,
+      ResultType (*fn)(ArgTypes...),
+      serde::RecordType record_type,
+      ResultType result,
+      ArgTypes... args) {
+    std::vector<State> argument_states;
+    std::transform(
+        e->inputs().begin(),
+        e->inputs().end(),
+        std::back_inserter(argument_states),
+        [&](auto arg) {
+          return fd_->recordingState(map_val_to_fd_index_.at(arg));
+        });
+
+    fd_->defineRecord(new OpRecord<ResultType, ArgTypes...>(
+        argument_states,
+        {fd_->recordingState(map_val_to_fd_index_.at(result))},
+        "ops." + op_name,
+        record_type,
+        fn));
+  }
+
   void handle(const BinaryOp* bop) final {
-    NVF_ERROR(bop->lhs()->isA<TensorView>());
-    NVF_ERROR(bop->rhs()->isA<TensorView>());
-
-    // Create RecordFunctor given inputs, outputs, and attributes.
-    // Add output to values
-    TensorView* arg1 = bop->lhs()->as<TensorView>();
-    size_t arg1_index = map_val_to_fd_index_.at(bop->lhs());
-    size_t arg2_index = map_val_to_fd_index_.at(bop->rhs());
-
-    Tensor output = fd_->defineTensor(arg1->nDims());
-    fd_->defineRecord(new OpRecord<TensorView*, TensorView*, TensorView*>(
-        {fd_->recordingState(arg1_index), fd_->recordingState(arg2_index)},
-        {fd_->recordingState(output())},
-        ("ops.add"),
-        serde::RecordType::Binary_TV,
-        static_cast<TensorView* (*)(TensorView*, TensorView*)>(add)));
+    Tensor output = fd_->defineTensor(bop->out()->as<TensorView>()->nDims());
     map_val_to_fd_index_.emplace(bop->out(), output());
+    handleOpRecord(
+        bop,
+        "add",
+        add,
+        serde::RecordType::Binary_TV,
+        bop->out()->as<TensorView>(),
+        bop->lhs()->as<TensorView>(),
+        bop->rhs()->as<TensorView>());
   }
 
   void handle(const TensorView* tv) final {
