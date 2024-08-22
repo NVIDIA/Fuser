@@ -6,29 +6,84 @@
  */
 // clang-format on
 //
+#include <dispatch.h>
 #include <python_frontend/translation.h>
 
 namespace nvfuser::python_frontend {
 
-std::unique_ptr<FusionDefinition> clone(const Fusion* fusion) {
-  auto fd = std::make_unique<FusionDefinition>(/*id=*/std::nullopt);
-  fd->setupDefinition();
-  // nvfuser::Val - defineScalar, defineTensor, and defineTensor
-  // nvfuser::Expr - defineRecord
+namespace {
 
-  std::unordered_map<nvfuser::Val*, size_t> map_val_to_fd_index;
-  std::deque<nvfuser::Expr*> to_visit;
+class FusionTranslator : public OptInConstDispatch {
+ public:
+  static std::unique_ptr<FusionDefinition> clone(const Fusion* fusion) {
+    FusionTranslator cloner(fusion);
+    cloner.clone();
+    return std::move(cloner.fd_);
+  }
 
-  // Handle Fusion inputs
-  for (nvfuser::Val* v : fusion->inputs()) {
-    // Add inputs to FusionDefinition
+ private:
+  FusionTranslator(const Fusion* fusion)
+      : fusion_(fusion),
+        fd_(std::make_unique<FusionDefinition>(/*id=*/std::nullopt)) {}
 
-    // TODO Only handle TensorViews
-    NVF_ERROR(v->isA<TensorView>());
+  using OptInConstDispatch::handle;
 
-    TensorView* tv = v->as<TensorView>();
+  void clone() {
+    fd_->setupDefinition();
 
-    Tensor output = fd->defineTensor(tv->nDims());
+    // nvfuser::Val - defineScalar, defineTensor, and defineTensor
+    // nvfuser::Expr - defineRecord
+    std::deque<nvfuser::Expr*> to_visit;
+
+    // Add Fusion inputs to FusionDefinition
+    for (nvfuser::Val* v : fusion_->inputs()) {
+      OptOutConstDispatch::dispatch(v);
+
+      // Add uses for input value to to_visit
+      for (Expr* e : v->uses()) {
+        to_visit.push_back(e);
+      }
+    }
+
+    // Topological search of Fusion expressions
+    std::unordered_set<nvfuser::Expr*> visited;
+    while (!to_visit.empty()) {
+      Expr* e = to_visit.front();
+      to_visit.pop_front();
+
+      // short-circuit: skip if already visited
+      if (visited.count(e) > 0) {
+        continue;
+      }
+
+      visited.insert(e);
+
+      OptOutConstDispatch::dispatch(e);
+
+      // Add output uses to to_visit
+      for (Val* v : e->outputs()) {
+        for (Expr* e : v->uses()) {
+          to_visit.push_back(e);
+        }
+      }
+    }
+
+    // Outputs and Aliasing
+    for (nvfuser::Val* v : fusion_->outputs()) {
+      // TODO Handle only TensorViews
+      NVF_ERROR(v->isA<TensorView>());
+
+      // Add fusion outputs to FusionDefinition
+      size_t output_index = map_val_to_fd_index_.at(v);
+      fd_->defineRecord(new OutputRecord<TensorView>(
+          {fd_->recordingState(output_index)}, serde::RecordType::OutputTv));
+    }
+
+    fd_->finalizeDefinition();
+  }
+
+  void handle(const TensorView* tv) final {
+    Tensor output = fd_->defineTensor(tv->nDims());
 
     std::vector<int64_t> shape;
     std::transform(
@@ -41,76 +96,47 @@ std::unique_ptr<FusionDefinition> clone(const Fusion* fusion) {
               : -1;
         });
 
-    fd->defineRecord(new TensorRecord(
-        {fd->recordingState(output())},
+    fd_->defineRecord(new TensorRecord(
+        {fd_->recordingState(output())},
         shape,
         tv->domain()->contiguity(),
         std::get<PrimDataType>(tv->dtype().type),
         tv->isCpuScalar(),
         tv->domain()->strideOrder()));
-    map_val_to_fd_index.emplace(v, output());
 
-    // Add uses for input value to to_visit
-    for (Expr* e : v->uses()) {
-      to_visit.push_back(e);
-    }
+    map_val_to_fd_index_.emplace(tv, output());
   }
 
-  // Topological search of expressions
-  std::unordered_set<nvfuser::Expr*> visited;
-  while (!to_visit.empty()) {
-    Expr* e = to_visit.front();
-    to_visit.pop_front();
-
-    // short-circuit: skip if visited
-    if (visited.count(e) > 0) {
-      continue;
-    }
-
-    visited.insert(e);
-
-    // TODO Only handle BinaryOp Add
-    NVF_ERROR(e->isA<BinaryOp>());
-    BinaryOp* bop = e->as<BinaryOp>();
+  void handle(const BinaryOp* bop) final {
     NVF_ERROR(bop->lhs()->isA<TensorView>());
     NVF_ERROR(bop->rhs()->isA<TensorView>());
 
     // Create RecordFunctor given inputs, outputs, and attributes.
     // Add output to values
     TensorView* arg1 = bop->lhs()->as<TensorView>();
-    size_t arg1_index = map_val_to_fd_index.at(bop->lhs());
-    size_t arg2_index = map_val_to_fd_index.at(bop->rhs());
+    size_t arg1_index = map_val_to_fd_index_.at(bop->lhs());
+    size_t arg2_index = map_val_to_fd_index_.at(bop->rhs());
 
-    Tensor output = fd->defineTensor(arg1->nDims());
-    fd->defineRecord(new OpRecord<TensorView*, TensorView*, TensorView*>(
-        {fd->recordingState(arg1_index), fd->recordingState(arg2_index)},
-        {fd->recordingState(output())},
+    Tensor output = fd_->defineTensor(arg1->nDims());
+    fd_->defineRecord(new OpRecord<TensorView*, TensorView*, TensorView*>(
+        {fd_->recordingState(arg1_index), fd_->recordingState(arg2_index)},
+        {fd_->recordingState(output())},
         ("ops.add"),
         serde::RecordType::Binary_TV,
         static_cast<TensorView* (*)(TensorView*, TensorView*)>(add)));
-    map_val_to_fd_index.emplace(bop->out(), output());
-
-    // Add output uses to to_visit
-    for (Val* v : e->outputs()) {
-      for (Expr* e : v->uses()) {
-        to_visit.push_back(e);
-      }
-    }
+    map_val_to_fd_index_.emplace(bop->out(), output());
   }
 
-  // Outputs and Aliasing
-  for (nvfuser::Val* v : fusion->outputs()) {
-    // TODO Handle only TensorViews
-    NVF_ERROR(v->isA<TensorView>());
+ private:
+  const Fusion* fusion_ = nullptr;
+  std::unique_ptr<FusionDefinition> fd_;
+  std::unordered_map<const nvfuser::Val*, size_t> map_val_to_fd_index_;
+};
 
-    // Add fusion outputs to FusionDefinition
-    size_t output_index = map_val_to_fd_index.at(v);
-    fd->defineRecord(new OutputRecord<TensorView>(
-        {fd->recordingState(output_index)}, serde::RecordType::OutputTv));
-  }
+} // namespace
 
-  fd->finalizeDefinition();
-  return fd;
+std::unique_ptr<FusionDefinition> clone(const Fusion* fusion) {
+  return FusionTranslator::clone(fusion);
 }
 
 } // namespace nvfuser::python_frontend

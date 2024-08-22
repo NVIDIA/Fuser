@@ -12,14 +12,7 @@
 
 namespace nvfuser::python_frontend {
 
-class FusionCache;
-class FusionDefinition;
-class FusionInterface;
-class FusionState;
-struct RecordFunctor;
-struct UserSchedule;
-struct TrieNode;
-
+// Translate a CPP Fusion into a Python FusionDefinition.
 std::unique_ptr<FusionDefinition> clone(const Fusion* fusion);
 
 } // namespace nvfuser::python_frontend
