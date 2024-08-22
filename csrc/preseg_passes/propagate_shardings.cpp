@@ -49,9 +49,13 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
       }
     };
 
+    if (tv->isCpuScalar()) {
+      continue;
+    }
+
     if (tv->hasDeviceMesh()) {
       update_if_null(tv_with_mesh, tv);
-    } else if (!tv->isCpuScalar()) {
+    } else {
       update_if_null(tv_without_mesh, tv);
     }
   }

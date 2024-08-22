@@ -141,7 +141,7 @@ bool haveDifferentShardings(
     const TensorView* producer,
     const TensorView* consumer) {
   // cpu scalars are not required to have a mesh
-  if (producer->isCpuScalar()) {
+  if (producer->isCpuScalar() || consumer->isCpuScalar()) {
     return false;
   }
   // exit early in the unsharded case for performance
