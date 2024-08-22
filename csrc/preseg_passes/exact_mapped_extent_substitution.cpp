@@ -85,7 +85,7 @@ void exactMappedExtentSubstitution(Fusion* fusion) {
 void ExactMappedExtentSubstitutionPass::runPass(Fusion* fusion) {
   if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
     debug() << "DisjointSets before " << name() << ":" << std::endl;
-    IdModel id_model(fusion, false, false, false);
+    IdModel id_model(fusion, /*build_graphs=*/false);
     id_model.buildExactGraph();
     const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
     const DisjointSets<Val*>& val_sets = exact_graph.disjointValSets();
