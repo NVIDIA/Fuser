@@ -658,6 +658,9 @@ std::vector<PolymorphicValue> BinaryOp::evaluate(
     case BinaryOpType::Complex:
       return {at::complex(lhs.as<at::Tensor>(), rhs.as<at::Tensor>())};
       break;
+    case BinaryOpType::Pow:
+      return {pow(lhs, rhs)};
+      break;
     default:
       NVF_CHECK(
           false,

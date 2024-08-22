@@ -56,10 +56,16 @@ std::vector<Val*> makeSortedEvaluationList(std::vector<Val*> input) {
       to_sort.pop_back();
     } else {
       bool ready_to_pop = true;
-      for (auto producer : getImmediateProducers(top_val)) {
-        if (!visited.count(producer)) {
-          ready_to_pop = false;
-          to_sort.push_back(producer);
+      // Struct types must be bound directly. This is because it would
+      // otherwise require us to compute T0 just to compute GetMetaData(T0),
+      // for example. We skip computing producers of Structs here in order to
+      // avoid computing the TensorViews themselves.
+      if (!isStructType(top_val->dtype())) {
+        for (auto producer : getImmediateProducers(top_val)) {
+          if (!visited.count(producer)) {
+            ready_to_pop = false;
+            to_sort.push_back(producer);
+          }
         }
       }
       if (ready_to_pop) {
@@ -105,7 +111,12 @@ std::vector<Val*> collectRuntimeUsedValues(Fusion* fusion) {
     }
   }
   for (auto inp : fusion->inputs()) {
-    if (!inp->isA<TensorView>()) {
+    if (auto* tv = dynamic_cast<TensorView*>(inp)) {
+      // For TensorView inputs, do not bind the TV itself. Only bind its
+      // TensorMetaData
+      Val* metadata = fusion->metadataOf(tv);
+      ret.push_back(metadata);
+    } else {
       ret.push_back(inp);
     }
   }
@@ -198,7 +209,9 @@ void PrecomputedValues::initializeValueList(
   // Fill in constants and assign evaluator indices
   for (const auto i : c10::irange(num_of_values_)) {
     // Use an expression evaluator to test if value is const
-    if (sorted_value_list[i]->isConstScalar()) {
+    // Structs must be bound directly
+    if (!isStructType(sorted_value_list[i]->dtype()) &&
+        sorted_value_list[i]->isConstScalar()) {
       is_constant_[i] = true;
       values_[i] = sorted_value_list[i]->evaluate();
     }
@@ -562,6 +575,9 @@ void NaiveValueMachine::runUnaryOp(int index) {
     case UnaryOpType::BitwiseNot:
       dest = ~src;
       break;
+    case UnaryOpType::Reciprocal:
+      dest = 1.0 / src;
+      break;
     case UnaryOpType::Signbit:
       dest = signbit(src);
       break;
@@ -658,6 +674,9 @@ void NaiveValueMachine::runBinaryOp(int index) {
       break;
     case BinaryOpType::Fmod:
       dest = fmod(lhs, rhs);
+      break;
+    case BinaryOpType::Pow:
+      dest = pow(lhs, rhs);
       break;
     default:
       NVF_CHECK(false, "Unexpected operator type ", bop_type_[index]);

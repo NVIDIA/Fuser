@@ -1557,7 +1557,7 @@ static DataType getMmaInputBType(MmaMacro macro) {
 
 static inline DataType getMmaOutType(TensorView* mma_out) {
   int64_t size = 1;
-  for (auto id : mma_out->getLoopDomain()) {
+  for (auto id : mma_out->getAllocationDomain()) {
     if (id->isMma() && !id->isReduction()) {
       size *= id->extent()->evaluate().as<int64_t>();
     }
@@ -1700,7 +1700,13 @@ void IndexLowering::handle(const MmaOp* mma) {
     // smem.
     auto tv = mma->inB()->as<TensorView>();
     auto swizzle = getSwizzleMode(tv);
-    auto base_addr = IrBuilder::baseAddressExpr(tv);
+    // Because the entire tile is parallelized on MMA, which are trivial
+    // loops and always have zero loop variables, the result of lowerSrcIndex
+    // will be the address of the first element of the tile, which happens to
+    // be the information we need to provide to the hardware.
+    auto base_addr = lowerSrcIndex(tv, mma->out(), {}, true)
+                         ->as<kir::TensorIndex>()
+                         ->index();
     int64_t leading_bytes = core_matrix_outer_size *
         getBytesFromSwizzle(swizzle); // swizzle period in bytes
     int64_t inner_size =
