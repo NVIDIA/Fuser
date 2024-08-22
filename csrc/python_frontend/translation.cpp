@@ -111,16 +111,52 @@ class FusionTranslator : public OptInConstDispatch {
   }
 
   void handle(const BinaryOp* bop) final {
-    Tensor output = fd_->defineTensor(bop->out()->as<TensorView>()->nDims());
-    map_val_to_fd_index_.emplace(bop->out(), output());
-    handleOpRecord(
-        bop,
-        "add",
-        add,
-        serde::RecordType::Binary_TV,
-        bop->out()->as<TensorView>(),
-        bop->lhs()->as<TensorView>(),
-        bop->rhs()->as<TensorView>());
+    bool lhs_tv = bop->lhs()->isA<TensorView>();
+    bool rhs_tv = bop->rhs()->isA<TensorView>();
+
+    if (lhs_tv || rhs_tv) {
+      Tensor output = fd_->defineTensor(bop->out()->as<TensorView>()->nDims());
+      map_val_to_fd_index_.emplace(bop->out(), output());
+
+      if (lhs_tv && rhs_tv) {
+        handleOpRecord(
+            bop,
+            "add",
+            add,
+            serde::RecordType::Binary_TV,
+            bop->out()->as<TensorView>(),
+            bop->lhs()->as<TensorView>(),
+            bop->rhs()->as<TensorView>());
+      } else if (lhs_tv && !rhs_tv) {
+        handleOpRecord(
+            bop,
+            "add",
+            add,
+            serde::RecordType::Binary_TV_VAL,
+            bop->out()->as<TensorView>(),
+            bop->lhs()->as<TensorView>(),
+            bop->rhs()->as<TensorView>());
+      } else {
+        handleOpRecord(
+            bop,
+            "add",
+            add,
+            serde::RecordType::Binary_VAL_TV,
+            bop->out()->as<TensorView>(),
+            bop->lhs()->as<TensorView>(),
+            bop->rhs()->as<TensorView>());
+      }
+    } else {
+      NVF_ERROR(false, "Not Supported");
+      handleOpRecord(
+          bop,
+          "add",
+          add,
+          serde::RecordType::Binary_VAL,
+          bop->out(),
+          bop->lhs(),
+          bop->rhs());
+    }
   }
 
   void handle(const TensorView* tv) final {
