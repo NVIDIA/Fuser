@@ -195,9 +195,7 @@ def test_issue2702():
     with FusionDefinition() as fd:
         create_fusion(fd)
 
-    ins = [
-        torch.randn((1, 32, 8192, 128), dtype=torch.bfloat16, device="cuda:0")
-    ]
+    ins = [torch.randn((1, 32, 8192, 128), dtype=torch.bfloat16, device="cuda:0")]
     outs = fd.execute(ins)
 
     torch.testing.assert_close(outs[0], ins[0].view(8, 4, 8192, 128).sum(1))
