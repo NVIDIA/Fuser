@@ -2680,17 +2680,8 @@ TEST_F(GpuViewTest, FusionMismatchingReshape) {
   // the reference tensor and the entire fusion will be scheduled like tv4.
 
   // Now, let's schedule tv1, tv3, and tv5 to be like tv4's logical domain:
-  AbstractTensor schedule({
-      {tv1->getLogicalDomain()[0],
-       tv3->getRootDomain()[0],
-       tv5_root[0]}, // dim 0
-      {tv1->getLogicalDomain()[1],
-       tv3->getRootDomain()[1],
-       tv5_root[1]}, // dim 1
-      {tv1->getLogicalDomain()[2],
-       tv3->getRootDomain()[2],
-       tv5_root[2]}, // dim 2
-  });
+  auto schedule = AbstractTensor::zip(
+      {tv1->getLogicalDomain(), tv3->getRootDomain(), tv5_root});
   schedule.merge(0);
 
   // Now, tv5 looks like:
@@ -2705,22 +2696,15 @@ TEST_F(GpuViewTest, FusionMismatchingReshape) {
 
   // Now, `schedule` is like the logical domain of tv2 and tv4. So let's append
   // tv2 and tv4 to it so we can parallelizing all of them all together.
-  schedule[0].as<std::vector>().push_back(tv2->getLogicalDomain()[0]);
-  schedule[0].as<std::vector>().push_back(tv4->getLogicalDomain()[0]);
-  schedule[1].as<std::vector>().push_back(tv2->getLogicalDomain()[1]);
-  schedule[1].as<std::vector>().push_back(tv4->getLogicalDomain()[1]);
+  schedule.addRow(tv2->getLogicalDomain()).addRow(tv4->getLogicalDomain());
 
   // Parallelize all tensors as [BIDx, TIDx]
   schedule.merge(0);
   schedule.split(0, 128);
 #if 0
   // TODO: sync analysis is not working yet
-  for (auto id : static_cast<std::vector<IterDomain*>>(schedule[0])) {
-    id->parallelize(ParallelType::BIDx);
-  }
-  for (auto id : static_cast<std::vector<IterDomain*>>(schedule[1])) {
-    id->parallelize(ParallelType::TIDx);
-  }
+  schedule.parallelize(0, ParallelType::BIDx);
+  schedule.parallelize(1, ParallelType::TIDx);
 #endif
 
   // Now, tv5 looks like:
@@ -2759,6 +2743,81 @@ TEST_F(GpuViewTest, FusionMismatchingReshape) {
   auto cg_outputs = fe.runFusion({t0});
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
+}
+
+// Test that replacement of a scalar in a reshaped ID that is a product of a
+// split gets replaced properly. In this test, the reshape splits the i0=128
+// axis into 32, i0 / 32. When we replace extents in the replaceSymbolicSizes
+// pass, the i0/32 scalar, but not the constant 32. The original error came from
+// replacing just one of those split axes, leaving the logical domain with one
+// output of a Split and another IterDomain with no definition, so the logical
+// domain was not a simple transformation of the root domain.
+// See https://github.com/NVIDIA/Fuser/issues/2671
+TEST_F(GpuViewTest, ReplacedScalarInSplitOutput) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  DataType dtype = DataType::Half;
+  const std::vector<int64_t> input_shape = {128};
+  auto tv0 = makeContigTensor(input_shape.size(), dtype);
+  auto tv1 = makeContigTensor(input_shape.size(), dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto S32 = IrBuilder::create<Val>(32L);
+  auto S04 = div(tv0->axis(0)->extent(), IrBuilder::create<Val>(32L));
+  auto tv2 = reshape(tv0, {S32, S04});
+  auto tv3 = castOp(DataType::Float, tv2);
+  auto tv4 = segment_set(tv3);
+  auto tv5 = reshape(tv1, {S32, S04});
+  auto tv6 = castOp(DataType::Float, tv5);
+  auto tv7 = mul(tv4, tv6);
+  fusion->addOutput(tv7);
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+  auto t1 = at::randn(input_shape, options);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
+  testValidate(
+      executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+// This is a more specific version of the above test. Here we are directly
+// replacing one of the Split outputs' extents and testing that we successfully
+// perform the replacement and that the definition is intact.
+TEST_F(GpuViewTest, ReplaceScalarInSplitOutputManually) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeSymbolicTensor(1);
+  auto tv1 = makeSymbolicTensor(2);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  auto tv2 = reshape(tv0, {128}, {32, 4});
+  auto tv3 = mul(tv1, tv2);
+
+  fusion->addOutput(tv3);
+
+  ASSERT_EQ(tv2->nDims(), 2);
+  IterDomain* old_id = tv2->axis(1);
+  Val* old_ext = old_id->extent();
+  EXPECT_FALSE(old_ext->isConst());
+  ASSERT_FALSE(old_id->definition() == nullptr);
+  EXPECT_TRUE(old_id->definition()->isA<Split>());
+
+  Val* replacement = IrBuilder::create<Val>(4, DataType::Index);
+  std::unordered_map<Val*, Val*> replacement_map{{old_ext, replacement}};
+  ir_utils::replaceValue(fusion.get(), replacement_map);
+
+  ASSERT_EQ(tv2->nDims(), 2);
+  IterDomain* new_id = tv2->axis(1);
+  Val* new_ext = tv2->axis(1)->extent();
+  EXPECT_EQ(new_ext, replacement);
+  ASSERT_TRUE(new_ext->isConst());
+  EXPECT_EQ(new_ext->value(), 4);
+  ASSERT_FALSE(new_id->definition() == nullptr);
+  EXPECT_TRUE(new_id->definition()->isA<Split>());
+  EXPECT_FALSE(tv2->axis(0)->definition() == nullptr);
+  EXPECT_TRUE(tv2->axis(0)->definition() == new_id->definition());
 }
 
 } // namespace nvfuser

@@ -68,6 +68,29 @@ inline std::optional<MmaMacro> getMmaOp(
   }
 }
 
+//! Find the number of circular buffer stages for shared memory operands, so
+//! that the entire pipeline is filled given problem and heuristics.
+void limitCircularBufferingSmemOperands(
+    std::shared_ptr<MatmulParams> params,
+    const ProblemShape& problem_shape) {
+  // Short-Circuit: Skip if matmul params do not use circular buffering
+  if (!params->circular_buffer_options.circular_buffer_smem_write) {
+    return;
+  }
+
+  // The axes of the mma tensorviews are permuted to [B, M, N, K],
+  // so K / cta_tile_k is the circular buffer axis for both operands.
+  int64_t numerator =
+      ceilDiv(problem_shape[(size_t)MatmulDimRole::K], params->splitk_factor);
+  int64_t k_stages = ceilDiv(numerator, params->tile_sizes.cta_tile.k);
+  int64_t stages = std::min(
+      k_stages,
+      (int64_t)params->circular_buffer_options.smem_circular_buffer_stage);
+
+  params->circular_buffer_options.circular_buffer_smem_write = (stages != 1);
+  params->circular_buffer_options.smem_circular_buffer_stage = (int)stages;
+}
+
 //! A wrapper for core heuristics initialization.
 //! We should have already set params->mma_macro before calling this function.
 inline bool initCoreHeuristics(
@@ -693,6 +716,7 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   // 4. Check if fusion represents expressions that are recognized by matmul
   // 5. Check if the input layout for the matmul pattern can be determined
   // scheduler.
+  // 6. Check if the fusion is resharding.
 
   // #0
   {
@@ -773,6 +797,11 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
       mma_utils::getOperandInnerDims(id_model, id_roles, tensor_roles);
   if (!input_layout_opt.isValid()) {
     return input_layout_opt.getErrorMsg();
+  }
+
+  // #6
+  if (scheduler_utils::isResharding(fusion)) {
+    return "Fusion is resharding.";
   }
 
   return "";
@@ -871,6 +900,10 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
     auto status = initCoreHeuristics(params, problem_shape, tensor_roles);
     NVF_ERROR(status, "Initialization of core part of heuristics failed.");
   }
+
+  // Ensure that entire pipeline is filled for shared memory operands given
+  // problem and heuristics.
+  limitCircularBufferingSmemOperands(params, problem_shape);
 
   // Disable magic zero for matmul kernels
   params->cparams.enable_magic_zero = false;

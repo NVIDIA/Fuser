@@ -80,7 +80,7 @@ class LogicalDomainMap : public PolymorphicBase {
 //! i.e., unable to compute the same tensors multiple times. This
 //! should not be used for transformations implementing computeAt, but
 //! should be valid otherwise.
-class NVF_API PairwiseLogicalDomainMap : public LogicalDomainMap {
+class PairwiseLogicalDomainMap : public LogicalDomainMap {
  public:
   //! When require_same_extent is false, domains that may have
   //! different extents are also mapped. For example, IDs of lookup
@@ -90,7 +90,7 @@ class NVF_API PairwiseLogicalDomainMap : public LogicalDomainMap {
   //!
   //! \param producer The producer tensor of a producer-consumer pair.
   //! \param consumer The consumer tensor of a producer-consumer pair.
-  explicit PairwiseLogicalDomainMap(
+  PairwiseLogicalDomainMap(
       const TensorView* producer,
       const TensorView* consumer);
 

@@ -30,258 +30,10 @@ using testing::Each;
 using testing::ElementsAre;
 using testing::Field;
 using testing::IsEmpty;
-using testing::IsTrue;
 using testing::Not;
-using testing::Optional;
 using testing::Pair;
 using testing::SizeIs;
 using testing::UnorderedElementsAre;
-
-using AliasAnalysisTest = NVFuserTest;
-
-TEST_F(AliasAnalysisTest, View_SymbolicTensor) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  TensorView* in = makeContigConcreteTensor({-1, -1, -1});
-  fusion.addInput(in);
-  std::vector<Val*> in_shape = shape(in);
-  ASSERT_EQ(in_shape.size(), 3);
-  TensorView* out = reshape(in, {in_shape[0], mul(in_shape[1], in_shape[2])});
-  fusion.addOutput(out);
-
-  AliasAnalysisResult alias_analysis = findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getRoot(out), in);
-}
-
-TEST_F(AliasAnalysisTest, ChainOfViews) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  const std::vector<int64_t> in_shape({2, 3, 4});
-  const std::vector<int64_t> intermediate_shape({2, 12});
-  const std::vector<int64_t> out_shape({24});
-
-  TensorView* in = makeContigConcreteTensor(in_shape);
-  fusion.addInput(in);
-  TensorView* intermediate = reshape(in, in_shape, intermediate_shape);
-  TensorView* out = reshape(intermediate, intermediate_shape, out_shape);
-  fusion.addOutput(out);
-
-  AliasAnalysisResult alias_analysis = findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getRoot(out), in);
-}
-
-TEST_F(AliasAnalysisTest, View_Contiguous) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  const std::vector<int64_t> in_shape({2, 3, 4});
-  const std::vector<int64_t> out_shape({2, 12});
-
-  TensorView* in = makeContigConcreteTensor(in_shape);
-  fusion.addInput(in);
-  TensorView* out = reshape(in, in_shape, out_shape);
-  fusion.addOutput(out);
-
-  AliasAnalysisResult alias_analysis = findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getRoot(out), in);
-  Layout preferred_layout = alias_analysis.preferredLayout(out);
-  EXPECT_THAT(
-      preferred_layout.allocation_domain,
-      ElementsAre(out->axis(0), out->axis(1)));
-  EXPECT_THAT(preferred_layout.contiguity, Each(Optional(IsTrue())));
-}
-
-TEST_F(AliasAnalysisTest, View_MergeNonContiguous) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  const std::vector<int64_t> in_shape({2, 3, 4});
-  const std::vector<int64_t> out_shape({2, 12});
-
-  TensorView* in = TensorViewBuilder()
-                       .shape(in_shape)
-                       .dtype(DataType::Float)
-                       .contiguity({true, false, true})
-                       .build();
-  fusion.addInput(in);
-  TensorView* out = reshape(in, in_shape, out_shape);
-  fusion.addOutput(out);
-
-  AliasAnalysisResult alias_analysis = findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getRoot(out), nullptr);
-}
-
-TEST_F(AliasAnalysisTest, Set) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  TensorView* in = makeContigConcreteTensor({2, 3, 5});
-  fusion.addInput(in);
-  TensorView* out = set(in);
-  fusion.addOutput(out);
-
-  in->setAllocationDomain({in->axis(1), in->axis(2), in->axis(0)}, true);
-
-  AliasAnalysisResult alias_analysis = findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getRoot(out), in);
-
-  const std::vector<IterDomain*>& out_logical = out->getLogicalDomain();
-  EXPECT_THAT(
-      alias_analysis.preferredLayout(out).allocation_domain,
-      ElementsAre(out_logical[1], out_logical[2], out_logical[0]));
-}
-
-TEST_F(AliasAnalysisTest, Permute) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  const std::vector<int64_t> in_shape({2, 3, 4});
-
-  TensorView* in = makeContigConcreteTensor(in_shape);
-  fusion.addInput(in);
-  TensorView* out = permute(in, {1, 2, 0});
-  fusion.addOutput(out);
-
-  AliasAnalysisResult alias_analysis = findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getRoot(out), in);
-
-  const std::vector<IterDomain*>& out_logical = out->getLogicalDomain();
-  EXPECT_THAT(
-      alias_analysis.preferredLayout(out).allocation_domain,
-      ElementsAre(out_logical[2], out_logical[0], out_logical[1]));
-}
-
-TEST_F(AliasAnalysisTest, View_SplitExpandedBroadcast) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  TensorView* in = TensorViewBuilder()
-                       .ndims(3)
-                       .dtype(DataType::Float)
-                       .contiguity({true, true, std::nullopt})
-                       .shape({4, 5, 6})
-                       .expanded({false, false, true})
-                       .build();
-  fusion.addInput(in);
-  // tryStaticReshape used to fail to get the expanded extent, which is 6.
-  // Therefore, we use the `vector<Val*>` version of `reshape` as a regression
-  // test.
-  TensorView* out =
-      reshape(in, {IrBuilder::create<Val>(40), IrBuilder::create<Val>(3)});
-  fusion.addOutput(out);
-
-  AliasAnalysisResult alias_analysis = findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getRoot(out), nullptr);
-}
-
-TEST_F(AliasAnalysisTest, View_ForwardExpandedBroadcast) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  TensorView* in = TensorViewBuilder()
-                       .ndims(3)
-                       .dtype(DataType::Float)
-                       .contiguity({true, true, std::nullopt})
-                       .shape({4, 5, 6})
-                       .expanded({false, false, true})
-                       .build();
-  fusion.addInput(in);
-  TensorView* out = reshape(in, {4, 5, 6}, {20, -1});
-  fusion.addOutput(out);
-
-  AliasAnalysisResult alias_analysis = findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getRoot(out), in);
-
-  // Verify the last dimension isn't expanded physically.
-  FusionExecutor fe;
-  at::Tensor in_tensor =
-      at::randn({4, 5}).cuda().as_strided({4, 5, 6}, {5, 1, 0});
-  fe.compileFusion(&fusion, {in_tensor});
-  at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
-
-  EXPECT_THAT(out_tensor.strides(), ElementsAre(1, 0));
-}
-
-TEST_F(AliasAnalysisTest, View_MergeExpandedBroadcast) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  TensorView* in = TensorViewBuilder()
-                       .ndims(3)
-                       .dtype(DataType::Float)
-                       .contiguity({true, true, std::nullopt})
-                       .shape({4, 5, 6})
-                       .expanded({false, false, true})
-                       .build();
-  fusion.addInput(in);
-  TensorView* out = reshape(in, {4, 5, 6}, {4, -1});
-  fusion.addOutput(out);
-
-  AliasAnalysisResult alias_analysis = findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getRoot(out), nullptr);
-}
-
-TEST_F(AliasAnalysisTest, TrivialSlice) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  TensorView* in = makeContigConcreteTensor({2, 3});
-  fusion.addInput(in);
-  TensorView* out = slice(in, {0, 0}, {2, 3});
-  out = reshape(out, {2, 3}, {6});
-  fusion.addOutput(out);
-
-  AliasAnalysisResult alias_analysis = findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getRoot(out), in);
-}
-
-TEST_F(AliasAnalysisTest, MergeTriviallySlicedDimensions) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  TensorView* in = makeContigConcreteTensor({2, 3, 5});
-  fusion.addInput(in);
-  TensorView* out = slice(in, {0, 0, 0}, {2, 2, 5});
-  out = reshape(out, {2, 2, 5}, {2, 10});
-  fusion.addOutput(out);
-
-  AliasAnalysisResult alias_analysis = findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getRoot(out), in);
-}
-
-TEST_F(AliasAnalysisTest, MergeSlicedDimensions) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  TensorView* in = makeContigConcreteTensor({2, 3, 5});
-  fusion.addInput(in);
-  TensorView* slice_out = slice(in, {0, 0, 0}, {2, 2, 5});
-  TensorView* out = reshape(slice_out, {2, 2, 5}, {4, 5});
-  fusion.addOutput(out);
-
-  AliasAnalysisResult alias_analysis = findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getRoot(out), nullptr);
-}
-
-TEST_F(AliasAnalysisTest, BroadcastExpandDimensions) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  TensorView* in = makeContigConcreteTensor({2, 3});
-  fusion.addInput(in);
-  TensorView* broadcast_tv = broadcast(in, {false, true, false});
-  TensorView* expanded_tv = expand(
-      broadcast_tv,
-      {broadcast_tv->axis(0)->extent(),
-       IrBuilder::create<Val>(4),
-       broadcast_tv->axis(2)->extent()});
-  fusion.addOutput(expanded_tv);
-
-  AliasAnalysisResult alias_analysis = findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getRoot(expanded_tv), in);
-}
 
 using AliasTest = NVFuserTest;
 
@@ -1407,8 +1159,8 @@ TEST_F(AliasTest, FusionExecutor) {
   fusion.addOutput(out);
 
   // Sanity-check that `out` is a valid alias of `in`.
-  AliasAnalysisResult alias_analysis = findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getRoot(out), in);
+  AliasAnalysisResult analysis = findAliases(&fusion);
+  EXPECT_EQ(analysis.getRoot(out), in);
 
   // Mark them alias so FusionExecutor::runFusion expression-evaluates the
   // output on the host instead of launching a CUDA kernel.
@@ -1442,6 +1194,30 @@ TEST_F(AliasTest, InplaceUpdate) {
   EXPECT_THAT(
       runtime->fusionSegments()->groups(),
       UnorderedElementsAre(HeuristicIs(ScheduleHeuristic::PointWise)));
+}
+
+TEST_F(AliasTest, Bookend_SegmentSetPreservesAllocation) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({2, 3});
+  TensorView* permute_out = permute(in, {1, 0});
+  TensorView* compute_out = mul(in, in);
+  fusion->addInput(in);
+  fusion->addOutput(permute_out);
+  fusion->addOutput(compute_out);
+
+  in->setAllocationDomain({in->axis(1), in->axis(0)}, true);
+  permute_out->setAllocationDomain(
+      {permute_out->axis(0), permute_out->axis(1)}, true);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({3, 2}).cuda().transpose(0, 1);
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+
+  at::Tensor permute_out_tensor = out_tensors[0];
+  EXPECT_TRUE(permute_out_tensor.is_alias_of(in_tensor));
 }
 
 TEST_F(AliasTest, Bookend_InputsAndOutputs) {

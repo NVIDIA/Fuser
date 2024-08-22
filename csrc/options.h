@@ -110,6 +110,7 @@ enum class EnableOption {
 enum class DisableOption {
   CompileToSass, //! Disable direct compilation to sass so the ptx can be
                  //! examined
+  ContigIndexing, //! Disable contiguous indexing
   ExprSimplify, //! Disable expression simplifier
   Fallback, //! Disable fallback
   Fma, //! Disable FMA instructions
@@ -123,6 +124,7 @@ enum class DisableOption {
   ParallelCompile, //! Disable compiling Fusion segments in parallel
   ParallelSerde, //! Disable deserializing FusionExecutorCache in parallel
   PredicateElimination, //! Disable predicate elimination
+  PythonInlineDefinitions, //! Disable printing of inline definitions
   KernelReuse, //! Disable re-using cached FusionKernelRuntimes with different
                //! input shapes
   VarNameRemapping, //! Disable variable name remapping

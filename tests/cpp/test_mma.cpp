@@ -158,8 +158,17 @@ std::vector<at::Tensor> scheduleCompileAndRun(
   tv1->merge(1);
   tv1->axis(1)->parallelize(ParallelType::TIDx);
 
-  tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
-  tv2->applyMmaSwizzle(MmaOperand::Accumulator);
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2c->getLoopDomain());
+    tv2c->setLoopDomain(s.as<IterDomain*>());
+    tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+  }
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2->getLoopDomain());
+    tv2->setLoopDomain(s.as<IterDomain*>());
+  }
 
   FusionExecutor fe;
   fe.compileFusion(
@@ -376,8 +385,17 @@ TEST_P(HopperRS, SingleTile) {
     tv2c->reorder({{-1, -2}});
   }
 
-  tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
-  tv2->applyMmaSwizzle(MmaOperand::Accumulator);
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2c->getLoopDomain());
+    tv2c->setLoopDomain(s.as<IterDomain*>());
+    tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+  }
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2->getLoopDomain());
+    tv2->setLoopDomain(s.as<IterDomain*>());
+  }
 
   auto inputs = matmulAtInput3DHopperRS(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
@@ -442,8 +460,17 @@ TEST_P(HopperRS, SingleTileWithTMALoad) {
     tv2c->reorder({{-1, -2}});
   }
 
-  tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
-  tv2->applyMmaSwizzle(MmaOperand::Accumulator);
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2c->getLoopDomain());
+    tv2c->setLoopDomain(s.as<IterDomain*>());
+    tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+  }
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2->getLoopDomain());
+    tv2->setLoopDomain(s.as<IterDomain*>());
+  }
 
   auto inputs = matmulAtInput3DHopperRS(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
@@ -517,8 +544,17 @@ TEST_P(HopperRS, SingleTileWithTMALoadStore) {
   EXPECT_TRUE(tv2->getMemoryType() == MemoryType::Shared);
   EXPECT_TRUE(tv3->getMemoryType() == MemoryType::Global);
 
-  tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
-  tv2->applyMmaSwizzle(MmaOperand::Accumulator);
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2c->getLoopDomain());
+    tv2c->setLoopDomain(s.as<IterDomain*>());
+    tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+  }
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2->getLoopDomain());
+    tv2->setLoopDomain(s.as<IterDomain*>());
+  }
 
   mma_utils::scheduleTMAStoreForMmaOutput(tv3, getM(macro), getN(macro));
 
@@ -585,8 +621,17 @@ TEST_P(HopperRS, SingleTileWithTMALoadOuterDimNotSplit) {
   // fewer TMA loads.
   tv1->applyMmaSwizzleForTMALoad(swizzle_b, /* don't split outer dim*/ false);
 
-  tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
-  tv2->applyMmaSwizzle(MmaOperand::Accumulator);
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2c->getLoopDomain());
+    tv2c->setLoopDomain(s.as<IterDomain*>());
+    tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+  }
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2->getLoopDomain());
+    tv2->setLoopDomain(s.as<IterDomain*>());
+  }
 
   auto inputs = matmulAtInput3DHopperRS(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
@@ -761,8 +806,17 @@ TEST_P(HopperSS, SingleTile) {
   naivelyParallelize(tv0);
   naivelyParallelize(tv1);
 
-  tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
-  tv2->applyMmaSwizzle(MmaOperand::Accumulator);
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2c->getLoopDomain());
+    tv2c->setLoopDomain(s.as<IterDomain*>());
+    tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+  }
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2->getLoopDomain());
+    tv2->setLoopDomain(s.as<IterDomain*>());
+  }
 
   auto inputs = matmulAtInput3DHopperSS(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
@@ -861,8 +915,17 @@ TEST_P(HopperSS, SingleTileWithTMALoad) {
   tv0->axis(1)->parallelize(ParallelType::TIDx);
   tv1->axis(1)->parallelize(ParallelType::TIDx);
 
-  tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
-  tv2->applyMmaSwizzle(MmaOperand::Accumulator);
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2c->getLoopDomain());
+    tv2c->setLoopDomain(s.as<IterDomain*>());
+    tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+  }
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2->getLoopDomain());
+    tv2->setLoopDomain(s.as<IterDomain*>());
+  }
 
   auto inputs = matmulAtInput3DHopperSS(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));

@@ -1151,10 +1151,10 @@ NVFUSER_DEFINE_BINARY_COMPARE_OP(ne, NE)
 // REDUCTION OPERATIONS
 
 // TODO: How do we adjust this so we can reduce to a single scalar value?
-static TensorView* newForReduction(
+TensorView* newForReduction(
     TensorView* tv,
     const std::vector<unsigned int>& axes,
-    DataType data_type = DataType::Null) {
+    DataType data_type) {
   auto orig_domain = TensorDomain::noReductions(tv->getLogicalDomain());
   std::set<unsigned int> axes_set(axes.begin(), axes.end());
 
@@ -1172,33 +1172,42 @@ static TensorView* newForReduction(
       orig_domain.size(),
       "). Keep in mind reductions are relative to root domains, not modified views.");
 
-  auto axis_iter = axes_set.begin();
+  auto reduced_axis_iter = axes_set.begin();
   for (const auto dim : c10::irange(orig_domain.size())) {
     bool isReduction = false;
-    if (axis_iter != axes_set.end() && *axis_iter == dim) {
+    if (reduced_axis_iter != axes_set.end() && *reduced_axis_iter == dim) {
       isReduction = true;
-      axis_iter++;
+      reduced_axis_iter++;
     }
 
     const IterDomain* id = orig_domain[dim];
 
-    NVF_CHECK(
-        !(isReduction && id->isBroadcast() && !id->isImplicitBroadcast()),
-        "Cannot reduce an axis that is marked as broadcasted as it has an undetermined size. Tried to reduce ID = ",
-        id,
-        " of tensor ",
-        tv);
-
-    new_domain.push_back(
-        IterDomainBuilder(id)
-            // If the domain is being reduced, but it's coming in as an expanded
-            // extent, we need to realize the expand.
-            .extent(
-                isReduction && id->hasExpandedExtent() ? id->expandedExtent()
-                                                       : id->extent())
-            .resetSchedulingParams()
-            .iter_type(isReduction ? IterType::Reduction : id->getIterType())
-            .build());
+    IterDomain* new_id = nullptr;
+    if (isReduction) {
+      if (id->isBroadcast()) {
+        NVF_CHECK(
+            id->isImplicitBroadcast(),
+            "Cannot reduce an axis that is marked as broadcasted as it has an undetermined size. Tried to reduce ID = ",
+            id,
+            " of tensor ",
+            tv);
+      }
+      new_id = IterDomainBuilder(id)
+                   // If the domain is being reduced, but it's coming in as an
+                   // expanded extent, we need to realize the expand.
+                   .extent(id->getMaybeExpandedExtent())
+                   .resetSchedulingParams()
+                   .iter_type(IterType::Reduction)
+                   .build();
+    } else {
+      new_id = IterDomainBuilder(id)
+                   .extent(id->extent())
+                   .resetSchedulingParams()
+                   .parallel_type(id->getParallelType())
+                   .iter_type(id->getIterType())
+                   .build();
+    }
+    new_domain.push_back(new_id);
   }
 
   TensorDomain* td = IrBuilder::create<TensorDomain>(
@@ -1206,7 +1215,9 @@ static TensorView* newForReduction(
 
   data_type =
       data_type == DataType::Null ? tv->getDataType().value() : data_type;
-  return IrBuilder::create<TensorView>(td, data_type);
+  auto* out = IrBuilder::create<TensorView>(td, data_type);
+  out->setDeviceMesh(tv->getDeviceMesh());
+  return out;
 }
 
 namespace {

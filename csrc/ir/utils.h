@@ -506,8 +506,9 @@ std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion);
 //! placeholders and allow them to be created (and annihilated?) arbitrarily as
 //! needed for convenience.
 NVF_API void validateDomainEquivalence(
-    const std::vector<IterDomain*>& dom0,
-    const std::vector<IterDomain*>& dom1);
+    std::vector<IterDomain*> dom0,
+    const std::vector<IterDomain*>& dom1,
+    const std::vector<IterDomain*>& additional_ids = {});
 
 //! Check if all the inputs required to compute needed_val are known
 template <
@@ -648,6 +649,9 @@ std::optional<std::vector<int64_t>> computePermutation(
 }
 
 bool hasTrivialAllocationDomain(const TensorView* tv);
+
+// Returns true if all expr outputs should be mapped unconditionally
+bool hasUniformSiblings(Expr* expr);
 
 // Returns true if memory_type is partitioned in parallel_type. See
 // also isMemorySharedAcross. Specifically, isMemorySharedAcross == true does

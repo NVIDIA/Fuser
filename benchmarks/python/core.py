@@ -136,6 +136,16 @@ def clear_l2_cache() -> None:
     y = torch.clone(x)
 
 
+def clear_dynamo_cache() -> None:
+    """
+    Utility function to enforce re-compilation to avoid different results between
+    running a serials of tests and a standalone test due to kernel re-use.
+    It slows down the test but ensures the correctness of the benchmark results.
+    Ref: https://github.com/pytorch/pytorch/issues/107444
+    """
+    torch._dynamo.reset()
+
+
 def clear_cuda_cache() -> None:
     """
     Utility function to clear CUDA cache before running a test.

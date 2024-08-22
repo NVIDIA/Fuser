@@ -15,6 +15,8 @@
 
 namespace nvfuser {
 
+IterDomain* getCircularBufferAxis(const TensorView* tv);
+
 void validateCircularBufferedTensor(const TensorView* tv);
 
 class CircularBufferInfo {
@@ -29,7 +31,10 @@ class CircularBufferInfo {
 
   void setCircularBufferAxis(const TensorView* tv, IterDomain* id);
 
-  IterDomain* getCircularBufferAxis(const TensorView* tv);
+  IterDomain* getCircularBufferAxis(const TensorView* tv) const;
+
+  //! Get all valid circular buffer TensorViews
+  std::vector<const TensorView*> getCircularBufferTvs() const;
 
   //! Get a loop that matches with a given circular-buffer axis. If
   //! ignore_prologue is true, a matched loop is ignored if it's a
@@ -55,11 +60,13 @@ class CircularBufferInfo {
   //!  as a circular buffer loop.
   bool isCircularBufferedIterDomain(IterDomain* id);
 
-  //! Get the number of circular buffer stages for the given axis,
-  //!  the number of stages will be 2 in the case of circular buffer loop.
+  //! Get the number of circular buffer stages for the given axis.
+  //! The number of stages will be 2 in the case of double buffer loop.
   int64_t getStageDepthFor(IterDomain* circular_buffered_id) const;
 
  private:
+  const TvInfo& getTvInfo(const TensorView* tv) const;
+
   TvInfo& getTvInfo(const TensorView* tv);
 
   //! Set the number of circular buffer stages for the given
@@ -79,7 +86,7 @@ class CircularBufferInfo {
   std::unordered_set<const IterDomain*> concrete_circular_buffered_loop_id_;
 
   //! Keeps track of circular buffer loop stage depth.
-  //!  Currently for each disjoint set of loop mapped iterdomains,
+  //! Currently for each disjoint set of loop mapped iterdomains,
   //! Only one stage depth is supported, so that the loops can indeed
   //! shared with the same prolog extent and main loop offset.
   std::unordered_map<IterDomain*, int64_t> stage_depth_;
