@@ -6,6 +6,7 @@
  */
 // clang-format on
 
+#include <inlining.h>
 #include <ops/all_ops.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
@@ -801,5 +802,679 @@ INSTANTIATE_TEST_SUITE_P(
     NonTma,
     CircularBufferingTest,
     ::testing::Range(2, 10));
+
+using TmaCircularBufferingParams = std::tuple<int, int, int>;
+
+class TmaCircularBufferingTest
+    : public NVFuserFixtureParamTest<TmaCircularBufferingParams> {
+ protected:
+  int64_t number_of_stages = 1;
+  int64_t tensor_outer_dim = 1;
+  int64_t tensor_inner_dim = 1;
+
+  void SetUp() override {
+    number_of_stages = std::get<0>(GetParam());
+    tensor_outer_dim = std::get<1>(GetParam());
+    tensor_inner_dim = std::get<2>(GetParam());
+
+    // NOTE: Multiple of 16 required for inner dimension
+    NVF_ERROR(tensor_inner_dim % 16 == 0);
+    NVFuserTest::SetUp();
+  }
+
+  template <typename data_type>
+  void compare(int64_t tensor_dim, at::Tensor result, at::Tensor reference) {
+    at::Tensor reference_cpu_data = reference.cpu();
+    at::Tensor result_cpu_data = result.cpu();
+
+    auto reference_cpu = reference_cpu_data.accessor<data_type, 1>();
+    auto result_cpu = result_cpu_data.accessor<data_type, 1>();
+
+    constexpr double tolerance = 1e-3;
+    for (int64_t pos = 0; pos < tensor_dim; ++pos) {
+      if (fabs((double)result_cpu[pos] - (double)reference_cpu[pos]) >
+          tolerance) {
+        std::cout << "[" << pos << "] - result: " << result_cpu[pos]
+                  << " | reference: " << reference_cpu[pos] << std::endl;
+      }
+    }
+  }
+
+  template <typename data_type>
+  void compare(
+      int64_t tensor_outer_dim,
+      int64_t tensor_inner_dim,
+      at::Tensor result,
+      at::Tensor reference) {
+    at::Tensor reference_cpu_data = reference.cpu();
+    at::Tensor result_cpu_data = result.cpu();
+
+    auto reference_cpu = reference_cpu_data.accessor<data_type, 2>();
+    auto result_cpu = result_cpu_data.accessor<data_type, 2>();
+
+    constexpr double tolerance = 1e-3;
+    for (int64_t out_pos = 0; out_pos < tensor_outer_dim; ++out_pos) {
+      for (int64_t in_pos = 0; in_pos < tensor_inner_dim; ++in_pos) {
+        if (fabs(
+                (double)reference_cpu[out_pos][in_pos] -
+                (double)result_cpu[out_pos][in_pos]) > tolerance) {
+          std::cout << "[" << out_pos << ", " << in_pos
+                    << "] - result: " << result_cpu[out_pos][in_pos]
+                    << " | ref: " << reference_cpu[out_pos][in_pos]
+                    << std::endl;
+        }
+      }
+    }
+  }
+};
+
+TEST_P(TmaCircularBufferingTest, SingleDim) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* tv0 = makeContigTensor(1);
+  fusion->addInput(tv0);
+
+  TensorView* tv1 = exp(tv0);
+  fusion->addOutput(tv1);
+
+  TensorView* tv2 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv2->setMemoryType(MemoryType::Shared);
+
+  TensorView* reference = tv1;
+
+  // Constants
+  constexpr size_t bulk_inner_dim = 32;
+
+  // [M] -> [M/bid, bid]
+  reference->split(-1, bulk_inner_dim);
+
+  // Propagate Transformations
+  TransformPropagatorWithCheck propagator(reference);
+  MaxLogicalDomainInfoSpanningTree(reference).traverse(&propagator);
+
+  // Set computeAt before applying circular buffer
+  tv0->computeAt(tv1, 1);
+
+  // Circular Buffer with TMA loads
+  tv2->axis(-1)->parallelize(ParallelType::Bulk);
+  tv2->circularBuffer(number_of_stages);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({tensor_inner_dim}, options);
+  at::Tensor t1 = at::exp(t0);
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), {t0});
+
+  std::vector<at::Tensor> cg_outputs = fe.runFusion({t0});
+  compare<float>(tensor_inner_dim, cg_outputs.front(), t1);
+  testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
+}
+
+TEST_P(TmaCircularBufferingTest, SingleDimUnroll) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* tv0 = makeContigTensor(1);
+  fusion->addInput(tv0);
+
+  TensorView* tv1 = exp(tv0);
+  fusion->addOutput(tv1);
+
+  TensorView* tv2 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv2->setMemoryType(MemoryType::Shared);
+
+  TensorView* reference = tv1;
+
+  // Constants
+  constexpr size_t unroll_dim = 4;
+  constexpr size_t bulk_inner_dim = 32;
+
+  // [M] -> [M/bid, bid]
+  reference->split(-1, bulk_inner_dim);
+  // [M/bid, bid] -> [M/bid/unroll, unroll, bid]
+  reference->split(0, unroll_dim);
+
+  // Propagate Transformations
+  TransformPropagatorWithCheck propagator(reference);
+  MaxLogicalDomainInfoSpanningTree(reference).traverse(&propagator);
+
+  // ComputeAt
+  tv0->computeAt(tv1, 1);
+
+  // Apply Unroll
+  tv1->axis(1)->parallelize(ParallelType::Unroll);
+
+  // Circular Buffer with TMA loads
+  tv2->axis(-1)->parallelize(ParallelType::Bulk);
+  tv2->circularBuffer(number_of_stages);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({tensor_inner_dim}, options);
+  at::Tensor t1 = at::exp(t0);
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), {t0});
+
+  int64_t axis_extent =
+      ceilDiv(ceilDiv(tensor_inner_dim, bulk_inner_dim), unroll_dim);
+  if (axis_extent < number_of_stages) {
+    ASSERT_ANY_THROW(fe.runFusion({t0}));
+    return;
+  }
+
+  std::vector<at::Tensor> cg_outputs = fe.runFusion({t0});
+  compare<float>(tensor_inner_dim, cg_outputs.front(), t1);
+  testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
+}
+
+TEST_P(TmaCircularBufferingTest, SingleDimUnswitch) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* tv0 = makeContigTensor(1);
+  fusion->addInput(tv0);
+
+  TensorView* tv1 = exp(tv0);
+  fusion->addOutput(tv1);
+
+  TensorView* tv2 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv2->setMemoryType(MemoryType::Shared);
+
+  TensorView* reference = tv1;
+
+  // Constants
+  constexpr size_t unroll_dim = 4;
+  constexpr size_t bulk_inner_dim = 32;
+
+  // [M] -> [M/bid, bid]
+  reference->split(-1, bulk_inner_dim);
+  // [M/bid, bid] -> [M/bid/unroll, unroll, bid]
+  reference->split(0, unroll_dim);
+
+  // Propagate Transformations
+  TransformPropagatorWithCheck propagator(reference);
+  MaxLogicalDomainInfoSpanningTree(reference).traverse(&propagator);
+
+  // ComputeAt
+  tv0->computeAt(tv1, 1);
+
+  // Apply Unswitch
+  tv1->axis(1)->parallelize(ParallelType::Unswitch);
+
+  // Circular Buffer with TMA loads
+  tv2->axis(-1)->parallelize(ParallelType::Bulk);
+  tv2->circularBuffer(number_of_stages);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({tensor_inner_dim}, options);
+  at::Tensor t1 = at::exp(t0);
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), {t0});
+
+  int64_t axis_extent =
+      ceilDiv(ceilDiv(tensor_inner_dim, bulk_inner_dim), unroll_dim);
+  if (axis_extent < number_of_stages) {
+    ASSERT_ANY_THROW(fe.runFusion({t0}));
+    return;
+  }
+
+  std::vector<at::Tensor> cg_outputs = fe.runFusion({t0});
+  compare<float>(tensor_inner_dim, cg_outputs.front(), t1);
+  testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
+}
+
+TEST_P(TmaCircularBufferingTest, MultiDim) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* tv0 = makeContigTensor(2);
+  fusion->addInput(tv0);
+
+  TensorView* tv1 = exp(tv0);
+  fusion->addOutput(tv1);
+
+  TensorView* tv2 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv2->setMemoryType(MemoryType::Shared);
+
+  TensorView* reference = tv1;
+
+  // Constants
+  constexpr int64_t tma_outer_dim = 4;
+  constexpr int64_t tma_inner_dim = 32;
+
+  // [M, N] -> [M, N/bid, bid]
+  reference->split(-1, tma_inner_dim);
+  // [M, N/bid, bid] -> [M/bod, bod, N/bid, bid]
+  reference->split(0, tma_outer_dim);
+  // [M/bod, bod, N/bid, bid] -> [M/bod, N/bid, bod, bid]
+  reference->reorder({{-2, -3}});
+
+  // Propagate TMA transform
+  TransformPropagatorWithCheck propagator(reference);
+  MaxLogicalDomainInfoSpanningTree(reference).traverse(&propagator);
+
+  // Apply computeAt for TMA cache
+  tv0->computeAt(tv1, 2);
+
+  // Merge TMA tile and Parallelize
+  // [M/bod, N/bid, bod, bid] -> [M/bod, N/bid, bod * bid]
+  reference->merge(-2, -1);
+  // [M/bod, N/bid, bod * bid] -> [M/bod, N/bid, (bod * bid) / 128, 128]
+  reference->split(-1, 128);
+
+  // Parallelize
+  reference->axis(0)->parallelize(ParallelType::BIDx);
+  reference->axis(-1)->parallelize(ParallelType::TIDx);
+
+  // Circular Buffer with TMA loads
+  tv2->axis(0)->parallelize(ParallelType::BIDx);
+  tv2->axis(-1)->parallelize(ParallelType::Bulk);
+  tv2->axis(-2)->parallelize(ParallelType::Bulk);
+  tv2->circularBuffer(number_of_stages);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::ones({tensor_outer_dim, tensor_inner_dim}, options);
+  at::Tensor t1 = at::exp(t0);
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), {t0});
+
+  std::vector<at::Tensor> cg_outputs = fe.runFusion({t0});
+  compare<float>(tensor_outer_dim, tensor_inner_dim, cg_outputs.front(), t1);
+  testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
+}
+
+TEST_P(TmaCircularBufferingTest, Pointwise) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* tv0 = makeContigTensor(2);
+  TensorView* tv1 = makeContigTensor(2);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  TensorView* tv2 = add(tv0, tv1);
+  fusion->addOutput(tv2);
+
+  // Use TMA to load TV0 into shared memory
+  TensorView* tv3 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv3->setMemoryType(MemoryType::Shared);
+
+  // Load TV0 into shared memory
+  TensorView* tv4 = tv1->cacheAfter();
+  tv4->setMemoryType(MemoryType::Shared);
+
+  TensorView* reference = tv2;
+
+  // Constants
+  constexpr int64_t bulk_inner_dim = 32;
+
+  // [M, N] -> [M, N/bid, bid]
+  reference->split(-1, bulk_inner_dim);
+
+  TransformPropagatorWithCheck propagator(reference);
+  MaxLogicalDomainInfoSpanningTree(reference).traverse(&propagator);
+
+  tv0->computeAt(tv2, 2);
+  tv1->computeAt(tv2, 2);
+
+  // Ciruclar Buffer with TMA loads
+  tv3->axis(0)->parallelize(ParallelType::BIDx);
+  tv3->axis(2)->parallelize(ParallelType::Bulk);
+  tv3->circularBuffer(number_of_stages);
+
+  // Ciruclar Buffer with set operation
+  tv4->axis(0)->parallelize(ParallelType::BIDx);
+  tv4->circularBuffer(number_of_stages);
+
+  // Split reference to parallelize TMA tile
+  reference->split(-1, 32);
+  reference->axis(0)->parallelize(ParallelType::BIDx);
+  reference->axis(-1)->parallelize(ParallelType::TIDx);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
+  at::Tensor t1 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
+  at::Tensor t2 = t0 + t1;
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), {t0, t1});
+
+  std::vector<at::Tensor> cg_outputs = fe.runFusion({t0, t1});
+  compare<float>(tensor_outer_dim, tensor_inner_dim, cg_outputs.front(), t2);
+  testValidate(fusion.get(), cg_outputs, {t0, t1}, {t2}, __LINE__, __FILE__);
+}
+
+TEST_P(TmaCircularBufferingTest, Reduction) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* tv0 = makeContigTensor(2);
+  fusion->addInput(tv0);
+
+  TensorView* tv1 = sum(tv0, {-1});
+  fusion->addOutput(tv1);
+
+  TensorView* tv2 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv2->setMemoryType(MemoryType::Shared);
+
+  TensorView* reference = tv1;
+
+  constexpr int64_t examples_per_cta = 4;
+  constexpr int64_t bulk_inner_dim = 256;
+
+  // [M, N] -> [M/epc, epc, N]
+  reference->split(0, examples_per_cta);
+  // [M/epc, epc, N] -> [M/epc, epc, N/bid, bid]
+  reference->split(-1, bulk_inner_dim);
+
+  TransformPropagatorWithCheck propagator(reference);
+  MaxLogicalDomainInfoSpanningTree(reference).traverse(&propagator);
+
+  // [M/epc, epc, N/bid, bid] -> [M/epc, epc, N]
+  reference->merge(-2, -1);
+  // [M/epc, epc, N] -> [M/epc, epc, N/tdx, tdx]
+  constexpr int64_t tdx = 128;
+  reference->split(-1, tdx);
+
+  // Parallelize
+  reference->axis(0)->parallelize(ParallelType::BIDx);
+  reference->axis(-1)->parallelize(ParallelType::TIDx);
+
+  // InlineMost automatically handles vectorize and tma dimensions
+  inlineMost();
+
+  // Circular Buffer with TMA loads
+  tv2->axis(0)->parallelize(ParallelType::BIDx);
+  tv2->axis(-1)->parallelize(ParallelType::Bulk);
+  tv2->circularBuffer(number_of_stages);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
+  at::Tensor t1 = sum(t0, {-1});
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), {t0});
+
+  std::vector<at::Tensor> cg_outputs = fe.runFusion({t0});
+  compare<float>(tensor_outer_dim, cg_outputs.front(), t1);
+  testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
+}
+
+TEST_P(TmaCircularBufferingTest, Persistent) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+
+  constexpr at::ScalarType dtype = at::ScalarType::Float;
+  constexpr int64_t correction = 0;
+  constexpr int64_t reduction_axis = 1;
+  constexpr bool keepdim = true;
+
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* x = makeContigTensor(2, aten_to_data_type(dtype));
+  fusion->addInput(x);
+
+  // Algorithm:
+  // x_norm = (x - x_mean) / sqrt(x_var)
+  Val* num_elem = x->getLoopDomain().at(reduction_axis)->extent();
+
+  TensorView* sum_x = sum(x, {reduction_axis}, /*keepdim=*/false);
+  TensorView* mean_x = div(sum_x, num_elem);
+  TensorView* bcast_mean = broadcast(mean_x, {false, true});
+
+  TensorView* x_mean_sub = sub(x, bcast_mean);
+  TensorView* x_mean_sub_sq = mul(x_mean_sub, x_mean_sub);
+  TensorView* sum_x_mean_sub_sq =
+      sum(x_mean_sub_sq, {reduction_axis}, /*keepdim=*/false);
+  TensorView* var_x = div(sum_x_mean_sub_sq, num_elem);
+  TensorView* bcast_var = broadcast(var_x, {false, true});
+
+  TensorView* x_norm = div(sub(x, bcast_mean), sqrt(bcast_var));
+  fusion->addOutput(x_norm);
+
+  // Load input from global to shared memory
+  TensorView* x_cache_smem =
+      x->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  x_cache_smem->setMemoryType(MemoryType::Shared);
+
+  // Load input from shared memory to registers
+  x_cache_smem->cacheAfter();
+
+  // Store results in registers
+  x_norm->cacheBefore();
+
+  std::vector<TensorView*> reduction_tvs =
+      scheduler_utils::getReductionTvs(fusion.get());
+
+  TensorView* reference_tv = x_norm;
+
+  // boxDim array must be non-zero and less than or equal to 256
+  constexpr int64_t width = 32;
+  constexpr int64_t vectorize = 4;
+  int64_t elem_per_compute_thread = tensor_inner_dim / width / vectorize;
+  constexpr int64_t examples_per_cta = 4;
+
+  // Since multi-dim CpAsyncBulk has a size limit of 256 per dimension,
+  // we require multiple TMA operations to load the entire example in shared
+  // memory for pointwise kernel.
+  //
+  // Define TMA Box
+  // logical domain: [I1, I2]
+  x_cache_smem->split(0, examples_per_cta);
+  // split: [I0 / 4, 4, I2]
+  x_cache_smem->split(-1, 256);
+  // split: [I0/4, 4, I2/256, 256]
+
+  // Schedule reference_tv
+  //   logical domain: [I1, I2]
+  //         split: [I1, I2/V (width / tdx), V]
+  reference_tv->split(-1, vectorize);
+  //         split: [I1, EPCT, I2/V/EPCT (tdx), V]
+  reference_tv->split(-2, elem_per_compute_thread, /*inner_split=*/false);
+  //         split: [I1, EPCT, I2/V/EPCT (tdx), U, V]
+  reference_tv->split(-2, 1);
+  //         reorder: [I1, I2/V/EPCT (tdx), EPCT, U, V]
+  reference_tv->reorder({{-4, -3}, {-3, -4}});
+  //         reorder: [I1/EPC, EPC, I2/V/EPCT (tdx), EPCT, U, V]
+  reference_tv->split(0, examples_per_cta);
+
+  TransformPropagator propagator(reference_tv);
+  std::vector<TensorView*> all_tvs_except_cache =
+      ir_utils::allTvsExcept(fusion.get(), {x_cache_smem});
+  SetSelector selector(
+      {all_tvs_except_cache.begin(), all_tvs_except_cache.end()});
+  MaxLogicalDomainInfoSpanningTree(reference_tv, &selector)
+      .traverse(&propagator);
+
+  std::vector<TensorView*> rfactor_tvs;
+  rfactor_tvs.reserve(reduction_tvs.size());
+  std::transform(
+      reduction_tvs.begin(),
+      reduction_tvs.end(),
+      std::back_inserter(rfactor_tvs),
+      [](TensorView* tv) { return tv->rFactor({-3, -2, -1}); });
+
+  // Define Parallelization Schema
+  reference_tv->axis(0)->parallelize(ParallelType::BIDx);
+  reference_tv->axis(2)->parallelize(ParallelType::TIDx);
+  reference_tv->axis(-2)->parallelize(ParallelType::Unroll);
+  scheduler_utils::parallelizeAllLike(reference_tv);
+
+  // Vectorize Cache
+  reference_tv->axis(-1)->parallelize(ParallelType::Vectorize);
+
+  // InlineMost automatically handles vectorize and tma dimensions
+  inlineMost();
+
+  // Handle TMA Tensor
+  // Apply circular buffer after computeAt
+  x_cache_smem->axis(-1)->parallelize(ParallelType::Bulk);
+  if (examples_per_cta > 1) {
+    x_cache_smem->circularBuffer(number_of_stages);
+  }
+
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  at::Tensor at_tv0 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
+  at::Tensor at_tv1 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
+
+  // Compile with FusionExecutor directly to avoid scheduling
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), {at_tv0});
+  std::vector<at::Tensor> cg_outputs = fe.runFusion({at_tv0});
+
+  std::tuple<at::Tensor, at::Tensor> at_var_mean =
+      at::var_mean(at_tv0, {-1}, correction, keepdim);
+  at::Tensor at_var = std::get<0>(at_var_mean);
+  at::Tensor at_mean = std::get<1>(at_var_mean);
+  at::Tensor at_output = (at_tv0 - at_mean) / sqrt(at_var);
+
+  testValidate(
+      fusion.get(), cg_outputs, {at_tv0}, {at_output}, __LINE__, __FILE__);
+}
+
+TEST_P(TmaCircularBufferingTest, Matmul) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // Algorithm
+  TensorView* tv0 = makeContigTensor(2); // (M, K)
+  TensorView* tv1 = makeContigTensor(2); // (K, N)
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  TensorView* tv2 = broadcast(tv0, {false, false, true}); // (M, K, B)
+  TensorView* tv3 = broadcast(tv1, {true, false, false}); // (B, K, N)
+  TensorView* tv4 = mul(tv2, tv3); // M, K, N
+  TensorView* tv5 = sum(tv4, {1}); // M, R, N
+  fusion->addOutput(tv5);
+
+  // CpAsyncBulk Store
+  TensorView* tv6 = tv5->cacheBefore(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv6->setMemoryType(MemoryType::Shared);
+
+  // For register circular buffering
+  TensorView* tv0_cache_local = tv0->cacheAfter();
+  TensorView* tv1_cache_local = tv1->cacheAfter();
+
+  // For shared memory circular buffering
+  TensorView* tv0_cache_smem =
+      tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  TensorView* tv1_cache_smem =
+      tv1->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv0_cache_smem->setMemoryType(MemoryType::Shared);
+  tv1_cache_smem->setMemoryType(MemoryType::Shared);
+
+  constexpr int64_t BSX = 32;
+  constexpr int64_t TSX = 8;
+
+  // Step 0: [M, K, N]
+  // Step 1: [M, K, N/BSX, BSX]
+  tv6->split(-1, BSX);
+
+  // Step 2: [M, K, N/BSX, BSX/TSX, TSX]
+  tv6->split(-1, TSX);
+
+  // Step 3: [M, K/BSX, BSX, N/BSX, BSX/TSX, TSX]
+  tv6->split(1, BSX);
+
+  // Step 4: [M/BSX, BSX, K/BSX, BSX, N/BSX, BSX/TSX, TSX]
+  tv6->split(0, BSX);
+
+  // Step 5:[M/BSX, BSX/TSX, TSX, K/BSX, BSX, N/BSX, BSX/TSX, TSX]
+  tv6->split(1, TSX);
+
+  // Step 6: [M/BSX, N/BSX, K/BSX, BSX/TSX, BSX/TSX, TSX, TSX, BSX]
+  tv6->reorder(
+      {{4, 7}, {7, 6}, {6, 5}, {2, 4}, {1, 3}, {3, 2}, {5, 1}, {0, 0}});
+
+  // Step 7a: [M/BSX, N/BSX, K/BSX, BSX/TSX, BSX/TSX, TSX, TSX, BSX (reduce)]
+  // Step 7b: [M/BSX, N/BSX, K/BSX (reduce), BSX/TSX, BSX/TSX, TSX, TSX]
+  TensorView* tv6_rf = tv6->rFactor({-1});
+
+  TransformPropagatorWithCheck propagator(tv6_rf);
+  MaxLogicalDomainInfoSpanningTree(tv6_rf).traverse(&propagator);
+
+  // IterDomain: [M/BSX, N/BSX, K/BSX, BSX/TSX, BSX/TSX, TSX, TSX, BSX]
+  // Parallelization: BDX, BDY, K/BSX ||, BSX/TSX, BSX/TSX, TDY, TSX, TDX]
+  // 4 non-parallelized for-loops
+  tv0->computeAt(tv6, 3);
+  tv1->computeAt(tv6, 3);
+
+  tv6_rf->computeAt(tv6, -1);
+  tv0_cache_local->computeAt(tv6_rf, -1);
+  tv1_cache_local->computeAt(tv6_rf, -1);
+
+  // Parallelize
+  tv5->axis(0)->parallelize(ParallelType::BIDx);
+  tv5->axis(1)->parallelize(ParallelType::BIDy);
+  tv5->axis(-3)->parallelize(ParallelType::TIDy);
+  tv5->axis(-1)->parallelize(ParallelType::TIDx);
+
+  scheduler_utils::parallelizeAllLike(tv5);
+
+  // (BSX/TSX * TSX * BSX) = 1024 floats = 4096 bytes * (number of buffers)
+  // Apply circular buffering to smem and local cache tensors
+  tv0_cache_smem->axis(-3)->parallelize(ParallelType::Bulk);
+  tv0_cache_smem->axis(-2)->parallelize(ParallelType::Bulk);
+  tv0_cache_smem->axis(-1)->parallelize(ParallelType::Bulk);
+
+  tv1_cache_smem->axis(-3)->parallelize(ParallelType::Bulk);
+  tv1_cache_smem->axis(-2)->parallelize(ParallelType::Bulk);
+  tv1_cache_smem->axis(-1)->parallelize(ParallelType::Bulk);
+
+  tv0_cache_local->circularBuffer(number_of_stages);
+  tv1_cache_local->circularBuffer(number_of_stages);
+
+  tv0_cache_smem->circularBuffer(number_of_stages);
+  tv1_cache_smem->circularBuffer(number_of_stages);
+
+  // Apply ParallelType::Bulk to global output tensor.
+  tv5->axis(-4)->parallelize(ParallelType::Bulk);
+  tv5->axis(-3)->parallelize(ParallelType::Bulk);
+  tv5->axis(-2)->parallelize(ParallelType::Bulk);
+  tv5->axis(-1)->parallelize(ParallelType::Bulk);
+
+  constexpr int64_t K = 1024;
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({tensor_outer_dim, K}, options);
+  at::Tensor t1 = at::randn({K, tensor_inner_dim}, options);
+  at::Tensor aten_output =
+      (t0.unsqueeze(/*dim=*/-1) * t1.unsqueeze(/*dim=*/0)).sum(/*dim=*/1);
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), {t0, t1});
+
+  std::vector<at::Tensor> cg_outputs = fe.runFusion({t0, t1});
+  compare<float>(
+      tensor_outer_dim, tensor_inner_dim, cg_outputs.front(), aten_output);
+  testValidate(
+      fusion.get(), cg_outputs, {t0, t1}, {aten_output}, __LINE__, __FILE__);
+}
+
+// Test circular buffer from 2 to 5 stages
+INSTANTIATE_TEST_SUITE_P(
+    Hopper,
+    TmaCircularBufferingTest,
+    testing::Combine(
+        ::testing::Range(2, 5),
+        testing::Values(128, 500, 1024),
+        testing::Values(128, 1024)));
 
 } // namespace nvfuser
