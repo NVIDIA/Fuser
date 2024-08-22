@@ -475,7 +475,9 @@ class TensorDomain : public Val {
     return contiguity_;
   }
 
-  const std::vector<int64_t>& strideOrder() const {}
+  const std::vector<int64_t>& strideOrder() const {
+    return stride_order_;
+  }
 
   NVF_API void setContiguity(const std::vector<std::optional<bool>>& contig);
 

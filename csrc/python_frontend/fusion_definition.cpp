@@ -66,16 +66,7 @@ FusionDefinition::FusionDefinition(std::optional<size_t> id, size_t max_length)
       ops(this),
       sched(this) {}
 
-FusionDefinition::FusionDefinition(const Fusion* fusion)
-    : FusionState(),
-      max_length_(256),
-      fusion_id_(std::nullopt_t),
-      fusion_cache_(FusionCache::get()),
-      trie_node_(nullptr),
-      prev_fusion_(nullptr),
-      user_sched_(nullptr),
-      ops(this),
-      sched(this) {
+void FusionDefinition::clone(const Fusion* fusion) {
   // nvfuser::Val - defineScalar, defineTensor, and defineTensor
   // nvfuser::Expr - defineRecord
 
@@ -95,8 +86,8 @@ FusionDefinition::FusionDefinition(const Fusion* fusion)
 
     std::vector<int64_t> shape;
     std::transform(
-        tv->domain()->begin(),
-        tv->domain()->end(),
+        tv->domain()->logical().begin(),
+        tv->domain()->logical().end(),
         std::back_inserter(shape),
         [](IterDomain* id) {
           return (id->extent()->isConstScalar())
@@ -108,7 +99,7 @@ FusionDefinition::FusionDefinition(const Fusion* fusion)
         {recordingState(output())},
         shape,
         tv->domain()->contiguity(),
-        tv->dtype(),
+        std::get<PrimDataType>(tv->dtype().type),
         tv->isCpuScalar(),
         tv->domain()->strideOrder()));
     map_val_to_fd_index.emplace(v, output());
@@ -141,18 +132,17 @@ FusionDefinition::FusionDefinition(const Fusion* fusion)
     // Create RecordFunctor given inputs, outputs, and attributes.
     // Add output to values
     TensorView* arg1 = bop->lhs()->as<TensorView>();
-    TensorView* arg2 = bop->rhs()->as<TensorView>();
     size_t arg1_index = map_val_to_fd_index.at(bop->lhs());
     size_t arg2_index = map_val_to_fd_index.at(bop->rhs());
 
-    Tensor output = fd->defineTensor(arg1->nDims());
+    Tensor output = defineTensor(arg1->nDims());
     defineRecord(new OpRecord<TensorView*, TensorView*, TensorView*>(
-        {recordingState(arg1_index), fd->recordingState(arg2_index)},
+        {recordingState(arg1_index), recordingState(arg2_index)},
         {recordingState(output())},
         ("ops.add"),
         serde::RecordType::Binary_TV,
-        static_cast<TensorView* (*)(TensorView*, TensorView*)>(op_name)));
-    map_val_to_fd_index.emplace(v, output());
+        static_cast<TensorView* (*)(TensorView*, TensorView*)>(add)));
+    map_val_to_fd_index.emplace(bop->out(), output());
 
     // Add output uses to to_visit
     for (Val* v : e->outputs()) {
