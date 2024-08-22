@@ -86,7 +86,14 @@ bool haveDifferentShardings(
 // Returns whether a resharding expr reshards an inner axis
 bool isInnerResharding(Expr* expr);
 
+// Shards all tensors in tvs like reference
 void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs);
+
+// Shards all tensors within a boundary like ref_tvs, but does not change the
+// sharding of tvs already sharded.
+void shardBetween(
+    std::vector<TensorView*> ref_tvs,
+    const std::unordered_set<TensorView*>& boundary_tvs);
 
 // Returns the devices involved in an expr
 std::set<DeviceIdxType> involvedDevices(Expr* expr);

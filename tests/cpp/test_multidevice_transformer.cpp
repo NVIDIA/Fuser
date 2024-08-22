@@ -175,25 +175,6 @@ std::vector<at::Tensor> reference_mlp_backwards(
   return grads;
 }
 
-// Temporary until sharding pass is updated to set reference and boundary tvs automatically. 
-// Shards all tensors between ref_tvs and boundary_tvs like ref_tvs.
-// ref_tvs must have a consistent sharding. 
-void propagateShardings(std::vector<TensorView*> ref_tvs, std::unordered_set<TensorView*> boundary_tvs) {
-  auto tvs_between = scheduler_utils::getAllTvsFrom(ref_tvs, boundary_tvs);
-  std::cout << "ref tv " << ref_tvs[0]->toString();
-  for (auto tv : boundary_tvs) {
-    std::cout << "Boundary tv " << tv->toString() << std::endl;
-  }
-  for (auto tv : tvs_between) {
-    std::cout << tv->toString() << std::endl;
-  }
-  std::vector<TensorView*> tvs_to_shard;
-  std::copy_if(tvs_between.begin(), tvs_between.end(),
-                 std::back_inserter(tvs_to_shard),
-                 [](TensorView* tv) {return !tv->hasDeviceMesh();});
-  shardAllLike(ref_tvs[0], tvs_to_shard);
-}
-
 std::vector<TensorView*> mlp(
     TensorView* x,
     TensorView* w0,
@@ -217,7 +198,7 @@ std::vector<TensorView*> mlp(
   TensorView* linear2 = add(matmul2, bcast_bias);
   // Dropout
   Val* prob = IrBuilder::create<Val>(1.0 - kDropoutProb);
-  Val * scale = IrBuilder::create<Val>(1.0 / (1.0 - kDropoutProb));
+  Val* scale = IrBuilder::create<Val>(1.0 / (1.0 - kDropoutProb));
   auto dropout_result = dropout(linear2, prob, scale).output;
 
   // Manual sharding annotations
@@ -281,7 +262,7 @@ std::vector<TensorView*> mha(
   TensorView* linear2 = add(mm2_ar, b1_bcast);
   // Dropout
   Val* prob = IrBuilder::create<Val>(1.0 - kDropoutProb);
-  Val * scale = IrBuilder::create<Val>(1.0 / (1.0 - kDropoutProb));
+  Val* scale = IrBuilder::create<Val>(1.0 / (1.0 - kDropoutProb));
   auto dropout_result = dropout(linear2, prob, scale).output;
 
   for (auto tv : {x, b1, mm2_ar, linear2, dropout_result}) {
@@ -338,12 +319,7 @@ std::vector<TensorView*> mlp_backwards(
 
   // Manaul sharding annotations
   for (auto tv :
-       {x,
-        grad,
-        mask,
-        dropout_grad,
-        matmul1_grad_b,
-        matmul0_grad_x}) {
+       {x, grad, mask, dropout_grad, matmul1_grad_b, matmul0_grad_x}) {
     tv->setDeviceMesh(mesh);
   }
 
@@ -372,7 +348,8 @@ std::vector<TensorView*> mlp_backwards(
 } // namespace
 
 TEST_P(DistributedTransformerTest, MLP_Layer) {
-  preseg_passes::OptimizationPassGuard<preseg_passes::PropagateShardingsPass> guard(false);
+  preseg_passes::OptimizationPassGuard<preseg_passes::PropagateShardingsPass>
+      guard(false);
   auto dtype = GetParam();
   at::ScalarType at_dtype = data_type_to_aten(dtype);
   auto fusion = std::make_unique<Fusion>();
@@ -397,7 +374,7 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
   for (TensorView* tv : tvsout) {
     fusion->addOutput(tv);
   }
-  propagateShardings({tvw0}, {/*dropout_result*/tvsout[3]});
+  shardBetween({tvw0}, {tvsout[3]});
 
   const auto options =
       at::TensorOptions().dtype(at_dtype).device(communicator_->device());
@@ -434,7 +411,8 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
 }
 
 TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
-  preseg_passes::OptimizationPassGuard<preseg_passes::PropagateShardingsPass> guard(false);
+  preseg_passes::OptimizationPassGuard<preseg_passes::PropagateShardingsPass>
+      guard(false);
   auto dtype = GetParam();
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -459,7 +437,7 @@ TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
     fusion->addOutput(tv);
   }
 
-  propagateShardings({tvw0}, {tv_outs[3]});
+  shardBetween({tvw0}, {tv_outs[3]});
 
   const auto options =
       at::TensorOptions().dtype(at_dtype).device(communicator_->device());
@@ -492,7 +470,8 @@ TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
 }
 
 TEST_P(DistributedTransformerTest, MLP_Backward) {
-  preseg_passes::OptimizationPassGuard<preseg_passes::PropagateShardingsPass> guard(false);
+  preseg_passes::OptimizationPassGuard<preseg_passes::PropagateShardingsPass>
+      guard(false);
   auto dtype = GetParam();
   at::ScalarType at_dtype = data_type_to_aten(dtype);
   auto fusion = std::make_unique<Fusion>();
@@ -521,9 +500,9 @@ TEST_P(DistributedTransformerTest, MLP_Backward) {
   }
 
   // Sharded: matmul1_grad_w, gelu_grad, matmul0_grad_w, matmul0_grad_b
-  propagateShardings({w0, w1, b0}, {tv_outs[1], tv_outs[3], tv_outs[4], tv_outs[5]});
+  shardBetween({w0, w1, b0}, {tv_outs[1], tv_outs[3], tv_outs[4], tv_outs[5]});
   // Unsharded: dropout_grad, matmul1_grad_b, matmul0_grad_x
-  propagateShardings({x, mask, grad}, {tv_outs[0], tv_outs[2], tv_outs[6]});
+  shardBetween({x, mask, grad}, {tv_outs[0], tv_outs[2], tv_outs[6]});
 
   const auto options =
       at::TensorOptions().dtype(at_dtype).device(communicator_->device());
@@ -561,7 +540,8 @@ TEST_P(DistributedTransformerTest, MLP_Backward) {
 }
 
 TEST_P(DistributedTransformerTest, Forward) {
-  preseg_passes::OptimizationPassGuard<preseg_passes::PropagateShardingsPass> guard(false);
+  preseg_passes::OptimizationPassGuard<preseg_passes::PropagateShardingsPass>
+      guard(false);
   auto dtype = GetParam();
   at::ScalarType at_dtype = data_type_to_aten(dtype);
   auto fusion = std::make_unique<Fusion>();
@@ -612,16 +592,10 @@ TEST_P(DistributedTransformerTest, Forward) {
   for (auto tv : {x, ln_1.output, ln_2.output, resid_2}) {
     tv->setDeviceMesh(mesh);
   }
-  if (communicator_->deviceId() == 0)
-    fusion->print();
-  propagateShardings({mlp_w0}, {resid_2});
-  propagateShardings({mha_w0}, {mlp_in});
-  propagateShardings({x}, {mha_in});
 
-  if (communicator_->deviceId() == 0) {
-    std::cout << "AFTER" << std::endl;
-    fusion->print();
-  }
+  shardBetween({mlp_w0}, {resid_2});
+  shardBetween({mha_w0}, {mlp_in});
+  shardBetween({x}, {mha_in});
 
   const auto options =
       at::TensorOptions().dtype(at_dtype).device(communicator_->device());
