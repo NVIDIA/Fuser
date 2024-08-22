@@ -222,8 +222,8 @@ void PrecomputedValues::print() const {
   debug() << "Precomputed Values:\n";
   for (auto i : c10::irange(symbols_.size())) {
     if (defined_[i]) {
-      debug() << symbols_[i]->toInlineString() << " = "
-              << PolymorphicValue_functions::toString(values_[i]) << std::endl;
+      debug() << symbols_[i]->toInlineString() << " = " << values_[i]
+              << std::endl;
     }
   }
 }
