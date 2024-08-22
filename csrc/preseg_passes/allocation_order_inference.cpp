@@ -367,6 +367,9 @@ void AllocationDomainPass::runPass(Fusion* fusion) {
   }
   // propagate allocation domain from sources to destinations
   inferenceAllocationOrder(fusion, srcs, dsts);
+
+  std::cout << "\n ============= after AllocationDomainPass: " << std::endl;
+  fusion->print();
 }
 
 } // namespace nvfuser::preseg_passes
