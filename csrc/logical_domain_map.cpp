@@ -288,18 +288,12 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
         !producer_logical.empty() && producer_logical.at(0)->isDeviceDim() ? 1
                                                                            : 0;
     for (auto idx : c10::irange(producer_logical.size())) {
-      if (idx < 2 + num_device_dim) {
-        // Map N, H from all producers to consumers
-        updatePairwiseLogicalDomainMap(
-            producer_logical.at(idx), consumer_root.at(idx));
-      } else if (
-          idx == 2 + num_device_dim && producer_has_s == consumer_has_s) {
-        // producer/consumer[2] = L/S
-        updatePairwiseLogicalDomainMap(
-            producer_logical.at(idx), consumer_root.at(idx));
-      } else if (
-          idx == 3 + num_device_dim && producer_has_e == consumer_has_e) {
-        // producer/consumer[3] = E/Ev
+      // Map N, H from all producers to consumers
+      // producer/consumer[2] = L/S
+      // producer/consumer[3] = E/Ev
+      if ((idx < 2 + num_device_dim) ||
+          (idx == 2 + num_device_dim && producer_has_s == consumer_has_s) ||
+          (idx == 3 + num_device_dim && producer_has_e == consumer_has_e)) {
         updatePairwiseLogicalDomainMap(
             producer_logical.at(idx), consumer_root.at(idx));
       }
