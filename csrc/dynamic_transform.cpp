@@ -666,6 +666,9 @@ class DynamicTransformConcretizer : public OptOutMutator {
   //! Use this instead of calling registerMutation directly, since it will also
   //! check that the concretized value is a valid input to all of its uses.
   void registerConcretization(Val* old_val, Val* new_val) {
+    if (new_val == old_val) {
+      return;
+    }
     symbolic_to_concretized_map_.emplace(old_val, new_val);
     checkConcretizedUses(old_val, new_val);
     NVF_ERROR(
@@ -931,7 +934,61 @@ void DynamicTransformConcretizer::concretizeReshape() {
 }
 
 void DynamicTransformConcretizer::concretizeResize() {
-  // Concretize each resize op.
+  // First mutate IterDomains so that each Resize producer has constant extent
+  for (const auto& [id_index, concrete_resize] : info_->getResizeExtents()) {
+    const auto& [input_extent, left_expand, right_expand] = concrete_resize;
+
+    IterDomain* id =
+        info_->initialInfo()->getDynamicResizedIterDomains().at(id_index);
+
+    NVF_CHECK(
+        id->definition() && id->definition()->isA<Resize>(),
+        "Resized IterDomain must have a Resize definition");
+    IterDomain* orig_in_id = id->definition()->as<Resize>()->in();
+
+    IterDomain* in_id = maybeMutated(orig_in_id)->as<IterDomain>();
+
+    bool has_const_extent = in_id->getMaybeExpandedExtent()->isConst();
+
+    if (has_const_extent && !in_id->isSymbolic()) {
+      continue;
+    }
+
+    // Create a new concretized IterDomain to replace the input, if it is not
+    // already replaced (for example one IterDomain could theoretically be
+    // input to multiple Resize ops).
+    IterDomainBuilder builder(in_id);
+
+    if (!has_const_extent) {
+      Val* new_extent = IrBuilder::create<Val>(
+          input_extent, in_id->getMaybeExpandedExtent()->dtype());
+      if (in_id->hasExpandedExtent()) {
+        builder.expanded_extent(new_extent);
+      } else {
+        builder.extent(new_extent);
+      }
+    }
+
+    if (in_id->isSymbolic()) {
+      builder.iter_type(
+          input_extent + left_expand + right_expand == 1 ? IterType::Broadcast
+                                                         : IterType::Iteration);
+    }
+
+    IterDomain* new_in_id = builder.build();
+
+    ir_utils::replaceValInExprInputs(id->definition(), orig_in_id, new_in_id);
+
+    registerConcretization(orig_in_id, new_in_id);
+    if (!orig_in_id->getMaybeExpandedExtent()->sameAs(
+            new_in_id->getMaybeExpandedExtent())) {
+      registerConcretization(
+          orig_in_id->getMaybeExpandedExtent(),
+          new_in_id->getMaybeExpandedExtent());
+    }
+  }
+
+  // Concretize each resize op using constant expand values
   for (const auto& [id_index, concrete_resize] : info_->getResizeExtents()) {
     const auto& [input_extent, left_expand, right_expand] = concrete_resize;
 
@@ -939,19 +996,46 @@ void DynamicTransformConcretizer::concretizeResize() {
         ? IterType::Broadcast
         : IterType::Iteration;
 
-    auto id = info_->initialInfo()->getDynamicResizedIterDomains().at(id_index);
+    auto orig_id =
+        info_->initialInfo()->getDynamicResizedIterDomains().at(id_index);
+
+    // id might have been updated in the previous loop
+    IterDomain* id = maybeMutated(orig_id)->as<IterDomain>();
+
     NVF_CHECK(
         id->definition() && id->definition()->isA<Resize>(),
         "Resized IterDomain must have a Resize definition");
     auto def = id->definition()->as<Resize>();
+
+    Val* left_expand_val = def->leftExpand();
+    if (!def->leftExpand()->isConst()) {
+      left_expand_val =
+          IrBuilder::create<Val>(left_expand, def->leftExpand()->dtype());
+      registerConcretization(def->leftExpand(), left_expand_val);
+    }
+
+    Val* right_expand_val = def->rightExpand();
+    if (!def->rightExpand()->isConst()) {
+      right_expand_val =
+          IrBuilder::create<Val>(right_expand, def->rightExpand()->dtype());
+      registerConcretization(def->rightExpand(), right_expand_val);
+    }
+
     auto new_id = IterDomain::resize(
-        def->in(),
-        def->leftExpand(),
-        def->rightExpand(),
+        maybeMutated(def->in())->as<IterDomain>(),
+        left_expand_val,
+        right_expand_val,
         id->isRFactorProduct(),
         iter_type);
 
-    registerConcretization(id, new_id);
+    registerConcretization(orig_id, new_id);
+
+    // Concretize the output shape which is constant
+    if (!orig_id->extent()->sameAs(new_id->extent())) {
+      registerConcretization(orig_id->extent(), new_id->extent());
+    }
+
+    // concretize scalars for left and right expand
   }
 }
 
@@ -1120,8 +1204,14 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
         }
       }
       // Update the IterType of each output
+      bool preserve_def = true;
       for (auto out_id : ir_utils::filterByType<IterDomain>(expr->outputs())) {
         auto mut_id = maybeMutated(out_id)->as<IterDomain>();
+        // Preserve the definition, unless there is an output with a
+        // pre-existing concretization. In that case, we assume that
+        // concretization was performed purposely and we refuse to redefine it.
+        preserve_def = preserve_def && mut_id == out_id;
+
         if (!mut_id->isSymbolic()) {
           // We are only concretizing IterType here, so if we have already
           // concretized the iter_type for this ID, we can skip this.
@@ -1158,8 +1248,11 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
       // unimportant, except that mutate(Expr*) does not return the replacement
       // Expr*, whereas mutateExprOutputsOnly does.
 
-      // Set expr as the definition for concretized outputs
-      expr = mutateExprOutputsOnly(expr);
+      if (preserve_def) {
+        // Set expr as the definition for concretized outputs
+        expr = mutateExprOutputsOnly(expr);
+      }
+
       // Replace inputs and attributes that were concretized
       mutate(expr);
     }
