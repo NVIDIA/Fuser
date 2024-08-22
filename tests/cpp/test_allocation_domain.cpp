@@ -1460,6 +1460,98 @@ TEST_F(AllocationDomainTest, ReductionOnPermutedReshape) {
           .cuda()
           .as_strided({16, 12, 128, 192}, {128 * 12 * 192, 192, 12 * 192, 1});
   std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+
+  // validate reduction type
+  auto heuristic_params = fec.getMostRecentKernelRuntime()
+                              ->schedulerHeuristics()
+                              ->heuristicsList()
+                              .at(0)
+                              ->params();
+  ASSERT_TRUE(heuristic_params->isA<ReductionParams>());
+  auto reduction_params = heuristic_params->as<ReductionParams>();
+  ASSERT_FALSE(reduction_params->fastest_dim) << "Should use outer reduction!";
+  
+  // validate vectorization, all output tensors should have vectorization
+  // all consumers of the input tensor should have vectorization.
+  auto scheduled_fusion = fec.getMostRecentKernelRuntime()->executors().at(0).fusion();
+  scheduled_fusion->printMath();
+  auto hasVectorization = [](TensorView* tv) -> bool {
+    for (auto i : tv->getLoopDomain()) {
+      if (i->getParallelType() == ParallelType::Vectorize) {
+        return true;
+      }
+    }
+    return false;
+  };
+  for (auto o : scheduled_fusion->outputs()) {
+    ASSERT_TRUE(hasVectorization(o->as<TensorView>()));
+  }
+  for (auto i : scheduled_fusion->inputs()) {
+    for (auto c : ir_utils::consumerTvsOf(i->as<TensorView>())) {
+      ASSERT_TRUE(hasVectorization(c));
+    }
+  }
+
   testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 }
+
+// Reduced tv is tv1, it is the input and has user specified allocation domain
+TEST_F(AllocationDomainTest, ReductionTypePropagationNotRequired) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  long x = 3L, y = 1024L, z = 65L;
+  auto tv1 = makeContigConcreteTensor({x, y, z});
+  fusion->addInput(tv1);
+  std::vector<IterDomain*> tv1_dom = {tv1->axis(2), tv1->axis(1), tv1->axis(0)};
+  tv1->setAllocationDomain(tv1_dom, true);
+  auto tv2 = sum(tv1, {0});
+  fusion->addOutput(tv2);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t1 = at::randn({x, y, z}, options).as_strided({x, y, z}, {1, x, x * y});
+  std::vector<c10::IValue> inputs({t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto heuristic_params = executor_cache.getMostRecentKernelRuntime()
+                              ->schedulerHeuristics()
+                              ->heuristicsList()
+                              .at(0)
+                              ->params();
+  ASSERT_TRUE(heuristic_params->isA<ReductionParams>());
+  auto reduction_params = heuristic_params->as<ReductionParams>();
+  ASSERT_TRUE(reduction_params->fastest_dim) << "Should use inner reduction!";
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+}
+
+// tv2 is the reduced tv, it doesn't have allocation domain. To correctly get
+// the reduction type from its allocation domain, pre-segment pass should
+// propagate the allocation domain from tv1 to tv2.
+TEST_F(AllocationDomainTest, ReductionTypePropagationRequired) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  long x = 3L, y = 1024L, z = 65L;
+  auto tv1 = makeContigConcreteTensor({x, y, z});
+  fusion->addInput(tv1);
+  std::vector<IterDomain*> tv1_dom = {tv1->axis(2), tv1->axis(1), tv1->axis(0)};
+  tv1->setAllocationDomain(tv1_dom, true);
+  auto tv2 = add(tv1, tv1);
+  auto tv3 = sum(tv2, {0});
+  fusion->addOutput(tv3);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t1 = at::randn({x, y, z}, options).as_strided({x, y, z}, {1, x, x * y});
+  std::vector<c10::IValue> inputs({t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto heuristic_params = executor_cache.getMostRecentKernelRuntime()
+                              ->schedulerHeuristics()
+                              ->heuristicsList()
+                              .at(0)
+                              ->params();
+  ASSERT_TRUE(heuristic_params->isA<ReductionParams>());
+  auto reduction_params = heuristic_params->as<ReductionParams>();
+  ASSERT_TRUE(reduction_params->fastest_dim) << "Should use inner reduction!";
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
