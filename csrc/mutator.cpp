@@ -84,7 +84,8 @@ void OptOutMutator::mutate(Val* s) {}
 
 void OptOutMutator::mutate(NamedScalar* ns) {}
 
-void OptOutMutator::mutate(IterDomain* id) {
+void OptOutMutator::mutate(IterDomain* orig_id) {
+  IterDomain* id = maybeMutated(orig_id)->as<IterDomain>();
   Val* start = maybeMutated(id->start());
   Val* extent = maybeMutated(id->extent());
   Val* expanded_extent = nullptr;
@@ -106,6 +107,7 @@ void OptOutMutator::mutate(IterDomain* id) {
                     .build();
 
   // This guarantees we replace id in all downstream expressions
+  registerMutation(orig_id, new_id);
   registerMutation(id, new_id);
 
   // Preserve definition if it exists in id. This is important since otherwise
@@ -184,13 +186,23 @@ Expr* OptOutMutator::mutateExpr(
   mutated_outputs.reserve(op->outputs().size());
   for (auto output : op->outputs()) {
     mutated_outputs.emplace_back(
-        replace_outputs ? maybeMutated(output) : output);
+        replace_outputs &&
+                std::find(op->inputs().begin(), op->inputs().end(), output) ==
+                    op->inputs().end()
+            ? maybeMutated(output)
+            : output);
   }
 
   std::vector<Val*> mutated_inputs;
   mutated_inputs.reserve(op->inputs().size());
   for (auto input : op->inputs()) {
-    mutated_inputs.emplace_back(replace_inputs ? maybeMutated(input) : input);
+    mutated_inputs.emplace_back(
+        replace_inputs &&
+                std::find(
+                    mutated_outputs.begin(), mutated_outputs.end(), input) ==
+                    mutated_outputs.end()
+            ? maybeMutated(input)
+            : input);
   }
 
   std::vector<Statement*> mutated_attrs;
