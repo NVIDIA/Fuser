@@ -475,6 +475,8 @@ class TensorDomain : public Val {
     return contiguity_;
   }
 
+  const std::vector<int64_t>& strideOrder() const {}
+
   NVF_API void setContiguity(const std::vector<std::optional<bool>>& contig);
 
   std::string getContiguityString() const {
@@ -672,6 +674,7 @@ class TensorDomain : public Val {
   std::vector<IterDomain*> no_bcast_domain_;
   std::vector<IterDomain*> no_reduction_domain_;
   std::vector<std::optional<bool>> contiguity_;
+  std::vector<int64_t> stride_order_;
   bool has_reduction_ = false;
 };
 

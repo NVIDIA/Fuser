@@ -92,15 +92,25 @@ FusionDefinition::FusionDefinition(const Fusion* fusion)
     TensorView* tv = v->as<TensorView>();
 
     Tensor output = defineTensor(tv->nDims());
-    /*
+
+    std::vector<int64_t> shape;
+    std::transform(
+        tv->domain()->begin(),
+        tv->domain()->end(),
+        std::back_inserter(shape),
+        [](IterDomain* id) {
+          return (id->extent()->isConstScalar())
+              ? id->extent()->evaluate().as<int64_t>()
+              : -1;
+        });
+
     defineRecord(new TensorRecord(
-              {recordingState(output())},
-              shape,
-              contiguity,
-              dtype,
-              is_cpu,
-              stride_order));
-    */
+        {recordingState(output())},
+        shape,
+        tv->domain()->contiguity(),
+        tv->dtype(),
+        tv->isCpuScalar(),
+        tv->domain()->strideOrder()));
     map_val_to_fd_index.emplace(v, output());
 
     // Add uses for input value to to_visit
@@ -136,14 +146,12 @@ FusionDefinition::FusionDefinition(const Fusion* fusion)
     size_t arg2_index = map_val_to_fd_index.at(bop->rhs());
 
     Tensor output = fd->defineTensor(arg1->nDims());
-    /*
     defineRecord(new OpRecord<TensorView*, TensorView*, TensorView*>(
-          {recordingState(arg1_index), fd->recordingState(arg2_index)},
-          {recordingState(output())},
-          ("ops." op_str),
-          serde::RecordType::Binary_TV,
-          static_cast<TensorView* (*)(TensorView*, TensorView*)>(op_name)));
-    */
+        {recordingState(arg1_index), fd->recordingState(arg2_index)},
+        {recordingState(output())},
+        ("ops.add"),
+        serde::RecordType::Binary_TV,
+        static_cast<TensorView* (*)(TensorView*, TensorView*)>(op_name)));
     map_val_to_fd_index.emplace(v, output());
 
     // Add output uses to to_visit
