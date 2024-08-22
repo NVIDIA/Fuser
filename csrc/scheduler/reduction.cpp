@@ -1423,6 +1423,8 @@ void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
            ? rparams.cross_grid_inner_reduction && rparams.persistent_kernel
            : rparams.cross_block_inner_reduction);
 
+  scheduler_utils::moveNonConcretizedBroadcastInnermost(fusion, {reference_tv});
+
   reduction_scheduler_utils::multiReductionInliner(
       fusion,
       reduction_tv,
