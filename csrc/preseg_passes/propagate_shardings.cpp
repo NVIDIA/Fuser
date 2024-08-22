@@ -10,6 +10,7 @@
 #include <vector>
 
 #include <ir/interface_nodes.h>
+#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <multidevice/utils.h>
 
@@ -57,9 +58,9 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
   NVF_CHECK(
       tv_with_mesh == nullptr || tv_without_mesh == nullptr,
       "Found ",
-      tv_with_mesh->toString(),
+      tv_with_mesh,
       " assigned a mesh and ",
-      tv_without_mesh->toString(),
+      tv_without_mesh,
       " not.");
 }
 

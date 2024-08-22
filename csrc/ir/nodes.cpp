@@ -4859,16 +4859,17 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
     const std::vector<PolymorphicValue>& inputs) const {
   // Backward tensor inputs: grad_input, query, key, value, output, logsumexp,
   // max_q/k
-  // Temporary handling of DID parallelization see
+  // Temporary handling of DID parallelization. See
   // https://github.com/NVIDIA/Fuser/issues/2563
-  bool handle_device_dim = inputs.at(1).as<at::Tensor>().dim() == 5;
+  bool first_dim_is_did = this->key()->as<TensorView>()->axis(0)->isDeviceDim();
   std::vector<at::Tensor> bwd_inputs;
   for (auto idx : c10::irange(6)) {
     auto in_tensor = inputs.at(idx).as<at::Tensor>();
-    if (handle_device_dim) {
+    // Removing the size 1 from sharded axis from tensors.
+    if (first_dim_is_did) {
       in_tensor = in_tensor.squeeze(0);
     }
-    bwd_inputs.emplace_back(in_tensor);
+    bwd_inputs.push_back(in_tensor);
   }
   const auto dropout_p = inputs.at(6).as<double>();
   const auto is_causal = inputs.at(7).as<bool>();
@@ -4922,7 +4923,8 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
     return output.slice(-1, 0, last_dim_size);
   };
 
-  if (handle_device_dim) {
+  // Add device dimension back to outputs.
+  if (first_dim_is_did) {
     grad_query = grad_query.unsqueeze(0);
     grad_key = grad_key.unsqueeze(0);
     grad_value = grad_value.unsqueeze(0);

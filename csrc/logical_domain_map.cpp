@@ -263,16 +263,16 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
 
   if (SdpaBwdOp* op = dynamic_cast<SdpaBwdOp*>(consumer_tv_->definition())) {
     // Producers:
-    //   grad_attn = [N, H, L, Ev]
-    //   query = [N, H, L, E]
-    //   key = [N, H, S, E]
-    //   value = [N, H, S, Ev]
-    //   attn_out = [N, H, L, Ev]
-    //   logsumexp = [N, H, L]
+    //   grad_attn = [DIDx(D)? N, H, L, Ev]
+    //   query = [DIDx(D)? N, H, L, E]
+    //   key = [DIDx(D)? N, H, S, E]
+    //   value = [DIDx(D)? N, H, S, Ev]
+    //   attn_out = [DIDx(D)? N, H, L, Ev]
+    //   logsumexp = [DIDx(D)? N, H, L]
     // Consumers:
-    //   grad_query = [N, H, L, E]
-    //   grad_key = [N, H, S, E]
-    //   grad_value = [N, H, S, Ev]
+    //   grad_query = [DID(D)? N, H, L, E]
+    //   grad_key = [DID(D)? N, H, S, E]
+    //   grad_value = [DID(D)? N, H, S, Ev]
 
     bool producer_has_s =
         producer_tv_->sameAs(op->key()) || producer_tv_->sameAs(op->value());
@@ -285,21 +285,20 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
         consumer_tv_->sameAs(op->grad_key());
 
     size_t num_device_dim =
-        producer_logical.size() > 0 && producer_logical.at(0)->isDeviceDim()
-        ? 1
-        : 0;
+        !producer_logical.empty() && producer_logical.at(0)->isDeviceDim() ? 1
+                                                                           : 0;
     for (auto idx : c10::irange(producer_logical.size())) {
-      if (idx < (2 + num_device_dim)) {
+      if (idx < 2 + num_device_dim) {
         // Map N, H from all producers to consumers
         updatePairwiseLogicalDomainMap(
             producer_logical.at(idx), consumer_root.at(idx));
       } else if (
-          idx == (2 + num_device_dim) && (producer_has_s == consumer_has_s)) {
+          idx == 2 + num_device_dim && producer_has_s == consumer_has_s) {
         // producer/consumer[2] = L/S
         updatePairwiseLogicalDomainMap(
             producer_logical.at(idx), consumer_root.at(idx));
       } else if (
-          idx == (3 + num_device_dim) && (producer_has_e == consumer_has_e)) {
+          idx == 3 + num_device_dim && producer_has_e == consumer_has_e) {
         // producer/consumer[3] = E/Ev
         updatePairwiseLogicalDomainMap(
             producer_logical.at(idx), consumer_root.at(idx));

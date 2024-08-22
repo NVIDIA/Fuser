@@ -834,7 +834,7 @@ TEST_F(SDPATest, Sharded_SdpaFwd) {
 // resolved.
 TEST_F(SDPATest, Sharded_SdpaBwd) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
-  at::manual_seed(0);
+  // at::manual_seed(0);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   constexpr int64_t d = 4;
@@ -848,8 +848,8 @@ TEST_F(SDPATest, Sharded_SdpaBwd) {
   at::Tensor k = at::randn({n, h / d, s, e}, options);
   at::Tensor v = at::randn({n, h / d, s, e}, options);
 
-  double dropout_p = 0.2;
-  bool is_causal = false;
+  constexpr double dropout_p = 0.2;
+  constexpr bool is_causal = false;
   double scale = 1.0 / std::sqrt(e);
 
   auto
