@@ -31,10 +31,10 @@ std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getShardingChanges
 
 // Returns whether a TensorView has a non-reduction axis parallelized Didx
 // Checks that the other non-reduction axis are not parallelized on Didx
-NVF_API bool isSharded(TensorView*);
+bool isSharded(const TensorView*);
 
 // Returns number of device dimensions in a TensorView's loop domain.
-int64_t numDeviceDims(TensorView*);
+int64_t numDeviceDims(const TensorView*);
 
 // Returns the subset of tvs which elements have the different multi-device
 // sharding as ref
@@ -75,11 +75,13 @@ std::unordered_set<TensorView*> getTvsWithDifferentSharding(
 }
 
 // Returns whether an Expr embeds multi-device resharding
-bool isResharding(Expr* expr);
+bool isResharding(const Expr* expr);
 
 // Returns whether two tensors have different shardings. Expect a
 // producer/consumer relationship between the arguments.
-bool haveDifferentShardings(TensorView* producer, TensorView* consumer);
+bool haveDifferentShardings(
+    const TensorView* producer,
+    const TensorView* consumer);
 
 // Returns whether a resharding expr reshards an inner axis
 bool isInnerResharding(Expr* expr);

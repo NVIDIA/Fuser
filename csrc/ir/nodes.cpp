@@ -658,6 +658,9 @@ std::vector<PolymorphicValue> BinaryOp::evaluate(
     case BinaryOpType::Complex:
       return {at::complex(lhs.as<at::Tensor>(), rhs.as<at::Tensor>())};
       break;
+    case BinaryOpType::Pow:
+      return {pow(lhs, rhs)};
+      break;
     default:
       NVF_CHECK(
           false,
@@ -4299,11 +4302,8 @@ SdpaFwdOp::SdpaFwdOp(
     IrBuilderPasskey passkey,
     TensorView* output,
     TensorView* log_sumexp,
-    TensorView* query_seq_len,
-    TensorView* key_seq_len,
     TensorView* philox_seed,
     TensorView* philox_offset,
-    TensorView* debug_attn_mask,
     Val* query,
     Val* key,
     Val* value,
@@ -4313,11 +4313,8 @@ SdpaFwdOp::SdpaFwdOp(
     : Expr(passkey) {
   addOutput(output);
   addOutput(log_sumexp);
-  addOutput(query_seq_len);
-  addOutput(key_seq_len);
   addOutput(philox_seed);
   addOutput(philox_offset);
-  addOutput(debug_attn_mask);
 
   addInput(query);
   addInput(key);
@@ -4376,7 +4373,7 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
 
   // Flash attention requires the last dimension to be padded to 8.
   // https://github.com/pytorch/pytorch/blob/c27882ffa8c1c7e4cf8ebc6c2f879e5b6c8814ad/aten/src/ATen/native/transformers/attention.cpp#L675-L677
-  const auto last_dim_size = query.sizes()[3];
+  const auto last_dim_size = query.size(-1);
   auto pad_last_dim = [last_dim_size](
                           at::Tensor inp, int alignment_size) -> at::Tensor {
     if (last_dim_size % alignment_size == 0) {
@@ -4417,29 +4414,21 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
               scale);
 
   // If the inputs were padded, slice the output to restore the original size
-  if (output.sizes()[3] != last_dim_size) {
+  if (output.size(-1) != last_dim_size) {
     output = output.slice(-1, 0, last_dim_size);
   }
 
   // Add back the device dim axis for output.
   if (handle_device_dim) {
     output = output.unsqueeze(0);
+    log_sumexp = log_sumexp.unsqueeze(0);
   }
 
-  // Query and key seq len are of type c10::SymInt -> convert them to CPU scalar
-  // tensors to support adding them as fusion outputs.
   // We ignore cum_seq_q/k outputs since they are undefined tensors for
-  // non-nested tensors.
-  return {
-      output,
-      log_sumexp,
-      at::scalar_tensor(
-          *query_seq_len.maybe_as_int(), at::device(at::kCPU).dtype(at::kLong)),
-      at::scalar_tensor(
-          *key_seq_len.maybe_as_int(), at::device(at::kCPU).dtype(at::kLong)),
-      philox_seed,
-      philox_offset,
-      debug_attn_mask};
+  // non-nested tensors. We do not store query/key_seq_len since they can be
+  // computed in non-nested tensor directly. debug_attn_mask is ignored since
+  // `return_debug_mask=false`.
+  return {output, log_sumexp, philox_seed, philox_offset};
 }
 
 std::string Scope::toString(int indent_size) const {
@@ -4685,8 +4674,9 @@ Val* ForLoop::step() const {
 
 Val* ForLoop::simplifiedStop() const {
   if (simplified_stop_ == nullptr) {
-    simplified_stop_ =
-        GpuLower::current()->commonScalarMap().hoistScalar(stop(), {});
+    simplified_stop_ = GpuLower::hasCurrent()
+        ? GpuLower::current()->commonScalarMap().hoistScalar(stop(), {})
+        : stop();
   }
   return simplified_stop_;
 }
@@ -4807,8 +4797,6 @@ SdpaBwdOp::SdpaBwdOp(
     TensorView* value,
     TensorView* output,
     TensorView* log_sumexp,
-    TensorView* max_q,
-    TensorView* max_k,
     Val* dropout_p,
     Val* is_causal,
     TensorView* philox_seed,
@@ -4824,8 +4812,6 @@ SdpaBwdOp::SdpaBwdOp(
   addInput(value);
   addInput(output);
   addInput(log_sumexp);
-  addInput(max_q);
-  addInput(max_k);
   addInput(dropout_p);
   addInput(is_causal);
   addInput(philox_seed);
@@ -4852,10 +4838,6 @@ std::string SdpaBwdOp::toString(int indent_size) const {
   indent(ss, indent_size + 1)
       << "          logsum_exp = " << logsumexp()->toString() << ",\n";
   indent(ss, indent_size + 1)
-      << "          max_q = " << max_q()->toString() << ",\n";
-  indent(ss, indent_size + 1)
-      << "          max_k = " << max_k()->toString() << ",\n";
-  indent(ss, indent_size + 1)
       << "          dropout_p = " << dropout_p()->toInlineString() << ",\n";
   indent(ss, indent_size + 1)
       << "          is_causal = " << is_causal()->toInlineString() << ",\n";
@@ -4881,17 +4863,17 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
   // Backward tensor inputs: grad_input, query, key, value, output, logsumexp,
   // max_q/k
   std::vector<at::Tensor> bwd_inputs;
-  for (auto idx : c10::irange(8)) {
+  for (auto idx : c10::irange(6)) {
     bwd_inputs.emplace_back(inputs.at(idx).as<at::Tensor>());
   }
-  const auto dropout_p = inputs.at(8).as<double>();
-  const auto is_causal = inputs.at(9).as<bool>();
-  const auto philox_seed = inputs.at(10).as<at::Tensor>();
-  const auto philox_offset = inputs.at(11).as<at::Tensor>();
+  const auto dropout_p = inputs.at(6).as<double>();
+  const auto is_causal = inputs.at(7).as<bool>();
+  const auto philox_seed = inputs.at(8).as<at::Tensor>();
+  const auto philox_offset = inputs.at(9).as<at::Tensor>();
 
   // Flash attention requires the last dimension to be padded to 8.
   // https://github.com/pytorch/pytorch/blob/c27882ffa8c1c7e4cf8ebc6c2f879e5b6c8814ad/aten/src/ATen/native/transformers/attention.cpp#L675-L677
-  const auto last_dim_size = bwd_inputs[0].sizes()[3];
+  const auto last_dim_size = bwd_inputs[0].size(-1);
   auto pad_last_dim = [last_dim_size](
                           at::Tensor inp, int alignment_size) -> at::Tensor {
     if (last_dim_size % alignment_size == 0) {
@@ -4903,7 +4885,7 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
   };
 
   // Conmpute scale using original size of last dimension
-  double scale = inputs.size() > 12 ? inputs.back().as<double>()
+  double scale = inputs.size() > 10 ? inputs.back().as<double>()
                                     : 1.0 / std::sqrt(last_dim_size);
 
   // ATen reference:
@@ -4920,8 +4902,8 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
           /*cum_seq_q=*/at::Tensor(),
           /*cum_seq_k=*/at::Tensor(),
           // Note: ATen implementation expects max_q/max_k as scalars.
-          /*max_q=*/bwd_inputs[6].item<int64_t>(),
-          /*max_k=*/bwd_inputs[7].item<int64_t>(),
+          /*max_q=*/bwd_inputs[1].size(2),
+          /*max_k=*/bwd_inputs[2].size(2),
           /*dropout_p=*/dropout_p,
           /*is_causal=*/is_causal,
           /*philox_seed=*/philox_seed,
@@ -4930,7 +4912,7 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
 
   // If the inputs were padded, slice the gradsto restore the original size
   auto slice_last_dim = [last_dim_size](at::Tensor output) -> at::Tensor {
-    if (output.sizes()[3] != last_dim_size) {
+    if (output.size(-1) != last_dim_size) {
       return output;
     }
     return output.slice(-1, 0, last_dim_size);

@@ -182,8 +182,11 @@ class AllocationDomainSetup : private kir::IrVisitor {
     // reasonably well.
     bool use_set_allocation_domain = false;
     if (tv->hasAllocation()) {
-      // Honor the allocation domain if the tensor is global memory
-      if (tv->getMemoryType() == MemoryType::Global) {
+      // Honor the allocation domain if the tensor is global or Hopper MMA's
+      // output
+      if (tv->getMemoryType() == MemoryType::Global ||
+          (tv->definition()->isA<MmaOp>() &&
+           isHopper(tv->definition()->as<MmaOp>()->macro()))) {
         use_set_allocation_domain = true;
       } else if (tv->getMemoryType() == MemoryType::Shared) {
         // If it's a shared memory tensor, the set domain is likely
@@ -217,25 +220,29 @@ class AllocationDomainSetup : private kir::IrVisitor {
         allocation_domains = tv->getAllocationDomain();
         contiguity = tv->domain()->contiguity();
       } else {
-        std::unordered_set<IterDomain*> exclude_ids;
+        std::unordered_set<IterDomain*> exclude_ca_ids;
         for (auto i : c10::irange(tv->getComputeAtPosition())) {
           auto ca_id = tv->axis(i);
           if (!ir_utils::isMemorySharedAcross(
                   tv->getMemoryType(), ca_id->getParallelType())) {
-            exclude_ids.insert(ca_id);
+            exclude_ca_ids.insert(ca_id);
           }
         }
         for (auto i : c10::irange(tv->getAllocationDomain().size())) {
           auto id = tv->getAllocationDomain()[i];
-          if (exclude_ids.find(id) == exclude_ids.end()) {
+          if (exclude_ca_ids.find(id) == exclude_ca_ids.end()) {
+            if (ir_utils::isMemoryPartitionedAcross(
+                    tv->getMemoryType(), id->getParallelType())) {
+              continue;
+            }
             allocation_domains.push_back(id);
             contiguity.push_back(tv->domain()->contiguity()[i]);
           } else {
-            exclude_ids.erase(id);
+            exclude_ca_ids.erase(id);
           }
         }
         NVF_ERROR(
-            exclude_ids.empty(),
+            exclude_ca_ids.empty(),
             "The non-allocating compute-at IDs are not found in the allocation domain. ",
             "It is unclear how to allocate the tensor: ",
             tv->toString(),
@@ -1029,7 +1036,8 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
     // of the domain, for predication, so the replacement is not
     // always done with zero.
     if (loop_id->getParallelType() == ParallelType::Vectorize ||
-        loop_id->getParallelType() == ParallelType::Bulk) {
+        loop_id->getParallelType() == ParallelType::Bulk ||
+        loop_id->getParallelType() == ParallelType::Mma) {
       replacement_index = loop_id->fusion()->zeroVal();
     } else {
       ForLoop* for_loop = indexing_utils::getForLoop(
@@ -1039,15 +1047,23 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
       // happens when loop_id is a reduction domain and this loop-nest
       // is for initializing the reduction buffer.
       if (for_loop != nullptr) {
+        // Replace circular buffer index with zero value if for-loop is trivial
+        if (for_loop->circularBufferLoopStage() !=
+            CircularBufferLoopStage::NotApplicable) {
+          Val* base_index =
+              replacement_index != nullptr ? replacement_index : cur_index;
+          replacement_index =
+              for_loop->isTrivial() ? for_loop->start() : base_index;
+        }
+
         // If this for-loop is a circular buffer loop, the loop index
-        // may need to have an additional offset
+        // may need to have an additional offset.
         if (!as_consumer) {
           if (auto circular_buffer_offset =
                   getLoopIndexOffsetForProducerOfCircularBuffer(
                       expr, for_loop, id_model_)) {
             replacement_index = SimplifyingIrBuilder::addExpr(
-                replacement_index != nullptr ? replacement_index : cur_index,
-                circular_buffer_offset);
+                replacement_index, circular_buffer_offset);
           }
         }
       }
