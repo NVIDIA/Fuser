@@ -217,7 +217,7 @@ bool isInnerResharding(Expr* expr) {
   return false;
 }
 
-void shardAllLike(TensorView* ref, const std::vector<TensorView*> tvs) {
+void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs) {
   for (auto tv : tvs) {
     tv->setDeviceMesh(ref->getDeviceMesh());
   }
