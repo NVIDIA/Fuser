@@ -669,6 +669,8 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
   return persistent_buffer_info;
 }
 
+namespace {
+
 bool isInputOfFastestDimReduction(
     TensorView* reduced_tv,
     const std::unordered_map<IterDomain*, IterDomain*>&
@@ -699,8 +701,9 @@ bool isInputOfFastestDimReduction(
 
   return false;
 }
+} // namespace
 
-ReductionTvProperties getReductionProperties_new(
+ReductionTvProperties getReductionProperties(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     TensorView* reduction_tv) {
@@ -724,16 +727,10 @@ ReductionTvProperties getReductionProperties_new(
       }
     }
   }
-  // fusion->print();
-  for (auto [k, v] : producer_alloc_to_reduction_logical) {
-    std::cout << "producer_alloc_to_reduction_logical: " << k->toString()
-              << " -> " << v->toString() << std::endl;
-  }
 
   // check reduction properties using the producer's allocation domain
   bool fastest_dim_reduction = isInputOfFastestDimReduction(
       reduced_tv, producer_alloc_to_reduction_logical);
-  std::cout << "fastest_dim_reduction: " << fastest_dim_reduction << std::endl;
   // Tracks the dimensionality of the problem starts on inner most dim and works
   // outward
   int64_t dimensionality = 1;
@@ -746,10 +743,8 @@ ReductionTvProperties getReductionProperties_new(
   // Start from the inner most dimension, and work outwards. If this is a 3D
   // pattern, i.e. theres a pattern like [r0, r1, i2, r3] or [i0, r1, r2, i3,
   // i4] then compute the inner most dimension to compute separately.
-  reduced_tv->printTransforms();
   const auto& maybe_alloc_dom = reduced_tv->getMaybeAllocationDomain();
   for (size_t i = maybe_alloc_dom.size(); i > 0; i--) {
-    std::cout << i << std::endl;
     // skip reduciton domain in reduced_tv, e.g.
     // NVFuserTest.FusionSegmentReduceSoftmax_CUDA
     if (maybe_alloc_dom[i - 1]->isReduction()) {
@@ -816,87 +811,6 @@ ReductionTvProperties getReductionProperties_new(
   properties.dimensionality = dimensionality;
 
   return properties;
-}
-
-ReductionTvProperties getReductionProperties_main(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    TensorView* tv) {
-  FusionGuard fg(fusion);
-
-  NVF_ERROR(tv != nullptr);
-
-  bool fastest_dim_reduction = isFastestDimReduction(tv);
-
-  // Tracks the dimensionality of the problem starts on inner most dim and works
-  // outward
-  int64_t dimensionality = 1;
-  // Initialize for dimensionality analysis
-  bool cur_dim_is_reduction = fastest_dim_reduction;
-  // Compute the size of the inner most dimension
-  int64_t inner_most_dimension_numel = 1;
-  int64_t inner_most_dimension_ndims = 0;
-
-  // Start from the inner most dimension, and work outwards. If this is a 3D
-  // pattern, i.e. theres a pattern like [r0, r1, i2, r3] or [i0, r1, r2, i3,
-  // i4] then compute the inner most dimension to compute separately.
-  const auto& root_dom = tv->getMaybeRootDomain();
-  for (size_t i = root_dom.size(); i > 0; i--) {
-    auto id = root_dom[i - 1];
-    if (id->isBroadcast()) {
-      continue;
-    }
-    if (id->isReduction() != cur_dim_is_reduction) {
-      dimensionality++;
-      cur_dim_is_reduction = !cur_dim_is_reduction;
-    } else if (dimensionality == 1) {
-      auto inferred_val =
-          runtime_info.expressionEvaluator().evaluate(id->extent());
-      NVF_ERROR(inferred_val.hasValue(), "Error inferring reduction size.");
-      inner_most_dimension_numel =
-          inner_most_dimension_numel * inferred_val.as<int64_t>();
-      inner_most_dimension_ndims++;
-    }
-  }
-
-  // Non reduction element count
-  int64_t total_iteration_numel = 1;
-  // Reduction element count
-  int64_t total_reduction_numel = 1;
-
-  for (auto id : root_dom) {
-    auto inferred_val =
-        runtime_info.expressionEvaluator().evaluate(id->extent());
-    NVF_ERROR(
-        inferred_val.hasValue(),
-        "Error inferring dimensions of reduction fusion.");
-    if (id->isReduction()) {
-      total_reduction_numel *= inferred_val.as<int64_t>();
-    } else {
-      total_iteration_numel *= inferred_val.as<int64_t>();
-    }
-  }
-
-  ReductionTvProperties properties;
-  properties.total_reduction_numel = total_reduction_numel;
-  properties.total_iteration_numel = total_iteration_numel;
-  properties.fastest_dim_reduction = fastest_dim_reduction;
-  properties.inner_most_dimension_numel = inner_most_dimension_numel;
-  properties.inner_most_dimension_ndims = inner_most_dimension_ndims;
-  properties.dimensionality = dimensionality;
-
-  return properties;
-}
-
-ReductionTvProperties getReductionProperties(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    TensorView* tv) {
-  if (std::getenv("USE_MAIN") != nullptr) {
-    return getReductionProperties_main(fusion, runtime_info, tv);
-  } else {
-    return getReductionProperties_new(fusion, runtime_info, tv);
-  }
 }
 
 namespace {
@@ -1346,7 +1260,12 @@ std::vector<std::pair<TensorView*, TensorView*>> cacheAndForkOutputs(
     // cache. This is partially a compute at issue, but even with that fixed,
     // we'd likely want to cache a forked output to make sure our inlining
     // strategy is optimal.
-    if (unroll) {
+    // If reduction output has allocation domain, cache it to avoid losing
+    // allocation domain when refactor reduction dimension. For example, test
+    // SegmentationTest.EraseReductionsInSegmentationEdges
+    bool redu_output_alloc_domain =
+        output->hasReduction() && output->hasAllocation();
+    if (unroll || redu_output_alloc_domain) {
       auto cached_output = output->cacheBefore();
       cached_outputs.emplace_back(cached_output, output);
     }

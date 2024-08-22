@@ -1436,4 +1436,30 @@ TEST_F(AllocationDomainTest, ClearReductionIterDomainsPatch) {
       tv1->getContiguity(), ElementsAre(contig_copy[0], contig_copy[2]));
 }
 
+// https://github.com/NVIDIA/Fuser/issues/2202
+// reduction output has a different allocation domain than the input
+TEST_F(AllocationDomainTest, ReductionOnPermutedReshape) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({16, 12, 128, 192});
+  in->setAllocationDomain(
+      {in->axis(0), in->axis(2), in->axis(1), in->axis(3)}, true);
+  TensorView* dqkv = permute(in, {0, 2, 1, 3});
+  dqkv = reshape(dqkv, {16, 128, 12, 192}, {16, 128, 2304});
+  TensorView* sum_out = sum(dqkv, {0, 1});
+  sum_out->setAllocationDomain(
+      {sum_out->axis(2), sum_out->axis(0), sum_out->axis(1)}, true);
+
+  fusion->addInput(in);
+  fusion->addOutput(sum_out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor =
+      at::randn({16 * 12 * 128 * 192})
+          .cuda()
+          .as_strided({16, 12, 128, 192}, {128 * 12 * 192, 192, 12 * 192, 1});
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+}
 } // namespace nvfuser
