@@ -1294,11 +1294,7 @@ void scheduleInnerOuterPersistentKernel(
   // boundaryNodesSet. Thus, we need a loop to initiate the propagation from
   // each outer reduction. Don't allow parallelization propagation goes
   // through cached_gmem, see issue 246.
-  bool use_old = false;
-  if (std::getenv("USE_OLD") != nullptr) {
-    use_old = true;
-  }
-  const bool iter_grouped_outer_reduction = !use_old && !rparams.tidx_for_outer_reduction;
+  const bool iter_grouped_outer_reduction = !rparams.tidx_for_outer_reduction;
   for (long unsigned int i = 0; i < outer_reference_tvs.size(); i++) {
     const auto& selected_tvs_outer = scheduler_utils::getAllTvsFrom(
         {outer_reduction_tvs[i]}, {cached_gmem[i]});
