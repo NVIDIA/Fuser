@@ -231,6 +231,19 @@ void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs) {
   }
 }
 
+void shardBetween(
+    std::vector<TensorView*> ref_tvs,
+    const std::unordered_set<TensorView*>& boundary_tvs) {
+  auto tvs_between = scheduler_utils::getAllTvsFrom(ref_tvs, boundary_tvs);
+  std::vector<TensorView*> tvs_to_shard;
+  std::copy_if(
+      tvs_between.begin(),
+      tvs_between.end(),
+      std::back_inserter(tvs_to_shard),
+      [](TensorView* tv) { return !tv->hasDeviceMesh(); });
+  shardAllLike(ref_tvs[0], tvs_to_shard);
+}
+
 int64_t requestedNumberOfDevices(Fusion* fusion) {
   DeviceIdxType max_index = 0;
   for (auto tv : ir_utils::allTvs(fusion)) {

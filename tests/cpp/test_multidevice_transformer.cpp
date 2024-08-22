@@ -18,6 +18,7 @@
 #include <ir/utils.h>
 #include <mma_type.h>
 #include <ops/all_ops.h>
+#include <preseg_passes/propagate_shardings.h>
 #include <scheduler/mma_utils.h>
 #include <scheduler/utils.h>
 #include <tests/cpp/multidevice.h>
@@ -61,21 +62,6 @@ class DistributedTransformerTest
 };
 
 namespace {
-TensorView* replicated_dropout(
-    TensorView* x,
-    const double kProb,
-    const DeviceMesh mesh) {
-  // Sharding propagation breaks at rand_like because it creates a fresh TV.
-  TensorView* x_float = castOp(DataType::Float, x);
-  const double kScale = 1.0 / (1.0 - kProb);
-  TensorView* rand_vals = rand_like(x_float);
-  TensorView* mask = lt(rand_vals, IrBuilder::create<Val>(1.0 - kProb));
-  TensorView* apply_mask = mul(x_float, mask);
-  TensorView* dropout = mul(apply_mask, IrBuilder::create<Val>(kScale));
-  rand_vals->setDeviceMesh(mesh);
-  return dropout;
-}
-
 void validate(
     std::vector<at::Tensor> expected_out,
     std::vector<at::Tensor> out) {
@@ -303,14 +289,12 @@ std::vector<TensorView*> mlp(
   TensorView* bcast_bias = broadcast(b1, {true, false});
   TensorView* linear2 = add(matmul2, bcast_bias);
   // Dropout
-  TensorView* dropout = replicated_dropout(linear2, kDropoutProb, mesh);
+  Val* prob = IrBuilder::create<Val>(1.0 - kDropoutProb);
+  Val* scale = IrBuilder::create<Val>(1.0 / (1.0 - kDropoutProb));
+  auto dropout_result = dropout(linear2, prob, scale).output;
 
-  // Sharding
-  // (TODO) TVs where sharding propagation breaks down:
-  // linear_int0: broadcasts where a device dim axis is broadcasted.
-  // rand_vals: rand_like creates a fresh new TV.
-  // TVs replicated on each device.
-  for (auto tv : {x, b1, matmul2, linear2, dropout}) {
+  // Manual sharding annotations
+  for (auto tv : {x, b1, matmul2, linear2, dropout_result}) {
     tv->setDeviceMesh(mesh);
   }
   for (auto tv : {w0, b0, w1, linear1, gelu}) {
@@ -318,7 +302,7 @@ std::vector<TensorView*> mlp(
     tv->axis(0)->parallelize(ParallelType::DIDx);
   }
 
-  return {linear1, gelu, linear2, dropout};
+  return {linear1, gelu, linear2, dropout_result};
 }
 
 std::vector<TensorView*> mha(
@@ -369,16 +353,18 @@ std::vector<TensorView*> mha(
   TensorView* b1_bcast = broadcast(b1, {true, false});
   TensorView* linear2 = add(mm2_ar, b1_bcast);
   // Dropout
-  TensorView* dropout = replicated_dropout(linear2, kDropoutProb, mesh);
+  Val* prob = IrBuilder::create<Val>(1.0 - kDropoutProb);
+  Val* scale = IrBuilder::create<Val>(1.0 / (1.0 - kDropoutProb));
+  auto dropout_result = dropout(linear2, prob, scale).output;
 
-  for (auto tv : {x, b1, mm2_ar, linear2, dropout}) {
+  for (auto tv : {x, b1, mm2_ar, linear2, dropout_result}) {
     tv->setDeviceMesh(mesh);
   }
-  for (auto tv : {w0, b0, w1, proj_bias_bcast, mm, mm2, qkv, sdpa_output}) {
+  for (auto tv : {w0, b0, w1, mm2, qkv, sdpa_output}) {
     tv->setDeviceMesh(mesh);
     tv->axis(0)->parallelize(ParallelType::DIDx);
   }
-  return {qkv, sdpa_output, linear2, dropout};
+  return {qkv, sdpa_output, linear2, dropout_result};
 }
 
 // TODO: These linear_backwards helper functions can be merged once 
@@ -399,8 +385,7 @@ std::vector<TensorView*> mha(
 std::vector<TensorView*> linear_backwards(TensorView* x,
   TensorView* w,
   TensorView* grad, 
-  DataType dtype, 
-  const DeviceMesh& mesh) {
+  DataType dtype) {
   TensorView* grad_q;
   if (grad->dtype() == dtype) {
     grad_q = grad;
@@ -409,18 +394,14 @@ std::vector<TensorView*> linear_backwards(TensorView* x,
     grad_q = castOp(dtype, grad);
   }
   TensorView* w_t = transpose(w, 1, 2);
+  // Note: Depending how grad_x is sharded, an allreduce may
+  // be automatically inserted.
   TensorView* grad_x_partials = matmul(grad_q, w_t);
   TensorView* grad_x = sum(grad_x_partials, {0}); // allreduce
   TensorView* grad_q_t = transpose(grad_q, 1, 2);
   TensorView* grad_w_t = matmul(grad_q_t, x);
   TensorView* grad_w = transpose(grad_w_t, 1, 2);
   TensorView* grad_b = sum(grad, {1});
-
-  // Note: these sharding will not be required with propagation fix
-  grad_x_partials->setDeviceMesh(mesh);
-  grad_x_partials->axis(0)->parallelize(ParallelType::DIDx);
-  grad_w_t->setDeviceMesh(mesh);
-  grad_w_t->axis(0)->parallelize(ParallelType::DIDx);
 
   return {grad_x, grad_w, grad_b};
 }
@@ -434,8 +415,7 @@ std::vector<TensorView*> linear_backwards(TensorView* x,
 std::vector<TensorView*> sharded_linear_backwards(TensorView* x,
   TensorView* w,
   TensorView* grad, 
-  DataType dtype, 
-  const DeviceMesh& mesh) {
+  DataType dtype) {
   TensorView* grad_q = castOp(dtype, grad);
   TensorView* w_t = transpose(w, 1, 2);
   TensorView* grad_x = matmul(grad_q, w_t);
@@ -443,10 +423,6 @@ std::vector<TensorView*> sharded_linear_backwards(TensorView* x,
   TensorView* grad_w_t = matmul(grad_t, x);
   TensorView* grad_w = transpose(grad_w_t, 1, 2);
   TensorView* grad_b = sum(grad, {0});
-
-  // TODO: this doesn't need to be parallelized
-  grad_w_t->setDeviceMesh(mesh);
-  grad_w_t->axis(0)->parallelize(ParallelType::DIDx);
 
   return {grad_x, grad_w, grad_b};
 }
@@ -473,13 +449,14 @@ std::vector<TensorView*> mlp_backwards(
   Val* dscale = IrBuilder::create<Val>(kScale);
   TensorView* dropout_grad = dropout_backward(grad, mask, dscale);
 
-  std::vector<TensorView*> linear1_grads = sharded_linear_backwards(gelu, w1, dropout_grad, dtype, mesh);
+  std::vector<TensorView*> linear1_grads = sharded_linear_backwards(gelu, w1, dropout_grad, dtype);
 
   TensorView* matmul1_grad_x_ = castOp(DataType::Float, linear1_grads[0]);
   TensorView* gelu_grad = tanh_gelu_backward(matmul1_grad_x_, linear0);
   
-  std::vector<TensorView*> linear0_grads = linear_backwards(x, w0, gelu_grad, dtype, mesh);
+  std::vector<TensorView*> linear0_grads = linear_backwards(x, w0, gelu_grad, dtype);
 
+  // Manaul sharding annotations
   for (auto tv :
        {x,
         grad,
@@ -494,7 +471,6 @@ std::vector<TensorView*> mlp_backwards(
        {w0,
         b0,
         w1,
-        matmul0,
         linear1_grads[0],
         linear1_grads[1],
         gelu_grad,
@@ -503,6 +479,7 @@ std::vector<TensorView*> mlp_backwards(
     tv->setDeviceMesh(mesh);
     tv->axis(0)->parallelize(ParallelType::DIDx);
   }
+
   std::vector<TensorView*> outputs = {
       dropout_grad,
       linear1_grads[1],
@@ -513,7 +490,6 @@ std::vector<TensorView*> mlp_backwards(
       linear0_grads[0]};
   return outputs;
 }
-
 
 std::vector<TensorView*> mha_backwards(
     TensorView* x,
@@ -559,7 +535,7 @@ std::vector<TensorView*> mha_backwards(
   // linear1 backwards
   TensorView* sdpa_output_reshape = transpose(sdpa_output, 2, 3); // D, B, S, H/D, E/H
   sdpa_output_reshape = reshape(sdpa_output_reshape, {D, B, S, H/D, E/H}, {D, B*S, E/D});
-  std::vector<TensorView*> linear1_backwards = sharded_linear_backwards(sdpa_output_reshape, w1, dropout_grad, dtype, mesh);
+  std::vector<TensorView*> linear1_backwards = sharded_linear_backwards(sdpa_output_reshape, w1, dropout_grad, dtype);
 
   // SDPA backwards
   TensorView* linear1_grad_x = reshape(linear1_backwards[0], {D, B*S, E/D}, {D, B, S, H/D, E/H});
@@ -589,7 +565,7 @@ std::vector<TensorView*> mha_backwards(
   TensorView* k_grad = transpose(sdpa_grad.grad_key, 2, 3);
   k_grad = reshape(k_grad, {D, B, S, H/D, E/H}, {D, B*S, E/D});
   TensorView* kqv_grad = cat({k_grad, q_grad, v_grad}, -1);
-  std::vector<TensorView*> linear0_backwards = linear_backwards(x, w0, kqv_grad, dtype, mesh);
+  std::vector<TensorView*> linear0_backwards = linear_backwards(x, w0, kqv_grad, dtype);
 
   for (auto tv : {x, mask, grad, dropout_grad, linear1_backwards[2], linear0_backwards[0]}) {
     tv->setDeviceMesh(mesh);
@@ -608,6 +584,8 @@ std::vector<TensorView*> mha_backwards(
 } // namespace
 
 TEST_P(DistributedTransformerTest, MLP_Layer) {
+  preseg_passes::OptimizationPassGuard<preseg_passes::PropagateShardingsPass>
+      guard(false);
   auto dtype = GetParam();
   at::ScalarType at_dtype = data_type_to_aten(dtype);
   auto fusion = std::make_unique<Fusion>();
@@ -632,6 +610,7 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
   for (TensorView* tv : tvsout) {
     fusion->addOutput(tv);
   }
+  shardBetween({tvw0}, {tvsout[3]});
 
   const auto options =
       at::TensorOptions().dtype(at_dtype).device(communicator_->device());
@@ -668,6 +647,8 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
 }
 
 TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
+  preseg_passes::OptimizationPassGuard<preseg_passes::PropagateShardingsPass>
+      guard(false);
   auto dtype = GetParam();
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -691,6 +672,8 @@ TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
   for (auto tv : tv_outs) {
     fusion->addOutput(tv);
   }
+
+  shardBetween({tvw0}, {tv_outs[3]});
 
   const auto options =
       at::TensorOptions().dtype(at_dtype).device(communicator_->device());
@@ -723,6 +706,8 @@ TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
 }
 
 TEST_P(DistributedTransformerTest, MLP_Backward) {
+  preseg_passes::OptimizationPassGuard<preseg_passes::PropagateShardingsPass>
+      guard(false);
   auto dtype = GetParam();
   at::ScalarType at_dtype = data_type_to_aten(dtype);
   auto fusion = std::make_unique<Fusion>();
@@ -749,6 +734,11 @@ TEST_P(DistributedTransformerTest, MLP_Backward) {
   for (TensorView* tv : tv_outs) {
     fusion->addOutput(tv);
   }
+
+  // Sharded: matmul1_grad_w, gelu_grad, matmul0_grad_w, matmul0_grad_b
+  shardBetween({w0, w1, b0}, {tv_outs[1], tv_outs[3], tv_outs[4], tv_outs[5]});
+  // Unsharded: dropout_grad, matmul1_grad_b, matmul0_grad_x
+  shardBetween({x, mask, grad}, {tv_outs[0], tv_outs[2], tv_outs[6]});
 
   const auto options =
       at::TensorOptions().dtype(at_dtype).device(communicator_->device());
@@ -814,12 +804,16 @@ TEST_P(DistributedTransformerTest, MHA_Backward) {
   fusion->addInput(tvsdpa_seed);
   fusion->addInput(tvspda_offset);
 
-  auto tv_outs = mha_backwards(tvx, tvw0, tvb0, tvw1, tvmask, tvsdpa_out, 
+  auto tvouts = mha_backwards(tvx, tvw0, tvb0, tvw1, tvmask, tvsdpa_out, 
     tvsdpa_log_sumexp, tvsdpa_seed, tvspda_offset, tvgrad, mesh, dtype);
 
-  for (auto tv : tv_outs) {
+  for (auto tv : tvouts) {
     fusion->addOutput(tv);
   }
+
+  shardBetween({tvw1}, {tvouts[1], tvouts[2]});
+  shardBetween({tvw0, tvb0}, {tvouts[3], tvouts[4], tvouts[5], tvouts[6], tvouts[7]});
+  shardBetween({tvx, tvmask, tvgrad}, {tvouts[0], tvouts[8]});
 
   const auto options =
       at::TensorOptions().dtype(at_dtype).device(communicator_->device());
@@ -831,6 +825,7 @@ TEST_P(DistributedTransformerTest, MHA_Backward) {
   auto mask = at::randn({B * S, E}, options).lt(1.0 - kDropoutProb);
 
   at::manual_seed(getATenRandomSeed());
+  auto reference_outs = reference_mha_backwards(grad, x, mask, w0, b0, w1, at_dtype);
   std::vector<c10::IValue> inputs = {
       x,
       shardTensor(w0.view({E, 3, E}), 2, mesh).view({1, E, 3 * E / D}),
@@ -864,6 +859,8 @@ TEST_P(DistributedTransformerTest, MHA_Backward) {
 }
 
 TEST_P(DistributedTransformerTest, Forward) {
+  preseg_passes::OptimizationPassGuard<preseg_passes::PropagateShardingsPass>
+      guard(false);
   auto dtype = GetParam();
   at::ScalarType at_dtype = data_type_to_aten(dtype);
   auto fusion = std::make_unique<Fusion>();
@@ -914,6 +911,11 @@ TEST_P(DistributedTransformerTest, Forward) {
   for (auto tv : {x, ln_1.output, ln_2.output, resid_2}) {
     tv->setDeviceMesh(mesh);
   }
+
+  shardBetween({mlp_w0}, {resid_2});
+  shardBetween({mha_w0}, {mlp_in});
+  shardBetween({x}, {mha_in});
+
 
   const auto options =
       at::TensorOptions().dtype(at_dtype).device(communicator_->device());
