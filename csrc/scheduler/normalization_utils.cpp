@@ -1347,6 +1347,8 @@ void schedulePersistentKernel(
       reference_tv != nullptr && reduction_tvs[0] != nullptr,
       "Need these two tensor views to finish the scheduling.");
 
+  scheduler_utils::moveNonConcretizedBroadcastInnermost(fusion, {reference_tv});
+
   for (auto output : dummy_outputs) {
     fusion->addOutput(output);
   }

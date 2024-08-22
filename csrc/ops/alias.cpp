@@ -261,6 +261,10 @@ TensorView* squeeze(TensorView* x, const std::vector<int64_t>& dims) {
   return squeeze(x, to_squeeze);
 }
 
+TensorView* squeeze(TensorView* x, std::initializer_list<int64_t> dims) {
+  return squeeze(x, std::vector<int64_t>(dims));
+}
+
 TensorView* squeeze(
     TensorView* x,
     const std::vector<bool>& to_squeeze,

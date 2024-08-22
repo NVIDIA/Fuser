@@ -52,6 +52,8 @@ NVF_API TensorView* flatten(
 //! dimension. This behavior differs from PyTorch.
 NVF_API TensorView* squeeze(TensorView* x, const std::vector<int64_t>& dims);
 
+TensorView* squeeze(TensorView* x, std::initializer_list<int64_t> dims);
+
 //! Squeeze the dimensions corresponding to "true" in to_squeeze, i.e. remove
 //! those broadcasted dimensions.
 //!
