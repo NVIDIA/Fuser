@@ -31,8 +31,6 @@ class FusionTranslator : public OptInConstDispatch {
   void clone() {
     fd_->setupDefinition();
 
-    // nvfuser::Val - defineScalar, defineTensor, and defineTensor
-    // nvfuser::Expr - defineRecord
     std::deque<nvfuser::Expr*> to_visit;
 
     // Add Fusion inputs to FusionDefinition
@@ -70,16 +68,39 @@ class FusionTranslator : public OptInConstDispatch {
 
     // Outputs and Aliasing
     for (nvfuser::Val* v : fusion_->outputs()) {
-      // TODO Handle only TensorViews
+      // Handle only TensorViews
       NVF_ERROR(v->isA<TensorView>());
-
-      // Add fusion outputs to FusionDefinition
-      size_t output_index = map_val_to_fd_index_.at(v);
-      fd_->defineRecord(new OutputRecord<TensorView>(
-          {fd_->recordingState(output_index)}, serde::RecordType::OutputTv));
+      handleOutput(v->as<TensorView>());
     }
 
     fd_->finalizeDefinition();
+  }
+
+  void handleOutput(const TensorView* tv) {
+    // Add fusion outputs to FusionDefinition
+    size_t output_index = map_val_to_fd_index_.at(tv);
+    fd_->defineRecord(new OutputRecord<TensorView>(
+        {fd_->recordingState(output_index)}, serde::RecordType::OutputTv));
+  }
+
+  void handle(const BinaryOp* bop) final {
+    NVF_ERROR(bop->lhs()->isA<TensorView>());
+    NVF_ERROR(bop->rhs()->isA<TensorView>());
+
+    // Create RecordFunctor given inputs, outputs, and attributes.
+    // Add output to values
+    TensorView* arg1 = bop->lhs()->as<TensorView>();
+    size_t arg1_index = map_val_to_fd_index_.at(bop->lhs());
+    size_t arg2_index = map_val_to_fd_index_.at(bop->rhs());
+
+    Tensor output = fd_->defineTensor(arg1->nDims());
+    fd_->defineRecord(new OpRecord<TensorView*, TensorView*, TensorView*>(
+        {fd_->recordingState(arg1_index), fd_->recordingState(arg2_index)},
+        {fd_->recordingState(output())},
+        ("ops.add"),
+        serde::RecordType::Binary_TV,
+        static_cast<TensorView* (*)(TensorView*, TensorView*)>(add)));
+    map_val_to_fd_index_.emplace(bop->out(), output());
   }
 
   void handle(const TensorView* tv) final {
@@ -105,26 +126,6 @@ class FusionTranslator : public OptInConstDispatch {
         tv->domain()->strideOrder()));
 
     map_val_to_fd_index_.emplace(tv, output());
-  }
-
-  void handle(const BinaryOp* bop) final {
-    NVF_ERROR(bop->lhs()->isA<TensorView>());
-    NVF_ERROR(bop->rhs()->isA<TensorView>());
-
-    // Create RecordFunctor given inputs, outputs, and attributes.
-    // Add output to values
-    TensorView* arg1 = bop->lhs()->as<TensorView>();
-    size_t arg1_index = map_val_to_fd_index_.at(bop->lhs());
-    size_t arg2_index = map_val_to_fd_index_.at(bop->rhs());
-
-    Tensor output = fd_->defineTensor(arg1->nDims());
-    fd_->defineRecord(new OpRecord<TensorView*, TensorView*, TensorView*>(
-        {fd_->recordingState(arg1_index), fd_->recordingState(arg2_index)},
-        {fd_->recordingState(output())},
-        ("ops.add"),
-        serde::RecordType::Binary_TV,
-        static_cast<TensorView* (*)(TensorView*, TensorView*)>(add)));
-    map_val_to_fd_index_.emplace(bop->out(), output());
   }
 
  private:
