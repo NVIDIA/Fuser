@@ -11,7 +11,8 @@
 namespace nvfuser::python_frontend {
 
 std::unique_ptr<FusionDefinition> clone(const Fusion* fusion) {
-  auto fd = std::make_unique<FusionDefinition>(/*id=*/1);
+  auto fd = std::make_unique<FusionDefinition>(/*id=*/std::nullopt);
+  fd->setupDefinition();
   // nvfuser::Val - defineScalar, defineTensor, and defineTensor
   // nvfuser::Expr - defineRecord
 
@@ -108,6 +109,7 @@ std::unique_ptr<FusionDefinition> clone(const Fusion* fusion) {
         {fd->recordingState(output_index)}, serde::RecordType::OutputTv));
   }
 
+  fd->finalizeDefinition();
   return fd;
 }
 

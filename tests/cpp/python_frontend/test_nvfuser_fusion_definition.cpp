@@ -179,7 +179,7 @@ TEST_F(NVFuserTest, CreateFusionDefinition) {
   FusionGuard fg(&fusion);
 
   TensorView* tv0 = makeContigConcreteTensor({128});
-  TensorView* tv1 = makeContigConcreteTensor({192});
+  TensorView* tv1 = makeContigConcreteTensor({128});
   fusion.addInput(tv0);
   fusion.addInput(tv1);
   TensorView* tv2 = add(tv0, tv1);
