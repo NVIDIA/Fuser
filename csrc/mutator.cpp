@@ -187,32 +187,56 @@ Expr* OptOutMutator::mutateExpr(
   std::vector<Val*> mutated_outputs;
   mutated_outputs.reserve(op->outputs().size());
   for (auto output : op->outputs()) {
-    mutated_outputs.emplace_back(
-        replace_outputs &&
-                std::find(op->inputs().begin(), op->inputs().end(), output) ==
-                    op->inputs().end()
-            ? maybeMutated(output)
-            : output);
+    if (replace_outputs) {
+      Val* mut_out = maybeMutated(output);
+      if (mut_out != output &&
+          std::find_if(
+              op->inputs().begin(), op->inputs().end(), [&](Val* const inp) {
+                return (replace_inputs ? maybeMutated(inp) : inp) == mut_out;
+              }) == op->inputs().end()) {
+        // skip using mutated output if is one of the inputs.
+        output = mut_out;
+      }
+    }
+    mutated_outputs.emplace_back(output);
   }
 
   std::vector<Val*> mutated_inputs;
   mutated_inputs.reserve(op->inputs().size());
   for (auto input : op->inputs()) {
-    mutated_inputs.emplace_back(
-        replace_inputs &&
-                std::find(
-                    mutated_outputs.begin(), mutated_outputs.end(), input) ==
-                    mutated_outputs.end()
-            ? maybeMutated(input)
-            : input);
+    if (replace_inputs) {
+      Val* mut_inp = maybeMutated(input);
+      if (mut_inp != input &&
+          std::find_if(
+              op->outputs().begin(), op->outputs().end(), [&](Val* const outp) {
+                return (replace_outputs ? maybeMutated(outp) : outp) == mut_inp;
+              }) == op->outputs().end()) {
+        // skip using mutated input if is one of the inputs.
+        input = mut_inp;
+      }
+    }
+    mutated_inputs.emplace_back(input);
   }
 
   std::vector<Statement*> mutated_attrs;
   mutated_attrs.reserve(op->attributes().size());
   for (auto attr : op->attributes()) {
     if (auto attr_val = dynamic_cast<Val*>(attr)) {
-      mutated_attrs.emplace_back(
-          replace_inputs ? maybeMutated(attr_val) : attr_val);
+      if (replace_inputs) {
+        Val* mut_attr = maybeMutated(attr_val);
+        if (mut_attr != attr_val &&
+            std::find_if(
+                op->outputs().begin(),
+                op->outputs().end(),
+                [&](Val* const outp) {
+                  return (replace_outputs ? maybeMutated(outp) : outp) ==
+                      mut_attr;
+                }) == op->outputs().end()) {
+          // skip using mutated input if is one of the inputs.
+          attr_val = mut_attr;
+        }
+      }
+      mutated_attrs.emplace_back(attr_val);
     } else {
       mutated_attrs.emplace_back(attr);
     }
