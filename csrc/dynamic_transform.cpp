@@ -958,19 +958,15 @@ void DynamicTransformConcretizer::concretizeResize() {
           ? IterType::Broadcast
           : IterType::Iteration;
 
-      NVF_CHECK(
-          id->definition() && id->definition()->isA<Resize>(),
-          "Resized IterDomain must have a Resize definition");
       auto def = id->definition()->as<Resize>();
+      NVF_CHECK(
+          def != nullptr && def->isA<Resize>(),
+          "Resized IterDomain must have a Resize definition");
 
-      auto new_id = IterDomain::resize(
-          def->in(),
-          def->leftExpand(),
-          def->rightExpand(),
-          id->isRFactorProduct(),
-          iter_type);
+      auto new_id = IterDomainBuilder(id).iter_type(iter_type).build();
 
       registerConcretization(id, new_id);
+      mutateExprOutputsOnly(def);
     }
     return;
   }
