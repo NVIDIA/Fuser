@@ -97,7 +97,7 @@ std::function<ResultType(ArgTypes...)> getFunction(const BinaryOp* bop) {
   }
 }
 
-std::string getString(const BinaryOp* bop) {
+static std::string getString(const BinaryOp* bop) {
   switch (bop->getBinaryOpType()) {
     case BinaryOpType::Add:
       return "add";
