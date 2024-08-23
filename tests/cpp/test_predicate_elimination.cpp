@@ -8,12 +8,13 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
-
 #include <fusion.h>
 #include <ir/all_nodes.h>
 #include <ops/all_ops.h>
+#include <preseg_passes/mark_aliases_prepare.h>
+#include <preseg_passes/optimization_pass.h>
+#include <tests/cpp/utils.h>
+#include <tests/cpp/validator.h>
 
 namespace nvfuser {
 
@@ -326,6 +327,10 @@ TEST_F(PredicateEliminationTest, 8) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
+  // Disable bookending to avoid segmentation. Validation code below assumes
+  // one segment.
+  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+      optimization_guard(false);
 
   const int64_t channel_size = 16;
   const int64_t batch_size = 8;
