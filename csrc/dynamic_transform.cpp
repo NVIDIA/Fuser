@@ -415,8 +415,21 @@ void DynamicTransformConcretizationInfo::analyzeResizes(
         "Could not compute right expand of dynamic resize ",
         op->toString());
 
-    resize_extents_.emplace_back(
-        id_index, ConcreteResize{input_extent, left_expand, right_expand});
+    if (isOptionDisabled(DisableOption::ConcretizeResizeExtents)) {
+      // If this option is disabled, it means we will only concretize IterType,
+      // not the extents of Resize ops. In such case we standardize the
+      // concretization info so that the resize_extents_ entries are equivalent
+      // to saving IterType. This is so that we avoid unnecessary cache misses
+      // in cases where the IterType does not change but the specific extents or
+      // expand values do change.
+      resize_extents_.emplace_back(
+          id_index,
+          ConcreteResize{
+              2, input_extent + left_expand + right_expand == 1 ? -1 : 1, 0});
+    } else {
+      resize_extents_.emplace_back(
+          id_index, ConcreteResize{input_extent, left_expand, right_expand});
+    }
   }
 }
 
