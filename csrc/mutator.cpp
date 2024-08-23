@@ -108,7 +108,9 @@ void OptOutMutator::mutate(IterDomain* orig_id) {
 
   // This guarantees we replace id in all downstream expressions
   registerMutation(orig_id, new_id);
-  registerMutation(id, new_id);
+  if (id != orig_id) {
+    registerMutation(id, new_id);
+  }
 
   // Preserve definition if it exists in id. This is important since otherwise
   // we might disconnect the root to logical transform path. For example if id
