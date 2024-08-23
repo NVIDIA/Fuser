@@ -1475,7 +1475,13 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
   bool is_concretized = false;
 
   for (const auto i : c10::irange((int64_t)root_domain.size())) {
-    auto root_id = root_domain.at(i);
+    IterDomain* orig_root_id = root_domain.at(i);
+
+    // This root ID might have already been marked for concretization. For
+    // example, if it is used in a Resize op then it will be concretized
+    // earlier in concretizeResize.
+    auto root_id = maybeMutated(orig_root_id)->as<IterDomain>();
+
     if (root_id->getIterType() != IterType::Symbolic) {
       continue;
     }
@@ -1492,7 +1498,7 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
 
     bool found = false;
     for (const auto& c2p : c2p_maps) {
-      auto p_it = c2p.find(root_id);
+      auto p_it = c2p.find(orig_root_id);
       // In some cases, we can exact map to one producer, but not to another.
       // This is the case for index_select, for example, whose first input is
       // the tensor to look up values in and whose second input gives the
@@ -1552,20 +1558,16 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
       // Propagate expanded IterDomains by swapping the extent into the expanded
       // extent
       concretized_id =
-          IterDomainBuilder(maybeMutated(root_id)->as<IterDomain>())
+          IterDomainBuilder(root_id)
               .iter_type(*id_type)
               .extent(FusionGuard::getCurFusion()->oneVal(DataType::Index))
-              .expanded_extent(
-                  maybeMutated(root_id)->as<IterDomain>()->extent())
+              .expanded_extent(root_id->extent())
               .build();
     } else {
-      concretized_id =
-          IterDomainBuilder(maybeMutated(root_id)->as<IterDomain>())
-              .iter_type(*id_type)
-              .build();
+      concretized_id = IterDomainBuilder(root_id).iter_type(*id_type).build();
     }
 
-    registerConcretization(root_id, concretized_id);
+    registerConcretization(orig_root_id, concretized_id);
     is_concretized = true;
   }
 
