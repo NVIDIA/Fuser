@@ -183,20 +183,18 @@ static std::string getString(const BinaryOp* bop) {
 
 class FusionTranslator : public OptInConstDispatch {
  public:
-  static std::unique_ptr<FusionDefinition> clone(const Fusion* fusion) {
-    FusionTranslator cloner(fusion);
-    cloner.clone();
-    return std::move(cloner.fd_);
+  static void translate(const Fusion* fusion, FusionDefinition* fd) {
+    FusionTranslator translator(fusion, fd);
+    translator.translate();
   }
 
  private:
-  FusionTranslator(const Fusion* fusion)
-      : fusion_(fusion),
-        fd_(std::make_unique<FusionDefinition>(/*id=*/std::nullopt)) {}
+  FusionTranslator(const Fusion* fusion, FusionDefinition* fd)
+      : fusion_(fusion), fd_(fd) {}
 
   using OptInConstDispatch::handle;
 
-  void clone() {
+  void translate() {
     fd_->setupDefinition();
 
     std::deque<nvfuser::Expr*> to_visit;
@@ -353,14 +351,14 @@ class FusionTranslator : public OptInConstDispatch {
 
  private:
   const Fusion* fusion_ = nullptr;
-  std::unique_ptr<FusionDefinition> fd_;
+  FusionDefinition* fd_ = nullptr;
   std::unordered_map<const nvfuser::Val*, size_t> map_val_to_fd_index_;
 };
 
 } // namespace
 
-std::unique_ptr<FusionDefinition> clone(const Fusion* fusion) {
-  return FusionTranslator::clone(fusion);
+void translate(const Fusion* fusion, FusionDefinition* fd) {
+  FusionTranslator::translate(fusion, fd);
 }
 
 } // namespace nvfuser::python_frontend

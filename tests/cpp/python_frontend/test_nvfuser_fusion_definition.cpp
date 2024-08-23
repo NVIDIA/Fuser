@@ -185,7 +185,8 @@ TEST_F(NVFuserTest, CreateFusionDefinition) {
   TensorView* tv2 = add(tv0, tv1);
   fusion.addOutput(tv2);
 
-  auto fd = python_frontend::clone(&fusion);
+  auto fd = std::make_unique<FusionDefinition>(/*id=*/std::nullopt);
+  python_frontend::translate(&fusion, fd.get());
   std::stringstream ss;
   fd->print(ss);
   std::cout << ss.str() << std::endl;

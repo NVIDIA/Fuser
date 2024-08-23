@@ -167,8 +167,8 @@ class NVF_API FusionDefinition : public FusionState {
   FusionDefinition& operator=(FusionDefinition&& fd) = delete;
   ~FusionDefinition() override = default;
 
-  //! Create python FusionDefinition from cpp Fusion
-  void clone(const Fusion* fusion);
+  //! Copy definition from other FusionDefintion's presched CPP fusion.
+  void clone(FusionDefinition& other);
 
   //! Enter Python Context Manager -- Reset trie for new cache lookup
   NVF_API FusionDefinition* setupDefinition();
