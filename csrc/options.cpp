@@ -170,6 +170,7 @@ std::unordered_map<DisableOption, std::vector<std::string>> Options<
     DisableOption>::getOptionsFromEnv() {
   const std::unordered_map<std::string, DisableOption> available_options = {
       {"compile_to_sass", DisableOption::CompileToSass},
+      {"concretize_resize_extents", DisableOption::ConcretizeResizeExtents},
       {"contig_indexing", DisableOption::ContigIndexing},
       {"expr_simplify", DisableOption::ExprSimplify},
       {"fallback", DisableOption::Fallback},

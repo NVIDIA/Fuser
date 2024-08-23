@@ -934,6 +934,34 @@ void DynamicTransformConcretizer::concretizeReshape() {
 }
 
 void DynamicTransformConcretizer::concretizeResize() {
+  if (isOptionDisabled(DisableOption::ConcretizeResizeExtents)) {
+    for (const auto& [id_index, concrete_resize] : info_->getResizeExtents()) {
+      const auto& [input_extent, left_expand, right_expand] = concrete_resize;
+
+      IterDomain* id =
+          info_->initialInfo()->getDynamicResizedIterDomains().at(id_index);
+
+      IterType iter_type = input_extent + left_expand + right_expand == 1
+          ? IterType::Broadcast
+          : IterType::Iteration;
+
+      NVF_CHECK(
+          id->definition() && id->definition()->isA<Resize>(),
+          "Resized IterDomain must have a Resize definition");
+      auto def = id->definition()->as<Resize>();
+
+      auto new_id = IterDomain::resize(
+          def->in(),
+          def->leftExpand(),
+          def->rightExpand(),
+          id->isRFactorProduct(),
+          iter_type);
+
+      registerConcretization(id, new_id);
+    }
+    return;
+  }
+
   // First mutate IterDomains so that each Resize producer has constant extent
   for (const auto& [id_index, concrete_resize] : info_->getResizeExtents()) {
     const auto& [input_extent, left_expand, right_expand] = concrete_resize;
