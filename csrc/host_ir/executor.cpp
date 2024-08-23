@@ -224,12 +224,9 @@ std::unordered_set<Val*> allConsumerValsOf(Val* val) {
 } // namespace
 
 void HostIrExecutor::handle(ForLoop* for_loop) {
-  NVF_ERROR(for_loop->start()->isConstInt());
-  NVF_ERROR(for_loop->step()->isConstInt());
-  NVF_ERROR(for_loop->stop()->isConstInt());
-  auto start = for_loop->start()->value().as<int64_t>();
-  auto step = for_loop->step()->value().as<int64_t>();
-  auto stop = for_loop->stop()->value().as<int64_t>();
+  auto start = expr_evaluator_.evaluate(for_loop->start()).as<int64_t>();
+  auto step = expr_evaluator_.evaluate(for_loop->step()).as<int64_t>();
+  auto stop = expr_evaluator_.evaluate(for_loop->stop()).as<int64_t>();
 
   for (auto i = start; i < stop; i += step) {
     // invalidate i and its consumers before binding

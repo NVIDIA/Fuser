@@ -12,6 +12,7 @@
 #include <ops/alias.h>
 #include <options.h>
 #include <preseg_passes/mark_aliases_prepare.h>
+#include <transform_replay.h>
 
 namespace nvfuser::preseg_passes {
 
@@ -99,6 +100,16 @@ void insertSegmentSetAfter(
 
   // The general case.
   TensorView* copy = segment_set(use_of);
+  // Inherit the allocation domain from `use_of`. This is important to pass
+  // AliasTest.Bookend_SegmentSetPreservesAllocation.
+  TensorDomain* replayed_domain =
+      TransformReplay::replayCasP(
+          copy, use_of, -1, TransformReplayOptions().replayAllocation())
+          .first;
+  if (replayed_domain->hasAllocation()) {
+    copy->setAllocationDomain(
+        replayed_domain->allocation(), replayed_domain->contiguity());
+  }
   std::for_each(first_user, last_user, [&](const Use& use) {
     ir_utils::replaceValInExprInputs(use.user, use_of, copy);
   });

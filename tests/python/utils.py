@@ -14,6 +14,8 @@ import torch
 # flake8: noqa
 from nvfuser import FusionCache, FusionDefinition, DataType
 
+from torch.testing._internal.common_utils import TestCase
+
 
 def is_pre_volta():
     prop = torch.cuda.get_device_properties(torch.cuda.current_device())
@@ -131,3 +133,84 @@ def atexit_serde_check():
     fc = FusionCache.get()
     # Clear FusionCache because the tests expect a new fusion to be generated.
     FusionCache.reset()
+
+
+def nvfusertest_serde_check(test_fn: Callable):
+    """
+    A decorator to verify that serialization works with the given exec_nvfuser
+    function. Currently, it uses serialization to rebuild the FusionCache
+    structure.
+    """
+
+    def inner_fn(*args, **kwargs):
+        self, fusion_func, inputs = args
+
+        # NOTE: For debug purposes, clear FusionCache before running first test
+        # so the behavior is more deterministic (PR #1848).
+        is_new_fusion_expected = kwargs.get("new_fusion_expected", True)
+        if debug_serde and is_new_fusion_expected:
+            FusionCache.reset()
+            assert FusionCache.get().num_fusions() == 0
+
+        # skip_serde_check is only used by the decorator so remove it before
+        # running test_fn
+        skip_serde_check = kwargs.pop("skip_serde_check", False)
+        if skip_serde_check:
+            return test_fn(self, fusion_func, inputs, **kwargs)
+
+        # Run test to populate FusionCache. Deep copy inputs for this run but
+        # not the final run. When a fusion output aliases an input, it will
+        # change the input value for subsequent function calls. Therefore, only
+        # the final run should take the original tensors and potentially update
+        # their values.
+        inputs_copy = deepcopy(inputs)
+        test_fn(self, fusion_func, inputs_copy, **kwargs)
+
+        # Serialize and Deserialize FusionCache
+        basic_serde_check()
+
+        # Run test with repopulated FusionCache
+        kwargs["new_fusion_expected"] = False
+        return test_fn(self, fusion_func, inputs, **kwargs)
+
+    return inner_fn
+
+
+"""
+Base class for any test class that needs to verify serialization
+and run captured string representations of FusionDefinition.
+"""
+
+
+class NVFuserTest(TestCase):
+    @classmethod
+    def setup_class(cls):
+        """
+        Setup is run once at the class level, before running any tests of the class.
+        `atexit_serde_check` enables automatic serialization at the end of the test suite.
+        """
+        atexit_serde_check()
+
+    # Helper function to verify the nvfuser output and make sure the string
+    # definition based on the FusionDefinition is executable and matches the
+    # original definition
+    @nvfusertest_serde_check
+    def exec_nvfuser(
+        self, fusion_func, inputs, *, new_fusion_expected=True, device=None
+    ):
+        fc = FusionCache.get()
+        before_fusions = fc.num_fusions()
+        # Copy inputs because aliased outputs can modify inputs when running
+        # FusionDefinition
+        inputs_cap = deepcopy(inputs)
+
+        # Execute a fusion function and capture the string python definition
+        with FusionDefinition() as fd:
+            fusion_func(fd)
+        torch.manual_seed(0)
+        out = fd.execute(inputs, device=device)
+
+        self.assertTrue(check_captured_python_definition(out, fd, inputs_cap, device))
+
+        self.assertEqual(fc.num_fusions() - before_fusions, int(new_fusion_expected))
+        return out, fd

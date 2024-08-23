@@ -658,6 +658,9 @@ std::vector<PolymorphicValue> BinaryOp::evaluate(
     case BinaryOpType::Complex:
       return {at::complex(lhs.as<at::Tensor>(), rhs.as<at::Tensor>())};
       break;
+    case BinaryOpType::Pow:
+      return {pow(lhs, rhs)};
+      break;
     default:
       NVF_CHECK(
           false,
@@ -4671,8 +4674,9 @@ Val* ForLoop::step() const {
 
 Val* ForLoop::simplifiedStop() const {
   if (simplified_stop_ == nullptr) {
-    simplified_stop_ =
-        GpuLower::current()->commonScalarMap().hoistScalar(stop(), {});
+    simplified_stop_ = GpuLower::hasCurrent()
+        ? GpuLower::current()->commonScalarMap().hoistScalar(stop(), {})
+        : stop();
   }
   return simplified_stop_;
 }
