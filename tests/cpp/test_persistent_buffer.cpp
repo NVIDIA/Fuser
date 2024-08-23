@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <gmock/gmock-matchers.h>
+#include <gmock/gmock-more-matchers.h>
 #include <gtest/gtest.h>
 
 #include <logical_domain_map.h>
@@ -15,9 +16,12 @@
 #include <scheduler/utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
+
 namespace nvfuser {
 
 using PersistentBufferTest = NVFuserTest;
+
+using testing::Contains;
 
 TEST_F(PersistentBufferTest, FusionPersistentBufferCalculation1_CUDA) {
   Fusion fusion;
@@ -1170,9 +1174,8 @@ TEST_F(NVFuserTest, AvoidProjectingToInputsIfRecomputeHasDropout) {
 // From T7, the backward search can find the corresponding reduction
 // input ID, which is {I2} in T2.
 TEST_F(PersistentBufferTest, PostReductionBroadcastCheck) {
-  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
-  auto fusion = fusion_ptr.get();
-  FusionGuard fg(fusion);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
 
   const int dim0 = 128;
   const int dim1 = 256;
@@ -1195,22 +1198,20 @@ TEST_F(PersistentBufferTest, PostReductionBroadcastCheck) {
                      .device(at::kCUDA, 0);
   auto t0 = at::randn({dim0, dim1}, options);
   auto t1 = at::randn({dim0, dim1}, options);
-  auto t2 = at::sum(t0, {1}).unsqueeze(1) + t0;
-  auto t4 = t2 + t1;
-  FusionExecutorCache fec(std::move(fusion_ptr));
+  FusionExecutorCache fec(std::move(fusion));
   auto cg_outputs = fec.runFusionWithInputs({t0, t1});
-  NVF_CHECK(
-      !fec.getMostRecentKernelRuntime()->isSegmented(),
-      "unexpected segmentation!");
+  testValidate(fec.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
 
-  testValidate(fusion, cg_outputs, {t0, t1}, {t4}, __LINE__, __FILE__);
+  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      Contains(HeuristicIs(ScheduleHeuristic::InnerPersistent)).Times(1));
 }
 
 // Cases with two broadcast IDs
 TEST_F(PersistentBufferTest, PostReductionBroadcastCheckMultiBcastDims) {
-  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
-  auto fusion = fusion_ptr.get();
-  FusionGuard fg(fusion);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
 
   const int dim0 = 16;
   const int dim1 = 32;
@@ -1234,15 +1235,14 @@ TEST_F(PersistentBufferTest, PostReductionBroadcastCheckMultiBcastDims) {
                      .device(at::kCUDA, 0);
   auto t0 = at::randn({dim0, dim1, dim2}, options);
   auto t1 = at::randn({dim0, dim1, dim2}, options);
-  auto t2 = at::sum(t0, {1, 2}).unsqueeze(-1).unsqueeze(-1) + t0;
-  auto t4 = t2 + t1;
-  FusionExecutorCache fec(std::move(fusion_ptr));
+  FusionExecutorCache fec(std::move(fusion));
   auto cg_outputs = fec.runFusionWithInputs({t0, t1});
-  NVF_CHECK(
-      !fec.getMostRecentKernelRuntime()->isSegmented(),
-      "unexpected segmentation!");
+  testValidate(fec.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
 
-  testValidate(fusion, cg_outputs, {t0, t1}, {t4}, __LINE__, __FILE__);
+  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      Contains(HeuristicIs(ScheduleHeuristic::InnerPersistent)).Times(1));
 }
 
 TEST_F(PersistentBufferTest, SmemPersistentNotSupportedIn3DReduction) {
