@@ -12,6 +12,7 @@
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
 #include <ops/all_ops.h>
+#include <preseg_passes/mark_aliases_prepare.h>
 #include <preseg_passes/optimization_pass.h>
 #include <preseg_passes/pre_segmenter.h>
 #include <tests/cpp/utils.h>
@@ -69,6 +70,10 @@ TEST_F(RemoveBcastSqueezeTest, BcastSqueeze) {
 TEST_F(RemoveBcastSqueezeTest, BcastSqueezeMultipleUses) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
+  // Prevent meta ops from being bookended.
+  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+      optimization_guard(false);
+
   DataType input_dtype = DataType::Float;
   const std::vector<bool> is_broadcast_dim{false, false, true};
   auto tv0 = makeContigTensor(2, input_dtype);
@@ -78,7 +83,7 @@ TEST_F(RemoveBcastSqueezeTest, BcastSqueezeMultipleUses) {
   auto tv1 = set(tv0);
   auto tv2 = broadcast(tv1, is_broadcast_dim);
   auto tv3 = squeeze(tv2, is_broadcast_dim);
-  auto tv4 = add(tv3, tv3);
+  auto tv4 = set(tv3);
   auto tv5 = add(tv2, tvb);
   fusion->addOutput(tv4);
   fusion->addOutput(tv5);
@@ -93,11 +98,13 @@ TEST_F(RemoveBcastSqueezeTest, BcastSqueezeMultipleUses) {
   // run fusion
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::ones({3, 4}, options);
-  at::Tensor t1 = t0.unsqueeze(-1);
+  at::Tensor tb = t0.unsqueeze(-1);
+  std::vector<c10::IValue> in_tensors({t0, tb});
   FusionExecutorCache executor_cache(std::move(fusion));
-  std::vector<at::Tensor> outputs =
-      executor_cache.runFusionWithInputs({t0, t1});
-  testValidate(executor_cache.fusion(), outputs, {t0, t1}, __LINE__, __FILE__);
+  std::vector<at::Tensor> out_tensors =
+      executor_cache.runFusionWithInputs(in_tensors);
+  testValidate(
+      executor_cache.fusion(), out_tensors, in_tensors, __LINE__, __FILE__);
 }
 
 TEST_F(RemoveBcastSqueezeTest, BcastSqueezeUnmatchedDim) {
