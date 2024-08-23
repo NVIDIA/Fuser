@@ -17,13 +17,25 @@
 #include <ir/builder.h>
 #include <kernel_cache.h>
 #include <ops/all_ops.h>
+#include <preseg_passes/mark_aliases_prepare.h>
+#include <preseg_passes/optimization_pass.h>
 #include <scheduler/all_schedulers.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
 namespace nvfuser {
 
-using ScatterGatherTest = NVFuserTest;
+class ScatterGatherTest : public NVFuserTest {
+ protected:
+  // For convenience, disable MarkAliasesPreparePass. Many tests in this file
+  // start and/or end with meta ops. MarkAliasesPreparePass
+  // would bookend them, making tests less interesting.
+  ScatterGatherTest() : optimization_guard_(false) {}
+
+ private:
+  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+      optimization_guard_;
+};
 
 namespace {
 auto randomVector(int64_t low, int64_t high, int rank) {
@@ -1122,10 +1134,7 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorTranspose3) {
   auto tv3 = broadcast(tv1, {true, false, false});
   auto tv4 = take_along_axis(tv2, tv3, 2);
   auto tv5 = transpose(tv4, 1, 2);
-  // Without the `add`, the transpose will be taken by NoOp, defeating the
-  // purpose of testing PointWise.
-  auto tv6 = add(tv5, tv5);
-  fusion.addOutput(tv6);
+  fusion.addOutput(tv5);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);

@@ -1457,6 +1457,10 @@ TEST_F(ResizeTest, SliceReduceScheduler1) {
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
 
+  // This is to prevent `slice` from being bookended.
+  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+      optimization_guard(false);
+
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
 
@@ -1498,6 +1502,10 @@ TEST_F(ResizeTest, SliceReduceScheduler2) {
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
 
+  // This is to prevent `slice`s from being bookended.
+  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+      optimization_guard(false);
+
   auto tv0 = makeContigTensor(2);
   fusion.addInput(tv0);
 
@@ -1537,10 +1545,14 @@ TEST_F(ResizeTest, SliceReduceScheduler2) {
 }
 
 // Multiple slice+reduction. Same slices. Should be segmented at the moment.
-TEST_F(ResizeTest, FusionSliceReduceScheduler3) {
+TEST_F(ResizeTest, SliceReduceScheduler3) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
+
+  // This is to prevent `slice`s from being bookended.
+  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+      optimization_guard(false);
 
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
@@ -2055,8 +2067,12 @@ TEST_F(ResizeTest, ResizeReshapeAndSlice) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard enable_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
+  // This is to prevent the fusion from being accepted by NoOp, which would
+  // defeat the purpose of testing PointWise.
+  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+      optimization_guard(false);
 
   auto tv0 = makeSymbolicTensor(2);
   fusion->addInput(tv0);
@@ -2066,10 +2082,7 @@ TEST_F(ResizeTest, ResizeReshapeAndSlice) {
       tv1,
       {{IrBuilder::create<Val>(0L), IrBuilder::create<Val>(2L)},
        {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(2L)}});
-  // Without the `add`, the fusion will be accepted by NoOp, defeating the
-  // purpose of testing PointWise.
-  auto tv3 = add(tv2, tv2);
-  fusion->addOutput(tv3);
+  fusion->addOutput(tv2);
 
   std::vector<int64_t> shape({4, 8});
 
@@ -2095,6 +2108,10 @@ TEST_F(ResizeTest, ResizePermuteAndSlice) {
   EnableOptionsGuard opt_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
 
+  // This is to prevent `tv3->definition()` from being bookended.
+  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+      optimization_guard(false);
+
   // Set the problem size so that it can trigger the transpose
   // scheduler. The scheduler selection is validated below.
   auto num_sms =
@@ -2110,8 +2127,7 @@ TEST_F(ResizeTest, ResizePermuteAndSlice) {
       {{IrBuilder::create<Val>(1L), IrBuilder::create<Val>(shape.at(0) - 1)},
        {IrBuilder::create<Val>(2L), IrBuilder::create<Val>(shape.at(1) - 2)}});
   auto tv3 = transpose(tv2, 0, 1);
-  auto tv5 = add(tv3, tv3);
-  fusion->addOutput(tv5);
+  fusion->addOutput(tv3);
   auto tv4 = add(tv2, IrBuilder::create<Val>(1.0));
   fusion->addOutput(tv4);
 
