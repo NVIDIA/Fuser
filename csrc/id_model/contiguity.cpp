@@ -95,10 +95,9 @@ void ContigIDGroups::handle(Merge* merge, Direction direction) {
   VectorOfUniqueEntries<IterDomain*> alloc_ids = alloc_ids_it->second;
   for (auto alloc_id_i : c10::irange(alloc_domains_.size())) {
     auto alloc_id = alloc_domains_[alloc_id_i];
-    if (!alloc_ids.has(alloc_id)) {
+    if (alloc_ids.erase(alloc_id) == 0) {
       continue;
     }
-    alloc_ids.erase(alloc_id);
     auto alloc_contiguity = alloc_contiguity_.at(alloc_id_i);
     // If we're indexing:
     // we could still potentially consider this ID linearly indexable, as we

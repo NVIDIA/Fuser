@@ -112,7 +112,7 @@ void OrderedIdInformation::handle(Merge* merge) {
       break;
     }
     // When using IdModel, reduction domains are excluded from
-    // allocation domains but loop promotion may pick reduciton
+    // allocation domains but loop promotion may pick reduction
     // domains, which should just be treated as normal domains.
     if (!using_id_graph_) {
       if (active_ids_[pos_after_outer]->isReduction() ||
