@@ -593,8 +593,12 @@ std::vector<PolymorphicValue> BinaryOp::evaluate(
       return {lhs * rhs};
       break;
     case BinaryOpType::Div:
-    case BinaryOpType::Truediv:
       return {lhs / rhs};
+      break;
+    case BinaryOpType::Truediv:
+      return {
+          SimplifyingIrBuilder::maybeCastExpr(DataType::Float, lhs) /
+          SimplifyingIrBuilder::maybeCastExpr(DataType::Float, rhs)};
       break;
     case BinaryOpType::Mod:
       NVF_CHECK(rhs != 0);
