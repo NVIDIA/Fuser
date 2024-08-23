@@ -26,8 +26,10 @@ namespace nvfuser {
 using ResizeTest = NVFuserTest;
 
 using testing::Each;
+using testing::HasSubstr;
 using testing::Not;
 using testing::Property;
+using testing::ThrowsMessage;
 using testing::UnorderedElementsAre;
 
 // Simple pad test
@@ -2218,8 +2220,8 @@ TEST_F(ResizeTest, FusionSqueezeSymbolic) {
 
   EXPECT_THAT(
       [&]() { fec.runFusionWithInputs({t0, 10}); },
-      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-          "must concretize to IterType::Broadcast but found")));
+      ThrowsMessage<nvfError>(
+          HasSubstr("must concretize to IterType::Broadcast but found")));
 }
 
 // See https://github.com/NVIDIA/Fuser/issues/365
@@ -2840,8 +2842,8 @@ TEST_F(ResizeTest, Slice3DVectorizeManual1) {
 
   EXPECT_THAT(
       [&]() { fe.runFusion(aten_inputs); },
-      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-          "with word size 2 not possible due to invalid stride")));
+      ThrowsMessage<nvfError>(
+          HasSubstr("with word size 2 not possible due to invalid stride")));
 }
 
 // Similar to Slice3DVectorizeManual2 but with a middle broadcast
@@ -2883,8 +2885,8 @@ TEST_F(ResizeTest, Slice3DVectorizeManual2) {
 
   EXPECT_THAT(
       [&]() { fe.runFusion(aten_inputs); },
-      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-          "with word size 4 not possible due to invalid stride")));
+      ThrowsMessage<nvfError>(
+          HasSubstr("with word size 4 not possible due to invalid stride")));
 }
 
 // Repro of issue 540 without transpose
@@ -3503,6 +3505,64 @@ TEST_F(ResizeTest, Issue2552) {
       fec.runFusionWithInputs({x_tensor, y_tensor});
   testValidate(
       fec.fusion(), out_tensors, {x_tensor, y_tensor}, __LINE__, __FILE__);
+}
+
+TEST_F(ResizeTest, Chunk_NegativeSize) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigTensor(1);
+  fusion->addInput(in);
+  std::vector<TensorView*> outs = chunk(in, /*chunks=*/6, /*dim=*/0);
+  for (auto* out : outs) {
+    fusion->addOutput(out);
+  }
+
+  FusionExecutorCache fec(std::move(fusion));
+  EXPECT_THAT(
+      [&]() {
+        auto in_tensor = at::randn({13}).cuda();
+        fec.runFusionWithInputs({in_tensor});
+      },
+      ThrowsMessage<nvfError>(HasSubstr("Invalid resized domain extent")));
+}
+
+TEST_F(ResizeTest, Chunk_SizeZero) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigTensor(1);
+  fusion->addInput(in);
+  std::vector<TensorView*> outs = chunk(in, /*chunks=*/6, /*dim=*/0);
+  for (auto* out : outs) {
+    fusion->addOutput(out);
+  }
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto in_tensor = at::randn({15}).cuda();
+  auto out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+
+  EXPECT_EQ(out_tensors.back().numel(), 0);
+}
+
+TEST_F(ResizeTest, Chunk_Uneven) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigTensor(1);
+  fusion->addInput(in);
+  std::vector<TensorView*> outs = chunk(in, /*chunks=*/6, /*dim=*/0);
+  for (auto* out : outs) {
+    fusion->addOutput(out);
+  }
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto in_tensor = at::randn({16}).cuda();
+  auto out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+
+  EXPECT_EQ(out_tensors.back().numel(), 1);
 }
 
 } // namespace nvfuser

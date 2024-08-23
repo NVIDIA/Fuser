@@ -453,7 +453,6 @@ TEST_F(ExprEvalTest, TensorMetaData) {
   FusionGuard fg(&fusion);
 
   TensorView* tv = makeSymbolicTensor(2);
-  fusion.addInput(tv);
   auto metadata = IrBuilder::metadataExpr(tv);
   auto data = IrBuilder::getAttrExpr(metadata, "data");
   auto sizes = IrBuilder::getAttrExpr(metadata, "logical_size");
@@ -479,19 +478,6 @@ TEST_F(ExprEvalTest, TensorMetaData) {
   checkIntValue(evaluator, size1, 128L);
   checkIntValue(evaluator, stride0, 128L);
   checkIntValue(evaluator, stride1, 1L);
-
-  {
-    // Now bind a PrecomputedValues and print
-    PrecomputedValues pv(&fusion);
-    evaluator.bindPrecomputedValues(&pv);
-    pv.bindInputs(KernelArgumentHolder::createKernelArgumentHolder({a}));
-
-    // Test that printing works and shows that we have bound something to T0
-    std::ostringstream ss;
-    DebugStreamGuard dsg(ss);
-    evaluator.print();
-    EXPECT_THAT(ss.str(), testing::HasSubstr("( getMetaData(T0) )"));
-  }
 }
 
 TEST_F(ExprEvalTest, Validation) {
@@ -788,6 +774,44 @@ TEST_F(ExprEvalTest, BinaryOpFmod) {
   EXPECT_EQ(evaluator.evaluate(out3).as<double>(), std::fmod(8, 3.8));
   EXPECT_EQ(evaluator.evaluate(out4).as<double>(), std::fmod(7.0, -0.8));
   EXPECT_EQ(evaluator.evaluate(out5).as<double>(), std::fmod(3, -0.8));
+}
+
+// Test that we properly bind tensor metadata in PrecomputedValues so that we
+// can access it from an ExpressionEvaluator
+TEST_F(ExprEvalTest, TensorMetadataPrecomputedValues) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto* tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+
+  auto* tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  PrecomputedValues pv(&fusion);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({3, 4}, options);
+  auto args = KernelArgumentHolder::createKernelArgumentHolder({t0});
+
+  // now compute metadata of tv0
+  auto metadata = fusion.metadataOf(tv0);
+  ASSERT_TRUE(metadata != nullptr);
+  EXPECT_EQ(metadata->dtype(), metaDataTypeOf(tv0));
+  auto logical_size = IrBuilder::getAttrExpr(metadata, "logical_size");
+  auto logical_size_0 = IrBuilder::getItemExpr(logical_size, fusion.zeroVal());
+  auto logical_size_1 = IrBuilder::getItemExpr(logical_size, fusion.oneVal());
+
+  pv.bindInputs(args);
+  pv.evaluate();
+
+  ExpressionEvaluator evaluator;
+  evaluator.bindPrecomputedValues(&pv);
+
+  EXPECT_TRUE(evaluator.evaluate(metadata).hasValue());
+
+  checkIntValue(evaluator, logical_size_0, 3);
+  checkIntValue(evaluator, logical_size_1, 4);
 }
 
 } // namespace nvfuser
