@@ -593,6 +593,7 @@ std::vector<PolymorphicValue> BinaryOp::evaluate(
       return {lhs * rhs};
       break;
     case BinaryOpType::Div:
+    case BinaryOpType::Truediv:
       return {lhs / rhs};
       break;
     case BinaryOpType::Mod:
