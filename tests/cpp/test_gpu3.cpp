@@ -35,6 +35,8 @@
 #include <kernel_ir_dispatch.h>
 #include <logical_domain_map.h>
 #include <ops/all_ops.h>
+#include <preseg_passes/mark_aliases_prepare.h>
+#include <preseg_passes/optimization_pass.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>
@@ -7821,6 +7823,12 @@ TEST_F(NVFuserTest, Reduction3DConstantIterationDomain) {
 TEST_F(NVFuserTest, AvoidCachingSliceInput) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
+
+  // Avoid `slice`s from being bookended. This test is to exercise kernel
+  // caching when a `SliceOp` is applied on a segment input. Bookending
+  // `slice`s would defeat that purpose.
+  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+      optimization_guard(false);
 
   // values to trigger the original bug.
   const int64_t eight = 8;
