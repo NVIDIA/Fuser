@@ -5,10 +5,20 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <csrc/exceptions.h>
 #include <gmock/gmock-matchers.h>
+#include <gmock/gmock-more-matchers.h>
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <iostream>
+#include <sstream>
+#include <thread>
+
+#include <ATen/cuda/CUDAContext.h>
+#include <ATen/cuda/Exceptions.h>
+#include <c10/cuda/CUDAStream.h>
+
+#include <exceptions.h>
 #include <grouped_reduction.h>
 #include <inlining.h>
 #include <ir/utils.h>
@@ -21,20 +31,14 @@
 #include <tests/cpp/validator.h>
 #include <utils.h>
 
-#include <ATen/cuda/CUDAContext.h>
-#include <ATen/cuda/Exceptions.h>
-#include <c10/cuda/CUDAStream.h>
-
-#include <algorithm>
-#include <iostream>
-#include <sstream>
-#include <thread>
-
 namespace nvfuser {
 
 using OuterReductionTest = NVFuserTest;
 
-using namespace at::indexing;
+using testing::Contains;
+using testing::IsSupersetOf;
+
+// using namespace at::indexing;
 
 // Shmoo testing of the optimized grouped grid welford
 TEST_F(OuterReductionTest, GroupedGridWelfordOuterOpt) {
@@ -1522,20 +1526,19 @@ void grid_persistent_welford_outer_norm_like_scheduler(
     bool use_weights = false,
     DataType weights_dtype = DataType::Float) {
   const bool benchmark_mode = isBenchmarkMode();
-  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
 
   std::vector<bool> bcast_pattern{true, true, true, false};
   std::vector<int64_t> reduction_dims{2, 1, 0};
 
   auto inp = makeContigTensor(4, dtype);
-  fusion.addInput(inp);
+  fusion->addInput(inp);
 
   TensorView* weights = nullptr;
   if (use_weights) {
     weights = makeContigTensor(1, weights_dtype);
-    fusion.addInput(weights);
+    fusion->addInput(weights);
   }
 
   auto inp_cast = cast(inp, DataType::Float);
@@ -1548,7 +1551,7 @@ void grid_persistent_welford_outer_norm_like_scheduler(
   }
 
   out = cast(out, dtype);
-  fusion.addOutput(out);
+  fusion->addOutput(out);
 
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
@@ -1564,25 +1567,15 @@ void grid_persistent_welford_outer_norm_like_scheduler(
     aten_inputs.push_back(t1);
   }
 
-  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
 
-  if (!shouldBePersistent(N, HW, dtype, false, use_weights, weights_dtype)) {
-    NVF_CHECK(runtime->isSegmented(), "Expected to be segmented");
-  } else {
-    NVF_CHECK(
-        !runtime->isSegmented(),
-        "Unexpected number of segments: ",
-        runtime->fusionSegments()->groups().size());
-
-    const auto& scheduler_entry =
-        runtime->schedulerHeuristics()->heuristicsList().at(0);
-    NVF_CHECK(
-        scheduler_entry->heuristic() == ScheduleHeuristic::OuterPersistent,
-        "Unexpected heuristic was chosen: ",
-        scheduler_entry->heuristic());
+  if (shouldBePersistent(N, HW, dtype, false, use_weights, weights_dtype)) {
+    EXPECT_THAT(
+        runtime->fusionSegments()->groups(),
+        Contains(HeuristicIs(ScheduleHeuristic::OuterPersistent)).Times(1));
 
     if (benchmark_mode) {
       for (int i = 0; i < 10; ++i) {
@@ -1590,17 +1583,16 @@ void grid_persistent_welford_outer_norm_like_scheduler(
         cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
       }
     }
+  } else {
+    EXPECT_THAT(
+        runtime->fusionSegments()->groups(),
+        IsSupersetOf(
+            {HeuristicIs(ScheduleHeuristic::Reduction),
+             HeuristicIs(ScheduleHeuristic::PointWise)}));
   }
 
-  auto t0_cast = t0.to(at::kFloat);
-  auto t0_allreduce =
-      t0_cast.mean({0, 1, 2}).unsqueeze(0).unsqueeze(0).unsqueeze(0);
-  auto ref = t0_cast - t0_allreduce;
-  if (use_weights) {
-    ref = ref + t1.to(at::kFloat);
-  }
-
-  testValidate(&fusion, cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__, "");
+  testValidate(
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 } // namespace
@@ -1649,7 +1641,7 @@ TEST_F(
 
 TEST_F(
     OuterReductionTest,
-    GridPersistentWelfordOuterNormWithWeithtsLikeHalf256x7x512Scheduler) {
+    GridPersistentWelfordOuterNormWithWeightsLikeHalf256x7x512Scheduler) {
   grid_persistent_welford_outer_norm_like_scheduler(
       256, 7, 512, DataType::Half, true, DataType::Float);
 }
@@ -1677,9 +1669,8 @@ void grid_persistent_batchnorm_scheduler(
     int64_t C,
     DataType dtype) {
   const bool benchmark_mode = isBenchmarkMode();
-  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(fusion_ptr.get());
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
 
   const bool kTraining = true;
   const float kMomentum = 0.1;
@@ -1692,11 +1683,11 @@ void grid_persistent_batchnorm_scheduler(
   auto running_mean = makeContigTensor(1, DataType::Float);
   auto running_var = makeContigTensor(1, DataType::Float);
 
-  fusion_ptr->addInput(input);
-  fusion_ptr->addInput(weight);
-  fusion_ptr->addInput(bias);
-  fusion_ptr->addInput(running_mean);
-  fusion_ptr->addInput(running_var);
+  fusion->addInput(input);
+  fusion->addInput(weight);
+  fusion->addInput(bias);
+  fusion->addInput(running_mean);
+  fusion->addInput(running_var);
 
   if (dtype == DataType::Half) {
     input = castOp(DataType::Float, input);
@@ -1724,7 +1715,7 @@ void grid_persistent_batchnorm_scheduler(
     output = castOp(DataType::Half, output);
   }
 
-  fusion_ptr->addOutput(output);
+  fusion->addOutput(output);
 
   auto options_float =
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -1743,25 +1734,15 @@ void grid_persistent_batchnorm_scheduler(
   std::vector<c10::IValue> aten_inputs(
       {at_input_nvfuser, at_weight, at_bias, at_running_mean, at_running_var});
 
-  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
 
-  if (!shouldBePersistent(N, HW, dtype, false, true, DataType::Float)) {
-    NVF_CHECK(runtime->isSegmented(), "Expected to be segmented");
-  } else {
-    NVF_CHECK(
-        !runtime->isSegmented(),
-        "Unexpected number of segments: ",
-        runtime->fusionSegments()->groups().size());
-
-    const auto& scheduler_entry =
-        runtime->schedulerHeuristics()->heuristicsList().at(0);
-    NVF_CHECK(
-        scheduler_entry->heuristic() == ScheduleHeuristic::OuterPersistent,
-        "Unexpected heuristic was chosen: ",
-        scheduler_entry->heuristic());
+  if (shouldBePersistent(N, HW, dtype, false, true, DataType::Float)) {
+    EXPECT_THAT(
+        runtime->fusionSegments()->groups(),
+        Contains(HeuristicIs(ScheduleHeuristic::OuterPersistent)).Times(1));
 
     if (benchmark_mode) {
       for (int i = 0; i < 10; ++i) {
@@ -1769,23 +1750,16 @@ void grid_persistent_batchnorm_scheduler(
         cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
       }
     }
+  } else {
+    EXPECT_THAT(
+        runtime->fusionSegments()->groups(),
+        IsSupersetOf(
+            {HeuristicIs(ScheduleHeuristic::Reduction),
+             HeuristicIs(ScheduleHeuristic::PointWise)}));
   }
 
-  auto at_output = at::batch_norm(
-      at_input,
-      at_weight,
-      at_bias,
-      at_running_mean,
-      at_running_var,
-      kTraining,
-      kMomentum,
-      kEps,
-      true);
-
-  cg_outputs.at(0) = cg_outputs.at(0).permute({0, 3, 1, 2});
-
   testValidate(
-      &fusion, cg_outputs, aten_inputs, {at_output}, __LINE__, __FILE__, "");
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 } // namespace
