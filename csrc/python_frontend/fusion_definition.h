@@ -168,6 +168,8 @@ class NVF_API FusionDefinition : public FusionState {
   ~FusionDefinition() override = default;
 
   //! Copy definition from other FusionDefintion's presched CPP fusion.
+  //! Primarily for testing purposes to check that the translation from CPP
+  //! fusion is correct.
   void clone(FusionDefinition& other);
 
   //! Enter Python Context Manager -- Reset trie for new cache lookup

@@ -626,6 +626,10 @@ std::vector<std::pair<double, double>> FusionDefinition::getValTolerances(
 }
 
 void FusionDefinition::clone(FusionDefinition& other) {
+  NVF_ERROR(!completed(), "Expected an incomplete definition before cloning!");
+  NVF_ERROR(
+      other.completed(),
+      "Expected incoming FusionDefinition to be omplete before cloning!");
   return translate(other.preschedFusion(), this);
 }
 
