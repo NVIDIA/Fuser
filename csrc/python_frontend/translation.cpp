@@ -25,12 +25,11 @@ class FusionTranslator : public OptInConstDispatch {
   FusionTranslator(Fusion* fusion, FusionDefinition* fd)
       : fusion_(fusion), fd_(fd) {}
 
-  using OptInConstDispatch::handle;
-
   bool checkExpressionDependencies(Expr* e) {
-    return std::all_of(e->inputs().begin(), e->inputs().end(), [&](const Val* v) {
-      return map_val_to_fd_index_.count(v) > 0;
-    });
+    return std::all_of(
+        e->inputs().begin(), e->inputs().end(), [&](const Val* v) {
+          return map_val_to_fd_index_.count(v) > 0;
+        });
   }
 
   void translate() {
@@ -131,7 +130,8 @@ class FusionTranslator : public OptInConstDispatch {
   }
 
   void handle(const BroadcastOp* bcast_op) final {
-    Tensor output = fd_->defineTensor(bcast_op->out()->as<TensorView>()->nDims());
+    Tensor output =
+        fd_->defineTensor(bcast_op->out()->as<TensorView>()->nDims());
     fd_->defineRecord(new BroadcastOpRecord(
         {fd_->recordingState(map_val_to_fd_index_.at(bcast_op->in()))},
         {fd_->recordingState(output())},
@@ -164,22 +164,53 @@ class FusionTranslator : public OptInConstDispatch {
         getFunction<ResultType, ArgTypes...>(e->as<ExprType>())));
   }
 
-  void handle(const BinaryOp* bop) final {
-    bool lhs_tv = bop->lhs()->isA<TensorView>();
-    bool rhs_tv = bop->rhs()->isA<TensorView>();
+  void handle(const UnaryOp* uop) final {
+    NVF_ERROR(uop->getUnaryOpType() == UnaryOpType::Cast);
+    handleCastOp(uop);
+  }
 
-    if (lhs_tv || rhs_tv) {
+  void handleCastOp(const UnaryOp* uop) {
+    NVF_ERROR(uop->getUnaryOpType() == UnaryOpType::Cast);
+    size_t input_fd_index = map_val_to_fd_index_.at(uop->in());
+    if (uop->in()->isA<TensorView>()) {
+      Tensor output = fd_->defineTensor(uop->out()->as<TensorView>()->nDims());
+      map_val_to_fd_index_.emplace(uop->out(), output());
+      fd_->defineRecord(new CastOpRecord<TensorView*, TensorView*>(
+          {fd_->recordingState(input_fd_index)},
+          {fd_->recordingState(output())},
+          "ops.cast",
+          serde::RecordType::CastTv,
+          static_cast<TensorView* (*)(DataType, TensorView*)>(castOp),
+          std::get<PrimDataType>(uop->in()->dtype().type)));
+    } else {
+      Scalar output = fd_->defineScalar();
+      map_val_to_fd_index_.emplace(uop->out(), output());
+      fd_->defineRecord(new CastOpRecord<Val*, Val*>(
+          {fd_->recordingState(input_fd_index)},
+          {fd_->recordingState(output())},
+          "ops.cast",
+          serde::RecordType::CastVal,
+          static_cast<Val* (*)(DataType, Val*)>(castOp),
+          std::get<PrimDataType>(uop->in()->dtype().type)));
+    }
+  }
+
+  void handle(const BinaryOp* bop) final {
+    bool is_lhs_tv = bop->lhs()->isA<TensorView>();
+    bool is_rhs_tv = bop->rhs()->isA<TensorView>();
+
+    if (is_lhs_tv || is_rhs_tv) {
       Tensor output = fd_->defineTensor(bop->out()->as<TensorView>()->nDims());
       map_val_to_fd_index_.emplace(bop->out(), output());
 
-      if (lhs_tv && rhs_tv) {
+      if (is_lhs_tv && is_rhs_tv) {
         handleOpRecord<nvfuser::BinaryOp>(
             bop,
             serde::RecordType::Binary_TV,
             bop->out()->as<TensorView>(),
             bop->lhs()->as<TensorView>(),
             bop->rhs()->as<TensorView>());
-      } else if (lhs_tv && !rhs_tv) {
+      } else if (is_lhs_tv && !is_rhs_tv) {
         handleOpRecord<nvfuser::BinaryOp>(
             bop,
             serde::RecordType::Binary_TV_VAL,
@@ -195,6 +226,8 @@ class FusionTranslator : public OptInConstDispatch {
             bop->rhs()->as<TensorView>());
       }
     } else {
+      Scalar output = fd_->defineScalar();
+      map_val_to_fd_index_.emplace(bop->out(), output());
       handleOpRecord<nvfuser::BinaryOp>(
           bop,
           serde::RecordType::Binary_VAL,

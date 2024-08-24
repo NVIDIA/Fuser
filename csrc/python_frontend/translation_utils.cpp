@@ -74,6 +74,12 @@ std::string getString(const BinaryOp* bop) {
     case BinaryOpType::BitwiseXor:
       return "bitwise_xor";
       break;
+    case BinaryOpType::LogicalAnd:
+      return "logical_and";
+      break;
+    case BinaryOpType::LogicalOr:
+      return "logical_or";
+      break;
     case BinaryOpType::Lshift:
       return "bitwise_left_shift";
       break;

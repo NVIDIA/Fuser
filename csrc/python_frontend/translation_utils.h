@@ -78,6 +78,12 @@ std::function<ResultType(ArgTypes...)> getFunction(const BinaryOp* bop) {
     case BinaryOpType::BitwiseXor:
       return get_std_function(bitwise_xor);
       break;
+    case BinaryOpType::LogicalAnd:
+      return get_std_function(logical_and);
+      break;
+    case BinaryOpType::LogicalOr:
+      return get_std_function(logical_or);
+      break;
     case BinaryOpType::Lshift:
       return get_std_function(bitwise_left_shift);
       break;
