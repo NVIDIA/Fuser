@@ -27,6 +27,12 @@ class FusionTranslator : public OptInConstDispatch {
 
   using OptInConstDispatch::handle;
 
+  bool checkExpressionDependencies(Expr* e) {
+    return std::all_of(e->inputs().begin(), e->inputs().end(), [&](const Val* v) {
+      return map_val_to_fd_index_.count(v) > 0;
+    });
+  }
+
   void translate() {
     fd_->setupDefinition();
 
@@ -50,6 +56,13 @@ class FusionTranslator : public OptInConstDispatch {
 
       // short-circuit: skip if already visited
       if (visited.count(e) > 0) {
+        continue;
+      }
+
+      // short-circuit: add to back of stack if not all of the expression's
+      // inputs are available.
+      if (!checkExpressionDependencies(e)) {
+        to_visit.push_back(e);
         continue;
       }
 
@@ -125,7 +138,6 @@ class FusionTranslator : public OptInConstDispatch {
         "ops.broadcast",
         bcast_op->getBroadcastDimFlags()));
     map_val_to_fd_index_.emplace(bcast_op->out(), output());
-    std::cout << "bcast\t" << bcast_op->out()->toString() << std::endl;
   }
 
   template <typename ExprType, typename ResultType, typename... ArgTypes>
