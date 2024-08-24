@@ -2950,7 +2950,8 @@ TensorDomain::TensorDomain(
       loop_domain_(logical_domain_),
       contiguity_(
           contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
-                             : std::move(contiguity)) {
+                             : std::move(contiguity)),
+      stride_order_(stride_order) {
   // setting the proper allocation domain
   if (!stride_order.empty()) {
     auto rank = logical_domain_.size();
