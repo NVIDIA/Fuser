@@ -3074,6 +3074,7 @@ TensorDomain::TensorDomain(IrBuilderPasskey passkey, const TensorDomain* src)
       no_bcast_domain_(src->no_bcast_domain_),
       no_reduction_domain_(src->no_reduction_domain_),
       contiguity_(src->contiguity_),
+      stride_order_(src->stride_order_),
       has_reduction_(src->has_reduction_) {}
 
 TensorDomain::TensorDomain(const TensorDomain* src, IrCloner* ir_cloner)
@@ -3086,6 +3087,7 @@ TensorDomain::TensorDomain(const TensorDomain* src, IrCloner* ir_cloner)
       no_bcast_domain_(ir_cloner->clone(src->no_bcast_domain_)),
       no_reduction_domain_(ir_cloner->clone(src->no_reduction_domain_)),
       contiguity_(src->contiguity()),
+      stride_order_(src->stride_order_),
       has_reduction_(src->has_reduction_) {}
 
 NVFUSER_DEFINE_CLONE(TensorDomain)
