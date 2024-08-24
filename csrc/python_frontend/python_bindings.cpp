@@ -704,6 +704,11 @@ void initNvFuserPythonBindings(PyObject* module) {
             return ss.str();
           })
       .def(
+          "_clone",
+          [](FusionDefinition& self, FusionDefinition& other) {
+            self.clone(other);
+          })
+      .def(
           "_execute",
           [](FusionDefinition& self,
              const py::iterable& iter,

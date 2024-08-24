@@ -13,6 +13,7 @@
 #include <options.h>
 #include <python_frontend/fusion_cache.h>
 #include <python_frontend/fusion_definition.h>
+#include <python_frontend/translation.h>
 #include <scheduler/heuristic_types.h>
 #include <utils.h>
 #include <validator_utils.h>
@@ -203,14 +204,15 @@ void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
 
   user_sched_ = fusionCache()->createUserSchedule(scheds, inputs, device);
 
-  // Building a new Fusion container for scheduling with definition such that
-  // the definition's tensor data members refer to the corresponding IR objects
-  // needed for scheduling. A simple copy of the container would mean the data
-  // members that represent tensors would refer to the IR objects in the
-  // original and not the copy needed for scheduling.
+  // Building a new Fusion container for scheduling with definition such
+  // that the definition's tensor data members refer to the corresponding IR
+  // objects needed for scheduling. A simple copy of the container would
+  // mean the data members that represent tensors would refer to the IR
+  // objects in the original and not the copy needed for scheduling.
   buildFusionIr(user_sched_->schedule.get());
 
-  // Add TensorViews created by composite operations to Python FusionDefinition.
+  // Add TensorViews created by composite operations to Python
+  // FusionDefinition.
   findHiddenTensorViews(user_sched_->schedule.get());
 
   KernelArgumentHolder args =
@@ -357,9 +359,9 @@ std::vector<at::Tensor> FusionDefinition::execute(
     }
   }
 
-  // when `!override_user_schedule == true`, it *could* have produced an output
-  // already at this point and we would not want to overwrite generated output
-  // through user scheduled kernel.
+  // when `!override_user_schedule == true`, it *could* have produced an
+  // output already at this point and we would not want to overwrite
+  // generated output through user scheduled kernel.
   if (outputs.empty()) {
     outputs = scheds->auto_gen_schedules->runFusionWithInputs(
         inputs, std::nullopt, selected_device);
@@ -621,6 +623,14 @@ std::vector<Tensor> FusionDefinition::tensors() {
 std::vector<std::pair<double, double>> FusionDefinition::getValTolerances(
     const at::ArrayRef<c10::IValue>& inputs) {
   return get_val_constants(preschedFusion(), inputs);
+}
+
+void FusionDefinition::clone(FusionDefinition& other) {
+  NVF_ERROR(!completed(), "Expected an incomplete definition before cloning!");
+  NVF_ERROR(
+      other.completed(),
+      "Expected incoming FusionDefinition to be omplete before cloning!");
+  return translate(other.preschedFusion(), this);
 }
 
 } // namespace nvfuser::python_frontend

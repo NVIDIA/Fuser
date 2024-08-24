@@ -12,6 +12,7 @@
 
 #include <python_frontend/fusion_definition.h>
 #include <python_frontend/fusion_record.h>
+#include <python_frontend/translation.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
@@ -171,6 +172,24 @@ TEST_F(NVFuserTest, FusionDefinition_CUDA) {
              << e.what();
     }
   }
+}
+
+TEST_F(NVFuserTest, CreateFusionDefinition) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeContigConcreteTensor({128});
+  TensorView* tv1 = makeContigConcreteTensor({128});
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  TensorView* tv2 = add(tv0, tv1);
+  fusion.addOutput(tv2);
+
+  auto fd = std::make_unique<FusionDefinition>(/*id=*/std::nullopt);
+  python_frontend::translate(&fusion, fd.get());
+  std::stringstream ss;
+  fd->print(ss);
+  std::cout << ss.str() << std::endl;
 }
 
 } // namespace nvfuser
