@@ -70,6 +70,37 @@ def check_captured_python_definition(reference_outputs, fd, inputs, device=None)
         raise err
 
 
+# Run original FusionDefinition
+# Clone FusionDefinition
+# Run cloned python definition
+# Check that the result of cloned python definition matches original results
+def check_cpp_translation(reference_outputs, fd, inputs, device=None):
+    try:
+        torch.manual_seed(0)
+        cloned_fd = fd.clone()
+        cloned_outputs = cloned_fd.execute(inputs, device=device)
+
+        # Make sure the results of original and cloned definitions match.
+        # torch.allclose does not work with fp8 datatype, so cast to fp64.
+        return all(
+            [
+                torch.allclose(
+                    ref_out.to(torch.float64),
+                    cloned_outputs[idx].to(torch.float64),
+                    equal_nan=True,
+                )
+                for idx, ref_out in enumerate(reference_outputs)
+            ]
+        )
+    except Exception as err:
+        print("\nException For CPP Translation:")
+        print(
+            "(A failure here suggests a mismatch in functionality between the original and cloned definitions.)"
+        )
+        print(fd.getReproErrorString("executing", inputs))
+        raise err
+
+
 # This DEBUG_SERDE environment flag is used to debug serialization failures.
 #
 # 1) It disables automatically saving FusionCache upon program exit. Therefore,
