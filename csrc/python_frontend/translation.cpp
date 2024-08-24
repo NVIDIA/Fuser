@@ -211,8 +211,26 @@ class FusionTranslator : public OptInConstDispatch {
   }
 
   void handle(const UnaryOp* uop) final {
-    NVF_ERROR(uop->getUnaryOpType() == UnaryOpType::Cast);
-    handleCastOp(uop);
+    // short-circuit: Handle cast operation separately
+    if (uop->getUnaryOpType() == UnaryOpType::Cast) {
+      return handleCastOp(uop);
+    }
+
+    // Map remaining UnaryOp to python_frontend OpRecord
+    if (uop->in()->isA<TensorView>()) {
+      Tensor output = fd_->defineTensor(uop->out()->as<TensorView>()->nDims());
+      map_val_to_fd_index_.emplace(uop->out(), output());
+      handleOpRecord<nvfuser::UnaryOp>(
+          uop,
+          serde::RecordType::Unary_TV,
+          uop->out()->as<TensorView>(),
+          uop->in()->as<TensorView>());
+    } else {
+      Scalar output = fd_->defineScalar();
+      map_val_to_fd_index_.emplace(uop->out(), output());
+      handleOpRecord<nvfuser::UnaryOp>(
+          uop, serde::RecordType::Unary_VAL, uop->out(), uop->in());
+    }
   }
 
   // Map cast UnaryOp to CastOpRecord
