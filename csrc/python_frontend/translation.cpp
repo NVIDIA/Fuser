@@ -16,13 +16,13 @@ namespace nvfuser::python_frontend {
 namespace {
 class FusionTranslator : public OptInConstDispatch {
  public:
-  static void translate(const Fusion* fusion, FusionDefinition* fd) {
+  static void translate(Fusion* fusion, FusionDefinition* fd) {
     FusionTranslator translator(fusion, fd);
     translator.translate();
   }
 
  private:
-  FusionTranslator(const Fusion* fusion, FusionDefinition* fd)
+  FusionTranslator(Fusion* fusion, FusionDefinition* fd)
       : fusion_(fusion), fd_(fd) {}
 
   using OptInConstDispatch::handle;
@@ -74,6 +74,15 @@ class FusionTranslator : public OptInConstDispatch {
     }
 
     fd_->finalizeDefinition();
+  }
+
+  void handle(const Val* v) final {
+    Scalar output = fd_->defineScalar();
+    fd_->defineRecord(new ScalarRecord(
+        {fd_->recordingState(output())},
+        v->value(),
+        std::get<PrimDataType>(v->dtype().type)));
+    map_val_to_fd_index_.emplace(v, output());
   }
 
   void handle(const TensorView* tv) final {
@@ -163,7 +172,6 @@ class FusionTranslator : public OptInConstDispatch {
             bop->rhs()->as<TensorView>());
       }
     } else {
-      NVF_ERROR(false, "Not Supported");
       handleOpRecord<nvfuser::BinaryOp>(
           bop,
           serde::RecordType::Binary_VAL,
@@ -181,7 +189,7 @@ class FusionTranslator : public OptInConstDispatch {
 
 } // namespace
 
-void translate(const Fusion* fusion, FusionDefinition* fd) {
+void translate(Fusion* fusion, FusionDefinition* fd) {
   FusionTranslator::translate(fusion, fd);
 }
 

@@ -13,6 +13,6 @@
 namespace nvfuser::python_frontend {
 
 // Translate a CPP Fusion into a Python FusionDefinition.
-void translate(const Fusion* fusion, FusionDefinition* fd);
+void translate(Fusion* fusion, FusionDefinition* fd);
 
 } // namespace nvfuser::python_frontend
