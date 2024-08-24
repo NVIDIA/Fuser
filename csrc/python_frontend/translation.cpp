@@ -117,6 +117,17 @@ class FusionTranslator : public OptInConstDispatch {
         {fd_->recordingState(output_index)}, serde::RecordType::OutputTv));
   }
 
+  void handle(const BroadcastOp* bcast_op) final {
+    Tensor output = fd_->defineTensor(bcast_op->out()->as<TensorView>()->nDims());
+    fd_->defineRecord(new BroadcastOpRecord(
+        {fd_->recordingState(map_val_to_fd_index_.at(bcast_op->in()))},
+        {fd_->recordingState(output())},
+        "ops.broadcast",
+        bcast_op->getBroadcastDimFlags()));
+    map_val_to_fd_index_.emplace(bcast_op->out(), output());
+    std::cout << "bcast\t" << bcast_op->out()->toString() << std::endl;
+  }
+
   template <typename ExprType, typename ResultType, typename... ArgTypes>
   void handleOpRecord(
       const Expr* e,
