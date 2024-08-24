@@ -82,6 +82,3 @@ class atexit_serde_create_op_test(create_op_test):
             previous_frame = inspect.currentframe().f_back
             scope = previous_frame.f_globals
         self.scope = scope
-
-    def __call__(self, test_template):
-        return create_op_test.__call__(self, test_template)
