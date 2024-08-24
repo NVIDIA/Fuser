@@ -108,14 +108,13 @@ class FusionTranslator : public OptInConstDispatch {
         {fd_->recordingState(output_index)}, serde::RecordType::OutputTv));
   }
 
-  template <typename ResultType, typename... ArgTypes>
+  template <typename ExprType, typename ResultType, typename... ArgTypes>
   void handleOpRecord(
       const Expr* e,
-      std::string op_name,
-      std::function<ResultType(ArgTypes...)> fn,
       serde::RecordType record_type,
       ResultType result,
       ArgTypes... args) {
+    NVF_ERROR(e->isA<ExprType>());
     std::vector<State> argument_states;
     std::transform(
         e->inputs().begin(),
@@ -128,9 +127,9 @@ class FusionTranslator : public OptInConstDispatch {
     fd_->defineRecord(new OpRecord<ResultType, ArgTypes...>(
         argument_states,
         {fd_->recordingState(map_val_to_fd_index_.at(result))},
-        "ops." + op_name,
+        "ops." + getString(e->as<ExprType>()),
         record_type,
-        fn));
+        getFunction<ResultType, ArgTypes...>(e->as<ExprType>())));
   }
 
   void handle(const BinaryOp* bop) final {
@@ -142,28 +141,22 @@ class FusionTranslator : public OptInConstDispatch {
       map_val_to_fd_index_.emplace(bop->out(), output());
 
       if (lhs_tv && rhs_tv) {
-        handleOpRecord(
+        handleOpRecord<nvfuser::BinaryOp>(
             bop,
-            getString(bop),
-            getFunction<TensorView*, TensorView*, TensorView*>(bop),
             serde::RecordType::Binary_TV,
             bop->out()->as<TensorView>(),
             bop->lhs()->as<TensorView>(),
             bop->rhs()->as<TensorView>());
       } else if (lhs_tv && !rhs_tv) {
-        handleOpRecord(
+        handleOpRecord<nvfuser::BinaryOp>(
             bop,
-            getString(bop),
-            getFunction<TensorView*, TensorView*, Val*>(bop),
             serde::RecordType::Binary_TV_VAL,
             bop->out()->as<TensorView>(),
             bop->lhs()->as<TensorView>(),
             bop->rhs());
       } else {
-        handleOpRecord(
+        handleOpRecord<nvfuser::BinaryOp>(
             bop,
-            getString(bop),
-            getFunction<TensorView*, Val*, TensorView*>(bop),
             serde::RecordType::Binary_VAL_TV,
             bop->out()->as<TensorView>(),
             bop->lhs(),
@@ -171,10 +164,8 @@ class FusionTranslator : public OptInConstDispatch {
       }
     } else {
       NVF_ERROR(false, "Not Supported");
-      handleOpRecord(
+      handleOpRecord<nvfuser::BinaryOp>(
           bop,
-          getString(bop),
-          getFunction<Val*, Val*, Val*>(bop),
           serde::RecordType::Binary_VAL,
           bop->out(),
           bop->lhs(),
