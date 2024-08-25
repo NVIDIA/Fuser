@@ -437,12 +437,27 @@ class FusionTranslator : public OptInConstDispatch {
         getFunction<ResultType, ArgTypes...>(e->as<ExprType>())));
   }
 
-  // Map UnaryOp to python_frontend OpRecord
   void handle(const UnaryOp* uop) final {
-    // TODO Add support for other unary ops
-    // Handle only Cast operation
-    NVF_ERROR(uop->getUnaryOpType() == UnaryOpType::Cast);
-    handleCastOp(uop);
+    // short-circuit: Handle cast operation separately
+    if (uop->getUnaryOpType() == UnaryOpType::Cast) {
+      return handleCastOp(uop);
+    }
+
+    // Map remaining UnaryOp to python_frontend OpRecord
+    if (uop->in()->isA<TensorView>()) {
+      Tensor output = fd_->defineTensor(uop->out()->as<TensorView>()->nDims());
+      map_val_to_fd_index_.emplace(uop->out(), output());
+      handleOpRecord<nvfuser::UnaryOp>(
+          uop,
+          serde::RecordType::Unary_TV,
+          uop->out()->as<TensorView>(),
+          uop->in()->as<TensorView>());
+    } else {
+      Scalar output = fd_->defineScalar();
+      map_val_to_fd_index_.emplace(uop->out(), output());
+      handleOpRecord<nvfuser::UnaryOp>(
+          uop, serde::RecordType::Unary_VAL, uop->out(), uop->in());
+    }
   }
 
   // Map cast UnaryOp to CastOpRecord
@@ -524,6 +539,86 @@ class FusionTranslator : public OptInConstDispatch {
           bop->out(),
           bop->lhs(),
           bop->rhs());
+    }
+  }
+
+  // Map TernaryOp to python frontend
+  void handle(const TernaryOp* top) final {
+    bool is_in1_tv = top->in1()->isA<TensorView>();
+    bool is_in2_tv = top->in2()->isA<TensorView>();
+    bool is_in3_tv = top->in3()->isA<TensorView>();
+
+    if (is_in1_tv || is_in2_tv || is_in3_tv) {
+      Tensor output = fd_->defineTensor(top->out()->as<TensorView>()->nDims());
+      map_val_to_fd_index_.emplace(top->out(), output());
+
+      if (is_in1_tv && is_in2_tv && is_in3_tv) {
+        handleOpRecord<nvfuser::TernaryOp>(
+            top,
+            serde::RecordType::Ternary_TV,
+            top->out()->as<TensorView>(),
+            top->in1()->as<TensorView>(),
+            top->in2()->as<TensorView>(),
+            top->in3()->as<TensorView>());
+      } else if (is_in1_tv && is_in2_tv && !is_in3_tv) {
+        handleOpRecord<nvfuser::TernaryOp>(
+            top,
+            serde::RecordType::Ternary_TV_TV_VAL,
+            top->out()->as<TensorView>(),
+            top->in1()->as<TensorView>(),
+            top->in2()->as<TensorView>(),
+            top->in3());
+      } else if (is_in1_tv && !is_in2_tv && is_in3_tv) {
+        handleOpRecord<nvfuser::TernaryOp>(
+            top,
+            serde::RecordType::Ternary_TV_VAL_TV,
+            top->out()->as<TensorView>(),
+            top->in1()->as<TensorView>(),
+            top->in2(),
+            top->in3()->as<TensorView>());
+      } else if (is_in1_tv && !is_in2_tv && !is_in3_tv) {
+        handleOpRecord<nvfuser::TernaryOp>(
+            top,
+            serde::RecordType::Ternary_TV_VAL_VAL,
+            top->out()->as<TensorView>(),
+            top->in1()->as<TensorView>(),
+            top->in2(),
+            top->in3());
+      } else if (!is_in1_tv && is_in2_tv && is_in3_tv) {
+        handleOpRecord<nvfuser::TernaryOp>(
+            top,
+            serde::RecordType::Ternary_VAL_TV_TV,
+            top->out()->as<TensorView>(),
+            top->in1(),
+            top->in2()->as<TensorView>(),
+            top->in3()->as<TensorView>());
+      } else if (!is_in1_tv && is_in2_tv && !is_in3_tv) {
+        handleOpRecord<nvfuser::TernaryOp>(
+            top,
+            serde::RecordType::Ternary_VAL_TV_VAL,
+            top->out()->as<TensorView>(),
+            top->in1(),
+            top->in2()->as<TensorView>(),
+            top->in3());
+      } else if (!is_in1_tv && !is_in2_tv && is_in3_tv) {
+        handleOpRecord<nvfuser::TernaryOp>(
+            top,
+            serde::RecordType::Ternary_VAL_VAL_TV,
+            top->out()->as<TensorView>(),
+            top->in1(),
+            top->in2(),
+            top->in3()->as<TensorView>());
+      }
+    } else {
+      Scalar output = fd_->defineScalar();
+      map_val_to_fd_index_.emplace(top->out(), output());
+      handleOpRecord<nvfuser::TernaryOp>(
+          top,
+          serde::RecordType::Ternary_VAL,
+          top->out(),
+          top->in1(),
+          top->in2(),
+          top->in3());
     }
   }
 
