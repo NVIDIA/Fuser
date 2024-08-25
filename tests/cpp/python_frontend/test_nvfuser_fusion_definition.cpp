@@ -12,7 +12,6 @@
 
 #include <python_frontend/fusion_definition.h>
 #include <python_frontend/fusion_record.h>
-#include <python_frontend/translation.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
