@@ -164,7 +164,6 @@ class NVF_API FusionDefinition : public FusionState {
   FusionDefinition(FusionDefinition&& fd) = delete;
   FusionDefinition& operator=(const FusionDefinition& fd) = delete;
   FusionDefinition& operator=(FusionDefinition&& fd) = delete;
-  ~FusionDefinition() override = default;
 
   //! Copy definition from other FusionDefintion's presched CPP fusion.
   //! Primarily for testing purposes to check that the translation from CPP
