@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 #include <ir/all_nodes.h>
+#include <ops/all_ops.h>
 
 namespace nvfuser::python_frontend {
 
