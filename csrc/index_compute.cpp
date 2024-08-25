@@ -1615,10 +1615,21 @@ std::vector<Val*> Index::getConsumerPerDimLogicalIndex(
     TensorView* consumer_tv,
     const std::vector<ForLoop*>& loops,
     const std::unordered_set<ForLoop*>& rotated_loops) {
-  auto guard = ir_utils::allocateToLogicalDomainGuard(consumer_tv, false);
-  IndexFromIdGraph index_from_id_graph =
-      getTensorIndexFromIdGraph(loops, rotated_loops, consumer_tv);
-  return getConsumerAllocationIndices(consumer_tv, loops, index_from_id_graph);
+  if (!lower_utils::hasRootToLoopLinearTransformations(consumer_tv) ||
+      (isIdModelOptionEnabled(IdModelEnableOption::ConsumerIndex) &&
+       GpuLower::current()->isTensorIndexerEnabled())) {
+    const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
+    ValGroups logical_indices =
+        indexer.traversalGraph().toGroups(consumer_tv->getLogicalDomain());
+    return indexer.getIndexFor(
+        consumer_tv->definition(), true, logical_indices, loops);
+  } else {
+    auto guard = ir_utils::allocateToLogicalDomainGuard(consumer_tv, false);
+    IndexFromIdGraph index_from_id_graph =
+        getTensorIndexFromIdGraph(loops, rotated_loops, consumer_tv);
+    return getConsumerAllocationIndices(
+        consumer_tv, loops, index_from_id_graph);
+  }
 }
 
 std::vector<Val*> Index::getProducerPerDimLogicalIndex(
@@ -1627,9 +1638,19 @@ std::vector<Val*> Index::getProducerPerDimLogicalIndex(
     const std::vector<ForLoop*>& loops,
     const std::unordered_set<ForLoop*>& rotated_loops,
     const std::unordered_map<IterDomain*, Val*>& override_index) {
-  auto guard = ir_utils::allocateToLogicalDomainGuard(producer_tv, false);
-  return getProducerAllocationIndices(
-      producer_tv, consumer_tv, loops, rotated_loops, override_index);
+  if (!lower_utils::hasRootToLoopLinearTransformations(producer_tv) ||
+      (isIdModelOptionEnabled(IdModelEnableOption::ProducerIndex) &&
+       GpuLower::current()->isTensorIndexerEnabled())) {
+    const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
+    ValGroups logical_indices =
+        indexer.traversalGraph().toGroups(producer_tv->getLogicalDomain());
+    return indexer.getIndexFor(
+        consumer_tv->definition(), false, logical_indices, loops);
+  } else {
+    auto guard = ir_utils::allocateToLogicalDomainGuard(producer_tv, false);
+    return getProducerAllocationIndices(
+        producer_tv, consumer_tv, loops, rotated_loops, override_index);
+  }
 }
 
 std::vector<Val*> Index::getStrides(TensorView* tv) {
