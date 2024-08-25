@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 #include <ir/all_nodes.h>
+#include <ops/all_ops.h>
 
 namespace nvfuser::python_frontend {
 
@@ -217,10 +218,39 @@ std::function<ResultType(ArgTypes...)> getFunction(const BinaryOp* bop) {
   }
 }
 
+// Get std::function for TernaryOp
+template <typename ResultType, typename... ArgTypes>
+std::function<ResultType(ArgTypes...)> getFunction(const TernaryOp* top) {
+  auto get_std_function = [](ResultType (*fn)(ArgTypes...)) {
+    return static_cast<ResultType (*)(ArgTypes...)>(fn);
+  };
+
+  // clamp and threshold define a subset of TernaryOp configurations, so they
+  // are handled in a separate template specialization.
+  switch (top->getTernaryOpType()) {
+    case TernaryOpType::Lerp:
+      return get_std_function(lerp);
+      break;
+    case TernaryOpType::Where:
+      return get_std_function(where);
+      break;
+    default:
+      NVF_CHECK(
+          false,
+          "Unexpected operator type: ",
+          top->getTernaryOpType(),
+          " in ",
+          top->toString());
+  }
+}
+
 // Get string name for UnaryOp
 std::string getString(const UnaryOp* uop);
 
 // Get string name for BinaryOp
 std::string getString(const BinaryOp* bop);
+
+// Get string name for TernaryOp
+std::string getString(const TernaryOp* bop);
 
 } // namespace nvfuser::python_frontend
