@@ -899,6 +899,8 @@ std::vector<Val*> TensorIndexer::getIndexFor(
     bool as_consumer,
     const ValGroups& index_groups,
     const std::vector<ForLoop*>& for_loops) const {
+  std::cerr << "getIndexFor: " << expr->toString()
+            << "as consumer: " << as_consumer << std::endl;
   auto info = computeIndex(expr, index_groups, for_loops);
   const auto& replacement_map = getIndexReplacementMap(
       expr, as_consumer, info.loop_domains, for_loops, info.index_map);
@@ -936,6 +938,10 @@ Val* TensorIndexer::getLinearIndex(
       expr->outputs().end();
 
   const auto alloc_info = getIndexingAllocationInfo(tv);
+
+  std::cerr << "getLinearIndex: " << tv->toString()
+            << ", alloc: " << toDelimitedString(alloc_info.domains)
+            << std::endl;
 
   const auto [contig_indices, contig_strides] =
       getContigIndexFor(expr, as_consumer, alloc_info, for_loops);
@@ -1105,6 +1111,7 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
     const Expr* expr,
     const std::vector<ForLoop*>& for_loops,
     ForLoop* unswitched_loop) const {
+  std::cerr << "getPredicates: " << tv->toString() << std::endl;
   const auto& zero_val = tv->fusion()->zeroVal();
 
   const std::vector<IterDomain*>& predicate_domains =

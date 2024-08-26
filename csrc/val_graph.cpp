@@ -456,6 +456,8 @@ void ValGraph::mapVals(Val* val0, Val* val1) {
         }
         auto def0 = def_group_0->front();
         auto def1 = def_group_1->front();
+        std::cerr << "mapThrough: " << def0->name() << ", " << def1->name()
+                  << std::endl;
         maybeMapThroughExprs(def0, def1, false);
       }
     }
@@ -478,6 +480,23 @@ void ValGraph::maybeMapThroughExprs(Expr* expr0, Expr* expr1, bool forward) {
   // respectively, and vice versa.
 
   if (!exprsMap(expr0, expr1, forward)) {
+    std::cerr << "exprs not mapped: " << expr0->name() << ", " << expr1->name()
+              << std::endl;
+    if (expr0->name() == 10 && expr1->name() == 1) {
+      std::cerr << expr0->toString();
+      std::cerr << expr1->toString();
+      std::cerr << "same? " << expr0->sameOp(expr1) << std::endl;
+      for (const auto i : c10::irange(expr0->attributes().size())) {
+        if (!expr0->attribute(i)->sameAs(expr1->attribute(i))) {
+          std::cerr << "Different attribute at " << i << ": "
+                    << expr0->attribute(i)->toInlineString() << " ("
+                    << expr0->attribute(i)->as<Val>()->dtype() << "), "
+                    << expr1->attribute(i)->toInlineString() << " ("
+                    << expr1->attribute(i)->as<Val>()->dtype() << ")"
+                    << std::endl;
+        }
+      }
+    }
     return;
   }
 

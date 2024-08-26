@@ -20,6 +20,7 @@
 #include <transform_iter.h>
 #include <val_graph_visitor.h>
 
+#include <fstream>
 #include <memory>
 #include <tuple>
 #include <utility>
@@ -334,6 +335,10 @@ void IdModel::buildExactGraph() {
   }
 
   idGraph(IdMappingMode::EXACT).validateConsistency();
+
+  std::cerr << "Exact graph\n"
+            << nvfuser::idGroupsString(idGraph(IdMappingMode::EXACT))
+            << std::endl;
 }
 
 namespace {
