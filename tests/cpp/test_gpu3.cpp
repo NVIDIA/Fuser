@@ -14,6 +14,7 @@
 #include <debug.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/pass/magic_zero.h>
+#include <device_lower/pass/replace_size.h>
 #include <disjoint_set.h>
 #include <executor.h>
 #include <executor_params.h>
@@ -8768,6 +8769,56 @@ TEST_F(NVFuserTest, Issue2685Repro) {
   auto outputs = fe.runFusion(inputs, params->lparams);
 
   testValidate(&fusion_copy, outputs, inputs, __LINE__, __FILE__);
+}
+
+// Check that extents are properly replaced by replaceSymbolicSizes lowering
+// pass
+TEST_F(NVFuserTest, ReplaceSymbolicSizes) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  auto tv1 = makeSymbolicTensor(2);
+  auto tv2 = makeSymbolicTensor(1);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+
+  auto tv3 = add(tv0, tv1);
+  auto tv4 = full(
+      {IrBuilder::create<Val>(5, DataType::Index)},
+      IrBuilder::create<Val>(2.0, DataType::Float),
+      DataType::Float);
+  auto tv5 = mul(tv2, tv4);
+
+  fusion->addOutput(tv3);
+  fusion->addOutput(tv5);
+
+  replaceSymbolicSizes(fusion);
+
+  // tv0's extents map to their corresponding getMetaData expressions
+  EXPECT_EQ(
+      tv0->axis(0)->extent()->toInlineString(),
+      "( (( (( getMetaData(T0) )).logical_size ))[0] )");
+  EXPECT_EQ(
+      tv0->axis(1)->extent()->toInlineString(),
+      "( (( (( getMetaData(T0) )).logical_size ))[1] )");
+  EXPECT_EQ(
+      tv1->axis(0)->extent()->toInlineString(),
+      "( (( (( getMetaData(T0) )).logical_size ))[0] )");
+  EXPECT_EQ(
+      tv1->axis(1)->extent()->toInlineString(),
+      "( (( (( getMetaData(T0) )).logical_size ))[1] )");
+  EXPECT_EQ(
+      tv3->axis(0)->extent()->toInlineString(),
+      "( (( (( getMetaData(T0) )).logical_size ))[0] )");
+  EXPECT_EQ(
+      tv3->axis(1)->extent()->toInlineString(),
+      "( (( (( getMetaData(T0) )).logical_size ))[1] )");
+
+  EXPECT_EQ(tv2->axis(0)->extent()->toInlineString(), "5");
+  EXPECT_EQ(tv5->axis(0)->extent()->toInlineString(), "5");
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.
