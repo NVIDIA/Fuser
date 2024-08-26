@@ -384,6 +384,37 @@ class FusionTranslator : public OptInConstDispatch {
     }
   }
 
+  // Map ReductionOp to python frontend
+  void handle(const ReductionOp* rop) final {
+    TensorView* out_tv = rop->out()->as<TensorView>();
+
+    std::vector<int64_t> axes;
+    const std::vector<IterDomain*>& logical_domain =
+        out_tv->domain()->logical();
+    for (int64_t dim : c10::irange((int64_t)logical_domain.size())) {
+      if (logical_domain.at(dim)->isReduction()) {
+        axes.push_back(dim);
+      }
+    }
+
+    Tensor output = fd_->defineTensor(out_tv->nDims());
+    map_val_to_fd_index_.emplace(rop->out(), output());
+    fd_->defineRecord(new ReductionOpRecord(
+        {fd_->recordingState(map_val_to_fd_index_.at(rop->in()))},
+        {fd_->recordingState(output())},
+        "ops." + getString(rop),
+        getSerdeType(rop),
+        getFunction<
+            TensorView*,
+            TensorView*,
+            const std::vector<int64_t>&,
+            bool,
+            DataType>(rop),
+        axes,
+        /*keep_dim=*/false,
+        std::get<PrimDataType>(rop->out()->dtype().type)));
+  }
+
  private:
   //! The reference CPP fusion to be translated.
   Fusion* fusion_ = nullptr;

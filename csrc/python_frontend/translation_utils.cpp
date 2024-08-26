@@ -231,6 +231,30 @@ std::string getString(const TernaryOp* top) {
   }
 }
 
+std::string getString(const ReductionOp* rop) {
+  switch (rop->getReductionOpType()) {
+    case BinaryOpType::Add:
+      return "sum";
+      break;
+    case BinaryOpType::Mul:
+      return "mul";
+      break;
+    case BinaryOpType::Max:
+      return "max";
+      break;
+    case BinaryOpType::Min:
+      return "min";
+      break;
+    default:
+      NVF_CHECK(
+          false,
+          "Unexpected reduction operator type: ",
+          rop->getReductionOpType(),
+          " in ",
+          rop->toString());
+  }
+}
+
 #define GET_FUNCTION_TERNARY_SPECIALIZATION(                                  \
     ResultType, InType1, InType2, InType3)                                    \
   template <>                                                                 \
@@ -266,5 +290,29 @@ std::string getString(const TernaryOp* top) {
 // Template specializations for std::function for TernaryOp
 GET_FUNCTION_TERNARY_SPECIALIZATION(TensorView*, TensorView*, Val*, Val*)
 GET_FUNCTION_TERNARY_SPECIALIZATION(Val*, Val*, Val*, Val*)
+
+serde::RecordType getSerdeType(const ReductionOp* rop) {
+  switch (rop->getReductionOpType()) {
+    case BinaryOpType::Add:
+      return serde::RecordType::ReductionSum;
+      break;
+    case BinaryOpType::Mul:
+      return serde::RecordType::ReductionProd;
+      break;
+    case BinaryOpType::Max:
+      return serde::RecordType::ReductionMax;
+      break;
+    case BinaryOpType::Min:
+      return serde::RecordType::ReductionMin;
+      break;
+    default:
+      NVF_CHECK(
+          false,
+          "Unexpected reduction operator type: ",
+          rop->getReductionOpType(),
+          " in ",
+          rop->toString());
+  }
+}
 
 } // namespace nvfuser::python_frontend
