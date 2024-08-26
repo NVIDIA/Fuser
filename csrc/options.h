@@ -82,6 +82,7 @@ enum class DebugDumpOption {
   Occupancy, // Dump occupancy
   IndexType, //! Print the index type of the launched kernel
   PredicateElimination, //! Print the predicate elimination information
+  IndexingVerbose, //! Print verbose debug info on indexing
   EndOfOption //! Placeholder for counting the number of elements
 };
 

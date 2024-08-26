@@ -753,6 +753,14 @@ ParallelType getParallelType(const ValGroup& loop_group) {
 
 TensorIndexer::TensorIndexer(IdModel& id_model) : id_model_(id_model) {
   buildLoopIndexMap();
+
+  if (isDebugDumpEnabled(DebugDumpOption::IndexingVerbose)) {
+    std::ofstream ofs("indexing_traversal_graph.dot", std::ofstream::trunc);
+    auto dot_string =
+        id_model_.idGraph(IdMappingMode::ALMOSTEXACT).toGraphvizDotGraph();
+    ofs << dot_string;
+    ofs.close();
+  }
 }
 
 void TensorIndexer::buildLoopIndexMap() {
