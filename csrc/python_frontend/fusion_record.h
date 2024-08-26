@@ -678,28 +678,31 @@ struct SqueezeOpRecord : RecordFunctor {
   SqueezeOpRecord(
       std::vector<State> _args,
       std::vector<State> _outputs,
-      std::vector<int64_t> dims)
+      std::vector<int64_t> dims,
+      bool squeeze_expanded = false)
       : RecordFunctor(
             std::move(_args),
             std::move(_outputs),
             "ops.squeeze",
             serde::RecordType::SqueezeOp),
-        dims_(std::move(dims)) {}
+        dims_(std::move(dims)),
+        squeeze_expanded_(squeeze_expanded) {}
   ~SqueezeOpRecord() override = default;
   RecordFunctor* clone() final {
     return new SqueezeOpRecord(*this);
   }
 
   //! Child specific hash function in lower 32 bits.
-  //! | 31 -------------------------------------  0 |
-  //! | Squeeze Dim hash                            |
+  //! | 31 | 30 --------------------------------  0 |
+  //! | squeeze_expanded? | Squeeze Dim hash        |
   size_t hash() const final {
     auto result = RecordFunctor::hash();
     size_t squeeze_dims_hash = 0;
     for (auto dim : dims_) {
       squeeze_dims_hash ^= static_cast<size_t>(dim);
     }
-    result = result | (squeeze_dims_hash & 0xffffffff);
+    result = result | (squeeze_dims_hash & 0x7fffffff);
+    result |= ((static_cast<size_t>(squeeze_expanded_) & 0x1) << 31);
     return result;
   }
 
@@ -713,7 +716,7 @@ struct SqueezeOpRecord : RecordFunctor {
 
   void operator()(FusionState& fd) final {
     auto arg = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
-    auto output = squeeze(arg, dims_);
+    auto output = squeeze(arg, dims_, squeeze_expanded_);
     fd.setFusionState(outputs_.at(0).index, output);
   }
 
@@ -729,7 +732,7 @@ struct SqueezeOpRecord : RecordFunctor {
       }
       os << dim;
     }
-    os << "]";
+    os << "], squeeze_expanded=" << (squeeze_expanded_ ? "True" : "False");
     if (close_function) {
       os << ")";
     }
@@ -739,12 +742,14 @@ struct SqueezeOpRecord : RecordFunctor {
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
         serde::RecordData::Squeeze,
-        serde::CreateSqueezeDirect(builder, &dims_).Union()};
+        serde::CreateSqueezeDirect(builder, &dims_, squeeze_expanded_).Union()};
   }
 
  private:
   //! Dimension to squeeze.
   std::vector<int64_t> dims_;
+  //! Option to remove expanded dimensions
+  bool squeeze_expanded_;
 };
 
 //! Specialized Record Functor for the FusionState's broadcast_in_dim op.

@@ -277,4 +277,52 @@ GET_FUNCTION_TERNARY_SPECIALIZATION_DEFINITION(
     Val*)
 GET_FUNCTION_TERNARY_SPECIALIZATION_DEFINITION(Val*, Val*, Val*, Val*)
 
+std::string getString(const ReductionOp* rop) {
+  switch (rop->getReductionOpType()) {
+    case BinaryOpType::Add:
+      return "sum";
+      break;
+    case BinaryOpType::Mul:
+      return "mul";
+      break;
+    case BinaryOpType::Max:
+      return "max";
+      break;
+    case BinaryOpType::Min:
+      return "min";
+      break;
+    default:
+      NVF_CHECK(
+          false,
+          "Unexpected reduction operator type: ",
+          rop->getReductionOpType(),
+          " in ",
+          rop->toString());
+  }
+}
+
+serde::RecordType getSerdeType(const ReductionOp* rop) {
+  switch (rop->getReductionOpType()) {
+    case BinaryOpType::Add:
+      return serde::RecordType::ReductionSum;
+      break;
+    case BinaryOpType::Mul:
+      return serde::RecordType::ReductionProd;
+      break;
+    case BinaryOpType::Max:
+      return serde::RecordType::ReductionMax;
+      break;
+    case BinaryOpType::Min:
+      return serde::RecordType::ReductionMin;
+      break;
+    default:
+      NVF_CHECK(
+          false,
+          "Unexpected reduction operator type: ",
+          rop->getReductionOpType(),
+          " in ",
+          rop->toString());
+  }
+}
+
 } // namespace nvfuser::python_frontend

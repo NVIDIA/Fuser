@@ -356,6 +356,31 @@ class FusionTranslator : public OptInConstDispatch {
     createScalar(v);
   }
 
+  // Create python_frontend Vector from a vector of CPP scalar values.
+  Vector createVector(std::vector<Val*> scalars) {
+    // Add CPP values to Fusion Definition if necessary
+    std::for_each(scalars.begin(), scalars.end(), [this](const Val* v) {
+      OptOutConstDispatch::dispatch(v);
+    });
+
+    // Get corresponding index for CPP values
+    std::vector<State> inputs;
+    std::transform(
+        scalars.begin(),
+        scalars.end(),
+        std::back_inserter(inputs),
+        [&](Val* v) {
+          return fd_->recordingState(map_val_to_fd_index_.at(v));
+        });
+
+    // NOTE There is not an equivalent CPP class for python-frontend vector,
+    // so we do not add it to map_val_to_fd_index_.
+    Vector output = fd_->defineVector(inputs.size());
+    fd_->defineRecord(new VectorRecord(
+        inputs, {fd_->recordingState(output())}, DataType::Int));
+    return output;
+  }
+
   // Add Tensor value to Fusion Definition
   void handle(const TensorView* tv) final {
     // short-circuit: value already exists in FusionDefinition
@@ -384,6 +409,24 @@ class FusionTranslator : public OptInConstDispatch {
         std::get<PrimDataType>(tv->dtype().type),
         tv->isCpuScalar(),
         tv->domain()->strideOrder()));
+  }
+
+  // =================================================================================
+  // Utility functions
+
+  // Create a vector for the logical domain of TensorView.
+  // Used with ViewOp and ExpandOp handlers
+  Vector getShape(TensorView* tv) {
+    const std::vector<IterDomain*>& logical_out_domain =
+        tv->domain()->logical();
+    std::vector<Val*> logical_domain_extents;
+    // Use expanded extent if available for IterDomain.
+    std::transform(
+        logical_out_domain.begin(),
+        logical_out_domain.end(),
+        std::back_inserter(logical_domain_extents),
+        [](IterDomain* id) { return id->getMaybeExpandedExtent(); });
+    return createVector(logical_domain_extents);
   }
 
   // =================================================================================
@@ -623,6 +666,37 @@ class FusionTranslator : public OptInConstDispatch {
     }
   }
 
+  // Map ReductionOp to python frontend
+  void handle(const ReductionOp* rop) final {
+    TensorView* out_tv = rop->out()->as<TensorView>();
+
+    std::vector<int64_t> axes;
+    const std::vector<IterDomain*>& logical_domain =
+        out_tv->domain()->logical();
+    for (int64_t dim : c10::irange((int64_t)logical_domain.size())) {
+      if (logical_domain.at(dim)->isReduction()) {
+        axes.push_back(dim);
+      }
+    }
+
+    Tensor output = fd_->defineTensor(out_tv->nDims());
+    map_val_to_fd_index_.emplace(rop->out(), output());
+    fd_->defineRecord(new ReductionOpRecord(
+        {fd_->recordingState(map_val_to_fd_index_.at(rop->in()))},
+        {fd_->recordingState(output())},
+        "ops." + getString(rop),
+        getSerdeType(rop),
+        getFunction<
+            TensorView*,
+            TensorView*,
+            const std::vector<int64_t>&,
+            bool,
+            DataType>(rop),
+        axes,
+        /*keep_dim=*/false,
+        std::get<PrimDataType>(rop->out()->dtype().type)));
+  }
+
   // Add Broadcast operation to FusionDefinition
   void handle(const BroadcastOp* bcast_op) final {
     Tensor output =
@@ -633,6 +707,55 @@ class FusionTranslator : public OptInConstDispatch {
         "ops.broadcast",
         bcast_op->getBroadcastDimFlags()));
     map_val_to_fd_index_.emplace(bcast_op->out(), output());
+  }
+
+  // Map SqueezeOp to python frontend
+  void handle(const SqueezeOp* sop) final {
+    std::vector<int64_t> squeeze_dims;
+    const std::vector<bool>& is_squeeze_dims = sop->getSqueezeDimFlags();
+    for (int64_t dim : c10::irange((int64_t)is_squeeze_dims.size())) {
+      if (is_squeeze_dims.at(dim)) {
+        squeeze_dims.push_back(dim);
+      }
+    }
+
+    // Always squeeze_expanded dimensions
+    Tensor output = fd_->defineTensor(sop->out()->as<TensorView>()->nDims());
+    map_val_to_fd_index_.emplace(sop->out(), output());
+    fd_->defineRecord(new SqueezeOpRecord(
+        {fd_->recordingState(map_val_to_fd_index_.at(sop->in()))},
+        {fd_->recordingState(output())},
+        squeeze_dims,
+        /*squeeze_expanded=*/true));
+  }
+
+  // Map ViewOp to python frontend
+  void handle(const ViewOp* vop) final {
+    // Get extent's for output's logical domain
+    TensorView* out_tv = vop->out()->as<TensorView>();
+    Vector new_shape = getShape(out_tv);
+
+    Tensor output = fd_->defineTensor(out_tv->nDims());
+    map_val_to_fd_index_.emplace(out_tv, output());
+    fd_->defineRecord(new ReshapeOpRecord(
+        {fd_->recordingState(map_val_to_fd_index_.at(vop->in())),
+         fd_->recordingState(new_shape())},
+        {fd_->recordingState(output())}));
+  }
+
+  // Map ExpandOp to python frontend
+  void handle(const ExpandOp* eop) final {
+    TensorView* in_tv = eop->in()->as<TensorView>();
+    TensorView* out_tv = eop->out()->as<TensorView>();
+    NVF_ERROR(in_tv->nDims() == out_tv->nDims());
+    Vector new_shape = getShape(out_tv);
+
+    Tensor output = fd_->defineTensor(out_tv->nDims());
+    map_val_to_fd_index_.emplace(out_tv, output());
+    fd_->defineRecord(new ExpandOpRecord(
+        {fd_->recordingState(map_val_to_fd_index_.at(eop->in())),
+         fd_->recordingState(new_shape())},
+        {fd_->recordingState(output())}));
   }
 
  private:
