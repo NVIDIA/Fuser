@@ -40,12 +40,34 @@ class FusionTranslator : public OptInConstDispatch {
   FusionTranslator(Fusion* fusion, FusionDefinition* fd)
       : fusion_(fusion), fd_(fd) {}
 
+  // The new shape for view operation can be dynamic. Check that all dynamic
+  // scalar dependencies are handled before the ViewOp.
+  bool checkViewShapeDependency(const ViewOp* vop) {
+    const std::vector<IterDomain*>& logical_out_domain =
+        vop->out()->as<TensorView>()->domain()->logical();
+    std::vector<Val*> logical_domain_extents;
+    std::transform(
+        logical_out_domain.begin(),
+        logical_out_domain.end(),
+        std::back_inserter(logical_domain_extents),
+        [](IterDomain* id) { return id->extent(); });
+    return std::all_of(
+        logical_domain_extents.begin(),
+        logical_domain_extents.end(),
+        [&](Val* v) {
+          return v->definition() == nullptr ||
+              map_val_to_fd_index_.count(v) > 0;
+        });
+  }
+
   // Check that all of the expression's inputs are defined in FusionDefinition.
   bool checkExpressionDependencies(Expr* e) {
-    return std::all_of(
-        e->inputs().begin(), e->inputs().end(), [&](const Val* v) {
-          return map_val_to_fd_index_.count(v) > 0;
-        });
+    bool check_view_dependency =
+        !e->isA<ViewOp>() || checkViewShapeDependency(e->as<ViewOp>());
+    return check_view_dependency &&
+        std::all_of(e->inputs().begin(), e->inputs().end(), [&](const Val* v) {
+             return map_val_to_fd_index_.count(v) > 0;
+           });
   }
 
   void translate() {
@@ -57,15 +79,7 @@ class FusionTranslator : public OptInConstDispatch {
     }
 
     // Gather all expressions in CPP Fusion.
-    std::vector<nvfuser::Val*> used_vals = fusion_->usedMathVals();
-    std::unordered_set<nvfuser::Expr*> expr_set;
-    for (nvfuser::Val* v : used_vals) {
-      std::copy(
-          v->uses().begin(),
-          v->uses().end(),
-          std::inserter(expr_set, expr_set.begin()));
-    }
-    std::deque<nvfuser::Expr*> to_visit(expr_set.begin(), expr_set.end());
+    std::deque<nvfuser::Expr*> to_visit = fusion_->deterministic_exprs();
 
     // Topological search of Fusion expressions
     size_t skip_count = 0;
@@ -119,6 +133,9 @@ class FusionTranslator : public OptInConstDispatch {
     fd_->finalizeDefinition();
   }
 
+  // =================================================================================
+  // Handle define_scalar, define_vector, define_tensor variants
+
   // Add scalar value to Fusion Definition
   void handle(const Val* v) final {
     // short-circuit: value already exists in FusionDefinition
@@ -132,6 +149,31 @@ class FusionTranslator : public OptInConstDispatch {
         v->value(),
         std::get<PrimDataType>(v->dtype().type)));
     map_val_to_fd_index_.emplace(v, output());
+  }
+
+  // Create python_frontend Vector from a vector of CPP scalar values.
+  Vector createVector(std::vector<Val*> scalars) {
+    // Add CPP values to Fusion Definition if necessary
+    std::for_each(scalars.begin(), scalars.end(), [this](const Val* v) {
+      OptOutConstDispatch::dispatch(v);
+    });
+
+    // Get corresponding index for CPP values
+    std::vector<State> inputs;
+    std::transform(
+        scalars.begin(),
+        scalars.end(),
+        std::back_inserter(inputs),
+        [&](Val* v) {
+          return fd_->recordingState(map_val_to_fd_index_.at(v));
+        });
+
+    // NOTE There is not an equivalent CPP class for python-frontend vector,
+    // so we do not add it to map_val_to_fd_index_.
+    Vector output = fd_->defineVector(inputs.size());
+    fd_->defineRecord(new VectorRecord(
+        inputs, {fd_->recordingState(output())}, DataType::Int));
+    return output;
   }
 
   // Add Tensor value to Fusion Definition
@@ -165,12 +207,19 @@ class FusionTranslator : public OptInConstDispatch {
     map_val_to_fd_index_.emplace(tv, output());
   }
 
+  // =================================================================================
+  // Handle add_output variants
+
   // Add Tensor output to FusionDefinition
   void handleOutput(const TensorView* tv) {
     size_t output_index = map_val_to_fd_index_.at(tv);
     fd_->defineRecord(new OutputRecord<TensorView>(
         {fd_->recordingState(output_index)}, serde::RecordType::OutputTv));
   }
+
+  // =================================================================================
+  // Map CPP Expression classes to corresponding RecordFunctors in
+  // python_frontend
 
   // Add Broadcast operation to FusionDefinition
   void handle(const BroadcastOp* bcast_op) final {
@@ -233,31 +282,41 @@ class FusionTranslator : public OptInConstDispatch {
     }
   }
 
-  // Map cast UnaryOp to CastOpRecord
-  void handleCastOp(const UnaryOp* uop) {
-    NVF_ERROR(uop->getUnaryOpType() == UnaryOpType::Cast);
+  // If input and output values share the same type, a LoadStoreOp will be
+  // created instead of a CastOp.
+  void handle(const LoadStoreOp* lsop) final {
+    handleCastOp(lsop);
+  }
 
-    size_t input_fd_index = map_val_to_fd_index_.at(uop->in());
-    if (uop->in()->isA<TensorView>()) {
-      Tensor output = fd_->defineTensor(uop->out()->as<TensorView>()->nDims());
-      map_val_to_fd_index_.emplace(uop->out(), output());
+  // Map cast UnaryOp to CastOpRecord
+  void handleCastOp(const Expr* op) {
+    bool is_cast_op = op->isA<UnaryOp>() &&
+        op->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Cast;
+    NVF_ERROR(op->isA<LoadStoreOp>() || is_cast_op);
+
+    size_t input_fd_index = map_val_to_fd_index_.at(op->input(0));
+
+    if (op->input(0)->isA<TensorView>()) {
+      Tensor output =
+          fd_->defineTensor(op->output(0)->as<TensorView>()->nDims());
+      map_val_to_fd_index_.emplace(op->output(0), output());
       fd_->defineRecord(new CastOpRecord<TensorView*, TensorView*>(
           {fd_->recordingState(input_fd_index)},
           {fd_->recordingState(output())},
           "ops.cast",
           serde::RecordType::CastTv,
           static_cast<TensorView* (*)(DataType, TensorView*)>(castOp),
-          std::get<PrimDataType>(uop->out()->dtype().type)));
+          std::get<PrimDataType>(op->output(0)->dtype().type)));
     } else {
       Scalar output = fd_->defineScalar();
-      map_val_to_fd_index_.emplace(uop->out(), output());
+      map_val_to_fd_index_.emplace(op->output(0), output());
       fd_->defineRecord(new CastOpRecord<Val*, Val*>(
           {fd_->recordingState(input_fd_index)},
           {fd_->recordingState(output())},
           "ops.cast",
           serde::RecordType::CastVal,
           static_cast<Val* (*)(DataType, Val*)>(castOp),
-          std::get<PrimDataType>(uop->out()->dtype().type)));
+          std::get<PrimDataType>(op->output(0)->dtype().type)));
     }
   }
 
@@ -431,6 +490,28 @@ class FusionTranslator : public OptInConstDispatch {
         {fd_->recordingState(map_val_to_fd_index_.at(sop->in()))},
         {fd_->recordingState(output())},
         squeeze_dims));
+  }
+
+  // Map ViewOp to python frontend
+  void handle(const ViewOp* vop) final {
+    // Get extent's for output's logical domain
+    TensorView* out_tv = vop->out()->as<TensorView>();
+    const std::vector<IterDomain*>& logical_out_domain =
+        out_tv->domain()->logical();
+    std::vector<Val*> logical_domain_extents;
+    std::transform(
+        logical_out_domain.begin(),
+        logical_out_domain.end(),
+        std::back_inserter(logical_domain_extents),
+        [](IterDomain* id) { return id->extent(); });
+    Vector new_shape = createVector(logical_domain_extents);
+
+    Tensor output = fd_->defineTensor(out_tv->nDims());
+    map_val_to_fd_index_.emplace(out_tv, output());
+    fd_->defineRecord(new ReshapeOpRecord(
+        {fd_->recordingState(map_val_to_fd_index_.at(vop->in())),
+         fd_->recordingState(new_shape())},
+        {fd_->recordingState(output())}));
   }
 
  private:
