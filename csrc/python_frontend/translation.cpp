@@ -415,6 +415,24 @@ class FusionTranslator : public OptInConstDispatch {
         std::get<PrimDataType>(rop->out()->dtype().type)));
   }
 
+  // Map SqueezeOp to python frontend
+  void handle(const SqueezeOp* sop) final {
+    std::vector<int64_t> squeeze_dims;
+    const std::vector<bool>& is_squeeze_dims = sop->getSqueezeDimFlags();
+    for (int64_t dim : c10::irange((int64_t)is_squeeze_dims.size())) {
+      if (is_squeeze_dims.at(dim)) {
+        squeeze_dims.push_back(dim);
+      }
+    }
+
+    Tensor output = fd_->defineTensor(sop->out()->as<TensorView>()->nDims());
+    map_val_to_fd_index_.emplace(sop->out(), output());
+    fd_->defineRecord(new SqueezeOpRecord(
+        {fd_->recordingState(map_val_to_fd_index_.at(sop->in()))},
+        {fd_->recordingState(output())},
+        squeeze_dims));
+  }
+
  private:
   //! The reference CPP fusion to be translated.
   Fusion* fusion_ = nullptr;
