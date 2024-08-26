@@ -190,11 +190,42 @@ void replaceSymbolicSizes(Fusion* fusion) {
     }
   }
 
-  // Use a minimal number of sizes from provided tensors.
+  // Simplify extents for each exact ValGroup in the fusion
   auto extent_simplification_map = getSimplificationMap(fusion);
 
   // We now need to map replacement scalars to their targets in tensor_dim_map
   // if they exist. To do this we compose extent_simplification_map with
+  // tensor_dim_map.
+  //
+  // Example:
+  //
+  //   T0[ i0, i1 ]
+  //   T1[ i2, i3 ]
+  //   T2[ i4 ]
+  //   T3 = T0 + T1
+  //   T4 = T2 * full({5}, 0)
+  //   ...
+  //
+  // tensor_dim_map:
+  //   i0 = getMetaData[T0].logical_size[0]
+  //   i1 = getMetaData[T0].logical_size[1]
+  //   i2 = getMetaData[T1].logical_size[0]
+  //   i3 = getMetaData[T1].logical_size[1]
+  //   i4 = getMetaData[T2].logical_size[0]
+  //
+  // extent_simplification_map:
+  //   i2 = i0
+  //   i3 = i1
+  //   i4 = 5
+  //
+  // In this loop, we update the _target_ values like so:
+  //
+  // extent_simplification_map (updated):
+  //   i2 = getMetaData[T0].logical_size[0]
+  //   i3 = getMetaData[T0].logical_size[1]
+  //   i4 = 5
+  //
+  // Note that i4's entry is not updated since i4 does not map to a key from
   // tensor_dim_map.
   for (auto& [orig_extent, simplified_extent] : extent_simplification_map) {
     auto it = tensor_dim_map.find(simplified_extent);
@@ -205,6 +236,17 @@ void replaceSymbolicSizes(Fusion* fusion) {
   }
   // Now add entries from tensor_dim_map, being careful not to overwrite
   // existing replacements.
+  //
+  // Using the example from above, at this point extent_simplification_map is
+  // missing entries for i0 and i1, so we add those directly from
+  // tensor_dim_map:
+  //
+  // extent_simplification_map (updated):
+  //   i0 = getMetaData[T0].logical_size[0]
+  //   i1 = getMetaData[T0].logical_size[1]
+  //   i2 = getMetaData[T0].logical_size[0]
+  //   i3 = getMetaData[T0].logical_size[1]
+  //   i4 = 5
   for (auto [tensor_dim, meta_expr] : tensor_dim_map) {
     if (extent_simplification_map.count(tensor_dim) == 0) {
       extent_simplification_map[tensor_dim] = meta_expr;
