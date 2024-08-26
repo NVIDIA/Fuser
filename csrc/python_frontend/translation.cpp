@@ -143,6 +143,11 @@ class FusionTranslator : public OptInConstDispatch {
       return;
     }
 
+    // short-circuit: scalar definition has a definition
+    if (v->definition() != nullptr) {
+      return;
+    }
+
     // DataType::Index does not exist in python_frontend, so convert to
     // DataType::Int
     DataType scalar_dtype =
