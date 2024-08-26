@@ -1532,7 +1532,7 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
               IrBuilder::create<NamedScalar>("threadIdx.x", DataType::Index)));
 
       out = IrBuilder::create<kir::TensorIndex>(
-          dynamic_cast<TensorView*>(ldst->out()), out_index, DataType::Null);
+          dynamic_cast<TensorView*>(ldst->out()), out_index);
     } else {
       in = lowerSrcIndex(
           ldst->in(),

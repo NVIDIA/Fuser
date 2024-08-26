@@ -1629,7 +1629,9 @@ TEST_F(TMARuntimeInvalidTest, SizeOfTransfer) {
       &fusion, cg_outputs, {t0, items_of_16_bytes}, {t0}, __LINE__, __FILE__);
 
   EXPECT_THAT(
-      [&]() { fe.runFusion({t0, items_of_16_bytes / 2}); },
+      [&]() {
+        fe.runFusion({t0, items_of_16_bytes / 2});
+      },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
           "The expected bytes must be a multiple of 16 bytes, but ")));
 }
@@ -2504,7 +2506,7 @@ TEST_P(LdMatrixTest, Regular) {
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
-class StMatrixTest : public NVFuserTest{};
+class StMatrixTest : public NVFuserTest {};
 
 TEST_F(StMatrixTest, Regular) {
   Fusion fusion;
@@ -2522,7 +2524,6 @@ TEST_F(StMatrixTest, Regular) {
   tv1->setMemoryType(MemoryType::Shared);
   auto tv2 = set(tv1);
   // tv1 (shared) -> tv2 (registers)
-  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdMatrix);
   // tv2 (registers) -> tv3 (shared)
   auto tv3 = set(tv2);
   tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StMatrix);
@@ -2532,6 +2533,35 @@ TEST_F(StMatrixTest, Regular) {
   fusion.addOutput(tv4);
 
   tv2->applyMmaSwizzle(operand);
+  tv2->setAllocationDomain(tv2->getLoopDomain(), true);
+
+  // Scheduler tv2 as operand B in scheduleLdMatrix
+
+  //[ni8, koi4, koo1, no1, ki2] -> [koo1, no1, ni8, koi4, ki2]
+  tv2->reorder({{-2, -4}, {-3, -5}});
+
+  //  [koo1, no1, ni8, koi4, ki2] ->  [koo1, no1, ni8, 8]
+  tv2->merge(-2);
+  //  [1, ni8, 8]
+  tv2->merge(-4);
+  //  [8, 8]
+  tv2->merge(-3);
+
+  int64_t num_tidx_with_addr =
+      tv2->axis(-2)->extent()->evaluate().as<int64_t>();
+  if (num_tidx_with_addr < 32) {
+    int64_t factor = 32 / num_tidx_with_addr;
+    // [8, 8] -> [8, 4, 2]
+    tv2->split(-1, factor, false);
+    // [8, 4, 2] -> [4, 8, 2]
+    tv2->reorder({{-2, -3}, {-3, -2}});
+    // [32, 4]
+    tv2->merge(-3);
+  }
+  tv2->axis(-2)->parallelize(ParallelType::TIDx);
+  // We do this only because codegen depends on this
+  tv2->axis(-1)->parallelize(ParallelType::Vectorize);
+
   // We do not schedule tv3 as yet.
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
