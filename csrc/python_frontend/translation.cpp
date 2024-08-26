@@ -232,7 +232,7 @@ class FusionTranslator : public OptInConstDispatch {
           "ops.cast",
           serde::RecordType::CastTv,
           static_cast<TensorView* (*)(DataType, TensorView*)>(castOp),
-          std::get<PrimDataType>(uop->in()->dtype().type)));
+          std::get<PrimDataType>(uop->out()->dtype().type)));
     } else {
       Scalar output = fd_->defineScalar();
       map_val_to_fd_index_.emplace(uop->out(), output());
@@ -242,7 +242,7 @@ class FusionTranslator : public OptInConstDispatch {
           "ops.cast",
           serde::RecordType::CastVal,
           static_cast<Val* (*)(DataType, Val*)>(castOp),
-          std::get<PrimDataType>(uop->in()->dtype().type)));
+          std::get<PrimDataType>(uop->out()->dtype().type)));
     }
   }
 
