@@ -1622,7 +1622,10 @@ std::vector<Val*> Index::getConsumerPerDimLogicalIndex(
     ValGroups logical_indices =
         indexer.traversalGraph().toGroups(consumer_tv->getLogicalDomain());
     return indexer.getIndexFor(
-        consumer_tv->definition(), true, logical_indices, loops);
+        consumer_tv->definition(),
+        /*as_consumer=*/true,
+        logical_indices,
+        loops);
   } else {
     auto guard = ir_utils::allocateToLogicalDomainGuard(consumer_tv, false);
     IndexFromIdGraph index_from_id_graph =
@@ -1645,7 +1648,10 @@ std::vector<Val*> Index::getProducerPerDimLogicalIndex(
     ValGroups logical_indices =
         indexer.traversalGraph().toGroups(producer_tv->getLogicalDomain());
     return indexer.getIndexFor(
-        consumer_tv->definition(), false, logical_indices, loops);
+        consumer_tv->definition(),
+        /*as_consumer=*/false,
+        logical_indices,
+        loops);
   } else {
     auto guard = ir_utils::allocateToLogicalDomainGuard(producer_tv, false);
     return getProducerAllocationIndices(

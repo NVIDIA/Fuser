@@ -4888,7 +4888,7 @@ TEST_F(IndexingTest, PerDimLogicalIndices) {
 
         // The logical domains of tv0 and tv1 are [i0, i1] and
         // [i0*i1], respectively. Since tv1 is split twice, the
-        // logical domain fo tv1 is obtained by traversing them from
+        // logical domain of tv1 is obtained by traversing them from
         // the three loop iter domains.
         auto tv1_logical_index = addExpr(
             mulExpr(
