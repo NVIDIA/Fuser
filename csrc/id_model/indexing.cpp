@@ -257,9 +257,9 @@ class AllocationDomainSetup : private kir::IrVisitor {
       // - Global: logical domains
       // - Local/Shared: loop domains to the right of the CA position
       if (tv->getMemoryType() == MemoryType::Global) {
-        VERBOSE() << "Tv does not have allocation of " << tv->toString() << ", "
-                  << toDelimitedString(tv->getMaybeAllocationDomain())
-                  << std::endl;
+        indexing_utils::verbose()
+            << "Tv does not have allocation of " << tv->toString() << ", "
+            << toDelimitedString(tv->getMaybeAllocationDomain()) << std::endl;
         allocation_domains = tv->getLogicalDomain();
         contiguity = tv->domain()->contiguity();
         NVF_ERROR(!tv->isCircularBuffered());
@@ -296,10 +296,11 @@ class AllocationDomainSetup : private kir::IrVisitor {
       if (auto reordered_domains =
               reorderAllocationDomains(tv, allocation_domains);
           reordered_domains.has_value()) {
-        VERBOSE() << "Allocation domain reorderred: " << tv->toString()
-                  << ". Oriignal: " << toDelimitedString(allocation_domains)
-                  << ", reordered: "
-                  << toDelimitedString(reordered_domains.value()) << std::endl;
+        indexing_utils::verbose()
+            << "Allocation domain reorderred: " << tv->toString()
+            << ". Oriignal: " << toDelimitedString(allocation_domains)
+            << ", reordered: " << toDelimitedString(reordered_domains.value())
+            << std::endl;
         allocation_domains = reordered_domains.value();
         NVF_ERROR(
             std::all_of(
@@ -316,7 +317,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
                   allocation_domains,
                   GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT));
           transposed_smem_alloc_dom.has_value()) {
-        VERBOSE()
+        indexing_utils::verbose()
             << "Using consumer domain as the allocation domain of the shared memory producer: "
             << tv->toString() << std::endl;
         allocation_domains = transposed_smem_alloc_dom.value();
@@ -741,12 +742,6 @@ class AllocationDomainSetup : private kir::IrVisitor {
     std::vector<IterDomain*> patched_allocation_domains{
         merge_inner, merge_outer};
 
-    VERBOSE() << "Patching smem allocation for transpose: " << tv->toString()
-              << ". "
-              << "Original: " << toDelimitedString(allocation_domains)
-              << ". Patched: " << toDelimitedString(patched_allocation_domains)
-              << std::endl;
-
     return patched_allocation_domains;
   }
 
@@ -839,8 +834,8 @@ void TensorIndexer::buildLoopIndexMap() {
             if (!ca_map->getIdSets(IdMappingMode::LOOP).mappingExists(id)) {
               continue;
             }
-            VERBOSE() << "Trying to find index val for " << id->toString()
-                      << std::endl;
+            indexing_utils::verbose() << "Trying to find index val for "
+                                      << id->toString() << std::endl;
             loop_index = ca_map->getIndexVariable(id);
             break;
           }
@@ -854,8 +849,9 @@ void TensorIndexer::buildLoopIndexMap() {
       }
 
       loop_index_map_[loop_group] = loop_index;
-      VERBOSE() << "Loop index map: " << nvfuser::toString(loop_group) << " -> "
-                << loop_index->toInlineString() << std::endl;
+      indexing_utils::verbose()
+          << "Loop index map: " << nvfuser::toString(loop_group) << " -> "
+          << loop_index->toInlineString() << std::endl;
     }
   }
 }
@@ -896,9 +892,10 @@ std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
   for (IterDomain* loop_id : loop_domains) {
     Val* loop_index = getLoopIndex(loop_id);
     const auto& almost_exact_group = traversalGraph().toGroup(loop_id);
-    VERBOSE() << "Setting initial index. " << loop_id->toString() << ", "
-              << nvfuser::toString(almost_exact_group) << ", "
-              << loop_index->toInlineString() << std::endl;
+    indexing_utils::verbose()
+        << "Setting initial index. " << loop_id->toString() << ", "
+        << nvfuser::toString(almost_exact_group) << ", "
+        << loop_index->toInlineString() << std::endl;
 
     if (initial_index_map.find(almost_exact_group) != initial_index_map.end()) {
       // Initial index already set. This can happen as this is an
@@ -968,14 +965,15 @@ Val* TensorIndexer::getLinearIndex(
       std::find(expr->outputs().begin(), expr->outputs().end(), tv) !=
       expr->outputs().end();
 
-  VERBOSE() << "getLinearIndex of " << tv->toString() << " as "
-            << (as_consumer ? "consumer" : "producer") << " in "
-            << expr->toString() << std::endl;
+  index_utils::verbose() << "getLinearIndex of " << tv->toString() << " as "
+                         << (as_consumer ? "consumer" : "producer") << " in "
+                         << expr->toString() << std::endl;
 
   const auto alloc_info = getIndexingAllocationInfo(tv);
 
-  VERBOSE() << "Allocation domains: " << toDelimitedString(alloc_info.domains)
-            << std::endl;
+  indexing_utils::verbose()
+      << "Allocation domains: " << toDelimitedString(alloc_info.domains)
+      << std::endl;
 
   const auto [contig_indices, contig_strides] =
       getContigIndexFor(expr, as_consumer, alloc_info, for_loops);
@@ -998,7 +996,8 @@ Val* TensorIndexer::getLinearIndex(
         SimplifyingIrBuilder::addExpr(linear_index, circular_buffer_offset);
   }
 
-  VERBOSE() << "Final index: " << linear_index->toInlineString() << std::endl;
+  indexing::verbose() << "Final index: " << linear_index->toInlineString()
+                      << std::endl;
   return linear_index;
 }
 
@@ -1031,22 +1030,24 @@ IndexingInfo TensorIndexer::computeIndex(
     const Expr* expr,
     const ValGroups& index_groups,
     const std::vector<ForLoop*>& for_loops) const {
-  VERBOSE() << "computeIndex of " << expr->toString() << std::endl;
+  indexing_utils::verbose()
+      << "computeIndex of " << expr->toString() << std::endl;
 
   const auto loop_domains = getLoopDomains(expr);
-  VERBOSE() << "Loop domains: " << toDelimitedString(loop_domains) << std::endl;
+  indexing_utils::verbose()
+      << "Loop domains: " << toDelimitedString(loop_domains) << std::endl;
 
   const ValGroups loop_groups = traversalGraph().toGroups(loop_domains);
 
   const ExprPath<ExprGroup> traversal_path = IndexingTraversal::getExprsBetween(
       expr, traversalGraph(), loop_groups, index_groups);
 
-  VERBOSE() << "Indexing path:\n";
+  indexing_utils::verbose() << "Indexing path:\n";
   for (const auto& [expr_group, direction] : traversal_path) {
     Expr* expr = expr_group->front();
-    VERBOSE() << direction << " " << expr->toString();
+    indexing_utils::verbose() << direction << " " << expr->toString();
   }
-  VERBOSE() << "--- path done ---\n";
+  indexing_utils::verbose() << "--- path done ---\n";
 
   const std::unordered_map<ValGroup, Val*> initial_index_map =
       getInitialIndexMap(loop_domains, for_loops);

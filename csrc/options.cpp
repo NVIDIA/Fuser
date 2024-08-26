@@ -122,6 +122,7 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"global_zeroed_memory", DebugDumpOption::GlobalZeroedMemory},
       {"host_ir", DebugDumpOption::HostIr},
       {"index_type", DebugDumpOption::IndexType},
+      {"indexing_verbose", DebugDumpOption::IndexingVerbose},
       {"kernel_args", DebugDumpOption::KernelArgs},
       {"kernel_ir", DebugDumpOption::KernelIr},
       {"launch_param", DebugDumpOption::LaunchParam},

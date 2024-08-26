@@ -7,6 +7,7 @@
 // clang-format on
 #include <device_lower/lower2device.h>
 #include <id_model/contiguity.h>
+#include <id_model/indexing_utils.h>
 #include <id_model/utils.h>
 
 namespace nvfuser {
@@ -86,12 +87,14 @@ ContigIDGroups::ContigIDGroups(
 void ContigIDGroups::handle(Merge* merge, Direction direction) {
   // Only forward direction is supported for now
   if (direction != Direction::Forward) {
-    VERBOSE() << "Backward merge not supported: " << merge->toString();
+    indexing_utils::verbose()
+        << "Backward merge not supported: " << merge->toString() << std::endl;
     return;
   }
 
-  std::cerr << "ContigIDGroups::handle: " << merge->toString()
-            << "predicate pass: " << is_predicate_pass_ << std::endl;
+  indexing_utils::verbose()
+      << "ContigIDGroups::handle: " << merge->toString()
+      << "predicate pass: " << is_predicate_pass_ << std::endl;
 
   const bool is_indexing_pass = !is_predicate_pass_;
   const bool ignore_consistent_ordering = is_predicate_pass_;
@@ -151,7 +154,8 @@ void ContigIDGroups::handle(Merge* merge, Direction direction) {
     alloc_to_contig_ids_[alloc_id] = graph_.toGroup(merge->out());
   }
 
-  VERBOSE() << "Contig merge ouput: " << merge->out()->toString() << std::endl;
+  indexing_utils::verbose()
+      << "Contig merge ouput: " << merge->out()->toString() << std::endl;
 
   contig_ids_.emplace(graph_.toGroup(merge->out()));
 }
@@ -188,10 +192,14 @@ std::unordered_map<IterDomain*, ValGroup> getContigDomains(
     const std::vector<IterDomain*>& alloc_domains,
     const std::vector<bool>& alloc_contiguity,
     const ExprPath<ExprGroup>& path_from_alloc,
-        const ValGraph& graph,
+    const ValGraph& graph,
     bool is_predicate_pass) {
   ContigIDGroups contig_finder(
-      alloc_domains, alloc_contiguity, path_from_alloc, graph, is_predicate_pass);
+      alloc_domains,
+      alloc_contiguity,
+      path_from_alloc,
+      graph,
+      is_predicate_pass);
 
   return contig_finder.allocToContigIDs();
 }
