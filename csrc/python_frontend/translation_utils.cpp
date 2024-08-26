@@ -197,6 +197,12 @@ std::string getString(const BinaryOp* bop) {
     case BinaryOpType::Gcd:
       return "gcd";
       break;
+    case BinaryOpType::Max:
+      return "maximum";
+      break;
+    case BinaryOpType::Min:
+      return "minimum";
+      break;
     default:
       NVF_CHECK(
           false,

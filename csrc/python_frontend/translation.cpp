@@ -143,11 +143,16 @@ class FusionTranslator : public OptInConstDispatch {
       return;
     }
 
+    // DataType::Index does not exist in python_frontend, so convert to
+    // DataType::Int
+    DataType scalar_dtype =
+        (v->dtype() == DataType::Index) ? DataType::Int : v->dtype();
+
     Scalar output = fd_->defineScalar();
     fd_->defineRecord(new ScalarRecord(
         {fd_->recordingState(output())},
         v->value(),
-        std::get<PrimDataType>(v->dtype().type)));
+        std::get<PrimDataType>(scalar_dtype.type)));
     map_val_to_fd_index_.emplace(v, output());
   }
 
