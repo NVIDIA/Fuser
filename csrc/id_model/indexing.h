@@ -81,6 +81,13 @@ class TensorIndexer {
       const ValGroups& index_groups,
       const std::vector<ForLoop*>& loops) const;
 
+  // Get the contig indices of the given ID groups with their strides
+  std::pair<std::vector<Val*>, std::vector<Val*>> getContigIndexFor(
+      const Expr* expr,
+      bool as_consumer,
+      const IndexingAllocationInfo& alloc_info,
+      const std::vector<ForLoop*>& loops) const;
+
   // The AlmostExact graph is used since size-1 splits and merges
   // should not affect actual index exprs.
   // Returns non-const reference because indexing may create new domains and
@@ -163,10 +170,13 @@ class TensorIndexer {
   // a broadcast-only loop group, should just use zero.
   bool shouldUseZeroIndex(const ValGroup& loop_group) const;
 
-  std::pair<std::deque<ValGroup>, std::deque<Val*>> getContigDomainsAndStrides(
-      const std::vector<IterDomain*>& allocation_domains,
-      const std::vector<Val*>& strides,
-      const std::vector<bool>& contiguity,
+  // For a given indexng traversal path toward allocation_domains,
+  // return the contiguous domains and their strides that can provide
+  // equivalent indexing results.
+  //
+  // Currently, only backward traversal is supported.
+  std::pair<std::vector<ValGroup>, std::vector<Val*>> getContigDomainsAndStrides(
+      const IndexingAllocationInfo& alloc_info,
       const ExprPath<ExprGroup>& traversal_path) const;
 
   // Get a replace map for tensor indexing. Examples include replacing

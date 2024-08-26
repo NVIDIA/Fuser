@@ -7,6 +7,7 @@ from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import (
     run_benchmark,
     clear_cuda_cache,
+    clear_dynamo_cache,
     unary_bwd_torch,
     compute_total_iobytes,
 )
@@ -201,6 +202,9 @@ def test_dropout_layernorm_bwd_baseline_benchmark(
     compile: bool,
 ):
     clear_cuda_cache()
+    if compile:
+        clear_dynamo_cache()
+
     dropout_p = 0.2
     input1 = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
     input2 = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)

@@ -15,6 +15,7 @@
 #include <preseg_passes/allocation_order_inference.h>
 #include <preseg_passes/move_split_cat.h>
 #include <preseg_passes/optimization_pass.h>
+#include <preseg_passes/propagate_shardings.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
@@ -63,10 +64,13 @@ auto validateSdpaFwdOutputs = [](std::vector<at::Tensor> nvf_out,
   EXPECT_TRUE(at::allclose(nvf_out[1], log_sumexp));
 };
 
+// Check SDPAFwdOp mapping in IdModel and ComputeAtMap.
 void checkSdpaFwdMapping(Fusion* fusion, Expr* op) {
   IdModel id_model(fusion);
   const ValGraph& vg = id_model.idGraph(IdMappingMode::EXACT);
   vg.validateConsistency();
+
+  ComputeAtMap compute_at_map(fusion);
 
   auto sdpa_op = dynamic_cast<SdpaFwdOp*>(op);
   ASSERT_TRUE(sdpa_op != nullptr);
@@ -101,24 +105,39 @@ void checkSdpaFwdMapping(Fusion* fusion, Expr* op) {
       // Idx=3: prodcuer_ids[3] = E/Ev, consumer_idx[3] = Ev
 
       for (auto idx : c10::irange(consumer_ids.size())) {
-        if (idx >= num_device_dim && idx < (2 + num_device_dim)) {
+        if (idx < (2 + num_device_dim)) {
           checkMapped(vg, producer_ids.at(idx), consumer_ids.at(idx));
+          EXPECT_TRUE(compute_at_map.areMapped(
+              producer_ids.at(idx),
+              consumer_ids.at(idx),
+              IdMappingMode::EXACT));
         } else if (
             idx == (2 + num_device_dim) && producer->sameAs(sdpa_op->query())) {
           checkMapped(vg, producer_ids.at(idx), consumer_ids.at(idx));
+          EXPECT_TRUE(compute_at_map.areMapped(
+              producer_ids.at(idx),
+              consumer_ids.at(idx),
+              IdMappingMode::EXACT));
         } else if (
             idx == (3 + num_device_dim) && producer->sameAs(sdpa_op->value())) {
           checkMapped(vg, producer_ids.at(idx), consumer_ids.at(idx));
+          EXPECT_TRUE(compute_at_map.areMapped(
+              producer_ids.at(idx),
+              consumer_ids.at(idx),
+              IdMappingMode::EXACT));
         }
       }
     }
   }
 }
 
+// Check SDPABwdOp mapping in IdModel and ComputeAtMap.
 void checkSdpaBwdMapping(Fusion* fusion, Expr* op) {
   IdModel id_model(fusion);
   const ValGraph& vg = id_model.idGraph(IdMappingMode::EXACT);
   vg.validateConsistency();
+
+  ComputeAtMap compute_at_map(fusion);
 
   auto sdpa_op = dynamic_cast<SdpaBwdOp*>(op);
   ASSERT_TRUE(sdpa_op != nullptr);
@@ -147,6 +166,8 @@ void checkSdpaBwdMapping(Fusion* fusion, Expr* op) {
       std::vector<IterDomain*> producer_ids = producer_tv->getLogicalDomain();
       std::vector<IterDomain*> consumer_ids = consumer_tv->getMaybeRootDomain();
 
+      size_t num_device_dim = producer_ids.at(0)->isDeviceDim() ? 1 : 0;
+
       // Idx=0: producer_ids[0], consumer_ids[0] = N
       // Idx=1: producer_ids[1], consumer_ids[1] = H
       // Idx=2: producer_ids[2], consumer_ids [2] = L/S
@@ -163,12 +184,26 @@ void checkSdpaBwdMapping(Fusion* fusion, Expr* op) {
           consumer_tv->sameAs(sdpa_op->grad_key());
 
       for (auto idx : c10::irange(consumer_ids.size())) {
-        if (idx < 2) {
+        if (idx < 2 + num_device_dim) {
           checkMapped(vg, producer_ids.at(idx), consumer_ids.at(idx));
-        } else if (idx == 2 && (producer_has_s == consumer_has_s)) {
+          EXPECT_TRUE(compute_at_map.areMapped(
+              producer_ids.at(idx),
+              consumer_ids.at(idx),
+              IdMappingMode::EXACT));
+        } else if (
+            idx == (2 + num_device_dim) && (producer_has_s == consumer_has_s)) {
           checkMapped(vg, producer_ids.at(idx), consumer_ids.at(idx));
-        } else if (idx == 3 && (producer_has_e == consumer_has_e)) {
+          EXPECT_TRUE(compute_at_map.areMapped(
+              producer_ids.at(idx),
+              consumer_ids.at(idx),
+              IdMappingMode::EXACT));
+        } else if (
+            idx == (3 + num_device_dim) && (producer_has_e == consumer_has_e)) {
           checkMapped(vg, producer_ids.at(idx), consumer_ids.at(idx));
+          EXPECT_TRUE(compute_at_map.areMapped(
+              producer_ids.at(idx),
+              consumer_ids.at(idx),
+              IdMappingMode::EXACT));
         }
       }
     }
@@ -794,4 +829,197 @@ TEST_F(SDPATest, Sharded_SdpaFwd) {
       fec.runFusionWithInputs({q.unsqueeze(0), k.unsqueeze(0), v.unsqueeze(0)});
   validateSdpaFwdOutputs(nvf_out, aten_out);
 }
+
+// TODO: Remove/update when https://github.com/NVIDIA/Fuser/issues/2563 is
+// resolved.
+TEST_F(SDPATest, Sharded_SdpaBwd) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  constexpr int64_t d = 4;
+  auto mesh = DeviceMesh::createForNumDevices(d);
+  std::vector<int64_t> q_shape({d, n, h / d, l, e});
+  std::vector<int64_t> kv_shape({d, n, h / d, s, e});
+  std::vector<int64_t> attn_shape({d, n, h / d, l, e});
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  at::Tensor q = at::randn({n, h / d, l, e}, options);
+  at::Tensor k = at::randn({n, h / d, s, e}, options);
+  at::Tensor v = at::randn({n, h / d, s, e}, options);
+
+  constexpr double dropout_p = 0.2;
+  constexpr bool is_causal = false;
+  double scale = 1.0 / std::sqrt(e);
+
+  auto
+      [output,
+       log_sumexp,
+       cum_seq_q,
+       cum_seq_k,
+       query_seq_len,
+       key_seq_len,
+       philox_seed,
+       philox_offset,
+       debug_attn_mask] =
+          at::_scaled_dot_product_flash_attention(
+              q,
+              k,
+              v,
+              dropout_p,
+              is_causal,
+              /*return_debug_mask=*/false,
+              scale);
+
+  auto tv_grad_output = makeConcreteTensor(attn_shape, DataType::Half);
+  auto tvq = makeConcreteTensor(q_shape, DataType::Half);
+  auto tvk = makeConcreteTensor(kv_shape, DataType::Half);
+  auto tvv = makeConcreteTensor(kv_shape, DataType::Half);
+  auto tv_output = makeConcreteTensor(attn_shape, DataType::Half);
+  auto tv_logsumexp = makeConcreteTensor({d, n, h / d, l}, DataType::Float);
+  auto tv_seed = makeConcreteTensor({}, DataType::Int);
+  auto tv_offset = makeConcreteTensor({}, DataType::Int);
+
+  fusion->addInput(tv_grad_output);
+  fusion->addInput(tvq);
+  fusion->addInput(tvk);
+  fusion->addInput(tvv);
+  fusion->addInput(tv_output);
+  fusion->addInput(tv_logsumexp);
+  fusion->addInput(tv_seed);
+  fusion->addInput(tv_offset);
+
+  for (TensorView* tv :
+       {tvq, tvk, tvv, tv_grad_output, tv_output, tv_logsumexp}) {
+    tv->setDeviceMesh(mesh);
+    tv->axis(0)->parallelize(ParallelType::DIDx);
+  }
+
+  auto tvgrad = sdpfa_bwd(
+      tv_grad_output,
+      tvq,
+      tvk,
+      tvv,
+      tv_output,
+      tv_logsumexp,
+      /*dropout_p=*/IrBuilder::create<Val>(dropout_p),
+      /*is_causal=*/IrBuilder::create<Val>(is_causal),
+      tv_seed,
+      tv_offset,
+      /*scale=*/nullptr);
+
+  for (TensorView* tv :
+       {tvgrad.grad_query, tvgrad.grad_key, tvgrad.grad_value}) {
+    tv->setDeviceMesh(mesh);
+    tv->axis(0)->parallelize(ParallelType::DIDx);
+    fusion->addOutput(tv);
+  }
+
+  checkSdpaBwdMapping(fusion.get(), tvgrad.grad_query->definition());
+
+  at::Tensor grad_out = at::randn({n, h / d, l, e}, options);
+
+  std::vector<c10::IValue> sdpa_bwd_inputs = {
+      grad_out.unsqueeze(0),
+      q.unsqueeze(0),
+      k.unsqueeze(0),
+      v.unsqueeze(0),
+      output.unsqueeze(0),
+      log_sumexp.unsqueeze(0),
+      philox_seed,
+      philox_offset};
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto out = fec.runFusionWithInputs(sdpa_bwd_inputs);
+
+  auto [ref_grad_query, ref_grad_key, ref_grad_value] =
+      at::_scaled_dot_product_flash_attention_backward(
+          grad_out,
+          q,
+          k,
+          v,
+          output,
+          log_sumexp,
+          cum_seq_q,
+          cum_seq_k,
+          /*max_q=*/*query_seq_len.maybe_as_int(),
+          /*max_k=*/*key_seq_len.maybe_as_int(),
+          dropout_p,
+          is_causal,
+          philox_seed,
+          philox_offset,
+          /*scale=*/scale);
+
+  testValidate(
+      fec.fusion(),
+      out,
+      sdpa_bwd_inputs,
+      {ref_grad_query.unsqueeze(0),
+       ref_grad_key.unsqueeze(0),
+       ref_grad_value.unsqueeze(0)},
+      __LINE__,
+      __FILE__);
+}
+
+TEST_F(SDPATest, ComputeAt) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  constexpr int64_t d = 4;
+  auto mesh = DeviceMesh::createForNumDevices(d);
+  std::vector<int64_t> q_shape({d, n, h / d, l, e});
+  std::vector<int64_t> kv_shape({d, n, h / d, s, e});
+
+  auto tvq = makeConcreteTensor(q_shape, DataType::Half);
+  auto tvk = makeConcreteTensor(kv_shape, DataType::Half);
+  auto tvv = makeConcreteTensor(kv_shape, DataType::Half);
+
+  fusion->addInput(tvq);
+  fusion->addInput(tvk);
+  fusion->addInput(tvv);
+
+  for (TensorView* tv : {tvq, tvk, tvv}) {
+    tv->setDeviceMesh(mesh);
+    tv->axis(0)->parallelize(ParallelType::DIDx);
+  }
+
+  auto output = sdpfa_fwd(
+      tvq,
+      tvk,
+      tvv,
+      /*dropout_p=*/IrBuilder::create<Val>(0.0),
+      /*is_causal=*/IrBuilder::create<Val>(false),
+      /*scale=*/nullptr);
+
+  addSdpaFwdOutputs(fusion.get(), output);
+  for (TensorView* tv : {output.output, output.log_sumexp}) {
+    tv->setDeviceMesh(mesh);
+    tv->axis(0)->parallelize(ParallelType::DIDx);
+  }
+
+  preseg_passes::OptimizationPass<
+      preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
+
+  checkSdpaFwdMapping(fusion.get(), output.output->definition());
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  at::Tensor q = at::randn({n, h / d, l, e}, options);
+  at::Tensor k = at::randn({n, h / d, s, e}, options);
+  at::Tensor v = at::randn({n, h / d, s, e}, options);
+
+  double scale = 1.0 / std::sqrt(e);
+  auto aten_out = at::_scaled_dot_product_flash_attention(
+      q,
+      k,
+      v,
+      /*dropout_p=*/0.0,
+      /*is_causal=*/false,
+      /*return_debug_mask=*/false,
+      scale);
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto nvf_out =
+      fec.runFusionWithInputs({q.unsqueeze(0), k.unsqueeze(0), v.unsqueeze(0)});
+  validateSdpaFwdOutputs(nvf_out, aten_out);
+}
+
 } // namespace nvfuser

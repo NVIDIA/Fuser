@@ -104,7 +104,7 @@ void OrderedIdInformation::handle(Merge* merge) {
   const auto& outer_alloc_ids = findAllocIDs(merge->outer())->second;
 
   // Update maps
-  // Find the position inner would have to have to be considered ordered
+  // Find the position inner would have to be considered ordered
   auto pos_after_outer = outer_pos + 1;
   for (; pos_after_outer < int64_t(active_ids_.size()); pos_after_outer++) {
     if (active_ids_[pos_after_outer] == nullptr) {
@@ -112,7 +112,7 @@ void OrderedIdInformation::handle(Merge* merge) {
       break;
     }
     // When using IdModel, reduction domains are excluded from
-    // allocation domains but loop promotion may pick reduciton
+    // allocation domains but loop promotion may pick reduction
     // domains, which should just be treated as normal domains.
     if (!using_id_graph_) {
       if (active_ids_[pos_after_outer]->isReduction() ||
@@ -147,7 +147,12 @@ void OrderedIdInformation::handle(Merge* merge) {
     //  merge is bigger than the vectorization dimension. And that the tensor
     //  buffer supports the vector word size (always done).
     //
-    // This shouldn't matter when using the IdModel-based indexer
+    // This shouldn't matter when using the IdModel-based
+    // indexer. When concretized, that should be reflected with the
+    // indexing path, and as long as the indexing path has a
+    // contiguous merge, its output should be safe to index. See
+    // also ContigIndexingTest.ConcretizedBroadcastMerge for a
+    // concrete example.
     bool outer_is_concretized_bcast =
         merge->outer()->isBroadcast() && isConcretized(merge->outer());
     bool inner_is_concretized_bcast =

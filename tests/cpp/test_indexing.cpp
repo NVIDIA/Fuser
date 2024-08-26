@@ -1998,9 +1998,15 @@ TEST_F(IndexingTest, DoubleBuffering1) {
       switch (tv->name()) {
         case 0: {
           if (circular_buffer_loop_stage_ == CircularBufferLoopStage::Prolog) {
-            return addExpr(
-                mulExpr(loop_indices.at(1), tv->axis(2)->extent()),
-                loop_indices.at(2));
+            // NOTE: Expression Simplification is disabled in IndexValidator,
+            // so trivial index expression appears in the expression.
+            Val* zero = tv->fusion()->zeroVal();
+            return IrBuilder::addExpr(
+                IrBuilder::mulExpr(zero, createInt(128)),
+                IrBuilder::addExpr(
+                    IrBuilder::mulExpr(
+                        loop_indices.at(1), tv->axis(2)->extent()),
+                    loop_indices.at(2)));
           } else if (
               circular_buffer_loop_stage_ == CircularBufferLoopStage::Main) {
             return addExpr(
@@ -3070,11 +3076,17 @@ TEST_F(PredicateIndexingTest, DoubleBuffering1) {
       auto circular_buffer_index = for_loops_.at(0)->index();
 
       if (circular_buffer_loop_stage_ == CircularBufferLoopStage::Prolog) {
-        // bidx.x * 32 + tid.x >= 0 &&
-        // bidx.x * 32 + tid.x < N
-        auto idx = addExpr(
-            mulExpr(loop_indices.at(1), tv->axis(2)->extent()),
-            loop_indices.at(2));
+        // 0 * 128 + bidx.x * 32 + tid.x >= 0 &&
+        // 0 * 128 + bidx.x * 32 + tid.x < N
+        // NOTE: Expression Simplification is disabled in
+        // PredicateIndexValidator, so trivial index expression appears in the
+        // expression.
+        Val* zero = tv->fusion()->zeroVal();
+        auto idx = IrBuilder::addExpr(
+            IrBuilder::mulExpr(zero, createInt(128)),
+            IrBuilder::addExpr(
+                IrBuilder::mulExpr(loop_indices.at(1), tv->axis(2)->extent()),
+                loop_indices.at(2)));
         return andExpr(
             geExpr(idx, tv->fusion()->zeroVal()),
             ltExpr(idx, tv->getLogicalDomain().at(0)->extent()));
@@ -3423,15 +3435,18 @@ TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering1) {
       // where i2 is the circular buffer index. The index of iUS10 is
       // not included as its extent is 1.
 
-      // Start index: i0 * 4
-      Val* start_idx = mulExpr(loop_indices.at(0), createInt(4));
+      // NOTE: Expression Simplification is disabled in PredicateIndexValidator,
+      // so trivial addition appears in the expression.
+      // Start index: i0 * 4 + 0
+      Val* start_idx = IrBuilder::addExpr(
+          IrBuilder::mulExpr(loop_indices.at(0), createInt(4)), createInt(0));
 
       // Stop index: i0 * 4 + 4
       // Note that it isn't "i0 * 4 + 3" since i2 is circular buffered
       // and there's no epilog, so the main loop has a read of (i2 +
       // 1).
-      Val* stop_idx =
-          addExpr(mulExpr(loop_indices.at(0), createInt(4)), createInt(4));
+      Val* stop_idx = IrBuilder::addExpr(
+          IrBuilder::mulExpr(loop_indices.at(0), createInt(4)), createInt(4));
 
       return andExpr(
           geExpr(start_idx, zero),
@@ -4567,7 +4582,7 @@ TEST_F(ContigIndexingTest, NonContigInnermost) {
   // [I0, I1*I2]
 
   // Since the i1 contig flag is true, the merge is contiguous even
-  // though i2 is not contiguos. The producer index of tv0 should be:
+  // though i2 is not contiguous. The producer index of tv0 should be:
   // i0 * I0_stride + i1 * I2_stride. The stride of I0 should be
   // calculated as I2_stride * I2_extent * I1_extent.
   //
@@ -4703,9 +4718,6 @@ TEST_F(ContigIndexingTest, Resize) {
   auto tv1 = slice(tv0, {0, shape[1] / 2}, {shape[0], shape[1]});
   auto tv2 = add(tv1, IrBuilder::create<Val>(1));
   fusion.addOutput(tv2);
-
-  fusion.printMath();
-  fusion.printKernel();
 
   // Contig merge
   tv2->merge(0);

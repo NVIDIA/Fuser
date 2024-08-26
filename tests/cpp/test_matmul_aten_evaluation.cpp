@@ -58,21 +58,22 @@ void checkMatmulOpIdMapping(
   const ValGraph& vg = id_model.idGraph(IdMappingMode::EXACT);
   vg.validateConsistency();
 
-  // If K is Broadcast then we will not have a reduction dim
+  // If K is Broadcast then we will not have a reduction dim.
   bool k_bcast = A->axis(-1)->isBroadcast();
-  auto out_ndims = std::max(A->nDims(), B->nDims()) + 1;
+  int64_t red_dims = k_bcast ? 0 : 1;
+  auto out_ndims = std::max(A->nDims(), B->nDims()) + red_dims;
   if (std::min(A->nDims(), B->nDims()) == 1) {
-    out_ndims = std::max(A->nDims(), B->nDims());
+    out_ndims = std::max(A->nDims(), B->nDims()) - 1 + red_dims;
   }
   ASSERT_EQ(output->nDims(), out_ndims);
 
   if (A->nDims() > 1) {
-    int out_mpos = B->nDims() > 1 ? -3 : -2;
+    int out_mpos = B->nDims() > 1 ? -2 - red_dims : -1 - red_dims;
     EXPECT_TRUE(checkMapped(vg, A->axis(-2), output->axis(out_mpos))); // M
   }
 
   if (B->nDims() > 1) {
-    EXPECT_TRUE(checkMapped(vg, B->axis(-1), output->axis(-2))); // N
+    EXPECT_TRUE(checkMapped(vg, B->axis(-1), output->axis(-1 - red_dims))); // N
   }
 
   if (!k_bcast) {
@@ -85,7 +86,8 @@ void checkMatmulOpIdMapping(
   // Note that A and B can have different dimensions, so here we count
   // backwards from the innermost batch dimension. Then we check that the axis
   // exists (is not negative) and is not Broadcast before checking mapping.
-  int batch_ndims = output->nDims() - (B->nDims() > 1) - (A->nDims() > 1) - 1;
+  int batch_ndims =
+      output->nDims() - (B->nDims() > 1) - (A->nDims() > 1) - red_dims;
   for (int64_t i : c10::irange(batch_ndims)) {
     int64_t i_a = A->nDims() - 3 - i;
     int64_t i_b = B->nDims() - 3 - i;
@@ -115,7 +117,9 @@ void checkLinearOpIdMapping(
   // bias (optional): [out_features]/[]
   // output = [*, (out_features), rK]
 
-  ASSERT_EQ(output->nDims(), input->nDims() + weight->nDims() - 1);
+  bool k_bcast = input->axis(-1)->isBroadcast();
+  int64_t red_dims = k_bcast ? 0 : 1;
+  ASSERT_EQ(output->nDims(), input->nDims() + weight->nDims() - 2 + red_dims);
 
   // Check that the first input_size - 1 dims are mapped for input
   for (auto i : c10::irange(input->nDims() - 1)) {
@@ -126,10 +130,11 @@ void checkLinearOpIdMapping(
   // Check out_features dim is mapped in weight & bias if present.
   if (weight->nDims() > 1) {
     if (!weight->axis(0)->isBroadcast()) {
-      EXPECT_TRUE(checkMapped(vg, weight->axis(0), output->axis(-2)));
+      EXPECT_TRUE(
+          checkMapped(vg, weight->axis(0), output->axis(-1 - red_dims)));
     }
     if (bias != nullptr && bias->nDims() > 0 && !bias->axis(0)->isBroadcast()) {
-      EXPECT_TRUE(checkMapped(vg, bias->axis(0), output->axis(-2)));
+      EXPECT_TRUE(checkMapped(vg, bias->axis(0), output->axis(-1 - red_dims)));
     }
   }
   // Check mapping for reduction axis in input and weight

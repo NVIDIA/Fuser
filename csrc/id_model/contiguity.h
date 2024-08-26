@@ -17,12 +17,14 @@ namespace nvfuser {
 // the analysis only propagates forward for now.
 class OrderedIdGroupInformation : public OrderedIdInformation {
  public:
+  // Run the ordering analysis from given allocation domains through
+  // a given traversal path
   static OrderedIdGroupInformation get(
       const std::vector<IterDomain*>& alloc_domain,
-      const ExprPath<ExprGroup>& path,
+      const ExprPath<ExprGroup>& path_from_alloc,
       const ValGraph& graph) {
     OrderedIdGroupInformation info(alloc_domain, graph);
-    info.traverse(path);
+    info.traverse(path_from_alloc);
     return info;
   }
 
@@ -38,6 +40,20 @@ class OrderedIdGroupInformation : public OrderedIdInformation {
                }) != consistently_ordered_ids_.end();
   }
 
+  std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>>::
+      const_iterator
+      findAllocIDs(IterDomain* id) const override {
+    // This is a little ugly workaround. id_to_alloc_ids_ is a map of
+    // iter domains. If it were a map from ValGroup, this lookup
+    // should have been O(1)
+    return std::find_if(
+        id_to_alloc_ids_.begin(),
+        id_to_alloc_ids_.end(),
+        [&](const auto& kv) -> bool {
+          return graph_.disjointValSets().strictAreMapped(kv.first, id);
+        });
+  }
+
  protected:
   OrderedIdGroupInformation(
       const std::vector<IterDomain*>& alloc_domain,
@@ -47,8 +63,8 @@ class OrderedIdGroupInformation : public OrderedIdInformation {
   }
 
   // Currently only forward propagation is supported
-  void traverse(const ExprPath<ExprGroup>& path) {
-    for (const auto& [eg, direction] : path) {
+  void traverse(const ExprPath<ExprGroup>& path_from_alloc) {
+    for (const auto& [eg, direction] : path_from_alloc) {
       if (direction == Direction::Backward) {
         // TODO: support Backward prop
         continue;
@@ -68,20 +84,6 @@ class OrderedIdGroupInformation : public OrderedIdInformation {
               graph_.disjointValSets().strictAreMapped(active_id, id);
         });
     return it;
-  }
-
-  std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>>::
-      const_iterator
-      findAllocIDs(IterDomain* id) const override {
-    // This is a little ugly workaround. id_to_alloc_ids_ is a map of
-    // iter domains. If it were a map from ValGroup, this lookup
-    // should have been O(1)
-    return std::find_if(
-        id_to_alloc_ids_.begin(),
-        id_to_alloc_ids_.end(),
-        [&](const auto& kv) -> bool {
-          return graph_.disjointValSets().strictAreMapped(kv.first, id);
-        });
   }
 
  private:
@@ -138,7 +140,7 @@ class ContigIDGroups {
   // likely logical domains.
   const std::vector<IterDomain*> alloc_domains_;
   // Contiguity of alloc_domains_
-  const std::vector<bool> contiguity_;
+  const std::vector<bool> alloc_contiguity_;
   const bool is_predicate_pass_;
   std::unique_ptr<const OrderedIdGroupInformation> consistent_transform_info_;
 
@@ -152,10 +154,13 @@ class ContigIDGroups {
   std::unordered_set<ValGroup> non_divisible_deps_;
 };
 
+// Get a contiguous indexing domain for a given allocation domain. If
+// no such domain is found, just the allocation domain itself is
+// returned.
 std::unordered_map<IterDomain*, ValGroup> getContigDomains(
-    const std::vector<IterDomain*>& index_domains,
-    const std::vector<bool>& contiguity,
-    const ExprPath<ExprGroup>& path_from_index_domains,
+    const std::vector<IterDomain*>& alloc_domains,
+    const std::vector<bool>& alloc_contiguity,
+    const ExprPath<ExprGroup>& path_from_alloc,
     const ValGraph& graph,
     bool is_predicate_pass);
 

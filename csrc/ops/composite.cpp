@@ -64,32 +64,43 @@ static TensorView* newForLinear(
   auto input_domain = TensorDomain::noReductions(input->getLogicalDomain());
   auto weight_domain = TensorDomain::noReductions(weight->getLogicalDomain());
 
+  // Output has a reduction axis rK if K is not bcast
+  NVF_CHECK(
+      input_domain.back()->isBroadcast() == weight_domain.back()->isBroadcast(),
+      "K should be broadcast in both inputs and weights, or neither.");
+  bool k_bcast = input_domain.back()->isBroadcast();
+  size_t red_dims = k_bcast ? 0 : 1;
+
   // Linear: a = {*, in_features}, b = {out_features, in_features} /
-  // {in_features}.The linear output is {*, (out_features), rK}.
-  // The first out_size -2 dimensions are as the first input, followed by
-  // out_features (if present) and an additional reduction axis K.
-  auto ndims_out = input_domain.size() + weight_domain.size() - 1;
+  // {in_features}.The linear output is {*, (out_features), rK?}.
+  // Reduction K is present only when K is not bcast.
+  auto ndims_out =
+      (input_domain.size() - 1) + (weight_domain.size() - 1) + red_dims;
 
   const std::vector<IterDomain*>& mapping_a =
-      ops::mapLinearOpIterDomains(input_domain, 0, ndims_out);
+      ops::mapLinearOpIterDomains(input_domain, 0, ndims_out, k_bcast);
   const std::vector<IterDomain*>& mapping_b =
-      ops::mapLinearOpIterDomains(weight_domain, 1, ndims_out);
+      ops::mapLinearOpIterDomains(weight_domain, 1, ndims_out, k_bcast);
   std::vector<IterDomain*> mapping_bias(ndims_out, nullptr);
   if (bias != nullptr) {
     auto bias_domain = TensorDomain::noReductions(bias->getLogicalDomain());
-    mapping_bias = ops::mapLinearOpIterDomains(bias_domain, 2, ndims_out);
+    mapping_bias =
+        ops::mapLinearOpIterDomains(bias_domain, 2, ndims_out, k_bcast);
   }
 
   std::vector<IterDomain*> out_domain(ndims_out, nullptr);
 
-  for (auto idx : c10::irange(ndims_out - 1)) {
+  for (auto idx : c10::irange(ndims_out - red_dims)) {
     out_domain[idx] = ops::newOutputIterDomain(
         {mapping_a.at(idx), mapping_b.at(idx), mapping_bias.at(idx)});
   }
-  // Specify the iterdomain for K as reduction
-  out_domain[ndims_out - 1] = ops::newOutputIterDomain(
-      {mapping_a.back(), mapping_b.back()},
-      /*force_iter_type=*/IterType::Reduction);
+
+  if (!k_bcast) {
+    // Specify the iterdomain for K as reduction
+    out_domain[ndims_out - 1] = ops::newOutputIterDomain(
+        {mapping_a.back(), mapping_b.back()},
+        /*force_iter_type=*/IterType::Reduction);
+  }
 
   TensorDomain* td = IrBuilder::create<TensorDomain>(
       out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
@@ -335,14 +346,25 @@ static TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
   auto ndims_a = orig_domain_a.size();
   auto ndims_b = orig_domain_b.size();
 
+  auto b_kpos = orig_domain_b.size() > 1 ? ndims_b - 2 : ndims_b - 1;
+  NVF_CHECK(
+      orig_domain_a.back()->isBroadcast() ==
+          orig_domain_b.at(b_kpos)->isBroadcast(),
+      "K should be broadcast in both A and B, or neither.");
+
+  // Output has a reduction axis rK if K is not bcast
+  bool k_bcast = orig_domain_a.back()->isBroadcast();
+  size_t red_dims = k_bcast ? 0 : 1;
+
   // Matmul output size is same as the higher dimensional input size if both A/B
-  // > 1D, but with 1 additional IterType::Reduction axis rK.
-  auto ndims_out = std::max(ndims_a, ndims_b) + 1;
+  // > 1D, but with 1 additional IterType::Reduction axis rK if K is not
+  // broadcast.
+  auto ndims_out = std::max(ndims_a, ndims_b) + red_dims;
   if (std::min(ndims_a, ndims_b) == 1) {
     // If one of the inputs is 1D, the output size is the same as the higher
     // dimensional input size, since we will include a Reduction axis for K in
     // the output. For example: [iM, iK] x [iK] -> [iM, rK]
-    ndims_out = std::max(ndims_a, ndims_b);
+    ndims_out = std::max(ndims_a, ndims_b) - 1 + red_dims;
   }
 
   std::vector<IterDomain*> out_domain(ndims_out, nullptr);
@@ -352,14 +374,15 @@ static TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
   const std::vector<IterDomain*>& mapping_b =
       ops::mapMatmulOpIterDomains(orig_domain_b, 1, ndims_out);
 
-  for (auto idx : c10::irange(ndims_out - 1)) {
+  for (auto idx : c10::irange(ndims_out - red_dims)) {
     out_domain[idx] =
         ops::newOutputIterDomain({mapping_a.at(idx), mapping_b.at(idx)});
   }
-
-  out_domain[ndims_out - 1] = ops::newOutputIterDomain(
-      {mapping_a.back(), mapping_b.back()},
-      /*force_iter_type=*/IterType::Reduction);
+  if (!k_bcast) {
+    out_domain[ndims_out - 1] = ops::newOutputIterDomain(
+        {mapping_a.back(), mapping_b.back()},
+        /*force_iter_type=*/IterType::Reduction);
+  }
 
   TensorDomain* td = IrBuilder::create<TensorDomain>(
       out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
@@ -542,15 +565,35 @@ SdpfaBwdResult sdpfa_bwd(
   auto key_domain = TensorDomain::noReductions(key->getLogicalDomain());
   auto value_domain = TensorDomain::noReductions(value->getLogicalDomain());
 
+  // Temporary handling of DID parallelization see
+  // https://github.com/NVIDIA/Fuser/issues/2563
+  bool has_device_dim = (query_domain.size() == 5);
+  if (has_device_dim) {
+    auto check_first_is_did = [](const std::vector<IterDomain*>& ids) -> void {
+      NVF_CHECK(
+          ids[0]->isDeviceDim(),
+          "Only support DID parallelization on outermost axis");
+    };
+    check_first_is_did(query_domain);
+    check_first_is_did(key_domain);
+    check_first_is_did(value_domain);
+    check_first_is_did(grad_output->getLogicalDomain());
+    check_first_is_did(output->getLogicalDomain());
+  }
+
+  auto concrete_query_size = TensorDomain::noDevices(query_domain).size();
+  auto concrete_key_size = TensorDomain::noDevices(key_domain).size();
+  auto concrete_value_size = TensorDomain::noDevices(value_domain).size();
+
   NVF_CHECK(
-      query_domain.size() == 4 && key_domain.size() == 4 &&
-          value_domain.size() == 4,
+      concrete_query_size == 4 && concrete_key_size == 4 &&
+          concrete_value_size == 4,
       "Expected query, key, and value to be 4D but got: ",
-      query_domain.size(),
+      concrete_query_size,
       " ",
-      key_domain.size(),
+      concrete_key_size,
       " ,and ",
-      value_domain.size());
+      concrete_value_size);
 
   NVF_CHECK(
       !dropout_p || dropout_p->isScalar(),
@@ -560,6 +603,15 @@ SdpfaBwdResult sdpfa_bwd(
       "Expected is_causal to be a scalar boolean.");
   NVF_CHECK(
       !scale || scale->isScalar(), "Expected scale to be a scalar double.");
+
+  // Set default values for dropout_p (0.0), is_causal(false)
+  if (dropout_p == nullptr) {
+    dropout_p = IrBuilder::create<Val>(0.0, DataType::Double);
+  }
+
+  if (is_causal == nullptr) {
+    is_causal = IrBuilder::create<Val>(false, DataType::Bool);
+  }
 
   // Mark CPU scalar tensors.
   philox_seed->setCpuScalar(true);
