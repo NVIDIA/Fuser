@@ -41,7 +41,8 @@ void insertReshardingsBefore(Fusion* fusion) {
       for (auto output : ir_utils::filterByType<TensorView>(expr->outputs())) {
         for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
           if (haveDifferentShardings(input, output)) {
-            std::cout << "These have different shardings " << input->toString() << " " << output->toString() << std::endl;
+            std::cout << "These have different shardings " << input->toString()
+                      << " " << output->toString() << std::endl;
           }
           NVF_CHECK(
               !haveDifferentShardings(input, output),

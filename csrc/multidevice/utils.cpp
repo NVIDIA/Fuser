@@ -177,7 +177,7 @@ bool isResharding(const Expr* expr) {
     return false;
   }
 
-  // Reduction over a sharded dimension. 
+  // Reduction over a sharded dimension.
   if (expr->isA<ReductionOp>()) {
     // auto in = expr->as<ReductionOp>()->in()->as<TensorView>();
     auto out = expr->as<ReductionOp>()->out()->as<TensorView>();
@@ -232,107 +232,72 @@ bool isInnerResharding(Expr* expr) {
   return false;
 }
 
-void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs, const std::unordered_set<ParallelType>& parallel_types) {
+void shardAllLike(
+    TensorView* ref,
+    std::vector<TensorView*> tvs,
+    const std::unordered_set<ParallelType>& parallel_types) {
   for (auto tv : tvs) {
     tv->setDeviceMesh(ref->getDeviceMesh());
   }
   if (!tvs.empty()) {
-    scheduler_utils::parallelizeAllLike(
-        ref, tvs, parallel_types);
+    scheduler_utils::parallelizeAllLike(ref, tvs, parallel_types);
   }
 }
 
 void shardBetween(
-  const std::vector<Expr*>& from, const std::vector<Expr*>& to, TensorView* ref_tv,
-  const std::unordered_set<ParallelType>& parallel_types) {
-    std::vector<TensorView*> from_tvs;
-    std::vector<TensorView*> to_tvs;
-    for (auto expr : from) {
-      for (auto tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
-        from_tvs.push_back(tv);
-      }
-    }
-
-    for (auto expr : from) {
-      for (auto tv : ir_utils::filterByType<TensorView>(expr->inputs())) {
-        to_tvs.push_back(tv);
-      }
-    }
-
-    for (auto expr : to) {
-      for (auto tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
-        to_tvs.push_back(tv);
-      }
-    }
-
-  auto tvs_between = scheduler_utils::getAllTvsFrom(from_tvs, {to_tvs.begin(), to_tvs.end()});
-
-   std::cout << "Ref tv" << ref_tv->toString() << std::endl;
-  for (auto tv : from_tvs) {
-    std::cout << "From tv: " << tv->toString() << std::endl;
+    const std::vector<Expr*>& from,
+    const std::vector<Expr*>& to,
+    TensorView* ref_tv,
+    const std::unordered_set<ParallelType>& parallel_types) {
+  std::vector<TensorView*> from_tvs;
+  std::unordered_set<TensorView*> to_tvs;
+  for (auto expr : from) {
+    auto outputs = ir_utils::filterByType<TensorView>(expr->outputs());
+    std::copy(outputs.begin(), outputs.end(), std::back_inserter(from_tvs));
+    auto inputs = ir_utils::filterByType<TensorView>(expr->inputs());
+    std::copy(
+        inputs.begin(), inputs.end(), std::inserter(to_tvs, to_tvs.end()));
   }
 
-  for (auto tv : to_tvs) {
-    std::cout << "To tv: " << tv->toString() << std::endl;
+  for (auto expr : to) {
+    auto outputs = ir_utils::filterByType<TensorView>(expr->outputs());
+    std::copy(
+        outputs.begin(), outputs.end(), std::inserter(to_tvs, to_tvs.end()));
   }
 
-  std::vector<TensorView*> tvs_to_shard = {tvs_between.begin(), tvs_between.end()};
- 
-  std::cout << "Sharding: ";
-  for (auto tv : tvs_to_shard) {
-    std::cout << tv->toString() << std::endl;
-  }
-  shardAllLike(ref_tv, tvs_to_shard, parallel_types);
+  auto tvs_between = scheduler_utils::getAllTvsFrom(from_tvs, to_tvs);
+  shardAllLike(
+      ref_tv, {tvs_between.begin(), tvs_between.end()}, parallel_types);
 }
 
 void shardBetween(
     const std::vector<TensorView*>& ref_tvs,
     const std::vector<TensorView*>& boundary_tvs,
+    TensorView* ref,
     const std::unordered_set<ParallelType>& parallel_types) {
-  // std::unordered_set<Val*> s = {ref_tvs.begin(), ref_tvs.end()};
-  // std::vector<Val*> v = {boundary_tvs.begin(), boundary_tvs.end()};
-  // // This won't get things that are dangling
-
-  // auto between_vals =
-  //     DependencyCheck::getAllValsBetween(s, v);
-  // auto tvs_between = ir_utils::filterByType<TensorView>(between_vals);
-  // Note: we use getAllTvsFrom instead of getAllTVsBetween so that we can get all TVs reachable from t that don't
-  // cross the boundary. This is because (1) expressions like rng_uniform create a fresh TV
-  // that is not along a path from user visible TVs. (2) multi-output expressions may have output 
-  // tensors that are not along a path to the global output which would also be excluded. Our sharding
-  // propagation checks check all TVs in the fusion are assigned a device mesh regardless if they are
-  // reachable. To keep the checks simple, we require all TVs are assigned a mesh if they exist in the
-  // fusion, regardless if they are reachable. 
-  std::unordered_set<TensorView*> to_tvs = {boundary_tvs.begin(), boundary_tvs.end()};
+  // Use getAllTvsFrom instead of getAllTVsBetween so that we can get all TVs
+  // reachable from t that don't cross the boundary. This is because (1)
+  // expressions like rng_uniform create a fresh TV that is not along a path
+  // from user visible TVs. (2) multi-output expressions may have output tensors
+  // that are not along a path to the fusion output which would be excluded. Our
+  // sharding propagation checks check all TVs in the fusion are assigned a
+  // device mesh regardless if they are reachable. To keep the checks simple, we
+  // require all TVs are assigned a mesh if they exist in the fusion, regardless
+  // if they are reachable.
+  std::unordered_set<TensorView*> to_tvs = {
+      boundary_tvs.begin(), boundary_tvs.end()};
   for (auto tv : ref_tvs) {
     auto expr = tv->definition();
     if (expr == nullptr) {
       continue;
     }
-    for (auto tv : ir_utils::filterByType<TensorView>(expr->inputs())) {
-      to_tvs.insert(tv);
-    }
+    auto inputs = ir_utils::filterByType<TensorView>(expr->inputs());
+    std::copy(
+        inputs.begin(), inputs.end(), std::inserter(to_tvs, to_tvs.end()));
   }
+
   auto tvs_between = scheduler_utils::getAllTvsFrom(ref_tvs, to_tvs);
-
-
-  std::vector<TensorView*> tvs_to_shard= {tvs_between.begin(), tvs_between.end()};
-  // std::copy_if(
-  //     tvs_between.begin(),
-  //     tvs_between.end(),
-  //     std::back_inserter(tvs_to_shard),
-  //     [](TensorView* tv) { return !tv->hasDeviceMesh(); });
-  for (auto tv : ref_tvs) {
-    std::cout << "Ref tv: " << tv->toString() << std::endl;
-  }
-  for (auto tv : to_tvs) {
-    std::cout << "Boundary tv: " << tv->toString() << std::endl;
-  }
-  std::cout << "Sharding: ";
-  for (auto tv : tvs_to_shard) {
-    std::cout << tv->toString() << std::endl;
-  }
-  shardAllLike(ref_tvs[0], tvs_to_shard, parallel_types);
+  shardAllLike(ref, {tvs_between.begin(), tvs_between.end()}, parallel_types);
 }
 
 int64_t requestedNumberOfDevices(Fusion* fusion) {

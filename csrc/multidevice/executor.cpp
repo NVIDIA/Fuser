@@ -109,7 +109,7 @@ MultiDeviceExecutor::MultiDeviceExecutor(
     }
     const bool is_resharding = std::any_of(
         group->exprs().begin(), group->exprs().end(), [](auto expr) {
-          return (isResharding(expr));
+          return isResharding(expr);
         });
     if (!is_resharding) {
       auto host_unit = IrBuilder::create<hir::HostUnit>(
