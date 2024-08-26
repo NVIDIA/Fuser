@@ -719,6 +719,26 @@ lt_opinfo = OpInfo(
 )
 binary_ops.append(lt_opinfo)
 
+minimum_opinfo = OpInfo(
+    lambda fd: fd.ops.minimum,
+    "minimum",
+    dtypes=int_float_dtypes,
+    sample_input_generator=elementwise_binary_generator,
+    reference=_elementwise_binary_torch(torch.minimum),
+    is_clonable=True,
+)
+binary_ops.append(minimum_opinfo)
+
+maximum_opinfo = OpInfo(
+    lambda fd: fd.ops.maximum,
+    "maximum",
+    dtypes=int_float_dtypes,
+    sample_input_generator=elementwise_binary_generator,
+    reference=_elementwise_binary_torch(torch.maximum),
+    is_clonable=True,
+)
+binary_ops.append(maximum_opinfo)
+
 mod_opinfo = OpInfo(
     lambda fd: fd.ops.mod,
     "mod",
