@@ -1258,6 +1258,7 @@ TensorRolesMapOpt getTensorRoles(
     Fusion* fusion,
     const IdModel& id_model,
     const DimRolesMap& dim_roles) {
+  NVF_ERROR(fusion != nullptr);
   const auto mma_input_candidates =
       ir_utils::filterByType<TensorView>(fusion->inputs()).vector();
   if (mma_input_candidates.empty()) {
