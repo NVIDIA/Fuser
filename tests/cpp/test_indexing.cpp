@@ -4850,4 +4850,101 @@ TEST_F(ContigIndexingTest, ConcretizedBroadcastMerge) {
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
+TEST_F(IndexingTest, PerDimLogicalIndices) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({4, 8});
+  fusion.addInput(tv0);
+  auto tv1 = reshape(tv0, {4, 8}, {32});
+  fusion.addOutput(tv1);
+
+  tv1->split(0, 4);
+  tv1->split(0, 128);
+
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  tv1->axis(1)->parallelize(ParallelType::TIDx);
+  tv1->axis(2)->parallelize(ParallelType::Unroll);
+
+  auto validate_per_dim_indices =
+      [](const std::vector<Expr*>& exprs) -> std::vector<Expr*> {
+    class Validator : public kir::IrVisitor {
+     public:
+      using kir::IrVisitor::handle;
+      using kir::IrVisitor::dispatch;
+
+      void handle(LoadStoreOp* ls) override {
+        // There should be only one expression of tv1 = Set(tv0).
+        NVF_ERROR(ls->in()->isA<kir::TensorIndex>());
+        auto tv0 = ls->in()->as<kir::TensorIndex>()->view();
+        NVF_ERROR(tv0->name() == 0);
+
+        NVF_ERROR(ls->out()->isA<kir::TensorIndex>());
+        auto tv1 = ls->out()->as<kir::TensorIndex>()->view();
+        NVF_ERROR(tv1->name() == 1);
+
+        auto indexer = GpuLower::current()->tensorIndexer();
+        auto loop_indices = getLoopIndices(tv1, indexer);
+
+        // The logical domains of tv0 and tv1 are [i0, i1] and
+        // [i0*i1], respectively. Since tv1 is split twice, the
+        // logical domain of tv1 is obtained by traversing them from
+        // the three loop iter domains.
+        auto tv1_logical_index = addExpr(
+            mulExpr(
+                addExpr(
+                    mulExpr(loop_indices.at(0), createInt(128)),
+                    loop_indices.at(1)),
+                createInt(4)),
+            loop_indices.at(2));
+
+        // The tv0 logical indices are obtained by traversing through
+        // the merge for the reshape op.
+        std::vector<Val*> tv0_logical_indices{
+            divExpr(tv1_logical_index, tv0->getLogicalDomain().at(1)->extent()),
+            modExpr(
+                tv1_logical_index, tv0->getLogicalDomain().at(1)->extent())};
+
+        // Check tv1 logical indices
+        auto actual_tv1_logial_indices =
+            Index::getConsumerPerDimLogicalIndex(tv1, for_loops_, {});
+        ASSERT_EQ(actual_tv1_logial_indices.size(), 1);
+        EXPECT_TRUE(actual_tv1_logial_indices[0]->sameAs(tv1_logical_index))
+            << "Validation failure of " << tv1->toString() << " as consumer"
+            << "\nRef: " << tv1_logical_index->toInlineString()
+            << "\nActual: " << actual_tv1_logial_indices[0]->toInlineString();
+
+        // Check tv0 logical indices
+        auto actual_tv0_logial_indices =
+            Index::getProducerPerDimLogicalIndex(tv0, tv1, for_loops_, {});
+        ASSERT_EQ(actual_tv0_logial_indices.size(), tv0_logical_indices.size());
+        for (const auto i : c10::irange(tv0_logical_indices.size())) {
+          EXPECT_TRUE(
+              actual_tv0_logial_indices[i]->sameAs(tv0_logical_indices[i]))
+              << "Validation failure of " << tv0->toString() << " as producer"
+              << "\nRef: " << tv0_logical_indices[0]->toInlineString()
+              << "\nActual: " << actual_tv0_logial_indices[i]->toInlineString();
+        }
+      }
+    };
+
+    Validator validator;
+    validator.handle(exprs);
+
+    return exprs;
+  };
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  DisableOptionsGuard disable_options_guard;
+  DisableOptionsGuard::getCurOptions().set(DisableOption::ExprSimplify);
+  DisableOptionsGuard::getCurOptions().set(DisableOption::IndexHoist);
+
+  GpuLower lower(&fusion);
+  lower.passes().insert(
+      lower.passes().end(),
+      {"validate_per_dim_indices", validate_per_dim_indices});
+  lower.run();
+}
+
 } // namespace nvfuser
