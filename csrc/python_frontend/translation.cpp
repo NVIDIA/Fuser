@@ -201,8 +201,8 @@ class FusionTranslator : public OptInConstDispatch {
         tv->domain()->logical().end(),
         std::back_inserter(shape),
         [](IterDomain* id) {
-          return (id->extent()->isConstScalar())
-              ? id->extent()->evaluate().as<int64_t>()
+          return (id->getMaybeExpandedExtent()->isConstScalar())
+              ? id->getMaybeExpandedExtent()->evaluate().as<int64_t>()
               : -1;
         });
 
@@ -499,7 +499,8 @@ class FusionTranslator : public OptInConstDispatch {
     fd_->defineRecord(new SqueezeOpRecord(
         {fd_->recordingState(map_val_to_fd_index_.at(sop->in()))},
         {fd_->recordingState(output())},
-        squeeze_dims));
+        squeeze_dims,
+        /*squeeze_expanded=*/true));
   }
 
   // Map ViewOp to python frontend
