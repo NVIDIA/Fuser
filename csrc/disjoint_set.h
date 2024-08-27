@@ -200,7 +200,7 @@ class VectorOfUniqueEntries {
 
   // Erase given entry from the containers if
   //  there is a match.
-  void erase(T entry) {
+  int64_t erase(T entry) {
     vector_.erase(
         std::remove_if(
             vector_.begin(),
@@ -208,7 +208,7 @@ class VectorOfUniqueEntries {
             [entry](T val) { return val == entry; }),
         vector_.end());
 
-    set_.erase(entry);
+    return static_cast<int64_t>(set_.erase(entry));
   }
 
   // Insert elements at the end of the container.
