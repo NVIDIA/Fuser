@@ -154,17 +154,56 @@ class FusionTranslator : public OptInConstDispatch {
       return;
     }
 
+    Scalar output = fd_->defineScalar();
+    map_val_to_fd_index_.emplace(v, output());
+
+    // Scalar can come from TensorView size
+    // TODO cache tensors and create separate function
+    std::vector<std::pair<const nvfuser::Val*, int64_t>> tensors;
+    std::copy_if(
+        map_val_to_fd_index_.begin(),
+        map_val_to_fd_index_.end(),
+        std::back_inserter(tensors),
+        [](std::pair<const nvfuser::Val*, int64_t>&& kv) {
+          return kv.first->isA<TensorView>();
+        });
+
+    // For all Tensors:
+    for (auto& kv : tensors) {
+      const TensorView* key_tv = kv.first->as<TensorView>();
+
+      // Get extents for each IterDomain
+      std::vector<Val*> extents;
+      extents.reserve(key_tv->domain()->logical().size());
+      std::transform(
+          key_tv->domain()->logical().begin(),
+          key_tv->domain()->logical().end(),
+          std::back_inserter(extents),
+          [](IterDomain* id) { return id->getMaybeExpandedExtent(); });
+
+      auto iter = std::find(extents.begin(), extents.end(), v);
+      // Check if value matches iterdomain extent
+      if (iter == extents.end()) {
+        continue;
+      }
+
+      int64_t dim = std::distance(extents.begin(), iter);
+      fd_->defineRecord(new SizeOpRecord(
+          {fd_->recordingState(kv.second)},
+          {fd_->recordingState(output())},
+          dim));
+      return;
+    }
+
     // DataType::Index does not exist in python_frontend, so convert to
     // DataType::Int
     DataType scalar_dtype =
         (v->dtype() == DataType::Index) ? DataType::Int : v->dtype();
 
-    Scalar output = fd_->defineScalar();
     fd_->defineRecord(new ScalarRecord(
         {fd_->recordingState(output())},
         v->value(),
         std::get<PrimDataType>(scalar_dtype.type)));
-    map_val_to_fd_index_.emplace(v, output());
   }
 
   // Create python_frontend Vector from a vector of CPP scalar values.
