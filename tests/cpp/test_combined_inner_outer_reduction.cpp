@@ -5,10 +5,21 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <csrc/exceptions.h>
+#include <algorithm>
+#include <iostream>
+#include <sstream>
+#include <thread>
+
 #include <gmock/gmock-matchers.h>
+#include <gmock/gmock-more-matchers.h>
 #include <gtest/gtest.h>
 
+#include <ATen/cuda/CUDAContext.h>
+#include <ATen/cuda/Exceptions.h>
+#include <c10/cuda/CUDACachingAllocator.h>
+#include <c10/cuda/CUDAStream.h>
+
+#include <exceptions.h>
 #include <grouped_reduction.h>
 #include <inlining.h>
 #include <ir/utils.h>
@@ -21,18 +32,10 @@
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
-#include <ATen/cuda/CUDAContext.h>
-#include <ATen/cuda/Exceptions.h>
-#include <c10/cuda/CUDACachingAllocator.h>
-#include <c10/cuda/CUDAStream.h>
-#include <algorithm>
-#include <iostream>
-#include <sstream>
-#include <thread>
-
 namespace nvfuser {
 
-using namespace at::indexing;
+using testing::Contains;
+using testing::Not;
 
 // tuple of data type, batch size (outer dim), hidden size (inner dim)
 using CombinedSchedulerParams = std::tuple<DataType, int64_t, int64_t>;
@@ -458,10 +461,14 @@ TEST_F(NVFuserTest, CombinedSchedulerSharedProducer_CUDA) {
       case 0:
       case 1:
       case 3:
-        EXPECT_TRUE(runtime->isSegmented());
+        EXPECT_THAT(
+            runtime->fusionSegments()->groups(),
+            Contains(Not(HeuristicIs(ScheduleHeuristic::NoOp))).Times(2));
         break;
       case 2:
-        EXPECT_FALSE(runtime->isSegmented());
+        EXPECT_THAT(
+            runtime->fusionSegments()->groups(),
+            Contains(Not(HeuristicIs(ScheduleHeuristic::NoOp))).Times(1));
         break;
       default:
         NVF_ERROR(false, "Invalid case id");
