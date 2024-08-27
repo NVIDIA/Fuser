@@ -163,7 +163,7 @@ INSTANTIATE_TEST_SUITE_P(
 // fusion should be segmented since the current combined scheduler assumes there
 // is no shared consumer between inter reductions and outer reductions and among
 // tensors in outer reductions.
-TEST_F(NVFuserTest, CombinedSchedulerSharedConsumer_CUDA) {
+TEST_F(CombinedSchedulerTest, SharedConsumer) {
   auto runTest = [](const std::vector<int64_t>& batch_shape,
                     const std::vector<int64_t>& norm_shape,
                     DataType dtype,
@@ -312,7 +312,7 @@ TEST_F(NVFuserTest, CombinedSchedulerSharedConsumer_CUDA) {
 // This case is to test the correctness of the combined inner and outer
 // scheduler. One tensor is using the inner reduction results and outer
 // reduction results. should be segmented.
-TEST_F(NVFuserTest, CombinedSchedulerSharedProducer_CUDA) {
+TEST_F(CombinedSchedulerTest, SharedProducer) {
   auto runTest = [](const std::vector<int64_t>& batch_shape,
                     const std::vector<int64_t>& norm_shape,
                     DataType dtype,
@@ -533,7 +533,7 @@ TEST_F(NVFuserTest, CombinedSchedulerSharedProducer_CUDA) {
 }
 
 // Manual schedule of inner and outer reduction on the same tensor
-TEST_F(NVFuserTest, CombinedReduction_CUDA) {
+TEST_F(CombinedSchedulerTest, CombinedReduction) {
   // https://github.com/csarofeen/pytorch/issues/2566
   // this case will fail, if using tidx = 8 and tidy = 64
   // for inner reduction, tidy is derived as 10240 / (tidx*vecx*nloadx) = 64
@@ -694,7 +694,7 @@ TEST_F(NVFuserTest, CombinedReduction_CUDA) {
 
 // Manual schedule of inner and outer reduction on the same tensor. Each block
 // will do multiple reductions.
-TEST_F(NVFuserTest, CombinedReductionMultiPerBlock_CUDA) {
+TEST_F(CombinedSchedulerTest, CombinedReductionMultiPerBlock) {
   auto ceilDiv = [](const int a, const int b) { return (a + b - 1) / b; };
   constexpr bool verbose = false;
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
@@ -872,7 +872,7 @@ TEST_F(NVFuserTest, CombinedReductionMultiPerBlock_CUDA) {
 
 // Reproduce of issue 1023, where iteration axis in inner reduction tv doesn't
 // match to reduction axis in outer reduction tv.
-TEST_F(NVFuserTest, CombinedSchedulerInnerOuterMismatch) {
+TEST_F(CombinedSchedulerTest, InnerOuterMismatch) {
   auto test = [](const std::vector<int64_t>& outer_reduction_axis) {
     std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
     Fusion& fusion = *fusion_ptr.get();
@@ -927,7 +927,7 @@ TEST_F(NVFuserTest, CombinedSchedulerInnerOuterMismatch) {
 // outer broadcast tvs, e.g. in layer norm backward and RMS norm backward.
 // This test covers the branch where the outer broadcast tensor is not exist
 // and data type is fp32, so the buffer is not projected to inputs.
-TEST_F(NVFuserTest, CombinedSchedulerInnerOuterNoOuterBroadcastTv) {
+TEST_F(CombinedSchedulerTest, InnerOuterNoOuterBroadcastTv) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
