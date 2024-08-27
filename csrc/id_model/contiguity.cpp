@@ -97,12 +97,12 @@ void ContigIDGroups::handle(Merge* merge, Direction direction) {
       << "predicate pass: " << is_predicate_pass_ << std::endl;
 
   const bool is_indexing_pass = !is_predicate_pass_;
-  const bool ignore_consistent_ordering = is_predicate_pass_;
 
   // If output is not consistently ordered or doesn't solely consume all
   // allocation domains in its dependencies, then it can't be a contiguously
-  // indexable iterdomain.
-  if (!(ignore_consistent_ordering ||
+  // indexable iterdomain. If it's a predicate pass, the ordering
+  // doesn't matter since it does not index any actual memory.
+  if (!(is_predicate_pass_ ||
         consistent_transform_info_->isConsistentlyOrdered(merge->out()))) {
     return;
   }
@@ -114,6 +114,7 @@ void ContigIDGroups::handle(Merge* merge, Direction direction) {
   // Check allocation domains for contiguity
   auto alloc_ids_it = consistent_transform_info_->findAllocIDs(merge->out());
 
+  // Contiguity doesn't matter for predicates
   if (is_indexing_pass) {
     VectorOfUniqueEntries<IterDomain*> alloc_ids = alloc_ids_it->second;
     for (auto alloc_id_i : c10::irange(alloc_domains_.size())) {
