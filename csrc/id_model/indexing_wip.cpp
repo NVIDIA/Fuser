@@ -251,49 +251,6 @@ std::vector<PredicateInfo> TensorIndexer::getPredicatesWIP(
   return info_vec;
 }
 
-// TODO: Drop the tv parameter. It's only for double buffering, which
-// I believe should be done as a separate step after indexing
-std::vector<Val*> TensorIndexer::getPerDimIndex(
-    TensorView* tv,
-    const std::vector<IterDomain*>& index_domains,
-    const Expr* expr,
-    const std::vector<ForLoop*>& for_loops) {
-  const auto& traversal_graph = id_model_.idGraph(IdMappingMode::ALMOSTEXACT);
-
-  VERBOSE() << "getPerDimIndex of " << toDelimitedString(index_domains)
-            << " in " << expr->toString() << std::endl;
-
-  const auto& index_info =
-      computeIndex(expr, traversalGraph().toGroups(index_domains), for_loops);
-
-  const auto& index_map = index_info.index_map;
-
-  std::vector<Val*> indices;
-  indices.reserve(index_domains.size());
-
-  for (const auto i : c10::irange(index_domains.size())) {
-    auto index_domain = index_domains.at(i);
-
-    if (index_domain->isBroadcast() || index_domain->isReduction()) {
-      indices.push_back(index_domain->fusion()->zeroVal());
-      continue;
-    }
-
-    auto idx_it = index_map.find(traversal_graph.toGroup(index_domain));
-    NVF_ERROR(
-        idx_it != index_map.end(),
-        "Index not found for ",
-        index_domain->toString());
-    Val* idx = idx_it->second;
-    VERBOSE() << "Index of " << index_domain->toString() << ": "
-              << idx->toInlineString() << std::endl;
-
-    indices.push_back(idx);
-  }
-
-  return indices;
-}
-
 bool TensorIndexer::isSupported(Fusion* fusion) {
   const auto all_tvs = ir_utils::allTvs(fusion);
 

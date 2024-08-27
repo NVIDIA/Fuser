@@ -1904,56 +1904,31 @@ void IndexLowering::handle(const PadOp* pad) {
 
   // Build a predicate for where
   //
-  // Producer dim index is always zero in the IdModel-based indexing
-  // when the producer dim is broadcast. The padding predicate won't
-  // work as all the accesses would just get a true predicate. Using
-  // the consumer indexing works. Overriding could be another
-  // workaround.
-  Val* pred = nullptr;
-  if (GpuLower::current()->isTensorIndexerEnabled() &&
-      isIdModelOptionEnabled(IdModelEnableOption::ConsumerIndex)) {
-    auto consumer_root_indices =
-        GpuLower::current()->tensorIndexer().getPerDimIndex(
-            consumer_tv,
-            consumer_tv->getLogicalDomain(),
-            consumer_tv->definition(),
-            for_loops_);
-    pred = IrBuilder::create<Val>(true);
-    for (auto padded_axis : pad->getPaddedAxes()) {
-      auto consumer_idx = consumer_root_indices.at(padded_axis);
-      auto consumer_root_id = consumer_tv->getLogicalDomain().at(padded_axis);
-      NVF_ERROR(!consumer_root_id->maybePartial());
-      const auto& pad_widths = pad->getPadWidths(padded_axis);
-      pred = SimplifyingIrBuilder::logicalAndExpr(
-          pred,
-          // idx >= left_pad && idx < extent
-          SimplifyingIrBuilder::logicalAndExpr(
-              SimplifyingIrBuilder::geExpr(consumer_idx, pad_widths.first),
-              SimplifyingIrBuilder::ltExpr(
-                  consumer_idx,
-                  SimplifyingIrBuilder::subExpr(
-                      consumer_root_id->getMaybeExpandedExtent(),
-                      pad_widths.second))));
-    }
-  } else {
-    const auto producer_root_indices = Index::getProducerPerDimLogicalIndex(
-        producer_tv, consumer_tv, for_loops_, getRotatedLoop(), override_index);
-
-    pred = IrBuilder::create<Val>(true);
-    for (auto padded_axis : pad->getPaddedAxes()) {
-      auto producer_idx = producer_root_indices.at(padded_axis);
-      auto producer_root_id = producer_doms.at(padded_axis);
-      NVF_ERROR(!producer_root_id->maybePartial());
-      pred = SimplifyingIrBuilder::logicalAndExpr(
-          pred,
-          // idx >= 0 && idx < extent
-          SimplifyingIrBuilder::logicalAndExpr(
-              SimplifyingIrBuilder::geExpr(
-                  producer_idx, GpuLower::current()->kernel()->zeroVal()),
-              SimplifyingIrBuilder::ltExpr(
-                  producer_idx, producer_root_id->getMaybeExpandedExtent())));
-    }
+  // Note that, in the IdModel-based indexing, producer dim index is
+  // always zero when the producer dim is broadcast. This can be a
+  // problem if a broadcast domain is padded since the padding
+  // predicate would just be always true. Using the consumer indexing
+  // works.
+  auto consumer_root_indices = Index::getConsumerPerDimLogicalIndex(
+      consumer_tv, for_loops_, getRotatedLoop());
+  Val* pred = consumer_tv->fusion()->trueVal();
+  for (auto padded_axis : pad->getPaddedAxes()) {
+    auto consumer_idx = consumer_root_indices.at(padded_axis);
+    auto consumer_root_id = consumer_tv->getLogicalDomain().at(padded_axis);
+    NVF_ERROR(!consumer_root_id->maybePartial());
+    const auto& pad_widths = pad->getPadWidths(padded_axis);
+    pred = SimplifyingIrBuilder::logicalAndExpr(
+        pred,
+        // idx >= left_pad && idx < extent
+        SimplifyingIrBuilder::logicalAndExpr(
+            SimplifyingIrBuilder::geExpr(consumer_idx, pad_widths.first),
+            SimplifyingIrBuilder::ltExpr(
+                consumer_idx,
+                SimplifyingIrBuilder::subExpr(
+                    consumer_root_id->getMaybeExpandedExtent(),
+                    pad_widths.second))));
   }
+
   pred = GpuLower::current()->commonScalarMap().hoistScalar(pred, for_loops_);
 
   pushBack(IrBuilder::create<TernaryOp>(

@@ -120,13 +120,6 @@ class TensorIndexer {
       const std::vector<ForLoop*>& for_loops,
       ForLoop* unswitched_loop = nullptr) const;
 
-  // TODO: Drop tv
-  std::vector<Val*> getPerDimIndex(
-      TensorView* tv,
-      const std::vector<IterDomain*>& index_domains,
-      const Expr* expr,
-      const std::vector<ForLoop*>& loops);
-
   static bool isSupported(Fusion* fusion);
 
  private:
