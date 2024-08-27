@@ -638,4 +638,38 @@ TEST_F(PointwiseTest, VectorizeWithBroadcastAndReshape2) {
   EXPECT_EQ(getVecSizeForPointwise(executor_cache), 4);
 }
 
+TEST_F(PointwiseTest, VectorizeWithExpandedBroadcast) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  constexpr int64_t kTensorSize = 65536;
+  TensorView* in = TensorViewBuilder()
+                       .dtype(DataType::Half)
+                       .shape({2, kTensorSize})
+                       .expanded({true, false})
+                       .build();
+  in->setAllocationDomain({in->axis(1), in->axis(0)}, true);
+  TensorView* out = add(in, in);
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  auto in_tensor =
+      at::randn({kTensorSize}, options).as_strided({2, kTensorSize}, {0, 1});
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+
+  auto hparams = fec.getMostRecentKernelRuntime()
+                     ->schedulerHeuristics()
+                     ->heuristicsList()
+                     .at(0)
+                     ->params();
+  ASSERT_TRUE(hparams->isA<PointwiseParams>());
+  const auto& pparams = hparams->as<PointwiseParams>();
+  EXPECT_TRUE(pparams->vectorize);
+  EXPECT_GT(pparams->unroll_factor, 1);
+}
+
 } // namespace nvfuser
