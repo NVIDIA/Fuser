@@ -1510,7 +1510,7 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
     } else if (ir_utils::isStMatrixOp(ldst)) {
       as_type = ArrayType{
           std::make_shared<DataType>(DataType::UInt32),
-          (size_t)ir_utils::getVectorizeSize(ldst->in()->as<TensorView>()) / 2};
+          1 /*hard coded for 8*8 store*/};
     } else if (ldst->out()->definition()->isA<MmaOp>()) {
       // For MMA accumulator initialization
       as_type = getMmaOutType(ldst->out()->as<TensorView>());
