@@ -87,13 +87,29 @@ bool haveDifferentShardings(
 bool isInnerResharding(Expr* expr);
 
 // Shards all tensors in tvs like reference
-void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs);
+void shardAllLike(
+    TensorView* ref,
+    std::vector<TensorView*> tvs,
+    const std::unordered_set<ParallelType>& parallel_types = {
+        ParallelType::Serial,
+        ParallelType::DIDx});
 
-// Shards all tensors within a boundary like ref_tvs, but does not change the
-// sharding of tvs already sharded.
+// Shards all TVs from the output of from expressions to the outputs of the to
+// expressions like the reference TV.
 void shardBetween(
-    std::vector<TensorView*> ref_tvs,
-    const std::unordered_set<TensorView*>& boundary_tvs);
+    const std::vector<Expr*>& from,
+    const std::vector<Expr*>& to,
+    TensorView* ref,
+    const std::unordered_set<ParallelType>& parallel_types = {
+        ParallelType::DIDx});
+
+// Shards all TVs between from and to like the reference TV.
+void shardBetween(
+    const std::vector<TensorView*>& from,
+    const std::vector<TensorView*>& to,
+    TensorView* ref,
+    const std::unordered_set<ParallelType>& parallel_types = {
+        ParallelType::DIDx});
 
 // Returns the devices involved in an expr
 std::set<DeviceIdxType> involvedDevices(Expr* expr);
