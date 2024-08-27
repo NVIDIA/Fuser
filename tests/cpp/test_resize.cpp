@@ -1906,86 +1906,38 @@ TEST_F(ResizeTest, FusionSliceForNanoGPT2) {
 }
 
 // C++ version of TestNvFuserFrontend.test_nanogpt_split_mha_linears
-TEST_F(ResizeTest, FusionSliceForNanoGPT3) {
+TEST_F(ResizeTest, SliceForNanoGPT3) {
   // To verify input caching condition in this test, disable aliasing as that
   // will skip compilation and no kernel will exist.
   preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
       optimization_guard(false);
 
-  auto fusion_ptr = std::make_unique<Fusion>();
-  auto& fusion = *fusion_ptr;
-  FusionGuard fg(fusion_ptr.get());
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
 
   EnableOptionsGuard opt_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
 
-  std::vector<int64_t> input_shape{16, 128, 3072};
+  auto* in = makeSymbolicTensor(3);
+  fusion->addInput(in);
 
-  auto tv0 = makeSymbolicTensor(3);
-
-  fusion.addInput(tv0);
-
-  auto tv1 = slice(
-      tv0,
-      {{IrBuilder::create<Val>(0L), IrBuilder::create<Val>(16L)},
-       {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(128L)},
-       {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(1024L)}});
-  auto tv2 = slice(
-      tv0,
-      {{IrBuilder::create<Val>(0L), IrBuilder::create<Val>(16L)},
-       {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(128L)},
-       {IrBuilder::create<Val>(1024L), IrBuilder::create<Val>(2048L)}});
-  auto tv3 = slice(
-      tv0,
-      {{IrBuilder::create<Val>(0L), IrBuilder::create<Val>(16L)},
-       {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(128L)},
-       {IrBuilder::create<Val>(2048L), IrBuilder::create<Val>(3072L)}});
-
-  auto tv4 = reshape(tv1, {16, 128, 1024}, {16, 128, 16, 64});
-  auto tv5 = reshape(tv2, {16, 128, 1024}, {16, 128, 16, 64});
-  auto tv6 = reshape(tv3, {16, 128, 1024}, {16, 128, 16, 64});
-
-  // TODO: add permute
-  fusion.addOutput(tv4);
-  fusion.addOutput(tv5);
-  fusion.addOutput(tv6);
+  std::vector<TensorView*> slices = chunk(in, /*chunks=*/3, /*dim=*/-1);
+  for (auto* slice : slices) {
+    TensorView* out = reshape(slice, {16, 128, 1024}, {16, 128, 16, 64});
+    // TODO: add permute
+    fusion->addOutput(out);
+  }
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto in_tensor = at::randn({16, 128, 3072}, options);
 
-  auto t0 = at::randn(input_shape, options);
-  std::vector<c10::IValue> aten_inputs({t0});
-
-  FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+  testValidate(
+      executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
-  NVF_CHECK(!runtime->isSegmented(), "Segmentation not expected");
-
-  auto kernel = runtime->executors().at(0).kernel();
-  NVF_CHECK(
-      !kernel->summary().has_cooperative_grid_reduction,
-      "Grid sync should not be used as slicing input should avoid input caching");
-
-  auto at_t1 = t0.index(
-      {at::indexing::Slice(0, 16),
-       at::indexing::Slice(0, 128),
-       at::indexing::Slice(0, 1024)});
-  auto at_t2 = t0.index(
-      {at::indexing::Slice(0, 16),
-       at::indexing::Slice(0, 128),
-       at::indexing::Slice(1024, 2048)});
-  auto at_t3 = t0.index(
-      {at::indexing::Slice(0, 16),
-       at::indexing::Slice(0, 128),
-       at::indexing::Slice(2048, 3072)});
-
-  auto at_t4 = at_t1.reshape({16, 128, 16, 64});
-  auto at_t5 = at_t2.reshape({16, 128, 16, 64});
-  auto at_t6 = at_t3.reshape({16, 128, 16, 64});
-
-  NVF_CHECK(cg_outputs.at(0).equal(at_t4));
-  NVF_CHECK(cg_outputs.at(1).equal(at_t5));
-  NVF_CHECK(cg_outputs.at(2).equal(at_t6));
+  EXPECT_FALSE(runtime->isSegmented());
 }
 
 TEST_F(ResizeTest, ResizeReshapeAndSlice) {

@@ -777,11 +777,9 @@ ParallelType getParallelType(const ValGroup& loop_group) {
 TensorIndexer::TensorIndexer(IdModel& id_model) : id_model_(id_model) {
   buildLoopIndexMap();
 
-  if (getenv("DOT")) {
-    std::ofstream ofs("exact_graph.dot", std::ofstream::trunc);
-    auto dot_string = ValGraphDotPrinter::getString(
-        id_model_.idGraph(IdMappingMode::ALMOSTEXACT));
-    std::cerr << dot_string << std::endl;
+  if (isDebugDumpEnabled(DebugDumpOption::IndexingVerbose)) {
+    std::ofstream ofs("indexing_traversal_graph.dot", std::ofstream::trunc);
+    auto dot_string = traversalGraph().toGraphvizDotGraph();
     ofs << dot_string;
     ofs.close();
   }
@@ -965,9 +963,9 @@ Val* TensorIndexer::getLinearIndex(
       std::find(expr->outputs().begin(), expr->outputs().end(), tv) !=
       expr->outputs().end();
 
-  index_utils::verbose() << "getLinearIndex of " << tv->toString() << " as "
-                         << (as_consumer ? "consumer" : "producer") << " in "
-                         << expr->toString() << std::endl;
+  indexing_utils::verbose() << "getLinearIndex of " << tv->toString() << " as "
+                            << (as_consumer ? "consumer" : "producer") << " in "
+                            << expr->toString() << std::endl;
 
   const auto alloc_info = getIndexingAllocationInfo(tv);
 
@@ -996,8 +994,8 @@ Val* TensorIndexer::getLinearIndex(
         SimplifyingIrBuilder::addExpr(linear_index, circular_buffer_offset);
   }
 
-  indexing::verbose() << "Final index: " << linear_index->toInlineString()
-                      << std::endl;
+  indexing_utils::verbose()
+      << "Final index: " << linear_index->toInlineString() << std::endl;
   return linear_index;
 }
 
