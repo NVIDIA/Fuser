@@ -646,6 +646,73 @@ class FusionTranslator : public OptInConstDispatch {
         strides));
   }
 
+  // Map RNGOp to RandomDistOpRecord
+  void handle(const RNGOp* rop) final {
+    TensorView* out_tv = rop->output(0)->as<TensorView>();
+    Tensor output = fd_->defineTensor(out_tv->nDims());
+    map_val_to_fd_index_.emplace(out_tv, output());
+
+    std::vector<State> arg_states;
+
+    // arg1 and arg2 are minval and maxval for uniform.
+    // arg1 and arg2 are mean and std for normal.
+    std::vector<Val*> params = rop->getParameters();
+    if (params.empty()) {
+      // Default arg1 and arg2 is (0, 1) for both uniform and normal.
+      handle(fusion_->zeroVal());
+      arg_states.push_back(
+          fd_->recordingState(map_val_to_fd_index_.at(fusion_->zeroVal())));
+      handle(fusion_->oneVal());
+      arg_states.push_back(
+          fd_->recordingState(map_val_to_fd_index_.at(fusion_->oneVal())));
+    } else {
+      NVF_ERROR(
+          params.size() == 2,
+          "Expect only two parameters for uniform and normal random ops.");
+      std::transform(
+          params.begin(),
+          params.end(),
+          std::back_inserter(arg_states),
+          [&](Val* v) {
+            return fd_->recordingState(map_val_to_fd_index_.at(v));
+          });
+    }
+
+    Vector out_shape = createVector(rop->getShape());
+    arg_states.push_back(fd_->recordingState(out_shape()));
+
+    // The philox seed and offset are optional.
+    if (rop->getRNGSeedVal() != nullptr) {
+      arg_states.push_back(
+          fd_->recordingState(map_val_to_fd_index_.at(rop->getRNGSeedVal())));
+    }
+    if (rop->getRNGOffsetVal() != nullptr) {
+      arg_states.push_back(
+          fd_->recordingState(map_val_to_fd_index_.at(rop->getRNGOffsetVal())));
+    }
+
+    switch (rop->getRNGOpType()) {
+      case RNGOpType::Uniform:
+      case RNGOpType::UniformRange:
+        fd_->defineRecord(
+            new RandomDistOpRecord<serde::RecordType::UniformDistOp>(
+                arg_states,
+                {fd_->recordingState(output())},
+                std::get<PrimDataType>(out_tv->dtype().type)));
+        break;
+      case RNGOpType::NormalStandard:
+      case RNGOpType::NormalGeneral:
+        fd_->defineRecord(
+            new RandomDistOpRecord<serde::RecordType::NormalDistOp>(
+                arg_states,
+                {fd_->recordingState(output())},
+                std::get<PrimDataType>(out_tv->dtype().type)));
+        break;
+      default:
+        NVF_ERROR(false, "Unsupported RNGOpType.");
+    }
+  }
+
  private:
   //! The reference CPP fusion to be translated.
   Fusion* fusion_ = nullptr;
