@@ -426,12 +426,12 @@ Val* PredicateCompute::getInlinePredicate(
   std::vector<PredicateInfo> pred_info_vec;
   if (isIdModelOptionEnabled(IdModelEnableOption::InlinePredicate) &&
       GpuLower::current()->isTensorIndexerEnabled()) {
-    if (getenv("NEW")) {
-      pred_info_vec =
-          gpu_lower->tensorIndexer().getPredicates(out_tv, expr, loops);
-    } else {
+    if (getenv("WIP")) {
       pred_info_vec =
           gpu_lower->tensorIndexer().getPredicatesWIP(out_tv, expr, loops);
+    } else {
+      pred_info_vec =
+          gpu_lower->tensorIndexer().getPredicates(out_tv, expr, loops);
     }
   } else {
     pred_info_vec = Index::getReferenceRootPredicates(

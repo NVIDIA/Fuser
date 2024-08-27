@@ -79,7 +79,7 @@ std::vector<PredicateInfo> TensorIndexer::getPredicatesWIP(
   const std::vector<PredicateDomainInfo> non_divisible_split_predicates =
       getNonDivisibleConsumerDomainsToPredicate(tv);
 
-  const std::unordered_map<IterDomain*, ValGroup>& contig_domains =
+  const std::unordered_map<IterDomain*, ValGroup> contig_domains =
       getContigDomains(
           predicate_domains,
           std::vector<bool>(predicate_domains.size(), true),
