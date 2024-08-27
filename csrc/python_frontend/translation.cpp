@@ -508,6 +508,13 @@ class FusionTranslator : public OptInConstDispatch {
       }
     }
 
+    // The min and max reduction operations expect the dtype argument to by
+    // PrimDataType::Null
+    PrimDataType dtype = (rop->getReductionOpType() == BinaryOpType::Min ||
+                          rop->getReductionOpType() == BinaryOpType::Max)
+        ? PrimDataType::Null
+        : std::get<PrimDataType>(rop->out()->dtype().type);
+
     Tensor output = fd_->defineTensor(out_tv->nDims());
     map_val_to_fd_index_.emplace(rop->out(), output());
     fd_->defineRecord(new ReductionOpRecord(
@@ -523,7 +530,7 @@ class FusionTranslator : public OptInConstDispatch {
             DataType>(rop),
         axes,
         /*keep_dim=*/false,
-        std::get<PrimDataType>(rop->out()->dtype().type)));
+        dtype));
   }
 
   // Add Broadcast operation to FusionDefinition
