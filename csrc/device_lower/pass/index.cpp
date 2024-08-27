@@ -1874,8 +1874,8 @@ Val* IndexLowering::getIterationIndexForBroadcast(
 
 void IndexLowering::handle(const PadOp* pad) {
   // Convert to a where op as:
-  // consumer[consumer_idx] = (producer_idx >= 0 && producer_idx <
-  //                           producer_extent) ?
+  // consumer[consumer_idx] = (consumer_idx >= left_pad && consumer_idx <
+  //                           consumer_extent - right_pad) ?
   //     producer[producer_idx] :
   //     0;
 
@@ -1889,26 +1889,7 @@ void IndexLowering::handle(const PadOp* pad) {
 
   const auto pad_val = pad->value();
 
-  std::unordered_map<IterDomain*, Val*> override_index;
-  for (auto padded_axis : pad->getPaddedAxes()) {
-    auto padded_id = producer_doms.at(padded_axis);
-    if (padded_id->isBroadcast()) {
-      // When we pad a Broadcast IterDomain, we should not treat it as a
-      // Broadcast as we normally would. Instead, we will treat it as a regular
-      // Iteration domain with extent 1.
-      auto ind =
-          getIterationIndexForBroadcast(producer_tv, consumer_tv, padded_id);
-      override_index.emplace(padded_id, ind);
-    }
-  }
-
   // Build a predicate for where
-  //
-  // Note that, in the IdModel-based indexing, producer dim index is
-  // always zero when the producer dim is broadcast. This can be a
-  // problem if a broadcast domain is padded since the padding
-  // predicate would just be always true. Using the consumer indexing
-  // works.
   auto consumer_root_indices = Index::getConsumerPerDimLogicalIndex(
       consumer_tv, for_loops_, getRotatedLoop());
   Val* pred = consumer_tv->fusion()->trueVal();
@@ -1919,7 +1900,7 @@ void IndexLowering::handle(const PadOp* pad) {
     const auto& pad_widths = pad->getPadWidths(padded_axis);
     pred = SimplifyingIrBuilder::logicalAndExpr(
         pred,
-        // idx >= left_pad && idx < extent
+        // idx >= left_pad && idx < extent - right_pad
         SimplifyingIrBuilder::logicalAndExpr(
             SimplifyingIrBuilder::geExpr(consumer_idx, pad_widths.first),
             SimplifyingIrBuilder::ltExpr(
