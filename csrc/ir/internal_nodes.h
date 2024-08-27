@@ -2033,7 +2033,8 @@ class SliceOp : public Expr {
       IrBuilderPasskey passkey,
       TensorView* out,
       TensorView* inp,
-      const std::vector<Slice>& ranges);
+      const std::vector<Slice>& ranges,
+      const std::vector<Slice>& original_ranges);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -2055,7 +2056,12 @@ class SliceOp : public Expr {
     return input(0)->as<TensorView>();
   }
 
+  //! Get normalized ranges for SliceOp.
   std::vector<Slice> getRanges() const;
+
+  //! Get original ranges for SliceOp
+  //! Used to map back to SliceOpRecord in python frontend.
+  std::vector<Slice> getOriginalRanges() const;
 
  private:
   //! Offset of ranges input in the input vector

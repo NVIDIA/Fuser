@@ -4092,12 +4092,19 @@ SliceOp::SliceOp(
     IrBuilderPasskey passkey,
     TensorView* out,
     TensorView* inp,
-    const std::vector<Slice>& ranges)
+    const std::vector<Slice>& ranges,
+    const std::vector<Slice>& original_ranges)
     : Expr(passkey) {
-  const auto ndims = TensorDomain::noReductions(inp->getLogicalDomain()).size();
+  size_t ndims = TensorDomain::noReductions(inp->getLogicalDomain()).size();
   NVF_ERROR(
       ndims == ranges.size(),
       "The range vector must have the same number of Slice descriptors. Given: ",
+      ranges.size(),
+      ", Expected: ",
+      ndims);
+  NVF_ERROR(
+      ndims == original_ranges.size(),
+      "The original range vector must have the same number of Slice descriptors. Given: ",
       ranges.size(),
       ", Expected: ",
       ndims);
@@ -4111,6 +4118,11 @@ SliceOp::SliceOp(
     addInput(range.start);
     addInput(range.stop);
     addInput(range.step);
+  }
+  for (const auto& range : original_ranges) {
+    addAttribute(range.start);
+    addAttribute(range.stop);
+    addAttribute(range.step);
   }
 }
 
@@ -4152,6 +4164,20 @@ std::vector<Slice> SliceOp::getRanges() const {
         .stop = *(range_val_it + 1),
         .step = *(range_val_it + 2)};
     range_val_it += 3;
+  }
+  return ranges;
+}
+
+std::vector<Slice> SliceOp::getOriginalRanges() const {
+  size_t ndims = TensorDomain::noReductions(in()->getLogicalDomain()).size();
+  std::vector<Slice> ranges(ndims);
+  int64_t range_val_pos = 0;
+  for (const auto i : c10::irange(ndims)) {
+    ranges.at(i) = Slice{
+        .start = attributeVal(range_val_pos),
+        .stop = attributeVal(range_val_pos + 1),
+        .step = attributeVal(range_val_pos + 2)};
+    range_val_pos += 3;
   }
   return ranges;
 }
@@ -4523,7 +4549,8 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
               /*return_debug_mask=*/false,
               scale);
 
-  // If the inputs were padded, slice the output to restore the original size
+  // If the inputs were padded, slice the output to restore the original
+  // size
   if (output.size(-1) != last_dim_size) {
     output = output.slice(-1, 0, last_dim_size);
   }
@@ -4536,8 +4563,8 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
 
   // We ignore cum_seq_q/k outputs since they are undefined tensors for
   // non-nested tensors. We do not store query/key_seq_len since they can be
-  // computed in non-nested tensor directly. debug_attn_mask is ignored since
-  // `return_debug_mask=false`.
+  // computed in non-nested tensor directly. debug_attn_mask is ignored
+  // since `return_debug_mask=false`.
   return {output, log_sumexp, philox_seed, philox_offset};
 }
 
@@ -4659,8 +4686,8 @@ ForLoop::ForLoop(
   addAttribute(vectorize_shift);
   addDataAttribute(unroll_required);
   addDataAttribute(circular_buffer_loop_stage);
-  // Storing IR nodes as Attribute is not safe with IrCloner, but fortunately
-  // kernel IR does not need this feature.
+  // Storing IR nodes as Attribute is not safe with IrCloner, but
+  // fortunately kernel IR does not need this feature.
   addDataAttribute(Scope(this));
 }
 
@@ -4970,9 +4997,8 @@ std::string SdpaBwdOp::toInlineString(int indent_size) const {
 std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-  // Backward tensor inputs: grad_input, query, key, value, output, logsumexp,
-  // max_q/k
-  // Temporary handling of DID parallelization. See
+  // Backward tensor inputs: grad_input, query, key, value, output,
+  // logsumexp, max_q/k Temporary handling of DID parallelization. See
   // https://github.com/NVIDIA/Fuser/issues/2563
   bool first_dim_is_did = this->key()->as<TensorView>()->axis(0)->isDeviceDim();
   std::vector<at::Tensor> bwd_inputs;
