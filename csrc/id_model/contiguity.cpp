@@ -14,7 +14,7 @@ namespace nvfuser {
 
 ContigIDGroups::ContigIDGroups(
     const std::vector<IterDomain*>& alloc_domains,
-    const std::vector<bool>& contiguity,
+    std::vector<bool> contiguity,
     const ExprPath<ExprGroup>& path_from_alloc,
     const ValGraph& graph,
     bool is_predicate_pass)
