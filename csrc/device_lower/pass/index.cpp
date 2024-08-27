@@ -1507,16 +1507,41 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
           std::make_shared<DataType>(DataType::UInt32),
           (size_t)ir_utils::getVectorizeSize(ldst->out()->as<TensorView>()) /
               2};
+    } else if (ir_utils::isStMatrixOp(ldst)) {
+      as_type = ArrayType{
+          std::make_shared<DataType>(DataType::UInt32),
+          1 /*hard coded for 8*8 store*/};
     } else if (ldst->out()->definition()->isA<MmaOp>()) {
       // For MMA accumulator initialization
       as_type = getMmaOutType(ldst->out()->as<TensorView>());
     }
-    in = lowerSrcIndex(
-        ldst->in(),
-        ldst->out(),
-        {},
-        ir_utils::isLdMatrixOp(ldst) || ir_utils::isCpAsyncOp(ldst));
-    out = lowerDstIndex(ldst->out(), {}, ir_utils::isCpAsyncOp(ldst), as_type);
+
+    if (ir_utils::isStMatrixOp(ldst)) {
+      // Currently we create hard coded indexing for stmatrix which works on 8x8
+      // matrices. T_local[0]
+      in = IrBuilder::create<kir::TensorIndex>(
+          dynamic_cast<TensorView*>(ldst->in()),
+          IrBuilder::create<Val>(0, DataType::Index),
+          as_type);
+
+      // T_shared[toSmem(T_shared) + 16 * tidx.x]
+      auto out_index = IrBuilder::addExpr(
+          IrBuilder::baseAddressExpr(dynamic_cast<TensorView*>(ldst->out())),
+          IrBuilder::mulExpr(
+              IrBuilder::create<Val>(16, DataType::Index),
+              IrBuilder::create<NamedScalar>("threadIdx.x", DataType::Index)));
+
+      out = IrBuilder::create<kir::TensorIndex>(
+          dynamic_cast<TensorView*>(ldst->out()), out_index);
+    } else {
+      in = lowerSrcIndex(
+          ldst->in(),
+          ldst->out(),
+          {},
+          ir_utils::isLdMatrixOp(ldst) || ir_utils::isCpAsyncOp(ldst));
+      out =
+          lowerDstIndex(ldst->out(), {}, ir_utils::isCpAsyncOp(ldst), as_type);
+    }
     auto new_ldst =
         IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())
             ->withPredicate(ldst->predicate());
