@@ -155,9 +155,6 @@ void ContigIDGroups::handle(Merge* merge, Direction direction) {
     alloc_to_contig_ids_[alloc_id] = graph_.toGroup(merge->out());
   }
 
-  indexing_utils::verbose()
-      << "Contig merge ouput: " << merge->out()->toString() << std::endl;
-
   contig_ids_.emplace(graph_.toGroup(merge->out()));
 }
 

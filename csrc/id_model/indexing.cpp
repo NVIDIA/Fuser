@@ -1226,8 +1226,9 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
       tv, for_loops, id_model_.idGraph(IdMappingMode::LOOP));
 
   std::vector<PredicateInfo> info_vec;
-  info_vec.reserve(predicate_domains.size()) std::unordered_set<ValGroup>
-      already_indexed_domains;
+  info_vec.reserve(predicate_domains.size());
+
+  std::unordered_set<ValGroup> already_indexed_domains;
 
   // Follow the same approach as Index::getReferenceRootPredicates.
   for (const auto& predicate_domain : predicate_domains) {
