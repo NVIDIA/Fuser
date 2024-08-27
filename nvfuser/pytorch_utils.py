@@ -162,7 +162,9 @@ def get_device_properties() -> Tuple[int, float]:
 
     return device_properties
 
+
 DEVICE_PROPERTIES = get_device_properties()
+
 
 def clear_cuda_cache() -> None:
     """

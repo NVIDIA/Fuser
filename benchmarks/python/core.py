@@ -37,6 +37,7 @@ def clear_dynamo_cache() -> None:
     """
     torch._dynamo.reset()
 
+
 # Backward function for torch baseline benchmarks.
 def unary_bwd_torch(inputs: List):  # [output, grad_out]
     inputs[0].backward(inputs[1], retain_graph=True)
