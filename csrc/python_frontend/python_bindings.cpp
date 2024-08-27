@@ -672,7 +672,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             for (py::handle obj : iter) {
               inputs.push_back(torch::jit::toIValue(obj, c10::AnyType::get()));
             }
-            self.existSchedule(inputs);
+            return self.existSchedule(inputs);
           })
       .def(
           "_setup_schedule",
@@ -1450,6 +1450,8 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_BINARY_OP("pow", pow)
   NVFUSER_PYTHON_BINDING_BINARY_OP("remainder", remainder)
   NVFUSER_PYTHON_BINDING_BINARY_OP("sub", sub)
+  NVFUSER_PYTHON_BINDING_BINARY_OP("minimum", minimum)
+  NVFUSER_PYTHON_BINDING_BINARY_OP("maximum", maximum)
   NVFUSER_PYTHON_BINDING_BINARY_OP("mod", mod)
   NVFUSER_PYTHON_BINDING_BINARY_OP("eq", eq)
   NVFUSER_PYTHON_BINDING_BINARY_OP("ge", ge)

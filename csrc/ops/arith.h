@@ -489,6 +489,16 @@ NVF_API Val* sub(Val* v1, Val* v2);
 NVF_API TensorView* sub(TensorView* v1, Val* v2);
 NVF_API TensorView* sub(Val* v1, TensorView* v2);
 NVF_API TensorView* sub(TensorView* v1, TensorView* v2);
+// maximum
+NVF_API Val* maximum(Val* v1, Val* v2);
+NVF_API TensorView* maximum(TensorView* v1, Val* v2);
+NVF_API TensorView* maximum(Val* v1, TensorView* v2);
+NVF_API TensorView* maximum(TensorView* v1, TensorView* v2);
+// minimum
+NVF_API Val* minimum(Val* v1, Val* v2);
+NVF_API TensorView* minimum(TensorView* v1, Val* v2);
+NVF_API TensorView* minimum(Val* v1, TensorView* v2);
+NVF_API TensorView* minimum(TensorView* v1, TensorView* v2);
 // nextafter: Only single- or double-precision
 // floating point types (after promotion) are supported.
 NVF_API Val* nextafter(Val* v1, Val* v2);

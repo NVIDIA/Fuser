@@ -10,6 +10,7 @@
 #include <vector>
 
 #include <ir/interface_nodes.h>
+#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <multidevice/utils.h>
 
@@ -47,6 +48,10 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
         lhs = rhs;
       }
     };
+
+    if (tv->isCpuScalar()) {
+      continue;
+    }
 
     if (tv->hasDeviceMesh()) {
       update_if_null(tv_with_mesh, tv);

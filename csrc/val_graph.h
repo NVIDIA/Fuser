@@ -185,6 +185,8 @@ class ValGraph {
 
   std::string toString() const;
 
+  std::string toGraphvizDotGraph() const;
+
   // Initializes entries for the provided Val with its definitions and
   // uses. The provided Val will have its own new ValGroup, each item in the
   // definitions and uses will become a new ExprGroup, and these new ExprGroups

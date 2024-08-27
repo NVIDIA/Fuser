@@ -94,7 +94,7 @@ TEST_F(NVFuserTest, DynamicTransform1_CUDA) {
           auto info =
               DynamicTransformConcretizationInfo(&initial_info, &expr_eval);
         },
-        ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
+        ::testing::ThrowsMessage<nvfError>(::testing::HasSubstr(
             "Values of -1 passed to reshape must be constant at definition")));
   }
 

@@ -413,6 +413,7 @@ Val* SimplifyingIrBuilder::divExpr(Val* lhs, Val* rhs) {
   if (rhs->isOneInt()) {
     return lhs;
   }
+
   return IrBuilder::divExpr(lhs, rhs);
 }
 
