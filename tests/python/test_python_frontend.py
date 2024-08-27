@@ -955,7 +955,7 @@ class TestNvFuserFrontend(NVFuserTest):
             t1 = fd.ops.normal(s_mean, s_std, t0.shape(), dtype=DataType.Double)
             fd.add_output(t1)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
 
         # Is there a better way to test distribution?!
         self.assertTrue(
@@ -992,7 +992,7 @@ class TestNvFuserFrontend(NVFuserTest):
             t1 = fd.ops.uniform(s_lo, s_hi, t0.shape(), dtype=DataType.Double)
             fd.add_output(t1)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
 
         # Is there a better way to test distribution?!
         self.assertTrue(
@@ -1175,7 +1175,7 @@ class TestNvFuserFrontend(NVFuserTest):
                 t3 = fd.ops.iota(c0, c1, c2, dt)
                 fd.add_output(t3)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, [])
+        nvf_out, _ = self.exec_nvfuser(fusion_func, [], is_clonable=True)
 
         eager_out1 = torch.tensor([0, 2], dtype=torch.long, device="cuda")
         eager_out2 = torch.tensor([100, 101, 102], dtype=torch.int, device="cuda")
@@ -2053,7 +2053,7 @@ class TestNvFuserFrontend(NVFuserTest):
         ]
 
         for nvf_func, torch_func in tests:
-            nvf_out, _ = self.exec_nvfuser(nvf_func, inputs)
+            nvf_out, _ = self.exec_nvfuser(nvf_func, inputs, is_clonable=True)
             eager_out = torch_func(*inputs, 1024, 16)
             for idx in range(len(eager_out)):
                 self.assertEqual(eager_out[idx], nvf_out[idx])
@@ -2733,7 +2733,7 @@ class TestNvFuserFrontend(NVFuserTest):
             fd.add_output(T24)
             fd.add_output(T11)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
         t2 = inputs[1].type(torch.float32)
         t4 = torch.full([5, 0], 1.0, dtype=torch.bfloat16, device="cuda")
         t5 = t4.type(torch.float32)
