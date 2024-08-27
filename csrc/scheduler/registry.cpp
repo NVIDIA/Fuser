@@ -87,6 +87,8 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
         auto size = alloc_sizes.at(dim);
         auto stride = alloc_strides.at(dim);
         // Skip broadcast dimensions because they don't affect contiguity.
+        // Consider to change this to check IterDomain::isBroadcast instead:
+        // https://github.com/NVIDIA/Fuser/pull/2854#discussion_r1733205035
         if (size <= 1 || stride == 0) {
           continue;
         }
