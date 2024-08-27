@@ -1131,9 +1131,6 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
           /*is_start_predicate=*/false,
           /*unswitched_loop=*/unswitched_loop);
 
-  const std::vector<PredicateDomainInfo> non_divisible_split_predicates =
-      getNonDivisibleConsumerDomainsToPredicate(tv);
-
   const CircularBufferLoopStage loop_stage = getCircularBufferLoopStage(
       tv, for_loops, id_model_.idGraph(IdMappingMode::LOOP));
 

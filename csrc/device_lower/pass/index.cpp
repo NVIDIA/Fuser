@@ -1855,50 +1855,10 @@ void IndexLowering::allocateUniqueFusedReduction(
   insertAtTopLevel(fused_reduction_alloc_reduction);
 }
 
-// This is mostly copied from Index::getProducerPerDimLogicalIndex()
-Val* IndexLowering::getIterationIndexForBroadcast(
-    TensorView* producer_tv,
-    TensorView* consumer_tv,
-    IterDomain* broadcast_id) const {
-  NVF_ERROR(
-      broadcast_id->isBroadcast(),
-      "Expected broadcast ID but found ",
-      broadcast_id->toString());
-
-  auto c2p_logical_map = PairwiseLogicalDomainMap(producer_tv, consumer_tv)
-                             .mapBroadcast(false)
-                             .mapConsumerToProducer();
-
-  // This replay has to be consistent with compute at index map.
-  BestEffortReplay replay_producer_as_consumer(
-      producer_tv->getLoopDomain(),
-      consumer_tv->getLoopDomain(),
-      c2p_logical_map);
-
-  const auto& c2p_map = replay_producer_as_consumer.getReplay();
-  const auto& producer_indexing_from_idgraph = getTensorIndexFromIdGraph(
-      for_loops_, getRotatedLoop(), consumer_tv, producer_tv, true, c2p_map);
-
-  const auto& producer_indexing = producer_indexing_from_idgraph.index;
-
-  const auto& index_map = producer_indexing.indexMap();
-  const auto index_it = index_map.find(broadcast_id);
-  NVF_ERROR(
-      index_it != index_map.end(),
-      "Could not find padded consumer IterDomain ",
-      broadcast_id->toString(),
-      " from consumer TensorView ",
-      consumer_tv->toString(),
-      " in index map for producer TensorView ",
-      producer_tv->toString());
-
-  return index_it->second;
-}
-
 void IndexLowering::handle(const PadOp* pad) {
   // Convert to a where op as:
-  // consumer[consumer_idx] = (producer_idx >= 0 && producer_idx <
-  //                           producer_extent) ?
+  // consumer[consumer_idx] = (consumer_idx >= left_pad && consumer_idx <
+  //                           consumer_extent - right_pad) ?
   //     producer[producer_idx] :
   //     0;
 
@@ -1912,37 +1872,27 @@ void IndexLowering::handle(const PadOp* pad) {
 
   const auto pad_val = pad->value();
 
-  std::unordered_map<IterDomain*, Val*> override_index;
-  for (auto padded_axis : pad->getPaddedAxes()) {
-    auto padded_id = producer_doms.at(padded_axis);
-    if (padded_id->isBroadcast()) {
-      // When we pad a Broadcast IterDomain, we should not treat it as a
-      // Broadcast as we normally would. Instead, we will treat it as a regular
-      // Iteration domain with extent 1.
-      auto ind =
-          getIterationIndexForBroadcast(producer_tv, consumer_tv, padded_id);
-      override_index.emplace(padded_id, ind);
-    }
-  }
-
-  const auto producer_root_indices = Index::getProducerPerDimLogicalIndex(
-      producer_tv, consumer_tv, for_loops_, getRotatedLoop(), override_index);
-
   // Build a predicate for where
-  Val* pred = IrBuilder::create<Val>(true);
+  auto consumer_root_indices = Index::getConsumerPerDimLogicalIndex(
+      consumer_tv, for_loops_, getRotatedLoop());
+  Val* pred = consumer_tv->fusion()->trueVal();
   for (auto padded_axis : pad->getPaddedAxes()) {
-    auto producer_idx = producer_root_indices.at(padded_axis);
-    auto producer_root_id = producer_doms.at(padded_axis);
-    NVF_ERROR(!producer_root_id->maybePartial());
+    auto consumer_idx = consumer_root_indices.at(padded_axis);
+    auto consumer_root_id = consumer_tv->getLogicalDomain().at(padded_axis);
+    NVF_ERROR(!consumer_root_id->maybePartial());
+    const auto& pad_widths = pad->getPadWidths(padded_axis);
     pred = SimplifyingIrBuilder::logicalAndExpr(
         pred,
-        // idx >= 0 && idx < extent
+        // idx >= left_pad && idx < extent - right_pad
         SimplifyingIrBuilder::logicalAndExpr(
-            SimplifyingIrBuilder::geExpr(
-                producer_idx, GpuLower::current()->kernel()->zeroVal()),
+            SimplifyingIrBuilder::geExpr(consumer_idx, pad_widths.first),
             SimplifyingIrBuilder::ltExpr(
-                producer_idx, producer_root_id->getMaybeExpandedExtent())));
+                consumer_idx,
+                SimplifyingIrBuilder::subExpr(
+                    consumer_root_id->getMaybeExpandedExtent(),
+                    pad_widths.second))));
   }
+
   pred = GpuLower::current()->commonScalarMap().hoistScalar(pred, for_loops_);
 
   pushBack(IrBuilder::create<TernaryOp>(
