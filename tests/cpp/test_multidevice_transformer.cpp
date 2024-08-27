@@ -859,7 +859,13 @@ TEST_P(DistributedTransformerTest, MHA_Backward) {
 
   shardBetween(
       {tvw1, tvw0, tvb0},
-      {tvouts[1], tvouts[2], tvouts[3], tvouts[4], tvouts[5], tvouts[6], tvouts[7]},
+      {tvouts[1],
+       tvouts[2],
+       tvouts[3],
+       tvouts[4],
+       tvouts[5],
+       tvouts[6],
+       tvouts[7]},
       tvw0);
   shardBetween({tvx, tvmask, tvgrad}, {tvouts[0], tvouts[8]}, tvx);
 
