@@ -98,7 +98,8 @@ class FusionTranslator : public OptInConstDispatch {
       }
 
       // short-circuit: skip Split and Merge expressions created by Reshape
-      if (e->isA<Split>() || e->isA<Merge>()) {
+      // short-circuit: skip Resize expressions created by Slice
+      if (e->isA<Split>() || e->isA<Merge>() || e->isA<Resize>()) {
         visited.insert(e);
         continue;
       }
@@ -607,6 +608,42 @@ class FusionTranslator : public OptInConstDispatch {
         {fd_->recordingState(output())},
         out_tv->nDims(),
         broadcast_dims));
+  }
+
+  // Map SliceOp to python frontend
+  void handle(const SliceOp* sop) final {
+    const std::vector<nvfuser::Slice>& slices = sop->getOriginalRanges();
+
+    std::vector<int64_t> start_indices;
+    start_indices.reserve(slices.size());
+
+    std::vector<int64_t> stop_indices;
+    stop_indices.reserve(slices.size());
+
+    std::vector<int64_t> strides;
+    strides.reserve(slices.size());
+
+    for (const nvfuser::Slice& s : slices) {
+      int64_t start_value =
+          (s.start == nullptr) ? 0 : s.start->evaluate().as<int64_t>();
+      start_indices.push_back(start_value);
+
+      NVF_ERROR(s.stop != nullptr);
+      stop_indices.push_back(s.stop->evaluate().as<int64_t>());
+
+      int64_t strides_value =
+          (s.step == nullptr) ? 1 : s.step->evaluate().as<int64_t>();
+      strides.push_back(strides_value);
+    }
+
+    Tensor output = fd_->defineTensor(sop->out()->as<TensorView>()->nDims());
+    map_val_to_fd_index_.emplace(sop->out(), output());
+    fd_->defineRecord(new SliceOpRecord(
+        {fd_->recordingState(map_val_to_fd_index_.at(sop->in()))},
+        {fd_->recordingState(output())},
+        start_indices,
+        stop_indices,
+        strides));
   }
 
  private:
