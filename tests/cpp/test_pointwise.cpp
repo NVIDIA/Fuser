@@ -661,15 +661,7 @@ TEST_F(PointwiseTest, VectorizeWithExpandedBroadcast) {
   auto out_tensors = fec.runFusionWithInputs({in_tensor});
   testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
-  auto hparams = fec.getMostRecentKernelRuntime()
-                     ->schedulerHeuristics()
-                     ->heuristicsList()
-                     .at(0)
-                     ->params();
-  ASSERT_TRUE(hparams->isA<PointwiseParams>());
-  const auto& pparams = hparams->as<PointwiseParams>();
-  EXPECT_TRUE(pparams->vectorize);
-  EXPECT_GT(pparams->unroll_factor, 1);
+  EXPECT_GT(getVecSizeForPointwise(fec), 1);
 }
 
 } // namespace nvfuser
