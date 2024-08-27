@@ -963,10 +963,14 @@ void DynamicTransformConcretizer::concretizeResize() {
           def != nullptr && def->isA<Resize>(),
           "Resized IterDomain must have a Resize definition");
 
-      auto new_id = IterDomainBuilder(id).iter_type(iter_type).build();
+      auto new_id = IterDomain::resize(
+          def->in(),
+          def->leftExpand(),
+          def->rightExpand(),
+          id->isRFactorProduct(),
+          iter_type);
 
       registerConcretization(id, new_id);
-      mutateExprOutputsOnly(def);
     }
     return;
   }
@@ -1241,13 +1245,8 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
         }
       }
       // Update the IterType of each output
-      bool preserve_def = true;
       for (auto out_id : ir_utils::filterByType<IterDomain>(expr->outputs())) {
         auto mut_id = maybeMutated(out_id)->as<IterDomain>();
-        // Preserve the definition, unless there is an output with a
-        // pre-existing concretization. In that case, we assume that
-        // concretization was performed purposely and we refuse to redefine it.
-        preserve_def = preserve_def && mut_id == out_id;
 
         if (!mut_id->isSymbolic()) {
           // We are only concretizing IterType here, so if we have already
@@ -1285,10 +1284,8 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
       // unimportant, except that mutate(Expr*) does not return the replacement
       // Expr*, whereas mutateExprOutputsOnly does.
 
-      if (preserve_def) {
-        // Set expr as the definition for concretized outputs
-        expr = mutateExprOutputsOnly(expr);
-      }
+      // Set expr as the definition for concretized outputs
+      expr = mutateExprOutputsOnly(expr);
 
       // Replace inputs and attributes that were concretized
       mutate(expr);
@@ -1323,13 +1320,10 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
     return updated_ids;
   };
 
-  std::vector<IterDomain*> root_dom =
-      td->hasRoot() ? updateIdVec(td->root()) : std::vector<IterDomain*>();
+  std::vector<IterDomain*> root_dom = updateIdVec(td->root());
   std::vector<IterDomain*> logical_dom = updateIdVec(td->logical());
   std::vector<IterDomain*> loop_domain = updateIdVec(td->loop());
-  std::vector<IterDomain*> alloc_dom = td->hasAllocation()
-      ? updateIdVec(td->allocation())
-      : std::vector<IterDomain*>();
+  std::vector<IterDomain*> alloc_dom = updateIdVec(td->allocation());
 
   if (!mutated) {
     return;
