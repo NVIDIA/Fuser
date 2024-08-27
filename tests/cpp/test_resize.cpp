@@ -1438,6 +1438,7 @@ TEST_P(ResizeTest, PadReduceScheduler1) {
       std::back_inserter(aten_inputs),
       [](auto pad_extent) { return pad_extent; });
 
+  EnableOptionsGuard enable_options_guard;
   if (GetParam()) {
     EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
   } else {
@@ -1747,6 +1748,7 @@ TEST_P(ResizeTest, PadWithValue) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
+  EnableOptionsGuard enable_options_guard;
   if (GetParam()) {
     EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
   } else {
@@ -1785,6 +1787,7 @@ TEST_P(ResizeTest, PadToEmptyTensor) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
+  EnableOptionsGuard enable_options_guard;
   if (GetParam()) {
     EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
   } else {
@@ -1820,6 +1823,7 @@ TEST_P(ResizeTest, PadHalfWithDoubleValue) {
   auto t0 = at::ones(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
+  EnableOptionsGuard enable_options_guard;
   if (GetParam()) {
     EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
   } else {
@@ -2439,6 +2443,7 @@ TEST_P(ResizeTest, ResizePadToBroadcastStatic) {
   auto t1 = at::randn(t1_size, options);
   std::vector<c10::IValue> aten_inputs({t0, t1});
 
+  EnableOptionsGuard enable_options_guard;
   if (GetParam()) {
     EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
   } else {
@@ -2510,6 +2515,7 @@ TEST_P(ResizeTest, ResizePadToBroadcastDynamic) {
   });
   aten_inputs.insert(aten_inputs.end(), pad_widths.begin(), pad_widths.end());
 
+  EnableOptionsGuard enable_options_guard;
   if (GetParam()) {
     EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
   } else {
@@ -2558,6 +2564,7 @@ TEST_P(ResizeTest, ResizePadToBroadcastIssue596) {
   auto t1 = at::randn({3}, options);
   std::vector<c10::IValue> aten_inputs({t0, t1});
 
+  EnableOptionsGuard enable_options_guard;
   if (GetParam()) {
     EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
   } else {
@@ -3078,6 +3085,7 @@ TEST_P(ResizeTest, ReshapeToPad) {
   auto tv2 = pad(tv1, {fusion.zeroVal(), s0, fusion.zeroVal(), s1});
   fusion.addOutput(tv2);
 
+  EnableOptionsGuard enable_options_guard;
   if (GetParam()) {
     EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
   } else {
@@ -3260,6 +3268,7 @@ TEST_P(ResizeTest, PadExpandedEmpty) {
   auto t0 = at::randn({0}, options).as_strided({2, 0, 3}, {0, 0, 0});
   std::vector<c10::IValue> aten_inputs({t0});
 
+  EnableOptionsGuard enable_options_guard;
   if (GetParam()) {
     EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
   } else {
@@ -3342,7 +3351,7 @@ TEST_P(ResizeTest, PadOfExpandedBroadcast) {
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
-TEST_F(ResizeTest, dynamicReshapeIssue1393) {
+TEST_F(ResizeTest, DynamicReshapeIssue1393) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion* fusion = fusion_ptr.get();
   FusionGuard fg(fusion);

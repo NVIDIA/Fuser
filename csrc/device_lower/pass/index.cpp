@@ -1509,16 +1509,41 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
           std::make_shared<DataType>(DataType::UInt32),
           (size_t)ir_utils::getVectorizeSize(ldst->out()->as<TensorView>()) /
               2};
+    } else if (ir_utils::isStMatrixOp(ldst)) {
+      as_type = ArrayType{
+          std::make_shared<DataType>(DataType::UInt32),
+          1 /*hard coded for 8*8 store*/};
     } else if (ldst->out()->definition()->isA<MmaOp>()) {
       // For MMA accumulator initialization
       as_type = getMmaOutType(ldst->out()->as<TensorView>());
     }
-    in = lowerSrcIndex(
-        ldst->in(),
-        ldst->out(),
-        {},
-        ir_utils::isLdMatrixOp(ldst) || ir_utils::isCpAsyncOp(ldst));
-    out = lowerDstIndex(ldst->out(), {}, ir_utils::isCpAsyncOp(ldst), as_type);
+
+    if (ir_utils::isStMatrixOp(ldst)) {
+      // Currently we create hard coded indexing for stmatrix which works on 8x8
+      // matrices. T_local[0]
+      in = IrBuilder::create<kir::TensorIndex>(
+          dynamic_cast<TensorView*>(ldst->in()),
+          IrBuilder::create<Val>(0, DataType::Index),
+          as_type);
+
+      // T_shared[toSmem(T_shared) + 16 * tidx.x]
+      auto out_index = IrBuilder::addExpr(
+          IrBuilder::baseAddressExpr(dynamic_cast<TensorView*>(ldst->out())),
+          IrBuilder::mulExpr(
+              IrBuilder::create<Val>(16, DataType::Index),
+              IrBuilder::create<NamedScalar>("threadIdx.x", DataType::Index)));
+
+      out = IrBuilder::create<kir::TensorIndex>(
+          dynamic_cast<TensorView*>(ldst->out()), out_index);
+    } else {
+      in = lowerSrcIndex(
+          ldst->in(),
+          ldst->out(),
+          {},
+          ir_utils::isLdMatrixOp(ldst) || ir_utils::isCpAsyncOp(ldst));
+      out =
+          lowerDstIndex(ldst->out(), {}, ir_utils::isCpAsyncOp(ldst), as_type);
+    }
     auto new_ldst =
         IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())
             ->withPredicate(ldst->predicate());
@@ -1830,46 +1855,6 @@ void IndexLowering::allocateUniqueFusedReduction(
   // When using the fused reduction, allocate the reduction object at
   // the outer-most scope
   insertAtTopLevel(fused_reduction_alloc_reduction);
-}
-
-// This is mostly copied from Index::getProducerPerDimLogicalIndex()
-Val* IndexLowering::getIterationIndexForBroadcast(
-    TensorView* producer_tv,
-    TensorView* consumer_tv,
-    IterDomain* broadcast_id) const {
-  NVF_ERROR(
-      broadcast_id->isBroadcast(),
-      "Expected broadcast ID but found ",
-      broadcast_id->toString());
-
-  auto c2p_logical_map = PairwiseLogicalDomainMap(producer_tv, consumer_tv)
-                             .mapBroadcast(false)
-                             .mapConsumerToProducer();
-
-  // This replay has to be consistent with compute at index map.
-  BestEffortReplay replay_producer_as_consumer(
-      producer_tv->getLoopDomain(),
-      consumer_tv->getLoopDomain(),
-      c2p_logical_map);
-
-  const auto& c2p_map = replay_producer_as_consumer.getReplay();
-  const auto& producer_indexing_from_idgraph = getTensorIndexFromIdGraph(
-      for_loops_, getRotatedLoop(), consumer_tv, producer_tv, true, c2p_map);
-
-  const auto& producer_indexing = producer_indexing_from_idgraph.index;
-
-  const auto& index_map = producer_indexing.indexMap();
-  const auto index_it = index_map.find(broadcast_id);
-  NVF_ERROR(
-      index_it != index_map.end(),
-      "Could not find padded consumer IterDomain ",
-      broadcast_id->toString(),
-      " from consumer TensorView ",
-      consumer_tv->toString(),
-      " in index map for producer TensorView ",
-      producer_tv->toString());
-
-  return index_it->second;
 }
 
 void IndexLowering::handle(const PadOp* pad) {
