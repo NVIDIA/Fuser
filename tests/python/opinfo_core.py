@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Owner(s): ["module: nvfuser"]
 
-from pytest_utils import (
+from utils import (
     all_dtypes_except_reduced,
     ArgumentType,
     torch_to_python_dtype_map,
@@ -50,12 +50,12 @@ class SampleInput:
         return f"[SampleInput args={self.args} kwargs={self.kwargs}]"
 
     def jax(self):
-        from pytest_utils import JAX_AVAILABLE
+        from utils import JAX_AVAILABLE
 
         assert JAX_AVAILABLE
 
         import jax.numpy as jnp
-        from pytest_utils import torch_to_jax_dtype_map
+        from utils import torch_to_jax_dtype_map
 
         def to_jax(t):
             if isinstance(t, torch.Tensor):

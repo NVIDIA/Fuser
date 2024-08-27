@@ -569,21 +569,16 @@ SdpfaBwdResult sdpfa_bwd(
   // https://github.com/NVIDIA/Fuser/issues/2563
   bool has_device_dim = (query_domain.size() == 5);
   if (has_device_dim) {
-    NVF_CHECK(
-        query_domain[0]->isDeviceDim(),
-        "Only suport DID parallelization on outermost axis");
-    NVF_CHECK(
-        key_domain[0]->isDeviceDim(),
-        "Only suport DID parallelization on outermost axis");
-    NVF_CHECK(
-        value_domain[0]->isDeviceDim(),
-        "Only suport DID parallelization on outermost axis");
-    NVF_CHECK(
-        grad_output->axis(0)->isDeviceDim(),
-        "Only suport DID parallelization on outermost axis");
-    NVF_CHECK(
-        output->axis(0)->isDeviceDim(),
-        "Only suport DID parallelization on outermost axis");
+    auto check_first_is_did = [](const std::vector<IterDomain*>& ids) -> void {
+      NVF_CHECK(
+          ids[0]->isDeviceDim(),
+          "Only support DID parallelization on outermost axis");
+    };
+    check_first_is_did(query_domain);
+    check_first_is_did(key_domain);
+    check_first_is_did(value_domain);
+    check_first_is_did(grad_output->getLogicalDomain());
+    check_first_is_did(output->getLogicalDomain());
   }
 
   auto concrete_query_size = TensorDomain::noDevices(query_domain).size();

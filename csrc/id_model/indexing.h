@@ -12,10 +12,11 @@
 #include <id_model/indexing_traversal.h>
 #include <ir/base_nodes.h>
 #include <ir/interface_nodes.h>
+#include <options.h>
 #include <type.h>
 #include <val_graph_visitor.h>
 
-// Just for RootPredicateInfo. Should be moved to its own header file
+// Just for PredicateInfo. Should be moved to its own header file
 #include <index_compute.h>
 
 #include <unordered_map>
@@ -35,6 +36,7 @@ struct IndexingInfo {
 struct IndexingAllocationInfo {
   std::vector<IterDomain*> domains;
   std::vector<Val*> strides;
+  std::vector<bool> contiguity;
 };
 
 // The basic algorithm of indexing is:
@@ -55,6 +57,10 @@ class TensorIndexer {
   // non-const reference
   TensorIndexer(IdModel& id_model);
 
+  bool isContigIndexingEnabled() const {
+    return !isOptionDisabled(DisableOption::ContigIndexing);
+  }
+
   // Get a linear index of a given tensor appearing in a given expr, either
   // as a consumer or a producer. The predicate indexing will have a
   // separate interface.
@@ -73,6 +79,13 @@ class TensorIndexer {
       const Expr* expr,
       bool as_consumer,
       const ValGroups& index_groups,
+      const std::vector<ForLoop*>& loops) const;
+
+  // Get the contig indices of the given ID groups with their strides
+  std::pair<std::vector<Val*>, std::vector<Val*>> getContigIndexFor(
+      const Expr* expr,
+      bool as_consumer,
+      const IndexingAllocationInfo& alloc_info,
       const std::vector<ForLoop*>& loops) const;
 
   // The AlmostExact graph is used since size-1 splits and merges
@@ -141,6 +154,15 @@ class TensorIndexer {
   // just zero. For example, a loop group with an extent of one, i.e.,
   // a broadcast-only loop group, should just use zero.
   bool shouldUseZeroIndex(const ValGroup& loop_group) const;
+
+  // For a given indexng traversal path toward allocation_domains,
+  // return the contiguous domains and their strides that can provide
+  // equivalent indexing results.
+  //
+  // Currently, only backward traversal is supported.
+  std::pair<std::vector<ValGroup>, std::vector<Val*>> getContigDomainsAndStrides(
+      const IndexingAllocationInfo& alloc_info,
+      const ExprPath<ExprGroup>& traversal_path) const;
 
   // Get a replace map for tensor indexing. Examples include replacing
   // an index of a vectorized loop with zero.
