@@ -1131,21 +1131,71 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
           /*is_start_predicate=*/false,
           /*unswitched_loop=*/unswitched_loop);
 
+  const std::unordered_map<IterDomain*, ValGroup> contig_domains =
+      isContigIndexingEnabled()
+      ? getContigDomains(
+            predicate_domains,
+            std::vector<bool>(predicate_domains.size(), true),
+            reverse(index_info.traversal_path),
+            traversalGraph(),
+            true)
+      : std::unordered_map<IterDomain*, ValGroup>{};
+
+  auto getCoveredPredicatedDomains =
+      [&predicate_domains, &contig_domains](const ValGroup& contig_group) {
+        std::unordered_set<IterDomain*> covered_domains;
+        for (const auto& predicate_domain : predicate_domains) {
+          auto contig_domains_it = contig_domains.find(predicate_domain);
+          NVF_ERROR(contig_domains_it != contig_domains.end());
+          if (contig_group == contig_domains_it->second) {
+            covered_domains.emplace(predicate_domain);
+          }
+        }
+        return covered_domains;
+      };
+
   const CircularBufferLoopStage loop_stage = getCircularBufferLoopStage(
       tv, for_loops, id_model_.idGraph(IdMappingMode::LOOP));
 
   std::vector<PredicateInfo> info_vec;
   info_vec.reserve(predicate_domains.size());
 
+  std::unordered_set<ValGroup> already_indexed_domains;
+
   // Follow the same approach as Index::getReferenceRootPredicates.
   for (const auto& predicate_domain : predicate_domains) {
     const auto& predicate_domain_group =
         traversalGraph().toGroup(predicate_domain);
-    auto idx_it = index_map.find(predicate_domain_group);
+    IterDomain* actual_predicate_domain = predicate_domain;
+    ValGroup actual_predicate_domain_group = predicate_domain_group;
+    std::unordered_set<IterDomain*> actual_predicate_domains = {
+        predicate_domain};
+
+    if (isContigIndexingEnabled()) {
+      auto contig_domains_it = contig_domains.find(predicate_domain);
+      NVF_ERROR(
+          contig_domains_it != contig_domains.end(),
+          "No contig domain mapping found for ",
+          predicate_domain->toString());
+      const ValGroup& contig_domain_group = contig_domains_it->second;
+      if (already_indexed_domains.find(contig_domain_group) !=
+          already_indexed_domains.end()) {
+        continue;
+      }
+      already_indexed_domains.emplace(contig_domain_group);
+
+      actual_predicate_domain_group = contig_domain_group;
+      actual_predicate_domain =
+          actual_predicate_domain_group->front()->as<IterDomain>();
+      actual_predicate_domains =
+          getCoveredPredicatedDomains(contig_domain_group);
+    }
+
+    auto idx_it = index_map.find(actual_predicate_domain_group);
     NVF_ERROR(
         idx_it != index_map.end(),
         "Index not found for ",
-        predicate_domain->toString());
+        nvfuser::toString(actual_predicate_domain_group));
 
     Val* idx = idx_it->second;
     Val* start_idx =
@@ -1170,13 +1220,13 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
 
     info.stop_predicate_ = SimplifyingIrBuilder::ltExpr(
         SimplifyingIrBuilder::addExpr(stop_idx, info.stop_offset_),
-        predicate_domain->extent());
+        actual_predicate_domain->extent());
 
-    info.predicated_domains_ = {predicate_domain};
+    info.predicated_domains_ = actual_predicate_domains;
 
     // Set the used loop ID groups for this predicated domain
     const ValGroups& loop_deps =
-        index_info.loop_group_dependencies.at(predicate_domain_group);
+        index_info.loop_group_dependencies.at(actual_predicate_domain_group);
     for (const auto& loop_dep : loop_deps) {
       info.loop_domains_.insert(loop_dep->front()->as<IterDomain>());
     }
@@ -1247,7 +1297,8 @@ std::pair<std::vector<ValGroup>, std::vector<Val*>> TensorIndexer::
           alloc_info.domains,
           alloc_info.contiguity,
           reverse(traversal_path),
-          traversalGraph());
+          traversalGraph(),
+          false);
 
   // Find contiguous domains to index
   std::unordered_set<ValGroup> already_indexed_domains;
