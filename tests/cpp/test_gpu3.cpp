@@ -6255,19 +6255,24 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteBroadcastedSoftmaxInput_CUDA) {
   auto cg_outputs = fec.runFusionWithInputs(inputs);
 
   // check thread_pred and write_stride
-  const auto& fe = fec.getMostRecentKernelRuntime()->executors().at(0);
-  auto kernel = fe.kernel();
-  const auto& thread_pred_map = fe.threadPredMap();
-  for (const auto expr : kernel->exprs()) {
-    auto tv = ir_utils::getTvOutput(expr);
-    if (tv && tv->name() == 15 && tv->getMemoryType() == MemoryType::Global) {
-      const auto& thread_pred = thread_pred_map.getPredicateInfo(tv);
-      bool predicted = thread_pred.redundant_types.get(ParallelType::BIDx) &&
-          thread_pred.broadcast_ld_indices_map.count(ParallelType::BIDx);
-      NVF_CHECK(
-          predicted,
-          "Tv15 should be predicted by ParallelType::BIDx with a broadcast_ld_indices_map!");
-      break;
+  for (const FusionExecutor& fe :
+       fec.getMostRecentKernelRuntime()->executors()) {
+    if (!fe.hasCompiledKernel()) {
+      continue;
+    }
+    auto kernel = fe.kernel();
+    const auto& thread_pred_map = fe.threadPredMap();
+    for (const auto expr : kernel->exprs()) {
+      auto tv = ir_utils::getTvOutput(expr);
+      if (tv && tv->name() == 15 && tv->getMemoryType() == MemoryType::Global) {
+        const auto& thread_pred = thread_pred_map.getPredicateInfo(tv);
+        bool predicted = thread_pred.redundant_types.get(ParallelType::BIDx) &&
+            thread_pred.broadcast_ld_indices_map.count(ParallelType::BIDx);
+        NVF_CHECK(
+            predicted,
+            "Tv15 should be predicted by ParallelType::BIDx with a broadcast_ld_indices_map!");
+        break;
+      }
     }
   }
 
@@ -6310,20 +6315,27 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWrite_CUDA) {
     auto cg_outputs = fec.runFusionWithInputs(inputs);
 
     // check thread_pred and write_stride
-    const auto& fe = fec.getMostRecentKernelRuntime()->executors().at(0);
-    auto kernel = fe.kernel();
-    const auto& thread_pred_map = fe.threadPredMap();
+    for (const FusionExecutor& fe :
+         fec.getMostRecentKernelRuntime()->executors()) {
+      if (!fe.hasCompiledKernel()) {
+        continue;
+      }
+      auto kernel = fe.kernel();
+      const auto& thread_pred_map = fe.threadPredMap();
 
-    for (const auto expr : kernel->exprs()) {
-      auto tv = ir_utils::getTvOutput(expr);
-      if (tv && tv->name() == 8 && tv->getMemoryType() == MemoryType::Global) {
-        const auto& thread_pred = thread_pred_map.getPredicateInfo(tv);
-        bool predicted = thread_pred.redundant_types.get(ParallelType::BIDx) &&
-            thread_pred.broadcast_ld_indices_map.count(ParallelType::BIDx);
-        NVF_CHECK(
-            predicted,
-            "Tv8 should be predicted by ParallelType::BIDx with a broadcast_ld_indices_map!");
-        break;
+      for (const auto expr : kernel->exprs()) {
+        auto tv = ir_utils::getTvOutput(expr);
+        if (tv && tv->name() == 8 &&
+            tv->getMemoryType() == MemoryType::Global) {
+          const auto& thread_pred = thread_pred_map.getPredicateInfo(tv);
+          bool predicted =
+              thread_pred.redundant_types.get(ParallelType::BIDx) &&
+              thread_pred.broadcast_ld_indices_map.count(ParallelType::BIDx);
+          NVF_CHECK(
+              predicted,
+              "Tv8 should be predicted by ParallelType::BIDx with a broadcast_ld_indices_map!");
+          break;
+        }
       }
     }
 
