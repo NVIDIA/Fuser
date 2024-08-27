@@ -69,15 +69,16 @@ def test_issue_2395():
 
 # Tests that CPU scalar tensor can be instantiated using fd.from_pytorch
 def test_cpu_add():
-    inputs = [torch.tensor(2.0, device="cpu", dtype=torch.float)]
+    inputs = [torch.tensor(2.0, device="cpu", dtype=torch.float),
+              torch.randn(3, device="cuda", dtype=torch.float)]
 
     def fusion_func(fd: FusionDefinition):
         t0 = fd.from_pytorch(inputs[0])
-        s0 = fd.define_scalar(3.0)
+        s0 = fd.from_pytorch(inputs[1])
         t1 = fd.ops.add(t0, s0)
         fd.add_output(t1)
 
     with FusionDefinition() as fd:
         fusion_func(fd)
     nvf_out = fd.execute(inputs)
-    torch.testing.assert_close(nvf_out[0].cpu(), inputs[0] + 3.0)
+    torch.testing.assert_close(nvf_out[0], inputs[0] + inputs[1])
