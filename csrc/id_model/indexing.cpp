@@ -316,6 +316,8 @@ class AllocationDomainSetup : private kir::IrVisitor {
       }
     }
 
+    NVF_ERROR(allocation_domains.size() == contiguity.size());
+
     return {allocation_domains, contiguity};
   }
 
@@ -401,6 +403,9 @@ class AllocationDomainSetup : private kir::IrVisitor {
       NVF_ERROR(contig.has_value());
       actual_contiguity.push_back(contig.value());
     }
+
+    NVF_ERROR(actual_allocation_domains.size() == actual_strides.size());
+    NVF_ERROR(actual_allocation_domains.size() == actual_contiguity.size());
 
     return IndexingAllocationInfo{
         actual_allocation_domains, actual_strides, actual_contiguity};
@@ -756,8 +761,7 @@ TensorIndexer::TensorIndexer(IdModel& id_model) : id_model_(id_model) {
 
   if (isDebugDumpEnabled(DebugDumpOption::IndexingVerbose)) {
     std::ofstream ofs("indexing_traversal_graph.dot", std::ofstream::trunc);
-    auto dot_string =
-        id_model_.idGraph(IdMappingMode::ALMOSTEXACT).toGraphvizDotGraph();
+    auto dot_string = traversalGraph().toGraphvizDotGraph();
     ofs << dot_string;
     ofs.close();
   }
@@ -937,11 +941,12 @@ Val* TensorIndexer::getLinearIndex(
       getContigIndexFor(expr, as_consumer, alloc_info, for_loops);
 
   // Linearize the indices with strides.
-  Val* index = tv->fusion()->zeroVal();
+  Val* linear_index = tv->fusion()->zeroVal();
   for (const auto i : c10::irange(contig_indices.size())) {
     Val* stride = contig_strides.at(i);
-    index = SimplifyingIrBuilder::addExpr(
-        index, SimplifyingIrBuilder::mulExpr(contig_indices.at(i), stride));
+    linear_index = SimplifyingIrBuilder::addExpr(
+        linear_index,
+        SimplifyingIrBuilder::mulExpr(contig_indices.at(i), stride));
   }
 
   // If a tensor is circular buffered, it also requires indexing of
@@ -949,10 +954,11 @@ Val* TensorIndexer::getLinearIndex(
   if (tv->isCircularBuffered()) {
     auto circular_buffer_offset =
         getOffsetForCircularBufferTensor(tv, as_consumer, for_loops);
-    index = SimplifyingIrBuilder::addExpr(index, circular_buffer_offset);
+    linear_index =
+        SimplifyingIrBuilder::addExpr(linear_index, circular_buffer_offset);
   }
 
-  return index;
+  return linear_index;
 }
 
 // Get the loop domains of a given expr, which are (potentially
@@ -1138,7 +1144,7 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
             std::vector<bool>(predicate_domains.size(), true),
             reverse(index_info.traversal_path),
             traversalGraph(),
-            true)
+            /*is_predicate_pass=*/true)
       : std::unordered_map<IterDomain*, ValGroup>{};
 
   auto getCoveredPredicatedDomains =
@@ -1298,7 +1304,7 @@ std::pair<std::vector<ValGroup>, std::vector<Val*>> TensorIndexer::
           alloc_info.contiguity,
           reverse(traversal_path),
           traversalGraph(),
-          false);
+          /*is_predicate_pass=*/false);
 
   // Find contiguous domains to index
   std::unordered_set<ValGroup> already_indexed_domains;
