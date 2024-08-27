@@ -140,6 +140,22 @@ class FusionTranslator : public OptInConstDispatch {
   }
 
   // =================================================================================
+  // Filter Functions
+
+  // Gather all TensorViews and FusionDefinition indices
+  std::vector<std::pair<const nvfuser::Val*, int64_t>> tensors() {
+    std::vector<std::pair<const nvfuser::Val*, int64_t>> tensors;
+    std::copy_if(
+        map_val_to_fd_index_.begin(),
+        map_val_to_fd_index_.end(),
+        std::back_inserter(tensors),
+        [](std::pair<const nvfuser::Val*, int64_t>&& kv) {
+          return kv.first->isA<TensorView>();
+        });
+    return tensors;
+  }
+
+  // =================================================================================
   // Handle define_scalar, define_vector, define_tensor variants
 
   // Add scalar value to Fusion Definition
@@ -157,27 +173,20 @@ class FusionTranslator : public OptInConstDispatch {
     Scalar output = fd_->defineScalar();
     map_val_to_fd_index_.emplace(v, output());
 
-    // Scalar can come from TensorView size
-    // TODO cache tensors and create separate function
-    std::vector<std::pair<const nvfuser::Val*, int64_t>> tensors;
-    std::copy_if(
-        map_val_to_fd_index_.begin(),
-        map_val_to_fd_index_.end(),
-        std::back_inserter(tensors),
-        [](std::pair<const nvfuser::Val*, int64_t>&& kv) {
-          return kv.first->isA<TensorView>();
-        });
-
-    // For all Tensors:
-    for (auto& kv : tensors) {
+    // Since scalars can come from TensorView dimension sizes, search through
+    // all TensorViews for an iterDomain whose extent matches the desired
+    // value and then create SizeOpRecord.
+    for (auto& kv : tensors()) {
       const TensorView* key_tv = kv.first->as<TensorView>();
 
+      std::vector<IterDomain*> filtered_logical_domain =
+          TensorDomain::noReductions(key_tv->domain()->logical());
       // Get extents for each IterDomain
       std::vector<Val*> extents;
-      extents.reserve(key_tv->domain()->logical().size());
+      extents.reserve(filtered_logical_domain.size());
       std::transform(
-          key_tv->domain()->logical().begin(),
-          key_tv->domain()->logical().end(),
+          filtered_logical_domain.begin(),
+          filtered_logical_domain.end(),
           std::back_inserter(extents),
           [](IterDomain* id) { return id->getMaybeExpandedExtent(); });
 
@@ -239,6 +248,7 @@ class FusionTranslator : public OptInConstDispatch {
     }
 
     Tensor output = fd_->defineTensor(tv->nDims());
+    map_val_to_fd_index_.emplace(tv, output());
 
     std::vector<int64_t> shape;
     std::transform(
@@ -258,8 +268,6 @@ class FusionTranslator : public OptInConstDispatch {
         std::get<PrimDataType>(tv->dtype().type),
         tv->isCpuScalar(),
         tv->domain()->strideOrder()));
-
-    map_val_to_fd_index_.emplace(tv, output());
   }
 
   // =================================================================================
@@ -275,18 +283,6 @@ class FusionTranslator : public OptInConstDispatch {
   // =================================================================================
   // Map CPP Expression classes to corresponding RecordFunctors in
   // python_frontend
-
-  // Add Broadcast operation to FusionDefinition
-  void handle(const BroadcastOp* bcast_op) final {
-    Tensor output =
-        fd_->defineTensor(bcast_op->out()->as<TensorView>()->nDims());
-    fd_->defineRecord(new BroadcastOpRecord(
-        {fd_->recordingState(map_val_to_fd_index_.at(bcast_op->in()))},
-        {fd_->recordingState(output())},
-        "ops.broadcast",
-        bcast_op->getBroadcastDimFlags()));
-    map_val_to_fd_index_.emplace(bcast_op->out(), output());
-  }
 
   // A generic function to map UnaryOp, BinaryOp, and TernaryOp to
   // python_frontend OpRecord
@@ -529,6 +525,18 @@ class FusionTranslator : public OptInConstDispatch {
         std::get<PrimDataType>(rop->out()->dtype().type)));
   }
 
+  // Add Broadcast operation to FusionDefinition
+  void handle(const BroadcastOp* bcast_op) final {
+    Tensor output =
+        fd_->defineTensor(bcast_op->out()->as<TensorView>()->nDims());
+    fd_->defineRecord(new BroadcastOpRecord(
+        {fd_->recordingState(map_val_to_fd_index_.at(bcast_op->in()))},
+        {fd_->recordingState(output())},
+        "ops.broadcast",
+        bcast_op->getBroadcastDimFlags()));
+    map_val_to_fd_index_.emplace(bcast_op->out(), output());
+  }
+
   // Map SqueezeOp to python frontend
   void handle(const SqueezeOp* sop) final {
     std::vector<int64_t> squeeze_dims;
@@ -548,19 +556,26 @@ class FusionTranslator : public OptInConstDispatch {
         /*squeeze_expanded=*/true));
   }
 
-  // Map ViewOp to python frontend
-  void handle(const ViewOp* vop) final {
-    // Get extent's for output's logical domain
-    TensorView* out_tv = vop->out()->as<TensorView>();
+  // Create a vector for the logical domain of TensorView.
+  // Used with ViewOp and ExpandOp handlers
+  Vector getShape(TensorView* tv) {
     const std::vector<IterDomain*>& logical_out_domain =
-        out_tv->domain()->logical();
+        tv->domain()->logical();
     std::vector<Val*> logical_domain_extents;
+    // Use expanded extent if available for IterDomain.
     std::transform(
         logical_out_domain.begin(),
         logical_out_domain.end(),
         std::back_inserter(logical_domain_extents),
-        [](IterDomain* id) { return id->extent(); });
-    Vector new_shape = createVector(logical_domain_extents);
+        [](IterDomain* id) { return id->getMaybeExpandedExtent(); });
+    return createVector(logical_domain_extents);
+  }
+
+  // Map ViewOp to python frontend
+  void handle(const ViewOp* vop) final {
+    // Get extent's for output's logical domain
+    TensorView* out_tv = vop->out()->as<TensorView>();
+    Vector new_shape = getShape(out_tv);
 
     Tensor output = fd_->defineTensor(out_tv->nDims());
     map_val_to_fd_index_.emplace(out_tv, output());
@@ -568,6 +583,30 @@ class FusionTranslator : public OptInConstDispatch {
         {fd_->recordingState(map_val_to_fd_index_.at(vop->in())),
          fd_->recordingState(new_shape())},
         {fd_->recordingState(output())}));
+  }
+
+  // Map ExpandOp to broadcastInDimOp
+  void handle(const ExpandOp* eop) final {
+    TensorView* in_tv = eop->in()->as<TensorView>();
+    TensorView* out_tv = eop->out()->as<TensorView>();
+
+    // broadcastInDimOp is decomposed into a broadcast and expand expression.
+    // Since the broadcastOp is handled separately, the broadcast_dims argument
+    // is [0, ..., output_ndims] where output_ndims == input_ndims;
+    NVF_ERROR(in_tv->nDims() == out_tv->nDims());
+    std::vector<int64_t> broadcast_dims(out_tv->nDims());
+    std::iota(broadcast_dims.begin(), broadcast_dims.end(), 0);
+
+    Vector new_shape = getShape(out_tv);
+
+    Tensor output = fd_->defineTensor(out_tv->nDims());
+    map_val_to_fd_index_.emplace(out_tv, output());
+    fd_->defineRecord(new BroadcastInDimOpRecord(
+        {fd_->recordingState(map_val_to_fd_index_.at(eop->in())),
+         fd_->recordingState(new_shape())},
+        {fd_->recordingState(output())},
+        out_tv->nDims(),
+        broadcast_dims));
   }
 
  private:

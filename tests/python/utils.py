@@ -244,5 +244,4 @@ class NVFuserTest(TestCase):
         self.assertTrue(check_captured_python_definition(out, fd, inputs_cap, device))
 
         self.assertEqual(fc.num_fusions() - before_fusions, int(new_fusion_expected))
-
         return out, fd
