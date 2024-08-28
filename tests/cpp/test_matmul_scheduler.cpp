@@ -3348,7 +3348,16 @@ class MultiMatmulSchedulerMatchTest
               << " to original IterDomain " << id_orig->toString();
     std::string suffix = suffix_ss.str();
     EXPECT_EQ(id_orig->getIterType(), id_new->getIterType()) << suffix;
-    EXPECT_EQ(id_orig->getParallelType(), id_new->getParallelType()) << suffix;
+    if (id_orig->isParallelized()) {
+      // In some cases the new scheduler parallelizes IDs that were not
+      // previously parallelized. This is OK as long as the generated kernels
+      // match, since inlined dimensions don't need to all be parallelized.
+      // However, we do want to ensure that at least as many dimensions get
+      // parallelized in the new scheduler, so if id_orig is parallelized, we
+      // should match it.
+      EXPECT_EQ(id_orig->getParallelType(), id_new->getParallelType())
+          << suffix;
+    }
     EXPECT_EQ(id_orig->hasExpandedExtent(), id_new->hasExpandedExtent())
         << suffix;
     EXPECT_EQ(id_orig->isMmaSwizzled(), id_new->isMmaSwizzled()) << suffix;
