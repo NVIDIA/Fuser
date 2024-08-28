@@ -49,36 +49,46 @@ TensorView* index_select(
   DataType dtype = lookup_tv->getDataType().value();
   NVF_CHECK(
       dtype != DataType::Null, "Invalid datatype provided for new value.");
-  auto lookup_dom = TensorDomain::noReductions(lookup_tv->getLogicalDomain());
-  auto index_dom = TensorDomain::noReductions(index_tv->getLogicalDomain());
+  std::vector<IterDomain*> lookup_dom =
+      TensorDomain::noReductions(lookup_tv->getLogicalDomain());
+  std::vector<IterDomain*> index_dom =
+      TensorDomain::noReductions(index_tv->getLogicalDomain());
   int64_t n_dims = (int64_t)lookup_dom.size();
   dim = wrapDim(dim, n_dims);
   NVF_CHECK(n_dims > 0, "index_select can not be applied to 0d tensor.");
-  NVF_CHECK(index_dom.size() <= 1, "index array must be 1d or scalar tensor.");
+  bool is_already_broadcast =
+      ops::isIndexAlreadyBroadcast(index_dom, dim, n_dims);
+  NVF_CHECK(
+      is_already_broadcast || index_dom.size() <= 1,
+      "index array must be 1d or scalar tensor.");
 
   if (index_dom.empty()) {
     auto select_tv = select(lookup_tv, dim, index_tv);
     return unsqueeze(select_tv, dim);
   }
 
-  std::vector<IterDomain*> new_root;
-  new_root.reserve(n_dims - 1);
+  std::vector<IterDomain*> new_logical;
+  new_logical.reserve(n_dims);
 
   for (auto i : c10::irange(n_dims)) {
     if (i != dim) {
-      new_root.emplace_back(lookup_dom[i]->cloneWithoutRFactor());
+      new_logical.emplace_back(lookup_dom[i]->cloneWithoutRFactor());
+    } else if (is_already_broadcast) {
+      new_logical.emplace_back(index_dom[i]->cloneWithoutRFactor());
     } else {
-      new_root.emplace_back(index_dom[0]->cloneWithoutRFactor());
+      new_logical.emplace_back(index_dom[0]->cloneWithoutRFactor());
     }
   }
 
   auto td = IrBuilder::create<TensorDomain>(
-      new_root, TensorDomain::getContiguityFilledWith(new_root, true));
+      new_logical, TensorDomain::getContiguityFilledWith(new_logical, true));
   auto out = IrBuilder::create<TensorView>(td, dtype);
 
   // broadcast index to lookup's rank.
-  index_tv =
-      ops::maybe_broadcast_index_tv(index_tv->as<TensorView>(), dim, n_dims);
+  if (!is_already_broadcast) {
+    index_tv =
+        ops::maybeBroadcastIndexTv(index_tv->as<TensorView>(), dim, n_dims);
+  }
   IrBuilder::create<IndexSelectOp>(out, lookup_tv, dim, index_tv);
   return out;
 }
