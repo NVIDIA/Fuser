@@ -130,12 +130,32 @@ class FusionTranslator : public OptInConstDispatch {
       skip_count = 0;
     }
 
-    // Outputs and Aliasing
+    // Add tensor outputs and handle aliased outputs
+    std::unordered_set<nvfuser::Val*> visited_alias_output;
     for (nvfuser::Val* v : fusion_->outputs()) {
-      // TODO Add support for aliased outputs
-      // Handle only TensorViews
       NVF_ERROR(v->isA<TensorView>());
-      handleOutput(v->as<TensorView>());
+      const AliasInfo& alias_info = fusion_->getOutputAlias(v);
+      switch (alias_info.type) {
+        case AllocationType::New: {
+          handleOutput(v->as<TensorView>());
+          break;
+        }
+        case AllocationType::ReuseBuffer: {
+          size_t num_visited = visited_alias_output.count(v);
+          if (num_visited == 0) {
+            visited_alias_output.insert(v);
+            handleOutput(v->as<TensorView>(), alias_info);
+          }
+          // An alias output can also be returned as a fusion output
+          // if it is already aliased or if not hide_output
+          if (num_visited > 0 || !alias_info.hide_output) {
+            handleOutput(v->as<TensorView>());
+          }
+          break;
+        }
+        default:
+          NVF_ERROR(false, "Unsupported AllocationType");
+      }
     }
 
     fd_->finalizeDefinition();
@@ -280,6 +300,15 @@ class FusionTranslator : public OptInConstDispatch {
     size_t output_index = map_val_to_fd_index_.at(tv);
     fd_->defineRecord(new OutputRecord<TensorView>(
         {fd_->recordingState(output_index)}, serde::RecordType::OutputTv));
+  }
+
+  // Alias output Tensor with input tensor
+  void handleOutput(const TensorView* tv, const AliasInfo& alias_info) {
+    size_t output_index = map_val_to_fd_index_.at(tv);
+    size_t input_index = map_val_to_fd_index_.at(alias_info.aliased_io);
+    fd_->defineRecord(new OutputRecord<TensorView>(
+        {fd_->recordingState(output_index), fd_->recordingState(input_index)},
+        serde::RecordType::OutputTv));
   }
 
   // =================================================================================
