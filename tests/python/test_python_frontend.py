@@ -814,7 +814,7 @@ class TestNvFuserFrontend(NVFuserTest):
                 t2 = fd.ops.index_select(t0, t1, dim)
                 fd.add_output(t2)
 
-            nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+            nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
 
             eager_out = torch.index_select(inputs[0], dim, inputs[1])
             self.assertEqual(eager_out, nvf_out[0])
