@@ -586,19 +586,19 @@ class FusionTranslator : public OptInConstDispatch {
     }
   }
 
-  // Map ReductionOp to python frontend
-  void handle(const ReductionOp* rop) final {
-    TensorView* out_tv = rop->out()->as<TensorView>();
-
+  std::vector<int64_t> getReductionAxes(TensorView* tv) {
     std::vector<int64_t> axes;
-    const std::vector<IterDomain*>& logical_domain =
-        out_tv->domain()->logical();
+    const std::vector<IterDomain*>& logical_domain = tv->domain()->logical();
     for (int64_t dim : c10::irange((int64_t)logical_domain.size())) {
       if (logical_domain.at(dim)->isReduction()) {
         axes.push_back(dim);
       }
     }
+    return axes;
+  }
 
+  // Map ReductionOp to python frontend
+  void handle(const ReductionOp* rop) final {
     // The min and max reduction operations expect the dtype argument to by
     // PrimDataType::Null
     PrimDataType dtype = (rop->getReductionOpType() == BinaryOpType::Min ||
@@ -606,8 +606,10 @@ class FusionTranslator : public OptInConstDispatch {
         ? PrimDataType::Null
         : std::get<PrimDataType>(rop->out()->dtype().type);
 
+    TensorView* out_tv = rop->out()->as<TensorView>();
     Tensor output = fd_->defineTensor(out_tv->nDims());
     map_val_to_fd_index_.emplace(rop->out(), output());
+
     fd_->defineRecord(new ReductionOpRecord(
         {fd_->recordingState(map_val_to_fd_index_.at(rop->in()))},
         {fd_->recordingState(output())},
@@ -619,9 +621,38 @@ class FusionTranslator : public OptInConstDispatch {
             const std::vector<int64_t>&,
             bool,
             DataType>(rop),
-        axes,
+        getReductionAxes(out_tv),
         /*keep_dim=*/false,
         dtype));
+  }
+
+  // Map WelfordOp to python frontend
+  void handle(const WelfordOp* wop) final {
+    NVF_ERROR(wop->initAvg()->evaluate().as<double>() == 0.0);
+    NVF_ERROR(wop->initVar()->evaluate().as<double>() == 0.0);
+    NVF_ERROR(wop->initN()->evaluate().as<int64_t>() == 0);
+
+    NVF_ERROR(wop->outAvg()->isA<TensorView>());
+    TensorView* out_avg_tv = wop->outAvg()->as<TensorView>();
+    Tensor out_avg = fd_->defineTensor(out_avg_tv->nDims());
+    map_val_to_fd_index_.emplace(wop->outAvg(), out_avg());
+
+    NVF_ERROR(wop->outVar()->isA<TensorView>());
+    TensorView* out_var_tv = wop->outVar()->as<TensorView>();
+    Tensor out_var = fd_->defineTensor(out_var_tv->nDims());
+    map_val_to_fd_index_.emplace(wop->outVar(), out_var());
+
+    NVF_ERROR(wop->outN()->isA<TensorView>());
+    TensorView* out_N_tv = wop->outN()->as<TensorView>();
+    Tensor out_N = fd_->defineTensor(out_N_tv->nDims());
+    map_val_to_fd_index_.emplace(wop->outN(), out_N());
+
+    fd_->defineRecord(new WelfordOpRecord(
+        {fd_->recordingState(map_val_to_fd_index_.at(wop->inAvg()))},
+        {fd_->recordingState(out_avg()),
+         fd_->recordingState(out_var()),
+         fd_->recordingState(out_N())},
+        getReductionAxes(out_avg_tv)));
   }
 
   // Add Broadcast operation to FusionDefinition
