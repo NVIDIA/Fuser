@@ -3422,8 +3422,7 @@ class MultiMatmulSchedulerMatchTest
     if (tv_orig->hasAllocation()) {
       const std::vector<IterDomain*>& alloc_orig =
           tv_orig->getAllocationDomain();
-      const std::vector<IterDomain*>& alloc_new =
-          tv_new->getMaybeAllocationDomain();
+      const std::vector<IterDomain*>& alloc_new = tv_new->getAllocationDomain();
       ASSERT_EQ(alloc_new.size(), alloc_orig.size()) << suffix;
       for (size_t i : c10::irange(alloc_orig.size())) {
         compareIDs(alloc_orig[i], alloc_new[i]);
@@ -3498,7 +3497,7 @@ class MultiMatmulSchedulerMatchTest
     // Schedule cloned fusion with new scheduler
     scheduleMultipleMatmuls(&new_fusion, params);
 
-    // find tensors in old scheduler-scheduled fusion to compare
+    // find tensors to compare
     auto getTensorsToCompare = [](Fusion* fusion) {
       std::vector<TensorView*> tvs;
 
