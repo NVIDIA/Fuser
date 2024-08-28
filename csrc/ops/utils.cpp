@@ -30,7 +30,7 @@ TensorView* maybe_broadcast_inner_to_rank(TensorView* t, size_t rank) {
   return t;
 }
 
-TensorView* maybe_broadcast_index_tv(TensorView* t, size_t dim, size_t rank) {
+TensorView* maybeBroadcastIndexTv(TensorView* t, size_t dim, size_t rank) {
   size_t oli_rank = TensorDomain::noReductions(t->getLogicalDomain()).size();
   NVF_ERROR(
       oli_rank == 1,
@@ -43,7 +43,7 @@ TensorView* maybe_broadcast_index_tv(TensorView* t, size_t dim, size_t rank) {
       " >= ",
       rank);
   std::vector<bool> bcast_dims(rank, false);
-  // broadcast outter on inp to match rank with other.
+  // broadcast output on input to match rank with other.
   if (dim + 1 < rank) {
     std::fill(bcast_dims.begin() + (int64_t)dim + 1, bcast_dims.end(), true);
   }
@@ -55,6 +55,25 @@ TensorView* maybe_broadcast_index_tv(TensorView* t, size_t dim, size_t rank) {
     t = broadcast(t, bcast_dims);
   }
   return t;
+}
+
+// A utility function that checks if index tv is already broadcasted to correct
+// shape for index_select
+bool isIndexAlreadyBroadcast(
+    const std::vector<IterDomain*>& index_domain,
+    size_t dim,
+    size_t rank) {
+  // short-circuit: expected index domain to be same size as lookup domain
+  if (index_domain.size() != rank) {
+    return false;
+  }
+  // All dimensions except for selected dimension must be a broadcast in index
+  // TensorView.
+  IterDomain* selected_dim = index_domain.at(dim);
+  return std::all_of(
+      index_domain.begin(), index_domain.end(), [&](IterDomain* id) {
+        return (id == selected_dim || id->isBroadcast());
+      });
 }
 
 Val* simplifiedInt(Val* val) {
