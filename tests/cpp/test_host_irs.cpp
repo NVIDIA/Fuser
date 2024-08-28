@@ -467,9 +467,6 @@ TEST_P(HostIrTest, ForLoops) {
   }
   at::Tensor expected_result = torch::tensor({expected_result_data}, options);
 
-  std::cout << "buffer_at=" << buffer_at.item() << std::endl;
-  std::cout << "expected_result=" << expected_result.item() << std::endl;
-
   EXPECT_TRUE(expected_result.equal(buffer_at));
 }
 
