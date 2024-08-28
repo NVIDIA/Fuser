@@ -388,9 +388,9 @@ TEST_F(NVFuserTest, CombinedSchedulerSharedProducer_CUDA) {
         fusion.addOutput(use_outer);
       } break;
       case 1: {
-        // tensor bias is a producer of the inner reduction and also a produer
-        // of a consumer of the outer reduction results this a not allowed,
-        // expect segmented
+        // tensor bias is a producer of the inner reduction and also a
+        // produer of a consumer of the outer reduction results this a not
+        // allowed, expect segmented
         auto bias_broad = add(bias, mean);
         auto use_inner = sum(bias_broad, {-1});
         auto use_outer = add(layer_norm_results.grad_weight, bias);
@@ -398,10 +398,10 @@ TEST_F(NVFuserTest, CombinedSchedulerSharedProducer_CUDA) {
         fusion.addOutput(use_outer);
       } break;
       case 2: {
-        // tensor bias is a producer of the outer reduction and also a produer
-        // of a consumer of the inner reduction results this a allowed, becase
-        // the first part of outer reduction is computed with inner reduction.
-        // expect unsegmented
+        // tensor bias is a producer of the outer reduction and also a
+        // produer of a consumer of the inner reduction results this a
+        // allowed, becase the first part of outer reduction is computed
+        // with inner reduction. expect unsegmented
         auto bias_broad = add(bias, mean);
         auto use_inner = add(layer_norm_results.grad_input, bias_broad);
         auto use_outer = sum(bias_broad, {0});
@@ -435,12 +435,10 @@ TEST_F(NVFuserTest, CombinedSchedulerSharedProducer_CUDA) {
     at::Tensor aten_input = at::randn(input_shape, maybe_fp16_options);
     at::Tensor aten_weight = at::randn(norm_shape, maybe_fp16_options);
     at::Tensor aten_bias = at::randn(norm_shape, maybe_fp16_options);
-    auto at_weight = c10::optional<at::Tensor>(aten_weight);
-    auto at_bias = c10::optional<at::Tensor>(aten_bias);
 
-    const float kEps = 1e-5;
-    auto aten_results =
-        at::native_layer_norm(aten_input, norm_shape, at_weight, at_bias, kEps);
+    constexpr float kEps = 1e-5;
+    auto aten_results = at::native_layer_norm(
+        aten_input, norm_shape, aten_weight, aten_bias, kEps);
     auto aten_output = std::get<0>(aten_results);
     auto aten_mean = std::get<1>(aten_results);
     auto aten_rstd = std::get<2>(aten_results);
@@ -455,48 +453,19 @@ TEST_F(NVFuserTest, CombinedSchedulerSharedProducer_CUDA) {
         aten_bias};
     auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
 
-    auto aten_gradients = at::native_layer_norm_backward(
-        aten_grad_out,
-        aten_input,
-        norm_shape,
-        aten_mean,
-        aten_rstd,
-        c10::optional<at::Tensor>(aten_weight),
-        c10::optional<at::Tensor>(aten_bias),
-        {true, true, true});
-
-    // check the results depending on the case
-    at::Tensor aten_use_inner, aten_use_outer;
-    bool expected_segmented;
+    FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
     switch (case_id) {
-      case 0: {
-        aten_use_inner = std::get<0>(aten_gradients) + aten_input;
-        aten_use_outer = std::get<1>(aten_gradients) + aten_input;
-        expected_segmented = true;
-      } break;
-      case 1: {
-        aten_use_inner = (aten_bias + aten_mean).sum({-1});
-        aten_use_outer = std::get<1>(aten_gradients) + aten_bias;
-        expected_segmented = true;
-      } break;
-      case 2: {
-        aten_use_inner = std::get<0>(aten_gradients) + (aten_bias + aten_mean);
-        aten_use_outer = (aten_bias + aten_mean).sum({0});
-        expected_segmented = false;
-      } break;
-      case 3: {
-        aten_use_inner = std::get<1>(aten_gradients) + (aten_bias + 1.0);
-        aten_use_outer = std::get<2>(aten_gradients) + (aten_bias + 1.0);
-        expected_segmented = true;
-      } break;
+      case 0:
+      case 1:
+      case 3:
+        EXPECT_TRUE(runtime->isSegmented());
+        break;
+      case 2:
+        EXPECT_FALSE(runtime->isSegmented());
+        break;
       default:
         NVF_ERROR(false, "Invalid case id");
     }
-    bool is_segmented = fec.getMostRecentKernelRuntime()->isSegmented();
-    NVF_CHECK(
-        is_segmented == expected_segmented,
-        expected_segmented ? "Fusion should be segmented!"
-                           : "Fusion should not be segmented!");
 
     auto tolerance_overwrite = ValidationConstants();
     // bump tolerance, CI errors are higher than local
@@ -510,11 +479,6 @@ TEST_F(NVFuserTest, CombinedSchedulerSharedProducer_CUDA) {
         &fusion,
         cg_outputs,
         aten_inputs,
-        {aten_use_inner,
-         aten_use_outer,
-         std::get<0>(aten_gradients),
-         std::get<1>(aten_gradients),
-         std::get<2>(aten_gradients)},
         __LINE__,
         __FILE__,
         "",
