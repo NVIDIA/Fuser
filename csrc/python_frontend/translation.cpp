@@ -7,9 +7,9 @@
 // clang-format on
 //
 #include <dispatch.h>
+#include <ops/all_ops.h>
 #include <python_frontend/translation.h>
 #include <python_frontend/translation_utils.h>
-#include <ops/all_ops.h>
 
 #include <vector>
 
@@ -374,6 +374,13 @@ class FusionTranslator : public OptInConstDispatch {
 
     size_t input_fd_index = map_val_to_fd_index_.at(op->input(0));
 
+    // DataType::Index does not exist in python_frontend, so convert to
+    // DataType::Int
+    DataType scalar_dtype = op->output(0)->dtype();
+    if (scalar_dtype == DataType::Index) {
+      scalar_dtype = DataType::Int;
+    }
+
     if (op->input(0)->isA<TensorView>()) {
       Tensor output =
           fd_->defineTensor(op->output(0)->as<TensorView>()->nDims());
@@ -384,7 +391,7 @@ class FusionTranslator : public OptInConstDispatch {
           "ops.cast",
           serde::RecordType::CastTv,
           static_cast<TensorView* (*)(DataType, TensorView*)>(castOp),
-          std::get<PrimDataType>(op->output(0)->dtype().type)));
+          std::get<PrimDataType>(scalar_dtype.type)));
     } else {
       Scalar output = fd_->defineScalar();
       map_val_to_fd_index_.emplace(op->output(0), output());
@@ -394,7 +401,7 @@ class FusionTranslator : public OptInConstDispatch {
           "ops.cast",
           serde::RecordType::CastVal,
           static_cast<Val* (*)(DataType, Val*)>(castOp),
-          std::get<PrimDataType>(op->output(0)->dtype().type)));
+          std::get<PrimDataType>(scalar_dtype.type)));
     }
   }
 
