@@ -580,7 +580,6 @@ TEST_F(PointwiseTest, VectorizeWithBroadcastAndReshape1) {
   fusion->addOutput(tv4);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   auto t0 = at::randn(shape1, options);
   auto t1 = at::randn(shape2, options);
   std::vector<c10::IValue> aten_inputs({t0, t1});
@@ -626,7 +625,6 @@ TEST_F(PointwiseTest, VectorizeWithBroadcastAndReshape2) {
   fusion->addOutput(tv7);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   auto t0 = at::randn(shape1, options);
   auto t1 = at::randn(shape1, options);
   auto t2 = at::randn(shape2, options);
