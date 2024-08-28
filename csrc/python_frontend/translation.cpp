@@ -839,6 +839,24 @@ class FusionTranslator : public OptInConstDispatch {
         std::get<PrimDataType>(out_tv->dtype().type)));
   }
 
+  // Map IotaOp to python frontend
+  void handle(const IotaOp* iop) final {
+    TensorView* out_tv = iop->output(0)->as<TensorView>();
+    Tensor output = fd_->defineTensor(out_tv->nDims());
+    map_val_to_fd_index_.emplace(out_tv, output());
+
+    Scalar length = createScalar(iop->length());
+    Scalar start = createScalar(iop->start());
+    Scalar step = createScalar(iop->step());
+
+    fd_->defineRecord(new IotaOpRecord(
+        {fd_->recordingState(length()),
+         fd_->recordingState(start()),
+         fd_->recordingState(step())},
+        {fd_->recordingState(output())},
+        std::get<PrimDataType>(iop->dtype().type)));
+  }
+
  private:
   //! The reference CPP fusion to be translated.
   Fusion* fusion_ = nullptr;
