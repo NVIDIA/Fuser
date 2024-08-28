@@ -1819,6 +1819,58 @@ struct IndexSelectOpRecord : RecordFunctor {
   int64_t dim_;
 };
 
+struct SelectOpRecord : RecordFunctor {
+  SelectOpRecord(
+      std::vector<State> _args,
+      std::vector<State> _outputs,
+      int64_t dim)
+      : RecordFunctor(
+            std::move(_args),
+            std::move(_outputs),
+            "ops.select",
+            serde::RecordType::SelectOp),
+        dim_(dim) {}
+  ~SelectOpRecord() override = default;
+  RecordFunctor* clone() final {
+    return new SelectOpRecord(*this);
+  }
+
+  bool operator==(const RecordFunctor& other) const final {
+    auto result = false;
+    if (auto child_ptr = dynamic_cast<const SelectOpRecord*>(&other)) {
+      result = RecordFunctor::operator==(other) && dim_ == child_ptr->dim_;
+    }
+    return result;
+  }
+
+  void operator()(FusionState& fd) final {
+    auto arg1 = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
+    auto arg3 = fd.getFusionState(args_.at(1).index)->template as<TensorView>();
+
+    Val* output = select(arg1, dim_, arg3);
+    fd.setFusionState(outputs_.at(0).index, output);
+  }
+
+  void print(std::ostream& os, bool close_function = true) const final {
+    RecordFunctor::print(os, false);
+    os << ", dim=" << dim_;
+    if (close_function) {
+      os << ")";
+    }
+  }
+
+  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+      flatbuffers::FlatBufferBuilder& builder) const final {
+    return {
+        serde::RecordData::Dimension,
+        serde::CreateDimension(builder, dim_).Union()};
+  }
+
+ private:
+  //! Dimension to select.
+  int64_t dim_;
+};
+
 struct TorchGatherOpRecord : RecordFunctor {
   TorchGatherOpRecord(
       std::vector<State> _args,

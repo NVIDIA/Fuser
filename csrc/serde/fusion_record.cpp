@@ -462,6 +462,14 @@ void RecordFunctorFactory::registerAllParsers() {
   };
   registerParser(RecordType::IndexSelectOp, deserializeIndexSelectRecord);
 
+  auto deserializeSelectRecord = [](const RecordFunctor* buffer) {
+    return new python_frontend::SelectOpRecord(
+        parseStateArgs(buffer->args()),
+        parseStateArgs(buffer->outputs()),
+        buffer->data_as_Dimension()->dim());
+  };
+  registerParser(RecordType::SelectOp, deserializeSelectRecord);
+
   auto deserializeOutputTvRecord = [](const RecordFunctor* buffer) {
     auto data = buffer->data_as_Output();
     return new python_frontend::OutputRecord<TensorView>(
