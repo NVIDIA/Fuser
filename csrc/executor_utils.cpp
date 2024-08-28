@@ -724,8 +724,10 @@ ExpressionEvaluator bindInputs(
          << " there was an error with the provided input " << i
          << ". Provided input was:\n  ";
       ss << PolymorphicValue_functions::toString(*args[i]);
-      ss << "\n  which does not match the expected input:\n  ";
-      ss << inputs[i]->toString() << "\n";
+      ss << "\n  Fusion input is:\n  ";
+      ss << inputs[i]->toString();
+      ss << "\n  Expr eval provided the error:\n\"\"\"";
+      ss << e.msg() << "\"\"\"\n";
       NVF_THROW(ss.str());
     }
   }

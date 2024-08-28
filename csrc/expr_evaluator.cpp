@@ -344,6 +344,143 @@ void ExpressionEvaluator::print() const {
   debug() << "--------------------\n\n";
 }
 
+namespace {
+// Error handling for
+// ExpressionEvaluator::propagateBoundValuesThroughExactMaps(Fusion* fusion)
+void handlePropagateError(
+    Fusion* fusion,
+    ExpressionEvaluator* expr_eval,
+    std::shared_ptr<VectorOfUniqueEntries<const IterDomain*>> id_set) {
+  std::unordered_map<const IterDomain*, int64_t> id_to_size;
+  std::set<int64_t> sizes;
+
+  for (const auto id : *id_set) {
+    auto eval_val = expr_eval->evaluate(id->extent());
+    if (eval_val.hasValue()) {
+      NVF_ERROR(
+          eval_val.is<int64_t>(),
+          "Invalid extent value found, while processing ID: ",
+          id);
+      id_to_size[id] = eval_val.as<int64_t>();
+      sizes.insert(eval_val.as<int64_t>());
+    }
+  }
+
+  std::stringstream err_msg;
+  err_msg
+      << "When trying to propagate constant tensor sizes through the graph a conflict was found with "
+      << sizes.size()
+      << " different sizes across dimensions that are expected to match.\n";
+
+  // Track which size is associated with which TV and IterDomain
+  std::unordered_map<
+      int64_t,
+      std::vector<std::pair<TensorView*, const IterDomain*>>>
+      size_to_info;
+
+  for (auto tv : ir_utils::allTvs(fusion)) {
+    for (const IterDomain* id : tv->domain()->allIDs()) {
+      if (auto it = id_to_size.find(id); it != id_to_size.end()) {
+        size_to_info[it->second].push_back({tv, id});
+      }
+    }
+  }
+
+  // Check which TensorViews mismatch and check if they're directly related.
+  // If so, the expression between them may be the problmeatic expression, and
+  // the error will point to that expression(s). Don't bother to simplify this
+  // check as it's only runs after an error is detected.
+  bool found_producer_consumer_issue = false;
+  // Assume producer/consumer relationship
+  for (auto [dim_size_1, tv_id_pairs_1] : size_to_info) {
+    for (auto [dim_size_2, tv_id_pairs_2] : size_to_info) {
+      if (dim_size_1 <= dim_size_2) {
+        // N^2 algorithm, only process when one size is less than the other,
+        // avoids duplicate entries.
+        continue;
+      }
+
+      bool tv1_is_consumer = false;
+      for (auto tv_id_pair_1 : tv_id_pairs_1) {
+        for (auto tv_id_pair_2 : tv_id_pairs_2) {
+          // Check for producer-consumer relationship
+          auto producer_tvs_of_tv1 =
+              ir_utils::producerTvsOf(tv_id_pair_1.first);
+          auto producer_tvs_of_tv2 =
+              ir_utils::producerTvsOf(tv_id_pair_2.first);
+          if (std::find(
+                  producer_tvs_of_tv1.begin(),
+                  producer_tvs_of_tv1.end(),
+                  tv_id_pair_2.first) != producer_tvs_of_tv1.end()) {
+            tv1_is_consumer = true;
+          } else if (
+              std::find(
+                  producer_tvs_of_tv2.begin(),
+                  producer_tvs_of_tv2.end(),
+                  tv_id_pair_1.first) == producer_tvs_of_tv2.end()) {
+            // No relationship found, skip
+            continue;
+          }
+
+          Expr* relationship = tv1_is_consumer
+              ? tv_id_pair_1.first->definition()
+              : tv_id_pair_2.first->definition();
+
+          // Found at least one consumer/producer relationship with mismatched
+          // sizes.
+          found_producer_consumer_issue = true;
+
+          // Produce error message. Normally I'd just use swap but keys in an
+          // unordered map are const, so doing some juggling with the strings
+          // instead.
+          std::stringstream tv1_error;
+          std::stringstream tv2_error;
+          tv1_error << " TV: " << tv_id_pair_1.first
+                    << " id: " << tv_id_pair_1.second
+                    << " found size: " << dim_size_1 << "\n";
+          tv2_error << " TV: " << tv_id_pair_2.first
+                    << " id: " << tv_id_pair_2.second
+                    << " found size: " << dim_size_2 << "\n";
+          err_msg << "  For Producer"
+                  << (tv1_is_consumer ? tv2_error.str() : tv1_error.str());
+          err_msg << "  For Consumer"
+                  << (tv1_is_consumer ? tv1_error.str() : tv2_error.str());
+          err_msg
+              << "  With producer-consumer relationship through the expression: "
+              << relationship << "\n";
+        }
+      }
+    }
+  }
+
+  if (found_producer_consumer_issue) {
+    NVF_THROW(err_msg.str());
+  }
+
+  if (size_to_info.size() > 1) {
+    for (const auto& [size, info_pairs] : size_to_info) {
+      err_msg << "Size " << size << " found for ID, in TV:\n";
+      for (auto info_pair : info_pairs) {
+        err_msg << "  " << info_pair.second << ", " << info_pair.first << "\n";
+      }
+    }
+    err_msg << "These sizes should all match.\n";
+  } else {
+    std::unordered_map<int64_t, std::vector<const IterDomain*>> size_to_ids;
+    err_msg
+        << "The following groups of IterDomains should all have the same size, but don't:\n";
+    for (const auto& [id, size] : id_to_size) {
+      size_to_ids[size].push_back(id);
+    }
+    for (const auto& [size, ids] : size_to_ids) {
+      err_msg << "  Size: " << size << " found for ids: " << ids << "\n";
+    }
+  }
+
+  NVF_THROW(err_msg.str());
+}
+} // namespace
+
 void ExpressionEvaluator::propagateBoundValuesThroughExactMaps(Fusion* fusion) {
   // We map Symbolic IterDomains here only if their extents match. This avoids
   // mapping between symbolic domains that might concretize to an (Iteration,
@@ -358,15 +495,10 @@ void ExpressionEvaluator::propagateBoundValuesThroughExactMaps(Fusion* fusion) {
       if (eval_val.hasValue()) {
         NVF_ERROR(eval_val.is<int64_t>(), "Invalid extent value");
         int64_t this_size = eval_val.as<int64_t>();
-        if (known_size != -1) {
-          NVF_ERROR(
-              known_size == this_size,
-              "Conflicting sizes: ",
-              known_size,
-              ", ",
-              this_size);
-        } else {
+        if (known_size == -1) {
           known_size = this_size;
+        } else if (known_size != this_size) {
+          handlePropagateError(fusion, this, set);
         }
       } else {
         unknown_vals.push_back(id->extent());

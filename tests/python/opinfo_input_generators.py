@@ -311,7 +311,11 @@ def cat_error_generator(op, dtype=torch.float32, requires_grad: bool = False, **
         "Unexpected number of dimensions",
     )
     # All tensors must have same shape except for the cat dimension
-    shape_mismatch = (([(2, 3), (4, 5)], 0), RuntimeError, "known_size == this_size")
+    shape_mismatch = (
+        ([(2, 3), (4, 5)], 0),
+        RuntimeError,
+        "When trying to propagate constant tensor sizes",
+    )
 
     error_cases = [
         empty_input_tensors,
@@ -898,7 +902,7 @@ def pad_error_generator(
     delete_all_pad_width = [-3, 0, 0, 0]
     yield SampleInput(
         make_arg(input_shape), delete_all_pad_width, make_number(dtype)
-    ), RuntimeError, "extent_int >= 0"
+    ), RuntimeError, "Invalid resized domain extent"
 
     too_many_pad_width = [1, 1, 1, 1, 1, 1]
     yield SampleInput(
