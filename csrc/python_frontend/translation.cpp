@@ -9,6 +9,7 @@
 #include <dispatch.h>
 #include <python_frontend/translation.h>
 #include <python_frontend/translation_utils.h>
+#include <ops/all_ops.h>
 
 #include <vector>
 
@@ -742,6 +743,35 @@ class FusionTranslator : public OptInConstDispatch {
         break;
       default:
         NVF_ERROR(false, "Unsupported RNGOpType.");
+    }
+  }
+
+  // Map LinearOp to python frontend
+  void handle(const LinearOp* lop) final {
+    TensorView* out_tv = lop->out()->as<TensorView>();
+    Tensor output = fd_->defineTensor(out_tv->nDims());
+    map_val_to_fd_index_.emplace(out_tv, output());
+
+    if (lop->bias() != nullptr) {
+      fd_->defineRecord(
+          new OpRecord<TensorView*, TensorView*, TensorView*, TensorView*>(
+              {fd_->recordingState(map_val_to_fd_index_.at(lop->inA())),
+               fd_->recordingState(map_val_to_fd_index_.at(lop->inB())),
+               fd_->recordingState(map_val_to_fd_index_.at(lop->bias()))},
+              {fd_->recordingState(output())},
+              ("ops.linear"),
+              serde::RecordType::Ternary_TV,
+              static_cast<
+                  TensorView* (*)(TensorView*, TensorView*, TensorView*)>(
+                  linear)));
+    } else {
+      fd_->defineRecord(new OpRecord<TensorView*, TensorView*, TensorView*>(
+          {fd_->recordingState(map_val_to_fd_index_.at(lop->inA())),
+           fd_->recordingState(map_val_to_fd_index_.at(lop->inB()))},
+          {fd_->recordingState(output())},
+          ("ops.linear"),
+          serde::RecordType::Binary_TV,
+          static_cast<TensorView* (*)(TensorView*, TensorView*)>(linear)));
     }
   }
 
