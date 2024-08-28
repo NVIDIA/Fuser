@@ -8,13 +8,14 @@ from torch.profiler import profile, ProfilerActivity
 from typing import List, Callable, Union
 import numpy as np
 from nvfuser import FusionDefinition, FusionCache
-from nvfuser.pytorch_utils import DEVICE_PROPERTIES
+from nvfuser.pytorch_utils import get_device_properties
 
 # These variables can be overwritten through CLI commands
 # --benchmark-rounds=rounds --benchmark-warmup-rounds=warmup_rounds
 # --benchmark-num-inputs=num_inputs
 BENCHMARK_CONFIG = {"rounds": 10, "warmup_rounds": 1, "num_inputs": None}
 
+DEVICE_PROPERTIES = get_device_properties()
 L2_CACHE_SIZE = DEVICE_PROPERTIES["gpu_l2_bytes"]
 PEAK_BANDWIDTH_GBPS = DEVICE_PROPERTIES["gpu_peak_bandwidth_gbps"]
 
