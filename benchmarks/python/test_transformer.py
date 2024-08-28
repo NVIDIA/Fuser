@@ -156,7 +156,7 @@ def transformer_forward_fusion(fd: FusionDefinition) -> None:
     S15 = fd.define_scalar(None, dtype=DataType.Int)
     # MLP dropout.rng_seed
     S16 = fd.define_scalar(None, dtype=DataType.Int)
-  
+
     T17 = fd.ops.cast(T0, dtype=DataType.Float)
     T18, T19 = fd.ops.var_mean(T17, dims=[2], correction=0, keepdim=False)
     S20 = fd.define_scalar(1, dtype=DataType.Int)
@@ -340,15 +340,15 @@ def transformer_forward_fusion(fd: FusionDefinition) -> None:
     T186 = fd.ops.mul(T184, S185)
     T187 = fd.ops.add(T113, T186)
     T188 = fd.ops.cast(T187, dtype=DataType.BFloat16)
-    fd.add_output(T19) # layer_norm0.welford_out.avg
-    fd.add_output(T32) # layer_norm0.invstd
-    fd.add_output(T87) # MHA sdpa.output
-    fd.add_output(T88) # MHA sdpa.logsum_exp
-    fd.add_output(T89) # MHA sdpa.philox_seed
-    fd.add_output(T90) # MHA sdpa.philox_offset
-    fd.add_output(T115) # layer_norm1.welford_out.avg
-    fd.add_output(T128) # layer_norm1.invstd
-    fd.add_output(T188) # output
+    fd.add_output(T19)  # layer_norm0.welford_out.avg
+    fd.add_output(T32)  # layer_norm0.invstd
+    fd.add_output(T87)  # MHA sdpa.output
+    fd.add_output(T88)  # MHA sdpa.logsum_exp
+    fd.add_output(T89)  # MHA sdpa.philox_seed
+    fd.add_output(T90)  # MHA sdpa.philox_offset
+    fd.add_output(T115)  # layer_norm1.welford_out.avg
+    fd.add_output(T128)  # layer_norm1.invstd
+    fd.add_output(T188)  # output
 
 
 def test_transformer_forward(
@@ -410,7 +410,7 @@ def test_transformer_forward(
 
 
 def transformer_backward_fusion(fd: FusionDefinition) -> None:
-    # X: input
+    # x: input
     T0 = fd.define_tensor(
         shape=[1, -1, -1],
         contiguity=[None, True, True],
@@ -574,7 +574,7 @@ def transformer_backward_fusion(fd: FusionDefinition) -> None:
     T23 = fd.define_tensor(shape=[], contiguity=[], dtype=DataType.Int, is_cpu=False)
     # MHA sdpa.philox_offset
     T24 = fd.define_tensor(shape=[], contiguity=[], dtype=DataType.Int, is_cpu=False)
-  
+
     T25 = fd.ops.cast(T0, dtype=DataType.Float)
     S26 = fd.define_scalar(1, dtype=DataType.Int)
     S27 = fd.define_scalar(2048, dtype=DataType.Int)
@@ -1023,19 +1023,19 @@ def transformer_backward_fusion(fd: FusionDefinition) -> None:
     T454 = fd.ops.add(T384, T453)
     T455 = fd.ops.add(T304, T454)
     T456 = fd.ops.cast(T455, dtype=DataType.BFloat16)
-    fd.add_output(T184) # MLP linear1.weight_grad
-    fd.add_output(T186) # MLP linear1.bias_grad
-    fd.add_output(T223) # MLP linear0.weight_grad
-    fd.add_output(T225) # MLP linear0.bias_grad
-    fd.add_output(T228) # layer_norm1.bias_grad
-    fd.add_output(T232) # layer_norm1.weight_grad
-    fd.add_output(T324) # MHA linear1.weight_grad
-    fd.add_output(T326) # MHA linear1.bias_grad
-    fd.add_output(T373) # MHA linear0.weight_grad
-    fd.add_output(T376) # MHA linear0.bias_grad
-    fd.add_output(T379) # layer_norm0.bias_grad
-    fd.add_output(T383) # layer_norm0.weight_grad
-    fd.add_output(T456) # dy output grad
+    fd.add_output(T184)  # MLP linear1.weight_grad
+    fd.add_output(T186)  # MLP linear1.bias_grad
+    fd.add_output(T223)  # MLP linear0.weight_grad
+    fd.add_output(T225)  # MLP linear0.bias_grad
+    fd.add_output(T228)  # layer_norm1.bias_grad
+    fd.add_output(T232)  # layer_norm1.weight_grad
+    fd.add_output(T324)  # MHA linear1.weight_grad
+    fd.add_output(T326)  # MHA linear1.bias_grad
+    fd.add_output(T373)  # MHA linear0.weight_grad
+    fd.add_output(T376)  # MHA linear0.bias_grad
+    fd.add_output(T379)  # layer_norm0.bias_grad
+    fd.add_output(T383)  # layer_norm0.weight_grad
+    fd.add_output(T456)  # dx output grad
 
 
 def test_transformer_backward(
