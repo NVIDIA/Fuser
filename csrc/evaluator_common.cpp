@@ -348,19 +348,21 @@ void PrecomputedValues::bindTensorMetaData(
 
   for (const auto dim : c10::irange(logical_domain.size())) {
     IterDomain* id = logical_domain[dim];
-    auto dim_size = tensor.size(static_cast<int64_t>(dim));
-    if (id->isDeviceDim()) {
-      dim_size = tv->getDeviceMesh().size(id->getParallelType());
-    }
-
-    if (id->hasExpandedExtent()) {
-      Val* extent = id->extent();
-      Val* expanded_extent = id->expandedExtent();
-      bindValue(extent->evaluatorIndex(), 1L);
-      bindValue(expanded_extent->evaluatorIndex(), dim_size);
+    const auto dim_size = tensor.size(static_cast<int64_t>(dim));
+    if (id->isBroadcast()) {
+      // DIDs are ignored.
+      bindValue(id->extent()->evaluatorIndex(), 1L);
+      if (id->hasExpandedExtent()) {
+        bindValue(id->expandedExtent()->evaluatorIndex(), dim_size);
+      }
     } else {
-      Val* extent = id->extent();
-      bindValue(extent->evaluatorIndex(), dim_size);
+      if (id->isDeviceDim()) {
+        bindValue(
+            id->extent()->evaluatorIndex(),
+            tv->getDeviceMesh().size(id->getParallelType()));
+      } else {
+        bindValue(id->extent()->evaluatorIndex(), dim_size);
+      }
     }
   }
 
