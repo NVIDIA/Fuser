@@ -180,16 +180,17 @@ class FusionTranslator : public OptInConstDispatch {
   // =================================================================================
   // Handle define_scalar, define_vector, define_tensor variants
 
-  // Add scalar value to Fusion Definition
-  void handle(const Val* v) final {
+  // Create scalar for given nvfuser value. The nvfuser value must not already
+  // exist and have a definition. It can be a fusion input, a constant, or a
+  // tensor's extent.
+  Scalar createScalar(const Val* v) {
+    NVF_ERROR(
+        v->definition() == nullptr,
+        "Value has a definition and should not be created directly.");
+
     // short-circuit: value already exists in FusionDefinition
     if (map_val_to_fd_index_.count(v) > 0) {
-      return;
-    }
-
-    // short-circuit: scalar definition has a definition
-    if (v->definition() != nullptr) {
-      return;
+      return Scalar(map_val_to_fd_index_.at(v), fd_);
     }
 
     Scalar output = fd_->defineScalar();
@@ -223,7 +224,7 @@ class FusionTranslator : public OptInConstDispatch {
           {fd_->recordingState(kv.second)},
           {fd_->recordingState(output())},
           dim));
-      return;
+      return output;
     }
 
     // DataType::Index does not exist in python_frontend, so convert to
@@ -235,6 +236,7 @@ class FusionTranslator : public OptInConstDispatch {
         {fd_->recordingState(output())},
         v->value(),
         std::get<PrimDataType>(scalar_dtype.type)));
+    return output;
   }
 
   // Create python_frontend Vector from a vector of CPP scalar values.
@@ -260,6 +262,15 @@ class FusionTranslator : public OptInConstDispatch {
     fd_->defineRecord(new VectorRecord(
         inputs, {fd_->recordingState(output())}, DataType::Int));
     return output;
+  }
+
+  // Add scalar value to Fusion Definition
+  void handle(const Val* v) final {
+    // short-circuit: scalar definition has a definition
+    if (v->definition() != nullptr) {
+      return;
+    }
+    createScalar(v);
   }
 
   // Add Tensor value to Fusion Definition
@@ -290,6 +301,24 @@ class FusionTranslator : public OptInConstDispatch {
         std::get<PrimDataType>(tv->dtype().type),
         tv->isCpuScalar(),
         tv->domain()->strideOrder()));
+  }
+
+  // =================================================================================
+  // Utility functions
+
+  // Create a vector for the logical domain of TensorView.
+  // Used with ViewOp and ExpandOp handlers
+  Vector getShape(TensorView* tv) {
+    const std::vector<IterDomain*>& logical_out_domain =
+        tv->domain()->logical();
+    std::vector<Val*> logical_domain_extents;
+    // Use expanded extent if available for IterDomain.
+    std::transform(
+        logical_out_domain.begin(),
+        logical_out_domain.end(),
+        std::back_inserter(logical_domain_extents),
+        [](IterDomain* id) { return id->getMaybeExpandedExtent(); });
+    return createVector(logical_domain_extents);
   }
 
   // =================================================================================
@@ -626,21 +655,6 @@ class FusionTranslator : public OptInConstDispatch {
         /*squeeze_expanded=*/true));
   }
 
-  // Create a vector for the logical domain of TensorView.
-  // Used with ViewOp and ExpandOp handlers
-  Vector getShape(TensorView* tv) {
-    const std::vector<IterDomain*>& logical_out_domain =
-        tv->domain()->logical();
-    std::vector<Val*> logical_domain_extents;
-    // Use expanded extent if available for IterDomain.
-    std::transform(
-        logical_out_domain.begin(),
-        logical_out_domain.end(),
-        std::back_inserter(logical_domain_extents),
-        [](IterDomain* id) { return id->getMaybeExpandedExtent(); });
-    return createVector(logical_domain_extents);
-  }
-
   // Map ViewOp to python frontend
   void handle(const ViewOp* vop) final {
     // Get extent's for output's logical domain
@@ -728,12 +742,10 @@ class FusionTranslator : public OptInConstDispatch {
     std::vector<Val*> params = rop->getParameters();
     if (params.empty()) {
       // Default arg1 and arg2 is (0, 1) for both uniform and normal.
-      handle(fusion_->zeroVal());
-      arg_states.push_back(
-          fd_->recordingState(map_val_to_fd_index_.at(fusion_->zeroVal())));
-      handle(fusion_->oneVal());
-      arg_states.push_back(
-          fd_->recordingState(map_val_to_fd_index_.at(fusion_->oneVal())));
+      Scalar zero_value = createScalar(fusion_->zeroVal());
+      Scalar one_value = createScalar(fusion_->oneVal());
+      arg_states.push_back(fd_->recordingState(zero_value()));
+      arg_states.push_back(fd_->recordingState(one_value()));
     } else {
       NVF_ERROR(
           params.size() == 2,
