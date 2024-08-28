@@ -629,9 +629,10 @@ class MultipleMatmulScheduler {
   }
 
   void translatePatterns() {
-    mma_ops_.reserve(patterns_.size());
+    mma_results_.reserve(patterns_.size());
     for (mma_utils::MatmulPattern& pattern : patterns_) {
-      mma_ops_.push_back(pattern.translateToMmaOp());
+      MmaOp* mma = pattern.translateToMmaOp();
+      mma_results_.push_back(mma->out()->as<TensorView>());
     }
 
     // Build a new IdModel since translateToMmaOp creates new TVs
@@ -695,14 +696,6 @@ class MultipleMatmulScheduler {
   // Currently the support is for a, b, c and d as fusion inputs/outputs
   //  aka. no prolog fusion yet.
   void defineOperandCaches() {
-    mma_results_.reserve(mma_ops_.size());
-    for (MmaOp* mma : mma_ops_) {
-      mma->setMacro(params_.mma_macro);
-
-      // Setup accumulator register.
-      mma_results_.push_back(mma->out()->as<TensorView>());
-    }
-
     LoadStoreOpType load_op = params_.async_gmem_load_operands
         ? LoadStoreOpType::CpAsync
         : LoadStoreOpType::Set;
@@ -779,6 +772,14 @@ class MultipleMatmulScheduler {
     // Shared memory read
     addSetsForCacheReads(acw_smems_, acrs_);
     addSetsForCacheReads(bcw_smems_, bcrs_);
+
+    // Now that we are finished possibly redefining the inputs to the MmaOps,
+    // we can set the macro for those ops
+    for (TensorView* mma_result : mma_results_) {
+      MmaOp* mma = dynamic_cast<MmaOp*>(mma_result->definition());
+      NVF_ERROR(mma != nullptr);
+      mma->setMacro(params_.mma_macro);
+    }
   }
 
   //! Rebuilds IdModel, then updates all ValGroups in abstract tensors to refer
@@ -1264,12 +1265,14 @@ class MultipleMatmulScheduler {
       NVF_ERROR(smem_stores.size() == smem_loads.size());
       // TODO: we should not assume that each operand is used in only a single
       // mma op
-      NVF_ERROR(mma_ops_.size() >= smem_loads.size());
+      NVF_ERROR(mma_results_.size() >= smem_loads.size());
       // We will save abs_ and bbs_ here for later use
       // TODO: save all register prologue tensors instead to a new vector called
       // prologue_register_tensors_
       NVF_ERROR(mma_inputs.empty());
-      for (MmaOp* mma : mma_ops_) {
+      for (TensorView* mma_result : mma_results_) {
+        MmaOp* mma = dynamic_cast<MmaOp*>(mma_result->definition());
+        NVF_ERROR(mma != nullptr);
         TensorView* mma_input = nullptr;
         if (operand_type == MmaOperand::A) {
           mma_input = mma->inA()->as<TensorView>();
@@ -1546,7 +1549,6 @@ class MultipleMatmulScheduler {
   // AbstractTensor.split or by mapping vals in cacheAfter and rFactor
   ValGraph* graph_ = nullptr;
   std::vector<mma_utils::MatmulPattern> patterns_;
-  std::vector<MmaOp*> mma_ops_;
   mma_utils::DimRolesMap id_roles_;
   mma_utils::TensorRolesMap tensor_roles_;
   mma_utils::MatmulOperandInnerDims inner_dims_;
