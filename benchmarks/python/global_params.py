@@ -17,10 +17,10 @@ if not BENCHMARK_MODE:
 # Datatypes to benchmark
 FLOAT_DTYPES = [torch.float32]
 # Run only one of float16 / bfloat16.
-if DEVICE_PROPERTIES["gpu_compute_capability_major"] >= 8:
-    FLOAT_DTYPES.append(torch.bfloat16)
-else:
-    FLOAT_DTYPES.append(torch.float16)
+#if DEVICE_PROPERTIES["gpu_compute_capability_major"] >= 8:
+#    FLOAT_DTYPES.append(torch.bfloat16)
+#else:
+#    FLOAT_DTYPES.append(torch.float16)
 
 # Datatypes that will be promoted to Datatype.Float in Fusion Definitions
 PROMOTE_DTYPES = [DataType.BFloat16, DataType.Half]
