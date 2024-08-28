@@ -3270,7 +3270,7 @@ class MultiMatmulSchedulerMatchTest
   // Get A and B in already-broadcasted shapes [M, K, 1] and [1, K, N],
   // possibly with allocation domains sset
   std::pair<TensorView*, TensorView*> getBroadcastInputTVs() {
-    auto tv0 = makeContigConcreteTensor({-1, -1, 1}, DataType::Half);
+    auto tv0 = makeContigConcreteTensor({-1, 1, -1}, DataType::Half);
     auto tv1 = makeContigConcreteTensor({1, -1, -1}, DataType::Half);
 
     if (a_m_inner) {
@@ -3573,7 +3573,7 @@ TEST_P(MultiMatmulSchedulerMatchTest, SimpleMatmulBroadcastedInputs) {
   fusion->addInput(tv0);
   fusion->addInput(tv1);
 
-  auto tv2 = fusedMultiplySum(tv0, tv1, {1});
+  auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
 
   fusion->addOutput(tv2);
 
