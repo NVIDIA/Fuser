@@ -658,6 +658,9 @@ std::vector<PolymorphicValue> BinaryOp::evaluate(
     case BinaryOpType::Complex:
       return {at::complex(lhs.as<at::Tensor>(), rhs.as<at::Tensor>())};
       break;
+    case BinaryOpType::Pow:
+      return {pow(lhs, rhs)};
+      break;
     default:
       NVF_CHECK(
           false,
@@ -4671,8 +4674,9 @@ Val* ForLoop::step() const {
 
 Val* ForLoop::simplifiedStop() const {
   if (simplified_stop_ == nullptr) {
-    simplified_stop_ =
-        GpuLower::current()->commonScalarMap().hoistScalar(stop(), {});
+    simplified_stop_ = GpuLower::hasCurrent()
+        ? GpuLower::current()->commonScalarMap().hoistScalar(stop(), {})
+        : stop();
   }
   return simplified_stop_;
 }
@@ -4858,9 +4862,17 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
     const std::vector<PolymorphicValue>& inputs) const {
   // Backward tensor inputs: grad_input, query, key, value, output, logsumexp,
   // max_q/k
+  // Temporary handling of DID parallelization. See
+  // https://github.com/NVIDIA/Fuser/issues/2563
+  bool first_dim_is_did = this->key()->as<TensorView>()->axis(0)->isDeviceDim();
   std::vector<at::Tensor> bwd_inputs;
   for (auto idx : c10::irange(6)) {
-    bwd_inputs.emplace_back(inputs.at(idx).as<at::Tensor>());
+    auto in_tensor = inputs.at(idx).as<at::Tensor>();
+    // Removing the size 1 from sharded axis from tensors.
+    if (first_dim_is_did) {
+      in_tensor = in_tensor.squeeze(0);
+    }
+    bwd_inputs.push_back(in_tensor);
   }
   const auto dropout_p = inputs.at(6).as<double>();
   const auto is_causal = inputs.at(7).as<bool>();
@@ -4913,6 +4925,13 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
     }
     return output.slice(-1, 0, last_dim_size);
   };
+
+  // Add device dimension back to outputs.
+  if (first_dim_is_did) {
+    grad_query = grad_query.unsqueeze(0);
+    grad_key = grad_key.unsqueeze(0);
+    grad_value = grad_value.unsqueeze(0);
+  }
 
   return {
       slice_last_dim(grad_query),

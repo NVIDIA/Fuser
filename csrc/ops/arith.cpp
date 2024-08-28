@@ -945,6 +945,8 @@ NVFUSER_DEFINE_BINARY_CAST_OP(mul, Mul)
 NVFUSER_DEFINE_BINARY_CAST_OP(pow, Pow)
 NVFUSER_DEFINE_BINARY_CAST_OP(remainder, Remainder)
 NVFUSER_DEFINE_BINARY_CAST_OP(sub, Sub)
+NVFUSER_DEFINE_BINARY_CAST_OP(minimum, Min)
+NVFUSER_DEFINE_BINARY_CAST_OP(maximum, Max)
 #undef NVFUSER_DEFINE_BINARY_CAST_OP
 
 #define NVFUSER_DEFINE_LOGICAL_OP(op_name, op_type)                       \
@@ -1151,10 +1153,10 @@ NVFUSER_DEFINE_BINARY_COMPARE_OP(ne, NE)
 // REDUCTION OPERATIONS
 
 // TODO: How do we adjust this so we can reduce to a single scalar value?
-static TensorView* newForReduction(
+TensorView* newForReduction(
     TensorView* tv,
     const std::vector<unsigned int>& axes,
-    DataType data_type = DataType::Null) {
+    DataType data_type) {
   auto orig_domain = TensorDomain::noReductions(tv->getLogicalDomain());
   std::set<unsigned int> axes_set(axes.begin(), axes.end());
 

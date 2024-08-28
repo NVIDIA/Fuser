@@ -712,6 +712,7 @@ SyncMap::SyncMap(Fusion* fusion) {
         } else if (raw_dims.hasTID()) {
           NVF_ERROR(
               ir_utils::isLdMatrixOp(producer->definition()) ||
+                  ir_utils::isStMatrixOp(consumer->definition()) ||
                   producer->getMemoryType() == MemoryType::Global ||
                   producer->getMemoryType() == MemoryType::Shared,
               "Inconsistent parallelization found between TV",

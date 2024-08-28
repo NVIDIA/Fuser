@@ -240,10 +240,6 @@ bool checkValidMisalignedTensors(
   }
 }
 
-} // namespace
-
-namespace {
-
 // Finds a fusion input or output tensor, this function is used to grab tensors
 // to validate the strides of the tensors for vectorization.
 //
@@ -411,8 +407,6 @@ void validateAlignedVectorizeExtents(
   //     info.word_size);
 }
 
-namespace {
-
 // Return offsets of the first points accessed as well as sliced root
 // domains. Currently only non-zero when tensor is sliced.
 std::pair<std::unordered_set<size_t>, std::unordered_set<IterDomain*>>
@@ -466,8 +460,6 @@ getTensorOffsets(
 
   return std::make_pair(offsets, sliced_domains);
 }
-
-} // namespace
 
 void validateAlignedVectorizedFusionInputOutput(
     const at::Tensor& aten_tensor,
@@ -672,6 +664,25 @@ void validateMisalignedVectorizedTensors(
 }
 
 } // namespace
+
+void validateCircularBuffering(
+    kir::Kernel* kernel,
+    ExpressionEvaluator& expr_eval) {
+  const CircularBufferInfo& cb_info = kernel->summary().circular_buffer_info;
+  for (const TensorView* cb_tv : cb_info.getCircularBufferTvs()) {
+    IterDomain* axis = cb_info.getCircularBufferAxis(cb_tv);
+    NVF_ERROR(axis != nullptr);
+    PolymorphicValue runtime_axis_size = expr_eval.evaluate(axis->extent());
+    NVF_ERROR(
+        runtime_axis_size >= cb_tv->circularBufferDepth(),
+        "This kernel fails to fill the circular buffer pipeline at runtime. ",
+        "The extent of the circular buffer axis is ",
+        runtime_axis_size,
+        " while ",
+        cb_tv->circularBufferDepth(),
+        " is the number of stages in the circular buffer.");
+  }
+}
 
 void validateVectorizedTensors(
     kir::Kernel* kernel,

@@ -382,6 +382,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
           persistent_buffer_info,
           persistent_buffer_size_info,
           ScheduleHeuristic::InnerOuterPersistent,
+          /*can_use_smem_persistent=*/true,
           outer_broadcast_tvs.empty());
 
   auto total_buffer_size = buffer_params.project_to_input
@@ -481,6 +482,91 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   return buffer_params;
 }
 
+// Calculate the persistent buffer batches and threads per block.
+// Start from a large value of inner_dim_numel / (inner_vect * warpSize/4),
+// gradually reduce to small values but not smaller than a threshold determined
+// by inner_dim_numel and outer_dim_numel. If the persistent buffer batch is
+// smaller than the maximum allowed batch which is determined by the avilable
+// registers, this function will return that batch value. Otherwise, it will
+// return nullopt except when ignore_register_size_limit is true where it will
+// return whatever the batch value is.
+std::pair<int64_t, int64_t> getBufferBatchSizeAndThreadsPerBlock(
+    const int64_t inner_dim_numel,
+    const int64_t outer_dim_numel,
+    const int64_t persistent_buffer_size,
+    const int64_t vectorize_factor,
+    const int64_t warp_size) {
+  // if inner_dim_numel <= 1024, we are doing multiple reductions per block
+  // with a constant batch size of 1 if vectorized. See Step 5 of
+  // innerOuterPersistentHeuristic. Although batch size is 1, each thread also
+  // needs to do serial reduction of [vectorize_factor] elements. However, if
+  // vectorize_factor is 1, we can increase batch size to set a minimum serial
+  // reduction workload for each thread to take advantage of zero intra-threads
+  // communication cost. Here a middle value of 4 is selected without spending
+  // time to tune as these un-vectorized small cases should be rare in real
+  // world.
+  if (inner_dim_numel <= 1024l) {
+    int64_t batch = (vectorize_factor == 1) ? 4l : 1l;
+    batch = std::min(batch, inner_dim_numel);
+    return std::make_pair(
+        batch, ceilDiv(inner_dim_numel, batch * vectorize_factor));
+  }
+  // Set a minimum workload for each thread to take advantage of low
+  // intra-threads communication cost. Tuned for layer_norm backward on A100.
+  auto getMinimumBatch = [&]() -> int64_t {
+    if (inner_dim_numel >= 3072l) {
+      if (outer_dim_numel <= 2048l && inner_dim_numel == 3072l) {
+        return 3l;
+      } else {
+        return 4l;
+      }
+    } else if (inner_dim_numel >= 2048l) {
+      return 2l;
+    }
+    return 1l;
+  };
+  // Each thread can use a maximum of 255 registers, and assume 40 of them are
+  // reserved for indexing and other purposes. So, each thread can use up to
+  // 215 registers for persistent buffer. Calculate number of buffer batches
+  // using these 215 registers. total_buffer_bytes is the total size of
+  // persistent buffers in bytes. reduction_elements is the number of elements
+  // in the reduction domain. vectorization_factor is the vectorization factor
+  // of inputs and outputs.
+  auto getMaximumInnerOuterPersistentBufferBatch = [&]() -> int64_t {
+    int64_t register_per_batch = ceilDiv(
+        persistent_buffer_size / inner_dim_numel * vectorize_factor,
+        scheduler_utils::bytes_per_register);
+    return scheduler_utils::safeDiv(
+        scheduler_utils::max_registers_per_thread -
+            scheduler_utils::register_overhead,
+        register_per_batch);
+  };
+
+  const int64_t after_vectorization = inner_dim_numel / vectorize_factor;
+  const int64_t threads_per_block_min = std::min(
+      after_vectorization,
+      InnerOuterPersistentKernelScheduler::threads_per_block_min);
+  const int64_t threads_per_block_max =
+      InnerOuterPersistentKernelScheduler::threads_per_block_max;
+  const int64_t batch_min = getMinimumBatch();
+  const int64_t batch_max = getMaximumInnerOuterPersistentBufferBatch();
+
+  // Start from the smallest threads_per_block. If the corresponding batch size
+  // is larger than batch_max, try increase threads per block by a warp until
+  // the threads_per_block reaches threads_per_block_max or the batch size
+  // reaches batch_min.
+  int64_t threads_per_block = threads_per_block_min;
+  int64_t inner_batch = ceilDiv(after_vectorization, threads_per_block);
+  while (inner_batch > batch_max &&
+         threads_per_block + warp_size <= threads_per_block_max &&
+         ceilDiv(after_vectorization, threads_per_block + warp_size) >=
+             batch_min) {
+    threads_per_block += warp_size;
+    inner_batch = ceilDiv(after_vectorization, threads_per_block);
+  }
+  return std::make_pair(inner_batch, threads_per_block);
+}
+
 } // namespace
 
 bool InnerOuterPersistentKernelScheduler::canScheduleRunTime(
@@ -528,23 +614,6 @@ bool InnerOuterPersistentKernelScheduler::canScheduleRunTime(
     scheduler_debug_utils::canScheduleRejectReason(
         heuristicType(),
         "not enough registers or shared memory for persistence");
-    return false;
-  }
-
-  // check if we can schedule the combined reductions with a reasonable
-  // batch size without register spills.
-  if (!normalization_scheduler_utils::
-           getOptionalInnerOuterPersistentBufferBatches(
-               properties.total_reduction_numel,
-               properties.total_iteration_numel,
-               buffer_params.regs_buffer_size,
-               (int64_t)vectorize_factor,
-               warp_size,
-               false)
-               .first.has_value()) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(),
-        "Required batch number is larger than available batch number! Will cause register spills!");
     return false;
   }
 
@@ -690,35 +759,17 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
 
   // Step-1, set InnerParams reduction dim: inner_vect, inner_batch,
   // threads_per_block (bdimx * bdimy). Start threads_per_block from a quarter
-  // warp, gradually increase it. Runtime checkCombinedReductionShape ensures
-  // inner_dim_numel is dividable by the multiplication of a quarter warp and
-  // vectorize_factor.
+  // warp, gradually increase it.
   iop.inner_vect = (int64_t)vectorize_factor;
 
-  // ignore_register_size_limit will return a valid batch size.
-  // This is needed because we enforced projection for fp32 if the feature size
-  // is less or equal 14K. It leads to register spills but still faster than the
-  // unprojected version due to the reuse of a input para in this grid
-  // persistent kernel. However, when we do register usage check in
-  // canScheduleRuntime, the enforced projection is not considered. Thus,
-  // max_persistent_buffer_size used here is larger than the value used in
-  // canScheduleRuntime.
-  // This is a tmp solution before we have a new persistent heuristics, where
-  // the projection is not solely based on size of buffers. The enforced buffer
-  // projection is not considered in canScheduleRuntime Thus,
-  constexpr bool ignore_register_size_limit = true;
-  const auto& batch_and_block_size = normalization_scheduler_utils::
-      getOptionalInnerOuterPersistentBufferBatches(
+  const auto [persistent_batch, threads_per_block] =
+      getBufferBatchSizeAndThreadsPerBlock(
           inner_dim_numel,
           outer_dim_numel,
           regs_buffer_size,
           iop.inner_vect,
-          dev_prop->warpSize,
-          ignore_register_size_limit);
-  auto opt_inner_batch = batch_and_block_size.first;
-  NVF_ERROR(opt_inner_batch.has_value());
-  iop.inner_batch = opt_inner_batch.value();
-  int64_t threads_per_block = batch_and_block_size.second;
+          dev_prop->warpSize);
+  iop.inner_batch = persistent_batch;
 
   NVF_ERROR(
       iop.inner_vect * iop.inner_batch * threads_per_block >= inner_dim_numel,

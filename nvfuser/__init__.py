@@ -67,7 +67,7 @@ class FusionDefinition(_C._FusionDefinition):
     def getReproString(self, inputs: list | None = None) -> str:
         msg = "# CUDA devices:\n"
         for i in range(torch.cuda.device_count()):
-            msg += f"#  {0}: {torch.cuda.get_device_name(i)}\n"
+            msg += f"#  {i}: {torch.cuda.get_device_name(i)}\n"
         msg += (
             f"# torch version: {torch.__version__}\n"
             f"# cuda version: {torch.version.cuda}\n"
@@ -91,7 +91,7 @@ class FusionDefinition(_C._FusionDefinition):
                         sz += (szi - 1) * stri
                     if i.dtype.is_floating_point:
                         msg += (
-                            f"    torch.randn(({sz},), dtype={i.dtype}, device='{i.device}')"
+                            f"    torch.randn({sz}, dtype={i.dtype}, device='{i.device}')"
                             f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
                         )
                     else:
@@ -186,7 +186,6 @@ class FusionDefinition(_C._FusionDefinition):
         Returns:
             List[Tensor]
         """
-        func_based_def = False
         self.profiled = profile
 
         if device is not None:
@@ -202,10 +201,17 @@ class FusionDefinition(_C._FusionDefinition):
             self._setup_definition()
             self.definition()
             self._finalize_definition()
-            func_based_def = True
 
-        # If schedule is defined by child class, make a schedule for inputs
-        if func_based_def and (super(type(self), self).schedule != self.schedule):
+        # If schedule is defined by child class and schedule is not defined for
+        # inputs, make a schedule.
+        is_fusion_definition_child_class = (
+            type(self) != FusionDefinition
+        ) and issubclass(type(self), FusionDefinition)
+        defined_schedule = (
+            is_fusion_definition_child_class
+            and super(type(self), self).schedule != self.schedule
+        )
+        if defined_schedule and not self._exist_schedule(inputs):
             self._setup_schedule(inputs)
             self.schedule()
             self._finalize_schedule(inputs)
