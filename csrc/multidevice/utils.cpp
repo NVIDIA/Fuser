@@ -177,20 +177,16 @@ bool isResharding(const Expr* expr) {
     return false;
   }
 
-  // Reduction over a sharded dimension.
-  if (expr->isA<ReductionOp>()) {
-    // auto in = expr->as<ReductionOp>()->in()->as<TensorView>();
-    auto out = expr->as<ReductionOp>()->out()->as<TensorView>();
-    std::vector<IterDomain*> reduction_axis;
-    std::copy_if(
-        out->getLogicalDomain().begin(),
-        out->getLogicalDomain().end(),
-        std::back_inserter(reduction_axis),
-        [](IterDomain* id) { return id->isReduction(); });
-    if (reduction_axis[0]->isDeviceDim()) {
-      return true;
-    }
-  }
+  //   // Reduction over a sharded dimension.
+  //   if (expr->isA<ReductionOp>()) {
+  //     auto out* = expr->as<ReductionOp>()->out()->as<TensorView>();
+  //     std::vector<IterDomain*> reduction_axis;
+  //     if (std::any_of(out_logical.begin(), out_logical.end(),
+  //     std::mem_fn(IterDomain::isReduction)) {
+  //       return true;
+  //     }
+  //   }
+  // }
 
   // We don't use getTvsWithDifferentSharding because it creates a computeAtMap,
   // which is too costly
@@ -232,23 +228,24 @@ bool isInnerResharding(Expr* expr) {
   return false;
 }
 
-void shardAllLike(
-    TensorView* ref,
-    std::vector<TensorView*> tvs,
-    const std::unordered_set<ParallelType>& parallel_types) {
+void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs) {
   for (auto tv : tvs) {
     tv->setDeviceMesh(ref->getDeviceMesh());
   }
   if (!tvs.empty()) {
-    scheduler_utils::parallelizeAllLike(ref, tvs, parallel_types);
+    scheduler_utils::parallelizeAllLike(
+        ref,
+        tvs,
+        {ParallelType::DIDx, ParallelType::Serial},
+        /*propagate_padding=*/false,
+        /*skip_reductions=*/true);
   }
 }
 
 void shardBetween(
     const std::vector<Expr*>& from,
     const std::vector<Expr*>& to,
-    TensorView* ref_tv,
-    const std::unordered_set<ParallelType>& parallel_types) {
+    TensorView* ref_tv) {
   std::vector<TensorView*> from_tvs;
   std::unordered_set<TensorView*> to_tvs;
   for (auto expr : from) {
@@ -266,15 +263,13 @@ void shardBetween(
   }
 
   auto tvs_between = scheduler_utils::getAllTvsFrom(from_tvs, to_tvs);
-  shardAllLike(
-      ref_tv, {tvs_between.begin(), tvs_between.end()}, parallel_types);
+  shardAllLike(ref_tv, {tvs_between.begin(), tvs_between.end()});
 }
 
 void shardBetween(
     const std::vector<TensorView*>& ref_tvs,
     const std::vector<TensorView*>& boundary_tvs,
-    TensorView* ref,
-    const std::unordered_set<ParallelType>& parallel_types) {
+    TensorView* ref) {
   // Use getAllTvsFrom instead of getAllTVsBetween so that we can get all TVs
   // reachable from t that don't cross the boundary. This is because (1)
   // expressions like rng_uniform create a fresh TV that is not along a path
@@ -297,7 +292,7 @@ void shardBetween(
   }
 
   auto tvs_between = scheduler_utils::getAllTvsFrom(ref_tvs, to_tvs);
-  shardAllLike(ref, {tvs_between.begin(), tvs_between.end()}, parallel_types);
+  shardAllLike(ref, {tvs_between.begin(), tvs_between.end()});
 }
 
 int64_t requestedNumberOfDevices(Fusion* fusion) {

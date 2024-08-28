@@ -18,7 +18,6 @@
 #include <ir/utils.h>
 #include <mma_type.h>
 #include <ops/all_ops.h>
-#include <preseg_passes/propagate_shardings.h>
 #include <scheduler/mma_utils.h>
 #include <scheduler/utils.h>
 #include <tests/cpp/multidevice.h>
@@ -348,8 +347,6 @@ std::vector<TensorView*> mlp_backwards(
 } // namespace
 
 TEST_P(DistributedTransformerTest, MLP_Layer) {
-  preseg_passes::OptimizationPassGuard<preseg_passes::PropagateShardingsPass>
-      guard(false);
   auto dtype = GetParam();
   at::ScalarType at_dtype = data_type_to_aten(dtype);
   auto fusion = std::make_unique<Fusion>();
@@ -412,8 +409,6 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
 }
 
 TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
-  preseg_passes::OptimizationPassGuard<preseg_passes::PropagateShardingsPass>
-      guard(false);
   auto dtype = GetParam();
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -472,8 +467,6 @@ TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
 }
 
 TEST_P(DistributedTransformerTest, MLP_Backward) {
-  preseg_passes::OptimizationPassGuard<preseg_passes::PropagateShardingsPass>
-      guard(false);
   auto dtype = GetParam();
   at::ScalarType at_dtype = data_type_to_aten(dtype);
   auto fusion = std::make_unique<Fusion>();
@@ -543,8 +536,6 @@ TEST_P(DistributedTransformerTest, MLP_Backward) {
 }
 
 TEST_P(DistributedTransformerTest, Forward) {
-  preseg_passes::OptimizationPassGuard<preseg_passes::PropagateShardingsPass>
-      guard(false);
   auto dtype = GetParam();
   at::ScalarType at_dtype = data_type_to_aten(dtype);
   auto fusion = std::make_unique<Fusion>();

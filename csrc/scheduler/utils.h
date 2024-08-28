@@ -158,19 +158,22 @@ NVF_API void parallelizeAllLike(
     int64_t pos = -1,
     std::vector<TensorView*> selected_tvs = {},
     const std::unordered_set<ParallelType>& selected_parallel_types = {},
-    bool propagate_padding = true);
+    bool propagate_padding = true,
+    bool skip_reductions = false);
 
 inline void parallelizeAllLike(
     TensorView* reference_tv,
     std::vector<TensorView*> selected_tvs,
     const std::unordered_set<ParallelType>& selected_parallel_types = {},
-    bool propagate_padding = true) {
+    bool propagate_padding = true,
+    bool skip_reductions = false) {
   parallelizeAllLike(
       reference_tv,
       -1,
       std::move(selected_tvs),
       selected_parallel_types,
-      propagate_padding);
+      propagate_padding,
+      skip_reductions);
 }
 
 struct PersistentBufferInfo {
