@@ -201,10 +201,17 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
       if (!id->definition() || id->getIterType() != IterType::Symbolic) {
         continue;
       }
-      if (id->definition()->isA<Resize>()) {
+      if (auto rop = dynamic_cast<Resize*>(id->definition())) {
         info_.dynamic_resized_ids_.push_back(id);
-        // extent of output determines its IterType
-        loop_dynamic_vals_.push_back(id->extent());
+        if (isOptionDisabled(DisableOption::ConcretizeResizeExtents)) {
+          // extent of output determines its IterType
+          loop_dynamic_vals_.push_back(id->extent());
+        } else {
+          // The input extent and both expand vals are all concretized
+          loop_dynamic_vals_.push_back(rop->in()->extent());
+          loop_dynamic_vals_.push_back(rop->leftExpand());
+          loop_dynamic_vals_.push_back(rop->rightExpand());
+        }
       }
     }
   }
@@ -1075,8 +1082,6 @@ void DynamicTransformConcretizer::concretizeResize() {
     if (!orig_id->extent()->sameAs(new_id->extent())) {
       registerConcretization(orig_id->extent(), new_id->extent());
     }
-
-    // concretize scalars for left and right expand
   }
 }
 
