@@ -248,23 +248,6 @@ std::optional<DataType> Val::getDataType() const {
   return dtype_;
 }
 
-bool Val::isProducerOf(const Val* other) const {
-  NVF_ERROR(other != nullptr);
-  NVF_ERROR(container() == other->container());
-
-  if (definition() == nullptr) {
-    return false;
-  }
-  return std::any_of(
-      definition()->inputs().begin(),
-      definition()->inputs().end(),
-      [other](const Val* input) { return input == other; });
-}
-
-bool Val::isConsumerOf(const Val* other) const {
-  return other->isProducerOf(this);
-}
-
 // We don't register with the active fusion in Expr as this needs to be done
 // after inputs and outputs are registered with the Expr
 Expr::Expr(IrBuilderPasskey passkey) : Statement(passkey) {}
