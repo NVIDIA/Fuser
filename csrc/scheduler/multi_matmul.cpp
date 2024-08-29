@@ -1335,14 +1335,92 @@ class MultipleMatmulScheduler {
     schedulePrologueBranch(bcw_smems_, bcrs_, bbs_, MmaOperand::B);
   }
 
+  void scheduleOutputTensor(TensorView* c) {
+    const MatMulTileOptions& gemm_tile = params_.tile_sizes;
+    const int64_t vectorization_factor = params_.supported_vec_size.epilogue;
+    // input tensor is in the form of [Mo,No,cta_tile_m,cta_tile_n]
+    checkConcreteStaticDim(c->axis(-2));
+    checkConcreteStaticDim(c->axis(-1));
+    const int64_t tile_size_m = c->axis(-2)->extent()->evaluate().as<int64_t>();
+    const int64_t tile_size_n = c->axis(-1)->extent()->evaluate().as<int64_t>();
+    NVF_ERROR(
+        tile_size_m == gemm_tile.cta_tile.m,
+        "Actual tile size at axis(-2) in output tensor is different from CTA tile size! Expected: ",
+        gemm_tile.cta_tile.m,
+        ", actual: ",
+        tile_size_m);
+    NVF_ERROR(
+        tile_size_n == gemm_tile.cta_tile.n,
+        "Actual tile size at axis(-1) in output tensor is different from CTA tile size! Expected: ",
+        gemm_tile.cta_tile.n,
+        ", actual: ",
+        tile_size_n);
+    const int64_t tot_elements = tile_size_m * tile_size_n;
+    constexpr int64_t warp_size = 32l;
+    const int64_t tidx = warp_size;
+    const int64_t tidy = gemm_tile.cta_tile.n / gemm_tile.warp_tile.n;
+    const int64_t tidz = gemm_tile.cta_tile.m / gemm_tile.warp_tile.m;
+    // step-1, merge last 2 dims
+    c->merge(-2);
+    // [Mo, No, m*n]
+
+    // step-2, set vectorization to maximum
+    // We have fixed tidx, tidy, and tidz, so we need to make sure that the
+    // output tensor is divisible by tidx * tidy * tidz * vectorization_factor
+    NVF_ERROR(
+        tot_elements % (tidx * tidy * tidz * vectorization_factor) == 0,
+        "Output tensor cannot be fully vectorized! tot_elements:",
+        tot_elements,
+        ", tidx: ",
+        tidx,
+        ", tidy: ",
+        tidy,
+        ", tidz: ",
+        tidz,
+        ", vectorization_factor: ",
+        vectorization_factor);
+    c->split(-1, vectorization_factor);
+    c->axis(-1)->parallelize(ParallelType::Vectorize);
+    // [Mo, No, m*n/vect, vect]
+
+    // step-3, Split out a warp for TIDx
+    c->split(-2, tidx);
+    c->axis(-2)->parallelize(ParallelType::TIDx);
+    // [Mo, No, m*n/vect/TIDx, TIDx, vect]
+
+    // step-4, Split out for TIDy and TIDz
+    // TIDy = cta_tile_n/warp_tile_n
+    // TIDz = cta_tile_m/warp_tile_m
+    c->split(-3, tidy);
+    c->axis(-3)->parallelize(ParallelType::TIDy);
+
+    c->split(-4, tidz);
+    c->axis(-4)->parallelize(ParallelType::TIDz);
+    // [Mo, No, m*n/vect/TIDx/TIDy/TIDz, TIDz, TIDy, TIDx, vect]
+
+    for (TensorView* mma_result : mma_results_) {
+      // step-5, Parallel first 2 dims same as mma_result
+      scheduler_utils::parallelizeAllLike(
+          mma_result,
+          2,
+          {c},
+          {ParallelType::BIDx, ParallelType::BIDy, ParallelType::BIDz});
+    }
+  }
+
   void scheduleEpilogue() {
+    std::vector<TensorView*> output_tvs;
+    for (Val* v : fusion_->outputs()) {
+      if (auto tv = dynamic_cast<TensorView*>(v)) {
+        output_tvs.push_back(tv);
+      }
+    }
     if (params_.use_smem_epilogue) {
+      blockTileTensors(output_tvs);
       for (auto [dc, d] : cached_outputs_) {
         // Schedule output tensor differently for better global memory access
         // pattern.
-        NVF_ERROR(false, "TODO: implement scheduleOutputTensor");
-        // scheduleOutputTensor(
-        // mma_result, d, gemm_tile, params_.supported_vec_size.epilogue);
+        scheduleOutputTensor(d);
         d->axis(-1)->parallelize(ParallelType::Vectorize);
 
         // Propagate output tensor transformations back to smem_epilogue
@@ -1350,12 +1428,6 @@ class MultipleMatmulScheduler {
             d, -1, smem_epilogues_);
       }
     } else {
-      std::vector<TensorView*> output_tvs;
-      for (Val* v : fusion_->outputs()) {
-        if (auto tv = dynamic_cast<TensorView*>(v)) {
-          output_tvs.push_back(tv);
-        }
-      }
       for (TensorView* mma_result : mma_results_) {
         scheduler_utils::BoundedDirectionalTransformPropagator::forward(
             mma_result,
