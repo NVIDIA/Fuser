@@ -3931,6 +3931,7 @@ PadOp::PadOp(
     TensorView* out,
     TensorView* inp,
     const std::vector<Val*>& pad_widths,
+    const std::vector<Val*>& original_pad_widths,
     Val* value)
     : Expr(passkey) {
   const auto ndims = TensorDomain::noReductions(inp->getLogicalDomain()).size();
@@ -3950,6 +3951,10 @@ PadOp::PadOp(
   for (auto width : pad_widths) {
     NVF_CHECK(width != nullptr, "Padding width must not be nullptr");
     addInput(width);
+  }
+  for (auto width : original_pad_widths) {
+    NVF_CHECK(width != nullptr, "Padding width must not be nullptr");
+    addAttribute(width);
   }
 }
 
@@ -3984,6 +3989,15 @@ std::vector<int64_t> PadOp::getPaddedAxes() const {
 
 std::vector<Val*> PadOp::getPadWidths() const {
   return {getPadWidthInputBegin(), getPadWidthInputEnd()};
+}
+
+std::vector<Val*> PadOp::getOriginalPadWidths() const {
+  std::vector<Val*> pad_widths;
+  pad_widths.reserve(attributes().size());
+  for (size_t idx : c10::irange(attributes().size())) {
+    pad_widths.push_back(attributeVal(idx));
+  }
+  return pad_widths;
 }
 
 std::pair<Val*, Val*> PadOp::getPadWidths(int64_t axis) const {

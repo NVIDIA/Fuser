@@ -570,7 +570,7 @@ TensorView* pad(
           TensorDomain::getContiguityFilledWith(logical_ids, true)),
       *inp->getDataType());
 
-  IrBuilder::create<PadOp>(out, inp, normalized_pad_widths, value);
+  IrBuilder::create<PadOp>(out, inp, normalized_pad_widths, pad_widths, value);
 
   return out;
 }

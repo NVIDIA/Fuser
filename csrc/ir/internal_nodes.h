@@ -1962,6 +1962,7 @@ class PadOp : public Expr {
       TensorView* out,
       TensorView* inp,
       const std::vector<Val*>& pad_widths,
+      const std::vector<Val*>& original_pad_widths,
       Val* value);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
@@ -1999,6 +2000,9 @@ class PadOp : public Expr {
 
   //! Return the pad widths of all dimensions, including non-padded ones
   std::vector<Val*> getPadWidths() const;
+
+  //! Return the original pad widths for PadOp
+  std::vector<Val*> getOriginalPadWidths() const;
 
  private:
   //! Offset of pad_width inputs in the input vector

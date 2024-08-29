@@ -760,6 +760,19 @@ class FusionTranslator : public OptInConstDispatch {
         strides));
   }
 
+  // Map PadOp to python frontend
+  void handle(const PadOp* pad_op) final {
+    Tensor output = fd_->defineTensor(pad_op->out()->as<TensorView>()->nDims());
+    map_val_to_fd_index_.emplace(pad_op->out(), output());
+
+    Vector pad_widths = createVector(pad_op->getOriginalPadWidths());
+    fd_->defineRecord(new PadOpRecord(
+        {fd_->recordingState(map_val_to_fd_index_.at(pad_op->in())),
+         fd_->recordingState(pad_widths()),
+         fd_->recordingState(map_val_to_fd_index_.at(pad_op->value()))},
+        {fd_->recordingState(output())}));
+  }
+
   // Map RNGOp to RandomDistOpRecord
   void handle(const RNGOp* rop) final {
     TensorView* out_tv = rop->output(0)->as<TensorView>();
