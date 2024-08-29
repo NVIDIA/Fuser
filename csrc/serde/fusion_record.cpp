@@ -490,9 +490,7 @@ void RecordFunctorFactory::registerAllParsers() {
 
   auto deserializePadRecord = [](const RecordFunctor* buffer) {
     return new python_frontend::PadOpRecord(
-        parseStateArgs(buffer->args()),
-        parseStateArgs(buffer->outputs()),
-        parseVector(buffer->data_as_Pad()->pad_widths()));
+        parseStateArgs(buffer->args()), parseStateArgs(buffer->outputs()));
   };
   registerParser(RecordType::PadOp, deserializePadRecord);
 
