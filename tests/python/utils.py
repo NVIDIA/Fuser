@@ -227,13 +227,20 @@ class NVFuserTest(TestCase):
     # original definition
     @nvfusertest_serde_check
     def exec_nvfuser(
-        self, fusion_func, inputs, *, new_fusion_expected=True, device=None
+        self,
+        fusion_func,
+        inputs,
+        *,
+        new_fusion_expected=True,
+        device=None,
+        is_clonable=True,
     ):
         fc = FusionCache.get()
         before_fusions = fc.num_fusions()
         # Copy inputs because aliased outputs can modify inputs when running
         # FusionDefinition
-        inputs_cap = deepcopy(inputs)
+        inputs_captured = deepcopy(inputs)
+        inputs_cloned = deepcopy(inputs)
 
         # Execute a fusion function and capture the string python definition
         with FusionDefinition() as fd:
@@ -241,7 +248,12 @@ class NVFuserTest(TestCase):
         torch.manual_seed(0)
         out = fd.execute(inputs, device=device)
 
-        self.assertTrue(check_captured_python_definition(out, fd, inputs_cap, device))
+        self.assertTrue(
+            check_captured_python_definition(out, fd, inputs_captured, device)
+        )
 
         self.assertEqual(fc.num_fusions() - before_fusions, int(new_fusion_expected))
+
+        if is_clonable:
+            self.assertTrue(check_cpp_translation(out, fd, inputs_cloned))
         return out, fd
