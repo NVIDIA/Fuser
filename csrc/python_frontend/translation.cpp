@@ -11,6 +11,7 @@
 #include <ops/all_ops.h>
 #include <python_frontend/translation.h>
 #include <python_frontend/translation_utils.h>
+#include <utils.h>
 
 #include <vector>
 
@@ -860,6 +861,59 @@ class FusionTranslator : public OptInConstDispatch {
          fd_->recordingState(new_start()),
          fd_->recordingState(new_stop()),
          fd_->recordingState(new_strides())},
+        {fd_->recordingState(output())}));
+  }
+
+  // Map PadOp to python frontend
+  void handle(const PadOp* pad_op) final {
+    Tensor output = fd_->defineTensor(pad_op->out()->as<TensorView>()->nDims());
+    map_val_to_fd_index_.emplace(pad_op->out(), output());
+
+    // Step 1: Get pad widths in normalized order.
+    std::vector<Val*> normalized_pad_widths = pad_op->getPadWidths();
+    const size_t total_size = normalized_pad_widths.size();
+
+    // Step 2: Get indices for normalized pad widths.
+    std::vector<int64_t> normalized_indices(total_size);
+    std::iota(normalized_indices.begin(), normalized_indices.end(), 0);
+
+    // Step 3: Transform to indices for original pad widths
+    std::vector<int64_t> original_indices;
+    original_indices.reserve(normalized_indices.size());
+    std::transform(
+        normalized_indices.begin(),
+        normalized_indices.end(),
+        std::back_inserter(original_indices),
+        [=](int64_t normalized_idx) {
+          size_t offset = total_size - normalized_idx;
+          size_t dim = ceilDiv(offset, 2) - 1;
+
+          size_t original_idx = dim * 2;
+          // right pad values require an additional offset
+          if (offset % 2 == 1) {
+            original_idx += 1;
+          }
+          return original_idx;
+        });
+
+    // Step 4: Get pad widths in original order.
+    std::vector<Val*> original_order_pad_widths(total_size, nullptr);
+    for (int64_t normalized_idx : normalized_indices) {
+      original_order_pad_widths.at(original_indices.at(normalized_idx)) =
+          normalized_pad_widths.at(normalized_idx);
+    }
+
+    // Check that no pad width values are nullptr.
+    NVF_ERROR(std::all_of(
+        original_order_pad_widths.begin(),
+        original_order_pad_widths.end(),
+        [](Val* v) { return v != nullptr; }));
+
+    Vector pad_widths = createVector(original_order_pad_widths);
+    fd_->defineRecord(new PadOpRecord(
+        {fd_->recordingState(map_val_to_fd_index_.at(pad_op->in())),
+         fd_->recordingState(pad_widths()),
+         fd_->recordingState(map_val_to_fd_index_.at(pad_op->value()))},
         {fd_->recordingState(output())}));
   }
 

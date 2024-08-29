@@ -207,6 +207,33 @@ Tensor reshape_fn(
   return output;
 }
 
+template <class ShapeType>
+Tensor pad_fn(
+    FusionDefinition::Operators& self,
+    Tensor arg,
+    ShapeType generic_pad_widths,
+    std::optional<Scalar> value) {
+  NVF_CHECK(self.validUse(), "Attempting to add to a completed definition!");
+
+  FusionDefinition* fd = self.fusion_definition;
+  Vector pad_widths = SequenceAsVector(generic_pad_widths, *fd);
+
+  NVF_CHECK(
+      pad_widths.size <= 2 * arg.dims,
+      "Number of pad widths must be at most twice the input dimension");
+
+  State value_state = value.has_value() ? fd->recordingState(value.value()())
+                                        : State(0, serde::StateType::None);
+
+  Tensor output = fd->defineTensor(arg.dims);
+  fd->defineRecord(new PadOpRecord(
+      {fd->recordingState(arg()),
+       fd->recordingState(pad_widths()),
+       value_state},
+      {fd->recordingState(output())}));
+  return output;
+}
+
 template <class ShapeType, serde::RecordType RType>
 Tensor random_dist_op_fn(
     FusionDefinition::Operators& self,
@@ -2780,27 +2807,21 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::return_value_policy::reference);
   nvf_ops.def(
       "pad",
-      [](FusionDefinition::Operators& self,
-         Tensor arg,
-         std::vector<int64_t>& pad_widths,
-         std::optional<Scalar> value) -> Tensor {
-        FUSER_PERF_SCOPE("Operators.pad");
-        NVF_CHECK(
-            self.validUse(), "Attempting to add to a completed definition!");
-        NVF_CHECK(
-            pad_widths.size() <= 2 * arg.dims,
-            "Number of pad widths must be at most twice the input dimension");
-        FusionDefinition* fd = self.fusion_definition;
-        Tensor output = fd->defineTensor(arg.dims);
-        auto value_state = value.has_value()
-            ? fd->recordingState(value.value()())
-            : State(0, serde::StateType::None);
-        fd->defineRecord(new PadOpRecord(
-            {fd->recordingState(arg()), value_state},
-            {fd->recordingState(output())},
-            std::move(pad_widths)));
-        return output;
-      },
+      pad_fn<Vector>,
+      py::arg("arg"),
+      py::arg("pad_widths"),
+      py::arg("value") = py::none(),
+      py::return_value_policy::reference);
+  nvf_ops.def(
+      "pad",
+      pad_fn<py::list>,
+      py::arg("arg"),
+      py::arg("pad_widths"),
+      py::arg("value") = py::none(),
+      py::return_value_policy::reference);
+  nvf_ops.def(
+      "pad",
+      pad_fn<py::tuple>,
       py::arg("arg"),
       py::arg("pad_widths"),
       py::arg("value") = py::none(),

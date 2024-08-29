@@ -442,114 +442,31 @@ struct ReshapeOpRecord : RecordFunctor {
 };
 
 struct PadOpRecord : RecordFunctor {
-  PadOpRecord(
-      std::vector<State> _args,
-      std::vector<State> _outputs,
-      std::vector<int64_t>&& pad_widths)
+  PadOpRecord(std::vector<State> _args, std::vector<State> _outputs)
       : RecordFunctor(
             std::move(_args),
             std::move(_outputs),
             "ops.pad",
-            serde::RecordType::PadOp),
-        pad_widths_(std::move(pad_widths)) {}
+            serde::RecordType::PadOp) {}
   ~PadOpRecord() override = default;
   RecordFunctor* clone() final {
     return new PadOpRecord(*this);
   }
 
-  //! Child specific hash function in lower 32 bits.
-  //! | 31 ------------------------------ 0 |
-  //! |          pad_widths                 |
-  size_t hash() const final {
-    auto result = RecordFunctor::hash();
-    size_t widths_hash = 0;
-    for (size_t i = 0; i < pad_widths_.size(); ++i) {
-      auto w = pad_widths_.at(i);
-      // Circular shift the lower 32 bits of w by 4 * i
-      // This reduces collisions by only directly xor-ing every 8th argument.
-      // Since many shifts will occupy less than 4 bits, we will have no
-      // collisions for most pads of up to 4 trailing dimensions.
-      size_t shift = (i * 4) % 32;
-      w = w << shift | w >> (32 - shift);
-      widths_hash ^= w << i;
-    }
-    return result | (widths_hash & 0xffffffff);
-  }
-
-  bool operator==(const RecordFunctor& other) const final {
-    if (auto child_ptr = dynamic_cast<const PadOpRecord*>(&other)) {
-      if (!RecordFunctor::operator==(other)) {
-        return false;
-      }
-      if (pad_widths_.size() != child_ptr->pad_widths_.size()) {
-        return false;
-      }
-      for (size_t i = 0; i < pad_widths_.size(); ++i) {
-        if (pad_widths_.at(i) != child_ptr->pad_widths_.at(i)) {
-          return false;
-        }
-      }
-      return true;
-    }
-    return false;
-  }
-
   void operator()(FusionState& fd) final {
     auto arg = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
-    std::vector<Val*> val_widths;
-    val_widths.reserve(pad_widths_.size());
-    for (auto p : pad_widths_) {
-      auto pval = IrBuilder::create<nvfuser::Val>(p);
-      val_widths.push_back(pval);
-    }
+    const std::vector<Val*>& val_widths =
+        fd.getFusionStateVector(args_.at(1).index);
 
     TensorView* output = nullptr;
-    if (args_.at(1).stype == serde::StateType::Scalar) {
-      output = pad(arg, val_widths, fd.getFusionState(args_.at(1).index));
+    if (args_.at(2).stype == serde::StateType::Scalar) {
+      output = pad(arg, val_widths, fd.getFusionState(args_.at(2).index));
     } else { // default: None
       output = pad(arg, val_widths);
     }
 
     fd.setFusionState(outputs_.at(0).index, output);
   }
-
-  void print(std::ostream& os, bool close_function = true) const final {
-    // pad_widths is the second (required) argument, but the fill value is a
-    // Scalar, so it would be printed first by the default printer, so we
-    // implement our own print() here
-    os << outputs_.at(0);
-    os << " = "
-       << "fd." << name_ << "(";
-    os << args_.at(0); // unpadded tensor
-    os << ", [";
-    bool first_arg = true;
-    for (auto w : pad_widths_) {
-      if (first_arg) {
-        first_arg = false;
-      } else {
-        os << ", ";
-      }
-      os << w;
-    }
-    os << "]";
-    if (args_.at(1).stype == serde::StateType::Scalar) {
-      // fill value was given
-      os << ", " << args_.at(1);
-    }
-    os << ")";
-  }
-
-  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
-      flatbuffers::FlatBufferBuilder& builder) const final {
-    return {
-        serde::RecordData::Pad,
-        serde::CreatePadDirect(builder, &pad_widths_).Union()};
-  }
-
- private:
-  //! Pairs of non-negative integers indicating the amount to pad the front and
-  //! back of each dimension.
-  std::vector<int64_t> pad_widths_;
 };
 
 template <serde::RecordType op_type>
