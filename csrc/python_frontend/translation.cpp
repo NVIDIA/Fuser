@@ -917,6 +917,28 @@ class FusionTranslator : public OptInConstDispatch {
         {fd_->recordingState(output())}));
   }
 
+  // Map CatOp to python frontend
+  void handle(const CatOp* cat_op) final {
+    Tensor output =
+        fd_->defineTensor(cat_op->output(0)->as<TensorView>()->nDims());
+    map_val_to_fd_index_.emplace(cat_op->output(0), output());
+
+    std::vector<State> tensor_states;
+    tensor_states.reserve(cat_op->inputs().size());
+    std::transform(
+        cat_op->inputs().begin(),
+        cat_op->inputs().end(),
+        std::back_inserter(tensor_states),
+        [&](Val* v) {
+          return fd_->recordingState(map_val_to_fd_index_.at(v));
+        });
+
+    fd_->defineRecord(new CatOpRecord(
+        tensor_states,
+        {fd_->recordingState(output())},
+        cat_op->concatenatedDim()));
+  }
+
   // Map RNGOp to RandomDistOpRecord
   void handle(const RNGOp* rop) final {
     TensorView* out_tv = rop->output(0)->as<TensorView>();

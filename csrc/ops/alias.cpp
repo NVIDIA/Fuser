@@ -629,6 +629,21 @@ TensorView* cat(
     return set(inputs.at(0));
   }
 
+  // short-circuit: If all inputs are already padded, assume correctness and cat
+  // them without padding. FusionTranslation adds the padOp for each tensor
+  // separately.
+  // TODO add correctness check against desired padding.
+  bool all_padded =
+      std::all_of(inputs.begin(), inputs.end(), [](TensorView* tv) {
+        return tv->definition()->isA<PadOp>();
+      });
+  if (all_padded) {
+    std::vector<Val*> input_vals(inputs.begin(), inputs.end());
+    auto out = ops::newOutputTV(input_vals, dtype);
+    IrBuilder::create<CatOp>(out, input_vals, cat_dim);
+    return out;
+  }
+
   Val* concat_ext = nullptr;
 
   for (const auto i : c10::irange(inputs.size())) {
