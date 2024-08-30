@@ -468,7 +468,6 @@ SyncMap::SyncMap(Fusion* fusion) {
       // Stash information about parallelized producer iteration domains
       std::vector<IterDomain*> producer_parallel_ids(
           ParallelTypeBitmap::kNumParallelTypes, nullptr);
-      ParallelTypeBitmap producer_parallel_bitmap;
 
       // Get the parallel types that producer will be predicated off in producer
       // writes.
@@ -507,7 +506,6 @@ SyncMap::SyncMap(Fusion* fusion) {
           continue;
         }
 
-        producer_parallel_bitmap.set(producer_ptype);
         producer_parallel_ids[getParallelTypeBitMapOffset(producer_ptype)] =
             producer_axis;
       }
