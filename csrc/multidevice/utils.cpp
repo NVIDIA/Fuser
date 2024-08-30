@@ -227,13 +227,42 @@ void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs) {
   }
 }
 
-namespace {
 void propagateShardings(
-    const std::vector<TensorView*>& from_tvs,
-    const std::unordered_set<TensorView*>& boundary_tvs,
+    const std::vector<Expr*>& from,
+    const std::vector<Expr*>& to,
     TensorView* ref) {
+  std::vector<TensorView*> from_tvs;
+  std::vector<TensorView*> to_tvs;
+  for (auto expr : from) {
+    auto outputs = ir_utils::filterByType<TensorView>(expr->outputs());
+    std::copy(outputs.begin(), outputs.end(), std::back_inserter(from_tvs));
+  }
+
+  for (auto expr : to) {
+    auto outputs = ir_utils::filterByType<TensorView>(expr->outputs());
+    std::copy(outputs.begin(), outputs.end(), std::back_inserter(to_tvs));
+  }
+
+  propagateShardings(from_tvs, to_tvs, ref);
+}
+
+void propagateShardings(
+    const std::vector<TensorView*>& from,
+    const std::vector<TensorView*>& to,
+    TensorView* ref) {
+  std::unordered_set<TensorView*> boundary = {to.begin(), to.end()};
+  for (auto tv : from) {
+    auto expr = tv->definition();
+    if (expr == nullptr) {
+      continue;
+    }
+    auto inputs = ir_utils::filterByType<TensorView>(expr->inputs());
+    std::copy(
+        inputs.begin(), inputs.end(), std::inserter(boundary, boundary.end()));
+  }
+
   std::unordered_set<TensorView*> all_tvs =
-      scheduler_utils::getAllTvsFrom(from_tvs, boundary_tvs);
+      scheduler_utils::getAllTvsFrom(from, boundary);
   shardAllLike(ref, {all_tvs.begin(), all_tvs.end()});
 
   // Remove DID parallelizations on reduction axes.
@@ -244,53 +273,6 @@ void propagateShardings(
       }
     }
   }
-}
-} // namespace
-
-void shardFrom(
-    const std::vector<Expr*>& from,
-    const std::vector<Expr*>& to,
-    TensorView* ref) {
-  std::vector<TensorView*> from_tvs;
-  std::unordered_set<TensorView*> boundary_tvs;
-  for (auto expr : from) {
-    auto outputs = ir_utils::filterByType<TensorView>(expr->outputs());
-    std::copy(outputs.begin(), outputs.end(), std::back_inserter(from_tvs));
-    auto inputs = ir_utils::filterByType<TensorView>(expr->inputs());
-    std::copy(
-        inputs.begin(),
-        inputs.end(),
-        std::inserter(boundary_tvs, boundary_tvs.end()));
-  }
-
-  for (auto expr : to) {
-    auto outputs = ir_utils::filterByType<TensorView>(expr->outputs());
-    std::copy(
-        outputs.begin(),
-        outputs.end(),
-        std::inserter(boundary_tvs, boundary_tvs.end()));
-  }
-
-  propagateShardings(from_tvs, boundary_tvs, ref);
-}
-
-void shardFrom(
-    const std::vector<TensorView*>& from,
-    const std::vector<TensorView*>& to,
-    TensorView* ref) {
-  std::unordered_set<TensorView*> boundary_tvs = {to.begin(), to.end()};
-  for (auto tv : from) {
-    auto expr = tv->definition();
-    if (expr == nullptr) {
-      continue;
-    }
-    auto inputs = ir_utils::filterByType<TensorView>(expr->inputs());
-    std::copy(
-        inputs.begin(),
-        inputs.end(),
-        std::inserter(boundary_tvs, boundary_tvs.end()));
-  }
-  propagateShardings(from, boundary_tvs, ref);
 }
 
 int64_t requestedNumberOfDevices(Fusion* fusion) {
