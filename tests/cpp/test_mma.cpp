@@ -1029,34 +1029,7 @@ TEST_P(HopperSS, SingleTile) {
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
-// There are only three possible swizzle modes for smem operands of Hopper MMA:
-// 32 byte, 64 byte, and 128 byte. Depending on the layout and the macro, the
-// inner size may be smaller than the swizzle size. For example, if the macro is
-// M64_N8_K16, and the layout is TT, then K is the inner dim, so the inner size
-// is 16 items, that is, 32 bytes. If the swizzle mode is 128 byte, then the
-// inner size is only 1/4 of the swizzle size. In the SingleTile test, we will
-// just pad the inner dim to match the swizzle size, which is a 4x waste of smem
-// space. In this test, instead of padding the inner dim, we will use four tiles
-// to cover the entire swizzle size, so there is no waste of smem space. Note
-// that composing four tiles to form a single swizzle pattern means that the
-// memory layout of these four tiles will be interleaved with each other. The
-// kernel we are getting is like this:
-//
-// For TN layout where the inner dimension is a reduction:
-//   load operand B from gmem to smem;
-//   accumulator = 0;
-//   for i in tiles:
-//     load operand A from gmem to register;
-//     accumulator += A * B;
-//   store accumulator to gmem;
-//
-// For TT layout where the inner dimension is not a reduction:
-//   load operand B from gmem to smem;
-//   for i in tiles:
-//     load operand A from gmem to register;
-//     accumulator = 0;
-//     accumulator += A * B;
-//     store accumulator to gmem;
+// See the note in HopperRS.FullSwizzle for the explanation of this test.
 TEST_P(HopperSS, FullSwizzle) {
   Fusion fusion;
   FusionGuard fg(&fusion);
