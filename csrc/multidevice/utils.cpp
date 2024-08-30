@@ -232,15 +232,13 @@ void propagateShardings(
     const std::vector<TensorView*>& from_tvs,
     const std::unordered_set<TensorView*>& boundary_tvs,
     TensorView* ref) {
-  auto tvs_between = scheduler_utils::getAllTvsFrom(from_tvs, boundary_tvs);
-  // std::vector<TensorView*> tvs;
-  // std::copy_if(tvs_between.begin(), tvs_between.end(),
-  // std::back_inserter(tvs), [](TensorView* tv) {return !isDIDReduction(tv);});
-  shardAllLike(ref, {tvs_between.begin(), tvs_between.end()});
+  std::unordered_set<TensorView*> all_tvs =
+      scheduler_utils::getAllTvsFrom(from_tvs, boundary_tvs);
+  shardAllLike(ref, {all_tvs.begin(), all_tvs.end()});
 
   // Remove DID parallelizations on reduction axes.
-  for (auto tv : tvs_between) {
-    for (auto id : tv->getLogicalDomain()) {
+  for (auto* tv : all_tvs) {
+    for (IterDomain* id : tv->getLoopDomain()) {
       if (id->isReduction() && id->isDeviceDim()) {
         id->parallelize(ParallelType::Serial);
       }
@@ -249,7 +247,7 @@ void propagateShardings(
 }
 } // namespace
 
-void shardBetween(
+void shardFrom(
     const std::vector<Expr*>& from,
     const std::vector<Expr*>& to,
     TensorView* ref) {
@@ -276,21 +274,12 @@ void shardBetween(
   propagateShardings(from_tvs, boundary_tvs, ref);
 }
 
-void shardBetween(
-    const std::vector<TensorView*>& from_tvs,
-    const std::vector<TensorView*>& to_tvs,
+void shardFrom(
+    const std::vector<TensorView*>& from,
+    const std::vector<TensorView*>& to,
     TensorView* ref) {
-  // Use getAllTvsFrom instead of getAllTVsBetween so that we can get all TVs
-  // reachable from t that don't cross the boundary. This is because (1)
-  // expressions like rng_uniform create a fresh TV that is not along a path
-  // from user visible TVs. (2) multi-output expressions may have output tensors
-  // that are not along a path to the fusion output which would be excluded. Our
-  // sharding propagation checks check all TVs in the fusion are assigned a
-  // device mesh regardless if they are reachable. To keep the checks simple, we
-  // require all TVs are assigned a mesh if they exist in the fusion, regardless
-  // if they are reachable.
-  std::unordered_set<TensorView*> boundary_tvs = {to_tvs.begin(), to_tvs.end()};
-  for (auto tv : from_tvs) {
+  std::unordered_set<TensorView*> boundary_tvs = {to.begin(), to.end()};
+  for (auto tv : from) {
     auto expr = tv->definition();
     if (expr == nullptr) {
       continue;
@@ -301,7 +290,7 @@ void shardBetween(
         inputs.end(),
         std::inserter(boundary_tvs, boundary_tvs.end()));
   }
-  propagateShardings(from_tvs, boundary_tvs, ref);
+  propagateShardings(from, boundary_tvs, ref);
 }
 
 int64_t requestedNumberOfDevices(Fusion* fusion) {
