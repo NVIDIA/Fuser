@@ -97,13 +97,13 @@ void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs);
 // propagation checks all TVs in the fusion are assigned a device mesh
 // regardless if they are reachable. To keep the checks simple, we require all
 // TVs are assigned a mesh if they exist in the fusion.
-void propagateShardings(
+void shardBetween(
     const std::vector<TensorView*>& from,
     const std::vector<TensorView*>& to,
     TensorView* ref);
 // Same as above but using the outputs of the from and to expressions
 // to form the from and to TVs.
-void propagateShardings(
+void shardBetween(
     const std::vector<Expr*>& from,
     const std::vector<Expr*>& to,
     TensorView* ref);

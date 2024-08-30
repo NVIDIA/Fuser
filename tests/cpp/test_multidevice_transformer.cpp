@@ -371,8 +371,8 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
   for (TensorView* tv : tvsout) {
     fusion->addOutput(tv);
   }
-  propagateShardings({tvw0, tvb0, tvw1}, {tvsout[3]}, tvw0);
-  propagateShardings({tvx, tvb1}, {tvsout[3]}, tvx);
+  shardBetween({tvw0, tvb0, tvw1}, {tvsout[3]}, tvw0);
+  shardBetween({tvx, tvb1}, {tvsout[3]}, tvx);
 
   const auto options =
       at::TensorOptions().dtype(at_dtype).device(communicator_->device());
@@ -433,8 +433,8 @@ TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
     fusion->addOutput(tv);
   }
 
-  propagateShardings({tvw0, tvb0, tvw1}, {tv_outs[3]}, tvw0);
-  propagateShardings({tvx, tvb1}, {tv_outs[3]}, tvx);
+  shardBetween({tvw0, tvb0, tvw1}, {tv_outs[3]}, tvw0);
+  shardBetween({tvx, tvb1}, {tv_outs[3]}, tvx);
 
   const auto options =
       at::TensorOptions().dtype(at_dtype).device(communicator_->device());
@@ -495,10 +495,10 @@ TEST_P(DistributedTransformerTest, MLP_Backward) {
   }
 
   // Sharded: matmul1_grad_w, gelu_grad, matmul0_grad_w, matmul0_grad_b
-  propagateShardings(
+  shardBetween(
       {w0, b0, w1}, {tv_outs[1], tv_outs[3], tv_outs[4], tv_outs[5]}, w0);
   // Unsharded: dropout_grad, matmul1_grad_b, matmul0_grad_x
-  propagateShardings({grad, x}, {tv_outs[0], tv_outs[2], tv_outs[6]}, grad);
+  shardBetween({grad, x}, {tv_outs[0], tv_outs[2], tv_outs[6]}, grad);
 
   const auto options =
       at::TensorOptions().dtype(at_dtype).device(communicator_->device());
@@ -587,9 +587,9 @@ TEST_P(DistributedTransformerTest, Forward) {
     tv->setDeviceMesh(mesh);
   }
 
-  propagateShardings({mha_in->definition()}, {mha_out->definition()}, mha_w0);
-  propagateShardings({mlp_in->definition()}, {mlp_out->definition()}, mlp_w0);
-  propagateShardings({x}, {mha_in}, x);
+  shardBetween({mha_in->definition()}, {mha_out->definition()}, mha_w0);
+  shardBetween({mlp_in->definition()}, {mlp_out->definition()}, mlp_w0);
+  shardBetween({x}, {mha_in}, x);
 
   const auto options =
       at::TensorOptions().dtype(at_dtype).device(communicator_->device());
