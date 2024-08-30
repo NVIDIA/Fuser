@@ -7,6 +7,7 @@
 // clang-format on
 #include <device_lower/analysis/index_compute.h>
 #include <device_lower/lower2device.h>
+#include <id_model/indexing_utils.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
 
@@ -683,9 +684,23 @@ SyncMap::SyncMap(Fusion* fusion) {
                 consumer->toString());
           }
 
-          if (producer_ptype == consumer_ptype &&
-              useSameIndex(producer, p_id, consumer, c_id, indexing_info)) {
-            continue;
+          if (GpuLower::current()->hasIdModel()) {
+            const auto& id_model = GpuLower::current()->idModel();
+            auto producer_loop_id =
+                indexing_utils::getLoopPromotion(p_id, id_model);
+            auto consumer_loop_id =
+                indexing_utils::getLoopPromotion(c_id, id_model);
+            const auto& indexing_traveral_graph =
+                id_model.idGraph(IdMappingMode::ALMOSTEXACT);
+            if (indexing_traveral_graph.disjointValSets().strictAreMapped(
+                    producer_loop_id, consumer_loop_id)) {
+              continue;
+            }
+          } else {
+            if (producer_ptype == consumer_ptype &&
+                useSameIndex(producer, p_id, consumer, c_id, indexing_info)) {
+              continue;
+            }
           }
 
           raw_dims.set(producer_ptype);
