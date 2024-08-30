@@ -7,6 +7,11 @@
 // clang-format on
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <iostream>
+
+#include <torch/csrc/jit/codegen/cuda/interface.h>
+
 #include <codegen.h>
 #include <device_lower/lower2device.h>
 #include <disjoint_set.h>
@@ -15,6 +20,7 @@
 #include <expr_evaluator.h>
 #include <fusion.h>
 #include <fusion_segmenter.h>
+#include <inlining.h>
 #include <ir/all_nodes.h>
 #include <ir/graphviz.h>
 #include <ir/iostream.h>
@@ -29,12 +35,8 @@
 #include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>
 #include <tests/cpp/multidevice.h>
-#include <torch/csrc/jit/codegen/cuda/interface.h>
 #include <transform_replay.h>
 #include <transform_rfactor.h>
-
-#include <algorithm>
-#include <iostream>
 
 namespace nvfuser {
 
@@ -389,19 +391,13 @@ TEST_P(PipelineTestStagedReduction, StagedReduction) {
 
   FusionGuard fg(fusion.get());
   TensorView* tv0 = makeConcreteTensor(unsharded_input_sizes);
+  auto mesh = DeviceMesh::createForNumDevices(num_devices);
+  tv0->setDeviceMesh(mesh);
+  tv0->axis(0)->parallelize(ParallelType::DIDx);
   TensorView* tv1 = sum(tv0, {2});
   TensorView* tv_out = sum(tv1, {0});
   fusion->addInput(tv0);
   fusion->addOutput(tv_out);
-
-  // multi device scheduling:
-  auto mesh = DeviceMesh::createForNumDevices(num_devices);
-  for (auto tv : {tv0, tv1, tv_out}) {
-    tv->setDeviceMesh(mesh);
-  }
-  for (auto tv : {tv0, tv1}) {
-    tv->axis(0)->parallelize(ParallelType::DIDx);
-  }
 
   // Intra-device reduction scheduling for the first reduction:
   switch (scheduling_mode) {
@@ -430,22 +426,17 @@ TEST_P(PipelineTestStagedReduction, StagedReduction) {
       // tv1[I0{A}, I1{B},                         R2i{32}] = tv3[I0{A}, I1{B},                R2oi{4}, I2i{32}]
       // clang-format on
 
-      // Incrementally, can print in between for debugging
-      tv0->computeAt(tv2, 2);
-      tv2->computeAt(tv3, 2);
-      tv3->computeAt(tv1, 2);
-
-      // Re do it all at once, because why not.
-      tv0->computeAt(tv1, 2);
-
+      tv2->axis(1)->parallelize(ParallelType::BIDx);
       tv2->axis(3)->parallelize(ParallelType::Unroll);
-      tv1->axis(1)->parallelize(ParallelType::BIDx);
-      tv1->setMemoryType(
-          MemoryType::Global); // necessary to avoid runtime error
-
-      tv1->axis(-1)->parallelize(ParallelType::TIDx);
       tv2->axis(-1)->parallelize(ParallelType::TIDx);
-      tv3->axis(-1)->parallelize(ParallelType::TIDx);
+      scheduler_utils::parallelizeAllLike(
+          tv2,
+          /*pos=*/-1,
+          /*selected_tv=*/{},
+          // Skip ParallelType::DIDx so `tv_out`'s first dimension don't become
+          // `r(DID)`.
+          {ParallelType::BIDx, ParallelType::Unroll, ParallelType::TIDx});
+      inlineMost();
       break;
     }
     case SchedulingMode::Automatic:
