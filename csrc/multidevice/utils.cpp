@@ -227,7 +227,7 @@ void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs) {
   }
 }
 
-void propagateShardings(
+void shardBetween(
     const std::vector<Expr*>& from,
     const std::vector<Expr*>& to,
     TensorView* ref) {
@@ -243,10 +243,10 @@ void propagateShardings(
     std::copy(outputs.begin(), outputs.end(), std::back_inserter(to_tvs));
   }
 
-  propagateShardings(from_tvs, to_tvs, ref);
+  shardBetween(from_tvs, to_tvs, ref);
 }
 
-void propagateShardings(
+void shardBetween(
     const std::vector<TensorView*>& from,
     const std::vector<TensorView*>& to,
     TensorView* ref) {
