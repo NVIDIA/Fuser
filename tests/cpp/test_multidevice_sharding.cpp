@@ -230,7 +230,7 @@ TEST_F(MultideviceShardingTest, Issue2758) {
       __FILE__);
 }
 
-TEST_F(MultideviceShardingTest, SetOfBroadcast) {
+TEST_F(MultideviceShardingTest, Broadcast) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -240,7 +240,7 @@ TEST_F(MultideviceShardingTest, SetOfBroadcast) {
   TensorView* in = TensorViewBuilder()
                        .dtype(DataType::Float)
                        .contiguity({std::nullopt, true})
-                       .shape({1, 8})
+                       .shape({1, -1})
                        .build();
   in->setDeviceMesh(mesh);
   in->axis(0)->parallelize(ParallelType::DIDx);
@@ -251,6 +251,32 @@ TEST_F(MultideviceShardingTest, SetOfBroadcast) {
   FusionExecutorCache fec(std::move(fusion));
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor in_tensor = at::randn({1, 8}, options);
+  at::Tensor out_tensor = fec.runFusionWithInputs({in_tensor})[0];
+  testValidate(fec.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
+}
+
+TEST_F(MultideviceShardingTest, ExpandedBroadcast) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto num_devices = communicator_->size();
+  auto mesh = DeviceMesh::createForNumDevices(num_devices);
+
+  TensorView* in = TensorViewBuilder()
+                       .dtype(DataType::Float)
+                       .contiguity({std::nullopt, true})
+                       .shape({3, -1})
+                       .expanded({true, false})
+                       .build();
+  in->setDeviceMesh(mesh);
+  in->axis(0)->parallelize(ParallelType::DIDx);
+  TensorView* out = set(in);
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor in_tensor = at::randn({8}, options).as_strided({3, 8}, {0, 1});
   at::Tensor out_tensor = fec.runFusionWithInputs({in_tensor})[0];
   testValidate(fec.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
 }
