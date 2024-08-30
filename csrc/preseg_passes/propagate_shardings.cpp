@@ -55,16 +55,16 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
 
     if (tv->hasDeviceMesh()) {
       update_if_null(tv_with_mesh, tv);
-    } else if (!tv->isCpuScalar()) {
+    } else {
       update_if_null(tv_without_mesh, tv);
     }
   }
   NVF_CHECK(
       tv_with_mesh == nullptr || tv_without_mesh == nullptr,
       "Found ",
-      tv_with_mesh->toString(),
+      tv_with_mesh,
       " assigned a mesh and ",
-      tv_without_mesh->toString(),
+      tv_without_mesh,
       " not.");
 }
 
