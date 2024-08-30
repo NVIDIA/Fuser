@@ -685,16 +685,18 @@ SyncMap::SyncMap(Fusion* fusion) {
           }
 
           if (GpuLower::current()->hasIdModel()) {
-            const auto& id_model = GpuLower::current()->idModel();
-            auto producer_loop_id =
-                indexing_utils::getLoopPromotion(p_id, id_model);
-            auto consumer_loop_id =
-                indexing_utils::getLoopPromotion(c_id, id_model);
-            const auto& indexing_traveral_graph =
-                id_model.idGraph(IdMappingMode::ALMOSTEXACT);
-            if (indexing_traveral_graph.disjointValSets().strictAreMapped(
-                    producer_loop_id, consumer_loop_id)) {
-              continue;
+            if (producer_ptype == consumer_ptype) {
+              const auto& id_model = GpuLower::current()->idModel();
+              auto producer_loop_id =
+                  indexing_utils::getLoopPromotion(p_id, id_model);
+              auto consumer_loop_id =
+                  indexing_utils::getLoopPromotion(c_id, id_model);
+              const auto& indexing_traveral_graph =
+                  id_model.idGraph(IdMappingMode::ALMOSTEXACT);
+              if (indexing_traveral_graph.disjointValSets().strictAreMapped(
+                      producer_loop_id, consumer_loop_id)) {
+                continue;
+              }
             }
           } else {
             if (producer_ptype == consumer_ptype &&
