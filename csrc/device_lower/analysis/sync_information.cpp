@@ -515,7 +515,6 @@ SyncMap::SyncMap(Fusion* fusion) {
         // Stash information about parallelized consumer iteration domains
         std::vector<IterDomain*> consumer_parallel_ids(
             ParallelTypeBitmap::kNumParallelTypes, nullptr);
-        ParallelTypeBitmap consumer_parallel_bitmap;
         for (const auto consumer_i : c10::irange(consumer->nDims())) {
           auto consumer_axis = consumer->axis(consumer_i);
           auto consumer_ptype =
@@ -536,7 +535,6 @@ SyncMap::SyncMap(Fusion* fusion) {
             continue;
           }
 
-          consumer_parallel_bitmap.set(consumer_ptype);
           consumer_parallel_ids[getParallelTypeBitMapOffset(consumer_ptype)] =
               consumer_axis;
         }
