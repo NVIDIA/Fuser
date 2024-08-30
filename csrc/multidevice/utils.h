@@ -89,23 +89,21 @@ bool isInnerResharding(Expr* expr);
 // Shards all tensors in tvs like reference
 void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs);
 
-// Shards all TVs from TVs to TVs.
-// This is includes more than TVs between the expressions, but is all TVs
-// reachable from the from. This is required because (1) expressions like
-// rng_uniform create a fresh TV that is not along a path from user visible TVs.
-// (2) multi-output expressions may have output tensors that are not along a
-// path to the fusion output which would be excluded. Our sharding propagation
-// checks check all TVs in the fusion are assigned a device mesh regardless if
-// they are reachable. To keep the checks simple, we require all TVs are
-// assigned a mesh if they exist in the fusion, regardless if they are
-// reachable.
-void shardFrom(
+// Shards all TVs between from and to AND between TVs created inside a fusion
+// and to. This is required for (1) expressions like rng_uniform that create a
+// TV inside a fusion that is not between a path from user visible TVs. (2)
+// multi-output expressions may have output tensors that are not along a path to
+// the fusion output which would not be reachable otherwise. (2) sharding
+// propagation checks all TVs in the fusion are assigned a device mesh
+// regardless if they are reachable. To keep the checks simple, we require all
+// TVs are assigned a mesh if they exist in the fusion.
+void shardBetween(
     const std::vector<TensorView*>& from,
     const std::vector<TensorView*>& to,
     TensorView* ref);
-// Shards all TVs from the output of from expressions to the outputs of the to
-// expressions like the reference TV.
-void shardFrom(
+// Same as above but using the outputs of the from and to expressions
+// to form the from and to TVs.
+void shardBetween(
     const std::vector<Expr*>& from,
     const std::vector<Expr*>& to,
     TensorView* ref);
