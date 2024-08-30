@@ -96,10 +96,10 @@ void shardBetween(
     const std::vector<Expr*>& to,
     TensorView* ref);
 
-// Shards all TVs between from and to like the reference TV.
+// Shards all TVs between from_tvs and to_tvs like the reference TV.
 void shardBetween(
-    const std::vector<TensorView*>& from,
-    const std::vector<TensorView*>& to,
+    const std::vector<TensorView*>& from_tvs,
+    const std::vector<TensorView*>& to_tvs,
     TensorView* ref);
 
 // Returns the devices involved in an expr

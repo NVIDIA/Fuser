@@ -288,8 +288,7 @@ void parallelizeAllLike(
     int64_t pos,
     std::vector<TensorView*> selected_tvs,
     const std::unordered_set<ParallelType>& selected_parallel_types,
-    bool propagate_padding,
-    bool skip_reductions) {
+    bool propagate_padding) {
   FusionGuard fg(reference_tv->fusion());
 
   if (pos < 0) {
@@ -324,9 +323,8 @@ void parallelizeAllLike(
       if (concrete_to_reference_map.count(ca_id) > 0) {
         auto reference_id = concrete_to_reference_map.at(ca_id);
         auto reference_parallel_type = reference_id->getParallelType();
-        if ((selected_parallel_types.empty() ||
-             selected_parallel_types.count(reference_parallel_type)) &&
-            (!skip_reductions || !tv->axis(i)->isReduction())) {
+        if (selected_parallel_types.empty() ||
+            selected_parallel_types.count(reference_parallel_type)) {
           tv->axis(i)->parallelize(reference_parallel_type);
         }
         if (propagate_padding) {

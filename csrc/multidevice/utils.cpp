@@ -177,17 +177,6 @@ bool isResharding(const Expr* expr) {
     return false;
   }
 
-  //   // Reduction over a sharded dimension.
-  //   if (expr->isA<ReductionOp>()) {
-  //     auto out* = expr->as<ReductionOp>()->out()->as<TensorView>();
-  //     std::vector<IterDomain*> reduction_axis;
-  //     if (std::any_of(out_logical.begin(), out_logical.end(),
-  //     std::mem_fn(IterDomain::isReduction)) {
-  //       return true;
-  //     }
-  //   }
-  // }
-
   // We don't use getTvsWithDifferentSharding because it creates a computeAtMap,
   // which is too costly
   for (auto* input : ir_utils::filterByType<TensorView>(expr->inputs())) {
@@ -234,41 +223,62 @@ void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs) {
   }
   if (!tvs.empty()) {
     scheduler_utils::parallelizeAllLike(
-        ref,
-        tvs,
-        {ParallelType::DIDx, ParallelType::Serial},
-        /*propagate_padding=*/false,
-        /*skip_reductions=*/true);
+        ref, tvs, {ParallelType::DIDx, ParallelType::Serial});
   }
 }
+
+namespace {
+void propagateShardings(
+    const std::vector<TensorView*>& from_tvs,
+    const std::unordered_set<TensorView*>& boundary_tvs,
+    TensorView* ref) {
+  auto tvs_between = scheduler_utils::getAllTvsFrom(from_tvs, boundary_tvs);
+  // std::vector<TensorView*> tvs;
+  // std::copy_if(tvs_between.begin(), tvs_between.end(),
+  // std::back_inserter(tvs), [](TensorView* tv) {return !isDIDReduction(tv);});
+  shardAllLike(ref, {tvs_between.begin(), tvs_between.end()});
+
+  // Remove DID parallelizations on reduction axes.
+  for (auto tv : tvs_between) {
+    for (auto id : tv->getLogicalDomain()) {
+      if (id->isReduction() && id->isDeviceDim()) {
+        id->parallelize(ParallelType::Serial);
+      }
+    }
+  }
+}
+} // namespace
 
 void shardBetween(
     const std::vector<Expr*>& from,
     const std::vector<Expr*>& to,
-    TensorView* ref_tv) {
+    TensorView* ref) {
   std::vector<TensorView*> from_tvs;
-  std::unordered_set<TensorView*> to_tvs;
+  std::unordered_set<TensorView*> boundary_tvs;
   for (auto expr : from) {
     auto outputs = ir_utils::filterByType<TensorView>(expr->outputs());
     std::copy(outputs.begin(), outputs.end(), std::back_inserter(from_tvs));
     auto inputs = ir_utils::filterByType<TensorView>(expr->inputs());
     std::copy(
-        inputs.begin(), inputs.end(), std::inserter(to_tvs, to_tvs.end()));
+        inputs.begin(),
+        inputs.end(),
+        std::inserter(boundary_tvs, boundary_tvs.end()));
   }
 
   for (auto expr : to) {
     auto outputs = ir_utils::filterByType<TensorView>(expr->outputs());
     std::copy(
-        outputs.begin(), outputs.end(), std::inserter(to_tvs, to_tvs.end()));
+        outputs.begin(),
+        outputs.end(),
+        std::inserter(boundary_tvs, boundary_tvs.end()));
   }
 
-  auto tvs_between = scheduler_utils::getAllTvsFrom(from_tvs, to_tvs);
-  shardAllLike(ref_tv, {tvs_between.begin(), tvs_between.end()});
+  propagateShardings(from_tvs, boundary_tvs, ref);
 }
 
 void shardBetween(
-    const std::vector<TensorView*>& ref_tvs,
-    const std::vector<TensorView*>& boundary_tvs,
+    const std::vector<TensorView*>& from_tvs,
+    const std::vector<TensorView*>& to_tvs,
     TensorView* ref) {
   // Use getAllTvsFrom instead of getAllTVsBetween so that we can get all TVs
   // reachable from t that don't cross the boundary. This is because (1)
@@ -279,20 +289,19 @@ void shardBetween(
   // device mesh regardless if they are reachable. To keep the checks simple, we
   // require all TVs are assigned a mesh if they exist in the fusion, regardless
   // if they are reachable.
-  std::unordered_set<TensorView*> to_tvs = {
-      boundary_tvs.begin(), boundary_tvs.end()};
-  for (auto tv : ref_tvs) {
+  std::unordered_set<TensorView*> boundary_tvs = {to_tvs.begin(), to_tvs.end()};
+  for (auto tv : from_tvs) {
     auto expr = tv->definition();
     if (expr == nullptr) {
       continue;
     }
     auto inputs = ir_utils::filterByType<TensorView>(expr->inputs());
     std::copy(
-        inputs.begin(), inputs.end(), std::inserter(to_tvs, to_tvs.end()));
+        inputs.begin(),
+        inputs.end(),
+        std::inserter(boundary_tvs, boundary_tvs.end()));
   }
-
-  auto tvs_between = scheduler_utils::getAllTvsFrom(ref_tvs, to_tvs);
-  shardAllLike(ref, {tvs_between.begin(), tvs_between.end()});
+  propagateShardings(from_tvs, boundary_tvs, ref);
 }
 
 int64_t requestedNumberOfDevices(Fusion* fusion) {
