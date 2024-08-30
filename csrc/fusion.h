@@ -429,6 +429,10 @@ class NVF_API Fusion : public IrContainer {
     expected_dynamic_smem_bytes_ = bytes;
   }
 
+  //! This is a cached version of ir_utils::allTvs that is invalidated
+  //! whenever we invalidate TV uses
+  const std::vector<TensorView*>& allTvs();
+
  protected:
   friend SegmentCandidateFinder;
   friend SegmentedFusion;
@@ -458,6 +462,7 @@ class NVF_API Fusion : public IrContainer {
   //! the update).
   void invalidateTvUses() {
     all_tv_uses_valid_ = false;
+    all_tvs_ptr_ = nullptr;
   }
 
  private:
@@ -485,6 +490,8 @@ class NVF_API Fusion : public IrContainer {
   // If set to a non-negative value during scheduling, this will be checked by
   // the executor.
   int64_t expected_dynamic_smem_bytes_ = -1LL;
+
+  std::unique_ptr<std::vector<TensorView*>> all_tvs_ptr_ = nullptr;
 };
 
 // Returns true if all fusion outputs are expression evaluated.
