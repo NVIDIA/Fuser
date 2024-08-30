@@ -373,19 +373,19 @@ std::vector<TensorView*> mha(
 // TODO: These linear_backwards helper functions can be merged once
 // (1) improved sharding propagation pass and (2) insert resharding expr
 // pass handles matmul tasks are complete.
-// struct LinearBackwardsResult {
-//   TensorView* grad;
-//   TensorView* grad_w;
-//   TensorView* grad_b;
-// };
+struct LinearBackwardsResult {
+  TensorView* grad_x;
+  TensorView* grad_w;
+  TensorView* grad_b;
+};
 
 // x format: [i0, i1] dtype
 // weight format: [DID(D), i1, i2/D] dtype
 // grad format: [DID(D) i0, i2/D] float
 // outputs: grad_x [i0, i1] dtype
-// grad_w [DID i1/D, i2] dtype
-// grad_b [i2] float
-std::vector<TensorView*> linear_backwards(
+// grad_w [DID i1, i2/D] dtype
+// grad_b [DID i2/2] float
+LinearBackwardsResult linear_backwards(
     TensorView* x,
     TensorView* w,
     TensorView* grad,
@@ -398,8 +398,6 @@ std::vector<TensorView*> linear_backwards(
     grad_q = castOp(dtype, grad);
   }
   TensorView* w_t = transpose(w, 1, 2);
-  // Note: Depending how grad_x is sharded, an allreduce may
-  // be automatically inserted.
   TensorView* grad_x_partials = matmul(grad_q, w_t);
   TensorView* grad_x = sum(grad_x_partials, {0}); // allreduce
   TensorView* grad_q_t = transpose(grad_q, 1, 2);
@@ -410,13 +408,13 @@ std::vector<TensorView*> linear_backwards(
   return {grad_x, grad_w, grad_b};
 }
 
-// x format: [i0, i1] dtype
-// weight format: [DID, i1, i2/D] dtype
+// x format: [DID, i0, i1/D] dtype
+// weight format: [DID, i1/D, i2] dtype
 // grad format: [i0, i2] float
-// outputs: grad_x [i0, i1] dtype
-// grad_w [DID i1, i2] dtype
+// outputs: grad_x [DID i0, i1/D] dtype
+// grad_w [DID i1/D, i2] dtype
 // grad_b [i2] float
-std::vector<TensorView*> sharded_linear_backwards(
+LinearBackwardsResult sharded_linear_backwards(
     TensorView* x,
     TensorView* w,
     TensorView* grad,
@@ -454,18 +452,21 @@ std::vector<TensorView*> mlp_backwards(
   Val* dscale = IrBuilder::create<Val>(kScale);
   TensorView* dropout_grad = dropout_backward(grad, mask, dscale);
 
-  std::vector<TensorView*> linear1_grads =
-      sharded_linear_backwards(gelu, w1, dropout_grad, dtype);
+  auto linear1_grads = sharded_linear_backwards(gelu, w1, dropout_grad, dtype);
 
-  TensorView* matmul1_grad_x_ = castOp(DataType::Float, linear1_grads[0]);
+  TensorView* matmul1_grad_x_ = castOp(DataType::Float, linear1_grads.grad_x);
   TensorView* gelu_grad = tanh_gelu_backward(matmul1_grad_x_, linear0);
 
-  std::vector<TensorView*> linear0_grads =
-      linear_backwards(x, w0, gelu_grad, dtype);
+  auto linear0_grads = linear_backwards(x, w0, gelu_grad, dtype);
 
   // Manaul sharding annotations
   for (auto tv :
-       {x, grad, mask, dropout_grad, linear1_grads[2], linear0_grads[0]}) {
+       {x,
+        grad,
+        mask,
+        dropout_grad,
+        linear1_grads.grad_b,
+        linear0_grads.grad_x}) {
     tv->setDeviceMesh(mesh);
   }
 
@@ -473,23 +474,23 @@ std::vector<TensorView*> mlp_backwards(
        {w0,
         b0,
         w1,
-        linear1_grads[0],
-        linear1_grads[1],
+        linear1_grads.grad_x,
+        linear1_grads.grad_w,
         gelu_grad,
-        linear0_grads[1],
-        linear0_grads[2]}) {
+        linear0_grads.grad_w,
+        linear0_grads.grad_b}) {
     tv->setDeviceMesh(mesh);
     tv->axis(0)->parallelize(ParallelType::DIDx);
   }
 
   std::vector<TensorView*> outputs = {
       dropout_grad,
-      linear1_grads[1],
-      linear1_grads[2],
+      linear1_grads.grad_w,
+      linear1_grads.grad_b,
       gelu_grad,
-      linear0_grads[1],
-      linear0_grads[2],
-      linear0_grads[0]};
+      linear0_grads.grad_w,
+      linear0_grads.grad_b,
+      linear0_grads.grad_x};
   return outputs;
 }
 
@@ -539,12 +540,12 @@ std::vector<TensorView*> mha_backwards(
       transpose(sdpa_output, 2, 3); // D, B, S, H/D, E/H
   sdpa_output_reshape =
       reshape(sdpa_output_reshape, {D, B, S, H / D, E / H}, {D, B * S, E / D});
-  std::vector<TensorView*> linear1_backwards =
+  auto linear1_grads =
       sharded_linear_backwards(sdpa_output_reshape, w1, dropout_grad, dtype);
 
   // SDPA backwards
   TensorView* linear1_grad_x =
-      reshape(linear1_backwards[0], {D, B * S, E / D}, {D, B, S, H / D, E / H});
+      reshape(linear1_grads.grad_x, {D, B * S, E / D}, {D, B, S, H / D, E / H});
   linear1_grad_x = transpose(linear1_grad_x, 2, 3); // D, B, H/D, S, E/H
   // Explicitly shard inputs into SDPA backward node
   for (auto tv : {linear1_grad_x, sdpa_output, sdpa_log_sumexp}) {
@@ -571,16 +572,15 @@ std::vector<TensorView*> mha_backwards(
   TensorView* k_grad = transpose(sdpa_grad.grad_key, 2, 3);
   k_grad = reshape(k_grad, {D, B, S, H / D, E / H}, {D, B * S, E / D});
   TensorView* kqv_grad = cat({k_grad, q_grad, v_grad}, -1);
-  std::vector<TensorView*> linear0_backwards =
-      linear_backwards(x, w0, kqv_grad, dtype);
+  auto linear0_grads = linear_backwards(x, w0, kqv_grad, dtype);
 
   for (auto tv :
        {x,
         mask,
         grad,
         dropout_grad,
-        linear1_backwards[2],
-        linear0_backwards[0]}) {
+        linear1_grads.grad_b,
+        linear0_grads.grad_x}) {
     tv->setDeviceMesh(mesh);
   }
   for (auto tv :
@@ -589,10 +589,10 @@ std::vector<TensorView*> mha_backwards(
         w1,
         sdpa_output,
         mm,
-        linear1_backwards[0],
-        linear1_backwards[1],
-        linear0_backwards[1],
-        linear0_backwards[2],
+        linear1_grads.grad_x,
+        linear1_grads.grad_w,
+        linear0_grads.grad_w,
+        linear0_grads.grad_b,
         sdpa_grad.grad_query,
         sdpa_grad.grad_key,
         sdpa_grad.grad_value}) {
@@ -601,14 +601,14 @@ std::vector<TensorView*> mha_backwards(
   }
   return {
       dropout_grad,
-      linear1_backwards[1],
-      linear1_backwards[2],
+      linear1_grads.grad_w,
+      linear1_grads.grad_b,
       sdpa_grad.grad_query,
       sdpa_grad.grad_key,
       sdpa_grad.grad_value,
-      linear0_backwards[1],
-      linear0_backwards[2],
-      linear0_backwards[0]};
+      linear0_grads.grad_w,
+      linear0_grads.grad_b,
+      linear0_grads.grad_x};
 }
 } // namespace
 
@@ -849,7 +849,7 @@ TEST_P(DistributedTransformerTest, MHA_Backward) {
     fusion->addOutput(tv);
   }
 
-  shardBetween(
+  shardFrom(
       {tvw1, tvw0, tvb0},
       {tvouts[1],
        tvouts[2],
@@ -859,7 +859,7 @@ TEST_P(DistributedTransformerTest, MHA_Backward) {
        tvouts[6],
        tvouts[7]},
       tvw0);
-  shardBetween({tvx, tvmask, tvgrad}, {tvouts[0], tvouts[8]}, tvx);
+  shardFrom({tvx, tvmask, tvgrad}, {tvouts[0], tvouts[8]}, tvx);
 
   const auto options =
       at::TensorOptions().dtype(at_dtype).device(communicator_->device());
