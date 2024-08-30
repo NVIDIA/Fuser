@@ -116,6 +116,14 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
 
   to->expected_dynamic_smem_bytes_ = from->expected_dynamic_smem_bytes_;
 
+  if (from->all_tvs_ptr_ != nullptr) {
+    to->all_tvs_ptr_ = std::make_unique<std::vector<TensorView*>>();
+    to->all_tvs_ptr_->reserve(from->all_tvs_ptr_->size());
+    for (TensorView* from_tv : *from->all_tvs_ptr_) {
+      to->all_tvs_ptr_->push_back(ir_cloner.clone(from_tv)->as<TensorView>());
+    }
+  }
+
   return ir_cloner;
 }
 
@@ -852,6 +860,14 @@ bool isExpressionEvaluated(Fusion* fusion) {
       fusion->outputs().begin(), fusion->outputs().end(), [&fusion](Val* out) {
         return fusion->getOutputAlias(out).type == AllocationType::Evaluate;
       });
+}
+
+const std::vector<TensorView*>& Fusion::allTvs() {
+  if (all_tvs_ptr_ == nullptr) {
+    all_tvs_ptr_ =
+        std::make_unique<std::vector<TensorView*>>(ir_utils::allTvs(this));
+  }
+  return *all_tvs_ptr_;
 }
 
 } // namespace nvfuser
