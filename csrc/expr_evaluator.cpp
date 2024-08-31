@@ -387,9 +387,9 @@ void handlePropagateError(
   }
 
   // Check which TensorViews mismatch and check if they're directly related.
-  // If so, the expression between them may be the problmeatic expression, and
-  // the error will point to that expression(s). Don't bother to simplify this
-  // check as it's only runs after an error is detected.
+  // If so, the expression between them may be the problematic expression, and
+  // the error will point to that expression(s). Don't bother to speed up this
+  // check as it only runs after an error is detected.
   bool found_producer_consumer_issue = false;
   // Assume producer/consumer relationship
   for (auto [dim_size_1, tv_id_pairs_1] : size_to_info) {
