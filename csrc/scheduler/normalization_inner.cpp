@@ -27,11 +27,12 @@ InnerPersistentKernelScheduler::InnerPersistentKernelScheduler(
 }
 
 void InnerPersistentKernelScheduler::schedule(Fusion* fusion) {
-  FUSER_PERF_SCOPE("Schedule InnerPersistent Fusion");
+  FUSER_PERF_SCOPE("InnerPersistentKernelScheduler::schedule");
   scheduleInnerPersistentKernel(fusion, reductionParams());
 }
 
 bool InnerPersistentKernelScheduler::canScheduleCompileTime(Fusion* fusion) {
+  FUSER_PERF_SCOPE("InnerPersistentKernelScheduler::canScheduleCompileTime");
   return normalization_scheduler_utils::compileTimeCheck(
       fusion, heuristicType());
 }
@@ -59,7 +60,7 @@ std::pair<int64_t, int64_t> getPersistentBufferSize(
   bool project_persistent_buffers =
       normalization_scheduler_utils::isProjectBufferToInputs(
           fusion,
-          runtime_info,
+          runtime_info.getIndexType(),
           persistent_buffer_info,
           persistent_buffer_size_info,
           ScheduleHeuristic::InnerPersistent,
@@ -70,7 +71,7 @@ std::pair<int64_t, int64_t> getPersistentBufferSize(
 
   int64_t available_persistent_buffer_size = normalization_scheduler_utils::
       getMaxRegOrSharedMemorySizeForPersistentBuffer(
-          runtime_info,
+          runtime_info.getIndexType(),
           persistent_buffer_info.persistent_buffers,
           can_use_smem_persistent);
   return std::make_pair(
@@ -83,7 +84,10 @@ bool InnerPersistentKernelScheduler::canScheduleRunTime(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
-  FUSER_PERF_SCOPE("InnerPersistentKernelScheduler::canSchedule");
+  FUSER_PERF_SCOPE("InnerPersistentKernelScheduler::canScheduleRunTime");
+
+  inst::Trace::instance()->beginEvent(
+      "InnerPersistentKernelScheduler::canScheduleRunTime::Section0");
   auto reduction_tv_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::ReductionTVs>(
           data_cache, [&fusion]() {
@@ -99,6 +103,10 @@ bool InnerPersistentKernelScheduler::canScheduleRunTime(
       fusion, runtime_info, reference_tv);
 
   const int64_t warp_size = at::cuda::getCurrentDeviceProperties()->warpSize;
+  inst::Trace::instance()->endEvent(
+      "InnerPersistentKernelScheduler::canScheduleRunTime::Section0");
+  inst::Trace::instance()->beginEvent(
+      "InnerPersistentKernelScheduler::canScheduleRunTime::Section1");
 
   // check reduction properties, don't use shared memory persistent if 3D
   // reduction
@@ -110,6 +118,8 @@ bool InnerPersistentKernelScheduler::canScheduleRunTime(
       fusion, runtime_info, data_cache, reduction_tvs, can_use_smem_persistent);
   const int64_t persistent_buffer_size = buffer_size.first;
   const int64_t available_persistent_buffer_size = buffer_size.second;
+  inst::Trace::instance()->endEvent(
+      "InnerPersistentKernelScheduler::canScheduleRunTime::Section1");
 
   const int64_t device_multiprocessor_count =
       (int64_t)at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
@@ -162,6 +172,7 @@ void InnerPersistentKernelScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
+  FUSER_PERF_SCOPE("InnerPersistentKernelScheduler::computeHeuristics");
   params_ = getInnerPersistentHeuristics(fusion, runtime_info, data_cache);
   NVF_ERROR(params_ != nullptr);
 }
@@ -1086,7 +1097,6 @@ std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
-  FUSER_PERF_SCOPE("getInnerPersistentHeuristics");
   FusionGuard fg(fusion);
 
   // properties of the fusion
@@ -1133,7 +1143,6 @@ std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
     HeuristicSummary* data_cache) {
-  FUSER_PERF_SCOPE("getInnerPersistentHeuristicsFromIValue");
   SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs);
   return getInnerPersistentHeuristics(fusion, runtime_info, data_cache);
 }

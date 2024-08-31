@@ -33,6 +33,7 @@ PointWiseScheduler::PointWiseScheduler(
 
 bool PointWiseScheduler::canScheduleCompileTime(Fusion* fusion) {
   if (scheduler_utils::isResharding(fusion)) {
+    FUSER_PERF_SCOPE("PointWiseScheduler::canScheduleCompileTime");
     scheduler_debug_utils::canScheduleRejectReason(
         heuristicType(), "Fusion is resharding.");
     return false;
@@ -82,6 +83,7 @@ bool PointWiseScheduler::canScheduleRunTime(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
+  FUSER_PERF_SCOPE("PointWiseScheduler::canScheduleRunTime");
   auto can_schedule_transpose_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::CanScheduleTranspose>(
           data_cache, [fusion]() {
@@ -98,7 +100,7 @@ bool PointWiseScheduler::canScheduleRunTime(
 }
 
 void PointWiseScheduler::schedule(Fusion* fusion) {
-  FUSER_PERF_SCOPE("Schedule PointWise Fusion");
+  FUSER_PERF_SCOPE("PointWiseScheduler::schedule");
   schedulePointwise(fusion, pointwiseParams());
 }
 
@@ -106,6 +108,7 @@ void PointWiseScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
+  FUSER_PERF_SCOPE("PointWiseScheduler::computeHeuristics");
   params_ = getPointwiseHeuristics(fusion, runtime_info, data_cache);
   NVF_ERROR(params_ != nullptr);
 }
@@ -160,8 +163,6 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
-  FUSER_PERF_SCOPE("getPointwiseHeuristics");
-
   FusionGuard fg(fusion);
 
   // Incase any buffer is of type DataType::Index
@@ -512,7 +513,6 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
 LaunchParams schedulePointwise(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs) {
-  FUSER_PERF_SCOPE("scheduleFusion");
   auto params = getPointwiseHeuristics(fusion, runtime_inputs);
   NVF_ERROR(params != nullptr, "Could not schedule pointwise operation.");
   schedulePointwise(fusion, *params);

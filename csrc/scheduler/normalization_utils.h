@@ -230,9 +230,6 @@ PersistentKernelProperties getPersistentKernelProperties(
     HeuristicSummary* data_cache,
     ScheduleHeuristic heuristic);
 
-// Verify the presence of a reduction TensorView connected to a Fusion input
-void checkReductionTvForScheduling(Fusion* fusion, TensorView* ref_red_tv);
-
 // Check the operations and input tensors of the fusion. This
 // verification is a common step shared by all persistent kernel implementations
 // during compile-time checks.
@@ -281,7 +278,7 @@ void schedulePersistentKernel(
 
 // Get max register or shared memory size for persistent buffer
 int64_t getMaxRegOrSharedMemorySizeForPersistentBuffer(
-    SchedulerRuntimeInfo& runtime_info,
+    PrimDataType index_type,
     const std::vector<TensorView*>& persistent_buffers,
     const bool can_use_smem_persistent);
 
@@ -312,7 +309,7 @@ int64_t getMaxRegOrSharedMemorySizeForPersistentBuffer(
 // smaller than the original persistent buffers, this function returns true.
 bool isProjectBufferToInputs(
     Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
+    PrimDataType index_type,
     const scheduler_utils::PersistentBufferInfo& persistent_buffer_info,
     const scheduler_utils::PersistentBufferSizeReturn&
         persistent_buffer_size_info,
