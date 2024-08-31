@@ -230,6 +230,10 @@ TEST_F(MultideviceShardingTest, Issue2758) {
       __FILE__);
 }
 
+// This test and the following `ExpandedBroadcast` test verify the expression
+// evaluator correctly binds the extent of a broadcast dimension to 1 and the
+// expanded extent to the tensor size. There used to be a bug where it
+// incorrectly binds the extent(s) to the mesh size.
 TEST_F(MultideviceShardingTest, Broadcast) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
