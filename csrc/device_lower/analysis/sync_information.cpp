@@ -654,6 +654,7 @@ SyncMap::SyncMap(Fusion* fusion) {
                      producer->getLogicalDomain(), {p_id})
                      .empty()) {
               raw_dims.set(producer_ptype);
+              continue;
             }
           }
 
@@ -684,8 +685,8 @@ SyncMap::SyncMap(Fusion* fusion) {
                 consumer->toString());
           }
 
-          if (GpuLower::current()->hasIdModel()) {
-            if (producer_ptype == consumer_ptype) {
+          if (producer_ptype == consumer_ptype) {
+            if (GpuLower::current()->hasIdModel()) {
               const auto& id_model = GpuLower::current()->idModel();
               auto producer_loop_id =
                   indexing_utils::getLoopPromotion(p_id, id_model);
@@ -697,11 +698,10 @@ SyncMap::SyncMap(Fusion* fusion) {
                       producer_loop_id, consumer_loop_id)) {
                 continue;
               }
-            }
-          } else {
-            if (producer_ptype == consumer_ptype &&
-                useSameIndex(producer, p_id, consumer, c_id, indexing_info)) {
-              continue;
+            } else {
+              if (useSameIndex(producer, p_id, consumer, c_id, indexing_info)) {
+                continue;
+              }
             }
           }
 
