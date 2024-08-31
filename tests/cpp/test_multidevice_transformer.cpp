@@ -1014,6 +1014,79 @@ TEST_P(DistributedTransformerTest, Forward) {
   validate(expected_outputs, outputs);
 }
 
+TEST_P(DistributedTransformerTest, Backward) {
+  auto dtype = GetParam();
+  at::ScalarType at_dtype = data_type_to_aten(dtype);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  const auto mesh = DeviceMesh::createForNumDevices(D);
+  std::vector<int64_t> norm_shape{E};
+
+  // Note: Deviate from the thunder trace with layer norm recomputation
+  // Thunder saves intermediate values that are not exposed by ATen
+  // making it difficult to test. 
+
+
+  const auto options =
+      at::TensorOptions().dtype(at_dtype).device(communicator_->device());
+  auto x_ = at::randn({B * S, E}, options).to(at::kFloat);
+  // auto layernorm0_welford_avg = 
+  // auto layernorm0_invstd = 
+  auto ln0_w = at::randn(E, options).to(at::kFloat);
+  auto ln0_b = at::randn(E, options).to(at::kFloat);
+  auto mha_w0_ = at::randn({E, 3 * E}, options) * kParamScale;
+  auto mha_b0_ = at::randn({3 * E}, options) * kParamScale;
+  auto mha_sdpa_output = 
+  auto mha_w1_ = at::randn({E, E}, options) * kParamScale;
+  auto mha_b1_ = at::randn({E}, options) * kParamScale;
+  // auto mha_dropout_rng_offset = 
+  // auto mha_dropout_rng_seed = 
+  // auto layernorm1_welford_avg = 
+  // auto layernorm1_invstd = 
+  auto ln1_w = 
+  auto ln1_b = 
+  auto mlp_w0_ = at::randn({E, 4 * E}, options) * kParamScale;
+  auto mlp_b0_ = at::randn({4 * E}, options) * kParamScale;
+  // auto mlp_dropout_rng_offset = 
+  // auto mlp_dropout_rng_seed = 
+  auto grad = at::randn({B, S, E}, options);
+  auto mlp_w1_ = at::randn({4 * E, E}, options) * kParamScale;
+  // auto mha_sdpa_logsum_exp = 
+  // auto mha_sdpa_philox_seed = 
+  // auto mha_sdpa_philox_offset = 
+
+  at::manual_seed(getATenRandomSeed());
+  // Run forward pass to save cached 
+  auto ln0_ = at::native_layer_norm(
+      x_, norm_shape, ln0_w, ln0_b, kEps);
+  auto ln0_out_ = std::get<0>(ln0_).to(at_dtype);
+  auto mha_out_ =
+      reference_mha(ln0_out_, mha_w0_, mha_b0_, mha_w1_, mha_b1_, at_dtype)[3];
+  auto resid0_ = mha_out_ + x_;
+  auto ln1_ = at::native_layer_norm(
+      resid0_,
+      norm_shape,
+      ln1_w,
+      ln1_b,
+      kEps);
+  auto ln1_out_ = std::get<0>(ln1_).to(at_dtype);
+  auto mlp_out_ =
+      reference_mlp(ln1_out_, mlp_w0_, mlp_b0_, mlp_w1_, mlp_b1_, at_dtype)[3];
+  auto at_out = mha_out_ + mlp_out_;
+
+  // ? Do I need to do anything for the residual?
+  reference_mlp_backwards(grad_, mlp_in, mask_, mlp_w0_, mlp_b0_, mlp_w1_, at_dtype);
+  auto ln1_grad = at::native_layer_norm_backward(
+    std::get<0>(ln1_),
+    resid_0,
+    norm_shape,
+    /*mean=*/std::get<1>(ln1_),
+    /*rstd=*/std::get<1>(ln1_),
+    ln0_w,
+    ln0_b,
+    {true, true, true});
+}
+
 INSTANTIATE_TEST_SUITE_P(
     ,
     DistributedTransformerTest,
