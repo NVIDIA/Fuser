@@ -1034,12 +1034,12 @@ TEST_P(HopperSS, FullSwizzle) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  bool m_is_inner = layout == MmaLayout::NT && layout == MmaLayout::NN;
+  bool m_is_inner = layout == MmaLayout::NT || layout == MmaLayout::NN;
   auto swizzle_size_a = getBytesFromSwizzle(swizzle_a) / dataTypeSize(dtype);
   auto inner_size_a = m_is_inner ? getM(macro) : getK(macro);
   bool multiple_a = swizzle_size_a / inner_size_a > 1;
 
-  bool n_is_inner = layout == MmaLayout::TT && layout == MmaLayout::NT;
+  bool n_is_inner = layout == MmaLayout::TT || layout == MmaLayout::NT;
   auto swizzle_size_b = getBytesFromSwizzle(swizzle_b) / dataTypeSize(dtype);
   auto inner_size_b = n_is_inner ? getN(macro) : getK(macro);
   bool multiple_b = swizzle_size_b / inner_size_b > 1;
