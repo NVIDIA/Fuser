@@ -94,7 +94,7 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
         .hide_output = alias_info.hide_output};
   }
 
-  to->all_tv_uses_valid_ = from->all_tv_uses_valid_;
+  to->all_tvs_and_uses_valid_ = from->all_tvs_and_uses_valid_;
   // This should never be true on copy, but copying for completeness.
   to->is_during_update_uses_ = from->is_during_update_uses_;
 
@@ -176,7 +176,7 @@ void Fusion::clear() noexcept {
   managed_data_.clear();
   managed_named_data_.clear();
 
-  all_tv_uses_valid_ = false;
+  all_tvs_and_uses_valid_ = false;
   is_during_update_uses_ = false;
 }
 
@@ -258,7 +258,7 @@ void Fusion::addInput(Val* input) {
   inputs_.push_back(input);
   input->setIsFusionInput(true);
 
-  all_tv_uses_valid_ = false;
+  all_tvs_and_uses_valid_ = false;
 }
 
 void Fusion::addOutputInternal(Val* output) {
@@ -272,7 +272,7 @@ void Fusion::addOutputInternal(Val* output) {
   outputs_.push_back(output);
   output->setIsFusionOutput(true);
 
-  all_tv_uses_valid_ = false;
+  all_tvs_and_uses_valid_ = false;
 }
 
 void Fusion::addOutput(Val* output) {
@@ -298,7 +298,7 @@ void Fusion::removeInput(Val* input) {
     inputs_.erase(find_input);
   }
   input->setIsFusionInput(false);
-  all_tv_uses_valid_ = false;
+  all_tvs_and_uses_valid_ = false;
 }
 
 void Fusion::removeOutput(Val* output) {
@@ -307,7 +307,7 @@ void Fusion::removeOutput(Val* output) {
     outputs_.erase(find_output);
   }
   output->setIsFusionOutput(false);
-  all_tv_uses_valid_ = false;
+  all_tvs_and_uses_valid_ = false;
 }
 
 void Fusion::replaceOutput(Val* output, Val* replacement) {
@@ -619,12 +619,12 @@ void Fusion::registerExpr(Expr* expr) {
   }
 }
 
-void Fusion::resetTvUses() {
-  FUSER_PERF_SCOPE("Fusion::resetTvUses");
+void Fusion::resetAllTvsAndUses() {
+  FUSER_PERF_SCOPE("Fusion::resetAllTvsAndUses");
   is_during_update_uses_ = true;
 
   // getExprs only uses definition, so even if we've modified uses already to
-  // remove dead exprs, this could reinsert them. getExprs is also boundeds by
+  // remove dead exprs, this could reinsert them. getExprs is also bounded by
   // inputs as registered inputs will return nullptr as their definition.
   const auto all_tvs = ir_utils::filterByType<TensorView>(vals_);
   const auto used_exprs = StmtSort::getExprs(this);
@@ -640,7 +640,11 @@ void Fusion::resetTvUses() {
     }
   }
 
-  all_tv_uses_valid_ = true;
+  // Update all_tvs entry as well
+  all_tvs_ptr_ =
+      std::make_unique<std::vector<TensorView*>>(ir_utils::allTvs(this));
+
+  all_tvs_and_uses_valid_ = true;
   is_during_update_uses_ = false;
 }
 
@@ -863,9 +867,8 @@ bool isExpressionEvaluated(Fusion* fusion) {
 }
 
 const std::vector<TensorView*>& Fusion::allTvs() {
-  if (all_tvs_ptr_ == nullptr) {
-    all_tvs_ptr_ =
-        std::make_unique<std::vector<TensorView*>>(ir_utils::allTvs(this));
+  if (!all_tvs_and_uses_valid_) {
+    resetAllTvsAndUses();
   }
   return *all_tvs_ptr_;
 }

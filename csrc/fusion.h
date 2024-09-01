@@ -263,11 +263,11 @@ class NVF_API Fusion : public IrContainer {
   //! aliased.
   const AliasInfo& getOutputAlias(const Val* output) const;
 
-  bool isTVUseInfoValid() {
-    return all_tv_uses_valid_;
+  bool isAllTvsAndUsesValid() {
+    return all_tvs_and_uses_valid_;
   }
 
-  bool isUpdatingTVUseInfo() {
+  bool isUpdatingAllTvsAndUses() {
     return is_during_update_uses_;
   }
 
@@ -455,13 +455,13 @@ class NVF_API Fusion : public IrContainer {
 
   //! Clear Expr's from TV uses that are not required to produce outputs from
   //! inputs. Only other place this is used (other than Fusion) is in
-  //! Val::uses()
-  void resetTvUses();
+  //! Val::uses(). Also populate the all_tvs_ entry with all the used TVs.
+  void resetAllTvsAndUses();
 
   //! Declare that TensorView uses need to be updated (but don't actually do
   //! the update).
   void invalidateTvUses() {
-    all_tv_uses_valid_ = false;
+    all_tvs_and_uses_valid_ = false;
     all_tvs_ptr_ = nullptr;
   }
 
@@ -480,7 +480,7 @@ class NVF_API Fusion : public IrContainer {
 
   // Records if the current use data in the IR nodes are valid
   //  the states are either all valid or all invalid
-  bool all_tv_uses_valid_ = false;
+  bool all_tvs_and_uses_valid_ = false;
   bool is_during_update_uses_ = false;
 
   std::vector<std::pair<std::any, CloneFn>> managed_data_;
