@@ -361,8 +361,8 @@ class NVF_API Val : public Statement {
 
   //! Returns the Exprs for which this is an input.
   //! Note that uses() will occasionally trigger a deferred call to
-  //! resetAllTvsAndUses() which can be expensive as it requires traversing the
-  //! graph using Val definitions.
+  //! resetTvUses() which can be expensive as it requires traversing the graph
+  //! using Val definitions.
   const std::vector<Expr*>& uses() const;
 
   bool isFusionInput() const {

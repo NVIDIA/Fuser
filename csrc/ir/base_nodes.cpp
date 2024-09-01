@@ -89,9 +89,8 @@ NVFUSER_DEFINE_CLONE(Val)
 
 const std::vector<Expr*>& Val::uses() const {
   if (vtype_ == ValType::TensorView) {
-    if (!fusion()->isAllTvsAndUsesValid() &&
-        !fusion()->isUpdatingAllTvsAndUses()) {
-      fusion()->resetAllTvsAndUses();
+    if (!fusion()->isTVUseInfoValid() && !fusion()->isUpdatingTVUseInfo()) {
+      fusion()->resetTvUses();
     }
   }
   return uses_;
