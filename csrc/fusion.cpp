@@ -176,7 +176,7 @@ void Fusion::clear() noexcept {
   managed_data_.clear();
   managed_named_data_.clear();
 
-  invalidateTvUses();
+  invalidateTvsAndUses();
 
   is_during_update_uses_ = false;
 }
@@ -193,7 +193,7 @@ void Fusion::removeExpr(Expr* expr) {
 
   // Remove uses in inputs
   for (auto inp : expr->inputs()) {
-    // Note that if inp is a TensorView, this may call invalidateTvUses
+    // Note that if inp is a TensorView, this may call invalidateTvsAndUses
     inp->removeUse(expr);
   }
 
@@ -259,7 +259,7 @@ void Fusion::addInput(Val* input) {
   inputs_.push_back(input);
   input->setIsFusionInput(true);
 
-  invalidateTvUses();
+  invalidateTvsAndUses();
 }
 
 void Fusion::addOutputInternal(Val* output) {
@@ -273,7 +273,7 @@ void Fusion::addOutputInternal(Val* output) {
   outputs_.push_back(output);
   output->setIsFusionOutput(true);
 
-  invalidateTvUses();
+  invalidateTvsAndUses();
 }
 
 void Fusion::addOutput(Val* output) {
@@ -299,7 +299,7 @@ void Fusion::removeInput(Val* input) {
     inputs_.erase(find_input);
   }
   input->setIsFusionInput(false);
-  invalidateTvUses();
+  invalidateTvsAndUses();
 }
 
 void Fusion::removeOutput(Val* output) {
@@ -308,7 +308,7 @@ void Fusion::removeOutput(Val* output) {
     outputs_.erase(find_output);
   }
   output->setIsFusionOutput(false);
-  invalidateTvUses();
+  invalidateTvsAndUses();
 }
 
 void Fusion::replaceOutput(Val* output, Val* replacement) {
@@ -335,7 +335,7 @@ void Fusion::replaceOutput(Val* output, Val* replacement) {
       }
     }
     // Mark uses invalid so that they will be reset next time uses() is called
-    invalidateTvUses();
+    invalidateTvsAndUses();
   }
 
   // Temporary WAR for issue #1112
@@ -591,7 +591,7 @@ void Fusion::registerExpr(Expr* expr) {
     // Don't just add this expr as a use of the input if it's a tensor as the
     // whole fusion needs to be traversed to rebuild the usage lists
     if (input->isA<TensorView>()) {
-      invalidateTvUses();
+      invalidateTvsAndUses();
     } else {
       input->addUse(expr);
     }
@@ -614,7 +614,7 @@ void Fusion::registerExpr(Expr* expr) {
         // If that happens, our definition-based traversal can change and
         // introduce whole new branches, so we need to recompute the uses_
         // vector after setDefinition.
-        invalidateTvUses();
+        invalidateTvsAndUses();
       }
     }
   }

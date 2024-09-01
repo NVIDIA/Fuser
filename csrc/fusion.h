@@ -460,7 +460,7 @@ class NVF_API Fusion : public IrContainer {
 
   //! Declare that TensorView uses need to be updated (but don't actually do
   //! the update).
-  void invalidateTvUses() {
+  void invalidateTvsAndUses() {
     all_tv_uses_valid_ = false;
     all_tvs_ptr_.reset();
   }
