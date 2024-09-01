@@ -1003,6 +1003,45 @@ void initNvFuserPythonBindings(PyObject* module) {
       .def("outputs", [](FusionDefinition& self) { return self.outputs(); })
       .def("extents", [](FusionDefinition& self) { return self.extents(); })
       .def(
+          "_setup_segmentation",
+          [](FusionDefinition& self, const py::iterable& iter) {
+            // Instrumentation to mark the beginning of segmentation
+            inst::Trace::instance()->beginEvent(
+                "FusionDefinition Segmentation");
+            std::vector<c10::IValue> inputs;
+            for (py::handle obj : iter) {
+              // Allows for a Vector of Sizes to be inputed as a list/tuple
+              if (py::isinstance<py::list>(obj) ||
+                  py::isinstance<py::tuple>(obj)) {
+                for (py::handle item : obj) {
+                  inputs.push_back(
+                      torch::jit::toIValue(item, c10::AnyType::get()));
+                }
+              } else {
+                inputs.push_back(
+                    torch::jit::toIValue(obj, c10::AnyType::get()));
+              }
+            }
+            return self.setupSegmentation(inputs);
+          })
+      .def(
+          "_build_segment",
+          [](FusionDefinition& self,
+             FusionDefinition& other,
+             int64_t segment_id) {
+            return self.buildSegment(other, segment_id);
+          })
+      .def(
+          "_finalize_segmentation",
+          [](FusionDefinition& self) {
+            self.finalizeSegmentation();
+            // Mark the end of segmentation
+            inst::Trace::instance()->endEvent(nullptr);
+          })
+      .def("inputs", [](FusionDefinition& self) { return self.inputs(); })
+      .def("outputs", [](FusionDefinition& self) { return self.outputs(); })
+      .def("extents", [](FusionDefinition& self) { return self.extents(); })
+      .def(
           "__repr__",
           [](FusionDefinition& self) {
             std::stringstream ss;
