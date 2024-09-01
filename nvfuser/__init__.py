@@ -56,9 +56,46 @@ class FusionDefinition(_C._FusionDefinition):
         self.profiled = False
 
     def segment(self, inputs):
+        """
+        Decompose this FusionDefinition into a sequence of segment
+        FusionDefinitions.
+
+        This function runs the nvfuser segmentation algorithm and translates the
+        segments into their corresponding FusionDefinitions.
+
+        Args:
+            inputs (List[Union[Tensor, Scalar]]): A list of inputs to fusion.
+
+        Returns:
+            List[FusionDefinition]: The FusionDefinitions corresponding to the
+            sub-fusion segments of this FusionDefinition.
+        """
         num_segments = self._setup_segmentation(inputs)
+        if num_segments == 1:
+            self._finalize_segmentation()
+            return []
+
+        # Track all segments for this FusionDefinition
+        self.segments = []
+
+        # Track map_segment_fid_to_original_fid for each segment
+        self.segment_index_space_maps = {}
+
+        # Track the last segment a value is used as an input
+        self.map_value_to_last_used_segment = {}
+
+        for idx in range(num_segments):
+            new_fd = FusionDefinition()
+            map_segment_fid_to_original_fid = self._build_segment(new_fd, idx)
+
+            for segment_input in new_fd.inputs():
+                original_input = map_segment_fid_to_original_fid[segment_input]
+                self.map_value_to_last_used_segment[original_input] = idx
+
+            self.segment_index_space_maps[new_fd] = map_segment_fid_to_original_fid
+            self.segments.append(new_fd)
         self._finalize_segmentation()
-        return num_segments
+        return self.segments
 
     def __enter__(self):
         return self._setup_definition()

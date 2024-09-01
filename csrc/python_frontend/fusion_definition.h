@@ -262,6 +262,13 @@ class NVF_API FusionDefinition : public FusionState {
   //! Run segmentation algorithm on FusionDefinition. Returns the number of
   //! segments.
   NVF_API int64_t setupSegmentation(const at::ArrayRef<c10::IValue>& inputs);
+  //! Given an empty FusionDefinition and a segment id, buildSegment creates the
+  //! CPP Fusion, translates it to the python FusionDefinition, then return a
+  //! mapping from segment fusion state indices to the original fusion state
+  //! indices.
+  NVF_API std::unordered_map<int64_t, int64_t> buildSegment(
+      FusionDefinition& segment_fd,
+      int64_t segment_id);
   //! After creating segments, destroy SegmentationState.
   NVF_API void finalizeSegmentation();
 
