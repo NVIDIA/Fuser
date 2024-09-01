@@ -350,7 +350,8 @@ void PrecomputedValues::bindTensorMetaData(
     IterDomain* id = logical_domain[dim];
     const auto dim_size = tensor.size(static_cast<int64_t>(dim));
     if (id->isBroadcast()) {
-      // DIDs are ignored.
+      // DIDs are ignored for broadcast. See MultideviceShardingTest.Broadcast
+      // and .ExpandedBroadcast.
       bindValue(id->extent()->evaluatorIndex(), 1L);
       if (id->hasExpandedExtent()) {
         bindValue(id->expandedExtent()->evaluatorIndex(), dim_size);

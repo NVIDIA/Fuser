@@ -175,7 +175,7 @@ void ExpressionEvaluator::bind_(
     for (auto i : c10::irange(t.dim())) {
       auto id = logical_domain[i];
       if (id->isBroadcast()) {
-        // DIDs are ignored.
+        // DIDs are ignored for broadcast.
         bind_(logical_domain[i]->extent(), 1, evaluate_validate);
         if (id->hasExpandedExtent()) {
           // Verify that t is also expanded

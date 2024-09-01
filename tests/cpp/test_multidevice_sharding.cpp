@@ -234,6 +234,9 @@ TEST_F(MultideviceShardingTest, Issue2758) {
 // evaluator correctly binds the extent of a broadcast dimension to 1 and the
 // expanded extent to the tensor size. There used to be a bug where it
 // incorrectly binds the extent(s) to the mesh size.
+//
+// `b(DID{i0})` and `b(i0)` bear the same semantics. The former is used more
+// often due to how parallelizeAllLike is implemented.
 TEST_F(MultideviceShardingTest, Broadcast) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
