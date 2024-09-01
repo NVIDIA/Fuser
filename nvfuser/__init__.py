@@ -54,6 +54,10 @@ class FusionDefinition(_C._FusionDefinition):
         super(FusionDefinition, self).__init__(id, max_length)
         self.profiled = False
 
+    def segment(self, inputs):
+        self.num_segments = self._setup_segmentation(inputs)
+        self._finalize_segmentation()
+
     def __enter__(self):
         return self._setup_definition()
 

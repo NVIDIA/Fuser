@@ -9,6 +9,7 @@
 #include <fusion_profiler.h>
 #include <instrumentation.h>
 #include <options.h>
+#include <preseg_passes/pre_segmenter.h>
 #include <python_frontend/fusion_cache.h>
 #include <python_frontend/fusion_definition.h>
 #include <python_frontend/translation.h>
@@ -671,6 +672,21 @@ std::vector<Tensor> FusionDefinition::tensors() {
 std::vector<std::pair<double, double>> FusionDefinition::getValTolerances(
     const at::ArrayRef<c10::IValue>& inputs) {
   return get_val_constants(preschedFusion(), inputs);
+}
+
+int64_t FusionDefinition::setupSegmentation(
+    const at::ArrayRef<c10::IValue>& inputs) {
+  NVF_CHECK(id().has_value(), "FusionDefinition definition does not exist!");
+  NVF_ERROR(
+      segmentation_state_ == nullptr, "SegmentationState already exists!");
+  segmentation_state_ = std::make_unique<SegmentationState>();
+  return segmentation_state_->setupSegmentation(
+      preschedFusion(), map_value_to_fid_, inputs);
+}
+
+void FusionDefinition::finalizeSegmentation() {
+  // Destroy SegmentedState
+  segmentation_state_.reset();
 }
 
 } // namespace nvfuser::python_frontend

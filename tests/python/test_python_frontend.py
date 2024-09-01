@@ -1244,6 +1244,28 @@ class TestNvFuserFrontend(NVFuserTest):
         for torch_dtype in list_of_dtype:
             test_dtype(torch_dtype)
 
+    def test_segmentation_reduction_pointwise_epilogue(self):
+        inputs = [
+            torch.randn(2, 32, device="cuda", dtype=torch.float32),
+            torch.randn(2, 128, device="cuda", dtype=torch.float32),
+        ]
+
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.from_pytorch(inputs[1])
+            t2 = fd.ops.sum(t0, [-1], True, torch_dtype_to_nvfuser_dtype(torch.float32))
+            t3 = fd.ops.add(t1, t2)
+            fd.add_output(t3)
+
+        nvf_out1, _ = self.exec_nvfuser(fusion_func, inputs)
+        eager_out = torch.sum(inputs[0], dim=-1, keepdim=True) + inputs[1]
+        self.assertEqual(eager_out, nvf_out1[0])
+
+        with FusionDefinition() as fd:
+            fusion_func(fd)
+        fd.segment(inputs)
+        assert fd.num_segments == 2
+
     def test_arithmetic_ops(self):
         inputs = [
             torch.randn(3, 4, 5, device="cuda", dtype=torch.float32),
@@ -3881,7 +3903,7 @@ class TestNvFuserFrontend(NVFuserTest):
 
             fd.add_output(T88)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
     # See https://github.com/NVIDIA/Fuser/issues/2275
     @pytest.mark.skipif(
@@ -3927,7 +3949,7 @@ class TestNvFuserFrontend(NVFuserTest):
             T101 = fd.ops.cat([T7, T100], dim=-1)
             fd.add_output(T101)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
     # See https://github.com/NVIDIA/Fuser/issues/2317
     @pytest.mark.skipif(
