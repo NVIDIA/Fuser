@@ -175,9 +175,9 @@ void Fusion::clear() noexcept {
 
   managed_data_.clear();
   managed_named_data_.clear();
-  all_tvs_ptr_.reset();
 
-  all_tv_uses_valid_ = false;
+  invalidateTvUses();
+
   is_during_update_uses_ = false;
 }
 
@@ -259,8 +259,7 @@ void Fusion::addInput(Val* input) {
   inputs_.push_back(input);
   input->setIsFusionInput(true);
 
-  all_tv_uses_valid_ = false;
-  all_tvs_ptr_.reset();
+  invalidateTvUses();
 }
 
 void Fusion::addOutputInternal(Val* output) {
@@ -274,8 +273,7 @@ void Fusion::addOutputInternal(Val* output) {
   outputs_.push_back(output);
   output->setIsFusionOutput(true);
 
-  all_tv_uses_valid_ = false;
-  all_tvs_ptr_.reset();
+  invalidateTvUses();
 }
 
 void Fusion::addOutput(Val* output) {
@@ -301,8 +299,7 @@ void Fusion::removeInput(Val* input) {
     inputs_.erase(find_input);
   }
   input->setIsFusionInput(false);
-  all_tv_uses_valid_ = false;
-  all_tvs_ptr_.reset();
+  invalidateTvUses();
 }
 
 void Fusion::removeOutput(Val* output) {
@@ -311,8 +308,7 @@ void Fusion::removeOutput(Val* output) {
     outputs_.erase(find_output);
   }
   output->setIsFusionOutput(false);
-  all_tv_uses_valid_ = false;
-  all_tvs_ptr_.reset();
+  invalidateTvUses();
 }
 
 void Fusion::replaceOutput(Val* output, Val* replacement) {
