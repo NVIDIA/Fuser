@@ -79,9 +79,9 @@ class FusionState {
   NVF_API void setFusionStateVector(size_t index, std::vector<Val*> val);
 
   //! Adds a Tensor/Scalar input to the Fusion object
-  NVF_API void addInput(Val* input);
+  NVF_API void addInput(Val* input, size_t index);
   //! Adds a Tensor/Scalar output to the Fusion object
-  NVF_API void addOutput(Val* output);
+  NVF_API void addOutput(Val* output, size_t index);
   //! Alias an Output to Input in the Fusion object
   NVF_API void aliasOutputToInput(Val* output, Val* input);
 
@@ -104,6 +104,8 @@ class FusionState {
   std::vector<std::unique_ptr<RecordFunctor>> recording_;
   //! A vector of state that represents Tensors/Vectors/Scalars
   std::vector<State> recording_state_;
+  //! Map Fusion Val to its corresponding FusionDefinition index
+  std::unordered_map<const Val*, int64_t> map_value_to_fid_;
 
  private:
   //! A ptr to the container used when building the Fusion IR from a definition

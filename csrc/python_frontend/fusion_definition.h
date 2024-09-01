@@ -14,6 +14,7 @@
 #include <multidevice/executor.h>
 #include <python_frontend/fusion_state.h>
 #include <visibility.h>
+#include <unordered_map>
 
 namespace nvfuser::python_frontend {
 
@@ -262,7 +263,9 @@ class NVF_API FusionDefinition : public FusionState {
   //! Given SegmentedFusion and vector of FusionDefinition objects for the
   //! fusion segments, create the fusion segments and clone their state to the
   //! FusionDefinitions.
-  NVF_API void buildSegment(FusionDefinition& other, int64_t segment_id);
+  NVF_API std::unordered_map<int64_t, int64_t> buildSegment(
+      FusionDefinition& other,
+      int64_t segment_id);
   //! After creating segments, destroy SegmentedFusion and RuntimeWorkspace.
   NVF_API void finalizeSegmentation();
 
@@ -301,6 +304,12 @@ class NVF_API FusionDefinition : public FusionState {
   UserSchedule* user_sched_;
   //! Number of recording_states_ before applying user schedule
   int64_t num_recording_states_presched_ = 0;
+
+  //! Create copy of fusion for segmentation algorithm. IrClone is a map between
+  //! values in original and cloned fusions.
+  std::unordered_map<Val*, int64_t> map_cloned_value_to_fid_;
+  //! Clone of original fusion for segmentation
+  std::unique_ptr<Fusion> segment_fusion_ = nullptr;
   //! This FusionDefinition may require multiple kernels if it cannot be handled
   //! by a single heuristic scheduler. SegmentedFusion takes a fusion and runs
   //! the segmentation algorithm.

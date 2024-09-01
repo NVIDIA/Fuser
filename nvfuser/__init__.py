@@ -62,12 +62,14 @@ class FusionDefinition(_C._FusionDefinition):
     def segment(self, inputs):
         num_segments = self._setup_segmentation(inputs)
         segments = []
+        segment_maps = []
         for idx in range(num_segments):
             new_fd = FusionDefinition()
-            self._build_segment(new_fd, idx)
+            original_to_segment_fid = self._build_segment(new_fd, idx)
+            segment_maps.append(original_to_segment_fid)
             segments.append(new_fd)
         self._finalize_segmentation()
-        return segments
+        return segments, segment_maps
 
     def __enter__(self):
         return self._setup_definition()

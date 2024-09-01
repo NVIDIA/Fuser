@@ -29,12 +29,15 @@ namespace {
 // instance.
 class FusionTranslator : public OptInConstDispatch {
  public:
-  static void translate(Fusion* fusion, FusionDefinition* fd) {
+  static std::unordered_map<const nvfuser::Val*, size_t> translate(
+      Fusion* fusion,
+      FusionDefinition* fd) {
     NVF_ERROR(
         !fd->completed(),
         "Expected an incomplete definition before fusion translation!");
     FusionTranslator translator(fusion, fd);
     translator.translate();
+    return translator.map_val_to_fd_index_;
   }
 
  private:
@@ -984,8 +987,10 @@ class FusionTranslator : public OptInConstDispatch {
 
 } // namespace
 
-void translate(Fusion* fusion, FusionDefinition* fd) {
-  FusionTranslator::translate(fusion, fd);
+std::unordered_map<const nvfuser::Val*, size_t> translate(
+    Fusion* fusion,
+    FusionDefinition* fd) {
+  return FusionTranslator::translate(fusion, fd);
 }
 
 } // namespace nvfuser::python_frontend

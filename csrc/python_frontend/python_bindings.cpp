@@ -735,7 +735,9 @@ void initNvFuserPythonBindings(PyObject* module) {
           "_build_segment",
           [](FusionDefinition& self,
              FusionDefinition& other,
-             int64_t segment_id) { self.buildSegment(other, segment_id); })
+             int64_t segment_id) {
+            return self.buildSegment(other, segment_id);
+          })
       .def(
           "_finalize_segmentation",
           [](FusionDefinition& self) {

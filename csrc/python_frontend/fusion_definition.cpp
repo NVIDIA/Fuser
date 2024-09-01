@@ -630,7 +630,7 @@ void FusionDefinition::clone(FusionDefinition& other) {
   NVF_ERROR(
       other.completed(),
       "Expected incoming FusionDefinition to be complete before cloning!");
-  return translate(other.preschedFusion(), this);
+  translate(other.preschedFusion(), this);
 }
 
 void FusionDefinition::prepareGroupOrder() {
@@ -692,12 +692,27 @@ int64_t FusionDefinition::setupSegmentation(
   int8_t device = getCommonDeviceCUDA(inputs);
   NVF_CHECK(
       inputs.empty() || device > -1, "Inputs are not all on the same device!");
+  NVF_ERROR(segment_fusion_ == nullptr);
   NVF_ERROR(segmented_fusion_ == nullptr);
   NVF_ERROR(group_run_order_.empty());
+  NVF_ERROR(map_cloned_value_to_fid_.empty());
 
-  // Create CPP Fusion
-  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
-  buildFusionIr(fusion.get());
+  // Clone CPP Fusion
+  segment_fusion_ = std::make_unique<Fusion>();
+  IrCloner original_to_cloned_map =
+      Fusion::copy(fusion(), segment_fusion_.get());
+
+  // Track mapping from cloned CPP fusion and FusionDefinition indices.
+  std::transform(
+      map_value_to_fid_.begin(),
+      map_value_to_fid_.end(),
+      std::inserter(map_cloned_value_to_fid_, map_cloned_value_to_fid_.end()),
+      [&](const auto& item) {
+        const Val* original_value = item.first;
+        int64_t fid = item.second;
+        return std::make_pair(
+            original_to_cloned_map.clone(original_value), fid);
+      });
 
   // Get arguments
   KernelArgumentHolder args =
@@ -705,14 +720,14 @@ int64_t FusionDefinition::setupSegmentation(
 
   // Create runtime infomation
   SchedulerRuntimeInfo runtime_info(
-      fusion.get(),
+      segment_fusion_.get(),
       args,
       /*precomputed_values=*/nullptr,
-      ir_utils::allTvs(fusion.get()));
+      ir_utils::allTvs(segment_fusion_.get()));
 
   // Run segmentation algorithm
-  segmented_fusion_ =
-      SegmentCandidateFinder::segment(std::move(fusion), &args, runtime_info);
+  segmented_fusion_ = SegmentCandidateFinder::segment(
+      std::move(segment_fusion_), &args, runtime_info);
 
   // Get the order for fusion segments
   prepareGroupOrder();
@@ -721,7 +736,7 @@ int64_t FusionDefinition::setupSegmentation(
   return (int64_t)segmented_fusion_->groups().size();
 }
 
-void FusionDefinition::buildSegment(
+std::unordered_map<int64_t, int64_t> FusionDefinition::buildSegment(
     FusionDefinition& other,
     int64_t segment_id) {
   NVF_CHECK(id().has_value(), "FusionDefinition definition does not exist!");
@@ -738,15 +753,86 @@ void FusionDefinition::buildSegment(
 
   SegmentedGroup* sg = group_run_order_.at(segment_id);
   NVF_ERROR(sg != nullptr);
-  std::unique_ptr<Fusion> fusion_segment =
-      segmented_fusion_->makeFusion(sg).second;
-  translate(fusion_segment.get(), &other);
+  std::cout << "create segment" << std::endl;
+  auto&& [ir_cloner, fusion_segment] = segmented_fusion_->makeFusion(sg);
+
+  std::cout << "translate" << std::endl;
+  std::unordered_map<const nvfuser::Val*, size_t>
+      map_translated_val_to_other_fid = translate(fusion_segment.get(), &other);
+
+  const std::vector<Val*>& original_inputs = sg->inputs();
+  const std::vector<Val*>& original_outputs = sg->outputs();
+
+  std::cout << "step 1" << std::endl;
+  // Step 1: Get FusionDefinition index for original inputs and outputs.
+  // Use std::transform on inputs and outputs
+  std::vector<int64_t> original_fid;
+  original_fid.reserve(original_inputs.size() + original_outputs.size());
+
+  std::transform(
+      original_inputs.begin(),
+      original_inputs.end(),
+      std::back_inserter(original_fid),
+      [&](Val* v) { return map_cloned_value_to_fid_.at(v); });
+
+  std::transform(
+      original_outputs.begin(),
+      original_outputs.end(),
+      std::back_inserter(original_fid),
+      [&](Val* v) { return map_cloned_value_to_fid_.at(v); });
+
+  std::cout << "step 2" << std::endl;
+  // Step 2: ir_cloner maps original fusion statements to translated statements.
+  // Use std::transform
+  std::vector<Val*> segment_inputs_outputs;
+  segment_inputs_outputs.reserve(
+      original_inputs.size() + original_outputs.size());
+
+  std::transform(
+      original_inputs.begin(),
+      original_inputs.end(),
+      std::back_inserter(segment_inputs_outputs),
+      [&original_to_segment_map = ir_cloner](Val* v) {
+        return original_to_segment_map.clone(v);
+      });
+
+  std::transform(
+      original_outputs.begin(),
+      original_outputs.end(),
+      std::back_inserter(segment_inputs_outputs),
+      [&original_to_segment_map = ir_cloner](Val* v) {
+        return original_to_segment_map.clone(v);
+      });
+
+  std::cout << "step 3" << std::endl;
+  // Step 3: Map translated statements to its FusionDefinition index.
+  std::vector<int64_t> segment_fid;
+  segment_fid.reserve(segment_inputs_outputs.size());
+  std::transform(
+      segment_inputs_outputs.begin(),
+      segment_inputs_outputs.end(),
+      std::back_inserter(segment_fid),
+      [&](Val* v) { return map_translated_val_to_other_fid.at(v); });
+
+  std::cout << "step 4" << std::endl;
+  // Step 4: Map original FusionDefinition index to translated Fusion Definition
+  // index for inputs and outputs.
+  NVF_ERROR(original_fid.size() == segment_fid.size());
+
+  // Create map from original fid to segment fid.
+  std::unordered_map<int64_t, int64_t> map_original_segment_fid;
+  for (size_t idx : c10::irange(original_fid.size())) {
+    map_original_segment_fid.emplace(original_fid.at(idx), segment_fid.at(idx));
+  }
+  std::cout << "done" << std::endl;
+  return map_original_segment_fid;
 }
 
 void FusionDefinition::finalizeSegmentation() {
   // Destroy SegmentedFusion
   segmented_fusion_.reset(nullptr);
   group_run_order_.clear();
+  map_cloned_value_to_fid_.clear();
 }
 
 } // namespace nvfuser::python_frontend

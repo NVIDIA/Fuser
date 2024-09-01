@@ -178,14 +178,16 @@ void FusionState::setFusionStateVector(size_t index, std::vector<Val*> val) {
   fusion_state_.at(index) = {val};
 }
 
-void FusionState::addInput(Val* input) {
+void FusionState::addInput(Val* input, size_t index) {
   NVF_CHECK(fusion_ != nullptr, "Fusion is undefined.");
   fusion_->addInput(input);
+  map_value_to_fid_.emplace(input, (int64_t)index);
 }
 
-void FusionState::addOutput(Val* output) {
+void FusionState::addOutput(Val* output, size_t index) {
   NVF_CHECK(fusion_ != nullptr, "Fusion is undefined.");
   fusion_->addOutput(output);
+  map_value_to_fid_.emplace(output, (int64_t)index);
 }
 
 void FusionState::aliasOutputToInput(Val* output, Val* input) {
