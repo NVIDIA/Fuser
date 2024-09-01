@@ -80,7 +80,17 @@ class FusionTranslator : public OptInConstDispatch {
     }
 
     // Gather all expressions in CPP Fusion.
-    std::deque<nvfuser::Expr*> to_visit = fusion_->deterministic_exprs();
+    // std::deque<nvfuser::Expr*> to_visit = fusion_->deterministic_exprs();
+
+    std::vector<nvfuser::Val*> used_vals = fusion_->usedMathVals();
+    std::unordered_set<nvfuser::Expr*> expr_set;
+    for (nvfuser::Val* v : used_vals) {
+      std::copy(
+          v->uses().begin(),
+          v->uses().end(),
+          std::inserter(expr_set, expr_set.begin()));
+    }
+    std::deque<nvfuser::Expr*> to_visit(expr_set.begin(), expr_set.end());
 
     // Topological search of Fusion expressions
     size_t skip_count = 0;
