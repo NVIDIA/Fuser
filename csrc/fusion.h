@@ -462,7 +462,7 @@ class NVF_API Fusion : public IrContainer {
   //! the update).
   void invalidateTvUses() {
     all_tv_uses_valid_ = false;
-    all_tvs_ptr_ = nullptr;
+    all_tvs_ptr_.reset();
   }
 
  private:
