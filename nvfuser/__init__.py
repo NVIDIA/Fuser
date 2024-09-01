@@ -53,7 +53,29 @@ class FusionDefinition(_C._FusionDefinition):
     def __init__(self, id=None, max_length=1024):
         super(FusionDefinition, self).__init__(id, max_length)
         self.profiled = False
-        self.inputs = None
+
+    def segment(self, inputs):
+        num_segments = self._setup_segmentation(inputs)
+        if num_segments == 1:
+            self._finalize_segmentation()
+            return []
+
+        self.segments = []
+        self.segment_maps = []
+        self.last_used_segment = {}
+        for idx in range(num_segments):
+            new_fd = FusionDefinition()
+            segment_to_original_fid = self._build_segment(new_fd, idx)
+
+            # Track the last segment a value is used as an input
+            for segment_input in new_fd.inputs():
+                original_input = segment_to_original_fid[segment_input]
+                self.last_used_segment[original_input] = idx
+
+            self.segment_maps.append(segment_to_original_fid)
+            self.segments.append(new_fd)
+        self._finalize_segmentation()
+        return self.segments
 
     def __enter__(self):
         return self._setup_definition()
@@ -67,6 +89,54 @@ class FusionDefinition(_C._FusionDefinition):
 
     def definition(self):
         raise NotImplementedError("definition() should be implemented by child class!")
+
+    def _execute_segments(self, input_arguments, *, device=None, profile=False):
+        assert len(self.segments) > 0
+        assert len(self.segments) == len(self.segment_maps)
+
+        input_arguments_with_extents = [*input_arguments]
+        for a in input_arguments:
+            if type(a) is torch.Tensor:
+                input_arguments_with_extents.extend(a.size())
+
+        # Map inputs arguments to original fid
+        map_original_fid_to_value = {
+            fd_state: argument
+            for fd_state, argument in zip(
+                self.inputs() + self.extents(), input_arguments_with_extents
+            )
+        }
+
+        # Run all segments in correct order
+        for idx, (segment, segment_to_original_map) in enumerate(
+            zip(self.segments, self.segment_maps)
+        ):
+            # Gather segment input arguments
+            segment_arguments = [
+                map_original_fid_to_value[segment_to_original_map[fd_state]]
+                for fd_state in segment.inputs()
+            ]
+
+            # Run segment
+            segment_outputs = segment.execute(
+                segment_arguments, device=device, profile=profile
+            )
+
+            # Update original fusion definition indices to outputs
+            for fd_state, output in zip(segment.outputs(), segment_outputs):
+                map_original_fid_to_value[segment_to_original_map[fd_state]] = output
+
+            # Destroy any arguments that are not used by future segments
+            for segment_input in segment.inputs():
+                original_input = segment_to_original_map[segment_input]
+                if (
+                    original_input not in self.outputs()
+                    and self.last_used_segment[original_input] == idx
+                ):
+                    del map_original_fid_to_value[original_input]
+
+        # Map output fid to actual results
+        return [map_original_fid_to_value[fd_state] for fd_state in self.outputs()]
 
     def execute(
         self,
@@ -175,6 +245,9 @@ class FusionDefinition(_C._FusionDefinition):
 
             fake_mode = FakeTensorMode()
             self.fake_inputs = [fake_mode.from_tensor(inp) for inp in inputs]
+
+        if hasattr(self, "segments") and len(self.segments) > 0:
+            return self._execute_segments(inputs, device=device, profile=profile)
 
         results = None
         try:

@@ -103,6 +103,15 @@ struct FusionSchedules {
   std::mutex scheds_lock;
   //! ID of fusion in python frontend fusion cache
   int64_t fusion_id_ = -1;
+
+  //! Map Fusion Val to its corresponding FusionDefinition index
+  std::unordered_map<const Val*, int64_t> map_value_to_fid_;
+  //! Input arguments for FusionState
+  std::vector<int64_t> inputs_fid_;
+  //! Extents for TensorView input arguments for FusionState
+  std::vector<int64_t> extents_fid_;
+  //! Output arguments for FusionState
+  std::vector<int64_t> outputs_fid_;
 };
 
 //! \struct TrieNode

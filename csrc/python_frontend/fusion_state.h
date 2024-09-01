@@ -79,11 +79,25 @@ class FusionState {
   NVF_API void setFusionStateVector(size_t index, std::vector<Val*> val);
 
   //! Adds a Tensor/Scalar input to the Fusion object
-  NVF_API void addInput(Val* input);
+  NVF_API void addInput(Val* input, size_t index);
   //! Adds a Tensor/Scalar output to the Fusion object
-  NVF_API void addOutput(Val* output);
+  NVF_API void addOutput(Val* output, size_t index);
   //! Alias an Output to Input in the Fusion object
   NVF_API void aliasOutputToInput(Val* output, Val* input);
+
+  //! Get map between CPP Fusion and Python FusionDefinition
+  NVF_API const std::unordered_map<const Val*, int64_t>& getValueMap() const;
+  //! Get indicies for the inputs of FusionState
+  NVF_API const std::vector<int64_t>& inputs() const;
+  //! Get indicies for the outputs of FusionState
+  NVF_API const std::vector<int64_t>& outputs() const;
+
+  //! Get indicies for the extents of TensorView inputs of FusionState
+  NVF_API const std::vector<int64_t>& extents() const;
+  //! Get extents for TensorView inputs in Fusion
+  std::vector<Val*> getExtents(Fusion* fusion);
+  //! Add extents of TensorView inputs to FusionState
+  NVF_API void addExtents();
 
   //! Add a Record
   void addRecord(RecordFunctor* record);
@@ -104,10 +118,18 @@ class FusionState {
   std::vector<std::unique_ptr<RecordFunctor>> recording_;
   //! A vector of state that represents Tensors/Vectors/Scalars
   std::vector<State> recording_state_;
+  //! Map Fusion Val to its corresponding FusionDefinition index
+  std::unordered_map<const Val*, int64_t> map_value_to_fid_;
+  //! Input arguments for FusionState
+  std::vector<int64_t> inputs_fid_;
+  //! Extents for TensorView input arguments for FusionState
+  std::vector<int64_t> extents_fid_;
+  //! Output arguments for FusionState
+  std::vector<int64_t> outputs_fid_;
 
  private:
   //! A ptr to the container used when building the Fusion IR from a definition
-  Fusion* fusion_;
+  Fusion* fusion_ = nullptr;
   //! A vector of nvFuser Fusion IR TensorViews/Vectors/Scalars for building the
   //! Fusion IR graph.
   //! NOTE: Vectors are represented by a vector<Val*>.  This could

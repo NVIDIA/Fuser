@@ -7,11 +7,13 @@
 // clang-format on
 #pragma once
 #include <exceptions.h>
+#include <functional>
 #include <iostream>
 
 #include <python_frontend/fusion_state.h>
 #include <runtime/fusion_executor_cache.h>
 #include <visibility.h>
+#include <unordered_map>
 
 namespace nvfuser::python_frontend {
 
@@ -254,6 +256,18 @@ class NVF_API FusionDefinition : public FusionState {
   //! Get all Tensors in FusionState.
   NVF_API std::vector<Tensor> tensors();
 
+  //! Run segmentation algorithm on FusionDefinition. Returns the number of
+  //! segments.
+  NVF_API int64_t setupSegmentation(const at::ArrayRef<c10::IValue>& inputs);
+  //! Given SegmentedFusion and vector of FusionDefinition objects for the
+  //! fusion segments, create the fusion segments and clone their state to the
+  //! FusionDefinitions.
+  NVF_API std::unordered_map<int64_t, int64_t> buildSegment(
+      FusionDefinition& other,
+      int64_t segment_id);
+  //! After creating segments, destroy SegmentedFusion and RuntimeWorkspace.
+  NVF_API void finalizeSegmentation();
+
  private:
   //! Returns the FusionCache Ptr that holds the cache of Fusions
   FusionCache* fusionCache() const;
@@ -267,6 +281,8 @@ class NVF_API FusionDefinition : public FusionState {
   // Check that the NvFuser TensorView and the Python Tensor dimensions match.
   // Apply after buildFusionIr
   void verifyTensorDimensions();
+  //! Perform a topological sort on SegmentedFusion to segment order.
+  void prepareGroupOrder();
 
   //! Holds the defined maximum length of a FusionDefinition in order to
   //! prevent a run away error. The user should feel free to increase this
@@ -288,6 +304,20 @@ class NVF_API FusionDefinition : public FusionState {
   UserSchedule* user_sched_;
   //! Number of recording_states_ before applying user schedule
   int64_t num_recording_states_presched_ = 0;
+
+  //! Clone of original fusion for segmentation
+  std::unique_ptr<Fusion> segment_fusion_ = nullptr;
+  //! This FusionDefinition may require multiple kernels if it cannot be handled
+  //! by a single heuristic scheduler. SegmentedFusion takes a fusion and runs
+  //! the segmentation algorithm.
+  std::unique_ptr<SegmentedFusion> segmented_fusion_ = nullptr;
+  //! Pre-determined order to run the segmented groups
+  std::vector<SegmentedGroup*> group_run_order_;
+  //! Create copy of fusion for segmentation algorithm. IrCloner is a map
+  //! between values in original and cloned fusions.
+  std::unordered_map<const Val*, int64_t> map_cloned_value_to_fid_;
+  //! Extents for TensorView input arguments for cloned Fusion
+  std::vector<Val*> cloned_extents_;
 
  public:
   //! The Operators are not directly defined in this header.  They are defined
