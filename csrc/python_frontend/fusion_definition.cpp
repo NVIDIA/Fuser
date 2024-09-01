@@ -629,8 +629,124 @@ void FusionDefinition::clone(FusionDefinition& other) {
   NVF_ERROR(!completed(), "Expected an incomplete definition before cloning!");
   NVF_ERROR(
       other.completed(),
-      "Expected incoming FusionDefinition to be omplete before cloning!");
+      "Expected incoming FusionDefinition to be complete before cloning!");
   return translate(other.preschedFusion(), this);
+}
+
+void FusionDefinition::prepareGroupOrder() {
+  NVF_ERROR(segmented_fusion_ != nullptr);
+
+  // Setup group run order
+  std::unordered_set<Val*> available_input;
+
+  // setup the order tensor dimensions are bound
+  std::copy(
+      segmented_fusion_->inputs().begin(),
+      segmented_fusion_->inputs().end(),
+      std::inserter(available_input, available_input.end()));
+
+  // Keep track of groups that has run
+  std::vector<bool> group_ran(segmented_fusion_->groups().size(), false);
+
+  while (!std::all_of(
+      group_ran.begin(), group_ran.end(), [](bool b) { return b; })) {
+    bool ran_any_group = false;
+
+    // Find the first segment with all inputs available to run
+    for (size_t group_i : c10::irange(segmented_fusion_->groups().size())) {
+      SegmentedGroup* group = segmented_fusion_->groups().at(group_i);
+      // short-circuit: already ran group.
+      if (group_ran.at(group_i)) {
+        continue;
+      }
+      const std::vector<Val*>& group_inputs = group->inputs();
+      bool ready_to_run = std::all_of(
+          group_inputs.begin(),
+          group_inputs.end(),
+          [&available_input](Val* val) { return available_input.count(val); });
+
+      // short-circuit: group is not ready to run.
+      if (!ready_to_run) {
+        continue;
+      }
+
+      group_run_order_.push_back(group);
+
+      // Insert graph segment output to tensor map
+      const std::vector<Val*>& group_outputs = group->outputs();
+      for (size_t group_out_i : c10::irange(group_outputs.size())) {
+        available_input.insert(group_outputs.at(group_out_i));
+      }
+      group_ran[group_i] = true;
+      ran_any_group = true;
+    }
+    NVF_ERROR(
+        ran_any_group,
+        "Failed to run all groups; An error must have occured in segmentation.");
+  }
+}
+
+int64_t FusionDefinition::setupSegmentation(
+    const at::ArrayRef<c10::IValue>& inputs) {
+  NVF_CHECK(id().has_value(), "FusionDefinition definition does not exist!");
+  int8_t device = getCommonDeviceCUDA(inputs);
+  NVF_CHECK(
+      inputs.empty() || device > -1, "Inputs are not all on the same device!");
+  NVF_ERROR(segmented_fusion_ == nullptr);
+  NVF_ERROR(group_run_order_.empty());
+
+  // Create CPP Fusion
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  buildFusionIr(fusion.get());
+
+  // Get arguments
+  KernelArgumentHolder args =
+      KernelArgumentHolder::createKernelArgumentHolder(inputs, device);
+
+  // Create runtime infomation
+  SchedulerRuntimeInfo runtime_info(
+      fusion.get(),
+      args,
+      /*precomputed_values=*/nullptr,
+      ir_utils::allTvs(fusion.get()));
+
+  // Run segmentation algorithm
+  segmented_fusion_ =
+      SegmentCandidateFinder::segment(std::move(fusion), &args, runtime_info);
+
+  // Get the order for fusion segments
+  prepareGroupOrder();
+
+  // Return the number of segments
+  return (int64_t)segmented_fusion_->groups().size();
+}
+
+void FusionDefinition::buildSegment(
+    FusionDefinition& other,
+    int64_t segment_id) {
+  NVF_CHECK(id().has_value(), "FusionDefinition definition does not exist!");
+  NVF_ERROR(
+      !other.completed(),
+      "Expected an incomplete definition before translation.");
+  NVF_ERROR(
+      segmented_fusion_ != nullptr,
+      "SegmentedFusion is not initialized. Run setupSegmentation first.");
+  NVF_ERROR(
+      segment_id >= 0 &&
+          segment_id < (int64_t)segmented_fusion_->groups().size(),
+      "The segment id is not valid");
+
+  SegmentedGroup* sg = group_run_order_.at(segment_id);
+  NVF_ERROR(sg != nullptr);
+  std::unique_ptr<Fusion> fusion_segment =
+      segmented_fusion_->makeFusion(sg).second;
+  translate(fusion_segment.get(), &other);
+}
+
+void FusionDefinition::finalizeSegmentation() {
+  // Destroy SegmentedFusion
+  segmented_fusion_.reset(nullptr);
+  group_run_order_.clear();
 }
 
 } // namespace nvfuser::python_frontend

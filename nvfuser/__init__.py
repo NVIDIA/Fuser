@@ -59,6 +59,16 @@ class FusionDefinition(_C._FusionDefinition):
         new_fd._clone(self)
         return new_fd
 
+    def segment(self, inputs):
+        num_segments = self._setup_segmentation(inputs)
+        segments = []
+        for idx in range(num_segments):
+            new_fd = FusionDefinition()
+            self._build_segment(new_fd, idx)
+            segments.append(new_fd)
+        self._finalize_segmentation()
+        return segments
+
     def __enter__(self):
         return self._setup_definition()
 

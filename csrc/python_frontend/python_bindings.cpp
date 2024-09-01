@@ -720,6 +720,30 @@ void initNvFuserPythonBindings(PyObject* module) {
             inst::Trace::instance()->endEvent(nullptr);
           })
       .def(
+          "_setup_segmentation",
+          [](FusionDefinition& self, const py::iterable& iter) {
+            // Instrumentation to mark the beginning of segmentation
+            inst::Trace::instance()->beginEvent(
+                "FusionDefinition Segmentation");
+            std::vector<c10::IValue> inputs;
+            for (py::handle obj : iter) {
+              inputs.push_back(torch::jit::toIValue(obj, c10::AnyType::get()));
+            }
+            return self.setupSegmentation(inputs);
+          })
+      .def(
+          "_build_segment",
+          [](FusionDefinition& self,
+             FusionDefinition& other,
+             int64_t segment_id) { self.buildSegment(other, segment_id); })
+      .def(
+          "_finalize_segmentation",
+          [](FusionDefinition& self) {
+            self.finalizeSegmentation();
+            // Mark the end of segmentation
+            inst::Trace::instance()->endEvent(nullptr);
+          })
+      .def(
           "__repr__",
           [](FusionDefinition& self) {
             std::stringstream ss;

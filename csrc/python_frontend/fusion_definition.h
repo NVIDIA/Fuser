@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 #include <exceptions.h>
+#include <functional>
 #include <iostream>
 
 #include <kernel_cache.h>
@@ -255,6 +256,16 @@ class NVF_API FusionDefinition : public FusionState {
   //! Get all Tensors in FusionState.
   NVF_API std::vector<Tensor> tensors();
 
+  //! Run segmentation algorithm on FusionDefinition. Returns the number of
+  //! segments.
+  NVF_API int64_t setupSegmentation(const at::ArrayRef<c10::IValue>& inputs);
+  //! Given SegmentedFusion and vector of FusionDefinition objects for the
+  //! fusion segments, create the fusion segments and clone their state to the
+  //! FusionDefinitions.
+  NVF_API void buildSegment(FusionDefinition& other, int64_t segment_id);
+  //! After creating segments, destroy SegmentedFusion and RuntimeWorkspace.
+  NVF_API void finalizeSegmentation();
+
  private:
   //! Returns the FusionCache Ptr that holds the cache of Fusions
   FusionCache* fusionCache() const;
@@ -267,6 +278,8 @@ class NVF_API FusionDefinition : public FusionState {
   //! Update Symbolic FusionStates after DynamicTransform pass
   void updateSymbolicStates(
       const std::unordered_map<Val*, Val*>& symbolic_to_concretized_map);
+  //! Perform a topological sort on SegmentedFusion to segment order.
+  void prepareGroupOrder();
 
   //! Holds the defined maximum length of a FusionDefinition in order to
   //! prevent a run away error. The user should feel free to increase this
@@ -288,6 +301,12 @@ class NVF_API FusionDefinition : public FusionState {
   UserSchedule* user_sched_;
   //! Number of recording_states_ before applying user schedule
   int64_t num_recording_states_presched_ = 0;
+  //! This FusionDefinition may require multiple kernels if it cannot be handled
+  //! by a single heuristic scheduler. SegmentedFusion takes a fusion and runs
+  //! the segmentation algorithm.
+  std::unique_ptr<SegmentedFusion> segmented_fusion_ = nullptr;
+  //! Pre-determined order to run the segmented groups
+  std::vector<SegmentedGroup*> group_run_order_;
 
  public:
   //! The Operators are not directly defined in this header.  They are defined
