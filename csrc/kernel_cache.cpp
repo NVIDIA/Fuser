@@ -988,8 +988,7 @@ FusionKernelRuntime::FusionKernelRuntime(
 
   // SchedulerRuntimeInfo modifies the fusion, so it is required for both
   // compile paths.
-  std::vector<TensorView*> all_tvs =
-      fusion->allTvs(); // ir_utils::allTvs(fusion.get());
+  std::vector<TensorView*> all_tvs = fusion->allTvs();
   SchedulerRuntimeInfo runtime_info(
       fusion.get(), args, nullptr, all_tvs, forced_index_type);
 
@@ -1455,7 +1454,6 @@ std::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
     // Get all tensorviews for segmented fusion
     std::vector<TensorView*> all_tvs_for_fusion_to_run =
         fusion_to_run->allTvs();
-    // ir_utils::allTvs(fusion_to_run);
 
     SchedulerRuntimeInfo fusion_to_run_info(
         fusion_to_run,

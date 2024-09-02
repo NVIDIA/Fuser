@@ -561,7 +561,7 @@ TEST_F(IndexingTest, SimplePointwise2) {
   tv3->axis(0)->parallelize(ParallelType::BIDx);
   tv3->axis(1)->parallelize(ParallelType::TIDx);
 
-  scheduler_utils::parallelizeAllLike(tv3, ir_utils::allTvs(&fusion));
+  scheduler_utils::parallelizeAllLike(tv3, fusion.allTvs());
 
   // Test shared memory indexing
   tv2->setMemoryType(MemoryType::Shared);
@@ -1044,7 +1044,7 @@ TEST_F(IndexingTest, SimpleBroadcast4) {
   TransformPropagator propagator(tv4);
   MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
 
-  for (auto tv : ir_utils::allTvs(&fusion)) {
+  for (auto tv : fusion.allTvs()) {
     tv->inlineAt(-2);
   }
 
@@ -1344,7 +1344,7 @@ TEST_F(IndexingTest, SimpleVectorize) {
 
   inlineMost();
 
-  scheduler_utils::parallelizeAllLike(tv2, ir_utils::allTvs(&fusion));
+  scheduler_utils::parallelizeAllLike(tv2, fusion.allTvs());
 
   struct GetReference : AbstractGetReference {
     GetReference(const TensorIndexer& indexer, const IdModel& id_model)
@@ -1413,7 +1413,7 @@ TEST_F(IndexingTest, NonInnermostVectorize) {
 
   tv3->axis(0)->parallelize(ParallelType::BIDx);
   tv3->axis(1)->parallelize(ParallelType::TIDx);
-  scheduler_utils::parallelizeAllLike(tv3, ir_utils::allTvs(&fusion));
+  scheduler_utils::parallelizeAllLike(tv3, fusion.allTvs());
 
   tv1->axis(2)->parallelize(ParallelType::Vectorize);
   tv3->axis(2)->parallelize(ParallelType::Vectorize);
@@ -1648,7 +1648,7 @@ TEST_F(IndexingTest, InlinedUnroll) {
 
   tv4->axis(1)->parallelize(ParallelType::Unroll);
 
-  scheduler_utils::parallelizeAllLike(tv4, ir_utils::allTvs(&fusion));
+  scheduler_utils::parallelizeAllLike(tv4, fusion.allTvs());
 
   // The CA position of tv2 is 1 as shown below:
   //
@@ -1704,7 +1704,7 @@ TEST_F(IndexingTest, SmemAllocationDomainForTranspose) {
   }
 
   // [I0, I1] -> [(I0/32 * I1/32), (32 * 32) / 4, 4]
-  for (auto tv : ir_utils::allTvs(&fusion)) {
+  for (auto tv : fusion.allTvs()) {
     tv->split(0, 32);
     tv->split(2, 32);
     tv->reorder({{1, 2}});
@@ -2834,7 +2834,7 @@ TEST_F(PredicateIndexingTest, SimpleVectorize) {
 
   inlineMost();
 
-  scheduler_utils::parallelizeAllLike(tv2, ir_utils::allTvs(&fusion));
+  scheduler_utils::parallelizeAllLike(tv2, fusion.allTvs());
 
   // T1_l[ iblockIdx.x9{( ceilDiv(( ceilDiv(i0, 4) ), 128) )},
   // ithreadIdx.x10{128}, iV8{4} ] ca_pos( 2 ) T2_g[ iblockIdx.x5{( ceilDiv((
@@ -2904,7 +2904,7 @@ TEST_F(PredicateIndexingTest, NonInnermostVectorize) {
 
   tv3->axis(0)->parallelize(ParallelType::BIDx);
   tv3->axis(1)->parallelize(ParallelType::TIDx);
-  scheduler_utils::parallelizeAllLike(tv3, ir_utils::allTvs(&fusion));
+  scheduler_utils::parallelizeAllLike(tv3, fusion.allTvs());
 
   tv1->axis(2)->parallelize(ParallelType::Vectorize);
   tv3->axis(2)->parallelize(ParallelType::Vectorize);

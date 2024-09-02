@@ -871,10 +871,33 @@ bool isExpressionEvaluated(Fusion* fusion) {
       });
 }
 
+namespace {
+std::vector<TensorView*> findAllTvs(Fusion* fusion) {
+  auto used_vals = fusion->usedMathVals();
+  auto used_tvs = ir_utils::filterByType<TensorView>(used_vals);
+
+  // This shouldn't be necessary but FusionSegmentIoAlias_CUDA due to aliasing
+  // is having an input disconnected from outputs, and these iter domains are
+  // being checked in compute at maps in scheduling logic. This shouldn't hurt
+  // AFAICT.
+  auto tv_inputs = ir_utils::filterByType<TensorView>(fusion->inputs());
+
+  std::vector<TensorView*> all_tvs({used_tvs.begin(), used_tvs.end()});
+  // Sometimes inputs are not connected to outputs, however, we still include
+  // them when returning allTvs because they are registered as an input.
+  all_tvs.insert(all_tvs.end(), tv_inputs.begin(), tv_inputs.end());
+
+  VectorOfUniqueEntries<TensorView*> unique_vector(
+      all_tvs.begin(), all_tvs.end());
+
+  // all_tvs has duplicates, to deduplicate it and return
+  return unique_vector.vector();
+}
+} // namespace
+
 std::vector<TensorView*> Fusion::allTvs() {
   if (all_tvs_ptr_ == nullptr) {
-    all_tvs_ptr_ =
-        std::make_unique<std::vector<TensorView*>>(ir_utils::allTvs(this));
+    all_tvs_ptr_ = std::make_unique<std::vector<TensorView*>>(findAllTvs(this));
   }
   return std::vector<TensorView*>(*all_tvs_ptr_);
 }

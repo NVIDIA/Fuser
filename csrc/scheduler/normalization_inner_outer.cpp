@@ -238,7 +238,7 @@ std::vector<TensorView*> getOuterBroadcastTvs(
 
   // find the broadcast tensor whose broadcast mask is same to the reference
   std::vector<TensorView*> outer_broadcast_tvs;
-  for (auto tv : ir_utils::allTvs(fusion)) {
+  for (auto tv : fusion->allTvs()) {
     if (std::any_of(
             tv->getLoopDomain().begin(),
             tv->getLoopDomain().end(),

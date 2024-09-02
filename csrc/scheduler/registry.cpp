@@ -39,7 +39,7 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
   } else {
     index_type_ = registry_utils::getIndexTypeOfKernel(
         complete_fusion_,
-        all_tvs.empty() ? ir_utils::allTvs(complete_fusion_) : all_tvs,
+        all_tvs.empty() ? complete_fusion_->allTvs() : all_tvs,
         args,
         *expression_evaluator_);
   }

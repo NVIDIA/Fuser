@@ -771,7 +771,7 @@ TEST_F(NVFuserTest, FusionIssue1430_CUDA) {
 
   scheduler_utils::parallelizeAllLike(rfactor);
 
-  for (auto tv : ir_utils::allTvs(&fusion)) {
+  for (auto tv : fusion.allTvs()) {
     if (tv != tv1 || tv != tv3) {
       for (auto i : c10::irange(tv->nDims())) {
         if (isParallelTypeVectorize(tv->axis(i)->getParallelType())) {
@@ -2053,7 +2053,7 @@ TEST_F(NVFuserTest, FusionExactLogicalDomainMap_CUDA) {
       exact_map.toString());
 
   // They must not be mapped with anything else.
-  for (auto tv : ir_utils::allTvs(&fusion)) {
+  for (auto tv : fusion.allTvs()) {
     for (auto logical_id : tv->getLogicalDomain()) {
       if (logical_id == tv2_bc || logical_id == tv3_bc) {
         continue;
@@ -2166,7 +2166,7 @@ TEST_F(NVFuserTest, FusionTestReEntrantGridWelford_CUDA) {
 
   cached_input->computeAt(rfactor_tv, 4, ComputeAtMode::BestEffort);
 
-  for (auto tv : ir_utils::allTvs(&fusion)) {
+  for (auto tv : fusion.allTvs()) {
     if (tv == cached_input || tv == tv_avg || tv == tv_M2) {
       continue;
     }
@@ -8540,7 +8540,7 @@ TEST_F(NVFuserTest, MoveNonConcretizedBroadcastInNormalization) {
   auto ref_outermost = tv7->getLoopDomain().at(0);
   IdModel id_model(&fusion);
   const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
-  for (auto tv : ir_utils::allTvs(&fusion)) {
+  for (auto tv : fusion.allTvs()) {
     if (tv->isFusionInput()) {
       continue;
     }
@@ -8608,7 +8608,7 @@ TEST_F(NVFuserTest, MoveNonConcretizedBroadcastInPointwise) {
   auto ref_outermost = tv5->getLoopDomain().at(0);
   IdModel id_model(&fusion);
   const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
-  for (auto tv : ir_utils::allTvs(&fusion)) {
+  for (auto tv : fusion.allTvs()) {
     if (tv->isFusionInput()) {
       continue;
     }
@@ -8675,7 +8675,7 @@ TEST_F(NVFuserTest, MoveNonConcretizedBroadcastInReduction) {
   auto ref_outermost = tv6->getLoopDomain().at(0);
   IdModel id_model(&fusion);
   const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
-  for (auto tv : ir_utils::allTvs(&fusion)) {
+  for (auto tv : fusion.allTvs()) {
     if (tv->isFusionInput()) {
       continue;
     }
