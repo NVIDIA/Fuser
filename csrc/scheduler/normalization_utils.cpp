@@ -764,7 +764,7 @@ bool isProjectBufferToInputs(
     const bool can_use_smem_persistent,
     const bool check_projected_buffer_size) {
   // don't project if there are view ops and no buffer can be projected
-  bool can_project = persistent_buffer_info.has_view_ops &&
+  bool can_project = !persistent_buffer_info.has_view_ops &&
       persistent_buffer_size_info.projected_persistent_buffer_size > 0;
   if (!can_project) {
     return false;
