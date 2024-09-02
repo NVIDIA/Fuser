@@ -1301,12 +1301,18 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
 
   auto& unrollable_inputs_outputs = unrollable_inputs_outputs_entry.get();
 
+  // Although properties contains runtime information
+  // "inner_most_dimension_ndims" is a compile time value
+  auto vec_break_point = HeuristicSummaryEntry<
+      HeuristicCompileTime::VectorizationBreakPointOfReductionProducer>(
+      data_cache, [&reduction_tv, &reduced_tv, &properties]() {
+        return std::make_unique<int64_t>(
+            vectorize_helper::getVectorizationBreakPointOfReductionProducer(
+                reduction_tv, reduced_tv, properties.inner_most_dimension_ndims));
+      });
+
   const auto vectorize_factor = vectorize_helper::getVectorizationFactor(
-      runtime_info,
-      reduced_tv,
-      data_cache,
-      vectorize_helper::getVectorizationBreakPointOfReductionProducer(
-          reduction_tv, reduced_tv, properties.inner_most_dimension_ndims));
+      runtime_info, reduced_tv, data_cache, vec_break_point.get());
 
   // Base max dtype and n_tensor_inputs on tensors that are vectorizable (i.e.
   // share inner dimension with data pattern we're looking at).

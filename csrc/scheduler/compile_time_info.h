@@ -46,6 +46,7 @@ enum class CompileTimeEntryType {
   CAN_SCHEDULE_TRANSPOSE,
   CAN_SCHEDULE_MUL_SUM_AS_MMA,
   LOGICAL_REORDER_MAP,
+  VECTORIZATION_BREAK_POINT_OF_RED_PROD
 };
 
 //! Entry type definition class for `DOMAIN_MAP`,
@@ -193,6 +194,13 @@ class LogicalReorderMap {
   using DataType = std::unordered_map<int64_t, int64_t>;
   static const CompileTimeEntryType EntryType =
       CompileTimeEntryType::LOGICAL_REORDER_MAP;
+};
+
+class VectorizationBreakPointOfReductionProducer {
+ public:
+  using DataType = int64_t;
+  static const CompileTimeEntryType EntryType =
+      CompileTimeEntryType::VECTORIZATION_BREAK_POINT_OF_RED_PROD;
 };
 
 //! Base abstract class for unified storage in `HeuristicSummary`,
