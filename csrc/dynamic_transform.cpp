@@ -13,6 +13,7 @@
 #include <fusion.h>
 #include <ir/cloner.h>
 #include <ir/utils.h>
+#include <logical_domain_map.h>
 #include <ops/alias.h>
 #include <ops/arith.h>
 #include <ops/utils.h>
@@ -252,7 +253,8 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
 
 DynamicTransformConcretizationInfo::DynamicTransformConcretizationInfo(
     const DynamicTransformInitialInfo* initial_info,
-    ExpressionEvaluator* expr_eval)
+    ExpressionEvaluator* expr_eval,
+    ExactLogicalDomainMap* exact_map)
     : initial_info_(initial_info) {
   NVF_ERROR(
       !fusion()->isA<kir::Kernel>(),
@@ -260,7 +262,8 @@ DynamicTransformConcretizationInfo::DynamicTransformConcretizationInfo(
 
   // Make sure all exactly mapped IDs have the same value in the
   // evaluator when any one of the IDs has a known value
-  expr_eval->propagateBoundValuesThroughExactMaps(initial_info_->fusion());
+  expr_eval->propagateBoundValuesThroughExactMaps(
+      initial_info_->fusion(), exact_map);
 
   analyzeReshapes(expr_eval);
 
