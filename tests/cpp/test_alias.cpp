@@ -838,6 +838,7 @@ TEST_F(AliasTest, MergeTwoExpandedBroadcasts) {
   FusionGuard fg(fusion.get());
 
   TensorView* in = TensorViewBuilder()
+                       .ndims(3)
                        .dtype(DataType::Float)
                        .contiguity({std::nullopt, std::nullopt, std::nullopt})
                        .shape({4, 5, 6})
@@ -861,6 +862,7 @@ TEST_F(AliasTest, MergeBroadcastsBetweenConcretes) {
   FusionGuard fg(fusion.get());
 
   TensorView* in = TensorViewBuilder()
+                       .ndims(4)
                        .dtype(DataType::Float)
                        .contiguity({true, std::nullopt, std::nullopt, true})
                        .shape({2, 3, 5, 7})

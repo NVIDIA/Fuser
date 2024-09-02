@@ -314,7 +314,7 @@ def cat_error_generator(op, dtype=torch.float32, requires_grad: bool = False, **
     shape_mismatch = (
         ([(2, 3), (4, 5)], 0),
         RuntimeError,
-        "When trying to propagate constant tensor sizes",
+        "Tried to bind to a value",
     )
 
     error_cases = [

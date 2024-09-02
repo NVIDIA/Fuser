@@ -358,7 +358,7 @@ namespace {
 void handlePropagateError(
     Fusion* fusion,
     ExpressionEvaluator* expr_eval,
-    std::shared_ptr<VectorOfUniqueEntries<const IterDomain*>> id_set) {
+    const std::shared_ptr<VectorOfUniqueEntries<const IterDomain*>>& id_set) {
   std::unordered_map<const IterDomain*, int64_t> id_to_size;
   std::set<int64_t> sizes;
 
@@ -408,31 +408,29 @@ void handlePropagateError(
         continue;
       }
 
-      bool tv1_is_consumer = false;
-      for (auto tv_id_pair_1 : tv_id_pairs_1) {
-        for (auto tv_id_pair_2 : tv_id_pairs_2) {
+      for (const auto& [tv1, id1] : tv_id_pairs_1) {
+        for (const auto& [tv2, id2] : tv_id_pairs_2) {
+          bool tv1_is_consumer = false;
+
           // Check for producer-consumer relationship
-          auto producer_tvs_of_tv1 =
-              ir_utils::producerTvsOf(tv_id_pair_1.first);
-          auto producer_tvs_of_tv2 =
-              ir_utils::producerTvsOf(tv_id_pair_2.first);
+          auto producer_tvs_of_tv1 = ir_utils::producerTvsOf(tv1);
+          auto producer_tvs_of_tv2 = ir_utils::producerTvsOf(tv2);
           if (std::find(
                   producer_tvs_of_tv1.begin(),
                   producer_tvs_of_tv1.end(),
-                  tv_id_pair_2.first) != producer_tvs_of_tv1.end()) {
+                  tv2) != producer_tvs_of_tv1.end()) {
             tv1_is_consumer = true;
           } else if (
               std::find(
                   producer_tvs_of_tv2.begin(),
                   producer_tvs_of_tv2.end(),
-                  tv_id_pair_1.first) == producer_tvs_of_tv2.end()) {
+                  tv1) == producer_tvs_of_tv2.end()) {
             // No relationship found, skip
             continue;
           }
 
-          Expr* relationship = tv1_is_consumer
-              ? tv_id_pair_1.first->definition()
-              : tv_id_pair_2.first->definition();
+          Expr* relationship =
+              tv1_is_consumer ? tv1->definition() : tv2->definition();
 
           // Found at least one consumer/producer relationship with mismatched
           // sizes.
@@ -443,11 +441,9 @@ void handlePropagateError(
           // instead.
           std::stringstream tv1_error;
           std::stringstream tv2_error;
-          tv1_error << " TV: " << tv_id_pair_1.first
-                    << " id: " << tv_id_pair_1.second
+          tv1_error << " TV: " << tv1 << " id: " << id1
                     << " found size: " << dim_size_1 << "\n";
-          tv2_error << " TV: " << tv_id_pair_2.first
-                    << " id: " << tv_id_pair_2.second
+          tv2_error << " TV: " << tv2 << " id: " << id2
                     << " found size: " << dim_size_2 << "\n";
           err_msg << "  For Producer"
                   << (tv1_is_consumer ? tv2_error.str() : tv1_error.str());
@@ -474,22 +470,19 @@ void handlePropagateError(
     }
     err_msg << "These sizes should all match.\n";
   } else {
-    std::unordered_map<int64_t, std::vector<const IterDomain*>> size_to_ids;
     err_msg
-        << "The following groups of IterDomains should all have the same size, but don't:\n";
-    for (const auto& [id, size] : id_to_size) {
-      size_to_ids[size].push_back(id);
-    }
-    for (const auto& [size, ids] : size_to_ids) {
-      err_msg << "  Size: " << size << " found for ids: " << ids << "\n";
-    }
+        << "Something went wrong trying to detect what went wrong!"
+        << " There should have been ID's in TVs that should match, but don't."
+        << " Somehow IDs were registered with the exact graph that aren't used in the Fusion."
+        << std::endl;
   }
 
   NVF_THROW(err_msg.str());
 }
 } // namespace
 
-void ExpressionEvaluator::propagateBoundValuesThroughExactMaps(Fusion* fusion,
+void ExpressionEvaluator::propagateBoundValuesThroughExactMaps(
+    Fusion* fusion,
     ExactLogicalDomainMap* exact_map) {
   // We map Symbolic IterDomains here only if their extents match. This avoids
   // mapping between symbolic domains that might concretize to an (Iteration,
