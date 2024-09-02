@@ -15,6 +15,7 @@
 #include <fusion_profiler.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
+#include <logical_domain_map.h>
 #include <options.h>
 #include <preseg_passes/pre_segmenter.h>
 #include <scheduler/debug_utils.h>
@@ -440,6 +441,7 @@ FusionExecutorCache::FusionExecutorCache(
     int64_t fusion_id,
     bool auto_schedule)
     : fusion_(std::move(fusion)),
+      exact_map_(std::make_unique<ExactLogicalDomainMap>(fusion_.get())),
       fusion_id_{fusion_id},
       auto_schedule_(auto_schedule) {}
 
@@ -689,7 +691,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     auto expr_eval = executor_utils::bindInputs(args, fusion_.get());
     cached_conc_info_.emplace_back(
         std::make_unique<DynamicTransformConcretizationInfo>(
-            &initial_info, &expr_eval));
+            &initial_info, &expr_eval, exact_map_.get()));
     conc_info = cached_conc_info_.back().get();
   }
 
@@ -886,7 +888,7 @@ void FusionExecutorCache::deserialize(
       auto expr_eval = executor_utils::bindInputs(args, fusion_.get());
       cached_conc_info_.emplace_back(
           std::make_unique<DynamicTransformConcretizationInfo>(
-              &initial_info, &expr_eval));
+              &initial_info, &expr_eval, exact_map_.get()));
       conc_info = cached_conc_info_.back().get();
     }
 
@@ -988,7 +990,8 @@ FusionKernelRuntime::FusionKernelRuntime(
 
   // SchedulerRuntimeInfo modifies the fusion, so it is required for both
   // compile paths.
-  std::vector<TensorView*> all_tvs = ir_utils::allTvs(fusion.get());
+  std::vector<TensorView*> all_tvs =
+      fusion->allTvs(); // ir_utils::allTvs(fusion.get());
   SchedulerRuntimeInfo runtime_info(
       fusion.get(), args, nullptr, all_tvs, forced_index_type);
 
@@ -1453,7 +1456,8 @@ std::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
 
     // Get all tensorviews for segmented fusion
     std::vector<TensorView*> all_tvs_for_fusion_to_run =
-        ir_utils::allTvs(fusion_to_run);
+        fusion_to_run->allTvs();
+    // ir_utils::allTvs(fusion_to_run);
 
     SchedulerRuntimeInfo fusion_to_run_info(
         fusion_to_run,

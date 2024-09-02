@@ -116,6 +116,14 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
 
   to->expected_dynamic_smem_bytes_ = from->expected_dynamic_smem_bytes_;
 
+  if (from->all_tvs_ptr_ != nullptr) {
+    to->all_tvs_ptr_ = std::make_unique<std::vector<TensorView*>>();
+    to->all_tvs_ptr_->reserve(from->all_tvs_ptr_->size());
+    for (TensorView* from_tv : *from->all_tvs_ptr_) {
+      to->all_tvs_ptr_->push_back(ir_cloner.clone(from_tv)->as<TensorView>());
+    }
+  }
+
   return ir_cloner;
 }
 
@@ -168,7 +176,8 @@ void Fusion::clear() noexcept {
   managed_data_.clear();
   managed_named_data_.clear();
 
-  all_tv_uses_valid_ = false;
+  invalidateTvsAndUses();
+
   is_during_update_uses_ = false;
 }
 
@@ -179,13 +188,19 @@ void Fusion::removeExpr(Expr* expr) {
   // we're going with the strictest model which errors.
 
   for (auto out : expr->outputs()) {
+    if (out->isA<TensorView>()) {
+      invalidateTvsAndUses();
+    }
     out->setDefinition(nullptr);
   }
 
   // Remove uses in inputs
   for (auto inp : expr->inputs()) {
-    // Note that if inp is a TensorView, this may call invalidateTvUses
+    // Note that if inp is a TensorView, this may call invalidateTvsAndUses
     inp->removeUse(expr);
+    if (inp->isA<TensorView>()) {
+      invalidateTvsAndUses();
+    }
   }
 
   IrContainer::removeExpr(expr);
@@ -228,6 +243,8 @@ void Fusion::removeVal(Val* val) {
     removeExpr(e);
   }
   IrContainer::removeVal(val);
+
+  invalidateTvsAndUses();
 }
 
 void Fusion::addInput(Val* input) {
@@ -250,7 +267,7 @@ void Fusion::addInput(Val* input) {
   inputs_.push_back(input);
   input->setIsFusionInput(true);
 
-  all_tv_uses_valid_ = false;
+  invalidateTvsAndUses();
 }
 
 void Fusion::addOutputInternal(Val* output) {
@@ -264,7 +281,7 @@ void Fusion::addOutputInternal(Val* output) {
   outputs_.push_back(output);
   output->setIsFusionOutput(true);
 
-  all_tv_uses_valid_ = false;
+  invalidateTvsAndUses();
 }
 
 void Fusion::addOutput(Val* output) {
@@ -290,7 +307,7 @@ void Fusion::removeInput(Val* input) {
     inputs_.erase(find_input);
   }
   input->setIsFusionInput(false);
-  all_tv_uses_valid_ = false;
+  invalidateTvsAndUses();
 }
 
 void Fusion::removeOutput(Val* output) {
@@ -299,7 +316,7 @@ void Fusion::removeOutput(Val* output) {
     outputs_.erase(find_output);
   }
   output->setIsFusionOutput(false);
-  all_tv_uses_valid_ = false;
+  invalidateTvsAndUses();
 }
 
 void Fusion::replaceOutput(Val* output, Val* replacement) {
@@ -326,7 +343,7 @@ void Fusion::replaceOutput(Val* output, Val* replacement) {
       }
     }
     // Mark uses invalid so that they will be reset next time uses() is called
-    invalidateTvUses();
+    invalidateTvsAndUses();
   }
 
   // Temporary WAR for issue #1112
@@ -582,7 +599,7 @@ void Fusion::registerExpr(Expr* expr) {
     // Don't just add this expr as a use of the input if it's a tensor as the
     // whole fusion needs to be traversed to rebuild the usage lists
     if (input->isA<TensorView>()) {
-      invalidateTvUses();
+      invalidateTvsAndUses();
     } else {
       input->addUse(expr);
     }
@@ -605,7 +622,7 @@ void Fusion::registerExpr(Expr* expr) {
         // If that happens, our definition-based traversal can change and
         // introduce whole new branches, so we need to recompute the uses_
         // vector after setDefinition.
-        invalidateTvUses();
+        invalidateTvsAndUses();
       }
     }
   }
@@ -852,6 +869,14 @@ bool isExpressionEvaluated(Fusion* fusion) {
       fusion->outputs().begin(), fusion->outputs().end(), [&fusion](Val* out) {
         return fusion->getOutputAlias(out).type == AllocationType::Evaluate;
       });
+}
+
+std::vector<TensorView*> Fusion::allTvs() {
+  if (all_tvs_ptr_ == nullptr) {
+    all_tvs_ptr_ =
+        std::make_unique<std::vector<TensorView*>>(ir_utils::allTvs(this));
+  }
+  return std::vector<TensorView*>(*all_tvs_ptr_);
 }
 
 } // namespace nvfuser
