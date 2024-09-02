@@ -1308,7 +1308,9 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
       data_cache, [&reduction_tv, &reduced_tv, &properties]() {
         return std::make_unique<int64_t>(
             vectorize_helper::getVectorizationBreakPointOfReductionProducer(
-                reduction_tv, reduced_tv, properties.inner_most_dimension_ndims));
+                reduction_tv,
+                reduced_tv,
+                properties.inner_most_dimension_ndims));
       });
 
   const auto vectorize_factor = vectorize_helper::getVectorizationFactor(
