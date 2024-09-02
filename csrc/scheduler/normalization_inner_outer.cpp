@@ -383,7 +383,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   buffer_params.project_to_input =
       normalization_scheduler_utils::isProjectBufferToInputs(
           fusion,
-          runtime_info.getIndexType(),
+          runtime_info,
           persistent_buffer_info,
           persistent_buffer_size_info,
           ScheduleHeuristic::InnerOuterPersistent,
@@ -964,6 +964,10 @@ std::shared_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
     }
   }
   auto ref_red_tv = first_inner_reduction_tv;
+
+  // Verify the presence of a reduction TensorView connected to a Fusion input
+  normalization_scheduler_utils::checkReductionTvForScheduling(
+      fusion, ref_red_tv);
 
   auto properties =
       scheduler_utils::getReductionProperties(fusion, runtime_info, ref_red_tv);

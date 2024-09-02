@@ -543,7 +543,5 @@ template class HeuristicSummaryEntry<HeuristicCompileTime::InnerMostDimInfo>;
 template class HeuristicSummaryEntry<
     HeuristicCompileTime::CanScheduleTranspose>;
 template class HeuristicSummaryEntry<HeuristicCompileTime::LogicalReorderMap>;
-template class HeuristicSummaryEntry<
-    HeuristicCompileTime::VectorizationBreakPointOfReductionProducer>;
 
 } // namespace nvfuser
