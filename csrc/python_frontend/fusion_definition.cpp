@@ -700,7 +700,7 @@ int64_t FusionDefinition::setupSegmentation(
   // Clone CPP Fusion
   segment_fusion_ = std::make_unique<Fusion>();
   IrCloner original_to_cloned_map =
-      Fusion::copy(fusion(), segment_fusion_.get());
+      Fusion::copy(preschedFusion(), segment_fusion_.get());
 
   // Track mapping from cloned CPP fusion and FusionDefinition indices.
   std::transform(

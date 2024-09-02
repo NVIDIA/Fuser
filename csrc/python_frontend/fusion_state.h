@@ -114,7 +114,7 @@ class FusionState {
 
  private:
   //! A ptr to the container used when building the Fusion IR from a definition
-  Fusion* fusion_;
+  Fusion* fusion_ = nullptr;
   //! A vector of nvFuser Fusion IR TensorViews/Vectors/Scalars for building the
   //! Fusion IR graph.
   //! NOTE: Vectors are represented by a vector<Val*>.  This could

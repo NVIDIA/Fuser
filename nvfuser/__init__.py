@@ -61,6 +61,10 @@ class FusionDefinition(_C._FusionDefinition):
 
     def segment(self, inputs):
         num_segments = self._setup_segmentation(inputs)
+        if num_segments == 1:
+            self._finalize_segmentation()
+            return []
+
         self.segments = []
         self.segment_maps = []
         for idx in range(num_segments):
