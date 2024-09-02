@@ -739,7 +739,8 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
 
   FusionKernelRuntime* kernel_runtime = nullptr;
 
-  // reusing indicates whether we are following Path 2 (true) or Paths 3/4 (false)
+  // reusing indicates whether we are following Path 2 (true) or Paths 3/4
+  // (false)
   bool reusing = false;
   // By default, we try to avoid recompiling whenever possible. However, this
   // can lead to suboptimal code if we only check that a compiled kernel is able
