@@ -7,6 +7,7 @@
 // clang-format on
 #include <ATen/cuda/CUDAContext.h>
 #include <executor_utils.h>
+#include <instrumentation.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/matmul_utils.h>
@@ -24,6 +25,7 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
     const std::vector<TensorView*>& all_tvs,
     std::optional<PrimDataType> forced_index_type)
     : complete_fusion_(complete_fusion) {
+  FUSER_PERF_SCOPE("SchedulerRuntimeInfo::SchedulerRuntimeInfo");
   NVF_ERROR(
       complete_fusion_->inputs().size() == args.size(),
       "The provided fusion group expects ",
@@ -174,6 +176,7 @@ bool checkCanSchedule(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache = nullptr) {
+  FUSER_PERF_SCOPE("SchedulerRuntimeInfo::checkCanSchedule<T>");
   // ExprEval scheduler only requires `canScheduleCompileTime` check and should
   // not use this fn. The following checks build the computeAt map that do not
   // work with SDPAOp.
@@ -273,6 +276,7 @@ bool checkCanSchedule(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
+  FUSER_PERF_SCOPE("SchedulerEntry::makeEntry<T>");
   std::unique_ptr<SchedulerEntry> scheduler_entry = nullptr;
   switch (sh) {
     case ScheduleHeuristic::NoOp:
@@ -539,5 +543,7 @@ template class HeuristicSummaryEntry<HeuristicCompileTime::InnerMostDimInfo>;
 template class HeuristicSummaryEntry<
     HeuristicCompileTime::CanScheduleTranspose>;
 template class HeuristicSummaryEntry<HeuristicCompileTime::LogicalReorderMap>;
+template class HeuristicSummaryEntry<
+    HeuristicCompileTime::VectorizationBreakPointOfReductionProducer>;
 
 } // namespace nvfuser

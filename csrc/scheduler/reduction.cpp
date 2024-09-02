@@ -1056,17 +1056,19 @@ void ReductionScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
+  FUSER_PERF_SCOPE("ReductionScheduler::computeHeuristics");
   params_ = getReductionHeuristics(fusion, runtime_info, data_cache);
   NVF_ERROR(params_ != nullptr);
 }
 
 void ReductionScheduler::schedule(Fusion* fusion) {
-  FUSER_PERF_SCOPE("Schedule Single Reduction");
+  FUSER_PERF_SCOPE("ReductionScheduler::schedule");
   scheduleReduction(fusion, reductionParams());
 }
 
 //! Check if the reduction heuristics apply in given fusion
 bool ReductionScheduler::canScheduleCompileTime(Fusion* fusion) {
+  FUSER_PERF_SCOPE("ReductionScheduler::canScheduleCompileTime");
   if (scheduler_utils::isResharding(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         heuristicType(), "Fusion is resharding.");
@@ -1210,6 +1212,7 @@ bool ReductionScheduler::canScheduleRunTime(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
+  FUSER_PERF_SCOPE("ReductionScheduler::canScheduleRunTime");
   return true;
 }
 
@@ -1244,8 +1247,6 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
     HeuristicSummary* data_cache) {
-  FUSER_PERF_SCOPE("getReductionHeuristics");
-
   SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs);
 
   return getReductionHeuristics(fusion, runtime_info, data_cache);
@@ -1255,8 +1256,6 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
-  FUSER_PERF_SCOPE("getReductionHeuristics");
-
   FusionGuard fg(fusion);
 
   auto reduction_tv_entry =
@@ -1344,7 +1343,6 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
 
 // fusion is the input IR that will be modified by this function
 void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
-  FUSER_PERF_SCOPE("scheduleReduction");
   FusionGuard fg(fusion);
 
   bool unroll = rparams.isUnrolled();
