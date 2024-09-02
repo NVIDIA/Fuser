@@ -789,15 +789,15 @@ void TensorIndexer::buildLoopIndexMap() {
       Val* loop_index = nullptr;
 
       ParallelType ptype = getParallelType(loop_group);
-      if (isParallelTypeThread(ptype)) {
-        loop_index = NamedScalar::getParallelIndex(ptype);
-      } else if (
+      if (
           // TODO: Cleanup needed. ir_utils::isMemoryPartitionedAcross
           // should be used, but that means we would need to consider
           // multiple outputs with different memory types, though it
           // should be uncommon in practice.
           shouldUseZeroIndex(loop_group) || isParallelTypeDeviceDim(ptype)) {
         loop_index = fusion->zeroVal();
+      } else if (isParallelTypeThread(ptype)) {
+        loop_index = NamedScalar::getParallelIndex(ptype);
       } else {
         // Until the transition to the IdModel-based indexing is
         // completed, use the index Vals assigned for ComputeAtMap
