@@ -85,6 +85,11 @@ class FusionState {
   //! Alias an Output to Input in the Fusion object
   NVF_API void aliasOutputToInput(Val* output, Val* input);
 
+  //! Get indicies for the inputs of FusionState
+  NVF_API std::vector<int64_t> inputs();
+  //! Get indicies for the outputs of FusionState
+  NVF_API std::vector<int64_t> outputs();
+
   //! Add a Record
   void addRecord(RecordFunctor* record);
   //! Builds an nvFuser Fusion IR object
@@ -118,6 +123,10 @@ class FusionState {
   //! The number of states in Fusion Container
   //! A sum of all outputs for each RecordFunctor
   size_t num_recording_states_;
+  //! Input arguments for FusionState
+  std::vector<int64_t> inputs_fid_;
+  //! Output arguments for FusionState
+  std::vector<int64_t> outputs_fid_;
 };
 
 } // namespace nvfuser::python_frontend

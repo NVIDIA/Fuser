@@ -307,7 +307,7 @@ class NVF_API FusionDefinition : public FusionState {
 
   //! Create copy of fusion for segmentation algorithm. IrClone is a map between
   //! values in original and cloned fusions.
-  std::unordered_map<Val*, int64_t> map_cloned_value_to_fid_;
+  std::unordered_map<const Val*, int64_t> map_cloned_value_to_fid_;
   //! Clone of original fusion for segmentation
   std::unique_ptr<Fusion> segment_fusion_ = nullptr;
   //! This FusionDefinition may require multiple kernels if it cannot be handled

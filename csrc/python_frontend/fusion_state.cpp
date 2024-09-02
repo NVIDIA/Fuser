@@ -85,6 +85,18 @@ std::unique_ptr<FusionState> FusionState::clone() {
   state->fusion_state_.insert(
       state->fusion_state_.end(), fusion_state_.begin(), fusion_state_.end());
   state->num_recording_states_ = num_recording_states_;
+  std::copy(
+      inputs_fid_.begin(),
+      inputs_fid_.end(),
+      std::back_inserter(state->inputs_fid_));
+  std::copy(
+      outputs_fid_.begin(),
+      outputs_fid_.end(),
+      std::back_inserter(state->outputs_fid_));
+  std::copy(
+      map_value_to_fid_.begin(),
+      map_value_to_fid_.end(),
+      std::inserter(state->map_value_to_fid_, state->map_value_to_fid_.end()));
   return state;
 }
 
@@ -136,6 +148,9 @@ void FusionState::resetFusionState(Fusion* fusion, size_t size) {
   fusion_ = fusion;
   fusion_state_.clear();
   fusion_state_.resize(size, {});
+  map_value_to_fid_.clear();
+  inputs_fid_.clear();
+  outputs_fid_.clear();
 }
 
 void FusionState::addFusionState(Val* val) {
@@ -182,12 +197,14 @@ void FusionState::addInput(Val* input, size_t index) {
   NVF_CHECK(fusion_ != nullptr, "Fusion is undefined.");
   fusion_->addInput(input);
   map_value_to_fid_.emplace(input, (int64_t)index);
+  inputs_fid_.push_back(index);
 }
 
 void FusionState::addOutput(Val* output, size_t index) {
   NVF_CHECK(fusion_ != nullptr, "Fusion is undefined.");
   fusion_->addOutput(output);
   map_value_to_fid_.emplace(output, (int64_t)index);
+  outputs_fid_.push_back(index);
 }
 
 void FusionState::aliasOutputToInput(Val* output, Val* input) {
@@ -195,6 +212,14 @@ void FusionState::aliasOutputToInput(Val* output, Val* input) {
   // We haven't exposed AllocationType to Python API. For now, use
   // ReuseBuffer to preserve the old behavior.
   fusion_->aliasOutputToInput(output, input, AllocationType::ReuseBuffer);
+}
+
+std::vector<int64_t> FusionState::inputs() {
+  return inputs_fid_;
+}
+
+std::vector<int64_t> FusionState::outputs() {
+  return outputs_fid_;
 }
 
 } // namespace nvfuser::python_frontend
