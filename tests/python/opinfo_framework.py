@@ -6,7 +6,7 @@
 import inspect
 import torch
 from typing import Callable
-from pytest_utils import map_dtype_to_str
+from utils import map_dtype_to_str
 import pytest
 
 

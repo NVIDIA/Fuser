@@ -14,6 +14,7 @@
 #include <debug.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/pass/magic_zero.h>
+#include <device_lower/pass/replace_size.h>
 #include <disjoint_set.h>
 #include <executor.h>
 #include <executor_params.h>
@@ -6244,7 +6245,6 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteBroadcastedSoftmaxInput_CUDA) {
   fusion.addOutput(tv4);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   at::Tensor t0 = at::ones(shape0, options);
   at::Tensor t1 = at::ones(shape1, options);
   std::vector<c10::IValue> inputs = {t0, t1};
@@ -6300,7 +6300,6 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWrite_CUDA) {
     fusion.addOutput(tv4);
 
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-    at::manual_seed(0);
     at::Tensor t0 = at::randn(shape0, options);
     at::Tensor t1 = at::randn(shape1, options);
     std::vector<c10::IValue> inputs = {t0, t1};
@@ -6390,7 +6389,6 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteDifferentConcretizedDomains_CUDA) {
     fusion.addOutput(tv8);
 
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-    at::manual_seed(0);
     at::Tensor t0 = at::randn(shape0, options);
     at::Tensor t1 = at::randn(shape1, options);
     at::Tensor t2 = at::randn(shape2, options);
@@ -6452,7 +6450,6 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteNonOutput_CUDA) {
   }
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   at::Tensor t0 = at::randn({32}, options);
   at::Tensor t1 = at::randn({32, 64}, options);
   std::vector<c10::IValue> inputs = {t0, t1};
@@ -6517,7 +6514,6 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteNonNeighbor_CUDA) {
   }
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   at::Tensor t0 = at::randn({8, 10, 12}, options);
   at::Tensor t1 = at::randn({8, 7, 10, 12, 9}, options);
   std::vector<c10::IValue> inputs = {t0, t1};
@@ -7716,7 +7712,6 @@ TEST_F(NVFuserTest, PredicateRNGOps) {
   FusionExecutor fe;
   fe.compileFusion(fusion, {t0});
 
-  at::manual_seed(0);
   auto cg_outputs = fe.runFusion({t0});
 }
 
@@ -8768,6 +8763,56 @@ TEST_F(NVFuserTest, Issue2685Repro) {
   auto outputs = fe.runFusion(inputs, params->lparams);
 
   testValidate(&fusion_copy, outputs, inputs, __LINE__, __FILE__);
+}
+
+// Check that extents are properly replaced by replaceSymbolicSizes lowering
+// pass
+TEST_F(NVFuserTest, ReplaceSymbolicSizes) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  auto tv1 = makeSymbolicTensor(2);
+  auto tv2 = makeSymbolicTensor(1);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+
+  auto tv3 = add(tv0, tv1);
+  auto tv4 = full(
+      {IrBuilder::create<Val>(5, DataType::Index)},
+      IrBuilder::create<Val>(2.0, DataType::Float),
+      DataType::Float);
+  auto tv5 = mul(tv2, tv4);
+
+  fusion->addOutput(tv3);
+  fusion->addOutput(tv5);
+
+  replaceSymbolicSizes(fusion);
+
+  // tv0's extents map to their corresponding getMetaData expressions
+  EXPECT_EQ(
+      tv0->axis(0)->extent()->toInlineString(),
+      "( (( (( getMetaData(T0) )).logical_size ))[0] )");
+  EXPECT_EQ(
+      tv0->axis(1)->extent()->toInlineString(),
+      "( (( (( getMetaData(T0) )).logical_size ))[1] )");
+  EXPECT_EQ(
+      tv1->axis(0)->extent()->toInlineString(),
+      "( (( (( getMetaData(T0) )).logical_size ))[0] )");
+  EXPECT_EQ(
+      tv1->axis(1)->extent()->toInlineString(),
+      "( (( (( getMetaData(T0) )).logical_size ))[1] )");
+  EXPECT_EQ(
+      tv3->axis(0)->extent()->toInlineString(),
+      "( (( (( getMetaData(T0) )).logical_size ))[0] )");
+  EXPECT_EQ(
+      tv3->axis(1)->extent()->toInlineString(),
+      "( (( (( getMetaData(T0) )).logical_size ))[1] )");
+
+  EXPECT_EQ(tv2->axis(0)->extent()->toInlineString(), "5");
+  EXPECT_EQ(tv5->axis(0)->extent()->toInlineString(), "5");
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.
