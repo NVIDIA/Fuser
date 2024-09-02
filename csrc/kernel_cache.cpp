@@ -686,7 +686,7 @@ DynamicTransformInitialInfo& FusionExecutorCache::initialInfo() {
 //   to create new FusionKernelRuntime
 //   4. Concretization is unseen: Segment to create a new FusionKernelRuntime
 // For re-used shapes, path 1 is most relevant. For dynamic shape problems with
-// a large number of unique shapes, path 2 is important. Paths 2 and 3 are slow
+// a large number of unique shapes, path 2 is important. Paths 3 and 4 are slow
 // since they both involve re-segmentation and re-compilation of the Fusion.
 FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     const KernelArgumentHolder& args,
@@ -1022,7 +1022,8 @@ FusionKernelRuntime::FusionKernelRuntime(
 
   // SchedulerRuntimeInfo modifies the fusion, so it is required for both
   // compile paths.
-  std::vector<TensorView*> all_tvs = ir_utils::allTvs(fusion.get());
+  std::vector<TensorView*> all_tvs =
+      fusion->allTvs(); // ir_utils::allTvs(fusion.get());
   SchedulerRuntimeInfo runtime_info(
       fusion.get(), args, nullptr, all_tvs, forced_index_type);
 
@@ -1487,7 +1488,8 @@ std::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
 
     // Get all tensorviews for segmented fusion
     std::vector<TensorView*> all_tvs_for_fusion_to_run =
-        ir_utils::allTvs(fusion_to_run);
+        fusion_to_run->allTvs();
+    // ir_utils::allTvs(fusion_to_run);
 
     SchedulerRuntimeInfo fusion_to_run_info(
         fusion_to_run,
