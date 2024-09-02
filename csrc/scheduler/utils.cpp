@@ -620,7 +620,7 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
   }
 
   // don't project if there are view ops and no buffer can be projected
-  persistent_buffer_info.has_view_ops = ir_utils::getViewOps(fusion).size() > 0;
+  persistent_buffer_info.has_view_ops = !ir_utils::getViewOps(fusion).empty();
 
   // Find projectable persistent buffers
   auto reduction_tvs = getReductionTvs(fusion);
