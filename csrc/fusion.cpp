@@ -188,6 +188,9 @@ void Fusion::removeExpr(Expr* expr) {
   // we're going with the strictest model which errors.
 
   for (auto out : expr->outputs()) {
+    if (out->isA<TensorView>()) {
+      invalidateTvsAndUses();
+    }
     out->setDefinition(nullptr);
   }
 
@@ -195,6 +198,9 @@ void Fusion::removeExpr(Expr* expr) {
   for (auto inp : expr->inputs()) {
     // Note that if inp is a TensorView, this may call invalidateTvsAndUses
     inp->removeUse(expr);
+    if (inp->isA<TensorView>()) {
+      invalidateTvsAndUses();
+    }
   }
 
   IrContainer::removeExpr(expr);
@@ -237,6 +243,8 @@ void Fusion::removeVal(Val* val) {
     removeExpr(e);
   }
   IrContainer::removeVal(val);
+
+  invalidateTvsAndUses();
 }
 
 void Fusion::addInput(Val* input) {
@@ -863,12 +871,12 @@ bool isExpressionEvaluated(Fusion* fusion) {
       });
 }
 
-const std::vector<TensorView*>& Fusion::allTvs() {
+std::vector<TensorView*> Fusion::allTvs() {
   if (all_tvs_ptr_ == nullptr) {
     all_tvs_ptr_ =
         std::make_unique<std::vector<TensorView*>>(ir_utils::allTvs(this));
   }
-  return *all_tvs_ptr_;
+  return std::vector<TensorView*>(*all_tvs_ptr_);
 }
 
 } // namespace nvfuser
