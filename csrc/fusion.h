@@ -429,9 +429,11 @@ class NVF_API Fusion : public IrContainer {
     expected_dynamic_smem_bytes_ = bytes;
   }
 
-  //! This is a cached version of ir_utils::allTvs that is invalidated
-  //! whenever we invalidate TV uses
-  const std::vector<TensorView*>& allTvs();
+  //! This is a cached version of ir_utils::allTvs that is invalidated. Return a
+  //! copy of the vector instead of a reference as it can be invalidated by many
+  //! operations. If we returned a reference and are iterating on it while
+  //! making modifications to the fusion, it can easily cause a segfault.
+  std::vector<TensorView*> allTvs();
 
  protected:
   friend SegmentCandidateFinder;
@@ -460,9 +462,9 @@ class NVF_API Fusion : public IrContainer {
 
   //! Declare that TensorView uses need to be updated (but don't actually do
   //! the update).
-  void invalidateTvUses() {
+  void invalidateTvsAndUses() {
     all_tv_uses_valid_ = false;
-    all_tvs_ptr_ = nullptr;
+    all_tvs_ptr_.reset();
   }
 
  private:

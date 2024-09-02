@@ -176,7 +176,8 @@ void Fusion::clear() noexcept {
   managed_data_.clear();
   managed_named_data_.clear();
 
-  all_tv_uses_valid_ = false;
+  invalidateTvsAndUses();
+
   is_during_update_uses_ = false;
 }
 
@@ -187,13 +188,19 @@ void Fusion::removeExpr(Expr* expr) {
   // we're going with the strictest model which errors.
 
   for (auto out : expr->outputs()) {
+    if (out->isA<TensorView>()) {
+      invalidateTvsAndUses();
+    }
     out->setDefinition(nullptr);
   }
 
   // Remove uses in inputs
   for (auto inp : expr->inputs()) {
-    // Note that if inp is a TensorView, this may call invalidateTvUses
+    // Note that if inp is a TensorView, this may call invalidateTvsAndUses
     inp->removeUse(expr);
+    if (inp->isA<TensorView>()) {
+      invalidateTvsAndUses();
+    }
   }
 
   IrContainer::removeExpr(expr);
@@ -236,6 +243,8 @@ void Fusion::removeVal(Val* val) {
     removeExpr(e);
   }
   IrContainer::removeVal(val);
+
+  invalidateTvsAndUses();
 }
 
 void Fusion::addInput(Val* input) {
@@ -258,7 +267,7 @@ void Fusion::addInput(Val* input) {
   inputs_.push_back(input);
   input->setIsFusionInput(true);
 
-  all_tv_uses_valid_ = false;
+  invalidateTvsAndUses();
 }
 
 void Fusion::addOutputInternal(Val* output) {
@@ -272,7 +281,7 @@ void Fusion::addOutputInternal(Val* output) {
   outputs_.push_back(output);
   output->setIsFusionOutput(true);
 
-  all_tv_uses_valid_ = false;
+  invalidateTvsAndUses();
 }
 
 void Fusion::addOutput(Val* output) {
@@ -298,7 +307,7 @@ void Fusion::removeInput(Val* input) {
     inputs_.erase(find_input);
   }
   input->setIsFusionInput(false);
-  all_tv_uses_valid_ = false;
+  invalidateTvsAndUses();
 }
 
 void Fusion::removeOutput(Val* output) {
@@ -307,7 +316,7 @@ void Fusion::removeOutput(Val* output) {
     outputs_.erase(find_output);
   }
   output->setIsFusionOutput(false);
-  all_tv_uses_valid_ = false;
+  invalidateTvsAndUses();
 }
 
 void Fusion::replaceOutput(Val* output, Val* replacement) {
@@ -334,7 +343,7 @@ void Fusion::replaceOutput(Val* output, Val* replacement) {
       }
     }
     // Mark uses invalid so that they will be reset next time uses() is called
-    invalidateTvUses();
+    invalidateTvsAndUses();
   }
 
   // Temporary WAR for issue #1112
@@ -590,7 +599,7 @@ void Fusion::registerExpr(Expr* expr) {
     // Don't just add this expr as a use of the input if it's a tensor as the
     // whole fusion needs to be traversed to rebuild the usage lists
     if (input->isA<TensorView>()) {
-      invalidateTvUses();
+      invalidateTvsAndUses();
     } else {
       input->addUse(expr);
     }
@@ -613,7 +622,7 @@ void Fusion::registerExpr(Expr* expr) {
         // If that happens, our definition-based traversal can change and
         // introduce whole new branches, so we need to recompute the uses_
         // vector after setDefinition.
-        invalidateTvUses();
+        invalidateTvsAndUses();
       }
     }
   }
@@ -862,12 +871,35 @@ bool isExpressionEvaluated(Fusion* fusion) {
       });
 }
 
-const std::vector<TensorView*>& Fusion::allTvs() {
+namespace {
+std::vector<TensorView*> findAllTvs(Fusion* fusion) {
+  auto used_vals = fusion->usedMathVals();
+  auto used_tvs = ir_utils::filterByType<TensorView>(used_vals);
+
+  // This shouldn't be necessary but FusionSegmentIoAlias_CUDA due to aliasing
+  // is having an input disconnected from outputs, and these iter domains are
+  // being checked in compute at maps in scheduling logic. This shouldn't hurt
+  // AFAICT.
+  auto tv_inputs = ir_utils::filterByType<TensorView>(fusion->inputs());
+
+  std::vector<TensorView*> all_tvs({used_tvs.begin(), used_tvs.end()});
+  // Sometimes inputs are not connected to outputs, however, we still include
+  // them when returning allTvs because they are registered as an input.
+  all_tvs.insert(all_tvs.end(), tv_inputs.begin(), tv_inputs.end());
+
+  VectorOfUniqueEntries<TensorView*> unique_vector(
+      all_tvs.begin(), all_tvs.end());
+
+  // all_tvs has duplicates, to deduplicate it and return
+  return unique_vector.vector();
+}
+} // namespace
+
+std::vector<TensorView*> Fusion::allTvs() {
   if (all_tvs_ptr_ == nullptr) {
-    all_tvs_ptr_ =
-        std::make_unique<std::vector<TensorView*>>(ir_utils::allTvs(this));
+    all_tvs_ptr_ = std::make_unique<std::vector<TensorView*>>(findAllTvs(this));
   }
-  return *all_tvs_ptr_;
+  return std::vector<TensorView*>(*all_tvs_ptr_);
 }
 
 } // namespace nvfuser

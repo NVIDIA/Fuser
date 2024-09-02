@@ -56,7 +56,7 @@ std::unordered_set<Expr*> exprsDependedByNonAliases(
     const AliasAnalysisResult& analysis,
     Fusion* fusion) {
   std::vector<Val*> non_aliases;
-  for (TensorView* tv : ir_utils::allTvs(fusion)) {
+  for (TensorView* tv : fusion->allTvs()) {
     if (analysis.getRoot(tv) == nullptr) {
       non_aliases.push_back(tv);
     }
@@ -129,7 +129,7 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
   }
 
   // Materialize the alias-enabling allocation domain.
-  for (TensorView* tv : ir_utils::allTvs(fusion)) {
+  for (TensorView* tv : fusion->allTvs()) {
     if (analysis.getRoot(tv) == nullptr) {
       continue;
     }
