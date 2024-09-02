@@ -686,7 +686,7 @@ DynamicTransformInitialInfo& FusionExecutorCache::initialInfo() {
 //   to create new FusionKernelRuntime
 //   4. Concretization is unseen: Segment to create a new FusionKernelRuntime
 // For re-used shapes, path 1 is most relevant. For dynamic shape problems with
-// a large number of unique shapes, path 2 is important. Paths 2 and 3 are slow
+// a large number of unique shapes, path 2 is important. Paths 3 and 4 are slow
 // since they both involve re-segmentation and re-compilation of the Fusion.
 FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     const KernelArgumentHolder& args,
