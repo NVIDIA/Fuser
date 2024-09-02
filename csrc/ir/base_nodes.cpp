@@ -110,7 +110,7 @@ bool Val::removeUse(Expr* expr) {
     uses_.erase(it);
     if (this->isA<TensorView>()) {
       // Call for a rebuild of uses_ vector
-      fusion()->invalidateTvUses();
+      fusion()->invalidateTvsAndUses();
     }
     return true;
   }
