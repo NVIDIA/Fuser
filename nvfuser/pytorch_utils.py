@@ -62,9 +62,6 @@ def get_device_properties() -> Tuple[int, float]:
     """
     Computes device properties using ctypes and cuda.
     Note: Consider using CUDA-Python when CUDA support >= 12.0.
-    Loading libraries will raise errors on non-CUDA machines, so this
-    function should be called within other functions where this info is needed
-    instead of having a global variable.
     """
     libnames = ("libcuda.so", "libcuda.dylib", "nvcuda.dll", "cuda.dll")
     for libname in libnames:
@@ -166,14 +163,19 @@ def get_device_properties() -> Tuple[int, float]:
     return device_properties
 
 
+DEVICE_PROPERTIES = None
+if torch.cuda.is_available():
+    # Loading libraries will raise errors on non-CUDA machines.
+    DEVICE_PROPERTIES = get_device_properties()
+
+
 def clear_cuda_cache() -> None:
     """
     Utility function to clear CUDA cache before running a test.
     """
-    device_properties = get_device_properties()
     if (
         torch.cuda.memory_allocated()
-        or torch.cuda.memory_reserved() > 0.8 * device_properties["gpu_gmem_bytes"]
+        or torch.cuda.memory_reserved() > 0.8 * DEVICE_PROPERTIES["gpu_gmem_bytes"]
     ):
         gc.collect()
         torch.cuda.empty_cache()
