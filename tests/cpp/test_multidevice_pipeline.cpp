@@ -40,6 +40,120 @@
 
 namespace nvfuser {
 
+class PipelineTest : public MultiDeviceTest {
+ protected:
+  PipelineTest();
+
+  // Utility function used for validation in the tests. It compares the
+  // (sharded) outputs with ref_unsharded_outputs. if
+  // validate_with_prescribed_values is true, ref_unsharded_outputs is assumed
+  // to be set manually in the test body. Otherwise, ref_unsharded_outputs is
+  // computed by running a Fusion on a single device with the unsharded_inputs
+  void validate(bool validate_with_prescribed_values = false);
+  void executeAndValidate(bool validate_with_prescribed_values = false);
+
+  std::unique_ptr<MultiDeviceExecutor> runtime;
+  std::unique_ptr<Fusion> fusion;
+  std::vector<c10::IValue> inputs;
+  std::vector<c10::IValue> unsharded_inputs;
+  std::vector<at::Tensor> outputs;
+  std::vector<at::Tensor> ref_unsharded_outputs;
+  hir::HostIrExecutorParams host_ir_executor_params;
+};
+
+void PipelineTest::validate(bool validate_with_prescribed_values) {
+  if (!validate_with_prescribed_values) {
+    // execute the fusion on one device without pipeline scheduling
+    auto fusion_copy = std::make_unique<Fusion>(*runtime->completeFusion());
+    unshard(fusion_copy.get());
+    FusionExecutorCache unsharded_fec(std::move(fusion_copy));
+    ref_unsharded_outputs = unsharded_fec.runFusionWithInputs(unsharded_inputs);
+  }
+
+  if (debug_print) {
+    std::stringstream ss;
+    std::string indent = "  ";
+    ss << "Device " << communicator_->deviceId()
+       << "'s expected (unsharded) outputs:{\n";
+    for (auto& t : ref_unsharded_outputs) {
+      ss << indent << t;
+    }
+    ss << "\n}";
+    std::cout << ss.str() << std::endl;
+  }
+
+  ASSERT_EQ(ref_unsharded_outputs.size(), outputs.size());
+  for (int i : c10::irange(runtime->completeFusion()->outputs().size())) {
+    ASSERT_TRUE(runtime->completeFusion()->outputs().at(i)->isA<TensorView>());
+    auto output_tv =
+        runtime->completeFusion()->outputs().at(i)->as<TensorView>();
+    if (!output_tv->getDeviceMesh().has(communicator_->deviceId())) {
+      continue;
+    }
+    auto ref_output = shardTensor(ref_unsharded_outputs.at(i), output_tv);
+    auto obtained_output = outputs.at(i);
+    EXPECT_TRUE(torch::allclose(ref_output, obtained_output))
+        << "Device " << communicator_->deviceId() << " has unexpected output "
+        << i << " corresponding to tv " << output_tv
+        << ". Expected values: " << ref_output
+        << ", obtained values: " << obtained_output;
+  }
+}
+
+// Run and validate a pipeline
+// with given (possibly sharded) inputs
+void PipelineTest::executeAndValidate(bool validate_with_prescribed_values) {
+  ASSERT_EQ(unsharded_inputs.size(), fusion->inputs().size());
+  for (int i : c10::irange(fusion->inputs().size())) {
+    ASSERT_TRUE(fusion->inputs().at(i)->isA<TensorView>());
+    auto input_tv = fusion->inputs().at(i)->as<TensorView>();
+    auto input = shardTensor(unsharded_inputs.at(i).toTensor(), input_tv);
+    inputs.push_back(input);
+  }
+
+  if (debug_print) {
+    if (!communicator_->deviceId()) {
+      fusion->printKernel();
+    }
+    std::stringstream ss;
+    std::string indent = "  ";
+    ss << "Device " << communicator_->deviceId() << "'s inputs:{\n";
+    for (auto& t : inputs) {
+      ss << indent << t;
+    }
+    ss << "\n}";
+    std::cout << ss.str() << std::endl;
+  }
+
+  runtime = std::make_unique<MultiDeviceExecutor>(
+      std::move(fusion), *communicator_, host_ir_executor_params);
+  auto error_msg = runtime->validate();
+  if (error_msg != "") {
+    GTEST_SKIP() << error_msg;
+  }
+  outputs = runtime->runWithInput(inputs);
+
+  if (debug_print) {
+    if (!communicator_->deviceId()) {
+      runtime->print();
+    }
+    std::stringstream ss;
+    std::string indent = "  ";
+    ss << "Device " << communicator_->deviceId() << "'s outputs:{\n";
+    for (auto& t : outputs) {
+      ss << indent << t;
+    }
+    ss << "\n}";
+    std::cout << ss.str() << std::endl;
+  }
+  validate(validate_with_prescribed_values);
+}
+
+PipelineTest::PipelineTest() {
+  fusion = std::make_unique<Fusion>();
+  communicator_->setDefaultBackend(CommunicatorBackend::nccl);
+}
+
 // To run the following tests on several devices, pytorch must be installed with
 // the flag USE_DISTRIBUTED=1 and nccl support. With that, nvFuser is built by
 // default with NVFUSER_DISTRIBUTED defined. Then, on a node with at least 6
