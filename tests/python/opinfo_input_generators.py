@@ -311,7 +311,7 @@ def cat_error_generator(op, dtype=torch.float32, requires_grad: bool = False, **
         "Unexpected number of dimensions",
     )
     # All tensors must have same shape except for the cat dimension
-    shape_mismatch = (([(2, 3), (4, 5)], 0), RuntimeError, "known_size == this_size")
+    shape_mismatch = (([(2, 3), (4, 5)], 0), RuntimeError, "Tried to bind to a value")
 
     error_cases = [
         empty_input_tensors,
