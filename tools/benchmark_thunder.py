@@ -70,7 +70,10 @@ class BenchmarkRunner:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Runs Thunder benchmarks with multiple settings."
+        description="Runs Thunder benchmarks with multiple settings. "
+        "It stores benchmark results to the specified storage path, which "
+        "can be compared by running `pytest-benchmark --storage <storage_path> "
+        "compare <run IDs> --group-by name`."
     )
     parser.add_argument(
         "settings",

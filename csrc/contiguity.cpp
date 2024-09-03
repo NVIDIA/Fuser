@@ -14,11 +14,10 @@
 namespace nvfuser {
 
 OrderedIdInformation::OrderedIdInformation(
-    const std::vector<IterDomain*>& ids,
     const std::vector<IterDomain*>& alloc_domain,
     std::shared_ptr<const ConcretizedBroadcastDomains> concrete_info)
     : active_ids_(alloc_domain), concrete_info_(std::move(concrete_info)) {
-  if (ids.empty() || alloc_domain.empty()) {
+  if (alloc_domain.empty()) {
     return;
   }
 
@@ -34,12 +33,14 @@ OrderedIdInformation::OrderedIdInformation(
 
     exclusively_consumes_allocs_.emplace(alloc_id);
   }
+}
 
+void OrderedIdInformation::traverseTo(const std::vector<IterDomain*>& ids) {
   // Iterate from the allocation domain to the provided ids and fill
   // consistently_ordered_ids_, id_to_alloc_ids_, and
   // exclusively_consumes_allocs_ for all the IDs
   auto exprs = StmtSort::getExprsBetween(
-      {alloc_domain.begin(), alloc_domain.end()}, {ids.begin(), ids.end()});
+      {active_ids_.begin(), active_ids_.end()}, {ids.begin(), ids.end()});
 
   for (auto expr : exprs) {
     OptInDispatch::dispatch(expr);
@@ -53,7 +54,7 @@ bool OrderedIdInformation::checkExclusivelyConsumesAllocs(IterDomain* id) {
       id->toString(),
       " to be in the active ID set.");
 
-  auto alloc_id_it = id_to_alloc_ids_.find(id);
+  auto alloc_id_it = findAllocIDs(id);
   NVF_ERROR(
       alloc_id_it != id_to_alloc_ids_.end(),
       "Error replaying transforms in contiguous ID checker, couldn't find mapped allocs of ",
@@ -68,7 +69,7 @@ bool OrderedIdInformation::checkExclusivelyConsumesAllocs(IterDomain* id) {
       continue;
     }
 
-    auto alloc_id_it = id_to_alloc_ids_.find(other_active_id);
+    auto alloc_id_it = findAllocIDs(other_active_id);
     NVF_ERROR(
         alloc_id_it != id_to_alloc_ids_.end(),
         "Error replaying transforms in contiguous ID checker, couldn't find mapped allocs of ",
@@ -102,32 +103,25 @@ void OrderedIdInformation::handle(Merge* merge) {
   const auto& inner_alloc_ids = findAllocIDs(merge->inner())->second;
   const auto& outer_alloc_ids = findAllocIDs(merge->outer())->second;
 
-  // TODO: Concretization may prevent contiguous indexing or vectorization.
-  //  It prevents contiguous indexing if the concretization is within the IDs
-  //  that are used for indexing.
-  //  For vectorization it just means we need to make sure the extents of the
-  //  axes to the right of the broadcast allocation domain in the contigous
-  //  merge is bigger than the vectorization dimension. And that the tensor
-  //  buffer supports the vector word size (always done).
-  bool outer_is_concretized_bcast = merge->outer()->isBroadcast() &&
-      concrete_info_->isConcretized(merge->outer());
-
-  bool inner_is_concretized_bcast = merge->inner()->isBroadcast() &&
-      concrete_info_->isConcretized(merge->inner());
-
   // Update maps
-  // Find the position inner would have to have to be considered ordered
+  // Find the position inner would have to be considered ordered
   auto pos_after_outer = outer_pos + 1;
   for (; pos_after_outer < int64_t(active_ids_.size()); pos_after_outer++) {
     if (active_ids_[pos_after_outer] == nullptr) {
       // Can't be considered ordered after a nullptr
       break;
     }
-    if (active_ids_[pos_after_outer]->isReduction() ||
-        ((active_ids_[pos_after_outer]->isBroadcast() &&
-          !concrete_info_->isConcretized(active_ids_[pos_after_outer])))) {
-      // Skip reduction or broadcast axes that aren't concretized in the fusion
-      continue;
+    // When using IdModel, reduction domains are excluded from
+    // allocation domains but loop promotion may pick reduction
+    // domains, which should just be treated as normal domains.
+    if (!using_id_graph_) {
+      if (active_ids_[pos_after_outer]->isReduction() ||
+          ((active_ids_[pos_after_outer]->isBroadcast() &&
+            !isConcretized(active_ids_[pos_after_outer])))) {
+        // Skip reduction or broadcast axes that aren't concretized in the
+        // fusion
+        continue;
+      }
     }
     break;
   }
@@ -142,8 +136,30 @@ void OrderedIdInformation::handle(Merge* merge) {
       // Inner could be a broadcast, so doesn't have to be right on
       // pos_after_outer as that ID (if it exists) should not be a broadcast.
       // However, merging over a broadcast should be fine.
-      inner_pos <= pos_after_outer && !inner_is_concretized_bcast &&
-      !outer_is_concretized_bcast;
+      inner_pos <= pos_after_outer;
+
+  if (!using_id_graph_) {
+    // TODO: Concretization may prevent contiguous indexing or vectorization.
+    //  It prevents contiguous indexing if the concretization is within the IDs
+    //  that are used for indexing.
+    //  For vectorization it just means we need to make sure the extents of the
+    //  axes to the right of the broadcast allocation domain in the contigous
+    //  merge is bigger than the vectorization dimension. And that the tensor
+    //  buffer supports the vector word size (always done).
+    //
+    // This shouldn't matter when using the IdModel-based
+    // indexer. When concretized, that should be reflected with the
+    // indexing path, and as long as the indexing path has a
+    // contiguous merge, its output should be safe to index. See
+    // also ContigIndexingTest.ConcretizedBroadcastMerge for a
+    // concrete example.
+    bool outer_is_concretized_bcast =
+        merge->outer()->isBroadcast() && isConcretized(merge->outer());
+    bool inner_is_concretized_bcast =
+        merge->inner()->isBroadcast() && isConcretized(merge->inner());
+    out_ordered = out_ordered && !inner_is_concretized_bcast &&
+        !outer_is_concretized_bcast;
+  }
 
   if (out_ordered) {
     consistently_ordered_ids_.emplace(merge->out());
@@ -443,7 +459,7 @@ ContigIDs::ContigIDs(
         std::make_shared<ConcretizedBroadcastDomains>(ids[0]->fusion());
 
     consistent_transform_info_ = std::make_unique<const OrderedIdInformation>(
-        ids, alloc_domain, concrete_info_);
+        OrderedIdInformation::get(ids, alloc_domain, concrete_info_));
   }
   build(ids);
 }
@@ -471,9 +487,7 @@ ContigIDs::ContigIDs(
       ignore_indexability_(ignore_indexability),
       ignore_consistent_ordering_(ignore_consistent_ordering),
       consistent_transform_info_(std::make_unique<const OrderedIdInformation>(
-          ids,
-          alloc_domain,
-          concrete_info_)),
+          OrderedIdInformation::get(ids, alloc_domain, concrete_info_))),
       non_divisible_id_info_(ids, alloc_domain, divisible_splits_) {
   build(ids);
 }

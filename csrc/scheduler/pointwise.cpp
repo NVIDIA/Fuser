@@ -32,7 +32,14 @@ PointWiseScheduler::PointWiseScheduler(
 }
 
 bool PointWiseScheduler::canScheduleCompileTime(Fusion* fusion) {
-  //   Currently using the same path as the scheduler
+  if (scheduler_utils::isResharding(fusion)) {
+    FUSER_PERF_SCOPE("PointWiseScheduler::canScheduleCompileTime");
+    scheduler_debug_utils::canScheduleRejectReason(
+        heuristicType(), "Fusion is resharding.");
+    return false;
+  }
+
+  // Currently using the same path as the scheduler
   // to eliminate mismatch between canSchedule and
   // schedule pointwise.
   if (!hasReferenceTensorView(fusion)) {
@@ -76,6 +83,7 @@ bool PointWiseScheduler::canScheduleRunTime(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
+  FUSER_PERF_SCOPE("PointWiseScheduler::canScheduleRunTime");
   auto can_schedule_transpose_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::CanScheduleTranspose>(
           data_cache, [fusion]() {
@@ -92,7 +100,7 @@ bool PointWiseScheduler::canScheduleRunTime(
 }
 
 void PointWiseScheduler::schedule(Fusion* fusion) {
-  FUSER_PERF_SCOPE("Schedule PointWise Fusion");
+  FUSER_PERF_SCOPE("PointWiseScheduler::schedule");
   schedulePointwise(fusion, pointwiseParams());
 }
 
@@ -100,6 +108,7 @@ void PointWiseScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
+  FUSER_PERF_SCOPE("PointWiseScheduler::computeHeuristics");
   params_ = getPointwiseHeuristics(fusion, runtime_info, data_cache);
   NVF_ERROR(params_ != nullptr);
 }
@@ -154,8 +163,6 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
-  FUSER_PERF_SCOPE("getPointwiseHeuristics");
-
   FusionGuard fg(fusion);
 
   // Incase any buffer is of type DataType::Index
@@ -506,7 +513,6 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
 LaunchParams schedulePointwise(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs) {
-  FUSER_PERF_SCOPE("scheduleFusion");
   auto params = getPointwiseHeuristics(fusion, runtime_inputs);
   NVF_ERROR(params != nullptr, "Could not schedule pointwise operation.");
   schedulePointwise(fusion, *params);
@@ -575,6 +581,8 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
   NVF_ERROR(
       reference_tv != nullptr,
       "Could not find a fully broadcasted output to reference schedule on.");
+
+  scheduler_utils::moveNonConcretizedBroadcastInnermost(fusion, {reference_tv});
 
   int64_t num_device_dims = numDeviceDims(reference_tv);
   int64_t device_aware_break_point = params.break_point + num_device_dims;
@@ -893,7 +901,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
   // unrolling manually.
   inlineAllAt(reference_tv, unswitch_pos, true);
 
-  auto all_tvs = ir_utils::allTvs(fusion);
+  auto all_tvs = fusion->allTvs();
 
   // Inline at the inner most position. The CA position of all tensors except
   // inputs, cached inputs and outputs will be updated.

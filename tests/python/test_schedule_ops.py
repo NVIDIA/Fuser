@@ -4,14 +4,15 @@
 # Owner(s): ["module: nvfuser"]
 
 from typing import Callable
-import unittest
 
 import torch
 from utils import is_pre_volta, is_pre_hopper
-from torch.testing._internal.common_utils import run_tests, TestCase
+from torch.testing._internal.common_utils import TestCase
 from torch.testing._internal.jit_utils import RUN_CUDA
+import pytest
 
 from nvfuser import (
+    FusionCache,
     FusionDefinition,
     DataType,
     ParallelType,
@@ -55,8 +56,8 @@ def _apply_scheduler_helper(schedule, selected_heuristic):
     schedule.schedule(selected_heuristic)
 
 
-@unittest.skipIf(not RUN_CUDA, "requires CUDA")
-@unittest.skipIf(is_pre_volta(), "Only supported on Volta and newer devices.")
+@pytest.mark.skipif(not RUN_CUDA, reason="requires CUDA")
+@pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
 class TestScheduleOps(TestCase):
     def sched_op_in_definition_error(self, sched_op_fn: Callable):
         """
@@ -81,6 +82,9 @@ class TestScheduleOps(TestCase):
         ):
             fd = DefError()
             _ = fd.execute(inputs)
+
+        # reset cache to avoid follow up test picking up the manual user schedule
+        FusionCache.get().reset()
 
     def check_input_error(
         self, sched_fn: Callable, error_msg: str, error_type=RuntimeError
@@ -107,6 +111,9 @@ class TestScheduleOps(TestCase):
         with self.assertRaisesRegex(error_type, error_msg):
             fd = InputError()
             _ = fd.execute(inputs)
+
+        # reset cache to avoid follow up test picking up the manual user schedule
+        FusionCache.get().reset()
 
     def valid_use(self, sched_op_fn: Callable):
         """
@@ -135,6 +142,7 @@ class TestScheduleOps(TestCase):
         nvf_user_out = fd.execute(inputs)
         nvf_out = fd.execute(inputs, override_user_schedule=True)
         self.assertEqual(nvf_user_out, nvf_out)
+        self.assertTrue(fd._exist_schedule(inputs))
 
     def test_print(self):
         """
@@ -1087,7 +1095,9 @@ class TestScheduleOps(TestCase):
         torch_ref = torch.abs(inputs[0]).reshape(inputs[1].shape) + inputs[1]
         self.assertEqual(nvf_out[0], torch_ref)
 
-    @unittest.skipIf(torch.cuda.device_count() < 2, "More than 1 GPU required")
+    @pytest.mark.skipif(
+        torch.cuda.device_count() < 2, reason="More than 1 GPU required"
+    )
     def test_inputs_with_different_devices(self):
         """
         Test case for issue 2056. Run the same fusion definition with inputs on
@@ -1122,7 +1132,3 @@ class TestScheduleOps(TestCase):
             torch_ref = inputs[0].sum(-1)
             nvf_out = fd.execute(inputs)
             self.assertEqual(nvf_out[0], torch_ref)
-
-
-if __name__ == "__main__":
-    run_tests()

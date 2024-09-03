@@ -39,7 +39,10 @@ namespace nvfuser::python_frontend {
 // bindings. Ideally, these would be templated lambda functions but those
 // are not available without C++20.
 namespace {
-Vector define_vector_base_fn(FusionDefinition& fd, std::vector<Scalar>& args) {
+Vector define_vector_base_fn(
+    FusionDefinition& fd,
+    std::vector<Scalar>& args,
+    bool inline_def = false) {
   FUSER_PERF_SCOPE("python_frontend::define_vector_base_fn");
   NVF_CHECK(!fd.completed(), "Attempting to add to a completed definition!");
   std::vector<State> inputs;
@@ -48,8 +51,8 @@ Vector define_vector_base_fn(FusionDefinition& fd, std::vector<Scalar>& args) {
     inputs.push_back(fd.recordingState(arg()));
   }
   Vector out = fd.defineVector(inputs.size());
-  fd.defineRecord(
-      new VectorRecord(inputs, {fd.recordingState(out())}, DataType::Int));
+  fd.defineRecord(new VectorRecord(
+      inputs, {fd.recordingState(out())}, DataType::Int, inline_def));
   return out;
 }
 
@@ -57,7 +60,7 @@ template <class ITERABLE>
 Vector define_vector_fn(
     FusionDefinition& self,
     ITERABLE& values,
-    PrimDataType dtype = DataType::Int) {
+    bool inline_def = false) {
   FUSER_PERF_SCOPE("python_frontend::define_vector_fn");
   std::vector<Scalar> args;
   size_t idx = 0;
@@ -73,7 +76,10 @@ Vector define_vector_fn(
           " was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1).");
       Scalar out = self.defineScalar();
       self.defineRecord(new ScalarRecord(
-          {self.recordingState(out())}, py::cast<int64_t>(item), dtype));
+          {self.recordingState(out())},
+          py::cast<int64_t>(item),
+          DataType::Int,
+          /*inline_def=*/true));
       args.emplace_back(out);
     } else if (py::isinstance<Scalar>(item)) {
       args.emplace_back(py::cast<Scalar>(item));
@@ -85,7 +91,15 @@ Vector define_vector_fn(
     }
     ++idx;
   }
-  return define_vector_base_fn(self, args);
+  return define_vector_base_fn(self, args, inline_def);
+}
+
+template <class ITERABLE>
+Vector define_vector_explicit_fn(
+    FusionDefinition& self,
+    ITERABLE& values,
+    PrimDataType dtype = DataType::Int) {
+  return define_vector_fn<ITERABLE>(self, values, /*inline_def=*/false);
 }
 
 template <class ShapeType>
@@ -107,7 +121,7 @@ Vector ShapeAsVector(ShapeType shape, FusionDefinition& fd) {
     // ```
     // would not work because the compiler would try to instantiate
     // define_vector_fn<Vector> and fail.
-    return define_vector_fn<ShapeType>(fd, shape);
+    return define_vector_fn<ShapeType>(fd, shape, /*inline_def=*/true);
   }
 }
 
@@ -658,7 +672,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             for (py::handle obj : iter) {
               inputs.push_back(torch::jit::toIValue(obj, c10::AnyType::get()));
             }
-            self.existSchedule(inputs);
+            return self.existSchedule(inputs);
           })
       .def(
           "_setup_schedule",
@@ -1057,13 +1071,13 @@ void initNvFuserPythonBindings(PyObject* module) {
   // of constant values.
   fusion_def.def(
       "define_vector",
-      define_vector_fn<py::list>,
+      define_vector_explicit_fn<py::list>,
       py::arg("values"),
       py::arg("dtype") = DataType::Int,
       py::return_value_policy::reference);
   fusion_def.def(
       "define_vector",
-      define_vector_fn<py::tuple>,
+      define_vector_explicit_fn<py::tuple>,
       py::arg("values"),
       py::arg("dtype") = DataType::Int,
       py::return_value_policy::reference);
@@ -1436,6 +1450,8 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_BINARY_OP("pow", pow)
   NVFUSER_PYTHON_BINDING_BINARY_OP("remainder", remainder)
   NVFUSER_PYTHON_BINDING_BINARY_OP("sub", sub)
+  NVFUSER_PYTHON_BINDING_BINARY_OP("minimum", minimum)
+  NVFUSER_PYTHON_BINDING_BINARY_OP("maximum", maximum)
   NVFUSER_PYTHON_BINDING_BINARY_OP("mod", mod)
   NVFUSER_PYTHON_BINDING_BINARY_OP("eq", eq)
   NVFUSER_PYTHON_BINDING_BINARY_OP("ge", ge)

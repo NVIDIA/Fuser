@@ -45,12 +45,37 @@ struct RecordFunctor {
       std::vector<State> _args,
       std::vector<State> _outputs,
       std::string _name,
-      serde::RecordType _record_type)
+      serde::RecordType _record_type,
+      bool _inline_def = false)
       : args_(std::move(_args)),
         arg_names_(args_.size()),
         outputs_(std::move(_outputs)),
         name_(std::move(_name)),
-        record_type_(_record_type) {}
+        record_type_(_record_type),
+        inline_def_(
+            _inline_def &&
+            !isOptionDisabled(DisableOption::PythonInlineDefinitions)) {
+    // Set this Record as the parent of each output
+    if (inline_def_) {
+      for (auto& out : outputs_) {
+        out.setInlineDefRecord(this);
+      }
+    }
+  }
+  RecordFunctor(const RecordFunctor& other)
+      : args_(other.args_),
+        arg_names_(other.arg_names_),
+        outputs_(other.outputs_),
+        name_(other.name_),
+        record_type_(other.record_type_),
+        inline_def_(other.inline_def_) {
+    // Set this Record as the parent of each output
+    if (inline_def_) {
+      for (auto& out : outputs_) {
+        out.setInlineDefRecord(this);
+      }
+    }
+  }
   virtual ~RecordFunctor() = default;
   //! Allows for copying of Child Class objects with RecordFunctor pointers.
   virtual RecordFunctor* clone() = 0;
@@ -67,6 +92,8 @@ struct RecordFunctor {
     for (auto output : outputs_) {
       output_hash ^= ((output.index << 1) ^ static_cast<size_t>(output.stype));
     }
+    // NOTE: The inline_def is not part of the hash as it is not used for
+    // comparison
     return ((static_cast<size_t>(record_type_) & 0xff) << 56) |
         ((output_hash & 0xff) << 48) | ((arg_hash & 0xffff) << 32);
   }
@@ -96,6 +123,8 @@ struct RecordFunctor {
         }
       }
     }
+    // NOTE: The inline_def is not part of the equality operator as it is not
+    // used for comparison
     return result;
   }
 
@@ -147,6 +176,9 @@ struct RecordFunctor {
   //! The base print function when printing Record for a given FusionState
   //! in python formated code.
   virtual void print(std::ostream& os, bool close_function = true) const {
+    NVF_ERROR(
+        !inline_def_,
+        "The default print function does not handle inline definitions!");
     bool first_output = true;
     for (auto& output : outputs_) {
       if (first_output) {
@@ -188,8 +220,19 @@ struct RecordFunctor {
     return outputs_.size();
   }
 
+  const std::vector<State>& outputs() const {
+    return outputs_;
+  }
+  std::vector<State>& args() {
+    return args_;
+  }
+
   serde::RecordType recordType() const {
     return record_type_;
+  }
+
+  bool inlineDef() const {
+    return inline_def_;
   }
 
   //! Set the name of an argument. If given, it will be listed as a keyword
@@ -212,6 +255,8 @@ struct RecordFunctor {
   //! Record Type of child class used for hashing
   //! enum class RecordType is defined in flatbuffer schema
   serde::RecordType record_type_;
+  //! Indicates if a record was defined inline with another record for printing
+  bool inline_def_;
   //! Whether this record type returns a tuple of unknown length. This is only
   //! used for TensorSizesRecord.
   bool always_returns_tuple_ = false;
@@ -1772,12 +1817,14 @@ struct ScalarRecord : RecordFunctor {
   ScalarRecord(
       std::vector<State> _outputs,
       PolymorphicValue value,
-      std::optional<PrimDataType> dtype)
+      std::optional<PrimDataType> dtype,
+      bool inline_def = false)
       : RecordFunctor(
             {},
             std::move(_outputs),
             "define_scalar",
-            serde::RecordType::Scalar),
+            serde::RecordType::Scalar,
+            inline_def),
         value_(
             dtype.has_value() ? castToDtype(std::move(value), dtype.value())
                               : std::move(value)),
@@ -1829,15 +1876,19 @@ struct ScalarRecord : RecordFunctor {
   }
 
   void print(std::ostream& os, bool close_function = true) const final {
-    RecordFunctor::print(os, false);
-    if (value_.hasValue()) {
+    if (inline_def_) {
+      NVF_CHECK(
+          value_.hasValue(),
+          "Only ScalarRecords with values support inline definitions!");
       if (value_.is<bool>()) {
+        NVF_CHECK(
+            dtype_ == PrimDataType::Bool,
+            "A ScalarRecord for Bool inline definition not have a matching data type!");
         os << ((bool)value_ ? "True" : "False");
-      } else if (value_.is<std::complex<double>>()) {
-        os << std::showpoint << std::real(value_.as<std::complex<double>>())
-           << "+" << std::showpoint
-           << std::imag(value_.as<std::complex<double>>()) << "j";
       } else if (value_.is<double>()) {
+        NVF_CHECK(
+            dtype_ == PrimDataType::Double,
+            "A ScalarRecord for Double inline definition not have a matching data type!");
         if (std::isinf(value_.as<double>())) {
           if (std::signbit(value_.as<double>())) {
             os << "float(\"-inf\")";
@@ -1850,18 +1901,53 @@ struct ScalarRecord : RecordFunctor {
           os << std::showpoint << value_.as<double>();
         }
       } else if (value_.is<int64_t>()) {
+        NVF_CHECK(
+            dtype_ == PrimDataType::Int,
+            "A ScalarRecord for Int inline definition not have a matching data type!");
         os << value_;
       } else {
-        NVF_CHECK(false, "Unsupported dtype.");
+        NVF_ERROR(
+            false,
+            "A ScalarRecord with an unsupported inline definition type!");
       }
+      // NOTE: close_function is not relevant for the inline definition as the
+      // printing is specific to each operator and not partially done with the
+      // base class print method.
     } else {
-      os << "None";
-    }
+      RecordFunctor::print(os, false);
+      if (value_.hasValue()) {
+        if (value_.is<bool>()) {
+          os << ((bool)value_ ? "True" : "False");
+        } else if (value_.is<std::complex<double>>()) {
+          os << std::showpoint << std::real(value_.as<std::complex<double>>())
+             << "+" << std::showpoint
+             << std::imag(value_.as<std::complex<double>>()) << "j";
+        } else if (value_.is<double>()) {
+          if (std::isinf(value_.as<double>())) {
+            if (std::signbit(value_.as<double>())) {
+              os << "float(\"-inf\")";
+            } else {
+              os << "float(\"inf\")";
+            }
+          } else if (std::isnan(value_.as<double>())) {
+            os << "float(\"nan\")";
+          } else {
+            os << std::showpoint << value_.as<double>();
+          }
+        } else if (value_.is<int64_t>()) {
+          os << value_;
+        } else {
+          NVF_CHECK(false, "Unsupported dtype.");
+        }
+      } else {
+        os << "None";
+      }
 
-    os << ", dtype=" << dtypeToPyString(dtype_);
+      os << ", dtype=" << dtypeToPyString(dtype_);
 
-    if (close_function) {
-      os << ")";
+      if (close_function) {
+        os << ")";
+      }
     }
   }
 
@@ -2682,12 +2768,14 @@ struct VectorRecord : RecordFunctor {
   VectorRecord(
       std::vector<State> _args,
       std::vector<State> _outputs,
-      PrimDataType dtype)
+      PrimDataType dtype,
+      bool inline_def = false)
       : RecordFunctor(
             std::move(_args),
             std::move(_outputs),
             "define_vector",
-            serde::RecordType::Vector),
+            serde::RecordType::Vector,
+            inline_def),
         dtype_(dtype) {}
   ~VectorRecord() override = default;
   RecordFunctor* clone() final {
@@ -2727,28 +2815,43 @@ struct VectorRecord : RecordFunctor {
   }
 
   void print(std::ostream& os, bool close_function = true) const final {
-    bool first_output = true;
-    for (auto& output : outputs_) {
-      if (first_output) {
-        first_output = false;
-      } else {
-        os << ", ";
+    if (inline_def_) {
+      bool first_arg = true;
+      NVF_CHECK(outputs_.size() == 1, "VectorRecord's does not have 1 output!");
+      os << "[";
+      for (auto& arg : args_) {
+        if (first_arg) {
+          first_arg = false;
+        } else {
+          os << ", ";
+        }
+        os << arg;
       }
-      os << output;
-    }
-    os << " = fd." << name_ << "([";
-    bool first_arg = true;
-    for (auto& arg : args_) {
-      if (first_arg) {
-        first_arg = false;
-      } else {
-        os << ", ";
+      os << "]";
+    } else {
+      bool first_output = true;
+      for (auto& output : outputs_) {
+        if (first_output) {
+          first_output = false;
+        } else {
+          os << ", ";
+        }
+        os << output;
       }
-      os << arg;
-    }
-    os << "], dtype=" << dtypeToPyString(dtype_);
-    if (close_function) {
-      os << ")";
+      os << " = fd." << name_ << "([";
+      bool first_arg = true;
+      for (auto& arg : args_) {
+        if (first_arg) {
+          first_arg = false;
+        } else {
+          os << ", ";
+        }
+        os << arg;
+      }
+      os << "], dtype=" << dtypeToPyString(dtype_);
+      if (close_function) {
+        os << ")";
+      }
     }
   }
 
