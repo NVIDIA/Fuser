@@ -4249,9 +4249,7 @@ class TestNvFuserFrontend(NVFuserTest):
 
         with pytest.raises(
             Exception,
-            match=re.escape(
-                "Expected input 0, T0_g[ iS0{i0} ], to be an at::Tensor but got scalar 2"
-            ),
+            match="Expected input 0, .*, to be an at::Tensor but got scalar 2",
         ):
             nvf_out = fd.execute([scalar_inp, scalar_inp])
 
@@ -4265,10 +4263,7 @@ class TestNvFuserFrontend(NVFuserTest):
 
         with pytest.raises(
             Exception,
-            match=re.escape(
-                "Expected input 0, T0_g[ iS0{i0} ], to be bound to a tensor of dtype float,"
-                " but got a tensor of dtype __half"
-            ),
+            match="Expected input 0, .*, to be bound to a tensor of dtype float, but got a tensor of dtype __half",
         ):
             wrong_tensor_inp = torch.rand((15,), dtype=torch.float16, device="cuda:0")
             nvf_out = fd.execute([wrong_tensor_inp, 2.0])
