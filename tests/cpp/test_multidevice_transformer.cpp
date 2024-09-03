@@ -1027,6 +1027,21 @@ TEST_P(DistributedTransformerTest, Backward) {
   // Note: Deviate from the thunder trace with layer norm recomputation
   // Thunder saves intermediate values that are not exposed by ATen
   // making it difficult to test.
+  // TensorView* x = makeContigConcreteTensor({B * S, E}, DataType::Float);
+  // TensorView* mha_w0 = makeContigConcreteTensor({D, E, 3 * E / D}, dtype);
+  // TensorView* mha_b0 = makeContigConcreteTensor({D, 3 * E / D}, dtype);
+  // TensorView* mha_w1 = makeContigConcreteTensor({D, E / D, E}, dtype);
+  // TensorView* mha_b1 = makeContigConcreteTensor({E}, dtype);
+  // TensorView* mlp_w0 = makeContigTensor(3, dtype);
+  // TensorView* mlp_b0 = makeContigTensor(2, dtype);
+  // TensorView* mlp_w1 = makeContigTensor(3, dtype);
+  // TensorView* mlp_b1 = makeContigTensor(1, dtype);
+  // TensorView* mha_mask = makeContigTensor(2, DataType::Bool);
+  // TensorView* mlp_mask = makeContigTensor(2, DataType::Bool);
+
+
+
+
 
   const auto options =
       at::TensorOptions().dtype(at_dtype).device(communicator_->device());
@@ -1046,7 +1061,7 @@ TEST_P(DistributedTransformerTest, Backward) {
   auto ln1_b = at::randn(E, options).to(at::kFloat);
   auto mlp_w0_ = at::randn({E, 4 * E}, options) * kParamScale;
   auto mlp_b0_ = at::randn({4 * E}, options) * kParamScale;
-  auto grad_ = at::randn({B, S, E}, options);
+  auto grad_ = at::randn({B*S, E}, options);
   auto mlp_w1_ = at::randn({4 * E, E}, options) * kParamScale;
   auto mlp_b1_ = at::randn({E}, options) * kParamScale;
   auto mlp_mask_ = at::randn({B * S, E}, options).lt(1.0 - kDropoutProb);
@@ -1072,7 +1087,7 @@ TEST_P(DistributedTransformerTest, Backward) {
       grad_, ln1_out_, mlp_mask_, mlp_w0_, mlp_b0_, mlp_w1_, at_dtype);
   auto ln1_grads = at::native_layer_norm_backward(
       std::get<0>(ln0_),
-      mlp_grads_[6],
+      mlp_grads_[6].to(at::kFloat),
       norm_shape,
       /*mean=*/std::get<1>(ln1_),
       /*rstd=*/std::get<1>(ln1_),
@@ -1091,7 +1106,7 @@ TEST_P(DistributedTransformerTest, Backward) {
       at_dtype);
   auto ln0_grads = at::native_layer_norm_backward(
       x_,
-      mha_grads_[12],
+      mha_grads_[12].to(at::kFloat),
       norm_shape,
       /*mean=*/std::get<1>(ln0_),
       /*rstd=*/std::get<1>(ln0_),
@@ -1114,6 +1129,9 @@ TEST_P(DistributedTransformerTest, Backward) {
       std::get<1>(ln0_grads), // ln0 weight grad
       std::get<2>(ln0_grads) // ln0 bias grad
   };
+  for (auto i : ref_outputs) {
+    std::cout << i.sizes() << std::endl;
+  }
 }
 
 INSTANTIATE_TEST_SUITE_P(
