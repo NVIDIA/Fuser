@@ -119,9 +119,10 @@ std::vector<at::Tensor> reference_mlp(
     at::Tensor w1,
     at::Tensor b1,
     at::ScalarType at_dtype) {
-  auto linear0 = at::matmul(x, w0).add(b0).to(at::kFloat);
+  auto linear0 = at::matmul(x, w0).to(at::kFloat) + b0.to(at::kFloat);
   auto gelu = at::gelu(linear0, "tanh");
-  auto linear1 = at::matmul(gelu.to(at_dtype), w1).add(b1).to(at::kFloat);
+  auto linear1 =
+      at::matmul(gelu.to(at_dtype), w1).to(at::kFloat) + b1.to(at::kFloat);
   auto dropout = at::dropout(linear1, kDropoutProb, true);
   return {linear0, gelu, linear1, dropout};
 }
@@ -202,11 +203,10 @@ std::vector<TensorView*> mlp(
   TensorView* b0_bcast = broadcast(b0, {false, true, false});
   TensorView* linear1 = add(matmul1, b0_bcast);
   // GeLU
-  TensorView* linear1_ = castOp(DataType::Float, linear1);
-  TensorView* gelu = tanh_gelu(linear1_);
-  TensorView* gelu_ = castOp(dtype, gelu);
+  TensorView* gelu = tanh_gelu(linear1);
+  gelu = castOp(dtype, gelu);
   // Linear #2
-  TensorView* local_matmul2 = matmul(gelu_, w1);
+  TensorView* local_matmul2 = matmul(gelu, w1);
   TensorView* matmul2 = sum(local_matmul2, {0}); // Allreduce
   TensorView* bcast_bias = broadcast(b1, {true, false});
   TensorView* linear2 = add(matmul2, bcast_bias);
@@ -371,7 +371,7 @@ std::vector<TensorView*> mlp_backwards(
 } // namespace
 
 TEST_P(DistributedTransformerTest, MLP_Layer) {
-  auto dtype = GetParam();
+  DataType dtype = GetParam();
   at::ScalarType at_dtype = data_type_to_aten(dtype);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -657,5 +657,7 @@ TEST_P(DistributedTransformerTest, Forward) {
 INSTANTIATE_TEST_SUITE_P(
     ,
     DistributedTransformerTest,
-    testing::Values(DataType::Half, DataType::BFloat16));
+    testing::Values(DataType::Half, DataType::BFloat16),
+    testing::PrintToStringParamName());
+
 } // namespace nvfuser
