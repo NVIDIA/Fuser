@@ -182,6 +182,7 @@ size_t FusionState::numFusionStates() const {
 
 void FusionState::setFusionState(size_t index, Val* val) {
   fusion_state_.at(index) = {val};
+  map_value_to_fid_.emplace(val, (int64_t)index);
 }
 
 void FusionState::setFusionStateVector(size_t index, std::vector<Val*> val) {

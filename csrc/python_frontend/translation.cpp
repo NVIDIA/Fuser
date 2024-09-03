@@ -905,11 +905,12 @@ class FusionTranslator : public OptInConstDispatch {
   // Map FullOp to python frontend
   void handle(const FullOp* fop) final {
     TensorView* out_tv = fop->output(0)->as<TensorView>();
+    Vector tensor_shape = getShape(out_tv);
+
+    Scalar fill_value = createScalar(fop->getFillValue());
+
     Tensor output = fd_->defineTensor(out_tv->nDims());
     map_val_to_fd_index_.emplace(out_tv, output());
-
-    Vector tensor_shape = getShape(out_tv);
-    Scalar fill_value = createScalar(fop->getFillValue());
 
     fd_->defineRecord(new FullOpRecord(
         {fd_->recordingState(tensor_shape()),
