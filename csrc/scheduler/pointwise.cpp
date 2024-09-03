@@ -901,7 +901,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
   // unrolling manually.
   inlineAllAt(reference_tv, unswitch_pos, true);
 
-  auto all_tvs = ir_utils::allTvs(fusion);
+  auto all_tvs = fusion->allTvs();
 
   // Inline at the inner most position. The CA position of all tensors except
   // inputs, cached inputs and outputs will be updated.

@@ -764,7 +764,7 @@ bool isProjectBufferToInputs(
     const bool can_use_smem_persistent,
     const bool check_projected_buffer_size) {
   // don't project if there are view ops and no buffer can be projected
-  bool can_project = ir_utils::getViewOps(fusion).empty() &&
+  bool can_project = !persistent_buffer_info.has_view_ops &&
       persistent_buffer_size_info.projected_persistent_buffer_size > 0;
   if (!can_project) {
     return false;
@@ -796,28 +796,13 @@ bool isProjectBufferToInputs(
     }
   }
 
-  // check ops between persistent buffer and inputs.
-  // TODO: check more ops
-  bool has_exp_op = false;
-  const auto& projectable_buffers =
-      persistent_buffer_info.projectable_persistent_buffers;
-  auto all_inputs = ir_utils::inputTvsOf(projectable_buffers);
-  const auto all_exprs = StmtSort::getExprsBetween(
-      {all_inputs.begin(), all_inputs.end()},
-      {projectable_buffers.begin(), projectable_buffers.end()});
-  for (auto expr : all_exprs) {
-    if (expr->isA<UnaryOp>() &&
-        expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Exp) {
-      has_exp_op = true;
-    }
-    // don't project if recompute requires rng op
-    if (expr->isA<RNGOp>()) {
-      return false;
-    }
+  // don't project if recompute requires rng op
+  if (persistent_buffer_info.projection_with_rng_op) {
+    return false;
   }
 
   // free to project if no exp op
-  if (!has_exp_op) {
+  if (!persistent_buffer_info.projection_with_exp_op) {
     return true;
   }
 
@@ -868,27 +853,34 @@ PersistentKernelProperties getPersistentKernelProperties(
             return std::make_unique<std::vector<TensorView*>>(
                 scheduler_utils::getReductionTvs(fusion));
           });
+
   auto& reduction_tvs = reduction_tv_entry.get();
   NVF_ERROR(!reduction_tvs.empty(), "Need reduction tensor views to schedule.");
   auto ref_red_tv = reduction_tvs[0];
 
-  // (1) fusion checks
   checkReductionTvForScheduling(fusion, ref_red_tv);
 
-  // (2) reduction properties
-  auto properties =
+  scheduler_utils::ReductionTvProperties properties;
+  TensorView* reduced_tv = nullptr;
+  int64_t vectorize_factor = -1;
+
+  properties =
       scheduler_utils::getReductionProperties(fusion, runtime_info, ref_red_tv);
+  reduced_tv = ir_utils::getSoleProducerTv(ref_red_tv);
 
-  // (3) vectorization factor
-  auto reduced_tv = ir_utils::getSoleProducerTv(ref_red_tv);
-  auto vectorize_factor = vectorize_helper::getVectorizationFactor(
-      runtime_info,
-      reduced_tv,
-      data_cache,
-      vectorize_helper::getVectorizationBreakPointOfReductionProducer(
-          ref_red_tv, reduced_tv, properties.inner_most_dimension_ndims));
+  // Although properties contains runtime information
+  // "inner_most_dimension_ndims" is a compile time value
+  auto vec_break_point = HeuristicSummaryEntry<
+      HeuristicCompileTime::VectorizationBreakPointOfReductionProducer>(
+      data_cache, [&ref_red_tv, &reduced_tv, &properties]() {
+        return std::make_unique<int64_t>(
+            vectorize_helper::getVectorizationBreakPointOfReductionProducer(
+                ref_red_tv, reduced_tv, properties.inner_most_dimension_ndims));
+      });
 
-  // (4) info about persistent buffer
+  vectorize_factor = vectorize_helper::getVectorizationFactor(
+      runtime_info, reduced_tv, data_cache, vec_break_point.get());
+
   auto persistent_buffer_info_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::PersistentBufferInfo>(
           data_cache, [&fusion]() {
@@ -902,7 +894,7 @@ PersistentKernelProperties getPersistentKernelProperties(
   auto persistent_buffer_size_info = scheduler_utils::persistentBufferSize(
       fusion, runtime_info, persistent_buffer_info, data_cache);
 
-  // (5) can project to input?
+  // Can project to input?
   // Figure out if we want to projet persistent buffers to the inputs for
   // exmaple if we have an input tensor t0 that's fp16:
   //
@@ -921,7 +913,7 @@ PersistentKernelProperties getPersistentKernelProperties(
   // TODO: Fix projected persistent buffers with view
   // https://github.com/csarofeen/pytorch/issues/2054
 
-  // (6) Project to input when it can reduce buffer size and the gains of
+  // Project to input when it can reduce buffer size and the gains of
   // reducing buffer size is larger than the pains of recalculations.
   bool can_use_smem_persistent =
       properties.inner_most_dimension_numel == properties.total_reduction_numel;
@@ -932,11 +924,11 @@ PersistentKernelProperties getPersistentKernelProperties(
       persistent_buffer_size_info,
       heuristic,
       can_use_smem_persistent);
-  auto max_persistent_buffer_size = project_persistent_buffers
+  int64_t max_persistent_buffer_size = project_persistent_buffers
       ? persistent_buffer_size_info.projected_persistent_buffer_size
       : persistent_buffer_size_info.persistent_buffer_size;
 
-  // (7) info about input and output tensors
+  // Info about input and output tensors
   // Base max dtype and n_tensor_inputs on tensors that are vectorizable (i.e.
   // share inner dimension with data pattern we're looking at).
   // TODO: This might be better if it was the larger of input or outputs. Would
@@ -949,9 +941,12 @@ PersistentKernelProperties getPersistentKernelProperties(
                 scheduler_utils::getInputsOutputsWithInnerDim(
                     reduced_tv, false, false));
           });
-  auto& unrollable_inputs_outputs = unrollable_inputs_outputs_entry.get();
+
+  // Info about ops in the fusion, used to set model specific parameters
   int64_t max_dtype_size = 1;
   int64_t n_tensor_inputs = 0;
+
+  auto& unrollable_inputs_outputs = unrollable_inputs_outputs_entry.get();
   for (auto tv : unrollable_inputs_outputs) {
     if (!tv->isFusionInput()) {
       continue;
@@ -965,18 +960,23 @@ PersistentKernelProperties getPersistentKernelProperties(
   // zero.
   n_tensor_inputs = std::max(n_tensor_inputs, (int64_t)1);
 
-  // Info about ops in the fusion, used to set model specific parameters
   // Exp op typically used in softmax is expensive and needs more registers.
   bool has_exp_op = false;
-  for (auto expr : fusion->exprs()) {
-    if (expr->isA<UnaryOp>() &&
-        expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Exp) {
+
+  // Could save fusion->exprs() instead of doing this, but allTvs is already
+  // cached in fusion so using that for now.
+  for (auto tv : fusion->allTvs()) {
+    if (tv->definition() == nullptr) {
+      continue;
+    }
+    if (tv->definition()->isA<UnaryOp>() &&
+        tv->definition()->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Exp) {
       has_exp_op = true;
       break;
     }
   }
 
-  // (9) return collected properties to get heuristics.
+  // Return collected properties to get heuristics.
   return PersistentKernelProperties{
       .inner_most_dimension_numel = properties.inner_most_dimension_numel,
       .total_reduction_numel = properties.total_reduction_numel,

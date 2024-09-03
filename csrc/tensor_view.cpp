@@ -1485,7 +1485,11 @@ TensorViewBuilder& TensorViewBuilder::strideOrder(
 TensorViewBuilder& TensorViewBuilder::expanded(std::vector<bool> expanded) {
   NVF_CHECK(expanded_.empty(), "Attempting to reset expanded shape");
   if (!expanded.empty()) {
-    NVF_CHECK(ndims_ == 0 || ndims_ == (int64_t)expanded.size());
+    NVF_CHECK(
+        ndims_ == 0 || ndims_ == (int64_t)expanded.size(),
+        ndims_,
+        " vs ",
+        expanded.size());
     ndims_ = (int64_t)expanded.size();
   }
   expanded_ = std::move(expanded);

@@ -579,11 +579,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void handle(const kir::TensorIndex* ti) final {
-    bool is_volatile = ti->view()->getMemoryType() == MemoryType::Global &&
-        kernel_->summary().sync_map->needsRawSync(ti->view()).hasBID();
-    bool is_pointer = isPointerType(ti->index()->dtype());
-    if (is_pointer) {
-      bool is_u32_ptr = ti->index()->dtype() == DataType::SMemAddress;
+    if (isPointerType(ti->index()->dtype())) {
+      const bool is_u32_ptr = ti->index()->dtype() == DataType::SMemAddress;
       if (is_u32_ptr) {
         // DataType::SMemAddress is implemented as uint32_t in C++. The problem
         // for this implementation is, the type promotion rule in C++ for
@@ -598,10 +595,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       }
       return;
     }
-    bool different_dtype = ti->view()->dtype() != ti->dtype();
-    if (is_volatile) {
+
+    if (ti->view()->getMemoryType() == MemoryType::Global &&
+        kernel_->summary().sync_map->needsRawSync(ti->view()).hasBID()) {
       code_ << "*(volatile " << ti->getDataType().value() << "*)&";
     }
+
+    const bool different_dtype = ti->view()->dtype() != ti->dtype();
     if (different_dtype) {
       code_ << "(*reinterpret_cast<" << ti->getDataType().value() << "*>(&";
     }
@@ -1246,6 +1246,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     auto optype = ldst->opType();
     NVF_ERROR(
         optype != LoadStoreOpType::LdMatrix &&
+            optype != LoadStoreOpType::StMatrix &&
             optype != LoadStoreOpType::CpAsync,
         "ldmatrix and cp.async should be lowered as kir::Asm");
 
