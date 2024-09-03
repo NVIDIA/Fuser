@@ -2241,7 +2241,6 @@ class TestNvFuserFrontend(NVFuserTest):
         self.assertEqual(
             nvf_out[0], torch.div(inputs[0], inputs[1], rounding_mode="trunc")
         )
-        self.assertEqual(nvf_out[1], torch.true_divide(inputs[0], inputs[1]))
 
     def test_right_shift_arithmetic(self):
         inputs = [

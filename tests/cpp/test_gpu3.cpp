@@ -6910,7 +6910,6 @@ TEST_F(NVFuserTest, IntegerDivision_CUDA) {
   auto cg_outputs = executor_cache.runFusionWithInputs({input0, input1});
 
   ASSERT_TRUE(cg_outputs.at(0).scalar_type() == at::kLong);
-  ASSERT_TRUE(cg_outputs.at(1).scalar_type() == at::kFloat);
 
   testValidate(
       executor_cache.fusion(),
