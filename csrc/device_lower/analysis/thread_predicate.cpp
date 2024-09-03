@@ -734,7 +734,7 @@ void ThreadPredicateMap::build(Fusion* fusion) {
     updateBitSet(expr);
   }
 
-  for (auto tv : ir_utils::allTvs(fusion)) {
+  for (auto tv : fusion->allTvs()) {
     if (tv->getMemoryType() == MemoryType::Global) {
       avoidConcretizedBroadcastRedundantWrite(tv);
     }
