@@ -52,6 +52,8 @@ class DistributedTransformerTest
     }
   }
 
+  // TODO(wujingyue): remove after all tests are migrated to use
+  // FusionExecutorCache.
   hir::HostIrExecutorParams executor_params_{
       .use_fusion_executor_cache = true,
       .skip_auto_scheduling = false,
@@ -401,11 +403,11 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
       reference_outs[2],
       reference_outs[3]};
 
-  MultiDeviceExecutor runtime(
-      std::move(fusion), *communicator_, executor_params_);
+  FusionExecutorCache fec(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
-  auto outputs = runtime.runWithInput(inputs);
-  validate(expected_outputs, outputs);
+  auto outputs = fec.runFusionWithInputs(inputs);
+  testValidate(
+      fec.fusion(), outputs, inputs, expected_outputs, __LINE__, __FILE__);
 }
 
 TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
