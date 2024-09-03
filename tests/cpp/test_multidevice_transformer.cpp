@@ -143,7 +143,7 @@ std::vector<at::Tensor> reference_mlp_backwards(
     at::Tensor w1) {
   auto at_dtype = w0.dtype();
   // recompute activations
-  auto linear0 = at::matmul(x, w0).add(b0).to(at::kFloat);
+  auto linear0 = at::matmul(x, w0).to(at::kFloat) + b0;
   auto gelu = at::gelu(linear0, "tanh");
 
   // backwards pass
@@ -183,7 +183,7 @@ std::vector<at::Tensor> reference_mha_backwards(
     at::Tensor w1) {
   auto at_dtype = w0.dtype();
   // recompute up to sdpa
-  auto linear0 = at::matmul(x, w0).add(b0).view({B, S, 3 * E});
+  auto linear0 = (at::matmul(x, w0).to(at::kFloat) + b0).view({B, S, 3 * E});
   auto qkv = linear0.split(E, /*dim=*/-1);
   for (auto i = 0; i < 3; i++) {
     qkv[i] = qkv[i].reshape({B, S, H, E / H}).transpose(1, 2).to(at_dtype);
@@ -651,6 +651,7 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
   FusionExecutorCache fec(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
   auto outputs = fec.runFusionWithInputs(inputs);
+  // FIXME: rtol=0, atol=1e-2.
   validate(expected_outputs, outputs);
 }
 
