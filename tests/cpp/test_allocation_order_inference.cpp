@@ -283,7 +283,7 @@ TEST_F(AllocationOrderInferenceTest, ReductionOpPropagation) {
 
   preseg_passes::inferenceAllocationOrder(
       &fusion, {tv0, tv1}, {tv2, tv3, tv4, tv5});
-#if true
+#if false
   // permutation here is strange because in propagation we are preserving
   // reduction iter domain in its position in logical domain See issue:
   // https://github.com/NVIDIA/Fuser/issues/2202
