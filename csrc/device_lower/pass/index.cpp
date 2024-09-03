@@ -1616,8 +1616,14 @@ void IndexLowering::handle(const MmaOp* mma) {
     // TODO: This is a temporary solution and only supports a single tile in
     // smem.
     auto tv = mma->inA()->as<TensorView>();
-    auto base_addr = IrBuilder::baseAddressExpr(tv);
     auto swizzle = getSwizzleMode(tv);
+    // Because the entire tile is parallelized on MMA, which are trivial
+    // loops and always have zero loop variables, the result of lowerSrcIndex
+    // will be the address of the first element of the tile, which happens to
+    // be the information we need to provide to the hardware.
+    auto base_addr = lowerSrcIndex(tv, mma->out(), {}, true)
+                         ->as<kir::TensorIndex>()
+                         ->index();
     int64_t leading_bytes = core_matrix_outer_size *
         getBytesFromSwizzle(swizzle); // swizzle period in bytes
     int64_t inner_size =
