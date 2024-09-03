@@ -718,6 +718,9 @@ int64_t FusionDefinition::setupSegmentation(
   KernelArgumentHolder args =
       KernelArgumentHolder::createKernelArgumentHolder(inputs, device);
 
+  // Concretize fusion with arguments
+  DynamicTransform::concretizeFusion(segment_fusion_.get(), args);
+
   // Create runtime infomation
   SchedulerRuntimeInfo runtime_info(
       segment_fusion_.get(),
