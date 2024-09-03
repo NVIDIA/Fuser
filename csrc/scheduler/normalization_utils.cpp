@@ -845,7 +845,8 @@ PersistentKernelProperties getPersistentKernelProperties(
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache,
     ScheduleHeuristic heuristic) {
-  FUSER_PERF_SCOPE("getPersistentKernelProperties");
+  FUSER_PERF_SCOPE(
+      "normalization_scheduler_utils::getPersistentKernelProperties");
 
   auto reduction_tv_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::ReductionTVs>(
