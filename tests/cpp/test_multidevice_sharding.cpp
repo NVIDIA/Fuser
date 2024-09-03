@@ -16,13 +16,13 @@
 namespace nvfuser {
 
 // params: concrete vs symbolic input, sharded axis
-class MultiDevicePointwiseTest
+class MultiDeviceReductionTest
     : public MultiDeviceTest,
       public testing::WithParamInterface<std::tuple<bool, int>> {};
 
 // Test multidevice fusion with unsharded inputs and sharded intermediates,
 // outputs.
-TEST_P(MultiDevicePointwiseTest, UnshardedInput_ShardedOutput) {
+TEST_P(MultiDeviceReductionTest, UnshardedInput_ShardedOutput) {
   auto [creates_concrete_tensor, sharded_input_dim] = GetParam();
 
   auto fusion = std::make_unique<Fusion>();
@@ -66,7 +66,7 @@ TEST_P(MultiDevicePointwiseTest, UnshardedInput_ShardedOutput) {
 
 // Test multidevice fusion with sharded input and replicated intermediates and
 // output.
-TEST_P(MultiDevicePointwiseTest, ShardedInput_ReplicatedOutput) {
+TEST_P(MultiDeviceReductionTest, ShardedInput_ReplicatedOutput) {
   auto [creates_concrete_tensor, sharded_dim] = GetParam();
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -101,7 +101,7 @@ TEST_P(MultiDevicePointwiseTest, ShardedInput_ReplicatedOutput) {
 
 INSTANTIATE_TEST_SUITE_P(
     ,
-    MultiDevicePointwiseTest,
+    MultiDeviceReductionTest,
     testing::Combine(testing::Bool(), testing::Values(0, 1)),
     [](const testing::TestParamInfo<std::tuple<bool, int>>& info)
         -> std::string {
