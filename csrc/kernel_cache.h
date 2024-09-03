@@ -13,7 +13,6 @@
 #include <executor.h>
 #include <fusion.h>
 #include <fusion_segmenter.h>
-#include <logical_domain_map.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/registry.h>
 #include <serde/fusion_cache_generated.h>
@@ -732,9 +731,6 @@ class FusionExecutorCache {
   //! For serialization, track a deterministic order for (device_id and
   //! concretization info) pair
   std::vector<ConcreteInfo> deterministic_conc_info_;
-
-  //! This is cached to speed up finding concretization info
-  std::unique_ptr<ExactLogicalDomainMap> exact_map_;
 
   //! Logging state for most recent compilation
   bool profiling_ = false;

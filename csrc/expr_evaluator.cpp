@@ -352,18 +352,11 @@ void ExpressionEvaluator::print() const {
   debug() << "--------------------\n\n";
 }
 
-void ExpressionEvaluator::propagateBoundValuesThroughExactMaps(
-    Fusion* fusion,
-    ExactLogicalDomainMap* exact_map) {
+void ExpressionEvaluator::propagateBoundValuesThroughExactMaps(Fusion* fusion) {
   // We map Symbolic IterDomains here only if their extents match. This avoids
   // mapping between symbolic domains that might concretize to an (Iteration,
   // Broadcast) pair from a resolved broadcast.
-  std::unique_ptr<ExactLogicalDomainMap> exact_map_ptr;
-  if (exact_map == nullptr) {
-    exact_map_ptr = std::make_unique<ExactLogicalDomainMap>(fusion);
-    exact_map = exact_map_ptr.get();
-  }
-  const auto mapped_sets = exact_map->getMappedSets();
+  const auto mapped_sets = ExactLogicalDomainMap(fusion).getMappedSets();
 
   for (const auto& set : mapped_sets.disjointSets()) {
     int64_t known_size = -1;
