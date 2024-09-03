@@ -264,6 +264,9 @@ class FusionDefinition(_C._FusionDefinition):
         except ImportError:
             raise ImportError("Unable to import pytorch_utils!")
 
+        if not tensor.is_cuda and len(tensor.size()) != 0:
+            raise ValueError("CPU non-scalar tensor is not supported!")
+
         return self.define_tensor(
             sizes=tensor.size(),
             strides=tensor.stride(),
