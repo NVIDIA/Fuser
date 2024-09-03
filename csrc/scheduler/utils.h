@@ -594,6 +594,12 @@ std::unordered_map<int64_t, int64_t> maybeLogicalReorderAsAllocationMap(
 // registery.cpp::requiresForwardViewReplay returning false
 void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map);
 
+//! Check if tv is an input of a fastest-dim reduction
+NVF_API bool isInputOfFastestDimReduction(
+    TensorView* reduced_tv,
+    const std::unordered_map<IterDomain*, IterDomain*>&
+        producer_alloc_to_reduction_logical);
+
 //! Check if tv is an output of a fastest-dim reduction
 NVF_API bool isFastestDimReduction(TensorView* tv);
 

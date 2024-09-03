@@ -687,12 +687,21 @@ void ContiguousInnerDimensionsMapper::propagateSibling(
 
 Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
     TensorView* of_tv) {
+  std::cout << "\n============== getContigMergeOfInnerSize" << std::endl;
+  std::cout << "of_tv: " << of_tv->toString() << std::endl;
+  of_tv->printTransforms();
+
   Val* product_of_inner_extents = of_tv->container()->oneVal();
   auto of_tv_alloc = of_tv->getMaybeAllocationDomain();
 
   NVF_ERROR(hasMappedDims(of_tv));
 
   const std::vector<IterDomain*>& projected_dims = mappedLogicalIds(of_tv);
+
+  for(auto id : projected_dims) {
+    std::cout << "projected_dims: " << id->toString() << std::endl;
+  }
+
   auto of_tv_alloc_no_reductions = TensorDomain::noReductions(of_tv_alloc);
 
   auto contiguity = of_tv->domain()->contiguity();
@@ -733,7 +742,7 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
     }
     auto alloc_ii = of_tv_alloc_no_reductions_size - i - 1;
     auto alloc_iid = of_tv_alloc_no_reductions.at(alloc_ii);
-
+    std::cout << "alloc_iid: " << alloc_iid->toString() << std::endl;
     if (alloc_iid->extent()->isOneInt() || alloc_iid->isBroadcast()) {
       if (projected_dims[projected_dims_i - 1] == alloc_iid) {
         --projected_dims_i;
@@ -747,14 +756,18 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
     } else {
       // Not contiguous
       if (!contiguity_i.value()) {
+        std::cout << "Not contiguous" << std::endl;
         break;
       }
     }
 
     // Mapping order isn't correct, cannot expand vectorization dimension.
     if (projected_dims[--projected_dims_i] != alloc_iid) {
+      std::cout << "Mapping order isn't correct, cannot expand vectorization dimension." << std::endl;
       break;
     }
+
+    std::cout << "getProjectedExtent(alloc_iid): " << getProjectedExtent(alloc_iid)->toString() << std::endl;
 
     product_of_inner_extents = SimplifyingIrBuilder::mulExpr(
         product_of_inner_extents, getProjectedExtent(alloc_iid));
@@ -802,6 +815,7 @@ int64_t getVectorizationFactor(
     HeuristicSummary* data_cache,
     int64_t break_point,
     const std::unordered_map<int64_t, int64_t>& logical_reorder_map) {
+  std::cout << "\n============== getVectorizationFactor" << std::endl;
   auto vectorizable_inputs_outputs_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::VectorizableInputsAndOutputs>(
           data_cache, [&reference_tv]() {
@@ -810,7 +824,12 @@ int64_t getVectorizationFactor(
                     reference_tv, true, true));
           });
 
+
   auto& vectorizable_inputs_outputs = vectorizable_inputs_outputs_entry.get();
+  for (auto tv : vectorizable_inputs_outputs) {
+    std::cout << "vectorizable_inputs_outputs: " << tv->toString() << std::endl;
+  }
+  std::cout << "============================" << std::endl;
 
   auto vectorize_maps_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::TvToContigInnerSizeMaps>(
@@ -825,6 +844,18 @@ int64_t getVectorizationFactor(
     return 1;
   }
 
+  std::cout << "break_point= " << break_point << std::endl;
+  std::cout << "vectorize_maps_entry.get().size()= "
+            << vectorize_maps_entry.get().size() << std::endl;
+  // std::vector<std::unordered_map<TensorView*, Val*>>
+  for (int i = 0; i < (int)vectorize_maps_entry.get().size(); i++) {
+    std::cout << "break_point_i = " << i << std::endl;
+    for (auto [k, v] : vectorize_maps_entry.get().at(i)) {
+      std::cout << "k= " << k->toString() << " v= " << v->toString()
+                << std::endl;
+    }
+    std::cout << std::endl;
+  }
   // break point is beyond the range of vectorize_maps_entry, no vectorization.
   if (break_point >= static_cast<int64_t>(vectorize_maps_entry.get().size())) {
     return 1;
@@ -834,6 +865,8 @@ int64_t getVectorizationFactor(
   const auto& tv_to_inner_size_map = vectorize_maps_entry.get().at(break_point);
 
   for (auto inp_or_out : vectorizable_inputs_outputs) {
+    std::cout << "\nset vectorize inp_or_out " << inp_or_out->toString()
+              << std::endl;
     // factor <= max_factor / dtype_size
     const auto dtype_size =
         dataTypeSize(inp_or_out->dtype(), runtime_info.getIndexType());
@@ -863,11 +896,15 @@ int64_t getVectorizationFactor(
         inner_size_opt.hasValue(),
         "Vectorization heuristic could not evaluate inner most size: ",
         inner_size_it->second);
+    std::cout << "inner_size_it= " << inner_size_it->second->toString()
+              << std::endl;
 
     max_vec_size = std::min(
         scheduler_utils::maxVectorizationWidth(inner_size_opt.as<int64_t>()),
         max_vec_size);
   }
+
+  std::cout << "max_vec_size= " << max_vec_size << std::endl;
 
   return max_vec_size;
 }
@@ -915,7 +952,7 @@ int64_t getVectorizationFactorTransposeGroup(
 int64_t getVectorizationBreakPointOfReductionProducer(
     TensorView* reduction_consumer,
     TensorView* reduction_producer,
-    int64_t consumer_innermost_ndims) {
+    int64_t producer_innermost_ndims) {
   NVF_ERROR(
       reduction_consumer->definition() != nullptr &&
           ir_utils::isReductionOp(reduction_consumer->definition()) &&
@@ -925,16 +962,45 @@ int64_t getVectorizationBreakPointOfReductionProducer(
       ". ",
       reduction_producer->toString());
 
+  std::cout << "\n============ getVectorizationBreakPointOfReductionProducer"
+            << std::endl;
+  std::cout << "reduction_consumer= " << reduction_consumer->toString()
+            << std::endl;
+  std::cout << "reduction_producer= " << reduction_producer->toString()
+            << std::endl;
+  std::cout << "producer_innermost_ndims= " << producer_innermost_ndims
+            << std::endl;
+
   // Find the conrresponding producer break point. To the right of the
   // break point, there must be only the producer innermost IDs or
   // reduction IDs
   int64_t break_point = (int64_t)(reduction_producer->nDims());
+  std::cout << "init break_point= " << break_point << std::endl;
+
+
+  return (int64_t)(reduction_producer->nDims()) - producer_innermost_ndims;
 
   // short-cut to to return break point when no c2p mapping is going to be
   // performed
-  if (consumer_innermost_ndims == 0) {
+  if (producer_innermost_ndims == 0) {
     return break_point;
   }
+
+  // auto id_model = IdModel(fusion, /*build_graphs=*/false);
+  // id_model.buildExactGraph();
+  // const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+  // const DisjointSets<Val*>& val_sets = exact_graph.disjointValSets();
+  // for (auto p_alloc_id : reduced_tv->getMaybeAllocationDomain()) {
+  //   for (auto c_logical_id : reduction_tv->getLogicalDomain()) {
+  //     if (val_sets.strictAreMapped(p_alloc_id, c_logical_id)) {
+  //       producer_alloc_to_reduction_logical[p_alloc_id] = c_logical_id;
+  //       break;
+  //     }
+  //   }
+  // }
+  // for (auto [k, v] : producer_alloc_to_reduction_logical) {
+  //   std::cout << k->toString() << " -> " << v->toString() << std::endl;
+  // }
 
   const auto c2p =
       PairwiseLogicalDomainMap(reduction_producer, reduction_consumer)
@@ -943,9 +1009,9 @@ int64_t getVectorizationBreakPointOfReductionProducer(
   // Grab all the corresponding producer IDs that are mapped with the
   // innermost consumer IDs
   std::unordered_set<IterDomain*> producer_innermost_ids;
-  for (auto it = reduction_consumer->getMaybeRootDomain().begin() +
-           ((int64_t)reduction_consumer->nDims() - consumer_innermost_ndims);
-       it != reduction_consumer->getMaybeRootDomain().end();
+  for (auto it = reduction_consumer->getMaybeAllocationDomain().begin() +
+           ((int64_t)reduction_consumer->nDims() - producer_innermost_ndims);
+       it != reduction_consumer->getMaybeAllocationDomain().end();
        ++it) {
     auto consumer_id = *it;
     auto c2p_it = c2p.find(consumer_id);
@@ -953,15 +1019,18 @@ int64_t getVectorizationBreakPointOfReductionProducer(
     // producer ID
     NVF_ERROR(c2p_it != c2p.end());
     auto producer_id = c2p_it->second;
+    std::cout << "consumer_id= " << consumer_id->toString() << std::endl;
+    std::cout << "producer_innermost_ids= " << producer_id->toString()
+              << std::endl;
     producer_innermost_ids.insert(producer_id);
   }
 
   int num_detected_producer_innermost_ids = 0;
-  for (auto it = reduction_producer->getLogicalDomain().rbegin();
-       it != reduction_producer->getLogicalDomain().rend();
+  for (auto it = reduction_producer->getMaybeAllocationDomain().rbegin();
+       it != reduction_producer->getMaybeAllocationDomain().rend();
        ++it) {
     auto producer_rf_id = *it;
-
+    std::cout << "\nproducer_rf_id= " << producer_rf_id->toString() << std::endl;
     // If the mapped producer ID is also a reduction domain, the
     // producer should be a fusion input as our
     // reduction/normalization scheduler do not support fusing
@@ -972,11 +1041,15 @@ int64_t getVectorizationBreakPointOfReductionProducer(
           "Unexpected producer of reduction: ",
           reduction_producer->toString());
       --break_point;
+      std::cout << "producer_rf_id= " << producer_rf_id->toString()
+                << std::endl;
+      std::cout << "new break_point= " << break_point << std::endl;
       continue;
     }
 
     if (producer_innermost_ids.count(producer_rf_id)) {
       --break_point;
+      std::cout << "new break_point= " << break_point << std::endl;
       ++num_detected_producer_innermost_ids;
       // If all innermost IDs are found, stop shifting the break point
       // further
@@ -989,8 +1062,10 @@ int64_t getVectorizationBreakPointOfReductionProducer(
 
     // Neither reduction nor mapped to consumer innermost IDs.
     // This should not happen
-    NVF_ERROR(false, "Unexpected producer RF ID: ", producer_rf_id->toString())
+    reduction_producer->printTransforms();
+    NVF_ERROR(false, "Unexpected producer RF ID: ", producer_rf_id->toString(), " in ", reduction_producer->toString());
   }
+  std::cout << "final break_point= " << break_point << std::endl;
 
   return break_point;
 }

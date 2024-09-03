@@ -672,13 +672,35 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
 ReductionTvProperties getReductionProperties(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    TensorView* tv) {
+    TensorView* reduction_tv) {
   FusionGuard fg(fusion);
 
-  NVF_ERROR(tv != nullptr);
+  NVF_ERROR(reduction_tv != nullptr);
 
-  bool fastest_dim_reduction = isFastestDimReduction(tv);
+  // map from producer's allocation domain to reduction tv's logical domain
+  std::unordered_map<IterDomain*, IterDomain*>
+      producer_alloc_to_reduction_logical;
+  auto reduced_tv = ir_utils::getSoleProducerTv(reduction_tv);
+  auto id_model = IdModel(fusion, /*build_graphs=*/false);
+  id_model.buildExactGraph();
+  const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+  const DisjointSets<Val*>& val_sets = exact_graph.disjointValSets();
+  std::cout << val_sets.toString() << std::endl;
+  for (auto p_alloc_id : reduced_tv->getMaybeAllocationDomain()) {
+    for (auto c_logical_id : reduction_tv->getLogicalDomain()) {
+      if (val_sets.strictAreMapped(p_alloc_id, c_logical_id)) {
+        producer_alloc_to_reduction_logical[p_alloc_id] = c_logical_id;
+        break;
+      }
+    }
+  }
+  for (auto [k, v] : producer_alloc_to_reduction_logical) {
+    std::cout << k->toString() << " -> " << v->toString() << std::endl;
+  }
 
+  // check reduction properties using the producer's allocation domain
+  bool fastest_dim_reduction = isInputOfFastestDimReduction(
+      reduced_tv, producer_alloc_to_reduction_logical);
   // Tracks the dimensionality of the problem starts on inner most dim and works
   // outward
   int64_t dimensionality = 1;
@@ -691,9 +713,9 @@ ReductionTvProperties getReductionProperties(
   // Start from the inner most dimension, and work outwards. If this is a 3D
   // pattern, i.e. theres a pattern like [r0, r1, i2, r3] or [i0, r1, r2, i3,
   // i4] then compute the inner most dimension to compute separately.
-  const auto& root_dom = tv->getMaybeRootDomain();
-  for (size_t i = root_dom.size(); i > 0; i--) {
-    auto id = root_dom[i - 1];
+  const auto& maybe_alloc_dom = reduced_tv->getMaybeAllocationDomain();
+  for (size_t i = maybe_alloc_dom.size(); i > 0; i--) {
+    auto id = producer_alloc_to_reduction_logical.at(maybe_alloc_dom[i - 1]);
     if (id->isBroadcast()) {
       continue;
     }
@@ -715,13 +737,13 @@ ReductionTvProperties getReductionProperties(
   // Reduction element count
   int64_t total_reduction_numel = 1;
 
-  for (auto id : root_dom) {
+  for (auto id : maybe_alloc_dom) {
     auto inferred_val =
         runtime_info.expressionEvaluator().evaluate(id->extent());
     NVF_ERROR(
         inferred_val.hasValue(),
         "Error inferring dimensions of reduction fusion.");
-    if (id->isReduction()) {
+    if (producer_alloc_to_reduction_logical.at(id)->isReduction()) {
       total_reduction_numel *= inferred_val.as<int64_t>();
     } else {
       total_iteration_numel *= inferred_val.as<int64_t>();
@@ -1325,6 +1347,8 @@ IterDomain* projectIdToRFactor(
 
 IterDomain* innerMostAllocDim(TensorView* tv) {
   const auto& alloc_domain = tv->getMaybeAllocationDomain();
+  std::cout << "innerMostAllocDim: " << tv->toString() << std::endl;
+  tv->printTransforms();
 
   if (tv->nDims() == 0) {
     return nullptr;
@@ -1485,17 +1509,19 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
   }
 
   auto inner_most_id = innerMostAllocDim(reference_tv);
-
   if (inner_most_id == nullptr) {
     return {};
   }
-
+  std::cout << "inner_most_id: " << inner_most_id->toString() << std::endl;
   FindAllMappedDims all_mapped_root_dims(
       reference_tv, inner_most_id, inner_only, vectorize_pass);
   MaxLogicalDomainInfoSpanningTree tree(reference_tv);
   tree.traverse(&all_mapped_root_dims);
 
   auto vectorizable_dims = all_mapped_root_dims.get();
+  for (auto id : vectorizable_dims) {
+    std::cout << "vectorizable_dims: " << id->toString() << std::endl;
+  }
 
   std::vector<TensorView*> vectorizable_tensors;
 
@@ -2223,6 +2249,35 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
   }
 }
 
+bool isInputOfFastestDimReduction(
+    TensorView* reduced_tv,
+    const std::unordered_map<IterDomain*, IterDomain*>&
+        producer_alloc_to_reduction_logical) {
+  for (auto it = reduced_tv->getMaybeAllocationDomain().rbegin();
+       it != reduced_tv->getMaybeAllocationDomain().rend();
+       ++it) {
+    NVF_ERROR(
+        producer_alloc_to_reduction_logical.find(*it) !=
+            producer_alloc_to_reduction_logical.end(),
+        "Could not find ",
+        (*it)->toString(),
+        " in producer_alloc_to_reduction_logical.");
+    auto redu_logical_id = producer_alloc_to_reduction_logical.at(*it);
+    if (redu_logical_id->isBroadcast()) {
+      continue;
+    } else if (redu_logical_id->isReduction()) {
+      return true;
+    } else {
+      return false;
+    }
+  }
+
+  return false;
+}
+
+// This old API is deprecated and will be removed in the future.
+// Currently, still used by innerOuterPersistent scheduler and
+//
 bool isFastestDimReduction(TensorView* tv) {
   for (auto it = tv->getMaybeAllocationDomain().rbegin();
        it != tv->getMaybeAllocationDomain().rend();
