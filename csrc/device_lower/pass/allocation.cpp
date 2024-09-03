@@ -347,7 +347,7 @@ class AllocationInserter : public kir::ExprMutator {
       auto alloc_expr = createAllocExpr(allocation, is_output);
       auto init_expr = createInitExpr(allocation, init);
 
-      // Find the largest circular buffer depth; Used for tma buffer allocation
+      // Check that all circular buffer depth match
       if (out_tv->isCircularBuffered() && circular_buffer_depth == 1) {
         circular_buffer_depth = out_tv->circularBufferDepth();
       }
