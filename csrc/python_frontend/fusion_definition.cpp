@@ -804,6 +804,7 @@ int64_t FusionDefinition::setupSegmentation(
         }
         return std::make_pair(cloned_val, fid);
       });
+  std::cout << "setup\t" << map_value_to_fid_.size() << std::endl;
 
   // Create runtime infomation
   SchedulerRuntimeInfo runtime_info(
@@ -839,18 +840,21 @@ std::unordered_map<int64_t, int64_t> FusionDefinition::buildSegment(
       "The segment id is not valid");
 
   // Create new fusion segment
+  std::cout << "segment" << std::endl;
   SegmentedGroup* sg = group_run_order_.at(segment_id);
   NVF_ERROR(sg != nullptr);
   auto&& [ir_cloner, fusion_segment] = segmented_fusion_->makeFusion(sg);
 
+  std::cout << "translate" << std::endl;
   std::unordered_map<const nvfuser::Val*, size_t>
       map_translated_val_to_other_fid = translate(fusion_segment.get(), &other);
 
+  std::cout << "step 1" << std::endl;
+  // Step 1: Get FusionDefinition index for original inputs and outputs.
+  // Use std::transform on inputs and outputs
   const std::vector<Val*>& original_inputs = sg->inputs();
   const std::vector<Val*>& original_outputs = sg->outputs();
 
-  // Step 1: Get FusionDefinition index for original inputs and outputs.
-  // Use std::transform on inputs and outputs
   std::vector<int64_t> original_fid;
   original_fid.reserve(original_inputs.size() + original_outputs.size());
 
@@ -859,6 +863,7 @@ std::unordered_map<int64_t, int64_t> FusionDefinition::buildSegment(
       original_inputs.end(),
       std::back_inserter(original_fid),
       [&](Val* v) { return map_cloned_value_to_fid_.at(v); });
+  std::cout << "step 1a" << std::endl;
 
   std::transform(
       original_outputs.begin(),
@@ -866,6 +871,7 @@ std::unordered_map<int64_t, int64_t> FusionDefinition::buildSegment(
       std::back_inserter(original_fid),
       [&](Val* v) { return map_cloned_value_to_fid_.at(v); });
 
+  std::cout << "step 2" << std::endl;
   // Step 2: ir_cloner maps original fusion statements to translated statements.
   // Use std::transform
   std::vector<Val*> segment_inputs_outputs;
@@ -888,6 +894,7 @@ std::unordered_map<int64_t, int64_t> FusionDefinition::buildSegment(
         return original_to_segment_map.clone(v);
       });
 
+  std::cout << "step 3" << std::endl;
   // Step 3: Map translated statements to its FusionDefinition index.
   std::vector<int64_t> segment_fid;
   segment_fid.reserve(segment_inputs_outputs.size());
@@ -897,15 +904,18 @@ std::unordered_map<int64_t, int64_t> FusionDefinition::buildSegment(
       std::back_inserter(segment_fid),
       [&](Val* v) { return map_translated_val_to_other_fid.at(v); });
 
+  std::cout << "step 4" << std::endl;
   // Step 4: Map original FusionDefinition index to translated Fusion Definition
   // index for inputs and outputs.
   NVF_ERROR(original_fid.size() == segment_fid.size());
 
+  std::cout << "map" << std::endl;
   // Create map from original fid to segment fid.
   std::unordered_map<int64_t, int64_t> map_original_segment_fid;
   for (size_t idx : c10::irange(original_fid.size())) {
     map_original_segment_fid.emplace(segment_fid.at(idx), original_fid.at(idx));
   }
+  std::cout << "return" << std::endl;
   return map_original_segment_fid;
 }
 
