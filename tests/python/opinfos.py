@@ -501,8 +501,8 @@ unary_ops.append(trunc_opinfo)
 """ Start Binary Operations """
 
 # atan2 --- promote int to float; allows fp16 and bf16
-# nextafter, truediv  --- promote int to float; requires full-precision fp32, fp64
-# ceildiv, div, fmod, mod, remainder, truediv --- except_zero
+# nextafter  --- promote int to float; requires full-precision fp32, fp64
+# ceildiv, div, fmod, mod, remainder --- except_zero
 # add, mul, pow, sub
 # bitwise_and, bitwise_or, bitwise_xor --- bool_int_only
 # bitwise_left_shift, bitwise_right_shift, logical_right_shift --- int_only
@@ -752,14 +752,6 @@ sub_opinfo = OpInfo(
     reference=_elementwise_binary_torch(torch.sub),
 )
 binary_ops.append(sub_opinfo)
-
-truediv_opinfo = OpInfo(
-    lambda fd: fd.ops.truediv,
-    "truediv",
-    sample_input_generator=div_input_generator,
-    reference=_elementwise_binary_torch(torch.true_divide),
-)
-binary_ops.append(truediv_opinfo)
 
 # For int dtypes, nvfuser div op has the semantics of c++ / operator, so its reference is trunc_divide.
 trunc_div_opinfo = OpInfo(

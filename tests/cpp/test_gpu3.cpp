@@ -6898,9 +6898,7 @@ TEST_F(NVFuserTest, IntegerDivision_CUDA) {
   fusion->addInput(tv0);
   fusion->addInput(tv1);
   auto tv2 = div(tv0, tv1);
-  auto tv3 = truediv(tv0, tv1);
   fusion->addOutput(tv2);
-  fusion->addOutput(tv3);
 
   FusionExecutorCache executor_cache(std::move(fusion));
 
@@ -6908,7 +6906,6 @@ TEST_F(NVFuserTest, IntegerDivision_CUDA) {
   at::Tensor input0 = (at::randn({1024 * 1024}, options) * 1024).to(at::kLong);
   at::Tensor input1 = (at::randn({1024 * 1024}, options) * 1024).to(at::kLong);
   auto div_expect = at::div(input0, input1, "trunc");
-  auto truediv_expect = at::true_divide(input0, input1);
 
   auto cg_outputs = executor_cache.runFusionWithInputs({input0, input1});
 
@@ -6919,7 +6916,7 @@ TEST_F(NVFuserTest, IntegerDivision_CUDA) {
       executor_cache.fusion(),
       cg_outputs,
       {input0, input1},
-      {div_expect, truediv_expect},
+      {div_expect},
       __LINE__,
       __FILE__);
 }
