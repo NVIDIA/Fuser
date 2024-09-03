@@ -42,7 +42,7 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
   // Validate that meshes are assigned to all TensorViews or none.
   TensorView* tv_with_mesh = nullptr;
   TensorView* tv_without_mesh = nullptr;
-  for (TensorView* tv : ir_utils::allTvs(fusion)) {
+  for (TensorView* tv : fusion->allTvs()) {
     auto update_if_null = [](TensorView*& lhs, TensorView* rhs) {
       if (lhs == nullptr) {
         lhs = rhs;
