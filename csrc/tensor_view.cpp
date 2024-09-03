@@ -1159,12 +1159,12 @@ TensorView* TensorView::cacheAfter(
       !hasComputeAt(),
       "Caching computed-at tensors is not allowed. Apply caching before computeAt.");
 
-  bool is_allowed_op =
-      !ir_utils::isTvUsedByOpsOfType<SliceOp, SelectOp, PadOp>(this) &&
-      !ir_utils::isIndexSelectLookupTv(this);
-  NVF_CHECK(
-      is_allowed_op,
-      "Right now, caching tensors that are input to the select/slice/pad ops are not allowed as they must be in global memory.")
+  // bool is_allowed_op =
+  //     !ir_utils::isTvUsedByOpsOfType<SliceOp, SelectOp, PadOp>(this) &&
+  //     !ir_utils::isIndexSelectLookupTv(this);
+  // NVF_CHECK(
+  //     is_allowed_op,
+  //     "Right now, caching tensors that are input to the select/slice/pad ops are not allowed as they must be in global memory.")
 
   // It also did additional transformation when this tensor is an
   // input and the outputs of its consumers have computeAt. Make sure
