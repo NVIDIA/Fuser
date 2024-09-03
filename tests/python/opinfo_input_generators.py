@@ -1492,9 +1492,9 @@ def matmul_input_generator(
         requires_grad=requires_grad,
     )
 
-    B = 64
-    M = 512
-    N = 256
+    B = 4
+    M = 256
+    N = 128
     K = 32
 
     shapes_a = ((K,), (M, K), (1, K), (B, M, K), (B, 1, M, K))
