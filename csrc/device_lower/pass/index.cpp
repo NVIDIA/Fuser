@@ -1431,7 +1431,10 @@ void IndexLowering::handle(const kir::MBarrierInvalidate* minval) {
     smem_address_ptr = lower_utils::u32IndexScalarSmemTv(
         minval->mbarrier()->as<kir::TensorIndex>());
   } else {
-    NVF_ERROR(false, "Unexpected MBarrierInval value.");
+    NVF_ERROR(
+        false,
+        "Unexpected MBarrierInvalidate barrier value: ",
+        minval->mbarrier()->toString());
   }
   kir::MBarrierInvalidate* minval_indexed =
       IrBuilder::create<kir::MBarrierInvalidate>(smem_address_ptr);
