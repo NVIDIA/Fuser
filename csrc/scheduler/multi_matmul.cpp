@@ -289,15 +289,6 @@ class MultipleMatmulScheduler {
 
       smem_operands[i]->definition()->as<LoadStoreOp>()->setOpType(load_op);
       smem_operands[i]->definition()->as<LoadStoreOp>()->setCacheOp(cache_op);
-      if (smem_operands[i]->uses().size() > 1) {
-        // There can be multiple uses for example if we have A @ B1 + A @ B2
-        // then A will be cached to smem then it might be loaded into two
-        // separate register buffers, one for each mma. Instead, we will load
-        // it once into registers then re-use the register buffer for both
-        // mmas.
-        cacheAfter(smem_operands[i]);
-      }
-      NVF_ERROR(smem_operands[i]->uses().size() == 1);
       smem_operands[i]->setMemoryType(MemoryType::Shared);
     }
   }
@@ -316,7 +307,13 @@ class MultipleMatmulScheduler {
       TensorView* tv_smem = tv_smems[i];
       TensorView*& tv_r = tv_rs[i];
 
-      if (auto ldst = dynamic_cast<LoadStoreOp*>(tv_smem->uses().at(0))) {
+      // There can be multiple uses for example if we have A @ B1 + A @ B2
+      // then A will be cached to smem then it might be loaded into two
+      // separate register buffers, one for each mma. Instead, we will load
+      // it once into registers then re-use the register buffer for both
+      // mmas.
+      if (auto ldst = dynamic_cast<LoadStoreOp*>(tv_smem->uses().at(0));
+          ldst && tv_smem->uses().size() == 1) {
         tv_r = ldst->out()->as<TensorView>();
         ldst->setOpType(LoadStoreOpType::LdMatrix);
       } else {
