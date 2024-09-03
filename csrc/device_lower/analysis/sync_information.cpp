@@ -554,7 +554,7 @@ SyncMap::SyncMap(Fusion* fusion) {
                 /*skip_replay_swizzle=*/false,
                 /*skip_target_swizzle=*/false,
                 /*skip_resize=*/false,
-                /*error_failure=*/false)
+                /*error_on_failure=*/false)
                 .getReplay();
 
         // At this point each parallel type that's present in the consumer or
