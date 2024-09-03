@@ -692,8 +692,7 @@ DynamicTransformInitialInfo& FusionExecutorCache::initialInfo() {
 // since they both involve re-segmentation and re-compilation of the Fusion.
 FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     const KernelArgumentHolder& args,
-    std::optional<PrimDataType> forced_index_type)
-
+    std::optional<PrimDataType> forced_index_type) {
   // Check for id hit case (Path 1)
   FUSER_PERF_SCOPE("FusionExecutorCache::getKernelRuntimeFor");
   auto unique_id_opt = args.getCacheId();
