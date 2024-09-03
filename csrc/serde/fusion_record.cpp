@@ -308,6 +308,18 @@ void RecordFunctorFactory::registerAllParsers() {
         Val*>(ternary_alpha_val, RecordType::Ternary_Alpha_VAL, buffer);
   };
   registerParser(RecordType::Ternary_Alpha_VAL, ternary_alpha_val_parser);
+
+  auto deserializeSdpaFwdRecord = [&](const RecordFunctor* buffer) {
+    return new python_frontend::SdpaFwdOpRecord(
+        parseStateArgs(buffer->args()), parseStateArgs(buffer->outputs()));
+  };
+  registerParser(RecordType::SdpaFwdOp, deserializeSdpaFwdRecord);
+
+  auto deserializeSdpaBwdRecord = [&](const RecordFunctor* buffer) {
+    return new python_frontend::SdpaBwdOpRecord(
+        parseStateArgs(buffer->args()), parseStateArgs(buffer->outputs()));
+  };
+  registerParser(RecordType::SdpaBwdOp, deserializeSdpaBwdRecord);
   // END OpRecord Parsers
 
   // START Reduction Parsers
@@ -788,6 +800,8 @@ void RecordFunctorFactory::setupFunctionMaps() {
   NVFUSER_BINARY_TV_OP("pow", pow)
   NVFUSER_BINARY_TV_OP("remainder", remainder)
   NVFUSER_BINARY_TV_OP("sub", sub)
+  NVFUSER_BINARY_TV_OP("minimum", minimum)
+  NVFUSER_BINARY_TV_OP("maximum", maximum)
   NVFUSER_BINARY_TV_OP("mod", mod)
   NVFUSER_BINARY_TV_OP("eq", eq)
   NVFUSER_BINARY_TV_OP("ge", ge)

@@ -112,7 +112,7 @@ inline void clearL2Cache() {
 };
 
 inline TensorView* loweredTv(TensorView* tv, kir::Kernel* kernel) {
-  auto used_tvs = ir_utils::allTvs(kernel);
+  auto used_tvs = kernel->allTvs();
   TensorView* matching_tv = nullptr;
   for (auto lowered_tv : used_tvs) {
     if (lowered_tv->name() == tv->name()) {

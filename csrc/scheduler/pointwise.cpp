@@ -32,7 +32,13 @@ PointWiseScheduler::PointWiseScheduler(
 }
 
 bool PointWiseScheduler::canScheduleCompileTime(Fusion* fusion) {
-  //   Currently using the same path as the scheduler
+  if (scheduler_utils::isResharding(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        heuristicType(), "Fusion is resharding.");
+    return false;
+  }
+
+  // Currently using the same path as the scheduler
   // to eliminate mismatch between canSchedule and
   // schedule pointwise.
   if (!hasReferenceTensorView(fusion)) {
@@ -576,6 +582,8 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
       reference_tv != nullptr,
       "Could not find a fully broadcasted output to reference schedule on.");
 
+  scheduler_utils::moveNonConcretizedBroadcastInnermost(fusion, {reference_tv});
+
   int64_t num_device_dims = numDeviceDims(reference_tv);
   int64_t device_aware_break_point = params.break_point + num_device_dims;
 
@@ -893,7 +901,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
   // unrolling manually.
   inlineAllAt(reference_tv, unswitch_pos, true);
 
-  auto all_tvs = ir_utils::allTvs(fusion);
+  auto all_tvs = fusion->allTvs();
 
   // Inline at the inner most position. The CA position of all tensors except
   // inputs, cached inputs and outputs will be updated.
