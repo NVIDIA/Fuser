@@ -430,6 +430,17 @@ class AllocationInserter : public kir::ExprMutator {
         kir::Allocate* mbarrier_tokens_alloc = IrBuilder::create<kir::Allocate>(
             mbarrier_tokens, MemoryType::Shared);
 
+        // Add tokens, mbarriers, init, and inval operations around tma
+        // expression like this:
+        //
+        // for (circular_buffer_loop) {
+        //   __shared__ tokens[num_stages];
+        //   __shared__ mbarrier[num_stages];
+        //   init(mbarrier);
+        //   cp.async.bulk(data, mbarrier);
+        //   inval(mbarrier);
+        // }
+
         // NOTE: Block sync ir node is not added here. It will be added in the
         // circular buffering pass
         registerInsertBefore(expr, mbarrier_tokens_alloc, expr_scope);
