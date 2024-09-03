@@ -619,6 +619,9 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
         PersistentBufferResolution::getResolutionPointsOf(fusion, buffer));
   }
 
+  // don't project if there are view ops and no buffer can be projected
+  persistent_buffer_info.has_view_ops = !ir_utils::getViewOps(fusion).empty();
+
   // Find projectable persistent buffers
   auto reduction_tvs = getReductionTvs(fusion);
   for (auto persistent_buffer : persistent_buffer_info.persistent_buffers) {
@@ -634,6 +637,11 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
       persistent_buffer_info.projectable_persistent_buffers.push_back(
           persistent_buffer);
     }
+  }
+
+  // Projection analysis below
+  if (persistent_buffer_info.projectable_persistent_buffers.empty()) {
+    return persistent_buffer_info;
   }
 
   // Get a list of inputs of the projectable buffers
@@ -663,6 +671,23 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
     }
     if (has_unmappable_dim) {
       persistent_buffer_info.projectable_buffer_inputs.emplace_back(input);
+    }
+  }
+
+  // check ops between persistent buffer and inputs.
+  // TODO: check more ops
+  const auto all_exprs = StmtSort::getExprsBetween(
+      {all_inputs.begin(), all_inputs.end()},
+      {persistent_buffer_info.projectable_persistent_buffers.begin(),
+       persistent_buffer_info.projectable_persistent_buffers.end()});
+  for (auto expr : all_exprs) {
+    if (expr->isA<UnaryOp>() &&
+        expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Exp) {
+      persistent_buffer_info.projection_with_exp_op = true;
+    }
+
+    if (expr->isA<RNGOp>()) {
+      persistent_buffer_info.projection_with_rng_op = true;
     }
   }
 
