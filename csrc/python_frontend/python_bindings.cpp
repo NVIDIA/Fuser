@@ -1552,15 +1552,6 @@ void initNvFuserPythonBindings(PyObject* module) {
       "__lshift__", "bitwise_left_shift", bitwise_left_shift)
   NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL(
       "__rshift__", "bitwise_right_shift", bitwise_right_shift)
-  // In PyTorch, __div__ (//) and __truediv__ (/) are different.
-  // When applied to integer-dtype arguments, they do as expected, returning
-  // integer and float outputs, respectively. When applied to two floating-type
-  // arguments, they return the floor of division for // and plain division for
-  // /. When applied to mixed types, the types are promoted, so the
-  // floating-point behavior is returned.
-  // Our div operator matches the __truediv__ behavior, so we do not implement
-  // __div__.
-  NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL("__truediv__", "div", div)
 #undef NVFUSER_PYTHON_BINDING_BINARY_OP_SPECIAL
 
 #define NVFUSER_PYTHON_BINDING_BINARY_WITH_ALPHA_OP(op_str, op_name)          \

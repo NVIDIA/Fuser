@@ -452,12 +452,6 @@ NVF_API Val* atan2(Val* v1, Val* v2);
 NVF_API TensorView* atan2(TensorView* v1, Val* v2);
 NVF_API TensorView* atan2(Val* v1, TensorView* v2);
 NVF_API TensorView* atan2(TensorView* v1, TensorView* v2);
-// truediv: promote to float for integer division, has the same semantics as the
-// python's operator /
-NVF_API Val* truediv(Val* v1, Val* v2);
-NVF_API TensorView* truediv(TensorView* v1, Val* v2);
-NVF_API TensorView* truediv(Val* v1, TensorView* v2);
-NVF_API TensorView* truediv(TensorView* v1, TensorView* v2);
 // div: don't promote to float, instead, truncate the result, this has the same
 // semantics as the C++'s operator /
 NVF_API Val* div(Val* v1, Val* v2);
