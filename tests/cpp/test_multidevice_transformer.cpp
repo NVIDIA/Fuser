@@ -106,10 +106,9 @@ std::vector<at::Tensor> reference_mlp(
     at::Tensor w1,
     at::Tensor b1,
     at::ScalarType at_dtype) {
-  auto linear0 = at::matmul(x, w0).to(at::kFloat) + b0.to(at::kFloat);
-  auto gelu = at::gelu(linear0, "tanh");
-  auto linear1 =
-      at::matmul(gelu.to(at_dtype), w1).to(at::kFloat) + b1.to(at::kFloat);
+  auto linear0 = at::matmul(x, w0).to(at::kFloat) + b0;
+  auto gelu = at::gelu(linear0, "tanh").to(at_dtype);
+  auto linear1 = at::matmul(gelu, w1).to(at::kFloat) + b1;
   auto dropout = at::dropout(linear1, kDropoutProb, true);
   return {linear0, gelu, linear1, dropout};
 }
@@ -406,8 +405,15 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
   FusionExecutorCache fec(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
   auto outputs = fec.runFusionWithInputs(inputs);
-  testValidate(
-      fec.fusion(), outputs, inputs, expected_outputs, __LINE__, __FILE__);
+  ASSERT_EQ(outputs.size(), expected_outputs.size());
+  for (const auto i : c10::irange(outputs.size())) {
+    const auto max_abs_diff =
+        (outputs[i] - expected_outputs[i]).abs().max().item();
+    EXPECT_TRUE(at::allclose(
+        outputs[i], expected_outputs[i], /*rtol=*/0, /*atol=*/1e-2))
+        << "Output " << i << " does not match. The max abs diff is "
+        << max_abs_diff << ".";
+  }
 }
 
 TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
