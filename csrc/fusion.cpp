@@ -521,12 +521,12 @@ void Fusion::printMath(bool from_outputs_only) {
   auto exprs_for_print = exprs();
   debug() << "Inputs:" << std::endl;
   for (auto inp : inputs()) {
-    debug() << "  " << inp << ", " << inp->getDataType().value() << std::endl;
+    debug() << "  " << inp << std::endl;
   }
 
   debug() << "Outputs:" << std::endl;
   for (auto out : outputs()) {
-    debug() << "  " << out << ", " << out->getDataType().value() << std::endl;
+    debug() << "  " << out << std::endl;
   }
 
   // If we want everything in the fusion, grab all values without uses to
