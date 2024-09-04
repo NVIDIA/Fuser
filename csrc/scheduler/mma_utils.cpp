@@ -1258,6 +1258,7 @@ TensorRolesMapOpt getTensorRoles(
     Fusion* fusion,
     const IdModel& id_model,
     const DimRolesMap& dim_roles) {
+  NVF_ERROR(fusion != nullptr);
   const auto mma_input_candidates =
       ir_utils::filterByType<TensorView>(fusion->inputs()).vector();
   if (mma_input_candidates.empty()) {
@@ -2010,6 +2011,34 @@ std::vector<ValGroup> canonicalDimOrdering(
   insert(k_dims);
 
   return ordering;
+}
+
+std::optional<std::pair<DimRolesMap, TensorRolesMap>> allPatternRoles(
+    IdModel& id_model,
+    const std::vector<MatmulPattern>& patterns) {
+  Fusion* fusion = nullptr;
+  DimRolesMap id_roles;
+  for (const MatmulPattern& pattern : patterns) {
+    if (fusion == nullptr) {
+      fusion = pattern.output->fusion();
+    } else {
+      NVF_ERROR(fusion == pattern.output->fusion());
+    }
+    mma_utils::DimRolesMap pattern_id_roles = pattern.getDimRoles(id_model);
+    for (const auto& [g, role] : pattern_id_roles) {
+      const auto& [it, inserted] = id_roles.try_emplace(g, role);
+      if (!inserted && it->second != role) {
+        return std::nullopt;
+      }
+    }
+  }
+  const auto tensor_roles_opt =
+      mma_utils::getTensorRoles(fusion, id_model, id_roles);
+  if (!tensor_roles_opt.isValid()) {
+    return std::nullopt;
+  }
+  return std::pair<DimRolesMap, TensorRolesMap>{
+      id_roles, tensor_roles_opt.getData()};
 }
 
 } // namespace mma_utils

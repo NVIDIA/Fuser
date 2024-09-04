@@ -426,7 +426,7 @@ void TransformToDot::handle(Fusion* fusion) {
   // Make sure the loop domains are ordered correctly
   indent() << "graph [ordering=\"out\"];\n";
 
-  for (const auto tv : ir_utils::allTvs(fusion)) {
+  for (const auto tv : fusion->allTvs()) {
     handle(tv);
   }
 

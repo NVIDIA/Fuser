@@ -145,7 +145,7 @@ void LoopNestGenerator::generate(const std::vector<Expr*>& exprs) {
 
   std::unordered_map<IterDomain*, std::unordered_set<IterDomain*>>
       concrete_id_dependencies;
-  for (auto tv : ir_utils::allTvs(FusionGuard::getCurFusion())) {
+  for (auto tv : FusionGuard::getCurFusion()->allTvs()) {
     std::unordered_set<IterDomain*> dependencies;
 
     for (auto tv_id : tv->getLoopDomain()) {
@@ -212,7 +212,7 @@ void LoopNestGenerator::generate(const std::vector<Expr*>& exprs) {
   }
 
   // Generate loop structure for each tensor view
-  for (auto tv : ir_utils::allTvs(FusionGuard::getCurFusion())) {
+  for (auto tv : FusionGuard::getCurFusion()->allTvs()) {
     // Zero dim tensor support
     if (tv->nDims() == 0) {
       loop_structures_[tv] = std::vector<IterDomain*>();

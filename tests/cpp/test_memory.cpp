@@ -2504,6 +2504,54 @@ TEST_P(LdMatrixTest, Regular) {
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
+class StMatrixTest : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    if (cudaArchGuardShouldSkip(9, 0)) {
+      GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
+    }
+    NVFuserTest::SetUp();
+  }
+};
+
+TEST_F(StMatrixTest, Regular) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto operand = MmaOperand::B;
+
+  int sizeM = 8;
+  int sizeN = 8;
+
+  auto tv0 = makeContigConcreteTensor({sizeM, sizeN}, DataType::Half);
+  fusion.addInput(tv0);
+  // tv0 (global) -> tv1 (shared)
+  auto tv1 = set(tv0);
+  tv1->setMemoryType(MemoryType::Shared);
+  auto tv2 = set(tv1);
+  // tv1 (shared) -> tv2 (registers)
+  // tv2 (registers) -> tv3 (shared)
+  auto tv3 = set(tv2);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StMatrix);
+  tv3->setMemoryType(MemoryType::Shared);
+  // tv3 (shared) -> tv4(global)
+  auto tv4 = set(tv3);
+  fusion.addOutput(tv4);
+
+  tv2->applyMmaSwizzle(operand);
+  tv2->setAllocationDomain(tv2->getLoopDomain(), true);
+  // We do not schedule tv3 as yet.
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  auto t0 = at::randn({sizeM, sizeN}, options);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0}, LaunchParams(), matmul_cparams);
+  auto cg_outputs = fe.runFusion({t0});
+
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
+}
+
 TEST_P(LdMatrixTest, Transpose) {
   Fusion fusion;
   FusionGuard fg(&fusion);

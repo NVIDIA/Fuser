@@ -61,21 +61,6 @@ class DistributedTransformerTest
 };
 
 namespace {
-TensorView* replicated_dropout(
-    TensorView* x,
-    const double kProb,
-    const DeviceMesh mesh) {
-  // Sharding propagation breaks at rand_like because it creates a fresh TV.
-  TensorView* x_float = castOp(DataType::Float, x);
-  const double kScale = 1.0 / (1.0 - kProb);
-  TensorView* rand_vals = rand_like(x_float);
-  TensorView* mask = lt(rand_vals, IrBuilder::create<Val>(1.0 - kProb));
-  TensorView* apply_mask = mul(x_float, mask);
-  TensorView* dropout = mul(apply_mask, IrBuilder::create<Val>(kScale));
-  rand_vals->setDeviceMesh(mesh);
-  return dropout;
-}
-
 void validate(
     std::vector<at::Tensor> expected_out,
     std::vector<at::Tensor> out) {
@@ -119,9 +104,10 @@ std::vector<at::Tensor> reference_mlp(
     at::Tensor w1,
     at::Tensor b1,
     at::ScalarType at_dtype) {
-  auto linear0 = at::matmul(x, w0).add(b0).to(at::kFloat);
+  auto linear0 = at::matmul(x, w0).to(at::kFloat) + b0.to(at::kFloat);
   auto gelu = at::gelu(linear0, "tanh");
-  auto linear1 = at::matmul(gelu.to(at_dtype), w1).add(b1).to(at::kFloat);
+  auto linear1 =
+      at::matmul(gelu.to(at_dtype), w1).to(at::kFloat) + b1.to(at::kFloat);
   auto dropout = at::dropout(linear1, kDropoutProb, true);
   return {linear0, gelu, linear1, dropout};
 }
@@ -202,23 +188,20 @@ std::vector<TensorView*> mlp(
   TensorView* b0_bcast = broadcast(b0, {false, true, false});
   TensorView* linear1 = add(matmul1, b0_bcast);
   // GeLU
-  TensorView* linear1_ = castOp(DataType::Float, linear1);
-  TensorView* gelu = tanh_gelu(linear1_);
-  TensorView* gelu_ = castOp(dtype, gelu);
+  TensorView* gelu = tanh_gelu(linear1);
+  gelu = castOp(dtype, gelu);
   // Linear #2
-  TensorView* local_matmul2 = matmul(gelu_, w1);
+  TensorView* local_matmul2 = matmul(gelu, w1);
   TensorView* matmul2 = sum(local_matmul2, {0}); // Allreduce
   TensorView* bcast_bias = broadcast(b1, {true, false});
   TensorView* linear2 = add(matmul2, bcast_bias);
   // Dropout
-  TensorView* dropout = replicated_dropout(linear2, kDropoutProb, mesh);
+  Val* prob = IrBuilder::create<Val>(1.0 - kDropoutProb);
+  Val* scale = IrBuilder::create<Val>(1.0 / (1.0 - kDropoutProb));
+  auto dropout_result = dropout(linear2, prob, scale).output;
 
-  // Sharding
-  // (TODO) TVs where sharding propagation breaks down:
-  // linear_int0: broadcasts where a device dim axis is broadcasted.
-  // rand_vals: rand_like creates a fresh new TV.
-  // TVs replicated on each device.
-  for (auto tv : {x, b1, matmul2, linear2, dropout}) {
+  // Manual sharding annotations
+  for (auto tv : {x, b1, matmul2, linear2, dropout_result}) {
     tv->setDeviceMesh(mesh);
   }
   for (auto tv : {w0, b0, w1, linear1, gelu}) {
@@ -226,7 +209,7 @@ std::vector<TensorView*> mlp(
     tv->axis(0)->parallelize(ParallelType::DIDx);
   }
 
-  return {linear1, gelu, linear2, dropout};
+  return {linear1, gelu, linear2, dropout_result};
 }
 
 std::vector<TensorView*> mha(
@@ -277,16 +260,18 @@ std::vector<TensorView*> mha(
   TensorView* b1_bcast = broadcast(b1, {true, false});
   TensorView* linear2 = add(mm2_ar, b1_bcast);
   // Dropout
-  TensorView* dropout = replicated_dropout(linear2, kDropoutProb, mesh);
+  Val* prob = IrBuilder::create<Val>(1.0 - kDropoutProb);
+  Val* scale = IrBuilder::create<Val>(1.0 / (1.0 - kDropoutProb));
+  auto dropout_result = dropout(linear2, prob, scale).output;
 
-  for (auto tv : {x, b1, mm2_ar, linear2, dropout}) {
+  for (auto tv : {x, b1, mm2_ar, linear2, dropout_result}) {
     tv->setDeviceMesh(mesh);
   }
-  for (auto tv : {w0, b0, w1, proj_bias_bcast, mm, mm2, qkv, sdpa_output}) {
+  for (auto tv : {w0, b0, w1, mm2, qkv, sdpa_output}) {
     tv->setDeviceMesh(mesh);
     tv->axis(0)->parallelize(ParallelType::DIDx);
   }
-  return {qkv, sdpa_output, linear2, dropout};
+  return {qkv, sdpa_output, linear2, dropout_result};
 }
 
 std::vector<TensorView*> mlp_backwards(
@@ -331,14 +316,9 @@ std::vector<TensorView*> mlp_backwards(
   TensorView* matmul0_grad_w = transpose(matmul0_grad_w_t, 1, 2);
   TensorView* matmul0_grad_b = sum(gelu_grad, {1});
 
+  // Manaul sharding annotations
   for (auto tv :
-       {x,
-        grad,
-        mask,
-        dropout_grad,
-        matmul1_grad_x,
-        matmul1_grad_b,
-        matmul0_grad_x}) {
+       {x, grad, mask, dropout_grad, matmul1_grad_b, matmul0_grad_x}) {
     tv->setDeviceMesh(mesh);
   }
 
@@ -346,18 +326,14 @@ std::vector<TensorView*> mlp_backwards(
        {w0,
         b0,
         w1,
-        matmul0,
-        matmul1_grad_x,
         matmul1_grad_w,
-        matmul1_grad_w_t,
         gelu_grad,
-        matmul0_grad_w_t,
         matmul0_grad_w,
-        matmul0_grad_x_partial,
         matmul0_grad_b}) {
     tv->setDeviceMesh(mesh);
     tv->axis(0)->parallelize(ParallelType::DIDx);
   }
+
   std::vector<TensorView*> outputs = {
       dropout_grad,
       matmul1_grad_w,
@@ -371,7 +347,7 @@ std::vector<TensorView*> mlp_backwards(
 } // namespace
 
 TEST_P(DistributedTransformerTest, MLP_Layer) {
-  auto dtype = GetParam();
+  DataType dtype = GetParam();
   at::ScalarType at_dtype = data_type_to_aten(dtype);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -395,6 +371,8 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
   for (TensorView* tv : tvsout) {
     fusion->addOutput(tv);
   }
+  shardBetween({tvw0, tvb0, tvw1}, {tvsout[3]}, tvw0);
+  shardBetween({tvx, tvb1}, {tvsout[3]}, tvx);
 
   const auto options =
       at::TensorOptions().dtype(at_dtype).device(communicator_->device());
@@ -455,6 +433,9 @@ TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
     fusion->addOutput(tv);
   }
 
+  shardBetween({tvw0, tvb0, tvw1}, {tv_outs[3]}, tvw0);
+  shardBetween({tvx, tvb1}, {tv_outs[3]}, tvx);
+
   const auto options =
       at::TensorOptions().dtype(at_dtype).device(communicator_->device());
   auto x = at::randn({B * S, E}, options);
@@ -512,6 +493,12 @@ TEST_P(DistributedTransformerTest, MLP_Backward) {
   for (TensorView* tv : tv_outs) {
     fusion->addOutput(tv);
   }
+
+  // Sharded: matmul1_grad_w, gelu_grad, matmul0_grad_w, matmul0_grad_b
+  shardBetween(
+      {w0, b0, w1}, {tv_outs[1], tv_outs[3], tv_outs[4], tv_outs[5]}, w0);
+  // Unsharded: dropout_grad, matmul1_grad_b, matmul0_grad_x
+  shardBetween({grad, x}, {tv_outs[0], tv_outs[2], tv_outs[6]}, grad);
 
   const auto options =
       at::TensorOptions().dtype(at_dtype).device(communicator_->device());
@@ -600,6 +587,10 @@ TEST_P(DistributedTransformerTest, Forward) {
     tv->setDeviceMesh(mesh);
   }
 
+  shardBetween({mha_in->definition()}, {mha_out->definition()}, mha_w0);
+  shardBetween({mlp_in->definition()}, {mlp_out->definition()}, mlp_w0);
+  shardBetween({x}, {mha_in}, x);
+
   const auto options =
       at::TensorOptions().dtype(at_dtype).device(communicator_->device());
   auto x_ = at::randn({B * S, E}, options).to(at::kFloat);
@@ -657,5 +648,7 @@ TEST_P(DistributedTransformerTest, Forward) {
 INSTANTIATE_TEST_SUITE_P(
     ,
     DistributedTransformerTest,
-    testing::Values(DataType::Half, DataType::BFloat16));
+    testing::Values(DataType::Half, DataType::BFloat16),
+    testing::PrintToStringParamName());
+
 } // namespace nvfuser

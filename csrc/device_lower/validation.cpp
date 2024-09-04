@@ -189,7 +189,7 @@ void validateIr(Fusion* fusion) {
       "Tensor with dynamic transform must be concretized before lowering: ",
       toDelimitedString(dynamic_tvs.begin(), dynamic_tvs.end()));
 
-  auto all_tvs = ir_utils::allTvs(fusion);
+  auto all_tvs = fusion->allTvs();
   validateCpAsyncBulk(all_tvs);
 }
 
@@ -401,18 +401,26 @@ class VectorizeValidator : public OptInDispatch {
     if (!is_ldmatrix_trans) {
       // ldmatrix.trans is a hardware transpose instruction that can do
       // "vectorized" read from discontiguous memory
-      auto contiguity = tv->domain()->contiguity().at(last_alloc_dim_pos);
       NVF_CHECK(
-          last_alloc_dim == validator.vectorized_id_ &&
-              contiguity.value_or(false),
+          last_alloc_dim == validator.vectorized_id_,
           "Vectorized dim for ",
           name,
-          " has to be from a contiguous inner most position. tv: ",
+          " has to be from an inner most position. tv: ",
           tv,
           ", allocation domain: ",
-          ir_utils::toString(tv->getMaybeAllocationDomain()),
+          tv->getMaybeAllocationDomain(),
           ", vectorized id: ",
-          validator.vectorized_id_->toString(),
+          validator.vectorized_id_,
+          ", innermost id: ",
+          last_alloc_dim);
+
+      auto contiguity = tv->domain()->contiguity().at(last_alloc_dim_pos);
+      NVF_CHECK(
+          contiguity.value_or(false),
+          "The innermost position has to be contiguous. tv: ",
+          tv,
+          ", allocation domain: ",
+          tv->getMaybeAllocationDomain(),
           ", innermost id: ",
           last_alloc_dim->toString(),
           ", contiguity: ",
@@ -904,7 +912,7 @@ void validateSwizzle(Fusion* fusion) {
 }
 
 void validateAndConvertIterDomainGrouping(Fusion* fusion) {
-  for (auto tv : ir_utils::allTvs(fusion)) {
+  for (auto tv : fusion->allTvs()) {
     bool is_grouped = false;
     for (const auto id_idx : c10::irange(tv->nDims())) {
       const auto id = tv->axis(id_idx);

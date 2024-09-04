@@ -195,6 +195,12 @@ struct PersistentBufferInfo {
 
   // Map unmappable dims to projectable_buffer_inputs
   std::unordered_set<IterDomain*> unamppable_dims_projected_to_inputs;
+
+  // Some parameters used in
+  // normalization_scheduler_utils::isProjectBufferToInput
+  bool has_view_ops = false;
+  bool projection_with_exp_op = false;
+  bool projection_with_rng_op = false;
 };
 
 // Buffers whos roots can't map to all producer roots based on compute at. These

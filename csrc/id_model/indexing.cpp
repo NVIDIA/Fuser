@@ -11,6 +11,7 @@
 #include <device_lower/utils.h>
 #include <expr_simplifier.h>
 #include <id_model/circular_buffer_indexing.h>
+#include <id_model/contiguity.h>
 #include <id_model/id_model_index_compute.h>
 #include <id_model/indexing.h>
 #include <id_model/indexing_utils.h>
@@ -182,8 +183,11 @@ class AllocationDomainSetup : private kir::IrVisitor {
     // reasonably well.
     bool use_set_allocation_domain = false;
     if (tv->hasAllocation()) {
-      // Honor the allocation domain if the tensor is global memory
-      if (tv->getMemoryType() == MemoryType::Global) {
+      // Honor the allocation domain if the tensor is global or Hopper MMA's
+      // output
+      if (tv->getMemoryType() == MemoryType::Global ||
+          (tv->definition()->isA<MmaOp>() &&
+           isHopper(tv->definition()->as<MmaOp>()->macro()))) {
         use_set_allocation_domain = true;
       } else if (tv->getMemoryType() == MemoryType::Shared) {
         // If it's a shared memory tensor, the set domain is likely
@@ -217,25 +221,29 @@ class AllocationDomainSetup : private kir::IrVisitor {
         allocation_domains = tv->getAllocationDomain();
         contiguity = tv->domain()->contiguity();
       } else {
-        std::unordered_set<IterDomain*> exclude_ids;
+        std::unordered_set<IterDomain*> exclude_ca_ids;
         for (auto i : c10::irange(tv->getComputeAtPosition())) {
           auto ca_id = tv->axis(i);
           if (!ir_utils::isMemorySharedAcross(
                   tv->getMemoryType(), ca_id->getParallelType())) {
-            exclude_ids.insert(ca_id);
+            exclude_ca_ids.insert(ca_id);
           }
         }
         for (auto i : c10::irange(tv->getAllocationDomain().size())) {
           auto id = tv->getAllocationDomain()[i];
-          if (exclude_ids.find(id) == exclude_ids.end()) {
+          if (exclude_ca_ids.find(id) == exclude_ca_ids.end()) {
+            if (ir_utils::isMemoryPartitionedAcross(
+                    tv->getMemoryType(), id->getParallelType())) {
+              continue;
+            }
             allocation_domains.push_back(id);
             contiguity.push_back(tv->domain()->contiguity()[i]);
           } else {
-            exclude_ids.erase(id);
+            exclude_ca_ids.erase(id);
           }
         }
         NVF_ERROR(
-            exclude_ids.empty(),
+            exclude_ca_ids.empty(),
             "The non-allocating compute-at IDs are not found in the allocation domain. ",
             "It is unclear how to allocate the tensor: ",
             tv->toString(),
@@ -378,6 +386,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
     // allocation domains, which aren't relevant for indexing
     std::vector<IterDomain*> actual_allocation_domains;
     std::vector<Val*> actual_strides;
+    std::vector<bool> actual_contiguity;
     for (const auto i : c10::irange(allocation_domains.size())) {
       auto allocation_domain = allocation_domains.at(i);
       auto promotion_domain = promoted_allocation_domains.at(i);
@@ -388,9 +397,13 @@ class AllocationDomainSetup : private kir::IrVisitor {
       NVF_ERROR(stride != nullptr);
       actual_allocation_domains.push_back(promotion_domain);
       actual_strides.push_back(stride);
+      auto contig = contiguity.at(i);
+      NVF_ERROR(contig.has_value());
+      actual_contiguity.push_back(contig.value());
     }
 
-    return IndexingAllocationInfo{actual_allocation_domains, actual_strides};
+    return IndexingAllocationInfo{
+        actual_allocation_domains, actual_strides, actual_contiguity};
   }
 
   // Reorder non-logical allocation domains to follow the ordering of
@@ -740,6 +753,14 @@ ParallelType getParallelType(const ValGroup& loop_group) {
 
 TensorIndexer::TensorIndexer(IdModel& id_model) : id_model_(id_model) {
   buildLoopIndexMap();
+
+  if (isDebugDumpEnabled(DebugDumpOption::IndexingVerbose)) {
+    std::ofstream ofs("indexing_traversal_graph.dot", std::ofstream::trunc);
+    auto dot_string =
+        id_model_.idGraph(IdMappingMode::ALMOSTEXACT).toGraphvizDotGraph();
+    ofs << dot_string;
+    ofs.close();
+  }
 }
 
 void TensorIndexer::buildLoopIndexMap() {
@@ -768,15 +789,15 @@ void TensorIndexer::buildLoopIndexMap() {
       Val* loop_index = nullptr;
 
       ParallelType ptype = getParallelType(loop_group);
-      if (isParallelTypeThread(ptype)) {
-        loop_index = NamedScalar::getParallelIndex(ptype);
-      } else if (
+      if (
           // TODO: Cleanup needed. ir_utils::isMemoryPartitionedAcross
           // should be used, but that means we would need to consider
           // multiple outputs with different memory types, though it
           // should be uncommon in practice.
           shouldUseZeroIndex(loop_group) || isParallelTypeDeviceDim(ptype)) {
         loop_index = fusion->zeroVal();
+      } else if (isParallelTypeThread(ptype)) {
+        loop_index = NamedScalar::getParallelIndex(ptype);
       } else {
         // Until the transition to the IdModel-based indexing is
         // completed, use the index Vals assigned for ComputeAtMap
@@ -912,20 +933,15 @@ Val* TensorIndexer::getLinearIndex(
 
   const auto alloc_info = getIndexingAllocationInfo(tv);
 
-  auto indices = getIndexFor(
-      expr,
-      as_consumer,
-      traversalGraph().toGroups(alloc_info.domains),
-      for_loops);
-  NVF_ERROR(indices.size() == alloc_info.domains.size());
+  const auto [contig_indices, contig_strides] =
+      getContigIndexFor(expr, as_consumer, alloc_info, for_loops);
 
   // Linearize the indices with strides.
-  // TODO: Contiguous indexing
   Val* index = tv->fusion()->zeroVal();
-  for (const auto i : c10::irange(alloc_info.domains.size())) {
-    Val* stride = alloc_info.strides.at(i);
+  for (const auto i : c10::irange(contig_indices.size())) {
+    Val* stride = contig_strides.at(i);
     index = SimplifyingIrBuilder::addExpr(
-        index, SimplifyingIrBuilder::mulExpr(indices.at(i), stride));
+        index, SimplifyingIrBuilder::mulExpr(contig_indices.at(i), stride));
   }
 
   // If a tensor is circular buffered, it also requires indexing of
@@ -1029,7 +1045,8 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
     // of the domain, for predication, so the replacement is not
     // always done with zero.
     if (loop_id->getParallelType() == ParallelType::Vectorize ||
-        loop_id->getParallelType() == ParallelType::Bulk) {
+        loop_id->getParallelType() == ParallelType::Bulk ||
+        loop_id->getParallelType() == ParallelType::Mma) {
       replacement_index = loop_id->fusion()->zeroVal();
     } else {
       ForLoop* for_loop = indexing_utils::getForLoop(
@@ -1113,9 +1130,6 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
           id_model_,
           /*is_start_predicate=*/false,
           /*unswitched_loop=*/unswitched_loop);
-
-  const std::vector<PredicateDomainInfo> non_divisible_split_predicates =
-      getNonDivisibleConsumerDomainsToPredicate(tv);
 
   const CircularBufferLoopStage loop_stage = getCircularBufferLoopStage(
       tv, for_loops, id_model_.idGraph(IdMappingMode::LOOP));
@@ -1222,6 +1236,97 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
   }
 
   return info_vec;
+}
+
+std::pair<std::vector<ValGroup>, std::vector<Val*>> TensorIndexer::
+    getContigDomainsAndStrides(
+        const IndexingAllocationInfo& alloc_info,
+        const ExprPath<ExprGroup>& traversal_path) const {
+  const std::unordered_map<IterDomain*, ValGroup>& contig_domains =
+      getContigDomains(
+          alloc_info.domains,
+          alloc_info.contiguity,
+          reverse(traversal_path),
+          traversalGraph());
+
+  // Find contiguous domains to index
+  std::unordered_set<ValGroup> already_indexed_domains;
+  std::deque<ValGroup> contig_alloc_groups;
+  std::deque<Val*> contig_strides;
+  for (const auto i : c10::irange(alloc_info.domains.size())) {
+    // Traverse back from the innermost domains so that the right
+    // stride val is picked up for each contiguous domain
+    auto i1 = alloc_info.domains.size() - 1 - i;
+    IterDomain* allocation_domain = alloc_info.domains.at(i1);
+    auto contig_domains_it = contig_domains.find(allocation_domain);
+    NVF_ERROR(
+        contig_domains_it != contig_domains.end(),
+        "No contig domain mapping found for ",
+        allocation_domain->toString());
+
+    const ValGroup& contig_domain_group = contig_domains_it->second;
+    if (already_indexed_domains.find(contig_domain_group) !=
+        already_indexed_domains.end()) {
+      continue;
+    }
+    already_indexed_domains.emplace(contig_domain_group);
+
+    contig_alloc_groups.push_front(contig_domain_group);
+    contig_strides.push_front(alloc_info.strides.at(i1));
+  }
+
+  return {
+      {contig_alloc_groups.begin(), contig_alloc_groups.end()},
+      {contig_strides.begin(), contig_strides.end()}};
+}
+
+std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
+    getContigIndexFor(
+        const Expr* expr,
+        bool as_consumer,
+        const IndexingAllocationInfo& alloc_info,
+        const std::vector<ForLoop*>& for_loops) const {
+  const auto& index_groups = traversalGraph().toGroups(alloc_info.domains);
+  auto index_info = computeIndex(expr, index_groups, for_loops);
+  const auto& index_map = index_info.index_map;
+  const auto& replacement_map = getIndexReplacementMap(
+      expr, as_consumer, index_info.loop_domains, for_loops, index_map);
+
+  std::vector<ValGroup> contig_alloc_groups;
+  std::vector<Val*> contig_strides;
+
+  if (isContigIndexingEnabled()) {
+    const auto& contig_alloc_strides =
+        getContigDomainsAndStrides(alloc_info, index_info.traversal_path);
+    contig_alloc_groups = contig_alloc_strides.first;
+    contig_strides = contig_alloc_strides.second;
+  } else {
+    std::transform(
+        alloc_info.domains.begin(),
+        alloc_info.domains.end(),
+        std::back_inserter(contig_alloc_groups),
+        [&](IterDomain* allocation_domain) {
+          return traversalGraph().toGroup(allocation_domain);
+        });
+    contig_strides = {alloc_info.strides.begin(), alloc_info.strides.end()};
+  }
+
+  std::vector<Val*> result;
+  result.reserve(contig_alloc_groups.size());
+
+  for (const auto i : c10::irange(contig_alloc_groups.size())) {
+    const auto& contig_domain_group = contig_alloc_groups.at(i);
+    auto idx_it = index_map.find(contig_domain_group);
+    NVF_ERROR(
+        idx_it != index_map.end(),
+        "Index not found for ",
+        contig_domain_group->front()->toString());
+    Val* idx = idx_it->second;
+    Val* replaced_idx = ir_utils::replaceValRecursively(idx, replacement_map);
+    result.push_back(replaced_idx);
+  }
+
+  return {result, contig_strides};
 }
 
 } // namespace nvfuser
