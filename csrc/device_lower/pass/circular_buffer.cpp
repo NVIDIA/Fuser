@@ -637,18 +637,15 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
     NVF_ERROR(mbarrier_arrive_tx_ != nullptr);
     NVF_ERROR(expr != nullptr);
 
-    // Create if-then-else for arrive_expected_tx
-    kir::IfThenElse* if_expr_arrive =
-        createMbarrierArriveExpectTx(mbarrier_arrive_tx_);
-    for_loop_stack_.back()->body().push_back(if_expr_arrive);
+    // Add arrive_expected_tx expression
+    for_loop_stack_.back()->body().push_back(mbarrier_arrive_tx_);
+    mbarrier_arrive_tx_ = nullptr;
 
     // Create if-then-else for LoadStoreOp
     kir::IfThenElse* if_expr_ldst = IrBuilder::create<kir::IfThenElse>(
         IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
     if_expr_ldst->thenBody().push_back(expr);
     for_loop_stack_.back()->body().push_back(if_expr_ldst);
-
-    mbarrier_arrive_tx_ = nullptr;
   }
 
   // Get size of tma load in bytes. It is used for expected transaction count in
@@ -695,38 +692,6 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
         expected_bytes,
         " is not.");
     return expected_bytes;
-  }
-
-  // Create mbarrier arrive expect transaction
-  //
-  // Pseudo-code example:
-  //  if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
-  //    tokens[next_stage] =
-  //      mbarrier::arriveExpectTx(mbarrier[next_stage], expected_bytes);
-  //  } else {
-  //    tokens[next_stage] =
-  //      mbarrier::arriveExpectTx(mbarrier[next_stage], 0);
-  //  }
-  //
-  //  Return the mbarrier selected by loop_index
-  kir::IfThenElse* createMbarrierArriveExpectTx(
-      kir::MBarrierArriveExpectTx* mbarrier_arrive_tx) {
-    NVF_ERROR(mbarrier_arrive_tx != nullptr);
-    kir::IfThenElse* if_expr = IrBuilder::create<kir::IfThenElse>(
-        IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
-
-    // A single thread issues arriveExpectTx with expected transactions.
-    if_expr->thenBody().push_back(mbarrier_arrive_tx);
-
-    // The other threads issue arriveExpectTx without any expected transactions.
-    kir::MBarrierArriveExpectTx* thread_arrive =
-        IrBuilder::create<kir::MBarrierArriveExpectTx>(
-            mbarrier_arrive_tx->state(),
-            mbarrier_arrive_tx->mbarrier(),
-            /*tx_count=*/IrBuilder::create<Val>(0L, PrimDataType::UInt32));
-    if_expr->elseBody().push_back(thread_arrive);
-
-    return if_expr;
   }
 
   // This function creates kir::MBarrierArriveExpectTx for given LoadStoreOp and

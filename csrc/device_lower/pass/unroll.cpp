@@ -22,6 +22,37 @@ namespace nvfuser {
 
 namespace {
 
+// Create mbarrier arrive expect transaction
+//
+// Pseudo-code example:
+//  if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
+//    tokens[next_stage] =
+//      mbarrier::arriveExpectTx(mbarrier[next_stage], expected_bytes);
+//  } else {
+//    tokens[next_stage] =
+//      mbarrier::arriveExpectTx(mbarrier[next_stage], 0);
+//  }
+//
+kir::IfThenElse* createMbarrierArriveExpectTx(
+    kir::MBarrierArriveExpectTx* mbarrier_arrive_tx) {
+  NVF_ERROR(mbarrier_arrive_tx != nullptr);
+  kir::IfThenElse* if_expr = IrBuilder::create<kir::IfThenElse>(
+      IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
+
+  // A single thread issues arriveExpectTx with expected transactions.
+  if_expr->thenBody().push_back(mbarrier_arrive_tx);
+
+  // The other threads issue arriveExpectTx without any expected transactions.
+  kir::MBarrierArriveExpectTx* thread_arrive =
+      IrBuilder::create<kir::MBarrierArriveExpectTx>(
+          mbarrier_arrive_tx->state(),
+          mbarrier_arrive_tx->mbarrier(),
+          /*tx_count=*/IrBuilder::create<Val>(0L, PrimDataType::UInt32));
+  if_expr->elseBody().push_back(thread_arrive);
+
+  return if_expr;
+}
+
 // Provide a new for loop matching the one provided
 ForLoop* cloneLoopNest(const ForLoop* for_loop) {
   const auto new_loop = IrBuilder::create<ForLoop>(for_loop);
@@ -42,6 +73,13 @@ void UnrollPass::registerReplace(Expr* reference, Expr* new_expr) {
 }
 
 void UnrollPass::dispatch(Expr* expr) {
+  if (expr->isA<kir::MBarrierArriveExpectTx>()) {
+    kir::IfThenElse* ite =
+        createMbarrierArriveExpectTx(expr->as<kir::MBarrierArriveExpectTx>());
+    kir::ExprMutator::registerReplace(expr, ite);
+    return;
+  }
+
   if (ir_utils::isTvOp(expr)) {
     DEBUG_PRINT_SCOPE_NAME("UnrollPass::dispatch", expr);
     // If tv op, predicate it
