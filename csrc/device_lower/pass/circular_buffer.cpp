@@ -285,10 +285,18 @@ kir::IfThenElse* createThreadPredicatedIfThenElse() {
 // }
 //
 // Prologue loop:
-// if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
-//   for (int64_t loop_index : irange(stages-1)) {
-//     tokens[loop_index] = mbarrier::arriveExpectTx(mbarrier[loop_index]);
-//     cpAsyncBulk(mbarriers[loop_index], ...);
+// for (int64_t loop_index : irange(stages-1)) {
+//   if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
+//     tokens[loop_index] =
+//       mbarrier::arriveExpectTx(mbarrier[loop_index], expected_bytes);
+//   } else {
+//     tokens[loop_index] =
+//       mbarrier::arriveExpectTx(mbarrier[loop_index], 0);
+//   }
+//   for (...) {
+//     if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
+//       cpAsyncBulk(mbarriers[loop_index], ...);
+//     }
 //   }
 // }
 //
@@ -298,8 +306,15 @@ kir::IfThenElse* createThreadPredicatedIfThenElse() {
 //   load_stage = (loop_index + (stage_depth - 1)) % stage_depth)
 //   if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
 //     token[load_stage] =
-//       mbarrier::arriveExpectTx(mbarrier[load_stage]);
-//     cpAsyncBulk(mbarrier[load_stage], ...);
+//       mbarrier::arriveExpectTx(mbarrier[load_stage], expected_bytes);
+//   } else {
+//     token[load_stage] =
+//       mbarrier::arriveExpectTx(mbarrier[load_stage], 0);
+//   }
+//   for (...) {
+//     if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
+//       cpAsyncBulk(mbarrier[load_stage], ...);
+//     }
 //   }
 //   mbarrier::wait(token[current_stage]);
 //
@@ -368,7 +383,9 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
     // mbarrier::wait occurs in Main and Epilogue loops.
     if (mbarrier_wait_ != nullptr && for_loop_stack_.size() == 1) {
       NVF_ERROR(for_loop_stack_.back() == cloned_top_level_loop_);
-      addSynchronousMbarrierWait();
+      NVF_ERROR(mbarrier_wait_ != nullptr);
+      cloned_top_level_loop_->body().push_back(mbarrier_wait_);
+      mbarrier_wait_ = nullptr;
     }
   }
 
@@ -446,13 +463,19 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
   }
 
   // Replace cpAsyncBulk type LoadStoreOp with:
-  //  if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
-  //    for (int64_t loop_idx : irange(stages-1)) {
-  //      tokens[loop_idx] =
-  //        mbarrier::arriveExpectTx(mbarrier[loop_idx])
-  //      cpAsyncBulk(mbarrier[loop_idx], ...);
-  //    }
-  //  }
+  //   if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
+  //     tokens[loop_index] =
+  //       mbarrier::arriveExpectTx(mbarrier[loop_index], expected_bytes);
+  //   } else {
+  //     tokens[loop_index] =
+  //       mbarrier::arriveExpectTx(mbarrier[loop_index], 0);
+  //   }
+  //   for (...) {
+  //     if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
+  //       cpAsyncBulk(mbarriers[loop_index], ...);
+  //     }
+  //   }
+  // }
   void handlePrologueLoop(Expr* expr) {
     NVF_ERROR(expr != nullptr);
 
@@ -498,16 +521,23 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
 
   // Handle cpAsyncBulk type LoadStoreOp that is registered with token
   //
-  // current_compute_stage = loop_index % stage_depth
-  // current_load_stage = (loop_index + (stage_depth - 1)) % stage_depth)
+  // compute_stage = loop_index % stage_depth
+  // load_stage = (loop_index + (stage_depth - 1)) % stage_depth)
   //
   // Replace LoadStoreOp with:
-  //  if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
-  //    tokens[current_load_stage] =
-  //      mbarrier::arriveExpectTx(mbarrier[current_load_stage]);
-  //    cpAsyncBulk(mbarrier[current_load_stage], ...);
-  //  }
-  //  mbarrier::wait(token[current_stage]);
+  //   if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
+  //     token[load_stage] =
+  //       mbarrier::arriveExpectTx(mbarrier[load_stage], expected_bytes);
+  //   } else {
+  //     token[load_stage] =
+  //       mbarrier::arriveExpectTx(mbarrier[load_stage], 0);
+  //   }
+  //   for (...) {
+  //     if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
+  //       cpAsyncBulk(mbarrier[load_stage], ...);
+  //     }
+  //   }
+  //   mbarrier::wait(token[current_stage]);
   //
   // Where mbarrier and token are shared memory arrays bound to the
   // LoadStoreOp
@@ -619,8 +649,10 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
   //      mbarrier::arriveExpectTx(mbarrier[next_stage], 0);
   //  }
   //
-  //  if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
-  //    cpAsyncBulk(mbarrier[next_stage], ...);
+  //  for (...) {
+  //    if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
+  //      cpAsyncBulk(mbarrier[next_stage], ...);
+  //    }
   //  }
   void addTmaLoadBlock(Expr* expr) {
     NVF_ERROR(mbarrier_arrive_tx_ != nullptr);
@@ -637,16 +669,6 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
     for_loop_stack_.back()->body().push_back(if_expr_ldst);
 
     mbarrier_arrive_tx_ = nullptr;
-  }
-
-  // This function adds mbarrier::wait to top level cloned loop.
-  //
-  // Pseudo-code example:
-  //  mbarrier::wait(mbarriers[stage], mbarrier_tokens[stage]);
-  void addSynchronousMbarrierWait() {
-    NVF_ERROR(mbarrier_wait_ != nullptr);
-    cloned_top_level_loop_->body().push_back(mbarrier_wait_);
-    mbarrier_wait_ = nullptr;
   }
 
   // Get size of tma load in bytes. It is used for expected transaction count in
@@ -730,10 +752,9 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
   // circular buffer stage.
   //
   // Example:
-  //   expected_bytes = (has_expected_tx) ? getSizeOfTmaLoad(ldst) : 0LL;
   //   tokens[stage] =
   //      mbarrier::arriveExpectTX(toSmem((&barriers[stage])),
-  //      expected_bytes);
+  //      getSizeOfTmaLoad(ldst));
   kir::MBarrierArriveExpectTx* createMbarrierArriveExpectTx(
       LoadStoreOp* ldst,
       Val* loop_index) {
