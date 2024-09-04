@@ -3677,4 +3677,61 @@ TEST_F(ResizeTest, Chunk_Uneven) {
   EXPECT_EQ(out_tensors.back().numel(), 1);
 }
 
+// Schedule a slice with the loop domain derived from the producer
+// domain.
+TEST_F(ResizeTest, SliceScheduledLikeProducer) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape({100});
+
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 =
+      slice(tv0, {{IrBuilder::create<Val>(1L), IrBuilder::create<Val>(99)}});
+
+  auto tv2 = set(tv1);
+
+  fusion.addOutput(tv2);
+
+  tv1->setLoopDomain(tv1->getRootDomain());
+
+  auto tv2_loop_id = tv0->getLoopDomain().at(0)->cloneWithoutRFactor();
+
+  IrBuilder::create<Resize>(
+      tv2->getLogicalDomain().at(0),
+      tv2_loop_id,
+      IrBuilder::create<Val>(-1, DataType::Index),
+      IrBuilder::create<Val>(-1, DataType::Index));
+
+  tv2->setLoopDomain({tv2_loop_id});
+
+  for (auto tv : {tv1, tv2}) {
+    tv->split(0, 32);
+    // RAW sync analysis not updated yet
+#if 0
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(1)->parallelize(ParallelType::TIDx);
+#endif
+  }
+
+  fusion.print();
+  fusion.printKernel();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto ref = t0.index({at::indexing::Slice(1, shape[0] - 1)});
+
+  NVF_CHECK(ref.equal(cg_outputs[0]));
+}
+
 } // namespace nvfuser
