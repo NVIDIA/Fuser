@@ -461,26 +461,19 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
       return;
     }
 
-    NVF_ERROR(ldst_ == nullptr);
-    ldst_ = expr->as<LoadStoreOp>();
-
-    if (current_load_stage_ == nullptr) {
-      current_load_stage_ = cloned_top_level_loop_->indexOrStartIfTrivial();
-    }
+    LoadStoreOp* ldst = expr->as<LoadStoreOp>();
 
     // There should be a single mbarrier_arrive_tx_ for all ldst in current
     // stage.
     NVF_ERROR(mbarrier_arrive_tx_ == nullptr);
     mbarrier_arrive_tx_ = createMbarrierArriveExpectTx(
-        ldst_,
-        current_load_stage_,
-        /*has_expected_tx=*/true);
+        ldst, cloned_top_level_loop_->indexOrStartIfTrivial());
 
     // Clone LoadStoreOp and map it to mbarrier alloc
     Expr* new_ldst =
         IrBuilder::create<LoadStoreOp>(
-            ldst_->opType(), ldst_->out(), ldst_->in(), ldst_->cacheOp())
-            ->withPredicate(ldst_->predicate());
+            ldst->opType(), ldst->out(), ldst->in(), ldst->cacheOp())
+            ->withPredicate(ldst->predicate());
 
     // Register mbarrier object to be used with new LoadStoreOp
     // from prolog loop
@@ -559,26 +552,25 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
           current_load_stage_->definition());
     }
 
-    NVF_ERROR(ldst_ == nullptr);
-    ldst_ = expr->as<LoadStoreOp>();
+    LoadStoreOp* ldst = expr->as<LoadStoreOp>();
 
     // There should be a single mbarrier_arrive_tx_ for all ldst in current
     // stage.
     NVF_ERROR(mbarrier_arrive_tx_ == nullptr);
-    mbarrier_arrive_tx_ = createMbarrierArriveExpectTx(
-        ldst_, current_load_stage_, /*has_expected_tx=*/true);
+    mbarrier_arrive_tx_ =
+        createMbarrierArriveExpectTx(ldst, current_load_stage_);
 
     // Register mbarrier object to be used with LoadStoreOp
     //  from main loop
     NVF_ERROR(mbarrier_arrive_tx_->mbarrier()->isA<kir::TensorIndex>());
     GpuLower::current()->ldstMBarrierIndexMap().emplace(
-        ldst_, mbarrier_arrive_tx_->mbarrier()->as<kir::TensorIndex>());
+        ldst, mbarrier_arrive_tx_->mbarrier()->as<kir::TensorIndex>());
 
     // Construct mBarrier::wait for current stage
     NVF_ERROR(
         mbarrier_wait_ == nullptr,
         "Expected mbarrier_wait to inactive for current TMA operation");
-    mbarrier_wait_ = createMbarrierWait(ldst_, current_compute_stage_);
+    mbarrier_wait_ = createMbarrierWait(ldst, current_compute_stage_);
 
     // If last cloned scope is the cloned_top_level_loop body, then add
     // mbarrier::arriveExpectTx and new loadStoreOp.
@@ -587,13 +579,13 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
           return fl->iter_domain()->getParallelType() == ParallelType::Serial;
         });
     if (active_for_loops == 1) {
-      addTmaLoadBlock(ldst_);
+      addTmaLoadBlock(ldst);
       return;
     }
 
     // Otherwise, we are in a nested for-loop and should wait until we
     // return to top-level for loop.
-    for_loop_stack_.back()->body().push_back(ldst_);
+    for_loop_stack_.back()->body().push_back(ldst);
   }
 
   void handleEpilogLoop(Expr* expr) {
@@ -620,28 +612,31 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
   // Pseudo-code example:
   //  if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
   //    tokens[next_stage] =
-  //      mbarrier::arriveExpectTx(mbarrier[next_stage]);
+  //      mbarrier::arriveExpectTx(mbarrier[next_stage],
+  //                               expected_bytes);
+  //  } else {
+  //    tokens[next_stage] =
+  //      mbarrier::arriveExpectTx(mbarrier[next_stage], 0);
+  //  }
+  //
+  //  if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
   //    cpAsyncBulk(mbarrier[next_stage], ...);
   //  }
   void addTmaLoadBlock(Expr* expr) {
-    NVF_ERROR(ldst_ != nullptr);
     NVF_ERROR(mbarrier_arrive_tx_ != nullptr);
     NVF_ERROR(expr != nullptr);
 
-    kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
-    if_expr->thenBody().push_back(mbarrier_arrive_tx_);
-    if_expr->thenBody().push_back(expr);
+    // Create if-then-else for arrive_expected_tx
+    kir::IfThenElse* if_expr_arrive =
+        createMbarrierArriveExpectTx(mbarrier_arrive_tx_);
+    for_loop_stack_.back()->body().push_back(if_expr_arrive);
 
-    // The other threads issue arriveExpectTx without any expected transactions.
-    kir::MBarrierArriveExpectTx* thread_arrive = createMbarrierArriveExpectTx(
-        ldst_,
-        current_load_stage_,
-        /*has_expected_tx=*/false);
-    if_expr->elseBody().push_back(thread_arrive);
+    // Create if-then-else for LoadStoreOp
+    kir::IfThenElse* if_expr_ldst = createThreadPredicatedIfThenElse();
+    if_expr_ldst->thenBody().push_back(expr);
+    for_loop_stack_.back()->body().push_back(if_expr_ldst);
 
-    for_loop_stack_.back()->body().push_back(if_expr);
     mbarrier_arrive_tx_ = nullptr;
-    ldst_ = nullptr;
   }
 
   // This function adds mbarrier::wait to top level cloned loop.
@@ -656,7 +651,7 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
 
   // Get size of tma load in bytes. It is used for expected transaction count in
   // kir::MBarrierArriveExpectTx.
-  Val* getSizeOfLoad(LoadStoreOp* ldst) {
+  Val* getSizeOfTmaLoad(LoadStoreOp* ldst) {
     NVF_ERROR(ldst != nullptr);
 
     TensorView* consumer_tv = ldst->out()->as<TensorView>();
@@ -700,29 +695,50 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
     return expected_bytes;
   }
 
+  // Create mbarrier arrive expect transaction
+  //
+  // Pseudo-code example:
+  //  if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
+  //    tokens[next_stage] =
+  //      mbarrier::arriveExpectTx(mbarrier[next_stage], expected_bytes);
+  //  } else {
+  //    tokens[next_stage] =
+  //      mbarrier::arriveExpectTx(mbarrier[next_stage], 0);
+  //  }
+  //
+  //  Return the mbarrier selected by loop_index
+  kir::IfThenElse* createMbarrierArriveExpectTx(
+      kir::MBarrierArriveExpectTx* mbarrier_arrive_tx) {
+    NVF_ERROR(mbarrier_arrive_tx != nullptr);
+    kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
+
+    // A single thread issues arriveExpectTx with expected transactions.
+    if_expr->thenBody().push_back(mbarrier_arrive_tx);
+
+    // The other threads issue arriveExpectTx without any expected transactions.
+    kir::MBarrierArriveExpectTx* thread_arrive =
+        IrBuilder::create<kir::MBarrierArriveExpectTx>(
+            mbarrier_arrive_tx->state(),
+            mbarrier_arrive_tx->mbarrier(),
+            /*tx_count=*/IrBuilder::create<Val>(0L, PrimDataType::UInt32));
+    if_expr->elseBody().push_back(thread_arrive);
+
+    return if_expr;
+  }
+
   // This function creates kir::MBarrierArriveExpectTx for given LoadStoreOp and
   // circular buffer stage.
   //
   // Example:
-  // __shared__ __mbarrier_t barriers[num_stages];
-  // __shared__ __mbarrier_token_t tokens[num_stages];
-  // for(nvfuser_index_t stage = 0; stage < num_stages; ++stage) {
-  //   if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
-  //     tokens[stage] =
-  //        mbarrier::arriveExpectTX(toSmem((&barriers[stage])),
-  //        expected_bytes);
-  //   }
-  // }
+  //   expected_bytes = (has_expected_tx) ? getSizeOfTmaLoad(ldst) : 0LL;
+  //   tokens[stage] =
+  //      mbarrier::arriveExpectTX(toSmem((&barriers[stage])),
+  //      expected_bytes);
   kir::MBarrierArriveExpectTx* createMbarrierArriveExpectTx(
       LoadStoreOp* ldst,
-      Val* loop_index,
-      bool has_expected_tx) {
+      Val* loop_index) {
     NVF_ERROR(ldst != nullptr);
     NVF_ERROR(loop_index != nullptr);
-
-    Val* expected_bytes = (has_expected_tx)
-        ? getSizeOfLoad(ldst)
-        : IrBuilder::create<Val>(0L, PrimDataType::UInt32);
 
     // Get mbarrier for this circular buffer stage.
     TensorView* all_mbarriers = GpuLower::current()->ldstMBarrierMap().at(ldst);
@@ -737,7 +753,7 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
 
     kir::MBarrierArriveExpectTx* mbarrier_arrive_tx =
         IrBuilder::create<kir::MBarrierArriveExpectTx>(
-            stage_token, stage_mbarrier, expected_bytes);
+            stage_token, stage_mbarrier, /*tx_count=*/getSizeOfTmaLoad(ldst));
 
     return mbarrier_arrive_tx;
   }
@@ -765,9 +781,6 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
   }
 
  private:
-  // Current LoadStoreOp
-  LoadStoreOp* ldst_ = nullptr;
-
   // Mbarrier_Wait to add to cloned_top_level_loop
   kir::MBarrierWait* mbarrier_wait_ = nullptr;
 
