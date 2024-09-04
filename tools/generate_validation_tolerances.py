@@ -27,7 +27,7 @@ import torch
 from datetime import datetime
 
 sizes = [2**i for i in range(2, 22)]  # {4, 2097152}
-num_iters = 10
+num_iters = 10**6
 
 
 def compute_max_error(size, dtype, ref_dtype):
@@ -38,24 +38,25 @@ def compute_max_error(size, dtype, ref_dtype):
     return max_error
 
 
-assert torch.cuda.is_available(), "A CUDA device is required."
+if __name__ == "__main__":
+    assert torch.cuda.is_available(), "A CUDA device is required."
 
-device = torch.cuda.get_device_name(torch.cuda.current_device())
-dtype_to_ref_dtypes = {
-    torch.bfloat16: torch.float32,
-    torch.float16: torch.float32,
-    torch.float32: torch.float64,
-}
+    device = torch.cuda.get_device_name(torch.cuda.current_device())
+    dtype_to_ref_dtypes = {
+        torch.bfloat16: torch.float32,
+        torch.float16: torch.float32,
+        torch.float32: torch.float64,
+    }
 
-for dtype, ref_dtype in dtype_to_ref_dtypes.items():
-    tolerances = {}
-    for size in sizes:
-        print(f"size:{size}")
-        val_tolerance = torch.finfo(torch.double).min
-        for i in range(num_iters):
-            val_tolerance = max(
-                val_tolerance, compute_max_error(size, dtype, ref_dtype)
-            )
-        tolerances[size] = val_tolerance
-    date = datetime.now().strftime("%Y%m%d%H%M%S")
-    np.save(f"validation_consts_{dtype}_{device}_{date}.npy", tolerances)
+    for dtype, ref_dtype in dtype_to_ref_dtypes.items():
+        tolerances = {}
+        for size in sizes:
+            print(f"size:{size}")
+            val_tolerance = torch.finfo(torch.double).min
+            for i in range(num_iters):
+                val_tolerance = max(
+                    val_tolerance, compute_max_error(size, dtype, ref_dtype)
+                )
+            tolerances[size] = val_tolerance
+        date = datetime.now().strftime("%Y%m%d%H%M%S")
+        np.save(f"validation_consts_{dtype}_{device}_{date}.npy", tolerances)
