@@ -757,6 +757,8 @@ SyncMap::SyncMap(Fusion* fusion) {
             }
           }
 
+          NVF_ERROR(requires_sync);
+
           raw_dims.set(producer_ptype);
         } // end for ptypes
 
