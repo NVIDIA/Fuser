@@ -847,19 +847,12 @@ TEST_P(DistributedTransformerTest, MHA_Backward) {
     fusion->addOutput(tv);
   }
 
-  // propagate shardings (mesh + DIDx) from sharded inputs all sharded outputs
-  shardBetween(
-      {tvw1, tvw0, tvb0},
-      {tvouts[1],
-       tvouts[2],
-       tvouts[3],
-       tvouts[4],
-       tvouts[5],
-       tvouts[6],
-       tvouts[7]},
-      tvw0);
-  // propagate DeviceMesh to all non-sharded outputs
-  shardBetween({tvx, tvmask, tvgrad}, {tvouts[0], tvouts[8]}, tvx);
+  // propagate shardings (mesh + DIDx) from sharded roots to all sharded leafs
+  // (grads for linear0 bias and weight, linear1 weight)
+  shardBetween({tvw1, tvw0, tvb0}, {tvouts[1], tvouts[2], tvouts[6]}, tvw0);
+  // propagate DeviceMesh from unsharded roots to unsharded leafs (grads for
+  // dropout, linear1 bias, input)
+  shardBetween({tvx, tvmask, tvgrad}, {tvouts[0], tvouts[7], tvouts[8]}, tvx);
 
   const auto options =
       at::TensorOptions().dtype(at_dtype).device(communicator_->device());
