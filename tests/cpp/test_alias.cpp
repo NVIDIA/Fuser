@@ -1426,4 +1426,35 @@ TEST_F(AliasTest, Bookend_Issue2375) {
           HeuristicIs(SchedulerType::InnerPersistent)));
 }
 
+TEST_F(AliasTest, Issue2664) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  constexpr int64_t n = 128;
+  const DataType dtype = DataType::Float;
+  const std::vector<int64_t> input_shape = {n};
+
+  auto tv1 = makeContigTensor(1, dtype);
+  auto tv2 = makeContigTensor(0, dtype);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+
+  auto s3 = IrBuilder::create<Val>(1.0);
+  auto tv4 = add(tv2, s3);
+  auto tv5 = broadcast(tv4, {true});
+  auto tv7 = expand(tv5, {tv1->axis(0)->extent()});
+  auto tv8 = mul(tv1, tv7);
+  fusion->aliasOutputToInput(tv4, tv2, AllocationType::ReuseBuffer);
+  fusion->addOutput(tv8);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t1 = at::randn(input_shape, options);
+  auto t2 = at::randn({}, options);
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto out_tensors = fec.runFusionWithInputs({t1, t2});
+  testValidate(fec.fusion(), out_tensors, {t1, t2}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
