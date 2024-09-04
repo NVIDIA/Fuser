@@ -185,10 +185,10 @@ std::vector<at::Tensor> reference_mha_backwards(
     at::ScalarType at_dtype) {
   // recompute up to sdpa
   auto m = at::matmul(x, w0).add(b0).view({B, S, 3 * E});
-  auto qkv_vec = m.split(E, 2);
+  auto qkv_vec = m.split(E, /*dim=*/-1);
   for (auto i = 0; i < 3; i++) {
     qkv_vec[i] =
-        qkv_vec[i].reshape({B, S, H, E / H}).transpose(2, 1).to(at_dtype);
+        qkv_vec[i].reshape({B, S, H, E / H}).transpose(1, 2).to(at_dtype);
   }
   auto q = qkv_vec[0];
   auto k = qkv_vec[1];
@@ -446,8 +446,8 @@ std::vector<TensorView*> mlp_backwards(
 
   // Backwards pass
   constexpr double kScale = 1.0 / (1.0 - kDropoutProb);
-  Val* dscale = IrBuilder::create<Val>(kScale);
-  TensorView* dropout_grad = dropout_backward(grad, mask, dscale);
+  Val* dropout_scale = IrBuilder::create<Val>(kScale);
+  TensorView* dropout_grad = dropout_backward(grad, mask, dropout_scale);
 
   auto linear1_grads = sharded_linear_backwards(gelu, w1, dropout_grad, dtype);
 
@@ -529,8 +529,8 @@ std::vector<TensorView*> mha_backwards(
 
   // Backwards
   constexpr double kScale = 1.0 / (1.0 - kDropoutProb);
-  Val* dscale = IrBuilder::create<Val>(kScale);
-  TensorView* dropout_grad = dropout_backward(grad, mask, dscale);
+  auto dropout_scale = IrBuilder::create<Val>(kScale);
+  TensorView* dropout_grad = dropout_backward(grad, mask, dropout_scale);
 
   // linear1 backwards
   TensorView* sdpa_output_reshape =
@@ -847,6 +847,7 @@ TEST_P(DistributedTransformerTest, MHA_Backward) {
     fusion->addOutput(tv);
   }
 
+  // propagate shardings (mesh + DIDx) from sharded inputs all sharded outputs
   shardBetween(
       {tvw1, tvw0, tvb0},
       {tvouts[1],
@@ -857,6 +858,7 @@ TEST_P(DistributedTransformerTest, MHA_Backward) {
        tvouts[6],
        tvouts[7]},
       tvw0);
+  // propagate DeviceMesh to all non-sharded outputs
   shardBetween({tvx, tvmask, tvgrad}, {tvouts[0], tvouts[8]}, tvx);
 
   const auto options =
