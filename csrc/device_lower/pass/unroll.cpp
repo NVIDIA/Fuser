@@ -73,6 +73,9 @@ void UnrollPass::registerReplace(Expr* reference, Expr* new_expr) {
 }
 
 void UnrollPass::dispatch(Expr* expr) {
+  // Use ElectSync predicate for stand-alone arrive-expect-tx.
+  // For TMA Load without circular buffering, arrive-expect-tx is inserted in
+  // indexing pass.
   if (expr->isA<kir::MBarrierArriveExpectTx>()) {
     kir::IfThenElse* ite =
         createMbarrierArriveExpectTx(expr->as<kir::MBarrierArriveExpectTx>());
@@ -80,7 +83,9 @@ void UnrollPass::dispatch(Expr* expr) {
     return;
   }
 
-  if (ir_utils::isCpAsyncBulkLoad(expr)) {
+  // Use ElectSync predicate for circular buffer TMA load
+  if (ir_utils::isCpAsyncBulkLoad(expr) &&
+      expr->output(0)->as<TensorView>()->isCircularBuffered()) {
     kir::IfThenElse* ite = IrBuilder::create<kir::IfThenElse>(
         IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
     ite->thenBody().push_back(expr);
