@@ -286,14 +286,12 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
 //   if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
 //     token[load_stage] =
 //       mbarrier::arriveExpectTx(mbarrier[load_stage], expected_bytes);
+//     for (...) {
+//       cpAsyncBulk(mbarrier[load_stage], ...);
+//     }
 //   } else {
 //     token[load_stage] =
 //       mbarrier::arriveExpectTx(mbarrier[load_stage], 0);
-//   }
-//   for (...) {
-//     if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
-//       cpAsyncBulk(mbarrier[load_stage], ...);
-//     }
 //   }
 //   mbarrier::wait(token[current_stage]);
 //
@@ -445,14 +443,12 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
   //   if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
   //     tokens[loop_index] =
   //       mbarrier::arriveExpectTx(mbarrier[loop_index], expected_bytes);
+  //     for (...) {
+  //       cpAsyncBulk(mbarriers[loop_index], ...);
+  //     }
   //   } else {
   //     tokens[loop_index] =
   //       mbarrier::arriveExpectTx(mbarrier[loop_index], 0);
-  //   }
-  //   for (...) {
-  //     if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
-  //       cpAsyncBulk(mbarriers[loop_index], ...);
-  //     }
   //   }
   // }
   void handlePrologueLoop(Expr* expr) {
@@ -507,14 +503,12 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
   //   if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
   //     token[load_stage] =
   //       mbarrier::arriveExpectTx(mbarrier[load_stage], expected_bytes);
+  //     for (...) {
+  //       cpAsyncBulk(mbarrier[load_stage], ...);
+  //     }
   //   } else {
   //     token[load_stage] =
   //       mbarrier::arriveExpectTx(mbarrier[load_stage], 0);
-  //   }
-  //   for (...) {
-  //     if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
-  //       cpAsyncBulk(mbarrier[load_stage], ...);
-  //     }
   //   }
   //   mbarrier::wait(token[current_stage]);
   //
@@ -623,15 +617,12 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
   //    tokens[next_stage] =
   //      mbarrier::arriveExpectTx(mbarrier[next_stage],
   //                               expected_bytes);
+  //    for (...) {
+  //      cpAsyncBulk(mbarrier[next_stage], ...);
+  //    }
   //  } else {
   //    tokens[next_stage] =
   //      mbarrier::arriveExpectTx(mbarrier[next_stage], 0);
-  //  }
-  //
-  //  for (...) {
-  //    if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
-  //      cpAsyncBulk(mbarrier[next_stage], ...);
-  //    }
   //  }
   void addTmaLoadBlock(Expr* expr) {
     NVF_ERROR(mbarrier_arrive_tx_ != nullptr);
@@ -642,11 +633,8 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
         createMbarrierArriveExpectTx(mbarrier_arrive_tx_);
     for_loop_stack_.back()->body().push_back(if_expr_arrive);
 
-    // Create if-then-else for LoadStoreOp
-    kir::IfThenElse* if_expr_ldst = IrBuilder::create<kir::IfThenElse>(
-        IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
-    if_expr_ldst->thenBody().push_back(expr);
-    for_loop_stack_.back()->body().push_back(if_expr_ldst);
+    // Add LoadStoreOp to then-body of arrive_expected_tx ite
+    if_expr_arrive->thenBody().push_back(expr);
 
     mbarrier_arrive_tx_ = nullptr;
   }
