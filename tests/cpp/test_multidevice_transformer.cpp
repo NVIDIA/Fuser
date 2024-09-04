@@ -100,16 +100,42 @@ void validate(
 }
 
 std::vector<at::Tensor> reference_mlp(
-    at::Tensor x,
-    at::Tensor w0,
-    at::Tensor b0,
-    at::Tensor w1,
-    at::Tensor b1,
-    at::ScalarType at_dtype) {
-  auto linear0 = at::matmul(x, w0).to(at::kFloat) + b0;
-  auto gelu = at::gelu(linear0, "tanh").to(at_dtype);
-  auto linear1 = at::matmul(gelu, w1).to(at::kFloat) + b1;
-  auto dropout = at::dropout(linear1, kDropoutProb, true);
+    at::Tensor x, // [B*S, E]
+    at::Tensor w0, // [E, 4E]
+    at::Tensor b0, // [4E]
+    at::Tensor w1, // [4E, E]
+    at::Tensor b1, // [E]
+    at::ScalarType at_dtype,
+    const int64_t D) {
+  NVF_ERROR(w0.size(1) % D == 0);
+  w0 = w0.view({w0.size(0), D, w0.size(1) / D}).transpose(0, 1); // [D, E, 4E/D]
+  auto linear0 = at::matmul(x, w0); // [D, B*S, 4E/D]
+  linear0 = linear0.to(at::kFloat) +
+      b0.view({D, 1, b0.size(0) / D}); // same shape as above
+
+  auto gelu = at::gelu(linear0, "tanh").to(at_dtype); // same shape as above
+
+  NVF_ERROR(w1.size(0) % D == 0);
+  w1 = w1.view({D, w1.size(0) / D, w1.size(1)}); // [D, 4E/D, E]
+  auto linear1 = at::matmul(gelu, w1); // [D, B*S, E]
+#if 1
+  // Sum in 32-bit.
+  linear1 = linear1.sum({0}); // [B*S, E]
+#else
+  // Sum in 16-bit.
+  std::vector<at::Tensor> slices = linear1.split(1);
+  NVF_ERROR(!slices.empty());
+  linear1 = slices[0];
+  for (const auto i : c10::irange(1, slices.size())) {
+    linear1 += slices[i];
+  }
+  linear1 = linear1.squeeze(0);
+#endif
+  linear1 = linear1.to(at::kFloat) + b1; // same shape as above
+
+  auto dropout =
+      at::dropout(linear1, kDropoutProb, true); // same shape as above
+
   return {linear0, gelu, linear1, dropout};
 }
 
@@ -387,7 +413,7 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
   // execution so that random vals are the same.
   at::manual_seed(getATenRandomSeed());
   std::vector<at::Tensor> reference_outs =
-      reference_mlp(x, w0, b0, w1, b1, at_dtype);
+      reference_mlp(x, w0, b0, w1, b1, at_dtype, D);
 
   std::vector<c10::IValue> inputs = {
       x,
@@ -397,8 +423,8 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
       b1};
 
   std::vector<at::Tensor> expected_outputs = {
-      shardTensor(reference_outs[0], 1, mesh),
-      shardTensor(reference_outs[1], 1, mesh),
+      shardTensor(reference_outs[0], 0, mesh),
+      shardTensor(reference_outs[1], 0, mesh),
       reference_outs[2],
       reference_outs[3]};
 
@@ -628,8 +654,8 @@ TEST_P(DistributedTransformerTest, Forward) {
       kEps);
   auto ln_2_out_ = std::get<0>(ln_2_).to(at_dtype);
 
-  auto mlp_out_ =
-      reference_mlp(ln_2_out_, mlp_w0_, mlp_b0_, mlp_w1_, mlp_b1_, at_dtype)[3];
+  auto mlp_out_ = reference_mlp(
+      ln_2_out_, mlp_w0_, mlp_b0_, mlp_w1_, mlp_b1_, at_dtype, D)[3];
   auto at_out = mha_out_ + mlp_out_;
 
   std::vector<c10::IValue> inputs = {
