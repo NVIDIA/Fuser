@@ -183,29 +183,27 @@ bool checkCanSchedule(
   NVF_ERROR(SchedulerType::heuristicType() != ScheduleHeuristic::ExprEval);
 
   FusionGuard fg(fusion);
-
-  // Fusions with `SdpaFwdOp/SdpaBwdOp` are only accepted in `ExprEval`
-  // scheduler, all other schedulers should reject them.
-  if (ir_utils::hasOpsOfType<SdpaFwdOp, SdpaBwdOp>(fusion)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        SchedulerType::heuristicType(), "SdpaOps are not supported.");
-    return false;
-  }
-
-  // Fusions with `MatmulOp, LinearOp, MmaOp` can only be accepted by Matmul
-  // scheduler.
-  if (SchedulerType::heuristicType() != ScheduleHeuristic::Matmul &&
-      ir_utils::hasOpsOfType<MatmulOp, LinearOp, MmaOp>(fusion)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        SchedulerType::heuristicType(), "Matmul ops are not supported.");
-    return false;
-  }
-
   // If a data cache is given, the compile time part doesn't need to be checked,
-  // since for all current use cases
-  //  it has to pass all the compile time checks to create a data cache for this
-  //  fusion.
-  if (!data_cache) {
+  // since during segmentation the segmenter will call
+  // SchedulerEntry::proposeHeuristics which doesn't pass a data_cache.
+  if (data_cache == nullptr) {
+    // Fusions with `SdpaFwdOp/SdpaBwdOp` are only accepted in `ExprEval`
+    // scheduler, all other schedulers should reject them.
+    if (ir_utils::hasOpsOfType<SdpaFwdOp, SdpaBwdOp>(fusion)) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          SchedulerType::heuristicType(), "SdpaOps are not supported.");
+      return false;
+    }
+
+    // Fusions with `MatmulOp, LinearOp, MmaOp` can only be accepted by Matmul
+    // scheduler.
+    if (SchedulerType::heuristicType() != ScheduleHeuristic::Matmul &&
+        ir_utils::hasOpsOfType<MatmulOp, LinearOp, MmaOp>(fusion)) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          SchedulerType::heuristicType(), "Matmul ops are not supported.");
+      return false;
+    }
+
     if (!registry_utils::isConnectedFusionGraph(fusion)) {
       scheduler_debug_utils::canScheduleRejectReason(
           SchedulerType::heuristicType(),
