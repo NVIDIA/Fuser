@@ -217,27 +217,6 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
   const std::unordered_set<Expr*>& exclude_;
 };
 
-// TODO Replace with elect_sync ptx
-// TMA operation only a single thread is necessary to launch TMA operations.
-// This function creates kir::IfThenElse with the following predicate:
-//   threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0
-kir::IfThenElse* createThreadPredicatedIfThenElse() {
-  Val* zero_val = IrBuilder::create<Val>(0L, PrimDataType::UInt);
-  Val* if_predicate_expr = IrBuilder::logicalAndExpr(
-      IrBuilder::logicalAndExpr(
-          IrBuilder::eqExpr(
-              NamedScalar::getParallelIndex(ParallelType::TIDx), zero_val),
-          IrBuilder::eqExpr(
-              NamedScalar::getParallelIndex(ParallelType::TIDy), zero_val)),
-      IrBuilder::eqExpr(
-          NamedScalar::getParallelIndex(ParallelType::TIDz), zero_val));
-
-  kir::IfThenElse* if_expr = IrBuilder::create<kir::IfThenElse>(
-      IrBuilder::create<kir::Predicate>(if_predicate_expr));
-
-  return if_expr;
-}
-
 // Description:
 // Replicates circular buffer loops for Prologue, Main, and
 // Epilogue. Prologue only copies the load expressions of circular
@@ -664,7 +643,8 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
     for_loop_stack_.back()->body().push_back(if_expr_arrive);
 
     // Create if-then-else for LoadStoreOp
-    kir::IfThenElse* if_expr_ldst = createThreadPredicatedIfThenElse();
+    kir::IfThenElse* if_expr_ldst = IrBuilder::create<kir::IfThenElse>(
+        IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
     if_expr_ldst->thenBody().push_back(expr);
     for_loop_stack_.back()->body().push_back(if_expr_ldst);
 
@@ -732,7 +712,8 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
   kir::IfThenElse* createMbarrierArriveExpectTx(
       kir::MBarrierArriveExpectTx* mbarrier_arrive_tx) {
     NVF_ERROR(mbarrier_arrive_tx != nullptr);
-    kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
+    kir::IfThenElse* if_expr = IrBuilder::create<kir::IfThenElse>(
+        IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
 
     // A single thread issues arriveExpectTx with expected transactions.
     if_expr->thenBody().push_back(mbarrier_arrive_tx);
@@ -925,7 +906,8 @@ kir::IfThenElse* createCpAsyncBulkFixtures(
     const std::vector<Expr*>& circular_buffer_load_exprs,
     bool is_pre_prologue_stage) {
   // Construct predicate to select a single thread.
-  kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
+  kir::IfThenElse* if_expr = IrBuilder::create<kir::IfThenElse>(
+      IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
 
   // Construct ForLoop
   ForLoop* loop = createStageDepthForLoop(circular_buffer_loop);

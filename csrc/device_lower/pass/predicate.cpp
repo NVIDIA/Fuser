@@ -209,6 +209,20 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
         // here.
         return IrBuilder::create<Val>(true, DataType::Bool);
       }
+      case PredicateType::ElectSync: {
+        // TODO Replace with ptx::elect_sync
+        Val* zero_val = IrBuilder::create<Val>(0L, PrimDataType::UInt);
+        return IrBuilder::logicalAndExpr(
+            IrBuilder::logicalAndExpr(
+                IrBuilder::eqExpr(
+                    NamedScalar::getParallelIndex(ParallelType::TIDx),
+                    zero_val),
+                IrBuilder::eqExpr(
+                    NamedScalar::getParallelIndex(ParallelType::TIDy),
+                    zero_val)),
+            IrBuilder::eqExpr(
+                NamedScalar::getParallelIndex(ParallelType::TIDz), zero_val));
+      }
       default:
         break;
     }

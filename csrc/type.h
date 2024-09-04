@@ -46,6 +46,7 @@ enum class ValType {
 // Misaligned - PredicateCompute::getInlinePredicate + Misaligned flag
 // ReductionWrite - Same as Inline but without reduction axes
 // LoopRotation - Predicate added by loop rotation, currently always true.
+// ElectSync - Select a single thread to launch asynchronous operations.
 enum class PredicateType {
   Manual,
   Inline,
@@ -53,7 +54,8 @@ enum class PredicateType {
   Vectorize,
   Misaligned,
   ReductionWrite,
-  LoopRotation
+  LoopRotation,
+  ElectSync
 };
 
 // Index type is a convenience type that may be a 64 or 32 signed integer.

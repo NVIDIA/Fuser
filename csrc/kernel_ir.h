@@ -83,7 +83,8 @@ class Predicate final : public Val {
   const Expr* expr() const {
     NVF_ERROR(
         ptype_ != PredicateType::Unswitch &&
-        ptype_ != PredicateType::Vectorize && ptype_ != PredicateType::Manual);
+        ptype_ != PredicateType::Vectorize && ptype_ != PredicateType::Manual &&
+        ptype_ != PredicateType::ElectSync);
     return expr_;
   }
 
@@ -91,7 +92,8 @@ class Predicate final : public Val {
     NVF_ERROR(
         ptype_ == PredicateType::Inline ||
         ptype_ == PredicateType::Misaligned ||
-        ptype_ == PredicateType::ReductionWrite);
+        ptype_ == PredicateType::ReductionWrite ||
+        ptype_ == PredicateType::ElectSync);
     return thread_pred_;
   }
 
