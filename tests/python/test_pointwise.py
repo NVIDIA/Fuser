@@ -84,3 +84,28 @@ def test_cpu_add():
         fusion_func(fd)
     nvf_out = fd.execute(inputs)
     torch.testing.assert_close(nvf_out[0], inputs[0] + inputs[1])
+
+def test_inplace_issue2664():
+    def nvfuser_fusion_id0(fd : FusionDefinition) -> None :
+        T1 = fd.define_tensor(shape=[-1], contiguity=[True], dtype=DataType.Float, is_cpu=False, stride_order=[0])
+        T2 = fd.define_tensor(shape=[], contiguity=[], dtype=DataType.Float, is_cpu=False)
+        S3 = fd.define_scalar(1.00000, dtype=DataType.Double)
+        T4 = fd.ops.add(T2, S3)
+        T4_seg = fd.ops.segment_set(T4)
+        S5 = fd.define_scalar(4194304, dtype=DataType.Int)
+        V6 = fd.define_vector([S5], dtype=DataType.Int)
+        T7 = fd.ops.broadcast_in_dim(T4_seg, shape=V6, broadcast_dims=[])
+        T8 = fd.ops.mul(T1, T7)
+        fd.add_output(T4, T2)
+        fd.add_output(T8)
+
+    with FusionDefinition() as fd:
+        nvfuser_fusion_id0(fd)
+
+    inputs = [
+        torch.randn((4194304,), dtype=torch.float32, device='cuda:0').as_strided((4194304,), (1,)),
+        torch.randn((1,), dtype=torch.float32, device='cuda:0').as_strided((), ()),
+    ]
+    out = fd.execute(inputs)
+    ref_t8 = (inputs[-1] + 1.0) * inputs[0]
+    torch.testing.assert_close(out[0], ref_t8)
