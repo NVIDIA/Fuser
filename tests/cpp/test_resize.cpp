@@ -3678,7 +3678,7 @@ TEST_F(ResizeTest, Chunk_Uneven) {
 }
 
 // Schedule a slice with the loop domain derived from the producer
-// domain.
+// domain. See PR #2897.
 TEST_F(ResizeTest, SliceScheduledLikeProducer) {
   Fusion fusion;
   FusionGuard fg(&fusion);

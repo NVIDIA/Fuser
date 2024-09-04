@@ -25,7 +25,7 @@ IndexingTraversal::IndexingTraversal(
   // This is a WAR for cases like
   // ResizeTest.SliceScheduledLikeProducer. Alternatively, we could
   // have a separate graph for indexing that does not map producer and
-  // consumers in non-unary ops. See PR #???.
+  // consumers in non-unary ops. See PR #2897.
   auto all_ids = consumer_tv->domain()->allIDs();
   std::unordered_set<IterDomain*> all_id_set(all_ids.begin(), all_ids.end());
   for (auto id : all_ids) {
