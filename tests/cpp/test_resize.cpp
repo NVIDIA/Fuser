@@ -3679,6 +3679,9 @@ TEST_F(ResizeTest, Chunk_Uneven) {
 
 // Schedule a slice with the loop domain derived from the producer
 // domain. See PR #2897.
+// Note that the IdModel-based indexing is automatically enabled as
+// there are tensors that have non-trivial loop domains as defined by
+// requiresIdModel in lower2device.cpp.
 TEST_F(ResizeTest, SliceScheduledLikeProducer) {
   Fusion fusion;
   FusionGuard fg(&fusion);
