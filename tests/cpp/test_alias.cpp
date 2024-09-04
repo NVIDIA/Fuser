@@ -1451,10 +1451,11 @@ TEST_F(AliasTest, Issue2664) {
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
   auto t1 = at::randn(input_shape, options);
   auto t2 = at::randn({}, options);
+  auto aten_out = (t2 + 1.0) * t1;
 
   FusionExecutorCache fec(std::move(fusion));
   auto out_tensors = fec.runFusionWithInputs({t1, t2});
-  testValidate(fec.fusion(), out_tensors, {t1, t2}, __LINE__, __FILE__);
+  testValidate(fec.fusion(), out_tensors, {t1, t2}, {aten_out}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
