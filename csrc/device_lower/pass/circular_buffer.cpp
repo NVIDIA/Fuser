@@ -472,10 +472,8 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
         ldst, cloned_top_level_loop_->indexOrStartIfTrivial());
 
     // Clone LoadStoreOp and map it to mbarrier alloc
-    Expr* new_ldst =
-        IrBuilder::create<LoadStoreOp>(
-            ldst->opType(), ldst->out(), ldst->in(), ldst->cacheOp())
-            ->withPredicate(ldst->predicate());
+    Expr* new_ldst = IrBuilder::create<LoadStoreOp>(
+        ldst->opType(), ldst->out(), ldst->in(), ldst->cacheOp());
 
     // Register mbarrier object to be used with new LoadStoreOp
     // from prolog loop
@@ -641,11 +639,9 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
     for_loop_stack_.back()->body().push_back(mbarrier_arrive_tx_);
     mbarrier_arrive_tx_ = nullptr;
 
-    // Create if-then-else for LoadStoreOp
-    kir::IfThenElse* if_expr_ldst = IrBuilder::create<kir::IfThenElse>(
-        IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
-    if_expr_ldst->thenBody().push_back(expr);
-    for_loop_stack_.back()->body().push_back(if_expr_ldst);
+    // Add LoadStoreOp expression.
+    // It either a single TMA load or a nest for-loop.
+    for_loop_stack_.back()->body().push_back(expr);
   }
 
   // Get size of tma load in bytes. It is used for expected transaction count in

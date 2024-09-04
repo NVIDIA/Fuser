@@ -80,6 +80,14 @@ void UnrollPass::dispatch(Expr* expr) {
     return;
   }
 
+  if (ir_utils::isCpAsyncBulkLoad(expr)) {
+    kir::IfThenElse* ite = IrBuilder::create<kir::IfThenElse>(
+        IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
+    ite->thenBody().push_back(expr);
+    kir::ExprMutator::registerReplace(expr, ite);
+    return;
+  }
+
   if (ir_utils::isTvOp(expr)) {
     DEBUG_PRINT_SCOPE_NAME("UnrollPass::dispatch", expr);
     // If tv op, predicate it
