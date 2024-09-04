@@ -591,6 +591,7 @@ enum class UnaryOpType {
   IsReal,
 
   // Special unary ops
+  ElectSync,
   ToUnsignedSmemAddr,
   AdjustPartialLdMatrixAddrInTuring8,
   AdjustPartialLdMatrixAddrInTuring16

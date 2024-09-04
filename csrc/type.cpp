@@ -468,6 +468,8 @@ static const char* unary_op_type2string(UnaryOpType t) {
       return "std::imag";
     case UnaryOpType::ToUnsignedSmemAddr:
       return "toSmem";
+    case UnaryOpType::ElectSync:
+      return "Hopper::electSync";
     case UnaryOpType::AdjustPartialLdMatrixAddrInTuring8:
       return "Turing::adjustPartialLdMatrixAddrInTuring<8>";
     case UnaryOpType::AdjustPartialLdMatrixAddrInTuring16:

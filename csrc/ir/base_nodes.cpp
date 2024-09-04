@@ -196,6 +196,12 @@ bool Val::isConstScalar() const {
   if (!isScalar()) {
     return false;
   }
+  if (Expr* def = definition()) {
+    if (def->isA<UnaryOp>() &&
+        def->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::ElectSync) {
+      return false;
+    }
+  }
   return ir_utils::dependenciesSatisfied(this);
 }
 
