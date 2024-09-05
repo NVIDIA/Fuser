@@ -47,9 +47,9 @@
 #include <iostream>
 
 namespace nvfuser {
+using testing::Contains;
 
 using namespace at::indexing;
-
 using GpuViewTest = NVFuserTest;
 
 TEST_F(GpuViewTest, FusionViewDtypeSameSizeOutput) {
@@ -2377,6 +2377,123 @@ TEST_F(GpuViewTest, SplitMergePointwiseSplitMerge) {
   auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
   testValidate(executor_cache.fusion(), {cg_outputs}, {t0}, __LINE__, __FILE__);
+}
+
+namespace {
+MATCHER_P(HeuristicIs, heuristic, "") {
+  return arg->heuristic() == heuristic;
+}
+} // namespace
+
+// segmented into 3 kernels: pointwise, normalization, and pointwise
+TEST_F(GpuViewTest, GroupNormOriginal) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  const int64_t N = 2, C = 128, H = 16, W = 16, G = 32;
+  const std::vector<int64_t> input_shape = {N, C, H, W};
+  const std::vector<int64_t> group_shape = {N, G, C / G, H, W};
+  const std::vector<int64_t> input_shape_wb = {C};
+  const std::vector<int64_t> group_shape_wb = {G, C / G};
+  DataType dtype = DataType::Half;
+  auto tv0 = makeContigTensor(input_shape.size(), dtype);
+  auto tv1 = makeContigTensor(input_shape_wb.size(), DataType::Float);
+  auto tv2 = makeContigTensor(input_shape_wb.size(), DataType::Float);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+  // pointwise ops, e.g. cast
+  auto tv3 = castOp(DataType::Float, tv0);
+  // reshape from {N, C, H, W} to {N, G, C / G, H, W}
+  auto tv4 = reshape(tv3, input_shape, group_shape);
+  // normalization
+  auto tv5 = sum(tv4, {-1, -2, -3});
+  auto tv6 = broadcast(tv5, {false, false, true, true, true});
+  auto tv7 = div(tv4, tv6);
+  // reshape back to {N, C, H, W}
+  auto tv8 = reshape(tv7, group_shape, input_shape);
+  // pointwise ops, e.g. scale, bias, cast
+  auto tv9 = broadcast(tv1, {true, false, true, true});
+  auto tv10 = broadcast(tv2, {true, false, true, true});
+  auto tv11 = mul(tv8, tv9);
+  auto tv12 = add(tv11, tv10);
+  auto tv13 = castOp(dtype, tv12);
+  fusion->addOutput(tv13);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto options_wb = at::TensorOptions()
+                        .dtype(data_type_to_aten(DataType::Float))
+                        .device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+  auto tw = at::randn(input_shape_wb, options_wb);
+  auto tb = at::randn(input_shape_wb, options_wb);
+  auto t1 = t0.reshape(group_shape).to(at::kFloat);
+  auto t2 = t1.sum({-1, -2, -3}).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1);
+  auto t3 = t1 / t2;
+  auto t4 = t3.reshape(input_shape);
+  auto t5 = tw.unsqueeze(0).unsqueeze(-1).unsqueeze(-1);
+  auto t6 = tb.unsqueeze(0).unsqueeze(-1).unsqueeze(-1);
+  auto t7 = t4.mul(t5).add(t6);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, tw, tb});
+  // should expect 1 after adding a pre-segment pass to move reshape to input
+  // and output.
+  auto seg_groups =
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
+
+  EXPECT_THAT(
+      seg_groups, Contains(HeuristicIs(ScheduleHeuristic::PointWise)).Times(2));
+  EXPECT_THAT(
+      seg_groups,
+      Contains(HeuristicIs(ScheduleHeuristic::InnerPersistent)).Times(1));
+
+  testValidate(
+      executor_cache.fusion(),
+      cg_outputs,
+      {t0, tw, tb},
+      {t7},
+      __LINE__,
+      __FILE__);
+}
+
+TEST_F(GpuViewTest, OutputAliasIntermediate) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  const int64_t N = 2, C = 128, H = 16, W = 16, G = 32;
+  const std::vector<int64_t> input_shape = {N, G, C / G, H, W};
+  const std::vector<int64_t> output_shape = {N, C, H, W};
+  DataType dtype = DataType::Half;
+  auto tv0 = makeContigTensor(input_shape.size(), dtype);
+  fusion->addInput(tv0);
+  auto tv1 = castOp(DataType::Float, tv0);
+  auto tv2 = set(tv1);
+  auto tv3 = sum(tv2, {-1, -2, -3});
+  auto tv4 = broadcast(tv3, {false, false, true, true, true});
+  auto tv5 = div(tv2, tv4);
+  auto tv6 = castOp(dtype, tv5);
+  auto tv7 = reshape(tv6, input_shape, output_shape);
+  fusion->addOutput(tv7);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+  auto t1 = t0.to(at::kFloat);
+  auto t2 = t1.sum({-1, -2, -3}).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1);
+  auto t3 = t1 / t2;
+  auto t4 = t3.reshape(output_shape);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  const std::vector<SegmentedGroup*>& seg_groups =
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
+  EXPECT_THAT(
+      seg_groups, Contains(HeuristicIs(ScheduleHeuristic::NoOp)).Times(1));
+  EXPECT_THAT(
+      seg_groups,
+      Contains(HeuristicIs(ScheduleHeuristic::InnerPersistent)).Times(1));
+  testValidate(
+      executor_cache.fusion(), cg_outputs, {t0}, {t4}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
