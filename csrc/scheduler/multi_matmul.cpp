@@ -60,12 +60,7 @@ inline void checkConcreteStaticDim(const AbstractId& abs_id) {
 //!  for matmul mainloop and epilogue.
 //! The shared mem data layout is always 2D currently, and this utility
 //!  function assumes that the shared_mem_tv has the following structure:
-//!  [tile_row, tile_col, ***skip***] where the parameter `skip` is the number
-//!  of reduction domains to be skipped. The IDs of tile_row and tile_col are
-//!  the ones being swizzled.
-//! If the input tensorview is not stored in shared memory, the function will
-//! skip the actual swizzle. This is used to help the domain mapping between
-//! mma_result and the epilogue tensor.
+//!  [tile_row, tile_col]
 //! Returns the domain with swizzle. For the case of legacy swizzle, this
 //! domain must be set as loop domain. For the case of new swizzle, this domain
 //! must be set as allocation domain.
