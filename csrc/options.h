@@ -82,6 +82,7 @@ enum class DebugDumpOption {
   Occupancy, // Dump occupancy
   IndexType, //! Print the index type of the launched kernel
   PredicateElimination, //! Print the predicate elimination information
+  IndexingVerbose, //! Print verbose debug info on indexing
   EndOfOption //! Placeholder for counting the number of elements
 };
 
@@ -91,6 +92,7 @@ enum class DebugDumpOption {
 //!
 enum class EnableOption {
   FuseMatmul, //! Enable automatic fusion of matmul and linear ops
+  FuseMultipleMatmuls, //! Allow fusing more than one matmul in a single kernel
   IdModel, //! Enable IdModel
   KernelDb, //! Enable Kernel Database
   KernelProfile, //! Enable intra-kernel performance profiling

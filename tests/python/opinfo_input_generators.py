@@ -12,8 +12,8 @@ from torch.testing import make_tensor
 import random
 from numbers import Number
 
-from pytest_core import OpInfo, SampleInput, ErrorSample, Domain
-from pytest_utils import (
+from opinfo_core import OpInfo, SampleInput, ErrorSample, Domain
+from utils import (
     make_number,
     find_nonmatching_dtype,
     is_floating_dtype,
@@ -311,7 +311,7 @@ def cat_error_generator(op, dtype=torch.float32, requires_grad: bool = False, **
         "Unexpected number of dimensions",
     )
     # All tensors must have same shape except for the cat dimension
-    shape_mismatch = (([(2, 3), (4, 5)], 0), RuntimeError, "known_size == this_size")
+    shape_mismatch = (([(2, 3), (4, 5)], 0), RuntimeError, "Tried to bind to a value")
 
     error_cases = [
         empty_input_tensors,
@@ -1492,9 +1492,9 @@ def matmul_input_generator(
         requires_grad=requires_grad,
     )
 
-    B = 64
-    M = 512
-    N = 256
+    B = 4
+    M = 256
+    N = 128
     K = 32
 
     shapes_a = ((K,), (M, K), (1, K), (B, M, K), (B, 1, M, K))

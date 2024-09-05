@@ -67,7 +67,7 @@ class FusionDefinition(_C._FusionDefinition):
     def getReproString(self, inputs: list | None = None) -> str:
         msg = "# CUDA devices:\n"
         for i in range(torch.cuda.device_count()):
-            msg += f"#  {0}: {torch.cuda.get_device_name(i)}\n"
+            msg += f"#  {i}: {torch.cuda.get_device_name(i)}\n"
         msg += (
             f"# torch version: {torch.__version__}\n"
             f"# cuda version: {torch.version.cuda}\n"
@@ -264,14 +264,15 @@ class FusionDefinition(_C._FusionDefinition):
         except ImportError:
             raise ImportError("Unable to import pytorch_utils!")
 
-        if not tensor.is_cuda:
-            raise ValueError("Tensor should be on a cuda device!")
+        if not tensor.is_cuda and len(tensor.size()) != 0:
+            raise ValueError("CPU non-scalar tensor is not supported!")
 
         return self.define_tensor(
             sizes=tensor.size(),
             strides=tensor.stride(),
             dtype=torch_dtype_to_nvfuser_dtype(tensor.dtype),
             static_sizes=static_sizes,
+            is_cpu=tensor.is_cpu,
         )
 
     def fusion_ir(self):

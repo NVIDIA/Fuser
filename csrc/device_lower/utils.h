@@ -128,6 +128,8 @@ std::unordered_map<ParallelType, IterDomain*> getParallelDomains(
 //!  a ldmatrix intrinsic.
 bool isLdMatrixOp(const Expr* expr);
 
+bool isStMatrixOp(const Expr* expr);
+
 //! Returns true if the expression will be lowered to
 //!  a cp.async intrinsic.
 bool isCpAsyncOp(const Expr* expr);

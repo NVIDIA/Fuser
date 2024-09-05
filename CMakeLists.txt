@@ -137,9 +137,11 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/host_ir/executor.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/host_ir.cpp
   ${NVFUSER_SRCS_DIR}/id_model/circular_buffer_indexing.cpp
+  ${NVFUSER_SRCS_DIR}/id_model/contiguity.cpp
   ${NVFUSER_SRCS_DIR}/id_model/id_model.cpp
   ${NVFUSER_SRCS_DIR}/id_model/id_model_index_compute.cpp
   ${NVFUSER_SRCS_DIR}/id_model/indexing.cpp
+  ${NVFUSER_SRCS_DIR}/id_model/indexing_traversal.cpp
   ${NVFUSER_SRCS_DIR}/id_model/loop_promotion.cpp
   ${NVFUSER_SRCS_DIR}/id_model/predicate_indexing.cpp
   ${NVFUSER_SRCS_DIR}/id_model/schedule.cpp
@@ -204,6 +206,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/heuristic_types.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/mark_aliases.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/matmul.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/multi_matmul.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/matmul_heuristic_plugin.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/matmul_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/mma_utils.cpp

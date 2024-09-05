@@ -62,7 +62,7 @@ bool checkPatternEquivalence(
 bool hasNonUniqueBcast(Fusion* fusion) {
   ConcretizedBroadcastDomains concretize_info(fusion);
 
-  for (auto tv : ir_utils::allTvs(fusion)) {
+  for (auto tv : fusion->allTvs()) {
     for (auto id : tv->getMaybeRootDomain()) {
       if (concretize_info.maybeNonUniquelyConcretized(id)) {
         return true;
