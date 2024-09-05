@@ -358,16 +358,10 @@ bool isReductionInitExpr(const Expr* expr);
 // value.
 bool predicateAtEnd(ForLoop* loop);
 
-template <typename ContainerT>
 Val* proveLinearAndGetStride(
     const ValGraph& id_graph,
     const ValGroup& linear_g,
-    ContainerT domain) {
-  auto path = ValGraphBFS::getExprsBetween(
-      id_graph, std::forward<ContainerT>(domain), {linear_g});
-  Val* _impl_proveLinearAndGetStride(ValGraphBFS::ExprPath & path);
-  return _impl_proveLinearAndGetStride(path);
-}
+    const ValGroups& domain);
 
 } // namespace lower_utils
 

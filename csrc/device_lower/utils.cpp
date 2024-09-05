@@ -21,6 +21,7 @@
 
 #include <expr_simplifier.h>
 #include <algorithm>
+#include <memory>
 
 // TODO: refactor this file (one per namespace)
 
@@ -1014,7 +1015,49 @@ bool predicateAtEnd(ForLoop* loop) {
   return true;
 }
 
-Val* _impl_proveLinearAndGetStride(ValGraphBFS::ExprPath& path) {
+// Helper for:
+//   Val* proveLinearAndGetStride(
+//       const ValGraph& id_graph,
+//       const ValGroup& linear_g,
+//       ContainerT domain);
+//
+// Propagate from linear_g to domain, keep track of how linear_g lives in
+// domain. Note that how linear_g lives in domain could be complicated. It can
+// be, for example:
+//   1. linear_g is equivalent to a single ValGroup in domain.
+//   2. linear_g is the inner of a ValGroup in domain.
+//   3. linear_g is the outer of a ValGroup in domain.
+//   4. linear_g is the middle of a ValGroup in domain, where on the right,
+//      there is a 2, and on the left, there is a 4.
+//   5. linear_g is split as g1, g2, g3 in domain.
+//   6. linear_g is split as the inner 2 of g1, g2, and the outer 4 of g3.
+//
+// We need to be able to represent all these cases.
+namespace {
+
+template <typename AbstractValGroup>
+struct PartOf {
+  Val* left_extent = nullptr;
+  std::unique_ptr<AbstractValGroup> group;
+  Val* right_extent = nullptr;
+};
+
+using AbstractValGroup = dynamic_type::DynamicType<
+    dynamic_type::Containers<
+        std::vector, // a composition of AbstractValGroups
+        PartOf // part of a AbstractValGroup
+        >,
+    ValGroup // a whole ValGroup
+    >;
+
+} // namespace
+
+Val* proveLinearAndGetStride(
+    const ValGraph& id_graph,
+    const ValGroup& linear_g,
+    const ValGroups& domain) {
+  auto path = ValGraphBFS::getExprsBetween(id_graph, domain, {linear_g});
+  AbstractValGroup frontier = linear_g;
   for (const auto& [eg, direction] : path) {
     std::cout << eg << "\t" << direction << std::endl;
   }
