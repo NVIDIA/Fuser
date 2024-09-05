@@ -56,8 +56,6 @@ enum class DebugDumpOption {
   GlobalZeroedMemory, //!< Print the log for zeroed global memory allocator
   HostIr, //!< Dump the Host IR program
   KernelArgs, //!< Print the runtime kernel arguments when launching kernels
-  EffectiveBandwidth, //! Measure kernel performance and print effective
-                      //! bandwidth
   FusionSegmentsDrawing, //!< Dump Segmented Fusion Graph
   PrintPtxasLog, //!< Print the ptxas verbose log including register usage
   BufferReuseInfo, //!< Dump the analysis details of local/shared buffer re-use

@@ -214,7 +214,7 @@ class BufferReuseDebugPrinter {
   using DebugEntryPtr = std::unique_ptr<DebugEntry>;
 
  public:
-  BufferReuseDebugPrinter() : ir_printer_(os_){};
+  BufferReuseDebugPrinter() : ir_printer_(os_) {};
 
   std::string dumpDebugInfo(const AllocationInfoMap* allocation_info_map) {
     allocation_info_map_ = allocation_info_map;

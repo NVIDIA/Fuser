@@ -5,8 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <logical_domain_map.h>
 #include <maxinfo_propagator.h>
-#include <root_domain_map.h>
 
 namespace nvfuser {
 
@@ -159,11 +159,11 @@ void MaxInfoSpanningTree::traverse(Propagator* propagator) {
   propagator->tearDown();
 }
 
-MaxRootDomainInfoSpanningTree::DomainInfo::operator bool() const {
+MaxLogicalDomainInfoSpanningTree::DomainInfo::operator bool() const {
   return !info.empty();
 }
 
-bool MaxRootDomainInfoSpanningTree::DomainInfo::operator<(
+bool MaxLogicalDomainInfoSpanningTree::DomainInfo::operator<(
     const Information& r) const {
   auto rr = dynamic_cast<const DomainInfo&>(r);
   if (info.size() != rr.info.size()) {
@@ -234,11 +234,11 @@ std::unordered_set<IterDomain*> mapLogicalToRoot(
 // to first map it to the logical domain of the producer, then we can map it to
 // the consumer's root domain. The computed info will be represented by root
 // domain as root domain contains the raw information.
-std::shared_ptr<MaxInfoSpanningTree::Information> MaxRootDomainInfoSpanningTree::
-    computeInfoP2C(
-        TensorView* from,
-        TensorView* to,
-        std::shared_ptr<Information> from_info) {
+std::shared_ptr<MaxInfoSpanningTree::Information>
+MaxLogicalDomainInfoSpanningTree::computeInfoP2C(
+    TensorView* from,
+    TensorView* to,
+    std::shared_ptr<Information> from_info) {
   DomainInfo result;
 
   TensorView* producer = from;
@@ -246,7 +246,7 @@ std::shared_ptr<MaxInfoSpanningTree::Information> MaxRootDomainInfoSpanningTree:
   const auto& producer_root_id_info =
       std::dynamic_pointer_cast<DomainInfo>(from_info)->info;
 
-  auto pairwise_map = PairwiseRootDomainMap(producer, consumer);
+  auto pairwise_map = PairwiseLogicalDomainMap(producer, consumer);
   auto p2c_map = pairwise_map.mapProducerToConsumer();
 
   for (auto& info : producer_root_id_info) {
@@ -290,11 +290,11 @@ std::shared_ptr<MaxInfoSpanningTree::Information> MaxRootDomainInfoSpanningTree:
 // need to first map it to the root domain of the consumer, then we can map it
 // to the producer's logical domain. The computed info will be represented by
 // logical domain as logical domain contains the raw information.
-std::shared_ptr<MaxInfoSpanningTree::Information> MaxRootDomainInfoSpanningTree::
-    computeInfoC2P(
-        TensorView* from,
-        TensorView* to,
-        std::shared_ptr<Information> from_info) {
+std::shared_ptr<MaxInfoSpanningTree::Information>
+MaxLogicalDomainInfoSpanningTree::computeInfoC2P(
+    TensorView* from,
+    TensorView* to,
+    std::shared_ptr<Information> from_info) {
   DomainInfo result;
 
   TensorView* producer = to;
@@ -302,7 +302,7 @@ std::shared_ptr<MaxInfoSpanningTree::Information> MaxRootDomainInfoSpanningTree:
   const auto& consumer_root_id_info =
       std::dynamic_pointer_cast<DomainInfo>(from_info)->info;
 
-  auto pairwise_map = PairwiseRootDomainMap(producer, consumer);
+  auto pairwise_map = PairwiseLogicalDomainMap(producer, consumer);
   auto c2p_map = pairwise_map.mapConsumerToProducer();
 
   for (auto& info : consumer_root_id_info) {
@@ -357,8 +357,8 @@ std::shared_ptr<MaxInfoSpanningTree::Information> MaxRootDomainInfoSpanningTree:
   return std::make_shared<DomainInfo>(std::move(result));
 }
 
-std::shared_ptr<MaxRootDomainInfoSpanningTree::DomainInfo>
-MaxRootDomainInfoSpanningTree::getReferenceIDInfo(TensorView* tv) {
+std::shared_ptr<MaxLogicalDomainInfoSpanningTree::DomainInfo>
+MaxLogicalDomainInfoSpanningTree::getReferenceIDInfo(TensorView* tv) {
   DomainInfo result;
   const auto& root_domain = tv->getMaybeRootDomain();
   result.info.reserve(root_domain.size());
@@ -368,8 +368,8 @@ MaxRootDomainInfoSpanningTree::getReferenceIDInfo(TensorView* tv) {
   return std::make_shared<DomainInfo>(std::move(result));
 }
 
-std::shared_ptr<MaxRootDomainInfoSpanningTree::DomainInfo>
-MaxRootDomainInfoSpanningTree::getReferenceIDInfo(
+std::shared_ptr<MaxLogicalDomainInfoSpanningTree::DomainInfo>
+MaxLogicalDomainInfoSpanningTree::getReferenceIDInfo(
     TensorView* tv,
     int64_t loop_pos) {
   if (loop_pos < 0) {
@@ -377,7 +377,7 @@ MaxRootDomainInfoSpanningTree::getReferenceIDInfo(
   }
   NVF_CHECK(
       loop_pos >= 0 && loop_pos <= int64_t(tv->nDims()),
-      "MaxRootDomainInfoSpanningTree called on an loop_pos outside valid range.");
+      "MaxLogicalDomainInfoSpanningTree called on an loop_pos outside valid range.");
   DomainInfo result;
   const auto& logical_domain = tv->getLogicalDomain();
   const auto& loop_domain = tv->getLoopDomain();
@@ -403,11 +403,11 @@ MaxRootDomainInfoSpanningTree::getReferenceIDInfo(
 // replay state, so sibling info is always identical by definition, except that
 // we need to replace the IDs stored in the info with the corresponding IDs in
 // `to`.
-std::shared_ptr<MaxInfoSpanningTree::Information> MaxRootDomainInfoSpanningTree::
-    computeInfoSibling(
-        TensorView* from,
-        TensorView* to,
-        std::shared_ptr<Information> from_info) {
+std::shared_ptr<MaxInfoSpanningTree::Information>
+MaxLogicalDomainInfoSpanningTree::computeInfoSibling(
+    TensorView* from,
+    TensorView* to,
+    std::shared_ptr<Information> from_info) {
   DomainInfo result;
 
   const auto& from_root_id_info =

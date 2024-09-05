@@ -9,7 +9,7 @@
 
 #include <exceptions.h>
 #include <ir/all_nodes.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 #include <visibility.h>
 
 namespace nvfuser {
@@ -20,7 +20,7 @@ namespace nvfuser {
 //! domains in input tensors. Then, a new entry is added to the origin
 //! map when a broadcast op is encountered during a forward traversal
 //! of the given fusion. For non-broadcast ops, mappings are just
-//! propagated forward using PairwiseRootDomainMap.
+//! propagated forward using PairwiseLogicalDomainMap.
 //!
 //! When the mapped consumer domain is not broadcast, it means the
 //! producer broadcast domain is concretized, and its origin broadcast
@@ -69,7 +69,7 @@ class NVF_API ConcretizedBroadcastDomains : private IterVisitor {
   std::unordered_map<IterDomain*, std::unordered_set<IterDomain*>>
       broadcast_to_concrete_map_;
 
-  std::unique_ptr<ExactRootDomainMap> exact_map_;
+  std::unique_ptr<ExactLogicalDomainMap> exact_map_;
 };
 
 } // namespace nvfuser
