@@ -608,7 +608,8 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
   }
 
   // This function selects a single thread to launch tma load and mbarrier
-  // arrive_expected_tx operations.
+  // arrive_expected_tx operations. The remaining threads will simply arrive
+  // at the mbarrier.
   //
   // Pseudo-code example:
   //  if (warp_id == 0 && elect_sync()) {
@@ -626,13 +627,24 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
     NVF_ERROR(mbarrier_arrive_tx_ != nullptr);
     NVF_ERROR(expr != nullptr);
 
-    // Create if-then-else for arrive_expected_tx
-    kir::IfThenElse* if_expr_arrive =
-        createMbarrierArriveExpectTx(mbarrier_arrive_tx_);
-    for_loop_stack_.back()->body().push_back(if_expr_arrive);
+    // Create the if-then-else with elect_sync predicat for the arrive expect
+    // transaction.
+    kir::IfThenElse* if_expr = IrBuilder::create<kir::IfThenElse>(
+        IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
 
-    // Add LoadStoreOp to then-body of arrive_expected_tx ite
-    if_expr_arrive->thenBody().push_back(expr);
+    // A single thread issues arriveExpectTx with expected transactions and
+    // launches the TMA load.
+    if_expr->thenBody().push_back(mbarrier_arrive_tx_);
+    if_expr->thenBody().push_back(expr);
+
+    // The other threads issue arriveExpectTx without any expected transactions.
+    kir::MBarrierArriveExpectTx* thread_arrive =
+        IrBuilder::create<kir::MBarrierArriveExpectTx>(
+            mbarrier_arrive_tx_->state(),
+            mbarrier_arrive_tx_->mbarrier(),
+            /*tx_count=*/IrBuilder::create<Val>(0L, PrimDataType::UInt32));
+    if_expr->elseBody().push_back(thread_arrive);
+    for_loop_stack_.back()->body().push_back(if_expr);
 
     mbarrier_arrive_tx_ = nullptr;
   }
@@ -681,38 +693,6 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
         expected_bytes,
         " is not.");
     return expected_bytes;
-  }
-
-  // Create mbarrier arrive expect transaction
-  //
-  // Pseudo-code example:
-  //  if (warp_id == 0 && elect_sync()) {
-  //    tokens[next_stage] =
-  //      mbarrier::arriveExpectTx(mbarrier[next_stage], expected_bytes);
-  //  } else {
-  //    tokens[next_stage] =
-  //      mbarrier::arriveExpectTx(mbarrier[next_stage], 0);
-  //  }
-  //
-  //  Return the mbarrier selected by loop_index
-  kir::IfThenElse* createMbarrierArriveExpectTx(
-      kir::MBarrierArriveExpectTx* mbarrier_arrive_tx) {
-    NVF_ERROR(mbarrier_arrive_tx != nullptr);
-    kir::IfThenElse* if_expr = IrBuilder::create<kir::IfThenElse>(
-        IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
-
-    // A single thread issues arriveExpectTx with expected transactions.
-    if_expr->thenBody().push_back(mbarrier_arrive_tx);
-
-    // The other threads issue arriveExpectTx without any expected transactions.
-    kir::MBarrierArriveExpectTx* thread_arrive =
-        IrBuilder::create<kir::MBarrierArriveExpectTx>(
-            mbarrier_arrive_tx->state(),
-            mbarrier_arrive_tx->mbarrier(),
-            /*tx_count=*/IrBuilder::create<Val>(0L, PrimDataType::UInt32));
-    if_expr->elseBody().push_back(thread_arrive);
-
-    return if_expr;
   }
 
   // This function creates kir::MBarrierArriveExpectTx for given LoadStoreOp and
