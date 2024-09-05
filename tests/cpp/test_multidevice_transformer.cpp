@@ -52,11 +52,6 @@ class DistributedTransformerTest
     }
   }
 
-  hir::HostIrExecutorParams executor_params_{
-      .use_fusion_executor_cache = true,
-      .skip_auto_scheduling = false,
-      .cache_fusion_executor = false};
-
   const int64_t D; // number of devices
 };
 
@@ -401,10 +396,10 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
       reference_outs[2],
       reference_outs[3]};
 
-  MultiDeviceExecutor runtime(
-      std::move(fusion), *communicator_, executor_params_);
+
+  FusionExecutorCache fec(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
-  auto outputs = runtime.runWithInput(inputs);
+  auto outputs = fec.runFusionWithInputs(inputs);
   validate(expected_outputs, outputs);
 }
 
@@ -459,10 +454,9 @@ TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
       reference_outs[2],
       reference_outs[3]};
 
-  MultiDeviceExecutor runtime(
-      std::move(fusion), *communicator_, executor_params_);
+  FusionExecutorCache fec(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
-  auto out = runtime.runWithInput(inputs);
+  auto out = fec.runFusionWithInputs(inputs);
   validate(expected_outputs, out);
 }
 
@@ -528,9 +522,8 @@ TEST_P(DistributedTransformerTest, MLP_Backward) {
       shardTensor(outs[5], 0, mesh), // linear0 bias grad
       outs[6]}; // linear0 grad
 
-  MultiDeviceExecutor runtime(
-      std::move(fusion), *communicator_, executor_params_);
-  auto outputs = runtime.runWithInput(inputs);
+  FusionExecutorCache fec(std::move(fusion));
+  auto outputs = fec.runFusionWithInputs(inputs);
 
   validate(expected_outputs, outputs);
 }
@@ -638,10 +631,9 @@ TEST_P(DistributedTransformerTest, Forward) {
   std::vector<at::Tensor> expected_outputs = {
       ln_1_out_, mha_out_, ln_2_out_, mlp_out_, at_out};
 
-  MultiDeviceExecutor runtime(
-      std::move(fusion), *communicator_, executor_params_);
+  FusionExecutorCache fec(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
-  auto outputs = runtime.runWithInput(inputs);
+  auto outputs = fec.runFusionWithInputs(inputs);
   validate(expected_outputs, outputs);
 }
 
