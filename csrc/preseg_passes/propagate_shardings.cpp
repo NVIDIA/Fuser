@@ -34,6 +34,8 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
       }
     }
 
+    // Note: Tvs without a mesh are assumed to have no manual sharding
+    // annotation and are sharded like the first producer Tv.
     std::vector<TensorView*> outputs_without_mesh;
     for (TensorView* tv : outputs) {
       if (!tv->hasDeviceMesh()) {

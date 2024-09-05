@@ -593,6 +593,15 @@ bool isPointwiseTvOp(const Expr* expr) {
        (expr->isA<LoadStoreOp>() && !ir_utils::getTvOutput(expr)->hasRoot()));
 }
 
+bool isSegmentSet(const Expr* e) {
+  if (const auto* ldst = dynamic_cast<const LoadStoreOp*>(e)) {
+    if (ldst->opType() == LoadStoreOpType::SegmenterSet) {
+      return true;
+    }
+  }
+  return false;
+}
+
 std::vector<ViewOp*> getViewOps(Fusion* fusion) {
   auto all_exprs = fusion->exprs();
 
