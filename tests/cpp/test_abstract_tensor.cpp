@@ -696,12 +696,12 @@ TEST_F(AbstractTensorTest, Unzip) {
   auto id2 = newID();
   auto id3 = newID();
   const AbstractTensor v({{id0, id1}, {id2, id3}});
-  auto ub = v.unzip();
-  ASSERT_EQ(ub.size(), 2);
+  auto uz = v.unzip();
+  ASSERT_EQ(uz.size(), 2);
   AbstractTensor expect0{id0, id2};
   AbstractTensor expect1{id1, id3};
-  EXPECT_EQ(ub[0], expect0);
-  EXPECT_EQ(ub[1], expect1);
+  EXPECT_EQ(uz[0], expect0);
+  EXPECT_EQ(uz[1], expect1);
 }
 
 TEST_F(AbstractTensorTest, UnzipBroadcasting) {
@@ -709,12 +709,96 @@ TEST_F(AbstractTensorTest, UnzipBroadcasting) {
   auto id1 = newID();
   auto id2 = newID();
   const AbstractTensor v({id0, {id1, id2}});
-  auto ub = v.unzip();
-  ASSERT_EQ(ub.size(), 2);
+  auto uz = v.unzip();
+  ASSERT_EQ(uz.size(), 2);
   AbstractTensor expect0{id0, id1};
   AbstractTensor expect1{id0, id2};
-  EXPECT_EQ(ub[0], expect0);
-  EXPECT_EQ(ub[1], expect1);
+  EXPECT_EQ(uz[0], expect0);
+  EXPECT_EQ(uz[1], expect1);
+}
+
+TEST_F(AbstractTensorTest, PlaceHolder) {
+  AbstractTensor v({{}, {}});
+  EXPECT_EQ(v.size(), 2);
+  for (auto i : v) {
+    EXPECT_FALSE(i.hasValue());
+  }
+
+  v.split(0, 2);
+  EXPECT_EQ(v.size(), 3);
+  for (auto i : v) {
+    EXPECT_FALSE(i.hasValue());
+  }
+
+  v.merge(0);
+  EXPECT_EQ(v.size(), 2);
+  for (auto i : v) {
+    EXPECT_FALSE(i.hasValue());
+  }
+
+  v.swizzle(SwizzleType::XOR, 0, 1);
+  EXPECT_EQ(v.size(), 2);
+  for (auto i : v) {
+    EXPECT_FALSE(i.hasValue());
+  }
+
+  v.strip();
+  EXPECT_TRUE(v.empty());
+}
+
+TEST_F(AbstractTensorTest, Parallelize) {
+  auto id0 = newID();
+  auto id1 = newID();
+  auto id2 = newID();
+  AbstractTensor v({id0, {id1, id2}});
+  v.parallelize(0, ParallelType::TIDx);
+  EXPECT_EQ(id0->getParallelType(), ParallelType::TIDx);
+  v.parallelize(1, ParallelType::TIDy);
+  EXPECT_EQ(id1->getParallelType(), ParallelType::TIDy);
+  EXPECT_EQ(id2->getParallelType(), ParallelType::TIDy);
+
+  ValGraph g;
+  g.initializeVal(id0);
+  g.initializeVal(id1);
+  g.mapVals(id0, id1);
+  ValGroupAndItsGraph g0{g.toGroup(id0), &g};
+  AbstractTensor vv({g0});
+  vv.parallelize(0, ParallelType::BIDx);
+  EXPECT_EQ(id0->getParallelType(), ParallelType::BIDx);
+  EXPECT_EQ(id1->getParallelType(), ParallelType::BIDx);
+  EXPECT_EQ(id2->getParallelType(), ParallelType::TIDy);
+}
+
+TEST_F(AbstractTensorTest, Zip) {
+  auto id0 = newID();
+  auto id1 = newID();
+  auto id2 = newID();
+  auto id3 = newID();
+  const AbstractTensor v0{id0, id2};
+  const AbstractTensor v1{id1, id3};
+  const AbstractTensor v = AbstractTensor::zip({v0, v1});
+  ASSERT_EQ(v.size(), 2);
+  AbstractId expect0{id0, id1};
+  AbstractId expect1{id2, id3};
+  EXPECT_EQ(v[0], expect0);
+  EXPECT_EQ(v[1], expect1);
+}
+
+TEST_F(AbstractTensorTest, AddRow) {
+  auto id0 = newID();
+  auto id1 = newID();
+  auto id2 = newID();
+  auto id3 = newID();
+  auto id4 = newID();
+  auto id5 = newID();
+  AbstractTensor v({{id0, id1}, {id2, id3}});
+  AbstractTensor v2({id4, id5});
+  v.addRow(v2);
+  ASSERT_EQ(v.size(), 2);
+  AbstractId expect0{id0, id1, id4};
+  AbstractId expect1{id2, id3, id5};
+  EXPECT_EQ(v[0], expect0);
+  EXPECT_EQ(v[1], expect1);
 }
 
 TEST_F(AbstractTensorTest, TestApplyScheduling) {

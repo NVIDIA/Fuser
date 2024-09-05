@@ -1400,14 +1400,13 @@ AbstractTensor MmaSwizzler::scheduleMmaOutputAllocation(AbstractTensor t) {
     // [WarpGroup128, N3, M2, N2, Ro, R4, R2]
   }
 
-  t[m_pos]->parallelize(ParallelType::TIDx);
+  t.parallelize(m_pos, ParallelType::TIDx);
 
   if (has_reduction) {
     // Set instruction loops for mma reduce
     int64_t pos = -1;
     while (pos > m_pos) {
-      auto id = t[pos--];
-      id->parallelize(ParallelType::Mma);
+      t.parallelize(pos--, ParallelType::Mma);
     }
   }
   return t;
