@@ -3762,6 +3762,9 @@ TEST_F(ResizeTest, PadScheduledLikeConsumer) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
