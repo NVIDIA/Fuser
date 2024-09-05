@@ -3190,6 +3190,19 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("factor"),
       py::arg("inner_split") = true);
   nvf_sched.def(
+      "circular_buffer",
+      [](FusionDefinition::SchedOperators& self, Tensor tensor, int64_t depth) {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        TensorView* input_tv =
+            fd->getFusionState(tensor.index)->template as<TensorView>();
+        input_tv->circularBuffer(depth);
+      },
+      py::arg("tensor"),
+      py::arg("depth") = 2);
+  nvf_sched.def(
       "cache_after",
       [](FusionDefinition::SchedOperators& self,
          Tensor tensor,
