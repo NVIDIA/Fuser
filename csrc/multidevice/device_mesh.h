@@ -12,6 +12,7 @@
 
 #include <exceptions.h>
 #include <multidevice/multidevice.h>
+#include <type.h>
 #include <visibility.h>
 
 namespace nvfuser {
@@ -47,6 +48,8 @@ class DeviceMesh final {
   int64_t size() const {
     return static_cast<int64_t>(vector_.size());
   }
+
+  int64_t size(ParallelType parallel_type) const;
 
   // Returns a vector containing the device indices of the mesh
   const std::vector<DeviceIdxType>& vector() const {
