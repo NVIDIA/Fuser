@@ -739,6 +739,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     scheduleMultipleMatmuls(fusion, params);
     return;
   }
+
   FusionGuard fg(fusion);
 
   // Make sure we don't have global memory set on intermediate tensors from

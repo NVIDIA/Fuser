@@ -67,7 +67,7 @@ class FusionDefinition(_C._FusionDefinition):
     def getReproString(self, inputs: list | None = None) -> str:
         msg = "# CUDA devices:\n"
         for i in range(torch.cuda.device_count()):
-            msg += f"#  {0}: {torch.cuda.get_device_name(i)}\n"
+            msg += f"#  {i}: {torch.cuda.get_device_name(i)}\n"
         msg += (
             f"# torch version: {torch.__version__}\n"
             f"# cuda version: {torch.version.cuda}\n"
@@ -91,7 +91,7 @@ class FusionDefinition(_C._FusionDefinition):
                         sz += (szi - 1) * stri
                     if i.dtype.is_floating_point:
                         msg += (
-                            f"    torch.randn(({sz},), dtype={i.dtype}, device='{i.device}')"
+                            f"    torch.randn({sz}, dtype={i.dtype}, device='{i.device}')"
                             f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
                         )
                     else:

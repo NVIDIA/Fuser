@@ -82,6 +82,7 @@ enum class DebugDumpOption {
   Occupancy, // Dump occupancy
   IndexType, //! Print the index type of the launched kernel
   PredicateElimination, //! Print the predicate elimination information
+  IndexingVerbose, //! Print verbose debug info on indexing
   EndOfOption //! Placeholder for counting the number of elements
 };
 
@@ -125,6 +126,7 @@ enum class DisableOption {
   ParallelCompile, //! Disable compiling Fusion segments in parallel
   ParallelSerde, //! Disable deserializing FusionExecutorCache in parallel
   PredicateElimination, //! Disable predicate elimination
+  PythonInlineDefinitions, //! Disable printing of inline definitions
   KernelReuse, //! Disable re-using cached FusionKernelRuntimes with different
                //! input shapes
   VarNameRemapping, //! Disable variable name remapping

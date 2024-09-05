@@ -25,7 +25,7 @@ std::unordered_set<Split*> getAllDivisibleSplits(
     const ComputeAtMap* ca_map) {
   std::unordered_set<Split*> all_divisible_splits;
 
-  auto all_tvs = ir_utils::allTvs(fusion);
+  auto all_tvs = fusion->allTvs();
   // Find all tensor views with a view like rfactor. Splits used in view
   // transformations must be divisible by definition.
   for (auto tv : all_tvs) {

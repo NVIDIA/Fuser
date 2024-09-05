@@ -495,14 +495,14 @@ AbstractTensor swizzleSharedMemory(TensorView* shared_mem_tv) {
   return swizzle_domain;
 }
 
-// A matmul kernel might perform multiple matmuls; i.e. there can be multiple
-// MmaOps in the scheduled tensor. Each one outputs a TensorView* which call an
-// mma_result. Each MmaOp will also have two input TensorViews which we call
-// "ab" and "bb". Again there can be multiple abs and multiple bbs in one
-// fusion. These TensorViews are loaded from global memory tensors that we call
-// "a" and "b" into shared memory tensors called acw_smem and bcw_smem. They are
-// loaded from shared memory to register buffers we call "acr" and "bcr" ("cr"
-// meaning "cache read" in this context).
+// MmaOps in the scheduled tensor. Each one outputs a TensorView* which we call                                           
+// an mma_result. Each MmaOp will also have two input TensorViews which we call                                           
+// "ab" and "bb" since they are the immediate A and B operands and they contain                                           
+// broadcast dimensions. Again there can be multiple abs and multiple bbs in                                              
+// one fusion. These TensorViews are loaded from global memory tensors that we                                            
+// call "a" and "b" into shared memory tensors called acw_smem and bcw_smem.                                              
+// They are loaded from shared memory to register buffers we call "acr" and                                               
+// "bcr" ("cr" meaning "cache read" in this context).        
 //
 // Putting this all together we have the following order for a simple matmul
 //
@@ -578,8 +578,6 @@ class MultipleMatmulScheduler {
 
     // schedule mma instruction output (mma_result)
     scheduleMmaResults();
-
-    // schedule smem_epilogue
 
     // schedule epilogue
     scheduleEpilogue();
