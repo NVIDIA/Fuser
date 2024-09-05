@@ -507,7 +507,7 @@ AbstractTensor swizzleSharedMemory(TensorView* shared_mem_tv) {
 // Putting this all together we have the following order for a simple matmul
 //
 //   a -> acw_smem -> acr -> ... -> ab
-//                                    \
+//                                    \                                      .
 //                                      mma_result ->  ... -> dc -> d
 //                                    /
 //   b -> bcw_smem -> bcr -> ... -> bb
@@ -518,9 +518,9 @@ AbstractTensor swizzleSharedMemory(TensorView* shared_mem_tv) {
 // In this example there are two matmuls both using the same "a" operand:
 //
 //   b1 -> bcw_smem1 -> bcr1 -> ... -> bb1
-//                                        \
+//                                        \                                  .
 //                                          mma_result1
-//                                        /             \
+//                                        /             \                    .
 //       a -> acw_smem -> acr -> ... -> ab                ... -> dc -> d
 //                                        \             /
 //                                          mma_result2
