@@ -3713,11 +3713,8 @@ TEST_F(ResizeTest, SliceScheduledLikeProducer) {
 
   for (auto tv : {tv1, tv2}) {
     tv->split(0, 32);
-    // RAW sync analysis not updated yet
-#if 0
     tv->axis(0)->parallelize(ParallelType::BIDx);
     tv->axis(1)->parallelize(ParallelType::TIDx);
-#endif
   }
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -3757,15 +3754,11 @@ TEST_F(ResizeTest, PadScheduledLikeConsumer) {
 
   for (auto tv : {tv1, tv2, tv3}) {
     tv->split(0, 32);
-    // RAW sync analysis not updated yet
-#if 0
     tv->axis(0)->parallelize(ParallelType::BIDx);
     tv->axis(1)->parallelize(ParallelType::TIDx);
-#endif
   }
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
@@ -3814,10 +3807,8 @@ TEST_F(ResizeTest, SliceThenPadLeftHalf) {
 
   for (auto tv : {tv1, tv2, tv3}) {
     tv->split(0, 32);
-#if 0
     tv->axis(0)->parallelize(ParallelType::BIDx);
     tv->axis(1)->parallelize(ParallelType::TIDx);
-#endif
   }
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -3872,10 +3863,8 @@ TEST_F(ResizeTest, SliceThenPadRightHalf) {
 
   for (auto tv : {tv1, tv2, tv3}) {
     tv->split(0, 32);
-#if 0
     tv->axis(0)->parallelize(ParallelType::BIDx);
     tv->axis(1)->parallelize(ParallelType::TIDx);
-#endif
   }
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -3969,10 +3958,8 @@ TEST_F(ResizeTest, SliceThenConcat) {
 
   for (auto tv : {tv1, tv2, tv3, tv4, tv5, tv6}) {
     tv->split(0, 32);
-#if 0
     tv->axis(0)->parallelize(ParallelType::BIDx);
     tv->axis(1)->parallelize(ParallelType::TIDx);
-#endif
   }
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -4237,10 +4224,8 @@ TEST_F(ResizeTest, SliceSliceConcatConcat) {
 
     tv->split(0, 4);
     tv->split(0, 16);
-#if 0
     tv->axis(0)->parallelize(ParallelType::BIDx);
     tv->axis(1)->parallelize(ParallelType::TIDx);
-#endif
   }
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
