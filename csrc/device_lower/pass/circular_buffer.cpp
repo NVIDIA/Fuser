@@ -217,27 +217,6 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
   const std::unordered_set<Expr*>& exclude_;
 };
 
-// TODO Replace with elect_sync ptx
-// TMA operation only a single thread is necessary to launch TMA operations.
-// This function creates kir::IfThenElse with the following predicate:
-//   threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0
-kir::IfThenElse* createThreadPredicatedIfThenElse() {
-  Val* zero_val = IrBuilder::create<Val>(0L, PrimDataType::UInt);
-  Val* if_predicate_expr = IrBuilder::logicalAndExpr(
-      IrBuilder::logicalAndExpr(
-          IrBuilder::eqExpr(
-              NamedScalar::getParallelIndex(ParallelType::TIDx), zero_val),
-          IrBuilder::eqExpr(
-              NamedScalar::getParallelIndex(ParallelType::TIDy), zero_val)),
-      IrBuilder::eqExpr(
-          NamedScalar::getParallelIndex(ParallelType::TIDz), zero_val));
-
-  kir::IfThenElse* if_expr = IrBuilder::create<kir::IfThenElse>(
-      IrBuilder::create<kir::Predicate>(if_predicate_expr));
-
-  return if_expr;
-}
-
 // Description:
 // Replicates circular buffer loops for Prologue, Main, and
 // Epilogue. Prologue only copies the load expressions of circular
@@ -278,17 +257,23 @@ kir::IfThenElse* createThreadPredicatedIfThenElse() {
 // Pre-Prologue loop:
 // __shared__ __mbarrier_t barriers[num_stages];
 // __shared__ __mbarrier_token_t tokens[num_stages];
-// if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
+// if (warp_id == 0 && elect_sync()) {
 //   for (int64_t loop_index : irange(stages)) {
 //     mbarrier_init(mbarrier[loop_index], number_of_arrival_threads);
 //   }
 // }
 //
 // Prologue loop:
-// if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
-//   for (int64_t loop_index : irange(stages-1)) {
-//     tokens[loop_index] = mbarrier::arriveExpectTx(mbarrier[loop_index]);
-//     cpAsyncBulk(mbarriers[loop_index], ...);
+// for (int64_t loop_index : irange(stages-1)) {
+//   if (warp_id == 0 && elect_sync()) {
+//     tokens[loop_index] =
+//       mbarrier::arriveExpectTx(mbarrier[loop_index], expected_bytes);
+//     for (...) {
+//       cpAsyncBulk(mbarriers[loop_index], ...);
+//     }
+//   } else {
+//     tokens[loop_index] =
+//       mbarrier::arriveExpectTx(mbarrier[loop_index], 0);
 //   }
 // }
 //
@@ -296,10 +281,15 @@ kir::IfThenElse* createThreadPredicatedIfThenElse() {
 // for (int64_t loop_index : irange(N-(stages-1))) {
 //   current_stage = loop_index % stage_depth
 //   load_stage = (loop_index + (stage_depth - 1)) % stage_depth)
-//   if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
+//   if (warp_id == 0 && elect_sync()) {
 //     token[load_stage] =
-//       mbarrier::arriveExpectTx(mbarrier[load_stage]);
-//     cpAsyncBulk(mbarrier[load_stage], ...);
+//       mbarrier::arriveExpectTx(mbarrier[load_stage], expected_bytes);
+//     for (...) {
+//       cpAsyncBulk(mbarrier[load_stage], ...);
+//     }
+//   } else {
+//     token[load_stage] =
+//       mbarrier::arriveExpectTx(mbarrier[load_stage], 0);
 //   }
 //   mbarrier::wait(token[current_stage]);
 //
@@ -315,7 +305,7 @@ kir::IfThenElse* createThreadPredicatedIfThenElse() {
 // }
 //
 // Post-Epilogue loop:
-// if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
+// if (warp_id == 0 && elect_sync()) {
 //   for (int64_t loop_index : irange(stages)) {
 //     mbarrier_inval(mbarrier[loop_index]);
 //   }
@@ -368,7 +358,9 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
     // mbarrier::wait occurs in Main and Epilogue loops.
     if (mbarrier_wait_ != nullptr && for_loop_stack_.size() == 1) {
       NVF_ERROR(for_loop_stack_.back() == cloned_top_level_loop_);
-      addSynchronousMbarrierWait();
+      NVF_ERROR(mbarrier_wait_ != nullptr);
+      cloned_top_level_loop_->body().push_back(mbarrier_wait_);
+      mbarrier_wait_ = nullptr;
     }
   }
 
@@ -446,13 +438,17 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
   }
 
   // Replace cpAsyncBulk type LoadStoreOp with:
-  //  if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
-  //    for (int64_t loop_idx : irange(stages-1)) {
-  //      tokens[loop_idx] =
-  //        mbarrier::arriveExpectTx(mbarrier[loop_idx])
-  //      cpAsyncBulk(mbarrier[loop_idx], ...);
-  //    }
-  //  }
+  //   if (warp_id == 0 && elect_sync()) {
+  //     tokens[loop_index] =
+  //       mbarrier::arriveExpectTx(mbarrier[loop_index], expected_bytes);
+  //     for (...) {
+  //       cpAsyncBulk(mbarriers[loop_index], ...);
+  //     }
+  //   } else {
+  //     tokens[loop_index] =
+  //       mbarrier::arriveExpectTx(mbarrier[loop_index], 0);
+  //   }
+  // }
   void handlePrologueLoop(Expr* expr) {
     NVF_ERROR(expr != nullptr);
 
@@ -498,16 +494,21 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
 
   // Handle cpAsyncBulk type LoadStoreOp that is registered with token
   //
-  // current_compute_stage = loop_index % stage_depth
-  // current_load_stage = (loop_index + (stage_depth - 1)) % stage_depth)
+  // compute_stage = loop_index % stage_depth
+  // load_stage = (loop_index + (stage_depth - 1)) % stage_depth)
   //
   // Replace LoadStoreOp with:
-  //  if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
-  //    tokens[current_load_stage] =
-  //      mbarrier::arriveExpectTx(mbarrier[current_load_stage]);
-  //    cpAsyncBulk(mbarrier[current_load_stage], ...);
-  //  }
-  //  mbarrier::wait(token[current_stage]);
+  //   if (warp_id == 0 && elect_sync()) {
+  //     token[load_stage] =
+  //       mbarrier::arriveExpectTx(mbarrier[load_stage], expected_bytes);
+  //     for (...) {
+  //       cpAsyncBulk(mbarrier[load_stage], ...);
+  //     }
+  //   } else {
+  //     token[load_stage] =
+  //       mbarrier::arriveExpectTx(mbarrier[load_stage], 0);
+  //   }
+  //   mbarrier::wait(token[current_stage]);
   //
   // Where mbarrier and token are shared memory arrays bound to the
   // LoadStoreOp
@@ -610,61 +611,36 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
   // arrive_expected_tx operations.
   //
   // Pseudo-code example:
-  //  if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
+  //  if (warp_id == 0 && elect_sync()) {
   //    tokens[next_stage] =
-  //      mbarrier::arriveExpectTx(mbarrier[next_stage]);
-  //    cpAsyncBulk(mbarrier[next_stage], ...);
+  //      mbarrier::arriveExpectTx(mbarrier[next_stage],
+  //                               expected_bytes);
+  //    for (...) {
+  //      cpAsyncBulk(mbarrier[next_stage], ...);
+  //    }
+  //  } else {
+  //    tokens[next_stage] =
+  //      mbarrier::arriveExpectTx(mbarrier[next_stage], 0);
   //  }
   void addTmaLoadBlock(Expr* expr) {
+    NVF_ERROR(mbarrier_arrive_tx_ != nullptr);
     NVF_ERROR(expr != nullptr);
-    kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
-    Scope& body = if_expr->thenBody();
-    body.push_back(mbarrier_arrive_tx_);
-    body.push_back(expr);
-    for_loop_stack_.back()->body().push_back(if_expr);
+
+    // Create if-then-else for arrive_expected_tx
+    kir::IfThenElse* if_expr_arrive =
+        createMbarrierArriveExpectTx(mbarrier_arrive_tx_);
+    for_loop_stack_.back()->body().push_back(if_expr_arrive);
+
+    // Add LoadStoreOp to then-body of arrive_expected_tx ite
+    if_expr_arrive->thenBody().push_back(expr);
+
     mbarrier_arrive_tx_ = nullptr;
   }
 
-  // This function adds mbarrier::wait to top level cloned loop.
-  //
-  // Pseudo-code example:
-  //  __syncthreads();
-  //  mbarrier::wait(mbarriers[stage], mbarrier_tokens[stage]);
-  void addSynchronousMbarrierWait() {
-    NVF_ERROR(mbarrier_wait_ != nullptr);
-
-    // The Mbarrier Wait condition is a single thread and the expected bytes
-    // for TMA operation. Since the total number of threads is unknown, we
-    // use a block sync to prevent race conditions.
-    kir::BlockSync* sync_expr =
-        IrBuilder::create<kir::BlockSync>(/*war_sync=*/true);
-    cloned_top_level_loop_->body().push_back(sync_expr);
-
-    // TODO Use total number of threads of CTA with mbarrier_wait
-    // TODO Create analysis to determine when block sync is required
-    cloned_top_level_loop_->body().push_back(mbarrier_wait_);
-
-    mbarrier_wait_ = nullptr;
-  }
-
-  // This function creates kir::MBarrierArriveExpectTx for given LoadStoreOp and
-  // circular buffer stage.
-  //
-  // Example:
-  // __shared__ __mbarrier_t barriers[num_stages];
-  // __shared__ __mbarrier_token_t tokens[num_stages];
-  // for(nvfuser_index_t stage = 0; stage < num_stages; ++stage) {
-  //   if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
-  //     tokens[stage] =
-  //        mbarrier::arriveExpectTX(toSmem((&barriers[stage])),
-  //        expected_bytes);
-  //   }
-  // }
-  kir::MBarrierArriveExpectTx* createMbarrierArriveExpectTx(
-      LoadStoreOp* ldst,
-      Val* loop_index) {
+  // Get size of tma load in bytes. It is used for expected transaction count in
+  // kir::MBarrierArriveExpectTx.
+  Val* getSizeOfTmaLoad(LoadStoreOp* ldst) {
     NVF_ERROR(ldst != nullptr);
-    NVF_ERROR(loop_index != nullptr);
 
     TensorView* consumer_tv = ldst->out()->as<TensorView>();
     NVF_ERROR(
@@ -704,6 +680,53 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
         "The expected bytes must be a multiple of 16 bytes, but ",
         expected_bytes,
         " is not.");
+    return expected_bytes;
+  }
+
+  // Create mbarrier arrive expect transaction
+  //
+  // Pseudo-code example:
+  //  if (warp_id == 0 && elect_sync()) {
+  //    tokens[next_stage] =
+  //      mbarrier::arriveExpectTx(mbarrier[next_stage], expected_bytes);
+  //  } else {
+  //    tokens[next_stage] =
+  //      mbarrier::arriveExpectTx(mbarrier[next_stage], 0);
+  //  }
+  //
+  //  Return the mbarrier selected by loop_index
+  kir::IfThenElse* createMbarrierArriveExpectTx(
+      kir::MBarrierArriveExpectTx* mbarrier_arrive_tx) {
+    NVF_ERROR(mbarrier_arrive_tx != nullptr);
+    kir::IfThenElse* if_expr = IrBuilder::create<kir::IfThenElse>(
+        IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
+
+    // A single thread issues arriveExpectTx with expected transactions.
+    if_expr->thenBody().push_back(mbarrier_arrive_tx);
+
+    // The other threads issue arriveExpectTx without any expected transactions.
+    kir::MBarrierArriveExpectTx* thread_arrive =
+        IrBuilder::create<kir::MBarrierArriveExpectTx>(
+            mbarrier_arrive_tx->state(),
+            mbarrier_arrive_tx->mbarrier(),
+            /*tx_count=*/IrBuilder::create<Val>(0L, PrimDataType::UInt32));
+    if_expr->elseBody().push_back(thread_arrive);
+
+    return if_expr;
+  }
+
+  // This function creates kir::MBarrierArriveExpectTx for given LoadStoreOp and
+  // circular buffer stage.
+  //
+  // Example:
+  //   tokens[stage] =
+  //      mbarrier::arriveExpectTX(toSmem((&barriers[stage])),
+  //      getSizeOfTmaLoad(ldst));
+  kir::MBarrierArriveExpectTx* createMbarrierArriveExpectTx(
+      LoadStoreOp* ldst,
+      Val* loop_index) {
+    NVF_ERROR(ldst != nullptr);
+    NVF_ERROR(loop_index != nullptr);
 
     // Get mbarrier for this circular buffer stage.
     TensorView* all_mbarriers = GpuLower::current()->ldstMBarrierMap().at(ldst);
@@ -718,7 +741,7 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
 
     kir::MBarrierArriveExpectTx* mbarrier_arrive_tx =
         IrBuilder::create<kir::MBarrierArriveExpectTx>(
-            stage_token, stage_mbarrier, expected_bytes);
+            stage_token, stage_mbarrier, /*tx_count=*/getSizeOfTmaLoad(ldst));
 
     return mbarrier_arrive_tx;
   }
@@ -848,7 +871,7 @@ ForLoop* createStageDepthForLoop(ForLoop* circular_buffer_loop) {
 //
 // Expected result:
 //   Allocate mbarriers and tokens in shared memory
-//   if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
+//   if (warp_id == 0 && elect_sync()) {
 //     for (unsigned i = 0; i < stages; ++i) {
 //       mbarrier::init(...);
 //     }
@@ -858,7 +881,7 @@ ForLoop* createStageDepthForLoop(ForLoop* circular_buffer_loop) {
 // operations.
 //
 // Expected result:
-//   if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
+//   if (warp_id == 0 && elect_sync()) {
 //     for (unsigned i = 0; i < stages; ++i) {
 //       mbarrier::inval(...);
 //     }
@@ -869,7 +892,8 @@ kir::IfThenElse* createCpAsyncBulkFixtures(
     const std::vector<Expr*>& circular_buffer_load_exprs,
     bool is_pre_prologue_stage) {
   // Construct predicate to select a single thread.
-  kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
+  kir::IfThenElse* if_expr = IrBuilder::create<kir::IfThenElse>(
+      IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
 
   // Construct ForLoop
   ForLoop* loop = createStageDepthForLoop(circular_buffer_loop);
@@ -886,12 +910,20 @@ kir::IfThenElse* createCpAsyncBulkFixtures(
         IrBuilder::create<kir::TensorIndex>(all_mbarriers, loop->index());
 
     if (is_pre_prologue_stage) {
-      // We expect a single thread to launch transactions and arrive at
-      // mbarrier_wait. We will use a block sync to handle the remaining
-      // threads.
+      // Get all threads in CTA
+      NamedScalar* bdimx = NamedScalar::getParallelDim(ParallelType::TIDx);
+      NamedScalar* bdimy = NamedScalar::getParallelDim(ParallelType::TIDy);
+      NamedScalar* bdimz = NamedScalar::getParallelDim(ParallelType::TIDz);
+      Val* all_threads_in_cta = SimplifyingIrBuilder::mulExpr(
+          bdimx, SimplifyingIrBuilder::mulExpr(bdimy, bdimz));
+      all_threads_in_cta = SimplifyingIrBuilder::maybeCastExpr(
+          DataType::UInt32, all_threads_in_cta);
+
+      // The wait condition for mbarrier is a all threads in CTA and the
+      // expected number of transaction bytes
       kir::MBarrierInit* mbarrier_init = IrBuilder::create<kir::MBarrierInit>(
           stage_mbarrier,
-          /*thread_count=*/IrBuilder::create<Val>(1L, PrimDataType::UInt32));
+          /*thread_count=*/all_threads_in_cta);
       loop->body().push_back(mbarrier_init);
     } else {
       // Invalidate the mbarrier for each circular buffer stage.

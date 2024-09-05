@@ -42,6 +42,15 @@ void UnrollPass::registerReplace(Expr* reference, Expr* new_expr) {
 }
 
 void UnrollPass::dispatch(Expr* expr) {
+  // short-circuit: skip adding predicate if tma load with circular buffering or
+  // stand-alone arrive_expect_tx.
+  bool is_arrive_expect_tx = expr->isA<kir::MBarrierArriveExpectTx>();
+  bool is_circular_buffer_tma_load = ir_utils::isCpAsyncBulkLoad(expr) &&
+      expr->output(0)->as<TensorView>()->isCircularBuffered();
+  if (is_arrive_expect_tx || is_circular_buffer_tma_load) {
+    return;
+  }
+
   if (ir_utils::isTvOp(expr)) {
     DEBUG_PRINT_SCOPE_NAME("UnrollPass::dispatch", expr);
     // If tv op, predicate it

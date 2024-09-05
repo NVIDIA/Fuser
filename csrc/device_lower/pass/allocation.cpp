@@ -483,10 +483,19 @@ class AllocationInserter : public kir::ExprMutator {
                 .build();
         mbarrier->setMemoryType(MemoryType::Shared);
 
-        // The wait condition for mbarrier is a single thread and the expected
-        // number of transaction bytes
-        kir::MBarrierInit* mbarrier_init = IrBuilder::create<kir::MBarrierInit>(
-            mbarrier, expr->container()->oneVal(DataType::UInt32));
+        // Get all threads in CTA
+        NamedScalar* bdimx = NamedScalar::getParallelDim(ParallelType::TIDx);
+        NamedScalar* bdimy = NamedScalar::getParallelDim(ParallelType::TIDy);
+        NamedScalar* bdimz = NamedScalar::getParallelDim(ParallelType::TIDz);
+        Val* all_threads_in_cta = SimplifyingIrBuilder::mulExpr(
+            bdimx, SimplifyingIrBuilder::mulExpr(bdimy, bdimz));
+        all_threads_in_cta = SimplifyingIrBuilder::maybeCastExpr(
+            DataType::UInt32, all_threads_in_cta);
+
+        // The wait condition for mbarrier is a all threads in CTA and the
+        // expected number of transaction bytes
+        kir::MBarrierInit* mbarrier_init =
+            IrBuilder::create<kir::MBarrierInit>(mbarrier, all_threads_in_cta);
 
         kir::Allocate* mbarrier_alloc =
             IrBuilder::create<kir::Allocate>(mbarrier, MemoryType::Shared);
