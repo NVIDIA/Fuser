@@ -42,6 +42,8 @@ if __name__ == "__main__":
     assert torch.cuda.is_available(), "A CUDA device is required."
 
     device = torch.cuda.get_device_name(torch.cuda.current_device())
+    # Comparison is made against the next higher precision,
+    # since it seems sufficient and avoids incurring extra memory.
     dtype_to_ref_dtypes = {
         torch.bfloat16: torch.float32,
         torch.float16: torch.float32,
