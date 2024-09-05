@@ -1137,15 +1137,18 @@ class CircularBufferInserter : private kir::ExprMutator {
     registerReplace(circular_buffer_loop, main_loop);
 
     // We can use exclude argument in TmaCircularBufferLoopCloner clone to
-    // avoid duplicating allocations if main loop is trivial. However, this
-    // causes the warp_reduce pass to fail with persistent kernels because it
-    // cannot find the allocation for reduction operation.
+    // avoid duplicating allocations if main loop is trivial.
+    std::unordered_set<Expr*> expressions_allocated_in_main_loop;
+    getAllocInTrivialLoop(main_loop, expressions_allocated_in_main_loop);
 
     // Epilogue loop:
     //  - wait only
     //  - mbarrier_wait
     ForLoop* epilogue_loop = TmaCircularBufferLoopCloner::clone(
-        circular_buffer_loop, loads, CircularBufferLoopStage::Epilog);
+        circular_buffer_loop,
+        loads,
+        CircularBufferLoopStage::Epilog,
+        expressions_allocated_in_main_loop);
     registerInsertAfter(circular_buffer_loop, epilogue_loop);
 
     // Post-epilogue loop:

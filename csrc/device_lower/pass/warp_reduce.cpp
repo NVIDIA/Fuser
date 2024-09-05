@@ -205,8 +205,12 @@ class FuseBroadcastWithWarpReduce : private kir::IrVisitor {
   }
 
   void handle(ForLoop* for_loop) final {
+    bool is_main_loop =
+        for_loop->circularBufferLoopStage() == CircularBufferLoopStage::Main;
+
     // Keep track of visible reduction outputs
-    bool open_nest_level = openLoopNestLevel(for_loop->iter_domain());
+    bool open_nest_level =
+        openLoopNestLevel(for_loop->iter_domain()) && !is_main_loop;
     if (open_nest_level) {
       running_tv_to_allocate_map_.emplace_back(
           std::make_unique<std::unordered_map<TensorView*, kir::Allocate*>>());
