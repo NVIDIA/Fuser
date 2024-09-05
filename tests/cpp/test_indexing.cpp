@@ -29,6 +29,7 @@
 namespace nvfuser {
 
 using IndexingTest = NVFuserTest;
+using PredicateIndexingTest = NVFuserTest;
 
 namespace {
 
@@ -75,6 +76,21 @@ Val* xorExpr(Args&&... args) {
   return IrBuilder::bitwiseXorExpr(std::forward<Args>(args)...);
 }
 
+template <typename... Args>
+Val* andExpr(Args&&... args) {
+  return SimplifyingIrBuilder::logicalAndExpr(std::forward<Args>(args)...);
+}
+
+template <typename... Args>
+Val* geExpr(Args&&... args) {
+  return SimplifyingIrBuilder::geExpr(std::forward<Args>(args)...);
+}
+
+template <typename... Args>
+Val* ltExpr(Args&&... args) {
+  return SimplifyingIrBuilder::ltExpr(std::forward<Args>(args)...);
+}
+
 Val* createInt(int64_t i) {
   return IrBuilder::create<Val>(i, DataType::Index);
 }
@@ -101,6 +117,10 @@ class AbstractGetReference {
       TensorView* tv,
       TensorView* maybe_consumer) const {
     return std::string();
+  }
+
+  virtual Val* getPredicate(TensorView* tv) const {
+    return nullptr;
   }
 
   void setForLoops(const std::vector<ForLoop*>& for_loops) {
@@ -222,6 +242,98 @@ class IndexValidator : public kir::IrVisitor {
     testing::internal::GetCapturedStderr();
 
     IndexValidator<GetReference> validator(
+        lower, GetReference(lower.tensorIndexer(), args...));
+
+    FusionGuard fg(kernel);
+    validator.handle(kernel->topLevelExprs());
+  }
+
+ private:
+  GetReference get_ref_;
+};
+
+template <typename GetReference>
+class PredicateIndexValidator : public kir::IrVisitor {
+ public:
+  PredicateIndexValidator(const GpuLower& lower, GetReference&& get_ref)
+      : get_ref_(std::move(get_ref)) {}
+
+  using kir::IrVisitor::dispatch;
+  using kir::IrVisitor::handle;
+
+  void dispatch(Expr* expr) override {
+    if (!ir_utils::isTvOp(expr)) {
+      kir::IrVisitor::dispatch(expr);
+      return;
+    }
+
+    get_ref_.setForLoops(for_loops_);
+
+    if (auto loop_it = std::find_if(
+            for_loops_.begin(),
+            for_loops_.end(),
+            [](ForLoop* fl) {
+              return fl->circularBufferLoopStage() !=
+                  CircularBufferLoopStage::NotApplicable;
+            });
+        loop_it != for_loops_.end()) {
+      auto loop = *loop_it;
+      get_ref_.setCircularBufferInfo(loop->circularBufferLoopStage());
+    }
+
+    auto out_ti = expr->output(0)->as<kir::TensorIndex>();
+
+    NVF_ERROR(!scope_exprs_.empty());
+    auto inline_predicate = dynamic_cast<kir::IfThenElse*>(scope_exprs_.back());
+    NVF_ERROR(
+        inline_predicate != nullptr,
+        "No inline predicate detected: ",
+        expr->toString());
+
+    validate(out_ti, inline_predicate->predicate()->value());
+
+    get_ref_.clearForLoops();
+    get_ref_.clearCircularBufferInfo();
+  }
+
+  void validate(kir::TensorIndex* ti, Val* actual) {
+    TensorView* tv = ti->view();
+    Val* ref = get_ref_.getPredicate(tv);
+    if (ref != nullptr) {
+      EXPECT_TRUE(actual->sameAs(ref))
+          << "Validation failure of " << ti->view()->toString()
+          << "\nRef: " << ref->toInlineString()
+          << "\nActual: " << actual->toInlineString();
+      return;
+    }
+
+    // If no ref is obtained, skip validation
+  }
+
+  template <typename... Args>
+  static void validate(Fusion* fusion, Args... args) {
+    EnableOptionsGuard enable_options_guard;
+    EnableOptionsGuard::getCurOptions().set(
+        EnableOption::IdModel, {"inline_predicate"});
+
+    // Disable simplifications to make the pattern matching of sameAs work
+    DisableOptionsGuard disable_options_guard;
+    DisableOptionsGuard::getCurOptions().set(DisableOption::ExprSimplify);
+    DisableOptionsGuard::getCurOptions().set(DisableOption::IndexHoist);
+    // Magic zero is not yet supported
+    DisableOptionsGuard::getCurOptions().set(DisableOption::MagicZero);
+    DisableOptionsGuard::getCurOptions().set(
+        DisableOption::PredicateElimination);
+
+    GpuLower lower(fusion);
+
+    kir::Kernel* kernel = nullptr;
+    // Suppress warnings due to using dynamic register tensors
+    testing::internal::CaptureStderr();
+    kernel = lower.run();
+    testing::internal::GetCapturedStderr();
+
+    PredicateIndexValidator<GetReference> validator(
         lower, GetReference(lower.tensorIndexer(), args...));
 
     FusionGuard fg(kernel);
@@ -2289,6 +2401,142 @@ TEST_F(IndexingTest, CircularBuffering2) {
   };
 
   IndexValidator<GetReference>::validate(&fusion);
+}
+
+// Same fusion as IndexingTest.SimplePointwise1
+TEST_F(PredicateIndexingTest, SimplePointwise1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
+  fusion.addOutput(tv2);
+
+  tv2->flatten();
+  tv2->split(0, 4);
+
+  TransformPropagator propagator(tv2);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
+
+  tv1->inlineAt(1);
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer)
+        : AbstractGetReference(indexer) {}
+
+    Val* getPredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+
+      auto i0_idx = divExpr(
+          addExpr(
+              mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
+              loop_indices.at(1)),
+          tv->getLogicalDomain().at(1)->extent());
+
+      auto i1_idx = modExpr(
+          addExpr(
+              mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
+              loop_indices.at(1)),
+          tv->getLogicalDomain().at(1)->extent());
+
+      Val* zero = tv->fusion()->zeroVal();
+      Val* cond = tv->fusion()->trueVal();
+      cond = andExpr(
+          andExpr(
+              andExpr(
+                  andExpr(cond, geExpr(i0_idx, zero)),
+                  ltExpr(i0_idx, tv->getLogicalDomain().at(0)->extent())),
+              geExpr(i1_idx, zero)),
+          ltExpr(i1_idx, tv->getLogicalDomain().at(1)->extent()));
+
+      return cond;
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion);
+}
+
+// Testing predicate indexing with an rfactor reduction
+TEST_F(PredicateIndexingTest, ReductionRfactor) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+
+  auto tv1 = sum(tv0, {1});
+  fusion.addOutput(tv1);
+
+  tv1->split(1, 4, false);
+  tv1->rFactor({1});
+
+  inlineMost();
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer)
+        : AbstractGetReference(indexer) {}
+
+    Val* getPredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+
+      bool is_init = tv->nDims() > for_loops_.size();
+
+      switch (tv->name()) {
+        case 1: {
+          // T1_g[ iS10{i0}, rS11{( ceilDiv(i2, 4) )} ]
+          //
+          // If this is the initialization of the buffer, only iS10
+          // should be predicated. If not, rS11 should also be predicated.
+          auto is10_pred = andExpr(
+              geExpr(loop_indices.at(0), tv->fusion()->zeroVal()),
+              ltExpr(
+                  loop_indices.at(0), tv->getLogicalDomain().at(0)->extent()));
+          if (is_init) {
+            return is10_pred;
+          } else {
+            return andExpr(
+                andExpr(
+                    is10_pred,
+                    geExpr(loop_indices.at(1), tv->fusion()->zeroVal())),
+                ltExpr(
+                    loop_indices.at(1),
+                    tv->getLogicalDomain().at(1)->extent()));
+          }
+        }
+        case 2: {
+          // T2_l[ iS6{i0}, rS8{4}rf, iS9{( ceilDiv(i2, 4) )}rf ]
+          //
+          // The initialization block should not be predicated at all.
+          if (is_init) {
+            return tv->fusion()->trueVal();
+          } else {
+            // Predicating the logical domains can result in wrong
+            // outputs since the split may not be divisible, allowing
+            // out-of-bounds accesses to the input
+            // global-memory tensor. Instead, its root domain should be
+            // used as predicate domains.
+            auto is6_pred = andExpr(
+                geExpr(loop_indices.at(0), tv->fusion()->zeroVal()),
+                ltExpr(
+                    loop_indices.at(0), tv->getRootDomain().at(0)->extent()));
+            auto root_idx = addExpr(
+                mulExpr(loop_indices.at(1), tv->axis(2)->extent()),
+                loop_indices.at(2));
+            return andExpr(
+                andExpr(is6_pred, geExpr(root_idx, tv->fusion()->zeroVal())),
+                ltExpr(root_idx, tv->getRootDomain().at(1)->extent()));
+          }
+        }
+        default:
+          return nullptr;
+      }
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion);
 }
 
 } // namespace nvfuser

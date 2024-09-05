@@ -26,22 +26,16 @@
 
 namespace nvfuser {
 
-void MultiDeviceTestEnvironment::SetUp() {
-  communicator_ = new Communicator();
-}
-
 void MultiDeviceTestEnvironment::TearDown() {
-  delete communicator_;
+  Communicator::getInstance().cleanup();
 }
-
-/*static*/ Communicator* MultiDeviceTestEnvironment::communicator_ = nullptr;
 
 MultiDeviceTest::MultiDeviceTest() {
   // Enable logging in c10d so debug messages can be printed out via
   // `TORCH_DISTRIBUTED_DEBUG`.
   c10d::setDebugLevelFromEnvironment();
 
-  communicator_ = MultiDeviceTestEnvironment::getCommunicator();
+  communicator_ = &Communicator::getInstance();
   tensor_options =
       at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
   debug_print = getNvFuserEnv("MULTIDEVICE_DEBUG_PRINT") != nullptr;

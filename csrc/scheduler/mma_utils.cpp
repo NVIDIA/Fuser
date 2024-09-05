@@ -1169,6 +1169,78 @@ void WarpMmaSwizzler::scheduleLdMatrix(TensorView* tv, MmaOperand operand) {
   setWarpMapped(tv, 2);
 }
 
+void WarpMmaSwizzler::parallelizeAsBulkSkippingFirstIDs(
+    TensorView* tv,
+    int64_t first_ids_to_skip) {
+  auto skip = 0;
+  for (auto id : tv->getLoopDomain()) {
+    if (skip < first_ids_to_skip) {
+      skip++;
+      continue;
+    }
+    id->parallelize(ParallelType::Bulk);
+  }
+}
+
+// Please note that we currently do not fully support
+// not splitting the outer dimension. This only works when
+// the inner-dimension is not split, that is the inner dim
+// is less or equal to the swizzle size (in bytes).
+void WarpMmaSwizzler::scheduleTMALoadForMma(
+    TensorView* tv,
+    MmaInputSmemSwizzle swizzle,
+    bool permute_outer_dim) {
+  // In the comments below I have kept K as the outer dimension. That is
+  // just to have a concrete running example - it can be inner or outer.
+
+  int64_t num_ids_to_skip =
+      static_cast<int64_t>(tv->getLoopDomain().size() - 2);
+  NVF_ERROR(num_ids_to_skip >= 0);
+  if (swizzle == MmaInputSmemSwizzle::None) {
+    // For no-swizzle case, the entire tile are divided into 8x8 core matrices,
+    // and each core matrix resides in a contiguous 8*8*2 bytes region in shared
+    // memory. [K, N]
+    tv->split(-2, 8);
+    tv->split(-1, 8);
+    // [Ko, K8, No, N8]
+    tv->reorder({{-2, -3}});
+    // [Ko, No, K8, N8]
+    num_ids_to_skip += 2;
+  } else {
+    auto dtype = tv->getDataType().value();
+
+    // In the comments below I assume K=16, N=32, swizzle=32, dtype = half.
+
+    // split the inner-dim
+    // [K(16), N(32)] -> [K(16), NO(2), NI(16)]
+    tv->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSize(dtype));
+
+    // [NO, K, NI] - the TMA Box is [K, NI]
+    tv->reorder({{-2, -3}});
+
+    // [NO, K, NI] ->
+    // [NO, KO(2), KIO(2), KII(4), NIO(2), NII(8)]
+    tv->swizzleTMABox(swizzle);
+
+    // If the outer dim is split, then we pull out KO to be outside NO
+    // and KO and NO are both not marked bulk parallel, else NO is outer
+    // and only NO is not marked bulk parallel.
+    if (permute_outer_dim) {
+      // [NO, KO(2), KIO(2), KII(4), NIO(2), NII(8)] ->
+      // [KO(2), NO(2), KIO(2), KII(4), NIO(2), NII(8)]
+      tv->reorder({{-6, -5}});
+    }
+    num_ids_to_skip += permute_outer_dim ? 2 : 1;
+  }
+
+  parallelizeAsBulkSkippingFirstIDs(tv, num_ids_to_skip);
+
+  // Set the allocation to the loop domain.
+  tv->setAllocationDomain(tv->getLoopDomain(), true);
+  // Set all IDs as swizzled.
+  setWarpMapped(tv, static_cast<int64_t>(tv->getLoopDomain().size()));
+}
+
 void WarpMmaSwizzler::scheduleOperandRead(TensorView* tv, MmaOperand operand) {
   // This function works for all mma ops, regardless of the architecture.
   // Operand A and B are slightly different in the sense that operand A can be
@@ -1436,7 +1508,6 @@ void mergeCanonicalAbstractTensor(AbstractMatmulTensor& abstract_tensor) {
 }
 
 namespace {
-
 inline void resolveTvToMatmulDimRolesMapping(
     DependenciesMap& deps_map,
     const std::vector<TensorView*>& tensors,
@@ -1663,7 +1734,6 @@ TensorRolesMapOpt getTensorRoles(
 }
 
 namespace {
-
 // Check the val (in) is the output of broadcast.
 // Then check the output of the broadcast is 3D (4D for bmm).
 bool hasValidBroadcastOp(TensorView* bcast_out) {
@@ -1693,12 +1763,12 @@ int64_t numBroadcastDeviceDims(TensorView* tv) {
       [](IterDomain* id) { return id->isDeviceDim() && id->isBroadcast(); });
 }
 
-// This function checks if the mul-sum can be replace with a mma op. The checks
-// are:
+// This function checks if the mul-sum can be replace with a mma op. The
+// checks are:
 // 1. The inputs to the muls are broadcast ops.
 // 2. The broadcasts have 2D or 3D(bmm) inputs.
-// 3. The broadcasts only broadcast one dim and the dims are different for the 2
-// muls.
+// 3. The broadcasts only broadcast one dim and the dims are different for the
+// 2 muls.
 // 4. There is a single reduction dim, and that dim that is not either of the
 // broadcast dims.
 bool broadcastsAreValid(
@@ -1771,7 +1841,6 @@ char dtypeToChar(const DataType& dtype) {
 }
 
 namespace {
-
 class MatmulPatternMatcher : IterVisitor {
  public:
   static std::vector<MatmulPattern> run(Fusion* fusion) {
@@ -1783,15 +1852,16 @@ class MatmulPatternMatcher : IterVisitor {
  private:
   using IterVisitor::handle;
 
-  // TODO: These methods currently assume the output will have allocation domain
-  // equal to its logical. However, if the logical domain is specified, or if
-  // there is a transpose operation in the epilogue, then this assumption will
-  // be violated. In such cases we should actually swap and transpose A and B.
+  // TODO: These methods currently assume the output will have allocation
+  // domain equal to its logical. However, if the logical domain is specified,
+  // or if there is a transpose operation in the epilogue, then this
+  // assumption will be violated. In such cases we should actually swap and
+  // transpose A and B.
 
   // Match all LinearOps and MatmulOps as MatmulPatterns. This includes ops
-  // whose inputs are not 2D, i.e. matrix-vector products. The matmul scheduler
-  // will decide whether or not it can fuse a given pattern based on the
-  // dimensionality of its inputs.
+  // whose inputs are not 2D, i.e. matrix-vector products. The matmul
+  // scheduler will decide whether or not it can fuse a given pattern based on
+  // the dimensionality of its inputs.
   void handle(LinearOp* lop) override {
     MatmulPattern& pattern = patterns_.emplace_back();
     pattern.A = lop->inA()->as<TensorView>();
@@ -1827,15 +1897,15 @@ class MatmulPatternMatcher : IterVisitor {
       // Remember that we are just gathering the immediate inputs to the
       // matmul, so there should be no prologue between a, b and the mul/sum.
 
-      // Check that the inputs have broadcasts that are not all in common, i.e.
-      // that there is at least one M and at least one N dimension.
+      // Check that the inputs have broadcasts that are not all in common,
+      // i.e. that there is at least one M and at least one N dimension.
 
-      // Note that there might be a cast to Float just before the multiply. This
-      // happens when using the `mul` op with reduced precision inputs. It can
-      // also happen if the inputs to `mul` in the definition were Float, but
-      // the Fusion was segmented and casts to half precision were inserted at
-      // the segmentation edge (see castInputOutputToLowerPrecision in
-      // fusion_segmenter.cpp).
+      // Note that there might be a cast to Float just before the multiply.
+      // This happens when using the `mul` op with reduced precision inputs.
+      // It can also happen if the inputs to `mul` in the definition were
+      // Float, but the Fusion was segmented and casts to half precision were
+      // inserted at the segmentation edge (see
+      // castInputOutputToLowerPrecision in fusion_segmenter.cpp).
       TensorView* ltv = dynamic_cast<TensorView*>(bop->lhs());
       TensorView* rtv = dynamic_cast<TensorView*>(bop->rhs());
       if (ltv == nullptr || rtv == nullptr) {
@@ -1850,8 +1920,8 @@ class MatmulPatternMatcher : IterVisitor {
       std::vector<IterDomain*> rrf = TensorDomain::noDevices(
           TensorDomain::noReductions(rtv->getLogicalDomain()));
 
-      // These sizes should match since ops::maybeBroadcast places BroadcastOps
-      // for implicit broadcasting.
+      // These sizes should match since ops::maybeBroadcast places
+      // BroadcastOps for implicit broadcasting.
       NVF_ERROR(lrf.size() == rrf.size());
       const std::vector<IterDomain*>& red_root = TensorDomain::noDevices(
           rop->out()->as<TensorView>()->getMaybeRootDomain());
@@ -1883,8 +1953,8 @@ class MatmulPatternMatcher : IterVisitor {
               lhs_is_A = rhs_id->isIteration();
               continue;
             }
-            // We have found the inner-most N dim, so we can now use lhs_is_A to
-            // tell whether this is M or N
+            // We have found the inner-most N dim, so we can now use lhs_is_A
+            // to tell whether this is M or N
             has_m = has_m || (lhs_is_A && lhs_id->isIteration()) ||
                 (!lhs_is_A && (rhs_id->isIteration()));
           }
