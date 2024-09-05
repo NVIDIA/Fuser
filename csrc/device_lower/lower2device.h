@@ -112,6 +112,10 @@ class GpuLower : public NonCopyable {
     return std::const_pointer_cast<const ComputeAtMap>(compute_at_map_);
   }
 
+  bool hasIdModel() const {
+    return id_model_.get() != nullptr;
+  }
+
   IdModel& idModel() {
     NVF_ERROR(id_model_.get());
     return *id_model_;
