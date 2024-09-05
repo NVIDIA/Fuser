@@ -1085,17 +1085,18 @@ class MultipleMatmulScheduler {
     scheduleLdMatrixBranch(bcrs_, MmaOperand::B);
   }
 
+  // MmaOperand contains only A and B. If tvs are outputs (i.e. not operands),
+  // then operand_type should be std::nullopt.
   void scheduleMmaOperandOrOutputs(
       std::vector<TensorView*>& tvs,
-      const MmaOperand operand_type) {
+      const std::optional<MmaOperand> operand_type) {
     auto all_merged_roles = blockTileTensors(tvs);
     for (size_t i : c10::irange(tvs.size())) {
       TensorView*& mma_result = tvs[i];
       std::vector<MatmulDimRole>& merged_roles = all_merged_roles[i];
 
       // do split-K rFactor to define splitk_sum and smem_epilogue
-      if (operand_type == MmaOperand::Accumulator &&
-          params_.splitk_factor != 1) {
+      if (!operand_type.has_value() && params_.splitk_factor != 1) {
         TensorView* splitk_sum = mma_result->rFactor({-4, -1});
         std::swap(splitk_sum, mma_result);
         splitk_sums_.push_back(splitk_sum);
@@ -1108,8 +1109,7 @@ class MultipleMatmulScheduler {
       //     mma_result      [..., iMo, iNo, iKf, rKg, iMi, iNi, rKi]
       //     splitk_sum      [..., iMo, iNo, rKf, iMi, iNi]
 
-      if (operand_type == MmaOperand::Accumulator &&
-          params_.use_smem_epilogue) {
+      if (!operand_type.has_value() && params_.use_smem_epilogue) {
         // Note that for split-K
         //   splitk_sum = sum(mma_result)
         // becomes
@@ -1149,8 +1149,11 @@ class MultipleMatmulScheduler {
       //   mma_result  [... iMo iNo (iKf) rKg rKwo iMwo iNwo iMw
       //                              iNw iMino iNino iMin2 iNin2 rKino rKin4
       //                              rKin2]
-      if (operand_type == MmaOperand::Accumulator) {
-        mma_result->applyMmaSwizzle(operand_type);
+      if (!operand_type.has_value()) {
+        auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+            mma_result->getLoopDomain());
+        mma_result->setLoopDomain(s.as<IterDomain*>());
+        mma_result->setAllocationDomain(s.as<IterDomain*>(), true);
       }
 
       // Parallelization strategy:
@@ -1198,7 +1201,7 @@ class MultipleMatmulScheduler {
       mma_result->axis((int64_t)merged_roles.size() + num_splitk_dims_ + 2)
           ->parallelize(ParallelType::TIDy);
 
-      if (operand_type != MmaOperand::Accumulator) {
+      if (operand_type.has_value()) {
         // Only schedule BID for mma_results
         // NOTE: this is just for matching the old scheduler. parallelization is
         // harmless here
@@ -1235,7 +1238,7 @@ class MultipleMatmulScheduler {
   }
 
   void scheduleMmaResults() {
-    scheduleMmaOperandOrOutputs(mma_results_, MmaOperand::Accumulator);
+    scheduleMmaOperandOrOutputs(mma_results_, std::nullopt);
   }
 
   void schedulePrologues() {
@@ -1315,7 +1318,7 @@ class MultipleMatmulScheduler {
           //  -5  -4   -3   -2   -1
           //[8mi, 4k, 2ko, 2mo, 2ki]
           smem_load->setAllocationDomain(smem_load->getLoopDomain(), true);
-          mma_utils::WarpMmaSwizzler::scheduleLdMatrix(smem_load, operand_type);
+          mma_utils::MmaSwizzler::scheduleLdMatrix(smem_load, operand_type);
         }
       }
       for (TensorView* mma_input : mma_inputs) {

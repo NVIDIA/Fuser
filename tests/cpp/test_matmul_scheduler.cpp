@@ -3320,7 +3320,6 @@ class MultiMatmulSchedulerMatchTest
     }
     EXPECT_EQ(id_orig->hasExpandedExtent(), id_new->hasExpandedExtent())
         << suffix;
-    EXPECT_EQ(id_orig->isMmaSwizzled(), id_new->isMmaSwizzled()) << suffix;
     compareScalars(
         id_orig->getMaybeExpandedExtent(), id_new->getMaybeExpandedExtent());
 

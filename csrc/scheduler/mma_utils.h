@@ -15,6 +15,7 @@
 #include <scheduler/matmul_heuristic.h>
 #include <val_graph.h>
 #include <visibility.h>
+
 #include <array>
 #include <variant>
 #include <vector>
@@ -115,7 +116,7 @@ void mergeAxesWithSameRole(
 //! merging matching dimensions. Returns the domains of the merged dimensions.
 void mergeCanonicalAbstractTensor(AbstractMatmulTensor& abstract_tensor);
 
-//! [WarpMmaSwizzler]:
+//! [MmaSwizzler]:
 //!   This class is used to implement the thread swizzle format
 //!     required for the mma macros, cf. PTX ISA 9.7.13.4.
 //!
@@ -130,10 +131,10 @@ void mergeCanonicalAbstractTensor(AbstractMatmulTensor& abstract_tensor);
 //!   This is different from a normal scheduler utility though,
 //!      as the thread mapping within a warp are *required* to be
 //!      a specific pattern which currently translates to an enforced
-//!      requirement that all the loop domains produced by WarpMmaSwizzler
+//!      requirement that all the loop domains produced by MmaSwizzler
 //!      cannot be further transformed (split/merge/reorder etc.).
 //!
-//!   Currently WarpMmaSwizzler can be accessed by schedulers through
+//!   Currently MmaSwizzler can be accessed by schedulers through
 //!     TensorView::applyMmaSwizzle, and the current scheduling procedure is
 //!     as follows:
 //!
@@ -148,13 +149,13 @@ void mergeCanonicalAbstractTensor(AbstractMatmulTensor& abstract_tensor);
 //!    root dimensions, they need to be ordered as M,N,K on the rightmost of
 //!    tensordomain (see [Operand Layout Convention] for exact definition).
 //!
-//!    For example before calling WarpMmaSwizzler, the domain could look like:
+//!    For example before calling MmaSwizzler, the domain could look like:
 //!    [TileM, TileN, TileK, Im(16), In(8), Rk(8)], to use Ampere_16_8_8.
 //!    The rightmost 3 iterdomains need to be the innermost component of their
 //!    corresponding root id, similar to vectorization except this requirement
 //!    applies to all 3 rightmost dims.
 //!
-//!         Before applying swizzle, WarpMmaSwizzler will try to validate:
+//!         Before applying swizzle, MmaSwizzler will try to validate:
 //!           1. The "innermost-ness" of the rightmost 3 iterdomains. E.g:
 //!              Xo, Xi = split(X, 16),
 //!               Xo doesn't check, Xi would check.
@@ -166,7 +167,7 @@ void mergeCanonicalAbstractTensor(AbstractMatmulTensor& abstract_tensor);
 //!           3. The rightmost three axes have matching size with the selected
 //!           mma macro.
 //!
-//!    Step 4. WarpMmaSwizzler will transform the rightmost 3 domains to the
+//!    Step 4. MmaSwizzler will transform the rightmost 3 domains to the
 //!    correct swizzle
 //!     format and will parallelize the TIDx, which is reserved for lane id. The
 //!     transformed inner iterdomains will be locked with WarpMapped tag so that
@@ -177,9 +178,9 @@ void mergeCanonicalAbstractTensor(AbstractMatmulTensor& abstract_tensor);
 //! Notes:
 //!   This version of implementation is trying to balance the composition
 //!   flexibility and validation complexity. Currently the validation protocol
-//!   is that if the rightmost 3 dimensions given to WarpMmaSwizzler are indeed
+//!   is that if the rightmost 3 dimensions given to MmaSwizzler are indeed
 //!   innermost components of the 3 root id's and their dimensions match the mma
-//!   macro, the swizzle format produced by WarpMmaSwizzler will be correct for
+//!   macro, the swizzle format produced by MmaSwizzler will be correct for
 //!   the macro and we just lock the innermost iterdomains from further
 //!   transformations.
 //!
@@ -195,7 +196,7 @@ void mergeCanonicalAbstractTensor(AbstractMatmulTensor& abstract_tensor);
 //!
 //!     Users/schedulers might want to have a different but equivalent affine
 //!     representation from the one provided
-//!      by WarpMmaSwizzler, but validating them needs some extra work
+//!      by MmaSwizzler, but validating them needs some extra work
 //!      canonicalizing the affine transforms. So short term wouldn't support
 //!      this flexibility.
 //!
@@ -204,12 +205,12 @@ void mergeCanonicalAbstractTensor(AbstractMatmulTensor& abstract_tensor);
 //!     entering the fusion already and some might be natively compatible
 //!     with mma format. This is a very broad category of use cases
 //!     and we'd have to consider enabling any use like this case-by-case.
-class WarpMmaSwizzler {
+class MmaSwizzler {
  public:
   //! Applies the output mma swizzling to the given tv, should be used
   //!  on mma output or tv's involved in epilog fusion, i.e. bias.
   //! The rightmost iterdomains must follow the m,n,k convention before calling.
-  static void scheduleMmaWarpOutput(TensorView* tv);
+  static AbstractTensor scheduleMmaOutputAllocation(AbstractTensor t);
 
   //! Applies the input mma swizzling to the given tv as its allocation domain,
   //! should be used on mma input or tv's involved in any fusion before mma, but
@@ -474,9 +475,6 @@ std::vector<ValGroup> canonicalDimOrdering(
 std::optional<std::pair<DimRolesMap, TensorRolesMap>> allPatternRoles(
     IdModel& id_model,
     const std::vector<MatmulPattern>& patterns);
-
-//! Set the number_of_dims IDs from the end to swizzled.
-void setWarpMapped(TensorView* tv, int64_t number_of_dims);
 
 } // namespace mma_utils
 
