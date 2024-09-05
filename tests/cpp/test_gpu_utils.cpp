@@ -1235,7 +1235,7 @@ TEST_F(NVFuserTest, ProveLinearAndGetStride) {
   v4_.split(1, 16);
   v4_.split(2, 8);
   // [I0o, 2, 2, 8, I1o, 8, 2, 64]
-  v2_.reorder({{4, 1}});
+  v4_.reorder({{4, 1}});
   // [I0o, I1o, 2, 2, 8, 8, 2, 64]
   auto v4 = v4_.as<ValGroupAndItsGraph>();
 
@@ -1636,81 +1636,104 @@ TEST_F(NVFuserTest, ProveLinearAndGetStride) {
       g, v4[7], std::vector<ValGraphBFS::NodeType>{v1.begin(), v1.end()});
   EXPECT_EQ(v4_7_in_v1, nullptr);
 
-  int64_t TODO = -1;
   // v4 in v2
   Val* v4_0_in_v2 = lower_utils::proveLinearAndGetStride(
       g, v4[0], std::vector<ValGraphBFS::NodeType>{v2.begin(), v2.end()});
-  EXPECT_EQ(simplifyExpr(v4_0_in_v2)->value(), TODO);
+  EXPECT_EQ(v4_0_in_v2, nullptr);
 
   Val* v4_1_in_v2 = lower_utils::proveLinearAndGetStride(
       g, v4[1], std::vector<ValGraphBFS::NodeType>{v2.begin(), v2.end()});
-  EXPECT_EQ(simplifyExpr(v4_1_in_v2)->value(), TODO);
+  EXPECT_EQ(simplifyExpr(v4_1_in_v2)->value(), 131072);
+
   Val* v4_2_in_v2 = lower_utils::proveLinearAndGetStride(
       g, v4[2], std::vector<ValGraphBFS::NodeType>{v2.begin(), v2.end()});
-  EXPECT_EQ(simplifyExpr(v4_2_in_v2)->value(), TODO);
+  EXPECT_EQ(simplifyExpr(v4_2_in_v2)->value(), 8192);
+
   Val* v4_3_in_v2 = lower_utils::proveLinearAndGetStride(
       g, v4[3], std::vector<ValGraphBFS::NodeType>{v2.begin(), v2.end()});
-  EXPECT_EQ(simplifyExpr(v4_3_in_v2)->value(), TODO);
+  EXPECT_EQ(simplifyExpr(v4_3_in_v2)->value(), 4096);
+
   Val* v4_4_in_v2 = lower_utils::proveLinearAndGetStride(
       g, v4[4], std::vector<ValGraphBFS::NodeType>{v2.begin(), v2.end()});
-  EXPECT_EQ(simplifyExpr(v4_4_in_v2)->value(), TODO);
+  EXPECT_EQ(simplifyExpr(v4_4_in_v2)->value(), 512);
+
   Val* v4_5_in_v2 = lower_utils::proveLinearAndGetStride(
       g, v4[5], std::vector<ValGraphBFS::NodeType>{v2.begin(), v2.end()});
-  EXPECT_EQ(simplifyExpr(v4_5_in_v2)->value(), TODO);
+  EXPECT_EQ(simplifyExpr(v4_5_in_v2)->value(), 16384);
+
   Val* v4_6_in_v2 = lower_utils::proveLinearAndGetStride(
       g, v4[6], std::vector<ValGraphBFS::NodeType>{v2.begin(), v2.end()});
-  EXPECT_EQ(simplifyExpr(v4_6_in_v2)->value(), TODO);
+  EXPECT_EQ(simplifyExpr(v4_6_in_v2)->value(), 256);
+
   Val* v4_7_in_v2 = lower_utils::proveLinearAndGetStride(
       g, v4[7], std::vector<ValGraphBFS::NodeType>{v2.begin(), v2.end()});
-  EXPECT_EQ(simplifyExpr(v4_7_in_v2)->value(), TODO);
+  EXPECT_EQ(v4_7_in_v2, nullptr);
+
+  // v4 in v3
   Val* v4_0_in_v3 = lower_utils::proveLinearAndGetStride(
       g, v4[0], std::vector<ValGraphBFS::NodeType>{v3.begin(), v3.end()});
-  EXPECT_EQ(simplifyExpr(v4_0_in_v3)->value(), TODO);
+  EXPECT_NE(v4_0_in_v3, nullptr);
+
   Val* v4_1_in_v3 = lower_utils::proveLinearAndGetStride(
       g, v4[1], std::vector<ValGraphBFS::NodeType>{v3.begin(), v3.end()});
-  EXPECT_EQ(simplifyExpr(v4_1_in_v3)->value(), TODO);
+  EXPECT_EQ(simplifyExpr(v4_1_in_v3)->value(), 8192);
+
   Val* v4_2_in_v3 = lower_utils::proveLinearAndGetStride(
       g, v4[2], std::vector<ValGraphBFS::NodeType>{v3.begin(), v3.end()});
-  EXPECT_EQ(simplifyExpr(v4_2_in_v3)->value(), TODO);
+  EXPECT_EQ(simplifyExpr(v4_2_in_v3)->value(), 4096);
+
   Val* v4_3_in_v3 = lower_utils::proveLinearAndGetStride(
       g, v4[3], std::vector<ValGraphBFS::NodeType>{v3.begin(), v3.end()});
-  EXPECT_EQ(simplifyExpr(v4_3_in_v3)->value(), TODO);
+  EXPECT_EQ(simplifyExpr(v4_3_in_v3)->value(), 2048);
+
   Val* v4_4_in_v3 = lower_utils::proveLinearAndGetStride(
       g, v4[4], std::vector<ValGraphBFS::NodeType>{v3.begin(), v3.end()});
-  EXPECT_EQ(simplifyExpr(v4_4_in_v3)->value(), TODO);
+  EXPECT_EQ(v4_4_in_v3, nullptr);
+
   Val* v4_5_in_v3 = lower_utils::proveLinearAndGetStride(
       g, v4[5], std::vector<ValGraphBFS::NodeType>{v3.begin(), v3.end()});
-  EXPECT_EQ(simplifyExpr(v4_5_in_v3)->value(), TODO);
+  EXPECT_EQ(simplifyExpr(v4_5_in_v3)->value(), 1024);
+
   Val* v4_6_in_v3 = lower_utils::proveLinearAndGetStride(
       g, v4[6], std::vector<ValGraphBFS::NodeType>{v3.begin(), v3.end()});
-  EXPECT_EQ(simplifyExpr(v4_6_in_v3)->value(), TODO);
+  EXPECT_EQ(simplifyExpr(v4_6_in_v3)->value(), 512);
+
   Val* v4_7_in_v3 = lower_utils::proveLinearAndGetStride(
       g, v4[7], std::vector<ValGraphBFS::NodeType>{v3.begin(), v3.end()});
-  EXPECT_EQ(simplifyExpr(v4_7_in_v3)->value(), TODO);
+  EXPECT_EQ(simplifyExpr(v4_7_in_v3)->value(), 1);
+
+  // v4 in v4
   Val* v4_0_in_v4 = lower_utils::proveLinearAndGetStride(
       g, v4[0], std::vector<ValGraphBFS::NodeType>{v4.begin(), v4.end()});
-  EXPECT_EQ(simplifyExpr(v4_0_in_v4)->value(), TODO);
+  EXPECT_NE(v4_0_in_v4, nullptr);
+
   Val* v4_1_in_v4 = lower_utils::proveLinearAndGetStride(
       g, v4[1], std::vector<ValGraphBFS::NodeType>{v4.begin(), v4.end()});
-  EXPECT_EQ(simplifyExpr(v4_1_in_v4)->value(), TODO);
+  EXPECT_EQ(simplifyExpr(v4_1_in_v4)->value(), 8192);
+
   Val* v4_2_in_v4 = lower_utils::proveLinearAndGetStride(
       g, v4[2], std::vector<ValGraphBFS::NodeType>{v4.begin(), v4.end()});
-  EXPECT_EQ(simplifyExpr(v4_2_in_v4)->value(), TODO);
+  EXPECT_EQ(simplifyExpr(v4_2_in_v4)->value(), 16384);
+
   Val* v4_3_in_v4 = lower_utils::proveLinearAndGetStride(
       g, v4[3], std::vector<ValGraphBFS::NodeType>{v4.begin(), v4.end()});
-  EXPECT_EQ(simplifyExpr(v4_3_in_v4)->value(), TODO);
+  EXPECT_EQ(simplifyExpr(v4_3_in_v4)->value(), 8192);
+
   Val* v4_4_in_v4 = lower_utils::proveLinearAndGetStride(
       g, v4[4], std::vector<ValGraphBFS::NodeType>{v4.begin(), v4.end()});
-  EXPECT_EQ(simplifyExpr(v4_4_in_v4)->value(), TODO);
+  EXPECT_EQ(simplifyExpr(v4_4_in_v4)->value(), 1024);
+
   Val* v4_5_in_v4 = lower_utils::proveLinearAndGetStride(
       g, v4[5], std::vector<ValGraphBFS::NodeType>{v4.begin(), v4.end()});
-  EXPECT_EQ(simplifyExpr(v4_5_in_v4)->value(), TODO);
+  EXPECT_EQ(simplifyExpr(v4_5_in_v4)->value(), 128);
+
   Val* v4_6_in_v4 = lower_utils::proveLinearAndGetStride(
       g, v4[6], std::vector<ValGraphBFS::NodeType>{v4.begin(), v4.end()});
-  EXPECT_EQ(simplifyExpr(v4_6_in_v4)->value(), TODO);
+  EXPECT_EQ(simplifyExpr(v4_6_in_v4)->value(), 64);
+
   Val* v4_7_in_v4 = lower_utils::proveLinearAndGetStride(
       g, v4[7], std::vector<ValGraphBFS::NodeType>{v4.begin(), v4.end()});
-  EXPECT_EQ(simplifyExpr(v4_7_in_v4)->value(), TODO);
+  EXPECT_EQ(simplifyExpr(v4_7_in_v4)->value(), 1);
 }
 
 } // namespace nvfuser
