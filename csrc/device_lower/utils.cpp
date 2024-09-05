@@ -17,6 +17,7 @@
 #include <kernel_ir_dispatch.h>
 #include <logical_domain_map.h>
 #include <ops/arith.h>
+#include <val_graph_visitor.h>
 
 #include <expr_simplifier.h>
 #include <algorithm>
@@ -1011,6 +1012,13 @@ bool predicateAtEnd(ForLoop* loop) {
   // Now it is either loop_id is mapped with a vectorized IterDomain
   // or it's an output of view transformations.
   return true;
+}
+
+Val* _impl_proveLinearAndGetStride(ValGraphBFS::ExprPath& path) {
+  for (const auto& [eg, direction] : path) {
+    std::cout << eg << "\t" << direction << std::endl;
+  }
+  return nullptr;
 }
 
 } // namespace lower_utils

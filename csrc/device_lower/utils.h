@@ -15,6 +15,8 @@
 #include <ir/all_nodes.h>
 #include <kernel_ir.h>
 #include <parallel_type_bitmap.h>
+#include <val_graph.h>
+#include <val_graph_visitor.h>
 
 #include <bitset>
 #include <map>
@@ -355,6 +357,17 @@ bool isReductionInitExpr(const Expr* expr);
 // non-divisible split, we still need to predicate each loop iteration
 // value.
 bool predicateAtEnd(ForLoop* loop);
+
+template <typename ContainerT>
+Val* proveLinearAndGetStride(
+    const ValGraph& id_graph,
+    const ValGroup& linear_g,
+    ContainerT domain) {
+  auto path = ValGraphBFS::getExprsBetween(
+      id_graph, std::forward<ContainerT>(domain), {linear_g});
+  Val* _impl_proveLinearAndGetStride(ValGraphBFS::ExprPath & path);
+  return _impl_proveLinearAndGetStride(path);
+}
 
 } // namespace lower_utils
 
