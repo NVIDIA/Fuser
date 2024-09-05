@@ -240,6 +240,15 @@ bool useSameIndex(
     ProducerConsumerIndexingInfoCache& indexing_info) {
   const auto& ca_map = *(GpuLower::current()->caMap());
 
+  // bool debug = producer_tv->name() == 4 && consumer_tv->name() == 5;
+  bool debug = false;
+
+  if (debug) {
+    std::cerr << "useSameIndex: " << producer_tv->toString() << ", "
+              << consumer_tv->toString() << ", " << producer_id->toString()
+              << ", " << consumer_id->toString() << "\n";
+  }
+
   // At least, they must be mapped exactly or permissively
   if (!ca_map.areMapped(producer_id, consumer_id, IdMappingMode::EXACT) &&
       !ca_map.areMapped(producer_id, consumer_id, IdMappingMode::PERMISSIVE)) {
@@ -298,6 +307,15 @@ bool useSameIndex(
                     consumer_root_id) !=
                 indexing_info.getConsumerRootIDsSharedWithProducer().end();
           })) {
+    if (debug) {
+      std::cerr << "not using the same index 1\n";
+      std::cerr << "consumer root: " << toDelimitedString(consumer_root_ids)
+                << "\n";
+      std::cerr << "producer logical: "
+                << toDelimitedString(
+                       producer_logical_ids.begin(), producer_logical_ids.end())
+                << "\n";
+    }
     return false;
   }
 
@@ -688,31 +706,30 @@ SyncMap::SyncMap(Fusion* fusion) {
 
           if (GpuLower::current()->hasIdModel()) {
             if (producer_ptype == consumer_ptype) {
-              // If p_id and c_id are mapped in BestEffortReplay with
-              // no broadcast forwarding, they should not require any
-              // synchronization.
-              if (auto it = p2c_map_no_forwarding.find(p_id);
-                  it != p2c_map_no_forwarding.end() && it->second == c_id) {
+              // Even if not mapped in BestEffortReplay, inlining
+              // may effectively make the producer and consumer
+              // access the domain in the same way. If both domains
+              // are promoted to the same domain (i.e., mapped in
+              // the AlmostExact graph), they should be no
+              // cross-thread dependency
+              const auto& id_model = GpuLower::current()->idModel();
+              const auto& indexing_traveral_graph =
+                  id_model.idGraph(IdMappingMode::ALMOSTEXACT);
+              auto producer_loop_id =
+                  indexing_utils::getLoopPromotion(p_id, id_model);
+              p_loop = producer_loop_id;
+              auto consumer_loop_id =
+                  indexing_utils::getLoopPromotion(c_id, id_model);
+              c_loop = consumer_loop_id;
+              if (indexing_traveral_graph.disjointValSets().strictAreMapped(
+                      producer_loop_id, consumer_loop_id)) {
                 requires_sync = false;
               } else {
-                // Even if not mapped in BestEffortReplay, inlining
-                // may effectively make the producer and consumer
-                // access the domain in the same way. If both domains
-                // are promoted to the same domain (i.e., mapped in
-                // the AlmostExact graph), they should be no
-                // cross-thread dependency
-                const auto& id_model = GpuLower::current()->idModel();
-                auto producer_loop_id =
-                    indexing_utils::getLoopPromotion(p_id, id_model);
-                p_loop = producer_loop_id;
-                auto consumer_loop_id =
-                    indexing_utils::getLoopPromotion(c_id, id_model);
-                c_loop = consumer_loop_id;
-                const auto& indexing_traveral_graph =
-                    id_model.idGraph(IdMappingMode::ALMOSTEXACT);
-                if (indexing_traveral_graph.disjointValSets().strictAreMapped(
-                        producer_loop_id, consumer_loop_id)) {
-                  requires_sync = false;
+                if (p_id->isBroadcast()) {
+                  if (auto it = p2c_map_no_forwarding.find(p_id);
+                      it != p2c_map_no_forwarding.end() && it->second == c_id) {
+                    requires_sync = false;
+                  }
                 }
               }
             }
@@ -758,7 +775,6 @@ SyncMap::SyncMap(Fusion* fusion) {
           }
 
           NVF_ERROR(requires_sync);
-
           raw_dims.set(producer_ptype);
         } // end for ptypes
 
