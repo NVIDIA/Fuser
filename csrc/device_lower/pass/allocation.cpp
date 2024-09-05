@@ -485,10 +485,6 @@ class AllocationInserter : public kir::ExprMutator {
 
         // The wait condition for mbarrier is a single thread and the expected
         // number of transaction bytes
-        Val* num_threads = lower_utils::getNumThreadsInTensorView(
-            expr->output(0)->as<TensorView>());
-        NVF_ERROR(num_threads->evaluate().as<int64_t>() == 1);
-
         kir::MBarrierInit* mbarrier_init = IrBuilder::create<kir::MBarrierInit>(
             mbarrier, expr->container()->oneVal(DataType::UInt32));
 
