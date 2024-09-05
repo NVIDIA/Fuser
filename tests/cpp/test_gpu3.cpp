@@ -772,7 +772,7 @@ TEST_F(NVFuserTest, FusionIssue1430_CUDA) {
 
   scheduler_utils::parallelizeAllLike(rfactor);
 
-  for (auto tv : ir_utils::allTvs(&fusion)) {
+  for (auto tv : fusion.allTvs()) {
     if (tv != tv1 || tv != tv3) {
       for (auto i : c10::irange(tv->nDims())) {
         if (isParallelTypeVectorize(tv->axis(i)->getParallelType())) {
@@ -2054,7 +2054,7 @@ TEST_F(NVFuserTest, FusionExactLogicalDomainMap_CUDA) {
       exact_map.toString());
 
   // They must not be mapped with anything else.
-  for (auto tv : ir_utils::allTvs(&fusion)) {
+  for (auto tv : fusion.allTvs()) {
     for (auto logical_id : tv->getLogicalDomain()) {
       if (logical_id == tv2_bc || logical_id == tv3_bc) {
         continue;
@@ -2167,7 +2167,7 @@ TEST_F(NVFuserTest, FusionTestReEntrantGridWelford_CUDA) {
 
   cached_input->computeAt(rfactor_tv, 4, ComputeAtMode::BestEffort);
 
-  for (auto tv : ir_utils::allTvs(&fusion)) {
+  for (auto tv : fusion.allTvs()) {
     if (tv == cached_input || tv == tv_avg || tv == tv_M2) {
       continue;
     }
@@ -6245,7 +6245,6 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteBroadcastedSoftmaxInput_CUDA) {
   fusion.addOutput(tv4);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   at::Tensor t0 = at::ones(shape0, options);
   at::Tensor t1 = at::ones(shape1, options);
   std::vector<c10::IValue> inputs = {t0, t1};
@@ -6301,7 +6300,6 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWrite_CUDA) {
     fusion.addOutput(tv4);
 
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-    at::manual_seed(0);
     at::Tensor t0 = at::randn(shape0, options);
     at::Tensor t1 = at::randn(shape1, options);
     std::vector<c10::IValue> inputs = {t0, t1};
@@ -6391,7 +6389,6 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteDifferentConcretizedDomains_CUDA) {
     fusion.addOutput(tv8);
 
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-    at::manual_seed(0);
     at::Tensor t0 = at::randn(shape0, options);
     at::Tensor t1 = at::randn(shape1, options);
     at::Tensor t2 = at::randn(shape2, options);
@@ -6453,7 +6450,6 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteNonOutput_CUDA) {
   }
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   at::Tensor t0 = at::randn({32}, options);
   at::Tensor t1 = at::randn({32, 64}, options);
   std::vector<c10::IValue> inputs = {t0, t1};
@@ -6518,7 +6514,6 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteNonNeighbor_CUDA) {
   }
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   at::Tensor t0 = at::randn({8, 10, 12}, options);
   at::Tensor t1 = at::randn({8, 7, 10, 12, 9}, options);
   std::vector<c10::IValue> inputs = {t0, t1};
@@ -7717,7 +7712,6 @@ TEST_F(NVFuserTest, PredicateRNGOps) {
   FusionExecutor fe;
   fe.compileFusion(fusion, {t0});
 
-  at::manual_seed(0);
   auto cg_outputs = fe.runFusion({t0});
 }
 
@@ -8541,7 +8535,7 @@ TEST_F(NVFuserTest, MoveNonConcretizedBroadcastInNormalization) {
   auto ref_outermost = tv7->getLoopDomain().at(0);
   IdModel id_model(&fusion);
   const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
-  for (auto tv : ir_utils::allTvs(&fusion)) {
+  for (auto tv : fusion.allTvs()) {
     if (tv->isFusionInput()) {
       continue;
     }
@@ -8609,7 +8603,7 @@ TEST_F(NVFuserTest, MoveNonConcretizedBroadcastInPointwise) {
   auto ref_outermost = tv5->getLoopDomain().at(0);
   IdModel id_model(&fusion);
   const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
-  for (auto tv : ir_utils::allTvs(&fusion)) {
+  for (auto tv : fusion.allTvs()) {
     if (tv->isFusionInput()) {
       continue;
     }
@@ -8676,7 +8670,7 @@ TEST_F(NVFuserTest, MoveNonConcretizedBroadcastInReduction) {
   auto ref_outermost = tv6->getLoopDomain().at(0);
   IdModel id_model(&fusion);
   const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
-  for (auto tv : ir_utils::allTvs(&fusion)) {
+  for (auto tv : fusion.allTvs()) {
     if (tv->isFusionInput()) {
       continue;
     }

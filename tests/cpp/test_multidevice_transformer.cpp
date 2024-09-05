@@ -104,9 +104,10 @@ std::vector<at::Tensor> reference_mlp(
     at::Tensor w1,
     at::Tensor b1) {
   auto at_dtype = w0.dtype();
-  auto linear0 = at::matmul(x, w0).add(b0).to(at::kFloat);
+  auto linear0 = at::matmul(x, w0).to(at::kFloat) + b0.to(at::kFloat);
   auto gelu = at::gelu(linear0, "tanh");
-  auto linear1 = at::matmul(gelu.to(at_dtype), w1).add(b1).to(at::kFloat);
+  auto linear1 =
+      at::matmul(gelu.to(at_dtype), w1).to(at::kFloat) + b1.to(at::kFloat);
   auto dropout = at::dropout(linear1, kDropoutProb, true);
   return {linear0, gelu, linear1, dropout};
 }
@@ -184,7 +185,7 @@ std::vector<at::Tensor> reference_mha_backwards(
   auto at_dtype = w0.dtype();
   // recompute up to sdpa
   auto linear0 = at::matmul(x, w0).add(b0).view({B, S, 3 * E});
-  auto qkv = linear0.split(E, 2);
+  auto qkv = linear0.split(E, /*dim=*/-1);
   for (auto i = 0; i < 3; i++) {
     qkv[i] = qkv[i].reshape({B, S, H, E / H}).transpose(2, 1).to(at_dtype);
   }
@@ -212,7 +213,6 @@ std::vector<at::Tensor> reference_mha_backwards(
       at::native_dropout_backward(y_grad, mask, 1.0 / (1.0 - kDropoutProb));
   auto dropout_grad_q = dropout_grad.to(at_dtype);
   auto linear1_x_grad = at::matmul(dropout_grad_q, w1.transpose(0, 1));
-  // sdpa output: B, H, S, E/H
   auto sdpa_output_reshape = sdpa_output.transpose(1, 2).view({B * S, E});
   auto linear1_w_grad =
       at::matmul(dropout_grad_q.transpose(0, 1), sdpa_output_reshape)
@@ -277,11 +277,10 @@ std::vector<TensorView*> mlp(
   TensorView* b0_bcast = broadcast(b0, {false, true, false});
   TensorView* linear1 = add(matmul1, b0_bcast);
   // GeLU
-  TensorView* linear1_ = castOp(DataType::Float, linear1);
-  TensorView* gelu = tanh_gelu(linear1_);
-  TensorView* gelu_ = castOp(dtype, gelu);
+  TensorView* gelu = tanh_gelu(linear1);
+  gelu = castOp(dtype, gelu);
   // Linear #2
-  TensorView* local_matmul2 = matmul(gelu_, w1);
+  TensorView* local_matmul2 = matmul(gelu, w1);
   TensorView* matmul2 = sum(local_matmul2, {0}); // Allreduce
   TensorView* bcast_bias = broadcast(b1, {true, false});
   TensorView* linear2 = add(matmul2, bcast_bias);
@@ -365,8 +364,7 @@ std::vector<TensorView*> mha(
 }
 
 // TODO: These linear_backwards helper functions can be merged once
-// (1) improved sharding propagation pass and (2) insert resharding expr
-// pass handles matmul tasks are complete.
+// we do not have logically split rfactor domain.
 struct LinearBackwardsResult {
   TensorView* grad_x;
   TensorView* grad_w;
@@ -443,8 +441,8 @@ std::vector<TensorView*> mlp_backwards(
 
   // Backwards pass
   constexpr double kScale = 1.0 / (1.0 - kDropoutProb);
-  Val* dscale = IrBuilder::create<Val>(kScale);
-  TensorView* dropout_grad = dropout_backward(grad, mask, dscale);
+  Val* dropout_scale = IrBuilder::create<Val>(kScale);
+  TensorView* dropout_grad = dropout_backward(grad, mask, dropout_scale);
 
   auto linear1_grads = sharded_linear_backwards(gelu, w1, dropout_grad);
 
@@ -524,8 +522,8 @@ std::vector<TensorView*> mha_backwards(
 
   // Backwards
   constexpr double kScale = 1.0 / (1.0 - kDropoutProb);
-  Val* dscale = IrBuilder::create<Val>(kScale);
-  TensorView* dropout_grad = dropout_backward(grad, mask, dscale);
+  auto dropout_scale = IrBuilder::create<Val>(kScale);
+  TensorView* dropout_grad = dropout_backward(grad, mask, dropout_scale);
 
   // linear1 backwards
   TensorView* sdpa_output_reshape =
@@ -580,7 +578,6 @@ std::vector<TensorView*> mha_backwards(
         b0,
         w1,
         sdpa_output,
-        mm,
         linear1_grads.grad_x,
         linear1_grads.grad_w,
         linear0_grads.grad_w,
@@ -605,7 +602,7 @@ std::vector<TensorView*> mha_backwards(
 } // namespace
 
 TEST_P(DistributedTransformerTest, MLP_Layer) {
-  auto dtype = GetParam();
+  DataType dtype = GetParam();
   at::ScalarType at_dtype = data_type_to_aten(dtype);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -839,17 +836,12 @@ TEST_P(DistributedTransformerTest, MHA_Backward) {
     fusion->addOutput(tv);
   }
 
-  shardBetween(
-      {tvw1, tvw0, tvb0},
-      {tvouts[1],
-       tvouts[2],
-       tvouts[3],
-       tvouts[4],
-       tvouts[5],
-       tvouts[6],
-       tvouts[7]},
-      tvw0);
-  shardBetween({tvx, tvmask, tvgrad}, {tvouts[0], tvouts[8]}, tvx);
+  // propagate shardings (mesh + DIDx) from sharded roots to all sharded leafs
+  // (grads for linear0 bias and weight, linear1 weight)
+  shardBetween({tvw1, tvw0, tvb0}, {tvouts[1], tvouts[2], tvouts[6]}, tvw0);
+  // propagate DeviceMesh from unsharded roots to unsharded leafs (grads for
+  // dropout, linear1 bias, input)
+  shardBetween({tvx, tvmask, tvgrad}, {tvouts[0], tvouts[7], tvouts[8]}, tvx);
 
   const auto options =
       at::TensorOptions().dtype(at_dtype).device(communicator_->device());
@@ -1006,5 +998,7 @@ TEST_P(DistributedTransformerTest, Forward) {
 INSTANTIATE_TEST_SUITE_P(
     ,
     DistributedTransformerTest,
-    testing::Values(DataType::Half, DataType::BFloat16));
+    testing::Values(DataType::Half, DataType::BFloat16),
+    testing::PrintToStringParamName());
+
 } // namespace nvfuser

@@ -29,7 +29,7 @@ void MaxPosCalculator::buildUnmappableDims(bool compute_at_only) {
   }
   ComputeAtLogicalDomainMap logical_map;
   logical_map.build();
-  auto all_tvs = ir_utils::allTvs(FusionGuard::getCurFusion());
+  auto all_tvs = FusionGuard::getCurFusion()->allTvs();
   for (auto tv : all_tvs) {
     auto consumers = ir_utils::consumerTvsOf(tv);
     for (auto consumer : consumers) {
@@ -173,7 +173,7 @@ size_t MaxPosCalculator::getMaxPosAll(
 }
 
 void inlineMost(const std::unordered_set<IterDomain*>& uninlinable_ids) {
-  inlineMost(ir_utils::allTvs(FusionGuard::getCurFusion()), uninlinable_ids);
+  inlineMost(FusionGuard::getCurFusion()->allTvs(), uninlinable_ids);
 }
 
 void inlineMost(
