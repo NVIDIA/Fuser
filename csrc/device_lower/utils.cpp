@@ -942,6 +942,42 @@ bool isReductionInitExpr(const Expr* expr) {
   return true;
 }
 
+bool predicateAtEnd(ForLoop* loop) {
+  auto loop_id = loop->iter_domain();
+  auto split = dynamic_cast<Split*>(loop_id->definition());
+  if (split == nullptr) {
+    return false;
+  }
+
+  bool is_divisible = GpuLower::current()->divisibleSplitSet().count(split) > 0;
+
+  if (!is_divisible) {
+    return false;
+  }
+
+  // Find the other output of the split
+  auto other_out_id =
+      split->inner() == loop_id ? split->outer() : split->inner();
+
+  // If the other output is mapped with a vectorized IterDomain,
+  // this IterDomain needs to be predicated at each iteration point.
+  const auto& other_id_exact_set = GpuLower::current()
+                                       ->caMap()
+                                       ->getIdSets(IdMappingMode::EXACT)
+                                       .getDisjointSetOf(other_out_id);
+
+  if (std::any_of(
+          other_id_exact_set.begin(), other_id_exact_set.end(), [](auto id) {
+            return id->getParallelType() == ParallelType::Vectorize;
+          })) {
+    return false;
+  }
+
+  // Now it is either loop_id is mapped with a vectorized IterDomain
+  // or it's an output of view transformations.
+  return true;
+}
+
 } // namespace lower_utils
 
 } // namespace nvfuser

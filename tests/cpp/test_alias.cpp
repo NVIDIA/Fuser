@@ -1395,4 +1395,26 @@ TEST_F(AliasTest, SegmentMetaOps) {
   }
 }
 
+TEST_F(AliasTest, InplaceUpdate) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({2, 3});
+  TensorView* out = makeContigConcreteTensor({2, 3});
+  fusion->addInput(in);
+  fusion->addInput(out);
+  fusion->aliasOutputToInput(out, in, AllocationType::ReuseBuffer);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({2, 3}).cuda();
+  at::Tensor out_tensor = in_tensor + 1;
+  fec.runFusionWithInputs({in_tensor, out_tensor});
+  EXPECT_TRUE(out_tensor.equal(in_tensor));
+
+  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      UnorderedElementsAre(HeuristicIs(ScheduleHeuristic::PointWise)));
+}
+
 } // namespace nvfuser
