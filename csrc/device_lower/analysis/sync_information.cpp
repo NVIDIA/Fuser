@@ -687,29 +687,64 @@ SyncMap::SyncMap(Fusion* fusion) {
           // required for tensors with non-trivial loop domains
           if (GpuLower::current()->hasIdModel()) {
             if (producer_ptype == consumer_ptype) {
-              // If p_id and c_id are mapped in BestEffortReplay with
-              // no broadcast forwarding, they should not require any
-              // synchronization.
-              if (auto it = p2c_map_no_forwarding.find(p_id);
-                  it != p2c_map_no_forwarding.end() && it->second == c_id) {
+              // If both domains are promoted to the same domain
+              // (i.e., mapped in the AlmostExact graph), they should
+              // be no cross-thread dependency
+              const auto& id_model = GpuLower::current()->idModel();
+              auto producer_loop_id =
+                  indexing_utils::getLoopPromotion(p_id, id_model);
+              auto consumer_loop_id =
+                  indexing_utils::getLoopPromotion(c_id, id_model);
+              const auto& indexing_traveral_graph =
+                  id_model.idGraph(TensorIndexer::traversalGraphType());
+              if (indexing_traveral_graph.disjointValSets().strictAreMapped(
+                      producer_loop_id, consumer_loop_id)) {
                 continue;
               } else {
-                // Even if not mapped in BestEffortReplay, inlining
-                // may effectively make the producer and consumer
-                // access the domain in the same way. If both domains
-                // are promoted to the same domain (i.e., mapped in
-                // the AlmostExact graph), they should be no
-                // cross-thread dependency
-                const auto& id_model = GpuLower::current()->idModel();
-                auto producer_loop_id =
-                    indexing_utils::getLoopPromotion(p_id, id_model);
-                auto consumer_loop_id =
-                    indexing_utils::getLoopPromotion(c_id, id_model);
-                const auto& indexing_traveral_graph =
-                    id_model.idGraph(TensorIndexer::traversalGraphType());
-                if (indexing_traveral_graph.disjointValSets().strictAreMapped(
-                        producer_loop_id, consumer_loop_id)) {
-                  continue;
+                // If the producer ID is a broadcast, it does not
+                // require synchronization even when the producer and
+                // consumer domains are not promoted to the same
+                // group. For example,
+                //
+                // tv0: [i0]
+                // tv1: [b1]
+                // tv2 = tv1
+                // tv3 = tv0 + tv2
+                //
+                // tv2->axis(0)->parallelize(ParallelType::TIDx);
+                // tv3->axis(0)->parallelize(ParallelType::TIDx);
+                //
+                // Assume that there's no inlining. Since it isn't
+                // inlined, the loop domain of tv2 is not mapped with
+                // that of tv3, thus the avove condition won't
+                // hit. Still, since tv2 will be executed by all TIDx
+                // threads independently, there's no need of
+                // synchronization.
+                //
+                // Consider a similar case like below:
+                //
+                // tv0: [i0, i1]
+                // tv1: [i2, b3]
+                // tv2 = tv1
+                // tv3 = tv0 + tv2
+                //
+                // tv2->merge(0, 1);
+                // tv3->merge(0, 1);
+                // tv2->axis(0)->parallelize(ParallelType::TIDx);
+                // tv3->axis(0)->parallelize(ParallelType::TIDx);
+                //
+                // This case does require a synchronization since for
+                // tv2, TIDx will be used to parallelize the outer
+                // domain only, whereas for tv3 it is mapped to the
+                // merged domain of the outer and inner domains. In
+                // other words, if a broadcast becomes non-broadcast
+                // by getting merged with a non-broadcast domain, it
+                // requires a synchronization.
+                if (p_id->isBroadcast()) {
+                  if (auto it = p2c_map_no_forwarding.find(p_id);
+                      it != p2c_map_no_forwarding.end() && it->second == c_id) {
+                    continue;
+                  }
                 }
               }
             }
