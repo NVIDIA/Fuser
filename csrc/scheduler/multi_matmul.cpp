@@ -7,6 +7,7 @@
 // clang-format on
 #include <abstract_tensor.h>
 #include <abstract_tensor_schedule.h>
+#include <device_lower/analysis/circular_buffer.h>
 #include <disjoint_set.h>
 #include <id_model/schedule.h>
 #include <inlining.h>
@@ -1593,11 +1594,21 @@ class MultipleMatmulScheduler {
     }
 
     if (params_.circular_buffer_options.circular_buffer_smem_read) {
+      // Only apply circular buffering if we can fill the entire pipeline.
+      auto safely_apply_circular_buffering = [](TensorView* tv) {
+        constexpr int64_t number_of_stages = 2;
+        IterDomain* cb_axis = getCircularBufferAxis(tv);
+        NVF_ERROR(cb_axis != nullptr);
+        NVF_ERROR(cb_axis->extent()->isConstScalar());
+        if (cb_axis->extent()->evaluate() >= number_of_stages) {
+          tv->circularBuffer(number_of_stages);
+        }
+      };
       for (TensorView* acr : acrs_) {
-        acr->circularBuffer(/*number_of_stages=*/2);
+        safely_apply_circular_buffering(acr);
       }
       for (TensorView* bcr : bcrs_) {
-        bcr->circularBuffer(/*number_of_stages=*/2);
+        safely_apply_circular_buffering(bcr);
       }
     }
 

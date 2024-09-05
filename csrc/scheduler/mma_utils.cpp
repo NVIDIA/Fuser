@@ -113,7 +113,9 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
   // Create a temporary CircularBufferOptions with full circular buffering, for
   // estimating shared memory size.
   MatmulParams::CircularBufferOptions circular_buffer_options{
-      true, true, smem_circular_buffer_stage};
+      /*circular_buffer_smem_write=*/true,
+      /*circular_buffer_smem_read=*/true,
+      smem_circular_buffer_stage};
 
   const auto [smem_a, smem_b, smem_c] =
       computeSharedMemorySizes(gemm_tile, circular_buffer_options, data_types);
