@@ -1404,45 +1404,124 @@ void IndexLowering::handleGroupedGridWelford(
 }
 
 void IndexLowering::handle(const kir::MBarrierInit* minit) {
-  auto minit_indexed = IrBuilder::create<kir::MBarrierInit>(
-      lower_utils::u32IndexScalarSmemTv(minit->mbarrier()->as<TensorView>()),
-      minit->threadCount());
+  Val* smem_address_ptr = nullptr;
+
+  if (minit->mbarrier()->isA<TensorView>()) {
+    smem_address_ptr =
+        lower_utils::u32IndexScalarSmemTv(minit->mbarrier()->as<TensorView>());
+  } else if (minit->mbarrier()->isA<kir::TensorIndex>()) {
+    smem_address_ptr = lower_utils::u32IndexScalarSmemTv(
+        minit->mbarrier()->as<kir::TensorIndex>());
+  } else {
+    NVF_ERROR(false, "Unexpected MBarrierInit value.");
+  }
+  kir::MBarrierInit* minit_indexed = IrBuilder::create<kir::MBarrierInit>(
+      smem_address_ptr, minit->threadCount());
   pushBack(minit_indexed);
   GpuLower::current()->propagateExprInfo(minit, minit_indexed);
 }
 
 void IndexLowering::handle(const kir::MBarrierInvalidate* minval) {
-  auto minval_indexed = IrBuilder::create<kir::MBarrierInvalidate>(
-      lower_utils::u32IndexScalarSmemTv(minval->mbarrier()->as<TensorView>()));
+  Val* smem_address_ptr = nullptr;
+
+  if (minval->mbarrier()->isA<TensorView>()) {
+    smem_address_ptr =
+        lower_utils::u32IndexScalarSmemTv(minval->mbarrier()->as<TensorView>());
+  } else if (minval->mbarrier()->isA<kir::TensorIndex>()) {
+    smem_address_ptr = lower_utils::u32IndexScalarSmemTv(
+        minval->mbarrier()->as<kir::TensorIndex>());
+  } else {
+    NVF_ERROR(
+        false,
+        "Unexpected MBarrierInvalidate barrier value: ",
+        minval->mbarrier()->toString());
+  }
+  kir::MBarrierInvalidate* minval_indexed =
+      IrBuilder::create<kir::MBarrierInvalidate>(smem_address_ptr);
   pushBack(minval_indexed);
   GpuLower::current()->propagateExprInfo(minval, minval_indexed);
 }
 
-void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
-  // indexing mbarrier
-  auto mbarrier = GpuLower::current()->ldstMBarrierMap().at(ldst);
-  auto mbarrier_index = lower_utils::u32IndexScalarSmemTv(mbarrier);
+void IndexLowering::handle(
+    const kir::MBarrierArriveExpectTx* arrive_transaction) {
+  NVF_ERROR(
+      arrive_transaction->mbarrier()->isA<kir::TensorIndex>(),
+      "Expected kir::TensorIndex in MBarrierArriveExpectTx");
 
-  // gmem indexing and expect_bytes for mbarrier
-  auto [in, expect_bytes] = Index::getCpAsyncBulkGmemIndex(
-      ldst, mbarrier_index, for_loops_, rotated_loop_);
-
-  // arrive and expect_tx mbarrier
-  auto state = IrBuilder::create<Val>(DataType::UInt);
-  pushBack(IrBuilder::create<kir::Allocate>(
-      state, MemoryType::Local, ldst->container()->oneVal()));
+  Val* smem_address_ptr = lower_utils::u32IndexScalarSmemTv(
+      arrive_transaction->mbarrier()->as<kir::TensorIndex>());
   pushBack(IrBuilder::create<kir::MBarrierArriveExpectTx>(
-      state, mbarrier_index, expect_bytes));
+      arrive_transaction->state(),
+      smem_address_ptr,
+      arrive_transaction->txCount()));
+}
 
-  // indexing ldst op
-  auto out = lowerDstIndex(ldst->out(), {}, true);
-  auto new_ldst =
-      IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())
-          ->withPredicate(ldst->predicate());
-  pushBack(new_ldst);
-  GpuLower::current()->propagateExprInfo(ldst, back());
-  // wait mbarrier
-  pushBack(IrBuilder::create<kir::MBarrierWait>(mbarrier_index, state));
+void IndexLowering::handle(const kir::MBarrierWait* mwait) {
+  NVF_ERROR(
+      mwait->mbarrier()->isA<kir::TensorIndex>(),
+      "Expected kir::TensorIndex in MBarrierWait");
+  Val* smem_address_ptr = lower_utils::u32IndexScalarSmemTv(
+      mwait->mbarrier()->as<kir::TensorIndex>());
+  pushBack(
+      IrBuilder::create<kir::MBarrierWait>(smem_address_ptr, mwait->state()));
+}
+
+void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
+  // If LoadStoreOp has a smem TV in ldstMBarrierTokenMap, then it is a part
+  // of a circular buffer loop. The kir nodes for arrive_expect_tx and
+  // mbarrier_wait are added by the circular buffer pass. Otherwise, those
+  // nodes are added here.
+  bool is_circular_buffered =
+      (GpuLower::current()->ldstMBarrierIndexMap().count(ldst) != 0);
+
+  if (is_circular_buffered) {
+    kir::TensorIndex* mbarrier =
+        GpuLower::current()->ldstMBarrierIndexMap().at(ldst);
+    Val* mbarrier_index = lower_utils::u32IndexScalarSmemTv(mbarrier);
+
+    // gmem indexing and expect_bytes for mbarrier
+    auto [in, _] = Index::getCpAsyncBulkGmemIndex(
+        ldst, mbarrier_index, for_loops_, rotated_loop_);
+
+    // indexing ldst op
+    Val* out = lowerDstIndex(
+        ldst->out(), /*override_index=*/{}, /*generate_pointer=*/true);
+    Expr* new_ldst =
+        IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())
+            ->withPredicate(ldst->predicate());
+    pushBack(new_ldst);
+
+    // register new LoadStoreOp with mbarrier
+    GpuLower::current()->ldstMBarrierIndexMap()[new_ldst] = mbarrier;
+
+    GpuLower::current()->propagateExprInfo(ldst, back());
+  } else {
+    TensorView* mbarrier = GpuLower::current()->ldstMBarrierMap().at(ldst);
+    Val* mbarrier_index = lower_utils::u32IndexScalarSmemTv(mbarrier);
+
+    // gmem indexing and expect_bytes for mbarrier
+    auto [in, expect_bytes] = Index::getCpAsyncBulkGmemIndex(
+        ldst, mbarrier_index, for_loops_, rotated_loop_);
+
+    // arrive and expect_tx mbarrier
+    Val* state = IrBuilder::create<Val>(DataType::UInt);
+    pushBack(IrBuilder::create<kir::Allocate>(
+        state, MemoryType::Local, ldst->container()->oneVal()));
+    pushBack(IrBuilder::create<kir::MBarrierArriveExpectTx>(
+        state, mbarrier_index, expect_bytes));
+
+    // indexing ldst op
+    Val* out = lowerDstIndex(
+        ldst->out(), /*override_index=*/{}, /*generate_pointer=*/true);
+    Expr* new_ldst =
+        IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())
+            ->withPredicate(ldst->predicate());
+    pushBack(new_ldst);
+
+    GpuLower::current()->propagateExprInfo(ldst, back());
+    // wait mbarrier
+    pushBack(IrBuilder::create<kir::MBarrierWait>(mbarrier_index, state));
+  }
 }
 
 void IndexLowering::handleCpAsyncBulkStore(const LoadStoreOp* ldst) {

@@ -3721,7 +3721,6 @@ TEST_F(ResizeTest, SliceScheduledLikeProducer) {
   }
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 

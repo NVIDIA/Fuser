@@ -8815,6 +8815,54 @@ TEST_F(NVFuserTest, ReplaceSymbolicSizes) {
   EXPECT_EQ(tv5->axis(0)->extent()->toInlineString(), "5");
 }
 
+// Make sure BestEffortReplay with error_on_failure=false does not
+// complain about missing root-to-logical IterDomain ops
+TEST_F(NVFuserTest, BestEffortReplayWithMismatchedRootToLogical) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({2, 4});
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = reshape(tv1, {2, 4}, {8});
+  fusion.addOutput(tv2);
+
+  // This split does not exist in tv2
+  tv1->split(0, 1);
+
+  // Due to the split of tv1, BestEffortReplay would not find any
+  // matching transformations. If error_on_failure is true, it would
+  // result in an error.
+  EXPECT_THAT(
+      [&]() {
+        BestEffortReplay replay(
+            tv2->getLoopDomain(),
+            tv1->getLoopDomain(),
+            PairwiseLogicalDomainMap(tv1, tv2).mapProducerToConsumer(),
+            /*replay_forward_id_map=*/{},
+            /*target_forward_id_map=*/{},
+            /*skip_replay_swizzle=*/false,
+            /*skip_target_swizzle=*/false,
+            /*skip_resize=*/false,
+            /*error_on_failure=*/true);
+      },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
+          ::testing::HasSubstr("conflicts with an root-to-logical call")));
+
+  // Should not result in an error as error_on_failure is false
+  BestEffortReplay replay(
+      tv2->getLoopDomain(),
+      tv1->getLoopDomain(),
+      PairwiseLogicalDomainMap(tv1, tv2).mapProducerToConsumer(),
+      /*replay_forward_id_map=*/{},
+      /*target_forward_id_map=*/{},
+      /*skip_replay_swizzle=*/false,
+      /*skip_target_swizzle=*/false,
+      /*skip_resize=*/false,
+      /*error_on_failure=*/false);
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
