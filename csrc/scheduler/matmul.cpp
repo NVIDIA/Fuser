@@ -531,14 +531,16 @@ AbstractTensor swizzleSharedMemory(TensorView* shared_mem_tv) {
     }
   }
 
-  if (repeated_pattern_size > 1) {
-    swizzle_domain.merge(-6 - skip);
-  }
-  swizzle_domain.merge(-5 - skip);
+  if (legacy) {
+    if (repeated_pattern_size > 1) {
+      swizzle_domain.merge(-6 - skip);
+    }
+    swizzle_domain.merge(-5 - skip);
 
-  // merge back tile_size_y
-  swizzle_domain.merge(-3 - skip);
-  swizzle_domain.merge(-2 - skip);
+    // merge back tile_size_y
+    swizzle_domain.merge(-3 - skip);
+    swizzle_domain.merge(-2 - skip);
+  }
 
   return swizzle_domain;
 }
@@ -1025,6 +1027,10 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   scheduler_utils::transformPropagateToAllFrom(mma_result, -1);
 
   if (params.use_smem_epilogue) {
+    // TODO: this is no longer needed because we are now using the new swizzle
+    // for the smem epilogue. However, without this, I am seeing some failures
+    // in IdModel. Leaving this as is for now. Will investigate later.
+
     // Transform mma_result through the epilogue swizzle without actually
     // swizzling the axes. This is done to enable the domains
     // are mapped between mma_result and smem_epilogue.
@@ -1220,9 +1226,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // handle epilogue and always vectorize Ki
   if (params.use_smem_epilogue) {
     smem_epilogue->setMemoryType(MemoryType::Shared);
-    auto swizzled_dom = swizzleSharedMemory(smem_epilogue);
-    smem_epilogue->setLoopDomain(swizzled_dom.as<IterDomain*>());
-    smem_epilogue->setHasSwizzleOp();
+    auto swizzled_dom = swizzleSharedMemory<false>(smem_epilogue);
+    smem_epilogue->setAllocationDomain(swizzled_dom.as<IterDomain*>(), true);
     scheduler_utils::BoundedDirectionalTransformPropagator::forward(
         mma_result,
         -1,

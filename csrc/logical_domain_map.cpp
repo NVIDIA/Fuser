@@ -235,7 +235,8 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     // Consumers:
     //   output = [DIDx(D)?, N, H, L, Ev]
     //   logsumexp = [N, H, L]
-    //   cum_seq_q/k = [N + 1]
+    // Note: S, E are not mapped together in the producers and do not have any
+    // mapping to the consumer.
 
     size_t num_device_dim = producer_logical.at(0)->isDeviceDim() ? 1 : 0;
     // Map N, H from any input (query/key/value)
@@ -259,6 +260,47 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     if (num_device_dim == 1 && consumer_root.size() > 3) {
       updatePairwiseLogicalDomainMap(
           producer_logical.at(0), consumer_root.at(0));
+    }
+    return dom_map;
+  }
+
+  if (SdpaBwdOp* op = dynamic_cast<SdpaBwdOp*>(consumer_tv_->definition())) {
+    // Producers:
+    //   grad_attn = [N, H, L, Ev]
+    //   query = [N, H, L, E]
+    //   key = [N, H, S, E]
+    //   value = [N, H, S, Ev]
+    //   attn_out = [N, H, L, Ev]
+    //   logsumexp = [N, H, L]
+    // Consumers:
+    //   grad_query = [N, H, L, E]
+    //   grad_key = [N, H, S, E]
+    //   grad_value = [N, H, S, Ev]
+
+    bool producer_has_s =
+        producer_tv_->sameAs(op->key()) || producer_tv_->sameAs(op->value());
+    bool consumer_has_s = consumer_tv_->sameAs(op->grad_key()) ||
+        consumer_tv_->sameAs(op->grad_value());
+
+    bool producer_has_e =
+        producer_tv_->sameAs(op->query()) || producer_tv_->sameAs(op->key());
+    bool consumer_has_e = consumer_tv_->sameAs(op->grad_query()) ||
+        consumer_tv_->sameAs(op->grad_key());
+
+    for (auto idx : c10::irange(producer_logical.size())) {
+      if (idx < 2) {
+        // Map N, H from all producers to consumers
+        updatePairwiseLogicalDomainMap(
+            producer_logical.at(idx), consumer_root.at(idx));
+      } else if (idx == 2 && (producer_has_s == consumer_has_s)) {
+        // producer/consumer[2] = L/S
+        updatePairwiseLogicalDomainMap(
+            producer_logical.at(2), consumer_root.at(2));
+      } else if (idx == 3 && (producer_has_e == consumer_has_e)) {
+        // producer/consumer[3] = E/Ev
+        updatePairwiseLogicalDomainMap(
+            producer_logical.at(3), consumer_root.at(3));
+      }
     }
     return dom_map;
   }

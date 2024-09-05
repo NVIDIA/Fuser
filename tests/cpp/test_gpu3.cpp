@@ -5031,15 +5031,6 @@ TEST_F(NVFuserTest, FusionPropagateVectorizePredicate_CUDA) {
         auto cond_inputs = InputsOf::output(cond);
         auto index_it =
             std::find(cond_inputs.begin(), cond_inputs.end(), loop_index);
-        auto vec_factor_it =
-            std::find_if(cond_inputs.begin(), cond_inputs.end(), [](Val* inp) {
-              auto int_val = inp->value();
-              return int_val.hasValue() &&
-                  (int_val.as<int64_t>() == vec_factor - 1 ||
-                   int_val.as<int64_t>() == -(vec_factor - 1));
-            });
-        // If vectorized, the predicate should use (vec_factor - 1) or
-        // -(vec_factor - 1) rather than the loop index.
         if (vectorized_) {
           NVF_CHECK(
               index_it == cond_inputs.end(),
@@ -5047,23 +5038,11 @@ TEST_F(NVFuserTest, FusionPropagateVectorizePredicate_CUDA) {
               loop_index->toInlineString(),
               " in ",
               cond->toInlineString());
-          NVF_CHECK(
-              vec_factor_it != cond_inputs.end(),
-              "Expected to have ",
-              vec_factor - 1,
-              " in ",
-              cond->toInlineString());
         } else {
           NVF_CHECK(
               index_it != cond_inputs.end(),
               "Expected to have ",
               loop_index->toInlineString(),
-              " in ",
-              cond->toInlineString());
-          NVF_CHECK(
-              vec_factor_it == cond_inputs.end(),
-              "Not expected to have ",
-              vec_factor - 1,
               " in ",
               cond->toInlineString());
         }
@@ -6620,14 +6599,10 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
 
   // dom0: logical domain
   // dom1: [S0, B0/4]
-  // Should fail as the dom1 only partially covers dom0
-  EXPECT_THAT(
-      [&]() {
-        ir_utils::validateDomainEquivalence(
-            tv4->getLogicalDomain(), {tv4->axis(0), tv4->axis(1)});
-      },
-      testing::ThrowsMessage<nvfuser::nvfError>(
-          testing::HasSubstr("dom0 and dom1 are not equal")));
+  // Succeeds because broadcasting IterDomains are just auxiliary placeholders
+  // and can be arbitrarily created and annihilated as needed.
+  ir_utils::validateDomainEquivalence(
+      tv4->getLogicalDomain(), {tv4->axis(0), tv4->axis(1)});
 }
 
 // Repro for issue #236 (https://github.com/NVIDIA/Fuser/issues/236)
@@ -6661,33 +6636,6 @@ TEST_F(NVFuserTest, DoublePrecisionNorm_CUDA) {
 
   testValidate(
       executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
-}
-
-// Test for void IterDomain::parallelize(ParallelType t)
-// Only allowed to parallelize a loop domain.
-TEST_F(NVFuserTest, FusionIllegalParallelizeNonLeafDomain_CUDA) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  auto tv0 = makeSymbolicTensor(2);
-  fusion.addInput(tv0);
-  auto tv1 = set(tv0);
-  fusion.addOutput(tv1);
-
-  // [I0, I1]
-  tv1->split(1, 4);
-  // [I0, I1/4, 4]
-
-  const auto& logical_domain = tv1->getLogicalDomain();
-
-  // legal, as I0 is also a loop domain
-  logical_domain[0]->parallelize(ParallelType::BIDx);
-
-  // llegal, as I1 is not a loop domain
-  EXPECT_THAT(
-      [&]() { logical_domain[1]->parallelize(ParallelType::BIDy); },
-      testing::ThrowsMessage<nvfuser::nvfError>(
-          testing::HasSubstr("Only allowed to parallelize a loop domain")));
 }
 
 // delete intermediate tensors between segments to reduce memory usage of large
@@ -7313,105 +7261,6 @@ TEST_F(NVFuserTest, FusionInstanceNormNHWC_CUDA) {
   FusionExecutorCache fec(std::move(fusion_ptr));
   auto cg_outputs = fec.runFusionWithInputs(inputs);
   testValidate(fusion, cg_outputs, inputs, outputs, __LINE__, __FILE__);
-}
-
-// Repro of issue #657
-TEST_F(NVFuserTest, VectorizeWithBroadcastAndReshape1) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  // Sizes don't matter as long as they are large enough to trigger
-  // vectorization
-  std::vector<int64_t> shape1{1024, 1024};
-  std::vector<int64_t> shape2{1024, 1024, 4};
-  std::vector<int64_t> shape3{1024 * 1024 * 4};
-
-  auto tv0 = makeContigConcreteTensor(shape1);
-  fusion->addInput(tv0);
-
-  auto tv1 = makeContigConcreteTensor(shape2);
-  fusion->addInput(tv1);
-
-  auto tv2 = broadcast(tv0, {false, false, true});
-  fusion->addOutput(tv2);
-
-  auto tv3 = add(tv1, tv2);
-  auto tv4 = reshape(tv3, shape2, shape3);
-  fusion->addOutput(tv4);
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
-  auto t0 = at::randn(shape1, options);
-  auto t1 = at::randn(shape2, options);
-  std::vector<c10::IValue> aten_inputs({t0, t1});
-
-  FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
-
-  NVF_CHECK(!executor_cache.getMostRecentKernelRuntime()->isSegmented());
-  auto heuristic_params = executor_cache.getMostRecentKernelRuntime()
-                              ->schedulerHeuristics()
-                              ->heuristicsList()
-                              .at(0)
-                              ->params();
-  ASSERT_TRUE(heuristic_params->isA<PointwiseParams>());
-  auto pparams = heuristic_params->as<PointwiseParams>();
-  ASSERT_TRUE(pparams->vectorize) << "Failed to vectorize";
-  ASSERT_EQ(pparams->unroll_factor, 4) << "Unexpected vectorize factor";
-}
-
-// Repro of issue #657
-TEST_F(NVFuserTest, VectorizeWithBroadcastAndReshape2) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  // Sizes don't matter as long as they are large enough to trigger
-  // vectorization
-  std::vector<int64_t> shape1{1024, 1024};
-  std::vector<int64_t> shape2{1024, 1024, 4};
-  std::vector<int64_t> shape3{1024 * 1024 * 4};
-
-  auto tv0 = makeContigConcreteTensor(shape1);
-  fusion->addInput(tv0);
-
-  auto tv1 = makeContigConcreteTensor(shape1);
-  fusion->addInput(tv1);
-
-  auto tv2 = makeContigConcreteTensor(shape2);
-  fusion->addInput(tv2);
-
-  auto tv3 = broadcast(tv0, {false, false, true});
-  fusion->addOutput(tv3);
-
-  auto tv4 = add(tv3, tv2);
-
-  auto tv5 = broadcast(tv1, {false, false, true});
-
-  auto tv6 = add(tv4, tv5);
-
-  auto tv7 = reshape(tv6, shape2, shape3);
-  fusion->addOutput(tv7);
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
-  auto t0 = at::randn(shape1, options);
-  auto t1 = at::randn(shape1, options);
-  auto t2 = at::randn(shape2, options);
-  std::vector<c10::IValue> aten_inputs({t0, t1, t2});
-
-  FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
-
-  NVF_CHECK(!executor_cache.getMostRecentKernelRuntime()->isSegmented());
-  auto heuristic_params = executor_cache.getMostRecentKernelRuntime()
-                              ->schedulerHeuristics()
-                              ->heuristicsList()
-                              .at(0)
-                              ->params();
-  ASSERT_TRUE(heuristic_params->isA<PointwiseParams>());
-  auto pparams = heuristic_params->as<PointwiseParams>();
-  ASSERT_TRUE(pparams->vectorize) << "Failed to vectorize";
-  ASSERT_EQ(pparams->unroll_factor, 4) << "Unexpected vectorize factor";
 }
 
 TEST_F(NVFuserTest, VectorizeBackToBackReductions) {
@@ -8234,7 +8083,7 @@ TEST_F(NVFuserTest, FusionCpAsyncPredicateError) {
           ::testing::HasSubstr("unsupported use case of cp.async")));
 }
 
-TEST_F(NVFuserTest, DecoupledDomains) {
+TEST_F(NVFuserTest, DecoupledDomains1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -8296,9 +8145,200 @@ TEST_F(NVFuserTest, DecoupledDomains) {
       root_domain, logical_domain, allocation_domain, loop_domain, contiguity);
   TensorView* tv = IrBuilder::create<TensorView>(td, DataType::Float);
   auto all_ids = concat(logical_all, root_all, alloc_all, loop_all);
-  auto tv_all_vec = ir_utils::allIDsOf(tv);
+  auto tv_all_vec = tv->domain()->allIDs();
   std::unordered_set<IterDomain*> tv_all(tv_all_vec.begin(), tv_all_vec.end());
   EXPECT_EQ(tv_all, all_ids);
+}
+
+TEST_F(NVFuserTest, DecoupledDomains2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto s0 = IrBuilder::create<Val>(DataType::Index);
+  auto s1 = IrBuilder::create<Val>(DataType::Index);
+  auto s2 = IrBuilder::create<Val>(DataType::Index);
+  auto s3 = IrBuilder::create<Val>(DataType::Index);
+  auto id0 = IterDomainBuilder(s0->fusion()->zeroVal(), s0).build();
+  auto id1 = IterDomainBuilder(s1->fusion()->zeroVal(), s1).build();
+  auto id2 = IterDomainBuilder(s2->fusion()->zeroVal(), s2).build();
+  auto id3 = IterDomainBuilder(s3->fusion()->zeroVal(), s3).build();
+  std::unordered_set<IterDomain*> all_ids{id0, id1, id2, id3};
+
+  AbstractTensor root_ids({id0, id1, id2, id3});
+
+  auto schedule = [&]() {
+    AbstractTensor domain = root_ids;
+    domain.merge(2);
+    all_ids.insert(domain[2].as<IterDomain*>());
+    domain.split(2, 256);
+    all_ids.insert(domain[2].as<IterDomain*>());
+    all_ids.insert(domain[3].as<IterDomain*>());
+    domain.merge(0);
+    all_ids.insert(domain[0].as<IterDomain*>());
+    domain.split(0, 256);
+    all_ids.insert(domain[0].as<IterDomain*>());
+    all_ids.insert(domain[1].as<IterDomain*>());
+    return domain.as<IterDomain*>();
+  };
+
+  // Create a TensorView that, all the domains are transformed from a common
+  // topologically root IDs [I0, I1, I2, I3] separately, so that to traverse
+  // between any two domains, the traversal requires both forward and backward.
+  auto logical_domain = schedule();
+  auto root_domain = schedule();
+  auto allocation_domain = schedule();
+  auto loop_domain = schedule();
+  std::vector<std::optional<bool>> contiguity(allocation_domain.size(), true);
+
+  TensorDomain* td = IrBuilder::create<TensorDomain>(
+      root_domain, logical_domain, allocation_domain, loop_domain, contiguity);
+  TensorView* tv = IrBuilder::create<TensorView>(td, DataType::Float);
+  auto tv_all_vec = tv->domain()->allIDs();
+  std::unordered_set<IterDomain*> tv_all(tv_all_vec.begin(), tv_all_vec.end());
+  EXPECT_EQ(tv_all, all_ids);
+}
+
+TEST_F(NVFuserTest, BroadcastFromNowhere) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto us = [](const std::vector<IterDomain*>& b) {
+    return std::unordered_set<IterDomain*>(b.begin(), b.end());
+  };
+
+  std::unordered_set<IterDomain*> all_ids;
+  auto tv0 = makeSymbolicTensor(1);
+  all_ids.insert(tv0->axis(0));
+  EXPECT_EQ(all_ids, us(tv0->getLoopDomain()));
+  EXPECT_EQ(all_ids, us(tv0->domain()->allIDs()));
+  ir_utils::validateDomainEquivalence(
+      tv0->getLoopDomain(), tv0->getLogicalDomain());
+
+  tv0->broadcast(0);
+  EXPECT_TRUE(tv0->axis(0)->isBroadcast());
+  EXPECT_EQ(all_ids.count(tv0->axis(0)), 0);
+  all_ids.insert(tv0->axis(0));
+  EXPECT_EQ(all_ids, us(tv0->getLoopDomain()));
+  EXPECT_EQ(all_ids, us(tv0->domain()->allIDs()));
+  ir_utils::validateDomainEquivalence(
+      tv0->getLoopDomain(), tv0->getLogicalDomain());
+
+  tv0->broadcast(2);
+  EXPECT_TRUE(tv0->axis(2)->isBroadcast());
+  EXPECT_EQ(all_ids.count(tv0->axis(2)), 0);
+  all_ids.insert(tv0->axis(2));
+  EXPECT_EQ(all_ids, us(tv0->getLoopDomain()));
+  EXPECT_EQ(all_ids, us(tv0->domain()->allIDs()));
+  ir_utils::validateDomainEquivalence(
+      tv0->getLoopDomain(), tv0->getLogicalDomain());
+
+  tv0->broadcast(-1);
+  EXPECT_TRUE(tv0->axis(3)->isBroadcast());
+  EXPECT_EQ(all_ids.count(tv0->axis(3)), 0);
+  all_ids.insert(tv0->axis(3));
+  EXPECT_EQ(all_ids, us(tv0->getLoopDomain()));
+  EXPECT_EQ(all_ids, us(tv0->domain()->allIDs()));
+  ir_utils::validateDomainEquivalence(
+      tv0->getLoopDomain(), tv0->getLogicalDomain());
+
+  tv0->broadcast(1);
+  EXPECT_TRUE(tv0->axis(1)->isBroadcast());
+  EXPECT_EQ(all_ids.count(tv0->axis(1)), 0);
+  all_ids.insert(tv0->axis(1));
+  EXPECT_EQ(all_ids, us(tv0->getLoopDomain()));
+  EXPECT_EQ(all_ids, us(tv0->domain()->allIDs()));
+  ir_utils::validateDomainEquivalence(
+      tv0->getLoopDomain(), tv0->getLogicalDomain());
+
+  tv0->merge(1);
+  all_ids.insert(tv0->axis(1));
+  EXPECT_EQ(all_ids, us(tv0->domain()->allIDs()));
+  ir_utils::validateDomainEquivalence(
+      tv0->getLoopDomain(), tv0->getLogicalDomain());
+
+  tv0->merge(2);
+  EXPECT_TRUE(tv0->axis(2)->isBroadcast());
+  all_ids.insert(tv0->axis(2));
+  EXPECT_EQ(all_ids, us(tv0->domain()->allIDs()));
+  ir_utils::validateDomainEquivalence(
+      tv0->getLoopDomain(), tv0->getLogicalDomain());
+
+  while (tv0->nDims() > 1) {
+    tv0->merge(0);
+    all_ids.insert(tv0->axis(0));
+    EXPECT_EQ(all_ids, us(tv0->domain()->allIDs()));
+    ir_utils::validateDomainEquivalence(
+        tv0->getLoopDomain(), tv0->getLogicalDomain());
+  }
+
+  auto tv1 = makeSymbolicTensor(0);
+  EXPECT_EQ(tv1->nDims(), 0);
+  EXPECT_TRUE(tv1->getLoopDomain().empty());
+  EXPECT_TRUE(tv1->domain()->allIDs().empty());
+  ir_utils::validateDomainEquivalence(
+      tv1->getLoopDomain(), tv1->getLogicalDomain());
+
+  tv1->broadcast(0);
+  EXPECT_TRUE(tv1->axis(0)->isBroadcast());
+  EXPECT_EQ(us({tv1->axis(0)}), us(tv1->domain()->allIDs()));
+  ir_utils::validateDomainEquivalence(
+      tv1->getLoopDomain(), tv1->getLogicalDomain());
+
+  auto tv2 = makeSymbolicTensor(0);
+  EXPECT_EQ(tv2->nDims(), 0);
+  EXPECT_TRUE(tv2->getLoopDomain().empty());
+  EXPECT_TRUE(tv2->domain()->allIDs().empty());
+  ir_utils::validateDomainEquivalence(
+      tv2->getLoopDomain(), tv2->getLogicalDomain());
+
+  tv2->broadcast(-1);
+  EXPECT_TRUE(tv2->axis(0)->isBroadcast());
+  EXPECT_EQ(us({tv2->axis(0)}), us(tv2->domain()->allIDs()));
+  ir_utils::validateDomainEquivalence(
+      tv2->getLoopDomain(), tv2->getLogicalDomain());
+}
+
+TEST_F(NVFuserTest, BroadcastFromNowhereFusion) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // auto tv0 = makeSymbolicTensor(2);
+  auto tv0 = makeConcreteTensor({4});
+  fusion.addInput(tv0);
+  // auto tv1 = makeSymbolicTensor(2);
+  auto tv1 = makeConcreteTensor({2, 4});
+  fusion.addInput(tv1);
+  auto tv2 = set(tv0);
+  auto tv3 = broadcast(tv2, {true, false});
+  auto tv4 = add(tv3, tv1);
+  fusion.addOutput(tv4);
+  tv2->broadcast(0);
+  for (auto tv : {tv1, tv2, tv3, tv4}) {
+    tv->merge(0);
+    tv->split(0, 256);
+#if 0
+    // TODO: sync analysis could not handle this yet
+    tv->axis(1)->parallelize(ParallelType::TIDx);
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+#endif
+  }
+
+#if 0
+  // TODO: Inlining not supported yet
+  inlineMost();
+  for (auto tv : {tv1, tv2, tv3}) {
+    EXPECT_EQ(tv->getComputeAtPosition(), 2);
+  }
+#endif
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  // TODO: use larger tensor size
+  at::Tensor t0 = at::randn({4}, options);
+  at::Tensor t1 = at::randn({2, 4}, options);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0, t1});
+  auto cg_outputs = fe.runFusion({t0, t1});
+  testValidate(&fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
 // https://github.com/NVIDIA/Fuser/issues/2488
@@ -8350,6 +8390,42 @@ TEST_F(NVFuserTest, ReplayRFactorMergeBcast) {
     testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
   }
 }
+
+// This tests that we don't hit errors when we have multiple grid reductions
+// scheduled with different static-sized extents mapped to the same parallel
+// dimension.
+// See https://github.com/NVIDIA/Fuser/issues/2634
+TEST_F(NVFuserTest, MultipleDifferentSizeGridReduction) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeContigConcreteTensor({128});
+  TensorView* tv1 = makeContigConcreteTensor({192});
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  TensorView* tv2 = max(tv0, {0});
+  TensorView* tv3 = sum(tv1, {0});
+  TensorView* tv4 = add(tv2, tv3);
+
+  fusion.addOutput(tv4);
+
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  tv2->axis(0)->parallelize(ParallelType::BIDx);
+
+  inlineMost();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  const at::Tensor t0 = at::randn({128}, options);
+  const at::Tensor t1 = at::randn({192}, options);
+  const std::vector<c10::IValue> inputs = {t0, t1};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, inputs);
+  auto cg_outputs = fe.runFusion(inputs);
+
+  testValidate(&fusion, cg_outputs, inputs, __LINE__, __FILE__);
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

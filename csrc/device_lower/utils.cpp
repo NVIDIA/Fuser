@@ -153,6 +153,7 @@ bool isTvOp(const Expr* expr) {
           MmaOp,
           LinearOp,
           SdpaFwdOp,
+          SdpaBwdOp,
           BroadcastOp,
           SqueezeOp,
           ExpandOp,
@@ -695,7 +696,8 @@ kir::Allocate* allocGlobalBufferForGridComm(
     bool resets_to_zero) {
   const std::vector<IterDomain*> new_buffer_ids = {
       IrBuilder::create<IterDomain>(IterDomainBuilder(
-          GpuLower::current()->kernel()->zeroVal(), buffer_size))};
+          GpuLower::current()->kernel()->zeroVal(),
+          SimplifyingIrBuilder::maybeCastExpr(DataType::Index, buffer_size)))};
   const auto buffer_domain = IrBuilder::create<TensorDomain>(new_buffer_ids);
   const auto buffer_tv =
       IrBuilder::create<TensorView>(buffer_domain, dtype, MemoryType::Global);
@@ -920,6 +922,24 @@ std::array<UnitDim, 2> getMmaLayout(const MmaOp* expr) {
   }
 
   return layout;
+}
+
+bool hasRootToLoopLinearTransformations(const TensorView* tv) {
+  auto root = tv->getMaybeRootDomain();
+  auto loop = tv->getLoopDomain();
+  std::vector<Val*> loop_val(loop.begin(), loop.end());
+  auto all_ids_vec =
+      DependencyCheck::getAllValsBetween({root.begin(), root.end()}, loop_val);
+  std::unordered_set<Val*> all_ids_set(all_ids_vec.begin(), all_ids_vec.end());
+  auto alloc = tv->getMaybeAllocationDomain();
+  auto logical = tv->getLogicalDomain();
+  bool all_alloc_id_on_path = std::all_of(
+      alloc.begin(), alloc.end(), [&](Val* v) { return all_ids_set.count(v); });
+  bool all_logical_id_on_path =
+      std::all_of(logical.begin(), logical.end(), [&](Val* v) {
+        return all_ids_set.count(v);
+      });
+  return all_alloc_id_on_path && all_logical_id_on_path;
 }
 
 bool isReductionInitExpr(const Expr* expr) {

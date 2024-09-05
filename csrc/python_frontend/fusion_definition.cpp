@@ -107,6 +107,68 @@ void FusionDefinition::finalizeDefinition() {
   }
 }
 
+void FusionDefinition::findHiddenTensorViews(Fusion* fusion) {
+  NVF_ERROR(fusion != nullptr);
+
+  // Filter Tensor states
+  std::vector<State> tensor_states;
+  std::copy_if(
+      recording_state_.begin(),
+      recording_state_.end(),
+      std::back_inserter(tensor_states),
+      [](const State& s) { return s.stype == serde::StateType::Tensor; });
+
+  // Get corresponding CPP values and add to set for membership check.
+  std::unordered_set<Val*> known_tensor_vals;
+  std::transform(
+      tensor_states.begin(),
+      tensor_states.end(),
+      std::inserter(known_tensor_vals, known_tensor_vals.end()),
+      [this](State s) { return getFusionState(s.index); });
+
+  // Get set difference between CPP Fusion and Python FusionDefinition
+  std::vector<Val*> all_vals = fusion->usedMathVals();
+  std::vector<Val*> new_fusion_tvs;
+  std::copy_if(
+      all_vals.begin(),
+      all_vals.end(),
+      std::back_inserter(new_fusion_tvs),
+      [&](Val* v) {
+        return v->isA<TensorView>() && known_tensor_vals.count(v) == 0;
+      });
+
+  // Short-Circuit: No new TensorViews found
+  if (new_fusion_tvs.empty()) {
+    return;
+  }
+
+  // Add missing TensorViews to FusionDefinition
+  for (Val* v : new_fusion_tvs) {
+    addTensor(v->as<TensorView>());
+  }
+}
+
+void FusionDefinition::updateSymbolicStates(
+    const std::unordered_map<Val*, Val*>& symbolic_to_concretized_map) {
+  for (const State& s : recording_state_) {
+    // Only update Tensor and Scalar states
+    if (s.stype != serde::StateType::Tensor &&
+        s.stype != serde::StateType::Scalar) {
+      continue;
+    }
+
+    Val* old_value = getFusionState(s.index);
+
+    // Skip replacement if unnecessary
+    if (symbolic_to_concretized_map.count(old_value) == 0) {
+      continue;
+    }
+
+    // Update symbolic states with new concretized values
+    setFusionState(s.index, symbolic_to_concretized_map.at(old_value));
+  }
+}
+
 void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
   FUSER_PERF_SCOPE("FusionDefinition::setupSchedule");
   NVF_CHECK(id().has_value(), "FusionDefinition definition does not exist!");
@@ -124,11 +186,19 @@ void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
   // original and not the copy needed for scheduling.
   buildFusionIr(user_sched_->schedule.get());
 
+  // Add TensorViews created by composite operations to Python FusionDefinition.
+  findHiddenTensorViews(user_sched_->schedule.get());
+
   KernelArgumentHolder args =
       KernelArgumentHolder::createKernelArgumentHolder(inputs, device);
 
   // Concretize fusion
-  DynamicTransform::concretizeFusion(user_sched_->schedule.get(), args);
+  std::unordered_map<Val*, Val*> symbolic_to_concrete_map =
+      DynamicTransform::concretizeFusion(user_sched_->schedule.get(), args);
+
+  // Update symbolic values to their new concretized values.
+  // Users will access concretized values in schedule function.
+  updateSymbolicStates(symbolic_to_concrete_map);
 
   // Create runtime info for schedulers
   Fusion* user_schedule_fusion = user_sched_->schedule.get();
@@ -505,9 +575,7 @@ std::vector<Tensor> FusionDefinition::tensors() {
       recording_state_.begin(),
       recording_state_.end(),
       std::back_inserter(tensor_states),
-      [this](const State& s) {
-        return getFusionState(s.index)->isA<TensorView>();
-      });
+      [](const State& s) { return s.stype == serde::StateType::Tensor; });
 
   // Reconstruct Tensors
   std::vector<Tensor> all_tensors;
