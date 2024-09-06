@@ -1133,6 +1133,11 @@ AbstractValGroup propagate(
   }
 }
 
+// TODO: move to common area
+template <typename T>
+using MaybeUniqueOwningPtr = dynamic_type::
+    DynamicType<dynamic_type::NoContainers, T*, std::unique_ptr<T>>;
+
 AbstractValGroup propagate(
     const PartOf<AbstractValGroup>& current,
     const ValGroups& from,
@@ -1140,45 +1145,84 @@ AbstractValGroup propagate(
   if (from.size() == 1) {
     NVF_ERROR(to.size() == 2);
     NVF_ERROR(related(*current.group, from.front()));
-    if (current.group->is<ValGroup>() &&
-        current.group->as<ValGroup>() == from.front()) {
+    MaybeUniqueOwningPtr<const std::vector<AbstractValGroup>> vec = nullptr;
+    if (current.group->is<std::vector>()) {
+      vec = &current.group->as<std::vector>();
+    } else {
+      vec = std::unique_ptr<std::vector<AbstractValGroup>>(
+          new std::vector<AbstractValGroup>{*current.group});
+    }
+    if (vec != nullptr) {
       auto to_inner_extent = to.back()->front()->as<IterDomain>()->extent();
       auto to_outer_extent = to.front()->front()->as<IterDomain>()->extent();
-      if (current.inner_extent != nullptr &&
-          simplifyExpr(
-              IrBuilder::isDivisibleExpr(current.inner_extent, to_inner_extent))
-              ->isTrue()) {
-        Val* new_inner_extent = simplifyExpr(
-            IrBuilder::divExpr(current.inner_extent, to_inner_extent));
-        if (new_inner_extent->isOne()) {
-          new_inner_extent = nullptr;
+      const auto& front = vec->front();
+      const auto& back = vec->back();
+
+      Val* new_outer_extent = current.outer_extent;
+      if (front.is<ValGroup>() && front.as<ValGroup>() == from.front()) {
+        if (current.outer_extent != nullptr &&
+            simplifyExpr(IrBuilder::isDivisibleExpr(
+                             current.outer_extent, to_outer_extent))
+                ->isTrue()) {
+          new_outer_extent = simplifyExpr(
+              IrBuilder::divExpr(current.outer_extent, to_outer_extent));
+          if (new_outer_extent->isOne()) {
+            new_outer_extent = nullptr;
+          }
         }
-        if (current.outer_extent == nullptr && new_inner_extent == nullptr) {
-          return to.front();
-        }
-        return PartOf<AbstractValGroup>{
-            current.outer_extent,
-            std::make_shared<AbstractValGroup>(to.front()),
-            new_inner_extent};
       }
-      if (current.outer_extent != nullptr &&
-          simplifyExpr(
-              IrBuilder::isDivisibleExpr(current.outer_extent, to_outer_extent))
-              ->isTrue()) {
-        Val* new_outer_extent = simplifyExpr(
-            IrBuilder::divExpr(current.outer_extent, to_outer_extent));
-        if (new_outer_extent->isOne()) {
-          new_outer_extent = nullptr;
+
+      Val* new_inner_extent = current.inner_extent;
+      if (back.is<ValGroup>() && back.as<ValGroup>() == from.front()) {
+        if (current.inner_extent != nullptr &&
+            simplifyExpr(IrBuilder::isDivisibleExpr(
+                             current.inner_extent, to_inner_extent))
+                ->isTrue()) {
+          new_inner_extent = simplifyExpr(
+              IrBuilder::divExpr(current.inner_extent, to_inner_extent));
+          if (new_inner_extent->isOne()) {
+            new_inner_extent = nullptr;
+          }
         }
-        if (current.inner_extent == nullptr && new_outer_extent == nullptr) {
-          return to.back();
+      }
+
+      std::vector<AbstractValGroup> result_vec;
+      if (new_outer_extent != current.outer_extent) {
+        NVF_ERROR(new_inner_extent == current.inner_extent);
+        result_vec.push_back(to.back());
+        std::copy(
+            std::next(vec->begin()),
+            vec->end(),
+            std::back_inserter(result_vec));
+      } else if (new_inner_extent != current.inner_extent) {
+        std::copy(
+            vec->begin(),
+            std::prev(vec->end()),
+            std::back_inserter(result_vec));
+        result_vec.push_back(to.front());
+      } else {
+        // Just leave result_vec empty which is a special case to indicate that
+        // we should use the fallback propagation path below.
+      }
+
+      AbstractValGroup result;
+      if (result_vec.size() == 1) {
+        result = result_vec.front();
+      } else if (result_vec.size() > 1) {
+        result = std::move(result_vec);
+      }
+      if (result.hasValue()) {
+        if (new_outer_extent != nullptr || new_inner_extent != nullptr) {
+          return PartOf<AbstractValGroup>{
+              new_outer_extent,
+              std::make_shared<AbstractValGroup>(std::move(result)),
+              new_inner_extent};
+        } else {
+          return result;
         }
-        return PartOf<AbstractValGroup>{
-            new_outer_extent,
-            std::make_shared<AbstractValGroup>(to.back()),
-            current.inner_extent};
       }
     }
+    // Fallback propagation path: just recursively propagate items.
     return PartOf<AbstractValGroup>{
         current.outer_extent,
         std::make_shared<AbstractValGroup>(propagate(*current.group, from, to)),
