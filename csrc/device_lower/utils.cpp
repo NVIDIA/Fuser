@@ -1268,6 +1268,17 @@ Val* proveLinearAndGetStrideAfterPropagation(
 Val* proveLinearAndGetStrideAfterPropagation(
     const PartOf<AbstractValGroup>& g_in_domain,
     const ValGroups& domain) {
+  if (g_in_domain.group->is<ValGroup>()) {
+    Val* stride = g_in_domain.inner_extent;
+    for (auto it = domain.rbegin(); it != domain.rend(); ++it) {
+      if (*it == g_in_domain.group->as<ValGroup>()) {
+        return stride;
+      }
+      stride = SimplifyingIrBuilder::mulExpr(
+          stride, (*it)->front()->as<IterDomain>()->extent());
+    }
+    return nullptr;
+  }
   NVF_ERROR(false, "Not Implemented Yet.");
   return nullptr;
 }
