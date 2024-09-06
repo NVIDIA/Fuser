@@ -1252,6 +1252,10 @@ AbstractValGroup propagate(
 }
 
 Val* proveLinearAndGetStrideAfterPropagation(
+    const AbstractValGroup& g_in_domain,
+    const ValGroups& domain);
+
+Val* proveLinearAndGetStrideAfterPropagation(
     const ValGroup& g_in_domain,
     const ValGroups& domain) {
   Val* stride = g_in_domain->front()->fusion()->oneVal();
@@ -1268,26 +1272,36 @@ Val* proveLinearAndGetStrideAfterPropagation(
 Val* proveLinearAndGetStrideAfterPropagation(
     const PartOf<AbstractValGroup>& g_in_domain,
     const ValGroups& domain) {
-  if (g_in_domain.group->is<ValGroup>()) {
-    Val* stride = g_in_domain.inner_extent;
-    for (auto it = domain.rbegin(); it != domain.rend(); ++it) {
-      if (*it == g_in_domain.group->as<ValGroup>()) {
-        return stride;
-      }
-      stride = SimplifyingIrBuilder::mulExpr(
-          stride, (*it)->front()->as<IterDomain>()->extent());
-    }
+  auto inner_stride =
+      proveLinearAndGetStrideAfterPropagation(*g_in_domain.group, domain);
+  if (inner_stride == nullptr) {
     return nullptr;
   }
-  NVF_ERROR(false, "Not Implemented Yet.");
-  return nullptr;
+  return SimplifyingIrBuilder::mulExpr(inner_stride, g_in_domain.inner_extent);
 }
 
 Val* proveLinearAndGetStrideAfterPropagation(
     const std::vector<AbstractValGroup>& g_in_domain,
     const ValGroups& domain) {
-  NVF_ERROR(false, "Not Implemented Yet.");
-  return nullptr;
+  if (!std::all_of(g_in_domain.begin(), g_in_domain.end(), [&](const auto& g) {
+        return g.template is<ValGroup>();
+      })) {
+    NVF_ERROR(false, "Not Implemented Yet.");
+    return nullptr;
+  }
+  auto first_it = std::find(
+      domain.begin(), domain.end(), g_in_domain.front().as<ValGroup>());
+  if (first_it == domain.end()) {
+    return nullptr;
+  }
+  for (auto it = g_in_domain.begin(); it != g_in_domain.end();
+       ++it, ++first_it) {
+    if (it->as<ValGroup>() != *first_it) {
+      return nullptr;
+    }
+  }
+  return proveLinearAndGetStrideAfterPropagation(
+      g_in_domain.back().as<ValGroup>(), domain);
 }
 
 Val* proveLinearAndGetStrideAfterPropagation(
@@ -1295,6 +1309,16 @@ Val* proveLinearAndGetStrideAfterPropagation(
     const ValGroups& domain) {
   NVF_ERROR(false, "Should not reach here.");
   return nullptr;
+}
+
+Val* proveLinearAndGetStrideAfterPropagation(
+    const AbstractValGroup& g_in_domain,
+    const ValGroups& domain) {
+  return AbstractValGroup::dispatch(
+      [&](const auto& g_in_domain) {
+        return proveLinearAndGetStrideAfterPropagation(g_in_domain, domain);
+      },
+      g_in_domain);
 }
 
 } // namespace
@@ -1337,11 +1361,8 @@ Val* proveLinearAndGetStride(
       return nullptr;
     }
   }
-  return AbstractValGroup::dispatch(
-      [&](const auto& frontier) {
-        return proveLinearAndGetStrideAfterPropagation(frontier, domain);
-      },
-      frontier);
+  std::cout << "finished propagation" << std::endl;
+  return proveLinearAndGetStrideAfterPropagation(frontier, domain);
 }
 
 } // namespace lower_utils
