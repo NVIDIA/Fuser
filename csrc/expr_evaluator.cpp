@@ -386,7 +386,7 @@ void handlePropagateError(
       std::vector<std::pair<TensorView*, const IterDomain*>>>
       size_to_info;
 
-  for (auto tv : ir_utils::allTvs(fusion)) {
+  for (auto tv : fusion->allTvs()) {
     for (const IterDomain* id : tv->domain()->allIDs()) {
       if (auto it = id_to_size.find(id); it != id_to_size.end()) {
         size_to_info[it->second].push_back({tv, id});
