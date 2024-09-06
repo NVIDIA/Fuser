@@ -1066,7 +1066,7 @@ std::string print(const PartOf<AbstractValGroup>& part) {
       ", selected_extent=" + str_or_null(part.selected_extent) + ")";
 }
 
-std::string print(const std::vector<AbstractValGroup>& vec) {
+std::string print(const std::deque<AbstractValGroup>& vec) {
   std::stringstream ss;
   ss << "[";
   for (const auto& g : vec) {
