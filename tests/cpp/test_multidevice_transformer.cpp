@@ -99,10 +99,9 @@ std::vector<at::Tensor> reference_mlp(
     at::Tensor w1,
     at::Tensor b1,
     at::ScalarType at_dtype) {
-  auto linear0 = at::matmul(x, w0).to(at::kFloat) + b0.to(at::kFloat);
+  auto linear0 = at::matmul(x, w0).to(at::kFloat) + b0;
   auto gelu = at::gelu(linear0, "tanh");
-  auto linear1 =
-      at::matmul(gelu.to(at_dtype), w1).to(at::kFloat) + b1.to(at::kFloat);
+  auto linear1 = at::matmul(gelu.to(at_dtype), w1).to(at::kFloat) + b1;
   auto dropout = at::dropout(linear1, kDropoutProb, true);
   return {linear0, gelu, linear1, dropout};
 }
@@ -395,7 +394,6 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
       shardTensor(reference_outs[1], 1, mesh),
       reference_outs[2],
       reference_outs[3]};
-
 
   FusionExecutorCache fec(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
