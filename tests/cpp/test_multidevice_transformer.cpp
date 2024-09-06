@@ -119,20 +119,20 @@ std::vector<at::Tensor> reference_mha(
     at::Tensor w1,
     at::Tensor b1) {
   auto at_dtype = w0.dtype();
-  // auto linear0 = at::matmul(x, w0).add(b0).view({B, S, 3 * E});
-  // auto qkv = linear0.split(E, 2);
-  // for (auto i = 0; i < 3; i++) {
-  //   qkv[i] =
-  //       qkv[i].reshape({B, S, H, E / H}).transpose(2, 1).to(at_dtype);
-  // }
-  // auto sdpa_out = at::_scaled_dot_product_flash_attention(
-  //     qkv[0], qkv[1], qkv[2], kSdpaProb, true, false, kSdpaScale);
-  // auto sdpa = std::get<0>(sdpa_out);
-  // // Reassemble heads (B, H, S, E/H) to (B, S, H, E/H) to (B, S, E)
-  // auto y = sdpa.transpose(1, 2).reshape({B * S, E});
-  // auto linear1 = at::matmul(y, w1).add(b1);
-  // auto y_dropout = at::dropout(linear1.to(at::kFloat), kDropoutProb, true);
-  // return {linear0, sdpa, linear1, y_dropout};
+  auto linear0 = at::matmul(x, w0).add(b0);
+  auto qkv = linear0.view({B, S, 3 * E}).split(E, 2);
+  for (auto i = 0; i < 3; i++) {
+    qkv[i] =
+        qkv[i].reshape({B, S, H, E / H}).transpose(2, 1).to(at_dtype);
+  }
+  auto sdpa_out = at::_scaled_dot_product_flash_attention(
+      qkv[0], qkv[1], qkv[2], kSdpaProb, true, false, kSdpaScale);
+  auto sdpa = std::get<0>(sdpa_out);
+  // Reassemble heads (B, H, S, E/H) to (B, S, H, E/H) to (B, S, E)
+  auto y = sdpa.transpose(1, 2).reshape({B * S, E});
+  auto linear1 = at::matmul(y, w1).add(b1);
+  auto y_dropout = at::dropout(linear1.to(at::kFloat), kDropoutProb, true);
+  return {linear0, sdpa, linear1, y_dropout};
 }
 
 std::vector<at::Tensor> reference_mlp_backwards(
@@ -312,27 +312,25 @@ std::vector<TensorView*> mha(
   TensorView* matmul0 = matmul(x, w0);
   TensorView* linear0 = add(matmul0, broadcast(b0, {false, true, false}));
   // Forming the q,k,v vectors:
-  TensorView* qkv = reshape(linear0, {D, B * S, 3 * E / D}, {D, B, S, 3 * E / D});
-  std::vector<TensorView*> qkv_reshaped = {};
+  TensorView* qkv_cat =
+      reshape(linear0, {D, B * S, 3 * E / D}, {D, B, S, 3 * E / D});
+  std::vector<TensorView*> qkv;
   for (auto i : c10::irange(3)) {
-    TensorView* tv_slice =
-        slice(qkv, {0, 0, 0, E / D * i}, {D, B, S, E / D * (i + 1)});
-    TensorView* tv_reshape =
-        reshape(tv_slice, {D, B, S, E / D}, {D, B, S, H / D, E / H});
-    TensorView* tv_trans = transpose(tv_reshape, 2, 3);
-    TensorView* tv_cast = castOp(dtype, tv_trans);
-    qkv_reshaped.push_back(tv_cast);
-    // Explicitly shard qkv before calling SDPA node
-    for (auto tv : {tv_slice, tv_reshape, tv_trans, tv_cast}) {
-      tv->setDeviceMesh(mesh);
-      tv->axis(0)->parallelize(ParallelType::DIDx);
-    }
+    TensorView* tv_reshaped =
+        slice(qkv_cat, {0, 0, 0, E / D * i}, {D, B, S, E / D * (i + 1)});
+    tv_reshaped =
+        reshape(tv_reshaped, {D, B, S, E / D}, {D, B, S, H / D, E / H});
+    tv_reshaped = castOp(dtype, transpose(tv_reshaped, 2, 3));
+    // Explicitly shard q, k, and v before calling SDPA node
+    tv_reshaped->setDeviceMesh(mesh);
+    tv_reshaped->axis(0)->parallelize(ParallelType::DIDx);
+    qkv.push_back(tv_reshaped);
   }
   // SDPA
   SdpfaFwdResult sdpa = sdpfa_fwd(
-      qkv_reshaped[0],
-      qkv_reshaped[1],
-      qkv_reshaped[2],
+      qkv[0],
+      qkv[1],
+      qkv[2],
       IrBuilder::create<Val>(kSdpaProb),
       IrBuilder::create<Val>(true),
       IrBuilder::create<Val>(kSdpaScale));
@@ -352,7 +350,7 @@ std::vector<TensorView*> mha(
   for (auto tv : {x, b1, matmul1, linear1, dropout_result}) {
     tv->setDeviceMesh(mesh);
   }
-  for (auto tv : {w0, b0, w1, local_matmul1, linear0, sdpa_output}) {
+  for (auto tv : {w0, b0, w1, linear0, sdpa_output}) {
     tv->setDeviceMesh(mesh);
     tv->axis(0)->parallelize(ParallelType::DIDx);
   }
@@ -711,8 +709,7 @@ TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
       shardTensor(w1, 0, mesh),
       b1};
   std::vector<at::Tensor> expected_outputs = {
-      shardTensor(reference_outs[0].view({B, S, 3, E}), 3, mesh)
-          .view({1, B, S, 3 * E / D}),
+      shardTensor(reference_outs[0].view({B*S, 3, E}), 2, mesh).view({1, B*S, 3*E/D}),
       shardTensor(reference_outs[1], 1, mesh),
       reference_outs[2],
       reference_outs[3]};
