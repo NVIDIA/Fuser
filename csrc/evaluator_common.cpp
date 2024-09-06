@@ -98,7 +98,7 @@ void collectBufferSizes(
 
 std::vector<Val*> collectRuntimeUsedValues(Fusion* fusion) {
   std::vector<Val*> ret;
-  auto all_tvs = ir_utils::allTvs(fusion);
+  auto all_tvs = fusion->allTvs();
   // Collect extent and inputs
   for (auto tv : all_tvs) {
     for (auto id : tv->getLoopDomain()) {

@@ -7,6 +7,7 @@
 // clang-format on
 #include <ATen/cuda/CUDAContext.h>
 #include <executor_utils.h>
+#include <instrumentation.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/matmul_utils.h>
@@ -24,6 +25,7 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
     const std::vector<TensorView*>& all_tvs,
     std::optional<PrimDataType> forced_index_type)
     : complete_fusion_(complete_fusion) {
+  FUSER_PERF_SCOPE("SchedulerRuntimeInfo::SchedulerRuntimeInfo");
   NVF_ERROR(
       complete_fusion_->inputs().size() == args.size(),
       "The provided fusion group expects ",
@@ -39,7 +41,7 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
   } else {
     index_type_ = registry_utils::getIndexTypeOfKernel(
         complete_fusion_,
-        all_tvs.empty() ? ir_utils::allTvs(complete_fusion_) : all_tvs,
+        all_tvs.empty() ? complete_fusion_->allTvs() : all_tvs,
         args,
         *expression_evaluator_);
   }
@@ -174,35 +176,34 @@ bool checkCanSchedule(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache = nullptr) {
+  FUSER_PERF_SCOPE("SchedulerRuntimeInfo::checkCanSchedule<T>");
   // ExprEval scheduler only requires `canScheduleCompileTime` check and should
   // not use this fn. The following checks build the computeAt map that do not
   // work with SDPAOp.
   NVF_ERROR(SchedulerType::heuristicType() != ScheduleHeuristic::ExprEval);
 
   FusionGuard fg(fusion);
-
-  // Fusions with `SdpaFwdOp/SdpaBwdOp` are only accepted in `ExprEval`
-  // scheduler, all other schedulers should reject them.
-  if (ir_utils::hasOpsOfType<SdpaFwdOp, SdpaBwdOp>(fusion)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        SchedulerType::heuristicType(), "SdpaOps are not supported.");
-    return false;
-  }
-
-  // Fusions with `MatmulOp, LinearOp, MmaOp` can only be accepted by Matmul
-  // scheduler.
-  if (SchedulerType::heuristicType() != ScheduleHeuristic::Matmul &&
-      ir_utils::hasOpsOfType<MatmulOp, LinearOp, MmaOp>(fusion)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        SchedulerType::heuristicType(), "Matmul ops are not supported.");
-    return false;
-  }
-
   // If a data cache is given, the compile time part doesn't need to be checked,
-  // since for all current use cases
-  //  it has to pass all the compile time checks to create a data cache for this
-  //  fusion.
-  if (!data_cache) {
+  // since during segmentation the segmenter will call
+  // SchedulerEntry::proposeHeuristics which doesn't pass a data_cache.
+  if (data_cache == nullptr) {
+    // Fusions with `SdpaFwdOp/SdpaBwdOp` are only accepted in `ExprEval`
+    // scheduler, all other schedulers should reject them.
+    if (ir_utils::hasOpsOfType<SdpaFwdOp, SdpaBwdOp>(fusion)) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          SchedulerType::heuristicType(), "SdpaOps are not supported.");
+      return false;
+    }
+
+    // Fusions with `MatmulOp, LinearOp, MmaOp` can only be accepted by Matmul
+    // scheduler.
+    if (SchedulerType::heuristicType() != ScheduleHeuristic::Matmul &&
+        ir_utils::hasOpsOfType<MatmulOp, LinearOp, MmaOp>(fusion)) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          SchedulerType::heuristicType(), "Matmul ops are not supported.");
+      return false;
+    }
+
     if (!registry_utils::isConnectedFusionGraph(fusion)) {
       scheduler_debug_utils::canScheduleRejectReason(
           SchedulerType::heuristicType(),
@@ -273,6 +274,7 @@ bool checkCanSchedule(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
+  FUSER_PERF_SCOPE("SchedulerEntry::makeEntry<T>");
   std::unique_ptr<SchedulerEntry> scheduler_entry = nullptr;
   switch (sh) {
     case ScheduleHeuristic::NoOp:
@@ -539,5 +541,7 @@ template class HeuristicSummaryEntry<HeuristicCompileTime::InnerMostDimInfo>;
 template class HeuristicSummaryEntry<
     HeuristicCompileTime::CanScheduleTranspose>;
 template class HeuristicSummaryEntry<HeuristicCompileTime::LogicalReorderMap>;
+template class HeuristicSummaryEntry<
+    HeuristicCompileTime::VectorizationBreakPointOfReductionProducer>;
 
 } // namespace nvfuser

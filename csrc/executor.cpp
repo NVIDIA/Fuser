@@ -563,8 +563,6 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShape(
     std::vector<Val*> symbolic_sizes,
     std::vector<bool> expand_flags,
     ExpressionEvaluator& expr_eval) {
-  FUSER_PERF_SCOPE("inferShape");
-
   // Allocate should be provided for intermediates. We just need to
   // grab a chunk of memory of the size dicatated by
   // Allocate::shape(). Fusion outputs do not come with Allocate and
@@ -1039,7 +1037,7 @@ std::vector<at::Tensor> allocateOutputs(
     const std::vector<FusionExecutor::GlobalBufferInfo>& output_info,
     const c10::Device& device,
     ExpressionEvaluator& ee) {
-  FUSER_PERF_SCOPE("allocateOutputs");
+  FUSER_PERF_SCOPE("executor.cpp::allocateOutputs");
 
   const auto num_outs = output_info.size();
 
@@ -1092,7 +1090,6 @@ int64_t FusionExecutor::computeSharedMemory(
     const std::vector<const kir::Allocate*>& buffers,
     DataType index_type,
     int64_t smem_offset) {
-  FUSER_PERF_SCOPE("FusionExecutor::computeSharedMemory");
   int64_t total = smem_offset;
   // align smem_offset at 16 bytes
   smem_offset = (smem_offset + 15) & (~15);
@@ -1303,8 +1300,6 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
     getIntermediateBufferInfo(
         ExpressionEvaluator& expr_eval,
         DataType index_type) {
-  FUSER_PERF_SCOPE("FusionExecutor::getIntermediateBufferInfo");
-
   std::vector<GlobalBufferInfo> global_buffers;
 
   const auto kernel = lowered_->kernel();
@@ -1691,7 +1686,7 @@ void FusionExecutor::computeArgs(
     ExecutorEntry& entry,
     ExpressionEvaluator& expr_eval,
     const kir::Kernel* kernel) const {
-  FUSER_PERF_SCOPE("Initial GetArgsBuffers");
+  FUSER_PERF_SCOPE("FusionExecutor::computeArgs");
 
   const std::vector<Val*>& params = kernel->parameters();
   entry.args.resize(params.size());
@@ -1709,7 +1704,7 @@ void FusionExecutor::recomputeArgs(
     ExecutorEntry& entry,
     ExpressionEvaluator& expr_eval,
     const kir::Kernel* kernel) const {
-  FUSER_PERF_SCOPE("Recompute GetArgsBuffers");
+  FUSER_PERF_SCOPE("FusionExecutor::recomputeArgs");
   // assert(entry.init && "entry was never initialized");
 
   const std::vector<Val*>& params = kernel->parameters();
@@ -2017,7 +2012,6 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   std::vector<at::Tensor> intermediates;
   at::Tensor profile_buffer;
   {
-    FUSER_PERF_SCOPE("ExecutorRunFusion::IntermediateBufferAlloc");
     for (const auto i : c10::irange(executor_entry->intermediates.size())) {
       const auto& buf_info = executor_entry->intermediates.at(i);
       bool has_expansion = false;
