@@ -22,6 +22,7 @@ enum class IdModelEnableOption {
   ProducerIndex,
   InlinePredicate,
   UnswitchPredicate,
+  Inlining,
 };
 
 inline std::unordered_set<IdModelEnableOption> getIdModelEnabledOptions() {
@@ -49,6 +50,10 @@ inline std::unordered_set<IdModelEnableOption> getIdModelEnabledOptions() {
       hasEnableOptionArgument(EnableOption::IdModel, "predicate") ||
       hasEnableOptionArgument(EnableOption::IdModel, "all")) {
     opts.insert(IdModelEnableOption::UnswitchPredicate);
+  }
+
+  if (hasEnableOptionArgument(EnableOption::IdModel, "inlining")) {
+    opts.insert(IdModelEnableOption::Inlining);
   }
 
   return opts;

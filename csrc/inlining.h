@@ -8,6 +8,7 @@
 #pragma once
 
 #include <exceptions.h>
+#include <id_model/id_model.h>
 #include <ir/interface_nodes.h>
 #include <maxinfo_propagator.h>
 #include <transform_replay.h>
@@ -24,6 +25,8 @@ class MaxPosCalculator {
 
   // User set IterDomains to not inline
   std::unordered_set<IterDomain*> uninlinable_ids_;
+
+  std::unique_ptr<IdModel> id_model_;
 
   // Iterate through all TVs and collect the dimensions of each TV that don't
   // map to all its consumer TVs.

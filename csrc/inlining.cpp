@@ -5,12 +5,16 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <device_lower/utils.h>
+#include <id_model/utils.h>
 #include <inlining.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
 #include <transform_iter.h>
 
 #include <utility>
+
+#include <fstream>
 
 namespace nvfuser {
 
@@ -19,6 +23,19 @@ MaxPosCalculator::MaxPosCalculator(
     bool compute_at_only)
     : uninlinable_ids_(std::move(uninlinable_ids)) {
   buildUnmappableDims(compute_at_only);
+  for (auto id : unmappable_dims_) {
+    std::cerr << "Unmappable: " << id->toString() << "\n";
+  }
+  if (isIdModelOptionEnabled(IdModelEnableOption::Inlining)) {
+    id_model_ = std::make_unique<IdModel>(
+        FusionGuard::getCurFusion(), /*build_graphs=*/false);
+    id_model_->buildExactGraph();
+    std::ofstream ofs("exact_graph.dot", std::ofstream::trunc);
+    auto dot_string =
+        id_model_->idGraph(IdMappingMode::EXACT).toGraphvizDotGraph();
+    ofs << dot_string;
+    ofs.close();
+  }
 }
 
 void MaxPosCalculator::buildUnmappableDims(bool compute_at_only) {
@@ -49,7 +66,6 @@ void MaxPosCalculator::buildUnmappableDims(bool compute_at_only) {
   }
 }
 
-// TODO: Next
 bool MaxPosCalculator::isAllowedID(
     IterDomain* id,
     TensorView* tv,
@@ -85,7 +101,8 @@ bool MaxPosCalculator::isAllowedID(
     // auto all_vals =
     // DependencyCheck::getAllValsBetween(logical_dom_set, {id});
     if (getenv("NEW")) {
-      auto all_vals = IRBFS::getValsBetween({logical_dom.begin(), logical_dom.end()}, {id});
+      auto all_vals =
+          IRBFS::getValsBetween({logical_dom.begin(), logical_dom.end()}, {id});
       for (auto val : all_vals) {
         auto id = val->as<IterDomain>();
         if (logical_dom_set.count(val) > 0 && unmappable_dims_.count(id) > 0) {
@@ -95,7 +112,7 @@ bool MaxPosCalculator::isAllowedID(
       }
     } else {
       auto all_vals = DependencyCheck::getAllValsBetween(logical_dom_set, {id});
-      //bool is_unmappable = false;
+      // bool is_unmappable = false;
       for (auto val : all_vals) {
         auto id = val->as<IterDomain>();
         if (logical_dom_set.count(val) > 0 && unmappable_dims_.count(id) > 0) {
@@ -116,7 +133,7 @@ size_t MaxPosCalculator::getMaxPosSelf(
     bool allow_reduction,
     bool allow_vectorize,
     bool allow_unmappable) const {
-  auto dom = tv->getLoopDomain();
+  const auto& dom = tv->getLoopDomain();
   auto iter = std::find_if(
       dom.begin(),
       dom.end(),
@@ -141,33 +158,64 @@ size_t MaxPosCalculator::getMaxPosSelf(
 // Cannot inline:
 //   Vectorized dimensions in consumer
 //   Unrolled dimensions in consumer
-// TODO: idmodel
 size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
     TensorView* producer,
     TensorView* consumer,
     bool best_effort) const {
-  auto pairwise_logical_map = PairwiseLogicalDomainMap(producer, consumer);
-  auto replay_CasP = BestEffortReplay::replayCasP(
-      consumer, producer, -1, pairwise_logical_map);
-  auto p2c_replay_map = replay_CasP.getReplay();
+  std::cerr << "getMaxProducerPosFromConsumer: " << producer->toString() << ", "
+            << consumer->toString() << "\n";
 
-  for (const auto producer_pos : c10::irange(producer->nDims())) {
-    // If the producer position is mismatching with the consumer, then we can
-    // not inline into this position, otherwise the max producer position of
-    // the consumer will become invalid and expression sort will fail.
-    if (TransformReplay::getMatchedLeafPosWithoutReplayCasP(
-            consumer, producer, producer_pos + 1) < 0) {
-      return producer_pos;
+  if (lower_utils::hasRootToLoopLinearTransformations(producer) &&
+      lower_utils::hasRootToLoopLinearTransformations(consumer)) {
+    auto pairwise_logical_map = PairwiseLogicalDomainMap(producer, consumer);
+    auto replay_CasP = BestEffortReplay::replayCasP(
+        consumer, producer, -1, pairwise_logical_map);
+    auto p2c_replay_map = replay_CasP.getReplay();
+
+    for (const auto producer_pos : c10::irange(producer->nDims())) {
+      // If the producer position is mismatching with the consumer, then we can
+      // not inline into this position, otherwise the max producer position of
+      // the consumer will become invalid and expression sort will fail.
+      if (TransformReplay::getMatchedLeafPosWithoutReplayCasP(
+              consumer, producer, producer_pos + 1) < 0) {
+        return producer_pos;
+      }
+      auto map_it = p2c_replay_map.find(producer->axis(producer_pos));
+      if (map_it != p2c_replay_map.end()) {
+        auto c_id = map_it->second;
+        if (!isAllowedID(c_id, consumer, best_effort, true, false, true)) {
+          return producer_pos;
+        }
+      }
     }
-    auto map_it = p2c_replay_map.find(producer->axis(producer_pos));
-    if (map_it != p2c_replay_map.end()) {
-      auto c_id = map_it->second;
+    return producer->nDims();
+  } else {
+    std::cerr << "Nonconventional loop domains: " << producer->toString()
+              << ", " << consumer->toString() << "\n";
+    NVF_ERROR(id_model_.get() != nullptr);
+    const auto& exact_graph = id_model_->idGraph(IdMappingMode::EXACT);
+    for (const auto producer_pos : c10::irange(producer->nDims())) {
+      auto p_id = producer->getLoopDomain().at(producer_pos);
+      auto c_id_it = std::find_if(
+          consumer->getLoopDomain().begin(),
+          consumer->getLoopDomain().end(),
+          [&](IterDomain* c_id) -> bool {
+            return exact_graph.disjointValSets().strictAreMapped(p_id, c_id);
+          });
+      if (c_id_it == consumer->getLoopDomain().end()) {
+        std::cerr << "No matching consumer id found: " << p_id->toString()
+                  << "\n";
+        return producer_pos;
+      }
+
+      IterDomain* c_id = *c_id_it;
       if (!isAllowedID(c_id, consumer, best_effort, true, false, true)) {
         return producer_pos;
       }
     }
+
+    return producer->nDims();
   }
-  return producer->nDims();
 }
 
 size_t MaxPosCalculator::getMaxPosAll(
