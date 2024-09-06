@@ -1050,6 +1050,36 @@ using AbstractValGroup = dynamic_type::DynamicType<
     ValGroup // a whole ValGroup
     >;
 
+std::string print(const AbstractValGroup& group);
+
+std::string print(const ValGroup& group) {
+  return group->toString();
+}
+
+std::string print(const PartOf<AbstractValGroup>& part) {
+  auto str_or_null = [](Val* val) {
+    return val == nullptr ? "nullptr" : val->toInlineString();
+  };
+  return "PartOf(outer_extent=" + str_or_null(part.outer_extent) +
+      ", group=" + print(*part.group) +
+      ", inner_extent=" + str_or_null(part.inner_extent) + ")";
+}
+
+std::string print(const std::vector<AbstractValGroup>& vec) {
+  std::stringstream ss;
+  ss << "[";
+  for (const auto& g : vec) {
+    ss << print(g) << ", ";
+  }
+  ss << "]";
+  return ss.str();
+}
+
+std::string print(const AbstractValGroup& group) {
+  return AbstractValGroup::dispatch(
+      [&](const auto& group) { return print(group); }, group);
+}
+
 bool related(const AbstractValGroup& current, const ValGroup& to);
 
 bool related(const ValGroup& current, const ValGroup& to) {
@@ -1345,6 +1375,7 @@ Val* proveLinearAndGetStride(
                                            : id_graph.outputGroups(eg);
   };
   while (!path.empty()) {
+    std::cout << "frontier: " << print(frontier) << std::endl;
     const auto& [eg, direction] = path.back();
     path.pop_back();
     auto from_groups = from(eg, direction);
@@ -1357,16 +1388,20 @@ Val* proveLinearAndGetStride(
     if (!eg->front()->isOneOf<Split, Merge>()) {
       return nullptr;
     }
-    if (auto split = dynamic_cast<Split*>(eg->front());
-        split && !simplifyExpr(split->isDivisible())->isTrue()) {
-      return nullptr;
-    }
+    // if (auto split = dynamic_cast<Split*>(eg->front());
+    //     split && !simplifyExpr(split->isDivisible())->isTrue()) {
+    //   return nullptr;
+    // }
     auto to_groups = to(eg, direction);
+    std::cout << "propagating: " << eg->toString() << "\t" << direction
+              << std::endl;
     frontier = propagate(frontier, from_groups, to_groups);
     if (!frontier.hasValue()) {
+      std::cout << "failed to propagate" << std::endl;
       return nullptr;
     }
   }
+  std::cout << "finished propagating" << std::endl;
   return proveLinearAndGetStrideAfterPropagation(frontier, domain);
 }
 

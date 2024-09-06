@@ -1243,6 +1243,11 @@ TEST_F(NVFuserTest, ProveLinearAndGetStride) {
   auto v4__ = v4_.as<ValGroupAndItsGraph>();
   std::vector<ValGroup> v4(v4__.begin(), v4__.end());
 
+  // debug zone
+  Val* v1_3_in_v3_ = lower_utils::proveLinearAndGetStride(g, v1[3], v3);
+  EXPECT_EQ(simplifyExpr(v1_3_in_v3_)->value(), 256);
+  return;
+
   // v1 in v1
   Val* v1_0_in_v1 = lower_utils::proveLinearAndGetStride(g, v1[0], v1);
   EXPECT_NE(v1_0_in_v1, nullptr);
@@ -1287,7 +1292,6 @@ TEST_F(NVFuserTest, ProveLinearAndGetStride) {
   Val* v1_6_in_v2 = lower_utils::proveLinearAndGetStride(g, v1[6], v2);
   EXPECT_EQ(simplifyExpr(v1_6_in_v2)->value(), 1);
 
-#if 0
   // v1 in v3
   Val* v1_0_in_v3 = lower_utils::proveLinearAndGetStride(g, v1[0], v3);
   EXPECT_NE(v1_0_in_v3, nullptr);
@@ -1356,7 +1360,6 @@ TEST_F(NVFuserTest, ProveLinearAndGetStride) {
 
   Val* v2_7_in_v1 = lower_utils::proveLinearAndGetStride(g, v2[7], v1);
   EXPECT_EQ(v2_7_in_v1, nullptr);
-#endif
 
   // v2 in v2
   Val* v2_0_in_v2 = lower_utils::proveLinearAndGetStride(g, v2[0], v2);
@@ -1383,7 +1386,6 @@ TEST_F(NVFuserTest, ProveLinearAndGetStride) {
   Val* v2_7_in_v2 = lower_utils::proveLinearAndGetStride(g, v2[7], v2);
   EXPECT_EQ(simplifyExpr(v2_7_in_v2)->value(), 1);
 
-#if 0
   // v2 in v3
   Val* v2_0_in_v3 = lower_utils::proveLinearAndGetStride(g, v2[0], v3);
   EXPECT_NE(v2_0_in_v3, nullptr);
@@ -1477,7 +1479,6 @@ TEST_F(NVFuserTest, ProveLinearAndGetStride) {
 
   Val* v3_6_in_v2 = lower_utils::proveLinearAndGetStride(g, v3[6], v2);
   EXPECT_EQ(simplifyExpr(v3_6_in_v2)->value(), 1);
-#endif
 
   // v3 in v3
   Val* v3_0_in_v3 = lower_utils::proveLinearAndGetStride(g, v3[0], v3);
@@ -1501,7 +1502,6 @@ TEST_F(NVFuserTest, ProveLinearAndGetStride) {
   Val* v3_6_in_v3 = lower_utils::proveLinearAndGetStride(g, v3[6], v3);
   EXPECT_EQ(simplifyExpr(v3_6_in_v3)->value(), 1);
 
-#if 0
   // v3 in v4
   Val* v3_0_in_v4 = lower_utils::proveLinearAndGetStride(g, v3[0], v4);
   EXPECT_NE(v3_0_in_v4, nullptr);
@@ -1598,7 +1598,6 @@ TEST_F(NVFuserTest, ProveLinearAndGetStride) {
 
   Val* v4_7_in_v3 = lower_utils::proveLinearAndGetStride(g, v4[7], v3);
   EXPECT_EQ(simplifyExpr(v4_7_in_v3)->value(), 1);
-#endif
 
   // v4 in v4
   Val* v4_0_in_v4 = lower_utils::proveLinearAndGetStride(g, v4[0], v4);
