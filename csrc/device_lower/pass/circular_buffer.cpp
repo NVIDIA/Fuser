@@ -118,8 +118,8 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
         start,
         stop,
         /*step=*/GpuLower::current()->kernel()->oneVal(),
-        /*step=*/false,
-        /*vectorize=*/nullptr,
+        /*vectorize=*/false,
+        /*vectorize_shift=*/nullptr,
         circular_buffer_loop_->isUnrollRequired(),
         loop_type_);
 
@@ -131,16 +131,24 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
         ? cloned_top_level_loop_
         : IrBuilder::create<ForLoop>(fl);
 
-    cloned_scopes_.push_back(&cloned_loop->body());
+    // Add to stack
+    for_loop_stack_.push_back(cloned_loop);
 
+    // Process for-loop
     kir::IrVisitor::handle(fl);
 
-    cloned_scopes_.pop_back();
+    // Pop from stack
+    for_loop_stack_.pop_back();
 
+    // Specific handling of for-loop
+    processForLoop(cloned_loop);
+  }
+
+  virtual void processForLoop(ForLoop* cloned_loop) {
     // Add the cloned loop into the parent loop body only when the
     // cloned loop contains expressions.
-    if (!cloned_loop->body().empty() && !cloned_scopes_.empty()) {
-      cloned_scopes_.back()->push_back(cloned_loop);
+    if (!cloned_loop->body().empty() && !for_loop_stack_.empty()) {
+      for_loop_stack_.back()->body().push_back(cloned_loop);
     }
   }
 
@@ -149,7 +157,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
   }
 
   void dispatch(Expr* expr) override {
-    // skip expression if it is in exclude set
+    // Skip expression if it is in exclude set
     if (exclude_.count(expr) > 0) {
       return;
     }
@@ -160,8 +168,13 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
       return;
     }
 
-    NVF_ERROR(!cloned_scopes_.empty());
+    NVF_ERROR(!for_loop_stack_.empty());
 
+    // Specific expression handling
+    processExpr(expr);
+  }
+
+  virtual void processExpr(Expr* expr) {
     switch (loop_type_) {
       case CircularBufferLoopStage::Prolog: {
         // In Prologue, only copy the load expressions.
@@ -169,19 +182,19 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
         // circular buffered TVs (e.g., buffer initialization).
         TensorView* out_tv = ir_utils::getTvOutput(expr);
         if (circular_buffer_load_tvs_.count(out_tv) > 0) {
-          cloned_scopes_.back()->push_back(expr);
+          for_loop_stack_.back()->body().push_back(expr);
         }
         break;
       }
       case CircularBufferLoopStage::Main: {
-        cloned_scopes_.back()->push_back(expr);
+        for_loop_stack_.back()->body().push_back(expr);
         break;
       }
       case CircularBufferLoopStage::Epilog: {
         // In Epilogue, copy everything except circular buffer load expressions.
         TensorView* out_tv = ir_utils::getTvOutput(expr);
         if (circular_buffer_load_tvs_.count(out_tv) == 0) {
-          cloned_scopes_.back()->push_back(expr);
+          for_loop_stack_.back()->body().push_back(expr);
         }
         break;
       }
@@ -191,14 +204,14 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
     }
   }
 
- private:
+ protected:
   ForLoop* circular_buffer_loop_ = nullptr;
   const std::vector<Expr*>& circular_buffer_load_exprs_;
   const CircularBufferLoopStage loop_type_;
 
   std::unordered_set<TensorView*> circular_buffer_load_tvs_;
   ForLoop* cloned_top_level_loop_ = nullptr;
-  std::deque<Scope*> cloned_scopes_;
+  std::vector<ForLoop*> for_loop_stack_;
   const std::unordered_set<Expr*>& exclude_;
 };
 

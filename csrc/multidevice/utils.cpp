@@ -281,7 +281,7 @@ void shardBetween(
 
 int64_t requestedNumberOfDevices(Fusion* fusion) {
   DeviceIdxType max_index = 0;
-  for (auto tv : ir_utils::allTvs(fusion)) {
+  for (auto tv : fusion->allTvs()) {
     if (tv->hasDeviceMesh()) {
       for (auto d_id : tv->getDeviceMesh().vector()) {
         max_index = std::max(max_index, d_id);
@@ -301,7 +301,7 @@ void unshard(TensorView* tv) {
 }
 
 void unshard(Fusion* fusion) {
-  for (auto tv : ir_utils::allTvs(fusion)) {
+  for (auto tv : fusion->allTvs()) {
     unshard(tv);
   }
 }

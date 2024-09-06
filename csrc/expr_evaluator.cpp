@@ -174,53 +174,61 @@ void ExpressionEvaluator::bind_(
         t.dim());
     for (auto i : c10::irange(t.dim())) {
       auto id = logical_domain[i];
-      if (id->hasExpandedExtent()) {
-        // Verify that t is also expanded
-        NVF_ERROR(
-            t.size(i) == 1 || t.stride(i) == 0,
-            "IterDomain ",
-            id->toString(),
-            " in ",
-            getInputPosString(tv),
-            "TensorView ",
-            tv->toString(),
-            " has expanded extent but input tensor has size ",
-            t.size(i),
-            " and stride ",
-            t.stride(i),
-            " in dimension ",
-            i);
-        bind_(
-            logical_domain[i]->expandedExtent(), t.size(i), evaluate_validate);
-      } else if (logical_domain[i]->isDeviceDim()) {
-        // Currently we have the restrictions:
-        // (1) Devices parallelized axis extent == DeviceMesh's extent
-        // (2) Device parallelized axis cannot be split or merged
-        // Therefore, the device parallelized extents will always be allocated
-        // with size 1, but the symbolic axis extent is binded with the extent
-        // of the DeviceMesh
-        NVF_CHECK(
-            1 == t.size(i),
-            "TensorView ",
-            tv->toString(),
-            getInputPosString(tv),
-            " IterDomain ",
-            id->toString(),
-            "is sharded and must have size 1, but input tensor has size ",
-            t.size(i));
-        NVF_CHECK(
-            tv->hasDeviceMesh(),
-            "TV ",
-            tv->toString(),
-            getInputPosString(tv),
-            " has an empty DeviceMesh with DID parallelization")
-        bind_(
-            logical_domain[i]->extent(),
-            static_cast<int>(
-                tv->getDeviceMesh().size(logical_domain[i]->getParallelType())),
-            evaluate_validate);
+      if (id->isBroadcast()) {
+        // DIDs are ignored for broadcast.
+        bind_(logical_domain[i]->extent(), 1, evaluate_validate);
+        if (id->hasExpandedExtent()) {
+          // Verify that t is also expanded
+          NVF_ERROR(
+              t.size(i) == 1 || t.stride(i) == 0,
+              "IterDomain ",
+              id->toString(),
+              " in ",
+              getInputPosString(tv),
+              "TensorView ",
+              tv->toString(),
+              " has expanded extent but input tensor has size ",
+              t.size(i),
+              " and stride ",
+              t.stride(i),
+              " in dimension ",
+              i);
+          bind_(
+              logical_domain[i]->expandedExtent(),
+              t.size(i),
+              evaluate_validate);
+        }
       } else {
-        bind_(logical_domain[i]->extent(), t.size(i), evaluate_validate);
+        if (logical_domain[i]->isDeviceDim()) {
+          // Currently we have the restrictions:
+          // (1) Devices parallelized axis extent == DeviceMesh's extent
+          // (2) Device parallelized axis cannot be split or merged
+          // Therefore, the device parallelized extents will always be allocated
+          // with size 1, but the symbolic axis extent is binded with the extent
+          // of the DeviceMesh
+          NVF_CHECK(
+              1 == t.size(i),
+              "TensorView ",
+              tv->toString(),
+              getInputPosString(tv),
+              " IterDomain ",
+              id->toString(),
+              "is sharded and must have size 1, but input tensor has size ",
+              t.size(i));
+          NVF_CHECK(
+              tv->hasDeviceMesh(),
+              "TV ",
+              tv->toString(),
+              getInputPosString(tv),
+              " has an empty DeviceMesh with DID parallelization")
+          bind_(
+              logical_domain[i]->extent(),
+              static_cast<int64_t>(tv->getDeviceMesh().size(
+                  logical_domain[i]->getParallelType())),
+              evaluate_validate);
+        } else {
+          bind_(logical_domain[i]->extent(), t.size(i), evaluate_validate);
+        }
       }
     }
   }
@@ -344,11 +352,18 @@ void ExpressionEvaluator::print() const {
   debug() << "--------------------\n\n";
 }
 
-void ExpressionEvaluator::propagateBoundValuesThroughExactMaps(Fusion* fusion) {
+void ExpressionEvaluator::propagateBoundValuesThroughExactMaps(
+    Fusion* fusion,
+    ExactLogicalDomainMap* exact_map) {
   // We map Symbolic IterDomains here only if their extents match. This avoids
   // mapping between symbolic domains that might concretize to an (Iteration,
   // Broadcast) pair from a resolved broadcast.
-  const auto mapped_sets = ExactLogicalDomainMap(fusion).getMappedSets();
+  std::unique_ptr<ExactLogicalDomainMap> exact_map_ptr;
+  if (exact_map == nullptr) {
+    exact_map_ptr = std::make_unique<ExactLogicalDomainMap>(fusion);
+    exact_map = exact_map_ptr.get();
+  }
+  const auto mapped_sets = exact_map->getMappedSets();
 
   for (const auto& set : mapped_sets.disjointSets()) {
     int64_t known_size = -1;
