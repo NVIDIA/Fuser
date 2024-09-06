@@ -68,9 +68,6 @@ void validateGroupedReductions(Fusion* fusion);
 //! Validate all of the lookup TVs are ensured to be fusion inputs
 void validateLookupTV(Fusion* fusion);
 
-//! Validate resize usage
-void validateResize(Fusion* fusion);
-
 //! Check that there are no reductions over unexpanded broadcasts
 void validateReductions(Fusion* fusion);
 
