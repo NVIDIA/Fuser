@@ -430,8 +430,7 @@ std::vector<TensorView*> mlp_backwards(
   // Activation recomputation
   TensorView* matmul0 = matmul(x, w0);
   TensorView* b0_bcast = broadcast(b0, {false, true, false});
-  TensorView* linear0 = add(matmul0, b0_bcast);
-  linear0 = castOp(DataType::Float, linear0);
+  TensorView* linear0 = add(matmul0, b0_bcast); // add generates float.
   TensorView* gelu = tanh_gelu(linear0);
   gelu = castOp(dtype, gelu);
 
