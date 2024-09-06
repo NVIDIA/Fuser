@@ -215,11 +215,17 @@ void FusionState::aliasOutputToInput(Val* output, Val* input) {
   fusion_->aliasOutputToInput(output, input, AllocationType::ReuseBuffer);
 }
 
-std::vector<int64_t> FusionState::inputs() {
+//! Get map between CPP Fusion and Python FusionDefinition
+const std::unordered_map<const Val*, int64_t>& FusionState::getValueMap()
+    const {
+  return map_value_to_fid_;
+}
+
+const std::vector<int64_t>& FusionState::inputs() const {
   return inputs_fid_;
 }
 
-std::vector<int64_t> FusionState::outputs() {
+const std::vector<int64_t>& FusionState::outputs() const {
   return outputs_fid_;
 }
 

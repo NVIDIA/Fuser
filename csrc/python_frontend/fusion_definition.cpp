@@ -96,6 +96,16 @@ void FusionDefinition::finalizeDefinition() {
 
     buildFusionIr(preschedFusion());
 
+    // The FusionState creates a mapping from CPP Fusion to its State objects.
+    // Since the CPP Fusion is cached in FusionCache and the FusionState is
+    // temporary, the information linking CPP Fusion and Python
+    // FusionDefinition is stored in FusionCache.
+    FusionSchedules* fs =
+        fusionCache()->queryFusionSchedules(fusion_id_.value());
+    fs->inputs_fid_ = inputs();
+    fs->outputs_fid_ = outputs();
+    fs->map_value_to_fid_ = getValueMap();
+
     if (isDebugDumpEnabled(DebugDumpOption::FusionIrOriginal)) {
       printIr();
     }
@@ -105,6 +115,16 @@ void FusionDefinition::finalizeDefinition() {
     }
     trie_node_ = child_node.value();
     fusion_id_ = std::optional<size_t>(trie_node_->fusion_id);
+
+    // A CPP fusion already exists in the FusionCache for this FusionDefinition.
+    // In this case, a new CPP Fusion is not created, so the mapping from CPP
+    // fusion to Python FusionDefinition is not initialized. This state is
+    // stored within FusionSchedules and is retrieved for this FusionDefinition.
+    FusionSchedules* fs =
+        fusionCache()->queryFusionSchedules(fusion_id_.value());
+    inputs_fid_ = fs->inputs_fid_;
+    outputs_fid_ = fs->outputs_fid_;
+    map_value_to_fid_ = fs->map_value_to_fid_;
   }
 
   NVF_ERROR(

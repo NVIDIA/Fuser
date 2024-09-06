@@ -85,10 +85,12 @@ class FusionState {
   //! Alias an Output to Input in the Fusion object
   NVF_API void aliasOutputToInput(Val* output, Val* input);
 
+  //! Get map between CPP Fusion and Python FusionDefinition
+  NVF_API const std::unordered_map<const Val*, int64_t>& getValueMap() const;
   //! Get indicies for the inputs of FusionState
-  NVF_API std::vector<int64_t> inputs();
+  NVF_API const std::vector<int64_t>& inputs() const;
   //! Get indicies for the outputs of FusionState
-  NVF_API std::vector<int64_t> outputs();
+  NVF_API const std::vector<int64_t>& outputs() const;
 
   //! Add a Record
   void addRecord(RecordFunctor* record);
@@ -111,6 +113,10 @@ class FusionState {
   std::vector<State> recording_state_;
   //! Map Fusion Val to its corresponding FusionDefinition index
   std::unordered_map<const Val*, int64_t> map_value_to_fid_;
+  //! Input arguments for FusionState
+  std::vector<int64_t> inputs_fid_;
+  //! Output arguments for FusionState
+  std::vector<int64_t> outputs_fid_;
 
  private:
   //! A ptr to the container used when building the Fusion IR from a definition
@@ -123,10 +129,6 @@ class FusionState {
   //! The number of states in Fusion Container
   //! A sum of all outputs for each RecordFunctor
   size_t num_recording_states_;
-  //! Input arguments for FusionState
-  std::vector<int64_t> inputs_fid_;
-  //! Output arguments for FusionState
-  std::vector<int64_t> outputs_fid_;
 };
 
 } // namespace nvfuser::python_frontend

@@ -739,9 +739,17 @@ void FusionCache::deserialize(std::string filename) {
       NVF_CHECK(
           trie_ptr->fusion_id == fb_trie_node->fusion_id(),
           "The fusion id for this TrieNode should already be set.")
-      Fusion* fusion =
-          queryFusionSchedules(fb_trie_node->fusion_id())->preschedFusion();
+      FusionSchedules* fs = queryFusionSchedules(fb_trie_node->fusion_id());
+      Fusion* fusion = fs->preschedFusion();
       state->buildFusionIr(fusion);
+
+      // The FusionState creates a mapping from CPP Fusion to its State objects.
+      // Since the CPP Fusion is cached in FusionCache and the FusionState is
+      // temporary, the information linking CPP Fusion and Python
+      // FusionDefinition is stored in FusionCache.
+      fs->inputs_fid_ = state->inputs();
+      fs->outputs_fid_ = state->outputs();
+      fs->map_value_to_fid_ = state->getValueMap();
     }
 
     // Table TrieNode => Field: children: [ulong]
