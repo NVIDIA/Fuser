@@ -78,16 +78,30 @@ bool MaxPosCalculator::isAllowedID(
   }
 
   if (!allow_unmappable) {
+    bool is_unmappable = false;
     auto logical_dom = tv->getLogicalDomain();
     std::unordered_set<Val*> logical_dom_set(
         logical_dom.begin(), logical_dom.end());
-    auto all_vals = DependencyCheck::getAllValsBetween(logical_dom_set, {id});
-    bool is_unmappable = false;
-    for (auto val : all_vals) {
-      auto id = val->as<IterDomain>();
-      if (logical_dom_set.count(val) > 0 && unmappable_dims_.count(id) > 0) {
-        is_unmappable = true;
-        break;
+    // auto all_vals =
+    // DependencyCheck::getAllValsBetween(logical_dom_set, {id});
+    if (getenv("NEW")) {
+      auto all_vals = IRBFS::getValsBetween({logical_dom.begin(), logical_dom.end()}, {id});
+      for (auto val : all_vals) {
+        auto id = val->as<IterDomain>();
+        if (logical_dom_set.count(val) > 0 && unmappable_dims_.count(id) > 0) {
+          is_unmappable = true;
+          break;
+        }
+      }
+    } else {
+      auto all_vals = DependencyCheck::getAllValsBetween(logical_dom_set, {id});
+      //bool is_unmappable = false;
+      for (auto val : all_vals) {
+        auto id = val->as<IterDomain>();
+        if (logical_dom_set.count(val) > 0 && unmappable_dims_.count(id) > 0) {
+          is_unmappable = true;
+          break;
+        }
       }
     }
     allowed = allowed && !is_unmappable;

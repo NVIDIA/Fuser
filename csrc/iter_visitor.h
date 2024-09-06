@@ -618,6 +618,8 @@ class IRBFS
   // if a forward Merge needs to be traversed to get to the target Val
   // set, both of the two inputs must be given or reachable from the
   // given starting Val set.
+  //
+  // NOTE: getValsBetween(from, to) != getValsBetween(to, from)
   static std::vector<Val*> getValsBetween(
       const std::vector<Val*>& from,
       const std::vector<Val*>& to);

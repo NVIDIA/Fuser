@@ -1161,6 +1161,14 @@ std::vector<Val*> IRBFS::getValsBetween(
     unique_vals.pushBack(expr->inputs());
   }
 
+  // If a val in from is found in to, just copy it to the returned val
+  // set since there's no corresponding expr.
+  for (auto from_val : from) {
+    if (std::find(to.begin(), to.end(), from_val) != to.end()) {
+      unique_vals.pushBack(from_val);
+    }
+  }
+
   return unique_vals.vector();
 }
 
@@ -1176,7 +1184,8 @@ std::vector<Val*> IRBFS::getReachableValsFrom(
 
   std::vector<Val*> reachable_vals;
   for (auto val : vals) {
-    if (bfs.isVisited(val)) {
+    if (bfs.isVisited(val) ||
+        std::find(from.begin(), from.end(), val) != from.end()) {
       reachable_vals.push_back(val);
     }
   }
