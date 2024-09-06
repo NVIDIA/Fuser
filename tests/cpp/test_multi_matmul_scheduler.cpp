@@ -362,8 +362,13 @@ class MultiMatmulSchedulerMatchTest
     auto getTensorsToCompare = [](Fusion* fusion) {
       std::vector<TensorView*> tvs;
 
-      for (Val* v : fusion->inputs()) {
+      // Find MmaOp and get operand inputs. This avoids checking biases for now
+      auto mma_ops = ir_utils::getOpsOfType<MmaOp>(fusion);
+      NVF_ERROR(mma_ops.size(), 1);
+      MmaOp* mma = mma_ops.front();
+      for (Val* v : InputsOf::outputs({mma->inA(), mma->inB()})) {
         EXPECT_TRUE(v->isA<TensorView>());
+        EXPECT_TRUE(v->isFusionInput());
         // Take the consumer of each input, which is the smem store
         tvs.push_back(v->uses().at(0)->output(0)->as<TensorView>());
       }
