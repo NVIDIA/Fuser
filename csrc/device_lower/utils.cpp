@@ -1037,9 +1037,9 @@ namespace {
 
 template <typename AbstractValGroup>
 struct PartOf {
-  Val* left_extent = nullptr;
-  std::unique_ptr<AbstractValGroup> group;
-  Val* right_extent = nullptr;
+  Val* outer_extent = nullptr;
+  std::shared_ptr<AbstractValGroup> group;
+  Val* inner_extent = nullptr;
 };
 
 using AbstractValGroup = dynamic_type::DynamicType<
@@ -1049,6 +1049,70 @@ using AbstractValGroup = dynamic_type::DynamicType<
         >,
     ValGroup // a whole ValGroup
     >;
+
+bool related(const AbstractValGroup& current, const ValGroup& to);
+
+bool related(const ValGroup& current, const ValGroup& to) {
+  return current == to;
+}
+
+bool related(const PartOf<AbstractValGroup>& current, const ValGroup& to) {
+  return related(*current.group, to);
+}
+
+bool related(const std::vector<AbstractValGroup>& current, const ValGroup& to) {
+  return std::any_of(
+      current.begin(), current.end(), [&](const auto& g) { return related(g, to); });
+}
+
+bool related(const std::monostate& current, const ValGroup& to) {
+  return false;
+}
+
+bool related(const AbstractValGroup& current, const ValGroup& to) {
+  return AbstractValGroup::dispatch(
+      [&](const auto& current) { return related(current, to); }, current);
+}
+
+AbstractValGroup propagate(
+    const ValGroup& current,
+    const ValGroups& from,
+    const ValGroups& to) {
+  if (from.size() == 1) {
+    NVF_ERROR(to.size() == 2);
+    NVF_ERROR(from.front() == current);
+    return std::vector<AbstractValGroup>{to.front(), to.back()};
+  } else {
+    NVF_ERROR(from.size() == 2);
+    NVF_ERROR(to.size() == 1);
+    NVF_ERROR(from.front() == current || from.back() == current);
+    return PartOf<AbstractValGroup>{
+        from.front() == current ? nullptr : from.front()->front()->as<IterDomain>()->extent(),
+        std::make_shared<AbstractValGroup>(to.front()),
+        from.front() == current ? from.back()->front()->as<IterDomain>()->extent() : nullptr};
+  }
+}
+
+AbstractValGroup propagate(
+    const PartOf<AbstractValGroup>& current,
+    const ValGroups& from,
+    const ValGroups& to) {
+  NVF_ERROR(false, "Not Implemented Yet.");
+}
+
+AbstractValGroup propagate(
+    const std::vector<AbstractValGroup>& current,
+    const ValGroups& from,
+    const ValGroups& to) {
+  NVF_ERROR(false, "Not Implemented Yet.");
+}
+
+AbstractValGroup propagate(
+    const std::monostate& current,
+    const ValGroups& from,
+    const ValGroups& to) {
+  NVF_ERROR(false, "Should not reach here.");
+}
 
 Val* proveLinearAndGetStrideAfterPropagation(
     const ValGroup& g_in_domain,
@@ -1067,12 +1131,14 @@ Val* proveLinearAndGetStrideAfterPropagation(
 Val* proveLinearAndGetStrideAfterPropagation(
     const PartOf<AbstractValGroup>& g_in_domain,
     const ValGroups& domain) {
+  NVF_ERROR(false, "Not Implemented Yet.");
   return nullptr;
 }
 
 Val* proveLinearAndGetStrideAfterPropagation(
     const std::vector<AbstractValGroup>& g_in_domain,
     const ValGroups& domain) {
+  NVF_ERROR(false, "Not Implemented Yet.");
   return nullptr;
 }
 
@@ -1096,10 +1162,32 @@ Val* proveLinearAndGetStride(
     // of size one.
     return linear_g->front()->fusion()->zeroVal();
   }
-  auto path = ValGraphBFS::getExprsBetween(id_graph, domain, {linear_g});
   AbstractValGroup frontier = linear_g;
-  for (const auto& [eg, direction] : path) {
-    std::cout << eg << "\t" << direction << std::endl;
+  auto path = ValGraphBFS::getExprsBetween(id_graph, domain, {linear_g});
+  auto from = [&](const ExprGroup& eg, Direction direction) {
+    return direction == Direction::Forward ? id_graph.outputGroups(eg)
+                                           : id_graph.inputGroups(eg);
+  };
+  auto to = [&](const ExprGroup& eg, Direction direction) {
+    return direction == Direction::Forward ? id_graph.inputGroups(eg)
+                                           : id_graph.outputGroups(eg);
+  };
+  while (!path.empty()) {
+    const auto& [eg, direction] = path.back();
+    path.pop_back();
+    if (!eg->front()->isOneOf<Split, Merge>()) {
+      return nullptr;
+    }
+    auto from_groups = from(eg, direction);
+    auto to_groups = to(eg, direction);
+    frontier = AbstractValGroup::dispatch(
+        [&](const auto& frontier) {
+          return propagate(frontier, from_groups, to_groups);
+        },
+        frontier);
+    if (!frontier.hasValue()) {
+      return nullptr;
+    }
   }
   return AbstractValGroup::dispatch(
       [&](const auto& frontier) {
