@@ -203,6 +203,7 @@ namespace {
 // Try to find the aligned position on consumer's domain corresponding to a
 //  position of producer domain. No checking on actual
 //  producer-consumer relationship.
+// TODO: idmodel
 int64_t getConsumerPosAlignedToProducerCA(
     TensorView* consumer,
     TensorView* producer,

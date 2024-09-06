@@ -126,6 +126,7 @@ size_t MaxPosCalculator::getMaxPosSelf(
 // Cannot inline:
 //   Vectorized dimensions in consumer
 //   Unrolled dimensions in consumer
+// TODO: idmodel
 size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
     TensorView* producer,
     TensorView* consumer,

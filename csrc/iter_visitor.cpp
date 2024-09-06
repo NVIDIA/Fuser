@@ -1149,4 +1149,39 @@ bool DeadCodeRemover::modifyFusion() const {
   return modified_fusion;
 }
 
+std::vector<Val*> IRBFS::getValsBetween(
+    const std::vector<Val*>& from,
+    const std::vector<Val*>& to) {
+  auto path =
+      IRBFS::getExprsBetween(from, to, /*require_all_to_visited=*/false);
+
+  VectorOfUniqueEntries<Val*> unique_vals;
+  for (auto [expr, _] : path) {
+    unique_vals.pushBack(expr->outputs());
+    unique_vals.pushBack(expr->inputs());
+  }
+
+  return unique_vals.vector();
+}
+
+std::vector<Val*> IRBFS::getReachableValsFrom(
+    const std::vector<Val*>& from,
+    const std::vector<Val*>& vals) {
+  IRBFS bfs(
+      {from.begin(), from.end()},
+      {vals.begin(), vals.end()},
+      /*require_all_to_visited=*/false);
+
+  bfs.traverse();
+
+  std::vector<Val*> reachable_vals;
+  for (auto val : vals) {
+    if (bfs.isVisited(val)) {
+      reachable_vals.push_back(val);
+    }
+  }
+
+  return reachable_vals;
+}
+
 } // namespace nvfuser

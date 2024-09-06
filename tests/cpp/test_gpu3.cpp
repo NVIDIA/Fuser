@@ -8890,6 +8890,130 @@ TEST_F(NVFuserTest, RAWSync) {
           "Producer is required to be in Global or Shared Memory based on parallelization strategy. RAW flags: (threadIdx.x)")));
 }
 
+// Testing IRBFS::getValsBetween with a reshape fusion
+TEST_F(NVFuserTest, IRBFSGetValsBetween) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape({10, 20});
+
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = reshape(tv0, shape, {shape[0] * shape[1]});
+
+  auto tv2 = reshape(tv1, {shape[0] * shape[1]}, {shape[1], shape[0]});
+
+  fusion.addOutput(tv2);
+
+  // Use the input 2D domain as the loop domain of all tensors
+  tv1->setLoopDomain(tv1->getRootDomain());
+  std::vector<IterDomain*> tv2_loop_domain{
+      tv0->getLoopDomain().at(0)->cloneWithoutRFactor(),
+      tv0->getLoopDomain().at(1)->cloneWithoutRFactor()};
+
+  IrBuilder::create<Merge>(
+      tv2->getRootDomain().at(0), tv2_loop_domain[0], tv2_loop_domain[1]);
+  tv2->setLoopDomain(tv2_loop_domain);
+
+  // Unlike DependencyCheck::getAllValsBetween, the direction doesn't
+  // matter.
+  {
+    auto all_vals = IRBFS::getValsBetween(
+        {tv2->getLogicalDomain().begin(), tv2->getLogicalDomain().end()},
+        {tv2->getLoopDomain().begin(), tv2->getLoopDomain().end()});
+    std::vector<Val*> ref;
+    for (auto id : tv2->getLogicalDomain()) {
+      ref.push_back(id);
+    }
+    for (auto id : tv2->getRootDomain()) {
+      ref.push_back(id);
+    }
+    for (auto id : tv2->getLoopDomain()) {
+      ref.push_back(id);
+    }
+    EXPECT_EQ(all_vals, ref);
+  }
+
+  // Since only one of the logical domain is given, it doesn't reach
+  // anywhere, returning an empty vector
+  {
+    auto all_vals = IRBFS::getValsBetween(
+        {tv2->getLogicalDomain().at(0)},
+        {tv2->getLoopDomain().begin(), tv2->getLoopDomain().end()});
+    EXPECT_TRUE(all_vals.empty());
+  }
+}
+
+// Testing IRBFS::getReachableValsFrom with a resize fusion
+TEST_F(NVFuserTest, IRBFSGetReachableValsFrom) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape({10, 20});
+
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  // Slice the inner domain
+  auto tv1 = slice(
+      tv0,
+      {{fusion.zeroVal(), fusion.zeroVal()},
+       {IrBuilder::create<Val>(1L), IrBuilder::create<Val>(99)}});
+
+  auto tv2 = set(tv1);
+
+  fusion.addOutput(tv2);
+
+  tv1->setLoopDomain(tv1->getRootDomain());
+
+  auto tv2_loop_id = tv0->getLoopDomain().at(1)->cloneWithoutRFactor();
+
+  IrBuilder::create<Resize>(
+      tv2->getLogicalDomain().at(1),
+      tv2_loop_id,
+      IrBuilder::create<Val>(-1, DataType::Index),
+      IrBuilder::create<Val>(-1, DataType::Index));
+
+  tv2->setLoopDomain({tv2->getLogicalDomain().at(0), tv2_loop_id});
+
+  // Just between iter domains in the same tensor. Unlike
+  // DependencyCheck, the direction doesn't matter
+  {
+    auto reachable_vals = IRBFS::getReachableValsFrom(
+        {tv1->getLogicalDomain().begin(), tv1->getLogicalDomain().end()},
+        {tv1->getRootDomain().begin(), tv1->getRootDomain().end()});
+    std::vector<Val*> ref{
+        tv1->getRootDomain().begin(), tv1->getRootDomain().end()};
+    EXPECT_EQ(reachable_vals, ref)
+        << "Root domain not reachable: " << tv1->toString();
+  }
+
+  // The tv2 loop domain is reachable from its logical domain
+  {
+    auto reachable_vals = IRBFS::getReachableValsFrom(
+        {tv2->getLogicalDomain().begin(), tv2->getLogicalDomain().end()},
+        {tv2->getLoopDomain().begin(), tv2->getLoopDomain().end()});
+    std::vector<Val*> ref{
+        tv2->getLoopDomain().begin(), tv2->getLoopDomain().end()};
+    EXPECT_EQ(reachable_vals, ref)
+        << "Loop domain not reachable: " << tv2->toString();
+  }
+
+  // If only one of the logical domain is given, only the domain that
+  // is dervied from it is returned
+  {
+    auto reachable_vals = IRBFS::getReachableValsFrom(
+        {tv2->getLogicalDomain().at(0)},
+        {tv2->getLoopDomain().begin(), tv2->getLoopDomain().end()});
+    std::vector<Val*> ref{tv2->getLoopDomain().at(0)};
+    EXPECT_EQ(reachable_vals, ref)
+        << "Loop domain not reachable: " << tv2->toString();
+  }
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
