@@ -1477,4 +1477,32 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(128, 500, 1024),
         testing::Values(128, 1024)));
 
+TEST_F(NVFuserTest, NormalizeReference_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  constexpr at::ScalarType dtype = at::ScalarType::Float;
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  std::vector<at::Tensor> inputs;
+  for (int64_t idx = 2048; idx <= 32768; idx *= 2) {
+    at::Tensor at_tv0 = at::randn({idx, idx}, options);
+    inputs.push_back(at_tv0);
+  }
+
+  constexpr int64_t correction = 1;
+  constexpr bool keepdim = true;
+
+  auto tv0 = makeContigTensor(2, aten_to_data_type(dtype));
+  fusion->addInput(tv0);
+  auto var_mean = variance_mean(tv0, {-1}, correction, keepdim);
+  auto output = div(sub(tv0, var_mean.mean), sqrt(var_mean.var));
+  fusion->addOutput(output);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  for (auto& tv : inputs) {
+    auto outputs = executor_cache.runFusionWithInputs({tv});
+  }
+}
+
 } // namespace nvfuser

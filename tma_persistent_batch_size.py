@@ -54,25 +54,24 @@ class LayerNorm(FusionDefinition):
         smem_cache_op = LoadStoreOpType.tma if use_tma_ops else LoadStoreOpType.set
         t0_smem = self.sched.cache_after(self.t0, smem_cache_op)
         self.sched.set_memory_type(t0_smem, MemoryType.shared)
+        tma_tvs = [t0_smem]
 
         t0_lmem = self.sched.cache_after(t0_smem)
         cache_before_t0_norm = self.sched.cache_before(self.t0_norm_cast)
-
-        tma_tvs = [t0_smem, t0_lmem]
 
         def _is_not_tma_tensor(a):
             return a not in tma_tvs
 
         all_tvs_except_tma = list(filter(_is_not_tma_tensor, self.sched.tensors()))
 
-        tma_width = 8
+        examples_per_cta = 4
+        tma_width = 256
         vectorize = 8
-        num_tma_loads = tensor_size // tma_width
         elem_per_compute_thread = tensor_size // tma_width // vectorize
 
         # Define TMA Box
-        # split: [I1, I2/V, V]
-        #self.sched.split(t0_smem, dim=-1, factor=tma_width)
+        self.sched.split(t0_smem, dim=0, factor=examples_per_cta)
+        self.sched.split(t0_smem, dim=-1, factor=tma_width)
 
         reference_tv = self.t0_norm_cast
 
@@ -80,7 +79,6 @@ class LayerNorm(FusionDefinition):
         # root domain: [I1, I2]
         # split: [I1, I2/V, V]
         self.sched.split(reference_tv, dim=-1, factor=vectorize)
-
         # NOTE use outer-split to have constant register allocation
         # split: [I1, EPCT, I2/V/EPCT (block_x), V]
         self.sched.split(
@@ -89,13 +87,15 @@ class LayerNorm(FusionDefinition):
             factor=elem_per_compute_thread,
             inner_split=False,
         )
-
-        # split: [I1, I2/V/EPCT (block_x), EPCT, U, V]
+        # split: [I1, EPCT, I2/V/EPCT (block_x), U, V]
         self.sched.split(reference_tv, dim=-2, factor=1)
+        # split: [I1, I2/V/EPCT (block_x), EPCT, U, V]
+        self.sched.reorder(reference_tv, {-4: -3, -3: -4})
+        # split: [I1/CTA, CTA, I2/V/EPCT (block_x), EPCT, U, V]
+        self.sched.split(reference_tv, dim=0, factor=examples_per_cta)
 
         # Transform all tensors
-        # self.sched.transform_like(reference_tv, all_tvs_except_tma)
-        self.sched.transform_like(reference_tv)
+        self.sched.transform_like(reference_tv, all_tvs_except_tma)
 
         # rfactor reduction tensors
         reduction_tvs = list(filter(self.sched.is_reduction, self.sched.tensors()))
@@ -105,40 +105,21 @@ class LayerNorm(FusionDefinition):
 
         # Apply general parallelization
         self.sched.parallelize(reference_tv, axis := 0, ParallelType.grid_x)
-        self.sched.parallelize(reference_tv, axis := 1, ParallelType.block_x)
+        self.sched.parallelize(reference_tv, axis := 2, ParallelType.block_x)
         self.sched.parallelize(reference_tv, axis := -2, ParallelType.unroll)
         self.sched.parallelize_like(reference_tv)
 
         # vectorize store output
         self.sched.parallelize(self.t0_norm_cast, axis := -1, ParallelType.vectorize)
 
+        self.sched.inline_most()
+
         # tma load input
         if use_tma_ops:
             self.sched.parallelize(t0_smem, axis := -1, ParallelType.tma)
 
-        self.sched.inline_most()
-        '''
-        self.sched.inline_most(all_tvs_except_tma)
-
-        self.sched.inline_at(
-            t0_lmem,
-            pos=-2,
-            best_effort=True,
-            selected_tensors=[t0_smem],
-        )
-
-        self.sched.inline_at(
-            t0_lmem,
-            pos=-2,
-            best_effort=True,
-            selected_tensors=[self.mean_cast, self.var_cast],
-        )
-        '''
-
-        print(self.sched.user_schedule_ir())
-
-        if num_tma_loads > 1:
-            number_of_stages = 2
+        if examples_per_cta > 1:
+            number_of_stages = 4
             self.sched.circular_buffer(t0_smem, number_of_stages)
 
 
