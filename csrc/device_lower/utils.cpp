@@ -1106,15 +1106,29 @@ bool related(const AbstractValGroup& current, const ValGroup& to) {
       [&](const auto& current) { return related(current, to); }, current);
 }
 
+auto fromGroups(const ValGraph& id_graph, const ExprGroup& eg, Direction direction) {
+  return direction == Direction::Forward ? id_graph.outputGroups(eg)
+                                         : id_graph.inputGroups(eg);
+}
+
+auto toGroups(const ValGraph& id_graph, const ExprGroup& eg, Direction direction) {
+  return direction == Direction::Forward ? id_graph.inputGroups(eg)
+                                         : id_graph.outputGroups(eg);
+}
+
 AbstractValGroup propagate(
     const AbstractValGroup& current,
-    const ValGroups& from,
-    const ValGroups& to);
+    const ValGraph& id_graph,
+    const ExprGroup& eg,
+    Direction direction);
 
 AbstractValGroup propagate(
     const ValGroup& current,
-    const ValGroups& from,
-    const ValGroups& to) {
+    const ValGraph& id_graph,
+    const ExprGroup& eg,
+    Direction direction) {
+  auto from = fromGroups(id_graph, eg, direction);
+  auto to = toGroups(id_graph, eg, direction);
   if (from.size() == 1) {
     NVF_ERROR(to.size() == 2);
     NVF_ERROR(from.front() == current);
@@ -1135,12 +1149,15 @@ AbstractValGroup propagate(
 
 AbstractValGroup propagate(
     const PartOf<AbstractValGroup>& current,
-    const ValGroups& from,
-    const ValGroups& to) {
+    const ValGraph& id_graph,
+    const ExprGroup& eg,
+    Direction direction) {
+  auto from = fromGroups(id_graph, eg, direction);
+  auto to = toGroups(id_graph, eg, direction);
   if (from.size() == 1) {
     NVF_ERROR(to.size() == 2);
     NVF_ERROR(related(*current.group, from.front()));
-    auto group = propagate(*current.group, from, to);
+    auto group = propagate(*current.group, id_graph, eg, direction);
     Val* new_inner_extent = current.inner_extent;
     Val* group_extent = nullptr;
     // Now we will simplify inner_extent and `group`, for example, by removing
@@ -1249,8 +1266,11 @@ AbstractValGroup propagate(
 
 AbstractValGroup propagate(
     const std::deque<AbstractValGroup>& current,
-    const ValGroups& from,
-    const ValGroups& to) {
+    const ValGraph& id_graph,
+    const ExprGroup& eg,
+    Direction direction) {
+  auto from = fromGroups(id_graph, eg, direction);
+  auto to = toGroups(id_graph, eg, direction);
   if (from.size() == 1) {
     NVF_ERROR(to.size() == 2);
     NVF_ERROR(std::any_of(current.begin(), current.end(), [&](const auto& g) {
@@ -1262,7 +1282,7 @@ AbstractValGroup propagate(
         result.push_back(to.front());
         result.push_back(to.back());
       } else if (related(g, from.front())) {
-        result.push_back(propagate(g, from, to));
+        result.push_back(propagate(g, id_graph, eg, direction));
       } else {
         result.push_back(g);
       }
@@ -1299,17 +1319,21 @@ AbstractValGroup propagate(
 
 AbstractValGroup propagate(
     const std::monostate& current,
-    const ValGroups& from,
-    const ValGroups& to) {
+    const ValGraph& id_graph,
+    const ExprGroup& eg,
+    Direction direction) {
   NVF_ERROR(false, "Should not reach here.");
 }
 
 AbstractValGroup propagate(
     const AbstractValGroup& current,
-    const ValGroups& from,
-    const ValGroups& to) {
+    const ValGraph& id_graph,
+    const ExprGroup& eg,
+    Direction direction) {
   return AbstractValGroup::dispatch(
-      [&](const auto& current) { return propagate(current, from, to); },
+      [&](const auto& current) {
+        return propagate(current, id_graph, eg, direction);
+      },
       current);
 }
 
@@ -1398,21 +1422,13 @@ Val* proveLinearAndGetStride(
   }
   AbstractValGroup frontier = linear_g;
   auto path = ValGraphBFS::getExprsBetween(id_graph, domain, {linear_g});
-  auto from = [&](const ExprGroup& eg, Direction direction) {
-    return direction == Direction::Forward ? id_graph.outputGroups(eg)
-                                           : id_graph.inputGroups(eg);
-  };
-  auto to = [&](const ExprGroup& eg, Direction direction) {
-    return direction == Direction::Forward ? id_graph.inputGroups(eg)
-                                           : id_graph.outputGroups(eg);
-  };
   while (!path.empty()) {
     std::cout << "frontier: " << print(frontier) << std::endl;
     const auto& [eg, direction] = path.back();
     path.pop_back();
-    auto from_groups = from(eg, direction);
+    auto from = fromGroups(id_graph, eg, direction);
     if (!std::any_of(
-            from_groups.begin(), from_groups.end(), [&](const auto& g) {
+            from.begin(), from.end(), [&](const auto& g) {
               return related(frontier, g);
             })) {
       continue;
@@ -1420,14 +1436,9 @@ Val* proveLinearAndGetStride(
     if (!eg->front()->isOneOf<Split, Merge>()) {
       return nullptr;
     }
-    // if (auto split = dynamic_cast<Split*>(eg->front());
-    //     split && !simplifyExpr(split->isDivisible())->isTrue()) {
-    //   return nullptr;
-    // }
-    auto to_groups = to(eg, direction);
     std::cout << "propagating: " << eg->toString() << "\t" << direction
               << std::endl;
-    frontier = propagate(frontier, from_groups, to_groups);
+    frontier = propagate(frontier, id_graph, eg, direction);
     if (!frontier.hasValue()) {
       std::cout << "failed to propagate" << std::endl;
       return nullptr;
