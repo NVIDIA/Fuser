@@ -1567,7 +1567,7 @@ TEST_F(NVFuserTest, ProveLinearAndGetStride) {
   EXPECT_EQ(simplifyExpr(v4_4_in_v2)->value(), 512);
 
   Val* v4_5_in_v2 = lower_utils::proveLinearAndGetStride(g, v4[5], v2);
-  EXPECT_EQ(simplifyExpr(v4_5_in_v2)->value(), 16384);
+  EXPECT_EQ(simplifyExpr(v4_5_in_v2)->value(), 65536);
 
   Val* v4_6_in_v2 = lower_utils::proveLinearAndGetStride(g, v4[6], v2);
   EXPECT_EQ(simplifyExpr(v4_6_in_v2)->value(), 256);
