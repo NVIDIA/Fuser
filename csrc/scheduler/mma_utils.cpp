@@ -517,7 +517,7 @@ void makeTile(
 
   // Split the inner dimensions
   size_t num_split_axes = 0;
-  for (int64_t i = abten.size() - 1; i >= 0; --i) {
+  for (int64_t i = (int64_t)abten.size() - 1; i >= 0; --i) {
     if (num_split_axes > 2) {
       break;
     }
@@ -1295,7 +1295,7 @@ void mergeAxesWithSameRole(
     const ValGraph* graph) {
   // Now merge dims that have the same role
   const auto getRole = [&](const int64_t pos) {
-    ValGroup vg = graph->toGroup(tv->axis(pos));
+    const ValGroup& vg = graph->toGroup(tv->axis(pos));
     auto it = dim_roles.find(vg);
     NVF_ERROR(it != dim_roles.end());
     return it->second;
@@ -1303,7 +1303,7 @@ void mergeAxesWithSameRole(
   // Loop from inner to outer, merging when needed
   NVF_ERROR(tv->nDims() > 0);
   MatmulDimRole prev_role = getRole(-1);
-  for (int64_t dim = tv->nDims() - 2; dim >= 0; --dim) {
+  for (int64_t dim = (int64_t)tv->nDims() - 2; dim >= 0; --dim) {
     MatmulDimRole role = getRole(dim);
     if (role == prev_role) {
       tv->merge(dim);
