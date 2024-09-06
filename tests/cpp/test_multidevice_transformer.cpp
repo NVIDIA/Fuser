@@ -57,13 +57,13 @@ class DistributedTransformerTest
 
 namespace {
 void validate(
-    std::vector<at::Tensor> expected_out,
-    std::vector<at::Tensor> out) {
-  EXPECT_EQ(expected_out.size(), out.size());
-  for (auto i : c10::irange(out.size())) {
+    std::vector<at::Tensor> expected_outputs,
+    std::vector<at::Tensor> outputs) {
+  EXPECT_EQ(expected_outputs.size(), outputs.size());
+  for (auto i : c10::irange(outputs.size())) {
     // allclose can catch this as well. However, it would throw an exception,
     // not showing which output was problematic.
-    ASSERT_EQ(out[i].dtype(), expected_out[i].dtype())
+    ASSERT_EQ(outputs[i].dtype(), expected_outputs[i].dtype())
         << "Output " << i << " has a mismatching data type.";
 
     // Note: Scaling tolerance up since the error accumulates across ops
@@ -77,12 +77,13 @@ void validate(
                                           double rtol) -> std::string {
       std::ostringstream oss;
       auto error = (out - expected_out).abs();
-      auto max_error = error.max().item().to<double>();
+      auto max_absolute_error = error.max().item().to<double>();
       auto max_relative_error =
-          max_error / expected_out.abs().max().item().to<double>();
+          max_absolute_error / expected_out.abs().max().item().to<double>();
       auto error_count =
           at::sum(error >= (atol + expected_out.abs() * rtol)).item();
-      indent(oss, 1) << "max error: " << max_error << std::endl;
+      indent(oss, 1) << "max absolute error: " << max_absolute_error
+                     << std::endl;
       indent(oss, 1) << "max relative error: " << max_relative_error
                      << std::endl;
       indent(oss, 1) << "failing elements: " << error_count << ", "
@@ -91,9 +92,10 @@ void validate(
       return oss.str();
     };
 
-    EXPECT_TRUE(out[i].allclose(expected_out[i], rtol, atol))
+    EXPECT_TRUE(outputs[i].allclose(expected_outputs[i], rtol, atol))
         << "Output " << i << " mismatches:" << std::endl
-        << generate_comparison_details(out[i], expected_out[i], atol, rtol);
+        << generate_comparison_details(
+               outputs[i], expected_outputs[i], atol, rtol);
   }
 }
 
