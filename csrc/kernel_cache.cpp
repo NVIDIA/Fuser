@@ -7,6 +7,14 @@
 // clang-format on
 #include <kernel_cache.h>
 
+#include <mutex>
+#include <sstream>
+
+#include <c10/cuda/CUDAGuard.h>
+#include <c10/util/irange.h>
+#include <torch/csrc/jit/jit_log.h>
+#include <torch/csrc/jit/runtime/graph_executor.h>
+
 #include <debug.h>
 #include <driver_api.h>
 #include <dynamic_transform.h>
@@ -16,20 +24,12 @@
 #include <instrumentation.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
+#include <multidevice/communicator.h>
 #include <options.h>
 #include <preseg_passes/pre_segmenter.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/registry.h>
-#include <torch/csrc/jit/jit_log.h>
-#include <torch/csrc/jit/runtime/graph_executor.h>
 #include <utils.h>
-
-#include <c10/cuda/CUDAGuard.h>
-#include <c10/util/irange.h>
-#include <torch/csrc/jit/jit_log.h>
-
-#include <mutex>
-#include <sstream>
 
 namespace nvfuser {
 
@@ -1019,9 +1019,14 @@ FusionKernelRuntime::FusionKernelRuntime(
       fusion.get());
 
   if (isDebugDumpEnabled(DebugDumpOption::FusionIrPreseg)) {
-    debug() << "Fusion IR after pre-segmenter optimization passes:"
-            << std::endl;
-    fusion->printMath();
+    const auto& communicator = Communicator::getInstance();
+    // Only the first local rank will print. Pre-segmenter fusion IR is device
+    // agnostic, so letting all ranks print isn't any more useful.
+    if (!communicator.is_available() || communicator.local_rank() == 0) {
+      debug() << "Fusion IR after pre-segmenter optimization passes:"
+              << std::endl;
+      fusion->printMath();
+    }
   }
 
   // SchedulerRuntimeInfo modifies the fusion, so it is required for both
