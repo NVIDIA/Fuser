@@ -1061,8 +1061,9 @@ bool related(const PartOf<AbstractValGroup>& current, const ValGroup& to) {
 }
 
 bool related(const std::vector<AbstractValGroup>& current, const ValGroup& to) {
-  return std::any_of(
-      current.begin(), current.end(), [&](const auto& g) { return related(g, to); });
+  return std::any_of(current.begin(), current.end(), [&](const auto& g) {
+    return related(g, to);
+  });
 }
 
 bool related(const std::monostate& current, const ValGroup& to) {
@@ -1073,6 +1074,11 @@ bool related(const AbstractValGroup& current, const ValGroup& to) {
   return AbstractValGroup::dispatch(
       [&](const auto& current) { return related(current, to); }, current);
 }
+
+AbstractValGroup propagate(
+    const AbstractValGroup& current,
+    const ValGroups& from,
+    const ValGroups& to);
 
 AbstractValGroup propagate(
     const ValGroup& current,
@@ -1087,9 +1093,13 @@ AbstractValGroup propagate(
     NVF_ERROR(to.size() == 1);
     NVF_ERROR(from.front() == current || from.back() == current);
     return PartOf<AbstractValGroup>{
-        from.front() == current ? nullptr : from.front()->front()->as<IterDomain>()->extent(),
+        from.front() == current
+            ? nullptr
+            : from.front()->front()->as<IterDomain>()->extent(),
         std::make_shared<AbstractValGroup>(to.front()),
-        from.front() == current ? from.back()->front()->as<IterDomain>()->extent() : nullptr};
+        from.front() == current
+            ? from.back()->front()->as<IterDomain>()->extent()
+            : nullptr};
   }
 }
 
@@ -1097,7 +1107,82 @@ AbstractValGroup propagate(
     const PartOf<AbstractValGroup>& current,
     const ValGroups& from,
     const ValGroups& to) {
-  NVF_ERROR(false, "Not Implemented Yet.");
+  if (from.size() == 1) {
+    NVF_ERROR(to.size() == 2);
+    NVF_ERROR(related(*current.group, from.front()));
+    if (current.group->is<ValGroup>() &&
+        current.group->as<ValGroup>() == from.front()) {
+      auto to_inner_extent = to.back()->front()->as<IterDomain>()->extent();
+      auto to_outer_extent = to.front()->front()->as<IterDomain>()->extent();
+      if (current.inner_extent != nullptr &&
+          simplifyExpr(
+              IrBuilder::isDivisibleExpr(current.inner_extent, to_inner_extent))
+              ->isTrue()) {
+        Val* new_inner_extent = simplifyExpr(
+            IrBuilder::divExpr(current.inner_extent, to_inner_extent));
+        if (new_inner_extent->isOne()) {
+          new_inner_extent = nullptr;
+        }
+        if (current.outer_extent == nullptr && new_inner_extent == nullptr) {
+          return to.front();
+        }
+        return PartOf<AbstractValGroup>{
+            current.outer_extent,
+            std::make_shared<AbstractValGroup>(to.front()),
+            new_inner_extent};
+      }
+      if (current.outer_extent != nullptr &&
+          simplifyExpr(
+              IrBuilder::isDivisibleExpr(current.outer_extent, to_outer_extent))
+              ->isTrue()) {
+        Val* new_outer_extent = simplifyExpr(
+            IrBuilder::divExpr(current.outer_extent, to_outer_extent));
+        if (new_outer_extent->isOne()) {
+          new_outer_extent = nullptr;
+        }
+        if (current.inner_extent == nullptr && new_outer_extent == nullptr) {
+          return to.back();
+        }
+        return PartOf<AbstractValGroup>{
+            new_outer_extent,
+            std::make_shared<AbstractValGroup>(to.back()),
+            current.inner_extent};
+      }
+    }
+    return PartOf<AbstractValGroup>{
+        current.outer_extent,
+        std::make_shared<AbstractValGroup>(propagate(*current.group, from, to)),
+        current.inner_extent};
+  } else {
+    NVF_ERROR(from.size() == 2);
+    NVF_ERROR(to.size() == 1);
+    NVF_ERROR(
+        related(*current.group, from.front()) ||
+        related(*current.group, from.back()));
+    if (current.group->is<ValGroup>() &&
+        current.group->as<ValGroup>() == from.front()) {
+      return PartOf<AbstractValGroup>{
+          current.outer_extent,
+          std::make_shared<AbstractValGroup>(to.front()),
+          SimplifyingIrBuilder::mulExpr(
+              current.inner_extent,
+              from.back()->front()->as<IterDomain>()->extent())};
+    }
+    if (current.group->is<ValGroup>() &&
+        current.group->as<ValGroup>() == from.back()) {
+      return PartOf<AbstractValGroup>{
+          SimplifyingIrBuilder::mulExpr(
+              current.outer_extent,
+              from.front()->front()->as<IterDomain>()->extent()),
+          std::make_shared<AbstractValGroup>(to.front()),
+          current.inner_extent};
+    }
+    // Other cases are not implemented yet. Just return std::monostate,
+    // which will make proveLinearAndGetStride stop the propagation and return
+    // "can not prove linear". In the future, we can implement these cases if it
+    // turns out to be useful.
+    return {};
+  }
 }
 
 AbstractValGroup propagate(
@@ -1112,6 +1197,15 @@ AbstractValGroup propagate(
     const ValGroups& from,
     const ValGroups& to) {
   NVF_ERROR(false, "Should not reach here.");
+}
+
+AbstractValGroup propagate(
+    const AbstractValGroup& current,
+    const ValGroups& from,
+    const ValGroups& to) {
+  return AbstractValGroup::dispatch(
+      [&](const auto& current) { return propagate(current, from, to); },
+      current);
 }
 
 Val* proveLinearAndGetStrideAfterPropagation(
@@ -1178,13 +1272,13 @@ Val* proveLinearAndGetStride(
     if (!eg->front()->isOneOf<Split, Merge>()) {
       return nullptr;
     }
+    if (auto split = dynamic_cast<Split*>(eg->front());
+        split && !simplifyExpr(split->isDivisible())->isTrue()) {
+      return nullptr;
+    }
     auto from_groups = from(eg, direction);
     auto to_groups = to(eg, direction);
-    frontier = AbstractValGroup::dispatch(
-        [&](const auto& frontier) {
-          return propagate(frontier, from_groups, to_groups);
-        },
-        frontier);
+    frontier = propagate(frontier, from_groups, to_groups);
     if (!frontier.hasValue()) {
       return nullptr;
     }
