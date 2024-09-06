@@ -117,7 +117,7 @@ std::vector<at::Tensor> reference_mha(
   auto qkv_vec = m.split(E, 2);
   for (auto i = 0; i < 3; i++) {
     qkv_vec[i] =
-        qkv_vec[i].reshape({B, S, H, E / H}).transpose(2, 1).to(at_dtype);
+        qkv_vec[i].reshape({B, S, H, E / H}).transpose(1, 2).to(at_dtype);
   }
   auto sdpa_out = at::_scaled_dot_product_flash_attention(
       qkv_vec[0], qkv_vec[1], qkv_vec[2], kSdpaProb, true, false, kSdpaScale);
@@ -181,7 +181,7 @@ std::vector<at::Tensor> reference_mha_backwards(
   auto linear0 = at::matmul(x, w0).add(b0).view({B, S, 3 * E});
   auto qkv = linear0.split(E, /*dim=*/-1);
   for (auto i = 0; i < 3; i++) {
-    qkv[i] = qkv[i].reshape({B, S, H, E / H}).transpose(2, 1).to(at_dtype);
+    qkv[i] = qkv[i].reshape({B, S, H, E / H}).transpose(1, 2).to(at_dtype);
   }
   auto
       [sdpa_output,
@@ -376,20 +376,15 @@ LinearBackwardsResult linear_backwards(
     TensorView* w,
     TensorView* grad) {
   DataType dtype = w->dtype();
-  TensorView* grad_q;
-  if (grad->dtype() == dtype) {
-    grad_q = grad;
-    grad = castOp(DataType::Float, grad_q);
-  } else {
-    grad_q = castOp(dtype, grad);
-  }
+  TensorView* grad_f = maybeCastOp(DataType::Float, grad);
+  TensorView* grad_q = maybeCastOp(dtype, grad);
   TensorView* w_t = transpose(w, 1, 2);
   TensorView* grad_x_partials = matmul(grad_q, w_t);
   TensorView* grad_x = sum(grad_x_partials, {0}); // allreduce
   TensorView* grad_q_t = transpose(grad_q, 1, 2);
   TensorView* grad_w_t = matmul(grad_q_t, x);
   TensorView* grad_w = transpose(grad_w_t, 1, 2);
-  TensorView* grad_b = sum(grad, {1});
+  TensorView* grad_b = sum(grad_f, {1});
 
   return {grad_x, grad_w, grad_b};
 }
@@ -869,10 +864,9 @@ TEST_P(DistributedTransformerTest, MHA_Backward) {
           .view({1, 3 * E / D}),
       reference_outs[12]};
 
-  MultiDeviceExecutor runtime(
-      std::move(fusion), *communicator_, executor_params_);
+  FusionExecutorCache fec(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
-  auto out = runtime.runWithInput(inputs);
+  auto out = fec.runFusionWithInputs(inputs);
   validate(expected_outputs, out);
 }
 
