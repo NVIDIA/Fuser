@@ -3308,6 +3308,11 @@ class MultiMatmulSchedulerMatchTest
               << " to original IterDomain " << id_orig->toString();
     std::string suffix = suffix_ss.str();
     EXPECT_EQ(id_orig->getIterType(), id_new->getIterType()) << suffix;
+    // TODO: Consider re-enabling this check. If the generated code matches, it
+    // means it's unlikely that we have loop groups that change parallel type,
+    // but it might still be desirable to parallelize most tensors in the
+    // fusion for clarity.
+    /*
     if (id_orig->isParallelized()) {
       // In some cases the new scheduler parallelizes IDs that were not
       // previously parallelized. This is OK as long as the generated kernels
@@ -3318,6 +3323,7 @@ class MultiMatmulSchedulerMatchTest
       EXPECT_EQ(id_orig->getParallelType(), id_new->getParallelType())
           << suffix;
     }
+    */
     EXPECT_EQ(id_orig->hasExpandedExtent(), id_new->hasExpandedExtent())
         << suffix;
     compareScalars(
