@@ -794,7 +794,7 @@ std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion) {
   return dynamic_tvs;
 }
 
-void validateDomainEquivalence(
+std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> compareDomains(
     std::vector<IterDomain*> dom0,
     const std::vector<IterDomain*>& dom1,
     const std::vector<IterDomain*>& additional_ids) {
@@ -805,7 +805,7 @@ void validateDomainEquivalence(
 
   // empty domain are equivalent.
   if (dom0.empty() && dom1.empty()) {
-    return;
+    return {};
   }
   // Make sure there's no duplicate in the parameter vectors
   NVF_ERROR(
@@ -892,39 +892,65 @@ void validateDomainEquivalence(
       std::any_of(frontier.begin(), frontier.end(), is_symb);
   bool dom1_has_symbolic =
       std::any_of(dom1_set.begin(), dom1_set.end(), is_symb);
+
+  std::vector<IterDomain*> dom1_unreachable;
   if (!frontier_has_symbolic) {
-    // frontier fully covers dom1
-    NVF_ERROR(
-        std::all_of(
-            dom1.begin(),
-            dom1.end(),
-            [&](auto id) {
-              return id->getIterType() == IterType::Symbolic ||
-                  id->isBroadcast() || frontier.count(id);
-            }),
-        "dom0 and dom1 are not equal. dom0: ",
-        toDelimitedString(dom0),
-        ". dom1: ",
-        toDelimitedString(dom1),
-        ". frontier: ",
-        toDelimitedString(frontier));
+    std::copy_if(
+        dom1.begin(),
+        dom1.end(),
+        std::back_inserter(dom1_unreachable),
+        [&](IterDomain* id) {
+          return id->getIterType() != IterType::Symbolic &&
+              !id->isBroadcast() && !frontier.count(id);
+        });
   }
+
+  std::vector<IterDomain*> frontier_ids(frontier.size());
+  std::transform(
+      frontier.begin(), frontier.end(), frontier_ids.begin(), [](Val* val) {
+        return val->as<IterDomain>();
+      });
+
+  std::vector<IterDomain*> dom0_unreachable;
   if (!dom1_has_symbolic) {
-    // dom1 fully covers frontier
-    NVF_ERROR(
-        std::all_of(
-            frontier.begin(),
-            frontier.end(),
-            [&](Val* id) {
-              return id->as<IterDomain>()->getIterType() ==
-                  IterType::Symbolic ||
-                  id->as<IterDomain>()->isBroadcast() || dom1_set.count(id);
-            }),
-        "dom0 and dom1 are not equal. dom0: ",
-        toDelimitedString(dom0),
-        ". dom1: ",
-        toDelimitedString(dom1));
+    std::copy_if(
+        frontier_ids.begin(),
+        frontier_ids.end(),
+        std::back_inserter(dom0_unreachable),
+        [&](Val* val) {
+          IterDomain* id = val->as<IterDomain>();
+          return id->getIterType() != IterType::Symbolic &&
+              !id->isBroadcast() && !dom1_set.count(id);
+        });
   }
+
+  return std::make_pair(dom0_unreachable, dom1_unreachable);
+}
+
+void validateDomainEquivalence(
+    std::vector<IterDomain*> dom0,
+    const std::vector<IterDomain*>& dom1,
+    const std::vector<IterDomain*>& additional_ids) {
+  auto [dom0_unreachable, dom1_unreachable] =
+      compareDomains(dom0, dom1, additional_ids);
+
+  NVF_ERROR(
+      dom0_unreachable.empty(),
+      "dom0 and dom1 are not equal. dom0: ",
+      toDelimitedString(dom0),
+      ". dom1: ",
+      toDelimitedString(dom1),
+      ". unreachable frontier: ",
+      toDelimitedString(dom0_unreachable));
+
+  NVF_ERROR(
+      dom1_unreachable.empty(),
+      "dom0 and dom1 are not equal. dom0: ",
+      toDelimitedString(dom0),
+      ". dom1: ",
+      toDelimitedString(dom1),
+      ". dom1 unreachable: ",
+      toDelimitedString(dom1_unreachable));
 }
 
 namespace {

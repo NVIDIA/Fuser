@@ -3605,8 +3605,15 @@ std::pair<TensorDomain*, TensorDomain*> TensorDomain::rFactor(
 }
 
 void TensorDomain::setLoopDomain(std::vector<IterDomain*> new_loop_domain) {
-  ir_utils::validateDomainEquivalence(
+  auto x = ir_utils::compareDomains(
       logical_domain_, new_loop_domain, additional_ids_);
+  NVF_ERROR(ir_utils::compareDomains(
+                logical_domain_, new_loop_domain, additional_ids_)
+                .first.empty());
+  if (!x.second.empty()) {
+    std::cerr << "Unaccounted domains: " << toDelimitedString(x.second) << "\n";
+  }
+
   loop_domain_ = std::move(new_loop_domain);
   resetDomains();
 }
