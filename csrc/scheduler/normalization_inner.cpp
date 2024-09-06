@@ -27,11 +27,12 @@ InnerPersistentKernelScheduler::InnerPersistentKernelScheduler(
 }
 
 void InnerPersistentKernelScheduler::schedule(Fusion* fusion) {
-  FUSER_PERF_SCOPE("Schedule InnerPersistent Fusion");
+  FUSER_PERF_SCOPE("InnerPersistentKernelScheduler::schedule");
   scheduleInnerPersistentKernel(fusion, reductionParams());
 }
 
 bool InnerPersistentKernelScheduler::canScheduleCompileTime(Fusion* fusion) {
+  FUSER_PERF_SCOPE("InnerPersistentKernelScheduler::canScheduleCompileTime");
   return normalization_scheduler_utils::compileTimeCheck(
       fusion, heuristicType());
 }
@@ -83,7 +84,7 @@ bool InnerPersistentKernelScheduler::canScheduleRunTime(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
-  FUSER_PERF_SCOPE("InnerPersistentKernelScheduler::canSchedule");
+  FUSER_PERF_SCOPE("InnerPersistentKernelScheduler::canScheduleRunTime");
   auto reduction_tv_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::ReductionTVs>(
           data_cache, [&fusion]() {
@@ -162,6 +163,7 @@ void InnerPersistentKernelScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
+  FUSER_PERF_SCOPE("InnerPersistentKernelScheduler::computeHeuristics");
   params_ = getInnerPersistentHeuristics(fusion, runtime_info, data_cache);
   NVF_ERROR(params_ != nullptr);
 }
@@ -1086,7 +1088,6 @@ std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
-  FUSER_PERF_SCOPE("getInnerPersistentHeuristics");
   FusionGuard fg(fusion);
 
   // properties of the fusion
@@ -1133,7 +1134,6 @@ std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
     HeuristicSummary* data_cache) {
-  FUSER_PERF_SCOPE("getInnerPersistentHeuristicsFromIValue");
   SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs);
   return getInnerPersistentHeuristics(fusion, runtime_info, data_cache);
 }

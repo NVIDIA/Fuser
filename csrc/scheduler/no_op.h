@@ -64,7 +64,7 @@ class NoOpHeuristic : public HeuristicParams {
     return std::make_shared<NoOpHeuristic>();
   }
   bool sameAs(const std::shared_ptr<HeuristicParams>& other) const override {
-    auto other_casted = std::dynamic_pointer_cast<ReductionParams>(other);
+    auto other_casted = std::dynamic_pointer_cast<NoOpHeuristic>(other);
     return other_casted != nullptr && other_casted->cparams == cparams;
   };
 };

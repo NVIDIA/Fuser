@@ -997,7 +997,6 @@ TEST_P(HopperSS, SingleTile) {
   moveInnerBroadcastLeft(tv0);
   moveInnerBroadcastLeft(tv1);
 
-  // Hopper tensor core assumes K major, so we are using !transpose_a here.
   tv0->applyMmaSwizzle(swizzle_a);
   tv1->applyMmaSwizzle(swizzle_b);
 
@@ -1018,6 +1017,174 @@ TEST_P(HopperSS, SingleTile) {
 
   auto inputs = matmulAtInput3DHopperSS(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
+
+  FusionExecutor fe;
+  fe.compileFusion(
+      &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
+  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  auto tref = atMatmul(
+      inputs.first.squeeze().to(at::kFloat),
+      inputs.second.squeeze().to(at::kFloat),
+      layout);
+  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+}
+
+// See the note in HopperRS.FullSwizzle for the explanation of this test.
+TEST_P(HopperSS, FullSwizzle) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  bool m_is_inner = layout == MmaLayout::NT || layout == MmaLayout::NN;
+  auto swizzle_size_a = getBytesFromSwizzle(swizzle_a) / dataTypeSize(dtype);
+  auto inner_size_a = m_is_inner ? getM(macro) : getK(macro);
+  bool multiple_a = swizzle_size_a / inner_size_a > 1;
+
+  bool n_is_inner = layout == MmaLayout::TT || layout == MmaLayout::NT;
+  auto swizzle_size_b = getBytesFromSwizzle(swizzle_b) / dataTypeSize(dtype);
+  auto inner_size_b = n_is_inner ? getN(macro) : getK(macro);
+  bool multiple_b = swizzle_size_b / inner_size_b > 1;
+
+  if (!multiple_a && !multiple_b) {
+    GTEST_SKIP()
+        << "Already tested in SingleTile, not interested in testing it again";
+  }
+
+  if ((multiple_a && swizzle_size_a % inner_size_a != 0) ||
+      (multiple_b && swizzle_size_b % inner_size_b != 0)) {
+    GTEST_SKIP()
+        << "We will be using swizzle size as CTA tile size, so it must be divisible";
+  }
+
+  int64_t m = (multiple_a && m_is_inner) ? swizzle_size_a : getM(macro);
+  int64_t n = (multiple_b && n_is_inner) ? swizzle_size_b : getN(macro);
+  int64_t k1 = (multiple_a && !m_is_inner) ? swizzle_size_a : getK(macro);
+  int64_t k2 = (multiple_b && !n_is_inner) ? swizzle_size_b : getK(macro);
+
+  if (k1 != k2) {
+    GTEST_SKIP()
+        << "This test assumes the CTA tile size of A and B must be the same";
+  }
+
+  auto shapes = matmulAtInputShape3DHopperSS(m, n, k1, layout);
+
+  auto tv0 = makeConcreteTensor(shapes.first, dtype);
+  auto tv1 = makeConcreteTensor(shapes.second, dtype);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  // Just doing a gmem->smem copy
+  tv0 = set(tv0);
+  tv0->setMemoryType(MemoryType::Shared);
+  tv1 = set(tv1);
+  tv1->setMemoryType(MemoryType::Shared);
+
+  int axes = 0;
+  switch (layout) {
+    case MmaLayout::NT:
+      axes = 0;
+      break;
+    case MmaLayout::TT:
+    case MmaLayout::NN:
+      axes = 1;
+      break;
+    case MmaLayout::TN:
+      axes = 2;
+      break;
+    default:
+      NVF_ERROR("Invalid layout");
+  }
+  auto tv2 = fusedMultiplySum(tv0, tv1, {axes});
+
+  // Reorder the accumulator as [M, N, K]
+  switch (layout) {
+    case MmaLayout::TT:
+      // [M, K, N] -> [M, N, K]
+      tv2->reorder({{-2, -1}});
+      break;
+    case MmaLayout::TN:
+      // [M, N, K]
+      break;
+    case MmaLayout::NT:
+      // [K, M, N] -> [M, N, K]
+      tv2->reorder({{-3, -1}});
+      break;
+    case MmaLayout::NN:
+      // [N, K, M] -> [M, N, K]
+      tv2->reorder({{-1, -3}});
+      break;
+    default:
+      NVF_ERROR("Invalid layout");
+  }
+  tv2->commitLeafToLogical();
+
+  fusion.addOutput(tv2);
+
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
+  NVF_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+  mma_ops.front()->setMacro(macro);
+
+  auto tv2c = tv2->cacheBefore();
+
+  // Bring related dims to innermost, that is:
+  // - Reorder tv0 as [1, M, K] or [1, K, M]
+  // - Reorder tv1 as [1, N, K] or [1, K, N]
+  moveInnerBroadcastLeft(tv0);
+  moveInnerBroadcastLeft(tv1);
+
+  // Just schedule tv0 and tv1 the same way as in SingleTile. Note that although
+  // the schedule are the same, the memory layout is different.
+  // For example, assume that the inner size is 16, and the swizzle size is 64.
+  // For the case of SingleTile, the input tensor size will be 16, so the inner
+  // dimension will be split as:
+  //   1, 64 = split(16, 64)
+  // For the case of FullSwizzle, the input tensor size will be 64, so the inner
+  // dimension will be split as:
+  //   1, 64 = split(64, 64)
+  tv0->applyMmaSwizzle(swizzle_a);
+  tv1->applyMmaSwizzle(swizzle_b);
+
+  naivelyParallelize(tv0);
+  naivelyParallelize(tv1);
+
+  // [M, N, K]
+  int64_t inline_pos = 0;
+  if (multiple_a && m_is_inner) {
+    tv2c->split(-3, getM(macro));
+    tv2->split(-2, getM(macro));
+    inline_pos++;
+  }
+  if (multiple_b && n_is_inner) {
+    tv2c->split(-2, getN(macro));
+    tv2c->reorder({{-3, -4}});
+    tv2->split(-1, getN(macro));
+    tv2->reorder({{-2, -3}});
+    inline_pos++;
+  }
+  if ((multiple_a && !m_is_inner) || (multiple_b && !n_is_inner)) {
+    tv2c->split(-1, getK(macro));
+    tv2c->reorder({{-2, -4}});
+  }
+  // [Mo, No, Ko, Mi, Ni, Ki]
+
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2c->getLoopDomain());
+    tv2c->setLoopDomain(s.as<IterDomain*>());
+    tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+  }
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2->getLoopDomain());
+    tv2->setLoopDomain(s.as<IterDomain*>());
+  }
+
+  tv2c->inlineAt(inline_pos);
+
+  auto inputs =
+      matmulAtInput3DHopperSS(m, n, k1, layout, data_type_to_aten(dtype));
 
   FusionExecutor fe;
   fe.compileFusion(

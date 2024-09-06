@@ -8815,6 +8815,81 @@ TEST_F(NVFuserTest, ReplaceSymbolicSizes) {
   EXPECT_EQ(tv5->axis(0)->extent()->toInlineString(), "5");
 }
 
+// Make sure BestEffortReplay with error_on_failure=false does not
+// complain about missing root-to-logical IterDomain ops
+TEST_F(NVFuserTest, BestEffortReplayWithMismatchedRootToLogical) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({2, 4});
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = reshape(tv1, {2, 4}, {8});
+  fusion.addOutput(tv2);
+
+  // This split does not exist in tv2
+  tv1->split(0, 1);
+
+  // Due to the split of tv1, BestEffortReplay would not find any
+  // matching transformations. If error_on_failure is true, it would
+  // result in an error.
+  EXPECT_THAT(
+      [&]() {
+        BestEffortReplay replay(
+            tv2->getLoopDomain(),
+            tv1->getLoopDomain(),
+            PairwiseLogicalDomainMap(tv1, tv2).mapProducerToConsumer(),
+            /*replay_forward_id_map=*/{},
+            /*target_forward_id_map=*/{},
+            /*skip_replay_swizzle=*/false,
+            /*skip_target_swizzle=*/false,
+            /*skip_resize=*/false,
+            /*error_on_failure=*/true);
+      },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
+          ::testing::HasSubstr("conflicts with an root-to-logical call")));
+
+  // Should not result in an error as error_on_failure is false
+  BestEffortReplay replay(
+      tv2->getLoopDomain(),
+      tv1->getLoopDomain(),
+      PairwiseLogicalDomainMap(tv1, tv2).mapProducerToConsumer(),
+      /*replay_forward_id_map=*/{},
+      /*target_forward_id_map=*/{},
+      /*skip_replay_swizzle=*/false,
+      /*skip_target_swizzle=*/false,
+      /*skip_resize=*/false,
+      /*error_on_failure=*/false);
+}
+
+TEST_F(NVFuserTest, RAWSync) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(1);
+  fusion.addInput(tv1);
+
+  auto tv2 = broadcast(tv1, {false, true});
+  auto tv3 = add(tv0, tv2);
+  fusion.addOutput(tv3);
+
+  tv3->merge(0);
+  tv2->merge(0);
+  tv3->axis(0)->parallelize(ParallelType::TIDx);
+  tv2->axis(0)->parallelize(ParallelType::TIDx);
+
+  // Since tv2 is not inlined and tv2 and tv3 are both parallelized,
+  // tv2 as a producer of tv3 requires a synchronization with tv2
+  // placed on shared memory. Lowering the fusion should fail.
+  EXPECT_THAT(
+      [&]() { GpuLower(&fusion).run(); },
+      testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
+          "Producer is required to be in Global or Shared Memory based on parallelization strategy. RAW flags: (threadIdx.x)")));
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
