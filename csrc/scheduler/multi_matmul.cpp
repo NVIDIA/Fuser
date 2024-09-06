@@ -1098,12 +1098,6 @@ class MultipleMatmulScheduler {
         //   splitk_sum = sum(smem_epilogue)
         smem_epilogues_.push_back(mma_result->cacheAfter());
         // smem_epilogue = [..., iMo, iNo, iKf, iMi, iNi]
-
-        // Transform mma_result through the epilogue swizzle without actually
-        // swizzling the axes. This is done to enable the domains
-        // are mapped between mma_result and smem_epilogue.
-        auto swizzled_dom = swizzleSharedMemory(mma_result);
-        mma_result->setLoopDomain(swizzled_dom.as<IterDomain*>());
       }
       // Schedule warp tile
       // Incoming mma_result = [... iMo iNo (iKf) rKg iMi iNi rKi]
@@ -1112,14 +1106,6 @@ class MultipleMatmulScheduler {
       // same number of dimensions.
       // TODO: use the version that uses merged_roles instead here
       mma_utils::scheduleWarpTileWithReduction(mma_result, params_.tile_sizes);
-
-      /*
-      scheduler_utils::BoundedDirectionalTransformPropagator::bothWays(
-          mma_result,
-          -1,
-          all_smem_stores,
-          smem_epilogues_.empty() ? mma_results_ : smem_epilogues_);
-          */
 
       // This does a split-reorder-merge swizzle of the last two M and N
       // dimensions (and a possible final reduction dim). eg. [M64, N24, R]  ->
@@ -1187,6 +1173,22 @@ class MultipleMatmulScheduler {
         // NOTE: this is just for matching the old scheduler. parallelization is
         // harmless here
         continue;
+      }
+
+      if (params_.use_smem_epilogue) {
+        TensorView* smem_epilogue = smem_epilogues_.back();
+        smem_epilogue->setMemoryType(MemoryType::Shared);
+        auto swizzled_dom = swizzleSharedMemory<false>(smem_epilogue);
+        smem_epilogue->setAllocationDomain(
+            swizzled_dom.as<IterDomain*>(), true);
+        scheduler_utils::BoundedDirectionalTransformPropagator::forward(
+            mma_result,
+            -1,
+            {smem_epilogue},
+            scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+                .propagateParallelType()
+                .propagateToBoundary());
+        smem_epilogue->axis(-1)->parallelize(ParallelType::Vectorize);
       }
 
       // When we have both batch dims and splitk, parallelize splitk only.
