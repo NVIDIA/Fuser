@@ -1347,6 +1347,13 @@ Val* proveLinearAndGetStride(
   while (!path.empty()) {
     const auto& [eg, direction] = path.back();
     path.pop_back();
+    auto from_groups = from(eg, direction);
+    if (!std::any_of(
+            from_groups.begin(), from_groups.end(), [&](const auto& g) {
+              return related(frontier, g);
+            })) {
+      continue;
+    }
     if (!eg->front()->isOneOf<Split, Merge>()) {
       return nullptr;
     }
@@ -1354,14 +1361,12 @@ Val* proveLinearAndGetStride(
         split && !simplifyExpr(split->isDivisible())->isTrue()) {
       return nullptr;
     }
-    auto from_groups = from(eg, direction);
     auto to_groups = to(eg, direction);
     frontier = propagate(frontier, from_groups, to_groups);
     if (!frontier.hasValue()) {
       return nullptr;
     }
   }
-  std::cout << "finished propagation" << std::endl;
   return proveLinearAndGetStrideAfterPropagation(frontier, domain);
 }
 
