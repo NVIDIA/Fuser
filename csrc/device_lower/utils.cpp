@@ -1189,7 +1189,50 @@ AbstractValGroup propagate(
     const std::vector<AbstractValGroup>& current,
     const ValGroups& from,
     const ValGroups& to) {
-  NVF_ERROR(false, "Not Implemented Yet.");
+  if (from.size() == 1) {
+    NVF_ERROR(to.size() == 2);
+    NVF_ERROR(std::any_of(current.begin(), current.end(), [&](const auto& g) {
+      return related(g, from.front());
+    }));
+    std::vector<AbstractValGroup> result;
+    for (const auto& g : current) {
+      if (g.is<ValGroup>() && g.as<ValGroup>() == from.front()) {
+        result.push_back(to.front());
+        result.push_back(to.back());
+      } else if (related(g, from.front())) {
+        result.push_back(propagate(g, from, to));
+      } else {
+        result.push_back(g);
+      }
+    }
+    return result;
+  } else {
+    NVF_ERROR(from.size() == 2);
+    NVF_ERROR(to.size() == 1);
+    auto outer_it =
+        std::find_if(current.begin(), current.end(), [&](const auto& g) {
+          return g.template is<ValGroup>() &&
+              g.template as<ValGroup>() == from.front();
+        });
+    if (outer_it != current.end()) {
+      auto inner_it = std::next(outer_it);
+      if (inner_it != current.end() && inner_it->is<ValGroup>() &&
+          inner_it->as<ValGroup>() == from.back()) {
+        std::vector<AbstractValGroup> result = current;
+        result.erase(result.begin() + std::distance(current.begin(), inner_it));
+        result.at(std::distance(current.begin(), outer_it)) = to.front();
+        if (result.size() == 1) {
+          return result.front();
+        }
+        return result;
+      }
+    }
+    // Other cases are not implemented yet. Just return std::monostate,
+    // which will make proveLinearAndGetStride stop the propagation and return
+    // "can not prove linear". In the future, we can implement these cases if it
+    // turns out to be useful.
+    return {};
+  }
 }
 
 AbstractValGroup propagate(
