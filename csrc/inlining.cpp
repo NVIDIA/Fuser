@@ -236,6 +236,67 @@ size_t MaxPosCalculator::getMaxPosAll(
   return max_pos;
 }
 
+namespace {
+// IdModel version
+int64_t getConsumerPosAlignedToProducerCA(
+    TensorView* consumer,
+    TensorView* producer,
+    int64_t producer_pos,
+    const ValGraph& graph) {
+  int64_t consumer_pos = consumer->nDims();
+  while (consumer_pos > 0) {
+    auto consumer_id = consumer->axis(consumer_pos - 1);
+    auto p_dom = producer->getLoopDomain();
+    if (std::any_of(
+            p_dom.begin(),
+            p_dom.begin() + producer_pos,
+            [&consumer_id, &graph](IterDomain* p_id) {
+              return graph.disjointValSets().strictAreMapped(consumer_id, p_id);
+            })) {
+      break;
+    }
+    consumer_pos--;
+  }
+  return consumer_pos;
+}
+
+} // namespace
+
+std::pair<size_t, size_t> MaxPosCalculator::getMaxProducerPos(
+    TensorView* consumer) const {
+  int64_t max_producer_pos = 0;
+  for (auto producer : ir_utils::producerTvsOf(consumer)) {
+    max_producer_pos = std::max(
+        max_producer_pos,
+        getConsumerPosAlignedToProducerCA(
+            consumer,
+            producer,
+            producer->getComputePosition(consumer),
+            id_model_->idGraph(IdMappingMode::EXACT)));
+  }
+
+  auto maybe_max_producer_pos = max_producer_pos;
+
+  // When a producer may be computed with this tensor, i.e., it isn't
+  // yet resolved, reflect that in maybe_max_producer_pos_. If all
+  // producers are already resolved, i.e., after the initial
+  // resolveComputeWith in lowering, this should be just equal to
+  // max_producer_pos_.
+  for (auto producer : ir_utils::producerTvsOf(consumer)) {
+    if (producer->hasComputeWith() && !producer->hasResolvedComputeWith()) {
+      maybe_max_producer_pos = std::max(
+          maybe_max_producer_pos,
+          getConsumerPosAlignedToProducerCA(
+              consumer,
+              producer,
+              producer->getComputeWithPosition(),
+              id_model_->idGraph(IdMappingMode::EXACT)));
+    }
+  }
+
+  return {max_producer_pos, maybe_max_producer_pos};
+}
+
 void inlineMost(const std::unordered_set<IterDomain*>& uninlinable_ids) {
   inlineMost(FusionGuard::getCurFusion()->allTvs(), uninlinable_ids);
 }

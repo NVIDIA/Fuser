@@ -17,6 +17,7 @@
 #include <id_model/indexing_utils.h>
 #include <id_model/predicate_indexing.h>
 #include <id_model/to_string.h>
+#include <id_model/utils.h>
 #include <index_compute.h>
 #include <ir/builder.h>
 #include <ir/graphviz.h>
@@ -342,8 +343,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
                          allocation_domain) != tv->getLoopDomain().end();
       IterDomain* promotion_domain = nullptr;
       if (is_loop) {
-        promotion_domain =
-            indexing_utils::getLoopPromotion(allocation_domain, id_model);
+        promotion_domain = getLoopPromotion(allocation_domain, id_model);
       } else {
         promotion_domain = allocation_domain;
       }
@@ -832,8 +832,8 @@ void TensorIndexer::buildLoopIndexMap() {
 
 bool TensorIndexer::shouldUseZeroIndex(const ValGroup& loop_group) const {
   // Trivial loop
-  auto promotion_id = indexing_utils::getLoopPromotion(
-      loop_group->front()->as<IterDomain>(), id_model_);
+  auto promotion_id =
+      getLoopPromotion(loop_group->front()->as<IterDomain>(), id_model_);
   if (promotion_id->isBroadcast() ||
       simplifyExpr(promotion_id->extent())->isOneInt()) {
     return true;
@@ -975,7 +975,7 @@ std::vector<IterDomain*> TensorIndexer::getLoopDomains(const Expr* expr) const {
   auto loop_domains = ir_utils::getTvOutput(expr)->getLoopDomain();
 
   for (auto& loop_id : loop_domains) {
-    loop_id = indexing_utils::getLoopPromotion(loop_id, id_model_);
+    loop_id = getLoopPromotion(loop_id, id_model_);
   }
 
   return loop_domains;

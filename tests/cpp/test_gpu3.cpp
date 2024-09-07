@@ -8890,6 +8890,35 @@ TEST_F(NVFuserTest, RAWSync) {
           "Producer is required to be in Global or Shared Memory based on parallelization strategy. RAW flags: (threadIdx.x)")));
 }
 
+TEST_F(NVFuserTest, FindDependencyWithIRBFSGetValsBetween) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(4);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+
+  fusion.addOutput(tv1);
+
+  // [i0, i1, i2, i3]
+  tv1->merge(0, 2);
+  // [i0*i2, i1, i3]
+  tv1->merge(1, 2);
+  // [i0*i2, i1*i3]
+  tv1->reorder({{0, 1}});
+  // [i1*i3, i0*i2]
+
+  auto all_deps = IRBFS::getDependenciesTo(
+      {tv1->getLogicalDomain().begin(), tv1->getLogicalDomain().end()},
+      {tv1->axis(0)});
+
+  std::vector<Val*> ref{
+      tv1->getLogicalDomain().at(1), tv1->getLogicalDomain().at(3)};
+
+  EXPECT_EQ(all_deps, ref);
+}
+
 // Testing IRBFS::getValsBetween with a reshape fusion
 TEST_F(NVFuserTest, IRBFSGetValsBetween) {
   Fusion fusion;

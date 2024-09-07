@@ -11,6 +11,7 @@
 #include <device_lower/pass/expr_sort.h>
 #include <device_lower/utils.h>
 #include <fusion.h>
+#include <id_model/utils.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/iostream.h>
@@ -335,8 +336,7 @@ class ExprSegmentationSorter {
     if (id == kernelScopeDomain()) {
       return id;
     } else {
-      return GpuLower::current()->caMap()->getConcreteMappedID(
-          id, IdMappingMode::LOOP);
+      return lower_utils::getConcreteDomain(id);
     }
   }
 
@@ -675,6 +675,10 @@ ExprGroup* ExprSegmentationSorter::makeEmptyGroup(
                    : out_tv->getComputeAtPosition())) {
         auto concrete_id = getConcreteID(out_tv->axis(tv_i));
         group->payload()->ca_domains.push_back(concrete_id);
+        if (out_tv->name() == 1) {
+          std::cerr << "ca_id: " << out_tv->axis(tv_i)->toString()
+                    << ", concrete: " << concrete_id->toString() << "\n";
+        }
       }
     }
     // Similarly for PA, unless all the inputs are either fusion
@@ -686,6 +690,11 @@ ExprGroup* ExprSegmentationSorter::makeEmptyGroup(
     }
     for (const auto tv_i : c10::irange(out_tv->getMaxProducerPosition())) {
       auto concrete_id = getConcreteID(out_tv->axis(tv_i));
+      if (out_tv->name() == 2) {
+        std::cerr << "pa_id: " << out_tv->axis(tv_i)->toString()
+                  << ", concrete: " << concrete_id->toString() << "\n";
+      }
+
       group->payload()->pa_domains.push_back(concrete_id);
     }
   }
@@ -798,8 +807,6 @@ std::vector<IterDomain*> getLocalDomainOrdering(
     return std::vector<IterDomain*>();
   }
 
-  const auto& ca_map = GpuLower::current()->caMap();
-
   std::unordered_set<IterDomain*> domains;
 
   for (auto expr : exprs) {
@@ -820,17 +827,15 @@ std::vector<IterDomain*> getLocalDomainOrdering(
                   tv_input->getComputePosition(tv_output),
                   tv_input->getMaxProducerPosition()),
           std::back_inserter(domain),
-          [&ca_map](IterDomain* id) {
-            return ca_map->getConcreteMappedID(id, IdMappingMode::LOOP);
-          });
+          [](IterDomain* id) { return lower_utils::getConcreteDomain(id); });
 
       domain.erase(
           std::remove_if(
               domain.begin(),
               domain.end(),
-              [&filter, &ca_map](IterDomain* id) {
-                return filter.find(ca_map->getConcreteMappedID(
-                           id, IdMappingMode::LOOP)) == filter.end();
+              [&filter](IterDomain* id) {
+                return filter.find(lower_utils::getConcreteDomain(id)) ==
+                    filter.end();
               }),
           domain.end());
 

@@ -3711,11 +3711,21 @@ TEST_F(ResizeTest, SliceScheduledLikeProducer) {
 
   tv2->setLoopDomain({tv2_loop_id});
 
+  fusion.print();
+
+#if 1
   for (auto tv : {tv1, tv2}) {
     tv->split(0, 32);
-    tv->axis(0)->parallelize(ParallelType::BIDx);
-    tv->axis(1)->parallelize(ParallelType::TIDx);
+    // With inlining, this should be sufficient
+    if (tv == tv2) {
+      tv->axis(0)->parallelize(ParallelType::BIDx);
+      tv->axis(1)->parallelize(ParallelType::TIDx);
+    }
   }
+#endif
+  inlineMost();
+  fusion.printMath();
+  fusion.printKernel();
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);

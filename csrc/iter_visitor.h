@@ -628,6 +628,10 @@ class IRBFS
   static std::vector<Val*> getReachableValsFrom(
       const std::vector<Val*>& from,
       const std::vector<Val*>& vals);
+
+  static std::vector<Val*> getDependenciesTo(
+      const std::vector<Val*>& vals,
+      const std::vector<Val*>& to);
 };
 
 } // namespace nvfuser

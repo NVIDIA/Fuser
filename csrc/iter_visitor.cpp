@@ -1193,4 +1193,26 @@ std::vector<Val*> IRBFS::getReachableValsFrom(
   return reachable_vals;
 }
 
+std::vector<Val*> IRBFS::getDependenciesTo(
+    const std::vector<Val*>& vals,
+    const std::vector<Val*>& to) {
+  auto path = IRBFS::getExprsBetween(vals, to, /*require_all_to_visited=*/true);
+
+  VectorOfUniqueEntries<Val*> unique_vals;
+
+  std::unordered_set<Val*> val_set{vals.begin(), vals.end()};
+
+  for (auto [expr, direction] : path) {
+    auto inputs =
+        (direction == Direction::Forward) ? expr->inputs() : expr->outputs();
+    for (auto val : inputs) {
+      if (val_set.find(val) != val_set.end()) {
+        unique_vals.pushBack(val);
+      }
+    }
+  }
+
+  return unique_vals.vector();
+}
+
 } // namespace nvfuser
