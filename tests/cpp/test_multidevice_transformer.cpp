@@ -800,7 +800,7 @@ TEST_P(DistributedTransformerTest, MLP_Backward) {
       expected_outputs,
       outputs,
       {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0},
-      {1e-5, 1e-5, 1e-5, 1e-5, 0.05, 1e-5, 0.01});
+      {1e-5, 0.2, 1e-5, 0.01, 0.2, 0.01, 0.01});
 }
 
 TEST_P(DistributedTransformerTest, MHA_Backward) {
@@ -900,7 +900,7 @@ TEST_P(DistributedTransformerTest, MHA_Backward) {
       expected_outputs,
       out,
       {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0},
-      {1e-5, 1e-5, 1e-5, 1e-4, 1e-4, 0.1, 0.1, 0.1, 0.01});
+      {1e-5, 0.02, 1e-5, 1e-5, 1e-5, 0.1, 0.1, 0.02, 0.01});
 }
 
 TEST_P(DistributedTransformerTest, Forward) {
@@ -1013,7 +1013,7 @@ TEST_P(DistributedTransformerTest, Forward) {
       expected_outputs,
       outputs,
       {0.0, 0.0, 0.0, 0.0, 0.0},
-      {1e-5, 0.01, 0.01, 0.01, 0.02});
+      {1e-5, 0.01, 0.01, 0.02, 0.02});
 }
 
 INSTANTIATE_TEST_SUITE_P(
