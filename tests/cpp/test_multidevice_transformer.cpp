@@ -103,7 +103,8 @@ void validate(
     };
 
     EXPECT_TRUE(outputs[i].allclose(expected_outputs[i], rtol, atol))
-        << "Output " << i << " mismatches:" << std::endl
+        << "Output " << i << " mismatches with rtol " << rtol << " and atol "
+        << atol << ":" << std::endl
         << generate_comparison_details(
                expected_outputs[i], outputs[i], rtol, atol);
   }
