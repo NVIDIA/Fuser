@@ -62,12 +62,10 @@ namespace {
 void validate(
     const std::vector<at::Tensor>& expected_outputs,
     const std::vector<at::Tensor>& outputs,
-    const std::vector<double>& rtols,
     const std::vector<double>& atols) {
   using testing::SizeIs;
   const auto num_outputs = outputs.size();
   ASSERT_THAT(expected_outputs, SizeIs(num_outputs));
-  ASSERT_THAT(rtols, SizeIs(num_outputs));
   ASSERT_THAT(atols, SizeIs(num_outputs));
 
   for (const auto i : c10::irange(num_outputs)) {
@@ -79,19 +77,16 @@ void validate(
     // Note: Scaling tolerance up since the error accumulates across ops
     // BFloat16 error is quite high, but the program has been verified with
     // double precision to be logically correct.
-    const double rtol = rtols[i];
     const double atol = atols[i];
     auto generate_comparison_details = [](at::Tensor expected_out,
                                           at::Tensor out,
-                                          double rtol,
                                           double atol) -> std::string {
       std::ostringstream oss;
       auto error = (out - expected_out).abs();
       auto max_absolute_error = error.max().item().to<double>();
       auto max_relative_error =
           max_absolute_error / expected_out.abs().max().item().to<double>();
-      auto error_count =
-          at::sum(error >= (atol + expected_out.abs() * rtol)).item();
+      auto error_count = at::sum(error >= atol).item();
       indent(oss, 1) << "max absolute error: " << max_absolute_error
                      << std::endl;
       indent(oss, 1) << "max relative error: " << max_relative_error
@@ -102,11 +97,10 @@ void validate(
       return oss.str();
     };
 
-    EXPECT_TRUE(outputs[i].allclose(expected_outputs[i], rtol, atol))
-        << "Output " << i << " mismatches with rtol " << rtol << " and atol "
-        << atol << ":" << std::endl
-        << generate_comparison_details(
-               expected_outputs[i], outputs[i], rtol, atol);
+    EXPECT_TRUE(outputs[i].allclose(expected_outputs[i], /*rtol=*/0.0, atol))
+        << "Output " << i << " mismatches with atol " << atol << ":"
+        << std::endl
+        << generate_comparison_details(expected_outputs[i], outputs[i], atol);
   }
 }
 
@@ -663,11 +657,7 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
   FusionExecutorCache fec(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
   auto outputs = fec.runFusionWithInputs(inputs);
-  validate(
-      expected_outputs,
-      outputs,
-      {0.0, 0.0, 0.0, 0.0},
-      {0.01, 0.01, 0.01, 0.01});
+  validate(expected_outputs, outputs, {0.01, 0.01, 0.01, 0.01});
 }
 
 TEST_P(DistributedTransformerTest, MultiheadAttention) {
@@ -724,11 +714,7 @@ TEST_P(DistributedTransformerTest, MultiheadAttention) {
   FusionExecutorCache fec(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
   auto outputs = fec.runFusionWithInputs(inputs);
-  validate(
-      expected_outputs,
-      outputs,
-      {0.0, 0.0, 0.0, 0.0},
-      {0.02, 0.01, 0.01, 0.01});
+  validate(expected_outputs, outputs, {0.02, 0.01, 0.01, 0.01});
 }
 
 TEST_P(DistributedTransformerTest, MLP_Backward) {
@@ -796,11 +782,7 @@ TEST_P(DistributedTransformerTest, MLP_Backward) {
   FusionExecutorCache fec(std::move(fusion));
   auto outputs = fec.runFusionWithInputs(inputs);
 
-  validate(
-      expected_outputs,
-      outputs,
-      {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0},
-      {1e-5, 0.2, 1e-5, 0.01, 0.2, 0.01, 0.02});
+  validate(expected_outputs, outputs, {1e-5, 0.2, 1e-5, 0.01, 0.2, 0.01, 0.02});
 }
 
 TEST_P(DistributedTransformerTest, MHA_Backward) {
@@ -899,7 +881,6 @@ TEST_P(DistributedTransformerTest, MHA_Backward) {
   validate(
       expected_outputs,
       out,
-      {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0},
       {1e-5, 0.02, 1e-5, 1e-5, 1e-5, 0.1, 0.1, 0.02, 0.01});
 }
 
@@ -1009,11 +990,7 @@ TEST_P(DistributedTransformerTest, Forward) {
   FusionExecutorCache fec(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
   auto outputs = fec.runFusionWithInputs(inputs);
-  validate(
-      expected_outputs,
-      outputs,
-      {0.0, 0.0, 0.0, 0.0, 0.0},
-      {1e-5, 0.01, 0.01, 0.02, 0.02});
+  validate(expected_outputs, outputs, {1e-5, 0.01, 0.01, 0.02, 0.02});
 }
 
 INSTANTIATE_TEST_SUITE_P(
