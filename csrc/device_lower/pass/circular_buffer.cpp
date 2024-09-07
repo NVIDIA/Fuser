@@ -574,13 +574,16 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
     mbarrier_wait_ = createMbarrierWait(ldst, current_compute_stage_);
 
     // If last cloned scope is the cloned_top_level_loop body, then add
-    // mbarrier::arriveExpectTx and new loadStoreOp.
+    // mbarrier::arriveExpectTx, new loadStoreOp, and mbarrier_wait
     int64_t active_for_loops = std::count_if(
         for_loop_stack_.begin(), for_loop_stack_.end(), [](ForLoop* fl) {
           return fl->iter_domain()->getParallelType() == ParallelType::Serial;
         });
     if (active_for_loops == 1) {
       addTmaLoadBlock(ldst);
+      NVF_ERROR(mbarrier_wait_ != nullptr);
+      for_loop_stack_.back()->body().push_back(mbarrier_wait_);
+      mbarrier_wait_ = nullptr;
       return;
     }
 
@@ -604,7 +607,9 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
     NVF_ERROR(
         mbarrier_wait_ == nullptr,
         "Expected mbarrier_wait to inactive for current TMA operation");
-    mbarrier_wait_ = createMbarrierWait(ldst, epilogue_compute_stage);
+    kir::MBarrierWait* mbarrier_wait =
+        createMbarrierWait(ldst, epilogue_compute_stage);
+    for_loop_stack_.back()->body().push_back(mbarrier_wait);
   }
 
   // This function selects a single thread to launch tma load and mbarrier
