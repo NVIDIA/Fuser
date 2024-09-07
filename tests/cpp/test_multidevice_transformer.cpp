@@ -7,6 +7,7 @@
 // clang-format on
 #include <cmath>
 
+#include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
 #include <executor.h>
@@ -56,11 +57,20 @@ class DistributedTransformerTest
 };
 
 namespace {
+// testValidate doesn't work out of the box due to #2906, so I had to manually
+// specify the tolerances.
 void validate(
-    std::vector<at::Tensor> expected_outputs,
-    std::vector<at::Tensor> outputs) {
-  EXPECT_EQ(expected_outputs.size(), outputs.size());
-  for (auto i : c10::irange(outputs.size())) {
+    const std::vector<at::Tensor>& expected_outputs,
+    const std::vector<at::Tensor>& outputs,
+    const std::vector<double>& rtols,
+    const std::vector<double>& atols) {
+  using testing::SizeIs;
+  const auto num_outputs = outputs.size();
+  ASSERT_THAT(expected_outputs, SizeIs(num_outputs));
+  ASSERT_THAT(rtols, SizeIs(num_outputs));
+  ASSERT_THAT(atols, SizeIs(num_outputs));
+
+  for (const auto i : c10::irange(num_outputs)) {
     // allclose can catch this as well. However, it would throw an exception,
     // not showing which output was problematic.
     ASSERT_EQ(outputs[i].dtype(), expected_outputs[i].dtype())
@@ -69,12 +79,12 @@ void validate(
     // Note: Scaling tolerance up since the error accumulates across ops
     // BFloat16 error is quite high, but the program has been verified with
     // double precision to be logically correct.
-    const double atol = 0.075 * (i + 1);
-    const double rtol = 1.6e-2;
-    auto generate_comparison_details = [](at::Tensor out,
-                                          at::Tensor expected_out,
-                                          double atol,
-                                          double rtol) -> std::string {
+    const double rtol = rtols[i];
+    const double atol = atols[i];
+    auto generate_comparison_details = [](at::Tensor expected_out,
+                                          at::Tensor out,
+                                          double rtol,
+                                          double atol) -> std::string {
       std::ostringstream oss;
       auto error = (out - expected_out).abs();
       auto max_absolute_error = error.max().item().to<double>();
@@ -95,7 +105,7 @@ void validate(
     EXPECT_TRUE(outputs[i].allclose(expected_outputs[i], rtol, atol))
         << "Output " << i << " mismatches:" << std::endl
         << generate_comparison_details(
-               outputs[i], expected_outputs[i], atol, rtol);
+               expected_outputs[i], outputs[i], rtol, atol);
   }
 }
 
@@ -652,8 +662,11 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
   FusionExecutorCache fec(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
   auto outputs = fec.runFusionWithInputs(inputs);
-  // FIXME: rtol=0, atol=1e-2.
-  validate(expected_outputs, outputs);
+  validate(
+      expected_outputs,
+      outputs,
+      {0.0, 0.0, 0.0, 0.0},
+      {0.01, 0.01, 0.01, 0.01});
 }
 
 TEST_P(DistributedTransformerTest, MultiheadAttention) {
@@ -709,8 +722,12 @@ TEST_P(DistributedTransformerTest, MultiheadAttention) {
 
   FusionExecutorCache fec(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
-  auto out = fec.runFusionWithInputs(inputs);
-  validate(expected_outputs, out);
+  auto outputs = fec.runFusionWithInputs(inputs);
+  validate(
+      expected_outputs,
+      outputs,
+      {0.0, 0.0, 0.0, 0.0},
+      {0.02, 0.01, 0.01, 0.01});
 }
 
 TEST_P(DistributedTransformerTest, MLP_Backward) {
@@ -778,7 +795,11 @@ TEST_P(DistributedTransformerTest, MLP_Backward) {
   FusionExecutorCache fec(std::move(fusion));
   auto outputs = fec.runFusionWithInputs(inputs);
 
-  validate(expected_outputs, outputs);
+  validate(
+      expected_outputs,
+      outputs,
+      {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0},
+      {1e-5, 1e-5, 1e-5, 1e-5, 0.05, 1e-5, 0.01});
 }
 
 TEST_P(DistributedTransformerTest, MHA_Backward) {
@@ -874,7 +895,11 @@ TEST_P(DistributedTransformerTest, MHA_Backward) {
   FusionExecutorCache fec(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
   auto out = fec.runFusionWithInputs(inputs);
-  validate(expected_outputs, out);
+  validate(
+      expected_outputs,
+      out,
+      {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0},
+      {1e-5, 1e-5, 1e-5, 1e-4, 1e-4, 0.1, 0.1, 0.1, 0.01});
 }
 
 TEST_P(DistributedTransformerTest, Forward) {
@@ -983,7 +1008,11 @@ TEST_P(DistributedTransformerTest, Forward) {
   FusionExecutorCache fec(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
   auto outputs = fec.runFusionWithInputs(inputs);
-  validate(expected_outputs, outputs);
+  validate(
+      expected_outputs,
+      outputs,
+      {0.0, 0.0, 0.0, 0.0, 0.0},
+      {1e-5, 0.01, 0.01, 0.01, 0.02});
 }
 
 INSTANTIATE_TEST_SUITE_P(
