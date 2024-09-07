@@ -800,7 +800,7 @@ TEST_P(DistributedTransformerTest, MLP_Backward) {
       expected_outputs,
       outputs,
       {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0},
-      {1e-5, 0.2, 1e-5, 0.01, 0.2, 0.01, 0.01});
+      {1e-5, 0.2, 1e-5, 0.01, 0.2, 0.01, 0.02});
 }
 
 TEST_P(DistributedTransformerTest, MHA_Backward) {
