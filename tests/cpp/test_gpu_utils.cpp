@@ -1243,11 +1243,6 @@ TEST_F(NVFuserTest, ProveLinearAndGetStride) {
   auto v4__ = v4_.as<ValGroupAndItsGraph>();
   std::vector<ValGroup> v4(v4__.begin(), v4__.end());
 
-  // debug
-  Val* v4_7_in_v2_ = lower_utils::proveLinearAndGetStride(g, v4[7], v2);
-  ASSERT_EQ(v4_7_in_v2_, nullptr);
-  return;
-
   // v1 in v1
   Val* v1_0_in_v1 = lower_utils::proveLinearAndGetStride(g, v1[0], v1);
   EXPECT_NE(v1_0_in_v1, nullptr);
@@ -1437,7 +1432,7 @@ TEST_F(NVFuserTest, ProveLinearAndGetStride) {
   EXPECT_EQ(simplifyExpr(v2_6_in_v4)->value(), 0);
 
   Val* v2_7_in_v4 = lower_utils::proveLinearAndGetStride(g, v2[7], v4);
-  EXPECT_EQ(v2_7_in_v4, nullptr);
+  EXPECT_EQ(simplifyExpr(v2_7_in_v4)->value(), 1);
 
   // v3 in v1
   Val* v3_0_in_v1 = lower_utils::proveLinearAndGetStride(g, v3[0], v1);

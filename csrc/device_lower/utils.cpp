@@ -1076,6 +1076,10 @@ std::string print(const std::deque<AbstractValGroup>& vec) {
   return ss.str();
 }
 
+std::string print(const std::monostate&) {
+  return "std::monostate";
+}
+
 std::string print(const AbstractValGroup& group) {
   return AbstractValGroup::dispatch(
       [&](const auto& group) { return print(group); }, group);
@@ -1106,12 +1110,18 @@ bool related(const AbstractValGroup& current, const ValGroup& to) {
       [&](const auto& current) { return related(current, to); }, current);
 }
 
-auto fromGroups(const ValGraph& id_graph, const ExprGroup& eg, Direction direction) {
+auto fromGroups(
+    const ValGraph& id_graph,
+    const ExprGroup& eg,
+    Direction direction) {
   return direction == Direction::Forward ? id_graph.outputGroups(eg)
                                          : id_graph.inputGroups(eg);
 }
 
-auto toGroups(const ValGraph& id_graph, const ExprGroup& eg, Direction direction) {
+auto toGroups(
+    const ValGraph& id_graph,
+    const ExprGroup& eg,
+    Direction direction) {
   return direction == Direction::Forward ? id_graph.inputGroups(eg)
                                          : id_graph.outputGroups(eg);
 }
@@ -1158,6 +1168,9 @@ AbstractValGroup propagate(
     NVF_ERROR(to.size() == 2);
     NVF_ERROR(related(*current.group, from.front()));
     auto group = propagate(*current.group, id_graph, eg, direction);
+    if (!group.hasValue()) {
+      return {};
+    }
     Val* new_inner_extent = current.inner_extent;
     Val* group_extent = nullptr;
     // Now we will simplify inner_extent and `group`, for example, by removing
@@ -1276,16 +1289,28 @@ AbstractValGroup propagate(
     NVF_ERROR(std::any_of(current.begin(), current.end(), [&](const auto& g) {
       return related(g, from.front());
     }));
+    bool may_be_indivisible_split = eg->front()->isA<Split>() &&
+        !simplifyExpr(eg->front()->as<Split>()->isDivisible())->isTrue();
     std::deque<AbstractValGroup> result;
+    bool first = true;
     for (const auto& g : current) {
       if (g.is<ValGroup>() && g.as<ValGroup>() == from.front()) {
+        if (may_be_indivisible_split && !first) {
+          // indivisible split will make dims not contiguous, so not linear.
+          return {};
+        }
         result.push_back(to.front());
         result.push_back(to.back());
       } else if (related(g, from.front())) {
+        if (may_be_indivisible_split && !first) {
+          // indivisible split will make dims not contiguous, so not linear.
+          return {};
+        }
         result.push_back(propagate(g, id_graph, eg, direction));
       } else {
         result.push_back(g);
       }
+      first = false;
     }
     return result;
   } else {
@@ -1423,29 +1448,22 @@ Val* proveLinearAndGetStride(
   AbstractValGroup frontier = linear_g;
   auto path = ValGraphBFS::getExprsBetween(id_graph, domain, {linear_g});
   while (!path.empty()) {
-    std::cout << "frontier: " << print(frontier) << std::endl;
     const auto& [eg, direction] = path.back();
     path.pop_back();
     auto from = fromGroups(id_graph, eg, direction);
-    if (!std::any_of(
-            from.begin(), from.end(), [&](const auto& g) {
-              return related(frontier, g);
-            })) {
+    if (!std::any_of(from.begin(), from.end(), [&](const auto& g) {
+          return related(frontier, g);
+        })) {
       continue;
     }
     if (!eg->front()->isOneOf<Split, Merge>()) {
       return nullptr;
     }
-    std::cout << "propagating: " << eg->toString() << "\t" << direction
-              << std::endl;
     frontier = propagate(frontier, id_graph, eg, direction);
     if (!frontier.hasValue()) {
-      std::cout << "failed to propagate" << std::endl;
       return nullptr;
     }
   }
-  std::cout << "finished propagating" << std::endl;
-  std::cout << "frontier: " << print(frontier) << std::endl;
   return proveLinearAndGetStrideAfterPropagation(frontier, domain);
 }
 
