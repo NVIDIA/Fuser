@@ -54,6 +54,47 @@ def pointwise_fn(fd, tensor_size):
     fd.schedule = schedule
     return fd
 
+# Apply schedule with decorator pattern.
+def tma_fn(fd, tensor_size):
+    def schedule():
+        print("tma")
+        cache_after_input = fd.sched.cache_after(fd.input, LoadStoreOpType.tma)
+        fd.sched.set_memory_type(cache_after_input, MemoryType.shared)
+
+        cache_before_output = fd.sched.cache_before(fd.output)
+
+        CB = 2
+        V = 8
+        BDX = 128
+
+        for t in fd.sched.tensors():
+            # (I0 * I1)
+            fd.sched.merge(t, dim=0)
+
+            # (I0 * I1) / V, V
+            fd.sched.split(t, dim=0, factor=V)
+
+            # (I0 * I1) / V / BDX, BDX, V
+            fd.sched.split(t, dim=0, factor=BDX)
+
+            # (I0 * I1) / CB / V / BDX, CB, BDX, V
+            fd.sched.split(t, dim=0, factor=CB)
+
+            fd.sched.parallelize(t, axis := 0, ParallelType.grid_x)
+            fd.sched.parallelize(t, axis := -2, ParallelType.block_x)
+
+        # vectorize 2d tensors
+        fd.sched.parallelize(cache_after_input, axis := -1, ParallelType.tma)
+        fd.sched.parallelize(fd.output, axis := -1, ParallelType.vectorize)
+
+        # computeAt - automatically handles vectorize paralleltype
+        fd.sched.inline_most()
+
+        fd.sched.circular_buffer(cache_after_input, CB)
+
+    fd.schedule = schedule
+    return fd
+
 
 def fusion_func(fd: FusionDefinition) -> None:
     T0 = fd.define_tensor(
@@ -96,7 +137,7 @@ for i in range(10, 16):
     with FusionDefinition() as fd:
         fusion_func(fd)
 
-    fd = pointwise_fn(fd, inner_dim)
+    fd = tma_fn(fd, inner_dim)
     nvf_out = fd.execute(inputs, profile=True)
 
     kps = fd.profile().kernel_profiles
