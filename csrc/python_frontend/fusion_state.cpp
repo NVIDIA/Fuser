@@ -109,6 +109,7 @@ void FusionState::buildFusionIr(Fusion* fusion) {
     auto functor = record.get();
     (*functor)(*this);
   }
+  addExtents();
 }
 
 void FusionState::addRecord(RecordFunctor* record) {
@@ -227,6 +228,45 @@ const std::vector<int64_t>& FusionState::inputs() const {
 
 const std::vector<int64_t>& FusionState::outputs() const {
   return outputs_fid_;
+}
+
+const std::vector<int64_t>& FusionState::extents() const {
+  return extents_fid_;
+}
+
+std::vector<Val*> FusionState::getExtents(Fusion* fusion) {
+  NVF_CHECK(fusion != nullptr, "Fusion is undefined.");
+  std::vector<Val*> extents;
+  for (Val* v : fusion->inputs()) {
+    // short-circuit: skip if not TensorView
+    if (!v->isA<TensorView>()) {
+      continue;
+    }
+    TensorView* tv = v->as<TensorView>();
+    std::vector<IterDomain*> logical_dom =
+        TensorDomain::noReductions(tv->getLogicalDomain());
+    std::transform(
+        logical_dom.begin(),
+        logical_dom.end(),
+        std::back_inserter(extents),
+        [](IterDomain* id) { return id->getMaybeExpandedExtent(); });
+  }
+  return extents;
+}
+
+void FusionState::addExtents() {
+  NVF_CHECK(fusion_ != nullptr, "Fusion is undefined.");
+
+  // The size of the tensor dimensions can be used as an input of the
+  // segments. NvFuser does not support returning scalar values. Segmentation
+  // must pass those sizes as segment arguments manually.
+  std::vector<Val*> extents = getExtents(fusion_);
+  for (Val* extent : extents) {
+    int64_t num_extents = (int64_t)extents_fid_.size();
+    int64_t extent_fid = -num_extents - 1;
+    extents_fid_.push_back(extent_fid);
+    map_value_to_fid_.emplace(extent, extent_fid);
+  }
 }
 
 } // namespace nvfuser::python_frontend

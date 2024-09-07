@@ -104,6 +104,7 @@ void FusionDefinition::finalizeDefinition() {
         fusionCache()->queryFusionSchedules(fusion_id_.value());
     fs->inputs_fid_ = inputs();
     fs->outputs_fid_ = outputs();
+    fs->extents_fid_ = extents();
     fs->map_value_to_fid_ = getValueMap();
 
     if (isDebugDumpEnabled(DebugDumpOption::FusionIrOriginal)) {
@@ -663,6 +664,15 @@ void FusionDefinition::prepareGroupOrder() {
   std::copy(
       segmented_fusion_->inputs().begin(),
       segmented_fusion_->inputs().end(),
+      std::inserter(available_input, available_input.end()));
+
+  // The size of the tensor dimensions can be used as an input of the segments.
+  // NvFuser does not support returning scalar values. Segmentation must pass
+  // those sizes as segment arguments manually.
+  std::vector<Val*> extents = getExtents(segmented_fusion_->completeFusion());
+  std::copy(
+      extents.begin(),
+      extents.end(),
       std::inserter(available_input, available_input.end()));
 
   // Keep track of groups that has run

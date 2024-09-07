@@ -161,10 +161,17 @@ class FusionDefinition(_C._FusionDefinition):
         assert len(self.segments) > 0
         assert len(self.segments) == len(self.segment_maps)
 
+        input_arguments_with_extents = [*input_arguments]
+        for a in input_arguments:
+            if type(a) is torch.Tensor:
+                input_arguments_with_extents.extend(a.size())
+
         # Map inputs arguments to original fid
         map_original_fid_to_value = {
             fd_state: argument
-            for fd_state, argument in zip(self.inputs(), input_arguments)
+            for fd_state, argument in zip(
+                self.inputs() + self.extents(), input_arguments_with_extents
+            )
         }
 
         # Run all segments in correct order

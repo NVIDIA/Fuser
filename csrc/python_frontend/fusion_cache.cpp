@@ -749,6 +749,7 @@ void FusionCache::deserialize(std::string filename) {
       // FusionDefinition is stored in FusionCache.
       fs->inputs_fid_ = state->inputs();
       fs->outputs_fid_ = state->outputs();
+      fs->extents_fid_ = state->extents();
       fs->map_value_to_fid_ = state->getValueMap();
     }
 

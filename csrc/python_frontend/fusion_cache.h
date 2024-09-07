@@ -93,6 +93,8 @@ struct FusionSchedules {
   std::unordered_map<const Val*, int64_t> map_value_to_fid_;
   //! Input arguments for FusionState
   std::vector<int64_t> inputs_fid_;
+  //! Extents for TensorView input arguments for FusionState
+  std::vector<int64_t> extents_fid_;
   //! Output arguments for FusionState
   std::vector<int64_t> outputs_fid_;
 };

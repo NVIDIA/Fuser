@@ -747,6 +747,7 @@ void initNvFuserPythonBindings(PyObject* module) {
           })
       .def("inputs", [](FusionDefinition& self) { return self.inputs(); })
       .def("outputs", [](FusionDefinition& self) { return self.outputs(); })
+      .def("extents", [](FusionDefinition& self) { return self.extents(); })
       .def(
           "__repr__",
           [](FusionDefinition& self) {
