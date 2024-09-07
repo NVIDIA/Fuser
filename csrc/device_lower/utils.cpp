@@ -1238,6 +1238,11 @@ AbstractValGroup propagate(
     if (!group.hasValue()) {
       return {};
     }
+    // The result is actually just the
+    //   PartOf{group, current.inner_extent, current.selected_extent}
+    // However, we want to simplify the result. For example, if the inner_extent
+    // is a multiple of the extent of the last item in group, we can simplify
+    // the inner_extent and group by canceling the last item in group.
     Val* new_inner_extent = current.inner_extent;
     Val* group_extent = nullptr;
     // Now we will simplify inner_extent and `group`, for example, by removing
@@ -1299,12 +1304,15 @@ AbstractValGroup propagate(
       while (count < dq.size()) {
         dq.pop_front();
       }
+      // If dq has only one item, we can simplify it to the item itself.
       if (dq.size() == 1) {
         group = dq.front();
       } else {
         group = std::move(dq);
       }
     }
+    // If group has the same extent as linear_g, and there is no inner extent in
+    // group, the the full group represents linear_g.
     if (new_inner_extent == nullptr && group_extent != nullptr &&
         simplifyExpr(IrBuilder::eqExpr(group_extent, current.selected_extent))
             ->isTrue()) {
@@ -1320,6 +1328,7 @@ AbstractValGroup propagate(
     NVF_ERROR(
         related(*current.group, from.front()) ||
         related(*current.group, from.back()));
+    // Adding more extent to the inner.
     if (current.group->is<ValGroup>() &&
         current.group->as<ValGroup>() == from.front()) {
       return PartOf<AbstractValGroup>{
@@ -1329,6 +1338,7 @@ AbstractValGroup propagate(
               from.back()->front()->as<IterDomain>()->extent()),
           current.selected_extent};
     }
+    // Adding more extent to the outer.
     if (current.group->is<ValGroup>() &&
         current.group->as<ValGroup>() == from.back()) {
       return PartOf<AbstractValGroup>{
@@ -1356,6 +1366,7 @@ AbstractValGroup propagate(
     NVF_ERROR(std::any_of(current.begin(), current.end(), [&](const auto& g) {
       return related(g, from.front());
     }));
+    // Split one group in current into two groups.
     bool may_be_indivisible_split = eg->front()->isA<Split>() &&
         !simplifyExpr(eg->front()->as<Split>()->isDivisible())->isTrue();
     std::deque<AbstractValGroup> result;
@@ -1383,6 +1394,9 @@ AbstractValGroup propagate(
   } else {
     NVF_ERROR(from.size() == 2);
     NVF_ERROR(to.size() == 1);
+    // If merging two contiguous groups, we need to update the result by
+    // replacing them into the merged group. If merging two non-contiguous
+    // groups, just fail the proof because it is not important for us yet.
     auto outer_it =
         std::find_if(current.begin(), current.end(), [&](const auto& g) {
           return g.template is<ValGroup>() &&
@@ -1429,6 +1443,9 @@ AbstractValGroup propagate(
       current);
 }
 
+// After propagation, we should have the information about how linear_g lives in
+// domain. Parse this information to check if linear_g is linear in domain, and
+// if it is, compute the stride.
 Val* proveLinearAndGetStrideAfterPropagation(
     const AbstractValGroup& g_in_domain,
     const ValGroups& domain);
@@ -1461,10 +1478,11 @@ Val* proveLinearAndGetStrideAfterPropagation(
 Val* proveLinearAndGetStrideAfterPropagation(
     const std::deque<AbstractValGroup>& g_in_domain,
     const ValGroups& domain) {
+  // The idea is like: given a string domain, find the substring g_in_domain.
   if (!std::all_of(g_in_domain.begin(), g_in_domain.end(), [&](const auto& g) {
         return g.template is<ValGroup>();
       })) {
-    NVF_ERROR(false, "Not Implemented Yet.");
+    // Not implemented yet, just fail the proof.
     return nullptr;
   }
   auto first_it = std::find(
@@ -1512,6 +1530,8 @@ Val* proveLinearAndGetStride(
     // of size one.
     return linear_g->front()->fusion()->zeroVal();
   }
+  // Propagate from linear_g to domain. Use frontier to keep track of the
+  // how linear_g lives in the current propagation front.
   AbstractValGroup frontier = linear_g;
   auto path = ValGraphBFS::getExprsBetween(id_graph, domain, {linear_g});
   while (!path.empty()) {
@@ -1521,16 +1541,24 @@ Val* proveLinearAndGetStride(
     if (!std::any_of(from.begin(), from.end(), [&](const auto& g) {
           return related(frontier, g);
         })) {
+      // Not all expressions in the path are related to linear_g. For example,
+      // in the above example, the split of 64 is not interesting for us because
+      // the 64 does not carry anything on [2], neither in part nor in full.
       continue;
     }
     if (!eg->front()->isOneOf<Split, Merge>()) {
+      // Other expressions are not supported yet. Just fail the proof.
       return nullptr;
     }
     frontier = propagate(frontier, id_graph, eg, direction);
     if (!frontier.hasValue()) {
+      // std::monostate is a special value that indicates that the propagation
+      // has failed.
       return nullptr;
     }
   }
+  // After propagation, we should have the information about how linear_g lives
+  // in domain. Parse this information to check if linear_g is linear in domain.
   return proveLinearAndGetStrideAfterPropagation(frontier, domain);
 }
 
