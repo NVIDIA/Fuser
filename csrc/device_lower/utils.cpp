@@ -1016,26 +1016,82 @@ bool predicateAtEnd(ForLoop* loop) {
   return true;
 }
 
-// Helper for:
+// Implementation of:
 //   Val* proveLinearAndGetStride(
 //       const ValGraph& id_graph,
 //       const ValGroup& linear_g,
-//       ContainerT domain);
+//       const ValGroups& domain);
 //
-// Propagate from linear_g to domain, keep track of how linear_g lives in
-// domain. Note that how linear_g lives in domain could be complicated. It can
-// be, for example:
+// The idea is to propagate from linear_g to domain, keep track of how linear_g
+// lives in domain. For example, let's consider the following two schedules
+// (same example as the NVFuserTest.ProveLinearAndGetStride test):
+//
+// v1:
+//        I0         I1
+//       /  \       /  \.
+//          128        128
+//          / \        / \.
+//         /   \      /   \.
+//        /     \    /     \.
+//       /       \  /       \.
+//      /         \/        64.
+//     /          /\       /  \.
+//    /          /  \     /    \.
+//   16        [2]   8   8      8
+//                    \ /
+//                    xor
+//                    / \.
+//                   8   8
+//
+// v3:
+//        I0         I1
+//       /  \       /  \.
+//          32         256
+//          / \        / \.
+//         /   \      /   \.
+//        /     \    /     \.
+//       /       \  /       \.
+//      /         \/        64.
+//     /          /\       /  \.
+//    /          /  \     /    \.
+//   4          4    8   8      8
+//                    \ /
+//                    xor
+//                   /   \.
+//                  8     8
+//
+// Suppose that the [2] in v1 is linear_g, and the leaves in v3 are domain.
+// Domain is in the order [I0o, I1o, 4, 4, 8, 8, 8]. To figure out if linear_g
+// is linear in domain, we start from propagating linear_g back in v1. The first
+// step we see is the split of 128 into [2] and 64. From this split, we know
+// that [2] is linear in 128, and there is a 64 on the inner of [2] in 128. The
+// next step is the split of I1 by 128 in v1. Similarly, we know that [2] is
+// linear in I1, and there is a 64 on the inner of [2] in I1. Because the I1 in
+// v1 and v3 are mapped, then we will continue propagation in v3. The next step
+// is to process the split of I1 into I1o and 256 in v3. We already know that
+// [2] is linear in I1, and on the inner of [2], there is a 64. Because 2 * 64 =
+// 128, which is a factor of 256, we know that the 256 is able to fully cover
+// the [2] in I1. Therefore, I1o is unrelated to [2], and we only need to focus
+// on the 256. And in this 256, there is a 64 on the inner of [2]. The next step
+// is to process the split of 256 into 4 and 64. Because the 64 happens to be
+// the size of the inner of [2], we know that the [2] will be fully covered by
+// the inner 2 of the 4 of the output of the split. Now we have finished
+// propagation and reached domain. We already proved that [2] is linear in
+// domain. In domain, the domains on the right of the 4 are 8, 8, 8, so the
+// stride is 8*8*8 = 512.
+namespace {
+
+// From the above example, we can see that how linear_g lives in domain could be
+// complicated. It can be, for example:
 //   1. linear_g is equivalent to a single ValGroup in domain.
 //   2. linear_g is the inner of a ValGroup in domain.
 //   3. linear_g is the outer of a ValGroup in domain.
 //   4. linear_g is the middle of a ValGroup in domain, where on the right,
-//      there is a 2, and on the left, there is a 4.
+//      there is a 2.
 //   5. linear_g is split as g1, g2, g3 in domain.
 //   6. linear_g is split as the inner 2 of g1, g2, and the outer 4 of g3.
 //
-// We need to be able to represent all these cases.
-namespace {
-
+// We use a dynamic type to be able to represent all these cases.
 template <typename AbstractValGroup>
 struct PartOf {
   std::shared_ptr<AbstractValGroup> group;
@@ -1051,6 +1107,7 @@ using AbstractValGroup = dynamic_type::DynamicType<
     ValGroup // a whole ValGroup
     >;
 
+// Utilities to print AbstractValGroup.
 std::string print(const AbstractValGroup& group);
 
 std::string print(const ValGroup& group) {
@@ -1085,6 +1142,7 @@ std::string print(const AbstractValGroup& group) {
       [&](const auto& group) { return print(group); }, group);
 }
 
+// Utilities to check if AbstractValGroup is related to ValGroup.
 bool related(const AbstractValGroup& current, const ValGroup& to);
 
 bool related(const ValGroup& current, const ValGroup& to) {
@@ -1110,6 +1168,10 @@ bool related(const AbstractValGroup& current, const ValGroup& to) {
       [&](const auto& current) { return related(current, to); }, current);
 }
 
+// Given an expression on the traversal path and its direction, get the from and
+// to groups. Note that the traversal path is obtained by running BFS from
+// domain to linear_g, so the direction is flipped with respect to how we
+// propagate from linear_g to domain.
 auto fromGroups(
     const ValGraph& id_graph,
     const ExprGroup& eg,
@@ -1126,6 +1188,7 @@ auto toGroups(
                                          : id_graph.outputGroups(eg);
 }
 
+// Do the propagation from linear_g to domain.
 AbstractValGroup propagate(
     const AbstractValGroup& current,
     const ValGraph& id_graph,
@@ -1140,10 +1203,14 @@ AbstractValGroup propagate(
   auto from = fromGroups(id_graph, eg, direction);
   auto to = toGroups(id_graph, eg, direction);
   if (from.size() == 1) {
+    // If linear_g is equivalent to from, and from is split into two groups,
+    // then these two groups together represents linear_g.
     NVF_ERROR(to.size() == 2);
     NVF_ERROR(from.front() == current);
     return std::deque<AbstractValGroup>{to.front(), to.back()};
   } else {
+    // If linear_g is merged with another group, then part of the merged group
+    // represents linear_g.
     NVF_ERROR(from.size() == 2);
     NVF_ERROR(to.size() == 1);
     NVF_ERROR(from.front() == current || from.back() == current);

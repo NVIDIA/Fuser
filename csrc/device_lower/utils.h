@@ -358,6 +358,16 @@ bool isReductionInitExpr(const Expr* expr);
 // value.
 bool predicateAtEnd(ForLoop* loop);
 
+// Given linear_g and domain, prove that linear_g is linear with respect to
+// domain and return the stride. Usually, linear_g is a group in the loop
+// domain of some tensor, and domain is the allocation domain of some tensor.
+// In this case, if the index of linear_g is i, then this function proves that
+// the index is is a linear function of i, with the linear coefficient being
+// the return value. Note that this function does the proof and stride
+// calculation in a best-effort manner. It can not cover all linear cases. If
+// the return value is nullptr, it can be either because linear_g is not linear
+// with respect to domain, or because linear_g is actually linear with respect
+// to domain, but it is too hard for this function to find a proof.
 Val* proveLinearAndGetStride(
     const ValGraph& id_graph,
     const ValGroup& linear_g,
