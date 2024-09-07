@@ -3,7 +3,8 @@ import thunder
 
 
 def fn(a):
-    return torch.nn.functional.gelu(a, approximate='tanh')
+    return torch.nn.functional.gelu(a, approximate="tanh")
+
 
 batch_dim = 512
 inner_dim = 1024
