@@ -11,6 +11,7 @@
 #include <instrumentation.h>
 #include <multidevice/communicator.h>
 #include <options.h>
+#include <preseg_passes/pre_segmenter.h>
 #include <python_frontend/fusion_cache.h>
 #include <python_frontend/fusion_definition.h>
 #include <python_frontend/translation.h>
@@ -652,6 +653,26 @@ void FusionDefinition::clone(FusionDefinition& other) {
       other.completed(),
       "Expected incoming FusionDefinition to be complete before cloning!");
   translate(other.preschedFusion(), this);
+}
+
+void FusionDefinition::presegment(FusionDefinition& other) {
+  NVF_CHECK(id().has_value(), "FusionDefinition definition does not exist!");
+  NVF_ERROR(
+      !other.completed(),
+      "Expected an incomplete definition before translation.");
+
+  // Create clone to avoid modifying original prescheduled fusion
+  auto duplicate_fusion = std::make_unique<Fusion>();
+  IrCloner original_to_cloned_map =
+      Fusion::copy(preschedFusion(), duplicate_fusion.get());
+
+  // Apply presegmenation
+  FusionGuard::setCurFusion(duplicate_fusion.get());
+  preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
+      duplicate_fusion.get());
+
+  // Translate presegmented fusion
+  translate(duplicate_fusion.get(), &other);
 }
 
 void FusionDefinition::prepareGroupOrder() {

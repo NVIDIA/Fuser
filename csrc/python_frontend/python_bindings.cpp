@@ -720,6 +720,11 @@ void initNvFuserPythonBindings(PyObject* module) {
             inst::Trace::instance()->endEvent(nullptr);
           })
       .def(
+          "_presegment",
+          [](FusionDefinition& self, FusionDefinition& other) {
+            self.presegment(other);
+          })
+      .def(
           "_setup_segmentation",
           [](FusionDefinition& self, const py::iterable& iter) {
             // Instrumentation to mark the beginning of segmentation

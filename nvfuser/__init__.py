@@ -59,6 +59,11 @@ class FusionDefinition(_C._FusionDefinition):
         new_fd._clone(self)
         return new_fd
 
+    def presegment(self):
+        new_fd = FusionDefinition()
+        self._presegment(new_fd)
+        return new_fd
+
     def segment(self, inputs):
         num_segments = self._setup_segmentation(inputs)
         if num_segments == 1:

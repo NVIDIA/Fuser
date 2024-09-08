@@ -173,6 +173,9 @@ class NVF_API FusionDefinition : public FusionState {
   //! fusion is correct.
   void clone(FusionDefinition& other);
 
+  //! Apply presegmentation passes to your FusionDefinition
+  void presegment(FusionDefinition& other);
+
   //! Enter Python Context Manager -- Reset trie for new cache lookup
   NVF_API FusionDefinition* setupDefinition();
   //! Exit Python Context Manager -- Triggers Fusion IR build if it is not
