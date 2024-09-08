@@ -122,6 +122,7 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"global_zeroed_memory", DebugDumpOption::GlobalZeroedMemory},
       {"host_ir", DebugDumpOption::HostIr},
       {"index_type", DebugDumpOption::IndexType},
+      {"indexing_verbose", DebugDumpOption::IndexingVerbose},
       {"kernel_args", DebugDumpOption::KernelArgs},
       {"kernel_ir", DebugDumpOption::KernelIr},
       {"launch_param", DebugDumpOption::LaunchParam},
@@ -152,6 +153,7 @@ std::unordered_map<EnableOption, std::vector<std::string>> Options<
     EnableOption>::getOptionsFromEnv() {
   const std::unordered_map<std::string, EnableOption> available_options = {
       {"fuse_matmul", EnableOption::FuseMatmul},
+      {"fuse_multiple_matmuls", EnableOption::FuseMultipleMatmuls},
       {"id_model", EnableOption::IdModel},
       {"kernel_db", EnableOption::KernelDb},
       {"kernel_profile", EnableOption::KernelProfile},

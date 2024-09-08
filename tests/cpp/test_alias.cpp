@@ -263,11 +263,7 @@ TEST_F(AliasTest, SliceViewPermute) {
   TensorView* in =
       makeContigConcreteTensor({batches, seq_length, features * 3});
   fusion->addInput(in);
-  std::vector<TensorView*> splits({
-      slice(in, {0, 0, 0}, {batches, seq_length, features}),
-      slice(in, {0, 0, features}, {batches, seq_length, features * 2}),
-      slice(in, {0, 0, features * 2}, {batches, seq_length, features * 3}),
-  });
+  std::vector<TensorView*> splits = chunk(in, /*chunks=*/3, /*dim=*/-1);
   for (TensorView* split : splits) {
     split = reshape(
         split,
@@ -842,7 +838,6 @@ TEST_F(AliasTest, MergeTwoExpandedBroadcasts) {
   FusionGuard fg(fusion.get());
 
   TensorView* in = TensorViewBuilder()
-                       .ndims(3)
                        .dtype(DataType::Float)
                        .contiguity({std::nullopt, std::nullopt, std::nullopt})
                        .shape({4, 5, 6})
@@ -866,7 +861,6 @@ TEST_F(AliasTest, MergeBroadcastsBetweenConcretes) {
   FusionGuard fg(fusion.get());
 
   TensorView* in = TensorViewBuilder()
-                       .ndims(4)
                        .dtype(DataType::Float)
                        .contiguity({true, std::nullopt, std::nullopt, true})
                        .shape({2, 3, 5, 7})

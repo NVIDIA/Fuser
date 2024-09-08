@@ -6,7 +6,7 @@
 import inspect
 import torch
 from typing import Callable
-from pytest_utils import map_dtype_to_str
+from utils import map_dtype_to_str
 import pytest
 
 
@@ -74,4 +74,11 @@ class atexit_serde_create_op_test(create_op_test):
 
         atexit_serde_check()
 
-        create_op_test.__init__(self, opinfos, scope=scope)
+        # Replicate create_op_test.__init__ to have correct scope
+        self.opinfos = opinfos
+
+        # Acquires the caller's global scope
+        if scope is None:
+            previous_frame = inspect.currentframe().f_back
+            scope = previous_frame.f_globals
+        self.scope = scope

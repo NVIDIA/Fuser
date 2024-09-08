@@ -261,7 +261,7 @@ void checkStep2Results(Fusion* fusion, const IdModelTester& tester) {
     }
   };
 
-  for (auto tv : ir_utils::allTvs(fusion)) {
+  for (auto tv : fusion->allTvs()) {
     // If there's no broadcast or it isn't inlined, there's no
     // promotion
     if (std::none_of(
@@ -591,7 +591,7 @@ TEST_F(IdModelTest, ValGraphStmtSort2) {
   // Note that the two groups of tensors, {tv0, tv1} and {tv2, tv3},
   // are not connected
 
-  for (auto tv : ir_utils::allTvs(&fusion)) {
+  for (auto tv : fusion.allTvs()) {
     tv->merge(0)->split(0, 4);
   }
 
@@ -674,7 +674,7 @@ TEST_F(IdModelTest, ValGraphStmtSort3) {
 TEST_F(IdModelTest, ValGraphStmtSort4) {
   auto fusion = createFusionWithMultipleResolutionPaths();
   FusionGuard fg(fusion.get());
-  auto all_tvs = ir_utils::allTvs(fusion.get());
+  auto all_tvs = fusion->allTvs();
 
   // Since this fusion is not supported by ComputeAtMap, the
   // validation flag must be false
@@ -953,14 +953,14 @@ TEST_F(IdModelTest, LoopPromotion4) {
   TransformPropagator propagator(tv4);
   MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
 
-  for (auto tv : ir_utils::allTvs(&fusion)) {
+  for (auto tv : fusion.allTvs()) {
     tv->inlineAt(-2);
   }
 
   IdModelTester tester(&fusion);
 
   // Verify all tensors with root broadcast have correct resolutions
-  for (auto tv : ir_utils::allTvs(&fusion)) {
+  for (auto tv : fusion.allTvs()) {
     // Skip tensors with no broadcast or non-inlined
     if (std::none_of(
             tv->getLogicalDomain().begin(),
@@ -1078,7 +1078,7 @@ TEST_F(IdModelTest, LoopPromotion5) {
   tv2->axis(1)->parallelize(ParallelType::Unroll);
   tv2->axis(2)->parallelize(ParallelType::TIDx);
 
-  auto all_tvs = ir_utils::allTvs(&fusion);
+  auto all_tvs = fusion.allTvs();
 
   IdModelTester tester(&fusion);
 
@@ -1225,7 +1225,7 @@ TEST_F(IdModelTest, LoopPromotion5) {
 TEST_F(IdModelTest, LoopPromotion6) {
   auto fusion = createFusionWithMultipleResolutionPaths();
   FusionGuard fg(fusion.get());
-  auto all_tvs = ir_utils::allTvs(fusion.get());
+  auto all_tvs = fusion->allTvs();
 
   IdModelTester tester(fusion.get());
 
@@ -1558,7 +1558,7 @@ TEST_F(IdModelTest, LoopPromotion7) {
 
   tv2->split(-1, 8);
 
-  auto all_tvs = ir_utils::allTvs(&fusion);
+  auto all_tvs = fusion.allTvs();
 
   IdModelTester tester(&fusion);
 
@@ -1698,7 +1698,7 @@ TEST_F(IdModelTest, LoopPromotion8) {
   // [2, 4, (3*5//2)*7//4]
   tv5->inlineAt(2);
 
-  auto all_tvs = ir_utils::allTvs(&fusion);
+  auto all_tvs = fusion.allTvs();
 
   IdModelTester tester(&fusion);
 
@@ -1992,7 +1992,7 @@ TEST_F(IdModelTest, LoopPromotionTwoStepFailureReproSimple) {
   TransformPropagatorWithCheck propagator(t4);
   MaxLogicalDomainInfoSpanningTree(t4).traverse(&propagator);
 
-  for (auto tv : ir_utils::allTvs(&fusion)) {
+  for (auto tv : fusion.allTvs()) {
     tv->inlineAt(1);
   }
 
@@ -2044,7 +2044,7 @@ TEST_F(IdModelTest, ComplimentMappingCausingLoopSelfMapping) {
   fusion.addOutput(tv11);
 
   // Merge all domains except for tv10 and tv11
-  for (auto tv : ir_utils::allTvs(&fusion)) {
+  for (auto tv : fusion.allTvs()) {
     if (tv == tv10 || tv == tv11) {
       continue;
     }
@@ -2054,7 +2054,7 @@ TEST_F(IdModelTest, ComplimentMappingCausingLoopSelfMapping) {
   }
 
   // Fully inline all tensors up until tv10
-  for (auto tv : ir_utils::allTvs(&fusion)) {
+  for (auto tv : fusion.allTvs()) {
     if (tv == tv9 || tv == tv10 || tv == tv11) {
       continue;
     }
@@ -2446,7 +2446,7 @@ TEST_F(IdModelTest, LoopPromotionWithViewRFactor1) {
 
   // All of the inlined tensors (i.e., all tensors except for the
   // inputs) should be grouped together.
-  for (auto tv : ir_utils::allTvs(&fusion)) {
+  for (auto tv : fusion.allTvs()) {
     if (tv->isFusionInput()) {
       continue;
     }
@@ -2496,7 +2496,7 @@ TEST_F(IdModelTest, LoopPromotionWithLogicalDomains2) {
 
   // All of the inlined tensors (i.e., all tensors except for the
   // inputs) should be grouped together.
-  for (auto tv : ir_utils::allTvs(&fusion)) {
+  for (auto tv : fusion.allTvs()) {
     if (tv->isFusionInput()) {
       continue;
     }
@@ -2560,7 +2560,7 @@ TEST_F(IdModelTest, LoopPromotionCoverage) {
   // All tvs except for inptus should be just a 1D tensor and be
   // promoted to a domain that is exactly mappd with the loop domain
   // of tv10.
-  for (const auto tv : ir_utils::allTvs(&fusion)) {
+  for (const auto tv : fusion.allTvs()) {
     if (tv->isFusionInput()) {
       continue;
     }

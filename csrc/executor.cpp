@@ -563,8 +563,6 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShape(
     std::vector<Val*> symbolic_sizes,
     std::vector<bool> expand_flags,
     ExpressionEvaluator& expr_eval) {
-  FUSER_PERF_SCOPE("inferShape");
-
   // Allocate should be provided for intermediates. We just need to
   // grab a chunk of memory of the size dicatated by
   // Allocate::shape(). Fusion outputs do not come with Allocate and
@@ -1039,7 +1037,7 @@ std::vector<at::Tensor> allocateOutputs(
     const std::vector<FusionExecutor::GlobalBufferInfo>& output_info,
     const c10::Device& device,
     ExpressionEvaluator& ee) {
-  FUSER_PERF_SCOPE("allocateOutputs");
+  FUSER_PERF_SCOPE("executor.cpp::allocateOutputs");
 
   const auto num_outs = output_info.size();
 
@@ -1092,7 +1090,6 @@ int64_t FusionExecutor::computeSharedMemory(
     const std::vector<const kir::Allocate*>& buffers,
     DataType index_type,
     int64_t smem_offset) {
-  FUSER_PERF_SCOPE("FusionExecutor::computeSharedMemory");
   int64_t total = smem_offset;
   // align smem_offset at 16 bytes
   smem_offset = (smem_offset + 15) & (~15);
@@ -1303,8 +1300,6 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
     getIntermediateBufferInfo(
         ExpressionEvaluator& expr_eval,
         DataType index_type) {
-  FUSER_PERF_SCOPE("FusionExecutor::getIntermediateBufferInfo");
-
   std::vector<GlobalBufferInfo> global_buffers;
 
   const auto kernel = lowered_->kernel();
@@ -1353,36 +1348,38 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
 
 namespace {
 
+FusionExecutor::GlobalBufferInfo getBufferInfo(
+    ExpressionEvaluator& expr_eval,
+    DataType index_dtype,
+    TensorView* tv) {
+  FusionExecutor::GlobalBufferInfo info;
+  info.tv = tv;
+  std::tie(info.sizes, info.strides) = inferShapeOfOutput(info.tv, expr_eval);
+  auto dtype =
+      (info.tv->dtype() == DataType::Index ? index_dtype : info.tv->dtype());
+  info.type = data_type_to_aten(dtype);
+  return info;
+}
+
 //! Return information necessary for allocating output tensors. Input
 //! and output tensors are allowed to alias each other, which is
 //! specified by the list of int pairs of input and output indices
-std::vector<FusionExecutor::GlobalBufferInfo> getOutputBufferInfo(
-    const KernelArgumentHolder& args,
+std::vector<FusionExecutor::GlobalBufferInfo> getBufferInfos(
     ExpressionEvaluator& expr_eval,
     DataType index_dtype,
-    const Fusion* fusion) {
+    const std::vector<Val*>& fusion_outputs) {
   FUSER_PERF_SCOPE("FusionExecutor::getOutbufferInfo");
-  std::vector<FusionExecutor::GlobalBufferInfo> outputs;
-  outputs.reserve(fusion->outputs().size());
-  NVF_ERROR(
-      args.size() == fusion->inputs().size(),
-      "fusion arguments length does not match runtime arguments.");
-  for (const auto out_i : c10::irange(fusion->outputs().size())) {
-    auto out_val = fusion->outputs()[out_i];
+  std::vector<FusionExecutor::GlobalBufferInfo> output_buffer_infos;
+  output_buffer_infos.reserve(fusion_outputs.size());
+  for (const auto out : fusion_outputs) {
     NVF_ERROR(
-        out_val->isA<TensorView>(),
+        out->isA<TensorView>(),
         "Cannot allocate outputs that are not tensors.");
 
-    FusionExecutor::GlobalBufferInfo info;
-    info.tv = out_val->as<TensorView>();
-    std::tie(info.sizes, info.strides) = inferShapeOfOutput(info.tv, expr_eval);
-    auto dtype =
-        (info.tv->dtype() == DataType::Index ? index_dtype : info.tv->dtype());
-    info.type = data_type_to_aten(dtype);
-
-    outputs.emplace_back(info);
+    output_buffer_infos.emplace_back(
+        getBufferInfo(expr_eval, index_dtype, out->as<TensorView>()));
   }
-  return outputs;
+  return output_buffer_infos;
 }
 
 } // namespace
@@ -1395,7 +1392,7 @@ std::vector<at::Tensor> allocOutputSpace(
   auto expr_eval = executor_utils::bindInputs(fusion_inputs, fusion);
 
   auto output_info =
-      getOutputBufferInfo(fusion_inputs, expr_eval, PrimDataType::Int, fusion);
+      getBufferInfos(expr_eval, PrimDataType::Int, fusion->outputs());
 
   return allocateOutputs(fusion, output_info, device, expr_eval);
 }
@@ -1427,8 +1424,8 @@ KernelArgumentHolder FusionExecutor::inferOutputSizes(
 
   auto arg_index_type = args.getSmallestIndexTypeOfArguments();
 
-  KernelArgumentHolder ret;
-  ret.setDeviceIndex(args.getDeviceIndex());
+  KernelArgumentHolder output_tensor_proxies;
+  output_tensor_proxies.setDeviceIndex(args.getDeviceIndex());
 
   for (Val* output : fusion->outputs()) {
     NVF_ERROR(
@@ -1439,9 +1436,9 @@ KernelArgumentHolder FusionExecutor::inferOutputSizes(
     const auto dtype = (output_tv->dtype() == DataType::Index)
         ? data_type_to_aten(arg_index_type)
         : data_type_to_aten(output_tv->dtype());
-    ret.pushTensorProxy(sizes, strides, dtype);
+    output_tensor_proxies.pushTensorProxy(sizes, strides, dtype);
   }
-  return ret;
+  return output_tensor_proxies;
 }
 
 namespace {
@@ -1553,15 +1550,6 @@ void dumpKernelArgs(
   }
 }
 
-FusionExecutor::GlobalBufferInfo getGlobalBufferAllocationInfo(
-    const at::Tensor& at_tensor) {
-  FusionExecutor::GlobalBufferInfo info{
-      .sizes = at_tensor.sizes().vec(),
-      .strides = at_tensor.strides().vec(),
-      .type = at_tensor.scalar_type()};
-  return info;
-}
-
 } // namespace
 
 void FusionExecutor::initializeExecutorEntry(
@@ -1593,13 +1581,16 @@ void FusionExecutor::initializeExecutorEntry(
 
   if (outputs.empty()) {
     output_info =
-        getOutputBufferInfo(args, expr_eval, index_type, lowered_->kernel());
+        getBufferInfos(expr_eval, index_type, lowered_->kernel()->outputs());
   } else {
     // Need to save the information necessary for allocations as
     // future uses of this ExecutorEntry may not be provided with
     // allocated outputs
     for (const auto& output : outputs) {
-      output_info.emplace_back(getGlobalBufferAllocationInfo(output));
+      output_info.emplace_back(FusionExecutor::GlobalBufferInfo{
+          .sizes = output.sizes().vec(),
+          .strides = output.strides().vec(),
+          .type = output.scalar_type()});
     }
   }
 
@@ -1695,7 +1686,7 @@ void FusionExecutor::computeArgs(
     ExecutorEntry& entry,
     ExpressionEvaluator& expr_eval,
     const kir::Kernel* kernel) const {
-  FUSER_PERF_SCOPE("Initial GetArgsBuffers");
+  FUSER_PERF_SCOPE("FusionExecutor::computeArgs");
 
   const std::vector<Val*>& params = kernel->parameters();
   entry.args.resize(params.size());
@@ -1713,7 +1704,7 @@ void FusionExecutor::recomputeArgs(
     ExecutorEntry& entry,
     ExpressionEvaluator& expr_eval,
     const kir::Kernel* kernel) const {
-  FUSER_PERF_SCOPE("Recompute GetArgsBuffers");
+  FUSER_PERF_SCOPE("FusionExecutor::recomputeArgs");
   // assert(entry.init && "entry was never initialized");
 
   const std::vector<Val*>& params = kernel->parameters();
@@ -1855,10 +1846,13 @@ void FusionExecutor::resetCompiledKernelProperties() {
 }
 
 std::vector<at::Tensor> FusionExecutor::evaluateFusionOutputs(
-    KernelArgumentHolder& args,
     std::vector<at::Tensor> outputs,
     ExpressionEvaluator& expr_eval) {
-  // TODO: Add relevant profiling code.
+  FUSER_PERF_SCOPE("FusionExecutor::runFusion::evaluateFusionOutputs");
+  NVF_ERROR(
+      outputs.empty(),
+      "Fusion executor is using expression evaluator,",
+      " and expects that the outputs are not populated, which they were.");
   if (outputs.empty()) {
     for (const auto& out_val : fusion()->outputs()) {
       auto out_tensor =
@@ -1867,11 +1861,12 @@ std::vector<at::Tensor> FusionExecutor::evaluateFusionOutputs(
       outputs.emplace_back(out_tensor);
     }
   }
-  args.push(outputs);
   return outputs;
 }
 
 namespace {
+// Host IR specific function, returns the at:Tensor (ordered list) associated
+// with the provdied Fusion output tv
 at::Tensor findBufferForFusionOutput(
     const std::vector<at::Tensor>& out_tensors,
     const Val* fusion_out,
@@ -1909,14 +1904,10 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       " provided number of outputs does not match fusion output");
 
   // Bind fusion inputs
-  ExpressionEvaluator expr_eval;
-  const auto& inputs = fusion()->inputs();
-  for (const auto i : c10::irange(inputs.size())) {
-    expr_eval.bind(inputs[i], *args[i]);
-  }
+  auto expr_eval = executor_utils::bindInputs(args, fusion());
 
   if (isExpressionEvaluated(fusion())) {
-    outputs = evaluateFusionOutputs(args, outputs, expr_eval);
+    outputs = evaluateFusionOutputs(outputs, expr_eval);
     if (isProfilerEnabled()) {
       auto& sprof = FusionProfiler::segment(group_id_);
       sprof.stopKernel();
@@ -1927,8 +1918,8 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
   if (host_ir_container_ != nullptr) {
     if (outputs.empty()) {
-      std::vector<GlobalBufferInfo> output_info = getOutputBufferInfo(
-          args, expr_eval, PrimDataType::Int, host_ir_container_.get());
+      std::vector<GlobalBufferInfo> output_info = getBufferInfos(
+          expr_eval, PrimDataType::Int, host_ir_container_->outputs());
       outputs = allocateOutputs(
           host_ir_container_.get(), output_info, options_.device, expr_eval);
     }
@@ -2015,13 +2006,12 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       // Skip trivially forwarded outputs because they are just placeholders
       continue;
     }
-    expr_eval.bind(output, *args[inputs.size() + i]);
+    expr_eval.bind(output, *args[kernel()->inputs().size() + i]);
   }
 
   std::vector<at::Tensor> intermediates;
   at::Tensor profile_buffer;
   {
-    FUSER_PERF_SCOPE("ExecutorRunFusion::IntermediateBufferAlloc");
     for (const auto i : c10::irange(executor_entry->intermediates.size())) {
       const auto& buf_info = executor_entry->intermediates.at(i);
       bool has_expansion = false;
@@ -2069,7 +2059,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       intermediates.push_back(intermediate_buffer);
       expr_eval.bind(
           kernel()->summary().global_allocations.at(i)->buffer(),
-          *args[inputs.size() + outputs.size() + i]);
+          *args[kernel()->inputs().size() + outputs.size() + i]);
       if (buf_info.is_profile_buffer) {
         profile_buffer = intermediate_buffer;
       }

@@ -97,7 +97,10 @@ void testValidate(
                 static_cast<int64_t>(
                     TensorDomain::noReductions(out_tv->getLogicalDomain())
                         .size()),
-        "Dimensionality mismatch in outputs.");
+        "Dimensionality mismatch in outputs: ",
+        aten_output_tensor.sizes(),
+        " vs ",
+        fusion_output_tensor.sizes());
 
     auto tolerance_values =
         getTolerance(out_tv->getDataType().value(), reduction_size, tolerances);
