@@ -3839,8 +3839,8 @@ TEST_F(NVFuserTest, FusionCheckedSymbolicShape_CUDA) {
   {
     ASSERT_THAT(
         [&]() { matched_add(a, c); },
-        ::testing::ThrowsMessage<nvfuser::nvfError>(
-            ::testing::HasSubstr("Conflicting sizes")));
+        ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
+            "When trying to propagate constant tensor sizes through the graph a conflict was found with 2 different sizes across dimensions that are expected to match.")));
     GTEST_SKIP() << "skipping tests on pre-AMPERE GPUs";
   }
 }

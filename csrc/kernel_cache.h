@@ -671,13 +671,6 @@ class FusionExecutorCache {
   //! Deserialize Fusion Executor Cache using flatbuffers
   void deserialize(const serde::FusionExecutorCache* buffer, int64_t fusion_id);
 
-  //! Allocate the outputs of the Fusion given inputs
-  //! TODO: re-implement
-  std::vector<at::Tensor> allocOutputSpace(
-      const at::ArrayRef<c10::IValue>& inputs) {
-    return runFusionWithInputs(inputs);
-  }
-
  private:
   //! evict cached short cut entry in `code_to_fe_lookup_` as well as cached
   //! entry in `FusionExecutor`
