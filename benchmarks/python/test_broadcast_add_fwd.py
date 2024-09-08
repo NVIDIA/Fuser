@@ -25,7 +25,11 @@ def bcast_add_fusion(
         stride_order=[1, 0],
     )
 
-    T3 = fd.ops.broadcast_in_dim(T0, shape=T1.shape(), broadcast_dims=[1 - bcast_axis])
+    bcast_shape = [T1.size(0), T1.size(1)]
+    bcast_shape[bcast_axis] = 1
+
+    T2 = fd.ops.broadcast_in_dim(T0, shape=bcast_shape, broadcast_dims=[1 - bcast_axis])
+    T3 = fd.ops.broadcast_in_dim(T2, shape=T1.shape(), broadcast_dims=[0, 1])
 
     if dtype in PROMOTE_DTYPES:
         T1 = fd.ops.cast(T1, dtype=DataType.Float)
