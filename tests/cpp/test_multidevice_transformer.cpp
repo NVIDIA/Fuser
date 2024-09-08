@@ -1032,7 +1032,7 @@ TEST_P(DistributedTransformerTest, Backward) {
   TensorView* mha_mask = makeContigTensor(2, DataType::Bool);
   TensorView* mlp_mask = makeContigTensor(2, DataType::Bool);
   TensorView* mha_sdpa_out = makeConcreteTensor({D, B, H/D, S, E/H}, dtype);
-   TensorView* mha_sdpa_log_sumexp =
+  TensorView* mha_sdpa_log_sumexp =
       makeContigConcreteTensor({D, B, H / D, S}, DataType::Float);
   TensorView* mha_sdpa_seed = makeSymbolicTensor({}, DataType::Int);
   TensorView* mha_sdpa_offset = makeSymbolicTensor({}, DataType::Int);
@@ -1071,7 +1071,6 @@ TEST_P(DistributedTransformerTest, Backward) {
   fusion->addInput(ln0_rstd);
 
   const auto D = mha_w0->axis(0)->extent()->value().as<int64_t>();
-
   // Recompute: Recompute all of MHA except the SDPA operation which is cached.
   auto ln_0 =
       layer_norm(x, norm_shape, ln0_w, ln0_b, eps);
@@ -1125,7 +1124,6 @@ TEST_P(DistributedTransformerTest, Backward) {
   fusion->addOutput(mlp_grads[5]); // mlp linear0 bias grad
   fusion->addOutput(ln1_grads.grad_weight); // ln1 weight grad
   fusion->addOutput(ln1_grads.grad_bias); // ln1 bias grad
-
   fusion->addOutput(mha_grads[1]); // mha linear1 weight grad
   fusion->addOutput(mha_grads[2]); // mha linear1 bias grad
   fusion->addOutput(mha_grads[6]); // mha linear0 weight grad
