@@ -277,30 +277,22 @@ TensorView* tanh_gelu_backward(TensorView* dy, TensorView* x) {
   auto x_sq = mul(x, x);
   auto x_cube = mul(x, x_sq);
 
-  auto inner_1 =
-      mul(IrBuilder::createInContainer<Val>(x->container(), kKappa), x_cube);
+  auto inner_1 = mul(IrBuilder::create<Val>(kKappa), x_cube);
   auto inner_2 = add(x, inner_1);
-  auto inner_3 =
-      mul(IrBuilder::createInContainer<Val>(x->container(), kBeta), inner_2);
+  auto inner_3 = mul(IrBuilder::create<Val>(kBeta), inner_2);
   auto tanh_inner = tanh(inner_3);
 
-  auto left = mul(IrBuilder::createInContainer<Val>(x->container(), 0.5), x);
-  auto right =
-      add(IrBuilder::createInContainer<Val>(x->container(), 1.), tanh_inner);
+  auto left = mul(IrBuilder::create<Val>(0.5), x);
+  auto right = add(IrBuilder::create<Val>(1.0), tanh_inner);
 
-  auto left_derivative =
-      mul(IrBuilder::createInContainer<Val>(x->container(), 0.5), right);
+  auto left_derivative = mul(IrBuilder::create<Val>(0.5), right);
 
   auto tanh_inner_sq = mul(tanh_inner, tanh_inner);
-  auto tanh_derivative = sub(
-      IrBuilder::createInContainer<Val>(x->container(), 1.0), tanh_inner_sq);
+  auto tanh_derivative = sub(IrBuilder::create<Val>(1.0), tanh_inner_sq);
 
   auto constant_mul_x_sq =
-      mul(IrBuilder::createInContainer<Val>(x->container(), kBeta * 3 * kKappa),
-          x_sq);
-  auto inner_derivative =
-      add(IrBuilder::createInContainer<Val>(x->container(), kBeta),
-          constant_mul_x_sq);
+      mul(IrBuilder::create<Val>(kBeta * 3 * kKappa), x_sq);
+  auto inner_derivative = add(IrBuilder::create<Val>(kBeta), constant_mul_x_sq);
   auto right_derivative = mul(left, mul(tanh_derivative, inner_derivative));
 
   auto dx = mul(dy, add(left_derivative, right_derivative));
