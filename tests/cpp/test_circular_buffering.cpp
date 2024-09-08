@@ -1106,17 +1106,18 @@ TEST_P(TmaCircularBufferingTest, Pointwise) {
   fusion->addInput(tv1);
 
   TensorView* tv2 = add(tv0, tv1);
-  fusion->addOutput(tv2);
+  TensorView* tv3 = tanh_gelu(tv2);
+  fusion->addOutput(tv3);
 
   // Use TMA to load TV0 into shared memory
-  TensorView* tv3 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
-  tv3->setMemoryType(MemoryType::Shared);
-
-  // Load TV0 into shared memory
-  TensorView* tv4 = tv1->cacheAfter();
+  TensorView* tv4 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
   tv4->setMemoryType(MemoryType::Shared);
 
-  TensorView* reference = tv2;
+  // Load TV0 into shared memory
+  TensorView* tv5 = tv1->cacheAfter();
+  tv5->setMemoryType(MemoryType::Shared);
+
+  TensorView* reference = tv3;
 
   // Constants
   constexpr int64_t bulk_inner_dim = 32;
@@ -1127,27 +1128,25 @@ TEST_P(TmaCircularBufferingTest, Pointwise) {
   TransformPropagatorWithCheck propagator(reference);
   MaxLogicalDomainInfoSpanningTree(reference).traverse(&propagator);
 
-  tv0->computeAt(tv2, 2);
-  tv1->computeAt(tv2, 2);
-
-  // Ciruclar Buffer with TMA loads
-  tv3->axis(0)->parallelize(ParallelType::BIDx);
-  tv3->axis(2)->parallelize(ParallelType::Bulk);
-  tv3->circularBuffer(number_of_stages);
-
-  // Ciruclar Buffer with set operation
-  tv4->axis(0)->parallelize(ParallelType::BIDx);
-  tv4->circularBuffer(number_of_stages);
-
   // Split reference to parallelize TMA tile
-  reference->split(-1, 32);
   reference->axis(0)->parallelize(ParallelType::BIDx);
   reference->axis(-1)->parallelize(ParallelType::TIDx);
+  scheduler_utils::parallelizeAllLike(reference);
+
+  // Ciruclar Buffer with TMA loads
+  tv4->axis(2)->parallelize(ParallelType::Bulk);
+
+  // InlineMost automatically handles vectorize and tma dimensions
+  inlineMost();
+
+  // Apply Ciruclar Buffering after setting computeAt
+  tv4->circularBuffer(number_of_stages);
+  tv5->circularBuffer(number_of_stages);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
   at::Tensor t1 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
-  at::Tensor t2 = t0 + t1;
+  at::Tensor t2 = at::gelu(t0 + t1, "tanh");
 
   FusionExecutor fe;
   fe.compileFusion(fusion.get(), {t0, t1});
