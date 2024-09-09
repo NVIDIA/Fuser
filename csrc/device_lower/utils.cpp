@@ -1118,7 +1118,7 @@ std::string print(const PartOf<ValGroupRegion>& part) {
   auto str_or_null = [](Val* val) {
     return val == nullptr ? "nullptr" : val->toInlineString();
   };
-  return "PartOf(group=" + toString(*part.group) +
+  return "PartOf(group=" + print(*part.group) +
       ", inner_extent=" + str_or_null(part.inner_extent) +
       ", selected_extent=" + str_or_null(part.selected_extent) + ")";
 }
@@ -1127,7 +1127,7 @@ std::string print(const std::deque<ValGroupRegion>& vec) {
   std::stringstream ss;
   ss << "[";
   for (const auto& g : vec) {
-    ss << toString(g) << ", ";
+    ss << print(g) << ", ";
   }
   ss << "]";
   return ss.str();
@@ -1139,7 +1139,7 @@ std::string print(const std::monostate&) {
 
 std::string print(const ValGroupRegion& group) {
   return ValGroupRegion::dispatch(
-      [&](const auto& group) { return toString(group); }, group);
+      [&](const auto& group) { return print(group); }, group);
 }
 
 // Utilities to check if ValGroupRegion is related to ValGroup.
