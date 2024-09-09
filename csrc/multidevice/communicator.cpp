@@ -45,8 +45,8 @@ namespace {
 // Iterate through a list of environmental variables and stop at the first one
 // that succeeds
 char* tryReadEnv(std::vector<std::string> envs) {
-  char* ret;
-  for (auto env : envs) {
+  char* ret = nullptr;
+  for (const auto& env : envs) {
     ret = std::getenv(env.c_str());
     if (ret) {
       return ret;
