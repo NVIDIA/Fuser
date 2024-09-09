@@ -5002,7 +5002,9 @@ TEST_F(ContigPredicateIndexingTest, NonDivisibleSplit1) {
   tv1->merge(0, 1);
 
   // While the transformations are the same as tv1, nvFuser doesn't
-  // know the corresponding split is actually divisible, so it's
+  // know the corresponding split is actually divisible (note that the
+  // split for tv1 is an outer split by a factor of 2, whereas the
+  // split for tv2 is an inner split by a factor of 5), so it's
   // considered non-divisible. The resulting predication should be done
   // with each of the two logical domains.
   tv2->split(0, 5);
