@@ -10,7 +10,7 @@
 // Extract size and strides
 #include <kernel_cache.h>
 
-#include <executor_kernel_arg.h>
+#include <fusion_executor/executor_kernel_arg.h>
 #include <instrumentation.h>
 #include <polymorphic_value.h>
 #include <serde/polymorphic_value.h>

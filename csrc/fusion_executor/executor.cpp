@@ -6,14 +6,14 @@
  */
 // clang-format on
 
-#include <executor.h>
+#include <fusion_executor/executor.h>
 
 #include <codegen.h>
 #include <debug.h>
 #include <device_lower/analysis/bank_conflict.h>
 #include <driver_api.h>
-#include <executor_kernel_arg.h>
-#include <executor_utils.h>
+#include <fusion_executor/executor_kernel_arg.h>
+#include <fusion_executor/executor_utils.h>
 #include <fusion_profiler.h>
 #include <global_allocator.h>
 #include <instrumentation.h>
