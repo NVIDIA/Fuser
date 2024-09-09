@@ -373,12 +373,6 @@ class NVF_API Val : public Statement {
     return is_fusion_output_;
   }
 
-  //! Returns true when other is a producer of this
-  bool isProducerOf(const Val* other) const;
-
-  //! Returns true when other is a consumer of this
-  bool isConsumerOf(const Val* other) const;
-
   bool sameType(const Statement* other) override {
     return Statement::sameType(other) &&
         getDataType() == other->as<Val>()->getDataType();

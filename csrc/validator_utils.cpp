@@ -13,9 +13,9 @@
 
 #include <device_lower/utils.h>
 #include <exceptions.h>
-#include <executor_utils.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
+#include <fusion_executor/executor_utils.h>
 #include <ir/iostream.h>
 
 namespace nvfuser {

@@ -734,7 +734,7 @@ void ThreadPredicateMap::build(Fusion* fusion) {
     updateBitSet(expr);
   }
 
-  for (auto tv : ir_utils::allTvs(fusion)) {
+  for (auto tv : fusion->allTvs()) {
     if (tv->getMemoryType() == MemoryType::Global) {
       avoidConcretizedBroadcastRedundantWrite(tv);
     }
@@ -842,11 +842,15 @@ ParallelTypeBitmap ThreadPredicateMap::getParallelBroadcastDomains(
   const bool output_smem = tv->getMemoryType() == MemoryType::Shared;
 
   for (auto id : iter_domains) {
-    if (!id->isBroadcast() ||
-        !GpuLower::current()->concretizedBroadcastDomains()->isConcretized(
+    if (!id->isBroadcast()) {
+      continue;
+    }
+
+    if (!GpuLower::current()->concretizedBroadcastDomains()->isConcretized(
             id)) {
       continue;
     }
+
     if (id->isBlockDim() || (!output_smem && id->isThreadDim())) {
       parallel_broadcast.set(id->getParallelType());
     }

@@ -39,11 +39,13 @@ backward nvFusion executed many times.
 """
 
 from nvfuser import FusionDefinition, DataType
-from .core import run_benchmark, clear_cuda_cache
+from .core import run_benchmark
+from nvfuser.pytorch_utils import clear_cuda_cache
 import torch
 
 
 def transformer_forward_fusion(fd: FusionDefinition) -> None:
+    # x: input
     T0 = fd.define_tensor(
         shape=[1, -1, -1],
         contiguity=[None, True, True],
@@ -51,6 +53,7 @@ def transformer_forward_fusion(fd: FusionDefinition) -> None:
         is_cpu=False,
         stride_order=[2, 1, 0],
     )
+    # layer_norm0.weight
     T1 = fd.define_tensor(
         shape=[-1],
         contiguity=[True],
@@ -58,6 +61,7 @@ def transformer_forward_fusion(fd: FusionDefinition) -> None:
         is_cpu=False,
         stride_order=[0],
     )
+    # layer_norm0.bias
     T2 = fd.define_tensor(
         shape=[-1],
         contiguity=[True],
@@ -65,6 +69,7 @@ def transformer_forward_fusion(fd: FusionDefinition) -> None:
         is_cpu=False,
         stride_order=[0],
     )
+    # MHA linear0.weight
     T3 = fd.define_tensor(
         shape=[-1, -1],
         contiguity=[True, True],
@@ -72,6 +77,7 @@ def transformer_forward_fusion(fd: FusionDefinition) -> None:
         is_cpu=False,
         stride_order=[1, 0],
     )
+    # MHA linear0.bias
     T4 = fd.define_tensor(
         shape=[-1],
         contiguity=[True],
@@ -79,6 +85,7 @@ def transformer_forward_fusion(fd: FusionDefinition) -> None:
         is_cpu=False,
         stride_order=[0],
     )
+    # MHA linear1.weight
     T5 = fd.define_tensor(
         shape=[-1, -1],
         contiguity=[True, True],
@@ -86,6 +93,7 @@ def transformer_forward_fusion(fd: FusionDefinition) -> None:
         is_cpu=False,
         stride_order=[1, 0],
     )
+    # MHA linear1.bias
     T6 = fd.define_tensor(
         shape=[-1],
         contiguity=[True],
@@ -93,8 +101,11 @@ def transformer_forward_fusion(fd: FusionDefinition) -> None:
         is_cpu=False,
         stride_order=[0],
     )
+    # MHA dropout.rng_offset
     S7 = fd.define_scalar(None, dtype=DataType.Int)
+    # MHA dropout.rng_seed
     S8 = fd.define_scalar(None, dtype=DataType.Int)
+    # layer_norm1.weight
     T9 = fd.define_tensor(
         shape=[-1],
         contiguity=[True],
@@ -102,6 +113,7 @@ def transformer_forward_fusion(fd: FusionDefinition) -> None:
         is_cpu=False,
         stride_order=[0],
     )
+    # layer_norm1.bias
     T10 = fd.define_tensor(
         shape=[-1],
         contiguity=[True],
@@ -109,6 +121,7 @@ def transformer_forward_fusion(fd: FusionDefinition) -> None:
         is_cpu=False,
         stride_order=[0],
     )
+    # MLP linear0.weight
     T11 = fd.define_tensor(
         shape=[-1, -1],
         contiguity=[True, True],
@@ -116,6 +129,7 @@ def transformer_forward_fusion(fd: FusionDefinition) -> None:
         is_cpu=False,
         stride_order=[1, 0],
     )
+    # MLP linear0.bias
     T12 = fd.define_tensor(
         shape=[-1],
         contiguity=[True],
@@ -123,6 +137,7 @@ def transformer_forward_fusion(fd: FusionDefinition) -> None:
         is_cpu=False,
         stride_order=[0],
     )
+    # MLP linear1.weight
     T13 = fd.define_tensor(
         shape=[-1, -1],
         contiguity=[True, True],
@@ -130,6 +145,7 @@ def transformer_forward_fusion(fd: FusionDefinition) -> None:
         is_cpu=False,
         stride_order=[1, 0],
     )
+    # MLP linear1.bias
     T14 = fd.define_tensor(
         shape=[-1],
         contiguity=[True],
@@ -137,8 +153,11 @@ def transformer_forward_fusion(fd: FusionDefinition) -> None:
         is_cpu=False,
         stride_order=[0],
     )
+    # MLP dropout.rng_offset
     S15 = fd.define_scalar(None, dtype=DataType.Int)
+    # MLP dropout.rng_seed
     S16 = fd.define_scalar(None, dtype=DataType.Int)
+
     T17 = fd.ops.cast(T0, dtype=DataType.Float)
     T18, T19 = fd.ops.var_mean(T17, dims=[2], correction=0, keepdim=False)
     S20 = fd.define_scalar(1, dtype=DataType.Int)
@@ -322,15 +341,15 @@ def transformer_forward_fusion(fd: FusionDefinition) -> None:
     T186 = fd.ops.mul(T184, S185)
     T187 = fd.ops.add(T113, T186)
     T188 = fd.ops.cast(T187, dtype=DataType.BFloat16)
-    fd.add_output(T19)
-    fd.add_output(T32)
-    fd.add_output(T87)
-    fd.add_output(T88)
-    fd.add_output(T89)
-    fd.add_output(T90)
-    fd.add_output(T115)
-    fd.add_output(T128)
-    fd.add_output(T188)
+    fd.add_output(T19)  # layer_norm0.welford_out.avg
+    fd.add_output(T32)  # layer_norm0.invstd
+    fd.add_output(T87)  # MHA sdpa.output
+    fd.add_output(T88)  # MHA sdpa.logsum_exp
+    fd.add_output(T89)  # MHA sdpa.philox_seed
+    fd.add_output(T90)  # MHA sdpa.philox_offset
+    fd.add_output(T115)  # layer_norm1.welford_out.avg
+    fd.add_output(T128)  # layer_norm1.invstd
+    fd.add_output(T188)  # output
 
 
 def test_transformer_forward(
@@ -392,6 +411,7 @@ def test_transformer_forward(
 
 
 def transformer_backward_fusion(fd: FusionDefinition) -> None:
+    # x: input
     T0 = fd.define_tensor(
         shape=[1, -1, -1],
         contiguity=[None, True, True],
@@ -399,6 +419,7 @@ def transformer_backward_fusion(fd: FusionDefinition) -> None:
         is_cpu=False,
         stride_order=[2, 1, 0],
     )
+    # layer_norm0.welford_out.avg
     T1 = fd.define_tensor(
         shape=[1, -1],
         contiguity=[None, True],
@@ -406,6 +427,7 @@ def transformer_backward_fusion(fd: FusionDefinition) -> None:
         is_cpu=False,
         stride_order=[1, 0],
     )
+    # layer_norm0.invstd
     T2 = fd.define_tensor(
         shape=[1, -1, 1],
         contiguity=[None, True, None],
@@ -413,6 +435,7 @@ def transformer_backward_fusion(fd: FusionDefinition) -> None:
         is_cpu=False,
         stride_order=[2, 1, 0],
     )
+    # layer_norm0.weight
     T3 = fd.define_tensor(
         shape=[-1],
         contiguity=[True],
@@ -420,6 +443,7 @@ def transformer_backward_fusion(fd: FusionDefinition) -> None:
         is_cpu=False,
         stride_order=[0],
     )
+    # layer_norm0.bias
     T4 = fd.define_tensor(
         shape=[-1],
         contiguity=[True],
@@ -427,6 +451,7 @@ def transformer_backward_fusion(fd: FusionDefinition) -> None:
         is_cpu=False,
         stride_order=[0],
     )
+    # MHA linear0.weight
     T5 = fd.define_tensor(
         shape=[-1, -1],
         contiguity=[True, True],
@@ -434,6 +459,7 @@ def transformer_backward_fusion(fd: FusionDefinition) -> None:
         is_cpu=False,
         stride_order=[1, 0],
     )
+    # MHA linear0.bias
     T6 = fd.define_tensor(
         shape=[-1],
         contiguity=[True],
@@ -441,6 +467,7 @@ def transformer_backward_fusion(fd: FusionDefinition) -> None:
         is_cpu=False,
         stride_order=[0],
     )
+    # MHA sdpa.output
     T7 = fd.define_tensor(
         shape=[1, -1, -1, -1],
         contiguity=[None, True, True, True],
@@ -448,6 +475,7 @@ def transformer_backward_fusion(fd: FusionDefinition) -> None:
         is_cpu=False,
         stride_order=[3, 1, 2, 0],
     )
+    # MHA linear1.weight
     T8 = fd.define_tensor(
         shape=[-1, -1],
         contiguity=[True, True],
@@ -455,6 +483,7 @@ def transformer_backward_fusion(fd: FusionDefinition) -> None:
         is_cpu=False,
         stride_order=[1, 0],
     )
+    # MHA linear1.bias
     T9 = fd.define_tensor(
         shape=[-1],
         contiguity=[True],
@@ -462,8 +491,11 @@ def transformer_backward_fusion(fd: FusionDefinition) -> None:
         is_cpu=False,
         stride_order=[0],
     )
+    # MHA dropout.rng_offset
     S10 = fd.define_scalar(None, dtype=DataType.Int)
+    # MHA dropout.rng_seed
     S11 = fd.define_scalar(None, dtype=DataType.Int)
+    # layer_norm1.welford_out.avg
     T12 = fd.define_tensor(
         shape=[1, -1],
         contiguity=[None, True],
@@ -471,6 +503,7 @@ def transformer_backward_fusion(fd: FusionDefinition) -> None:
         is_cpu=False,
         stride_order=[1, 0],
     )
+    # layer_norm1.invstd
     T13 = fd.define_tensor(
         shape=[1, -1, 1],
         contiguity=[None, True, None],
@@ -478,6 +511,7 @@ def transformer_backward_fusion(fd: FusionDefinition) -> None:
         is_cpu=False,
         stride_order=[2, 1, 0],
     )
+    # layer_norm1.weight
     T14 = fd.define_tensor(
         shape=[-1],
         contiguity=[True],
@@ -485,6 +519,7 @@ def transformer_backward_fusion(fd: FusionDefinition) -> None:
         is_cpu=False,
         stride_order=[0],
     )
+    # layer_norm1.bias
     T15 = fd.define_tensor(
         shape=[-1],
         contiguity=[True],
@@ -492,6 +527,7 @@ def transformer_backward_fusion(fd: FusionDefinition) -> None:
         is_cpu=False,
         stride_order=[0],
     )
+    # MLP linear0.weight
     T16 = fd.define_tensor(
         shape=[-1, -1],
         contiguity=[True, True],
@@ -499,6 +535,7 @@ def transformer_backward_fusion(fd: FusionDefinition) -> None:
         is_cpu=False,
         stride_order=[1, 0],
     )
+    # MLP linear0.bias
     T17 = fd.define_tensor(
         shape=[-1],
         contiguity=[True],
@@ -506,8 +543,11 @@ def transformer_backward_fusion(fd: FusionDefinition) -> None:
         is_cpu=False,
         stride_order=[0],
     )
+    # MLP dropout.rng_offset
     S18 = fd.define_scalar(None, dtype=DataType.Int)
+    # MLP dropout.rng_seed
     S19 = fd.define_scalar(None, dtype=DataType.Int)
+    # dy: incoming grad
     T20 = fd.define_tensor(
         shape=[1, -1, -1],
         contiguity=[None, True, True],
@@ -515,6 +555,7 @@ def transformer_backward_fusion(fd: FusionDefinition) -> None:
         is_cpu=False,
         stride_order=[2, 1, 0],
     )
+    # MLP linear1.weight
     T21 = fd.define_tensor(
         shape=[-1, -1],
         contiguity=[True, True],
@@ -522,6 +563,7 @@ def transformer_backward_fusion(fd: FusionDefinition) -> None:
         is_cpu=False,
         stride_order=[1, 0],
     )
+    # MHA sdpa.logsum_exp
     T22 = fd.define_tensor(
         shape=[1, -1, -1],
         contiguity=[None, True, True],
@@ -529,8 +571,11 @@ def transformer_backward_fusion(fd: FusionDefinition) -> None:
         is_cpu=False,
         stride_order=[2, 1, 0],
     )
+    # MHA sdpa.philox_seed
     T23 = fd.define_tensor(shape=[], contiguity=[], dtype=DataType.Int, is_cpu=False)
+    # MHA sdpa.philox_offset
     T24 = fd.define_tensor(shape=[], contiguity=[], dtype=DataType.Int, is_cpu=False)
+
     T25 = fd.ops.cast(T0, dtype=DataType.Float)
     S26 = fd.define_scalar(1, dtype=DataType.Int)
     S27 = fd.define_scalar(2048, dtype=DataType.Int)
@@ -979,19 +1024,19 @@ def transformer_backward_fusion(fd: FusionDefinition) -> None:
     T454 = fd.ops.add(T384, T453)
     T455 = fd.ops.add(T304, T454)
     T456 = fd.ops.cast(T455, dtype=DataType.BFloat16)
-    fd.add_output(T184)
-    fd.add_output(T186)
-    fd.add_output(T223)
-    fd.add_output(T225)
-    fd.add_output(T228)
-    fd.add_output(T232)
-    fd.add_output(T324)
-    fd.add_output(T326)
-    fd.add_output(T373)
-    fd.add_output(T376)
-    fd.add_output(T379)
-    fd.add_output(T383)
-    fd.add_output(T456)
+    fd.add_output(T184)  # MLP linear1.weight_grad
+    fd.add_output(T186)  # MLP linear1.bias_grad
+    fd.add_output(T223)  # MLP linear0.weight_grad
+    fd.add_output(T225)  # MLP linear0.bias_grad
+    fd.add_output(T228)  # layer_norm1.bias_grad
+    fd.add_output(T232)  # layer_norm1.weight_grad
+    fd.add_output(T324)  # MHA linear1.weight_grad
+    fd.add_output(T326)  # MHA linear1.bias_grad
+    fd.add_output(T373)  # MHA linear0.weight_grad
+    fd.add_output(T376)  # MHA linear0.bias_grad
+    fd.add_output(T379)  # layer_norm0.bias_grad
+    fd.add_output(T383)  # layer_norm0.weight_grad
+    fd.add_output(T456)  # dx output grad
 
 
 def test_transformer_backward(

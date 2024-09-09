@@ -11,7 +11,7 @@
 #include <exceptions.h>
 
 #include <debug.h>
-#include <executor_params.h>
+#include <fusion_executor/executor_params.h>
 #include <ir/base_nodes.h>
 #include <ir/container.h>
 #include <iter_visitor.h>
@@ -429,6 +429,12 @@ class NVF_API Fusion : public IrContainer {
     expected_dynamic_smem_bytes_ = bytes;
   }
 
+  //! This is a cached version of ir_utils::allTvs that is invalidated. Return a
+  //! copy of the vector instead of a reference as it can be invalidated by many
+  //! operations. If we returned a reference and are iterating on it while
+  //! making modifications to the fusion, it can easily cause a segfault.
+  std::vector<TensorView*> allTvs();
+
  protected:
   friend SegmentCandidateFinder;
   friend SegmentedFusion;
@@ -456,8 +462,9 @@ class NVF_API Fusion : public IrContainer {
 
   //! Declare that TensorView uses need to be updated (but don't actually do
   //! the update).
-  void invalidateTvUses() {
+  void invalidateTvsAndUses() {
     all_tv_uses_valid_ = false;
+    all_tvs_ptr_.reset();
   }
 
  private:
@@ -485,6 +492,8 @@ class NVF_API Fusion : public IrContainer {
   // If set to a non-negative value during scheduling, this will be checked by
   // the executor.
   int64_t expected_dynamic_smem_bytes_ = -1LL;
+
+  std::unique_ptr<std::vector<TensorView*>> all_tvs_ptr_ = nullptr;
 };
 
 // Returns true if all fusion outputs are expression evaluated.

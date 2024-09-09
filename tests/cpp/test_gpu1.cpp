@@ -13,10 +13,10 @@
 #include <device_lower/lower2device.h>
 #include <device_lower/pass/magic_zero.h>
 #include <disjoint_set.h>
-#include <executor.h>
-#include <executor_params.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
+#include <fusion_executor/executor.h>
+#include <fusion_executor/executor_params.h>
 #include <fusion_segmenter.h>
 #include <grouped_reduction.h>
 #include <inlining.h>

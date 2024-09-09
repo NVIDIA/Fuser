@@ -2370,7 +2370,7 @@ class FusionSegmentGuard : public NonCopyable {
     NVF_ERROR(fusion_ != nullptr);
 #ifndef NDEBUG
     num_original_exprs_ = fusion_->exprs().size();
-    original_tvs_ = ir_utils::allTvs(fusion_);
+    original_tvs_ = fusion_->allTvs();
 #endif // NDEBUG
     narrowToNewSegment(inputs, outputs);
   }
@@ -2382,7 +2382,7 @@ class FusionSegmentGuard : public NonCopyable {
     FUSER_PERF_SCOPE("Segmenter::FusionSegmentGuard");
 #ifndef NDEBUG
     num_original_exprs_ = fusion_->exprs().size();
-    original_tvs_ = ir_utils::allTvs(fusion_);
+    original_tvs_ = fusion_->allTvs();
 #endif // NDEBUG
     lowered_edges_ = segmented_fusion_->castInputOutputToLowerPrecision(
         segmented_fusion_->edges());
@@ -2398,7 +2398,7 @@ class FusionSegmentGuard : public NonCopyable {
     FUSER_PERF_SCOPE("Segmenter::FusionSegmentGuard");
 #ifndef NDEBUG
     num_original_exprs_ = fusion_->exprs().size();
-    original_tvs_ = ir_utils::allTvs(fusion_);
+    original_tvs_ = fusion_->allTvs();
 #endif // NDEBUG
 
     // Cast inputs and outputs of a merged group consisting of a and
@@ -2427,7 +2427,7 @@ class FusionSegmentGuard : public NonCopyable {
     FUSER_PERF_SCOPE("Segmenter::FusionSegmentGuard");
 #ifndef NDEBUG
     num_original_exprs_ = fusion_->exprs().size();
-    original_tvs_ = ir_utils::allTvs(fusion_);
+    original_tvs_ = fusion_->allTvs();
 #endif // NDEBUG
 
     // Cast inputs and outputs of a merged group consisting of
@@ -2468,7 +2468,7 @@ class FusionSegmentGuard : public NonCopyable {
         num_original_exprs_,
         ", actual: ",
         num_current_exprs);
-    auto current_tvs = ir_utils::allTvs(fusion_);
+    auto current_tvs = fusion_->allTvs();
     NVF_ERROR(
         original_tvs_ == current_tvs, "Failed to revert temporary changes.");
 #endif
