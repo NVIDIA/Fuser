@@ -1108,13 +1108,13 @@ using ValGroupRegion = dynamic_type::DynamicType<
     >;
 
 // Utilities to print ValGroupRegion.
-std::string toString(const ValGroupRegion& group);
+std::string print(const ValGroupRegion& group);
 
-std::string toString(const ValGroup& group) {
+std::string print(const ValGroup& group) {
   return group->toString();
 }
 
-std::string toString(const PartOf<ValGroupRegion>& part) {
+std::string print(const PartOf<ValGroupRegion>& part) {
   auto str_or_null = [](Val* val) {
     return val == nullptr ? "nullptr" : val->toInlineString();
   };
@@ -1123,7 +1123,7 @@ std::string toString(const PartOf<ValGroupRegion>& part) {
       ", selected_extent=" + str_or_null(part.selected_extent) + ")";
 }
 
-std::string toString(const std::deque<ValGroupRegion>& vec) {
+std::string print(const std::deque<ValGroupRegion>& vec) {
   std::stringstream ss;
   ss << "[";
   for (const auto& g : vec) {
@@ -1133,11 +1133,11 @@ std::string toString(const std::deque<ValGroupRegion>& vec) {
   return ss.str();
 }
 
-std::string toString(const std::monostate&) {
+std::string print(const std::monostate&) {
   return "std::monostate";
 }
 
-std::string toString(const ValGroupRegion& group) {
+std::string print(const ValGroupRegion& group) {
   return ValGroupRegion::dispatch(
       [&](const auto& group) { return toString(group); }, group);
 }
