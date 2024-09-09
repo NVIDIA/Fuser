@@ -1108,38 +1108,38 @@ using AbstractValGroup = dynamic_type::DynamicType<
     >;
 
 // Utilities to print AbstractValGroup.
-std::string print(const AbstractValGroup& group);
+std::string toString(const AbstractValGroup& group);
 
-std::string print(const ValGroup& group) {
+std::string toString(const ValGroup& group) {
   return group->toString();
 }
 
-std::string print(const PartOf<AbstractValGroup>& part) {
+std::string toString(const PartOf<AbstractValGroup>& part) {
   auto str_or_null = [](Val* val) {
     return val == nullptr ? "nullptr" : val->toInlineString();
   };
-  return "PartOf(group=" + print(*part.group) +
+  return "PartOf(group=" + toString(*part.group) +
       ", inner_extent=" + str_or_null(part.inner_extent) +
       ", selected_extent=" + str_or_null(part.selected_extent) + ")";
 }
 
-std::string print(const std::deque<AbstractValGroup>& vec) {
+std::string toString(const std::deque<AbstractValGroup>& vec) {
   std::stringstream ss;
   ss << "[";
   for (const auto& g : vec) {
-    ss << print(g) << ", ";
+    ss << toString(g) << ", ";
   }
   ss << "]";
   return ss.str();
 }
 
-std::string print(const std::monostate&) {
+std::string toString(const std::monostate&) {
   return "std::monostate";
 }
 
-std::string print(const AbstractValGroup& group) {
+std::string toString(const AbstractValGroup& group) {
   return AbstractValGroup::dispatch(
-      [&](const auto& group) { return print(group); }, group);
+      [&](const auto& group) { return toString(group); }, group);
 }
 
 // Utilities to check if AbstractValGroup is related to ValGroup.
