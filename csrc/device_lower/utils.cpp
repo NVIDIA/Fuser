@@ -1377,16 +1377,16 @@ AbstractValGroup propagate(
           // indivisible split will make dims not contiguous, so not linear.
           return {};
         }
-        result.push_back(to.front());
-        result.push_back(to.back());
+        result.emplace_back(to.front());
+        result.emplace_back(to.back());
       } else if (related(g, from.front())) {
         if (may_be_indivisible_split && !first) {
           // indivisible split will make dims not contiguous, so not linear.
           return {};
         }
-        result.push_back(propagate(g, id_graph, eg, direction));
+        result.emplace_back(propagate(g, id_graph, eg, direction));
       } else {
-        result.push_back(g);
+        result.emplace_back(g);
       }
       first = false;
     }
