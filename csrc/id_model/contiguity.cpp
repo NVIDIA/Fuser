@@ -129,7 +129,7 @@ void ContigIDGroups::handle(Merge* merge, Direction direction) {
   // If there's a non-divisible
   // split in the history of merge->out then the extents of the inputs
   // and also the outputs may be expanded due to ceilDiv. Predicate
-  // indexng needs to avoid contiguous indexing. Non-predicate
+  // indexing needs to avoid contiguous indexing. Non-predicate
   // indexing should have no such constraint.
   if (is_predicate_pass_ &&
       non_divisible_deps_.count(graph_.toGroup(merge->out()))) {
