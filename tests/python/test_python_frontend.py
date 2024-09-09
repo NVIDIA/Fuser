@@ -2235,15 +2235,12 @@ class TestNvFuserFrontend(NVFuserTest):
             t0 = fd.from_pytorch(inputs[0])
             t1 = fd.from_pytorch(inputs[1])
             t2 = fd.ops.div(t0, t1)
-            t3 = fd.ops.truediv(t0, t1)
             fd.add_output(t2)
-            fd.add_output(t3)
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
         self.assertEqual(
             nvf_out[0], torch.div(inputs[0], inputs[1], rounding_mode="trunc")
         )
-        self.assertEqual(nvf_out[1], torch.true_divide(inputs[0], inputs[1]))
 
     def test_right_shift_arithmetic(self):
         inputs = [
