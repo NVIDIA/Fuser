@@ -527,49 +527,11 @@ bool DynamicTransformConcretizationInfo::operator==(
     return true;
   }
 
-  if (reshape_transforms_.size() != other.reshape_transforms_.size() ||
-      resize_extents_.size() != other.resize_extents_.size() ||
-      empty_extents_.size() != other.empty_extents_.size() ||
-      factory_output_itertypes_.size() !=
-          other.factory_output_itertypes_.size()) {
-    return false;
-  }
-
-  for (const auto i : c10::irange((int64_t)reshape_transforms_.size())) {
-    const auto& analysis = reshape_transforms_.at(i);
-    const auto& other_analysis = other.reshape_transforms_.at(i);
-    if (analysis != other_analysis) {
-      return false;
-    }
-  }
-
-  for (const auto i : c10::irange((int64_t)resize_extents_.size())) {
-    if (resize_extents_[i] != other.resize_extents_[i]) {
-      return false;
-    }
-  }
-
-  if (factory_output_itertypes_ != other.factory_output_itertypes_) {
-    return false;
-  }
-
-  for (const auto i : c10::irange((int64_t)expand_axes_.size())) {
-    const auto& expand_axes = expand_axes_.at(i);
-    const auto& other_expand_axes = other.expand_axes_.at(i);
-    if (expand_axes != other_expand_axes) {
-      return false;
-    }
-  }
-
-  for (const auto i : c10::irange((int64_t)empty_extents_.size())) {
-    const auto& ee = empty_extents_.at(i);
-    const auto& other_ee = other.empty_extents_.at(i);
-    if (ee != other_ee) {
-      return false;
-    }
-  }
-
-  return true;
+  return reshape_transforms_ != other.reshape_transforms_ &&
+      resize_extents_ != other.resize_extents_ &&
+      factory_output_itertypes_ != other.factory_output_itertypes_ &&
+      expand_axes_ != other.expand_axes_ &&
+      empty_extents_ != other.empty_extents_;
 }
 
 std::string DynamicTransformConcretizationInfo::toString() const {
