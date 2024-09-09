@@ -43,6 +43,9 @@ class DistributedTransformerTest
 
   void SetUp() {
     MultiDeviceTest::SetUp();
+    if (!communicator_->is_available()) {
+      return;
+    }
     if (H % D != 0) {
       GTEST_SKIP()
           << "Distributed transformer tests require number of devices evenly divide E ";
