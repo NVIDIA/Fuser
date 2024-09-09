@@ -101,7 +101,7 @@ TEST_F(OuterReductionTest, GroupedGridWelfordOuterOpt) {
     ref_rf->axis(3)->parallelize(ParallelType::BIDy);
     ref_rf->axis(5)->parallelize(ParallelType::TIDy);
 
-    scheduler_utils::parallelizeAllLike(ref_rf, ir_utils::allTvs(&fusion));
+    scheduler_utils::parallelizeAllLike(ref_rf, fusion.allTvs());
 
     tv1->axis(-1)->parallelize(ParallelType::Vectorize);
     tv3->axis(-1)->parallelize(ParallelType::Group);
@@ -552,8 +552,7 @@ void scheduleNormalization(Fusion& fusion, const OuterReductionParams& params) {
     unswitch_id->parallelize(ParallelType::Serial);
   }
 
-  scheduler_utils::parallelizeAllLike(
-      reduction_tv_rf, ir_utils::allTvs(&fusion));
+  scheduler_utils::parallelizeAllLike(reduction_tv_rf, fusion.allTvs());
 
   // Vectorize inputs
   for (auto input_cache : input_caches) {

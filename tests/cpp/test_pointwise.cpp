@@ -580,7 +580,6 @@ TEST_F(PointwiseTest, VectorizeWithBroadcastAndReshape1) {
   fusion->addOutput(tv4);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   auto t0 = at::randn(shape1, options);
   auto t1 = at::randn(shape2, options);
   std::vector<c10::IValue> aten_inputs({t0, t1});
@@ -626,7 +625,6 @@ TEST_F(PointwiseTest, VectorizeWithBroadcastAndReshape2) {
   fusion->addOutput(tv7);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   auto t0 = at::randn(shape1, options);
   auto t1 = at::randn(shape1, options);
   auto t2 = at::randn(shape2, options);
@@ -636,6 +634,32 @@ TEST_F(PointwiseTest, VectorizeWithBroadcastAndReshape2) {
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   EXPECT_EQ(getVecSizeForPointwise(executor_cache), 4);
+}
+
+TEST_F(PointwiseTest, VectorizeWithExpandedBroadcast) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  constexpr int64_t kTensorSize = 65536;
+  TensorView* in = TensorViewBuilder()
+                       .dtype(DataType::Half)
+                       .shape({2, kTensorSize})
+                       .expanded({true, false})
+                       .build();
+  in->setAllocationDomain({in->axis(1), in->axis(0)}, true);
+  TensorView* out = add(in, in);
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  auto in_tensor =
+      at::randn({kTensorSize}, options).as_strided({2, kTensorSize}, {0, 1});
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+
+  EXPECT_GT(getVecSizeForPointwise(fec), 1);
 }
 
 } // namespace nvfuser

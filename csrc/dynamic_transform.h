@@ -15,6 +15,7 @@
 #include <ir/cloner.h>
 #include <ir/iostream.h>
 #include <iter_visitor.h>
+#include <logical_domain_map.h>
 #include <transform_view.h>
 #include <utils.h>
 
@@ -141,7 +142,8 @@ class DynamicTransformConcretizationInfo {
  public:
   NVF_API DynamicTransformConcretizationInfo(
       const DynamicTransformInitialInfo* initial_info,
-      ExpressionEvaluator* expr_eval);
+      ExpressionEvaluator* expr_eval,
+      ExactLogicalDomainMap* exact_map = nullptr);
 
   //! Return a vector of integers each corresponding to the position in
   //! initialInfo()->getMaybeZeroExtents() of an extent Val which is guaranteed

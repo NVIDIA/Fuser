@@ -65,7 +65,7 @@ class FusionExecutor : public NonCopyable {
   //! Notes: 1. This API should ignore aliased outputs instead of
   //! pushing scalar int 0 as a place-holder.
   //! 2. This API does not allocate output in memory, but only returns the
-  //! inferred output sizes.
+  //! inferred output sizes. Used in kernel_cache.cpp.
   KernelArgumentHolder inferOutputSizes(
       Fusion* fusion,
       const KernelArgumentHolder& args,
@@ -118,10 +118,14 @@ class FusionExecutor : public NonCopyable {
 
   //! Computes fusion outputs through expression evaluator.
   std::vector<at::Tensor> evaluateFusionOutputs(
-      KernelArgumentHolder& args,
       std::vector<at::Tensor> outputs,
       ExpressionEvaluator& expr_eval);
 
+  // TODO: args shouldn't come in a reference here because we will append the
+  // outputs to be able to send it to the kernel. For now none of the users are
+  // reconsuming the args, so it is okay. It isn't done now because changing it
+  // from a reference makes a call as runFusion({}) ambiguous, and that is used
+  // in some places in the codebase.
   NVF_API std::vector<at::Tensor> runFusion(
       KernelArgumentHolder& args,
       const LaunchParams& launch_constraints = LaunchParams(),
