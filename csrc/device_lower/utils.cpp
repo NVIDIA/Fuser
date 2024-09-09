@@ -231,6 +231,15 @@ bool isCpAsyncBulkStore(const Expr* expr) {
   return getCpAsyncBulkTileType(expr) == CpAsyncBulkTileType::S2G;
 }
 
+bool isElectSyncPredicate(const Val* v) {
+  NVF_ERROR(v != nullptr);
+
+  if (!v->isA<kir::Predicate>()) {
+    return false;
+  }
+  return v->as<kir::Predicate>()->predicate_type() == PredicateType::ElectSync;
+}
+
 bool isTensorScalarFillOp(const Expr* expr) {
   // Check that the input is a single scalar.
   if (expr->inputs().size() == 1 && expr->input(0)->isScalar()) {

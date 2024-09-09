@@ -209,6 +209,27 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
         // here.
         return IrBuilder::create<Val>(true, DataType::Bool);
       }
+      case PredicateType::ElectSync: {
+        Val* zero = IrBuilder::create<Val>(0L, PrimDataType::UInt);
+        Val* warp_size = IrBuilder::create<Val>(32L, PrimDataType::UInt);
+        Val* full_mask_val =
+            IrBuilder::create<Val>(0xFFFFFFFF, PrimDataType::UInt32);
+
+        Val* elect_sync_val = IrBuilder::create<Val>(PrimDataType::Bool);
+        IrBuilder::create<UnaryOp>(
+            UnaryOpType::ElectSync, elect_sync_val, full_mask_val);
+
+        Val* first_warp = IrBuilder::logicalAndExpr(
+            IrBuilder::logicalAndExpr(
+                IrBuilder::ltExpr(
+                    NamedScalar::getParallelIndex(ParallelType::TIDx),
+                    warp_size),
+                IrBuilder::eqExpr(
+                    NamedScalar::getParallelIndex(ParallelType::TIDy), zero)),
+            IrBuilder::eqExpr(
+                NamedScalar::getParallelIndex(ParallelType::TIDz), zero));
+        return IrBuilder::logicalAndExpr(first_warp, elect_sync_val);
+      }
       default:
         break;
     }
