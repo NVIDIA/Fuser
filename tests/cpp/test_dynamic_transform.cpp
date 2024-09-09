@@ -931,10 +931,6 @@ void reductionDynamicPadAddFusion(
     auto pad_widths = std::get<1>(inv);
     auto expect_miss = std::get<2>(inv);
 
-    // Since we concretize the inputs and expands for each Resize, we always
-    // expect a cache miss unless we have re-used the exact same values.
-    expect_miss = true;
-
     NVF_ERROR(input_shape.size() == input_dims);
     NVF_ERROR(pad_widths.size() == num_pad_widths);
 
