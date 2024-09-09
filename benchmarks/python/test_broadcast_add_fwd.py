@@ -13,21 +13,25 @@ def bcast_add_fusion(
     fd: FusionDefinition,
     dtype: DataType,
     bcast_axis: int,
+    contiguous: bool,
 ) -> None:
     T0 = fd.define_tensor(
         shape=[-1], contiguity=[True], dtype=dtype, is_cpu=False, stride_order=[0]
     )
+    stride_order = [0, 1] if not contiguous else [1, 0]
     T1 = fd.define_tensor(
         shape=[-1, -1],
         contiguity=[True, True],
         dtype=dtype,
         is_cpu=False,
-        stride_order=[1, 0],
+        stride_order=stride_order,
     )
 
     bcast_shape = [T1.size(0), T1.size(1)]
     bcast_shape[bcast_axis] = 1
 
+    # For outer broadcast, if the fn is x + bias, then Thunder only produces one bcast op.
+    # The use of unsqueeze generates 2 broadcast ops.
     T2 = fd.ops.broadcast_in_dim(T0, shape=bcast_shape, broadcast_dims=[1 - bcast_axis])
     T3 = fd.ops.broadcast_in_dim(T2, shape=T1.shape(), broadcast_dims=[0, 1])
 
@@ -49,21 +53,34 @@ def bcast_add_fwd_fn(inputs: list):  # bias, x, bcast_dim
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 @pytest.mark.parametrize("bcast_axis", [0, 1], ids=["outer", "inner"])
+@pytest.mark.parametrize(
+    "contiguous", [True, False], ids=["contiguous", "non-contiguous"]
+)
 def test_bcast_add_nvf_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
     bcast_axis: int,
+    contiguous: bool,
     disable_validation: bool,
     disable_benchmarking: bool,
 ):
     clear_cuda_cache()
 
     bias = torch.randn(size[1 - bcast_axis], dtype=dtype, device="cuda")
-    x = torch.randn(size, dtype=dtype, device="cuda")
 
+    input_shape = size if contiguous else (size[1], size[0])
+    x = torch.randn(input_shape, dtype=dtype, device="cuda")
+    if not contiguous:
+        x = x.t()
+    assert x.is_contiguous() == contiguous
     with FusionDefinition() as fd:
-        bcast_add_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype), bcast_axis=bcast_axis)
+        bcast_add_fusion(
+            fd,
+            torch_dtype_to_nvfuser_dtype(dtype),
+            bcast_axis=bcast_axis,
+            contiguous=contiguous,
+        )
 
     if not disable_validation:
         eager_output = bcast_add_fwd_fn([bias, x, bcast_axis])
@@ -77,18 +94,26 @@ def test_bcast_add_nvf_benchmark(
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 @pytest.mark.parametrize("bcast_axis", [0, 1], ids=["outer", "inner"])
+@pytest.mark.parametrize(
+    "contiguous", [True, False], ids=["contiguous", "non-contiguous"]
+)
 def test_bcast_add_baseline_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
     bcast_axis: int,
+    contiguous: bool,
     compile: bool,
 ):
     clear_cuda_cache()
     if compile:
         clear_dynamo_cache()
     bias = torch.randn(size[1 - bcast_axis], dtype=dtype, device="cuda")
-    x = torch.randn(size, dtype=dtype, device="cuda")
+    input_shape = size if contiguous else (size[1], size[0])
+    x = torch.randn(input_shape, dtype=dtype, device="cuda")
+    if not contiguous:
+        x = x.t()
+    assert x.is_contiguous() == contiguous
 
     # Inputs and outputs are same as nvFuser, no need for manual IOByte computation
     run_benchmark(
