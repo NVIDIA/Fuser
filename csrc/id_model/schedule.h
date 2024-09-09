@@ -11,6 +11,15 @@
 
 namespace nvfuser {
 
+// Choose an IterDomain from the ValGroup that is amenable to transforms.
+// Specifically we prefer, in descending order:
+//   1. Iteration domains
+//   2. Broadcast domains
+//   3. Reduction domains
+// Among IterDomains with the same IterType, we prefer IterDomains with a
+// constant unexpanded extent to others.
+IterDomain* representativeId(const ValGroup& vg);
+
 // Given a ValGraph and two ValGroups g0 and g1 in this graph, if there is
 // already a merge of g0 with g1 in graph, return the output ValGroup of that
 // merge. Otherwise create an new ValGroup that is a merge of g0 and g1 in
