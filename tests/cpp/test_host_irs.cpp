@@ -442,17 +442,6 @@ TEST_P(HostIrTest, ForLoops) {
   auto [use_fusion_executor_cache] = GetParam();
   params.use_fusion_executor_cache = use_fusion_executor_cache;
 
-  // HostIrExecutor concretizes the fusion once, using the first set of inputs.
-  // This is insufficient in this case since the concretization should depend
-  // on the for loop index, so we should get a different kernel in each
-  // iteration.
-  // TODO: This should not be necessary. HostIrExecutor should detect if the
-  // loop index is a dynamic value and if so then it should concretize a
-  // separate FusionKernelRuntime in each iteration.
-  DisableOptionsGuard dog;
-  DisableOptionsGuard::getCurOptions().set(
-      DisableOption::ConcretizeResizeExtents);
-
   HostIrExecutor hie(std::move(hic), /*communicator=*/nullptr, params);
 
   auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);

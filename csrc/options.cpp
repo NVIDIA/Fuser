@@ -152,6 +152,7 @@ template <>
 std::unordered_map<EnableOption, std::vector<std::string>> Options<
     EnableOption>::getOptionsFromEnv() {
   const std::unordered_map<std::string, EnableOption> available_options = {
+      {"concretize_resize_extents", EnableOption::ConcretizeResizeExtents},
       {"fuse_matmul", EnableOption::FuseMatmul},
       {"fuse_multiple_matmuls", EnableOption::FuseMultipleMatmuls},
       {"id_model", EnableOption::IdModel},
@@ -172,7 +173,6 @@ std::unordered_map<DisableOption, std::vector<std::string>> Options<
     DisableOption>::getOptionsFromEnv() {
   const std::unordered_map<std::string, DisableOption> available_options = {
       {"compile_to_sass", DisableOption::CompileToSass},
-      {"concretize_resize_extents", DisableOption::ConcretizeResizeExtents},
       {"contig_indexing", DisableOption::ContigIndexing},
       {"expr_simplify", DisableOption::ExprSimplify},
       {"fallback", DisableOption::Fallback},

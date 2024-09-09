@@ -91,6 +91,7 @@ enum class DebugDumpOption {
 //! These can be set through the `NVFUSER_ENABLE` environment variable
 //!
 enum class EnableOption {
+  ConcretizeResizeExtents, //! Concretize input extents and expand of Resize
   FuseMatmul, //! Enable automatic fusion of matmul and linear ops
   FuseMultipleMatmuls, //! Allow fusing more than one matmul in a single kernel
   IdModel, //! Enable IdModel
@@ -112,7 +113,6 @@ enum class EnableOption {
 enum class DisableOption {
   CompileToSass, //! Disable direct compilation to sass so the ptx can be
                  //! examined
-  ConcretizeResizeExtents, //! Concretize input extents and expand of Resize
   ContigIndexing, //! Disable contiguous indexing
   ExprSimplify, //! Disable expression simplifier
   Fallback, //! Disable fallback

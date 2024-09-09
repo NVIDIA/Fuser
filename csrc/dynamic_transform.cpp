@@ -204,14 +204,14 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
       }
       if (auto rop = dynamic_cast<Resize*>(id->definition())) {
         info_.dynamic_resized_ids_.push_back(id);
-        if (isOptionDisabled(DisableOption::ConcretizeResizeExtents)) {
-          // extent of output determines its IterType
-          loop_dynamic_vals_.push_back(id->extent());
-        } else {
+        if (isOptionEnabled(EnableOption::ConcretizeResizeExtents)) {
           // The input extent and both expand vals are all concretized
           loop_dynamic_vals_.push_back(rop->in()->extent());
           loop_dynamic_vals_.push_back(rop->leftExpand());
           loop_dynamic_vals_.push_back(rop->rightExpand());
+        } else {
+          // extent of output determines its IterType
+          loop_dynamic_vals_.push_back(id->extent());
         }
       }
     }
@@ -425,7 +425,10 @@ void DynamicTransformConcretizationInfo::analyzeResizes(
         "Could not compute right expand of dynamic resize ",
         op->toString());
 
-    if (isOptionDisabled(DisableOption::ConcretizeResizeExtents)) {
+    if (isOptionEnabled(EnableOption::ConcretizeResizeExtents)) {
+      resize_extents_.emplace_back(
+          id_index, ConcreteResize{input_extent, left_expand, right_expand});
+    } else {
       // If this option is disabled, it means we will only concretize IterType,
       // not the extents of Resize ops. In such case we standardize the
       // concretization info so that the resize_extents_ entries are equivalent
@@ -436,9 +439,6 @@ void DynamicTransformConcretizationInfo::analyzeResizes(
           id_index,
           ConcreteResize{
               2, input_extent + left_expand + right_expand == 1 ? -1 : 1, 0});
-    } else {
-      resize_extents_.emplace_back(
-          id_index, ConcreteResize{input_extent, left_expand, right_expand});
     }
   }
 }
@@ -957,7 +957,7 @@ void DynamicTransformConcretizer::concretizeReshape() {
 }
 
 void DynamicTransformConcretizer::concretizeResize() {
-  if (isOptionDisabled(DisableOption::ConcretizeResizeExtents)) {
+  if (!isOptionEnabled(EnableOption::ConcretizeResizeExtents)) {
     for (const auto& [id_index, concrete_resize] : info_->getResizeExtents()) {
       const auto& [input_extent, left_expand, right_expand] = concrete_resize;
 

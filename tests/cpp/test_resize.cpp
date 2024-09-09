@@ -1277,12 +1277,6 @@ TEST_F(ResizeTest, SliceInputShmoo) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
-  DisableOptionsGuard dog;
-  // Without this option set, we will concretize the resized domains' extents
-  // to constant, meaning we cannot then send in different size inputs
-  DisableOptionsGuard::getCurOptions().set(
-      DisableOption::ConcretizeResizeExtents);
-
   {
     // Concretize so that we set output IterType as Iteration. We should now
     // have expressions that work with any input range.
