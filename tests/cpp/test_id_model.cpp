@@ -2628,10 +2628,21 @@ TEST_F(IdModelTest, RepresentativeId) {
   auto tv3 = sum(tv2, {0, 1});
   fusion.addOutput(tv3);
 
-  IdModel id_model(&fusion);
-  const ValGraph& graph = id_model.idGraph(IdMappingMode::PERMISSIVE);
+  // Build a graph that maps concretized broadcasts, as well as reductions.
+  ValGraph graph;
+  for (TensorView* tv : {tv0, tv1, tv2, tv3}) {
+    for (IterDomain* id : tv->getLogicalDomain()) {
+      graph.initializeVal(id);
+    }
+  }
+  graph.mapVals(tv0->axis(0), tv2->axis(0));
+  graph.mapVals(tv0->axis(1), tv2->axis(1));
+  graph.mapVals(tv1->axis(0), tv2->axis(0));
+  graph.mapVals(tv1->axis(1), tv2->axis(1));
+  graph.mapVals(tv3->axis(0), tv2->axis(0));
+  graph.mapVals(tv3->axis(1), tv2->axis(1));
 
-  // In the permissive map we will have a group with Iteration and Reduction,
+  // In this graph we will have a group with Iteration and Reduction,
   // and another with Iteration, Broadcast, and Reduction
   EXPECT_EQ(graph.disjointValSets().size(), 2);
 
