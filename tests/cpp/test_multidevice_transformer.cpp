@@ -9,9 +9,9 @@
 
 #include <gtest/gtest.h>
 
-#include <executor.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
+#include <fusion_executor/executor.h>
 #include <fusion_segmenter.h>
 #include <ir/all_nodes.h>
 #include <ir/interface_nodes.h>
@@ -52,11 +52,6 @@ class DistributedTransformerTest
     }
   }
 
-  hir::HostIrExecutorParams executor_params_{
-      .use_fusion_executor_cache = true,
-      .skip_auto_scheduling = false,
-      .cache_fusion_executor = false};
-
   const int64_t D; // number of devices
 };
 
@@ -66,34 +61,39 @@ void validate(
     std::vector<at::Tensor> out) {
   EXPECT_EQ(expected_out.size(), out.size());
   for (auto i : c10::irange(out.size())) {
+    // allclose can catch this as well. However, it would throw an exception,
+    // not showing which output was problematic.
+    ASSERT_EQ(out[i].dtype(), expected_out[i].dtype())
+        << "Output " << i << " has a mismatching data type.";
+
     // Note: Scaling tolerance up since the error accumulates across ops
     // BFloat16 error is quite high, but the program has been verified with
     // double precision to be logically correct.
-    double atol = 0.08 * (i + 1);
-    double rtol = 1.26e-2;
-    auto all_close = out[i]
-                         .to(expected_out[i].dtype())
-                         .allclose(
-                             expected_out[i],
-                             rtol,
-                             atol,
-                             /*equal_nan=*/true);
-
-    if (!all_close) {
-      auto error = (out[i].to(expected_out[i].dtype()) - expected_out[i]).abs();
+    const double atol = 0.075 * (i + 1);
+    const double rtol = 1.6e-2;
+    auto generate_comparison_details = [](at::Tensor out,
+                                          at::Tensor expected_out,
+                                          double atol,
+                                          double rtol) -> std::string {
+      std::ostringstream oss;
+      auto error = (out - expected_out).abs();
       auto max_error = error.max().item().to<double>();
       auto max_relative_error =
-          (max_error / expected_out[i].abs().max()).item();
+          max_error / expected_out.abs().max().item().to<double>();
       auto error_count =
-          at::sum(error >= (atol + expected_out[i].abs() * rtol)).item();
-      std::cout << "output[" << i << "] max error: " << max_error << std::endl;
-      std::cout << "          max relative error: " << max_relative_error
-                << std::endl;
-      std::cout << "          failing elements: " << error_count << ", "
-                << error_count.to<float>() / at::numel(out[i]) * 100.0
-                << "\% of tensor" << std::endl;
-    }
-    EXPECT_TRUE(all_close);
+          at::sum(error >= (atol + expected_out.abs() * rtol)).item();
+      indent(oss, 1) << "max error: " << max_error << std::endl;
+      indent(oss, 1) << "max relative error: " << max_relative_error
+                     << std::endl;
+      indent(oss, 1) << "failing elements: " << error_count << ", "
+                     << error_count.to<float>() / at::numel(out) * 100.0
+                     << "\% of tensor";
+      return oss.str();
+    };
+
+    EXPECT_TRUE(out[i].allclose(expected_out[i], rtol, atol))
+        << "Output " << i << " mismatches:" << std::endl
+        << generate_comparison_details(out[i], expected_out[i], atol, rtol);
   }
 }
 
@@ -104,10 +104,9 @@ std::vector<at::Tensor> reference_mlp(
     at::Tensor w1,
     at::Tensor b1) {
   auto at_dtype = w0.dtype();
-  auto linear0 = at::matmul(x, w0).to(at::kFloat) + b0.to(at::kFloat);
-  auto gelu = at::gelu(linear0, "tanh");
-  auto linear1 =
-      at::matmul(gelu.to(at_dtype), w1).to(at::kFloat) + b1.to(at::kFloat);
+  auto linear0 = at::matmul(x, w0).to(at::kFloat) + b0;
+  auto gelu = at::gelu(linear0, "tanh").to(at_dtype);
+  auto linear1 = at::matmul(gelu, w1).to(at::kFloat) + b1;
   auto [dropout, mask] = at::native_dropout(linear1, kDropoutProb, true);
   return {linear0, gelu, linear1, dropout, mask};
 }
@@ -119,8 +118,8 @@ std::vector<at::Tensor> reference_mha(
     at::Tensor w1,
     at::Tensor b1) {
   auto at_dtype = w0.dtype();
-  auto linear0 = at::matmul(x, w0).add(b0);
-  auto qkv = linear0.view({B, S, 3 * E}).split(E, 2);
+  auto linear0 = (at::matmul(x, w0).to(at::kFloat) + b0).view({B, S, 3 * E});
+  auto qkv = linear0.split(E, 2);
   for (auto i = 0; i < 3; i++) {
     qkv[i] = qkv[i].reshape({B, S, H, E / H}).transpose(2, 1).to(at_dtype);
   }
@@ -129,15 +128,10 @@ std::vector<at::Tensor> reference_mha(
   auto sdpa = std::get<0>(sdpa_out);
   // Reassemble heads (B, H, S, E/H) to (B, S, H, E/H) to (B, S, E)
   auto y = sdpa.transpose(1, 2).reshape({B * S, E});
-  auto linear1 = at::matmul(y, w1).add(b1);
-  auto [dropout, mask] = at::native_dropout(linear1.to(at::kFloat), kDropoutProb, true);
-  return {
-      linear0,
-      sdpa,
-      linear1,
-      dropout,
-      mask
-  };
+  auto linear1 = at::matmul(y, w1).to(at::kFloat) + b1;
+  auto [dropout, mask] =
+      at::native_dropout(linear1.to(at::kFloat), kDropoutProb, true);
+  return {linear0, sdpa, linear1, dropout, mask};
 }
 
 std::vector<at::Tensor> reference_mlp_backwards(
@@ -192,7 +186,7 @@ std::vector<at::Tensor> reference_mha_backwards(
   auto linear0 = at::matmul(x, w0).add(b0).view({B, S, 3 * E});
   auto qkv = linear0.split(E, /*dim=*/-1);
   for (auto i = 0; i < 3; i++) {
-    qkv[i] = qkv[i].reshape({B, S, H, E / H}).transpose(2, 1).to(at_dtype);
+    qkv[i] = qkv[i].reshape({B, S, H, E / H}).transpose(1, 2).to(at_dtype);
   }
   auto
       [sdpa_output,
@@ -276,7 +270,7 @@ std::vector<TensorView*> mlp(
     TensorView* w1,
     TensorView* b1,
     const DeviceMesh& mesh) {
-  DataType dtype = w0->dtype();
+  const DataType dtype = w0->dtype();
   // Linear 0
   TensorView* matmul0 = matmul(x, w0);
   TensorView* linear0 = add(matmul0, broadcast(b0, {false, true, false}));
@@ -311,8 +305,8 @@ std::vector<TensorView*> mha(
     TensorView* w1,
     TensorView* b1,
     const DeviceMesh& mesh) {
-  DataType dtype = w0->dtype();
   const auto D = w0->axis(0)->extent()->value().as<int64_t>();
+  auto dtype = w0->dtype();
   // Linear 0
   TensorView* matmul0 = matmul(x, w0);
   TensorView* linear0 = add(matmul0, broadcast(b0, {false, true, false}));
@@ -381,20 +375,15 @@ LinearBackwardsResult linear_backwards(
     TensorView* w,
     TensorView* grad) {
   DataType dtype = w->dtype();
-  TensorView* grad_q;
-  if (grad->dtype() == dtype) {
-    grad_q = grad;
-    grad = castOp(DataType::Float, grad_q);
-  } else {
-    grad_q = castOp(dtype, grad);
-  }
+  TensorView* grad_f = maybeCastOp(DataType::Float, grad);
+  TensorView* grad_q = maybeCastOp(dtype, grad);
   TensorView* w_t = transpose(w, 1, 2);
   TensorView* grad_x_partials = matmul(grad_q, w_t);
   TensorView* grad_x = sum(grad_x_partials, {0}); // allreduce
   TensorView* grad_q_t = transpose(grad_q, 1, 2);
   TensorView* grad_w_t = matmul(grad_q_t, x);
   TensorView* grad_w = transpose(grad_w_t, 1, 2);
-  TensorView* grad_b = sum(grad, {1});
+  TensorView* grad_b = sum(grad_f, {1});
 
   return {grad_x, grad_w, grad_b};
 }
@@ -531,11 +520,11 @@ std::vector<TensorView*> mha_backwards(
     TensorView* sdpa_seed,
     TensorView* sdpa_offset,
     TensorView* grad,
-    std::vector<TensorView*> qkv,
+    const std::vector<TensorView*>& qkv,
     const DeviceMesh& mesh) {
   DataType dtype = w0->dtype();
   const auto D = w0->axis(0)->extent()->value().as<int64_t>();
-  // Backwards
+  // dropout backwards
   constexpr double kScale = 1.0 / (1.0 - kDropoutProb);
   auto dropout_scale = IrBuilder::create<Val>(kScale);
   TensorView* dropout_grad = dropout_backward(grad, mask, dropout_scale);
@@ -669,14 +658,13 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
       reference_outs[2],
       reference_outs[3]};
 
-  MultiDeviceExecutor runtime(
-      std::move(fusion), *communicator_, executor_params_);
+  FusionExecutorCache fec(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
-  auto outputs = runtime.runWithInput(inputs);
+  auto outputs = fec.runFusionWithInputs(inputs);
   validate(expected_outputs, outputs);
 }
 
-TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
+TEST_P(DistributedTransformerTest, MultiheadAttention) {
   auto dtype = GetParam();
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -727,10 +715,9 @@ TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
       reference_outs[2],
       reference_outs[3]};
 
-  MultiDeviceExecutor runtime(
-      std::move(fusion), *communicator_, executor_params_);
+  FusionExecutorCache fec(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
-  auto out = runtime.runWithInput(inputs);
+  auto out = fec.runFusionWithInputs(inputs);
   validate(expected_outputs, out);
 }
 
@@ -796,9 +783,8 @@ TEST_P(DistributedTransformerTest, MLP_Backward) {
       shardTensor(outs[5], 0, mesh), // linear0 bias grad
       outs[6]}; // linear0 grad x
 
-  MultiDeviceExecutor runtime(
-      std::move(fusion), *communicator_, executor_params_);
-  auto outputs = runtime.runWithInput(inputs);
+  FusionExecutorCache fec(std::move(fusion));
+  auto outputs = fec.runFusionWithInputs(inputs);
 
   validate(expected_outputs, outputs);
 }
@@ -895,10 +881,9 @@ TEST_P(DistributedTransformerTest, MHA_Backward) {
           .view({1, 3 * E / D}),
       reference_outs[12]};
 
-  MultiDeviceExecutor runtime(
-      std::move(fusion), *communicator_, executor_params_);
+  FusionExecutorCache fec(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
-  auto out = runtime.runWithInput(inputs);
+  auto out = fec.runFusionWithInputs(inputs);
   validate(expected_outputs, out);
 }
 
@@ -974,10 +959,11 @@ TEST_P(DistributedTransformerTest, Forward) {
   at::manual_seed(getATenRandomSeed());
   auto ln_1_ = at::native_layer_norm(
       x_, norm_shape, /*weight=*/std::nullopt, /*bias=*/std::nullopt, kEps);
-  auto ln_1_out_ = std::get<0>(ln_1_).to(at_dtype);
+  auto ln_1_out_ = std::get<0>(ln_1_);
 
-  auto mha_out_ =
-      reference_mha(ln_1_out_, mha_w0_, mha_b0_, mha_w1_, mha_b1_)[3];
+  auto mha_out_ = reference_mha(
+      ln_1_out_.to(at_dtype), mha_w0_, mha_b0_, mha_w1_, mha_b1_)[3];
+
   auto resid1_ = mha_out_ + x_;
   auto ln_2_ = at::native_layer_norm(
       resid1_,
@@ -985,10 +971,10 @@ TEST_P(DistributedTransformerTest, Forward) {
       /*weight=*/std::nullopt,
       /*bias=*/std::nullopt,
       kEps);
-  auto ln_2_out_ = std::get<0>(ln_2_).to(at_dtype);
+  auto ln_2_out_ = std::get<0>(ln_2_);
 
-  auto mlp_out_ =
-      reference_mlp(ln_2_out_, mlp_w0_, mlp_b0_, mlp_w1_, mlp_b1_)[3];
+  auto mlp_out_ = reference_mlp(
+      ln_2_out_.to(at_dtype), mlp_w0_, mlp_b0_, mlp_w1_, mlp_b1_)[3];
   auto at_out = mha_out_ + mlp_out_;
 
   std::vector<c10::IValue> inputs = {
@@ -1005,13 +991,11 @@ TEST_P(DistributedTransformerTest, Forward) {
   std::vector<at::Tensor> expected_outputs = {
       ln_1_out_, mha_out_, ln_2_out_, mlp_out_, at_out};
 
-  MultiDeviceExecutor runtime(
-      std::move(fusion), *communicator_, executor_params_);
+  FusionExecutorCache fec(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
-  auto outputs = runtime.runWithInput(inputs);
+  auto outputs = fec.runFusionWithInputs(inputs);
   validate(expected_outputs, outputs);
 }
-
 
 TEST_P(DistributedTransformerTest, Backward) {
   auto dtype = GetParam();
@@ -1084,8 +1068,8 @@ TEST_P(DistributedTransformerTest, Backward) {
   auto ln_0 = layer_norm(x, norm_shape, ln0_w, ln0_b, eps);
   auto mha_in = castOp(dtype, std::get<0>(ln_0));
   auto qkv = mha_qkv(mha_in, mha_w0, mha_b0, mha_w1, mesh);
-  // The thunder trace recompute mha linear1, but this would result in 3 AllReduces
-  // in the backwards pass. 
+  // The thunder trace recompute mha linear1, but this would result in 3
+  // AllReduces in the backwards pass.
   if (mha_linear1 == nullptr) {
     TensorView* sdpa_transpose = transpose(mha_sdpa_out, 2, 3);
     TensorView* sdpa_reshape =
@@ -1186,7 +1170,7 @@ TEST_P(DistributedTransformerTest, Backward) {
   auto mha_w0_ = at::randn({E, 3 * E}, options) * kParamScale;
   auto mha_b0_ = at::randn({3 * E}, options) * kParamScale;
   auto mha_w1_ = at::randn({E, E}, options) * kParamScale;
-  auto mha_b1_ = at::randn({E}, options) * kParamScale;   
+  auto mha_b1_ = at::randn({E}, options) * kParamScale;
   auto ln1_w_ = at::randn(E, options).to(at::kFloat);
   auto ln1_b_ = at::randn(E, options).to(at::kFloat);
   auto mlp_w0_ = at::randn({E, 4 * E}, options) * kParamScale;
@@ -1197,18 +1181,20 @@ TEST_P(DistributedTransformerTest, Backward) {
 
   at::manual_seed(getATenRandomSeed());
   // Run forward pass up to MLP to generate cached inputs
-  auto [ln0_, ln0_mean_, ln0_rstd_] = at::native_layer_norm(x_, norm_shape, ln0_w_, ln0_b_, kEps);
+  auto [ln0_, ln0_mean_, ln0_rstd_] =
+      at::native_layer_norm(x_, norm_shape, ln0_w_, ln0_b_, kEps);
   auto mha_in_ = ln0_.to(at_dtype);
   auto mha_out_ = reference_mha(mha_in_, mha_w0_, mha_b0_, mha_w1_, mha_b1_);
   auto resid0_ = mha_out_[3] + x_;
-  auto [ln1_, ln1_mean_, ln1_rstd_] = at::native_layer_norm(resid0_, norm_shape, ln1_w_, ln1_b_, kEps);
+  auto [ln1_, ln1_mean_, ln1_rstd_] =
+      at::native_layer_norm(resid0_, norm_shape, ln1_w_, ln1_b_, kEps);
   auto mlp_in_ = ln1_.to(at_dtype);
   auto mlp_out_ = reference_mlp(mlp_in_, mlp_w0_, mlp_b0_, mlp_w1_, mlp_b1_);
 
   // Backwards pass
   auto mlp_grads_ = reference_mlp_backwards(
       grad_, mlp_in_, mlp_out_[4], mlp_w0_, mlp_b0_, mlp_w1_);
-  auto [ln1_x_grad_, ln1_w_grad_, ln1_b_grad_]= at::native_layer_norm_backward(
+  auto [ln1_x_grad_, ln1_w_grad_, ln1_b_grad_] = at::native_layer_norm_backward(
       mlp_grads_[6].to(at::kFloat),
       resid0_,
       norm_shape,
@@ -1244,8 +1230,7 @@ TEST_P(DistributedTransformerTest, Backward) {
           .view({1, 3 * E / D}), // mha linear0 bias grad
       ln0_w_grad_,
       ln0_b_grad_,
-      ln0_x_grad_
-  };
+      ln0_x_grad_};
 
   std::vector<c10::IValue> inputs = {
       x_,
@@ -1275,10 +1260,9 @@ TEST_P(DistributedTransformerTest, Backward) {
       mha_out_[2].to(at::kFloat) // mha linear1
   };
 
-  MultiDeviceExecutor runtime(
-      std::move(fusion), *communicator_, executor_params_);
+  FusionExecutorCache fec(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
-  auto outputs = runtime.runWithInput(inputs);
+  auto outputs = fec.runFusionWithInputs(inputs);
   validate(expected_outputs, outputs);
 }
 

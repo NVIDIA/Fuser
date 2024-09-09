@@ -382,6 +382,8 @@ class BestEffortReplay {
   bool skip_replay_swizzle_ = true;
   bool skip_target_swizzle_ = true;
 
+  bool error_on_failure_ = true;
+
   bool inReplayForwardMap(IterDomain* id) const {
     return replay_forward_id_map_.find(id) != replay_forward_id_map_.end();
   }
@@ -438,7 +440,8 @@ class BestEffortReplay {
       std::unordered_map<IterDomain*, IterDomain*> target_forward_id_map = {},
       bool skip_replay_swizzle = true,
       bool skip_target_swizzle = true,
-      bool skip_resize = false);
+      bool skip_resize = false,
+      bool error_on_failure = true);
 
   // Return iter domain map from target_domain IDs to their "replayed"
   // replay_domain IDs. If not in map, was not replayed.

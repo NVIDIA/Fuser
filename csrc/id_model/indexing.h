@@ -92,8 +92,13 @@ class TensorIndexer {
   // should not affect actual index exprs.
   // Returns non-const reference because indexing may create new domains and
   // need to update the graph.
+
+  static IdMappingMode traversalGraphType() {
+    return IdMappingMode::ALMOSTEXACT;
+  }
+
   ValGraph& traversalGraph() const {
-    return id_model_.idGraph(IdMappingMode::ALMOSTEXACT);
+    return id_model_.idGraph(traversalGraphType());
   }
 
   // Traverse exprs and set allocation info for each tensor

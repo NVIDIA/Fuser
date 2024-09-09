@@ -7,29 +7,29 @@
 // clang-format on
 #include <kernel_cache.h>
 
-#include <debug.h>
-#include <driver_api.h>
-#include <dynamic_transform.h>
-#include <executor_params.h>
-#include <executor_utils.h>
-#include <fusion_profiler.h>
-#include <instrumentation.h>
-#include <ir/utils.h>
-#include <logical_domain_map.h>
-#include <options.h>
-#include <preseg_passes/pre_segmenter.h>
-#include <scheduler/debug_utils.h>
-#include <scheduler/registry.h>
-#include <torch/csrc/jit/jit_log.h>
-#include <torch/csrc/jit/runtime/graph_executor.h>
-#include <utils.h>
+#include <mutex>
+#include <sstream>
 
 #include <c10/cuda/CUDAGuard.h>
 #include <c10/util/irange.h>
 #include <torch/csrc/jit/jit_log.h>
+#include <torch/csrc/jit/runtime/graph_executor.h>
 
-#include <mutex>
-#include <sstream>
+#include <debug.h>
+#include <driver_api.h>
+#include <dynamic_transform.h>
+#include <fusion_executor/executor_params.h>
+#include <fusion_executor/executor_utils.h>
+#include <fusion_profiler.h>
+#include <instrumentation.h>
+#include <ir/utils.h>
+#include <logical_domain_map.h>
+#include <multidevice/communicator.h>
+#include <options.h>
+#include <preseg_passes/pre_segmenter.h>
+#include <scheduler/debug_utils.h>
+#include <scheduler/registry.h>
+#include <utils.h>
 
 namespace nvfuser {
 
@@ -694,6 +694,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     const KernelArgumentHolder& args,
     std::optional<PrimDataType> forced_index_type) {
   // Check for id hit case (Path 1)
+  FUSER_PERF_SCOPE("FusionExecutorCache::getKernelRuntimeFor");
   auto unique_id_opt = args.getCacheId();
   NVF_CHECK(
       unique_id_opt.has_value(),
@@ -773,6 +774,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
   }
 
   if (!reusing) {
+    FUSER_PERF_SCOPE("FusionExecutorCache::getKernelRuntimeFor::!reusing");
     // Paths 3 or 4
     // cache miss, need to re-build an optimized graph for this case
 
@@ -1017,9 +1019,14 @@ FusionKernelRuntime::FusionKernelRuntime(
       fusion.get());
 
   if (isDebugDumpEnabled(DebugDumpOption::FusionIrPreseg)) {
-    debug() << "Fusion IR after pre-segmenter optimization passes:"
-            << std::endl;
-    fusion->printMath();
+    const auto& communicator = Communicator::getInstance();
+    // Only the first local rank will print. Pre-segmenter fusion IR is device
+    // agnostic, so letting all ranks print isn't any more useful.
+    if (!communicator.is_available() || communicator.local_rank() == 0) {
+      debug() << "Fusion IR after pre-segmenter optimization passes:"
+              << std::endl;
+      fusion->printMath();
+    }
   }
 
   // SchedulerRuntimeInfo modifies the fusion, so it is required for both
@@ -1318,7 +1325,6 @@ void FusionKernelRuntime::compileKernel(
 std::pair<LaunchParams, CompileParams> FusionKernelRuntime::getKernelConfig(
     const KernelArgumentHolder& args,
     SegmentedGroup* sg) {
-  FUSER_PERF_SCOPE("FusionKernelRuntime::getKernelConfig");
   auto group_id = sg->groupId();
   auto scheduler_entry = schedulers().at(group_id).get();
 
@@ -1363,6 +1369,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
 
 std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
     runSegmentsWithInputs(KernelArgumentHolder& args) {
+  FUSER_PERF_SCOPE("FusionKernelRuntime::runSegmentsWithInputs");
   NVF_ERROR(
       args.size() == segmented_fusion_->inputs().size(),
       "Inputs were not set up correctly, received ",
@@ -1433,7 +1440,6 @@ const std::vector<FusionKernelRuntime::SchedulerEntryPtr>& FusionKernelRuntime::
 
 void FusionKernelRuntime::updateHeuristicsLaunchParams(
     FusionHeuristics* update_heuristics) {
-  FUSER_PERF_SCOPE("FusionKernelRuntime::updateHeuristicsLaunchParams");
   auto scheduler_list_length = heuristics_->heuristicsList().size();
   NVF_ERROR(
       update_heuristics->heuristicsList().size() == scheduler_list_length);
@@ -1461,7 +1467,6 @@ std::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
   KernelArgumentHolder mutable_args(args);
   ArgumentManager args_manager(
       mutable_args, runtime_workspace_, segmented_fusion_->inputs());
-
   // Follow group run order
   for (int64_t group_id : c10::irange(num_groups)) {
     auto group_to_run = runtime_workspace_.group_run_order.at(group_id);
@@ -1478,14 +1483,19 @@ std::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
     }
 
     // Create PrecomputedValues for fusion segment
-    auto evaluator_precomputed_values =
-        std::make_unique<PrecomputedValues>(fusion_to_run);
-    evaluator_precomputed_values->bindInputs(group_runtime_inputs);
-    // TODO Remove binding the original fusion inputs when creating heuristics
-    // for fusion segment.
-    evaluator_precomputed_values->bindValues(
-        group_to_run->getCompleteFusionInputs(), args);
-    evaluator_precomputed_values->evaluate();
+    std::unique_ptr<PrecomputedValues> evaluator_precomputed_values;
+    {
+      FUSER_PERF_SCOPE(
+          "FusionKernelRuntime::getMaybeHeuristicsFor::PrecomputedValues");
+      evaluator_precomputed_values =
+          std::make_unique<PrecomputedValues>(fusion_to_run);
+      evaluator_precomputed_values->bindInputs(group_runtime_inputs);
+      // TODO Remove binding the original fusion inputs when creating heuristics
+      // for fusion segment.
+      evaluator_precomputed_values->bindValues(
+          group_to_run->getCompleteFusionInputs(), args);
+      evaluator_precomputed_values->evaluate();
+    }
 
     // Get all tensorviews for segmented fusion
     std::vector<TensorView*> all_tvs_for_fusion_to_run =

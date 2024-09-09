@@ -7,8 +7,8 @@
 // clang-format on
 #include <gtest/gtest.h>
 
-#include <executor_kernel_arg.h>
 #include <fusion.h>
+#include <fusion_executor/executor_kernel_arg.h>
 #include <fusion_segmenter.h>
 #include <host_ir/container.h>
 #include <host_ir/executor.h>

@@ -27,12 +27,14 @@ InnerOuterPersistentKernelScheduler::InnerOuterPersistentKernelScheduler(
 }
 
 void InnerOuterPersistentKernelScheduler::schedule(Fusion* fusion) {
-  FUSER_PERF_SCOPE("Schedule InnerOuterPersistent Fusion");
+  FUSER_PERF_SCOPE("InnerOuterPersistentKernelScheduler::schedule");
   scheduleInnerOuterPersistentKernel(fusion, reductionParams());
 }
 
 bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
     Fusion* fusion) {
+  FUSER_PERF_SCOPE(
+      "InnerOuterPersistentKernelScheduler::canScheduleCompileTime");
   // common checks for all persistent heuristics
   if (!normalization_scheduler_utils::checkOpsAndInputs(
           fusion, heuristicType())) {
@@ -353,6 +355,9 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
     HeuristicSummary* data_cache,
     const std::vector<TensorView*>& reduction_tvs,
     const int64_t vectorize_factor) {
+  FUSER_PERF_SCOPE(
+      "normalization_inner_outer::getPersistentBufferStorageParams");
+
   PersistentBufferStorageParams buffer_params;
 
   auto persistent_buffer_info_entry =
@@ -573,7 +578,7 @@ bool InnerOuterPersistentKernelScheduler::canScheduleRunTime(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
-  FUSER_PERF_SCOPE("InnerOuterPersistentKernelScheduler::canSchedule");
+  FUSER_PERF_SCOPE("InnerOuterPersistentKernelScheduler::canScheduleRunTime");
   auto reduction_tv_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::ReductionTVs>(
           data_cache, [&fusion]() {
@@ -656,6 +661,7 @@ void InnerOuterPersistentKernelScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
+  FUSER_PERF_SCOPE("InnerOuterPersistentKernelScheduler::computeHeuristics");
   params_ = getInnerOuterPersistentHeuristics(fusion, runtime_info, data_cache);
   NVF_ERROR(params_ != nullptr);
 }
@@ -931,7 +937,6 @@ std::shared_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
-  FUSER_PERF_SCOPE("getInnerOuterPersistentHeuristics");
   FusionGuard fg(fusion);
 
   auto reduction_tv_entry =
@@ -1017,7 +1022,6 @@ std::shared_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
     HeuristicSummary* data_cache) {
-  FUSER_PERF_SCOPE("getInnerOuterPersistentHeuristicsFromIValue");
   SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs);
   return getInnerOuterPersistentHeuristics(fusion, runtime_info, data_cache);
 }
@@ -1141,8 +1145,6 @@ void scheduleReductionCombinedOuter(
 void scheduleInnerOuterPersistentKernel(
     Fusion* fusion,
     const ReductionParams& rparams) {
-  FUSER_PERF_SCOPE("scheduleInnerOuterPersistentKernel");
-
   FusionGuard fg(fusion);
 
   // Grab the reduction, input, and output tensor views. dummy_outputs are
