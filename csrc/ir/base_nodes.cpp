@@ -196,6 +196,8 @@ bool Val::isConstScalar() const {
   if (!isScalar()) {
     return false;
   }
+  // elect.sync ptx picks a leader thread from membermask.
+  // It cannot be evaluated at compile-time.
   if (Expr* def = definition()) {
     if (def->isA<UnaryOp>() &&
         def->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::ElectSync) {

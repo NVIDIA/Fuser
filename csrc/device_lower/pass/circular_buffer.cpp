@@ -28,8 +28,7 @@ bool requireEpilogue(const std::vector<Expr*>& exprs) {
   return std::any_of(exprs.begin(), exprs.end(), [](const Expr* expr) {
     return (expr->input(0)->as<TensorView>()->getMemoryType() ==
             MemoryType::Shared) ||
-        (expr->as<LoadStoreOp>()->opType() ==
-         LoadStoreOpType::CpAsyncBulkTensorTile);
+        ir_utils::isCpAsyncBulk(expr);
   });
 }
 
@@ -221,7 +220,8 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
 // Replicates circular buffer loops for Prologue, Main, and
 // Epilogue. Prologue only copies the load expressions of circular
 // buffered tensors, whereas Epilogue does any expression other than
-// the loads. Main copies everything.
+// the loads. Main copies everything. The pre-prologue and post-epilogue loops
+// are created separately by createCpAsyncBulkFixtures.
 //
 // Loop Structure Overview:
 // Pre-prologue loop:
@@ -257,7 +257,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
 // Pre-Prologue loop:
 // __shared__ __mbarrier_t barriers[num_stages];
 // __shared__ __mbarrier_token_t tokens[num_stages];
-// if (warp_id == 0 && elect_sync()) {
+// if (warp_id == 0 && electSync()()) {
 //   for (int64_t loop_index : irange(stages)) {
 //     mbarrier_init(mbarrier[loop_index], number_of_arrival_threads);
 //   }
@@ -265,7 +265,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
 //
 // Prologue loop:
 // for (int64_t loop_index : irange(stages-1)) {
-//   if (warp_id == 0 && elect_sync()) {
+//   if (warp_id == 0 && electSync()()) {
 //     tokens[loop_index] =
 //       mbarrier::arriveExpectTx(mbarrier[loop_index], expected_bytes);
 //     for (...) {
@@ -281,7 +281,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
 // for (int64_t loop_index : irange(N-(stages-1))) {
 //   current_stage = loop_index % stage_depth
 //   load_stage = (loop_index + (stage_depth - 1)) % stage_depth)
-//   if (warp_id == 0 && elect_sync()) {
+//   if (warp_id == 0 && electSync()()) {
 //     token[load_stage] =
 //       mbarrier::arriveExpectTx(mbarrier[load_stage], expected_bytes);
 //     for (...) {
@@ -305,7 +305,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
 // }
 //
 // Post-Epilogue loop:
-// if (warp_id == 0 && elect_sync()) {
+// if (warp_id == 0 && electSync()()) {
 //   for (int64_t loop_index : irange(stages)) {
 //     mbarrier_inval(mbarrier[loop_index]);
 //   }
@@ -438,7 +438,7 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
   }
 
   // Replace cpAsyncBulk type LoadStoreOp with:
-  //   if (warp_id == 0 && elect_sync()) {
+  //   if (warp_id == 0 && electSync()()) {
   //     tokens[loop_index] =
   //       mbarrier::arriveExpectTx(mbarrier[loop_index], expected_bytes);
   //     for (...) {
@@ -498,7 +498,7 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
   // load_stage = (loop_index + (stage_depth - 1)) % stage_depth)
   //
   // Replace LoadStoreOp with:
-  //   if (warp_id == 0 && elect_sync()) {
+  //   if (warp_id == 0 && electSync()()) {
   //     token[load_stage] =
   //       mbarrier::arriveExpectTx(mbarrier[load_stage], expected_bytes);
   //     for (...) {
@@ -617,7 +617,7 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
   // at the mbarrier.
   //
   // Pseudo-code example:
-  //  if (warp_id == 0 && elect_sync()) {
+  //  if (warp_id == 0 && electSync()()) {
   //    tokens[next_stage] =
   //      mbarrier::arriveExpectTx(mbarrier[next_stage],
   //                               expected_bytes);
@@ -632,7 +632,7 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
     NVF_ERROR(mbarrier_arrive_tx_ != nullptr);
     NVF_ERROR(expr != nullptr);
 
-    // Create the if-then-else with elect_sync predicat for the arrive expect
+    // Create the if-then-else with electSync() predicat for the arrive expect
     // transaction.
     kir::IfThenElse* if_expr = IrBuilder::create<kir::IfThenElse>(
         IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
@@ -856,7 +856,7 @@ ForLoop* createStageDepthForLoop(ForLoop* circular_buffer_loop) {
 //
 // Expected result:
 //   Allocate mbarriers and tokens in shared memory
-//   if (warp_id == 0 && elect_sync()) {
+//   if (warp_id == 0 && electSync()()) {
 //     for (unsigned i = 0; i < stages; ++i) {
 //       mbarrier::init(...);
 //     }
@@ -866,7 +866,7 @@ ForLoop* createStageDepthForLoop(ForLoop* circular_buffer_loop) {
 // operations.
 //
 // Expected result:
-//   if (warp_id == 0 && elect_sync()) {
+//   if (warp_id == 0 && electSync()()) {
 //     for (unsigned i = 0; i < stages; ++i) {
 //       mbarrier::inval(...);
 //     }

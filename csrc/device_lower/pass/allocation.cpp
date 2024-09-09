@@ -492,8 +492,8 @@ class AllocationInserter : public kir::ExprMutator {
         all_threads_in_cta = SimplifyingIrBuilder::maybeCastExpr(
             DataType::UInt32, all_threads_in_cta);
 
-        // The wait condition for mbarrier is a all threads in CTA and the
-        // expected number of transaction bytes
+        // The wait condition for mbarrier is a all participating threads in CTA
+        // and the expected number of transaction bytes
         kir::MBarrierInit* mbarrier_init =
             IrBuilder::create<kir::MBarrierInit>(mbarrier, all_threads_in_cta);
 
