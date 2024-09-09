@@ -898,8 +898,11 @@ TEST_P(TmaCircularBufferingTest, SingleDim) {
   // Set computeAt before applying circular buffer
   tv0->computeAt(tv1, 1);
 
-  // Circular Buffer with TMA loads
+  // Parallelization
   tv2->axis(-1)->parallelize(ParallelType::Bulk);
+  tv1->axis(-1)->parallelize(ParallelType::TIDx);
+
+  // Circular Buffer with TMA loads
   tv2->circularBuffer(number_of_stages);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -949,6 +952,7 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnroll) {
 
   // Apply Unroll
   tv1->axis(1)->parallelize(ParallelType::Unroll);
+  tv1->axis(-1)->parallelize(ParallelType::TIDx);
 
   // Circular Buffer with TMA loads
   tv2->axis(-1)->parallelize(ParallelType::Bulk);
@@ -1008,6 +1012,7 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnswitch) {
 
   // Apply Unswitch
   tv1->axis(1)->parallelize(ParallelType::Unswitch);
+  tv1->axis(-1)->parallelize(ParallelType::TIDx);
 
   // Circular Buffer with TMA loads
   tv2->axis(-1)->parallelize(ParallelType::Bulk);
@@ -1381,8 +1386,8 @@ TEST_P(TmaCircularBufferingTest, Matmul) {
   tv0_cache_smem->setMemoryType(MemoryType::Shared);
   tv1_cache_smem->setMemoryType(MemoryType::Shared);
 
-  constexpr int64_t BSX = 32;
-  constexpr int64_t TSX = 8;
+  constexpr int64_t BSX = 64;
+  constexpr int64_t TSX = 32;
 
   // Step 0: [M, K, N]
   // Step 1: [M, K, N/BSX, BSX]
