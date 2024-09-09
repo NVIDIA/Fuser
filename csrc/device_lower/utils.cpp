@@ -1092,29 +1092,29 @@ namespace {
 //   6. linear_g is split as the inner 2 of g1, g2, and the outer 4 of g3.
 //
 // We use a dynamic type to be able to represent all these cases.
-template <typename AbstractValGroup>
+template <typename ValGroupRegion>
 struct PartOf {
-  std::shared_ptr<AbstractValGroup> group;
+  std::shared_ptr<ValGroupRegion> group;
   Val* inner_extent = nullptr;
   Val* selected_extent = nullptr;
 };
 
-using AbstractValGroup = dynamic_type::DynamicType<
+using ValGroupRegion = dynamic_type::DynamicType<
     dynamic_type::Containers<
-        std::deque, // a composition of AbstractValGroups
-        PartOf // part of a AbstractValGroup
+        std::deque, // a composition of ValGroupRegions
+        PartOf // part of a ValGroupRegion
         >,
     ValGroup // a whole ValGroup
     >;
 
-// Utilities to print AbstractValGroup.
-std::string toString(const AbstractValGroup& group);
+// Utilities to print ValGroupRegion.
+std::string toString(const ValGroupRegion& group);
 
 std::string toString(const ValGroup& group) {
   return group->toString();
 }
 
-std::string toString(const PartOf<AbstractValGroup>& part) {
+std::string toString(const PartOf<ValGroupRegion>& part) {
   auto str_or_null = [](Val* val) {
     return val == nullptr ? "nullptr" : val->toInlineString();
   };
@@ -1123,7 +1123,7 @@ std::string toString(const PartOf<AbstractValGroup>& part) {
       ", selected_extent=" + str_or_null(part.selected_extent) + ")";
 }
 
-std::string toString(const std::deque<AbstractValGroup>& vec) {
+std::string toString(const std::deque<ValGroupRegion>& vec) {
   std::stringstream ss;
   ss << "[";
   for (const auto& g : vec) {
@@ -1137,23 +1137,23 @@ std::string toString(const std::monostate&) {
   return "std::monostate";
 }
 
-std::string toString(const AbstractValGroup& group) {
-  return AbstractValGroup::dispatch(
+std::string toString(const ValGroupRegion& group) {
+  return ValGroupRegion::dispatch(
       [&](const auto& group) { return toString(group); }, group);
 }
 
-// Utilities to check if AbstractValGroup is related to ValGroup.
-bool related(const AbstractValGroup& current, const ValGroup& to);
+// Utilities to check if ValGroupRegion is related to ValGroup.
+bool related(const ValGroupRegion& current, const ValGroup& to);
 
 bool related(const ValGroup& current, const ValGroup& to) {
   return current == to;
 }
 
-bool related(const PartOf<AbstractValGroup>& current, const ValGroup& to) {
+bool related(const PartOf<ValGroupRegion>& current, const ValGroup& to) {
   return related(*current.group, to);
 }
 
-bool related(const std::deque<AbstractValGroup>& current, const ValGroup& to) {
+bool related(const std::deque<ValGroupRegion>& current, const ValGroup& to) {
   return std::any_of(current.begin(), current.end(), [&](const auto& g) {
     return related(g, to);
   });
@@ -1163,8 +1163,8 @@ bool related(const std::monostate& current, const ValGroup& to) {
   return false;
 }
 
-bool related(const AbstractValGroup& current, const ValGroup& to) {
-  return AbstractValGroup::dispatch(
+bool related(const ValGroupRegion& current, const ValGroup& to) {
+  return ValGroupRegion::dispatch(
       [&](const auto& current) { return related(current, to); }, current);
 }
 
@@ -1189,13 +1189,13 @@ auto toGroups(
 }
 
 // Do the propagation from linear_g to domain.
-AbstractValGroup propagate(
-    const AbstractValGroup& current,
+ValGroupRegion propagate(
+    const ValGroupRegion& current,
     const ValGraph& id_graph,
     const ExprGroup& eg,
     Direction direction);
 
-AbstractValGroup propagate(
+ValGroupRegion propagate(
     const ValGroup& current,
     const ValGraph& id_graph,
     const ExprGroup& eg,
@@ -1207,15 +1207,15 @@ AbstractValGroup propagate(
     // then these two groups together represents linear_g.
     NVF_ERROR(to.size() == 2);
     NVF_ERROR(from.front() == current);
-    return std::deque<AbstractValGroup>{to.front(), to.back()};
+    return std::deque<ValGroupRegion>{to.front(), to.back()};
   } else {
     // If linear_g is merged with another group, then part of the merged group
     // represents linear_g.
     NVF_ERROR(from.size() == 2);
     NVF_ERROR(to.size() == 1);
     NVF_ERROR(from.front() == current || from.back() == current);
-    return PartOf<AbstractValGroup>{
-        std::make_shared<AbstractValGroup>(to.front()),
+    return PartOf<ValGroupRegion>{
+        std::make_shared<ValGroupRegion>(to.front()),
         /*inner_extent=*/from.front() == current
             ? from.back()->front()->as<IterDomain>()->extent()
             : nullptr,
@@ -1224,8 +1224,8 @@ AbstractValGroup propagate(
   }
 }
 
-AbstractValGroup propagate(
-    const PartOf<AbstractValGroup>& current,
+ValGroupRegion propagate(
+    const PartOf<ValGroupRegion>& current,
     const ValGraph& id_graph,
     const ExprGroup& eg,
     Direction direction) {
@@ -1318,8 +1318,8 @@ AbstractValGroup propagate(
             ->isTrue()) {
       return group;
     }
-    return PartOf<AbstractValGroup>{
-        std::make_shared<AbstractValGroup>(group),
+    return PartOf<ValGroupRegion>{
+        std::make_shared<ValGroupRegion>(group),
         new_inner_extent,
         current.selected_extent};
   } else {
@@ -1331,8 +1331,8 @@ AbstractValGroup propagate(
     // Adding more extent to the inner.
     if (current.group->is<ValGroup>() &&
         current.group->as<ValGroup>() == from.front()) {
-      return PartOf<AbstractValGroup>{
-          std::make_shared<AbstractValGroup>(to.front()),
+      return PartOf<ValGroupRegion>{
+          std::make_shared<ValGroupRegion>(to.front()),
           SimplifyingIrBuilder::mulExpr(
               current.inner_extent,
               from.back()->front()->as<IterDomain>()->extent()),
@@ -1341,8 +1341,8 @@ AbstractValGroup propagate(
     // Adding more extent to the outer.
     if (current.group->is<ValGroup>() &&
         current.group->as<ValGroup>() == from.back()) {
-      return PartOf<AbstractValGroup>{
-          std::make_shared<AbstractValGroup>(to.front()),
+      return PartOf<ValGroupRegion>{
+          std::make_shared<ValGroupRegion>(to.front()),
           current.inner_extent,
           current.selected_extent};
     }
@@ -1354,8 +1354,8 @@ AbstractValGroup propagate(
   }
 }
 
-AbstractValGroup propagate(
-    const std::deque<AbstractValGroup>& current,
+ValGroupRegion propagate(
+    const std::deque<ValGroupRegion>& current,
     const ValGraph& id_graph,
     const ExprGroup& eg,
     Direction direction) {
@@ -1369,7 +1369,7 @@ AbstractValGroup propagate(
     // Split one group in current into two groups.
     bool may_be_indivisible_split = eg->front()->isA<Split>() &&
         !simplifyExpr(eg->front()->as<Split>()->isDivisible())->isTrue();
-    std::deque<AbstractValGroup> result;
+    std::deque<ValGroupRegion> result;
     bool first = true;
     for (const auto& g : current) {
       if (g.is<ValGroup>() && g.as<ValGroup>() == from.front()) {
@@ -1406,7 +1406,7 @@ AbstractValGroup propagate(
       auto inner_it = std::next(outer_it);
       if (inner_it != current.end() && inner_it->is<ValGroup>() &&
           inner_it->as<ValGroup>() == from.back()) {
-        std::deque<AbstractValGroup> result = current;
+        std::deque<ValGroupRegion> result = current;
         result.erase(result.begin() + std::distance(current.begin(), inner_it));
         result.at(std::distance(current.begin(), outer_it)) = to.front();
         if (result.size() == 1) {
@@ -1423,7 +1423,7 @@ AbstractValGroup propagate(
   }
 }
 
-AbstractValGroup propagate(
+ValGroupRegion propagate(
     const std::monostate& current,
     const ValGraph& id_graph,
     const ExprGroup& eg,
@@ -1431,12 +1431,12 @@ AbstractValGroup propagate(
   NVF_ERROR(false, "Should not reach here.");
 }
 
-AbstractValGroup propagate(
-    const AbstractValGroup& current,
+ValGroupRegion propagate(
+    const ValGroupRegion& current,
     const ValGraph& id_graph,
     const ExprGroup& eg,
     Direction direction) {
-  return AbstractValGroup::dispatch(
+  return ValGroupRegion::dispatch(
       [&](const auto& current) {
         return propagate(current, id_graph, eg, direction);
       },
@@ -1447,7 +1447,7 @@ AbstractValGroup propagate(
 // domain. Parse this information to check if linear_g is linear in domain, and
 // if it is, compute the stride.
 Val* proveLinearAndGetStrideAfterPropagation(
-    const AbstractValGroup& g_in_domain,
+    const ValGroupRegion& g_in_domain,
     const ValGroups& domain);
 
 Val* proveLinearAndGetStrideAfterPropagation(
@@ -1465,7 +1465,7 @@ Val* proveLinearAndGetStrideAfterPropagation(
 }
 
 Val* proveLinearAndGetStrideAfterPropagation(
-    const PartOf<AbstractValGroup>& g_in_domain,
+    const PartOf<ValGroupRegion>& g_in_domain,
     const ValGroups& domain) {
   auto inner_stride =
       proveLinearAndGetStrideAfterPropagation(*g_in_domain.group, domain);
@@ -1476,7 +1476,7 @@ Val* proveLinearAndGetStrideAfterPropagation(
 }
 
 Val* proveLinearAndGetStrideAfterPropagation(
-    const std::deque<AbstractValGroup>& g_in_domain,
+    const std::deque<ValGroupRegion>& g_in_domain,
     const ValGroups& domain) {
   // The idea is like: given a string domain, find the substring g_in_domain.
   if (!std::all_of(g_in_domain.begin(), g_in_domain.end(), [&](const auto& g) {
@@ -1508,9 +1508,9 @@ Val* proveLinearAndGetStrideAfterPropagation(
 }
 
 Val* proveLinearAndGetStrideAfterPropagation(
-    const AbstractValGroup& g_in_domain,
+    const ValGroupRegion& g_in_domain,
     const ValGroups& domain) {
-  return AbstractValGroup::dispatch(
+  return ValGroupRegion::dispatch(
       [&](const auto& g_in_domain) {
         return proveLinearAndGetStrideAfterPropagation(g_in_domain, domain);
       },
@@ -1532,7 +1532,7 @@ Val* proveLinearAndGetStride(
   }
   // Propagate from linear_g to domain. Use frontier to keep track of the
   // how linear_g lives in the current propagation front.
-  AbstractValGroup frontier = linear_g;
+  ValGroupRegion frontier = linear_g;
   auto path = ValGraphBFS::getExprsBetween(id_graph, domain, {linear_g});
   while (!path.empty()) {
     const auto& [eg, direction] = path.back();
