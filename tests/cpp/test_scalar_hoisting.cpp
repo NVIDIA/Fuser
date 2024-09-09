@@ -7,8 +7,8 @@
 // clang-format on
 #include <gtest/gtest.h>
 
-#include <executor.h>
 #include <fusion.h>
+#include <fusion_executor/executor.h>
 #include <inlining.h>
 #include <ops/all_ops.h>
 #include <tests/cpp/utils.h>
