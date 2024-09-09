@@ -211,7 +211,7 @@ Expr* OptOutMutator::mutateExpr(
               op->outputs().begin(), op->outputs().end(), [&](Val* const outp) {
                 return (replace_outputs ? maybeMutated(outp) : outp) == mut_inp;
               }) == op->outputs().end()) {
-        // skip using mutated input if is one of the inputs.
+        // skip using mutated input if is one of the outputs.
         input = mut_inp;
       }
     }
@@ -232,7 +232,7 @@ Expr* OptOutMutator::mutateExpr(
                   return (replace_outputs ? maybeMutated(outp) : outp) ==
                       mut_attr;
                 }) == op->outputs().end()) {
-          // skip using mutated input if is one of the inputs.
+          // skip using mutated attr if is one of the outputs.
           attr_val = mut_attr;
         }
       }
