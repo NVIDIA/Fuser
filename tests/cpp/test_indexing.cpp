@@ -34,7 +34,7 @@ namespace nvfuser {
 using IndexingTest = NVFuserTest;
 using PredicateIndexingTest = NVFuserFixtureParamTest<bool>;
 using ContigIndexingTest = NVFuserTest;
-using ContigPredicateIndexingTest = NVFuserFixtureParamTest<bool>;
+using ContigPredicateIndexingTest = NVFuserTest;
 
 namespace {
 
@@ -910,7 +910,7 @@ TEST_F(IndexingTest, Reshape) {
         const override {
       switch (tv->name()) {
         case 0: {
-          // It isn't straightforward to do structual checking as the other
+          // It isn't straightforward to do structural checking as the other
           // tests since there's no particular rule about which domain is used
           // to provide the extent of the group. However, since everything
           // should be deterministic, string match should also work.
@@ -983,8 +983,8 @@ TEST_F(IndexingTest, SimpleBroadcast2) {
 
   // The first merge of the logical domains should be a trivial merge,
   // i.e., a merge with a extent-one domain. Thus, the indexing
-  // travesal should return "x + y * 4", where x and y are the loop
-  // indices, respecitvely.
+  // traversal should return "x + y * 4", where x and y are the loop
+  // indices, respectively.
 
   struct GetReference : AbstractGetReference {
     GetReference(const TensorIndexer& indexer, const IdModel& id_model)
@@ -1895,7 +1895,7 @@ TEST_F(IndexingTest, ResizePath) {
   // (i.e., iS4) to the inner allocation domain of tv0 (i.e.,
   // iS1). One is through the resize of tv1 itself, but the resize for
   // tv2 can also allow traversal reaching iS1 from iS4 since iS7 is
-  // mapped with iS7. In this case, indexng tv0 for tv1 needs to use
+  // mapped with iS7. In this case, indexing tv0 for tv1 needs to use
   // the resize for tv1 and ignore the other resize. Similarly when
   // indexing tv0 as the producer of tv2, the resize of tv2 needs to
   // be used.
@@ -2767,7 +2767,7 @@ TEST_F(PredicateIndexingTest, SimpleUnroll) {
     // (blockIdx.x * 4 + 0) * 128 + threadId.x >= 0 &&
     // (blockIdx.x * 4 + 3) * 128 + threadId.x < tv0.logical_size[0]
     //
-    // Note that "+ 0" remains since a symboic Val is just replaced
+    // Note that "+ 0" remains since a symbolic Val is just replaced
     // with zero.
     Val* getOuterPredicate(TensorView* tv) const override {
       std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
@@ -3077,8 +3077,8 @@ TEST_F(PredicateIndexingTest, DoubleBuffering1) {
       auto circular_buffer_index = for_loops_.at(0)->index();
 
       if (circular_buffer_loop_stage_ == CircularBufferLoopStage::Prolog) {
-        // 0 * 128 + bidx.x * 32 + tid.x >= 0 &&
-        // 0 * 128 + bidx.x * 32 + tid.x < N
+        // 0 * 128 + bidx.x * 32 + tidx.x >= 0 &&
+        // 0 * 128 + bidx.x * 32 + tidx.x < N
         // NOTE: Expression Simplification is disabled in
         // PredicateIndexValidator, so trivial index expression appears in the
         // expression.
@@ -3092,8 +3092,8 @@ TEST_F(PredicateIndexingTest, DoubleBuffering1) {
             geExpr(idx, tv->fusion()->zeroVal()),
             ltExpr(idx, tv->getLogicalDomain().at(0)->extent()));
       } else {
-        // (i + 1) * 128 + bidx.x * 32 + tid.x >= 0 &&
-        // (i + 1) * 128 + bidx.x * 32 + tid.x < N
+        // (i + 1) * 128 + bidx.x * 32 + tidx.x >= 0 &&
+        // (i + 1) * 128 + bidx.x * 32 + tidx.x < N
         auto idx = addExpr(
             mulExpr(
                 addExpr(circular_buffer_index, tv->fusion()->oneVal()),
@@ -3183,16 +3183,16 @@ TEST_F(PredicateIndexingTest, CircularBuffering1) {
 
       Val* idx = nullptr;
       if (circular_buffer_loop_stage_ == CircularBufferLoopStage::Prolog) {
-        // i * 128 + bidx.x * 32 + tid.x >= 0 &&
-        // i * 128 + bidx.x * 32 + tid.x < N
+        // i * 128 + bidx.x * 32 + tidx.x >= 0 &&
+        // i * 128 + bidx.x * 32 + tidx.x < N
         idx = addExpr(
             mulExpr(circular_buffer_index, createInt(128)),
             addExpr(
                 mulExpr(loop_indices.at(1), tv->axis(2)->extent()),
                 loop_indices.at(2)));
       } else {
-        // (i + 3) * 128 + bidx.x * 32 + tid.x >= 0 &&
-        // (i + 3) * 128 + bidx.x * 32 + tid.x < N
+        // (i + 3) * 128 + bidx.x * 32 + tidx.x >= 0 &&
+        // (i + 3) * 128 + bidx.x * 32 + tidx.x < N
         idx = addExpr(
             mulExpr(
                 addExpr(circular_buffer_index, createInt(3)), createInt(128)),
@@ -3411,7 +3411,7 @@ TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering1) {
 
   // [I0/4/1, 1, 4]
   //          ^  ^
-  //          |  +-- circular bufer
+  //          |  +-- circular buffer
   //          |
   //          +-- unswitch
   tv1->circularBuffer(/*number_of_stages=*/2);
@@ -4024,7 +4024,7 @@ TEST_F(PredicateIndexingTest, NonDivisibleSplitWithCircularBuffering) {
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
-// Non divisible split with unswitched circularing. The non divisible
+// Non divisible split with unswitched circular buffering. The non divisible
 // predicate should only use the one generated from the main loop and
 // the one from the prolog loop should not appear in the unswitch
 // predicate.
@@ -4227,7 +4227,7 @@ TEST_P(PredicateIndexingTest, UnswitchPredicateIssueRepro681) {
 // its required unswitch predicates should be generated from its
 // indexing path, not its logical to loop dependencies. In this test,
 // the tv2 transformation has an non-divisible split that needs to be
-// predicated, but since it's inline into tv3, the acual non-divisible
+// predicated, but since it's inline into tv3, the actual non-divisible
 // split should be based on tv3.
 TEST_F(PredicateIndexingTest, NonDivisibleSplitWithUnswitchAndBroadcast) {
   Fusion fusion;
@@ -5070,8 +5070,10 @@ TEST_F(ContigPredicateIndexingTest, NonDivisibleSplit1) {
   tv1->merge(0, 1);
 
   // While the transformations are the same as tv1, nvFuser doesn't
-  // know the corresponding split is actually divisible, so it's
-  // considered non-divisible. The resulting predicaion should be done
+  // know the corresponding split is actually divisible (note that the
+  // split for tv1 is an outer split by a factor of 2, whereas the
+  // split for tv2 is an inner split by a factor of 5), so it's
+  // considered non-divisible. The resulting predication should be done
   // with each of the two logical domains.
   tv2->split(0, 5);
   // [ceilDiv(I0, 5), 5, I1]

@@ -424,6 +424,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
     }
 
     NVF_ERROR(actual_allocation_domains.size() == actual_strides.size());
+    NVF_ERROR(actual_allocation_domains.size() == actual_contiguity.size());
 
     return IndexingAllocationInfo{
         actual_allocation_domains, actual_strides, actual_contiguity};
@@ -1206,7 +1207,7 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
             std::vector<bool>(predicate_domains.size(), true),
             reverse(index_info.traversal_path),
             traversalGraph(),
-            true)
+            /*is_predicate_pass=*/true)
       : std::unordered_map<IterDomain*, ValGroup>{};
 
   auto getCoveredPredicatedDomains =
@@ -1234,7 +1235,6 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
   for (const auto& predicate_domain : predicate_domains) {
     const auto& predicate_domain_group =
         traversalGraph().toGroup(predicate_domain);
-
     IterDomain* actual_predicate_domain = predicate_domain;
     ValGroup actual_predicate_domain_group = predicate_domain_group;
     std::unordered_set<IterDomain*> actual_predicate_domains = {
@@ -1254,14 +1254,6 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
         continue;
       }
       already_indexed_domains.emplace(contig_domain_group);
-
-      if (!contig_domain_group->has(predicate_domain)) {
-        indexing_utils::verbose()
-            << "Contig predication: "
-            << contig_domain_group->front()->toString() << " instead of "
-            << predicate_domain->toString() << ". Tensor: " << tv->toString()
-            << std::endl;
-      }
 
       actual_predicate_domain_group = contig_domain_group;
       actual_predicate_domain =
@@ -1379,7 +1371,7 @@ std::pair<std::vector<ValGroup>, std::vector<Val*>> TensorIndexer::
           alloc_info.contiguity,
           reverse(traversal_path),
           traversalGraph(),
-          false);
+          /*is_predicate_pass=*/false);
 
   // Find contiguous domains to index
   std::unordered_set<ValGroup> already_indexed_domains;
