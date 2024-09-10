@@ -1600,34 +1600,25 @@ std::pair<Val*, Val*> hardCodedIndexGenerationForStMatrix(
             IrBuilder::create<NamedScalar>("threadIdx.x", DataType::Index)));
   } else if (output_n_extent == 16) {
     // This will hanlde 16x16
-    // T_shared[toSmem(T_shared) + 256 * (tidx.x / 16) +  32 * (tidx.x%8)  +
-    // ((tidx.x/8)%2) * 16]
+    // T_shared[toSmem(T_shared) + 16 * (tidx.x / 16) +  32 * (tidx.x%16)  +
 
-    // 256 * (tidx.x / 16)
+    // 16 * (tidx.x / 16)
     auto expr0 = IrBuilder::mulExpr(
-        IrBuilder::create<Val>(256, DataType::Index),
+        IrBuilder::create<Val>(16, DataType::Index),
         IrBuilder::divExpr(
             IrBuilder::create<NamedScalar>("threadIdx.x", DataType::Index),
             IrBuilder::create<Val>(16, DataType::Index)));
-    // 32 * (tidx.x%8)
+
+    // 32 * (tidx.x%16)
     auto expr1 = IrBuilder::mulExpr(
         IrBuilder::modExpr(
             IrBuilder::create<NamedScalar>("threadIdx.x", DataType::Index),
-            IrBuilder::create<Val>(8, DataType::Index)),
+            IrBuilder::create<Val>(16, DataType::Index)),
         IrBuilder::create<Val>(32, DataType::Index));
 
-    // ((tidx.x/8)%2) * 16]
-    auto expr2 = IrBuilder::mulExpr(
-        IrBuilder::modExpr(
-            IrBuilder::divExpr(
-                IrBuilder::create<NamedScalar>("threadIdx.x", DataType::Index),
-                IrBuilder::create<Val>(8, DataType::Index)),
-            IrBuilder::create<Val>(2, DataType::Index)),
-        IrBuilder::create<Val>(16, DataType::Index));
-
     out_index = IrBuilder::addExpr(
-        IrBuilder::baseAddressExpr(dynamic_cast<TensorView*>(ldst->out())),
-        IrBuilder::addExpr(expr0, IrBuilder::addExpr(expr1, expr2)));
+        IrBuilder::baseAddressExpr(ir_utils::getTvOutput(ldst)),
+        IrBuilder::addExpr(expr0, expr1));
   }
   Val* out = IrBuilder::create<kir::TensorIndex>(
       dynamic_cast<TensorView*>(ldst->out()), out_index);

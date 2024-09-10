@@ -1629,9 +1629,7 @@ TEST_F(TMARuntimeInvalidTest, SizeOfTransfer) {
       &fusion, cg_outputs, {t0, items_of_16_bytes}, {t0}, __LINE__, __FILE__);
 
   EXPECT_THAT(
-      [&]() {
-        fe.runFusion({t0, items_of_16_bytes / 2});
-      },
+      [&]() { fe.runFusion({t0, items_of_16_bytes / 2}); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
           "The expected bytes must be a multiple of 16 bytes, but ")));
 }
@@ -2520,7 +2518,7 @@ TEST_P(StMatrixTest, Regular) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto operand = MmaOperand::B;
+  auto operand = MmaOperand::A;
   auto sizes = GetParam();
   int sizeM = sizes.at(0);
   int sizeN = sizes.at(1);
@@ -2542,11 +2540,11 @@ TEST_P(StMatrixTest, Regular) {
 
   tv2->applyMmaSwizzle(operand);
   tv2->setAllocationDomain(tv2->getLoopDomain(), true);
-  // Get 32 threads out to parallelize over.
-  tv2->merge(0);
-  tv2->axis(0)->parallelize(ParallelType::TIDx);
+  // // Get 32 threads out to parallelize over.
+  tv2->merge(1);
+  tv2->axis(1)->parallelize(ParallelType::TIDx);
 
-  // We do not really schedule tv3 as yet, this is just for parllel code gen.
+  // We do not really schedule tv3 as yet, this is just for parllel codegen.
   tv3->merge(0);
   tv3->split(0, 32);
   tv3->axis(1)->parallelize(ParallelType::TIDx);
