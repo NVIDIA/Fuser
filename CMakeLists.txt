@@ -142,7 +142,6 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/id_model/id_model_index_compute.cpp
   ${NVFUSER_SRCS_DIR}/id_model/indexing.cpp
   ${NVFUSER_SRCS_DIR}/id_model/indexing_traversal.cpp
-  ${NVFUSER_SRCS_DIR}/id_model/indexing_wip.cpp
   ${NVFUSER_SRCS_DIR}/id_model/loop_promotion.cpp
   ${NVFUSER_SRCS_DIR}/id_model/predicate_indexing.cpp
   ${NVFUSER_SRCS_DIR}/id_model/schedule.cpp

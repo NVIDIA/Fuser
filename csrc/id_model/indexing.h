@@ -119,12 +119,6 @@ class TensorIndexer {
       const std::vector<ForLoop*>& for_loops,
       ForLoop* unswitched_loop = nullptr) const;
 
-  std::vector<PredicateInfo> getPredicatesWIP(
-      TensorView* tv,
-      const Expr* expr,
-      const std::vector<ForLoop*>& for_loops,
-      ForLoop* unswitched_loop = nullptr) const;
-
   static bool isSupported(Fusion* fusion);
 
  private:

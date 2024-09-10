@@ -222,7 +222,6 @@ class ValGraph {
   // mappings.
   void validateConsistency() const;
 
- public:
   void addUniqueUses(const ValGroup& id_group, const ExprGroup& uses) {
     unique_uses_.at(id_group).pushBack(uses);
   }

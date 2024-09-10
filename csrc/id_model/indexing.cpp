@@ -359,7 +359,8 @@ class AllocationDomainSetup : private kir::IrVisitor {
       // If the allocation domain is still a broadcast domain, i.e., not
       // merged with a non-broadcast domain, it should
       // not be necessary to use the promotion domain.
-      // TODO: Add tests
+
+      // ADD
       if (is_loop && !allocation_domain->isBroadcast()) {
         promotion_domain =
             indexing_utils::getLoopPromotion(allocation_domain, id_model);
@@ -792,6 +793,7 @@ void TensorIndexer::buildLoopIndexMap() {
   }
 
   Fusion* fusion = id_model_.fusion();
+  // ADD
   FusionGuard fg(fusion);
 
   for (auto expr : fusion->exprs()) {
@@ -1007,6 +1009,7 @@ std::vector<IterDomain*> TensorIndexer::getLoopDomains(const Expr* expr) const {
   // scatter
   auto loop_domains = ir_utils::getTvOutput(expr)->getLoopDomain();
 
+  // ADD
   // If this is an expr initializing a buffer for a reduction, there
   // should be no loops for reduction domains
   if (lower_utils::isReductionInitExpr(expr)) {
@@ -1037,7 +1040,6 @@ IndexingInfo TensorIndexer::computeIndex(
       << "Loop domains: " << toDelimitedString(loop_domains) << std::endl;
 
   const ValGroups loop_groups = traversalGraph().toGroups(loop_domains);
-
   const ExprPath<ExprGroup> traversal_path = IndexingTraversal::getExprsBetween(
       expr, traversalGraph(), loop_groups, index_groups);
 
@@ -1173,10 +1175,14 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
   const std::vector<IterDomain*>& predicate_domains =
       getPredicateDomains(tv, expr);
 
+  if (predicate_domains.empty()) {
+    return {};
+  }
+
   const IndexingInfo& index_info = computeIndex(
       expr, traversalGraph().toGroups(predicate_domains), for_loops);
 
-  const std::unordered_map<ValGroup, Val*>& index_map = index_info.index_map;
+  const auto& index_map = index_info.index_map;
 
   const std::unordered_map<Val*, Val*> replacement_map_start =
       getPredicateIndexReplacementMap(
@@ -1269,10 +1275,8 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
         nvfuser::toString(actual_predicate_domain_group));
 
     Val* idx = idx_it->second;
-
     Val* start_idx =
         ir_utils::replaceValRecursively(idx, replacement_map_start);
-
     Val* stop_idx = ir_utils::replaceValRecursively(idx, replacement_map_stop);
 
     // Generate predicates as follows:
@@ -1451,6 +1455,54 @@ std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
   }
 
   return {result, contig_strides};
+}
+
+bool TensorIndexer::isSupported(Fusion* fusion) {
+  const auto all_tvs = fusion->allTvs();
+
+  auto printReason = [](const std::string& reason) -> void {
+    VERBOSE() << "TensorIndexer disabled due to: " << reason << std::endl;
+  };
+
+  if (fusion->hasManaged("loop_rotation")) {
+    printReason("loop rotation is not supported");
+    return false;
+  }
+
+  for (const auto& tv : all_tvs) {
+    std::stringstream reason;
+
+    if (auto loadstore = dynamic_cast<LoadStoreOp*>(tv->definition());
+        loadstore != nullptr &&
+        (loadstore->opType() == LoadStoreOpType::LdMatrix)) {
+      reason << "LoadStoreOp not supported: " << loadstore->toString();
+    } else {
+      for (const auto& id : tv->domain()->allIDs()) {
+        if (id->getParallelType() == ParallelType::MisalignedVectorize) {
+          reason << "MialignedVectorize is used: " << id->toString();
+          break;
+        } else if (auto swizzle = dynamic_cast<Swizzle*>(id->definition())) {
+          reason << "Swizzle not supported: " << swizzle->toString();
+          break;
+        } else if (
+            auto swizzle2d = dynamic_cast<Swizzle2D*>(id->definition())) {
+          reason << "Swizzle2D not supported: " << swizzle2d->toString();
+          break;
+        } else if (ir_utils::isIndexedID(tv, id)) {
+          reason << "Index ops such as select not supported: "
+                 << tv->toString();
+          break;
+        }
+      }
+    }
+
+    if (!reason.str().empty()) {
+      printReason(reason.str());
+      return false;
+    }
+  }
+
+  return true;
 }
 
 } // namespace nvfuser
