@@ -50,6 +50,7 @@ class DistributedTransformerTest
     if (!deviceMajorMinorCheck(8)) {
       GTEST_SKIP() << "Distributed transformer tests require Ampere or newer";
     }
+    at::globalContext().setAllowBF16ReductionCuBLAS(false);
   }
 
   const int64_t D; // number of devices
@@ -298,6 +299,37 @@ std::vector<TensorView*> mlp(
   return {linear0, gelu, linear1, dropout_result};
 }
 
+std::vector<TensorView*> mha_qkv(
+    TensorView* x,
+    TensorView* w0,
+    TensorView* b0,
+    TensorView* w1,
+    const DeviceMesh& mesh) {
+  DataType dtype = w0->dtype();
+  const auto D = w0->axis(0)->extent()->value().as<int64_t>();
+  // Recompute: linear 0, q, k, and v
+  TensorView* matmul0 = matmul(x, w0);
+  TensorView* linear0 = add(matmul0, broadcast(b0, {false, true, false}));
+  // Forming the q,k,v:
+  TensorView* qkv_cat =
+      reshape(linear0, {D, B * S, 3 * E / D}, {D, B, S, 3 * E / D});
+  std::vector<TensorView*> qkv;
+  for (auto i : c10::irange(3)) {
+    TensorView* tv_reshaped =
+        slice(qkv_cat, {0, 0, 0, E / D * i}, {D, B, S, E / D * (i + 1)});
+    tv_reshaped =
+        reshape(tv_reshaped, {D, B, S, E / D}, {D, B, S, H / D, E / H});
+    tv_reshaped = castOp(dtype, transpose(tv_reshaped, 2, 3));
+    // TODO: this might not be needed Explicitly shard q, k, and v before
+    // calling SDPA node
+    tv_reshaped->setDeviceMesh(mesh);
+    tv_reshaped->axis(0)->parallelize(ParallelType::DIDx);
+    qkv.push_back(tv_reshaped);
+  }
+
+  return qkv;
+}
+
 std::vector<TensorView*> mha(
     TensorView* x,
     TensorView* w0,
@@ -476,37 +508,6 @@ std::vector<TensorView*> mlp_backwards(
       linear0_grads.grad_b,
       linear0_grads.grad_x};
   return outputs;
-}
-
-std::vector<TensorView*> mha_qkv(
-    TensorView* x,
-    TensorView* w0,
-    TensorView* b0,
-    TensorView* w1,
-    const DeviceMesh& mesh) {
-  DataType dtype = w0->dtype();
-  const auto D = w0->axis(0)->extent()->value().as<int64_t>();
-  // Recompute: linear 0, q, k, and v
-  TensorView* matmul0 = matmul(x, w0);
-  TensorView* linear0 = add(matmul0, broadcast(b0, {false, true, false}));
-  // Forming the q,k,v:
-  TensorView* qkv_cat =
-      reshape(linear0, {D, B * S, 3 * E / D}, {D, B, S, 3 * E / D});
-  std::vector<TensorView*> qkv;
-  for (auto i : c10::irange(3)) {
-    TensorView* tv_reshaped =
-        slice(qkv_cat, {0, 0, 0, E / D * i}, {D, B, S, E / D * (i + 1)});
-    tv_reshaped =
-        reshape(tv_reshaped, {D, B, S, E / D}, {D, B, S, H / D, E / H});
-    tv_reshaped = castOp(dtype, transpose(tv_reshaped, 2, 3));
-    // TODO: this might not be needed Explicitly shard q, k, and v before
-    // calling SDPA node
-    tv_reshaped->setDeviceMesh(mesh);
-    tv_reshaped->axis(0)->parallelize(ParallelType::DIDx);
-    qkv.push_back(tv_reshaped);
-  }
-
-  return qkv;
 }
 
 std::vector<TensorView*> mha_backwards(
@@ -1175,7 +1176,7 @@ TEST_P(DistributedTransformerTest, Backward) {
   auto ln1_b_ = at::randn(E, options).to(at::kFloat);
   auto mlp_w0_ = at::randn({E, 4 * E}, options) * kParamScale;
   auto mlp_b0_ = at::randn({4 * E}, options) * kParamScale;
-  auto grad_ = at::randn({B * S, E}, options).to(at::kFloat);
+  auto grad_ = at::randn({B * S, E}, options).to(at::kFloat) * kParamScale;
   auto mlp_w1_ = at::randn({4 * E, E}, options) * kParamScale;
   auto mlp_b1_ = at::randn({E}, options) * kParamScale;
 
