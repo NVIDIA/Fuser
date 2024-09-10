@@ -2433,8 +2433,6 @@ TEST_P(ResizeTest, ResizePadToBroadcastStatic) {
   auto tv3 = mul(tv1, tv2);
   fusion->addOutput(tv3);
 
-  std::cout << "tv2: " << tv2->toString() << std::endl;
-
   EXPECT_FALSE(fusion->hasDynamicTransform());
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);

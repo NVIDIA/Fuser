@@ -201,29 +201,6 @@ class AbstractGetReference {
       CircularBufferLoopStage::NotApplicable;
 };
 
-std::unique_ptr<GpuLower> lowerForPredicateTesting(Fusion* fusion) {
-  EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(
-      EnableOption::IdModel,
-      {"inline_predicate", "unswitch_predicate", "vectorize_predicate"});
-
-  // Disable simplifications to make the pattern matching of sameAs work
-  DisableOptionsGuard disable_options_guard;
-  DisableOptionsGuard::getCurOptions().set(DisableOption::ExprSimplify);
-  DisableOptionsGuard::getCurOptions().set(DisableOption::IndexHoist);
-  // Magic zero is not yet supported
-  DisableOptionsGuard::getCurOptions().set(DisableOption::MagicZero);
-
-  std::unique_ptr<GpuLower> lower = std::make_unique<GpuLower>(fusion);
-
-  // Suppress warnings due to using dynamic register tensors
-  testing::internal::CaptureStderr();
-  lower->run();
-  testing::internal::GetCapturedStderr();
-
-  return lower;
-}
-
 void compareRecursively(Val* x, Val* y) {
   std::cout << "Checking " << x->toInlineString() << ", " << y->toInlineString()
             << std::endl;
@@ -252,7 +229,7 @@ template <typename GetReference>
 class IndexValidator : public kir::IrVisitor {
  public:
   IndexValidator(const GpuLower& lower, GetReference&& get_ref)
-      : lower_(lower), get_ref_(std::move(get_ref)) {}
+      : get_ref_(std::move(get_ref)) {}
 
   using kir::IrVisitor::dispatch;
   using kir::IrVisitor::handle;
@@ -341,8 +318,8 @@ class IndexValidator : public kir::IrVisitor {
       bool enable_contig_indexing,
       Args... args) {
     EnableOptionsGuard enable_options_guard;
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
-    // EnableOption::IdModel, {"consumer_index", "producer_index"});
+    EnableOptionsGuard::getCurOptions().set(
+        EnableOption::IdModel, {"consumer_index", "producer_index"});
 
     // Disable simplifications to make the pattern matching of sameAs work
     DisableOptionsGuard disable_options_guard;
@@ -358,9 +335,9 @@ class IndexValidator : public kir::IrVisitor {
 
     kir::Kernel* kernel = nullptr;
     // Suppress warnings due to using dynamic register tensors
-    // testing::internal::CaptureStderr();
+    testing::internal::CaptureStderr();
     kernel = lower.run();
-    // std::cerr << testing::internal::GetCapturedStderr();
+    testing::internal::GetCapturedStderr();
 
     IndexValidator<GetReference> validator(
         lower, GetReference(lower.tensorIndexer(), lower.idModel(), args...));
@@ -370,7 +347,6 @@ class IndexValidator : public kir::IrVisitor {
   }
 
  private:
-  const GpuLower& lower_;
   GetReference get_ref_;
 };
 
@@ -481,8 +457,7 @@ class PredicateIndexValidator : public kir::IrVisitor {
       Args... args) {
     EnableOptionsGuard enable_options_guard;
     EnableOptionsGuard::getCurOptions().set(
-        EnableOption::IdModel,
-        {"inline_predicate", "unswitch_predicate", "vectorize_predicate"});
+        EnableOption::IdModel, {"predicate"});
 
     // Disable simplifications to make the pattern matching of sameAs work
     DisableOptionsGuard disable_options_guard;
@@ -537,7 +512,6 @@ TEST_F(IndexingTest, SimplePointwise1) {
 
   tv1->inlineAt(1);
 
-  // Validate the resuls without contig indexing
   struct GetReference : AbstractGetReference {
     GetReference(const TensorIndexer& indexer, const IdModel& id_model)
         : AbstractGetReference(indexer, id_model) {}
@@ -4170,7 +4144,6 @@ TEST_P(PredicateIndexingTest, UnswitchPredicateIssueRepro681) {
       std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
       auto zero = tv->fusion()->zeroVal();
       auto one = tv->fusion()->oneVal();
-
       auto merge =
           dynamic_cast<Merge*>(tv->getLogicalDomain().at(0)->uses().at(0));
       NVF_ERROR(merge != nullptr);

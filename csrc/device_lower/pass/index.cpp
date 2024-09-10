@@ -8,8 +8,6 @@
 #include <device_lower/analysis/index_compute.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
-#include <id_model/indexing.h>
-#include <id_model/utils.h>
 #include <index_compute.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
