@@ -253,7 +253,8 @@ class RingBasedOverlapTest : public MultiDeviceTest {
   int64_t my_device_index_;
   std::vector<int64_t> all_devices_;
   at::Tensor ta_unsharded_, tb_unsharded_;
-  at::Tensor ta_, tb_, tc_locally_reduced_, tc_;
+  at::Tensor ta_, tb_, tc_;
+  at::Tensor src_buffer_, dst_buffer_;
   // stores the backend
   c10d::Backend* world_communicator_;
 
@@ -262,7 +263,7 @@ class RingBasedOverlapTest : public MultiDeviceTest {
 
     num_devices_ = communicator_->size();
     my_device_index_ = communicator_->deviceId();
-    
+    params.S = num_devices_; // TODO: change that
     ASSERT_EQ(params.M % (params.S * num_devices_), 0);
     ASSERT_EQ(params.K % num_devices_, 0);
 
@@ -286,12 +287,14 @@ class RingBasedOverlapTest : public MultiDeviceTest {
     std::vector<int64_t> tb_unsharded_sizes = {
         num_devices_, params.K / num_devices_, params.N};
     std::vector<int64_t> tb_sizes = {params.K / num_devices_, params.N};
-    std::vector<int64_t> tc_locally_reduced_sizes = {
-        std::min(params.S, params.number_of_streams),
-        params.M / params.S,
-        params.N}; // we need at most `number_of_streams` slices
-    std::vector<int64_t> tc_sizes = {
-        params.S, params.M / (params.S * num_devices_), params.N};
+    std::vector<int64_t> src_buffer_sizes = {
+        params.S /* do we need at most `number_of_streams` slices?*/, params.M / params.S, params.N};
+    std::vector<int64_t> dst_buffer_sizes = {
+        params.S /* do we need at most `number_of_streams` slices?*/, params.M / params.S, params.N};
+    std::vector<int64_t> tc_sizes_before_reshape = {
+        params.M / params.S, params.N};
+    // std::vector<int64_t> tc_sizes = {
+    //     params.S, params.M / (params.S * num_devices_), params.N};
 
     // Set up input tensors. We create the full unsharded tensors and define the
     // actual input as the shard corresponding to the current device. Having the
@@ -312,16 +315,17 @@ class RingBasedOverlapTest : public MultiDeviceTest {
     // We pre-allocate the output and some intermediate buffers so we do not
     // rely on torch allocator, which do not behave well with multi-stream
     // programming.
-    tc_locally_reduced_ = at::empty(tc_locally_reduced_sizes, gpu_options);
-    tc_ = at::empty(tc_sizes, gpu_options);
+    src_buffer_ = at::empty(src_buffer_sizes, gpu_options);
+    dst_buffer_ = at::empty(dst_buffer_sizes, gpu_options);
+    // tc_ = at::empty(tc_sizes_before_reshape, gpu_options);
 
     // Debug print
     if (communicator_->deviceId() == 0 && debug_print) {
       debug() << "ta_sizes()=" << ta_.sizes() << std::endl
               << "tb_sizes()=" << tb_.sizes() << std::endl
-              << "tc_locally_reduced_sizes()=" << tc_locally_reduced_.sizes()
-              << std::endl
-              << "tc_sizes()=" << tc_.sizes() << std::endl;
+              << "src_buffer_sizes()=" << src_buffer_.sizes()<< std::endl
+              << "dst_buffer_sizes()=" << dst_buffer_.sizes()<< std::endl
+              << "tc_sizes_before_reshape=" << tc_sizes_before_reshape << std::endl;
     }
   }
 
@@ -345,8 +349,11 @@ class RingBasedOverlapTest : public MultiDeviceTest {
          params.N});
     auto tc_expected_ =
         tc_unsharded_expected_reshaped.select(1, my_device_index_);
-
-    EXPECT_TRUE(tc_.to(torch::kCPU).allclose(tc_expected_, 1e-1, 1e-1))
+    std::cout << "manual validation, dst_buffer_ =\n" << dst_buffer_ <<"\ntc_expected_=\n" << tc_expected_ <<std::endl;
+    std::cout << "tc_ =\n" << dst_buffer_.sum(0) <<std::endl;
+    tc_ = dst_buffer_.sum(0);
+    auto tc_reshaped = at::reshape(tc_, {params.S, params.M / (params.S * num_devices_), params.N});
+    EXPECT_TRUE(tc_reshaped.to(torch::kCPU).allclose(tc_expected_, 1e-1, 1e-1))
         << "Unexpected results, obtained:" << tc_
         << "\n expected: " << tc_expected_;
   }
@@ -355,34 +362,92 @@ class RingBasedOverlapTest : public MultiDeviceTest {
 
 TEST_F(RingBasedOverlapTest, ReduceScatterRingBasedPipeliningATenImplementation) {
   std::vector<c10::cuda::CUDAStream> streams;
-  std::generate_n(
-      std::back_inserter(streams),
-      params.number_of_streams,
-      [my_device_index = my_device_index_]() {
-        return c10::cuda::getStreamFromPool(
-            /*isHighPriority=*/false, my_device_index);
-      });
+  // std::generate_n(
+  //     std::back_inserter(streams),
+  //     params.number_of_streams,
+  //     [my_device_index = my_device_index_]() {
+  //       return c10::cuda::getStreamFromPool(
+  //           /*isHighPriority=*/false, my_device_index);
+  //     });
+  std::vector<c10::intrusive_ptr<c10d::Work>> recv_works;
+  std::vector<c10::intrusive_ptr<c10d::Work>> send_works;
+
+  std::vector<at::Tensor> allreduce_scratch_buffer = {at::randn({1}, at::TensorOptions().dtype(at::kFloat).device(communicator_->device()))};
+  world_communicator_->allreduce(allreduce_scratch_buffer)->wait();
+  // world_communicator_->barrier()->wait();
+  params.number_of_iterations = 1; //TODO: change
 
   for ([[maybe_unused]] const auto& _ :
        c10::irange(params.number_of_iterations)) {
     initializeIO();
 
     for (auto j : c10::irange(params.S)) {
-      int64_t stream_index = j % streams.size();
-      setCurrentCUDAStream(streams.at(stream_index));
+      // int64_t stream_index = j % streams.size();
+      // setCurrentCUDAStream(streams.at(stream_index));
 
       // define the sliced tensors
-      auto ta_j = ta_.select(0, j);
-      auto tc_locally_reduced_j = tc_locally_reduced_.select(0, stream_index);
-      auto tc_j = tc_.select(0, j);
+      auto slice_index = (my_device_index_ + j + 1) % params.S;
+      auto ta_j = ta_.select(0, slice_index);
+      auto src_buffer_j = src_buffer_.select(0, j);
+      auto dst_buffer_j = dst_buffer_.select(0, j);
+
+      // define the peer ranks
+      auto send_rank = slice_index;
+      auto recv_rank = (params.S * 2 - (my_device_index_ + j + 1)) % params.S;
+
+      std::cout
+      << std::endl << "__________________________" << std::endl
+      << "my_device_index_=" << my_device_index_ << std::endl
+      << "num_devices_=" << num_devices_ << std::endl
+      << "j=" << j << std::endl
+      // << "stream_index=" << stream_index << std::endl
+      << "slice_index=" << slice_index << std::endl
+      << "send_rank=" << send_rank << std::endl
+      << "recv_rank=" << recv_rank << std::endl
+      << "_=" << _ << std::endl
+      << "__________________________" << std::endl << std::endl
+      ;
+
 
       // local compute
-      torch::matmul_out(tc_locally_reduced_j, ta_j, tb_);
+      torch::matmul_out(src_buffer_j, ta_j, tb_);
       // communication
-      world_communicator_->_reduce_scatter_base(tc_j, tc_locally_reduced_j)
-          ->wait();
+      if (send_rank == my_device_index_ && recv_rank == my_device_index_) { 
+        std::cout << "local copy at rank " << my_device_index_ << std::endl;
+        dst_buffer_j.copy_(src_buffer_j, /*non_blocking=*/false);
+        std::cout << "local copy FINISHED at rank " << my_device_index_ << std::endl;
+      } else {
+        EXPECT_NE(send_rank, my_device_index_);
+        EXPECT_NE(recv_rank, my_device_index_);
+        std::vector<at::Tensor> src = {src_buffer_j};
+        std::vector<at::Tensor> dst = {dst_buffer_j};
+        std::cout << "from rank " << my_device_index_<< ", sending to rank " << send_rank <<", with tag " << my_device_index_ << std::endl;
+        send_works.push_back(world_communicator_->send(src, send_rank, my_device_index_));
+        std::cout << "from rank " << my_device_index_<< ", recv from rank " << recv_rank <<", with tag " << recv_rank << std::endl;
+        recv_works.push_back(world_communicator_->recv(dst, recv_rank, recv_rank));
+      }
     }
+    for (auto work: send_works) {
+      work->wait();
+    }
+    for (auto work: recv_works) {
+      work->wait();
+    }
+    std::cout << "entering barrier at rank " << my_device_index_ << std::endl;
+    // world_communicator_->barrier()->wait();
+    std::cout << "exiting barrier at rank " << my_device_index_ << std::endl;
+    // for (auto stream : streams) {
+    //   stream.synchronize();
+    // }
+    std::cout << "cudaDeviceSynchronize at rank " << my_device_index_ << std::endl;
+    cudaDeviceSynchronize();
+    std::cout << "sum_out at rank " << my_device_index_ << std::endl;
+    // torch::sum_out(tc_, dst_buffer_, 0);
+    // tc_ = dst_buffer_.sum(0);
+    // tc_ = dst_buffer_;
+    std::cout << "sum_out FINISHED at rank " << my_device_index_ << std::endl;
   }
+  std::cout << "validate at rank " << my_device_index_ << std::endl;
   validate();
 }
 
