@@ -655,6 +655,34 @@ void FusionDefinition::clone(FusionDefinition& other) {
   translate(other.preschedFusion(), this);
 }
 
+void FusionDefinition::concretize(
+    FusionDefinition& other,
+    const at::ArrayRef<c10::IValue>& inputs) {
+  NVF_CHECK(id().has_value(), "FusionDefinition definition does not exist!");
+  int8_t device = getCommonDeviceCUDA(inputs);
+  NVF_CHECK(
+      inputs.empty() || device > -1, "Inputs are not all on the same device!");
+  NVF_ERROR(
+      !other.completed(),
+      "Expected an incomplete definition before translation.");
+
+  // Create clone to avoid modifying original prescheduled fusion
+  auto duplicate_fusion = std::make_unique<Fusion>();
+  IrCloner original_to_cloned_map =
+      Fusion::copy(preschedFusion(), duplicate_fusion.get());
+  FusionGuard::setCurFusion(duplicate_fusion.get());
+
+  // Get arguments
+  KernelArgumentHolder args =
+      KernelArgumentHolder::createKernelArgumentHolder(inputs, device);
+
+  // Concretize fusion with arguments
+  DynamicTransform::concretizeFusion(duplicate_fusion.get(), args);
+
+  // Translate concretized fusion
+  translate(duplicate_fusion.get(), &other);
+}
+
 void FusionDefinition::presegment(FusionDefinition& other) {
   NVF_CHECK(id().has_value(), "FusionDefinition definition does not exist!");
   NVF_ERROR(
@@ -768,9 +796,6 @@ int64_t FusionDefinition::setupSegmentation(
   // Get arguments
   KernelArgumentHolder args =
       KernelArgumentHolder::createKernelArgumentHolder(inputs, device);
-
-  // Concretize fusion with arguments
-  DynamicTransform::concretizeFusion(segment_fusion_.get(), args);
 
   // Create runtime infomation
   SchedulerRuntimeInfo runtime_info(

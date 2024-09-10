@@ -173,7 +173,12 @@ class NVF_API FusionDefinition : public FusionState {
   //! fusion is correct.
   void clone(FusionDefinition& other);
 
-  //! Apply presegmentation passes to your FusionDefinition
+  //! Apply concretization to FusionDefinition
+  void concretize(
+      FusionDefinition& other,
+      const at::ArrayRef<c10::IValue>& inputs);
+
+  //! Apply presegmentation passes to FusionDefinition
   void presegment(FusionDefinition& other);
 
   //! Enter Python Context Manager -- Reset trie for new cache lookup

@@ -59,6 +59,11 @@ class FusionDefinition(_C._FusionDefinition):
         new_fd._clone(self)
         return new_fd
 
+    def concretize(self, inputs):
+        new_fd = FusionDefinition()
+        self._concretize(new_fd, inputs)
+        return new_fd
+
     def presegment(self):
         new_fd = FusionDefinition()
         self._presegment(new_fd)

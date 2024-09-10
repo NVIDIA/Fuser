@@ -720,6 +720,17 @@ void initNvFuserPythonBindings(PyObject* module) {
             inst::Trace::instance()->endEvent(nullptr);
           })
       .def(
+          "_concretize",
+          [](FusionDefinition& self,
+             FusionDefinition& other,
+             const py::iterable& iter) {
+            std::vector<c10::IValue> inputs;
+            for (py::handle obj : iter) {
+              inputs.push_back(torch::jit::toIValue(obj, c10::AnyType::get()));
+            }
+            self.concretize(other, inputs);
+          })
+      .def(
           "_presegment",
           [](FusionDefinition& self, FusionDefinition& other) {
             self.presegment(other);
