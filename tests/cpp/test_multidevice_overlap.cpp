@@ -245,6 +245,147 @@ TEST_F(OverlapTest, ReduceScatterBasedPipeliningATenImplementation) {
   validate();
 }
 
+class RingBasedOverlapTest : public MultiDeviceTest {
+ protected:
+  OverlapTestParams params;
+
+  int64_t num_devices_;
+  int64_t my_device_index_;
+  std::vector<int64_t> all_devices_;
+  at::Tensor ta_unsharded_, tb_unsharded_;
+  at::Tensor ta_, tb_, tc_locally_reduced_, tc_;
+  // stores the backend
+  c10d::Backend* world_communicator_;
+
+  void SetUp() {
+    MultiDeviceTest::SetUp();
+
+    num_devices_ = communicator_->size();
+    my_device_index_ = communicator_->deviceId();
+    
+    ASSERT_EQ(params.M % (params.S * num_devices_), 0);
+    ASSERT_EQ(params.K % num_devices_, 0);
+
+    // Setup the world communicators
+    std::vector<int64_t> devices(num_devices_);
+    std::iota(devices.begin(), devices.end(), 0);
+    all_devices_ = std::move(devices);
+    world_communicator_ =
+        communicator_->getBackendForTeam(all_devices_, params.backend_type);
+
+    // Debug print
+    if (communicator_->deviceId() == 0 && debug_print) {
+      debug() << params << std::endl;
+    }
+
+    // Define I/O and intermediate Tensor shapes
+    std::vector<int64_t> ta_unsharded_sizes = {
+        params.S, num_devices_, params.M / params.S, params.K / num_devices_};
+    std::vector<int64_t> ta_sizes = {
+        params.S, params.M / params.S, params.K / num_devices_};
+    std::vector<int64_t> tb_unsharded_sizes = {
+        num_devices_, params.K / num_devices_, params.N};
+    std::vector<int64_t> tb_sizes = {params.K / num_devices_, params.N};
+    std::vector<int64_t> tc_locally_reduced_sizes = {
+        std::min(params.S, params.number_of_streams),
+        params.M / params.S,
+        params.N}; // we need at most `number_of_streams` slices
+    std::vector<int64_t> tc_sizes = {
+        params.S, params.M / (params.S * num_devices_), params.N};
+
+    // Set up input tensors. We create the full unsharded tensors and define the
+    // actual input as the shard corresponding to the current device. Having the
+    // full unsharded input on each rank makes it possible to compute the
+    // expected result locally, hence, this way of doing is convenient for
+    // validating data correctness.
+    auto cpu_options = at::TensorOptions().dtype(at::kFloat);
+    at::TensorOptions gpu_options = cpu_options.device(communicator_->device());
+
+    // Unsharded tensors are large and only used for validating data corectness.
+    // Therefore, to improve GPU memory footprint, we allocate those tensors on
+    // the CPU
+    ta_unsharded_ = at::empty(ta_unsharded_sizes, cpu_options);
+    tb_unsharded_ = at::empty(tb_unsharded_sizes, cpu_options);
+    ta_ = at::empty(ta_sizes, gpu_options);
+    tb_ = at::empty(tb_sizes, gpu_options);
+
+    // We pre-allocate the output and some intermediate buffers so we do not
+    // rely on torch allocator, which do not behave well with multi-stream
+    // programming.
+    tc_locally_reduced_ = at::empty(tc_locally_reduced_sizes, gpu_options);
+    tc_ = at::empty(tc_sizes, gpu_options);
+
+    // Debug print
+    if (communicator_->deviceId() == 0 && debug_print) {
+      debug() << "ta_sizes()=" << ta_.sizes() << std::endl
+              << "tb_sizes()=" << tb_.sizes() << std::endl
+              << "tc_locally_reduced_sizes()=" << tc_locally_reduced_.sizes()
+              << std::endl
+              << "tc_sizes()=" << tc_.sizes() << std::endl;
+    }
+  }
+
+  void initializeIO() {
+    ta_unsharded_.uniform_();
+    tb_unsharded_.uniform_();
+    ta_.copy_(ta_unsharded_.select(1, my_device_index_));
+    tb_.copy_(tb_unsharded_.select(0, my_device_index_));
+  }
+
+  void validate() {
+    // compute the expected output for data correctness validation
+    auto tc_unsharded_unreduced =
+        ta_unsharded_.unsqueeze(-1) * tb_unsharded_.unsqueeze(-3).unsqueeze(0);
+    auto tc_unsharded_expected = at::sum(tc_unsharded_unreduced, {1, 3});
+    auto tc_unsharded_expected_reshaped = at::reshape(
+        tc_unsharded_expected,
+        {params.S,
+         num_devices_,
+         params.M / (params.S * num_devices_),
+         params.N});
+    auto tc_expected_ =
+        tc_unsharded_expected_reshaped.select(1, my_device_index_);
+
+    EXPECT_TRUE(tc_.to(torch::kCPU).allclose(tc_expected_, 1e-1, 1e-1))
+        << "Unexpected results, obtained:" << tc_
+        << "\n expected: " << tc_expected_;
+  }
+};
+
+
+TEST_F(RingBasedOverlapTest, ReduceScatterRingBasedPipeliningATenImplementation) {
+  std::vector<c10::cuda::CUDAStream> streams;
+  std::generate_n(
+      std::back_inserter(streams),
+      params.number_of_streams,
+      [my_device_index = my_device_index_]() {
+        return c10::cuda::getStreamFromPool(
+            /*isHighPriority=*/false, my_device_index);
+      });
+
+  for ([[maybe_unused]] const auto& _ :
+       c10::irange(params.number_of_iterations)) {
+    initializeIO();
+
+    for (auto j : c10::irange(params.S)) {
+      int64_t stream_index = j % streams.size();
+      setCurrentCUDAStream(streams.at(stream_index));
+
+      // define the sliced tensors
+      auto ta_j = ta_.select(0, j);
+      auto tc_locally_reduced_j = tc_locally_reduced_.select(0, stream_index);
+      auto tc_j = tc_.select(0, j);
+
+      // local compute
+      torch::matmul_out(tc_locally_reduced_j, ta_j, tb_);
+      // communication
+      world_communicator_->_reduce_scatter_base(tc_j, tc_locally_reduced_j)
+          ->wait();
+    }
+  }
+  validate();
+}
+
 TEST_F(OverlapTest, ReduceScatterBasedPipeliningHostIrImplementation) {
   auto hic = std::make_unique<hir::HostIrContainer>();
   FusionGuard::setCurFusion(hic.get());
