@@ -978,7 +978,7 @@ void fillCompileOptions(
     const CompileParams& compile_params,
     std::optional<int64_t> opt_block_size) {
   nvrtc_compile_driver.setOption("--std=c++17");
-  if (isOptionEnabled(EnableOption::JitDebug)) {
+  if (isOptionEnabled(EnableOption::KernelDebug)) {
     nvrtc_compile_driver.setOption("-G");
   }
 
@@ -1011,7 +1011,7 @@ void fillCompileOptions(
   }
 
   // Add line info to generated kernels
-  if (isDebugDumpEnabled(DebugDumpOption::DebugInfo)) {
+  if (isOptionEnabled(EnableOption::KernelLineInfo)) {
     nvrtc_compile_driver.setOption("-lineinfo");
   }
 
