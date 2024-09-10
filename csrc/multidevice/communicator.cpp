@@ -212,13 +212,16 @@ Communicator::Communicator(
 
 void Communicator::cleanup() {
   static bool cleaned_up = false;
-  if (cleaned_up) {
-    TORCH_WARN(
-        "The singleton Communicator has already been cleaned up. This is "
-        "likely because Communicator::cleanup was called more than once");
-    return;
-  }
+  NVF_CHECK(
+      !cleaned_up,
+      "The singleton Communicator has already been cleaned up. This is "
+      "likely because Communicator::cleanup was called more than once");
   cleaned_up = true;
+
+  // Without this, the TCPStore server can be cleaned up before TCPStore
+  // clients are created, causing an hang. This happened with
+  // test_multidevice.py::test_sizes_and_ranks.
+  barrier();
 
   store_ = nullptr;
 
