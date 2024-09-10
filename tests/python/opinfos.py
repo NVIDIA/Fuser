@@ -5,14 +5,14 @@
 
 import math
 import torch
-from pytest_core import OpInfo, ReferenceType, Domain
-from pytest_fusion_definitions import (
+from opinfo_core import OpInfo, ReferenceType, Domain
+from opinfo_fusion_definitions import (
     api_test_fd_fn,
     tensor_input_fd_fn,
     tensor_api_test_fd_fn,
     vector_api_test_fd_fn,
 )
-from pytest_input_generators import (
+from opinfo_input_generators import (
     broadcast_error_generator,
     broadcast_in_dim_generator,
     broadcast_in_dim_error_generator,
@@ -51,7 +51,7 @@ from pytest_input_generators import (
     linear_input_generator,
     linear_error_generator,
 )
-from pytest_utils import (
+from utils import (
     bool_int_dtypes,
     complex_dtypes,
     full_precision_float_dtypes,
@@ -62,7 +62,7 @@ from pytest_utils import (
 )
 from functools import partial
 
-from pytest_utils import JAX_AVAILABLE
+from utils import JAX_AVAILABLE
 
 if JAX_AVAILABLE:
     import jax
@@ -660,6 +660,24 @@ lt_opinfo = OpInfo(
     reference=_elementwise_binary_torch(torch.lt),
 )
 binary_ops.append(lt_opinfo)
+
+minimum_opinfo = OpInfo(
+    lambda fd: fd.ops.minimum,
+    "minimum",
+    dtypes=int_float_dtypes,
+    sample_input_generator=elementwise_binary_generator,
+    reference=_elementwise_binary_torch(torch.minimum),
+)
+binary_ops.append(minimum_opinfo)
+
+maximum_opinfo = OpInfo(
+    lambda fd: fd.ops.maximum,
+    "maximum",
+    dtypes=int_float_dtypes,
+    sample_input_generator=elementwise_binary_generator,
+    reference=_elementwise_binary_torch(torch.maximum),
+)
+binary_ops.append(maximum_opinfo)
 
 mod_opinfo = OpInfo(
     lambda fd: fd.ops.mod,

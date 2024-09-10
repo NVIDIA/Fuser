@@ -9,8 +9,10 @@
 #include <device_lower/pass/allocation.h>
 #include <expr_evaluator.h>
 #include <expr_simplifier.h>
+#include <id_model/indexing_utils.h>
 #include <instrumentation.h>
 #include <ir/iostream.h>
+#include <ir/utils.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
 
@@ -174,6 +176,84 @@ class AllocationInserter : public kir::ExprMutator {
 
     info.allocation_domains = std::make_unique<std::vector<IterDomain*>>();
 
+    // TODO: Today, we always allocate loop domain, even if the allocation
+    // domain is explicitly set. This is clearly not the right thing to do,
+    // and we should fix this in the future. However, today, we still don't
+    // have a clear design of how to allocate tensors with explicit allocation
+    // domain. This problem is very difficult to solve, and there are many
+    // things to consider. For example, if the allocation domain contains a
+    // subset of inlined loop IDs, we should not allocate the inlined IDs.
+    // But what if the opposite is true? What if the allocation domain
+    // does not contain all inlined IDs? Is this considered an error, or
+    // a valid case that we need to infer which to allocate from the loop
+    // domain? We need to think about this carefully and come up with a
+    // clear design. For now, we just allocate the loop domain for historical
+    // reasons for all cases except for the Hopper MMA output tensor.
+    //
+    // Hopper MMA output tensor is a special case because the loop domain
+    // is scheduled in a way that the entire tile is parallelized by MMA, and
+    // The TIDx parallelization is a new broadcast dimension that is not
+    // connected to any other IterDomains. This way of scheduling effectively
+    // makes the loop domain 128x larger than the allocation domain, because
+    // the allocation domain is sharded on threads but the loop domain is not.
+    if ((info.buffer->definition()->isA<MmaOp>() &&
+         isHopper(info.buffer->definition()->as<MmaOp>()->macro()))) {
+      const IdModel& id_model = GpuLower::current()->idModel();
+
+      std::unordered_set<IterDomain*> exclude_ca_ids;
+      for (auto i : c10::irange(info.alloc_pos)) {
+        auto ca_id = info.buffer->axis(i);
+        if (!ir_utils::isMemorySharedAcross(
+                info.buffer->getMemoryType(), ca_id->getParallelType())) {
+          exclude_ca_ids.insert(ca_id);
+        }
+      }
+
+      const std::vector<IterDomain*>& domain_to_alloc =
+          info.buffer->hasAllocation() ? info.buffer->getAllocationDomain()
+                                       : info.buffer->getLoopDomain();
+
+      for (auto id : domain_to_alloc) {
+        if (exclude_ca_ids.find(id) == exclude_ca_ids.end()) {
+          // Don't use reduction/stride/broadcast/device axis in the
+          // allocation computation
+          if (id->isReduction() || id->isStride() || id->isBroadcast() ||
+              id->isDeviceDim()) {
+            continue;
+          }
+          if (ir_utils::isMemoryPartitionedAcross(
+                  info.buffer->getMemoryType(), id->getParallelType())) {
+            continue;
+          }
+          info.allocation_domains->push_back(id);
+
+          // Loop promotion may affect allocations. Promotions of intermediate
+          // domains may not be defined correctly. Only consider loop domains
+          // for now.
+          bool is_loop = std::find(
+                             info.buffer->getLoopDomain().begin(),
+                             info.buffer->getLoopDomain().end(),
+                             id) != info.buffer->getLoopDomain().end();
+          if (is_loop) {
+            id = indexing_utils::getLoopPromotion(id, id_model);
+          }
+
+          alloc_dims.push_back(id->extent());
+        } else {
+          exclude_ca_ids.erase(id);
+        }
+      }
+      NVF_ERROR(
+          exclude_ca_ids.empty(),
+          "The non-allocating compute-at IDs are not found in the allocation domain. ",
+          "It is unclear how to allocate the tensor: ",
+          info.buffer->toString(),
+          " allocation domain: ",
+          ir_utils::toString(info.buffer->getAllocationDomain()));
+
+      return alloc_dims;
+    }
+
     for (const auto axis_i : c10::irange(info.buffer->nDims())) {
       const auto local_id = info.buffer->axis(axis_i);
 
@@ -274,6 +354,8 @@ class AllocationInserter : public kir::ExprMutator {
       return;
     }
 
+    int64_t circular_buffer_depth = 1;
+
     // Found where the allocation needs to be inserted
 
     for (const auto i : c10::irange(expr->outputs().size())) {
@@ -345,6 +427,16 @@ class AllocationInserter : public kir::ExprMutator {
       auto alloc_expr = createAllocExpr(allocation, is_output);
       auto init_expr = createInitExpr(allocation, init);
 
+      // Check that all circular buffer depth match
+      if (out_tv->isCircularBuffered() && circular_buffer_depth == 1) {
+        circular_buffer_depth = out_tv->circularBufferDepth();
+      }
+      NVF_ERROR(
+          circular_buffer_depth == 1 ||
+              circular_buffer_depth == out_tv->circularBufferDepth(),
+          "Expected all output TensorViews for the same expression ",
+          "to have the same circular_buffer_depth");
+
       // Write information to GPULower
       writeInfoToGPULower(allocation, alloc_expr);
 
@@ -378,33 +470,107 @@ class AllocationInserter : public kir::ExprMutator {
     // solution, we should remove this after we have a better way to handle
     // synchronizations for cp.async.bulk.
     if (ir_utils::isCpAsyncBulkLoad(expr)) {
-      // create and allocate a memory barrier
-      TensorView* mbarrier = TensorViewBuilder()
-                                 .shape(std::vector<int64_t>{})
-                                 .dtype(DataType::UInt)
-                                 .contiguity(true)
-                                 .build();
-      mbarrier->setMemoryType(MemoryType::Shared);
-      auto mbarrier_init = IrBuilder::create<kir::MBarrierInit>(
-          mbarrier,
-          simplifyExpr(SimplifyingIrBuilder::maybeCastExpr(
-              DataType::UInt32,
-              lower_utils::getNumThreadsInTensorView(
-                  expr->output(0)->as<TensorView>()))));
-      auto sync_init = IrBuilder::create<kir::BlockSync>();
-      auto mbarrier_inval =
-          IrBuilder::create<kir::MBarrierInvalidate>(mbarrier);
-      auto sync_inval = IrBuilder::create<kir::BlockSync>();
+      if (circular_buffer_depth > 1) {
+        // Create and allocate a memory barrier. If this is a circular buffer,
+        // then allocate an array of mbarier objects. mbarrier::init and
+        // mbarrier::inval will be updated in circular buffering pass, but we
+        // add them here to handle shared memory correctly in alias memory pass.
+        TensorView* mbarrier =
+            TensorViewBuilder()
+                .shape(std::vector<int64_t>{circular_buffer_depth})
+                .dtype(DataType::UInt)
+                .contiguity(true)
+                .build();
+        mbarrier->setMemoryType(MemoryType::Shared);
 
-      kir::Allocate* mbarrier_alloc =
-          IrBuilder::create<kir::Allocate>(mbarrier, MemoryType::Shared);
-      Scope* expr_scope = scope_.empty() ? nullptr : scope_.back();
-      registerInsertBefore(expr, mbarrier_alloc, expr_scope);
-      registerInsertBefore(expr, mbarrier_init, expr_scope);
-      registerInsertBefore(expr, sync_init, expr_scope);
-      registerInsertAfter(expr, mbarrier_inval, expr_scope);
-      registerInsertAfter(expr, sync_inval, expr_scope);
-      GpuLower::current()->ldstMBarrierMap()[expr] = mbarrier;
+        // The wait condition for mbarrier is a single thread and the expected
+        // number of transaction bytes
+        kir::MBarrierInit* mbarrier_init = IrBuilder::create<kir::MBarrierInit>(
+            mbarrier, expr->container()->oneVal(DataType::UInt32));
+
+        kir::Allocate* mbarrier_alloc =
+            IrBuilder::create<kir::Allocate>(mbarrier, MemoryType::Shared);
+
+        Scope* expr_scope = scope_.empty() ? nullptr : scope_.back();
+
+        kir::MBarrierInvalidate* mbarrier_inval =
+            IrBuilder::create<kir::MBarrierInvalidate>(mbarrier);
+
+        // For circular buffers we need to prepare a placeholder for the
+        // tokens created by 'MBarrierArriveExpectTx' IR node. The tokens are
+        // placed in shared memory and used by threads in a block.
+        TensorView* mbarrier_tokens =
+            TensorViewBuilder()
+                .shape(std::vector<int64_t>{circular_buffer_depth})
+                .dtype(DataType::UInt)
+                .contiguity(true)
+                .build();
+        mbarrier_tokens->setMemoryType(MemoryType::Shared);
+
+        kir::Allocate* mbarrier_tokens_alloc = IrBuilder::create<kir::Allocate>(
+            mbarrier_tokens, MemoryType::Shared);
+
+        // Add tokens, mbarriers, init, and inval operations around tma
+        // expression like this:
+        //
+        // for (circular_buffer_loop) {
+        //   __shared__ tokens[num_stages];
+        //   __shared__ mbarrier[num_stages];
+        //   init(mbarrier);
+        //   cp.async.bulk(data, mbarrier);
+        //   inval(mbarrier);
+        // }
+
+        // NOTE: Block sync ir node is not added here. It will be added in the
+        // circular buffering pass
+        registerInsertBefore(expr, mbarrier_tokens_alloc, expr_scope);
+        registerInsertBefore(expr, mbarrier_alloc, expr_scope);
+        registerInsertBefore(expr, mbarrier_init, expr_scope);
+        registerInsertAfter(expr, mbarrier_inval, expr_scope);
+
+        // Map LoadStoreOp expression to ir nodes created in this pass
+        GpuLower::current()->ldstMBarrierMap()[expr] = mbarrier;
+        GpuLower::current()->ldstMBarrierTokenMap()[expr] = mbarrier_tokens;
+        // Register tokens placeholder for MBarrierInit and MBarrierInvalidate,
+        //  needed to manage life time of smem buffor in alias memory
+        GpuLower::current()->ldstMBarrierTokenMap()[mbarrier_init] =
+            mbarrier_tokens;
+        GpuLower::current()->ldstMBarrierTokenMap()[mbarrier_inval] =
+            mbarrier_tokens;
+        // Keep track of kir::Allocate for mBarrier and token objects,
+        //  to simplify circular buffering pass logic
+        GpuLower::current()->mBarrierTokenSmemAllocSet().insert(mbarrier_alloc);
+        GpuLower::current()->mBarrierTokenSmemAllocSet().insert(
+            mbarrier_tokens_alloc);
+      } else {
+        // create and allocate a memory barrier
+        TensorView* mbarrier = TensorViewBuilder()
+                                   .shape(std::vector<int64_t>{})
+                                   .dtype(DataType::UInt)
+                                   .contiguity(true)
+                                   .build();
+        mbarrier->setMemoryType(MemoryType::Shared);
+        auto mbarrier_init = IrBuilder::create<kir::MBarrierInit>(
+            mbarrier,
+            simplifyExpr(SimplifyingIrBuilder::maybeCastExpr(
+                DataType::UInt32,
+                lower_utils::getNumThreadsInTensorView(
+                    expr->output(0)->as<TensorView>()))));
+        auto sync_init = IrBuilder::create<kir::BlockSync>();
+        auto mbarrier_inval =
+            IrBuilder::create<kir::MBarrierInvalidate>(mbarrier);
+        auto sync_inval = IrBuilder::create<kir::BlockSync>();
+
+        kir::Allocate* mbarrier_alloc =
+            IrBuilder::create<kir::Allocate>(mbarrier, MemoryType::Shared);
+        Scope* expr_scope = scope_.empty() ? nullptr : scope_.back();
+        registerInsertBefore(expr, mbarrier_alloc, expr_scope);
+        registerInsertBefore(expr, mbarrier_init, expr_scope);
+        registerInsertBefore(expr, sync_init, expr_scope);
+        registerInsertAfter(expr, mbarrier_inval, expr_scope);
+        registerInsertAfter(expr, sync_inval, expr_scope);
+        GpuLower::current()->ldstMBarrierMap()[expr] = mbarrier;
+      }
     }
   }
 

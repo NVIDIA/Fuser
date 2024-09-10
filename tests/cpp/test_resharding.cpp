@@ -124,11 +124,8 @@ TEST_F(ReshardingTest, Sum_SameMesh_NoParallelTypes) {
   FusionGuard fg(&fusion);
 
   TensorView* in = makeContigTensor(3);
+  in->setDeviceMesh({0, 1, 2});
   TensorView* out = sum(in, {0});
-
-  for (auto* tv : {in, out}) {
-    tv->setDeviceMesh({0, 1, 2});
-  }
 
   EXPECT_FALSE(isResharding(out->definition()));
 }
@@ -138,11 +135,8 @@ TEST_F(ReshardingTest, Sum_DifferentParallelTypes) {
   FusionGuard fg(&fusion);
 
   TensorView* in = makeContigTensor(3);
+  in->setDeviceMesh({0, 1, 2});
   TensorView* out = sum(in, {0});
-
-  for (auto* tv : {in, out}) {
-    tv->setDeviceMesh({0, 1, 2});
-  }
   out->axis(0)->parallelize(ParallelType::DIDx);
 
   EXPECT_TRUE(isResharding(out->definition()));
@@ -166,13 +160,9 @@ TEST_F(ReshardingTest, Sum_ParallelizeDifferentAxes) {
   FusionGuard fg(&fusion);
 
   TensorView* in = makeContigTensor(3);
-  TensorView* out = sum(in, {0});
-
-  for (auto* tv : {in, out}) {
-    tv->setDeviceMesh({0, 1, 2});
-  }
+  in->setDeviceMesh({0, 1, 2});
   in->axis(0)->parallelize(ParallelType::DIDx);
-  out->axis(0)->parallelize(ParallelType::DIDx);
+  TensorView* out = sum(in, {0});
   out->axis(1)->parallelize(ParallelType::DIDx);
 
   EXPECT_TRUE(isResharding(out->definition()));
@@ -183,12 +173,9 @@ TEST_F(ReshardingTest, Sum_ParallelizeSameAxis) {
   FusionGuard fg(&fusion);
 
   TensorView* in = makeContigTensor(3);
+  in->setDeviceMesh({0, 1, 2});
+  in->axis(0)->parallelize(ParallelType::DIDx);
   TensorView* out = sum(in, {1});
-
-  for (auto* tv : {in, out}) {
-    tv->setDeviceMesh({0, 1, 2});
-    tv->axis(0)->parallelize(ParallelType::DIDx);
-  }
 
   EXPECT_FALSE(isResharding(out->definition()));
 }
@@ -198,12 +185,9 @@ TEST_F(ReshardingTest, Sum_AllReduce) {
   FusionGuard fg(&fusion);
 
   TensorView* in = makeContigTensor(3);
-  TensorView* out = sum(in, {0});
-
-  for (auto* tv : {in, out}) {
-    tv->setDeviceMesh({0, 1, 2});
-  }
+  in->setDeviceMesh({0, 1, 2});
   in->axis(0)->parallelize(ParallelType::DIDx);
+  TensorView* out = sum(in, {0});
 
   EXPECT_TRUE(isResharding(out->definition()));
 }

@@ -28,6 +28,13 @@ TransposeScheduler::TransposeScheduler(
 }
 
 bool TransposeScheduler::canScheduleCompileTime(Fusion* fusion) {
+  FUSER_PERF_SCOPE("TransposeScheduler::canScheduleCompileTime");
+  if (scheduler_utils::isResharding(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        heuristicType(), "Fusion is resharding.");
+    return false;
+  }
+
   // Check that inputs of all select/gather-like ops are fusion inputs
   if (registry_utils::rejectScheduleForMemoryPromotion(
           fusion, heuristicType())) {
@@ -106,7 +113,7 @@ bool TransposeScheduler::canScheduleRunTime(
 }
 
 void TransposeScheduler::schedule(Fusion* fusion) {
-  FUSER_PERF_SCOPE("Schedule Transpose Fusion");
+  FUSER_PERF_SCOPE("TransposeScheduler::schedule");
   scheduleTranspose(fusion, transposeParams());
 }
 
@@ -114,6 +121,7 @@ void TransposeScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
+  FUSER_PERF_SCOPE("TransposeScheduler::computeHeuristics");
   params_ = getTransposeHeuristics(fusion, runtime_info, data_cache);
   NVF_ERROR(params_ != nullptr);
 }
@@ -148,7 +156,7 @@ void moveReductionsOut(TensorView* tv, int n) {
 // the path of potential propagation checking if there's any incompatible
 // propagation that would not be resolved.
 struct TransposeViewPropagator : public MaxInfoSpanningTree::Propagator {
-  void propagateC2P(TensorView* from, TensorView* to) override {};
+  void propagateC2P(TensorView* from, TensorView* to) override {}
   void propagateP2C(TensorView* from, TensorView* to) override {
     // short-cut to skip if we know we are already rejecting the fusion for
     // transpose scheduler
@@ -164,7 +172,7 @@ struct TransposeViewPropagator : public MaxInfoSpanningTree::Propagator {
       should_reject = true;
     };
   };
-  void propagateSibling(TensorView* from, TensorView* to) override {};
+  void propagateSibling(TensorView* from, TensorView* to) override {}
   ~TransposeViewPropagator() override = default;
 
   bool shouldReject() {
@@ -826,8 +834,6 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
-  FUSER_PERF_SCOPE("getTransposeHeuristics");
-
   FusionGuard fg(fusion);
 
   // Incase any buffer is of type DataType::Index
@@ -1043,7 +1049,6 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
 LaunchParams scheduleTranspose(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs) {
-  FUSER_PERF_SCOPE("scheduleFusion");
   auto params = getTransposeHeuristics(fusion, runtime_inputs);
   NVF_ERROR(params != nullptr, "Could not schedule transpose operation.");
   scheduleTranspose(fusion, *params);

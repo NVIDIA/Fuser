@@ -14,6 +14,7 @@
 #include <driver_api.h>
 #include <fusion_executor/allocations.h>
 #include <fusion_executor/executor_kernel_arg.h>
+#include <fusion_executor/executor_utils.h>
 #include <fusion_profiler.h>
 #include <global_allocator.h>
 #include <instrumentation.h>
@@ -635,11 +636,11 @@ LaunchParams FusionExecutor::computeLaunchParams(
   return launch_params;
 }
 
-std::vector<GlobalBufferInfo> FusionExecutor::getIntermediateBufferInfo(
-    ExpressionEvaluator& expr_eval,
-    DataType index_type) {
+std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
+    getIntermediateBufferInfo(
+        ExpressionEvaluator& expr_eval,
+        DataType index_type) {
   FUSER_PERF_SCOPE("FusionExecutor::getIntermediateBufferInfo");
-
   std::vector<GlobalBufferInfo> global_buffers;
 
   const auto kernel = lowered_->kernel();
@@ -827,6 +828,8 @@ void FusionExecutor::initializeExecutorEntry(
   executor_utils::validateVectorizedTensors(
       kernel(), args, outputs, compileTimeDataCache(), expr_eval);
 
+  executor_utils::validateCircularBuffering(kernel(), expr_eval);
+
   std::vector<GlobalBufferInfo> output_info;
 
   if (outputs.empty()) {
@@ -837,7 +840,7 @@ void FusionExecutor::initializeExecutorEntry(
     // future uses of this ExecutorEntry may not be provided with
     // allocated outputs
     for (const auto& output : outputs) {
-      output_info.emplace_back(GlobalBufferInfo{
+      output_info.emplace_back(FusionExecutor::GlobalBufferInfo{
           .sizes = output.sizes().vec(),
           .strides = output.strides().vec(),
           .type = output.scalar_type()});
@@ -936,7 +939,7 @@ void FusionExecutor::computeArgs(
     ExecutorEntry& entry,
     ExpressionEvaluator& expr_eval,
     const kir::Kernel* kernel) const {
-  FUSER_PERF_SCOPE("Initial GetArgsBuffers");
+  FUSER_PERF_SCOPE("FusionExecutor::computeArgs");
 
   const std::vector<Val*>& params = kernel->parameters();
   entry.args.resize(params.size());
@@ -954,7 +957,7 @@ void FusionExecutor::recomputeArgs(
     ExecutorEntry& entry,
     ExpressionEvaluator& expr_eval,
     const kir::Kernel* kernel) const {
-  FUSER_PERF_SCOPE("Recompute GetArgsBuffers");
+  FUSER_PERF_SCOPE("FusionExecutor::recomputeArgs");
   // assert(entry.init && "entry was never initialized");
 
   const std::vector<Val*>& params = kernel->parameters();
@@ -1169,7 +1172,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   if (host_ir_container_ != nullptr) {
     if (outputs.empty()) {
       std::vector<GlobalBufferInfo> output_info = getBufferInfos(
-          expr_eval, PrimDataType::Int, host_ir_container_.get()->outputs());
+          expr_eval, PrimDataType::Int, host_ir_container_->outputs());
       outputs = allocateOutputs(
           host_ir_container_.get(), output_info, options_.device, expr_eval);
     }
@@ -1262,7 +1265,6 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   std::vector<at::Tensor> intermediates;
   at::Tensor profile_buffer;
   {
-    FUSER_PERF_SCOPE("ExecutorRunFusion::IntermediateBufferAlloc");
     for (const auto i : c10::irange(executor_entry->intermediates.size())) {
       const auto& buf_info = executor_entry->intermediates.at(i);
       bool has_expansion = false;

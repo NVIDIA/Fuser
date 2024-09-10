@@ -31,6 +31,8 @@ namespace nvfuser {
 
 using IndexingTest = NVFuserTest;
 using PredicateIndexingTest = NVFuserFixtureParamTest<bool>;
+using ContigIndexingTest = NVFuserTest;
+using ContigPredicateIndexingTest = NVFuserTest;
 
 namespace {
 
@@ -270,7 +272,10 @@ class IndexValidator : public kir::IrVisitor {
   }
 
   template <typename... Args>
-  static void validate(Fusion* fusion, Args... args) {
+  static void validate(
+      Fusion* fusion,
+      bool enable_contig_indexing,
+      Args... args) {
     EnableOptionsGuard enable_options_guard;
     EnableOptionsGuard::getCurOptions().set(
         EnableOption::IdModel, {"consumer_index", "producer_index"});
@@ -281,6 +286,9 @@ class IndexValidator : public kir::IrVisitor {
     DisableOptionsGuard::getCurOptions().set(DisableOption::IndexHoist);
     // Magic zero is not yet supported
     DisableOptionsGuard::getCurOptions().set(DisableOption::MagicZero);
+    if (!enable_contig_indexing) {
+      DisableOptionsGuard::getCurOptions().set(DisableOption::ContigIndexing);
+    }
 
     GpuLower lower(fusion);
 
@@ -402,7 +410,10 @@ class PredicateIndexValidator : public kir::IrVisitor {
   }
 
   template <typename... Args>
-  static void validate(Fusion* fusion, Args... args) {
+  static void validate(
+      Fusion* fusion,
+      bool enable_contig_indexing,
+      Args... args) {
     EnableOptionsGuard enable_options_guard;
     EnableOptionsGuard::getCurOptions().set(
         EnableOption::IdModel, {"predicate"});
@@ -415,6 +426,9 @@ class PredicateIndexValidator : public kir::IrVisitor {
     DisableOptionsGuard::getCurOptions().set(DisableOption::MagicZero);
     DisableOptionsGuard::getCurOptions().set(
         DisableOption::PredicateElimination);
+    if (!enable_contig_indexing) {
+      DisableOptionsGuard::getCurOptions().set(DisableOption::ContigIndexing);
+    }
 
     GpuLower lower(fusion);
 
@@ -522,7 +536,7 @@ TEST_F(IndexingTest, SimplePointwise1) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion);
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 // Almost same fusion as SimplePointwiseSerial but TID and BID
@@ -548,7 +562,7 @@ TEST_F(IndexingTest, SimplePointwise2) {
   tv3->axis(0)->parallelize(ParallelType::BIDx);
   tv3->axis(1)->parallelize(ParallelType::TIDx);
 
-  scheduler_utils::parallelizeAllLike(tv3, ir_utils::allTvs(&fusion));
+  scheduler_utils::parallelizeAllLike(tv3, fusion.allTvs());
 
   // Test shared memory indexing
   tv2->setMemoryType(MemoryType::Shared);
@@ -609,7 +623,7 @@ TEST_F(IndexingTest, SimplePointwise2) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion);
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 // Simple reduction with no parallelization
@@ -657,7 +671,7 @@ TEST_F(IndexingTest, SimpleReduction) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion);
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 // Reduction with inlining. Loop promotion picks a reduction domain,
@@ -705,7 +719,7 @@ TEST_F(IndexingTest, PromotionToReductionDomain) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion);
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 // Fusion copied from AllocationDomainTest.TransposedIntermediate
@@ -750,7 +764,7 @@ TEST_F(IndexingTest, AllocationDomain) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion);
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 TEST_F(IndexingTest, Reshape) {
@@ -829,7 +843,7 @@ TEST_F(IndexingTest, Reshape) {
         const override {
       switch (tv->name()) {
         case 0: {
-          // It isn't straightforward to do structual checking as the other
+          // It isn't straightforward to do structural checking as the other
           // tests since there's no particular rule about which domain is used
           // to provide the extent of the group. However, since everything
           // should be deterministic, string match should also work.
@@ -842,7 +856,7 @@ TEST_F(IndexingTest, Reshape) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion);
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 // Simple non-concretized broadcast
@@ -879,7 +893,7 @@ TEST_F(IndexingTest, SimpleBroadcast1) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion);
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 // SimpleBroadcast1 + scheduling
@@ -902,8 +916,8 @@ TEST_F(IndexingTest, SimpleBroadcast2) {
 
   // The first merge of the logical domains should be a trivial merge,
   // i.e., a merge with a extent-one domain. Thus, the indexing
-  // travesal should return "x + y * 4", where x and y are the loop
-  // indices, respecitvely.
+  // traversal should return "x + y * 4", where x and y are the loop
+  // indices, respectively.
 
   struct GetReference : AbstractGetReference {
     GetReference(const TensorIndexer& indexer, const IdModel& id_model)
@@ -939,7 +953,7 @@ TEST_F(IndexingTest, SimpleBroadcast2) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion);
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 // Concretized broadcast
@@ -1002,7 +1016,7 @@ TEST_F(IndexingTest, SimpleBroadcast3) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion);
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 // Concretized broadcast with partial inlining. Loop promotion is
@@ -1031,7 +1045,7 @@ TEST_F(IndexingTest, SimpleBroadcast4) {
   TransformPropagator propagator(tv4);
   MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
 
-  for (auto tv : ir_utils::allTvs(&fusion)) {
+  for (auto tv : fusion.allTvs()) {
     tv->inlineAt(-2);
   }
 
@@ -1061,7 +1075,7 @@ TEST_F(IndexingTest, SimpleBroadcast4) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion);
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 // Trivial example. 1D shared tensor. Each device only has one
@@ -1089,7 +1103,7 @@ TEST_F(IndexingTest, MultiDevice1DNoSplitMerge) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion);
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 // Same fusion as MultiDevice1DNoSplitMerge but with split.
@@ -1124,7 +1138,7 @@ TEST_F(IndexingTest, MultiDevice1DSplit) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion);
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 TEST_F(IndexingTest, MultiDevice2D) {
@@ -1166,7 +1180,7 @@ TEST_F(IndexingTest, MultiDevice2D) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion);
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 // Same fusion as MultiDevice2D but with loop allocation
@@ -1209,7 +1223,7 @@ TEST_F(IndexingTest, MultiDevice2DLeafAllocation) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion);
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 TEST_F(IndexingTest, MultiDevice2DTranspose) {
@@ -1258,7 +1272,7 @@ TEST_F(IndexingTest, MultiDevice2DTranspose) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion);
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 // Allocation of broadcast domains should not need to be promoted.
@@ -1304,7 +1318,7 @@ TEST_F(IndexingTest, PromotedBroadcast) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion);
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 // Simple vectorized copy
@@ -1331,7 +1345,7 @@ TEST_F(IndexingTest, SimpleVectorize) {
 
   inlineMost();
 
-  scheduler_utils::parallelizeAllLike(tv2, ir_utils::allTvs(&fusion));
+  scheduler_utils::parallelizeAllLike(tv2, fusion.allTvs());
 
   struct GetReference : AbstractGetReference {
     GetReference(const TensorIndexer& indexer, const IdModel& id_model)
@@ -1364,7 +1378,7 @@ TEST_F(IndexingTest, SimpleVectorize) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion);
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 // Test for reorderAllocationDomains. The vectorized
@@ -1400,7 +1414,7 @@ TEST_F(IndexingTest, NonInnermostVectorize) {
 
   tv3->axis(0)->parallelize(ParallelType::BIDx);
   tv3->axis(1)->parallelize(ParallelType::TIDx);
-  scheduler_utils::parallelizeAllLike(tv3, ir_utils::allTvs(&fusion));
+  scheduler_utils::parallelizeAllLike(tv3, fusion.allTvs());
 
   tv1->axis(2)->parallelize(ParallelType::Vectorize);
   tv3->axis(2)->parallelize(ParallelType::Vectorize);
@@ -1435,7 +1449,7 @@ TEST_F(IndexingTest, NonInnermostVectorize) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion);
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 // Indexing traversal failure repro due to non-size-one broadcast
@@ -1500,7 +1514,7 @@ TEST_F(IndexingTest, AlmostExactTraversalWithNonOneBroadcast) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion);
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 TEST_F(IndexingTest, Swizzle) {
@@ -1545,7 +1559,7 @@ TEST_F(IndexingTest, Swizzle) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion);
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 // Simple Unroll test. Unlike Unswitch, Unroll moves up allocation
@@ -1608,7 +1622,7 @@ TEST_F(IndexingTest, SimpleUnroll) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion);
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 // Unrolling with no unrolled loop domain
@@ -1635,7 +1649,7 @@ TEST_F(IndexingTest, InlinedUnroll) {
 
   tv4->axis(1)->parallelize(ParallelType::Unroll);
 
-  scheduler_utils::parallelizeAllLike(tv4, ir_utils::allTvs(&fusion));
+  scheduler_utils::parallelizeAllLike(tv4, fusion.allTvs());
 
   // The CA position of tv2 is 1 as shown below:
   //
@@ -1668,7 +1682,7 @@ TEST_F(IndexingTest, InlinedUnroll) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion);
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 TEST_F(IndexingTest, SmemAllocationDomainForTranspose) {
@@ -1691,7 +1705,7 @@ TEST_F(IndexingTest, SmemAllocationDomainForTranspose) {
   }
 
   // [I0, I1] -> [(I0/32 * I1/32), (32 * 32) / 4, 4]
-  for (auto tv : ir_utils::allTvs(&fusion)) {
+  for (auto tv : fusion.allTvs()) {
     tv->split(0, 32);
     tv->split(2, 32);
     tv->reorder({{1, 2}});
@@ -1753,7 +1767,7 @@ TEST_F(IndexingTest, SmemAllocationDomainForTranspose) {
     StmtNameType smem_tv_name;
   };
 
-  IndexValidator<GetReference>::validate(&fusion, tv3->name());
+  IndexValidator<GetReference>::validate(&fusion, false, tv3->name());
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input0 = at::randn({256, 256}, options);
@@ -1814,7 +1828,7 @@ TEST_F(IndexingTest, ResizePath) {
   // (i.e., iS4) to the inner allocation domain of tv0 (i.e.,
   // iS1). One is through the resize of tv1 itself, but the resize for
   // tv2 can also allow traversal reaching iS1 from iS4 since iS7 is
-  // mapped with iS7. In this case, indexng tv0 for tv1 needs to use
+  // mapped with iS7. In this case, indexing tv0 for tv1 needs to use
   // the resize for tv1 and ignore the other resize. Similarly when
   // indexing tv0 as the producer of tv2, the resize of tv2 needs to
   // be used.
@@ -1862,7 +1876,7 @@ TEST_F(IndexingTest, ResizePath) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion);
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 // Same fusion as DoubleBufferingTest.DoubleBuffering1
@@ -1918,9 +1932,15 @@ TEST_F(IndexingTest, DoubleBuffering1) {
       switch (tv->name()) {
         case 0: {
           if (circular_buffer_loop_stage_ == CircularBufferLoopStage::Prolog) {
-            return addExpr(
-                mulExpr(loop_indices.at(1), tv->axis(2)->extent()),
-                loop_indices.at(2));
+            // NOTE: Expression Simplification is disabled in IndexValidator,
+            // so trivial index expression appears in the expression.
+            Val* zero = tv->fusion()->zeroVal();
+            return IrBuilder::addExpr(
+                IrBuilder::mulExpr(zero, createInt(128)),
+                IrBuilder::addExpr(
+                    IrBuilder::mulExpr(
+                        loop_indices.at(1), tv->axis(2)->extent()),
+                    loop_indices.at(2)));
           } else if (
               circular_buffer_loop_stage_ == CircularBufferLoopStage::Main) {
             return addExpr(
@@ -1968,7 +1988,7 @@ TEST_F(IndexingTest, DoubleBuffering1) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion);
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 // Same fusion as DoubleBufferingTest.DoubleBuffering4
@@ -2074,7 +2094,7 @@ TEST_F(IndexingTest, DoubleBuffering4) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion);
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 // Same fusion as DoubleBufferingTest.DoubleBuffering6
@@ -2223,7 +2243,7 @@ TEST_F(IndexingTest, DoubleBuffering6) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion);
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 // Same fusion as DoubleBuffering1 but with >2 stages
@@ -2341,7 +2361,7 @@ TEST_F(IndexingTest, CircularBuffering1) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion);
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 // Same fusion as DoubleBuffering6 but with >2 stages
@@ -2496,7 +2516,7 @@ TEST_F(IndexingTest, CircularBuffering2) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion);
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 // Same fusion as IndexingTest.SimplePointwise1
@@ -2552,7 +2572,7 @@ TEST_F(PredicateIndexingTest, SimplePointwise1) {
     }
   };
 
-  PredicateIndexValidator<GetReference>::validate(&fusion);
+  PredicateIndexValidator<GetReference>::validate(&fusion, false);
 }
 
 // Testing predicate indexing with an rfactor reduction
@@ -2632,7 +2652,7 @@ TEST_F(PredicateIndexingTest, ReductionRfactor) {
     }
   };
 
-  PredicateIndexValidator<GetReference>::validate(&fusion);
+  PredicateIndexValidator<GetReference>::validate(&fusion, false);
 }
 
 // Same fusion as IndexingTest.SimpleUnroll
@@ -2680,7 +2700,7 @@ TEST_F(PredicateIndexingTest, SimpleUnroll) {
     // (blockIdx.x * 4 + 0) * 128 + threadId.x >= 0 &&
     // (blockIdx.x * 4 + 3) * 128 + threadId.x < tv0.logical_size[0]
     //
-    // Note that "+ 0" remains since a symboic Val is just replaced
+    // Note that "+ 0" remains since a symbolic Val is just replaced
     // with zero.
     Val* getOuterPredicate(TensorView* tv) const override {
       std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
@@ -2705,7 +2725,7 @@ TEST_F(PredicateIndexingTest, SimpleUnroll) {
     }
   };
 
-  PredicateIndexValidator<GetReference>::validate(&fusion);
+  PredicateIndexValidator<GetReference>::validate(&fusion, false);
 }
 
 // Simple unswitch fusion. Unlike SimpleUnroll, it has multiple
@@ -2788,7 +2808,7 @@ TEST_F(PredicateIndexingTest, SimpleUnswitch) {
     }
   };
 
-  PredicateIndexValidator<GetReference>::validate(&fusion);
+  PredicateIndexValidator<GetReference>::validate(&fusion, false);
 }
 
 // Same fusion as IndexingTest.SimpleVectorize
@@ -2815,7 +2835,7 @@ TEST_F(PredicateIndexingTest, SimpleVectorize) {
 
   inlineMost();
 
-  scheduler_utils::parallelizeAllLike(tv2, ir_utils::allTvs(&fusion));
+  scheduler_utils::parallelizeAllLike(tv2, fusion.allTvs());
 
   // T1_l[ iblockIdx.x9{( ceilDiv(( ceilDiv(i0, 4) ), 128) )},
   // ithreadIdx.x10{128}, iV8{4} ] ca_pos( 2 ) T2_g[ iblockIdx.x5{( ceilDiv((
@@ -2855,7 +2875,7 @@ TEST_F(PredicateIndexingTest, SimpleVectorize) {
     }
   };
 
-  PredicateIndexValidator<GetReference>::validate(&fusion);
+  PredicateIndexValidator<GetReference>::validate(&fusion, false);
 }
 
 // Same as IndexingTest.NonInnermostVectorize
@@ -2885,7 +2905,7 @@ TEST_F(PredicateIndexingTest, NonInnermostVectorize) {
 
   tv3->axis(0)->parallelize(ParallelType::BIDx);
   tv3->axis(1)->parallelize(ParallelType::TIDx);
-  scheduler_utils::parallelizeAllLike(tv3, ir_utils::allTvs(&fusion));
+  scheduler_utils::parallelizeAllLike(tv3, fusion.allTvs());
 
   tv1->axis(2)->parallelize(ParallelType::Vectorize);
   tv3->axis(2)->parallelize(ParallelType::Vectorize);
@@ -2929,7 +2949,7 @@ TEST_F(PredicateIndexingTest, NonInnermostVectorize) {
     }
   };
 
-  PredicateIndexValidator<GetReference>::validate(&fusion);
+  PredicateIndexValidator<GetReference>::validate(&fusion, false);
 }
 
 // Same fusion as IndexingTest.DoubleBuffering1
@@ -2990,17 +3010,23 @@ TEST_F(PredicateIndexingTest, DoubleBuffering1) {
       auto circular_buffer_index = for_loops_.at(0)->index();
 
       if (circular_buffer_loop_stage_ == CircularBufferLoopStage::Prolog) {
-        // bidx.x * 32 + tid.x >= 0 &&
-        // bidx.x * 32 + tid.x < N
-        auto idx = addExpr(
-            mulExpr(loop_indices.at(1), tv->axis(2)->extent()),
-            loop_indices.at(2));
+        // 0 * 128 + bidx.x * 32 + tidx.x >= 0 &&
+        // 0 * 128 + bidx.x * 32 + tidx.x < N
+        // NOTE: Expression Simplification is disabled in
+        // PredicateIndexValidator, so trivial index expression appears in the
+        // expression.
+        Val* zero = tv->fusion()->zeroVal();
+        auto idx = IrBuilder::addExpr(
+            IrBuilder::mulExpr(zero, createInt(128)),
+            IrBuilder::addExpr(
+                IrBuilder::mulExpr(loop_indices.at(1), tv->axis(2)->extent()),
+                loop_indices.at(2)));
         return andExpr(
             geExpr(idx, tv->fusion()->zeroVal()),
             ltExpr(idx, tv->getLogicalDomain().at(0)->extent()));
       } else {
-        // (i + 1) * 128 + bidx.x * 32 + tid.x >= 0 &&
-        // (i + 1) * 128 + bidx.x * 32 + tid.x < N
+        // (i + 1) * 128 + bidx.x * 32 + tidx.x >= 0 &&
+        // (i + 1) * 128 + bidx.x * 32 + tidx.x < N
         auto idx = addExpr(
             mulExpr(
                 addExpr(circular_buffer_index, tv->fusion()->oneVal()),
@@ -3015,7 +3041,7 @@ TEST_F(PredicateIndexingTest, DoubleBuffering1) {
     }
   };
 
-  PredicateIndexValidator<GetReference>::validate(&fusion);
+  PredicateIndexValidator<GetReference>::validate(&fusion, false);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({1000}, options);
@@ -3090,16 +3116,16 @@ TEST_F(PredicateIndexingTest, CircularBuffering1) {
 
       Val* idx = nullptr;
       if (circular_buffer_loop_stage_ == CircularBufferLoopStage::Prolog) {
-        // i * 128 + bidx.x * 32 + tid.x >= 0 &&
-        // i * 128 + bidx.x * 32 + tid.x < N
+        // i * 128 + bidx.x * 32 + tidx.x >= 0 &&
+        // i * 128 + bidx.x * 32 + tidx.x < N
         idx = addExpr(
             mulExpr(circular_buffer_index, createInt(128)),
             addExpr(
                 mulExpr(loop_indices.at(1), tv->axis(2)->extent()),
                 loop_indices.at(2)));
       } else {
-        // (i + 3) * 128 + bidx.x * 32 + tid.x >= 0 &&
-        // (i + 3) * 128 + bidx.x * 32 + tid.x < N
+        // (i + 3) * 128 + bidx.x * 32 + tidx.x >= 0 &&
+        // (i + 3) * 128 + bidx.x * 32 + tidx.x < N
         idx = addExpr(
             mulExpr(
                 addExpr(circular_buffer_index, createInt(3)), createInt(128)),
@@ -3114,7 +3140,7 @@ TEST_F(PredicateIndexingTest, CircularBuffering1) {
     }
   };
 
-  PredicateIndexValidator<GetReference>::validate(&fusion);
+  PredicateIndexValidator<GetReference>::validate(&fusion, false);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({1000}, options);
@@ -3281,7 +3307,7 @@ TEST_F(PredicateIndexingTest, UnrolledCircularBuffering) {
     }
   };
 
-  PredicateIndexValidator<GetReference>::validate(&fusion);
+  PredicateIndexValidator<GetReference>::validate(&fusion, false);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({1000}, options);
@@ -3318,7 +3344,7 @@ TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering1) {
 
   // [I0/4/1, 1, 4]
   //          ^  ^
-  //          |  +-- circular bufer
+  //          |  +-- circular buffer
   //          |
   //          +-- unswitch
   tv1->circularBuffer(/*number_of_stages=*/2);
@@ -3343,15 +3369,18 @@ TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering1) {
       // where i2 is the circular buffer index. The index of iUS10 is
       // not included as its extent is 1.
 
-      // Start index: i0 * 4
-      Val* start_idx = mulExpr(loop_indices.at(0), createInt(4));
+      // NOTE: Expression Simplification is disabled in PredicateIndexValidator,
+      // so trivial addition appears in the expression.
+      // Start index: i0 * 4 + 0
+      Val* start_idx = IrBuilder::addExpr(
+          IrBuilder::mulExpr(loop_indices.at(0), createInt(4)), createInt(0));
 
       // Stop index: i0 * 4 + 4
       // Note that it isn't "i0 * 4 + 3" since i2 is circular buffered
       // and there's no epilog, so the main loop has a read of (i2 +
       // 1).
-      Val* stop_idx =
-          addExpr(mulExpr(loop_indices.at(0), createInt(4)), createInt(4));
+      Val* stop_idx = IrBuilder::addExpr(
+          IrBuilder::mulExpr(loop_indices.at(0), createInt(4)), createInt(4));
 
       return andExpr(
           geExpr(start_idx, zero),
@@ -3359,7 +3388,7 @@ TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering1) {
     }
   };
 
-  PredicateIndexValidator<GetReference>::validate(&fusion);
+  PredicateIndexValidator<GetReference>::validate(&fusion, false);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({99}, options);
@@ -3448,7 +3477,7 @@ TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering2) {
     }
   };
 
-  PredicateIndexValidator<GetReference>::validate(&fusion);
+  PredicateIndexValidator<GetReference>::validate(&fusion, false);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({1000}, options);
@@ -3553,7 +3582,7 @@ TEST_P(PredicateIndexingTest, UnswitchedCircularBuffering3) {
     }
   };
 
-  PredicateIndexValidator<GetReference>::validate(&fusion);
+  PredicateIndexValidator<GetReference>::validate(&fusion, false);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({1000}, options);
@@ -3632,7 +3661,7 @@ TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering4) {
     }
   };
 
-  PredicateIndexValidator<GetReference>::validate(&fusion);
+  PredicateIndexValidator<GetReference>::validate(&fusion, false);
 
   // Running this fusion with the legacy indexer would result in an
   // error if run with compute-sanitizer.
@@ -3726,7 +3755,7 @@ TEST_F(PredicateIndexingTest, NonDivisibleSplit1) {
     }
   };
 
-  PredicateIndexValidator<GetReference>::validate(&fusion);
+  PredicateIndexValidator<GetReference>::validate(&fusion, false);
 
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
@@ -3817,7 +3846,7 @@ TEST_F(PredicateIndexingTest, NonDivisibleSplitWithUnswitch) {
     }
   };
 
-  PredicateIndexValidator<GetReference>::validate(&fusion);
+  PredicateIndexValidator<GetReference>::validate(&fusion, false);
 
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
@@ -3912,7 +3941,7 @@ TEST_F(PredicateIndexingTest, NonDivisibleSplitWithCircularBuffering) {
     }
   };
 
-  PredicateIndexValidator<GetReference>::validate(&fusion);
+  PredicateIndexValidator<GetReference>::validate(&fusion, false);
 
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
@@ -3928,7 +3957,7 @@ TEST_F(PredicateIndexingTest, NonDivisibleSplitWithCircularBuffering) {
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
-// Non divisible split with unswitched circularing. The non divisible
+// Non divisible split with unswitched circular buffering. The non divisible
 // predicate should only use the one generated from the main loop and
 // the one from the prolog loop should not appear in the unswitch
 // predicate.
@@ -4023,7 +4052,7 @@ TEST_F(
     }
   };
 
-  PredicateIndexValidator<GetReference>::validate(&fusion);
+  PredicateIndexValidator<GetReference>::validate(&fusion, false);
 
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
@@ -4108,7 +4137,7 @@ TEST_P(PredicateIndexingTest, UnswitchPredicateIssueRepro681) {
     }
   };
 
-  PredicateIndexValidator<GetReference>::validate(&fusion);
+  PredicateIndexValidator<GetReference>::validate(&fusion, false);
 
   EnableOptionsGuard enable_options_guard;
   if (GetParam()) {
@@ -4130,7 +4159,7 @@ TEST_P(PredicateIndexingTest, UnswitchPredicateIssueRepro681) {
 // its required unswitch predicates should be generated from its
 // indexing path, not its logical to loop dependencies. In this test,
 // the tv2 transformation has an non-divisible split that needs to be
-// predicated, but since it's inline into tv3, the acual non-divisible
+// predicated, but since it's inline into tv3, the actual non-divisible
 // split should be based on tv3.
 TEST_F(PredicateIndexingTest, NonDivisibleSplitWithUnswitchAndBroadcast) {
   Fusion fusion;
@@ -4267,7 +4296,7 @@ TEST_F(PredicateIndexingTest, NonDivisibleSplitWithUnswitchAndBroadcast) {
     }
   };
 
-  PredicateIndexValidator<GetReference>::validate(&fusion);
+  PredicateIndexValidator<GetReference>::validate(&fusion, false);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({5}, options);
@@ -4390,7 +4419,7 @@ TEST_F(PredicateIndexingTest, UnswitchConsolidationDifferentThreading) {
     }
   };
 
-  PredicateIndexValidator<GetReference>::validate(&fusion);
+  PredicateIndexValidator<GetReference>::validate(&fusion, false);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({1000}, options);
@@ -4405,6 +4434,747 @@ TEST_F(PredicateIndexingTest, UnswitchConsolidationDifferentThreading) {
   auto outputs = fe.runFusion(aten_inputs);
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+}
+
+// Same fusion as SimplePointwise1 but with contig indexing
+TEST_F(ContigIndexingTest, SimplePointwise) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(2);
+  fusion.addInput(tv0);
+
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
+  fusion.addOutput(tv2);
+
+  tv2->flatten();
+  tv2->split(0, 4);
+
+  TransformPropagator propagator(tv2);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
+
+  tv1->inlineAt(1);
+
+  // Because of contig indexing, the index of tv0 and tv2 should be
+  // just: i0 * 4 + i1.
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
+        const override {
+      bool as_consumer = maybe_consumer == nullptr;
+      auto consumer_tv = as_consumer ? tv : maybe_consumer;
+      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      switch (tv->name()) {
+        case 0: {
+          NVF_ERROR(!as_consumer);
+          return addExpr(
+              mulExpr(loop_indices.at(0), consumer_tv->axis(1)->extent()),
+              loop_indices.at(1));
+        }
+        case 1: {
+          return loop_indices.at(1);
+        }
+        case 2: {
+          NVF_ERROR(as_consumer);
+          return addExpr(
+              mulExpr(loop_indices.at(0), consumer_tv->axis(1)->extent()),
+              loop_indices.at(1));
+        }
+        default:
+          NVF_ERROR(false, "Unexpected tensor: ", tv->toString());
+          break;
+      }
+      return nullptr;
+    }
+  };
+
+  IndexValidator<GetReference>::validate(&fusion, true);
+}
+
+TEST_F(ContigIndexingTest, NonContigInnermost) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // Innermost dimension is non contiguous but the other two
+  // dimensions are contiguous.
+  auto tv0 = TensorViewBuilder()
+                 .ndims(3)
+                 .dtype(DataType::Float)
+                 .contiguity({true, true, false})
+                 .build();
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  // [I0, I1, I2]
+  tv1->merge(1);
+  // [I0, I1*I2]
+
+  // Since the i1 contig flag is true, the merge is contiguous even
+  // though i2 is not contiguous. The producer index of tv0 should be:
+  // i0 * I0_stride + i1 * I2_stride. The stride of I0 should be
+  // calculated as I2_stride * I2_extent * I1_extent.
+  //
+  // As for tv1, since it's fully contiguous, it should also be i0 *
+  // I0_stride + i1. Here, I0_stride should be I2_extent * I1_extent.
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
+        const override {
+      bool as_consumer = maybe_consumer == nullptr;
+      auto consumer_tv = as_consumer ? tv : maybe_consumer;
+      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      switch (tv->name()) {
+        case 0: {
+          NVF_ERROR(!as_consumer);
+          auto i0_stride = mulExpr(
+              mulExpr(
+                  IrBuilder::getItemExpr(
+                      IrBuilder::getAttrExpr(
+                          IrBuilder::metadataExpr(tv), "alloc_stride"),
+                      IrBuilder::create<Val>(2, DataType::Int)),
+                  tv->getLogicalDomain().at(2)->extent()),
+              tv->getLogicalDomain().at(1)->extent());
+          auto i2_stride = IrBuilder::getItemExpr(
+              IrBuilder::getAttrExpr(
+                  IrBuilder::metadataExpr(tv), "alloc_stride"),
+              IrBuilder::create<Val>(2, DataType::Int));
+          return addExpr(
+              mulExpr(loop_indices.at(0), i0_stride),
+              mulExpr(loop_indices.at(1), i2_stride));
+        }
+        case 1: {
+          NVF_ERROR(as_consumer);
+          return addExpr(
+              mulExpr(
+                  loop_indices.at(0),
+                  mulExpr(
+                      consumer_tv->getLogicalDomain().at(2)->extent(),
+                      consumer_tv->getLogicalDomain().at(1)->extent())),
+              loop_indices.at(1));
+        }
+        default:
+          NVF_ERROR(false, "Unexpected tensor: ", tv->toString());
+          break;
+      }
+      return nullptr;
+    }
+  };
+
+  IndexValidator<GetReference>::validate(&fusion, true);
+}
+
+// Contig indexing with broadcast inlining
+TEST_F(ContigIndexingTest, BroadcastInlining) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = makeContigTensor(2);
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv0);
+  auto tv3 = broadcast(tv2, {true, false});
+  auto tv4 = add(tv3, tv1);
+  fusion.addOutput(tv4);
+
+  tv4->merge(0);
+
+  TransformPropagator propagator(tv4);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
+
+  inlineMost();
+
+  // t4 is indexed at the merge output domain, so its index should be
+  // just its sole loop index. t2 and t3 are fully inlined
+  // intermediate tensors, so their indices are just zero. Since t1 is
+  // contiguous, it's also just indexed with the loop index. t0, on
+  // the other hand, needs to back traverse the merge since its sole
+  // index domain corresponds to the inner merge input domain.
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
+        const override {
+      bool as_consumer = maybe_consumer == nullptr;
+      auto consumer_tv = as_consumer ? tv : maybe_consumer;
+      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      switch (tv->name()) {
+        case 0: {
+          NVF_ERROR(!as_consumer);
+          return modExpr(
+              loop_indices.at(0), tv->getLogicalDomain().at(0)->extent());
+        }
+        case 1: {
+          NVF_ERROR(!as_consumer);
+          return loop_indices.at(0);
+        }
+        case 2:
+        case 3:
+          return tv->fusion()->zeroVal();
+        case 4: {
+          NVF_ERROR(as_consumer);
+          return loop_indices.at(0);
+        }
+        default:
+          NVF_ERROR(false, "Unexpected tensor: ", tv->toString());
+          break;
+      }
+      return nullptr;
+    }
+  };
+
+  IndexValidator<GetReference>::validate(&fusion, true);
+}
+
+// Merge after resize is not allowed to do contig indexing even when
+// the original input domains are contiguous.
+TEST_F(ContigIndexingTest, Resize) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape({11, 30});
+
+  NVF_CHECK(shape[1] % 2 == 0);
+
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = slice(tv0, {0, shape[1] / 2}, {shape[0], shape[1]});
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1));
+  fusion.addOutput(tv2);
+
+  // Contig merge
+  tv2->merge(0);
+
+  TransformPropagator propagator(tv2);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
+
+  // All tensors except for tv0 are indexed at the output of the merge
+  // op, so their indices should be just loop_indices[0]. However, for
+  // tv0, since the merge follows a resize, indexing is done at the
+  // resize input domain.
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
+        const override {
+      bool as_consumer = maybe_consumer == nullptr;
+      auto consumer_tv = as_consumer ? tv : maybe_consumer;
+      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      switch (tv->name()) {
+        case 0: {
+          NVF_ERROR(!as_consumer);
+          auto id0 = mulExpr(
+              divExpr(
+                  loop_indices.at(0),
+                  consumer_tv->getLogicalDomain().at(1)->extent()),
+              tv->getLogicalDomain().at(1)->extent());
+          auto resize = dynamic_cast<Resize*>(
+              consumer_tv->getLogicalDomain().at(1)->definition());
+          NVF_ERROR(resize != nullptr);
+          auto id1 = subExpr(
+              modExpr(
+                  loop_indices.at(0),
+                  consumer_tv->getLogicalDomain().at(1)->extent()),
+              resize->leftExpand());
+          return addExpr(id0, id1);
+        }
+        case 1:
+        case 2:
+          return loop_indices.at(0);
+        default:
+          NVF_ERROR(false, "Unexpected tensor: ", tv->toString());
+          break;
+      }
+      return nullptr;
+    }
+  };
+
+  IndexValidator<GetReference>::validate(&fusion, true);
+}
+
+// Contiguous tensor but merge order breaks contiguity
+TEST_F(ContigIndexingTest, NonConsistentMerge) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(3);
+  fusion.addInput(tv0);
+
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1));
+  fusion.addOutput(tv1);
+
+  tv1->merge(0, 2);
+  tv1->merge(0, 1);
+
+  TransformPropagator propagator(tv1);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
+
+  // Make sure both tv0 and tv1 are indexed without contig indexing
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
+        const override {
+      bool as_consumer = maybe_consumer == nullptr;
+      auto consumer_tv = as_consumer ? tv : maybe_consumer;
+      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+
+      auto id0 = divExpr(
+          divExpr(loop_indices.at(0), tv->getLogicalDomain().at(1)->extent()),
+          tv->getLogicalDomain().at(2)->extent());
+      auto id0_extent = mulExpr(
+          tv->getLogicalDomain().at(2)->extent(),
+          tv->getLogicalDomain().at(1)->extent());
+      auto id1 =
+          modExpr(loop_indices.at(0), tv->getLogicalDomain().at(1)->extent());
+      auto id1_extent = tv->getLogicalDomain().at(2)->extent();
+      auto id2 = modExpr(
+          divExpr(loop_indices.at(0), tv->getLogicalDomain().at(1)->extent()),
+          tv->getLogicalDomain().at(2)->extent());
+      return addExpr(
+          addExpr(mulExpr(id0, id0_extent), mulExpr(id1, id1_extent)), id2);
+    }
+  };
+
+  IndexValidator<GetReference>::validate(&fusion, true);
+}
+
+TEST_F(ContigIndexingTest, ConcretizedBroadcastMerge) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // [I0, I1]
+  auto tv0 = makeContigTensor(2);
+  fusion.addInput(tv0);
+  // [I0, I1, I2]
+  auto tv1 = makeContigTensor(3);
+  fusion.addInput(tv1);
+
+  auto tv2 = broadcast(tv0, {false, false, true});
+  auto tv3 = add(tv2, tv1);
+  fusion.addOutput(tv3);
+
+  tv3->merge(1, 2);
+  tv3->merge(0, 1);
+
+  TransformPropagator propagator(tv3);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
+
+  tv3->axis(0)->parallelize(ParallelType::TIDx);
+  scheduler_utils::parallelizeAllLike(tv3);
+
+  tv2->setMemoryType(MemoryType::Shared);
+
+  // tv2's broadcast domain is concretized. Previously, this would
+  // have prevented contig indexing.
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
+        const override {
+      // Only interested in tv2 here since that's the one that has a
+      // concretized broadcast domain
+      if (tv->name() != 2) {
+        return nullptr;
+      }
+
+      bool as_consumer = maybe_consumer == nullptr;
+      auto consumer_tv = as_consumer ? tv : maybe_consumer;
+      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+
+      // When indexed as a consumer, the second merge is a contig
+      // merge, so the index should be just threadIdx.x
+      if (as_consumer) {
+        return loop_indices.at(0);
+      }
+
+      // When indexed as a producer of tv1, the loop domain has all
+      // the concrete domains merged, so it needs to be
+      // decomposed. Specifically, the loop domain, threadIdx.x, should be
+      // decomposed as:
+      //
+      // Index of the outer logical domain: tidx / (I1 * I2)
+      // Index of the inner logical domain: tidx % (I1 * I2) / I2
+      //
+      // Since the allocation domain of t2 is (I0 * I1), the final
+      // index is (tidx / (I1 * I2) * I1 + tidx % (I1 * I2) / I2)
+
+      auto logical0 = divExpr(
+          loop_indices.at(0),
+          mulExpr(
+              consumer_tv->getLogicalDomain().at(1)->extent(),
+              consumer_tv->getLogicalDomain().at(2)->extent()));
+
+      auto logical1 = divExpr(
+          modExpr(
+              loop_indices.at(0),
+              mulExpr(
+                  consumer_tv->getLogicalDomain().at(1)->extent(),
+                  consumer_tv->getLogicalDomain().at(2)->extent())),
+          consumer_tv->getLogicalDomain().at(2)->extent());
+
+      auto alloc0 = addExpr(
+          mulExpr(logical0, tv->getLogicalDomain().at(1)->extent()), logical1);
+
+      return alloc0;
+    }
+  };
+
+  IndexValidator<GetReference>::validate(&fusion, true);
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({5, 6}, options);
+  auto t1 = at::randn({5, 6, 7}, options);
+  std::vector<c10::IValue> aten_inputs = {t0, t1};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+}
+
+TEST_F(ContigPredicateIndexingTest, SimplePointwise1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
+  fusion.addOutput(tv2);
+
+  // Merge inner and outer, not outer and inner. This would disable
+  // contig indexing for normal tensor indexing but shouldn't matter
+  // for predicate indexing
+  tv2->merge(1, 0);
+  tv2->split(0, 4);
+
+  TransformPropagator propagator(tv2);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
+
+  tv1->inlineAt(1);
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    Val* getInlinePredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+
+      auto flatten_idx = addExpr(
+          mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
+          loop_indices.at(1));
+
+      // Since the flatten merge is ordered as inner then outer, the
+      // extent is inner_extent * outer_extent
+      auto flatten_extent = mulExpr(
+          tv->getLogicalDomain().at(1)->extent(),
+          tv->getLogicalDomain().at(0)->extent());
+
+      Val* zero = tv->fusion()->zeroVal();
+      return andExpr(
+          geExpr(flatten_idx, zero), ltExpr(flatten_idx, flatten_extent));
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion, true);
+}
+
+// Almost the same fusion as PredicateIndexingTest.SimpleUnswitch
+TEST_F(ContigPredicateIndexingTest, SimpleUnswitch) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv1);
+
+  auto tv2 = add(tv0, tv1);
+  fusion.addOutput(tv2);
+
+  tv0->cacheAfter();
+  tv1->cacheAfter();
+
+  tv2->flatten();
+  // For TIDx
+  tv2->split(0, 128);
+  // For serial
+  tv2->split(0, 8);
+  // For unswitch
+  tv2->split(0, 4);
+
+  TransformPropagator propagator(tv2);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
+
+  inlineMost();
+
+  tv2->axis(0)->parallelize(ParallelType::BIDx);
+  tv2->axis(1)->parallelize(ParallelType::Unswitch);
+  tv2->axis(3)->parallelize(ParallelType::TIDx);
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    // The unswitch predicate should look like:
+    //
+    // (((blockIdx.x * 4 + 0) * 8 + 0) * 128 + threadId.x >= 0 &&
+    // (((blockIdx.x * 4 + 3) * 8 + 7) * 128 + threadId.x <
+    // tv0.logical_size[0] * tv0.logical_size[1]
+    Val* getOuterPredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+      auto start_idx = addExpr(
+          mulExpr(
+              IrBuilder::addExpr(
+                  mulExpr(
+                      IrBuilder::addExpr(
+                          mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
+                          tv->fusion()->zeroVal()),
+                      tv->axis(2)->extent()),
+                  tv->fusion()->zeroVal()),
+              tv->axis(3)->extent()),
+          loop_indices.at(3));
+      auto stop_idx = addExpr(
+          mulExpr(
+              IrBuilder::addExpr(
+                  mulExpr(
+                      IrBuilder::addExpr(
+                          mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
+                          subExpr(
+                              tv->axis(1)->extent(), tv->fusion()->oneVal())),
+                      tv->axis(2)->extent()),
+                  subExpr(tv->axis(2)->extent(), tv->fusion()->oneVal())),
+              tv->axis(3)->extent()),
+          loop_indices.at(3));
+
+      return andExpr(
+          geExpr(start_idx, tv->fusion()->zeroVal()),
+          ltExpr(
+              stop_idx,
+              mulExpr(
+                  tv->getLogicalDomain().at(0)->extent(),
+                  tv->getLogicalDomain().at(1)->extent())));
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion, true);
+}
+
+// Make sure non-divisible split to prevent contig predicate indexing
+TEST_F(ContigPredicateIndexingTest, NonDivisibleSplit1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+
+  // [I0, I1] -> [I0/5, 5, I1]
+  auto tv1 = reshape(tv0, {10, 20}, {2, 5, 20});
+  fusion.addOutput(tv1);
+
+  auto tv2 = set(tv0);
+  fusion.addOutput(tv2);
+
+  // Merge first one of the split outputs with the innermost. Since
+  // the split for the reshape is guaranteed to be divisible, the
+  // output domain of the last merge should be the one to predicate
+  tv1->merge(1, 2);
+  tv1->merge(0, 1);
+
+  // While the transformations are the same as tv1, nvFuser doesn't
+  // know the corresponding split is actually divisible (note that the
+  // split for tv1 is an outer split by a factor of 2, whereas the
+  // split for tv2 is an inner split by a factor of 5), so it's
+  // considered non-divisible. The resulting predication should be done
+  // with each of the two logical domains.
+  tv2->split(0, 5);
+  // [ceilDiv(I0, 5), 5, I1]
+  // Merge first one of the split outputs with the innermost
+  tv2->merge(1, 2);
+  tv2->merge(0, 1);
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    Val* getInlinePredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+      auto zero = tv->fusion()->zeroVal();
+
+      // For tv1, since it's fully contiguous, the predicate should be
+      // just:
+      //
+      // i >= 0 && i < I0 * I1
+      //
+      // where i is the loop index of the sole loop.
+      //
+      // For tv2, since it isn't contiguous:
+      //
+      // I0: i / (5 * I1) * 5 + i % (5 * I1) / I1
+      // I1: i % (5 * I1) % I1
+
+      auto i = loop_indices.at(0);
+
+      if (tv->name() == 1) {
+        return andExpr(
+            geExpr(i, zero),
+            ltExpr(
+                i,
+                IrBuilder::mulExpr(
+                    tv->getLogicalDomain().at(0)->extent(),
+                    IrBuilder::mulExpr(
+                        tv->getLogicalDomain().at(1)->extent(),
+                        tv->getLogicalDomain().at(2)->extent()))));
+      } else {
+        NVF_ERROR(tv->name() == 2);
+
+        auto i0_ext = tv->getLogicalDomain().at(0)->extent();
+        auto i1_ext = tv->getLogicalDomain().at(1)->extent();
+        auto five_i1 = IrBuilder::mulExpr(createInt(5), i1_ext);
+        auto i0 = addExpr(
+            mulExpr(divExpr(i, five_i1), createInt(5)),
+            divExpr(modExpr(i, five_i1), i1_ext));
+        auto i1 = modExpr(modExpr(i, five_i1), i1_ext);
+        return andExpr(
+            andExpr(
+                andExpr(geExpr(i0, zero), ltExpr(i0, i0_ext)),
+                geExpr(i1, zero)),
+            ltExpr(i1, i1_ext));
+      }
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion, true);
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({10, 20}, options);
+  std::vector<c10::IValue> aten_inputs = {t0};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto outputs = fe.runFusion(aten_inputs);
+
+  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+}
+
+TEST_F(IndexingTest, PerDimLogicalIndices) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({4, 8});
+  fusion.addInput(tv0);
+  auto tv1 = reshape(tv0, {4, 8}, {32});
+  fusion.addOutput(tv1);
+
+  tv1->split(0, 4);
+  tv1->split(0, 128);
+
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  tv1->axis(1)->parallelize(ParallelType::TIDx);
+  tv1->axis(2)->parallelize(ParallelType::Unroll);
+
+  auto validate_per_dim_indices =
+      [](const std::vector<Expr*>& exprs) -> std::vector<Expr*> {
+    class Validator : public kir::IrVisitor {
+     public:
+      using kir::IrVisitor::handle;
+      using kir::IrVisitor::dispatch;
+
+      void handle(LoadStoreOp* ls) override {
+        // There should be only one expression of tv1 = Set(tv0).
+        NVF_ERROR(ls->in()->isA<kir::TensorIndex>());
+        auto tv0 = ls->in()->as<kir::TensorIndex>()->view();
+        NVF_ERROR(tv0->name() == 0);
+
+        NVF_ERROR(ls->out()->isA<kir::TensorIndex>());
+        auto tv1 = ls->out()->as<kir::TensorIndex>()->view();
+        NVF_ERROR(tv1->name() == 1);
+
+        auto indexer = GpuLower::current()->tensorIndexer();
+        auto loop_indices = getLoopIndices(tv1, indexer);
+
+        // The logical domains of tv0 and tv1 are [i0, i1] and
+        // [i0*i1], respectively. Since tv1 is split twice, the
+        // logical domain of tv1 is obtained by traversing them from
+        // the three loop iter domains.
+        auto tv1_logical_index = addExpr(
+            mulExpr(
+                addExpr(
+                    mulExpr(loop_indices.at(0), createInt(128)),
+                    loop_indices.at(1)),
+                createInt(4)),
+            loop_indices.at(2));
+
+        // The tv0 logical indices are obtained by traversing through
+        // the merge for the reshape op.
+        std::vector<Val*> tv0_logical_indices{
+            divExpr(tv1_logical_index, tv0->getLogicalDomain().at(1)->extent()),
+            modExpr(
+                tv1_logical_index, tv0->getLogicalDomain().at(1)->extent())};
+
+        // Check tv1 logical indices
+        auto actual_tv1_logial_indices =
+            Index::getConsumerPerDimLogicalIndex(tv1, for_loops_, {});
+        ASSERT_EQ(actual_tv1_logial_indices.size(), 1);
+        EXPECT_TRUE(actual_tv1_logial_indices[0]->sameAs(tv1_logical_index))
+            << "Validation failure of " << tv1->toString() << " as consumer"
+            << "\nRef: " << tv1_logical_index->toInlineString()
+            << "\nActual: " << actual_tv1_logial_indices[0]->toInlineString();
+
+        // Check tv0 logical indices
+        auto actual_tv0_logial_indices =
+            Index::getProducerPerDimLogicalIndex(tv0, tv1, for_loops_, {});
+        ASSERT_EQ(actual_tv0_logial_indices.size(), tv0_logical_indices.size());
+        for (const auto i : c10::irange(tv0_logical_indices.size())) {
+          EXPECT_TRUE(
+              actual_tv0_logial_indices[i]->sameAs(tv0_logical_indices[i]))
+              << "Validation failure of " << tv0->toString() << " as producer"
+              << "\nRef: " << tv0_logical_indices[0]->toInlineString()
+              << "\nActual: " << actual_tv0_logial_indices[i]->toInlineString();
+        }
+      }
+    };
+
+    Validator validator;
+    validator.handle(exprs);
+
+    return exprs;
+  };
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  DisableOptionsGuard disable_options_guard;
+  DisableOptionsGuard::getCurOptions().set(DisableOption::ExprSimplify);
+  DisableOptionsGuard::getCurOptions().set(DisableOption::IndexHoist);
+
+  GpuLower lower(&fusion);
+  lower.passes().insert(
+      lower.passes().end(),
+      {"validate_per_dim_indices", validate_per_dim_indices});
+  lower.run();
 }
 
 } // namespace nvfuser

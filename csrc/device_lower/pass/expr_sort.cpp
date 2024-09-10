@@ -1142,7 +1142,7 @@ void ExprSegmentationSorter::initializeForLoopDependencies() {
       concrete_id_dependencies_.empty(),
       "For loop dependencies have already been initialized.");
 
-  for (auto tv : ir_utils::allTvs(fusion_)) {
+  for (auto tv : fusion_->allTvs()) {
     std::unordered_set<IterDomain*> dependencies;
     for (int64_t tv_id_i = std::max(
              tv->getMaxProducerPosition(),

@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <abstract_tensor.h>
+#include <device_lower/analysis/circular_buffer.h>
 #include <inlining.h>
 #include <instrumentation.h>
 #include <multidevice/utils.h>
@@ -13,6 +14,7 @@
 #include <scheduler/matmul.h>
 #include <scheduler/matmul_utils.h>
 #include <scheduler/mma_utils.h>
+#include <scheduler/multi_matmul.h>
 #include <scheduler/utils.h>
 
 // NOTE: included to avoid compilation error caused by missing destructor in
@@ -733,6 +735,11 @@ void scheduleSplitKSum(
 } // namespace
 
 void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
+  if (isOptionEnabled(EnableOption::FuseMultipleMatmuls)) {
+    scheduleMultipleMatmuls(fusion, params);
+    return;
+  }
+
   FusionGuard fg(fusion);
 
   // Make sure we don't have global memory set on intermediate tensors from
@@ -1287,8 +1294,18 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   }
 
   if (params.circular_buffer_options.circular_buffer_smem_read) {
-    acr->circularBuffer(/*number_of_stages=*/2);
-    bcr->circularBuffer(/*number_of_stages=*/2);
+    // Only apply circular buffering if we can fill the entire pipeline.
+    auto safely_apply_circular_buffering = [](TensorView* tv) {
+      constexpr int64_t number_of_stages = 2;
+      IterDomain* cb_axis = getCircularBufferAxis(tv);
+      NVF_ERROR(cb_axis != nullptr);
+      NVF_ERROR(cb_axis->extent()->isConstScalar());
+      if (cb_axis->extent()->evaluate() >= number_of_stages) {
+        tv->circularBuffer(number_of_stages);
+      }
+    };
+    safely_apply_circular_buffering(acr);
+    safely_apply_circular_buffering(bcr);
   }
 
   if (params.circular_buffer_options.circular_buffer_smem_read &&

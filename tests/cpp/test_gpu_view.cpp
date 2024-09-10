@@ -2701,11 +2701,9 @@ TEST_F(GpuViewTest, FusionMismatchingReshape) {
   // Parallelize all tensors as [BIDx, TIDx]
   schedule.merge(0);
   schedule.split(0, 128);
-#if 0
-  // TODO: sync analysis is not working yet
+
   schedule.parallelize(0, ParallelType::BIDx);
   schedule.parallelize(1, ParallelType::TIDx);
-#endif
 
   // Now, tv5 looks like:
   //

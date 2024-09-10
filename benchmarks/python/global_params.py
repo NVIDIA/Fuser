@@ -4,7 +4,8 @@
 import torch
 from typing import Union, List, Tuple
 from nvfuser import DataType
-from .core import DEVICE_PROPERTIES, BENCHMARK_CONFIG
+from .core import BENCHMARK_CONFIG
+from nvfuser.pytorch_utils import DEVICE_PROPERTIES
 import itertools
 import os
 from random import sample

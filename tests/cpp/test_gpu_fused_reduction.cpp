@@ -2085,7 +2085,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce4_CUDA) {
   tv4->axis(0)->parallelize(ParallelType::BIDx);
   tv4->axis(1)->parallelize(ParallelType::TIDx);
 
-  for (auto tv : ir_utils::allTvs(&fusion)) {
+  for (auto tv : fusion.allTvs()) {
     tv->axis(-2)->parallelize(ParallelType::BIDy);
     tv->axis(-1)->parallelize(ParallelType::TIDy);
   }
@@ -2355,8 +2355,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelfordShmoo_CUDA) {
             }));
     transform_ref_rf->axis(unswitch_id)->parallelize(ParallelType::Serial);
 
-    scheduler_utils::parallelizeAllLike(
-        transform_ref_rf, ir_utils::allTvs(&fusion));
+    scheduler_utils::parallelizeAllLike(transform_ref_rf, fusion.allTvs());
 
     ParallelType vec_pt = ParallelType::Vectorize;
     tv1->axis(vec_id)->parallelize(vec_pt);

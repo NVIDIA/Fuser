@@ -6,9 +6,9 @@
  */
 // clang-format on
 
-#include <compute_at_map.h>
 #include <device_lower/utils.h>
 #include <ir/internal_base_nodes.h>
+#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
 #include <multidevice/lower_communication.h>
@@ -105,23 +105,27 @@ std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getShardingChanges
 
 bool isSharded(const TensorView* tv) {
   bool is_sharded = false;
-  auto rids = TensorDomain::noReductions(tv->getLogicalDomain());
-  auto ids = TensorDomain::noReductions(tv->getLoopDomain());
-  for (auto i : c10::irange(ids.size())) {
+  const auto& logical_ids = TensorDomain::noReductions(tv->getLogicalDomain());
+  const auto& loop_ids = TensorDomain::noReductions(tv->getLoopDomain());
+  for (auto i : c10::irange(loop_ids.size())) {
+    if (!loop_ids[i]->isDeviceDim()) {
+      continue;
+    }
+
     // Only one axis can be sharded on DIDx.
     NVF_ERROR(
-        !(is_sharded && ids[i]->isDeviceDim()),
+        !is_sharded,
         "Multiple IterDomains parallelized on DIDx in TensorView ",
-        tv->toString());
+        tv);
 
-    if (ids[i]->isDeviceDim()) {
-      // Currently do not support split/merge on a device dimension.
-      NVF_ERROR(
-          std::find(rids.begin(), rids.end(), ids[i]) != rids.end(),
-          "Cannot parallelize DIDx on a split/merge axis ",
-          ids[i]->toString());
-      is_sharded = true;
-    }
+    // Currently do not support split/merge on a device dimension.
+    NVF_ERROR(
+        std::find(logical_ids.begin(), logical_ids.end(), loop_ids[i]) !=
+            logical_ids.end(),
+        "Cannot parallelize DIDx on a split/merge axis ",
+        loop_ids[i]);
+
+    is_sharded = true;
   }
   return is_sharded;
 }
@@ -136,6 +140,10 @@ int64_t numDeviceDims(const TensorView* tv) {
 bool haveDifferentShardings(
     const TensorView* producer,
     const TensorView* consumer) {
+  // cpu scalars are not required to have a mesh
+  if (producer->isCpuScalar() || consumer->isCpuScalar()) {
+    return false;
+  }
   // exit early in the unsharded case for performance
   if (!producer->hasDeviceMesh() && !consumer->hasDeviceMesh()) {
     return false;
@@ -147,19 +155,18 @@ bool haveDifferentShardings(
   // Create a map between producer's and consumer's IterDomains. We iterate
   // over producer's iterdomain and compare sharding type with consumer's
   // iterdomain
-  const auto p2c_map =
+  const std::unordered_map<IterDomain*, IterDomain*>& p2c =
       PairwiseLogicalDomainMap(producer, consumer).mapProducerToConsumer();
   for (auto p_id : TensorDomain::noReductions(producer->getLogicalDomain())) {
-    auto p2c_map_it = p2c_map.find(p_id);
-    NVF_ERROR(
-        p2c_map_it != p2c_map.end(),
-        "the producer ",
-        producer,
-        " has a dimension ",
-        p_id,
-        " that is not mapped to its consumer ",
-        consumer);
-    auto c_id = p2c_map_it->second;
+    const auto i = p2c.find(p_id);
+    if (i == p2c.end()) {
+      // This happens e.g. when `p_id` is squeezed. Even if `p_id` is
+      // parallelized on DID, the squeezed dimension is size-1 and doesn't
+      // trigger resharding.
+      continue;
+    }
+
+    auto c_id = i->second;
     if (p_id->getParallelType() != c_id->getParallelType() &&
         (p_id->isDeviceDim() || c_id->isDeviceDim())) {
       // Mismatch found
@@ -224,9 +231,57 @@ void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs) {
   }
 }
 
+void shardBetween(
+    const std::vector<Expr*>& from,
+    const std::vector<Expr*>& to,
+    TensorView* ref) {
+  std::vector<TensorView*> from_tvs;
+  std::vector<TensorView*> to_tvs;
+  for (auto expr : from) {
+    auto outputs = ir_utils::filterByType<TensorView>(expr->outputs());
+    std::copy(outputs.begin(), outputs.end(), std::back_inserter(from_tvs));
+  }
+
+  for (auto expr : to) {
+    auto outputs = ir_utils::filterByType<TensorView>(expr->outputs());
+    std::copy(outputs.begin(), outputs.end(), std::back_inserter(to_tvs));
+  }
+
+  shardBetween(from_tvs, to_tvs, ref);
+}
+
+void shardBetween(
+    const std::vector<TensorView*>& from,
+    const std::vector<TensorView*>& to,
+    TensorView* ref) {
+  std::unordered_set<TensorView*> boundary = {to.begin(), to.end()};
+  for (auto tv : from) {
+    auto expr = tv->definition();
+    if (expr == nullptr) {
+      continue;
+    }
+    auto inputs = ir_utils::filterByType<TensorView>(expr->inputs());
+    std::copy(
+        inputs.begin(), inputs.end(), std::inserter(boundary, boundary.end()));
+  }
+
+  std::unordered_set<TensorView*> all_tvs =
+      scheduler_utils::getAllTvsFrom(from, boundary);
+  shardAllLike(ref, {all_tvs.begin(), all_tvs.end()});
+
+  // Remove DID parallelizations on reduction axes.
+  for (auto* tv : all_tvs) {
+    for (IterDomain* id : tv->getLoopDomain()) {
+      if (id->isReduction() && id->isDeviceDim()) {
+        id->parallelize(ParallelType::Serial);
+      }
+    }
+  }
+}
+
 int64_t requestedNumberOfDevices(Fusion* fusion) {
   DeviceIdxType max_index = 0;
-  for (auto tv : ir_utils::allTvs(fusion)) {
+  for (auto tv : fusion->allTvs()) {
     if (tv->hasDeviceMesh()) {
       for (auto d_id : tv->getDeviceMesh().vector()) {
         max_index = std::max(max_index, d_id);
@@ -246,7 +301,7 @@ void unshard(TensorView* tv) {
 }
 
 void unshard(Fusion* fusion) {
-  for (auto tv : ir_utils::allTvs(fusion)) {
+  for (auto tv : fusion->allTvs()) {
     unshard(tv);
   }
 }

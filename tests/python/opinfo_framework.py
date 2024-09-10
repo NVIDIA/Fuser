@@ -6,7 +6,7 @@
 import inspect
 import torch
 from typing import Callable
-from pytest_utils import map_dtype_to_str
+from utils import map_dtype_to_str
 import pytest
 
 
@@ -58,3 +58,27 @@ class create_op_test:
                 )
                 # Adds the instantiated test to the requested scope
                 self.scope[test.__name__] = test
+
+
+# This pseudo-decorator enables automatic serialization upon program exit and
+# tests deserializing the default workspace upon creating the tests.
+#
+# Serializing error test cases corrupts the serialized binary. We call
+# FusionCache.reset() to clear the cache after running an error test in
+# `test_python_frontend.py'. In the pytest framework, the error tests are
+# separate from the correctness tests. Only apply this decorator to the
+# correctness tests to avoid calling FusionCache.reset().
+class atexit_serde_create_op_test(create_op_test):
+    def __init__(self, opinfos, *, scope=None):
+        from utils import atexit_serde_check
+
+        atexit_serde_check()
+
+        # Replicate create_op_test.__init__ to have correct scope
+        self.opinfos = opinfos
+
+        # Acquires the caller's global scope
+        if scope is None:
+            previous_frame = inspect.currentframe().f_back
+            scope = previous_frame.f_globals
+        self.scope = scope

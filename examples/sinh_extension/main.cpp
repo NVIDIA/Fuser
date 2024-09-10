@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <executor.h>
+#include <fusion_executor/executor.h>
 #include <ops/arith.h>
 #include <scheduler/all_schedulers.h>
 #include <torch/extension.h>

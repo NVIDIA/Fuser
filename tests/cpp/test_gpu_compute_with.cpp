@@ -130,7 +130,7 @@ TEST_F(NVFuserTest, FusionComputeWith1_CUDA) {
 
   // Set the global inlining only with the outer axis
   std::unordered_set<IterDomain*> uninlinable;
-  for (auto tv : ir_utils::allTvs(&fusion)) {
+  for (auto tv : fusion.allTvs()) {
     if (tv->nDims() == 2) {
       uninlinable.insert(tv->axis(1));
     }
@@ -424,7 +424,7 @@ TEST_F(NVFuserTest, FusionComputeWith6_CUDA) {
 
   TransformPropagator propagator(tv3_rf);
   MaxLogicalDomainInfoSpanningTree(tv3_rf).traverse(&propagator);
-  scheduler_utils::parallelizeAllLike(tv3_rf, ir_utils::allTvs(&fusion));
+  scheduler_utils::parallelizeAllLike(tv3_rf, fusion.allTvs());
 
   tv1->axis(-1)->parallelize(ParallelType::Vectorize);
   tv7->axis(-1)->parallelize(ParallelType::Vectorize);

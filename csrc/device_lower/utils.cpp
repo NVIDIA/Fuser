@@ -180,6 +180,13 @@ bool isLdMatrixOp(const Expr* expr) {
   return false;
 }
 
+bool isStMatrixOp(const Expr* expr) {
+  if (auto ldst = dynamic_cast<const LoadStoreOp*>(expr)) {
+    return ldst->opType() == LoadStoreOpType::StMatrix;
+  }
+  return false;
+}
+
 bool isCpAsyncOp(const Expr* expr) {
   if (auto ldst = dynamic_cast<const LoadStoreOp*>(expr)) {
     return ldst->opType() == LoadStoreOpType::CpAsync;
@@ -835,6 +842,14 @@ Val* u32IndexScalarSmemTv(TensorView* smem_tv) {
       UnaryOpType::ToUnsignedSmemAddr,
       u32addr,
       IrBuilder::metadataExpr(smem_tv));
+  return u32addr;
+}
+
+Val* u32IndexScalarSmemTv(kir::TensorIndex* index) {
+  auto ptr_address = IrBuilder::addressExpr(index);
+  auto u32addr = IrBuilder::create<Val>(DataType::SMemAddress);
+  IrBuilder::create<UnaryOp>(
+      UnaryOpType::ToUnsignedSmemAddr, u32addr, ptr_address);
   return u32addr;
 }
 

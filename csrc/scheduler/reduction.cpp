@@ -1056,17 +1056,25 @@ void ReductionScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
+  FUSER_PERF_SCOPE("ReductionScheduler::computeHeuristics");
   params_ = getReductionHeuristics(fusion, runtime_info, data_cache);
   NVF_ERROR(params_ != nullptr);
 }
 
 void ReductionScheduler::schedule(Fusion* fusion) {
-  FUSER_PERF_SCOPE("Schedule Single Reduction");
+  FUSER_PERF_SCOPE("ReductionScheduler::schedule");
   scheduleReduction(fusion, reductionParams());
 }
 
 //! Check if the reduction heuristics apply in given fusion
 bool ReductionScheduler::canScheduleCompileTime(Fusion* fusion) {
+  FUSER_PERF_SCOPE("ReductionScheduler::canScheduleCompileTime");
+  if (scheduler_utils::isResharding(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        heuristicType(), "Fusion is resharding.");
+    return false;
+  }
+
   // Needs at least one reduction to consider.
   if (!ir_utils::hasAnyReductionOps(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
@@ -1204,6 +1212,7 @@ bool ReductionScheduler::canScheduleRunTime(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
+  FUSER_PERF_SCOPE("ReductionScheduler::canScheduleRunTime");
   return true;
 }
 
@@ -1238,8 +1247,6 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
     HeuristicSummary* data_cache) {
-  FUSER_PERF_SCOPE("getReductionHeuristics");
-
   SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs);
 
   return getReductionHeuristics(fusion, runtime_info, data_cache);
@@ -1249,8 +1256,6 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
-  FUSER_PERF_SCOPE("getReductionHeuristics");
-
   FusionGuard fg(fusion);
 
   auto reduction_tv_entry =
@@ -1295,12 +1300,20 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
 
   auto& unrollable_inputs_outputs = unrollable_inputs_outputs_entry.get();
 
+  // Although properties contains runtime information
+  // "inner_most_dimension_ndims" is a compile time value
+  auto vec_break_point = HeuristicSummaryEntry<
+      HeuristicCompileTime::VectorizationBreakPointOfReductionProducer>(
+      data_cache, [&reduction_tv, &reduced_tv, &properties]() {
+        return std::make_unique<int64_t>(
+            vectorize_helper::getVectorizationBreakPointOfReductionProducer(
+                reduction_tv,
+                reduced_tv,
+                properties.inner_most_dimension_ndims));
+      });
+
   const auto vectorize_factor = vectorize_helper::getVectorizationFactor(
-      runtime_info,
-      reduced_tv,
-      data_cache,
-      vectorize_helper::getVectorizationBreakPointOfReductionProducer(
-          reduction_tv, reduced_tv, properties.inner_most_dimension_ndims));
+      runtime_info, reduced_tv, data_cache, vec_break_point.get());
 
   // Base max dtype and n_tensor_inputs on tensors that are vectorizable (i.e.
   // share inner dimension with data pattern we're looking at).
@@ -1338,7 +1351,6 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
 
 // fusion is the input IR that will be modified by this function
 void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
-  FUSER_PERF_SCOPE("scheduleReduction");
   FusionGuard fg(fusion);
 
   bool unroll = rparams.isUnrolled();
@@ -1416,6 +1428,8 @@ void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
       (has_welford
            ? rparams.cross_grid_inner_reduction && rparams.persistent_kernel
            : rparams.cross_block_inner_reduction);
+
+  scheduler_utils::moveNonConcretizedBroadcastInnermost(fusion, {reference_tv});
 
   reduction_scheduler_utils::multiReductionInliner(
       fusion,

@@ -1058,7 +1058,7 @@ TEST_F(VectorizeHelperTest, SpanningTree_CUDA) {
         auto mapper = vectorize_helper::ContiguousInnerDimensionsMapper::map(
             out, {out->axis(0), out->axis(1)});
 
-        for (auto tv : ir_utils::allTvs(&fusion)) {
+        for (auto tv : fusion.allTvs()) {
           if (tv->name() == 0 || tv->name() == 1) {
             continue;
           }

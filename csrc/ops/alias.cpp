@@ -261,6 +261,10 @@ TensorView* squeeze(TensorView* x, const std::vector<int64_t>& dims) {
   return squeeze(x, to_squeeze);
 }
 
+TensorView* squeeze(TensorView* x, std::initializer_list<int64_t> dims) {
+  return squeeze(x, std::vector<int64_t>(dims));
+}
+
 TensorView* squeeze(
     TensorView* x,
     const std::vector<bool>& to_squeeze,
@@ -838,6 +842,33 @@ TensorView* slice(
          IrBuilder::create<Val>(steps[i])});
   }
   return slice(inp, slices);
+}
+
+std::vector<TensorView*> chunk(
+    TensorView* in,
+    const int64_t chunks,
+    int64_t dim) {
+  NVF_CHECK(chunks > 0);
+
+  const auto in_logical = TensorDomain::noReductions(in->getLogicalDomain());
+  const auto num_dims = static_cast<int64_t>(in_logical.size());
+  dim = wrapDim(dim, num_dims);
+  Val* dim_size = in_logical[dim]->extent();
+  Val* slice_size = SimplifyingIrBuilder::ceilDivExpr(
+      dim_size, IrBuilder::create<Val>(chunks));
+
+  std::vector<TensorView*> slices;
+  slices.reserve(chunks);
+  std::vector<Slice> ranges(num_dims);
+  for (auto i : c10::irange(chunks)) {
+    ranges[dim].start = ranges[dim].stop;
+    ranges[dim].stop =
+        (i == chunks - 1 ? nullptr
+                         : SimplifyingIrBuilder::mulExpr(
+                               slice_size, IrBuilder::create<Val>(i + 1)));
+    slices.push_back(slice(in, ranges));
+  }
+  return slices;
 }
 
 } // namespace nvfuser

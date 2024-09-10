@@ -27,11 +27,12 @@ OuterPersistentKernelScheduler::OuterPersistentKernelScheduler(
 }
 
 void OuterPersistentKernelScheduler::schedule(Fusion* fusion) {
-  FUSER_PERF_SCOPE("Schedule OuterPersistent Fusion");
+  FUSER_PERF_SCOPE("OuterPersistentKernelScheduler::schedule");
   scheduleOuterPersistentKernel(fusion, reductionParams());
 }
 
 bool OuterPersistentKernelScheduler::canScheduleCompileTime(Fusion* fusion) {
+  FUSER_PERF_SCOPE("OuterPersistentKernelScheduler::canScheduleCompileTime");
   return normalization_scheduler_utils::compileTimeCheck(
       fusion, heuristicType());
 }
@@ -40,7 +41,7 @@ bool OuterPersistentKernelScheduler::canScheduleRunTime(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
-  FUSER_PERF_SCOPE("OuterPersistentKernelScheduler::canSchedule");
+  FUSER_PERF_SCOPE("OuterPersistentKernelScheduler::canScheduleRunTime");
   auto reduction_tv_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::ReductionTVs>(
           data_cache, [&fusion]() {
@@ -242,6 +243,7 @@ void OuterPersistentKernelScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
+  FUSER_PERF_SCOPE("OuterPersistentKernelScheduler::computeHeuristics");
   params_ = getOuterPersistentHeuristics(fusion, runtime_info, data_cache);
   NVF_ERROR(params_ != nullptr);
 }
@@ -637,7 +639,6 @@ std::shared_ptr<ReductionParams> getOuterPersistentHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
-  FUSER_PERF_SCOPE("getOuterPersistentHeuristics");
   FusionGuard fg(fusion);
 
   const auto& prop =
@@ -663,7 +664,6 @@ std::shared_ptr<ReductionParams> getOuterPersistentHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
     HeuristicSummary* data_cache) {
-  FUSER_PERF_SCOPE("getOuterPersistentHeuristicsFromIValue");
   SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs);
   return getOuterPersistentHeuristics(fusion, runtime_info, data_cache);
 }

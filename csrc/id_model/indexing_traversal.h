@@ -25,26 +25,7 @@ class IndexingTraversal : public ValGraphBFS {
       const Expr* expr,
       const ValGraph& graph,
       std::vector<NodeType> from_groups,
-      std::vector<NodeType> to_groups)
-      : ValGraphBFS(graph, from_groups, to_groups) {
-    auto consumer_tv = ir_utils::getTvOutput(expr);
-    NVF_ERROR(consumer_tv != nullptr);
-    if (consumer_tv->hasRoot()) {
-      // Remember the resize exprs appearing in the consumer
-      // tensor. These resize exprs are the only ones that should be
-      // valid to visit when indexing the inputs and outputs of the expr
-      auto root_to_logical_exprs = StmtSort::getExprsBetween(
-          {consumer_tv->getRootDomain().begin(),
-           consumer_tv->getRootDomain().end()},
-          {consumer_tv->getLogicalDomain().begin(),
-           consumer_tv->getLogicalDomain().end()});
-      for (Expr* root_to_logical_expr : root_to_logical_exprs) {
-        if (auto resize = dynamic_cast<Resize*>(root_to_logical_expr)) {
-          resize_paths_.insert(resize);
-        }
-      }
-    }
-  }
+      std::vector<NodeType> to_groups);
 
   ~IndexingTraversal() override = default;
 
