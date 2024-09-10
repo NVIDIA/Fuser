@@ -10,7 +10,7 @@ The computation (randn + mul + sum) is repeated a large number of times.
 The base tolerance is the max error seen when comparing the desired precision type with the next higher precision.
 The final tolerances are computed by adding a safety factor of 3/4 to this base tolerance.
 
-The output of this file is a .npy file corresponding to each dtype, containing a {size: base_tolerances} dict.
+The output of this file is a .npy file corresponding to each dtype, containing a {size: safety_factor * base_tolerances} dict.
 
 Note: The script may take a long time for a high number of num_iters, so it may be useful to only run the script for one dtype at a time. Modify `dtype_to_ref_dtypes` accordingly.
 
@@ -18,7 +18,7 @@ To run: python tools/generate_validation_tolerances.py
 To load the files:
     ```
     import numpy as np
-    base_tol_dict = np.load(file_name.npy, allow_pickle=True).item()
+    tol_dict = np.load(file_name.npy, allow_pickle=True).item()
     ```
 """
 
@@ -50,15 +50,21 @@ if __name__ == "__main__":
         torch.float32: torch.float64,
     }
 
+    # The original safety factor used is not known, but reverse-engineering estimates it between 3-5.
+    safety_factor = 4
+
     for dtype, ref_dtype in dtype_to_ref_dtypes.items():
         tolerances = {}
         for size in sizes:
-            print(f"size:{size}")
-            val_tolerance = torch.finfo(torch.double).min
+            print(f"Computing validation constant for size:{size}")
+            base_tolerance = torch.finfo(torch.double).min
             for i in range(num_iters):
-                val_tolerance = max(
-                    val_tolerance, compute_max_error(size, dtype, ref_dtype)
+                base_tolerance = max(
+                    base_tolerance, compute_max_error(size, dtype, ref_dtype)
                 )
-            tolerances[size] = val_tolerance
+            tolerances[size] = safety_factor * base_tolerance
         date = datetime.now().strftime("%Y%m%d%H%M%S")
         np.save(f"validation_consts_{dtype}_{device}_{date}.npy", tolerances)
+        print(
+            f"dtype:{dtype} device:{device} safety_factor:{safety_factor}\n{tolerances}\n"
+        )
