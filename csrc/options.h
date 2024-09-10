@@ -102,6 +102,7 @@ enum class EnableOption {
   WarnRegisterSpill, //! Enable warnings of register spill
   IoToLowerPrecision, //! Enable castInputOutputToLowerPrecision. #1889 explains
                       //! why we disabled it by default.
+  JitDebug, //! Enable debug mode in nvrtc
   EndOfOption //! Placeholder for counting the number of elements
 };
 

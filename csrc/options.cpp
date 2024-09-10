@@ -162,6 +162,7 @@ std::unordered_map<EnableOption, std::vector<std::string>> Options<
       {"static_fusion_count", EnableOption::StaticFusionCount},
       {"warn_register_spill", EnableOption::WarnRegisterSpill},
       {"io_to_lower_precision", EnableOption::IoToLowerPrecision},
+      {"jit_debug", EnableOption::JitDebug},
   };
 
   return parseEnvOptions("ENABLE", available_options);
