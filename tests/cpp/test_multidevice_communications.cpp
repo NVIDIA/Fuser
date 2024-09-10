@@ -409,4 +409,28 @@ INSTANTIATE_TEST_SUITE_P(
     testing::Values(CommunicatorBackend::nccl, CommunicatorBackend::ucc),
     testing::PrintToStringParamName());
 
+TEST_F(MultiDeviceTest, MinimalTestHangSendRecv) {
+  if (communicator_->size() != 2) {
+    GTEST_SKIP() << "only supports 2 devices";
+  }
+  auto my_rank = communicator_->deviceId();
+  auto peer_rank = 1 - communicator_->deviceId();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
+  at::Tensor src_buffer = at::ones({1}, options) * my_rank;
+  at::Tensor dst_buffer = at::empty({1}, options);
+  std::vector<at::Tensor> src = {src_buffer};
+  std::vector<at::Tensor> dst = {dst_buffer};
+
+  std::vector<int64_t> all_devices = {0,1};
+  c10d::Backend* world_communicator_ = communicator_->getBackendForTeam(all_devices, CommunicatorBackend::nccl);
+  auto send_h = world_communicator_->send(src, peer_rank, my_rank);
+  auto recv_h = world_communicator_->recv(dst, peer_rank, peer_rank);
+
+  std::cout << "rank " <<  my_rank << " has finished posting" << std::endl;
+  send_h->wait();
+  recv_h->wait();
+  std::cout << "rank " <<  my_rank << " src = " << src << " dst = " << dst << std::endl;
+}
+
 } // namespace nvfuser
