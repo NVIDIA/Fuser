@@ -1215,7 +1215,9 @@ void ensureStaticIndexing(
       continue;
     }
     IterDomain* loop_id = loop->iter_domain();
-    if (loop->vectorize() || loop_id->isThread()) {
+    if (loop->vectorize() ||
+        nvfuser::ir_utils::isMemoryPartitionedAcross(
+            tv->getMemoryType(), loop_id->getParallelType())) {
       continue;
     }
     // Look for a domain that is mapped with the loop. If mapped in

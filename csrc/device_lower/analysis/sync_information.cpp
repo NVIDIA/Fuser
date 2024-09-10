@@ -7,8 +7,11 @@
 // clang-format on
 #include <device_lower/analysis/index_compute.h>
 #include <device_lower/lower2device.h>
+#include <id_model/indexing.h>
+#include <id_model/indexing_utils.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
+#include <transform_iter.h>
 
 #include <device_lower/analysis/sync_information.h>
 
@@ -468,7 +471,6 @@ SyncMap::SyncMap(Fusion* fusion) {
       // Stash information about parallelized producer iteration domains
       std::vector<IterDomain*> producer_parallel_ids(
           ParallelTypeBitmap::kNumParallelTypes, nullptr);
-      ParallelTypeBitmap producer_parallel_bitmap;
 
       // Get the parallel types that producer will be predicated off in producer
       // writes.
@@ -493,7 +495,7 @@ SyncMap::SyncMap(Fusion* fusion) {
           producer_redundant_types & (~producer_redundant_use_types);
 
       for (const auto producer_i : c10::irange(producer->nDims())) {
-        auto producer_axis = producer->axis(producer_i);
+        auto producer_axis = producer->getLoopDomain().at(producer_i);
         auto producer_ptype =
             ca_map->getConcreteMappedID(producer_axis, IdMappingMode::LOOP)
                 ->getParallelType();
@@ -507,7 +509,6 @@ SyncMap::SyncMap(Fusion* fusion) {
           continue;
         }
 
-        producer_parallel_bitmap.set(producer_ptype);
         producer_parallel_ids[getParallelTypeBitMapOffset(producer_ptype)] =
             producer_axis;
       }
@@ -517,9 +518,8 @@ SyncMap::SyncMap(Fusion* fusion) {
         // Stash information about parallelized consumer iteration domains
         std::vector<IterDomain*> consumer_parallel_ids(
             ParallelTypeBitmap::kNumParallelTypes, nullptr);
-        ParallelTypeBitmap consumer_parallel_bitmap;
         for (const auto consumer_i : c10::irange(consumer->nDims())) {
-          auto consumer_axis = consumer->axis(consumer_i);
+          auto consumer_axis = consumer->getLoopDomain().at(consumer_i);
           auto consumer_ptype =
               ca_map->getConcreteMappedID(consumer_axis, IdMappingMode::LOOP)
                   ->getParallelType();
@@ -538,12 +538,28 @@ SyncMap::SyncMap(Fusion* fusion) {
             continue;
           }
 
-          consumer_parallel_bitmap.set(consumer_ptype);
           consumer_parallel_ids[getParallelTypeBitMapOffset(consumer_ptype)] =
               consumer_axis;
         }
 
         ProducerConsumerIndexingInfoCache indexing_info(producer, consumer);
+
+        // P2C map is required when using the IdModel-based analysis
+        const std::unordered_map<IterDomain*, IterDomain*>
+            p2c_map_no_forwarding = GpuLower::current()->hasIdModel()
+            ? BestEffortReplay(
+                  consumer->getLoopDomain(),
+                  producer->getLoopDomain(),
+                  PairwiseLogicalDomainMap(producer, consumer)
+                      .mapProducerToConsumer(),
+                  /*replay_forward_id_map=*/{},
+                  /*target_forward_id_map=*/{},
+                  /*skip_replay_swizzle=*/false,
+                  /*skip_target_swizzle=*/false,
+                  /*skip_resize=*/false,
+                  /*error_on_failure=*/false)
+                  .getReplay()
+            : std::unordered_map<IterDomain*, IterDomain*>{};
 
         // At this point each parallel type that's present in the consumer or
         // the producer will be present in their corresponding `_parallel_ids`
@@ -657,6 +673,7 @@ SyncMap::SyncMap(Fusion* fusion) {
                      producer->getLogicalDomain(), {p_id})
                      .empty()) {
               raw_dims.set(producer_ptype);
+              continue;
             }
           }
 
@@ -666,30 +683,115 @@ SyncMap::SyncMap(Fusion* fusion) {
             continue;
           }
 
-          // When the producer is parallelized, the producer and the
-          // consumer must use the same index with the same parallel
-          // type. Otherwise, a sync is required. This is not the case
-          // when this op is a parallel broadcast.
+          // Use the IdModel loop promotion when available. This is
+          // required for tensors with non-trivial loop domains
+          if (GpuLower::current()->hasIdModel()) {
+            if (producer_ptype == consumer_ptype) {
+              // Case 1:
+              // Producer loop ID: non-broadcast
+              // Consumer loop ID: non-broadcast
+              // -> No sync if they are exactly mapped. This case is covered by
+              // the promotion check.
+              //
+              // Case 2:
+              // Producer loop ID: broadcast (which may be produced by
+              // merging multiple broadcast domains)
+              // Consumer loop ID: non-broadcast
+              // -> They are not exactly mapped but sync is not necessary as
+              // discussed below.
+              //
+              // Case 3:
+              // Producer loop ID: non-broadcast
+              // Consumer loop ID: non-broadcast
+              // -> Sync required if they are not exactly mapped, even when they
+              // are mapped by the best effort replay. (See
+              // NVFuserTest.RAWSync for a concrete repro).
 
-          if (producer_parallel_bcast) {
-            // As long as they are permissively mapped using the same
-            // parallel type, no communication is required
-            if (producer_ptype == consumer_ptype &&
-                ca_map->areMapped(p_id, c_id, IdMappingMode::PERMISSIVE)) {
-              continue;
+              // Case 1
+              const auto& id_model = GpuLower::current()->idModel();
+              auto producer_loop_id =
+                  indexing_utils::getLoopPromotion(p_id, id_model);
+              auto consumer_loop_id =
+                  indexing_utils::getLoopPromotion(c_id, id_model);
+              const auto& indexing_traveral_graph =
+                  id_model.idGraph(TensorIndexer::traversalGraphType());
+              if (indexing_traveral_graph.disjointValSets().strictAreMapped(
+                      producer_loop_id, consumer_loop_id)) {
+                continue;
+              }
+
+              // Case 2
+              // If the producer ID is a broadcast, it does not
+              // require synchronization even when the producer and
+              // consumer domains are not promoted to the same
+              // group. For example,
+              //
+              // tv0: [i0]
+              // tv1: [b1]
+              // tv2 = tv1
+              // tv3 = tv0 + tv2
+              //
+              // tv2->axis(0)->parallelize(ParallelType::TIDx);
+              // tv3->axis(0)->parallelize(ParallelType::TIDx);
+              //
+              // Assume that there's no inlining. Since it isn't
+              // inlined, the loop domain of tv2 is not mapped with
+              // that of tv3, thus the avove condition won't
+              // hit. Still, since tv2 will be executed by all TIDx
+              // threads independently, there's no need of
+              // synchronization.
+              //
+              // Consider a similar case like below:
+              //
+              // tv0: [i0, i1]
+              // tv1: [i2, b3]
+              // tv2 = tv1
+              // tv3 = tv0 + tv2
+              //
+              // tv2->merge(0, 1);
+              // tv3->merge(0, 1);
+              // tv2->axis(0)->parallelize(ParallelType::TIDx);
+              // tv3->axis(0)->parallelize(ParallelType::TIDx);
+              //
+              // This case does require a synchronization since for
+              // tv2, TIDx will be used to parallelize the outer
+              // domain only, whereas for tv3 it is mapped to the
+              // merged domain of the outer and inner domains. In
+              // other words, if a broadcast becomes non-broadcast
+              // by getting merged with a non-broadcast domain, it
+              // requires a synchronization.
+              if (p_id->isBroadcast()) {
+                if (auto it = p2c_map_no_forwarding.find(p_id);
+                    it != p2c_map_no_forwarding.end() && it->second == c_id) {
+                  continue;
+                }
+              }
             }
-            // Can this happen?
-            NVF_ERROR(
-                false,
-                "Unexpected case. Producer: ",
-                producer->toString(),
-                ", consumer: ",
-                consumer->toString());
-          }
-
-          if (producer_ptype == consumer_ptype &&
-              useSameIndex(producer, p_id, consumer, c_id, indexing_info)) {
-            continue;
+          } else {
+            // When the producer is parallelized, the producer and the
+            // consumer must use the same index with the same parallel
+            // type. Otherwise, a sync is required. This is not the case
+            // when this op is a parallel broadcast.
+            if (producer_parallel_bcast) {
+              // As long as they are permissively mapped using the same
+              // parallel type, no communication is required
+              if (producer_ptype == consumer_ptype &&
+                  ca_map->areMapped(p_id, c_id, IdMappingMode::PERMISSIVE)) {
+                continue;
+              }
+              // Can this happen?
+              NVF_ERROR(
+                  false,
+                  "Unexpected case. Producer: ",
+                  producer->toString(),
+                  ", consumer: ",
+                  consumer->toString());
+            }
+            if (producer_ptype == consumer_ptype) {
+              if (useSameIndex(producer, p_id, consumer, c_id, indexing_info)) {
+                continue;
+              }
+            }
           }
 
           raw_dims.set(producer_ptype);

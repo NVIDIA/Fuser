@@ -13,9 +13,9 @@
 
 #include <ATen/ArrayRef.h>
 
-#include <executor_params.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
+#include <fusion_executor/executor_params.h>
 #include <ir/interface_nodes.h>
 #include <iter_visitor.h>
 #include <type.h>

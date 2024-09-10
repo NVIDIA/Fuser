@@ -23,8 +23,8 @@
 #include <device_lower/pass/scalar_hoist.h>
 #include <device_lower/pass/warp_reduce.h>
 #include <exceptions.h>
-#include <executor_params.h>
 #include <expr_simplifier.h>
+#include <fusion_executor/executor_params.h>
 #include <id_model/id_model.h>
 #include <id_model/indexing.h>
 #include <ir/all_nodes.h>
@@ -110,6 +110,10 @@ class GpuLower : public NonCopyable {
 
   std::shared_ptr<const ComputeAtMap> caMap() const {
     return std::const_pointer_cast<const ComputeAtMap>(compute_at_map_);
+  }
+
+  bool hasIdModel() const {
+    return id_model_.get() != nullptr;
   }
 
   IdModel& idModel() {
@@ -228,6 +232,32 @@ class GpuLower : public NonCopyable {
 
   const std::unordered_map<const Expr*, TensorView*>& ldstMBarrierMap() const {
     return ldst_mbarrier_map_;
+  }
+
+  std::unordered_map<const Expr*, TensorView*>& ldstMBarrierTokenMap() {
+    return ldst_mbarrier_token_map_;
+  }
+
+  const std::unordered_map<const Expr*, TensorView*>& ldstMBarrierTokenMap()
+      const {
+    return ldst_mbarrier_token_map_;
+  }
+
+  std::unordered_set<const Expr*>& mBarrierTokenSmemAllocSet() {
+    return mbarrier_token_smem_alloc_set_;
+  }
+
+  const std::unordered_set<const Expr*>& mBarrierTokenSmemAllocSet() const {
+    return mbarrier_token_smem_alloc_set_;
+  }
+
+  std::unordered_map<const Expr*, kir::TensorIndex*>& ldstMBarrierIndexMap() {
+    return ldst_mbarrier_index_map_;
+  }
+
+  const std::unordered_map<const Expr*, kir::TensorIndex*>&
+  ldstMBarrierIndexMap() const {
+    return ldst_mbarrier_index_map_;
   }
 
   bool isNvFuserZeroEnabled() {
@@ -362,6 +392,19 @@ class GpuLower : public NonCopyable {
   //! "extent mod split_factor == 0" and an error message for divisibility check
   //! for vectorization.
   std::vector<std::pair<const Val*, std::string>> validations_;
+
+  // Keep track of placeholders for tokens returned by arrive/expected tx
+  // mbarrier operations for each load/store operation that requires such
+  // synchronization
+  std::unordered_map<const Expr*, TensorView*> ldst_mbarrier_token_map_;
+
+  // Collection of kir::Allocate for smem buffers used for mbarrier and token
+  // objects from cpAsyncBulk synchronization
+  std::unordered_set<const Expr*> mbarrier_token_smem_alloc_set_;
+
+  // Keep track what mbarrier object is used in load/store operation that
+  // requires such synchronization, required by indexing pass
+  std::unordered_map<const Expr*, kir::TensorIndex*> ldst_mbarrier_index_map_;
 
   Fusion* fusion_ = nullptr;
 

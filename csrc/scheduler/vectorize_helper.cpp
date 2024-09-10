@@ -12,6 +12,7 @@
 #include <device_lower/analysis/divisible_split.h>
 #include <expr_evaluator.h>
 #include <expr_simplifier.h>
+#include <instrumentation.h>
 #include <ir/builder.h>
 #include <ir/iostream.h>
 #include <iter_visitor.h>
@@ -802,6 +803,8 @@ int64_t getVectorizationFactor(
     HeuristicSummary* data_cache,
     int64_t break_point,
     const std::unordered_map<int64_t, int64_t>& logical_reorder_map) {
+  FUSER_PERF_SCOPE("vectorize_helper::getVectorizationFactor");
+
   auto vectorizable_inputs_outputs_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::VectorizableInputsAndOutputs>(
           data_cache, [&reference_tv]() {
@@ -916,6 +919,9 @@ int64_t getVectorizationBreakPointOfReductionProducer(
     TensorView* reduction_consumer,
     TensorView* reduction_producer,
     int64_t consumer_innermost_ndims) {
+  FUSER_PERF_SCOPE(
+      "vectorize_helper::getVectorizationBreakPointOfReductionProducer");
+
   NVF_ERROR(
       reduction_consumer->definition() != nullptr &&
           ir_utils::isReductionOp(reduction_consumer->definition()) &&

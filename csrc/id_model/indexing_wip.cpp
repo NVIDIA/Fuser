@@ -252,7 +252,7 @@ std::vector<PredicateInfo> TensorIndexer::getPredicatesWIP(
 }
 
 bool TensorIndexer::isSupported(Fusion* fusion) {
-  const auto all_tvs = ir_utils::allTvs(fusion);
+  const auto all_tvs = fusion->allTvs();
 
   auto printReason = [](const std::string& reason) -> void {
     VERBOSE() << "TensorIndexer disabled due to: " << reason << std::endl;

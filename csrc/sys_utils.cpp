@@ -13,7 +13,7 @@
 #endif
 
 #include <exceptions.h>
-#include <executor_utils.h>
+#include <fusion_executor/executor_utils.h>
 #include <sys_utils.h>
 
 #if defined(__linux__)

@@ -292,7 +292,7 @@ std::optional<std::pair<IterDomain*, IterDomain*>> detectMappablePair(
 // matter in practice.
 std::optional<std::tuple<TensorView*, IterDomain*, IterDomain*, std::string>>
 findFirstSelfMapping(Fusion* fusion, const IterDomainGraph& id_graph) {
-  for (auto tv : ir_utils::allTvs(fusion)) {
+  for (auto tv : fusion->allTvs()) {
     // For each tensor, make sure root, logical and loop domains
     // should not include domains that are mapped with another domain
     // in the same set of domains. This may be overly conservative,
@@ -342,7 +342,7 @@ void IterDomainGraph::build(Fusion* fusion) {
   FusionGuard fg(fusion);
 
   // Initialize a node for every iteration domain
-  for (auto tv : ir_utils::allTvs(fusion)) {
+  for (auto tv : fusion->allTvs()) {
     const auto& domain = tv->getLoopDomain();
     auto all_ids = tv->domain()->allIDs();
 
@@ -586,7 +586,7 @@ void IterDomainGraph::build(Fusion* fusion) {
   // transformations makes it easy to check if different view operations are
   // consistent with eachother.
 
-  auto all_tvs = ir_utils::allTvs(fusion);
+  auto all_tvs = fusion->allTvs();
   std::vector<TensorView*> all_consumer_tvs;
   std::copy_if(
       all_tvs.begin(),

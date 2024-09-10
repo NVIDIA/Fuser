@@ -63,7 +63,7 @@ std::string TensorView::toString(int indent_size) const {
     default:
       NVF_ERROR(false, "Unknown tensor memory type.");
   }
-  ss << domain()->toString(indent_size);
+  ss << "_" << dtype() << domain()->toString(indent_size);
 
   if (getComputeAtPosition() > 0) {
     ss << " ca_pos( ";

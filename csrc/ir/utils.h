@@ -383,9 +383,6 @@ std::vector<TensorView*> inputTvsOf(std::vector<TensorView*> tvs);
 // Returns consumers of tvs that are outputs of fusion
 std::vector<TensorView*> outputTvsOf(std::vector<TensorView*> tvs);
 
-// returns all tensor views in fusion that are used between outputs and inputs.
-NVF_API std::vector<TensorView*> allTvs(Fusion* fusion);
-
 // returns all tensor views used in the provided expressions
 VectorOfUniqueEntries<TensorView*> allTvsOfExprs(
     const std::vector<Expr*>& exprs);

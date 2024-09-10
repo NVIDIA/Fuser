@@ -10,7 +10,7 @@
 #include <gtest/gtest.h>
 
 #include <compute_at_map.h>
-#include <executor.h>
+#include <fusion_executor/executor.h>
 #include <id_model/id_model.h>
 #include <id_model/to_string.h>
 #include <inlining.h>
