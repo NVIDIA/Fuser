@@ -524,8 +524,9 @@ void UnswitchPredicate::predicateOn(Expr* tv_expr) {
 
   std::vector<PredicateInfo> ref_pred_info;
 
-  if (TensorIndexer::isSupported(GpuLower::current()->kernel()) &&
-      isIdModelOptionEnabled(IdModelEnableOption::UnswitchPredicate)) {
+  if (isIdModelOptionEnabled(IdModelEnableOption::UnswitchPredicate) &&
+      GpuLower::current()->isTensorIndexerEnabled() &&
+      TensorIndexer::isSupported(GpuLower::current()->kernel())) {
     ref_pred_info = gpu_lower->tensorIndexer().getPredicates(
         out_tv, tv_expr, for_loops_, unrolled_loop_);
   } else {

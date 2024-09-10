@@ -733,17 +733,6 @@ std::unordered_map<ValGroup, ValGroups> computeCoveredGroups(
   // covers
   std::unordered_map<ValGroup, ValGroups> covered_ids;
 
-  if (false) {
-    if (!graph.disjointValSets().disjointSets().empty()) {
-      Fusion* fusion =
-          graph.disjointValSets().disjointSets().front()->front()->fusion();
-      std::ofstream ofs("transform.dot", std::ofstream::trunc);
-      auto dot_string = irTransformToDot(fusion);
-      ofs << dot_string;
-      ofs.close();
-    }
-  }
-
   for (const ValGroup& id_group : graph.disjointValSets().disjointSets()) {
     // Initialize inputs
     const ExprGroups& id_group_defs = graph.getDefinitions(id_group);
