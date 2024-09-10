@@ -636,10 +636,9 @@ LaunchParams FusionExecutor::computeLaunchParams(
   return launch_params;
 }
 
-std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
-    getIntermediateBufferInfo(
-        ExpressionEvaluator& expr_eval,
-        DataType index_type) {
+std::vector<GlobalBufferInfo> FusionExecutor::getIntermediateBufferInfo(
+    ExpressionEvaluator& expr_eval,
+    DataType index_type) {
   FUSER_PERF_SCOPE("FusionExecutor::getIntermediateBufferInfo");
   std::vector<GlobalBufferInfo> global_buffers;
 
@@ -840,7 +839,7 @@ void FusionExecutor::initializeExecutorEntry(
     // future uses of this ExecutorEntry may not be provided with
     // allocated outputs
     for (const auto& output : outputs) {
-      output_info.emplace_back(FusionExecutor::GlobalBufferInfo{
+      output_info.emplace_back(GlobalBufferInfo{
           .sizes = output.sizes().vec(),
           .strides = output.strides().vec(),
           .type = output.scalar_type()});
