@@ -15,10 +15,12 @@ ContigIDGroups::ContigIDGroups(
     const std::vector<IterDomain*>& alloc_domains,
     std::vector<bool> contiguity,
     const ExprPath<ExprGroup>& path_from_alloc,
-    const ValGraph& graph)
+    const ValGraph& graph,
+    bool is_predicate_pass)
     : graph_(graph),
       alloc_domains_(alloc_domains),
       alloc_contiguity_(std::move(contiguity)),
+      is_predicate_pass_(is_predicate_pass),
       consistent_transform_info_(
           std::make_unique<const OrderedIdGroupInformation>(
               OrderedIdGroupInformation::get(
@@ -69,6 +71,14 @@ ContigIDGroups::ContigIDGroups(
       }
     }
 
+    if (std::any_of(inputs.begin(), inputs.end(), [&](const ValGroup& inp) {
+          return non_divisible_deps_.count(inp) > 0;
+        })) {
+      for (const auto& out : outputs) {
+        non_divisible_deps_.insert(out);
+      }
+    }
+
     dispatch(eg, direction);
   }
 }
@@ -79,10 +89,14 @@ void ContigIDGroups::handle(Merge* merge, Direction direction) {
     return;
   }
 
+  const bool is_indexing_pass = !is_predicate_pass_;
+
   // If output is not consistently ordered or doesn't solely consume all
   // allocation domains in its dependencies, then it can't be a contiguously
-  // indexable iterdomain.
-  if (!consistent_transform_info_->isConsistentlyOrdered(merge->out())) {
+  // indexable iterdomain. If it's a predicate pass, the ordering
+  // doesn't matter since it does not index any actual memory.
+  if (!(is_predicate_pass_ ||
+        consistent_transform_info_->isConsistentlyOrdered(merge->out()))) {
     return;
   }
 
@@ -92,20 +106,34 @@ void ContigIDGroups::handle(Merge* merge, Direction direction) {
 
   // Check allocation domains for contiguity
   auto alloc_ids_it = consistent_transform_info_->findAllocIDs(merge->out());
-  VectorOfUniqueEntries<IterDomain*> alloc_ids = alloc_ids_it->second;
-  for (auto alloc_id_i : c10::irange(alloc_domains_.size())) {
-    auto alloc_id = alloc_domains_[alloc_id_i];
-    if (alloc_ids.erase(alloc_id) == 0) {
-      continue;
+
+  // Contiguity doesn't matter for predicates
+  if (is_indexing_pass) {
+    VectorOfUniqueEntries<IterDomain*> alloc_ids = alloc_ids_it->second;
+    for (auto alloc_id_i : c10::irange(alloc_domains_.size())) {
+      auto alloc_id = alloc_domains_[alloc_id_i];
+      if (alloc_ids.erase(alloc_id) == 0) {
+        continue;
+      }
+      auto alloc_contiguity = alloc_contiguity_.at(alloc_id_i);
+      // If we're indexing:
+      // we could still potentially consider this ID linearly indexable, as we
+      // could multiple the index by the last allocation's stride. See
+      // ContigIndexingTest.NonContigInnermost for a concrete example.
+      if (!alloc_contiguity && !alloc_ids.empty()) {
+        return;
+      }
     }
-    auto alloc_contiguity = alloc_contiguity_.at(alloc_id_i);
-    // If we're indexing:
-    // we could still potentially consider this ID linearly indexable, as we
-    // could multiple the index by the last allocation's stride. See
-    // ContigIndexingTest.NonContigInnermost for a concrete example.
-    if (!alloc_contiguity && !alloc_ids.empty()) {
-      return;
-    }
+  }
+
+  // If there's a non-divisible
+  // split in the history of merge->out then the extents of the inputs
+  // and also the outputs may be expanded due to ceilDiv. Predicate
+  // indexing needs to avoid contiguous indexing. Non-predicate
+  // indexing should have no such constraint.
+  if (is_predicate_pass_ &&
+      non_divisible_deps_.count(graph_.toGroup(merge->out()))) {
+    return;
   }
 
   // Don't allow contig indexing after resize as we need traverse back
@@ -123,6 +151,26 @@ void ContigIDGroups::handle(Merge* merge, Direction direction) {
   contig_ids_.emplace(graph_.toGroup(merge->out()));
 }
 
+// Avoid contiguous indexing if going through non-divisible
+// splits. Not all non-divisible splits need specific predicates, so
+// this condition could be relaxed.
+void ContigIDGroups::handle(Split* split, Direction direction) {
+  if (direction == Direction::Forward) {
+    const auto& divisible_splits = GpuLower::current()->divisibleSplitSet();
+    const ExprGroup& split_group = graph_.toGroup(split);
+    bool divisible = std::any_of(
+        divisible_splits.begin(),
+        divisible_splits.end(),
+        [&](Split* divisible_split) -> bool {
+          return split_group->has(divisible_split);
+        });
+    if (!divisible) {
+      non_divisible_deps_.emplace(graph_.toGroup(split->outer()));
+      non_divisible_deps_.emplace(graph_.toGroup(split->inner()));
+    }
+  }
+}
+
 void ContigIDGroups::handle(Resize* resize, Direction direction) {
   if (direction == Direction::Forward) {
     resize_deps_.emplace(graph_.toGroup(resize->out()));
@@ -135,9 +183,14 @@ std::unordered_map<IterDomain*, ValGroup> getContigDomains(
     const std::vector<IterDomain*>& alloc_domains,
     const std::vector<bool>& alloc_contiguity,
     const ExprPath<ExprGroup>& path_from_alloc,
-    const ValGraph& graph) {
+    const ValGraph& graph,
+    bool is_predicate_pass) {
   ContigIDGroups contig_finder(
-      alloc_domains, alloc_contiguity, path_from_alloc, graph);
+      alloc_domains,
+      alloc_contiguity,
+      path_from_alloc,
+      graph,
+      is_predicate_pass);
 
   return contig_finder.allocToContigIDs();
 }
