@@ -178,8 +178,7 @@ std::string FusionExecutor::getStructuredCode(
             << " =======\n\n"
             << code << "\n======================================\n\n";
   }
-  if (isDebugDumpEnabled(DebugDumpOption::CudaToFile) ||
-      isOptionEnabled(EnableOption::KernelLineInfo)) {
+  if (isDebugDumpEnabled(DebugDumpOption::CudaToFile)) {
     std::stringstream file_name;
     file_name << "__tmp_kernel_" << kernel_id_ << ".cu";
     debug() << "PRINTING: " << file_name.str() << std::endl;
