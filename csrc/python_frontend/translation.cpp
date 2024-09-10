@@ -55,7 +55,7 @@ class FusionTranslator : public OptInConstDispatch {
         logical_out_domain.begin(),
         logical_out_domain.end(),
         std::back_inserter(logical_domain_extents),
-        [](IterDomain* id) { return id->extent(); });
+        [](IterDomain* id) { return id->getMaybeExpandedExtent(); });
     return std::all_of(
         logical_domain_extents.begin(),
         logical_domain_extents.end(),
@@ -63,6 +63,41 @@ class FusionTranslator : public OptInConstDispatch {
           return v->definition() == nullptr ||
               map_val_to_fd_index_.count(v) > 0;
         });
+  }
+
+  std::vector<Expr*> gatherScalarExpressions(Val* v) {
+    // short-circuit: v does not have a definition.
+    if (v->definition() == nullptr) {
+      return {};
+    }
+
+    std::vector<Expr*> expression_chain;
+
+    std::unordered_set<Expr*> visited;
+    std::vector<Expr*> to_visit = {v->definition()};
+
+    while (!to_visit.empty()) {
+      Expr* e = to_visit.back();
+      to_visit.pop_back();
+
+      expression_chain.push_back(e);
+      visited.insert(e);
+
+      for (Val* input : e->inputs()) {
+        // short-circuit: input does not have a definition.
+        if (input->definition() == nullptr) {
+          continue;
+        }
+
+        // short-circuit: input definition is already visited.
+        if (visited.count(input->definition()) > 0) {
+          continue;
+        }
+
+        to_visit.push_back(input->definition());
+      }
+    }
+    return expression_chain;
   }
 
   // Check that all of the expression's inputs are defined in FusionDefinition.
@@ -84,8 +119,6 @@ class FusionTranslator : public OptInConstDispatch {
     }
 
     // Gather all expressions in CPP Fusion.
-    // std::deque<nvfuser::Expr*> to_visit = fusion_->deterministic_exprs();
-
     std::vector<nvfuser::Val*> used_vals = fusion_->usedMathVals();
     std::unordered_set<nvfuser::Expr*> expr_set;
     for (nvfuser::Val* v : used_vals) {
@@ -95,6 +128,24 @@ class FusionTranslator : public OptInConstDispatch {
           std::inserter(expr_set, expr_set.begin()));
     }
     std::deque<nvfuser::Expr*> to_visit(expr_set.begin(), expr_set.end());
+
+    // Scalar expressions are not handled by usedMathVals, so gather them
+    // manually.
+    for (Expr* e : to_visit) {
+      if (e->isA<ViewOp>()) {
+        ViewOp* vop = e->as<ViewOp>();
+        const std::vector<IterDomain*>& logical_out_domain =
+            vop->out()->as<TensorView>()->domain()->logical();
+        for (IterDomain* id : logical_out_domain) {
+          std::vector<Expr*> extent_definitions =
+              gatherScalarExpressions(id->getMaybeExpandedExtent());
+          to_visit.insert(
+              to_visit.end(),
+              extent_definitions.begin(),
+              extent_definitions.end());
+        }
+      }
+    }
 
     // Topological search of Fusion expressions
     size_t skip_count = 0;
