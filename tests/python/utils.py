@@ -77,7 +77,8 @@ def check_captured_python_definition(reference_outputs, fd, inputs, device=None)
 def check_cpp_translation(reference_outputs, fd, inputs, device=None):
     try:
         torch.manual_seed(0)
-        preseg_fd = fd.presegment()
+        concrete_fd = fd.concretize(inputs)
+        preseg_fd = concrete_fd.presegment()
         preseg_fd.segment(inputs)
         cloned_outputs = preseg_fd.execute(inputs, device=device)
 
