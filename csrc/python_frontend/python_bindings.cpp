@@ -250,7 +250,7 @@ Tensor slice_fn(
   size_t stride_index = 0;
 
   if (!strides.empty()) {
-    Vector new_stride = ShapeAsVector(stride, *fd);
+    Vector new_stride = ShapeAsVector(strides, *fd);
     NVF_CHECK(
         new_start.size == new_stride.size,
         "Slice start_indices and strides don't match! Start Indices: ",
