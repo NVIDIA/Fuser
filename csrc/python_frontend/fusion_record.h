@@ -390,7 +390,7 @@ struct SliceOpRecord : RecordFunctor {
         fd.getFusionStateVector(args_.at(3).index);
     std::vector<Slice> vec_slice;
     for (const auto idx : c10::irange(arg->nDims())) {
-      vec_slice.emplace(start[idx], end[idx], stride[idx]);
+      vec_slice.emplace_back(start[idx], end[idx], stride[idx]);
     }
     auto output = slice(arg, vec_slice);
     fd.setFusionState(outputs_.at(0).index, output);

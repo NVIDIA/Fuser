@@ -247,16 +247,17 @@ Tensor slice_fn(
   FusionDefinition* fd = self.fusion_definition;
   Vector new_start = ShapeAsVector(start, *fd);
   Vector new_end = ShapeAsVector(end, *fd);
-  Vector new_stride;
+  size_t stride_index = 0;
 
-  if (opt_strides.has_value()) {
-    new_stride = ShapeAsVector(opt_stride.value(), *fd);
+  if (opt_stride.has_value()) {
+    Vector new_stride = ShapeAsVector(opt_stride.value(), *fd);
     NVF_CHECK(
         new_start.size == new_stride.size,
         "Slice start_indices and strides don't match! Start Indices: ",
         new_start.size,
         " Strides: ",
         new_stride.size);
+    stride_index = new_stride();
   } else {
     // TODO: should I kept it as none instead?
     // set stride 1 with the proper size;
@@ -268,7 +269,8 @@ Tensor slice_fn(
         DataType::Int,
         /*inline_def=*/true));
     stride_vec.resize(new_start.size, out);
-    new_stride = define_vector_base_fn(*fd, stride_vec, true);
+    Vector new_stride = define_vector_base_fn(*fd, stride_vec, true);
+    stride_index = new_stride();
   }
 
   NVF_CHECK(
@@ -282,14 +284,12 @@ Tensor slice_fn(
       "Slice indexing attribute dimensions don't match! Start Indices: ",
       new_start.size,
       " End Indices: ",
-      new_end.size,
-      " Strides: ",
-      strides.size());
+      new_end.size);
 
   Tensor output = fd->defineTensor(arg.dims);
   fd->defineRecord(new SliceOpRecord(
-      {fd->recordingState(arg()), fd->recordingState(new_start()),fd->recordingState(new_end()),fd->recordingState(new_stride())},
-      {fd->recordingState(output())});
+      {fd->recordingState(arg()), fd->recordingState(new_start()),fd->recordingState(new_end()),fd->recordingState(stride_index)},
+      {fd->recordingState(output())}));
   return output;
 }
 
