@@ -384,10 +384,8 @@ struct SliceOpRecord : RecordFunctor {
 
   void operator()(FusionState& fd) final {
     TensorView* arg = fd.getFusionState(args_.at(0).index)->as<TensorView>();
-    const std::vector<Val*>& start =
-        fd.getFusionStateVector(args_.at(1).index);
-    const std::vector<Val*>& end =
-        fd.getFusionStateVector(args_.at(2).index);
+    const std::vector<Val*>& start = fd.getFusionStateVector(args_.at(1).index);
+    const std::vector<Val*>& end = fd.getFusionStateVector(args_.at(2).index);
     const std::vector<Val*>& stride =
         fd.getFusionStateVector(args_.at(3).index);
     std::vector<Slice> vec_slice;
@@ -1591,32 +1589,21 @@ struct ReductionOpRecord : RecordFunctor {
         result = result &&
             (*fusion_op_.template target<
 
-                 TensorView* (*)(TensorView*,
-                                 const std::vector<int64_t>&,
-                                 bool,
-                                 DataType)>() ==
+                 TensorView* (*)(TensorView*, const std::vector<int64_t>&, bool, DataType)>() ==
              *child_ptr->fusion_op_.template target<
 
-                 TensorView* (*)(TensorView*,
-                                 const std::vector<int64_t>&,
-                                 bool,
-                                 DataType)>());
+                 TensorView* (*)(TensorView*, const std::vector<int64_t>&, bool, DataType)>());
         if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
-          debug() << " Target  Ptr [self: 0x" << std::hex
-                  << (size_t)*fusion_op_.template target<
+          debug()
+              << " Target  Ptr [self: 0x" << std::hex
+              << (size_t)*fusion_op_.template target<
 
-                         TensorView* (*)(TensorView*,
-                                         const std::vector<int64_t>&,
-                                         bool,
-                                         DataType)>()
-                  << "] [other: 0x" << std::hex
-                  << (size_t)*child_ptr->fusion_op_.template target<
+                     TensorView* (*)(TensorView*, const std::vector<int64_t>&, bool, DataType)>()
+              << "] [other: 0x" << std::hex
+              << (size_t)*child_ptr->fusion_op_.template target<
 
-                         TensorView* (*)(TensorView*,
-                                         const std::vector<int64_t>&,
-                                         bool,
-                                         DataType)>()
-                  << "]\n";
+                     TensorView* (*)(TensorView*, const std::vector<int64_t>&, bool, DataType)>()
+              << "]\n";
         }
         result = result && (keep_dim_ == child_ptr->keep_dim_);
         result = result && (dtype_ == child_ptr->dtype_);
@@ -2021,7 +2008,7 @@ struct ScalarRecord : RecordFunctor {
 //   RecordFunctor* clone() final {
 //     return new SliceOpRecord(*this);
 //   }
-// 
+//
 //   //! Child specific hash function in lower 32 bits.
 //   //! | 31 -------- 20 | 19 --------  8 |  7 ------  0 |
 //   //! | start_indices  | end_indices    | strides      |
@@ -2039,12 +2026,12 @@ struct ScalarRecord : RecordFunctor {
 //     for (auto i : strides_) {
 //       stride_hash ^= static_cast<size_t>(i);
 //     }
-// 
+//
 //     result |= (start_idx_hash & 0xfff) << 20;
 //     result |= (end_idx_hash & 0xfff) << 8;
 //     return result | (stride_hash & 0xff);
 //   }
-// 
+//
 //   bool operator==(const RecordFunctor& other) const final {
 //     auto result = false;
 //     if (auto child_ptr = dynamic_cast<const SliceOpRecord*>(&other)) {
@@ -2055,13 +2042,13 @@ struct ScalarRecord : RecordFunctor {
 //     }
 //     return result;
 //   }
-// 
+//
 //   void operator()(FusionState& fd) final {
 //     auto arg = fd.getFusionState(args_.at(0).index)->as<TensorView>();
 //     TensorView* output = slice(arg, start_indices_, end_indices_, strides_);
 //     fd.setFusionState(outputs_.at(0).index, output);
 //   }
-// 
+//
 //   void print(std::ostream& os, bool close_function = true) const final {
 //     RecordFunctor::print(os, false);
 //     os << ", start_indices=[";
@@ -2099,7 +2086,7 @@ struct ScalarRecord : RecordFunctor {
 //       os << ")";
 //     }
 //   }
-// 
+//
 //   std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
 //       flatbuffers::FlatBufferBuilder& builder) const final {
 //     return {
@@ -2108,7 +2095,7 @@ struct ScalarRecord : RecordFunctor {
 //             builder, &start_indices_, &end_indices_, &strides_)
 //             .Union()};
 //   }
-// 
+//
 //  private:
 //  //! A slices beginning index for each dimension
 //  //! Values must be greater-than or equal to 0
