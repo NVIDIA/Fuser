@@ -465,14 +465,14 @@ TEST_P(HangTest, ThreeRanksTestHangSendRecv) {
   c10::intrusive_ptr<c10d::Work> recv_h, send_h;
   std::cout << "rank " <<  my_rank << " starts posting" << std::endl;
   if (my_rank == 0) {
-    world_communicator_->send(src, send_peer_rank, my_rank);
     recv_h = world_communicator_->recv(dst, recv_peer_rank, recv_peer_rank);
+    world_communicator_->send(src, send_peer_rank, my_rank);
   } else if (my_rank == 1) {
     recv_h = world_communicator_->recv(dst, recv_peer_rank, recv_peer_rank);
     world_communicator_->send(src, send_peer_rank, my_rank);
   } else {
-    world_communicator_->send(src, send_peer_rank, my_rank);
     recv_h = world_communicator_->recv(dst, recv_peer_rank, recv_peer_rank);
+    world_communicator_->send(src, send_peer_rank, my_rank);
   }
 
   std::cout << "rank " <<  my_rank << " has finished posting" << std::endl;
