@@ -2767,28 +2767,29 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("index"),
       py::return_value_policy::reference);
 
-  nvf_ops.def(
-      "slice",
-      slice_fn<Vector>,
-      py::arg("arg"),
-      py::arg("start"),
-      py::arg("end"),
-      py::arg("strides") = py::none(),
-      py::return_value_policy::reference);
+  // TODO: Add a specialization for this?!
+  // nvf_ops.def(
+  //     "slice",
+  //     slice_fn<Vector>,
+  //     py::arg("arg"),
+  //     py::arg("start_indices"),
+  //     py::arg("end_indices"),
+  //     py::arg("strides") = py::none(),
+  //     py::return_value_policy::reference);
   nvf_ops.def(
       "slice",
       slice_fn<py::list>,
       py::arg("arg"),
-      py::arg("start"),
-      py::arg("end"),
+      py::arg("start_indices"),
+      py::arg("end_indices"),
       py::arg("strides") = py::none(),
       py::return_value_policy::reference);
   nvf_ops.def(
       "slice",
       slice_fn<py::tuple>,
       py::arg("arg"),
-      py::arg("start"),
-      py::arg("end"),
+      py::arg("start_indices"),
+      py::arg("end_indices"),
       py::arg("strides") = py::none(),
       py::return_value_policy::reference);
   nvf_ops.def(

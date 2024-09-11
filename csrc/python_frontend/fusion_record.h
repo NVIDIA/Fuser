@@ -373,9 +373,9 @@ struct SliceOpRecord : RecordFunctor {
             std::move(_outputs),
             "ops.slice",
             serde::RecordType::SliceOp) {
-    arg_names_[1] = "start";
-    arg_names_[2] = "end";
-    arg_names_[3] = "stride";
+    arg_names_[1] = "start_indices";
+    arg_names_[2] = "end_indices";
+    arg_names_[3] = "strides";
   }
   ~SliceOpRecord() override = default;
   RecordFunctor* clone() final {
