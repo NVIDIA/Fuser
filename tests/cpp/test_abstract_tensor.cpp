@@ -796,4 +796,24 @@ TEST_F(AbstractTensorTest, AddRow) {
   EXPECT_EQ(v[1], expect1);
 }
 
+TEST_F(AbstractTensorTest, MergeTaggedTensor) {
+  // This could be any enum
+  enum class TestTag { A, B };
+
+  using EnumTaggedAbstractTensor = TaggedAbstractTensor<TestTag>;
+
+  auto id0 = newID();
+  auto id1 = newID();
+
+  EnumTaggedAbstractTensor v0({id0, id1}, {{TestTag::A}, {TestTag::A}});
+  v0.merge(0);
+  EXPECT_EQ(v0.getTag(0), TestTag::A);
+
+  // Mismatched tags should throw an error due to strict tag matching
+  EnumTaggedAbstractTensor v1({id0, id1}, {{TestTag::A}, {TestTag::B}});
+  v0.merge(0);
+  EXPECT_TRUE(v1.hasTag(0, TestTag::A));
+  EXPECT_TRUE(v1.hasTag(0, TestTag::B));
+}
+
 } // namespace nvfuser
