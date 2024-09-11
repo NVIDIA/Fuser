@@ -1088,13 +1088,46 @@ namespace {
 
 // From the above example, we can see that how linear_g lives in domain could be
 // complicated. It can be, for example:
-//   1. linear_g is equivalent to a single ValGroup in domain.
-//   2. linear_g is the inner of a ValGroup in domain.
-//   3. linear_g is the outer of a ValGroup in domain.
+//   1. linear_g is equivalent to a single ValGroup in domain. For example,
+//      linear_g itself is inside domain.
+//   2. linear_g is the inner of a ValGroup in domain. For example, something
+//      like:
+//        x  linear_g
+//         \ /
+//          g
+//      where g is a ValGroup in domain.
+//   3. linear_g is the outer of a ValGroup in domain. For example, something
+//      like:
+//        linear_g   x
+//                \ /
+//                 g
+//      where g is a ValGroup in domain.
 //   4. linear_g is the middle of a ValGroup in domain, where on the right,
-//      there is a 2.
-//   5. linear_g is split as g1, g2, g3 in domain.
-//   6. linear_g is split as the inner 2 of g1, g2, and the outer 4 of g3.
+//      there is a 2. For example, something like:
+//        linear_g   2
+//                \ /
+//            x   g1
+//             \ /
+//              g
+//      where g is a ValGroup in domain.
+//   5. linear_g is projected as g1, g2, g3 in domain. For example, something
+//      like:
+//          linear_g
+//            /   \.
+//          g1    g23
+//                / \.
+//               g2  g3
+//      where g1, g2, g3 are ValGroups in domain.
+//   6. linear_g is projected as the inner 2 of g1, g2, and the outer 4 of g3.
+//      For example, something like:
+//             linear_g
+//              /   \.
+//        x    2     4    8
+//         \  /       \  /
+//          ga         g3
+//         /  \.
+//        g1   g2
+//      where g1, g2, g3 are ValGroups in domain.
 //
 // We use a dynamic type to be able to represent all these cases.
 
