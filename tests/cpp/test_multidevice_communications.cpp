@@ -411,7 +411,7 @@ INSTANTIATE_TEST_SUITE_P(
 
 class HangTest
     : public MultiDeviceTest,
-      public testing::WithParamInterface<CommunicatorBackend> {
+      public testing::WithParamInterface<CommunicatorBackend> {};
 
 TEST_P(HangTest, MinimalTestHangSendRecv) {
   if (communicator_->size() != 2) {
@@ -430,8 +430,8 @@ TEST_P(HangTest, MinimalTestHangSendRecv) {
   c10d::Backend* world_communicator_ = communicator_->getBackendForTeam(all_devices, GetParam());
   c10::intrusive_ptr<c10d::Work> recv_h, send_h;
   if (my_rank == 0) {
-    world_communicator_->send(src, peer_rank, 0);
     recv_h = world_communicator_->recv(dst, peer_rank, 1);
+    world_communicator_->send(src, peer_rank, 0);
   } else {
     recv_h = world_communicator_->recv(dst, peer_rank, 0);
     world_communicator_->send(src, peer_rank, 1);
