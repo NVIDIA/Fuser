@@ -545,7 +545,7 @@ class AGOverlapTest : public MultiDeviceTest {
     auto cpu_options = at::TensorOptions().dtype(at::kFloat);
     at::TensorOptions gpu_options = cpu_options.device(communicator_->device());
 
-    ta_ = at::empty(ta_sizes, gpu_options);
+    ta_ = at::empty(ta_sizes, cpu_options);
     tb_ = at::empty(tb_sizes, gpu_options);
     tc_ = at::empty(tc_sizes, gpu_options);
     ta_sharded_ = at::empty(ta_sharded_sizes, gpu_options);
@@ -560,15 +560,15 @@ class AGOverlapTest : public MultiDeviceTest {
   }
 
   void initializeIO() {
-    ta.uniform_();
-    tb.uniform_();
+    ta_.uniform_();
+    tb_.uniform_();
     ta_sharded_.copy_(ta_.select(0, my_device_index_));
-    tb_sharded_.copy_(tb_.select(0, my_device_index_));
   }
 
   void validate() {
     // compute the expected output for data correctness validation
-    auto tc_expected_ = torch::matmul(ta_, tb_);
+    auto tb_cpu = tb_.to(torch::kCPU);
+    auto tc_expected_ = torch::matmul(ta_, tb_cpu); // ta already on cpu
     EXPECT_TRUE(tc_.to(torch::kCPU).allclose(tc_expected_, 1e-1, 1e-1))
         << "Unexpected results, obtained:" << tc_
         << "\n expected: " << tc_expected_;
@@ -615,15 +615,11 @@ TEST_F(AGOverlapTest, AllgatherBasedPipeliningATenImplementation) {
       int64_t stream_index = j % streams.size();
       setCurrentCUDAStream(streams.at(stream_index));
 
-      // define the sliced tensors
-      auto ta_j = ta_.select(0, j);
-      auto tc_j = tc_.select(0, j);
-
       // local compute
-      torch::matmul_out(tc_j, ta_j, tb_);
+      torch::matmul_out(tc_sharded_, ta_sharded_, tb_);
 
       // communication
-      world_communicator_->_allgather_base(tc_, tc_j, tc_j)
+      world_communicator_->_allgather_base(tc_, tc_sharded_)
           ->wait();
     }
   }
