@@ -56,7 +56,7 @@ class FusionDefinition(_C._FusionDefinition):
 
     def clone(self):
         new_fd = FusionDefinition()
-        new_fd._clone(self)
+        self._clone(new_fd)
         return new_fd
 
     def concretize(self, inputs):

@@ -648,11 +648,11 @@ std::vector<std::pair<double, double>> FusionDefinition::getValTolerances(
 }
 
 void FusionDefinition::clone(FusionDefinition& other) {
-  NVF_ERROR(!completed(), "Expected an incomplete definition before cloning!");
+  NVF_CHECK(id().has_value(), "FusionDefinition definition does not exist!");
   NVF_ERROR(
-      other.completed(),
-      "Expected incoming FusionDefinition to be complete before cloning!");
-  translate(other.preschedFusion(), this);
+      !other.completed(),
+      "Expected an incomplete definition before translation.");
+  translate(preschedFusion(), &other);
 }
 
 void FusionDefinition::concretize(
