@@ -1022,9 +1022,11 @@ bool predicateAtEnd(ForLoop* loop) {
 //       const ValGroup& linear_g,
 //       const ValGroups& domain);
 //
-// The idea is to propagate from linear_g to domain, keep track of how linear_g
-// lives in domain. For example, let's consider the following two schedules
-// (same example as the NVFuserTest.ProveLinearAndGetStride test):
+// The idea is similar to the vectorization helper in vectorize_helper.h:
+// We propagate from linear_g to domain, and figure out how linear_g project to
+// domain. From the projection, we will know if linear_g is linear and the
+// stride. For example, let's consider the following two schedules (same example
+// as the NVFuserTest.ProveLinearAndGetStride test):
 //
 // v1:
 //        I0         I1
@@ -1064,21 +1066,24 @@ bool predicateAtEnd(ForLoop* loop) {
 // Domain is in the order [I0o, I1o, 4, 4, 8, 8, 8]. To figure out if linear_g
 // is linear in domain, we start from propagating linear_g back in v1. The first
 // step we see is the split of 128 into [2] and 64. From this split, we know
-// that [2] is linear in 128, and there is a 64 on the inner of [2] in 128. The
-// next step is the split of I1 by 128 in v1. Similarly, we know that [2] is
-// linear in I1, and there is a 64 on the inner of [2] in I1. Because the I1 in
-// v1 and v3 are mapped, then we will continue propagation in v3. The next step
-// is to process the split of I1 into I1o and 256 in v3. We already know that
-// [2] is linear in I1, and on the inner of [2], there is a 64. Because 2 * 64 =
-// 128, which is a factor of 256, we know that the 256 is able to fully cover
-// the [2] in I1. Therefore, I1o is unrelated to [2], and we only need to focus
-// on the 256. And in this 256, there is a 64 on the inner of [2]. The next step
-// is to process the split of 256 into 4 and 64. Because the 64 happens to be
-// the size of the inner of [2], we know that the [2] will be fully covered by
-// the inner 2 of the 4 of the output of the split. Now we have finished
-// propagation and reached domain. We already proved that [2] is linear in
-// domain. In domain, the domains on the right of the 4 are 8, 8, 8, so the
-// stride is 8*8*8 = 512.
+// that when [2] projects to the 128, it projects to the 2 after a 64 on its
+// inner. The next step is the split of I1 by 128 in v1. Similarly, we know that
+// when [2] projects to I1, it projects to the 2 after a 64 on its inner.
+// Because the I1 in v1 and v3 are mapped, then we will continue propagation in
+// v3. The next step is to process the split of I1 into I1o and 256 in v3. We
+// already know that when [2] projects to I1, it projects to the 2 after a 64 on
+// its inner. Because 2 * 64 = 128, which is a factor of 256, we know that the
+// 256 is able to fully cover the [2] in I1. Therefore, I1o is unrelated to [2],
+// and we only need to focus on the 256. And when the [2] projects to this 256,
+// it projects to the 2 after a 64 on its inner. The next step is to process the
+// split of 256 into 4 and 64. Because the 64 happens to be the extent of the
+// inner of [2] in the 256, we know that the [2] will be fully covered by the
+// inner 2 of the 4 of the output of the split. So, we know that, when the [2]
+// projects to the 4, it projects to the inner 2 of the 4. Now we have finished
+// propagation and reached domain. Because [2] is the inner of the 4, and the 4
+// is linear in domain, so we have proved that [2] is linear in domain. In
+// domain, the domains on the right of the 4 are 8, 8, 8, so the stride is 8*8*8
+// = 512.
 namespace {
 
 // From the above example, we can see that how linear_g lives in domain could be
@@ -1092,29 +1097,48 @@ namespace {
 //   6. linear_g is split as the inner 2 of g1, g2, and the outer 4 of g3.
 //
 // We use a dynamic type to be able to represent all these cases.
-template <typename ValGroupRegion>
+
+// Represent that linear_g is part of another something else.
+// For example, if we have
+//   linear_g    2
+//           \  /
+//            g1
+// then linear_g is part of g1, with inner_extent=2.
+template <typename LinearGroupProjection>
 struct PartOf {
-  std::shared_ptr<ValGroupRegion> group;
+  // Part of who?
+  std::shared_ptr<LinearGroupProjection> group;
+  // The extent on the inner of linear_g in group. nullptr means 1.
   Val* inner_extent = nullptr;
+  // The extent of linear_g.
   Val* selected_extent = nullptr;
 };
 
-using ValGroupRegion = dynamic_type::DynamicType<
+// Represent that linear_g is a composition of multiple LinearGroupProjections.
+// For example, if we have
+//  linear_g
+//    /   \.
+//  g1     g2
+// then linear_g is a composition of g1 and g2.
+template <typename... Args>
+using Composition = std::deque<Args...>;
+
+using LinearGroupProjection = dynamic_type::DynamicType<
     dynamic_type::Containers<
-        std::deque, // a composition of ValGroupRegions
-        PartOf // part of a ValGroupRegion
+        Composition, // a composition of LinearGroupProjections
+        PartOf // part of a LinearGroupProjection
         >,
     ValGroup // a whole ValGroup
     >;
 
-// Utilities to print ValGroupRegion.
-std::string print(const ValGroupRegion& group);
+// Utilities to print LinearGroupProjection.
+std::string print(const LinearGroupProjection& group);
 
 std::string print(const ValGroup& group) {
   return group->toString();
 }
 
-std::string print(const PartOf<ValGroupRegion>& part) {
+std::string print(const PartOf<LinearGroupProjection>& part) {
   auto str_or_null = [](Val* val) {
     return val == nullptr ? "nullptr" : val->toInlineString();
   };
@@ -1123,7 +1147,7 @@ std::string print(const PartOf<ValGroupRegion>& part) {
       ", selected_extent=" + str_or_null(part.selected_extent) + ")";
 }
 
-std::string print(const std::deque<ValGroupRegion>& vec) {
+std::string print(const Composition<LinearGroupProjection>& vec) {
   std::stringstream ss;
   ss << "[";
   for (const auto& g : vec) {
@@ -1137,23 +1161,25 @@ std::string print(const std::monostate&) {
   return "std::monostate";
 }
 
-std::string print(const ValGroupRegion& group) {
-  return ValGroupRegion::dispatch(
+std::string print(const LinearGroupProjection& group) {
+  return LinearGroupProjection::dispatch(
       [&](const auto& group) { return print(group); }, group);
 }
 
-// Utilities to check if ValGroupRegion is related to ValGroup.
-bool related(const ValGroupRegion& current, const ValGroup& to);
+// Utilities to check if LinearGroupProjection is related to ValGroup.
+bool related(const LinearGroupProjection& current, const ValGroup& to);
 
 bool related(const ValGroup& current, const ValGroup& to) {
   return current == to;
 }
 
-bool related(const PartOf<ValGroupRegion>& current, const ValGroup& to) {
+bool related(const PartOf<LinearGroupProjection>& current, const ValGroup& to) {
   return related(*current.group, to);
 }
 
-bool related(const std::deque<ValGroupRegion>& current, const ValGroup& to) {
+bool related(
+    const Composition<LinearGroupProjection>& current,
+    const ValGroup& to) {
   return std::any_of(current.begin(), current.end(), [&](const auto& g) {
     return related(g, to);
   });
@@ -1163,8 +1189,8 @@ bool related(const std::monostate& current, const ValGroup& to) {
   return false;
 }
 
-bool related(const ValGroupRegion& current, const ValGroup& to) {
-  return ValGroupRegion::dispatch(
+bool related(const LinearGroupProjection& current, const ValGroup& to) {
+  return LinearGroupProjection::dispatch(
       [&](const auto& current) { return related(current, to); }, current);
 }
 
@@ -1189,13 +1215,13 @@ auto toGroups(
 }
 
 // Do the propagation from linear_g to domain.
-ValGroupRegion propagate(
-    const ValGroupRegion& current,
+LinearGroupProjection propagate(
+    const LinearGroupProjection& current,
     const ValGraph& id_graph,
     const ExprGroup& eg,
     Direction direction);
 
-ValGroupRegion propagate(
+LinearGroupProjection propagate(
     const ValGroup& current,
     const ValGraph& id_graph,
     const ExprGroup& eg,
@@ -1207,15 +1233,15 @@ ValGroupRegion propagate(
     // then these two groups together represents linear_g.
     NVF_ERROR(to.size() == 2);
     NVF_ERROR(from.front() == current);
-    return std::deque<ValGroupRegion>{to.front(), to.back()};
+    return Composition<LinearGroupProjection>{to.front(), to.back()};
   } else {
     // If linear_g is merged with another group, then part of the merged group
     // represents linear_g.
     NVF_ERROR(from.size() == 2);
     NVF_ERROR(to.size() == 1);
     NVF_ERROR(from.front() == current || from.back() == current);
-    return PartOf<ValGroupRegion>{
-        std::make_shared<ValGroupRegion>(to.front()),
+    return PartOf<LinearGroupProjection>{
+        std::make_shared<LinearGroupProjection>(to.front()),
         /*inner_extent=*/from.front() == current
             ? from.back()->front()->as<IterDomain>()->extent()
             : nullptr,
@@ -1224,8 +1250,8 @@ ValGroupRegion propagate(
   }
 }
 
-ValGroupRegion propagate(
-    const PartOf<ValGroupRegion>& current,
+LinearGroupProjection propagate(
+    const PartOf<LinearGroupProjection>& current,
     const ValGraph& id_graph,
     const ExprGroup& eg,
     Direction direction) {
@@ -1250,8 +1276,8 @@ ValGroupRegion propagate(
     // `group`, the extent of the group after simplification is stored in
     // `group_extent`, and the new inner_extent after simplification is stored
     // in `new_inner_extent`.
-    if (group.is<std::deque>()) {
-      auto dq = group.as<std::deque>();
+    if (group.is<Composition>()) {
+      auto dq = group.as<Composition>();
       // If the new_inner_extent is divisible by the extent of the last item
       // in dq, we can simplify new_inner_extent and dq by canceling dq's last
       // items. For example, if new_inner_extent is 6 and dq is [5, 3], we can
@@ -1318,8 +1344,8 @@ ValGroupRegion propagate(
             ->isTrue()) {
       return group;
     }
-    return PartOf<ValGroupRegion>{
-        std::make_shared<ValGroupRegion>(group),
+    return PartOf<LinearGroupProjection>{
+        std::make_shared<LinearGroupProjection>(group),
         new_inner_extent,
         current.selected_extent};
   } else {
@@ -1331,8 +1357,8 @@ ValGroupRegion propagate(
     // Adding more extent to the inner.
     if (current.group->is<ValGroup>() &&
         current.group->as<ValGroup>() == from.front()) {
-      return PartOf<ValGroupRegion>{
-          std::make_shared<ValGroupRegion>(to.front()),
+      return PartOf<LinearGroupProjection>{
+          std::make_shared<LinearGroupProjection>(to.front()),
           SimplifyingIrBuilder::mulExpr(
               current.inner_extent,
               from.back()->front()->as<IterDomain>()->extent()),
@@ -1341,8 +1367,8 @@ ValGroupRegion propagate(
     // Adding more extent to the outer.
     if (current.group->is<ValGroup>() &&
         current.group->as<ValGroup>() == from.back()) {
-      return PartOf<ValGroupRegion>{
-          std::make_shared<ValGroupRegion>(to.front()),
+      return PartOf<LinearGroupProjection>{
+          std::make_shared<LinearGroupProjection>(to.front()),
           current.inner_extent,
           current.selected_extent};
     }
@@ -1354,8 +1380,8 @@ ValGroupRegion propagate(
   }
 }
 
-ValGroupRegion propagate(
-    const std::deque<ValGroupRegion>& current,
+LinearGroupProjection propagate(
+    const Composition<LinearGroupProjection>& current,
     const ValGraph& id_graph,
     const ExprGroup& eg,
     Direction direction) {
@@ -1369,7 +1395,7 @@ ValGroupRegion propagate(
     // Split one group in current into two groups.
     bool may_be_indivisible_split = eg->front()->isA<Split>() &&
         !simplifyExpr(eg->front()->as<Split>()->isDivisible())->isTrue();
-    std::deque<ValGroupRegion> result;
+    Composition<LinearGroupProjection> result;
     bool first = true;
     for (const auto& g : current) {
       if (g.is<ValGroup>() && g.as<ValGroup>() == from.front()) {
@@ -1406,7 +1432,7 @@ ValGroupRegion propagate(
       auto inner_it = std::next(outer_it);
       if (inner_it != current.end() && inner_it->is<ValGroup>() &&
           inner_it->as<ValGroup>() == from.back()) {
-        std::deque<ValGroupRegion> result = current;
+        Composition<LinearGroupProjection> result = current;
         result.erase(result.begin() + std::distance(current.begin(), inner_it));
         result.at(std::distance(current.begin(), outer_it)) = to.front();
         if (result.size() == 1) {
@@ -1423,7 +1449,7 @@ ValGroupRegion propagate(
   }
 }
 
-ValGroupRegion propagate(
+LinearGroupProjection propagate(
     const std::monostate& current,
     const ValGraph& id_graph,
     const ExprGroup& eg,
@@ -1431,12 +1457,12 @@ ValGroupRegion propagate(
   NVF_ERROR(false, "Should not reach here.");
 }
 
-ValGroupRegion propagate(
-    const ValGroupRegion& current,
+LinearGroupProjection propagate(
+    const LinearGroupProjection& current,
     const ValGraph& id_graph,
     const ExprGroup& eg,
     Direction direction) {
-  return ValGroupRegion::dispatch(
+  return LinearGroupProjection::dispatch(
       [&](const auto& current) {
         return propagate(current, id_graph, eg, direction);
       },
@@ -1447,7 +1473,7 @@ ValGroupRegion propagate(
 // domain. Parse this information to check if linear_g is linear in domain, and
 // if it is, compute the stride.
 Val* proveLinearAndGetStrideAfterPropagation(
-    const ValGroupRegion& g_in_domain,
+    const LinearGroupProjection& g_in_domain,
     const ValGroups& domain);
 
 Val* proveLinearAndGetStrideAfterPropagation(
@@ -1465,7 +1491,7 @@ Val* proveLinearAndGetStrideAfterPropagation(
 }
 
 Val* proveLinearAndGetStrideAfterPropagation(
-    const PartOf<ValGroupRegion>& g_in_domain,
+    const PartOf<LinearGroupProjection>& g_in_domain,
     const ValGroups& domain) {
   auto inner_stride =
       proveLinearAndGetStrideAfterPropagation(*g_in_domain.group, domain);
@@ -1476,7 +1502,7 @@ Val* proveLinearAndGetStrideAfterPropagation(
 }
 
 Val* proveLinearAndGetStrideAfterPropagation(
-    const std::deque<ValGroupRegion>& g_in_domain,
+    const Composition<LinearGroupProjection>& g_in_domain,
     const ValGroups& domain) {
   // The idea is like: given a string domain, find the substring g_in_domain.
   if (!std::all_of(g_in_domain.begin(), g_in_domain.end(), [&](const auto& g) {
@@ -1508,9 +1534,9 @@ Val* proveLinearAndGetStrideAfterPropagation(
 }
 
 Val* proveLinearAndGetStrideAfterPropagation(
-    const ValGroupRegion& g_in_domain,
+    const LinearGroupProjection& g_in_domain,
     const ValGroups& domain) {
-  return ValGroupRegion::dispatch(
+  return LinearGroupProjection::dispatch(
       [&](const auto& g_in_domain) {
         return proveLinearAndGetStrideAfterPropagation(g_in_domain, domain);
       },
@@ -1532,7 +1558,7 @@ Val* proveLinearAndGetStride(
   }
   // Propagate from linear_g to domain. Use frontier to keep track of the
   // how linear_g lives in the current propagation front.
-  ValGroupRegion frontier = linear_g;
+  LinearGroupProjection frontier = linear_g;
   auto path = ValGraphBFS::getExprsBetween(id_graph, domain, {linear_g});
   while (!path.empty()) {
     const auto& [eg, direction] = path.back();
