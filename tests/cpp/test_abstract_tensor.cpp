@@ -805,15 +805,41 @@ TEST_F(AbstractTensorTest, MergeTaggedTensor) {
   auto id0 = newID();
   auto id1 = newID();
 
-  EnumTaggedAbstractTensor v0({id0, id1}, {{TestTag::A}, {TestTag::A}});
-  v0.merge(0);
-  EXPECT_EQ(v0.getTag(0), TestTag::A);
+  {
+    EnumTaggedAbstractTensor v0({id0, id1}, {{TestTag::A}, {TestTag::A}});
 
-  // Mismatched tags should throw an error due to strict tag matching
-  EnumTaggedAbstractTensor v1({id0, id1}, {{TestTag::A}, {TestTag::B}});
-  v0.merge(0);
-  EXPECT_TRUE(v1.hasTag(0, TestTag::A));
-  EXPECT_TRUE(v1.hasTag(0, TestTag::B));
+    ASSERT_EQ(v0.info.size(), 2);
+    EXPECT_EQ(v0.info.at(0).tags, std::unordered_set<TestTag>{TestTag::A});
+    EXPECT_EQ(v0.info.at(1).tags, std::unordered_set<TestTag>{TestTag::A});
+
+    EXPECT_TRUE(v0.hasTag(0, TestTag::A));
+    EXPECT_EQ(v0.getTag(0), TestTag::A);
+    EXPECT_TRUE(v0.hasTag(-1, TestTag::A));
+    EXPECT_EQ(v0.getTag(1), TestTag::A);
+
+    v0.merge(0);
+
+    EXPECT_EQ(v0.getTag(0), TestTag::A);
+  }
+
+  {
+    // Mismatched tags should throw an error due to strict tag matching
+    EnumTaggedAbstractTensor v1({id0, id1}, {{TestTag::A}, {TestTag::B}});
+
+    ASSERT_EQ(v1.info.size(), 2);
+    EXPECT_EQ(v1.info.at(0).tags, std::unordered_set<TestTag>{TestTag::A});
+    EXPECT_EQ(v1.info.at(1).tags, std::unordered_set<TestTag>{TestTag::B});
+
+    EXPECT_TRUE(v1.hasTag(0, TestTag::A));
+    EXPECT_EQ(v1.getTag(0), TestTag::A);
+    EXPECT_TRUE(v1.hasTag(-1, TestTag::B));
+    EXPECT_EQ(v1.getTag(1), TestTag::B);
+
+    v1.merge(0);
+
+    EXPECT_TRUE(v1.hasTag(0, TestTag::A));
+    EXPECT_TRUE(v1.hasTag(0, TestTag::B));
+  }
 }
 
 } // namespace nvfuser

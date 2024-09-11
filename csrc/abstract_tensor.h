@@ -921,37 +921,46 @@ struct TaggedAbstractTensor : AbstractTensorWithInfo<TagSetInfo<Tag>> {
       std::vector<AbstractId> domain,
       std::vector<std::unordered_set<Tag>> tag_sets)
       : AbstractTensorWithInfo<TagSetInfo<Tag>>(domain) {
-    this->info.reserve(tag_sets.size());
+    NVF_ERROR(
+        this->info.size() == tag_sets.size(),
+        "Mismatch in length between provided domain and tag sets");
+    size_t i = 0;
     for (const auto& s : tag_sets) {
-      this->info.push_back({s});
+      this->info[i++].tags.insert(s.begin(), s.end());
     }
   }
   TaggedAbstractTensor(
       const std::vector<IterDomain*>& domain,
       const std::vector<std::unordered_set<Tag>>& tag_sets)
       : AbstractTensorWithInfo<TagSetInfo<Tag>>(domain) {
-    this->info.reserve(tag_sets.size());
+    NVF_ERROR(
+        this->info.size() == tag_sets.size(),
+        "Mismatch in length between provided domain and tag sets");
+    size_t i = 0;
     for (const auto& s : tag_sets) {
-      this->info.push_back({s});
+      this->info[i++].tags.insert(s.begin(), s.end());
     }
   }
   TaggedAbstractTensor(
       std::initializer_list<AbstractId> domain,
       std::initializer_list<std::initializer_list<Tag>> tag_sets)
       : AbstractTensorWithInfo<TagSetInfo<Tag>>(domain) {
-    this->info.reserve(domain.size());
+    NVF_ERROR(
+        this->info.size() == tag_sets.size(),
+        "Mismatch in length between provided domain and tag sets");
+    size_t i = 0;
     for (const auto& s : tag_sets) {
-      this->info.push_back({s});
+      this->info[i++].tags.insert(s.begin(), s.end());
     }
   }
 
   const std::unordered_set<Tag>& getTags(int64_t i) const {
-    i = wrapDim(i, (int64_t)this->domain.size());
+    i = wrapDim(i, (int64_t)this->info.size());
     return this->info[i].tags;
   }
 
   bool hasTag(int64_t i, Tag tag) const {
-    return (bool)getTags(i).count(tag);
+    return getTags(i).count(tag) == 1;
   }
 
   //! Return tag if there is a single tag, otherwise nullopt
