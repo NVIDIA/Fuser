@@ -1141,11 +1141,16 @@ template <typename LinearGroupProjection>
 struct PartOf {
   // Part of who?
   std::shared_ptr<LinearGroupProjection> group;
-  // The extent on the inner of linear_g in group. If linear_g is the innermost
+  // The structure of group is shown below:
+  //   .--------------------------.
+  //   | outer | linear_g | inner |
+  //   '--------------------------'
+  // `inner_extent` refers to the extent of `inner`, which can also be
+  // understood as the stride of linear_g in group. If linear_g is the innermost
   // of group, then there is nothing on the inner of linear_g. For this case, we
   // say the inner_extent is one, and assign nullptr here.
   Val* inner_extent = nullptr;
-  // The extent of linear_g.
+  // The extent of linear_g. This value is just carried over and never changed.
   Val* selected_extent = nullptr;
 };
 
