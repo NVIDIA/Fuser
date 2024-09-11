@@ -203,6 +203,9 @@ std::string getString(const BinaryOp* bop) {
     case BinaryOpType::Min:
       return "minimum";
       break;
+    case BinaryOpType::CeilDiv:
+      return "ceilDiv";
+      break;
     default:
       NVF_CHECK(
           false,
