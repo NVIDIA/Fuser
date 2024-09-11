@@ -468,8 +468,8 @@ TEST_P(HangTest, ThreeRanksTestHangSendRecv) {
     world_communicator_->send(src, send_peer_rank, my_rank);
     recv_h = world_communicator_->recv(dst, recv_peer_rank, recv_peer_rank);
   } else if (my_rank == 1) {
-    world_communicator_->send(src, send_peer_rank, my_rank);
     recv_h = world_communicator_->recv(dst, recv_peer_rank, recv_peer_rank);
+    world_communicator_->send(src, send_peer_rank, my_rank);
   } else {
     world_communicator_->send(src, send_peer_rank, my_rank);
     recv_h = world_communicator_->recv(dst, recv_peer_rank, recv_peer_rank);
