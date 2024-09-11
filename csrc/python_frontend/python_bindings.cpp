@@ -2728,14 +2728,45 @@ Tensor slice_fn(
 
   if (opt_strides.has_value()) {
     new_stride = ShapeAsVector(opt_stride.value(), *fd);
+    NVF_CHECK(
+        new_start.size == new_stride.size,
+        "Slice start_indices and strides don't match! Start Indices: ",
+        new_start.size,
+        " Strides: ",
+        new_stride.size);
   } else {
-    // set stride 1;
+    // TODO: should I kept it as none instead?
+    // set stride 1 with the proper size;
+    std::vector<Scalar> stride_vec;
+    Scalar out = fd->defineScalar();
+    fd->defineRecord(new ScalarRecord(
+        {fd->recordingState(out())},
+        1,
+        DataType::Int,
+        /*inline_def=*/true));
+    stride_vec.resize(new_start.size, out);
+    new_stride = define_vector_base_fn(*fd, stride_vec, true);
   }
 
-  Tensor output = fd->defineTensor(new_shape.size);
-  fd->defineRecord(new ReshapeOpRecord(
-      {fd->recordingState(arg()), fd->recordingState(new_shape())},
-      {fd->recordingState(output())}));
+  NVF_CHECK(
+      arg.dims == new_start.size,
+      "Number of tensor dimensions does not match slice dimensions! Tensor-dims: ",
+      arg.dims,
+      " Slice-dims: ",
+      new_start.size);
+  NVF_CHECK(
+      new_start.size == new_end.size,
+      "Slice indexing attribute dimensions don't match! Start Indices: ",
+      new_start.size,
+      " End Indices: ",
+      new_end.size,
+      " Strides: ",
+      strides.size());
+  
+  Tensor output = fd->defineTensor(arg.dims);
+  fd->defineRecord(new SliceOpRecord(
+      {fd->recordingState(arg()), fd->recordingState(new_start()),fd->recordingState(new_end()),fd->recordingState(new_stride())},
+      {fd->recordingState(output())},
   return output;
 }
 
