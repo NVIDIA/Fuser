@@ -77,10 +77,9 @@ def check_captured_python_definition(reference_outputs, fd, inputs, device=None)
 def check_cpp_translation(reference_outputs, fd, inputs, device=None):
     try:
         torch.manual_seed(0)
-        concrete_fd = fd.concretize(inputs)
-        preseg_fd = concrete_fd.presegment()
-        preseg_fd.segment(inputs)
-        cloned_outputs = preseg_fd.execute(inputs, device=device)
+        cloned_fd = fd.clone()
+        cloned_fd.segment(inputs)
+        cloned_outputs = cloned_fd.execute(inputs, device=device)
 
         # Make sure the results of original and cloned definitions match.
         # torch.allclose does not work with fp8 datatype, so cast to fp64.
