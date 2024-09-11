@@ -437,6 +437,17 @@ bool hasAnyReductionOps(Fusion* fusion) {
   return hasOpsOfType<ReductionOp, GroupedReductionOp, WelfordOp>(fusion);
 }
 
+bool isConsumedByIterGroupedReduction(const TensorView* tv){
+  for(auto consumer : consumerTvsOf(tv)){
+    for(auto id : consumer->getLoopDomain()){
+      if(id->getParallelType() == ParallelType::Group){
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 namespace {
 
 class ValReplacementMutator : private OptOutMutator {

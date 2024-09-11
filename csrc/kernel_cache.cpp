@@ -1387,6 +1387,7 @@ std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
   num_live_args_after_segment_runs_.reserve(num_groups);
   kernel_time_ms_ = 0;
   for (auto run_order_id : c10::irange(num_groups)) {
+    std::cout << "run_order_id: " << run_order_id << std::endl;
     // TODO: index mode should be updated per segmented kernel
     // Prepare input vector
     auto group_to_run = runtime_workspace_.group_run_order.at(run_order_id);

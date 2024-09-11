@@ -692,4 +692,9 @@ inline bool isMemorySharedAcross(
   }
 }
 
+// Used in codegen, to check if tv is passed to blockIterGroupedYdimReduce.
+// It will be allocated as aligned Array to enusre aligned copy
+// to shared memory.
+bool isConsumedByIterGroupedReduction(const TensorView* tv);
+
 } // namespace nvfuser::ir_utils

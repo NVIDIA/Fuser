@@ -1846,14 +1846,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const auto sync_buffer = grop->sync_buffer()->buffer()->as<TensorView>();
 
     ArgumentBuilder func_args(block_nest_level_ + 1, kTab);
-    auto output_tv = output->view();
-    auto va = kernel_->summary().vectorized_accesses;
-    if (va.find(output_tv) != va.end()) {
-      func_args.arg(genVariableName(output) + ".array");
-    } else {
-      func_args.arg(genVariableName(output));
-    }
-    func_args.arg(genVariableName(input));
+    func_args.arg(genVariableNameConvertAlignedArray(output));
+    func_args.arg(genVariableNameConvertAlignedArray(input));
     func_args.arg(genReductionOp(op_type, data_type));
     func_args.arg("&").append(genVariableName(work_buffer)).append("[0]");
     func_args.arg("&").append(genVariableName(sync_buffer)).append("[0]");
@@ -2995,9 +2989,16 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           break;
         case MemoryType::Local: {
           auto va = kernel_->summary().vectorized_accesses;
+          unsigned int align_bytes = 0;
           if (va.find(tv) != va.end()) {
+            align_bytes = va.at(tv);
+          }else if(kernel_->summary().num_grouped_iterations > 1 && ir_utils::isConsumedByIterGroupedReduction(tv)){
+            align_bytes = kernel_->summary().num_grouped_iterations;
+          }
+          if (align_bytes > 0) {
+            std::cout << "Allocating vectorized local memory for " << tv->toString() << std::endl;
             indent() << "Array<" << buffer_dtype << ", " << genInline(size)
-                     << ", " << va.at(tv) << "> " << genVariableName(tv)
+                     << ", " << align_bytes << "> " << genVariableName(tv)
                      << ";\n";
             aligned_array_of_regs_.insert(tv);
           } else {
