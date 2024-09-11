@@ -2712,92 +2712,55 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("index"),
       py::return_value_policy::reference);
 
+template <class ShapeType>
+Tensor slice_fn(
+    FusionDefinition::Operators& self,
+    Tensor arg,
+    ShapeType start,
+    ShapeType end,
+    std::optional<ShapeType> opt_stride) {
+  NVF_CHECK(self.validUse(), "Attempting to add to a completed definition!");
+
+  FusionDefinition* fd = self.fusion_definition;
+  Vector new_start = ShapeAsVector(start, *fd);
+  Vector new_end = ShapeAsVector(end, *fd);
+  Vector new_stride;
+
+  if (opt_strides.has_value()) {
+    new_stride = ShapeAsVector(opt_stride.value(), *fd);
+  } else {
+    // set stride 1;
+  }
+
+  Tensor output = fd->defineTensor(new_shape.size);
+  fd->defineRecord(new ReshapeOpRecord(
+      {fd->recordingState(arg()), fd->recordingState(new_shape())},
+      {fd->recordingState(output())}));
+  return output;
+}
+
   nvf_ops.def(
       "slice",
-      [](FusionDefinition::Operators& self,
-         Tensor arg,
-         const std::vector<int64_t>& start_indices,
-         const std::vector<int64_t>& end_indices,
-         // NOTE: Tried to use std::reference_wrapper to a vector and during
-         // testing, I was not getting the proper value back.  It was like
-         // like the code was referencing the strides vector that holds the
-         // default value.
-         std::optional<std::vector<int64_t>> opt_strides =
-             std::nullopt) -> Tensor {
-        FUSER_PERF_SCOPE("Operators.slice");
-        NVF_CHECK(
-            self.validUse(), "Attempting to add to a completed definition!");
-
-        std::vector<int64_t> strides;
-        if (opt_strides.has_value()) {
-          NVF_CHECK(
-              start_indices.size() == opt_strides.value().size(),
-              "Slice start_indices and strides don't match! Start Indices: ",
-              start_indices.size(),
-              " Strides: ",
-              opt_strides.value().size());
-          strides.assign(
-              opt_strides.value().begin(), opt_strides.value().end());
-        } else {
-          strides.resize(start_indices.size(), 1);
-        }
-
-        NVF_CHECK(
-            arg.dims == start_indices.size(),
-            "Number of tensor dimensions does not match slice dimensions! Tensor-dims: ",
-            arg.dims,
-            " Slice-dims: ",
-            start_indices.size());
-        NVF_CHECK(
-            start_indices.size() == end_indices.size(),
-            "Slice indexing attribute dimensions don't match! Start Indices: ",
-            start_indices.size(),
-            " End Indices: ",
-            end_indices.size(),
-            " Strides: ",
-            strides.size());
-        for (const auto i : c10::irange(arg.dims)) {
-          auto start_idx = start_indices[i];
-          auto end_idx = end_indices[i];
-          auto stride = strides[i];
-          NVF_CHECK(
-              start_idx >= 0,
-              "Slice operation start_indices must be greater-than-or-equal-to 0. Start Indices: ",
-              start_indices,
-              " End Indices: ",
-              end_indices,
-              " Strides: ",
-              strides);
-          NVF_CHECK(
-              end_idx >= start_idx,
-              "Slice operation end_indices must be greater-than-or-equal-to start_indices. Start Indices: ",
-              start_indices,
-              " End Indices: ",
-              end_indices,
-              " Strides: ",
-              strides);
-          NVF_CHECK(
-              stride == 1,
-              "nvFuser Limitation: All slice operation strides must be of size 1. Start Indices: ",
-              start_indices,
-              " End Indices: ",
-              end_indices,
-              " Strides: ",
-              strides);
-        }
-        FusionDefinition* fd = self.fusion_definition;
-        Tensor output = fd->defineTensor(arg.dims);
-        fd->defineRecord(new SliceOpRecord(
-            {fd->recordingState(arg())},
-            {fd->recordingState(output())},
-            start_indices,
-            end_indices,
-            strides));
-        return output;
-      },
+      slice_fn<Vector>,
       py::arg("arg"),
-      py::arg("start_indices"),
-      py::arg("end_indices"),
+      py::arg("start"),
+      py::arg("end"),
+      py::arg("strides") = py::none(),
+      py::return_value_policy::reference);
+  nvf_ops.def(
+      "slice",
+      slice_fn<py::list>,
+      py::arg("arg"),
+      py::arg("start"),
+      py::arg("end"),
+      py::arg("strides") = py::none(),
+      py::return_value_policy::reference);
+  nvf_ops.def(
+      "slice",
+      slice_fn<py::tuple>,
+      py::arg("arg"),
+      py::arg("start"),
+      py::arg("end"),
       py::arg("strides") = py::none(),
       py::return_value_policy::reference);
   nvf_ops.def(
