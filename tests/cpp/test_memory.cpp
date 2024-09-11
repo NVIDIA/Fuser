@@ -2504,7 +2504,7 @@ TEST_P(LdMatrixTest, Regular) {
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
-class StMatrixTest : public NVFuserTest {
+class StMatrixTest : public NVFuserFixtureParamTest<std::vector<int>> {
  protected:
   void SetUp() override {
     if (cudaArchGuardShouldSkip(9, 0)) {
@@ -2514,14 +2514,14 @@ class StMatrixTest : public NVFuserTest {
   }
 };
 
-TEST_F(StMatrixTest, Regular) {
+TEST_P(StMatrixTest, Regular) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto operand = MmaOperand::B;
-
-  int sizeM = 8;
-  int sizeN = 8;
+  auto operand = MmaOperand::A;
+  auto sizes = GetParam();
+  int sizeM = sizes.at(0);
+  int sizeN = sizes.at(1);
 
   auto tv0 = makeContigConcreteTensor({sizeM, sizeN}, DataType::Half);
   fusion.addInput(tv0);
@@ -2540,7 +2540,14 @@ TEST_F(StMatrixTest, Regular) {
 
   tv2->applyMmaSwizzle(operand);
   tv2->setAllocationDomain(tv2->getLoopDomain(), true);
-  // We do not schedule tv3 as yet.
+  // // Get 32 threads out to parallelize over.
+  tv2->merge(1);
+  tv2->axis(1)->parallelize(ParallelType::TIDx);
+
+  // We do not really schedule tv3 as yet, this is just for parllel codegen.
+  tv3->merge(0);
+  tv3->split(0, 32);
+  tv3->axis(1)->parallelize(ParallelType::TIDx);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   auto t0 = at::randn({sizeM, sizeN}, options);
@@ -2551,6 +2558,15 @@ TEST_F(StMatrixTest, Regular) {
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    StMatrixTest,
+    testing::Values(
+        // M, N
+        std::vector<int>{8, 8},
+        std::vector<int>{16, 8},
+        std::vector<int>{16, 16}));
 
 TEST_P(LdMatrixTest, Transpose) {
   Fusion fusion;

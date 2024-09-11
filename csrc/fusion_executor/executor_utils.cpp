@@ -14,7 +14,7 @@
 #include <contiguity.h>
 #include <debug.h>
 #include <driver_api.h>
-#include <executor_utils.h>
+#include <fusion_executor/executor_utils.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/iostream.h>
@@ -716,7 +716,20 @@ ExpressionEvaluator bindInputs(
     // NOTE: we bind all inputs here, including at::Tensors. This means that
     // expr_eval will create a PolymorphicValue containing *args[i], which means
     // that at::Tensor's lifetime will be at least as long as that of expr_eval.
-    expr_eval.bind(inputs[i], *args[i], true);
+    try {
+      expr_eval.bind(inputs[i], *args[i], true);
+    } catch (const nvfError& e) {
+      std::stringstream ss;
+      ss << "When trying to run the provided host program,"
+         << " there was an error with the provided input " << i
+         << ". Provided input was:\n  ";
+      ss << PolymorphicValue_functions::toString(*args[i]);
+      ss << "\n  Fusion input is:\n  ";
+      ss << inputs[i]->toString();
+      ss << "\n  Expr eval provided the error:\n\"\"\"";
+      ss << e.msg() << "\"\"\"\n";
+      NVF_THROW(ss.str());
+    }
   }
 
   return expr_eval;
@@ -965,6 +978,9 @@ void fillCompileOptions(
     const CompileParams& compile_params,
     std::optional<int64_t> opt_block_size) {
   nvrtc_compile_driver.setOption("--std=c++17");
+  if (isOptionEnabled(EnableOption::KernelDebug)) {
+    nvrtc_compile_driver.setOption("-G");
+  }
 
   // Suppress warnings for functions that are defined but unused, since we have
   // many unused functions in the preamble.
@@ -995,7 +1011,7 @@ void fillCompileOptions(
   }
 
   // Add line info to generated kernels
-  if (isDebugDumpEnabled(DebugDumpOption::DebugInfo)) {
+  if (isOptionEnabled(EnableOption::KernelLineInfo)) {
     nvrtc_compile_driver.setOption("-lineinfo");
   }
 
