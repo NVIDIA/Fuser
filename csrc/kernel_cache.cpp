@@ -729,12 +729,13 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
 
   // Initialize or fetch vector of FusionKernelRuntime objects associated with
   // each pair of device ID and concretization info.
-  auto config = std::make_pair(args.getDeviceIndex(), conc_info);
-  auto& kernel_runtimes = kernel_runtimes_.try_emplace(config).first->second;
-  auto result =
-      conc_info_id_map_.try_emplace(config, conc_info_id_map_.size() + 1);
+  auto device_concrete_key = std::make_pair(args.getDeviceIndex(), conc_info);
+  auto& kernel_runtimes =
+      kernel_runtimes_.try_emplace(device_concrete_key).first->second;
+  auto result = conc_info_id_map_.try_emplace(
+      device_concrete_key, conc_info_id_map_.size() + 1);
   if (result.second) {
-    deterministic_conc_info_.emplace_back(config);
+    deterministic_conc_info_.emplace_back(device_concrete_key);
   }
 
   // Check for re-use hit case
@@ -744,9 +745,8 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
 
   FusionKernelRuntime* kernel_runtime = nullptr;
 
-  // reusing indicates whether we are following Path 2 (true) or Paths 3/4
-  // (false)
-  bool reusing = false;
+  // Check if we missed the KernelRuntime cache (Path 2) and need to generate a
+  // new kernel runtime (Path 3/4)
   // By default, we try to avoid recompiling whenever possible. However, this
   // can lead to suboptimal code if we only check that a compiled kernel is able
   // to run with some inputs, instead of whether it is optimal to do so. The
@@ -756,7 +756,8 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
   // above so that we only have Path 1 (hottest re-use path) and Path 4 (full
   // recompile).
   if (!isOptionDisabled(DisableOption::KernelReuse)) {
-    auto reuse_it = std::find_if(
+    FUSER_PERF_SCOPE("FusionExecutorCache::getKernelRuntimeFor::reuseKRT");
+    auto runtime_it = std::find_if(
         kernel_runtimes.begin(),
         kernel_runtimes.end(),
         [&args, &new_heuristics, &forced_index_type](auto& kernel_runtime) {
@@ -768,20 +769,24 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
           new_heuristics = std::move(maybe_heuristics.value());
           return true;
         });
-    if (reuse_it != kernel_runtimes.end()) {
-      kernel_runtime = reuse_it->get();
+    if (runtime_it != kernel_runtimes.end()) {
+      kernel_runtime = runtime_it->get();
+      // TODO: How does this work if we his this path, then hit a size that was
+      // previously seen??
+      // TODO: Can this function be inlined?
       kernel_runtime->updateHeuristicsLaunchParams(new_heuristics.get());
-      reusing = true;
+      //
+      id_to_kernel_runtime_[unique_id] = kernel_runtime;
+      return kernel_runtime;
     }
   }
 
-  if (!reusing) {
-    FUSER_PERF_SCOPE("FusionExecutorCache::getKernelRuntimeFor::!reusing");
+  {
+    FUSER_PERF_SCOPE("FusionExecutorCache::getKernelRuntimeFor::compileNewKRT");
     // Paths 3 or 4
     // cache miss, need to re-build an optimized graph for this case
 
-    // Clone fusion_ so that we can safely use an ExpressionEvaluator on it, for
-    // the purposes of computing the concretization info.
+    // Clone fusion_ so that we can safely concretize it
     auto conc_fusion = std::make_unique<Fusion>(*fusion_);
     if (initial_info.isDynamic()) {
       const auto& conc_initial_info =
@@ -814,7 +819,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
         /*serde_buffer=*/nullptr,
         forced_index_type,
         fusion_id_,
-        conc_info_id_map_.at(config),
+        conc_info_id_map_.at(device_concrete_key),
         kernel_runtimes.size(),
         auto_schedule_));
     kernel_runtime = kernel_runtimes.back().get();
@@ -822,10 +827,9 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     if (profiling_) {
       kernel_runtime->profile(true);
     }
+    id_to_kernel_runtime_[unique_id] = kernel_runtime;
+    return kernel_runtime;
   }
-
-  id_to_kernel_runtime_[unique_id] = kernel_runtime;
-  return kernel_runtime;
 }
 
 flatbuffers::Offset<serde::FusionExecutorCache> FusionExecutorCache::serialize(
@@ -843,8 +847,8 @@ flatbuffers::Offset<serde::FusionExecutorCache> FusionExecutorCache::serialize(
       fb_kernel_runtimes;
   fb_kernel_runtimes.reserve(kernel_runtimes_.size());
 
-  for (const auto& config : deterministic_conc_info_) {
-    const auto& device_runtimes = kernel_runtimes_.at(config);
+  for (const auto& device_concrete_key : deterministic_conc_info_) {
+    const auto& device_runtimes = kernel_runtimes_.at(device_concrete_key);
     std::vector<flatbuffers::Offset<serde::FusionKernelRuntime>>
         fb_device_runtimes;
     fb_device_runtimes.reserve(device_runtimes.size());
@@ -860,11 +864,11 @@ flatbuffers::Offset<serde::FusionExecutorCache> FusionExecutorCache::serialize(
 
     // We recompute the DynamicTransformConcretizationInfo during
     // deserialization using a metadata copy of kernel inputs.
-    auto&& [device_id, conc_info] = config;
+    auto&& [device_id, conc_info] = device_concrete_key;
     fb_kernel_runtimes.push_back(CreateKernelRuntimeStateDirect(
         builder,
         device_id,
-        conc_info_id_map_.at(config),
+        conc_info_id_map_.at(device_concrete_key),
         (conc_info != nullptr),
         &fb_device_runtimes));
   }
@@ -1434,7 +1438,7 @@ std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
   return args_manager.getTensorMap();
 }
 
-const std::vector<FusionKernelRuntime::SchedulerEntryPtr>& FusionKernelRuntime::
+const std::vector<std::unique_ptr<SchedulerEntry>>& FusionKernelRuntime::
     schedulers() const {
   return heuristics_->heuristicsList();
 }
@@ -1451,7 +1455,7 @@ void FusionKernelRuntime::updateHeuristicsLaunchParams(
   }
 }
 
-std::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
+std::optional<std::unique_ptr<FusionHeuristics>> FusionKernelRuntime::
     getMaybeHeuristicsFor(
         const KernelArgumentHolder& args,
         std::optional<PrimDataType> forced_index_type) {
@@ -1461,7 +1465,7 @@ std::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
   // order. Instead of using FusionHeuristics::emplaceBack, we initialize
   // FusionHeuristics with the desired number of groups.
   const int64_t num_groups = (int64_t)runtime_workspace_.group_run_order.size();
-  FusionKernelRuntime::HeuristicsPtr heuristics =
+  std::unique_ptr<FusionHeuristics> heuristics =
       std::make_unique<FusionHeuristics>(num_groups);
 
   // We make a mutable copy of args so that we can use it in an ArgumentManager

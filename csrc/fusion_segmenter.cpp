@@ -710,14 +710,13 @@ void SegmentedFusion::Impl::cleanUnused() {
 //! Return mapping from SegmentedGroup to integer id
 std::unordered_map<SegmentedGroup*, int64_t> SegmentedFusion::Impl::groups_map()
     const {
-  using GroupPtr = std::unique_ptr<SegmentedGroup>;
   std::unordered_map<SegmentedGroup*, int64_t> group_map;
   int64_t count = 0;
   std::transform(
       groups_.begin(),
       groups_.end(),
       std::inserter(group_map, group_map.end()),
-      [&count](const GroupPtr& group_up) {
+      [&count](const std::unique_ptr<SegmentedGroup>& group_up) {
         return std::make_pair(group_up.get(), count++);
       });
   return group_map;
@@ -726,14 +725,13 @@ std::unordered_map<SegmentedGroup*, int64_t> SegmentedFusion::Impl::groups_map()
 //! Return mapping from SegmentedEdge to integer id
 std::unordered_map<SegmentedEdge*, int64_t> SegmentedFusion::Impl::edges_map()
     const {
-  using EdgePtr = std::unique_ptr<SegmentedEdge>;
   std::unordered_map<SegmentedEdge*, int64_t> edge_map;
   int64_t count = 0;
   std::transform(
       edges_.begin(),
       edges_.end(),
       std::inserter(edge_map, edge_map.end()),
-      [&count](const EdgePtr& edge_up) {
+      [&count](const std::unique_ptr<SegmentedEdge>& edge_up) {
         return std::make_pair(edge_up.get(), count++);
       });
   return edge_map;
@@ -954,19 +952,15 @@ std::vector<Val*> getAllOutputs(
 std::vector<Val*> allInputsIfTrueElseOutputs(
     const std::vector<SegmentedGroup*>& segmented_groups,
     bool get_inputs = true) {
-  // Helper to distinguish if we are getting inputs or outputs
-  using EdgeVec = std::vector<SegmentedEdge*>;
-  using ValVec = std::vector<Val*>;
-
   // Get producer edges to get inputs, consumer edges to get outputs
   auto edges_to_process_from_or_to_group =
-      [get_inputs](SegmentedGroup* group) -> EdgeVec& {
+      [get_inputs](SegmentedGroup* group) -> std::vector<SegmentedEdge*>& {
     return get_inputs ? group->producer_edges : group->consumer_edges;
   };
 
   // Get the group that is connected to current group
   auto global_vals_from_or_to_group =
-      [get_inputs](SegmentedGroup* group) -> ValVec& {
+      [get_inputs](SegmentedGroup* group) -> std::vector<Val*>& {
     return get_inputs ? group->input_vals : group->output_vals;
   };
 
@@ -1452,9 +1446,6 @@ void SegmentedFusion::revertInputOutputPrecisionChanges(
 //!        currently O(n^2). O(nlogn) would be a reasonable
 //!        goal to achieve.
 class GroupDependencyAnalysis : public NonCopyable, public SegmenterAnalysis {
-  using GroupSetOwningPtr = std::unique_ptr<GroupSet>;
-  using DependencyMap = std::unordered_map<SegmentedGroup*, GroupSetOwningPtr>;
-
  public:
   //! Populate producers of all groups in segmented fusion
   explicit GroupDependencyAnalysis(const SegmentedFusion* segmented_fusion)
@@ -1563,7 +1554,7 @@ class GroupDependencyAnalysis : public NonCopyable, public SegmenterAnalysis {
   }
 
   //! Utility to access known producers of a group so far
-  GroupSetOwningPtr& getAllKnownProducersSet(SegmentedGroup* group) {
+  std::unique_ptr<GroupSet>& getAllKnownProducersSet(SegmentedGroup* group) {
     auto& producer_set_ptr = known_producers_of_[group];
     if (!producer_set_ptr) {
       producer_set_ptr = std::make_unique<GroupSet>();
@@ -1588,7 +1579,7 @@ class GroupDependencyAnalysis : public NonCopyable, public SegmenterAnalysis {
 
  private:
   const SegmentedFusion* segmented_fusion_;
-  DependencyMap known_producers_of_;
+  std::unordered_map<SegmentedGroup*, std::unique_ptr<GroupSet>> known_producers_of_;
 };
 
 //! Finds the common producers of given set of groups
@@ -4408,7 +4399,7 @@ GroupDependencyAnalysis* SegmentCandidateFinder::getGroupDependency() {
   return group_dependency_->as<GroupDependencyAnalysis>();
 }
 
-FusionKernelRuntime::SchedulerEntryPtr SegmentedFusion::
+std::unique_ptr<SchedulerEntry> SegmentedFusion::
     makeInitialSchedulerEntry(
         SegmentedGroup* sg,
         SchedulerRuntimeInfo& runtime_info) {

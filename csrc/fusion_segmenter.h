@@ -264,8 +264,6 @@ std::ostream& operator<<(std::ostream& os, const SegmentedGroup* group);
 //!  a single scheduler entry for complete fusion,
 //!  or a vector of schedulers, one for each segment, for segmented fusion.
 class FusionHeuristics {
-  using SchedulerEntryOwningPtr = std::unique_ptr<SchedulerEntry>;
-
  public:
   //! Constructor for segmented fusion case. Created with empty list and
   //!  uses emplaceBack for inserting heuristics in order
@@ -292,18 +290,18 @@ class FusionHeuristics {
   FusionHeuristics(const FusionHeuristics&) = delete;
   FusionHeuristics& operator=(const FusionHeuristics&) = delete;
 
-  SchedulerEntryOwningPtr& at(int index) {
+  std::unique_ptr<SchedulerEntry>& at(int index) {
     return heuristics_.at(index);
   }
 
   //! Place a scheduler entry on the list. Applies to segmented fusion only.
-  void emplaceBack(SchedulerEntryOwningPtr&& pt) {
+  void emplaceBack(std::unique_ptr<SchedulerEntry>&& pt) {
     NVF_ERROR(is_segmented_);
     heuristics_.emplace_back(std::move(pt));
   }
 
   //! Returns list of schedulers for a segmneted fusion.
-  const std::vector<SchedulerEntryOwningPtr>& heuristicsList() const {
+  const std::vector<std::unique_ptr<SchedulerEntry>>& heuristicsList() const {
     return heuristics_;
   }
 
@@ -314,7 +312,7 @@ class FusionHeuristics {
   }
 
  private:
-  std::vector<SchedulerEntryOwningPtr> heuristics_;
+  std::vector<std::unique_ptr<SchedulerEntry>> heuristics_;
   bool is_segmented_ = true;
 };
 

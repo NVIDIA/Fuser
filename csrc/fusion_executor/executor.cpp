@@ -989,10 +989,7 @@ void FusionExecutor::recomputeArgs(
 void FusionExecutor::recompileKernel(
     const LaunchParams& new_launch_params,
     const CompileParams& new_compile_params) {
-  if (new_launch_params.nThreads() <= block_size_high_water_mark_ &&
-      new_compile_params.maxrregcount == maxrregcount_high_water_mark_) {
-    return;
-  }
+  FUSER_PERF_SCOPE("FusionExecutor::runFusion::recompileKernel");
 
   const auto structured_code = getStructuredCode();
   block_size_high_water_mark_ = new_launch_params.nThreads();
@@ -1158,6 +1155,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   auto expr_eval = executor_utils::bindInputs(args, fusion());
 
   if (isExpressionEvaluated(fusion())) {
+    FUSER_PERF_SCOPE("FusionExecutor::runFusion::evaluate_with_ExprEval");
     outputs = evaluateFusionOutputs(outputs, expr_eval);
     if (isProfilerEnabled()) {
       auto& sprof = FusionProfiler::segment(group_id_);
@@ -1168,6 +1166,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   }
 
   if (host_ir_container_ != nullptr) {
+    FUSER_PERF_SCOPE("FusionExecutor::runFusion::host_ir_evaluate");
     if (outputs.empty()) {
       std::vector<GlobalBufferInfo> output_info = getBufferInfos(
           expr_eval, PrimDataType::Int, host_ir_container_->outputs());
@@ -1233,7 +1232,11 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
         kernel()->indexType());
   }
 
-  recompileKernel(executor_entry->launch_params, compile_params);
+  if (!(executor_entry->launch_params.nThreads() <=
+            block_size_high_water_mark_ &&
+        compile_params.maxrregcount == maxrregcount_high_water_mark_)) {
+    recompileKernel(executor_entry->launch_params, compile_params);
+  }
 
   // TODO: Why does this need to be stored in the class?
   launch_params_ = executor_entry->launch_params;
@@ -1263,6 +1266,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   std::vector<at::Tensor> intermediates;
   at::Tensor profile_buffer;
   {
+    FUSER_PERF_SCOPE("FusionExecutor::runFusion::intermediates");
     for (const auto i : c10::irange(executor_entry->intermediates.size())) {
       const auto& buf_info = executor_entry->intermediates.at(i);
       bool has_expansion = false;
@@ -1342,6 +1346,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   executor_utils::CudaKernelTimer timer(stream);
 
   if (execute_kernel_ && !kernel()->topLevelExprs().empty()) {
+    FUSER_PERF_SCOPE("FusionExecutor::runFusion::execute_kernel");
     ensureAvailableDynamicSmemSize(executor_entry->launch_params.smem());
 
     recomputeArgs(*executor_entry, expr_eval, kernel());
