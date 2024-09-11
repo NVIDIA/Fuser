@@ -14,7 +14,6 @@ from nvfuser import DataType, FusionDefinition
 
 class MultideviceTest:
     def __init__(self):
-        from mpi4py import MPI
         comm = MPI.COMM_WORLD
         self._size = comm.size
         self._rank = comm.rank
