@@ -1108,7 +1108,8 @@ template <typename LinearGroupProjection>
 struct PartOf {
   // Part of who?
   std::shared_ptr<LinearGroupProjection> group;
-  // The extent on the inner of linear_g in group. nullptr means 1.
+  // The extent on the inner of linear_g in group. nullptr means 1, that is,
+  // linear_g is the inner of group.
   Val* inner_extent = nullptr;
   // The extent of linear_g.
   Val* selected_extent = nullptr;
