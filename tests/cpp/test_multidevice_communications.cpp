@@ -409,7 +409,11 @@ INSTANTIATE_TEST_SUITE_P(
     testing::Values(CommunicatorBackend::nccl, CommunicatorBackend::ucc),
     testing::PrintToStringParamName());
 
-TEST_F(MultiDeviceTest, MinimalTestHangSendRecv) {
+class HangTest
+    : public MultiDeviceTest,
+      public testing::WithParamInterface<CommunicatorBackend> {
+
+TEST_P(HangTest, MinimalTestHangSendRecv) {
   if (communicator_->size() != 2) {
     GTEST_SKIP() << "only supports 2 devices";
   }
@@ -423,20 +427,25 @@ TEST_F(MultiDeviceTest, MinimalTestHangSendRecv) {
   std::vector<at::Tensor> dst = {dst_buffer};
 
   std::vector<int64_t> all_devices = {0,1};
-  c10d::Backend* world_communicator_ = communicator_->getBackendForTeam(all_devices, CommunicatorBackend::ucc);
+  c10d::Backend* world_communicator_ = communicator_->getBackendForTeam(all_devices, GetParam());
   c10::intrusive_ptr<c10d::Work> recv_h, send_h;
   if (my_rank == 0) {
-    recv_h = world_communicator_->recv(dst, peer_rank, peer_rank);
-    send_h = world_communicator_->send(src, peer_rank, my_rank);
+    world_communicator_->send(src, peer_rank, 0);
+    recv_h = world_communicator_->recv(dst, peer_rank, 1);
   } else {
-    send_h = world_communicator_->send(src, peer_rank, my_rank);
-    recv_h = world_communicator_->recv(dst, peer_rank, peer_rank);
+    recv_h = world_communicator_->recv(dst, peer_rank, 0);
+    world_communicator_->send(src, peer_rank, 1);
   }
 
   std::cout << "rank " <<  my_rank << " has finished posting" << std::endl;
-  send_h->wait();
   recv_h->wait();
   std::cout << "rank " <<  my_rank << " src = " << src << " dst = " << dst << std::endl;
 }
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    HangTest,
+    testing::Values(CommunicatorBackend::nccl, CommunicatorBackend::ucc),
+    testing::PrintToStringParamName());
 
 } // namespace nvfuser

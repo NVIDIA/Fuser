@@ -422,9 +422,9 @@ TEST_F(RingBasedOverlapTest, ReduceScatterRingBasedPipeliningATenImplementation)
         std::vector<at::Tensor> src = {src_buffer_j};
         std::vector<at::Tensor> dst = {dst_buffer_j};
         std::cout << "from rank " << my_device_index_<< ", sending to rank " << send_rank <<", with tag " << my_device_index_ << std::endl;
-        send_works.push_back(world_communicator_->send(src, send_rank, my_device_index_));
+        send_works.push_back(world_communicator_->send(src, send_rank, 0));
         std::cout << "from rank " << my_device_index_<< ", recv from rank " << recv_rank <<", with tag " << recv_rank << std::endl;
-        recv_works.push_back(world_communicator_->recv(dst, recv_rank, recv_rank));
+        recv_works.push_back(world_communicator_->recv(dst, recv_rank, 0));
       }
     }
     for (auto work: send_works) {
