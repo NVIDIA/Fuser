@@ -423,9 +423,15 @@ TEST_F(MultiDeviceTest, MinimalTestHangSendRecv) {
   std::vector<at::Tensor> dst = {dst_buffer};
 
   std::vector<int64_t> all_devices = {0,1};
-  c10d::Backend* world_communicator_ = communicator_->getBackendForTeam(all_devices, CommunicatorBackend::nccl);
-  auto send_h = world_communicator_->send(src, peer_rank, my_rank);
-  auto recv_h = world_communicator_->recv(dst, peer_rank, peer_rank);
+  c10d::Backend* world_communicator_ = communicator_->getBackendForTeam(all_devices, CommunicatorBackend::ucc);
+  c10::intrusive_ptr<c10d::Work> recv_h, send_h;
+  if (my_rank == 0) {
+    recv_h = world_communicator_->recv(dst, peer_rank, peer_rank);
+    send_h = world_communicator_->send(src, peer_rank, my_rank);
+  } else {
+    send_h = world_communicator_->send(src, peer_rank, my_rank);
+    recv_h = world_communicator_->recv(dst, peer_rank, peer_rank);
+  }
 
   std::cout << "rank " <<  my_rank << " has finished posting" << std::endl;
   send_h->wait();
