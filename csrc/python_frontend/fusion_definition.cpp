@@ -781,6 +781,15 @@ int64_t FusionDefinition::setupSegmentation(
   IrCloner original_to_cloned_map =
       Fusion::copy(preschedFusion(), segment_fusion_.get());
 
+  // Get arguments
+  KernelArgumentHolder args =
+      KernelArgumentHolder::createKernelArgumentHolder(inputs, device);
+
+  // Concretize fusion with input arguments. Then, map original symbolic values
+  // to new concrete values when building map_cloned_value_to_fid_
+  std::unordered_map<Val*, Val*> symbolic_to_concrete_map =
+      DynamicTransform::concretizeFusion(segment_fusion_.get(), args);
+
   // Track mapping from cloned CPP fusion and FusionDefinition indices.
   std::transform(
       map_value_to_fid_.begin(),
@@ -789,15 +798,12 @@ int64_t FusionDefinition::setupSegmentation(
       [&](const auto& item) {
         const Val* original_value = item.first;
         int64_t fid = item.second;
-        return std::make_pair(
-            original_to_cloned_map.clone(original_value), fid);
+        Val* cloned_val = original_to_cloned_map.clone(original_value);
+        if (symbolic_to_concrete_map.count(cloned_val)) {
+          cloned_val = symbolic_to_concrete_map.at(cloned_val);
+        }
+        return std::make_pair(cloned_val, fid);
       });
-
-  // Get arguments
-  KernelArgumentHolder args =
-      KernelArgumentHolder::createKernelArgumentHolder(inputs, device);
-
-  DynamicTransform::concretizeFusion(segment_fusion_.get(), args);
 
   // Create runtime infomation
   SchedulerRuntimeInfo runtime_info(
