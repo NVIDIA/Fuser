@@ -1589,7 +1589,7 @@ std::pair<Val*, Val*> hardCodedIndexGenerationForStMatrix(
       IrBuilder::create<Val>(0, DataType::Index),
       as_type);
 
-  Val* out_index;
+  Val* out_index = nullptr;
   // This will hanlde 8x8 and 16x8.
   if (output_n_extent == 8) {
     // T_shared[toSmem(T_shared) + 16 * tidx.x]
