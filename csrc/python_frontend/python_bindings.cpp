@@ -726,7 +726,17 @@ void initNvFuserPythonBindings(PyObject* module) {
              const py::iterable& iter) {
             std::vector<c10::IValue> inputs;
             for (py::handle obj : iter) {
-              inputs.push_back(torch::jit::toIValue(obj, c10::AnyType::get()));
+              // Allows for a Vector of Sizes to be inputed as a list/tuple
+              if (py::isinstance<py::list>(obj) ||
+                  py::isinstance<py::tuple>(obj)) {
+                for (py::handle item : obj) {
+                  inputs.push_back(
+                      torch::jit::toIValue(item, c10::AnyType::get()));
+                }
+              } else {
+                inputs.push_back(
+                    torch::jit::toIValue(obj, c10::AnyType::get()));
+              }
             }
             self.concretize(other, inputs);
           })
@@ -743,7 +753,17 @@ void initNvFuserPythonBindings(PyObject* module) {
                 "FusionDefinition Segmentation");
             std::vector<c10::IValue> inputs;
             for (py::handle obj : iter) {
-              inputs.push_back(torch::jit::toIValue(obj, c10::AnyType::get()));
+              // Allows for a Vector of Sizes to be inputed as a list/tuple
+              if (py::isinstance<py::list>(obj) ||
+                  py::isinstance<py::tuple>(obj)) {
+                for (py::handle item : obj) {
+                  inputs.push_back(
+                      torch::jit::toIValue(item, c10::AnyType::get()));
+                }
+              } else {
+                inputs.push_back(
+                    torch::jit::toIValue(obj, c10::AnyType::get()));
+              }
             }
             return self.setupSegmentation(inputs);
           })
