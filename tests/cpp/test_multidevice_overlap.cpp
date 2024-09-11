@@ -495,4 +495,139 @@ TEST_F(
   }
 }
 
+class AGOverlapTest : public MultiDeviceTest {
+ protected:
+  OverlapTestParams params;
+
+  int64_t num_devices_;
+  int64_t my_device_index_;
+  std::vector<int64_t> all_devices_;
+  at::Tensor ta_, tb_, tc_;
+  at::Tensor ta_sharded_, tc_sharded_;
+  // stores the backend
+  c10d::Backend* world_communicator_;
+
+  void SetUp() {
+    MultiDeviceTest::SetUp();
+
+    num_devices_ = communicator_->size();
+    my_device_index_ = communicator_->deviceId();
+    ASSERT_EQ(params.M % num_devices_, 0);
+
+    // Setup the world communicators
+    std::vector<int64_t> devices(num_devices_);
+    std::iota(devices.begin(), devices.end(), 0);
+    all_devices_ = std::move(devices);
+    world_communicator_ =
+        communicator_->getBackendForTeam(all_devices_, params.backend_type);
+
+    // Debug print
+    if (communicator_->deviceId() == 0 && debug_print) {
+      debug() << params << std::endl;
+    }
+
+    // Define I/O and intermediate Tensor shapes
+    std::vector<int64_t> ta_sharded_sizes = {
+        params.M / num_devices_, params.K};
+    std::vector<int64_t> ta_sizes = {
+        num_devices_, params.M / num_devices_, params.K};
+    std::vector<int64_t> tb_sizes = {params.K, params.N};
+    std::vector<int64_t> tc_sizes = {
+        num_devices_, params.M / num_devices_, params.N};
+    std::vector<int64_t> tc_sharded_sizes = {
+        params.M / num_devices_, params.N};
+
+    // Set up input tensors. We create the full unsharded tensors and define the
+    // actual input as the shard corresponding to the current device. Having the
+    // full unsharded input on each rank makes it possible to compute the
+    // expected result locally, hence, this way of doing is convenient for
+    // validating data correctness.
+    auto cpu_options = at::TensorOptions().dtype(at::kFloat);
+    at::TensorOptions gpu_options = cpu_options.device(communicator_->device());
+
+    ta_ = at::empty(ta_sizes, gpu_options);
+    tb_ = at::empty(tb_sizes, gpu_options);
+    tc_ = at::empty(tc_sizes, gpu_options);
+    ta_sharded_ = at::empty(ta_sharded_sizes, gpu_options);
+    tc_sharded_ = at::empty(tc_sharded_sizes, gpu_options);
+
+    // Debug print
+    if (communicator_->deviceId() == 0 && debug_print) {
+      debug() << "ta_sizes()=" << ta_.sizes() << std::endl
+              << "tb_sizes()=" << tb_.sizes() << std::endl
+              << "tc_sizes()=" << tc_.sizes() << std::endl;
+    }
+  }
+
+  void initializeIO() {
+    ta.uniform_();
+    tb.uniform_();
+    ta_sharded_.copy_(ta_.select(0, my_device_index_));
+    tb_sharded_.copy_(tb_.select(0, my_device_index_));
+  }
+
+  void validate() {
+    // compute the expected output for data correctness validation
+    auto tc_expected_ = torch::matmul(ta_, tb_);
+    EXPECT_TRUE(tc_.to(torch::kCPU).allclose(tc_expected_, 1e-1, 1e-1))
+        << "Unexpected results, obtained:" << tc_
+        << "\n expected: " << tc_expected_;
+  }
+};
+// clang-format off
+// This test implements an allgather-based pipelining overlapping technique,
+// similar to the above reduce-scattered based pipelining overlapping technique.
+//
+// I want to do C = A * B
+// with A sharded row-wise, C and B replicated
+// Let S>0 be an integer.
+// A has local shape (M/num_devices, K) that we view as (S, M/(num_devices * S), K)
+// B has local shape (K, N)
+// C has local shape (M,N) that we view as (S, M/S, N)
+//
+// for i in range(S):
+// 	select stream i
+// A_i = A[i,...]  //(M/(num_devices * S), K)
+// x = matmul(A_i, B)  //(M/(num_devices * S), N)
+// y = allgather(x) //(num_devices, M/(num_devices * S), N)
+// C[i,...] = y.reshape([M/S, N])
+//
+// data validatation:
+// A_unsharded (M,K)
+// C_expected = A_unsharded * B
+// assert (C.reshape([M,N]) == C_expected)
+// clang-format on
+TEST_F(AGOverlapTest, AllgatherBasedPipeliningATenImplementation) {
+  std::vector<c10::cuda::CUDAStream> streams;
+  std::generate_n(
+      std::back_inserter(streams),
+      params.number_of_streams,
+      [my_device_index = my_device_index_]() {
+        return c10::cuda::getStreamFromPool(
+            /*isHighPriority=*/false, my_device_index);
+      });
+
+  for ([[maybe_unused]] const auto& _ :
+       c10::irange(params.number_of_iterations)) {
+    initializeIO();
+
+    for (auto j : c10::irange(num_devices_)) {
+      int64_t stream_index = j % streams.size();
+      setCurrentCUDAStream(streams.at(stream_index));
+
+      // define the sliced tensors
+      auto ta_j = ta_.select(0, j);
+      auto tc_j = tc_.select(0, j);
+
+      // local compute
+      torch::matmul_out(tc_j, ta_j, tb_);
+
+      // communication
+      world_communicator_->_allgather_base(tc_, tc_j, tc_j)
+          ->wait();
+    }
+  }
+  validate();
+}
+
 } // namespace nvfuser
