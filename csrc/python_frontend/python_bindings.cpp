@@ -241,7 +241,7 @@ Tensor slice_fn(
     Tensor arg,
     ShapeType start,
     ShapeType end,
-    std::optional<ShapeType> opt_stride) {
+    ShapeType strides) {
   NVF_CHECK(self.validUse(), "Attempting to add to a completed definition!");
 
   FusionDefinition* fd = self.fusion_definition;
@@ -249,8 +249,8 @@ Tensor slice_fn(
   Vector new_end = ShapeAsVector(end, *fd);
   size_t stride_index = 0;
 
-  if (opt_stride.has_value()) {
-    Vector new_stride = ShapeAsVector(opt_stride.value(), *fd);
+  if (!strides.empty()) {
+    Vector new_stride = ShapeAsVector(stride, *fd);
     NVF_CHECK(
         new_start.size == new_stride.size,
         "Slice start_indices and strides don't match! Start Indices: ",
@@ -2782,7 +2782,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("arg"),
       py::arg("start_indices"),
       py::arg("end_indices"),
-      py::arg("strides") = py::none(),
+      py::arg("strides") = py::list(),
       py::return_value_policy::reference);
   nvf_ops.def(
       "slice",
@@ -2790,7 +2790,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("arg"),
       py::arg("start_indices"),
       py::arg("end_indices"),
-      py::arg("strides") = py::none(),
+      py::arg("strides") = py::tuple(),
       py::return_value_policy::reference);
   nvf_ops.def(
       "squeeze",
