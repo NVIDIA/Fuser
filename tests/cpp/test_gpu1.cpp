@@ -5199,18 +5199,14 @@ TEST_F(NVFuserTest, FusionReductionWithTrivialReduction_CUDA) {
     Fusion& fusion = *fusion_ptr;
     FusionGuard fg(&fusion);
 
-    // std::vector<std::vector<int64_t>> reduction_dims = {
-    //     {0},
-    //     {1},
-    //     {2},
-    //     {0, 1},
-    //     {0, 2},
-    //     {1, 2},
-    //     {0, 1, 2},
-    // };
-
     std::vector<std::vector<int64_t>> reduction_dims = {
-        {0, 2}
+        {0},
+        {1},
+        {2},
+        {0, 1},
+        {0, 2},
+        {1, 2},
+        {0, 1, 2},
     };
 
     // Set up your input tensor views
@@ -5222,8 +5218,6 @@ TEST_F(NVFuserTest, FusionReductionWithTrivialReduction_CUDA) {
       auto tv = sum(tv0, rdims_);
       fusion.addOutput(tv);
     }
-
-    fusion.printMath();
 
     const auto options =
         at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -5243,7 +5237,6 @@ TEST_F(NVFuserTest, FusionReductionWithTrivialReduction_CUDA) {
     auto cg_outputs = executor_cache.runFusionWithInputs({aten_input});
 
     testValidate(&fusion, cg_outputs, {aten_input}, __LINE__, __FILE__, "");
-    break;
   }
 }
 

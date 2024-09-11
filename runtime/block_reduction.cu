@@ -219,8 +219,9 @@ __device__ void blockIterGroupedYdimReduce(
   // is 4 x 16 = 64 bytes which is only half of the maximum 128 bytes per
   // transaction. we should change the layout from [TIDy, TIDx, N] to [N/4,
   // TIDy, TIDx, 4]
-  constexpr unsigned array_bytes = sizeof(T) * N;
-  constexpr unsigned int total_loads = array_bytes / 16 > 1 ? array_bytes / 16 : 1;
+  constexpr unsigned int array_bytes = sizeof(T) * N;
+  constexpr unsigned int total_loads =
+      array_bytes / 16 > 1 ? array_bytes / 16 : 1;
   constexpr unsigned int elements_per_load =
       16 / sizeof(T) > N ? N : 16 / sizeof(T);
   constexpr unsigned int align_size = array_bytes > 16 ? 16 : array_bytes;

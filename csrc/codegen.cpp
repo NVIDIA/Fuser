@@ -2989,16 +2989,19 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           break;
         case MemoryType::Local: {
           auto va = kernel_->summary().vectorized_accesses;
-          unsigned int align_bytes = 0;
+          unsigned int vect_factor = 0;
           if (va.find(tv) != va.end()) {
-            align_bytes = va.at(tv);
-          }else if(kernel_->summary().num_grouped_iterations > 1 && ir_utils::isConsumedByIterGroupedReduction(tv)){
-            align_bytes = kernel_->summary().num_grouped_iterations;
+            vect_factor = va.at(tv);
+          } else if (
+              kernel_->summary().num_grouped_iterations > 1 &&
+              ir_utils::isConsumedByIterGroupedReduction(tv)) {
+            vect_factor = kernel_->summary().num_grouped_iterations;
           }
-          if (align_bytes > 0) {
-            std::cout << "Allocating vectorized local memory for " << tv->toString() << std::endl;
+          if (vect_factor > 0) {
+            std::cout << "Allocating vectorized local memory for "
+                      << tv->toString() << std::endl;
             indent() << "Array<" << buffer_dtype << ", " << genInline(size)
-                     << ", " << align_bytes << "> " << genVariableName(tv)
+                     << ", " << vect_factor << "> " << genVariableName(tv)
                      << ";\n";
             aligned_array_of_regs_.insert(tv);
           } else {
