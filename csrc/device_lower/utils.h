@@ -356,6 +356,8 @@ bool isReductionInitExpr(const Expr* expr);
 // value.
 bool predicateAtEnd(ForLoop* loop);
 
+//IterDomain* getConcreteDomain(IterDomain* id);
+
 } // namespace lower_utils
 
 } // namespace nvfuser

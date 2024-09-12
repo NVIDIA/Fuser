@@ -11,6 +11,8 @@
 #include <c10/util/irange.h>
 #include <device_lower/analysis/thread_predicate.h>
 #include <device_lower/lower2device.h>
+#include <device_lower/utils.h>
+#include <id_model/utils.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
@@ -1011,6 +1013,20 @@ bool predicateAtEnd(ForLoop* loop) {
   // Now it is either loop_id is mapped with a vectorized IterDomain
   // or it's an output of view transformations.
   return true;
+}
+
+IterDomain* getConcreteDomain(IterDomain* id) {
+  if (isIdModelOptionEnabled(IdModelEnableOption::Inlining)) {
+    // TODO: getLoopPromotion needs to return a concrete domain even
+    // with non-linear loop domains
+    // return getLoopPromotion(id, GpuLower::current()->idModel());
+    const auto& group =
+        GpuLower::current()->idModel().idGraph(IdMappingMode::LOOP).toGroup(id);
+    return group->front()->as<IterDomain>();
+  } else {
+    const auto& ca_map = GpuLower::current()->caMap();
+    return ca_map->getConcreteMappedID(id, IdMappingMode::LOOP);
+  }
 }
 
 } // namespace lower_utils

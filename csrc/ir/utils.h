@@ -520,6 +520,11 @@ void validateDomainEquivalence(
     const std::vector<IterDomain*>& dom1,
     const std::vector<IterDomain*>& additional_ids = {});
 
+std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> compareDomains(
+    std::vector<IterDomain*> dom0,
+    const std::vector<IterDomain*>& dom1,
+    const std::vector<IterDomain*>& additional_ids);
+
 //! Check if all the inputs required to compute needed_val are known
 template <
     typename ValOrVectorOfVal,

@@ -7,6 +7,8 @@
 // clang-format on
 #pragma once
 
+#include <id_model/id_model.h>
+#include <id_model/to_string.h>
 #include <options.h>
 #include <utils.h>
 
@@ -22,6 +24,7 @@ enum class IdModelEnableOption {
   ProducerIndex,
   InlinePredicate,
   UnswitchPredicate,
+  Inlining,
 };
 
 inline std::unordered_set<IdModelEnableOption> getIdModelEnabledOptions() {
@@ -51,12 +54,35 @@ inline std::unordered_set<IdModelEnableOption> getIdModelEnabledOptions() {
     opts.insert(IdModelEnableOption::UnswitchPredicate);
   }
 
+  if (hasEnableOptionArgument(EnableOption::IdModel, "inlining")) {
+    opts.insert(IdModelEnableOption::Inlining);
+  }
+
   return opts;
 }
 
 inline bool isIdModelOptionEnabled(IdModelEnableOption option) {
   const auto opts = getIdModelEnabledOptions();
   return opts.find(option) != opts.end();
+}
+
+// Get the promotion domain of a given loop domain.
+inline IterDomain* getLoopPromotion(
+    IterDomain* loop_id,
+    const IdModel& id_model) {
+  const auto& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
+  const auto& loop_promotion_map = id_model.loopPromotionMap();
+  const auto& loop_group = loop_graph.toGroup(loop_id);
+
+  auto loop_promotion_map_it = loop_promotion_map.find(loop_group);
+  NVF_ERROR(
+      loop_promotion_map_it != loop_promotion_map.end(),
+      "No loop promotion found: ",
+      loop_id->toString(),
+      ". Loop group: ",
+      nvfuser::toString(loop_group));
+
+  return loop_promotion_map_it->second;
 }
 
 } // namespace nvfuser
