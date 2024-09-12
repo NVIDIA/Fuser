@@ -529,10 +529,19 @@ class TensorDomain : public Val {
     return root_domain_.empty() ? logical_domain_ : root_domain_;
   };
 
+  bool isRoot(const IterDomain* id) const {
+    return hasRoot() &&
+        std::find(root().begin(), root().end(), id) != root().end();
+  }
+
   // The output logical domain.
   const std::vector<IterDomain*>& logical() const {
     return logical_domain_;
   };
+
+  bool isLogical(const IterDomain* id) const {
+    return std::find(logical().begin(), logical().end(), id) != logical().end();
+  }
 
   // The allocation domain. This describes how data is stored in memory in
   // outer-to-inner order.
@@ -540,9 +549,19 @@ class TensorDomain : public Val {
     return allocation_domain_;
   }
 
+  bool isAllocation(const IterDomain* id) const {
+    return hasAllocation() &&
+        std::find(allocation().begin(), allocation().end(), id) !=
+        allocation().end();
+  }
+
   // The loop domain after scheduling. This defines loop nests and loop indices.
   const std::vector<IterDomain*>& loop() const {
     return loop_domain_;
+  }
+
+  bool isLoop(const IterDomain* id) const {
+    return std::find(loop().begin(), loop().end(), id) != loop().end();
   }
 
   // Get all IDs that is on the shortest path between any of the domains
