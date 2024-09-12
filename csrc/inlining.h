@@ -67,8 +67,6 @@ class MaxPosCalculator {
       bool best_effort = false,
       bool check_siblings = true);
 
-  // std::pair<size_t, size_t> getMaxProducerPos(TensorView* tv) const;
-
   MaxPosCalculator(
       std::unordered_set<IterDomain*> uninlinable_ids = {},
       bool compute_at_only = false);
