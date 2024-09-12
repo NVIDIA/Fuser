@@ -203,7 +203,6 @@ namespace {
 // Try to find the aligned position on consumer's domain corresponding to a
 //  position of producer domain. No checking on actual
 //  producer-consumer relationship.
-// TODO: idmodel
 int64_t getConsumerPosAlignedToProducerCA(
     TensorView* consumer,
     TensorView* producer,
@@ -219,7 +218,7 @@ int64_t getConsumerPosAlignedToProducerCA(
 
   int64_t consumer_pos = consumer->nDims();
 
-  if (lower_utils::hasRootToLoopLinearTransformations(consumer) &&
+  if (false && lower_utils::hasRootToLoopLinearTransformations(consumer) &&
       lower_utils::hasRootToLoopLinearTransformations(producer)) {
     auto disjoint_sets = BestEffortReplay::replayPasC(
                              producer,

@@ -23,9 +23,9 @@ MaxPosCalculator::MaxPosCalculator(
     bool compute_at_only)
     : uninlinable_ids_(std::move(uninlinable_ids)) {
   buildUnmappableDims(compute_at_only);
-  for (auto id : unmappable_dims_) {
-    std::cerr << "Unmappable: " << id->toString() << "\n";
-  }
+  //for (auto id : unmappable_dims_) {
+  //    std::cerr << "Unmappable: " << id->toString() << "\n";
+  //}
   if (isIdModelOptionEnabled(IdModelEnableOption::Inlining)) {
     id_model_ = std::make_unique<IdModel>(
         FusionGuard::getCurFusion(), /*build_graphs=*/false);
@@ -153,7 +153,7 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
   //std::cerr << "getMaxProducerPosFromConsumer: " << producer->toString() << ", "
   //<< consumer->toString() << "\n";
 
-  if (lower_utils::hasRootToLoopLinearTransformations(producer) &&
+  if (false && lower_utils::hasRootToLoopLinearTransformations(producer) &&
       lower_utils::hasRootToLoopLinearTransformations(consumer)) {
     auto pairwise_logical_map = PairwiseLogicalDomainMap(producer, consumer);
     auto replay_CasP = BestEffortReplay::replayCasP(
@@ -192,8 +192,8 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
             return exact_graph.disjointValSets().strictAreMapped(p_id, c_id);
           });
       if (c_id_it == consumer->getLoopDomain().end()) {
-        std::cerr << "No matching consumer id found: " << p_id->toString()
-                  << "\n";
+        //std::cerr << "No matching consumer id found: " << p_id->toString()
+        //<< "\n";
         return producer_pos;
       }
 
@@ -224,32 +224,6 @@ size_t MaxPosCalculator::getMaxPosAll(
   }
   return max_pos;
 }
-
-namespace {
-// IdModel version
-int64_t getConsumerPosAlignedToProducerCA(
-    TensorView* consumer,
-    TensorView* producer,
-    int64_t producer_pos,
-    const ValGraph& graph) {
-  int64_t consumer_pos = consumer->nDims();
-  while (consumer_pos > 0) {
-    auto consumer_id = consumer->axis(consumer_pos - 1);
-    auto p_dom = producer->getLoopDomain();
-    if (std::any_of(
-            p_dom.begin(),
-            p_dom.begin() + producer_pos,
-            [&consumer_id, &graph](IterDomain* p_id) {
-              return graph.disjointValSets().strictAreMapped(consumer_id, p_id);
-            })) {
-      break;
-    }
-    consumer_pos--;
-  }
-  return consumer_pos;
-}
-
-} // namespace
 
 void inlineMost(const std::unordered_set<IterDomain*>& uninlinable_ids) {
   inlineMost(FusionGuard::getCurFusion()->allTvs(), uninlinable_ids);

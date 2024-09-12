@@ -11,8 +11,6 @@
 #include <c10/util/irange.h>
 #include <device_lower/analysis/thread_predicate.h>
 #include <device_lower/lower2device.h>
-#include <device_lower/utils.h>
-#include <id_model/utils.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
