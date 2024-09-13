@@ -3603,6 +3603,7 @@ TEST_F(
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
+// Move to test_inlining
 TEST_F(NVFuserTest, FusionInliningMismatchedDims1_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -3618,11 +3619,13 @@ TEST_F(NVFuserTest, FusionInliningMismatchedDims1_CUDA) {
 
   inlineMost();
 
-  NVF_CHECK(tv5->getComputeAtPosition() == 3);
-  NVF_CHECK(tv4->getComputeAtPosition() == 3);
-  NVF_CHECK(tv3->getComputeAtPosition() == 3);
-  NVF_CHECK(tv2->getComputeAtPosition() == 1);
-  NVF_CHECK(tv1->getComputeAtPosition() == 3);
+  fusion.printMath();
+
+  EXPECT_EQ(tv5->getComputeAtPosition(), 3);
+  EXPECT_EQ(tv4->getComputeAtPosition(), 3);
+  EXPECT_EQ(tv3->getComputeAtPosition(), 3);
+  EXPECT_EQ(tv2->getComputeAtPosition(), 1);
+  EXPECT_EQ(tv1->getComputeAtPosition(), 3);
 
   const auto options =
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
