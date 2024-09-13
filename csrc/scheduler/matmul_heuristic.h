@@ -252,6 +252,10 @@ class MatmulParams : public HeuristicParams {
         promote_prologue_smem_reuse &&
         other_casted->splitk_factor == splitk_factor;
   }
+
+  std::shared_ptr<HeuristicParams> clone() const override {
+    return std::make_shared<MatmulParams>(*this);
+  }
 };
 
 } // namespace nvfuser

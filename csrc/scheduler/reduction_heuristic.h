@@ -319,6 +319,9 @@ class ReductionParams : public HeuristicParams {
     return attr_hash;
   }
 
+  std::shared_ptr<HeuristicParams> clone() const override {
+    return std::make_shared<ReductionParams>(*this);
+  }
 };
 
 } // namespace nvfuser

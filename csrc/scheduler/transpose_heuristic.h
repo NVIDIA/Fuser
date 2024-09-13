@@ -151,6 +151,10 @@ class TransposeParams : public HeuristicParams {
         tile_size2);
   }
 
+  std::shared_ptr<HeuristicParams> clone() const override {
+    return std::make_shared<TransposeParams>(*this);
+  }
+
   int64_t getThreadsPerBlock() const {
     int64_t tile_vectors1 = ceilDiv(tile_size1 * tile_size2, vectorize_factor1);
     int64_t tile_vectors2 = ceilDiv(tile_size1 * tile_size2, vectorize_factor2);

@@ -1180,8 +1180,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
 
   if (profiling_) {
     most_recent_executor_log_.fusion_executor = &executor;
-    most_recent_executor_log_.params =
-        std::make_shared<HeuristicParams>(*(scheduler_entry->params()));
+    most_recent_executor_log_.params = scheduler_entry->params()->clone();
   }
 
   // TODO: This is a work around for the fallback execution path where a kernel

@@ -105,6 +105,9 @@ class PointwiseParams : public HeuristicParams {
     return attr_hash;
   }
 
+  std::shared_ptr<HeuristicParams> clone() const override {
+    return std::make_shared<PointwiseParams>(*this);
+  }
 };
 
 } // namespace nvfuser
