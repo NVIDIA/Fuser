@@ -20,6 +20,7 @@
 #include <sys_utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
+#include <preseg_passes/segment_inplace_update.h>
 
 namespace nvfuser {
 
@@ -1430,7 +1431,7 @@ TEST_F(AliasTest, Issue2664) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  constexpr int64_t n = 128;
+  constexpr int64_t n = 4194304;
   const DataType dtype = DataType::Float;
   const std::vector<int64_t> input_shape = {n};
 
@@ -1453,9 +1454,11 @@ TEST_F(AliasTest, Issue2664) {
   auto t2 = at::randn({}, options);
   auto aten_out = (t2 + 1.0) * t1;
 
+  // preseg_passes::findBroadcast(fusion.get());
   FusionExecutorCache fec(std::move(fusion));
   auto out_tensors = fec.runFusionWithInputs({t1, t2});
   testValidate(fec.fusion(), out_tensors, {t1, t2}, {aten_out}, __LINE__, __FILE__);
+
 }
 
 } // namespace nvfuser
