@@ -2756,14 +2756,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     template_args.arg(num_grouped_iterations);
 
     ArgumentBuilder func_args;
-    auto output_tv = output->view();
-    auto va = kernel_->summary().vectorized_accesses;
-    if (va.find(output_tv) != va.end()) {
-      func_args.arg(genVariableName(output) + ".array");
-    } else {
-      func_args.arg(genVariableName(output));
-    }
-    func_args.arg(genVariableName(input));
+    func_args.arg(genVariableNameConvertAlignedArray(output->view()));
+    func_args.arg(genVariableNameConvertAlignedArray(input->view()));
     func_args.arg(genReductionOp(reduction_op_type, output->dtype()));
     func_args.arg(genStaticCast(genPtrType(data_type), "shared_mem"));
     NVF_ERROR(read_pred != nullptr && read_pred->hasValue());
@@ -2998,8 +2992,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
             vect_factor = kernel_->summary().num_grouped_iterations;
           }
           if (vect_factor > 0) {
-            std::cout << "Allocating vectorized local memory for "
-                      << tv->toString() << std::endl;
             indent() << "Array<" << buffer_dtype << ", " << genInline(size)
                      << ", " << vect_factor << "> " << genVariableName(tv)
                      << ";\n";
