@@ -8890,6 +8890,46 @@ TEST_F(NVFuserTest, RAWSync) {
           "Producer is required to be in Global or Shared Memory based on parallelization strategy. RAW flags: (threadIdx.x)")));
 }
 
+TEST_F(NVFuserTest, SetLoopDomainValidation) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // [i0, i1]
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  // [i0]
+  auto tv1 = makeSymbolicTensor(1);
+  fusion.addInput(tv1);
+
+  // [i0]
+  auto tv2 = set(tv1);
+  // [i0, b1]
+  auto tv3 = broadcast(tv2, {false, true});
+  // [i0, i1]
+  auto tv4 = add(tv0, tv3);
+  fusion.addOutput(tv4);
+
+  // Set the loop domain of tv2 the same as tv4. The new loop domain
+  // includes an ID that is not reachable from tv2 logical domain
+  tv2->setLoopDomain(
+      {tv2->getLogicalDomain().at(0),
+       tv4->getLoopDomain().at(1)->cloneWithoutRFactor()});
+
+  // Same for tv3
+  tv3->setLoopDomain(
+      {tv3->getLogicalDomain().at(0),
+       tv4->getLoopDomain().at(1)->cloneWithoutRFactor()});
+
+  // Test if the validation can catch an invalid loop domain that
+  // cannot reach the concrete domain of tv2
+  EXPECT_THAT(
+      [&]() {
+        tv2->setLoopDomain({tv4->getLoopDomain().at(1)->cloneWithoutRFactor()});
+      },
+      testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
+          "Not all logical IDs are covered by loop domain")));
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

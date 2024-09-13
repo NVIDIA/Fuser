@@ -478,7 +478,7 @@ bool hasResizedRfactor(const TensorView* tv);
 // Returns tvs that have symbolic axes
 std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion);
 
-//! Validate dom0 and dom1 completely covers each other with no
+//! Check if dom0 and dom1 completely covers each other with no
 //! redundancy. When they are equivalent, we can consider them as a different
 //! view of the each other with affine transformations.
 //!
@@ -502,7 +502,17 @@ std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion);
 //! Broadcast IterDomains are ignored in this check, because we consider them as
 //! placeholders and allow them to be created (and annihilated?) arbitrarily as
 //! needed for convenience.
-NVF_API void validateDomainEquivalence(
+//!
+//! Returns two bool values that indicate if there is any
+//! IterDomain of dom0 or dom1 that is unreachable from dom1 or dom0,
+//! respectivey.
+std::pair<bool, bool> compareDomains(
+    std::vector<IterDomain*> dom0,
+    const std::vector<IterDomain*>& dom1,
+    const std::vector<IterDomain*>& additional_ids = {});
+
+//! Validate dom0 and dom1 are equivalent
+void validateDomainEquivalence(
     std::vector<IterDomain*> dom0,
     const std::vector<IterDomain*>& dom1,
     const std::vector<IterDomain*>& additional_ids = {});
