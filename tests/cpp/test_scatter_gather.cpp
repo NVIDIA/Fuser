@@ -1200,7 +1200,7 @@ TEST_F(ScatterGatherTest, TakeAlongAxisCrossEntropyLoss) {
 
   // Make sure take_along_axis is in the persistent group
   for (const auto group : kernel_runtime->fusionSegments()->groups()) {
-    if (group->heuristic() == ScheduleHeuristic::InnerPersistent) {
+    if (group->heuristicType() == ScheduleHeuristic::InnerPersistent) {
       NVF_CHECK(std::any_of(
           group->exprs().begin(), group->exprs().end(), [](Expr* expr) {
             return expr->isA<TorchGatherOp>();

@@ -1142,7 +1142,7 @@ void FusionKernelRuntime::deserialize(
     auto group_id = sg->groupId();
     auto scheduler_entry = schedulers().at(group_id).get();
     NVF_ERROR(
-        !sg || scheduler_entry->params()->heuristic_type == sg->heuristic(),
+        !sg || scheduler_entry->params()->heuristic_type == sg->heuristicType(),
         "Heuristics do not match.");
     auto fusion_to_run = segmented_fusion_->makeFusion(sg).second;
     FusionGuard fg(fusion_to_run.get());
@@ -1301,7 +1301,7 @@ void FusionKernelRuntime::compileKernel(
 
   // Check that the heuristics are matched, in the case of segmented fusion
   NVF_ERROR(
-      !sg || scheduler_entry->params()->heuristic_type == sg->heuristic());
+      !sg || scheduler_entry->params()->heuristic_type == sg->heuristicType());
   NVF_ERROR(!executors_.at(group_id).isCompiled());
 
   // Running a segment group as a single kernel,
@@ -1337,7 +1337,7 @@ std::pair<LaunchParams, CompileParams> FusionKernelRuntime::getKernelConfig(
 
   // Check that the heuristics are matched, in the case of segmented fusion
   NVF_ERROR(
-      !sg || scheduler_entry->params()->heuristic_type == sg->heuristic());
+      !sg || scheduler_entry->params()->heuristic_type == sg->heuristicType());
 
   return std::make_pair(
       scheduler_entry->params()->lparams, scheduler_entry->params()->cparams);

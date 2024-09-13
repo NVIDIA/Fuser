@@ -188,11 +188,11 @@ void validateSegmentation(
   for (auto& group : segment_groups) {
     int64_t segment_order = group->producer_edges.empty() ? 0 : 1;
     NVF_CHECK(
-        group->heuristic() == expected_heuristics.at(segment_order),
+        group->heuristicType() == expected_heuristics.at(segment_order),
         "Expected to use the ",
         expected_heuristics.at(segment_order),
         " scheduler but ",
-        group->heuristic(),
+        group->heuristicType(),
         " was used");
   }
 }

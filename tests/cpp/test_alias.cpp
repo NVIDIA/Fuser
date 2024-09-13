@@ -392,7 +392,7 @@ TEST_F(AliasTest, NotAllOutputsAlias_Pointwise) {
           HeuristicIs(ScheduleHeuristic::PointWise)));
 
   for (SegmentedGroup* group : runtime->fusionSegments()->groups()) {
-    if (group->heuristic() == ScheduleHeuristic::PointWise) {
+    if (group->heuristicType() == ScheduleHeuristic::PointWise) {
       const FusionExecutor& fe = runtime->executors().at(group->groupId());
       int num_stores = 0;
       for (auto i : c10::irange(group->outputs().size())) {
@@ -467,7 +467,7 @@ TEST_F(AliasTest, Issue1452) {
           HeuristicIs(ScheduleHeuristic::PointWise)));
 
   for (SegmentedGroup* group : runtime->fusionSegments()->groups()) {
-    if (group->heuristic() == ScheduleHeuristic::PointWise) {
+    if (group->heuristicType() == ScheduleHeuristic::PointWise) {
       const FusionExecutor& fe = runtime->executors().at(group->groupId());
       int num_stores = 0;
       for (auto i : c10::irange(group->outputs().size())) {
@@ -1247,7 +1247,7 @@ TEST_F(AliasTest, Bookend_InputsAndOutputs) {
           HeuristicIs(ScheduleHeuristic::NoOp),
           HeuristicIs(ScheduleHeuristic::PointWise)));
   for (SegmentedGroup* group : runtime->fusionSegments()->groups()) {
-    if (group->heuristic() == ScheduleHeuristic::PointWise) {
+    if (group->heuristicType() == ScheduleHeuristic::PointWise) {
       EXPECT_THAT(group->inputs(), SizeIs(1));
       EXPECT_THAT(group->outputs(), SizeIs(1));
     }
@@ -1277,7 +1277,7 @@ TEST_F(AliasTest, Bookend_IntermediateTensors) {
           HeuristicIs(ScheduleHeuristic::NoOp),
           HeuristicIs(ScheduleHeuristic::PointWise)));
   for (SegmentedGroup* group : runtime->fusionSegments()->groups()) {
-    if (group->heuristic() == ScheduleHeuristic::PointWise) {
+    if (group->heuristicType() == ScheduleHeuristic::PointWise) {
       EXPECT_THAT(group->inputs(), SizeIs(1));
       EXPECT_THAT(group->outputs(), SizeIs(1));
     }
@@ -1312,7 +1312,7 @@ TEST_F(AliasTest, Bookend_AliasesOfSameTensor) {
       runtime->fusionSegments()->groups(),
       Contains(HeuristicIs(ScheduleHeuristic::PointWise)).Times(1));
   for (SegmentedGroup* group : runtime->fusionSegments()->groups()) {
-    if (group->heuristic() == ScheduleHeuristic::PointWise) {
+    if (group->heuristicType() == ScheduleHeuristic::PointWise) {
       EXPECT_THAT(group->inputs(), SizeIs(1));
       EXPECT_THAT(group->outputs(), SizeIs(1));
     }
@@ -1348,7 +1348,7 @@ TEST_F(AliasTest, Bookend_ReuseSegmentSet) {
           HeuristicIs(ScheduleHeuristic::PointWise),
           HeuristicIs(ScheduleHeuristic::NoOp)));
   for (SegmentedGroup* group : runtime->fusionSegments()->groups()) {
-    if (group->heuristic() == ScheduleHeuristic::PointWise) {
+    if (group->heuristicType() == ScheduleHeuristic::PointWise) {
       EXPECT_THAT(group->inputs(), SizeIs(1));
       EXPECT_THAT(group->outputs(), SizeIs(1));
     }

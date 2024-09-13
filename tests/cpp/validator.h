@@ -57,7 +57,7 @@ void testValidate(
 
 // A gmock matcher for matching heuristics.
 MATCHER_P(HeuristicIs, heuristic, "") {
-  return arg->heuristic() == heuristic;
+  return arg->heuristicType() == heuristic;
 }
 
 // Validate that the fusion is segmented with desired scheduler, currently only

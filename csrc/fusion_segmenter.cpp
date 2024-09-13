@@ -372,7 +372,7 @@ void SegmentedGroup::finalize() {
 }
 
 std::ostream& operator<<(std::ostream& os, const SegmentedGroup* group) {
-  os << toString(group->heuristic()) << "{";
+  os << toString(group->heuristicType()) << "{";
   auto expr_to_print = group->exprs();
   std::sort(
       expr_to_print.begin(),
@@ -1097,8 +1097,8 @@ void detailGroupPrint(std::ostream& os, const SegmentedGroup* group) {
   };
 
   os << "g{";
-  if (group->heuristic() != ScheduleHeuristic::None) {
-    os << "(" << toString(group->heuristic()) << ")";
+  if (group->heuristicType() != ScheduleHeuristic::None) {
+    os << "(" << toString(group->heuristicType()) << ")";
   }
   os << std::endl;
   os << "group id: " << group->groupId() << std::endl;
@@ -2614,11 +2614,11 @@ std::optional<std::unique_ptr<SchedulerEntry>> SegmentedGroup::
   FUSER_PERF_SCOPE("SegmentedFusion::getMaybeSchedulerEntry");
   auto data_cache = segmented_fusion_->getCachedHeuristicDataFor(this);
   if (!Schedule::canSchedule(
-          heuristic(), runtime_info.fusion(), runtime_info, data_cache)) {
+          heuristicType(), runtime_info.fusion(), runtime_info, data_cache)) {
     return std::nullopt;
   }
   return Schedule::makeEntry(
-      heuristic(), runtime_info.fusion(), runtime_info, data_cache);
+      heuristicType(), runtime_info.fusion(), runtime_info, data_cache);
 }
 
 void SegmentedGroup::resetExprList() {
@@ -4405,11 +4405,11 @@ std::unique_ptr<SchedulerEntry> SegmentedFusion::makeInitialSchedulerEntry(
   // This will be the first time each group is scheduled. So we'd want to
   //  construct the cache data here.
   auto data_cache_ptr = std::make_unique<HeuristicSummary>(
-      runtime_info.fusion(), sg->heuristic(), runtime_info);
+      runtime_info.fusion(), sg->heuristicType(), runtime_info);
   auto data_cache = data_cache_ptr.get();
   setCachedHeuristicDataFor(sg, std::move(data_cache_ptr));
   return Schedule::makeEntry(
-      sg->heuristic(), runtime_info.fusion(), runtime_info, data_cache);
+      sg->heuristicType(), runtime_info.fusion(), runtime_info, data_cache);
 }
 
 HeuristicSummary* SegmentedFusion::getCachedHeuristicDataFor(

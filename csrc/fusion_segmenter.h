@@ -115,7 +115,7 @@ class SegmentedGroup {
   }
 
   //! Returns the schedule heuristic associated with this group
-  ScheduleHeuristic heuristic() const {
+  ScheduleHeuristic heuristicType() const {
     return heuristic_;
   }
 
