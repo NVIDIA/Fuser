@@ -21,7 +21,8 @@ namespace nvfuser {
 // Parameters of the matmul heuristic to describe the optimial schedule.
 class MatmulParams : public HeuristicParams {
  public:
-  MatmulParams() : HeuristicParams(ScheduleHeuristic::Matmul) {};
+  MatmulParams()
+      : HeuristicParams(ScheduleHeuristic::Matmul), supported_vec_size() {};
   //! A list of possible strategies used to define along which axis
   //!  parallelization will be done.
   enum class TileRasterizationOrder { RowMajor = 0, ColumnMajor = 1 };
