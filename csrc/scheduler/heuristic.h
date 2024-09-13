@@ -8,6 +8,7 @@
 #pragma once
 
 #include <fusion_executor/executor_params.h>
+#include <scheduler/heuristic_types.h>
 #include <utils.h>
 
 #include <string>
@@ -20,6 +21,7 @@ class HeuristicParams : public PolymorphicBase {
 
   LaunchParams lparams;
   CompileParams cparams;
+  const ScheduleHeuristic heuristic_type;
 
   virtual std::string toString() const {
     return "Undefined Heuristic Params";
@@ -33,19 +35,14 @@ class HeuristicParams : public PolymorphicBase {
     if (!other->isStrictlyA<HeuristicParams>()) {
       return false;
     }
+    if (other->heuristic_type != heuristic_type) {
+      return false;
+    }
     return other->cparams == cparams;
   }
 
-  virtual std::shared_ptr<HeuristicParams> clone() const {
-    return std::make_shared<HeuristicParams>();
-  }
-
-  HeuristicParams() = default;
-  HeuristicParams(std::string tag, PrimDataType index_type)
-      : tag(std::move(tag)), cparams({.index_type = index_type}) {};
-  HeuristicParams(std::string tag, KernelIndexMode index_mode)
-      : tag(std::move(tag)),
-        cparams({.index_type = indexModeToDtype(index_mode)}) {};
+  HeuristicParams() = delete;
+  explicit HeuristicParams(ScheduleHeuristic type) : heuristic_type(type) {};
 };
 
 } // namespace nvfuser

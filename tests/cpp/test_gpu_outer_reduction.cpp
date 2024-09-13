@@ -1421,9 +1421,9 @@ void grid_persistent_reduction_outer_norm_like_scheduler(
     const auto& scheduler_entry =
         runtime->schedulerHeuristics()->heuristicsList().at(0);
     NVF_CHECK(
-        scheduler_entry->heuristic() == ScheduleHeuristic::OuterPersistent,
+        scheduler_entry->params()->heuristic_type == ScheduleHeuristic::OuterPersistent,
         "Unexpected heuristic was chosen: ",
-        scheduler_entry->heuristic());
+        scheduler_entry->params()->heuristic_type);
 
     if (benchmark_mode) {
       for (int i = 0; i < 10; ++i) {
@@ -1579,9 +1579,10 @@ void grid_persistent_welford_outer_norm_like_scheduler(
     const auto& scheduler_entry =
         runtime->schedulerHeuristics()->heuristicsList().at(0);
     NVF_CHECK(
-        scheduler_entry->heuristic() == ScheduleHeuristic::OuterPersistent,
+        scheduler_entry->params()->heuristic_type ==
+            ScheduleHeuristic::OuterPersistent,
         "Unexpected heuristic was chosen: ",
-        scheduler_entry->heuristic());
+        scheduler_entry->params()->heuristic_type);
 
     if (benchmark_mode) {
       for (int i = 0; i < 10; ++i) {
@@ -1758,9 +1759,10 @@ void grid_persistent_batchnorm_scheduler(
     const auto& scheduler_entry =
         runtime->schedulerHeuristics()->heuristicsList().at(0);
     NVF_CHECK(
-        scheduler_entry->heuristic() == ScheduleHeuristic::OuterPersistent,
+        scheduler_entry->params()->heuristic_type ==
+            ScheduleHeuristic::OuterPersistent,
         "Unexpected heuristic was chosen: ",
-        scheduler_entry->heuristic());
+        scheduler_entry->params()->heuristic_type);
 
     if (benchmark_mode) {
       for (int i = 0; i < 10; ++i) {
@@ -1895,9 +1897,9 @@ void grid_persistent_reduction_outer_norm_bwd_like_scheduler(
     const auto& scheduler_entry =
         runtime->schedulerHeuristics()->heuristicsList().at(0);
     NVF_CHECK(
-        scheduler_entry->heuristic() == ScheduleHeuristic::OuterPersistent,
+        scheduler_entry->params()->heuristic_type == ScheduleHeuristic::OuterPersistent,
         "Unexpected heuristic was chosen: ",
-        scheduler_entry->heuristic());
+        scheduler_entry->params()->heuristic_type);
 
     if (benchmark_mode) {
       for (int i = 0; i < 10; ++i) {
@@ -2067,9 +2069,9 @@ void grid_persistent_batchnorm_bwd_scheduler(
     const auto& scheduler_entry =
         runtime->schedulerHeuristics()->heuristicsList().at(0);
     NVF_CHECK(
-        scheduler_entry->heuristic() == ScheduleHeuristic::OuterPersistent,
+        scheduler_entry->params()->heuristic_type == ScheduleHeuristic::OuterPersistent,
         "Unexpected heuristic was chosen: ",
-        scheduler_entry->heuristic());
+        scheduler_entry->params()->heuristic_type);
 
     if (benchmark_mode) {
       for (int i = 0; i < 10; ++i) {

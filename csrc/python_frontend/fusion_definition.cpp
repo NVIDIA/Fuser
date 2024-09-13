@@ -337,7 +337,7 @@ std::vector<at::Tensor> FusionDefinition::execute(
                   inputs, getCommonDeviceCUDA(inputs)),
               user_sched.heuristic_scheduler->params()->lparams,
               user_sched.heuristic_scheduler->params()->cparams,
-              user_sched.heuristic_scheduler->heuristic(),
+              user_sched.heuristic_scheduler->params()->heuristic_type,
               user_sched.fusion_id_,
               user_sched.device_id_);
         }

@@ -188,40 +188,8 @@ class SchedulerEntry {
   //! Heuristic comparison
   bool sameAs(const SchedulerEntry* other);
 
-  ScheduleHeuristic heuristic() const {
-    return heuristic_;
-  }
-
   const std::shared_ptr<HeuristicParams>& params() const {
     return params_;
-  }
-
-  const ReductionParams& reductionParams() const {
-    auto rparams = std::dynamic_pointer_cast<ReductionParams>(params_);
-    NVF_ERROR(
-        rparams != nullptr, "Heuristic parameter is not a reduction parameter");
-    return *rparams;
-  }
-
-  const PointwiseParams& pointwiseParams() const {
-    auto pparams = std::dynamic_pointer_cast<PointwiseParams>(params_);
-    NVF_ERROR(
-        pparams != nullptr, "Heuristic parameter is not a pointwise parameter");
-    return *pparams;
-  }
-
-  const TransposeParams& transposeParams() const {
-    auto tparams = std::dynamic_pointer_cast<TransposeParams>(params_);
-    NVF_ERROR(
-        tparams != nullptr, "Heuristic parameter is not a transpose parameter");
-    return *tparams;
-  }
-
-  const MatmulParams& matmulParams() const {
-    auto mparams = std::dynamic_pointer_cast<MatmulParams>(params_);
-    NVF_ERROR(
-        mparams != nullptr, "Heuristic parameter is not a matmul parameter");
-    return *mparams;
   }
 
   void updateLaunchConstraint(const LaunchParams& launch_params) {
@@ -229,15 +197,8 @@ class SchedulerEntry {
   }
 
  protected:
-  explicit SchedulerEntry(ScheduleHeuristic heuristic)
-      : heuristic_(heuristic) {}
-
   //! Heuristic parameters if applicable
   std::shared_ptr<HeuristicParams> params_ = nullptr;
-
- private:
-  //! What kind of heuristics does this entry have?
-  const ScheduleHeuristic heuristic_;
 };
 
 namespace Schedule {

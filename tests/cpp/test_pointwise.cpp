@@ -26,12 +26,15 @@ namespace {
 int64_t getVecSizeForPointwise(const FusionExecutorCache& fec) {
   FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
   NVF_CHECK(!runtime->isSegmented());
-  const PointwiseParams& params =
-      runtime->schedulerHeuristics()->heuristicsList().at(0)->pointwiseParams();
-  if (!params.vectorize) {
+  const PointwiseParams* params = runtime->schedulerHeuristics()
+                                      ->heuristicsList()
+                                      .at(0)
+                                      ->params()
+                                      ->as<PointwiseParams>();
+  if (!params->vectorize) {
     return 1;
   }
-  return params.unroll_factor;
+  return params->unroll_factor;
 }
 
 bool hasVectorizationCache(TensorView* tv) {

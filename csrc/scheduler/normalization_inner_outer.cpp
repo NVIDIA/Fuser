@@ -22,13 +22,13 @@ InnerOuterPersistentKernelScheduler::InnerOuterPersistentKernelScheduler(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache)
-    : SchedulerEntry(heuristicType()) {
+    : SchedulerEntry() {
   computeHeuristics(fusion, runtime_info, data_cache);
 }
 
 void InnerOuterPersistentKernelScheduler::schedule(Fusion* fusion) {
   FUSER_PERF_SCOPE("InnerOuterPersistentKernelScheduler::schedule");
-  scheduleInnerOuterPersistentKernel(fusion, reductionParams());
+  scheduleInnerOuterPersistentKernel(fusion, *params()->as<ReductionParams>());
 }
 
 bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
@@ -698,7 +698,8 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
     const size_t vectorize_factor,
     const bool project_to_input,
     const PrimDataType index_type) {
-  auto rparams = std::make_shared<ReductionParams>();
+  auto rparams = std::make_shared<ReductionParams>(
+      ScheduleHeuristic::InnerOuterPersistent);
   rparams->project_persistent_buffers = project_to_input;
   rparams->cparams.index_type = index_type;
   // Parameters for inner reduction:

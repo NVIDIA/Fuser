@@ -28,13 +28,13 @@ MatmulScheduler::MatmulScheduler(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache)
-    : SchedulerEntry(heuristicType()) {
+    : SchedulerEntry() {
   computeHeuristics(fusion, runtime_info);
 }
 
 void MatmulScheduler::schedule(Fusion* fusion) {
   FUSER_PERF_SCOPE("Schedule Matmul Fusion");
-  scheduleMatmul(fusion, matmulParams());
+  scheduleMatmul(fusion, *params()->as<MatmulParams>());
 }
 
 bool MatmulScheduler::canScheduleCompileTime(Fusion* fusion) {

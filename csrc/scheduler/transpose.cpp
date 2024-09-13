@@ -23,7 +23,7 @@ TransposeScheduler::TransposeScheduler(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache)
-    : SchedulerEntry(heuristicType()) {
+    : SchedulerEntry() {
   computeHeuristics(fusion, runtime_info, data_cache);
 }
 
@@ -114,7 +114,7 @@ bool TransposeScheduler::canScheduleRunTime(
 
 void TransposeScheduler::schedule(Fusion* fusion) {
   FUSER_PERF_SCOPE("TransposeScheduler::schedule");
-  scheduleTranspose(fusion, transposeParams());
+  scheduleTranspose(fusion, *params()->as<TransposeParams>());
 }
 
 void TransposeScheduler::computeHeuristics(
@@ -770,8 +770,9 @@ std::string getTransposeRuntimeRejectReason(
   // here. It is hard to maintain consistent code logic.
   if (!scheduler_utils::getViewTVs(fusion).empty()) {
     const auto index_type = runtime_info.getIndexType();
-    auto params =
-        std::make_shared<TransposeParams>("Transpose heuristics", index_type);
+    auto params = std::make_shared<TransposeParams>();
+    params->tag = "Transpose heuristics";
+    params->cparams.index_type = index_type;
     maybeBuildVirtualInnerDims(
         *params,
         device_multiprocessor_count,
@@ -868,8 +869,9 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
     return nullptr;
   }
 
-  auto params =
-      std::make_shared<TransposeParams>("Transpose heuristics", index_type);
+  auto params = std::make_shared<TransposeParams>();
+  params->tag = "Transpose heuristics";
+  params->cparams.index_type = index_type;
 
   // Expand inner-most dims to virtual inner-most dims so that the inner-most
   // dims has at least tile_size elements

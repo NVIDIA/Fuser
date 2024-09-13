@@ -113,12 +113,15 @@ void checkUnsegmentedVectorization(
   ASSERT_TRUE(isSchedulerInUse(runtime, ScheduleHeuristic::Matmul));
 
   // Check that supported_vec_size matches expected.
-  const MatmulParams& params =
-      runtime->schedulerHeuristics()->heuristicsList().front()->matmulParams();
+  const MatmulParams* params = runtime->schedulerHeuristics()
+                                   ->heuristicsList()
+                                   .front()
+                                   ->params()
+                                   ->as<MatmulParams>();
 
-  EXPECT_EQ(params.supported_vec_size.a, expected_vec_A);
-  EXPECT_EQ(params.supported_vec_size.b, expected_vec_B);
-  EXPECT_EQ(params.supported_vec_size.epilogue, expected_vec_epilogue);
+  EXPECT_EQ(params->supported_vec_size.a, expected_vec_A);
+  EXPECT_EQ(params->supported_vec_size.b, expected_vec_B);
+  EXPECT_EQ(params->supported_vec_size.epilogue, expected_vec_epilogue);
 }
 
 // Matmul test that uses segmenter for fusion:
@@ -2077,14 +2080,15 @@ TEST_P(MatmulSchedulerTestWithLayout, MisalignedVectorization) {
         ASSERT_TRUE(isSchedulerInUse(runtime, ScheduleHeuristic::Matmul));
 
         // Check that supported_vec_size matches expected.
-        const MatmulParams& params = runtime->schedulerHeuristics()
+        const MatmulParams* params = runtime->schedulerHeuristics()
                                          ->heuristicsList()
                                          .front()
-                                         ->matmulParams();
+                                         ->params()
+                                         ->as<MatmulParams>();
 
-        EXPECT_EQ(params.supported_vec_size.a, expected_vec_A);
-        EXPECT_EQ(params.supported_vec_size.b, expected_vec_B);
-        EXPECT_EQ(params.supported_vec_size.epilogue, expected_vec_epilogue);
+        EXPECT_EQ(params->supported_vec_size.a, expected_vec_A);
+        EXPECT_EQ(params->supported_vec_size.b, expected_vec_B);
+        EXPECT_EQ(params->supported_vec_size.epilogue, expected_vec_epilogue);
 
         EXPECT_TRUE(outputs[0].allclose(tref, 0.001, 0.001));
       };
@@ -2273,14 +2277,15 @@ TEST_P(MatmulSchedulerTestWithLayout, StridedInputs) {
         ASSERT_TRUE(isSchedulerInUse(runtime, ScheduleHeuristic::Matmul));
 
         // Check that supported_vec_size matches expected.
-        const MatmulParams& params = runtime->schedulerHeuristics()
+        const MatmulParams* params = runtime->schedulerHeuristics()
                                          ->heuristicsList()
                                          .front()
-                                         ->matmulParams();
+                                         ->params()
+                                         ->as<MatmulParams>();
 
-        EXPECT_EQ(params.supported_vec_size.a, expected_vec_A);
-        EXPECT_EQ(params.supported_vec_size.b, expected_vec_B);
-        EXPECT_EQ(params.supported_vec_size.epilogue, expected_vec_epilogue);
+        EXPECT_EQ(params->supported_vec_size.a, expected_vec_A);
+        EXPECT_EQ(params->supported_vec_size.b, expected_vec_B);
+        EXPECT_EQ(params->supported_vec_size.epilogue, expected_vec_epilogue);
 
         EXPECT_TRUE(outputs[0].allclose(tref, 0.001, 0.001));
       };

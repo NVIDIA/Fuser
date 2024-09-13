@@ -540,7 +540,7 @@ bool isSchedulerInUse(
   const auto& heurs = scheduler_heurs->heuristicsList();
 
   for (const auto& heur_entry : heurs) {
-    if (heur_entry && (scheduler == heur_entry->heuristic())) {
+    if (heur_entry && (scheduler == heur_entry->params()->heuristic_type)) {
       return true;
     }
   }

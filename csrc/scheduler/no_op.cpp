@@ -26,8 +26,9 @@ NoOpScheduler::NoOpScheduler(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache)
-    : SchedulerEntry(heuristicType()) {
-  params_ = std::make_shared<NoOpHeuristic>("", runtime_info.getIndexType());
+    : SchedulerEntry() {
+  params_ = std::make_shared<NoOpHeuristic>(ScheduleHeuristic::NoOp);
+  params_->cparams.index_type = runtime_info.getIndexType();
 }
 
 namespace {

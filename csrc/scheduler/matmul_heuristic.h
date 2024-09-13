@@ -21,6 +21,7 @@ namespace nvfuser {
 // Parameters of the matmul heuristic to describe the optimial schedule.
 class MatmulParams : public HeuristicParams {
  public:
+  MatmulParams() : HeuristicParams(ScheduleHeuristic::Matmul) {};
   //! A list of possible strategies used to define along which axis
   //!  parallelization will be done.
   enum class TileRasterizationOrder { RowMajor = 0, ColumnMajor = 1 };
@@ -250,10 +251,6 @@ class MatmulParams : public HeuristicParams {
         other_casted->promote_prologue_smem_reuse ==
         promote_prologue_smem_reuse &&
         other_casted->splitk_factor == splitk_factor;
-  }
-
-  std::shared_ptr<HeuristicParams> clone() const override {
-    return std::make_shared<MatmulParams>(*this);
   }
 };
 

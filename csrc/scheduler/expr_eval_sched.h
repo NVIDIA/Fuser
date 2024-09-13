@@ -24,9 +24,9 @@ class ExprEvalScheduler : public SchedulerEntry {
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr)
-      : SchedulerEntry(heuristicType()) {
-    params_ =
-        std::make_shared<HeuristicParams>("", runtime_info.getIndexType());
+      : SchedulerEntry() {
+    params_ = std::make_shared<HeuristicParams>(ScheduleHeuristic::ExprEval);
+    params_->cparams.index_type = runtime_info.getIndexType();
   }
 
   // This scheduler only accepts MatmulOp.

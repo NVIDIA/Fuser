@@ -1096,16 +1096,15 @@ TEST_F(TransposeTest, TransposeAggregatedVectorizationWidth) {
   auto runtime = executor_cache.getMostRecentKernelRuntime();
   NVF_CHECK(!runtime->isSegmented(), "Segmentation not expected");
   auto scheduler = runtime->schedulerHeuristics()->heuristicsList().at(0).get();
-  auto heuristic = scheduler->heuristic();
   NVF_CHECK(
-      heuristic == ScheduleHeuristic::Transpose,
+      scheduler->params()->heuristic_type == ScheduleHeuristic::Transpose,
       "Unexpected heuristic: ",
-      heuristic);
+      scheduler->params()->heuristic_type);
   NVF_CHECK(
-      scheduler->transposeParams().vectorize_factor1 == 4,
+      scheduler->params()->as<TransposeParams>()->vectorize_factor1 == 4,
       "expecting vectorization for group 1 to be 4");
   NVF_CHECK(
-      scheduler->transposeParams().vectorize_factor2 == 4,
+      scheduler->params()->as<TransposeParams>()->vectorize_factor2 == 4,
       "expecting vectorization for group 2 to be 4");
 
   auto ref = t0.transpose(0, 4).transpose(1, 3);
@@ -1171,8 +1170,12 @@ TEST_F(TransposeTest, ReshapePermuteTransposeScheduler) {
   auto runtime = executor_cache.getMostRecentKernelRuntime();
   NVF_CHECK(!runtime->isSegmented(), "Segmentation not expected");
 
-  auto heuristic =
-      runtime->schedulerHeuristics()->heuristicsList().at(0).get()->heuristic();
+  auto heuristic = runtime->schedulerHeuristics()
+                       ->heuristicsList()
+                       .at(0)
+                       .get()
+                       ->params()
+                       ->heuristic_type;
   NVF_CHECK(
       heuristic == ScheduleHeuristic::Transpose,
       "Unexpected heuristic: ",
@@ -1213,8 +1216,12 @@ TEST_F(
   auto runtime = executor_cache.getMostRecentKernelRuntime();
   NVF_CHECK(!runtime->isSegmented(), "Segmentation not expected");
 
-  auto heuristic =
-      runtime->schedulerHeuristics()->heuristicsList().at(0).get()->heuristic();
+  auto heuristic = runtime->schedulerHeuristics()
+                       ->heuristicsList()
+                       .at(0)
+                       .get()
+                       ->params()
+                       ->heuristic_type;
   NVF_CHECK(
       heuristic != ScheduleHeuristic::Transpose,
       "Unexpected heuristic: ",
@@ -1322,8 +1329,11 @@ TEST_F(TransposeTest, TransposeSplitAggregatedVectorizationWidth) {
   auto runtime = executor_cache.getMostRecentKernelRuntime();
   NVF_CHECK(!runtime->isSegmented(), "Segmentation not expected");
   // TODO: check on vectorization!
-  auto heuristic =
-      runtime->schedulerHeuristics()->heuristicsList().at(0)->heuristic();
+  auto heuristic = runtime->schedulerHeuristics()
+                       ->heuristicsList()
+                       .at(0)
+                       ->params()
+                       ->heuristic_type;
   NVF_CHECK(
       heuristic == ScheduleHeuristic::Transpose,
       "Unexpected heuristic: ",
@@ -1372,14 +1382,22 @@ TEST_F(TransposeTest, ReductionIterDomainOnInputsIssue1659) {
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
   NVF_CHECK(runtime->isSegmented(), "Segmentation expected");
-  auto heuristic0 =
-      runtime->schedulerHeuristics()->heuristicsList().at(0).get()->heuristic();
+  auto heuristic0 = runtime->schedulerHeuristics()
+                        ->heuristicsList()
+                        .at(0)
+                        .get()
+                        ->params()
+                        ->heuristic_type;
   NVF_CHECK(
       heuristic0 == ScheduleHeuristic::Reduction,
       "Unexpected heuristic: ",
       heuristic0);
-  auto heuristic1 =
-      runtime->schedulerHeuristics()->heuristicsList().at(1).get()->heuristic();
+  auto heuristic1 = runtime->schedulerHeuristics()
+                        ->heuristicsList()
+                        .at(1)
+                        .get()
+                        ->params()
+                        ->heuristic_type;
   NVF_CHECK(
       heuristic1 == ScheduleHeuristic::Transpose,
       "Unexpected heuristic: ",

@@ -22,13 +22,13 @@ OuterPersistentKernelScheduler::OuterPersistentKernelScheduler(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache)
-    : SchedulerEntry(heuristicType()) {
+    : SchedulerEntry() {
   computeHeuristics(fusion, runtime_info, data_cache);
 }
 
 void OuterPersistentKernelScheduler::schedule(Fusion* fusion) {
   FUSER_PERF_SCOPE("OuterPersistentKernelScheduler::schedule");
-  scheduleOuterPersistentKernel(fusion, reductionParams());
+  scheduleOuterPersistentKernel(fusion, *params()->as<ReductionParams>());
 }
 
 bool OuterPersistentKernelScheduler::canScheduleCompileTime(Fusion* fusion) {
@@ -253,13 +253,13 @@ namespace {
 // persistent batch size, unroll factors, thread block size, etc. This wrapper
 // class is used to make sure the parameters are set before they are used and
 // they will not be changed after they are finalized.
-class HeuristicParameterWrapper {
+class ParameterWrapper {
  private:
   int64_t value_;
   bool mutable_;
 
  public:
-  HeuristicParameterWrapper() : value_(-1), mutable_(true) {}
+  ParameterWrapper() : value_(-1), mutable_(true) {}
   void set(int64_t val) {
     if (mutable_) {
       value_ = val;
@@ -309,7 +309,8 @@ std::shared_ptr<ReductionParams> gridOuterPersistentHeuristic(
   const auto pb_size = outer_params->persistent_buffer_factor;
   const auto unswitch_factor = outer_params->unswitch_factor;
 
-  auto rparams = std::make_shared<ReductionParams>();
+  auto rparams =
+      std::make_shared<ReductionParams>(ScheduleHeuristic::OuterPersistent);
 
   rparams->persistent_kernel = true;
   rparams->project_persistent_buffers = project_to_input;
@@ -418,18 +419,18 @@ std::shared_ptr<ReductionParams> outerPersistentHeuristic(
   const int64_t max_multi_reduction_factor = scheduler_utils::safeDiv(
       scheduler_utils::register_file_size, max_persistent_buffer_size);
 
-  struct HeuristicParams {
+  struct NormOuterParams {
     // Iteration dim, each CTA covers [bdimx] * [iter_unroll_factor] reductions.
     // Needs total_iteration_numel / (bdimx * iter_unroll_factor) CTAs.
-    HeuristicParameterWrapper iter_unroll_factor;
-    HeuristicParameterWrapper bdimx;
+    ParameterWrapper iter_unroll_factor;
+    ParameterWrapper bdimx;
     // Reduction dim, each thread do [batches_per_block * redu_unroll_factor]
     // serial reductions, then do block reductions along [bdimy].
     // Total_reduction_numel <= bdimy [dynamic] * batches_per_block *
     // redu_unroll_factor
-    HeuristicParameterWrapper redu_unroll_factor;
-    HeuristicParameterWrapper batches_per_block;
-    HeuristicParameterWrapper bdimy;
+    ParameterWrapper redu_unroll_factor;
+    ParameterWrapper batches_per_block;
+    ParameterWrapper bdimy;
     void verify() {
       NVF_ERROR(
           !iter_unroll_factor.isMutable(),
@@ -444,15 +445,15 @@ std::shared_ptr<ReductionParams> outerPersistentHeuristic(
       NVF_ERROR(!bdimy.isMutable(), "bdimy is not finalized.");
     }
   };
-  HeuristicParams hp;
+  NormOuterParams params;
 
   // set iter_unroll_factor
   // This controls vectorized load/store along the iteration dimension.
   // The kernel calls block reduction [iter_unroll_factor] times.
   // Test shows performance regression when iter_unroll_factor > 1 due to
   // the high cost of calling block reduction multiple times per block.
-  hp.iter_unroll_factor.set(1l);
-  hp.iter_unroll_factor.finalize();
+  params.iter_unroll_factor.set(1l);
+  params.iter_unroll_factor.finalize();
 
   // set redu_unroll_factor
   // This controls unroll along the reduction dimension.
@@ -461,32 +462,32 @@ std::shared_ptr<ReductionParams> outerPersistentHeuristic(
   // the bandwidth is dropped from 1029 GB/s to 840 GB/s due to more stalled
   // warps. Unroll by 4 increased performance for some cases but has regression
   // in many others. So we set redu_unroll_factor to 1.
-  hp.redu_unroll_factor.set(1l);
-  hp.redu_unroll_factor.finalize();
+  params.redu_unroll_factor.set(1l);
+  params.redu_unroll_factor.finalize();
 
   // set bdimx
   // Start from warp_size, and decrease it until we can make more than 4 waves
   const int64_t bdimx_max =
-      max_multi_reduction_factor / hp.iter_unroll_factor.get();
+      max_multi_reduction_factor / params.iter_unroll_factor.get();
   int64_t tmp_bdimx = std::min(bdimx_max, warp_size);
   if (tmp_bdimx < warp_size) {
     tmp_bdimx = scheduler_utils::lastPow2(tmp_bdimx);
   }
   // check if we can make more than 4 waves to hide memory access latency.
   // InstanceNormFP32 of [32, 32, 32, 128] increased from 618 to 770 GB/s
-  int64_t num_CTAs =
-      ceilDiv(total_iteration_numel, tmp_bdimx * hp.iter_unroll_factor.get());
+  int64_t num_CTAs = ceilDiv(
+      total_iteration_numel, tmp_bdimx * params.iter_unroll_factor.get());
   while (
       num_CTAs < 4l * device_multiprocessor_count &&
       tmp_bdimx >= 2l *
               normalization_scheduler_utils::PreferredLaunchConfig::kMinBdimx) {
     tmp_bdimx /= 2l;
-    num_CTAs =
-        ceilDiv(total_iteration_numel, tmp_bdimx * hp.iter_unroll_factor.get());
+    num_CTAs = ceilDiv(
+        total_iteration_numel, tmp_bdimx * params.iter_unroll_factor.get());
   }
   // we are not finalizing bdimx here, because we may need to change it later if
   // bdimy is very small
-  hp.bdimx.set(tmp_bdimx);
+  params.bdimx.set(tmp_bdimx);
 
   // set bdimy and batches_per_block
   // These two parameters controls the reduction. Each reduction is split into
@@ -509,17 +510,18 @@ std::shared_ptr<ReductionParams> outerPersistentHeuristic(
   // strategy is: prioritize divisible splits and search for bdimy in a fixed
   // range under the constraint of batches_per_block_min.
   const int64_t after_unroll =
-      total_reduction_numel / hp.redu_unroll_factor.get();
+      total_reduction_numel / params.redu_unroll_factor.get();
   const int64_t bdimy_max = std::min(
       ceilDiv(after_unroll, batches_per_block_min),
-      max_threads_in_block / hp.bdimx.get());
+      max_threads_in_block / params.bdimx.get());
   const int64_t bdimy_min =
-      std::min(bdimy_max, min_threads_in_block / hp.bdimx.get());
-  const int64_t bdimy_step = std::max(1l, device_warp_size / hp.bdimx.get());
+      std::min(bdimy_max, min_threads_in_block / params.bdimx.get());
+  const int64_t bdimy_step =
+      std::max(1l, device_warp_size / params.bdimx.get());
   NVF_ERROR(
-      device_warp_size % hp.bdimx.get() == 0,
+      device_warp_size % params.bdimx.get() == 0,
       "bdimx is no divisible by warp_size. bdimx= ",
-      hp.bdimx.get());
+      params.bdimx.get());
 
   auto maybeNextDivisibleFactor =
       [&after_unroll, &bdimy_step, &bdimy_max](int64_t cur) {
@@ -541,37 +543,39 @@ std::shared_ptr<ReductionParams> outerPersistentHeuristic(
       break;
     }
   }
-  hp.bdimy.set(tmp_bdimy);
-  hp.bdimy.finalize();
-  hp.batches_per_block.set(tmp_batch);
-  hp.batches_per_block.finalize();
+  params.bdimy.set(tmp_bdimy);
+  params.bdimy.finalize();
+  params.batches_per_block.set(tmp_batch);
+  params.batches_per_block.finalize();
 
   // final check on bdimx to avoid small threads_in_block
-  if (hp.bdimx.get() * hp.bdimy.get() < min_threads_in_block) {
-    hp.bdimx.set(min_threads_in_block / hp.bdimy.get());
+  if (params.bdimx.get() * params.bdimy.get() < min_threads_in_block) {
+    params.bdimx.set(min_threads_in_block / params.bdimy.get());
   }
-  hp.bdimx.finalize();
+  params.bdimx.finalize();
 
   // make sure all paras are set
-  hp.verify();
+  params.verify();
 
   // Final check of the requested registers
   int64_t sm_required_per_norm_set = ceilDiv(
-      max_persistent_buffer_size * hp.bdimx.get() * hp.iter_unroll_factor.get(),
+      max_persistent_buffer_size * params.bdimx.get() *
+          params.iter_unroll_factor.get(),
       scheduler_utils::register_file_size);
   NVF_ERROR(
       sm_required_per_norm_set == 1,
       "Tried to use multiple SMs on an outer persistent kernel ",
       "yet this kernel should have been within block persistent.",
       "\nbdimx= ",
-      hp.bdimx.get(),
+      params.bdimx.get(),
       ", iter_unroll_factor= ",
-      hp.iter_unroll_factor.get());
+      params.iter_unroll_factor.get());
 
   // copy to ReductionParams
-  auto rparams = std::make_shared<ReductionParams>();
-  auto gdimx = ceilDiv(total_iteration_numel, hp.bdimx.get());
-  rparams->batches_per_block_inner_reduction = hp.batches_per_block.get();
+  auto rparams =
+      std::make_shared<ReductionParams>(ScheduleHeuristic::OuterPersistent);
+  auto gdimx = ceilDiv(total_iteration_numel, params.bdimx.get());
+  rparams->batches_per_block_inner_reduction = params.batches_per_block.get();
   rparams->persistent_kernel = true;
   rparams->project_persistent_buffers = project_to_input;
   rparams->cparams.index_type = index_type;
@@ -579,7 +583,7 @@ std::shared_ptr<ReductionParams> outerPersistentHeuristic(
   rparams->fastest_dim = false;
   rparams->cross_block_inner_reduction = true;
   rparams->cross_grid_inner_reduction = false;
-  rparams->multiple_reds_per_blk = hp.bdimx.get() > 1;
+  rparams->multiple_reds_per_blk = params.bdimx.get() > 1;
 
   if (rparams->multiple_reds_per_blk) {
     rparams->block_dim_iter_dom = ParallelType::TIDx;
@@ -597,18 +601,18 @@ std::shared_ptr<ReductionParams> outerPersistentHeuristic(
 
   // Always need to mark inner reduction unroll for rfactor in outer persitent
   // kernels
-  rparams->unroll_factor_inner_reduction = hp.redu_unroll_factor.get();
+  rparams->unroll_factor_inner_reduction = params.redu_unroll_factor.get();
 
-  rparams->unroll_factor_iter_dom = hp.iter_unroll_factor.get();
+  rparams->unroll_factor_iter_dom = params.iter_unroll_factor.get();
 
   rparams->vectorize_iter_dom =
-      vectorize_factor > 1 && hp.iter_unroll_factor.get() > 1;
+      vectorize_factor > 1 && params.iter_unroll_factor.get() > 1;
 
   rparams->lparams = LaunchParams(
       LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL,
-      rparams->multiple_reds_per_blk ? hp.bdimx.get() : hp.bdimy.get(),
+      rparams->multiple_reds_per_blk ? params.bdimx.get() : params.bdimy.get(),
       LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL);
 
@@ -625,8 +629,8 @@ std::shared_ptr<ReductionParams> outerPersistentHeuristic(
             << "\n"
             << "max_multi_reduction_factor: " << max_multi_reduction_factor
             << "\n"
-            << "block(" << hp.bdimx.get() << ", " << hp.bdimy.get() << ", 1)"
-            << std::endl;
+            << "block(" << params.bdimx.get() << ", " << params.bdimy.get()
+            << ", 1)" << std::endl;
     debug() << rparams->toString() << std::endl;
   }
 

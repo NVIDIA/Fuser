@@ -2814,8 +2814,8 @@ bool TranslateApplicableWelford::isValidPersistentFusion(
   // However, when it comes to cross grid reduction, the additional grid
   // synchronization carries substantial overhead and does not yield any
   // performance gains.
-  return scheduler->reductionParams().persistent_kernel &&
-      !scheduler->reductionParams().cross_grid_outer_reduction;
+  return scheduler->params()->as<ReductionParams>()->persistent_kernel &&
+      !scheduler->params()->as<ReductionParams>()->cross_grid_outer_reduction;
 }
 
 // Note that when segmented it is assumed that insertion of lower

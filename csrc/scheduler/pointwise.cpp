@@ -27,7 +27,7 @@ PointWiseScheduler::PointWiseScheduler(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache)
-    : SchedulerEntry(heuristicType()) {
+    : SchedulerEntry() {
   computeHeuristics(fusion, runtime_info, data_cache);
 }
 
@@ -101,7 +101,7 @@ bool PointWiseScheduler::canScheduleRunTime(
 
 void PointWiseScheduler::schedule(Fusion* fusion) {
   FUSER_PERF_SCOPE("PointWiseScheduler::schedule");
-  schedulePointwise(fusion, pointwiseParams());
+  schedulePointwise(fusion, *params()->as<PointwiseParams>());
 }
 
 void PointWiseScheduler::computeHeuristics(
@@ -168,8 +168,9 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
   // Incase any buffer is of type DataType::Index
   const auto index_type = runtime_info.getIndexType();
 
-  auto params =
-      std::make_shared<PointwiseParams>("Pointwise heuristics", index_type);
+  auto params = std::make_shared<PointwiseParams>();
+  params->tag = "Pointwise heuristics";
+  params->cparams.index_type = index_type;
 
   auto in_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
 
@@ -263,8 +264,10 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
     // All cache entries that are expected to be generated in the pointwise
     // scheduler by registry.cpp::HeuristicSummary::validate() must be created
     // before hitting this return.
-    return std::make_shared<PointwiseParams>(
-        "Pointwise heuristics", index_type);
+    auto pwise_params = std::make_shared<PointwiseParams>();
+    pwise_params->tag = "Pointwise heuristics";
+    pwise_params->cparams.index_type = index_type;
+    return pwise_params;
   }
 
   // Find all vectorizable inputs/outputs

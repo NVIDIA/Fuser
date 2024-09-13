@@ -385,8 +385,11 @@ TEST_P(MatmulNodeTranslationTest, AutomaticSchedulerMatmulNode) {
     EXPECT_FALSE(runtime->isSegmented());
   }
 
-  ScheduleHeuristic heuristic =
-      runtime->schedulerHeuristics()->heuristicsList().front()->heuristic();
+  ScheduleHeuristic heuristic = runtime->schedulerHeuristics()
+                                    ->heuristicsList()
+                                    .front()
+                                    ->params()
+                                    ->heuristic_type;
   EXPECT_EQ(heuristic, expected_heuristic);
 
   if (heuristic == ScheduleHeuristic::Matmul) {
@@ -564,8 +567,11 @@ TEST_P(LinearNodeTranslationTest, AutomaticSchedulerLinearNode) {
     EXPECT_FALSE(runtime->isSegmented());
   }
 
-  ScheduleHeuristic heuristic =
-      runtime->schedulerHeuristics()->heuristicsList().front()->heuristic();
+  ScheduleHeuristic heuristic = runtime->schedulerHeuristics()
+                                    ->heuristicsList()
+                                    .front()
+                                    ->params()
+                                    ->heuristic_type;
   if (expect_aten_eval) {
     EXPECT_EQ(heuristic, ScheduleHeuristic::ExprEval);
   } else {

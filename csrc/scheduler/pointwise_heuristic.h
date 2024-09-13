@@ -19,6 +19,8 @@ namespace nvfuser {
 // are equivelent!
 class PointwiseParams : public HeuristicParams {
  public:
+  PointwiseParams() : HeuristicParams(ScheduleHeuristic::PointWise) {};
+
   // vectorize if true, otherwise unroll
   bool vectorize = false;
 
@@ -103,9 +105,6 @@ class PointwiseParams : public HeuristicParams {
     return attr_hash;
   }
 
-  std::shared_ptr<HeuristicParams> clone() const override {
-    return std::make_shared<PointwiseParams>(*this);
-  }
 };
 
 } // namespace nvfuser

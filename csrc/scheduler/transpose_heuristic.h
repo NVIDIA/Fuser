@@ -21,6 +21,7 @@ namespace nvfuser {
 // are equivelent!
 class TransposeParams : public HeuristicParams {
  public:
+  TransposeParams() : HeuristicParams(ScheduleHeuristic::Transpose) {};
   static constexpr int64_t getMaxThreadsPerBlock() {
     return 128;
   }
@@ -148,10 +149,6 @@ class TransposeParams : public HeuristicParams {
         vectorize_factor2,
         tile_size1,
         tile_size2);
-  }
-
-  std::shared_ptr<HeuristicParams> clone() const override {
-    return std::make_shared<TransposeParams>(*this);
   }
 
   int64_t getThreadsPerBlock() const {

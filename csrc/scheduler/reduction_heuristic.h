@@ -21,6 +21,8 @@ class TensorView;
 // are equivelent!
 class ReductionParams : public HeuristicParams {
  public:
+  ReductionParams(ScheduleHeuristic type = ScheduleHeuristic::Reduction)
+      : HeuristicParams(type) {};
   // Reducing inner most dimension?
   bool fastest_dim = false;
 
@@ -317,10 +319,6 @@ class ReductionParams : public HeuristicParams {
     return attr_hash;
   }
 
-  std::shared_ptr<HeuristicParams> clone() const override {
-    auto ptr = std::make_shared<ReductionParams>(*this);
-    return std::static_pointer_cast<HeuristicParams>(ptr);
-  }
 };
 
 } // namespace nvfuser

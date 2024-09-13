@@ -1142,7 +1142,7 @@ void FusionKernelRuntime::deserialize(
     auto group_id = sg->groupId();
     auto scheduler_entry = schedulers().at(group_id).get();
     NVF_ERROR(
-        !sg || scheduler_entry->heuristic() == sg->heuristic(),
+        !sg || scheduler_entry->params()->heuristic_type == sg->heuristic(),
         "Heuristics do not match.");
     auto fusion_to_run = segmented_fusion_->makeFusion(sg).second;
     FusionGuard fg(fusion_to_run.get());
@@ -1153,7 +1153,7 @@ void FusionKernelRuntime::deserialize(
         fusion_to_run.get(),
         device_index,
         scheduler_entry->params()->cparams,
-        scheduler_entry->heuristic(),
+        scheduler_entry->params()->heuristic_type,
         fusion_id_,
         concrete_id_,
         runtime_id_,
@@ -1180,7 +1180,8 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
 
   if (profiling_) {
     most_recent_executor_log_.fusion_executor = &executor;
-    most_recent_executor_log_.params = scheduler_entry->params()->clone();
+    most_recent_executor_log_.params =
+        std::make_shared<HeuristicParams>(*(scheduler_entry->params()));
   }
 
   // TODO: This is a work around for the fallback execution path where a kernel
@@ -1300,7 +1301,8 @@ void FusionKernelRuntime::compileKernel(
   auto scheduler_entry = schedulers().at(group_id).get();
 
   // Check that the heuristics are matched, in the case of segmented fusion
-  NVF_ERROR(!sg || scheduler_entry->heuristic() == sg->heuristic());
+  NVF_ERROR(
+      !sg || scheduler_entry->params()->heuristic_type == sg->heuristic());
   NVF_ERROR(!executors_.at(group_id).isCompiled());
 
   // Running a segment group as a single kernel,
@@ -1321,7 +1323,7 @@ void FusionKernelRuntime::compileKernel(
       args,
       scheduler_entry->params()->lparams,
       scheduler_entry->params()->cparams,
-      scheduler_entry->heuristic(),
+      scheduler_entry->params()->heuristic_type,
       fusion_id_,
       concrete_id_,
       runtime_id_,
@@ -1335,7 +1337,8 @@ std::pair<LaunchParams, CompileParams> FusionKernelRuntime::getKernelConfig(
   auto scheduler_entry = schedulers().at(group_id).get();
 
   // Check that the heuristics are matched, in the case of segmented fusion
-  NVF_ERROR(!sg || scheduler_entry->heuristic() == sg->heuristic());
+  NVF_ERROR(
+      !sg || scheduler_entry->params()->heuristic_type == sg->heuristic());
 
   return std::make_pair(
       scheduler_entry->params()->lparams, scheduler_entry->params()->cparams);
