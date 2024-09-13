@@ -760,7 +760,7 @@ bool isProjectBufferToInputs(
     const scheduler_utils::PersistentBufferInfo& persistent_buffer_info,
     const scheduler_utils::PersistentBufferSizeReturn&
         persistent_buffer_size_info,
-    const ScheduleHeuristic sh,
+    const ScheduleHeuristic heuristic_type,
     const bool can_use_smem_persistent,
     const bool check_projected_buffer_size) {
   // don't project if there are view ops and no buffer can be projected
@@ -784,7 +784,7 @@ bool isProjectBufferToInputs(
   // enough register or shared memory, then canScheduleRunTime will return
   // false. For InnerOuterPersistent, both register and shared memory are used
   // and will be handled in getPersistentBufferStorageParams.
-  if (sh != ScheduleHeuristic::InnerOuterPersistent) {
+  if (heuristic_type != ScheduleHeuristic::InnerOuterPersistent) {
     int64_t max_available_buffer =
         getMaxRegOrSharedMemorySizeForPersistentBuffer(
             runtime_info,
@@ -807,7 +807,7 @@ bool isProjectBufferToInputs(
   }
 
   // consider buffer size when exp op exists
-  if (sh == ScheduleHeuristic::InnerPersistent) {
+  if (heuristic_type == ScheduleHeuristic::InnerPersistent) {
     // check if the non-projected persistent buffer is small enough,
     // i.e., not affecting the occupancy, projecting back to the inputs
     // isn't buying us anything.
@@ -1277,7 +1277,7 @@ TensorView* scheduleReductionGeneral(
     Fusion* fusion,
     const ReductionParams& rparams,
     std::vector<TensorView*>& reduction_tvs,
-    ScheduleHeuristic schedule_heuristic) {
+    ScheduleHeuristic heuristic_type) {
   NVF_ERROR(!reduction_tvs.empty());
   // Registry assumes the reference tv is the first reduction_tv, if this
   // changes registry needs to change.
@@ -1294,7 +1294,7 @@ TensorView* scheduleReductionGeneral(
         scheduler_utils::domainReorderAsLogicalMap(reduction_tv));
   }
 
-  if (schedule_heuristic == ScheduleHeuristic::OuterPersistent &&
+  if (heuristic_type == ScheduleHeuristic::OuterPersistent &&
       rparams.cross_grid_inner_reduction && reduction_tvs.size() > 1) {
     groupReductions(reduction_tvs, false);
   }

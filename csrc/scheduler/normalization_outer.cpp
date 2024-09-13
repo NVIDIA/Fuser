@@ -309,8 +309,8 @@ std::shared_ptr<ReductionParams> gridOuterPersistentHeuristic(
   const auto pb_size = outer_params->persistent_buffer_factor;
   const auto unswitch_factor = outer_params->unswitch_factor;
 
-  auto rparams =
-      std::make_shared<ReductionParams>(ScheduleHeuristic::OuterPersistent);
+  auto rparams = std::make_shared<ReductionParams>(
+      OuterPersistentKernelScheduler::heuristicType());
 
   rparams->persistent_kernel = true;
   rparams->project_persistent_buffers = project_to_input;
@@ -572,8 +572,8 @@ std::shared_ptr<ReductionParams> outerPersistentHeuristic(
       params.iter_unroll_factor.get());
 
   // copy to ReductionParams
-  auto rparams =
-      std::make_shared<ReductionParams>(ScheduleHeuristic::OuterPersistent);
+  auto rparams = std::make_shared<ReductionParams>(
+      OuterPersistentKernelScheduler::heuristicType());
   auto gdimx = ceilDiv(total_iteration_numel, params.bdimx.get());
   rparams->batches_per_block_inner_reduction = params.batches_per_block.get();
   rparams->persistent_kernel = true;

@@ -386,7 +386,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
           runtime_info,
           persistent_buffer_info,
           persistent_buffer_size_info,
-          ScheduleHeuristic::InnerOuterPersistent,
+          InnerOuterPersistentKernelScheduler::heuristicType(),
           /*can_use_smem_persistent=*/true,
           outer_broadcast_tvs.empty());
 
@@ -699,7 +699,7 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
     const bool project_to_input,
     const PrimDataType index_type) {
   auto rparams = std::make_shared<ReductionParams>(
-      ScheduleHeuristic::InnerOuterPersistent);
+      InnerOuterPersistentKernelScheduler::heuristicType());
   rparams->project_persistent_buffers = project_to_input;
   rparams->cparams.index_type = index_type;
   // Parameters for inner reduction:

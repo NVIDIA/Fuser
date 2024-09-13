@@ -63,7 +63,7 @@ std::pair<int64_t, int64_t> getPersistentBufferSize(
           runtime_info,
           persistent_buffer_info,
           persistent_buffer_size_info,
-          ScheduleHeuristic::InnerPersistent,
+          InnerPersistentKernelScheduler::heuristicType(),
           can_use_smem_persistent);
   auto persistent_buffer_size = project_persistent_buffers
       ? persistent_buffer_size_info.projected_persistent_buffer_size
@@ -1100,8 +1100,8 @@ std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
           data_cache,
           InnerPersistentKernelScheduler::heuristicType());
 
-  std::shared_ptr<ReductionParams> rparams =
-      std::make_shared<ReductionParams>(ScheduleHeuristic::InnerPersistent);
+  std::shared_ptr<ReductionParams> rparams = std::make_shared<ReductionParams>(
+      InnerPersistentKernelScheduler::heuristicType());
 
   // shared heuristics for all cases
   rparams->persistent_kernel = true;
