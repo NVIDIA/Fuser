@@ -794,7 +794,7 @@ std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion) {
   return dynamic_tvs;
 }
 
-std::pair<bool, bool> compareDomains(
+CompareDomainResult compareDomains(
     std::vector<IterDomain*> dom0,
     const std::vector<IterDomain*>& dom1,
     const std::vector<IterDomain*>& additional_ids) {
@@ -893,50 +893,65 @@ std::pair<bool, bool> compareDomains(
   bool dom1_has_symbolic =
       std::any_of(dom1_set.begin(), dom1_set.end(), is_symb);
 
-  bool dom1_has_unreachable = false;
+  CompareDomainResult result;
+
+  auto check_ids = [](const auto& ids_to_check,
+                      const auto& target_set) -> bool {
+    bool unreachable = false;
+    for (auto id : ids_to_check) {
+      // Symbolic and broadcast IDs are ignored
+      if (id->template as<IterDomain>()->getIterType() == IterType::Symbolic ||
+          id->template as<IterDomain>()->isBroadcast()) {
+        continue;
+      }
+      if (!target_set.count(id)) {
+        // not found in target, which means either:
+        //
+        // 1. id is unreachable from target_set, or
+        // 2. id is reachable from target_set but was erased from
+        // target_set as it was used as an input in the traversal.
+        //
+        // The second case means id is redudant
+        NVF_ERROR(
+            IRBFS::getReachableValsFrom(
+                {target_set.begin(), target_set.end()}, {id})
+                .empty(),
+            id->toString(),
+            " is redundant in ",
+            toDelimitedString(target_set));
+
+        unreachable = true;
+      }
+    }
+    return unreachable;
+  };
+
   if (!frontier_has_symbolic) {
-    dom1_has_unreachable =
-        std::any_of(dom1.begin(), dom1.end(), [&](IterDomain* id) {
-          return id->getIterType() != IterType::Symbolic &&
-              !id->isBroadcast() && !frontier.count(id);
-        });
+    result.dom1_has_unreachable_ids = check_ids(dom1, frontier);
   }
 
-  std::vector<IterDomain*> frontier_ids(frontier.size());
-  std::transform(
-      frontier.begin(), frontier.end(), frontier_ids.begin(), [](Val* val) {
-        return val->as<IterDomain>();
-      });
-
-  bool dom0_has_unreachable = false;
   if (!dom1_has_symbolic) {
-    dom0_has_unreachable =
-        std::any_of(frontier_ids.begin(), frontier_ids.end(), [&](Val* val) {
-          IterDomain* id = val->as<IterDomain>();
-          return id->getIterType() != IterType::Symbolic &&
-              !id->isBroadcast() && !dom1_set.count(id);
-        });
+    result.dom0_has_unreachable_ids = check_ids(frontier, dom1_set);
   }
 
-  return std::make_pair(dom0_has_unreachable, dom1_has_unreachable);
+  return result;
 }
 
 void validateDomainEquivalence(
     std::vector<IterDomain*> dom0,
     const std::vector<IterDomain*>& dom1,
     const std::vector<IterDomain*>& additional_ids) {
-  auto [dom0_unreachable, dom1_unreachable] =
-      compareDomains(dom0, dom1, additional_ids);
+  const auto compare_result = compareDomains(dom0, dom1, additional_ids);
 
   NVF_ERROR(
-      !dom0_unreachable,
+      !compare_result.dom0_has_unreachable_ids,
       "dom0 has unreachable IDs. dom0: ",
       toDelimitedString(dom0),
       ". dom1: ",
       toDelimitedString(dom1));
 
   NVF_ERROR(
-      !dom1_unreachable,
+      !compare_result.dom1_has_unreachable_ids,
       "dom1 has unreachable IDs. dom0: ",
       toDelimitedString(dom0),
       ". dom1: ",

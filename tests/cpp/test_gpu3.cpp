@@ -6567,7 +6567,7 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
             tv1->getLogicalDomain(), {tv1->axis(1), tv1->axis(2)});
       },
       testing::ThrowsMessage<nvfuser::nvfError>(
-          testing::HasSubstr("dom0 and dom1 are not equal")));
+          testing::HasSubstr("dom0 has unreachable IDs")));
 
   tv1->merge(0);
   // [I0/4*4, I1]
@@ -6585,7 +6585,8 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
 
   // dom0: logical domain
   // dom1: loop + tv1_intermediate_id
-  // Should fail as the intermediate ID and the first two loop ids are redundant
+  // Should fail as the intermediate ID and the first two loop ids are
+  // redundant
   EXPECT_THAT(
       [&]() {
         ir_utils::validateDomainEquivalence(
@@ -6593,7 +6594,16 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
             {tv1_intermediate_id, tv1->axis(0), tv1->axis(1), tv1->axis(2)});
       },
       testing::ThrowsMessage<nvfuser::nvfError>(
-          testing::HasSubstr("dom0 and dom1 are not equal")));
+          testing::HasSubstr("is redundant")));
+  // Same pair but reversed order
+  EXPECT_THAT(
+      [&]() {
+        ir_utils::validateDomainEquivalence(
+            {tv1_intermediate_id, tv1->axis(0), tv1->axis(1), tv1->axis(2)},
+            tv1->getLogicalDomain());
+      },
+      testing::ThrowsMessage<nvfuser::nvfError>(
+          testing::HasSubstr("is redundant")));
 
   // Testing symbolic domains
   auto tv2 = reshape(
@@ -6621,6 +6631,46 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
   // and can be arbitrarily created and annihilated as needed.
   ir_utils::validateDomainEquivalence(
       tv4->getLogicalDomain(), {tv4->axis(0), tv4->axis(1)});
+}
+
+TEST_F(NVFuserTest, CompareLogicalAndLoopDomains) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // [i0, i1]
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  // [i0]
+  auto tv1 = makeSymbolicTensor(1);
+  fusion.addInput(tv1);
+
+  // [i0]
+  auto tv2 = set(tv1);
+  // [i0, b1]
+  auto tv3 = broadcast(tv2, {false, true});
+  // [i0, i1]
+  auto tv4 = add(tv0, tv3);
+  fusion.addOutput(tv4);
+
+  // Set the loop domain of tv2 the same as tv4. The new loop domain
+  // includes an ID that is not reachable from tv2 logical domain
+  tv2->setLoopDomain(
+      {tv2->getLogicalDomain().at(0),
+       tv4->getLoopDomain().at(1)->cloneWithoutRFactor()});
+
+  // Same for tv3
+  tv3->setLoopDomain(
+      {tv3->getLogicalDomain().at(0),
+       tv4->getLoopDomain().at(1)->cloneWithoutRFactor()});
+
+  // Test if the validation can catch an invalid loop domain that
+  // cannot reach the concrete domain of tv2
+  EXPECT_THAT(
+      [&]() {
+        tv2->setLoopDomain({tv4->getLoopDomain().at(1)->cloneWithoutRFactor()});
+      },
+      testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
+          "Not all logical IDs are covered by loop domain")));
 }
 
 // Repro for issue #236 (https://github.com/NVIDIA/Fuser/issues/236)
@@ -8888,46 +8938,6 @@ TEST_F(NVFuserTest, RAWSync) {
       [&]() { GpuLower(&fusion).run(); },
       testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
           "Producer is required to be in Global or Shared Memory based on parallelization strategy. RAW flags: (threadIdx.x)")));
-}
-
-TEST_F(NVFuserTest, SetLoopDomainValidation) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  // [i0, i1]
-  auto tv0 = makeSymbolicTensor(2);
-  fusion.addInput(tv0);
-  // [i0]
-  auto tv1 = makeSymbolicTensor(1);
-  fusion.addInput(tv1);
-
-  // [i0]
-  auto tv2 = set(tv1);
-  // [i0, b1]
-  auto tv3 = broadcast(tv2, {false, true});
-  // [i0, i1]
-  auto tv4 = add(tv0, tv3);
-  fusion.addOutput(tv4);
-
-  // Set the loop domain of tv2 the same as tv4. The new loop domain
-  // includes an ID that is not reachable from tv2 logical domain
-  tv2->setLoopDomain(
-      {tv2->getLogicalDomain().at(0),
-       tv4->getLoopDomain().at(1)->cloneWithoutRFactor()});
-
-  // Same for tv3
-  tv3->setLoopDomain(
-      {tv3->getLogicalDomain().at(0),
-       tv4->getLoopDomain().at(1)->cloneWithoutRFactor()});
-
-  // Test if the validation can catch an invalid loop domain that
-  // cannot reach the concrete domain of tv2
-  EXPECT_THAT(
-      [&]() {
-        tv2->setLoopDomain({tv4->getLoopDomain().at(1)->cloneWithoutRFactor()});
-      },
-      testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
-          "Not all logical IDs are covered by loop domain")));
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.

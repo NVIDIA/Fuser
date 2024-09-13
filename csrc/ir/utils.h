@@ -503,10 +503,13 @@ std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion);
 //! placeholders and allow them to be created (and annihilated?) arbitrarily as
 //! needed for convenience.
 //!
-//! Returns two bool values that indicate if there is any
-//! IterDomain of dom0 or dom1 that is unreachable from dom1 or dom0,
-//! respectivey.
-std::pair<bool, bool> compareDomains(
+//! Returns if each domain has unreachable IDs. It is an error if
+//! redundant IDs are detected.
+struct CompareDomainResult {
+  bool dom0_has_unreachable_ids = false;
+  bool dom1_has_unreachable_ids = false;
+};
+CompareDomainResult compareDomains(
     std::vector<IterDomain*> dom0,
     const std::vector<IterDomain*>& dom1,
     const std::vector<IterDomain*>& additional_ids = {});
