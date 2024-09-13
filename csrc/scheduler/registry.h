@@ -178,31 +178,7 @@ class HeuristicSummary;
 //!   and a bool canSchedule(Fusion*) interface
 class SchedulerEntry {
  public:
-  //! Fusion runtime facing API,
-  //!   builds a new entry with the given heuristics
-  //!   corresponding to the given fusion
-  NVF_API static std::unique_ptr<SchedulerEntry> makeEntry(
-      ScheduleHeuristic sh,
-      Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
-
   virtual ~SchedulerEntry() = default;
-
-  //! External access for canSchedule utilities through SchedulerEntry
-  //!  to avoid exposing a single function to the namespace
-  NVF_API static bool canSchedule(
-      ScheduleHeuristic sh,
-      Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
-
-  //! Fusion segmenter facing API,
-  //!   returns a schedule that applies in the given fusion, returns a nullopt
-  //!   if no schedule in the registry can handle.
-  static std::optional<ScheduleHeuristic> proposeHeuristics(
-      Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info);
 
   //! Fusion runtime facing API,
   //!   schedule the given fusion with heuristics owned
@@ -264,10 +240,31 @@ class SchedulerEntry {
   const ScheduleHeuristic heuristic_;
 };
 
-//! Hash function for a scheduler entry
-class SchedulerEntryHash {
- public:
-  size_t operator()(const SchedulerEntry& se) const;
-};
+namespace Schedule {
+
+//! External access for canSchedule utilities through SchedulerEntry
+//!  to avoid exposing a single function to the namespace
+bool canSchedule(
+    ScheduleHeuristic sh,
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicSummary* data_cache = nullptr);
+
+//! Fusion segmenter facing API,
+//!   returns a schedule that applies in the given fusion, returns a nullopt
+//!   if no schedule in the registry can handle.
+std::optional<ScheduleHeuristic> proposeHeuristics(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info);
+
+//! Fusion runtime facing API,
+//!   builds a new entry with the given heuristics
+//!   corresponding to the given fusion
+std::unique_ptr<SchedulerEntry> makeEntry(
+    ScheduleHeuristic sh,
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicSummary* data_cache = nullptr);
+} // namespace Schedule
 
 } // namespace nvfuser

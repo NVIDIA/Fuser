@@ -8052,9 +8052,9 @@ TEST_F(NVFuserTest, FusionTestWarpSoftMax_CUDA) {
 
   // Schedule through magic scheduler
   SchedulerRuntimeInfo runtime_info(&fusion, aten_inputs);
-  NVF_CHECK(SchedulerEntry::canSchedule(
+  NVF_CHECK(Schedule::canSchedule(
       ScheduleHeuristic::InnerPersistent, &fusion, runtime_info));
-  auto scheduler = SchedulerEntry::makeEntry(
+  auto scheduler = Schedule::makeEntry(
       ScheduleHeuristic::InnerPersistent, &fusion, runtime_info);
   scheduler->schedule(&fusion);
 

@@ -579,7 +579,7 @@ void SegmentedFusion::deserialize(const serde::SegmentedFusion* buffer) {
   FUSER_PERF_SCOPE("SegmentedFusion::deserialize");
   NVF_ERROR(buffer != nullptr, "serde::SegmentedFusion is nullptr.");
 
-  // NOTE SchedulerEntry::proposeHeuristics can add values and expressions to
+  // NOTE Schedule::proposeHeuristics can add values and expressions to
   // the fusion. We relax the constraints here because we already know the
   // proposed scheduler for each segmented group.
   NVF_ERROR(
@@ -1579,7 +1579,8 @@ class GroupDependencyAnalysis : public NonCopyable, public SegmenterAnalysis {
 
  private:
   const SegmentedFusion* segmented_fusion_;
-  std::unordered_map<SegmentedGroup*, std::unique_ptr<GroupSet>> known_producers_of_;
+  std::unordered_map<SegmentedGroup*, std::unique_ptr<GroupSet>>
+      known_producers_of_;
 };
 
 //! Finds the common producers of given set of groups
@@ -1976,7 +1977,7 @@ std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
     scheduler_debug_utils::canScheduleMessage(
         "***Runtime***: Try to schedule fusion un-segmented:\n");
     const auto maybe_complete_fusion_heuristic =
-        SchedulerEntry::proposeHeuristics(fusion.get(), runtime_info);
+        Schedule::proposeHeuristics(fusion.get(), runtime_info);
     if (maybe_complete_fusion_heuristic.has_value()) {
       return SegmentedFusion::fromCompleteFusion(
           std::move(fusion), maybe_complete_fusion_heuristic.value(), *inputs);
@@ -2550,7 +2551,7 @@ std::optional<ScheduleHeuristic> tryMerge(
   if (tryingToMergeSegmenterSet(segmented_fusion->completeFusion())) {
     return std::nullopt;
   }
-  return SchedulerEntry::proposeHeuristics(
+  return Schedule::proposeHeuristics(
       segmented_fusion->completeFusion(), runtime_info);
 }
 
@@ -2572,7 +2573,7 @@ std::optional<ScheduleHeuristic> tryMerge(
   if (tryingToMergeSegmenterSet(segmented_fusion->completeFusion())) {
     return std::nullopt;
   }
-  return SchedulerEntry::proposeHeuristics(
+  return Schedule::proposeHeuristics(
       segmented_fusion->completeFusion(), runtime_info);
 }
 
@@ -2612,11 +2613,11 @@ std::optional<std::unique_ptr<SchedulerEntry>> SegmentedGroup::
     getMaybeSchedulerEntry(SchedulerRuntimeInfo& runtime_info) {
   FUSER_PERF_SCOPE("SegmentedFusion::getMaybeSchedulerEntry");
   auto data_cache = segmented_fusion_->getCachedHeuristicDataFor(this);
-  if (!SchedulerEntry::canSchedule(
+  if (!Schedule::canSchedule(
           heuristic(), runtime_info.fusion(), runtime_info, data_cache)) {
     return std::nullopt;
   }
-  return SchedulerEntry::makeEntry(
+  return Schedule::makeEntry(
       heuristic(), runtime_info.fusion(), runtime_info, data_cache);
 }
 
@@ -2800,13 +2801,12 @@ bool TranslateApplicableWelford::isValidPersistentFusion(
   auto persistent_sh =
       normalization_scheduler_utils::getPersistentHeuristicFor(reduction_type);
 
-  if (!SchedulerEntry::canSchedule(
-          persistent_sh, translated_fusion, runtime_info)) {
+  if (!Schedule::canSchedule(persistent_sh, translated_fusion, runtime_info)) {
     return false;
   }
 
   auto scheduler =
-      SchedulerEntry::makeEntry(persistent_sh, translated_fusion, runtime_info);
+      Schedule::makeEntry(persistent_sh, translated_fusion, runtime_info);
 
   // Translate welford to two-pass enhances performance for block
   // reductions by reducing instructions and the impact of an extra block
@@ -4399,17 +4399,16 @@ GroupDependencyAnalysis* SegmentCandidateFinder::getGroupDependency() {
   return group_dependency_->as<GroupDependencyAnalysis>();
 }
 
-std::unique_ptr<SchedulerEntry> SegmentedFusion::
-    makeInitialSchedulerEntry(
-        SegmentedGroup* sg,
-        SchedulerRuntimeInfo& runtime_info) {
+std::unique_ptr<SchedulerEntry> SegmentedFusion::makeInitialSchedulerEntry(
+    SegmentedGroup* sg,
+    SchedulerRuntimeInfo& runtime_info) {
   // This will be the first time each group is scheduled. So we'd want to
   //  construct the cache data here.
   auto data_cache_ptr = std::make_unique<HeuristicSummary>(
       runtime_info.fusion(), sg->heuristic(), runtime_info);
   auto data_cache = data_cache_ptr.get();
   setCachedHeuristicDataFor(sg, std::move(data_cache_ptr));
-  return SchedulerEntry::makeEntry(
+  return Schedule::makeEntry(
       sg->heuristic(), runtime_info.fusion(), runtime_info, data_cache);
 }
 

@@ -225,8 +225,9 @@ bool checkCanSchedule(
 
 } // namespace
 
+namespace Schedule {
 // Simple dispatcher interface
-/*static*/ bool SchedulerEntry::canSchedule(
+bool canSchedule(
     ScheduleHeuristic sh,
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
@@ -269,12 +270,12 @@ bool checkCanSchedule(
   return false;
 }
 
-/*static*/ std::unique_ptr<SchedulerEntry> SchedulerEntry::makeEntry(
+std::unique_ptr<SchedulerEntry> makeEntry(
     ScheduleHeuristic sh,
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
-  FUSER_PERF_SCOPE("SchedulerEntry::makeEntry<T>");
+  FUSER_PERF_SCOPE("Schedule::makeEntry<T>");
   std::unique_ptr<SchedulerEntry> scheduler_entry = nullptr;
   switch (sh) {
     case ScheduleHeuristic::NoOp:
@@ -321,7 +322,7 @@ bool checkCanSchedule(
 }
 
 // Simply loop through the list as baseline strategy
-/*static*/ std::optional<ScheduleHeuristic> SchedulerEntry::proposeHeuristics(
+std::optional<ScheduleHeuristic> proposeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info) {
   for (const auto& sh : all_heuristics_in_priority_order) {
@@ -332,10 +333,7 @@ bool checkCanSchedule(
   }
   return std::nullopt;
 }
-
-size_t SchedulerEntryHash::operator()(const SchedulerEntry& se) const {
-  return se.params()->hash();
-}
+} // namespace Schedule
 
 namespace {
 

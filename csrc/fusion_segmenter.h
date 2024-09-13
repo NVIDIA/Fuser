@@ -283,7 +283,7 @@ class FusionHeuristics {
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr)
       : is_segmented_(false) {
-    heuristics_.emplace_back(SchedulerEntry::makeEntry(
+    heuristics_.emplace_back(Schedule::makeEntry(
         schedule_heuristic, runtime_info.fusion(), runtime_info, data_cache));
   }
 

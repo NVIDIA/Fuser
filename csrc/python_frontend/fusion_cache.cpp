@@ -191,7 +191,7 @@ UserSchedule::UserSchedule() : schedule(nullptr), executor(nullptr) {
 }
 
 bool UserSchedule::canSchedule(const ScheduleHeuristic& heuristic) {
-  return SchedulerEntry::canSchedule(heuristic, fusion(), *runtimeInfo());
+  return Schedule::canSchedule(heuristic, fusion(), *runtimeInfo());
 }
 
 std::tuple<bool, std::string> UserSchedule::canScheduleDebug(
@@ -214,7 +214,7 @@ void UserSchedule::scheduleWithHeuristic(const ScheduleHeuristic& heuristic) {
       heuristic_scheduler == nullptr,
       "Heuristic Scheduler is already defined for this UserSchedule");
   heuristic_scheduler =
-      SchedulerEntry::makeEntry(heuristic, fusion(), *runtimeInfo());
+      Schedule::makeEntry(heuristic, fusion(), *runtimeInfo());
   heuristic_scheduler->schedule(fusion());
 }
 
