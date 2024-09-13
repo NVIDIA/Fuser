@@ -218,7 +218,7 @@ int64_t getConsumerPosAlignedToProducerCA(
 
   int64_t consumer_pos = consumer->nDims();
 
-  if (false && lower_utils::hasRootToLoopLinearTransformations(consumer) &&
+  if (lower_utils::hasRootToLoopLinearTransformations(consumer) &&
       lower_utils::hasRootToLoopLinearTransformations(producer)) {
     auto disjoint_sets = BestEffortReplay::replayPasC(
                              producer,

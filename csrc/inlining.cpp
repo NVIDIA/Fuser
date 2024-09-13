@@ -23,10 +23,10 @@ MaxPosCalculator::MaxPosCalculator(
     bool compute_at_only)
     : uninlinable_ids_(std::move(uninlinable_ids)) {
   buildUnmappableDims(compute_at_only);
-  //for (auto id : unmappable_dims_) {
-  //    std::cerr << "Unmappable: " << id->toString() << "\n";
-  //}
-  if (isIdModelOptionEnabled(IdModelEnableOption::Inlining)) {
+  // for (auto id : unmappable_dims_) {
+  //     std::cerr << "Unmappable: " << id->toString() << "\n";
+  // }
+  if (true || isIdModelOptionEnabled(IdModelEnableOption::Inlining)) {
     id_model_ = std::make_unique<IdModel>(
         FusionGuard::getCurFusion(), /*build_graphs=*/false);
     id_model_->buildExactGraph();
@@ -150,10 +150,7 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
     TensorView* producer,
     TensorView* consumer,
     bool best_effort) const {
-  //std::cerr << "getMaxProducerPosFromConsumer: " << producer->toString() << ", "
-  //<< consumer->toString() << "\n";
-
-  if (false && lower_utils::hasRootToLoopLinearTransformations(producer) &&
+  if (lower_utils::hasRootToLoopLinearTransformations(producer) &&
       lower_utils::hasRootToLoopLinearTransformations(consumer)) {
     auto pairwise_logical_map = PairwiseLogicalDomainMap(producer, consumer);
     auto replay_CasP = BestEffortReplay::replayCasP(
@@ -180,27 +177,33 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
   } else {
     NVF_ERROR(
         id_model_.get() != nullptr,
-        "Nonconventional loop domains require IdModle: ", producer->toString(),
-        ", ", consumer->toString());
+        "Nonconventional loop domains require IdModle: ",
+        producer->toString(),
+        ", ",
+        consumer->toString());
     const auto& exact_graph = id_model_->idGraph(IdMappingMode::EXACT);
+    auto consumer_it = consumer->getLoopDomain().begin();
     for (const auto producer_pos : c10::irange(producer->nDims())) {
       auto p_id = producer->getLoopDomain().at(producer_pos);
-      auto c_id_it = std::find_if(
-          consumer->getLoopDomain().begin(),
-          consumer->getLoopDomain().end(),
-          [&](IterDomain* c_id) -> bool {
-            return exact_graph.disjointValSets().strictAreMapped(p_id, c_id);
-          });
-      if (c_id_it == consumer->getLoopDomain().end()) {
-        //std::cerr << "No matching consumer id found: " << p_id->toString()
-        //<< "\n";
+      // When p_id is a reduction, skip and continue to the next
+      // position. Since a producer reduction domain is never allowed
+      // to be inlined, it seems the analysis should stop here,
+      // however, it is simply ignored in the above existing case.
+      if (p_id->isReduction()) {
+        continue;
+      }
+
+      if (consumer_it == consumer->getLoopDomain().end()) {
         return producer_pos;
       }
 
-      IterDomain* c_id = *c_id_it;
-      if (!isAllowedID(c_id, consumer, best_effort, true, false, true)) {
+      IterDomain* c_id = *consumer_it;
+      if (!exact_graph.disjointValSets().strictAreMapped(p_id, c_id) ||
+          !isAllowedID(c_id, consumer, best_effort, true, false, true)) {
         return producer_pos;
       }
+
+      ++consumer_it;
     }
 
     return producer->nDims();
