@@ -192,10 +192,6 @@ class SchedulerEntry {
     return params_;
   }
 
-  void updateLaunchConstraint(const LaunchParams& launch_params) {
-    params_->lparams = launch_params;
-  }
-
  protected:
   //! Heuristic parameters if applicable
   std::shared_ptr<HeuristicParams> params_ = nullptr;

@@ -1453,8 +1453,8 @@ void FusionKernelRuntime::updateHeuristicsLaunchParams(
       update_heuristics->heuristicsList().size() == scheduler_list_length);
   for (const auto i : c10::irange(scheduler_list_length)) {
     auto& schedulerPtr = heuristics_->heuristicsList()[i];
-    schedulerPtr->updateLaunchConstraint(
-        update_heuristics->heuristicsList()[i]->params()->lparams);
+    schedulerPtr->params()->lparams =
+        update_heuristics->heuristicsList()[i]->params()->lparams;
   }
 }
 
