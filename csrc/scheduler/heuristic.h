@@ -31,7 +31,7 @@ class HeuristicParams : public PolymorphicBase {
     return 0;
   };
 
-  virtual bool sameAs(const std::shared_ptr<HeuristicParams>& other) const {
+  virtual bool sameAs(const HeuristicParams* other) const {
     if (!other->isStrictlyA<HeuristicParams>()) {
       return false;
     }
@@ -44,8 +44,8 @@ class HeuristicParams : public PolymorphicBase {
   HeuristicParams() = delete;
   explicit HeuristicParams(ScheduleHeuristic type) : heuristic_type(type) {};
 
-  virtual std::shared_ptr<HeuristicParams> clone() const {
-    return std::make_shared<HeuristicParams>(heuristic_type);
+  virtual std::unique_ptr<HeuristicParams> clone() const {
+    return std::make_unique<HeuristicParams>(heuristic_type);
   }
 };
 

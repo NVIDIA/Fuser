@@ -48,19 +48,17 @@ class PointwiseParams : public HeuristicParams {
   using HeuristicParams::HeuristicParams;
 
   // Warning: Does not check launch parameters!
-  bool sameAs(
-      const std::shared_ptr<HeuristicParams>& other_base) const override {
-    auto other_casted = std::dynamic_pointer_cast<PointwiseParams>(other_base);
-    if (other_casted == nullptr) {
+  bool sameAs(const HeuristicParams* other_base) const override {
+    auto other = dynamic_cast<const PointwiseParams*>(other_base);
+    if (other == nullptr) {
       return false;
     }
-    const PointwiseParams& other = *other_casted;
-    bool attr_equal = other.cparams == cparams &&
-        other.vectorize == vectorize && other.break_point == break_point &&
-        other.split_block == split_block &&
-        other.split_grid_y_dim == split_grid_y_dim &&
-        other.unroll_factor == unroll_factor &&
-        other.flip_grid_binding == flip_grid_binding;
+    bool attr_equal = other->cparams == cparams &&
+        other->vectorize == vectorize && other->break_point == break_point &&
+        other->split_block == split_block &&
+        other->split_grid_y_dim == split_grid_y_dim &&
+        other->unroll_factor == unroll_factor &&
+        other->flip_grid_binding == flip_grid_binding;
     return attr_equal;
   }
 
@@ -105,8 +103,8 @@ class PointwiseParams : public HeuristicParams {
     return attr_hash;
   }
 
-  std::shared_ptr<HeuristicParams> clone() const override {
-    return std::make_shared<PointwiseParams>(*this);
+  virtual std::unique_ptr<HeuristicParams> clone() const {
+    return std::make_unique<PointwiseParams>(*this);
   }
 };
 

@@ -165,7 +165,7 @@ size_t SchedulerRuntimeInfo::getAlignmentSize(TensorView* tv) {
 }
 
 bool SchedulerEntry::sameAs(const SchedulerEntry* other) {
-  return params_->sameAs(other->params_);
+  return params_->sameAs(other->params_.get());
 }
 
 namespace {
