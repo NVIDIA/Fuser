@@ -182,8 +182,9 @@ void Statement::constDispatch(T handler, const Statement* stmt) {
     ptr(handler)->dispatch(stmt->as<Val>());
   } else if (stmt->isExpr()) {
     ptr(handler)->dispatch(stmt->as<Expr>());
-  } else
+  } else {
     NVF_THROW("Unknown stmttype in dispatch!");
+  }
 }
 
 /*
