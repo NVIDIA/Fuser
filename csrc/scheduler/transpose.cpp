@@ -874,7 +874,8 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
   auto inner_most_pos2_in_ref1 = innermost_info[1];
   // No exact innermost loop dimension mapping on referenc1. cannot schedule
   if (inner_most_pos1_in_ref1 < 0 || inner_most_pos2_in_ref1 < 0) {
-    return nullptr;
+    NVF_THROW(
+        "Transpose scheduler requires exact mapping on inner most dimension on reference tensor.");
   }
 
   auto params = std::make_shared<TransposeParams>();
