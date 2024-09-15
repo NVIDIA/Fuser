@@ -475,15 +475,14 @@ class TensorDomain : public Val {
     return contiguity_;
   }
 
-  const std::vector<int64_t>& strideOrder() const {
-    return stride_order_;
-  }
-
   NVF_API void setContiguity(const std::vector<std::optional<bool>>& contig);
 
   std::string getContiguityString() const {
     return toDelimitedString(contiguity(), /*delim=*/" ");
   }
+
+  // Get stride order indices from allocation and logical domains.
+  std::vector<int64_t> strideOrder() const;
 
   bool hasReduction() const {
     return has_reduction_;
@@ -676,7 +675,6 @@ class TensorDomain : public Val {
   std::vector<IterDomain*> no_bcast_domain_;
   std::vector<IterDomain*> no_reduction_domain_;
   std::vector<std::optional<bool>> contiguity_;
-  std::vector<int64_t> stride_order_;
   bool has_reduction_ = false;
 };
 
