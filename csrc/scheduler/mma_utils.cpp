@@ -73,15 +73,15 @@ std::tuple<int64_t, int64_t, int64_t> computeSharedMemorySizes(
 }
 
 int64_t computeExpectedSharedMemoryUsage(
-    const MatmulParams& params,
+    const MatmulParams* mparams,
     const MmaDataTypes& data_types,
     bool smem_a_reuse_guaranteed,
     bool smem_b_reuse_guaranteed) {
   const auto [smem_a, smem_b, smem_c] = computeSharedMemorySizes(
-      params.tile_sizes, params.circular_buffer_options, data_types);
+      mparams->tile_sizes, mparams->circular_buffer_options, data_types);
 
-  if (params.use_smem_epilogue) {
-    if (params.promote_prologue_smem_reuse) {
+  if (mparams->use_smem_epilogue) {
+    if (mparams->promote_prologue_smem_reuse) {
       return (int64_t)std::max(
           smem_c + (smem_a_reuse_guaranteed ? 0 : smem_a) +
               (smem_b_reuse_guaranteed ? 0 : smem_b),

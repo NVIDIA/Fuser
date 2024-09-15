@@ -2810,7 +2810,8 @@ TEST_P(AllocationDomainTest, BasicMatmul) {
   auto tv2 = fusedMultiplySum(tv0b, tv1b, {2});
   fusion->addOutput(tv2);
 
-  scheduleMatmul(fusion.get(), params);
+  MatmulParams mparams;
+  scheduleMatmul(fusion.get(), &mparams);
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
   FusionExecutor fe;
@@ -2842,7 +2843,8 @@ TEST_P(AllocationDomainTest, BasicMatmulNoTranspose) {
   auto tv2 = fusedMultiplySum(tv0b, tv1b, {1});
   fusion->addOutput(tv2);
 
-  scheduleMatmul(fusion.get(), params);
+  MatmulParams mparams;
+  scheduleMatmul(fusion.get(), &mparams);
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
   FusionExecutor fe;
@@ -2877,7 +2879,8 @@ TEST_P(AllocationDomainTest, BasicMatmulWithPrologueSet) {
   auto tv2 = fusedMultiplySum(tv0b, tv1b, {2});
   fusion->addOutput(tv2);
 
-  scheduleMatmul(fusion.get(), params);
+  MatmulParams mparams;
+  scheduleMatmul(fusion.get(), &mparams);
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
   FusionExecutor fe;
@@ -2914,7 +2917,8 @@ TEST_P(AllocationDomainTest, BasicMatmulWithPrologueSetCastSin) {
 
   fusion->addOutput(tv2);
 
-  scheduleMatmul(fusion.get(), params);
+  MatmulParams mparams;
+  scheduleMatmul(fusion.get(), &mparams);
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
   FusionExecutor fe;
@@ -2950,7 +2954,8 @@ TEST_P(AllocationDomainTest, BasicMatmulWithPrologueSetCastSinNoTranspose) {
 
   fusion->addOutput(tv2);
 
-  scheduleMatmul(fusion.get(), params);
+  MatmulParams mparams;
+  scheduleMatmul(fusion.get(), &mparams);
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
   FusionExecutor fe;
@@ -2986,7 +2991,8 @@ TEST_P(AllocationDomainTest, BasicMatmulWithPrologueSetCastSinSetNoTranspose) {
 
   fusion->addOutput(tv2);
 
-  scheduleMatmul(fusion.get(), params);
+  MatmulParams mparams;
+  scheduleMatmul(fusion.get(), &mparams);
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
   FusionExecutor fe;
@@ -3022,7 +3028,8 @@ TEST_P(AllocationDomainTest, MatmulWithPrologueSetCastSinTranspose) {
 
   fusion->addOutput(tv2);
 
-  scheduleMatmul(fusion.get(), params);
+  MatmulParams mparams;
+  scheduleMatmul(fusion.get(), &mparams);
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
   FusionExecutor fe;

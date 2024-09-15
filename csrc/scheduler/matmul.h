@@ -23,10 +23,10 @@ namespace nvfuser {
 //  should probably be only used to order innermost mnk axes.
 void moveInnerBroadcastLeft(TensorView* tv, int64_t number_of_inner_pos = 3);
 
-NVF_API void scheduleMatmul(Fusion* fusion, const MatmulParams& params);
+NVF_API void scheduleMatmul(Fusion* fusion, const MatmulParams* mparams);
 
 class MatmulScheduler : public SchedulerEntry {
- public:
+public:
   explicit MatmulScheduler(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,

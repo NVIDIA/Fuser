@@ -82,9 +82,10 @@ namespace {
 // Each of the named tensors above is scheduled differently. We schedule them
 // by building AbstractTensors for each tensor category; these are held in
 // MultipleMatmulScheduler::schedules_.
+// TODO: Inheret from SchedulerEntry
 class MultipleMatmulScheduler {
  public:
-  MultipleMatmulScheduler(Fusion* fusion, const MatmulParams& params)
+  MultipleMatmulScheduler(Fusion* fusion, const MatmulParams* params)
       : fusion_(fusion),
         params_(params),
         id_model_(fusion, /*build_graphs=*/false) {}
@@ -163,7 +164,7 @@ class MultipleMatmulScheduler {
         num_local_batch_dims_ = 1;
       }
     }
-    num_splitk_dims_ = params_.splitk_factor > 1 ? 1 : 0;
+    num_splitk_dims_ = params_->splitk_factor > 1 ? 1 : 0;
     // Subtract 6 for the [Mo, No, Ko, Mi, Ni, Ki]
     num_device_and_batch_dims_ = num_device_dims_ + num_local_batch_dims_;
   }
@@ -239,10 +240,10 @@ class MultipleMatmulScheduler {
   // Currently the support is for a, b, c and d as fusion inputs/outputs
   //  aka. no prolog fusion yet.
   void defineOperandCaches() {
-    cacheOperandsToSmem(as_, acw_smems_, params_.supported_vec_size.a);
+    cacheOperandsToSmem(as_, acw_smems_, params_->supported_vec_size.a);
     addSetsForCacheReads(acw_smems_, acrs_);
 
-    cacheOperandsToSmem(bs_, bcw_smems_, params_.supported_vec_size.b);
+    cacheOperandsToSmem(bs_, bcw_smems_, params_->supported_vec_size.b);
     addSetsForCacheReads(bcw_smems_, bcrs_);
 
     // Now that we are finished possibly redefining the inputs to the MmaOps,
@@ -250,7 +251,7 @@ class MultipleMatmulScheduler {
     for (TensorView* mma_result : mma_results_) {
       MmaOp* mma = dynamic_cast<MmaOp*>(mma_result->definition());
       NVF_ERROR(mma != nullptr);
-      mma->setMacro(params_.mma_macro);
+      mma->setMacro(params_->mma_macro);
     }
   }
 
@@ -263,7 +264,7 @@ class MultipleMatmulScheduler {
     for (size_t i : c10::irange(operands.size())) {
       TensorView* operand = operands[i];
       CacheOp cache_op = CacheOp::Unspecified;
-      if (params_.async_gmem_load_operands) {
+      if (params_->async_gmem_load_operands) {
         int64_t vec_bytes = vec_size * dataTypeSize(operand->dtype());
         NVF_CHECK(
             vec_bytes == 4LL || vec_bytes == 8LL || vec_bytes == 16LL,
@@ -283,7 +284,7 @@ class MultipleMatmulScheduler {
       NVF_ERROR(operand->uses().size() == 1);
       smem_operands[i] = ir_utils::consumerTvsOf(operand).at(0);
 
-      LoadStoreOpType load_op = params_.async_gmem_load_operands
+      LoadStoreOpType load_op = params_->async_gmem_load_operands
           ? LoadStoreOpType::CpAsync
           : LoadStoreOpType::Set;
 
@@ -393,7 +394,7 @@ class MultipleMatmulScheduler {
 
  private:
   Fusion* fusion_;
-  const MatmulParams& params_;
+  const MatmulParams* params_;
   IdModel id_model_;
   // Permissive graph of id_model_, which we modify at times using e.g.
   // AbstractTensor.split or by mapping vals in cacheAfter and rFactor
@@ -414,7 +415,7 @@ class MultipleMatmulScheduler {
 
 } // namespace
 
-void scheduleMultipleMatmuls(Fusion* fusion, const MatmulParams& params) {
+void scheduleMultipleMatmuls(Fusion* fusion, const MatmulParams* params) {
   FusionGuard fg(fusion);
 
   MultipleMatmulScheduler(fusion, params).run();
