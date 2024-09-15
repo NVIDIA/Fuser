@@ -51,7 +51,7 @@ const char* dtypeToPyString(PrimDataType t) {
     default:
       break;
   }
-  NVF_ERROR(false, "No string found for data type.");
+  NVF_THROW("No string found for data type.");
   return nullptr;
 }
 
@@ -386,7 +386,7 @@ UserSchedule* FusionDefinition::userSchedule() {
   NVF_CHECK(id().has_value(), "Invalid fusion definition!");
 
   if (user_sched_ == nullptr) {
-    NVF_ERROR(false, "User schedule is not defined.");
+    NVF_THROW("User schedule is not defined.");
   }
   return user_sched_;
 }

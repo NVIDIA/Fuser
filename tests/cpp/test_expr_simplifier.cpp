@@ -154,7 +154,7 @@ Val* parseIdentifier(std::string_view token_str) {
   } else if (token_str.at(0) == 'd') {
     return randomlyReuseOrCreateNamedScalar(token_str, DataType::Double);
   } else {
-    NVF_ERROR(false, "Identifier with unknown type: ", token_str);
+    NVF_THROW("Identifier with unknown type: ", token_str);
   }
 }
 

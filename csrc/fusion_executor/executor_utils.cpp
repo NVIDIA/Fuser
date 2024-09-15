@@ -747,7 +747,7 @@ std::vector<char> compileNvrtcProgramToPtx(const nvrtcProgram& program) {
 
 std::vector<char> compileNvrtcProgramToCubin(const nvrtcProgram& program) {
 #if CUDA_VERSION < 11010
-  NVF_ERROR(false, "SASS not supported in CUDA versions older than 11.1");
+  NVF_THROW("SASS not supported in CUDA versions older than 11.1");
 #endif
 
   size_t size = 0;
@@ -950,7 +950,7 @@ class CuModuleLoadDataDriver {
       } else if (std::holds_alternative<char*>(opt_val)) {
         opt_val_voidp.at(i) = std::get<char*>(opt_val);
       } else {
-        NVF_ERROR(false, "Invalid option");
+        NVF_THROW("Invalid option");
       }
     }
 

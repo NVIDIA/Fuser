@@ -1069,7 +1069,7 @@ std::string PredicateElimination::toString() const {
       } else if (auto tv = dynamic_cast<TensorView*>(out)) {
         non_predicated_tvs.pushBack(tv);
       } else {
-        NVF_ERROR(false, "Unexpected output ", out, " in ", expr);
+        NVF_THROW("Unexpected output ", out, " in ", expr);
       }
     }
   }
