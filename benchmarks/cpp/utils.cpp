@@ -104,11 +104,12 @@ std::string toString(const PointwiseParams& params) {
   return ss.str();
 }
 
-std::string toString(const TransposeParams& params) {
+std::string toString(const TransposeParams* tparams) {
   std::stringstream ss;
-  ss << "Tile size: (" << params.tile_size1 << "," << params.tile_size2 << ")/";
-  ss << "Vectorize size: (" << params.vectorize_factor1 << ","
-     << params.vectorize_factor2 << ")";
+  ss << "Tile size: (" << tparams->tile_size1 << "," << tparams->tile_size2
+     << ")/";
+  ss << "Vectorize size: (" << tparams->vectorize_factor1 << ","
+     << tparams->vectorize_factor2 << ")";
   return ss.str();
 }
 
@@ -123,7 +124,7 @@ std::string toString(const std::shared_ptr<HeuristicParams>& params) {
   }
   auto tparams = std::dynamic_pointer_cast<TransposeParams>(params);
   if (tparams) {
-    return toString(*tparams);
+    return toString(tparams.get());
   }
   NVF_ERROR(
       false,

@@ -96,7 +96,7 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache = nullptr);
 
-NVF_API void scheduleTranspose(Fusion* fusion, TransposeParams params);
+NVF_API void scheduleTranspose(Fusion* fusion, const TransposeParams* params);
 
 NVF_API LaunchParams scheduleTranspose(
     Fusion* fusion,
