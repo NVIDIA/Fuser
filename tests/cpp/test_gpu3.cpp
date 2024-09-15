@@ -8571,14 +8571,14 @@ TEST_F(NVFuserTest, MoveNonConcretizedBroadcastInPointwise) {
   at::Tensor t1 = at::randn({1024}, options);
   std::vector<c10::IValue> inputs = {t0, t1};
 
-  auto params = getPointwiseHeuristics(&fusion, inputs);
-  NVF_CHECK(params.get() != nullptr);
+  auto pparams = getPointwiseHeuristics(&fusion, inputs);
+  NVF_CHECK(pparams.get() != nullptr);
 
-  schedulePointwise(&fusion, *params);
+  schedulePointwise(&fusion, pparams.get());
 
   FusionExecutor fe;
-  fe.compileFusion(&fusion, inputs, params->lparams);
-  auto outputs = fe.runFusion(inputs, params->lparams);
+  fe.compileFusion(&fusion, inputs, pparams->lparams);
+  auto outputs = fe.runFusion(inputs, pparams->lparams);
 
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 

@@ -101,7 +101,7 @@ bool PointWiseScheduler::canScheduleRunTime(
 
 void PointWiseScheduler::schedule(Fusion* fusion) {
   FUSER_PERF_SCOPE("PointWiseScheduler::schedule");
-  schedulePointwise(fusion, *params()->as<PointwiseParams>());
+  schedulePointwise(fusion, params()->as<PointwiseParams>());
 }
 
 void PointWiseScheduler::computeHeuristics(
@@ -518,7 +518,7 @@ LaunchParams schedulePointwise(
     const at::ArrayRef<c10::IValue>& runtime_inputs) {
   auto params = getPointwiseHeuristics(fusion, runtime_inputs);
   NVF_ERROR(params != nullptr, "Could not schedule pointwise operation.");
-  schedulePointwise(fusion, *params);
+  schedulePointwise(fusion, params.get());
   return params->lparams;
 }
 
@@ -535,7 +535,7 @@ bool hasReferenceTensorView(Fusion* fusion) {
 
 // TODO: Inline intermediate operations (avoid inlining unrolled/vectorized
 // input/output caches)
-void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
+void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   FusionGuard fg(fusion);
 
   // Make sure we don't have global memory set on intermediate tensors from
@@ -588,7 +588,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
   scheduler_utils::moveNonConcretizedBroadcastInnermost(fusion, {reference_tv});
 
   int64_t num_device_dims = numDeviceDims(reference_tv);
-  int64_t device_aware_break_point = params.break_point + num_device_dims;
+  int64_t device_aware_break_point = pparams->break_point + num_device_dims;
 
   // Positions of rhs and lhs after merging all dimensions.
   int64_t rhs_i = -1;
@@ -711,7 +711,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
 
   int64_t unswitch_pos = 0;
   IterDomain* vectorize_id = nullptr;
-  if (params.break_point) {
+  if (pparams->break_point) {
     // 2D parallelization scheme
     NVF_ERROR(rhs_i >= 0 && lhs_i >= 0);
 
@@ -719,8 +719,8 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
     // merged) dimension is at lhs_i. Order as [lhs_i, rhs_i, unmerged...]
     reference_tv->reorder({{lhs_i, 0}, {-1, 1}});
 
-    if (params.vectorize) {
-      reference_tv->split(1, params.unroll_factor);
+    if (pparams->vectorize) {
+      reference_tv->split(1, pparams->unroll_factor);
       reference_tv->split(1, NamedScalar::getParallelDim(ParallelType::TIDx));
       reference_tv->split(0, 1);
       // [outer, Unswitch | i-remainder, TIDx, Vectorization]
@@ -735,7 +735,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
       //[outer | i-remainder, Unswitch, Vectorization, TIDx]
     } else {
       reference_tv->split(1, NamedScalar::getParallelDim(ParallelType::TIDx));
-      reference_tv->split(1, params.unroll_factor);
+      reference_tv->split(1, pparams->unroll_factor);
 
       reference_tv->split(0, 1);
       // [outer, unswitch | i-remainder, unroll, TIDx ]
@@ -756,13 +756,13 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
     reference_tv->reorder({{1, 0}});
 
     //[i-remainder | outer | Unswitch, Unroll, TIDx]
-    if (params.split_block) {
+    if (pparams->split_block) {
       reference_tv->split(1, NamedScalar::getParallelDim(ParallelType::TIDy));
-      if (params.flip_grid_binding) {
+      if (pparams->flip_grid_binding) {
         // [BIDy | BIDx, TIDy | Unswitch, Unroll, TIDx]
         reference_tv->axis(1)->parallelize(ParallelType::BIDx);
         reference_tv->axis(2)->parallelize(ParallelType::TIDy);
-        if (params.split_grid_y_dim) {
+        if (pparams->split_grid_y_dim) {
           // [i-remainder, BIDy{65535} | BIDx, TIDy | Unswitch, Unroll, TIDx]
           reference_tv->split(0, 65535);
           reference_tv->axis(1)->parallelize(ParallelType::BIDy);
@@ -775,7 +775,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
         // [BIDx | BIDy TIDy | Unswitch, Unroll, TIDx]
         reference_tv->axis(0)->parallelize(ParallelType::BIDx);
         reference_tv->axis(2)->parallelize(ParallelType::TIDy);
-        if (params.split_grid_y_dim) {
+        if (pparams->split_grid_y_dim) {
           // [BIDx | i-remainder, BIDy{65535}, TIDy | Unswitch, Unroll, TIDx]
           reference_tv->split(1, 65535);
           reference_tv->axis(2)->parallelize(ParallelType::BIDy);
@@ -787,10 +787,10 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
       }
     } else {
       // [BIDy | BIDx | Unswitch, Unroll, TIDx]
-      if (params.flip_grid_binding) {
+      if (pparams->flip_grid_binding) {
         // [BIDy | BIDx | Unswitch, Unroll, TIDx]
         reference_tv->axis(1)->parallelize(ParallelType::BIDx);
-        if (params.split_grid_y_dim) {
+        if (pparams->split_grid_y_dim) {
           // [i-remainder, BIDy{65535} | BIDx | Unswitch, Unroll, TIDx]
           reference_tv->split(0, 65535);
           reference_tv->axis(1)->parallelize(ParallelType::BIDy);
@@ -802,7 +802,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
       } else {
         // [BIDx | BIDy | Unswitch, Unroll, TIDx]
         reference_tv->axis(0)->parallelize(ParallelType::BIDx);
-        if (params.split_grid_y_dim) {
+        if (pparams->split_grid_y_dim) {
           // [BIDx | i-remainder, BIDy{65535} | Unswitch, Unroll, TIDx]
           reference_tv->split(1, 65535);
           reference_tv->axis(2)->parallelize(ParallelType::BIDy);
@@ -822,9 +822,9 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
     // unmerged...]
     reference_tv->reorder({{-1, 0}});
 
-    if (params.vectorize) {
+    if (pparams->vectorize) {
       // Vectorize
-      reference_tv->split(0, params.unroll_factor);
+      reference_tv->split(0, pparams->unroll_factor);
       // Unswitch
       reference_tv->split(0, 1);
       // Threads
@@ -844,7 +844,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
       // Threads
       reference_tv->split(0, kThreadX);
       // Unroll
-      reference_tv->split(0, params.unroll_factor);
+      reference_tv->split(0, pparams->unroll_factor);
       // Unswitch
       reference_tv->split(0, 1);
 
@@ -866,7 +866,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
   spanning_tree.traverse(&propagator);
   scheduler_utils::parallelizeAllLike(reference_tv);
 
-  if (params.vectorize) {
+  if (pparams->vectorize) {
     // Grab all tensor views that should be vectorized
     auto inputs_outputs =
         scheduler_utils::getInputsOutputsWithInnerDim(reference_tv, true, true);

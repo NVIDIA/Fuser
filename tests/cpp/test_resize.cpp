@@ -3460,11 +3460,11 @@ TEST_F(ResizeTest, AvoidVectorization) {
 
   // The pointwise scheduler should tell the vectorization factor is
   // 4.
-  auto params = getPointwiseHeuristics(&fusion, inputs);
-  ASSERT_TRUE(params->vectorize) << "Vectorization is expected to be possible";
-  ASSERT_EQ(params->unroll_factor, 4) << "Unexpected factor of vectorization";
+  auto pparams = getPointwiseHeuristics(&fusion, inputs);
+  ASSERT_TRUE(pparams->vectorize) << "Vectorization is expected to be possible";
+  ASSERT_EQ(pparams->unroll_factor, 4) << "Unexpected factor of vectorization";
 
-  schedulePointwise(&fusion, *params);
+  schedulePointwise(&fusion, pparams.get());
 
   // Make sure tv1 is not vectorized, i.e., no loop IterDomains are vectorized.
   EXPECT_THAT(
@@ -3481,8 +3481,8 @@ TEST_F(ResizeTest, AvoidVectorization) {
       << "Failed to vectorize: " << tv2;
 
   FusionExecutor fe;
-  fe.compileFusion(&fusion, inputs, params->lparams);
-  auto outputs = fe.runFusion(inputs, params->lparams);
+  fe.compileFusion(&fusion, inputs, pparams->lparams);
+  auto outputs = fe.runFusion(inputs, pparams->lparams);
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
 

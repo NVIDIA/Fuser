@@ -80,25 +80,25 @@ std::string toString(const ReductionParams* rparams) {
   return ss.str();
 }
 
-std::string toString(const PointwiseParams& params) {
+std::string toString(const PointwiseParams* pparams) {
   std::stringstream ss;
-  if (params.break_point) {
-    ss << "2D Schedule at " << params.break_point << "/";
-    if (params.split_block) {
+  if (pparams->break_point) {
+    ss << "2D Schedule at " << pparams->break_point << "/";
+    if (pparams->split_block) {
       ss << " Split block into y-dim/";
     }
-    if (params.split_grid_y_dim) {
+    if (pparams->split_grid_y_dim) {
       ss << " Split y grid dim/";
     }
   } else {
     ss << "1D"
        << "/";
   }
-  if (params.unroll_factor > 1) {
-    if (params.vectorize) {
-      ss << "Vectorize, Factor: " << params.unroll_factor;
+  if (pparams->unroll_factor > 1) {
+    if (pparams->vectorize) {
+      ss << "Vectorize, Factor: " << pparams->unroll_factor;
     } else {
-      ss << "Unroll, Factor: " << params.unroll_factor;
+      ss << "Unroll, Factor: " << pparams->unroll_factor;
     }
   }
   return ss.str();
@@ -120,7 +120,7 @@ std::string toString(const std::shared_ptr<HeuristicParams>& params) {
   }
   auto pparams = std::dynamic_pointer_cast<PointwiseParams>(params);
   if (pparams) {
-    return toString(*pparams);
+    return toString(pparams.get());
   }
   auto tparams = std::dynamic_pointer_cast<TransposeParams>(params);
   if (tparams) {
