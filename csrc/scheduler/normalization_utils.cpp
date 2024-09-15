@@ -1189,20 +1189,20 @@ bool compileTimeCheck(Fusion* fusion, ScheduleHeuristic schedule_heuristic) {
 
 void movePersistentBufferToSmem(
     Fusion* fusion,
-    const ReductionParams& rparams,
+    const ReductionParams* rparams,
     const std::vector<TensorView*>& cached_inputs) {
   // Transfer the persistent buffer tensors to shared memory. These tensors are
   // housed in smem_persistent_buffers. If a candidate tensor is input, move its
   // associated cached tensors.
-  if (rparams.smem_persistent_buffers.empty()) {
+  if (rparams->smem_persistent_buffers.empty()) {
     return;
   }
   const auto& persistent_buffers =
       scheduler_utils::persistentBuffers(fusion).persistent_buffers;
   auto isSharedMemoryPersistent = [&rparams](const TensorView* lookup_tv) {
     return std::any_of(
-        rparams.smem_persistent_buffers.begin(),
-        rparams.smem_persistent_buffers.end(),
+        rparams->smem_persistent_buffers.begin(),
+        rparams->smem_persistent_buffers.end(),
         [lookup_tv](const auto* tv) {
           // can't use `tv->sameAs(lookup_tv)` since the saved tvs in
           // smem_persistent_buffers are from a cloned fusion.
@@ -1238,7 +1238,7 @@ void movePersistentBufferToSmem(
 // common prepare for all persistent schedulers
 void beforeSchedule(
     Fusion* fusion,
-    const ReductionParams& rparams,
+    const ReductionParams* rparams,
     std::vector<TensorView*>& dummy_outputs,
     std::vector<TensorView*>& cached_inputs,
     std::vector<TensorView*>& reduction_tvs,
@@ -1248,12 +1248,12 @@ void beforeSchedule(
   // dummy outputs are helper tensors to make sure persistent buffer projection
   // does not create trouble for transform propagation.
   dummy_outputs = reduction_scheduler_utils::projectPersistentBuffers(
-      fusion, rparams.project_persistent_buffers);
+      fusion, rparams->project_persistent_buffers);
 
   // Cache tensors before grabbing any references to reductions as cache_before
   // can invalidate the references since when applied to a reduction tensor view
   // the new tensor view contains the reduction and original doesn't.
-  bool unroll = rparams.isUnrolled();
+  bool unroll = rparams->isUnrolled();
   // Cache inputs even if not unrolled, as otherwise we may not create a
   // persistent buffer if that persistent buffer would be the input.
   cached_inputs = scheduler_utils::cacheInputs(fusion, true);
@@ -1275,7 +1275,7 @@ void beforeSchedule(
 
 TensorView* scheduleReductionGeneral(
     Fusion* fusion,
-    const ReductionParams& rparams,
+    const ReductionParams* rparams,
     std::vector<TensorView*>& reduction_tvs,
     ScheduleHeuristic heuristic_type) {
   NVF_ERROR(!reduction_tvs.empty());
@@ -1295,12 +1295,12 @@ TensorView* scheduleReductionGeneral(
   }
 
   if (heuristic_type == ScheduleHeuristic::OuterPersistent &&
-      rparams.cross_grid_inner_reduction && reduction_tvs.size() > 1) {
+      rparams->cross_grid_inner_reduction && reduction_tvs.size() > 1) {
     groupReductions(reduction_tvs, false);
   }
 
   auto dim_analysis = scheduler_utils::canonicalDimReduction(
-      fusion, reduction_tv, rparams.fastest_dim && rparams.schedule_3D);
+      fusion, reduction_tv, rparams->fastest_dim && rparams->schedule_3D);
   bool has_iter_axis = dim_analysis.first;
   bool has_red_axis = dim_analysis.second;
 
@@ -1310,7 +1310,7 @@ TensorView* scheduleReductionGeneral(
 
   if (!has_iter_axis) {
     NVF_ERROR(
-        rparams.fastest_dim,
+        rparams->fastest_dim,
         "If all dims are reduction, should be sending it to fastest dim scheduler.");
   }
 
@@ -1321,7 +1321,7 @@ TensorView* scheduleReductionGeneral(
 // fusion is the input IR that will be modified by this function
 void schedulePersistentKernel(
     Fusion* fusion,
-    const ReductionParams& rparams,
+    const ReductionParams* rparams,
     ScheduleHeuristic schedule_heuristic) {
   FUSER_PERF_SCOPE("schedulePersistentKernel");
 
@@ -1354,11 +1354,11 @@ void schedulePersistentKernel(
     fusion->addOutput(output);
   }
 
-  const bool unroll = rparams.isUnrolled();
+  const bool unroll = rparams->isUnrolled();
   const bool vectorize =
-      rparams.vectorize_inner_reduction || rparams.vectorize_iter_dom;
-  const bool is_outer_grid_persistence = rparams.persistent_kernel &&
-      rparams.cross_grid_inner_reduction && !rparams.fastest_dim;
+      rparams->vectorize_inner_reduction || rparams->vectorize_iter_dom;
+  const bool is_outer_grid_persistence = rparams->persistent_kernel &&
+      rparams->cross_grid_inner_reduction && !rparams->fastest_dim;
   reduction_scheduler_utils::multiReductionInliner(
       fusion,
       reduction_tvs[0],
@@ -1371,9 +1371,9 @@ void schedulePersistentKernel(
       cached_outputs,
       dummy_outputs);
 
-  if (rparams.compute_persistent_buffer_with_first_consumer) {
+  if (rparams->compute_persistent_buffer_with_first_consumer) {
     NVF_ERROR(
-        rparams.persistent_kernel,
+        rparams->persistent_kernel,
         "computeWith should be only used with persistent kernels");
     for (const auto persistent_buffer : cached_inputs) {
       persistent_buffer->computeWith(-1, true);

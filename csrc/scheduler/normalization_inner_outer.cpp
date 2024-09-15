@@ -28,7 +28,7 @@ InnerOuterPersistentKernelScheduler::InnerOuterPersistentKernelScheduler(
 
 void InnerOuterPersistentKernelScheduler::schedule(Fusion* fusion) {
   FUSER_PERF_SCOPE("InnerOuterPersistentKernelScheduler::schedule");
-  scheduleInnerOuterPersistentKernel(fusion, *params()->as<ReductionParams>());
+  scheduleInnerOuterPersistentKernel(fusion, params()->as<ReductionParams>());
 }
 
 bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
@@ -1031,7 +1031,7 @@ namespace {
 
 void scheduleReductionCombinedOuter(
     Fusion* fusion,
-    const ReductionParams& rparams,
+    const ReductionParams* rparams,
     const std::vector<TensorView*>& outer_reduction_tvs,
     std::vector<TensorView*>& cached_gmem,
     std::vector<TensorView*>& cached_gmem_reload,
@@ -1054,14 +1054,14 @@ void scheduleReductionCombinedOuter(
     // merge tensorview to [reduction, iteraiton] domains
     mergeReductionOrIterDomains(outer_reduction_tv, true);
     mergeReductionOrIterDomains(outer_reduction_tv, false);
-    if (rparams.multiple_reds_per_blk) {
+    if (rparams->multiple_reds_per_blk) {
       outer_reduction_tv->split(
-          0, NamedScalar::getParallelDim(rparams.block_dim_iter_dom));
+          0, NamedScalar::getParallelDim(rparams->block_dim_iter_dom));
     }
     outer_reduction_tv->split(
-        0, NamedScalar::getParallelDim(rparams.grid_dim_iter_dom), false);
+        0, NamedScalar::getParallelDim(rparams->grid_dim_iter_dom), false);
 
-    if (rparams.multiple_reds_per_blk) {
+    if (rparams->multiple_reds_per_blk) {
       outer_reduction_tv->rFactor({1});
     }
     TensorView* partialResult = outer_reduction_tv->rFactor({1});
@@ -1073,13 +1073,13 @@ void scheduleReductionCombinedOuter(
     cached_gmem.emplace_back(partialResult);
     cached_gmem_reload.emplace_back(partialResultReload);
 
-    if (rparams.multiple_reds_per_blk) {
-      if (rparams.tidx_for_outer_reduction) {
+    if (rparams->multiple_reds_per_blk) {
+      if (rparams->tidx_for_outer_reduction) {
         outer_reduction_tv->split(
             0, NamedScalar::getParallelDim(ParallelType::TIDx));
         outer_reduction_tv->axis(1)->parallelize(ParallelType::TIDx);
         // to use warp reduction
-        if (rparams.pad_outer_reduction_to_warp) {
+        if (rparams->pad_outer_reduction_to_warp) {
           outer_reduction_tv->axis(1)->padToMultipleOfWarp();
         }
       } else {
@@ -1089,13 +1089,13 @@ void scheduleReductionCombinedOuter(
       }
       // iteration domain
       int axisID = -1;
-      if (rparams.vectorization_factor_outer > 1) {
-        outer_reduction_tv->split(axisID, rparams.vectorization_factor_outer);
+      if (rparams->vectorization_factor_outer > 1) {
+        outer_reduction_tv->split(axisID, rparams->vectorization_factor_outer);
         outer_reduction_tv->axis(axisID--)->parallelize(
             ParallelType::Vectorize);
       }
 
-      if (rparams.tidx_for_outer_reduction) {
+      if (rparams->tidx_for_outer_reduction) {
         outer_reduction_tv->split(
             axisID, NamedScalar::getParallelDim(ParallelType::TIDy));
         outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::TIDy);
@@ -1117,13 +1117,13 @@ void scheduleReductionCombinedOuter(
 
       // iteration domain
       int axisID = -1;
-      if (rparams.vectorization_factor_outer > 1) {
-        outer_reduction_tv->split(axisID, rparams.vectorization_factor_outer);
+      if (rparams->vectorization_factor_outer > 1) {
+        outer_reduction_tv->split(axisID, rparams->vectorization_factor_outer);
         outer_reduction_tv->axis(axisID--)->parallelize(
             ParallelType::Vectorize);
       }
 
-      if (rparams.lparams.bdimx() > 1) {
+      if (rparams->lparams.bdimx() > 1) {
         outer_reduction_tv->split(
             axisID, NamedScalar::getParallelDim(ParallelType::TIDx));
         outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::TIDx);
@@ -1145,7 +1145,7 @@ void scheduleReductionCombinedOuter(
 // fusion is the input IR that will be modified by this function
 void scheduleInnerOuterPersistentKernel(
     Fusion* fusion,
-    const ReductionParams& rparams) {
+    const ReductionParams* rparams) {
   FusionGuard fg(fusion);
 
   // Grab the reduction, input, and output tensor views. dummy_outputs are
@@ -1205,11 +1205,11 @@ void scheduleInnerOuterPersistentKernel(
     fusion->addOutput(output);
   }
 
-  const bool unroll = rparams.isUnrolled();
+  const bool unroll = rparams->isUnrolled();
   const bool vectorize =
-      rparams.vectorize_inner_reduction || rparams.vectorize_iter_dom;
-  const bool is_outer_grid_persistence = rparams.persistent_kernel &&
-      rparams.cross_grid_inner_reduction && !rparams.fastest_dim;
+      rparams->vectorize_inner_reduction || rparams->vectorize_iter_dom;
+  const bool is_outer_grid_persistence = rparams->persistent_kernel &&
+      rparams->cross_grid_inner_reduction && !rparams->fastest_dim;
 
   // Propagate inner reduction. There is a cutoff at boundaryNodesSet, so this
   // propagation will not propagate to the final outer reduction.
@@ -1260,15 +1260,15 @@ void scheduleInnerOuterPersistentKernel(
 
   // special vectorization of temp gmem, vectorization_factor_tmp_gmem_write
   // is guaranteed to be smaller or equal to input vectorization factor.
-  if (rparams.vectorization_factor_tmp_gmem_write > 1) {
+  if (rparams->vectorization_factor_tmp_gmem_write > 1) {
     for (auto tv : cached_gmem) {
       NVF_ERROR(
-          rparams.vectorization_factor_tmp_gmem_write <=
-              rparams.unroll_factor_inner_reduction,
+          rparams->vectorization_factor_tmp_gmem_write <=
+              rparams->unroll_factor_inner_reduction,
           "vectorization factor of temp gmem write should be smaller than that of inner reduction.")
-      if (rparams.vectorization_factor_tmp_gmem_write <
-          rparams.unroll_factor_inner_reduction) {
-        tv->split(-1, rparams.vectorization_factor_tmp_gmem_write);
+      if (rparams->vectorization_factor_tmp_gmem_write <
+          rparams->unroll_factor_inner_reduction) {
+        tv->split(-1, rparams->vectorization_factor_tmp_gmem_write);
       }
       tv->axis(-1)->parallelize(ParallelType::Vectorize);
     }
@@ -1278,7 +1278,7 @@ void scheduleInnerOuterPersistentKernel(
   // directly from output tv using parallelizeAllLike. must propagate
   // seperaely for different tvs as outer reductions are transformed
   // seperately.
-  if (rparams.vectorization_factor_outer > 1) {
+  if (rparams->vectorization_factor_outer > 1) {
     for (auto tv : cached_gmem_reload) {
       auto output_tvs = ir_utils::outputTvsOf(tv);
       NVF_ERROR(

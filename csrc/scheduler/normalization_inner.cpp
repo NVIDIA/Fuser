@@ -28,7 +28,7 @@ InnerPersistentKernelScheduler::InnerPersistentKernelScheduler(
 
 void InnerPersistentKernelScheduler::schedule(Fusion* fusion) {
   FUSER_PERF_SCOPE("InnerPersistentKernelScheduler::schedule");
-  scheduleInnerPersistentKernel(fusion, *params()->as<ReductionParams>());
+  scheduleInnerPersistentKernel(fusion, params()->as<ReductionParams>());
 }
 
 bool InnerPersistentKernelScheduler::canScheduleCompileTime(Fusion* fusion) {
@@ -1142,7 +1142,7 @@ std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
 
 void scheduleInnerPersistentKernel(
     Fusion* fusion,
-    const ReductionParams& rparams) {
+    const ReductionParams* rparams) {
   normalization_scheduler_utils::schedulePersistentKernel(
       fusion, rparams, InnerPersistentKernelScheduler::heuristicType());
 }

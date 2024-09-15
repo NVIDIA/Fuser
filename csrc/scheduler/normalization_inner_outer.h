@@ -69,6 +69,6 @@ std::shared_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
 
 void scheduleInnerOuterPersistentKernel(
     Fusion* fusion,
-    const ReductionParams& rparams);
+    const ReductionParams* rparams);
 
 } // namespace nvfuser

@@ -28,7 +28,7 @@ OuterPersistentKernelScheduler::OuterPersistentKernelScheduler(
 
 void OuterPersistentKernelScheduler::schedule(Fusion* fusion) {
   FUSER_PERF_SCOPE("OuterPersistentKernelScheduler::schedule");
-  scheduleOuterPersistentKernel(fusion, *params()->as<ReductionParams>());
+  scheduleOuterPersistentKernel(fusion, params()->as<ReductionParams>());
 }
 
 bool OuterPersistentKernelScheduler::canScheduleCompileTime(Fusion* fusion) {
@@ -675,7 +675,7 @@ std::shared_ptr<ReductionParams> getOuterPersistentHeuristics(
 // fusion is the input IR that will be modified by this function
 void scheduleOuterPersistentKernel(
     Fusion* fusion,
-    const ReductionParams& rparams) {
+    const ReductionParams* rparams) {
   normalization_scheduler_utils::schedulePersistentKernel(
       fusion, rparams, OuterPersistentKernelScheduler::heuristicType());
 }

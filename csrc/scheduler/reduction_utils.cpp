@@ -23,13 +23,13 @@ namespace nvfuser {
 namespace reduction_scheduler_utils {
 
 TensorView* scheduleReductionTV(
-    const ReductionParams& rparams,
+    const ReductionParams* rparams,
     TensorView* reduction_tv,
     bool has_iter_axis) {
   // Outer and inner reduction axis is relative. Outer reduce axis is only valid
   // in 3D scheduling. Otherwise inner_reduce_axis is the only reduction axis.
   // Inner here though is only relative to the other axis. When
-  // rparams.fastest_dim == false, the reduction axis is logically outside the
+  // rparams->fastest_dim == false, the reduction axis is logically outside the
   // iteration axis.
   // Multidevice scheduling: we assume only the outermost domain can be
   // parallelized with DIDx at this point and in that case this reduction
@@ -37,15 +37,15 @@ TensorView* scheduleReductionTV(
   // domain unchanged.
   const bool has_outermost_dim_sharded = isSharded(reduction_tv);
   NVF_ERROR(
-      !has_outermost_dim_sharded || !rparams.schedule_3D,
+      !has_outermost_dim_sharded || !rparams->schedule_3D,
       "Mixing interdevice and 3D schedule is not supported");
   const int iter_axis = has_outermost_dim_sharded ? 1 : 0;
-  const int outer_reduce_axis = rparams.schedule_3D ? 1 : 0;
+  const int outer_reduce_axis = rparams->schedule_3D ? 1 : 0;
   const int inner_reduce_axis =
-      rparams.schedule_3D ? 2 : has_outermost_dim_sharded + has_iter_axis;
+      rparams->schedule_3D ? 2 : has_outermost_dim_sharded + has_iter_axis;
 
-  const bool is_outer_grid_persistence = rparams.persistent_kernel &&
-      rparams.cross_grid_inner_reduction && !rparams.fastest_dim;
+  const bool is_outer_grid_persistence = rparams->persistent_kernel &&
+      rparams->cross_grid_inner_reduction && !rparams->fastest_dim;
 
   NVF_ERROR(
       reduction_tv->nDims() >
@@ -56,19 +56,19 @@ TensorView* scheduleReductionTV(
       reduction_tv->nDims());
 
   NVF_ERROR(
-      !(rparams.fastest_dim && rparams.vectorize_iter_dom),
+      !(rparams->fastest_dim && rparams->vectorize_iter_dom),
       "Cannot vectorize iteration domain on inner reductions.");
 
   NVF_ERROR(
-      !(!rparams.fastest_dim && rparams.vectorize_inner_reduction),
+      !(!rparams->fastest_dim && rparams->vectorize_inner_reduction),
       "Cannot vectorize reduction domain on outer reductions.");
 
   NVF_ERROR(
-      !(rparams.multiple_reds_per_blk && !has_iter_axis),
+      !(rparams->multiple_reds_per_blk && !has_iter_axis),
       "Multiple reductions requires an iter domain, but one wasn't found.");
 
   NVF_ERROR(
-      !(rparams.unroll_factor_iter_dom > 1 && !has_iter_axis),
+      !(rparams->unroll_factor_iter_dom > 1 && !has_iter_axis),
       "Unrolling on iter domain requires an iter domain.");
 
   auto vectorize = [&reduction_tv](int64_t axis, int64_t factor) {
@@ -114,125 +114,125 @@ TensorView* scheduleReductionTV(
 
   if (is_outer_grid_persistence) {
     const auto reduction_axis = inner_reduce_axis;
-    NVF_ERROR(rparams.static_bdimy, "blockDim.y must be static");
+    NVF_ERROR(rparams->static_bdimy, "blockDim.y must be static");
     inner_parallel_static(
         reduction_axis,
-        rparams.block_dim_inner_reduction,
-        rparams.lparams.bdimy());
+        rparams->block_dim_inner_reduction,
+        rparams->lparams.bdimy());
     reduction_tv->split(
-        reduction_axis, rparams.batches_per_block_inner_reduction);
+        reduction_axis, rparams->batches_per_block_inner_reduction);
     reduction_tv->axis(reduction_axis)
-        ->parallelize(rparams.grid_dim_inner_reduction);
+        ->parallelize(rparams->grid_dim_inner_reduction);
     // Unswitch the persistent buffer by a factor of
     // unroll_factor_inner_reduction. If that is equal to the
     // persistent buffer size, unswitch the whole buffer by
     // outer-unswith by 1. Otherwise, split the persistent buffer by
     // the unsiwtch factor and just unswitch the inner domain
-    if (rparams.batches_per_block_inner_reduction ==
-        rparams.unroll_factor_inner_reduction) {
+    if (rparams->batches_per_block_inner_reduction ==
+        rparams->unroll_factor_inner_reduction) {
       outer_unswitch(reduction_axis + 1);
     } else {
       reduction_tv->split(
-          reduction_axis + 1, rparams.unroll_factor_inner_reduction);
+          reduction_axis + 1, rparams->unroll_factor_inner_reduction);
       outer_unswitch(reduction_axis + 2);
     }
-  } else if (rparams.persistent_kernel) {
+  } else if (rparams->persistent_kernel) {
     // Persistent Format:
     // [Grid Split, persistent buffer, unswitch, unroll, thread dim, vectorize]
-    if (rparams.vectorize_inner_reduction) {
-      vectorize(inner_reduce_axis, rparams.unroll_factor_inner_reduction);
+    if (rparams->vectorize_inner_reduction) {
+      vectorize(inner_reduce_axis, rparams->unroll_factor_inner_reduction);
     }
-    if (rparams.combined_inner_outer && !rparams.multiple_reds_per_blk) {
-      inner_parallel(inner_reduce_axis, rparams.block_dim_inner_reduction);
+    if (rparams->combined_inner_outer && !rparams->multiple_reds_per_blk) {
+      inner_parallel(inner_reduce_axis, rparams->block_dim_inner_reduction);
     }
     auto outer_i = inner_reduce_axis;
-    if (rparams.cross_grid_inner_reduction) {
-      outer_parallel(outer_i++, rparams.grid_dim_inner_reduction);
+    if (rparams->cross_grid_inner_reduction) {
+      outer_parallel(outer_i++, rparams->grid_dim_inner_reduction);
     }
 
     reduction_tv->split(
-        outer_i++, rparams.batches_per_block_inner_reduction, false);
+        outer_i++, rparams->batches_per_block_inner_reduction, false);
 
     outer_unswitch(outer_i++);
 
-    if (!rparams.vectorize_inner_reduction &&
-        rparams.unroll_factor_inner_reduction > 1) {
-      outer_unroll(outer_i++, rparams.unroll_factor_inner_reduction);
+    if (!rparams->vectorize_inner_reduction &&
+        rparams->unroll_factor_inner_reduction > 1) {
+      outer_unroll(outer_i++, rparams->unroll_factor_inner_reduction);
     }
 
-    if (rparams.combined_inner_outer && !rparams.multiple_reds_per_blk) {
+    if (rparams->combined_inner_outer && !rparams->multiple_reds_per_blk) {
       reduction_tv->axis(outer_i)->parallelize(
-          rparams.block_dim_inner_reduction_extra);
+          rparams->block_dim_inner_reduction_extra);
     } else {
       reduction_tv->axis(outer_i)->parallelize(
-          rparams.block_dim_inner_reduction);
+          rparams->block_dim_inner_reduction);
     }
 
-    if (rparams.pad_inner_reduction_to_warp) {
+    if (rparams->pad_inner_reduction_to_warp) {
       reduction_tv->axis(outer_i)->padToMultipleOfWarp();
     }
   } else {
     // Non-persistent format:
     // [Grid Split, Remainder, unswitch, unroll, thread dim, vectorize]
-    if (rparams.vectorize_inner_reduction) {
-      vectorize(inner_reduce_axis, rparams.unroll_factor_inner_reduction);
+    if (rparams->vectorize_inner_reduction) {
+      vectorize(inner_reduce_axis, rparams->unroll_factor_inner_reduction);
     }
 
-    if (rparams.cross_block_inner_reduction) {
-      inner_parallel(inner_reduce_axis, rparams.block_dim_inner_reduction);
-      if (rparams.pad_inner_reduction_to_warp) {
+    if (rparams->cross_block_inner_reduction) {
+      inner_parallel(inner_reduce_axis, rparams->block_dim_inner_reduction);
+      if (rparams->pad_inner_reduction_to_warp) {
         reduction_tv->axis(inner_reduce_axis + 1)->padToMultipleOfWarp();
       }
     }
 
-    if (!rparams.vectorize_inner_reduction &&
-        rparams.unroll_factor_inner_reduction > 1) {
-      inner_unroll(inner_reduce_axis, rparams.unroll_factor_inner_reduction);
+    if (!rparams->vectorize_inner_reduction &&
+        rparams->unroll_factor_inner_reduction > 1) {
+      inner_unroll(inner_reduce_axis, rparams->unroll_factor_inner_reduction);
     }
 
     inner_unswitch(inner_reduce_axis);
-    if (rparams.cross_grid_inner_reduction) {
-      if (rparams.split_grid_dim_inner_reduction) {
-        outer_parallel(inner_reduce_axis, rparams.grid_dim_inner_reduction);
+    if (rparams->cross_grid_inner_reduction) {
+      if (rparams->split_grid_dim_inner_reduction) {
+        outer_parallel(inner_reduce_axis, rparams->grid_dim_inner_reduction);
       } else {
         reduction_tv->axis(inner_reduce_axis)
-            ->parallelize(rparams.grid_dim_inner_reduction);
+            ->parallelize(rparams->grid_dim_inner_reduction);
       }
     }
   }
 
   // Outer reduction axis
-  if (rparams.schedule_3D) {
-    if (rparams.persistent_kernel) {
+  if (rparams->schedule_3D) {
+    if (rparams->persistent_kernel) {
       // Persistent Format:
       // [Grid Split, persistent buffer, unroll, thread dim]
       auto outer_i = outer_reduce_axis;
-      if (rparams.cross_grid_outer_reduction) {
-        outer_parallel(outer_i++, rparams.grid_dim_outer_reduction);
+      if (rparams->cross_grid_outer_reduction) {
+        outer_parallel(outer_i++, rparams->grid_dim_outer_reduction);
       }
 
       reduction_tv->split(
-          outer_i++, rparams.batches_per_block_outer_reduction, false);
+          outer_i++, rparams->batches_per_block_outer_reduction, false);
 
-      if (rparams.unroll_factor_outer_reduction > 1) {
-        outer_unroll(outer_i++, rparams.unroll_factor_outer_reduction);
+      if (rparams->unroll_factor_outer_reduction > 1) {
+        outer_unroll(outer_i++, rparams->unroll_factor_outer_reduction);
       }
 
       reduction_tv->axis(outer_i)->parallelize(
-          rparams.block_dim_outer_reduction);
+          rparams->block_dim_outer_reduction);
     } else {
       // Non-persistent format:
       // [Grid Split, Remainder, unroll, thread dim]
-      if (rparams.cross_block_outer_reduction) {
-        inner_parallel(outer_reduce_axis, rparams.block_dim_outer_reduction);
+      if (rparams->cross_block_outer_reduction) {
+        inner_parallel(outer_reduce_axis, rparams->block_dim_outer_reduction);
       }
 
-      if (rparams.unroll_factor_outer_reduction > 1) {
-        inner_unroll(outer_reduce_axis, rparams.unroll_factor_outer_reduction);
+      if (rparams->unroll_factor_outer_reduction > 1) {
+        inner_unroll(outer_reduce_axis, rparams->unroll_factor_outer_reduction);
       }
 
-      if (rparams.cross_grid_outer_reduction) {
-        outer_parallel(outer_reduce_axis, rparams.grid_dim_outer_reduction);
+      if (rparams->cross_grid_outer_reduction) {
+        outer_parallel(outer_reduce_axis, rparams->grid_dim_outer_reduction);
       }
     }
   }
@@ -241,37 +241,37 @@ TensorView* scheduleReductionTV(
   if (has_iter_axis) {
     // [Grid Split, unswitch, unroll, thread dim, vectorize]
 
-    if (rparams.vectorize_iter_dom) {
-      vectorize(iter_axis, rparams.unroll_factor_iter_dom);
+    if (rparams->vectorize_iter_dom) {
+      vectorize(iter_axis, rparams->unroll_factor_iter_dom);
     }
 
-    if (isParallelTypeThread(rparams.block_dim_iter_dom)) {
+    if (isParallelTypeThread(rparams->block_dim_iter_dom)) {
       if (is_outer_grid_persistence) {
-        NVF_ERROR(rparams.static_bdimx, "blockDim.x must be static");
+        NVF_ERROR(rparams->static_bdimx, "blockDim.x must be static");
         inner_parallel_static(
-            iter_axis, rparams.block_dim_iter_dom, rparams.lparams.bdimx());
+            iter_axis, rparams->block_dim_iter_dom, rparams->lparams.bdimx());
       } else {
-        inner_parallel(iter_axis, rparams.block_dim_iter_dom);
+        inner_parallel(iter_axis, rparams->block_dim_iter_dom);
       }
     }
 
-    if (!rparams.vectorize_iter_dom && rparams.unroll_factor_iter_dom > 1) {
-      inner_unroll(iter_axis, rparams.unroll_factor_iter_dom);
+    if (!rparams->vectorize_iter_dom && rparams->unroll_factor_iter_dom > 1) {
+      inner_unroll(iter_axis, rparams->unroll_factor_iter_dom);
     }
 
     // Do not unswitch interation domain in the case of outer grid
     // persistence as it's unclear if it's beneficial.
-    if (rparams.unroll_factor_iter_dom > 1 && !is_outer_grid_persistence) {
+    if (rparams->unroll_factor_iter_dom > 1 && !is_outer_grid_persistence) {
       inner_unswitch(iter_axis);
     }
 
-    if (isParallelTypeThread(rparams.grid_dim_iter_dom)) {
-      if (rparams.split_grid_dim_iter_dom_outer) {
-        outer_parallel(iter_axis, rparams.grid_dim_iter_dom);
-      } else if (rparams.split_grid_dim_iter_dom_inner) {
-        inner_parallel(iter_axis, rparams.grid_dim_iter_dom);
+    if (isParallelTypeThread(rparams->grid_dim_iter_dom)) {
+      if (rparams->split_grid_dim_iter_dom_outer) {
+        outer_parallel(iter_axis, rparams->grid_dim_iter_dom);
+      } else if (rparams->split_grid_dim_iter_dom_inner) {
+        inner_parallel(iter_axis, rparams->grid_dim_iter_dom);
       } else {
-        reduction_tv->axis(iter_axis)->parallelize(rparams.grid_dim_iter_dom);
+        reduction_tv->axis(iter_axis)->parallelize(rparams->grid_dim_iter_dom);
       }
     }
   }

@@ -1255,23 +1255,23 @@ TEST_F(ScatterGatherTest, GatherIterGoupedReduction) {
   at::Tensor input_idx = at::randint(0, input_dims[dim], index_dims, options_i);
   std::vector<c10::IValue> aten_inputs = {input, input_idx};
 
-  auto heuristics_params = getReductionHeuristics(&fusion, aten_inputs);
-  NVF_CHECK(heuristics_params, "Reduction schedule was not generated!");
+  auto rparams = getReductionHeuristics(&fusion, aten_inputs);
+  NVF_CHECK(rparams, "Reduction schedule was not generated!");
 
   // Enforce vectorization so we can group them
   const int vect_factor = 2;
-  heuristics_params->vectorize_iter_dom = true;
-  heuristics_params->unroll_factor_iter_dom = vect_factor;
+  rparams->vectorize_iter_dom = true;
+  rparams->unroll_factor_iter_dom = vect_factor;
   // Enforce grid reduction, which requires a determined BIDy
   // If the heuristic does not have a BIDy, bind it to 2
-  heuristics_params->cross_grid_inner_reduction = true;
-  heuristics_params->split_grid_dim_inner_reduction = true;
-  heuristics_params->grid_dim_inner_reduction = ParallelType::BIDy;
-  if (!heuristics_params->lparams.hasDim(ParallelType::BIDy)) {
-    heuristics_params->lparams.bind(2L, ParallelType::BIDy);
+  rparams->cross_grid_inner_reduction = true;
+  rparams->split_grid_dim_inner_reduction = true;
+  rparams->grid_dim_inner_reduction = ParallelType::BIDy;
+  if (!rparams->lparams.hasDim(ParallelType::BIDy)) {
+    rparams->lparams.bind(2L, ParallelType::BIDy);
   }
 
-  scheduleReduction(&fusion, *heuristics_params);
+  scheduleReduction(&fusion, rparams.get());
 
   // lowering & check iteration grouped reductions
   GpuLower gpulw(&fusion);
@@ -1287,7 +1287,7 @@ TEST_F(ScatterGatherTest, GatherIterGoupedReduction) {
       gpulw.kernel()->summary().num_grouped_iterations);
 
   FusionExecutor fe;
-  auto lparams = heuristics_params->lparams;
+  auto lparams = rparams->lparams;
   fe.compileFusion(&fusion, aten_inputs, lparams);
   auto cg_outputs = fe.runFusion(aten_inputs, lparams);
 

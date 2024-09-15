@@ -6395,9 +6395,9 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteDifferentConcretizedDomains_CUDA) {
     std::vector<c10::IValue> inputs = {t0, t1, t2};
 
     if (direct_lowering) {
-      auto heuristics_params = getReductionHeuristics(&fusion, inputs);
-      NVF_CHECK(heuristics_params, "Reduction schedule was not generated!");
-      scheduleReduction(&fusion, *heuristics_params);
+      auto rparams = getReductionHeuristics(&fusion, inputs);
+      NVF_CHECK(rparams, "Reduction schedule was not generated!");
+      scheduleReduction(&fusion, rparams.get());
       // it should be segmented, if directly lowered, it should throw an error
       EXPECT_THAT(
           [&]() { GpuLower(&fusion).run(); },
@@ -6819,7 +6819,7 @@ TEST_F(NVFuserTest, FusionTestWarnRegisterSpill_CUDA) {
     auto persistent_params =
         getInnerPersistentHeuristics(&fusion, {aten_input});
     NVF_CHECK(persistent_params, "Persistent schedule was not generated!");
-    scheduleInnerPersistentKernel(&fusion, *persistent_params);
+    scheduleInnerPersistentKernel(&fusion, persistent_params.get());
 
     // compile and run persistent kernel
     // intentionally set maxrregcount to 32 to trigger register spill
@@ -7037,7 +7037,7 @@ TEST_F(NVFuserTest, FusionOptionsGuard_CUDA) {
   // generate persistent kernel
   auto persistent_params = getInnerPersistentHeuristics(&fusion, {aten_input});
   ASSERT_TRUE(persistent_params) << "Persistent schedule was not generated!";
-  scheduleInnerPersistentKernel(&fusion, *persistent_params);
+  scheduleInnerPersistentKernel(&fusion, persistent_params.get());
 
   // capture stdout and check stdout contains register spill warning
   captureStdout();
@@ -7479,15 +7479,15 @@ TEST_F(NVFuserTest, FusionCrossGridInnerReductionSplitGridIteration_CUDA) {
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
   at::Tensor aten_input = at::randn(input_shape, options);
 
-  auto reduction_params = getReductionHeuristics(&fusion, {aten_input});
-  ASSERT_TRUE(reduction_params) << "Reduction schedule was not generated!";
-  ASSERT_TRUE(reduction_params->split_grid_dim_inner_reduction)
+  auto rparams = getReductionHeuristics(&fusion, {aten_input});
+  ASSERT_TRUE(rparams) << "Reduction schedule was not generated!";
+  ASSERT_TRUE(rparams->split_grid_dim_inner_reduction)
       << "Generated reduction is not cross grid!";
-  ASSERT_TRUE(reduction_params->split_grid_dim_iter_dom_outer)
+  ASSERT_TRUE(rparams->split_grid_dim_iter_dom_outer)
       << "Generated reduction is not split iteration domain!";
-  scheduleReduction(&fusion, *reduction_params);
+  scheduleReduction(&fusion, rparams.get());
 
-  auto lparams = reduction_params->lparams;
+  auto lparams = rparams->lparams;
   FusionExecutor fe;
   fe.compileFusion(&fusion, {aten_input}, lparams);
   auto cg_outputs = fe.runFusion({aten_input}, lparams);
@@ -7761,14 +7761,14 @@ TEST_F(NVFuserTest, Reduction3DWithBroadcast) {
   auto t0 = at::randn({8, 7, 5, 1}, options);
   std::vector<c10::IValue> inputs({t0});
 
-  std::shared_ptr<ReductionParams> reduction_params =
+  std::shared_ptr<ReductionParams> rparams =
       getReductionHeuristics(fusion, inputs);
-  NVF_CHECK(reduction_params, "Reduction heuristic failed!");
-  scheduleReduction(fusion, *reduction_params);
+  NVF_CHECK(rparams, "Reduction heuristic failed!");
+  scheduleReduction(fusion, rparams.get());
 
   FusionExecutor fe;
-  fe.compileFusion(fusion, inputs, reduction_params->lparams);
-  auto cg_outputs = fe.runFusion(inputs, reduction_params->lparams);
+  fe.compileFusion(fusion, inputs, rparams->lparams);
+  auto cg_outputs = fe.runFusion(inputs, rparams->lparams);
 
   testValidate(
       unsched_fusion_ptr.get(), cg_outputs, inputs, __LINE__, __FILE__);
@@ -7952,7 +7952,7 @@ TEST_F(NVFuserTest, TemplateFunctionTypeMismatch) {
 
   auto persistent_params = getOuterPersistentHeuristics(fusion, inputs);
   NVF_CHECK(persistent_params, "Reduction schedule was not generated!");
-  scheduleOuterPersistentKernel(fusion, *persistent_params);
+  scheduleOuterPersistentKernel(fusion, persistent_params.get());
   KernelArgumentHolder args =
       KernelArgumentHolder::createKernelArgumentHolder(inputs);
   FusionExecutor fe;
@@ -8505,16 +8505,16 @@ TEST_F(NVFuserTest, MoveNonConcretizedBroadcastInNormalization) {
   at::Tensor t0 = at::randn({128, 1024}, options);
   std::vector<c10::IValue> inputs = {t0};
 
-  auto params = getInnerPersistentHeuristics(&fusion, inputs);
-  NVF_CHECK(params.get() != nullptr);
+  auto persistent_params = getInnerPersistentHeuristics(&fusion, inputs);
+  NVF_CHECK(persistent_params.get() != nullptr);
 
   Fusion fusion_copy = fusion;
 
-  scheduleInnerPersistentKernel(&fusion, *params);
+  scheduleInnerPersistentKernel(&fusion, persistent_params.get());
 
   FusionExecutor fe;
-  fe.compileFusion(&fusion, inputs, params->lparams);
-  auto outputs = fe.runFusion(inputs, params->lparams);
+  fe.compileFusion(&fusion, inputs, persistent_params->lparams);
+  auto outputs = fe.runFusion(inputs, persistent_params->lparams);
 
   testValidate(&fusion_copy, outputs, inputs, __LINE__, __FILE__);
 
@@ -8640,16 +8640,16 @@ TEST_F(NVFuserTest, MoveNonConcretizedBroadcastInReduction) {
   at::Tensor t1 = at::randn({32, 1024}, options);
   std::vector<c10::IValue> inputs = {t0, t1};
 
-  auto params = getReductionHeuristics(&fusion, inputs);
-  NVF_CHECK(params.get() != nullptr);
+  auto rparams = getReductionHeuristics(&fusion, inputs);
+  NVF_CHECK(rparams.get() != nullptr);
 
   Fusion fusion_copy = fusion;
 
-  scheduleReduction(&fusion, *params);
+  scheduleReduction(&fusion, rparams.get());
 
   FusionExecutor fe;
-  fe.compileFusion(&fusion, inputs, params->lparams);
-  auto outputs = fe.runFusion(inputs, params->lparams);
+  fe.compileFusion(&fusion, inputs, rparams->lparams);
+  auto outputs = fe.runFusion(inputs, rparams->lparams);
 
   testValidate(&fusion_copy, outputs, inputs, __LINE__, __FILE__);
 
@@ -8751,16 +8751,16 @@ TEST_F(NVFuserTest, Issue2685Repro) {
   at::Tensor t10 = at::randn(shape, options).unsqueeze(-1);
   std::vector<c10::IValue> inputs = {t0, t1, t2, t10};
 
-  auto params = getInnerPersistentHeuristics(&fusion, inputs);
-  NVF_CHECK(params.get() != nullptr);
+  auto persistent_params = getInnerPersistentHeuristics(&fusion, inputs);
+  NVF_CHECK(persistent_params.get() != nullptr);
 
   Fusion fusion_copy = fusion;
 
-  scheduleInnerPersistentKernel(&fusion, *params);
+  scheduleInnerPersistentKernel(&fusion, persistent_params.get());
 
   FusionExecutor fe;
-  fe.compileFusion(&fusion, inputs, params->lparams);
-  auto outputs = fe.runFusion(inputs, params->lparams);
+  fe.compileFusion(&fusion, inputs, persistent_params->lparams);
+  auto outputs = fe.runFusion(inputs, persistent_params->lparams);
 
   testValidate(&fusion_copy, outputs, inputs, __LINE__, __FILE__);
 }

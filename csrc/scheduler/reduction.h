@@ -29,7 +29,7 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache = nullptr);
 
-NVF_API void scheduleReduction(Fusion* fusion, const ReductionParams& rparams);
+NVF_API void scheduleReduction(Fusion* fusion, const ReductionParams* rparams);
 
 class ReductionScheduler : public SchedulerEntry {
  public:

@@ -64,6 +64,6 @@ NVF_API std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
 
 NVF_API void scheduleInnerPersistentKernel(
     Fusion* fusion,
-    const ReductionParams& rparams);
+    const ReductionParams* rparams);
 
 } // namespace nvfuser

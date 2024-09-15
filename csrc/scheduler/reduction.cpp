@@ -1066,7 +1066,7 @@ void ReductionScheduler::computeHeuristics(
 
 void ReductionScheduler::schedule(Fusion* fusion) {
   FUSER_PERF_SCOPE("ReductionScheduler::schedule");
-  scheduleReduction(fusion, *params()->as<ReductionParams>());
+  scheduleReduction(fusion, params()->as<ReductionParams>());
 }
 
 //! Check if the reduction heuristics apply in given fusion
@@ -1353,10 +1353,10 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
 }
 
 // fusion is the input IR that will be modified by this function
-void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
+void scheduleReduction(Fusion* fusion, const ReductionParams* rparams) {
   FusionGuard fg(fusion);
 
-  bool unroll = rparams.isUnrolled();
+  bool unroll = rparams->isUnrolled();
 
   // Cache inputs if unrolled
   auto cached_inputs = scheduler_utils::cacheInputs(fusion, unroll);
@@ -1390,11 +1390,11 @@ void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
   }
 
   NVF_ERROR(
-      !(rparams.schedule_3D && isSharded(reduction_tv)),
+      !(rparams->schedule_3D && isSharded(reduction_tv)),
       "Multidevice nvFuser does not support 3D reduction schedules");
 
   auto dim_analysis = scheduler_utils::canonicalDimReduction(
-      fusion, reduction_tv, rparams.fastest_dim && rparams.schedule_3D);
+      fusion, reduction_tv, rparams->fastest_dim && rparams->schedule_3D);
 
   bool has_iter_axis = dim_analysis.first;
   bool has_red_axis = dim_analysis.second;
@@ -1405,7 +1405,7 @@ void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
 
   if (!has_iter_axis) {
     NVF_ERROR(
-        rparams.fastest_dim,
+        rparams->fastest_dim,
         "If all dims are reduction, should be sending it to fastest dim scheduler.");
   }
 
@@ -1418,7 +1418,7 @@ void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
       reference_tv != nullptr && reduction_tv != nullptr,
       "Need these two tensor views to finish the scheduling.");
   const bool vectorize =
-      rparams.vectorize_inner_reduction || rparams.vectorize_iter_dom;
+      rparams->vectorize_inner_reduction || rparams->vectorize_iter_dom;
 
   // allow iter domain grouped reduction for block and grid outer reductions.
   // TODO: the var name is confusing, should rename
@@ -1427,10 +1427,10 @@ void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
   // grouped welford is only enabled for grid persistent.
   // see validateAndConvertIterDomainGrouping
   const bool has_welford = ir_utils::hasOpsOfType<WelfordOp>(fusion);
-  const bool use_iter_grouped_reduction = !rparams.fastest_dim &&
+  const bool use_iter_grouped_reduction = !rparams->fastest_dim &&
       (has_welford
-           ? rparams.cross_grid_inner_reduction && rparams.persistent_kernel
-           : rparams.cross_block_inner_reduction);
+           ? rparams->cross_grid_inner_reduction && rparams->persistent_kernel
+           : rparams->cross_block_inner_reduction);
 
   scheduler_utils::moveNonConcretizedBroadcastInnermost(fusion, {reference_tv});
 

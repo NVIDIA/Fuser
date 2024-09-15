@@ -444,10 +444,10 @@ static void NvFuserScheduler_MatmulSplitKReduction(
   auto aten_c = at::randn({M, N, splitk_factor}, options);
   std::vector<c10::IValue> aten_inputs = {aten_c};
 
-  auto reduction_params = getReductionHeuristics(fusion, aten_inputs);
-  NVF_CHECK(reduction_params, "Reduction schedule failed");
-  scheduleReduction(fusion, *reduction_params);
-  auto lparams = reduction_params->lparams; // copy LaunchParams
+  auto rparams = getReductionHeuristics(fusion, aten_inputs);
+  NVF_CHECK(rparams, "Reduction schedule failed");
+  scheduleReduction(fusion, rparams.get());
+  auto lparams = rparams->lparams; // copy LaunchParams
 
   auto expected_output = aten_c.to(at::kDouble).sum(-1);
 

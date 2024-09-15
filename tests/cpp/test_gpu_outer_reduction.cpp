@@ -2167,16 +2167,16 @@ TEST_F(OuterReductionTest, IterGroupedBlockReduction) {
 
   std::vector<c10::IValue> aten_inputs({t0});
 
-  auto heuristics_params = getReductionHeuristics(&fusion, aten_inputs);
-  NVF_CHECK(heuristics_params, "Reduction schedule was not generated!");
+  auto rparams = getReductionHeuristics(&fusion, aten_inputs);
+  NVF_CHECK(rparams, "Reduction schedule was not generated!");
 
   // only do block reduction, enforce vectorization so we can group them
   const int vect_factor = 8;
-  heuristics_params->cross_grid_inner_reduction = false;
-  heuristics_params->split_grid_dim_inner_reduction = false;
-  heuristics_params->vectorize_iter_dom = true;
-  heuristics_params->unroll_factor_iter_dom = vect_factor;
-  scheduleReduction(&fusion, *heuristics_params);
+  rparams->cross_grid_inner_reduction = false;
+  rparams->split_grid_dim_inner_reduction = false;
+  rparams->vectorize_iter_dom = true;
+  rparams->unroll_factor_iter_dom = vect_factor;
+  scheduleReduction(&fusion, rparams.get());
 
   // lowering & check iteration grouped reductions
   GpuLower gpulw(&fusion);
@@ -2192,7 +2192,7 @@ TEST_F(OuterReductionTest, IterGroupedBlockReduction) {
       gpulw.kernel()->summary().num_grouped_iterations);
 
   FusionExecutor fe;
-  auto lparams = heuristics_params->lparams;
+  auto lparams = rparams->lparams;
   fe.compileFusion(&fusion, aten_inputs, lparams);
   auto cg_outputs = fe.runFusion(aten_inputs, lparams);
 
@@ -2268,7 +2268,7 @@ void shmooTestsOfIterGroupedBlockOrGridReduction(
       bdimy,
       LaunchParams::UNINITIALIZED_VAL);
   rparams->lparams = lparams;
-  scheduleReduction(&fusion, *rparams);
+  scheduleReduction(&fusion, rparams.get());
 
   // lowering & check iteration grouped reductions
   GpuLower gpulw(&fusion);
@@ -2509,7 +2509,7 @@ TEST_F(OuterReductionTest, IterGroupedMultipleReductions) {
       bdimy,
       LaunchParams::UNINITIALIZED_VAL);
   rparams->lparams = lparams;
-  scheduleReduction(&fusion, *rparams);
+  scheduleReduction(&fusion, rparams.get());
 
   // Ensure we have two iteration grouped reductions
   int num_iter_grouped_reductions = 0;

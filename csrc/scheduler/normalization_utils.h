@@ -258,7 +258,7 @@ bool compileTimeCheck(Fusion* fusion, ScheduleHeuristic schedule_heuristic);
 // cached_outputs.
 void beforeSchedule(
     Fusion* fusion,
-    const ReductionParams& rparams,
+    const ReductionParams* rparams,
     std::vector<TensorView*>& dummy_outputs,
     std::vector<TensorView*>& cached_inputs,
     std::vector<TensorView*>& reduction_tvs,
@@ -269,14 +269,14 @@ void beforeSchedule(
 // reduction tvs.
 TensorView* scheduleReductionGeneral(
     Fusion* fusion,
-    const ReductionParams& rparams,
+    const ReductionParams* rparams,
     std::vector<TensorView*>& reduction_tvs,
     ScheduleHeuristic schedule_heuristic);
 
 // Used by InnerPersistentKernelScheduler and  OuterPersistentKernelScheduler
 void schedulePersistentKernel(
     Fusion* fusion,
-    const ReductionParams& rparams,
+    const ReductionParams* rparams,
     ScheduleHeuristic schedule_heuristic);
 
 // Get max register or shared memory size for persistent buffer
@@ -324,7 +324,7 @@ bool isProjectBufferToInputs(
 // register to smem
 void movePersistentBufferToSmem(
     Fusion* fusion,
-    const ReductionParams& rparams,
+    const ReductionParams* rparams,
     const std::vector<TensorView*>& cached_inputs);
 
 } // namespace normalization_scheduler_utils

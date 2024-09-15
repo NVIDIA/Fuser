@@ -17,64 +17,65 @@
 
 using namespace nvfuser;
 
-std::string toString(const ReductionParams& rparams) {
+std::string toString(const ReductionParams* rparams) {
   std::stringstream ss;
-  ss << (rparams.fastest_dim ? "Red On Fastest Dim // " : "Red On Slow Dim // ")
-     << (rparams.persistent_kernel ? "Persistent Kernel // " : "")
-     << (rparams.project_persistent_buffers ? "Project Persistent Buffers // "
-                                            : "");
+  ss << (rparams->fastest_dim ? "Red On Fastest Dim // "
+                              : "Red On Slow Dim // ")
+     << (rparams->persistent_kernel ? "Persistent Kernel // " : "")
+     << (rparams->project_persistent_buffers ? "Project Persistent Buffers // "
+                                             : "");
 
-  if (rparams.schedule_3D) {
+  if (rparams->schedule_3D) {
     ss << "3D Schedule // "
        << "Outer Reduction: "
-       << (rparams.cross_block_outer_reduction ? "cross block / " : "")
-       << (rparams.cross_grid_outer_reduction ? "cross grid / " : "")
-       << (rparams.split_grid_dim_outer_reduction ? "split grid dim / " : "");
-    if (rparams.batches_per_block_outer_reduction > 1 ||
-        rparams.persistent_kernel) {
-      ss << "persistent batch - " << rparams.batches_per_block_outer_reduction
+       << (rparams->cross_block_outer_reduction ? "cross block / " : "")
+       << (rparams->cross_grid_outer_reduction ? "cross grid / " : "")
+       << (rparams->split_grid_dim_outer_reduction ? "split grid dim / " : "");
+    if (rparams->batches_per_block_outer_reduction > 1 ||
+        rparams->persistent_kernel) {
+      ss << "persistent batch - " << rparams->batches_per_block_outer_reduction
          << " / ";
     }
   }
 
   ss << " // Iteration Domain: "
-     << (rparams.multiple_reds_per_blk ? "multiple reductions per block / "
-                                       : "")
-     << ((rparams.split_grid_dim_iter_dom_inner ||
-          rparams.split_grid_dim_iter_dom_outer)
+     << (rparams->multiple_reds_per_blk ? "multiple reductions per block / "
+                                        : "")
+     << ((rparams->split_grid_dim_iter_dom_inner ||
+          rparams->split_grid_dim_iter_dom_outer)
              ? "split grid dimension / "
              : "")
-     << (rparams.vectorize_iter_dom ? "vectorize / " : "")
-     << (rparams.unroll_factor_iter_dom > 1 && !rparams.vectorize_iter_dom
+     << (rparams->vectorize_iter_dom ? "vectorize / " : "")
+     << (rparams->unroll_factor_iter_dom > 1 && !rparams->vectorize_iter_dom
              ? "unroll / "
              : "");
-  if (rparams.unroll_factor_iter_dom > 1 || rparams.vectorize_iter_dom) {
-    ss << "factor " << rparams.unroll_factor_iter_dom;
+  if (rparams->unroll_factor_iter_dom > 1 || rparams->vectorize_iter_dom) {
+    ss << "factor " << rparams->unroll_factor_iter_dom;
   }
 
   ss << " // Inner Reduction Domain: "
-     << (rparams.cross_block_inner_reduction ? "cross block reduction / " : "")
-     << (rparams.pad_inner_reduction_to_warp ? "pad to warp / " : "")
-     << (rparams.cross_grid_inner_reduction ? "cross grid reduction / " : "");
+     << (rparams->cross_block_inner_reduction ? "cross block reduction / " : "")
+     << (rparams->pad_inner_reduction_to_warp ? "pad to warp / " : "")
+     << (rparams->cross_grid_inner_reduction ? "cross grid reduction / " : "");
 
-  if (rparams.batches_per_block_inner_reduction > 1 ||
-      rparams.persistent_kernel) {
-    ss << "persistent batch - " << rparams.batches_per_block_inner_reduction
+  if (rparams->batches_per_block_inner_reduction > 1 ||
+      rparams->persistent_kernel) {
+    ss << "persistent batch - " << rparams->batches_per_block_inner_reduction
        << " / ";
   }
 
-  ss << (rparams.cross_grid_inner_reduction &&
-                 rparams.split_grid_dim_inner_reduction
+  ss << (rparams->cross_grid_inner_reduction &&
+                 rparams->split_grid_dim_inner_reduction
              ? "split grid dimension / "
              : "")
-     << (rparams.vectorize_inner_reduction ? "vectorize / " : "")
-     << (rparams.unroll_factor_inner_reduction > 1 &&
-                 !rparams.vectorize_inner_reduction
+     << (rparams->vectorize_inner_reduction ? "vectorize / " : "")
+     << (rparams->unroll_factor_inner_reduction > 1 &&
+                 !rparams->vectorize_inner_reduction
              ? "unroll / "
              : "");
-  if (rparams.unroll_factor_inner_reduction > 1 ||
-      rparams.vectorize_inner_reduction) {
-    ss << "factor " << rparams.unroll_factor_inner_reduction;
+  if (rparams->unroll_factor_inner_reduction > 1 ||
+      rparams->vectorize_inner_reduction) {
+    ss << "factor " << rparams->unroll_factor_inner_reduction;
   }
   return ss.str();
 }
@@ -114,7 +115,7 @@ std::string toString(const TransposeParams& params) {
 std::string toString(const std::shared_ptr<HeuristicParams>& params) {
   auto rparams = std::dynamic_pointer_cast<ReductionParams>(params);
   if (rparams) {
-    return toString(*rparams);
+    return toString(rparams.get());
   }
   auto pparams = std::dynamic_pointer_cast<PointwiseParams>(params);
   if (pparams) {

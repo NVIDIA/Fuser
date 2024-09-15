@@ -394,9 +394,9 @@ TEST_F(NVFuserTest, FusionIndexSelect_Sum_CUDA) {
   at::Tensor output = at::zeros({nElem_select}, options);
 
   std::vector<c10::IValue> aten_inputs = {input1, input0, input_idx};
-  auto reduction_params = getReductionHeuristics(&fusion, aten_inputs);
-  scheduleReduction(&fusion, *reduction_params);
-  auto lparams = reduction_params->lparams;
+  auto rparams = getReductionHeuristics(&fusion, aten_inputs);
+  scheduleReduction(&fusion, rparams.get());
+  auto lparams = rparams->lparams;
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs, lparams);
   fe.runFusion(aten_inputs, {output}, lparams);
