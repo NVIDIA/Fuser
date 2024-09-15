@@ -8056,7 +8056,7 @@ TEST_F(NVFuserTest, FusionTestWarpSoftMax_CUDA) {
       ScheduleHeuristic::InnerPersistent, &fusion, runtime_info));
   auto scheduler = Schedule::makeEntry(
       ScheduleHeuristic::InnerPersistent, &fusion, runtime_info);
-  scheduler->schedule(&fusion);
+  scheduler->schedule(&fusion, scheduler->params().get());
 
   // Modify the schedule to use warp reduction
   auto used_vals = fusion.usedMathVals();

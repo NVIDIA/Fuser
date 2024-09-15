@@ -1064,9 +1064,16 @@ void ReductionScheduler::computeHeuristics(
   NVF_ERROR(params_ != nullptr);
 }
 
-void ReductionScheduler::schedule(Fusion* fusion) {
+void ReductionScheduler::schedule(
+    Fusion* fusion,
+    const HeuristicParams* params) {
   FUSER_PERF_SCOPE("ReductionScheduler::schedule");
-  scheduleReduction(fusion, params()->as<ReductionParams>());
+  auto rparams = dynamic_cast<const ReductionParams*>(params);
+  NVF_ERROR(
+      rparams != nullptr,
+      "Incorrect parameters sent to ReductionScheduler::schedule",
+      params);
+  scheduleReduction(fusion, rparams);
 }
 
 //! Check if the reduction heuristics apply in given fusion

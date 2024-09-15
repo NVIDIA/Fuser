@@ -2152,7 +2152,8 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulTileCheck8warp) {
         mparams.circular_buffer_options.smem_circular_buffer_stage = 2;
         mma_utils::MmaDataTypes data_types = {
             DataType::Half, DataType::Half, DataType::Float};
-        std::tie(mparams.use_smem_epilogue, mparams.promote_prologue_smem_reuse) =
+        std::tie(
+            mparams.use_smem_epilogue, mparams.promote_prologue_smem_reuse) =
             mma_utils::generateSharedMemoryEpilogueHeuristics(
                 gemm_tile,
                 mparams.circular_buffer_options.smem_circular_buffer_stage,
@@ -2816,7 +2817,8 @@ TEST_P(MatmulTestWithLayout, FusionAmpereMatmulSplitK_CUDA) {
       mparams.tile_sizes = gemm_tile;
       mparams.splitk_factor = splitk_factor;
       if (use_smem_epilogue) {
-        std::tie(mparams.use_smem_epilogue, mparams.promote_prologue_smem_reuse) =
+        std::tie(
+            mparams.use_smem_epilogue, mparams.promote_prologue_smem_reuse) =
             mma_utils::generateSharedMemoryEpilogueHeuristics(
                 gemm_tile,
                 1,

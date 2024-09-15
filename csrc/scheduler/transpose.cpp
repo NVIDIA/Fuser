@@ -112,9 +112,16 @@ bool TransposeScheduler::canScheduleRunTime(
   return true;
 }
 
-void TransposeScheduler::schedule(Fusion* fusion) {
+void TransposeScheduler::schedule(
+    Fusion* fusion,
+    const HeuristicParams* params) {
   FUSER_PERF_SCOPE("TransposeScheduler::schedule");
-  scheduleTranspose(fusion, params()->as<TransposeParams>());
+  auto tparams = dynamic_cast<const TransposeParams*>(params);
+  NVF_ERROR(
+      tparams != nullptr,
+      "Incorrect parameters sent to TransposeScheduler::schedule",
+      params);
+  scheduleTranspose(fusion, tparams);
 }
 
 void TransposeScheduler::computeHeuristics(

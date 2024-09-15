@@ -43,7 +43,7 @@ class ExprEvalScheduler : public SchedulerEntry {
     return ScheduleHeuristic::ExprEval;
   }
 
-  void schedule(Fusion* fusion) override;
+  void schedule(Fusion* fusion, const HeuristicParams* params) override;
 };
 
 } // namespace nvfuser

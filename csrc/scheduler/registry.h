@@ -183,7 +183,7 @@ class SchedulerEntry {
   //! Fusion runtime facing API,
   //!   schedule the given fusion with heuristics owned
   //!   by this entry, for actual heuristics to override
-  virtual void schedule(Fusion* fusion) = 0;
+  virtual void schedule(Fusion* fusion, const HeuristicParams* params) = 0;
 
   //! Heuristic comparison
   bool sameAs(const SchedulerEntry* other);

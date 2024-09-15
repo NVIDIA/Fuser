@@ -48,7 +48,14 @@ bool ExprEvalScheduler::canScheduleCompileTime(Fusion* fusion) {
   return false;
 }
 
-void ExprEvalScheduler::schedule(Fusion* fusion) {
+void ExprEvalScheduler::schedule(
+    Fusion* fusion,
+    const HeuristicParams* params) {
+  NVF_ERROR(
+      params->heuristic_type == ScheduleHeuristic::ExprEval,
+      "Invalid heuristic sent to ExprEval scheduler: ",
+      params);
+
   std::for_each(
       fusion->outputs().begin(), fusion->outputs().end(), [&](Val* out) {
         fusion->aliasOutputToInput(

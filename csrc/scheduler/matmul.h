@@ -26,13 +26,13 @@ void moveInnerBroadcastLeft(TensorView* tv, int64_t number_of_inner_pos = 3);
 NVF_API void scheduleMatmul(Fusion* fusion, const MatmulParams* mparams);
 
 class MatmulScheduler : public SchedulerEntry {
-public:
+ public:
   explicit MatmulScheduler(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr);
 
-  void schedule(Fusion* fusion) override;
+  void schedule(Fusion* fusion, const HeuristicParams* params) override;
 
   static bool canScheduleCompileTime(Fusion* fusion);
 

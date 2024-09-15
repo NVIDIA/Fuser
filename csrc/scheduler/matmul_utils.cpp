@@ -177,8 +177,8 @@ inline bool initCoreHeuristics(
     // Circular buffering requires async load. If we cannot use async load due
     // to unsupported vectorization width, then we can only circular buffer at
     // most.
-    mparams->circular_buffer_options.smem_circular_buffer_stage =
-        std::min(2, mparams->circular_buffer_options.smem_circular_buffer_stage);
+    mparams->circular_buffer_options.smem_circular_buffer_stage = std::min(
+        2, mparams->circular_buffer_options.smem_circular_buffer_stage);
   }
   return true;
 }
@@ -897,7 +897,8 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
         "Specify plugin location like this: "
         "NVFUSER_MATMUL_HEURISTIC_PLUGIN=/path/to/libmatmulheuristic.so");
     // Populate heuristic details
-    auto status = initCoreHeuristics(mparams.get(), problem_shape, tensor_roles);
+    auto status =
+        initCoreHeuristics(mparams.get(), problem_shape, tensor_roles);
     NVF_ERROR(status, "Initialization of core part of heuristics failed.");
   }
 

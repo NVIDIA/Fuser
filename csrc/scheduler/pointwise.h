@@ -198,7 +198,7 @@ class PointWiseScheduler : public SchedulerEntry {
   constexpr static ScheduleHeuristic heuristicType() {
     return ScheduleHeuristic::PointWise;
   }
-  void schedule(Fusion* fusion) override;
+  void schedule(Fusion* fusion, const HeuristicParams* params) override;
 
   void computeHeuristics(
       Fusion* fusion,

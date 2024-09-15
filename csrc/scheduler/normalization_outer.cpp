@@ -26,9 +26,16 @@ OuterPersistentKernelScheduler::OuterPersistentKernelScheduler(
   computeHeuristics(fusion, runtime_info, data_cache);
 }
 
-void OuterPersistentKernelScheduler::schedule(Fusion* fusion) {
+void OuterPersistentKernelScheduler::schedule(
+    Fusion* fusion,
+    const HeuristicParams* params) {
   FUSER_PERF_SCOPE("OuterPersistentKernelScheduler::schedule");
-  scheduleOuterPersistentKernel(fusion, params()->as<ReductionParams>());
+  auto rparams = dynamic_cast<const ReductionParams*>(params);
+  NVF_ERROR(
+      rparams != nullptr,
+      "Incorrect parameters sent to OuterPersistentKernelScheduler::schedule",
+      params);
+  scheduleOuterPersistentKernel(fusion, rparams);
 }
 
 bool OuterPersistentKernelScheduler::canScheduleCompileTime(Fusion* fusion) {

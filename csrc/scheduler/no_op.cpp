@@ -115,7 +115,12 @@ bool NoOpScheduler::canScheduleRunTime(
   return true;
 }
 
-void NoOpScheduler::schedule(Fusion* fusion) {
+void NoOpScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
+  NVF_ERROR(
+      params->heuristic_type == ScheduleHeuristic::NoOp,
+      "Invalid heuristic sent to NoOp scheduler: ",
+      params);
+
   if (scheduler_utils::isResharding(fusion)) {
     return;
   }

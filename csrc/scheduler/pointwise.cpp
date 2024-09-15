@@ -99,9 +99,16 @@ bool PointWiseScheduler::canScheduleRunTime(
   return true;
 }
 
-void PointWiseScheduler::schedule(Fusion* fusion) {
+void PointWiseScheduler::schedule(
+    Fusion* fusion,
+    const HeuristicParams* params) {
   FUSER_PERF_SCOPE("PointWiseScheduler::schedule");
-  schedulePointwise(fusion, params()->as<PointwiseParams>());
+  auto pparams = dynamic_cast<const PointwiseParams*>(params);
+  NVF_ERROR(
+      pparams != nullptr,
+      "Incorrect parameters sent to PointWiseScheduler::schedule",
+      params);
+  schedulePointwise(fusion, pparams);
 }
 
 void PointWiseScheduler::computeHeuristics(

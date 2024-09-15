@@ -215,7 +215,7 @@ void UserSchedule::scheduleWithHeuristic(const ScheduleHeuristic& heuristic) {
       "Heuristic Scheduler is already defined for this UserSchedule");
   heuristic_scheduler =
       Schedule::makeEntry(heuristic, fusion(), *runtimeInfo());
-  heuristic_scheduler->schedule(fusion());
+  heuristic_scheduler->schedule(fusion(), heuristic_scheduler->params().get());
 }
 
 FusionSchedules::FusionSchedules(int64_t fusion_id)

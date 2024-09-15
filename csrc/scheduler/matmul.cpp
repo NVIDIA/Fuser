@@ -32,9 +32,14 @@ MatmulScheduler::MatmulScheduler(
   computeHeuristics(fusion, runtime_info);
 }
 
-void MatmulScheduler::schedule(Fusion* fusion) {
-  FUSER_PERF_SCOPE("Schedule Matmul Fusion");
-  scheduleMatmul(fusion, params()->as<MatmulParams>());
+void MatmulScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
+  FUSER_PERF_SCOPE("MatmulScheduler::schedule");
+  auto mparams = dynamic_cast<const MatmulParams*>(params);
+  NVF_ERROR(
+      mparams != nullptr,
+      "Incorrect parameters sent to MatmulScheduler::schedule",
+      params);
+  scheduleMatmul(fusion, mparams);
 }
 
 bool MatmulScheduler::canScheduleCompileTime(Fusion* fusion) {
@@ -957,7 +962,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams* mparams) {
       mma_result->merge(num_device_and_batch_dims);
       // [I1*factor, I2/factor]
     } else if (
-        mparams->cta_order == MatmulParams::TileRasterizationOrder::ColumnMajor) {
+        mparams->cta_order ==
+        MatmulParams::TileRasterizationOrder::ColumnMajor) {
       mma_result->split(num_device_and_batch_dims, factor);
       // [I1/factor, factor, I2]
       mma_result->reorder(
@@ -1251,7 +1257,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams* mparams) {
       if (d_extent > mparams->supported_vec_size.epilogue) {
         // Should always be a divisible split
         NVF_ERROR(d_extent % mparams->supported_vec_size.epilogue == 0);
-        d->split(-1, mparams->supported_vec_size.epilogue, /*inner_split=*/true);
+        d->split(
+            -1, mparams->supported_vec_size.epilogue, /*inner_split=*/true);
         d->axis(-2)->parallelize(ParallelType::Unroll);
       }
       d->axis(-1)->parallelize(ParallelType::Vectorize);

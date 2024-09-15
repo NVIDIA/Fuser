@@ -1320,7 +1320,7 @@ TEST_F(PersistentBufferTest, SmemPersistent2DReduction) {
   EXPECT_FALSE(scheduler->params()
                    ->as<ReductionParams>()
                    ->smem_persistent_buffers.empty());
-  scheduler->schedule(fusion.get());
+  scheduler->schedule(fusion.get(), scheduler->params().get());
 
   // Run the fusion and validate the results
   FusionExecutor fe;

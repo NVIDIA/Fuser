@@ -143,7 +143,7 @@ void copyParamsToConfig(KernelConfig* config, const MatmulParams* mparams) {
   config->grid_swizzle_factor = mparams->grid_swizzle_factor;
   config->cta_order =
       mparams->cta_order == MatmulParams::TileRasterizationOrder::RowMajor ? 0
-                                                                         : 1;
+                                                                           : 1;
   config->circular_buffer_smem_read =
       mparams->circular_buffer_options.circular_buffer_smem_read;
   config->rotate_ldmatrix_out_of_main_loop =

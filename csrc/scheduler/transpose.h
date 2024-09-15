@@ -131,7 +131,7 @@ class TransposeScheduler : public SchedulerEntry {
     return ScheduleHeuristic::Transpose;
   }
 
-  void schedule(Fusion* fusion) override;
+  void schedule(Fusion* fusion, const HeuristicParams* params) override;
 
  private:
   void computeHeuristics(

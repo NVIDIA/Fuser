@@ -32,7 +32,7 @@ class OuterPersistentKernelScheduler : public SchedulerEntry {
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr);
 
-  void schedule(Fusion* fusion) override;
+  void schedule(Fusion* fusion, const HeuristicParams* params) override;
 
   static bool canScheduleCompileTime(Fusion* fusion);
 

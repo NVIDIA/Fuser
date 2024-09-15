@@ -102,7 +102,7 @@ static void NvFuserScheduler_Softmax_WarpReduceReference(
       ScheduleHeuristic::InnerPersistent, fusion, runtime_info));
   auto scheduler = Schedule::makeEntry(
       ScheduleHeuristic::InnerPersistent, fusion, runtime_info);
-  scheduler->schedule(fusion);
+  scheduler->schedule(fusion, scheduler->params().get());
 
   FusionExecutor fe;
   fe.compileFusion(fusion, aten_inputs);
@@ -138,7 +138,7 @@ static void NvFuserScheduler_Softmax_WarpReduce(
       ScheduleHeuristic::InnerPersistent, fusion, runtime_info));
   auto scheduler = Schedule::makeEntry(
       ScheduleHeuristic::InnerPersistent, fusion, runtime_info);
-  scheduler->schedule(fusion);
+  scheduler->schedule(fusion, scheduler->params().get());
 
   // Modify the schedule to use warp reduction
   auto used_vals = fusion->usedMathVals();
