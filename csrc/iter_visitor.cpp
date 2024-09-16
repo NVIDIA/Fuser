@@ -270,7 +270,7 @@ void IterVisitor::traverseBetween(
                ir_utils::filterByType<Expr>(cycle.begin(), cycle.end())) {
             ss << expr << std::endl;
           }
-          NVF_ERROR(false, ss.str());
+          NVF_THROW(ss.str());
         }
         // Add all these new stmts to visit to the stack.
         stmt_stack.emplace_back(next_stmts.rbegin(), next_stmts.rend());
@@ -409,7 +409,7 @@ std::vector<Statement*> BackwardVisitor::next(Statement* stmt) {
   } else if (stmt->isExpr()) {
     return next(stmt->as<Expr>());
   } else {
-    NVF_ERROR(false, "BackwardVisitor could not detect type in next_dispatch.");
+    NVF_THROW("BackwardVisitor could not detect type in next_dispatch.");
   }
 }
 

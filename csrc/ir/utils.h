@@ -680,7 +680,7 @@ inline bool isMemoryPartitionedAcross(
     case MemoryType::Global:
       return isParallelTypeDeviceDim(parallel_type);
     default:
-      NVF_ERROR(false, "Unknown MemoryType: ", memory_type);
+      NVF_THROW("Unknown MemoryType: ", memory_type);
   }
 }
 
@@ -701,7 +701,7 @@ inline bool isMemorySharedAcross(
       return isParallelTypeThreadDim(parallel_type) ||
           isParallelTypeBlockDim(parallel_type);
     default:
-      NVF_ERROR(false, "Unknown MemoryType: ", memory_type);
+      NVF_THROW("Unknown MemoryType: ", memory_type);
   }
 }
 

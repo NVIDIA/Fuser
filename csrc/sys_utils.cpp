@@ -137,7 +137,7 @@ std::string disassembleBinary(
     execl("/bin/bash", "bash", "-c", command.c_str(), NULL);
 
     // only reachable when execl fails
-    NVF_ERROR(false, err);
+    NVF_THROW(err);
   }
 }
 
@@ -203,7 +203,7 @@ std::string disassembleBinary(const std::vector<char>& binary) {
 } // namespace executor_utils
 
 void* LibraryLoader::getSymbol(const char* symbol_name) {
-  NVF_ERROR(false, "LibraryLoader::getSymbol is only supported on Linux");
+  NVF_THROW("LibraryLoader::getSymbol is only supported on Linux");
   return nullptr;
 }
 

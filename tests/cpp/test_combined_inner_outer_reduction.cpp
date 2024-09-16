@@ -421,7 +421,7 @@ TEST_F(CombinedSchedulerTest, SharedProducer) {
         fusion.addOutput(use_producer_2);
       } break;
       default:
-        NVF_ERROR(false, "Invalid case id");
+        NVF_THROW("Invalid case id");
     }
 
     fusion.addOutput(layer_norm_results.grad_input);
@@ -464,7 +464,7 @@ TEST_F(CombinedSchedulerTest, SharedProducer) {
         EXPECT_FALSE(runtime->isSegmented());
         break;
       default:
-        NVF_ERROR(false, "Invalid case id");
+        NVF_THROW("Invalid case id");
     }
 
     auto tolerance_overwrite = ValidationConstants();

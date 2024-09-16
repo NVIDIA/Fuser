@@ -278,7 +278,7 @@ std::optional<std::pair<IterDomain*, IterDomain*>> detectMappablePair(
           return std::make_pair(id1, id2);
         }
       } else {
-        NVF_ERROR(false, "Unrecognized IdMappingMode mode.");
+        NVF_THROW("Unrecognized IdMappingMode mode.");
       }
     }
   }
@@ -1510,8 +1510,9 @@ const DisjointSets<IterDomain*>& ComputeAtMap::getIdSets(
       return id_graph_.permissiveResizeNodes();
     case IdMappingMode::INNERMOST:
       return id_graph_.innermostNodes();
+    default:
+      NVF_THROW("Error with mapping mode provided.");
   }
-  NVF_ERROR(false, "Error with mapping mode provided.");
 }
 
 bool ComputeAtMap::idExistsInMap(IterDomain* id, IdMappingMode mode) const {
