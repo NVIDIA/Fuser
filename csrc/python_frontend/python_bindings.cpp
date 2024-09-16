@@ -273,7 +273,7 @@ Tensor slice_fn(
       stride_vec.push_back(out);
     }
     // Cannot inline definition with `Vector` here, since `FusionDefinition.ops.slice` expects start/end/stride to have the same type.
-    Vector default_stride = define_vector_base_fn(*fd, stride_vec, std::is_same_v<ShapeType, Vector>);
+    Vector default_stride = define_vector_base_fn(*fd, stride_vec, !std::is_same_v<ShapeType, Vector>);
     stride_index = default_stride();
   }
 
