@@ -1277,7 +1277,7 @@ IterDomain* projectIdToRoot(
         }
       }
     } else {
-      NVF_ERROR(false, "Didn't recognize the iterdomain expression: ", expr);
+      NVF_THROW("Didn't recognize the iterdomain expression: ", expr);
     }
     if (projected_id == nullptr) {
       break;
@@ -1337,7 +1337,7 @@ IterDomain* projectIdToRFactor(
         }
       }
     } else {
-      NVF_ERROR(false, "Didn't recognize the iterdomain expression: ", expr);
+      NVF_THROW("Didn't recognize the iterdomain expression: ", expr);
     }
     if (projected_id == nullptr) {
       break;
@@ -1438,7 +1438,7 @@ void FindAllMappedDims::propagateSibling(TensorView* from, TensorView* to) {
       }
     }
   }
-  NVF_ERROR(false, "Unable to find mapped root/logical domain");
+  NVF_THROW("Unable to find mapped root/logical domain");
 }
 
 std::unordered_set<IterDomain*> FindAllMappedDims::get() const {
@@ -2118,7 +2118,7 @@ std::unordered_map<int64_t, int64_t> domainReorderAsLogicalMap(TensorView* tv) {
       *find_it = resize->out();
     } else {
       NVF_ERROR(expr != nullptr);
-      NVF_ERROR(false, "Unexpected expression: ", expr->toString());
+      NVF_THROW("Unexpected expression: ", expr->toString());
     }
   }
 
@@ -2416,7 +2416,7 @@ void promoteProducerMemoryTypes(
       case MemoryType::Global:
         return 3;
       default:
-        NVF_ERROR(false, "Unexpected memory type: ", m_type);
+        NVF_THROW("Unexpected memory type: ", m_type);
     }
   };
 

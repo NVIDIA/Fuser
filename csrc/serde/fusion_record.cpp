@@ -32,7 +32,7 @@ std::optional<bool> mapContiguityEnumToOptional(Contiguity v) {
     case Contiguity::None:
       return std::nullopt;
   }
-  NVF_ERROR(false, "Invalid contiguity type.");
+  NVF_THROW("Invalid contiguity type.");
   return std::nullopt;
 }
 
