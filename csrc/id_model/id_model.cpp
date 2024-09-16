@@ -700,7 +700,7 @@ void IdModel::buildGraph(IdMappingMode mode) {
       buildLoopGraph();
       break;
     default:
-      NVF_ERROR(false, "Unsupported mode: ", mode);
+      NVF_THROW("Unsupported mode: ", mode);
   }
 }
 

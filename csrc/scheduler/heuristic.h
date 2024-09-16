@@ -7,7 +7,7 @@
 // clang-format on
 #pragma once
 
-#include <executor_params.h>
+#include <fusion_executor/executor_params.h>
 #include <utils.h>
 
 #include <string>

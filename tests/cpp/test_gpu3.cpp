@@ -16,10 +16,10 @@
 #include <device_lower/pass/magic_zero.h>
 #include <device_lower/pass/replace_size.h>
 #include <disjoint_set.h>
-#include <executor.h>
-#include <executor_params.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
+#include <fusion_executor/executor.h>
+#include <fusion_executor/executor_params.h>
 #include <fusion_segmenter.h>
 #include <grouped_reduction.h>
 #include <id_model/id_model.h>
@@ -3839,8 +3839,8 @@ TEST_F(NVFuserTest, FusionCheckedSymbolicShape_CUDA) {
   {
     ASSERT_THAT(
         [&]() { matched_add(a, c); },
-        ::testing::ThrowsMessage<nvfuser::nvfError>(
-            ::testing::HasSubstr("Conflicting sizes")));
+        ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
+            "When trying to propagate constant tensor sizes through the graph a conflict was found with 2 different sizes across dimensions that are expected to match.")));
     GTEST_SKIP() << "skipping tests on pre-AMPERE GPUs";
   }
 }

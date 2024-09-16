@@ -97,7 +97,8 @@ class ContigIDGroups {
       const std::vector<IterDomain*>& alloc_domains,
       std::vector<bool> contiguity,
       const ExprPath<ExprGroup>& path_from_alloc,
-      const ValGraph& graph);
+      const ValGraph& graph,
+      bool is_predicate_pass);
 
   void dispatch(const ExprGroup& eg, Direction direction) {
     NVF_ERROR(!eg->empty());
@@ -110,12 +111,16 @@ class ContigIDGroups {
 
     if (auto merge = dynamic_cast<Merge*>(expr)) {
       handle(merge, direction);
+    } else if (auto split = dynamic_cast<Split*>(expr)) {
+      handle(split, direction);
     } else if (auto resize = dynamic_cast<Resize*>(expr)) {
       handle(resize, direction);
     }
   }
 
   void handle(Merge* merge, Direction direction);
+
+  void handle(Split* split, Direction direction);
 
   void handle(Resize* resize, Direction direction);
 
@@ -136,6 +141,7 @@ class ContigIDGroups {
   const std::vector<IterDomain*> alloc_domains_;
   // Contiguity of alloc_domains_
   const std::vector<bool> alloc_contiguity_;
+  const bool is_predicate_pass_;
   std::unique_ptr<const OrderedIdGroupInformation> consistent_transform_info_;
 
   // Contig domain groups
@@ -144,6 +150,8 @@ class ContigIDGroups {
   std::unordered_map<IterDomain*, ValGroup> alloc_to_contig_ids_;
   // All domains that have dependencies with resize ops
   std::unordered_set<ValGroup> resize_deps_;
+  // All domains that have dependencies with non-divisible split ops
+  std::unordered_set<ValGroup> non_divisible_deps_;
 };
 
 // Get a contiguous indexing domain for a given allocation domain. If
@@ -153,6 +161,7 @@ std::unordered_map<IterDomain*, ValGroup> getContigDomains(
     const std::vector<IterDomain*>& alloc_domains,
     const std::vector<bool>& alloc_contiguity,
     const ExprPath<ExprGroup>& path_from_alloc,
-    const ValGraph& graph);
+    const ValGraph& graph,
+    bool is_predicate_pass);
 
 } // namespace nvfuser

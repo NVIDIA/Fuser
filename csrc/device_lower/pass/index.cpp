@@ -409,7 +409,7 @@ void IndexLowering::handle(const ViewAsScalar* uop) {
       return;
     }
   }
-  NVF_ERROR(false, "Can not find index for vector dim");
+  NVF_THROW("Can not find index for vector dim");
 }
 
 namespace {
@@ -1413,7 +1413,7 @@ void IndexLowering::handle(const kir::MBarrierInit* minit) {
     smem_address_ptr = lower_utils::u32IndexScalarSmemTv(
         minit->mbarrier()->as<kir::TensorIndex>());
   } else {
-    NVF_ERROR(false, "Unexpected MBarrierInit value.");
+    NVF_THROW("Unexpected MBarrierInit value.");
   }
   kir::MBarrierInit* minit_indexed = IrBuilder::create<kir::MBarrierInit>(
       smem_address_ptr, minit->threadCount());
@@ -1568,6 +1568,65 @@ static inline DataType getMmaOutType(TensorView* mma_out) {
   return ArrayType{std::make_shared<DataType>(DataType::Float), (size_t)size};
 }
 
+namespace {
+std::pair<Val*, Val*> hardCodedIndexGenerationForStMatrix(
+    const LoadStoreOp* ldst,
+    const int64_t output_m_extent,
+    const int64_t output_n_extent) {
+  NVF_ERROR(
+      (output_m_extent == 8 && output_n_extent == 8) ||
+          (output_m_extent == 16 && output_n_extent == 8) ||
+          (output_m_extent == 16 && output_n_extent == 16),
+      "size not currently supported for stmatrix");
+
+  auto num_regs = (output_m_extent) / 8 * (output_n_extent) / 8;
+  auto as_type = ArrayType{
+      std::make_shared<DataType>(DataType::UInt32),
+      static_cast<size_t>(num_regs)};
+
+  Val* in = IrBuilder::create<kir::TensorIndex>(
+      dynamic_cast<TensorView*>(ldst->in()),
+      IrBuilder::create<Val>(0, DataType::Index),
+      as_type);
+
+  Val* out_index = nullptr;
+  // This will hanlde 8x8 and 16x8.
+  if (output_n_extent == 8) {
+    // T_shared[toSmem(T_shared) + 16 * tidx.x]
+    out_index = IrBuilder::addExpr(
+        IrBuilder::baseAddressExpr(dynamic_cast<TensorView*>(ldst->out())),
+        IrBuilder::mulExpr(
+            IrBuilder::create<Val>(16, DataType::Index),
+            IrBuilder::create<NamedScalar>("threadIdx.x", DataType::Index)));
+  } else if (output_n_extent == 16) {
+    // This will hanlde 16x16
+    // T_shared[toSmem(T_shared) + 16 * (tidx.x / 16) +  32 * (tidx.x%16)  +
+
+    // 16 * (tidx.x / 16)
+    auto expr0 = IrBuilder::mulExpr(
+        IrBuilder::create<Val>(16, DataType::Index),
+        IrBuilder::divExpr(
+            IrBuilder::create<NamedScalar>("threadIdx.x", DataType::Index),
+            IrBuilder::create<Val>(16, DataType::Index)));
+
+    // 32 * (tidx.x%16)
+    auto expr1 = IrBuilder::mulExpr(
+        IrBuilder::modExpr(
+            IrBuilder::create<NamedScalar>("threadIdx.x", DataType::Index),
+            IrBuilder::create<Val>(16, DataType::Index)),
+        IrBuilder::create<Val>(32, DataType::Index));
+
+    out_index = IrBuilder::addExpr(
+        IrBuilder::baseAddressExpr(ir_utils::getTvOutput(ldst)),
+        IrBuilder::addExpr(expr0, expr1));
+  }
+  Val* out = IrBuilder::create<kir::TensorIndex>(
+      dynamic_cast<TensorView*>(ldst->out()), out_index);
+
+  return {in, out};
+}
+} // namespace
+
 void IndexLowering::handle(const LoadStoreOp* ldst) {
   Val* in = nullptr;
   Val* out = nullptr;
@@ -1577,7 +1636,7 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
     } else if (ir_utils::isCpAsyncBulkStore(ldst)) {
       handleCpAsyncBulkStore(ldst);
     } else {
-      NVF_ERROR(false);
+      NVF_THROW();
     }
   } else {
     DataType as_type = DataType::Null;
@@ -1587,32 +1646,33 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
           (size_t)ir_utils::getVectorizeSize(ldst->out()->as<TensorView>()) /
               2};
     } else if (ir_utils::isStMatrixOp(ldst)) {
-      as_type = ArrayType{
-          std::make_shared<DataType>(DataType::UInt32),
-          1 /*hard coded for 8*8 store*/};
+      NVF_ERROR(
+          ldst->out()->as<TensorView>()->getLogicalDomain().size() == 2,
+          "We only support 2D inputs stmatrix");
+
+      auto output_m_extent = ldst->out()
+                                 ->as<TensorView>()
+                                 ->getLogicalDomain()[0]
+                                 ->extent()
+                                 ->evaluate()
+                                 .as<int64_t>();
+      auto output_n_extent = ldst->out()
+                                 ->as<TensorView>()
+                                 ->getLogicalDomain()[1]
+                                 ->extent()
+                                 ->evaluate()
+                                 .as<int64_t>();
+
+      auto [in_idx, out_idx] = hardCodedIndexGenerationForStMatrix(
+          ldst, output_m_extent, output_n_extent);
+      in = in_idx;
+      out = out_idx;
     } else if (ldst->out()->definition()->isA<MmaOp>()) {
       // For MMA accumulator initialization
       as_type = getMmaOutType(ldst->out()->as<TensorView>());
     }
 
-    if (ir_utils::isStMatrixOp(ldst)) {
-      // Currently we create hard coded indexing for stmatrix which works on 8x8
-      // matrices. T_local[0]
-      in = IrBuilder::create<kir::TensorIndex>(
-          dynamic_cast<TensorView*>(ldst->in()),
-          IrBuilder::create<Val>(0, DataType::Index),
-          as_type);
-
-      // T_shared[toSmem(T_shared) + 16 * tidx.x]
-      auto out_index = IrBuilder::addExpr(
-          IrBuilder::baseAddressExpr(dynamic_cast<TensorView*>(ldst->out())),
-          IrBuilder::mulExpr(
-              IrBuilder::create<Val>(16, DataType::Index),
-              IrBuilder::create<NamedScalar>("threadIdx.x", DataType::Index)));
-
-      out = IrBuilder::create<kir::TensorIndex>(
-          dynamic_cast<TensorView*>(ldst->out()), out_index);
-    } else {
+    if (!ir_utils::isStMatrixOp(ldst)) {
       in = lowerSrcIndex(
           ldst->in(),
           ldst->out(),
@@ -1930,7 +1990,7 @@ void IndexLowering::allocateUniqueFusedReduction(
         IrBuilder::create<kir::AllocateFusedReduction>(
             expr->as<kir::GroupedGridWelford>());
   } else {
-    NVF_ERROR(false, "Invalid expr: ", expr->toString());
+    NVF_THROW("Invalid expr: ", expr->toString());
   }
 
   fused_reduction_map_.emplace(out_tv, fused_reduction_alloc_reduction);

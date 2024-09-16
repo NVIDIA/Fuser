@@ -160,7 +160,7 @@ c10::intrusive_ptr<c10d::Backend> createBackend(
         store, static_cast<int>(rank), static_cast<int>(size), timeout);
   }
 #endif
-  NVF_ERROR(false, "no distributed backend available");
+  NVF_THROW("no distributed backend available");
 }
 #endif
 } // namespace

@@ -9,9 +9,9 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <executor.h>
-#include <executor_utils.h>
 #include <fusion.h>
+#include <fusion_executor/executor.h>
+#include <fusion_executor/executor_utils.h>
 #include <inlining.h>
 #include <kernel_cache.h>
 #include <ops/all_ops.h>

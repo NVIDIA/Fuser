@@ -168,11 +168,11 @@ void OptOutMutator::mutate(TensorView* tv) {
 }
 
 void OptOutMutator::mutate(kir::Predicate*) {
-  NVF_ERROR(false, "Not implemented yet.");
+  NVF_THROW("Not implemented yet.");
 }
 
 void OptOutMutator::mutate(kir::TensorIndex*) {
-  NVF_ERROR(false, "Not implemented yet.");
+  NVF_THROW("Not implemented yet.");
 }
 
 Expr* OptOutMutator::mutateExpr(

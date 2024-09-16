@@ -16,6 +16,7 @@
 #include <fusion.h>
 #include <id_model/id_model.h>
 #include <id_model/loop_promotion.h>
+#include <id_model/schedule.h>
 #include <id_model/to_string.h>
 #include <inlining.h>
 #include <ir/graphviz.h>
@@ -2612,6 +2613,46 @@ TEST_F(IdModelTest, ParallelTypePropagation) {
       << "Parallel type propagation failed";
   EXPECT_EQ(tv1->axis(1)->getParallelType(), tv2->axis(1)->getParallelType())
       << "Parallel type propagation failed";
+}
+
+TEST_F(IdModelTest, RepresentativeId) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({-1, 1});
+  auto tv1 = makeConcreteTensor({-1, -1});
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  auto tv2 = add(tv0, tv1);
+  auto tv3 = sum(tv2, {0, 1});
+  fusion.addOutput(tv3);
+
+  // Build a graph that maps concretized broadcasts, as well as reductions.
+  ValGraph graph;
+  for (TensorView* tv : {tv0, tv1, tv2, tv3}) {
+    for (IterDomain* id : tv->getLogicalDomain()) {
+      graph.initializeVal(id);
+    }
+  }
+  graph.mapVals(tv0->axis(0), tv2->axis(0));
+  graph.mapVals(tv0->axis(1), tv2->axis(1));
+  graph.mapVals(tv1->axis(0), tv2->axis(0));
+  graph.mapVals(tv1->axis(1), tv2->axis(1));
+  graph.mapVals(tv3->axis(0), tv2->axis(0));
+  graph.mapVals(tv3->axis(1), tv2->axis(1));
+
+  // In this graph we will have a group with Iteration and Reduction,
+  // and another with Iteration, Broadcast, and Reduction
+  EXPECT_EQ(graph.disjointValSets().size(), 2);
+
+  for (IterDomain* id : {tv0->axis(0), tv0->axis(1)}) {
+    ASSERT_TRUE(graph.hasGroup(id));
+    IterDomain* rep = representativeId(graph.toGroup(id));
+    ASSERT_TRUE(rep != nullptr);
+    EXPECT_FALSE(rep->isBroadcast());
+    EXPECT_FALSE(rep->isReduction());
+  }
 }
 
 } // namespace nvfuser

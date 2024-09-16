@@ -6,8 +6,8 @@
  */
 // clang-format on
 #include <device_lower/lower2device.h>
-#include <executor.h>
 #include <fusion.h>
+#include <fusion_executor/executor.h>
 #include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>
 
