@@ -629,7 +629,9 @@ struct AbstractTensorWithInfo {
     std::swap(domain[axis], inner);
     domain.insert(domain.begin() + axis, outer);
 
-    info.insert(info.begin() + axis, info[axis]);
+    auto [info_outer, info_inner] = Info::split(info[axis]);
+    info[axis] = std::move(info_outer);
+    info.insert(info.begin() + axis, std::move(info_inner));
 
     return *this;
   }
@@ -740,10 +742,9 @@ struct AbstractTensorWithInfo {
     std::swap(domain[x], out_x);
     std::swap(domain[y], out_y);
 
-    // TODO: allow customization for swizzle instead of re-using merge
-    Info merged_info = Info::merge(info[x], info[y]);
-    info[x] = merged_info;
-    info[y] = std::move(merged_info);
+    auto [info_outer, info_inner] = Info::swizzle(info[x], info[y]);
+    info[x] = std::move(info_outer);
+    info[y] = std::move(info_inner);
 
     return *this;
   }
@@ -763,9 +764,9 @@ struct AbstractTensorWithInfo {
     std::swap(domain[x], out_x);
     std::swap(domain[y], out_y);
 
-    Info merged_info = Info::merge(info[x], info[y]);
-    info[x] = merged_info;
-    info[y] = std::move(merged_info);
+    auto [info_outer, info_inner] = Info::swizzle(info[x], info[y]);
+    info[x] = std::move(info_outer);
+    info[y] = std::move(info_inner);
 
     return *this;
   }
@@ -883,6 +884,16 @@ struct EmptyInfo {
     return {};
   }
 
+  static std::pair<EmptyInfo, EmptyInfo> split(const EmptyInfo& a) {
+    return {{}, {}};
+  }
+
+  static std::pair<EmptyInfo, EmptyInfo> swizzle(
+      const EmptyInfo& a,
+      const EmptyInfo& b) {
+    return {{}, {}};
+  }
+
   bool operator==(const EmptyInfo& t) const {
     return true;
   }
@@ -902,6 +913,19 @@ struct TagSetInfo {
     TagSetInfo<Tag> merged_tag_info{a.tags};
     merged_tag_info.tags.insert(b.tags.begin(), b.tags.end());
     return merged_tag_info;
+  }
+
+  static std::pair<TagSetInfo<Tag>, TagSetInfo<Tag>> split(
+      const TagSetInfo<Tag>& a) {
+    return {a, a};
+  }
+
+  //! Swizzling mixes the tags so here we re-use merge and duplicate the result
+  static std::pair<TagSetInfo<Tag>, TagSetInfo<Tag>> swizzle(
+      const TagSetInfo<Tag>& a,
+      const TagSetInfo<Tag>& b) {
+    TagSetInfo<Tag> merged_info = merge(a, b);
+    return {merged_info, merged_info};
   }
 
   bool operator==(TagSetInfo<Tag>&& t) const {
