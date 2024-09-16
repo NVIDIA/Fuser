@@ -428,17 +428,26 @@ TEST_P(HangTest, MinimalTestHangSendRecv) {
 
   std::vector<int64_t> all_devices = {0,1};
   c10d::Backend* world_communicator_ = communicator_->getBackendForTeam(all_devices, GetParam());
+
+  // at::Tensor allreduce_buffer = at::ones({1}, options);
+  // std::vector<at::Tensor> allreduce_buf = {allreduce_buffer};
+  // world_communicator_->allreduce(allreduce_buf)->wait();
+
   c10::intrusive_ptr<c10d::Work> recv_h, send_h;
   if (my_rank == 0) {
-    recv_h = world_communicator_->recv(dst, peer_rank, 1);
+    // world_communicator_->startCoalescing();
+    world_communicator_->recv(dst, peer_rank, 1);
     world_communicator_->send(src, peer_rank, 0);
+    // recv_h = world_communicator_->endCoalescing();
   } else {
-    recv_h = world_communicator_->recv(dst, peer_rank, 0);
+    // world_communicator_->startCoalescing();
+    world_communicator_->recv(dst, peer_rank, 0);
     world_communicator_->send(src, peer_rank, 1);
+    // recv_h = world_communicator_->endCoalescing();
   }
 
   std::cout << "rank " <<  my_rank << " has finished posting" << std::endl;
-  recv_h->wait();
+  // recv_h->wait();
   std::cout << "rank " <<  my_rank << " src = " << src << " dst = " << dst << std::endl;
 }
 
