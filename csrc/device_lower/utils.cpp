@@ -1302,6 +1302,13 @@ LinearGroupProjection propagate(
     NVF_ERROR(related(*current.group, from.front()));
     auto group = propagate(*current.group, id_graph, eg, direction);
     if (!group.hasValue()) {
+      // Propagation of group may fail. For example, if the group before
+      // propagation is [4, 3], and eg is split(3, 2), then the end result
+      // would be like [4, 2, 2]. However, because the split is indivisible,
+      // this makes group discontiguous. That is, "a composition of 4 and 3"
+      // is not a "composition of 4, 2, and 2". In this case, the return value
+      // of `propagate` will be std::monostate, indicating that the linear
+      // proving fails. For this case, we just propagate the failure.
       return {};
     }
     // The result is actually just the
