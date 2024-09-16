@@ -333,7 +333,7 @@ std::vector<PolymorphicValue> IotaOp::evaluate(
     double end = start + step * ((double)length + 1);
     return {at::arange(start, end, step, options).narrow(0, 0, length)};
   } else {
-    NVF_ERROR(false, "Unsupported dtype in IotaOp evaluator: ", dtype());
+    NVF_THROW("Unsupported dtype in IotaOp evaluator: ", dtype());
   }
 }
 

@@ -121,7 +121,7 @@ void testValidate(
           line_number,
           " in file ",
           file_name,
-          ".\n  Detected abs error of: ",
+          ".\n  Detected max abs error of: ",
           aten_output_tensor.sub(fusion_output_tensor)
               .abs()
               .max()

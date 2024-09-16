@@ -175,7 +175,7 @@ const char* profiler_state2string(const ProfilerState& pstate) {
     case ProfilerState::Processed:
       return "Processed";
     default:
-      NVF_ERROR(false, "Unexpected ProfilerState enum value!");
+      NVF_THROW("Unexpected ProfilerState enum value!");
   }
 }
 
@@ -496,7 +496,7 @@ const std::vector<ProfileAttrDescriptor> FusionProfile::profile_attr_descs{
 namespace {
 // The operator* overloads are to satisfy the compiler and should not be called!
 double operator*(const std::basic_string<char>& a, double b) {
-  NVF_ERROR(false, "This types operator* overload should not be called!");
+  NVF_THROW("This types operator* overload should not be called!");
   return 0.0;
 }
 
