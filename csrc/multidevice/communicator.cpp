@@ -221,7 +221,9 @@ void Communicator::cleanup() {
   // Without this, the TCPStore server can be cleaned up before TCPStore
   // clients are created, causing an hang. This happened with
   // test_multidevice.py::test_sizes_and_ranks.
-  barrier();
+  if (is_available()) {
+    barrier();
+  }
 
   store_ = nullptr;
 
