@@ -392,7 +392,23 @@ struct SliceOpRecord : RecordFunctor {
     for (const auto idx : c10::irange(arg->nDims())) {
       // NOTE: there's an extra move, we can use emplace_back if we go write
       // some constructors for Slice.
-      vec_slice.push_back({start.at(idx), end.at(idx), stride.at(idx)});
+      Val start_idx = start.at(idx);
+      Val end_idx = start.at(idx);
+      Val stride_idx = start.at(idx);
+          NVF_CHECK(
+              !start_idx.isConstInt() || start_idx->evaluate().as<int64_t>() >= 0,
+              "Slice operation start_indices must be greater-than-or-equal-to 0. Start Indices: ",
+              start_idx->evaluate().as<int64_t>());
+          NVF_CHECK(
+              !start_idx.isConstInt() || !end_idx.isConstInt() || end_idx->evaluate().as<int64_t>() >= start_idx->evaluate().as<int64_t>() >= 0,
+              "Slice operation end_indices must be greater-than-or-equal-to start_indices. Start Indices: ",
+              start_idx->evaluate().as<int64_t>(),
+              " End Indices: ",
+              end_idx->evaluate().as<int64_t>());
+          NVF_CHECK(
+              stride_idx.isConstInt() && stride_idx->evaluate().as<int64_t> == 1,
+              "nvFuser Limitation: All slice operation strides must be of const int with size 1");
+      vec_slice.push_back({start_idx, end_idx, stride_idx});
     }
     auto output = slice(arg, vec_slice);
     fd.setFusionState(outputs_.at(0).index, output);
