@@ -51,19 +51,20 @@ TEST_F(PersistentBufferTest, FusionPersistentBufferCalculation1_CUDA) {
   auto& projectable = persistent_buffer_info.projectable_persistent_buffers;
   auto& projectable_inputs = persistent_buffer_info.projectable_buffer_inputs;
 
-  NVF_ERROR(buffers.size() == 1);
-  NVF_ERROR(resolution.size() == 1 && resolution[0].size() == 1);
-  NVF_ERROR(projectable.size() == 1);
-  NVF_ERROR(projectable_inputs.size() == 1);
+  EXPECT_EQ(buffers.size(), 1);
+  EXPECT_EQ(resolution.size(), 1);
+  EXPECT_EQ(resolution.at(0).size(), 1) << toDelimitedString(resolution.at(0));
+  EXPECT_EQ(projectable.size(), 1);
+  EXPECT_EQ(projectable_inputs.size(), 1);
 
-  NVF_ERROR(isTvWithinVec(buffers, tv1));
-  NVF_ERROR(isTvWithinVec(projectable, tv1));
-  NVF_ERROR(isTvWithinVec(projectable_inputs, tv0));
+  EXPECT_TRUE(isTvWithinVec(buffers, tv1));
+  EXPECT_TRUE(isTvWithinVec(projectable, tv1));
+  EXPECT_TRUE(isTvWithinVec(projectable_inputs, tv0));
 
   auto tv1_resolution_it = tvEntryInVecVec(resolution, buffers, tv1);
-  NVF_ERROR(tv1_resolution_it != resolution.end())
+  EXPECT_TRUE(tv1_resolution_it != resolution.end());
 
-  NVF_ERROR(isTvWithinVec(*tv1_resolution_it, tv5));
+  EXPECT_TRUE(isTvWithinVec(*tv1_resolution_it, tv5));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor aten_t0 = at::randn({99, 101}, options);
@@ -73,11 +74,11 @@ TEST_F(PersistentBufferTest, FusionPersistentBufferCalculation1_CUDA) {
   auto persistent_buffer_size =
       persistentBufferSize(&fusion, runtime_info, persistent_buffer_info);
 
-  NVF_ERROR(
-      persistent_buffer_size.persistent_buffer_size ==
+  EXPECT_EQ(
+      persistent_buffer_size.persistent_buffer_size,
       static_cast<int64_t>(aten_t0.size(1) * dataTypeSize(DataType::Float)));
-  NVF_ERROR(
-      persistent_buffer_size.projected_persistent_buffer_size ==
+  EXPECT_EQ(
+      persistent_buffer_size.projected_persistent_buffer_size,
       static_cast<int64_t>(aten_t0.size(1) * dataTypeSize(DataType::Float)));
 }
 
@@ -264,13 +265,13 @@ TEST_F(PersistentBufferTest, FusionPersistentBufferCalculation4_CUDA) {
   auto& projectable = persistent_buffer_info.projectable_persistent_buffers;
   auto& projectable_inputs = persistent_buffer_info.projectable_buffer_inputs;
 
-  NVF_ERROR(buffers.size() == 2);
-  NVF_ERROR(
-      resolution.size() == 2 && resolution[0].size() == 1 &&
-      resolution[1].size() == 1);
+  EXPECT_EQ(buffers.size(), 2);
+  ASSERT_EQ(resolution.size(), 2);
+  EXPECT_EQ(resolution[0].size(), 1);
+  EXPECT_EQ(resolution[1].size(), 1);
 
-  NVF_ERROR(projectable.size() == 2);
-  NVF_ERROR(projectable_inputs.size() == 1);
+  EXPECT_EQ(projectable.size(), 2);
+  EXPECT_EQ(projectable_inputs.size(), 1);
 
   NVF_ERROR(isTvWithinVec(buffers, tv1) && isTvWithinVec(buffers, tv2));
   NVF_ERROR(isTvWithinVec(projectable, tv1) && isTvWithinVec(projectable, tv2));

@@ -327,5 +327,8 @@ void movePersistentBufferToSmem(
     const ReductionParams& rparams,
     const std::vector<TensorView*>& cached_inputs);
 
+// TODO: comment
+std::vector<TensorView*> getResolutionPointsOf(TensorView* persistent_buffer);
+
 } // namespace normalization_scheduler_utils
 } // namespace nvfuser

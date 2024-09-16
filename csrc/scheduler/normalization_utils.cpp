@@ -7,6 +7,7 @@
 // clang-format on
 #include <expr_evaluator.h>
 #include <grouped_reduction.h>
+#include <id_model/id_model.h>
 #include <instrumentation.h>
 #include <scheduler/cache_policy_refiner.h>
 #include <scheduler/debug_utils.h>
@@ -15,6 +16,7 @@
 #include <scheduler/registry.h>
 #include <scheduler/registry_utils.h>
 #include <utils.h>
+#include <val_graph_visitor.h>
 
 #include <ATen/cuda/CUDAContext.h>
 
@@ -1383,6 +1385,260 @@ void schedulePersistentKernel(
   scheduler_utils::promoteProducerMemoryTypes(fusion, cached_inputs);
 
   refineCachePolicy(fusion);
+}
+
+namespace {
+
+class PersistentBufferResolution : public IterVisitor {
+ public:
+  static std::vector<TensorView*> getResolutionPointsOf(
+      TensorView* persistent_buffer) {
+    PersistentBufferResolution resolution(persistent_buffer);
+
+    NVF_ERROR(
+        !resolution.resolution_points_.empty(),
+        "Could not resolve persistent buffer: ",
+        persistent_buffer->toString());
+
+    return resolution.resolution_points_;
+  }
+
+  PersistentBufferResolution() = delete;
+
+ private:
+  PersistentBufferResolution(TensorView* persistent_buffer)
+      : persistent_buffer_(persistent_buffer),
+        exact_graph_(
+            IdModel(persistent_buffer->fusion(), /*build_graphs=*/false)
+                .buildExactGraph()) {
+    debug = getenv("DEBUG");
+
+    Fusion* fusion = persistent_buffer->fusion();
+    if (debug) {
+      fusion->printMath();
+      std::cout << std::endl;
+      std::cerr << "Persistent buffer: " << persistent_buffer->toString()
+                << "\n";
+    }
+    traverse(fusion);
+  }
+
+ private:
+  void dispatch(Val* val) final {
+    if (!val->isA<TensorView>()) {
+      return;
+    }
+    auto tv = val->as<TensorView>();
+    if (tv == persistent_buffer_) {
+      persistent_buffer_hit_ = true;
+      return;
+    }
+
+    if (!persistent_buffer_hit_) {
+      return;
+    }
+
+    if (tv->hasReduction()) {
+      if (std::any_of(
+              resolution_points_.begin(),
+              resolution_points_.end(),
+              [&tv](TensorView* resolution_point) {
+                return DependencyCheck::isDependencyOf(resolution_point, tv);
+              })) {
+        // If already resolved, don't start a new reduction path.
+        return;
+      }
+
+      // auto reduction_dep_vals =
+      // DependencyCheck::getAllDependentVals({tv});
+      auto reduction_dep_chains = DependencyCheck::getAllUseChains(tv);
+      for (auto& dep_chain : reduction_dep_chains) {
+        NVF_ERROR(dep_chain.at(0) == tv);
+        dep_chain.pop_front();
+      }
+
+      // Not all reduction is for normalization. There can be no val
+      // after this TV, e.g., a Welford output that is also a segment
+      // output (can happen due to segmentation)
+      if (reduction_dep_chains.empty()) {
+        return;
+      }
+
+      ValGroups persistent_ids;
+      for (auto id : tv->getLogicalDomain()) {
+        if (id->isReduction()) {
+          persistent_ids.pushBack(exact_graph_.toGroup(id));
+        }
+      }
+
+      if (debug) {
+        std::cerr << "getResolutionTv of " << tv->toString() << "\n";
+      }
+
+      for (auto tv : getResolutionTv(persistent_ids, reduction_dep_chains)) {
+        resolution_points_.push_back(tv);
+      }
+    }
+  }
+
+  std::vector<TensorView*> getResolutionTv(
+      ValGroups persistent_ids,
+      const std::deque<std::deque<Val*>>& reduction_dep_chains) {
+    std::deque<TensorView*> tvs_to_visit;
+    std::unordered_set<TensorView*> visited_tvs;
+
+    if (debug) {
+      std::cerr << "getResolutionTv: " << persistent_buffer_->toString()
+                << "\n";
+      for (const auto& chain : reduction_dep_chains) {
+        std::cerr << "Dep chain: " << toDelimitedString(chain) << "\n";
+      }
+    }
+
+    visited_tvs.insert(persistent_buffer_);
+
+    for (auto tv : ir_utils::consumerTvsOf(persistent_buffer_)) {
+      tvs_to_visit.push_back(tv);
+    }
+
+    std::unordered_set<Val*> all_dep_tvs;
+    for (const auto& dep_chain : reduction_dep_chains) {
+      all_dep_tvs.insert(dep_chain.begin(), dep_chain.end());
+    }
+
+    // std::unordered_set<TensorView*> resolution_tvs;
+    std::vector<TensorView*> resolution_tvs;
+
+    while (!tvs_to_visit.empty()) {
+      auto tv = tvs_to_visit.front();
+      tvs_to_visit.pop_front();
+
+      if (debug) {
+        std::cerr << "TV: " << tv->toString() << "\n";
+      }
+
+      if (all_dep_tvs.count(tv)) {
+        // resolution
+        // resolution_tvs.emplace(tv);
+        resolution_tvs.emplace_back(tv);
+        // Do not further traverse beyond this tv
+        if (debug) {
+          std::cerr << "Resolution point: " << tv->toString() << "\n";
+        }
+        continue;
+      }
+
+      for (auto producer : ir_utils::producerTvsOf(tv)) {
+        if (visited_tvs.count(producer)) {
+          continue;
+        }
+
+        const auto& producer_logical_ids =
+            exact_graph_.toGroups(producer->getLogicalDomain());
+        auto reachable_ids = ValGraphBFS::getReachableValsFrom(
+            exact_graph_, persistent_ids, producer_logical_ids);
+        if (reachable_ids.empty()) {
+          // TODO: Test this condition.
+          continue;
+        }
+
+        tvs_to_visit.emplace_back(producer);
+        persistent_ids.pushBack(reachable_ids);
+      }
+
+      // TODO: code dedup
+      for (auto consumer : ir_utils::consumerTvsOf(tv)) {
+        if (visited_tvs.count(consumer)) {
+          continue;
+        }
+
+        const auto& consumer_logical_ids =
+            exact_graph_.toGroups(consumer->getLogicalDomain());
+        auto reachable_ids = ValGraphBFS::getReachableValsFrom(
+            exact_graph_, persistent_ids, consumer_logical_ids);
+        if (reachable_ids.empty()) {
+          continue;
+        }
+
+        tvs_to_visit.emplace_back(consumer);
+        persistent_ids.pushBack(reachable_ids);
+      }
+
+      visited_tvs.emplace(tv);
+    }
+
+    VectorOfUniqueEntries<TensorView*> first_resolution_tvs;
+
+#if 0
+    for (const auto& dep_chain : reduction_dep_chains) {
+      for (auto dep : dep_chain) {
+        auto dep_tv = dep->as<TensorView>();
+        if (resolution_tvs.count(dep_tv) && !first_resolution_tvs.has(dep_tv)) {
+          first_resolution_tvs.pushBack(dep_tv);
+          continue;
+        }
+      }
+    }
+#endif
+
+    if (debug) {
+      std::cerr << "Candidates: " << toDelimitedString(resolution_tvs) << "\n";
+      for (const auto& dep_chain : reduction_dep_chains) {
+        std::cerr << "Dep chain: " << toDelimitedString(dep_chain) << "\n";
+      }
+    }
+
+    std::unordered_set<Val*> resolution_tv_set(
+        resolution_tvs.begin(), resolution_tvs.end());
+
+    for (auto resolution_candidate : resolution_tvs) {
+      bool depends_on_other_candidate = false;
+      for (const auto& dep_chain : reduction_dep_chains) {
+        auto dep_chain_it =
+            std::find(dep_chain.begin(), dep_chain.end(), resolution_candidate);
+        if (dep_chain_it == dep_chain.end()) {
+          // Non-relevant chain
+          continue;
+        }
+
+        // Skip if there's any other candidate ahead
+        if (std::any_of(dep_chain.begin(), dep_chain_it, [&](Val* dep) {
+              return resolution_tv_set.count(dep);
+            })) {
+          depends_on_other_candidate = true;
+          break;
+        }
+      }
+
+      if (!depends_on_other_candidate) {
+        first_resolution_tvs.pushBack(resolution_candidate->as<TensorView>());
+        if (debug) {
+          std::cerr << "Resolution: " << resolution_candidate->toString()
+                    << "\n";
+        }
+      }
+    }
+
+    return first_resolution_tvs.vector();
+  }
+
+ private:
+  TensorView* persistent_buffer_ = nullptr;
+  ValGraph exact_graph_;
+
+  // Don't do processing until we see the buffer we're looking for
+  bool persistent_buffer_hit_ = false;
+
+  // Tracks where the persistent buffer (key) is resolved (values)
+  std::vector<TensorView*> resolution_points_;
+
+  bool debug = false;
+};
+
+} // namespace
+
+std::vector<TensorView*> getResolutionPointsOf(TensorView* persistent_buffer) {
+  return PersistentBufferResolution::getResolutionPointsOf(persistent_buffer);
 }
 
 } // namespace normalization_scheduler_utils

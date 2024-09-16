@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <scheduler/normalization_utils.h>
 #include <scheduler/registry.h>
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>
@@ -370,7 +371,7 @@ class PersistentBufferResolution : public IterVisitor {
     NVF_ERROR(
         !resolution.resolution_points_.empty(),
         "Could not resolve persistent buffer: ",
-        persistent_buffer);
+        persistent_buffer->toString());
 
     return resolution.resolution_points_;
   }
@@ -615,8 +616,13 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
   // Set the persistent buffer resolution points
   persistent_buffer_info.persistent_buffer_resolution_points = {};
   for (auto buffer : persistent_buffer_info.persistent_buffers) {
-    persistent_buffer_info.persistent_buffer_resolution_points.emplace_back(
-        PersistentBufferResolution::getResolutionPointsOf(fusion, buffer));
+    if (getenv("OLD")) {
+      persistent_buffer_info.persistent_buffer_resolution_points.emplace_back(
+          PersistentBufferResolution::getResolutionPointsOf(fusion, buffer));
+    } else {
+      persistent_buffer_info.persistent_buffer_resolution_points.emplace_back(
+          normalization_scheduler_utils::getResolutionPointsOf(buffer));
+    }
   }
 
   // don't project if there are view ops and no buffer can be projected

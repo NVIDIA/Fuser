@@ -266,7 +266,7 @@ ValGraph IdModel::initializeIdGraph(bool propagate_through_exprs) const {
   return id_graph;
 }
 
-void IdModel::buildExactGraph() {
+ValGraph& IdModel::buildExactGraph() {
   // Initialize the maps with all the IterDomains used in the provded
   // expressions.
   NVF_ERROR(
@@ -334,6 +334,8 @@ void IdModel::buildExactGraph() {
   }
 
   idGraph(IdMappingMode::EXACT).validateConsistency();
+
+  return idGraph(IdMappingMode::EXACT);
 }
 
 namespace {
@@ -372,7 +374,7 @@ std::vector<std::vector<Val*>> getTriviallyMappedIds(Expr* expr) {
 
 } // namespace
 
-void IdModel::buildAlmostExactGraph() {
+ValGraph& IdModel::buildAlmostExactGraph() {
   // Make sure the exact graph is already built
   maybeBuildGraph(IdMappingMode::EXACT);
 
@@ -415,9 +417,11 @@ void IdModel::buildAlmostExactGraph() {
   }
 
   almost_exact_graph.validateConsistency();
+
+  return almost_exact_graph;
 }
 
-void IdModel::buildPermissiveGraph() {
+ValGraph& IdModel::buildPermissiveGraph() {
   // Make sure the exact graph is already built
   maybeBuildGraph(IdMappingMode::EXACT);
 
@@ -474,6 +478,8 @@ void IdModel::buildPermissiveGraph() {
   }
 
   idGraph(IdMappingMode::PERMISSIVE).validateConsistency();
+
+  return idGraph(IdMappingMode::PERMISSIVE);
 }
 
 namespace {
@@ -619,7 +625,7 @@ void IdModel::initializeLoopGraph(const StatefulInliningInfo& info) {
   }
 }
 
-void IdModel::buildLoopGraph() {
+ValGraph& IdModel::buildLoopGraph() {
   // Make sure the depedent graphs are already built
   maybeBuildGraph(IdMappingMode::EXACT);
   maybeBuildGraph(IdMappingMode::PERMISSIVE);
@@ -639,6 +645,8 @@ void IdModel::buildLoopGraph() {
   validateLoopGraphHasNoSelfMappedLeafDomains();
 
   idGraph(IdMappingMode::LOOP).validateConsistency();
+
+  return idGraph(IdMappingMode::LOOP);
 }
 
 void IdModel::buildAllGraphs() {
