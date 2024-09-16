@@ -360,25 +360,25 @@ class RingBasedOverlapTest : public MultiDeviceTest {
 
 TEST_F(RingBasedOverlapTest, ReduceScatterRingBasedPipeliningATenImplementation) {
   std::vector<c10::cuda::CUDAStream> streams;
-  // std::generate_n(
-  //     std::back_inserter(streams),
-  //     params.number_of_streams,
-  //     [my_device_index = my_device_index_]() {
-  //       return c10::cuda::getStreamFromPool(
-  //           /*isHighPriority=*/false, my_device_index);
-  //     });
-  std::vector<at::Tensor> allreduce_scratch_buffer = {at::randn({1}, at::TensorOptions().dtype(at::kFloat).device(communicator_->device()))};
-  world_communicator_->allreduce(allreduce_scratch_buffer)->wait();
-  // world_communicator_->barrier()->wait();
-  params.number_of_iterations = 1; //TODO: change
+  std::generate_n(
+      std::back_inserter(streams),
+      params.number_of_streams,
+      [my_device_index = my_device_index_]() {
+        return c10::cuda::getStreamFromPool(
+            /*isHighPriority=*/false, my_device_index);
+      });
+  // std::vector<at::Tensor> allreduce_scratch_buffer = {at::randn({1}, at::TensorOptions().dtype(at::kFloat).device(communicator_->device()))};
+  // world_communicator_->allreduce(allreduce_scratch_buffer)->wait();
+  // // world_communicator_->barrier()->wait();
+  // params.number_of_iterations = 1; //TODO: change
 
   for ([[maybe_unused]] const auto& _ :
        c10::irange(params.number_of_iterations)) {
     initializeIO();
 
     for (auto j : c10::irange(params.S)) {
-      // int64_t stream_index = j % streams.size();
-      // setCurrentCUDAStream(streams.at(stream_index));
+      int64_t stream_index = j % streams.size();
+      setCurrentCUDAStream(streams.at(stream_index));
 
       // define the sliced tensors
       auto slice_index = (my_device_index_ + j + 1) % params.S;
@@ -427,9 +427,9 @@ TEST_F(RingBasedOverlapTest, ReduceScatterRingBasedPipeliningATenImplementation)
     std::cout << "entering barrier at rank " << my_device_index_ << std::endl;
     // world_communicator_->barrier()->wait();
     std::cout << "exiting barrier at rank " << my_device_index_ << std::endl;
-    // for (auto stream : streams) {
-    //   stream.synchronize();
-    // }
+    for (auto stream : streams) {
+      stream.synchronize();
+    }
     std::cout << "cudaDeviceSynchronize at rank " << my_device_index_ << std::endl;
     // cudaDeviceSynchronize();
     std::cout << "sum_out at rank " << my_device_index_ << std::endl;
