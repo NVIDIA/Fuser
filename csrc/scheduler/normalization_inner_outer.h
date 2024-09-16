@@ -50,11 +50,10 @@ class InnerOuterPersistentKernelScheduler : public SchedulerEntry {
     return ScheduleHeuristic::InnerOuterPersistent;
   }
 
- private:
-  void computeHeuristics(
+  std::unique_ptr<HeuristicParams> computeHeuristics(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
+      HeuristicSummary* data_cache) override;
 };
 
 std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(

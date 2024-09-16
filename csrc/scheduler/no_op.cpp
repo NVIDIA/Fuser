@@ -27,7 +27,7 @@ NoOpScheduler::NoOpScheduler(
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache)
     : SchedulerEntry() {
-  params_ = std::make_unique<NoOpHeuristic>(ScheduleHeuristic::NoOp);
+  params_ = std::move(computeHeuristics(fusion, runtime_info, data_cache));
   params_->cparams.index_type = runtime_info.getIndexType();
 }
 
@@ -133,12 +133,11 @@ void NoOpScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   markAliases(fusion);
 }
 
-void NoOpScheduler::computeHeuristics(
+std::unique_ptr<HeuristicParams> NoOpScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
-  // Heuristics is no-op.
-  return;
+  return std::make_unique<HeuristicParams>(ScheduleHeuristic::NoOp);
 }
 
 } // namespace nvfuser

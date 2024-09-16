@@ -29,7 +29,7 @@ MatmulScheduler::MatmulScheduler(
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache)
     : SchedulerEntry() {
-  computeHeuristics(fusion, runtime_info);
+  params_ = std::move(computeHeuristics(fusion, runtime_info));
 }
 
 void MatmulScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
@@ -65,12 +65,13 @@ bool MatmulScheduler::canScheduleRunTime(
   return true;
 }
 
-void MatmulScheduler::computeHeuristics(
+std::unique_ptr<HeuristicParams> MatmulScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
-  params_ = getMatmulHeuristics(fusion, runtime_info, data_cache);
-  NVF_ERROR(params_ != nullptr);
+  auto mparams = getMatmulHeuristics(fusion, runtime_info, data_cache);
+  NVF_ERROR(mparams != nullptr);
+  return mparams;
 }
 
 void moveInnerBroadcastLeft(TensorView* tv, int64_t number_of_inner_pos) {

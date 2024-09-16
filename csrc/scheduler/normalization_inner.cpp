@@ -23,7 +23,7 @@ InnerPersistentKernelScheduler::InnerPersistentKernelScheduler(
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache)
     : SchedulerEntry() {
-  computeHeuristics(fusion, runtime_info, data_cache);
+  params_ = std::move(computeHeuristics(fusion, runtime_info, data_cache));
 }
 
 void InnerPersistentKernelScheduler::schedule(
@@ -166,13 +166,15 @@ bool InnerPersistentKernelScheduler::canScheduleRunTime(
   return true;
 }
 
-void InnerPersistentKernelScheduler::computeHeuristics(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache) {
+std::unique_ptr<HeuristicParams> InnerPersistentKernelScheduler::
+    computeHeuristics(
+        Fusion* fusion,
+        SchedulerRuntimeInfo& runtime_info,
+        HeuristicSummary* data_cache) {
   FUSER_PERF_SCOPE("InnerPersistentKernelScheduler::computeHeuristics");
-  params_ = getInnerPersistentHeuristics(fusion, runtime_info, data_cache);
-  NVF_ERROR(params_ != nullptr);
+  auto rparams = getInnerPersistentHeuristics(fusion, runtime_info, data_cache);
+  NVF_ERROR(rparams != nullptr);
+  return rparams;
 }
 
 namespace {

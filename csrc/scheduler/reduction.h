@@ -51,11 +51,10 @@ class ReductionScheduler : public SchedulerEntry {
     return ScheduleHeuristic::Reduction;
   }
 
- private:
-  void computeHeuristics(
+  std::unique_ptr<HeuristicParams> computeHeuristics(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
+      HeuristicSummary* data_cache) override;
 };
 
 } // namespace nvfuser

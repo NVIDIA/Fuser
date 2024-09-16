@@ -185,6 +185,10 @@ class SchedulerEntry {
   //!   schedule the given fusion with heuristics owned
   //!   by this entry, for actual heuristics to override
   virtual void schedule(Fusion* fusion, const HeuristicParams* params) = 0;
+  virtual std::unique_ptr<HeuristicParams> computeHeuristics(
+      Fusion* fusion,
+      SchedulerRuntimeInfo& runtime_info,
+      HeuristicSummary* data_cache) = 0;
 
   //! Heuristic comparison
   bool sameAs(const SchedulerEntry* other);

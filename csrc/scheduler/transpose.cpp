@@ -24,7 +24,7 @@ TransposeScheduler::TransposeScheduler(
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache)
     : SchedulerEntry() {
-  computeHeuristics(fusion, runtime_info, data_cache);
+  params_ = std::move(computeHeuristics(fusion, runtime_info, data_cache));
 }
 
 bool TransposeScheduler::canScheduleCompileTime(Fusion* fusion) {
@@ -124,13 +124,14 @@ void TransposeScheduler::schedule(
   scheduleTranspose(fusion, tparams);
 }
 
-void TransposeScheduler::computeHeuristics(
+std::unique_ptr<HeuristicParams> TransposeScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
   FUSER_PERF_SCOPE("TransposeScheduler::computeHeuristics");
-  params_ = getTransposeHeuristics(fusion, runtime_info, data_cache);
-  NVF_ERROR(params_ != nullptr);
+  auto tparams = getTransposeHeuristics(fusion, runtime_info, data_cache);
+  NVF_ERROR(tparams != nullptr);
+  return tparams;
 }
 
 namespace {

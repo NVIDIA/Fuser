@@ -28,7 +28,7 @@ PointWiseScheduler::PointWiseScheduler(
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache)
     : SchedulerEntry() {
-  computeHeuristics(fusion, runtime_info, data_cache);
+  params_ = std::move(computeHeuristics(fusion, runtime_info, data_cache));
 }
 
 bool PointWiseScheduler::canScheduleCompileTime(Fusion* fusion) {
@@ -111,13 +111,14 @@ void PointWiseScheduler::schedule(
   schedulePointwise(fusion, pparams);
 }
 
-void PointWiseScheduler::computeHeuristics(
+std::unique_ptr<HeuristicParams> PointWiseScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
   FUSER_PERF_SCOPE("PointWiseScheduler::computeHeuristics");
-  params_ = getPointwiseHeuristics(fusion, runtime_info, data_cache);
-  NVF_ERROR(params_ != nullptr);
+  auto pparams = getPointwiseHeuristics(fusion, runtime_info, data_cache);
+  NVF_ERROR(pparams != nullptr);
+  return pparams;
 }
 
 namespace {

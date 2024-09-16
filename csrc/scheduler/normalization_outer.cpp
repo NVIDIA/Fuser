@@ -23,7 +23,7 @@ OuterPersistentKernelScheduler::OuterPersistentKernelScheduler(
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache)
     : SchedulerEntry() {
-  computeHeuristics(fusion, runtime_info, data_cache);
+  params_ = std::move(computeHeuristics(fusion, runtime_info, data_cache));
 }
 
 void OuterPersistentKernelScheduler::schedule(
@@ -246,13 +246,15 @@ bool OuterPersistentKernelScheduler::canScheduleRunTime(
   return true;
 }
 
-void OuterPersistentKernelScheduler::computeHeuristics(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache) {
+std::unique_ptr<HeuristicParams> OuterPersistentKernelScheduler::
+    computeHeuristics(
+        Fusion* fusion,
+        SchedulerRuntimeInfo& runtime_info,
+        HeuristicSummary* data_cache) {
   FUSER_PERF_SCOPE("OuterPersistentKernelScheduler::computeHeuristics");
-  params_ = getOuterPersistentHeuristics(fusion, runtime_info, data_cache);
-  NVF_ERROR(params_ != nullptr);
+  auto rparams = getOuterPersistentHeuristics(fusion, runtime_info, data_cache);
+  NVF_ERROR(rparams != nullptr);
+  return rparams;
 }
 
 namespace {

@@ -1052,16 +1052,17 @@ ReductionScheduler::ReductionScheduler(
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache)
     : SchedulerEntry() {
-  computeHeuristics(fusion, runtime_info, data_cache);
+  params_ = std::move(computeHeuristics(fusion, runtime_info, data_cache));
 }
 
-void ReductionScheduler::computeHeuristics(
+std::unique_ptr<HeuristicParams> ReductionScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
   FUSER_PERF_SCOPE("ReductionScheduler::computeHeuristics");
-  params_ = getReductionHeuristics(fusion, runtime_info, data_cache);
-  NVF_ERROR(params_ != nullptr);
+  auto rparams = getReductionHeuristics(fusion, runtime_info, data_cache);
+  NVF_ERROR(rparams != nullptr);
+  return rparams;
 }
 
 void ReductionScheduler::schedule(

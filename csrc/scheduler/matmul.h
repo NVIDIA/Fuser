@@ -44,11 +44,10 @@ class MatmulScheduler : public SchedulerEntry {
     return ScheduleHeuristic::Matmul;
   }
 
- private:
-  void computeHeuristics(
+  std::unique_ptr<HeuristicParams> computeHeuristics(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
+      HeuristicSummary* data_cache = nullptr) override;
 };
 
 } // namespace nvfuser

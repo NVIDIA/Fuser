@@ -44,11 +44,10 @@ class NoOpScheduler : public SchedulerEntry {
 
   void schedule(Fusion* fusion, const HeuristicParams* params) override;
 
- private:
-  void computeHeuristics(
+  std::unique_ptr<HeuristicParams> computeHeuristics(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
+      HeuristicSummary* data_cache) override;
 };
 
 //! Provides a dummy heuristic type to ensure

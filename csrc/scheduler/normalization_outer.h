@@ -45,11 +45,10 @@ class OuterPersistentKernelScheduler : public SchedulerEntry {
     return ScheduleHeuristic::OuterPersistent;
   }
 
- private:
-  void computeHeuristics(
+  std::unique_ptr<HeuristicParams> computeHeuristics(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
+      HeuristicSummary* data_cache) override;
 };
 
 NVF_API std::unique_ptr<ReductionParams> getOuterPersistentHeuristics(

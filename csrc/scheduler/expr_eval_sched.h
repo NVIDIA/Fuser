@@ -25,7 +25,7 @@ class ExprEvalScheduler : public SchedulerEntry {
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr)
       : SchedulerEntry() {
-    params_ = std::make_unique<HeuristicParams>(ScheduleHeuristic::ExprEval);
+    params_ = std::move(computeHeuristics(fusion, runtime_info, data_cache));
     params_->cparams.index_type = runtime_info.getIndexType();
   }
 
@@ -44,6 +44,11 @@ class ExprEvalScheduler : public SchedulerEntry {
   }
 
   void schedule(Fusion* fusion, const HeuristicParams* params) override;
+
+  std::unique_ptr<HeuristicParams> computeHeuristics(
+      Fusion* fusion,
+      SchedulerRuntimeInfo& runtime_info,
+      HeuristicSummary* data_cache) override;
 };
 
 } // namespace nvfuser
