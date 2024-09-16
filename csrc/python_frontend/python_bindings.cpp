@@ -259,17 +259,21 @@ Tensor slice_fn(
         new_stride.size);
     stride_index = new_stride();
   } else {
-    // TODO: should I kept it as none instead?
-    // set stride 1 with the proper size;
+    // set stride with default value;
     std::vector<Scalar> stride_vec;
-    Scalar out = fd->defineScalar();
-    fd->defineRecord(new ScalarRecord(
-        {fd->recordingState(out())},
-        1,
-        DataType::Int,
-        /*inline_def=*/true));
-    stride_vec.resize(new_start.size, out);
-    Vector default_stride = define_vector_base_fn(*fd, stride_vec, true);
+    // Note: we cannot re-use the same ScalarRecord, otherwise, serialized python program uses `define_vector`, which would create multiple ScalarRecord, causing a cache miss.
+    for (auto i : c10::irange(new_start.size)) {
+      (void)i; // Supress unused variable warning
+      Scalar out = fd->defineScalar();
+      fd->defineRecord(new ScalarRecord(
+          {fd->recordingState(out())},
+          1,
+          DataType::Int,
+          /*inline_def=*/true));
+      stride_vec.push_back(out);
+    }
+    // Cannot inline definition with `Vector` here, since `FusionDefinition.ops.slice` expects start/end/stride to have the same type.
+    Vector default_stride = define_vector_base_fn(*fd, stride_vec, std::is_same_v<ShapeType, Vector>);
     stride_index = default_stride();
   }
 
