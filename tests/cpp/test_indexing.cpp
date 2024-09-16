@@ -529,7 +529,7 @@ TEST_F(IndexingTest, SimplePointwise1) {
                   tv->getLogicalDomain().at(1)->extent()));
         }
         default:
-          NVF_ERROR(false, "Unexpected tensor: ", tv->toString());
+          NVF_THROW("Unexpected tensor: ", tv->toString());
           break;
       }
       return nullptr;
@@ -617,7 +617,7 @@ TEST_F(IndexingTest, SimplePointwise2) {
           return global_ref;
         }
         default:
-          NVF_ERROR(false, "Unexpected tensor: ", tv->toString());
+          NVF_THROW("Unexpected tensor: ", tv->toString());
           break;
       }
     }
@@ -664,7 +664,7 @@ TEST_F(IndexingTest, SimpleReduction) {
           return loop_indices.at(0);
         }
         default:
-          NVF_ERROR(false, "Unexpected tensor: ", tv->toString());
+          NVF_THROW("Unexpected tensor: ", tv->toString());
           // gcc v11.4 requires this return statement
           return nullptr;
       }
@@ -888,7 +888,7 @@ TEST_F(IndexingTest, SimpleBroadcast1) {
           return loop_indices.at(0);
         }
         default:
-          NVF_ERROR(false);
+          NVF_THROW();
       }
     }
   };
@@ -948,7 +948,7 @@ TEST_F(IndexingTest, SimpleBroadcast2) {
               loop_indices.at(1));
         }
         default:
-          NVF_ERROR(false);
+          NVF_THROW();
       }
     }
   };
@@ -1011,7 +1011,7 @@ TEST_F(IndexingTest, SimpleBroadcast3) {
           return tv->fusion()->zeroVal();
         }
         default:
-          NVF_ERROR(false);
+          NVF_THROW();
       }
     }
   };
@@ -1267,7 +1267,7 @@ TEST_F(IndexingTest, MultiDevice2DTranspose) {
               loop_indices.at(2));
         }
         default:
-          NVF_ERROR(false);
+          NVF_THROW();
       }
     }
   };
@@ -4484,7 +4484,7 @@ TEST_F(ContigIndexingTest, SimplePointwise) {
               loop_indices.at(1));
         }
         default:
-          NVF_ERROR(false, "Unexpected tensor: ", tv->toString());
+          NVF_THROW("Unexpected tensor: ", tv->toString());
           break;
       }
       return nullptr;
@@ -4560,7 +4560,7 @@ TEST_F(ContigIndexingTest, NonContigInnermost) {
               loop_indices.at(1));
         }
         default:
-          NVF_ERROR(false, "Unexpected tensor: ", tv->toString());
+          NVF_THROW("Unexpected tensor: ", tv->toString());
           break;
       }
       return nullptr;
@@ -4625,7 +4625,7 @@ TEST_F(ContigIndexingTest, BroadcastInlining) {
           return loop_indices.at(0);
         }
         default:
-          NVF_ERROR(false, "Unexpected tensor: ", tv->toString());
+          NVF_THROW("Unexpected tensor: ", tv->toString());
           break;
       }
       return nullptr;
@@ -4693,7 +4693,7 @@ TEST_F(ContigIndexingTest, Resize) {
         case 2:
           return loop_indices.at(0);
         default:
-          NVF_ERROR(false, "Unexpected tensor: ", tv->toString());
+          NVF_THROW("Unexpected tensor: ", tv->toString());
           break;
       }
       return nullptr;

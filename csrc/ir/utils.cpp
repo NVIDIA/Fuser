@@ -1032,7 +1032,7 @@ bool isAlignedScopeExpr(const Expr* expr) {
       return false;
     }
   } else {
-    NVF_ERROR(false, "Invalid scope expr: ", expr->toString());
+    NVF_THROW("Invalid scope expr: ", expr->toString());
   }
 
   return true;
@@ -1169,7 +1169,7 @@ MmaLayout getInputLayout(
     return MmaLayout::NN;
   }
 
-  NVF_ERROR(false, "Unsupported input layout");
+  NVF_THROW("Unsupported input layout");
 }
 
 MmaOpDetails getMmaOpDetails(
