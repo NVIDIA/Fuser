@@ -370,12 +370,13 @@ TEST_F(RingBasedOverlapTest, ReduceScatterRingBasedPipeliningATenImplementation)
   // std::vector<at::Tensor> allreduce_scratch_buffer = {at::randn({1}, at::TensorOptions().dtype(at::kFloat).device(communicator_->device()))};
   // world_communicator_->allreduce(allreduce_scratch_buffer)->wait();
   // // world_communicator_->barrier()->wait();
-  // params.number_of_iterations = 1; //TODO: change
+  params.number_of_iterations = 1; //TODO: change
 
   for ([[maybe_unused]] const auto& _ :
        c10::irange(params.number_of_iterations)) {
     initializeIO();
 
+    world_communicator_->startCoalescing();
     for (auto j : c10::irange(params.S)) {
       int64_t stream_index = j % streams.size();
       setCurrentCUDAStream(streams.at(stream_index));
@@ -407,23 +408,14 @@ TEST_F(RingBasedOverlapTest, ReduceScatterRingBasedPipeliningATenImplementation)
       // local compute
       torch::matmul_out(src_buffer_j, ta_j, tb_);
       // communication
-      if (send_rank == my_device_index_ && recv_rank == my_device_index_) { 
-        std::cout << "local copy at rank " << my_device_index_ << std::endl;
-        dst_buffer_j.copy_(src_buffer_j, /*non_blocking=*/false);
-        std::cout << "local copy FINISHED at rank " << my_device_index_ << std::endl;
-      } else {
-        EXPECT_NE(send_rank, my_device_index_);
-        EXPECT_NE(recv_rank, my_device_index_);
-        std::vector<at::Tensor> src = {src_buffer_j};
-        std::vector<at::Tensor> dst = {dst_buffer_j};
-        std::cout << "from rank " << my_device_index_<< ", sending to rank " << send_rank <<", with tag " << my_device_index_ << std::endl;
-        world_communicator_->startCoalescing();
-        world_communicator_->send(src, send_rank, 0);
-        std::cout << "from rank " << my_device_index_<< ", recv from rank " << recv_rank <<", with tag " << recv_rank << std::endl;
-        world_communicator_->recv(dst, recv_rank, 0);
-        world_communicator_->endCoalescing()->wait();
-      }
+      std::vector<at::Tensor> src = {src_buffer_j};
+      std::vector<at::Tensor> dst = {dst_buffer_j};
+      std::cout << "from rank " << my_device_index_<< ", sending to rank " << send_rank <<", with tag " << my_device_index_ << std::endl;
+      world_communicator_->send(src, send_rank, 0);
+      std::cout << "from rank " << my_device_index_<< ", recv from rank " << recv_rank <<", with tag " << recv_rank << std::endl;
+      world_communicator_->recv(dst, recv_rank, 0);
     }
+    world_communicator_->endCoalescing()->wait();
     std::cout << "entering barrier at rank " << my_device_index_ << std::endl;
     // world_communicator_->barrier()->wait();
     std::cout << "exiting barrier at rank " << my_device_index_ << std::endl;
