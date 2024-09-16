@@ -416,8 +416,21 @@ void DynamicTransformConcretizationInfo::analyzeResizes(
         " for domain ",
         out_id->toString());
 
-    auto iter_type =
-        extent_int == 1 ? IterType::Broadcast : IterType::Iteration;
+    auto left_val = expr_eval->evaluate(op->leftExpand());
+    NVF_ERROR(
+        left_val.is<int64_t>(),
+        "Invalid evaluated value of left expand: ",
+        op->leftExpand()->toString());
+    auto right_val = expr_eval->evaluate(op->rightExpand());
+    NVF_ERROR(
+        right_val.is<int64_t>(),
+        "Invalid evaluated value of right expand: ",
+        op->rightExpand()->toString());
+
+    std::optional<IterType> iter_type = std::nullopt;
+    if (left_val != 0 || right_val != 0) {
+      iter_type = extent_int == 1 ? IterType::Broadcast : IterType::Iteration;
+    }
 
     resize_itertypes_.emplace_back(id_index, iter_type);
   }
@@ -584,8 +597,12 @@ std::string DynamicTransformConcretizationInfo::toString() const {
       initial_info_->getDynamicResizedIterDomains().size());
   for (const auto& [id_index, iter_type] : resize_itertypes_) {
     auto id = initial_info_->getDynamicResizedIterDomains().at(id_index);
-    indent(ss, 2) << id->toString() << " (index=" << id_index << "), "
-                  << iter_type << "\n";
+    indent(ss, 2) << id->toString() << " (index=" << id_index << "), ";
+    if (iter_type.has_value()) {
+      ss << iter_type.value() << "\n";
+    } else {
+      ss << "trivial\n";
+    }
   }
   indent(ss, 1) << "Expand:\n";
   NVF_ERROR(
@@ -668,6 +685,9 @@ class DynamicTransformConcretizer : public OptOutMutator {
   //! Use this instead of calling registerMutation directly, since it will also
   //! check that the concretized value is a valid input to all of its uses.
   void registerConcretization(Val* old_val, Val* new_val) {
+    if (old_val == new_val) {
+      return;
+    }
     symbolic_to_concretized_map_.emplace(old_val, new_val);
     checkConcretizedUses(old_val, new_val);
     NVF_ERROR(
@@ -934,18 +954,23 @@ void DynamicTransformConcretizer::concretizeReshape() {
 
 void DynamicTransformConcretizer::concretizeResize() {
   // Concretize each resize op.
-  for (const auto& [id_index, iter_type] : info_->getResizeIterTypes()) {
+  for (const auto& [id_index, iter_type_opt] : info_->getResizeIterTypes()) {
     auto id = info_->initialInfo()->getDynamicResizedIterDomains().at(id_index);
     NVF_CHECK(
         id->definition() && id->definition()->isA<Resize>(),
         "Resized IterDomain must have a Resize definition");
     auto def = id->definition()->as<Resize>();
-    auto new_id = IterDomain::resize(
-        def->in(),
-        def->leftExpand(),
-        def->rightExpand(),
-        id->isRFactorProduct(),
-        iter_type);
+    // If iter_type_opt is null, that indicates that this is a trivial resize.
+    // In such case, we simply replace id with the producer IterDomain.
+    // TODO: for trivial resizes, concretize expand vals as zeroVal()
+    IterDomain* new_id = iter_type_opt.has_value()
+        ? IterDomain::resize(
+              def->in(),
+              def->leftExpand(),
+              def->rightExpand(),
+              id->isRFactorProduct(),
+              iter_type_opt.value())
+        : maybeMutated(def->in())->as<IterDomain>();
 
     registerConcretization(id, new_id);
   }
@@ -1033,6 +1058,20 @@ void DynamicTransformConcretizer::checkConcretizedUses(
 // concretized. Since symbolic IDs may be propagated down to
 // consumers, those domains need to be concretized accordingly.
 void DynamicTransformConcretizer::mutate(TensorView* tv) {
+  // Find logical tensors that might have been mutated to root IDs
+  std::unordered_map<IterDomain*, IterDomain*> logical_root_mutations;
+  for (IterDomain* orig_logical_id : tv->getLogicalDomain()) {
+    IterDomain* mut_logical_id =
+        maybeMutated(orig_logical_id)->as<IterDomain>();
+    if (mut_logical_id != orig_logical_id &&
+        std::find(
+            tv->getMaybeRootDomain().begin(),
+            tv->getMaybeRootDomain().end(),
+            mut_logical_id) != tv->getMaybeRootDomain().end()) {
+      logical_root_mutations.emplace(orig_logical_id, mut_logical_id);
+    }
+  }
+
   for (auto root_id : tv->getMaybeRootDomain()) {
     // This will register root_id for mutation if its extent, start, or
     // stop_offset is registered for mutation
@@ -1042,6 +1081,13 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
   // First, try to concretize the root domain as there may be symbolic
   // axes inherited from the producers
   propagateFromProducerToConsumer(tv);
+
+  // Fix up two-hop mutations introduced by propagation. This is needed in case
+  // we have previously concretized a logical ID as a root ID (e.g. skipped a
+  // trivial Resize).
+  for (auto& [logical_id, root_id] : logical_root_mutations) {
+    registerConcretization(logical_id, maybeMutated(root_id));
+  }
 
   // If no root domain is altered by producer, we don't need to propagate back
   // up to logical domain. We could return early, but instead we go ahead and
@@ -1058,11 +1104,38 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
   // IDs may need to be updated as well. Traverse the rfactor exprs
   // and mutate the IterTypes of output IDs if symbolic.
   if (tv->hasRoot()) {
+    // Hold all concretized and unconcretized root IDs so we can check if a
+    // logical ID is concretized to a root ID.
+    std::unordered_set<IterDomain*> root_ids;
+    for (IterDomain* root_id : tv->getRootDomain()) {
+      root_ids.insert(root_id);
+      IterDomain* mut_id = maybeMutated(root_id)->as<IterDomain>();
+      if (mut_id != root_id) {
+        root_ids.insert(mut_id);
+      }
+    }
+
+    // If a logical ID is already registered to be concretized as a root ID, we
+    // should go ahead and make that replacement now.
+    std::vector<IterDomain*> mut_logical;
+    mut_logical.reserve(tv->getLogicalDomain().size());
+    for (IterDomain* orig_logical_id : tv->getLogicalDomain()) {
+      IterDomain* mut_logical_id =
+          maybeMutated(orig_logical_id)->as<IterDomain>();
+      if (mut_logical_id == orig_logical_id) {
+        mut_logical.push_back(orig_logical_id);
+      } else if (root_ids.find(mut_logical_id) == root_ids.end()) {
+        mut_logical.push_back(orig_logical_id);
+      } else {
+        mut_logical.push_back(mut_logical_id);
+      }
+    }
+
     // Note that it is assumed that theres's no further expression
     // beyond the logical domain as asserted above
     auto all_id_exprs = StmtSort::getExprsBetween(
         {tv->getRootDomain().begin(), tv->getRootDomain().end()},
-        {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()});
+        {mut_logical.begin(), mut_logical.end()});
     for (auto expr : all_id_exprs) {
       // Assume outputs of IterDomain exprs are always IterDomains. If
       // the assumption is invalidated, the logic here would need to
@@ -1189,13 +1262,10 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
     return updated_ids;
   };
 
-  std::vector<IterDomain*> root_dom =
-      td->hasRoot() ? updateIdVec(td->root()) : std::vector<IterDomain*>();
+  std::vector<IterDomain*> root_dom = updateIdVec(td->root());
   std::vector<IterDomain*> logical_dom = updateIdVec(td->logical());
   std::vector<IterDomain*> loop_domain = updateIdVec(td->loop());
-  std::vector<IterDomain*> alloc_dom = td->hasAllocation()
-      ? updateIdVec(td->allocation())
-      : std::vector<IterDomain*>();
+  std::vector<IterDomain*> alloc_dom = updateIdVec(td->allocation());
 
   if (!mutated) {
     return;
@@ -1350,7 +1420,13 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
   bool is_concretized = false;
 
   for (const auto i : c10::irange((int64_t)root_domain.size())) {
-    auto root_id = root_domain.at(i);
+    IterDomain* orig_root_id = root_domain.at(i);
+
+    // This root ID might have already been marked for concretization. For
+    // example, if it is used in a Resize op then it will be concretized
+    // earlier in concretizeResize.
+    auto root_id = maybeMutated(orig_root_id)->as<IterDomain>();
+
     if (root_id->getIterType() != IterType::Symbolic) {
       continue;
     }
@@ -1367,7 +1443,7 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
 
     bool found = false;
     for (const auto& c2p : c2p_maps) {
-      auto p_it = c2p.find(root_id);
+      auto p_it = c2p.find(orig_root_id);
       // In some cases, we can exact map to one producer, but not to another.
       // This is the case for index_select, for example, whose first input is
       // the tensor to look up values in and whose second input gives the
@@ -1427,20 +1503,16 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
       // Propagate expanded IterDomains by swapping the extent into the expanded
       // extent
       concretized_id =
-          IterDomainBuilder(maybeMutated(root_id)->as<IterDomain>())
+          IterDomainBuilder(root_id)
               .iter_type(*id_type)
               .extent(FusionGuard::getCurFusion()->oneVal(DataType::Index))
-              .expanded_extent(
-                  maybeMutated(root_id)->as<IterDomain>()->extent())
+              .expanded_extent(root_id->extent())
               .build();
     } else {
-      concretized_id =
-          IterDomainBuilder(maybeMutated(root_id)->as<IterDomain>())
-              .iter_type(*id_type)
-              .build();
+      concretized_id = IterDomainBuilder(root_id).iter_type(*id_type).build();
     }
 
-    registerConcretization(root_id, concretized_id);
+    registerConcretization(orig_root_id, concretized_id);
     is_concretized = true;
   }
 
@@ -1494,16 +1566,15 @@ size_t DynamicTransformConcretizationInfo::hash() const {
     hashCombine(hash, (size_t)extent_idx);
   }
   for (const auto& [id, iter_type] : getResizeIterTypes()) {
-    hashCombine(hash, (size_t)iter_type);
+    // Use 3 to indicate trivial resizes since Iteration and Broadcast are
+    // typically 0 and 2
+    hashCombine(hash, iter_type.has_value() ? (size_t)iter_type.value() : 3);
   }
   for (const auto& pair_vec : getFactoryOutputIterTypes()) {
     for (const auto& [pos, iter_type] : pair_vec) {
       hashCombine(hash, pos);
       hashCombine(hash, (size_t)iter_type);
     }
-  }
-  for (const auto& [id, iter_type] : getResizeIterTypes()) {
-    hashCombine(hash, (size_t)iter_type);
   }
   for (const auto& [id, expand_axes] : getExpandAxes()) {
     hashCombine(hash, (size_t)id);

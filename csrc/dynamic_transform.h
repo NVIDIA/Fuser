@@ -173,8 +173,11 @@ class DynamicTransformConcretizationInfo {
 
   //! Return a vector of pairs holding the index of each resized IterDomain in
   //! the vector returned by initialInfo()->getDynamicResizedIterDomains(),
-  //! along with the IterType it should be concretized to.
-  const std::vector<std::pair<int64_t, IterType>>& getResizeIterTypes() const {
+  //! along with the IterType it should be concretized to. std::nullopt
+  //! indicates that the resize is trivial, i.e. that the left and right expand
+  //! values are both zero.
+  const std::vector<std::pair<int64_t, std::optional<IterType>>>&
+  getResizeIterTypes() const {
     return resize_itertypes_;
   }
 
@@ -261,8 +264,9 @@ class DynamicTransformConcretizationInfo {
 
   //! Holds the index of the resized IterDomain (output of the Resize op) in the
   //! vector returned by initial_info_->getDynamicResizedIterDomains() along
-  //! with its concretized IterType
-  std::vector<std::pair<int64_t, IterType>> resize_itertypes_;
+  //! with its concretized IterType. std::nullopt indicates that the resize is
+  //! trivial, i.e. that the left and right expand values are both zero.
+  std::vector<std::pair<int64_t, std::optional<IterType>>> resize_itertypes_;
 
   //! Holds the index of the expanded TensorView in the vector returned by
   //! initial_info_->getDynamicExpandedTensorViews(), and a corresponding vector
