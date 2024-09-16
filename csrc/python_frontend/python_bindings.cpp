@@ -261,7 +261,9 @@ Tensor slice_fn(
   } else {
     // set stride with default value;
     std::vector<Scalar> stride_vec;
-    // Note: we cannot re-use the same ScalarRecord, otherwise, serialized python program uses `define_vector`, which would create multiple ScalarRecord, causing a cache miss.
+    // Note: we cannot re-use the same ScalarRecord, otherwise, serialized
+    // python program uses `define_vector`, which would create multiple
+    // ScalarRecord, causing a cache miss.
     for (auto i : c10::irange(new_start.size)) {
       (void)i; // Supress unused variable warning
       Scalar out = fd->defineScalar();
@@ -272,8 +274,11 @@ Tensor slice_fn(
           /*inline_def=*/true));
       stride_vec.push_back(out);
     }
-    // Cannot inline definition with `Vector` here, since `FusionDefinition.ops.slice` expects start/end/stride to have the same type.
-    Vector default_stride = define_vector_base_fn(*fd, stride_vec, !std::is_same_v<ShapeType, Vector>);
+    // Cannot inline definition with `Vector` here, since
+    // `FusionDefinition.ops.slice` expects start/end/stride to have the same
+    // type.
+    Vector default_stride = define_vector_base_fn(
+        *fd, stride_vec, !std::is_same_v<ShapeType, Vector>);
     stride_index = default_stride();
   }
 
