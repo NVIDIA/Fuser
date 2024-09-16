@@ -895,6 +895,10 @@ CompareDomainResult compareDomains(
 
   CompareDomainResult result;
 
+  // Check if iter domains can be reachable from
+  // target_set. Returns true if any of iter domains is
+  // unreachable. Additionaly, make sure none of iter domains has any
+  // overlap with the other iter domains.
   auto check_ids = [](const auto& ids_to_check,
                       const auto& target_set) -> bool {
     bool unreachable = false;
@@ -911,7 +915,7 @@ CompareDomainResult compareDomains(
         // 2. id is reachable from target_set but was erased from
         // target_set as it was used as an input in the traversal.
         //
-        // The second case means id is redudant
+        // The second case means id is redundant
         NVF_ERROR(
             IRBFS::getReachableValsFrom(
                 {target_set.begin(), target_set.end()}, {id})
@@ -921,6 +925,9 @@ CompareDomainResult compareDomains(
             toDelimitedString(target_set));
 
         unreachable = true;
+        // Do not break here. The return value is now determined to be
+        // true, but the remaining IDs need also to be checked if they
+        // are redundant.
       }
     }
     return unreachable;
