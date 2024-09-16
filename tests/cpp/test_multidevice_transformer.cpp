@@ -611,7 +611,7 @@ std::vector<TensorView*> mha_backwards(
 
 TEST_P(DistributedTransformerTest, MLP_Layer) {
   if ((4 * E) % D != 0) {
-    GTEST_SKIP() << "Requires number of devices=" << D 
+    GTEST_SKIP() << "Requires number of devices=" << D
                  << " evenly divide 4*E=" << 4 * E;
   }
   DataType dtype = GetParam();
@@ -735,7 +735,7 @@ TEST_P(DistributedTransformerTest, MultiheadAttention) {
 
 TEST_P(DistributedTransformerTest, MLP_Backward) {
   if ((4 * E) % D != 0) {
-    GTEST_SKIP() << "Requires number of devices=" << D 
+    GTEST_SKIP() << "Requires number of devices=" << D
                  << " evenly divide 4*E=" << 4 * E;
   }
   auto dtype = GetParam();
