@@ -55,7 +55,7 @@ static const char* defineIndexType(PrimDataType index_type) {
   } else if (index_type == DataType::Int) {
     return "typedef int64_t nvfuser_index_t;\n";
   } else {
-    NVF_ERROR(false, "invalid indexing type: ", index_type);
+    NVF_THROW("invalid indexing type: ", index_type);
   }
 }
 
@@ -424,7 +424,7 @@ void FusionExecutor::compileFusion(
       ss << alloc->buffer()->toString() << ", ";
     }
     ss << " have dynamic allocations but are placed in local memory.";
-    NVF_ERROR(false, ss.str());
+    NVF_THROW(ss.str());
   }
 
   // TODO: pass block_size here;

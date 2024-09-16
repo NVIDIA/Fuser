@@ -409,7 +409,7 @@ void IndexLowering::handle(const ViewAsScalar* uop) {
       return;
     }
   }
-  NVF_ERROR(false, "Can not find index for vector dim");
+  NVF_THROW("Can not find index for vector dim");
 }
 
 namespace {
@@ -1413,7 +1413,7 @@ void IndexLowering::handle(const kir::MBarrierInit* minit) {
     smem_address_ptr = lower_utils::u32IndexScalarSmemTv(
         minit->mbarrier()->as<kir::TensorIndex>());
   } else {
-    NVF_ERROR(false, "Unexpected MBarrierInit value.");
+    NVF_THROW("Unexpected MBarrierInit value.");
   }
   kir::MBarrierInit* minit_indexed = IrBuilder::create<kir::MBarrierInit>(
       smem_address_ptr, minit->threadCount());
@@ -1636,7 +1636,7 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
     } else if (ir_utils::isCpAsyncBulkStore(ldst)) {
       handleCpAsyncBulkStore(ldst);
     } else {
-      NVF_ERROR(false);
+      NVF_THROW();
     }
   } else {
     DataType as_type = DataType::Null;
@@ -1990,7 +1990,7 @@ void IndexLowering::allocateUniqueFusedReduction(
         IrBuilder::create<kir::AllocateFusedReduction>(
             expr->as<kir::GroupedGridWelford>());
   } else {
-    NVF_ERROR(false, "Invalid expr: ", expr->toString());
+    NVF_THROW("Invalid expr: ", expr->toString());
   }
 
   fused_reduction_map_.emplace(out_tv, fused_reduction_alloc_reduction);
