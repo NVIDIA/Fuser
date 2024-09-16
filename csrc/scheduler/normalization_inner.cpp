@@ -421,7 +421,7 @@ bool compareTwoHeuristics(
 // distribution, enhances register optimization, and prefers higher occupancy.
 void innerPersistentHeuristic2D(
     const PersistentKernelProperties& properties,
-    std::shared_ptr<ReductionParams> rparams) {
+    ReductionParams* rparams) {
   // Define two free parameters used in this heuristic.
   // register_overhead is all registers except those for the persistent
   // buffers. The register in each thread = register_overhead +
@@ -568,7 +568,7 @@ void innerPersistentHeuristic2D(
 
 void innerPersistentHeuristicSharedMemory(
     const PersistentKernelProperties& properties,
-    std::shared_ptr<ReductionParams> rparams) {
+    ReductionParams* rparams) {
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
   // Inner reduction domain
   // This heuristic is only used for cases with large total_reduction_numel.
@@ -610,7 +610,7 @@ void innerPersistentHeuristicSharedMemory(
 // TODO: clean and revise the heuristics
 void innerPersistentHeuristic3D(
     const PersistentKernelProperties& properties,
-    std::shared_ptr<ReductionParams> rparams) {
+    ReductionParams* rparams) {
   // Define two free parameters used in this heuristic.
   // register_overhead is all registers except those for the persistent
   // buffers. The register in each thread = register_overhead +
@@ -1093,7 +1093,7 @@ void innerPersistentHeuristic3D(
 
 } // namespace
 
-std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
+std::unique_ptr<ReductionParams> getInnerPersistentHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
@@ -1107,7 +1107,7 @@ std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
           data_cache,
           InnerPersistentKernelScheduler::heuristicType());
 
-  std::shared_ptr<ReductionParams> rparams = std::make_shared<ReductionParams>(
+  std::unique_ptr<ReductionParams> rparams = std::make_unique<ReductionParams>(
       InnerPersistentKernelScheduler::heuristicType());
 
   // shared heuristics for all cases
@@ -1122,13 +1122,13 @@ std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
     // all persistent buffers are moved to shared memory
     // TODO: allow only part of the buffers to be moved to shared memory
     rparams->smem_persistent_buffers = prop.persistent_buffers;
-    innerPersistentHeuristicSharedMemory(prop, rparams);
+    innerPersistentHeuristicSharedMemory(prop, rparams.get());
   } else if (prop.total_reduction_numel == prop.inner_most_dimension_numel) {
     rparams->tag = "2D Register Inner Persistent Heuristic.\n";
-    innerPersistentHeuristic2D(prop, rparams);
+    innerPersistentHeuristic2D(prop, rparams.get());
   } else {
     rparams->tag = "3D Register Inner Persistent Heuristic.\n";
-    innerPersistentHeuristic3D(prop, rparams);
+    innerPersistentHeuristic3D(prop, rparams.get());
   }
 
   // debug print
@@ -1139,7 +1139,7 @@ std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
   return rparams;
 }
 
-std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
+std::unique_ptr<ReductionParams> getInnerPersistentHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
     HeuristicSummary* data_cache) {

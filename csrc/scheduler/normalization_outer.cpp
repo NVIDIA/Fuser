@@ -295,7 +295,7 @@ class ParameterWrapper {
 namespace {
 
 // Heuristics for grid outer normalizations
-std::shared_ptr<ReductionParams> gridOuterPersistentHeuristic(
+std::unique_ptr<ReductionParams> gridOuterPersistentHeuristic(
     const int64_t total_reduction_numel,
     const int64_t total_iteration_numel,
     const int64_t n_tensor_inputs,
@@ -316,7 +316,7 @@ std::shared_ptr<ReductionParams> gridOuterPersistentHeuristic(
   const auto pb_size = outer_params->persistent_buffer_factor;
   const auto unswitch_factor = outer_params->unswitch_factor;
 
-  auto rparams = std::make_shared<ReductionParams>(
+  auto rparams = std::make_unique<ReductionParams>(
       OuterPersistentKernelScheduler::heuristicType());
 
   rparams->persistent_kernel = true;
@@ -373,7 +373,7 @@ std::shared_ptr<ReductionParams> gridOuterPersistentHeuristic(
 // Copied from reduction scheduler, should generalize. Simply needed to take out
 // grid reductions.
 // TODO: Check adding iteration domain unrolling
-std::shared_ptr<ReductionParams> outerPersistentHeuristic(
+std::unique_ptr<ReductionParams> outerPersistentHeuristic(
     const int64_t total_reduction_numel,
     const int64_t total_iteration_numel,
     const int64_t n_tensor_inputs,
@@ -579,7 +579,7 @@ std::shared_ptr<ReductionParams> outerPersistentHeuristic(
       params.iter_unroll_factor.get());
 
   // copy to ReductionParams
-  auto rparams = std::make_shared<ReductionParams>(
+  auto rparams = std::make_unique<ReductionParams>(
       OuterPersistentKernelScheduler::heuristicType());
   auto gdimx = ceilDiv(total_iteration_numel, params.bdimx.get());
   rparams->batches_per_block_inner_reduction = params.batches_per_block.get();
@@ -646,7 +646,7 @@ std::shared_ptr<ReductionParams> outerPersistentHeuristic(
 
 } // namespace
 
-std::shared_ptr<ReductionParams> getOuterPersistentHeuristics(
+std::unique_ptr<ReductionParams> getOuterPersistentHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
@@ -659,7 +659,7 @@ std::shared_ptr<ReductionParams> getOuterPersistentHeuristics(
           data_cache,
           OuterPersistentKernelScheduler::heuristicType());
 
-  std::shared_ptr<ReductionParams> rparams = outerPersistentHeuristic(
+  std::unique_ptr<ReductionParams> rparams = outerPersistentHeuristic(
       prop.total_reduction_numel,
       prop.total_iteration_numel,
       prop.n_tensor_inputs,
@@ -671,7 +671,7 @@ std::shared_ptr<ReductionParams> getOuterPersistentHeuristics(
   return rparams;
 }
 
-std::shared_ptr<ReductionParams> getOuterPersistentHeuristics(
+std::unique_ptr<ReductionParams> getOuterPersistentHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
     HeuristicSummary* data_cache) {

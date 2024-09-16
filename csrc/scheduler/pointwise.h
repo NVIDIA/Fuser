@@ -158,12 +158,12 @@ namespace nvfuser {
 class SchedulerRuntimeInfo;
 class HeuristicSummary;
 
-std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
+std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
     HeuristicSummary* data_cache = nullptr);
 
-std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
+std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache = nullptr);

@@ -52,12 +52,12 @@ class OuterPersistentKernelScheduler : public SchedulerEntry {
       HeuristicSummary* data_cache = nullptr);
 };
 
-NVF_API std::shared_ptr<ReductionParams> getOuterPersistentHeuristics(
+NVF_API std::unique_ptr<ReductionParams> getOuterPersistentHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
     HeuristicSummary* data_cache = nullptr);
 
-std::shared_ptr<ReductionParams> getOuterPersistentHeuristics(
+std::unique_ptr<ReductionParams> getOuterPersistentHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache = nullptr);

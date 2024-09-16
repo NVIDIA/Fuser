@@ -1146,8 +1146,7 @@ void FusionKernelRuntime::deserialize(
         "Heuristics do not match.");
     auto fusion_to_run = segmented_fusion_->makeFusion(sg).second;
     FusionGuard fg(fusion_to_run.get());
-    scheduler_entry->schedule(
-        fusion_to_run.get(), scheduler_entry->params().get());
+    scheduler_entry->schedule(fusion_to_run.get(), scheduler_entry->params());
 
     executors_.at(group_id).deserialize(
         buffer->executors()->Get(group_id),
@@ -1313,8 +1312,7 @@ void FusionKernelRuntime::compileKernel(
   }
   FusionGuard fg(fusion_to_run.get());
   if (auto_schedule_) {
-    scheduler_entry->schedule(
-        fusion_to_run.get(), scheduler_entry->params().get());
+    scheduler_entry->schedule(fusion_to_run.get(), scheduler_entry->params());
   }
   NVF_ERROR(
       scheduler_entry->params()->cparams.index_type.has_value(),
@@ -1455,7 +1453,7 @@ void FusionKernelRuntime::updateHeuristicsLaunchParams(
       update_heuristics->heuristicsList().size() == scheduler_list_length);
   for (const auto i : c10::irange(scheduler_list_length)) {
     auto& schedulerPtr = heuristics_->heuristicsList()[i];
-    schedulerPtr->params()->lparams =
+    schedulerPtr->params_->lparams =
         update_heuristics->heuristicsList()[i]->params()->lparams;
   }
 }

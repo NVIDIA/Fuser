@@ -828,13 +828,13 @@ bool isCpAsyncOperandLoadSupported(
                  mparams->supported_vec_size.a, mparams->supported_vec_size.b));
 }
 
-std::shared_ptr<MatmulParams> getMatmulHeuristics(
+std::unique_ptr<MatmulParams> getMatmulHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
   FusionGuard fg(fusion);
   (void)data_cache;
-  auto mparams = std::make_shared<MatmulParams>();
+  auto mparams = std::unique_ptr<MatmulParams>();
 
   // Set kernel index mode
   mparams->cparams.index_type = runtime_info.getIndexType();

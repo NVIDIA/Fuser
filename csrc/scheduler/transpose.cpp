@@ -190,7 +190,7 @@ struct TransposeViewPropagator : public MaxInfoSpanningTree::Propagator {
 };
 
 bool hasSmallTransposeDimensions(
-    const std::shared_ptr<TransposeParams>& params) {
+    const std::unique_ptr<TransposeParams>& params) {
   return !params->split_before_tiling.empty() ||
       !params->dims_merged_with_1.empty() ||
       !params->dims_merged_with_2.empty();
@@ -778,7 +778,7 @@ std::string getTransposeRuntimeRejectReason(
   // here. It is hard to maintain consistent code logic.
   if (!scheduler_utils::getViewTVs(fusion).empty()) {
     const auto index_type = runtime_info.getIndexType();
-    auto params = std::make_shared<TransposeParams>();
+    auto params = std::make_unique<TransposeParams>();
     params->tag = "Transpose heuristics";
     params->cparams.index_type = index_type;
     maybeBuildVirtualInnerDims(
@@ -831,7 +831,7 @@ bool hasAtLeastTwoValidGroups(Fusion* fusion) {
   return DomainMap::hasAtLeastTwoValidGroups(fusion);
 }
 
-std::shared_ptr<TransposeParams> getTransposeHeuristics(
+std::unique_ptr<TransposeParams> getTransposeHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
     HeuristicSummary* data_cache) {
@@ -839,7 +839,7 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
   return getTransposeHeuristics(fusion, runtime_info, data_cache);
 }
 
-std::shared_ptr<TransposeParams> getTransposeHeuristics(
+std::unique_ptr<TransposeParams> getTransposeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
@@ -878,15 +878,15 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
         "Transpose scheduler requires exact mapping on inner most dimension on reference tensor.");
   }
 
-  auto params = std::make_shared<TransposeParams>();
-  params->tag = "Transpose heuristics";
-  params->cparams.index_type = index_type;
+  auto tparams = std::make_unique<TransposeParams>();
+  tparams->tag = "Transpose heuristics";
+  tparams->cparams.index_type = index_type;
 
   // Expand inner-most dims to virtual inner-most dims so that the inner-most
   // dims has at least tile_size elements
   // See note [Supporting small transpose dimensions]
   maybeBuildVirtualInnerDims(
-      params.get(),
+      tparams.get(),
       device_multiprocessor_count,
       n_elems,
       shape_in_ref1,
@@ -894,7 +894,7 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
       inner_most_pos2_in_ref1);
 
   NVF_ERROR(
-      !hasSmallTransposeDimensions(params) ||
+      !hasSmallTransposeDimensions(tparams) ||
           scheduler_utils::getViewTVs(fusion).empty(),
       "combination of view op with small transpose dimensions are not supported by transpose scheduler");
 
@@ -906,7 +906,7 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
   // The number of threads in one block is
   //   num_threads = blockDim.x * blockDim.y
   // and the number of elements per each tile is
-  //   num_elems_per_tile = params->tile_size1 * params->tile_size2
+  //   num_elems_per_tile = tparams->tile_size1 * tparams->tile_size2
   // So each thread needs to process
   //   num_elems_per_thread = num_elems_per_tile / num_threads
   // elements. That is, once the tile sizes and block size are determined, the
@@ -953,14 +953,14 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
   // Don't unroll at the cost of getting a full wave on the GPU
   auto max_unroll_factor_occupancy = ceilDiv(
       n_elems,
-      device_multiprocessor_count * (int64_t)params->tile_size1 *
-          (int64_t)params->tile_size2);
+      device_multiprocessor_count * (int64_t)tparams->tile_size1 *
+          (int64_t)tparams->tile_size2);
   max_unroll_factor = std::min(max_unroll_factor, max_unroll_factor_occupancy);
 
   // Don't unroll at the cost of getting a full warp, useful for the case where
   // tile sizes are small
   auto max_unroll_factor_block =
-      ceilDiv((int64_t)params->tile_size1 * (int64_t)params->tile_size2, 32l);
+      ceilDiv((int64_t)tparams->tile_size1 * (int64_t)tparams->tile_size2, 32l);
   max_unroll_factor = std::min(max_unroll_factor, max_unroll_factor_block);
 
   // Note: [Computing Vectorization Width for Transpose]
@@ -1000,14 +1000,14 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
 
     // we only apply split here, since we want to merge split dimensions, we can
     // simply map those merged domains via ContiguousInnerDimensionsMapper
-    scheduler_utils::splitDims(reference1, params->split_before_tiling);
+    scheduler_utils::splitDims(reference1, tparams->split_before_tiling);
 
-    params->vectorize_factor1 =
+    tparams->vectorize_factor1 =
         vectorize_helper::getVectorizationFactorTransposeGroup(
             runtime_info,
             reference1,
             inner_most_pos1_in_ref1,
-            params->dims_merged_with_1,
+            tparams->dims_merged_with_1,
             grouped_inputs_outputs[0],
             max_unroll_factor);
 
@@ -1015,17 +1015,17 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
     // can have fine-grained control of unroll/vectorization at per tensor
     // level. We should not be using a single global vectorize factor for the
     // entire group 2
-    params->vectorize_factor2 =
+    tparams->vectorize_factor2 =
         vectorize_helper::getVectorizationFactorTransposeGroup(
             runtime_info,
             reference1,
             inner_most_pos2_in_ref1,
-            params->dims_merged_with_2,
+            tparams->dims_merged_with_2,
             grouped_inputs_outputs[1],
             max_unroll_factor);
   }
 
-  params->lparams.bind(params->getThreadsPerBlock(), ParallelType::TIDx);
+  tparams->lparams.bind(tparams->getThreadsPerBlock(), ParallelType::TIDx);
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
     debug() << "\n===== Transpose Stats ========\n"
@@ -1045,15 +1045,15 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
             << "reference2: " << reference2 << "\n"
             << "inner_most_id2 position: " << inner_most_pos2_in_ref1
             << " (in reference 1)" << std::endl;
-    if (hasSmallTransposeDimensions(params)) {
+    if (hasSmallTransposeDimensions(tparams)) {
       debug() << "small transposed dim, needs virtual inner-most dim"
               << std::endl;
     }
     debug() << std::endl;
-    debug() << params->toString() << std::endl;
+    debug() << tparams->toString() << std::endl;
   }
 
-  return params;
+  return tparams;
 }
 
 // TODO: remove or return launch parameters

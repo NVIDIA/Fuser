@@ -32,7 +32,7 @@ class SchedulerRuntimeInfo;
 
 // Utilities for benchmarking and profiling
 struct ExecutorLog {
-  std::shared_ptr<HeuristicParams> params = nullptr;
+  std::unique_ptr<HeuristicParams> params = nullptr;
   FusionExecutor* fusion_executor = nullptr;
 };
 
@@ -212,7 +212,7 @@ class FusionKernelRuntime {
   //!  most recent kernel launch.
   //! TODO: have a interface for grabbing all recent logs. Need to put a buffer
   //! space for recent logs
-  ExecutorLog getMostRecentExecutorLog() const {
+  const ExecutorLog& getMostRecentExecutorLog() const {
     NVF_ERROR(profiling_, "Executor log is only produced in profiling mode");
     return most_recent_executor_log_;
   }
@@ -587,7 +587,7 @@ class FusionExecutorCache {
   // TODO: in a follow up we need a global logging structure
   //  to capture runtime profiling info. We also need to define
   //  a suitable profiling window / buffer size.
-  ExecutorLog getMostRecentExecutorInfo() {
+  const ExecutorLog& getMostRecentExecutorInfo() {
     NVF_ERROR(most_recent_runtime_ != nullptr);
     return most_recent_runtime_->getMostRecentExecutorLog();
   }

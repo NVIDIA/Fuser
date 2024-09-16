@@ -158,7 +158,7 @@ class DomainMap : public pointwise_utils::DomainMap {
 
 } // namespace
 
-std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
+std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
     HeuristicSummary* data_cache) {
@@ -166,7 +166,7 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
   return getPointwiseHeuristics(fusion, runtime_info, data_cache);
 }
 
-std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
+std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
@@ -175,7 +175,7 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
   // Incase any buffer is of type DataType::Index
   const auto index_type = runtime_info.getIndexType();
 
-  auto params = std::make_shared<PointwiseParams>();
+  auto params = std::make_unique<PointwiseParams>();
   params->tag = "Pointwise heuristics";
   params->cparams.index_type = index_type;
 
@@ -271,7 +271,7 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
     // All cache entries that are expected to be generated in the pointwise
     // scheduler by registry.cpp::HeuristicSummary::validate() must be created
     // before hitting this return.
-    auto pwise_params = std::make_shared<PointwiseParams>();
+    auto pwise_params = std::make_unique<PointwiseParams>();
     pwise_params->tag = "Pointwise heuristics";
     pwise_params->cparams.index_type = index_type;
     return pwise_params;

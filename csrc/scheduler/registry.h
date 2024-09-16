@@ -25,6 +25,7 @@ namespace nvfuser {
 
 class SegmentedGroup;
 class ExpressionEvaluator;
+class FusionKernelRuntime;
 
 //!  SchedulerRuntimeInfo is the abstraction introduced in
 //! this PR for passing runtime input dependent information
@@ -188,13 +189,14 @@ class SchedulerEntry {
   //! Heuristic comparison
   bool sameAs(const SchedulerEntry* other);
 
-  const std::shared_ptr<HeuristicParams>& params() const {
-    return params_;
+  const HeuristicParams* params() const {
+    return params_.get();
   }
 
  protected:
+  friend FusionKernelRuntime;
   //! Heuristic parameters if applicable
-  std::shared_ptr<HeuristicParams> params_ = nullptr;
+  std::unique_ptr<HeuristicParams> params_ = nullptr;
 };
 
 namespace Schedule {

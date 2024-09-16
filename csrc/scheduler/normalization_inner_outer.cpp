@@ -695,7 +695,7 @@ namespace {
 // (a) We can do warp reduction with TIDx
 // (b) TIDx*BIDy is usually much larger than hidden_size, e.g. 128*216 = 1024*27
 // this means without switch only 1/27 of the threads is used.
-std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
+std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
     const int64_t outer_dim_numel,
     const int64_t inner_dim_numel,
     const int64_t regs_buffer_size,
@@ -705,7 +705,7 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
     const size_t vectorize_factor,
     const bool project_to_input,
     const PrimDataType index_type) {
-  auto rparams = std::make_shared<ReductionParams>(
+  auto rparams = std::make_unique<ReductionParams>(
       InnerOuterPersistentKernelScheduler::heuristicType());
   rparams->project_persistent_buffers = project_to_input;
   rparams->cparams.index_type = index_type;
@@ -941,7 +941,7 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
 
 } // namespace
 
-std::shared_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
+std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
@@ -1008,7 +1008,7 @@ std::shared_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
   auto buffer_params = getPersistentBufferStorageParams(
       fusion, runtime_info, data_cache, reduction_tvs, vectorize_factor);
 
-  std::shared_ptr<ReductionParams> rparams = innerOuterPersistentHeuristic(
+  std::unique_ptr<ReductionParams> rparams = innerOuterPersistentHeuristic(
       properties.total_iteration_numel,
       properties.total_reduction_numel,
       buffer_params.regs_buffer_size,
@@ -1026,7 +1026,7 @@ std::shared_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
   return rparams;
 }
 
-std::shared_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
+std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
     HeuristicSummary* data_cache) {

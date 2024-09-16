@@ -25,7 +25,7 @@ class ExprEvalScheduler : public SchedulerEntry {
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr)
       : SchedulerEntry() {
-    params_ = std::make_shared<HeuristicParams>(ScheduleHeuristic::ExprEval);
+    params_ = std::make_unique<HeuristicParams>(ScheduleHeuristic::ExprEval);
     params_->cparams.index_type = runtime_info.getIndexType();
   }
 

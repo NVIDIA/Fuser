@@ -19,7 +19,7 @@ class MatmulParams;
 //! An implementation of functionality that will prepare heuristics for fusion
 //!  that represents matmul. May return empty object if any of conditions are
 //!  not met.
-std::shared_ptr<MatmulParams> getMatmulHeuristics(
+std::unique_ptr<MatmulParams> getMatmulHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache = nullptr);

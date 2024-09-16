@@ -113,18 +113,18 @@ std::string toString(const TransposeParams* tparams) {
   return ss.str();
 }
 
-std::string toString(const std::shared_ptr<HeuristicParams>& params) {
-  auto rparams = std::dynamic_pointer_cast<ReductionParams>(params);
+std::string toString(const std::unique_ptr<HeuristicParams>& params) {
+  auto rparams = dynamic_cast<const ReductionParams*>(params.get());
   if (rparams) {
-    return toString(rparams.get());
+    return toString(rparams);
   }
-  auto pparams = std::dynamic_pointer_cast<PointwiseParams>(params);
+  auto pparams = dynamic_cast<const PointwiseParams*>(params.get());
   if (pparams) {
-    return toString(pparams.get());
+    return toString(pparams);
   }
-  auto tparams = std::dynamic_pointer_cast<TransposeParams>(params);
+  auto tparams = dynamic_cast<const TransposeParams*>(params.get());
   if (tparams) {
-    return toString(tparams.get());
+    return toString(tparams);
   }
   NVF_ERROR(
       false,
@@ -189,7 +189,7 @@ int64_t runBenchmarkIterations(
               ->groups()
               .size() > 1;
 
-  auto compile_log = fusion_executor_cache->getMostRecentExecutorInfo();
+  const auto& compile_log = fusion_executor_cache->getMostRecentExecutorInfo();
   auto params = toString(compile_log.params);
   auto lparams = toString(compile_log.fusion_executor->lastLaunchParams());
   // Only set if not segmented. In the case of segmented fusions,

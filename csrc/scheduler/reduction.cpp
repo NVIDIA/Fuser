@@ -62,7 +62,7 @@ void reduceProductTo(int64_t& z, int64_t& y, int64_t& x, const int64_t max) {
   }
 }
 
-std::shared_ptr<ReductionParams> innerReductionHeuristic(
+std::unique_ptr<ReductionParams> innerReductionHeuristic(
     const int64_t total_reduction_numel,
     const int64_t total_iteration_numel,
     const int64_t inner_most_dimension_numel,
@@ -378,7 +378,7 @@ std::shared_ptr<ReductionParams> innerReductionHeuristic(
     // require iterating over this entire function.
   }
 
-  auto rparams = std::make_shared<ReductionParams>();
+  auto rparams = std::make_unique<ReductionParams>();
   rparams->fastest_dim = true;
   rparams->cross_block_inner_reduction = true;
   rparams->block_dim_inner_reduction = ParallelType::TIDx;
@@ -592,7 +592,7 @@ bool isBetterThan(
   return false;
 }
 
-std::shared_ptr<ReductionParams> heuristicParaToSchedulerPara(
+std::unique_ptr<ReductionParams> heuristicParaToSchedulerPara(
     const OuterReductionParams& params) {
   int64_t gdimx = LaunchParams::UNINITIALIZED_VAL;
   int64_t gdimy = LaunchParams::UNINITIALIZED_VAL;
@@ -603,7 +603,7 @@ std::shared_ptr<ReductionParams> heuristicParaToSchedulerPara(
   // Always disabled for now.
   // bool flip_grid = gidim > 1 && gidim < 8;
   const bool flip_grid = false;
-  auto rparams = std::make_shared<ReductionParams>();
+  auto rparams = std::make_unique<ReductionParams>();
   // cross grid implies cross block
   rparams->cross_block_inner_reduction = params.bdimy > 1 || params.grdim > 1;
   rparams->cross_grid_inner_reduction = params.grdim > 1;
@@ -985,7 +985,7 @@ OuterReductionParams getGridOuterReduction(
   return params;
 }
 
-std::shared_ptr<ReductionParams> outerReductionHeuristic(
+std::unique_ptr<ReductionParams> outerReductionHeuristic(
     const int64_t total_reduction_numel,
     const int64_t total_iteration_numel,
     const int64_t n_tensor_inputs,
@@ -1226,7 +1226,7 @@ bool ReductionScheduler::canScheduleRunTime(
   return true;
 }
 
-std::shared_ptr<ReductionParams> reductionHeuristic(
+std::unique_ptr<ReductionParams> reductionHeuristic(
     const int64_t total_reduction_numel,
     const int64_t total_iteration_numel,
     const int64_t inner_most_dimension_numel,
@@ -1253,7 +1253,7 @@ std::shared_ptr<ReductionParams> reductionHeuristic(
   }
 }
 
-std::shared_ptr<ReductionParams> getReductionHeuristics(
+std::unique_ptr<ReductionParams> getReductionHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
     HeuristicSummary* data_cache) {
@@ -1262,7 +1262,7 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
   return getReductionHeuristics(fusion, runtime_info, data_cache);
 }
 
-std::shared_ptr<ReductionParams> getReductionHeuristics(
+std::unique_ptr<ReductionParams> getReductionHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
