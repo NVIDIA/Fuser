@@ -20,9 +20,9 @@ namespace nvfuser {
 
 struct OverlapTestParams {
   // Tensors sizes
-  int64_t M = std::pow(2, 6);
-  int64_t K = std::pow(2, 5);
-  int64_t N = std::pow(2, 4);
+  int64_t M = std::pow(2, 4);
+  int64_t K = std::pow(2, 3);
+  int64_t N = std::pow(2, 2);
   int64_t S = std::pow(2, 3);
 
   // network backend type
@@ -293,8 +293,8 @@ class RingBasedOverlapTest : public MultiDeviceTest {
         params.S /* do we need at most `number_of_streams` slices?*/, params.M / params.S, params.N};
     std::vector<int64_t> tc_sizes_before_reshape = {
         params.M / params.S, params.N};
-    // std::vector<int64_t> tc_sizes = {
-    //     params.S, params.M / (params.S * num_devices_), params.N};
+    std::vector<int64_t> tc_sizes = {
+        params.S, params.M / (params.S * num_devices_), params.N};
 
     // Set up input tensors. We create the full unsharded tensors and define the
     // actual input as the shard corresponding to the current device. Having the
@@ -317,7 +317,7 @@ class RingBasedOverlapTest : public MultiDeviceTest {
     // programming.
     src_buffer_ = at::empty(src_buffer_sizes, gpu_options);
     dst_buffer_ = at::empty(dst_buffer_sizes, gpu_options);
-    // tc_ = at::empty(tc_sizes_before_reshape, gpu_options);
+    tc_ = at::empty(tc_sizes_before_reshape, gpu_options);
 
     // Debug print
     if (communicator_->deviceId() == 0 && debug_print) {
@@ -343,19 +343,17 @@ class RingBasedOverlapTest : public MultiDeviceTest {
     auto tc_unsharded_expected = at::sum(tc_unsharded_unreduced, {1, 3});
     auto tc_unsharded_expected_reshaped = at::reshape(
         tc_unsharded_expected,
-        {params.S,
-         num_devices_,
+        {num_devices_,
+         params.S,
          params.M / (params.S * num_devices_),
          params.N});
     auto tc_expected_ =
-        tc_unsharded_expected_reshaped.select(1, my_device_index_);
-    std::cout << "manual validation, dst_buffer_ =\n" << dst_buffer_ <<"\ntc_expected_=\n" << tc_expected_ <<std::endl;
-    std::cout << "tc_ =\n" << dst_buffer_.sum(0) <<std::endl;
-    tc_ = dst_buffer_.sum(0);
+        tc_unsharded_expected_reshaped.select(0, my_device_index_);
     auto tc_reshaped = at::reshape(tc_, {params.S, params.M / (params.S * num_devices_), params.N});
     EXPECT_TRUE(tc_reshaped.to(torch::kCPU).allclose(tc_expected_, 1e-1, 1e-1))
-        << "Unexpected results, obtained:" << tc_
-        << "\n expected: " << tc_expected_;
+        << "Unexpected results, obtained:" << tc_reshaped
+        << "\n expected: " << tc_expected_
+        << "\n expected unsharded: " << tc_unsharded_expected;
   }
 };
 
@@ -369,9 +367,6 @@ TEST_F(RingBasedOverlapTest, ReduceScatterRingBasedPipeliningATenImplementation)
   //       return c10::cuda::getStreamFromPool(
   //           /*isHighPriority=*/false, my_device_index);
   //     });
-  std::vector<c10::intrusive_ptr<c10d::Work>> recv_works;
-  std::vector<c10::intrusive_ptr<c10d::Work>> send_works;
-
   std::vector<at::Tensor> allreduce_scratch_buffer = {at::randn({1}, at::TensorOptions().dtype(at::kFloat).device(communicator_->device()))};
   world_communicator_->allreduce(allreduce_scratch_buffer)->wait();
   // world_communicator_->barrier()->wait();
@@ -422,16 +417,12 @@ TEST_F(RingBasedOverlapTest, ReduceScatterRingBasedPipeliningATenImplementation)
         std::vector<at::Tensor> src = {src_buffer_j};
         std::vector<at::Tensor> dst = {dst_buffer_j};
         std::cout << "from rank " << my_device_index_<< ", sending to rank " << send_rank <<", with tag " << my_device_index_ << std::endl;
-        send_works.push_back(world_communicator_->send(src, send_rank, 0));
+        world_communicator_->startCoalescing();
+        world_communicator_->send(src, send_rank, 0);
         std::cout << "from rank " << my_device_index_<< ", recv from rank " << recv_rank <<", with tag " << recv_rank << std::endl;
-        recv_works.push_back(world_communicator_->recv(dst, recv_rank, 0));
+        world_communicator_->recv(dst, recv_rank, 0);
+        world_communicator_->endCoalescing()->wait();
       }
-    }
-    for (auto work: send_works) {
-      work->wait();
-    }
-    for (auto work: recv_works) {
-      work->wait();
     }
     std::cout << "entering barrier at rank " << my_device_index_ << std::endl;
     // world_communicator_->barrier()->wait();
@@ -440,9 +431,9 @@ TEST_F(RingBasedOverlapTest, ReduceScatterRingBasedPipeliningATenImplementation)
     //   stream.synchronize();
     // }
     std::cout << "cudaDeviceSynchronize at rank " << my_device_index_ << std::endl;
-    cudaDeviceSynchronize();
+    // cudaDeviceSynchronize();
     std::cout << "sum_out at rank " << my_device_index_ << std::endl;
-    // torch::sum_out(tc_, dst_buffer_, 0);
+    torch::sum_out(tc_, dst_buffer_, 0);
     // tc_ = dst_buffer_.sum(0);
     // tc_ = dst_buffer_;
     std::cout << "sum_out FINISHED at rank " << my_device_index_ << std::endl;
