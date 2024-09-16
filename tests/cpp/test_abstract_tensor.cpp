@@ -804,6 +804,7 @@ TEST_F(AbstractTensorTest, MergeTaggedTensor) {
 
   auto id0 = newID();
   auto id1 = newID();
+  auto id2 = newID();
 
   {
     EnumTaggedAbstractTensor v0({id0, id1}, {{TestTag::A}, {TestTag::A}});
@@ -839,6 +840,26 @@ TEST_F(AbstractTensorTest, MergeTaggedTensor) {
 
     EXPECT_TRUE(v1.hasTag(0, TestTag::A));
     EXPECT_TRUE(v1.hasTag(0, TestTag::B));
+  }
+
+  {
+    // Merge outer dimensions and preserve inner dimension with different tag
+    EnumTaggedAbstractTensor v2(
+        {id0, id1, id2}, {{TestTag::A}, {TestTag::A}, {TestTag::B}});
+
+    ASSERT_EQ(v2.info.size(), 3);
+    EXPECT_EQ(v2.info.at(0).tags, std::unordered_set<TestTag>{TestTag::A});
+    EXPECT_EQ(v2.info.at(1).tags, std::unordered_set<TestTag>{TestTag::A});
+    EXPECT_EQ(v2.info.at(2).tags, std::unordered_set<TestTag>{TestTag::B});
+
+    EXPECT_EQ(v2.getTag(0), TestTag::A);
+    EXPECT_EQ(v2.getTag(1), TestTag::A);
+    EXPECT_EQ(v2.getTag(2), TestTag::B);
+
+    v2.merge(0);
+
+    EXPECT_EQ(v2.getTag(0), TestTag::A);
+    EXPECT_EQ(v2.getTag(1), TestTag::B);
   }
 }
 

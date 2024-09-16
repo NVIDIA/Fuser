@@ -660,7 +660,7 @@ struct AbstractTensorWithInfo {
 
     info[domain_outer_pos] =
         Info::merge(info[domain_outer_pos], info[domain_inner_pos]);
-    info.resize(info.size() - 1);
+    info.erase(info.begin() + domain_inner_pos);
 
     return *this;
   }
