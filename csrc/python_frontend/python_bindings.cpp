@@ -60,7 +60,8 @@ template <class ITERABLE>
 Vector define_vector_fn(
     FusionDefinition& self,
     ITERABLE& values,
-    bool inline_def = false) {
+    bool inline_def,
+    bool shape_check) {
   FUSER_PERF_SCOPE("python_frontend::define_vector_fn");
   std::vector<Scalar> args;
   size_t idx = 0;
@@ -68,7 +69,7 @@ Vector define_vector_fn(
     if (py::isinstance<py::int_>(item)) {
       auto int_value = py::cast<int64_t>(item);
       NVF_CHECK(
-          int_value >= -1,
+          !shape_check || int_value >= -1,
           "The value ",
           int_value,
           " at index ",
@@ -99,11 +100,11 @@ Vector define_vector_explicit_fn(
     FusionDefinition& self,
     ITERABLE& values,
     PrimDataType dtype = DataType::Int) {
-  return define_vector_fn<ITERABLE>(self, values, /*inline_def=*/false);
+  return define_vector_fn<ITERABLE>(self, values, /*inline_def=*/false, /*shape_check=*/true);
 }
 
 template <class ShapeType>
-Vector ShapeAsVector(ShapeType shape, FusionDefinition& fd) {
+Vector SequenceAsVector(ShapeType shape, FusionDefinition& fd, bool shape_check=true) {
   static_assert(
       std::is_same_v<ShapeType, Vector> ||
       std::is_same_v<ShapeType, py::list> ||
@@ -121,7 +122,7 @@ Vector ShapeAsVector(ShapeType shape, FusionDefinition& fd) {
     // ```
     // would not work because the compiler would try to instantiate
     // define_vector_fn<Vector> and fail.
-    return define_vector_fn<ShapeType>(fd, shape, /*inline_def=*/true);
+    return define_vector_fn<ShapeType>(fd, shape, /*inline_def=*/true, /*shape_check=*/shape_check);
   }
 }
 
@@ -134,7 +135,7 @@ Tensor broadcast_in_dim_fn(
   FUSER_PERF_SCOPE("Operators.broadcast_in_dim");
   FusionDefinition* fd = op.fusion_definition;
   NVF_CHECK(op.validUse(), "Attempting to add to a completed definition!");
-  Vector output_shape = ShapeAsVector(generic_output_shape, *fd);
+  Vector output_shape = SequenceAsVector(generic_output_shape, *fd);
   NVF_CHECK(
       output_shape.size >= broadcast_dims.size(),
       "broadcast_dims vector size is too big for output shape!");
@@ -156,7 +157,7 @@ Tensor full_op_fn(
     PrimDataType dtype) {
   NVF_CHECK(self.validUse(), "Attempting to add to a completed definition!");
   FusionDefinition* fd = self.fusion_definition;
-  Vector output_shape = ShapeAsVector(generic_output_shape, *fd);
+  Vector output_shape = SequenceAsVector(generic_output_shape, *fd);
   Tensor output = fd->defineTensor(output_shape.size);
   fd->defineRecord(new FullOpRecord(
       {fd->recordingState(output_shape()), fd->recordingState(fill_value())},
@@ -173,7 +174,7 @@ Tensor reshape_fn(
   NVF_CHECK(self.validUse(), "Attempting to add to a completed definition!");
 
   FusionDefinition* fd = self.fusion_definition;
-  Vector new_shape = ShapeAsVector(generic_new_shape, *fd);
+  Vector new_shape = SequenceAsVector(generic_new_shape, *fd);
 
   Tensor output = fd->defineTensor(new_shape.size);
   fd->defineRecord(new ReshapeOpRecord(
@@ -200,7 +201,7 @@ Tensor random_dist_op_fn(
       "Random distributions only create floating point types! ",
       dtype);
   FusionDefinition* fd = self.fusion_definition;
-  Vector new_shape = ShapeAsVector(generic_new_shape, *fd);
+  Vector new_shape = SequenceAsVector(generic_new_shape, *fd);
 
   Tensor output = fd->defineTensor(new_shape.size);
   std::vector<State> arg_states = {
@@ -245,12 +246,12 @@ Tensor slice_fn(
   NVF_CHECK(self.validUse(), "Attempting to add to a completed definition!");
 
   FusionDefinition* fd = self.fusion_definition;
-  Vector new_start = ShapeAsVector(start, *fd);
-  Vector new_end = ShapeAsVector(end, *fd);
+  Vector new_start = SequenceAsVector(start, *fd, /*shape_check=*/false);
+  Vector new_end = SequenceAsVector(end, *fd, /*shape_check=*/false);
   size_t stride_index = 0;
 
   if (strides.has_value()) {
-    Vector new_stride = ShapeAsVector(strides.value(), *fd);
+    Vector new_stride = SequenceAsVector(strides.value(), *fd, /*shape_check=*/false);
     NVF_CHECK(
         new_start.size == new_stride.size,
         "Slice start_indices and strides don't match! Start Indices: ",
