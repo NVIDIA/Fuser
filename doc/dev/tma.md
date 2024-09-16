@@ -353,6 +353,7 @@ the TMA domain can be completely inferred from the schedule.
 > When using circular buffering with TMA, a single thread is select to launch the TMA load and mbarrier operations.
 > In this case, we cannot apply any block parallelization to the consumer TensorView, which will create a thread predicate.
 > A compile-time error will occur if you apply circular buffering and block parallelization together.
+> See `TEST_F(NVFuserTest, ElectSyncCompatibility)` for an example.
 
 #### Data swizzle
 

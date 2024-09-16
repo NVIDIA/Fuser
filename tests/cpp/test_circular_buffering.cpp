@@ -868,6 +868,82 @@ class TmaCircularBufferingTest
   }
 };
 
+TEST_F(NVFuserTest, ElectSyncCompatibility) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* input = makeContigTensor(3);
+  fusion->addInput(input);
+  TensorView* output = set(input);
+  fusion->addOutput(output);
+
+  TensorView* smem_cache =
+      input->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  smem_cache->setMemoryType(MemoryType::Shared);
+
+  // For TMA load, both the shared memory layout and the loop nest and
+  // parallelization of TMA are specified by the consumer: smem_cache
+
+  // Step 1: define TMA domain
+  // Because we want to treat the entire tensor as 1D, we define the TMA
+  // domain as [I0*I1*I2]
+  smem_cache->merge(0);
+  smem_cache->merge(0);
+  // Note that the TMA domain only exist in people's mind, there is no need to
+  // set anything here.
+
+  // Step 2: define box
+  smem_cache->split(0, 256);
+  // [I0*I1*I2/256, 256]
+  // partitioned IterDomain: I0*I1*I2
+  // coordinate IterDomain: I0*I1*I2/256
+  // box IterDomain: 256
+
+  // Step 3: define tile
+  // We use dense tile here, so tile == box. Nothing to do here.
+
+  // Step 4: schedule the shared memory tensor
+  // By default, the allocation domain is the logical domain, which is already
+  // in good shape for this case.
+
+  constexpr int64_t number_of_stages = 2;
+  // Step 5: schedule the consumer tensor
+  smem_cache->split(0, 4);
+  // [I0*I1*I2/256/4, 4, 256]
+  smem_cache->split(0, number_of_stages);
+  // [I0*I1*I2/256/4/2, 2, 4, 256]
+
+  smem_cache->axis(0)->parallelize(ParallelType::BIDx);
+  smem_cache->axis(2)->parallelize(ParallelType::TIDx);
+  smem_cache->axis(3)->parallelize(ParallelType::Bulk);
+  // [BIDx, TIDx, Bulk]
+
+  // Schedule the smem->gmem part
+  output->merge(0);
+  output->merge(0);
+  output->split(0, 256);
+  output->split(0, 4);
+  output->split(0, number_of_stages);
+  output->axis(0)->parallelize(ParallelType::BIDx);
+  output->axis(3)->parallelize(ParallelType::TIDx);
+
+  smem_cache->computeAt(output, /*pos=*/2);
+  smem_cache->circularBuffer(number_of_stages);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  std::vector<int64_t> shape(3, 300);
+  auto t0 = at::randn(shape, options);
+
+  // IterDomain 2 for the TMA load is parallelized with TIDx, so we generate
+  // (threadIdx.x < 4) predicate. This thread predicate is incompatible with
+  // circular buffering because we generate an ElectSync predicate that uses
+  // a single thread.
+  FusionExecutor fe;
+  ASSERT_ANY_THROW(fe.compileFusion(fusion.get(), {t0}));
+}
+
 TEST_P(TmaCircularBufferingTest, SingleDim) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
 
