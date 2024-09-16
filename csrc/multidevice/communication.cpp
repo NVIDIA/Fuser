@@ -43,7 +43,7 @@ std::ostream& operator<<(std::ostream& os, const CommunicationType& type) {
       os << "SendRecv";
       break;
     default:
-      NVF_ERROR(false, "unrecognized CommunicationType: ", type);
+      NVF_THROW("unrecognized CommunicationType: ", type);
   }
   return os;
 }
@@ -93,7 +93,7 @@ T getInitialValue(c10d::ReduceOp::RedOpType op) {
     case c10d::ReduceOp::RedOpType::MIN:
       return std::numeric_limits<T>::max();
     default:
-      NVF_ERROR(false, "unsupported reduction op type");
+      NVF_THROW("unsupported reduction op type");
       return 0;
   }
 }
@@ -111,7 +111,7 @@ bool hasRoot(CommunicationType type) {
     case CommunicationType::ReduceScatter:
       return false;
     default:
-      NVF_ERROR(false, "unrecognized CommunicationType: ", type);
+      NVF_THROW("unrecognized CommunicationType: ", type);
   }
 }
 
@@ -128,7 +128,7 @@ bool isReduction(CommunicationType type) {
     case CommunicationType::SendRecv:
       return false;
     default:
-      NVF_ERROR(false, "unrecognized CommunicationType: ", type);
+      NVF_THROW("unrecognized CommunicationType: ", type);
   }
 }
 
@@ -489,7 +489,7 @@ c10::intrusive_ptr<c10d::Work> postSingleCommunication(
       return postSendRecv(
           communication, my_device_index, backend, input_tensor, output_tensor);
     default:
-      NVF_ERROR(false, "Wrong communication type: ", communication->type());
+      NVF_THROW("Wrong communication type: ", communication->type());
       return nullptr;
   }
 }

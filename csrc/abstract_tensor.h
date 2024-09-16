@@ -248,7 +248,7 @@ struct DispatchLegacySwizzle {
     } else if constexpr (
         std::is_same_v<L, ValGroupAndItsGraph> &&
         std::is_same_v<R, ValGroupAndItsGraph>) {
-      NVF_ERROR(false, "not supported");
+      NVF_THROW("not supported");
     } else if constexpr (
         std::is_same_v<L, IterDomain*> &&
         std::is_same_v<R, ValGroupAndItsGraph>) {

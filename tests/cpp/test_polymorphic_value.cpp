@@ -75,7 +75,7 @@ TEST_F(PolymorphicValueTest, Struct) {
       } else if (key == "y") {
         return [this]() { return PolymorphicValue(y); };
       } else {
-        NVF_ERROR(false, "Invalid key");
+        NVF_THROW("Invalid key");
       }
     }
 
@@ -86,7 +86,7 @@ TEST_F(PolymorphicValueTest, Struct) {
       } else if (key == "y") {
         return [this](const PolymorphicValue& value) { y = (double)value; };
       } else {
-        NVF_ERROR(false, "Invalid key");
+        NVF_THROW("Invalid key");
       }
     }
   };
