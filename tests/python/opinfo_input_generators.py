@@ -1163,7 +1163,7 @@ def slice_error_generator(
 
     check_strides = ErrorSample(
         {"start_indices": [0, 0], "end_indices": [5, 5], "strides": [5, 5]},
-        "nvFuser Limitation: All slice operation strides must be of size 1.",
+        "nvFuser Limitation: All slice operation strides must be of const size 1.",
     )
 
     check_tensor_dims = ErrorSample(
