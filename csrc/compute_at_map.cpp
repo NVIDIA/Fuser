@@ -1511,7 +1511,7 @@ const DisjointSets<IterDomain*>& ComputeAtMap::getIdSets(
     case IdMappingMode::INNERMOST:
       return id_graph_.innermostNodes();
     default:
-      NVF_ERROR(false, "Error with mapping mode provided.");
+      NVF_THROW("Error with mapping mode provided.");
   }
 }
 
