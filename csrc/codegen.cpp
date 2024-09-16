@@ -2963,7 +2963,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         }
       }
       // tv is aligned if alias is aligned
-      if(aligned_array_of_regs_.count(alias_tv) > 0) {
+      if (aligned_array_of_regs_.count(alias_tv) > 0) {
         aligned_array_of_regs_.insert(tv);
       }
     } else {
