@@ -674,8 +674,7 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
 
 TEST_P(DistributedTransformerTest, MultiheadAttention) {
   if (H % D != 0) {
-    GTEST_SKIP()
-        << "Requires number of devices evenly divide H";
+    GTEST_SKIP() << "Requires number of devices evenly divide H";
   }
   auto dtype = GetParam();
   auto fusion = std::make_unique<Fusion>();
@@ -803,8 +802,7 @@ TEST_P(DistributedTransformerTest, MLP_Backward) {
 
 TEST_P(DistributedTransformerTest, MHA_Backward) {
   if (H % D != 0) {
-    GTEST_SKIP()
-        << "Requires number of devices evenly divide H";
+    GTEST_SKIP() << "Requires number of devices evenly divide H";
   }
   auto dtype = GetParam();
   at::ScalarType at_dtype = data_type_to_aten(dtype);
@@ -906,8 +904,7 @@ TEST_P(DistributedTransformerTest, MHA_Backward) {
 
 TEST_P(DistributedTransformerTest, Forward) {
   if (H % D != 0) {
-    GTEST_SKIP()
-        << "Requires number of devices evenly divide H";
+    GTEST_SKIP() << "Requires number of devices evenly divide H";
   }
   auto dtype = GetParam();
   at::ScalarType at_dtype = data_type_to_aten(dtype);
