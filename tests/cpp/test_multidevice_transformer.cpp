@@ -35,9 +35,9 @@ class DistributedTransformerTest
 
   void SetUp() {
     MultiDeviceTest::SetUp();
-    if (H % D != 0) {
+    if ((4 * E) % D != 0) {
       GTEST_SKIP()
-          << "Distributed transformer tests require number of devices evenly divide E ";
+          << "Distributed transformer tests require number of devices evenly divide 4*E";
     }
     if (!deviceMajorMinorCheck(8)) {
       GTEST_SKIP() << "Distributed transformer tests require Ampere or newer";
@@ -673,6 +673,10 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
 }
 
 TEST_P(DistributedTransformerTest, MultiheadAttention) {
+  if (H % D != 0) {
+    GTEST_SKIP()
+        << "Requires number of devices evenly divide H";
+  }
   auto dtype = GetParam();
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -798,6 +802,10 @@ TEST_P(DistributedTransformerTest, MLP_Backward) {
 }
 
 TEST_P(DistributedTransformerTest, MHA_Backward) {
+  if (H % D != 0) {
+    GTEST_SKIP()
+        << "Requires number of devices evenly divide H";
+  }
   auto dtype = GetParam();
   at::ScalarType at_dtype = data_type_to_aten(dtype);
   auto fusion = std::make_unique<Fusion>();
@@ -897,6 +905,10 @@ TEST_P(DistributedTransformerTest, MHA_Backward) {
 }
 
 TEST_P(DistributedTransformerTest, Forward) {
+  if (H % D != 0) {
+    GTEST_SKIP()
+        << "Requires number of devices evenly divide H";
+  }
   auto dtype = GetParam();
   at::ScalarType at_dtype = data_type_to_aten(dtype);
   auto fusion = std::make_unique<Fusion>();
