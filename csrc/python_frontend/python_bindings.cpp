@@ -249,7 +249,7 @@ Tensor slice_fn(
   Vector new_end = ShapeAsVector(end, *fd);
   size_t stride_index = 0;
 
-  if (stride.has_value()) {
+  if (strides.has_value()) {
     Vector new_stride = ShapeAsVector(strides.value(), *fd);
     NVF_CHECK(
         new_start.size == new_stride.size,
