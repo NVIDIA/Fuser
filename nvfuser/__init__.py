@@ -204,7 +204,7 @@ class FusionDefinition(_C._FusionDefinition):
 
         # If schedule is defined by child class and schedule is not defined for
         # inputs, make a schedule.
-        defined_schedule = (self.schedule != FusionDefinition.schedule)
+        defined_schedule = self.schedule != FusionDefinition.schedule
         if defined_schedule and not self._exist_schedule(inputs):
             self._setup_schedule(inputs)
             self.schedule()
