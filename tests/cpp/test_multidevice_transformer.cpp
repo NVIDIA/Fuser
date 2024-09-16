@@ -41,7 +41,7 @@ class DistributedTransformerTest
  protected:
   DistributedTransformerTest() : D(communicator_->size()) {}
 
-  void SetUp() {
+  void SetUp() override {
     MultiDeviceTest::SetUp();
     if (H % D != 0) {
       GTEST_SKIP()
