@@ -42,10 +42,54 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
 
   using kir::ExprMutator::handle;
 
+  // The ElectSync predicate expects a single thread to run operations within
+  // If-Then-Else. Any TensorView with block parallelization is incompatible
+  // with this If-Then-Else because it can create a conflicting predicate.
+  void checkElectSyncCompatibility(Expr* expr) {
+    NVF_CHECK(expr->predicate()->predicate_type() == PredicateType::ElectSync);
+    NVF_ERROR(expr->isA<kir::IfThenElse>());
+
+    // Check all the expressions in the scope
+    auto check_scope_compatibility = [](Scope& scope) {
+      for (Expr* expr : scope.exprs()) {
+        // Thread predicates are generated based on the expression's outputs
+        for (Val* val : expr->outputs()) {
+          // short-circuit
+          if (!val->isA<kir::TensorIndex>()) {
+            continue;
+          }
+          // Check that none of the IterDomains in TensorView are parallelized
+          // with a block dimension.
+          TensorView* tv = val->as<kir::TensorIndex>()->view();
+          bool is_block_parallelized = std::any_of(
+              tv->domain()->loop().begin(),
+              tv->domain()->loop().end(),
+              [](IterDomain* id) { return id->isThreadDim(); });
+          NVF_ERROR(
+              !is_block_parallelized,
+              "This block-parallelized TensorView ",
+              tv->toString(),
+              " is incorrectly contained within a If-Then-Else with the ",
+              "ElectSync predicate.");
+        }
+      }
+    };
+
+    // Check the thenBody and elseBody of If-Then-Else
+    kir::IfThenElse* ite = expr->as<kir::IfThenElse>();
+    check_scope_compatibility(ite->thenBody());
+    check_scope_compatibility(ite->elseBody());
+  }
+
   void dispatch(Expr* expr) final {
     if (expr != nullptr && expr->predicate() != nullptr) {
       // Replace expr predicate with bool conditional
       auto conditional = generateConditional(expr->predicate());
+
+      if (expr->predicate()->predicate_type() == PredicateType::ElectSync) {
+        checkElectSyncCompatibility(expr);
+      }
+
       if (expr->predicate()->predicate_type() == PredicateType::Vectorize) {
         if (expr->isA<kir::IfThenElse>()) {
           // TODO: This logic doesn't seem to fit well here, for unswitch the
