@@ -580,29 +580,27 @@ struct AbstractTensorWithInfo {
     return domain.crend();
   }
 
-  AbstractTensorWithInfo<Info>& pushBack(AbstractId id) {
+  AbstractTensorWithInfo& pushBack(AbstractId id) {
     domain.push_back(std::move(id));
     info.resize(domain.size());
     return *this;
   }
 
-  AbstractTensorWithInfo<Info>& pushBack(AbstractId id, const Info& info) {
+  AbstractTensorWithInfo& pushBack(AbstractId id, const Info& info) {
     domain.push_back(std::move(id));
     info.push_back(info);
     return *this;
   }
 
   template <typename... Args>
-  AbstractTensorWithInfo<Info>& emplaceBack(Args&&... args) {
+  AbstractTensorWithInfo& emplaceBack(Args&&... args) {
     domain.emplace_back(std::forward<Args>(args)...);
     return *this;
   }
 
   template <typename T>
   bool operator==(T&& t) const {
-    if constexpr (std::is_same_v<
-                      AbstractTensorWithInfo<Info>,
-                      std::decay_t<T>>) {
+    if constexpr (std::is_same_v<AbstractTensorWithInfo, std::decay_t<T>>) {
       return domain == t.domain && info == t.info;
     }
     return false;
@@ -613,7 +611,7 @@ struct AbstractTensorWithInfo {
     return !operator==(std::forward<T>(t));
   }
 
-  AbstractTensorWithInfo<Info>& parallelize(
+  AbstractTensorWithInfo& parallelize(
       int64_t axis,
       ParallelType parallel_type) {
     axis = wrapDim(axis, (int64_t)domain.size());
@@ -621,7 +619,7 @@ struct AbstractTensorWithInfo {
     return *this;
   }
 
-  AbstractTensorWithInfo<Info>& split(
+  AbstractTensorWithInfo& split(
       int64_t axis,
       Val* factor,
       bool inner_split = true) {
@@ -636,7 +634,7 @@ struct AbstractTensorWithInfo {
     return *this;
   }
 
-  AbstractTensorWithInfo<Info>& split(
+  AbstractTensorWithInfo& split(
       int64_t axis,
       int64_t factor,
       bool inner_split = true) {
@@ -644,7 +642,7 @@ struct AbstractTensorWithInfo {
         axis, IrBuilder::create<Val>(factor, DataType::Index), inner_split);
   }
 
-  AbstractTensorWithInfo<Info>& merge(int64_t axis_o, int64_t axis_i) {
+  AbstractTensorWithInfo& merge(int64_t axis_o, int64_t axis_i) {
     axis_o = wrapDim(axis_o, (int64_t)domain.size());
     axis_i = wrapDim(axis_i, (int64_t)domain.size());
 
@@ -665,11 +663,11 @@ struct AbstractTensorWithInfo {
     return *this;
   }
 
-  AbstractTensorWithInfo<Info>& merge(int64_t axis) {
+  AbstractTensorWithInfo& merge(int64_t axis) {
     return merge(axis, axis + 1);
   }
 
-  AbstractTensorWithInfo<Info>& reorder(
+  AbstractTensorWithInfo& reorder(
       const std::unordered_map<int64_t, int64_t>& old2new) {
     NVF_ERROR(
         !domain.empty() || old2new.empty(), "Tried to reorder a 0-dim domain");
@@ -694,13 +692,12 @@ struct AbstractTensorWithInfo {
 
     return *this;
   }
-  AbstractTensorWithInfo<Info>& reorder(
+  AbstractTensorWithInfo& reorder(
       const std::initializer_list<std::pair<const int64_t, int64_t>>& old2new) {
     return reorder(std::unordered_map<int64_t, int64_t>(old2new));
   }
   // old2new[index] = permutation[index]
-  AbstractTensorWithInfo<Info>& reorder(
-      const std::vector<int64_t>& permutation) {
+  AbstractTensorWithInfo& reorder(const std::vector<int64_t>& permutation) {
     std::unordered_map<int64_t, int64_t> reorder_map;
     int64_t idx = 0;
     std::transform(
@@ -710,14 +707,14 @@ struct AbstractTensorWithInfo {
         [&idx](int64_t v) { return std::make_pair(idx++, v); });
     return reorder(reorder_map);
   }
-  AbstractTensorWithInfo<Info>& reorder(
+  AbstractTensorWithInfo& reorder(
       const std::initializer_list<int64_t>& permutation) {
     return reorder(std::vector<int64_t>(permutation));
   }
 
   // Both `from` and `to` are inclusive.
 
-  AbstractTensorWithInfo<Info>& flatten(int64_t from = 0, int64_t to = -1) {
+  AbstractTensorWithInfo& flatten(int64_t from = 0, int64_t to = -1) {
     NVF_ERROR(!domain.empty(), "Tried to do flatten on a 0-dim domains");
     from = wrapDim(from, (int64_t)domain.size());
     to = wrapDim(to, (int64_t)domain.size());
@@ -730,7 +727,7 @@ struct AbstractTensorWithInfo {
     return *this;
   }
 
-  AbstractTensorWithInfo<Info>& swizzle(
+  AbstractTensorWithInfo& swizzle(
       SwizzleType swizzle_type,
       int64_t x,
       int64_t y) {
@@ -753,7 +750,7 @@ struct AbstractTensorWithInfo {
 
   // Temporary helper for legacy swizzle, should be removed eventually.
   // This is a copy-paste of AbstractTensor::swizzle(SwizzleType
-  AbstractTensorWithInfo<Info>& swizzle(
+  AbstractTensorWithInfo& swizzle(
       Swizzle2DType swizzle_type,
       int64_t x,
       int64_t y) {
@@ -776,8 +773,8 @@ struct AbstractTensorWithInfo {
   // Unzip the AbstractTensor to separate tensors. For example, if this
   // AbstractTensor is [dim0={id0, id1}, dim1={id2, id3}], then the return value
   // will be {AbstractTensor{id0, id2}, AbstractTensor{id1, id3}}.
-  std::vector<AbstractTensorWithInfo<Info>> unzip() const {
-    std::vector<AbstractTensorWithInfo<Info>> result;
+  std::vector<AbstractTensorWithInfo> unzip() const {
+    std::vector<AbstractTensorWithInfo> result;
 
     // Check and get the size of each vector
     int64_t size = -1;
@@ -812,12 +809,12 @@ struct AbstractTensorWithInfo {
   // Zip multiple AbstractTensors into a single AbstractTensor. For example, if
   // the input is {AbstractTensor{id0, id2}, AbstractTensor{id1, id3}}, then the
   // return value will be [dim0={id0, id1}, dim1={id2, id3}].
-  static AbstractTensorWithInfo<Info> zip(
-      std::vector<AbstractTensorWithInfo<Info>> tensors) {
+  static AbstractTensorWithInfo zip(
+      std::vector<AbstractTensorWithInfo> tensors) {
     NVF_CHECK(
         !tensors.empty(), "Can not stack an empty list of AbstractTensor");
 
-    AbstractTensorWithInfo<Info> result;
+    AbstractTensorWithInfo result;
     for (const auto& tensor : tensors) {
       NVF_CHECK(
           tensor.domain.size() == tensors[0].domain.size(),
@@ -851,7 +848,7 @@ struct AbstractTensorWithInfo {
   //   row2  id4    id5
   // in another word, the return value will be an AbstractTensor:
   // [dim0={id0, id1, id4}, dim1={id2, id3, id5}].
-  AbstractTensorWithInfo<Info>& addRow(AbstractTensorWithInfo<Info> tensor) {
+  AbstractTensorWithInfo& addRow(AbstractTensorWithInfo tensor) {
     NVF_CHECK(
         domain.size() == tensor.domain.size(),
         "Can not add a new row with different number of domains.");
@@ -869,8 +866,8 @@ struct AbstractTensorWithInfo {
   }
 
   // Remove all the null elements.
-  AbstractTensorWithInfo<Info>& strip() {
-    AbstractTensorWithInfo<Info> result;
+  AbstractTensorWithInfo& strip() {
+    AbstractTensorWithInfo result;
     for (const auto& aid : domain) {
       if (aid.hasValue()) {
         result.pushBack(aid);
