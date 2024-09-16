@@ -87,13 +87,18 @@ void FusionDefinition::finalizeDefinition() {
     }
     trie_node_ = fusionCache()->createChild(trie_node_, end_record_.get());
     fusion_id_ = std::optional<size_t>(trie_node_->fusion_id);
-    NVF_CHECK(id().has_value(), "Invalid fusion id!");
+    try {
+      NVF_CHECK(id().has_value(), "Invalid fusion id!");
 
-    if (isDebugDumpEnabled(DebugDumpOption::PythonDefinition)) {
-      print(debug());
+      if (isDebugDumpEnabled(DebugDumpOption::PythonDefinition)) {
+        print(debug());
+      }
+
+      buildFusionIr(preschedFusion());
+    } catch (const std::exception& e) {
+      trie_node_->markException(e);
+      throw e;
     }
-
-    buildFusionIr(preschedFusion());
 
     if (isDebugDumpEnabled(DebugDumpOption::FusionIrOriginal)) {
       printIr();
@@ -101,6 +106,9 @@ void FusionDefinition::finalizeDefinition() {
   } else {
     if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
       debug() << "\nFusionDefinition: Terminal Node found!\n";
+    }
+    if (std::optional<std::exception> e = trie_node_->getException()) {
+      throw e;
     }
     trie_node_ = child_node.value();
     fusion_id_ = std::optional<size_t>(trie_node_->fusion_id);

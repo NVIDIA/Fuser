@@ -104,6 +104,8 @@ struct TrieNode {
   // Queries whether the entry denotes a leaf node which also represents
   // a the end of Fusion entry in the cache.
   bool isTerminal() const;
+  std::optional<std::exception> getException() const;
+  void markException(std::exception e);
   //! Serialize TrieNode using flatbuffers
   NVF_API flatbuffers::Offset<serde::TrieNode> serialize(
       flatbuffers::FlatBufferBuilder& builder,
@@ -125,6 +127,7 @@ struct TrieNode {
   TrieNode* parent;
   //! For thread-Safe locking of a node
   std::mutex trie_node_lock;
+  std::optional<std::exception> exception;
 };
 
 //! \class FusionCache
