@@ -907,6 +907,9 @@ using AbstractTensor = AbstractTensorWithInfo<EmptyInfo>;
 template <typename Tag>
 struct TagSetInfo {
   std::unordered_set<Tag> tags;
+
+  TagSetInfo(std::unordered_set<Tag> tags_) : tags(tags_) {}
+
   static TagSetInfo<Tag> merge(
       const TagSetInfo<Tag>& a,
       const TagSetInfo<Tag>& b) {
@@ -940,40 +943,22 @@ template <typename Tag>
 struct TaggedAbstractTensor : AbstractTensorWithInfo<TagSetInfo<Tag>> {
   TaggedAbstractTensor(
       std::vector<AbstractId> domain,
-      std::vector<std::unordered_set<Tag>> tag_sets)
-      : AbstractTensorWithInfo<TagSetInfo<Tag>>(domain) {
-    NVF_ERROR(
-        this->info.size() == tag_sets.size(),
-        "Mismatch in length between provided domain and tag sets");
-    size_t i = 0;
-    for (const auto& s : tag_sets) {
-      this->info[i++].tags.insert(s.begin(), s.end());
-    }
-  }
+      const std::vector<std::unordered_set<Tag>>& tag_sets)
+      : AbstractTensorWithInfo<TagSetInfo<Tag>>(
+            domain,
+            {tag_sets.begin(), tag_sets.end()}) {}
   TaggedAbstractTensor(
       const std::vector<IterDomain*>& domain,
       const std::vector<std::unordered_set<Tag>>& tag_sets)
-      : AbstractTensorWithInfo<TagSetInfo<Tag>>(domain) {
-    NVF_ERROR(
-        this->info.size() == tag_sets.size(),
-        "Mismatch in length between provided domain and tag sets");
-    size_t i = 0;
-    for (const auto& s : tag_sets) {
-      this->info[i++].tags.insert(s.begin(), s.end());
-    }
-  }
+      : AbstractTensorWithInfo<TagSetInfo<Tag>>(
+            domain,
+            {tag_sets.begin(), tag_sets.end()}) {}
   TaggedAbstractTensor(
       std::initializer_list<AbstractId> domain,
       std::initializer_list<std::initializer_list<Tag>> tag_sets)
-      : AbstractTensorWithInfo<TagSetInfo<Tag>>(domain) {
-    NVF_ERROR(
-        this->info.size() == tag_sets.size(),
-        "Mismatch in length between provided domain and tag sets");
-    size_t i = 0;
-    for (const auto& s : tag_sets) {
-      this->info[i++].tags.insert(s.begin(), s.end());
-    }
-  }
+      : AbstractTensorWithInfo<TagSetInfo<Tag>>(
+            domain,
+            {tag_sets.begin(), tag_sets.end()}) {}
 
   const std::unordered_set<Tag>& getTags(int64_t i) const {
     i = wrapDim(i, (int64_t)this->info.size());
