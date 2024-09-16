@@ -273,7 +273,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
 //     }
 //   } else {
 //     tokens[loop_index] =
-//       mbarrier::arriveExpectTx(mbarrier[loop_index], 0);
+//       mbarrier::arrive(mbarrier[loop_index]);
 //   }
 // }
 //
@@ -289,7 +289,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
 //     }
 //   } else {
 //     token[load_stage] =
-//       mbarrier::arriveExpectTx(mbarrier[load_stage], 0);
+//       mbarrier::arrive(mbarrier[load_stage]);
 //   }
 //   mbarrier::wait(token[current_stage]);
 //
@@ -445,8 +445,7 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
   //       cpAsyncBulk(mbarriers[loop_index], ...);
   //     }
   //   } else {
-  //     tokens[loop_index] =
-  //       mbarrier::arriveExpectTx(mbarrier[loop_index], 0);
+  //     tokens[loop_index] = mbarrier::arrive(mbarrier[loop_index]);
   //   }
   // }
   void handlePrologueLoop(Expr* expr) {
@@ -505,8 +504,7 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
   //       cpAsyncBulk(mbarrier[load_stage], ...);
   //     }
   //   } else {
-  //     token[load_stage] =
-  //       mbarrier::arriveExpectTx(mbarrier[load_stage], 0);
+  //     token[load_stage] = mbarrier::arrive(mbarrier[load_stage]);
   //   }
   //   mbarrier::wait(token[current_stage]);
   //
@@ -625,8 +623,7 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
   //      cpAsyncBulk(mbarrier[next_stage], ...);
   //    }
   //  } else {
-  //    tokens[next_stage] =
-  //      mbarrier::arriveExpectTx(mbarrier[next_stage], 0);
+  //    tokens[next_stage] = mbarrier::arrive(mbarrier[next_stage]);
   //  }
   void addTmaLoadBlock(Expr* expr) {
     NVF_ERROR(mbarrier_arrive_tx_ != nullptr);
@@ -643,11 +640,8 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
     if_expr->thenBody().push_back(expr);
 
     // The other threads issue arriveExpectTx without any expected transactions.
-    kir::MBarrierArriveExpectTx* thread_arrive =
-        IrBuilder::create<kir::MBarrierArriveExpectTx>(
-            mbarrier_arrive_tx_->state(),
-            mbarrier_arrive_tx_->mbarrier(),
-            /*tx_count=*/IrBuilder::create<Val>(0L, PrimDataType::UInt32));
+    kir::MBarrierArrive* thread_arrive = IrBuilder::create<kir::MBarrierArrive>(
+        mbarrier_arrive_tx_->state(), mbarrier_arrive_tx_->mbarrier());
     if_expr->elseBody().push_back(thread_arrive);
     for_loop_stack_.back()->body().push_back(if_expr);
 
