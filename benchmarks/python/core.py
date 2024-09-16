@@ -9,6 +9,7 @@ from typing import List, Callable, Union
 import numpy as np
 from nvfuser import FusionDefinition, FusionCache
 from nvfuser.pytorch_utils import DEVICE_PROPERTIES
+from itertools import cycle
 
 # These variables can be overwritten through CLI commands
 # --benchmark-rounds=rounds --benchmark-warmup-rounds=warmup_rounds
@@ -259,14 +260,25 @@ def run_benchmark(
         outputs: Output of the target function
     """
 
-    assert device in [
+    assert device.split(':')[0] in [
         "cuda",
         "host",
-    ], f"Unsupported device type: {device}. Use one of cuda/host."
+    ], f"Unsupported device type: {device.split(':')[0]}. Use one of cuda/host."
 
-    if device == "host":
+    host_bench_mode = None
+    if device != "cuda":
         assert fusion_fn is not None and benchmark_fn is None
-
+        # device = 'host:compile', 'host:steady'
+        # Split and update into device and host_bench_mode
+        host_bench_mode = device.split(':')[-1]
+        device = device.split(':')[0]
+        if host_bench_mode in ['steady', 'dynamic']:
+            # Set warmup round if required to avoid measuring initial overhead
+            if BENCHMARK_CONFIG['warmup_rounds'] == 0:
+                BENCHMARK_CONFIG['warmup_rounds'] = 1
+        if host_bench_mode == 'dynamic':
+            inputs = cycle(inputs)
+    
     nvf_benchmark = NVFBenchmark(benchmark, device=device)
 
     def host_benchmark_fn(inputs, fd):
@@ -276,13 +288,16 @@ def run_benchmark(
 
     def setup():
         clear_l2_cache()
-
         if device == "host":
-            # Reset the FusionCache to measure host overhead correctly.
-            FusionCache.reset()
+            assert host_bench_mode is not None
+            if host_bench_mode == 'compile':
+                # Reset the FusionCache to measure initial host overhead correctly.
+                FusionCache.reset()
             with FusionDefinition() as fd:
-                fusion_fn(fd)
+                fusion_fn(fd)             
             # The benchmark_fn used is host_benchmark_fn above.
+            if host_bench_mode == 'dynamic':
+                return [next(inputs)], {'fd': fd}
             return [inputs], {"fd": fd}
 
         return [inputs], {}
