@@ -241,7 +241,7 @@ Tensor slice_fn(
     Tensor arg,
     ShapeType start,
     ShapeType end,
-    ShapeType strides) {
+    std::optional<ShapeType> strides) {
   NVF_CHECK(self.validUse(), "Attempting to add to a completed definition!");
 
   FusionDefinition* fd = self.fusion_definition;
@@ -249,8 +249,8 @@ Tensor slice_fn(
   Vector new_end = ShapeAsVector(end, *fd);
   size_t stride_index = 0;
 
-  if (!strides.empty()) {
-    Vector new_stride = ShapeAsVector(strides, *fd);
+  if (stride.has_value()) {
+    Vector new_stride = ShapeAsVector(strides.value(), *fd);
     NVF_CHECK(
         new_start.size == new_stride.size,
         "Slice start_indices and strides don't match! Start Indices: ",
@@ -269,8 +269,8 @@ Tensor slice_fn(
         DataType::Int,
         /*inline_def=*/true));
     stride_vec.resize(new_start.size, out);
-    Vector new_stride = define_vector_base_fn(*fd, stride_vec, true);
-    stride_index = new_stride();
+    Vector default_stride = define_vector_base_fn(*fd, stride_vec, true);
+    stride_index = default_stride();
   }
 
   NVF_CHECK(
@@ -2773,22 +2773,21 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("index"),
       py::return_value_policy::reference);
 
-  // TODO: Add a specialization for this?!
-  // nvf_ops.def(
-  //     "slice",
-  //     slice_fn<Vector>,
-  //     py::arg("arg"),
-  //     py::arg("start_indices"),
-  //     py::arg("end_indices"),
-  //     py::arg("strides") = py::none(),
-  //     py::return_value_policy::reference);
+  nvf_ops.def(
+      "slice",
+      slice_fn<Vector>,
+      py::arg("arg"),
+      py::arg("start_indices"),
+      py::arg("end_indices"),
+      py::arg("strides") = py::none(),
+      py::return_value_policy::reference);
   nvf_ops.def(
       "slice",
       slice_fn<py::list>,
       py::arg("arg"),
       py::arg("start_indices"),
       py::arg("end_indices"),
-      py::arg("strides") = py::list(),
+      py::arg("strides") = py::none(),
       py::return_value_policy::reference);
   nvf_ops.def(
       "slice",
@@ -2796,7 +2795,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("arg"),
       py::arg("start_indices"),
       py::arg("end_indices"),
-      py::arg("strides") = py::tuple(),
+      py::arg("strides") = py::none(),
       py::return_value_policy::reference);
   nvf_ops.def(
       "squeeze",
