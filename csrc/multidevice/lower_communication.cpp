@@ -37,7 +37,7 @@ inline c10d::ReduceOp::RedOpType getC10dReduceOpType(BinaryOpType op) {
     case BinaryOpType::BitwiseXor:
       return c10d::ReduceOp::RedOpType::BXOR;
     default:
-      NVF_ERROR(false, "unsupported reduction operation");
+      NVF_THROW("unsupported reduction operation");
       return c10d::ReduceOp::RedOpType::UNUSED;
   }
 }

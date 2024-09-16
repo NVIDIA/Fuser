@@ -394,7 +394,7 @@ class TMASimpleLdstTest
         shape = {4, 8, 1024, 32, 128};
         break;
       default:
-        NVF_ERROR(false, "Invalid dimension");
+        NVF_THROW("Invalid dimension");
     }
   }
 };

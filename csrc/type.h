@@ -136,7 +136,7 @@ struct StructType {
         return *field.type;
       }
     }
-    NVF_ERROR(false, "Field ", name, " not found in struct ", this->name);
+    NVF_THROW("Field ", name, " not found in struct ", this->name);
   }
 
   inline bool operator==(const StructType& other) const;
@@ -973,7 +973,7 @@ constexpr inline size_t primDataTypeSize(PrimDataType type) {
     case DataType::SMemAddress:
       return sizeof(unsigned);
     default:
-      NVF_ERROR(false, "Size undefined for data type.");
+      NVF_THROW("Size undefined for data type.");
   }
 }
 

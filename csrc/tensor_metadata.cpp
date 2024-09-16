@@ -92,7 +92,7 @@ class ForwardTraverseFromLogicalToAlloc {
     } else if (auto merge = dynamic_cast<Merge*>(expr)) {
       handle(merge);
     } else {
-      NVF_ERROR(false, "Unsupported transormation in allocation domain");
+      NVF_THROW("Unsupported transormation in allocation domain");
     }
   }
 
@@ -185,7 +185,7 @@ class BackwardTraverseFromLogicalToAlloc {
     } else if (auto merge = dynamic_cast<Merge*>(expr)) {
       handle(merge);
     } else {
-      NVF_ERROR(false, "Unsupported transormation in allocation domain");
+      NVF_THROW("Unsupported transormation in allocation domain");
     }
   }
 

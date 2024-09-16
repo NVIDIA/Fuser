@@ -278,7 +278,7 @@ std::optional<std::pair<IterDomain*, IterDomain*>> detectMappablePair(
           return std::make_pair(id1, id2);
         }
       } else {
-        NVF_ERROR(false, "Unrecognized IdMappingMode mode.");
+        NVF_THROW("Unrecognized IdMappingMode mode.");
       }
     }
   }
