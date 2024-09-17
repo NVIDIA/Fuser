@@ -4350,11 +4350,12 @@ class TestNvFuserFrontend(NVFuserTest):
             dynamic_end = fd.define_vector(3)
             T3 = fd.ops.slice(T0, dynamic_start, dynamic_end)
             fd.add_output(T3)
+
         inputs = [x, *offset, *x.shape]
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
         for out in nvf_out:
-            self.assertTrue(out.allclose(x[:,1:,2:]))
+            self.assertTrue(out.allclose(x[:, 1:, 2:]))
 
     # testing that error thrown in finalizeDefinition is not accidentally cached as legit fusion.
     def test_fusion_definition_error_cache(self):
