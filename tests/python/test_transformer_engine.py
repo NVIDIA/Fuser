@@ -9,7 +9,12 @@ import torch.distributed as dist
 
 import transformer_engine.pytorch as te
 
-from multidevice import multidevice_test
+import multidevice
+
+
+@pytest.fixture
+def multidevice_test():
+    return multidevice.MultideviceTest()
 
 
 @pytest.mark.mpi
