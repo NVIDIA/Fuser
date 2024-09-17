@@ -717,17 +717,21 @@ enum class IterType {
 enum class IdMappingMode {
   EXACT,
   ALMOSTEXACT,
-  LOOP,
+  BROADCAST,
   PERMISSIVE,
+  LOOP,
+  // TODO: Reconsider if this graph is really necessary
   PERMISSIVE_RESIZE,
+  // TODO: Reconsider if this graph is really necessary
   INNERMOST
 };
 
-static constexpr std::array<IdMappingMode, 6> kIdMappingModes = {
+static constexpr std::array<IdMappingMode, 7> kIdMappingModes = {
     IdMappingMode::EXACT,
     IdMappingMode::ALMOSTEXACT,
-    IdMappingMode::LOOP,
+    IdMappingMode::BROADCAST,
     IdMappingMode::PERMISSIVE,
+    IdMappingMode::LOOP,
     IdMappingMode::PERMISSIVE_RESIZE,
     IdMappingMode::INNERMOST};
 

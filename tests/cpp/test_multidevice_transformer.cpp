@@ -5,22 +5,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <cmath>
+#include <vector>
 
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <expr_evaluator.h>
 #include <fusion.h>
-#include <fusion_executor/executor.h>
-#include <fusion_segmenter.h>
-#include <ir/all_nodes.h>
-#include <ir/interface_nodes.h>
-#include <ir/utils.h>
-#include <mma_type.h>
 #include <ops/all_ops.h>
-#include <scheduler/mma_utils.h>
-#include <scheduler/utils.h>
 #include <tests/cpp/multidevice.h>
 #include <tests/cpp/validator.h>
 
@@ -42,12 +33,8 @@ class DistributedTransformerTest
  protected:
   DistributedTransformerTest() : D(communicator_->size()) {}
 
-  void SetUp() {
+  void SetUp() override {
     MultiDeviceTest::SetUp();
-    if (H % D != 0) {
-      GTEST_SKIP()
-          << "Distributed transformer tests require number of devices evenly divide E ";
-    }
     if (!deviceMajorMinorCheck(8)) {
       GTEST_SKIP() << "Distributed transformer tests require Ampere or newer";
     }
@@ -623,6 +610,10 @@ std::vector<TensorView*> mha_backwards(
 } // namespace
 
 TEST_P(DistributedTransformerTest, MLP_Layer) {
+  if ((4 * E) % D != 0) {
+    GTEST_SKIP() << "Requires number of devices=" << D
+                 << " evenly divide 4*E=" << 4 * E;
+  }
   DataType dtype = GetParam();
   at::ScalarType at_dtype = data_type_to_aten(dtype);
   auto fusion = std::make_unique<Fusion>();
@@ -682,6 +673,10 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
 }
 
 TEST_P(DistributedTransformerTest, MultiheadAttention) {
+  if (H % D != 0) {
+    GTEST_SKIP() << "Requires number of devices=" << D
+                 << " evenly divide H=" << H;
+  }
   auto dtype = GetParam();
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -739,6 +734,10 @@ TEST_P(DistributedTransformerTest, MultiheadAttention) {
 }
 
 TEST_P(DistributedTransformerTest, MLP_Backward) {
+  if ((4 * E) % D != 0) {
+    GTEST_SKIP() << "Requires number of devices=" << D
+                 << " evenly divide 4*E=" << 4 * E;
+  }
   auto dtype = GetParam();
   at::ScalarType at_dtype = data_type_to_aten(dtype);
   auto fusion = std::make_unique<Fusion>();
@@ -807,6 +806,10 @@ TEST_P(DistributedTransformerTest, MLP_Backward) {
 }
 
 TEST_P(DistributedTransformerTest, MHA_Backward) {
+  if (H % D != 0) {
+    GTEST_SKIP() << "Requires number of devices=" << D
+                 << " evenly divide H=" << H;
+  }
   auto dtype = GetParam();
   at::ScalarType at_dtype = data_type_to_aten(dtype);
   auto fusion = std::make_unique<Fusion>();
@@ -906,6 +909,10 @@ TEST_P(DistributedTransformerTest, MHA_Backward) {
 }
 
 TEST_P(DistributedTransformerTest, Forward) {
+  if (H % D != 0) {
+    GTEST_SKIP() << "Requires number of devices=" << D
+                 << " evenly divide H=" << H;
+  }
   auto dtype = GetParam();
   at::ScalarType at_dtype = data_type_to_aten(dtype);
   auto fusion = std::make_unique<Fusion>();

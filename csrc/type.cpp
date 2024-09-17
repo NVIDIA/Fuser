@@ -773,6 +773,8 @@ static const char* id_map_mode_type2string(IdMappingMode t) {
       return "exact";
     case IdMappingMode::ALMOSTEXACT:
       return "almost_exact";
+    case IdMappingMode::BROADCAST:
+      return "broadcast";
     case IdMappingMode::PERMISSIVE:
       return "permissive";
     case IdMappingMode::LOOP:

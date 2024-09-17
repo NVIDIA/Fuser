@@ -1510,8 +1510,9 @@ const DisjointSets<IterDomain*>& ComputeAtMap::getIdSets(
       return id_graph_.permissiveResizeNodes();
     case IdMappingMode::INNERMOST:
       return id_graph_.innermostNodes();
+    default:
+      NVF_THROW("Error with mapping mode provided.");
   }
-  NVF_THROW("Error with mapping mode provided.");
 }
 
 bool ComputeAtMap::idExistsInMap(IterDomain* id, IdMappingMode mode) const {
