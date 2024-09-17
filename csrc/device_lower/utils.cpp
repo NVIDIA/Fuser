@@ -1131,12 +1131,14 @@ namespace {
 //
 // We use a dynamic type to be able to represent all these cases.
 
-// Represent that the selected group (usually linear_g) is part of another
-// something else. For example, if we have
+// selected = PartOf(group, inner_extent, selected_extent) represents that the
+// selected group is part of `group`. This projection usually comes from merge.
+// For example, if we have
 //   selected    2
 //           \  /
 //            g1
-// then selected is part of g1, with inner_extent=2.
+// then
+//   selected = PartOf(g1, 2, extent_of_selected).
 template <typename LinearGroupProjection>
 struct PartOf {
   // Part of who?
@@ -1165,22 +1167,19 @@ struct PartOf {
   }
 };
 
-// Represent that linear_g is a composition of multiple LinearGroupProjections.
-// For example, if we have
-//  linear_g
-//    /   \.
-//  g1     g2
-// then linear_g is a composition of g1 and g2.
+// selected = Composition{g1, g2, g3} represents that the selected group is a
+// composition of g1, g2, and g3. This projection usually comes from split. For
+// example, if we have
+//    selected
+//     /   \.
+//   g1     g2
+// then:
+//   selected = Composition{g1, g2}.
 template <typename... Args>
 using Composition = std::deque<Args...>;
 
-using LinearGroupProjection = dynamic_type::DynamicType<
-    dynamic_type::Containers<
-        Composition, // a composition of LinearGroupProjections
-        PartOf // part of a LinearGroupProjection
-        >,
-    ValGroup // a whole ValGroup
-    >;
+using LinearGroupProjection = dynamic_type::
+    DynamicType<dynamic_type::Containers<Composition, PartOf>, ValGroup>;
 
 // Utilities to print LinearGroupProjection.
 std::string print(const LinearGroupProjection& group);
@@ -1217,7 +1216,7 @@ std::string print(const LinearGroupProjection& group) {
       [&](const auto& group) { return print(group); }, group);
 }
 
-// Utilities to check if LinearGroupProjection is related to ValGroup.
+// Utilities to check if a LinearGroupProjection is related to a ValGroup.
 bool related(const LinearGroupProjection& current, const ValGroup& to);
 
 bool related(const ValGroup& current, const ValGroup& to) {
@@ -1496,8 +1495,16 @@ LinearGroupProjection propagate(
   auto from = fromGroups(id_graph, eg, direction);
   auto to = toGroups(id_graph, eg, direction);
   if (from.size() == 1) {
-    // If linear_g is equivalent to from, and from is split into two groups,
-    // then these two groups together represents linear_g.
+    // If we have
+    //    current
+    //    /     \.
+    //   g1      g2
+    // and the split is divisible, then we know that
+    //   current = Composition{g1, g2}
+    // If the split is not divisible, then we know that
+    //   current = PartOf{group=Composition{g1, g2},
+    //                    inner_extent=nullptr,
+    //                    selected_extent=extent(current)}
     NVF_ERROR(to.size() == 2);
     NVF_ERROR(from.front() == current);
     auto comp = Composition<LinearGroupProjection>{to.front(), to.back()};
@@ -1511,8 +1518,22 @@ LinearGroupProjection propagate(
     }
     return comp;
   } else {
-    // If linear_g is merged with another group, then part of the merged group
-    // represents linear_g.
+    // If we have
+    //   current  g1
+    //        \  /
+    //         g2
+    // then we know that
+    //   current = PartOf{group=g2,
+    //                    inner_extent=extent(g1),
+    //                    selected_extent=extent(current)}
+    // If we have
+    //   g1   current
+    //     \  /
+    //      g2
+    // then we know that
+    //   current = PartOf{group=g2,
+    //                    inner_extent=nullptr,
+    //                    selected_extent=extent(current)}
     NVF_ERROR(from.size() == 2);
     NVF_ERROR(to.size() == 1);
     NVF_ERROR(from.front() == current || from.back() == current);
@@ -1558,6 +1579,7 @@ LinearGroupProjection propagate(
   auto from = fromGroups(id_graph, eg, direction);
   auto to = toGroups(id_graph, eg, direction);
   if (from.size() == 1) {
+    // Just recursively propagate each group in the composition.
     NVF_ERROR(to.size() == 2);
     NVF_ERROR(
         std::any_of(current.begin(), current.end(), [&](const auto& proj) {
@@ -1643,8 +1665,7 @@ Val* proveLinearAndGetStrideAfterPropagation(
     if (*it == g_in_domain) {
       return stride;
     }
-    stride = SimplifyingIrBuilder::mulExpr(
-        stride, (*it)->front()->as<IterDomain>()->extent());
+    stride = SimplifyingIrBuilder::mulExpr(stride, extent(*it));
   }
   return nullptr;
 }
@@ -1708,7 +1729,7 @@ Val* proveLinearAndGetStride(
     const ValGraph& id_graph,
     const ValGroup& linear_g,
     const ValGroups& domain) {
-  if (simplifyExpr(linear_g->front()->as<IterDomain>()->extent())->isOne()) {
+  if (simplifyExpr(extent(linear_g))->isOne()) {
     // If the extent of the linear group is 1, we always consider it as linear,
     // regardless of its relationship with domain. For this case, we use stride
     // zero as a placeholder, as "stride" is really meaningless for a dimension
