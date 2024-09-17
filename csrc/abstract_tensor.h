@@ -495,8 +495,8 @@ struct AbstractTensorWithInfo {
       : domain(std::move(domain)), info(std::move(info)) {}
   AbstractTensorWithInfo(
       const std::vector<IterDomain*>& domain,
-      const std::vector<Info>& info)
-      : domain(domain.begin(), domain.end()), info(info.begin(), info.end()) {}
+      std::vector<Info> info)
+      : domain(domain.begin(), domain.end()), info(std::move(info)) {}
   AbstractTensorWithInfo(
       std::initializer_list<AbstractId> domain,
       std::initializer_list<Info> info)
@@ -511,6 +511,16 @@ struct AbstractTensorWithInfo {
         domain.begin(), domain.end(), std::back_inserter(result), [](auto x) {
           return (T)x;
         });
+    return result;
+  }
+
+  std::vector<std::pair<AbstractId, Info>> domainAndInfo() const {
+    std::vector<std::pair<AbstractId, Info>> result;
+    NVF_ERROR(domain.size() == info.size());
+    result.reserve(domain.size());
+    for (size_t i : c10::irange(domain.size())) {
+      result.emplace_back(domain[i], info[i]);
+    }
     return result;
   }
 
@@ -586,15 +596,16 @@ struct AbstractTensorWithInfo {
     return *this;
   }
 
-  AbstractTensorWithInfo& pushBack(AbstractId id, const Info& info) {
+  AbstractTensorWithInfo& pushBack(AbstractId id, const Info& info_) {
     domain.push_back(std::move(id));
-    info.push_back(info);
+    info.push_back(info_);
     return *this;
   }
 
   template <typename... Args>
   AbstractTensorWithInfo& emplaceBack(Args&&... args) {
     domain.emplace_back(std::forward<Args>(args)...);
+    info.resize(domain.size());
     return *this;
   }
 
@@ -793,16 +804,18 @@ struct AbstractTensorWithInfo {
       }
     }
 
-    // unzip the AbstractTensor, broadcast the non-vector items
+    // unzip the AbstractTensor, broadcast the non-vector items. Re-use info for
+    // all the unzipped AbstractTensors
     result.resize(size);
-    for (const auto& aid : domain) {
-      for (auto i : c10::irange(size)) {
-        if (!aid.is<std::vector>()) {
-          result[i].domain.emplace_back(aid);
-        } else {
+    for (auto i : c10::irange(size)) {
+      for (const auto& aid : domain) {
+        if (aid.is<std::vector>()) {
           result[i].domain.emplace_back(aid[i]);
+        } else {
+          result[i].domain.emplace_back(aid);
         }
       }
+      result[i].info = info;
     }
     return result;
   }
@@ -815,13 +828,21 @@ struct AbstractTensorWithInfo {
     NVF_CHECK(
         !tensors.empty(), "Can not stack an empty list of AbstractTensor");
 
-    AbstractTensorWithInfo result;
     for (const auto& tensor : tensors) {
       NVF_CHECK(
           tensor.domain.size() == tensors[0].domain.size(),
           "Can not stack AbstractTensors with different number of domains.");
     }
 
+    NVF_CHECK(
+        std::all_of(
+            tensors.begin(),
+            tensors.end(),
+            [&tensors](auto t) { return t.info == tensors[0].info; }),
+        "Cannot zip AbstractTensors whose info does not match");
+
+    AbstractTensorWithInfo result;
+    result.info = std::move(tensors[0].info);
     result.domain.reserve(tensors[0].domain.size());
     for (auto i : c10::irange(tensors[0].domain.size())) {
       std::vector<AbstractId> domain;
@@ -858,7 +879,9 @@ struct AbstractTensorWithInfo {
             domain.begin(),
             domain.end(),
             [](const AbstractId& aid) { return aid.is<std::vector>(); }),
-        "Can not add a new row to an AbstractTensor with non-vector domains.")
+        "Can not add a new row to an AbstractTensor with non-vector domains.");
+
+    NVF_CHECK(info == tensor.info, "Cannot add a new row with mismatched info");
 
     for (auto i : c10::irange(domain.size())) {
       domain[i].as<std::vector>().emplace_back(std::move(tensor.domain[i]));
@@ -869,9 +892,9 @@ struct AbstractTensorWithInfo {
   // Remove all the null elements.
   AbstractTensorWithInfo& strip() {
     AbstractTensorWithInfo result;
-    for (const auto& aid : domain) {
+    for (auto& [aid, inf] : domainAndInfo()) {
       if (aid.hasValue()) {
-        result.pushBack(aid);
+        result.pushBack(std::move(aid), std::move(inf));
       }
     }
     std::swap(result, *this);
@@ -901,37 +924,34 @@ struct EmptyInfo {
 
 using AbstractTensor = AbstractTensorWithInfo<EmptyInfo>;
 
-//! This is a holds a comparable type of "tag". This version is strict in the
-//! sense that we check that the tags match whenever we do a merge instead of
-//! allowing mismatches.
+//! This is a holds set of tags of the given type. When we merging or swizzling
+//! we take the union of these tag sets. Split duplicates the tag set for each
+//! output axis.
 template <typename Tag>
 struct TagSetInfo {
   std::unordered_set<Tag> tags;
 
-  TagSetInfo(std::unordered_set<Tag> tags_) : tags(tags_) {}
+  TagSetInfo(std::unordered_set<Tag> tags_ = {}) : tags(std::move(tags_)) {}
 
-  static TagSetInfo<Tag> merge(
-      const TagSetInfo<Tag>& a,
-      const TagSetInfo<Tag>& b) {
-    TagSetInfo<Tag> merged_tag_info{a.tags};
+  static TagSetInfo merge(const TagSetInfo& a, const TagSetInfo& b) {
+    TagSetInfo merged_tag_info{a.tags};
     merged_tag_info.tags.insert(b.tags.begin(), b.tags.end());
     return merged_tag_info;
   }
 
-  static std::pair<TagSetInfo<Tag>, TagSetInfo<Tag>> split(
-      const TagSetInfo<Tag>& a) {
+  static std::pair<TagSetInfo, TagSetInfo> split(const TagSetInfo& a) {
     return {a, a};
   }
 
   //! Swizzling mixes the tags so here we re-use merge and duplicate the result
-  static std::pair<TagSetInfo<Tag>, TagSetInfo<Tag>> swizzle(
-      const TagSetInfo<Tag>& a,
-      const TagSetInfo<Tag>& b) {
-    TagSetInfo<Tag> merged_info = merge(a, b);
+  static std::pair<TagSetInfo, TagSetInfo> swizzle(
+      const TagSetInfo& a,
+      const TagSetInfo& b) {
+    TagSetInfo merged_info = merge(a, b);
     return {merged_info, merged_info};
   }
 
-  bool operator==(TagSetInfo<Tag>&& t) const {
+  bool operator==(const TagSetInfo& t) const {
     return tags == t.tags;
   }
 };
