@@ -1000,6 +1000,7 @@ class MultipleMatmulScheduler {
         for (size_t i : c10::irange(merged_roles.size())) {
           if (merged_roles[i] == MatmulDimRole::K) {
             tv->split((int64_t)i, params_.splitk_factor, /*inner*/ false);
+            break;
           }
         }
       }
@@ -1066,9 +1067,7 @@ class MultipleMatmulScheduler {
     scheduleLdMatrixBranch(bcrs_, MmaOperand::B);
   }
 
-  // MmaOperand contains only A and B. If tvs are outputs (i.e. not operands),
-  // then operand_type should be std::nullopt.
-  void scheduleMmaOperandOrOutputs(
+  void scheduleMmaOperands(
       std::vector<TensorView*>& tvs,
       const std::optional<MmaOperand> operand_type) {
     auto all_merged_roles = blockTileTensors(tvs);
@@ -1076,8 +1075,39 @@ class MultipleMatmulScheduler {
       TensorView*& mma_result = tvs[i];
       std::vector<MatmulDimRole>& merged_roles = all_merged_roles[i];
 
+      // At this point we have the following schedule:
+      //   No split-K
+      //     mma_result      [..., iMo, iNo, rKo, iMi, iNi, rKi]
+      //   Split-K
+      //     mma_result      [..., iMo, iNo, iKf, rKg, iMi, iNi, rKi]
+      //     splitk_sum      [..., iMo, iNo, rKf, iMi, iNi]
+
+      // Schedule warp tile
+      // Incoming mma_result = [... iMo iNo (iKf) rKg iMi iNi rKi]
+
+      // NOTE: this applies to either mma_result _or_ ab/bb since both have the
+      // same number of dimensions.
+      // TODO: use the version that uses merged_roles instead here
+      mma_utils::scheduleWarpTileWithReduction(mma_result, params_.tile_sizes);
+
+      // parallelize Mwo, Nwo by thread
+      mma_result->axis((int64_t)merged_roles.size() + num_splitk_dims_ + 1)
+          ->parallelize(ParallelType::TIDz);
+      mma_result->axis((int64_t)merged_roles.size() + num_splitk_dims_ + 2)
+          ->parallelize(ParallelType::TIDy);
+    }
+  }
+
+  // MmaOperand contains only A and B. If tvs are outputs (i.e. not operands),
+  // then operand_type should be std::nullopt.
+  void scheduleMmaResults() {
+    auto all_merged_roles = blockTileTensors(mma_results_);
+    for (size_t i : c10::irange(mma_results_.size())) {
+      TensorView*& mma_result = mma_results_[i];
+      std::vector<MatmulDimRole>& merged_roles = all_merged_roles[i];
+
       // do split-K rFactor to define splitk_sum and smem_epilogue
-      if (!operand_type.has_value() && params_.splitk_factor != 1) {
+      if (params_.splitk_factor != 1) {
         TensorView* splitk_sum = mma_result->rFactor({-4, -1});
         std::swap(splitk_sum, mma_result);
         splitk_sums_.push_back(splitk_sum);
@@ -1090,13 +1120,15 @@ class MultipleMatmulScheduler {
       //     mma_result      [..., iMo, iNo, iKf, rKg, iMi, iNi, rKi]
       //     splitk_sum      [..., iMo, iNo, rKf, iMi, iNi]
 
-      if (!operand_type.has_value() && params_.use_smem_epilogue) {
+      TensorView* smem_epilogue = mma_result;
+      if (params_.use_smem_epilogue) {
         // Note that for split-K
         //   splitk_sum = sum(mma_result)
         // becomes
         //   smem_epilogue = set(mma_result)
         //   splitk_sum = sum(smem_epilogue)
-        smem_epilogues_.push_back(mma_result->cacheAfter());
+        smem_epilogue = mma_result->cacheAfter();
+        smem_epilogues_.push_back(smem_epilogue);
         // smem_epilogue = [..., iMo, iNo, iKf, iMi, iNi]
       }
       // Schedule warp tile
@@ -1107,6 +1139,16 @@ class MultipleMatmulScheduler {
       // TODO: use the version that uses merged_roles instead here
       mma_utils::scheduleWarpTileWithReduction(mma_result, params_.tile_sizes);
 
+      if (params_.use_smem_epilogue && params_.splitk_factor != 1) {
+        // TODO:
+        // This is a workaround for a problem that different dimensions in the
+        // loop domain are mapped in the loop graph of IdModel due to the
+        // mapping of compliment IDs. We should remove forwarding completely,
+        // and remove this workaround.
+        mma_result->split(-2, 1);
+        mma_result->merge(-3);
+      }
+
       // This does a split-reorder-merge swizzle of the last two M and N
       // dimensions (and a possible final reduction dim). eg. [M64, N24, R]  ->
       // [WarpGroup128, N3, M2, N2, Ro, R4, R2] Before
@@ -1116,12 +1158,10 @@ class MultipleMatmulScheduler {
       //   mma_result  [... iMo iNo (iKf) rKg rKwo iMwo iNwo iMw
       //                              iNw iMino iNino iMin2 iNin2 rKino rKin4
       //                              rKin2]
-      if (!operand_type.has_value()) {
-        auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-            mma_result->getLoopDomain());
-        mma_result->setLoopDomain(s.as<IterDomain*>());
-        mma_result->setAllocationDomain(s.as<IterDomain*>(), true);
-      }
+      auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+          mma_result->getLoopDomain());
+      mma_result->setLoopDomain(s.as<IterDomain*>());
+      mma_result->setAllocationDomain(s.as<IterDomain*>(), true);
 
       // Parallelization strategy:
       // Here the top two rows indicate how we can index each axis. The third
@@ -1168,15 +1208,7 @@ class MultipleMatmulScheduler {
       mma_result->axis((int64_t)merged_roles.size() + num_splitk_dims_ + 2)
           ->parallelize(ParallelType::TIDy);
 
-      if (operand_type.has_value()) {
-        // Only schedule BID for mma_results
-        // NOTE: this is just for matching the old scheduler. parallelization is
-        // harmless here
-        continue;
-      }
-
       if (params_.use_smem_epilogue) {
-        TensorView* smem_epilogue = smem_epilogues_.back();
         smem_epilogue->setMemoryType(MemoryType::Shared);
         auto swizzled_dom = swizzleSharedMemory<false>(smem_epilogue);
         smem_epilogue->setAllocationDomain(
@@ -1218,10 +1250,6 @@ class MultipleMatmulScheduler {
               "Invalid TileRasterizationOrder passed to Matmul scheduler");
       }
     }
-  }
-
-  void scheduleMmaResults() {
-    scheduleMmaOperandOrOutputs(mma_results_, std::nullopt);
   }
 
   void schedulePrologues() {
@@ -1269,7 +1297,7 @@ class MultipleMatmulScheduler {
         mma_inputs.push_back(mma_input);
       }
 
-      scheduleMmaOperandOrOutputs(mma_inputs, operand_type);
+      scheduleMmaOperands(mma_inputs, operand_type);
 
       // Propagate backward from all mma_results to smem_stores
 
