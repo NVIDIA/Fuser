@@ -441,7 +441,7 @@ TEST_F(
     world_communicator_->startCoalescing();
     for (auto i : c10::irange(number_of_rings)) {
       for (auto j : c10::irange(number_of_steps_per_ring)) {
-        int64_t stream_index = j % streams.size();
+        int64_t stream_index = (i + j) % streams.size();
         setCurrentCUDAStream(streams.at(stream_index));
 
         // define the sliced tensors
