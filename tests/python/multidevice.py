@@ -28,6 +28,6 @@ class MultideviceTest:
         return self._local_rank
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def multidevice_test():
     return MultideviceTest()
