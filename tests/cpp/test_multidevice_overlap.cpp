@@ -258,16 +258,11 @@ class RingBasedOverlapTest : public MultiDeviceTest {
   // stores the backend
   c10d::Backend* world_communicator_;
 
-  // specific to ring
-  int64_t number_of_rings_, number_of_steps_per_ring_;
   void SetUp() {
     MultiDeviceTest::SetUp();
 
     num_devices_ = communicator_->size();
     my_device_index_ = communicator_->deviceId();
-    ASSERT_EQ(params.S % num_devices_, 0);
-    number_of_steps_per_ring_ = num_devices_;
-    number_of_rings_ = params.S / num_devices_;
     ASSERT_EQ(params.M % (params.S * num_devices_), 0);
     ASSERT_EQ(params.K % num_devices_, 0);
 
@@ -295,8 +290,6 @@ class RingBasedOverlapTest : public MultiDeviceTest {
         params.S /* do we need at most `number_of_streams` slices?*/, params.M / params.S, params.N};
     std::vector<int64_t> dst_buffer_sizes = {
         params.S /* do we need at most `number_of_streams` slices?*/, params.M / params.S, params.N};
-    std::vector<int64_t> tc_sizes_before_reshape = {
-        number_of_rings_, params.M / params.S, params.N};
     std::vector<int64_t> tc_sizes = {
         params.S, params.M / (params.S * num_devices_), params.N};
 
@@ -321,7 +314,7 @@ class RingBasedOverlapTest : public MultiDeviceTest {
     // programming.
     src_buffer_ = at::empty(src_buffer_sizes, gpu_options);
     dst_buffer_ = at::empty(dst_buffer_sizes, gpu_options);
-    tc_ = at::empty(tc_sizes_before_reshape, gpu_options);
+    tc_ = at::empty(tc_sizes, gpu_options);
 
     // Debug print
     if (communicator_->deviceId() == 0 && debug_print) {
@@ -329,7 +322,7 @@ class RingBasedOverlapTest : public MultiDeviceTest {
               << "tb_sizes()=" << tb_.sizes() << std::endl
               << "src_buffer_sizes()=" << src_buffer_.sizes()<< std::endl
               << "dst_buffer_sizes()=" << dst_buffer_.sizes()<< std::endl
-              << "tc_sizes_before_reshape=" << tc_sizes_before_reshape << std::endl;
+              << "tc_sizes()=" << tc_.sizes() << std::endl;
     }
   }
 
@@ -341,27 +334,22 @@ class RingBasedOverlapTest : public MultiDeviceTest {
   }
 
   void validate() {
-    // compute the expected output for data correctness validation
     auto tc_unsharded_unreduced =
         ta_unsharded_.unsqueeze(-1) * tb_unsharded_.unsqueeze(-3).unsqueeze(0);
-    // (params.S, num_devices_, params.M / params.S, params.K / num_devices_, params.N)
     auto tc_unsharded_expected = at::sum(tc_unsharded_unreduced, {1, 3});
-    // (params.S, params.M / params.S, params.N)
-    std::cout << "tc_unsharded_expected=" << tc_unsharded_expected << std::endl;
+    // the natural layout here differs from the collective based pipelining. Here, the output is sharded on the outermost axis whereas, in the collective based pipelining, it is sharded on axis(1)
     auto tc_unsharded_expected_reshaped = at::reshape(
         tc_unsharded_expected,
-        {number_of_steps_per_ring_,
-         number_of_rings_,
+        {num_devices_,
+         params.S / num_devices_,
          params.M / params.S,
          params.N});
     auto tc_expected_ =
         tc_unsharded_expected_reshaped.select(0, my_device_index_);
-    auto tc_reshaped = tc_; // (number_of_rings_, M/S, N)
-    // auto tc_reshaped = at::reshape(tc_, {params.S, params.M / (params.S * num_devices_), params.N});
-    EXPECT_TRUE(tc_reshaped.to(torch::kCPU).allclose(tc_expected_, 1e-1, 1e-1))
-        << "Unexpected results, obtained:" << tc_reshaped
-        << "\n expected: " << tc_expected_
-        << "\n expected unsharded: " << tc_unsharded_expected;
+    auto tc_expected_reshaped = tc_expected_.reshape({params.S, params.M / (params.S * num_devices_), params.N});
+    EXPECT_TRUE(tc_.to(torch::kCPU).allclose(tc_expected_reshaped, 1e-1, 1e-1))
+        << "Unexpected results, obtained:" << tc_
+        << "\n expected: " << tc_expected_reshaped;
   }
 };
 
@@ -375,88 +363,51 @@ TEST_F(RingBasedOverlapTest, ReduceScatterRingBasedPipeliningATenImplementation)
         return c10::cuda::getStreamFromPool(
             /*isHighPriority=*/false, my_device_index);
       });
-  // std::vector<at::Tensor> allreduce_scratch_buffer = {at::randn({1}, at::TensorOptions().dtype(at::kFloat).device(communicator_->device()))};
-  // world_communicator_->allreduce(allreduce_scratch_buffer)->wait();
-  // // world_communicator_->barrier()->wait();
 
-  auto ta_reshaped = at::reshape(ta_, {number_of_steps_per_ring_, number_of_rings_, params.M / params.S, params.K / num_devices_});
-  std::cout << "ta_ shape is  {params.S, params.M / params.S, params.K / num_devices_}, i.e., " << ta_.sizes();
-  std::cout << "ta_reshaped shape is  {number_of_steps_per_ring_, number_of_rings_, params.M / params.S, params.K / num_devices_}, i.e., " << ta_reshaped.sizes()
-  << std::endl;
+  ASSERT_EQ(params.S % num_devices_, 0);
+  int64_t& number_of_steps_per_ring = num_devices_;
+  int64_t number_of_rings = params.S / num_devices_;
 
-  auto src_buffer_reshaped = at::reshape(src_buffer_, {number_of_steps_per_ring_, number_of_rings_, params.M / params.S, params.N});
-  std::cout << "src_buffer_ shape is  {params.S, , params.M / params.S, params.N}, i.e., " << src_buffer_.sizes();
-  std::cout << "src_buffer_reshaped shape is  {number_of_steps_per_ring_, number_of_rings_, , params.M / params.S, params.N}, i.e., " << src_buffer_reshaped.sizes()
-  << std::endl;
-
-  auto dst_buffer_reshaped = at::reshape(dst_buffer_, {number_of_steps_per_ring_, number_of_rings_, params.M / params.S, params.N});
-  std::cout << "dst_buffer_ shape is  {params.S, params.M / params.S, params.N}, i.e., " << dst_buffer_.sizes();
-  std::cout << "dst_buffer_reshaped shape is  {number_of_steps_per_ring_, number_of_rings_, params.M / params.S, params.N}, i.e., " << dst_buffer_reshaped.sizes()
-  << std::endl;
-
+  auto ta_reshaped = at::reshape(ta_, {number_of_steps_per_ring, number_of_rings, params.M / params.S, params.K / num_devices_});
+  auto src_buffer_reshaped = at::reshape(src_buffer_, {number_of_steps_per_ring, number_of_rings, params.M / params.S, params.N});
+  auto dst_buffer_reshaped = at::reshape(dst_buffer_, {number_of_steps_per_ring, number_of_rings, params.M / params.S, params.N});
 
   for ([[maybe_unused]] const auto& _ :
        c10::irange(params.number_of_iterations)) {
     initializeIO();
 
     world_communicator_->startCoalescing();
-    for (auto i : c10::irange(number_of_rings_)) {
-      for (auto j : c10::irange(number_of_steps_per_ring_)) {
+    for (auto i : c10::irange(number_of_rings)) {
+      for (auto j : c10::irange(number_of_steps_per_ring)) {
         int64_t stream_index = j % streams.size();
         setCurrentCUDAStream(streams.at(stream_index));
 
         // define the sliced tensors
-        auto slice_index = (my_device_index_ + j + 1) % number_of_steps_per_ring_;
+        auto slice_index = (my_device_index_ + j + 1) % number_of_steps_per_ring;
         auto ta_j = ta_reshaped.select(0, slice_index).select(0, i);
         auto src_buffer_j = src_buffer_reshaped.select(0, j).select(0, i);
         auto dst_buffer_j = dst_buffer_reshaped.select(0, j).select(0, i);
 
         // define the peer ranks
         auto send_rank = slice_index;
-        auto recv_rank = (number_of_steps_per_ring_ * 2 - (my_device_index_ + j + 1)) % number_of_steps_per_ring_;
-
-        std::cout
-        << std::endl << "__________________________" << std::endl
-        << "my_device_index_=" << my_device_index_ << std::endl
-        << "num_devices_=" << num_devices_ << std::endl
-        << "i=" << i << std::endl
-        << "j=" << j << std::endl
-        // << "stream_index=" << stream_index << std::endl
-        << "slice_index=" << slice_index << std::endl
-        << "send_rank=" << send_rank << std::endl
-        << "recv_rank=" << recv_rank << std::endl
-        << "_=" << _ << std::endl
-        << "__________________________" << std::endl << std::endl
-        ;
-
+        auto recv_rank = (number_of_steps_per_ring * 2 - (my_device_index_ + j + 1)) % number_of_steps_per_ring;
 
         // local compute
         torch::matmul_out(src_buffer_j, ta_j, tb_);
         // communication
         std::vector<at::Tensor> src = {src_buffer_j};
         std::vector<at::Tensor> dst = {dst_buffer_j};
-        std::cout << "from rank " << my_device_index_<< ", sending to rank " << send_rank <<", with tag " << my_device_index_ << std::endl;
         world_communicator_->send(src, send_rank, 0);
-        std::cout << "from rank " << my_device_index_<< ", recv from rank " << recv_rank <<", with tag " << recv_rank << std::endl;
         world_communicator_->recv(dst, recv_rank, 0);
       }
     }
     world_communicator_->endCoalescing()->wait();
-    std::cout << "entering barrier at rank " << my_device_index_ << std::endl;
-    // world_communicator_->barrier()->wait();
-    std::cout << "exiting barrier at rank " << my_device_index_ << std::endl;
     for (auto stream : streams) {
       stream.synchronize();
     }
-    std::cout << "cudaDeviceSynchronize at rank " << my_device_index_ << std::endl;
-    // cudaDeviceSynchronize();
-    std::cout << "sum_out at rank " << my_device_index_ << "\ndst_buffer_reshaped=\n" << dst_buffer_reshaped << std::endl;
-    torch::sum_out(tc_, dst_buffer_reshaped, 0);
-    // tc_ = dst_buffer_.sum(0);run
-    // tc_ = dst_buffer_;
-    std::cout << "sum_out FINISHED at rank " << my_device_index_ << std::endl;
+    auto tc_reshaped = tc_.reshape({number_of_rings, params.M / params.S, params.N});
+    torch::sum_out(tc_reshaped, dst_buffer_reshaped, 0);
   }
-  std::cout << "validate at rank " << my_device_index_ << std::endl;
   validate();
 }
 
