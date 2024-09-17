@@ -1443,6 +1443,18 @@ Composition<Projection> flattenCompositions(
   return result;
 }
 
+Projection eliminateTrivialComposition(const Composition<Projection>& comp) {
+  // If the composition has only one element, then the composition is the same
+  // as the element.
+  //
+  // Example:
+  // Composition{5} => 5
+  if (comp.size() == 1) {
+    return comp.front();
+  }
+  return comp;
+}
+
 Projection simplify(const Composition<Projection>& comp) {
   // Recursively simplify subtrees.
   Composition<Projection> simplified;
@@ -1452,7 +1464,7 @@ Projection simplify(const Composition<Projection>& comp) {
 
   // Run simplification rules.
   simplified = flattenCompositions(simplified);
-  return simplified;
+  return eliminateTrivialComposition(simplified);
 }
 
 Projection simplify(Projection projection) {
@@ -1648,11 +1660,7 @@ Projection propagate(
       Composition<Projection> result = comp;
       result.erase(result.begin() + std::distance(comp.begin(), inner_it));
       result.at(std::distance(comp.begin(), outer_it)) = to.front();
-      // TODO: move opt into simplify.
-      if (result.size() == 1) {
-        return result.front();
-      }
-      return result;
+      return simplify(result);
     }
   }
 
