@@ -1371,6 +1371,15 @@ PartOf<LinearGroupProjection> trimRedundant(
 
 PartOf<LinearGroupProjection> mergeParts(
     const PartOf<LinearGroupProjection>& part) {
+  // Combine PartOf(group=PartOf(group=g), ...) into PartOf(group=g, ...).
+  //
+  // Example:
+  // PartOf{
+  //   group=PartOf{group=24, inner_extent=2, selected_extent=12},
+  //   inner_extent=3,
+  //   selected_extent=2}
+  // =>
+  // PartOf{group=24, inner_extent=6, selected_extent=2}
   if (!part.group->is<PartOf>()) {
     return part;
   }
@@ -1464,7 +1473,16 @@ LinearGroupProjection propagate(
     // then these two groups together represents linear_g.
     NVF_ERROR(to.size() == 2);
     NVF_ERROR(from.front() == current);
-    return Composition<LinearGroupProjection>{to.front(), to.back()};
+    auto comp = Composition<LinearGroupProjection>{to.front(), to.back()};
+    bool may_be_indivisible_split = eg->front()->isA<Split>() &&
+        !simplifyExpr(eg->front()->as<Split>()->isDivisible())->isTrue();
+    if (may_be_indivisible_split) {
+      return PartOf<LinearGroupProjection>{
+          std::make_shared<LinearGroupProjection>(comp),
+          /*inner_extent=*/nullptr,
+          /*selected_extent=*/extent(current)};
+    }
+    return comp;
   } else {
     // If linear_g is merged with another group, then part of the merged group
     // represents linear_g.
@@ -1489,14 +1507,13 @@ LinearGroupProjection propagate(
   auto to = toGroups(id_graph, eg, direction);
   auto propagated = propagate(*current.group, id_graph, eg, direction);
   if (!propagated.hasValue()) {
-    // TODO: update this
     // Propagation of group may fail. For example, if the group before
-    // propagation is [4, 3], and eg is split(3, 2), then the end result
-    // would be like [4, 2, 2]. However, because the split is indivisible,
-    // this makes group discontiguous. That is, "a composition of 4 and 3"
-    // is not a "composition of 4, 2, and 2". In this case, the return value
-    // of `propagate` will be std::monostate, indicating that the linear
-    // proving fails. For this case, we just propagate the failure.
+    // propagation is [5, 3, 2], and eg is 10 = merge(5, 2), then the end result
+    // would be like [10, 3]. However, because the merge does not keep the
+    // order, this makes group discontiguous. That is, "a composition of 5, 3,
+    // 2" is not a "composition of 5, 2, 3". In this case, the return value of
+    // `propagate` will be std::monostate, indicating that the linear proving
+    // fails. For this case, we just propagate the failure.
     return {};
   }
   auto result = PartOf<LinearGroupProjection>{
