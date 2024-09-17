@@ -96,9 +96,8 @@ void FusionDefinition::finalizeDefinition() {
 
       buildFusionIr(preschedFusion());
     } catch (const std::exception& e) {
-      trie_node_->markException(e);
+      trie_node_->setException(e.what());
       fusion_id_ = std::nullopt;
-      std::cout << "error: " << e.what() << std::endl;
       throw;
     }
 

@@ -100,11 +100,15 @@ Vector define_vector_explicit_fn(
     FusionDefinition& self,
     ITERABLE& values,
     PrimDataType dtype = DataType::Int) {
-  return define_vector_fn<ITERABLE>(self, values, /*inline_def=*/false, /*shape_check=*/true);
+  return define_vector_fn<ITERABLE>(
+      self, values, /*inline_def=*/false, /*shape_check=*/true);
 }
 
 template <class ShapeType>
-Vector SequenceAsVector(ShapeType shape, FusionDefinition& fd, bool shape_check=true) {
+Vector SequenceAsVector(
+    ShapeType shape,
+    FusionDefinition& fd,
+    bool shape_check = true) {
   static_assert(
       std::is_same_v<ShapeType, Vector> ||
       std::is_same_v<ShapeType, py::list> ||
@@ -122,7 +126,8 @@ Vector SequenceAsVector(ShapeType shape, FusionDefinition& fd, bool shape_check=
     // ```
     // would not work because the compiler would try to instantiate
     // define_vector_fn<Vector> and fail.
-    return define_vector_fn<ShapeType>(fd, shape, /*inline_def=*/true, /*shape_check=*/shape_check);
+    return define_vector_fn<ShapeType>(
+        fd, shape, /*inline_def=*/true, /*shape_check=*/shape_check);
   }
 }
 
@@ -251,7 +256,8 @@ Tensor slice_fn(
   size_t stride_index = 0;
 
   if (strides.has_value()) {
-    Vector new_stride = SequenceAsVector(strides.value(), *fd, /*shape_check=*/false);
+    Vector new_stride =
+        SequenceAsVector(strides.value(), *fd, /*shape_check=*/false);
     NVF_CHECK(
         new_start.size == new_stride.size,
         "Slice start_indices and strides don't match! Start Indices: ",

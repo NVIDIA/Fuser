@@ -105,7 +105,7 @@ struct TrieNode {
   // a the end of Fusion entry in the cache.
   bool isTerminal() const;
   std::optional<std::exception> getException();
-  void markException(std::exception e);
+  void setException(const char* e);
   //! Serialize TrieNode using flatbuffers
   NVF_API flatbuffers::Offset<serde::TrieNode> serialize(
       flatbuffers::FlatBufferBuilder& builder,
@@ -127,7 +127,7 @@ struct TrieNode {
   TrieNode* parent;
   //! For thread-Safe locking of a node
   std::mutex trie_node_lock;
-  std::optional<std::exception> exception;
+  std::optional<std::string> exception = std::nullopt;
 };
 
 //! \class FusionCache

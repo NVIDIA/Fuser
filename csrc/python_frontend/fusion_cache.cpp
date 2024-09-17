@@ -247,7 +247,7 @@ bool TrieNode::isTerminal() const {
   return (record.get()->recordType() == serde::RecordType::End);
 }
 
-void TrieNode::markException(std::exception e) {
+void TrieNode::setException(const char* e) {
   std::lock_guard<std::mutex> guard(trie_node_lock);
   exception = e;
 }

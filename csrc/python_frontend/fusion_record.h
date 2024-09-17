@@ -395,19 +395,21 @@ struct SliceOpRecord : RecordFunctor {
       Val* start_idx = start.at(idx);
       Val* end_idx = end.at(idx);
       Val* stride_idx = stride.at(idx);
-          NVF_CHECK(
-              !start_idx->isConstInt() || start_idx->evaluate().as<int64_t>() >= 0,
-              "Slice operation start_indices must be greater-than-or-equal-to 0. Start Indices: ",
-              start_idx->evaluate().as<int64_t>());
-          NVF_CHECK(
-              !start_idx->isConstInt() || !end_idx->isConstInt() || end_idx->evaluate().as<int64_t>() >= start_idx->evaluate().as<int64_t>(),
-              "Slice operation end_indices must be greater-than-or-equal-to start_indices. Start Indices: ",
-              start_idx->evaluate().as<int64_t>(),
-              " End Indices: ",
-              end_idx->evaluate().as<int64_t>());
-          NVF_CHECK(
-              stride_idx->isConstInt() && stride_idx->evaluate().as<int64_t>() == 1,
-              "nvFuser Limitation: All slice operation strides must be of const size 1");
+      NVF_CHECK(
+          !start_idx->isConstInt() || start_idx->evaluate().as<int64_t>() >= 0,
+          "Slice operation start_indices must be greater-than-or-equal-to 0. Start Indices: ",
+          start_idx->evaluate().as<int64_t>());
+      NVF_CHECK(
+          !start_idx->isConstInt() || !end_idx->isConstInt() ||
+              end_idx->evaluate().as<int64_t>() >=
+                  start_idx->evaluate().as<int64_t>(),
+          "Slice operation end_indices must be greater-than-or-equal-to start_indices. Start Indices: ",
+          start_idx->evaluate().as<int64_t>(),
+          " End Indices: ",
+          end_idx->evaluate().as<int64_t>());
+      NVF_CHECK(
+          stride_idx->isConstInt() && stride_idx->evaluate().as<int64_t>() == 1,
+          "nvFuser Limitation: All slice operation strides must be of const size 1");
       vec_slice.push_back({start_idx, end_idx, stride_idx});
     }
     auto output = slice(arg, vec_slice);
