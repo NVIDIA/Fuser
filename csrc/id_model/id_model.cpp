@@ -421,7 +421,7 @@ ValGraph& IdModel::buildAlmostExactGraph() {
   return almost_exact_graph;
 }
 
-ValGraph& IdModel::buildPermissiveGraph() {
+ValGraph& IdModel::buildBroadcastGraph() {
   // Make sure the exact graph is already built
   maybeBuildGraph(IdMappingMode::EXACT);
 
