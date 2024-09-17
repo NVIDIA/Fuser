@@ -3336,7 +3336,8 @@ class MultiMatmulSchedulerMatchTest
         << suffix;
     if (id_orig->definition() == nullptr) {
       if (Val* id_orig_cloned = cloner_->clone(id_orig)) {
-        EXPECT_TRUE(id_orig_cloned->sameAs(id_new)) << suffix;
+        // TODO: enable this check if we decide to check parallel types again
+        // EXPECT_TRUE(id_orig_cloned->sameAs(id_new)) << suffix;
       }
     } else {
       Expr* def_orig = id_orig->definition();
@@ -3462,14 +3463,15 @@ class MultiMatmulSchedulerMatchTest
 
   void compareSchedules() {
     // clone fusion for scheduling with original matmul scheduler
-    Fusion new_fusion;
-    cloner_ = std::make_unique<IrCloner>(Fusion::copy(fusion, &new_fusion));
+    auto new_fusion_ptr = std::make_unique<Fusion>();
+    Fusion* new_fusion = new_fusion_ptr.get();
+    cloner_ = std::make_unique<IrCloner>(Fusion::copy(fusion, new_fusion));
 
     // Schedule fusion with original matmul scheduler
     scheduleMatmul(fusion, params);
 
     // Schedule cloned fusion with new scheduler
-    scheduleMultipleMatmuls(&new_fusion, params);
+    scheduleMultipleMatmuls(new_fusion, params);
 
     // find tensors to compare
     auto getTensorsToCompare = [](Fusion* fusion) {
@@ -3484,7 +3486,7 @@ class MultiMatmulSchedulerMatchTest
       return tvs;
     };
     std::vector<TensorView*> orig_compare_tvs = getTensorsToCompare(fusion);
-    std::vector<TensorView*> new_compare_tvs = getTensorsToCompare(&new_fusion);
+    std::vector<TensorView*> new_compare_tvs = getTensorsToCompare(new_fusion);
 
     // Compare each TensorView
     NVF_ERROR(new_compare_tvs.size() == orig_compare_tvs.size());
@@ -3497,7 +3499,7 @@ class MultiMatmulSchedulerMatchTest
     if (!testing::Test::HasFailure()) {
       FusionExecutor fe_orig, fe_new;
       fe_orig.compileFusion(fusion);
-      fe_new.compileFusion(&new_fusion);
+      fe_new.compileFusion(new_fusion);
       ASSERT_EQ(fe_new.kernelString(), fe_orig.kernelString());
     }
   }
