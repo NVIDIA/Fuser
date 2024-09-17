@@ -1450,6 +1450,7 @@ LinearGroupProjection simplify(const Composition<LinearGroupProjection>& comp) {
 }
 
 LinearGroupProjection simplify(LinearGroupProjection projection) {
+  // Run simplifications until convergence.
   auto simplified = projection;
   do {
     projection = simplified;
