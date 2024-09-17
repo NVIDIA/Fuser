@@ -6,12 +6,17 @@
 # 2 pytest transformer_engine_test.py`.
 
 import os
+import pytest
 import torch
 import torch.distributed as dist
+
 import transformer_engine.pytorch as te
 
+from multidevice import multidevice_test
 
-def test_transformer_layer():
+
+@pytest.mark.mpi
+def test_transformer_layer(multidevice_test):
     # Hyperparameters for GPT-3
     hidden_size = 12288
     num_heads = 96
@@ -20,15 +25,16 @@ def test_transformer_layer():
     sequence_length = 2048
     dtype = torch.bfloat16
 
-    os.environ["MASTER_ADDR"] = "localhost"
-    os.environ["MASTER_PORT"] = "29500"
-    world_size = int(os.environ["OMPI_COMM_WORLD_SIZE"])
-    rank = int(os.environ["OMPI_COMM_WORLD_RANK"])
+    size = multidevice_test.size
+    rank = multidevice_test.rank
 
     torch.cuda.set_device(rank)
+    os.environ["MASTER_ADDR"] = "localhost"
+    os.environ["MASTER_PORT"] = "29500"
     dist.init_process_group(
-        "nccl",
-        world_size=world_size,
+        backend="nccl",
+        init_method="env://",
+        world_size=size,
         rank=rank,
     )
     tp_group = dist.new_group()
