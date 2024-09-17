@@ -1277,7 +1277,7 @@ Val* extent(const LinearGroupProjection& group) {
 
 // Simplify the LinearGroupProjection so that it is easier to be pattern
 // matched.
-LinearGroupProjection simplify(const LinearGroupProjection& group);
+LinearGroupProjection simplify(LinearGroupProjection projection);
 
 LinearGroupProjection simplify(const ValGroup& group) {
   return group;
@@ -1301,13 +1301,13 @@ PartOf<LinearGroupProjection> cancelCommonFactors(
     return part;
   }
 
-  for (auto* back = &dq.back(); !dq.empty() &&
-       simplifyExpr(IrBuilder::isDivisibleExpr(new_inner_extent, extent(*back)))
-           ->isTrue();
-       dq.pop_back(), back = &dq.back()) {
-    new_inner_extent = simplifyExpr(IrBuilder::divExpr(
-        part.inner_extent,
-        back->as<ValGroup>()->front()->as<IterDomain>()->extent()));
+  while (!dq.empty() &&
+         simplifyExpr(
+             IrBuilder::isDivisibleExpr(new_inner_extent, extent(dq.back())))
+             ->isTrue()) {
+    new_inner_extent =
+        simplifyExpr(IrBuilder::divExpr(new_inner_extent, extent(dq.back())));
+    dq.pop_back();
   }
   if (new_inner_extent->isOne()) {
     new_inner_extent = nullptr;
@@ -1392,7 +1392,7 @@ PartOf<LinearGroupProjection> mergeParts(
 }
 
 LinearGroupProjection eliminateTrivialPartOf(
-    PartOf<LinearGroupProjection> part) {
+    const PartOf<LinearGroupProjection>& part) {
   // If group has the same extent as the selected extent, and there is no inner
   // extent in group, the the full group represents the selected group.
   //
@@ -1406,21 +1406,17 @@ LinearGroupProjection eliminateTrivialPartOf(
   return part;
 }
 
-LinearGroupProjection simplify(PartOf<LinearGroupProjection> part) {
-  auto simplified = part;
-  do {
-    part = simplified;
-    // Recursively simplify subtree.
-    simplified = PartOf<LinearGroupProjection>{
-        std::make_shared<LinearGroupProjection>(simplify(*simplified.group)),
-        simplified.inner_extent,
-        simplified.selected_extent};
-    // Run simplification rules.
-    simplified = cancelCommonFactors(simplified);
-    simplified = trimRedundant(simplified);
-    simplified = mergeParts(simplified);
-  } while (simplified != part);
-  return eliminateTrivialPartOf(part);
+LinearGroupProjection simplify(const PartOf<LinearGroupProjection>& part) {
+  // Recursively simplify subtree.
+  auto simplified = PartOf<LinearGroupProjection>{
+      std::make_shared<LinearGroupProjection>(simplify(*part.group)),
+      part.inner_extent,
+      part.selected_extent};
+  // Run simplification rules.
+  simplified = cancelCommonFactors(simplified);
+  simplified = trimRedundant(simplified);
+  simplified = mergeParts(simplified);
+  return eliminateTrivialPartOf(simplified);
 }
 
 Composition<LinearGroupProjection> flattenCompositions(
@@ -1441,26 +1437,27 @@ Composition<LinearGroupProjection> flattenCompositions(
   return result;
 }
 
-LinearGroupProjection simplify(Composition<LinearGroupProjection> comp) {
-  auto simplified = comp;
-  do {
-    comp = simplified;
+LinearGroupProjection simplify(const Composition<LinearGroupProjection>& comp) {
+  // Recursively simplify subtrees.
+  Composition<LinearGroupProjection> simplified;
+  for (const auto& proj : comp) {
+    simplified.push_back(simplify(proj));
+  }
 
-    // Recursively simplify subtrees.
-    simplified.clear();
-    for (const auto& proj : comp) {
-      simplified.push_back(simplify(proj));
-    }
-
-    // Run simplification rules.
-    simplified = flattenCompositions(simplified);
-  } while (simplified != comp);
-  return comp;
+  // Run simplification rules.
+  simplified = flattenCompositions(simplified);
+  return simplified;
 }
 
-LinearGroupProjection simplify(const LinearGroupProjection& group) {
-  return LinearGroupProjection::dispatch(
-      [&](const auto& group) { return simplify(group); }, group);
+LinearGroupProjection simplify(LinearGroupProjection projection) {
+  auto simplified = projection;
+  do {
+    projection = simplified;
+    simplified = LinearGroupProjection::dispatch(
+        [&](const auto& projection) { return simplify(projection); },
+        projection);
+  } while (simplified != projection);
+  return projection;
 }
 
 // Given an expression on the traversal path and its direction, get the from
@@ -1561,9 +1558,10 @@ LinearGroupProjection propagate(
   auto to = toGroups(id_graph, eg, direction);
   if (from.size() == 1) {
     NVF_ERROR(to.size() == 2);
-    NVF_ERROR(std::any_of(current.begin(), current.end(), [&](const auto& proj) {
-      return related(proj, from.front());
-    }));
+    NVF_ERROR(
+        std::any_of(current.begin(), current.end(), [&](const auto& proj) {
+          return related(proj, from.front());
+        }));
     Composition<LinearGroupProjection> result;
     for (const auto& proj : current) {
       if (related(proj, from.front())) {
