@@ -1131,26 +1131,28 @@ namespace {
 //
 // We use a dynamic type to be able to represent all these cases.
 
-// Represent that linear_g is part of another something else.
-// For example, if we have
-//   linear_g    2
+// Represent that the selected group (usually linear_g) is part of another
+// something else. For example, if we have
+//   selected    2
 //           \  /
 //            g1
-// then linear_g is part of g1, with inner_extent=2.
+// then selected is part of g1, with inner_extent=2.
 template <typename LinearGroupProjection>
 struct PartOf {
   // Part of who?
   std::shared_ptr<LinearGroupProjection> group;
   // The structure of group is shown below:
   //   .--------------------------.
-  //   | outer | linear_g | inner |
+  //   | outer | selected | inner |
   //   '--------------------------'
   // `inner_extent` refers to the extent of `inner`, which can also be
-  // understood as the stride of linear_g in group. If linear_g is the innermost
-  // of group, then there is nothing on the inner of linear_g. For this case, we
-  // say the inner_extent is one, and assign nullptr here.
+  // understood as the stride of the selected group in group. If the selected
+  // group is the innermost of group, then there is nothing on the inner of the
+  // selected group. For this case, we say the inner_extent is one, and assign
+  // nullptr here.
   Val* inner_extent = nullptr;
-  // The extent of linear_g. This value is just carried over and never changed.
+  // The extent of the selected group. This value is just carried over and never
+  // changed.
   Val* selected_extent = nullptr;
 };
 
@@ -1249,7 +1251,7 @@ Val* extent(const Composition<LinearGroupProjection>& vec) {
   return std::accumulate(
       vec.begin(),
       vec.end(),
-      GpuLower::current()->kernel()->oneVal(),
+      static_cast<Val*>(nullptr),
       [](Val* acc, const auto& g) {
         return SimplifyingIrBuilder::mulExpr(acc, extent(g));
       });
@@ -1262,6 +1264,131 @@ Val* extent(const std::monostate&) {
 Val* extent(const LinearGroupProjection& group) {
   return LinearGroupProjection::dispatch(
       [&](const auto& group) { return extent(group); }, group);
+}
+
+// Simplify the LinearGroupProjection so that it is easier to be pattern
+// matched.
+LinearGroupProjection simplify(const LinearGroupProjection& group);
+
+LinearGroupProjection simplify(const ValGroup& group) {
+  return group;
+}
+
+PartOf<LinearGroupProjection> cancelCommonFactors(
+    const PartOf<LinearGroupProjection>& part) {
+  // If group is a composition and inner_extent is a multiple of the extent of
+  // the last items in group, we can simplify the inner_extent and group by
+  // canceling the last items in group.
+  //
+  // Example:
+  // PartOf{group=[5,3,2], inner_extent=42} => PartOf{group=[5], inner_extent=7}
+  if (!part.group->is<Composition>()) {
+    return part;
+  }
+  auto dq = part.group->as<Composition>();
+
+  Val* new_inner_extent = part.inner_extent;
+  if (new_inner_extent == nullptr) {
+    return part;
+  }
+
+  for (auto* back = &dq.back(); !dq.empty() &&
+       simplifyExpr(IrBuilder::isDivisibleExpr(new_inner_extent, extent(*back)))
+           ->isTrue();
+       dq.pop_back(), back = &dq.back()) {
+    new_inner_extent = simplifyExpr(IrBuilder::divExpr(
+        part.inner_extent,
+        back->as<ValGroup>()->front()->as<IterDomain>()->extent()));
+  }
+  if (new_inner_extent->isOne()) {
+    new_inner_extent = nullptr;
+  }
+  NVF_ERROR(!dq.empty());
+  if (dq.size() == 1) {
+    return PartOf<LinearGroupProjection>{
+        std::make_shared<LinearGroupProjection>(dq.front()),
+        new_inner_extent,
+        part.selected_extent};
+  }
+  return PartOf<LinearGroupProjection>{
+      std::make_shared<LinearGroupProjection>(std::move(dq)),
+      new_inner_extent,
+      part.selected_extent};
+}
+
+PartOf<LinearGroupProjection> trimRedundant(
+    const PartOf<LinearGroupProjection>& part) {
+  // If part.group is a composition then we only keep the minimum number of
+  // items in group that is sufficient to represent the selected_extent *
+  // inner_extent.
+  //
+  // Example:
+  // PartOf{group=[7, 3, 5, 2], inner_extent=3, selected_extent=5} =>
+  //   PartOf{group=[3, 5, 2], inner_extent=3, selected_extent=5}
+  if (!part.group->is<Composition>()) {
+    return part;
+  }
+  auto dq = part.group->as<Composition>();
+
+  Val* required_extent =
+      SimplifyingIrBuilder::mulExpr(part.selected_extent, part.inner_extent);
+
+  Val* group_extent = nullptr;
+  int64_t count = 0;
+  while (count < dq.size()) {
+    count++;
+    const auto& item = dq.at(dq.size() - count);
+    group_extent = SimplifyingIrBuilder::mulExpr(group_extent, extent(item));
+    if (simplifyExpr(IrBuilder::isDivisibleExpr(group_extent, required_extent))
+            ->isTrue()) {
+      break;
+    }
+  }
+  while (count < dq.size()) {
+    dq.pop_front();
+  }
+  NVF_ERROR(!dq.empty());
+  if (dq.size() == 1) {
+    return PartOf<LinearGroupProjection>{
+        std::make_shared<LinearGroupProjection>(dq.front()),
+        part.inner_extent,
+        part.selected_extent};
+  }
+  return PartOf<LinearGroupProjection>{
+      std::make_shared<LinearGroupProjection>(std::move(dq)),
+      part.inner_extent,
+      part.selected_extent};
+}
+
+LinearGroupProjection simplify(PartOf<LinearGroupProjection> part) {
+  part = PartOf<LinearGroupProjection>{
+      std::make_shared<LinearGroupProjection>(simplify(*part.group)),
+      part.inner_extent,
+      part.selected_extent};
+  part = cancelCommonFactors(part);
+  part = trimRedundant(part);
+
+  // If group has the same extent as the selected extent, and there is no inner
+  // extent in group, the the full group represents the selected group.
+  if (part.inner_extent == nullptr &&
+      simplifyExpr(IrBuilder::eqExpr(extent(*part.group), part.selected_extent))
+          ->isTrue()) {
+    return *part.group;
+  }
+  return part;
+}
+
+LinearGroupProjection simplify(const Composition<LinearGroupProjection>& comp) {
+  Composition<LinearGroupProjection> result;
+  for (const auto& g : comp) {
+    result.push_back(simplify(g));
+  }
+  return result;
+}
+
+LinearGroupProjection simplify(const LinearGroupProjection& group) {
+  return LinearGroupProjection::dispatch(
+      [&](const auto& group) { return simplify(group); }, group);
 }
 
 // Given an expression on the traversal path and its direction, get the from and
@@ -1330,8 +1457,8 @@ LinearGroupProjection propagate(
   if (from.size() == 1) {
     NVF_ERROR(to.size() == 2);
     NVF_ERROR(related(*current.group, from.front()));
-    auto group = propagate(*current.group, id_graph, eg, direction);
-    if (!group.hasValue()) {
+    auto propagated = propagate(*current.group, id_graph, eg, direction);
+    if (!propagated.hasValue()) {
       // Propagation of group may fail. For example, if the group before
       // propagation is [4, 3], and eg is split(3, 2), then the end result
       // would be like [4, 2, 2]. However, because the split is indivisible,
@@ -1341,79 +1468,11 @@ LinearGroupProjection propagate(
       // proving fails. For this case, we just propagate the failure.
       return {};
     }
-    // The result is actually just the
-    //   PartOf{group, current.inner_extent, current.selected_extent}
-    // However, we want to simplify the result. For example, if the inner_extent
-    // is a multiple of the extent of the last item in group, we can simplify
-    // the inner_extent and group by canceling the last item in group.
-    Val* new_inner_extent = current.inner_extent;
-    Val* group_extent = nullptr;
-    // Now we will simplify inner_extent and `group`, for example, by removing
-    // common factors. The simplified group will be updated in the variable
-    // `group`, the extent of the group after simplification is stored in
-    // `group_extent`, and the new inner_extent after simplification is stored
-    // in `new_inner_extent`.
-    if (group.is<Composition>()) {
-      auto dq = group.as<Composition>();
-      // If the new_inner_extent is divisible by the extent of the last item
-      // in dq, we can simplify new_inner_extent and dq by canceling dq's last
-      // items. For example, if new_inner_extent is 6 and dq is [5, 3], we can
-      // simplify them to 2 and [5].
-      if (new_inner_extent != nullptr) {
-        for (auto* back = &dq.back(); back->is<ValGroup>() &&
-             simplifyExpr(
-                 IrBuilder::isDivisibleExpr(
-                     new_inner_extent,
-                     back->as<ValGroup>()->front()->as<IterDomain>()->extent()))
-                 ->isTrue();
-             dq.pop_back(), back = &dq.back()) {
-          new_inner_extent = simplifyExpr(IrBuilder::divExpr(
-              current.inner_extent,
-              back->as<ValGroup>()->front()->as<IterDomain>()->extent()));
-        }
-        if (new_inner_extent->isOne()) {
-          new_inner_extent = nullptr;
-        }
-      }
-      // We only keep the minimum number of items that is sufficient to
-      // represent the selected_extent * new_inner_extent. For example, if
-      // selected_extent is 5 and new_inner_extent is 3, and dq is [7, 3, 5, 2],
-      // we can simplify dq to [3, 5, 2].
-      Val* required_extent = SimplifyingIrBuilder::mulExpr(
-          current.selected_extent, new_inner_extent);
-      int64_t count = 0;
-      while (count < dq.size()) {
-        count++;
-        const auto& item = dq.at(dq.size() - count);
-        group_extent =
-            SimplifyingIrBuilder::mulExpr(group_extent, extent(item));
-        if (simplifyExpr(
-                IrBuilder::isDivisibleExpr(group_extent, required_extent))
-                ->isTrue()) {
-          break;
-        }
-      }
-      while (count < dq.size()) {
-        dq.pop_front();
-      }
-      // If dq has only one item, we can simplify it to the item itself.
-      if (dq.size() == 1) {
-        group = dq.front();
-      } else {
-        group = std::move(dq);
-      }
-    }
-    // If group has the same extent as linear_g, and there is no inner extent in
-    // group, the the full group represents linear_g.
-    if (new_inner_extent == nullptr && group_extent != nullptr &&
-        simplifyExpr(IrBuilder::eqExpr(group_extent, current.selected_extent))
-            ->isTrue()) {
-      return group;
-    }
-    return PartOf<LinearGroupProjection>{
-        std::make_shared<LinearGroupProjection>(group),
-        new_inner_extent,
+    auto result = PartOf<LinearGroupProjection>{
+        std::make_shared<LinearGroupProjection>(propagated),
+        current.inner_extent,
         current.selected_extent};
+    return simplify(result);
   } else {
     NVF_ERROR(from.size() == 2);
     NVF_ERROR(to.size() == 1);
