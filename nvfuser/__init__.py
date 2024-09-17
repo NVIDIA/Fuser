@@ -133,10 +133,16 @@ class FusionDefinition(_C._FusionDefinition):
     def definition(self):
         raise NotImplementedError("definition() should be implemented by child class!")
 
+    # Unlike `schedule`, `multidevice_schedule` is designed for inter-device
+    # scheduling, The scheduling is done before concretization and therefore
+    # before pre-segmentation. `schedule` however assumes the FusionDefinition
+    # has been concretized and pre-segmented, and therefore requires
+    # `_setup_schedule` and `_finalize_schedule` to be called before and after.
+    #
+    # Note: there's a plan to embed multidevice schedules into FusionDefinition
+    # as annotating nodes. This may eventually replace `multidevice_schedule`.
     def multidevice_schedule(self):
-        raise NotImplementedError(
-            "multdevice_schedule() should be implemented by child class!"
-        )
+        pass
 
     def schedule(self):
         raise NotImplementedError("schedule() should be implemented by child class!")
@@ -207,8 +213,7 @@ class FusionDefinition(_C._FusionDefinition):
             self.definition()
             self._finalize_definition()
 
-        if type(self).multidevice_schedule != FusionDefinition.multidevice_schedule:
-            self.multidevice_schedule()
+        self.multidevice_schedule()
 
         # If schedule is defined by child class and schedule is not defined for
         # inputs, make a schedule.
