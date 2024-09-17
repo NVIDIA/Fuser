@@ -378,7 +378,6 @@ TEST_F(RingBasedOverlapTest, ReduceScatterRingBasedPipeliningATenImplementation)
   // std::vector<at::Tensor> allreduce_scratch_buffer = {at::randn({1}, at::TensorOptions().dtype(at::kFloat).device(communicator_->device()))};
   // world_communicator_->allreduce(allreduce_scratch_buffer)->wait();
   // // world_communicator_->barrier()->wait();
-  params.number_of_iterations = 1; //TODO: change
 
   auto ta_reshaped = at::reshape(ta_, {number_of_steps_per_ring_, number_of_rings_, params.M / params.S, params.K / num_devices_});
   std::cout << "ta_ shape is  {params.S, params.M / params.S, params.K / num_devices_}, i.e., " << ta_.sizes();
