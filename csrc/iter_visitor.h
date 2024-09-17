@@ -611,6 +611,11 @@ class IRBFS
     bfs.traverse();
     return bfs.getShortestExprPath();
   }
+
+  // Given a set of vals, get all reachable ones from another set of vals
+  static std::vector<Val*> getReachableValsFrom(
+      const std::vector<Val*>& from,
+      const std::vector<Val*>& vals);
 };
 
 } // namespace nvfuser
