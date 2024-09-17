@@ -1,3 +1,13 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024-present NVIDIA CORPORATION & AFFILIATES.
+# All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
+
+'''
+Benchmarks Tensor parallel NanoGPT with Pytorch.
+
+Usage: torchrun --nproc-per-node=<number of processes> transformer.py 
+'''
+
 import os
 import math
 from dataclasses import dataclass
@@ -87,9 +97,9 @@ class CausalSelfAttention(nn.Module):
         v = self.c_attn_value(x)
 
         # TODO: It looks like view needs to take in the sharded size.
-        k = k.view(B, T, self.n_head, C // self.n_head // 2).transpose(1, 2)  # (B, nh, T, hs)
-        q = q.view(B, T, self.n_head, C // self.n_head // 2).transpose(1, 2)  # (B, nh, T, hs)
-        v = v.view(B, T, self.n_head, C // self.n_head // 2).transpose(1, 2)  # (B, nh, T, hs)
+        k = k.view(B, T, self.n_head, C // self.n_head // _world_size).transpose(1, 2)  # (B, nh, T, hs)
+        q = q.view(B, T, self.n_head, C // self.n_head // _world_size).transpose(1, 2)  # (B, nh, T, hs)
+        v = v.view(B, T, self.n_head, C // self.n_head // _world_size).transpose(1, 2)  # (B, nh, T, hs)
         
 
         # causal self-attention; Self-attend: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
@@ -105,7 +115,7 @@ class CausalSelfAttention(nn.Module):
             att = F.softmax(att, dim=-1)
             att = self.attn_dropout(att)
             y = att @ v  # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
-        y = y.transpose(1, 2).contiguous().view(B, T, C // 2)  # re-assemble all head outputs side by side
+        y = y.transpose(1, 2).contiguous().view(B, T, C // _world_size)  # re-assemble all head outputs side by side
 
         # output projection
         y = self.resid_dropout(self.c_proj(y))
