@@ -1360,6 +1360,20 @@ PartOf<LinearGroupProjection> trimRedundant(
       part.selected_extent};
 }
 
+LinearGroupProjection eliminateTrivialPartOf(PartOf<LinearGroupProjection> part) {
+  // If group has the same extent as the selected extent, and there is no inner
+  // extent in group, the the full group represents the selected group.
+  //
+  // Example:
+  // PartOf{group=5, inner_extent=nullptr, selected_extent=5} => 5
+  if (part.inner_extent == nullptr &&
+      simplifyExpr(IrBuilder::eqExpr(extent(*part.group), part.selected_extent))
+          ->isTrue()) {
+    return *part.group;
+  }
+  return part;
+}
+
 LinearGroupProjection simplify(PartOf<LinearGroupProjection> part) {
   part = PartOf<LinearGroupProjection>{
       std::make_shared<LinearGroupProjection>(simplify(*part.group)),
@@ -1367,15 +1381,7 @@ LinearGroupProjection simplify(PartOf<LinearGroupProjection> part) {
       part.selected_extent};
   part = cancelCommonFactors(part);
   part = trimRedundant(part);
-
-  // If group has the same extent as the selected extent, and there is no inner
-  // extent in group, the the full group represents the selected group.
-  if (part.inner_extent == nullptr &&
-      simplifyExpr(IrBuilder::eqExpr(extent(*part.group), part.selected_extent))
-          ->isTrue()) {
-    return *part.group;
-  }
-  return part;
+  return eliminateTrivialPartOf(part);
 }
 
 LinearGroupProjection simplify(const Composition<LinearGroupProjection>& comp) {
