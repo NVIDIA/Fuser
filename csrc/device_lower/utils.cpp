@@ -1410,10 +1410,12 @@ LinearGroupProjection simplify(PartOf<LinearGroupProjection> part) {
   auto simplified = part;
   do {
     part = simplified;
+    // Recursively simplify subtree.
     simplified = PartOf<LinearGroupProjection>{
         std::make_shared<LinearGroupProjection>(simplify(*simplified.group)),
         simplified.inner_extent,
         simplified.selected_extent};
+    // Run simplification rules.
     simplified = cancelCommonFactors(simplified);
     simplified = trimRedundant(simplified);
     simplified = mergeParts(simplified);
@@ -1421,12 +1423,39 @@ LinearGroupProjection simplify(PartOf<LinearGroupProjection> part) {
   return eliminateTrivialPartOf(part);
 }
 
-LinearGroupProjection simplify(const Composition<LinearGroupProjection>& comp) {
+Composition<LinearGroupProjection> flattenCompositions(
+    const Composition<LinearGroupProjection>& comp) {
+  // Flatten the composition into a single level.
+  //
+  // Example:
+  // Composition{Composition{5, 3}, 2} => Composition{5, 3, 2}
   Composition<LinearGroupProjection> result;
-  for (const auto& g : comp) {
-    result.push_back(simplify(g));
+  for (const auto& proj : comp) {
+    if (proj.is<Composition>()) {
+      const auto& flat = proj.as<Composition>();
+      result.insert(result.end(), flat.begin(), flat.end());
+    } else {
+      result.push_back(proj);
+    }
   }
   return result;
+}
+
+LinearGroupProjection simplify(Composition<LinearGroupProjection> comp) {
+  auto simplified = comp;
+  do {
+    comp = simplified;
+
+    // Recursively simplify subtrees.
+    simplified.clear();
+    for (const auto& proj : comp) {
+      simplified.push_back(simplify(proj));
+    }
+
+    // Run simplification rules.
+    simplified = flattenCompositions(simplified);
+  } while (simplified != comp);
+  return comp;
 }
 
 LinearGroupProjection simplify(const LinearGroupProjection& group) {
@@ -1434,8 +1463,8 @@ LinearGroupProjection simplify(const LinearGroupProjection& group) {
       [&](const auto& group) { return simplify(group); }, group);
 }
 
-// Given an expression on the traversal path and its direction, get the from and
-// to groups. Note that the traversal path is obtained by running BFS from
+// Given an expression on the traversal path and its direction, get the from
+// and to groups. Note that the traversal path is obtained by running BFS from
 // domain to linear_g, so the direction is flipped with respect to how we
 // propagate from linear_g to domain.
 auto fromGroups(
@@ -1508,12 +1537,12 @@ LinearGroupProjection propagate(
   auto propagated = propagate(*current.group, id_graph, eg, direction);
   if (!propagated.hasValue()) {
     // Propagation of group may fail. For example, if the group before
-    // propagation is [5, 3, 2], and eg is 10 = merge(5, 2), then the end result
-    // would be like [10, 3]. However, because the merge does not keep the
-    // order, this makes group discontiguous. That is, "a composition of 5, 3,
-    // 2" is not a "composition of 5, 2, 3". In this case, the return value of
-    // `propagate` will be std::monostate, indicating that the linear proving
-    // fails. For this case, we just propagate the failure.
+    // propagation is [5, 3, 2], and eg is 10 = merge(5, 2), then the end
+    // result would be like [10, 3]. However, because the merge does not keep
+    // the order, this makes group discontiguous. That is, "a composition of
+    // 5, 3, 2" is not a "composition of 5, 2, 3". In this case, the return
+    // value of `propagate` will be std::monostate, indicating that the linear
+    // proving fails. For this case, we just propagate the failure.
     return {};
   }
   auto result = PartOf<LinearGroupProjection>{
@@ -1532,34 +1561,22 @@ LinearGroupProjection propagate(
   auto to = toGroups(id_graph, eg, direction);
   if (from.size() == 1) {
     NVF_ERROR(to.size() == 2);
-    NVF_ERROR(std::any_of(current.begin(), current.end(), [&](const auto& g) {
-      return related(g, from.front());
+    NVF_ERROR(std::any_of(current.begin(), current.end(), [&](const auto& proj) {
+      return related(proj, from.front());
     }));
-    // Split one group in current into two groups.
-    bool may_be_indivisible_split = eg->front()->isA<Split>() &&
-        !simplifyExpr(eg->front()->as<Split>()->isDivisible())->isTrue();
     Composition<LinearGroupProjection> result;
-    bool first = true;
-    for (const auto& g : current) {
-      if (g.is<ValGroup>() && g.as<ValGroup>() == from.front()) {
-        if (may_be_indivisible_split && !first) {
-          // indivisible split will make dims not contiguous, so not linear.
+    for (const auto& proj : current) {
+      if (related(proj, from.front())) {
+        auto propagated = propagate(proj, id_graph, eg, direction);
+        if (!propagated.hasValue()) {
           return {};
         }
-        result.emplace_back(to.front());
-        result.emplace_back(to.back());
-      } else if (related(g, from.front())) {
-        auto p = propagate(g, id_graph, eg, direction);
-        if (!p.hasValue()) {
-          return {};
-        }
-        result.emplace_back(std::move(p));
+        result.emplace_back(std::move(propagated));
       } else {
-        result.emplace_back(g);
+        result.emplace_back(proj);
       }
-      first = false;
     }
-    return result;
+    return simplify(result);
   } else {
     NVF_ERROR(from.size() == 2);
     NVF_ERROR(to.size() == 1);
@@ -1586,8 +1603,8 @@ LinearGroupProjection propagate(
     }
     // Other cases are not implemented yet. Just return std::monostate,
     // which will make proveLinearAndGetStride stop the propagation and return
-    // "can not prove linear". In the future, we can implement these cases if it
-    // turns out to be useful.
+    // "can not prove linear". In the future, we can implement these cases if
+    // it turns out to be useful.
     return {};
   }
 }
@@ -1612,9 +1629,9 @@ LinearGroupProjection propagate(
       current);
 }
 
-// After propagation, we should have the information about how linear_g lives in
-// domain. Parse this information to check if linear_g is linear in domain, and
-// if it is, compute the stride.
+// After propagation, we should have the information about how linear_g lives
+// in domain. Parse this information to check if linear_g is linear in domain,
+// and if it is, compute the stride.
 Val* proveLinearAndGetStrideAfterPropagation(
     const LinearGroupProjection& g_in_domain,
     const ValGroups& domain);
