@@ -1467,6 +1467,10 @@ Projection simplify(const Composition<Projection>& comp) {
   return eliminateTrivialComposition(simplified);
 }
 
+Projection simplify(const std::monostate& null) {
+  return null;
+}
+
 Projection simplify(Projection projection) {
   // Run simplifications until convergence.
   auto simplified = projection;
