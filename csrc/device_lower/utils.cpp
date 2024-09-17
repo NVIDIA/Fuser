@@ -1129,36 +1129,49 @@ namespace {
 //        g1   g2
 //      where g1, g2, g3 are ValGroups in domain.
 //
-// We use a dynamic type to be able to represent all these cases.
+// We use a dynamic type called Projection to represent structures like above.
+// Because dynamic type can be recursive, it is very expressive and can
+// represent all the cases above. It is helpful to think of the dynamic type
+// Projection as a formal language to describe how linear_g is projected in
+// domain. Different types in the dynamic type Projection are different types of
+// abstract syntax tree nodes for this language. Note that neither the above
+// examples nor the dynamic type Projection is exhaustive. For example,
+// "linear_g is projected as the merge of the inner of g with the outer of g in
+// reverse order" is not covered. For the case where we can not represent using
+// the language of the dynamic type Projection, we will use the std::monostate
+// to denote "unknown". In the future, if we need more expressive power, we can
+// extend the dynamic type Projection with more types of abstract syntax tree
+// nodes. Because the dynamic type Projection is recursive, the theoretical
+// upper limit of the expressive power of this design is as high as the world
+// that a formal language can describe.
 
-// selected = PartOf(group, inner_extent, selected_extent) represents that the
-// selected group is part of `group`. This projection usually comes from merge.
+// selected = PartOf(what, inner_extent, selected_extent) represents that the
+// selected node is part of `what`. This projection usually comes from merge.
 // For example, if we have
 //   selected    2
 //           \  /
 //            g1
 // then
 //   selected = PartOf(g1, 2, extent_of_selected).
-template <typename LinearGroupProjection>
+template <typename Projection>
 struct PartOf {
-  // Part of who?
-  std::shared_ptr<LinearGroupProjection> group;
-  // The structure of group is shown below:
+  // Part of what?
+  std::shared_ptr<Projection> what;
+  // The structure of `what` is shown below:
   //   .--------------------------.
   //   | outer | selected | inner |
   //   '--------------------------'
   // `inner_extent` refers to the extent of `inner`, which can also be
-  // understood as the stride of the selected group in group. If the selected
-  // group is the innermost of group, then there is nothing on the inner of the
-  // selected group. For this case, we say the inner_extent is one, and assign
-  // nullptr here.
+  // understood as the stride of `selected` in `what`. If `selected` is the
+  // innermost of `what`, then there is nothing on the inner of `selected`. For
+  // this case, we say the inner_extent is one, and assign nullptr here.
   Val* inner_extent = nullptr;
-  // The extent of the selected group. This value is just carried over and never
+  // The extent of the `selected`. This value is just carried over and never
   // changed.
   Val* selected_extent = nullptr;
 
   bool operator==(const PartOf& other) const {
-    return group->type() == other.group->type() && *group == *other.group &&
+    return what->type() == other.what->type() && *what == *other.what &&
         inner_extent == other.inner_extent &&
         selected_extent == other.selected_extent;
   }
@@ -1167,7 +1180,7 @@ struct PartOf {
   }
 };
 
-// selected = Composition{g1, g2, g3} represents that the selected group is a
+// selected = Composition{g1, g2, g3} represents that the `selected` is a
 // composition of g1, g2, and g3. This projection usually comes from split. For
 // example, if we have
 //    selected
@@ -1178,26 +1191,26 @@ struct PartOf {
 template <typename... Args>
 using Composition = std::deque<Args...>;
 
-using LinearGroupProjection = dynamic_type::
+using Projection = dynamic_type::
     DynamicType<dynamic_type::Containers<Composition, PartOf>, ValGroup>;
 
-// Utilities to print LinearGroupProjection.
-std::string print(const LinearGroupProjection& group);
+// Utilities to print the entire abstract syntax tree of a projection.
+std::string print(const Projection& proj);
 
 std::string print(const ValGroup& group) {
   return group->toString();
 }
 
-std::string print(const PartOf<LinearGroupProjection>& part) {
+std::string print(const PartOf<Projection>& part) {
   auto str_or_null = [](Val* val) {
     return val == nullptr ? "nullptr" : val->toInlineString();
   };
-  return "PartOf(group=" + print(*part.group) +
+  return "PartOf(what=" + print(*part.what) +
       ", inner_extent=" + str_or_null(part.inner_extent) +
       ", selected_extent=" + str_or_null(part.selected_extent) + ")";
 }
 
-std::string print(const Composition<LinearGroupProjection>& vec) {
+std::string print(const Composition<Projection>& vec) {
   std::stringstream ss;
   ss << "[";
   for (const auto& g : vec) {
@@ -1211,54 +1224,51 @@ std::string print(const std::monostate&) {
   return "std::monostate";
 }
 
-std::string print(const LinearGroupProjection& group) {
-  return LinearGroupProjection::dispatch(
-      [&](const auto& group) { return print(group); }, group);
+std::string print(const Projection& proj) {
+  return Projection::dispatch(
+      [&](const auto& proj) { return print(proj); }, proj);
 }
 
-// Utilities to check if a LinearGroupProjection is related to a ValGroup.
-bool related(const LinearGroupProjection& current, const ValGroup& to);
+// Utilities to check if a ValGroup is contained in proj or its subtree.
+bool related(const Projection& proj, const ValGroup& to);
 
-bool related(const ValGroup& current, const ValGroup& to) {
-  return current == to;
+bool related(const ValGroup& group, const ValGroup& to) {
+  return group == to;
 }
 
-bool related(const PartOf<LinearGroupProjection>& current, const ValGroup& to) {
-  return related(*current.group, to);
+bool related(const PartOf<Projection>& part, const ValGroup& to) {
+  return related(*part.what, to);
 }
 
-bool related(
-    const Composition<LinearGroupProjection>& current,
-    const ValGroup& to) {
-  return std::any_of(current.begin(), current.end(), [&](const auto& g) {
-    return related(g, to);
-  });
+bool related(const Composition<Projection>& comp, const ValGroup& to) {
+  return std::any_of(
+      comp.begin(), comp.end(), [&](const auto& g) { return related(g, to); });
 }
 
-bool related(const std::monostate& current, const ValGroup& to) {
+bool related(const std::monostate&, const ValGroup& to) {
   return false;
 }
 
-bool related(const LinearGroupProjection& current, const ValGroup& to) {
-  return LinearGroupProjection::dispatch(
-      [&](const auto& current) { return related(current, to); }, current);
+bool related(const Projection& proj, const ValGroup& to) {
+  return Projection::dispatch(
+      [&](const auto& proj) { return related(proj, to); }, proj);
 }
 
-// Utilities to get the extent of LinearGroupProjection.
-Val* extent(const LinearGroupProjection& group);
+// Utilities to get the extent of a projection.
+Val* extent(const Projection& proj);
 
 Val* extent(const ValGroup& group) {
   return group->front()->as<IterDomain>()->extent();
 }
 
-Val* extent(const PartOf<LinearGroupProjection>& part) {
+Val* extent(const PartOf<Projection>& part) {
   return part.selected_extent;
 }
 
-Val* extent(const Composition<LinearGroupProjection>& vec) {
+Val* extent(const Composition<Projection>& comp) {
   return std::accumulate(
-      vec.begin(),
-      vec.end(),
+      comp.begin(),
+      comp.end(),
       static_cast<Val*>(nullptr),
       [](Val* acc, const auto& g) {
         return SimplifyingIrBuilder::mulExpr(acc, extent(g));
@@ -1269,31 +1279,30 @@ Val* extent(const std::monostate&) {
   NVF_ERROR(false, "Cannot get extent of std::monostate");
 }
 
-Val* extent(const LinearGroupProjection& group) {
-  return LinearGroupProjection::dispatch(
-      [&](const auto& group) { return extent(group); }, group);
+Val* extent(const Projection& proj) {
+  return Projection::dispatch(
+      [&](const auto& proj) { return extent(proj); }, proj);
 }
 
-// Simplify the LinearGroupProjection so that it is easier to be pattern
+// Simplify the abstract syntax tree so that it is easier to be pattern
 // matched.
-LinearGroupProjection simplify(LinearGroupProjection projection);
+Projection simplify(Projection proj);
 
-LinearGroupProjection simplify(const ValGroup& group) {
+Projection simplify(const ValGroup& group) {
   return group;
 }
 
-PartOf<LinearGroupProjection> cancelCommonFactors(
-    const PartOf<LinearGroupProjection>& part) {
-  // If group is a composition and inner_extent is a multiple of the extent of
-  // the last items in group, we can simplify the inner_extent and group by
-  // canceling the last items in group.
+PartOf<Projection> cancelCommonFactors(const PartOf<Projection>& part) {
+  // If `what` is a composition and inner_extent is a multiple of the extent of
+  // the last items in `what`, we can simplify the inner_extent and `what` by
+  // canceling the last items in `what`.
   //
   // Example:
-  // PartOf{group=[5,3,2], inner_extent=42} => PartOf{group=[5], inner_extent=7}
-  if (!part.group->is<Composition>()) {
+  // PartOf{what=[5,3,2], inner_extent=42} => PartOf{what=[5], inner_extent=7}
+  if (!part.what->is<Composition>()) {
     return part;
   }
-  auto dq = part.group->as<Composition>();
+  auto dq = part.what->as<Composition>();
 
   Val* new_inner_extent = part.inner_extent;
   if (new_inner_extent == nullptr) {
@@ -1313,41 +1322,40 @@ PartOf<LinearGroupProjection> cancelCommonFactors(
   }
   NVF_ERROR(!dq.empty());
   if (dq.size() == 1) {
-    return PartOf<LinearGroupProjection>{
-        std::make_shared<LinearGroupProjection>(dq.front()),
+    return PartOf<Projection>{
+        std::make_shared<Projection>(dq.front()),
         new_inner_extent,
         part.selected_extent};
   }
-  return PartOf<LinearGroupProjection>{
-      std::make_shared<LinearGroupProjection>(std::move(dq)),
+  return PartOf<Projection>{
+      std::make_shared<Projection>(std::move(dq)),
       new_inner_extent,
       part.selected_extent};
 }
 
-PartOf<LinearGroupProjection> trimRedundant(
-    const PartOf<LinearGroupProjection>& part) {
-  // If part.group is a composition then we only keep the minimum number of
-  // items in group that is sufficient to represent the selected_extent *
+PartOf<Projection> trimRedundant(const PartOf<Projection>& part) {
+  // If part.what is a composition then we only keep the minimum number of
+  // items in `what` that is sufficient to represent the selected_extent *
   // inner_extent.
   //
   // Example:
-  // PartOf{group=[7, 3, 5, 2], inner_extent=3, selected_extent=5} =>
-  //   PartOf{group=[3, 5, 2], inner_extent=3, selected_extent=5}
-  if (!part.group->is<Composition>()) {
+  // PartOf{what=[7, 3, 5, 2], inner_extent=3, selected_extent=5} =>
+  //   PartOf{what=[3, 5, 2], inner_extent=3, selected_extent=5}
+  if (!part.what->is<Composition>()) {
     return part;
   }
-  auto dq = part.group->as<Composition>();
+  auto dq = part.what->as<Composition>();
 
   Val* required_extent =
       SimplifyingIrBuilder::mulExpr(part.selected_extent, part.inner_extent);
 
-  Val* group_extent = nullptr;
+  Val* what_extent = nullptr;
   int64_t count = 0;
   while (count < dq.size()) {
     count++;
     const auto& item = dq.at(dq.size() - count);
-    group_extent = SimplifyingIrBuilder::mulExpr(group_extent, extent(item));
-    if (simplifyExpr(IrBuilder::isDivisibleExpr(group_extent, required_extent))
+    what_extent = SimplifyingIrBuilder::mulExpr(what_extent, extent(item));
+    if (simplifyExpr(IrBuilder::isDivisibleExpr(what_extent, required_extent))
             ->isTrue()) {
       break;
     }
@@ -1357,58 +1365,57 @@ PartOf<LinearGroupProjection> trimRedundant(
   }
   NVF_ERROR(!dq.empty());
   if (dq.size() == 1) {
-    return PartOf<LinearGroupProjection>{
-        std::make_shared<LinearGroupProjection>(dq.front()),
+    return PartOf<Projection>{
+        std::make_shared<Projection>(dq.front()),
         part.inner_extent,
         part.selected_extent};
   }
-  return PartOf<LinearGroupProjection>{
-      std::make_shared<LinearGroupProjection>(std::move(dq)),
+  return PartOf<Projection>{
+      std::make_shared<Projection>(std::move(dq)),
       part.inner_extent,
       part.selected_extent};
 }
 
-PartOf<LinearGroupProjection> mergeParts(
-    const PartOf<LinearGroupProjection>& part) {
-  // Combine PartOf(group=PartOf(group=g), ...) into PartOf(group=g, ...).
+PartOf<Projection> mergeParts(const PartOf<Projection>& part) {
+  // Combine PartOf(what=PartOf(what=x), ...) into PartOf(what=x, ...).
   //
   // Example:
   // PartOf{
-  //   group=PartOf{group=24, inner_extent=2, selected_extent=12},
+  //   what=PartOf{what=24, inner_extent=2, selected_extent=12},
   //   inner_extent=3,
   //   selected_extent=2}
   // =>
-  // PartOf{group=24, inner_extent=6, selected_extent=2}
-  if (!part.group->is<PartOf>()) {
+  // PartOf{what=24, inner_extent=6, selected_extent=2}
+  if (!part.what->is<PartOf>()) {
     return part;
   }
-  const auto& group = part.group->as<PartOf>();
+  const auto& what = part.what->as<PartOf>();
 
-  return PartOf<LinearGroupProjection>{
-      group.group,
-      SimplifyingIrBuilder::mulExpr(part.inner_extent, group.inner_extent),
+  return PartOf<Projection>{
+      what.what,
+      SimplifyingIrBuilder::mulExpr(part.inner_extent, what.inner_extent),
       part.selected_extent};
 }
 
-LinearGroupProjection eliminateTrivialPartOf(
-    const PartOf<LinearGroupProjection>& part) {
-  // If group has the same extent as the selected extent, and there is no inner
-  // extent in group, the the full group represents the selected group.
+Projection eliminateTrivialPartOf(const PartOf<Projection>& part) {
+  // If part.what has the same extent as the selected extent, and there is no
+  // inner extent in part, then the full `what` is identical to the selected
+  // part.
   //
   // Example:
-  // PartOf{group=5, inner_extent=nullptr, selected_extent=5} => 5
+  // PartOf{what=5, inner_extent=nullptr, selected_extent=5} => 5
   if (part.inner_extent == nullptr &&
-      simplifyExpr(IrBuilder::eqExpr(extent(*part.group), part.selected_extent))
+      simplifyExpr(IrBuilder::eqExpr(extent(*part.what), part.selected_extent))
           ->isTrue()) {
-    return *part.group;
+    return *part.what;
   }
   return part;
 }
 
-LinearGroupProjection simplify(const PartOf<LinearGroupProjection>& part) {
+Projection simplify(const PartOf<Projection>& part) {
   // Recursively simplify subtree.
-  auto simplified = PartOf<LinearGroupProjection>{
-      std::make_shared<LinearGroupProjection>(simplify(*part.group)),
+  auto simplified = PartOf<Projection>{
+      std::make_shared<Projection>(simplify(*part.what)),
       part.inner_extent,
       part.selected_extent};
   // Run simplification rules.
@@ -1418,13 +1425,13 @@ LinearGroupProjection simplify(const PartOf<LinearGroupProjection>& part) {
   return eliminateTrivialPartOf(simplified);
 }
 
-Composition<LinearGroupProjection> flattenCompositions(
-    const Composition<LinearGroupProjection>& comp) {
+Composition<Projection> flattenCompositions(
+    const Composition<Projection>& comp) {
   // Flatten the composition into a single level.
   //
   // Example:
   // Composition{Composition{5, 3}, 2} => Composition{5, 3, 2}
-  Composition<LinearGroupProjection> result;
+  Composition<Projection> result;
   for (const auto& proj : comp) {
     if (proj.is<Composition>()) {
       const auto& flat = proj.as<Composition>();
@@ -1436,9 +1443,9 @@ Composition<LinearGroupProjection> flattenCompositions(
   return result;
 }
 
-LinearGroupProjection simplify(const Composition<LinearGroupProjection>& comp) {
+Projection simplify(const Composition<Projection>& comp) {
   // Recursively simplify subtrees.
-  Composition<LinearGroupProjection> simplified;
+  Composition<Projection> simplified;
   for (const auto& proj : comp) {
     simplified.push_back(simplify(proj));
   }
@@ -1448,12 +1455,12 @@ LinearGroupProjection simplify(const Composition<LinearGroupProjection>& comp) {
   return simplified;
 }
 
-LinearGroupProjection simplify(LinearGroupProjection projection) {
+Projection simplify(Projection projection) {
   // Run simplifications until convergence.
   auto simplified = projection;
   do {
     projection = simplified;
-    simplified = LinearGroupProjection::dispatch(
+    simplified = Projection::dispatch(
         [&](const auto& projection) { return simplify(projection); },
         projection);
   } while (simplified != projection);
@@ -1480,189 +1487,206 @@ auto toGroups(
                                          : id_graph.outputGroups(eg);
 }
 
-// Do the propagation from linear_g to domain.
-LinearGroupProjection propagate(
-    const LinearGroupProjection& current,
+// Do the propagation to project linear_g on domain through the given
+// expression, build out and simplify the abstract syntax tree on the fly.
+// Because the dynamic type Projection has limited expressiveness, we may
+// encounter cases where the projection can not be represented in the language
+// of the dynamic type Projection. For such cases, we will just use
+// std::monostate to denote "unknown".
+Projection propagate(
+    const Projection& proj,
     const ValGraph& id_graph,
     const ExprGroup& eg,
     Direction direction);
 
-LinearGroupProjection propagate(
-    const ValGroup& current,
+Projection propagate(
+    const ValGroup& group,
     const ValGraph& id_graph,
     const ExprGroup& eg,
     Direction direction) {
   auto from = fromGroups(id_graph, eg, direction);
   auto to = toGroups(id_graph, eg, direction);
-  if (from.size() == 1) {
+  if (from.size() == 1 && to.size() == 2) {
     // If we have
-    //    current
-    //    /     \.
-    //   g1      g2
-    // and the split is divisible, then we know that
-    //   current = Composition{g1, g2}
-    // If the split is not divisible, then we know that
-    //   current = PartOf{group=Composition{g1, g2},
-    //                    inner_extent=nullptr,
-    //                    selected_extent=extent(current)}
-    NVF_ERROR(to.size() == 2);
-    NVF_ERROR(from.front() == current);
-    auto comp = Composition<LinearGroupProjection>{to.front(), to.back()};
+    //    group
+    //    /   \.
+    //   g1   g2
+    // and the split is divisible, then build the following abstract syntax
+    // tree:
+    //   group = Composition{g1, g2}
+    // If the split is not divisible, then build the following abstract syntax
+    // tree:
+    //   group = PartOf{what=Composition{g1, g2},
+    //                  inner_extent=nullptr,
+    //                  selected_extent=extent(group)}
+    NVF_ERROR(eg->front()->isA<Split>() || eg->front()->isA<Merge>());
+    if (from.front() != group) {
+      return group;
+    }
+    auto comp = Composition<Projection>{to.front(), to.back()};
     bool may_be_indivisible_split = eg->front()->isA<Split>() &&
         !simplifyExpr(eg->front()->as<Split>()->isDivisible())->isTrue();
     if (may_be_indivisible_split) {
-      return PartOf<LinearGroupProjection>{
-          std::make_shared<LinearGroupProjection>(comp),
+      return PartOf<Projection>{
+          std::make_shared<Projection>(comp),
           /*inner_extent=*/nullptr,
-          /*selected_extent=*/extent(current)};
+          /*selected_extent=*/extent(group)};
     }
     return comp;
-  } else {
+  } else if (from.size() == 2 && to.size() == 1) {
     // If we have
-    //   current  g1
+    //   group    g1
     //        \  /
     //         g2
-    // then we know that
-    //   current = PartOf{group=g2,
-    //                    inner_extent=extent(g1),
-    //                    selected_extent=extent(current)}
+    // then build the following abstract syntax tree
+    //   group = PartOf{what=g2,
+    //                  inner_extent=extent(g1),
+    //                  selected_extent=extent(group)}
+    //
     // If we have
-    //   g1   current
+    //   g1   group
     //     \  /
     //      g2
-    // then we know that
-    //   current = PartOf{group=g2,
-    //                    inner_extent=nullptr,
-    //                    selected_extent=extent(current)}
-    NVF_ERROR(from.size() == 2);
-    NVF_ERROR(to.size() == 1);
-    NVF_ERROR(from.front() == current || from.back() == current);
-    return PartOf<LinearGroupProjection>{
-        std::make_shared<LinearGroupProjection>(to.front()),
-        /*inner_extent=*/from.front() == current ? extent(from.back())
-                                                 : nullptr,
+    // then build the following abstract syntax tree
+    //   group = PartOf{what=g2,
+    //                  inner_extent=nullptr,
+    //                  selected_extent=extent(group)}
+    NVF_ERROR(eg->front()->isA<Split>() || eg->front()->isA<Merge>());
+    if (from.front() != group && from.back() != group) {
+      return group;
+    }
+    return PartOf<Projection>{
+        std::make_shared<Projection>(to.front()),
+        /*inner_extent=*/from.front() == group ? extent(from.back()) : nullptr,
         /*selected_extent=*/
-        simplifyExpr(extent(current))};
+        simplifyExpr(extent(group))};
   }
+  // Not representable by the language of the dynamic type Projection.
+  return {};
 }
 
-LinearGroupProjection propagate(
-    const PartOf<LinearGroupProjection>& current,
+Projection propagate(
+    const PartOf<Projection>& part,
     const ValGraph& id_graph,
     const ExprGroup& eg,
     Direction direction) {
+  // Just recursively propagate subtree.
   auto from = fromGroups(id_graph, eg, direction);
   auto to = toGroups(id_graph, eg, direction);
-  auto propagated = propagate(*current.group, id_graph, eg, direction);
+  auto propagated = propagate(*part.what, id_graph, eg, direction);
   if (!propagated.hasValue()) {
-    // Propagation of group may fail. For example, if the group before
-    // propagation is [5, 3, 2], and eg is 10 = merge(5, 2), then the end
-    // result would be like [10, 3]. However, because the merge does not keep
-    // the order, this makes group discontiguous. That is, "a composition of
-    // 5, 3, 2" is not a "composition of 5, 2, 3". In this case, the return
-    // value of `propagate` will be std::monostate, indicating that the linear
-    // proving fails. For this case, we just propagate the failure.
     return {};
   }
-  auto result = PartOf<LinearGroupProjection>{
-      std::make_shared<LinearGroupProjection>(propagated),
-      current.inner_extent,
-      current.selected_extent};
+  auto result = PartOf<Projection>{
+      std::make_shared<Projection>(propagated),
+      part.inner_extent,
+      part.selected_extent};
   return simplify(result);
 }
 
-LinearGroupProjection propagate(
-    const Composition<LinearGroupProjection>& current,
+Projection propagate(
+    const Composition<Projection>& comp,
     const ValGraph& id_graph,
     const ExprGroup& eg,
     Direction direction) {
   auto from = fromGroups(id_graph, eg, direction);
   auto to = toGroups(id_graph, eg, direction);
-  if (from.size() == 1) {
-    // Just recursively propagate each group in the composition.
-    NVF_ERROR(to.size() == 2);
-    NVF_ERROR(
-        std::any_of(current.begin(), current.end(), [&](const auto& proj) {
-          return related(proj, from.front());
-        }));
-    Composition<LinearGroupProjection> result;
-    for (const auto& proj : current) {
-      if (related(proj, from.front())) {
-        auto propagated = propagate(proj, id_graph, eg, direction);
-        if (!propagated.hasValue()) {
-          return {};
-        }
-        result.emplace_back(std::move(propagated));
-      } else {
-        result.emplace_back(proj);
+  int64_t num_related_components =
+      std::count_if(comp.begin(), comp.end(), [&](const auto& proj) {
+        return std::any_of(from.begin(), from.end(), [&](const auto& g) {
+          return related(proj, g);
+        });
+      });
+
+  // Not related at all. No-op.
+  if (num_related_components == 0) {
+    return comp;
+  }
+
+  // If only one item in `comp` is related to from, then we can just treat `eg`
+  // as a "unary op" and recursively propagate subtrees.
+  if (num_related_components == 1) {
+    Composition<Projection> result;
+    for (const auto& proj : comp) {
+      auto propagated = propagate(proj, id_graph, eg, direction);
+      if (!propagated.hasValue()) {
+        return {};
       }
+      result.emplace_back(std::move(propagated));
     }
     return simplify(result);
-  } else {
-    NVF_ERROR(from.size() == 2);
-    NVF_ERROR(to.size() == 1);
+  }
+
+  // If more than one group in `from` is related to comp, this is more complex.
+  // We need to check if these involved multiple groups in comp are transformed
+  // by `eg` in a compatible way, in the sense that after the transformation,
+  // the result is still representable by language of the dynamic type
+  // Projection.
+  if (from.size() == 2 && to.size() == 1) {
+    NVF_ERROR(eg->front()->isA<Split>() || eg->front()->isA<Merge>());
     // If merging two contiguous groups, we need to update the result by
     // replacing them into the merged group. If merging two non-contiguous
     // groups, just fail the proof because it is not important for us yet.
     auto outer_it =
-        std::find_if(current.begin(), current.end(), [&](const auto& g) {
-          return g.template is<ValGroup>() &&
-              g.template as<ValGroup>() == from.front();
+        std::find_if(comp.begin(), comp.end(), [&](const auto& proj) {
+          return proj.template is<ValGroup>() &&
+              proj.template as<ValGroup>() == from.front();
         });
-    if (outer_it != current.end()) {
-      auto inner_it = std::next(outer_it);
-      if (inner_it != current.end() && inner_it->is<ValGroup>() &&
-          inner_it->as<ValGroup>() == from.back()) {
-        Composition<LinearGroupProjection> result = current;
-        result.erase(result.begin() + std::distance(current.begin(), inner_it));
-        result.at(std::distance(current.begin(), outer_it)) = to.front();
-        if (result.size() == 1) {
-          return result.front();
-        }
-        return result;
-      }
+    if (outer_it == comp.end()) {
+      return {};
     }
-    // Other cases are not implemented yet. Just return std::monostate,
-    // which will make proveLinearAndGetStride stop the propagation and return
-    // "can not prove linear". In the future, we can implement these cases if
-    // it turns out to be useful.
-    return {};
+    auto inner_it = std::next(outer_it);
+    if (inner_it == comp.end()) {
+      return {};
+    }
+    if (inner_it->is<ValGroup>() && inner_it->as<ValGroup>() == from.back()) {
+      Composition<Projection> result = comp;
+      result.erase(result.begin() + std::distance(comp.begin(), inner_it));
+      result.at(std::distance(comp.begin(), outer_it)) = to.front();
+      if (result.size() == 1) {
+        return result.front();
+      }
+      return result;
+    }
   }
+
+  // Not representable by the language of the dynamic type Projection.
+  return {};
 }
 
-LinearGroupProjection propagate(
-    const std::monostate& current,
+Projection propagate(
+    const std::monostate&,
     const ValGraph& id_graph,
     const ExprGroup& eg,
     Direction direction) {
   NVF_ERROR(false, "Should not reach here.");
 }
 
-LinearGroupProjection propagate(
-    const LinearGroupProjection& current,
+Projection propagate(
+    const Projection& proj,
     const ValGraph& id_graph,
     const ExprGroup& eg,
     Direction direction) {
-  return LinearGroupProjection::dispatch(
-      [&](const auto& current) {
-        return propagate(current, id_graph, eg, direction);
+  return Projection::dispatch(
+      [&](const auto& proj) {
+        return propagate(proj, id_graph, eg, direction);
       },
-      current);
+      proj);
 }
 
 // After propagation, we should have the information about how linear_g lives
 // in domain. Parse this information to check if linear_g is linear in domain,
 // and if it is, compute the stride.
 Val* proveLinearAndGetStrideAfterPropagation(
-    const LinearGroupProjection& g_in_domain,
+    const Projection& proj,
     const ValGroups& domain);
 
 Val* proveLinearAndGetStrideAfterPropagation(
-    const ValGroup& g_in_domain,
+    const ValGroup& group,
     const ValGroups& domain) {
-  Val* stride = g_in_domain->front()->fusion()->oneVal();
+  Val* stride = group->front()->fusion()->oneVal();
   for (auto it = domain.rbegin(); it != domain.rend(); ++it) {
-    if (*it == g_in_domain) {
+    if (*it == group) {
       return stride;
     }
     stride = SimplifyingIrBuilder::mulExpr(stride, extent(*it));
@@ -1671,56 +1695,55 @@ Val* proveLinearAndGetStrideAfterPropagation(
 }
 
 Val* proveLinearAndGetStrideAfterPropagation(
-    const PartOf<LinearGroupProjection>& g_in_domain,
+    const PartOf<Projection>& part,
     const ValGroups& domain) {
   auto inner_stride =
-      proveLinearAndGetStrideAfterPropagation(*g_in_domain.group, domain);
+      proveLinearAndGetStrideAfterPropagation(*part.what, domain);
   if (inner_stride == nullptr) {
     return nullptr;
   }
-  return SimplifyingIrBuilder::mulExpr(inner_stride, g_in_domain.inner_extent);
+  return SimplifyingIrBuilder::mulExpr(inner_stride, part.inner_extent);
 }
 
 Val* proveLinearAndGetStrideAfterPropagation(
-    const Composition<LinearGroupProjection>& g_in_domain,
+    const Composition<Projection>& comp,
     const ValGroups& domain) {
-  // The idea is like: given a string domain, find the substring g_in_domain.
-  if (!std::all_of(g_in_domain.begin(), g_in_domain.end(), [&](const auto& g) {
+  // The idea is like: given a string domain, find the substring comp.
+  if (!std::all_of(comp.begin(), comp.end(), [&](const auto& g) {
         return g.template is<ValGroup>();
       })) {
     // Not implemented yet, just fail the proof.
     return nullptr;
   }
-  auto first_it = std::find(
-      domain.begin(), domain.end(), g_in_domain.front().as<ValGroup>());
+  auto first_it =
+      std::find(domain.begin(), domain.end(), comp.front().as<ValGroup>());
   if (first_it == domain.end()) {
     return nullptr;
   }
-  for (auto it = g_in_domain.begin(); it != g_in_domain.end();
-       ++it, ++first_it) {
+  for (auto it = comp.begin(); it != comp.end(); ++it, ++first_it) {
     if (it->as<ValGroup>() != *first_it) {
       return nullptr;
     }
   }
   return proveLinearAndGetStrideAfterPropagation(
-      g_in_domain.back().as<ValGroup>(), domain);
+      comp.back().as<ValGroup>(), domain);
 }
 
 Val* proveLinearAndGetStrideAfterPropagation(
-    const std::monostate& g_in_domain,
+    const std::monostate&,
     const ValGroups& domain) {
   NVF_ERROR(false, "Should not reach here.");
   return nullptr;
 }
 
 Val* proveLinearAndGetStrideAfterPropagation(
-    const LinearGroupProjection& g_in_domain,
+    const Projection& proj,
     const ValGroups& domain) {
-  return LinearGroupProjection::dispatch(
-      [&](const auto& g_in_domain) {
-        return proveLinearAndGetStrideAfterPropagation(g_in_domain, domain);
+  return Projection::dispatch(
+      [&](const auto& proj) {
+        return proveLinearAndGetStrideAfterPropagation(proj, domain);
       },
-      g_in_domain);
+      proj);
 }
 
 } // namespace
@@ -1738,7 +1761,7 @@ Val* proveLinearAndGetStride(
   }
   // Propagate from linear_g to domain. Use frontier to keep track of the
   // how linear_g lives in the current propagation front.
-  LinearGroupProjection frontier = linear_g;
+  Projection frontier = linear_g;
   auto path = ValGraphBFS::getExprsBetween(id_graph, domain, {linear_g});
   while (!path.empty()) {
     const auto& [eg, direction] = path.back();
@@ -1752,14 +1775,9 @@ Val* proveLinearAndGetStride(
       // the 64 does not carry anything on [2], neither in part nor in full.
       continue;
     }
-    if (!eg->front()->isOneOf<Split, Merge>()) {
-      // Other expressions are not supported yet. Just fail the proof.
-      return nullptr;
-    }
     frontier = propagate(frontier, id_graph, eg, direction);
     if (!frontier.hasValue()) {
-      // std::monostate is a special value that indicates that the propagation
-      // has failed.
+      // Not representable by the language of the dynamic type Projection.
       return nullptr;
     }
   }
