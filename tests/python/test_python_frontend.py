@@ -4327,10 +4327,16 @@ class TestNvFuserFrontend(NVFuserTest):
 
     # testing that error thrown in finalizeDefinition is not accidentally cached as legit fusion.
     def test_fusion_definition_error_cache(self):
-        def fusion_func(fd : FusionDefinition) -> None :
+        def fusion_func(fd: FusionDefinition) -> None:
             # NOTE: it's important that the exception is thrown inside FusionDefinition::finalizeDefinition()
             # e.g. https://github.com/NVIDIA/Fuser/blob/adbbc75e58e6c53c606e90c8bc64f020b4b9df85/csrc/python_frontend/fusion_record.h#L1276
-            T0 = fd.define_tensor(shape=[-1, -1], contiguity=[True, True], dtype=DataType.Int, is_cpu=True, stride_order=[1, 0])
+            T0 = fd.define_tensor(
+                shape=[-1, -1],
+                contiguity=[True, True],
+                dtype=DataType.Int,
+                is_cpu=True,
+                stride_order=[1, 0],
+            )
 
         for i in range(2):
             with pytest.raises(
