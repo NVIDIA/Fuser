@@ -125,6 +125,11 @@ struct KernelSummary {
 
   //! Track Circular Buffer TensorViews
   CircularBufferInfo circular_buffer_info;
+
+  //! Track if there are ElectSync predicates in this Kernel.
+  //! Reason: At runtime, we check that at least a single warp along TIDx axis
+  //! exists.
+  bool has_elect_sync_predicate = false;
 };
 
 class KernelPerformanceProfile {
