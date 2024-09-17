@@ -59,9 +59,7 @@ class FusionDefinition(_C._FusionDefinition):
 
     def __exit__(self, type, value, traceback):
         try:
-            print(f"definition0 {self.id()=}")
             self._finalize_definition()
-            print(f"finalized definition0 {self.id()=}")
         except Exception as err:
             logger.exception(self.getReproErrorString("defining"))
             raise
@@ -199,14 +197,10 @@ class FusionDefinition(_C._FusionDefinition):
             device = device.index
 
         # if definition is not defined by a context manager, try a child class
-        print(" ------ xxx 0 ----")
-        print(f" {self.id()=}") 
         if self.id() is None:
             self._setup_definition()
             self.definition()
-            print(" ------ xxx 1 ----")
             self._finalize_definition()
-        print(" ------ xxx 2 ----")
 
         # If schedule is defined by child class and schedule is not defined for
         # inputs, make a schedule.
