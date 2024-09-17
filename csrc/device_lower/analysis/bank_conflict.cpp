@@ -72,7 +72,7 @@ int64_t getLdMatrixNumThreads(int64_t word_size) {
       // and all the 32 threads contain useful addresses.
       return 32;
     default:
-      NVF_ERROR(false, "Invalid word size for ldmatrix");
+      NVF_THROW("Invalid word size for ldmatrix");
   }
 }
 

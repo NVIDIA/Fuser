@@ -60,7 +60,7 @@ struct TensorMetaData : public Struct {
         return [this]() { return PolymorphicValue(alloc_stride.vec()); };
       }
     } else {
-      NVF_ERROR(false, "Unknown key ", key);
+      NVF_THROW("Unknown key ", key);
     }
   }
 
@@ -89,7 +89,7 @@ struct TensorMetaData : public Struct {
         alloc_stride = c10::makeArrayRef(alloc_stride_data);
       };
     } else {
-      NVF_ERROR(false, "Unknown key ", key);
+      NVF_THROW("Unknown key ", key);
     }
   }
 

@@ -225,7 +225,7 @@ TEST_F(TensorFactoryTest, StandaloneIota) {
         break;
       }
       default:
-        NVF_ERROR(false);
+        NVF_THROW();
     }
   }
 }
