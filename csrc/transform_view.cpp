@@ -759,7 +759,6 @@ AnalyzeViewResult analyzeView(
     const TensorView* original_view_tv,
     const std::vector<int64_t>& original_sizes,
     const std::vector<int64_t>& new_sizes) {
-  FUSER_PERF_SCOPE("analyzeView");
   if (original_sizes.empty()) {
     NVF_ERROR(
         std::all_of(

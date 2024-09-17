@@ -339,10 +339,13 @@ bool requiresIdModel(Fusion* fusion) {
         return true;
       }
     }
+    if (expr->isA<MmaOp>()) {
+      return true;
+    }
   }
   // If a tensor does not have a nice root->logical/allocation->loop
   // linear transformation history, use IdModel.
-  for (auto tv : ir_utils::allTvs(fusion)) {
+  for (auto tv : fusion->allTvs()) {
     if (!lower_utils::hasRootToLoopLinearTransformations(tv)) {
       return true;
     }
@@ -464,9 +467,6 @@ void GpuLower::analysis(Fusion* fusion) {
   // Validate swizzle usage on the fusion schedule.
   validateSwizzle(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateSwizzle");
-
-  validateResize(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "validateResize");
 
   validateReductions(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateReductions");

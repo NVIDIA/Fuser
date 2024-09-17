@@ -383,14 +383,8 @@ IndexingParameters getPredicateInitialIndexParameters(
       } else {
         // Similar to the above, loop_id()->extent() is
         // used here instead of loop->stop(). See the above comment.
-        if (unswitch_pred) {
-          loop_to_ind_map[loop] = SimplifyingIrBuilder::subExpr(
-              loop_id->extent(), GpuLower::current()->kernel()->oneVal());
-        } else {
-          // For vectorize, zero should be fine as well and that would
-          // promote better index hoisting
-          loop_to_ind_map[loop] = GpuLower::current()->kernel()->zeroVal();
-        }
+        loop_to_ind_map[loop] = SimplifyingIrBuilder::subExpr(
+            loop_id->extent(), GpuLower::current()->kernel()->oneVal());
       }
 
       // When predicating a loop at the maximum end, predicate
@@ -1107,7 +1101,7 @@ const std::vector<Val*>& LoopIndexingTraversal::nextValsInTraversalOrder(
       break;
 
     default:
-      NVF_ERROR(false, "unimplemented traversal order");
+      NVF_THROW("unimplemented traversal order");
   }
   return expr->inputs();
 }
@@ -1123,7 +1117,7 @@ const std::vector<Val*>& LoopIndexingTraversal::prevValsInTraversalOrder(
       break;
 
     default:
-      NVF_ERROR(false, "unimplemented traversal order");
+      NVF_THROW("unimplemented traversal order");
   }
   return expr->inputs();
 }

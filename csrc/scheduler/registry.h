@@ -7,9 +7,9 @@
 // clang-format on
 #pragma once
 #include <exceptions.h>
-#include <executor_kernel_arg.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
+#include <fusion_executor/executor_kernel_arg.h>
 #include <scheduler/compile_time_info.h>
 #include <scheduler/heuristic.h>
 #include <scheduler/heuristic_types.h>

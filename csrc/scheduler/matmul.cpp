@@ -14,11 +14,12 @@
 #include <scheduler/matmul.h>
 #include <scheduler/matmul_utils.h>
 #include <scheduler/mma_utils.h>
+#include <scheduler/multi_matmul.h>
 #include <scheduler/utils.h>
 
 // NOTE: included to avoid compilation error caused by missing destructor in
 // 'SchedulerRuntimeInfo'
-#include <executor_utils.h>
+#include <fusion_executor/executor_utils.h>
 #include "mma_type.h"
 
 namespace nvfuser {
@@ -734,6 +735,11 @@ void scheduleSplitKSum(
 } // namespace
 
 void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
+  if (isOptionEnabled(EnableOption::FuseMultipleMatmuls)) {
+    scheduleMultipleMatmuls(fusion, params);
+    return;
+  }
+
   FusionGuard fg(fusion);
 
   // Make sure we don't have global memory set on intermediate tensors from

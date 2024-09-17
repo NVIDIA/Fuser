@@ -47,8 +47,6 @@ enum class DebugDumpOption {
   CudaKernel, //!< Dump the generated CUDA C++ kernel code
   CudaFull, //!< Dump the complete CUDA C++ code
   CudaToFile, //!< Dump CUDA Strings to File
-  DebugInfo, //!< Embed line info and debug info to compiled kernel, and dump
-             //!< the full CUDA C++ code
   LaunchParam, //!< Dump the Launch parameters of kernel
   FusionSegments, //!< Dump Segmented Fusion Graph
   FusionSegmenterLog, //!< Dump Detailed Segmenter Logging
@@ -82,6 +80,7 @@ enum class DebugDumpOption {
   Occupancy, // Dump occupancy
   IndexType, //! Print the index type of the launched kernel
   PredicateElimination, //! Print the predicate elimination information
+  IndexingVerbose, //! Print verbose debug info on indexing
   EndOfOption //! Placeholder for counting the number of elements
 };
 
@@ -91,6 +90,7 @@ enum class DebugDumpOption {
 //!
 enum class EnableOption {
   FuseMatmul, //! Enable automatic fusion of matmul and linear ops
+  FuseMultipleMatmuls, //! Allow fusing more than one matmul in a single kernel
   IdModel, //! Enable IdModel
   KernelDb, //! Enable Kernel Database
   KernelProfile, //! Enable intra-kernel performance profiling
@@ -100,6 +100,9 @@ enum class EnableOption {
   WarnRegisterSpill, //! Enable warnings of register spill
   IoToLowerPrecision, //! Enable castInputOutputToLowerPrecision. #1889 explains
                       //! why we disabled it by default.
+  KernelDebug, //! Enable debug mode in nvrtc
+  KernelLineInfo, //! Embed line info to compiled kernel, and dump the full CUDA
+                  //! C++ code
   EndOfOption //! Placeholder for counting the number of elements
 };
 
@@ -124,6 +127,7 @@ enum class DisableOption {
   ParallelCompile, //! Disable compiling Fusion segments in parallel
   ParallelSerde, //! Disable deserializing FusionExecutorCache in parallel
   PredicateElimination, //! Disable predicate elimination
+  PythonInlineDefinitions, //! Disable printing of inline definitions
   KernelReuse, //! Disable re-using cached FusionKernelRuntimes with different
                //! input shapes
   VarNameRemapping, //! Disable variable name remapping

@@ -164,7 +164,7 @@ c10::intrusive_ptr<c10d::Backend> createBackend(
         store, static_cast<int>(rank), static_cast<int>(size), timeout);
   }
 #endif
-  NVF_ERROR(false, "no distributed backend available");
+  NVF_THROW("no distributed backend available");
 }
 #endif
 } // namespace
@@ -216,13 +216,18 @@ Communicator::Communicator(
 
 void Communicator::cleanup() {
   static bool cleaned_up = false;
-  if (cleaned_up) {
-    TORCH_WARN(
-        "The singleton Communicator has already been cleaned up. This is "
-        "likely because Communicator::cleanup was called more than once");
-    return;
-  }
+  NVF_CHECK(
+      !cleaned_up,
+      "The singleton Communicator has already been cleaned up. This is "
+      "likely because Communicator::cleanup was called more than once");
   cleaned_up = true;
+
+  // Without this, the TCPStore server can be cleaned up before TCPStore
+  // clients are created, causing an hang. This happened with
+  // test_multidevice.py::test_sizes_and_ranks.
+  if (is_available()) {
+    barrier();
+  }
 
   store_ = nullptr;
 

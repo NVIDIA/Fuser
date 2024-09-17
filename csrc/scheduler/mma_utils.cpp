@@ -35,7 +35,7 @@ inline mma_utils::MmaDataTypes getMmaDataTypes(
     if (entry != tensor_roles.end() && !entry->second.empty()) {
       return entry->second.front()->dtype();
     }
-    NVF_ERROR(false, "Get MMA Tensor data type failed!");
+    NVF_THROW("Get MMA Tensor data type failed!");
   };
   const auto a_type = getMMADataType(MatmulTensorRole::OPERAND_A);
   const auto b_type = getMMADataType(MatmulTensorRole::OPERAND_B);
@@ -696,7 +696,7 @@ std::vector<IterDomain*> getMmaDomains(MmaOp* mma, MmaDimension dimension) {
         break;
 
       default:
-        NVF_ERROR(false, "unreachable");
+        NVF_THROW("unreachable");
     }
 
     if (include_this_id) {
@@ -1258,6 +1258,7 @@ TensorRolesMapOpt getTensorRoles(
     Fusion* fusion,
     const IdModel& id_model,
     const DimRolesMap& dim_roles) {
+  NVF_ERROR(fusion != nullptr);
   const auto mma_input_candidates =
       ir_utils::filterByType<TensorView>(fusion->inputs()).vector();
   if (mma_input_candidates.empty()) {
@@ -1460,7 +1461,7 @@ char dtypeToChar(const DataType& dtype) {
   } else if (dtype == DataType::Double) {
     return 'D';
   }
-  NVF_ERROR(false, "Unsupported dtype for matmul: ", dtype);
+  NVF_THROW("Unsupported dtype for matmul: ", dtype);
   return 0;
 }
 
@@ -2010,6 +2011,34 @@ std::vector<ValGroup> canonicalDimOrdering(
   insert(k_dims);
 
   return ordering;
+}
+
+std::optional<std::pair<DimRolesMap, TensorRolesMap>> allPatternRoles(
+    IdModel& id_model,
+    const std::vector<MatmulPattern>& patterns) {
+  Fusion* fusion = nullptr;
+  DimRolesMap id_roles;
+  for (const MatmulPattern& pattern : patterns) {
+    if (fusion == nullptr) {
+      fusion = pattern.output->fusion();
+    } else {
+      NVF_ERROR(fusion == pattern.output->fusion());
+    }
+    mma_utils::DimRolesMap pattern_id_roles = pattern.getDimRoles(id_model);
+    for (const auto& [g, role] : pattern_id_roles) {
+      const auto& [it, inserted] = id_roles.try_emplace(g, role);
+      if (!inserted && it->second != role) {
+        return std::nullopt;
+      }
+    }
+  }
+  const auto tensor_roles_opt =
+      mma_utils::getTensorRoles(fusion, id_model, id_roles);
+  if (!tensor_roles_opt.isValid()) {
+    return std::nullopt;
+  }
+  return std::pair<DimRolesMap, TensorRolesMap>{
+      id_roles, tensor_roles_opt.getData()};
 }
 
 } // namespace mma_utils

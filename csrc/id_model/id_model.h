@@ -87,6 +87,9 @@ StatefulInliningInfo buildStatefulInliningInfo(
 // IdMappingMode::EXACT
 //   Don't map any broadcast axes to non-broadcast axes
 //   Do not forward through any broadcast IDs
+// IdMappingMode::BROADCAST
+//   Map any broadcast axes to non-broadcast axes
+//   Do not forward through any broadcast IDs
 // IdMappingMode::PERMISSIVE
 //   Forward broadcast axes in replay
 //   Map all iteration domains
@@ -174,9 +177,14 @@ class IdModel : public PolymorphicBase {
   // split by a size-1 dimension.
   void buildAlmostExactGraph();
 
-  // Fills disjoint_ids_[IdMappingMode::PERMISSIVE]. Initialize it as
+  // Fills disjoint_ids_[IdMappingMode::BROADCAST]. Initialize it as
   // Exact entries, then map through broadcasts. Build the Exact graph
   // as well if not yet done.
+  void buildBroadcastGraph();
+
+  // Fills disjoint_ids_[IdMappingMode::PERMISSIVE]. Initialize it as
+  // BROADCAST entries, then map through forwarded domains. Build the
+  // BROADCAST graph as well if not yet done.
   void buildPermissiveGraph();
 
   // Fills disjoint_ids_[IdMappingMode::LOOP]. Map only inlined

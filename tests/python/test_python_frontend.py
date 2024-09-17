@@ -2225,98 +2225,6 @@ class TestNvFuserFrontend(NVFuserTest):
 
         self.assertTrue(nvf_out[0].device.index == 1)
 
-    def test_matmul(self):
-        m = 24
-        n = 16
-        k = 8
-        inputs_tt = [
-            torch.randn(m, k, device="cuda", dtype=torch.float16),
-            torch.randn(k, n, device="cuda", dtype=torch.float16),
-        ]
-
-        inputs_tn = [
-            inputs_tt[0].clone(),
-            inputs_tt[1].clone().as_strided(size=[k, n], stride=[1, k]),
-        ]
-
-        inputs_nt = [
-            inputs_tt[0].clone().as_strided(size=[m, k], stride=[1, m]),
-            inputs_tt[1].clone(),
-        ]
-
-        inputs_tn = [inputs_tt[0].clone(), inputs_tn[1].clone()]
-
-        inputs_nn = [inputs_nt[0].clone(), inputs_tn[1].clone()]
-
-        def fusion_func(fd: FusionDefinition, inps) -> None:
-            t0 = fd.from_pytorch(inps[0])
-            t1 = fd.from_pytorch(inps[1])
-            t2 = fd.ops.matmul(t0, t1)
-            fd.add_output(t2)
-
-        for inps in [inputs_tt, inputs_tn, inputs_nt, inputs_nn]:
-            nvf_out, _ = self.exec_nvfuser(partial(fusion_func, inps=inps), inps)
-            eager_out = torch.matmul(inps[0], inps[1])
-            fp16_nvf_out = nvf_out[0]
-            self.assertEqual(eager_out, fp16_nvf_out)
-
-    def test_linear(self):
-        m = 24
-        n = 16
-        k = 8
-        bias0d = torch.tensor(3.14, device="cuda", dtype=torch.float16)
-        bias1d = torch.randn(n, device="cuda", dtype=torch.float16)
-
-        inputs_mk_nk = [
-            torch.randn(m, k, device="cuda", dtype=torch.float16),
-            torch.randn(n, k, device="cuda", dtype=torch.float16),
-        ]
-
-        inputs_mk_kn = [
-            inputs_mk_nk[0].clone(),
-            inputs_mk_nk[1].clone().as_strided(size=[n, k], stride=[1, n]),
-        ]
-
-        inputs_km_nk = [
-            inputs_mk_nk[0].clone().as_strided(size=[m, k], stride=[1, m]),
-            inputs_mk_nk[1].clone(),
-        ]
-
-        inputs_km_kn = [
-            inputs_km_nk[0].clone(),
-            inputs_mk_kn[1].clone(),
-        ]
-
-        def fusion_func(
-            fd: FusionDefinition,
-            inp: torch.Tensor,
-            wt: torch.Tensor,
-            bias: torch.Tensor | None,
-        ) -> None:
-            t0 = fd.from_pytorch(inp)
-            t1 = fd.from_pytorch(wt)
-            if bias is not None:
-                t2 = fd.from_pytorch(bias)
-                t_out = fd.ops.linear(t0, t1, t2)
-            else:
-                t_out = fd.ops.linear(t0, t1)
-            fd.add_output(t_out)
-
-        in_tensors = [inputs_mk_nk, inputs_mk_kn, inputs_km_nk, inputs_km_kn]
-        use_bias = [None, bias0d, bias1d]
-        for [inp, wt], use_bias in list(itertools.product(in_tensors, use_bias)):
-            with self.subTest(inp=inp, wt=wt, use_bias=use_bias):
-                input_tensors = (
-                    (inp, wt, use_bias) if use_bias is not None else (inp, wt)
-                )
-                nvf_out, _ = self.exec_nvfuser(
-                    partial(fusion_func, inp=inp, wt=wt, bias=use_bias),
-                    input_tensors,
-                )
-                eager_out = F.linear(input=inp, weight=wt, bias=use_bias)
-                fp16_nvf_out = nvf_out[0]
-                torch.testing.assert_close(fp16_nvf_out, eager_out, atol=1e-3, rtol=0)
-
     def test_integer_division(self):
         inputs = [
             torch.testing.make_tensor(1024, device="cuda", dtype=torch.long),
@@ -4199,43 +4107,6 @@ class TestNvFuserFrontend(NVFuserTest):
                     match_pairs.item() < 3
                 ), f"At least three entries match in {output}"
 
-    def test_matmul_issue_2354(self):
-        inputs = [
-            torch.randn((8, 4), dtype=torch.float32, device="cuda:0"),
-            torch.randn(
-                (
-                    6,
-                    2,
-                    4,
-                ),
-                dtype=torch.float32,
-                device="cuda:0",
-            ),
-        ]
-
-        def fusion_func(fd: FusionDefinition):
-            T0 = fd.define_tensor(
-                shape=[-1, -1],
-                contiguity=[True, True],
-                dtype=DataType.Float,
-                is_cpu=False,
-                stride_order=[1, 0],
-            )
-            T1 = fd.define_tensor(
-                shape=[-1, -1, -1],
-                contiguity=[True, True, True],
-                dtype=DataType.Float,
-                is_cpu=False,
-                stride_order=[2, 1, 0],
-            )
-            T2 = fd.ops.linear(T1, T0)
-            S3 = fd.define_scalar(1.41421, dtype=DataType.Double)
-            T4 = fd.ops.mul(T2, S3)
-            fd.add_output(T2)
-            fd.add_output(T4)
-
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
-
     def test_reshape_dynamic(self):
         inputs = [
             32,
@@ -4351,39 +4222,6 @@ class TestNvFuserFrontend(NVFuserTest):
         for i in range(num_out):
             self.assertEqual(nvf_out[i].data_ptr(), inputs[0].data_ptr())
 
-    # Tests broadcast reduction axis in matmul: Issue #2532.
-    def test_repro_issue2532(self):
-        def fusion_func(fd: FusionDefinition) -> None:
-            T0 = fd.define_tensor(
-                shape=[-1, -1, 1],
-                contiguity=[True, None, True],
-                dtype=DataType.Float,
-                is_cpu=False,
-                stride_order=[2, 0, 1],
-            )
-            T1 = fd.define_tensor(
-                shape=[-1, 1, -1],
-                contiguity=[True, None, True],
-                dtype=DataType.Float,
-                is_cpu=False,
-                stride_order=[2, 1, 0],
-            )
-            T2 = fd.ops.sum(T1, dims=[0, 1], keepdim=False, dtype=DataType.Null)
-            T3 = fd.ops.matmul(T0, T1)
-            T4 = fd.ops.sum(T3, dims=[0], keepdim=False, dtype=DataType.Null)
-            fd.add_output(T2)
-            fd.add_output(T4)
-
-        inputs = [
-            torch.randn((262400,), dtype=torch.float32, device="cuda:0").as_strided(
-                (1025, 256, 1), (256, 1, 256)
-            ),
-            torch.randn((1049600,), dtype=torch.float32, device="cuda:0").as_strided(
-                (1025, 1, 1024), (1024, 1024, 1)
-            ),
-        ]
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
-
     # Test that we properly raise an error when passing inputs with the wrong types
     def test_mismatched_input_types(self):
         scalar_inp = 2.0
@@ -4411,9 +4249,7 @@ class TestNvFuserFrontend(NVFuserTest):
 
         with pytest.raises(
             Exception,
-            match=re.escape(
-                "Expected input 0, T0_g[ iS0{i0} ], to be an at::Tensor but got scalar 2"
-            ),
+            match="Expected input 0, .*, to be an at::Tensor but got scalar 2",
         ):
             nvf_out = fd.execute([scalar_inp, scalar_inp])
 
@@ -4427,10 +4263,7 @@ class TestNvFuserFrontend(NVFuserTest):
 
         with pytest.raises(
             Exception,
-            match=re.escape(
-                "Expected input 0, T0_g[ iS0{i0} ], to be bound to a tensor of dtype float,"
-                " but got a tensor of dtype __half"
-            ),
+            match="Expected input 0, .*, to be bound to a tensor of dtype float, but got a tensor of dtype __half",
         ):
             wrong_tensor_inp = torch.rand((15,), dtype=torch.float16, device="cuda:0")
             nvf_out = fd.execute([wrong_tensor_inp, 2.0])
@@ -4443,388 +4276,51 @@ class TestNvFuserFrontend(NVFuserTest):
         ):
             nvf_out = fd.execute([tensor_inp, 2.0 + 1.0j])
 
-    @pytest.mark.skipif(
-        is_pre_ampere(), reason="Only supported on Ampere and newer devices."
-    )
-    def test_sdpa_fwd(self):
-        def fusion_func(
-            fd: FusionDefinition, has_dropout: bool, has_causal: bool, has_scale: bool
-        ):
-            q = fd.define_tensor(
-                shape=[-1, -1, -1, -1],
-                contiguity=[True, True, True, True],
-                dtype=DataType.BFloat16,
-                is_cpu=False,
-            )
-            k = fd.define_tensor(
-                shape=[-1, -1, -1, -1],
-                contiguity=[True, True, True, True],
-                dtype=DataType.BFloat16,
-                is_cpu=False,
-            )
-            v = fd.define_tensor(
-                shape=[-1, -1, -1, -1],
-                contiguity=[True, True, True, True],
-                dtype=DataType.BFloat16,
-                is_cpu=False,
-            )
-            dropout_p, is_causal, scale = None, None, None
-            if has_dropout:
-                dropout_p = fd.define_scalar(value=None, dtype=DataType.Double)
-            if has_causal:
-                is_causal = fd.define_scalar(value=None, dtype=DataType.Bool)
-            if has_scale:
-                scale = fd.define_scalar(value=None, dtype=DataType.Double)
-            attn, *intermediate_results = fd.ops.sdpfa_fwd(
-                q, k, v, dropout_p, is_causal, scale
-            )
-            fd.add_output(attn)
-
-        N, H, L, S, E = 4, 8, 16, 16, 8
-        qkv = [
-            torch.randn((N, H, L, E), dtype=torch.bfloat16, device="cuda:0"),
-            torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda:0"),
-            torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda:0"),
-        ]
-
-        dropout_vals = [None, 0.0, 0.2]
-        is_causal_vals = [None, True, False]
-        scale_vals = [None, 1 / E**0.5, 1e-3]
-        # TODO: Try to move this to pytest_ops.py. Currently, it does not work since the API between nvFuser and torch differs.
-        for dropout_p, is_causal, scale in itertools.product(
-            dropout_vals, is_causal_vals, scale_vals
-        ):
-            with self.subTest(dropout_p=dropout_p, is_causal=is_causal, scale=scale):
-                from torch.nn.attention import SDPBackend, sdpa_kernel
-
-                # Reset the FusionCache or the fusion would not recompile for all subtests, failing checks in exec_nvfuser.
-                FusionCache.reset()
-                has_dropout = True if dropout_p is not None else False
-                has_causal = True if is_causal is not None else False
-                has_scale = True if scale is not None else False
-                inputs = [*qkv]
-                for param in [dropout_p, is_causal, scale]:
-                    if param is not None:
-                        inputs.append(param)
-                nvf_out, _ = self.exec_nvfuser(
-                    partial(
-                        fusion_func,
-                        has_dropout=has_dropout,
-                        has_causal=has_causal,
-                        has_scale=has_scale,
-                    ),
-                    inputs,
-                )
-
-                # Torch does not accept NoneType dropout_p, is_causal.
-                dropout_p = 0.0 if dropout_p is None else dropout_p
-                is_causal = False if is_causal is None else is_causal
-
-                with sdpa_kernel(SDPBackend.FLASH_ATTENTION):
-                    torch.manual_seed(0)
-                    ref_out = F.scaled_dot_product_attention(
-                        *qkv, dropout_p=dropout_p, is_causal=is_causal, scale=scale
-                    )
-                torch.testing.assert_close(nvf_out[0], ref_out)
-
-    @pytest.mark.skipif(
-        is_pre_ampere(), reason="Only supported on Ampere and newer devices."
-    )
-    def test_sdpa_bwd(self):
-        N, H, L, S, E = 4, 8, 16, 16, 8
-
-        grad_output = torch.randn((N, H, L, E), dtype=torch.bfloat16, device="cuda:0")
-        q = torch.randn((N, H, L, E), dtype=torch.bfloat16, device="cuda:0")
-        k = torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda:0")
-        v = torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda:0")
-
-        dropout_vals = [None, 0.0, 0.2]
-        is_causal_vals = [None, True, False]
-        scale_vals = [None, 1 / E**0.5, 1e-3]
-
-        def fusion_func(
-            fd: FusionDefinition, has_dropout: bool, has_causal: bool, has_scale: bool
-        ):
-            grad_output = fd.define_tensor(
-                shape=[-1, -1, -1, -1],
-                contiguity=[True, True, True, True],
-                dtype=DataType.BFloat16,
-                is_cpu=False,
-            )
-            q = fd.define_tensor(
-                shape=[-1, -1, -1, -1],
-                contiguity=[True, True, True, True],
-                dtype=DataType.BFloat16,
-                is_cpu=False,
-            )
-            k = fd.define_tensor(
-                shape=[-1, -1, -1, -1],
-                contiguity=[True, True, True, True],
-                dtype=DataType.BFloat16,
-                is_cpu=False,
-            )
-            v = fd.define_tensor(
-                shape=[-1, -1, -1, -1],
-                contiguity=[True, True, True, True],
-                dtype=DataType.BFloat16,
-                is_cpu=False,
-            )
-            output = fd.define_tensor(
-                shape=[-1, -1, -1, -1],
-                contiguity=[True, True, True, True],
-                dtype=DataType.BFloat16,
-                is_cpu=False,
-            )
-            log_sumexp = fd.define_tensor(
-                shape=[-1, -1, -1],
-                contiguity=[True, True, True],
+    # Test that replaced sizes using input tensor metadata are successfully computed
+    # See https://github.com/NVIDIA/Fuser/pull/2714 which surfaced this in
+    # failing thunder test
+    # thunder.tests.test_core.test_bsym_toposort_nvfuser_cuda_thunder.dtypes.float32
+    def test_replaced_sizes_pr2714(self):
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.define_tensor(
+                shape=[-1, -1],
+                contiguity=[True, True],
                 dtype=DataType.Float,
                 is_cpu=False,
+                stride_order=[1, 0],
             )
-            philox_seed = fd.define_tensor(
-                shape=[],
-                contiguity=[],
-                dtype=DataType.Int,
-                is_cpu=True,
-            )
-            philox_offset = fd.define_tensor(
-                shape=[],
-                contiguity=[],
-                dtype=DataType.Int,
-                is_cpu=True,
-            )
-
-            dropout_p, is_causal, scale = None, None, None
-            if has_dropout:
-                dropout_p = fd.define_scalar(value=None, dtype=DataType.Double)
-            if has_causal:
-                is_causal = fd.define_scalar(value=None, dtype=DataType.Bool)
-            if has_scale:
-                scale = fd.define_scalar(value=None, dtype=DataType.Double)
-
-            grad_query, grad_key, grad_value = fd.ops.sdpfa_bwd(
-                grad_output,
-                q,
-                k,
-                v,
-                output,
-                log_sumexp,
-                dropout_p,
-                is_causal,
-                philox_seed,
-                philox_offset,
-                scale,
-            )
-            fd.add_output(grad_query)
-            fd.add_output(grad_key)
-            fd.add_output(grad_value)
-
-        for dropout_p, is_causal, scale in itertools.product(
-            dropout_vals, is_causal_vals, scale_vals
-        ):
-            with self.subTest(dropout_p=dropout_p, is_causal=is_causal, scale=scale):
-                # Torch does not accept NoneType dropout_p, is_causal.
-                at_dropout_p = 0.0 if dropout_p is None else dropout_p
-                at_is_causal = False if is_causal is None else is_causal
-
-                (
-                    output,
-                    log_sumexp,
-                    cum_seq_q,
-                    cum_seq_k,
-                    query_seq_len,
-                    key_seq_len,
-                    philox_seed,
-                    philox_offset,
-                    _,
-                ) = torch.ops.aten._scaled_dot_product_flash_attention(
-                    q,
-                    k,
-                    v,
-                    at_dropout_p,
-                    at_is_causal,
-                    return_debug_mask=False,
-                    scale=scale,
-                )
-                ref_grad = torch.ops.aten._scaled_dot_product_flash_attention_backward(
-                    grad_output,
-                    q,
-                    k,
-                    v,
-                    output,
-                    log_sumexp,
-                    cum_seq_q,
-                    cum_seq_k,
-                    query_seq_len,
-                    key_seq_len,
-                    at_dropout_p,
-                    at_is_causal,
-                    philox_seed,
-                    philox_offset,
-                    scale=scale,
-                )
-
-                # Reset the FusionCache or the fusion would not recompile for all subtests, failing checks in exec_nvfuser.
-                FusionCache.reset()
-                has_dropout = True if dropout_p is not None else False
-                has_causal = True if is_causal is not None else False
-                has_scale = True if scale is not None else False
-
-                inputs = [
-                    grad_output,
-                    q,
-                    k,
-                    v,
-                    output,
-                    log_sumexp,
-                    philox_seed,
-                    philox_offset,
-                ]
-                for param in [dropout_p, is_causal, scale]:
-                    if param is not None:
-                        inputs.append(param)
-
-                nvf_out, _ = self.exec_nvfuser(
-                    partial(
-                        fusion_func,
-                        has_dropout=has_dropout,
-                        has_causal=has_causal,
-                        has_scale=has_scale,
-                    ),
-                    inputs,
-                )
-                torch.testing.assert_close(nvf_out[0], ref_grad[0])
-                torch.testing.assert_close(nvf_out[1], ref_grad[1])
-                torch.testing.assert_close(nvf_out[2], ref_grad[2])
-
-    @pytest.mark.skipif(
-        is_pre_ampere(), reason="Only supported on Ampere and newer devices."
-    )
-    def test_sdpa_fwd_bwd(self):
-        N, H, L, S, E = 4, 8, 16, 16, 8
-
-        dropout_vals = [None, 0.0, 0.2]
-        is_causal_vals = [None, True, False]
-        scale_vals = [None, 1 / E**0.5, 1e-3]
-
-        def fusion_func(
-            fd: FusionDefinition, has_dropout: bool, has_causal: bool, has_scale: bool
-        ):
-            q = fd.define_tensor(
-                shape=[-1, -1, -1, -1],
-                contiguity=[True, True, True, True],
-                dtype=DataType.BFloat16,
+            T1 = fd.define_tensor(
+                shape=[-1, -1],
+                contiguity=[True, True],
+                dtype=DataType.Float,
                 is_cpu=False,
+                stride_order=[1, 0],
             )
-            k = fd.define_tensor(
-                shape=[-1, -1, -1, -1],
-                contiguity=[True, True, True, True],
-                dtype=DataType.BFloat16,
-                is_cpu=False,
-            )
-            v = fd.define_tensor(
-                shape=[-1, -1, -1, -1],
-                contiguity=[True, True, True, True],
-                dtype=DataType.BFloat16,
-                is_cpu=False,
-            )
-            grad_out = fd.define_tensor(
-                shape=[-1, -1, -1, -1],
-                contiguity=[True, True, True, True],
-                dtype=DataType.BFloat16,
-                is_cpu=False,
-            )
+            T2 = fd.ops.exp(T0)
+            T3 = fd.ops.tanh(T1)
+            S4 = fd.define_scalar(4, dtype=DataType.Int)
+            V5 = fd.define_vector([S4], dtype=DataType.Int)
+            T6 = fd.ops.reshape(T2, new_shape=V5)
+            S7 = fd.define_scalar(4, dtype=DataType.Int)
+            V8 = fd.define_vector([S7], dtype=DataType.Int)
+            T9 = fd.ops.reshape(T3, new_shape=V8)
+            T10 = fd.ops.add(T6, T9)
+            T11 = fd.ops.reciprocal(T0)
+            T12 = fd.ops.mul(T3, T11)
+            S13 = fd.define_scalar(2.00000, dtype=DataType.Double)
+            S14 = fd.ops.reciprocal(S13)
+            T15 = fd.ops.mul(T10, S14)
+            fd.add_output(T10)
+            fd.add_output(T12)
+            fd.add_output(T15)
 
-            dropout_p, is_causal, scale = None, None, None
-            if has_dropout:
-                dropout_p = fd.define_scalar(value=None, dtype=DataType.Double)
-            if has_causal:
-                is_causal = fd.define_scalar(value=None, dtype=DataType.Bool)
-            if has_scale:
-                scale = fd.define_scalar(value=None, dtype=DataType.Double)
+        inputs = [
+            torch.randn((4,), dtype=torch.float32, device="cuda:0").as_strided(
+                (2, 2), (2, 1)
+            ),
+            torch.randn((4,), dtype=torch.float32, device="cuda:0").as_strided(
+                (2, 2), (2, 1)
+            ),
+        ]
 
-            output, log_sumexp, philox_seed, philox_offset = fd.ops.sdpfa_fwd(
-                q, k, v, dropout_p, is_causal, scale
-            )
-            grad_query, grad_key, grad_value = fd.ops.sdpfa_bwd(
-                grad_out,
-                q,
-                k,
-                v,
-                output,
-                log_sumexp,
-                dropout_p,
-                is_causal,
-                philox_seed,
-                philox_offset,
-                scale,
-            )
-
-            fd.add_output(output)
-            fd.add_output(grad_query)
-            fd.add_output(grad_key)
-            fd.add_output(grad_value)
-
-        for dropout_p, is_causal, scale in itertools.product(
-            dropout_vals, is_causal_vals, scale_vals
-        ):
-            with self.subTest(dropout_p=dropout_p, is_causal=is_causal, scale=scale):
-                from torch.nn.attention import SDPBackend, sdpa_kernel
-
-                q = torch.randn(
-                    (N, H, L, E),
-                    dtype=torch.bfloat16,
-                    device="cuda:0",
-                    requires_grad=True,
-                )
-                k = torch.randn(
-                    (N, H, S, E),
-                    dtype=torch.bfloat16,
-                    device="cuda:0",
-                    requires_grad=True,
-                )
-                v = torch.randn(
-                    (N, H, S, E),
-                    dtype=torch.bfloat16,
-                    device="cuda:0",
-                    requires_grad=True,
-                )
-                grad_output = torch.randn(
-                    (N, H, L, E), dtype=torch.bfloat16, device="cuda:0"
-                )
-
-                # Reset the FusionCache or the fusion would not recompile for all subtests, failing checks in exec_nvfuser.
-                FusionCache.reset()
-                has_dropout = True if dropout_p is not None else False
-                has_causal = True if is_causal is not None else False
-                has_scale = True if scale is not None else False
-
-                inputs = [q, k, v, grad_output]
-                for param in [dropout_p, is_causal, scale]:
-                    if param is not None:
-                        inputs.append(param)
-
-                # Torch does not accept NoneType dropout_p, is_causal.
-                dropout_p = 0.0 if dropout_p is None else dropout_p
-                is_causal = False if is_causal is None else is_causal
-
-                with sdpa_kernel(SDPBackend.FLASH_ATTENTION):
-                    torch.manual_seed(0)
-                    ref_out = F.scaled_dot_product_attention(
-                        q, k, v, dropout_p=dropout_p, is_causal=is_causal, scale=scale
-                    )
-                    ref_out.backward(grad_output)
-
-                nvf_out, _ = self.exec_nvfuser(
-                    partial(
-                        fusion_func,
-                        has_dropout=has_dropout,
-                        has_causal=has_causal,
-                        has_scale=has_scale,
-                    ),
-                    inputs,
-                )
-                torch.testing.assert_close(nvf_out[0], ref_out)
-                torch.testing.assert_close(nvf_out[1], q.grad)
-                torch.testing.assert_close(nvf_out[2], k.grad)
-                torch.testing.assert_close(nvf_out[3], v.grad)
+        self.exec_nvfuser(fusion_func, inputs)

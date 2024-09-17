@@ -1747,7 +1747,7 @@ void GroupDependencyAnalysis::computeAllProducers() {
       to_visit.erase(to_update);
       visited.pushBack(to_update);
     } else {
-      NVF_ERROR(false, "unreachable, original graph not a DAG");
+      NVF_THROW("unreachable, original graph not a DAG");
     }
   }
 }
@@ -1796,11 +1796,11 @@ std::ostream& operator<<(
   os << "Segmented_Fusion{ \n";
   os << "groups: \n";
   for (const auto g : sorted_groups_to_print) {
-    os << g << "\n";
+    os << "  " << g << "\n";
   }
   os << "edges: \n";
   for (const auto e : sorted_edges_to_print) {
-    os << e << "\n";
+    os << "  " << e << "\n";
   }
   os << "\ngroup details:\n";
   for (const auto g : sorted_groups_to_print) {
@@ -1999,7 +1999,7 @@ std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
         "\n***Runtime***: Try to schedule fusion segmented:\n");
     return SegmentCandidateFinder::segment(std::move(fusion), inputs);
   } else {
-    NVF_ERROR(false, "unreachable!");
+    NVF_THROW("unreachable!");
   }
 }
 
@@ -2370,7 +2370,7 @@ class FusionSegmentGuard : public NonCopyable {
     NVF_ERROR(fusion_ != nullptr);
 #ifndef NDEBUG
     num_original_exprs_ = fusion_->exprs().size();
-    original_tvs_ = ir_utils::allTvs(fusion_);
+    original_tvs_ = fusion_->allTvs();
 #endif // NDEBUG
     narrowToNewSegment(inputs, outputs);
   }
@@ -2382,7 +2382,7 @@ class FusionSegmentGuard : public NonCopyable {
     FUSER_PERF_SCOPE("Segmenter::FusionSegmentGuard");
 #ifndef NDEBUG
     num_original_exprs_ = fusion_->exprs().size();
-    original_tvs_ = ir_utils::allTvs(fusion_);
+    original_tvs_ = fusion_->allTvs();
 #endif // NDEBUG
     lowered_edges_ = segmented_fusion_->castInputOutputToLowerPrecision(
         segmented_fusion_->edges());
@@ -2398,7 +2398,7 @@ class FusionSegmentGuard : public NonCopyable {
     FUSER_PERF_SCOPE("Segmenter::FusionSegmentGuard");
 #ifndef NDEBUG
     num_original_exprs_ = fusion_->exprs().size();
-    original_tvs_ = ir_utils::allTvs(fusion_);
+    original_tvs_ = fusion_->allTvs();
 #endif // NDEBUG
 
     // Cast inputs and outputs of a merged group consisting of a and
@@ -2427,7 +2427,7 @@ class FusionSegmentGuard : public NonCopyable {
     FUSER_PERF_SCOPE("Segmenter::FusionSegmentGuard");
 #ifndef NDEBUG
     num_original_exprs_ = fusion_->exprs().size();
-    original_tvs_ = ir_utils::allTvs(fusion_);
+    original_tvs_ = fusion_->allTvs();
 #endif // NDEBUG
 
     // Cast inputs and outputs of a merged group consisting of
@@ -2468,7 +2468,7 @@ class FusionSegmentGuard : public NonCopyable {
         num_original_exprs_,
         ", actual: ",
         num_current_exprs);
-    auto current_tvs = ir_utils::allTvs(fusion_);
+    auto current_tvs = fusion_->allTvs();
     NVF_ERROR(
         original_tvs_ == current_tvs, "Failed to revert temporary changes.");
 #endif
@@ -3656,7 +3656,7 @@ std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
 
   // Not sure this could happen. Just assert for now.
   if (producer_edge_it == group->producer_edges.end()) {
-    NVF_ERROR(false, "Unexpected");
+    NVF_THROW("Unexpected");
     return std::nullopt;
   }
 

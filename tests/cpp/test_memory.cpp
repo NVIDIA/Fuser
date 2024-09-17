@@ -394,7 +394,7 @@ class TMASimpleLdstTest
         shape = {4, 8, 1024, 32, 128};
         break;
       default:
-        NVF_ERROR(false, "Invalid dimension");
+        NVF_THROW("Invalid dimension");
     }
   }
 };
@@ -2503,6 +2503,70 @@ TEST_P(LdMatrixTest, Regular) {
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
+
+class StMatrixTest : public NVFuserFixtureParamTest<std::vector<int>> {
+ protected:
+  void SetUp() override {
+    if (cudaArchGuardShouldSkip(9, 0)) {
+      GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
+    }
+    NVFuserTest::SetUp();
+  }
+};
+
+TEST_P(StMatrixTest, Regular) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto operand = MmaOperand::A;
+  auto sizes = GetParam();
+  int sizeM = sizes.at(0);
+  int sizeN = sizes.at(1);
+
+  auto tv0 = makeContigConcreteTensor({sizeM, sizeN}, DataType::Half);
+  fusion.addInput(tv0);
+  // tv0 (global) -> tv1 (shared)
+  auto tv1 = set(tv0);
+  tv1->setMemoryType(MemoryType::Shared);
+  auto tv2 = set(tv1);
+  // tv1 (shared) -> tv2 (registers)
+  // tv2 (registers) -> tv3 (shared)
+  auto tv3 = set(tv2);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StMatrix);
+  tv3->setMemoryType(MemoryType::Shared);
+  // tv3 (shared) -> tv4(global)
+  auto tv4 = set(tv3);
+  fusion.addOutput(tv4);
+
+  tv2->applyMmaSwizzle(operand);
+  tv2->setAllocationDomain(tv2->getLoopDomain(), true);
+  // // Get 32 threads out to parallelize over.
+  tv2->merge(1);
+  tv2->axis(1)->parallelize(ParallelType::TIDx);
+
+  // We do not really schedule tv3 as yet, this is just for parllel codegen.
+  tv3->merge(0);
+  tv3->split(0, 32);
+  tv3->axis(1)->parallelize(ParallelType::TIDx);
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  auto t0 = at::randn({sizeM, sizeN}, options);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0}, LaunchParams(), matmul_cparams);
+  auto cg_outputs = fe.runFusion({t0});
+
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    StMatrixTest,
+    testing::Values(
+        // M, N
+        std::vector<int>{8, 8},
+        std::vector<int>{16, 8},
+        std::vector<int>{16, 16}));
 
 TEST_P(LdMatrixTest, Transpose) {
   Fusion fusion;

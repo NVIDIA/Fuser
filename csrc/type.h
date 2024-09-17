@@ -136,7 +136,7 @@ struct StructType {
         return *field.type;
       }
     }
-    NVF_ERROR(false, "Field ", name, " not found in struct ", this->name);
+    NVF_THROW("Field ", name, " not found in struct ", this->name);
   }
 
   inline bool operator==(const StructType& other) const;
@@ -717,17 +717,21 @@ enum class IterType {
 enum class IdMappingMode {
   EXACT,
   ALMOSTEXACT,
-  LOOP,
+  BROADCAST,
   PERMISSIVE,
+  LOOP,
+  // TODO: Reconsider if this graph is really necessary
   PERMISSIVE_RESIZE,
+  // TODO: Reconsider if this graph is really necessary
   INNERMOST
 };
 
-static constexpr std::array<IdMappingMode, 6> kIdMappingModes = {
+static constexpr std::array<IdMappingMode, 7> kIdMappingModes = {
     IdMappingMode::EXACT,
     IdMappingMode::ALMOSTEXACT,
-    IdMappingMode::LOOP,
+    IdMappingMode::BROADCAST,
     IdMappingMode::PERMISSIVE,
+    IdMappingMode::LOOP,
     IdMappingMode::PERMISSIVE_RESIZE,
     IdMappingMode::INNERMOST};
 
@@ -753,7 +757,8 @@ enum class LoadStoreOpType {
   SegmenterSet,
   LdMatrix,
   CpAsync,
-  CpAsyncBulkTensorTile
+  CpAsyncBulkTensorTile,
+  StMatrix
 };
 
 // Used to label what part of the circular buffered iterdomain
@@ -968,7 +973,7 @@ constexpr inline size_t primDataTypeSize(PrimDataType type) {
     case DataType::SMemAddress:
       return sizeof(unsigned);
     default:
-      NVF_ERROR(false, "Size undefined for data type.");
+      NVF_THROW("Size undefined for data type.");
   }
 }
 

@@ -232,7 +232,7 @@ class BufferReuseDebugPrinter {
           handle(debug_entry->second);
           break;
         default:
-          NVF_ERROR(false, "unreachable");
+          NVF_THROW("unreachable");
       }
     }
     os_ << "\n\n";
@@ -295,7 +295,7 @@ class BufferReuseDebugPrinter {
     //  if this printer can be used for
     //  other passes or we have more
     //  complex ite pattern.
-    NVF_ERROR(false, "unsupported");
+    NVF_THROW("unsupported");
   }
 
   void printAllocInfo(const kir::Allocate* alloc);
@@ -866,20 +866,47 @@ class AllocationInfoMap : private kir::IrVisitor {
   }
 
   void collectLivenessInfoOfExprMBarrier(Expr* expr) {
-    const auto expr_pos = scope_map_.getExprPos(expr);
+    int64_t expr_pos = scope_map_.getExprPos(expr);
 
+    auto mark_liveness = [&expr_pos, this](TensorView* tv, bool is_write) {
+      AllocationInfo* alloc_info = getAllocInfoFromTV(tv);
+      if (is_write) {
+        alloc_info->inner_live_interval->markWrite(expr_pos);
+      } else {
+        alloc_info->inner_live_interval->markRead(expr_pos);
+      }
+      ScopeInfo* outer_loop_info = ascendLoopNestToSameLevelAs(alloc_info);
+      int64_t outer_pos =
+          outer_loop_info ? outer_loop_info->start_pos : expr_pos;
+      if (is_write) {
+        alloc_info->outer_live_interval->markWrite(outer_pos);
+      } else {
+        alloc_info->outer_live_interval->markRead(outer_pos);
+      }
+    };
+
+    // The liveness of the mbarrier and its token are mapped together.
+    // The token is the mbarrier state of the last phase.
     if (auto init = dynamic_cast<kir::MBarrierInit*>(expr)) {
-      auto alloc_info = getAllocInfoFromTV(init->mbarrier()->as<TensorView>());
-      alloc_info->inner_live_interval->markWrite(expr_pos);
-      auto outer_loop_info = ascendLoopNestToSameLevelAs(alloc_info);
-      auto write_pos = outer_loop_info ? outer_loop_info->start_pos : expr_pos;
-      alloc_info->outer_live_interval->markWrite(write_pos);
+      mark_liveness(init->mbarrier()->as<TensorView>(), /*is_write=*/true);
+
+      // Register start of lifetime for a mbarrier token returned by
+      // MBarrierArriveExpectTx and MBarrierArrive.
+      if (GpuLower::current()->ldstMBarrierTokenMap().count(expr) > 0) {
+        mark_liveness(
+            GpuLower::current()->ldstMBarrierTokenMap()[expr],
+            /*is_write=*/true);
+      }
     } else if (auto inval = dynamic_cast<kir::MBarrierInvalidate*>(expr)) {
-      auto alloc_info = getAllocInfoFromTV(inval->mbarrier()->as<TensorView>());
-      alloc_info->inner_live_interval->markRead(expr_pos);
-      auto outer_loop_info = ascendLoopNestToSameLevelAs(alloc_info);
-      auto write_pos = outer_loop_info ? outer_loop_info->start_pos : expr_pos;
-      alloc_info->outer_live_interval->markRead(write_pos);
+      mark_liveness(inval->mbarrier()->as<TensorView>(), /*is_write=*/false);
+
+      // Register end of lifetime for a mbarrier token returned by
+      // returned by MBarrierArriveExpectTx and MBarrierArrive
+      if (GpuLower::current()->ldstMBarrierTokenMap().count(expr) > 0) {
+        mark_liveness(
+            GpuLower::current()->ldstMBarrierTokenMap()[expr],
+            /*is_write=*/false);
+      }
     }
   }
 

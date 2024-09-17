@@ -10,6 +10,7 @@
 #include <vector>
 
 #include <ir/interface_nodes.h>
+#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <multidevice/utils.h>
 
@@ -41,12 +42,16 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
   // Validate that meshes are assigned to all TensorViews or none.
   TensorView* tv_with_mesh = nullptr;
   TensorView* tv_without_mesh = nullptr;
-  for (TensorView* tv : ir_utils::allTvs(fusion)) {
+  for (TensorView* tv : fusion->allTvs()) {
     auto update_if_null = [](TensorView*& lhs, TensorView* rhs) {
       if (lhs == nullptr) {
         lhs = rhs;
       }
     };
+
+    if (tv->isCpuScalar()) {
+      continue;
+    }
 
     if (tv->hasDeviceMesh()) {
       update_if_null(tv_with_mesh, tv);

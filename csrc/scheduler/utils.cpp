@@ -11,6 +11,7 @@
 
 #include <contiguity.h>
 #include <expr_evaluator.h>
+#include <id_model/id_model.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
@@ -310,7 +311,7 @@ void parallelizeAllLike(
   }
 
   if (selected_tvs.empty()) {
-    selected_tvs = ir_utils::allTvs(reference_tv->fusion());
+    selected_tvs = reference_tv->fusion()->allTvs();
   }
   for (auto tv : selected_tvs) {
     if (tv->isFusionInput()) {
@@ -563,7 +564,7 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
   ComputeAtLogicalDomainMap logical_map;
   logical_map.build();
 
-  auto all_tvs = ir_utils::allTvs(fusion);
+  auto all_tvs = fusion->allTvs();
 
   for (auto producer : all_tvs) {
     // Are all producer ids mappable to all consumers
@@ -618,6 +619,9 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
         PersistentBufferResolution::getResolutionPointsOf(fusion, buffer));
   }
 
+  // don't project if there are view ops and no buffer can be projected
+  persistent_buffer_info.has_view_ops = !ir_utils::getViewOps(fusion).empty();
+
   // Find projectable persistent buffers
   auto reduction_tvs = getReductionTvs(fusion);
   for (auto persistent_buffer : persistent_buffer_info.persistent_buffers) {
@@ -633,6 +637,11 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
       persistent_buffer_info.projectable_persistent_buffers.push_back(
           persistent_buffer);
     }
+  }
+
+  // Projection analysis below
+  if (persistent_buffer_info.projectable_persistent_buffers.empty()) {
+    return persistent_buffer_info;
   }
 
   // Get a list of inputs of the projectable buffers
@@ -662,6 +671,23 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
     }
     if (has_unmappable_dim) {
       persistent_buffer_info.projectable_buffer_inputs.emplace_back(input);
+    }
+  }
+
+  // check ops between persistent buffer and inputs.
+  // TODO: check more ops
+  const auto all_exprs = StmtSort::getExprsBetween(
+      {all_inputs.begin(), all_inputs.end()},
+      {persistent_buffer_info.projectable_persistent_buffers.begin(),
+       persistent_buffer_info.projectable_persistent_buffers.end()});
+  for (auto expr : all_exprs) {
+    if (expr->isA<UnaryOp>() &&
+        expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Exp) {
+      persistent_buffer_info.projection_with_exp_op = true;
+    }
+
+    if (expr->isA<RNGOp>()) {
+      persistent_buffer_info.projection_with_rng_op = true;
     }
   }
 
@@ -1062,7 +1088,7 @@ std::pair<bool, bool> canonicalDimReduction(
 }
 
 std::vector<TensorView*> getReductionTvs(Fusion* fusion) {
-  auto all_tvs = ir_utils::allTvs(fusion);
+  auto all_tvs = fusion->allTvs();
   std::vector<TensorView*> reduction_tvs;
   for (auto tv : all_tvs) {
     if (!tv->isFusionInput() &&
@@ -1129,7 +1155,7 @@ std::vector<TensorView*> getTVsWithNonReductionRFactor(Fusion* fusion) {
 
 // Reset inputs and outputs to global memory, everything else to local.
 void clearMemorySpace(Fusion* fusion) {
-  for (auto tv : ir_utils::allTvs(fusion)) {
+  for (auto tv : fusion->allTvs()) {
     if (tv->isFusionInput() || tv->isFusionOutput()) {
       tv->setMemoryType(MemoryType::Global);
     } else {
@@ -1251,7 +1277,7 @@ IterDomain* projectIdToRoot(
         }
       }
     } else {
-      NVF_ERROR(false, "Didn't recognize the iterdomain expression: ", expr);
+      NVF_THROW("Didn't recognize the iterdomain expression: ", expr);
     }
     if (projected_id == nullptr) {
       break;
@@ -1311,7 +1337,7 @@ IterDomain* projectIdToRFactor(
         }
       }
     } else {
-      NVF_ERROR(false, "Didn't recognize the iterdomain expression: ", expr);
+      NVF_THROW("Didn't recognize the iterdomain expression: ", expr);
     }
     if (projected_id == nullptr) {
       break;
@@ -1412,7 +1438,7 @@ void FindAllMappedDims::propagateSibling(TensorView* from, TensorView* to) {
       }
     }
   }
-  NVF_ERROR(false, "Unable to find mapped root/logical domain");
+  NVF_THROW("Unable to find mapped root/logical domain");
 }
 
 std::unordered_set<IterDomain*> FindAllMappedDims::get() const {
@@ -1985,7 +2011,7 @@ DisjointSets<IterDomain*> disjointLogicalSets(Fusion* fusion) {
 
   // If iter domains are involved in any transformation from root domains to
   // logical domains they should be considered "contaminated".
-  for (auto tv : ir_utils::allTvs(fusion)) {
+  for (auto tv : fusion->allTvs()) {
     for (auto expr : StmtSort::getExprsTo(
              {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()})) {
       if (expr->isA<Merge>()) {
@@ -2092,7 +2118,7 @@ std::unordered_map<int64_t, int64_t> domainReorderAsLogicalMap(TensorView* tv) {
       *find_it = resize->out();
     } else {
       NVF_ERROR(expr != nullptr);
-      NVF_ERROR(false, "Unexpected expression: ", expr->toString());
+      NVF_THROW("Unexpected expression: ", expr->toString());
     }
   }
 
@@ -2145,7 +2171,7 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
 
   // If iter domains are involved in any transformation from root domains to
   // logical domains they should be considered "contaminated".
-  for (auto tv : ir_utils::allTvs(fusion)) {
+  for (auto tv : fusion->allTvs()) {
     for (auto expr : StmtSort::getExprsBetween(
              {tv->getMaybeRootDomain().begin(), tv->getMaybeRootDomain().end()},
              {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()})) {
@@ -2182,7 +2208,7 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
 
   // If iter domains are involved in any transformation from root domains to
   // logical domains they should be considered "contaminated".
-  for (auto tv : ir_utils::allTvs(fusion)) {
+  for (auto tv : fusion->allTvs()) {
     if (!tv->hasRoot()) {
       continue;
     }
@@ -2248,7 +2274,7 @@ std::vector<std::pair<TensorView*, TensorView*>>
 getNonPointwiseProducerConsumerPairs(Fusion* fusion) {
   std::vector<std::pair<TensorView*, TensorView*>> tvs;
 
-  for (auto consumer : ir_utils::allTvs(fusion)) {
+  for (auto consumer : fusion->allTvs()) {
     if (consumer->isFusionInput()) {
       continue;
     }
@@ -2390,7 +2416,7 @@ void promoteProducerMemoryTypes(
       case MemoryType::Global:
         return 3;
       default:
-        NVF_ERROR(false, "Unexpected memory type: ", m_type);
+        NVF_THROW("Unexpected memory type: ", m_type);
     }
   };
 
@@ -2538,6 +2564,81 @@ bool isResharding(Fusion* fusion) {
   const std::vector<Expr*>& exprs = fusion->exprs();
   return std::any_of(
       exprs.begin(), exprs.end(), [](Expr* e) { return isResharding(e); });
+}
+
+void moveNonConcretizedBroadcastInnermost(
+    Fusion* fusion,
+    const std::unordered_set<TensorView*>& ignored_tvs) {
+  IdModel id_model(fusion);
+  const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+  const auto& permissive_graph = id_model.idGraph(IdMappingMode::PERMISSIVE);
+
+  // This function is meant to be used as a preprocessing step of each
+  // segment scheduling. The goal is to find unmapped non-concretized
+  // broadcast domains. It is not meant to find all unmapped dangling
+  // domains. Any non-broadcast or concretized broadcast domains
+  // should be guaranteed to be mapped with reference tensors, i.e.,
+  // ignored_tvs. They should be taken care by the respective
+  // scheduler.
+  //
+  // As such, all non-broadcast domains are skipped. Furthermore, any
+  // domains that can be reachable from (i.e., mapped with)
+  // ignored_tvs can be skipped. Since only broadcast domains are
+  // considered, the exact mapping is enough to find such
+  // domains.
+  ValGroups ignored_groups;
+  for (auto ignored_tv : ignored_tvs) {
+    for (auto id : ignored_tv->domain()->allIDs()) {
+      if (id->isBroadcast()) {
+        ignored_groups.pushBack(exact_graph.toGroup(id));
+      }
+    }
+  }
+
+  for (auto tv : fusion->allTvs()) {
+    std::vector<int64_t> broadcast_to_move;
+    for (const auto i : c10::irange(tv->getLoopDomain().size())) {
+      auto loop_id = tv->getLoopDomain().at(i);
+      if (!loop_id->isBroadcast()) {
+        continue;
+      }
+
+      if (ignored_groups.has(exact_graph.toGroup(loop_id))) {
+        continue;
+      }
+
+      // If the permissive group has a non-broadcast domain, it means it's
+      // concretized.
+      // TODO: Add a separate analysis for detecting concretized
+      // broadcast domains using the Exact graph and replace the use
+      // of the Permissive graph.
+      const auto& permissive_group = permissive_graph.toGroup(loop_id);
+      if (std::any_of(
+              permissive_group->begin(),
+              permissive_group->end(),
+              [](Val* id) -> bool {
+                return !id->as<IterDomain>()->isBroadcast();
+              })) {
+        continue;
+      }
+
+      broadcast_to_move.push_back((int64_t)i);
+    }
+
+    if (broadcast_to_move.empty()) {
+      continue;
+    }
+
+    std::unordered_map<int64_t, int64_t> old2new;
+    int64_t move_to_pos =
+        (int64_t)(tv->getLoopDomain().size() - broadcast_to_move.size());
+    for (const auto i : broadcast_to_move) {
+      old2new[i] = move_to_pos;
+      ++move_to_pos;
+    }
+
+    tv->reorder(old2new);
+  }
 }
 
 } // namespace scheduler_utils

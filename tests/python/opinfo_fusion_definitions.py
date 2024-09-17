@@ -5,8 +5,8 @@
 
 import torch
 
-from pytest_core import OpInfo
-from pytest_utils import ArgumentType, is_tensor
+from opinfo_core import OpInfo
+from utils import ArgumentType, is_tensor
 
 from nvfuser import FusionDefinition
 from nvfuser.pytorch_utils import (

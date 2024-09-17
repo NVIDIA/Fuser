@@ -1,7 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024-present NVIDIA CORPORATION & AFFILIATES.
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
-import pytest
 import torch
 from nvfuser import FusionDefinition, DataType
 
@@ -68,5 +67,20 @@ def test_issue_2395():
     )
 
 
-if __name__ == "__main__":
-    pytest.main(["-v", __file__])
+# Tests that CPU scalar tensor can be instantiated using fd.from_pytorch
+def test_cpu_add():
+    inputs = [
+        torch.tensor(2.0, device="cpu", dtype=torch.float),
+        torch.randn(3, device="cuda", dtype=torch.float),
+    ]
+
+    def fusion_func(fd: FusionDefinition):
+        t0 = fd.from_pytorch(inputs[0])
+        s0 = fd.from_pytorch(inputs[1])
+        t1 = fd.ops.add(t0, s0)
+        fd.add_output(t1)
+
+    with FusionDefinition() as fd:
+        fusion_func(fd)
+    nvf_out = fd.execute(inputs)
+    torch.testing.assert_close(nvf_out[0], inputs[0] + inputs[1])

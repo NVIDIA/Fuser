@@ -14,13 +14,15 @@
 #include <debug.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/pass/magic_zero.h>
+#include <device_lower/pass/replace_size.h>
 #include <disjoint_set.h>
-#include <executor.h>
-#include <executor_params.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
+#include <fusion_executor/executor.h>
+#include <fusion_executor/executor_params.h>
 #include <fusion_segmenter.h>
 #include <grouped_reduction.h>
+#include <id_model/id_model.h>
 #include <inlining.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
@@ -770,7 +772,7 @@ TEST_F(NVFuserTest, FusionIssue1430_CUDA) {
 
   scheduler_utils::parallelizeAllLike(rfactor);
 
-  for (auto tv : ir_utils::allTvs(&fusion)) {
+  for (auto tv : fusion.allTvs()) {
     if (tv != tv1 || tv != tv3) {
       for (auto i : c10::irange(tv->nDims())) {
         if (isParallelTypeVectorize(tv->axis(i)->getParallelType())) {
@@ -2052,7 +2054,7 @@ TEST_F(NVFuserTest, FusionExactLogicalDomainMap_CUDA) {
       exact_map.toString());
 
   // They must not be mapped with anything else.
-  for (auto tv : ir_utils::allTvs(&fusion)) {
+  for (auto tv : fusion.allTvs()) {
     for (auto logical_id : tv->getLogicalDomain()) {
       if (logical_id == tv2_bc || logical_id == tv3_bc) {
         continue;
@@ -2165,7 +2167,7 @@ TEST_F(NVFuserTest, FusionTestReEntrantGridWelford_CUDA) {
 
   cached_input->computeAt(rfactor_tv, 4, ComputeAtMode::BestEffort);
 
-  for (auto tv : ir_utils::allTvs(&fusion)) {
+  for (auto tv : fusion.allTvs()) {
     if (tv == cached_input || tv == tv_avg || tv == tv_M2) {
       continue;
     }
@@ -2555,7 +2557,7 @@ TEST_F(NVFuserTest, FusionSqueeze1_CUDA) {
   // [I, B]
   auto tv1 = sum(tv0, {1}, true);
   // [I]
-  auto tv2 = squeeze(tv1, std::vector<int64_t>{1});
+  auto tv2 = squeeze(tv1, {1});
   fusion.addOutput(tv2);
 
   NVF_CHECK(tv2->nDims() == 1, "Unexpected squeeze result: ", tv2->toString());
@@ -2565,7 +2567,7 @@ TEST_F(NVFuserTest, FusionSqueeze1_CUDA) {
   // tv3 has only one non-reduction axis. The extent of the first axis
   // is not one, so squeeze should fail.
   // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
-  ASSERT_ANY_THROW(squeeze(tv3, std::vector<int64_t>{1}));
+  ASSERT_ANY_THROW(squeeze(tv3, {1}));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({10, 11}, options);
@@ -3837,8 +3839,8 @@ TEST_F(NVFuserTest, FusionCheckedSymbolicShape_CUDA) {
   {
     ASSERT_THAT(
         [&]() { matched_add(a, c); },
-        ::testing::ThrowsMessage<nvfuser::nvfError>(
-            ::testing::HasSubstr("Conflicting sizes")));
+        ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
+            "When trying to propagate constant tensor sizes through the graph a conflict was found with 2 different sizes across dimensions that are expected to match.")));
     GTEST_SKIP() << "skipping tests on pre-AMPERE GPUs";
   }
 }
@@ -5031,6 +5033,15 @@ TEST_F(NVFuserTest, FusionPropagateVectorizePredicate_CUDA) {
         auto cond_inputs = InputsOf::output(cond);
         auto index_it =
             std::find(cond_inputs.begin(), cond_inputs.end(), loop_index);
+        auto vec_factor_it =
+            std::find_if(cond_inputs.begin(), cond_inputs.end(), [](Val* inp) {
+              auto int_val = inp->value();
+              return int_val.hasValue() &&
+                  (int_val.as<int64_t>() == vec_factor - 1 ||
+                   int_val.as<int64_t>() == -(vec_factor - 1));
+            });
+        // If vectorized, the predicate should use (vec_factor - 1) or
+        // -(vec_factor - 1) rather than the loop index.
         if (vectorized_) {
           NVF_CHECK(
               index_it == cond_inputs.end(),
@@ -5038,11 +5049,23 @@ TEST_F(NVFuserTest, FusionPropagateVectorizePredicate_CUDA) {
               loop_index->toInlineString(),
               " in ",
               cond->toInlineString());
+          NVF_CHECK(
+              vec_factor_it != cond_inputs.end(),
+              "Expected to have ",
+              vec_factor - 1,
+              " in ",
+              cond->toInlineString());
         } else {
           NVF_CHECK(
               index_it != cond_inputs.end(),
               "Expected to have ",
               loop_index->toInlineString(),
+              " in ",
+              cond->toInlineString());
+          NVF_CHECK(
+              vec_factor_it == cond_inputs.end(),
+              "Not expected to have ",
+              vec_factor - 1,
               " in ",
               cond->toInlineString());
         }
@@ -6222,7 +6245,6 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteBroadcastedSoftmaxInput_CUDA) {
   fusion.addOutput(tv4);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   at::Tensor t0 = at::ones(shape0, options);
   at::Tensor t1 = at::ones(shape1, options);
   std::vector<c10::IValue> inputs = {t0, t1};
@@ -6278,7 +6300,6 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWrite_CUDA) {
     fusion.addOutput(tv4);
 
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-    at::manual_seed(0);
     at::Tensor t0 = at::randn(shape0, options);
     at::Tensor t1 = at::randn(shape1, options);
     std::vector<c10::IValue> inputs = {t0, t1};
@@ -6368,7 +6389,6 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteDifferentConcretizedDomains_CUDA) {
     fusion.addOutput(tv8);
 
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-    at::manual_seed(0);
     at::Tensor t0 = at::randn(shape0, options);
     at::Tensor t1 = at::randn(shape1, options);
     at::Tensor t2 = at::randn(shape2, options);
@@ -6430,7 +6450,6 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteNonOutput_CUDA) {
   }
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   at::Tensor t0 = at::randn({32}, options);
   at::Tensor t1 = at::randn({32, 64}, options);
   std::vector<c10::IValue> inputs = {t0, t1};
@@ -6495,7 +6514,6 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteNonNeighbor_CUDA) {
   }
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
   at::Tensor t0 = at::randn({8, 10, 12}, options);
   at::Tensor t1 = at::randn({8, 7, 10, 12, 9}, options);
   std::vector<c10::IValue> inputs = {t0, t1};
@@ -6549,7 +6567,7 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
             tv1->getLogicalDomain(), {tv1->axis(1), tv1->axis(2)});
       },
       testing::ThrowsMessage<nvfuser::nvfError>(
-          testing::HasSubstr("dom0 and dom1 are not equal")));
+          testing::HasSubstr("dom0 has unreachable IDs")));
 
   tv1->merge(0);
   // [I0/4*4, I1]
@@ -6567,7 +6585,8 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
 
   // dom0: logical domain
   // dom1: loop + tv1_intermediate_id
-  // Should fail as the intermediate ID and the first two loop ids are redundant
+  // Should fail as the intermediate ID and the first two loop ids are
+  // redundant
   EXPECT_THAT(
       [&]() {
         ir_utils::validateDomainEquivalence(
@@ -6575,7 +6594,16 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
             {tv1_intermediate_id, tv1->axis(0), tv1->axis(1), tv1->axis(2)});
       },
       testing::ThrowsMessage<nvfuser::nvfError>(
-          testing::HasSubstr("dom0 and dom1 are not equal")));
+          testing::HasSubstr("is redundant")));
+  // Same pair but reversed order
+  EXPECT_THAT(
+      [&]() {
+        ir_utils::validateDomainEquivalence(
+            {tv1_intermediate_id, tv1->axis(0), tv1->axis(1), tv1->axis(2)},
+            tv1->getLogicalDomain());
+      },
+      testing::ThrowsMessage<nvfuser::nvfError>(
+          testing::HasSubstr("is redundant")));
 
   // Testing symbolic domains
   auto tv2 = reshape(
@@ -6603,6 +6631,46 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
   // and can be arbitrarily created and annihilated as needed.
   ir_utils::validateDomainEquivalence(
       tv4->getLogicalDomain(), {tv4->axis(0), tv4->axis(1)});
+}
+
+TEST_F(NVFuserTest, CompareLogicalAndLoopDomains) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // [i0, i1]
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  // [i0]
+  auto tv1 = makeSymbolicTensor(1);
+  fusion.addInput(tv1);
+
+  // [i0]
+  auto tv2 = set(tv1);
+  // [i0, b1]
+  auto tv3 = broadcast(tv2, {false, true});
+  // [i0, i1]
+  auto tv4 = add(tv0, tv3);
+  fusion.addOutput(tv4);
+
+  // Set the loop domain of tv2 the same as tv4. The new loop domain
+  // includes an ID that is not reachable from tv2 logical domain
+  tv2->setLoopDomain(
+      {tv2->getLogicalDomain().at(0),
+       tv4->getLoopDomain().at(1)->cloneWithoutRFactor()});
+
+  // Same for tv3
+  tv3->setLoopDomain(
+      {tv3->getLogicalDomain().at(0),
+       tv4->getLoopDomain().at(1)->cloneWithoutRFactor()});
+
+  // Test if the validation can catch an invalid loop domain that
+  // cannot reach the concrete domain of tv2
+  EXPECT_THAT(
+      [&]() {
+        tv2->setLoopDomain({tv4->getLoopDomain().at(1)->cloneWithoutRFactor()});
+      },
+      testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
+          "Not all logical IDs are covered by loop domain")));
 }
 
 // Repro for issue #236 (https://github.com/NVIDIA/Fuser/issues/236)
@@ -7694,7 +7762,6 @@ TEST_F(NVFuserTest, PredicateRNGOps) {
   FusionExecutor fe;
   fe.compileFusion(fusion, {t0});
 
-  at::manual_seed(0);
   auto cg_outputs = fe.runFusion({t0});
 }
 
@@ -8464,6 +8531,413 @@ TEST_F(NVFuserTest, MultipleDifferentSizeGridReduction) {
   auto cg_outputs = fe.runFusion(inputs);
 
   testValidate(&fusion, cg_outputs, inputs, __LINE__, __FILE__);
+}
+
+// See PR #2799
+TEST_F(NVFuserTest, MoveNonConcretizedBroadcastInNormalization) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+
+  auto tv1 = sum(tv0, {1});
+  auto tv2 = broadcast(tv1, {true, false});
+  auto tv3 = add(tv2, IrBuilder::create<Val>(1));
+  auto tv4 = squeeze(tv3, std::vector<int64_t>{0});
+  auto tv5 = add(tv4, IrBuilder::create<Val>(2));
+  auto tv6 = broadcast(tv5, {false, true});
+  auto tv7 = add(tv0, tv6);
+  fusion.addOutput(tv7);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({128, 1024}, options);
+  std::vector<c10::IValue> inputs = {t0};
+
+  auto params = getInnerPersistentHeuristics(&fusion, inputs);
+  NVF_CHECK(params.get() != nullptr);
+
+  Fusion fusion_copy = fusion;
+
+  scheduleInnerPersistentKernel(&fusion, *params);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, inputs, params->lparams);
+  auto outputs = fe.runFusion(inputs, params->lparams);
+
+  testValidate(&fusion_copy, outputs, inputs, __LINE__, __FILE__);
+
+  // tv2 and tv3 have non-concretized broadcasts. Make sure they are
+  // moved to the innermost position of the loop domain
+  for (auto tv : {tv2, tv3}) {
+    auto broadcast_domain = tv->getLogicalDomain().at(0);
+    ASSERT_TRUE(broadcast_domain->isBroadcast());
+    EXPECT_EQ(tv->getLoopDomain().back(), broadcast_domain)
+        << "Non-concretized broadcast should be moved to the innermost position: "
+        << tv->toString();
+  }
+
+  // One of the symptoms of issue 2685 was some tensors got
+  // non-concretized broadcast domains at the outermost position of
+  // the loop domain, preventing uniform inlining. Check if the
+  // outermost loop domains of all tensors are mapped and inlined.
+  auto ref_outermost = tv7->getLoopDomain().at(0);
+  IdModel id_model(&fusion);
+  const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+  for (auto tv : fusion.allTvs()) {
+    if (tv->isFusionInput()) {
+      continue;
+    }
+
+    EXPECT_TRUE(exact_graph.disjointValSets().strictAreMapped(
+        tv->getLoopDomain().at(0), ref_outermost))
+        << "Invalid outermost domain: " << tv->toString();
+
+    EXPECT_TRUE(tv->getComputeAtPosition() >= 1)
+        << "Invalid inlining position: " << tv->toString();
+  }
+}
+
+// See PR #2799
+TEST_F(NVFuserTest, MoveNonConcretizedBroadcastInPointwise) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(1);
+  fusion.addInput(tv1);
+
+  auto tv2 = broadcast(tv0, {true, true, false});
+  auto tv3 = add(tv2, IrBuilder::create<Val>(1));
+  auto tv4 = squeeze(tv3, std::vector<int64_t>{0, 1});
+  auto tv5 = add(tv4, tv1);
+  fusion.addOutput(tv5);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({1024}, options);
+  at::Tensor t1 = at::randn({1024}, options);
+  std::vector<c10::IValue> inputs = {t0, t1};
+
+  auto params = getPointwiseHeuristics(&fusion, inputs);
+  NVF_CHECK(params.get() != nullptr);
+
+  schedulePointwise(&fusion, *params);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, inputs, params->lparams);
+  auto outputs = fe.runFusion(inputs, params->lparams);
+
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+
+  // tv2 and tv3 have non-concretized broadcasts. Make sure they are
+  // moved to the innermost position of the loop domain
+  for (auto tv : {tv2, tv3}) {
+    for (const auto i : c10::irange(2)) {
+      auto broadcast_domain = tv->getLogicalDomain().at(i);
+      ASSERT_TRUE(broadcast_domain->isBroadcast());
+      EXPECT_EQ(
+          tv->getLoopDomain().at(tv->getLoopDomain().size() - 2 + i),
+          broadcast_domain)
+          << "Non-concretized broadcast should be moved to the innermost position: "
+          << tv->toString();
+    }
+  }
+
+  // One of the symptoms of issue 2685 was some tensors got
+  // non-concretized broadcast domains at the outermost position of
+  // the loop domain, preventing uniform inlining. Check if the
+  // outermost loop domains of all tensors are mapped and inlined.
+  auto ref_outermost = tv5->getLoopDomain().at(0);
+  IdModel id_model(&fusion);
+  const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+  for (auto tv : fusion.allTvs()) {
+    if (tv->isFusionInput()) {
+      continue;
+    }
+
+    EXPECT_TRUE(exact_graph.disjointValSets().strictAreMapped(
+        tv->getLoopDomain().at(0), ref_outermost))
+        << "Invalid outermost domain: " << tv->toString();
+
+    EXPECT_TRUE(tv->getComputeAtPosition() >= 1)
+        << "Invalid inlining position: " << tv->toString();
+  }
+}
+
+// See PR #2799
+TEST_F(NVFuserTest, MoveNonConcretizedBroadcastInReduction) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv1);
+
+  auto tv2 = broadcast(tv0, {true, false, false});
+  auto tv3 = add(tv2, IrBuilder::create<Val>(1));
+  auto tv4 = squeeze(tv3, std::vector<int64_t>{0});
+  auto tv5 = add(tv4, tv1);
+  auto tv6 = sum(tv5, {1});
+  fusion.addOutput(tv6);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({32, 1024}, options);
+  at::Tensor t1 = at::randn({32, 1024}, options);
+  std::vector<c10::IValue> inputs = {t0, t1};
+
+  auto params = getReductionHeuristics(&fusion, inputs);
+  NVF_CHECK(params.get() != nullptr);
+
+  Fusion fusion_copy = fusion;
+
+  scheduleReduction(&fusion, *params);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, inputs, params->lparams);
+  auto outputs = fe.runFusion(inputs, params->lparams);
+
+  testValidate(&fusion_copy, outputs, inputs, __LINE__, __FILE__);
+
+  // tv2 and tv3 have non-concretized broadcasts. Make sure they are
+  // moved to the innermost position of the loop domain
+  for (auto tv : {tv2, tv3}) {
+    auto broadcast_domain = tv->getLogicalDomain().at(0);
+    ASSERT_TRUE(broadcast_domain->isBroadcast());
+    EXPECT_EQ(tv->getLoopDomain().back(), broadcast_domain)
+        << "Non-concretized broadcast should be moved to the innermost position: "
+        << tv->toString();
+  }
+
+  // One of the symptoms of issue 2685 was some tensors got
+  // non-concretized broadcast domains at the outermost position of
+  // the loop domain, preventing uniform inlining. Check if the
+  // outermost loop domains of all tensors are mapped and inlined.
+  auto ref_outermost = tv6->getLoopDomain().at(0);
+  IdModel id_model(&fusion);
+  const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+  for (auto tv : fusion.allTvs()) {
+    if (tv->isFusionInput()) {
+      continue;
+    }
+
+    EXPECT_TRUE(exact_graph.disjointValSets().strictAreMapped(
+        tv->getLoopDomain().at(0), ref_outermost))
+        << "Invalid outermost domain: " << tv->toString();
+
+    EXPECT_TRUE(tv->getComputeAtPosition() >= 1)
+        << "Invalid inlining position: " << tv->toString();
+  }
+}
+
+// See issue #2685 and PR #2799
+TEST_F(NVFuserTest, Issue2685Repro) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape{2, 288, 30, 80};
+
+  auto tv0 = makeContigTensor(4);
+  fusion.addInput(tv0);
+  auto tv1 = makeContigTensor(1);
+  fusion.addInput(tv1);
+  auto tv2 = makeContigTensor(1);
+  fusion.addInput(tv2);
+  auto tv10 = makeContigConcreteTensor({-1, -1, -1, -1, 1});
+  fusion.addInput(tv10);
+
+  auto tv11 = squeeze(tv10, std::vector<int64_t>{4});
+  auto tv12 = set(tv11);
+  auto tv17 = set(tv11);
+  auto tv18 = sum(tv17, {0, 2, 3});
+  auto tv19 = broadcast(tv18, {true, false, true, true});
+  auto tv20 = set(tv19);
+  auto tv27 = set(tv20);
+  auto tv28 = set(tv27);
+  auto tv29 = expand(
+      tv28,
+      {IrBuilder::create<Val>(shape[0]),
+       IrBuilder::create<Val>(-1),
+       IrBuilder::create<Val>(shape[2]),
+       IrBuilder::create<Val>(shape[3])});
+  auto tv30 = mul(IrBuilder::create<Val>(2.60417e-05), tv29);
+  auto tv13 = set(tv11);
+  auto tv14 = sum(tv13, {0, 2, 3});
+  auto tv15 = broadcast(tv14, {true, false, true, true});
+  auto tv16 = set(tv15);
+  auto tv22 = squeeze(tv16, std::vector<int64_t>{0, 2, 3});
+  auto tv23 = mul(IrBuilder::create<Val>(0.5), tv22);
+  auto tv24 = add(tv2, IrBuilder::create<Val>(3));
+  auto tv25 = mul(tv23, tv24);
+  auto tv31 = broadcast(tv25, {true, false, true, true});
+  auto tv32 = set(tv31);
+  auto tv33 = set(tv32);
+  auto tv34 = expand(
+      tv33,
+      {IrBuilder::create<Val>(shape[0]),
+       IrBuilder::create<Val>(-1),
+       IrBuilder::create<Val>(shape[2]),
+       IrBuilder::create<Val>(shape[3])});
+  auto tv37 = mul(IrBuilder::create<Val>(2), tv34);
+  auto tv35 = broadcast(tv1, {true, false, true, true});
+  auto tv36 = set(tv35);
+  auto tv38 = sub(tv0, tv36);
+  auto tv39 = mul(tv37, tv38);
+  auto tv40 = set(tv39);
+  auto tv41 = add(tv30, tv40);
+  auto tv42 = add(tv12, tv41);
+  auto tv43 = castOp(DataType::Half, tv42);
+  fusion.addOutput(tv43);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn(shape, options);
+  at::Tensor t1 = at::randn(shape[1], options);
+  at::Tensor t2 = at::randn(shape[1], options);
+  at::Tensor t10 = at::randn(shape, options).unsqueeze(-1);
+  std::vector<c10::IValue> inputs = {t0, t1, t2, t10};
+
+  auto params = getInnerPersistentHeuristics(&fusion, inputs);
+  NVF_CHECK(params.get() != nullptr);
+
+  Fusion fusion_copy = fusion;
+
+  scheduleInnerPersistentKernel(&fusion, *params);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, inputs, params->lparams);
+  auto outputs = fe.runFusion(inputs, params->lparams);
+
+  testValidate(&fusion_copy, outputs, inputs, __LINE__, __FILE__);
+}
+
+// Check that extents are properly replaced by replaceSymbolicSizes lowering
+// pass
+TEST_F(NVFuserTest, ReplaceSymbolicSizes) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  auto tv1 = makeSymbolicTensor(2);
+  auto tv2 = makeSymbolicTensor(1);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+
+  auto tv3 = add(tv0, tv1);
+  auto tv4 = full(
+      {IrBuilder::create<Val>(5, DataType::Index)},
+      IrBuilder::create<Val>(2.0, DataType::Float),
+      DataType::Float);
+  auto tv5 = mul(tv2, tv4);
+
+  fusion->addOutput(tv3);
+  fusion->addOutput(tv5);
+
+  replaceSymbolicSizes(fusion);
+
+  // tv0's extents map to their corresponding getMetaData expressions
+  EXPECT_EQ(
+      tv0->axis(0)->extent()->toInlineString(),
+      "( (( (( getMetaData(T0) )).logical_size ))[0] )");
+  EXPECT_EQ(
+      tv0->axis(1)->extent()->toInlineString(),
+      "( (( (( getMetaData(T0) )).logical_size ))[1] )");
+  EXPECT_EQ(
+      tv1->axis(0)->extent()->toInlineString(),
+      "( (( (( getMetaData(T0) )).logical_size ))[0] )");
+  EXPECT_EQ(
+      tv1->axis(1)->extent()->toInlineString(),
+      "( (( (( getMetaData(T0) )).logical_size ))[1] )");
+  EXPECT_EQ(
+      tv3->axis(0)->extent()->toInlineString(),
+      "( (( (( getMetaData(T0) )).logical_size ))[0] )");
+  EXPECT_EQ(
+      tv3->axis(1)->extent()->toInlineString(),
+      "( (( (( getMetaData(T0) )).logical_size ))[1] )");
+
+  EXPECT_EQ(tv2->axis(0)->extent()->toInlineString(), "5");
+  EXPECT_EQ(tv5->axis(0)->extent()->toInlineString(), "5");
+}
+
+// Make sure BestEffortReplay with error_on_failure=false does not
+// complain about missing root-to-logical IterDomain ops
+TEST_F(NVFuserTest, BestEffortReplayWithMismatchedRootToLogical) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({2, 4});
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = reshape(tv1, {2, 4}, {8});
+  fusion.addOutput(tv2);
+
+  // This split does not exist in tv2
+  tv1->split(0, 1);
+
+  // Due to the split of tv1, BestEffortReplay would not find any
+  // matching transformations. If error_on_failure is true, it would
+  // result in an error.
+  EXPECT_THAT(
+      [&]() {
+        BestEffortReplay replay(
+            tv2->getLoopDomain(),
+            tv1->getLoopDomain(),
+            PairwiseLogicalDomainMap(tv1, tv2).mapProducerToConsumer(),
+            /*replay_forward_id_map=*/{},
+            /*target_forward_id_map=*/{},
+            /*skip_replay_swizzle=*/false,
+            /*skip_target_swizzle=*/false,
+            /*skip_resize=*/false,
+            /*error_on_failure=*/true);
+      },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
+          ::testing::HasSubstr("conflicts with an root-to-logical call")));
+
+  // Should not result in an error as error_on_failure is false
+  BestEffortReplay replay(
+      tv2->getLoopDomain(),
+      tv1->getLoopDomain(),
+      PairwiseLogicalDomainMap(tv1, tv2).mapProducerToConsumer(),
+      /*replay_forward_id_map=*/{},
+      /*target_forward_id_map=*/{},
+      /*skip_replay_swizzle=*/false,
+      /*skip_target_swizzle=*/false,
+      /*skip_resize=*/false,
+      /*error_on_failure=*/false);
+}
+
+TEST_F(NVFuserTest, RAWSync) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(1);
+  fusion.addInput(tv1);
+
+  auto tv2 = broadcast(tv1, {false, true});
+  auto tv3 = add(tv0, tv2);
+  fusion.addOutput(tv3);
+
+  tv3->merge(0);
+  tv2->merge(0);
+  tv3->axis(0)->parallelize(ParallelType::TIDx);
+  tv2->axis(0)->parallelize(ParallelType::TIDx);
+
+  // Since tv2 is not inlined and tv2 and tv3 are both parallelized,
+  // tv2 as a producer of tv3 requires a synchronization with tv2
+  // placed on shared memory. Lowering the fusion should fail.
+  EXPECT_THAT(
+      [&]() { GpuLower(&fusion).run(); },
+      testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
+          "Producer is required to be in Global or Shared Memory based on parallelization strategy. RAW flags: (threadIdx.x)")));
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.

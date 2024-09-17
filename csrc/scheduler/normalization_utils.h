@@ -8,7 +8,7 @@
 #pragma once
 
 #include <exceptions.h>
-#include <executor_params.h>
+#include <fusion_executor/executor_params.h>
 #include <ir/all_nodes.h>
 #include <scheduler/heuristic_types.h>
 #include <scheduler/reduction_utils.h>
@@ -282,7 +282,8 @@ void schedulePersistentKernel(
 // Get max register or shared memory size for persistent buffer
 int64_t getMaxRegOrSharedMemorySizeForPersistentBuffer(
     SchedulerRuntimeInfo& runtime_info,
-    const std::vector<TensorView*>& persistent_buffers);
+    const std::vector<TensorView*>& persistent_buffers,
+    const bool can_use_smem_persistent);
 
 // Returns true if persistent buffers are projected to inputs, meaning the
 // inputs are cached instead of the persistent buffers. The decision of
@@ -291,6 +292,8 @@ int64_t getMaxRegOrSharedMemorySizeForPersistentBuffer(
 
 // This function is used by inner persistent and InnerOuter persistent
 // schedulers.
+// Using shared memory to store persistent buffers is not supported yet for
+// inner persistent scheduler with 3D reduction type.
 // TODO: Outer persistent scheduler should also use this function.
 // If the scheduler is innerOuter with outer broadcast, projection is allowed
 // even it leads to a larger buffer size becuase the scheduled kernel allows the
@@ -314,6 +317,7 @@ bool isProjectBufferToInputs(
     const scheduler_utils::PersistentBufferSizeReturn&
         persistent_buffer_size_info,
     const ScheduleHeuristic sh,
+    const bool can_use_smem_persistent,
     const bool check_projected_buffer_size = true);
 
 // move persistent buffer marked in rparams->smem_persistent_buffers from

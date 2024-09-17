@@ -14,10 +14,10 @@
 #include <device_lower/analysis/bank_conflict.h>
 #include <device_lower/lower2device.h>
 #include <disjoint_set.h>
-#include <executor.h>
-#include <executor_params.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
+#include <fusion_executor/executor.h>
+#include <fusion_executor/executor_params.h>
 #include <fusion_profiler.h>
 #include <fusion_segmenter.h>
 #include <ir/all_nodes.h>
@@ -2406,7 +2406,7 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulSmemEpilogue) {
     // for prologue and 1 for epilogue.
     int num_shared_mem_tensors = 0;
     int expected_num_shared_mem_tensors = params.use_smem_epilogue ? 3 : 2;
-    for (const auto& tv : ir_utils::allTvs(&fusion)) {
+    for (const auto& tv : fusion.allTvs()) {
       if (tv->getMemoryType() == MemoryType::Shared) {
         num_shared_mem_tensors++;
       }
@@ -2640,7 +2640,7 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulSmemEpilogueCast) {
   // for prologue and 1 for epilogue.
   int num_shared_mem_tensors = 0;
   int expected_num_shared_mem_tensors = params.use_smem_epilogue ? 3 : 2;
-  for (const auto& tv : ir_utils::allTvs(&fusion)) {
+  for (const auto& tv : fusion.allTvs()) {
     if (tv->getMemoryType() == MemoryType::Shared) {
       num_shared_mem_tensors++;
     }
@@ -2733,7 +2733,7 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulSmemEpilogueRelu) {
   // for prologue and 1 for epilogue.
   int num_shared_mem_tensors = 0;
   int expected_num_shared_mem_tensors = params.use_smem_epilogue ? 3 : 2;
-  for (const auto& tv : ir_utils::allTvs(&fusion)) {
+  for (const auto& tv : fusion.allTvs()) {
     if (tv->getMemoryType() == MemoryType::Shared) {
       num_shared_mem_tensors++;
     }

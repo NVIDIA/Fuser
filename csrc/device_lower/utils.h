@@ -128,6 +128,8 @@ std::unordered_map<ParallelType, IterDomain*> getParallelDomains(
 //!  a ldmatrix intrinsic.
 bool isLdMatrixOp(const Expr* expr);
 
+bool isStMatrixOp(const Expr* expr);
+
 //! Returns true if the expression will be lowered to
 //!  a cp.async intrinsic.
 bool isCpAsyncOp(const Expr* expr);
@@ -303,6 +305,10 @@ bool isExtentEqualToMaxParallelTypeExtent(const IterDomain* id);
 //! Get the uint32_t index of a scalar TensorView. This is usually used for
 //! indexing special items in shared memory, like mbarrier.
 NVF_API Val* u32IndexScalarSmemTv(TensorView* tv);
+
+//! Get the uint32_t index of a TensorIndex. This is usually used for
+//! initializing a pipeline of mbarriers.
+NVF_API Val* u32IndexScalarSmemTv(kir::TensorIndex* index);
 
 //! Get the size of a global sync buffer needed to perform a grid reduction for
 //! each axis in bitmap.
