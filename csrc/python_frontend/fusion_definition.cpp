@@ -110,7 +110,7 @@ void FusionDefinition::finalizeDefinition() {
     }
     trie_node_ = child_node.value();
     std::optional<std::string> opt_e = trie_node_->getException();
-    NVF_CHECK(!opt_e.has_value(), opt_e);
+    NVF_CHECK(!opt_e.has_value(), opt_e.value());
     fusion_id_ = std::optional<size_t>(trie_node_->fusion_id);
   }
 
