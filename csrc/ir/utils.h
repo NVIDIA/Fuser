@@ -383,9 +383,6 @@ std::vector<TensorView*> inputTvsOf(std::vector<TensorView*> tvs);
 // Returns consumers of tvs that are outputs of fusion
 std::vector<TensorView*> outputTvsOf(std::vector<TensorView*> tvs);
 
-// returns all tensor views in fusion that are used between outputs and inputs.
-NVF_API std::vector<TensorView*> allTvs(Fusion* fusion);
-
 // returns all tensor views used in the provided expressions
 VectorOfUniqueEntries<TensorView*> allTvsOfExprs(
     const std::vector<Expr*>& exprs);
@@ -670,7 +667,7 @@ inline bool isMemoryPartitionedAcross(
     case MemoryType::Global:
       return isParallelTypeDeviceDim(parallel_type);
     default:
-      NVF_ERROR(false, "Unknown MemoryType: ", memory_type);
+      NVF_THROW("Unknown MemoryType: ", memory_type);
   }
 }
 
@@ -691,7 +688,7 @@ inline bool isMemorySharedAcross(
       return isParallelTypeThreadDim(parallel_type) ||
           isParallelTypeBlockDim(parallel_type);
     default:
-      NVF_ERROR(false, "Unknown MemoryType: ", memory_type);
+      NVF_THROW("Unknown MemoryType: ", memory_type);
   }
 }
 

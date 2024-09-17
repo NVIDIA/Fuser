@@ -417,63 +417,97 @@ void IdModel::buildAlmostExactGraph() {
   almost_exact_graph.validateConsistency();
 }
 
-void IdModel::buildPermissiveGraph() {
+void IdModel::buildBroadcastGraph() {
   // Make sure the exact graph is already built
   maybeBuildGraph(IdMappingMode::EXACT);
 
-  // Use the exact map as the starting map rather than the
-  // almost-exact map. Almost exact is useful for index hoisting but
-  // not necessary for permissive and loop maps
+  // Use the exact graph as the starting map rather than the
+  // almost-exact graph. Almost exact is useful for index hoisting but
+  // not necessary otherwise
   NVF_ERROR(
       id_graphs_
-          .emplace(IdMappingMode::PERMISSIVE, idGraph(IdMappingMode::EXACT))
+          .emplace(IdMappingMode::BROADCAST, idGraph(IdMappingMode::EXACT))
           .second);
 
+  auto& graph = idGraph(IdMappingMode::BROADCAST);
+
   for (auto expr : tv_exprs_) {
-    // Multiple outputs are already mapped, we can ignore all but the first
-    // consumer given they have to be replayed in the same exact way
-    TensorView* c_tv = ir_utils::getTvOutput(expr);
+    for (TensorView* c_tv :
+         ir_utils::filterByType<TensorView>(expr->outputs())) {
+      auto tv_inputs = ir_utils::filterByType<TensorView>(expr->inputs());
 
-    auto tv_inputs = ir_utils::filterByType<TensorView>(expr->inputs());
+      for (auto p_tv : tv_inputs) {
+        auto permissive_c2p_logical_map =
+            PairwiseLogicalDomainMap(p_tv, c_tv).mapBroadcast(true);
 
-    for (auto p_tv : tv_inputs) {
-      ForwardingInfo permissive_forwarding(p_tv, c_tv);
-      for (auto entry : permissive_forwarding.producer_forwarding_map) {
-        idGraph(IdMappingMode::PERMISSIVE).mapVals(entry.first, entry.second);
-      }
-
-      if (permissive_graph_map_compliment_ids_) {
-        for (const auto& entry :
-             permissive_forwarding.producer_compliment_map) {
-          for (auto entry_2 : entry.second) {
-            idGraph(IdMappingMode::PERMISSIVE).mapVals(entry.first, entry_2);
-          }
+        for (auto entry : permissive_c2p_logical_map.mapConsumerToProducer()) {
+          graph.mapVals(entry.first, entry.second);
         }
       }
 
-      for (auto entry : permissive_forwarding.consumer_forwarding_map) {
-        idGraph(IdMappingMode::PERMISSIVE).mapVals(entry.first, entry.second);
-      }
-
-      if (permissive_graph_map_compliment_ids_) {
-        for (const auto& entry :
-             permissive_forwarding.consumer_compliment_map) {
-          for (auto entry_2 : entry.second) {
-            idGraph(IdMappingMode::PERMISSIVE).mapVals(entry.first, entry_2);
-          }
-        }
-      }
-
-      auto permissive_c2p_logical_map =
-          PairwiseLogicalDomainMap(p_tv, c_tv).mapBroadcast(true);
-
-      for (auto entry : permissive_c2p_logical_map.mapConsumerToProducer()) {
-        idGraph(IdMappingMode::PERMISSIVE).mapVals(entry.first, entry.second);
+      // If all outputs are uniformly mapped, only the first consumer
+      // needs to be examined
+      if (ir_utils::hasUniformSiblings(expr)) {
+        break;
       }
     }
   }
 
-  idGraph(IdMappingMode::PERMISSIVE).validateConsistency();
+  graph.validateConsistency();
+}
+
+void IdModel::buildPermissiveGraph() {
+  maybeBuildGraph(IdMappingMode::BROADCAST);
+
+  NVF_ERROR(
+      id_graphs_
+          .emplace(IdMappingMode::PERMISSIVE, idGraph(IdMappingMode::BROADCAST))
+          .second);
+
+  auto& graph = idGraph(IdMappingMode::PERMISSIVE);
+
+  for (auto expr : tv_exprs_) {
+    for (TensorView* c_tv :
+         ir_utils::filterByType<TensorView>(expr->outputs())) {
+      auto tv_inputs = ir_utils::filterByType<TensorView>(expr->inputs());
+
+      for (auto p_tv : tv_inputs) {
+        ForwardingInfo permissive_forwarding(p_tv, c_tv);
+        for (auto entry : permissive_forwarding.producer_forwarding_map) {
+          graph.mapVals(entry.first, entry.second);
+        }
+
+        if (permissive_graph_map_compliment_ids_) {
+          for (const auto& entry :
+               permissive_forwarding.producer_compliment_map) {
+            for (auto entry_2 : entry.second) {
+              graph.mapVals(entry.first, entry_2);
+            }
+          }
+        }
+
+        for (auto entry : permissive_forwarding.consumer_forwarding_map) {
+          graph.mapVals(entry.first, entry.second);
+        }
+
+        if (permissive_graph_map_compliment_ids_) {
+          for (const auto& entry :
+               permissive_forwarding.consumer_compliment_map) {
+            for (auto entry_2 : entry.second) {
+              graph.mapVals(entry.first, entry_2);
+            }
+          }
+        }
+      }
+      // If all outputs are uniformly mapped, only the first consumer
+      // needs to be examined
+      if (ir_utils::hasUniformSiblings(expr)) {
+        break;
+      }
+    }
+  }
+
+  graph.validateConsistency();
 }
 
 namespace {
@@ -693,6 +727,9 @@ void IdModel::buildGraph(IdMappingMode mode) {
     case IdMappingMode::ALMOSTEXACT:
       buildAlmostExactGraph();
       break;
+    case IdMappingMode::BROADCAST:
+      buildBroadcastGraph();
+      break;
     case IdMappingMode::PERMISSIVE:
       buildPermissiveGraph();
       break;
@@ -700,7 +737,7 @@ void IdModel::buildGraph(IdMappingMode mode) {
       buildLoopGraph();
       break;
     default:
-      NVF_ERROR(false, "Unsupported mode: ", mode);
+      NVF_THROW("Unsupported mode: ", mode);
   }
 }
 

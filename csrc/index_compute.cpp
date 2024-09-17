@@ -1214,7 +1214,9 @@ void ensureStaticIndexing(
       continue;
     }
     IterDomain* loop_id = loop->iter_domain();
-    if (loop->vectorize() || loop_id->isThread()) {
+    if (loop->vectorize() ||
+        nvfuser::ir_utils::isMemoryPartitionedAcross(
+            tv->getMemoryType(), loop_id->getParallelType())) {
       continue;
     }
     // Look for a domain that is mapped with the loop. If mapped in
@@ -1299,7 +1301,7 @@ std::vector<Val*> Index::getGlobalProducerStridedIndices(
       strides[dim] = cur_contig_stride->fusion()->zeroVal();
       NVF_ERROR(!producer_dim_contiguity.has_value());
     } else if (!producer_dim_contiguity.has_value()) {
-      NVF_ERROR(false, "Expected value for dimension contiguity");
+      NVF_THROW("Expected value for dimension contiguity");
     } else if (producer_dim_contiguity.value()) {
       // If contig, used the stored stride which may be the previous
       // dimensions stride * previous dimensions size
@@ -1615,10 +1617,24 @@ std::vector<Val*> Index::getConsumerPerDimLogicalIndex(
     TensorView* consumer_tv,
     const std::vector<ForLoop*>& loops,
     const std::unordered_set<ForLoop*>& rotated_loops) {
-  auto guard = ir_utils::allocateToLogicalDomainGuard(consumer_tv, false);
-  IndexFromIdGraph index_from_id_graph =
-      getTensorIndexFromIdGraph(loops, rotated_loops, consumer_tv);
-  return getConsumerAllocationIndices(consumer_tv, loops, index_from_id_graph);
+  if (!lower_utils::hasRootToLoopLinearTransformations(consumer_tv) ||
+      (isIdModelOptionEnabled(IdModelEnableOption::ConsumerIndex) &&
+       GpuLower::current()->isTensorIndexerEnabled())) {
+    const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
+    ValGroups logical_indices =
+        indexer.traversalGraph().toGroups(consumer_tv->getLogicalDomain());
+    return indexer.getIndexFor(
+        consumer_tv->definition(),
+        /*as_consumer=*/true,
+        logical_indices,
+        loops);
+  } else {
+    auto guard = ir_utils::allocateToLogicalDomainGuard(consumer_tv, false);
+    IndexFromIdGraph index_from_id_graph =
+        getTensorIndexFromIdGraph(loops, rotated_loops, consumer_tv);
+    return getConsumerAllocationIndices(
+        consumer_tv, loops, index_from_id_graph);
+  }
 }
 
 std::vector<Val*> Index::getProducerPerDimLogicalIndex(
@@ -1627,9 +1643,22 @@ std::vector<Val*> Index::getProducerPerDimLogicalIndex(
     const std::vector<ForLoop*>& loops,
     const std::unordered_set<ForLoop*>& rotated_loops,
     const std::unordered_map<IterDomain*, Val*>& override_index) {
-  auto guard = ir_utils::allocateToLogicalDomainGuard(producer_tv, false);
-  return getProducerAllocationIndices(
-      producer_tv, consumer_tv, loops, rotated_loops, override_index);
+  if (!lower_utils::hasRootToLoopLinearTransformations(producer_tv) ||
+      (isIdModelOptionEnabled(IdModelEnableOption::ProducerIndex) &&
+       GpuLower::current()->isTensorIndexerEnabled())) {
+    const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
+    ValGroups logical_indices =
+        indexer.traversalGraph().toGroups(producer_tv->getLogicalDomain());
+    return indexer.getIndexFor(
+        consumer_tv->definition(),
+        /*as_consumer=*/false,
+        logical_indices,
+        loops);
+  } else {
+    auto guard = ir_utils::allocateToLogicalDomainGuard(producer_tv, false);
+    return getProducerAllocationIndices(
+        producer_tv, consumer_tv, loops, rotated_loops, override_index);
+  }
 }
 
 std::vector<Val*> Index::getStrides(TensorView* tv) {
@@ -1665,7 +1694,7 @@ std::vector<Val*> Index::getStrides(TensorView* tv) {
       strides[dim] = cur_contig_stride->fusion()->zeroVal();
       NVF_ERROR(!dim_contiguity.has_value());
     } else if (!dim_contiguity.has_value()) {
-      NVF_ERROR(false, "Expected value for dimension contiguity");
+      NVF_THROW("Expected value for dimension contiguity");
     } else if (dim_contiguity.value()) {
       // If contig, used the stored stride which may be the previous
       // dimensions stride * previous dimensions size

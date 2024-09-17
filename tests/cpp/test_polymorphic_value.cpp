@@ -43,6 +43,19 @@ TEST_F(PolymorphicValueTest, OpaqueEquality) {
   EXPECT_NE(c, a2);
 }
 
+TEST_F(PolymorphicValueTest, OpaquePrint) {
+  Opaque a{DataType::Int};
+  struct A {
+    int64_t x;
+    double y;
+  };
+  Opaque a1(A{1, 2.0});
+  EXPECT_THAT(
+      PolymorphicValue_functions::toString(a), testing::StartsWith("Opaque<"));
+  EXPECT_THAT(
+      PolymorphicValue_functions::toString(a1), testing::StartsWith("Opaque<"));
+}
+
 TEST_F(PolymorphicValueTest, Struct) {
   struct A : public Struct {
     int64_t x;
@@ -62,7 +75,7 @@ TEST_F(PolymorphicValueTest, Struct) {
       } else if (key == "y") {
         return [this]() { return PolymorphicValue(y); };
       } else {
-        NVF_ERROR(false, "Invalid key");
+        NVF_THROW("Invalid key");
       }
     }
 
@@ -73,7 +86,7 @@ TEST_F(PolymorphicValueTest, Struct) {
       } else if (key == "y") {
         return [this](const PolymorphicValue& value) { y = (double)value; };
       } else {
-        NVF_ERROR(false, "Invalid key");
+        NVF_THROW("Invalid key");
       }
     }
   };
@@ -107,6 +120,10 @@ TEST_F(PolymorphicValueTest, Struct) {
   EXPECT_EQ(*type.fields.at(1).type, DataType::Double);
   EXPECT_FALSE(type.fields.at(1).used_in_kernel);
 
+  EXPECT_EQ(
+      PolymorphicValue_functions::toString(a),
+      "StructHandle<A>{x=2788, y=2.71828}");
+
   {
     // intentionally create a new scope and define another struct with the same
     // name to make sure the previous struct is not accessible
@@ -138,6 +155,9 @@ TEST_F(PolymorphicValueTest, Struct) {
     EXPECT_EQ(b->*"y", PolymorphicValue(3.1415926));
 
     EXPECT_EQ(type, (b->*&StructHandle::type)());
+    EXPECT_EQ(
+        PolymorphicValue_functions::toString(b),
+        "StructHandle<A>{x=299792458, y=3.14159}");
   }
 }
 

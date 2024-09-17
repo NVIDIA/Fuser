@@ -6,7 +6,7 @@
  */
 // clang-format on
 #include <debug.h>
-#include <executor_kernel_arg.h>
+#include <fusion_executor/executor_kernel_arg.h>
 #include <fusion_profiler.h>
 #include <instrumentation.h>
 #include <multidevice/communicator.h>
@@ -51,7 +51,7 @@ const char* dtypeToPyString(PrimDataType t) {
     default:
       break;
   }
-  NVF_ERROR(false, "No string found for data type.");
+  NVF_THROW("No string found for data type.");
   return nullptr;
 }
 
@@ -230,7 +230,7 @@ void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
       user_schedule_fusion,
       args,
       /*precomuted_values=*/nullptr,
-      ir_utils::allTvs(user_schedule_fusion));
+      user_schedule_fusion->allTvs());
 
   // Manually setting the fusion guard as there is not a good way of using a
   // guard in a local scope across the schedule function
@@ -243,7 +243,7 @@ void FusionDefinition::finalizeSchedule(
   FUSER_PERF_SCOPE("FusionDefinition::finalizeSchedule");
   // TODO: remove when multidevice executor integration is done natively
   Fusion* fusion = user_sched_->schedule.get();
-  std::vector<TensorView*> tvs = ir_utils::allTvs(fusion);
+  std::vector<TensorView*> tvs = fusion->allTvs();
   if (std::any_of(tvs.begin(), tvs.end(), [](Val* v) {
         return v->isA<TensorView>() && v->as<TensorView>()->hasDeviceMesh();
       })) {
@@ -386,7 +386,7 @@ UserSchedule* FusionDefinition::userSchedule() {
   NVF_CHECK(id().has_value(), "Invalid fusion definition!");
 
   if (user_sched_ == nullptr) {
-    NVF_ERROR(false, "User schedule is not defined.");
+    NVF_THROW("User schedule is not defined.");
   }
   return user_sched_;
 }

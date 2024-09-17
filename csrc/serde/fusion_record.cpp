@@ -32,7 +32,7 @@ std::optional<bool> mapContiguityEnumToOptional(Contiguity v) {
     case Contiguity::None:
       return std::nullopt;
   }
-  NVF_ERROR(false, "Invalid contiguity type.");
+  NVF_THROW("Invalid contiguity type.");
   return std::nullopt;
 }
 
@@ -800,6 +800,8 @@ void RecordFunctorFactory::setupFunctionMaps() {
   NVFUSER_BINARY_TV_OP("pow", pow)
   NVFUSER_BINARY_TV_OP("remainder", remainder)
   NVFUSER_BINARY_TV_OP("sub", sub)
+  NVFUSER_BINARY_TV_OP("minimum", minimum)
+  NVFUSER_BINARY_TV_OP("maximum", maximum)
   NVFUSER_BINARY_TV_OP("mod", mod)
   NVFUSER_BINARY_TV_OP("eq", eq)
   NVFUSER_BINARY_TV_OP("ge", ge)

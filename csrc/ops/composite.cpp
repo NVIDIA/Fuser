@@ -276,32 +276,23 @@ TensorView* tanh_gelu_backward(TensorView* dy, TensorView* x) {
 
   auto x_sq = mul(x, x);
   auto x_cube = mul(x, x_sq);
+  auto beta = IrBuilder::create<Val>(kBeta);
+  auto kappa = IrBuilder::create<Val>(kKappa);
+  auto one = IrBuilder::create<Val>(1.0);
+  auto half = IrBuilder::create<Val>(0.5);
 
-  auto inner_1 =
-      mul(IrBuilder::createInContainer<Val>(x->container(), kKappa), x_cube);
-  auto inner_2 = add(x, inner_1);
-  auto inner_3 =
-      mul(IrBuilder::createInContainer<Val>(x->container(), kBeta), inner_2);
-  auto tanh_inner = tanh(inner_3);
+  auto inner = mul(beta, add(x, mul(kappa, x_cube)));
+  auto tanh_inner = tanh(inner);
 
-  auto left = mul(IrBuilder::createInContainer<Val>(x->container(), 0.5), x);
-  auto right =
-      add(IrBuilder::createInContainer<Val>(x->container(), 1.), tanh_inner);
+  auto left = mul(half, x);
+  auto right = add(one, tanh_inner);
 
-  auto left_derivative =
-      mul(IrBuilder::createInContainer<Val>(x->container(), 0.5), right);
+  auto left_derivative = mul(half, right);
 
-  auto tanh_inner_sq = mul(tanh_inner, tanh_inner);
-  auto tanh_derivative = sub(
-      IrBuilder::createInContainer<Val>(x->container(), 1.0), tanh_inner_sq);
-
-  auto constant_mul_x_sq =
-      mul(IrBuilder::createInContainer<Val>(x->container(), kBeta * 3 * kKappa),
-          x_sq);
+  auto tanh_derivative = sub(one, mul(tanh_inner, tanh_inner));
   auto inner_derivative =
-      add(IrBuilder::createInContainer<Val>(x->container(), kBeta),
-          constant_mul_x_sq);
-  auto right_derivative = mul(left, mul(tanh_derivative, inner_derivative));
+      mul(beta, add(one, mul(mul(IrBuilder::create<Val>(3.0), kappa), x_sq)));
+  auto right_derivative = mul(mul(left, tanh_derivative), inner_derivative);
 
   auto dx = mul(dy, add(left_derivative, right_derivative));
   return dx;
@@ -565,15 +556,35 @@ SdpfaBwdResult sdpfa_bwd(
   auto key_domain = TensorDomain::noReductions(key->getLogicalDomain());
   auto value_domain = TensorDomain::noReductions(value->getLogicalDomain());
 
+  // Temporary handling of DID parallelization see
+  // https://github.com/NVIDIA/Fuser/issues/2563
+  bool has_device_dim = (query_domain.size() == 5);
+  if (has_device_dim) {
+    auto check_first_is_did = [](const std::vector<IterDomain*>& ids) -> void {
+      NVF_CHECK(
+          ids[0]->isDeviceDim(),
+          "Only support DID parallelization on outermost axis");
+    };
+    check_first_is_did(query_domain);
+    check_first_is_did(key_domain);
+    check_first_is_did(value_domain);
+    check_first_is_did(grad_output->getLogicalDomain());
+    check_first_is_did(output->getLogicalDomain());
+  }
+
+  auto concrete_query_size = TensorDomain::noDevices(query_domain).size();
+  auto concrete_key_size = TensorDomain::noDevices(key_domain).size();
+  auto concrete_value_size = TensorDomain::noDevices(value_domain).size();
+
   NVF_CHECK(
-      query_domain.size() == 4 && key_domain.size() == 4 &&
-          value_domain.size() == 4,
+      concrete_query_size == 4 && concrete_key_size == 4 &&
+          concrete_value_size == 4,
       "Expected query, key, and value to be 4D but got: ",
-      query_domain.size(),
+      concrete_query_size,
       " ",
-      key_domain.size(),
+      concrete_key_size,
       " ,and ",
-      value_domain.size());
+      concrete_value_size);
 
   NVF_CHECK(
       !dropout_p || dropout_p->isScalar(),

@@ -8,7 +8,7 @@
 #pragma once
 
 #include <exceptions.h>
-#include <executor_params.h>
+#include <fusion_executor/executor_params.h>
 #include <ir/all_nodes.h>
 #include <scheduler/heuristic_types.h>
 #include <scheduler/reduction_utils.h>

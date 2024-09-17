@@ -8,7 +8,7 @@
 #pragma once
 
 #include <exceptions.h>
-#include <executor_params.h>
+#include <fusion_executor/executor_params.h>
 #include <ir/base_nodes.h>
 #include <kernel.h>
 #include <polymorphic_value.h>

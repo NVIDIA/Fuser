@@ -403,25 +403,6 @@ std::vector<TensorView*> outputTvsOf(std::vector<TensorView*> tvs) {
   return uniqueEntries<TensorView>(out_tvs);
 }
 
-std::vector<TensorView*> allTvs(Fusion* fusion) {
-  auto used_vals = fusion->usedMathVals();
-  auto used_tvs = ir_utils::filterByType<TensorView>(used_vals);
-
-  // This shouldn't be necessary but FusionSegmentIoAlias_CUDA due to aliasing
-  // is having an input disconnected from outputs, and these iter domains are
-  // being checked in compute at maps in scheduling logic. This shouldn't hurt
-  // AFAICT.
-  auto tv_inputs = ir_utils::filterByType<TensorView>(fusion->inputs());
-
-  std::vector<TensorView*> all_tvs({used_tvs.begin(), used_tvs.end()});
-  // Sometimes inputs are not connected to outputs, however, we still include
-  // them when returning allTvs because they are registered as an input.
-  all_tvs.insert(all_tvs.end(), tv_inputs.begin(), tv_inputs.end());
-
-  // all_tvs has duplicates, to deduplicate it and return
-  return uniqueEntries<TensorView>(all_tvs);
-}
-
 VectorOfUniqueEntries<TensorView*> allTvsOfExprs(
     const std::vector<Expr*>& exprs) {
   VectorOfUniqueEntries<TensorView*> all_tvs;
@@ -438,7 +419,7 @@ VectorOfUniqueEntries<TensorView*> allTvsOfExprs(
 std::vector<TensorView*> allTvsExcept(
     Fusion* fusion,
     const std::unordered_set<TensorView*>& except) {
-  auto all_tvs = allTvs(fusion);
+  auto all_tvs = fusion->allTvs();
   std::vector<TensorView*> result;
   for (auto tv : all_tvs) {
     if (except.count(tv) == 0) {
@@ -803,7 +784,7 @@ bool hasResizedRfactor(const TensorView* tv) {
 }
 
 std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion) {
-  const auto all_tvs = ir_utils::allTvs(fusion);
+  const auto all_tvs = fusion->allTvs();
   std::vector<TensorView*> dynamic_tvs;
   std::copy_if(
       all_tvs.begin(),
@@ -1040,7 +1021,7 @@ bool isAlignedScopeExpr(const Expr* expr) {
       return false;
     }
   } else {
-    NVF_ERROR(false, "Invalid scope expr: ", expr->toString());
+    NVF_THROW("Invalid scope expr: ", expr->toString());
   }
 
   return true;
@@ -1177,7 +1158,7 @@ MmaLayout getInputLayout(
     return MmaLayout::NN;
   }
 
-  NVF_ERROR(false, "Unsupported input layout");
+  NVF_THROW("Unsupported input layout");
 }
 
 MmaOpDetails getMmaOpDetails(

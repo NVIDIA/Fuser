@@ -37,7 +37,7 @@ void ReplayTransformations::handle(Split* s) {
   auto it = id_map_.find(id_in);
   if (it == id_map_.end()) {
     if (error_on_failure_) {
-      NVF_ERROR(false, "Transform traversal failed, dependencies not met.");
+      NVF_THROW("Transform traversal failed, dependencies not met.");
     } else {
       return;
     }
@@ -92,7 +92,7 @@ void ReplayTransformations::handle(Merge* m) {
     if (!(outer_found || inner_found) || (outer_found && !inner_bcast) ||
         (inner_found && !outer_bcast)) {
       if (error_on_failure_) {
-        NVF_ERROR(false, "Transform traversal failed, dependencies not met.");
+        NVF_THROW("Transform traversal failed, dependencies not met.");
       } else {
         return;
       }
@@ -153,7 +153,7 @@ void ReplayTransformations::handle(Swizzle* swizzle) {
 
   if (it_x == id_map_.end() || it_y == id_map_.end()) {
     if (error_on_failure_) {
-      NVF_ERROR(false, "Transform traversal failed, dependencies not met.");
+      NVF_THROW("Transform traversal failed, dependencies not met.");
     } else {
       return;
     }
@@ -198,7 +198,7 @@ void ReplayTransformations::handle(Swizzle2D* swizzle_2d) {
 
   if (it_x == id_map_.end() || it_y == id_map_.end()) {
     if (error_on_failure_) {
-      NVF_ERROR(false, "Transform traversal failed, dependencies not met.");
+      NVF_THROW("Transform traversal failed, dependencies not met.");
     } else {
       return;
     }
@@ -239,7 +239,7 @@ void ReplayTransformations::handle(Resize* exp) {
   auto it = id_map_.find(id_in);
   if (it == id_map_.end()) {
     if (error_on_failure_) {
-      NVF_ERROR(false, "Transform traversal failed, dependencies not met.");
+      NVF_THROW("Transform traversal failed, dependencies not met.");
     } else {
       return;
     }
@@ -357,6 +357,15 @@ void ReplayTransformations::runReplay() {
       [](std::pair<IterDomain*, size_t> entry) { return entry.first; });
 }
 
+#define ERROR_ON_FAILURE(cond)                                                                                          \
+  do {                                                                                                                  \
+    if (error_on_failure_) {                                                                                            \
+      NVF_ERROR(                                                                                                        \
+          (cond),                                                                                                       \
+          "Error during best effort replay, a transformation was called that conflicts with an root-to-logical call."); \
+    }                                                                                                                   \
+  } while (false)
+
 BestEffortReplay::BestEffortReplay(
     const std::vector<IterDomain*>& replay_domain,
     const std::vector<IterDomain*>& target_domain,
@@ -365,12 +374,14 @@ BestEffortReplay::BestEffortReplay(
     std::unordered_map<IterDomain*, IterDomain*> target_forward_id_map,
     bool skip_replay_swizzle,
     bool skip_target_swizzle,
-    bool skip_resize)
+    bool skip_resize,
+    bool error_on_failure)
     : target2replay_id_map_(std::move(target2replay_map)),
       replay_forward_id_map_(std::move(replay_forward_id_map)),
       target_forward_id_map_(std::move(target_forward_id_map)),
       skip_replay_swizzle_(skip_replay_swizzle),
-      skip_target_swizzle_(skip_target_swizzle) {
+      skip_target_swizzle_(skip_target_swizzle),
+      error_on_failure_(error_on_failure) {
   for (auto entry : target2replay_id_map_) {
     loop_ids_[entry.second] = counter++;
   }
@@ -517,7 +528,7 @@ BestEffortReplay::BestEffortReplay(
 
     // If some replay id inputs are part of rfactor, make sure all target
     // expression inputs map to a replay input
-    if (replay_has_logical_inp) {
+    if (error_on_failure_ && replay_has_logical_inp) {
       bool no_missing_exprs = std::none_of(
           replay_inps.begin(),
           replay_inps.end(),
@@ -539,9 +550,8 @@ BestEffortReplay::BestEffortReplay(
 
     // If any inputs are missing, continue as this expr doesn't match.
     if (missing_replay_input) {
-      NVF_ERROR(
-          !replay_has_logical_inp || any_target_expr_contains_broadcast_id,
-          err_str);
+      ERROR_ON_FAILURE(
+          !replay_has_logical_inp || any_target_expr_contains_broadcast_id);
       continue;
     }
 
@@ -568,7 +578,7 @@ BestEffortReplay::BestEffortReplay(
     // If expressions of mapped inputs don't match, then continue to next target
     // expr
     if (mismatched_replay_exprs || replay_expr == nullptr) {
-      NVF_ERROR(!replay_has_logical_inp, err_str);
+      ERROR_ON_FAILURE(!replay_has_logical_inp);
       continue;
     }
 
@@ -581,27 +591,21 @@ BestEffortReplay::BestEffortReplay(
     // If there isn't an logical id in the replay's inputs and there's a
     // mismatched input, continue
     if (mismatched_inputs) {
-      NVF_ERROR(!replay_has_logical_inp, err_str);
+      ERROR_ON_FAILURE(!replay_has_logical_inp);
       continue;
     }
 
     // If there isn't an logical id in the replay's inputs and there's a
     // mismatch in replay_expr's and target_expr's outputs, continue
     if (target_expr->outputs().size() != replay_expr->outputs().size()) {
-      NVF_ERROR(
-          !replay_has_logical_inp,
-          err_str,
-          ". Target: ",
-          target_expr->toString(),
-          ", repaly: ",
-          replay_expr->toString());
+      ERROR_ON_FAILURE(!replay_has_logical_inp);
       continue;
     }
 
     // If there isn't an logical id in the replay's inputs and there's a
     // mismatch in replay_expr's and target_expr's expression type, continue
     if (typeid(*replay_expr) != typeid(*target_expr)) {
-      NVF_ERROR(!replay_has_logical_inp, err_str);
+      ERROR_ON_FAILURE(!replay_has_logical_inp);
       continue;
     }
 
@@ -613,7 +617,7 @@ BestEffortReplay::BestEffortReplay(
       auto t_split = target_expr->as<Split>();
       if (!r_split->factor()->sameAs(t_split->factor()) ||
           r_split->innerSplit() != t_split->innerSplit()) {
-        NVF_ERROR(!replay_has_logical_inp, err_str);
+        ERROR_ON_FAILURE(!replay_has_logical_inp);
         continue;
       }
     }
@@ -625,7 +629,7 @@ BestEffortReplay::BestEffortReplay(
       auto r_swizzle_2d = replay_expr->as<Swizzle2D>();
       auto t_swizzle_2d = target_expr->as<Swizzle2D>();
       if (!(r_swizzle_2d->swizzleType() == t_swizzle_2d->swizzleType())) {
-        NVF_ERROR(!replay_has_logical_inp, err_str);
+        ERROR_ON_FAILURE(!replay_has_logical_inp);
         continue;
       }
     }
@@ -635,7 +639,7 @@ BestEffortReplay::BestEffortReplay(
       auto t_resize = target_expr->as<Resize>();
       if (!r_resize->leftExpand()->sameAs(t_resize->leftExpand()) ||
           !r_resize->rightExpand()->sameAs(t_resize->rightExpand())) {
-        NVF_ERROR(!replay_has_logical_inp, err_str);
+        ERROR_ON_FAILURE(!replay_has_logical_inp);
         continue;
       }
     }
@@ -680,6 +684,8 @@ BestEffortReplay::BestEffortReplay(
     }
   }
 }
+
+#undef ERROR_ON_FAILURE
 
 // Find the first position i where td1[i] is not the same as td2[i].
 // "Same" means the DAG to generate td1[i] and td2[i] are the
@@ -758,7 +764,7 @@ ForwardingInfo::ForwardingInfo(
         TensorDomain::noReductions(producer->getLogicalDomain());
     active_tv = producer;
   } else {
-    NVF_ERROR(false, "Should not be reachable");
+    NVF_THROW("Should not be reachable");
   }
 
   NVF_ERROR(active_logical_dom.size() == active_dim_flags->size());

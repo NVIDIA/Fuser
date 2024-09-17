@@ -50,7 +50,7 @@ TensorView* view(TensorView* x, DataType dtype) {
     return bitCastOp(dtype, x);
   }
   // TODO: support view(dtype) for dtypes where input_size != newsize
-  NVF_ERROR(false, "Unsupported reinterpret casting view");
+  NVF_THROW("Unsupported reinterpret casting view");
 }
 
 TensorView* reshape(
@@ -467,7 +467,7 @@ bool hasSimilarDtype(DataType base, DataType dt) {
   } else if (isIntegralType(base)) {
     return isIntegralType(dt);
   }
-  NVF_ERROR(false, "Unrecognized base dtype.");
+  NVF_THROW("Unrecognized base dtype.");
 }
 
 // Padding widths are assumed to be non-negative. Currently there's no
@@ -842,6 +842,33 @@ TensorView* slice(
          IrBuilder::create<Val>(steps[i])});
   }
   return slice(inp, slices);
+}
+
+std::vector<TensorView*> chunk(
+    TensorView* in,
+    const int64_t chunks,
+    int64_t dim) {
+  NVF_CHECK(chunks > 0);
+
+  const auto in_logical = TensorDomain::noReductions(in->getLogicalDomain());
+  const auto num_dims = static_cast<int64_t>(in_logical.size());
+  dim = wrapDim(dim, num_dims);
+  Val* dim_size = in_logical[dim]->extent();
+  Val* slice_size = SimplifyingIrBuilder::ceilDivExpr(
+      dim_size, IrBuilder::create<Val>(chunks));
+
+  std::vector<TensorView*> slices;
+  slices.reserve(chunks);
+  std::vector<Slice> ranges(num_dims);
+  for (auto i : c10::irange(chunks)) {
+    ranges[dim].start = ranges[dim].stop;
+    ranges[dim].stop =
+        (i == chunks - 1 ? nullptr
+                         : SimplifyingIrBuilder::mulExpr(
+                               slice_size, IrBuilder::create<Val>(i + 1)));
+    slices.push_back(slice(in, ranges));
+  }
+  return slices;
 }
 
 } // namespace nvfuser

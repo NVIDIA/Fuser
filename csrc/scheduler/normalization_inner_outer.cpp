@@ -27,12 +27,14 @@ InnerOuterPersistentKernelScheduler::InnerOuterPersistentKernelScheduler(
 }
 
 void InnerOuterPersistentKernelScheduler::schedule(Fusion* fusion) {
-  FUSER_PERF_SCOPE("Schedule InnerOuterPersistent Fusion");
+  FUSER_PERF_SCOPE("InnerOuterPersistentKernelScheduler::schedule");
   scheduleInnerOuterPersistentKernel(fusion, reductionParams());
 }
 
 bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
     Fusion* fusion) {
+  FUSER_PERF_SCOPE(
+      "InnerOuterPersistentKernelScheduler::canScheduleCompileTime");
   // common checks for all persistent heuristics
   if (!normalization_scheduler_utils::checkOpsAndInputs(
           fusion, heuristicType())) {
@@ -238,7 +240,7 @@ std::vector<TensorView*> getOuterBroadcastTvs(
 
   // find the broadcast tensor whose broadcast mask is same to the reference
   std::vector<TensorView*> outer_broadcast_tvs;
-  for (auto tv : ir_utils::allTvs(fusion)) {
+  for (auto tv : fusion->allTvs()) {
     if (std::any_of(
             tv->getLoopDomain().begin(),
             tv->getLoopDomain().end(),
@@ -353,6 +355,9 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
     HeuristicSummary* data_cache,
     const std::vector<TensorView*>& reduction_tvs,
     const int64_t vectorize_factor) {
+  FUSER_PERF_SCOPE(
+      "normalization_inner_outer::getPersistentBufferStorageParams");
+
   PersistentBufferStorageParams buffer_params;
 
   auto persistent_buffer_info_entry =
@@ -490,21 +495,12 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
 // registers, this function will return that batch value. Otherwise, it will
 // return nullopt except when ignore_register_size_limit is true where it will
 // return whatever the batch value is.
-// This exception is needed because the register usage in canScheduleRuntime is
-// based on std::min(project_buffer, not_project_buffer). However, in
-// getPersistentHeuristics() we enforce project_buffer to input if dtype=float
-// and feature size <=14K. It leads to register spills but still faster than
-// unprojected version due to the reuse of a input para in this grid persistent
-// kernel. This is a tmp solution before we have a new persistent heuristics,
-// where the projection should not soley based on size of buffers.
-std::pair<std::optional<int64_t>, int64_t>
-getOptionalInnerOuterPersistentBufferBatches(
+std::pair<int64_t, int64_t> getBufferBatchSizeAndThreadsPerBlock(
     const int64_t inner_dim_numel,
     const int64_t outer_dim_numel,
     const int64_t persistent_buffer_size,
     const int64_t vectorize_factor,
-    const int64_t warp_size,
-    const bool ignore_register_size_limit) {
+    const int64_t warp_size) {
   // if inner_dim_numel <= 1024, we are doing multiple reductions per block
   // with a constant batch size of 1 if vectorized. See Step 5 of
   // innerOuterPersistentHeuristic. Although batch size is 1, each thread also
@@ -534,13 +530,13 @@ getOptionalInnerOuterPersistentBufferBatches(
     }
     return 1l;
   };
-  //! Each thread can use a maximum of 255 registers, and assume 40 of them are
-  //! reserved for indexing and other purposes. So, each thread can use up to
-  //! 215 registers for persistent buffer. Calculate number of buffer batches
-  //! using these 215 registers. total_buffer_bytes is the total size of
-  //! persistent buffers in bytes. reduction_elements is the number of elements
-  //! in the reduction domain. vectorization_factor is the vectorization factor
-  //! of inputs and outputs.
+  // Each thread can use a maximum of 255 registers, and assume 40 of them are
+  // reserved for indexing and other purposes. So, each thread can use up to
+  // 215 registers for persistent buffer. Calculate number of buffer batches
+  // using these 215 registers. total_buffer_bytes is the total size of
+  // persistent buffers in bytes. reduction_elements is the number of elements
+  // in the reduction domain. vectorization_factor is the vectorization factor
+  // of inputs and outputs.
   auto getMaximumInnerOuterPersistentBufferBatch = [&]() -> int64_t {
     int64_t register_per_batch = ceilDiv(
         persistent_buffer_size / inner_dim_numel * vectorize_factor,
@@ -573,28 +569,7 @@ getOptionalInnerOuterPersistentBufferBatches(
     threads_per_block += warp_size;
     inner_batch = ceilDiv(after_vectorization, threads_per_block);
   }
-  // The maximum feature size can be processed without register spills and
-  // fusion segmentation for fp16 is 14K. Here, we can allow register spills to
-  // avoid fusion segmentation by incrase maximum batch size by 3. This allows
-  // us to process up to 20K features (14K + 256*8*3).
-  // Performance on A100-80G:
-  // (1) shape= 16384 x 16384, 1300 GB/s, time_us mean(var)= 1245.08 (8.89703),
-  // 64 bytes stack frame, 64 bytes spill stores, 128 bytes spill loads. (2)
-  // shape= 16384 x 18432, 1070 GB/s, time_us mean(var)= 1683.87 (19.527), 192
-  // bytes stack frame, 192 bytes spill stores, 384 bytes spill loads.
-  // (3) shape= 16384 x 20480, 730 GB/s time_us mean(var)= 2766.64 (12.3883),
-  // 320 bytes stack frame, 320 bytes spill stores, 640 bytes spill loads. As a
-  // ref, the segmented version takes time_us mean(var)= 2841.91 (5.20231)
-  // without considering the overhead of fusion segmentation.
-  // (4) Disable this optimization if vectorize_factor is 1 due to high register
-  // usage in cases can't be vectorized.
-  const int64_t batch_max_reg_spill =
-      vectorize_factor > 1 ? batch_max + 3 : batch_max;
-  if (ignore_register_size_limit || inner_batch <= batch_max_reg_spill) {
-    return std::make_pair(inner_batch, threads_per_block);
-  } else {
-    return std::make_pair(std::nullopt, -1);
-  }
+  return std::make_pair(inner_batch, threads_per_block);
 }
 
 } // namespace
@@ -603,7 +578,7 @@ bool InnerOuterPersistentKernelScheduler::canScheduleRunTime(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
-  FUSER_PERF_SCOPE("InnerOuterPersistentKernelScheduler::canSchedule");
+  FUSER_PERF_SCOPE("InnerOuterPersistentKernelScheduler::canScheduleRunTime");
   auto reduction_tv_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::ReductionTVs>(
           data_cache, [&fusion]() {
@@ -647,22 +622,6 @@ bool InnerOuterPersistentKernelScheduler::canScheduleRunTime(
     return false;
   }
 
-  // check if we can schedule the combined reductions with a reasonable
-  // batch size without register spills.
-  if (!getOptionalInnerOuterPersistentBufferBatches(
-           properties.total_reduction_numel,
-           properties.total_iteration_numel,
-           buffer_params.regs_buffer_size,
-           (int64_t)vectorize_factor,
-           warp_size,
-           false)
-           .first.has_value()) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(),
-        "Required batch number is larger than available batch number! Will cause register spills!");
-    return false;
-  }
-
   const int64_t device_max_threads_per_multiprocessor =
       (int64_t)at::cuda::getCurrentDeviceProperties()
           ->maxThreadsPerMultiProcessor;
@@ -702,6 +661,7 @@ void InnerOuterPersistentKernelScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
+  FUSER_PERF_SCOPE("InnerOuterPersistentKernelScheduler::computeHeuristics");
   params_ = getInnerOuterPersistentHeuristics(fusion, runtime_info, data_cache);
   NVF_ERROR(params_ != nullptr);
 }
@@ -805,35 +765,17 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
 
   // Step-1, set InnerParams reduction dim: inner_vect, inner_batch,
   // threads_per_block (bdimx * bdimy). Start threads_per_block from a quarter
-  // warp, gradually increase it. Runtime checkCombinedReductionShape ensures
-  // inner_dim_numel is dividable by the multiplication of a quarter warp and
-  // vectorize_factor.
+  // warp, gradually increase it.
   iop.inner_vect = (int64_t)vectorize_factor;
 
-  // ignore_register_size_limit will return a valid batch size.
-  // This is needed because we enforced projection for fp32 if the feature size
-  // is less or equal 14K. It leads to register spills but still faster than the
-  // unprojected version due to the reuse of a input para in this grid
-  // persistent kernel. However, when we do register usage check in
-  // canScheduleRuntime, the enforced projection is not considered. Thus,
-  // max_persistent_buffer_size used here is larger than the value used in
-  // canScheduleRuntime.
-  // This is a tmp solution before we have a new persistent heuristics, where
-  // the projection is not solely based on size of buffers. The enforced buffer
-  // projection is not considered in canScheduleRuntime Thus,
-  constexpr bool ignore_register_size_limit = true;
-  const auto& batch_and_block_size =
-      getOptionalInnerOuterPersistentBufferBatches(
+  const auto [persistent_batch, threads_per_block] =
+      getBufferBatchSizeAndThreadsPerBlock(
           inner_dim_numel,
           outer_dim_numel,
           regs_buffer_size,
           iop.inner_vect,
-          dev_prop->warpSize,
-          ignore_register_size_limit);
-  auto opt_inner_batch = batch_and_block_size.first;
-  NVF_ERROR(opt_inner_batch.has_value());
-  iop.inner_batch = opt_inner_batch.value();
-  int64_t threads_per_block = batch_and_block_size.second;
+          dev_prop->warpSize);
+  iop.inner_batch = persistent_batch;
 
   NVF_ERROR(
       iop.inner_vect * iop.inner_batch * threads_per_block >= inner_dim_numel,
@@ -995,7 +937,6 @@ std::shared_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
-  FUSER_PERF_SCOPE("getInnerOuterPersistentHeuristics");
   FusionGuard fg(fusion);
 
   auto reduction_tv_entry =
@@ -1031,12 +972,19 @@ std::shared_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
   auto properties =
       scheduler_utils::getReductionProperties(fusion, runtime_info, ref_red_tv);
   auto reduced_tv = ir_utils::getSoleProducerTv(ref_red_tv);
+
+  // Although properties contains runtime information
+  // "inner_most_dimension_ndims" is a compile time value
+  auto vec_break_point = HeuristicSummaryEntry<
+      HeuristicCompileTime::VectorizationBreakPointOfReductionProducer>(
+      data_cache, [&ref_red_tv, &reduced_tv, &properties]() {
+        return std::make_unique<int64_t>(
+            vectorize_helper::getVectorizationBreakPointOfReductionProducer(
+                ref_red_tv, reduced_tv, properties.inner_most_dimension_ndims));
+      });
+
   const auto vectorize_factor = vectorize_helper::getVectorizationFactor(
-      runtime_info,
-      reduced_tv,
-      data_cache,
-      vectorize_helper::getVectorizationBreakPointOfReductionProducer(
-          ref_red_tv, reduced_tv, properties.inner_most_dimension_ndims));
+      runtime_info, reduced_tv, data_cache, vec_break_point.get());
 
   auto persistent_buffer_info_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::PersistentBufferInfo>(
@@ -1074,7 +1022,6 @@ std::shared_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
     HeuristicSummary* data_cache) {
-  FUSER_PERF_SCOPE("getInnerOuterPersistentHeuristicsFromIValue");
   SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs);
   return getInnerOuterPersistentHeuristics(fusion, runtime_info, data_cache);
 }
@@ -1198,8 +1145,6 @@ void scheduleReductionCombinedOuter(
 void scheduleInnerOuterPersistentKernel(
     Fusion* fusion,
     const ReductionParams& rparams) {
-  FUSER_PERF_SCOPE("scheduleInnerOuterPersistentKernel");
-
   FusionGuard fg(fusion);
 
   // Grab the reduction, input, and output tensor views. dummy_outputs are

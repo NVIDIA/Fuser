@@ -90,7 +90,7 @@ inline std::string toString(const std::variant<ExprT, ValT>& n) {
   } else if (auto v = std::get_if<ValT>(&n)) {
     return toString(*v);
   } else {
-    NVF_ERROR(false);
+    NVF_THROW();
   }
 }
 
@@ -193,7 +193,7 @@ class BFS {
           }
         }
       }
-      NVF_ERROR(false, "BFS traversal could not visit some nodes: ", ss.str());
+      NVF_THROW("BFS traversal could not visit some nodes: ", ss.str());
     }
   }
 
@@ -327,7 +327,7 @@ class BFS {
     } else if (const ValT* v = std::get_if<ValT>(&node)) {
       return isReady(*v);
     } else {
-      NVF_ERROR(false);
+      NVF_THROW();
     }
   }
 
@@ -447,7 +447,7 @@ class BFS {
         add_to_visit_list(e);
       }
     } else {
-      NVF_ERROR(false);
+      NVF_THROW();
     }
   }
 

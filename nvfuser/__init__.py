@@ -67,7 +67,7 @@ class FusionDefinition(_C._FusionDefinition):
     def getReproString(self, inputs: list | None = None) -> str:
         msg = "# CUDA devices:\n"
         for i in range(torch.cuda.device_count()):
-            msg += f"#  {0}: {torch.cuda.get_device_name(i)}\n"
+            msg += f"#  {i}: {torch.cuda.get_device_name(i)}\n"
         msg += (
             f"# torch version: {torch.__version__}\n"
             f"# cuda version: {torch.version.cuda}\n"
@@ -204,21 +204,14 @@ class FusionDefinition(_C._FusionDefinition):
 
         # If schedule is defined by child class and schedule is not defined for
         # inputs, make a schedule.
-        is_fusion_definition_child_class = (
-            type(self) != FusionDefinition
-        ) and issubclass(type(self), FusionDefinition)
-        defined_schedule = (
-            is_fusion_definition_child_class
-            and super(type(self), self).schedule != self.schedule
-        )
+        defined_schedule = type(self).schedule != FusionDefinition.schedule
         if defined_schedule and not self._exist_schedule(inputs):
             self._setup_schedule(inputs)
             self.schedule()
             self._finalize_schedule(inputs)
 
-        result = None
         try:
-            result = self._execute(
+            return self._execute(
                 inputs,
                 device=device,
                 override_user_schedule=override_user_schedule,
@@ -228,8 +221,6 @@ class FusionDefinition(_C._FusionDefinition):
         except Exception as err:
             logger.exception(self.getReproErrorString("executing", inputs))
             raise
-
-        return result
 
     def debug_output(self):
         """
@@ -264,14 +255,15 @@ class FusionDefinition(_C._FusionDefinition):
         except ImportError:
             raise ImportError("Unable to import pytorch_utils!")
 
-        if not tensor.is_cuda:
-            raise ValueError("Tensor should be on a cuda device!")
+        if not tensor.is_cuda and len(tensor.size()) != 0:
+            raise ValueError("CPU non-scalar tensor is not supported!")
 
         return self.define_tensor(
             sizes=tensor.size(),
             strides=tensor.stride(),
             dtype=torch_dtype_to_nvfuser_dtype(tensor.dtype),
             static_sizes=static_sizes,
+            is_cpu=tensor.is_cpu,
         )
 
     def fusion_ir(self):

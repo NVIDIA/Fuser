@@ -409,7 +409,7 @@ void IndexLowering::handle(const ViewAsScalar* uop) {
       return;
     }
   }
-  NVF_ERROR(false, "Can not find index for vector dim");
+  NVF_THROW("Can not find index for vector dim");
 }
 
 namespace {
@@ -1404,45 +1404,124 @@ void IndexLowering::handleGroupedGridWelford(
 }
 
 void IndexLowering::handle(const kir::MBarrierInit* minit) {
-  auto minit_indexed = IrBuilder::create<kir::MBarrierInit>(
-      lower_utils::u32IndexScalarSmemTv(minit->mbarrier()->as<TensorView>()),
-      minit->threadCount());
+  Val* smem_address_ptr = nullptr;
+
+  if (minit->mbarrier()->isA<TensorView>()) {
+    smem_address_ptr =
+        lower_utils::u32IndexScalarSmemTv(minit->mbarrier()->as<TensorView>());
+  } else if (minit->mbarrier()->isA<kir::TensorIndex>()) {
+    smem_address_ptr = lower_utils::u32IndexScalarSmemTv(
+        minit->mbarrier()->as<kir::TensorIndex>());
+  } else {
+    NVF_THROW("Unexpected MBarrierInit value.");
+  }
+  kir::MBarrierInit* minit_indexed = IrBuilder::create<kir::MBarrierInit>(
+      smem_address_ptr, minit->threadCount());
   pushBack(minit_indexed);
   GpuLower::current()->propagateExprInfo(minit, minit_indexed);
 }
 
 void IndexLowering::handle(const kir::MBarrierInvalidate* minval) {
-  auto minval_indexed = IrBuilder::create<kir::MBarrierInvalidate>(
-      lower_utils::u32IndexScalarSmemTv(minval->mbarrier()->as<TensorView>()));
+  Val* smem_address_ptr = nullptr;
+
+  if (minval->mbarrier()->isA<TensorView>()) {
+    smem_address_ptr =
+        lower_utils::u32IndexScalarSmemTv(minval->mbarrier()->as<TensorView>());
+  } else if (minval->mbarrier()->isA<kir::TensorIndex>()) {
+    smem_address_ptr = lower_utils::u32IndexScalarSmemTv(
+        minval->mbarrier()->as<kir::TensorIndex>());
+  } else {
+    NVF_ERROR(
+        false,
+        "Unexpected MBarrierInvalidate barrier value: ",
+        minval->mbarrier()->toString());
+  }
+  kir::MBarrierInvalidate* minval_indexed =
+      IrBuilder::create<kir::MBarrierInvalidate>(smem_address_ptr);
   pushBack(minval_indexed);
   GpuLower::current()->propagateExprInfo(minval, minval_indexed);
 }
 
-void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
-  // indexing mbarrier
-  auto mbarrier = GpuLower::current()->ldstMBarrierMap().at(ldst);
-  auto mbarrier_index = lower_utils::u32IndexScalarSmemTv(mbarrier);
+void IndexLowering::handle(
+    const kir::MBarrierArriveExpectTx* arrive_transaction) {
+  NVF_ERROR(
+      arrive_transaction->mbarrier()->isA<kir::TensorIndex>(),
+      "Expected kir::TensorIndex in MBarrierArriveExpectTx");
 
-  // gmem indexing and expect_bytes for mbarrier
-  auto [in, expect_bytes] = Index::getCpAsyncBulkGmemIndex(
-      ldst, mbarrier_index, for_loops_, rotated_loop_);
-
-  // arrive and expect_tx mbarrier
-  auto state = IrBuilder::create<Val>(DataType::UInt);
-  pushBack(IrBuilder::create<kir::Allocate>(
-      state, MemoryType::Local, ldst->container()->oneVal()));
+  Val* smem_address_ptr = lower_utils::u32IndexScalarSmemTv(
+      arrive_transaction->mbarrier()->as<kir::TensorIndex>());
   pushBack(IrBuilder::create<kir::MBarrierArriveExpectTx>(
-      state, mbarrier_index, expect_bytes));
+      arrive_transaction->state(),
+      smem_address_ptr,
+      arrive_transaction->txCount()));
+}
 
-  // indexing ldst op
-  auto out = lowerDstIndex(ldst->out(), {}, true);
-  auto new_ldst =
-      IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())
-          ->withPredicate(ldst->predicate());
-  pushBack(new_ldst);
-  GpuLower::current()->propagateExprInfo(ldst, back());
-  // wait mbarrier
-  pushBack(IrBuilder::create<kir::MBarrierWait>(mbarrier_index, state));
+void IndexLowering::handle(const kir::MBarrierWait* mwait) {
+  NVF_ERROR(
+      mwait->mbarrier()->isA<kir::TensorIndex>(),
+      "Expected kir::TensorIndex in MBarrierWait");
+  Val* smem_address_ptr = lower_utils::u32IndexScalarSmemTv(
+      mwait->mbarrier()->as<kir::TensorIndex>());
+  pushBack(
+      IrBuilder::create<kir::MBarrierWait>(smem_address_ptr, mwait->state()));
+}
+
+void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
+  // If LoadStoreOp has a smem TV in ldstMBarrierTokenMap, then it is a part
+  // of a circular buffer loop. The kir nodes for arrive_expect_tx and
+  // mbarrier_wait are added by the circular buffer pass. Otherwise, those
+  // nodes are added here.
+  bool is_circular_buffered =
+      (GpuLower::current()->ldstMBarrierIndexMap().count(ldst) != 0);
+
+  if (is_circular_buffered) {
+    kir::TensorIndex* mbarrier =
+        GpuLower::current()->ldstMBarrierIndexMap().at(ldst);
+    Val* mbarrier_index = lower_utils::u32IndexScalarSmemTv(mbarrier);
+
+    // gmem indexing and expect_bytes for mbarrier
+    auto [in, _] = Index::getCpAsyncBulkGmemIndex(
+        ldst, mbarrier_index, for_loops_, rotated_loop_);
+
+    // indexing ldst op
+    Val* out = lowerDstIndex(
+        ldst->out(), /*override_index=*/{}, /*generate_pointer=*/true);
+    Expr* new_ldst =
+        IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())
+            ->withPredicate(ldst->predicate());
+    pushBack(new_ldst);
+
+    // register new LoadStoreOp with mbarrier
+    GpuLower::current()->ldstMBarrierIndexMap()[new_ldst] = mbarrier;
+
+    GpuLower::current()->propagateExprInfo(ldst, back());
+  } else {
+    TensorView* mbarrier = GpuLower::current()->ldstMBarrierMap().at(ldst);
+    Val* mbarrier_index = lower_utils::u32IndexScalarSmemTv(mbarrier);
+
+    // gmem indexing and expect_bytes for mbarrier
+    auto [in, expect_bytes] = Index::getCpAsyncBulkGmemIndex(
+        ldst, mbarrier_index, for_loops_, rotated_loop_);
+
+    // arrive and expect_tx mbarrier
+    Val* state = IrBuilder::create<Val>(DataType::UInt);
+    pushBack(IrBuilder::create<kir::Allocate>(
+        state, MemoryType::Local, ldst->container()->oneVal()));
+    pushBack(IrBuilder::create<kir::MBarrierArriveExpectTx>(
+        state, mbarrier_index, expect_bytes));
+
+    // indexing ldst op
+    Val* out = lowerDstIndex(
+        ldst->out(), /*override_index=*/{}, /*generate_pointer=*/true);
+    Expr* new_ldst =
+        IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())
+            ->withPredicate(ldst->predicate());
+    pushBack(new_ldst);
+
+    GpuLower::current()->propagateExprInfo(ldst, back());
+    // wait mbarrier
+    pushBack(IrBuilder::create<kir::MBarrierWait>(mbarrier_index, state));
+  }
 }
 
 void IndexLowering::handleCpAsyncBulkStore(const LoadStoreOp* ldst) {
@@ -1489,6 +1568,65 @@ static inline DataType getMmaOutType(TensorView* mma_out) {
   return ArrayType{std::make_shared<DataType>(DataType::Float), (size_t)size};
 }
 
+namespace {
+std::pair<Val*, Val*> hardCodedIndexGenerationForStMatrix(
+    const LoadStoreOp* ldst,
+    const int64_t output_m_extent,
+    const int64_t output_n_extent) {
+  NVF_ERROR(
+      (output_m_extent == 8 && output_n_extent == 8) ||
+          (output_m_extent == 16 && output_n_extent == 8) ||
+          (output_m_extent == 16 && output_n_extent == 16),
+      "size not currently supported for stmatrix");
+
+  auto num_regs = (output_m_extent) / 8 * (output_n_extent) / 8;
+  auto as_type = ArrayType{
+      std::make_shared<DataType>(DataType::UInt32),
+      static_cast<size_t>(num_regs)};
+
+  Val* in = IrBuilder::create<kir::TensorIndex>(
+      dynamic_cast<TensorView*>(ldst->in()),
+      IrBuilder::create<Val>(0, DataType::Index),
+      as_type);
+
+  Val* out_index = nullptr;
+  // This will hanlde 8x8 and 16x8.
+  if (output_n_extent == 8) {
+    // T_shared[toSmem(T_shared) + 16 * tidx.x]
+    out_index = IrBuilder::addExpr(
+        IrBuilder::baseAddressExpr(dynamic_cast<TensorView*>(ldst->out())),
+        IrBuilder::mulExpr(
+            IrBuilder::create<Val>(16, DataType::Index),
+            IrBuilder::create<NamedScalar>("threadIdx.x", DataType::Index)));
+  } else if (output_n_extent == 16) {
+    // This will hanlde 16x16
+    // T_shared[toSmem(T_shared) + 16 * (tidx.x / 16) +  32 * (tidx.x%16)  +
+
+    // 16 * (tidx.x / 16)
+    auto expr0 = IrBuilder::mulExpr(
+        IrBuilder::create<Val>(16, DataType::Index),
+        IrBuilder::divExpr(
+            IrBuilder::create<NamedScalar>("threadIdx.x", DataType::Index),
+            IrBuilder::create<Val>(16, DataType::Index)));
+
+    // 32 * (tidx.x%16)
+    auto expr1 = IrBuilder::mulExpr(
+        IrBuilder::modExpr(
+            IrBuilder::create<NamedScalar>("threadIdx.x", DataType::Index),
+            IrBuilder::create<Val>(16, DataType::Index)),
+        IrBuilder::create<Val>(32, DataType::Index));
+
+    out_index = IrBuilder::addExpr(
+        IrBuilder::baseAddressExpr(ir_utils::getTvOutput(ldst)),
+        IrBuilder::addExpr(expr0, expr1));
+  }
+  Val* out = IrBuilder::create<kir::TensorIndex>(
+      dynamic_cast<TensorView*>(ldst->out()), out_index);
+
+  return {in, out};
+}
+} // namespace
+
 void IndexLowering::handle(const LoadStoreOp* ldst) {
   Val* in = nullptr;
   Val* out = nullptr;
@@ -1498,7 +1636,7 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
     } else if (ir_utils::isCpAsyncBulkStore(ldst)) {
       handleCpAsyncBulkStore(ldst);
     } else {
-      NVF_ERROR(false);
+      NVF_THROW();
     }
   } else {
     DataType as_type = DataType::Null;
@@ -1507,16 +1645,42 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
           std::make_shared<DataType>(DataType::UInt32),
           (size_t)ir_utils::getVectorizeSize(ldst->out()->as<TensorView>()) /
               2};
+    } else if (ir_utils::isStMatrixOp(ldst)) {
+      NVF_ERROR(
+          ldst->out()->as<TensorView>()->getLogicalDomain().size() == 2,
+          "We only support 2D inputs stmatrix");
+
+      auto output_m_extent = ldst->out()
+                                 ->as<TensorView>()
+                                 ->getLogicalDomain()[0]
+                                 ->extent()
+                                 ->evaluate()
+                                 .as<int64_t>();
+      auto output_n_extent = ldst->out()
+                                 ->as<TensorView>()
+                                 ->getLogicalDomain()[1]
+                                 ->extent()
+                                 ->evaluate()
+                                 .as<int64_t>();
+
+      auto [in_idx, out_idx] = hardCodedIndexGenerationForStMatrix(
+          ldst, output_m_extent, output_n_extent);
+      in = in_idx;
+      out = out_idx;
     } else if (ldst->out()->definition()->isA<MmaOp>()) {
       // For MMA accumulator initialization
       as_type = getMmaOutType(ldst->out()->as<TensorView>());
     }
-    in = lowerSrcIndex(
-        ldst->in(),
-        ldst->out(),
-        {},
-        ir_utils::isLdMatrixOp(ldst) || ir_utils::isCpAsyncOp(ldst));
-    out = lowerDstIndex(ldst->out(), {}, ir_utils::isCpAsyncOp(ldst), as_type);
+
+    if (!ir_utils::isStMatrixOp(ldst)) {
+      in = lowerSrcIndex(
+          ldst->in(),
+          ldst->out(),
+          {},
+          ir_utils::isLdMatrixOp(ldst) || ir_utils::isCpAsyncOp(ldst));
+      out =
+          lowerDstIndex(ldst->out(), {}, ir_utils::isCpAsyncOp(ldst), as_type);
+    }
     auto new_ldst =
         IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())
             ->withPredicate(ldst->predicate());
@@ -1591,8 +1755,14 @@ void IndexLowering::handle(const MmaOp* mma) {
     // TODO: This is a temporary solution and only supports a single tile in
     // smem.
     auto tv = mma->inA()->as<TensorView>();
-    auto base_addr = IrBuilder::baseAddressExpr(tv);
     auto swizzle = getSwizzleMode(tv);
+    // Because the entire tile is parallelized on MMA, which are trivial
+    // loops and always have zero loop variables, the result of lowerSrcIndex
+    // will be the address of the first element of the tile, which happens to
+    // be the information we need to provide to the hardware.
+    auto base_addr = lowerSrcIndex(tv, mma->out(), {}, true)
+                         ->as<kir::TensorIndex>()
+                         ->index();
     int64_t leading_bytes = core_matrix_outer_size *
         getBytesFromSwizzle(swizzle); // swizzle period in bytes
     int64_t inner_size =
@@ -1820,7 +1990,7 @@ void IndexLowering::allocateUniqueFusedReduction(
         IrBuilder::create<kir::AllocateFusedReduction>(
             expr->as<kir::GroupedGridWelford>());
   } else {
-    NVF_ERROR(false, "Invalid expr: ", expr->toString());
+    NVF_THROW("Invalid expr: ", expr->toString());
   }
 
   fused_reduction_map_.emplace(out_tv, fused_reduction_alloc_reduction);
@@ -1830,50 +2000,10 @@ void IndexLowering::allocateUniqueFusedReduction(
   insertAtTopLevel(fused_reduction_alloc_reduction);
 }
 
-// This is mostly copied from Index::getProducerPerDimLogicalIndex()
-Val* IndexLowering::getIterationIndexForBroadcast(
-    TensorView* producer_tv,
-    TensorView* consumer_tv,
-    IterDomain* broadcast_id) const {
-  NVF_ERROR(
-      broadcast_id->isBroadcast(),
-      "Expected broadcast ID but found ",
-      broadcast_id->toString());
-
-  auto c2p_logical_map = PairwiseLogicalDomainMap(producer_tv, consumer_tv)
-                             .mapBroadcast(false)
-                             .mapConsumerToProducer();
-
-  // This replay has to be consistent with compute at index map.
-  BestEffortReplay replay_producer_as_consumer(
-      producer_tv->getLoopDomain(),
-      consumer_tv->getLoopDomain(),
-      c2p_logical_map);
-
-  const auto& c2p_map = replay_producer_as_consumer.getReplay();
-  const auto& producer_indexing_from_idgraph = getTensorIndexFromIdGraph(
-      for_loops_, getRotatedLoop(), consumer_tv, producer_tv, true, c2p_map);
-
-  const auto& producer_indexing = producer_indexing_from_idgraph.index;
-
-  const auto& index_map = producer_indexing.indexMap();
-  const auto index_it = index_map.find(broadcast_id);
-  NVF_ERROR(
-      index_it != index_map.end(),
-      "Could not find padded consumer IterDomain ",
-      broadcast_id->toString(),
-      " from consumer TensorView ",
-      consumer_tv->toString(),
-      " in index map for producer TensorView ",
-      producer_tv->toString());
-
-  return index_it->second;
-}
-
 void IndexLowering::handle(const PadOp* pad) {
   // Convert to a where op as:
-  // consumer[consumer_idx] = (producer_idx >= 0 && producer_idx <
-  //                           producer_extent) ?
+  // consumer[consumer_idx] = (consumer_idx >= left_pad && consumer_idx <
+  //                           consumer_extent - right_pad) ?
   //     producer[producer_idx] :
   //     0;
 
@@ -1887,37 +2017,27 @@ void IndexLowering::handle(const PadOp* pad) {
 
   const auto pad_val = pad->value();
 
-  std::unordered_map<IterDomain*, Val*> override_index;
-  for (auto padded_axis : pad->getPaddedAxes()) {
-    auto padded_id = producer_doms.at(padded_axis);
-    if (padded_id->isBroadcast()) {
-      // When we pad a Broadcast IterDomain, we should not treat it as a
-      // Broadcast as we normally would. Instead, we will treat it as a regular
-      // Iteration domain with extent 1.
-      auto ind =
-          getIterationIndexForBroadcast(producer_tv, consumer_tv, padded_id);
-      override_index.emplace(padded_id, ind);
-    }
-  }
-
-  const auto producer_root_indices = Index::getProducerPerDimLogicalIndex(
-      producer_tv, consumer_tv, for_loops_, getRotatedLoop(), override_index);
-
   // Build a predicate for where
-  Val* pred = IrBuilder::create<Val>(true);
+  auto consumer_root_indices = Index::getConsumerPerDimLogicalIndex(
+      consumer_tv, for_loops_, getRotatedLoop());
+  Val* pred = consumer_tv->fusion()->trueVal();
   for (auto padded_axis : pad->getPaddedAxes()) {
-    auto producer_idx = producer_root_indices.at(padded_axis);
-    auto producer_root_id = producer_doms.at(padded_axis);
-    NVF_ERROR(!producer_root_id->maybePartial());
+    auto consumer_idx = consumer_root_indices.at(padded_axis);
+    auto consumer_root_id = consumer_tv->getLogicalDomain().at(padded_axis);
+    NVF_ERROR(!consumer_root_id->maybePartial());
+    const auto& pad_widths = pad->getPadWidths(padded_axis);
     pred = SimplifyingIrBuilder::logicalAndExpr(
         pred,
-        // idx >= 0 && idx < extent
+        // idx >= left_pad && idx < extent - right_pad
         SimplifyingIrBuilder::logicalAndExpr(
-            SimplifyingIrBuilder::geExpr(
-                producer_idx, GpuLower::current()->kernel()->zeroVal()),
+            SimplifyingIrBuilder::geExpr(consumer_idx, pad_widths.first),
             SimplifyingIrBuilder::ltExpr(
-                producer_idx, producer_root_id->getMaybeExpandedExtent())));
+                consumer_idx,
+                SimplifyingIrBuilder::subExpr(
+                    consumer_root_id->getMaybeExpandedExtent(),
+                    pad_widths.second))));
   }
+
   pred = GpuLower::current()->commonScalarMap().hoistScalar(pred, for_loops_);
 
   pushBack(IrBuilder::create<TernaryOp>(

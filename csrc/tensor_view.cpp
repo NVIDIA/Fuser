@@ -61,9 +61,9 @@ std::string TensorView::toString(int indent_size) const {
       ss << "_l";
       break;
     default:
-      NVF_ERROR(false, "Unknown tensor memory type.");
+      NVF_THROW("Unknown tensor memory type.");
   }
-  ss << domain()->toString(indent_size);
+  ss << "_" << dtype() << domain()->toString(indent_size);
 
   if (getComputeAtPosition() > 0) {
     ss << " ca_pos( ";
@@ -447,7 +447,7 @@ bool TensorView::resolveComputeWith(const std::vector<Expr*>& sorted_exprs) {
   }
 
   // No expr found
-  NVF_ERROR(false, "No use expr found in the sorted expr list: ", toString());
+  NVF_THROW("No use expr found in the sorted expr list: ", toString());
 }
 
 void TensorView::clearComputeWith() {
@@ -831,7 +831,7 @@ TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
     IrBuilder::create<ReductionOp>(
         BinaryOpType::Add, this_mma->init(), consumer, producer);
   } else {
-    NVF_ERROR(false, "RFactor: unsupported tensor definition");
+    NVF_THROW("RFactor: unsupported tensor definition");
   }
   return producer;
 }
@@ -987,7 +987,7 @@ std::vector<TensorView*> TensorView::rFactor(
         grouped_rop->outputs(),
         std::vector<Val*>{rf_tvs.begin(), rf_tvs.end()});
   } else {
-    NVF_ERROR(false, "Invalid definition: ", definition()->toString());
+    NVF_THROW("Invalid definition: ", definition()->toString());
   }
 
   return rf_tvs;
@@ -1318,7 +1318,7 @@ void TensorView::applyMmaSwizzle(MmaOperand operand) {
       }
       break;
     default:
-      NVF_ERROR(false, "unknown operand flag");
+      NVF_THROW("unknown operand flag");
       break;
   }
 }
@@ -1485,7 +1485,11 @@ TensorViewBuilder& TensorViewBuilder::strideOrder(
 TensorViewBuilder& TensorViewBuilder::expanded(std::vector<bool> expanded) {
   NVF_CHECK(expanded_.empty(), "Attempting to reset expanded shape");
   if (!expanded.empty()) {
-    NVF_CHECK(ndims_ == 0 || ndims_ == (int64_t)expanded.size());
+    NVF_CHECK(
+        ndims_ == 0 || ndims_ == (int64_t)expanded.size(),
+        ndims_,
+        " vs ",
+        expanded.size());
     ndims_ = (int64_t)expanded.size();
   }
   expanded_ = std::move(expanded);

@@ -110,7 +110,7 @@ bool Val::removeUse(Expr* expr) {
     uses_.erase(it);
     if (this->isA<TensorView>()) {
       // Call for a rebuild of uses_ vector
-      fusion()->invalidateTvUses();
+      fusion()->invalidateTvsAndUses();
     }
     return true;
   }
@@ -246,23 +246,6 @@ bool Val::isFalse() const {
 std::optional<DataType> Val::getDataType() const {
   NVF_ERROR(dtype_ != DataType::Null, "Value does not have a data type.");
   return dtype_;
-}
-
-bool Val::isProducerOf(const Val* other) const {
-  NVF_ERROR(other != nullptr);
-  NVF_ERROR(container() == other->container());
-
-  if (definition() == nullptr) {
-    return false;
-  }
-  return std::any_of(
-      definition()->inputs().begin(),
-      definition()->inputs().end(),
-      [other](const Val* input) { return input == other; });
-}
-
-bool Val::isConsumerOf(const Val* other) const {
-  return other->isProducerOf(this);
 }
 
 // We don't register with the active fusion in Expr as this needs to be done
