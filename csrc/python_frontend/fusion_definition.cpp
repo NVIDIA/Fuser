@@ -109,11 +109,8 @@ void FusionDefinition::finalizeDefinition() {
       debug() << "\nFusionDefinition: Terminal Node found!\n";
     }
     trie_node_ = child_node.value();
-    std::optional<std::exception> opt_e = trie_node_->getException();
-    if (opt_e.has_value()) {
-      std::cout << "cached error: " << opt_e.value().what() << std::endl;
-    }
-    NVF_CHECK(!opt_e.has_value(), opt_e.value().what());
+    std::optional<std::string> opt_e = trie_node_->getException();
+    NVF_CHECK(!opt_e.has_value(), opt_e);
     fusion_id_ = std::optional<size_t>(trie_node_->fusion_id);
   }
 

@@ -252,7 +252,7 @@ void TrieNode::setException(const char* e) {
   exception = e;
 }
 
-std::optional<std::exception> TrieNode::getException() {
+std::optional<std::string> TrieNode::getException() {
   std::lock_guard<std::mutex> guard(trie_node_lock);
   return exception;
 }
