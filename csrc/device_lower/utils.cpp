@@ -1154,6 +1154,15 @@ struct PartOf {
   // The extent of the selected group. This value is just carried over and never
   // changed.
   Val* selected_extent = nullptr;
+
+  bool operator==(const PartOf& other) const {
+    return group->type() == other.group->type() && *group == *other.group &&
+        inner_extent == other.inner_extent &&
+        selected_extent == other.selected_extent;
+  }
+  bool operator!=(const PartOf& other) const {
+    return !(*this == other);
+  }
 };
 
 // Represent that linear_g is a composition of multiple LinearGroupProjections.
@@ -1389,14 +1398,17 @@ LinearGroupProjection eliminateTrivialPartOf(
 }
 
 LinearGroupProjection simplify(PartOf<LinearGroupProjection> part) {
-  // TODO: loop until no change.
-  part = PartOf<LinearGroupProjection>{
-      std::make_shared<LinearGroupProjection>(simplify(*part.group)),
-      part.inner_extent,
-      part.selected_extent};
-  part = cancelCommonFactors(part);
-  part = trimRedundant(part);
-  part = mergeParts(part);
+  auto simplified = part;
+  do {
+    part = simplified;
+    simplified = PartOf<LinearGroupProjection>{
+        std::make_shared<LinearGroupProjection>(simplify(*simplified.group)),
+        simplified.inner_extent,
+        simplified.selected_extent};
+    simplified = cancelCommonFactors(simplified);
+    simplified = trimRedundant(simplified);
+    simplified = mergeParts(simplified);
+  } while (simplified != part);
   return eliminateTrivialPartOf(part);
 }
 
