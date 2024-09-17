@@ -26,24 +26,16 @@ IterDomain* representativeId(const ValGroup& vg) {
     }
   };
 
-  auto preferNewExtent = [&rep](IterDomain* new_id) {
-    if (rep->hasExpandedExtent() && !new_id->hasExpandedExtent()) {
-      // Prefer non-expanded dimensions
-      return true;
-    }
-    // Prefer constant extent IDs to symbolic
-    return !rep->getMaybeExpandedExtent()->isConstInt() &&
-        new_id->getMaybeExpandedExtent()->isConstInt();
-  };
-
   for (Val* v : *vg) {
     if (auto id = dynamic_cast<IterDomain*>(v); id &&
         (rep == nullptr || preferNewIterType(id) ||
-         (id->getIterType() == rep->getIterType() && preferNewExtent(id)))) {
+         (id->getIterType() == rep->getIterType() &&
+          id->name() < rep->name()))) {
       rep = id;
       continue;
     }
   }
+
   NVF_ERROR(rep != nullptr);
   return rep;
 }

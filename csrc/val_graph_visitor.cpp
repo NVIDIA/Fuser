@@ -138,7 +138,7 @@ void ValGraphVisitor::traverse() {
     for (const ValGroup& vg : to_visit_vals) {
       ss << " " << nvfuser::toString(vg);
     }
-    NVF_ERROR(false, ss.str());
+    NVF_THROW(ss.str());
   }
 
   if (!to_visit_exprs.empty()) {
@@ -147,7 +147,7 @@ void ValGraphVisitor::traverse() {
     for (const ExprGroup& eg : to_visit_exprs) {
       ss << " " << nvfuser::toString(eg);
     }
-    NVF_ERROR(false, ss.str());
+    NVF_THROW(ss.str());
   }
 }
 

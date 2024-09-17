@@ -10,7 +10,7 @@
 // Extract size and strides
 #include <kernel_cache.h>
 
-#include <executor_kernel_arg.h>
+#include <fusion_executor/executor_kernel_arg.h>
 #include <instrumentation.h>
 #include <polymorphic_value.h>
 #include <serde/polymorphic_value.h>
@@ -55,7 +55,7 @@ PolymorphicValue IValueToPolymorphicValue(const c10::IValue& val) {
     case c10::ScalarType::Bool:
       return scalar_val.toBool();
     default:
-      NVF_ERROR(false, "Can not convert IValue to PolymorphicValue");
+      NVF_THROW("Can not convert IValue to PolymorphicValue");
   }
 }
 

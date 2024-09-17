@@ -16,8 +16,6 @@ namespace nvfuser {
 //   1. Iteration domains
 //   2. Broadcast domains
 //   3. Reduction domains
-// Among IterDomains with the same IterType, we prefer IterDomains with a
-// constant unexpanded extent to others.
 IterDomain* representativeId(const ValGroup& vg);
 
 // Given a ValGraph and two ValGroups g0 and g1 in this graph, if there is

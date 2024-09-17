@@ -181,7 +181,7 @@ class NVF_API ContiguousInnerDimensionsMapper
 
   Val* getProjectedExtent(IterDomain* id) const {
     if (projected_extent_.find(id) == projected_extent_.end()) {
-      NVF_ERROR(false, "Not projected: ", id->toString());
+      NVF_THROW("Not projected: ", id->toString());
     }
     return projected_extent_.at(id);
   }

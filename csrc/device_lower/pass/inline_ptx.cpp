@@ -270,7 +270,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
     } else if (mma->isHopper()) {
       handleHopperMma(mma);
     } else {
-      NVF_ERROR(false, "Unsupported MMA architecture");
+      NVF_THROW("Unsupported MMA architecture");
     }
   }
 };

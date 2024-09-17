@@ -64,7 +64,7 @@ std::string toString(MmaLayout input_layout) {
       ss << "NN";
       break;
     default:
-      NVF_ERROR(false, "unsupported operand layout");
+      NVF_THROW("unsupported operand layout");
   }
   return ss.str();
 }

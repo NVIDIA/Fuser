@@ -24,7 +24,7 @@
 
 // NOTE: included to avoid compilation error caused by missing destructor in
 // 'SchedulerRuntimeInfo'
-#include <executor_utils.h>
+#include <fusion_executor/executor_utils.h>
 #include "mma_type.h"
 
 namespace nvfuser {

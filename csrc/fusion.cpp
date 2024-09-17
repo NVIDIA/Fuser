@@ -10,8 +10,8 @@
 #include <device_lower/analysis/bank_conflict.h>
 #include <device_lower/lower2device.h>
 #include <disjoint_set.h>
-#include <executor_params.h>
 #include <fusion.h>
+#include <fusion_executor/executor_params.h>
 #include <fusion_segmenter.h>
 #include <host_ir/container.h>
 #include <instrumentation.h>

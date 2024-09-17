@@ -77,7 +77,7 @@ class PrecisionParametrizedTest
     default:
       break;
   }
-  NVF_ERROR(false, "Unsupported conversion of PrimDataType");
+  NVF_THROW("Unsupported conversion of PrimDataType");
   return "*";
 }
 
