@@ -29,6 +29,32 @@
 namespace nvfuser {
 namespace scheduler_utils {
 
+std::unordered_map<IterDomain*, IterDomain*>
+getReducedAllocToReductionLogicalMap(Fusion* fusion, TensorView* reduction_tv) {
+  // map from reduced tv's allocation domain to reduction tv's logical domain
+  auto reduced_tv = ir_utils::getSoleProducerTv(reduction_tv);
+  std::unordered_map<IterDomain*, IterDomain*>
+      reduced_alloc_to_reduction_logical;
+  // short path
+  if (!reduced_tv->hasAllocation()) {
+    return reduced_alloc_to_reduction_logical;
+  }
+  // create the map
+  auto id_model = IdModel(fusion, /*build_graphs=*/false);
+  id_model.buildExactGraph();
+  const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+  const DisjointSets<Val*>& val_sets = exact_graph.disjointValSets();
+  for (auto p_alloc_id : reduced_tv->getMaybeAllocationDomain()) {
+    for (auto c_logical_id : reduction_tv->getLogicalDomain()) {
+      if (val_sets.strictAreMapped(p_alloc_id, c_logical_id)) {
+        reduced_alloc_to_reduction_logical[p_alloc_id] = c_logical_id;
+        break;
+      }
+    }
+  }
+  return reduced_alloc_to_reduction_logical;
+}
+
 // Returns number of "valid" dimensions. e.g. if tv has
 // [I1, R2, I3, I4, R3{1}]
 // where R3{1} is in dont_merge, resulting domain should be:
@@ -39,10 +65,23 @@ namespace scheduler_utils {
 //  where R5{1} and R6{1} are in dont_merge, resulting domain should be:
 // [I2*I4, R1*R3, R4, R5{1}, R6{1}]
 // with return value 3
-size_t merge_3d(TensorView* tv) {
+size_t merge_3d(
+    TensorView* tv,
+    std::unordered_map<IterDomain*, int> logical_to_alloc_axis) {
   bool active_is_reduction = false;
   bool first_dim = true;
   int prev_i = -1;
+  std::cout << "merge_3d: " << tv->toString() << std::endl;
+  tv->printTransforms();
+
+  auto isContigInAlloc = [&logical_to_alloc_axis, &tv](int i, int j){
+    std::cout << "isContigInAlloc: " << i << ", " << j << std::endl;
+    std::cout << "isContigInAlloc: " << tv->axis(i)->toString() << ", " << tv->axis(j)->toString() << std::endl;
+    int axis_i = logical_to_alloc_axis.at(tv->axis(i));
+    int axis_j = logical_to_alloc_axis.at(tv->axis(j));
+    int diff = axis_i - axis_j;
+    return diff == 1 || diff == -1;
+  };
 
   for (int i = static_cast<int>(tv->nDims()) - 1; i >= 0; i--) {
     if (first_dim) {
@@ -53,8 +92,29 @@ size_t merge_3d(TensorView* tv) {
       if (tv->axis(i)->isReduction() != active_is_reduction) {
         break;
       }
-      tv->merge(i, prev_i);
-      prev_i = i;
+      // don't merge if not contiguous in allocation domain
+      int axis_i = logical_to_alloc_axis.at(tv->axis(i));
+      int axis_j = logical_to_alloc_axis.at(tv->axis(prev_i));
+      // always put axis_i to the left of axis_j
+      if(axis_i > axis_j){
+        std::swap(axis_i, axis_j);
+      }
+      if(axis_i + 1 == axis_j){
+        tv->merge(i, prev_i);
+        prev_i = i;
+        // update map
+        // before merge [0, 1, i, j, 4, 5]
+        // after merge [0, 1, i*j, 3, 4]
+        logical_to_alloc_axis[tv->axis(i)] = axis_i;
+        for(auto [k,v] : logical_to_alloc_axis){
+          if(v > axis_j){
+            logical_to_alloc_axis[k] = v - 1;
+          }
+        }
+      }else{
+        break;
+      }
+
     }
   }
 
@@ -68,6 +128,7 @@ size_t merge_3d(TensorView* tv) {
   active_is_reduction = false;
   first_dim = true;
   prev_i = -1;
+  std::cout << "reorder merge_3d: " << tv->toString() << std::endl;
 
   for (int i = static_cast<int>(tv->nDims()) - 2; i >= 0; i--) {
     auto id = tv->axis(i);
@@ -699,7 +760,7 @@ namespace {
 bool isInputOfFastestDimReduction(
     TensorView* reduced_tv,
     const std::unordered_map<IterDomain*, IterDomain*>&
-        producer_alloc_to_reduction_logical) {
+        reduced_alloc_to_reduction_logical) {
   for (auto it = reduced_tv->getMaybeAllocationDomain().rbegin();
        it != reduced_tv->getMaybeAllocationDomain().rend();
        ++it) {
@@ -709,12 +770,12 @@ bool isInputOfFastestDimReduction(
       continue;
     }
     NVF_ERROR(
-        producer_alloc_to_reduction_logical.find(*it) !=
-            producer_alloc_to_reduction_logical.end(),
+        reduced_alloc_to_reduction_logical.find(*it) !=
+            reduced_alloc_to_reduction_logical.end(),
         "Could not find ",
         (*it)->toString(),
-        " in producer_alloc_to_reduction_logical.");
-    auto redu_logical_id = producer_alloc_to_reduction_logical.at(*it);
+        " in reduced_alloc_to_reduction_logical.");
+    auto redu_logical_id = reduced_alloc_to_reduction_logical.at(*it);
     if (redu_logical_id->isBroadcast()) {
       continue;
     } else if (redu_logical_id->isReduction()) {
@@ -737,25 +798,13 @@ ReductionTvProperties getReductionProperties(
   NVF_ERROR(reduction_tv != nullptr);
 
   // map from producer's allocation domain to reduction tv's logical domain
-  std::unordered_map<IterDomain*, IterDomain*>
-      producer_alloc_to_reduction_logical;
-  auto reduced_tv = ir_utils::getSoleProducerTv(reduction_tv);
-  auto id_model = IdModel(fusion, /*build_graphs=*/false);
-  id_model.buildExactGraph();
-  const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
-  const DisjointSets<Val*>& val_sets = exact_graph.disjointValSets();
-  for (auto p_alloc_id : reduced_tv->getMaybeAllocationDomain()) {
-    for (auto c_logical_id : reduction_tv->getLogicalDomain()) {
-      if (val_sets.strictAreMapped(p_alloc_id, c_logical_id)) {
-        producer_alloc_to_reduction_logical[p_alloc_id] = c_logical_id;
-        break;
-      }
-    }
-  }
+  const auto& reduced_alloc_to_reduction_logical =
+      getReducedAllocToReductionLogicalMap(fusion, reduction_tv);
 
   // check reduction properties using the producer's allocation domain
+  auto reduced_tv = ir_utils::getSoleProducerTv(reduction_tv);
   bool fastest_dim_reduction = isInputOfFastestDimReduction(
-      reduced_tv, producer_alloc_to_reduction_logical);
+      reduced_tv, reduced_alloc_to_reduction_logical);
   // Tracks the dimensionality of the problem starts on inner most dim and works
   // outward
   int64_t dimensionality = 1;
@@ -776,12 +825,12 @@ ReductionTvProperties getReductionProperties(
       continue;
     }
     NVF_ERROR(
-        producer_alloc_to_reduction_logical.find(maybe_alloc_dom[i - 1]) !=
-            producer_alloc_to_reduction_logical.end(),
+        reduced_alloc_to_reduction_logical.find(maybe_alloc_dom[i - 1]) !=
+            reduced_alloc_to_reduction_logical.end(),
         "Could not find ",
         maybe_alloc_dom[i - 1]->toString(),
-        " in producer_alloc_to_reduction_logical.");
-    auto id = producer_alloc_to_reduction_logical.at(maybe_alloc_dom[i - 1]);
+        " in reduced_alloc_to_reduction_logical.");
+    auto id = reduced_alloc_to_reduction_logical.at(maybe_alloc_dom[i - 1]);
     if (id->isBroadcast()) {
       continue;
     }
@@ -815,12 +864,12 @@ ReductionTvProperties getReductionProperties(
         inferred_val.hasValue(),
         "Error inferring dimensions of reduction fusion.");
     NVF_ERROR(
-        producer_alloc_to_reduction_logical.find(id) !=
-            producer_alloc_to_reduction_logical.end(),
+        reduced_alloc_to_reduction_logical.find(id) !=
+            reduced_alloc_to_reduction_logical.end(),
         "Could not find ",
         id->toString(),
-        " in producer_alloc_to_reduction_logical.");
-    if (producer_alloc_to_reduction_logical.at(id)->isReduction()) {
+        " in reduced_alloc_to_reduction_logical.");
+    if (reduced_alloc_to_reduction_logical.at(id)->isReduction()) {
       total_reduction_numel *= inferred_val.as<int64_t>();
     } else {
       total_iteration_numel *= inferred_val.as<int64_t>();
@@ -1150,7 +1199,23 @@ std::pair<bool, bool> canonicalDimReduction(
     bool has_iter_axis = mergeNonReduction(tv) > 0;
     return {has_iter_axis, has_red_axis};
   } else {
-    NVF_ERROR(merge_3d(tv) == 3, "Tried 3D merge, but result is not 3D.");
+    // To ensure only collapse IDs that are consecutive in the allocation
+    // domain, needs to map each logical domain in the reduction tv to its
+    // producer's allocation domain.
+    auto reduced_tv = ir_utils::getSoleProducerTv(tv);
+    std::unordered_map<IterDomain*, int> logical_to_alloc_axis;
+    if(reduced_tv->hasAllocation()){
+      const auto& alloc_domain = reduced_tv->getAllocationDomain();
+      const auto& alloc_to_logical =
+          getReducedAllocToReductionLogicalMap(fusion, tv);
+      for (auto [alloc_id, logical_id] : alloc_to_logical) {
+        int alloc_id_axis =
+            std::distance(alloc_domain.begin(), std::find(alloc_domain.begin(), alloc_domain.end(), alloc_id));
+        logical_to_alloc_axis[logical_id] = alloc_id_axis;
+        std::cout << "logical_id : alloc_id_axis " << logical_id->toString() << " : " << alloc_id_axis << std::endl;
+      }
+    }
+    NVF_ERROR(merge_3d(tv, logical_to_alloc_axis) == 3, "Tried 3D merge, but result is not 3D.");
     if (tv->axis(1)->isBroadcast()) {
       NVF_ERROR(
           !tv->axis(0)->isBroadcast(),

@@ -1460,6 +1460,218 @@ TEST_F(AllocationDomainTest, ReductionOnPermutedReshape) {
           .cuda()
           .as_strided({16, 12, 128, 192}, {128 * 12 * 192, 192, 12 * 192, 1});
   std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+
+  // validate reduction type
+  auto heuristic_params = fec.getMostRecentKernelRuntime()
+                              ->schedulerHeuristics()
+                              ->heuristicsList()
+                              .at(0)
+                              ->params();
+  ASSERT_TRUE(heuristic_params->isA<ReductionParams>());
+  auto reduction_params = heuristic_params->as<ReductionParams>();
+  ASSERT_FALSE(reduction_params->fastest_dim) << "Should use outer reduction!";
+
+  // validate vectorization, all output tensors should have vectorization
+  // all consumers of the input tensor should have vectorization.
+  auto scheduled_fusion = fec.getMostRecentKernelRuntime()->executors().at(0).fusion();
+  scheduled_fusion->printMath();
+  auto hasVectorization = [](TensorView* tv) -> bool {
+    for (auto i : tv->getLoopDomain()) {
+      if (i->getParallelType() == ParallelType::Vectorize) {
+        return true;
+      }
+    }
+    return false;
+  };
+  for (auto o : scheduled_fusion->outputs()) {
+    ASSERT_TRUE(hasVectorization(o->as<TensorView>()));
+  }
+  for (auto i : scheduled_fusion->inputs()) {
+    for (auto c : ir_utils::consumerTvsOf(i->as<TensorView>())) {
+      ASSERT_TRUE(hasVectorization(c));
+    }
+  }
+
   testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 }
+
+// Reduced tv is tv1, it is the input and has user specified allocation domain.
+// Reduced dim is tv1's axis(0), it is the fastest dim in the allocation domain.
+// The reduction type is inner reduction.
+TEST_F(AllocationDomainTest, ReductionTypePropagationNotRequired) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  long x = 3L, y = 1024L, z = 65L;
+  auto tv1 = makeContigConcreteTensor({x, y, z});
+  fusion->addInput(tv1);
+  std::vector<IterDomain*> tv1_dom = {tv1->axis(2), tv1->axis(1), tv1->axis(0)};
+  tv1->setAllocationDomain(tv1_dom, true);
+  auto tv2 = sum(tv1, {0});
+  fusion->addOutput(tv2);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t1 = at::randn({x, y, z}, options).as_strided({x, y, z}, {1, x, x * y});
+  std::vector<c10::IValue> inputs({t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto heuristic_params = executor_cache.getMostRecentKernelRuntime()
+                              ->schedulerHeuristics()
+                              ->heuristicsList()
+                              .at(0)
+                              ->params();
+  ASSERT_TRUE(heuristic_params->isA<ReductionParams>());
+  auto reduction_params = heuristic_params->as<ReductionParams>();
+  ASSERT_TRUE(reduction_params->fastest_dim) << "Should use inner reduction!";
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+}
+
+// tv2 is the reduced tv, it doesn't have allocation domain. To correctly get
+// the reduction type from its allocation domain, pre-segment pass should
+// propagate the allocation domain from tv1 to tv2.
+TEST_F(AllocationDomainTest, ReductionTypePropagationRequired) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  long x = 3L, y = 1024L, z = 65L;
+  auto tv1 = makeContigConcreteTensor({x, y, z});
+  fusion->addInput(tv1);
+  std::vector<IterDomain*> tv1_dom = {tv1->axis(2), tv1->axis(1), tv1->axis(0)};
+  tv1->setAllocationDomain(tv1_dom, true);
+  auto tv2 = add(tv1, tv1);
+  auto tv3 = sum(tv2, {0});
+  fusion->addOutput(tv3);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t1 = at::randn({x, y, z}, options).as_strided({x, y, z}, {1, x, x * y});
+  std::vector<c10::IValue> inputs({t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto heuristic_params = executor_cache.getMostRecentKernelRuntime()
+                              ->schedulerHeuristics()
+                              ->heuristicsList()
+                              .at(0)
+                              ->params();
+  ASSERT_TRUE(heuristic_params->isA<ReductionParams>());
+  auto reduction_params = heuristic_params->as<ReductionParams>();
+  ASSERT_TRUE(reduction_params->fastest_dim) << "Should use inner reduction!";
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+}
+
+
+// tv2 is the reduced tv, it doesn't have allocation domain. To correctly get
+// the reduction type from its allocation domain, pre-segment pass should
+// propagate the allocation domain from tv1 to tv2.
+TEST_F(AllocationDomainTest, GroupNormReductionOnly) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  long n = 1024L, c = 256L, h = 16L, w = 16L, g=32L;
+  const std::vector<int64_t> input_shape = {n, c, h, w};
+  const std::vector<int64_t> group_shape = {n, g, c / g, h, w};  
+  auto tv1 = makeContigConcreteTensor(input_shape);
+  fusion->addInput(tv1);
+  std::vector<IterDomain*> tv1_dom = {tv1->axis(0), tv1->axis(2), tv1->axis(3), tv1->axis(1)};
+  tv1->setAllocationDomain(tv1_dom, true);
+  auto tv2 = reshape(tv1, input_shape, group_shape);
+  auto tv3 = sum(tv2, {2, 3, 4});
+  fusion->addOutput(tv3);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t1 = at::randn(input_shape, options).as_strided({n, c, h, w}, {c * h * w, 1, w * c, c});
+  std::vector<c10::IValue> inputs({t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto heuristic_params = executor_cache.getMostRecentKernelRuntime()
+                              ->schedulerHeuristics()
+                              ->heuristicsList()
+                              .at(0)
+                              ->params();
+  ASSERT_TRUE(heuristic_params->isA<ReductionParams>());
+  auto reduction_params = heuristic_params->as<ReductionParams>();
+  ASSERT_TRUE(reduction_params->fastest_dim) << "Should use inner reduction!";
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+}
+
+TEST_F(AllocationDomainTest, GroupNormChannelLast) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  constexpr int64_t n = 1024, c = 256, h = 16, w = 16, g = 32;
+  const std::vector<int64_t> input_shape = {n, c, h, w};
+  const std::vector<int64_t> group_shape = {n, g, c / g, h, w};
+  const std::vector<int64_t> input_shape_wb = {c};
+  const std::vector<int64_t> group_shape_wb = {g, c / g};
+  DataType dtype = DataType::Half;
+  auto tv0 = makeContigTensor(input_shape.size(), dtype);
+  auto tv1 = makeContigTensor(input_shape_wb.size(), DataType::Float);
+  auto tv2 = makeContigTensor(input_shape_wb.size(), DataType::Float);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+  // channel last, n, h, w, c
+  tv0->setAllocationDomain(
+      {tv0->axis(0), tv0->axis(2), tv0->axis(3), tv0->axis(1)}, true);
+  auto tv3 = castOp(DataType::Float, tv0);
+  // reshape from {N, C, H, W} to {N, G, C / G, H, W}
+  auto tv4 = reshape(tv3, input_shape, group_shape);
+  // normalization
+  auto tv5 = sum(tv4, {-1, -2, -3});
+  auto tv6 = broadcast(tv5, {false, false, true, true, true});
+  auto tv7 = div(tv4, tv6);
+  // reshape scale and bias
+  auto tv8 = reshape(tv1, input_shape_wb, group_shape_wb);
+  auto tv9 = reshape(tv2, input_shape_wb, group_shape_wb);
+  // apply scale and bias
+  auto tv10 = broadcast(tv8, {true, false, false, true, true});
+  auto tv11 = broadcast(tv9, {true, false, false, true, true});
+  auto tv12 = mul(tv7, tv10);
+  auto tv13 = add(tv12, tv11);
+  auto tv14 = castOp(dtype, tv13);
+  // reshape back to input shape, segmented as a NoOp
+  auto tv15 = reshape(tv14, group_shape, input_shape);
+  fusion->addOutput(tv15);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto options_wb = at::TensorOptions()
+                        .dtype(data_type_to_aten(DataType::Float))
+                        .device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options).as_strided({n, c, h, w}, {c * h * w, 1, w * c, c});
+  auto tw = at::randn(input_shape_wb, options_wb);
+  auto tb = at::randn(input_shape_wb, options_wb);
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto cg_outputs = fec.runFusionWithInputs({t0, tw, tb});
+  auto seg_groups =
+      fec.getMostRecentKernelRuntime()->fusionSegments()->groups();
+
+  EXPECT_THAT(
+      seg_groups,
+      testing::UnorderedElementsAre(
+          HeuristicIs(ScheduleHeuristic::InnerPersistent),
+          HeuristicIs(ScheduleHeuristic::NoOp)));
+
+
+  // validate vectorization, all output tensors should have vectorization
+  // all consumers of the input tensor should have vectorization.
+  auto scheduled_fusion = fec.getMostRecentKernelRuntime()->executors().at(0).fusion();
+  scheduled_fusion->printMath();
+  auto hasVectorization = [](TensorView* tv) -> bool {
+    for (auto i : tv->getLoopDomain()) {
+      if (i->getParallelType() == ParallelType::Vectorize) {
+        return true;
+      }
+    }
+    return false;
+  };
+  // for (auto o : scheduled_fusion->outputs()) {
+  //   ASSERT_TRUE(hasVectorization(o->as<TensorView>()));
+  // }
+  for (auto i : scheduled_fusion->inputs()) {
+    for (auto c : ir_utils::consumerTvsOf(i->as<TensorView>())) {
+      ASSERT_TRUE(hasVectorization(c));
+    }
+  }
+
+  testValidate(
+      fec.fusion(), cg_outputs, {t0, tw, tb}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser

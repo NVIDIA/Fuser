@@ -11,7 +11,7 @@
 #include <iter_visitor.h>
 #include <logical_domain_map.h>
 #include <preseg_passes/allocation_order_inference.h>
-
+#include <scheduler/utils.h>
 namespace nvfuser::preseg_passes {
 
 namespace {
@@ -340,10 +340,12 @@ void AllocationDomainPass::runPass(Fusion* fusion) {
   // mark input TensorViews as propagation sources
   auto input_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
   std::vector<TensorView*> srcs(input_tvs.begin(), input_tvs.end());
-  // mark output TensorViews as propagation destinations
+  // mark output and reduced TensorViews as propagation destinations
+  // Reduced TensorViews are used to determine the reduction type.
   auto output_tvs = ir_utils::filterByType<TensorView>(fusion->outputs());
+  auto reduction_tvs = scheduler_utils::getReductionTvs(fusion);
   std::vector<TensorView*> dsts;
-  dsts.reserve(output_tvs.size());
+  dsts.reserve(output_tvs.size() + reduction_tvs.size());
   // TODO: instead of exclusion to propagation, this pass should mark it clear
   // that the propagated allocation order is strictly an optimization hint,
   // rather than a semantic requirement coming from computation definition.
@@ -358,8 +360,16 @@ void AllocationDomainPass::runPass(Fusion* fusion) {
     }
     dsts.push_back(output);
   }
+
+  for (TensorView* redu_tv : reduction_tvs) {
+    auto reduced_tv = ir_utils::getSoleProducerTv(redu_tv);
+    dsts.push_back(reduced_tv);
+  }
   // propagate allocation domain from sources to destinations
   inferenceAllocationOrder(fusion, srcs, dsts);
+
+  std::cout << "\n ============= after AllocationDomainPass: " << std::endl;
+  fusion->print();
 }
 
 } // namespace nvfuser::preseg_passes
