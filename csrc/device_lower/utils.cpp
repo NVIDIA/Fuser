@@ -1360,7 +1360,21 @@ PartOf<LinearGroupProjection> trimRedundant(
       part.selected_extent};
 }
 
-LinearGroupProjection eliminateTrivialPartOf(PartOf<LinearGroupProjection> part) {
+PartOf<LinearGroupProjection> mergeParts(
+    const PartOf<LinearGroupProjection>& part) {
+  if (!part.group->is<PartOf>()) {
+    return part;
+  }
+  const auto& group = part.group->as<PartOf>();
+
+  return PartOf<LinearGroupProjection>{
+      group.group,
+      SimplifyingIrBuilder::mulExpr(part.inner_extent, group.inner_extent),
+      part.selected_extent};
+}
+
+LinearGroupProjection eliminateTrivialPartOf(
+    PartOf<LinearGroupProjection> part) {
   // If group has the same extent as the selected extent, and there is no inner
   // extent in group, the the full group represents the selected group.
   //
@@ -1375,12 +1389,14 @@ LinearGroupProjection eliminateTrivialPartOf(PartOf<LinearGroupProjection> part)
 }
 
 LinearGroupProjection simplify(PartOf<LinearGroupProjection> part) {
+  // TODO: loop until no change.
   part = PartOf<LinearGroupProjection>{
       std::make_shared<LinearGroupProjection>(simplify(*part.group)),
       part.inner_extent,
       part.selected_extent};
   part = cancelCommonFactors(part);
   part = trimRedundant(part);
+  part = mergeParts(part);
   return eliminateTrivialPartOf(part);
 }
 
@@ -1445,11 +1461,10 @@ LinearGroupProjection propagate(
     NVF_ERROR(from.front() == current || from.back() == current);
     return PartOf<LinearGroupProjection>{
         std::make_shared<LinearGroupProjection>(to.front()),
-        /*inner_extent=*/from.front() == current
-            ? from.back()->front()->as<IterDomain>()->extent()
-            : nullptr,
+        /*inner_extent=*/from.front() == current ? extent(from.back())
+                                                 : nullptr,
         /*selected_extent=*/
-        simplifyExpr(current->front()->as<IterDomain>()->extent())};
+        simplifyExpr(extent(current))};
   }
 }
 
@@ -1460,55 +1475,23 @@ LinearGroupProjection propagate(
     Direction direction) {
   auto from = fromGroups(id_graph, eg, direction);
   auto to = toGroups(id_graph, eg, direction);
-  if (from.size() == 1) {
-    NVF_ERROR(to.size() == 2);
-    NVF_ERROR(related(*current.group, from.front()));
-    auto propagated = propagate(*current.group, id_graph, eg, direction);
-    if (!propagated.hasValue()) {
-      // Propagation of group may fail. For example, if the group before
-      // propagation is [4, 3], and eg is split(3, 2), then the end result
-      // would be like [4, 2, 2]. However, because the split is indivisible,
-      // this makes group discontiguous. That is, "a composition of 4 and 3"
-      // is not a "composition of 4, 2, and 2". In this case, the return value
-      // of `propagate` will be std::monostate, indicating that the linear
-      // proving fails. For this case, we just propagate the failure.
-      return {};
-    }
-    auto result = PartOf<LinearGroupProjection>{
-        std::make_shared<LinearGroupProjection>(propagated),
-        current.inner_extent,
-        current.selected_extent};
-    return simplify(result);
-  } else {
-    NVF_ERROR(from.size() == 2);
-    NVF_ERROR(to.size() == 1);
-    NVF_ERROR(
-        related(*current.group, from.front()) ||
-        related(*current.group, from.back()));
-    // Adding more extent to the inner.
-    if (current.group->is<ValGroup>() &&
-        current.group->as<ValGroup>() == from.front()) {
-      return PartOf<LinearGroupProjection>{
-          std::make_shared<LinearGroupProjection>(to.front()),
-          SimplifyingIrBuilder::mulExpr(
-              current.inner_extent,
-              from.back()->front()->as<IterDomain>()->extent()),
-          current.selected_extent};
-    }
-    // Adding more extent to the outer.
-    if (current.group->is<ValGroup>() &&
-        current.group->as<ValGroup>() == from.back()) {
-      return PartOf<LinearGroupProjection>{
-          std::make_shared<LinearGroupProjection>(to.front()),
-          current.inner_extent,
-          current.selected_extent};
-    }
-    // Other cases are not implemented yet. Just return std::monostate,
-    // which will make proveLinearAndGetStride stop the propagation and return
-    // "can not prove linear". In the future, we can implement these cases if it
-    // turns out to be useful.
+  auto propagated = propagate(*current.group, id_graph, eg, direction);
+  if (!propagated.hasValue()) {
+    // TODO: update this
+    // Propagation of group may fail. For example, if the group before
+    // propagation is [4, 3], and eg is split(3, 2), then the end result
+    // would be like [4, 2, 2]. However, because the split is indivisible,
+    // this makes group discontiguous. That is, "a composition of 4 and 3"
+    // is not a "composition of 4, 2, and 2". In this case, the return value
+    // of `propagate` will be std::monostate, indicating that the linear
+    // proving fails. For this case, we just propagate the failure.
     return {};
   }
+  auto result = PartOf<LinearGroupProjection>{
+      std::make_shared<LinearGroupProjection>(propagated),
+      current.inner_extent,
+      current.selected_extent};
+  return simplify(result);
 }
 
 LinearGroupProjection propagate(
