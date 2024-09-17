@@ -43,7 +43,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
   using kir::ExprMutator::handle;
 
   // The ElectSync predicate expects a single thread to run operations within
-  // If-Then-Else. Any TensorView with block parallelization is incompatible
+  // If-Then-Else. Any TensorView with thread parallelization is incompatible
   // with this If-Then-Else because it can create a conflicting predicate.
   void checkElectSyncCompatibility(Expr* expr) {
     NVF_CHECK(expr->predicate()->predicate_type() == PredicateType::ElectSync);
@@ -59,15 +59,15 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
             continue;
           }
           // Check that none of the IterDomains in TensorView are parallelized
-          // with a block dimension.
+          // with a thread dimension like TIDx, TIDy, or TIDz.
           TensorView* tv = val->as<kir::TensorIndex>()->view();
-          bool is_block_parallelized = std::any_of(
+          bool is_thread_parallelized = std::any_of(
               tv->domain()->loop().begin(),
               tv->domain()->loop().end(),
               [](IterDomain* id) { return id->isThreadDim(); });
           NVF_ERROR(
-              !is_block_parallelized,
-              "This block-parallelized TensorView ",
+              !is_thread_parallelized,
+              "This thread-parallelized TensorView ",
               tv->toString(),
               " is incorrectly contained within a If-Then-Else with the ",
               "ElectSync predicate.");
