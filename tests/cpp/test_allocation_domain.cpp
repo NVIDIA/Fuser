@@ -1473,7 +1473,8 @@ TEST_F(AllocationDomainTest, ReductionOnPermutedReshape) {
 
   // validate vectorization, all output tensors should have vectorization
   // all consumers of the input tensor should have vectorization.
-  auto scheduled_fusion = fec.getMostRecentKernelRuntime()->executors().at(0).fusion();
+  auto scheduled_fusion =
+      fec.getMostRecentKernelRuntime()->executors().at(0).fusion();
   scheduled_fusion->printMath();
   auto hasVectorization = [](TensorView* tv) -> bool {
     for (auto i : tv->getLoopDomain()) {
@@ -1556,25 +1557,26 @@ TEST_F(AllocationDomainTest, ReductionTypePropagationRequired) {
   testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
 }
 
-
 // tv2 is the reduced tv, it doesn't have allocation domain. To correctly get
 // the reduction type from its allocation domain, pre-segment pass should
 // propagate the allocation domain from tv1 to tv2.
 TEST_F(AllocationDomainTest, GroupNormReductionOnly) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  long n = 1024L, c = 256L, h = 16L, w = 16L, g=32L;
+  long n = 1024L, c = 256L, h = 16L, w = 16L, g = 32L;
   const std::vector<int64_t> input_shape = {n, c, h, w};
-  const std::vector<int64_t> group_shape = {n, g, c / g, h, w};  
+  const std::vector<int64_t> group_shape = {n, g, c / g, h, w};
   auto tv1 = makeContigConcreteTensor(input_shape);
   fusion->addInput(tv1);
-  std::vector<IterDomain*> tv1_dom = {tv1->axis(0), tv1->axis(2), tv1->axis(3), tv1->axis(1)};
+  std::vector<IterDomain*> tv1_dom = {
+      tv1->axis(0), tv1->axis(2), tv1->axis(3), tv1->axis(1)};
   tv1->setAllocationDomain(tv1_dom, true);
   auto tv2 = reshape(tv1, input_shape, group_shape);
   auto tv3 = sum(tv2, {2, 3, 4});
   fusion->addOutput(tv3);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t1 = at::randn(input_shape, options).as_strided({n, c, h, w}, {c * h * w, 1, w * c, c});
+  auto t1 = at::randn(input_shape, options)
+                .as_strided({n, c, h, w}, {c * h * w, 1, w * c, c});
   std::vector<c10::IValue> inputs({t1});
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -1633,7 +1635,8 @@ TEST_F(AllocationDomainTest, GroupNormChannelLast) {
   auto options_wb = at::TensorOptions()
                         .dtype(data_type_to_aten(DataType::Float))
                         .device(at::kCUDA, 0);
-  auto t0 = at::randn(input_shape, options).as_strided({n, c, h, w}, {c * h * w, 1, w * c, c});
+  auto t0 = at::randn(input_shape, options)
+                .as_strided({n, c, h, w}, {c * h * w, 1, w * c, c});
   auto tw = at::randn(input_shape_wb, options_wb);
   auto tb = at::randn(input_shape_wb, options_wb);
 
@@ -1648,10 +1651,10 @@ TEST_F(AllocationDomainTest, GroupNormChannelLast) {
           HeuristicIs(ScheduleHeuristic::InnerPersistent),
           HeuristicIs(ScheduleHeuristic::NoOp)));
 
-
   // validate vectorization, all output tensors should have vectorization
   // all consumers of the input tensor should have vectorization.
-  auto scheduled_fusion = fec.getMostRecentKernelRuntime()->executors().at(0).fusion();
+  auto scheduled_fusion =
+      fec.getMostRecentKernelRuntime()->executors().at(0).fusion();
   scheduled_fusion->printMath();
   auto hasVectorization = [](TensorView* tv) -> bool {
     for (auto i : tv->getLoopDomain()) {
@@ -1670,8 +1673,7 @@ TEST_F(AllocationDomainTest, GroupNormChannelLast) {
     }
   }
 
-  testValidate(
-      fec.fusion(), cg_outputs, {t0, tw, tb}, __LINE__, __FILE__);
+  testValidate(fec.fusion(), cg_outputs, {t0, tw, tb}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

@@ -71,17 +71,6 @@ size_t merge_3d(
   bool active_is_reduction = false;
   bool first_dim = true;
   int prev_i = -1;
-  std::cout << "merge_3d: " << tv->toString() << std::endl;
-  tv->printTransforms();
-
-  auto isContigInAlloc = [&logical_to_alloc_axis, &tv](int i, int j){
-    std::cout << "isContigInAlloc: " << i << ", " << j << std::endl;
-    std::cout << "isContigInAlloc: " << tv->axis(i)->toString() << ", " << tv->axis(j)->toString() << std::endl;
-    int axis_i = logical_to_alloc_axis.at(tv->axis(i));
-    int axis_j = logical_to_alloc_axis.at(tv->axis(j));
-    int diff = axis_i - axis_j;
-    return diff == 1 || diff == -1;
-  };
 
   for (int i = static_cast<int>(tv->nDims()) - 1; i >= 0; i--) {
     if (first_dim) {
@@ -96,25 +85,24 @@ size_t merge_3d(
       int axis_i = logical_to_alloc_axis.at(tv->axis(i));
       int axis_j = logical_to_alloc_axis.at(tv->axis(prev_i));
       // always put axis_i to the left of axis_j
-      if(axis_i > axis_j){
+      if (axis_i > axis_j) {
         std::swap(axis_i, axis_j);
       }
-      if(axis_i + 1 == axis_j){
+      if (axis_i + 1 == axis_j) {
         tv->merge(i, prev_i);
         prev_i = i;
         // update map
         // before merge [0, 1, i, j, 4, 5]
         // after merge [0, 1, i*j, 3, 4]
         logical_to_alloc_axis[tv->axis(i)] = axis_i;
-        for(auto [k,v] : logical_to_alloc_axis){
-          if(v > axis_j){
+        for (auto [k, v] : logical_to_alloc_axis) {
+          if (v > axis_j) {
             logical_to_alloc_axis[k] = v - 1;
           }
         }
-      }else{
+      } else {
         break;
       }
-
     }
   }
 
@@ -128,7 +116,6 @@ size_t merge_3d(
   active_is_reduction = false;
   first_dim = true;
   prev_i = -1;
-  std::cout << "reorder merge_3d: " << tv->toString() << std::endl;
 
   for (int i = static_cast<int>(tv->nDims()) - 2; i >= 0; i--) {
     auto id = tv->axis(i);
@@ -1204,18 +1191,20 @@ std::pair<bool, bool> canonicalDimReduction(
     // producer's allocation domain.
     auto reduced_tv = ir_utils::getSoleProducerTv(tv);
     std::unordered_map<IterDomain*, int> logical_to_alloc_axis;
-    if(reduced_tv->hasAllocation()){
+    if (reduced_tv->hasAllocation()) {
       const auto& alloc_domain = reduced_tv->getAllocationDomain();
       const auto& alloc_to_logical =
           getReducedAllocToReductionLogicalMap(fusion, tv);
       for (auto [alloc_id, logical_id] : alloc_to_logical) {
-        int alloc_id_axis =
-            std::distance(alloc_domain.begin(), std::find(alloc_domain.begin(), alloc_domain.end(), alloc_id));
+        int alloc_id_axis = (int)std::distance(
+            alloc_domain.begin(),
+            std::find(alloc_domain.begin(), alloc_domain.end(), alloc_id));
         logical_to_alloc_axis[logical_id] = alloc_id_axis;
-        std::cout << "logical_id : alloc_id_axis " << logical_id->toString() << " : " << alloc_id_axis << std::endl;
       }
     }
-    NVF_ERROR(merge_3d(tv, logical_to_alloc_axis) == 3, "Tried 3D merge, but result is not 3D.");
+    NVF_ERROR(
+        merge_3d(tv, logical_to_alloc_axis) == 3,
+        "Tried 3D merge, but result is not 3D.");
     if (tv->axis(1)->isBroadcast()) {
       NVF_ERROR(
           !tv->axis(0)->isBroadcast(),
