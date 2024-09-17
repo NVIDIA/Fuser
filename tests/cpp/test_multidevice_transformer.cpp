@@ -1133,16 +1133,16 @@ TEST_P(DistributedTransformerTest, Backward) {
   auto mha_in = castOp(dtype, ln_0);
   auto qkv = mha_qkv(mha_in, mha_w0, mha_b0, mesh);
 
-  Val* scale = IrBuilder::create<Val>(1.0 / (1.0 - kDropoutProb));
+  Val* dropout_scale = IrBuilder::create<Val>(1.0 / (1.0 - kDropoutProb));
   // Use input mha_mask to implement dropout
   auto mha_out = mul(mha_linear1, mha_mask);
-  mha_out = mul(mha_out, scale);
+  mha_out = mul(mha_out, dropout_scale);
   auto resid_0 = add(x, mha_out);
   auto ln_1 = layer_norm_with_cached_statistics(
       resid_0, ln1_mean, ln1_rstd, norm_shape, ln1_w, ln1_b);
   auto mlp_in = castOp(dtype, ln_1);
   // Note: We only use linear0 and gelu outputs from the mlp forward pass.
-  auto mlp_tensors = mlp(mlp_in, mlp_w0, mlp_b0, mlp_w1, mlp_b1, mesh);
+  auto mlp_tvs = mlp(mlp_in, mlp_w0, mlp_b0, mlp_w1, mlp_b1, mesh);
 
   // Backwards
   auto mlp_grads = mlp_backwards(
@@ -1153,8 +1153,8 @@ TEST_P(DistributedTransformerTest, Backward) {
       mlp_b0,
       mlp_w1,
       mesh,
-      mlp_tensors[0],
-      mlp_tensors[1]);
+      mlp_tvs[0],
+      mlp_tvs[1]);
   auto ln1_grads = layer_norm_backward(
       castOp(DataType::Float, mlp_grads[6]),
       resid_0,
@@ -1235,8 +1235,7 @@ TEST_P(DistributedTransformerTest, Backward) {
        mlp_grads[5],
        mha_grads[1],
        mha_grads[6],
-       mha_grads[7],
-       mlp_tensors[3]},
+       mha_grads[7]},
       mha_w0);
 
   // Unsharded inputs to outputs
