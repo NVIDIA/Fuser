@@ -8,8 +8,9 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <executor.h>
+#include <expr_evaluator.h>
 #include <fusion.h>
+#include <fusion_executor/executor.h>
 #include <fusion_segmenter.h>
 #include <ir/all_nodes.h>
 #include <ir/interface_nodes.h>
@@ -31,7 +32,7 @@ class DistributedMatmulTest : public MultiDeviceTest {
  protected:
   DistributedMatmulTest() : num_devices_(communicator_->size()) {}
 
-  void SetUp() {
+  void SetUp() override {
     MultiDeviceTest::SetUp();
     if (!deviceMajorMinorCheck(8)) {
       GTEST_SKIP() << "Distributed matmul tests require Ampere or newer";

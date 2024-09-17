@@ -212,7 +212,7 @@ inline CpAsyncBulkTileType getCpAsyncBulkTileType(const Expr* expr) {
           getTv(ldst->out())->getMemoryType() == MemoryType::Global) {
         return CpAsyncBulkTileType::S2G;
       } else {
-        NVF_ERROR(false, "Invalid CpAsyncBulkTileType");
+        NVF_THROW("Invalid CpAsyncBulkTileType");
       }
     }
   }
@@ -367,7 +367,7 @@ std::unordered_map<ParallelType, IterDomain*> getParallelDomains(
   } else if (val->isA<kir::TensorIndex>()) {
     tv = val->as<kir::TensorIndex>()->view();
   } else {
-    NVF_ERROR(false, "Provided val is not TensorIndex or TensorView.");
+    NVF_THROW("Provided val is not TensorIndex or TensorView.");
   }
 
   std::unordered_map<ParallelType, IterDomain*> parallel_domains;

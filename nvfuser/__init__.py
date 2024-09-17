@@ -204,21 +204,14 @@ class FusionDefinition(_C._FusionDefinition):
 
         # If schedule is defined by child class and schedule is not defined for
         # inputs, make a schedule.
-        is_fusion_definition_child_class = (
-            type(self) != FusionDefinition
-        ) and issubclass(type(self), FusionDefinition)
-        defined_schedule = (
-            is_fusion_definition_child_class
-            and super(type(self), self).schedule != self.schedule
-        )
+        defined_schedule = type(self).schedule != FusionDefinition.schedule
         if defined_schedule and not self._exist_schedule(inputs):
             self._setup_schedule(inputs)
             self.schedule()
             self._finalize_schedule(inputs)
 
-        result = None
         try:
-            result = self._execute(
+            return self._execute(
                 inputs,
                 device=device,
                 override_user_schedule=override_user_schedule,
@@ -228,8 +221,6 @@ class FusionDefinition(_C._FusionDefinition):
         except Exception as err:
             logger.exception(self.getReproErrorString("executing", inputs))
             raise
-
-        return result
 
     def debug_output(self):
         """

@@ -1101,7 +1101,7 @@ const std::vector<Val*>& LoopIndexingTraversal::nextValsInTraversalOrder(
       break;
 
     default:
-      NVF_ERROR(false, "unimplemented traversal order");
+      NVF_THROW("unimplemented traversal order");
   }
   return expr->inputs();
 }
@@ -1117,7 +1117,7 @@ const std::vector<Val*>& LoopIndexingTraversal::prevValsInTraversalOrder(
       break;
 
     default:
-      NVF_ERROR(false, "unimplemented traversal order");
+      NVF_THROW("unimplemented traversal order");
   }
   return expr->inputs();
 }

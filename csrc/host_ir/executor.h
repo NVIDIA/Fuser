@@ -8,8 +8,8 @@
 #pragma once
 
 #include <dispatch.h>
-#include <executor.h>
 #include <expr_evaluator.h>
+#include <fusion_executor/executor.h>
 #include <host_ir/container.h>
 #include <host_ir/host_ir.h>
 #include <kernel_cache.h>

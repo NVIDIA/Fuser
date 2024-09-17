@@ -395,7 +395,7 @@ TEST_F(ExprEvalTest, Struct) {
       } else if (key == "b") {
         return [this]() { return PolymorphicValue(b); };
       } else {
-        NVF_ERROR(false, "Invalid key");
+        NVF_THROW("Invalid key");
       }
     }
 
@@ -406,7 +406,7 @@ TEST_F(ExprEvalTest, Struct) {
       } else if (key == "b") {
         return [this](const PolymorphicValue& value) { b = (int64_t)value; };
       } else {
-        NVF_ERROR(false, "Invalid key");
+        NVF_THROW("Invalid key");
       }
     }
   };

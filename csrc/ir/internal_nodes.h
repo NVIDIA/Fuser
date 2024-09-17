@@ -2354,7 +2354,7 @@ class Scope {
   }
 
   bool operator==(const Scope&) const {
-    NVF_ERROR(false, "Should not reach here");
+    NVF_THROW("Should not reach here");
   }
 
   // Insert expr before pos

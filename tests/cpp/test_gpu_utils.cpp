@@ -11,8 +11,8 @@
 
 #include <abstract_tensor.h>
 #include <device_lower/utils.h>
-#include <executor_utils.h>
 #include <fusion.h>
+#include <fusion_executor/executor_utils.h>
 #include <ops/all_ops.h>
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>
