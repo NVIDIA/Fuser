@@ -221,6 +221,12 @@ class KernelIrScanner : private IrVisitor {
         summary_.has_grid_broadcasts || parallel_types.hasBID();
   }
 
+  void handle(IfThenElse* ite) final {
+    if (ite->predicate()->predicate_type() == PredicateType::ElectSync) {
+      summary_.has_elect_sync_predicate = true;
+    }
+  }
+
  private:
   size_t max_smem_type_size_ = 0;
   KernelSummary summary_;
