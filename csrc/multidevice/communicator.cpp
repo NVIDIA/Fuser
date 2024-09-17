@@ -175,9 +175,9 @@ Communicator::Communicator(
     : is_available_(false),
       default_backend_(backend),
       rank_(0),
-      size_(0),
+      size_(1),
       local_rank_(0),
-      local_size_(0),
+      local_size_(1),
       master_port_(c10d::TCPStoreOptions::kDefaultPort),
       ucc_available_(false),
       nccl_available_(false) {

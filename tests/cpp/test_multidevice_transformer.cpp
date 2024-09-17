@@ -33,7 +33,7 @@ class DistributedTransformerTest
  protected:
   DistributedTransformerTest() : D(communicator_->size()) {}
 
-  void SetUp() {
+  void SetUp() override {
     MultiDeviceTest::SetUp();
     if (!deviceMajorMinorCheck(8)) {
       GTEST_SKIP() << "Distributed transformer tests require Ampere or newer";
