@@ -616,13 +616,28 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
   // Set the persistent buffer resolution points
   persistent_buffer_info.persistent_buffer_resolution_points = {};
   for (auto buffer : persistent_buffer_info.persistent_buffers) {
-    if (getenv("OLD")) {
-      persistent_buffer_info.persistent_buffer_resolution_points.emplace_back(
-          PersistentBufferResolution::getResolutionPointsOf(fusion, buffer));
-    } else {
-      persistent_buffer_info.persistent_buffer_resolution_points.emplace_back(
-          normalization_scheduler_utils::getResolutionPointsOf(buffer));
-    }
+#if 0
+    persistent_buffer_info.persistent_buffer_resolution_points.emplace_back(
+        normalization_scheduler_utils::getResolutionPointsOf(buffer));
+#else
+    auto current_result =
+        PersistentBufferResolution::getResolutionPointsOf(fusion, buffer);
+    auto new_result =
+        normalization_scheduler_utils::getResolutionPointsOf(buffer);
+    // Order may be different, which should be fine
+    std::unordered_set<TensorView*> current_result_set(
+        current_result.begin(), current_result.end());
+    std::unordered_set<TensorView*> new_result_set(
+        new_result.begin(), new_result.end());
+    NVF_ERROR(
+        current_result_set == new_result_set,
+        "Mismatch detected. Current: ",
+        toDelimitedString(current_result_set),
+        ", new: ",
+        toDelimitedString(new_result_set));
+    persistent_buffer_info.persistent_buffer_resolution_points.emplace_back(
+        new_result);
+#endif
   }
 
   // don't project if there are view ops and no buffer can be projected
