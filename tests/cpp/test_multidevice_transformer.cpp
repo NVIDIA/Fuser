@@ -464,19 +464,10 @@ TensorView* layer_norm_with_cached_statistics(
   auto x_sub_mean = sub(x, mean_bcast);
   auto y = mul(x_sub_mean, invstd);
 
-  // Optional: norm * weight
-  if (weight != nullptr) {
-    auto weight_bcast = broadcast(weight, outer_broadcast_mask);
-    y = mul(y, weight_bcast);
-  }
-
-  // Optional: norm * weight + bias
-  if (bias != nullptr) {
-    auto bias_bcast = broadcast(bias, outer_broadcast_mask);
-    y = add(y, bias_bcast);
-  }
-
-  return y;
+  auto weight_bcast = broadcast(weight, outer_broadcast_mask);
+  y = mul(y, weight_bcast);
+  auto bias_bcast = broadcast(bias, outer_broadcast_mask);
+  return add(y, bias_bcast);
 }
 
 // Backwards MLP block. Recomputes linear0 and gelu
