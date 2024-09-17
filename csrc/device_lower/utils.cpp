@@ -1234,6 +1234,36 @@ bool related(const LinearGroupProjection& current, const ValGroup& to) {
       [&](const auto& current) { return related(current, to); }, current);
 }
 
+// Utilities to get the extent of LinearGroupProjection.
+Val* extent(const LinearGroupProjection& group);
+
+Val* extent(const ValGroup& group) {
+  return group->front()->as<IterDomain>()->extent();
+}
+
+Val* extent(const PartOf<LinearGroupProjection>& part) {
+  return part.selected_extent;
+}
+
+Val* extent(const Composition<LinearGroupProjection>& vec) {
+  return std::accumulate(
+      vec.begin(),
+      vec.end(),
+      GpuLower::current()->kernel()->oneVal(),
+      [](Val* acc, const auto& g) {
+        return SimplifyingIrBuilder::mulExpr(acc, extent(g));
+      });
+}
+
+Val* extent(const std::monostate&) {
+  NVF_ERROR(false, "Cannot get extent of std::monostate");
+}
+
+Val* extent(const LinearGroupProjection& group) {
+  return LinearGroupProjection::dispatch(
+      [&](const auto& group) { return extent(group); }, group);
+}
+
 // Given an expression on the traversal path and its direction, get the from and
 // to groups. Note that the traversal path is obtained by running BFS from
 // domain to linear_g, so the direction is flipped with respect to how we
@@ -1352,27 +1382,16 @@ LinearGroupProjection propagate(
       Val* required_extent = SimplifyingIrBuilder::mulExpr(
           current.selected_extent, new_inner_extent);
       int64_t count = 0;
-      bool has_unknown = false;
       while (count < dq.size()) {
         count++;
         const auto& item = dq.at(dq.size() - count);
-        if (item.is<ValGroup>()) {
-          group_extent = SimplifyingIrBuilder::mulExpr(
-              group_extent,
-              item.as<ValGroup>()->front()->as<IterDomain>()->extent());
-          if (simplifyExpr(
-                  IrBuilder::isDivisibleExpr(group_extent, required_extent))
-                  ->isTrue()) {
-            break;
-          }
-        } else {
-          // We can not accurately compute the extent of simplified group. The
-          // group_extent just stores a factor of the actual extent.
-          has_unknown = true;
+        group_extent =
+            SimplifyingIrBuilder::mulExpr(group_extent, extent(item));
+        if (simplifyExpr(
+                IrBuilder::isDivisibleExpr(group_extent, required_extent))
+                ->isTrue()) {
+          break;
         }
-      }
-      if (has_unknown) {
-        group_extent = nullptr;
       }
       while (count < dq.size()) {
         dq.pop_front();
@@ -1453,11 +1472,11 @@ LinearGroupProjection propagate(
         result.emplace_back(to.front());
         result.emplace_back(to.back());
       } else if (related(g, from.front())) {
-        if (may_be_indivisible_split && !first) {
-          // indivisible split will make dims not contiguous, so not linear.
+        auto p = propagate(g, id_graph, eg, direction);
+        if (!p.hasValue()) {
           return {};
         }
-        result.emplace_back(propagate(g, id_graph, eg, direction));
+        result.emplace_back(std::move(p));
       } else {
         result.emplace_back(g);
       }
