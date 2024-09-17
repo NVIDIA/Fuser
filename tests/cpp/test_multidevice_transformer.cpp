@@ -494,7 +494,8 @@ std::vector<TensorView*> mlp_backwards(
   DataType dtype = w0->dtype();
   if (linear0 == nullptr) {
     TensorView* matmul0 = matmul(x, w0);
-    linear0 = add(matmul0, broadcast(b0, {false, true, false})); // add generates float.
+    linear0 = add(
+        matmul0, broadcast(b0, {false, true, false})); // add generates float.
     linear0 = castOp(DataType::Float, linear0);
   }
   if (gelu == nullptr) {
@@ -989,7 +990,7 @@ TEST_P(DistributedTransformerTest, Forward) {
       resid_1, norm_shape, /*weight=*/nullptr, /*bias=*/nullptr, eps);
   auto mlp_in = castOp(dtype, ln_2.output);
   auto mlp_out = mlp(mlp_in, mlp_w0, mlp_b0, mlp_w1, mlp_b1, mesh)[3];
-  auto resid_2 = add(mha_out, mlp_out);
+  auto resid_2 = add(resid_1, mlp_out);
 
   fusion->addOutput(ln_1.output);
   fusion->addOutput(mha_out);
@@ -1037,7 +1038,7 @@ TEST_P(DistributedTransformerTest, Forward) {
 
   auto mlp_out_ = reference_mlp(
       ln_2_out_.to(at_dtype), mlp_w0_, mlp_b0_, mlp_w1_, mlp_b1_)[3];
-  auto at_out = mha_out_ + mlp_out_;
+  auto at_out = resid1_ + mlp_out_;
 
   std::vector<c10::IValue> inputs = {
       x_,
@@ -1163,6 +1164,7 @@ TEST_P(DistributedTransformerTest, Backward) {
       ln1_w,
       ln1_b,
       {true, true, true});
+  auto resid1_grad = add(ln1_grads.grad_input, grad);
   auto mha_grads = mha_backwards(
       mha_in,
       mha_w0,
@@ -1173,7 +1175,7 @@ TEST_P(DistributedTransformerTest, Backward) {
       mha_sdpa_log_sumexp,
       mha_sdpa_seed,
       mha_sdpa_offset,
-      ln1_grads.grad_input,
+      resid1_grad,
       qkv,
       mesh);
   auto ln0_grads = layer_norm_backward(
@@ -1185,6 +1187,7 @@ TEST_P(DistributedTransformerTest, Backward) {
       ln0_w,
       ln0_b,
       {true, true, true});
+  auto dx = add(ln0_grads.grad_input, resid1_grad);
 
   fusion->addOutput(mlp_grads[1]); // mlp linear1 weight grad
   fusion->addOutput(mlp_grads[2]); // mlp linear1 bias grad
@@ -1198,7 +1201,7 @@ TEST_P(DistributedTransformerTest, Backward) {
   fusion->addOutput(mha_grads[7]); // mha linear0 bias grad
   fusion->addOutput(ln0_grads.grad_weight);
   fusion->addOutput(ln0_grads.grad_bias);
-  fusion->addOutput(ln0_grads.grad_input); // transformer grad input
+  fusion->addOutput(dx); // transformer grad input
 
   // Sharding annotations for input and output TVs not sharded
   // by mlp_backward, mha_backward, or mlp.
@@ -1238,14 +1241,25 @@ TEST_P(DistributedTransformerTest, Backward) {
 
   // Unsharded inputs to outputs
   shardBetween(
-      {x, grad, mha_mask, mlp_mask, mha_linear1, ln0_mean, ln0_w, ln0_b, ln1_mean, ln1_w, ln1_b, mlp_b1},
+      {x,
+       grad,
+       mha_mask,
+       mlp_mask,
+       mha_linear1,
+       ln0_mean,
+       ln0_w,
+       ln0_b,
+       ln1_mean,
+       ln1_w,
+       ln1_b,
+       mlp_b1},
       {mlp_grads[2],
        ln1_grads.grad_weight,
        ln1_grads.grad_bias,
        mha_grads[2],
        ln0_grads.grad_weight,
        ln0_grads.grad_bias,
-       ln0_grads.grad_input},
+       dx},
       x);
 
   const auto options =
@@ -1289,8 +1303,9 @@ TEST_P(DistributedTransformerTest, Backward) {
       ln1_w_,
       ln1_b_,
       {true, true, true});
+  auto resid1_grad_ = ln1_x_grad_ + grad_;
   auto mha_grads_ = reference_mha_backwards(
-      ln1_x_grad_, mha_in_, mha_out_[4], mha_w0_, mha_b0_, mha_w1_);
+      resid1_grad_, mha_in_, mha_out_[4], mha_w0_, mha_b0_, mha_w1_);
   auto [ln0_x_grad_, ln0_w_grad_, ln0_b_grad_] = at::native_layer_norm_backward(
       mha_grads_[12].to(at::kFloat),
       x_,
@@ -1300,6 +1315,7 @@ TEST_P(DistributedTransformerTest, Backward) {
       ln0_w_,
       ln0_b_,
       {true, true, true});
+  auto dx_ = ln0_x_grad_ + resid1_grad_;
 
   auto expected_outputs = {
       shardTensor(mlp_grads_[1], 0, mesh), // mlp_linear1_weight_grad
@@ -1316,7 +1332,7 @@ TEST_P(DistributedTransformerTest, Backward) {
           .view({1, 3 * E / D}), // mha linear0 bias grad
       ln0_w_grad_,
       ln0_b_grad_,
-      ln0_x_grad_};
+      dx_};
 
   std::vector<c10::IValue> inputs = {
       x_,
@@ -1348,7 +1364,22 @@ TEST_P(DistributedTransformerTest, Backward) {
   FusionExecutorCache fec(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
   auto outputs = fec.runFusionWithInputs(inputs);
-  validate(expected_outputs, outputs, {0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1});
+  validate(
+      expected_outputs,
+      outputs,
+      {5e-4,
+       5e-4,
+       2e-3,
+       2e-3,
+       2e-3,
+       2e-3,
+       4e-3,
+       4e-3,
+       0.01,
+       0.01,
+       0.01,
+       0.01,
+       0.01});
 }
 
 INSTANTIATE_TEST_SUITE_P(
