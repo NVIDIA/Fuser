@@ -1072,7 +1072,7 @@ class MultipleMatmulScheduler {
       const std::optional<MmaOperand> operand_type) {
     auto all_merged_roles = blockTileTensors(tvs);
     for (size_t i : c10::irange(tvs.size())) {
-      TensorView*& mma_result = tvs[i];
+      TensorView*& operand = tvs[i];
       std::vector<MatmulDimRole>& merged_roles = all_merged_roles[i];
 
       // At this point we have the following schedule:
@@ -1085,15 +1085,25 @@ class MultipleMatmulScheduler {
       // Schedule warp tile
       // Incoming mma_result = [... iMo iNo (iKf) rKg iMi iNi rKi]
 
+      if (params_.use_smem_epilogue && params_.splitk_factor != 1) {
+        // TODO:
+        // This is a workaround for a problem that different dimensions in the
+        // loop domain are mapped in the loop graph of IdModel due to the
+        // mapping of compliment IDs. We should remove forwarding completely,
+        // and remove this workaround.
+        operand->split(-2, 1);
+        operand->merge(-3);
+      }
+
       // NOTE: this applies to either mma_result _or_ ab/bb since both have the
       // same number of dimensions.
       // TODO: use the version that uses merged_roles instead here
-      mma_utils::scheduleWarpTileWithReduction(mma_result, params_.tile_sizes);
+      mma_utils::scheduleWarpTileWithReduction(operand, params_.tile_sizes);
 
       // parallelize Mwo, Nwo by thread
-      mma_result->axis((int64_t)merged_roles.size() + num_splitk_dims_ + 1)
+      operand->axis((int64_t)merged_roles.size() + num_splitk_dims_ + 1)
           ->parallelize(ParallelType::TIDz);
-      mma_result->axis((int64_t)merged_roles.size() + num_splitk_dims_ + 2)
+      operand->axis((int64_t)merged_roles.size() + num_splitk_dims_ + 2)
           ->parallelize(ParallelType::TIDy);
     }
   }
@@ -1107,8 +1117,9 @@ class MultipleMatmulScheduler {
       std::vector<MatmulDimRole>& merged_roles = all_merged_roles[i];
 
       // do split-K rFactor to define splitk_sum and smem_epilogue
+      TensorView* splitk_sum = mma_result;
       if (params_.splitk_factor != 1) {
-        TensorView* splitk_sum = mma_result->rFactor({-4, -1});
+        splitk_sum = mma_result->rFactor({-4, -1});
         std::swap(splitk_sum, mma_result);
         splitk_sums_.push_back(splitk_sum);
       }
@@ -1134,11 +1145,6 @@ class MultipleMatmulScheduler {
       // Schedule warp tile
       // Incoming mma_result = [... iMo iNo (iKf) rKg iMi iNi rKi]
 
-      // NOTE: this applies to either mma_result _or_ ab/bb since both have the
-      // same number of dimensions.
-      // TODO: use the version that uses merged_roles instead here
-      mma_utils::scheduleWarpTileWithReduction(mma_result, params_.tile_sizes);
-
       if (params_.use_smem_epilogue && params_.splitk_factor != 1) {
         // TODO:
         // This is a workaround for a problem that different dimensions in the
@@ -1148,6 +1154,11 @@ class MultipleMatmulScheduler {
         mma_result->split(-2, 1);
         mma_result->merge(-3);
       }
+
+      // NOTE: this applies to either mma_result _or_ ab/bb since both have the
+      // same number of dimensions.
+      // TODO: use the version that uses merged_roles instead here
+      mma_utils::scheduleWarpTileWithReduction(mma_result, params_.tile_sizes);
 
       // This does a split-reorder-merge swizzle of the last two M and N
       // dimensions (and a possible final reduction dim). eg. [M64, N24, R]  ->
