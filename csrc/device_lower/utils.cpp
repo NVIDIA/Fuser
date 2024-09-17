@@ -1601,6 +1601,18 @@ Projection propagate(
   return simplify(result);
 }
 
+template <typename Container1, typename Container2>
+auto search(Container1& from, Container2& substr) {
+  return std::search(
+      from.begin(),
+      from.end(),
+      substr.begin(),
+      substr.end(),
+      [](const Projection& a, const Projection& b) {
+        return a.type() == b.type() && a == b;
+      });
+}
+
 Projection propagate(
     const Composition<Projection>& comp,
     const ValGraph& id_graph,
@@ -1641,25 +1653,12 @@ Projection propagate(
   // Projection.
   if (from.size() == 2 && to.size() == 1) {
     NVF_ERROR(eg->front()->isA<Split>() || eg->front()->isA<Merge>());
-    // If merging two contiguous groups, we need to update the result by
-    // replacing them into the merged group. If merging two non-contiguous
-    // groups, just fail the proof because it is not important for us yet.
-    auto outer_it =
-        std::find_if(comp.begin(), comp.end(), [&](const auto& proj) {
-          return proj.template is<ValGroup>() &&
-              proj.template as<ValGroup>() == from.front();
-        });
-    if (outer_it == comp.end()) {
-      return {};
-    }
-    auto inner_it = std::next(outer_it);
-    if (inner_it == comp.end()) {
-      return {};
-    }
-    if (inner_it->is<ValGroup>() && inner_it->as<ValGroup>() == from.back()) {
-      Composition<Projection> result = comp;
-      result.erase(result.begin() + std::distance(comp.begin(), inner_it));
-      result.at(std::distance(comp.begin(), outer_it)) = to.front();
+    // If merging two contiguous components, replace them with the merged ValGroup.
+    Composition<Projection> result = comp;
+    auto it = search(result, from);
+    if (it != comp.end()) {
+      result.erase(it + 1, it + from.size());
+      *it = to.front();
       return simplify(result);
     }
   }
@@ -1722,25 +1721,11 @@ Val* proveLinearAndGetStrideAfterPropagation(
 Val* proveLinearAndGetStrideAfterPropagation(
     const Composition<Projection>& comp,
     const ValGroups& domain) {
-  // The idea is like: given a string domain, find the substring comp.
-  if (!std::all_of(comp.begin(), comp.end(), [&](const auto& g) {
-        return g.template is<ValGroup>();
-      })) {
-    // Not implemented yet, just fail the proof.
+  auto it = search(domain, comp);
+  if (it == domain.end()) {
     return nullptr;
   }
-  auto first_it =
-      std::find(domain.begin(), domain.end(), comp.front().as<ValGroup>());
-  if (first_it == domain.end()) {
-    return nullptr;
-  }
-  for (auto it = comp.begin(); it != comp.end(); ++it, ++first_it) {
-    if (it->as<ValGroup>() != *first_it) {
-      return nullptr;
-    }
-  }
-  return proveLinearAndGetStrideAfterPropagation(
-      comp.back().as<ValGroup>(), domain);
+  return proveLinearAndGetStrideAfterPropagation(comp.back(), domain);
 }
 
 Val* proveLinearAndGetStrideAfterPropagation(
