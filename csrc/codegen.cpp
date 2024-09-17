@@ -2986,6 +2986,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                    << ");\n";
           break;
         case MemoryType::Local: {
+          // Should use aligned array of registers when:
+          // (1) vectorized ld/st with global memory, tv exists in kernel
+          //     summary vectorized_accesses.
+          // (2) vectorized ld/st with shared memory, tv is input to iteration
+          //     grouped reduction and vectorized in runtime function.
           auto va = kernel_->summary().vectorized_accesses;
           unsigned int vect_factor = 0;
           if (va.find(tv) != va.end()) {
