@@ -1561,6 +1561,11 @@ Projection propagate(
         /*selected_extent=*/
         simplifyExpr(extent(group))};
   }
+  if (std::none_of(from.begin(), from.end(), [&](const auto& g) {
+        return g == group;
+      })) {
+    return group;
+  }
   // Not representable by the language of the dynamic type Projection.
   return {};
 }
@@ -1643,6 +1648,7 @@ Projection propagate(
       Composition<Projection> result = comp;
       result.erase(result.begin() + std::distance(comp.begin(), inner_it));
       result.at(std::distance(comp.begin(), outer_it)) = to.front();
+      // TODO: move opt into simplify.
       if (result.size() == 1) {
         return result.front();
       }
@@ -1767,14 +1773,6 @@ Val* proveLinearAndGetStride(
     const auto& [eg, direction] = path.back();
     path.pop_back();
     auto from = fromGroups(id_graph, eg, direction);
-    if (!std::any_of(from.begin(), from.end(), [&](const auto& g) {
-          return related(frontier, g);
-        })) {
-      // Not all expressions in the path are related to linear_g. For example,
-      // in the above example, the split of 64 is not interesting for us because
-      // the 64 does not carry anything on [2], neither in part nor in full.
-      continue;
-    }
     frontier = propagate(frontier, id_graph, eg, direction);
     if (!frontier.hasValue()) {
       // Not representable by the language of the dynamic type Projection.
