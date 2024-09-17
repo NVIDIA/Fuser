@@ -248,11 +248,11 @@ bool TrieNode::isTerminal() const {
 }
 
 void TrieNode::markException(std::exception e) {
-  std::lock_guard<std::mutex> guard(node->trie_node_lock);
+  std::lock_guard<std::mutex> guard(trie_node_lock);
   exception = e;
 }
 
-std::optional<std::exception> TrieNode::getException() const {
+std::optional<std::exception> TrieNode::getException() {
   std::lock_guard<std::mutex> guard(trie_node_lock);
   return exception;
 }

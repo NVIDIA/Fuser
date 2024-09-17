@@ -97,7 +97,9 @@ void FusionDefinition::finalizeDefinition() {
       buildFusionIr(preschedFusion());
     } catch (const std::exception& e) {
       trie_node_->markException(e);
-      throw e;
+      fusion_id_ = std::nullopt;
+      std::cout << "error: " << e.what() << std::endl;
+      throw;
     }
 
     if (isDebugDumpEnabled(DebugDumpOption::FusionIrOriginal)) {
@@ -107,10 +109,12 @@ void FusionDefinition::finalizeDefinition() {
     if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
       debug() << "\nFusionDefinition: Terminal Node found!\n";
     }
-    if (std::optional<std::exception> e = trie_node_->getException()) {
-      throw e;
-    }
     trie_node_ = child_node.value();
+    std::optional<std::exception> opt_e = trie_node_->getException();
+    if (opt_e.has_value()) {
+      std::cout << "cached error: " << opt_e.value().what() << std::endl;
+    }
+    NVF_CHECK(!opt_e.has_value(), opt_e.value().what());
     fusion_id_ = std::optional<size_t>(trie_node_->fusion_id);
   }
 
