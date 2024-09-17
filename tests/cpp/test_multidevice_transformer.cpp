@@ -492,11 +492,12 @@ std::vector<TensorView*> mlp_backwards(
     TensorView* linear0 = nullptr,
     TensorView* gelu = nullptr) {
   DataType dtype = w0->dtype();
-  // If gelu or linear0 isn't provided, recompute.
-  if (gelu == nullptr || linear0 == nullptr) {
+  if (linear0 == nullptr) {
     TensorView* matmul0 = matmul(x, w0);
     linear0 = add(matmul0, broadcast(b0, {false, true, false})); // add generates float.
     linear0 = castOp(DataType::Float, linear0);
+  }
+  if (gelu == nullptr) {
     gelu = castOp(dtype, tanh_gelu(linear0));
   }
 

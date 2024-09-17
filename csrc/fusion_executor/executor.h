@@ -10,6 +10,7 @@
 #include <exceptions.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
+#include <fusion_executor/allocations.h>
 #include <fusion_executor/executor_params.h>
 #include <fusion_executor/executor_utils.h>
 #include <host_ir/container.h>
@@ -28,48 +29,15 @@
 
 namespace nvfuser {
 
-bool shouldFillAllocationWithNan();
-NVF_API void setFillAllocationWithNan(bool value);
-
 // TODO: Should this actually be in launch params?
 struct CompileOptions {
   c10::Device device = c10::Device(c10::DeviceType::CUDA, 0);
 };
 
-//! Used in distributed setting where we only want to
-//!  allocate output space and receive output data from
-//!  a different rank instead of computing them.
-std::vector<at::Tensor> allocOutputSpace(
-    const at::ArrayRef<c10::IValue>& inputs,
-    Fusion* fusion,
-    const c10::Device& device);
-
 class FusionExecutor : public NonCopyable {
  public:
-  struct GlobalBufferInfo {
-    TensorView* tv = nullptr;
-    std::vector<int64_t> sizes;
-    std::vector<int64_t> strides;
-    at::ScalarType type = at::ScalarType::Undefined;
-    bool zero_init = false;
-    bool resets_to_zero = false;
-    bool is_profile_buffer = false;
-  };
-
   // NVF_API was added for nvfuser_extension. See examples/sinh_extension.
   NVF_API FusionExecutor();
-
-  //! This function is useful for parallel compilation of segmented fusions.
-  //! It returns non-allocated KernelArgumentHolder, representing the output
-  //! sizes from kernel execution.
-  //! Notes: 1. This API should ignore aliased outputs instead of
-  //! pushing scalar int 0 as a place-holder.
-  //! 2. This API does not allocate output in memory, but only returns the
-  //! inferred output sizes. Used in kernel_cache.cpp.
-  KernelArgumentHolder inferOutputSizes(
-      Fusion* fusion,
-      const KernelArgumentHolder& args,
-      PrecomputedValues* evaluator_precomputed_values = nullptr);
 
   //! To compile a fusion with the 32-bit index type, CompileParams
   //! must be passed in. There used to be an index type associated
@@ -235,7 +203,7 @@ class FusionExecutor : public NonCopyable {
     if (host_ir_container_ != nullptr) {
       return host_ir_container_->as<Fusion>();
     }
-    NVF_ERROR(false, "unreachable because of the isCompiled check");
+    NVF_THROW("unreachable because of the isCompiled check");
   }
 
   const ThreadPredicateMap& threadPredMap() const {
@@ -409,15 +377,10 @@ class FusionExecutor : public NonCopyable {
       const int64_t warp_size,
       DataType index_dtype);
 
-  int64_t computeSharedMemory(
-      ExpressionEvaluator& expr_eval,
-      const std::vector<const kir::Allocate*>& buffers,
-      DataType index_dtype,
-      int64_t smem_offset = 0);
-
   //! Return information necessay for allocating intermediate tensors,
   //! including temporary work buffers as well as intermediate
   //! global-memory tensors
+  // TODO: Move to allocations.h/cpp
   std::vector<GlobalBufferInfo> getIntermediateBufferInfo(
       ExpressionEvaluator& expr_eval,
       DataType index_dtype);

@@ -333,7 +333,7 @@ std::vector<PolymorphicValue> IotaOp::evaluate(
     double end = start + step * ((double)length + 1);
     return {at::arange(start, end, step, options).narrow(0, 0, length)};
   } else {
-    NVF_ERROR(false, "Unsupported dtype in IotaOp evaluator: ", dtype());
+    NVF_THROW("Unsupported dtype in IotaOp evaluator: ", dtype());
   }
 }
 
@@ -3605,8 +3605,14 @@ std::pair<TensorDomain*, TensorDomain*> TensorDomain::rFactor(
 }
 
 void TensorDomain::setLoopDomain(std::vector<IterDomain*> new_loop_domain) {
-  ir_utils::validateDomainEquivalence(
+  auto [logical_unreachable, loop_unreachable] = ir_utils::compareDomains(
       logical_domain_, new_loop_domain, additional_ids_);
+  NVF_ERROR(
+      !logical_unreachable,
+      "Not all logical IDs are covered by loop domain. Loop: ",
+      toDelimitedString(new_loop_domain),
+      ". Logical: ",
+      toDelimitedString(logical_domain_));
   loop_domain_ = std::move(new_loop_domain);
   resetDomains();
 }
