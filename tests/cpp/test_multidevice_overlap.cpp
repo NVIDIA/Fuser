@@ -285,104 +285,6 @@ TEST_F(
   SynchronizeStreams(streams);
 }
 
-class RingBasedOverlapTest : public OverlapTest {
- protected:
-  at::Tensor src_buffer_, dst_buffer_;
-  void SetUp() override {
-    OverlapTest::SetUp();
-
-    std::vector<int64_t> buffer_sizes = {
-        params.S, params.M / params.S, params.N};
-    src_buffer_ = at::empty(buffer_sizes, gpu_options_);
-    dst_buffer_ = at::empty(buffer_sizes, gpu_options_);
-  }
-
-  at::Tensor getExpectedResult() override {
-    auto tc_unsharded_expected = getUnshardedExpectedResult();
-    // the natural layout here differs from the collective based pipelining.
-    // Here, the output is sharded on the outermost axis whereas, in the
-    // collective based pipelining, it is sharded on axis(1). The layout
-    // coincide in the classical case where params.S = num_devices_
-    auto tc_unsharded_expected_reshaped = at::reshape(
-        tc_unsharded_expected,
-        {num_devices_, params.S / num_devices_, params.M / params.S, params.N});
-    auto tc_expected =
-        tc_unsharded_expected_reshaped.select(0, my_device_index_);
-    return tc_expected.reshape(
-        {params.S, params.M / (params.S * num_devices_), params.N});
-  }
-};
-
-TEST_F(
-    RingBasedOverlapTest,
-    ReduceScatterRingBasedPipeliningATenImplementation) {
-  std::vector<c10::cuda::CUDAStream> streams =
-      CreateStreams(params.number_of_streams, my_device_index_);
-
-  ASSERT_EQ(params.S % num_devices_, 0);
-  int64_t& number_of_steps_per_ring = num_devices_;
-  int64_t number_of_rings = params.S / num_devices_;
-
-  auto ta_reshaped = at::reshape(
-      ta_,
-      {number_of_steps_per_ring,
-       number_of_rings,
-       params.M / params.S,
-       params.K / num_devices_});
-  auto src_buffer_reshaped = at::reshape(
-      src_buffer_,
-      {number_of_steps_per_ring,
-       number_of_rings,
-       params.M / params.S,
-       params.N});
-  auto dst_buffer_reshaped = at::reshape(
-      dst_buffer_,
-      {number_of_steps_per_ring,
-       number_of_rings,
-       params.M / params.S,
-       params.N});
-
-  for ([[maybe_unused]] const auto& _ :
-       c10::irange(params.number_of_iterations)) {
-    initializeIO();
-
-    ASSERT_EQ(world_communicator_->getBackendName(), "nccl");
-    world_communicator_->startCoalescing();
-    for (auto i : c10::irange(number_of_rings)) {
-      for (auto j : c10::irange(number_of_steps_per_ring)) {
-        int64_t stream_index = j % streams.size();
-        setCurrentCUDAStream(streams.at(stream_index));
-
-        // define the sliced tensors
-        auto slice_index =
-            (my_device_index_ + j + 1) % number_of_steps_per_ring;
-        auto ta_j = ta_reshaped.select(0, slice_index).select(0, i);
-        auto src_buffer_j = src_buffer_reshaped.select(0, j).select(0, i);
-        auto dst_buffer_j = dst_buffer_reshaped.select(0, j).select(0, i);
-
-        // define the peer ranks
-        auto send_rank = slice_index;
-        auto recv_rank =
-            (number_of_steps_per_ring * 2 - (my_device_index_ + j + 1)) %
-            number_of_steps_per_ring;
-
-        // local compute
-        torch::matmul_out(src_buffer_j, ta_j, tb_);
-        // communication
-        std::vector<at::Tensor> src = {src_buffer_j};
-        std::vector<at::Tensor> dst = {dst_buffer_j};
-        world_communicator_->send(src, send_rank, 0);
-        world_communicator_->recv(dst, recv_rank, 0);
-      }
-    }
-    world_communicator_->endCoalescing()->wait();
-    auto tc_reshaped =
-        tc_.reshape({number_of_rings, params.M / params.S, params.N});
-    torch::sum_out(tc_reshaped, dst_buffer_reshaped, 0);
-  }
-  SynchronizeStreams(streams);
-}
-
 TEST_F(
     CollectiveBasedOverlapTest,
     ReduceScatterBasedPipeliningHostIrImplementation) {
@@ -472,6 +374,104 @@ TEST_F(
 
     hie.runWithInput(std::move(inputs));
   }
+}
+
+class RingBasedOverlapTest : public OverlapTest {
+ protected:
+  at::Tensor src_buffer_, dst_buffer_;
+  void SetUp() override {
+    OverlapTest::SetUp();
+
+    std::vector<int64_t> buffer_sizes = {
+        params.S, params.M / params.S, params.N};
+    src_buffer_ = at::empty(buffer_sizes, gpu_options_);
+    dst_buffer_ = at::empty(buffer_sizes, gpu_options_);
+  }
+
+  at::Tensor getExpectedResult() override {
+    auto tc_unsharded_expected = getUnshardedExpectedResult();
+    // the natural layout here differs from the collective based pipelining.
+    // Here, the output is sharded on the outermost axis whereas, in the
+    // collective based pipelining, it is sharded on axis(1). The two layouts
+    // coincide in the classical case where params.S = num_devices_
+    auto tc_unsharded_expected_reshaped = at::reshape(
+        tc_unsharded_expected,
+        {num_devices_, params.S / num_devices_, params.M / params.S, params.N});
+    auto tc_expected =
+        tc_unsharded_expected_reshaped.select(0, my_device_index_);
+    return tc_expected.reshape(
+        {params.S, params.M / (params.S * num_devices_), params.N});
+  }
+};
+
+TEST_F(
+    RingBasedOverlapTest,
+    ReduceScatterRingBasedPipeliningATenImplementation) {
+  std::vector<c10::cuda::CUDAStream> streams =
+      CreateStreams(params.number_of_streams, my_device_index_);
+
+  ASSERT_EQ(params.S % num_devices_, 0);
+  int64_t& number_of_steps_per_ring = num_devices_;
+  int64_t number_of_rings = params.S / num_devices_;
+
+  auto ta_reshaped = at::reshape(
+      ta_,
+      {number_of_steps_per_ring,
+       number_of_rings,
+       params.M / params.S,
+       params.K / num_devices_});
+  auto src_buffer_reshaped = at::reshape(
+      src_buffer_,
+      {number_of_steps_per_ring,
+       number_of_rings,
+       params.M / params.S,
+       params.N});
+  auto dst_buffer_reshaped = at::reshape(
+      dst_buffer_,
+      {number_of_steps_per_ring,
+       number_of_rings,
+       params.M / params.S,
+       params.N});
+
+  for ([[maybe_unused]] const auto& _ :
+       c10::irange(params.number_of_iterations)) {
+    initializeIO();
+
+    ASSERT_EQ(world_communicator_->getBackendName(), "nccl");
+    world_communicator_->startCoalescing();
+    for (auto i : c10::irange(number_of_rings)) {
+      for (auto j : c10::irange(number_of_steps_per_ring)) {
+        int64_t stream_index = j % streams.size();
+        setCurrentCUDAStream(streams.at(stream_index));
+
+        // define the sliced tensors
+        auto slice_index =
+            (my_device_index_ + j + 1) % number_of_steps_per_ring;
+        auto ta_j = ta_reshaped.select(0, slice_index).select(0, i);
+        auto src_buffer_j = src_buffer_reshaped.select(0, j).select(0, i);
+        auto dst_buffer_j = dst_buffer_reshaped.select(0, j).select(0, i);
+
+        // define the peer ranks
+        auto send_rank = slice_index;
+        auto recv_rank =
+            (number_of_steps_per_ring * 2 - (my_device_index_ + j + 1)) %
+            number_of_steps_per_ring;
+
+        // local compute
+        torch::matmul_out(src_buffer_j, ta_j, tb_);
+        // communication
+        std::vector<at::Tensor> src = {src_buffer_j};
+        std::vector<at::Tensor> dst = {dst_buffer_j};
+        world_communicator_->send(src, send_rank, 0);
+        world_communicator_->recv(dst, recv_rank, 0);
+      }
+    }
+    world_communicator_->endCoalescing()->wait();
+    auto tc_reshaped =
+        tc_.reshape({number_of_rings, params.M / params.S, params.N});
+    torch::sum_out(tc_reshaped, dst_buffer_reshaped, 0);
+  }
+  SynchronizeStreams(streams);
 }
 
 } // namespace nvfuser
