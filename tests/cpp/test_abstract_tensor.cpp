@@ -863,4 +863,55 @@ TEST_F(AbstractTensorTest, MergeTaggedTensor) {
   }
 }
 
+TEST_F(AbstractTensorTest, SwizzleTaggedTensor) {
+  // This could be any enum
+  enum class TestTag { A, B, C };
+
+  using EnumTaggedAbstractTensor = TaggedAbstractTensor<TestTag>;
+
+  auto id0 = newID();
+  auto id1 = newID();
+  auto id2 = newID();
+
+  {
+    // Swizzle outer dimensions and preserve inner dimension with different tag
+    EnumTaggedAbstractTensor v1(
+        {id0, id1, id2}, {{TestTag::A}, {TestTag::B}, {TestTag::C}});
+
+    ASSERT_EQ(v1.info.size(), 3);
+
+    EXPECT_EQ(v1.getTag(0), TestTag::A);
+    EXPECT_EQ(v1.getTag(1), TestTag::B);
+    EXPECT_EQ(v1.getTag(2), TestTag::C);
+
+    // NoSwizzle should not mix tags
+    v1.swizzle(SwizzleType::NoSwizzle, 0, 1);
+
+    EXPECT_EQ(v1.getTag(0), TestTag::A);
+    EXPECT_EQ(v1.getTag(1), TestTag::B);
+    EXPECT_EQ(v1.getTag(2), TestTag::C);
+
+    v1.swizzle(Swizzle2DType::NoSwizzle, 0, 1);
+
+    EXPECT_EQ(v1.getTag(0), TestTag::A);
+    EXPECT_EQ(v1.getTag(1), TestTag::B);
+    EXPECT_EQ(v1.getTag(2), TestTag::C);
+
+    // An XOR swizzle will mix the tags
+    v1.swizzle(SwizzleType::XOR, 1, 0);
+
+    EXPECT_TRUE(v1.hasTag(0, TestTag::A));
+    EXPECT_TRUE(v1.hasTag(0, TestTag::B));
+    EXPECT_FALSE(v1.hasTag(0, TestTag::C));
+
+    EXPECT_TRUE(v1.hasTag(1, TestTag::A));
+    EXPECT_TRUE(v1.hasTag(1, TestTag::B));
+    EXPECT_FALSE(v1.hasTag(1, TestTag::C));
+
+    EXPECT_FALSE(v1.hasTag(2, TestTag::A));
+    EXPECT_FALSE(v1.hasTag(2, TestTag::B));
+    EXPECT_TRUE(v1.hasTag(2, TestTag::C));
+  }
+}
+
 } // namespace nvfuser

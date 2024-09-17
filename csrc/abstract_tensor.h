@@ -753,7 +753,8 @@ struct AbstractTensorWithInfo {
     std::swap(domain[x], out_x);
     std::swap(domain[y], out_y);
 
-    auto [info_outer, info_inner] = Info::swizzle(info[x], info[y]);
+    auto [info_outer, info_inner] =
+        Info::swizzle(swizzle_type, info[x], info[y]);
     info[x] = std::move(info_outer);
     info[y] = std::move(info_inner);
 
@@ -775,7 +776,8 @@ struct AbstractTensorWithInfo {
     std::swap(domain[x], out_x);
     std::swap(domain[y], out_y);
 
-    auto [info_outer, info_inner] = Info::swizzle(info[x], info[y]);
+    auto [info_outer, info_inner] =
+        Info::swizzle(swizzle_type, info[x], info[y]);
     info[x] = std::move(info_outer);
     info[y] = std::move(info_inner);
 
@@ -911,7 +913,9 @@ struct EmptyInfo {
     return {{}, {}};
   }
 
+  template <typename SwizzleT>
   static std::pair<EmptyInfo, EmptyInfo> swizzle(
+      SwizzleT swizzle_type,
       const EmptyInfo& a,
       const EmptyInfo& b) {
     return {{}, {}};
@@ -944,9 +948,14 @@ struct TagSetInfo {
   }
 
   //! Swizzling mixes the tags so here we re-use merge and duplicate the result
+  template <typename SwizzleT>
   static std::pair<TagSetInfo, TagSetInfo> swizzle(
+      SwizzleT swizzle_type,
       const TagSetInfo& a,
       const TagSetInfo& b) {
+    if (swizzle_type == SwizzleT::NoSwizzle) {
+      return {a, b};
+    }
     TagSetInfo merged_info = merge(a, b);
     return {merged_info, merged_info};
   }
