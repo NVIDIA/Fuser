@@ -79,8 +79,8 @@ class FusionDefinition(_C._FusionDefinition):
         self.segment_maps = []
         for idx in range(num_segments):
             new_fd = FusionDefinition()
-            original_to_segment_fid = self._build_segment(new_fd, idx)
-            self.segment_maps.append(original_to_segment_fid)
+            segment_to_original_fid = self._build_segment(new_fd, idx)
+            self.segment_maps.append(segment_to_original_fid)
             self.segments.append(new_fd)
         self._finalize_segmentation()
         return self.segments
