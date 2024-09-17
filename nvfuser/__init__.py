@@ -213,11 +213,19 @@ class FusionDefinition(_C._FusionDefinition):
             self.definition()
             self._finalize_definition()
 
-        self.multidevice_schedule()
+        defined_multidevice_schedule = (
+            type(self).multidevice_schedule != FusionDefinition.multidevice_schedule
+        )
+        defined_schedule = type(self).schedule != FusionDefinition.schedule
+        assert not (
+            defined_multidevice_schedule and defined_schedule
+        ), "I haven't tested what if both are defined. We don't plan to support this use case although it may just work."
+
+        if defined_multidevice_schedule:
+            self.multidevice_schedule()
 
         # If schedule is defined by child class and schedule is not defined for
         # inputs, make a schedule.
-        defined_schedule = type(self).schedule != FusionDefinition.schedule
         if defined_schedule and not self._exist_schedule(inputs):
             self._setup_schedule(inputs)
             self.schedule()
