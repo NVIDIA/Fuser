@@ -19,14 +19,6 @@
 
 namespace nvfuser {
 
-TransposeScheduler::TransposeScheduler(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache)
-    : SchedulerEntry() {
-  params_ = std::move(computeHeuristics(fusion, runtime_info, data_cache));
-}
-
 bool TransposeScheduler::canScheduleCompileTime(Fusion* fusion) {
   FUSER_PERF_SCOPE("TransposeScheduler::canScheduleCompileTime");
   if (scheduler_utils::isResharding(fusion)) {

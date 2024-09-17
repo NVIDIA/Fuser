@@ -33,19 +33,14 @@ NVF_API void scheduleReduction(Fusion* fusion, const ReductionParams* rparams);
 
 class ReductionScheduler : public SchedulerEntry {
  public:
-  explicit ReductionScheduler(
-      Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
-
   void schedule(Fusion* fusion, const HeuristicParams* params) override;
 
-  static bool canScheduleCompileTime(Fusion* fusion);
+  bool canScheduleCompileTime(Fusion* fusion) override;
 
-  static bool canScheduleRunTime(
+  bool canScheduleRunTime(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
+      HeuristicSummary* data_cache = nullptr) override;
 
   constexpr static HeuristicType heuristicType() {
     return HeuristicType::Reduction;

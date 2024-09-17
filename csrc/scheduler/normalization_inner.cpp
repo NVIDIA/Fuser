@@ -18,13 +18,6 @@
 namespace nvfuser {
 using PersistentKernelProperties =
     normalization_scheduler_utils::PersistentKernelProperties;
-InnerPersistentKernelScheduler::InnerPersistentKernelScheduler(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache)
-    : SchedulerEntry() {
-  params_ = std::move(computeHeuristics(fusion, runtime_info, data_cache));
-}
 
 void InnerPersistentKernelScheduler::schedule(
     Fusion* fusion,

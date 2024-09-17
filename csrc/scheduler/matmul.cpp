@@ -24,14 +24,6 @@
 
 namespace nvfuser {
 
-MatmulScheduler::MatmulScheduler(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache)
-    : SchedulerEntry() {
-  params_ = std::move(computeHeuristics(fusion, runtime_info));
-}
-
 void MatmulScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   FUSER_PERF_SCOPE("MatmulScheduler::schedule");
   auto mparams = dynamic_cast<const MatmulParams*>(params);
