@@ -409,9 +409,8 @@ INSTANTIATE_TEST_SUITE_P(
     testing::Values(CommunicatorBackend::nccl, CommunicatorBackend::ucc),
     testing::PrintToStringParamName());
 
-class HangTest
-    : public MultiDeviceTest,
-      public testing::WithParamInterface<CommunicatorBackend> {};
+class HangTest : public MultiDeviceTest,
+                 public testing::WithParamInterface<CommunicatorBackend> {};
 
 TEST_P(HangTest, MinimalTestHangSendRecv) {
   if (communicator_->size() != 2) {
@@ -420,14 +419,16 @@ TEST_P(HangTest, MinimalTestHangSendRecv) {
   auto my_rank = communicator_->deviceId();
   auto peer_rank = 1 - communicator_->deviceId();
 
-  auto options = at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
+  auto options =
+      at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
   at::Tensor src_buffer = at::ones({1}, options) * my_rank;
   at::Tensor dst_buffer = at::empty({1}, options);
   std::vector<at::Tensor> src = {src_buffer};
   std::vector<at::Tensor> dst = {dst_buffer};
 
-  std::vector<int64_t> all_devices = {0,1};
-  c10d::Backend* world_communicator_ = communicator_->getBackendForTeam(all_devices, GetParam());
+  std::vector<int64_t> all_devices = {0, 1};
+  c10d::Backend* world_communicator_ =
+      communicator_->getBackendForTeam(all_devices, GetParam());
 
   // at::Tensor allreduce_buffer = at::ones({1}, options);
   // std::vector<at::Tensor> allreduce_buf = {allreduce_buffer};
@@ -446,9 +447,10 @@ TEST_P(HangTest, MinimalTestHangSendRecv) {
     // recv_h = world_communicator_->endCoalescing();
   }
 
-  std::cout << "rank " <<  my_rank << " has finished posting" << std::endl;
+  std::cout << "rank " << my_rank << " has finished posting" << std::endl;
   // recv_h->wait();
-  std::cout << "rank " <<  my_rank << " src = " << src << " dst = " << dst << std::endl;
+  std::cout << "rank " << my_rank << " src = " << src << " dst = " << dst
+            << std::endl;
 }
 
 TEST_P(HangTest, ThreeRanksTestHangSendRecv) {
@@ -459,7 +461,8 @@ TEST_P(HangTest, ThreeRanksTestHangSendRecv) {
   auto send_peer_rank = (my_rank + 1) % 3;
   auto recv_peer_rank = (my_rank - 1 + 3) % 3;
 
-  auto options = at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
+  auto options =
+      at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
   at::Tensor src_buffer = at::ones({1}, options) * my_rank;
   at::Tensor dst_buffer = at::empty({1}, options);
   at::Tensor allreduce_buffer = at::ones({1}, options);
@@ -467,12 +470,13 @@ TEST_P(HangTest, ThreeRanksTestHangSendRecv) {
   std::vector<at::Tensor> dst = {dst_buffer};
   std::vector<at::Tensor> allreduce_buf = {allreduce_buffer};
 
-  std::vector<int64_t> all_devices = {0,1,2};
-  c10d::Backend* world_communicator_ = communicator_->getBackendForTeam(all_devices, GetParam());
+  std::vector<int64_t> all_devices = {0, 1, 2};
+  c10d::Backend* world_communicator_ =
+      communicator_->getBackendForTeam(all_devices, GetParam());
   world_communicator_->allreduce(allreduce_buf)->wait();
 
   c10::intrusive_ptr<c10d::Work> recv_h, send_h;
-  std::cout << "rank " <<  my_rank << " starts posting" << std::endl;
+  std::cout << "rank " << my_rank << " starts posting" << std::endl;
   if (my_rank == 0) {
     recv_h = world_communicator_->recv(dst, recv_peer_rank, recv_peer_rank);
     world_communicator_->send(src, send_peer_rank, my_rank);
@@ -484,10 +488,12 @@ TEST_P(HangTest, ThreeRanksTestHangSendRecv) {
     world_communicator_->send(src, send_peer_rank, my_rank);
   }
 
-  std::cout << "rank " <<  my_rank << " has finished posting" << std::endl;
-  std::cout << "rank=" <<  my_rank << ", send_peer_rank=" << send_peer_rank << ", recv_peer_rank=" << recv_peer_rank << std::endl;
+  std::cout << "rank " << my_rank << " has finished posting" << std::endl;
+  std::cout << "rank=" << my_rank << ", send_peer_rank=" << send_peer_rank
+            << ", recv_peer_rank=" << recv_peer_rank << std::endl;
   recv_h->wait();
-  std::cout << "rank " <<  my_rank << " src = " << src << " dst = " << dst << std::endl;
+  std::cout << "rank " << my_rank << " src = " << src << " dst = " << dst
+            << std::endl;
 }
 
 INSTANTIATE_TEST_SUITE_P(
