@@ -43,12 +43,10 @@ std::ostream& operator<<(std::ostream& out, const CommunicatorBackend& cb) {
 namespace {
 
 // Iterate through a list of environmental variables and stop at the first one
-// that succeeds
-char* tryReadEnv(std::vector<std::string> envs) {
-  char* ret = nullptr;
+// that succeeds. If none of the variables are available, returns nullptr.
+char* tryReadEnv(const std::vector<std::string>& envs) {
   for (const auto& env : envs) {
-    ret = std::getenv(env.c_str());
-    if (ret) {
+    if (char* ret = std::getenv(env.c_str())) {
       return ret;
     }
   }
@@ -69,14 +67,14 @@ bool parseEnv(
 
   // retrieves the rank of the current process
   env = tryReadEnv({"OMPI_COMM_WORLD_RANK", "WORLD_RANK", "SLURM_PROCID"});
-  if (!env) {
+  if (env == nullptr) {
     return false;
   }
   rank = std::atoi(env);
 
   // retrieves the size of the communicator
   env = tryReadEnv({"OMPI_COMM_WORLD_SIZE", "WORLD_SIZE", "SLURM_NTASKS"});
-  if (!env) {
+  if (env == nullptr) {
     return false;
   }
   size = std::atoi(env);
@@ -84,7 +82,7 @@ bool parseEnv(
   // retrieves the size of the communicator
   env = tryReadEnv(
       {"OMPI_COMM_WORLD_LOCAL_RANK", "WORLD_LOCAL_RANK", "SLURM_LOCALID"});
-  if (!env) {
+  if (env == nullptr) {
     return false;
   }
   local_rank = std::atoi(env);
@@ -94,7 +92,7 @@ bool parseEnv(
       {"OMPI_COMM_WORLD_LOCAL_SIZE",
        "WORLD_LOCAL_SIZE",
        "SLURM_NTASKS_PER_NODE"});
-  if (!env) {
+  if (env == nullptr) {
     return false;
   }
   local_size = std::atoi(env);
