@@ -749,13 +749,13 @@ __device__ void iterGroupedGridReduceLastBlock(
   const auto input_stride_for_thread_in_segment =
       index_utils::maskedSize<!X_THREAD, !Y_THREAD, !Z_THREAD>(blockDim);
 
-  constexpr unsigned int max_vect_bytes = 16;
-  constexpr unsigned int array_bytes = sizeof(T) * vec_size;
-  constexpr unsigned int align_size =
-      array_bytes > max_vect_bytes ? max_vect_bytes : array_bytes;
+  constexpr unsigned int max_align_bytes = 16;
+  constexpr unsigned int vec_bytes = sizeof(T) * vec_size;
+  constexpr unsigned int align_bytes =
+      vec_bytes > max_align_bytes ? max_align_bytes : vec_bytes;
   // Ensure alignment for vectorized load/store to smem in grouped block
   // reduction
-  __align__(align_size) T inp[vec_size];
+  __align__(align_bytes) T inp[vec_size];
 #pragma unroll
   for (int i = 0; i < vec_size; i++) {
     inp[i] = init_val;
