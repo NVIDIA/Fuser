@@ -1057,10 +1057,10 @@ FusionKernelRuntime::FusionKernelRuntime(
         segmented_groups->begin(),
         segmented_groups->end(),
         [](const serde::SegmentedGroup* sg) {
-          auto heuristic = static_cast<ScheduleHeuristic>(sg->heuristic());
-          return heuristic == ScheduleHeuristic::InnerPersistent ||
-              heuristic == ScheduleHeuristic::OuterPersistent ||
-              heuristic == ScheduleHeuristic::InnerOuterPersistent;
+          auto heuristic = static_cast<HeuristicType>(sg->heuristic());
+          return heuristic == HeuristicType::InnerPersistent ||
+              heuristic == HeuristicType::OuterPersistent ||
+              heuristic == HeuristicType::InnerOuterPersistent;
         });
 
     bool has_welford_ops = ir_utils::hasOpsOfType<WelfordOp>(fusion.get());

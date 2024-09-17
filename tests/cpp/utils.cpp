@@ -529,7 +529,7 @@ TensorView* canonicalizeInputToBMNK(
 
 bool isSchedulerInUse(
     const nvfuser::FusionKernelRuntime* kernel_rt,
-    const ScheduleHeuristic& scheduler) {
+    const HeuristicType& scheduler) {
   if (nullptr == kernel_rt) {
     return false;
   }

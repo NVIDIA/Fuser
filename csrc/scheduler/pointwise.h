@@ -195,8 +195,8 @@ class PointWiseScheduler : public SchedulerEntry {
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr);
 
-  constexpr static ScheduleHeuristic heuristicType() {
-    return ScheduleHeuristic::PointWise;
+  constexpr static HeuristicType heuristicType() {
+    return HeuristicType::PointWise;
   }
   void schedule(Fusion* fusion, const HeuristicParams* params) override;
 

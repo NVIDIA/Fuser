@@ -87,7 +87,7 @@ std::deque<std::deque<TensorView*>> tvChains(
 
 bool rejectScheduleFusionInputRequirement(
     Expr* expr,
-    ScheduleHeuristic schedule_stragety) {
+    HeuristicType schedule_stragety) {
   if (!expr->input(0)->isFusionInput()) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedule_stragety,
@@ -166,7 +166,7 @@ PrimDataType getTensorIndexType(TensorView* tv, ExpressionEvaluator& ee) {
 // TODO: remove this requirement entirely
 bool rejectScheduleForMemoryPromotion(
     Fusion* fusion,
-    ScheduleHeuristic schedule_strategy) {
+    HeuristicType schedule_strategy) {
   for (auto expr : fusion->exprs()) {
     if (expr->isOneOf<SelectOp, IndexSelectOp, TorchGatherOp>()) {
       // For now, only relax the input requirement when it's

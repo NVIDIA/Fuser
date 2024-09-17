@@ -47,8 +47,8 @@ class ReductionScheduler : public SchedulerEntry {
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr);
 
-  constexpr static ScheduleHeuristic heuristicType() {
-    return ScheduleHeuristic::Reduction;
+  constexpr static HeuristicType heuristicType() {
+    return HeuristicType::Reduction;
   }
 
   std::unique_ptr<HeuristicParams> computeHeuristics(

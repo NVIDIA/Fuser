@@ -64,6 +64,6 @@ MATCHER_P(HeuristicIs, heuristic, "") {
 // supporting two segments
 void validateSegmentation(
     FusionKernelRuntime* runtime,
-    const std::vector<ScheduleHeuristic>& expected_heuristics);
+    const std::vector<HeuristicType>& expected_heuristics);
 
 } // namespace nvfuser

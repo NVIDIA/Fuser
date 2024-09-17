@@ -39,8 +39,8 @@ class ExprEvalScheduler : public SchedulerEntry {
     return true;
   }
 
-  constexpr static ScheduleHeuristic heuristicType() {
-    return ScheduleHeuristic::ExprEval;
+  constexpr static HeuristicType heuristicType() {
+    return HeuristicType::ExprEval;
   }
 
   void schedule(Fusion* fusion, const HeuristicParams* params) override;

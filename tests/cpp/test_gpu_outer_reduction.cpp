@@ -1421,7 +1421,7 @@ void grid_persistent_reduction_outer_norm_like_scheduler(
     const auto& scheduler_entry =
         runtime->schedulerHeuristics()->heuristicsList().at(0);
     NVF_CHECK(
-        scheduler_entry->params()->heuristic_type == ScheduleHeuristic::OuterPersistent,
+        scheduler_entry->params()->heuristic_type == HeuristicType::OuterPersistent,
         "Unexpected heuristic was chosen: ",
         scheduler_entry->params()->heuristic_type);
 
@@ -1580,7 +1580,7 @@ void grid_persistent_welford_outer_norm_like_scheduler(
         runtime->schedulerHeuristics()->heuristicsList().at(0);
     NVF_CHECK(
         scheduler_entry->params()->heuristic_type ==
-            ScheduleHeuristic::OuterPersistent,
+            HeuristicType::OuterPersistent,
         "Unexpected heuristic was chosen: ",
         scheduler_entry->params()->heuristic_type);
 
@@ -1760,7 +1760,7 @@ void grid_persistent_batchnorm_scheduler(
         runtime->schedulerHeuristics()->heuristicsList().at(0);
     NVF_CHECK(
         scheduler_entry->params()->heuristic_type ==
-            ScheduleHeuristic::OuterPersistent,
+            HeuristicType::OuterPersistent,
         "Unexpected heuristic was chosen: ",
         scheduler_entry->params()->heuristic_type);
 
@@ -1897,7 +1897,7 @@ void grid_persistent_reduction_outer_norm_bwd_like_scheduler(
     const auto& scheduler_entry =
         runtime->schedulerHeuristics()->heuristicsList().at(0);
     NVF_CHECK(
-        scheduler_entry->params()->heuristic_type == ScheduleHeuristic::OuterPersistent,
+        scheduler_entry->params()->heuristic_type == HeuristicType::OuterPersistent,
         "Unexpected heuristic was chosen: ",
         scheduler_entry->params()->heuristic_type);
 
@@ -2069,7 +2069,7 @@ void grid_persistent_batchnorm_bwd_scheduler(
     const auto& scheduler_entry =
         runtime->schedulerHeuristics()->heuristicsList().at(0);
     NVF_CHECK(
-        scheduler_entry->params()->heuristic_type == ScheduleHeuristic::OuterPersistent,
+        scheduler_entry->params()->heuristic_type == HeuristicType::OuterPersistent,
         "Unexpected heuristic was chosen: ",
         scheduler_entry->params()->heuristic_type);
 

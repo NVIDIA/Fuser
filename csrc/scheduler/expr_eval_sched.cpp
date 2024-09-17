@@ -52,7 +52,7 @@ void ExprEvalScheduler::schedule(
     Fusion* fusion,
     const HeuristicParams* params) {
   NVF_ERROR(
-      params->heuristic_type == ScheduleHeuristic::ExprEval,
+      params->heuristic_type == HeuristicType::ExprEval,
       "Invalid heuristic sent to ExprEval scheduler: ",
       params);
 
@@ -67,7 +67,7 @@ std::unique_ptr<HeuristicParams> ExprEvalScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
-  return std::make_unique<HeuristicParams>(ScheduleHeuristic::ExprEval);
+  return std::make_unique<HeuristicParams>(HeuristicType::ExprEval);
 }
 
 } // namespace nvfuser

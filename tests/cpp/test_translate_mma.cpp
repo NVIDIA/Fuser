@@ -292,7 +292,7 @@ TEST_P(CombineMulSumAsMmaTestWithLayout, UseMatmulScheduler) {
 // Parameters: [A_dim, B_dim, enable_fusion, transpose_a_alloc,
 // expect_segmented, SchedulerHeuristic]
 using MatmulNodeTranslationTestParams =
-    std::tuple<int64_t, int64_t, bool, bool, bool, ScheduleHeuristic>;
+    std::tuple<int64_t, int64_t, bool, bool, bool, HeuristicType>;
 using MatmulNodeTranslationTest =
     NVFuserFixtureParamTest<MatmulNodeTranslationTestParams>;
 
@@ -305,7 +305,7 @@ TEST_P(MatmulNodeTranslationTest, AutomaticSchedulerMatmulNode) {
   const bool enable_fusion = std::get<2>(GetParam());
   const bool transpose_a_alloc = std::get<3>(GetParam());
   const bool expect_segmented = std::get<4>(GetParam());
-  const ScheduleHeuristic expected_heuristic = std::get<5>(GetParam());
+  const HeuristicType expected_heuristic = std::get<5>(GetParam());
 
   // CombineMulSumAsMmaTest disabled MatmulExprEval, but we need it enabled
   DisableOptionsGuard dog;
@@ -385,14 +385,14 @@ TEST_P(MatmulNodeTranslationTest, AutomaticSchedulerMatmulNode) {
     EXPECT_FALSE(runtime->isSegmented());
   }
 
-  ScheduleHeuristic heuristic = runtime->schedulerHeuristics()
-                                    ->heuristicsList()
-                                    .front()
-                                    ->params()
-                                    ->heuristic_type;
+  HeuristicType heuristic = runtime->schedulerHeuristics()
+                                ->heuristicsList()
+                                .front()
+                                ->params()
+                                ->heuristic_type;
   EXPECT_EQ(heuristic, expected_heuristic);
 
-  if (heuristic == ScheduleHeuristic::Matmul) {
+  if (heuristic == HeuristicType::Matmul) {
     // Ensure there's an MmaOp.
     EXPECT_FALSE(
         ir_utils::getOpsOfType<MmaOp>(runtime->executors().at(0).kernel())
@@ -408,35 +408,33 @@ INSTANTIATE_TEST_SUITE_P(
     MatmulNodeTranslationTest,
     ::testing::Values(
         // Tests without fusion enabled
-        std::
-            make_tuple(2l, 2l, false, false, true, ScheduleHeuristic::ExprEval),
-        std::make_tuple(2l, 2l, false, true, true, ScheduleHeuristic::ExprEval),
+        std::make_tuple(2l, 2l, false, false, true, HeuristicType::ExprEval),
+        std::make_tuple(2l, 2l, false, true, true, HeuristicType::ExprEval),
 
         // Tests with fusion enabled
 
-        std::make_tuple(2l, 2l, true, false, false, ScheduleHeuristic::Matmul),
+        std::make_tuple(2l, 2l, true, false, false, HeuristicType::Matmul),
         // We cannot yet handle allocation domain in matmul scheduler
-        std::make_tuple(2l, 2l, true, true, true, ScheduleHeuristic::ExprEval),
+        std::make_tuple(2l, 2l, true, true, true, HeuristicType::ExprEval),
         // Size-1 input combinations
-        std::make_tuple(1l, 2l, true, false, true, ScheduleHeuristic::ExprEval),
-        std::make_tuple(2l, 1l, true, false, true, ScheduleHeuristic::ExprEval),
-        std::make_tuple(1l, 1l, true, false, true, ScheduleHeuristic::ExprEval),
+        std::make_tuple(1l, 2l, true, false, true, HeuristicType::ExprEval),
+        std::make_tuple(2l, 1l, true, false, true, HeuristicType::ExprEval),
+        std::make_tuple(1l, 1l, true, false, true, HeuristicType::ExprEval),
         // Batch dims
 
         // mat-vec handled by ExprEval
-        std::make_tuple(3l, 1l, true, false, true, ScheduleHeuristic::ExprEval),
-        std::make_tuple(3l, 3l, true, false, false, ScheduleHeuristic::Matmul),
+        std::make_tuple(3l, 1l, true, false, true, HeuristicType::ExprEval),
+        std::make_tuple(3l, 3l, true, false, false, HeuristicType::Matmul),
 
-        std::make_tuple(3l, 2l, true, false, false, ScheduleHeuristic::Matmul),
-        std::make_tuple(4l, 4l, true, false, false, ScheduleHeuristic::Matmul),
+        std::make_tuple(3l, 2l, true, false, false, HeuristicType::Matmul),
+        std::make_tuple(4l, 4l, true, false, false, HeuristicType::Matmul),
 
         // TODO: mixed length inputs via broadcasted batch dims
         // When different numbers of M or N dimensions exist, they must be
         // consecutive. However, these examples lead to [M, B, M, K] and [N, B,
         // N, K] patterns which we don't yet support.
-        std::make_tuple(2l, 3l, true, false, true, ScheduleHeuristic::ExprEval),
-        std::
-            make_tuple(3l, 4l, true, false, true, ScheduleHeuristic::ExprEval)),
+        std::make_tuple(2l, 3l, true, false, true, HeuristicType::ExprEval),
+        std::make_tuple(3l, 4l, true, false, true, HeuristicType::ExprEval)),
 
     [](const testing::TestParamInfo<MatmulNodeTranslationTestParams>& info) {
       std::ostringstream os;
@@ -567,18 +565,18 @@ TEST_P(LinearNodeTranslationTest, AutomaticSchedulerLinearNode) {
     EXPECT_FALSE(runtime->isSegmented());
   }
 
-  ScheduleHeuristic heuristic = runtime->schedulerHeuristics()
-                                    ->heuristicsList()
-                                    .front()
-                                    ->params()
-                                    ->heuristic_type;
+  HeuristicType heuristic = runtime->schedulerHeuristics()
+                                ->heuristicsList()
+                                .front()
+                                ->params()
+                                ->heuristic_type;
   if (expect_aten_eval) {
-    EXPECT_EQ(heuristic, ScheduleHeuristic::ExprEval);
+    EXPECT_EQ(heuristic, HeuristicType::ExprEval);
   } else {
     // Ensure that the Matmul scheduler ran.
     // Assert here since we will inspect the kernel next, which we can't
     // do if ExprEval accepts the segment.
-    ASSERT_EQ(heuristic, ScheduleHeuristic::Matmul);
+    ASSERT_EQ(heuristic, HeuristicType::Matmul);
     // Ensure there's an MmaOp.
     EXPECT_FALSE(
         ir_utils::getOpsOfType<MmaOp>(runtime->executors().at(0).kernel())

@@ -208,7 +208,7 @@ namespace Schedule {
 //! External access for canSchedule utilities through SchedulerEntry
 //!  to avoid exposing a single function to the namespace
 bool canSchedule(
-    ScheduleHeuristic sh,
+    HeuristicType sh,
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache = nullptr);
@@ -216,7 +216,7 @@ bool canSchedule(
 //! Fusion segmenter facing API,
 //!   returns a schedule that applies in the given fusion, returns a nullopt
 //!   if no schedule in the registry can handle.
-std::optional<ScheduleHeuristic> proposeHeuristics(
+std::optional<HeuristicType> proposeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info);
 
@@ -224,7 +224,7 @@ std::optional<ScheduleHeuristic> proposeHeuristics(
 //!   builds a new entry with the given heuristics
 //!   corresponding to the given fusion
 std::unique_ptr<SchedulerEntry> makeEntry(
-    ScheduleHeuristic sh,
+    HeuristicType sh,
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache = nullptr);

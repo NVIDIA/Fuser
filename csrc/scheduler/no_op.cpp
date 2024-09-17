@@ -117,7 +117,7 @@ bool NoOpScheduler::canScheduleRunTime(
 
 void NoOpScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   NVF_ERROR(
-      params->heuristic_type == ScheduleHeuristic::NoOp,
+      params->heuristic_type == HeuristicType::NoOp,
       "Invalid heuristic sent to NoOp scheduler: ",
       params);
 
@@ -137,7 +137,7 @@ std::unique_ptr<HeuristicParams> NoOpScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
-  return std::make_unique<HeuristicParams>(ScheduleHeuristic::NoOp);
+  return std::make_unique<HeuristicParams>(HeuristicType::NoOp);
 }
 
 } // namespace nvfuser

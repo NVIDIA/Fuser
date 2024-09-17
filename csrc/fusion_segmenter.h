@@ -115,7 +115,7 @@ class SegmentedGroup {
   }
 
   //! Returns the schedule heuristic associated with this group
-  ScheduleHeuristic heuristicType() const {
+  HeuristicType heuristicType() const {
     return heuristic_;
   }
 
@@ -186,7 +186,7 @@ class SegmentedGroup {
   int group_id_ = -1;
 
   //! The scheduler to use for compiling this group
-  ScheduleHeuristic heuristic_ = ScheduleHeuristic::None;
+  HeuristicType heuristic_ = HeuristicType::None;
 
   //! Exprs that make up the group
   std::vector<Expr*> exprs_;
@@ -238,7 +238,7 @@ class SegmentedGroup {
   std::vector<NeighborGroup> getMergeCandidates();
 
   //! Assign schedule heuristic to this group
-  void setHeuristic(ScheduleHeuristic sh) {
+  void setHeuristic(HeuristicType sh) {
     heuristic_ = sh;
   }
 
@@ -279,7 +279,7 @@ class FusionHeuristics {
   //! Constructor for complete fusion case, generates the scheduler entry
   //!  for the fusion owning the given expression
   explicit FusionHeuristics(
-      ScheduleHeuristic schedule_heuristic,
+      HeuristicType schedule_heuristic,
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr)
       : is_segmented_(false) {
@@ -327,7 +327,7 @@ class SegmentedFusion {
   //!  as the only group.
   static std::unique_ptr<SegmentedFusion> fromCompleteFusion(
       std::unique_ptr<Fusion> fusion,
-      ScheduleHeuristic heuristic,
+      HeuristicType heuristic,
       const KernelArgumentHolder& runtime_inputs);
 
   //! Is the fusion segmented?
@@ -726,7 +726,7 @@ class SegmentCandidateFinder {
 
   //! Return the resulting heuristic corresponding to the merged
   //!  group built by merging the two groups connected by edge
-  ScheduleHeuristic deriveHeuristic(SegmentedGroup* edge);
+  HeuristicType deriveHeuristic(SegmentedGroup* edge);
 
   GroupDependencyAnalysis* getGroupDependency();
 

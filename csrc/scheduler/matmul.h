@@ -40,8 +40,8 @@ class MatmulScheduler : public SchedulerEntry {
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr);
-  constexpr static ScheduleHeuristic heuristicType() {
-    return ScheduleHeuristic::Matmul;
+  constexpr static HeuristicType heuristicType() {
+    return HeuristicType::Matmul;
   }
 
   std::unique_ptr<HeuristicParams> computeHeuristics(

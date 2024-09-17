@@ -11,27 +11,27 @@
 
 namespace nvfuser {
 
-std::string toString(ScheduleHeuristic sh) {
+std::string toString(HeuristicType sh) {
   switch (sh) {
-    case ScheduleHeuristic::NoOp:
+    case HeuristicType::NoOp:
       return "no_op";
-    case ScheduleHeuristic::PointWise:
+    case HeuristicType::PointWise:
       return "pointwise";
-    case ScheduleHeuristic::Reduction:
+    case HeuristicType::Reduction:
       return "reduction";
-    case ScheduleHeuristic::InnerPersistent:
+    case HeuristicType::InnerPersistent:
       return "inner_persistent";
-    case ScheduleHeuristic::OuterPersistent:
+    case HeuristicType::OuterPersistent:
       return "outer_persistent";
-    case ScheduleHeuristic::InnerOuterPersistent:
+    case HeuristicType::InnerOuterPersistent:
       return "inner_outer_persistent";
-    case ScheduleHeuristic::Transpose:
+    case HeuristicType::Transpose:
       return "transpose";
-    case ScheduleHeuristic::Matmul:
+    case HeuristicType::Matmul:
       return "matmul";
-    case ScheduleHeuristic::ExprEval:
+    case HeuristicType::ExprEval:
       return "expr_eval";
-    case ScheduleHeuristic::None:
+    case HeuristicType::None:
       return "none";
     default:
       NVF_ERROR(false, "undefined schedule");
@@ -39,7 +39,7 @@ std::string toString(ScheduleHeuristic sh) {
   return "";
 }
 
-std::ostream& operator<<(std::ostream& os, ScheduleHeuristic sh) {
+std::ostream& operator<<(std::ostream& os, HeuristicType sh) {
   os << toString(sh);
   return os;
 }

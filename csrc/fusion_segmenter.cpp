@@ -120,7 +120,7 @@ void SegmentedGroup::deserialize(
 
   group_id_ = buffer->group_id();
 
-  heuristic_ = static_cast<ScheduleHeuristic>(buffer->heuristic());
+  heuristic_ = static_cast<HeuristicType>(buffer->heuristic());
 
   exprs_ = convertContainer<int64_t, Expr*>(exprs, *buffer->exprs());
 
@@ -425,7 +425,7 @@ std::string toString(const SegmentedEdge* edge) {
 
 std::unique_ptr<SegmentedFusion> SegmentedFusion::fromCompleteFusion(
     std::unique_ptr<Fusion> fusion_ptr,
-    ScheduleHeuristic heuristic,
+    HeuristicType heuristic,
     const KernelArgumentHolder& runtime_inputs) {
   auto fusion = fusion_ptr.get();
   NVF_ERROR(
@@ -435,9 +435,9 @@ std::unique_ptr<SegmentedFusion> SegmentedFusion::fromCompleteFusion(
   // convert Welford to two-pass if option is enabled and the original heuristic
   // is persistent
   auto isPersistentHeuristic = [&heuristic]() {
-    return heuristic == ScheduleHeuristic::InnerPersistent ||
-        heuristic == ScheduleHeuristic::OuterPersistent ||
-        heuristic == ScheduleHeuristic::InnerOuterPersistent;
+    return heuristic == HeuristicType::InnerPersistent ||
+        heuristic == HeuristicType::OuterPersistent ||
+        heuristic == HeuristicType::InnerOuterPersistent;
   };
   SegmentCandidateFinderOptions scfo;
   if (scfo.run_translate_welford && isPersistentHeuristic()) {
@@ -1097,7 +1097,7 @@ void detailGroupPrint(std::ostream& os, const SegmentedGroup* group) {
   };
 
   os << "g{";
-  if (group->heuristicType() != ScheduleHeuristic::None) {
+  if (group->heuristicType() != HeuristicType::None) {
     os << "(" << toString(group->heuristicType()) << ")";
   }
   os << std::endl;
@@ -2532,7 +2532,7 @@ class FusionSegmentGuard : public NonCopyable {
 #endif
 };
 
-std::optional<ScheduleHeuristic> tryMerge(
+std::optional<HeuristicType> tryMerge(
     SegmentedFusion* segmented_fusion,
     SchedulerRuntimeInfo& runtime_info,
     SegmentedGroup* a,
@@ -2555,7 +2555,7 @@ std::optional<ScheduleHeuristic> tryMerge(
       segmented_fusion->completeFusion(), runtime_info);
 }
 
-std::optional<ScheduleHeuristic> tryMerge(
+std::optional<HeuristicType> tryMerge(
     SegmentedFusion* segmented_fusion,
     SchedulerRuntimeInfo& runtime_info,
     const std::vector<SegmentedGroup*>& segmented_groups) {
@@ -3679,12 +3679,11 @@ bool SegmentCandidateFinder::codeGenSupportedMerge(
 
 // TODO: consider caching the heuristics value so tryMerge doesn't have to be
 //       called twice
-ScheduleHeuristic SegmentCandidateFinder::deriveHeuristic(
-    SegmentedGroup* group) {
+HeuristicType SegmentCandidateFinder::deriveHeuristic(SegmentedGroup* group) {
   if (options_.only_segment_resharding_exprs) {
     // We don't need to generate a heuristic for multidevice segments at this
     // moment
-    return ScheduleHeuristic::None;
+    return HeuristicType::None;
   }
   auto h = tryMerge(segmented_fusion_.get(), runtimeInfo(), group);
   NVF_ERROR(

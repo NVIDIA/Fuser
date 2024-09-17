@@ -52,7 +52,7 @@ TEST_F(NoOpTest, FusionNullScheduler) {
 
   // Check that all groups on the resulting runtime are null.
   for (auto group : groups) {
-    EXPECT_EQ(group->heuristicType(), ScheduleHeuristic::NoOp);
+    EXPECT_EQ(group->heuristicType(), HeuristicType::NoOp);
   }
 }
 
@@ -83,7 +83,7 @@ TEST_F(NoOpTest, FusionNullScheduler2) {
 
   // Check that all groups on the resulting runtime are null.
   for (auto group : groups) {
-    EXPECT_EQ(group->heuristicType(), ScheduleHeuristic::NoOp);
+    EXPECT_EQ(group->heuristicType(), HeuristicType::NoOp);
   }
 }
 
@@ -116,7 +116,7 @@ TEST_F(NoOpTest, FusionNullScheduler3) {
 
   // Check that all groups on the resulting runtime are null.
   for (auto group : groups) {
-    EXPECT_EQ(group->heuristicType(), ScheduleHeuristic::NoOp);
+    EXPECT_EQ(group->heuristicType(), HeuristicType::NoOp);
   }
 }
 
@@ -170,7 +170,7 @@ TEST_F(NoOpTest, FusionEmpty) {
 
   // Check that all groups on the resulting runtime are null.
   for (auto group : groups) {
-    EXPECT_EQ(group->heuristicType(), ScheduleHeuristic::NoOp);
+    EXPECT_EQ(group->heuristicType(), HeuristicType::NoOp);
   }
 }
 
@@ -201,7 +201,7 @@ TEST_F(NoOpTest, View) {
       fec.getMostRecentKernelRuntime()->fusionSegments()->groups();
   ASSERT_EQ(groups.size(), 1);
   SegmentedGroup* group = groups[0];
-  EXPECT_EQ(group->heuristicType(), ScheduleHeuristic::NoOp);
+  EXPECT_EQ(group->heuristicType(), HeuristicType::NoOp);
 }
 
 TEST_F(NoOpTest, ExpandedReduction) {
@@ -228,7 +228,7 @@ TEST_F(NoOpTest, ExpandedReduction) {
   FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
   EXPECT_THAT(
       runtime->fusionSegments()->groups(),
-      UnorderedElementsAre(HeuristicIs(ScheduleHeuristic::NoOp)));
+      UnorderedElementsAre(HeuristicIs(HeuristicType::NoOp)));
   const auto& executor = runtime->executors().front();
   EXPECT_THAT(executor.kernel()->summary().global_allocations, IsEmpty());
 }

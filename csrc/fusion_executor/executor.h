@@ -47,7 +47,7 @@ class FusionExecutor : public NonCopyable {
       const KernelArgumentHolder& args,
       const LaunchParams& launch_constraints,
       CompileParams compile_params,
-      ScheduleHeuristic heuristic = ScheduleHeuristic::None,
+      HeuristicType heuristic = HeuristicType::None,
       int64_t fusion_id = 0,
       int64_t concrete_id = 0,
       int64_t runtime_id = 0,
@@ -79,7 +79,7 @@ class FusionExecutor : public NonCopyable {
         args,
         LaunchParams(),
         CompileParams(),
-        ScheduleHeuristic::None,
+        HeuristicType::None,
         fusion_id,
         concrete_id);
   }
@@ -294,7 +294,7 @@ class FusionExecutor : public NonCopyable {
   }
 
   void createKernelId(
-      ScheduleHeuristic heuristic = ScheduleHeuristic::None,
+      HeuristicType heuristic = HeuristicType::None,
       int64_t fusion_id = 0,
       int64_t concrete_id = 0,
       int64_t runtime_id = 0,
@@ -364,7 +364,7 @@ class FusionExecutor : public NonCopyable {
       Fusion* fusion,
       int8_t device_index,
       CompileParams compile_params,
-      ScheduleHeuristic heuristic,
+      HeuristicType heuristic,
       int64_t fusion_id,
       int64_t concrete_id,
       int64_t runtime_id,
@@ -510,7 +510,7 @@ class FusionExecutor : public NonCopyable {
   inline static std::atomic<int64_t> global_fusion_count_;
 
   // Scheduling Heuristic for this Fusion
-  ScheduleHeuristic heuristic_ = ScheduleHeuristic::None;
+  HeuristicType heuristic_ = HeuristicType::None;
 
   // Kernel name for fusion executor
   std::string kernel_id_;

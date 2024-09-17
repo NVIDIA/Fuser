@@ -171,7 +171,7 @@ void testValidate(
 
 void validateSegmentation(
     FusionKernelRuntime* runtime,
-    const std::vector<ScheduleHeuristic>& expected_heuristics) {
+    const std::vector<HeuristicType>& expected_heuristics) {
   const auto& segment_groups = runtime->fusionSegments()->groups();
 
   NVF_CHECK(

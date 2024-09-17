@@ -1314,9 +1314,9 @@ TEST_F(PersistentBufferTest, SmemPersistent2DReduction) {
   std::vector<c10::IValue> aten_inputs = {t0};
   SchedulerRuntimeInfo runtime_info(fusion.get(), aten_inputs);
   ASSERT_TRUE(Schedule::canSchedule(
-      ScheduleHeuristic::InnerPersistent, fusion.get(), runtime_info));
+      HeuristicType::InnerPersistent, fusion.get(), runtime_info));
   auto scheduler = Schedule::makeEntry(
-      ScheduleHeuristic::InnerPersistent, fusion.get(), runtime_info);
+      HeuristicType::InnerPersistent, fusion.get(), runtime_info);
   EXPECT_FALSE(scheduler->params()
                    ->as<ReductionParams>()
                    ->smem_persistent_buffers.empty());

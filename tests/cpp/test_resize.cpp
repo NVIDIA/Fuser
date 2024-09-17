@@ -2127,7 +2127,7 @@ TEST_F(ResizeTest, ResizePermuteAndSlice) {
 
   EXPECT_THAT(
       executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups(),
-      UnorderedElementsAre(HeuristicIs(ScheduleHeuristic::Transpose)));
+      UnorderedElementsAre(HeuristicIs(HeuristicType::Transpose)));
 }
 
 // When scheduling this test, the pointwise scheduler attempt to replay a Split

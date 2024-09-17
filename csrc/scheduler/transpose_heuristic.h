@@ -21,7 +21,7 @@ namespace nvfuser {
 // are equivelent!
 class TransposeParams : public HeuristicParams {
  public:
-  TransposeParams() : HeuristicParams(ScheduleHeuristic::Transpose) {};
+  TransposeParams() : HeuristicParams(HeuristicType::Transpose) {};
   static constexpr int64_t getMaxThreadsPerBlock() {
     return 128;
   }

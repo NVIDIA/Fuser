@@ -190,12 +190,12 @@ UserSchedule::UserSchedule() : schedule(nullptr), executor(nullptr) {
   executor = std::make_unique<FusionExecutor>();
 }
 
-bool UserSchedule::canSchedule(const ScheduleHeuristic& heuristic) {
+bool UserSchedule::canSchedule(const HeuristicType& heuristic) {
   return Schedule::canSchedule(heuristic, fusion(), *runtimeInfo());
 }
 
 std::tuple<bool, std::string> UserSchedule::canScheduleDebug(
-    const ScheduleHeuristic& heuristic) {
+    const HeuristicType& heuristic) {
   // Enable collection of messages from canScheduleRejectReason
   DebugDumpOptionsGuard debug_dump_options_guard;
   DebugDumpOptionsGuard::getCurOptions().set(
@@ -209,7 +209,7 @@ std::tuple<bool, std::string> UserSchedule::canScheduleDebug(
   return std::make_tuple(can_schedule, ss.str());
 }
 
-void UserSchedule::scheduleWithHeuristic(const ScheduleHeuristic& heuristic) {
+void UserSchedule::scheduleWithHeuristic(const HeuristicType& heuristic) {
   NVF_CHECK(
       heuristic_scheduler == nullptr,
       "Heuristic Scheduler is already defined for this UserSchedule");

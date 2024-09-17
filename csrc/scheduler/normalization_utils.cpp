@@ -686,14 +686,14 @@ int64_t partialReductionBufferSize(
 }
 
 // Get the appropriate scheduler based on reduction type
-ScheduleHeuristic getPersistentHeuristicFor(ReductionType reduction_type) {
+HeuristicType getPersistentHeuristicFor(ReductionType reduction_type) {
   switch (reduction_type) {
     case ReductionType::Inner:
-      return ScheduleHeuristic::InnerPersistent;
+      return HeuristicType::InnerPersistent;
     case ReductionType::Outer:
-      return ScheduleHeuristic::OuterPersistent;
+      return HeuristicType::OuterPersistent;
     case ReductionType::InnerOuter:
-      return ScheduleHeuristic::InnerOuterPersistent;
+      return HeuristicType::InnerOuterPersistent;
     default:
       NVF_ERROR(
           false,
@@ -760,7 +760,7 @@ bool isProjectBufferToInputs(
     const scheduler_utils::PersistentBufferInfo& persistent_buffer_info,
     const scheduler_utils::PersistentBufferSizeReturn&
         persistent_buffer_size_info,
-    const ScheduleHeuristic heuristic_type,
+    const HeuristicType heuristic_type,
     const bool can_use_smem_persistent,
     const bool check_projected_buffer_size) {
   // don't project if there are view ops and no buffer can be projected
@@ -784,7 +784,7 @@ bool isProjectBufferToInputs(
   // enough register or shared memory, then canScheduleRunTime will return
   // false. For InnerOuterPersistent, both register and shared memory are used
   // and will be handled in getPersistentBufferStorageParams.
-  if (heuristic_type != ScheduleHeuristic::InnerOuterPersistent) {
+  if (heuristic_type != HeuristicType::InnerOuterPersistent) {
     int64_t max_available_buffer =
         getMaxRegOrSharedMemorySizeForPersistentBuffer(
             runtime_info,
@@ -807,7 +807,7 @@ bool isProjectBufferToInputs(
   }
 
   // consider buffer size when exp op exists
-  if (heuristic_type == ScheduleHeuristic::InnerPersistent) {
+  if (heuristic_type == HeuristicType::InnerPersistent) {
     // check if the non-projected persistent buffer is small enough,
     // i.e., not affecting the occupancy, projecting back to the inputs
     // isn't buying us anything.
@@ -844,7 +844,7 @@ PersistentKernelProperties getPersistentKernelProperties(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache,
-    ScheduleHeuristic heuristic) {
+    HeuristicType heuristic) {
   FUSER_PERF_SCOPE(
       "normalization_scheduler_utils::getPersistentKernelProperties");
 
@@ -992,7 +992,7 @@ PersistentKernelProperties getPersistentKernelProperties(
       .persistent_buffers = persistent_buffer_info.persistent_buffers};
 }
 
-bool checkOpsAndInputs(Fusion* fusion, ScheduleHeuristic schedule_heuristic) {
+bool checkOpsAndInputs(Fusion* fusion, HeuristicType schedule_heuristic) {
   if (scheduler_utils::isResharding(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedule_heuristic, "Fusion is resharding.");
@@ -1030,7 +1030,7 @@ bool checkOpsAndInputs(Fusion* fusion, ScheduleHeuristic schedule_heuristic) {
 
 bool checkReductionPattern(
     Fusion* fusion,
-    ScheduleHeuristic schedule_heuristic,
+    HeuristicType schedule_heuristic,
     const std::vector<TensorView*>& reduction_tvs1,
     const std::vector<TensorView*>& reduction_tvs2) {
   // Ensure that the reduction operations share the same axes in their root
@@ -1078,7 +1078,7 @@ bool checkReductionPattern(
 
 // The identical compile time check of InnerPersistentKernelScheduler and
 // OuterPersistentKernelScheduler.
-bool compileTimeCheck(Fusion* fusion, ScheduleHeuristic schedule_heuristic) {
+bool compileTimeCheck(Fusion* fusion, HeuristicType schedule_heuristic) {
   // common checks for all persistent heuristics
   if (!normalization_scheduler_utils::checkOpsAndInputs(
           fusion, schedule_heuristic)) {
@@ -1094,7 +1094,7 @@ bool compileTimeCheck(Fusion* fusion, ScheduleHeuristic schedule_heuristic) {
   }
   auto reduction_type =
       reduction_scheduler_utils::getReductionType(reduction_tvs);
-  const ScheduleHeuristic persistent_heuristic =
+  const HeuristicType persistent_heuristic =
       getPersistentHeuristicFor(reduction_type);
   if (persistent_heuristic != schedule_heuristic) {
     scheduler_debug_utils::canScheduleRejectReason(
@@ -1277,7 +1277,7 @@ TensorView* scheduleReductionGeneral(
     Fusion* fusion,
     const ReductionParams* rparams,
     std::vector<TensorView*>& reduction_tvs,
-    ScheduleHeuristic heuristic_type) {
+    HeuristicType heuristic_type) {
   NVF_ERROR(!reduction_tvs.empty());
   // Registry assumes the reference tv is the first reduction_tv, if this
   // changes registry needs to change.
@@ -1294,7 +1294,7 @@ TensorView* scheduleReductionGeneral(
         scheduler_utils::domainReorderAsLogicalMap(reduction_tv));
   }
 
-  if (heuristic_type == ScheduleHeuristic::OuterPersistent &&
+  if (heuristic_type == HeuristicType::OuterPersistent &&
       rparams->cross_grid_inner_reduction && reduction_tvs.size() > 1) {
     groupReductions(reduction_tvs, false);
   }
@@ -1322,7 +1322,7 @@ TensorView* scheduleReductionGeneral(
 void schedulePersistentKernel(
     Fusion* fusion,
     const ReductionParams* rparams,
-    ScheduleHeuristic schedule_heuristic) {
+    HeuristicType schedule_heuristic) {
   FUSER_PERF_SCOPE("schedulePersistentKernel");
 
   FusionGuard fg(fusion);

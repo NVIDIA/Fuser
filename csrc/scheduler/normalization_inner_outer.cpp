@@ -57,7 +57,7 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
   }
   auto reduction_type =
       reduction_scheduler_utils::getReductionType(reduction_tvs);
-  const ScheduleHeuristic persistent_heuristic =
+  const HeuristicType persistent_heuristic =
       normalization_scheduler_utils::getPersistentHeuristicFor(reduction_type);
   if (persistent_heuristic != heuristicType()) {
     scheduler_debug_utils::canScheduleRejectReason(

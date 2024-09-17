@@ -41,8 +41,8 @@ class InnerPersistentKernelScheduler : public SchedulerEntry {
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr);
 
-  constexpr static ScheduleHeuristic heuristicType() {
-    return ScheduleHeuristic::InnerPersistent;
+  constexpr static HeuristicType heuristicType() {
+    return HeuristicType::InnerPersistent;
   }
 
   std::unique_ptr<HeuristicParams> computeHeuristics(

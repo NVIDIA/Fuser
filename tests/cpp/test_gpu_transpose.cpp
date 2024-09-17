@@ -1097,7 +1097,7 @@ TEST_F(TransposeTest, TransposeAggregatedVectorizationWidth) {
   NVF_CHECK(!runtime->isSegmented(), "Segmentation not expected");
   auto scheduler = runtime->schedulerHeuristics()->heuristicsList().at(0).get();
   NVF_CHECK(
-      scheduler->params()->heuristic_type == ScheduleHeuristic::Transpose,
+      scheduler->params()->heuristic_type == HeuristicType::Transpose,
       "Unexpected heuristic: ",
       scheduler->params()->heuristic_type);
   NVF_CHECK(
@@ -1177,7 +1177,7 @@ TEST_F(TransposeTest, ReshapePermuteTransposeScheduler) {
                        ->params()
                        ->heuristic_type;
   NVF_CHECK(
-      heuristic == ScheduleHeuristic::Transpose,
+      heuristic == HeuristicType::Transpose,
       "Unexpected heuristic: ",
       heuristic);
 
@@ -1223,7 +1223,7 @@ TEST_F(
                        ->params()
                        ->heuristic_type;
   NVF_CHECK(
-      heuristic != ScheduleHeuristic::Transpose,
+      heuristic != HeuristicType::Transpose,
       "Unexpected heuristic: ",
       heuristic);
 
@@ -1335,7 +1335,7 @@ TEST_F(TransposeTest, TransposeSplitAggregatedVectorizationWidth) {
                        ->params()
                        ->heuristic_type;
   NVF_CHECK(
-      heuristic == ScheduleHeuristic::Transpose,
+      heuristic == HeuristicType::Transpose,
       "Unexpected heuristic: ",
       heuristic);
 
@@ -1389,7 +1389,7 @@ TEST_F(TransposeTest, ReductionIterDomainOnInputsIssue1659) {
                         ->params()
                         ->heuristic_type;
   NVF_CHECK(
-      heuristic0 == ScheduleHeuristic::Reduction,
+      heuristic0 == HeuristicType::Reduction,
       "Unexpected heuristic: ",
       heuristic0);
   auto heuristic1 = runtime->schedulerHeuristics()
@@ -1399,7 +1399,7 @@ TEST_F(TransposeTest, ReductionIterDomainOnInputsIssue1659) {
                         ->params()
                         ->heuristic_type;
   NVF_CHECK(
-      heuristic1 == ScheduleHeuristic::Transpose,
+      heuristic1 == HeuristicType::Transpose,
       "Unexpected heuristic: ",
       heuristic1);
   testValidate(fusion_ptr, cg_outputs, {t0, t1}, __LINE__, __FILE__);

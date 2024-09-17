@@ -718,7 +718,7 @@ TensorView* canonicalizeInputToBMNK(
 // been used
 bool isSchedulerInUse(
     const nvfuser::FusionKernelRuntime* kernel_rt,
-    const ScheduleHeuristic& scheduler);
+    const HeuristicType& scheduler);
 
 // Disable magic zero
 constexpr CompileParams matmul_cparams{DataType::Int32, 255, false};

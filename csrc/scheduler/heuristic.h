@@ -21,7 +21,7 @@ class HeuristicParams : public PolymorphicBase {
 
   LaunchParams lparams;
   CompileParams cparams;
-  const ScheduleHeuristic heuristic_type;
+  const HeuristicType heuristic_type;
 
   virtual std::string toString() const {
     return "Undefined Heuristic Params";
@@ -42,7 +42,7 @@ class HeuristicParams : public PolymorphicBase {
   }
 
   HeuristicParams() = delete;
-  explicit HeuristicParams(ScheduleHeuristic type) : heuristic_type(type) {};
+  explicit HeuristicParams(HeuristicType type) : heuristic_type(type) {};
 
   virtual std::unique_ptr<HeuristicParams> clone() const {
     return std::make_unique<HeuristicParams>(heuristic_type);

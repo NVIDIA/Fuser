@@ -463,17 +463,17 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("global", MemoryType::Global);
 
   //! Scheduler Type for scheduling
-  py::enum_<ScheduleHeuristic>(nvfuser, "SchedulerHeuristic")
-      .value("none", ScheduleHeuristic::None)
-      .value("no_op", ScheduleHeuristic::NoOp)
-      .value("pointwise", ScheduleHeuristic::PointWise)
-      .value("matmul", ScheduleHeuristic::Matmul)
-      .value("reduction", ScheduleHeuristic::Reduction)
-      .value("inner_persistent", ScheduleHeuristic::InnerPersistent)
-      .value("inner_outer_persistent", ScheduleHeuristic::InnerOuterPersistent)
-      .value("outer_persistent", ScheduleHeuristic::OuterPersistent)
-      .value("transpose", ScheduleHeuristic::Transpose)
-      .value("expr_eval", ScheduleHeuristic::ExprEval);
+  py::enum_<HeuristicType>(nvfuser, "SchedulerHeuristic")
+      .value("none", HeuristicType::None)
+      .value("no_op", HeuristicType::NoOp)
+      .value("pointwise", HeuristicType::PointWise)
+      .value("matmul", HeuristicType::Matmul)
+      .value("reduction", HeuristicType::Reduction)
+      .value("inner_persistent", HeuristicType::InnerPersistent)
+      .value("inner_outer_persistent", HeuristicType::InnerOuterPersistent)
+      .value("outer_persistent", HeuristicType::OuterPersistent)
+      .value("transpose", HeuristicType::Transpose)
+      .value("expr_eval", HeuristicType::ExprEval);
 
   nvfuser.def("compute_contiguity", computeContiguity);
   nvfuser.def("compute_tensor_descriptor", computeTensorDescriptor);
@@ -3437,7 +3437,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   nvf_sched.def(
       "can_schedule",
       [](FusionDefinition::SchedOperators& self,
-         const ScheduleHeuristic& heuristic) {
+         const HeuristicType& heuristic) {
         NVF_CHECK(
             self.validUse(),
             "Attempting to use a SchedOperators Op prior to definition!");
@@ -3451,14 +3451,14 @@ void initNvFuserPythonBindings(PyObject* module) {
             self.validUse(),
             "Attempting to use a SchedOperators Op prior to definition!");
 
-        std::vector<ScheduleHeuristic> valid_heuristics;
+        std::vector<HeuristicType> valid_heuristics;
         valid_heuristics.reserve(all_heuristics_in_priority_order.size());
         std::copy_if(
             all_heuristics_in_priority_order.begin(),
             all_heuristics_in_priority_order.end(),
             std::back_inserter(valid_heuristics),
             [sched = self.fusion_definition->userSchedule()](
-                ScheduleHeuristic heuristic) {
+                HeuristicType heuristic) {
               return sched->canSchedule(heuristic);
             });
         return valid_heuristics;
@@ -3466,7 +3466,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   nvf_sched.def(
       "schedule",
       [](FusionDefinition::SchedOperators& self,
-         const ScheduleHeuristic& heuristic) {
+         const HeuristicType& heuristic) {
         NVF_CHECK(
             self.validUse(),
             "Attempting to use a SchedOperators Op prior to definition!");

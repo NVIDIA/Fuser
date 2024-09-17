@@ -38,8 +38,8 @@ class NoOpScheduler : public SchedulerEntry {
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr);
 
-  constexpr static ScheduleHeuristic heuristicType() {
-    return ScheduleHeuristic::NoOp;
+  constexpr static HeuristicType heuristicType() {
+    return HeuristicType::NoOp;
   }
 
   void schedule(Fusion* fusion, const HeuristicParams* params) override;
@@ -55,7 +55,7 @@ class NoOpScheduler : public SchedulerEntry {
 class NoOpHeuristic : public HeuristicParams {
  public:
   using HeuristicParams::HeuristicParams;
-  NoOpHeuristic() : HeuristicParams(ScheduleHeuristic::NoOp) {};
+  NoOpHeuristic() : HeuristicParams(HeuristicType::NoOp) {};
 
   size_t hash() const override {
     return 0;

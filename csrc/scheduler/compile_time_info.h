@@ -244,7 +244,7 @@ class HeuristicSummary {
  public:
   HeuristicSummary(
       Fusion* fusion,
-      ScheduleHeuristic heuristic,
+      HeuristicType heuristic,
       SchedulerRuntimeInfo& runtime_info);
 
   bool isRecording() {
@@ -263,7 +263,7 @@ class HeuristicSummary {
  private:
   std::vector<EntryOwningPtr> entries_;
   std::unordered_map<EntryType, EntryPtr> entry_type_map_;
-  ScheduleHeuristic heuristic_;
+  HeuristicType heuristic_;
   bool recording_ = true;
 };
 
