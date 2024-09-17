@@ -2,9 +2,6 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 
-# This test is yet to be added to CI. For now, run it manually with `mpirun -n
-# 2 pytest transformer_engine_test.py`.
-
 import os
 import pytest
 import torch
