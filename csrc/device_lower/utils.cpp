@@ -1578,7 +1578,8 @@ Projection propagate(
       })) {
     return group;
   }
-  // Not representable by the language of the dynamic type Projection.
+  // Not representable (or don't know how to represent) by the language of the
+  // dynamic type Projection.
   return {};
 }
 
@@ -1653,7 +1654,8 @@ Projection propagate(
   // Projection.
   if (from.size() == 2 && to.size() == 1) {
     NVF_ERROR(eg->front()->isA<Split>() || eg->front()->isA<Merge>());
-    // If merging two contiguous components, replace them with the merged ValGroup.
+    // If merging two contiguous components, replace them with the merged
+    // ValGroup.
     Composition<Projection> result = comp;
     auto it = search(result, from);
     if (it != comp.end()) {
@@ -1663,7 +1665,8 @@ Projection propagate(
     }
   }
 
-  // Not representable by the language of the dynamic type Projection.
+  // Not representable (or don't know how to represent) by the language of the
+  // dynamic type Projection.
   return {};
 }
 
@@ -1768,7 +1771,8 @@ Val* proveLinearAndGetStride(
     auto from = fromGroups(id_graph, eg, direction);
     frontier = propagate(frontier, id_graph, eg, direction);
     if (!frontier.hasValue()) {
-      // Not representable by the language of the dynamic type Projection.
+      // Not representable (or don't know how to represent) by the language of
+      // the dynamic type Projection.
       return nullptr;
     }
   }
