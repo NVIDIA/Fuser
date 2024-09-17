@@ -247,6 +247,16 @@ bool TrieNode::isTerminal() const {
   return (record.get()->recordType() == serde::RecordType::End);
 }
 
+void TrieNode::setException(const char* e) {
+  std::lock_guard<std::mutex> guard(trie_node_lock);
+  exception = e;
+}
+
+std::optional<std::string> TrieNode::getException() {
+  std::lock_guard<std::mutex> guard(trie_node_lock);
+  return exception;
+}
+
 flatbuffers::Offset<serde::TrieNode> TrieNode::serialize(
     flatbuffers::FlatBufferBuilder& builder,
     const std::map<RecordFunctor*, size_t>&
