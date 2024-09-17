@@ -56,7 +56,6 @@ def test_sizes_and_ranks(multidevice_test):
     assert local_rank >= 0 and local_rank < local_size
 
 
-@pytest.mark.skip(reason="#2929")
 @pytest.mark.mpi
 def test_pointwise(multidevice_test):
     num_devices = multidevice_test.size
@@ -78,7 +77,7 @@ def test_pointwise(multidevice_test):
             self.t2 = self.ops.add(self.t1, self.t1)
             self.add_output(self.t2)
 
-        def schedule(self):
+        def multidevice_schedule(self):
             mesh = self.sched._create_device_mesh((0, 1))
             self.sched._set_device_mesh(self.t0, mesh)
             self.sched._set_device_mesh(self.t1, mesh)

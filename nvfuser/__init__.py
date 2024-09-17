@@ -133,6 +133,11 @@ class FusionDefinition(_C._FusionDefinition):
     def definition(self):
         raise NotImplementedError("definition() should be implemented by child class!")
 
+    def multidevice_schedule(self):
+        raise NotImplementedError(
+            "multdevice_schedule() should be implemented by child class!"
+        )
+
     def schedule(self):
         raise NotImplementedError("schedule() should be implemented by child class!")
 
@@ -201,6 +206,9 @@ class FusionDefinition(_C._FusionDefinition):
             self._setup_definition()
             self.definition()
             self._finalize_definition()
+
+        if type(self).multidevice_schedule != FusionDefinition.multidevice_schedule:
+            self.multidevice_schedule()
 
         # If schedule is defined by child class and schedule is not defined for
         # inputs, make a schedule.
