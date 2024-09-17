@@ -1659,7 +1659,7 @@ Projection propagate(
     Composition<Projection> result = comp;
     auto it = search(result, from);
     if (it != comp.end()) {
-      result.erase(it + 1, it + from.size());
+      result.erase(it + 1, it + (int64_t)from.size());
       *it = to.front();
       return simplify(result);
     }
