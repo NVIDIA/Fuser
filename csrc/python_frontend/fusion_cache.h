@@ -104,7 +104,13 @@ struct TrieNode {
   // Queries whether the entry denotes a leaf node which also represents
   // a the end of Fusion entry in the cache.
   bool isTerminal() const;
+  //! getException returns the cached Exception raise during construction of
+  //! Fusion. It returns std::nullopt if the no error thrown. This function is
+  //! called at the end of FusionDefinition::finalizeDefinition to avoid
+  //! silently using a bad FusionDefinition cached in FusionCache.
   std::optional<std::string> getException();
+  //! setException is called to record exception message thrown during
+  //! construction of Fusion.
   void setException(const char* e);
   //! Serialize TrieNode using flatbuffers
   NVF_API flatbuffers::Offset<serde::TrieNode> serialize(
@@ -127,6 +133,8 @@ struct TrieNode {
   TrieNode* parent;
   //! For thread-Safe locking of a node
   std::mutex trie_node_lock;
+  //! exception is used to track if we failed to create a valid fusion for
+  //! FusionDefinition at this given TrieNode
   std::optional<std::string> exception = std::nullopt;
 };
 
