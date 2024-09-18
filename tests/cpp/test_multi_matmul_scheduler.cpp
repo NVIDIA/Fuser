@@ -361,7 +361,8 @@ class MultiMatmulSchedulerMatchTest
     // Schedule cloned fusion with new scheduler
     scheduleMultipleMatmuls(&new_fusion, params);
 
-    // find tensors to compare
+    // Find tensors to compare. Note that these, and all producer tensors will
+    // be checked.
     auto getTensorsToCompare = [](Fusion* fusion) {
       std::vector<TensorView*> tvs;
 
@@ -387,10 +388,13 @@ class MultiMatmulSchedulerMatchTest
       compareTVs(orig_compare_tvs[i], new_compare_tvs[i]);
     }
 
+    // TODO: Remove this skip to check that generated kernel matches
+    GTEST_SKIP() << "Skipping generated kernel check until "
+                 << "entire multi-matmul scheduler is implemented";
+
     // If there are no errors up to this point, then check that the generated
     // kernels match
-    // TODO: Enable this once entire scheduler is implemented
-    if (false && !testing::Test::HasFailure()) {
+    if (!testing::Test::HasFailure()) {
       FusionExecutor fe_orig, fe_new;
       fe_orig.compileFusion(fusion);
       fe_new.compileFusion(&new_fusion);
