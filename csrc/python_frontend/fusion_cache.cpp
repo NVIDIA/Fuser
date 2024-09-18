@@ -751,7 +751,13 @@ void FusionCache::deserialize(std::string filename) {
           "The fusion id for this TrieNode should already be set.")
       Fusion* fusion =
           queryFusionSchedules(fb_trie_node->fusion_id())->preschedFusion();
-      state->buildFusionIr(fusion);
+      try {
+        // There could be bad fusion in the serialization.
+        state->buildFusionIr(fusion);
+      } catch (const std::exception& e) {
+        // catch exception and setException for the terminal node
+        trie_ptr->setException(e.what());
+      }
     }
 
     // Table TrieNode => Field: children: [ulong]
