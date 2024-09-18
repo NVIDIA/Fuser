@@ -367,29 +367,29 @@ class MultipleMatmulScheduler {
   }
 
   void scheduleMmaResults() {
-    NVF_ERROR(false, "scheduleMmaResults is not yet implemented");
+    NVF_THROW("scheduleMmaResults is not yet implemented");
   }
 
   void schedulePrologues() {
-    NVF_ERROR(false, "schedulePrologues is not yet implemented");
+    NVF_THROW("schedulePrologues is not yet implemented");
   }
 
   void scheduleEpilogue() {
-    NVF_ERROR(false, "scheduleEpilogue is not yet implemented");
+    NVF_THROW("scheduleEpilogue is not yet implemented");
   }
 
   void scheduleSplitKSum() {
-    NVF_ERROR(false, "scheduleSplitKSum is not yet implemented");
+    NVF_THROW("scheduleSplitKSum is not yet implemented");
   }
 
   void setUpInlining() {
-    NVF_ERROR(false, "setUpInlining is not yet implemented");
+    NVF_THROW("setUpInlining is not yet implemented");
   }
 
   // NOTE: this should be called after acw_smem, acr, ..., ab, and mma_result
   // transforms have been applied and inlining
   void setUpCircularBuffering() {
-    NVF_ERROR(false, "setUpCircularBuffering is not yet implemented");
+    NVF_THROW("setUpCircularBuffering is not yet implemented");
   }
 
  private:

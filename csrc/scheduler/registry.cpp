@@ -345,7 +345,7 @@ HeuristicSummary::HeuristicSummary(
       ExprEvalScheduler().canScheduleRunTime(fusion, runtime_info, this);
       break;
     default:
-      NVF_ERROR(false, "unknown heuristic");
+      NVF_THROW("unknown heuristic");
   }
   validate();
   recording_ = false;
@@ -423,7 +423,7 @@ void HeuristicSummary::validate() const {
       break;
     }
     default:
-      NVF_ERROR(false, "unknown heuristic");
+      NVF_THROW("unknown heuristic");
   }
 }
 

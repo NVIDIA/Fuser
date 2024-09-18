@@ -540,7 +540,7 @@ TEST_P(LinearNodeTranslationTest, AutomaticSchedulerLinearNode) {
     } else if (bias_dim == 1) {
       bias = at::randn({N}, options);
     } else {
-      NVF_ERROR(false, "Invalid bias dimension given:", bias_dim);
+      NVF_THROW("Invalid bias dimension given:", bias_dim);
     }
     inputs.emplace_back(bias);
     tref = at::linear(t0, t1, bias);

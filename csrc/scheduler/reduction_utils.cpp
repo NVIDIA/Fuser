@@ -927,7 +927,7 @@ std::string toString(ReductionType reduction_type) {
     case ReductionType::None:
       return "NoneReduction";
     default:
-      NVF_ERROR(false, "undefined ReductionType");
+      NVF_THROW("undefined ReductionType");
   }
   return "";
 }

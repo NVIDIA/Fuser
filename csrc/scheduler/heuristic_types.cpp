@@ -34,7 +34,7 @@ std::string toString(HeuristicType sh) {
     case HeuristicType::None:
       return "none";
     default:
-      NVF_ERROR(false, "undefined schedule");
+      NVF_THROW("undefined schedule");
   }
   return "";
 }

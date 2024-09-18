@@ -265,7 +265,7 @@ class ParameterWrapper {
     if (mutable_) {
       value_ = val;
     } else {
-      NVF_ERROR(false, "Trying to set a non-mutable heuristic parameter!");
+      NVF_THROW("Trying to set a non-mutable heuristic parameter!");
     }
   }
 

@@ -9,7 +9,6 @@
 #include <fusion_executor/executor_kernel_arg.h>
 #include <fusion_profiler.h>
 #include <instrumentation.h>
-#include <multidevice/communicator.h>
 #include <options.h>
 #include <python_frontend/fusion_cache.h>
 #include <python_frontend/fusion_definition.h>
@@ -51,7 +50,7 @@ const char* dtypeToPyString(PrimDataType t) {
     default:
       break;
   }
-  NVF_ERROR(false, "No string found for data type.");
+  NVF_THROW("No string found for data type.");
   return nullptr;
 }
 
@@ -293,10 +292,6 @@ std::vector<at::Tensor> FusionDefinition::execute(
 
   auto scheds = fusionCache()->queryFusionSchedules(id().value());
 
-  if (multidevice_executor_) {
-    return multidevice_executor_->runWithInput(inputs.vec());
-  }
-
   std::vector<at::Tensor> outputs;
   if (profile) {
     ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
@@ -387,7 +382,7 @@ UserSchedule* FusionDefinition::userSchedule() {
   NVF_CHECK(id().has_value(), "Invalid fusion definition!");
 
   if (user_sched_ == nullptr) {
-    NVF_ERROR(false, "User schedule is not defined.");
+    NVF_THROW("User schedule is not defined.");
   }
   return user_sched_;
 }

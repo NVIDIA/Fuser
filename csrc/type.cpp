@@ -19,7 +19,7 @@
 namespace nvfuser {
 
 StructType NotImplementedStruct::type() const {
-  NVF_ERROR(false, "Not implemented");
+  NVF_THROW("Not implemented");
 }
 
 StructType globalTensorMetaData(
@@ -163,7 +163,7 @@ DataType getComplexTypeFromType(DataType dtype) {
     case DataType::ComplexDouble:
       return DataType::ComplexDouble;
     default:
-      NVF_ERROR(false, "Only support Float and Double, current type:", dtype);
+      NVF_THROW("Only support Float and Double, current type:", dtype);
   }
 }
 
@@ -247,7 +247,7 @@ static std::string data_type2string(DataType t) {
             case DataType::ComplexDouble:
               return "std::complex<double>";
             default:
-              NVF_ERROR(false, "No string found for data type.");
+              NVF_THROW("No string found for data type.");
           }
         } else if constexpr (std::is_same_v<T, PointerType>) {
           return data_type2string(*dtype.type) + "*";
@@ -274,9 +274,9 @@ static std::string data_type2string(DataType t) {
             return dtype.type_info.get().name();
           }
         } else {
-          NVF_ERROR(false, "No string found for data type.");
+          NVF_THROW("No string found for data type.");
         }
-        NVF_ERROR(false, "No string found for data type.");
+        NVF_THROW("No string found for data type.");
       },
       t.type);
 }
@@ -298,7 +298,7 @@ static const char* val_type2string(ValType t) {
     case ValType::TensorIndex:
       return "TensorIndex";
     default:
-      NVF_ERROR(false, "No string found for val type.");
+      NVF_THROW("No string found for val type.");
   }
 }
 
@@ -319,7 +319,7 @@ const char* predicate_type2string(PredicateType t) {
     case PredicateType::LoopRotation:
       return "LoopRotation";
     default:
-      NVF_ERROR(false, "No string found for predicate type.");
+      NVF_THROW("No string found for predicate type.");
   }
 }
 
@@ -468,12 +468,14 @@ static const char* unary_op_type2string(UnaryOpType t) {
       return "std::imag";
     case UnaryOpType::ToUnsignedSmemAddr:
       return "toSmem";
+    case UnaryOpType::ElectSync:
+      return "Hopper::electSync";
     case UnaryOpType::AdjustPartialLdMatrixAddrInTuring8:
       return "Turing::adjustPartialLdMatrixAddrInTuring<8>";
     case UnaryOpType::AdjustPartialLdMatrixAddrInTuring16:
       return "Turing::adjustPartialLdMatrixAddrInTuring<16>";
     default:
-      NVF_ERROR(false, "No string found for unary op type.");
+      NVF_THROW("No string found for unary op type.");
   }
 }
 
@@ -571,7 +573,7 @@ static const char* binary_op_type2string(BinaryOpType t) {
     case BinaryOpType::NE:
       return "notEqual";
     default:
-      NVF_ERROR(false, "No string found for binary op type.");
+      NVF_THROW("No string found for binary op type.");
   }
 }
 
@@ -675,7 +677,7 @@ static const char* ternary_op_type2string(TernaryOpType t) {
     case TernaryOpType::Where:
       return "where";
     default:
-      NVF_ERROR(false, "Unexpected TernaryOpType");
+      NVF_THROW("Unexpected TernaryOpType");
   }
 }
 
@@ -690,7 +692,7 @@ static const char* rng_op_type2string(RNGOpType t) {
     case RNGOpType::NormalGeneral:
       return "rng_normal_general";
     default:
-      NVF_ERROR(false, "Unexpected RNGOpType");
+      NVF_THROW("Unexpected RNGOpType");
   }
 }
 
@@ -727,7 +729,7 @@ static const char* parallel_type2string(ParallelType t) {
     case ParallelType::Bulk:
       return "B";
     default:
-      NVF_ERROR(false, "Unexpected ParallelType");
+      NVF_THROW("Unexpected ParallelType");
   }
 }
 
@@ -763,7 +765,7 @@ static const char* memory_type2string(MemoryType t) {
     case MemoryType::Global:
       return "global";
     default:
-      NVF_ERROR(false, "Unexpected MemoryType");
+      NVF_THROW("Unexpected MemoryType");
   }
 }
 
@@ -773,6 +775,8 @@ static const char* id_map_mode_type2string(IdMappingMode t) {
       return "exact";
     case IdMappingMode::ALMOSTEXACT:
       return "almost_exact";
+    case IdMappingMode::BROADCAST:
+      return "broadcast";
     case IdMappingMode::PERMISSIVE:
       return "permissive";
     case IdMappingMode::LOOP:
@@ -783,7 +787,7 @@ static const char* id_map_mode_type2string(IdMappingMode t) {
       return "permissive_resize";
     default:
       // Don't try to print t as it would recursively call this function
-      NVF_ERROR(false, "Unexpected IdMappingMode Type.");
+      NVF_THROW("Unexpected IdMappingMode Type.");
   }
 }
 
@@ -805,7 +809,7 @@ static const char* iter_type2string(IterType t) {
       return "?";
     default:
       // Don't try to print t as it would recursively call this function
-      NVF_ERROR(false, "Unexpected IterType");
+      NVF_THROW("Unexpected IterType");
   }
 }
 
@@ -824,7 +828,7 @@ static const char* thread_size2string(ParallelType t) {
     case ParallelType::TIDx:
       return "blockDim.x";
     default:
-      NVF_ERROR(false, "Unexpected parallel type");
+      NVF_THROW("Unexpected parallel type");
   }
 }
 
@@ -843,7 +847,7 @@ const char* load_store_type2string(LoadStoreOpType t) {
     case LoadStoreOpType::CpAsyncBulkTensorTile:
       return "CpAsyncBulkTensorTile";
     default:
-      NVF_ERROR(false, "Unexpected parallel type");
+      NVF_THROW("Unexpected parallel type");
   }
 }
 
@@ -1146,7 +1150,7 @@ at::ScalarType data_type_to_aten(const DataType& data_type) {
     case DataType::ComplexDouble:
       return at::ScalarType::ComplexDouble;
     default:
-      NVF_ERROR(false, "No data type found for scalar type.");
+      NVF_THROW("No data type found for scalar type.");
   }
 }
 
@@ -1174,7 +1178,7 @@ std::ostream& operator<<(std::ostream& out, const ScatterOpType sotype) {
   if (sotype == ScatterOpType::Set) {
     return out << "scatter";
   }
-  NVF_ERROR(false, "No scatterOp type found for scatterOp.");
+  NVF_THROW("No scatterOp type found for scatterOp.");
 }
 
 std::ostream& operator<<(std::ostream& out, const TernaryOpType totype) {
@@ -1216,7 +1220,7 @@ std::ostream& operator<<(std::ostream& os, const SwizzleType& swizzle) {
       os << "Xor";
       break;
     default:
-      NVF_ERROR(false, "undefined 2D swizzle");
+      NVF_THROW("undefined 2D swizzle");
       break;
   }
   return os;
@@ -1237,7 +1241,7 @@ std::ostream& operator<<(std::ostream& os, const Swizzle2DType& swizzle) {
       os << "CyclicShift";
       break;
     default:
-      NVF_ERROR(false, "undefined 2D swizzle");
+      NVF_THROW("undefined 2D swizzle");
       break;
   }
   return os;
@@ -1255,7 +1259,7 @@ std::ostream& operator<<(std::ostream& os, const SwizzleMode& swizzle) {
       os << "Data";
       break;
     default:
-      NVF_ERROR(false, "undefined 2D swizzle");
+      NVF_THROW("undefined 2D swizzle");
       break;
   }
   return os;
@@ -1270,7 +1274,7 @@ std::ostream& operator<<(std::ostream& os, const KernelIndexMode& index_mode) {
       os << "INT64";
       break;
     default:
-      NVF_ERROR(false, "undefined index mode");
+      NVF_THROW("undefined index mode");
       break;
   }
   return os;
@@ -1291,7 +1295,7 @@ std::ostream& operator<<(std::ostream& os, const CacheOp& cache_op) {
       os << "Global";
       break;
     default:
-      NVF_ERROR(false, "undefined cache operator");
+      NVF_THROW("undefined cache operator");
       break;
   }
   return os;
@@ -1374,7 +1378,7 @@ std::string typePrefix(const DataType data_type) {
     case DataType::ComplexDouble:
       return "c";
     default:
-      NVF_ERROR(false, "No data type found for scalar type.");
+      NVF_THROW("No data type found for scalar type.");
   }
 }
 
@@ -1430,7 +1434,7 @@ int64_t dataTypeSize(DataType type) {
         } else if constexpr (std::is_same_v<T, OpaqueType>) {
           return dtype.size;
         }
-        NVF_ERROR(false, "Size undefined for data type.");
+        NVF_THROW("Size undefined for data type.");
       },
       type.type);
 }
@@ -1462,7 +1466,7 @@ std::ostream& operator<<(
       os << "{CircularBufferEpilog}";
       break;
     default:
-      NVF_ERROR(false, "unknown circular buffer stage");
+      NVF_THROW("unknown circular buffer stage");
   }
   return os;
 }

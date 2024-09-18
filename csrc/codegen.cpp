@@ -539,7 +539,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       }
       code_ << "}";
     } else {
-      NVF_ERROR(false, "Unhandled constant type: ", dtype, " ", value);
+      NVF_THROW("Unhandled constant type: ", dtype, " ", value);
     }
   }
 
@@ -613,11 +613,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void handle(const IterDomain*) final {
-    NVF_ERROR(false, "Unreachable");
+    NVF_THROW("Unreachable");
   }
 
   void handle(const TensorDomain*) final {
-    NVF_ERROR(false, "Unreachable");
+    NVF_THROW("Unreachable");
   }
 
   void handle(const TensorView* tv) final {
@@ -1083,7 +1083,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       // non-deterministic
       indent() << gen(sop->output(0)) << " = " << gen(sop->input(2)) << ";\n";
     } else {
-      NVF_ERROR(false, "unkown scatterOp");
+      NVF_THROW("unkown scatterOp");
     }
   }
 
@@ -3006,7 +3006,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           }
         } break;
         default:
-          NVF_ERROR(false, "Unexpected memory type");
+          NVF_THROW("Unexpected memory type");
       }
     }
   }

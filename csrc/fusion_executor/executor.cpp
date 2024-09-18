@@ -55,7 +55,7 @@ static const char* defineIndexType(PrimDataType index_type) {
   } else if (index_type == DataType::Int) {
     return "typedef int64_t nvfuser_index_t;\n";
   } else {
-    NVF_ERROR(false, "invalid indexing type: ", index_type);
+    NVF_THROW("invalid indexing type: ", index_type);
   }
 }
 
@@ -424,7 +424,7 @@ void FusionExecutor::compileFusion(
       ss << alloc->buffer()->toString() << ", ";
     }
     ss << " have dynamic allocations but are placed in local memory.";
-    NVF_ERROR(false, ss.str());
+    NVF_THROW(ss.str());
   }
 
   // TODO: pass block_size here;
@@ -827,6 +827,16 @@ void FusionExecutor::initializeExecutorEntry(
       kernel(), args, outputs, compileTimeDataCache(), expr_eval);
 
   executor_utils::validateCircularBuffering(kernel(), expr_eval);
+
+  // Check that a full warp exists in blockDim.x if the kernel contains
+  // ElectSync predicate.
+  constexpr int64_t warp_size = 32;
+  NVF_ERROR(
+      !kernel()->summary().has_elect_sync_predicate ||
+          launch_params.bdimx() >= warp_size,
+      "This cuda kernel contains electSync predicate. "
+      "Expected blockDim.x >= 32 but found ",
+      launch_params.bdimx());
 
   std::vector<GlobalBufferInfo> output_info;
 

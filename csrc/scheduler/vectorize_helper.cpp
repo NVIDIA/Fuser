@@ -745,7 +745,7 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
 
     auto contiguity_i = contiguity.at(alloc_ii);
     if (!contiguity_i.has_value()) {
-      NVF_ERROR(false, "contiguity flag at alloc_ii can't be null");
+      NVF_THROW("contiguity flag at alloc_ii can't be null");
     } else {
       // Not contiguous
       if (!contiguity_i.value()) {
@@ -996,7 +996,7 @@ int64_t getVectorizationBreakPointOfReductionProducer(
 
     // Neither reduction nor mapped to consumer innermost IDs.
     // This should not happen
-    NVF_ERROR(false, "Unexpected producer RF ID: ", producer_rf_id->toString())
+    NVF_THROW("Unexpected producer RF ID: ", producer_rf_id->toString())
   }
 
   return break_point;

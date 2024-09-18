@@ -1739,7 +1739,7 @@ void GroupDependencyAnalysis::computeAllProducers() {
       to_visit.erase(to_update);
       visited.pushBack(to_update);
     } else {
-      NVF_ERROR(false, "unreachable, original graph not a DAG");
+      NVF_THROW("unreachable, original graph not a DAG");
     }
   }
 }
@@ -1991,7 +1991,7 @@ std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
         "\n***Runtime***: Try to schedule fusion segmented:\n");
     return SegmentCandidateFinder::segment(std::move(fusion), inputs);
   } else {
-    NVF_ERROR(false, "unreachable!");
+    NVF_THROW("unreachable!");
   }
 }
 
@@ -3647,7 +3647,7 @@ std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
 
   // Not sure this could happen. Just assert for now.
   if (producer_edge_it == group->producer_edges.end()) {
-    NVF_ERROR(false, "Unexpected");
+    NVF_THROW("Unexpected");
     return std::nullopt;
   }
 

@@ -203,7 +203,7 @@ class FusionExecutor : public NonCopyable {
     if (host_ir_container_ != nullptr) {
       return host_ir_container_->as<Fusion>();
     }
-    NVF_ERROR(false, "unreachable because of the isCompiled check");
+    NVF_THROW("unreachable because of the isCompiled check");
   }
 
   const ThreadPredicateMap& threadPredMap() const {
