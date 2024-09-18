@@ -3532,11 +3532,10 @@ TEST_F(NVFuserTest, FusionSegmentReduceSoftmax_CUDA) {
       << "segmentation didn't happen as expected";
 
   // Make sure the second kernel is vectorized. See issue #658
-  auto heuristic_params = executor_cache.getMostRecentKernelRuntime()
-                              ->schedulerHeuristics()
-                              ->heuristicsList()
-                              .at(1)
-                              ->params();
+  auto& heuristic_params = executor_cache.getMostRecentKernelRuntime()
+                               ->schedulerHeuristics()
+                               ->heuristicsList()
+                               .at(1);
   ASSERT_TRUE(heuristic_params->isA<ReductionParams>());
   auto rparams = heuristic_params->as<ReductionParams>();
   ASSERT_TRUE(rparams->vectorize_inner_reduction) << "Failed to vectorize";
@@ -8054,9 +8053,10 @@ TEST_F(NVFuserTest, FusionTestWarpSoftMax_CUDA) {
   SchedulerRuntimeInfo runtime_info(&fusion, aten_inputs);
   NVF_CHECK(Schedule::canSchedule(
       HeuristicType::InnerPersistent, &fusion, runtime_info));
-  auto scheduler = Schedule::makeEntry(
-      HeuristicType::InnerPersistent, &fusion, runtime_info);
-  scheduler->schedule(&fusion, scheduler->params());
+  auto scheduler =
+      SchedulerEntry::makeSchedulerInstance(HeuristicType::InnerPersistent);
+  auto heuristic_params = scheduler->computeHeuristics(&fusion, runtime_info);
+  scheduler->schedule(&fusion, heuristic_params.get());
 
   // Modify the schedule to use warp reduction
   auto used_vals = fusion.usedMathVals();

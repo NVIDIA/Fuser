@@ -1315,18 +1315,19 @@ TEST_F(PersistentBufferTest, SmemPersistent2DReduction) {
   SchedulerRuntimeInfo runtime_info(fusion.get(), aten_inputs);
   ASSERT_TRUE(Schedule::canSchedule(
       HeuristicType::InnerPersistent, fusion.get(), runtime_info));
-  auto scheduler = Schedule::makeEntry(
-      HeuristicType::InnerPersistent, fusion.get(), runtime_info);
-  EXPECT_FALSE(scheduler->params()
-                   ->as<ReductionParams>()
-                   ->smem_persistent_buffers.empty());
-  scheduler->schedule(fusion.get(), scheduler->params());
+  auto scheduler =
+      SchedulerEntry::makeSchedulerInstance(HeuristicType::InnerPersistent);
+  auto heuristic_params =
+      scheduler->computeHeuristics(fusion.get(), runtime_info);
+  EXPECT_FALSE(
+      heuristic_params->as<ReductionParams>()->smem_persistent_buffers.empty());
+  scheduler->schedule(fusion.get(), heuristic_params.get());
 
   // Run the fusion and validate the results
   FusionExecutor fe;
   fe.compileFusion(fusion.get(), aten_inputs);
   auto cg_outputs = fe.runFusion(
-      aten_inputs, scheduler->params()->as<ReductionParams>()->lparams);
+      aten_inputs, heuristic_params->as<ReductionParams>()->lparams);
   auto t1 = t0 / t0.sum({1, 2, 3}, true);
   testValidate(fusion.get(), cg_outputs, aten_inputs, {t1}, __LINE__, __FILE__);
 }

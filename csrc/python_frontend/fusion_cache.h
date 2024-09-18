@@ -27,9 +27,9 @@ struct UserSchedule {
   //! Runtime information for schedulers
   std::unique_ptr<SchedulerRuntimeInfo> runtime_info;
   //! The scheduler heuristic for this UserSchedule
-  std::unique_ptr<SchedulerEntry> heuristic_scheduler;
+  std::unique_ptr<HeuristicParams> heuristic_params;
   //! Concretized, Scheduled Fusion IR
-  std::unique_ptr<Fusion> schedule;
+  std::unique_ptr<Fusion> scheduled_fusion;
   //! Generated kernel container
   std::unique_ptr<FusionExecutor> executor;
   //! ID of fusion in python frontend fusion cache
@@ -48,8 +48,9 @@ struct UserSchedule {
   //! Get Fusion for UserSchedule
   Fusion* fusion() {
     NVF_ERROR(
-        schedule != nullptr, "Requires Fusion to use heuristic schedulers");
-    return schedule.get();
+        scheduled_fusion != nullptr,
+        "Requires Fusion to use heuristic schedulers");
+    return scheduled_fusion.get();
   }
 
   //! Return if we can schedule FusionDefinition with heuristic.
@@ -61,7 +62,7 @@ struct UserSchedule {
       const HeuristicType& heuristic);
 
   //! Schedule fusion with heuristic
-  void scheduleWithHeuristic(const HeuristicType& heuristic);
+  void scheduleWithHeuristic(HeuristicType heuristic);
 };
 
 //! \struct FusionSchedules

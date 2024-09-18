@@ -7308,11 +7308,10 @@ TEST_F(NVFuserTest, VectorizeBackToBackReductions) {
   ASSERT_EQ(optimized_fusion->fusionSegments()->groups().size(), 2)
       << "segmentation didn't happen as expected";
 
-  auto heuristic_params = executor_cache.getMostRecentKernelRuntime()
-                              ->schedulerHeuristics()
-                              ->heuristicsList()
-                              .at(1)
-                              ->params();
+  auto& heuristic_params = executor_cache.getMostRecentKernelRuntime()
+                               ->schedulerHeuristics()
+                               ->heuristicsList()
+                               .at(1);
   ASSERT_TRUE(heuristic_params->isA<ReductionParams>());
   auto rparams = heuristic_params->as<ReductionParams>();
   ASSERT_TRUE(rparams->vectorize_inner_reduction) << "Failed to vectorize";

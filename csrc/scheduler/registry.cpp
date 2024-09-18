@@ -164,10 +164,6 @@ size_t SchedulerRuntimeInfo::getAlignmentSize(TensorView* tv) {
   return alignment_size;
 }
 
-bool SchedulerEntry::sameAs(const SchedulerEntry* other) {
-  return params_->sameAs(other->params_.get());
-}
-
 namespace {
 //! A Utility for checking both dynamic and static part of
 //!  can schedule
@@ -263,19 +259,6 @@ bool canSchedule(
       SchedulerEntry::makeSchedulerInstance(heuristic_type);
   return scheduler->canScheduleCompileTime(fusion) &&
       scheduler->canScheduleRunTime(fusion, runtime_info, data_cache);
-}
-
-std::unique_ptr<SchedulerEntry> makeEntry(
-    HeuristicType heuristic_type,
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache) {
-  FUSER_PERF_SCOPE("Schedule::makeEntry");
-  std::unique_ptr<SchedulerEntry> scheduler =
-      SchedulerEntry::makeSchedulerInstance(heuristic_type);
-  scheduler->params_ =
-      scheduler->computeHeuristics(fusion, runtime_info, data_cache);
-  return scheduler;
 }
 
 // Simply loop through the list as baseline strategy
@@ -498,5 +481,17 @@ template class HeuristicSummaryEntry<
 template class HeuristicSummaryEntry<HeuristicCompileTime::LogicalReorderMap>;
 template class HeuristicSummaryEntry<
     HeuristicCompileTime::VectorizationBreakPointOfReductionProducer>;
+
+//! TODO: Move to another file, or make it so it can be in Heuristics.h by
+//! moving SchedulerRuntimeInfo outisde registry.h
+HeuristicParamsList::HeuristicParamsList(
+    HeuristicType schedule_heuristic,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicSummary* data_cache)
+    : is_segmented_(false) {
+  heuristics_.emplace_back(
+      SchedulerEntry::makeSchedulerInstance(schedule_heuristic)
+          ->computeHeuristics(runtime_info.fusion(), runtime_info, data_cache));
+}
 
 } // namespace nvfuser

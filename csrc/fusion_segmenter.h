@@ -153,7 +153,7 @@ class SegmentedGroup {
   //!  Note that the schedule params can be different.
   //! Returns a nullopt if this group cannot be scheduled
   //!  with the same heuristics.
-  std::optional<std::unique_ptr<SchedulerEntry>> getMaybeSchedulerEntry(
+  std::optional<std::unique_ptr<HeuristicParams>> getMaybeHeuristicParams(
       SchedulerRuntimeInfo& runtime_info);
 
   //! Query if this is a group for a fusion input
@@ -260,62 +260,6 @@ class SegmentedGroup {
 
 std::ostream& operator<<(std::ostream& os, const SegmentedGroup* group);
 
-//! Auxiliary class for storing heuristics. The managed data is either
-//!  a single scheduler entry for complete fusion,
-//!  or a vector of schedulers, one for each segment, for segmented fusion.
-class FusionHeuristics {
- public:
-  //! Constructor for segmented fusion case. Created with empty list and
-  //!  uses emplaceBack for inserting heuristics in order
-  explicit FusionHeuristics() = default;
-
-  //! Constructor fills heuristics_ with nullptr, which allows us to create
-  //! SchedulerEntries out of order.
-  explicit FusionHeuristics(size_t num_heuristics) {
-    heuristics_.reserve(num_heuristics);
-    std::fill_n(std::back_inserter(heuristics_), num_heuristics, nullptr);
-  }
-
-  //! Constructor for complete fusion case, generates the scheduler entry
-  //!  for the fusion owning the given expression
-  explicit FusionHeuristics(
-      HeuristicType schedule_heuristic,
-      SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr)
-      : is_segmented_(false) {
-    heuristics_.emplace_back(Schedule::makeEntry(
-        schedule_heuristic, runtime_info.fusion(), runtime_info, data_cache));
-  }
-
-  FusionHeuristics(const FusionHeuristics&) = delete;
-  FusionHeuristics& operator=(const FusionHeuristics&) = delete;
-
-  std::unique_ptr<SchedulerEntry>& at(int index) {
-    return heuristics_.at(index);
-  }
-
-  //! Place a scheduler entry on the list. Applies to segmented fusion only.
-  void emplaceBack(std::unique_ptr<SchedulerEntry>&& pt) {
-    NVF_ERROR(is_segmented_);
-    heuristics_.emplace_back(std::move(pt));
-  }
-
-  //! Returns list of schedulers for a segmneted fusion.
-  const std::vector<std::unique_ptr<SchedulerEntry>>& heuristicsList() const {
-    return heuristics_;
-  }
-
-  //! Returns the single scheduler for a complete fusion.
-  SchedulerEntry* singleKernelHeuristics() {
-    NVF_ERROR(!is_segmented_);
-    return heuristics_.begin()->get();
-  }
-
- private:
-  std::vector<std::unique_ptr<SchedulerEntry>> heuristics_;
-  bool is_segmented_ = true;
-};
-
 //! Exported Interface for representing segmented fusion graph
 //!   this class owns the segmented groups
 class SegmentedFusion {
@@ -373,7 +317,7 @@ class SegmentedFusion {
   std::pair<IrCloner, std::unique_ptr<Fusion>> makeFusion(SegmentedGroup* sg);
 
   //! Make a heuristics entry for a group and parameters
-  std::unique_ptr<SchedulerEntry> makeInitialSchedulerEntry(
+  std::unique_ptr<HeuristicParams> makeInitialHeuristicParams(
       SegmentedGroup* sg,
       SchedulerRuntimeInfo& runtime_info);
 

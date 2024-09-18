@@ -189,7 +189,7 @@ class SchedulerEntry {
   virtual std::unique_ptr<HeuristicParams> computeHeuristics(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache) = 0;
+      HeuristicSummary* data_cache = nullptr) = 0;
 
   // Compile check that the scheduler maybe able to schedule the fusion
   virtual bool canScheduleCompileTime(Fusion* fusion) = 0;
@@ -199,7 +199,7 @@ class SchedulerEntry {
   virtual bool canScheduleRunTime(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache) = 0;
+      HeuristicSummary* data_cache = nullptr) = 0;
 
   // Dispatch heuristic type to the right derived class of scheduler entry.
   // Scheduler entries are stateless so it's a lightweight class to dispatch to
@@ -233,15 +233,6 @@ bool canSchedule(
 std::optional<HeuristicType> proposeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info);
-
-//! Fusion runtime facing API,
-//!   builds a new entry with the given heuristics
-//!   corresponding to the given fusion
-std::unique_ptr<SchedulerEntry> makeEntry(
-    HeuristicType sh,
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache = nullptr);
 } // namespace Schedule
 
 } // namespace nvfuser

@@ -116,7 +116,6 @@ void checkUnsegmentedVectorization(
   const MatmulParams* params = runtime->schedulerHeuristics()
                                    ->heuristicsList()
                                    .front()
-                                   ->params()
                                    ->as<MatmulParams>();
 
   EXPECT_EQ(params->supported_vec_size.a, expected_vec_A);
@@ -2083,7 +2082,6 @@ TEST_P(MatmulSchedulerTestWithLayout, MisalignedVectorization) {
         const MatmulParams* params = runtime->schedulerHeuristics()
                                          ->heuristicsList()
                                          .front()
-                                         ->params()
                                          ->as<MatmulParams>();
 
         EXPECT_EQ(params->supported_vec_size.a, expected_vec_A);
@@ -2280,7 +2278,6 @@ TEST_P(MatmulSchedulerTestWithLayout, StridedInputs) {
         const MatmulParams* params = runtime->schedulerHeuristics()
                                          ->heuristicsList()
                                          .front()
-                                         ->params()
                                          ->as<MatmulParams>();
 
         EXPECT_EQ(params->supported_vec_size.a, expected_vec_A);

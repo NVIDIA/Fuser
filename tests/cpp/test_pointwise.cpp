@@ -29,7 +29,6 @@ int64_t getVecSizeForPointwise(const FusionExecutorCache& fec) {
   const PointwiseParams* params = runtime->schedulerHeuristics()
                                       ->heuristicsList()
                                       .at(0)
-                                      ->params()
                                       ->as<PointwiseParams>();
   if (!params->vectorize) {
     return 1;

@@ -185,8 +185,8 @@ void serialize() {
 std::mutex FusionCache::singleton_lock_;
 FusionCache* FusionCache::singleton_ = nullptr;
 
-UserSchedule::UserSchedule() : schedule(nullptr), executor(nullptr) {
-  schedule = std::make_unique<Fusion>();
+UserSchedule::UserSchedule() : scheduled_fusion(nullptr), executor(nullptr) {
+  scheduled_fusion = std::make_unique<Fusion>();
   executor = std::make_unique<FusionExecutor>();
 }
 
@@ -209,13 +209,15 @@ std::tuple<bool, std::string> UserSchedule::canScheduleDebug(
   return std::make_tuple(can_schedule, ss.str());
 }
 
-void UserSchedule::scheduleWithHeuristic(const HeuristicType& heuristic) {
+void UserSchedule::scheduleWithHeuristic(HeuristicType heuristic_type) {
   NVF_CHECK(
-      heuristic_scheduler == nullptr,
+      heuristic_params == nullptr,
       "Heuristic Scheduler is already defined for this UserSchedule");
-  heuristic_scheduler =
-      Schedule::makeEntry(heuristic, fusion(), *runtimeInfo());
-  heuristic_scheduler->schedule(fusion(), heuristic_scheduler->params());
+  auto scheduler = SchedulerEntry::makeSchedulerInstance(heuristic_type);
+  SchedulerRuntimeInfo& runtime_info_ref = *runtimeInfo();
+  auto heuristic_params =
+      scheduler->computeHeuristics(fusion(), runtime_info_ref);
+  scheduler->schedule(fusion(), heuristic_params.get());
 }
 
 FusionSchedules::FusionSchedules(int64_t fusion_id)

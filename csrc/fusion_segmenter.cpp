@@ -2609,16 +2609,16 @@ void deDuplicateScalarExprs(std::vector<Expr*>& exprs) {
 
 } // namespace
 
-std::optional<std::unique_ptr<SchedulerEntry>> SegmentedGroup::
-    getMaybeSchedulerEntry(SchedulerRuntimeInfo& runtime_info) {
-  FUSER_PERF_SCOPE("SegmentedFusion::getMaybeSchedulerEntry");
+std::optional<std::unique_ptr<HeuristicParams>> SegmentedGroup::
+    getMaybeHeuristicParams(SchedulerRuntimeInfo& runtime_info) {
+  FUSER_PERF_SCOPE("SegmentedFusion::getMaybeHeuristicParams");
   auto data_cache = segmented_fusion_->getCachedHeuristicDataFor(this);
   if (!Schedule::canSchedule(
           heuristicType(), runtime_info.fusion(), runtime_info, data_cache)) {
     return std::nullopt;
   }
-  return Schedule::makeEntry(
-      heuristicType(), runtime_info.fusion(), runtime_info, data_cache);
+  return SchedulerEntry::makeSchedulerInstance(heuristicType())
+      ->computeHeuristics(runtime_info.fusion(), runtime_info, data_cache);
 }
 
 void SegmentedGroup::resetExprList() {
@@ -2804,9 +2804,9 @@ bool TranslateApplicableWelford::isValidPersistentFusion(
   if (!Schedule::canSchedule(persistent_sh, translated_fusion, runtime_info)) {
     return false;
   }
-
-  auto scheduler =
-      Schedule::makeEntry(persistent_sh, translated_fusion, runtime_info);
+  auto scheduler = SchedulerEntry::makeSchedulerInstance(persistent_sh);
+  auto heuristic_params =
+      scheduler->computeHeuristics(translated_fusion, runtime_info);
 
   // Translate welford to two-pass enhances performance for block
   // reductions by reducing instructions and the impact of an extra block
@@ -2814,8 +2814,8 @@ bool TranslateApplicableWelford::isValidPersistentFusion(
   // However, when it comes to cross grid reduction, the additional grid
   // synchronization carries substantial overhead and does not yield any
   // performance gains.
-  return scheduler->params()->as<ReductionParams>()->persistent_kernel &&
-      !scheduler->params()->as<ReductionParams>()->cross_grid_outer_reduction;
+  return heuristic_params->as<ReductionParams>()->persistent_kernel &&
+      !heuristic_params->as<ReductionParams>()->cross_grid_outer_reduction;
 }
 
 // Note that when segmented it is assumed that insertion of lower
@@ -4398,7 +4398,7 @@ GroupDependencyAnalysis* SegmentCandidateFinder::getGroupDependency() {
   return group_dependency_->as<GroupDependencyAnalysis>();
 }
 
-std::unique_ptr<SchedulerEntry> SegmentedFusion::makeInitialSchedulerEntry(
+std::unique_ptr<HeuristicParams> SegmentedFusion::makeInitialHeuristicParams(
     SegmentedGroup* sg,
     SchedulerRuntimeInfo& runtime_info) {
   // This will be the first time each group is scheduled. So we'd want to
@@ -4407,8 +4407,8 @@ std::unique_ptr<SchedulerEntry> SegmentedFusion::makeInitialSchedulerEntry(
       runtime_info.fusion(), sg->heuristicType(), runtime_info);
   auto data_cache = data_cache_ptr.get();
   setCachedHeuristicDataFor(sg, std::move(data_cache_ptr));
-  return Schedule::makeEntry(
-      sg->heuristicType(), runtime_info.fusion(), runtime_info, data_cache);
+  return SchedulerEntry::makeSchedulerInstance(sg->heuristicType())
+      ->computeHeuristics(runtime_info.fusion(), runtime_info, data_cache);
 }
 
 HeuristicSummary* SegmentedFusion::getCachedHeuristicDataFor(

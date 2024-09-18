@@ -15,6 +15,7 @@
 #include <fusion_segmenter.h>
 #include <logical_domain_map.h>
 #include <scheduler/all_schedulers.h>
+#include <scheduler/heuristic.h>
 #include <scheduler/registry.h>
 #include <serde/fusion_cache_generated.h>
 
@@ -27,7 +28,7 @@
 namespace nvfuser {
 
 class SegmentedGroup;
-class FusionHeuristics;
+class HeuristicParamsList;
 class SchedulerRuntimeInfo;
 
 // Utilities for benchmarking and profiling
@@ -143,7 +144,7 @@ class FusionKernelRuntime {
     if (schedulers().empty()) {
       return PrimDataType::Int;
     }
-    auto index_type = schedulers().at(0).get()->params()->cparams.index_type;
+    auto index_type = schedulers().at(0).get()->cparams.index_type;
     NVF_ERROR(index_type.has_value());
     return index_type.value();
   }
@@ -204,7 +205,7 @@ class FusionKernelRuntime {
   }
 
   //! Returns the list of heuristics in this runtime
-  FusionHeuristics* schedulerHeuristics() const {
+  HeuristicParamsList* schedulerHeuristics() const {
     return heuristics_.get();
   }
 
@@ -222,13 +223,14 @@ class FusionKernelRuntime {
   //  any segment cannot be scheduled or the parameters don't match
   //
   // Heuristics must use the index type of forced_index_type if given.
-  NVF_API std::optional<std::unique_ptr<FusionHeuristics>> getMaybeHeuristicsFor(
+  NVF_API std::optional<std::unique_ptr<HeuristicParamsList>>
+  getMaybeHeuristicsFor(
       const KernelArgumentHolder& args,
       std::optional<PrimDataType> forced_index_type = std::nullopt);
 
   //! Copy the launch params given in the parameter heuristics to prepare
   //!  for kernel launch for a new input dimension but same heuristics
-  void updateHeuristicsLaunchParams(FusionHeuristics* update_heuristics);
+  void updateHeuristicsLaunchParams(HeuristicParamsList* update_heuristics);
 
   const std::vector<FusionExecutor>& executors() const {
     return executors_;
@@ -259,7 +261,7 @@ class FusionKernelRuntime {
       SegmentedGroup* sg);
 
   //! Access the list of schedulers maintained in this runtime instance
-  NVF_API const std::vector<std::unique_ptr<SchedulerEntry>>& schedulers()
+  NVF_API const std::vector<std::unique_ptr<HeuristicParams>>& schedulers()
       const;
 
  private:
@@ -273,7 +275,7 @@ class FusionKernelRuntime {
   KernelArgumentHolder args_metadata_;
 
   //! Heuristics object holding scheduler entries for all segments
-  std::unique_ptr<FusionHeuristics> heuristics_;
+  std::unique_ptr<HeuristicParamsList> heuristics_;
 
   // Checks if this runtime instance is for a single-kernel fusion (false) or a
   //  segmented fusion (true).

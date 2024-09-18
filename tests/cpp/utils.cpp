@@ -529,18 +529,19 @@ TensorView* canonicalizeInputToBMNK(
 
 bool isSchedulerInUse(
     const nvfuser::FusionKernelRuntime* kernel_rt,
-    const HeuristicType& scheduler) {
+    const HeuristicType& heuristic_type) {
   if (nullptr == kernel_rt) {
     return false;
   }
-  const auto scheduler_heurs = kernel_rt->schedulerHeuristics();
-  if (nullptr == scheduler_heurs) {
+  const auto heuristics = kernel_rt->schedulerHeuristics();
+  if (nullptr == heuristics) {
     return false;
   }
-  const auto& heurs = scheduler_heurs->heuristicsList();
+  const auto& heuristics_list = heuristics->heuristicsList();
 
-  for (const auto& heur_entry : heurs) {
-    if (heur_entry && (scheduler == heur_entry->params()->heuristic_type)) {
+  for (const auto& heuristic_params : heuristics_list) {
+    if (heuristic_params &&
+        (heuristic_type == heuristic_params->heuristic_type)) {
       return true;
     }
   }
