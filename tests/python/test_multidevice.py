@@ -34,36 +34,27 @@ def test_pointwise(multidevice_test):
 
     torch.cuda.set_device(multidevice_test.local_rank)
 
-    # Inputs
-    inputs = [
-        torch.randn(num_devices, 4, device="cuda")[rank : rank + 1, ...],
-    ]
+    # Just so each rank receives the same unsharded input.
+    torch.manual_seed(0)
+    unsharded_input = torch.randn(num_devices, 4, device="cuda")
+    sharded_input = unsharded_input[rank : rank + 1]
 
-    # dynamic shape isn't supported;
-    # scalar inputs isn't supported;
     class MultiDeviceModel(FusionDefinition):
         def definition(self):
             self.t0 = self.define_tensor(
-                (num_devices, 4),
-                (False if num_devices > 1 else None, False),
-                dtype=DataType.Float,
+                (-1, -1), contiguity=(False, False), dtype=DataType.Float
             )
             self.t1 = self.ops.relu(self.t0)
             self.t2 = self.ops.add(self.t1, self.t1)
             self.add_output(self.t2)
 
         def multidevice_schedule(self):
-            mesh = self.sched._create_device_mesh(tuple(range(num_devices)))
+            mesh = self.sched._create_device_mesh(range(num_devices))
             self.sched._set_device_mesh(self.t0, mesh)
             self.sched._set_device_mesh(self.t1, mesh)
             self.sched._set_device_mesh(self.t2, mesh)
             self.sched.parallelize(self.t0, 0, nvfuser.ParallelType.mesh_x)
 
     fn = MultiDeviceModel()
-
-    outputs = fn.execute(inputs)
-
-    for i in range(3):
-        outputs = fn.execute(inputs)
-
-    assert (inputs[0].relu() * 2).allclose(outputs[0][rank])
+    outputs = fn.execute([sharded_input])
+    torch.testing.assert_close(outputs[0], unsharded_input.relu() * 2)
