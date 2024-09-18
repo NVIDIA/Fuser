@@ -4325,6 +4325,7 @@ class TestNvFuserFrontend(NVFuserTest):
 
         self.exec_nvfuser(fusion_func, inputs)
 
+<<<<<<< slice_python_api
     def test_slice_api(self):
         x = torch.randn((2, 5, 10), dtype=torch.float32, device="cuda:0")
 
@@ -4357,6 +4358,8 @@ class TestNvFuserFrontend(NVFuserTest):
         for out in nvf_out:
             self.assertTrue(out.allclose(x[:, 1:, 2:]))
 
+=======
+>>>>>>> main
     # testing that error thrown in finalizeDefinition is not accidentally cached as legit fusion.
     def test_fusion_definition_error_cache(self):
         def fusion_func(fd: FusionDefinition) -> None:
