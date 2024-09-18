@@ -794,7 +794,7 @@ std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion) {
   return dynamic_tvs;
 }
 
-void validateDomainEquivalence(
+CompareDomainResult compareDomains(
     std::vector<IterDomain*> dom0,
     const std::vector<IterDomain*>& dom1,
     const std::vector<IterDomain*>& additional_ids) {
@@ -805,7 +805,7 @@ void validateDomainEquivalence(
 
   // empty domain are equivalent.
   if (dom0.empty() && dom1.empty()) {
-    return;
+    return {};
   }
   // Make sure there's no duplicate in the parameter vectors
   NVF_ERROR(
@@ -892,39 +892,77 @@ void validateDomainEquivalence(
       std::any_of(frontier.begin(), frontier.end(), is_symb);
   bool dom1_has_symbolic =
       std::any_of(dom1_set.begin(), dom1_set.end(), is_symb);
+
+  CompareDomainResult result;
+
+  // Check if iter domains can be reachable from
+  // target_set. Returns true if any of iter domains is
+  // unreachable. Additionaly, make sure none of iter domains has any
+  // overlap with the other iter domains.
+  auto check_ids = [](const auto& ids_to_check,
+                      const auto& target_set) -> bool {
+    bool unreachable = false;
+    for (auto id : ids_to_check) {
+      // Symbolic and broadcast IDs are ignored
+      if (id->template as<IterDomain>()->getIterType() == IterType::Symbolic ||
+          id->template as<IterDomain>()->isBroadcast()) {
+        continue;
+      }
+      if (!target_set.count(id)) {
+        // not found in target, which means either:
+        //
+        // 1. id is unreachable from target_set, or
+        // 2. id is reachable from target_set but was erased from
+        // target_set as it was used as an input in the traversal.
+        //
+        // The second case means id is redundant
+        NVF_ERROR(
+            IRBFS::getReachableValsFrom(
+                {target_set.begin(), target_set.end()}, {id})
+                .empty(),
+            id->toString(),
+            " is redundant in ",
+            toDelimitedString(target_set));
+
+        unreachable = true;
+        // Do not break here. The return value is now determined to be
+        // true, but the remaining IDs need also to be checked if they
+        // are redundant.
+      }
+    }
+    return unreachable;
+  };
+
   if (!frontier_has_symbolic) {
-    // frontier fully covers dom1
-    NVF_ERROR(
-        std::all_of(
-            dom1.begin(),
-            dom1.end(),
-            [&](auto id) {
-              return id->getIterType() == IterType::Symbolic ||
-                  id->isBroadcast() || frontier.count(id);
-            }),
-        "dom0 and dom1 are not equal. dom0: ",
-        toDelimitedString(dom0),
-        ". dom1: ",
-        toDelimitedString(dom1),
-        ". frontier: ",
-        toDelimitedString(frontier));
+    result.dom1_has_unreachable_ids = check_ids(dom1, frontier);
   }
+
   if (!dom1_has_symbolic) {
-    // dom1 fully covers frontier
-    NVF_ERROR(
-        std::all_of(
-            frontier.begin(),
-            frontier.end(),
-            [&](Val* id) {
-              return id->as<IterDomain>()->getIterType() ==
-                  IterType::Symbolic ||
-                  id->as<IterDomain>()->isBroadcast() || dom1_set.count(id);
-            }),
-        "dom0 and dom1 are not equal. dom0: ",
-        toDelimitedString(dom0),
-        ". dom1: ",
-        toDelimitedString(dom1));
+    result.dom0_has_unreachable_ids = check_ids(frontier, dom1_set);
   }
+
+  return result;
+}
+
+void validateDomainEquivalence(
+    std::vector<IterDomain*> dom0,
+    const std::vector<IterDomain*>& dom1,
+    const std::vector<IterDomain*>& additional_ids) {
+  const auto compare_result = compareDomains(dom0, dom1, additional_ids);
+
+  NVF_ERROR(
+      !compare_result.dom0_has_unreachable_ids,
+      "dom0 has unreachable IDs. dom0: ",
+      toDelimitedString(dom0),
+      ". dom1: ",
+      toDelimitedString(dom1));
+
+  NVF_ERROR(
+      !compare_result.dom1_has_unreachable_ids,
+      "dom1 has unreachable IDs. dom0: ",
+      toDelimitedString(dom0),
+      ". dom1: ",
+      toDelimitedString(dom1));
 }
 
 namespace {
@@ -1021,7 +1059,7 @@ bool isAlignedScopeExpr(const Expr* expr) {
       return false;
     }
   } else {
-    NVF_ERROR(false, "Invalid scope expr: ", expr->toString());
+    NVF_THROW("Invalid scope expr: ", expr->toString());
   }
 
   return true;
@@ -1158,7 +1196,7 @@ MmaLayout getInputLayout(
     return MmaLayout::NN;
   }
 
-  NVF_ERROR(false, "Unsupported input layout");
+  NVF_THROW("Unsupported input layout");
 }
 
 MmaOpDetails getMmaOpDetails(

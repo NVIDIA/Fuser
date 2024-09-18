@@ -32,7 +32,7 @@ class DistributedMatmulTest : public MultiDeviceTest {
  protected:
   DistributedMatmulTest() : num_devices_(communicator_->size()) {}
 
-  void SetUp() {
+  void SetUp() override {
     MultiDeviceTest::SetUp();
     if (!deviceMajorMinorCheck(8)) {
       GTEST_SKIP() << "Distributed matmul tests require Ampere or newer";

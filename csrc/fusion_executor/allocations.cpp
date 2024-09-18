@@ -239,7 +239,7 @@ void fillTensorWithNan(at::Tensor& t) {
       t.fill_(c10::complex<double>(std::nan(""), std::nan("")));
       break;
     default:
-      NVF_ERROR(false, "Unknown dtype");
+      NVF_THROW("Unknown dtype");
   }
 }
 
@@ -309,7 +309,7 @@ at::Tensor allocateOutput(
       return out_tensor;
     }
     default:
-      NVF_ERROR(false, "Unrecognized AllocationType.");
+      NVF_THROW("Unrecognized AllocationType.");
   }
 }
 } // namespace
@@ -528,7 +528,7 @@ class ForwardTraverseFromAllocToLogical {
     } else if (auto merge = dynamic_cast<Merge*>(expr)) {
       handle(merge);
     } else {
-      NVF_ERROR(false, "Unsupported transormation in allocation domain");
+      NVF_THROW("Unsupported transormation in allocation domain");
     }
   }
 
@@ -652,7 +652,7 @@ class BackwardTraverseFromAllocToLogical {
     } else if (auto merge = dynamic_cast<Merge*>(expr)) {
       handle(merge);
     } else {
-      NVF_ERROR(false, "Unsupported transormation in allocation domain");
+      NVF_THROW("Unsupported transormation in allocation domain");
     }
   }
 

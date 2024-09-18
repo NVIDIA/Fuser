@@ -108,7 +108,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
         break;
       }
       case CircularBufferLoopStage::NotApplicable: {
-        NVF_ERROR(false, "Unsupported loop mode, got: ", loop_type_);
+        NVF_THROW("Unsupported loop mode, got: ", loop_type_);
       }
     }
 
@@ -153,7 +153,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
   }
 
   void handle(kir::IfThenElse* ite) final {
-    NVF_ERROR(false, "No IfThenElse should exist yet");
+    NVF_THROW("No IfThenElse should exist yet");
   }
 
   void dispatch(Expr* expr) override {
@@ -199,7 +199,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
         break;
       }
       case CircularBufferLoopStage::NotApplicable: {
-        NVF_ERROR(false, "Unsupported loop mode, got: ", loop_type_);
+        NVF_THROW("Unsupported loop mode, got: ", loop_type_);
       }
     }
   }
