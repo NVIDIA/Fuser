@@ -9,6 +9,7 @@
 #include <fusion_executor/executor_kernel_arg.h>
 #include <fusion_profiler.h>
 #include <instrumentation.h>
+#include <multidevice/communicator.h>
 #include <options.h>
 #include <python_frontend/fusion_cache.h>
 #include <python_frontend/fusion_definition.h>
@@ -291,6 +292,10 @@ std::vector<at::Tensor> FusionDefinition::execute(
   NVF_CHECK(id().has_value(), "Valid fusion schedule is not available!");
 
   auto scheds = fusionCache()->queryFusionSchedules(id().value());
+
+  if (multidevice_executor_) {
+    return multidevice_executor_->runWithInput(inputs.vec());
+  }
 
   std::vector<at::Tensor> outputs;
   if (profile) {
