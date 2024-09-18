@@ -55,7 +55,7 @@ PolymorphicValue IValueToPolymorphicValue(const c10::IValue& val) {
     case c10::ScalarType::Bool:
       return scalar_val.toBool();
     default:
-      NVF_ERROR(false, "Can not convert IValue to PolymorphicValue");
+      NVF_THROW("Can not convert IValue to PolymorphicValue");
   }
 }
 

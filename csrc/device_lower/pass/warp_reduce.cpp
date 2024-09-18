@@ -296,7 +296,7 @@ class FuseBroadcastWithWarpReduce : private kir::IrVisitor {
         }
       }
     }
-    NVF_ERROR(false, "lower_warp_reduce: cannot find allocation for this op");
+    NVF_THROW("lower_warp_reduce: cannot find allocation for this op");
     return nullptr;
   }
 

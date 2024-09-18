@@ -77,7 +77,7 @@ class AllocationInserter : public kir::ExprMutator {
           }
         }
       }
-      NVF_ERROR(false, "Could not find desired loop.");
+      NVF_THROW("Could not find desired loop.");
     };
 
     if (info.init_for_loop == nullptr) {

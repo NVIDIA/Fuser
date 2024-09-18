@@ -232,7 +232,7 @@ class BufferReuseDebugPrinter {
           handle(debug_entry->second);
           break;
         default:
-          NVF_ERROR(false, "unreachable");
+          NVF_THROW("unreachable");
       }
     }
     os_ << "\n\n";
@@ -295,7 +295,7 @@ class BufferReuseDebugPrinter {
     //  if this printer can be used for
     //  other passes or we have more
     //  complex ite pattern.
-    NVF_ERROR(false, "unsupported");
+    NVF_THROW("unsupported");
   }
 
   void printAllocInfo(const kir::Allocate* alloc);

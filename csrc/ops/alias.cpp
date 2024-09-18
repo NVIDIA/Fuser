@@ -50,7 +50,7 @@ TensorView* view(TensorView* x, DataType dtype) {
     return bitCastOp(dtype, x);
   }
   // TODO: support view(dtype) for dtypes where input_size != newsize
-  NVF_ERROR(false, "Unsupported reinterpret casting view");
+  NVF_THROW("Unsupported reinterpret casting view");
 }
 
 TensorView* reshape(
@@ -467,7 +467,7 @@ bool hasSimilarDtype(DataType base, DataType dt) {
   } else if (isIntegralType(base)) {
     return isIntegralType(dt);
   }
-  NVF_ERROR(false, "Unrecognized base dtype.");
+  NVF_THROW("Unrecognized base dtype.");
 }
 
 // Padding widths are assumed to be non-negative. Currently there's no

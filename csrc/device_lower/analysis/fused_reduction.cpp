@@ -307,7 +307,7 @@ class FusionTransformer {
             op_types, init_vals, outputs, inputs, true);
       } else {
         NVF_ERROR(expr != nullptr);
-        NVF_ERROR(false, "Invalid expr: ", expr->toString());
+        NVF_THROW("Invalid expr: ", expr->toString());
       }
 
       NVF_ERROR(fused_expr != nullptr);

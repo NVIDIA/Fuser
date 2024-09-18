@@ -77,7 +77,6 @@ endif()
 # nvfuser codegen sources
 set(NVFUSER_SRCS)
 list(APPEND NVFUSER_SRCS
-  ${NVFUSER_SRCS_DIR}/abstract_tensor.cpp
   ${NVFUSER_SRCS_DIR}/alias_analysis.cpp
   ${NVFUSER_SRCS_DIR}/codegen.cpp
   ${NVFUSER_SRCS_DIR}/compute_at.cpp
@@ -126,6 +125,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/expr_evaluator.cpp
   ${NVFUSER_SRCS_DIR}/expr_simplifier.cpp
   ${NVFUSER_SRCS_DIR}/fusion.cpp
+  ${NVFUSER_SRCS_DIR}/fusion_executor/allocations.cpp
   ${NVFUSER_SRCS_DIR}/fusion_executor/executor.cpp
   ${NVFUSER_SRCS_DIR}/fusion_executor/executor_kernel_arg.cpp
   ${NVFUSER_SRCS_DIR}/fusion_executor/executor_params.cpp

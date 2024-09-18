@@ -92,7 +92,7 @@ class KernelIrScanner : private IrVisitor {
         }
         break;
       default:
-        NVF_ERROR(false, "Unknown memory type to allocate.");
+        NVF_THROW("Unknown memory type to allocate.");
     }
   }
 
