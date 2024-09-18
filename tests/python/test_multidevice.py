@@ -2,44 +2,15 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 
-import os
 import pytest
 import torch
 
-from mpi4py import MPI
-
+import multidevice
 import nvfuser
 from nvfuser import DataType, FusionDefinition
 
 
-class MultideviceTest:
-    def __init__(self):
-        comm = MPI.COMM_WORLD
-        self._size = comm.size
-        self._rank = comm.rank
-        self._local_size = int(os.environ["OMPI_COMM_WORLD_LOCAL_SIZE"])
-        self._local_rank = int(os.environ["OMPI_COMM_WORLD_LOCAL_RANK"])
-
-    @property
-    def size(self):
-        return self._size
-
-    @property
-    def rank(self):
-        return self._rank
-
-    @property
-    def local_size(self):
-        return self._local_size
-
-    @property
-    def local_rank(self):
-        return self._local_rank
-
-
-@pytest.fixture
-def multidevice_test():
-    return MultideviceTest()
+multidevice_test = multidevice.multidevice_test
 
 
 @pytest.mark.mpi
@@ -72,7 +43,9 @@ def test_pointwise(multidevice_test):
     # scalar inputs isn't supported;
     class MultiDeviceModel(FusionDefinition):
         def definition(self):
-            self.t0 = self.define_tensor((2, 4), (False, False), dtype=DataType.Float)
+            self.t0 = self.define_tensor(
+                (num_devices, 4), (False, False), dtype=DataType.Float
+            )
             self.t1 = self.ops.relu(self.t0)
             self.t2 = self.ops.add(self.t1, self.t1)
             self.add_output(self.t2)
