@@ -670,81 +670,10 @@ class MultipleMatmulScheduler {
   // Currently the support is for a, b, c and d as fusion inputs/outputs
   //  aka. no prolog fusion yet.
   void defineOperandCaches() {
-    LoadStoreOpType load_op = params_.async_gmem_load_operands
-        ? LoadStoreOpType::CpAsync
-        : LoadStoreOpType::Set;
-
-    auto cacheOperandsToSmem = [&](const std::vector<TensorView*>& operands,
-                                   std::vector<TensorView*>& smem_operands,
-                                   int64_t vec_size) {
-      // Use cp.async as requested in scheduler params.
-      smem_operands.resize(operands.size(), nullptr);
-      for (size_t i : c10::irange(operands.size())) {
-        TensorView* operand = operands[i];
-        CacheOp cache_op = CacheOp::Unspecified;
-        if (params_.async_gmem_load_operands) {
-          int64_t vec_bytes = vec_size * dataTypeSize(operand->dtype());
-          NVF_CHECK(
-              vec_bytes == 4LL || vec_bytes == 8LL || vec_bytes == 16LL,
-              "Unsupported async vectorization size ",
-              vec_size,
-              " = ",
-              vec_bytes,
-              " bytes for operand ",
-              operand->toString(),
-              " which has data type ",
-              operand->dtype(),
-              ". Size must be 4, 8, or 16 bytes. ",
-              "MatmulParams::async_gmem_load_operands should be set to false in this case.");
-          cache_op = vec_bytes == 16LL ? CacheOp::Global : CacheOp::AllLevels;
-        };
-
-        NVF_ERROR(operand->uses().size() == 1);
-        smem_operands[i] = ir_utils::consumerTvsOf(operand).at(0);
-        smem_operands[i]->definition()->as<LoadStoreOp>()->setOpType(load_op);
-        smem_operands[i]->definition()->as<LoadStoreOp>()->setCacheOp(cache_op);
-        if (smem_operands[i]->uses().size() > 1) {
-          // There can be multiple uses for example if we have A @ B1 + A @ B2
-          // then A will be cached to smem then it might be loaded into two
-          // separate register buffers, one for each mma. Instead, we will load
-          // it once into registers then re-use the register buffer for both
-          // mmas.
-          cacheAfter(smem_operands[i]);
-        }
-        NVF_ERROR(smem_operands[i]->uses().size() == 1);
-        smem_operands[i]->setMemoryType(MemoryType::Shared);
-      }
-    };
     cacheOperandsToSmem(as_, acw_smems_, params_.supported_vec_size.a);
-    cacheOperandsToSmem(bs_, bcw_smems_, params_.supported_vec_size.b);
-
-    // We add two LoadStore operators to the inputs of our fusions. The first
-    // one is for a read from global memory and the second one (below) is for a
-    // cache read. As an optimizaton, we avoid adding an operator if there's an
-    // existing LoadStoreOp present. Please note that for the second LoadStore
-    // we don't propagate the allocation domain, since the scheduler sets the
-    // allocation domain in the registers.
-    auto addSetsForCacheReads = [&](const std::vector<TensorView*>& tv_smems,
-                                    std::vector<TensorView*>& tv_rs) {
-      tv_rs.resize(tv_smems.size(), nullptr);
-      for (size_t i : c10::irange(tv_smems.size())) {
-        TensorView* tv_smem = tv_smems[i];
-        TensorView*& tv_r = tv_rs[i];
-
-        if (auto ldst = dynamic_cast<LoadStoreOp*>(tv_smem->uses().at(0))) {
-          tv_r = ldst->out()->as<TensorView>();
-          ldst->setOpType(LoadStoreOpType::LdMatrix);
-        } else {
-          tv_r = cacheAfter(
-              tv_smem,
-              LoadStoreOpType::LdMatrix,
-              CacheOp::Unspecified,
-              /*propagate_allocation_domain=*/false);
-        }
-      }
-    };
-    // Shared memory read
     addSetsForCacheReads(acw_smems_, acrs_);
+
+    cacheOperandsToSmem(bs_, bcw_smems_, params_.supported_vec_size.b);
     addSetsForCacheReads(bcw_smems_, bcrs_);
 
     // Now that we are finished possibly redefining the inputs to the MmaOps,
@@ -753,6 +682,78 @@ class MultipleMatmulScheduler {
       MmaOp* mma = dynamic_cast<MmaOp*>(mma_result->definition());
       NVF_ERROR(mma != nullptr);
       mma->setMacro(params_.mma_macro);
+    }
+  }
+
+  void cacheOperandsToSmem(
+      const std::vector<TensorView*>& operands,
+      std::vector<TensorView*>& smem_operands,
+      int64_t vec_size) {
+    // Use cp.async as requested in scheduler params.
+    smem_operands.resize(operands.size(), nullptr);
+    for (size_t i : c10::irange(operands.size())) {
+      TensorView* operand = operands[i];
+      CacheOp cache_op = CacheOp::Unspecified;
+      if (params_.async_gmem_load_operands) {
+        int64_t vec_bytes = vec_size * dataTypeSize(operand->dtype());
+        NVF_CHECK(
+            vec_bytes == 4LL || vec_bytes == 8LL || vec_bytes == 16LL,
+            "Unsupported async vectorization size ",
+            vec_size,
+            " = ",
+            vec_bytes,
+            " bytes for operand ",
+            operand->toString(),
+            " which has data type ",
+            operand->dtype(),
+            ". Size must be 4, 8, or 16 bytes. ",
+            "MatmulParams::async_gmem_load_operands should be set to false in this case.");
+        cache_op = vec_bytes == 16LL ? CacheOp::Global : CacheOp::AllLevels;
+      };
+
+      NVF_ERROR(operand->uses().size() == 1);
+      smem_operands[i] = ir_utils::consumerTvsOf(operand).at(0);
+
+      LoadStoreOpType load_op = params_.async_gmem_load_operands
+          ? LoadStoreOpType::CpAsync
+          : LoadStoreOpType::Set;
+
+      smem_operands[i]->definition()->as<LoadStoreOp>()->setOpType(load_op);
+      smem_operands[i]->definition()->as<LoadStoreOp>()->setCacheOp(cache_op);
+      smem_operands[i]->setMemoryType(MemoryType::Shared);
+    }
+  }
+
+  // We add two LoadStore operators to the inputs of our fusions. The first
+  // one is for a read from global memory and the second one (below) is for a
+  // cache read. As an optimizaton, we avoid adding an operator if there's an
+  // existing LoadStoreOp present. Please note that for the second LoadStore
+  // we don't propagate the allocation domain, since the scheduler sets the
+  // allocation domain in the registers.
+  void addSetsForCacheReads(
+      const std::vector<TensorView*>& tv_smems,
+      std::vector<TensorView*>& tv_rs) {
+    tv_rs.resize(tv_smems.size(), nullptr);
+    for (size_t i : c10::irange(tv_smems.size())) {
+      TensorView* tv_smem = tv_smems[i];
+      TensorView*& tv_r = tv_rs[i];
+
+      // There can be multiple uses for example if we have A @ B1 + A @ B2
+      // then A will be cached to smem then it might be loaded into two
+      // separate register buffers, one for each mma. Instead, we will load
+      // it once into registers then re-use the register buffer for both
+      // mmas.
+      if (auto ldst = dynamic_cast<LoadStoreOp*>(tv_smem->uses().at(0));
+          ldst && tv_smem->uses().size() == 1) {
+        tv_r = ldst->out()->as<TensorView>();
+        ldst->setOpType(LoadStoreOpType::LdMatrix);
+      } else {
+        tv_r = cacheAfter(
+            tv_smem,
+            LoadStoreOpType::LdMatrix,
+            CacheOp::Unspecified,
+            /*propagate_allocation_domain=*/false);
+      }
     }
   }
 
