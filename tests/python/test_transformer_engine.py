@@ -22,7 +22,11 @@ class ComputeType(Enum):
 
 
 @pytest.mark.mpi
-@pytest.mark.parametrize("compute_type", [ComputeType.FORWARD, ComputeType.BACKWARD])
+@pytest.mark.parametrize(
+    "compute_type",
+    [ComputeType.FORWARD, ComputeType.BACKWARD],
+    ids=["forward", "backward"],
+)
 def test_transformer_layer(multidevice_test, benchmark, compute_type):
     # Hyperparameters for GPT-3
     hidden_size = 12288
