@@ -376,14 +376,20 @@ TEST_F(
   }
 }
 
-struct RingOverlapTestParams {
-  bool use_coalescence = true;
-};
-class RingBasedOverlapTest : public OverlapTest {
+using RingBasedOverlapTestParams = std::tuple<
+    bool, // use_coalescence
+    CommunicatorBackend>;
+
+class RingBasedOverlapTest
+    : public OverlapTest,
+      public testing::WithParamInterface<RingBasedOverlapTestParams> {
  protected:
-  RingOverlapTestParams ring_params;
+  bool use_coalescence_;
   at::Tensor src_buffer_, dst_buffer_;
   void SetUp() override {
+    use_coalescence_ = std::get<0>(GetParam());
+    params.backend_type = std::get<1>(GetParam());
+
     OverlapTest::SetUp();
 
     std::vector<int64_t> buffer_sizes = {
@@ -408,7 +414,7 @@ class RingBasedOverlapTest : public OverlapTest {
   }
 };
 
-TEST_F(
+TEST_P(
     RingBasedOverlapTest,
     ReduceScatterRingBasedPipeliningATenImplementation) {
   std::vector<c10::cuda::CUDAStream> streams =
@@ -465,7 +471,7 @@ TEST_F(
         std::vector<at::Tensor> src = {src_buffer_j};
         std::vector<at::Tensor> dst = {dst_buffer_j};
 
-        if (ring_params.use_coalescence) {
+        if (use_coalescence_) {
           if (world_communicator_->getBackendName() != "nccl") {
             GTEST_SKIP() << "ProcessGroupUCC does not implement coalescence";
           }
@@ -480,20 +486,39 @@ TEST_F(
           int64_t recv_order = recv_rank;
           int64_t send_order = my_device_index_;
           if (recv_order < send_order) {
-            world_communicator_->recv(dst, recv_rank, recv_order)->wait();
-            world_communicator_->send(src, send_rank, send_order);
+            world_communicator_->recv(dst, recv_rank, 0)->wait();
+            world_communicator_->send(src, send_rank, 0)->wait();
+          } else if (recv_order > send_order) {
+            world_communicator_->send(src, send_rank, 0)->wait();
+            world_communicator_->recv(dst, recv_rank, 0)->wait();
           } else {
-            world_communicator_->send(src, send_rank, send_order);
-            world_communicator_->recv(dst, recv_rank, recv_order)->wait();
+            // when not inside a coalesced group, send/recv to self throws an
+            // error
+            dst_buffer_j.copy_(src_buffer_j);
           }
         }
       }
     }
+    SynchronizeStreams(streams);
     auto tc_reshaped =
         tc_.reshape({number_of_rings, params.M / params.S, params.N});
     torch::sum_out(tc_reshaped, dst_buffer_reshaped, 0);
   }
-  SynchronizeStreams(streams);
 }
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    RingBasedOverlapTest,
+    testing::Combine(
+        testing::Bool(),
+        testing::Values(CommunicatorBackend::nccl, CommunicatorBackend::ucc)),
+    [](const testing::TestParamInfo<RingBasedOverlapTestParams>& info)
+        -> std::string {
+      std::stringstream ss;
+      ss << (std::get<0>(info.param) ? "UsingCoalescence"
+                                     : "NotUsingCoalescence")
+         << "_" << std::get<1>(info.param);
+      return ss.str();
+    });
 
 } // namespace nvfuser
