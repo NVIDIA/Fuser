@@ -44,7 +44,9 @@ def test_pointwise(multidevice_test):
     class MultiDeviceModel(FusionDefinition):
         def definition(self):
             self.t0 = self.define_tensor(
-                (num_devices, 4), (False, False), dtype=DataType.Float
+                (num_devices, 4),
+                (False if num_devices > 1 else None, False),
+                dtype=DataType.Float,
             )
             self.t1 = self.ops.relu(self.t0)
             self.t2 = self.ops.add(self.t1, self.t1)
