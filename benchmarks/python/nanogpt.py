@@ -30,9 +30,8 @@ class CausalSelfAttention(nn.Module):
         super().__init__()
         assert config.n_embd % config.n_head == 0
         self.n_devices = config.n_devices
-        # key, query, value projections for all heads, but in a batch
-        # self.c_attn = nn.Linear(config.n_embd, 3 * config.n_embd, bias=config.bias)
-        # Splitting key, query, and value projections 
+        # Splitting key, query, and value projections
+        # Note: These were performed batched in the original implementation.
         self.c_attn_key = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
         self.c_attn_query = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
         self.c_attn_value = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
@@ -44,15 +43,11 @@ class CausalSelfAttention(nn.Module):
         self.n_head = config.n_head
         self.n_embd = config.n_embd
         self.dropout = config.dropout
-        # flash attention make GPU go brrrrr but support is only in PyTorch >= 2.0
+        # flash attention only supported in PyTorch >= 2.0
         self.flash = hasattr(torch.nn.functional, "scaled_dot_product_attention")
         # NOTE: The original Karpathy's script hides bias registration behind a flag
         # but we don't do that here. We always register bias due to a now-fixed
         # bug in thunder.
-        # TODO: Move the bias registration to be happening `if not self.flash` once the bug is fixed.
-        # if not self.flash:
-        # print("WARNING: using slow attention. Flash Attention requires PyTorch >= 2.0")
-        # causal mask to ensure that attention is only applied to the left in the input sequence
         self.register_buffer(
             "bias",
             torch.tril(torch.ones(config.block_size, config.block_size)).view(
@@ -61,24 +56,37 @@ class CausalSelfAttention(nn.Module):
         )
 
     def forward(self, x):
-        B, T, C = x.size()  # batch size, sequence length, embedding dimensionality (n_embd)
+        # batch size, sequence length, embedding dimensionality (n_embd)
+        (B, T, C) = x.size()
 
         # calculate query, key, values for all heads separately and move head forward to be the batch dim
+        # Note: The original script calculated this batched but we cannot use the Tensor API on a 3D weight
         q = self.c_attn_query(x)
         k = self.c_attn_key(x)
         v = self.c_attn_value(x)
 
-        # TODO: It looks like view needs to take in the sharded size.
-        k = k.view(B, T, self.n_head, C // self.n_head // self.n_devices).transpose(1, 2)  # (B, nh, T, hs)
-        q = q.view(B, T, self.n_head, C // self.n_head // self.n_devices).transpose(1, 2)  # (B, nh, T, hs)
-        v = v.view(B, T, self.n_head, C // self.n_head // self.n_devices).transpose(1, 2)  # (B, nh, T, hs)
-        
+        # Note: It looks like view needs to take in the sharded size.
+        # Head dimension is parallelized
+        k = k.view(B, T, self.n_head // self.n_devices, C // self.n_head).transpose(
+            1, 2
+        )  # (B, nh, T, hs)
+        q = q.view(B, T, self.n_head // self.n_devices, C // self.n_head).transpose(
+            1, 2
+        )  # (B, nh, T, hs)
+        v = v.view(B, T, self.n_head // self.n_devices, C // self.n_head).transpose(
+            1, 2
+        )  # (B, nh, T, hs)
 
         # causal self-attention; Self-attend: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
         if self.flash:
             # efficient attention using Flash Attention CUDA kernels
             y = torch.nn.functional.scaled_dot_product_attention(
-                q, k, v, attn_mask=None, dropout_p=self.dropout if self.training else 0, is_causal=True
+                q,
+                k,
+                v,
+                attn_mask=None,
+                dropout_p=self.dropout if self.training else 0,
+                is_causal=True,
             )
         else:
             # manual implementation of attention
@@ -87,7 +95,9 @@ class CausalSelfAttention(nn.Module):
             att = F.softmax(att, dim=-1)
             att = self.attn_dropout(att)
             y = att @ v  # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
-        y = y.transpose(1, 2).contiguous().view(B, T, C // self.n_devices)  # re-assemble all head outputs side by side
+        y = (
+            y.transpose(1, 2).contiguous().view(B, T, C // self.n_devices)
+        )  # re-assemble all head outputs side by side
 
         # output projection
         y = self.resid_dropout(self.c_proj(y))
