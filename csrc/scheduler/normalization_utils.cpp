@@ -1411,15 +1411,7 @@ class PersistentBufferResolution : public IterVisitor {
         exact_graph_(
             IdModel(persistent_buffer->fusion(), /*build_graphs=*/false)
                 .buildExactGraph()) {
-    debug = getenv("DEBUG");
-
     Fusion* fusion = persistent_buffer->fusion();
-    if (debug) {
-      fusion->printMath();
-      std::cout << std::endl;
-      std::cerr << "Persistent buffer: " << persistent_buffer->toString()
-                << "\n";
-    }
     traverse(fusion);
   }
 
@@ -1476,10 +1468,6 @@ class PersistentBufferResolution : public IterVisitor {
         }
       }
 
-      if (debug) {
-        std::cerr << "getResolutionTv of " << tv->toString() << "\n";
-      }
-
       for (auto tv :
            getResolutionTv(tv, persistent_ids, reduction_dep_chains)) {
         resolution_points_.push_back(tv);
@@ -1494,19 +1482,8 @@ class PersistentBufferResolution : public IterVisitor {
     std::deque<TensorView*> tvs_to_visit;
     std::unordered_set<TensorView*> visited_tvs;
 
-    if (debug) {
-      std::cerr << "getResolutionTv. reduction tv: "
-                << reduction_tv->toString()
-                << ", persistent buffer: " << persistent_buffer_->toString()
-                << "\n";
-      for (const auto& chain : reduction_dep_chains) {
-        std::cerr << "Dep chain: " << toDelimitedString(chain) << "\n";
-      }
-    }
-
     auto reduction_all_producers = DependencyCheck::getAllValsBetween(
-        {persistent_buffer_},
-        {reduction_tv});
+        {persistent_buffer_}, {reduction_tv});
     std::unordered_set<Val*> reduction_all_producer_set(
         reduction_all_producers.begin(), reduction_all_producers.end());
 
@@ -1529,18 +1506,9 @@ class PersistentBufferResolution : public IterVisitor {
       auto tv = tvs_to_visit.front();
       tvs_to_visit.pop_front();
 
-      if (debug) {
-        std::cerr << "TV: " << tv->toString() << "\n";
-      }
-
       if (all_dep_tvs.count(tv)) {
-        // resolution
-        // resolution_tvs.emplace(tv);
         resolution_tvs.emplace_back(tv);
         // Do not further traverse beyond this tv
-        if (debug) {
-          std::cerr << "Resolution point: " << tv->toString() << "\n";
-        }
         continue;
       }
 
@@ -1550,10 +1518,6 @@ class PersistentBufferResolution : public IterVisitor {
         }
 
         if (reduction_all_producer_set.count(producer)) {
-          if (debug) {
-            std::cerr << "Skipping as its a producer of the reduciton: "
-                      << producer->toString() << "\n";
-          }
           continue;
         }
 
@@ -1580,7 +1544,6 @@ class PersistentBufferResolution : public IterVisitor {
           continue;
         }
 
-        
         const auto& consumer_logical_ids =
             exact_graph_.toGroups(consumer->getLogicalDomain());
         auto reachable_ids = ValGraphBFS::getReachableValsFrom(
@@ -1597,13 +1560,6 @@ class PersistentBufferResolution : public IterVisitor {
     }
 
     VectorOfUniqueEntries<TensorView*> first_resolution_tvs;
-
-    if (debug) {
-      std::cerr << "Candidates: " << toDelimitedString(resolution_tvs) << "\n";
-      for (const auto& dep_chain : reduction_dep_chains) {
-        std::cerr << "Dep chain: " << toDelimitedString(dep_chain) << "\n";
-      }
-    }
 
     std::unordered_set<Val*> resolution_tv_set(
         resolution_tvs.begin(), resolution_tvs.end());
@@ -1629,17 +1585,9 @@ class PersistentBufferResolution : public IterVisitor {
 
       if (!depends_on_other_candidate) {
         first_resolution_tvs.pushBack(resolution_candidate->as<TensorView>());
-        if (debug) {
-          std::cerr << "Resolution: " << resolution_candidate->toString()
-                    << "\n";
-        }
       }
     }
 
-    if (debug) {
-      std::cerr << "Resolution points: "
-                << toDelimitedString(first_resolution_tvs.vector()) << "\n";
-    }
     return first_resolution_tvs.vector();
   }
 
@@ -1652,8 +1600,6 @@ class PersistentBufferResolution : public IterVisitor {
 
   // Tracks where the persistent buffer (key) is resolved (values)
   std::vector<TensorView*> resolution_points_;
-
-  bool debug = false;
 };
 
 } // namespace

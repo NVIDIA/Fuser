@@ -367,15 +367,6 @@ class PersistentBufferResolution : public IterVisitor {
       Fusion* fusion,
       TensorView* persistent_buffer) {
     PersistentBufferResolution resolution(fusion, persistent_buffer);
-
-    // NVF_ERROR(
-    //! resolution.resolution_points_.empty(),
-    //  "Could not resolve persistent buffer: ",
-    // persistent_buffer->toString());
-    if (resolution.resolution_points_.empty()) {
-      std::cerr << "WARNING: No resolution point found for : " << persistent_buffer->toString() << "\n";
-    }
-
     return resolution.resolution_points_;
   }
 
@@ -636,58 +627,14 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
       resolution_points =
           normalization_scheduler_utils::getResolutionPointsOf(buffer);
     }
+    NVF_ERROR(
+        !resolution_points.empty(),
+        "Fail to find resolution points of ",
+        buffer->toString());
     persistent_buffer_info.persistent_buffer_resolution_points.emplace_back(
         resolution_points);
   }
-  
-  for (auto buffer : persistent_buffer_info.persistent_buffers) {
-    persistent_buffer_info.persistent_buffer_resolution_points.emplace_back(
-        normalization_scheduler_utils::getResolutionPointsOf(buffer));
-#if 0
-    std::cerr << "Resolution points of " << buffer->toString() << ": "
-              << toDelimitedString(
-                  persistent_buffer_info.persistent_buffer_resolution_points.back())
-              << "\n";
-#endif
-  }
 
-  {
-    std::vector<std::vector<TensorView*>>
-        current_persistent_buffer_resolution_points = {};
-    std::stringstream err_msg;
-    for (const auto i: c10::irange(persistent_buffer_info.persistent_buffers.size())) {
-      TensorView* buffer = persistent_buffer_info.persistent_buffers[i];
-      auto current_result =
-          PersistentBufferResolution::getResolutionPointsOf(fusion, buffer);
-#if 0
-      std::cerr << "Current resolution points of " << buffer->toString() << ": "
-                << toDelimitedString(current_result)
-                << "\n";
-#endif
-      
-      // Order may be different, which should be fine
-      std::unordered_set<TensorView*> current_result_set(
-          current_result.begin(), current_result.end());
-      const auto& new_result = persistent_buffer_info.persistent_buffer_resolution_points[i];
-      std::unordered_set<TensorView*> new_result_set(
-          new_result.begin(), new_result.end());
-      if (current_result_set != new_result_set) {
-        err_msg << "Error at " << i
-                << ". Current: " << toDelimitedString(current_result_set)
-                << ". New: " << toDelimitedString(new_result_set)
-                << ". Persistent buffer: " << buffer->toString() << "\n";
-      }
-    }
-
-    if (!err_msg.str().empty()) {
-      if (getenv("SKIP_VALIDATION")) {
-        std::cerr << err_msg.str() << "\n";
-      } else {
-        NVF_ERROR(false, err_msg.str());
-      }
-    }
-  }
-  
   // don't project if there are view ops and no buffer can be projected
   persistent_buffer_info.has_view_ops = !ir_utils::getViewOps(fusion).empty();
 
