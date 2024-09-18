@@ -797,7 +797,6 @@ TEST_F(AbstractTensorTest, AddRow) {
 }
 
 TEST_F(AbstractTensorTest, MergeTaggedTensor) {
-  // This could be any enum
   enum class TestTag { A, B };
 
   using EnumTaggedAbstractTensor = TaggedAbstractTensor<TestTag>;
@@ -807,6 +806,7 @@ TEST_F(AbstractTensorTest, MergeTaggedTensor) {
   auto id2 = newID();
 
   {
+    // Merge of matching tag sets preserves tag set
     EnumTaggedAbstractTensor v0({id0, id1}, {{TestTag::A}, {TestTag::A}});
 
     ASSERT_EQ(v0.info.size(), 2);
@@ -820,11 +820,12 @@ TEST_F(AbstractTensorTest, MergeTaggedTensor) {
 
     v0.merge(0);
 
+    ASSERT_EQ(v0.info.size(), 1);
     EXPECT_EQ(v0.getTag(0), TestTag::A);
   }
 
   {
-    // Mismatched tags should throw an error due to strict tag matching
+    // Tag sets should be unioned during merge
     EnumTaggedAbstractTensor v1({id0, id1}, {{TestTag::A}, {TestTag::B}});
 
     ASSERT_EQ(v1.info.size(), 2);
@@ -838,6 +839,7 @@ TEST_F(AbstractTensorTest, MergeTaggedTensor) {
 
     v1.merge(0);
 
+    ASSERT_EQ(v1.info.size(), 1);
     EXPECT_TRUE(v1.hasTag(0, TestTag::A));
     EXPECT_TRUE(v1.hasTag(0, TestTag::B));
   }
@@ -858,13 +860,13 @@ TEST_F(AbstractTensorTest, MergeTaggedTensor) {
 
     v2.merge(0);
 
+    ASSERT_EQ(v2.info.size(), 2);
     EXPECT_EQ(v2.getTag(0), TestTag::A);
     EXPECT_EQ(v2.getTag(1), TestTag::B);
   }
 }
 
 TEST_F(AbstractTensorTest, SwizzleTaggedTensor) {
-  // This could be any enum
   enum class TestTag { A, B, C };
 
   using EnumTaggedAbstractTensor = TaggedAbstractTensor<TestTag>;
@@ -887,6 +889,7 @@ TEST_F(AbstractTensorTest, SwizzleTaggedTensor) {
     // NoSwizzle should not mix tags
     v1.swizzle(SwizzleType::NoSwizzle, 0, 1);
 
+    ASSERT_EQ(v1.info.size(), 3);
     EXPECT_EQ(v1.getTag(0), TestTag::A);
     EXPECT_EQ(v1.getTag(1), TestTag::B);
     EXPECT_EQ(v1.getTag(2), TestTag::C);
@@ -900,6 +903,7 @@ TEST_F(AbstractTensorTest, SwizzleTaggedTensor) {
     // An XOR swizzle will mix the tags
     v1.swizzle(SwizzleType::XOR, 1, 0);
 
+    ASSERT_EQ(v1.info.size(), 3);
     EXPECT_TRUE(v1.hasTag(0, TestTag::A));
     EXPECT_TRUE(v1.hasTag(0, TestTag::B));
     EXPECT_FALSE(v1.hasTag(0, TestTag::C));
