@@ -376,8 +376,13 @@ TEST_F(
   }
 }
 
+
+struct RingOverlapTestParams {
+  bool use_coalescence = true;
+};
 class RingBasedOverlapTest : public OverlapTest {
  protected:
+  RingOverlapTestParams ring_params;
   at::Tensor src_buffer_, dst_buffer_;
   void SetUp() override {
     OverlapTest::SetUp();
@@ -408,7 +413,7 @@ TEST_F(
     RingBasedOverlapTest,
     ReduceScatterRingBasedPipeliningATenImplementation) {
   std::vector<c10::cuda::CUDAStream> streams =
-      CreateStreams(params.number_of_streams, my_device_index_);
+      CreateStreams(1, my_device_index_);
 
   ASSERT_EQ(params.S % num_devices_, 0);
   int64_t& number_of_steps_per_ring = num_devices_;
@@ -437,8 +442,6 @@ TEST_F(
        c10::irange(params.number_of_iterations)) {
     initializeIO();
 
-    ASSERT_EQ(world_communicator_->getBackendName(), "nccl");
-    world_communicator_->startCoalescing();
     for (auto i : c10::irange(number_of_rings)) {
       for (auto j : c10::irange(number_of_steps_per_ring)) {
         int64_t stream_index = (i + j) % streams.size();
@@ -454,7 +457,7 @@ TEST_F(
         // define the peer ranks
         auto send_rank = slice_index;
         auto recv_rank =
-            (number_of_steps_per_ring * 2 - (my_device_index_ + j + 1)) %
+            (number_of_steps_per_ring + my_device_index_ - (j + 1)) %
             number_of_steps_per_ring;
 
         // local compute
@@ -462,11 +465,30 @@ TEST_F(
         // communication
         std::vector<at::Tensor> src = {src_buffer_j};
         std::vector<at::Tensor> dst = {dst_buffer_j};
-        world_communicator_->send(src, send_rank, 0);
-        world_communicator_->recv(dst, recv_rank, 0);
+
+        if (ring_params.use_coalescence) {
+          if (world_communicator_->getBackendName() != "nccl") {
+            GTEST_SKIP() << "ProcessGroupUCC does not implement coalescence";
+          }
+          world_communicator_->startCoalescing();
+          // "tags" are not supported by nccl, so set it to 0
+          world_communicator_->send(src, send_rank, 0);
+          world_communicator_->recv(dst, recv_rank, 0);
+          world_communicator_->endCoalescing()->wait();
+        } else {
+          // if not coalesced, send/recv pairs must be posted in a global consistent order to avoid deadlock
+          int64_t recv_order = recv_rank;
+          int64_t send_order = my_device_index_;
+          if (recv_order < send_order) {
+            world_communicator_->recv(dst, recv_rank, recv_order)->wait();
+            world_communicator_->send(src, send_rank, send_order);
+          } else {
+            world_communicator_->send(src, send_rank, send_order);
+            world_communicator_->recv(dst, recv_rank, recv_order)->wait();
+          }
+        }
       }
     }
-    world_communicator_->endCoalescing()->wait();
     auto tc_reshaped =
         tc_.reshape({number_of_rings, params.M / params.S, params.N});
     torch::sum_out(tc_reshaped, dst_buffer_reshaped, 0);
