@@ -20,22 +20,13 @@ class HeuristicSummary;
 // using EE. No code is generated.
 class ExprEvalScheduler : public SchedulerEntry {
  public:
-  explicit ExprEvalScheduler(
-      Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr)
-      : SchedulerEntry() {
-    params_ = std::move(computeHeuristics(fusion, runtime_info, data_cache));
-    params_->cparams.index_type = runtime_info.getIndexType();
-  }
-
   // This scheduler only accepts MatmulOp.
-  static bool canScheduleCompileTime(Fusion* fusion);
+  bool canScheduleCompileTime(Fusion* fusion) override;
 
-  static bool canScheduleRunTime(
+  bool canScheduleRunTime(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache) {
+      HeuristicSummary* data_cache) override {
     return true;
   }
 

@@ -22,15 +22,6 @@ void vlog(const Args&... args) {
   scheduler_debug_utils::log("[no_op] ", args...);
 }
 
-NoOpScheduler::NoOpScheduler(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache)
-    : SchedulerEntry() {
-  params_ = std::move(computeHeuristics(fusion, runtime_info, data_cache));
-  params_->cparams.index_type = runtime_info.getIndexType();
-}
-
 namespace {
 bool allOutputsArePointerArithmetics(Fusion* fusion) {
   const AliasAnalysisResult analysis =
@@ -137,7 +128,9 @@ std::unique_ptr<HeuristicParams> NoOpScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
-  return std::make_unique<HeuristicParams>(HeuristicType::NoOp);
+  auto params = std::make_unique<HeuristicParams>(HeuristicType::NoOp);
+  params->cparams.index_type = runtime_info.getIndexType();
+  return params;
 }
 
 } // namespace nvfuser

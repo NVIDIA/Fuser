@@ -67,7 +67,9 @@ std::unique_ptr<HeuristicParams> ExprEvalScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
-  return std::make_unique<HeuristicParams>(HeuristicType::ExprEval);
+  auto params = std::make_unique<HeuristicParams>(HeuristicType::ExprEval);
+  params->cparams.index_type = runtime_info.getIndexType();
+  return params;
 }
 
 } // namespace nvfuser

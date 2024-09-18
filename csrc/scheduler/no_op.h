@@ -25,18 +25,13 @@ class HeuristicSummary;
 
 class NoOpScheduler : public SchedulerEntry {
  public:
-  explicit NoOpScheduler(
-      Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
-
   //! Check if the no-op heuristics apply in given fusion
-  static bool canScheduleCompileTime(Fusion* fusion);
+  bool canScheduleCompileTime(Fusion* fusion) override;
 
-  static bool canScheduleRunTime(
+  bool canScheduleRunTime(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
+      HeuristicSummary* data_cache = nullptr) override;
 
   constexpr static HeuristicType heuristicType() {
     return HeuristicType::NoOp;

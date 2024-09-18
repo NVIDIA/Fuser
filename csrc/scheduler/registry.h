@@ -185,10 +185,28 @@ class SchedulerEntry {
   //!   schedule the given fusion with heuristics owned
   //!   by this entry, for actual heuristics to override
   virtual void schedule(Fusion* fusion, const HeuristicParams* params) = 0;
+
   virtual std::unique_ptr<HeuristicParams> computeHeuristics(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache) = 0;
+
+  // Compile check that the scheduler maybe able to schedule the fusion
+  virtual bool canScheduleCompileTime(Fusion* fusion) = 0;
+
+  // Runtime check that the scheduler can take the fusion. Scheduler must be
+  // able to schedule the fusion if canScheduleCompileTime && this returns True.
+  virtual bool canScheduleRunTime(
+      Fusion* fusion,
+      SchedulerRuntimeInfo& runtime_info,
+      HeuristicSummary* data_cache) = 0;
+
+  // //! External access for canSchedule utilities through SchedulerEntry
+  // //!  to avoid exposing a single function to the namespace
+  // bool canSchedule(
+  //     Fusion* fusion,
+  //     SchedulerRuntimeInfo& runtime_info,
+  //     HeuristicSummary* data_cache = nullptr) = 0;
 
   //! Heuristic comparison
   bool sameAs(const SchedulerEntry* other);
@@ -197,9 +215,6 @@ class SchedulerEntry {
     return params_.get();
   }
 
- protected:
-  friend FusionKernelRuntime;
-  //! Heuristic parameters if applicable
   std::unique_ptr<HeuristicParams> params_ = nullptr;
 };
 

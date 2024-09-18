@@ -688,6 +688,7 @@ void ContiguousInnerDimensionsMapper::propagateSibling(
 
 Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
     TensorView* of_tv) {
+  FusionGuard fg(of_tv->fusion());
   Val* product_of_inner_extents = of_tv->container()->oneVal();
   auto of_tv_alloc = of_tv->getMaybeAllocationDomain();
 

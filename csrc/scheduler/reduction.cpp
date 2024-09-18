@@ -1047,14 +1047,6 @@ std::unique_ptr<ReductionParams> outerReductionHeuristic(
 
 } // namespace
 
-ReductionScheduler::ReductionScheduler(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache)
-    : SchedulerEntry() {
-  params_ = std::move(computeHeuristics(fusion, runtime_info, data_cache));
-}
-
 std::unique_ptr<HeuristicParams> ReductionScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,

@@ -23,14 +23,6 @@
 
 namespace nvfuser {
 
-PointWiseScheduler::PointWiseScheduler(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache)
-    : SchedulerEntry() {
-  params_ = std::move(computeHeuristics(fusion, runtime_info, data_cache));
-}
-
 bool PointWiseScheduler::canScheduleCompileTime(Fusion* fusion) {
   if (scheduler_utils::isResharding(fusion)) {
     FUSER_PERF_SCOPE("PointWiseScheduler::canScheduleCompileTime");
@@ -88,7 +80,7 @@ bool PointWiseScheduler::canScheduleRunTime(
       HeuristicSummaryEntry<HeuristicCompileTime::CanScheduleTranspose>(
           data_cache, [fusion]() {
             return std::make_unique<bool>(
-                TransposeScheduler::canScheduleCompileTime(fusion));
+                TransposeScheduler().canScheduleCompileTime(fusion));
           });
   if (can_schedule_transpose_entry.get()) {
     auto reason =

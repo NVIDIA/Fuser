@@ -32,19 +32,14 @@ class InnerOuterPersistentKernelScheduler : public SchedulerEntry {
   constexpr static int64_t threads_per_block_min = 128l;
   constexpr static int64_t threads_per_block_max = 256l;
 
-  explicit InnerOuterPersistentKernelScheduler(
-      Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
-
   void schedule(Fusion* fusion, const HeuristicParams* params) override;
 
-  static bool canScheduleCompileTime(Fusion* fusion);
+  bool canScheduleCompileTime(Fusion* fusion) override;
 
-  static bool canScheduleRunTime(
+  bool canScheduleRunTime(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
+      HeuristicSummary* data_cache = nullptr) override;
 
   constexpr static HeuristicType heuristicType() {
     return HeuristicType::InnerOuterPersistent;
