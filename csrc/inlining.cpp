@@ -77,7 +77,7 @@ bool MaxPosCalculator::isAllowedID(
   }
 
   if (!allow_unmappable) {
-    auto logical_dom = tv->getLogicalDomain();
+    const auto& logical_dom = tv->getLogicalDomain();
     std::unordered_set<Val*> logical_dom_set(
         logical_dom.begin(), logical_dom.end());
     auto all_vals = DependencyCheck::getAllValsBetween(logical_dom_set, {id});
