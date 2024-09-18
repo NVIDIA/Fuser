@@ -168,7 +168,6 @@ TEST_F(CombinedSchedulerTest, SharedConsumer) {
                     const std::vector<int64_t>& norm_shape,
                     DataType dtype,
                     bool link_inner_outer) {
-    std::cerr << "link_inner_outer: " << link_inner_outer << "\n";
     std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
     Fusion& fusion = *fusion_ptr.get();
     FusionGuard fg(&fusion);

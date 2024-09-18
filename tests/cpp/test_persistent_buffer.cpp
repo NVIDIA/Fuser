@@ -1325,41 +1325,4 @@ TEST_F(PersistentBufferTest, SmemPersistent2DReduction) {
   testValidate(fusion.get(), cg_outputs, aten_inputs, {t1}, __LINE__, __FILE__);
 }
 
-TEST_F(PersistentBufferTest, IndirectPersistent) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  auto tv0 = makeSymbolicTensor(2);
-  fusion.addInput(tv0);
-
-  auto tv1 = set(tv0);
-
-  auto tv2 = add(tv0, tv1);
-  fusion.addOutput(tv2);
-
-#if 1
-  auto tv3 = set(tv1);  
-  auto tv4 = sum(tv3, {1});
-  auto tv5 = broadcast(tv4, {false, true});
-  auto tv6 = add(tv3, tv5);
-  fusion.addOutput(tv6);
-#else
-  auto tv2 = add(tv0, tv1);
-  fusion.addOutput(tv2);
-  auto tv3 = sum(tv1, {1});
-  auto tv4 = broadcast(tv3, {false, true});
-  auto tv5 = add(tv1, tv4);
-  fusion.addOutput(tv5);
-#endif
-
-
-  auto info = scheduler_utils::persistentBuffers(&fusion);
-
-  std::cerr << "Persistent buffers: "
-            << toDelimitedString(info.persistent_buffers) << "\n";
-  for (const auto& resolution : info.persistent_buffer_resolution_points) {
-    std::cerr << "Resolution points: " << toDelimitedString(resolution) << "\n";
-  }
-}
-
 } // namespace nvfuser
