@@ -11,9 +11,7 @@
 #include <fusion.h>
 #include <mma_type.h>
 #include <ops/all_ops.h>
-#include <preseg_passes/allocation_order_inference.h>
-#include <preseg_passes/optimization_pass.h>
-#include <scheduler/all_schedulers.h>
+#include <scheduler/matmul.h>
 #include <scheduler/matmul_heuristic_plugin.h>
 #include <scheduler/matmul_heuristic_plugin_api.h>
 #include <scheduler/mma_utils.h>
@@ -42,20 +40,21 @@ class MultiMatmulSchedulerMatchTest
  protected:
   // Allocation order set by the pass breaks matmul tests
   // see issue https://github.com/NVIDIA/Fuser/issues/1810
-  MultiMatmulSchedulerMatchTest() : optimization_guard_(false) {
+  MultiMatmulSchedulerMatchTest() {
     fusion_ptr_ = std::make_unique<Fusion>();
     fusion = fusion_ptr_.get();
     fusion_guard_ptr_ = std::make_unique<FusionGuard>(fusion);
 
-    a_m_inner = std::get<0>(GetParam());
-    b_k_inner = std::get<1>(GetParam());
-    vec_size_a = std::get<2>(GetParam());
-    vec_size_b = std::get<3>(GetParam());
-    vec_size_epilogue = std::get<4>(GetParam());
-    smem_epilogue = std::get<5>(GetParam());
-    splitk_factor = std::get<6>(GetParam());
-    cta_order_col_major = std::get<7>(GetParam());
-    grid_swizzle_factor = std::get<8>(GetParam());
+    std::tie(
+        a_m_inner,
+        b_k_inner,
+        vec_size_a,
+        vec_size_b,
+        vec_size_epilogue,
+        smem_epilogue,
+        splitk_factor,
+        cta_order_col_major,
+        grid_swizzle_factor) = GetParam();
 
     MatMulTileOptions gemm_tile;
     gemm_tile.cta_tile = GemmTile(256, 128, 32);
@@ -412,9 +411,6 @@ class MultiMatmulSchedulerMatchTest
  private:
   std::unique_ptr<Fusion> fusion_ptr_;
   std::unique_ptr<FusionGuard> fusion_guard_ptr_;
-
-  preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
-      optimization_guard_;
 
   DisableOptionsGuard option_guard_;
 
