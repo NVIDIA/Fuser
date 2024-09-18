@@ -397,13 +397,13 @@ struct SliceOpRecord : RecordFunctor {
       Val* stride_idx = stride.at(idx);
       NVF_CHECK(
           !start_idx->isConstInt() || start_idx->evaluate().as<int64_t>() >= 0,
-          "Slice operation start_indices must be greater-than-or-equal-to 0. Start Indices: ",
+          "Slice operation start_indices must be greater than or equal to 0. Start Indices: ",
           start_idx->evaluate().as<int64_t>());
       NVF_CHECK(
           !start_idx->isConstInt() || !end_idx->isConstInt() ||
               end_idx->evaluate().as<int64_t>() >=
                   start_idx->evaluate().as<int64_t>(),
-          "Slice operation end_indices must be greater-than-or-equal-to start_indices. Start Indices: ",
+          "Slice operation end_indices must be greater than or equal to start_indices. Start Indices: ",
           start_idx->evaluate().as<int64_t>(),
           " End Indices: ",
           end_idx->evaluate().as<int64_t>());

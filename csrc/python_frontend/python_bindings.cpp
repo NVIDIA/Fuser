@@ -268,6 +268,7 @@ Tensor slice_fn(
   } else {
     // set stride with default value;
     std::vector<Scalar> stride_vec;
+    stride_vec.reserve(new_start.size);
     // Note: we cannot re-use the same ScalarRecord, otherwise, serialized
     // python program uses `define_vector`, which would create multiple
     // ScalarRecord, causing a cache miss.
