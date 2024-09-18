@@ -376,7 +376,6 @@ TEST_F(
   }
 }
 
-
 struct RingOverlapTestParams {
   bool use_coalescence = true;
 };
@@ -476,7 +475,8 @@ TEST_F(
           world_communicator_->recv(dst, recv_rank, 0);
           world_communicator_->endCoalescing()->wait();
         } else {
-          // if not coalesced, send/recv pairs must be posted in a global consistent order to avoid deadlock
+          // if not coalesced, send/recv pairs must be posted in a global
+          // consistent order to avoid deadlock
           int64_t recv_order = recv_rank;
           int64_t send_order = my_device_index_;
           if (recv_order < send_order) {
