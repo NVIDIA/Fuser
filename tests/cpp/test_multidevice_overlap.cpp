@@ -412,7 +412,7 @@ TEST_F(
     RingBasedOverlapTest,
     ReduceScatterRingBasedPipeliningATenImplementation) {
   std::vector<c10::cuda::CUDAStream> streams =
-      CreateStreams(1, my_device_index_);
+      CreateStreams(params.number_of_streams, my_device_index_);
 
   ASSERT_EQ(params.S % num_devices_, 0);
   int64_t& number_of_steps_per_ring = num_devices_;
