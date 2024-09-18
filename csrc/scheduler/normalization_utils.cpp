@@ -1449,6 +1449,11 @@ class PersistentBufferResolution : public IterVisitor {
         return;
       }
 
+      if (!DependencyCheck::isDependencyOf(persistent_buffer_, tv)) {
+        // Not a dependent reduction
+        return;
+      }
+
       // auto reduction_dep_vals =
       // DependencyCheck::getAllDependentVals({tv});
       auto reduction_dep_chains = DependencyCheck::getAllUseChains(tv);
@@ -1475,30 +1480,42 @@ class PersistentBufferResolution : public IterVisitor {
         std::cerr << "getResolutionTv of " << tv->toString() << "\n";
       }
 
-      for (auto tv : getResolutionTv(persistent_ids, reduction_dep_chains)) {
+      for (auto tv :
+           getResolutionTv(tv, persistent_ids, reduction_dep_chains)) {
         resolution_points_.push_back(tv);
       }
     }
   }
 
   std::vector<TensorView*> getResolutionTv(
+      TensorView* reduction_tv,
       ValGroups persistent_ids,
       const std::deque<std::deque<Val*>>& reduction_dep_chains) {
     std::deque<TensorView*> tvs_to_visit;
     std::unordered_set<TensorView*> visited_tvs;
 
     if (debug) {
-      std::cerr << "getResolutionTv: " << persistent_buffer_->toString()
+      std::cerr << "getResolutionTv. reduction tv: "
+                << reduction_tv->toString()
+                << ", persistent buffer: " << persistent_buffer_->toString()
                 << "\n";
       for (const auto& chain : reduction_dep_chains) {
         std::cerr << "Dep chain: " << toDelimitedString(chain) << "\n";
       }
     }
 
+    auto reduction_all_producers = DependencyCheck::getAllValsBetween(
+        {persistent_buffer_},
+        {reduction_tv});
+    std::unordered_set<Val*> reduction_all_producer_set(
+        reduction_all_producers.begin(), reduction_all_producers.end());
+
     visited_tvs.insert(persistent_buffer_);
 
     for (auto tv : ir_utils::consumerTvsOf(persistent_buffer_)) {
-      tvs_to_visit.push_back(tv);
+      if (!reduction_all_producer_set.count(tv)) {
+        tvs_to_visit.push_back(tv);
+      }
     }
 
     std::unordered_set<Val*> all_dep_tvs;
@@ -1506,7 +1523,6 @@ class PersistentBufferResolution : public IterVisitor {
       all_dep_tvs.insert(dep_chain.begin(), dep_chain.end());
     }
 
-    // std::unordered_set<TensorView*> resolution_tvs;
     std::vector<TensorView*> resolution_tvs;
 
     while (!tvs_to_visit.empty()) {
@@ -1533,6 +1549,14 @@ class PersistentBufferResolution : public IterVisitor {
           continue;
         }
 
+        if (reduction_all_producer_set.count(producer)) {
+          if (debug) {
+            std::cerr << "Skipping as its a producer of the reduciton: "
+                      << producer->toString() << "\n";
+          }
+          continue;
+        }
+
         const auto& producer_logical_ids =
             exact_graph_.toGroups(producer->getLogicalDomain());
         auto reachable_ids = ValGraphBFS::getReachableValsFrom(
@@ -1552,6 +1576,11 @@ class PersistentBufferResolution : public IterVisitor {
           continue;
         }
 
+        if (reduction_all_producer_set.count(consumer)) {
+          continue;
+        }
+
+        
         const auto& consumer_logical_ids =
             exact_graph_.toGroups(consumer->getLogicalDomain());
         auto reachable_ids = ValGraphBFS::getReachableValsFrom(
@@ -1568,18 +1597,6 @@ class PersistentBufferResolution : public IterVisitor {
     }
 
     VectorOfUniqueEntries<TensorView*> first_resolution_tvs;
-
-#if 0
-    for (const auto& dep_chain : reduction_dep_chains) {
-      for (auto dep : dep_chain) {
-        auto dep_tv = dep->as<TensorView>();
-        if (resolution_tvs.count(dep_tv) && !first_resolution_tvs.has(dep_tv)) {
-          first_resolution_tvs.pushBack(dep_tv);
-          continue;
-        }
-      }
-    }
-#endif
 
     if (debug) {
       std::cerr << "Candidates: " << toDelimitedString(resolution_tvs) << "\n";
@@ -1619,6 +1636,10 @@ class PersistentBufferResolution : public IterVisitor {
       }
     }
 
+    if (debug) {
+      std::cerr << "Resolution points: "
+                << toDelimitedString(first_resolution_tvs.vector()) << "\n";
+    }
     return first_resolution_tvs.vector();
   }
 
