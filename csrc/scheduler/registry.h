@@ -201,12 +201,11 @@ class SchedulerEntry {
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache) = 0;
 
-  // //! External access for canSchedule utilities through SchedulerEntry
-  // //!  to avoid exposing a single function to the namespace
-  // bool canSchedule(
-  //     Fusion* fusion,
-  //     SchedulerRuntimeInfo& runtime_info,
-  //     HeuristicSummary* data_cache = nullptr) = 0;
+  // Dispatch heuristic type to the right derived class of scheduler entry.
+  // Scheduler entries are stateless so it's a lightweight class to dispatch to
+  // the virtual functions in this abstract class.
+  static std::unique_ptr<SchedulerEntry> makeSchedulerInstance(
+      HeuristicType heuristic_type);
 
   //! Heuristic comparison
   bool sameAs(const SchedulerEntry* other);
