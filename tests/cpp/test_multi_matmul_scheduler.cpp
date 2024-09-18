@@ -82,6 +82,10 @@ class MultiMatmulSchedulerMatchTest
     NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   }
 
+  void TearDown() {
+    compareSchedules();
+  }
+
   // Get A and B in shapes [M, K] and [K, N] with allocation domains set.
   std::pair<TensorView*, TensorView*> getInputTVs() {
     auto tv0 = makeContigTensor(2, DataType::Half);
@@ -428,8 +432,6 @@ TEST_P(MultiMatmulSchedulerMatchTest, SimpleMatmul) {
   auto tv2 = matmul(tv0, tv1);
 
   fusion->addOutput(tv2);
-
-  compareSchedules();
 }
 
 // In this example the inputs are already broadcasted to [M K N]
@@ -442,8 +444,6 @@ TEST_P(MultiMatmulSchedulerMatchTest, SimpleMatmulBroadcastedInputs) {
   auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
 
   fusion->addOutput(tv2);
-
-  compareSchedules();
 }
 
 TEST_P(MultiMatmulSchedulerMatchTest, TransposeToLinear) {
@@ -456,8 +456,6 @@ TEST_P(MultiMatmulSchedulerMatchTest, TransposeToLinear) {
   auto tv3 = linear(tv0, tv2);
 
   fusion->addOutput(tv3);
-
-  compareSchedules();
 }
 
 TEST_P(MultiMatmulSchedulerMatchTest, MatmulBias0d) {
@@ -473,8 +471,6 @@ TEST_P(MultiMatmulSchedulerMatchTest, MatmulBias0d) {
   auto tv4 = linear(tv0, tv3, tv2);
 
   fusion->addOutput(tv4);
-
-  compareSchedules();
 }
 
 TEST_P(MultiMatmulSchedulerMatchTest, MatmulBias1d) {
@@ -490,8 +486,6 @@ TEST_P(MultiMatmulSchedulerMatchTest, MatmulBias1d) {
   auto tv4 = linear(tv0, tv3, tv2);
 
   fusion->addOutput(tv4);
-
-  compareSchedules();
 }
 
 TEST_P(MultiMatmulSchedulerMatchTest, MatmulFloatBias1d) {
@@ -510,8 +504,6 @@ TEST_P(MultiMatmulSchedulerMatchTest, MatmulFloatBias1d) {
   auto tv5 = add(tv4, tv2);
 
   fusion->addOutput(tv5);
-
-  compareSchedules();
 }
 
 TEST_P(MultiMatmulSchedulerMatchTest, MatmulBias2d) {
@@ -527,8 +519,6 @@ TEST_P(MultiMatmulSchedulerMatchTest, MatmulBias2d) {
   auto tv4 = linear(tv0, tv3, tv2);
 
   fusion->addOutput(tv4);
-
-  compareSchedules();
 }
 
 TEST_P(MultiMatmulSchedulerMatchTest, MatmulSinEpilogue) {
@@ -541,8 +531,6 @@ TEST_P(MultiMatmulSchedulerMatchTest, MatmulSinEpilogue) {
   auto tv3 = sin(tv2);
 
   fusion->addOutput(tv3);
-
-  compareSchedules();
 }
 
 TEST_P(MultiMatmulSchedulerMatchTest, MatmulSinPrologue) {
@@ -556,8 +544,6 @@ TEST_P(MultiMatmulSchedulerMatchTest, MatmulSinPrologue) {
   auto tv4 = matmul(tv0, tv3);
 
   fusion->addOutput(tv4);
-
-  compareSchedules();
 }
 
 TEST_P(MultiMatmulSchedulerMatchTest, BatchMatmul) {
@@ -569,8 +555,6 @@ TEST_P(MultiMatmulSchedulerMatchTest, BatchMatmul) {
   auto tv2 = matmul(tv0, tv1);
 
   fusion->addOutput(tv2);
-
-  compareSchedules();
 }
 
 std::string printMatchTestParams(
