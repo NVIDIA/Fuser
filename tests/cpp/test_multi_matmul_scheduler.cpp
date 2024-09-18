@@ -412,8 +412,6 @@ class MultiMatmulSchedulerMatchTest
   std::unique_ptr<Fusion> fusion_ptr_;
   std::unique_ptr<FusionGuard> fusion_guard_ptr_;
 
-  DisableOptionsGuard option_guard_;
-
   // This is used to clone from original to new Fusion using the unscheduled
   // Fusion.
   std::unique_ptr<IrCloner> cloner_;
