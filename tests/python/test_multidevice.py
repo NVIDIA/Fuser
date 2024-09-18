@@ -43,7 +43,9 @@ def test_pointwise(multidevice_test):
     # scalar inputs isn't supported;
     class MultiDeviceModel(FusionDefinition):
         def definition(self):
-            self.t0 = self.define_tensor((num_devices, 4), (False, False), dtype=DataType.Float)
+            self.t0 = self.define_tensor(
+                (num_devices, 4), (False, False), dtype=DataType.Float
+            )
             self.t1 = self.ops.relu(self.t0)
             self.t2 = self.ops.add(self.t1, self.t1)
             self.add_output(self.t2)
