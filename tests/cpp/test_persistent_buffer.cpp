@@ -1323,4 +1323,37 @@ TEST_F(PersistentBufferTest, SmemPersistent2DReduction) {
   auto t1 = t0 / t0.sum({1, 2, 3}, true);
   testValidate(fusion.get(), cg_outputs, aten_inputs, {t1}, __LINE__, __FILE__);
 }
+
+// C++ version of the simplified repro of issue #1123
+TEST_F(PersistentBufferTest, GetResolutionIssue1123) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv1);
+  auto tv2 = makeSymbolicTensor(2);
+  fusion.addInput(tv2);
+
+  auto tv3 = add(tv0, tv1);
+  auto tv4 = sum(tv3, {1});
+  auto tv5 = broadcast(tv4, {false, true});
+  auto tv6 = set(tv5);
+  auto tv7 = add(tv6, tv2);
+  fusion.addOutput(tv7);
+  auto tv9 = add(tv3, tv2);
+  fusion.addOutput(tv9);
+
+  // tv3 is the persistent tensor. The resolution point is tv8.
+  auto persistent_buffer_info = scheduler_utils::persistentBuffers(&fusion);
+  EXPECT_EQ(
+      persistent_buffer_info.persistent_buffers, std::vector<TensorView*>{tv3});
+  EXPECT_EQ(
+      persistent_buffer_info.persistent_buffer_resolution_points.size(), 1);
+  EXPECT_EQ(
+      persistent_buffer_info.persistent_buffer_resolution_points.at(0),
+      std::vector<TensorView*>{tv7});
+}
+
 } // namespace nvfuser

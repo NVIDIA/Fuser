@@ -350,7 +350,8 @@ void movePersistentBufferToSmem(
 // not possible. For normalization fusions like this pattern,
 // PersistentBufferResolution is not able to detect the resolution
 // point. getResolutionPointsOf addresses the problem by traversing
-// both forward and backward directions.
+// both forward and backward directions. See
+// PersistentBufferTest.GetResolutionIssue1123 for a concrete example
 std::vector<TensorView*> getResolutionPointsOf(TensorView* persistent_buffer);
 
 } // namespace normalization_scheduler_utils
