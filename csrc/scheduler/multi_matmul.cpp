@@ -608,7 +608,8 @@ class MultipleMatmulScheduler {
       mma_results_.push_back(mma->out()->as<TensorView>());
     }
 
-    // Build a new IdModel since translateToMmaOp creates new TVs
+    // Build IdModel graphs now since translateToMmaOp creates new TVs. Before
+    // this point the graphs are not yet built.
     updateIdModel();
   }
 
@@ -761,20 +762,24 @@ class MultipleMatmulScheduler {
   //! that creates a new TensorView, such as caching or rFactor
   void updateIdModel() {
     // Build new IdModel
-    IdModel new_id_model(fusion_);
+    IdModel new_id_model(fusion_, /*build_graphs=*/false);
+    new_id_model.buildBroadcastGraph();
 
     // Get new permissive graph
-    ValGraph& new_graph = new_id_model.idGraph(IdMappingMode::PERMISSIVE);
+    ValGraph& new_graph = new_id_model.idGraph(IdMappingMode::BROADCAST);
 
-    // Update id_roles_
-    std::unordered_map<ValGroup, MatmulDimRole> new_id_roles;
-    for (auto& [k, v] : id_roles_) {
-      const ValGroup& new_group = new_graph.toGroup(k->front());
-      new_id_roles.emplace(new_group, v);
+    if (!id_roles_.empty()) {
+      // Update id_roles_ to have keys corresponding to ValGroups in the new
+      // IdModel
+      std::unordered_map<ValGroup, MatmulDimRole> new_id_roles;
+      for (auto& [k, v] : id_roles_) {
+        const ValGroup& new_group = new_graph.toGroup(k->front());
+        new_id_roles.emplace(new_group, v);
+      }
+      id_roles_ = new_id_roles;
     }
-    id_roles_ = new_id_roles;
 
-    graph_ = &new_id_model.idGraph(IdMappingMode::PERMISSIVE);
+    graph_ = &new_id_model.idGraph(IdMappingMode::BROADCAST);
 
     // Set id_model_ after we are done using the old one
     id_model_ = std::move(new_id_model);
