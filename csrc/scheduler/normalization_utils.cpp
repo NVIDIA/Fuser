@@ -314,7 +314,7 @@ std::optional<std::tuple<int64_t, int64_t, bool>> reduceWorkOfLastBlock(
 
     // not good enough; increase persistent buffer
     ++current_buffer_size;
-    // adjust gdimy (decreased as persitent_buffer is increased)
+    // adjust gdimy (decreased as persistent_buffer is increased)
     current_gdimy =
         ceilDiv(ceilDiv(total_reduction_numel, bdimy), current_buffer_size);
 
@@ -333,8 +333,8 @@ std::optional<std::tuple<int64_t, int64_t, bool>> reduceWorkOfLastBlock(
   // Acceptable config not found. Continue searching a better config
   // by moving to the next candidate. However, if the next candidate
   // incurs a larger number of grid syncs, i.e., the serial factor of
-  // the iteration domain is larger, the additional overheaad would
-  // likely to outweight the benefit of potentially better block
+  // the iteration domain is larger, the additional overhead would
+  // likely to outweigh the benefit of potentially better block
   // specialization, so pick the best among found so far.
   auto next_gdimx = launch_cfg.peekNextGdimx();
 
@@ -1455,24 +1455,24 @@ class PersistentBufferResolution : public IterVisitor {
 
   // Traverse from consumers of the persistent tensor and find if it
   // reaches at a dependent tensor of the reduction tensor.
-  //
-  // When traversing from the persistent tensor, it should not be
-  // necessary to traverse any of the tensors between the persistent
-  // tensor and reduction tensor since the resolution point must be on
-  // the other paths.
   std::vector<TensorView*> getResolutionTvs(TensorView* reduction_tv) {
-    auto reduction_producers = DependencyCheck::getAllValsBetween(
+    // When traversing from the persistent tensor, it should not be
+    // necessary to traverse any of the tensors between the persistent
+    // tensor and reduction tensor since the resolution point must be on
+    // the other paths.
+    const auto reduction_producers = DependencyCheck::getAllValsBetween(
         {persistent_buffer_}, {reduction_tv});
-    std::unordered_set<Val*> reduction_producer_set(
+    const std::unordered_set<Val*> reduction_producer_set(
         reduction_producers.begin(), reduction_producers.end());
 
-    std::unordered_set<Val*> all_reduction_dev_tvs =
+    // Resolution points must be a dependent tensor of the reduction tensor
+    const std::unordered_set<Val*> reduction_dep_tvs =
         DependencyCheck::getAllDependentVals({reduction_tv});
 
     // Not all reduction is for normalization. There can be no val
     // after this TV, e.g., a Welford output that is also a segment
     // output (can happen due to segmentation)
-    if (all_reduction_dev_tvs.empty()) {
+    if (reduction_dep_tvs.empty()) {
       return {};
     }
 
@@ -1496,7 +1496,21 @@ class PersistentBufferResolution : public IterVisitor {
       }
     }
 
-    // Check if a tensor should be visited
+    // Check if a tensor should be visited. It should not be visited
+    // if any of the following conditions is true:
+    //
+    // - It is the persistent buffer. The traversal starts from the
+    //   consumers of the persistent buffer. Since it should not need
+    //   to visit the producers of the persistent buffer, it should
+    //   not need to visit the persistent buffer itself.
+    // - It's already visited
+    // - It's between the persistent buffer and reduction tensor. The
+    //   persistent buffer should have multiple consumers, and one of
+    //   them leads to the reduction tensor. The resolution point
+    //   should be reachable by traversing the other consumers.
+    // - It has no logical ID that is reachable from the
+    //   persistent IDs. That means the tensor has nothing to do with
+    //   the persistent IDs.
     auto should_visit = [&](TensorView* tv) -> bool {
       if (tv == persistent_buffer_ || visited_tvs.count(tv) != 0 ||
           reduction_producer_set.count(tv) != 0) {
@@ -1518,12 +1532,13 @@ class PersistentBufferResolution : public IterVisitor {
       auto tv = tvs_to_visit.front();
       tvs_to_visit.pop_front();
 
-      if (all_reduction_dev_tvs.count(tv)) {
+      if (reduction_dep_tvs.count(tv)) {
         resolution_tvs.emplace_back(tv);
         // Do not further traverse beyond this tv
         continue;
       }
 
+      // Further traversal to producers
       for (auto producer : ir_utils::producerTvsOf(tv)) {
         if (!should_visit(producer)) {
           continue;
@@ -1531,6 +1546,7 @@ class PersistentBufferResolution : public IterVisitor {
         tvs_to_visit.emplace_back(producer);
       }
 
+      // Further traversal to consumers
       for (auto consumer : ir_utils::consumerTvsOf(tv)) {
         if (!should_visit(consumer)) {
           continue;
