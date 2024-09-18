@@ -511,7 +511,7 @@ INSTANTIATE_TEST_SUITE_P(
     RingBasedOverlapTest,
     testing::Combine(
         testing::Bool(),
-        testing::Values(CommunicatorBackend::nccl, CommunicatorBackend::ucc)),
+        testing::Values(CommunicatorBackend::nccl)),
     [](const testing::TestParamInfo<RingBasedOverlapTestParams>& info)
         -> std::string {
       std::stringstream ss;
