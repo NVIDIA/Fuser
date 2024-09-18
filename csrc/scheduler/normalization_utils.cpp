@@ -1411,8 +1411,7 @@ class PersistentBufferResolution : public IterVisitor {
         exact_graph_(
             IdModel(persistent_buffer->fusion(), /*build_graphs=*/false)
                 .buildExactGraph()) {
-    Fusion* fusion = persistent_buffer->fusion();
-    traverse(fusion);
+    traverse(persistent_buffer->fusion());
   }
 
  private:
@@ -1430,165 +1429,119 @@ class PersistentBufferResolution : public IterVisitor {
       return;
     }
 
-    if (tv->hasReduction()) {
-      if (std::any_of(
-              resolution_points_.begin(),
-              resolution_points_.end(),
-              [&tv](TensorView* resolution_point) {
-                return DependencyCheck::isDependencyOf(resolution_point, tv);
-              })) {
-        // If already resolved, don't start a new reduction path.
-        return;
-      }
-
-      if (!DependencyCheck::isDependencyOf(persistent_buffer_, tv)) {
-        // Not a dependent reduction
-        return;
-      }
-
-      // auto reduction_dep_vals =
-      // DependencyCheck::getAllDependentVals({tv});
-      auto reduction_dep_chains = DependencyCheck::getAllUseChains(tv);
-      for (auto& dep_chain : reduction_dep_chains) {
-        NVF_ERROR(dep_chain.at(0) == tv);
-        dep_chain.pop_front();
-      }
-
-      // Not all reduction is for normalization. There can be no val
-      // after this TV, e.g., a Welford output that is also a segment
-      // output (can happen due to segmentation)
-      if (reduction_dep_chains.empty()) {
-        return;
-      }
-
-      ValGroups persistent_ids;
-      for (auto id : tv->getLogicalDomain()) {
-        if (id->isReduction()) {
-          persistent_ids.pushBack(exact_graph_.toGroup(id));
-        }
-      }
-
-      for (auto tv :
-           getResolutionTv(tv, persistent_ids, reduction_dep_chains)) {
-        resolution_points_.push_back(tv);
-      }
+    if (!tv->hasReduction()) {
+      return;
     }
+
+    if (std::any_of(
+            resolution_points_.begin(),
+            resolution_points_.end(),
+            [&tv](TensorView* resolution_point) {
+              return DependencyCheck::isDependencyOf(resolution_point, tv);
+            })) {
+      // If already resolved, don't start a new reduction path.
+      return;
+    }
+
+    if (!DependencyCheck::isDependencyOf(persistent_buffer_, tv)) {
+      // Not a dependent reduction
+      return;
+    }
+
+    auto resolution_tvs = getResolutionTvs(tv);
+    resolution_points_.insert(
+        resolution_points_.end(), resolution_tvs.begin(), resolution_tvs.end());
   }
 
-  std::vector<TensorView*> getResolutionTv(
-      TensorView* reduction_tv,
-      ValGroups persistent_ids,
-      const std::deque<std::deque<Val*>>& reduction_dep_chains) {
+  // Traverse from consumers of the persistent tensor and find if it
+  // reaches at a dependent tensor of the reduction tensor.
+  //
+  // When traversing from the persistent tensor, it should not be
+  // necessary to traverse any of the tensors between the persistent
+  // tensor and reduction tensor since the resolution point must be on
+  // the other paths.
+  std::vector<TensorView*> getResolutionTvs(TensorView* reduction_tv) {
+    auto reduction_producers = DependencyCheck::getAllValsBetween(
+        {persistent_buffer_}, {reduction_tv});
+    std::unordered_set<Val*> reduction_producer_set(
+        reduction_producers.begin(), reduction_producers.end());
+
+    std::unordered_set<Val*> all_reduction_dev_tvs =
+        DependencyCheck::getAllDependentVals({reduction_tv});
+
+    // Not all reduction is for normalization. There can be no val
+    // after this TV, e.g., a Welford output that is also a segment
+    // output (can happen due to segmentation)
+    if (all_reduction_dev_tvs.empty()) {
+      return {};
+    }
+
+    // The resolution tensor must have iter domains that are reachable
+    // from the persistent iter domains
+    ValGroups persistent_ids;
+    for (auto id : reduction_tv->getLogicalDomain()) {
+      if (id->isReduction()) {
+        persistent_ids.pushBack(exact_graph_.toGroup(id));
+      }
+    }
+
     std::deque<TensorView*> tvs_to_visit;
     std::unordered_set<TensorView*> visited_tvs;
+    std::vector<TensorView*> resolution_tvs;
 
-    auto reduction_all_producers = DependencyCheck::getAllValsBetween(
-        {persistent_buffer_}, {reduction_tv});
-    std::unordered_set<Val*> reduction_all_producer_set(
-        reduction_all_producers.begin(), reduction_all_producers.end());
-
-    visited_tvs.insert(persistent_buffer_);
-
+    // Traversing from consumers of persistent tensor
     for (auto tv : ir_utils::consumerTvsOf(persistent_buffer_)) {
-      if (!reduction_all_producer_set.count(tv)) {
+      if (!reduction_producer_set.count(tv)) {
         tvs_to_visit.push_back(tv);
       }
     }
 
-    std::unordered_set<Val*> all_dep_tvs;
-    for (const auto& dep_chain : reduction_dep_chains) {
-      all_dep_tvs.insert(dep_chain.begin(), dep_chain.end());
-    }
+    // Check if a tensor should be visited
+    auto should_visit = [&](TensorView* tv) -> bool {
+      if (tv == persistent_buffer_ || visited_tvs.count(tv) != 0 ||
+          reduction_producer_set.count(tv) != 0) {
+        return false;
+      }
 
-    std::vector<TensorView*> resolution_tvs;
+      // Check if any of the logical IDs are reachable from the
+      // persistent IDs. If not, the tensor should have nothing to do
+      // with the persistence of the persistent tensor
+      const auto& producer_logical_ids =
+          exact_graph_.toGroups(tv->getLogicalDomain());
+      auto reachable_ids = ValGraphBFS::getReachableValsFrom(
+          exact_graph_, persistent_ids, producer_logical_ids);
+
+      return !reachable_ids.empty();
+    };
 
     while (!tvs_to_visit.empty()) {
       auto tv = tvs_to_visit.front();
       tvs_to_visit.pop_front();
 
-      if (all_dep_tvs.count(tv)) {
+      if (all_reduction_dev_tvs.count(tv)) {
         resolution_tvs.emplace_back(tv);
         // Do not further traverse beyond this tv
         continue;
       }
 
       for (auto producer : ir_utils::producerTvsOf(tv)) {
-        if (visited_tvs.count(producer)) {
+        if (!should_visit(producer)) {
           continue;
         }
-
-        if (reduction_all_producer_set.count(producer)) {
-          continue;
-        }
-
-        const auto& producer_logical_ids =
-            exact_graph_.toGroups(producer->getLogicalDomain());
-        auto reachable_ids = ValGraphBFS::getReachableValsFrom(
-            exact_graph_, persistent_ids, producer_logical_ids);
-        if (reachable_ids.empty()) {
-          // TODO: Test this condition.
-          continue;
-        }
-
         tvs_to_visit.emplace_back(producer);
-        persistent_ids.pushBack(reachable_ids);
       }
 
-      // TODO: code dedup
       for (auto consumer : ir_utils::consumerTvsOf(tv)) {
-        if (visited_tvs.count(consumer)) {
+        if (!should_visit(consumer)) {
           continue;
         }
-
-        if (reduction_all_producer_set.count(consumer)) {
-          continue;
-        }
-
-        const auto& consumer_logical_ids =
-            exact_graph_.toGroups(consumer->getLogicalDomain());
-        auto reachable_ids = ValGraphBFS::getReachableValsFrom(
-            exact_graph_, persistent_ids, consumer_logical_ids);
-        if (reachable_ids.empty()) {
-          continue;
-        }
-
         tvs_to_visit.emplace_back(consumer);
-        persistent_ids.pushBack(reachable_ids);
       }
 
       visited_tvs.emplace(tv);
     }
 
-    VectorOfUniqueEntries<TensorView*> first_resolution_tvs;
-
-    std::unordered_set<Val*> resolution_tv_set(
-        resolution_tvs.begin(), resolution_tvs.end());
-
-    for (auto resolution_candidate : resolution_tvs) {
-      bool depends_on_other_candidate = false;
-      for (const auto& dep_chain : reduction_dep_chains) {
-        auto dep_chain_it =
-            std::find(dep_chain.begin(), dep_chain.end(), resolution_candidate);
-        if (dep_chain_it == dep_chain.end()) {
-          // Non-relevant chain
-          continue;
-        }
-
-        // Skip if there's any other candidate ahead
-        if (std::any_of(dep_chain.begin(), dep_chain_it, [&](Val* dep) {
-              return resolution_tv_set.count(dep);
-            })) {
-          depends_on_other_candidate = true;
-          break;
-        }
-      }
-
-      if (!depends_on_other_candidate) {
-        first_resolution_tvs.pushBack(resolution_candidate->as<TensorView>());
-      }
-    }
-
-    return first_resolution_tvs.vector();
+    return resolution_tvs;
   }
 
  private:

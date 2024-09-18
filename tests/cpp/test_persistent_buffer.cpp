@@ -758,8 +758,7 @@ TEST_F(PersistentBufferTest, ProjectPersistentBufferMultiScopes) {
   auto calculated_size = persistent_buffer_size.persistent_buffer_size;
   auto expected_size =
       static_cast<int64_t>(hidden_size * 2 * dataTypeSize(input_dtype));
-  EXPECT_EQ(
-      calculated_size, expected_size) 
+  EXPECT_EQ(calculated_size, expected_size)
       << "Buffer size calculation failure";
   auto persistent_params = getInnerPersistentHeuristics(fusion, inputs);
   NVF_CHECK(persistent_params, "Reduction schedule was not generated!");
@@ -1324,5 +1323,4 @@ TEST_F(PersistentBufferTest, SmemPersistent2DReduction) {
   auto t1 = t0 / t0.sum({1, 2, 3}, true);
   testValidate(fusion.get(), cg_outputs, aten_inputs, {t1}, __LINE__, __FILE__);
 }
-
 } // namespace nvfuser
