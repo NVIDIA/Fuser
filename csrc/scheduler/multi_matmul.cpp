@@ -925,8 +925,11 @@ class MultipleMatmulScheduler {
       NVF_ERROR(new_loop.size() == tv->nDims());
       tv->setLoopDomain(new_loop);
 
-      // Now merge consecutive axes with same role
-      mma_utils::mergeAxesWithSameRole(tv, id_roles_, graph_);
+      // There could be multiple dimensions with the same role at this point, so
+      // now we collect them. After this, tv will be at most 4 dimensions e.g.
+      // BMNK based on canonical_dim_ordering_, with any of these dimensions
+      // possibly missing.
+      mma_utils::mergeConsecutiveAxesWithSameRole(tv, id_roles_, graph_);
 
       // Find order the axes that are present in the merged tensor
       std::vector<MatmulDimRole> merged_roles;
@@ -941,6 +944,12 @@ class MultipleMatmulScheduler {
       }
       NVF_ERROR(merged_roles.size() == axis_roles.size());
 
+      // TODO: (to be pursued after the multi-matmul refactor is fully merged)
+      // this currently creates a separate AbstractMatmulTensor for each
+      // TensorView. Instead, we should create a single AbstractMatmulTensor
+      // then apply it (with "forwarding") to each TV instead. We already cache
+      // a vector<ValGroup> as canonical_dim_ordering_ so AbstractTensor
+      // scheduling is the next step in this modernization.
       mma_utils::makeTile(tv, params_.tile_sizes.cta_tile, merged_roles);
 
       swizzleBlockTiles(tv, merged_roles);

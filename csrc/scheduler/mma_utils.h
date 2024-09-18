@@ -98,7 +98,7 @@ std::vector<MatmulDimRole> canonicalizeMmaTvOrdering(
 
 //! Given a TensorView matching the canonicalDimOrdering, schedule it by
 //! merging dimensions with matching roles.
-void mergeAxesWithSameRole(
+void mergeConsecutiveAxesWithSameRole(
     TensorView* tv,
     const DimRolesMap& dim_roles,
     const ValGraph* graph);

@@ -400,7 +400,7 @@ void makeTile(
   //   Before               After
   // [..., M, N, K] -> [..., Mo, Mi, No, Ni, Ko, Ki]
 
-  // Now we Re-order the tiles so that all the outer tiles are
+  // Now we re-order the tiles so that all the outer tiles are
   //  on the left of all the inner tiles
   std::unordered_map<int64_t, int64_t> reorder_map_old_to_new;
 
@@ -1162,6 +1162,8 @@ AbstractTensor MmaSwizzler::scheduleMmaOutputAllocation(AbstractTensor t) {
   return t;
 }
 
+// TODO: Remove this in favor of mergeConsecutiveAxesWithSameRole once
+// multi-matmul refactor is finished.
 std::vector<MatmulDimRole> canonicalizeMmaTvOrdering(
     TensorView* tv,
     const ValGraph& permissive_graph,
@@ -1208,11 +1210,10 @@ std::vector<MatmulDimRole> canonicalizeMmaTvOrdering(
   return roles;
 }
 
-void mergeAxesWithSameRole(
+void mergeConsecutiveAxesWithSameRole(
     TensorView* tv,
     const DimRolesMap& dim_roles,
     const ValGraph* graph) {
-  // Now merge dims that have the same role
   const auto getRole = [&](const int64_t pos) {
     const ValGroup& vg = graph->toGroup(tv->axis(pos));
     auto it = dim_roles.find(vg);
