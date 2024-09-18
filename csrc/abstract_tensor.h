@@ -7,10 +7,15 @@
 // clang-format on
 #pragma once
 
+#include <id_model/schedule.h>
 #include <ir/builder.h>
 #include <ir/internal_base_nodes.h>
+#include <ir/utils.h>
 #include <type.h>
 #include <val_graph.h>
+
+#include <type_traits>
+#include <utility>
 
 #ifndef DYNAMIC_TYPE_CHECK
 #define DYNAMIC_TYPE_CHECK NVF_ERROR
@@ -28,6 +33,308 @@ using AbstractId = dynamic_type::DynamicType<
     dynamic_type::Containers<std::vector>,
     IterDomain*,
     ValGroupAndItsGraph>;
+
+namespace {
+
+struct DispatchSplit {
+  template <typename INPUT>
+  std::pair<AbstractId, AbstractId> operator()(
+      INPUT&& in,
+      Val* factor,
+      bool inner_split) const {
+    using IN = std::decay_t<INPUT>;
+    if constexpr (std::is_same_v<IN, std::monostate>) {
+      return {std::monostate{}, std::monostate{}};
+    } else if constexpr (std::is_same_v<IN, IterDomain*>) {
+      return IterDomain::split(std::forward<INPUT>(in), factor, inner_split);
+    } else if constexpr (std::is_same_v<IN, ValGroupAndItsGraph>) {
+      auto graph = in.graph;
+      auto [outer, inner] = split(graph, in.group, factor, inner_split);
+      return {
+          ValGroupAndItsGraph{outer, graph}, ValGroupAndItsGraph{inner, graph}};
+    } else if constexpr (std::is_same_v<IN, std::vector<AbstractId>>) {
+      std::vector<AbstractId> outer_result;
+      std::vector<AbstractId> inner_result;
+      outer_result.reserve(in.size());
+      inner_result.reserve(in.size());
+      for (auto i : c10::irange(in.size())) {
+        auto [outer, inner] =
+            AbstractId::dispatch((*this), in[i], factor, inner_split);
+        outer_result.emplace_back(outer);
+        inner_result.emplace_back(inner);
+      }
+      return {outer_result, inner_result};
+    } else {
+      NVF_CHECK(false, "Unsupported type in AbstractTensor::split");
+      return {};
+    }
+  }
+};
+struct DispatchMerge {
+  template <typename LHS, typename RHS>
+  AbstractId operator()(LHS&& lhs, RHS&& rhs) const {
+    using L = std::decay_t<LHS>;
+    using R = std::decay_t<RHS>;
+    if constexpr (
+        std::is_same_v<L, std::monostate> &&
+        std::is_same_v<R, std::monostate>) {
+      return std::monostate{};
+    } else if constexpr (
+        std::is_same_v<L, IterDomain*> && std::is_same_v<R, IterDomain*>) {
+      return IterDomain::merge(std::forward<LHS>(lhs), std::forward<RHS>(rhs));
+    } else if constexpr (
+        std::is_same_v<L, ValGroupAndItsGraph> &&
+        std::is_same_v<R, ValGroupAndItsGraph>) {
+      NVF_CHECK(
+          lhs.graph == rhs.graph,
+          "Can not merge ValGroups of different graph.");
+      auto graph = lhs.graph;
+      return ValGroupAndItsGraph{merge(graph, lhs.group, rhs.group), graph};
+    } else if constexpr (
+        std::is_same_v<L, IterDomain*> &&
+        std::is_same_v<R, ValGroupAndItsGraph>) {
+      return (*this)(
+          ValGroupAndItsGraph{rhs.graph->toGroup(lhs), rhs.graph},
+          std::forward<RHS>(rhs));
+    } else if constexpr (
+        std::is_same_v<L, ValGroupAndItsGraph> &&
+        std::is_same_v<R, IterDomain*>) {
+      return (*this)(
+          std::forward<LHS>(lhs),
+          ValGroupAndItsGraph{lhs.graph->toGroup(rhs), lhs.graph});
+    } else if constexpr (
+        std::is_same_v<L, std::vector<AbstractId>> &&
+        std::is_same_v<R, std::vector<AbstractId>>) {
+      NVF_CHECK(
+          lhs.size() == rhs.size(),
+          "Can not merge vectors of AbstractId of different size.");
+      std::vector<AbstractId> result;
+      result.reserve(lhs.size());
+      for (auto i : c10::irange(lhs.size())) {
+        result.emplace_back(AbstractId::dispatch((*this), lhs[i], rhs[i]));
+      }
+      return result;
+    } else if constexpr (std::is_same_v<L, std::vector<AbstractId>>) {
+      std::vector<AbstractId> result;
+      result.reserve(lhs.size());
+      for (auto i : c10::irange(lhs.size())) {
+        result.emplace_back(
+            AbstractId::dispatch((*this), lhs[i], std::forward<RHS>(rhs)));
+      }
+      return result;
+    } else if constexpr (std::is_same_v<R, std::vector<AbstractId>>) {
+      std::vector<AbstractId> result;
+      result.reserve(rhs.size());
+      for (auto i : c10::irange(rhs.size())) {
+        result.emplace_back(
+            AbstractId::dispatch((*this), std::forward<LHS>(lhs), rhs[i]));
+      }
+      return result;
+    } else {
+      NVF_CHECK(false, "Unsupported type in AbstractTensor::merge");
+      return {};
+    }
+  }
+};
+
+struct DispatchSwizzle {
+  template <typename LHS, typename RHS>
+  std::pair<AbstractId, AbstractId> operator()(
+      SwizzleType swizzle_type,
+      LHS&& lhs,
+      RHS&& rhs) const {
+    using L = std::decay_t<LHS>;
+    using R = std::decay_t<RHS>;
+    if constexpr (
+        std::is_same_v<L, std::monostate> &&
+        std::is_same_v<R, std::monostate>) {
+      return {std::monostate{}, std::monostate{}};
+    } else if constexpr (
+        std::is_same_v<L, IterDomain*> && std::is_same_v<R, IterDomain*>) {
+      auto [out_x, out_y] = IterDomain::swizzle(
+          swizzle_type, std::forward<LHS>(lhs), std::forward<RHS>(rhs));
+      return {out_x, out_y};
+    } else if constexpr (
+        std::is_same_v<L, ValGroupAndItsGraph> &&
+        std::is_same_v<R, ValGroupAndItsGraph>) {
+      NVF_CHECK(
+          lhs.graph == rhs.graph,
+          "Can not merge ValGroups of different graph.");
+      auto graph = lhs.graph;
+      auto [out_x, out_y] = swizzle(graph, swizzle_type, lhs.group, rhs.group);
+      return {
+          ValGroupAndItsGraph{out_x, graph}, ValGroupAndItsGraph{out_y, graph}};
+    } else if constexpr (
+        std::is_same_v<L, IterDomain*> &&
+        std::is_same_v<R, ValGroupAndItsGraph>) {
+      return (*this)(
+          swizzle_type,
+          ValGroupAndItsGraph{rhs.graph->toGroup(lhs), rhs.graph},
+          std::forward<RHS>(rhs));
+    } else if constexpr (
+        std::is_same_v<L, ValGroupAndItsGraph> &&
+        std::is_same_v<R, IterDomain*>) {
+      return (*this)(
+          swizzle_type,
+          std::forward<LHS>(lhs),
+          ValGroupAndItsGraph{lhs.graph->toGroup(rhs), lhs.graph});
+    } else if constexpr (
+        std::is_same_v<L, std::vector<AbstractId>> &&
+        std::is_same_v<R, std::vector<AbstractId>>) {
+      NVF_CHECK(
+          lhs.size() == rhs.size(),
+          "Can not merge vectors of AbstractId of different size.");
+      std::vector<AbstractId> result_x;
+      std::vector<AbstractId> result_y;
+      result_x.reserve(lhs.size());
+      result_y.reserve(lhs.size());
+      for (auto i : c10::irange(lhs.size())) {
+        auto [out_x, out_y] =
+            AbstractId::dispatch((*this), swizzle_type, lhs[i], rhs[i]);
+        result_x.emplace_back(out_x);
+        result_y.emplace_back(out_y);
+      }
+      return {result_x, result_y};
+    } else if constexpr (std::is_same_v<L, std::vector<AbstractId>>) {
+      std::vector<AbstractId> result_x;
+      std::vector<AbstractId> result_y;
+      result_x.reserve(lhs.size());
+      result_y.reserve(lhs.size());
+      for (auto i : c10::irange(lhs.size())) {
+        auto [out_x, out_y] = AbstractId::dispatch(
+            (*this), swizzle_type, lhs[i], std::forward<RHS>(rhs));
+        result_x.emplace_back(out_x);
+        result_y.emplace_back(out_y);
+      }
+      return {result_x, result_y};
+    } else if constexpr (std::is_same_v<R, std::vector<AbstractId>>) {
+      std::vector<AbstractId> result_x;
+      std::vector<AbstractId> result_y;
+      result_x.reserve(rhs.size());
+      result_y.reserve(rhs.size());
+      for (auto i : c10::irange(rhs.size())) {
+        auto [out_x, out_y] = AbstractId::dispatch(
+            (*this), swizzle_type, std::forward<LHS>(lhs), rhs[i]);
+        result_x.emplace_back(out_x);
+        result_y.emplace_back(out_y);
+      }
+      return {result_x, result_y};
+    } else {
+      NVF_CHECK(false, "Unsupported type in AbstractTensor::merge");
+      return {};
+    }
+  }
+};
+
+// Copy-paste of DispatchSwizzle with s/SwizzleType/Swizzle2DType/g
+// This is a temporary helper and should be removed eventually.
+struct DispatchLegacySwizzle {
+  template <typename LHS, typename RHS>
+  std::pair<AbstractId, AbstractId> operator()(
+      Swizzle2DType swizzle_type,
+      LHS&& lhs,
+      RHS&& rhs) const {
+    using L = std::decay_t<LHS>;
+    using R = std::decay_t<RHS>;
+    if constexpr (
+        std::is_same_v<L, std::monostate> &&
+        std::is_same_v<R, std::monostate>) {
+      return {std::monostate{}, std::monostate{}};
+    } else if constexpr (
+        std::is_same_v<L, IterDomain*> && std::is_same_v<R, IterDomain*>) {
+      auto [out_x, out_y] = IterDomain::swizzle(
+          swizzle_type, std::forward<LHS>(lhs), std::forward<RHS>(rhs));
+      return {out_x, out_y};
+    } else if constexpr (
+        std::is_same_v<L, ValGroupAndItsGraph> &&
+        std::is_same_v<R, ValGroupAndItsGraph>) {
+      NVF_THROW("not supported");
+    } else if constexpr (
+        std::is_same_v<L, IterDomain*> &&
+        std::is_same_v<R, ValGroupAndItsGraph>) {
+      return (*this)(
+          swizzle_type,
+          ValGroupAndItsGraph{rhs.graph->toGroup(lhs), rhs.graph},
+          std::forward<RHS>(rhs));
+    } else if constexpr (
+        std::is_same_v<L, ValGroupAndItsGraph> &&
+        std::is_same_v<R, IterDomain*>) {
+      return (*this)(
+          swizzle_type,
+          std::forward<LHS>(lhs),
+          ValGroupAndItsGraph{lhs.graph->toGroup(rhs), lhs.graph});
+    } else if constexpr (
+        std::is_same_v<L, std::vector<AbstractId>> &&
+        std::is_same_v<R, std::vector<AbstractId>>) {
+      NVF_CHECK(
+          lhs.size() == rhs.size(),
+          "Can not merge vectors of AbstractId of different size.");
+      std::vector<AbstractId> result_x;
+      std::vector<AbstractId> result_y;
+      result_x.reserve(lhs.size());
+      result_y.reserve(lhs.size());
+      for (auto i : c10::irange(lhs.size())) {
+        auto [out_x, out_y] =
+            AbstractId::dispatch((*this), swizzle_type, lhs[i], rhs[i]);
+        result_x.emplace_back(out_x);
+        result_y.emplace_back(out_y);
+      }
+      return {result_x, result_y};
+    } else if constexpr (std::is_same_v<L, std::vector<AbstractId>>) {
+      std::vector<AbstractId> result_x;
+      std::vector<AbstractId> result_y;
+      result_x.reserve(lhs.size());
+      result_y.reserve(lhs.size());
+      for (auto i : c10::irange(lhs.size())) {
+        auto [out_x, out_y] = AbstractId::dispatch(
+            (*this), swizzle_type, lhs[i], std::forward<RHS>(rhs));
+        result_x.emplace_back(out_x);
+        result_y.emplace_back(out_y);
+      }
+      return {result_x, result_y};
+    } else if constexpr (std::is_same_v<R, std::vector<AbstractId>>) {
+      std::vector<AbstractId> result_x;
+      std::vector<AbstractId> result_y;
+      result_x.reserve(rhs.size());
+      result_y.reserve(rhs.size());
+      for (auto i : c10::irange(rhs.size())) {
+        auto [out_x, out_y] = AbstractId::dispatch(
+            (*this), swizzle_type, std::forward<LHS>(lhs), rhs[i]);
+        result_x.emplace_back(out_x);
+        result_y.emplace_back(out_y);
+      }
+      return {result_x, result_y};
+    } else {
+      NVF_CHECK(false, "Unsupported type in AbstractTensor::merge");
+      return {};
+    }
+  }
+};
+struct DispatchParallelize {
+  template <typename INPUT>
+  void operator()(ParallelType parallel_type, INPUT&& in) const {
+    using IN = std::decay_t<INPUT>;
+    if constexpr (std::is_same_v<IN, std::monostate>) {
+      return;
+    } else if constexpr (std::is_same_v<IN, IterDomain*>) {
+      return in->parallelize(parallel_type);
+    } else if constexpr (std::is_same_v<IN, ValGroupAndItsGraph>) {
+      for (auto val : *in.group) {
+        auto id = dynamic_cast<IterDomain*>(val);
+        NVF_ERROR(id, "Can not parallelize non-IterDomain in ValGroup.");
+        id->parallelize(parallel_type);
+      }
+    } else if constexpr (std::is_same_v<IN, std::vector<AbstractId>>) {
+      for (auto& aid : in) {
+        AbstractId::dispatch((*this), parallel_type, aid);
+      }
+    } else {
+      NVF_CHECK(false, "Unsupported type in AbstractTensor::parallelize");
+    }
+  }
+};
+
+} // namespace
 
 // AbstractTensor is similar to TensorView, it has multiple dimensions, where
 // each dimension is represented by an Abstract IterDomain. The interface of
@@ -168,14 +475,34 @@ using AbstractId = dynamic_type::DynamicType<
 //   v.swizzle(SwizzleType::XOR, 0, 1); // [null, null, id0]
 //   auto vv = v.strip(); // [id0]
 
-struct AbstractTensor {
+template <typename Info>
+struct AbstractTensorWithInfo {
   std::vector<AbstractId> domain;
+  std::vector<Info> info;
 
-  AbstractTensor() = default;
-  AbstractTensor(std::vector<AbstractId> domain) : domain(std::move(domain)) {}
-  AbstractTensor(std::vector<IterDomain*> domain)
-      : domain(domain.begin(), domain.end()) {}
-  AbstractTensor(std::initializer_list<AbstractId> domain) : domain(domain) {}
+  AbstractTensorWithInfo() = default;
+
+  // These constructors use default info
+  AbstractTensorWithInfo(std::vector<AbstractId> domain)
+      : domain(std::move(domain)), info(domain.size()) {}
+  AbstractTensorWithInfo(const std::vector<IterDomain*>& domain)
+      : domain(domain.begin(), domain.end()), info(domain.size()) {}
+  AbstractTensorWithInfo(std::initializer_list<AbstractId> domain)
+      : domain(domain), info(domain.size()) {}
+
+  // These constructors use provided info
+  AbstractTensorWithInfo(std::vector<AbstractId> domain, std::vector<Info> info)
+      : domain(std::move(domain)), info(std::move(info)) {}
+  AbstractTensorWithInfo(
+      const std::vector<IterDomain*>& domain,
+      std::vector<Info> info)
+      : domain(domain.begin(), domain.end()), info(std::move(info)) {}
+  AbstractTensorWithInfo(
+      std::initializer_list<AbstractId> domain,
+      std::initializer_list<Info> info)
+      : domain(domain), info(info) {}
+
+  virtual ~AbstractTensorWithInfo() = default;
 
   template <typename T>
   std::vector<T> as() const {
@@ -184,6 +511,16 @@ struct AbstractTensor {
         domain.begin(), domain.end(), std::back_inserter(result), [](auto x) {
           return (T)x;
         });
+    return result;
+  }
+
+  std::vector<std::pair<AbstractId, Info>> domainAndInfo() const {
+    std::vector<std::pair<AbstractId, Info>> result;
+    NVF_ERROR(domain.size() == info.size());
+    result.reserve(domain.size());
+    for (size_t i : c10::irange(domain.size())) {
+      result.emplace_back(domain[i], info[i]);
+    }
     return result;
   }
 
@@ -253,24 +590,31 @@ struct AbstractTensor {
     return domain.crend();
   }
 
-  AbstractTensor& pushBack(AbstractId id) {
+  AbstractTensorWithInfo& pushBack(AbstractId id) {
     domain.push_back(std::move(id));
+    info.resize(domain.size());
+    return *this;
+  }
+
+  AbstractTensorWithInfo& pushBack(AbstractId id, const Info& info_) {
+    domain.push_back(std::move(id));
+    info.push_back(info_);
     return *this;
   }
 
   template <typename... Args>
-  AbstractTensor& emplaceBack(Args&&... args) {
+  AbstractTensorWithInfo& emplaceBack(Args&&... args) {
     domain.emplace_back(std::forward<Args>(args)...);
+    info.resize(domain.size());
     return *this;
   }
 
-  template <typename T>
-  bool operator==(T&& t) const {
-    if constexpr (std::is_same_v<AbstractTensor, std::decay_t<T>>) {
-      return domain == t.domain;
-    } else {
-      return domain == std::forward<T>(t);
-    }
+  bool operator==(const AbstractTensorWithInfo& other) const {
+    return domain == other.domain && info == other.info;
+  }
+
+  bool operator==(const std::vector<AbstractId>& dom) const {
+    return domain == dom;
   }
 
   template <typename T>
@@ -278,45 +622,241 @@ struct AbstractTensor {
     return !operator==(std::forward<T>(t));
   }
 
-  AbstractTensor& parallelize(int64_t axis, ParallelType parallel_type);
+  AbstractTensorWithInfo& parallelize(
+      int64_t axis,
+      ParallelType parallel_type) {
+    axis = wrapDim(axis, (int64_t)domain.size());
+    AbstractId::dispatch(DispatchParallelize{}, parallel_type, domain[axis]);
+    return *this;
+  }
 
-  AbstractTensor& split(int64_t axis, Val* factor, bool inner_split = true);
-  AbstractTensor& split(int64_t axis, int64_t factor, bool inner_split = true);
+  AbstractTensorWithInfo& split(
+      int64_t axis,
+      Val* factor,
+      bool inner_split = true) {
+    axis = wrapDim(axis, (int64_t)domain.size());
+    auto [outer, inner] = AbstractId::dispatch(
+        DispatchSplit{}, domain[axis], factor, inner_split);
+    std::swap(domain[axis], inner);
+    domain.insert(domain.begin() + axis, outer);
 
-  AbstractTensor& merge(int64_t axis_o, int64_t axis_i);
-  AbstractTensor& merge(int64_t axis) {
+    auto [info_outer, info_inner] = Info::split(info[axis]);
+    info[axis] = std::move(info_outer);
+    info.insert(info.begin() + axis, std::move(info_inner));
+
+    return *this;
+  }
+
+  AbstractTensorWithInfo& split(
+      int64_t axis,
+      int64_t factor,
+      bool inner_split = true) {
+    return split(
+        axis, IrBuilder::create<Val>(factor, DataType::Index), inner_split);
+  }
+
+  AbstractTensorWithInfo& merge(int64_t axis_o, int64_t axis_i) {
+    axis_o = wrapDim(axis_o, (int64_t)domain.size());
+    axis_i = wrapDim(axis_i, (int64_t)domain.size());
+
+    auto output =
+        AbstractId::dispatch(DispatchMerge{}, domain[axis_o], domain[axis_i]);
+    // axis_o is the outer input of this merge but does not
+    // automatically mean it's an outer domain in this AbstractTensorWithInfo.
+    auto domain_outer_pos = axis_o < axis_i ? axis_o : axis_i;
+    auto domain_inner_pos = axis_o < axis_i ? axis_i : axis_o;
+
+    domain.erase(domain.begin() + domain_inner_pos);
+    std::swap(domain[domain_outer_pos], output);
+
+    info[domain_outer_pos] =
+        Info::merge(info[domain_outer_pos], info[domain_inner_pos]);
+    info.erase(info.begin() + domain_inner_pos);
+
+    return *this;
+  }
+
+  AbstractTensorWithInfo& merge(int64_t axis) {
     return merge(axis, axis + 1);
   }
 
-  AbstractTensor& reorder(const std::unordered_map<int64_t, int64_t>& old2new);
-  AbstractTensor& reorder(
+  AbstractTensorWithInfo& reorder(
+      const std::unordered_map<int64_t, int64_t>& old2new) {
+    NVF_ERROR(
+        !domain.empty() || old2new.empty(), "Tried to reorder a 0-dim domain");
+
+    auto new2old = ir_utils::normalizeOld2New(old2new, (int64_t)domain.size());
+
+    std::vector<AbstractId> reordered_domain;
+    std::transform(
+        new2old.begin(),
+        new2old.end(),
+        std::back_inserter(reordered_domain),
+        [this](int64_t i) { return domain[i]; });
+    domain = std::move(reordered_domain);
+
+    std::vector<Info> reordered_info;
+    std::transform(
+        new2old.begin(),
+        new2old.end(),
+        std::back_inserter(reordered_info),
+        [this](int64_t i) { return info[i]; });
+    info = std::move(reordered_info);
+
+    return *this;
+  }
+  AbstractTensorWithInfo& reorder(
       const std::initializer_list<std::pair<const int64_t, int64_t>>& old2new) {
     return reorder(std::unordered_map<int64_t, int64_t>(old2new));
   }
   // old2new[index] = permutation[index]
-  AbstractTensor& reorder(const std::vector<int64_t>& permutation);
-  AbstractTensor& reorder(const std::initializer_list<int64_t>& permutation) {
+  AbstractTensorWithInfo& reorder(const std::vector<int64_t>& permutation) {
+    std::unordered_map<int64_t, int64_t> reorder_map;
+    int64_t idx = 0;
+    std::transform(
+        permutation.begin(),
+        permutation.end(),
+        std::inserter(reorder_map, reorder_map.end()),
+        [&idx](int64_t v) { return std::make_pair(idx++, v); });
+    return reorder(reorder_map);
+  }
+  AbstractTensorWithInfo& reorder(
+      const std::initializer_list<int64_t>& permutation) {
     return reorder(std::vector<int64_t>(permutation));
   }
 
   // Both `from` and `to` are inclusive.
-  AbstractTensor& flatten(int64_t from = 0, int64_t to = -1);
 
-  AbstractTensor& swizzle(SwizzleType swizzle_type, int64_t x, int64_t y);
+  AbstractTensorWithInfo& flatten(int64_t from = 0, int64_t to = -1) {
+    NVF_ERROR(!domain.empty(), "Tried to do flatten on a 0-dim domains");
+    from = wrapDim(from, (int64_t)domain.size());
+    to = wrapDim(to, (int64_t)domain.size());
+    NVF_CHECK(from <= to, "Invalid flatten range. From: ", from, " To: ", to);
+    int64_t num_merges = to - from;
+    for (auto _ : c10::irange(num_merges)) {
+      (void)_;
+      merge(from);
+    }
+    return *this;
+  }
+
+  AbstractTensorWithInfo& swizzle(
+      SwizzleType swizzle_type,
+      int64_t x,
+      int64_t y) {
+    x = wrapDim(x, (int64_t)domain.size());
+    y = wrapDim(y, (int64_t)domain.size());
+
+    auto [out_x, out_y] = AbstractId::dispatch(
+        DispatchSwizzle{}, swizzle_type, domain[x], domain[y]);
+
+    std::swap(domain[x], out_x);
+    std::swap(domain[y], out_y);
+
+    auto [info_outer, info_inner] =
+        Info::swizzle(swizzle_type, info[x], info[y]);
+    info[x] = std::move(info_outer);
+    info[y] = std::move(info_inner);
+
+    return *this;
+  }
 
   // Temporary helper for legacy swizzle, should be removed eventually.
   // This is a copy-paste of AbstractTensor::swizzle(SwizzleType
-  AbstractTensor& swizzle(Swizzle2DType swizzle_type, int64_t x, int64_t y);
+  AbstractTensorWithInfo& swizzle(
+      Swizzle2DType swizzle_type,
+      int64_t x,
+      int64_t y) {
+    x = wrapDim(x, (int64_t)domain.size());
+    y = wrapDim(y, (int64_t)domain.size());
+
+    auto [out_x, out_y] = AbstractId::dispatch(
+        DispatchLegacySwizzle{}, swizzle_type, domain[x], domain[y]);
+
+    std::swap(domain[x], out_x);
+    std::swap(domain[y], out_y);
+
+    auto [info_outer, info_inner] =
+        Info::swizzle(swizzle_type, info[x], info[y]);
+    info[x] = std::move(info_outer);
+    info[y] = std::move(info_inner);
+
+    return *this;
+  }
 
   // Unzip the AbstractTensor to separate tensors. For example, if this
   // AbstractTensor is [dim0={id0, id1}, dim1={id2, id3}], then the return value
   // will be {AbstractTensor{id0, id2}, AbstractTensor{id1, id3}}.
-  std::vector<AbstractTensor> unzip() const;
+  std::vector<AbstractTensorWithInfo> unzip() const {
+    std::vector<AbstractTensorWithInfo> result;
+
+    // Check and get the size of each vector
+    int64_t size = -1;
+    for (const auto& aid : domain) {
+      if (!aid.is<std::vector>()) {
+        continue;
+      }
+      int64_t new_size = (int64_t)aid.as<std::vector>().size();
+      if (size == -1) {
+        size = new_size;
+      } else {
+        NVF_CHECK(
+            size == new_size,
+            "Can not unzip an AbstractTensor with different sizes in its domains.");
+      }
+    }
+
+    // unzip the AbstractTensor, broadcast the non-vector items. Re-use info for
+    // all the unzipped AbstractTensors
+    result.resize(size);
+    for (auto i : c10::irange(size)) {
+      for (const auto& aid : domain) {
+        if (aid.is<std::vector>()) {
+          result[i].domain.emplace_back(aid[i]);
+        } else {
+          result[i].domain.emplace_back(aid);
+        }
+      }
+      result[i].info = info;
+    }
+    return result;
+  }
 
   // Zip multiple AbstractTensors into a single AbstractTensor. For example, if
   // the input is {AbstractTensor{id0, id2}, AbstractTensor{id1, id3}}, then the
   // return value will be [dim0={id0, id1}, dim1={id2, id3}].
-  static AbstractTensor zip(std::vector<AbstractTensor> tensors);
+  static AbstractTensorWithInfo zip(
+      std::vector<AbstractTensorWithInfo> tensors) {
+    NVF_CHECK(
+        !tensors.empty(), "Can not stack an empty list of AbstractTensor");
+
+    for (const auto& tensor : tensors) {
+      NVF_CHECK(
+          tensor.domain.size() == tensors[0].domain.size(),
+          "Can not stack AbstractTensors with different number of domains.");
+    }
+
+    NVF_CHECK(
+        std::all_of(
+            tensors.begin(),
+            tensors.end(),
+            [&tensors](auto t) { return t.info == tensors[0].info; }),
+        "Cannot zip AbstractTensors whose info does not match");
+
+    AbstractTensorWithInfo result;
+    result.info = std::move(tensors[0].info);
+    result.domain.reserve(tensors[0].domain.size());
+    for (auto i : c10::irange(tensors[0].domain.size())) {
+      std::vector<AbstractId> domain;
+      domain.reserve(tensors.size());
+      for (auto& tensor : tensors) {
+        domain.emplace_back(std::move(tensor.domain[i]));
+      }
+      result.domain.emplace_back(std::move(domain));
+    }
+
+    return result;
+  }
 
   // Add a new row to the current AbstractTensor. For example, if the current
   // AbstractTensor is [dim0={id0, id1}, dim1={id2, id3}], it is helpful to
@@ -332,10 +872,145 @@ struct AbstractTensor {
   //   row2  id4    id5
   // in another word, the return value will be an AbstractTensor:
   // [dim0={id0, id1, id4}, dim1={id2, id3, id5}].
-  AbstractTensor& addRow(AbstractTensor tensor);
+  AbstractTensorWithInfo& addRow(AbstractTensorWithInfo tensor) {
+    NVF_CHECK(
+        domain.size() == tensor.domain.size(),
+        "Can not add a new row with different number of domains.");
+    NVF_CHECK(
+        std::all_of(
+            domain.begin(),
+            domain.end(),
+            [](const AbstractId& aid) { return aid.is<std::vector>(); }),
+        "Can not add a new row to an AbstractTensor with non-vector domains.");
+
+    NVF_CHECK(info == tensor.info, "Cannot add a new row with mismatched info");
+
+    for (auto i : c10::irange(domain.size())) {
+      domain[i].as<std::vector>().emplace_back(std::move(tensor.domain[i]));
+    }
+    return *this;
+  }
 
   // Remove all the null elements.
-  AbstractTensor& strip();
+  AbstractTensorWithInfo& strip() {
+    AbstractTensorWithInfo result;
+    for (auto& [aid, inf] : domainAndInfo()) {
+      if (aid.hasValue()) {
+        result.pushBack(std::move(aid), std::move(inf));
+      }
+    }
+    std::swap(result, *this);
+    return *this;
+  }
+};
+
+struct EmptyInfo {
+  static EmptyInfo merge(const EmptyInfo&, const EmptyInfo&) {
+    return {};
+  }
+
+  static std::pair<EmptyInfo, EmptyInfo> split(const EmptyInfo& a) {
+    return {{}, {}};
+  }
+
+  template <typename SwizzleT>
+  static std::pair<EmptyInfo, EmptyInfo> swizzle(
+      SwizzleT swizzle_type,
+      const EmptyInfo& a,
+      const EmptyInfo& b) {
+    return {{}, {}};
+  }
+
+  bool operator==(const EmptyInfo& t) const {
+    return true;
+  }
+};
+
+using AbstractTensor = AbstractTensorWithInfo<EmptyInfo>;
+
+//! This is a holds set of tags of the given type. When we merging or swizzling
+//! we take the union of these tag sets. Split duplicates the tag set for each
+//! output axis.
+template <typename Tag>
+struct TagSetInfo {
+  std::unordered_set<Tag> tags;
+
+  TagSetInfo(std::unordered_set<Tag> tags_ = {}) : tags(std::move(tags_)) {}
+
+  static TagSetInfo merge(const TagSetInfo& a, const TagSetInfo& b) {
+    TagSetInfo merged_tag_info{a.tags};
+    merged_tag_info.tags.insert(b.tags.begin(), b.tags.end());
+    return merged_tag_info;
+  }
+
+  static std::pair<TagSetInfo, TagSetInfo> split(const TagSetInfo& a) {
+    return {a, a};
+  }
+
+  //! Swizzling mixes the tags so here we re-use merge and duplicate the result
+  template <typename SwizzleT>
+  static std::pair<TagSetInfo, TagSetInfo> swizzle(
+      SwizzleT swizzle_type,
+      const TagSetInfo& a,
+      const TagSetInfo& b) {
+    if (swizzle_type == SwizzleT::NoSwizzle) {
+      return {a, b};
+    }
+    TagSetInfo merged_info = merge(a, b);
+    return {merged_info, merged_info};
+  }
+
+  bool operator==(const TagSetInfo& t) const {
+    return tags == t.tags;
+  }
+};
+
+//! This is a special case of AbstractTensorWithInfo which propagates a set of
+//! tags for each axis. The tags can be any hashable type with equality;
+//! typically Tag would be an enum.
+template <typename Tag>
+struct TaggedAbstractTensor : AbstractTensorWithInfo<TagSetInfo<Tag>> {
+  TaggedAbstractTensor(
+      std::vector<AbstractId> domain,
+      const std::vector<std::unordered_set<Tag>>& tag_sets)
+      : AbstractTensorWithInfo<TagSetInfo<Tag>>(
+            domain,
+            {tag_sets.begin(), tag_sets.end()}) {}
+  TaggedAbstractTensor(
+      const std::vector<IterDomain*>& domain,
+      const std::vector<std::unordered_set<Tag>>& tag_sets)
+      : AbstractTensorWithInfo<TagSetInfo<Tag>>(
+            domain,
+            {tag_sets.begin(), tag_sets.end()}) {}
+  TaggedAbstractTensor(
+      std::initializer_list<AbstractId> domain,
+      std::initializer_list<std::initializer_list<Tag>> tag_sets)
+      : AbstractTensorWithInfo<TagSetInfo<Tag>>(
+            domain,
+            {tag_sets.begin(), tag_sets.end()}) {}
+
+  const std::unordered_set<Tag>& getTags(int64_t i) const {
+    i = wrapDim(i, (int64_t)this->info.size());
+    return this->info[i].tags;
+  }
+
+  bool hasTag(int64_t i, Tag tag) const {
+    return getTags(i).count(tag) == 1;
+  }
+
+  //! Return tag if there is a single tag, otherwise nullopt
+  //!
+  //! This is just a convenience function for the common case where axes with
+  //! different tags have not been merged. In these cases there is a single Tag
+  //! for each axis and it is cumbersome to extract it manually each time it's
+  //! needed.
+  std::optional<Tag> getTag(int64_t i) const {
+    const auto& tags = getTags(i);
+    if (tags.size() == 1) {
+      return *tags.begin();
+    }
+    return std::nullopt;
+  }
 };
 
 } // namespace nvfuser

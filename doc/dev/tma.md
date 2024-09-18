@@ -349,6 +349,11 @@ the TMA domain can be completely inferred from the schedule.
 > We do not have validation on shared memory schedule yet.
 > If you scheduled something invalid, likely you will see misaligned address error or silent wrong result.
 
+> [!WARNING]
+> When using circular buffering with TMA, a single thread is select to launch the TMA load and mbarrier operations.
+> In this case, we cannot apply any block parallelization to the consumer TensorView, which will create a thread predicate.
+> A compile-time error will occur if you apply circular buffering and block parallelization together.
+
 #### Data swizzle
 
 So far we have been ignoring the shared memory swizzle feature of TMA and
