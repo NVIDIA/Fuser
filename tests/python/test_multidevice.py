@@ -10,9 +10,7 @@ import nvfuser
 from nvfuser import DataType, FusionDefinition
 
 
-@pytest.fixture
-def multidevice_test():
-    return multidevice.MultideviceTest()
+multidevice_test = multidevice.multidevice_test
 
 
 @pytest.mark.mpi

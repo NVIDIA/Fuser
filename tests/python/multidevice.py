@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 import os
+import pytest
 
 from mpi4py import MPI
 
@@ -30,3 +31,8 @@ class MultideviceTest:
     @property
     def local_rank(self):
         return self._local_rank
+
+
+@pytest.fixture
+def multidevice_test():
+    return MultideviceTest()

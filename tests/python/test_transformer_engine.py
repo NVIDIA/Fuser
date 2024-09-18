@@ -12,9 +12,7 @@ import transformer_engine.pytorch as te
 import multidevice
 
 
-@pytest.fixture
-def multidevice_test():
-    return multidevice.MultideviceTest()
+multidevice_test = multidevice.multidevice_test
 
 
 @pytest.mark.mpi
