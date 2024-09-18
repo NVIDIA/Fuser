@@ -42,7 +42,7 @@ inline IterDomain* representativeId(const AbstractId& abs_id) {
   return representativeId(abs_id.as<ValGroupAndItsGraph>().group);
 }
 
-// Utility to check concrete static size:
+// Utility to check concrete static size
 inline void checkConcreteStaticDim(const AbstractId& abs_id) {
   IterDomain* id = representativeId(abs_id);
   NVF_ERROR(
@@ -74,8 +74,8 @@ AbstractTensor swizzleSharedMemory(TensorView* shared_mem_tv) {
       (int64_t)swizzle_domain.size() >= 2,
       "At least 2D input (excluding consecutive reduction domains starting from the innermost dim) needed for swizzling, but get ",
       shared_mem_tv->toString());
-  checkConcreteStaticDim(swizzle_domain[-2].as<IterDomain*>());
-  checkConcreteStaticDim(swizzle_domain[-1].as<IterDomain*>());
+  checkConcreteStaticDim(swizzle_domain[-2]);
+  checkConcreteStaticDim(swizzle_domain[-1]);
 
   // Extract the constant sizes of the swizzled tile
   const int64_t tile_size_x =
