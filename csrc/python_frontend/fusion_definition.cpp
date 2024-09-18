@@ -95,6 +95,11 @@ void FusionDefinition::finalizeDefinition() {
 
       buildFusionIr(preschedFusion());
     } catch (const std::exception& e) {
+      // Exception thrown after fusionCache()->createChild wouldn't be visible
+      // by fusion cache, if the exception is suppressed on the python side. We
+      // explicitly set the exception message on the terminal trie node, so
+      // we'll be able to throw the same exception again when user tries to
+      // create the same fusion entry.
       trie_node_->setException(e.what());
       fusion_id_ = std::nullopt;
       throw;
@@ -109,6 +114,8 @@ void FusionDefinition::finalizeDefinition() {
     }
     trie_node_ = child_node.value();
     std::optional<std::string> opt_e = trie_node_->getException();
+    // rethrow the exception message if the cached FusionDefinition fails to
+    // build a proper fusion earlier.
     NVF_CHECK(!opt_e.has_value(), opt_e.value());
     fusion_id_ = std::optional<size_t>(trie_node_->fusion_id);
   }
