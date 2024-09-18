@@ -215,6 +215,36 @@ bool checkCanSchedule(Fusion* fusion, HeuristicType heuristic_type) {
 
 } // namespace
 
+// Dispatch heuristic type to the right derived class of scheduler entry.
+// Scheduler entries are stateless so it's a lightweight class to dispatch to
+// the virtual functions in this abstract class.
+std::unique_ptr<SchedulerEntry> SchedulerEntry::makeSchedulerInstance(
+    HeuristicType heuristic_type) {
+  std::unique_ptr<SchedulerEntry> scheduler = nullptr;
+  switch (heuristic_type) {
+    case HeuristicType::NoOp:
+      return std::make_unique<NoOpScheduler>();
+    case HeuristicType::PointWise:
+      return std::make_unique<PointWiseScheduler>();
+    case HeuristicType::Reduction:
+      return std::make_unique<ReductionScheduler>();
+    case HeuristicType::InnerPersistent:
+      return std::make_unique<InnerPersistentKernelScheduler>();
+    case HeuristicType::OuterPersistent:
+      return std::make_unique<OuterPersistentKernelScheduler>();
+    case HeuristicType::InnerOuterPersistent:
+      return std::make_unique<InnerOuterPersistentKernelScheduler>();
+    case HeuristicType::Transpose:
+      return std::make_unique<TransposeScheduler>();
+    case HeuristicType::Matmul:
+      return std::make_unique<MatmulScheduler>();
+    case HeuristicType::ExprEval:
+      return std::make_unique<ExprEvalScheduler>();
+    default:
+      NVF_THROW("unreachable");
+  }
+}
+
 namespace Schedule {
 // Simple dispatcher interface
 bool canSchedule(
@@ -229,88 +259,23 @@ bool canSchedule(
     return false;
   }
 
-  std::unique_ptr<SchedulerEntry> scheduler = nullptr;
-  switch (heuristic_type) {
-    case HeuristicType::NoOp:
-      scheduler = std::make_unique<NoOpScheduler>();
-      break;
-    case HeuristicType::PointWise:
-      scheduler = std::make_unique<PointWiseScheduler>();
-      break;
-    case HeuristicType::Reduction:
-      scheduler = std::make_unique<ReductionScheduler>();
-      break;
-    case HeuristicType::InnerPersistent:
-      scheduler = std::make_unique<InnerPersistentKernelScheduler>();
-      break;
-    case HeuristicType::OuterPersistent:
-      scheduler = std::make_unique<OuterPersistentKernelScheduler>();
-      break;
-    case HeuristicType::InnerOuterPersistent:
-      scheduler = std::make_unique<InnerOuterPersistentKernelScheduler>();
-      break;
-    case HeuristicType::Transpose:
-      scheduler = std::make_unique<TransposeScheduler>();
-      break;
-    case HeuristicType::Matmul:
-      scheduler = std::make_unique<MatmulScheduler>();
-      break;
-    case HeuristicType::ExprEval:
-      // `ExprEval` only accepts a single op, so we don't need other checks
-      // which build a computeAt map. Note: `SdpaOp` does not work with
-      // `computeAt` since it requires all sibling outputs to have same root
-      // domain. `canSchedulerRuntime` is always true so only compile time check
-      // required here.
-      return ExprEvalScheduler().canScheduleCompileTime(fusion);
-    default:
-      NVF_ERROR(false, "unreachable");
-      return false;
-  }
+  std::unique_ptr<SchedulerEntry> scheduler =
+      SchedulerEntry::makeSchedulerInstance(heuristic_type);
   return scheduler->canScheduleCompileTime(fusion) &&
       scheduler->canScheduleRunTime(fusion, runtime_info, data_cache);
 }
 
 std::unique_ptr<SchedulerEntry> makeEntry(
-    HeuristicType sh,
+    HeuristicType heuristic_type,
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
   FUSER_PERF_SCOPE("Schedule::makeEntry");
-  std::unique_ptr<SchedulerEntry> scheduler_entry = nullptr;
-  switch (sh) {
-    case HeuristicType::NoOp:
-      scheduler_entry = std::make_unique<NoOpScheduler>();
-      break;
-    case HeuristicType::PointWise:
-      scheduler_entry = std::make_unique<PointWiseScheduler>();
-      break;
-    case HeuristicType::Reduction:
-      scheduler_entry = std::make_unique<ReductionScheduler>();
-      break;
-    case HeuristicType::InnerPersistent:
-      scheduler_entry = std::make_unique<InnerPersistentKernelScheduler>();
-      break;
-    case HeuristicType::OuterPersistent:
-      scheduler_entry = std::make_unique<OuterPersistentKernelScheduler>();
-      break;
-    case HeuristicType::InnerOuterPersistent:
-      scheduler_entry = std::make_unique<InnerOuterPersistentKernelScheduler>();
-      break;
-    case HeuristicType::Transpose:
-      scheduler_entry = std::make_unique<TransposeScheduler>();
-      break;
-    case HeuristicType::Matmul:
-      scheduler_entry = std::make_unique<MatmulScheduler>();
-      break;
-    case HeuristicType::ExprEval:
-      scheduler_entry = std::make_unique<ExprEvalScheduler>();
-      break;
-    default:
-      NVF_ERROR(false, "unreachable");
-  }
-  scheduler_entry->params_ =
-      scheduler_entry->computeHeuristics(fusion, runtime_info, data_cache);
-  return scheduler_entry;
+  std::unique_ptr<SchedulerEntry> scheduler =
+      SchedulerEntry::makeSchedulerInstance(heuristic_type);
+  scheduler->params_ =
+      scheduler->computeHeuristics(fusion, runtime_info, data_cache);
+  return scheduler;
 }
 
 // Simply loop through the list as baseline strategy
