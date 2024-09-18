@@ -6,7 +6,6 @@
  */
 // clang-format on
 #include <abstract_tensor.h>
-#include <device_lower/analysis/circular_buffer.h>
 #include <disjoint_set.h>
 #include <id_model/schedule.h>
 #include <inlining.h>
