@@ -77,7 +77,6 @@ endif()
 # nvfuser codegen sources
 set(NVFUSER_SRCS)
 list(APPEND NVFUSER_SRCS
-  ${NVFUSER_SRCS_DIR}/abstract_tensor_schedule.cpp
   ${NVFUSER_SRCS_DIR}/alias_analysis.cpp
   ${NVFUSER_SRCS_DIR}/codegen.cpp
   ${NVFUSER_SRCS_DIR}/compute_at.cpp
