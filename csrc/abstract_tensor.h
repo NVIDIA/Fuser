@@ -609,16 +609,12 @@ struct AbstractTensorWithInfo {
     return *this;
   }
 
-  template <typename T>
-  bool operator==(T&& t) const {
-    if constexpr (std::is_same_v<AbstractTensorWithInfo, std::decay_t<T>>) {
-      return domain == t.domain && info == t.info;
-    } else if constexpr (std::is_same_v<
-                             std::vector<AbstractId>,
-                             std::decay_t<T>>) {
-      return domain == t;
-    }
-    return false;
+  bool operator==(const AbstractTensorWithInfo& other) const {
+    return domain == other.domain && info == other.info;
+  }
+
+  bool operator==(const std::vector<AbstractId>& dom) const {
+    return domain == dom;
   }
 
   template <typename T>
