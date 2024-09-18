@@ -27,19 +27,14 @@ class HeuristicSummary;
 
 class OuterPersistentKernelScheduler : public SchedulerEntry {
  public:
-  explicit OuterPersistentKernelScheduler(
-      Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
-
   void schedule(Fusion* fusion, const HeuristicParams* params) override;
 
-  static bool canScheduleCompileTime(Fusion* fusion);
+  bool canScheduleCompileTime(Fusion* fusion) override;
 
-  static bool canScheduleRunTime(
+  bool canScheduleRunTime(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
+      HeuristicSummary* data_cache = nullptr) override;
 
   constexpr static HeuristicType heuristicType() {
     return HeuristicType::OuterPersistent;

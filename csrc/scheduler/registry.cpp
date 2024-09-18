@@ -171,56 +171,46 @@ bool SchedulerEntry::sameAs(const SchedulerEntry* other) {
 namespace {
 //! A Utility for checking both dynamic and static part of
 //!  can schedule
-template <typename SchedulerType>
-bool checkCanSchedule(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache = nullptr) {
+bool checkCanSchedule(Fusion* fusion, HeuristicType heuristic_type) {
   FUSER_PERF_SCOPE("SchedulerRuntimeInfo::checkCanSchedule<T>");
   // ExprEval scheduler only requires `canScheduleCompileTime` check and should
   // not use this fn. The following checks build the computeAt map that do not
   // work with SDPAOp.
-  NVF_ERROR(SchedulerType::heuristicType() != HeuristicType::ExprEval);
-
-  FusionGuard fg(fusion);
-  // If a data cache is given, the compile time part doesn't need to be checked,
-  // since during segmentation the segmenter will call
-  // SchedulerEntry::proposeHeuristics which doesn't pass a data_cache.
-  if (data_cache == nullptr) {
-    // Fusions with `SdpaFwdOp/SdpaBwdOp` are only accepted in `ExprEval`
-    // scheduler, all other schedulers should reject them.
-    if (ir_utils::hasOpsOfType<SdpaFwdOp, SdpaBwdOp>(fusion)) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          SchedulerType::heuristicType(), "SdpaOps are not supported.");
-      return false;
-    }
-
-    // Fusions with `MatmulOp, LinearOp, MmaOp` can only be accepted by Matmul
-    // scheduler.
-    if (SchedulerType::heuristicType() != HeuristicType::Matmul &&
-        ir_utils::hasOpsOfType<MatmulOp, LinearOp, MmaOp>(fusion)) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          SchedulerType::heuristicType(), "Matmul ops are not supported.");
-      return false;
-    }
-
-    if (!registry_utils::isConnectedFusionGraph(fusion)) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          SchedulerType::heuristicType(),
-          "Connected fusion graph check failed!");
-      return false;
-    }
-    if (IterDomainGraph(fusion, /*allow_self_mapping=*/true).hasSelfMapping()) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          SchedulerType::heuristicType(), "Iter domain graph check failed!");
-      return false;
-    }
-    if (!SchedulerType::canScheduleCompileTime(fusion)) {
-      return false;
-    }
+  if (heuristic_type == HeuristicType::ExprEval) {
+    return true;
   }
 
-  return SchedulerType::canScheduleRunTime(fusion, runtime_info, data_cache);
+  FusionGuard fg(fusion);
+
+  // Fusions with `SdpaFwdOp/SdpaBwdOp` are only accepted in `ExprEval`
+  // scheduler, all other schedulers should reject them.
+  if (ir_utils::hasOpsOfType<SdpaFwdOp, SdpaBwdOp>(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        heuristic_type, "SdpaOps are not supported.");
+    return false;
+  }
+
+  // Fusions with `MatmulOp, LinearOp, MmaOp` can only be accepted by Matmul
+  // scheduler.
+  if (heuristic_type != HeuristicType::Matmul &&
+      ir_utils::hasOpsOfType<MatmulOp, LinearOp, MmaOp>(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        heuristic_type, "Matmul ops are not supported.");
+    return false;
+  }
+
+  if (!registry_utils::isConnectedFusionGraph(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        heuristic_type, "Connected fusion graph check failed!");
+    return false;
+  }
+  if (IterDomainGraph(fusion, /*allow_self_mapping=*/true).hasSelfMapping()) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        heuristic_type, "Iter domain graph check failed!");
+    return false;
+  }
+
+  return true;
 }
 
 } // namespace
@@ -228,46 +218,56 @@ bool checkCanSchedule(
 namespace Schedule {
 // Simple dispatcher interface
 bool canSchedule(
-    HeuristicType sh,
+    HeuristicType heuristic_type,
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
-  switch (sh) {
+  // If a data cache is given, the compile time part doesn't need to be checked,
+  // since during segmentation the segmenter will call
+  // SchedulerEntry::proposeHeuristics which doesn't pass a data_cache.
+  if (data_cache == nullptr && !checkCanSchedule(fusion, heuristic_type)) {
+    return false;
+  }
+
+  std::unique_ptr<SchedulerEntry> scheduler = nullptr;
+  switch (heuristic_type) {
     case HeuristicType::NoOp:
-      return checkCanSchedule<NoOpScheduler>(fusion, runtime_info, data_cache);
+      scheduler = std::make_unique<NoOpScheduler>();
+      break;
     case HeuristicType::PointWise:
-      return checkCanSchedule<PointWiseScheduler>(
-          fusion, runtime_info, data_cache);
+      scheduler = std::make_unique<PointWiseScheduler>();
+      break;
     case HeuristicType::Reduction:
-      return checkCanSchedule<ReductionScheduler>(
-          fusion, runtime_info, data_cache);
+      scheduler = std::make_unique<ReductionScheduler>();
+      break;
     case HeuristicType::InnerPersistent:
-      return checkCanSchedule<InnerPersistentKernelScheduler>(
-          fusion, runtime_info, data_cache);
+      scheduler = std::make_unique<InnerPersistentKernelScheduler>();
+      break;
     case HeuristicType::OuterPersistent:
-      return checkCanSchedule<OuterPersistentKernelScheduler>(
-          fusion, runtime_info, data_cache);
+      scheduler = std::make_unique<OuterPersistentKernelScheduler>();
+      break;
     case HeuristicType::InnerOuterPersistent:
-      return checkCanSchedule<InnerOuterPersistentKernelScheduler>(
-          fusion, runtime_info, data_cache);
+      scheduler = std::make_unique<InnerOuterPersistentKernelScheduler>();
+      break;
     case HeuristicType::Transpose:
-      return checkCanSchedule<TransposeScheduler>(
-          fusion, runtime_info, data_cache);
+      scheduler = std::make_unique<TransposeScheduler>();
+      break;
     case HeuristicType::Matmul:
-      return checkCanSchedule<MatmulScheduler>(
-          fusion, runtime_info, data_cache);
+      scheduler = std::make_unique<MatmulScheduler>();
+      break;
     case HeuristicType::ExprEval:
       // `ExprEval` only accepts a single op, so we don't need other checks
       // which build a computeAt map. Note: `SdpaOp` does not work with
       // `computeAt` since it requires all sibling outputs to have same root
       // domain. `canSchedulerRuntime` is always true so only compile time check
       // required here.
-      return ExprEvalScheduler::canScheduleCompileTime(fusion);
+      return ExprEvalScheduler().canScheduleCompileTime(fusion);
     default:
       NVF_ERROR(false, "unreachable");
       return false;
   }
-  return false;
+  return scheduler->canScheduleCompileTime(fusion) &&
+      scheduler->canScheduleRunTime(fusion, runtime_info, data_cache);
 }
 
 std::unique_ptr<SchedulerEntry> makeEntry(
@@ -275,49 +275,41 @@ std::unique_ptr<SchedulerEntry> makeEntry(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
-  FUSER_PERF_SCOPE("Schedule::makeEntry<T>");
+  FUSER_PERF_SCOPE("Schedule::makeEntry");
   std::unique_ptr<SchedulerEntry> scheduler_entry = nullptr;
   switch (sh) {
     case HeuristicType::NoOp:
-      scheduler_entry =
-          std::make_unique<NoOpScheduler>(fusion, runtime_info, data_cache);
+      scheduler_entry = std::make_unique<NoOpScheduler>();
       break;
     case HeuristicType::PointWise:
-      scheduler_entry = std::make_unique<PointWiseScheduler>(
-          fusion, runtime_info, data_cache);
+      scheduler_entry = std::make_unique<PointWiseScheduler>();
       break;
     case HeuristicType::Reduction:
-      scheduler_entry = std::make_unique<ReductionScheduler>(
-          fusion, runtime_info, data_cache);
+      scheduler_entry = std::make_unique<ReductionScheduler>();
       break;
     case HeuristicType::InnerPersistent:
-      scheduler_entry = std::make_unique<InnerPersistentKernelScheduler>(
-          fusion, runtime_info, data_cache);
+      scheduler_entry = std::make_unique<InnerPersistentKernelScheduler>();
       break;
     case HeuristicType::OuterPersistent:
-      scheduler_entry = std::make_unique<OuterPersistentKernelScheduler>(
-          fusion, runtime_info, data_cache);
+      scheduler_entry = std::make_unique<OuterPersistentKernelScheduler>();
       break;
     case HeuristicType::InnerOuterPersistent:
-      scheduler_entry = std::make_unique<InnerOuterPersistentKernelScheduler>(
-          fusion, runtime_info, data_cache);
+      scheduler_entry = std::make_unique<InnerOuterPersistentKernelScheduler>();
       break;
     case HeuristicType::Transpose:
-      scheduler_entry = std::make_unique<TransposeScheduler>(
-          fusion, runtime_info, data_cache);
+      scheduler_entry = std::make_unique<TransposeScheduler>();
       break;
     case HeuristicType::Matmul:
-      scheduler_entry =
-          std::make_unique<MatmulScheduler>(fusion, runtime_info, data_cache);
+      scheduler_entry = std::make_unique<MatmulScheduler>();
       break;
     case HeuristicType::ExprEval:
-      scheduler_entry =
-          std::make_unique<ExprEvalScheduler>(fusion, runtime_info, data_cache);
+      scheduler_entry = std::make_unique<ExprEvalScheduler>();
       break;
     default:
       NVF_ERROR(false, "unreachable");
   }
-
+  scheduler_entry->params_ =
+      scheduler_entry->computeHeuristics(fusion, runtime_info, data_cache);
   return scheduler_entry;
 }
 
@@ -359,50 +351,50 @@ class CompileTimeInfo : public HeuristicCompileTime::CompileTimeInfoBase {
 
 HeuristicSummary::HeuristicSummary(
     Fusion* fusion,
-    HeuristicType heuristic,
+    HeuristicType heuristic_type,
     SchedulerRuntimeInfo& runtime_info)
-    : heuristic_(heuristic), recording_(true) {
-  switch (heuristic) {
+    : heuristic_(heuristic_type), recording_(true) {
+  switch (heuristic_type) {
     case HeuristicType::NoOp:
-      NoOpScheduler::canScheduleRunTime(fusion, runtime_info, this);
+      NoOpScheduler().canScheduleRunTime(fusion, runtime_info, this);
       break;
     case HeuristicType::PointWise:
       getPointwiseHeuristics(fusion, runtime_info, this);
-      PointWiseScheduler::canScheduleRunTime(fusion, runtime_info, this);
+      PointWiseScheduler().canScheduleRunTime(fusion, runtime_info, this);
       break;
     case HeuristicType::Reduction:
       getReductionHeuristics(fusion, runtime_info, this);
-      ReductionScheduler::canScheduleRunTime(fusion, runtime_info, this);
+      ReductionScheduler().canScheduleRunTime(fusion, runtime_info, this);
       break;
     case HeuristicType::InnerPersistent:
       getInnerPersistentHeuristics(fusion, runtime_info, this);
-      InnerPersistentKernelScheduler::canScheduleRunTime(
+      InnerPersistentKernelScheduler().canScheduleRunTime(
           fusion, runtime_info, this);
       break;
     case HeuristicType::OuterPersistent:
       getOuterPersistentHeuristics(fusion, runtime_info, this);
-      OuterPersistentKernelScheduler::canScheduleRunTime(
+      OuterPersistentKernelScheduler().canScheduleRunTime(
           fusion, runtime_info, this);
       break;
     case HeuristicType::InnerOuterPersistent:
       getInnerOuterPersistentHeuristics(fusion, runtime_info, this);
-      InnerOuterPersistentKernelScheduler::canScheduleRunTime(
+      InnerOuterPersistentKernelScheduler().canScheduleRunTime(
           fusion, runtime_info, this);
       break;
     case HeuristicType::Transpose:
       getTransposeHeuristics(fusion, runtime_info, this);
-      TransposeScheduler::canScheduleRunTime(fusion, runtime_info, this);
+      TransposeScheduler().canScheduleRunTime(fusion, runtime_info, this);
       break;
     case HeuristicType::Matmul: {
       const auto heuristics = getMatmulHeuristics(fusion, runtime_info, this);
       NVF_ERROR(heuristics, "Failed to get matmul heuristics");
       const auto canSchedule =
-          MatmulScheduler::canScheduleRunTime(fusion, runtime_info, this);
+          MatmulScheduler().canScheduleRunTime(fusion, runtime_info, this);
       NVF_ERROR(canSchedule, "Could not schedule matmul (run time)");
       break;
     }
     case HeuristicType::ExprEval:
-      ExprEvalScheduler::canScheduleRunTime(fusion, runtime_info, this);
+      ExprEvalScheduler().canScheduleRunTime(fusion, runtime_info, this);
       break;
     default:
       NVF_ERROR(false, "unknown heuristic");

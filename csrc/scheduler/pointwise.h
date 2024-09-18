@@ -184,16 +184,11 @@ TensorView* getReferenceTensorView(Fusion* fusion);
 
 class PointWiseScheduler : public SchedulerEntry {
  public:
-  explicit PointWiseScheduler(
+  bool canScheduleCompileTime(Fusion* fusion) override;
+  bool canScheduleRunTime(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
-
-  static bool canScheduleCompileTime(Fusion* fusion);
-  static bool canScheduleRunTime(
-      Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
+      HeuristicSummary* data_cache = nullptr) override;
 
   constexpr static HeuristicType heuristicType() {
     return HeuristicType::PointWise;

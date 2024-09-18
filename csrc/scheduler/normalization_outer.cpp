@@ -18,14 +18,6 @@
 
 namespace nvfuser {
 
-OuterPersistentKernelScheduler::OuterPersistentKernelScheduler(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache)
-    : SchedulerEntry() {
-  params_ = std::move(computeHeuristics(fusion, runtime_info, data_cache));
-}
-
 void OuterPersistentKernelScheduler::schedule(
     Fusion* fusion,
     const HeuristicParams* params) {

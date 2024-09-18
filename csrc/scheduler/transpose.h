@@ -115,17 +115,12 @@ std::string getTransposeRuntimeRejectReason(
 
 class TransposeScheduler : public SchedulerEntry {
  public:
-  explicit TransposeScheduler(
+  bool canScheduleCompileTime(Fusion* fusion) override;
+
+  bool canScheduleRunTime(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
-
-  static bool canScheduleCompileTime(Fusion* fusion);
-
-  static bool canScheduleRunTime(
-      Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
+      HeuristicSummary* data_cache = nullptr) override;
 
   constexpr static HeuristicType heuristicType() {
     return HeuristicType::Transpose;
