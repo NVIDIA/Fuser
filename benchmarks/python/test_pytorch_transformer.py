@@ -11,7 +11,7 @@ Usage: torchrun --nproc-per-node=<number of processes> test_pytorch_transformer.
 import os
 import time
 
-from nanogpt import *
+from nanogpt import Block, GPTConfig
 
 import torch
 import torch.distributed as dist
