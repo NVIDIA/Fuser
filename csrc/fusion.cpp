@@ -28,25 +28,6 @@
 
 namespace nvfuser {
 
-/*static*/ thread_local Fusion* FusionGuard::active_fusion_ = nullptr;
-
-FusionGuard::FusionGuard(Fusion* fusion) : prev_fusion_(active_fusion_) {
-  active_fusion_ = fusion;
-}
-
-FusionGuard::~FusionGuard() {
-  active_fusion_ = prev_fusion_;
-}
-
-// Cast to non-cast because many users need it.
-/*static*/ Fusion* FusionGuard::getCurFusion() {
-  return active_fusion_;
-}
-
-/*static*/ void FusionGuard::setCurFusion(Fusion* fusion) {
-  active_fusion_ = fusion;
-}
-
 void swap(Fusion& a, Fusion& b) noexcept {
   FUSER_PERF_SCOPE("Fusion swap");
 
