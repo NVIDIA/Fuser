@@ -1628,6 +1628,15 @@ PartOf<Projection> cancelCommonFactors(const PartOf<Projection>& part) {
   //
   // Example:
   // PartOf{what=[5,3,2], inner_extent=42} => PartOf{what=[5], inner_extent=7}
+  //
+  // Proof of correctness:
+  // Suppose we have an IterDomain I0, and I0 is split in two different ways:
+  //           I0
+  //          /  \.
+  //         /    \.
+  //     split    split
+  //     /   \    /   \.
+  //    I1   I2  I3   I4
   if (!part.what->is<Composition>()) {
     return part;
   }
