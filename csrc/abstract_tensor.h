@@ -1005,7 +1005,12 @@ class TaggedAbstractTensor : public AbstractTensorWithInfo<TagSetInfo<Tag>> {
             {tag_sets.begin(), tag_sets.end()}) {}
 
   const std::unordered_set<Tag>& getTags(int64_t i) const {
-    i = wrapDim(i, this->size());
+    i = wrapDim(i, (int64_t)this->size());
+    return this->info_[i].tags;
+  }
+
+  std::unordered_set<Tag>& getTags(int64_t i) {
+    i = wrapDim(i, (int64_t)this->size());
     return this->info_[i].tags;
   }
 
