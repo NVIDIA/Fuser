@@ -77,6 +77,7 @@ class HostIrExecutor final : public OptInDispatch {
   void handle(SetCurrentStream* set_current_stream) override;
   void handle(PostOnStream* post_ir) override;
   void handle(Communication* communication) override;
+  void handle(P2PCommunication* communication) override;
   void handle(Wait* wait) override;
   void handle(ForLoop* for_loop) override;
   void handle(SliceOp* slice_op) override;
@@ -93,7 +94,7 @@ class HostIrExecutor final : public OptInDispatch {
   std::unordered_map<HostUnit*, FusionExecutorCache> fec_;
   using StreamKey = std::variant<int64_t, Stream*>;
   std::unordered_map<StreamKey, c10::cuda::CUDAStream> streams_;
-  std::unordered_map<Communication*, c10::intrusive_ptr<c10d::Work>> works_;
+  std::unordered_map<Expr*, c10::intrusive_ptr<c10d::Work>> works_;
 };
 
 } // namespace hir

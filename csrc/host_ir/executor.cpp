@@ -183,6 +183,23 @@ void HostIrExecutor::handle(Communication* communication) {
       output_tensor);
 }
 
+void HostIrExecutor::handle(P2PCommunication* communication) {
+  NVF_ERROR(
+      communicator_ != nullptr && communicator_->is_available(),
+      "A valid communicator must be provided");
+
+  at::Tensor buffer =
+      getKnownTensorOrUndefined(communication->buffer(), expr_evaluator_);
+
+  works_[communication] = postSingleCommunication(
+      communication,
+      communicator_->deviceId(),
+      expr_evaluator_.evaluate(communication->peer()).as<int64_t>(),
+      communicator_->getWorld(),
+      buffer,
+      expr_evaluator_.evaluate(communication->tag()).as<int64_t>());
+}
+
 void HostIrExecutor::handle(Wait* wait) {
   Expr* communication = wait->communication();
   NVF_ERROR(works_.find(communication) != works_.end(), "no wait req");
