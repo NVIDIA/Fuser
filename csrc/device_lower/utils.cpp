@@ -1285,203 +1285,8 @@ Val* extent(const Projection& proj) {
 }
 
 // Simplify the abstract syntax tree so that it is easier to be pattern
-// matched.
+// matched. Defined below.
 Projection simplify(Projection proj);
-
-Projection simplify(const ValGroup& group) {
-  return group;
-}
-
-PartOf<Projection> cancelCommonFactors(const PartOf<Projection>& part) {
-  // If `what` is a composition and inner_extent is a multiple of the extent of
-  // the last items in `what`, we can simplify the inner_extent and `what` by
-  // canceling the last items in `what`.
-  //
-  // Example:
-  // PartOf{what=[5,3,2], inner_extent=42} => PartOf{what=[5], inner_extent=7}
-  if (!part.what->is<Composition>()) {
-    return part;
-  }
-  auto dq = part.what->as<Composition>();
-
-  Val* new_inner_extent = part.inner_extent;
-  if (new_inner_extent == nullptr) {
-    return part;
-  }
-
-  while (!dq.empty() &&
-         simplifyExpr(
-             IrBuilder::isDivisibleExpr(new_inner_extent, extent(dq.back())))
-             ->isTrue()) {
-    new_inner_extent =
-        simplifyExpr(IrBuilder::divExpr(new_inner_extent, extent(dq.back())));
-    dq.pop_back();
-  }
-  if (new_inner_extent->isOne()) {
-    new_inner_extent = nullptr;
-  }
-  NVF_ERROR(!dq.empty());
-  if (dq.size() == 1) {
-    return PartOf<Projection>{
-        std::make_shared<Projection>(dq.front()),
-        new_inner_extent,
-        part.selected_extent};
-  }
-  return PartOf<Projection>{
-      std::make_shared<Projection>(std::move(dq)),
-      new_inner_extent,
-      part.selected_extent};
-}
-
-PartOf<Projection> trimRedundant(const PartOf<Projection>& part) {
-  // If part.what is a composition then we only keep the minimum number of
-  // items in `what` that is sufficient to represent the selected_extent *
-  // inner_extent.
-  //
-  // Example:
-  // PartOf{what=[7, 3, 5, 2], inner_extent=3, selected_extent=5} =>
-  //   PartOf{what=[3, 5, 2], inner_extent=3, selected_extent=5}
-  if (!part.what->is<Composition>()) {
-    return part;
-  }
-  auto dq = part.what->as<Composition>();
-
-  Val* required_extent =
-      SimplifyingIrBuilder::mulExpr(part.selected_extent, part.inner_extent);
-
-  Val* what_extent = nullptr;
-  int64_t count = 0;
-  while (count < dq.size()) {
-    count++;
-    const auto& item = dq.at(dq.size() - count);
-    what_extent = SimplifyingIrBuilder::mulExpr(what_extent, extent(item));
-    if (simplifyExpr(IrBuilder::isDivisibleExpr(what_extent, required_extent))
-            ->isTrue()) {
-      break;
-    }
-  }
-  while (count < dq.size()) {
-    dq.pop_front();
-  }
-  NVF_ERROR(!dq.empty());
-  if (dq.size() == 1) {
-    return PartOf<Projection>{
-        std::make_shared<Projection>(dq.front()),
-        part.inner_extent,
-        part.selected_extent};
-  }
-  return PartOf<Projection>{
-      std::make_shared<Projection>(std::move(dq)),
-      part.inner_extent,
-      part.selected_extent};
-}
-
-PartOf<Projection> mergeParts(const PartOf<Projection>& part) {
-  // Combine PartOf(what=PartOf(what=x), ...) into PartOf(what=x, ...).
-  //
-  // Example:
-  // PartOf{
-  //   what=PartOf{what=24, inner_extent=2, selected_extent=12},
-  //   inner_extent=3,
-  //   selected_extent=2}
-  // =>
-  // PartOf{what=24, inner_extent=6, selected_extent=2}
-  if (!part.what->is<PartOf>()) {
-    return part;
-  }
-  const auto& what = part.what->as<PartOf>();
-
-  return PartOf<Projection>{
-      what.what,
-      SimplifyingIrBuilder::mulExpr(part.inner_extent, what.inner_extent),
-      part.selected_extent};
-}
-
-Projection eliminateTrivialPartOf(const PartOf<Projection>& part) {
-  // If part.what has the same extent as the selected extent, and there is no
-  // inner extent in part, then the full `what` is identical to the selected
-  // part.
-  //
-  // Example:
-  // PartOf{what=5, inner_extent=nullptr, selected_extent=5} => 5
-  if (part.inner_extent == nullptr &&
-      simplifyExpr(IrBuilder::eqExpr(extent(*part.what), part.selected_extent))
-          ->isTrue()) {
-    return *part.what;
-  }
-  return part;
-}
-
-Projection simplify(const PartOf<Projection>& part) {
-  // Recursively simplify subtree.
-  auto simplified = PartOf<Projection>{
-      std::make_shared<Projection>(simplify(*part.what)),
-      part.inner_extent,
-      part.selected_extent};
-  // Run simplification rules.
-  simplified = cancelCommonFactors(simplified);
-  simplified = trimRedundant(simplified);
-  simplified = mergeParts(simplified);
-  return eliminateTrivialPartOf(simplified);
-}
-
-Composition<Projection> flattenCompositions(
-    const Composition<Projection>& comp) {
-  // Flatten the composition into a single level.
-  //
-  // Example:
-  // Composition{Composition{5, 3}, 2} => Composition{5, 3, 2}
-  Composition<Projection> result;
-  for (const auto& proj : comp) {
-    if (proj.is<Composition>()) {
-      const auto& flat = proj.as<Composition>();
-      result.insert(result.end(), flat.begin(), flat.end());
-    } else {
-      result.push_back(proj);
-    }
-  }
-  return result;
-}
-
-Projection eliminateTrivialComposition(const Composition<Projection>& comp) {
-  // If the composition has only one element, then the composition is the same
-  // as the element.
-  //
-  // Example:
-  // Composition{5} => 5
-  if (comp.size() == 1) {
-    return comp.front();
-  }
-  return comp;
-}
-
-Projection simplify(const Composition<Projection>& comp) {
-  // Recursively simplify subtrees.
-  Composition<Projection> simplified;
-  for (const auto& proj : comp) {
-    simplified.push_back(simplify(proj));
-  }
-
-  // Run simplification rules.
-  simplified = flattenCompositions(simplified);
-  return eliminateTrivialComposition(simplified);
-}
-
-Projection simplify(const std::monostate& null) {
-  return null;
-}
-
-Projection simplify(Projection projection) {
-  // Run simplifications until convergence.
-  auto simplified = projection;
-  do {
-    projection = simplified;
-    simplified = Projection::dispatch(
-        [&](const auto& projection) { return simplify(projection); },
-        projection);
-  } while (simplified != projection);
-  return projection;
-}
 
 // Given an expression on the traversal path and its direction, get the from
 // and to groups. Note that the traversal path is obtained by running BFS from
@@ -1504,8 +1309,66 @@ auto toGroups(
 }
 
 // Do the propagation to project linear_g on domain through the given
-// expression, build out and simplify the abstract syntax tree on the fly.
-// Because the dynamic type Projection has limited expressiveness, we may
+// expression, build out and simplify the abstract syntax tree on the fly by
+// substituting equivalent items. For example, if we have
+//   2   [2]  3
+//    \    \ /
+//     \    6
+//      \  /
+//       12   2
+//        \  /
+//         24
+//        /  \.
+//       4    6
+// and the linear_g is [2], when we propagate from [2] to 24, we will build out
+// the abstract syntax tree with the following steps:
+//
+// First, we will traverse the expression 6 = merge(2, 3). We will build out
+//   linear_g = PartOf{what=6, inner_extent=3, selected_extent=2}
+//
+// Second, we will traverse the expression 12 = merge(2, 6). From this
+// expression, we know that
+//   6 = PartOf{what=12, inner_extent=nullptr, selected_extent=6}
+// Substituting definition of 6, in the above definition of linear_g, we get
+//   linear_g = PartOf{
+//     what=PartOf{what=12, inner_extent=nullptr, selected_extent=6},
+//     inner_extent=3,
+//     selected_extent=2
+//   }
+//
+// Third, we will traverse the expression 24 = merge(12, 2). From this
+// expression, we know that
+//   12 = PartOf{what=24, inner_extent=2, selected_extent=12}
+// Substituting definition of 12, in the above definition of linear_g, we get
+//   linear_g = PartOf{
+//     what=PartOf{
+//        what=PartOf{what=24, inner_extent=2, selected_extent=12},
+//        inner_extent=nullptr,
+//        selected_extent=6
+//     },
+//     inner_extent=3,
+//     selected_extent=2
+//   }
+//
+// Finally, we will traverse the expression 4, 6 = split(24). From this
+// expression, we know that
+//   24 = Composition{4, 6}
+// Substituting definition of 24, in the above definition of linear_g, we get
+//   linear_g = PartOf{
+//     what=PartOf{
+//       what=PartOf{
+//         what=Composition{4, 6},
+//         inner_extent=2,
+//         selected_extent=12
+//       },
+//       inner_extent=nullptr,
+//       selected_extent=6
+//     },
+//     inner_extent=3,
+//     selected_extent=2
+//   }
+//
+// Note that the dynamic type Projection has limited expressiveness, we may
 // encounter cases where the projection can not be represented in the language
 // of the dynamic type Projection. For such cases, we will just use
 // std::monostate to denote "unknown".
@@ -1750,6 +1613,203 @@ Val* proveLinearAndGetStrideAfterPropagation(
         return proveLinearAndGetStrideAfterPropagation(proj, domain);
       },
       proj);
+}
+
+// Simplify the abstract syntax tree so that it is easier to be pattern
+// matched.
+Projection simplify(const ValGroup& group) {
+  return group;
+}
+
+PartOf<Projection> cancelCommonFactors(const PartOf<Projection>& part) {
+  // If `what` is a composition and inner_extent is a multiple of the extent of
+  // the last items in `what`, we can simplify the inner_extent and `what` by
+  // canceling the last items in `what`.
+  //
+  // Example:
+  // PartOf{what=[5,3,2], inner_extent=42} => PartOf{what=[5], inner_extent=7}
+  if (!part.what->is<Composition>()) {
+    return part;
+  }
+  auto dq = part.what->as<Composition>();
+
+  Val* new_inner_extent = part.inner_extent;
+  if (new_inner_extent == nullptr) {
+    return part;
+  }
+
+  while (!dq.empty() &&
+         simplifyExpr(
+             IrBuilder::isDivisibleExpr(new_inner_extent, extent(dq.back())))
+             ->isTrue()) {
+    new_inner_extent =
+        simplifyExpr(IrBuilder::divExpr(new_inner_extent, extent(dq.back())));
+    dq.pop_back();
+  }
+  if (new_inner_extent->isOne()) {
+    new_inner_extent = nullptr;
+  }
+  NVF_ERROR(!dq.empty());
+  if (dq.size() == 1) {
+    return PartOf<Projection>{
+        std::make_shared<Projection>(dq.front()),
+        new_inner_extent,
+        part.selected_extent};
+  }
+  return PartOf<Projection>{
+      std::make_shared<Projection>(std::move(dq)),
+      new_inner_extent,
+      part.selected_extent};
+}
+
+PartOf<Projection> trimRedundant(const PartOf<Projection>& part) {
+  // If part.what is a composition then we only keep the minimum number of
+  // items in `what` that is sufficient to represent the selected_extent *
+  // inner_extent.
+  //
+  // Example:
+  // PartOf{what=[7, 3, 5, 2], inner_extent=3, selected_extent=5} =>
+  //   PartOf{what=[3, 5, 2], inner_extent=3, selected_extent=5}
+  if (!part.what->is<Composition>()) {
+    return part;
+  }
+  auto dq = part.what->as<Composition>();
+
+  Val* required_extent =
+      SimplifyingIrBuilder::mulExpr(part.selected_extent, part.inner_extent);
+
+  Val* what_extent = nullptr;
+  int64_t count = 0;
+  while (count < dq.size()) {
+    count++;
+    const auto& item = dq.at(dq.size() - count);
+    what_extent = SimplifyingIrBuilder::mulExpr(what_extent, extent(item));
+    if (simplifyExpr(IrBuilder::isDivisibleExpr(what_extent, required_extent))
+            ->isTrue()) {
+      break;
+    }
+  }
+  while (count < dq.size()) {
+    dq.pop_front();
+  }
+  NVF_ERROR(!dq.empty());
+  if (dq.size() == 1) {
+    return PartOf<Projection>{
+        std::make_shared<Projection>(dq.front()),
+        part.inner_extent,
+        part.selected_extent};
+  }
+  return PartOf<Projection>{
+      std::make_shared<Projection>(std::move(dq)),
+      part.inner_extent,
+      part.selected_extent};
+}
+
+PartOf<Projection> mergeParts(const PartOf<Projection>& part) {
+  // Combine PartOf(what=PartOf(what=x), ...) into PartOf(what=x, ...).
+  //
+  // Example:
+  // PartOf{
+  //   what=PartOf{what=24, inner_extent=2, selected_extent=12},
+  //   inner_extent=3,
+  //   selected_extent=2}
+  // =>
+  // PartOf{what=24, inner_extent=6, selected_extent=2}
+  if (!part.what->is<PartOf>()) {
+    return part;
+  }
+  const auto& what = part.what->as<PartOf>();
+
+  return PartOf<Projection>{
+      what.what,
+      SimplifyingIrBuilder::mulExpr(part.inner_extent, what.inner_extent),
+      part.selected_extent};
+}
+
+Projection eliminateTrivialPartOf(const PartOf<Projection>& part) {
+  // If part.what has the same extent as the selected extent, and there is no
+  // inner extent in part, then the full `what` is identical to the selected
+  // part.
+  //
+  // Example:
+  // PartOf{what=5, inner_extent=nullptr, selected_extent=5} => 5
+  if (part.inner_extent == nullptr &&
+      simplifyExpr(IrBuilder::eqExpr(extent(*part.what), part.selected_extent))
+          ->isTrue()) {
+    return *part.what;
+  }
+  return part;
+}
+
+Projection simplify(const PartOf<Projection>& part) {
+  // Recursively simplify subtree.
+  auto simplified = PartOf<Projection>{
+      std::make_shared<Projection>(simplify(*part.what)),
+      part.inner_extent,
+      part.selected_extent};
+  // Run simplification rules.
+  simplified = cancelCommonFactors(simplified);
+  simplified = trimRedundant(simplified);
+  simplified = mergeParts(simplified);
+  return eliminateTrivialPartOf(simplified);
+}
+
+Composition<Projection> flattenCompositions(
+    const Composition<Projection>& comp) {
+  // Flatten the composition into a single level.
+  //
+  // Example:
+  // Composition{Composition{5, 3}, 2} => Composition{5, 3, 2}
+  Composition<Projection> result;
+  for (const auto& proj : comp) {
+    if (proj.is<Composition>()) {
+      const auto& flat = proj.as<Composition>();
+      result.insert(result.end(), flat.begin(), flat.end());
+    } else {
+      result.push_back(proj);
+    }
+  }
+  return result;
+}
+
+Projection eliminateTrivialComposition(const Composition<Projection>& comp) {
+  // If the composition has only one element, then the composition is the same
+  // as the element.
+  //
+  // Example:
+  // Composition{5} => 5
+  if (comp.size() == 1) {
+    return comp.front();
+  }
+  return comp;
+}
+
+Projection simplify(const Composition<Projection>& comp) {
+  // Recursively simplify subtrees.
+  Composition<Projection> simplified;
+  for (const auto& proj : comp) {
+    simplified.push_back(simplify(proj));
+  }
+
+  // Run simplification rules.
+  simplified = flattenCompositions(simplified);
+  return eliminateTrivialComposition(simplified);
+}
+
+Projection simplify(const std::monostate& null) {
+  return null;
+}
+
+Projection simplify(Projection projection) {
+  // Run simplifications until convergence.
+  auto simplified = projection;
+  do {
+    projection = simplified;
+    simplified = Projection::dispatch(
+        [&](const auto& projection) { return simplify(projection); },
+        projection);
+  } while (simplified.type() != projection.type() || simplified != projection);
+  return projection;
 }
 
 } // namespace
