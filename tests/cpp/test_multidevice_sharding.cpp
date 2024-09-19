@@ -117,7 +117,7 @@ INSTANTIATE_TEST_SUITE_P(
     });
 
 TEST_F(MultiDeviceTest, Slice) {
-  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   auto mesh = DeviceMesh::createForNumDevices(communicator_->size());
 
@@ -152,7 +152,7 @@ TEST_F(MultiDeviceTest, Slice) {
 }
 
 TEST_F(MultiDeviceTest, LayerNorm) {
-  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   auto mesh = DeviceMesh::createForNumDevices(communicator_->size());
 
