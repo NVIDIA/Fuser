@@ -529,6 +529,8 @@ class TensorDomain : public Val {
     return root_domain_.empty() ? logical_domain_ : root_domain_;
   };
 
+  // Check if id is a root ID. Always return false if there's no root
+  // domain.
   bool isRoot(const IterDomain* id) const {
     return hasRoot() &&
         std::find(root().begin(), root().end(), id) != root().end();
@@ -539,6 +541,7 @@ class TensorDomain : public Val {
     return logical_domain_;
   };
 
+  // Check if id is a logical ID.
   bool isLogical(const IterDomain* id) const {
     return std::find(logical().begin(), logical().end(), id) != logical().end();
   }
@@ -549,6 +552,8 @@ class TensorDomain : public Val {
     return allocation_domain_;
   }
 
+  // Check if id is an allocation ID. Always return false if there's
+  // no allocation domain.
   bool isAllocation(const IterDomain* id) const {
     return hasAllocation() &&
         std::find(allocation().begin(), allocation().end(), id) !=
@@ -560,6 +565,7 @@ class TensorDomain : public Val {
     return loop_domain_;
   }
 
+  // Check if id is a loop ID.
   bool isLoop(const IterDomain* id) const {
     return std::find(loop().begin(), loop().end(), id) != loop().end();
   }
