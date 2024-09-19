@@ -1957,9 +1957,7 @@ struct ScalarRecord : RecordFunctor {
             "A ScalarRecord for Int inline definition not have a matching data type!");
         os << value_;
       } else {
-        NVF_ERROR(
-            false,
-            "A ScalarRecord with an unsupported inline definition type!");
+        NVF_THROW("A ScalarRecord with an unsupported inline definition type!");
       }
       // NOTE: close_function is not relevant for the inline definition as the
       // printing is specific to each operator and not partially done with the
