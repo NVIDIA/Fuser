@@ -41,6 +41,18 @@ std::ostream& operator<<(std::ostream& out, const CommunicatorBackend& cb) {
 }
 
 namespace {
+
+// Iterate through a list of environmental variables and stop at the first one
+// that succeeds. If none of the variables are available, returns nullptr.
+char* tryReadEnv(const std::vector<std::string>& envs) {
+  for (const auto& env : envs) {
+    if (char* ret = std::getenv(env.c_str())) {
+      return ret;
+    }
+  }
+  return nullptr;
+}
+
 // Parse the environment to retrieve MPI rank, world size, local rank,
 // local world size, and also master address and master port.
 // Returns true if the distributed configuration is valid, false otherwise
@@ -54,42 +66,34 @@ bool parseEnv(
   char* env = nullptr;
 
   // retrieves the rank of the current process
-  env = std::getenv("OMPI_COMM_WORLD_RANK");
-  if (!env) {
-    env = std::getenv("WORLD_RANK");
-    if (!env) {
-      return false;
-    }
+  env = tryReadEnv({"OMPI_COMM_WORLD_RANK", "WORLD_RANK", "SLURM_PROCID"});
+  if (env == nullptr) {
+    return false;
   }
   rank = std::atoi(env);
 
   // retrieves the size of the communicator
-  env = std::getenv("OMPI_COMM_WORLD_SIZE");
-  if (!env) {
-    env = std::getenv("WORLD_SIZE");
-    if (!env) {
-      return false;
-    }
+  env = tryReadEnv({"OMPI_COMM_WORLD_SIZE", "WORLD_SIZE", "SLURM_NTASKS"});
+  if (env == nullptr) {
+    return false;
   }
   size = std::atoi(env);
 
   // retrieves the size of the communicator
-  env = std::getenv("OMPI_COMM_WORLD_LOCAL_RANK");
-  if (!env) {
-    env = std::getenv("WORLD_LOCAL_RANK");
-    if (!env) {
-      return false;
-    }
+  env = tryReadEnv(
+      {"OMPI_COMM_WORLD_LOCAL_RANK", "WORLD_LOCAL_RANK", "SLURM_LOCALID"});
+  if (env == nullptr) {
+    return false;
   }
   local_rank = std::atoi(env);
 
   // retrieves the size of the communicator
-  env = std::getenv("OMPI_COMM_WORLD_LOCAL_SIZE");
-  if (!env) {
-    env = std::getenv("WORLD_LOCAL_SIZE");
-    if (!env) {
-      return false;
-    }
+  env = tryReadEnv(
+      {"OMPI_COMM_WORLD_LOCAL_SIZE",
+       "WORLD_LOCAL_SIZE",
+       "SLURM_NTASKS_PER_NODE"});
+  if (env == nullptr) {
+    return false;
   }
   local_size = std::atoi(env);
 
@@ -171,9 +175,9 @@ Communicator::Communicator(
     : is_available_(false),
       default_backend_(backend),
       rank_(0),
-      size_(0),
+      size_(1),
       local_rank_(0),
-      local_size_(0),
+      local_size_(1),
       master_port_(c10d::TCPStoreOptions::kDefaultPort),
       ucc_available_(false),
       nccl_available_(false) {
@@ -212,13 +216,18 @@ Communicator::Communicator(
 
 void Communicator::cleanup() {
   static bool cleaned_up = false;
-  if (cleaned_up) {
-    TORCH_WARN(
-        "The singleton Communicator has already been cleaned up. This is "
-        "likely because Communicator::cleanup was called more than once");
-    return;
-  }
+  NVF_CHECK(
+      !cleaned_up,
+      "The singleton Communicator has already been cleaned up. This is "
+      "likely because Communicator::cleanup was called more than once");
   cleaned_up = true;
+
+  // Without this, the TCPStore server can be cleaned up before TCPStore
+  // clients are created, causing an hang. This happened with
+  // test_multidevice.py::test_sizes_and_ranks.
+  if (is_available()) {
+    barrier();
+  }
 
   store_ = nullptr;
 

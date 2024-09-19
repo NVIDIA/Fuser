@@ -1968,8 +1968,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       }
       return;
     } else {
-      NVF_ERROR(
-          false, "Non-allreduce grouped grid welford is not yet supported");
+      NVF_THROW("Non-allreduce grouped grid welford is not yet supported");
     }
   }
 
@@ -2846,8 +2845,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void handle(const GroupedWelfordOp* grouped_wop) final {
-    NVF_ERROR(
-        false,
+    NVF_THROW(
         "Should not reach here as grouped welford is only enabled for grid welford,",
         " which is handled by its own handler");
   }

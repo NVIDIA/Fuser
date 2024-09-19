@@ -147,10 +147,8 @@ DataType getTypeFromComplexType(DataType dtype) {
     case DataType::ComplexDouble:
       return DataType::Double;
     default:
-      NVF_ERROR(
-          false,
-          "Only support ComplexFloat and ComplexDouble, current type:",
-          dtype);
+      NVF_THROW(
+          "Only support ComplexFloat and ComplexDouble, current type:", dtype);
   }
 }
 
@@ -468,6 +466,8 @@ static const char* unary_op_type2string(UnaryOpType t) {
       return "std::imag";
     case UnaryOpType::ToUnsignedSmemAddr:
       return "toSmem";
+    case UnaryOpType::ElectSync:
+      return "Hopper::electSync";
     case UnaryOpType::AdjustPartialLdMatrixAddrInTuring8:
       return "Turing::adjustPartialLdMatrixAddrInTuring<8>";
     case UnaryOpType::AdjustPartialLdMatrixAddrInTuring16:
@@ -773,6 +773,8 @@ static const char* id_map_mode_type2string(IdMappingMode t) {
       return "exact";
     case IdMappingMode::ALMOSTEXACT:
       return "almost_exact";
+    case IdMappingMode::BROADCAST:
+      return "broadcast";
     case IdMappingMode::PERMISSIVE:
       return "permissive";
     case IdMappingMode::LOOP:
@@ -1133,8 +1135,7 @@ at::ScalarType data_type_to_aten(const DataType& data_type) {
     case DataType::Int:
       return at::ScalarType::Long;
     case DataType::Index:
-      NVF_ERROR(
-          false,
+      NVF_THROW(
           "Index is determined at compile time,",
           " to convert from an aten type you need to have the compiled information. ",
           "This information is passed to GpuLower at compile time, and then copied to kerned.",

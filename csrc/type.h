@@ -46,6 +46,7 @@ enum class ValType {
 // Misaligned - PredicateCompute::getInlinePredicate + Misaligned flag
 // ReductionWrite - Same as Inline but without reduction axes
 // LoopRotation - Predicate added by loop rotation, currently always true.
+// ElectSync - Select a single thread to launch asynchronous operations.
 enum class PredicateType {
   Manual,
   Inline,
@@ -53,7 +54,8 @@ enum class PredicateType {
   Vectorize,
   Misaligned,
   ReductionWrite,
-  LoopRotation
+  LoopRotation,
+  ElectSync
 };
 
 // Index type is a convenience type that may be a 64 or 32 signed integer.
@@ -589,6 +591,7 @@ enum class UnaryOpType {
   IsReal,
 
   // Special unary ops
+  ElectSync,
   ToUnsignedSmemAddr,
   AdjustPartialLdMatrixAddrInTuring8,
   AdjustPartialLdMatrixAddrInTuring16
@@ -717,17 +720,21 @@ enum class IterType {
 enum class IdMappingMode {
   EXACT,
   ALMOSTEXACT,
-  LOOP,
+  BROADCAST,
   PERMISSIVE,
+  LOOP,
+  // TODO: Reconsider if this graph is really necessary
   PERMISSIVE_RESIZE,
+  // TODO: Reconsider if this graph is really necessary
   INNERMOST
 };
 
-static constexpr std::array<IdMappingMode, 6> kIdMappingModes = {
+static constexpr std::array<IdMappingMode, 7> kIdMappingModes = {
     IdMappingMode::EXACT,
     IdMappingMode::ALMOSTEXACT,
-    IdMappingMode::LOOP,
+    IdMappingMode::BROADCAST,
     IdMappingMode::PERMISSIVE,
+    IdMappingMode::LOOP,
     IdMappingMode::PERMISSIVE_RESIZE,
     IdMappingMode::INNERMOST};
 
@@ -956,8 +963,7 @@ constexpr inline size_t primDataTypeSize(PrimDataType type) {
     case DataType::Float8_e5m2:
       return sizeof(at::Float8_e5m2);
     case DataType::Index:
-      NVF_ERROR(
-          false, "The actual type of Index is only known at compile time.");
+      NVF_THROW("The actual type of Index is only known at compile time.");
     case DataType::Int:
       return sizeof(int64_t);
     case DataType::Int32:

@@ -828,6 +828,16 @@ void FusionExecutor::initializeExecutorEntry(
 
   executor_utils::validateCircularBuffering(kernel(), expr_eval);
 
+  // Check that a full warp exists in blockDim.x if the kernel contains
+  // ElectSync predicate.
+  constexpr int64_t warp_size = 32;
+  NVF_ERROR(
+      !kernel()->summary().has_elect_sync_predicate ||
+          launch_params.bdimx() >= warp_size,
+      "This cuda kernel contains electSync predicate. "
+      "Expected blockDim.x >= 32 but found ",
+      launch_params.bdimx());
+
   std::vector<GlobalBufferInfo> output_info;
 
   if (outputs.empty()) {
