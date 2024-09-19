@@ -14,6 +14,7 @@
 #include <scheduler/mark_aliases.h>
 #include <scheduler/no_op.h>
 #include <scheduler/registry_utils.h>
+#include <scheduler/runtime_info.h>
 
 namespace nvfuser {
 

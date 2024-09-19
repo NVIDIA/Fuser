@@ -13,6 +13,7 @@
 #include <scheduler/debug_utils.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/registry_utils.h>
+#include <scheduler/runtime_info.h>
 #include <scheduler/transpose.h>
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>

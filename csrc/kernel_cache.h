@@ -291,7 +291,6 @@ class FusionKernelRuntime {
   //! used to check if arguments are erased if not being used in the following
   //! segments
   //! Only used in a single test: test_gpu3::FusionClearGmemBetweenSegments_CUDA
-  //! TODO: evaluate use
   std::vector<int64_t> num_live_args_after_segment_runs_;
 
   // States for profiling support
@@ -307,8 +306,6 @@ class FusionKernelRuntime {
 
   //! something to do with parallel compilation, not sure what it's actually
   //! being used to protect.
-  //! TODO: Evaluate multithreading of compilation, I assume that's where this
-  //! comes from
   std::mutex mutex_;
 
   // ID of fusion in python frontend fusion cache, which maps to a single
@@ -694,7 +691,6 @@ class FusionExecutorCache {
   //! if it has not yet been computed, then caches it for later use. This means
   //! this method should not be called until the definition of the Fusion is
   //! finalized.
-  //! TODO: This seems like an odd caching mechanism. Review this.
   DynamicTransformInitialInfo& initialInfo();
 
  private:
@@ -725,7 +721,7 @@ class FusionExecutorCache {
   //! This seems to just own the unique pointer of
   //! DynamicTransformConcretizationInfo which is implicitly being used for
   //! lifetime of entries in kernel_runtimes_. We should push the lifetime to
-  //! the unordered_map if possible. TODO: Fix lifetime design
+  //! the unordered_map if possible.
   std::vector<std::unique_ptr<DynamicTransformConcretizationInfo>>
       cached_conc_info_;
 

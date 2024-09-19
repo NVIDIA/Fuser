@@ -12,8 +12,8 @@
 #include <scheduler/debug_utils.h>
 #include <scheduler/normalization_utils.h>
 #include <scheduler/reduction_utils.h>
-#include <scheduler/registry.h>
 #include <scheduler/registry_utils.h>
+#include <scheduler/runtime_info.h>
 #include <utils.h>
 
 #include <ATen/cuda/CUDAContext.h>

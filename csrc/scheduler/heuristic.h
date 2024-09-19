@@ -7,8 +7,10 @@
 // clang-format on
 #pragma once
 
+#include <fusion.h>
 #include <fusion_executor/executor_params.h>
 #include <scheduler/heuristic_types.h>
+#include <scheduler/runtime_info.h>
 #include <utils.h>
 
 #include <string>
@@ -17,7 +19,6 @@ namespace nvfuser {
 
 class SchedulerRuntimeInfo;
 class HeuristicSummary;
-class SchedulerEntry;
 
 class HeuristicParams : public PolymorphicBase {
  public:
