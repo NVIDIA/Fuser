@@ -184,7 +184,7 @@ void HostIrExecutor::handle(Communication* communication) {
 }
 
 void HostIrExecutor::handle(Wait* wait) {
-  Communication* communication = wait->communication();
+  Expr* communication = wait->communication();
   NVF_ERROR(works_.find(communication) != works_.end(), "no wait req");
   auto& work = works_.at(communication);
   if (work != nullptr) {
