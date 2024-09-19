@@ -197,6 +197,7 @@ class ValGraphBFS : public BFS<
     return bfs.getShortestExprPath();
   }
 
+  // Get all the val groups in vals that are reachable from the from groups
   static ValGroups getReachableValsFrom(
       const ValGraph& graph,
       const ValGroups& from,
