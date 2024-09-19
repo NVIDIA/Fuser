@@ -1711,6 +1711,52 @@ PartOf<Projection> trimRedundant(const PartOf<Projection>& part) {
   // Example:
   // PartOf{what=[7, 3, 5, 2], inner_extent=3, selected_extent=5} =>
   //   PartOf{what=[3, 5, 2], inner_extent=3, selected_extent=5}
+  //
+  // Proof of correctness:
+  // Suppose we have an IterDomain I0, and I0 is split in two different ways:
+  //             I0
+  //            /  \.
+  //           /    \.
+  //       split    split
+  //       /   \    /   \.
+  //     I1  I2{m} I3   I4{n}
+  //               |
+  //             split
+  //              /  \.
+  //             I5  I6{k}
+  // Assuming I0 is divisible by m, then we have:
+  //   I6 = PartOf{what=I0, inner_extent=n, selected_extent=k}
+  // and
+  //   I0 = Composition{I1, I2}
+  // substitute to the above equation, we get:
+  //   I6 = PartOf{what=[I1, I2], inner_extent=n, selected_extent=k}
+  //                                                       ............ (1)
+  // For the case where m is a multiple of n*k, according to Theorem 2.1 in
+  // doc/reading/iterdomain.md, the above transformation is mathematically
+  // equivalent to the following transformation:
+  //               I0
+  //               |
+  //             split
+  //             /   \.
+  //            I1   I2{m}
+  //                   |
+  //                 split
+  //                 /   \.
+  //                I7   I4{n}
+  //                 |
+  //               split
+  //               /   \.
+  //              I8   I6{k}
+  // where
+  //   I5 = merge(I1, I8)
+  // In the above transformation, we have:
+  //   I6 = PartOf{what=I2, inner_extent=n, selected_extent=k}
+  // Comparing equation (1) and the above equation, we have:
+  //   PartOf{what=[I1, I2], inner_extent=n, selected_extent=k} =
+  //     PartOf{what=I2, inner_extent=n, selected_extent=k}
+  // Note that the condition of Theorem 2.1 requires that the extent of I2 is
+  // a multiple of n*k, which is the same as the condition of this
+  // simplification.
   if (!part.what->is<Composition>()) {
     return part;
   }
