@@ -232,7 +232,7 @@ P2PCommunication::P2PCommunication(
     Val* tag)
     : Expr(passkey) {
   if (tag == nullptr) {
-    tag = passkey.ir_container_->zeroVal();
+    tag = passkey.ir_container_->zeroVal(); // NOLINT
   }
 
   addInput(buffer);
