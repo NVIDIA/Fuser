@@ -333,7 +333,7 @@ std::vector<PolymorphicValue> IotaOp::evaluate(
     double end = start + step * ((double)length + 1);
     return {at::arange(start, end, step, options).narrow(0, 0, length)};
   } else {
-    NVF_ERROR(false, "Unsupported dtype in IotaOp evaluator: ", dtype());
+    NVF_THROW("Unsupported dtype in IotaOp evaluator: ", dtype());
   }
 }
 
@@ -413,8 +413,7 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
       } else if (isComplexType(*out()->getDataType())) {
         return {PolymorphicValue((std::complex<double>)in)};
       } else {
-        NVF_ERROR(
-            false, "dtype not supported in evaluator: ", *out()->getDataType());
+        NVF_THROW("dtype not supported in evaluator: ", *out()->getDataType());
       }
     case UnaryOpType::Reciprocal:
       return {1.0 / in};
@@ -442,8 +441,7 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
       if (*out()->getDataType() == DataType::Float) {
         return {PolymorphicValue((double)*(float*)in)};
       } else {
-        NVF_ERROR(
-            false, "dtype not supported in evaluator: ", *out()->getDataType());
+        NVF_THROW("dtype not supported in evaluator: ", *out()->getDataType());
       }
       break;
     case UnaryOpType::Sigmoid:
@@ -1568,8 +1566,7 @@ int GroupedReductionOp::getExprIndexOfOutput(Val* output_val) const {
     return (int)std::distance(outputs().begin(), it);
   }
 
-  NVF_ERROR(
-      false, "Not an output, ", output_val->toString(), ", of ", toString());
+  NVF_THROW("Not an output, ", output_val->toString(), ", of ", toString());
 }
 
 std::vector<PolymorphicValue> GroupedReductionOp::evaluate(
@@ -1968,8 +1965,7 @@ int GroupedWelfordOp::getExprIndexOfOutput(Val* output_val) const {
     }
   }
 
-  NVF_ERROR(
-      false, "Not an output, ", output_val->toString(), ", of ", toString());
+  NVF_THROW("Not an output, ", output_val->toString(), ", of ", toString());
 }
 
 Val* GroupedWelfordOp::getInitValOfOutput(Val* output_val) const {
@@ -3605,8 +3601,14 @@ std::pair<TensorDomain*, TensorDomain*> TensorDomain::rFactor(
 }
 
 void TensorDomain::setLoopDomain(std::vector<IterDomain*> new_loop_domain) {
-  ir_utils::validateDomainEquivalence(
+  auto [logical_unreachable, loop_unreachable] = ir_utils::compareDomains(
       logical_domain_, new_loop_domain, additional_ids_);
+  NVF_ERROR(
+      !logical_unreachable,
+      "Not all logical IDs are covered by loop domain. Loop: ",
+      toDelimitedString(new_loop_domain),
+      ". Logical: ",
+      toDelimitedString(logical_domain_));
   loop_domain_ = std::move(new_loop_domain);
   resetDomains();
 }

@@ -6,10 +6,9 @@
  */
 // clang-format on
 #include <debug.h>
-#include <executor_kernel_arg.h>
+#include <fusion_executor/executor_kernel_arg.h>
 #include <fusion_profiler.h>
 #include <instrumentation.h>
-#include <multidevice/communicator.h>
 #include <options.h>
 #include <python_frontend/fusion_cache.h>
 #include <python_frontend/fusion_definition.h>
@@ -51,7 +50,7 @@ const char* dtypeToPyString(PrimDataType t) {
     default:
       break;
   }
-  NVF_ERROR(false, "No string found for data type.");
+  NVF_THROW("No string found for data type.");
   return nullptr;
 }
 
@@ -87,13 +86,24 @@ void FusionDefinition::finalizeDefinition() {
     }
     trie_node_ = fusionCache()->createChild(trie_node_, end_record_.get());
     fusion_id_ = std::optional<size_t>(trie_node_->fusion_id);
-    NVF_CHECK(id().has_value(), "Invalid fusion id!");
+    try {
+      NVF_CHECK(id().has_value(), "Invalid fusion id!");
 
-    if (isDebugDumpEnabled(DebugDumpOption::PythonDefinition)) {
-      print(debug());
+      if (isDebugDumpEnabled(DebugDumpOption::PythonDefinition)) {
+        print(debug());
+      }
+
+      buildFusionIr(preschedFusion());
+    } catch (const std::exception& e) {
+      // Exception thrown after fusionCache()->createChild wouldn't be visible
+      // by fusion cache, if the exception is suppressed on the python side. We
+      // explicitly set the exception message on the terminal trie node, so
+      // we'll be able to throw the same exception again when user tries to
+      // create the same fusion entry.
+      trie_node_->setException(e.what());
+      fusion_id_ = std::nullopt;
+      throw;
     }
-
-    buildFusionIr(preschedFusion());
 
     if (isDebugDumpEnabled(DebugDumpOption::FusionIrOriginal)) {
       printIr();
@@ -103,6 +113,10 @@ void FusionDefinition::finalizeDefinition() {
       debug() << "\nFusionDefinition: Terminal Node found!\n";
     }
     trie_node_ = child_node.value();
+    std::optional<std::string> opt_e = trie_node_->getException();
+    // rethrow the exception message if the cached FusionDefinition fails to
+    // build a proper fusion earlier.
+    NVF_CHECK(!opt_e.has_value(), opt_e.value());
     fusion_id_ = std::optional<size_t>(trie_node_->fusion_id);
   }
 
@@ -241,15 +255,6 @@ void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
 void FusionDefinition::finalizeSchedule(
     const at::ArrayRef<c10::IValue>& inputs) {
   FUSER_PERF_SCOPE("FusionDefinition::finalizeSchedule");
-  // TODO: remove when multidevice executor integration is done natively
-  Fusion* fusion = user_sched_->schedule.get();
-  std::vector<TensorView*> tvs = fusion->allTvs();
-  if (std::any_of(tvs.begin(), tvs.end(), [](Val* v) {
-        return v->isA<TensorView>() && v->as<TensorView>()->hasDeviceMesh();
-      })) {
-    multidevice_executor_ = std::make_unique<MultiDeviceExecutor>(
-        std::make_unique<Fusion>(*fusion), Communicator::getInstance());
-  }
 
   FusionGuard::setCurFusion(prev_fusion_);
   user_sched_->runtime_info.reset();
@@ -291,10 +296,6 @@ std::vector<at::Tensor> FusionDefinition::execute(
   NVF_CHECK(id().has_value(), "Valid fusion schedule is not available!");
 
   auto scheds = fusionCache()->queryFusionSchedules(id().value());
-
-  if (multidevice_executor_) {
-    return multidevice_executor_->runWithInput(inputs.vec());
-  }
 
   std::vector<at::Tensor> outputs;
   if (profile) {
@@ -386,7 +387,7 @@ UserSchedule* FusionDefinition::userSchedule() {
   NVF_CHECK(id().has_value(), "Invalid fusion definition!");
 
   if (user_sched_ == nullptr) {
-    NVF_ERROR(false, "User schedule is not defined.");
+    NVF_THROW("User schedule is not defined.");
   }
   return user_sched_;
 }

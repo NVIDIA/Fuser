@@ -10,8 +10,8 @@
 #include <gtest/gtest.h>
 
 #include <codegen.h>
-#include <executor.h>
 #include <fusion.h>
+#include <fusion_executor/executor.h>
 #include <ir/all_nodes.h>
 #include <ir/iostream.h>
 #include <kernel_cache.h>
@@ -225,7 +225,7 @@ TEST_F(TensorFactoryTest, StandaloneIota) {
         break;
       }
       default:
-        NVF_ERROR(false);
+        NVF_THROW();
     }
   }
 }

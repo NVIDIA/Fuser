@@ -6,7 +6,7 @@
  */
 // clang-format on
 #include <ATen/cuda/CUDAContext.h>
-#include <executor_utils.h>
+#include <fusion_executor/executor_utils.h>
 #include <instrumentation.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/debug_utils.h>
@@ -263,7 +263,7 @@ bool checkCanSchedule(
       // required here.
       return ExprEvalScheduler::canScheduleCompileTime(fusion);
     default:
-      NVF_ERROR(false, "unreachable");
+      NVF_THROW("unreachable");
       return false;
   }
   return false;
@@ -314,7 +314,7 @@ bool checkCanSchedule(
           std::make_unique<ExprEvalScheduler>(fusion, runtime_info, data_cache);
       break;
     default:
-      NVF_ERROR(false, "unreachable");
+      NVF_THROW("unreachable");
   }
 
   return scheduler_entry;
@@ -407,7 +407,7 @@ HeuristicSummary::HeuristicSummary(
       ExprEvalScheduler::canScheduleRunTime(fusion, runtime_info, this);
       break;
     default:
-      NVF_ERROR(false, "unknown heuristic");
+      NVF_THROW("unknown heuristic");
   }
   validate();
   recording_ = false;
@@ -485,7 +485,7 @@ void HeuristicSummary::validate() const {
       break;
     }
     default:
-      NVF_ERROR(false, "unknown heuristic");
+      NVF_THROW("unknown heuristic");
   }
 }
 

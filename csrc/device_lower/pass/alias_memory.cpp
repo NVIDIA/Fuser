@@ -232,7 +232,7 @@ class BufferReuseDebugPrinter {
           handle(debug_entry->second);
           break;
         default:
-          NVF_ERROR(false, "unreachable");
+          NVF_THROW("unreachable");
       }
     }
     os_ << "\n\n";
@@ -295,7 +295,7 @@ class BufferReuseDebugPrinter {
     //  if this printer can be used for
     //  other passes or we have more
     //  complex ite pattern.
-    NVF_ERROR(false, "unsupported");
+    NVF_THROW("unsupported");
   }
 
   void printAllocInfo(const kir::Allocate* alloc);
@@ -483,8 +483,7 @@ class ScopeMap : private kir::IrVisitor {
   }
 
   void handle(kir::IfThenElse* ite) final {
-    NVF_ERROR(
-        false, "lower_alias_memory: no support for IfThenElse at this phase.");
+    NVF_THROW("lower_alias_memory: no support for IfThenElse at this phase.");
   }
 
   //! Factory function for internal loop information data
@@ -786,8 +785,7 @@ class AllocationInfoMap : private kir::IrVisitor {
   }
 
   void handle(kir::IfThenElse* ite) final {
-    NVF_ERROR(
-        false, "lower_alias_memory: no support for IfThenElse at this phase.");
+    NVF_THROW("lower_alias_memory: no support for IfThenElse at this phase.");
   }
 
   // Generate allocation info for allocation after some pre-filtering

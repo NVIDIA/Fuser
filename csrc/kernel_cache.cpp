@@ -12,14 +12,13 @@
 
 #include <c10/cuda/CUDAGuard.h>
 #include <c10/util/irange.h>
-#include <torch/csrc/jit/jit_log.h>
-#include <torch/csrc/jit/runtime/graph_executor.h>
 
 #include <debug.h>
 #include <driver_api.h>
 #include <dynamic_transform.h>
-#include <executor_params.h>
-#include <executor_utils.h>
+#include <fusion_executor/allocations.h>
+#include <fusion_executor/executor_params.h>
+#include <fusion_executor/executor_utils.h>
 #include <fusion_profiler.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
@@ -30,6 +29,9 @@
 #include <scheduler/debug_utils.h>
 #include <scheduler/registry.h>
 #include <utils.h>
+
+#include <torch/csrc/jit/jit_log.h>
+#include <torch/csrc/jit/runtime/graph_executor.h>
 
 namespace nvfuser {
 
@@ -338,8 +340,7 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
         } else if (input.isComplexDouble()) {
           encodeBuffer(input.toComplexDouble(), encoding_);
         } else {
-          NVF_ERROR(
-              false,
+          NVF_THROW(
               "Unhandled input type when creating input ID. Cannot record ",
               input);
         }
@@ -1262,8 +1263,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
 
     auto fusion_to_run = segmented_fusion_->makeFusion(group_to_run).second;
     auto group_runtime_outputs =
-        executors_[group_to_run->groupId()].inferOutputSizes(
-            fusion_to_run.get(), group_runtime_inputs);
+        inferOutputSizes(fusion_to_run.get(), group_runtime_inputs);
 
     // map output args to tensor map
     args_manager.updateWithSegmentOutputs(
@@ -1533,11 +1533,11 @@ std::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
     }
 
     // Generate metadata for the fusion's outputs
-    auto group_runtime_outputs = executors_.at(group_to_run->groupId())
-                                     .inferOutputSizes(
-                                         fusion_to_run,
-                                         group_runtime_inputs,
-                                         evaluator_precomputed_values.get());
+    auto group_runtime_outputs = inferOutputSizes(
+        fusion_to_run,
+        group_runtime_inputs,
+        evaluator_precomputed_values.get());
+
     args_manager.updateWithSegmentOutputs(
         group_to_run->outputs(), group_runtime_outputs, group_id);
   }

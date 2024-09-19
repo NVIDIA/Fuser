@@ -14,10 +14,10 @@
 #include <device_lower/analysis/bank_conflict.h>
 #include <device_lower/lower2device.h>
 #include <disjoint_set.h>
-#include <executor.h>
-#include <executor_params.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
+#include <fusion_executor/executor.h>
+#include <fusion_executor/executor_params.h>
 #include <fusion_profiler.h>
 #include <fusion_segmenter.h>
 #include <ir/all_nodes.h>
@@ -37,6 +37,7 @@
 #include <scheduler/mma_utils.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>
+#include <sys_utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 #include <transform_replay.h>
@@ -413,9 +414,11 @@ TEST_P(MatmulTestWithLayout, AmpereSwizzle) {
 
     auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
-    ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
-    FusionProfiler::start();
-    FusionProfiler::createSegments(1);
+    if (!detectComputeSanitizer()) {
+      ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
+      FusionProfiler::start();
+      FusionProfiler::createSegments(1);
+    }
 
     FusionExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -442,9 +445,13 @@ TEST_P(MatmulTestWithLayout, AmpereSwizzle) {
     NVF_CHECK(gdimx == expected_gdimx);
     NVF_CHECK(gdimy == expected_gdimy);
 
-    FusionProfiler::stop();
-    runtime = FusionProfiler::profile().kernel_time_ms;
-    ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::Enable);
+    if (!detectComputeSanitizer()) {
+      FusionProfiler::stop();
+      runtime = FusionProfiler::profile().kernel_time_ms;
+      ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::Enable);
+    } else {
+      runtime = 0;
+    }
 
     // Check that mma op is not predicated. This is a regression test for
     // https://github.com/NVIDIA/Fuser/issues/95
@@ -489,7 +496,9 @@ TEST_P(MatmulTestWithLayout, AmpereSwizzle) {
 
     // GRID Swizzle requires further changes to work in main. So for now we
     // don't assert the perf benefit here.
+    // if (!detectComputeSanitizer()) {
     // NVF_CHECK(runtime4 < runtime1);
+    // }
   }
 }
 

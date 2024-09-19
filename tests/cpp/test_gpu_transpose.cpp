@@ -9,7 +9,7 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <executor.h>
+#include <fusion_executor/executor.h>
 #include <inlining.h>
 #include <kernel_cache.h>
 #include <ops/all_ops.h>

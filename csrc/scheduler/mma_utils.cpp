@@ -35,7 +35,7 @@ inline mma_utils::MmaDataTypes getMmaDataTypes(
     if (entry != tensor_roles.end() && !entry->second.empty()) {
       return entry->second.front()->dtype();
     }
-    NVF_ERROR(false, "Get MMA Tensor data type failed!");
+    NVF_THROW("Get MMA Tensor data type failed!");
   };
   const auto a_type = getMMADataType(MatmulTensorRole::OPERAND_A);
   const auto b_type = getMMADataType(MatmulTensorRole::OPERAND_B);
@@ -696,7 +696,7 @@ std::vector<IterDomain*> getMmaDomains(MmaOp* mma, MmaDimension dimension) {
         break;
 
       default:
-        NVF_ERROR(false, "unreachable");
+        NVF_THROW("unreachable");
     }
 
     if (include_this_id) {
@@ -1461,7 +1461,7 @@ char dtypeToChar(const DataType& dtype) {
   } else if (dtype == DataType::Double) {
     return 'D';
   }
-  NVF_ERROR(false, "Unsupported dtype for matmul: ", dtype);
+  NVF_THROW("Unsupported dtype for matmul: ", dtype);
   return 0;
 }
 
@@ -1693,8 +1693,7 @@ MmaOp* MatmulPattern::translateToMmaOp() {
     fms = fusedMultiplySum(A, B, {-1});
     mma_op = fms->definition()->as<MmaOp>();
   } else {
-    NVF_ERROR(
-        false,
+    NVF_THROW(
         "Could not translate matmul pattern with output ",
         output->toString(),
         " to MmaOp");
@@ -1863,8 +1862,7 @@ DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
     } else if (concrete_flags == 0b110) {
       dim_roles[g] = MatmulDimRole::N;
     } else {
-      NVF_ERROR(
-          false,
+      NVF_THROW(
           "IterDomain ValGroup should be present in at least two of A, B, output.",
           " present_flags: ",
           present_flags);

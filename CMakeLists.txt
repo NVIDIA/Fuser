@@ -77,7 +77,6 @@ endif()
 # nvfuser codegen sources
 set(NVFUSER_SRCS)
 list(APPEND NVFUSER_SRCS
-  ${NVFUSER_SRCS_DIR}/abstract_tensor.cpp
   ${NVFUSER_SRCS_DIR}/alias_analysis.cpp
   ${NVFUSER_SRCS_DIR}/codegen.cpp
   ${NVFUSER_SRCS_DIR}/compute_at.cpp
@@ -123,13 +122,14 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/dynamic_transform.cpp
   ${NVFUSER_SRCS_DIR}/evaluator_common.cpp
   ${NVFUSER_SRCS_DIR}/exceptions.cpp
-  ${NVFUSER_SRCS_DIR}/executor.cpp
-  ${NVFUSER_SRCS_DIR}/executor_kernel_arg.cpp
-  ${NVFUSER_SRCS_DIR}/executor_params.cpp
-  ${NVFUSER_SRCS_DIR}/executor_utils.cpp
   ${NVFUSER_SRCS_DIR}/expr_evaluator.cpp
   ${NVFUSER_SRCS_DIR}/expr_simplifier.cpp
   ${NVFUSER_SRCS_DIR}/fusion.cpp
+  ${NVFUSER_SRCS_DIR}/fusion_executor/allocations.cpp
+  ${NVFUSER_SRCS_DIR}/fusion_executor/executor.cpp
+  ${NVFUSER_SRCS_DIR}/fusion_executor/executor_kernel_arg.cpp
+  ${NVFUSER_SRCS_DIR}/fusion_executor/executor_params.cpp
+  ${NVFUSER_SRCS_DIR}/fusion_executor/executor_utils.cpp
   ${NVFUSER_SRCS_DIR}/fusion_segmenter.cpp
   ${NVFUSER_SRCS_DIR}/global_allocator.cpp
   ${NVFUSER_SRCS_DIR}/grouped_reduction.cpp

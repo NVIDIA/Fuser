@@ -19,7 +19,7 @@
 
 // NOTE: included to avoid compilation error caused by missing destructor in
 // 'SchedulerRuntimeInfo'
-#include <executor_utils.h>
+#include <fusion_executor/executor_utils.h>
 #include "mma_type.h"
 
 namespace nvfuser {
@@ -1192,8 +1192,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
           ->parallelize(ParallelType::BIDx);
       break;
     default:
-      NVF_ERROR(
-          false, "Invalid TileRasterizationOrder passed to Matmul scheduler");
+      NVF_THROW("Invalid TileRasterizationOrder passed to Matmul scheduler");
   }
 
   // parallelize Mwo, Nwo by thread

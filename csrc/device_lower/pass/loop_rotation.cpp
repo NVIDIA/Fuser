@@ -39,7 +39,7 @@ Expr* recursivelyClone(Expr* expr) {
     // we only want to rotate the loop in the unswitch path?). We should be
     // definitely revisit how to deal with this ite->predicate() if this is the
     // case.
-    NVF_ERROR(false, "Don't expect to see IfThenElse in loop rotation pass.");
+    NVF_THROW("Don't expect to see IfThenElse in loop rotation pass.");
     auto new_ite = IrBuilder::create<kir::IfThenElse>(ite->predicate());
     for (auto e : ite->thenBody().exprs()) {
       new_ite->thenBody().push_back(recursivelyClone(e));

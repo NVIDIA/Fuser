@@ -583,7 +583,7 @@ struct DimsOpRecord : RecordFunctor {
       output->setAllocationDomain(allocation_domain, true);
       fd.setFusionState(outputs_.at(0).index, output);
     } else {
-      NVF_ERROR(false, "op_type is not recognized by dims operator.");
+      NVF_THROW("op_type is not recognized by dims operator.");
     }
   }
 
@@ -594,7 +594,7 @@ struct DimsOpRecord : RecordFunctor {
     } else if constexpr (op_type == serde::RecordType::StrideOrderOp) {
       os << ", stride_order=[";
     } else {
-      NVF_ERROR(false, "op_type is not recognized by dims operator.");
+      NVF_THROW("op_type is not recognized by dims operator.");
     }
     bool first_arg = true;
     for (auto dim : dims_) {
@@ -1441,7 +1441,7 @@ struct OutputRecord : RecordFunctor {
       if constexpr (std::is_same_v<OutputType, TensorView>) {
         fd.aliasOutputToInput(output, alias_input);
       } else {
-        NVF_ERROR(false, "Scalar outputs should not alias inputs.");
+        NVF_THROW("Scalar outputs should not alias inputs.");
       }
     } else {
       if constexpr (std::is_same_v<OutputType, TensorView>) {
@@ -1906,9 +1906,7 @@ struct ScalarRecord : RecordFunctor {
             "A ScalarRecord for Int inline definition not have a matching data type!");
         os << value_;
       } else {
-        NVF_ERROR(
-            false,
-            "A ScalarRecord with an unsupported inline definition type!");
+        NVF_THROW("A ScalarRecord with an unsupported inline definition type!");
       }
       // NOTE: close_function is not relevant for the inline definition as the
       // printing is specific to each operator and not partially done with the

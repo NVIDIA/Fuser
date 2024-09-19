@@ -9,8 +9,8 @@
 
 #include <debug.h>
 #include <device_lower/lower2device.h>
-#include <executor_kernel_arg.h>
 #include <expr_evaluator.h>
+#include <fusion_executor/executor_kernel_arg.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
 #include <tensor_metadata.h>
@@ -565,8 +565,7 @@ void NaiveValueMachine::runUnaryOp(int index) {
       } else if (data_type_[index] == DataType::Bool) {
         dest = PolymorphicValue((bool)src);
       } else {
-        NVF_ERROR(
-            false, "dtype not supported in evaluator: ", data_type_[index]);
+        NVF_THROW("dtype not supported in evaluator: ", data_type_[index]);
       }
       break;
     case UnaryOpType::Abs:

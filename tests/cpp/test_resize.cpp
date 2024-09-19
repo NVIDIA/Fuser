@@ -9,9 +9,9 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <executor.h>
-#include <executor_utils.h>
 #include <fusion.h>
+#include <fusion_executor/executor.h>
+#include <fusion_executor/executor_utils.h>
 #include <inlining.h>
 #include <kernel_cache.h>
 #include <ops/all_ops.h>
@@ -3721,6 +3721,9 @@ TEST_F(ResizeTest, SliceScheduledLikeProducer) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
@@ -3818,6 +3821,9 @@ TEST_F(ResizeTest, SliceThenPadLeftHalf) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
@@ -3873,6 +3879,9 @@ TEST_F(ResizeTest, SliceThenPadRightHalf) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
@@ -3968,6 +3977,9 @@ TEST_F(ResizeTest, SliceThenConcat) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
@@ -4234,6 +4246,9 @@ TEST_F(ResizeTest, SliceSliceConcatConcat) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({i0}, options);
   std::vector<c10::IValue> aten_inputs({t0});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
