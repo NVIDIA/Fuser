@@ -7,6 +7,7 @@
 // clang-format on
 #include <expr_evaluator.h>
 #include <grouped_reduction.h>
+#include <id_model/id_model.h>
 #include <instrumentation.h>
 #include <scheduler/cache_policy_refiner.h>
 #include <scheduler/debug_utils.h>
@@ -15,6 +16,7 @@
 #include <scheduler/registry.h>
 #include <scheduler/registry_utils.h>
 #include <utils.h>
+#include <val_graph_visitor.h>
 
 #include <ATen/cuda/CUDAContext.h>
 
@@ -312,7 +314,7 @@ std::optional<std::tuple<int64_t, int64_t, bool>> reduceWorkOfLastBlock(
 
     // not good enough; increase persistent buffer
     ++current_buffer_size;
-    // adjust gdimy (decreased as persitent_buffer is increased)
+    // adjust gdimy (decreased as persistent_buffer is increased)
     current_gdimy =
         ceilDiv(ceilDiv(total_reduction_numel, bdimy), current_buffer_size);
 
@@ -331,8 +333,8 @@ std::optional<std::tuple<int64_t, int64_t, bool>> reduceWorkOfLastBlock(
   // Acceptable config not found. Continue searching a better config
   // by moving to the next candidate. However, if the next candidate
   // incurs a larger number of grid syncs, i.e., the serial factor of
-  // the iteration domain is larger, the additional overheaad would
-  // likely to outweight the benefit of potentially better block
+  // the iteration domain is larger, the additional overhead would
+  // likely to outweigh the benefit of potentially better block
   // specialization, so pick the best among found so far.
   auto next_gdimx = launch_cfg.peekNextGdimx();
 
@@ -1381,6 +1383,196 @@ void schedulePersistentKernel(
   scheduler_utils::promoteProducerMemoryTypes(fusion, cached_inputs);
 
   refineCachePolicy(fusion);
+}
+
+namespace {
+
+class PersistentBufferResolution : public IterVisitor {
+ public:
+  static std::vector<TensorView*> getResolutionPointsOf(
+      TensorView* persistent_buffer) {
+    PersistentBufferResolution resolution(persistent_buffer);
+
+    NVF_ERROR(
+        !resolution.resolution_points_.empty(),
+        "Could not resolve persistent buffer: ",
+        persistent_buffer->toString());
+
+    return resolution.resolution_points_;
+  }
+
+  PersistentBufferResolution() = delete;
+
+ private:
+  PersistentBufferResolution(TensorView* persistent_buffer)
+      : persistent_buffer_(persistent_buffer),
+        exact_graph_(
+            IdModel(persistent_buffer->fusion(), /*build_graphs=*/false)
+                .buildExactGraph()) {
+    traverse(persistent_buffer->fusion());
+  }
+
+ private:
+  void dispatch(Val* val) final {
+    if (!val->isA<TensorView>()) {
+      return;
+    }
+    auto tv = val->as<TensorView>();
+    if (tv == persistent_buffer_) {
+      persistent_buffer_hit_ = true;
+      return;
+    }
+
+    if (!persistent_buffer_hit_) {
+      return;
+    }
+
+    if (!tv->hasReduction()) {
+      return;
+    }
+
+    if (std::any_of(
+            resolution_points_.begin(),
+            resolution_points_.end(),
+            [&tv](TensorView* resolution_point) {
+              return DependencyCheck::isDependencyOf(resolution_point, tv);
+            })) {
+      // If already resolved, don't start a new reduction path.
+      return;
+    }
+
+    if (!DependencyCheck::isDependencyOf(persistent_buffer_, tv)) {
+      // Not a dependent reduction
+      return;
+    }
+
+    auto resolution_tvs = getResolutionTvs(tv);
+    resolution_points_.insert(
+        resolution_points_.end(), resolution_tvs.begin(), resolution_tvs.end());
+  }
+
+  // Traverse from consumers of the persistent tensor and find if it
+  // reaches at a dependent tensor of the reduction tensor.
+  std::vector<TensorView*> getResolutionTvs(TensorView* reduction_tv) {
+    // When traversing from the persistent tensor, it should not be
+    // necessary to traverse any of the tensors between the persistent
+    // tensor and reduction tensor since the resolution point must be on
+    // the other paths.
+    const auto reduction_producers = DependencyCheck::getAllValsBetween(
+        {persistent_buffer_}, {reduction_tv});
+    const std::unordered_set<Val*> reduction_producer_set(
+        reduction_producers.begin(), reduction_producers.end());
+
+    // Resolution points must be a dependent tensor of the reduction tensor
+    const std::unordered_set<Val*> reduction_dep_tvs =
+        DependencyCheck::getAllDependentVals({reduction_tv});
+
+    // Not all reduction is for normalization. There can be no val
+    // after this TV, e.g., a Welford output that is also a segment
+    // output (can happen due to segmentation)
+    if (reduction_dep_tvs.empty()) {
+      return {};
+    }
+
+    // The resolution tensor must have iter domains that are reachable
+    // from the persistent iter domains
+    ValGroups persistent_ids;
+    for (auto id : reduction_tv->getLogicalDomain()) {
+      if (id->isReduction()) {
+        persistent_ids.pushBack(exact_graph_.toGroup(id));
+      }
+    }
+
+    std::deque<TensorView*> tvs_to_visit;
+    std::unordered_set<TensorView*> visited_tvs;
+    std::vector<TensorView*> resolution_tvs;
+
+    // Traversing from consumers of persistent tensor
+    for (auto tv : ir_utils::consumerTvsOf(persistent_buffer_)) {
+      if (!reduction_producer_set.count(tv)) {
+        tvs_to_visit.push_back(tv);
+      }
+    }
+
+    // Check if a tensor should be visited. It should not be visited
+    // if any of the following conditions is true:
+    //
+    // - It is the persistent buffer. The traversal starts from the
+    //   consumers of the persistent buffer. Since it should not need
+    //   to visit the producers of the persistent buffer, it should
+    //   not need to visit the persistent buffer itself.
+    // - It's already visited
+    // - It's between the persistent buffer and reduction tensor. The
+    //   persistent buffer should have multiple consumers, and one of
+    //   them leads to the reduction tensor. The resolution point
+    //   should be reachable by traversing the other consumers.
+    // - It has no logical ID that is reachable from the
+    //   persistent IDs. That means the tensor has nothing to do with
+    //   the persistent IDs.
+    auto should_visit = [&](TensorView* tv) -> bool {
+      if (tv == persistent_buffer_ || visited_tvs.count(tv) != 0 ||
+          reduction_producer_set.count(tv) != 0) {
+        return false;
+      }
+
+      // Check if any of the logical IDs are reachable from the
+      // persistent IDs. If not, the tensor should have nothing to do
+      // with the persistence of the persistent tensor
+      const auto& producer_logical_ids =
+          exact_graph_.toGroups(tv->getLogicalDomain());
+      auto reachable_ids = ValGraphBFS::getReachableValsFrom(
+          exact_graph_, persistent_ids, producer_logical_ids);
+
+      return !reachable_ids.empty();
+    };
+
+    while (!tvs_to_visit.empty()) {
+      auto tv = tvs_to_visit.front();
+      tvs_to_visit.pop_front();
+
+      if (reduction_dep_tvs.count(tv)) {
+        resolution_tvs.emplace_back(tv);
+        // Do not further traverse beyond this tv
+        continue;
+      }
+
+      // Further traversal to producers
+      for (auto producer : ir_utils::producerTvsOf(tv)) {
+        if (!should_visit(producer)) {
+          continue;
+        }
+        tvs_to_visit.emplace_back(producer);
+      }
+
+      // Further traversal to consumers
+      for (auto consumer : ir_utils::consumerTvsOf(tv)) {
+        if (!should_visit(consumer)) {
+          continue;
+        }
+        tvs_to_visit.emplace_back(consumer);
+      }
+
+      visited_tvs.emplace(tv);
+    }
+
+    return resolution_tvs;
+  }
+
+ private:
+  TensorView* persistent_buffer_ = nullptr;
+  ValGraph exact_graph_;
+
+  // Don't do processing until we see the buffer we're looking for
+  bool persistent_buffer_hit_ = false;
+
+  // Tracks where the persistent buffer (key) is resolved (values)
+  std::vector<TensorView*> resolution_points_;
+};
+
+} // namespace
+
+std::vector<TensorView*> getResolutionPointsOf(TensorView* persistent_buffer) {
+  return PersistentBufferResolution::getResolutionPointsOf(persistent_buffer);
 }
 
 } // namespace normalization_scheduler_utils
