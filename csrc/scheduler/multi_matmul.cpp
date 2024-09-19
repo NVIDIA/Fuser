@@ -763,10 +763,10 @@ class MultipleMatmulScheduler {
   void updateIdModel() {
     // Build new IdModel
     IdModel new_id_model(fusion_, /*build_graphs=*/false);
-    new_id_model.buildBroadcastGraph();
+    new_id_model.buildPermissiveGraph();
 
     // Get new permissive graph
-    ValGraph& new_graph = new_id_model.idGraph(IdMappingMode::BROADCAST);
+    ValGraph& new_graph = new_id_model.idGraph(IdMappingMode::PERMISSIVE);
 
     if (!id_roles_.empty()) {
       // Update id_roles_ to have keys corresponding to ValGroups in the new
@@ -779,7 +779,7 @@ class MultipleMatmulScheduler {
       id_roles_ = new_id_roles;
     }
 
-    graph_ = &new_id_model.idGraph(IdMappingMode::BROADCAST);
+    graph_ = &new_id_model.idGraph(IdMappingMode::PERMISSIVE);
 
     // Set id_model_ after we are done using the old one
     id_model_ = std::move(new_id_model);
