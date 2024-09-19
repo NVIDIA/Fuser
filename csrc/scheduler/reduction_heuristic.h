@@ -318,7 +318,7 @@ class ReductionParams : public HeuristicParams {
     return attr_hash;
   }
 
-  virtual std::unique_ptr<HeuristicParams> clone() const override {
+  std::unique_ptr<HeuristicParams> clone() const override {
     return std::make_unique<ReductionParams>(*this);
   }
 };

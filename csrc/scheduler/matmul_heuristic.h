@@ -252,7 +252,7 @@ class MatmulParams : public HeuristicParams {
         other->splitk_factor == splitk_factor;
   }
 
-  virtual std::unique_ptr<HeuristicParams> clone() const override {
+  std::unique_ptr<HeuristicParams> clone() const override {
     return std::make_unique<MatmulParams>(*this);
   }
 };
