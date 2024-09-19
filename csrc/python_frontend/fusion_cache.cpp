@@ -215,8 +215,15 @@ void UserSchedule::scheduleWithHeuristic(HeuristicType heuristic_type) {
       "Heuristic Scheduler is already defined for this UserSchedule");
   auto scheduler = SchedulerEntry::makeSchedulerInstance(heuristic_type);
   SchedulerRuntimeInfo& runtime_info_ref = *runtimeInfo();
-  auto heuristic_params =
-      scheduler->computeHeuristics(fusion(), runtime_info_ref);
+
+  NVF_ERROR(
+      scheduler->canScheduleCompileTime(fusion()) &&
+          scheduler->canScheduleRunTime(fusion(), runtime_info_ref),
+      "Could not schedule fusion with ",
+      heuristic_type,
+      " scheduler.");
+
+  heuristic_params = scheduler->computeHeuristics(fusion(), runtime_info_ref);
   scheduler->schedule(fusion(), heuristic_params.get());
 }
 
