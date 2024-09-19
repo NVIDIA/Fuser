@@ -124,8 +124,7 @@ std::string toString(const std::shared_ptr<HeuristicParams>& params) {
   if (tparams) {
     return toString(*tparams);
   }
-  NVF_ERROR(
-      false,
+  NVF_THROW(
       "Unknown heuristic parameter type. Did you just added a new heuristic parameter type but forget to update here?");
 }
 
