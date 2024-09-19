@@ -1797,8 +1797,7 @@ MmaOp* MatmulPattern::translateToMmaOp() {
     fms = fusedMultiplySum(A, B, {-1});
     mma_op = fms->definition()->as<MmaOp>();
   } else {
-    NVF_ERROR(
-        false,
+    NVF_THROW(
         "Could not translate matmul pattern with output ",
         output->toString(),
         " to MmaOp");
@@ -1967,8 +1966,7 @@ DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
     } else if (concrete_flags == 0b110) {
       dim_roles[g] = MatmulDimRole::N;
     } else {
-      NVF_ERROR(
-          false,
+      NVF_THROW(
           "IterDomain ValGroup should be present in at least two of A, B, output.",
           " present_flags: ",
           present_flags);
