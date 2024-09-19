@@ -183,8 +183,7 @@ void copyConfigToParams(MatmulParams* mparams, const KernelConfig* config) {
       mparams->cta_order = MatmulParams::TileRasterizationOrder::ColumnMajor;
       break;
     default:
-      NVF_ERROR(
-          false,
+      NVF_THROW(
           "Unrecognized cta_order returned by plugin: ",
           config->cta_order,
           ". Expected 0 (row-major) or 1 (column-major)");

@@ -695,10 +695,8 @@ HeuristicType getPersistentHeuristicFor(ReductionType reduction_type) {
     case ReductionType::InnerOuter:
       return HeuristicType::InnerOuterPersistent;
     default:
-      NVF_ERROR(
-          false,
-          "Reduction type not supported! reduction_type: ",
-          reduction_type);
+      NVF_THROW(
+          "Reduction type not supported! reduction_type: ", reduction_type);
   }
 }
 

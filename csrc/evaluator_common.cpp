@@ -567,8 +567,7 @@ void NaiveValueMachine::runUnaryOp(int index) {
       } else if (data_type_[index] == DataType::Bool) {
         dest = PolymorphicValue((bool)src);
       } else {
-        NVF_ERROR(
-            false, "dtype not supported in evaluator: ", data_type_[index]);
+        NVF_THROW("dtype not supported in evaluator: ", data_type_[index]);
       }
       break;
     case UnaryOpType::Abs:

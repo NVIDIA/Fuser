@@ -1191,8 +1191,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams* mparams) {
           ->parallelize(ParallelType::BIDx);
       break;
     default:
-      NVF_ERROR(
-          false, "Invalid TileRasterizationOrder passed to Matmul scheduler");
+      NVF_THROW("Invalid TileRasterizationOrder passed to Matmul scheduler");
   }
 
   // parallelize Mwo, Nwo by thread
