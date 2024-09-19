@@ -89,6 +89,7 @@ enum class DebugDumpOption {
 //! These can be set through the `NVFUSER_ENABLE` environment variable
 //!
 enum class EnableOption {
+  ConcretizeResizeExtents, //! Concretize input extents and expand of Resize
   FuseMatmul, //! Enable automatic fusion of matmul and linear ops
   FuseMultipleMatmuls, //! Allow fusing more than one matmul in a single kernel
   IdModel, //! Enable IdModel

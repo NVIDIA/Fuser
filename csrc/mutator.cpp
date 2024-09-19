@@ -84,7 +84,8 @@ void OptOutMutator::mutate(Val* s) {}
 
 void OptOutMutator::mutate(NamedScalar* ns) {}
 
-void OptOutMutator::mutate(IterDomain* id) {
+void OptOutMutator::mutate(IterDomain* orig_id) {
+  IterDomain* id = maybeMutated(orig_id)->as<IterDomain>();
   Val* start = maybeMutated(id->start());
   Val* extent = maybeMutated(id->extent());
   Val* expanded_extent = nullptr;
@@ -106,7 +107,10 @@ void OptOutMutator::mutate(IterDomain* id) {
                     .build();
 
   // This guarantees we replace id in all downstream expressions
-  registerMutation(id, new_id);
+  registerMutation(orig_id, new_id);
+  if (id != orig_id) {
+    registerMutation(id, new_id);
+  }
 
   // Preserve definition if it exists in id. This is important since otherwise
   // we might disconnect the root to logical transform path. For example if id
@@ -183,22 +187,56 @@ Expr* OptOutMutator::mutateExpr(
   std::vector<Val*> mutated_outputs;
   mutated_outputs.reserve(op->outputs().size());
   for (auto output : op->outputs()) {
-    mutated_outputs.emplace_back(
-        replace_outputs ? maybeMutated(output) : output);
+    if (replace_outputs) {
+      Val* mut_out = maybeMutated(output);
+      if (mut_out != output &&
+          std::find_if(
+              op->inputs().begin(), op->inputs().end(), [&](Val* const inp) {
+                return (replace_inputs ? maybeMutated(inp) : inp) == mut_out;
+              }) == op->inputs().end()) {
+        // skip using mutated output if is one of the inputs.
+        output = mut_out;
+      }
+    }
+    mutated_outputs.emplace_back(output);
   }
 
   std::vector<Val*> mutated_inputs;
   mutated_inputs.reserve(op->inputs().size());
   for (auto input : op->inputs()) {
-    mutated_inputs.emplace_back(replace_inputs ? maybeMutated(input) : input);
+    if (replace_inputs) {
+      Val* mut_inp = maybeMutated(input);
+      if (mut_inp != input &&
+          std::find_if(
+              op->outputs().begin(), op->outputs().end(), [&](Val* const outp) {
+                return (replace_outputs ? maybeMutated(outp) : outp) == mut_inp;
+              }) == op->outputs().end()) {
+        // skip using mutated input if is one of the outputs.
+        input = mut_inp;
+      }
+    }
+    mutated_inputs.emplace_back(input);
   }
 
   std::vector<Statement*> mutated_attrs;
   mutated_attrs.reserve(op->attributes().size());
   for (auto attr : op->attributes()) {
     if (auto attr_val = dynamic_cast<Val*>(attr)) {
-      mutated_attrs.emplace_back(
-          replace_inputs ? maybeMutated(attr_val) : attr_val);
+      if (replace_inputs) {
+        Val* mut_attr = maybeMutated(attr_val);
+        if (mut_attr != attr_val &&
+            std::find_if(
+                op->outputs().begin(),
+                op->outputs().end(),
+                [&](Val* const outp) {
+                  return (replace_outputs ? maybeMutated(outp) : outp) ==
+                      mut_attr;
+                }) == op->outputs().end()) {
+          // skip using mutated attr if is one of the outputs.
+          attr_val = mut_attr;
+        }
+      }
+      mutated_attrs.emplace_back(attr_val);
     } else {
       mutated_attrs.emplace_back(attr);
     }

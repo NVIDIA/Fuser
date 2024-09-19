@@ -151,6 +151,7 @@ template <>
 std::unordered_map<EnableOption, std::vector<std::string>> Options<
     EnableOption>::getOptionsFromEnv() {
   const std::unordered_map<std::string, EnableOption> available_options = {
+      {"concretize_resize_extents", EnableOption::ConcretizeResizeExtents},
       {"fuse_matmul", EnableOption::FuseMatmul},
       {"fuse_multiple_matmuls", EnableOption::FuseMultipleMatmuls},
       {"id_model", EnableOption::IdModel},
