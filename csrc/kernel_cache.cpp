@@ -770,10 +770,6 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
         });
     if (runtime_it != kernel_runtimes.end()) {
       kernel_runtime = runtime_it->get();
-      // TODO: How does this work if we his this path, then hit a size that was
-      // previously seen?? kernel_runtime is a reference to the entry in
-      // kernel_runtimes_. Updating as below updates the original.
-      // TODO: Can this function be inlined?
       kernel_runtime->updateHeuristicsLaunchParams(new_heuristics.get());
       //
       id_to_kernel_runtime_[unique_id] = kernel_runtime;
