@@ -306,7 +306,7 @@ bool isIterDomainOp(const Expr* expr) {
   return expr->isOneOf<Split, Merge, Swizzle, Swizzle2D, Resize>();
 }
 
-std::optional<IterDomain*> getMaybeWarpReductionDim(
+std::optional<std::pair<IterDomain*, IterDomain*>> getMaybeWarpReductionDim(
     const Val* output,
     const Val* input) {
   auto tv_out = getTv(output);
@@ -315,7 +315,6 @@ std::optional<IterDomain*> getMaybeWarpReductionDim(
   }
 
   auto tv_in = getTv(input);
-
   // only support reducing to registers for now.
   if (tv_in->getMemoryType() != MemoryType::Local ||
       tv_out->getMemoryType() != MemoryType::Local) {
@@ -323,14 +322,19 @@ std::optional<IterDomain*> getMaybeWarpReductionDim(
   }
 
   IterDomain* reduction_on_xdim = nullptr;
+  IterDomain* reduction_on_ydim = nullptr;
+  IterDomain* reduction_on_zdim = nullptr;
   for (auto id : tv_out->getLoopDomain()) {
-    // Currently warp reduction only allows
-    //  serial and block.x parallel reductions
+    // Currently warp reduction only allows:
+    // (1) block.x parallel reductions
+    // (2) block.x and block.y parallel reductions
     if (id->isReduction() && id->isParallelized()) {
       if (id->getParallelType() == ParallelType::TIDx) {
         reduction_on_xdim = id;
-      } else if (id->isThread()) {
-        return std::nullopt;
+      } else if (id->getParallelType() == ParallelType::TIDy) {
+        reduction_on_ydim = id;
+      } else if (id->getParallelType() == ParallelType::TIDz) {
+        reduction_on_zdim = id;
       }
     }
   }
@@ -342,17 +346,36 @@ std::optional<IterDomain*> getMaybeWarpReductionDim(
     return std::nullopt;
   }
 
-  if (reduction_on_xdim->hasPaddingToMultipleOfWarp()) {
-    return std::optional<IterDomain*>(reduction_on_xdim);
-  }
+  // reduction only in xdim.
+  if (!reduction_on_ydim && !reduction_on_zdim) {
+    std::pair<IterDomain*, IterDomain*> reduction_dims =
+        std::make_pair(reduction_on_xdim, nullptr);
+    if (reduction_on_xdim->hasPaddingToMultipleOfWarp()) {
+      return std::optional<std::pair<IterDomain*, IterDomain*>>(reduction_dims);
+    }
 
-  if (reduction_on_xdim->extent()->isConstInt()) {
-    auto extent_value = reduction_on_xdim->extent()->evaluate();
-    if (extent_value % at::cuda::warp_size() == 0) {
-      return std::optional<IterDomain*>(reduction_on_xdim);
+    if (reduction_on_xdim->extent()->isConstInt()) {
+      auto extent_value = reduction_on_xdim->extent()->evaluate();
+      if (extent_value % at::cuda::warp_size() == 0) {
+        return std::optional<std::pair<IterDomain*, IterDomain*>>(
+            reduction_dims);
+      }
+    }
+  } else if (reduction_on_xdim && reduction_on_ydim && reduction_on_zdim) {
+    // special case used in innerOuter scheduler where bdimx and bdimy are
+    // constants bdimz is always 1.
+    if (reduction_on_xdim->extent()->isConstInt() &&
+        reduction_on_ydim->extent()->isConstInt()) {
+      auto extent_x_value = reduction_on_xdim->extent()->evaluate();
+      auto extent_y_value = reduction_on_ydim->extent()->evaluate();
+      if ((extent_x_value * extent_y_value) % at::cuda::warp_size() == 0) {
+        std::pair<IterDomain*, IterDomain*> reduction_dims =
+            std::make_pair(reduction_on_xdim, reduction_on_ydim);
+        return std::optional<std::pair<IterDomain*, IterDomain*>>(
+            reduction_dims);
+      }
     }
   }
-
   return std::nullopt;
 }
 

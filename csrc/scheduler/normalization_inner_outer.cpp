@@ -874,6 +874,8 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
     rparams->block_dim_iter_dom = ParallelType::TIDy;
   } else {
     rparams->block_dim_inner_reduction_extra = ParallelType::TIDy;
+    rparams->static_bdimx = true;
+    rparams->static_bdimy = true;
   }
 
   // check all the parameters in InnerOuterParams are set.
@@ -894,6 +896,7 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
   rparams->vectorize_inner_reduction = iop.inner_vect > 1;
   rparams->split_grid_dim_iter_dom_outer = true;
   rparams->grid_dim_iter_dom = ParallelType::BIDy;
+
   rparams->lparams = LaunchParams(
       LaunchParams::UNINITIALIZED_VAL,
       iop.gdimy,
@@ -1056,14 +1059,18 @@ void scheduleReductionCombinedOuter(
     if (rparams.multiple_reds_per_blk) {
       outer_reduction_tv->split(
           0, NamedScalar::getParallelDim(rparams.block_dim_iter_dom));
+      outer_reduction_tv->split(
+          0, NamedScalar::getParallelDim(rparams.grid_dim_iter_dom), false);
+    } else {
+      outer_reduction_tv->split(0, rparams.lparams.gdimy());
     }
-    outer_reduction_tv->split(
-        0, NamedScalar::getParallelDim(rparams.grid_dim_iter_dom), false);
 
     if (rparams.multiple_reds_per_blk) {
       outer_reduction_tv->rFactor({1});
     }
-    TensorView* partialResult = outer_reduction_tv->rFactor({1});
+    TensorView* partialResult = rparams.multiple_reds_per_blk
+        ? outer_reduction_tv->rFactor({1})
+        : outer_reduction_tv->rFactor({0});
     partialResult->cacheBefore();
     partialResult->setMemoryType(MemoryType::Global);
     TensorView* partialResultReload = partialResult->cacheAfter();
@@ -1110,8 +1117,7 @@ void scheduleReductionCombinedOuter(
 
     } else {
       // reduction domain
-      outer_reduction_tv->split(
-          0, NamedScalar::getParallelDim(ParallelType::TIDy));
+      outer_reduction_tv->split(0, rparams.lparams.bdimy());
       outer_reduction_tv->axis(1)->parallelize(ParallelType::TIDy);
 
       // iteration domain
@@ -1123,8 +1129,7 @@ void scheduleReductionCombinedOuter(
       }
 
       if (rparams.lparams.bdimx() > 1) {
-        outer_reduction_tv->split(
-            axisID, NamedScalar::getParallelDim(ParallelType::TIDx));
+        outer_reduction_tv->split(axisID, rparams.lparams.bdimx());
         outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::TIDx);
       }
 
