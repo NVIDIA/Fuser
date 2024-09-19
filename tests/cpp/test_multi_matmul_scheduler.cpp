@@ -82,7 +82,9 @@ class MultiMatmulSchedulerMatchTest
   }
 
   void TearDown() {
-    compareSchedules();
+    if (!IsSkipped()) {
+      compareSchedules();
+    }
   }
 
   // Get A and B in shapes [M, K] and [K, N] with allocation domains set.
