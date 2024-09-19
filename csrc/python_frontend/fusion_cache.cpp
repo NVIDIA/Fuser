@@ -247,6 +247,16 @@ bool TrieNode::isTerminal() const {
   return (record.get()->recordType() == serde::RecordType::End);
 }
 
+void TrieNode::setException(const char* e) {
+  std::lock_guard<std::mutex> guard(trie_node_lock);
+  exception = e;
+}
+
+std::optional<std::string> TrieNode::getException() {
+  std::lock_guard<std::mutex> guard(trie_node_lock);
+  return exception;
+}
+
 flatbuffers::Offset<serde::TrieNode> TrieNode::serialize(
     flatbuffers::FlatBufferBuilder& builder,
     const std::map<RecordFunctor*, size_t>&
@@ -741,7 +751,13 @@ void FusionCache::deserialize(std::string filename) {
           "The fusion id for this TrieNode should already be set.")
       Fusion* fusion =
           queryFusionSchedules(fb_trie_node->fusion_id())->preschedFusion();
-      state->buildFusionIr(fusion);
+      try {
+        // There could be bad fusion in the serialization.
+        state->buildFusionIr(fusion);
+      } catch (const std::exception& e) {
+        // catch exception and setException for the terminal node
+        trie_ptr->setException(e.what());
+      }
     }
 
     // Table TrieNode => Field: children: [ulong]

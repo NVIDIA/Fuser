@@ -51,8 +51,7 @@ bool isOutermostAllocatedId(TensorView* tv, IterDomain* id) {
       return false;
     }
   }
-  NVF_ERROR(
-      false, "Id", id->toString(), " is not in TensorView ", tv->toString());
+  NVF_THROW("Id", id->toString(), " is not in TensorView ", tv->toString());
   return false;
 }
 

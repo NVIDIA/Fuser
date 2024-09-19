@@ -1950,8 +1950,7 @@ TEST_F(IndexingTest, DoubleBuffering1) {
                     mulExpr(loop_indices.at(1), tv->axis(2)->extent()),
                     loop_indices.at(2)));
           } else {
-            NVF_ERROR(
-                false,
+            NVF_THROW(
                 "Unexpected circular buffer stage: ",
                 circular_buffer_loop_stage_);
           }
@@ -2054,8 +2053,7 @@ TEST_F(IndexingTest, DoubleBuffering4) {
                       tv->axis(3)->extent()),
                   loop_indices.at(3));
             } else {
-              NVF_ERROR(
-                  false, "Unexpected stage: ", circular_buffer_loop_stage_);
+              NVF_THROW("Unexpected stage: ", circular_buffer_loop_stage_);
             }
           } else {
             return nullptr;
@@ -2071,8 +2069,7 @@ TEST_F(IndexingTest, DoubleBuffering4) {
               return modExpr(
                   addExpr(loop_indices.at(2), createInt(1)), createInt(2));
             } else {
-              NVF_ERROR(
-                  false, "Unexpected stage: ", circular_buffer_loop_stage_);
+              NVF_THROW("Unexpected stage: ", circular_buffer_loop_stage_);
             }
           } else {
             if (circular_buffer_loop_stage_ == CircularBufferLoopStage::Main) {
@@ -2083,8 +2080,7 @@ TEST_F(IndexingTest, DoubleBuffering4) {
               return modExpr(
                   subExpr(tv->axis(2)->extent(), createInt(1)), createInt(2));
             } else {
-              NVF_ERROR(
-                  false, "Unexpected stage: ", circular_buffer_loop_stage_);
+              NVF_THROW("Unexpected stage: ", circular_buffer_loop_stage_);
             }
           }
         }
@@ -2176,8 +2172,7 @@ TEST_F(IndexingTest, DoubleBuffering6) {
                       mulExpr(loop_indices.at(3), createInt(16))),
                   loop_indices.at(4));
             } else {
-              NVF_ERROR(
-                  false, "Unexpected stage: ", circular_buffer_loop_stage_);
+              NVF_THROW("Unexpected stage: ", circular_buffer_loop_stage_);
             }
           } else {
             return nullptr;
@@ -2205,8 +2200,7 @@ TEST_F(IndexingTest, DoubleBuffering6) {
                       tv->axis(2)->extent(), tv->axis(3)->extent()));
               return addExpr(base_offset, buffer_offset);
             } else {
-              NVF_ERROR(
-                  false, "Unexpected stage: ", circular_buffer_loop_stage_);
+              NVF_THROW("Unexpected stage: ", circular_buffer_loop_stage_);
             }
           } else {
             if (circular_buffer_loop_stage_ == CircularBufferLoopStage::Main) {
@@ -2232,8 +2226,7 @@ TEST_F(IndexingTest, DoubleBuffering6) {
                       tv->axis(2)->extent(), tv->axis(3)->extent()));
               return addExpr(base_offset, buffer_offset);
             } else {
-              NVF_ERROR(
-                  false, "Unexpected stage: ", circular_buffer_loop_stage_);
+              NVF_THROW("Unexpected stage: ", circular_buffer_loop_stage_);
             }
           }
         }
@@ -2321,8 +2314,7 @@ TEST_F(IndexingTest, CircularBuffering1) {
                     mulExpr(loop_indices.at(1), tv->axis(2)->extent()),
                     loop_indices.at(2)));
           } else {
-            NVF_ERROR(
-                false,
+            NVF_THROW(
                 "Unexpected circular buffer stage: ",
                 circular_buffer_loop_stage_);
           }
@@ -2448,8 +2440,7 @@ TEST_F(IndexingTest, CircularBuffering2) {
                       mulExpr(loop_indices.at(3), createInt(16))),
                   loop_indices.at(4));
             } else {
-              NVF_ERROR(
-                  false, "Unexpected stage: ", circular_buffer_loop_stage_);
+              NVF_THROW("Unexpected stage: ", circular_buffer_loop_stage_);
             }
           } else {
             return nullptr;
@@ -2480,8 +2471,7 @@ TEST_F(IndexingTest, CircularBuffering2) {
                       tv->axis(2)->extent(), tv->axis(3)->extent()));
               return addExpr(base_offset, buffer_offset);
             } else {
-              NVF_ERROR(
-                  false, "Unexpected stage: ", circular_buffer_loop_stage_);
+              NVF_THROW("Unexpected stage: ", circular_buffer_loop_stage_);
             }
           } else {
             if (circular_buffer_loop_stage_ == CircularBufferLoopStage::Main) {
@@ -2505,8 +2495,7 @@ TEST_F(IndexingTest, CircularBuffering2) {
                       tv->axis(2)->extent(), tv->axis(3)->extent()));
               return addExpr(base_offset, buffer_offset);
             } else {
-              NVF_ERROR(
-                  false, "Unexpected stage: ", circular_buffer_loop_stage_);
+              NVF_THROW("Unexpected stage: ", circular_buffer_loop_stage_);
             }
           }
         }
