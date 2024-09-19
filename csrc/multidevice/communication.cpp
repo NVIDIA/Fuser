@@ -210,6 +210,53 @@ std::string Communication::toInlineString(int indent_size) const {
   return toString(indent_size);
 }
 
+std::ostream& operator<<(std::ostream& os, const P2PCommunicationType& type) {
+  switch (type) {
+    case P2PCommunicationType::send:
+      os << "send";
+      break;
+    case P2PCommunicationType::recv:
+      os << "recv";
+      break;
+    default:
+      NVF_THROW("unrecognized P2PCommunicationType: ", type);
+  }
+  return os;
+}
+
+P2PCommunication::P2PCommunication(
+    IrBuilderPasskey passkey,
+    P2PCommunicationType type,
+    TensorView* buffer,
+    Val* peer,
+    Val* tag)
+    : Expr(passkey) {
+  if (tag == nullptr) {
+    tag = passkey.ir_container_->zeroVal();
+  }
+
+  addInput(buffer);
+  addDataAttribute(type);
+  addAttribute(peer);
+  addAttribute(tag);
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(P2PCommunication)
+
+std::string P2PCommunication::toString(const int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "P2PCommunication " << name() << " ("
+                          << "type=" << type() << ", "
+                          << " buffer=" << buffer() << ", "
+                          << "peer=" << peer() << ", "
+                          << "tag=" << tag() << ")\n";
+  return ss.str();
+}
+
+std::string P2PCommunication::toInlineString(int indent_size) const {
+  return toString(indent_size);
+}
+
 namespace {
 c10::intrusive_ptr<c10d::Work> postBroadcast(
     Communication* communication,
@@ -488,6 +535,64 @@ c10::intrusive_ptr<c10d::Work> postSingleCommunication(
     case CommunicationType::SendRecv:
       return postSendRecv(
           communication, my_device_index, backend, input_tensor, output_tensor);
+    default:
+      NVF_THROW("Wrong communication type: ", communication->type());
+      return nullptr;
+  }
+}
+
+namespace {
+
+c10::intrusive_ptr<c10d::Work> postSend(
+    P2PCommunication* communication,
+    DeviceIdxType my_device_index,
+    DeviceIdxType peer,
+    c10d::Backend* backend,
+    at::Tensor buffer,
+    int64_t tag) {
+  NVF_ERROR(peer < backend->getSize(), "invalid peer: ", peer);
+  NVF_ERROR(peer != my_device_index, "Send to self at device: ", peer);
+
+  // Needed to match ProcessGroup API
+  std::vector<at::Tensor> packed_buffer = {buffer};
+  return backend->send(
+      packed_buffer, static_cast<int>(peer), static_cast<int>(tag));
+}
+
+c10::intrusive_ptr<c10d::Work> postRecv(
+    P2PCommunication* communication,
+    DeviceIdxType my_device_index,
+    DeviceIdxType peer,
+    c10d::Backend* backend,
+    at::Tensor buffer,
+    int64_t tag) {
+  NVF_ERROR(peer < backend->getSize(), "invalid peer: ", peer);
+  NVF_ERROR(peer != my_device_index, "Recv to self at device: ", peer);
+
+  // Needed to match ProcessGroup API
+  std::vector<at::Tensor> packed_buffer = {buffer};
+  return backend->recv(
+      packed_buffer, static_cast<int>(peer), static_cast<int>(tag));
+}
+
+} // namespace
+
+c10::intrusive_ptr<c10d::Work> postSingleCommunication(
+    P2PCommunication* communication,
+    DeviceIdxType my_device_index,
+    DeviceIdxType peer,
+    c10d::Backend* backend,
+    at::Tensor buffer,
+    int64_t tag) {
+  NVF_ERROR(backend != nullptr);
+
+  switch (communication->type()) {
+    case P2PCommunicationType::send:
+      return postSend(
+          communication, my_device_index, peer, backend, buffer, tag);
+    case P2PCommunicationType::recv:
+      return postRecv(
+          communication, my_device_index, peer, backend, buffer, tag);
     default:
       NVF_THROW("Wrong communication type: ", communication->type());
       return nullptr;
