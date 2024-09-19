@@ -402,7 +402,9 @@ class FusionTranslator : public OptInConstDispatch {
   void handleOutput(const TensorView* tv) {
     size_t output_index = map_val_to_fd_index_.at(tv);
     fd_->defineRecord(new OutputRecord<TensorView>(
-        {fd_->recordingState(output_index)}, serde::RecordType::OutputTv));
+        {fd_->recordingState(output_index)},
+        serde::RecordType::OutputTv,
+        tv->domain()->strideOrder()));
   }
 
   // Alias output Tensor with input tensor

@@ -790,6 +790,10 @@ int64_t FusionDefinition::setupSegmentation(
   std::unordered_map<Val*, Val*> symbolic_to_concrete_map =
       DynamicTransform::concretizeFusion(segment_fusion_.get(), args);
 
+  // NOTE: The following tests require using the MarkAliasesPreparePass before
+  // segmentation, but not running AllocationDomainPass when running each
+  // segment. See test_issue1953 and test_unpadded_catop_issue2275_repro1.
+
   // Track mapping from cloned CPP fusion and FusionDefinition indices.
   std::transform(
       map_value_to_fid_.begin(),
