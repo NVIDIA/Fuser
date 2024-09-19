@@ -1639,8 +1639,9 @@ PartOf<Projection> cancelCommonFactors(const PartOf<Projection>& part) {
   //   I1  I2{m} I3   I4{n}
   // Assuming I0 is divisible by m, then we have:
   //   I3 = PartOf{what=I0, inner_extent=n} ............ (1)
-  // Let g = gcd(m, n), and m = g*m', n = g*n'. Then the above transformation
-  // is mathematically equivalent to the following transformation:
+  // Let g = gcd(m, n), and m = g*m', n = g*n'. Then according to Theorem 2.1 in
+  // doc/reading/iterdomain.md, the above transformation is mathematically
+  // equivalent to the following transformation:
   //               I0
   //               |
   //             split
@@ -1665,7 +1666,7 @@ PartOf<Projection> cancelCommonFactors(const PartOf<Projection>& part) {
   // That is,
   //   I3 = PartOf{what=[I1, I2'], inner_extent=n'} ............ (3)
   // Comparing equation (2) and (3), we have:
-  //   PartOf{what=[I1, I2', Ig], inner_extent=n} = 
+  //   PartOf{what=[I1, I2', Ig], inner_extent=n} =
   //     PartOf{what=[I1, I2'], inner_extent=n'}
   // That is, we can cancel the common factor of `what` and inner_extent.
   if (!part.what->is<Composition>()) {
