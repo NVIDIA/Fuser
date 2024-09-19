@@ -12,6 +12,7 @@
 #include <cxxabi.h>
 #include <exceptions.h>
 #include <execinfo.h>
+#include <functional>
 
 #include <cstdlib>
 #include <iostream>
