@@ -13,6 +13,7 @@
 #include <ir/printer.h>
 #include <ir/utils.h>
 #include <kernel_ir.h>
+#include <multidevice/communication.h>
 #include <ops/all_ops.h>
 
 namespace nvfuser {
@@ -174,12 +175,16 @@ bool SetCurrentStream::sameAs(const Statement* other) const {
   return false;
 }
 
-Wait::Wait(IrBuilderPasskey passkey, Communication* communication)
-    : Expr(passkey, {}, {}, {communication}) {
+Wait::Wait(IrBuilderPasskey passkey, Expr* expr)
+    : Expr(passkey, {}, {}, {expr}) {
   NVF_ERROR(
       passkey.ir_container_->isA<hir::HostIrContainer>(), // NOLINT
       this,
       "must be registered in a HostIrContainer");
+  NVF_ERROR(
+      (expr->isOneOf<Communication, P2PCommunication>()),
+      expr,
+      "must be a Communication or a P2PCommunication");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Wait)
