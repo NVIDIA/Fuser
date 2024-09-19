@@ -125,6 +125,7 @@ class ReductionParams : public HeuristicParams {
   bool tidx_for_outer_reduction = false;
   // pad outer reduction to warp
   bool pad_outer_reduction_to_warp = false;
+  bool combined_split_grid_inner_dim = false;
   // partial result of outer reduction is written to gmem then read back in a
   // different parallel pattern set the vectorization factor of its read and
   // write
@@ -189,7 +190,8 @@ class ReductionParams : public HeuristicParams {
         other.pad_outer_reduction_to_warp == pad_outer_reduction_to_warp &&
         other.vectorization_factor_outer == vectorization_factor_outer &&
         other.vectorization_factor_tmp_gmem_write ==
-            vectorization_factor_tmp_gmem_write;
+            vectorization_factor_tmp_gmem_write &&
+        other.combined_split_grid_inner_dim == combined_split_grid_inner_dim;
 
     if (other.static_bdimy || static_bdimy) {
       attr_equal = attr_equal && other.lparams.bdimy() == lparams.bdimy();

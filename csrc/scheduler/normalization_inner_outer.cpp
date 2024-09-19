@@ -872,8 +872,14 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
       rparams->pad_outer_reduction_to_warp = true;
     }
     rparams->block_dim_iter_dom = ParallelType::TIDy;
+    rparams->combined_split_grid_inner_dim =
+        iop.vectorization_factor_outer * iop.bdimy * iop.gdimy <
+        inner_dim_numel;
   } else {
     rparams->block_dim_inner_reduction_extra = ParallelType::TIDy;
+    rparams->combined_split_grid_inner_dim =
+        iop.vectorization_factor_outer * iop.bdimx * iop.gdimy <
+        inner_dim_numel;
   }
 
   // check all the parameters in InnerOuterParams are set.
@@ -1103,9 +1109,10 @@ void scheduleReductionCombinedOuter(
             axisID, NamedScalar::getParallelDim(ParallelType::TIDx));
         outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::TIDx);
       }
-
-      outer_reduction_tv->split(
-          axisID, NamedScalar::getParallelDim(ParallelType::BIDy));
+      if (rparams.combined_split_grid_inner_dim) {
+        outer_reduction_tv->split(
+            axisID, NamedScalar::getParallelDim(ParallelType::BIDy));
+      }
       outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::BIDy);
 
     } else {
@@ -1128,8 +1135,10 @@ void scheduleReductionCombinedOuter(
         outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::TIDx);
       }
 
-      outer_reduction_tv->split(
-          axisID, NamedScalar::getParallelDim(ParallelType::BIDy));
+      if (rparams.combined_split_grid_inner_dim) {
+        outer_reduction_tv->split(
+            axisID, NamedScalar::getParallelDim(ParallelType::BIDy));
+      }
 
       outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::BIDy);
     }
