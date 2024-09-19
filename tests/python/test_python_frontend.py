@@ -4325,7 +4325,27 @@ class TestNvFuserFrontend(NVFuserTest):
 
         self.exec_nvfuser(fusion_func, inputs)
 
-<<<<<<< slice_python_api
+    # testing that error thrown in finalizeDefinition is not accidentally cached as legit fusion.
+    def test_fusion_definition_error_cache(self):
+        def fusion_func(fd: FusionDefinition) -> None:
+            # NOTE: it's important that the exception is thrown inside FusionDefinition::finalizeDefinition()
+            # e.g. https://github.com/NVIDIA/Fuser/blob/adbbc75e58e6c53c606e90c8bc64f020b4b9df85/csrc/python_frontend/fusion_record.h#L1276
+            T0 = fd.define_tensor(
+                shape=[-1, -1],
+                contiguity=[True, True],
+                dtype=DataType.Int,
+                is_cpu=True,
+                stride_order=[1, 0],
+            )
+
+        for i in range(2):
+            with pytest.raises(
+                Exception,
+                match="CPU non-scalar tensor is not supported!",
+            ):
+                with FusionDefinition() as fd:
+                    fusion_func(fd)
+
     def test_slice_api(self):
         x = torch.randn((2, 5, 10), dtype=torch.float32, device="cuda:0")
 
@@ -4357,26 +4377,3 @@ class TestNvFuserFrontend(NVFuserTest):
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
         for out in nvf_out:
             self.assertTrue(out.allclose(x[:, 1:, 2:]))
-
-=======
->>>>>>> main
-    # testing that error thrown in finalizeDefinition is not accidentally cached as legit fusion.
-    def test_fusion_definition_error_cache(self):
-        def fusion_func(fd: FusionDefinition) -> None:
-            # NOTE: it's important that the exception is thrown inside FusionDefinition::finalizeDefinition()
-            # e.g. https://github.com/NVIDIA/Fuser/blob/adbbc75e58e6c53c606e90c8bc64f020b4b9df85/csrc/python_frontend/fusion_record.h#L1276
-            T0 = fd.define_tensor(
-                shape=[-1, -1],
-                contiguity=[True, True],
-                dtype=DataType.Int,
-                is_cpu=True,
-                stride_order=[1, 0],
-            )
-
-        for i in range(2):
-            with pytest.raises(
-                Exception,
-                match="CPU non-scalar tensor is not supported!",
-            ):
-                with FusionDefinition() as fd:
-                    fusion_func(fd)
