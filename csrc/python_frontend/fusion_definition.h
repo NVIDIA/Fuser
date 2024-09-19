@@ -313,9 +313,6 @@ class NVF_API FusionDefinition : public FusionState {
   //! Number of recording_states_ before applying user schedule
   int64_t num_recording_states_presched_ = 0;
 
-  //! Create copy of fusion for segmentation algorithm. IrClone is a map between
-  //! values in original and cloned fusions.
-  std::unordered_map<const Val*, int64_t> map_cloned_value_to_fid_;
   //! Clone of original fusion for segmentation
   std::unique_ptr<Fusion> segment_fusion_ = nullptr;
   //! This FusionDefinition may require multiple kernels if it cannot be handled
@@ -324,6 +321,11 @@ class NVF_API FusionDefinition : public FusionState {
   std::unique_ptr<SegmentedFusion> segmented_fusion_ = nullptr;
   //! Pre-determined order to run the segmented groups
   std::vector<SegmentedGroup*> group_run_order_;
+  //! Create copy of fusion for segmentation algorithm. IrCloner is a map
+  //! between values in original and cloned fusions.
+  std::unordered_map<const Val*, int64_t> map_cloned_value_to_fid_;
+  //! Extents for TensorView input arguments for cloned Fusion
+  std::vector<Val*> cloned_extents_;
 
  public:
   //! The Operators are not directly defined in this header.  They are defined

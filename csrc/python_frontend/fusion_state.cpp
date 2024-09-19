@@ -265,7 +265,10 @@ void FusionState::addExtents() {
     int64_t num_extents = (int64_t)extents_fid_.size();
     int64_t extent_fid = -num_extents - 1;
     extents_fid_.push_back(extent_fid);
-    map_value_to_fid_.emplace(extent, extent_fid);
+    // The extent can already exist in the fusion. However, since scalars cannot
+    // be passed between segments, always overwrited existing fids. The original
+    // fusion definition will provide scalar extents.
+    map_value_to_fid_[extent] = extent_fid;
   }
 }
 

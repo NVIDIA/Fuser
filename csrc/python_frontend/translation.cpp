@@ -37,7 +37,6 @@ class FusionTranslator : public OptInConstDispatch {
         "Expected an incomplete definition before fusion translation!");
     FusionTranslator translator(fusion, fd);
     translator.translate();
-    NVF_ERROR(fusion->inputs().size() == fd->inputs().size());
     return translator.map_val_to_fd_index_;
   }
 
