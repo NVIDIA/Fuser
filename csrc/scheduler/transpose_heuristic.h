@@ -149,7 +149,7 @@ class TransposeParams : public HeuristicParams {
         tile_size2);
   }
 
-  virtual std::unique_ptr<HeuristicParams> clone() const {
+  virtual std::unique_ptr<HeuristicParams> clone() const override {
     return std::make_unique<TransposeParams>(*this);
   }
 
