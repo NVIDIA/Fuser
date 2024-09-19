@@ -219,26 +219,16 @@ class CompileTimeInfoBase : public PolymorphicBase {
 
 } // namespace HeuristicCompileTime
 
-// Note: Do NOT export this class. MSVC issue with exported class that contains
-// std::vector<unique_ptr<xxx>>: https://godbolt.org/z/3E4e8T1P1
-//! Compile-time information cache for `canSchedule` and
-//!  `getHeuristics` interfaces. Each cache instance
-//!  stores information that could be inferred at compile
-//!  time in a fusion and therefore corresponds to an
-//!   instance of FusionExecutor.
-//!  Since each instance of FusionExecutor has a unique
-//!   heuristic type, this cache also has a heuristic
-//!   type to simplify data validation.
-//!  HeuristicSummary has two modes of operation:
-//!  - when in `recording` mode, the information is not available
-//!     in the cache and entries can be written and stored.
-//!  - when not in `recording` mode, compiled-time data has
-//!     been stored in this cache and the entries can be accessed
-//!!    but new entries can no longer be inserted.
+//! Note: Do NOT export this class. MSVC issue with exported class that contains
+//! std::vector<unique_ptr<xxx>>: https://godbolt.org/z/3E4e8T1P1
+//! Compile-time information cache for `canSchedule` and `getHeuristics`
+//! interfaces. Each cache instance stores information that could be inferred at
+//! compile time in a fusion and therefore corresponds to an instance of
+//! FusionExecutor.
 class HeuristicSummary {
-  using Entry = HeuristicCompileTime::CompileTimeInfoBase;
-  using EntryOwningPtr = std::unique_ptr<Entry>;
-  using EntryPtr = Entry*;
+  using EntryOwningPtr =
+      std::unique_ptr<HeuristicCompileTime::CompileTimeInfoBase>;
+  using EntryPtr = HeuristicCompileTime::CompileTimeInfoBase*;
   using EntryType = HeuristicCompileTime::CompileTimeEntryType;
 
  public:
@@ -247,8 +237,8 @@ class HeuristicSummary {
       ScheduleHeuristic heuristic,
       SchedulerRuntimeInfo& runtime_info);
 
-  bool isRecording() {
-    return recording_;
+  bool hasEntry(EntryType entry_type) {
+    return entry_type_map_.find(entry_type) != entry_type_map_.end();
   }
 
   void insert(EntryOwningPtr new_entry);
@@ -258,13 +248,9 @@ class HeuristicSummary {
   }
 
  private:
-  void validate() const;
-
- private:
   std::vector<EntryOwningPtr> entries_;
   std::unordered_map<EntryType, EntryPtr> entry_type_map_;
   ScheduleHeuristic heuristic_;
-  bool recording_ = true;
 };
 
 //! A utility class to facilitate accessing HeuristicSummary.
@@ -277,12 +263,12 @@ class HeuristicSummary {
 //!     compile time info do not need to be cached, and in fact
 //!     a cache wouldn't be instantiated by that time.
 //!
-//!   2. When the compiled kernel is launched the first time, the
-//!     cache will be in `recording` phase and all the computed information
-//!     should be captured and written into the cache.
+//!   2. When a kernel is created fior the first time, entries will be
+//!     missing in the cache and all the computed information will be
+//!     captured and written into the cache.
 //!
-//!   3. When we check a compiled fusion for heuristic hit,
-//!      we want to use the cached info to save runtime latency.
+//!   3. When we check a compiled fusion for heuristic hit, we want to
+//!     use the cached info to save runtime latency.
 //!
 //! The designed interface is used as:
 //!   auto entry = HeuristicSummaryEntry<EntryClass>(data_cache, maker_fn);
