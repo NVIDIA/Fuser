@@ -1636,7 +1636,38 @@ PartOf<Projection> cancelCommonFactors(const PartOf<Projection>& part) {
   //         /    \.
   //     split    split
   //     /   \    /   \.
-  //    I1   I2  I3   I4
+  //   I1  I2{m} I3   I4{n}
+  // Assuming I0 is divisible by m, then we have:
+  //   I3 = PartOf{what=I0, inner_extent=n} ............ (1)
+  // Let g = gcd(m, n), and m = g*m', n = g*n'. Then the above transformation
+  // is mathematically equivalent to the following transformation:
+  //               I0
+  //               |
+  //             split
+  //             /   \.
+  //           Io   Ig{g}
+  //          /  \.
+  //         /    \.
+  //        /      \.
+  //    split      split
+  //    /   \      /   \.
+  //   I1 I2'{m'} I3 I4'{n'}
+  // where
+  //   I2 = merge(I2', Ig), I4 = merge(I4', Ig)
+  // Note that
+  //   I0 = Composition{I1, I2', Ig}
+  // substitute to the above equation (1), we get:
+  //   I3 = PartOf{what=[I1, I2', Ig], inner_extent=n} ............ (2)
+  // Because I0 is divisible by m, Io is also divisible by m'. So we have:
+  //   I3 = PartOf{what=Io, inner_extent=n'}
+  // and
+  //   Io = [I1, I2']
+  // That is,
+  //   I3 = PartOf{what=[I1, I2'], inner_extent=n'} ............ (3)
+  // Comparing equation (2) and (3), we have:
+  //   PartOf{what=[I1, I2', Ig], inner_extent=n} = 
+  //     PartOf{what=[I1, I2'], inner_extent=n'}
+  // That is, we can cancel the common factor of `what` and inner_extent.
   if (!part.what->is<Composition>()) {
     return part;
   }
@@ -1827,7 +1858,7 @@ Val* proveLinearAndGetStride(
     const ValGraph& id_graph,
     const ValGroup& linear_g,
     const ValGroups& domain) {
-    FusionGuard fg(linear_g->front()->fusion());
+  FusionGuard fg(linear_g->front()->fusion());
   if (simplifyExpr(extent(linear_g))->isOne()) {
     // If the extent of the linear group is 1, we always consider it as linear,
     // regardless of its relationship with domain. For this case, we use stride
