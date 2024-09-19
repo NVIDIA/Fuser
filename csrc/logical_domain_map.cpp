@@ -914,8 +914,7 @@ std::unordered_map<IterDomain*, IterDomain*> ComputeAtLogicalDomainMap::map(
              removed_broadcast_domains_.end())) {
       continue;
     }
-    NVF_ERROR(
-        false,
+    NVF_THROW(
         "Mapping IterDomain ",
         from_id,
         " of ",
