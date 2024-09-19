@@ -2103,11 +2103,11 @@ class TestNvFuserFrontend(NVFuserTest):
         checks = [
             (
                 check_start_indices,
-                "Slice operation start_indices must be greater-than-or-equal-to 0. .*",
+                "Slice operation start_indices must be greater than or equal to 0. .*",
             ),
             (
                 check_end_indices,
-                "Slice operation end_indices must be greater-than-or-equal-to start_indices. .*",
+                "Slice operation end_indices must be greater than or equal to start_indices. .*",
             ),
             (
                 check_strides,
