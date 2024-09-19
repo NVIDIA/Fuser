@@ -63,6 +63,9 @@ class OverlapTest : public MultiDeviceTest {
 
   void SetUp() {
     MultiDeviceTest::SetUp();
+    if (!communicator_->is_available()) {
+      return;
+    }
 
     num_devices_ = communicator_->size();
     my_device_index_ = communicator_->deviceId();
@@ -154,6 +157,7 @@ class OverlapTest : public MultiDeviceTest {
         << "\n expected: " << tc_expected_;
   }
 };
+
 // clang-format off
 // This test implements a reduce-scattered based pipelining overlapping technic,
 // as used in NEMO-megatron transformer, precisely at the second layer of the

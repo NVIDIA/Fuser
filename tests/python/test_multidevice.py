@@ -2,44 +2,15 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 
-import os
 import pytest
 import torch
 
-from mpi4py import MPI
-
+import multidevice
 import nvfuser
 from nvfuser import DataType, FusionDefinition
 
 
-class MultideviceTest:
-    def __init__(self):
-        comm = MPI.COMM_WORLD
-        self._size = comm.size
-        self._rank = comm.rank
-        self._local_size = int(os.environ["OMPI_COMM_WORLD_LOCAL_SIZE"])
-        self._local_rank = int(os.environ["OMPI_COMM_WORLD_LOCAL_RANK"])
-
-    @property
-    def size(self):
-        return self._size
-
-    @property
-    def rank(self):
-        return self._rank
-
-    @property
-    def local_size(self):
-        return self._local_size
-
-    @property
-    def local_rank(self):
-        return self._local_rank
-
-
-@pytest.fixture
-def multidevice_test():
-    return MultideviceTest()
+multidevice_test = multidevice.multidevice_test
 
 
 @pytest.mark.mpi
@@ -56,7 +27,6 @@ def test_sizes_and_ranks(multidevice_test):
     assert local_rank >= 0 and local_rank < local_size
 
 
-@pytest.mark.skip(reason="#2929")
 @pytest.mark.mpi
 def test_pointwise(multidevice_test):
     num_devices = multidevice_test.size
@@ -64,32 +34,27 @@ def test_pointwise(multidevice_test):
 
     torch.cuda.set_device(multidevice_test.local_rank)
 
-    # Inputs
-    inputs = [
-        torch.randn(num_devices, 4, device="cuda")[rank : rank + 1, ...],
-    ]
+    # Just so each rank receives the same unsharded input.
+    torch.manual_seed(0)
+    unsharded_input = torch.randn(num_devices, 4, device="cuda")
+    sharded_input = unsharded_input[rank : rank + 1]
 
-    # dynamic shape isn't supported;
-    # scalar inputs isn't supported;
     class MultiDeviceModel(FusionDefinition):
         def definition(self):
-            self.t0 = self.define_tensor((2, 4), (False, False), dtype=DataType.Float)
+            self.t0 = self.define_tensor(
+                (-1, -1), contiguity=(False, False), dtype=DataType.Float
+            )
             self.t1 = self.ops.relu(self.t0)
             self.t2 = self.ops.add(self.t1, self.t1)
             self.add_output(self.t2)
 
-        def schedule(self):
-            mesh = self.sched._create_device_mesh((0, 1))
+        def multidevice_schedule(self):
+            mesh = self.sched._create_device_mesh(range(num_devices))
             self.sched._set_device_mesh(self.t0, mesh)
             self.sched._set_device_mesh(self.t1, mesh)
             self.sched._set_device_mesh(self.t2, mesh)
             self.sched.parallelize(self.t0, 0, nvfuser.ParallelType.mesh_x)
 
     fn = MultiDeviceModel()
-
-    outputs = fn.execute(inputs)
-
-    for i in range(3):
-        outputs = fn.execute(inputs)
-
-    assert (inputs[0].relu() * 2).allclose(outputs[0][rank])
+    outputs = fn.execute([sharded_input])
+    torch.testing.assert_close(outputs[0], unsharded_input.relu() * 2)
