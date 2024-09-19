@@ -1153,12 +1153,12 @@ def slice_error_generator(
 
     check_start_indices = ErrorSample(
         {"start_indices": [-1, -2], "end_indices": [5, 5], "strides": [7, 7]},
-        "Slice operation start_indices must be greater-than-or-equal-to 0.",
+        "Slice operation start_indices must be greater than or equal to 0.",
     )
 
     check_end_indices = ErrorSample(
         {"start_indices": [3, 4], "end_indices": [1, 2], "strides": [1, 1]},
-        "Slice operation end_indices must be greater-than-or-equal-to start_indices.",
+        "Slice operation end_indices must be greater than or equal to start_indices.",
     )
 
     check_strides = ErrorSample(
