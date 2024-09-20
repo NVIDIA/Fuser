@@ -28,6 +28,16 @@ namespace {
 // instance.
 class FusionTranslator : public OptInConstDispatch {
  public:
+  // Returns a map from the values in the CPP fusion to its corresponding
+  // FusionDefinition State index.
+  //
+  // Why?
+  // For segmentation, we divide the original FusionDefinition into its
+  // segments. Each segment has a separate index namespace. To run a segment,
+  // we need to pass outputs from prior segments as this segment's input
+  // arguments. The original FusionDefinition coordinates this argument passing.
+  // The map returned by this function is used to a global mapping from the
+  // original FusionDefinition's indicies to this segment's indicies.
   static std::unordered_map<const nvfuser::Val*, size_t> translate(
       Fusion* fusion,
       FusionDefinition* fd) {
