@@ -41,7 +41,9 @@ def test_transformer_layer(multidevice_test, benchmark, compute_type):
 
     torch.cuda.set_device(rank)
     os.environ["MASTER_ADDR"] = "localhost"
-    os.environ["MASTER_PORT"] = "29500"
+    # nvFuser's Communicator singleton is hardcoded to use port 29500. Use a
+    # different port here to avoid conflict.
+    os.environ["MASTER_PORT"] = "29400"
     dist.init_process_group(
         backend="nccl",
         init_method="env://",
