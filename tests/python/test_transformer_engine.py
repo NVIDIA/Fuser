@@ -6,6 +6,7 @@ import os
 import pytest
 import torch
 import torch.distributed as dist
+from enum import auto, Enum
 
 import transformer_engine.pytorch as te
 
@@ -15,8 +16,18 @@ import multidevice
 multidevice_test = multidevice.multidevice_test
 
 
+class ComputeType(Enum):
+    FORWARD = auto()
+    BACKWARD = auto()
+
+
 @pytest.mark.mpi
-def test_transformer_layer(multidevice_test):
+@pytest.mark.parametrize(
+    "compute_type",
+    [ComputeType.FORWARD, ComputeType.BACKWARD],
+    ids=["forward", "backward"],
+)
+def test_transformer_layer(multidevice_test, benchmark, compute_type):
     # Hyperparameters for GPT-3
     hidden_size = 12288
     num_heads = 96
@@ -30,7 +41,9 @@ def test_transformer_layer(multidevice_test):
 
     torch.cuda.set_device(rank)
     os.environ["MASTER_ADDR"] = "localhost"
-    os.environ["MASTER_PORT"] = "29500"
+    # nvFuser's Communicator singleton is hardcoded to use port 29500. Use a
+    # different port here to avoid conflict.
+    os.environ["MASTER_PORT"] = "29400"
     dist.init_process_group(
         backend="nccl",
         init_method="env://",
@@ -51,7 +64,32 @@ def test_transformer_layer(multidevice_test):
     x = torch.randn(
         batch_size, sequence_length, hidden_size, dtype=dtype, device="cuda"
     )
-    y = transformer_layer(x)
-    assert y.size() == torch.Size([batch_size, sequence_length, hidden_size])
+
+    match compute_type:
+        case ComputeType.FORWARD:
+
+            def benchmark_fn():
+                return transformer_layer(x)
+
+            y = benchmark(benchmark_fn)
+            assert y.size() == torch.Size([batch_size, sequence_length, hidden_size])
+        case ComputeType.BACKWARD:
+            # Due to
+            # https://github.com/Lightning-AI/lightning-thunder/issues/701, a
+            # limitation in TransformerEngine, we can't repeatedly call
+            # torch.autograd.backward to benchmark just backprop. As a
+            # workaround, the code below runs forward before each backprop but
+            # only measure the backprop time.
+            def setup_fn():
+                y = transformer_layer(x)
+                dy = torch.rand_like(y)
+                return (y, dy), {}
+
+            def benchmark_fn(y, dy):
+                torch.autograd.backward(y, dy)
+
+            benchmark.pedantic(
+                benchmark_fn, setup=setup_fn, warmup_rounds=2, iterations=1, rounds=5
+            )
 
     dist.destroy_process_group()
