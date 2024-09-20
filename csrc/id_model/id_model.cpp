@@ -298,7 +298,7 @@ ValGraph& IdModel::buildExactGraph() {
       for (auto c_id :
            getSortedKeys(exact_c2p_logical_map, Statement::lessThan)) {
         auto p_id = exact_c2p_logical_map.at(c_id);
-        idGraph(IdMappingMode::EXACT).mapVals(c_id, p_id);
+        graph.mapVals(c_id, p_id);
       }
     }
 
@@ -312,7 +312,7 @@ ValGraph& IdModel::buildExactGraph() {
         for (auto domain_i : c10::irange(c_tv->getMaybeRootDomain().size())) {
           auto c_id = c_tv->getMaybeRootDomain()[domain_i];
           auto o_id = other_tv_output->getMaybeRootDomain()[domain_i];
-          idGraph(IdMappingMode::EXACT).mapVals(o_id, c_id);
+          graph.mapVals(o_id, c_id);
         }
       }
     } else {
@@ -325,14 +325,14 @@ ValGraph& IdModel::buildExactGraph() {
           for (auto c_id :
                getSortedKeys(exact_c2p_root_map, Statement::lessThan)) {
             auto p_id = exact_c2p_root_map.at(c_id);
-            idGraph(IdMappingMode::EXACT).mapVals(c_id, p_id);
+            graph.mapVals(c_id, p_id);
           }
         }
       }
     }
 
     // TODO: Revisit if we really should map domains in the exact map
-    mapThroughLoopSwizzles(idGraph(IdMappingMode::EXACT));
+    mapThroughLoopSwizzles(graph);
   }
 
   // Map additional exact mappings if registered. Only map those that
