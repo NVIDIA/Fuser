@@ -2521,8 +2521,12 @@ std::string IterDomain::toInlineString(int indent_size) const {
 
 // Returns a new IterDomain matching properties of this except for
 // is_rfactor_domain_
-IterDomain* IterDomain::cloneWithoutRFactor() const {
+IterDomain* IterDomain::cloneWithoutRFactor(bool map_with_original) {
   auto cloned = IterDomainBuilder(this).resetRfactor().build();
+
+  if (map_with_original) {
+    fusion()->registerExactMapping(this, cloned);
+  }
 
   return cloned;
 }
