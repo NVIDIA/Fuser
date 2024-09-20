@@ -395,10 +395,8 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     } else {
       // TODO: I wonder if we should just remove all inputs instead of erroring.
       // Seems that would be safe.
-      NVF_ERROR(
-          false,
-          "ProjectDimensions does not support expr type: ",
-          expr->toString());
+      NVF_THROW(
+          "ProjectDimensions does not support expr type: ", expr->toString());
     } // switch on expr type
   } // For loop on the transform expressions
 
@@ -421,10 +419,8 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     } else {
       // TODO: I wonder if we should just remove all inputs instead of erroring.
       // Seems that would be safe.
-      NVF_ERROR(
-          false,
-          "ProjectDimensions does not support expr type: ",
-          expr->toString());
+      NVF_THROW(
+          "ProjectDimensions does not support expr type: ", expr->toString());
     } // switch on expr type
   } // For loop on the transform expressions
 

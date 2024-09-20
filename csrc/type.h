@@ -963,8 +963,7 @@ constexpr inline size_t primDataTypeSize(PrimDataType type) {
     case DataType::Float8_e5m2:
       return sizeof(at::Float8_e5m2);
     case DataType::Index:
-      NVF_ERROR(
-          false, "The actual type of Index is only known at compile time.");
+      NVF_THROW("The actual type of Index is only known at compile time.");
     case DataType::Int:
       return sizeof(int64_t);
     case DataType::Int32:

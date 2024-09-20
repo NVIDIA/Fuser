@@ -2026,8 +2026,7 @@ DisjointSets<IterDomain*> disjointLogicalSets(Fusion* fusion) {
         auto resize = expr->as<Resize>();
         disjoint_logical_ids.mapEntries(resize->in(), resize->out());
       } else {
-        NVF_ERROR(
-            false, "Expression type: ", expr->toString(), " not supported.");
+        NVF_THROW("Expression type: ", expr->toString(), " not supported.");
       }
     }
   }
@@ -2472,8 +2471,7 @@ void promoteProducerMemoryTypes(
       } else if (isParallelTypeBlockDim(producer_non_ca_id_ptype)) {
         setPromotion(producer, MemoryType::Global);
       } else {
-        NVF_ERROR(
-            false, "Unexpected parallel type: ", producer_non_ca_id_ptype);
+        NVF_THROW("Unexpected parallel type: ", producer_non_ca_id_ptype);
       }
     }
   }

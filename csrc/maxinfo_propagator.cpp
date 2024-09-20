@@ -152,8 +152,7 @@ void MaxInfoSpanningTree::traverse(Propagator* propagator) {
         propagator->propagateC2P(next_hop.from, next_hop.to);
         break;
       default:
-        NVF_ERROR(
-            false, "Unknown next hop type in MaxInfoSpanningTree::traverse.");
+        NVF_THROW("Unknown next hop type in MaxInfoSpanningTree::traverse.");
     }
   }
   propagator->tearDown();

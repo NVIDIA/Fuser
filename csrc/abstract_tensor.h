@@ -634,6 +634,8 @@ struct AbstractTensorWithInfo {
       int64_t axis,
       Val* factor,
       bool inner_split = true) {
+    NVF_ERROR(domain.size() == info.size());
+
     axis = wrapDim(axis, (int64_t)domain.size());
     auto [outer, inner] = AbstractId::dispatch(
         DispatchSplit{}, domain[axis], factor, inner_split);
@@ -656,6 +658,8 @@ struct AbstractTensorWithInfo {
   }
 
   AbstractTensorWithInfo& merge(int64_t axis_o, int64_t axis_i) {
+    NVF_ERROR(domain.size() == info.size());
+
     axis_o = wrapDim(axis_o, (int64_t)domain.size());
     axis_i = wrapDim(axis_i, (int64_t)domain.size());
 
@@ -682,6 +686,8 @@ struct AbstractTensorWithInfo {
 
   AbstractTensorWithInfo& reorder(
       const std::unordered_map<int64_t, int64_t>& old2new) {
+    NVF_ERROR(domain.size() == info.size());
+
     NVF_ERROR(
         !domain.empty() || old2new.empty(), "Tried to reorder a 0-dim domain");
 
@@ -744,6 +750,8 @@ struct AbstractTensorWithInfo {
       SwizzleType swizzle_type,
       int64_t x,
       int64_t y) {
+    NVF_ERROR(domain.size() == info.size());
+
     x = wrapDim(x, (int64_t)domain.size());
     y = wrapDim(y, (int64_t)domain.size());
 
@@ -767,6 +775,8 @@ struct AbstractTensorWithInfo {
       Swizzle2DType swizzle_type,
       int64_t x,
       int64_t y) {
+    NVF_ERROR(domain.size() == info.size());
+
     x = wrapDim(x, (int64_t)domain.size());
     y = wrapDim(y, (int64_t)domain.size());
 

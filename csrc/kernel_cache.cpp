@@ -340,8 +340,7 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
         } else if (input.isComplexDouble()) {
           encodeBuffer(input.toComplexDouble(), encoding_);
         } else {
-          NVF_ERROR(
-              false,
+          NVF_THROW(
               "Unhandled input type when creating input ID. Cannot record ",
               input);
         }

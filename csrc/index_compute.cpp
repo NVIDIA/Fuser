@@ -2174,8 +2174,7 @@ kir::TensorIndex* Index::getProducerIndex(
       } else if (items_per_thread == 4) {
         op = UnaryOpType::AdjustPartialLdMatrixAddrInTuring16;
       } else {
-        NVF_ERROR(
-            false,
+        NVF_THROW(
             "Unexpected output vectorizaiton for ldmatrix, expect 2, 4, or 8, get ",
             items_per_thread);
       }

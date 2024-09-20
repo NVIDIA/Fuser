@@ -317,8 +317,7 @@ std::unique_ptr<caching::VectorizedTensorInfo> getVectorizedTensorValidationInfo
         vectorized_tensor_info_ptr->global_inp_misaligned_tv.insert(
             producer_tv);
       } else {
-        NVF_ERROR(
-            false,
+        NVF_THROW(
             "Unsupported memory configuration for misaligned vectorization.");
       }
     }
@@ -850,8 +849,7 @@ class NvrtcCompileDriver {
     if (result != NVRTC_SUCCESS) {
       // Print CUDA starting at first global function
       size_t kernel_start = src.find("__global__");
-      NVF_ERROR(
-          false,
+      NVF_THROW(
           "\n",
           src.substr(kernel_start),
           "\nCUDA NVRTC compile error: ",

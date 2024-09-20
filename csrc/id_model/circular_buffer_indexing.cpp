@@ -174,10 +174,8 @@ CircularBufferLoopStage getCircularBufferLoopStage(
     }
   }
 
-  NVF_ERROR(
-      false,
-      "Circular buffer loop not found for ",
-      circular_buffer_tv->toString());
+  NVF_THROW(
+      "Circular buffer loop not found for ", circular_buffer_tv->toString());
 }
 
 } // namespace nvfuser

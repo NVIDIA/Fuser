@@ -741,8 +741,7 @@ ParallelType getParallelType(const ValGroup& loop_group) {
       common_pt = pt;
     } else {
       // Inconsistent parallelization
-      NVF_ERROR(
-          false,
+      NVF_THROW(
           "Inconsistent parallelization detected. ",
           "Known type: ",
           common_pt,

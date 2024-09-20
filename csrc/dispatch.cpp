@@ -70,8 +70,7 @@ void Val::dispatch(T handler, Val* val) {
       ptr(handler)->handle(val);
       return;
   }
-  NVF_ERROR(
-      false,
+  NVF_THROW(
       "Unknown valtype in dispatch! val: ",
       val->toString(),
       " = ",
@@ -141,8 +140,7 @@ void Val::constDispatch(T handler, const Val* val) {
       ptr(handler)->handle(val);
       return;
   }
-  NVF_ERROR(
-      false,
+  NVF_THROW(
       "Unknown valtype in dispatch! val: ",
       val->toString(),
       " = ",
@@ -303,14 +301,10 @@ void OptOutConstDispatch::dispatch(const Val* v) {
 
 void OptInConstDispatch::unhandled(const Statement* stmt) {
   if (stmt->isExpr()) {
-    NVF_ERROR(
-        false,
-        "Handle not overriden for ",
-        stmt->as<Expr>()->getOpString(),
-        ".");
+    NVF_THROW(
+        "Handle not overriden for ", stmt->as<Expr>()->getOpString(), ".");
   } else if (stmt->isVal()) {
-    NVF_ERROR(
-        false, "Handle not overriden for ", stmt->getValType().value(), ".");
+    NVF_THROW("Handle not overriden for ", stmt->getValType().value(), ".");
   } else {
     NVF_THROW("Unrecognized statement type.");
   }
@@ -318,14 +312,10 @@ void OptInConstDispatch::unhandled(const Statement* stmt) {
 
 void OptInDispatch::unhandled(Statement* stmt) {
   if (stmt->isExpr()) {
-    NVF_ERROR(
-        false,
-        "Handle not overriden for ",
-        stmt->as<Expr>()->getOpString(),
-        ".");
+    NVF_THROW(
+        "Handle not overriden for ", stmt->as<Expr>()->getOpString(), ".");
   } else if (stmt->isVal()) {
-    NVF_ERROR(
-        false, "Handle not overriden for ", stmt->getValType().value(), ".");
+    NVF_THROW("Handle not overriden for ", stmt->getValType().value(), ".");
   } else {
     NVF_THROW("Unrecognized statement type.");
   }

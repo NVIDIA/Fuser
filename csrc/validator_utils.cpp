@@ -147,8 +147,7 @@ std::pair<double, double> getTolerance(
     case DataType::Bool:
       return {0.0, 0.0};
     default:
-      NVF_ERROR(
-          false, "Do not have tolerance computation for type ", dtype, ".");
+      NVF_THROW("Do not have tolerance computation for type ", dtype, ".");
   }
 }
 

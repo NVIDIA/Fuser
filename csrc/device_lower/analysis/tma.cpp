@@ -816,6 +816,7 @@ class DomainMerger {
     for (auto& item : raw_tma_domain) {
       domain_.domain.emplace_back(
           ValGroupAndItsGraph{std::move(std::get<0>(item)), &id_graph});
+      domain_.info.emplace_back();
       contiguity_and_stride_.emplace_back(std::get<1>(item), std::get<2>(item));
     }
   }

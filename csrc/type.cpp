@@ -147,10 +147,8 @@ DataType getTypeFromComplexType(DataType dtype) {
     case DataType::ComplexDouble:
       return DataType::Double;
     default:
-      NVF_ERROR(
-          false,
-          "Only support ComplexFloat and ComplexDouble, current type:",
-          dtype);
+      NVF_THROW(
+          "Only support ComplexFloat and ComplexDouble, current type:", dtype);
   }
 }
 
@@ -1137,8 +1135,7 @@ at::ScalarType data_type_to_aten(const DataType& data_type) {
     case DataType::Int:
       return at::ScalarType::Long;
     case DataType::Index:
-      NVF_ERROR(
-          false,
+      NVF_THROW(
           "Index is determined at compile time,",
           " to convert from an aten type you need to have the compiled information. ",
           "This information is passed to GpuLower at compile time, and then copied to kerned.",

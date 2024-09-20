@@ -988,8 +988,7 @@ bool PredicateElimination::setReductionInitValue(
   } else if (existing_val->sameAs(reduction_init)) {
     return true;
   } else {
-    NVF_ERROR(
-        false,
+    NVF_THROW(
         "Inconsistent setting of initialization value for t",
         tv->name(),
         ". Prev: ",

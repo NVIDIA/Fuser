@@ -780,8 +780,7 @@ SyncMap::SyncMap(Fusion* fusion) {
                 continue;
               }
               // Can this happen?
-              NVF_ERROR(
-                  false,
+              NVF_THROW(
                   "Unexpected case. Producer: ",
                   producer->toString(),
                   ", consumer: ",
