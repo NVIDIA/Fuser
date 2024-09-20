@@ -274,14 +274,14 @@ TEST_P(CombineMulSumAsMmaTestWithLayout, UseMatmulScheduler) {
                                         .at(0)
                                         .kernel())
           .empty());
+
   // Ensure that the matmul scheduler ran.
   EXPECT_TRUE(
-      dynamic_cast<MatmulScheduler*>(
-          executor_cache.getMostRecentKernelRuntime()
-              ->schedulerHeuristics()
-              ->heuristicsList()
-              .at(0)
-              .get()) != nullptr);
+      executor_cache.getMostRecentKernelRuntime()
+          ->schedulerHeuristics()
+          ->heuristicsList()
+          .at(0)
+          ->scheduler_type == SchedulerType::Matmul);
 
   EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 
