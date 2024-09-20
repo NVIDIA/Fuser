@@ -22,9 +22,6 @@ std::string getString(const BinaryOp* bop) {
     case BinaryOpType::Div:
       return "div";
       break;
-    case BinaryOpType::Truediv:
-      return "truediv";
-      break;
     case BinaryOpType::Fmod:
       return "fmod";
       break;

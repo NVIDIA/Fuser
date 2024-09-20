@@ -891,7 +891,7 @@ TensorView* binaryOp(
         BinaryOpType::op_type, v1, v2, TypePromotion::float_op_config); \
   }
 
-NVFUSER_DEFINE_BINARY_FLOAT_OP(truediv, Truediv)
+NVFUSER_DEFINE_BINARY_FLOAT_OP(truediv, Div)
 NVFUSER_DEFINE_BINARY_FLOAT_OP(atan2, Atan2)
 #undef NVFUSER_DEFINE_BINARY_FLOAT_OP
 

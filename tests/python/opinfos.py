@@ -780,7 +780,7 @@ truediv_opinfo = OpInfo(
     "truediv",
     sample_input_generator=div_input_generator,
     reference=_elementwise_binary_torch(torch.true_divide),
-    is_clonable=True,
+    is_clonable=False,
 )
 binary_ops.append(truediv_opinfo)
 

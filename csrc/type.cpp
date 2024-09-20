@@ -500,7 +500,6 @@ bool needFloatSuffix(BinaryOpType t) {
     case BinaryOpType::Atan2:
     case BinaryOpType::Div:
     case BinaryOpType::Fmod:
-    case BinaryOpType::Truediv:
       return true;
     default:
       return false;
@@ -514,7 +513,6 @@ static const char* binary_op_type2string(BinaryOpType t) {
     case BinaryOpType::Atan2:
       return "atan2";
     case BinaryOpType::Div:
-    case BinaryOpType::Truediv:
       return "div";
     case BinaryOpType::Fmod:
       return "fmod";
@@ -608,7 +606,6 @@ static const char* binary_op_type_inline_op2string(BinaryOpType t) {
     case BinaryOpType::Add:
       return "+";
     case BinaryOpType::Div:
-    case BinaryOpType::Truediv:
       return "/";
     case BinaryOpType::Mul:
       return "*";

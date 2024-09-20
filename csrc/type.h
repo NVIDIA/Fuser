@@ -612,7 +612,6 @@ enum class BinaryOpType {
   Pow,
   Remainder,
   Sub,
-  Truediv,
   // TypeAs,
 
   // Integer output ops.

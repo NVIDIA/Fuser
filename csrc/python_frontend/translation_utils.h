@@ -28,9 +28,6 @@ std::function<ResultType(ArgTypes...)> getFunction(const BinaryOp* bop) {
     case BinaryOpType::Div:
       return get_std_function(div);
       break;
-    case BinaryOpType::Truediv:
-      return get_std_function(truediv);
-      break;
     case BinaryOpType::Fmod:
       return get_std_function(fmod);
       break;
