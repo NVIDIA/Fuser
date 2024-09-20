@@ -130,6 +130,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/fusion_executor/executor_kernel_arg.cpp
   ${NVFUSER_SRCS_DIR}/fusion_executor/executor_params.cpp
   ${NVFUSER_SRCS_DIR}/fusion_executor/executor_utils.cpp
+  ${NVFUSER_SRCS_DIR}/fusion_guard.cpp
   ${NVFUSER_SRCS_DIR}/fusion_segmenter.cpp
   ${NVFUSER_SRCS_DIR}/global_allocator.cpp
   ${NVFUSER_SRCS_DIR}/grouped_reduction.cpp
