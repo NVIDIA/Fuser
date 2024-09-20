@@ -67,9 +67,16 @@ class FusionDefinition(_C._FusionDefinition):
 
         self.segments = []
         self.segment_maps = []
+        self.last_used_segment = {}
         for idx in range(num_segments):
             new_fd = FusionDefinition()
             segment_to_original_fid = self._build_segment(new_fd, idx)
+
+            # Track the last segment a value is used as an input
+            for segment_input in new_fd.inputs():
+                original_input = segment_to_original_fid[segment_input]
+                self.last_used_segment[original_input] = idx
+
             self.segment_maps.append(segment_to_original_fid)
             self.segments.append(new_fd)
         self._finalize_segmentation()
@@ -157,7 +164,7 @@ class FusionDefinition(_C._FusionDefinition):
     def schedule(self):
         raise NotImplementedError("schedule() should be implemented by child class!")
 
-    def execute_segments(self, input_arguments, *, device=None, profile=False):
+    def _execute_segments(self, input_arguments, *, device=None, profile=False):
         assert len(self.segments) > 0
         assert len(self.segments) == len(self.segment_maps)
 
@@ -175,7 +182,9 @@ class FusionDefinition(_C._FusionDefinition):
         }
 
         # Run all segments in correct order
-        for segment, segment_to_original_map in zip(self.segments, self.segment_maps):
+        for idx, (segment, segment_to_original_map) in enumerate(
+            zip(self.segments, self.segment_maps)
+        ):
             # Gather segment input arguments
             segment_arguments = [
                 map_original_fid_to_value[segment_to_original_map[fd_state]]
@@ -191,7 +200,11 @@ class FusionDefinition(_C._FusionDefinition):
             for fd_state, output in zip(segment.outputs(), segment_outputs):
                 map_original_fid_to_value[segment_to_original_map[fd_state]] = output
 
-            # TODO Destroy any unneeded arguments
+            # Destroy any arguments that are not used by future segments
+            for segment_input in segment.inputs():
+                original_input = segment_to_original_map[segment_input]
+                if self.last_used_segment[original_input] == idx:
+                    del map_original_fid_to_value[original_input]
 
         # Map output fid to actual results
         return [map_original_fid_to_value[fd_state] for fd_state in self.outputs()]
@@ -277,7 +290,7 @@ class FusionDefinition(_C._FusionDefinition):
             self._finalize_schedule(inputs)
 
         if hasattr(self, "segments") and len(self.segments) > 0:
-            return self.execute_segments(inputs, device=device, profile=profile)
+            return self._execute_segments(inputs, device=device, profile=profile)
 
         result = None
         try:
