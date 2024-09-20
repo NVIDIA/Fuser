@@ -24,8 +24,7 @@ void OuterPersistentKernelScheduler::schedule(
   FUSER_PERF_SCOPE("OuterPersistentKernelScheduler::schedule");
   auto rparams = dynamic_cast<const ReductionParams*>(params);
   NVF_ERROR(
-      rparams != nullptr &&
-          rparams->heuristic_type == HeuristicType::OuterPersistent,
+      rparams != nullptr && rparams->heuristic_type == heuristicType(),
       "Incorrect parameters sent to OuterPersistentKernelScheduler::schedule",
       params);
   scheduleOuterPersistentKernel(fusion, rparams);
@@ -678,7 +677,9 @@ std::unique_ptr<ReductionParams> getOuterPersistentHeuristics(
 void scheduleOuterPersistentKernel(
     Fusion* fusion,
     const ReductionParams* rparams) {
-  NVF_ERROR(rparams->heuristic_type == HeuristicType::OuterPersistent);
+  NVF_ERROR(
+      rparams->heuristic_type ==
+      OuterPersistentKernelScheduler::heuristicType());
   normalization_scheduler_utils::schedulePersistentKernel(
       fusion, rparams, rparams->heuristic_type);
 }
