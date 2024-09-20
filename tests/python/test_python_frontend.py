@@ -2111,7 +2111,7 @@ class TestNvFuserFrontend(NVFuserTest):
             ),
             (
                 check_strides,
-                "nvFuser Limitation: All slice operation strides must be of const size 1. .*",
+                "nvFuser Limitation: All slice operation strides must be of const size 1.*",
             ),
             (
                 check_tensor_dims,

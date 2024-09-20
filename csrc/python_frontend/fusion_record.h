@@ -409,7 +409,7 @@ struct SliceOpRecord : RecordFunctor {
           end_idx->evaluate().as<int64_t>());
       NVF_CHECK(
           stride_idx->isConstInt() && stride_idx->evaluate().as<int64_t>() == 1,
-          "nvFuser Limitation: All slice operation strides must be of const size 1");
+          "nvFuser Limitation: All slice operation strides must be of const size 1.");
       vec_slice.push_back({start_idx, end_idx, stride_idx});
     }
     auto output = slice(arg, vec_slice);
