@@ -343,15 +343,16 @@ ValGraph& IdModel::buildExactGraph() {
       DisjointSets<IterDomain*> additional_mappings =
           fusion->registeredExactMappings();
       for (const auto& disjoint_set : additional_mappings.disjointSets()) {
-        auto num_ids = disjoint_set->size();
-        for (const auto i : c10::irange(num_ids)) {
-          for (const auto j : c10::irange(i + 1, num_ids)) {
-            auto id_i = disjoint_set->at(i);
-            auto id_j = disjoint_set->at(j);
-            if (graph.hasGroup(id_i) && graph.hasGroup(id_j) &&
-                id_i->sameAs(id_j)) {
-              graph.mapVals(id_i, id_j);
-            }
+        IterDomain* registerd_id = nullptr;
+        for (auto id : *disjoint_set) {
+          if (!graph.hasGroup(id)) {
+            continue;
+          }
+
+          if (registerd_id == nullptr) {
+            registerd_id = id;
+          } else {
+            graph.mapVals(registerd_id, id);
           }
         }
       }
