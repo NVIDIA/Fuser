@@ -111,7 +111,10 @@ class NVF_API IterDomain : public Val {
   //! Returns a new IterDomain matching properties of this
   //!
   //! This does NOT copy the is_rfactor_domain flag.
-  IterDomain* cloneWithoutRFactor(bool map = false) const;
+  //!
+  //! When map_with_original is true, the clone of the original is
+  //! mapped in the Exact graph.
+  IterDomain* cloneWithoutRFactor(bool map_with_original = false);
 
   //! Clone a vector domains
   static std::vector<IterDomain*> clone(
