@@ -29,6 +29,7 @@ class MaxPosCalculator {
   // map to all its consumer TVs.
   void buildUnmappableDims(bool compute_at_only);
 
+ public:
   // Utility function to return if an id of tv is a valid iter domain to inline
   // within. This is used in getMaxPos{PasC,CasP}. Different variations of the
   // bool values are used if checking max position of PasC, CasP, or checking
@@ -41,7 +42,6 @@ class MaxPosCalculator {
       bool allow_vectorize,
       bool allow_unmappable) const;
 
- public:
   // Returns the position at which tv can be inlined within.
   size_t getMaxPosSelf(
       TensorView* tv,

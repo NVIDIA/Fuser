@@ -7,6 +7,7 @@
 // clang-format on
 #include <inlining.h>
 #include <ir/utils.h>
+#include <iter_visitor.h>
 #include <logical_domain_map.h>
 #include <transform_iter.h>
 
@@ -77,10 +78,11 @@ bool MaxPosCalculator::isAllowedID(
   }
 
   if (!allow_unmappable) {
-    auto logical_dom = tv->getLogicalDomain();
+    const auto& logical_dom = tv->getLogicalDomain();
     std::unordered_set<Val*> logical_dom_set(
         logical_dom.begin(), logical_dom.end());
-    auto all_vals = DependencyCheck::getAllValsBetween(logical_dom_set, {id});
+    auto all_vals =
+        IRBFS::getValsBetween({logical_dom.begin(), logical_dom.end()}, {id});
     bool is_unmappable = false;
     for (auto val : all_vals) {
       auto id = val->as<IterDomain>();
