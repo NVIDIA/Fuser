@@ -701,7 +701,7 @@ class TestNvFuserFrontend(NVFuserTest):
             fd.add_output(t1, alias_input=t0)
             fd.add_output(t2)
 
-        out_tensors, _ = self.exec_nvfuser(fusion_func, in_tensors)
+        out_tensors, _ = self.exec_nvfuser(fusion_func, in_tensors, is_clonable=True)
 
         # t1 is an alias and therefore is hidden.
         self.assertEqual(len(out_tensors), 1)
