@@ -246,8 +246,14 @@ TEST_F(InliningTest, IsAllowedID) {
   {
     std::vector<IterDomain*> loop_domain{
         tv2->getLogicalDomain().at(0),
-        tv1->getLoopDomain().at(1)->cloneWithoutRFactor(),
-        tv1->getLoopDomain().at(2)->cloneWithoutRFactor()};
+        IterDomainBuilder(tv1->getLogicalDomain().at(1))
+            .resetRfactor()
+            .iter_type(IterType::Reduction)
+            .build(),
+        IterDomainBuilder(tv1->getLogicalDomain().at(2))
+            .resetRfactor()
+            .iter_type(IterType::Reduction)
+            .build()};
     IrBuilder::create<Merge>(
         tv2->getLogicalDomain().at(1), loop_domain[1], loop_domain[2]);
     tv2->setLoopDomain(loop_domain);
