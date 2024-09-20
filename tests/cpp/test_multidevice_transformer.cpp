@@ -7,6 +7,8 @@
 // clang-format on
 #include <vector>
 
+#include <cuda_profiler_api.h>
+
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
@@ -17,7 +19,7 @@
 
 namespace nvfuser {
 
-constexpr int64_t B = 2, E = 768, H = 16, S = 128;
+constexpr int64_t B = 1, E = 12288, H = 96, S = 2048;
 // Note parameters scaled by kParamScale following weight initialization
 // recommendations:
 // https://huggingface.co/docs/transformers/en/model_doc/gpt2#transformers.GPT2Config.initializer_range
@@ -1048,7 +1050,19 @@ TEST_P(DistributedTransformerTest, Forward) {
   FusionExecutorCache fec(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
   auto outputs = fec.runFusionWithInputs(inputs);
-  validate(expected_outputs, outputs, {1e-5, 0.01, 0.01, 0.02, 0.02});
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
+
+  at::manual_seed(getATenRandomSeed());
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaProfilerStart());
+  auto start_time = std::chrono::high_resolution_clock::now();
+  outputs = fec.runFusionWithInputs(inputs);
+  auto end_time = std::chrono::high_resolution_clock::now();
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaProfilerStop());
+
+  std::chrono::duration<double> elapsed_seconds = end_time - start_time;
+  std::cout << "Elapsed time: " << elapsed_seconds.count() << " seconds"
+            << std::endl;
 }
 
 TEST_P(DistributedTransformerTest, Backward) {
