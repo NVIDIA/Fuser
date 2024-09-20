@@ -2950,8 +2950,7 @@ TensorDomain::TensorDomain(
       loop_domain_(logical_domain_),
       contiguity_(
           contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
-                             : std::move(contiguity)),
-      stride_order_(stride_order) {
+                             : std::move(contiguity)) {
   // setting the proper allocation domain
   if (!stride_order.empty()) {
     auto rank = logical_domain_.size();
@@ -3074,7 +3073,6 @@ TensorDomain::TensorDomain(IrBuilderPasskey passkey, const TensorDomain* src)
       no_bcast_domain_(src->no_bcast_domain_),
       no_reduction_domain_(src->no_reduction_domain_),
       contiguity_(src->contiguity_),
-      stride_order_(src->stride_order_),
       has_reduction_(src->has_reduction_) {}
 
 TensorDomain::TensorDomain(const TensorDomain* src, IrCloner* ir_cloner)
@@ -3087,7 +3085,6 @@ TensorDomain::TensorDomain(const TensorDomain* src, IrCloner* ir_cloner)
       no_bcast_domain_(ir_cloner->clone(src->no_bcast_domain_)),
       no_reduction_domain_(ir_cloner->clone(src->no_reduction_domain_)),
       contiguity_(src->contiguity()),
-      stride_order_(src->stride_order_),
       has_reduction_(src->has_reduction_) {}
 
 NVFUSER_DEFINE_CLONE(TensorDomain)
@@ -3236,6 +3233,29 @@ void TensorDomain::setContiguity(
   }
 
   contiguity_ = contig;
+}
+
+std::vector<int64_t> TensorDomain::strideOrder() const {
+  // short-circuit: no allocation domain; default stride-order
+  if (allocation_domain_.empty()) {
+    return {};
+  }
+
+  std::vector<int64_t> stride_order;
+  stride_order.reserve(logical_domain_.size());
+
+  for (size_t logical_idx : c10::irange(logical_domain_.size())) {
+    IterDomain* logical_id = logical_domain_.at(logical_idx);
+    auto alloc_iter = std::find(
+        allocation_domain_.begin(), allocation_domain_.end(), logical_id);
+    NVF_ERROR(
+        alloc_iter != allocation_domain_.end(),
+        "Unable to find logical IterDomain in allocation domain.");
+    int64_t alloc_idx = std::distance(allocation_domain_.begin(), alloc_iter);
+    stride_order.push_back(logical_domain_.size() - 1 - alloc_idx);
+  }
+
+  return stride_order;
 }
 
 bool TensorDomain::hasBlockReduction() const {
