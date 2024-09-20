@@ -327,5 +327,32 @@ void movePersistentBufferToSmem(
     const ReductionParams& rparams,
     const std::vector<TensorView*>& cached_inputs);
 
+// Find the resolution points of a persistent buffer. See also
+// the comments of PersistentBufferResolution in utils.cpp. Unlike
+// PersistentBufferResolution, this analysis traverses a given fusion
+// both forward and backward, which is necessary in some cases. For
+// example:
+//
+// t0 = makeSymbolicTensor(2)
+// t1 = makeSymbolicTensor(2)
+// t2 = set(t0)
+// t3 = sum(t2, 1)
+// t4 = broadcast(t3, {false, true})
+// t5 = add(t1, t2)
+// t6 = add(t4, t1)
+// fusion.addOutput(t5)
+// fusion.addOutput(t6)
+//
+// The path from t2 to t3, t4 and t6 is a normalization path. While t1 itself
+// does not depend on t2, since it is used with t2, inlining of t2
+// also means t1 must be inlined, which in turn means t6 must be
+// inlined. However, t6 depends on the reduction, inlining of t2 is
+// not possible. For normalization fusions like this pattern,
+// PersistentBufferResolution is not able to detect the resolution
+// point. getResolutionPointsOf addresses the problem by traversing
+// both forward and backward directions. See
+// PersistentBufferTest.GetResolutionIssue1123 for a concrete example
+std::vector<TensorView*> getResolutionPointsOf(TensorView* persistent_buffer);
+
 } // namespace normalization_scheduler_utils
 } // namespace nvfuser
