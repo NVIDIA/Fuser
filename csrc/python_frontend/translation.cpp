@@ -234,21 +234,90 @@ class FusionTranslator : public OptInConstDispatch {
   }
 
   // =================================================================================
+  // Filter Functions
+
+  // Gather all TensorViews and FusionDefinition indices
+  std::vector<std::pair<const nvfuser::Val*, int64_t>> tensors() {
+    std::vector<std::pair<const nvfuser::Val*, int64_t>> tensors;
+    std::copy_if(
+        map_val_to_fd_index_.begin(),
+        map_val_to_fd_index_.end(),
+        std::back_inserter(tensors),
+        [](std::pair<const nvfuser::Val*, int64_t>&& kv) {
+          return kv.first->isA<TensorView>();
+        });
+    return tensors;
+  }
+
+  // =================================================================================
   //  Handle define_scalar and define_tensor variants
 
-  // Add scalar value to Fusion Definition
-  void handle(const Val* v) final {
+  // Create scalar for given nvfuser value. The nvfuser value must not already
+  // exist and have a definition. It can be a fusion input, a constant, or a
+  // tensor's extent.
+  Scalar createScalar(const Val* v) {
+    NVF_ERROR(
+        v->definition() == nullptr,
+        "Value has a definition and should not be created directly.");
+
     // short-circuit: value already exists in FusionDefinition
     if (map_val_to_fd_index_.count(v) > 0) {
-      return;
+      return Scalar(map_val_to_fd_index_.at(v), fd_);
     }
 
     Scalar output = fd_->defineScalar();
+    map_val_to_fd_index_.emplace(v, output());
+
+    // Since scalars can come from TensorView dimension sizes, search through
+    // all TensorViews for an iterDomain whose extent matches the desired
+    // value and then create SizeOpRecord.
+    for (auto& kv : tensors()) {
+      const TensorView* key_tv = kv.first->as<TensorView>();
+
+      std::vector<IterDomain*> filtered_logical_domain =
+          TensorDomain::noReductions(key_tv->domain()->logical());
+      // Get extents for each IterDomain
+      std::vector<Val*> extents;
+      extents.reserve(filtered_logical_domain.size());
+      std::transform(
+          filtered_logical_domain.begin(),
+          filtered_logical_domain.end(),
+          std::back_inserter(extents),
+          [](IterDomain* id) { return id->getMaybeExpandedExtent(); });
+
+      auto iter = std::find(extents.begin(), extents.end(), v);
+      // Check if value matches iterdomain extent
+      if (iter == extents.end()) {
+        continue;
+      }
+
+      int64_t dim = std::distance(extents.begin(), iter);
+      fd_->defineRecord(new SizeOpRecord(
+          {fd_->recordingState(kv.second)},
+          {fd_->recordingState(output())},
+          dim));
+      return output;
+    }
+
+    // DataType::Index does not exist in python_frontend, so convert to
+    // DataType::Int
+    DataType scalar_dtype =
+        (v->dtype() == DataType::Index) ? DataType::Int : v->dtype();
+
     fd_->defineRecord(new ScalarRecord(
         {fd_->recordingState(output())},
         v->value(),
-        std::get<PrimDataType>(v->dtype().type)));
-    map_val_to_fd_index_.emplace(v, output());
+        std::get<PrimDataType>(scalar_dtype.type)));
+    return output;
+  }
+
+  // Add scalar value to Fusion Definition
+  void handle(const Val* v) final {
+    // short-circuit: scalar definition has a definition
+    if (v->definition() != nullptr) {
+      return;
+    }
+    createScalar(v);
   }
 
   // Add Tensor value to Fusion Definition
@@ -259,6 +328,7 @@ class FusionTranslator : public OptInConstDispatch {
     }
 
     Tensor output = fd_->defineTensor(tv->nDims());
+    map_val_to_fd_index_.emplace(tv, output());
 
     std::vector<int64_t> shape;
     std::transform(
@@ -266,8 +336,8 @@ class FusionTranslator : public OptInConstDispatch {
         tv->domain()->logical().end(),
         std::back_inserter(shape),
         [](IterDomain* id) {
-          return (id->extent()->isConstScalar())
-              ? id->extent()->evaluate().as<int64_t>()
+          return (id->getMaybeExpandedExtent()->isConstScalar())
+              ? id->getMaybeExpandedExtent()->evaluate().as<int64_t>()
               : -1;
         });
 
@@ -278,8 +348,6 @@ class FusionTranslator : public OptInConstDispatch {
         std::get<PrimDataType>(tv->dtype().type),
         tv->isCpuScalar(),
         tv->domain()->strideOrder()));
-
-    map_val_to_fd_index_.emplace(tv, output());
   }
 
   // =================================================================================
