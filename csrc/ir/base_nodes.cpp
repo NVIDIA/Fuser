@@ -349,12 +349,16 @@ bool Expr::sameAs(const Statement* other) const {
 }
 
 kir::Predicate* Expr::predicate() const {
-  NVF_ERROR(container()->isOneOf<kir::Kernel, hir::HostIrContainer>(), "Function invalid for fusion.");
+  NVF_ERROR(
+      container()->isOneOf<kir::Kernel, hir::HostIrContainer>(),
+      "Function invalid for fusion.");
   return predicate_;
 }
 
 void Expr::setPredicate(kir::Predicate* predicate) {
-  NVF_ERROR(container()->isOneOf<kir::Kernel, hir::HostIrContainer>(), "Function invalid for fusion.");
+  NVF_ERROR(
+      container()->isOneOf<kir::Kernel, hir::HostIrContainer>(),
+      "Function invalid for fusion.");
   predicate_ = predicate;
 }
 
