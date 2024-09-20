@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <scheduler/normalization_utils.h>
 #include <scheduler/registry.h>
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>
@@ -366,12 +367,6 @@ class PersistentBufferResolution : public IterVisitor {
       Fusion* fusion,
       TensorView* persistent_buffer) {
     PersistentBufferResolution resolution(fusion, persistent_buffer);
-
-    NVF_ERROR(
-        !resolution.resolution_points_.empty(),
-        "Could not resolve persistent buffer: ",
-        persistent_buffer);
-
     return resolution.resolution_points_;
   }
 
@@ -614,9 +609,30 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
 
   // Set the persistent buffer resolution points
   persistent_buffer_info.persistent_buffer_resolution_points = {};
+
+  // PersistentBufferResolution::getResolutionPointsOf does not work
+  // with non-straightline dependencies. See for example issue
+  // #1123. normalization_scheduler_utils::getResolutionPointsOf
+  // addresses the limitation, but those two functions currently do
+  // not produce the same results even for fusions that
+  // PersistentBufferResolution::getResolutionPointsOf can analyze. To
+  // unblock #1123, the old analysis remains to be used for now, and
+  // only when it fails to find resolution points, the new analysis is
+  // used as a fallback option.
+  // TODO: Completely replace the old analysis
   for (auto buffer : persistent_buffer_info.persistent_buffers) {
+    auto resolution_points =
+        PersistentBufferResolution::getResolutionPointsOf(fusion, buffer);
+    if (resolution_points.empty()) {
+      resolution_points =
+          normalization_scheduler_utils::getResolutionPointsOf(buffer);
+    }
+    NVF_ERROR(
+        !resolution_points.empty(),
+        "Fail to find resolution points of ",
+        buffer->toString());
     persistent_buffer_info.persistent_buffer_resolution_points.emplace_back(
-        PersistentBufferResolution::getResolutionPointsOf(fusion, buffer));
+        resolution_points);
   }
 
   // don't project if there are view ops and no buffer can be projected
@@ -2026,8 +2042,7 @@ DisjointSets<IterDomain*> disjointLogicalSets(Fusion* fusion) {
         auto resize = expr->as<Resize>();
         disjoint_logical_ids.mapEntries(resize->in(), resize->out());
       } else {
-        NVF_ERROR(
-            false, "Expression type: ", expr->toString(), " not supported.");
+        NVF_THROW("Expression type: ", expr->toString(), " not supported.");
       }
     }
   }
@@ -2472,8 +2487,7 @@ void promoteProducerMemoryTypes(
       } else if (isParallelTypeBlockDim(producer_non_ca_id_ptype)) {
         setPromotion(producer, MemoryType::Global);
       } else {
-        NVF_ERROR(
-            false, "Unexpected parallel type: ", producer_non_ca_id_ptype);
+        NVF_THROW("Unexpected parallel type: ", producer_non_ca_id_ptype);
       }
     }
   }

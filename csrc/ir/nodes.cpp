@@ -413,8 +413,7 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
       } else if (isComplexType(*out()->getDataType())) {
         return {PolymorphicValue((std::complex<double>)in)};
       } else {
-        NVF_ERROR(
-            false, "dtype not supported in evaluator: ", *out()->getDataType());
+        NVF_THROW("dtype not supported in evaluator: ", *out()->getDataType());
       }
     case UnaryOpType::Reciprocal:
       return {1.0 / in};
@@ -442,8 +441,7 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
       if (*out()->getDataType() == DataType::Float) {
         return {PolymorphicValue((double)*(float*)in)};
       } else {
-        NVF_ERROR(
-            false, "dtype not supported in evaluator: ", *out()->getDataType());
+        NVF_THROW("dtype not supported in evaluator: ", *out()->getDataType());
       }
       break;
     case UnaryOpType::Sigmoid:
@@ -1568,8 +1566,7 @@ int GroupedReductionOp::getExprIndexOfOutput(Val* output_val) const {
     return (int)std::distance(outputs().begin(), it);
   }
 
-  NVF_ERROR(
-      false, "Not an output, ", output_val->toString(), ", of ", toString());
+  NVF_THROW("Not an output, ", output_val->toString(), ", of ", toString());
 }
 
 std::vector<PolymorphicValue> GroupedReductionOp::evaluate(
@@ -1968,8 +1965,7 @@ int GroupedWelfordOp::getExprIndexOfOutput(Val* output_val) const {
     }
   }
 
-  NVF_ERROR(
-      false, "Not an output, ", output_val->toString(), ", of ", toString());
+  NVF_THROW("Not an output, ", output_val->toString(), ", of ", toString());
 }
 
 Val* GroupedWelfordOp::getInitValOfOutput(Val* output_val) const {

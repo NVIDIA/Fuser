@@ -69,10 +69,8 @@ void LaunchParams::bind(int64_t val, ParallelType p_type) {
       checkAndSet(val, gdimz_, "gridDim.z");
       break;
     default:
-      NVF_ERROR(
-          false,
-          "Tried to bind invalid parallel type in launch config: ",
-          p_type);
+      NVF_THROW(
+          "Tried to bind invalid parallel type in launch config: ", p_type);
   }
   assertValid();
 }
@@ -92,10 +90,8 @@ int64_t LaunchParams::getDim(ParallelType p_type) const {
     case ParallelType::BIDz:
       return gdimz();
     default:
-      NVF_ERROR(
-          false,
-          "Tried to get with invalid parallel type in launch config: ",
-          p_type);
+      NVF_THROW(
+          "Tried to get with invalid parallel type in launch config: ", p_type);
   }
 }
 
@@ -118,10 +114,8 @@ const int64_t& LaunchParams::getRawVal(ParallelType p_type) const {
     case ParallelType::BIDz:
       return gdimz_;
     default:
-      NVF_ERROR(
-          false,
-          "Tried to get with invalid parallel type in launch config: ",
-          p_type);
+      NVF_THROW(
+          "Tried to get with invalid parallel type in launch config: ", p_type);
   }
 }
 
