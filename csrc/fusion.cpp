@@ -887,14 +887,6 @@ void Fusion::registerIterDomainMapping(
     const IterDomain* id0,
     const IterDomain* id1) {
   static const std::string key = "id_mappings";
-#if 0
-  auto clone_fn = [](IrCloner& cloner, std::any data) -> std::any {
-    auto d = std::any_cast<DisjointSets<const IterDomain*>>(data);
-    DisjointSets<const IterDomain*> result = d.clone(&cloner);
-    return result;
-  };
-#endif
-
   if (!hasManaged(key)) {
     manage(key, DisjointSets<const IterDomain*>{});
   }
