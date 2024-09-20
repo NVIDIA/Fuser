@@ -916,8 +916,24 @@ TEST_F(CombinedSchedulerTest, InnerOuterNoOuterBroadcastTv) {
   NVF_CHECK(
       !heuristic->project_persistent_buffers,
       "Shouldn't project persistent buffers to inputs!");
-
+  NVF_CHECK(
+      heuristic->vectorization_factor_outer > 1,
+      "Expect vectorized outer reduction!");
   scheduleInnerOuterPersistentKernel(fusion_ptr.get(), *heuristic);
+
+  // vectorized outer reduction should be iter domain grouped reduction
+  const auto& reduction_tvs =
+      scheduler_utils::getReductionTvs(fusion_ptr.get());
+  bool has_iter_grouped_reduction = false;
+  for (auto tv : reduction_tvs) {
+    for (auto id : tv->getLoopDomain()) {
+      if (id->getParallelType() == ParallelType::Group) {
+        has_iter_grouped_reduction = true;
+      }
+    }
+  }
+  EXPECT_TRUE(has_iter_grouped_reduction);
+
   auto lparams = heuristic->lparams;
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs, lparams);
