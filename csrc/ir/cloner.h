@@ -97,7 +97,6 @@ class IrCloner {
   template <typename T, typename Hash = std::hash<T>>
   DisjointSets<T, Hash> clone(const DisjointSets<T, Hash>& disjoint_sets) {
     DisjointSets<T, Hash> cloned_disjoint_sets;
-
     for (const auto& original_set : disjoint_sets.disjointSets()) {
       NVF_ERROR(!original_set->empty());
       bool first = true;
