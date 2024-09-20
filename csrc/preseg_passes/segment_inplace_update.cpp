@@ -21,46 +21,80 @@
 
 namespace nvfuser::preseg_passes {
     namespace {
-        void findBroadcast(
+        void insertSegmentSet(
             Fusion* fusion
         ){
             std::vector<TensorView*> aliased_tvs;
             std::vector<BroadcastOp*> bcast;
 
-            for (TensorView* aliased_tv : fusion->allTvs()){
-                if (fusion->getOutputAlias(aliased_tv).aliased_io != nullptr){
-                    aliased_tvs.push_back(aliased_tv);
-                    debug() << aliased_tv->toString() << std::endl;
+            for (TensorView* tv : fusion->allTvs()){
+                if (fusion->getOutputAlias(tv).aliased_io != nullptr){
+                    aliased_tvs.push_back(tv);
+                }
+            }
 
-                    TensorView* tv = aliased_tv;
-                    while (auto expr = dynamic_cast<Expr*>(tv->definition())){
-                        if (expr->isA<BroadcastOp>()){
-                            bcast.push_back(expr->as<BroadcastOp>());
-                            debug() << expr->toString() << std::endl;
-                        }
-                        tv = tv->definition()->inputs().front()->as<TensorView>();
+            if (aliased_tvs.empty()){
+                return;
+            } 
+
+            // fusion->exprs() is a topologically sorted list. Filter out the broadcast ops from the list.
+            auto all_exprs = fusion->exprs();
+            auto all_bcast_ops = ir_utils::filterByType<BroadcastOp>(all_exprs);
+
+            // Traverse and store all direct/indirect consumer tensorviews of these broadcast nodes
+            // If the tensorview has been visited, return --> this means that we have already traversed that branch
+            std::unordered_set<TensorView*> visited_tvs;
+            for (auto bcast_op: all_bcast_ops) {
+                std::deque<TensorView*> tvs_to_visit;
+                tvs_to_visit.push_back(bcast_op->output(0)->as<TensorView>());
+                while (!tvs_to_visit.empty()){
+                    TensorView* current_tv = tvs_to_visit.front();
+                    tvs_to_visit.pop_front();
+                    if (visited_tvs.count(current_tv)){
+                        continue;
                     }
-                    tv = aliased_tv;
-                    for (auto expr: tv->uses()){
-                        if (expr->isA<BroadcastOp>()){
-                            bcast.push_back(expr->as<BroadcastOp>());
-                            debug() << expr->toString() << std::endl;
+                    visited_tvs.insert(current_tv);
+                    std::vector<Expr*> current_tv_uses = current_tv->uses();
+                    for (Expr* use: current_tv_uses) {
+                        for (auto output_tv: ir_utils::filterByType<TensorView>(use->outputs())){
+                            tvs_to_visit.push_back(output_tv->as<TensorView>());
                         }
-                        tv = expr->outputs().front()->as<TensorView>();
                     }
                 }
             }
-            debug() << aliased_tvs.front()->toString() << std::endl;
-            debug() << bcast.front()->toString() << std::endl;
-            for (auto expr: bcast){
-                TensorView* bcast_output = expr->outputs().front()->as<TensorView>();
-                TensorView* copy_output = segment_set(bcast_output);
-                ir_utils::replaceValInAllExprInputsAndFusionOutputs(bcast_output, copy_output);
+
+            // Traverse and store the direct/indirect producer tensorviews of these broadcast nodes
+            // If that tensorview has been visited, return.
+            for (auto bcast_op: all_bcast_ops) {
+                std::deque<TensorView*> tvs_to_visit;
+                tvs_to_visit.push_back(bcast_op->input(0)->as<TensorView>());
+                while (!tvs_to_visit.empty()){
+                    TensorView* current_tv = tvs_to_visit.front();
+                    tvs_to_visit.pop_front();
+                    if (visited_tvs.count(current_tv)){
+                        continue;
+                    }
+                    visited_tvs.insert(current_tv);
+                    auto definition = current_tv->definition();
+                    if (definition != nullptr){
+                        for (auto input_tv: ir_utils::filterByType<TensorView>(definition->inputs())){
+                            tvs_to_visit.push_back(input_tv->as<TensorView>());
+                        }
+                    }
+                }
+            }
+
+            for (auto aliased_tv: aliased_tvs){
+                if (visited_tvs.count(aliased_tv)){
+                    TensorView* alias_seg = segment_set(aliased_tv);
+                    TensorView* alias_copy = set(alias_seg);
+                    fusion->replaceOutput(aliased_tv, alias_copy);
+                }
             }
         }
-    } // namespace 
-    
+    } // namespace
+
     void InsertSegmentSetPass::runPass(Fusion* fusion) {
-        findBroadcast(fusion);
+        insertSegmentSet(fusion);
     }  
 } // namespace preseg_passes
