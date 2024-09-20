@@ -419,6 +419,8 @@ class NVF_API Fusion : public IrContainer {
   //! making modifications to the fusion, it can easily cause a segfault.
   std::vector<TensorView*> allTvs();
 
+  void registerIterDomainMapping(const IterDomain* id0, const IterDomain* id1);
+
  protected:
   friend SegmentCandidateFinder;
   friend SegmentedFusion;

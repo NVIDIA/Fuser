@@ -376,6 +376,45 @@ TEST_F(InliningTest, GetMaxProducerPosFromConsumer) {
       calc.getMaxProducerPosFromConsumer(tv1, tv2, /*best_effort=*/true), 2);
 }
 
+TEST_F(InliningTest, GetMaxProducerPosFromConsumerWithBroadcast) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // [i0, i1*i2]
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(1);
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv1);
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 = add(tv0, tv3);
+  fusion.addOutput(tv4);
+
+  // Use the loop domain of tv4 as the reference
+
+  // tv2
+  {
+    std::vector<IterDomain*> loop_domain{
+        tv2->getLogicalDomain().at(0),
+        tv4->getLoopDomain().at(1)->cloneWithoutRFactor()};
+    tv2->setLoopDomain(loop_domain);
+    std::cerr << "tv2: " << tv2->toString() << "\n";
+  }
+
+  // tv3 loop domain does not need to change. Although it has a
+  // broadcast iter domain, it is treated as the same as the concrete
+  // iter domain of tv4 in the BROADCAST graph
+
+  MaxPosCalculator calc;
+  std::cerr << calc.getMaxProducerPosFromConsumer(
+                   tv2, tv3, /*best_effort=*/true)
+            << "\n";
+  std::cerr << calc.getMaxProducerPosFromConsumer(
+                   tv3, tv4, /*best_effort=*/true)
+            << "\n";
+}
+
 // Test MaxPosCalculator.getMaxPosAll with setLoopDomain
 TEST_F(InliningTest, GetMaxPosAllNormalization) {
   Fusion fusion;

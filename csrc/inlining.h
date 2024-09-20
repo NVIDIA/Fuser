@@ -32,6 +32,11 @@ class MaxPosCalculator {
   // map to all its consumer TVs.
   void buildUnmappableDims(bool compute_at_only);
 
+  const ValGraph& inliningGraph() const {
+    NVF_ERROR(id_model_.get() != nullptr);
+    return id_model_->idGraph(IdMappingMode::BROADCAST);
+  }
+
  public:
   // Utility function to return if an id of tv is a valid iter domain to inline
   // within. This is used in getMaxPos{PasC,CasP}. Different variations of the

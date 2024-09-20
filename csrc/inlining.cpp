@@ -23,17 +23,13 @@ MaxPosCalculator::MaxPosCalculator(
     bool compute_at_only)
     : uninlinable_ids_(std::move(uninlinable_ids)) {
   buildUnmappableDims(compute_at_only);
-  // for (auto id : unmappable_dims_) {
-  //     std::cerr << "Unmappable: " << id->toString() << "\n";
-  // }
   if (true || isIdModelOptionEnabled(IdModelEnableOption::Inlining)) {
     id_model_ = std::make_unique<IdModel>(
         FusionGuard::getCurFusion(), /*build_graphs=*/false);
-    id_model_->buildExactGraph();
+    id_model_->buildBroadcastGraph();
     if (getenv("INLINING_GRAPH")) {
-      std::ofstream ofs("exact_graph.dot", std::ofstream::trunc);
-      auto dot_string =
-          id_model_->idGraph(IdMappingMode::EXACT).toGraphvizDotGraph();
+      std::ofstream ofs("inlining_graph.dot", std::ofstream::trunc);
+      auto dot_string = inliningGraph().toGraphvizDotGraph();
       ofs << dot_string;
       ofs.close();
     }
@@ -177,18 +173,19 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
   } else {
     NVF_ERROR(
         id_model_.get() != nullptr,
-        "Nonconventional loop domains require IdModle: ",
+        "Nonconventional loop domains require IdModel: ",
         producer->toString(),
         ", ",
         consumer->toString());
-    const auto& exact_graph = id_model_->idGraph(IdMappingMode::EXACT);
     auto consumer_it = consumer->getLoopDomain().begin();
     for (const auto producer_pos : c10::irange(producer->nDims())) {
       auto p_id = producer->getLoopDomain().at(producer_pos);
       // When p_id is a reduction, skip and continue to the next
       // position. Since a producer reduction domain is never allowed
-      // to be inlined, it seems the analysis should stop here,
-      // however, it is simply ignored in the above existing case.
+      // to be inlined, it may make more sense to stop the analysis
+      // here. For now, just follow the same logic as
+      // getMatchedLeafPosWithoutReplayCasP, which simply skips
+      // reduction domains.
       if (p_id->isReduction()) {
         continue;
       }
@@ -198,7 +195,7 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
       }
 
       IterDomain* c_id = *consumer_it;
-      if (!exact_graph.disjointValSets().strictAreMapped(p_id, c_id) ||
+      if (!inliningGraph().disjointValSets().strictAreMapped(p_id, c_id) ||
           !isAllowedID(c_id, consumer, best_effort, true, false, true)) {
         return producer_pos;
       }
