@@ -1,7 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024-present NVIDIA CORPORATION & AFFILIATES.
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
+import nvtx
 import torch
+
 from nvfuser import FusionDefinition, DataType
 
 
@@ -21,13 +23,20 @@ def test_validate_precomputed_values():
         return fd
 
     fd = compare()
-    outs = fd.execute(
-        [
-            torch.randn((10,), dtype=torch.float32, device="cuda:0").as_strided(
-                (2, 5), (5, 1)
-            ),
-            float("nan"),
-        ]
-    )
+
+    ins = [
+        torch.randn((10,), dtype=torch.float32, device="cuda:0").as_strided(
+            (2, 5), (5, 1)
+        ),
+        float("nan"),
+    ]
+
+    with nvtx.annotate("test_nan"):
+        outs = fd.execute(ins)
+        torch.cuda.synchronize()
+        torch.testing.assert_close(outs[0].cpu(), torch.full((2, 5), False))
+
+    outs = fd.execute(ins)
+    torch.cuda.synchronize()
     # Cmoparing any number to NaN results in False.
     torch.testing.assert_close(outs[0].cpu(), torch.full((2, 5), False))
