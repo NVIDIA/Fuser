@@ -682,6 +682,7 @@ minimum_opinfo = OpInfo(
     dtypes=int_float_dtypes,
     sample_input_generator=elementwise_binary_generator,
     reference=_elementwise_binary_torch(torch.minimum),
+    is_clonable=True,
 )
 binary_ops.append(minimum_opinfo)
 
@@ -691,6 +692,7 @@ maximum_opinfo = OpInfo(
     dtypes=int_float_dtypes,
     sample_input_generator=elementwise_binary_generator,
     reference=_elementwise_binary_torch(torch.maximum),
+    is_clonable=True,
 )
 binary_ops.append(maximum_opinfo)
 

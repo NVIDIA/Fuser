@@ -91,6 +91,15 @@ std::function<ResultType(ArgTypes...)> getFunction(const BinaryOp* bop) {
     case BinaryOpType::Gcd:
       return get_std_function(gcd);
       break;
+    case BinaryOpType::Min:
+      return get_std_function(minimum);
+      break;
+    case BinaryOpType::Max:
+      return get_std_function(maximum);
+      break;
+    case BinaryOpType::CeilDiv:
+      return get_std_function(ceilDiv);
+      break;
     default:
       NVF_CHECK(
           false,
