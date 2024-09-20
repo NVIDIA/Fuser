@@ -169,14 +169,6 @@ std::string FusionExecutor::getStructuredCode(
             << " =======\n\n"
             << code << "\n======================================\n\n";
   }
-  if (isDebugDumpEnabled(DebugDumpOption::CudaToFile)) {
-    std::stringstream file_name;
-    file_name << "__tmp_kernel_" << kernel_id_ << ".cu";
-    debug() << "PRINTING: " << file_name.str() << std::endl;
-    std::ofstream out(file_name.str());
-    out << code << std::endl;
-    out.close();
-  }
 
   return code;
 }
@@ -376,6 +368,16 @@ void FusionExecutor::compileFusion(
       getStructuredCodeFromExternalFiles(getGlobalFusionCount());
   if (structured_code.empty()) {
     structured_code = getStructuredCode();
+  }
+  // when ncu runs with `--import-source yes`, source code is expected in a file
+  if (isDebugDumpEnabled(DebugDumpOption::CudaToFile) ||
+      isOptionEnabled(EnableOption::KernelLineInfo)) {
+    std::stringstream file_name;
+    file_name << "__tmp_kernel_" << kernel_id_ << ".cu";
+    debug() << "PRINTING: " << file_name.str() << std::endl;
+    std::ofstream out(file_name.str());
+    out << structured_code << std::endl;
+    out.close();
   }
 
   const kir::KernelSummary& kernel_summary = kernel->summary();

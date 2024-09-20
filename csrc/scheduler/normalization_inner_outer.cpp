@@ -411,9 +411,14 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   buffer_params.regs_buffer_size = total_buffer_size;
   buffer_params.smem_buffer_size = 0;
 
+  int min_smem_buffer = 0;
+  if(std::getenv("SMEMBUFFER") != nullptr) {
+    min_smem_buffer =  std::stoi(std::getenv("SMEMBUFFER"));
+  }
+
   // (2) If the available register is larger than current register buffer size,
   // no need to move buffers to shared memory, return early.
-  if (buffer_params.regs_buffer_size <= available_regs) {
+  if (buffer_params.regs_buffer_size <= available_regs && min_smem_buffer == 0) {
     buffer_params.has_enough_regs_and_smem = true;
     return buffer_params;
   }
@@ -569,6 +574,13 @@ std::pair<int64_t, int64_t> getBufferBatchSizeAndThreadsPerBlock(
     threads_per_block += warp_size;
     inner_batch = ceilDiv(after_vectorization, threads_per_block);
   }
+
+  if(std::getenv("PERSISTENT") != nullptr) {
+    inner_batch =  std::stoi(std::getenv("PERSISTENT"));
+    threads_per_block = ceilDiv(after_vectorization, inner_batch);
+    threads_per_block = scheduler_utils::roundUpPow2(threads_per_block);
+  }
+
   return std::make_pair(inner_batch, threads_per_block);
 }
 
@@ -796,12 +808,19 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
       (smem_overhead + smem_buffer_size);
   int64_t blocks_per_sm =
       std::min(max_blocks_per_sm_regs, max_blocks_per_sm_smem);
+
+
   iop.gdimy = blocks_per_sm * device_multiprocessor_count;
   const int64_t outer_iter_min = 8;
   const int64_t gdimy_max = scheduler_utils::roundUpToN(
       ceilDiv(outer_dim_numel, outer_iter_min), device_multiprocessor_count);
   while (iop.gdimy > gdimy_max && blocks_per_sm > 1) {
     blocks_per_sm -= 1;
+    iop.gdimy = blocks_per_sm * device_multiprocessor_count;
+  }
+
+  if(std::getenv("WAVES") != nullptr) {
+    blocks_per_sm =  std::stoi(std::getenv("WAVES"));
     iop.gdimy = blocks_per_sm * device_multiprocessor_count;
   }
 
@@ -830,6 +849,12 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
   while (threads_per_block % iop.bdimx) {
     iop.bdimx = std::min(iop.bdimx + 8, threads_per_block);
   }
+
+
+  if(std::getenv("BDIMX") != nullptr) {
+    iop.bdimx =  std::stoi(std::getenv("BDIMX"));
+  }
+
   // Step-4, set OuterParams Reduction dim: bdimy.
   iop.bdimy = threads_per_block / iop.bdimx;
   NVF_ERROR(
