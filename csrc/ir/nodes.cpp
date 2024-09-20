@@ -3252,7 +3252,7 @@ std::vector<int64_t> TensorDomain::strideOrder() const {
         alloc_iter != allocation_domain_.end(),
         "Unable to find logical IterDomain in allocation domain.");
     int64_t alloc_idx = std::distance(allocation_domain_.begin(), alloc_iter);
-    stride_order.push_back(logical_domain_.size() - 1 - alloc_idx);
+    stride_order.push_back((int64_t)logical_domain_.size() - 1 - alloc_idx);
   }
 
   return stride_order;
