@@ -246,11 +246,11 @@ TEST_F(InliningTest, IsAllowedID) {
   {
     std::vector<IterDomain*> loop_domain{
         tv2->getLogicalDomain().at(0),
-        IterDomainBuilder(tv1->getLogicalDomain().at(1))
+        IterDomainBuilder(tv1->getLoopDomain().at(1))
             .resetRfactor()
             .iter_type(IterType::Reduction)
             .build(),
-        IterDomainBuilder(tv1->getLogicalDomain().at(2))
+        IterDomainBuilder(tv1->getLoopDomain().at(2))
             .resetRfactor()
             .iter_type(IterType::Reduction)
             .build()};
