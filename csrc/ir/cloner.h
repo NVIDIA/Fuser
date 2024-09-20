@@ -102,12 +102,13 @@ class IrCloner {
       bool first = true;
       for (const auto& val : *original_set) {
         typename DisjointSets<T, Hash>::DisjointSet new_set;
+        auto clone_of_val = clone(val);
         if (first) {
-          auto it = cloned_disjoint_sets.initializeSet(val).first;
+          auto it = cloned_disjoint_sets.initializeSet(clone_of_val).first;
           new_set = it->second;
           first = false;
         } else {
-          cloned_disjoint_sets.appendToSet(val, new_set);
+          cloned_disjoint_sets.appendToSet(clone_of_val, new_set);
         }
       }
     }
