@@ -190,7 +190,7 @@ void FusionExecutor::compileFusion(
     const KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
     CompileParams compile_params,
-    HeuristicType heuristic,
+    SchedulerType scheduler_type,
     int64_t fusion_id,
     int64_t concrete_id,
     int64_t runtime_id,
@@ -335,7 +335,7 @@ void FusionExecutor::compileFusion(
   for (const auto& hook : post_lowering_hooks_) {
     hook(kernel);
   }
-  createKernelId(heuristic, fusion_id, concrete_id, runtime_id, group_id);
+  createKernelId(scheduler_type, fusion_id, concrete_id, runtime_id, group_id);
   setUsedTVs();
 
   if (isDebugDumpEnabled(DebugDumpOption::KernelIr)) {
@@ -1151,7 +1151,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
         group_id_);
     SegmentProfiler& sprof = FusionProfiler::segment(group_id_);
     sprof.inputBytesAccessed(inputBytesProcessed(args));
-    sprof.scheduler(toString(heuristic_));
+    sprof.scheduler(toString(scheduler_type_));
     sprof.startKernel(args.getDeviceIndex());
   }
 
@@ -1573,7 +1573,7 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
       block_size_high_water_mark_,
       maxrregcount_high_water_mark_,
       warp_size_,
-      toUnderlying(heuristic_),
+      toUnderlying(scheduler_type_),
       fusion_id_,
       concrete_id_,
       runtime_id_,
@@ -1706,7 +1706,7 @@ void FusionExecutor::deserialize(
     Fusion* fusion,
     int8_t device_index,
     CompileParams compile_params,
-    HeuristicType heuristic,
+    SchedulerType heuristic,
     int64_t fusion_id,
     int64_t concrete_id,
     int64_t runtime_id,

@@ -23,13 +23,13 @@ bool TransposeScheduler::canScheduleCompileTime(Fusion* fusion) {
   FUSER_PERF_SCOPE("TransposeScheduler::canScheduleCompileTime");
   if (scheduler_utils::isResharding(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(), "Fusion is resharding.");
+        schedulerType(), "Fusion is resharding.");
     return false;
   }
 
   // Check that inputs of all select/gather-like ops are fusion inputs
   if (registry_utils::rejectScheduleForMemoryPromotion(
-          fusion, heuristicType())) {
+          fusion, schedulerType())) {
     return false;
   }
 
@@ -38,7 +38,7 @@ bool TransposeScheduler::canScheduleCompileTime(Fusion* fusion) {
         select->input(0)->as<TensorView>()->getMaybeAllocationDomain());
     if (select->getIndexedID() == inner[inner.size() - 1]) {
       scheduler_debug_utils::canScheduleRejectReason(
-          heuristicType(),
+          schedulerType(),
           "SelectOp on inner dim is not supported by transpose scheduler yet."
           "In transpose scheduler, we want to leave the select dim alone, instead of creating a tile for it.");
       return false;
@@ -49,7 +49,7 @@ bool TransposeScheduler::canScheduleCompileTime(Fusion* fusion) {
         idx_sel->input(0)->as<TensorView>()->getMaybeAllocationDomain());
     if (idx_sel->getIndexedID() == inner[inner.size() - 1]) {
       scheduler_debug_utils::canScheduleRejectReason(
-          heuristicType(),
+          schedulerType(),
           "IndexSelectOp on inner dim is not supported by transpose scheduler yet."
           "In transpose scheduler, we want to leave the select dim alone, instead of creating a tile for it.");
       return false;
@@ -60,7 +60,7 @@ bool TransposeScheduler::canScheduleCompileTime(Fusion* fusion) {
         torch_gather->input(0)->as<TensorView>()->getMaybeAllocationDomain());
     if (torch_gather->getIndexedID() == inner[inner.size() - 1]) {
       scheduler_debug_utils::canScheduleRejectReason(
-          heuristicType(),
+          schedulerType(),
           "TorchGatherOp on inner dim is not supported by transpose scheduler yet."
           "In transpose scheduler, we want to leave the select dim alone, instead of creating a tile for it.");
       return false;
@@ -69,19 +69,19 @@ bool TransposeScheduler::canScheduleCompileTime(Fusion* fusion) {
 
   if (!hasAtLeastTwoValidGroups(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(), "cannot find two mismatching inner most dimensions");
+        schedulerType(), "cannot find two mismatching inner most dimensions");
     return false;
   }
 
   if (ir_utils::hasAnyReductionOps(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(), "no support for reduction ops");
+        schedulerType(), "no support for reduction ops");
     return false;
   }
 
   if (registry_utils::hasNonUniqueBcast(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(),
+        schedulerType(),
         "Broadcasting dimension might be broadcasting to multiple sizes.");
     return false;
   }
@@ -98,7 +98,7 @@ bool TransposeScheduler::canScheduleRunTime(
   auto reason =
       getTransposeRuntimeRejectReason(fusion, data_cache, runtime_info);
   if (!reason.empty()) {
-    scheduler_debug_utils::canScheduleRejectReason(heuristicType(), reason);
+    scheduler_debug_utils::canScheduleRejectReason(schedulerType(), reason);
     return false;
   }
   return true;

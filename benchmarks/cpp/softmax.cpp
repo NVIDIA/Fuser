@@ -99,9 +99,9 @@ static void NvFuserScheduler_Softmax_WarpReduceReference(
   // Schedule through magic scheduler:
   SchedulerRuntimeInfo runtime_info(fusion, aten_inputs);
   NVF_ERROR(Schedule::canSchedule(
-      HeuristicType::InnerPersistent, fusion, runtime_info));
+      SchedulerType::InnerPersistent, fusion, runtime_info));
   auto scheduler =
-      SchedulerEntry::makeSchedulerInstance(HeuristicType::InnerPersistent);
+      SchedulerEntry::makeSchedulerInstance(SchedulerType::InnerPersistent);
   auto heuristic_params = scheduler->computeHeuristics(fusion, runtime_info);
   scheduler->schedule(fusion, heuristic_params.get());
 
@@ -136,9 +136,9 @@ static void NvFuserScheduler_Softmax_WarpReduce(
   // Schedule through magic scheduler:
   SchedulerRuntimeInfo runtime_info(fusion, aten_inputs);
   NVF_ERROR(Schedule::canSchedule(
-      HeuristicType::InnerPersistent, fusion, runtime_info));
+      SchedulerType::InnerPersistent, fusion, runtime_info));
   auto scheduler =
-      SchedulerEntry::makeSchedulerInstance(HeuristicType::InnerPersistent);
+      SchedulerEntry::makeSchedulerInstance(SchedulerType::InnerPersistent);
   auto heuristic_params = scheduler->computeHeuristics(fusion, runtime_info);
   scheduler->schedule(fusion, heuristic_params.get());
 

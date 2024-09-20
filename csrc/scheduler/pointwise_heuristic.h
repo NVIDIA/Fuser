@@ -19,7 +19,7 @@ namespace nvfuser {
 // are equivelent!
 class PointwiseParams : public HeuristicParams {
  public:
-  PointwiseParams() : HeuristicParams(HeuristicType::PointWise) {};
+  PointwiseParams() : HeuristicParams(SchedulerType::PointWise) {};
 
   // vectorize if true, otherwise unroll
   bool vectorize = false;

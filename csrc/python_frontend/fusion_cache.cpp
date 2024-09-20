@@ -190,12 +190,12 @@ UserSchedule::UserSchedule() : scheduled_fusion(nullptr), executor(nullptr) {
   executor = std::make_unique<FusionExecutor>();
 }
 
-bool UserSchedule::canSchedule(const HeuristicType& heuristic) {
-  return Schedule::canSchedule(heuristic, fusion(), *runtimeInfo());
+bool UserSchedule::canSchedule(const SchedulerType& scheduler_type) {
+  return Schedule::canSchedule(scheduler_type, fusion(), *runtimeInfo());
 }
 
 std::tuple<bool, std::string> UserSchedule::canScheduleDebug(
-    const HeuristicType& heuristic) {
+    const SchedulerType& scheduler_type) {
   // Enable collection of messages from canScheduleRejectReason
   DebugDumpOptionsGuard debug_dump_options_guard;
   DebugDumpOptionsGuard::getCurOptions().set(
@@ -205,22 +205,22 @@ std::tuple<bool, std::string> UserSchedule::canScheduleDebug(
   std::stringstream ss;
   DebugStreamGuard dsg(ss);
 
-  bool can_schedule = canSchedule(heuristic);
+  bool can_schedule = canSchedule(scheduler_type);
   return std::make_tuple(can_schedule, ss.str());
 }
 
-void UserSchedule::scheduleWithHeuristic(HeuristicType heuristic_type) {
+void UserSchedule::scheduleWithType(SchedulerType scheduler_type) {
   NVF_CHECK(
       heuristic_params == nullptr,
       "Heuristic Scheduler is already defined for this UserSchedule");
-  auto scheduler = SchedulerEntry::makeSchedulerInstance(heuristic_type);
+  auto scheduler = SchedulerEntry::makeSchedulerInstance(scheduler_type);
   SchedulerRuntimeInfo& runtime_info_ref = *runtimeInfo();
 
   NVF_ERROR(
       scheduler->canScheduleCompileTime(fusion()) &&
           scheduler->canScheduleRunTime(fusion(), runtime_info_ref),
       "Could not schedule fusion with ",
-      heuristic_type,
+      scheduler_type,
       " scheduler.");
 
   heuristic_params = scheduler->computeHeuristics(fusion(), runtime_info_ref);

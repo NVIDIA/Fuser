@@ -37,7 +37,7 @@ void MatmulScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 bool MatmulScheduler::canScheduleCompileTime(Fusion* fusion) {
   const auto msg = getMatmulCompileTimeRejectReason(fusion);
   if (!msg.empty()) {
-    scheduler_debug_utils::canScheduleRejectReason(heuristicType(), msg);
+    scheduler_debug_utils::canScheduleRejectReason(schedulerType(), msg);
     return false;
   }
 
@@ -51,7 +51,7 @@ bool MatmulScheduler::canScheduleRunTime(
   FUSER_PERF_SCOPE("MatmulScheduler::canSchedule");
   auto reason = getMatmulRunTimeRejectReason(fusion, data_cache, runtime_info);
   if (!reason.empty()) {
-    scheduler_debug_utils::canScheduleRejectReason(heuristicType(), reason);
+    scheduler_debug_utils::canScheduleRejectReason(schedulerType(), reason);
     return false;
   }
   return true;

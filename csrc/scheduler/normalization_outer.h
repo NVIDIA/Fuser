@@ -36,8 +36,8 @@ class OuterPersistentKernelScheduler : public SchedulerEntry {
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr) override;
 
-  constexpr static HeuristicType heuristicType() {
-    return HeuristicType::OuterPersistent;
+  constexpr static SchedulerType schedulerType() {
+    return SchedulerType::OuterPersistent;
   }
 
   std::unique_ptr<HeuristicParams> computeHeuristics(

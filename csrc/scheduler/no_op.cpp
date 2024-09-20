@@ -67,7 +67,7 @@ bool NoOpScheduler::canScheduleCompileTime(Fusion* fusion) {
           [](IterDomain* id) { return id->extent()->isZeroInt(); });
       if (all_nonzero) {
         scheduler_debug_utils::canScheduleRejectReason(
-            heuristicType(), "reduction of non-zero elements is not supported");
+            schedulerType(), "reduction of non-zero elements is not supported");
         return false;
       }
     }
@@ -79,14 +79,14 @@ bool NoOpScheduler::canScheduleCompileTime(Fusion* fusion) {
         TensorDomain::noBroadcasts(out_tv->getLoopDomain()));
     if (!concrete_dimension.empty()) {
       scheduler_debug_utils::canScheduleRejectReason(
-          heuristicType(), "output has a concrete dimension");
+          schedulerType(), "output has a concrete dimension");
       return false;
     }
   }
 
   // Check that inputs of all select/gather-like ops are fusion inputs
   if (registry_utils::rejectScheduleForMemoryPromotion(
-          fusion, heuristicType())) {
+          fusion, schedulerType())) {
     return false;
   }
 
@@ -108,7 +108,7 @@ bool NoOpScheduler::canScheduleRunTime(
 
 void NoOpScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   NVF_ERROR(
-      params->heuristic_type == heuristicType(),
+      params->scheduler_type == schedulerType(),
       "Invalid heuristic sent to NoOp scheduler: ",
       params);
 
@@ -128,7 +128,7 @@ std::unique_ptr<HeuristicParams> NoOpScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
-  auto params = std::make_unique<HeuristicParams>(HeuristicType::NoOp);
+  auto params = std::make_unique<HeuristicParams>(SchedulerType::NoOp);
   params->cparams.index_type = runtime_info.getIndexType();
   return params;
 }

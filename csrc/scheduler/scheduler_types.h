@@ -14,8 +14,8 @@
 
 namespace nvfuser {
 
-//! Each HeuristicType maps to a scheduler in distinct CPP files.
-//! For instance, HeuristicType::PointWise maps to PointWiseScheduler in
+//! Each SchedulerType maps to a scheduler in distinct CPP files.
+//! For instance, SchedulerType::PointWise maps to PointWiseScheduler in
 //! pointwise.cpp.
 //!
 //!    Each of the scheduler needs to provide 3 interface functions:
@@ -46,7 +46,7 @@ namespace nvfuser {
 //!        This function will be called when compiling a kernel. It should apply
 //!        scheduling to the given fusion
 
-enum class HeuristicType {
+enum class SchedulerType {
   None,
   NoOp,
   PointWise,
@@ -60,19 +60,19 @@ enum class HeuristicType {
 };
 
 //! Define a schedule table to loop over all the heuristics in priority order.
-constexpr std::array<HeuristicType, 9> all_heuristics_in_priority_order = {
-    HeuristicType::ExprEval,
-    HeuristicType::NoOp,
-    HeuristicType::Matmul,
-    HeuristicType::Reduction,
-    HeuristicType::Transpose,
-    HeuristicType::PointWise,
-    HeuristicType::InnerPersistent,
-    HeuristicType::OuterPersistent,
-    HeuristicType::InnerOuterPersistent};
+constexpr std::array<SchedulerType, 9> all_heuristics_in_priority_order = {
+    SchedulerType::ExprEval,
+    SchedulerType::NoOp,
+    SchedulerType::Matmul,
+    SchedulerType::Reduction,
+    SchedulerType::Transpose,
+    SchedulerType::PointWise,
+    SchedulerType::InnerPersistent,
+    SchedulerType::OuterPersistent,
+    SchedulerType::InnerOuterPersistent};
 
-std::string toString(HeuristicType sh);
+std::string toString(SchedulerType sh);
 
-NVF_API std::ostream& operator<<(std::ostream& os, HeuristicType sh);
+NVF_API std::ostream& operator<<(std::ostream& os, SchedulerType sh);
 
 } // namespace nvfuser

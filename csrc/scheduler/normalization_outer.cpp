@@ -24,7 +24,7 @@ void OuterPersistentKernelScheduler::schedule(
   FUSER_PERF_SCOPE("OuterPersistentKernelScheduler::schedule");
   auto rparams = dynamic_cast<const ReductionParams*>(params);
   NVF_ERROR(
-      rparams != nullptr && rparams->heuristic_type == heuristicType(),
+      rparams != nullptr && rparams->scheduler_type == schedulerType(),
       "Incorrect parameters sent to OuterPersistentKernelScheduler::schedule",
       params);
   scheduleOuterPersistentKernel(fusion, rparams);
@@ -33,7 +33,7 @@ void OuterPersistentKernelScheduler::schedule(
 bool OuterPersistentKernelScheduler::canScheduleCompileTime(Fusion* fusion) {
   FUSER_PERF_SCOPE("OuterPersistentKernelScheduler::canScheduleCompileTime");
   return normalization_scheduler_utils::compileTimeCheck(
-      fusion, heuristicType());
+      fusion, schedulerType());
 }
 
 bool OuterPersistentKernelScheduler::canScheduleRunTime(
@@ -86,7 +86,7 @@ bool OuterPersistentKernelScheduler::canScheduleRunTime(
 
   if (persistent_buffer_size > available_persistent_buffer_size) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(), "not enough registers for persistence");
+        schedulerType(), "not enough registers for persistence");
     return false;
   }
 
@@ -111,7 +111,7 @@ bool OuterPersistentKernelScheduler::canScheduleRunTime(
   if (required_sm_per_norm >
       scheduler_utils::safeDiv(device_multiprocessor_count, 2)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(),
+        schedulerType(),
         "requires over half GPU persistence.",
         " required SMs per normalization: ",
         required_sm_per_norm);
@@ -129,7 +129,7 @@ bool OuterPersistentKernelScheduler::canScheduleRunTime(
     // TODO: Is this necessary for block persistence as well?
     if (vectorization_factor < 4) {
       scheduler_debug_utils::canScheduleRejectReason(
-          heuristicType(), "not enough vectorized");
+          schedulerType(), "not enough vectorized");
       return false;
     }
 
@@ -143,7 +143,7 @@ bool OuterPersistentKernelScheduler::canScheduleRunTime(
 
     if (!cross_grid_params.has_value()) {
       scheduler_debug_utils::canScheduleRejectReason(
-          heuristicType(), "no valid launch config found");
+          schedulerType(), "no valid launch config found");
       return false;
     }
   }
@@ -160,7 +160,7 @@ bool OuterPersistentKernelScheduler::canScheduleRunTime(
   // factor
   if (max_multi_reduction_factor < min_multi_reduction_factor) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(),
+        schedulerType(),
         "Not enough threads.",
         " Multi reduction factor, ",
         max_multi_reduction_factor,
@@ -185,7 +185,7 @@ bool OuterPersistentKernelScheduler::canScheduleRunTime(
   if (is_cross_grid &&
       max_used_sms < scheduler_utils::safeDiv(device_multiprocessor_count, 2)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(), "cross grid - not enough used SMs: ", max_used_sms);
+        schedulerType(), "cross grid - not enough used SMs: ", max_used_sms);
     return false;
   }
 
@@ -197,7 +197,7 @@ bool OuterPersistentKernelScheduler::canScheduleRunTime(
           device_max_threads_per_multiprocessor * 4 && // Large reduction dim
       max_used_sms < min_fraction_of_sms) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(), "not enough used SMs");
+        schedulerType(), "not enough used SMs");
     return false;
   }
 
@@ -214,7 +214,7 @@ bool OuterPersistentKernelScheduler::canScheduleRunTime(
             return !reduction_tv->definition()->isA<WelfordOp>();
           })) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(), "non-Welford not enabled yet");
+        schedulerType(), "non-Welford not enabled yet");
     return false;
   }
 
@@ -231,7 +231,7 @@ bool OuterPersistentKernelScheduler::canScheduleRunTime(
        0) &&
       device_prop->major == 7) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(), "iteration not evenly divided");
+        schedulerType(), "iteration not evenly divided");
     return false;
   }
 
@@ -311,7 +311,7 @@ std::unique_ptr<ReductionParams> gridOuterPersistentHeuristic(
   const auto unswitch_factor = outer_params->unswitch_factor;
 
   auto rparams = std::make_unique<ReductionParams>(
-      OuterPersistentKernelScheduler::heuristicType());
+      OuterPersistentKernelScheduler::schedulerType());
 
   rparams->persistent_kernel = true;
   rparams->project_persistent_buffers = project_to_input;
@@ -574,7 +574,7 @@ std::unique_ptr<ReductionParams> outerPersistentHeuristic(
 
   // copy to ReductionParams
   auto rparams = std::make_unique<ReductionParams>(
-      OuterPersistentKernelScheduler::heuristicType());
+      OuterPersistentKernelScheduler::schedulerType());
   auto gdimx = ceilDiv(total_iteration_numel, params.bdimx.get());
   rparams->batches_per_block_inner_reduction = params.batches_per_block.get();
   rparams->persistent_kernel = true;
@@ -651,7 +651,7 @@ std::unique_ptr<ReductionParams> getOuterPersistentHeuristics(
           fusion,
           runtime_info,
           data_cache,
-          OuterPersistentKernelScheduler::heuristicType());
+          OuterPersistentKernelScheduler::schedulerType());
 
   std::unique_ptr<ReductionParams> rparams = outerPersistentHeuristic(
       prop.total_reduction_numel,
@@ -678,10 +678,10 @@ void scheduleOuterPersistentKernel(
     Fusion* fusion,
     const ReductionParams* rparams) {
   NVF_ERROR(
-      rparams->heuristic_type ==
-      OuterPersistentKernelScheduler::heuristicType());
+      rparams->scheduler_type ==
+      OuterPersistentKernelScheduler::schedulerType());
   normalization_scheduler_utils::schedulePersistentKernel(
-      fusion, rparams, rparams->heuristic_type);
+      fusion, rparams, rparams->scheduler_type);
 }
 
 } // namespace nvfuser

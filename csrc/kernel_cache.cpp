@@ -771,7 +771,6 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     if (runtime_it != kernel_runtimes.end()) {
       kernel_runtime = runtime_it->get();
       kernel_runtime->updateHeuristicsLaunchParams(new_heuristics.get());
-      //
       id_to_kernel_runtime_[unique_id] = kernel_runtime;
       return kernel_runtime;
     }
@@ -1052,10 +1051,10 @@ FusionKernelRuntime::FusionKernelRuntime(
         segmented_groups->begin(),
         segmented_groups->end(),
         [](const serde::SegmentedGroup* sg) {
-          auto heuristic = static_cast<HeuristicType>(sg->heuristic());
-          return heuristic == HeuristicType::InnerPersistent ||
-              heuristic == HeuristicType::OuterPersistent ||
-              heuristic == HeuristicType::InnerOuterPersistent;
+          auto heuristic = static_cast<SchedulerType>(sg->heuristic());
+          return heuristic == SchedulerType::InnerPersistent ||
+              heuristic == SchedulerType::OuterPersistent ||
+              heuristic == SchedulerType::InnerOuterPersistent;
         });
 
     bool has_welford_ops = ir_utils::hasOpsOfType<WelfordOp>(fusion.get());
@@ -1137,11 +1136,11 @@ void FusionKernelRuntime::deserialize(
     auto group_id = sg->groupId();
     auto heuristic_params = schedulers().at(group_id).get();
     NVF_ERROR(
-        !sg || heuristic_params->heuristic_type == sg->heuristicType(),
+        !sg || heuristic_params->scheduler_type == sg->schedulerType(),
         "Heuristics do not match.");
     auto fusion_to_run = segmented_fusion_->makeFusion(sg).second;
     FusionGuard fg(fusion_to_run.get());
-    SchedulerEntry::makeSchedulerInstance(heuristic_params->heuristic_type)
+    SchedulerEntry::makeSchedulerInstance(heuristic_params->scheduler_type)
         ->schedule(fusion_to_run.get(), heuristic_params);
 
     executors_.at(group_id).deserialize(
@@ -1149,7 +1148,7 @@ void FusionKernelRuntime::deserialize(
         fusion_to_run.get(),
         device_index,
         heuristic_params->cparams,
-        heuristic_params->heuristic_type,
+        heuristic_params->scheduler_type,
         fusion_id_,
         concrete_id_,
         runtime_id_,
@@ -1296,7 +1295,7 @@ void FusionKernelRuntime::compileKernel(
   auto heuristic_params = schedulers().at(group_id).get();
 
   // Check that the heuristics are matched, in the case of segmented fusion
-  NVF_ERROR(!sg || heuristic_params->heuristic_type == sg->heuristicType());
+  NVF_ERROR(!sg || heuristic_params->scheduler_type == sg->schedulerType());
   NVF_ERROR(!executors_.at(group_id).isCompiled());
 
   // Running a segment group as a single kernel,
@@ -1307,7 +1306,7 @@ void FusionKernelRuntime::compileKernel(
   }
   FusionGuard fg(fusion_to_run.get());
   if (auto_schedule_) {
-    SchedulerEntry::makeSchedulerInstance(heuristic_params->heuristic_type)
+    SchedulerEntry::makeSchedulerInstance(heuristic_params->scheduler_type)
         ->schedule(fusion_to_run.get(), heuristic_params);
   }
   NVF_ERROR(
@@ -1318,7 +1317,7 @@ void FusionKernelRuntime::compileKernel(
       args,
       heuristic_params->lparams,
       heuristic_params->cparams,
-      heuristic_params->heuristic_type,
+      heuristic_params->scheduler_type,
       fusion_id_,
       concrete_id_,
       runtime_id_,
@@ -1332,7 +1331,7 @@ std::pair<LaunchParams, CompileParams> FusionKernelRuntime::getKernelConfig(
   auto heuristic_params = schedulers().at(group_id).get();
 
   // Check that the heuristics are matched, in the case of segmented fusion
-  NVF_ERROR(!sg || heuristic_params->heuristic_type == sg->heuristicType());
+  NVF_ERROR(!sg || heuristic_params->scheduler_type == sg->schedulerType());
 
   return std::make_pair(heuristic_params->lparams, heuristic_params->cparams);
 }

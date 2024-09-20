@@ -8,7 +8,7 @@
 #pragma once
 
 #include <fusion_executor/executor_params.h>
-#include <scheduler/heuristic_types.h>
+#include <scheduler/scheduler_types.h>
 #include <utils.h>
 
 #include <string>
@@ -28,11 +28,11 @@ class HeuristicParams : public PolymorphicBase {
 
   LaunchParams lparams;
   CompileParams cparams;
-  const HeuristicType heuristic_type;
+  const SchedulerType scheduler_type;
 
   virtual std::string toString() const {
     std::stringstream ss;
-    ss << "Heuristic Params (" << heuristic_type << ")";
+    ss << "Heuristic Params (" << scheduler_type << ")";
     return ss.str();
   }
 
@@ -44,14 +44,15 @@ class HeuristicParams : public PolymorphicBase {
     if (!other->isStrictlyA<HeuristicParams>()) {
       return false;
     }
-    if (other->heuristic_type != heuristic_type) {
+    if (other->scheduler_type != scheduler_type) {
       return false;
     }
     return other->cparams == cparams;
   }
 
   HeuristicParams() = delete;
-  explicit HeuristicParams(HeuristicType type) : heuristic_type(type) {};
+  explicit HeuristicParams(SchedulerType _scheduler_type)
+      : scheduler_type(_scheduler_type) {};
 
   virtual std::unique_ptr<HeuristicParams> clone() const {
     return std::make_unique<HeuristicParams>(*this);
@@ -77,7 +78,7 @@ class HeuristicParamsList {
   //! Constructor for complete fusion case, generates the scheduler entry
   //!  for the fusion owning the given expression
   explicit HeuristicParamsList(
-      HeuristicType schedule_heuristic,
+      SchedulerType scheduler_type,
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr);
 

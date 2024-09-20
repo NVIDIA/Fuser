@@ -110,7 +110,7 @@ void checkUnsegmentedVectorization(
   // expected to match whole fusion with single segment
   EXPECT_FALSE(runtime->isSegmented());
 
-  ASSERT_TRUE(isSchedulerInUse(runtime, HeuristicType::Matmul));
+  ASSERT_TRUE(isSchedulerInUse(runtime, SchedulerType::Matmul));
 
   // Check that supported_vec_size matches expected.
   const MatmulParams* params = runtime->schedulerHeuristics()
@@ -2076,7 +2076,7 @@ TEST_P(MatmulSchedulerTestWithLayout, MisalignedVectorization) {
         // expected to match whole fusion with single segment
         EXPECT_FALSE(runtime->isSegmented());
 
-        ASSERT_TRUE(isSchedulerInUse(runtime, HeuristicType::Matmul));
+        ASSERT_TRUE(isSchedulerInUse(runtime, SchedulerType::Matmul));
 
         // Check that supported_vec_size matches expected.
         const MatmulParams* params = runtime->schedulerHeuristics()
@@ -2272,7 +2272,7 @@ TEST_P(MatmulSchedulerTestWithLayout, StridedInputs) {
         // expected to match whole fusion with single segment
         EXPECT_FALSE(runtime->isSegmented());
 
-        ASSERT_TRUE(isSchedulerInUse(runtime, HeuristicType::Matmul));
+        ASSERT_TRUE(isSchedulerInUse(runtime, SchedulerType::Matmul));
 
         // Check that supported_vec_size matches expected.
         const MatmulParams* params = runtime->schedulerHeuristics()
@@ -2481,7 +2481,7 @@ TEST_F(MatmulSchedulerPluginTest, BasicMatmul) {
       "fusion got segmented, expected to match whole fusion with single segment");
 
   NVF_CHECK(
-      isSchedulerInUse(runtime, HeuristicType::Matmul),
+      isSchedulerInUse(runtime, SchedulerType::Matmul),
       "matmul scheduler was not used to handle prepared fusion");
 
   HeuristicParams* heur = runtime->getMostRecentExecutorLog().params.get();
