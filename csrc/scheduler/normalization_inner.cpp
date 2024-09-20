@@ -25,7 +25,8 @@ void InnerPersistentKernelScheduler::schedule(
   FUSER_PERF_SCOPE("InnerPersistentKernelScheduler::schedule");
   auto rparams = dynamic_cast<const ReductionParams*>(params);
   NVF_ERROR(
-      rparams != nullptr,
+      rparams != nullptr &&
+          rparams->heuristic_type == HeuristicType::InnerPersistent,
       "Incorrect parameters sent to InnerPersistentKernelScheduler::schedule",
       params);
   scheduleInnerPersistentKernel(fusion, rparams);
@@ -1145,8 +1146,9 @@ std::unique_ptr<ReductionParams> getInnerPersistentHeuristics(
 void scheduleInnerPersistentKernel(
     Fusion* fusion,
     const ReductionParams* rparams) {
+  NVF_ERROR(rparams->heuristic_type == HeuristicType::InnerPersistent);
   normalization_scheduler_utils::schedulePersistentKernel(
-      fusion, rparams, InnerPersistentKernelScheduler::heuristicType());
+      fusion, rparams, rparams->heuristic_type);
 }
 
 } // namespace nvfuser

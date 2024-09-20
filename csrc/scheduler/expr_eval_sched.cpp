@@ -52,7 +52,7 @@ void ExprEvalScheduler::schedule(
     Fusion* fusion,
     const HeuristicParams* params) {
   NVF_ERROR(
-      params->heuristic_type == HeuristicType::ExprEval,
+      params->heuristic_type == heuristicType(),
       "Invalid heuristic sent to ExprEval scheduler: ",
       params);
 

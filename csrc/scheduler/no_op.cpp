@@ -108,7 +108,7 @@ bool NoOpScheduler::canScheduleRunTime(
 
 void NoOpScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   NVF_ERROR(
-      params->heuristic_type == HeuristicType::NoOp,
+      params->heuristic_type == heuristicType(),
       "Invalid heuristic sent to NoOp scheduler: ",
       params);
 

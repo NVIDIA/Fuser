@@ -19,6 +19,9 @@ class SchedulerRuntimeInfo;
 class HeuristicSummary;
 class SchedulerEntry;
 
+// Top-level class representing heuristic parameters. Most schedulers
+// have their own subclasses to have their specific parameters, except
+// for ExprEval schedulers.
 class HeuristicParams : public PolymorphicBase {
  public:
   std::string tag = "";
@@ -28,7 +31,9 @@ class HeuristicParams : public PolymorphicBase {
   const HeuristicType heuristic_type;
 
   virtual std::string toString() const {
-    return "Undefined Heuristic Params";
+    std::stringstream ss;
+    ss << "Heuristic Params (" << heuristic_type << ")";
+    return ss.str();
   }
 
   virtual size_t hash() const {
@@ -49,7 +54,7 @@ class HeuristicParams : public PolymorphicBase {
   explicit HeuristicParams(HeuristicType type) : heuristic_type(type) {};
 
   virtual std::unique_ptr<HeuristicParams> clone() const {
-    return std::make_unique<HeuristicParams>(heuristic_type);
+    return std::make_unique<HeuristicParams>(*this);
   }
 };
 
@@ -95,7 +100,7 @@ class HeuristicParamsList {
   }
 
   //! Returns the single scheduler for a complete fusion.
-  HeuristicParams* singleKernelHeuristics() {
+  HeuristicParams* singleKernelHeuristics() const {
     NVF_ERROR(!is_segmented_);
     return heuristics_.begin()->get();
   }

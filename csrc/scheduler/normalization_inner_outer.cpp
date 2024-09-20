@@ -24,7 +24,8 @@ void InnerOuterPersistentKernelScheduler::schedule(
   FUSER_PERF_SCOPE("InnerOuterPersistentKernelScheduler::schedule");
   auto rparams = dynamic_cast<const ReductionParams*>(params);
   NVF_ERROR(
-      rparams != nullptr,
+      rparams != nullptr &&
+          rparams->heuristic_type == HeuristicType::InnerOuterPersistent,
       "Incorrect parameters sent to InnerOuterPersistentKernelScheduler::schedule",
       params);
   scheduleInnerOuterPersistentKernel(fusion, rparams);
