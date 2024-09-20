@@ -410,30 +410,41 @@ class FusionTranslator : public OptInConstDispatch {
   }
 
   // Map cast UnaryOp to CastOpRecord
-  void handleCastOp(const UnaryOp* uop) {
-    NVF_ERROR(uop->getUnaryOpType() == UnaryOpType::Cast);
+  void handleCastOp(const Expr* op) {
+    bool is_cast_op = op->isA<UnaryOp>() &&
+        op->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Cast;
+    NVF_ERROR(op->isA<LoadStoreOp>() || is_cast_op);
 
-    size_t input_fd_index = map_val_to_fd_index_.at(uop->in());
-    if (uop->in()->isA<TensorView>()) {
-      Tensor output = fd_->defineTensor(uop->out()->as<TensorView>()->nDims());
-      map_val_to_fd_index_.emplace(uop->out(), output());
+    size_t input_fd_index = map_val_to_fd_index_.at(op->input(0));
+
+    // DataType::Index does not exist in python_frontend, so convert to
+    // DataType::Int
+    DataType scalar_dtype = op->output(0)->dtype();
+    if (scalar_dtype == DataType::Index) {
+      scalar_dtype = DataType::Int;
+    }
+
+    if (op->input(0)->isA<TensorView>()) {
+      Tensor output =
+          fd_->defineTensor(op->output(0)->as<TensorView>()->nDims());
+      map_val_to_fd_index_.emplace(op->output(0), output());
       fd_->defineRecord(new CastOpRecord<TensorView*, TensorView*>(
           {fd_->recordingState(input_fd_index)},
           {fd_->recordingState(output())},
           "ops.cast",
           serde::RecordType::CastTv,
           static_cast<TensorView* (*)(DataType, TensorView*)>(castOp),
-          std::get<PrimDataType>(uop->out()->dtype().type)));
+          std::get<PrimDataType>(scalar_dtype.type)));
     } else {
       Scalar output = fd_->defineScalar();
-      map_val_to_fd_index_.emplace(uop->out(), output());
+      map_val_to_fd_index_.emplace(op->output(0), output());
       fd_->defineRecord(new CastOpRecord<Val*, Val*>(
           {fd_->recordingState(input_fd_index)},
           {fd_->recordingState(output())},
           "ops.cast",
           serde::RecordType::CastVal,
           static_cast<Val* (*)(DataType, Val*)>(castOp),
-          std::get<PrimDataType>(uop->out()->dtype().type)));
+          std::get<PrimDataType>(scalar_dtype.type)));
     }
   }
 
