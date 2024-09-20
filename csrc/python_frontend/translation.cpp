@@ -444,7 +444,7 @@ class FusionTranslator : public OptInConstDispatch {
   void handleCastOp(const Expr* op) {
     bool is_cast_op = op->isA<UnaryOp>() &&
         op->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Cast;
-    NVF_ERROR(op->isA<LoadStoreOp>() || is_cast_op);
+    NVF_ERROR(is_cast_op);
 
     size_t input_fd_index = map_val_to_fd_index_.at(op->input(0));
 
