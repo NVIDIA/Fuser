@@ -476,28 +476,9 @@ class FusionTranslator : public OptInConstDispatch {
         lsop->out()->as<TensorView>()->hasRoot()) {
       return handlePermute(lsop);
     }
-
-    // Create set unary operation
+    // Skip set unary operation
     int64_t input_fid = map_val_to_fd_index_.at(lsop->in());
-    if (lsop->in()->isA<TensorView>()) {
-      Tensor output = fd_->defineTensor(lsop->out()->as<TensorView>()->nDims());
-      map_val_to_fd_index_.emplace(lsop->out(), output());
-      fd_->defineRecord(new OpRecord<TensorView*, TensorView*>(
-          {fd_->recordingState(input_fid)},
-          {fd_->recordingState(output())},
-          "ops.set",
-          serde::RecordType::Unary_TV,
-          static_cast<TensorView* (*)(TensorView*)>(set)));
-    } else {
-      Scalar output = fd_->defineScalar();
-      map_val_to_fd_index_.emplace(lsop->out(), output());
-      fd_->defineRecord(new OpRecord<Val*, Val*>(
-          {fd_->recordingState(input_fid)},
-          {fd_->recordingState(output())},
-          "ops.set",
-          serde::RecordType::Unary_VAL,
-          static_cast<Val* (*)(Val*)>(set)));
-    }
+    map_val_to_fd_index_.emplace(lsop->out(), input_fid);
   }
 
   void handlePermute(const LoadStoreOp* lsop) {
