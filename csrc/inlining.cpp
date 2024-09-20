@@ -65,6 +65,16 @@ void MaxPosCalculator::buildUnmappableDims(bool compute_at_only) {
   }
 }
 
+const ValGraph& MaxPosCalculator::inliningGraph() {
+  if (id_model_.get() == nullptr) {
+    id_model_ = std::make_unique<IdModel>(
+        FusionGuard::getCurFusion(), /*build_graphs=*/false);
+    id_model_->buildBroadcastGraph();
+  }
+
+  return id_model_->idGraph(IdMappingMode::BROADCAST);
+}
+
 bool MaxPosCalculator::isAllowedID(
     IterDomain* id,
     TensorView* tv,
@@ -146,7 +156,7 @@ size_t MaxPosCalculator::getMaxPosSelf(
 size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
     TensorView* producer,
     TensorView* consumer,
-    bool best_effort) const {
+    bool best_effort) {
   if (lower_utils::hasRootToLoopLinearTransformations(producer) &&
       lower_utils::hasRootToLoopLinearTransformations(consumer)) {
     auto pairwise_logical_map = PairwiseLogicalDomainMap(producer, consumer);
@@ -172,12 +182,6 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
     }
     return producer->nDims();
   } else {
-    NVF_ERROR(
-        id_model_.get() != nullptr,
-        "Nonconventional loop domains require IdModel: ",
-        producer->toString(),
-        ", ",
-        consumer->toString());
     auto consumer_it = consumer->getLoopDomain().begin();
     for (const auto producer_pos : c10::irange(producer->nDims())) {
       auto p_id = producer->getLoopDomain().at(producer_pos);

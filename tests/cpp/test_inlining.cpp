@@ -376,7 +376,7 @@ TEST_F(InliningTest, GetMaxProducerPosFromConsumer) {
   EXPECT_EQ(
       calc.getMaxProducerPosFromConsumer(tv1, tv2, /*best_effort=*/true), 3);
 
-  // tv2 is unrolled, which should block the inlining of tv1.
+  // Unrolling of tv2 should block the inlining of tv1.
   tv2->axis(-1)->parallelize(ParallelType::Unroll);
   EXPECT_EQ(
       calc.getMaxProducerPosFromConsumer(tv1, tv2, /*best_effort=*/true), 2);
@@ -403,10 +403,23 @@ TEST_F(InliningTest, GetMaxProducerPosFromConsumerWithBroadcast) {
   {
     std::vector<IterDomain*> loop_domain{
         tv2->getLogicalDomain().at(0),
-        tv4->getLoopDomain().at(1)->cloneWithoutRFactor()};
+        tv4->getLoopDomain().at(1)->cloneWithoutRFactor(
+            /*map_with_original=*/true)};
     tv2->setLoopDomain(loop_domain);
-    std::cerr << "tv2: " << tv2->toString() << "\n";
   }
+
+  for (auto tv : fusion.allTvs()) {
+    if (tv->isFusionInput()) {
+      continue;
+    }
+    std::cerr << tv->toString() << "\n";
+    tv->flatten();
+    tv->split(0, 32);
+    std::cerr << tv->toString() << "\n";
+  }
+
+  fusion.print();
+  std::cout << std::endl;
 
   // tv3 loop domain does not need to change. Although it has a
   // broadcast iter domain, it is treated as the same as the concrete

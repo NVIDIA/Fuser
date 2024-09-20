@@ -32,10 +32,7 @@ class MaxPosCalculator {
   // map to all its consumer TVs.
   void buildUnmappableDims(bool compute_at_only);
 
-  const ValGraph& inliningGraph() const {
-    NVF_ERROR(id_model_.get() != nullptr);
-    return id_model_->idGraph(IdMappingMode::BROADCAST);
-  }
+  const ValGraph& inliningGraph();
 
  public:
   // Utility function to return if an id of tv is a valid iter domain to inline
@@ -63,7 +60,7 @@ class MaxPosCalculator {
   size_t getMaxProducerPosFromConsumer(
       TensorView* producer,
       TensorView* consumer,
-      bool best_effort) const;
+      bool best_effort);
 
   // Checks producers, consumers, and siblings to see what the maximum position
   // in tv is that can be shared across both directions.

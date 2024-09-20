@@ -176,6 +176,9 @@ void IdModel::buildIterDomainDefinitionsAndUses() {
     const bool view_like_domain = tv->domain()->hasViewLikeRFactor();
 
     for (auto id : all_ids) {
+      if (tv->name() == 2) {
+        std::cerr << "tv2 id: " << id->toString() << "\n";
+      }
       // Check if this id is a view like rfactor id
       if (view_like_domain && id->isRFactorProduct()) {
         // If the tensor domain is a view like domain, and the iteration
@@ -202,11 +205,19 @@ void IdModel::buildIterDomainDefinitionsAndUses() {
         continue;
       }
 
+      if (tv->name() == 2) {
+        std::cerr << "tv2 id def: " << def->toString() << "\n";
+      }
+
       id_definitions_[id].pushBack(def);
 
       auto inp_ids = ir_utils::filterByType<IterDomain>(def->inputs());
       for (auto inp_id : inp_ids) {
         id_uses_[inp_id].pushBack(def);
+        if (tv->name() == 2) {
+          std::cerr << "tv2 id use of : " << inp_id->toString() << ": "
+                    << def->toString() << "\n";
+        }
       }
     }
   }
@@ -346,18 +357,26 @@ ValGraph& IdModel::buildExactGraph() {
         IterDomain* registerd_id = nullptr;
         for (auto id : *disjoint_set) {
           if (!graph.hasGroup(id)) {
+            std::cerr << "FOund in addtional mapping but not used: "
+                      << id->toString() << "\n";
             continue;
           }
 
           if (registerd_id == nullptr) {
             registerd_id = id;
+            std::cerr << "Just found in addtional mapping: " << id->toString()
+                      << "\n";
           } else {
+            std::cerr << "Map additonal vals: " << registerd_id->toString()
+                      << ", " << id->toString() << "\n";
             graph.mapVals(registerd_id, id);
           }
         }
       }
     }
   }
+
+  std::cerr << "Exact graph: " << graph.toString() << "\n";
 
   graph.validateConsistency();
 

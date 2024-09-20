@@ -3631,10 +3631,10 @@ void TensorDomain::setAllocationDomain(
 
 std::vector<IterDomain*> TensorDomain::allIDs() const {
   std::array<const std::vector<IterDomain*>*, 5> all_domains = {
+      &loop_domain_,
       &logical_domain_,
       &root_domain_,
       &allocation_domain_,
-      &loop_domain_,
       &additional_ids_};
   VectorOfUniqueEntries<IterDomain*> discovered_ids;
   for (auto domain : all_domains) {

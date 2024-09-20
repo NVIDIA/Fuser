@@ -608,6 +608,9 @@ void ValGraph::validateConsistency() const {
           continue;
         }
       }
+      if (!found) {
+        std::cerr << "Eg: " << exprg->front()->toString();
+      }
       NVF_ERROR(
           found,
           "ExprGroup not found in ",
