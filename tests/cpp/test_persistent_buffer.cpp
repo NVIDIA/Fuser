@@ -51,19 +51,20 @@ TEST_F(PersistentBufferTest, FusionPersistentBufferCalculation1_CUDA) {
   auto& projectable = persistent_buffer_info.projectable_persistent_buffers;
   auto& projectable_inputs = persistent_buffer_info.projectable_buffer_inputs;
 
-  NVF_ERROR(buffers.size() == 1);
-  NVF_ERROR(resolution.size() == 1 && resolution[0].size() == 1);
-  NVF_ERROR(projectable.size() == 1);
-  NVF_ERROR(projectable_inputs.size() == 1);
+  EXPECT_EQ(buffers.size(), 1);
+  EXPECT_EQ(resolution.size(), 1);
+  EXPECT_EQ(resolution.at(0).size(), 1) << toDelimitedString(resolution.at(0));
+  EXPECT_EQ(projectable.size(), 1);
+  EXPECT_EQ(projectable_inputs.size(), 1);
 
-  NVF_ERROR(isTvWithinVec(buffers, tv1));
-  NVF_ERROR(isTvWithinVec(projectable, tv1));
-  NVF_ERROR(isTvWithinVec(projectable_inputs, tv0));
+  EXPECT_TRUE(isTvWithinVec(buffers, tv1));
+  EXPECT_TRUE(isTvWithinVec(projectable, tv1));
+  EXPECT_TRUE(isTvWithinVec(projectable_inputs, tv0));
 
   auto tv1_resolution_it = tvEntryInVecVec(resolution, buffers, tv1);
-  NVF_ERROR(tv1_resolution_it != resolution.end())
+  EXPECT_TRUE(tv1_resolution_it != resolution.end());
 
-  NVF_ERROR(isTvWithinVec(*tv1_resolution_it, tv5));
+  EXPECT_TRUE(isTvWithinVec(*tv1_resolution_it, tv5));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor aten_t0 = at::randn({99, 101}, options);
@@ -73,11 +74,11 @@ TEST_F(PersistentBufferTest, FusionPersistentBufferCalculation1_CUDA) {
   auto persistent_buffer_size =
       persistentBufferSize(&fusion, runtime_info, persistent_buffer_info);
 
-  NVF_ERROR(
-      persistent_buffer_size.persistent_buffer_size ==
+  EXPECT_EQ(
+      persistent_buffer_size.persistent_buffer_size,
       static_cast<int64_t>(aten_t0.size(1) * dataTypeSize(DataType::Float)));
-  NVF_ERROR(
-      persistent_buffer_size.projected_persistent_buffer_size ==
+  EXPECT_EQ(
+      persistent_buffer_size.projected_persistent_buffer_size,
       static_cast<int64_t>(aten_t0.size(1) * dataTypeSize(DataType::Float)));
 }
 
@@ -264,13 +265,13 @@ TEST_F(PersistentBufferTest, FusionPersistentBufferCalculation4_CUDA) {
   auto& projectable = persistent_buffer_info.projectable_persistent_buffers;
   auto& projectable_inputs = persistent_buffer_info.projectable_buffer_inputs;
 
-  NVF_ERROR(buffers.size() == 2);
-  NVF_ERROR(
-      resolution.size() == 2 && resolution[0].size() == 1 &&
-      resolution[1].size() == 1);
+  EXPECT_EQ(buffers.size(), 2);
+  ASSERT_EQ(resolution.size(), 2);
+  EXPECT_EQ(resolution[0].size(), 1);
+  EXPECT_EQ(resolution[1].size(), 1);
 
-  NVF_ERROR(projectable.size() == 2);
-  NVF_ERROR(projectable_inputs.size() == 1);
+  EXPECT_EQ(projectable.size(), 2);
+  EXPECT_EQ(projectable_inputs.size(), 1);
 
   NVF_ERROR(isTvWithinVec(buffers, tv1) && isTvWithinVec(buffers, tv2));
   NVF_ERROR(isTvWithinVec(projectable, tv1) && isTvWithinVec(projectable, tv2));
@@ -757,12 +758,8 @@ TEST_F(PersistentBufferTest, ProjectPersistentBufferMultiScopes) {
   auto calculated_size = persistent_buffer_size.persistent_buffer_size;
   auto expected_size =
       static_cast<int64_t>(hidden_size * 2 * dataTypeSize(input_dtype));
-  NVF_CHECK(
-      calculated_size == expected_size,
-      "Buffer size calculation failure. Expected size: ",
-      expected_size,
-      ". Actual: ",
-      calculated_size);
+  EXPECT_EQ(calculated_size, expected_size)
+      << "Buffer size calculation failure";
   auto persistent_params = getInnerPersistentHeuristics(fusion, inputs);
   NVF_CHECK(persistent_params, "Reduction schedule was not generated!");
   NVF_CHECK(
@@ -1326,4 +1323,37 @@ TEST_F(PersistentBufferTest, SmemPersistent2DReduction) {
   auto t1 = t0 / t0.sum({1, 2, 3}, true);
   testValidate(fusion.get(), cg_outputs, aten_inputs, {t1}, __LINE__, __FILE__);
 }
+
+// C++ version of the simplified repro of issue #1123
+TEST_F(PersistentBufferTest, GetResolutionIssue1123) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv1);
+  auto tv2 = makeSymbolicTensor(2);
+  fusion.addInput(tv2);
+
+  auto tv3 = add(tv0, tv1);
+  auto tv4 = sum(tv3, {1});
+  auto tv5 = broadcast(tv4, {false, true});
+  auto tv6 = set(tv5);
+  auto tv7 = add(tv6, tv2);
+  fusion.addOutput(tv7);
+  auto tv9 = add(tv3, tv2);
+  fusion.addOutput(tv9);
+
+  // tv3 is the persistent tensor. The resolution point is tv8.
+  auto persistent_buffer_info = scheduler_utils::persistentBuffers(&fusion);
+  EXPECT_EQ(
+      persistent_buffer_info.persistent_buffers, std::vector<TensorView*>{tv3});
+  EXPECT_EQ(
+      persistent_buffer_info.persistent_buffer_resolution_points.size(), 1);
+  EXPECT_EQ(
+      persistent_buffer_info.persistent_buffer_resolution_points.at(0),
+      std::vector<TensorView*>{tv7});
+}
+
 } // namespace nvfuser

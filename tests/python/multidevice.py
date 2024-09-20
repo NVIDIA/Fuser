@@ -10,19 +10,17 @@ from mpi4py import MPI
 
 class MultideviceTest:
     def __init__(self):
-        comm = MPI.COMM_WORLD
-        self._size = comm.size
-        self._rank = comm.rank
+        self._communicator = MPI.COMM_WORLD
         self._local_size = int(os.environ["OMPI_COMM_WORLD_LOCAL_SIZE"])
         self._local_rank = int(os.environ["OMPI_COMM_WORLD_LOCAL_RANK"])
 
     @property
     def size(self):
-        return self._size
+        return self._communicator.size
 
     @property
     def rank(self):
-        return self._rank
+        return self._communicator.rank
 
     @property
     def local_size(self):
@@ -32,7 +30,13 @@ class MultideviceTest:
     def local_rank(self):
         return self._local_rank
 
+    def barrier(self):
+        self._communicator.barrier()
+
 
 @pytest.fixture
 def multidevice_test():
-    return MultideviceTest()
+    fixture = MultideviceTest()
+    yield fixture
+    # Sync all ranks after each test for isolation.
+    fixture.barrier()
