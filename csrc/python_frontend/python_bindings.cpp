@@ -720,32 +720,6 @@ void initNvFuserPythonBindings(PyObject* module) {
             inst::Trace::instance()->endEvent(nullptr);
           })
       .def(
-          "_concretize",
-          [](FusionDefinition& self,
-             FusionDefinition& other,
-             const py::iterable& iter) {
-            std::vector<c10::IValue> inputs;
-            for (py::handle obj : iter) {
-              // Allows for a Vector of Sizes to be inputed as a list/tuple
-              if (py::isinstance<py::list>(obj) ||
-                  py::isinstance<py::tuple>(obj)) {
-                for (py::handle item : obj) {
-                  inputs.push_back(
-                      torch::jit::toIValue(item, c10::AnyType::get()));
-                }
-              } else {
-                inputs.push_back(
-                    torch::jit::toIValue(obj, c10::AnyType::get()));
-              }
-            }
-            self.concretize(other, inputs);
-          })
-      .def(
-          "_presegment",
-          [](FusionDefinition& self, FusionDefinition& other) {
-            self.presegment(other);
-          })
-      .def(
           "_setup_segmentation",
           [](FusionDefinition& self, const py::iterable& iter) {
             // Instrumentation to mark the beginning of segmentation
