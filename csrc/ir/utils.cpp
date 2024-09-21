@@ -895,12 +895,17 @@ CompareDomainResult compareDomains(
 
   CompareDomainResult result;
 
+  std::cerr << "Frontier: " << toDelimitedString(frontier) << "\n";
+  std::cerr << "dom1: " << toDelimitedString(dom1) << "\n";
+
   // Check if iter domains can be reachable from
   // target_set. Returns true if any of iter domains is
   // unreachable. Additionaly, make sure none of iter domains has any
   // overlap with the other iter domains.
   auto check_ids = [](const auto& ids_to_check,
                       const auto& target_set) -> bool {
+    std::cerr << "ids_to_check: " << toDelimitedString(ids_to_check) << "\n";
+    std::cerr << "target: " << toDelimitedString(target_set) << "\n";
     bool unreachable = false;
     for (auto id : ids_to_check) {
       // Symbolic and broadcast IDs are ignored
@@ -934,11 +939,15 @@ CompareDomainResult compareDomains(
   };
 
   if (!frontier_has_symbolic) {
+    std::cerr << "Checking dom1 reachability\n";
     result.dom1_has_unreachable_ids = check_ids(dom1, frontier);
+    std::cerr << "has unreachable? " << result.dom1_has_unreachable_ids << "\n";
   }
 
   if (!dom1_has_symbolic) {
+    std::cerr << "Checking dom0 reachability\n";
     result.dom0_has_unreachable_ids = check_ids(frontier, dom1_set);
+    std::cerr << "has unreachable? " << result.dom0_has_unreachable_ids << "\n";
   }
 
   return result;

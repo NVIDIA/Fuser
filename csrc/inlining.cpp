@@ -157,8 +157,39 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
     TensorView* producer,
     TensorView* consumer,
     bool best_effort) {
-  if (lower_utils::hasRootToLoopLinearTransformations(producer) &&
-      lower_utils::hasRootToLoopLinearTransformations(consumer)) {
+  // Here, we have two methods to analayze inlining positions. One is
+  // the legacy BestEffortReplay-based one that allow forwarding of
+  // broadcast domains. This is the default method when both the
+  // producer and consumer tensors have loop domains that are derived
+  // from logical domains.
+  //
+  // When either of the two tensors has non-conventional loop domains
+  // through TensorView::setLoopDomain, IdModel-based analysis is
+  // required. At this moment, the IdModel-based analysis does not
+  // implement the broadcast forwarding, and therefore inlining of
+  // broadcast-merged domains does not work with this approach. In
+  // fact, it is likely we don't implement the forwarding with this
+  // approach as it may not be necessary.
+  //
+  // At this moment, in order to keep the existing behavior as is and
+  // at the same time allow inlinig with explicitly set loop domains,
+  // the legacy method is used whenever both the producer and consumer
+  // have loop domains that are derived from their logical domains
+  // with no redundancy. Otherwise, the IdModel-based method is used.
+
+  // TODO: Consider caching these properties in TensorView as they
+  // could only change with setLoopDomain
+  const bool may_need_forwarding =
+      lower_utils::hasRootToLoopLinearTransformations(producer) &&
+      !ir_utils::compareDomains(
+           producer->getLoopDomain(), producer->getLogicalDomain())
+           .dom0_has_unreachable_ids &&
+      lower_utils::hasRootToLoopLinearTransformations(consumer) &&
+      !ir_utils::compareDomains(
+           consumer->getLoopDomain(), consumer->getLogicalDomain())
+           .dom0_has_unreachable_ids;
+
+  if (may_need_forwarding) {
     auto pairwise_logical_map = PairwiseLogicalDomainMap(producer, consumer);
     auto replay_CasP = BestEffortReplay::replayCasP(
         consumer, producer, -1, pairwise_logical_map);
@@ -182,6 +213,8 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
     }
     return producer->nDims();
   } else {
+    std::cerr << "Use idmodel-based method: " << producer->toString() << ", "
+              << consumer->toString() << "\n";
     auto consumer_it = consumer->getLoopDomain().begin();
     for (const auto producer_pos : c10::irange(producer->nDims())) {
       auto p_id = producer->getLoopDomain().at(producer_pos);

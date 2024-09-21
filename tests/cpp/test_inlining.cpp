@@ -409,29 +409,21 @@ TEST_F(InliningTest, GetMaxProducerPosFromConsumerWithBroadcast) {
   }
 
   for (auto tv : fusion.allTvs()) {
-    if (tv->isFusionInput()) {
-      continue;
-    }
-    std::cerr << tv->toString() << "\n";
     tv->flatten();
     tv->split(0, 32);
-    std::cerr << tv->toString() << "\n";
   }
-
-  fusion.print();
-  std::cout << std::endl;
 
   // tv3 loop domain does not need to change. Although it has a
   // broadcast iter domain, it is treated as the same as the concrete
   // iter domain of tv4 in the BROADCAST graph
 
+  // Both of the inlining positions of tv2 and tv3 should be the
+  // innermost.
   MaxPosCalculator calc;
-  std::cerr << calc.getMaxProducerPosFromConsumer(
-                   tv2, tv3, /*best_effort=*/true)
-            << "\n";
-  std::cerr << calc.getMaxProducerPosFromConsumer(
-                   tv3, tv4, /*best_effort=*/true)
-            << "\n";
+  EXPECT_EQ(
+      calc.getMaxProducerPosFromConsumer(tv2, tv3, /*best_effort=*/true), 2);
+  EXPECT_EQ(
+      calc.getMaxProducerPosFromConsumer(tv3, tv4, /*best_effort=*/true), 2);
 }
 
 // Test MaxPosCalculator.getMaxPosAll with setLoopDomain

@@ -504,6 +504,8 @@ ValGraph& IdModel::buildBroadcastGraph() {
 
   graph.validateConsistency();
 
+  std::cerr << "Broadcast graph: " << graph.toString() << "\n";
+
   return graph;
 }
 
