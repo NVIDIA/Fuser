@@ -2620,13 +2620,17 @@ void deDuplicateScalarExprs(std::vector<Expr*>& exprs) {
 std::optional<std::unique_ptr<SchedulerEntry>> SegmentedGroup::
     getMaybeSchedulerEntry(SchedulerRuntimeInfo& runtime_info) {
   FUSER_PERF_SCOPE("SegmentedFusion::getMaybeSchedulerEntry");
-  auto data_cache = segmented_fusion_->getCachedHeuristicDataFor(this);
+  auto heuristic_data_cache =
+      segmented_fusion_->getCachedHeuristicDataFor(this);
   if (!SchedulerEntry::canSchedule(
-          heuristic(), runtime_info.fusion(), runtime_info, data_cache)) {
+          heuristic(),
+          runtime_info.fusion(),
+          runtime_info,
+          heuristic_data_cache)) {
     return std::nullopt;
   }
   return SchedulerEntry::makeEntry(
-      heuristic(), runtime_info.fusion(), runtime_info, data_cache);
+      heuristic(), runtime_info.fusion(), runtime_info, heuristic_data_cache);
 }
 
 void SegmentedGroup::resetExprList() {
@@ -4414,18 +4418,21 @@ FusionKernelRuntime::SchedulerEntryPtr SegmentedFusion::
         SchedulerRuntimeInfo& runtime_info) {
   // This will be the first time each group is scheduled. So we'd want to
   //  construct the cache data here.
-  auto data_cache_ptr = std::make_unique<HeuristicSummary>(
+  auto heuristic_data_cache_ptr = std::make_unique<HeuristicDataCache>(
       runtime_info.fusion(), sg->heuristic(), runtime_info);
-  auto data_cache = data_cache_ptr.get();
-  setCachedHeuristicDataFor(sg, std::move(data_cache_ptr));
+  auto heuristic_data_cache = heuristic_data_cache_ptr.get();
+  setCachedHeuristicDataFor(sg, std::move(heuristic_data_cache_ptr));
   return SchedulerEntry::makeEntry(
-      sg->heuristic(), runtime_info.fusion(), runtime_info, data_cache);
+      sg->heuristic(),
+      runtime_info.fusion(),
+      runtime_info,
+      heuristic_data_cache);
 }
 
-HeuristicSummary* SegmentedFusion::getCachedHeuristicDataFor(
+HeuristicDataCache* SegmentedFusion::getCachedHeuristicDataFor(
     SegmentedGroup* group) {
-  auto data_it = heuristic_summary_cache_.find(group);
-  if (data_it == heuristic_summary_cache_.end()) {
+  auto data_it = heuristic_data_cache_.find(group);
+  if (data_it == heuristic_data_cache_.end()) {
     return nullptr;
   }
   return data_it->second.get();
@@ -4433,9 +4440,9 @@ HeuristicSummary* SegmentedFusion::getCachedHeuristicDataFor(
 
 void SegmentedFusion::setCachedHeuristicDataFor(
     SegmentedGroup* group,
-    std::unique_ptr<HeuristicSummary> data) {
-  NVF_ERROR(!heuristic_summary_cache_.count(group));
-  heuristic_summary_cache_[group] = std::move(data);
+    std::unique_ptr<HeuristicDataCache> data) {
+  NVF_ERROR(!heuristic_data_cache_.count(group));
+  heuristic_data_cache_[group] = std::move(data);
 }
 
 void SegmentedFusion::validateDAG() const {

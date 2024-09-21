@@ -175,7 +175,7 @@ template <typename SchedulerType>
 bool checkCanSchedule(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache = nullptr) {
+    HeuristicDataCache* data_cache = nullptr) {
   FUSER_PERF_SCOPE("SchedulerRuntimeInfo::checkCanSchedule<T>");
   // ExprEval scheduler only requires `canScheduleCompileTime` check and should
   // not use this fn. The following checks build the computeAt map that do not
@@ -230,7 +230,7 @@ bool checkCanSchedule(
     ScheduleHeuristic sh,
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache) {
+    HeuristicDataCache* data_cache) {
   switch (sh) {
     case ScheduleHeuristic::NoOp:
       return checkCanSchedule<NoOpScheduler>(fusion, runtime_info, data_cache);
@@ -273,7 +273,7 @@ bool checkCanSchedule(
     ScheduleHeuristic sh,
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache) {
+    HeuristicDataCache* data_cache) {
   FUSER_PERF_SCOPE("SchedulerEntry::makeEntry<T>");
   std::unique_ptr<SchedulerEntry> scheduler_entry = nullptr;
   switch (sh) {
@@ -359,21 +359,21 @@ class CompileTimeInfo : public HeuristicCompileTime::CompileTimeInfoBase {
 
 } // namespace
 
-HeuristicSummary::HeuristicSummary(
+HeuristicDataCache::HeuristicDataCache(
     Fusion* fusion,
     ScheduleHeuristic heuristic,
     SchedulerRuntimeInfo& runtime_info)
     : heuristic_(heuristic) {}
 
-void HeuristicSummary::insert(HeuristicSummary::EntryOwningPtr new_entry) {
+void HeuristicDataCache::insert(HeuristicDataCache::EntryOwningPtr new_entry) {
   // Just override when insertion duplicates, equality not checked.
   entry_type_map_[new_entry->type()] = new_entry.get();
   entries_.emplace_back(std::move(new_entry));
 }
 
 template <typename EntryClass>
-HeuristicSummaryEntry<EntryClass>::HeuristicSummaryEntry(
-    HeuristicSummary* data_cache,
+HeuristicDataCacheEntry<EntryClass>::HeuristicDataCacheEntry(
+    HeuristicDataCache* data_cache,
     MakerFnType fn) {
   if (data_cache && data_cache->hasEntry(EntryClass::EntryType)) {
     data_ptr_ = data_cache->at(EntryClass::EntryType)
@@ -392,30 +392,32 @@ HeuristicSummaryEntry<EntryClass>::HeuristicSummaryEntry(
 }
 
 // Template instantiation for pre-defined cache entries
-template class HeuristicSummaryEntry<HeuristicCompileTime::DomainMap>;
-template class HeuristicSummaryEntry<HeuristicCompileTime::TransposeDomainMap>;
-template class HeuristicSummaryEntry<HeuristicCompileTime::ReferenceTensors>;
-template class HeuristicSummaryEntry<
+template class HeuristicDataCacheEntry<HeuristicCompileTime::DomainMap>;
+template class HeuristicDataCacheEntry<
+    HeuristicCompileTime::TransposeDomainMap>;
+template class HeuristicDataCacheEntry<HeuristicCompileTime::ReferenceTensors>;
+template class HeuristicDataCacheEntry<
     HeuristicCompileTime::ReferenceTensorsForGroups>;
-template class HeuristicSummaryEntry<
+template class HeuristicDataCacheEntry<
     HeuristicCompileTime::VectorizableInputsAndOutputs>;
-template class HeuristicSummaryEntry<
+template class HeuristicDataCacheEntry<
     HeuristicCompileTime::TvToContigInnerSizeMaps>;
-template class HeuristicSummaryEntry<
+template class HeuristicDataCacheEntry<
     HeuristicCompileTime::InputsOutputsInnerDimGroups>;
-template class HeuristicSummaryEntry<
+template class HeuristicDataCacheEntry<
     HeuristicCompileTime::UnrollableInputsAndOutputs>;
-template class HeuristicSummaryEntry<HeuristicCompileTime::ReductionTVs>;
-template class HeuristicSummaryEntry<
+template class HeuristicDataCacheEntry<HeuristicCompileTime::ReductionTVs>;
+template class HeuristicDataCacheEntry<
     HeuristicCompileTime::PersistentBufferInfo>;
-template class HeuristicSummaryEntry<
+template class HeuristicDataCacheEntry<
     HeuristicCompileTime::ScopePersistentFactorInfo>;
-template class HeuristicSummaryEntry<HeuristicCompileTime::BroadcastMultiples>;
-template class HeuristicSummaryEntry<HeuristicCompileTime::InnerMostDimInfo>;
-template class HeuristicSummaryEntry<
+template class HeuristicDataCacheEntry<
+    HeuristicCompileTime::BroadcastMultiples>;
+template class HeuristicDataCacheEntry<HeuristicCompileTime::InnerMostDimInfo>;
+template class HeuristicDataCacheEntry<
     HeuristicCompileTime::CanScheduleTranspose>;
-template class HeuristicSummaryEntry<HeuristicCompileTime::LogicalReorderMap>;
-template class HeuristicSummaryEntry<
+template class HeuristicDataCacheEntry<HeuristicCompileTime::LogicalReorderMap>;
+template class HeuristicDataCacheEntry<
     HeuristicCompileTime::VectorizationBreakPointOfReductionProducer>;
 
 } // namespace nvfuser

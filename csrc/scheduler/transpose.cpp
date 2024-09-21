@@ -22,7 +22,7 @@ namespace nvfuser {
 TransposeScheduler::TransposeScheduler(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache)
+    HeuristicDataCache* data_cache)
     : SchedulerEntry(heuristicType()) {
   computeHeuristics(fusion, runtime_info, data_cache);
 }
@@ -100,7 +100,7 @@ bool TransposeScheduler::canScheduleCompileTime(Fusion* fusion) {
 bool TransposeScheduler::canScheduleRunTime(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache) {
+    HeuristicDataCache* data_cache) {
   FUSER_PERF_SCOPE("TransposeScheduler::canScheduleRunTime");
 
   auto reason =
@@ -120,7 +120,7 @@ void TransposeScheduler::schedule(Fusion* fusion) {
 void TransposeScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache) {
+    HeuristicDataCache* data_cache) {
   FUSER_PERF_SCOPE("TransposeScheduler::computeHeuristics");
   params_ = getTransposeHeuristics(fusion, runtime_info, data_cache);
   NVF_ERROR(params_ != nullptr);
@@ -587,24 +587,24 @@ void maybeBuildVirtualInnerDims(
   }
 }
 
-HeuristicSummaryEntry<HeuristicCompileTime::TransposeDomainMap> getDomainMap(
-    HeuristicSummary* data_cache,
+HeuristicDataCacheEntry<HeuristicCompileTime::TransposeDomainMap> getDomainMap(
+    HeuristicDataCache* data_cache,
     Fusion* fusion) {
   auto domain_map_entry =
-      HeuristicSummaryEntry<HeuristicCompileTime::TransposeDomainMap>(
+      HeuristicDataCacheEntry<HeuristicCompileTime::TransposeDomainMap>(
           data_cache,
           [fusion]() { return std::make_unique<DomainMap>(fusion); });
   return domain_map_entry;
 }
 
-HeuristicSummaryEntry<HeuristicCompileTime::InputsOutputsInnerDimGroups>
-getInputsOutputsGroups(HeuristicSummary* data_cache, DomainMap& domain_map) {
-  auto grouped_inputs_outputs_entry =
-      HeuristicSummaryEntry<HeuristicCompileTime::InputsOutputsInnerDimGroups>(
-          data_cache, [&domain_map]() {
-            return std::make_unique<std::vector<std::vector<TensorView*>>>(
-                domain_map.groupInputsOutputsByInnerDim());
-          });
+HeuristicDataCacheEntry<HeuristicCompileTime::InputsOutputsInnerDimGroups>
+getInputsOutputsGroups(HeuristicDataCache* data_cache, DomainMap& domain_map) {
+  auto grouped_inputs_outputs_entry = HeuristicDataCacheEntry<
+      HeuristicCompileTime::InputsOutputsInnerDimGroups>(
+      data_cache, [&domain_map]() {
+        return std::make_unique<std::vector<std::vector<TensorView*>>>(
+            domain_map.groupInputsOutputsByInnerDim());
+      });
   auto& grouped_inputs_outputs = grouped_inputs_outputs_entry.get();
 
   NVF_ERROR(
@@ -614,13 +614,13 @@ getInputsOutputsGroups(HeuristicSummary* data_cache, DomainMap& domain_map) {
   return grouped_inputs_outputs_entry;
 }
 
-HeuristicSummaryEntry<HeuristicCompileTime::ReferenceTensorsForGroups>
+HeuristicDataCacheEntry<HeuristicCompileTime::ReferenceTensorsForGroups>
 getReferenceTensors(
-    HeuristicSummary* data_cache,
+    HeuristicDataCache* data_cache,
     DomainMap& domain_map,
     std::vector<std::vector<TensorView*>>& grouped_inputs_outputs) {
   auto reference_tensors_entry =
-      HeuristicSummaryEntry<HeuristicCompileTime::ReferenceTensorsForGroups>(
+      HeuristicDataCacheEntry<HeuristicCompileTime::ReferenceTensorsForGroups>(
           data_cache, [&domain_map, &grouped_inputs_outputs]() {
             std::vector<TensorView*> data{
                 domain_map.findReferenceFor(grouped_inputs_outputs[0]),
@@ -639,7 +639,7 @@ getReferenceTensors(
 }
 
 std::pair<std::vector<int64_t>, int64_t> getShapeInReference(
-    HeuristicSummary* data_cache,
+    HeuristicDataCache* data_cache,
     SchedulerRuntimeInfo& runtime_info,
     TensorView* reference,
     DomainMap& domain_map) {
@@ -663,14 +663,14 @@ std::pair<std::vector<int64_t>, int64_t> getShapeInReference(
   return {shape_in_ref, n_elems};
 }
 
-HeuristicSummaryEntry<HeuristicCompileTime::InnerMostDimInfo>
+HeuristicDataCacheEntry<HeuristicCompileTime::InnerMostDimInfo>
 getInnerMostDimInfoInReference(
-    HeuristicSummary* data_cache,
+    HeuristicDataCache* data_cache,
     const std::vector<TensorView*>& group_references,
     TensorView* global_reference,
     DomainMap& domain_map) {
   auto innermost_info_entry =
-      HeuristicSummaryEntry<HeuristicCompileTime::InnerMostDimInfo>(
+      HeuristicDataCacheEntry<HeuristicCompileTime::InnerMostDimInfo>(
           data_cache, [&]() {
             std::vector<int64_t> data;
             data.reserve(group_references.size());
@@ -689,7 +689,7 @@ getInnerMostDimInfoInReference(
 
 std::string getTransposeRuntimeRejectReason(
     Fusion* fusion,
-    HeuristicSummary* data_cache,
+    HeuristicDataCache* data_cache,
     SchedulerRuntimeInfo& runtime_info) {
   auto domain_map_entry = getDomainMap(data_cache, fusion);
   auto& domain_map = dynamic_cast<DomainMap&>(domain_map_entry.get());
@@ -825,7 +825,7 @@ bool hasAtLeastTwoValidGroups(Fusion* fusion) {
 std::shared_ptr<TransposeParams> getTransposeHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
-    HeuristicSummary* data_cache) {
+    HeuristicDataCache* data_cache) {
   SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs);
   return getTransposeHeuristics(fusion, runtime_info, data_cache);
 }
@@ -833,7 +833,7 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
 std::shared_ptr<TransposeParams> getTransposeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache) {
+    HeuristicDataCache* data_cache) {
   FusionGuard fg(fusion);
 
   // Incase any buffer is of type DataType::Index

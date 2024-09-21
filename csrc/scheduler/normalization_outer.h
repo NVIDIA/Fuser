@@ -23,14 +23,14 @@
 namespace nvfuser {
 
 class SchedulerRuntimeInfo;
-class HeuristicSummary;
+class HeuristicDataCache;
 
 class OuterPersistentKernelScheduler : public SchedulerEntry {
  public:
   explicit OuterPersistentKernelScheduler(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
+      HeuristicDataCache* data_cache = nullptr);
 
   void schedule(Fusion* fusion) override;
 
@@ -39,7 +39,7 @@ class OuterPersistentKernelScheduler : public SchedulerEntry {
   static bool canScheduleRunTime(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
+      HeuristicDataCache* data_cache = nullptr);
 
   constexpr static ScheduleHeuristic heuristicType() {
     return ScheduleHeuristic::OuterPersistent;
@@ -49,18 +49,18 @@ class OuterPersistentKernelScheduler : public SchedulerEntry {
   void computeHeuristics(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
+      HeuristicDataCache* data_cache = nullptr);
 };
 
 NVF_API std::shared_ptr<ReductionParams> getOuterPersistentHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
-    HeuristicSummary* data_cache = nullptr);
+    HeuristicDataCache* data_cache = nullptr);
 
 std::shared_ptr<ReductionParams> getOuterPersistentHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache = nullptr);
+    HeuristicDataCache* data_cache = nullptr);
 
 NVF_API void scheduleOuterPersistentKernel(
     Fusion* fusion,

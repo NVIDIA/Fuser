@@ -30,7 +30,7 @@ class MatmulScheduler : public SchedulerEntry {
   explicit MatmulScheduler(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
+      HeuristicDataCache* data_cache = nullptr);
 
   void schedule(Fusion* fusion) override;
 
@@ -39,7 +39,7 @@ class MatmulScheduler : public SchedulerEntry {
   static bool canScheduleRunTime(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
+      HeuristicDataCache* data_cache = nullptr);
   constexpr static ScheduleHeuristic heuristicType() {
     return ScheduleHeuristic::Matmul;
   }
@@ -48,7 +48,7 @@ class MatmulScheduler : public SchedulerEntry {
   void computeHeuristics(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
+      HeuristicDataCache* data_cache = nullptr);
 };
 
 } // namespace nvfuser

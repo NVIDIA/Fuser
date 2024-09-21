@@ -1047,7 +1047,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
 ReductionScheduler::ReductionScheduler(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache)
+    HeuristicDataCache* data_cache)
     : SchedulerEntry(heuristicType()) {
   computeHeuristics(fusion, runtime_info, data_cache);
 }
@@ -1055,7 +1055,7 @@ ReductionScheduler::ReductionScheduler(
 void ReductionScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache) {
+    HeuristicDataCache* data_cache) {
   FUSER_PERF_SCOPE("ReductionScheduler::computeHeuristics");
   params_ = getReductionHeuristics(fusion, runtime_info, data_cache);
   NVF_ERROR(params_ != nullptr);
@@ -1211,7 +1211,7 @@ bool ReductionScheduler::canScheduleCompileTime(Fusion* fusion) {
 bool ReductionScheduler::canScheduleRunTime(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache) {
+    HeuristicDataCache* data_cache) {
   FUSER_PERF_SCOPE("ReductionScheduler::canScheduleRunTime");
   return true;
 }
@@ -1246,7 +1246,7 @@ std::shared_ptr<ReductionParams> reductionHeuristic(
 std::shared_ptr<ReductionParams> getReductionHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
-    HeuristicSummary* data_cache) {
+    HeuristicDataCache* data_cache) {
   SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs);
 
   return getReductionHeuristics(fusion, runtime_info, data_cache);
@@ -1255,11 +1255,11 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
 std::shared_ptr<ReductionParams> getReductionHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache) {
+    HeuristicDataCache* data_cache) {
   FusionGuard fg(fusion);
 
   auto reduction_tv_entry =
-      HeuristicSummaryEntry<HeuristicCompileTime::ReductionTVs>(
+      HeuristicDataCacheEntry<HeuristicCompileTime::ReductionTVs>(
           data_cache, [&fusion]() {
             return std::make_unique<std::vector<TensorView*>>(
                 scheduler_utils::getReductionTvs(fusion));
@@ -1291,7 +1291,7 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
   auto reduced_tv = ir_utils::getSoleProducerTv(reduction_tv);
 
   auto unrollable_inputs_outputs_entry =
-      HeuristicSummaryEntry<HeuristicCompileTime::UnrollableInputsAndOutputs>(
+      HeuristicDataCacheEntry<HeuristicCompileTime::UnrollableInputsAndOutputs>(
           data_cache, [&reduced_tv]() {
             return std::make_unique<std::vector<TensorView*>>(
                 scheduler_utils::getInputsOutputsWithInnerDim(
@@ -1302,7 +1302,7 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
 
   // Although properties contains runtime information
   // "inner_most_dimension_ndims" is a compile time value
-  auto vec_break_point = HeuristicSummaryEntry<
+  auto vec_break_point = HeuristicDataCacheEntry<
       HeuristicCompileTime::VectorizationBreakPointOfReductionProducer>(
       data_cache, [&reduction_tv, &reduced_tv, &properties]() {
         return std::make_unique<int64_t>(

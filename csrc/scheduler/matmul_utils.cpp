@@ -694,7 +694,7 @@ MatmulParams::SupportedVectorization getSupportedVectorization(
 
 std::string getMatmulRunTimeRejectReason(
     Fusion* fusion,
-    HeuristicSummary* data_cache,
+    HeuristicDataCache* data_cache,
     SchedulerRuntimeInfo& runtime_info) {
   // TODO: add proper set of checks
   return "";
@@ -831,7 +831,7 @@ bool isCpAsyncOperandLoadSupported(
 std::shared_ptr<MatmulParams> getMatmulHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache) {
+    HeuristicDataCache* data_cache) {
   FusionGuard fg(fusion);
   (void)data_cache;
   auto params = std::make_shared<MatmulParams>();

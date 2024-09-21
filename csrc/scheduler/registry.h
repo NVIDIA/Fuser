@@ -170,7 +170,7 @@ class SchedulerRuntimeInfo : public NonCopyable {
   std::unordered_map<TensorView*, size_t> vectorword_map_;
 };
 
-class HeuristicSummary;
+class HeuristicDataCache;
 
 //! Virtual base class for schedule heuristics
 //!   heuristic implementations derive from this
@@ -185,7 +185,7 @@ class SchedulerEntry {
       ScheduleHeuristic sh,
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
+      HeuristicDataCache* data_cache = nullptr);
 
   virtual ~SchedulerEntry() = default;
 
@@ -195,7 +195,7 @@ class SchedulerEntry {
       ScheduleHeuristic sh,
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
+      HeuristicDataCache* data_cache = nullptr);
 
   //! Fusion segmenter facing API,
   //!   returns a schedule that applies in the given fusion, returns a nullopt

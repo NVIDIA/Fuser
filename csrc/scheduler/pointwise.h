@@ -156,17 +156,17 @@ namespace nvfuser {
  */
 
 class SchedulerRuntimeInfo;
-class HeuristicSummary;
+class HeuristicDataCache;
 
 std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
-    HeuristicSummary* data_cache = nullptr);
+    HeuristicDataCache* data_cache = nullptr);
 
 std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache = nullptr);
+    HeuristicDataCache* data_cache = nullptr);
 
 void schedulePointwise(Fusion* fusion, const PointwiseParams& params);
 
@@ -187,13 +187,13 @@ class PointWiseScheduler : public SchedulerEntry {
   explicit PointWiseScheduler(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
+      HeuristicDataCache* data_cache = nullptr);
 
   static bool canScheduleCompileTime(Fusion* fusion);
   static bool canScheduleRunTime(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
+      HeuristicDataCache* data_cache = nullptr);
 
   constexpr static ScheduleHeuristic heuristicType() {
     return ScheduleHeuristic::PointWise;
@@ -203,7 +203,7 @@ class PointWiseScheduler : public SchedulerEntry {
   void computeHeuristics(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
+      HeuristicDataCache* data_cache = nullptr);
 };
 
 } // namespace nvfuser

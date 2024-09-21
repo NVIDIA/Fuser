@@ -843,13 +843,13 @@ bool isProjectBufferToInputs(
 PersistentKernelProperties getPersistentKernelProperties(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache,
+    HeuristicDataCache* data_cache,
     ScheduleHeuristic heuristic) {
   FUSER_PERF_SCOPE(
       "normalization_scheduler_utils::getPersistentKernelProperties");
 
   auto reduction_tv_entry =
-      HeuristicSummaryEntry<HeuristicCompileTime::ReductionTVs>(
+      HeuristicDataCacheEntry<HeuristicCompileTime::ReductionTVs>(
           data_cache, [&fusion]() {
             return std::make_unique<std::vector<TensorView*>>(
                 scheduler_utils::getReductionTvs(fusion));
@@ -871,7 +871,7 @@ PersistentKernelProperties getPersistentKernelProperties(
 
   // Although properties contains runtime information
   // "inner_most_dimension_ndims" is a compile time value
-  auto vec_break_point = HeuristicSummaryEntry<
+  auto vec_break_point = HeuristicDataCacheEntry<
       HeuristicCompileTime::VectorizationBreakPointOfReductionProducer>(
       data_cache, [&ref_red_tv, &reduced_tv, &properties]() {
         return std::make_unique<int64_t>(
@@ -883,7 +883,7 @@ PersistentKernelProperties getPersistentKernelProperties(
       runtime_info, reduced_tv, data_cache, vec_break_point.get());
 
   auto persistent_buffer_info_entry =
-      HeuristicSummaryEntry<HeuristicCompileTime::PersistentBufferInfo>(
+      HeuristicDataCacheEntry<HeuristicCompileTime::PersistentBufferInfo>(
           data_cache, [&fusion]() {
             return std::make_unique<scheduler_utils::PersistentBufferInfo>(
                 scheduler_utils::persistentBuffers(fusion));
@@ -936,7 +936,7 @@ PersistentKernelProperties getPersistentKernelProperties(
   // be even better if we had better analysis as not all unrolled elements have
   // to be alive at the same time.
   auto unrollable_inputs_outputs_entry =
-      HeuristicSummaryEntry<HeuristicCompileTime::UnrollableInputsAndOutputs>(
+      HeuristicDataCacheEntry<HeuristicCompileTime::UnrollableInputsAndOutputs>(
           data_cache, [&reduced_tv]() {
             return std::make_unique<std::vector<TensorView*>>(
                 scheduler_utils::getInputsOutputsWithInnerDim(

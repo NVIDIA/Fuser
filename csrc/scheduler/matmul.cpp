@@ -27,7 +27,7 @@ namespace nvfuser {
 MatmulScheduler::MatmulScheduler(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache)
+    HeuristicDataCache* data_cache)
     : SchedulerEntry(heuristicType()) {
   computeHeuristics(fusion, runtime_info);
 }
@@ -50,7 +50,7 @@ bool MatmulScheduler::canScheduleCompileTime(Fusion* fusion) {
 bool MatmulScheduler::canScheduleRunTime(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache) {
+    HeuristicDataCache* data_cache) {
   FUSER_PERF_SCOPE("MatmulScheduler::canSchedule");
   auto reason = getMatmulRunTimeRejectReason(fusion, data_cache, runtime_info);
   if (!reason.empty()) {
@@ -63,7 +63,7 @@ bool MatmulScheduler::canScheduleRunTime(
 void MatmulScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache) {
+    HeuristicDataCache* data_cache) {
   params_ = getMatmulHeuristics(fusion, runtime_info, data_cache);
   NVF_ERROR(params_ != nullptr);
 }

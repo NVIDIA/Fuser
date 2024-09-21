@@ -14,7 +14,7 @@ namespace nvfuser {
 
 class Fusion;
 class SchedulerRuntimeInfo;
-class HeuristicSummary;
+class HeuristicDataCache;
 
 // ExprEval scheduler represents the case where we allocate outputs directly
 // using EE. No code is generated.
@@ -23,7 +23,7 @@ class ExprEvalScheduler : public SchedulerEntry {
   explicit ExprEvalScheduler(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr)
+      HeuristicDataCache* data_cache = nullptr)
       : SchedulerEntry(heuristicType()) {
     params_ =
         std::make_shared<HeuristicParams>("", runtime_info.getIndexType());
@@ -35,7 +35,7 @@ class ExprEvalScheduler : public SchedulerEntry {
   static bool canScheduleRunTime(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache) {
+      HeuristicDataCache* data_cache) {
     return true;
   }
 

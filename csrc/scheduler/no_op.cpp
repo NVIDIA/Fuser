@@ -25,7 +25,7 @@ void vlog(const Args&... args) {
 NoOpScheduler::NoOpScheduler(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache)
+    HeuristicDataCache* data_cache)
     : SchedulerEntry(heuristicType()) {
   params_ = std::make_shared<NoOpHeuristic>("", runtime_info.getIndexType());
 }
@@ -108,7 +108,7 @@ bool NoOpScheduler::canScheduleCompileTime(Fusion* fusion) {
 bool NoOpScheduler::canScheduleRunTime(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache) {
+    HeuristicDataCache* data_cache) {
   // TODO:
   //  Pipe through dynamic zero checks.
   return true;
@@ -130,7 +130,7 @@ void NoOpScheduler::schedule(Fusion* fusion) {
 void NoOpScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache) {
+    HeuristicDataCache* data_cache) {
   // Heuristics is no-op.
   return;
 }
