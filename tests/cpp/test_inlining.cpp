@@ -328,4 +328,102 @@ TEST_F(InliningTest, IsAllowedID) {
   }
 }
 
+// Test GetMaxProducerPosFromConsumer with setLoopDomain
+TEST_F(InliningTest, GetMaxProducerPosFromConsumerWithReshape) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape1({3, 4 * 5});
+  std::vector<int64_t> shape2({3, 4, 5});
+
+  // [i0, i1*i2]
+  auto tv0 = makeConcreteTensor(shape1);
+  fusion.addInput(tv0);
+
+  // [i0, i1, i2]
+  auto tv1 = reshape(tv0, shape1, shape2);
+  // [i0, i1, i2]
+  auto tv2 = add(tv1, fusion.oneVal());
+  fusion.addOutput(tv2);
+
+  auto reshape_split_factor = tv1->axis(1)->definition()->as<Split>()->factor();
+
+  // Set [i0, i1*i2] as the loop domain of each of tensors
+
+  tv1->setLoopDomain(tv1->getRootDomain());
+
+  // tv2
+  {
+    std::vector<IterDomain*> loop_domain{
+        tv2->getLogicalDomain().at(0),
+        tv1->getLoopDomain().at(1)->cloneWithoutRFactor()};
+    IrBuilder::create<Split>(
+        tv2->getLogicalDomain().at(1),
+        tv2->getLogicalDomain().at(2),
+        loop_domain[1],
+        reshape_split_factor,
+        false);
+    tv2->setLoopDomain(loop_domain);
+  }
+
+  for (auto tv : {tv1, tv2}) {
+    tv->split(-1, 4);
+  }
+
+  MaxPosCalculator calc;
+
+  // Nothing should prevent tv1 from fully inlined into tv2
+  EXPECT_EQ(
+      calc.getMaxProducerPosFromConsumer(tv1, tv2, /*best_effort=*/true), 3);
+
+  // Unrolling of tv2 should block the inlining of tv1.
+  tv2->axis(-1)->parallelize(ParallelType::Unroll);
+  EXPECT_EQ(
+      calc.getMaxProducerPosFromConsumer(tv1, tv2, /*best_effort=*/true), 2);
+}
+
+TEST_F(InliningTest, GetMaxProducerPosFromConsumerWithBroadcast) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // [i0, i1*i2]
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(1);
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv1);
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 = add(tv0, tv3);
+  fusion.addOutput(tv4);
+
+  // Use the loop domain of tv4 as the reference
+
+  // tv2
+  {
+    std::vector<IterDomain*> loop_domain{
+        tv2->getLogicalDomain().at(0),
+        tv4->getLoopDomain().at(1)->cloneWithoutRFactor(
+            /*map_with_original=*/true)};
+    tv2->setLoopDomain(loop_domain);
+  }
+
+  for (auto tv : fusion.allTvs()) {
+    tv->flatten();
+    tv->split(0, 32);
+  }
+
+  // tv3 loop domain does not need to change. Although it has a
+  // broadcast iter domain, it is treated as the same as the concrete
+  // iter domain of tv4 in the BROADCAST graph
+
+  // Both of the inlining positions of tv2 and tv3 should be the
+  // innermost.
+  MaxPosCalculator calc;
+  EXPECT_EQ(
+      calc.getMaxProducerPosFromConsumer(tv2, tv3, /*best_effort=*/true), 2);
+  EXPECT_EQ(
+      calc.getMaxProducerPosFromConsumer(tv3, tv4, /*best_effort=*/true), 2);
+}
+
 } // namespace nvfuser
