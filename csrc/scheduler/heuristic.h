@@ -89,18 +89,18 @@ class HeuristicParamsList {
     return heuristics_.at(index);
   }
 
-  //! Place a scheduler entry on the list. Applies to segmented fusion only.
+  //! Place a heuristics on the list. Applies to segmented fusion only.
   void emplaceBack(std::unique_ptr<HeuristicParams>&& pt) {
     NVF_ERROR(is_segmented_);
     heuristics_.emplace_back(std::move(pt));
   }
 
-  //! Returns list of schedulers for a segmneted fusion.
+  //! Returns list of heuristics for a segmneted fusion.
   const std::vector<std::unique_ptr<HeuristicParams>>& heuristicsList() const {
     return heuristics_;
   }
 
-  //! Returns the single scheduler for a complete fusion.
+  //! Returns the single heuristics for a complete fusion.
   HeuristicParams* singleKernelHeuristics() const {
     NVF_ERROR(!is_segmented_);
     return heuristics_.begin()->get();
