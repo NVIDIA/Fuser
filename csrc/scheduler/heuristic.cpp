@@ -10,12 +10,12 @@
 
 namespace nvfuser {
 HeuristicParamsList::HeuristicParamsList(
-    HeuristicType schedule_heuristic,
+    SchedulerType scheduler_type,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache)
     : is_segmented_(false) {
   heuristics_.emplace_back(
-      SchedulerEntry::makeSchedulerInstance(schedule_heuristic)
+      SchedulerEntry::makeSchedulerInstance(scheduler_type)
           ->computeHeuristics(runtime_info.fusion(), runtime_info, data_cache));
 }
 
