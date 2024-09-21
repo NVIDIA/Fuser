@@ -336,4 +336,16 @@ template class HeuristicSummaryEntry<HeuristicCompileTime::LogicalReorderMap>;
 template class HeuristicSummaryEntry<
     HeuristicCompileTime::VectorizationBreakPointOfReductionProducer>;
 
+//! TODO: Move to another file, or make it so it can be in Heuristics.h by
+//! moving SchedulerRuntimeInfo outisde registry.h
+HeuristicParamsList::HeuristicParamsList(
+    SchedulerType schedule_heuristic,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicSummary* data_cache)
+    : is_segmented_(false) {
+  heuristics_.emplace_back(
+      SchedulerEntry::makeSchedulerInstance(schedule_heuristic)
+          ->computeHeuristics(runtime_info.fusion(), runtime_info, data_cache));
+}
+
 } // namespace nvfuser

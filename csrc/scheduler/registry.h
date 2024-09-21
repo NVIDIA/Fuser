@@ -14,11 +14,9 @@
 
 namespace nvfuser {
 
-class FusionKernelRuntime;
 class HeuristicSummary;
 class HeuristicParams;
 class SchedulerRuntimeInfo;
-class SegmentedGroup;
 
 //! Virtual base class for schedule heuristics
 //!   heuristic implementations derive from this
