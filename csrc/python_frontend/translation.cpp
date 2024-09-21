@@ -57,6 +57,11 @@ class FusionTranslator : public OptInConstDispatch {
     NVF_ERROR(tv != nullptr);
     const std::vector<IterDomain*>& logical = tv->domain()->logical();
     const std::vector<IterDomain*>& loop = tv->domain()->loop();
+    // short-circuit: check same length
+    if (logical.size() != loop.size()) {
+      return true;
+    }
+
     for (size_t idx : c10::irange(logical.size())) {
       if (logical.at(idx) != loop.at(idx)) {
         return true;
@@ -155,7 +160,7 @@ class FusionTranslator : public OptInConstDispatch {
 
     // Add Fusion inputs to FusionDefinition
     for (nvfuser::Val* v : fusion_->inputs()) {
-      OptOutConstDispatch::dispatch(v);
+      dispatch(v);
     }
 
     // Gather all expressions in CPP Fusion.
@@ -163,7 +168,7 @@ class FusionTranslator : public OptInConstDispatch {
     std::deque<nvfuser::Expr*> to_visit(
         fusion_exprs.begin(), fusion_exprs.end());
 
-    // Scalar expressions are not handled by usedMathVals, so gather them
+    // Scalar expressions are not handled by Fusion::exprs, so gather them
     // manually.
     for (Expr* e : to_visit) {
       if (e->isA<ViewOp>() || e->isA<ExpandOp>() || e->isA<FullOp>()) {
@@ -216,7 +221,7 @@ class FusionTranslator : public OptInConstDispatch {
           std::back_inserter(scalars),
           [](Val* v) { return v->isScalar(); });
       std::for_each(scalars.begin(), scalars.end(), [this](const Val* v) {
-        OptOutConstDispatch::dispatch(v);
+        dispatch(v);
       });
 
       // short-circuit: add to back of stack if not all of the expression's
@@ -229,7 +234,7 @@ class FusionTranslator : public OptInConstDispatch {
 
       // Create RecordFunctor given inputs, outputs, and attributes.
       visited.insert(e);
-      OptOutConstDispatch::dispatch(e);
+      dispatch(e);
       skip_count = 0;
     }
 

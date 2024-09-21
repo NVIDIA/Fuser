@@ -410,7 +410,8 @@ class NVFuserTest(TestCase):
         # Copy inputs because aliased outputs can modify inputs when running
         # FusionDefinition
         inputs_captured = deepcopy(inputs)
-        inputs_cloned = deepcopy(inputs)
+        if is_clonable:
+            inputs_cloned = deepcopy(inputs)
 
         # Execute a fusion function and capture the string python definition
         with FusionDefinition() as fd:
