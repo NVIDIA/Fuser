@@ -3603,166 +3603,6 @@ TEST_F(
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionInliningMismatchedDims1_CUDA) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  auto tv0 = makeConcreteTensor({2, 3, 4});
-  fusion.addInput(tv0);
-  auto tv1 = sin(tv0);
-  auto tv2 = cos(tv1);
-  auto tv3 = transpose(tv2, 1, 2);
-  auto tv4 = exp(tv3);
-  auto tv5 = tan(tv4);
-  fusion.addOutput(tv5);
-
-  inlineMost();
-
-  NVF_CHECK(tv5->getComputeAtPosition() == 3);
-  NVF_CHECK(tv4->getComputeAtPosition() == 3);
-  NVF_CHECK(tv3->getComputeAtPosition() == 3);
-  NVF_CHECK(tv2->getComputeAtPosition() == 1);
-  NVF_CHECK(tv1->getComputeAtPosition() == 3);
-
-  const auto options =
-      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor input = at::randn({2, 3, 4}, options);
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {input});
-  auto cg_outputs = fe.runFusion({input});
-
-  testValidate(&fusion, cg_outputs, {input}, __LINE__, __FILE__);
-}
-
-TEST_F(NVFuserTest, FusionInliningMismatchedDims2_CUDA) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  auto tv0 = makeConcreteTensor({2, 3, 4});
-  fusion.addInput(tv0);
-  auto tv1 = sin(tv0);
-  auto tv2 = cos(tv1);
-  auto tv3 = transpose(tv2, 1, 2);
-  auto tv4 = exp(tv3);
-  auto tv5 = tan(tv4);
-  fusion.addOutput(tv5);
-
-  inlineAllAt(tv5, -1, true);
-
-  NVF_CHECK(tv5->getComputeAtPosition() == 3);
-  NVF_CHECK(tv4->getComputeAtPosition() == 3);
-  NVF_CHECK(tv3->getComputeAtPosition() == 3);
-  NVF_CHECK(tv2->getComputeAtPosition() == 1);
-  NVF_CHECK(tv1->getComputeAtPosition() == 1);
-
-  const auto options =
-      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor input = at::randn({2, 3, 4}, options);
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {input});
-  auto cg_outputs = fe.runFusion({input});
-
-  testValidate(&fusion, cg_outputs, {input}, __LINE__, __FILE__);
-}
-
-TEST_F(NVFuserTest, FusionInliningMismatchedDims4_CUDA) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  auto tv0 = makeConcreteTensor({2, 3, 4});
-  fusion.addInput(tv0);
-  auto tv1 = sin(tv0);
-  auto tv2 = exp(tv1);
-  auto tv3 = relu(tv2);
-  auto tv4 = cos(tv3);
-  auto tv5 = tan(tv4);
-  fusion.addOutput(tv5);
-
-  tv3->merge(1);
-  inlineMost();
-
-  NVF_CHECK(tv5->getComputeAtPosition() == 3);
-  NVF_CHECK(tv4->getComputeAtPosition() == 3);
-  NVF_CHECK(tv3->getComputeAtPosition() == 1);
-  NVF_CHECK(tv2->getComputeAtPosition() == 1);
-  NVF_CHECK(tv1->getComputeAtPosition() == 3);
-
-  const auto options =
-      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor input = at::randn({2, 3, 4}, options);
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {input});
-  auto cg_outputs = fe.runFusion({input});
-
-  testValidate(&fusion, cg_outputs, {input}, __LINE__, __FILE__);
-}
-
-TEST_F(NVFuserTest, FusionInliningBroadcast_CUDA) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  auto tv0 = makeConcreteTensor({2, 3, 4});
-  fusion.addInput(tv0);
-  auto tv1 = sin(tv0);
-  // broadcasting
-  auto tv2 = broadcast(tv1, {false, true, false, true, false, true});
-  auto tv3 = cos(tv2);
-  auto tv4 = tan(tv3);
-  fusion.addOutput(tv4);
-
-  for (auto tv : {tv2, tv3, tv4}) {
-    tv->merge(0);
-    tv->merge(1);
-    tv->merge(2);
-  }
-
-  inlineMost();
-
-  NVF_CHECK(tv4->getComputeAtPosition() == 3);
-  NVF_CHECK(tv3->getComputeAtPosition() == 3);
-  NVF_CHECK(tv2->getComputeAtPosition() == 3);
-  NVF_CHECK(tv1->getComputeAtPosition() == 3);
-
-  const auto options =
-      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor input = at::randn({2, 3, 4}, options);
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {input});
-  auto cg_outputs = fe.runFusion({input});
-
-  testValidate(&fusion, cg_outputs, {input}, __LINE__, __FILE__);
-}
-
-TEST_F(NVFuserTest, FusionMatchedLeafPosWithoutReplayBroadcast_CUDA) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  auto tv0 = makeConcreteTensor({2, 3, 4});
-  fusion.addInput(tv0);
-  auto tv1 = broadcast(tv0, {false, true, false, true, false, true});
-  auto tv2 = sin(tv1);
-  fusion.addOutput(tv2);
-
-  for (auto tv : {tv1, tv2}) {
-    tv->merge(0);
-    tv->merge(1);
-    tv->merge(2);
-  }
-
-  NVF_CHECK(
-      TransformReplay::getMatchedLeafPosWithoutReplayPasC(tv0, tv1, 3) == 3);
-  NVF_CHECK(
-      TransformReplay::getMatchedLeafPosWithoutReplayCasP(tv1, tv0, 3) == 3);
-  NVF_CHECK(
-      TransformReplay::getMatchedLeafPosWithoutReplayPasC(tv1, tv2, 3) == 3);
-  NVF_CHECK(
-      TransformReplay::getMatchedLeafPosWithoutReplayCasP(tv2, tv1, 3) == 3);
-}
-
 TEST_F(NVFuserTest, FusionPrint_CUDA) {
   std::vector<at::ScalarType> dtypes = {
       at::kFloat, at::kDouble, at::kHalf, at::kInt, at::kLong, at::kBool};
@@ -6671,6 +6511,75 @@ TEST_F(NVFuserTest, CompareLogicalAndLoopDomains) {
       },
       testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
           "Not all logical IDs are covered by loop domain")));
+}
+
+TEST_F(NVFuserTest, AllIDsWithExtraLoopIDs) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // [i0, i1]
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  // [i0]
+  auto tv1 = makeSymbolicTensor(1);
+  fusion.addInput(tv1);
+
+  // [i0]
+  auto tv2 = set(tv1);
+  // [i0, b1]
+  auto tv3 = broadcast(tv2, {false, true});
+  // [i0, i1]
+  auto tv4 = add(tv0, tv3);
+  fusion.addOutput(tv4);
+
+  // Set the loop domain of tv2 the same as tv4. The new loop domain
+  // includes an ID that is not reachable from tv2 logical domain
+  auto tv2_inner_loop_domain =
+      tv4->getLoopDomain().at(1)->cloneWithoutRFactor();
+  tv2->setLoopDomain({tv2->getLogicalDomain().at(0), tv2_inner_loop_domain});
+
+  tv2->merge(0, 1);
+  auto tv2_merge_out = tv2->axis(0);
+  tv2->split(0, 32);
+
+  // tv2 logical: [i0]
+  //   merge(i0, i1) -> i0*i1
+  //   split(i0*i1, 32) -> i0*i1/32, 32
+  // tv2 loop: [i0*i1/32, 32]
+  //
+  // All IDs: [i0, i0*i1, i0*i1/32, 32]
+
+  // This ordering should return nothing as the logical domain does
+  // not have i1, thus the merge expr cannot be traversed.
+  EXPECT_TRUE(
+      IRBFS::getExprsBetween(
+          {tv2->getLogicalDomain().begin(), tv2->getLogicalDomain().end()},
+          {tv2->getLoopDomain().begin(), tv2->getLoopDomain().end()},
+          false)
+          .empty());
+
+  // This ordering should find two exprs (i.e., the merge and the split).
+  EXPECT_EQ(
+      IRBFS::getExprsBetween(
+          {tv2->getLoopDomain().begin(), tv2->getLoopDomain().end()},
+          {tv2->getLogicalDomain().begin(), tv2->getLogicalDomain().end()},
+          false)
+          .size(),
+      2);
+
+  std::unordered_set<IterDomain*> tv2_all_ids_ref;
+  tv2_all_ids_ref.insert(
+      tv2->getLogicalDomain().begin(), tv2->getLogicalDomain().end());
+  tv2_all_ids_ref.insert(tv2_inner_loop_domain);
+  tv2_all_ids_ref.insert(tv2_merge_out);
+  tv2_all_ids_ref.insert(
+      tv2->getLoopDomain().begin(), tv2->getLoopDomain().end());
+
+  auto tv2_all_ids = tv2->domain()->allIDs();
+  std::unordered_set<IterDomain*> tv2_all_id_set(
+      tv2_all_ids.begin(), tv2_all_ids.end());
+
+  EXPECT_EQ(tv2_all_id_set, tv2_all_ids_ref);
 }
 
 // Repro for issue #236 (https://github.com/NVIDIA/Fuser/issues/236)

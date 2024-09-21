@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <disjoint_set.h>
 #include <dispatch.h>
 #include <exceptions.h>
 #include <ir/builder.h>
@@ -91,6 +92,28 @@ class IrCloner {
       copy.emplace(clone(k), clone(v));
     }
     return copy;
+  }
+
+  template <typename T, typename Hash = std::hash<T>>
+  DisjointSets<T, Hash> clone(const DisjointSets<T, Hash>& disjoint_sets) {
+    DisjointSets<T, Hash> cloned_disjoint_sets;
+    for (const auto& original_set : disjoint_sets.disjointSets()) {
+      NVF_ERROR(!original_set->empty());
+      bool first = true;
+      for (const auto& val : *original_set) {
+        typename DisjointSets<T, Hash>::DisjointSet new_set;
+        auto clone_of_val = clone(val);
+        if (first) {
+          auto it = cloned_disjoint_sets.initializeSet(clone_of_val).first;
+          new_set = it->second;
+          first = false;
+        } else {
+          cloned_disjoint_sets.appendToSet(clone_of_val, new_set);
+        }
+      }
+    }
+
+    return cloned_disjoint_sets;
   }
 
   IrContainer* container() const {
