@@ -484,9 +484,12 @@ class AllocationInserter : public kir::ExprMutator {
         mbarrier->setMemoryType(MemoryType::Shared);
 
         // Get all threads in CTA
-        NamedScalar* bdimx = NamedScalar::getParallelDim(ParallelType::TIDx);
-        NamedScalar* bdimy = NamedScalar::getParallelDim(ParallelType::TIDy);
-        NamedScalar* bdimz = NamedScalar::getParallelDim(ParallelType::TIDz);
+        Val* bdimx =
+            GpuLower::current()->parallelDimensionMap().get(ParallelType::TIDx);
+        Val* bdimy =
+            GpuLower::current()->parallelDimensionMap().get(ParallelType::TIDy);
+        Val* bdimz =
+            GpuLower::current()->parallelDimensionMap().get(ParallelType::TIDz);
         Val* all_threads_in_cta = SimplifyingIrBuilder::mulExpr(
             bdimx, SimplifyingIrBuilder::mulExpr(bdimy, bdimz));
         all_threads_in_cta = SimplifyingIrBuilder::maybeCastExpr(
