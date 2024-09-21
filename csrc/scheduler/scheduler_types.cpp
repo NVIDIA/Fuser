@@ -7,31 +7,31 @@
 // clang-format on
 
 #include <exceptions.h>
-#include <scheduler/heuristic_types.h>
+#include <scheduler/scheduler_types.h>
 
 namespace nvfuser {
 
-std::string toString(HeuristicType sh) {
-  switch (sh) {
-    case HeuristicType::NoOp:
+std::string toString(SchedulerType scheduler_type) {
+  switch (scheduler_type) {
+    case SchedulerType::NoOp:
       return "no_op";
-    case HeuristicType::PointWise:
+    case SchedulerType::PointWise:
       return "pointwise";
-    case HeuristicType::Reduction:
+    case SchedulerType::Reduction:
       return "reduction";
-    case HeuristicType::InnerPersistent:
+    case SchedulerType::InnerPersistent:
       return "inner_persistent";
-    case HeuristicType::OuterPersistent:
+    case SchedulerType::OuterPersistent:
       return "outer_persistent";
-    case HeuristicType::InnerOuterPersistent:
+    case SchedulerType::InnerOuterPersistent:
       return "inner_outer_persistent";
-    case HeuristicType::Transpose:
+    case SchedulerType::Transpose:
       return "transpose";
-    case HeuristicType::Matmul:
+    case SchedulerType::Matmul:
       return "matmul";
-    case HeuristicType::ExprEval:
+    case SchedulerType::ExprEval:
       return "expr_eval";
-    case HeuristicType::None:
+    case SchedulerType::None:
       return "none";
     default:
       NVF_THROW("undefined schedule");
@@ -39,8 +39,8 @@ std::string toString(HeuristicType sh) {
   return "";
 }
 
-std::ostream& operator<<(std::ostream& os, HeuristicType sh) {
-  os << toString(sh);
+std::ostream& operator<<(std::ostream& os, SchedulerType scheduler_type) {
+  os << toString(scheduler_type);
   return os;
 }
 

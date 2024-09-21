@@ -309,7 +309,7 @@ TEST_F(NVFuserTest, FusionIndexSelectCanSch_CUDA) {
   // Schedule through magic scheduler
   SchedulerRuntimeInfo runtime_info(&fusion_fail, aten_inputs);
   auto sch_fail = Schedule::canSchedule(
-      HeuristicType::PointWise, &fusion_fail, runtime_info);
+      SchedulerType::PointWise, &fusion_fail, runtime_info);
 
   // Negative Case II
   // lookup tv of index select cannot become conumser of other OP
@@ -337,7 +337,7 @@ TEST_F(NVFuserTest, FusionIndexSelectCanSch_CUDA) {
   // Schedule through magic scheduler
   SchedulerRuntimeInfo runtime_sum_info(&fusion_sum_fail, aten_sum_inputs);
   auto sch_sum_fail = Schedule::canSchedule(
-      HeuristicType::Reduction, &fusion_sum_fail, runtime_sum_info);
+      SchedulerType::Reduction, &fusion_sum_fail, runtime_sum_info);
 
   // Positive  Case I
   Fusion fusion_pass;
@@ -358,7 +358,7 @@ TEST_F(NVFuserTest, FusionIndexSelectCanSch_CUDA) {
   std::vector<c10::IValue> aten_inputs_pass = {input1, input0, input_idx};
   SchedulerRuntimeInfo runtime_info_pass(&fusion_pass, aten_inputs_pass);
   auto sch_pass = Schedule::canSchedule(
-      HeuristicType::PointWise, &fusion_pass, runtime_info_pass);
+      SchedulerType::PointWise, &fusion_pass, runtime_info_pass);
 
   NVF_CHECK(sch_pass == true && sch_fail == false && sch_sum_fail == false);
 }

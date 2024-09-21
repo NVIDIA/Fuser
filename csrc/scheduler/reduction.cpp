@@ -1075,26 +1075,26 @@ bool ReductionScheduler::canScheduleCompileTime(Fusion* fusion) {
   FUSER_PERF_SCOPE("ReductionScheduler::canScheduleCompileTime");
   if (scheduler_utils::isResharding(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(), "Fusion is resharding.");
+        schedulerType(), "Fusion is resharding.");
     return false;
   }
 
   // Needs at least one reduction to consider.
   if (!ir_utils::hasAnyReductionOps(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(), "No reduction op to schedule");
+        schedulerType(), "No reduction op to schedule");
     return false;
   }
 
   if (ir_utils::filterByType<TensorView>(fusion->inputs()).empty()) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(), "Scheduling not supported with no input");
+        schedulerType(), "Scheduling not supported with no input");
     return false;
   }
 
   // Check that inputs of all select/gather-like ops are fusion inputs
   if (registry_utils::rejectScheduleForMemoryPromotion(
-          fusion, heuristicType())) {
+          fusion, schedulerType())) {
     return false;
   }
 
@@ -1107,7 +1107,7 @@ bool ReductionScheduler::canScheduleCompileTime(Fusion* fusion) {
 
   if (registry_utils::hasNonUniqueBcast(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(),
+        schedulerType(),
         "Broadcasting dimension might be broadcasting to multiple sizes.");
     return false;
   }
@@ -1116,7 +1116,7 @@ bool ReductionScheduler::canScheduleCompileTime(Fusion* fusion) {
     ComputeAtMap ca_map(fusion);
     if (registry_utils::requiresForwardViewReplay(fusion, ca_map)) {
       scheduler_debug_utils::canScheduleRejectReason(
-          heuristicType(), "Fusion requires view being reversible.");
+          schedulerType(), "Fusion requires view being reversible.");
       return false;
     }
 
@@ -1125,7 +1125,7 @@ bool ReductionScheduler::canScheduleCompileTime(Fusion* fusion) {
     if (registry_utils::reductionInterferingView(
             fusion, ca_map, reduction_tvs[0])) {
       scheduler_debug_utils::canScheduleRejectReason(
-          heuristicType(), "View may interfere with reduction scheduling.");
+          schedulerType(), "View may interfere with reduction scheduling.");
       return false;
     }
   }
@@ -1155,7 +1155,7 @@ bool ReductionScheduler::canScheduleCompileTime(Fusion* fusion) {
       } else {
         if (reduction_root_size(red) != axis_count) {
           scheduler_debug_utils::canScheduleRejectReason(
-              heuristicType(),
+              schedulerType(),
               "Inconsistent reduction root size: ",
               red->toString(),
               ", expected: ",
@@ -1175,7 +1175,7 @@ bool ReductionScheduler::canScheduleCompileTime(Fusion* fusion) {
       if (!registry_utils::checkPatternEquivalence(
               reduction_tvs[it - 1], reduction_tvs[it], logical_map)) {
         scheduler_debug_utils::canScheduleRejectReason(
-            heuristicType(),
+            schedulerType(),
             "Un-mapped multi-reduction: ",
             reduction_tvs[it - 1]->toString(),
             " and ",
@@ -1189,7 +1189,7 @@ bool ReductionScheduler::canScheduleCompileTime(Fusion* fusion) {
   auto persistent_buffer_info = scheduler_utils::persistentBuffers(fusion);
   if (!persistent_buffer_info.persistent_buffers.empty()) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(),
+        schedulerType(),
         "need persistent buffers that reduction scheduler doesn't handle");
     return false;
   }
@@ -1198,14 +1198,14 @@ bool ReductionScheduler::canScheduleCompileTime(Fusion* fusion) {
           fusion, reduction_tvs) ||
       registry_utils::SchedulerTopologyChecker::hasPostReductionBCast(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(), "has unsupported post reduction fusion");
+        schedulerType(), "has unsupported post reduction fusion");
     return false;
   }
 
   if (registry_utils::SchedulerTopologyChecker::
           hasGatherToBroadcastBeforeReduction(fusion, reduction_tvs)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(), "has unsupported gather-like ops before reduction");
+        schedulerType(), "has unsupported gather-like ops before reduction");
     return false;
   }
 

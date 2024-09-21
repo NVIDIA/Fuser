@@ -2449,8 +2449,8 @@ TEST_F(GpuViewTest, GroupNormOriginal) {
   EXPECT_THAT(
       executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups(),
       UnorderedElementsAre(
-          HeuristicIs(HeuristicType::PointWise),
-          HeuristicIs(HeuristicType::Reduction)));
+          HeuristicIs(SchedulerType::PointWise),
+          HeuristicIs(SchedulerType::Reduction)));
 
   testValidate(
       executor_cache.fusion(), cg_outputs, {t0, tw, tb}, __LINE__, __FILE__);
@@ -2619,8 +2619,8 @@ TEST_F(GpuViewTest, GroupNormReshapeMovedToOutput) {
   EXPECT_THAT(
       seg_groups,
       UnorderedElementsAre(
-          HeuristicIs(HeuristicType::InnerPersistent),
-          HeuristicIs(HeuristicType::NoOp)));
+          HeuristicIs(SchedulerType::InnerPersistent),
+          HeuristicIs(SchedulerType::NoOp)));
 
   testValidate(
       executor_cache.fusion(), cg_outputs, {t0, tw, tb}, __LINE__, __FILE__);

@@ -10,8 +10,8 @@
 #include <exceptions.h>
 #include <fusion_executor/executor_params.h>
 #include <ir/all_nodes.h>
-#include <scheduler/heuristic_types.h>
 #include <scheduler/reduction_utils.h>
+#include <scheduler/scheduler_types.h>
 #include <scheduler/utils.h>
 #include <cmath>
 #include <optional>
@@ -195,7 +195,7 @@ int64_t partialReductionBufferSize(
 
 // Return a scheduleHeuristic based on reduction types.
 using ReductionType = reduction_scheduler_utils::ReductionType;
-HeuristicType getPersistentHeuristicFor(ReductionType reduction_type);
+SchedulerType getPersistentHeuristicFor(ReductionType reduction_type);
 
 // get argument passed to innerPersistentHeuristic and outerPersistentHeuristic
 struct PersistentKernelProperties {
@@ -228,7 +228,7 @@ PersistentKernelProperties getPersistentKernelProperties(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache,
-    HeuristicType heuristic);
+    SchedulerType heuristic);
 
 // Verify the presence of a reduction TensorView connected to a Fusion input
 void checkReductionTvForScheduling(Fusion* fusion, TensorView* ref_red_tv);
@@ -236,7 +236,7 @@ void checkReductionTvForScheduling(Fusion* fusion, TensorView* ref_red_tv);
 // Check the operations and input tensors of the fusion. This
 // verification is a common step shared by all persistent kernel implementations
 // during compile-time checks.
-bool checkOpsAndInputs(Fusion* fusion, HeuristicType heuristic);
+bool checkOpsAndInputs(Fusion* fusion, SchedulerType scheduler_type);
 
 // Returns true if the reduction pattern is consistent. For the
 // InnerPersistentKernelScheduler and OuterPersistentKernelScheduler, a single
@@ -244,14 +244,14 @@ bool checkOpsAndInputs(Fusion* fusion, HeuristicType heuristic);
 // InnerOuterPersistentKernelScheduler, two vectors of TensorViews are provided.
 bool checkReductionPattern(
     Fusion* fusion,
-    HeuristicType schedule_heuristic,
+    SchedulerType scheduler_type,
     const std::vector<TensorView*>& reduction_tvs1,
     const std::vector<TensorView*>& reduction_tvs2 = {});
 
 // The compile-time checks for both the InnerPersistentKernelScheduler and
 // OuterPersistentKernelScheduler are identical. These checks are constructed
 // using checkOpsAndInputs, checkReductionPattern, and checkViewBufferTopology.
-bool compileTimeCheck(Fusion* fusion, HeuristicType schedule_heuristic);
+bool compileTimeCheck(Fusion* fusion, SchedulerType scheduler_type);
 
 // Common preparations before the actual schedule, used by all persistent
 // schedulers. Write to dummy_outputs, cached_inputs, reduction_tvs, and
@@ -271,13 +271,13 @@ TensorView* scheduleReductionGeneral(
     Fusion* fusion,
     const ReductionParams* rparams,
     std::vector<TensorView*>& reduction_tvs,
-    HeuristicType schedule_heuristic);
+    SchedulerType scheduler_type);
 
 // Used by InnerPersistentKernelScheduler and  OuterPersistentKernelScheduler
 void schedulePersistentKernel(
     Fusion* fusion,
     const ReductionParams* rparams,
-    HeuristicType schedule_heuristic);
+    SchedulerType scheduler_type);
 
 // Get max register or shared memory size for persistent buffer
 int64_t getMaxRegOrSharedMemorySizeForPersistentBuffer(
@@ -316,7 +316,7 @@ bool isProjectBufferToInputs(
     const scheduler_utils::PersistentBufferInfo& persistent_buffer_info,
     const scheduler_utils::PersistentBufferSizeReturn&
         persistent_buffer_size_info,
-    const HeuristicType sh,
+    const SchedulerType sh,
     const bool can_use_smem_persistent,
     const bool check_projected_buffer_size = true);
 
@@ -326,6 +326,33 @@ void movePersistentBufferToSmem(
     Fusion* fusion,
     const ReductionParams* rparams,
     const std::vector<TensorView*>& cached_inputs);
+
+// Find the resolution points of a persistent buffer. See also
+// the comments of PersistentBufferResolution in utils.cpp. Unlike
+// PersistentBufferResolution, this analysis traverses a given fusion
+// both forward and backward, which is necessary in some cases. For
+// example:
+//
+// t0 = makeSymbolicTensor(2)
+// t1 = makeSymbolicTensor(2)
+// t2 = set(t0)
+// t3 = sum(t2, 1)
+// t4 = broadcast(t3, {false, true})
+// t5 = add(t1, t2)
+// t6 = add(t4, t1)
+// fusion.addOutput(t5)
+// fusion.addOutput(t6)
+//
+// The path from t2 to t3, t4 and t6 is a normalization path. While t1 itself
+// does not depend on t2, since it is used with t2, inlining of t2
+// also means t1 must be inlined, which in turn means t6 must be
+// inlined. However, t6 depends on the reduction, inlining of t2 is
+// not possible. For normalization fusions like this pattern,
+// PersistentBufferResolution is not able to detect the resolution
+// point. getResolutionPointsOf addresses the problem by traversing
+// both forward and backward directions. See
+// PersistentBufferTest.GetResolutionIssue1123 for a concrete example
+std::vector<TensorView*> getResolutionPointsOf(TensorView* persistent_buffer);
 
 } // namespace normalization_scheduler_utils
 } // namespace nvfuser

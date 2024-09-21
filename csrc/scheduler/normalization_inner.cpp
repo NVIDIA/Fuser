@@ -26,7 +26,7 @@ void InnerPersistentKernelScheduler::schedule(
   FUSER_PERF_SCOPE("InnerPersistentKernelScheduler::schedule");
   auto rparams = dynamic_cast<const ReductionParams*>(params);
   NVF_ERROR(
-      rparams != nullptr,
+      rparams != nullptr && rparams->scheduler_type == schedulerType(),
       "Incorrect parameters sent to InnerPersistentKernelScheduler::schedule",
       params);
   scheduleInnerPersistentKernel(fusion, rparams);
@@ -35,7 +35,7 @@ void InnerPersistentKernelScheduler::schedule(
 bool InnerPersistentKernelScheduler::canScheduleCompileTime(Fusion* fusion) {
   FUSER_PERF_SCOPE("InnerPersistentKernelScheduler::canScheduleCompileTime");
   return normalization_scheduler_utils::compileTimeCheck(
-      fusion, heuristicType());
+      fusion, schedulerType());
 }
 
 namespace {
@@ -64,7 +64,7 @@ std::pair<int64_t, int64_t> getPersistentBufferSize(
           runtime_info,
           persistent_buffer_info,
           persistent_buffer_size_info,
-          InnerPersistentKernelScheduler::heuristicType(),
+          InnerPersistentKernelScheduler::schedulerType(),
           can_use_smem_persistent);
   auto persistent_buffer_size = project_persistent_buffers
       ? persistent_buffer_size_info.projected_persistent_buffer_size
@@ -118,7 +118,7 @@ bool InnerPersistentKernelScheduler::canScheduleRunTime(
 
   if (persistent_buffer_size > available_persistent_buffer_size) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(),
+        schedulerType(),
         can_use_smem_persistent
             ? "not enough registers or shared memory for persistence."
             : "not enough registers for persistence and shared memory persistence is not supported yet.");
@@ -137,7 +137,7 @@ bool InnerPersistentKernelScheduler::canScheduleRunTime(
   if (required_sm_per_norm >
       scheduler_utils::safeDiv(device_multiprocessor_count, 2)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(), "requires over half GPU persistence.");
+        schedulerType(), "requires over half GPU persistence.");
     return false;
   }
 
@@ -153,7 +153,7 @@ bool InnerPersistentKernelScheduler::canScheduleRunTime(
                // half warp
                : (warp_size / 8) * device_multiprocessor_count)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(), "not enough blocks");
+        schedulerType(), "not enough blocks");
     return false;
   }
 
@@ -1101,10 +1101,10 @@ std::unique_ptr<ReductionParams> getInnerPersistentHeuristics(
           fusion,
           runtime_info,
           data_cache,
-          InnerPersistentKernelScheduler::heuristicType());
+          InnerPersistentKernelScheduler::schedulerType());
 
   std::unique_ptr<ReductionParams> rparams = std::make_unique<ReductionParams>(
-      InnerPersistentKernelScheduler::heuristicType());
+      InnerPersistentKernelScheduler::schedulerType());
 
   // shared heuristics for all cases
   rparams->persistent_kernel = true;
@@ -1146,8 +1146,11 @@ std::unique_ptr<ReductionParams> getInnerPersistentHeuristics(
 void scheduleInnerPersistentKernel(
     Fusion* fusion,
     const ReductionParams* rparams) {
+  NVF_ERROR(
+      rparams->scheduler_type ==
+      InnerPersistentKernelScheduler::schedulerType());
   normalization_scheduler_utils::schedulePersistentKernel(
-      fusion, rparams, InnerPersistentKernelScheduler::heuristicType());
+      fusion, rparams, rparams->scheduler_type);
 }
 
 } // namespace nvfuser

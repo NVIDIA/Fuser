@@ -25,7 +25,7 @@ void InnerOuterPersistentKernelScheduler::schedule(
   FUSER_PERF_SCOPE("InnerOuterPersistentKernelScheduler::schedule");
   auto rparams = dynamic_cast<const ReductionParams*>(params);
   NVF_ERROR(
-      rparams != nullptr,
+      rparams != nullptr && rparams->scheduler_type == schedulerType(),
       "Incorrect parameters sent to InnerOuterPersistentKernelScheduler::schedule",
       params);
   scheduleInnerOuterPersistentKernel(fusion, rparams);
@@ -37,7 +37,7 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
       "InnerOuterPersistentKernelScheduler::canScheduleCompileTime");
   // common checks for all persistent heuristics
   if (!normalization_scheduler_utils::checkOpsAndInputs(
-          fusion, heuristicType())) {
+          fusion, schedulerType())) {
     return false;
   }
 
@@ -45,17 +45,17 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
   auto reduction_tvs = scheduler_utils::getReductionTvs(fusion);
   if (reduction_tvs.empty()) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(), "no reduction tv");
+        schedulerType(), "no reduction tv");
     return false;
   }
   auto reduction_type =
       reduction_scheduler_utils::getReductionType(reduction_tvs);
-  const HeuristicType persistent_heuristic =
+  const SchedulerType persistent_heuristic =
       normalization_scheduler_utils::getPersistentHeuristicFor(reduction_type);
-  if (persistent_heuristic != heuristicType()) {
+  if (persistent_heuristic != schedulerType()) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(),
-        "heuristicType() doesn't match with reduction type `",
+        schedulerType(),
+        "schedulerType() doesn't match with reduction type `",
         persistent_heuristic,
         "`.");
     return false;
@@ -74,7 +74,7 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
   if (!normalization_scheduler_utils::checkIfReductionsAreInnerOuter(
           inner_reduction_tvs, outer_reduction_tvs)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(),
+        schedulerType(),
         "to use combined reduction, inner reduction tensor should be [I,I,...,R,R] and outer reduction tensor should be [R,R,...,I,I]");
     return false;
   }
@@ -82,7 +82,7 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
   if (!normalization_scheduler_utils::hasSharedInput(
           inner_reduction_tvs, outer_reduction_tvs)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(),
+        schedulerType(),
         "to use combined reduction, inner reduction and outer reduction should have shared input.");
     return false;
   }
@@ -90,7 +90,7 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
   if (!normalization_scheduler_utils::isConnectedOnlyThroughReductionProducer(
           inner_reduction_tvs, outer_reduction_tvs)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(),
+        schedulerType(),
         "to use combined reduction, inner reduction and outer reduction should not have shared consumer, their consumers should not have shared non-outer-reduction producer.");
     return false;
   }
@@ -99,7 +99,7 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
     ComputeAtMap ca_map(fusion);
     if (registry_utils::requiresForwardViewReplay(fusion, ca_map)) {
       scheduler_debug_utils::canScheduleRejectReason(
-          heuristicType(), "Fusion requires view being reversible.");
+          schedulerType(), "Fusion requires view being reversible.");
       return false;
     }
     // Persistent scheduler simply uses reference_tv as the reference, if
@@ -108,7 +108,7 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
     if (registry_utils::reductionInterferingView(
             fusion, ca_map, reference_tv)) {
       scheduler_debug_utils::canScheduleRejectReason(
-          heuristicType(), "View may interfere with normalization scheduling.");
+          schedulerType(), "View may interfere with normalization scheduling.");
       return false;
     }
   }
@@ -135,7 +135,7 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
     } else {
       if (reduction_root_size(red) != axis_count) {
         scheduler_debug_utils::canScheduleRejectReason(
-            heuristicType(),
+            schedulerType(),
             "inconsistent reduction root size: ",
             red->toString(),
             ", expected: ",
@@ -150,13 +150,13 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
   if (!normalization_scheduler_utils::isReductionIterationAxisMatched(
           inner_reduction_tvs, outer_reduction_tvs)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(),
+        schedulerType(),
         "to use combined reduction, every iteration axis in inner reduction tv should match to a reduction domain in outer reduction tv.");
     return false;
   }
 
   if (!normalization_scheduler_utils::checkReductionPattern(
-          fusion, heuristicType(), inner_reduction_tvs, outer_reduction_tvs)) {
+          fusion, schedulerType(), inner_reduction_tvs, outer_reduction_tvs)) {
     return false;
   }
 
@@ -164,21 +164,21 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
   auto persistent_buffer_info = scheduler_utils::persistentBuffers(fusion);
   if (persistent_buffer_info.persistent_buffers.empty()) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(), "no persistent buffer identified");
+        schedulerType(), "no persistent buffer identified");
     return false;
   }
 
   if (registry_utils::SchedulerTopologyChecker::
           hasNonNormalizePostReductionBCast(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(), "unsupported post reduction normalization");
+        schedulerType(), "unsupported post reduction normalization");
     return false;
   }
 
   if (registry_utils::SchedulerTopologyChecker::
           hasGatherToBroadcastBeforeReduction(fusion, reduction_tvs)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(),
+        schedulerType(),
         "has unsupported gather-like ops before normalization");
     return false;
   }
@@ -386,7 +386,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
           runtime_info,
           persistent_buffer_info,
           persistent_buffer_size_info,
-          InnerOuterPersistentKernelScheduler::heuristicType(),
+          InnerOuterPersistentKernelScheduler::schedulerType(),
           /*can_use_smem_persistent=*/true,
           outer_broadcast_tvs.empty());
 
@@ -617,7 +617,7 @@ bool InnerOuterPersistentKernelScheduler::canScheduleRunTime(
 
   if (!buffer_params.has_enough_regs_and_smem) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(),
+        schedulerType(),
         "not enough registers or shared memory for persistence");
     return false;
   }
@@ -634,7 +634,7 @@ bool InnerOuterPersistentKernelScheduler::canScheduleRunTime(
   if (required_sm_per_norm >
       scheduler_utils::safeDiv(device_multiprocessor_count, 2)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(), "requires over half GPU persistence.");
+        schedulerType(), "requires over half GPU persistence.");
     return false;
   }
 
@@ -650,7 +650,7 @@ bool InnerOuterPersistentKernelScheduler::canScheduleRunTime(
                // half warp
                : (warp_size / 8) * device_multiprocessor_count)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(), "not enough blocks");
+        schedulerType(), "not enough blocks");
     return false;
   }
 
@@ -702,7 +702,7 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
     const bool project_to_input,
     const PrimDataType index_type) {
   auto rparams = std::make_unique<ReductionParams>(
-      InnerOuterPersistentKernelScheduler::heuristicType());
+      InnerOuterPersistentKernelScheduler::schedulerType());
   rparams->project_persistent_buffers = project_to_input;
   rparams->cparams.index_type = index_type;
   // Parameters for inner reduction:
@@ -1186,7 +1186,7 @@ void scheduleInnerOuterPersistentKernel(
           fusion,
           rparams,
           inner_reduction_tvs,
-          InnerOuterPersistentKernelScheduler::heuristicType());
+          InnerOuterPersistentKernelScheduler::schedulerType());
 
   // schedule outer reduction, schedule all the outer reduction tvs since we
   // need to store the intermediate results.

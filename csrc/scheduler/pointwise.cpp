@@ -28,7 +28,7 @@ bool PointWiseScheduler::canScheduleCompileTime(Fusion* fusion) {
   if (scheduler_utils::isResharding(fusion)) {
     FUSER_PERF_SCOPE("PointWiseScheduler::canScheduleCompileTime");
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(), "Fusion is resharding.");
+        schedulerType(), "Fusion is resharding.");
     return false;
   }
 
@@ -37,13 +37,13 @@ bool PointWiseScheduler::canScheduleCompileTime(Fusion* fusion) {
   // schedule pointwise.
   if (!hasReferenceTensorView(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(), "cannot find reference tensor");
+        schedulerType(), "cannot find reference tensor");
     return false;
   }
 
   // Check that inputs of all select/gather-like ops are fusion inputs
   if (registry_utils::rejectScheduleForMemoryPromotion(
-          fusion, heuristicType())) {
+          fusion, schedulerType())) {
     return false;
   }
 
@@ -51,20 +51,20 @@ bool PointWiseScheduler::canScheduleCompileTime(Fusion* fusion) {
     ComputeAtMap ca_map(fusion);
     if (registry_utils::requiresForwardViewReplay(fusion, ca_map)) {
       scheduler_debug_utils::canScheduleRejectReason(
-          heuristicType(), "Fusion requires view being reversible.");
+          schedulerType(), "Fusion requires view being reversible.");
       return false;
     }
   }
 
   if (ir_utils::hasAnyReductionOps(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(), "no support for reduction ops");
+        schedulerType(), "no support for reduction ops");
     return false;
   }
 
   if (registry_utils::hasNonUniqueBcast(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(),
+        schedulerType(),
         "Broadcasting dimension might be broadcasting to multiple sizes.");
     return false;
   }

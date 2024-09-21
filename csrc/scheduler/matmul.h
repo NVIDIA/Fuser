@@ -36,8 +36,8 @@ class MatmulScheduler : public SchedulerEntry {
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr) override;
 
-  constexpr static HeuristicType heuristicType() {
-    return HeuristicType::Matmul;
+  constexpr static SchedulerType schedulerType() {
+    return SchedulerType::Matmul;
   }
 
   std::unique_ptr<HeuristicParams> computeHeuristics(

@@ -7,6 +7,7 @@
 // clang-format on
 #include <expr_evaluator.h>
 #include <grouped_reduction.h>
+#include <id_model/id_model.h>
 #include <instrumentation.h>
 #include <scheduler/cache_policy_refiner.h>
 #include <scheduler/debug_utils.h>
@@ -15,6 +16,7 @@
 #include <scheduler/registry_utils.h>
 #include <scheduler/runtime_info.h>
 #include <utils.h>
+#include <val_graph_visitor.h>
 
 #include <ATen/cuda/CUDAContext.h>
 
@@ -312,7 +314,7 @@ std::optional<std::tuple<int64_t, int64_t, bool>> reduceWorkOfLastBlock(
 
     // not good enough; increase persistent buffer
     ++current_buffer_size;
-    // adjust gdimy (decreased as persitent_buffer is increased)
+    // adjust gdimy (decreased as persistent_buffer is increased)
     current_gdimy =
         ceilDiv(ceilDiv(total_reduction_numel, bdimy), current_buffer_size);
 
@@ -331,8 +333,8 @@ std::optional<std::tuple<int64_t, int64_t, bool>> reduceWorkOfLastBlock(
   // Acceptable config not found. Continue searching a better config
   // by moving to the next candidate. However, if the next candidate
   // incurs a larger number of grid syncs, i.e., the serial factor of
-  // the iteration domain is larger, the additional overheaad would
-  // likely to outweight the benefit of potentially better block
+  // the iteration domain is larger, the additional overhead would
+  // likely to outweigh the benefit of potentially better block
   // specialization, so pick the best among found so far.
   auto next_gdimx = launch_cfg.peekNextGdimx();
 
@@ -686,14 +688,14 @@ int64_t partialReductionBufferSize(
 }
 
 // Get the appropriate scheduler based on reduction type
-HeuristicType getPersistentHeuristicFor(ReductionType reduction_type) {
+SchedulerType getPersistentHeuristicFor(ReductionType reduction_type) {
   switch (reduction_type) {
     case ReductionType::Inner:
-      return HeuristicType::InnerPersistent;
+      return SchedulerType::InnerPersistent;
     case ReductionType::Outer:
-      return HeuristicType::OuterPersistent;
+      return SchedulerType::OuterPersistent;
     case ReductionType::InnerOuter:
-      return HeuristicType::InnerOuterPersistent;
+      return SchedulerType::InnerOuterPersistent;
     default:
       NVF_THROW(
           "Reduction type not supported! reduction_type: ", reduction_type);
@@ -758,7 +760,7 @@ bool isProjectBufferToInputs(
     const scheduler_utils::PersistentBufferInfo& persistent_buffer_info,
     const scheduler_utils::PersistentBufferSizeReturn&
         persistent_buffer_size_info,
-    const HeuristicType heuristic_type,
+    const SchedulerType scheduler_type,
     const bool can_use_smem_persistent,
     const bool check_projected_buffer_size) {
   // don't project if there are view ops and no buffer can be projected
@@ -782,7 +784,7 @@ bool isProjectBufferToInputs(
   // enough register or shared memory, then canScheduleRunTime will return
   // false. For InnerOuterPersistent, both register and shared memory are used
   // and will be handled in getPersistentBufferStorageParams.
-  if (heuristic_type != HeuristicType::InnerOuterPersistent) {
+  if (scheduler_type != SchedulerType::InnerOuterPersistent) {
     int64_t max_available_buffer =
         getMaxRegOrSharedMemorySizeForPersistentBuffer(
             runtime_info,
@@ -805,7 +807,7 @@ bool isProjectBufferToInputs(
   }
 
   // consider buffer size when exp op exists
-  if (heuristic_type == HeuristicType::InnerPersistent) {
+  if (scheduler_type == SchedulerType::InnerPersistent) {
     // check if the non-projected persistent buffer is small enough,
     // i.e., not affecting the occupancy, projecting back to the inputs
     // isn't buying us anything.
@@ -842,7 +844,7 @@ PersistentKernelProperties getPersistentKernelProperties(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache,
-    HeuristicType heuristic) {
+    SchedulerType scheduler_type) {
   FUSER_PERF_SCOPE(
       "normalization_scheduler_utils::getPersistentKernelProperties");
 
@@ -921,7 +923,7 @@ PersistentKernelProperties getPersistentKernelProperties(
       runtime_info,
       persistent_buffer_info,
       persistent_buffer_size_info,
-      heuristic,
+      scheduler_type,
       can_use_smem_persistent);
   int64_t max_persistent_buffer_size = project_persistent_buffers
       ? persistent_buffer_size_info.projected_persistent_buffer_size
@@ -990,35 +992,35 @@ PersistentKernelProperties getPersistentKernelProperties(
       .persistent_buffers = persistent_buffer_info.persistent_buffers};
 }
 
-bool checkOpsAndInputs(Fusion* fusion, HeuristicType schedule_heuristic) {
+bool checkOpsAndInputs(Fusion* fusion, SchedulerType scheduler_type) {
   if (scheduler_utils::isResharding(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        schedule_heuristic, "Fusion is resharding.");
+        scheduler_type, "Fusion is resharding.");
     return false;
   }
 
   // Needs at least one reduction to consider.
   if (!ir_utils::hasAnyReductionOps(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        schedule_heuristic, "needs a reduction op");
+        scheduler_type, "needs a reduction op");
     return false;
   }
 
   if (ir_utils::filterByType<TensorView>(fusion->inputs()).empty()) {
     scheduler_debug_utils::canScheduleRejectReason(
-        schedule_heuristic, "Scheduling not supported with no input");
+        scheduler_type, "Scheduling not supported with no input");
     return false;
   }
 
   // Check that inputs of all select/gather-like ops are fusion inputs
   if (registry_utils::rejectScheduleForMemoryPromotion(
-          fusion, schedule_heuristic)) {
+          fusion, scheduler_type)) {
     return false;
   }
 
   if (registry_utils::hasNonUniqueBcast(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        schedule_heuristic,
+        scheduler_type,
         "Broadcasting dimension might be broadcasting to multiple sizes.");
     return false;
   }
@@ -1028,7 +1030,7 @@ bool checkOpsAndInputs(Fusion* fusion, HeuristicType schedule_heuristic) {
 
 bool checkReductionPattern(
     Fusion* fusion,
-    HeuristicType schedule_heuristic,
+    SchedulerType scheduler_type,
     const std::vector<TensorView*>& reduction_tvs1,
     const std::vector<TensorView*>& reduction_tvs2) {
   // Ensure that the reduction operations share the same axes in their root
@@ -1044,7 +1046,7 @@ bool checkReductionPattern(
       if (!registry_utils::checkPatternEquivalence(
               rtvs[it - 1], rtvs[it], logical_map)) {
         scheduler_debug_utils::canScheduleRejectReason(
-            schedule_heuristic,
+            scheduler_type,
             "Un-mapped multi-reduction: ",
             rtvs[it - 1]->toString(),
             " and ",
@@ -1076,10 +1078,10 @@ bool checkReductionPattern(
 
 // The identical compile time check of InnerPersistentKernelScheduler and
 // OuterPersistentKernelScheduler.
-bool compileTimeCheck(Fusion* fusion, HeuristicType schedule_heuristic) {
+bool compileTimeCheck(Fusion* fusion, SchedulerType scheduler_type) {
   // common checks for all persistent heuristics
   if (!normalization_scheduler_utils::checkOpsAndInputs(
-          fusion, schedule_heuristic)) {
+          fusion, scheduler_type)) {
     return false;
   }
 
@@ -1087,17 +1089,17 @@ bool compileTimeCheck(Fusion* fusion, HeuristicType schedule_heuristic) {
   auto reduction_tvs = scheduler_utils::getReductionTvs(fusion);
   if (reduction_tvs.empty()) {
     scheduler_debug_utils::canScheduleRejectReason(
-        schedule_heuristic, "no reduction tv");
+        scheduler_type, "no reduction tv");
     return false;
   }
   auto reduction_type =
       reduction_scheduler_utils::getReductionType(reduction_tvs);
-  const HeuristicType persistent_heuristic =
+  const SchedulerType persistent_heuristic =
       getPersistentHeuristicFor(reduction_type);
-  if (persistent_heuristic != schedule_heuristic) {
+  if (persistent_heuristic != scheduler_type) {
     scheduler_debug_utils::canScheduleRejectReason(
-        schedule_heuristic,
-        "schedule_heuristic doesn't match with reduction type `",
+        scheduler_type,
+        "scheduler_type doesn't match with reduction type `",
         persistent_heuristic,
         "`.");
     return false;
@@ -1107,7 +1109,7 @@ bool compileTimeCheck(Fusion* fusion, HeuristicType schedule_heuristic) {
     ComputeAtMap ca_map(fusion);
     if (registry_utils::requiresForwardViewReplay(fusion, ca_map)) {
       scheduler_debug_utils::canScheduleRejectReason(
-          schedule_heuristic, "Fusion requires view being reversible.");
+          scheduler_type, "Fusion requires view being reversible.");
       return false;
     }
 
@@ -1117,8 +1119,7 @@ bool compileTimeCheck(Fusion* fusion, HeuristicType schedule_heuristic) {
     if (registry_utils::reductionInterferingView(
             fusion, ca_map, reference_tv)) {
       scheduler_debug_utils::canScheduleRejectReason(
-          schedule_heuristic,
-          "View may interfere with normalization scheduling.");
+          scheduler_type, "View may interfere with normalization scheduling.");
       return false;
     }
   }
@@ -1145,7 +1146,7 @@ bool compileTimeCheck(Fusion* fusion, HeuristicType schedule_heuristic) {
     } else {
       if (reduction_root_size(red) != axis_count) {
         scheduler_debug_utils::canScheduleRejectReason(
-            schedule_heuristic,
+            scheduler_type,
             "Inconsistent reduction root size: ",
             red->toString(),
             ", expected: ",
@@ -1155,7 +1156,7 @@ bool compileTimeCheck(Fusion* fusion, HeuristicType schedule_heuristic) {
     }
   }
 
-  if (!checkReductionPattern(fusion, schedule_heuristic, reduction_tvs)) {
+  if (!checkReductionPattern(fusion, scheduler_type, reduction_tvs)) {
     return false;
   }
 
@@ -1163,22 +1164,21 @@ bool compileTimeCheck(Fusion* fusion, HeuristicType schedule_heuristic) {
   auto persistent_buffer_info = scheduler_utils::persistentBuffers(fusion);
   if (persistent_buffer_info.persistent_buffers.empty()) {
     scheduler_debug_utils::canScheduleRejectReason(
-        schedule_heuristic, "no persistent buffer identified");
+        scheduler_type, "no persistent buffer identified");
     return false;
   }
 
   if (registry_utils::SchedulerTopologyChecker::
           hasNonNormalizePostReductionBCast(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        schedule_heuristic, "unsupported post reduction normalization");
+        scheduler_type, "unsupported post reduction normalization");
     return false;
   }
 
   if (registry_utils::SchedulerTopologyChecker::
           hasGatherToBroadcastBeforeReduction(fusion, reduction_tvs)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        schedule_heuristic,
-        "has unsupported gather-like ops before normalization");
+        scheduler_type, "has unsupported gather-like ops before normalization");
     return false;
   }
 
@@ -1275,7 +1275,7 @@ TensorView* scheduleReductionGeneral(
     Fusion* fusion,
     const ReductionParams* rparams,
     std::vector<TensorView*>& reduction_tvs,
-    HeuristicType heuristic_type) {
+    SchedulerType scheduler_type) {
   NVF_ERROR(!reduction_tvs.empty());
   // Registry assumes the reference tv is the first reduction_tv, if this
   // changes registry needs to change.
@@ -1292,7 +1292,7 @@ TensorView* scheduleReductionGeneral(
         scheduler_utils::domainReorderAsLogicalMap(reduction_tv));
   }
 
-  if (heuristic_type == HeuristicType::OuterPersistent &&
+  if (scheduler_type == SchedulerType::OuterPersistent &&
       rparams->cross_grid_inner_reduction && reduction_tvs.size() > 1) {
     groupReductions(reduction_tvs, false);
   }
@@ -1320,7 +1320,7 @@ TensorView* scheduleReductionGeneral(
 void schedulePersistentKernel(
     Fusion* fusion,
     const ReductionParams* rparams,
-    HeuristicType schedule_heuristic) {
+    SchedulerType scheduler_type) {
   FUSER_PERF_SCOPE("schedulePersistentKernel");
 
   FusionGuard fg(fusion);
@@ -1337,8 +1337,8 @@ void schedulePersistentKernel(
       reduction_tvs,
       cached_outputs);
 
-  TensorView* reference_tv = scheduleReductionGeneral(
-      fusion, rparams, reduction_tvs, schedule_heuristic);
+  TensorView* reference_tv =
+      scheduleReductionGeneral(fusion, rparams, reduction_tvs, scheduler_type);
 
   // Reduction tensor views and rfactor tensor views are setup. Let's finish off
   // the scheduling, particularly inlining and unrolling.
@@ -1381,6 +1381,196 @@ void schedulePersistentKernel(
   scheduler_utils::promoteProducerMemoryTypes(fusion, cached_inputs);
 
   refineCachePolicy(fusion);
+}
+
+namespace {
+
+class PersistentBufferResolution : public IterVisitor {
+ public:
+  static std::vector<TensorView*> getResolutionPointsOf(
+      TensorView* persistent_buffer) {
+    PersistentBufferResolution resolution(persistent_buffer);
+
+    NVF_ERROR(
+        !resolution.resolution_points_.empty(),
+        "Could not resolve persistent buffer: ",
+        persistent_buffer->toString());
+
+    return resolution.resolution_points_;
+  }
+
+  PersistentBufferResolution() = delete;
+
+ private:
+  PersistentBufferResolution(TensorView* persistent_buffer)
+      : persistent_buffer_(persistent_buffer),
+        exact_graph_(
+            IdModel(persistent_buffer->fusion(), /*build_graphs=*/false)
+                .buildExactGraph()) {
+    traverse(persistent_buffer->fusion());
+  }
+
+ private:
+  void dispatch(Val* val) final {
+    if (!val->isA<TensorView>()) {
+      return;
+    }
+    auto tv = val->as<TensorView>();
+    if (tv == persistent_buffer_) {
+      persistent_buffer_hit_ = true;
+      return;
+    }
+
+    if (!persistent_buffer_hit_) {
+      return;
+    }
+
+    if (!tv->hasReduction()) {
+      return;
+    }
+
+    if (std::any_of(
+            resolution_points_.begin(),
+            resolution_points_.end(),
+            [&tv](TensorView* resolution_point) {
+              return DependencyCheck::isDependencyOf(resolution_point, tv);
+            })) {
+      // If already resolved, don't start a new reduction path.
+      return;
+    }
+
+    if (!DependencyCheck::isDependencyOf(persistent_buffer_, tv)) {
+      // Not a dependent reduction
+      return;
+    }
+
+    auto resolution_tvs = getResolutionTvs(tv);
+    resolution_points_.insert(
+        resolution_points_.end(), resolution_tvs.begin(), resolution_tvs.end());
+  }
+
+  // Traverse from consumers of the persistent tensor and find if it
+  // reaches at a dependent tensor of the reduction tensor.
+  std::vector<TensorView*> getResolutionTvs(TensorView* reduction_tv) {
+    // When traversing from the persistent tensor, it should not be
+    // necessary to traverse any of the tensors between the persistent
+    // tensor and reduction tensor since the resolution point must be on
+    // the other paths.
+    const auto reduction_producers = DependencyCheck::getAllValsBetween(
+        {persistent_buffer_}, {reduction_tv});
+    const std::unordered_set<Val*> reduction_producer_set(
+        reduction_producers.begin(), reduction_producers.end());
+
+    // Resolution points must be a dependent tensor of the reduction tensor
+    const std::unordered_set<Val*> reduction_dep_tvs =
+        DependencyCheck::getAllDependentVals({reduction_tv});
+
+    // Not all reduction is for normalization. There can be no val
+    // after this TV, e.g., a Welford output that is also a segment
+    // output (can happen due to segmentation)
+    if (reduction_dep_tvs.empty()) {
+      return {};
+    }
+
+    // The resolution tensor must have iter domains that are reachable
+    // from the persistent iter domains
+    ValGroups persistent_ids;
+    for (auto id : reduction_tv->getLogicalDomain()) {
+      if (id->isReduction()) {
+        persistent_ids.pushBack(exact_graph_.toGroup(id));
+      }
+    }
+
+    std::deque<TensorView*> tvs_to_visit;
+    std::unordered_set<TensorView*> visited_tvs;
+    std::vector<TensorView*> resolution_tvs;
+
+    // Traversing from consumers of persistent tensor
+    for (auto tv : ir_utils::consumerTvsOf(persistent_buffer_)) {
+      if (!reduction_producer_set.count(tv)) {
+        tvs_to_visit.push_back(tv);
+      }
+    }
+
+    // Check if a tensor should be visited. It should not be visited
+    // if any of the following conditions is true:
+    //
+    // - It is the persistent buffer. The traversal starts from the
+    //   consumers of the persistent buffer. Since it should not need
+    //   to visit the producers of the persistent buffer, it should
+    //   not need to visit the persistent buffer itself.
+    // - It's already visited
+    // - It's between the persistent buffer and reduction tensor. The
+    //   persistent buffer should have multiple consumers, and one of
+    //   them leads to the reduction tensor. The resolution point
+    //   should be reachable by traversing the other consumers.
+    // - It has no logical ID that is reachable from the
+    //   persistent IDs. That means the tensor has nothing to do with
+    //   the persistent IDs.
+    auto should_visit = [&](TensorView* tv) -> bool {
+      if (tv == persistent_buffer_ || visited_tvs.count(tv) != 0 ||
+          reduction_producer_set.count(tv) != 0) {
+        return false;
+      }
+
+      // Check if any of the logical IDs are reachable from the
+      // persistent IDs. If not, the tensor should have nothing to do
+      // with the persistence of the persistent tensor
+      const auto& producer_logical_ids =
+          exact_graph_.toGroups(tv->getLogicalDomain());
+      auto reachable_ids = ValGraphBFS::getReachableValsFrom(
+          exact_graph_, persistent_ids, producer_logical_ids);
+
+      return !reachable_ids.empty();
+    };
+
+    while (!tvs_to_visit.empty()) {
+      auto tv = tvs_to_visit.front();
+      tvs_to_visit.pop_front();
+
+      if (reduction_dep_tvs.count(tv)) {
+        resolution_tvs.emplace_back(tv);
+        // Do not further traverse beyond this tv
+        continue;
+      }
+
+      // Further traversal to producers
+      for (auto producer : ir_utils::producerTvsOf(tv)) {
+        if (!should_visit(producer)) {
+          continue;
+        }
+        tvs_to_visit.emplace_back(producer);
+      }
+
+      // Further traversal to consumers
+      for (auto consumer : ir_utils::consumerTvsOf(tv)) {
+        if (!should_visit(consumer)) {
+          continue;
+        }
+        tvs_to_visit.emplace_back(consumer);
+      }
+
+      visited_tvs.emplace(tv);
+    }
+
+    return resolution_tvs;
+  }
+
+ private:
+  TensorView* persistent_buffer_ = nullptr;
+  ValGraph exact_graph_;
+
+  // Don't do processing until we see the buffer we're looking for
+  bool persistent_buffer_hit_ = false;
+
+  // Tracks where the persistent buffer (key) is resolved (values)
+  std::vector<TensorView*> resolution_points_;
+};
+
+} // namespace
+
+std::vector<TensorView*> getResolutionPointsOf(TensorView* persistent_buffer) {
+  return PersistentBufferResolution::getResolutionPointsOf(persistent_buffer);
 }
 
 } // namespace normalization_scheduler_utils

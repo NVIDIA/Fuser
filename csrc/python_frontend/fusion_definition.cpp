@@ -12,7 +12,7 @@
 #include <options.h>
 #include <python_frontend/fusion_cache.h>
 #include <python_frontend/fusion_definition.h>
-#include <scheduler/heuristic_types.h>
+#include <scheduler/scheduler_types.h>
 #include <utils.h>
 #include <validator_utils.h>
 
@@ -339,7 +339,7 @@ std::vector<at::Tensor> FusionDefinition::execute(
                   inputs, getCommonDeviceCUDA(inputs)),
               user_sched.heuristic_params->lparams,
               user_sched.heuristic_params->cparams,
-              user_sched.heuristic_params->heuristic_type,
+              user_sched.heuristic_params->scheduler_type,
               user_sched.fusion_id_,
               user_sched.device_id_);
         }

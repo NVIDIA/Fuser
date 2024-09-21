@@ -18,14 +18,14 @@ namespace nvfuser {
 bool ExprEvalScheduler::canScheduleCompileTime(Fusion* fusion) {
   if (scheduler_utils::isResharding(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(), "Fusion is resharding.");
+        schedulerType(), "Fusion is resharding.");
     return false;
   }
 
   auto exprs = fusion->exprs();
   if (exprs.size() != 1) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(), "Fusion must contain only a single expression.");
+        schedulerType(), "Fusion must contain only a single expression.");
     return false;
   }
 
@@ -36,7 +36,7 @@ bool ExprEvalScheduler::canScheduleCompileTime(Fusion* fusion) {
   if (exprs.front()->isOneOf<LinearOp, MatmulOp>()) {
     if (isOptionDisabled(DisableOption::MatmulExprEval)) {
       scheduler_debug_utils::canScheduleRejectReason(
-          heuristicType(),
+          schedulerType(),
           "Matmul ATen evaluation was disabled by NVFUSER_DISABLE=matmul_expr_eval");
       return false;
     }
@@ -44,7 +44,7 @@ bool ExprEvalScheduler::canScheduleCompileTime(Fusion* fusion) {
   }
 
   scheduler_debug_utils::canScheduleRejectReason(
-      heuristicType(),
+      schedulerType(),
       "Fusion must contain only a single expression of type MatmulOp/LinearOp/SdpaFwdOp/SdpaBwdOp");
   return false;
 }
@@ -53,7 +53,7 @@ void ExprEvalScheduler::schedule(
     Fusion* fusion,
     const HeuristicParams* params) {
   NVF_ERROR(
-      params->heuristic_type == HeuristicType::ExprEval,
+      params->scheduler_type == schedulerType(),
       "Invalid heuristic sent to ExprEval scheduler: ",
       params);
 
@@ -68,7 +68,7 @@ std::unique_ptr<HeuristicParams> ExprEvalScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
-  auto params = std::make_unique<HeuristicParams>(HeuristicType::ExprEval);
+  auto params = std::make_unique<HeuristicParams>(SchedulerType::ExprEval);
   params->cparams.index_type = runtime_info.getIndexType();
   return params;
 }

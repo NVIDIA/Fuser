@@ -45,7 +45,7 @@ void ReductionNonBroadcast(const int reduction_dim) {
   // check whether the fusion can be scheduled as reduction
   SchedulerRuntimeInfo runtime_info(fusion.get(), {t0, t1});
   bool can_schedule = Schedule::canSchedule(
-      HeuristicType::Reduction, fusion.get(), runtime_info);
+      SchedulerType::Reduction, fusion.get(), runtime_info);
   if (reduction_dim == 1) {
     ASSERT_FALSE(can_schedule);
   } else {
@@ -102,7 +102,7 @@ void ReductionBroadcast(const int reduction_dim) {
   // check whether the fusion can be scheduled as reduction
   SchedulerRuntimeInfo runtime_info(fusion.get(), {t0, t1});
   bool can_schedule = Schedule::canSchedule(
-      HeuristicType::Reduction, fusion.get(), runtime_info);
+      SchedulerType::Reduction, fusion.get(), runtime_info);
   ASSERT_FALSE(can_schedule);
 
   FusionExecutorCache executor_cache(std::move(fusion));

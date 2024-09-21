@@ -9,8 +9,8 @@
 
 #include <fusion.h>
 #include <fusion_executor/executor_params.h>
-#include <scheduler/heuristic_types.h>
 #include <scheduler/runtime_info.h>
+#include <scheduler/scheduler_types.h>
 #include <utils.h>
 
 #include <string>
@@ -20,16 +20,21 @@ namespace nvfuser {
 class SchedulerRuntimeInfo;
 class HeuristicSummary;
 
+// Top-level class representing heuristic parameters. Most schedulers
+// have their own subclasses to have their specific parameters, except
+// for ExprEval schedulers.
 class HeuristicParams : public PolymorphicBase {
  public:
   std::string tag = "";
 
   LaunchParams lparams;
   CompileParams cparams;
-  const HeuristicType heuristic_type;
+  const SchedulerType scheduler_type;
 
   virtual std::string toString() const {
-    return "Undefined Heuristic Params";
+    std::stringstream ss;
+    ss << "Heuristic Params (" << scheduler_type << ")";
+    return ss.str();
   }
 
   virtual size_t hash() const {
@@ -40,17 +45,18 @@ class HeuristicParams : public PolymorphicBase {
     if (!other->isStrictlyA<HeuristicParams>()) {
       return false;
     }
-    if (other->heuristic_type != heuristic_type) {
+    if (other->scheduler_type != scheduler_type) {
       return false;
     }
     return other->cparams == cparams;
   }
 
   HeuristicParams() = delete;
-  explicit HeuristicParams(HeuristicType type) : heuristic_type(type) {};
+  explicit HeuristicParams(SchedulerType _scheduler_type)
+      : scheduler_type(_scheduler_type) {};
 
   virtual std::unique_ptr<HeuristicParams> clone() const {
-    return std::make_unique<HeuristicParams>(heuristic_type);
+    return std::make_unique<HeuristicParams>(*this);
   }
 };
 
@@ -73,7 +79,7 @@ class HeuristicParamsList {
   //! Constructor for complete fusion case, generates the scheduler entry
   //!  for the fusion owning the given expression
   explicit HeuristicParamsList(
-      HeuristicType schedule_heuristic,
+      SchedulerType scheduler_type,
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr);
 
@@ -84,19 +90,19 @@ class HeuristicParamsList {
     return heuristics_.at(index);
   }
 
-  //! Place a scheduler entry on the list. Applies to segmented fusion only.
+  //! Place a heuristics on the list. Applies to segmented fusion only.
   void emplaceBack(std::unique_ptr<HeuristicParams>&& pt) {
     NVF_ERROR(is_segmented_);
     heuristics_.emplace_back(std::move(pt));
   }
 
-  //! Returns list of schedulers for a segmneted fusion.
+  //! Returns list of heuristics for a segmneted fusion.
   const std::vector<std::unique_ptr<HeuristicParams>>& heuristicsList() const {
     return heuristics_;
   }
 
-  //! Returns the single scheduler for a complete fusion.
-  HeuristicParams* singleKernelHeuristics() {
+  //! Returns the single heuristics for a complete fusion.
+  HeuristicParams* singleKernelHeuristics() const {
     NVF_ERROR(!is_segmented_);
     return heuristics_.begin()->get();
   }

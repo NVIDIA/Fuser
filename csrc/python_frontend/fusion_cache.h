@@ -54,15 +54,15 @@ struct UserSchedule {
   }
 
   //! Return if we can schedule FusionDefinition with heuristic.
-  bool canSchedule(const HeuristicType& heuristic);
+  bool canSchedule(const SchedulerType& heuristic);
 
   //! Return if we can schedule FusionDefinition with heuristic along with any
   //! debug messages from canScheduleRejectReason.
   std::tuple<bool, std::string> canScheduleDebug(
-      const HeuristicType& heuristic);
+      const SchedulerType& scheduler_type);
 
   //! Schedule fusion with heuristic
-  void scheduleWithHeuristic(HeuristicType heuristic);
+  void scheduleWithType(SchedulerType scheduler_type);
 };
 
 //! \struct FusionSchedules

@@ -835,7 +835,7 @@ std::unique_ptr<MatmulParams> getMatmulHeuristics(
     HeuristicSummary* data_cache) {
   FusionGuard fg(fusion);
   (void)data_cache;
-  auto mparams = std::unique_ptr<MatmulParams>();
+  auto mparams = std::make_unique<MatmulParams>();
 
   // Set kernel index mode
   mparams->cparams.index_type = runtime_info.getIndexType();

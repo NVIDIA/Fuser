@@ -89,7 +89,7 @@ flatbuffers::Offset<serde::SegmentedGroup> SegmentedGroup::serialize(
       &input_vals_fb,
       &output_vals_fb,
       group_id_,
-      toUnderlying(heuristic_),
+      toUnderlying(scheduler_type_),
       &exprs_fb,
       level_,
       visited_,
@@ -120,7 +120,7 @@ void SegmentedGroup::deserialize(
 
   group_id_ = buffer->group_id();
 
-  heuristic_ = static_cast<HeuristicType>(buffer->heuristic());
+  scheduler_type_ = static_cast<SchedulerType>(buffer->heuristic());
 
   exprs_ = convertContainer<int64_t, Expr*>(exprs, *buffer->exprs());
 
@@ -372,7 +372,7 @@ void SegmentedGroup::finalize() {
 }
 
 std::ostream& operator<<(std::ostream& os, const SegmentedGroup* group) {
-  os << toString(group->heuristicType()) << "{";
+  os << toString(group->schedulerType()) << "{";
   auto expr_to_print = group->exprs();
   std::sort(
       expr_to_print.begin(),
@@ -425,7 +425,7 @@ std::string toString(const SegmentedEdge* edge) {
 
 std::unique_ptr<SegmentedFusion> SegmentedFusion::fromCompleteFusion(
     std::unique_ptr<Fusion> fusion_ptr,
-    HeuristicType heuristic,
+    SchedulerType scheduler_type,
     const KernelArgumentHolder& runtime_inputs) {
   auto fusion = fusion_ptr.get();
   NVF_ERROR(
@@ -434,13 +434,13 @@ std::unique_ptr<SegmentedFusion> SegmentedFusion::fromCompleteFusion(
 
   // convert Welford to two-pass if option is enabled and the original heuristic
   // is persistent
-  auto isPersistentHeuristic = [&heuristic]() {
-    return heuristic == HeuristicType::InnerPersistent ||
-        heuristic == HeuristicType::OuterPersistent ||
-        heuristic == HeuristicType::InnerOuterPersistent;
+  auto isPersistentScheduler = [&scheduler_type]() {
+    return scheduler_type == SchedulerType::InnerPersistent ||
+        scheduler_type == SchedulerType::OuterPersistent ||
+        scheduler_type == SchedulerType::InnerOuterPersistent;
   };
   SegmentCandidateFinderOptions scfo;
-  if (scfo.run_translate_welford && isPersistentHeuristic()) {
+  if (scfo.run_translate_welford && isPersistentScheduler()) {
     SegmentCandidateFinder::translateWelfordInFusion(fusion, runtime_inputs);
   }
 
@@ -459,7 +459,7 @@ std::unique_ptr<SegmentedFusion> SegmentedFusion::fromCompleteFusion(
 
   // Assign heuristics and id for the complete fusion
   //  to share the runtime path of segmented fusion.
-  single_group->setHeuristic(heuristic);
+  single_group->setSchedulerType(scheduler_type);
   single_group->setID(0);
 
   // Used to log the number of values and expressions in the fusion for
@@ -1097,8 +1097,8 @@ void detailGroupPrint(std::ostream& os, const SegmentedGroup* group) {
   };
 
   os << "g{";
-  if (group->heuristicType() != HeuristicType::None) {
-    os << "(" << toString(group->heuristicType()) << ")";
+  if (group->schedulerType() != SchedulerType::None) {
+    os << "(" << toString(group->schedulerType()) << ")";
   }
   os << std::endl;
   os << "group id: " << group->groupId() << std::endl;
@@ -2169,7 +2169,7 @@ SegmentedGroup* SegmentCandidateFinder::mergeNodes() {
       edge->to->producer_edges.push_back(new_edge);
     }
 
-    // Disconnect the merged groups before deriveHeuristic, which
+    // Disconnect the merged groups before deriveSchedulerType, which
     // may temporarily inject type cast and can get confused if stale
     // edges exist
     for (auto merged_group : {group1, group2}) {
@@ -2178,7 +2178,7 @@ SegmentedGroup* SegmentCandidateFinder::mergeNodes() {
           disconnected_edges.begin(), disconnected_edges.end());
     }
 
-    joined_group->setHeuristic(deriveHeuristic(joined_group));
+    joined_group->setSchedulerType(deriveSchedulerType(joined_group));
     // Need to maintain the group dependency data if it has been intialized
     //  by previous merging
     if (group_dependency_) {
@@ -2321,7 +2321,7 @@ SegmentedGroup* SegmentCandidateFinder::mergeAllGivenGroups(
 
   clean_up_edges_.clear();
 
-  joined_group->setHeuristic(deriveHeuristic(joined_group));
+  joined_group->setSchedulerType(deriveSchedulerType(joined_group));
   return joined_group;
 }
 
@@ -2532,7 +2532,7 @@ class FusionSegmentGuard : public NonCopyable {
 #endif
 };
 
-std::optional<HeuristicType> tryMerge(
+std::optional<SchedulerType> tryMerge(
     SegmentedFusion* segmented_fusion,
     SchedulerRuntimeInfo& runtime_info,
     SegmentedGroup* a,
@@ -2555,7 +2555,7 @@ std::optional<HeuristicType> tryMerge(
       segmented_fusion->completeFusion(), runtime_info);
 }
 
-std::optional<HeuristicType> tryMerge(
+std::optional<SchedulerType> tryMerge(
     SegmentedFusion* segmented_fusion,
     SchedulerRuntimeInfo& runtime_info,
     const std::vector<SegmentedGroup*>& segmented_groups) {
@@ -2614,10 +2614,10 @@ std::optional<std::unique_ptr<HeuristicParams>> SegmentedGroup::
   FUSER_PERF_SCOPE("SegmentedFusion::getMaybeHeuristicParams");
   auto data_cache = segmented_fusion_->getCachedHeuristicDataFor(this);
   if (!Schedule::canSchedule(
-          heuristicType(), runtime_info.fusion(), runtime_info, data_cache)) {
+          schedulerType(), runtime_info.fusion(), runtime_info, data_cache)) {
     return std::nullopt;
   }
-  return SchedulerEntry::makeSchedulerInstance(heuristicType())
+  return SchedulerEntry::makeSchedulerInstance(schedulerType())
       ->computeHeuristics(runtime_info.fusion(), runtime_info, data_cache);
 }
 
@@ -3679,11 +3679,12 @@ bool SegmentCandidateFinder::codeGenSupportedMerge(
 
 // TODO: consider caching the heuristics value so tryMerge doesn't have to be
 //       called twice
-HeuristicType SegmentCandidateFinder::deriveHeuristic(SegmentedGroup* group) {
+SchedulerType SegmentCandidateFinder::deriveSchedulerType(
+    SegmentedGroup* group) {
   if (options_.only_segment_resharding_exprs) {
-    // We don't need to generate a heuristic for multidevice segments at this
-    // moment
-    return HeuristicType::None;
+    // We don't need to generate a SchedulerType for multidevice segments at
+    // this moment
+    return SchedulerType::None;
   }
   auto h = tryMerge(segmented_fusion_.get(), runtimeInfo(), group);
   NVF_ERROR(
@@ -3877,8 +3878,8 @@ void SegmentCandidateFinder::findSegments() {
 
   for (auto group : groups()) {
     if (!group->outputs().empty()) {
-      // Set heuristics in case single reduction kernels were left out
-      group->setHeuristic(deriveHeuristic(group));
+      // Set SchedulerType in case single reduction kernels were left out
+      group->setSchedulerType(deriveSchedulerType(group));
     }
   }
 
@@ -4385,7 +4386,7 @@ void SegmentCandidateFinder::finalize() {
 
   // Finalize each group, fill in the missing inputs, i.e. tensor dims.
   for (auto g : groups()) {
-    g->setHeuristic(deriveHeuristic(g));
+    g->setSchedulerType(deriveSchedulerType(g));
     g->finalize();
   }
 }
@@ -4404,10 +4405,10 @@ std::unique_ptr<HeuristicParams> SegmentedFusion::makeInitialHeuristicParams(
   // This will be the first time each group is scheduled. So we'd want to
   //  construct the cache data here.
   auto data_cache_ptr = std::make_unique<HeuristicSummary>(
-      runtime_info.fusion(), sg->heuristicType(), runtime_info);
+      runtime_info.fusion(), sg->schedulerType(), runtime_info);
   auto data_cache = data_cache_ptr.get();
   setCachedHeuristicDataFor(sg, std::move(data_cache_ptr));
-  return SchedulerEntry::makeSchedulerInstance(sg->heuristicType())
+  return SchedulerEntry::makeSchedulerInstance(sg->schedulerType())
       ->computeHeuristics(runtime_info.fusion(), runtime_info, data_cache);
 }
 

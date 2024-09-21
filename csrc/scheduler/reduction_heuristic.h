@@ -21,8 +21,10 @@ class TensorView;
 // are equivelent!
 class ReductionParams : public HeuristicParams {
  public:
-  ReductionParams(HeuristicType type = HeuristicType::Reduction)
-      : HeuristicParams(type) {};
+  // Note that heuristictype can be different from SchedulerType::Reduction
+  // since ReductionParams is also used by, e.g., normalization schedulers.
+  ReductionParams(SchedulerType scheduler_type = SchedulerType::Reduction)
+      : HeuristicParams(scheduler_type) {};
   // Reducing inner most dimension?
   bool fastest_dim = false;
 
