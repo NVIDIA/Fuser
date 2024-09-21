@@ -3630,6 +3630,13 @@ void TensorDomain::setAllocationDomain(
 }
 
 std::vector<IterDomain*> TensorDomain::allIDs() const {
+  // loop_domain_ must be the first domain since loop domains are
+  // allowed to have extra domains that may not exist in other
+  // domains and IRBFS::getExprsBetween is not symmetric with respect
+  // to its two domain parameters. For example, it can find all exprs
+  // from a loop domain to a logical domain but may miss from logical
+  // to loop. See NVFuserTest.AllIDsWithExtraLoopIDs for a concrete
+  // example.
   std::array<const std::vector<IterDomain*>*, 5> all_domains = {
       &loop_domain_,
       &logical_domain_,
