@@ -6,8 +6,8 @@
  */
 // clang-format on
 #pragma once
-#include <cstdint>
 #include <cstddef>
+#include <cstdint>
 
 #include <expr_evaluator.h>
 #include <fusion.h>

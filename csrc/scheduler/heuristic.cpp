@@ -6,7 +6,10 @@
  */
 // clang-format on
 #include <scheduler/heuristic.h>
+
+#include <fusion.h>
 #include <scheduler/registry.h>
+#include <scheduler/runtime_info.h>
 
 namespace nvfuser {
 HeuristicParamsList::HeuristicParamsList(
