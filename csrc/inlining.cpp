@@ -200,8 +200,6 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
     }
     return producer->nDims();
   } else {
-    std::cerr << "Use idmodel-based method: " << producer->toString() << ", "
-              << consumer->toString() << "\n";
     auto consumer_it = consumer->getLoopDomain().begin();
     for (const auto producer_pos : c10::irange(producer->nDims())) {
       auto p_id = producer->getLoopDomain().at(producer_pos);
