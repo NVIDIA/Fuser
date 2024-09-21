@@ -541,7 +541,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("global", MemoryType::Global);
 
   //! Scheduler Type for scheduling
-  py::enum_<SchedulerType>(nvfuser, "SchedulerType")
+  py::enum_<SchedulerType>(nvfuser, "SchedulerHeuristic")
       .value("none", SchedulerType::None)
       .value("no_op", SchedulerType::NoOp)
       .value("pointwise", SchedulerType::PointWise)
