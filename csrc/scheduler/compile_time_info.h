@@ -8,8 +8,8 @@
 #pragma once
 
 #include <fusion.h>
-#include <scheduler/heuristic_types.h>
 #include <scheduler/pointwise_utils.h>
+#include <scheduler/scheduler_types.h>
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>
 
@@ -244,7 +244,7 @@ class HeuristicSummary {
  public:
   HeuristicSummary(
       Fusion* fusion,
-      ScheduleHeuristic heuristic,
+      SchedulerType scheduler_type,
       SchedulerRuntimeInfo& runtime_info);
 
   bool isRecording() {
@@ -263,7 +263,7 @@ class HeuristicSummary {
  private:
   std::vector<EntryOwningPtr> entries_;
   std::unordered_map<EntryType, EntryPtr> entry_type_map_;
-  ScheduleHeuristic heuristic_;
+  SchedulerType scheduler_type_;
   bool recording_ = true;
 };
 

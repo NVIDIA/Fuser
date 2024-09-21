@@ -282,10 +282,10 @@ TEST_F(RNGTest, BroadcastingRNGSmemNonSquareTile) {
   at::Tensor t0 = at::zeros({5, 1}, options);
   at::Tensor t1 = at::zeros({5, 5}, options);
 
-  TransposeParams heuristics;
-  heuristics.tile_size1 = 8;
-  heuristics.tile_size2 = 4;
-  scheduleTranspose(fusion, heuristics);
+  TransposeParams tparams;
+  tparams.tile_size1 = 8;
+  tparams.tile_size2 = 4;
+  scheduleTranspose(fusion, &tparams);
 
   FusionExecutor fe;
   fe.compileFusion(fusion, {t0, t1});

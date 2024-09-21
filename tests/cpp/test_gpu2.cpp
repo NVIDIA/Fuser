@@ -714,13 +714,13 @@ TEST_F(NVFuserTest, FusionReductionHalf_CUDA) {
       at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::Tensor aten_input = at::randn({8, 8, 16}, options);
 
-  auto reduction_params = getReductionHeuristics(&fusion, {aten_input});
-  NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
-  scheduleReduction(&fusion, *reduction_params);
+  auto rparams = getReductionHeuristics(&fusion, {aten_input});
+  NVF_CHECK(rparams, "Reduction schedule was not generated!");
+  scheduleReduction(&fusion, rparams.get());
 
-  NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
+  NVF_CHECK(rparams, "Reduction schedule was not generated!");
 
-  auto lparams = reduction_params->lparams;
+  auto lparams = rparams->lparams;
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, {aten_input}, lparams);
@@ -784,10 +784,10 @@ TEST_F(NVFuserTest, FusionReduceImplicitBroadcast_CUDA) {
   at::Tensor aten_input = at::randn({bid_x, tid_x, 1}, options);
 
   // Apply reduction heuristic
-  auto reduction_params = getReductionHeuristics(&fusion, {aten_input});
-  NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
-  scheduleReduction(&fusion, *reduction_params);
-  auto lparams = reduction_params->lparams;
+  auto rparams = getReductionHeuristics(&fusion, {aten_input});
+  NVF_CHECK(rparams, "Reduction schedule was not generated!");
+  scheduleReduction(&fusion, rparams.get());
+  auto lparams = rparams->lparams;
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, {aten_input}, lparams);
@@ -830,11 +830,11 @@ TEST_F(NVFuserTest, FusionReduceImplicitBroadcast2_CUDA) {
   at::Tensor aten_input = at::randn({bid_x, tid_x, 1}, options);
 
   // Apply reduction heuristic
-  auto reduction_params = getReductionHeuristics(&fusion, {aten_input});
-  NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
+  auto rparams = getReductionHeuristics(&fusion, {aten_input});
+  NVF_CHECK(rparams, "Reduction schedule was not generated!");
 
-  scheduleReduction(&fusion, *reduction_params);
-  auto lparams = reduction_params->lparams;
+  scheduleReduction(&fusion, rparams.get());
+  auto lparams = rparams->lparams;
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, {aten_input}, lparams);
@@ -874,10 +874,10 @@ TEST_F(NVFuserTest, FusionReduceImplicitBroadcast3_CUDA) {
   at::Tensor aten_input = at::randn({bid_x, tid_x, 1}, options);
 
   // Apply reduction heuristic
-  auto reduction_params = getReductionHeuristics(&fusion, {aten_input});
-  NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
-  scheduleReduction(&fusion, *reduction_params);
-  auto lparams = reduction_params->lparams;
+  auto rparams = getReductionHeuristics(&fusion, {aten_input});
+  NVF_CHECK(rparams, "Reduction schedule was not generated!");
+  scheduleReduction(&fusion, rparams.get());
+  auto lparams = rparams->lparams;
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, {aten_input}, lparams);
@@ -2556,10 +2556,10 @@ TEST_F(NVFuserTest, FusionWelfordSchedule_CUDA) {
   auto options_int = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({M, N}, options);
   // TODO: Why do we use launch params from here, but not scheduling???
-  auto reduction_params = getReductionHeuristics(&fusion, {t0});
-  scheduleReduction(&fusion, *reduction_params);
+  auto rparams = getReductionHeuristics(&fusion, {t0});
+  scheduleReduction(&fusion, rparams.get());
 
-  auto lparams = reduction_params->lparams;
+  auto lparams = rparams->lparams;
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, lparams);
   auto outputs = fe.runFusion({t0}, lparams);
@@ -2579,7 +2579,7 @@ TEST_F(NVFuserTest, FusionWelfordSchedule_CUDA) {
       __LINE__,
       __FILE__,
       "validate welford",
-      reduction_params->lparams);
+      rparams->lparams);
 }
 
 using WelfordReductionParams = std::tuple<DataType, int64_t, int64_t, int64_t>;
@@ -2648,11 +2648,11 @@ TEST_P(WelfordReduction, Test) {
     outputs_of_red.push_back(M2_cast);
   }
 
-  auto reduction_params = getReductionHeuristics(&fusion, {aten_input});
-  scheduleReduction(&fusion, *reduction_params);
+  auto rparams = getReductionHeuristics(&fusion, {aten_input});
+  scheduleReduction(&fusion, rparams.get());
 
-  auto lparams = reduction_params->lparams;
-  auto cparams = reduction_params->cparams;
+  auto lparams = rparams->lparams;
+  auto cparams = rparams->cparams;
 
   FusionExecutor fe;
   // Needs to pass compile para to use the correct index type, otherwise the
@@ -2686,7 +2686,7 @@ TEST_P(WelfordReduction, Test) {
       __LINE__,
       __FILE__,
       "validate welford",
-      reduction_params->lparams);
+      rparams->lparams);
 }
 INSTANTIATE_TEST_SUITE_P(
     ,
@@ -3532,11 +3532,10 @@ TEST_F(NVFuserTest, FusionSegmentReduceSoftmax_CUDA) {
       << "segmentation didn't happen as expected";
 
   // Make sure the second kernel is vectorized. See issue #658
-  auto heuristic_params = executor_cache.getMostRecentKernelRuntime()
-                              ->schedulerHeuristics()
-                              ->heuristicsList()
-                              .at(1)
-                              ->params();
+  auto& heuristic_params = executor_cache.getMostRecentKernelRuntime()
+                               ->schedulerHeuristics()
+                               ->heuristicsList()
+                               .at(1);
   ASSERT_TRUE(heuristic_params->isA<ReductionParams>());
   auto rparams = heuristic_params->as<ReductionParams>();
   ASSERT_TRUE(rparams->vectorize_inner_reduction) << "Failed to vectorize";
@@ -5702,12 +5701,12 @@ TEST_F(NVFuserTest, FusionZeroSizeTensorReduction_CUDA) {
   at::Tensor input0 = at::randn({2, 4}, options);
   at::Tensor input1 = at::randn({0}, options);
 
-  auto reduction_params = getReductionHeuristics(&fusion, {input0, input1});
-  NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
-  scheduleReduction(&fusion, *reduction_params);
-  NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
+  auto rparams = getReductionHeuristics(&fusion, {input0, input1});
+  NVF_CHECK(rparams, "Reduction schedule was not generated!");
+  scheduleReduction(&fusion, rparams.get());
+  NVF_CHECK(rparams, "Reduction schedule was not generated!");
 
-  auto lparams = reduction_params->lparams;
+  auto lparams = rparams->lparams;
   FusionExecutor fe;
   fe.compileFusion(&fusion, {input0, input1}, lparams);
   auto cg_outputs = fe.runFusion({input0, input1}, lparams);
@@ -5748,12 +5747,12 @@ TEST_F(NVFuserTest, FusionZeroSizeTensorNormalization_CUDA) {
   at::Tensor input0 = at::randn({2, 4}, options);
   at::Tensor input1 = at::randn({0}, options);
 
-  auto reduction_params =
+  auto persistent_params =
       getOuterPersistentHeuristics(&fusion, {input0, input1});
-  NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
-  scheduleOuterPersistentKernel(&fusion, *reduction_params);
+  NVF_CHECK(persistent_params, "Reduction schedule was not generated!");
+  scheduleOuterPersistentKernel(&fusion, persistent_params.get());
 
-  auto lparams = reduction_params->lparams;
+  auto lparams = persistent_params->lparams;
   FusionExecutor fe;
   fe.compileFusion(&fusion, {input0, input1}, lparams);
   auto cg_outputs = fe.runFusion({input0, input1}, lparams);
@@ -8052,11 +8051,12 @@ TEST_F(NVFuserTest, FusionTestWarpSoftMax_CUDA) {
 
   // Schedule through magic scheduler
   SchedulerRuntimeInfo runtime_info(&fusion, aten_inputs);
-  NVF_CHECK(SchedulerEntry::canSchedule(
-      ScheduleHeuristic::InnerPersistent, &fusion, runtime_info));
-  auto scheduler = SchedulerEntry::makeEntry(
-      ScheduleHeuristic::InnerPersistent, &fusion, runtime_info);
-  scheduler->schedule(&fusion);
+  NVF_CHECK(Schedule::canSchedule(
+      SchedulerType::InnerPersistent, &fusion, runtime_info));
+  auto scheduler =
+      SchedulerEntry::makeSchedulerInstance(SchedulerType::InnerPersistent);
+  auto heuristic_params = scheduler->computeHeuristics(&fusion, runtime_info);
+  scheduler->schedule(&fusion, heuristic_params.get());
 
   // Modify the schedule to use warp reduction
   auto used_vals = fusion.usedMathVals();

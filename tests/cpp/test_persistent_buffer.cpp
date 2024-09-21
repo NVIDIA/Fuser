@@ -488,9 +488,9 @@ TEST_F(
 
   // Check reduction axis is same for all reductions
   // Generate Launch Parameters
-  auto reduction_params = getInnerPersistentHeuristics(
+  auto persistent_params = getInnerPersistentHeuristics(
       &fusion, {aten_input, aten_weight, aten_bias});
-  NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
+  NVF_CHECK(persistent_params, "Reduction schedule was not generated!");
 
   FusionExecutorCache fec(std::move(fusion_ptr));
   auto cg_outputs =
@@ -765,7 +765,7 @@ TEST_F(PersistentBufferTest, ProjectPersistentBufferMultiScopes) {
   NVF_CHECK(
       !persistent_params->project_persistent_buffers,
       "Shouldn't project persistent buffers to inputs!");
-  scheduleInnerPersistentKernel(fusion, *persistent_params);
+  scheduleInnerPersistentKernel(fusion, persistent_params.get());
   FusionExecutor fe;
   fe.compileFusion(fusion, inputs);
   auto cg_outputs = fe.runFusion(inputs);
@@ -854,7 +854,7 @@ TEST_F(PersistentBufferTest, ChainProjectionToPersistentProducer) {
   NVF_CHECK(
       !persistent_params->project_persistent_buffers,
       "Shouldn't project persistent buffers to inputs!");
-  scheduleInnerPersistentKernel(fusion, *persistent_params);
+  scheduleInnerPersistentKernel(fusion, persistent_params.get());
   FusionExecutor fe;
   fe.compileFusion(fusion, inputs);
   auto cg_outputs = fe.runFusion(inputs);
@@ -892,18 +892,20 @@ TEST_F(PersistentBufferTest, SoftmaxProjectToInput) {
     auto aten_output =
         at::_softmax(aten_input.to(at::kDouble), kReductionAxis, false);
 
-    auto reduction_params = getInnerPersistentHeuristics(&fusion, {aten_input});
-    NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
+    auto persistent_params =
+        getInnerPersistentHeuristics(&fusion, {aten_input});
+    NVF_CHECK(persistent_params, "Reduction schedule was not generated!");
     // 24576 is the threshold to project to inputs. see deriviation in
     // isProjectBufferToInputs()
     bool should_project_to_input =
         feature * dataTypeSize(DataType::Float) > 24576l;
     NVF_CHECK(
-        reduction_params->project_persistent_buffers == should_project_to_input,
+        persistent_params->project_persistent_buffers ==
+            should_project_to_input,
         should_project_to_input ? "Should project to inputs!"
                                 : "Shouldn't project to inputs!");
-    scheduleInnerPersistentKernel(&fusion, *reduction_params);
-    auto lparams = reduction_params->lparams;
+    scheduleInnerPersistentKernel(&fusion, persistent_params.get());
+    auto lparams = persistent_params->lparams;
     nvfuser::FusionExecutor fe;
     fe.compileFusion(&fusion, {aten_input}, lparams);
     auto cg_outputs = fe.runFusion({aten_input}, lparams);
@@ -973,7 +975,7 @@ TEST_F(PersistentBufferTest, ProjectToInputsAndBroadcastTvs1) {
       persistent_params->project_persistent_buffers,
       "Should project persistent buffers to inputs!");
 
-  scheduleInnerPersistentKernel(fusion, *persistent_params);
+  scheduleInnerPersistentKernel(fusion, persistent_params.get());
   FusionExecutor fe;
   fe.compileFusion(fusion, inputs);
   auto cg_outputs = fe.runFusion(inputs);
@@ -1033,7 +1035,7 @@ TEST_F(PersistentBufferTest, ProjectToInputsAndBroadcastTvs2) {
       persistent_params->project_persistent_buffers,
       "Should project persistent buffers to inputs!");
 
-  scheduleInnerPersistentKernel(fusion, *persistent_params);
+  scheduleInnerPersistentKernel(fusion, persistent_params.get());
   FusionExecutor fe;
   fe.compileFusion(fusion, inputs, persistent_params->lparams);
   auto cg_outputs = fe.runFusion(inputs, persistent_params->lparams);
@@ -1118,7 +1120,7 @@ TEST_F(PersistentBufferTest, ProjectToInputsAndBroadcastTvs3) {
   NVF_CHECK(
       persistent_params->project_persistent_buffers,
       "Should project persistent buffers to inputs!");
-  scheduleInnerPersistentKernel(fusion, *persistent_params);
+  scheduleInnerPersistentKernel(fusion, persistent_params.get());
   FusionExecutor fe;
   fe.compileFusion(fusion, inputs, persistent_params->lparams);
   auto cg_outputs = fe.runFusion(inputs, persistent_params->lparams);
@@ -1148,11 +1150,11 @@ TEST_F(NVFuserTest, AvoidProjectingToInputsIfRecomputeHasDropout) {
                      .dtype(data_type_to_aten(input_dtype))
                      .device(at::kCUDA, 0);
   at::Tensor aten_input = at::randn({1024, hidden_size}, options);
-  auto reduction_params =
+  auto persistent_params =
       getInnerPersistentHeuristics(fusion.get(), {aten_input});
-  NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
+  NVF_CHECK(persistent_params, "Reduction schedule was not generated!");
   NVF_CHECK(
-      !reduction_params->project_persistent_buffers,
+      !persistent_params->project_persistent_buffers,
       "Shouldn't project persistent buffers to inputs!");
 }
 
@@ -1308,18 +1310,21 @@ TEST_F(PersistentBufferTest, SmemPersistent2DReduction) {
   auto t0 = at::randn(input_shape, options);
   std::vector<c10::IValue> aten_inputs = {t0};
   SchedulerRuntimeInfo runtime_info(fusion.get(), aten_inputs);
-  ASSERT_TRUE(SchedulerEntry::canSchedule(
-      ScheduleHeuristic::InnerPersistent, fusion.get(), runtime_info));
-  auto scheduler = SchedulerEntry::makeEntry(
-      ScheduleHeuristic::InnerPersistent, fusion.get(), runtime_info);
-  EXPECT_FALSE(scheduler->reductionParams().smem_persistent_buffers.empty());
-  scheduler->schedule(fusion.get());
+  ASSERT_TRUE(Schedule::canSchedule(
+      SchedulerType::InnerPersistent, fusion.get(), runtime_info));
+  auto scheduler =
+      SchedulerEntry::makeSchedulerInstance(SchedulerType::InnerPersistent);
+  auto heuristic_params =
+      scheduler->computeHeuristics(fusion.get(), runtime_info);
+  EXPECT_FALSE(
+      heuristic_params->as<ReductionParams>()->smem_persistent_buffers.empty());
+  scheduler->schedule(fusion.get(), heuristic_params.get());
 
   // Run the fusion and validate the results
   FusionExecutor fe;
   fe.compileFusion(fusion.get(), aten_inputs);
-  auto cg_outputs =
-      fe.runFusion(aten_inputs, scheduler->reductionParams().lparams);
+  auto cg_outputs = fe.runFusion(
+      aten_inputs, heuristic_params->as<ReductionParams>()->lparams);
   auto t1 = t0 / t0.sum({1, 2, 3}, true);
   testValidate(fusion.get(), cg_outputs, aten_inputs, {t1}, __LINE__, __FILE__);
 }
