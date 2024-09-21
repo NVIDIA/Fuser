@@ -95,6 +95,24 @@ std::unique_ptr<SchedulerEntry> SchedulerEntry::makeSchedulerInstance(
   }
 }
 
+std::unique_ptr<HeuristicParams> SchedulerEntry::scheduleWith(
+    Fusion* fusion,
+    SchedulerType scheduler_type,
+    const at::ArrayRef<c10::IValue>& runtime_inputs,
+    bool validate) {
+  SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs);
+  NVF_ERROR(
+      !validate || Schedule::canSchedule(scheduler_type, fusion, runtime_info),
+      "Could not schedule fusion with the SchedulerType: ",
+      scheduler_type);
+  auto scheduler_instance =
+      SchedulerEntry::makeSchedulerInstance(scheduler_type);
+  auto heuristic_params =
+      scheduler_instance->computeHeuristics(fusion, runtime_info);
+  scheduler_instance->schedule(fusion, heuristic_params.get());
+  return heuristic_params;
+}
+
 namespace Schedule {
 // Simple dispatcher interface
 bool canSchedule(

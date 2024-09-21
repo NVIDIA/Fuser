@@ -54,6 +54,17 @@ class SchedulerEntry {
   static std::unique_ptr<SchedulerEntry> makeSchedulerInstance(
       SchedulerType scheduler_type);
 
+  // Checks the provided scheduler type can schedule the fusion with the
+  // provided inputs. Schedules the fusion according to the heuristics provided
+  // by the scheduler. Returns the heuristics. This is simply a convenience
+  // function for a common testing pattern. If validate is set to false
+  // canSchedule will not be checked.
+  static std::unique_ptr<HeuristicParams> scheduleWith(
+      Fusion* fusion,
+      SchedulerType scheduler_type,
+      const at::ArrayRef<c10::IValue>& runtime_inputs,
+      bool validate = true);
+
   //! Heuristic comparison
   bool sameAs(const SchedulerEntry* other);
 
