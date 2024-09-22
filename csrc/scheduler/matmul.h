@@ -34,7 +34,7 @@ class MatmulScheduler : public SchedulerEntry {
   bool canScheduleRunTime(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr) override;
+      HeuristicDataCache* data_cache = nullptr) override;
 
   constexpr static SchedulerType schedulerType() {
     return SchedulerType::Matmul;
@@ -43,7 +43,7 @@ class MatmulScheduler : public SchedulerEntry {
   std::unique_ptr<HeuristicParams> computeHeuristics(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr) override;
+      HeuristicDataCache* data_cache = nullptr) override;
 };
 
 } // namespace nvfuser

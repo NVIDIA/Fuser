@@ -75,10 +75,10 @@ bool PointWiseScheduler::canScheduleCompileTime(Fusion* fusion) {
 bool PointWiseScheduler::canScheduleRunTime(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache) {
+    HeuristicDataCache* data_cache) {
   FUSER_PERF_SCOPE("PointWiseScheduler::canScheduleRunTime");
   auto can_schedule_transpose_entry =
-      HeuristicSummaryEntry<HeuristicCompileTime::CanScheduleTranspose>(
+      HeuristicDataCacheEntry<HeuristicCompileTime::CanScheduleTranspose>(
           data_cache, [fusion]() {
             return std::make_unique<bool>(
                 TransposeScheduler().canScheduleCompileTime(fusion));
@@ -107,7 +107,7 @@ void PointWiseScheduler::schedule(
 std::unique_ptr<HeuristicParams> PointWiseScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache) {
+    HeuristicDataCache* data_cache) {
   FUSER_PERF_SCOPE("PointWiseScheduler::computeHeuristics");
   auto pparams = getPointwiseHeuristics(fusion, runtime_info, data_cache);
   NVF_ERROR(pparams != nullptr);
@@ -155,7 +155,7 @@ class DomainMap : public pointwise_utils::DomainMap {
 std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
-    HeuristicSummary* data_cache) {
+    HeuristicDataCache* data_cache) {
   SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs);
   return getPointwiseHeuristics(fusion, runtime_info, data_cache);
 }
@@ -163,7 +163,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache) {
+    HeuristicDataCache* data_cache) {
   FusionGuard fg(fusion);
 
   // Incase any buffer is of type DataType::Index
@@ -176,13 +176,13 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   auto in_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
 
   auto domain_map_entry =
-      HeuristicSummaryEntry<HeuristicCompileTime::DomainMap>(
+      HeuristicDataCacheEntry<HeuristicCompileTime::DomainMap>(
           data_cache,
           [fusion]() { return std::make_unique<DomainMap>(fusion); });
   const auto& domain_map = dynamic_cast<DomainMap&>(domain_map_entry.get());
 
   auto largest_out_entry =
-      HeuristicSummaryEntry<HeuristicCompileTime::ReferenceTensors>(
+      HeuristicDataCacheEntry<HeuristicCompileTime::ReferenceTensors>(
           data_cache, [&domain_map]() {
             std::vector<TensorView*> data{domain_map.findReferenceTensorView()};
             return std::make_unique<std::vector<TensorView*>>(std::move(data));
@@ -204,7 +204,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   }
 
   auto logical_reorder_map_entry =
-      HeuristicSummaryEntry<HeuristicCompileTime::LogicalReorderMap>(
+      HeuristicDataCacheEntry<HeuristicCompileTime::LogicalReorderMap>(
           data_cache, [&fusion, &largest_out]() {
             // NOTE: logical_reorder_map is only applied for fusion without view
             // op yet.
@@ -247,13 +247,13 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
               TensorDomain::noBroadcasts(largest_out->getLoopDomain())))
           .empty() ||
       n_elems == 0) {
-    auto vectorizable_inputs_outputs_entry = HeuristicSummaryEntry<
+    auto vectorizable_inputs_outputs_entry = HeuristicDataCacheEntry<
         HeuristicCompileTime::VectorizableInputsAndOutputs>(data_cache, []() {
       return std::make_unique<std::vector<TensorView*>>();
     });
     vectorizable_inputs_outputs_entry.get();
 
-    auto broadcast_info = HeuristicSummaryEntry<
+    auto broadcast_info = HeuristicDataCacheEntry<
         HeuristicCompileTime::BroadcastMultiples>(data_cache, []() {
       return std::make_unique<scheduler_utils::BroadcastMultipleInformation>();
     });
@@ -263,7 +263,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
         runtime_info, largest_out, data_cache, 0);
 
     // All cache entries that are expected to be generated in the pointwise
-    // scheduler by registry.cpp::HeuristicSummary::validate() must be created
+    // scheduler by registry.cpp::HeuristicDataCache::validate() must be created
     // before hitting this return.
     auto pwise_params = std::make_unique<PointwiseParams>();
     pwise_params->tag = "Pointwise heuristics";
@@ -272,13 +272,13 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   }
 
   // Find all vectorizable inputs/outputs
-  auto vectorizable_inputs_outputs_entry =
-      HeuristicSummaryEntry<HeuristicCompileTime::VectorizableInputsAndOutputs>(
-          data_cache, [&largest_out]() {
-            return std::make_unique<std::vector<TensorView*>>(
-                scheduler_utils::getInputsOutputsWithInnerDim(
-                    largest_out, true, true));
-          });
+  auto vectorizable_inputs_outputs_entry = HeuristicDataCacheEntry<
+      HeuristicCompileTime::VectorizableInputsAndOutputs>(
+      data_cache, [&largest_out]() {
+        return std::make_unique<std::vector<TensorView*>>(
+            scheduler_utils::getInputsOutputsWithInnerDim(
+                largest_out, true, true));
+      });
 
   constexpr int64_t kSixteen = 16; // clang tidy
 
@@ -330,7 +330,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   // break point.
   int64_t gdim_right = 1;
 
-  auto broadcast_info = HeuristicSummaryEntry<
+  auto broadcast_info = HeuristicDataCacheEntry<
       HeuristicCompileTime::BroadcastMultiples>(
       data_cache, [&largest_out, &index_type]() {
         return std::make_unique<scheduler_utils::BroadcastMultipleInformation>(

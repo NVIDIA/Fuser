@@ -67,7 +67,7 @@ void ExprEvalScheduler::schedule(
 std::unique_ptr<HeuristicParams> ExprEvalScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache) {
+    HeuristicDataCache* data_cache) {
   auto params = std::make_unique<HeuristicParams>(SchedulerType::ExprEval);
   params->cparams.index_type = runtime_info.getIndexType();
   return params;

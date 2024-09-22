@@ -14,7 +14,7 @@ namespace nvfuser {
 
 class Fusion;
 class SchedulerRuntimeInfo;
-class HeuristicSummary;
+class HeuristicDataCache;
 
 //! NoOp scheduler represents the case where scheduler will
 //!  not do any scheduling operations and forward the un-scheduled
@@ -31,7 +31,7 @@ class NoOpScheduler : public SchedulerEntry {
   bool canScheduleRunTime(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr) override;
+      HeuristicDataCache* data_cache = nullptr) override;
 
   constexpr static SchedulerType schedulerType() {
     return SchedulerType::NoOp;
@@ -42,7 +42,7 @@ class NoOpScheduler : public SchedulerEntry {
   std::unique_ptr<HeuristicParams> computeHeuristics(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache) override;
+      HeuristicDataCache* data_cache) override;
 };
 
 //! Provides a dummy heuristic type to ensure

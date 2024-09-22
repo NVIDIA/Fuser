@@ -352,7 +352,7 @@ std::vector<TensorView*> sortProjectableBufferInputs(
 PersistentBufferStorageParams getPersistentBufferStorageParams(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache,
+    HeuristicDataCache* data_cache,
     const std::vector<TensorView*>& reduction_tvs,
     const int64_t vectorize_factor) {
   FUSER_PERF_SCOPE(
@@ -361,7 +361,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   PersistentBufferStorageParams buffer_params;
 
   auto persistent_buffer_info_entry =
-      HeuristicSummaryEntry<HeuristicCompileTime::PersistentBufferInfo>(
+      HeuristicDataCacheEntry<HeuristicCompileTime::PersistentBufferInfo>(
           data_cache, [&fusion]() {
             return std::make_unique<scheduler_utils::PersistentBufferInfo>(
                 scheduler_utils::persistentBuffers(fusion));
@@ -577,10 +577,10 @@ std::pair<int64_t, int64_t> getBufferBatchSizeAndThreadsPerBlock(
 bool InnerOuterPersistentKernelScheduler::canScheduleRunTime(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache) {
+    HeuristicDataCache* data_cache) {
   FUSER_PERF_SCOPE("InnerOuterPersistentKernelScheduler::canScheduleRunTime");
   auto reduction_tv_entry =
-      HeuristicSummaryEntry<HeuristicCompileTime::ReductionTVs>(
+      HeuristicDataCacheEntry<HeuristicCompileTime::ReductionTVs>(
           data_cache, [&fusion]() {
             return std::make_unique<std::vector<TensorView*>>(
                 scheduler_utils::getReductionTvs(fusion));
@@ -661,7 +661,7 @@ std::unique_ptr<HeuristicParams> InnerOuterPersistentKernelScheduler::
     computeHeuristics(
         Fusion* fusion,
         SchedulerRuntimeInfo& runtime_info,
-        HeuristicSummary* data_cache) {
+        HeuristicDataCache* data_cache) {
   FUSER_PERF_SCOPE("InnerOuterPersistentKernelScheduler::computeHeuristics");
   auto rparams =
       getInnerOuterPersistentHeuristics(fusion, runtime_info, data_cache);
@@ -940,11 +940,11 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
 std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache) {
+    HeuristicDataCache* data_cache) {
   FusionGuard fg(fusion);
 
   auto reduction_tv_entry =
-      HeuristicSummaryEntry<HeuristicCompileTime::ReductionTVs>(
+      HeuristicDataCacheEntry<HeuristicCompileTime::ReductionTVs>(
           data_cache, [&fusion]() {
             return std::make_unique<std::vector<TensorView*>>(
                 scheduler_utils::getReductionTvs(fusion));
@@ -979,7 +979,7 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
 
   // Although properties contains runtime information
   // "inner_most_dimension_ndims" is a compile time value
-  auto vec_break_point = HeuristicSummaryEntry<
+  auto vec_break_point = HeuristicDataCacheEntry<
       HeuristicCompileTime::VectorizationBreakPointOfReductionProducer>(
       data_cache, [&ref_red_tv, &reduced_tv, &properties]() {
         return std::make_unique<int64_t>(
@@ -991,7 +991,7 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
       runtime_info, reduced_tv, data_cache, vec_break_point.get());
 
   auto persistent_buffer_info_entry =
-      HeuristicSummaryEntry<HeuristicCompileTime::PersistentBufferInfo>(
+      HeuristicDataCacheEntry<HeuristicCompileTime::PersistentBufferInfo>(
           data_cache, [&fusion]() {
             return std::make_unique<scheduler_utils::PersistentBufferInfo>(
                 scheduler_utils::persistentBuffers(fusion));
@@ -1025,7 +1025,7 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
 std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
-    HeuristicSummary* data_cache) {
+    HeuristicDataCache* data_cache) {
   SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs);
   return getInnerOuterPersistentHeuristics(fusion, runtime_info, data_cache);
 }
