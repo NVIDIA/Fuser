@@ -915,10 +915,10 @@ TEST_F(NVFuserTest, ElectSyncCompatibility) {
   smem_cache->split(0, number_of_stages);
   // [I0*I1*I2/256/4/2, 2, 4, 256]
 
+  // [BIDx, 2, TIDx, Bulk]
   smem_cache->axis(0)->parallelize(ParallelType::BIDx);
   smem_cache->axis(2)->parallelize(ParallelType::TIDx);
   smem_cache->axis(3)->parallelize(ParallelType::Bulk);
-  // [BIDx, TIDx, Bulk]
 
   // Schedule the smem->gmem part
   output->merge(0);
@@ -929,7 +929,7 @@ TEST_F(NVFuserTest, ElectSyncCompatibility) {
   output->axis(0)->parallelize(ParallelType::BIDx);
   output->axis(3)->parallelize(ParallelType::TIDx);
 
-  smem_cache->computeAt(output, /*pos=*/2);
+  inlineAllAt(output, /*pos=*/2);
   smem_cache->circularBuffer(number_of_stages);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -971,8 +971,8 @@ TEST_P(TmaCircularBufferingTest, SingleDim) {
   TransformPropagatorWithCheck propagator(reference);
   MaxLogicalDomainInfoSpanningTree(reference).traverse(&propagator);
 
-  // Set computeAt before applying circular buffer
-  tv0->computeAt(tv1, 1);
+  // Set inlineAt before applying circular buffer
+  inlineAllAt(tv1, /*pos=*/1);
 
   // Parallelization
   tv2->axis(-1)->parallelize(ParallelType::Bulk);
@@ -1023,8 +1023,8 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnroll) {
   TransformPropagatorWithCheck propagator(reference);
   MaxLogicalDomainInfoSpanningTree(reference).traverse(&propagator);
 
-  // ComputeAt
-  tv0->computeAt(tv1, 1);
+  // Set ComputeAt position
+  inlineAllAt(tv1, /*pos=*/1);
 
   // Apply Unroll
   tv1->axis(1)->parallelize(ParallelType::Unroll);
@@ -1083,8 +1083,8 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnswitch) {
   TransformPropagatorWithCheck propagator(reference);
   MaxLogicalDomainInfoSpanningTree(reference).traverse(&propagator);
 
-  // ComputeAt
-  tv0->computeAt(tv1, 1);
+  // Set ComputeAt position
+  inlineAllAt(tv1, /*pos=*/1);
 
   // Apply Unswitch
   tv1->axis(1)->parallelize(ParallelType::Unswitch);
@@ -1145,8 +1145,8 @@ TEST_P(TmaCircularBufferingTest, MultiDim) {
   TransformPropagatorWithCheck propagator(reference);
   MaxLogicalDomainInfoSpanningTree(reference).traverse(&propagator);
 
-  // Apply computeAt for TMA cache
-  tv0->computeAt(tv1, 2);
+  // Apply inlineAt for TMA cache
+  inlineAllAt(tv1, /*pos=*/2);
 
   // Merge TMA tile and Parallelize
   // [M/bod, N/bid, bod, bid] -> [M/bod, N/bid, bod * bid]
@@ -1208,15 +1208,15 @@ TEST_P(TmaCircularBufferingTest, Pointwise) {
   TransformPropagatorWithCheck propagator(reference);
   MaxLogicalDomainInfoSpanningTree(reference).traverse(&propagator);
 
-  tv0->computeAt(tv2, 2);
-  tv1->computeAt(tv2, 2);
+  // Set computeAt position
+  inlineAllAt(tv2, /*pos=*/2);
 
-  // Ciruclar Buffer with TMA loads
+  // Circular Buffer with TMA loads
   tv3->axis(0)->parallelize(ParallelType::BIDx);
   tv3->axis(2)->parallelize(ParallelType::Bulk);
   tv3->circularBuffer(number_of_stages);
 
-  // Ciruclar Buffer with set operation
+  // Circular Buffer with set operation
   tv4->axis(0)->parallelize(ParallelType::BIDx);
   tv4->circularBuffer(number_of_stages);
 
@@ -1492,16 +1492,6 @@ TEST_P(TmaCircularBufferingTest, Matmul) {
   TransformPropagatorWithCheck propagator(tv6_rf);
   MaxLogicalDomainInfoSpanningTree(tv6_rf).traverse(&propagator);
 
-  // IterDomain: [M/BSX, N/BSX, K/BSX, BSX/TSX, BSX/TSX, TSX, TSX, BSX]
-  // Parallelization: BDX, BDY, K/BSX ||, BSX/TSX, BSX/TSX, TDY, TSX, TDX]
-  // 4 non-parallelized for-loops
-  tv0->computeAt(tv6, 3);
-  tv1->computeAt(tv6, 3);
-
-  tv6_rf->computeAt(tv6, -1);
-  tv0_cache_local->computeAt(tv6_rf, -1);
-  tv1_cache_local->computeAt(tv6_rf, -1);
-
   // Parallelize
   tv5->axis(0)->parallelize(ParallelType::BIDx);
   tv5->axis(1)->parallelize(ParallelType::BIDy);
@@ -1520,17 +1510,23 @@ TEST_P(TmaCircularBufferingTest, Matmul) {
   tv1_cache_smem->axis(-2)->parallelize(ParallelType::Bulk);
   tv1_cache_smem->axis(-1)->parallelize(ParallelType::Bulk);
 
-  tv0_cache_local->circularBuffer(number_of_stages);
-  tv1_cache_local->circularBuffer(number_of_stages);
-
-  tv0_cache_smem->circularBuffer(number_of_stages);
-  tv1_cache_smem->circularBuffer(number_of_stages);
-
   // Apply ParallelType::Bulk to global output tensor.
   tv5->axis(-4)->parallelize(ParallelType::Bulk);
   tv5->axis(-3)->parallelize(ParallelType::Bulk);
   tv5->axis(-2)->parallelize(ParallelType::Bulk);
   tv5->axis(-1)->parallelize(ParallelType::Bulk);
+
+  // IterDomain: [M/BSX, N/BSX, K/BSX, BSX/TSX, BSX/TSX, TSX, TSX, BSX]
+  // Parallelization: BDX, BDY, K/BSX ||, BSX/TSX, BSX/TSX, TDY, TSX, TDX]
+  // 4 non-parallelized for-loops
+  inlineMost();
+
+  // Apply circular buffering after setting computeAt position
+  tv0_cache_local->circularBuffer(number_of_stages);
+  tv1_cache_local->circularBuffer(number_of_stages);
+
+  tv0_cache_smem->circularBuffer(number_of_stages);
+  tv1_cache_smem->circularBuffer(number_of_stages);
 
   constexpr int64_t K = 1024;
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
