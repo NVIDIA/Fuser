@@ -18,6 +18,7 @@
 #include <ir/all_nodes.h>
 #include <kernel_cache.h>
 #include <kernel_ir_dispatch.h>
+#include <scheduler/registry.h>
 #include <transform_replay.h>
 
 #include <ATen/Context.h>
@@ -34,6 +35,15 @@
 #include <vector>
 
 namespace nvfuser {
+// Grabs heuristics and schedules with the provided scheduler type, compiels and
+// runs with Fuion executor, returns outputs. If validate is set to false the
+// scheduler check will still be run but it will be ignored. Otherwise
+// canScheduler returning false will throw.
+std::vector<at::Tensor> scheduleAndRun(
+    Fusion* fusion,
+    SchedulerType scheduler_type,
+    const at::ArrayRef<c10::IValue>& runtime_inputs,
+    bool validate = true);
 
 // Make s Stack used for TorchScript execution
 inline torch::jit::Stack createStack(std::vector<at::Tensor>&& list) {
