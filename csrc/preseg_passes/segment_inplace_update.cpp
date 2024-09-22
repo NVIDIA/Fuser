@@ -14,17 +14,32 @@
 #include <preseg_passes/segment_inplace_update.h>
 
 namespace nvfuser::preseg_passes {
+// When an intermediate tensorview is aliased to a fusion input,
+// a RW race occurs, when the intermediate tensorview or
+// the aliased input is in path of a broadcast.
+// This preseg pass :
+// 1. Finds any tensorviews used in inplace updates (AllocationType:ReuseBuffer)
+// in the fusion
+// 2. Traverses the fusion graph starting from broadcast ops and stores all
+// direct/indirect producer/consumer tensorviews.
+// 3. For all aliased tensorviews, if the aliased tensorview or the aliased
+// input is present in the set of visited tensorviews in step 2, we insert a
+// segment set and set to force a separate copy kernel. This ensures that all
+// write operations to the fusion inputs occur after the read operations have
+// completed. See Issue #2664: https:// github.com/NVIDIA/Fuser/issues/2664
 namespace {
 void insertSegmentSet(Fusion* fusion) {
   std::vector<TensorView*> aliased_tvs;
   std::vector<BroadcastOp*> bcast;
 
+  // Find all tensorviews which are used in inplace updates
   for (TensorView* tv : fusion->allTvs()) {
-    if (fusion->getOutputAlias(tv).aliased_io != nullptr) {
+    if (fusion->getOutputAlias(tv).type == AllocationType::ReuseBuffer) {
       aliased_tvs.push_back(tv);
     }
   }
 
+  // Return early if there is no inplace update
   if (aliased_tvs.empty()) {
     return;
   }
@@ -80,6 +95,13 @@ void insertSegmentSet(Fusion* fusion) {
     }
   }
 
+  // For all aliased tensorviews, if that tv or the aliased input is a
+  // producer/consumer of a broadcast op, insert a (segment_set + set) to
+  // force the inplace update into a separate copy kernel. NOTE: We cannot use
+  // a segment_set alone. Since, there will be no data flow across this
+  // segment_set (the output of segment_set is an output of given fusion with
+  // no uses), it will be merged with other segments.
+  // https://github.com/NVIDIA/Fuser/blob/92b635125ae509cc6b2ccbe29e957586a9cbb059/csrc/fusion_segmenter.cpp#L2331-L2346
   for (auto aliased_tv : aliased_tvs) {
     TensorView* aliased_io =
         fusion->getOutputAlias(aliased_tv).aliased_io->as<TensorView>();
