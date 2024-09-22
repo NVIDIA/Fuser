@@ -96,12 +96,6 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache = nullptr);
 
-NVF_API void scheduleTranspose(Fusion* fusion, const TransposeParams* params);
-
-NVF_API LaunchParams scheduleTranspose(
-    Fusion* fusion,
-    const at::ArrayRef<c10::IValue>& runtime_inputs);
-
 //! Utility for canSchedule interface to check if this fusion has at least two
 //! groups, each with a fully broadcasted reference tensor.
 NVF_API bool hasAtLeastTwoValidGroups(Fusion* fusion);

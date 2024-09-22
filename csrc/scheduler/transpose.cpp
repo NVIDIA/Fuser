@@ -105,18 +105,6 @@ bool TransposeScheduler::canScheduleRunTime(
   return true;
 }
 
-void TransposeScheduler::schedule(
-    Fusion* fusion,
-    const HeuristicParams* params) {
-  FUSER_PERF_SCOPE("TransposeScheduler::schedule");
-  auto tparams = dynamic_cast<const TransposeParams*>(params);
-  NVF_ERROR(
-      tparams != nullptr,
-      "Incorrect parameters sent to TransposeScheduler::schedule",
-      params);
-  scheduleTranspose(fusion, tparams);
-}
-
 std::unique_ptr<HeuristicParams> TransposeScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
@@ -1050,16 +1038,6 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
   return tparams;
 }
 
-// TODO: remove or return launch parameters
-LaunchParams scheduleTranspose(
-    Fusion* fusion,
-    const at::ArrayRef<c10::IValue>& runtime_inputs) {
-  auto params = getTransposeHeuristics(fusion, runtime_inputs);
-  NVF_ERROR(params != nullptr, "Could not schedule transpose operation.");
-  scheduleTranspose(fusion, params.get());
-  return params->lparams;
-}
-
 void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
   FusionGuard fg(fusion);
 
@@ -1458,4 +1436,15 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
   scheduler_utils::promoteProducerMemoryTypes(fusion, cached_inputs);
 }
 
+void TransposeScheduler::schedule(
+    Fusion* fusion,
+    const HeuristicParams* params) {
+  FUSER_PERF_SCOPE("TransposeScheduler::schedule");
+  auto tparams = dynamic_cast<const TransposeParams*>(params);
+  NVF_ERROR(
+      tparams != nullptr,
+      "Incorrect parameters sent to TransposeScheduler::schedule",
+      params);
+  scheduleTranspose(fusion, tparams);
+}
 } // namespace nvfuser

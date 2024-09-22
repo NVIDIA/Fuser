@@ -77,12 +77,7 @@ TEST_F(TransposeTest, FusionScheduleTransposeSimple) {
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     at::Tensor input = at::randn({256, 1024, 1024}, options);
 
-    auto lparams = scheduleTranspose(&fusion, {input});
-
-    FusionExecutor fe;
-    fe.compileFusion(&fusion, {input}, lparams);
-    auto outputs = fe.runFusion({input}, lparams);
-
+    auto outputs = scheduleAndRun(&fusion, SchedulerType::Transpose, {input});
     auto tv_ref = input.sin().transpose(1, 2).cos();
 
     testValidate(&fusion, outputs, {input}, {tv_ref}, __LINE__, __FILE__);
@@ -107,14 +102,8 @@ TEST_F(TransposeTest, FusionScheduleTransposeSinTransposeCos) {
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     at::Tensor input = at::randn({256, 1024, 1024}, options);
 
-    auto lparams = scheduleTranspose(&fusion, {input});
-
-    FusionExecutor fe;
-    fe.compileFusion(&fusion, {input}, lparams);
-    auto outputs = fe.runFusion({input}, lparams);
-
+    auto outputs = scheduleAndRun(&fusion, SchedulerType::Transpose, {input});
     auto tv_ref = input.transpose(0, 2).sin().transpose(1, 2).cos();
-
     testValidate(&fusion, outputs, {input}, {tv_ref}, __LINE__, __FILE__);
   }
 }
@@ -142,12 +131,8 @@ TEST_F(TransposeTest, FusionScheduleTransposeMultipleInput) {
   at::Tensor input0 = at::randn({256, 1024, 1024}, options);
   at::Tensor input1 = at::randn({256, 1024, 1024}, options);
 
-  auto lparams = scheduleTranspose(&fusion, {input0, input1});
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {input0, input1}, lparams);
-  auto outputs = fe.runFusion({input0, input1}, lparams);
-
+  auto outputs =
+      scheduleAndRun(&fusion, SchedulerType::Transpose, {input0, input1});
   testValidate(&fusion, outputs, {input0, input1}, __LINE__, __FILE__);
 }
 
@@ -170,12 +155,7 @@ TEST_F(TransposeTest, FusionScheduleTransposeMultipleOutput) {
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     at::Tensor input = at::randn({32, 1024, 1024}, options);
 
-    auto lparams = scheduleTranspose(&fusion, {input});
-
-    FusionExecutor fe;
-    fe.compileFusion(&fusion, {input}, lparams);
-    auto outputs = fe.runFusion({input}, lparams);
-
+    auto outputs = scheduleAndRun(&fusion, SchedulerType::Transpose, {input});
     auto tv_ref1 = input.sin().transpose(0, 2);
     auto tv_ref2 = input.cos().transpose(0, 2);
 
@@ -209,12 +189,8 @@ TEST_F(TransposeTest, FusionScheduleTransposeMultipleInputOutput) {
   at::Tensor input0 = at::randn({32, 1024, 1024}, options);
   at::Tensor input1 = at::randn({32, 1024, 1024}, options);
 
-  auto lparams = scheduleTranspose(&fusion, {input0, input1});
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {input0, input1}, lparams);
-  auto outputs = fe.runFusion({input0, input1}, lparams);
-
+  auto outputs =
+      scheduleAndRun(&fusion, SchedulerType::Transpose, {input0, input1});
   testValidate(&fusion, outputs, {input0, input1}, __LINE__, __FILE__);
 }
 
@@ -239,12 +215,7 @@ TEST_F(TransposeTest, FusionScheduleTransposeMatchingSkipConnection) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input = at::randn({32, 1024, 1024}, options);
 
-  auto lparams = scheduleTranspose(&fusion, {input});
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {input}, lparams);
-  auto outputs = fe.runFusion({input}, lparams);
-
+  auto outputs = scheduleAndRun(&fusion, SchedulerType::Transpose, {input});
   testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
 }
 
@@ -267,12 +238,8 @@ TEST_F(TransposeTest, FusionScheduleTransposeBroadcast) {
   at::Tensor input0 = at::randn({1024, 256, 1024}, options);
   at::Tensor input1 = at::randn({1024, 1024}, options);
 
-  auto lparams = scheduleTranspose(&fusion, {input0, input1});
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {input0, input1}, lparams);
-  auto outputs = fe.runFusion({input0, input1}, lparams);
-
+  auto outputs =
+      scheduleAndRun(&fusion, SchedulerType::Transpose, {input0, input1});
   testValidate(&fusion, outputs, {input0, input1}, __LINE__, __FILE__);
 }
 
@@ -296,7 +263,10 @@ TEST_F(TransposeTest, FusionScheduleTransposeNoReference) {
   at::Tensor input1 = at::randn({1024, 1024}, options);
 
   EXPECT_THAT(
-      [&]() { scheduleTranspose(&fusion, {input0, input1}); },
+      [&]() {
+        SchedulerEntry::scheduleWith(
+            &fusion, SchedulerType::Transpose, {input0, input1});
+      },
       testing::ThrowsMessage<nvfuser::nvfError>(
           testing::HasSubstr("reference tensor")));
 }
@@ -321,12 +291,8 @@ TEST_F(TransposeTest, FusionScheduleBroadcastOnly) {
       at::Tensor input0 = at::randn({1024, 1, 256}, options);
       at::Tensor input1 = at::randn({1024, 1024, 1}, options);
 
-      auto lparams = scheduleTranspose(&fusion, {input0, input1});
-
-      FusionExecutor fe;
-      fe.compileFusion(&fusion, {input0, input1}, lparams);
-      auto outputs = fe.runFusion({input0, input1}, lparams);
-
+      auto outputs =
+          scheduleAndRun(&fusion, SchedulerType::Transpose, {input0, input1});
       testValidate(&fusion, outputs, {input0, input1}, __LINE__, __FILE__);
     }
   }
@@ -391,12 +357,8 @@ TEST_F(TransposeTest, FusionScheduleTransposeComplexDAG1) {
   at::Tensor input1 = at::randn({1024, 512, 256}, options);
   at::Tensor input2 = at::randn({512, 256, 1024}, options);
 
-  auto lparams = scheduleTranspose(&fusion, {input0, input1, input2});
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {input0, input1, input2}, lparams);
-  auto outputs = fe.runFusion({input0, input1, input2}, lparams);
-
+  auto outputs = scheduleAndRun(
+      &fusion, SchedulerType::Transpose, {input0, input1, input2});
   testValidate(&fusion, outputs, {input0, input1, input2}, __LINE__, __FILE__);
 }
 
@@ -670,12 +632,8 @@ TEST_F(TransposeTest, FusionScheduleTransposeMissingDim) {
   at::Tensor input1 = at::randn({1, 512, 1}, options);
   at::Tensor input2 = at::randn({512}, options);
 
-  auto lparams = scheduleTranspose(&fusion, {input0, input1, input2});
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {input0, input1, input2}, lparams);
-  auto outputs = fe.runFusion({input0, input1, input2}, lparams);
-
+  auto outputs = scheduleAndRun(
+      &fusion, SchedulerType::Transpose, {input0, input1, input2});
   testValidate(&fusion, outputs, {input0, input1, input2}, __LINE__, __FILE__);
 }
 
@@ -694,12 +652,7 @@ TEST_F(TransposeTest, FusionScheduleTransposeSmall) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input = at::randn({1024, 2, 2}, options);
 
-  auto lparams = scheduleTranspose(&fusion, {input});
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {input}, lparams);
-  auto outputs = fe.runFusion({input}, lparams);
-
+  auto outputs = scheduleAndRun(&fusion, SchedulerType::Transpose, {input});
   testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
 }
 
@@ -718,12 +671,7 @@ TEST_F(TransposeTest, FusionScheduleTransposeSmallInnerSize1) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input = at::randn({64 * 1024 * 1024, 2, 2}, options);
 
-  auto lparams = scheduleTranspose(&fusion, {input});
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {input}, lparams);
-  auto outputs = fe.runFusion({input}, lparams);
-
+  auto outputs = scheduleAndRun(&fusion, SchedulerType::Transpose, {input});
   testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
 }
 
@@ -742,12 +690,7 @@ TEST_F(TransposeTest, FusionScheduleTransposeSmallInnerSize2) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input = at::randn({2, 64 * 1024 * 1024, 2}, options);
 
-  auto lparams = scheduleTranspose(&fusion, {input});
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {input}, lparams);
-  auto outputs = fe.runFusion({input}, lparams);
-
+  auto outputs = scheduleAndRun(&fusion, SchedulerType::Transpose, {input});
   testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
 }
 
@@ -766,12 +709,7 @@ TEST_F(TransposeTest, FusionScheduleTransposeSmallInnerSize3) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input = at::randn({1024 * 1024, 2, 2, 2, 2, 2, 2, 2}, options);
 
-  auto lparams = scheduleTranspose(&fusion, {input});
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {input}, lparams);
-  auto outputs = fe.runFusion({input}, lparams);
-
+  auto outputs = scheduleAndRun(&fusion, SchedulerType::Transpose, {input});
   testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
 }
 
@@ -794,12 +732,7 @@ TEST_F(TransposeTest, FusionScheduleTranspose2DSmallInnerSize) {
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     at::Tensor input = at::randn(shape, options);
 
-    auto lparams = scheduleTranspose(&fusion, {input});
-
-    FusionExecutor fe;
-    fe.compileFusion(&fusion, {input}, lparams);
-    auto outputs = fe.runFusion({input}, lparams);
-
+    auto outputs = scheduleAndRun(&fusion, SchedulerType::Transpose, {input});
     testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
   }
 }

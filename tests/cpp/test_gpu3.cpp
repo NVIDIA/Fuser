@@ -3769,12 +3769,8 @@ TEST_F(NVFuserTest, FusionScheduleTransposeRepro1_CUDA) {
   at::Tensor input0 = at::randn({1, 1, 333, 1}, options);
   at::Tensor input1 = at::randn({1, 1, 333, 1}, options);
 
-  auto lparams = scheduleTranspose(&fusion, {input0, input1});
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {input0, input1}, lparams);
-  auto outputs = fe.runFusion({input0, input1}, lparams);
-
+  auto outputs = scheduleAndRun(
+      &fusion, SchedulerType::Transpose, {input0, input1}, false);
   testValidate(&fusion, outputs, {input0, input1}, __LINE__, __FILE__);
 }
 
