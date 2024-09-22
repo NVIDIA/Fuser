@@ -8,8 +8,10 @@
 
 #include <inlining.h>
 #include <ops/all_ops.h>
+#include <string.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
+#include <exception>
 
 namespace nvfuser {
 
@@ -941,7 +943,14 @@ TEST_F(NVFuserTest, ElectSyncCompatibility) {
   // circular buffering because we generate an ElectSync predicate that uses
   // a single thread.
   FusionExecutor fe;
-  ASSERT_ANY_THROW(fe.compileFusion(fusion.get(), {t0}));
+  try {
+    fe.compileFusion(fusion.get(), {t0});
+  } catch (const std::exception& e) {
+    const char* reference =
+        R"(This thread-parallelized TensorView T2_s_float[ iblockIdx.x15{( ceilDiv(( ceilDiv(( ceilDiv(( ( ( (( (( getMetaData(T0) )).logical_size ))[0] ) * ( (( (( getMetaData(T0) )).logical_size ))[1] ) ) * ( (( (( getMetaData(T0) )).logical_size ))[2] ) ), 256) ), 4) ), 2) )}, iS16{2}, ithreadIdx.x14{4}, iB12{256} ] ca_pos( 2 ) is incorrectly contained within a If-Then-Else with the ElectSync predicate.)";
+    const char* str_match_pointer = strstr(e.what(), reference);
+    ASSERT_TRUE(str_match_pointer != nullptr);
+  }
 }
 
 TEST_P(TmaCircularBufferingTest, SingleDim) {
@@ -1193,7 +1202,7 @@ TEST_P(TmaCircularBufferingTest, Pointwise) {
   TensorView* tv3 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
   tv3->setMemoryType(MemoryType::Shared);
 
-  // Load TV0 into shared memory
+  // Load TV1 into shared memory
   TensorView* tv4 = tv1->cacheAfter();
   tv4->setMemoryType(MemoryType::Shared);
 
