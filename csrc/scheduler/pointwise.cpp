@@ -84,9 +84,8 @@ bool PointWiseScheduler::canScheduleRunTime(
                 TransposeScheduler().canScheduleCompileTime(fusion));
           });
   if (can_schedule_transpose_entry.get()) {
-    auto reason =
-        getTransposeRuntimeRejectReason(fusion, data_cache, runtime_info);
-    return !reason.empty();
+    return !TransposeScheduler().canScheduleRunTime(
+        fusion, runtime_info, data_cache);
   }
 
   return true;

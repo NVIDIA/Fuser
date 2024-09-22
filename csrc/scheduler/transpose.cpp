@@ -90,31 +90,6 @@ bool TransposeScheduler::canScheduleCompileTime(Fusion* fusion) {
   return true;
 }
 
-bool TransposeScheduler::canScheduleRunTime(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicDataCache* data_cache) {
-  FUSER_PERF_SCOPE("TransposeScheduler::canScheduleRunTime");
-
-  auto reason =
-      getTransposeRuntimeRejectReason(fusion, data_cache, runtime_info);
-  if (!reason.empty()) {
-    scheduler_debug_utils::canScheduleRejectReason(schedulerType(), reason);
-    return false;
-  }
-  return true;
-}
-
-std::unique_ptr<HeuristicParams> TransposeScheduler::computeHeuristics(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicDataCache* data_cache) {
-  FUSER_PERF_SCOPE("TransposeScheduler::computeHeuristics");
-  auto tparams = getTransposeHeuristics(fusion, runtime_info, data_cache);
-  NVF_ERROR(tparams != nullptr);
-  return tparams;
-}
-
 namespace {
 
 // If a fusion is segmented, the segmenter will create fusions whose inputs
@@ -675,8 +650,8 @@ getInnerMostDimInfoInReference(
   return innermost_info_entry;
 }
 
-} // namespace
-
+// If can schedule at runtime, returns empty string, otherwise returns the
+// reason why we should not schedule at runtime.
 std::string getTransposeRuntimeRejectReason(
     Fusion* fusion,
     HeuristicDataCache* data_cache,
@@ -809,16 +784,10 @@ std::string getTransposeRuntimeRejectReason(
   return "";
 }
 
+} // namespace
+
 bool hasAtLeastTwoValidGroups(Fusion* fusion) {
   return DomainMap::hasAtLeastTwoValidGroups(fusion);
-}
-
-std::unique_ptr<TransposeParams> getTransposeHeuristics(
-    Fusion* fusion,
-    const at::ArrayRef<c10::IValue>& runtime_inputs,
-    HeuristicDataCache* data_cache) {
-  SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs);
-  return getTransposeHeuristics(fusion, runtime_info, data_cache);
 }
 
 std::unique_ptr<TransposeParams> getTransposeHeuristics(
@@ -1434,6 +1403,31 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
   inlineMost();
 
   scheduler_utils::promoteProducerMemoryTypes(fusion, cached_inputs);
+}
+
+bool TransposeScheduler::canScheduleRunTime(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicDataCache* data_cache) {
+  FUSER_PERF_SCOPE("TransposeScheduler::canScheduleRunTime");
+
+  auto reason =
+      getTransposeRuntimeRejectReason(fusion, data_cache, runtime_info);
+  if (!reason.empty()) {
+    scheduler_debug_utils::canScheduleRejectReason(schedulerType(), reason);
+    return false;
+  }
+  return true;
+}
+
+std::unique_ptr<HeuristicParams> TransposeScheduler::computeHeuristics(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicDataCache* data_cache) {
+  FUSER_PERF_SCOPE("TransposeScheduler::computeHeuristics");
+  auto tparams = getTransposeHeuristics(fusion, runtime_info, data_cache);
+  NVF_ERROR(tparams != nullptr);
+  return tparams;
 }
 
 void TransposeScheduler::schedule(
