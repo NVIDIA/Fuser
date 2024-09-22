@@ -26,7 +26,7 @@ class ExprEvalScheduler : public SchedulerEntry {
   bool canScheduleRunTime(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicDataCache* data_cache) {
+      HeuristicDataCache* data_cache) override {
     return true;
   }
 
