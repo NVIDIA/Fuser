@@ -39,10 +39,10 @@ bool OuterPersistentKernelScheduler::canScheduleCompileTime(Fusion* fusion) {
 bool OuterPersistentKernelScheduler::canScheduleRunTime(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache) {
+    HeuristicDataCache* data_cache) {
   FUSER_PERF_SCOPE("OuterPersistentKernelScheduler::canScheduleRunTime");
   auto reduction_tv_entry =
-      HeuristicSummaryEntry<HeuristicCompileTime::ReductionTVs>(
+      HeuristicDataCacheEntry<HeuristicCompileTime::ReductionTVs>(
           data_cache, [&fusion]() {
             return std::make_unique<std::vector<TensorView*>>(
                 scheduler_utils::getReductionTvs(fusion));
@@ -59,7 +59,7 @@ bool OuterPersistentKernelScheduler::canScheduleRunTime(
       static_cast<int64_t>(device_prop->regsPerBlock * sizeof(int));
 
   auto persistent_buffer_info_entry =
-      HeuristicSummaryEntry<HeuristicCompileTime::PersistentBufferInfo>(
+      HeuristicDataCacheEntry<HeuristicCompileTime::PersistentBufferInfo>(
           data_cache, [&fusion]() {
             return std::make_unique<scheduler_utils::PersistentBufferInfo>(
                 scheduler_utils::persistentBuffers(fusion));
@@ -242,7 +242,7 @@ std::unique_ptr<HeuristicParams> OuterPersistentKernelScheduler::
     computeHeuristics(
         Fusion* fusion,
         SchedulerRuntimeInfo& runtime_info,
-        HeuristicSummary* data_cache) {
+        HeuristicDataCache* data_cache) {
   FUSER_PERF_SCOPE("OuterPersistentKernelScheduler::computeHeuristics");
   auto rparams = getOuterPersistentHeuristics(fusion, runtime_info, data_cache);
   NVF_ERROR(rparams != nullptr);
@@ -643,7 +643,7 @@ std::unique_ptr<ReductionParams> outerPersistentHeuristic(
 std::unique_ptr<ReductionParams> getOuterPersistentHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache) {
+    HeuristicDataCache* data_cache) {
   FusionGuard fg(fusion);
 
   const auto& prop =
@@ -668,7 +668,7 @@ std::unique_ptr<ReductionParams> getOuterPersistentHeuristics(
 std::unique_ptr<ReductionParams> getOuterPersistentHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
-    HeuristicSummary* data_cache) {
+    HeuristicDataCache* data_cache) {
   SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs);
   return getOuterPersistentHeuristics(fusion, runtime_info, data_cache);
 }

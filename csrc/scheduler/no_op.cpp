@@ -100,7 +100,7 @@ bool NoOpScheduler::canScheduleCompileTime(Fusion* fusion) {
 bool NoOpScheduler::canScheduleRunTime(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache) {
+    HeuristicDataCache* data_cache) {
   // TODO:
   //  Pipe through dynamic zero checks.
   return true;
@@ -127,7 +127,7 @@ void NoOpScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 std::unique_ptr<HeuristicParams> NoOpScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache) {
+    HeuristicDataCache* data_cache) {
   auto params = std::make_unique<HeuristicParams>(SchedulerType::NoOp);
   params->cparams.index_type = runtime_info.getIndexType();
   return params;

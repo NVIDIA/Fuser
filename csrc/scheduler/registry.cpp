@@ -247,7 +247,7 @@ bool canSchedule(
     SchedulerType scheduler_type,
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache) {
+    HeuristicDataCache* data_cache) {
   // If a data cache is given, the compile time part doesn't need to be checked,
   // since during segmentation the segmenter will call
   // SchedulerEntry::proposeHeuristics which doesn't pass a data_cache.
@@ -297,189 +297,65 @@ class CompileTimeInfo : public HeuristicCompileTime::CompileTimeInfoBase {
 
 } // namespace
 
-HeuristicSummary::HeuristicSummary(
+HeuristicDataCache::HeuristicDataCache(
     Fusion* fusion,
     SchedulerType scheduler_type,
     SchedulerRuntimeInfo& runtime_info)
-    : scheduler_type_(scheduler_type), recording_(true) {
-  switch (scheduler_type) {
-    case SchedulerType::NoOp:
-      NoOpScheduler().canScheduleRunTime(fusion, runtime_info, this);
-      break;
-    case SchedulerType::PointWise:
-      getPointwiseHeuristics(fusion, runtime_info, this);
-      PointWiseScheduler().canScheduleRunTime(fusion, runtime_info, this);
-      break;
-    case SchedulerType::Reduction:
-      getReductionHeuristics(fusion, runtime_info, this);
-      ReductionScheduler().canScheduleRunTime(fusion, runtime_info, this);
-      break;
-    case SchedulerType::InnerPersistent:
-      getInnerPersistentHeuristics(fusion, runtime_info, this);
-      InnerPersistentKernelScheduler().canScheduleRunTime(
-          fusion, runtime_info, this);
-      break;
-    case SchedulerType::OuterPersistent:
-      getOuterPersistentHeuristics(fusion, runtime_info, this);
-      OuterPersistentKernelScheduler().canScheduleRunTime(
-          fusion, runtime_info, this);
-      break;
-    case SchedulerType::InnerOuterPersistent:
-      getInnerOuterPersistentHeuristics(fusion, runtime_info, this);
-      InnerOuterPersistentKernelScheduler().canScheduleRunTime(
-          fusion, runtime_info, this);
-      break;
-    case SchedulerType::Transpose:
-      getTransposeHeuristics(fusion, runtime_info, this);
-      TransposeScheduler().canScheduleRunTime(fusion, runtime_info, this);
-      break;
-    case SchedulerType::Matmul: {
-      const auto heuristics = getMatmulHeuristics(fusion, runtime_info, this);
-      NVF_ERROR(heuristics, "Failed to get matmul heuristics");
-      const auto canSchedule =
-          MatmulScheduler().canScheduleRunTime(fusion, runtime_info, this);
-      NVF_ERROR(canSchedule, "Could not schedule matmul (run time)");
-      break;
-    }
-    case SchedulerType::ExprEval:
-      ExprEvalScheduler().canScheduleRunTime(fusion, runtime_info, this);
-      break;
-    default:
-      NVF_THROW("unknown heuristic");
-  }
-  validate();
-  recording_ = false;
-}
+    : scheduler_type_(scheduler_type) {}
 
-void HeuristicSummary::validate() const {
-  switch (scheduler_type_) {
-    case SchedulerType::NoOp: {
-      // TODO: need to cache the dynamically zero inputs?
-      break;
-    }
-    case SchedulerType::Transpose:
-    case SchedulerType::PointWise: {
-      if (scheduler_type_ == SchedulerType::PointWise) {
-        NVF_ERROR(entry_type_map_.count(EntryType::DOMAIN_MAP));
-        NVF_ERROR(entry_type_map_.count(EntryType::REFERENCE_TENSORS));
-        NVF_ERROR(
-            entry_type_map_.count(EntryType::VECTORIZABLE_INPUTS_AND_OUTPUTS));
-        NVF_ERROR(
-            entry_type_map_.count(EntryType::TV_TO_CONTIG_INNER_SIZE_MAPS));
-        NVF_ERROR(entry_type_map_.count(EntryType::BROADCAST_BYTE_MULTIPLES));
-        NVF_ERROR(entry_type_map_.count(EntryType::CAN_SCHEDULE_TRANSPOSE));
-        auto can_schedule_transpose =
-            entry_type_map_.at(EntryType::CAN_SCHEDULE_TRANSPOSE)
-                ->as<CompileTimeInfo<
-                    HeuristicCompileTime::CanScheduleTranspose>>()
-                ->get();
-        if (!*can_schedule_transpose) {
-          break;
-        }
-        NVF_ERROR(entry_type_map_.count(EntryType::LOGICAL_REORDER_MAP));
-      }
-      NVF_ERROR(entry_type_map_.count(EntryType::TRANSPOSE_DOMAIN_MAP));
-      NVF_ERROR(entry_type_map_.count(
-          EntryType::INPUTS_AND_OUTPUTS_INNER_DIM_GROUPS));
-      NVF_ERROR(entry_type_map_.count(EntryType::REFERENCE_TENSORS_FOR_GROUPS));
-      NVF_ERROR(entry_type_map_.count(EntryType::INNER_MOST_DIMS_INFO));
-      break;
-    }
-    case SchedulerType::Reduction: {
-      NVF_ERROR(entry_type_map_.count(EntryType::REDUCTION_TVS));
-      NVF_ERROR(
-          entry_type_map_.count(EntryType::VECTORIZABLE_INPUTS_AND_OUTPUTS));
-      NVF_ERROR(entry_type_map_.count(EntryType::TV_TO_CONTIG_INNER_SIZE_MAPS));
-      NVF_ERROR(
-          entry_type_map_.count(EntryType::UNROLLABLE_INPUTS_AND_OUTPUTS));
-      break;
-    }
-    case SchedulerType::InnerPersistent:
-    case SchedulerType::OuterPersistent:
-      NVF_ERROR(
-          entry_type_map_.count(EntryType::UNROLLABLE_INPUTS_AND_OUTPUTS));
-    // No break, fall through additional checks
-    case SchedulerType::InnerOuterPersistent: {
-      NVF_ERROR(entry_type_map_.count(EntryType::REDUCTION_TVS));
-      NVF_ERROR(
-          entry_type_map_.count(EntryType::VECTORIZABLE_INPUTS_AND_OUTPUTS));
-      NVF_ERROR(entry_type_map_.count(EntryType::TV_TO_CONTIG_INNER_SIZE_MAPS));
-
-      NVF_ERROR(entry_type_map_.count(EntryType::PERSISTENT_BUFFER_INFO));
-      // If check persistent factor only when persistent buffers needed.
-      auto persistent_buffer_info =
-          entry_type_map_.at(EntryType::PERSISTENT_BUFFER_INFO)
-              ->as<
-                  CompileTimeInfo<HeuristicCompileTime::PersistentBufferInfo>>()
-              ->get();
-      NVF_ERROR(
-          !persistent_buffer_info->persistent_buffers.empty() &&
-          entry_type_map_.count(EntryType::SCOPE_PERSISTENT_FACTOR_INFO));
-      break;
-    }
-    case SchedulerType::ExprEval:
-    case SchedulerType::Matmul: {
-      // TODO: add a proper set of checks for matmul
-      break;
-    }
-    default:
-      NVF_THROW("unknown heuristic");
-  }
-}
-
-void HeuristicSummary::insert(HeuristicSummary::EntryOwningPtr new_entry) {
-  NVF_ERROR(recording_, "should only insert entries at recording phase");
+void HeuristicDataCache::insert(HeuristicDataCache::EntryOwningPtr new_entry) {
   // Just override when insertion duplicates, equality not checked.
   entry_type_map_[new_entry->type()] = new_entry.get();
   entries_.emplace_back(std::move(new_entry));
 }
 
 template <typename EntryClass>
-HeuristicSummaryEntry<EntryClass>::HeuristicSummaryEntry(
-    HeuristicSummary* data_cache,
+HeuristicDataCacheEntry<EntryClass>::HeuristicDataCacheEntry(
+    HeuristicDataCache* data_cache,
     MakerFnType fn) {
-  using InfoType = CompileTimeInfo<EntryClass>;
-
-  if (!data_cache || data_cache->isRecording()) {
+  if (data_cache && data_cache->hasEntry(EntryClass::EntryType)) {
+    data_ptr_ = data_cache->at(EntryClass::EntryType)
+                    ->template as<CompileTimeInfo<EntryClass>>()
+                    ->get();
+  } else {
     owned_data_ = fn();
     data_ptr_ = owned_data_.get();
 
     if (data_cache) {
       std::unique_ptr<HeuristicCompileTime::CompileTimeInfoBase> new_entry =
-          std::make_unique<InfoType>(std::move(owned_data_));
+          std::make_unique<CompileTimeInfo<EntryClass>>(std::move(owned_data_));
       data_cache->insert(std::move(new_entry));
     }
-  } else {
-    data_ptr_ =
-        data_cache->at(EntryClass::EntryType)->template as<InfoType>()->get();
   }
 }
 
 // Template instantiation for pre-defined cache entries
-template class HeuristicSummaryEntry<HeuristicCompileTime::DomainMap>;
-template class HeuristicSummaryEntry<HeuristicCompileTime::TransposeDomainMap>;
-template class HeuristicSummaryEntry<HeuristicCompileTime::ReferenceTensors>;
-template class HeuristicSummaryEntry<
+template class HeuristicDataCacheEntry<HeuristicCompileTime::DomainMap>;
+template class HeuristicDataCacheEntry<
+    HeuristicCompileTime::TransposeDomainMap>;
+template class HeuristicDataCacheEntry<HeuristicCompileTime::ReferenceTensors>;
+template class HeuristicDataCacheEntry<
     HeuristicCompileTime::ReferenceTensorsForGroups>;
-template class HeuristicSummaryEntry<
+template class HeuristicDataCacheEntry<
     HeuristicCompileTime::VectorizableInputsAndOutputs>;
-template class HeuristicSummaryEntry<
+template class HeuristicDataCacheEntry<
     HeuristicCompileTime::TvToContigInnerSizeMaps>;
-template class HeuristicSummaryEntry<
+template class HeuristicDataCacheEntry<
     HeuristicCompileTime::InputsOutputsInnerDimGroups>;
-template class HeuristicSummaryEntry<
+template class HeuristicDataCacheEntry<
     HeuristicCompileTime::UnrollableInputsAndOutputs>;
-template class HeuristicSummaryEntry<HeuristicCompileTime::ReductionTVs>;
-template class HeuristicSummaryEntry<
+template class HeuristicDataCacheEntry<HeuristicCompileTime::ReductionTVs>;
+template class HeuristicDataCacheEntry<
     HeuristicCompileTime::PersistentBufferInfo>;
-template class HeuristicSummaryEntry<
+template class HeuristicDataCacheEntry<
     HeuristicCompileTime::ScopePersistentFactorInfo>;
-template class HeuristicSummaryEntry<HeuristicCompileTime::BroadcastMultiples>;
-template class HeuristicSummaryEntry<HeuristicCompileTime::InnerMostDimInfo>;
-template class HeuristicSummaryEntry<
+template class HeuristicDataCacheEntry<
+    HeuristicCompileTime::BroadcastMultiples>;
+template class HeuristicDataCacheEntry<HeuristicCompileTime::InnerMostDimInfo>;
+template class HeuristicDataCacheEntry<
     HeuristicCompileTime::CanScheduleTranspose>;
-template class HeuristicSummaryEntry<HeuristicCompileTime::LogicalReorderMap>;
-template class HeuristicSummaryEntry<
+template class HeuristicDataCacheEntry<HeuristicCompileTime::LogicalReorderMap>;
+template class HeuristicDataCacheEntry<
     HeuristicCompileTime::VectorizationBreakPointOfReductionProducer>;
 
 //! TODO: Move to another file, or make it so it can be in Heuristics.h by
@@ -487,7 +363,7 @@ template class HeuristicSummaryEntry<
 HeuristicParamsList::HeuristicParamsList(
     SchedulerType schedule_heuristic,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache)
+    HeuristicDataCache* data_cache)
     : is_segmented_(false) {
   heuristics_.emplace_back(
       SchedulerEntry::makeSchedulerInstance(schedule_heuristic)

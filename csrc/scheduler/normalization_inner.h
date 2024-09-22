@@ -23,7 +23,7 @@
 namespace nvfuser {
 
 class SchedulerRuntimeInfo;
-class HeuristicSummary;
+class HeuristicDataCache;
 
 class InnerPersistentKernelScheduler : public SchedulerEntry {
  public:
@@ -34,7 +34,7 @@ class InnerPersistentKernelScheduler : public SchedulerEntry {
   bool canScheduleRunTime(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr) override;
+      HeuristicDataCache* data_cache = nullptr) override;
 
   constexpr static SchedulerType schedulerType() {
     return SchedulerType::InnerPersistent;
@@ -43,18 +43,18 @@ class InnerPersistentKernelScheduler : public SchedulerEntry {
   std::unique_ptr<HeuristicParams> computeHeuristics(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache) override;
+      HeuristicDataCache* data_cache) override;
 };
 
 NVF_API std::unique_ptr<ReductionParams> getInnerPersistentHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
-    HeuristicSummary* data_cache = nullptr);
+    HeuristicDataCache* data_cache = nullptr);
 
 NVF_API std::unique_ptr<ReductionParams> getInnerPersistentHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache = nullptr);
+    HeuristicDataCache* data_cache = nullptr);
 
 NVF_API void scheduleInnerPersistentKernel(
     Fusion* fusion,

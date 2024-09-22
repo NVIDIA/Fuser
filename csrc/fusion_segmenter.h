@@ -339,7 +339,7 @@ class SegmentedFusion {
   //! API for adding edges
   SegmentedEdge* newEdge(SegmentedGroup* from, SegmentedGroup* to, Val* val);
 
-  HeuristicSummary* getCachedHeuristicDataFor(SegmentedGroup* group);
+  HeuristicDataCache* getCachedHeuristicDataFor(SegmentedGroup* group);
 
   //! Lower FP precision of inputs and outputs specified by the given
   //! edges.
@@ -437,8 +437,8 @@ class SegmentedFusion {
   DataType force_half_precision_type_;
 
   //! Static traversal information to be used for fast heuristics lookup
-  std::unordered_map<SegmentedGroup*, std::unique_ptr<HeuristicSummary>>
-      heuristic_summary_cache_;
+  std::unordered_map<SegmentedGroup*, std::unique_ptr<HeuristicDataCache>>
+      heuristic_data_cache_;
 
   //! The number of values in fusion after constructing segmented fusion.
   //! Used for checking state during deserialization.
@@ -463,7 +463,7 @@ class SegmentedFusion {
   //! Keep heuristic checking intermediate data
   void setCachedHeuristicDataFor(
       SegmentedGroup* group,
-      std::unique_ptr<HeuristicSummary> data);
+      std::unique_ptr<HeuristicDataCache> data);
 
   //! Utility to give unique name for each segmented fusion
   static size_t segmentedFusionName() {
