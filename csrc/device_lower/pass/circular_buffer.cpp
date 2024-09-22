@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <device_lower/lower2device.h>
+#include <id_model/indexing_utils.h>
 #include <ir/utils.h>
 #include <kernel_ir.h>
 
@@ -358,7 +359,6 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
     // mbarrier::wait occurs in Main and Epilogue loops.
     if (mbarrier_wait_ != nullptr && for_loop_stack_.size() == 1) {
       NVF_ERROR(for_loop_stack_.back() == cloned_top_level_loop_);
-      NVF_ERROR(mbarrier_wait_ != nullptr);
       cloned_top_level_loop_->body().push_back(mbarrier_wait_);
       mbarrier_wait_ = nullptr;
     }
@@ -629,7 +629,7 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
     NVF_ERROR(mbarrier_arrive_tx_ != nullptr);
     NVF_ERROR(expr != nullptr);
 
-    // Create the if-then-else with electSync() predicat for the arrive expect
+    // Create the if-then-else with electSync() predicate for the arrive expect
     // transaction.
     kir::IfThenElse* if_expr = IrBuilder::create<kir::IfThenElse>(
         IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
@@ -668,11 +668,13 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
     // load operations launched for each circular buffer stage. We take the
     // product of all coordinate TMA iterDomains to the right of the circular
     // buffer axis.
-    const std::vector<IterDomain*>& leaf_domain = consumer_tv->getLoopDomain();
+    const std::vector<IterDomain*>& loop_domain = consumer_tv->getLoopDomain();
+    const IdModel& id_model = GpuLower::current()->idModel();
     for (size_t idx = consumer_tv->getComputeAtPosition();
-         idx < leaf_domain.size();
+         idx < loop_domain.size();
          ++idx) {
-      IterDomain* id = leaf_domain.at(idx);
+      IterDomain* id =
+          indexing_utils::getLoopPromotion(loop_domain.at(idx), id_model);
       if (!isParallelTypeThread(id->getParallelType()) &&
           id->getParallelType() != ParallelType::Bulk) {
         expected_bytes =
@@ -681,16 +683,6 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
     }
     expected_bytes =
         SimplifyingIrBuilder::maybeCastExpr(DataType::UInt32, expected_bytes);
-
-    auto is_multiple_of_16B = SimplifyingIrBuilder::eqExpr(
-        SimplifyingIrBuilder::modExpr(
-            expected_bytes, IrBuilder::create<Val>(16, DataType::Index)),
-        expected_bytes->fusion()->zeroVal());
-    GpuLower::current()->validate(
-        is_multiple_of_16B,
-        "The expected bytes must be a multiple of 16 bytes, but ",
-        expected_bytes,
-        " is not.");
     return expected_bytes;
   }
 
