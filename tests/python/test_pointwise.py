@@ -261,13 +261,15 @@ def test_inplace_issue2664():
         ),
         torch.randn((1,), dtype=torch.float32, device="cuda:0").as_strided((), ()),
     ]
-    ref_out = (inputs[-1] + 1.0) * inputs[0]
+    # Reference out = T4 (aliased to inputs[-1]), T8
+    ref_out = [inputs[-1] + 1.0, (inputs[-1] + 1.0) * inputs[0]]
 
     out = fd.execute(inputs)
-    torch.testing.assert_close(out[0], ref_out)
+    torch.testing.assert_close(inputs[-1], ref_out[0])
+    torch.testing.assert_close(out[0], ref_out[1])
 
 
-def test_inplace_bcast():
+def test_inplace_post_bcast():
     def fusion_func(fd: FusionDefinition) -> None:
         T1 = fd.define_tensor(
             shape=[-1],
@@ -298,9 +300,59 @@ def test_inplace_bcast():
         ),
         torch.randn((1,), dtype=torch.float32, device="cuda:0").as_strided((), ()),
     ]
-    ref_out = [inputs[-1] * inputs[0], inputs[0] + inputs[1]]
+
+    # Reference out = T8 (aliased to inputs[-1]), T9, T10
+    ref_out = [
+        inputs[-1] * inputs[0].size(0),
+        inputs[-1] * inputs[0],
+        inputs[0] + inputs[1],
+    ]
 
     out = fd.execute(inputs)
 
-    torch.testing.assert_close(out[0], ref_out[0])
-    torch.testing.assert_close(out[1], ref_out[1])
+    torch.testing.assert_close(inputs[-1], ref_out[0])
+    torch.testing.assert_close(out[0], ref_out[1])
+    torch.testing.assert_close(out[1], ref_out[2])
+
+
+def test_multi_inplace():
+    def fusion_func(fd: FusionDefinition) -> None:
+        T1 = fd.define_tensor(
+            shape=[-1],
+            contiguity=[True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[0],
+        )
+        T2 = fd.define_tensor(
+            shape=[], contiguity=[], dtype=DataType.Float, is_cpu=False
+        )
+        T3 = fd.define_tensor(
+            shape=[], contiguity=[], dtype=DataType.Float, is_cpu=False
+        )
+        T4 = fd.ops.broadcast_in_dim(T2, shape=T1.shape(), broadcast_dims=[])
+        T5 = fd.ops.add(T1, T4)
+        T6 = fd.ops.sum(T5, dims=[0], keepdim=False)
+        S0 = fd.define_scalar(1.00000, dtype=DataType.Double)
+        T7 = fd.ops.add(T3, S0)
+        fd.add_output(T6, T3)
+        fd.add_output(T7, T2)
+
+    with FusionDefinition() as fd:
+        fusion_func(fd)
+
+    inputs = [
+        torch.randn((4194304,), dtype=torch.float32, device="cuda:0").as_strided(
+            (4194304,), (1,)
+        ),
+        torch.randn((1,), dtype=torch.float32, device="cuda:0").as_strided((), ()),
+        torch.randn((1,), dtype=torch.float32, device="cuda:0").as_strided((), ()),
+    ]
+
+    # Reference out = T6 (aliased to inputs[2]), T7 (aliased to inputs[1])
+    ref_out = [inputs[-1] + 1.0, (inputs[0] + inputs[1]).sum(dim=-1)]
+
+    fd.execute(inputs)
+
+    torch.testing.assert_close(inputs[1], ref_out[0])
+    torch.testing.assert_close(inputs[2], ref_out[1])
