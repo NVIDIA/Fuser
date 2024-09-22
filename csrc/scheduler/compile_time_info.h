@@ -8,8 +8,8 @@
 #pragma once
 
 #include <fusion.h>
-#include <scheduler/heuristic_types.h>
 #include <scheduler/pointwise_utils.h>
+#include <scheduler/scheduler_types.h>
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>
 
@@ -234,7 +234,7 @@ class HeuristicDataCache {
  public:
   HeuristicDataCache(
       Fusion* fusion,
-      ScheduleHeuristic heuristic,
+      SchedulerType scheduler_type,
       SchedulerRuntimeInfo& runtime_info);
 
   bool hasEntry(EntryType entry_type) {
@@ -250,7 +250,7 @@ class HeuristicDataCache {
  private:
   std::vector<EntryOwningPtr> entries_;
   std::unordered_map<EntryType, EntryPtr> entry_type_map_;
-  ScheduleHeuristic heuristic_;
+  SchedulerType scheduler_type_;
 };
 
 //! A utility class to facilitate accessing HeuristicDataCache.
