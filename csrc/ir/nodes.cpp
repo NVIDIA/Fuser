@@ -3715,6 +3715,10 @@ Split::Split(
   addDataAttribute(inner_split);
 }
 
+Val* Split::isDivisible() const {
+  return IrBuilder::isDivisibleExpr(in()->extent(), factor());
+}
+
 std::string Split::toString(int indent_size) const {
   std::stringstream ss;
   ss << (innerSplit() ? "Split: " : "Outer split: ");
