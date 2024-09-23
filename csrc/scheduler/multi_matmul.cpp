@@ -798,7 +798,6 @@ class MultipleMatmulScheduler {
     return partial;
   }
 
-
   //! Rebuilds IdModel, then updates all ValGroups in abstract tensors to refer
   //! to the new IdModel. This is necessary whenever we perform an operation
   //! that creates a new TensorView, such as caching or rFactor
