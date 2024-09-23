@@ -17,8 +17,8 @@
 
 using namespace nvfuser;
 
-constexpr int64_t B = 64, E = 768, H = 12, S = 2048;
-constexpr double kDropoutProb = 0.1, kParamScale = 0.02, kSdpaProb = 0.01,
+constexpr int64_t B = 1, E = 12288, H = 96, S = 2048;
+constexpr double kDropoutProb = 0.1, kParamScale = 0.02, kSdpaProb = 0.1,
                  kSdpaScale = 1e-3;
 
 std::vector<at::Tensor> reference_mlp(
@@ -669,10 +669,10 @@ void forward_transformer(Communicator* communicator_) {
       shardTensor(mlp_w1_, 0, mesh, communicator_),
       mlp_b1_};
 
-  std::vector<at::Tensor> expected_outputs = {
-      ln_1_out_, mha_out_, ln_2_out_, mlp_out_, at_out};
+  // std::vector<at::Tensor> expected_outputs = {
+  //     ln_1_out_, mha_out_, ln_2_out_, mlp_out_, at_out};
 
-  // TODO more warmup iterations
+  // Warm-up
   FusionExecutorCache fec(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
   auto outputs = fec.runFusionWithInputs(inputs);
@@ -681,14 +681,16 @@ void forward_transformer(Communicator* communicator_) {
   cudaProfilerStart();
   for (auto i : c10::irange(5)) {
     nvtxRangePush("Iteration" + i);
-    fec.runFusionWithInputs(inputs);
+    outputs = fec.runFusionWithInputs(inputs);
     cudaDeviceSynchronize();
     nvtxRangePop();
+    std::cout << "output size " << outputs.size() << std::endl;
   }
   cudaProfilerStop();
 }
 
 int main() {
   auto communicator_ = &Communicator::getInstance();
+  std::cout << "Number of devices " << communicator_->size() << std::endl;
   forward_transformer(communicator_);
 }

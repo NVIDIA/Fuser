@@ -30,7 +30,7 @@ from torch.distributed._tensor.device_mesh import init_device_mesh
 # Usage: torchrun --nproc-per-node=<number of processes> transformer.py
 
 num_iters = 10
-batch_size = 64
+batch_size = 1
 sequence_length = 2048
 dtype = torch.bfloat16
 world_size = int(os.environ["WORLD_SIZE"])
@@ -46,7 +46,6 @@ def profile_loop(model, input, num_iters=10):
     output = model(input)
     output.sum().backward()
 
-    print("Start profile loop")
     torch.cuda.cudart().cudaProfilerStart()
     for i in range(num_iters):
         print(i)
@@ -132,7 +131,7 @@ def benchmark_tensor_parallel(use_torch_compile=False):
         batch_size, sequence_length, config.n_embd, dtype=dtype, device="cuda"
     )
 
-    profile_loop(tp_model, input)
+    profile_loop(tp_model, input, 5)
     # forward_time, backward_time = benchmark_loop(tp_model, input)
     # print(
     #     f"{rank}: torch.compile {not use_torch_compile}, Average tensor parallel forward time {forward_time}s, backward time {backward_time}s"
