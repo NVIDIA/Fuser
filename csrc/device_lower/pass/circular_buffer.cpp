@@ -803,7 +803,7 @@ class GatherMBarrierAllocations : public kir::IrVisitor {
 
   std::vector<Expr*> run(ForLoop* circular_buffer_loop) {
     handle(circular_buffer_loop);
-    return new_exprs_;
+    return mbarrier_smem_allocations_;
   }
 
   void handle(ForLoop* fl) final {
@@ -837,11 +837,11 @@ class GatherMBarrierAllocations : public kir::IrVisitor {
     }
 
     // Add shared memory allocations for mbarrier and mbarrier tokens
-    new_exprs_.push_back(expr);
+    mbarrier_smem_allocations_.push_back(expr);
   }
 
  private:
-  std::vector<Expr*> new_exprs_;
+  std::vector<Expr*> mbarrier_smem_allocations_;
 };
 
 // This function creates kir::Loop with range based on stage depth. It is
