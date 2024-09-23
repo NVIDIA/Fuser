@@ -405,6 +405,13 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
     bool is_ignorable_mbarrier_inval =
         (expr->isA<kir::MBarrierInvalidate>() && mbarrier_token_exists);
 
+    // Short-Circuit: skip shared memory allocation, mbarrier initialize and
+    // mbarrier invalidate
+    if (is_ignorable_tma_smem_alloc || is_ignorable_mbarrier_init ||
+        is_ignorable_mbarrier_inval) {
+      return;
+    }
+
     // Short-Circuit
     switch (loop_type_) {
       case CircularBufferLoopStage::Prolog: {
@@ -421,6 +428,7 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
         if (!is_circular_buffer_load_expr) {
           return;
         }
+
         // NOTE: There can be circular buffered TVs without TMA load exprs.
         if (!mbarrier_token_exists) {
           for_loop_stack_.back()->body().push_back(expr);
@@ -430,13 +438,6 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
       }
       case CircularBufferLoopStage::Main:
       case CircularBufferLoopStage::Epilog: {
-        // Skip shared memory allocation, mbarrier initialize and mbarrier
-        // invalidate for main and epilog loops
-        if (is_ignorable_tma_smem_alloc || is_ignorable_mbarrier_init ||
-            is_ignorable_mbarrier_inval) {
-          return;
-        }
-
         // Add expression if not circular-buffered load store operation
         if (!expr->isA<LoadStoreOp>() || !mbarrier_token_exists) {
           for_loop_stack_.back()->body().push_back(expr);
