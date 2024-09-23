@@ -397,17 +397,17 @@ void scheduleWarpTile(
   new_loop.reserve(tv->nDims());
   // Add all the outer dimensions as-is
   for (size_t i : c10::irange(min_inner_pos)) {
-    new_loop.push_back(tv->axis(i));
+    new_loop.push_back(tv->axis((int64_t)i));
   }
   if (k_dim != -1) {
     new_loop.push_back(tv->axis(k_dim));
   }
   for (size_t j : c10::irange(3)) {
     if (m_dim != -1) {
-      new_loop.push_back(tv->axis(m_dim + j));
+      new_loop.push_back(tv->axis(m_dim + (int64_t)j));
     }
     if (n_dim != -1) {
-      new_loop.push_back(tv->axis(n_dim + j));
+      new_loop.push_back(tv->axis(n_dim + (int64_t)j));
     }
   }
   if (k_dim != -1) {
@@ -1391,7 +1391,7 @@ void mergeCanonicalAbstractTensor(AbstractMatmulTensor& abstract_tensor) {
   // Loop from inner to outer, merging when needed
   NVF_ERROR(abstract_tensor.size() > 0);
   MatmulDimRole prev_role = getRole(-1);
-  for (int64_t dim = abstract_tensor.size() - 2; dim >= 0; --dim) {
+  for (int64_t dim = (int64_t)abstract_tensor.size() - 2; dim >= 0; --dim) {
     MatmulDimRole role = getRole(dim);
     if (role == prev_role) {
       abstract_tensor.merge(dim);
@@ -2339,7 +2339,7 @@ std::string toString(const mma_utils::AbstractMatmulTensor& abten) {
   std::ostringstream ss;
   ss << "AbstractMatmulTensor (" << abten.size() << "):" << std::endl;
   for (size_t i : c10::irange(abten.size())) {
-    const AbstractId& abs_id = abten[i];
+    const AbstractId& abs_id = abten[(int64_t)i];
     const std::optional<MatmulDimRole> role = abten.getTag((int64_t)i).value();
     ss << "  " << (role.has_value() ? toString(role.value()) : "no role");
     if (abs_id.is<ValGroupAndItsGraph>()) {
