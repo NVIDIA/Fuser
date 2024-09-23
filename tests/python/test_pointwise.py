@@ -231,6 +231,9 @@ def test_bcast_different_extent():
     torch.testing.assert_close(nvf_out[0], inputs[0] + inputs[2])
     torch.testing.assert_close(nvf_out[1], inputs[1] + inputs[2])
 
+# Example 1: Repro from https://github.com/NVIDIA/Fuser/issues/2664
+# T4 (scalar) is broadcasted and used in mul computation. It is also used to update T2 inplace.
+# This causes a RW race. In this case, the aliased tensor is a producer of bcast op.
 def test_inplace_issue2664():
     def nvfuser_fusion_id0(fd: FusionDefinition) -> None:
         T1 = fd.define_tensor(
@@ -264,11 +267,17 @@ def test_inplace_issue2664():
     # Reference out = T4 (aliased to inputs[-1]), T8
     ref_out = [inputs[-1] + 1.0, (inputs[-1] + 1.0) * inputs[0]]
 
-    out = fd.execute(inputs)
+    out = fd.execute(inputs, profile=True)
+
+    assert fd.profile().segments == 2
+
     torch.testing.assert_close(inputs[-1], ref_out[0])
     torch.testing.assert_close(out[0], ref_out[1])
 
 
+# Example 2 for Issue 2664:
+# T2 is broadcasted and used in mul/add compute. It is also summed (T8) and used to inplace update T2.
+# In this case, the aliased tensor (T8) is a consumer of the bcast op.
 def test_inplace_post_bcast():
     def fusion_func(fd: FusionDefinition) -> None:
         T1 = fd.define_tensor(
@@ -308,13 +317,18 @@ def test_inplace_post_bcast():
         inputs[0] + inputs[1],
     ]
 
-    out = fd.execute(inputs)
+    out = fd.execute(inputs, profile=True)
+
+    assert fd.profile().segments == 2
 
     torch.testing.assert_close(inputs[-1], ref_out[0])
     torch.testing.assert_close(out[0], ref_out[1])
     torch.testing.assert_close(out[1], ref_out[2])
 
 
+# Example 3 for Issue 2664: This case involves two inplace updates.
+# T7 is aliased to T2: T7 is not a producer/consumer of the bcast op, but the aliased input T2 is a producer of the bcast op.
+# T6 is aliased to T3: T6 is a consumer of the bcast op.
 def test_multi_inplace():
     def fusion_func(fd: FusionDefinition) -> None:
         T1 = fd.define_tensor(
@@ -352,7 +366,8 @@ def test_multi_inplace():
     # Reference out = T6 (aliased to inputs[2]), T7 (aliased to inputs[1])
     ref_out = [inputs[-1] + 1.0, (inputs[0] + inputs[1]).sum(dim=-1)]
 
-    fd.execute(inputs)
+    fd.execute(inputs, profile=True)
+    assert fd.profile().segments == 4
 
     torch.testing.assert_close(inputs[1], ref_out[0])
     torch.testing.assert_close(inputs[2], ref_out[1])
