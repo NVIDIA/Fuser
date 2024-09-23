@@ -390,6 +390,9 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
   }
 
   void processExpr(Expr* expr) final {
+    // A mbarrier token exists if the TensorView output for cpAsyncBulk load has
+    // circular buffering depth > 1. ldstMBarrierTokenMap maps mbarrier_init,
+    // mbarrier_inval, and cpAsynBulk to the same mbarrier token.
     bool mbarrier_token_exists =
         GpuLower::current()->ldstMBarrierTokenMap().count(expr) != 0;
 
