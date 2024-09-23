@@ -1460,7 +1460,8 @@ TEST_F(NVFuserTest, FusionVectorizeContigIndexPointwiseSchedule_CUDA) {
   auto t0 = at::randn(shape0, options);
   auto t1 = at::randn(shape1, options);
 
-  auto lparams = schedulePointwise(&fusion, {t0, t1});
+  auto heuristic_params =
+      SchedulerEntry::scheduleWith(&fusion, SchedulerType::PointWise, {t0, t1});
 
   GpuLower gpulw(&fusion);
   auto kernel = gpulw.run();
@@ -1477,7 +1478,7 @@ TEST_F(NVFuserTest, FusionVectorizeContigIndexPointwiseSchedule_CUDA) {
   }
 
   FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0, t1}, lparams);
+  fe.compileFusion(&fusion, {t0, t1}, heuristic_params->lparams);
   auto cg_outputs = fe.runFusion({t0, t1});
 
   testValidate(&fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
@@ -3594,12 +3595,8 @@ TEST_F(
 
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  auto lparams = schedulePointwise(&fusion, aten_inputs);
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs, lparams);
-  auto cg_outputs = fe.runFusion(aten_inputs, lparams);
-
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
@@ -4747,18 +4744,14 @@ TEST_F(NVFuserTest, FusionIssue2372_CUDA) {
   at::Tensor var = at::rand({C}, options);
   double eps = 1e-5;
 
-  std::vector<c10::IValue> inputs = {x, mean, var, eps};
-
-  auto lparams = schedulePointwise(&fusion, inputs);
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, inputs, lparams);
-  auto cg_outputs = fe.runFusion(inputs, lparams);
+  std::vector<c10::IValue> aten_inputs = {x, mean, var, eps};
 
   auto eager_diff = x - mean.view({1, 1, 1, 1, -1});
   auto eager_invstd = at::rsqrt(var + eps);
   auto eager_x_normed = eager_diff * eager_invstd.view({1, 1, 1, 1, -1});
 
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
   // testValidate currently fails since cg_outputs[1] is an empty tensor
   ASSERT_TRUE(at::allclose(cg_outputs[0], eager_x_normed));
   // ASSERT_TRUE(at::equal(cg_outputs[1], mean));
@@ -5449,19 +5442,14 @@ TEST_F(NVFuserTest, FusionFloatConstantWhere_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::arange(4, options) > 1.0;
 
-  std::vector<c10::IValue> inputs = {t0};
+  std::vector<c10::IValue> aten_inputs = {t0};
 
-  auto lparams = schedulePointwise(&fusion, inputs);
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, inputs, lparams);
-  auto cg_outputs = fe.runFusion(inputs, lparams);
-
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
   auto ref = at::where(t0, (float)3.0, (float)5.0);
-
   // testValidate does not check that dtypes match
   NVF_CHECK(cg_outputs[0].dtype() == ref.dtype());
-  testValidate(&fusion, cg_outputs, inputs, {ref}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionCpAsyncCommitWait_CUDA) {
@@ -6932,8 +6920,8 @@ TEST_F(NVFuserTest, Repro413_CUDA) {
       auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
       auto t0 = at::randn({n, m}, options);
 
-      auto lparams = schedulePointwise(fusion_ptr.get(), {t0});
-
+      auto heuristic_params = SchedulerEntry::scheduleWith(
+          fusion_ptr.get(), SchedulerType::PointWise, {t0});
       auto expect_vec_factor = std::gcd(m, k);
 
       auto getVectorizationFactor = [](TensorView* tv) -> int64_t {
@@ -6956,8 +6944,8 @@ TEST_F(NVFuserTest, Repro413_CUDA) {
       }
 
       FusionExecutor fe;
-      fe.compileFusion(&fusion, {t0}, lparams);
-      auto cg_outputs = fe.runFusion({t0}, lparams);
+      fe.compileFusion(&fusion, {t0}, heuristic_params->lparams);
+      auto cg_outputs = fe.runFusion({t0}, heuristic_params->lparams);
 
       testValidate(fusion_ptr.get(), cg_outputs, {t0}, __LINE__, __FILE__);
     }
@@ -8521,20 +8509,12 @@ TEST_F(NVFuserTest, MoveNonConcretizedBroadcastInPointwise) {
   fusion.addOutput(tv5);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({1024}, options);
-  at::Tensor t1 = at::randn({1024}, options);
-  std::vector<c10::IValue> inputs = {t0, t1};
+  at::Tensor input0 = at::randn({1024}, options);
+  at::Tensor input1 = at::randn({1024}, options);
 
-  auto pparams = getPointwiseHeuristics(&fusion, inputs);
-  NVF_CHECK(pparams.get() != nullptr);
-
-  schedulePointwise(&fusion, pparams.get());
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, inputs, pparams->lparams);
-  auto outputs = fe.runFusion(inputs, pparams->lparams);
-
-  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, {input0, input1});
+  testValidate(&fusion, cg_outputs, {input0, input1}, __LINE__, __FILE__);
 
   // tv2 and tv3 have non-concretized broadcasts. Make sure they are
   // moved to the innermost position of the loop domain

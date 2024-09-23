@@ -143,13 +143,8 @@ TEST_F(NVFuserTest, FusionIndexing3_CUDA) {
   at::Tensor t1 = at::randn({w, x, y, z}, options);
 
   std::vector<c10::IValue> aten_inputs = {t0, t1};
-
-  auto lparams = schedulePointwise(&fusion, aten_inputs);
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs, lparams);
-  auto cg_outputs = fe.runFusion(aten_inputs, lparams);
-
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
@@ -379,12 +374,8 @@ TEST_F(NVFuserTest, FusionIndexing9_CUDA) {
   auto at_t3 = at::randn({numel_x, numel_y, numel_z}, options);
   std::vector<c10::IValue> aten_inputs = {at_t0, at_t3};
 
-  auto lparams = schedulePointwise(&fusion, aten_inputs);
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs, lparams);
-  auto cg_outputs = fe.runFusion(aten_inputs, lparams);
-
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 

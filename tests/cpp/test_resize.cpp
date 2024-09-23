@@ -2365,8 +2365,8 @@ TEST_F(ResizeTest, SliceVectorization) {
 
   std::vector<c10::IValue> inputs = {t0, t1};
 
-  auto lparams = schedulePointwise(&fusion, inputs);
-
+  auto heuristic_params =
+      SchedulerEntry::scheduleWith(&fusion, SchedulerType::PointWise, inputs);
   // check that we vectorize 4
   bool found_vectorize = false;
   for (auto id : fusion.outputs().at(0)->as<TensorView>()->getLoopDomain()) {
@@ -2379,8 +2379,8 @@ TEST_F(ResizeTest, SliceVectorization) {
   EXPECT_TRUE(found_vectorize);
 
   FusionExecutor fe;
-  fe.compileFusion(&fusion, inputs, lparams);
-  auto cg_outputs = fe.runFusion(inputs, lparams);
+  fe.compileFusion(&fusion, inputs, heuristic_params->lparams);
+  auto cg_outputs = fe.runFusion(inputs, heuristic_params->lparams);
 
   auto ref = t0.narrow(0, 1, N) + t1;
 
@@ -3460,11 +3460,12 @@ TEST_F(ResizeTest, AvoidVectorization) {
 
   // The pointwise scheduler should tell the vectorization factor is
   // 4.
-  auto pparams = getPointwiseHeuristics(&fusion, inputs);
+  auto heuristic_params =
+      SchedulerEntry::scheduleWith(&fusion, SchedulerType::PointWise, inputs);
+  auto pparams = heuristic_params->as<PointwiseParams>();
+
   ASSERT_TRUE(pparams->vectorize) << "Vectorization is expected to be possible";
   ASSERT_EQ(pparams->unroll_factor, 4) << "Unexpected factor of vectorization";
-
-  schedulePointwise(&fusion, pparams.get());
 
   // Make sure tv1 is not vectorized, i.e., no loop IterDomains are vectorized.
   EXPECT_THAT(

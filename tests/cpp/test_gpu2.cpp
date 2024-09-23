@@ -686,12 +686,8 @@ TEST_F(NVFuserTest, FusionLSTMCell_CUDA) {
   auto at_cx = at::randn({batch_size, hidden_features}, options);
   aten_inputs.push_back(at_cx);
 
-  auto lparams = schedulePointwise(&fusion, aten_inputs);
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs, lparams);
-  auto cg_outputs = fe.runFusion(aten_inputs, lparams);
-
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
@@ -945,12 +941,8 @@ TEST_F(NVFuserTest, FusionTrivialReduction2_CUDA) {
 
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  auto lparams = schedulePointwise(&fusion, aten_inputs);
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs, lparams);
-  auto cg_outputs = fe.runFusion(aten_inputs, lparams);
-
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
@@ -976,12 +968,8 @@ TEST_F(NVFuserTest, FusionTrivialReduction3_CUDA) {
 
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  auto lparams = schedulePointwise(&fusion, aten_inputs);
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs, lparams);
-  auto cg_outputs = fe.runFusion(aten_inputs, lparams);
-
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
@@ -1208,12 +1196,8 @@ TEST_F(NVFuserTest, FusionBiasGeluFwd_CUDA) {
   auto at_bias = at::randn(bias_shape, options);
 
   std::vector<c10::IValue> aten_inputs = {at_bias, at_input};
-  auto lparams = schedulePointwise(&fusion, aten_inputs);
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs, lparams);
-  auto cg_outputs = fe.runFusion(aten_inputs, lparams);
-
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
@@ -1279,12 +1263,8 @@ TEST_F(NVFuserTest, FusionBiasGeluBwd_CUDA) {
 
   std::vector<c10::IValue> aten_inputs = {at_grad, at_bias, at_input};
 
-  auto lparams = schedulePointwise(&fusion, aten_inputs);
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs, lparams);
-  auto cg_outputs = fe.runFusion(aten_inputs, lparams);
-
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
   auto tolerance_overwrite = ValidationConstants();
   // bump tolerance
   tolerance_overwrite.base_float_abs_tol = 3e-6;
@@ -5340,18 +5320,11 @@ TEST_F(NVFuserTest, FusionSBAR_CUDA) {
   at::Tensor at_bias = at::zeros({input_shape[3]}, options);
 
   // inputs
-  std::vector<c10::IValue> inputs = {at_x, at_y, at_weight, at_bias};
+  std::vector<c10::IValue> aten_inputs = {at_x, at_y, at_weight, at_bias};
 
-  // outputs
-  std::vector<at::Tensor> outputs;
-
-  auto lparams = schedulePointwise(&fusion, inputs);
-
-  FusionExecutor executor;
-  executor.compileFusion(&fusion, inputs, lparams);
-  outputs = executor.runFusion(inputs, lparams);
-
-  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionSingleElement_CUDA) {
@@ -5368,16 +5341,10 @@ TEST_F(NVFuserTest, FusionSingleElement_CUDA) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input = at::randn({}, options);
-
-  at::Tensor cg_output = at::empty({}, options);
-
-  auto lparams = schedulePointwise(&fusion, {input});
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {input}, lparams);
-  fe.runFusion({input}, {cg_output}, lparams);
-
-  testValidate(&fusion, {cg_output}, {input}, __LINE__, __FILE__);
+  std::vector<c10::IValue> aten_inputs = {input};
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionBNBackwardRepro_CUDA) {
@@ -5673,11 +5640,13 @@ TEST_F(NVFuserTest, FusionZeroSizeTensorPW_CUDA) {
 
   at::Tensor input0 = at::randn({2}, options);
   at::Tensor input1 = at::randn({0}, options);
+  std::vector<c10::IValue> aten_inputs = {input0, input1};
 
   // Fails at schedule pointwise because our (maybe only) size-0 check is in
   // binding input sizes which the scheduler ends up calling.
   // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
-  ASSERT_ANY_THROW(schedulePointwise(&fusion, {input0, input1}));
+  ASSERT_ANY_THROW(SchedulerEntry::scheduleWith(
+      &fusion, SchedulerType::PointWise, aten_inputs));
 }
 
 TEST_F(NVFuserTest, FusionZeroSizeTensorReduction_CUDA) {
@@ -7524,13 +7493,9 @@ TEST_F(NVFuserTest, FusionPointwiseBroadcast_CUDA) {
   at::Tensor at_bias = at::randn(input_shape, options);
   std::vector<c10::IValue> aten_inputs = {at_x, at_bias};
 
-  schedulePointwise(&fusion, aten_inputs);
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto outputs = fe.runFusion(aten_inputs);
-
-  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionPointwiseVectorize_CUDA) {
@@ -7550,7 +7515,7 @@ TEST_F(NVFuserTest, FusionPointwiseVectorize_CUDA) {
   // freshly allocated tensor
   at::Tensor at_x = at::randn({size}, options);
 
-  schedulePointwise(&fusion, {at_x});
+  SchedulerEntry::scheduleWith(&fusion, SchedulerType::PointWise, {at_x});
 
   for (auto x_consumer : ir_utils::consumerTvsOf(x)) {
     bool found_vec_in_input = false;
