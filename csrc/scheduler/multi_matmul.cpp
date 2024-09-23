@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <abstract_tensor.h>
+#include <device_lower/analysis/circular_buffer.h>
 #include <disjoint_set.h>
 #include <id_model/schedule.h>
 #include <inlining.h>
@@ -548,7 +549,6 @@ class MultipleMatmulScheduler {
     //   ab=[iM, bN, iK]
     schedulePrologues();
 
-    // TODO: Remove this as the methods below are implemented
     return;
 
     // schedule mma instruction output (mma_result)
@@ -671,9 +671,81 @@ class MultipleMatmulScheduler {
   // Currently the support is for a, b, c and d as fusion inputs/outputs
   //  aka. no prolog fusion yet.
   void defineOperandCaches() {
-    cacheOperandsToSmem(as_, acw_smems_, params_->supported_vec_size.a);
-    addSetsForCacheReads(acw_smems_, acrs_);
+    LoadStoreOpType load_op = params_->async_gmem_load_operands
+        ? LoadStoreOpType::CpAsync
+        : LoadStoreOpType::Set;
 
+    auto cacheOperandsToSmem = [&](const std::vector<TensorView*>& operands,
+                                   std::vector<TensorView*>& smem_operands,
+                                   int64_t vec_size) {
+      // Use cp.async as requested in scheduler params.
+      smem_operands.resize(operands.size(), nullptr);
+      for (size_t i : c10::irange(operands.size())) {
+        TensorView* operand = operands[i];
+        CacheOp cache_op = CacheOp::Unspecified;
+        if (params_->async_gmem_load_operands) {
+          int64_t vec_bytes = vec_size * dataTypeSize(operand->dtype());
+          NVF_CHECK(
+              vec_bytes == 4LL || vec_bytes == 8LL || vec_bytes == 16LL,
+              "Unsupported async vectorization size ",
+              vec_size,
+              " = ",
+              vec_bytes,
+              " bytes for operand ",
+              operand->toString(),
+              " which has data type ",
+              operand->dtype(),
+              ". Size must be 4, 8, or 16 bytes. ",
+              "MatmulParams::async_gmem_load_operands should be set to false in this case.");
+          cache_op = vec_bytes == 16LL ? CacheOp::Global : CacheOp::AllLevels;
+        };
+
+        NVF_ERROR(operand->uses().size() == 1);
+        smem_operands[i] = ir_utils::consumerTvsOf(operand).at(0);
+        smem_operands[i]->definition()->as<LoadStoreOp>()->setOpType(load_op);
+        smem_operands[i]->definition()->as<LoadStoreOp>()->setCacheOp(cache_op);
+        if (smem_operands[i]->uses().size() > 1) {
+          // There can be multiple uses for example if we have A @ B1 + A @ B2
+          // then A will be cached to smem then it might be loaded into two
+          // separate register buffers, one for each mma. Instead, we will load
+          // it once into registers then re-use the register buffer for both
+          // mmas.
+          cacheAfter(smem_operands[i]);
+        }
+        NVF_ERROR(smem_operands[i]->uses().size() == 1);
+        smem_operands[i]->setMemoryType(MemoryType::Shared);
+      }
+    };
+    cacheOperandsToSmem(as_, acw_smems_, params_->supported_vec_size.a);
+    cacheOperandsToSmem(bs_, bcw_smems_, params_->supported_vec_size.b);
+
+    // We add two LoadStore operators to the inputs of our fusions. The first
+    // one is for a read from global memory and the second one (below) is for a
+    // cache read. As an optimizaton, we avoid adding an operator if there's an
+    // existing LoadStoreOp present. Please note that for the second LoadStore
+    // we don't propagate the allocation domain, since the scheduler sets the
+    // allocation domain in the registers.
+    auto addSetsForCacheReads = [&](const std::vector<TensorView*>& tv_smems,
+                                    std::vector<TensorView*>& tv_rs) {
+      tv_rs.resize(tv_smems.size(), nullptr);
+      for (size_t i : c10::irange(tv_smems.size())) {
+        TensorView* tv_smem = tv_smems[i];
+        TensorView*& tv_r = tv_rs[i];
+
+        if (auto ldst = dynamic_cast<LoadStoreOp*>(tv_smem->uses().at(0))) {
+          tv_r = ldst->out()->as<TensorView>();
+          ldst->setOpType(LoadStoreOpType::LdMatrix);
+        } else {
+          tv_r = cacheAfter(
+              tv_smem,
+              LoadStoreOpType::LdMatrix,
+              CacheOp::Unspecified,
+              /*propagate_allocation_domain=*/false);
+        }
+      }
+    };
+    // Shared memory read
+    addSetsForCacheReads(acw_smems_, acrs_);
     cacheOperandsToSmem(bs_, bcw_smems_, params_->supported_vec_size.b);
     addSetsForCacheReads(bcw_smems_, bcrs_);
 
@@ -686,76 +758,46 @@ class MultipleMatmulScheduler {
     }
   }
 
-  void cacheOperandsToSmem(
-      const std::vector<TensorView*>& operands,
-      std::vector<TensorView*>& smem_operands,
-      int64_t vec_size) {
-    // Use cp.async as requested in scheduler params.
-    smem_operands.resize(operands.size(), nullptr);
-    for (size_t i : c10::irange(operands.size())) {
-      TensorView* operand = operands[i];
-      CacheOp cache_op = CacheOp::Unspecified;
-      if (params_->async_gmem_load_operands) {
-        int64_t vec_bytes = vec_size * dataTypeSize(operand->dtype());
-        NVF_CHECK(
-            vec_bytes == 4LL || vec_bytes == 8LL || vec_bytes == 16LL,
-            "Unsupported async vectorization size ",
-            vec_size,
-            " = ",
-            vec_bytes,
-            " bytes for operand ",
-            operand->toString(),
-            " which has data type ",
-            operand->dtype(),
-            ". Size must be 4, 8, or 16 bytes. ",
-            "MatmulParams::async_gmem_load_operands should be set to false in this case.");
-        cache_op = vec_bytes == 16LL ? CacheOp::Global : CacheOp::AllLevels;
-      };
+  //! This calls orig->rFactor(axes) and also updates the permissive graph to
+  //! reflect the new IterDomain mappings
+  // TODO: a utility like this might be useful at the IdModel level, where it
+  // could update not just the permissive map but the exact map also. But for
+  // scheduling, the permissive map is probably the most useful anyway.
+  TensorView* rFactor(TensorView* orig, const std::vector<int64_t>& axes) {
+    const std::vector<IterDomain*> orig_logical = orig->getLogicalDomain();
+    const std::vector<IterDomain*> orig_loop = orig->getLoopDomain();
 
-      NVF_ERROR(operand->uses().size() == 1);
-      smem_operands[i] = ir_utils::consumerTvsOf(operand).at(0);
+    TensorView* partial = orig->rFactor(axes);
 
-      LoadStoreOpType load_op = params_->async_gmem_load_operands
-          ? LoadStoreOpType::CpAsync
-          : LoadStoreOpType::Set;
+    // rFactor does a replay of the loop domain in orig and changes the
+    // IterType of the reduction domains that are not in "axes". All the
+    // domains in partial_loop should map to orig_loop. All the domains in
+    // full_loop map to those in noReductions(partial_loop); Partial root
+    // domain maps to the original logical domain.
+    const std::vector<IterDomain*> full_loop = orig->getLoopDomain();
+    const std::vector<IterDomain*> partial_root = partial->getMaybeRootDomain();
+    const std::vector<IterDomain*> partial_loop = partial->getLoopDomain();
+    const std::vector<IterDomain*> nored_partial_loop =
+        TensorDomain::noReductions(partial->getLoopDomain());
 
-      smem_operands[i]->definition()->as<LoadStoreOp>()->setOpType(load_op);
-      smem_operands[i]->definition()->as<LoadStoreOp>()->setCacheOp(cache_op);
-      smem_operands[i]->setMemoryType(MemoryType::Shared);
+    NVF_ERROR(partial_root.size() == orig_logical.size());
+    NVF_ERROR(partial_loop.size() == orig_loop.size());
+    NVF_ERROR(full_loop.size() == nored_partial_loop.size());
+
+    for (size_t i : c10::irange(orig_logical.size())) {
+      ValGroup vg = graph_->toGroup(orig_logical[i]);
+      graph_->initializeVal(partial_root[i], vg);
     }
-  }
-
-  // We add two LoadStore operators to the inputs of our fusions. The first
-  // one is for a read from global memory and the second one (below) is for a
-  // cache read. As an optimizaton, we avoid adding an operator if there's an
-  // existing LoadStoreOp present. Please note that for the second LoadStore
-  // we don't propagate the allocation domain, since the scheduler sets the
-  // allocation domain in the registers.
-  void addSetsForCacheReads(
-      const std::vector<TensorView*>& tv_smems,
-      std::vector<TensorView*>& tv_rs) {
-    tv_rs.resize(tv_smems.size(), nullptr);
-    for (size_t i : c10::irange(tv_smems.size())) {
-      TensorView* tv_smem = tv_smems[i];
-      TensorView*& tv_r = tv_rs[i];
-
-      // There can be multiple uses for example if we have A @ B1 + A @ B2
-      // then A will be cached to smem then it might be loaded into two
-      // separate register buffers, one for each mma. Instead, we will load
-      // it once into registers then re-use the register buffer for both
-      // mmas.
-      if (auto ldst = dynamic_cast<LoadStoreOp*>(tv_smem->uses().at(0));
-          ldst && tv_smem->uses().size() == 1) {
-        tv_r = ldst->out()->as<TensorView>();
-        ldst->setOpType(LoadStoreOpType::LdMatrix);
-      } else {
-        tv_r = cacheAfter(
-            tv_smem,
-            LoadStoreOpType::LdMatrix,
-            CacheOp::Unspecified,
-            /*propagate_allocation_domain=*/false);
-      }
+    for (size_t i : c10::irange(orig_loop.size())) {
+      ValGroup vg = graph_->toGroup(orig_loop[i]);
+      graph_->initializeVal(partial_loop[i], vg);
     }
+    for (size_t i : c10::irange(full_loop.size())) {
+      ValGroup vg = graph_->toGroup(nored_partial_loop[i]);
+      graph_->initializeVal(full_loop[i], vg);
+    }
+
+    return partial;
   }
 
   //! Rebuilds IdModel, then updates all ValGroups in abstract tensors to refer
@@ -1006,16 +1048,179 @@ class MultipleMatmulScheduler {
     scheduleBranch(bs_, bcw_smems_, params_->supported_vec_size.b);
   }
 
+  // Schedule acr and bcr
+  void scheduleLdMatrixLoads() {
+    auto scheduleLdMatrixBranch =
+        [&](const std::vector<TensorView*>& reg_operands,
+            MmaOperand operand_type) {
+          auto all_merged_roles = blockTileTensors(reg_operands);
+          for (size_t i : c10::irange(reg_operands.size())) {
+            TensorView* tv = reg_operands[i];
+            const std::vector<MatmulDimRole>& merged_roles =
+                all_merged_roles[i];
+
+            // Incoming mma_result = [... iMo iNo (iKf) rKg iMi iNi rKi]
+            mma_utils::scheduleWarpTile(tv, params_->tile_sizes, merged_roles);
+            // After scheduling warp tile, the last three dimensions are split
+            // and rearranged:
+            //        -3 -2 -1
+            //   [...  M  N  K]
+            // maps to
+            //         -8  -7 -6  -5 -4 -3 -2 -1
+            //   [... Kwo Mwo Nwo Mw Nw Mi Ni Ki]
+            // so now
+            //                   -12 -11  -10   -9   -8   -7   -6  -5  -4   -3
+            //                   -2   -1
+            // mma_result = [... iMo iNo (iKf) rKg rKwo iMwo iNwo iMw iNw iMin
+            // iNin rKin] splitk_sum = [... iMo iNo  rKf  iMi  iNi]
+          }
+        };
+    scheduleLdMatrixBranch(acrs_, MmaOperand::A);
+    scheduleLdMatrixBranch(bcrs_, MmaOperand::B);
+  }
+
+  void scheduleMmaOperands(
+      std::vector<TensorView*>& tvs,
+      const std::optional<MmaOperand> operand_type) {
+    auto all_merged_roles = blockTileTensors(tvs);
+    for (size_t i : c10::irange(tvs.size())) {
+      TensorView*& operand = tvs[i];
+      std::vector<MatmulDimRole>& merged_roles = all_merged_roles[i];
+
+      // At this point we have the following schedule:
+      //   No split-K
+      //     mma_result      [..., iMo, iNo, rKo, iMi, iNi, rKi]
+      //   Split-K
+      //     mma_result      [..., iMo, iNo, iKf, rKg, iMi, iNi, rKi]
+      //     splitk_sum      [..., iMo, iNo, rKf, iMi, iNi]
+
+      // Schedule warp tile
+      // Incoming mma_result = [... iMo iNo (iKf) rKg iMi iNi rKi]
+
+      if (params_->use_smem_epilogue && params_->splitk_factor != 1) {
+        // TODO:
+        // This is a workaround for a problem that different dimensions in the
+        // loop domain are mapped in the loop graph of IdModel due to the
+        // mapping of compliment IDs. We should remove forwarding completely,
+        // and remove this workaround.
+        operand->split(-2, 1);
+        operand->merge(-3);
+      }
+
+      // NOTE: this applies to either mma_result _or_ ab/bb since both have the
+      // same number of dimensions.
+      // TODO: use the version that uses merged_roles instead here
+      mma_utils::scheduleWarpTileWithReduction(operand, params_->tile_sizes);
+
+      // parallelize Mwo, Nwo by thread
+      operand->axis((int64_t)merged_roles.size() + num_splitk_dims_ + 1)
+          ->parallelize(ParallelType::TIDz);
+      operand->axis((int64_t)merged_roles.size() + num_splitk_dims_ + 2)
+          ->parallelize(ParallelType::TIDy);
+    }
+  }
+
+  // MmaOperand contains only A and B. If tvs are outputs (i.e. not operands),
+  // then operand_type should be std::nullopt.
   void scheduleMmaResults() {
-    NVF_THROW("scheduleMmaResults is not yet implemented");
+    NVF_THROW("scheduleEpilogue is not yet implemented");
   }
 
   void schedulePrologues() {
     // schedule all transfers from gmem to smem (acw_smems_ and bcw_smems_)
     scheduleOperandSmemStores();
 
-    // TODO: Schedule smem loads and prologue register tensors up to instruction
-    // operands
+    // Hold this vector so we can use it as a boundary to propagate backward
+    // from each mma input.
+    std::vector<TensorView*> all_smem_stores = acw_smems_;
+    all_smem_stores.insert(
+        all_smem_stores.end(), bcw_smems_.begin(), bcw_smems_.end());
+
+    // Now for each operand, we load from smem to registers and compute a
+    // prologue (generally) in registers. We typically refer to the register
+    // buffer that is loaded from operand A's smem buffer using ldmatrix as
+    // "acr". This is the beginning of the register epilogue region for that
+    // operand. The end of that region is the first input to the MmaOp
+    // expression, which we typically refer to as "ab". There is some special
+    // handling of acr but otherwise we schedule ab and propagate backward
+    // along this prologue region.
+    auto schedulePrologueBranch = [&](const std::vector<TensorView*>&
+                                          smem_stores,
+                                      const std::vector<TensorView*>&
+                                          smem_loads,
+                                      std::vector<TensorView*>& mma_inputs,
+                                      MmaOperand operand_type) {
+      NVF_ERROR(smem_stores.size() == smem_loads.size());
+      // TODO: we should not assume that each operand is used in only a single
+      // mma op
+      NVF_ERROR(mma_results_.size() >= smem_loads.size());
+      // We will save abs_ and bbs_ here for later use
+      // TODO: save all register prologue tensors instead to a new vector called
+      // prologue_register_tensors_
+      NVF_ERROR(mma_inputs.empty());
+      for (TensorView* mma_result : mma_results_) {
+        MmaOp* mma = dynamic_cast<MmaOp*>(mma_result->definition());
+        NVF_ERROR(mma != nullptr);
+        TensorView* mma_input = nullptr;
+        if (operand_type == MmaOperand::A) {
+          mma_input = mma->inA()->as<TensorView>();
+        } else if (operand_type == MmaOperand::B) {
+          mma_input = mma->inB()->as<TensorView>();
+        }
+        NVF_ERROR(mma_input != nullptr);
+        mma_inputs.push_back(mma_input);
+      }
+
+      scheduleMmaOperands(mma_inputs, operand_type);
+
+      // Propagate backward from all mma_results to smem_stores
+
+      for (TensorView* mma_input : mma_inputs) {
+        // Schedule mma_input, since we know it has the broadcast dimension M or
+        // N, whereas the smem read might not
+        if (isTuring(params_->mma_macro) || isAmpere(params_->mma_macro)) {
+          moveInnerBroadcastLeft(mma_input);
+        }
+        mma_input->applyMmaSwizzle(operand_type);
+        scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+            mma_input,
+            -1,
+            smem_stores,
+            scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+                .propagateParallelType());
+      }
+      // Find smem loads that are mma inputs and save them
+      std::unordered_set<TensorView*> smem_load_mma_inputs;
+      for (TensorView* smem_load : smem_loads) {
+        // Insert only if smem_load is also in mma_inputs
+        bool is_mma_input =
+            std::find(mma_inputs.begin(), mma_inputs.end(), smem_load) !=
+            mma_inputs.end();
+        if (is_mma_input) {
+          smem_load_mma_inputs.insert(smem_load);
+        }
+        if (!is_mma_input) {
+          //  -5  -4   -3   -2   -1
+          //[8mi, 4k, 2ko, 2mo, 2ki]
+          smem_load->setAllocationDomain(smem_load->getLoopDomain(), true);
+          mma_utils::MmaSwizzler::scheduleLdMatrix(smem_load, operand_type);
+        }
+      }
+      for (TensorView* mma_input : mma_inputs) {
+        if (smem_load_mma_inputs.count(mma_input) == 0) {
+          mma_input->merge(-5);
+          mma_input->axis(-4)->parallelize(ParallelType::TIDx);
+          scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+              mma_input,
+              -1,
+              smem_loads,
+              scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+                  .propagateParallelType());
+        }
+      }
+    };
+    schedulePrologueBranch(acw_smems_, acrs_, abs_, MmaOperand::A);
+    schedulePrologueBranch(bcw_smems_, bcrs_, bbs_, MmaOperand::B);
   }
 
   void scheduleEpilogue() {
