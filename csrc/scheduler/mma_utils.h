@@ -129,10 +129,6 @@ void mergeAxesWithSameRole(
     const DimRolesMap& dim_roles,
     const ValGraph* graph);
 
-//! Given an AbstractTensor matching the canonicalDimOrdering schedule it by
-//! merging matching dimensions.
-void mergeCanonicalAbstractTensor(AbstractMatmulTensor& abstract_tensor);
-
 //! Given a TensorView matching the canonicalDimOrdering, schedule it by
 //! merging dimensions with matching roles.
 void mergeConsecutiveAxesWithSameRole(
