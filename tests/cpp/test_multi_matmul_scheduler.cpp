@@ -257,15 +257,11 @@ class MultiMatmulSchedulerMatchTest
     EXPECT_EQ(tv_orig->shouldPromoteReuse(), tv_new->shouldPromoteReuse());
     EXPECT_EQ(tv_orig->getMemoryType(), tv_new->getMemoryType());
 
-    // TODO: uncomment these once setUpInlining and setUpCircularBuffering are
-    // implemented
-    /*
     EXPECT_EQ(tv_new->getComputeAtPosition(), tv_orig->getComputeAtPosition());
     EXPECT_EQ(tv_orig->isCircularBuffered(), tv_new->isCircularBuffered());
     if (tv_orig->isCircularBuffered() && tv_new->isCircularBuffered()) {
       EXPECT_EQ(tv_orig->circularBufferDepth(), tv_new->circularBufferDepth());
     }
-    */
 
     // Inspect loop domain
     ASSERT_EQ(tv_new->nDims(), tv_orig->nDims()) << suffix;
@@ -368,11 +364,11 @@ class MultiMatmulSchedulerMatchTest
     auto getTensorsToCompare = [](Fusion* fusion) {
       std::vector<TensorView*> tvs;
 
-      // Find MmaOp and get operand inputs. This avoids checking biases for now
-      auto mma_ops = ir_utils::getOpsOfType<MmaOp>(fusion);
-      NVF_ERROR(mma_ops.size(), 1);
-      MmaOp* mma = mma_ops.front();
-      return std::vector<TensorView*>{mma->out()->as<TensorView>()};
+      for (Val* v : fusion->outputs()) {
+        tvs.push_back(v->as<TensorView>());
+      }
+
+      return tvs;
     };
     std::vector<TensorView*> orig_compare_tvs = getTensorsToCompare(fusion);
     std::vector<TensorView*> new_compare_tvs = getTensorsToCompare(&new_fusion);
@@ -382,10 +378,6 @@ class MultiMatmulSchedulerMatchTest
     for (size_t i : c10::irange(new_compare_tvs.size())) {
       compareTVs(orig_compare_tvs[i], new_compare_tvs[i]);
     }
-
-    // TODO: Remove this skip to check that generated kernel matches
-    GTEST_SKIP() << "Skipping generated kernel check until "
-                 << "entire multi-matmul scheduler is implemented";
 
     // If there are no errors up to this point, then check that the generated
     // kernels match
