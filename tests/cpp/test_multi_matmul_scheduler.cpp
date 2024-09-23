@@ -358,10 +358,10 @@ class MultiMatmulSchedulerMatchTest
     cloner_ = std::make_unique<IrCloner>(Fusion::copy(fusion, &new_fusion));
 
     // Schedule fusion with original matmul scheduler
-    scheduleMatmul(fusion, params);
+    scheduleMatmul(fusion, &params);
 
     // Schedule cloned fusion with new scheduler
-    scheduleMultipleMatmuls(&new_fusion, params);
+    scheduleMultipleMatmuls(&new_fusion, &params);
 
     // Find tensors to compare. Note that these, and all producer tensors will
     // be checked.
