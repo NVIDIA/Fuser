@@ -605,7 +605,7 @@ void makeTile(
   abten.reorder(reorder_map_old_to_new);
 }
 
-void makeTile(TensorView* tv, std::vector<int64_t> tile_sizes) {
+void makeTile(TensorView* tv, const std::vector<int64_t>& tile_sizes) {
   // We will create an AbstractMatmulTensor so that we can use the abstract
   // makeTile implementation above.
 

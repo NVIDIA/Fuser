@@ -549,9 +549,6 @@ class MultipleMatmulScheduler {
     //   ab=[iM, bN, iK]
     schedulePrologues();
 
-    // TODO: Remove this as the methods below are implemented
-    return;
-
     // schedule mma instruction output (mma_result)
     scheduleMmaResults();
 
@@ -759,95 +756,6 @@ class MultipleMatmulScheduler {
     }
   }
 
-  //! Rebuilds IdModel, then updates all ValGroups in abstract tensors to refer
-  //! to the new IdModel. This is necessary whenever we perform an operation
-  //! that creates a new TensorView, such as caching or rFactor
-  void updateIdModel() {
-    // Build new IdModel
-    IdModel new_id_model(fusion_);
-
-    // Get new permissive graph
-    ValGraph& new_graph = new_id_model.idGraph(IdMappingMode::PERMISSIVE);
-
-    // Update id_roles_
-    std::unordered_map<ValGroup, MatmulDimRole> new_id_roles;
-    for (auto& [k, v] : id_roles_) {
-      const ValGroup& new_group = new_graph.toGroup(k->front());
-      new_id_roles.emplace(new_group, v);
-    }
-    id_roles_ = new_id_roles;
-
-    graph_ = &new_id_model.idGraph(IdMappingMode::PERMISSIVE);
-
-    // Set id_model_ after we are done using the old one
-    id_model_ = std::move(new_id_model);
-  }
-
-  // Updates outer_dim_roles if we introduce a new dimension
-  void swizzleBlockTiles(
-      TensorView* tv,
-      std::vector<MatmulDimRole>& outer_dim_roles) {
-    if (params_->grid_swizzle_factor != 1) {
-      // Find position of outer M and N dims in schedule_.tiled
-      int64_t Mo_pos = -1, No_pos = -1;
-      for (size_t i : c10::irange(outer_dim_roles.size())) {
-        if (outer_dim_roles[i] == MatmulDimRole::M) {
-          Mo_pos = (int64_t)i;
-        } else if (outer_dim_roles[i] == MatmulDimRole::N) {
-          No_pos = (int64_t)i;
-        }
-      }
-
-      int factor = std::max(1, params_->grid_swizzle_factor); // must be >=1
-      switch (params_->cta_order) {
-        case MatmulParams::TileRasterizationOrder::RowMajor:
-          // split   [I1, I2/factor, factor]
-          // reorder [I1, factor, I2/factor]
-          // merge   [I1*factor, I2/factor]
-          // where I1 and I2 are the outer M and N dimensions, respectively
-          if (No_pos >= 0) {
-            tv->split(No_pos, factor);
-            // If No_pos < Mo_pos, then the split above shifts Mo_pos by one
-            if (No_pos < Mo_pos) {
-              Mo_pos++;
-            }
-            tv->reorder({{No_pos, No_pos + 1}});
-            if (Mo_pos >= 0) {
-              tv->merge(Mo_pos, No_pos);
-            } else {
-              // M is missing, so we skip the merge above. In this case we
-              // should update the dim roles to reflect the new split axis.
-              outer_dim_roles.insert(
-                  outer_dim_roles.begin() + No_pos, MatmulDimRole::N);
-            }
-          }
-          break;
-
-        case MatmulParams::TileRasterizationOrder::ColumnMajor:
-          // split   [I1/factor, factor, I2]
-          // reorder [I1/factor, I2, factor]
-          // merge   [I1/factor, I2*factor]
-          // where I1 and I2 are the outer M and N dimensions, respectively
-          if (Mo_pos >= 0) {
-            tv->split(Mo_pos, factor);
-            // If No_pos < Mo_pos, then the split above shifts Mo_pos by one
-            if (No_pos > Mo_pos) {
-              No_pos++;
-            }
-            if (No_pos >= 0) {
-              tv->reorder({{Mo_pos + 1, No_pos}});
-              tv->merge(Mo_pos + 1, No_pos);
-            } else {
-              // N is missing, so we skip the merge above. In this case we
-              // should update the dim roles to reflect the new split axis.
-              outer_dim_roles.insert(
-                  outer_dim_roles.begin() + Mo_pos, MatmulDimRole::M);
-            }
-          }
-      }
-    }
-  }
-
   //! This calls orig->rFactor(axes) and also updates the permissive graph to
   //! reflect the new IterDomain mappings
   // TODO: a utility like this might be useful at the IdModel level, where it
@@ -890,6 +798,7 @@ class MultipleMatmulScheduler {
     return partial;
   }
 
+
   //! Rebuilds IdModel, then updates all ValGroups in abstract tensors to refer
   //! to the new IdModel. This is necessary whenever we perform an operation
   //! that creates a new TensorView, such as caching or rFactor
@@ -925,7 +834,7 @@ class MultipleMatmulScheduler {
   void swizzleBlockTiles(
       TensorView* tv,
       std::vector<MatmulDimRole>& outer_dim_roles) {
-    if (params_.grid_swizzle_factor != 1) {
+    if (params_->grid_swizzle_factor != 1) {
       // Find position of outer M and N dims in schedule_.tiled
       int64_t Mo_pos = -1, No_pos = -1;
       for (size_t i : c10::irange(outer_dim_roles.size())) {
@@ -936,8 +845,8 @@ class MultipleMatmulScheduler {
         }
       }
 
-      int factor = std::max(1, params_.grid_swizzle_factor); // must be >=1
-      switch (params_.cta_order) {
+      int factor = std::max(1, params_->grid_swizzle_factor); // must be >=1
+      switch (params_->cta_order) {
         case MatmulParams::TileRasterizationOrder::RowMajor:
           // split   [I1, I2/factor, factor]
           // reorder [I1, factor, I2/factor]
@@ -1030,8 +939,8 @@ class MultipleMatmulScheduler {
   //!   1) Axes will be ordered according to canonicalDimOrdering, and then axes
   //! with the same role will be merged.
   //!   2) After that, we perform splits according to
-  //!   params_.tile_sizes.cta_tile, e.g. [M, K] -> [Mo, Ko, Mi, Ki].
-  //!   3) Depending on the value of params_.grid_swizzle_factor, if the TV has
+  //!   params_->tile_sizes.cta_tile, e.g. [M, K] -> [Mo, Ko, Mi, Ki].
+  //!   3) Depending on the value of params_->grid_swizzle_factor, if the TV has
   //! both M and N dimensions, we perform a 2D swizzle of the outer dimensions
   //! Mo and No.
   //!   4) Finally, we do a split-K split if the splitk_factor is not 1
@@ -1092,17 +1001,17 @@ class MultipleMatmulScheduler {
       // then apply it (with "forwarding") to each TV instead. We already cache
       // a vector<ValGroup> as canonical_dim_ordering_ so AbstractTensor
       // scheduling is the next step in this modernization.
-      mma_utils::makeTile(tv, params_.tile_sizes.cta_tile, merged_roles);
+      mma_utils::makeTile(tv, params_->tile_sizes.cta_tile, merged_roles);
 
       swizzleBlockTiles(tv, merged_roles);
 
       all_merged_roles.push_back(merged_roles);
 
-      if (params_.splitk_factor > 1) {
+      if (params_->splitk_factor > 1) {
         // Outer K dimension in tv is in same position found in merged_roles
         for (size_t i : c10::irange(merged_roles.size())) {
           if (merged_roles[i] == MatmulDimRole::K) {
-            tv->split((int64_t)i, params_.splitk_factor, /*inner*/ false);
+            tv->split((int64_t)i, params_->splitk_factor, /*inner*/ false);
           }
         }
       }
@@ -1120,7 +1029,7 @@ class MultipleMatmulScheduler {
                               const int64_t vec_size) {
       blockTileTensors(smem_operands);
       for (TensorView* tv : smem_operands) {
-        if (params_.promote_prologue_smem_reuse) {
+        if (params_->promote_prologue_smem_reuse) {
           tv->promoteReuse();
         }
         mma_utils::orderTiledConcreteIdAsMaybeAllocationDomain(tv);
@@ -1131,11 +1040,11 @@ class MultipleMatmulScheduler {
         // NOTE: this splits and parallelizes the inner dimension as
         //   TIDz, TIDy, TIDx, V
         mma_utils::scheduleContiguousVectorLoad(
-            tv, params_.tile_sizes, vec_size, /*vectorize=*/vec_size > 1);
+            tv, params_->tile_sizes, vec_size, /*vectorize=*/vec_size > 1);
       }
     };
-    scheduleBranch(as_, acw_smems_, params_.supported_vec_size.a);
-    scheduleBranch(bs_, bcw_smems_, params_.supported_vec_size.b);
+    scheduleBranch(as_, acw_smems_, params_->supported_vec_size.a);
+    scheduleBranch(bs_, bcw_smems_, params_->supported_vec_size.b);
   }
 
   // Schedule acr and bcr
