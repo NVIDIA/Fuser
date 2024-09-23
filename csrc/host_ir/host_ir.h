@@ -186,6 +186,48 @@ class Wait : public Expr {
   }
 };
 
+class StartCoalescing : public Expr {
+ public:
+  using Expr::Expr;
+  StartCoalescing(IrBuilderPasskey passkey);
+
+  StartCoalescing(const StartCoalescing& other) = delete;
+  StartCoalescing& operator=(const StartCoalescing& other) = delete;
+  StartCoalescing(StartCoalescing&& other) = delete;
+  StartCoalescing& operator=(StartCoalescing&& other) = delete;
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  const char* getOpString() const override {
+    return "hir::StartCoalescing";
+  }
+
+  bool sameAs(const Statement* other) const override;
+};
+
+class EndCoalescing : public Expr {
+ public:
+  using Expr::Expr;
+  EndCoalescing(IrBuilderPasskey passkey);
+
+  EndCoalescing(const EndCoalescing& other) = delete;
+  EndCoalescing& operator=(const EndCoalescing& other) = delete;
+  EndCoalescing(EndCoalescing&& other) = delete;
+  EndCoalescing& operator=(EndCoalescing&& other) = delete;
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  const char* getOpString() const override {
+    return "hir::EndCoalescing";
+  }
+
+  bool sameAs(const Statement* other) const override;
+};
+
 } // namespace hir
 
 } // namespace nvfuser

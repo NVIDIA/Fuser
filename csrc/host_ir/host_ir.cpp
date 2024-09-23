@@ -182,9 +182,9 @@ Wait::Wait(IrBuilderPasskey passkey, Expr* expr)
       this,
       "must be registered in a HostIrContainer");
   NVF_ERROR(
-      (expr->isOneOf<Communication, P2PCommunication>()),
+      (expr->isOneOf<Communication, P2PCommunication, EndCoalescing>()),
       expr,
-      "must be a Communication or a P2PCommunication");
+      "must be a Communication, a P2PCommunication, or a EndCoalescing");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Wait)
@@ -203,6 +203,55 @@ std::string Wait::toInlineString(int indent_size) const {
 
 // TODO: implement
 bool Wait::sameAs(const Statement* other) const {
+  return false;
+}
+
+
+StartCoalescing::StartCoalescing(IrBuilderPasskey passkey) : Expr(passkey) {
+  NVF_ERROR(
+      passkey.ir_container_->isA<HostIrContainer>(), // NOLINT
+      this,
+      "must be registered in a HostIrContainer");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(StartCoalescing)
+
+std::string StartCoalescing::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "StartCoalescing" << std::endl;
+  return ss.str();
+}
+
+std::string StartCoalescing::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Cannot be printed inline");
+}
+
+// TODO: implement
+bool StartCoalescing::sameAs(const Statement* other) const {
+  return false;
+}
+
+EndCoalescing::EndCoalescing(IrBuilderPasskey passkey) : Expr(passkey) {
+  NVF_ERROR(
+      passkey.ir_container_->isA<HostIrContainer>(), // NOLINT
+      this,
+      "must be registered in a HostIrContainer");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(EndCoalescing)
+
+std::string EndCoalescing::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "EndCoalescing" << std::endl;
+  return ss.str();
+}
+
+std::string EndCoalescing::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Cannot be printed inline");
+}
+
+// TODO: implement
+bool EndCoalescing::sameAs(const Statement* other) const {
   return false;
 }
 
