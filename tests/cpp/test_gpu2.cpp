@@ -709,31 +709,19 @@ TEST_F(NVFuserTest, FusionReductionHalf_CUDA) {
   const auto options =
       at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::Tensor aten_input = at::randn({8, 8, 16}, options);
-
-  auto rparams = getReductionHeuristics(&fusion, {aten_input});
-  NVF_CHECK(rparams, "Reduction schedule was not generated!");
-  scheduleReduction(&fusion, rparams.get());
-
-  NVF_CHECK(rparams, "Reduction schedule was not generated!");
-
-  auto lparams = rparams->lparams;
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {aten_input}, lparams);
-  // no broadcasting needed, omitting the last optional argument;
-  auto cg_outputs = fe.runFusion({aten_input}, lparams);
-
+  auto cg_results =
+      scheduleAndRun(&fusion, SchedulerType::Reduction, {aten_input});
   auto aten_output = aten_input.add(1.0).to(at::kDouble).sum({2});
 
   testValidate(
       &fusion,
-      cg_outputs,
+      cg_results.outputs,
       {aten_input},
       {aten_output},
       __LINE__,
       __FILE__,
       "",
-      lparams);
+      cg_results.heuristic_params->lparams);
 }
 
 TEST_F(NVFuserTest, FusionReduceSingle_CUDA) {
@@ -778,28 +766,19 @@ TEST_F(NVFuserTest, FusionReduceImplicitBroadcast_CUDA) {
   const auto options =
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor aten_input = at::randn({bid_x, tid_x, 1}, options);
-
-  // Apply reduction heuristic
-  auto rparams = getReductionHeuristics(&fusion, {aten_input});
-  NVF_CHECK(rparams, "Reduction schedule was not generated!");
-  scheduleReduction(&fusion, rparams.get());
-  auto lparams = rparams->lparams;
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {aten_input}, lparams);
-  // no broadcasting needed, omitting the last optional argument;
-  auto cg_outputs = fe.runFusion({aten_input}, lparams);
+  auto cg_results =
+      scheduleAndRun(&fusion, SchedulerType::Reduction, {aten_input});
   auto aten_output = aten_input.to(at::kDouble).sum({red_dim, 2});
 
   testValidate(
       &fusion,
-      cg_outputs,
+      cg_results.outputs,
       {aten_input},
       {aten_output},
       __LINE__,
       __FILE__,
       "",
-      lparams);
+      cg_results.heuristic_params->lparams);
 }
 
 TEST_F(NVFuserTest, FusionReduceImplicitBroadcast2_CUDA) {
@@ -824,29 +803,19 @@ TEST_F(NVFuserTest, FusionReduceImplicitBroadcast2_CUDA) {
   const auto options =
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor aten_input = at::randn({bid_x, tid_x, 1}, options);
-
-  // Apply reduction heuristic
-  auto rparams = getReductionHeuristics(&fusion, {aten_input});
-  NVF_CHECK(rparams, "Reduction schedule was not generated!");
-
-  scheduleReduction(&fusion, rparams.get());
-  auto lparams = rparams->lparams;
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {aten_input}, lparams);
-  // no broadcasting needed, omitting the last optional argument;
-  auto cg_outputs = fe.runFusion({aten_input}, lparams);
+  auto cg_results =
+      scheduleAndRun(&fusion, SchedulerType::Reduction, {aten_input});
   auto aten_output = aten_input.to(at::kDouble).sum({1, 2});
 
   testValidate(
       &fusion,
-      cg_outputs,
+      cg_results.outputs,
       {aten_input},
       {aten_output},
       __LINE__,
       __FILE__,
       "",
-      lparams);
+      cg_results.heuristic_params->lparams);
 }
 
 TEST_F(NVFuserTest, FusionReduceImplicitBroadcast3_CUDA) {
@@ -868,28 +837,19 @@ TEST_F(NVFuserTest, FusionReduceImplicitBroadcast3_CUDA) {
   const auto options =
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor aten_input = at::randn({bid_x, tid_x, 1}, options);
-
-  // Apply reduction heuristic
-  auto rparams = getReductionHeuristics(&fusion, {aten_input});
-  NVF_CHECK(rparams, "Reduction schedule was not generated!");
-  scheduleReduction(&fusion, rparams.get());
-  auto lparams = rparams->lparams;
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {aten_input}, lparams);
-  // no broadcasting needed, omitting the last optional argument;
-  auto cg_outputs = fe.runFusion({aten_input}, lparams);
+  auto cg_results =
+      scheduleAndRun(&fusion, SchedulerType::Reduction, {aten_input});
   auto aten_output = aten_input.to(at::kDouble).sum({2, 1});
 
   testValidate(
       &fusion,
-      cg_outputs,
+      cg_results.outputs,
       {aten_input},
       {aten_output},
       __LINE__,
       __FILE__,
       "",
-      lparams);
+      cg_results.heuristic_params->lparams);
 }
 
 TEST_F(NVFuserTest, FusionTrivialReduction_CUDA) {
@@ -2535,31 +2495,24 @@ TEST_F(NVFuserTest, FusionWelfordSchedule_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_int = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({M, N}, options);
-  // TODO: Why do we use launch params from here, but not scheduling???
-  auto rparams = getReductionHeuristics(&fusion, {t0});
-  scheduleReduction(&fusion, rparams.get());
-
-  auto lparams = rparams->lparams;
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0}, lparams);
-  auto outputs = fe.runFusion({t0}, lparams);
+  auto cg_results = scheduleAndRun(&fusion, SchedulerType::Reduction, {t0});
 
   // by default Welford outputs sum of square diff so need to divide to get var
-  outputs[1] /= N;
+  cg_results.outputs[1] /= N;
 
   auto at_avg = t0.mean({1});
   auto at_var = t0.var({1}, false);
   auto at_n = at::ones({M}, options_int) * N;
 
   testValidate(
-      fe.kernel(),
-      outputs,
+      &fusion,
+      cg_results.outputs,
       {t0},
       {at_avg, at_var, at_n},
       __LINE__,
       __FILE__,
       "validate welford",
-      rparams->lparams);
+      cg_results.heuristic_params->lparams);
 }
 
 using WelfordReductionParams = std::tuple<DataType, int64_t, int64_t, int64_t>;
@@ -2628,28 +2581,10 @@ TEST_P(WelfordReduction, Test) {
     outputs_of_red.push_back(M2_cast);
   }
 
-  auto rparams = getReductionHeuristics(&fusion, {aten_input});
-  scheduleReduction(&fusion, rparams.get());
+  auto cg_results =
+      scheduleAndRun(&fusion, SchedulerType::Reduction, {aten_input});
 
-  auto lparams = rparams->lparams;
-  auto cparams = rparams->cparams;
-
-  FusionExecutor fe;
-  // Needs to pass compile para to use the correct index type, otherwise the
-  // lowering pass will use int64 as the index tpye, since this test saves
-  // `tv_N` as index type, it may cause vectorization size validation error. For
-  // example, the heuristics set index type to int32 and the max vectorization
-  // factor is 4, if compile para is not passed to compileFusion, the lowering
-  // pass uses int64 as index type, so the max vectorization factor is 16 bytes
-  // sizeof(int64) = 2, which is wrong since the actual index type is int32
-  // and the max vectorization factor is 4.
-  fe.compileFusion(&fusion, {aten_input}, lparams, cparams);
-  auto outputs = fe.runFusion({aten_input}, lparams);
-
-  // by default Welford outputs sum of square diff so need to divide to
-  // get var
-
-  outputs[1] /= rdim;
+  cg_results.outputs[1] /= rdim;
 
   auto at_avg = aten_input.mean({axis});
   auto at_var = aten_input.var({axis}, false);
@@ -2659,14 +2594,14 @@ TEST_P(WelfordReduction, Test) {
   at_n = at_n.sum({axis});
 
   testValidate(
-      fe.kernel(),
-      outputs,
+      &fusion,
+      cg_results.outputs,
       {aten_input},
       {at_avg, at_var, at_n},
       __LINE__,
       __FILE__,
       "validate welford",
-      rparams->lparams);
+      cg_results.heuristic_params->lparams);
 }
 INSTANTIATE_TEST_SUITE_P(
     ,
@@ -5669,28 +5604,21 @@ TEST_F(NVFuserTest, FusionZeroSizeTensorReduction_CUDA) {
 
   at::Tensor input0 = at::randn({2, 4}, options);
   at::Tensor input1 = at::randn({0}, options);
-
-  auto rparams = getReductionHeuristics(&fusion, {input0, input1});
-  NVF_CHECK(rparams, "Reduction schedule was not generated!");
-  scheduleReduction(&fusion, rparams.get());
-  NVF_CHECK(rparams, "Reduction schedule was not generated!");
-
-  auto lparams = rparams->lparams;
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {input0, input1}, lparams);
-  auto cg_outputs = fe.runFusion({input0, input1}, lparams);
+  std::vector<c10::IValue> aten_inputs({input0, input1});
+  auto cg_results =
+      scheduleAndRun(&fusion, SchedulerType::Reduction, aten_inputs);
   auto aten_output2 = input0.sum({1});
   at::Tensor aten_output3 = at::empty({0}, options);
 
   testValidate(
       &fusion,
-      cg_outputs,
-      {input0, input1},
+      cg_results.outputs,
+      aten_inputs,
       {aten_output2, aten_output3},
       __LINE__,
       __FILE__,
       "",
-      lparams);
+      cg_results.heuristic_params->lparams);
 }
 
 TEST_F(NVFuserTest, FusionZeroSizeTensorNormalization_CUDA) {

@@ -6210,25 +6210,24 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteDifferentConcretizedDomains_CUDA) {
     at::Tensor t0 = at::randn(shape0, options);
     at::Tensor t1 = at::randn(shape1, options);
     at::Tensor t2 = at::randn(shape2, options);
-    std::vector<c10::IValue> inputs = {t0, t1, t2};
+    std::vector<c10::IValue> aten_inputs = {t0, t1, t2};
 
     if (direct_lowering) {
-      auto rparams = getReductionHeuristics(&fusion, inputs);
-      NVF_CHECK(rparams, "Reduction schedule was not generated!");
-      scheduleReduction(&fusion, rparams.get());
       // it should be segmented, if directly lowered, it should throw an error
       EXPECT_THAT(
-          [&]() { GpuLower(&fusion).run(); },
+          [&]() {
+            scheduleAndRun(&fusion, SchedulerType::Reduction, aten_inputs);
+          },
           testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
               "Producer is required to be in Global Memory based on parallelization strategy. RAW flags: (blockIdx.x)")));
     } else {
       FusionExecutorCache fec(std::move(fusion_ptr));
-      auto cg_outputs = fec.runFusionWithInputs(inputs);
+      auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
 
       auto optimized_fusion = fec.getMostRecentKernelRuntime();
       NVF_CHECK(optimized_fusion->isSegmented(), "segmentation didn't happen!");
 
-      testValidate(fec.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
+      testValidate(fec.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
     }
   };
   runTest(true);
@@ -7411,28 +7410,23 @@ TEST_F(NVFuserTest, FusionCrossGridInnerReductionSplitGridIteration_CUDA) {
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
   at::Tensor aten_input = at::randn(input_shape, options);
 
-  auto rparams = getReductionHeuristics(&fusion, {aten_input});
-  ASSERT_TRUE(rparams) << "Reduction schedule was not generated!";
+  auto cg_results =
+      scheduleAndRun(&fusion, SchedulerType::Reduction, {aten_input});
+  auto rparams = cg_results.heuristic_params->as<ReductionParams>();
   ASSERT_TRUE(rparams->split_grid_dim_inner_reduction)
       << "Generated reduction is not cross grid!";
   ASSERT_TRUE(rparams->split_grid_dim_iter_dom_outer)
       << "Generated reduction is not split iteration domain!";
-  scheduleReduction(&fusion, rparams.get());
-
-  auto lparams = rparams->lparams;
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {aten_input}, lparams);
-  auto cg_outputs = fe.runFusion({aten_input}, lparams);
   auto aten_outputs = aten_input.sum({1});
   testValidate(
       &fusion,
-      cg_outputs,
+      cg_results.outputs,
       {aten_input},
       {aten_outputs},
       __LINE__,
       __FILE__,
       "",
-      lparams);
+      rparams->lparams);
 }
 
 TEST_F(NVFuserTest, SymbolicOneBroadcasting) {
@@ -7691,19 +7685,12 @@ TEST_F(NVFuserTest, Reduction3DWithBroadcast) {
 
   auto options = at::TensorOptions().dtype(at::kDouble).device(at::kCUDA, 0);
   auto t0 = at::randn({8, 7, 5, 1}, options);
-  std::vector<c10::IValue> inputs({t0});
+  std::vector<c10::IValue> aten_inputs({t0});
 
-  std::shared_ptr<ReductionParams> rparams =
-      getReductionHeuristics(fusion, inputs);
-  NVF_CHECK(rparams, "Reduction heuristic failed!");
-  scheduleReduction(fusion, rparams.get());
-
-  FusionExecutor fe;
-  fe.compileFusion(fusion, inputs, rparams->lparams);
-  auto cg_outputs = fe.runFusion(inputs, rparams->lparams);
-
+  auto cg_outputs =
+      scheduleAndRun(fusion, SchedulerType::Reduction, aten_inputs).outputs;
   testValidate(
-      unsched_fusion_ptr.get(), cg_outputs, inputs, __LINE__, __FILE__);
+      unsched_fusion_ptr.get(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Test 3D reductions with constant domains.
@@ -8563,20 +8550,13 @@ TEST_F(NVFuserTest, MoveNonConcretizedBroadcastInReduction) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({32, 1024}, options);
   at::Tensor t1 = at::randn({32, 1024}, options);
-  std::vector<c10::IValue> inputs = {t0, t1};
-
-  auto rparams = getReductionHeuristics(&fusion, inputs);
-  NVF_CHECK(rparams.get() != nullptr);
+  std::vector<c10::IValue> aten_inputs = {t0, t1};
 
   Fusion fusion_copy = fusion;
 
-  scheduleReduction(&fusion, rparams.get());
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, inputs, rparams->lparams);
-  auto outputs = fe.runFusion(inputs, rparams->lparams);
-
-  testValidate(&fusion_copy, outputs, inputs, __LINE__, __FILE__);
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::Reduction, aten_inputs).outputs;
+  testValidate(&fusion_copy, cg_outputs, aten_inputs, __LINE__, __FILE__);
 
   // tv2 and tv3 have non-concretized broadcasts. Make sure they are
   // moved to the innermost position of the loop domain

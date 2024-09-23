@@ -5032,29 +5032,20 @@ TEST_F(NVFuserTest, FusionReductionKeepDimScheduler_CUDA) {
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   at::Tensor aten_input = at::randn({bid_x, tid_x}, options);
+  auto cg_results =
+      scheduleAndRun(&fusion, SchedulerType::Reduction, {aten_input});
   auto aten_output =
       aten_input.to(at::kDouble).sum({red_dim}, /*keepdim=*/true);
 
-  // Apply reduction heuristic
-  auto rparams = getReductionHeuristics(&fusion, {aten_input});
-  NVF_CHECK(rparams, "Reduction schedule was not generated!");
-  scheduleReduction(&fusion, rparams.get());
-
-  auto lparams = rparams->lparams;
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {aten_input}, lparams);
-  auto cg_outputs = fe.runFusion({aten_input}, lparams);
-
   testValidate(
       &fusion,
-      cg_outputs,
+      cg_results.outputs,
       {aten_input},
       {aten_output},
       __LINE__,
       __FILE__,
       "",
-      lparams);
+      cg_results.heuristic_params->lparams);
 }
 
 TEST_F(NVFuserTest, FusionSumTo_CUDA) {
@@ -5158,29 +5149,19 @@ TEST_F(NVFuserTest, FusionReductionScheduler_CUDA) {
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   at::Tensor aten_input = at::randn({bid_x, tid_x}, options);
+  auto cg_results =
+      scheduleAndRun(&fusion, SchedulerType::Reduction, {aten_input});
   auto aten_output = aten_input.to(at::kDouble).sum({red_dim});
-
-  // Apply reduction heuristic
-  auto rparams = getReductionHeuristics(&fusion, {aten_input});
-  NVF_CHECK(rparams, "Reduction schedule was not generated!");
-  scheduleReduction(&fusion, rparams.get());
-
-  auto lparams = rparams->lparams;
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {aten_input}, lparams);
-  // no broadcasting needed, omitting the last optional argument;
-  auto cg_outputs = fe.runFusion({aten_input}, lparams);
 
   testValidate(
       &fusion,
-      cg_outputs,
+      cg_results.outputs,
       {aten_input},
       {aten_output},
       __LINE__,
       __FILE__,
       "",
-      lparams);
+      cg_results.heuristic_params->lparams);
 }
 
 // This test checks if our system could correctly handles the case where both
@@ -5325,15 +5306,8 @@ TEST_F(NVFuserTest, FusionReductionSchedulerMultiDimNonFastest_CUDA) {
   at::Tensor cg_output = at::empty(tensor_dims_out, options);
 
   // Apply reduction heuristic
-  auto rparams = getReductionHeuristics(&fusion, {aten_input});
-  NVF_CHECK(rparams, "Reduction schedule was not generated!");
-  scheduleReduction(&fusion, rparams.get());
-  auto lparams = rparams->lparams;
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {aten_input}, lparams);
-  fe.runFusion({aten_input}, {cg_output}, lparams);
-
+  auto cg_results =
+      scheduleAndRun(&fusion, SchedulerType::Reduction, {aten_input});
   testValidate(
       &fusion,
       {cg_output},
@@ -5342,7 +5316,7 @@ TEST_F(NVFuserTest, FusionReductionSchedulerMultiDimNonFastest_CUDA) {
       __LINE__,
       __FILE__,
       "",
-      lparams);
+      cg_results.heuristic_params->lparams);
 }
 
 TEST_F(NVFuserTest, FusionReductionSchedulerMultiDimFastest_CUDA) {
@@ -5366,26 +5340,19 @@ TEST_F(NVFuserTest, FusionReductionSchedulerMultiDimFastest_CUDA) {
   const auto options =
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor aten_input = at::randn(tensor_dims_in, options);
+  auto cg_results =
+      scheduleAndRun(&fusion, SchedulerType::Reduction, {aten_input});
   auto aten_output = aten_input.to(at::kDouble).sum(red_dims64);
-
-  auto rparams = getReductionHeuristics(&fusion, {aten_input});
-  NVF_CHECK(rparams, "Reduction schedule was not generated!");
-  scheduleReduction(&fusion, rparams.get());
-  auto lparams = rparams->lparams;
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {aten_input}, lparams);
-  auto cg_outputs = fe.runFusion({aten_input}, lparams);
 
   testValidate(
       &fusion,
-      cg_outputs,
+      cg_results.outputs,
       {aten_input},
       {aten_output},
       __LINE__,
       __FILE__,
       "",
-      lparams);
+      cg_results.heuristic_params->lparams);
 }
 
 // data type and reduction dimension size
@@ -5431,26 +5398,19 @@ TEST_P(ReductionNoODim, Test) {
   auto options = at::TensorOptions().dtype(aten_dtype).device(at::kCUDA, 0);
 
   at::Tensor aten_input = at::randn({rdim}, options);
+  auto cg_results =
+      scheduleAndRun(&fusion, SchedulerType::Reduction, {aten_input});
   auto aten_output = aten_input.to(at::kDouble).sum({0});
-
-  auto rparams = getReductionHeuristics(&fusion, {aten_input});
-  NVF_CHECK(rparams != nullptr, "Reduction is not found!");
-  scheduleReduction(&fusion, rparams.get());
-  auto lparams = rparams->lparams;
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {aten_input}, lparams);
-  auto cg_outputs = fe.runFusion({aten_input}, lparams);
 
   testValidate(
       &fusion,
-      cg_outputs,
+      cg_results.outputs,
       {aten_input},
       {aten_output},
       __LINE__,
       __FILE__,
       "",
-      lparams);
+      cg_results.heuristic_params->lparams);
 }
 INSTANTIATE_TEST_SUITE_P(
     ,
@@ -5512,25 +5472,18 @@ TEST_P(ReductionWithIterDim, Test) {
   at::Tensor aten_input =
       (axis ? at::randn({odim, rdim}, options)
             : at::randn({rdim, odim}, options));
-
-  auto rparams = getReductionHeuristics(&fusion, {aten_input});
-  NVF_CHECK(rparams != nullptr, "Reduction is not found!");
-  scheduleReduction(&fusion, rparams.get());
-  auto lparams = rparams->lparams;
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {aten_input}, lparams);
-  auto cg_outputs = fe.runFusion({aten_input}, lparams);
+  auto cg_results =
+      scheduleAndRun(&fusion, SchedulerType::Reduction, {aten_input});
   auto aten_output = aten_input.to(at::kDouble).sum({axis});
   testValidate(
       &fusion,
-      cg_outputs,
+      cg_results.outputs,
       {aten_input},
       {aten_output},
       __LINE__,
       __FILE__,
       "",
-      lparams);
+      cg_results.heuristic_params->lparams);
 }
 
 INSTANTIATE_TEST_SUITE_P(
