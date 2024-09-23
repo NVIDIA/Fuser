@@ -729,6 +729,9 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
     NVF_ERROR(ldst != nullptr);
     NVF_ERROR(loop_index != nullptr);
 
+    loop_index = GpuLower::current()->commonScalarMap().hoistScalar(
+        loop_index, for_loop_stack_);
+
     // Get mbarrier for this circular buffer stage.
     TensorView* all_mbarriers = GpuLower::current()->ldstMBarrierMap().at(ldst);
     kir::TensorIndex* stage_mbarrier =
@@ -740,9 +743,11 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
     kir::TensorIndex* stage_token =
         IrBuilder::create<kir::TensorIndex>(all_mbarrier_tokens, loop_index);
 
+    Val* tx_count = GpuLower::current()->commonScalarMap().hoistScalar(
+        getSizeOfTmaLoad(ldst), for_loop_stack_);
     kir::MBarrierArriveExpectTx* mbarrier_arrive_tx =
         IrBuilder::create<kir::MBarrierArriveExpectTx>(
-            stage_token, stage_mbarrier, /*tx_count=*/getSizeOfTmaLoad(ldst));
+            stage_token, stage_mbarrier, tx_count);
 
     return mbarrier_arrive_tx;
   }
