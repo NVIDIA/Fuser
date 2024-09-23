@@ -366,6 +366,9 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
     }
 
     if (!cloned_loop->body().empty()) {
+      // mbarrier_arrive_tx_ is active when we encounter a cpAsyncBulk load
+      // operation on a circular buffer TensorView in IrVisitor. A single
+      // mbarrier_arrive_tx is active for each TensorView.
       if (mbarrier_arrive_tx_ == nullptr || for_loop_stack_.size() > 1) {
         // Add cloned for_loop when mbarrier_arrive_tx_ is not active or
         // we are within a nested for-loop structure
