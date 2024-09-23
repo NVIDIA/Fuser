@@ -310,19 +310,16 @@ TEST_F(PointwiseTest, Issue1567VectorizeAllocationDomain) {
   std::vector<c10::IValue> aten_inputs = {input0, input1};
 
   // NOTE: force pointwise scheduler here just for testing purpose
-  auto heuristic_params = SchedulerEntry::scheduleWith(
-      fusion, SchedulerType::PointWise, aten_inputs);
-  auto pparams = heuristic_params->as<PointwiseParams>();
-  FusionExecutor fe;
-  fe.compileFusion(fusion, aten_inputs, heuristic_params->lparams);
-  auto cg_outputs = fe.runFusion(aten_inputs, heuristic_params->lparams);
+  auto cg_results =
+      scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs);
+  auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
 
   EXPECT_TRUE(pparams->vectorize);
   EXPECT_EQ(pparams->unroll_factor, 4);
   EXPECT_TRUE(hasVectorizationCache(tv0));
   EXPECT_TRUE(hasVectorizationCache(tv1));
 
-  testValidate(fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(PointwiseTest, Issue1567VectorizationFactorAnalysisCase0) {
@@ -348,19 +345,16 @@ TEST_F(PointwiseTest, Issue1567VectorizationFactorAnalysisCase0) {
   std::vector<c10::IValue> aten_inputs = {input0, input1};
 
   // NOTE: force pointwise scheduler here just for testing purpose
-  auto heuristic_params = SchedulerEntry::scheduleWith(
-      fusion, SchedulerType::PointWise, aten_inputs, false);
-  auto pparams = heuristic_params->as<PointwiseParams>();
-  FusionExecutor fe;
-  fe.compileFusion(fusion, aten_inputs, heuristic_params->lparams);
-  auto cg_outputs = fe.runFusion(aten_inputs, heuristic_params->lparams);
+  auto cg_results =
+      scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs, false);
+  auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
 
   EXPECT_TRUE(pparams->vectorize);
   EXPECT_EQ(pparams->unroll_factor, 4);
   EXPECT_FALSE(hasVectorizationCache(tv0));
   EXPECT_TRUE(hasVectorizationCache(tv1));
 
-  testValidate(fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(PointwiseTest, Issue1567VectorizationFactorAnalysisCase1) {
@@ -386,19 +380,16 @@ TEST_F(PointwiseTest, Issue1567VectorizationFactorAnalysisCase1) {
   std::vector<c10::IValue> aten_inputs = {input0, input1};
 
   // NOTE: force pointwise scheduler here just for testing purpose
-  auto heuristic_params = SchedulerEntry::scheduleWith(
-      fusion, SchedulerType::PointWise, aten_inputs);
-  auto pparams = heuristic_params->as<PointwiseParams>();
-  FusionExecutor fe;
-  fe.compileFusion(fusion, aten_inputs, heuristic_params->lparams);
-  auto cg_outputs = fe.runFusion(aten_inputs, heuristic_params->lparams);
+  auto cg_results =
+      scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs);
+  auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
 
   EXPECT_TRUE(pparams->vectorize);
   EXPECT_EQ(pparams->unroll_factor, 2);
   EXPECT_TRUE(hasVectorizationCache(tv0));
   EXPECT_TRUE(hasVectorizationCache(tv1));
 
-  testValidate(fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(PointwiseTest, Issue1567VectorizationFactorAnalysisCase2) {
@@ -430,19 +421,16 @@ TEST_F(PointwiseTest, Issue1567VectorizationFactorAnalysisCase2) {
   std::vector<c10::IValue> aten_inputs = {input0, input1};
 
   // NOTE: force pointwise scheduler here just for testing purpose
-  auto heuristic_params = SchedulerEntry::scheduleWith(
-      fusion, SchedulerType::PointWise, aten_inputs);
-  auto pparams = heuristic_params->as<PointwiseParams>();
-  FusionExecutor fe;
-  fe.compileFusion(fusion, aten_inputs, pparams->lparams);
-  auto cg_outputs = fe.runFusion(aten_inputs, pparams->lparams);
+  auto cg_results =
+      scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs);
+  auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
 
   EXPECT_TRUE(pparams->vectorize);
   EXPECT_EQ(pparams->unroll_factor, 4);
   EXPECT_TRUE(hasVectorizationCache(tv0));
   EXPECT_TRUE(hasVectorizationCache(tv1));
 
-  testValidate(fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(PointwiseTest, VIssue1567ectorizationFactorAnalysisCase3) {
@@ -471,19 +459,16 @@ TEST_F(PointwiseTest, VIssue1567ectorizationFactorAnalysisCase3) {
   std::vector<c10::IValue> aten_inputs = {input0, input1};
 
   // NOTE: force pointwise scheduler here just for testing purpose
-  auto heuristic_params = SchedulerEntry::scheduleWith(
-      fusion, SchedulerType::PointWise, aten_inputs);
-  auto pparams = heuristic_params->as<PointwiseParams>();
-  FusionExecutor fe;
-  fe.compileFusion(fusion, aten_inputs, pparams->lparams);
-  auto cg_outputs = fe.runFusion(aten_inputs, pparams->lparams);
+  auto cg_results =
+      scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs);
+  auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
 
   EXPECT_TRUE(pparams->vectorize);
   EXPECT_EQ(pparams->unroll_factor, 2);
   EXPECT_TRUE(hasVectorizationCache(tv0));
   EXPECT_TRUE(hasVectorizationCache(tv1));
 
-  testValidate(fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(fusion, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 namespace {

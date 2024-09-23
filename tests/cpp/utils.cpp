@@ -17,17 +17,23 @@
 
 namespace nvfuser {
 
-std::vector<at::Tensor> scheduleAndRun(
+CGResultsPackage scheduleAndRun(
     Fusion* fusion,
     SchedulerType scheduler_type,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
     bool validate) {
   auto heuristic_params = SchedulerEntry::scheduleWith(
       fusion, scheduler_type, runtime_inputs, validate);
-  FusionExecutor fusion_executor;
-  fusion_executor.compileFusion(
+  auto fusion_executor = std::make_unique<FusionExecutor>();
+  fusion_executor->compileFusion(
       fusion, runtime_inputs, heuristic_params->lparams);
-  return fusion_executor.runFusion(runtime_inputs, heuristic_params->lparams);
+  auto cg_outputs =
+      fusion_executor->runFusion(runtime_inputs, heuristic_params->lparams);
+  CGResultsPackage results = {
+      .outputs = cg_outputs,
+      .heuristic_params = std::move(heuristic_params),
+      .fusion_executor = std::move(fusion_executor)};
+  return results;
 }
 
 int64_t prime_number(int64_t i) {

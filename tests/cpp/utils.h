@@ -35,11 +35,19 @@
 #include <vector>
 
 namespace nvfuser {
+
+struct CGResultsPackage {
+  std::vector<at::Tensor> outputs;
+  std::unique_ptr<HeuristicParams> heuristic_params;
+  std::unique_ptr<FusionExecutor> fusion_executor;
+};
+
 // Grabs heuristics and schedules with the provided scheduler type, compiels and
-// runs with Fuion executor, returns outputs. If validate is set to false the
-// scheduler check will still be run but it will be ignored. Otherwise
-// canScheduler returning false will throw.
-std::vector<at::Tensor> scheduleAndRun(
+// runs with Fuion executor, returns a struct containing the outputs,
+// heuristic_params, and FusionExecutor. These structures are for convenience in
+// testing. If validate is set to false the scheduler check will still be run
+// but it will be ignored. Otherwise canScheduler returning false will throw.
+CGResultsPackage scheduleAndRun(
     Fusion* fusion,
     SchedulerType scheduler_type,
     const at::ArrayRef<c10::IValue>& runtime_inputs,

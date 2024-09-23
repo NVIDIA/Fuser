@@ -144,7 +144,7 @@ TEST_F(NVFuserTest, FusionIndexing3_CUDA) {
 
   std::vector<c10::IValue> aten_inputs = {t0, t1};
   auto cg_outputs =
-      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
@@ -375,7 +375,7 @@ TEST_F(NVFuserTest, FusionIndexing9_CUDA) {
   std::vector<c10::IValue> aten_inputs = {at_t0, at_t3};
 
   auto cg_outputs =
-      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 

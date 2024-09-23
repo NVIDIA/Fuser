@@ -250,7 +250,8 @@ TEST_F(RNGTest, BroadcastingRNGSmem) {
     at::Tensor input1 = at::zeros({5, 5}, options);
 
     auto outputs =
-        scheduleAndRun(fusion, SchedulerType::Transpose, {input0, input1});
+        scheduleAndRun(fusion, SchedulerType::Transpose, {input0, input1})
+            .outputs;
     auto out = outputs[0];
 
     NVF_CHECK((out.select(1, 0) == out.select(1, 1)).all().item<bool>())

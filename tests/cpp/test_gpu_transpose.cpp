@@ -77,10 +77,11 @@ TEST_F(TransposeTest, FusionScheduleTransposeSimple) {
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     at::Tensor input = at::randn({256, 1024, 1024}, options);
 
-    auto outputs = scheduleAndRun(&fusion, SchedulerType::Transpose, {input});
+    auto cg_outputs =
+        scheduleAndRun(&fusion, SchedulerType::Transpose, {input}).outputs;
     auto tv_ref = input.sin().transpose(1, 2).cos();
 
-    testValidate(&fusion, outputs, {input}, {tv_ref}, __LINE__, __FILE__);
+    testValidate(&fusion, cg_outputs, {input}, {tv_ref}, __LINE__, __FILE__);
   }
 }
 
@@ -102,9 +103,10 @@ TEST_F(TransposeTest, FusionScheduleTransposeSinTransposeCos) {
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     at::Tensor input = at::randn({256, 1024, 1024}, options);
 
-    auto outputs = scheduleAndRun(&fusion, SchedulerType::Transpose, {input});
+    auto cg_outputs =
+        scheduleAndRun(&fusion, SchedulerType::Transpose, {input}).outputs;
     auto tv_ref = input.transpose(0, 2).sin().transpose(1, 2).cos();
-    testValidate(&fusion, outputs, {input}, {tv_ref}, __LINE__, __FILE__);
+    testValidate(&fusion, cg_outputs, {input}, {tv_ref}, __LINE__, __FILE__);
   }
 }
 
@@ -131,9 +133,10 @@ TEST_F(TransposeTest, FusionScheduleTransposeMultipleInput) {
   at::Tensor input0 = at::randn({256, 1024, 1024}, options);
   at::Tensor input1 = at::randn({256, 1024, 1024}, options);
 
-  auto outputs =
-      scheduleAndRun(&fusion, SchedulerType::Transpose, {input0, input1});
-  testValidate(&fusion, outputs, {input0, input1}, __LINE__, __FILE__);
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::Transpose, {input0, input1})
+          .outputs;
+  testValidate(&fusion, cg_outputs, {input0, input1}, __LINE__, __FILE__);
 }
 
 // t0->sin->transpose->t5
@@ -155,12 +158,13 @@ TEST_F(TransposeTest, FusionScheduleTransposeMultipleOutput) {
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     at::Tensor input = at::randn({32, 1024, 1024}, options);
 
-    auto outputs = scheduleAndRun(&fusion, SchedulerType::Transpose, {input});
+    auto cg_outputs =
+        scheduleAndRun(&fusion, SchedulerType::Transpose, {input}).outputs;
     auto tv_ref1 = input.sin().transpose(0, 2);
     auto tv_ref2 = input.cos().transpose(0, 2);
 
     testValidate(
-        &fusion, outputs, {input}, {tv_ref1, tv_ref2}, __LINE__, __FILE__);
+        &fusion, cg_outputs, {input}, {tv_ref1, tv_ref2}, __LINE__, __FILE__);
   }
 }
 
@@ -189,9 +193,10 @@ TEST_F(TransposeTest, FusionScheduleTransposeMultipleInputOutput) {
   at::Tensor input0 = at::randn({32, 1024, 1024}, options);
   at::Tensor input1 = at::randn({32, 1024, 1024}, options);
 
-  auto outputs =
-      scheduleAndRun(&fusion, SchedulerType::Transpose, {input0, input1});
-  testValidate(&fusion, outputs, {input0, input1}, __LINE__, __FILE__);
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::Transpose, {input0, input1})
+          .outputs;
+  testValidate(&fusion, cg_outputs, {input0, input1}, __LINE__, __FILE__);
 }
 
 /*
@@ -215,8 +220,9 @@ TEST_F(TransposeTest, FusionScheduleTransposeMatchingSkipConnection) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input = at::randn({32, 1024, 1024}, options);
 
-  auto outputs = scheduleAndRun(&fusion, SchedulerType::Transpose, {input});
-  testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::Transpose, {input}).outputs;
+  testValidate(&fusion, cg_outputs, {input}, __LINE__, __FILE__);
 }
 
 // x->transpose--add->z
@@ -238,9 +244,10 @@ TEST_F(TransposeTest, FusionScheduleTransposeBroadcast) {
   at::Tensor input0 = at::randn({1024, 256, 1024}, options);
   at::Tensor input1 = at::randn({1024, 1024}, options);
 
-  auto outputs =
-      scheduleAndRun(&fusion, SchedulerType::Transpose, {input0, input1});
-  testValidate(&fusion, outputs, {input0, input1}, __LINE__, __FILE__);
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::Transpose, {input0, input1})
+          .outputs;
+  testValidate(&fusion, cg_outputs, {input0, input1}, __LINE__, __FILE__);
 }
 
 // x->broadcast--add->z
@@ -291,9 +298,10 @@ TEST_F(TransposeTest, FusionScheduleBroadcastOnly) {
       at::Tensor input0 = at::randn({1024, 1, 256}, options);
       at::Tensor input1 = at::randn({1024, 1024, 1}, options);
 
-      auto outputs =
-          scheduleAndRun(&fusion, SchedulerType::Transpose, {input0, input1});
-      testValidate(&fusion, outputs, {input0, input1}, __LINE__, __FILE__);
+      auto cg_outputs =
+          scheduleAndRun(&fusion, SchedulerType::Transpose, {input0, input1})
+              .outputs;
+      testValidate(&fusion, cg_outputs, {input0, input1}, __LINE__, __FILE__);
     }
   }
 }
@@ -357,9 +365,12 @@ TEST_F(TransposeTest, FusionScheduleTransposeComplexDAG1) {
   at::Tensor input1 = at::randn({1024, 512, 256}, options);
   at::Tensor input2 = at::randn({512, 256, 1024}, options);
 
-  auto outputs = scheduleAndRun(
-      &fusion, SchedulerType::Transpose, {input0, input1, input2});
-  testValidate(&fusion, outputs, {input0, input1, input2}, __LINE__, __FILE__);
+  auto cg_outputs =
+      scheduleAndRun(
+          &fusion, SchedulerType::Transpose, {input0, input1, input2})
+          .outputs;
+  testValidate(
+      &fusion, cg_outputs, {input0, input1, input2}, __LINE__, __FILE__);
 }
 
 // mermaid graph:
@@ -632,9 +643,12 @@ TEST_F(TransposeTest, FusionScheduleTransposeMissingDim) {
   at::Tensor input1 = at::randn({1, 512, 1}, options);
   at::Tensor input2 = at::randn({512}, options);
 
-  auto outputs = scheduleAndRun(
-      &fusion, SchedulerType::Transpose, {input0, input1, input2});
-  testValidate(&fusion, outputs, {input0, input1, input2}, __LINE__, __FILE__);
+  auto cg_outputs =
+      scheduleAndRun(
+          &fusion, SchedulerType::Transpose, {input0, input1, input2})
+          .outputs;
+  testValidate(
+      &fusion, cg_outputs, {input0, input1, input2}, __LINE__, __FILE__);
 }
 
 // x->sin->transpose->cos->y
@@ -652,8 +666,9 @@ TEST_F(TransposeTest, FusionScheduleTransposeSmall) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input = at::randn({1024, 2, 2}, options);
 
-  auto outputs = scheduleAndRun(&fusion, SchedulerType::Transpose, {input});
-  testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::Transpose, {input}).outputs;
+  testValidate(&fusion, cg_outputs, {input}, __LINE__, __FILE__);
 }
 
 // x->sin->transpose->cos->y
@@ -671,8 +686,9 @@ TEST_F(TransposeTest, FusionScheduleTransposeSmallInnerSize1) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input = at::randn({64 * 1024 * 1024, 2, 2}, options);
 
-  auto outputs = scheduleAndRun(&fusion, SchedulerType::Transpose, {input});
-  testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::Transpose, {input}).outputs;
+  testValidate(&fusion, cg_outputs, {input}, __LINE__, __FILE__);
 }
 
 // x->sin->transpose->cos->y
@@ -690,8 +706,9 @@ TEST_F(TransposeTest, FusionScheduleTransposeSmallInnerSize2) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input = at::randn({2, 64 * 1024 * 1024, 2}, options);
 
-  auto outputs = scheduleAndRun(&fusion, SchedulerType::Transpose, {input});
-  testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::Transpose, {input}).outputs;
+  testValidate(&fusion, cg_outputs, {input}, __LINE__, __FILE__);
 }
 
 // x->sin->transpose->cos->y
@@ -709,8 +726,9 @@ TEST_F(TransposeTest, FusionScheduleTransposeSmallInnerSize3) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input = at::randn({1024 * 1024, 2, 2, 2, 2, 2, 2, 2}, options);
 
-  auto outputs = scheduleAndRun(&fusion, SchedulerType::Transpose, {input});
-  testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::Transpose, {input}).outputs;
+  testValidate(&fusion, cg_outputs, {input}, __LINE__, __FILE__);
 }
 
 // x->sin->transpose->cos->y
@@ -732,8 +750,9 @@ TEST_F(TransposeTest, FusionScheduleTranspose2DSmallInnerSize) {
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     at::Tensor input = at::randn(shape, options);
 
-    auto outputs = scheduleAndRun(&fusion, SchedulerType::Transpose, {input});
-    testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
+    auto cg_outputs =
+        scheduleAndRun(&fusion, SchedulerType::Transpose, {input}).outputs;
+    testValidate(&fusion, cg_outputs, {input}, __LINE__, __FILE__);
   }
 }
 

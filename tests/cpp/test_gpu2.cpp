@@ -687,7 +687,7 @@ TEST_F(NVFuserTest, FusionLSTMCell_CUDA) {
   aten_inputs.push_back(at_cx);
 
   auto cg_outputs =
-      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
@@ -942,7 +942,7 @@ TEST_F(NVFuserTest, FusionTrivialReduction2_CUDA) {
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
   auto cg_outputs =
-      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
@@ -969,7 +969,7 @@ TEST_F(NVFuserTest, FusionTrivialReduction3_CUDA) {
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
   auto cg_outputs =
-      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
@@ -1197,7 +1197,7 @@ TEST_F(NVFuserTest, FusionBiasGeluFwd_CUDA) {
 
   std::vector<c10::IValue> aten_inputs = {at_bias, at_input};
   auto cg_outputs =
-      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
@@ -1264,7 +1264,7 @@ TEST_F(NVFuserTest, FusionBiasGeluBwd_CUDA) {
   std::vector<c10::IValue> aten_inputs = {at_grad, at_bias, at_input};
 
   auto cg_outputs =
-      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
   auto tolerance_overwrite = ValidationConstants();
   // bump tolerance
   tolerance_overwrite.base_float_abs_tol = 3e-6;
@@ -5323,7 +5323,7 @@ TEST_F(NVFuserTest, FusionSBAR_CUDA) {
   std::vector<c10::IValue> aten_inputs = {at_x, at_y, at_weight, at_bias};
 
   auto cg_outputs =
-      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
@@ -5343,7 +5343,7 @@ TEST_F(NVFuserTest, FusionSingleElement_CUDA) {
   at::Tensor input = at::randn({}, options);
   std::vector<c10::IValue> aten_inputs = {input};
   auto cg_outputs =
-      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
@@ -7494,7 +7494,7 @@ TEST_F(NVFuserTest, FusionPointwiseBroadcast_CUDA) {
   std::vector<c10::IValue> aten_inputs = {at_x, at_bias};
 
   auto cg_outputs =
-      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 

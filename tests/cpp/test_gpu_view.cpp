@@ -74,7 +74,7 @@ TEST_F(GpuViewTest, FusionViewDtypeSameSizeOutput) {
   std::vector<c10::IValue> aten_inputs = {at_x, at_bias};
 
   auto cg_outputs =
-      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
@@ -189,7 +189,7 @@ TEST_F(GpuViewTest, FusionReshapeOutput) {
   std::vector<c10::IValue> aten_inputs = {at_x, at_bias};
 
   auto cg_outputs =
-      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
@@ -497,7 +497,7 @@ void addViewGeluFusion(
     std::vector<c10::IValue> aten_inputs = {at_x, at_bias};
 
     auto cg_outputs =
-        scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
+        scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
     testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
   }
 }
@@ -563,7 +563,7 @@ void geluViewAddFusion(
     std::vector<c10::IValue> aten_inputs = {at_x, at_bias};
 
     auto cg_outputs =
-        scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
+        scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
     testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
   }
 }
@@ -603,7 +603,7 @@ void geluViewBinaryAddFusion(
     std::vector<c10::IValue> aten_inputs = {at_x, at_bias};
 
     auto cg_outputs =
-        scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
+        scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
     testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
   }
 }
@@ -1206,7 +1206,8 @@ TEST_F(GpuViewTest, FusionReshapeVectorize) {
 
   at::Tensor input = at::randn({256, 256, 256}, options);
 
-  auto cg_outputs = scheduleAndRun(&fusion, SchedulerType::PointWise, {input});
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, {input}).outputs;
   testValidate(&fusion, cg_outputs, {input}, __LINE__, __FILE__);
 
   auto hasVectorization = [](TensorView* tv) -> bool {
@@ -2201,7 +2202,7 @@ TEST_F(GpuViewTest, FusionReshapeZeroDimInput) {
   std::vector<c10::IValue> aten_inputs = {at_x, at_y};
 
   auto cg_outputs =
-      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
@@ -2236,7 +2237,7 @@ TEST_F(GpuViewTest, FusionReshapeZeroDimOutput) {
   std::vector<c10::IValue> aten_inputs = {at_x, at_y, at_z};
 
   auto cg_outputs =
-      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
@@ -2267,7 +2268,7 @@ TEST_F(GpuViewTest, FusionReshapeZeroDimInputOutput) {
   std::vector<c10::IValue> aten_inputs = {at_x, at_y};
 
   auto cg_outputs =
-      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs);
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
