@@ -8,8 +8,9 @@
 #pragma once
 
 #include <exceptions.h>
-#include <ir/all_nodes.h>
+#include <fusion_guard.h>
 #include <ir/builder_passkey.h>
+#include <ir/container.h>
 #include <utils.h>
 #include <visibility.h>
 
@@ -19,7 +20,12 @@ namespace kir {
 class Kernel;
 }
 
+class ArrayConstruct;
 class IrCloner;
+class NamedScalar;
+class StructConstruct;
+class TensorView;
+class Val;
 
 //! IR builder interface
 class IrBuilder {

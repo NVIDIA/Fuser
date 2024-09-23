@@ -77,7 +77,6 @@ endif()
 # nvfuser codegen sources
 set(NVFUSER_SRCS)
 list(APPEND NVFUSER_SRCS
-  ${NVFUSER_SRCS_DIR}/abstract_tensor.cpp
   ${NVFUSER_SRCS_DIR}/alias_analysis.cpp
   ${NVFUSER_SRCS_DIR}/codegen.cpp
   ${NVFUSER_SRCS_DIR}/compute_at.cpp
@@ -131,6 +130,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/fusion_executor/executor_kernel_arg.cpp
   ${NVFUSER_SRCS_DIR}/fusion_executor/executor_params.cpp
   ${NVFUSER_SRCS_DIR}/fusion_executor/executor_utils.cpp
+  ${NVFUSER_SRCS_DIR}/fusion_guard.cpp
   ${NVFUSER_SRCS_DIR}/fusion_segmenter.cpp
   ${NVFUSER_SRCS_DIR}/global_allocator.cpp
   ${NVFUSER_SRCS_DIR}/grouped_reduction.cpp
@@ -204,7 +204,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/rng.cpp
   ${NVFUSER_SRCS_DIR}/logical_domain_map.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/cache_policy_refiner.cpp
-  ${NVFUSER_SRCS_DIR}/scheduler/heuristic_types.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/scheduler_types.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/mark_aliases.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/matmul.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/multi_matmul.cpp
@@ -531,6 +531,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_gpu_utils.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_id_model.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_indexing.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_inlining.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_iter_visitor.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_linked_hash_map.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_loop_rotation.cpp
@@ -649,6 +650,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/tests/cpp/test_matmul_aten_evaluation.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_matmul_sass.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_matmul_scheduler.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_multi_matmul_scheduler.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_mma.cpp
   )
   add_test(test_matmul "${MATMUL_TEST_SRCS}" "")
