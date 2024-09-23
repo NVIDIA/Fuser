@@ -911,6 +911,41 @@ TEST_F(IfThenElseTest, HostIr) {
   }
 }
 
+using ViewTest = NVFuserTest;
+
+TEST_F(ViewTest, SimpleReshape) {
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  auto input = makeContigTensor(2);
+  Val* x = input->axis(0)->extent();
+  Val* y = input->axis(1)->extent();
+  Val* xy = mul(x, y);
+  auto flattened_input = reshape(input, {xy});
+  auto transposed_intput = reshape(flattened_input, {y, x});
+
+  hic->addInput(input);
+  hic->addOutput(flattened_input);
+  hic->addOutput(transposed_intput);
+  hic->pushBackTopLevelExprs(flattened_input->definition());
+  hic->pushBackTopLevelExprs(transposed_intput->definition());
+
+  HostIrExecutor hie(std::move(hic));
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
+  constexpr int64_t kX = 32;
+  constexpr int64_t kY = 64;
+  auto input_aten = at::randn({kX, kY}, options);
+  std::unordered_map<Val*, c10::IValue> concrete_input_buffers = {
+      {input, input_aten}};
+
+  auto outputs = hie.runWithInput(concrete_input_buffers);
+
+  // validate
+  EXPECT_TRUE(outputs[0].equal(at::reshape(input_aten, {kX * kY})));
+  EXPECT_TRUE(outputs[1].equal(at::reshape(input_aten, {kY, kX})));
+}
+
 } // namespace hir
 
 } // namespace nvfuser
