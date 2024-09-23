@@ -20,7 +20,7 @@ namespace nvfuser {
 
 namespace {
 
-std::vector<c10::cuda::CUDAStream> CreateStreams(
+std::vector<c10::cuda::CUDAStream> createStreams(
     int64_t number_of_streams,
     int64_t my_device_index) {
   std::vector<c10::cuda::CUDAStream> streams;
@@ -32,7 +32,7 @@ std::vector<c10::cuda::CUDAStream> CreateStreams(
   return streams;
 }
 
-void SynchronizeStreams(const std::vector<c10::cuda::CUDAStream>& streams) {
+void synchronizeStreams(const std::vector<c10::cuda::CUDAStream>& streams) {
   std::for_each(streams.begin(), streams.end(), [](const auto& stream) {
     stream.synchronize();
   });
@@ -260,7 +260,7 @@ TEST_F(
     CollectiveBasedOverlapTest,
     ReduceScatterBasedPipeliningATenImplementation) {
   std::vector<c10::cuda::CUDAStream> streams =
-      CreateStreams(params.number_of_streams, my_device_index_);
+      createStreams(params.number_of_streams, my_device_index_);
 
   for ([[maybe_unused]] const auto& _ :
        c10::irange(params.number_of_iterations)) {
@@ -282,7 +282,7 @@ TEST_F(
           ->wait();
     }
   }
-  SynchronizeStreams(streams);
+  synchronizeStreams(streams);
 }
 
 TEST_F(
@@ -418,7 +418,7 @@ TEST_P(
     RingBasedOverlapTest,
     ReduceScatterRingBasedPipeliningATenImplementation) {
   std::vector<c10::cuda::CUDAStream> streams =
-      CreateStreams(params.number_of_streams, my_device_index_);
+      createStreams(params.number_of_streams, my_device_index_);
 
   ASSERT_EQ(params.S % num_devices_, 0);
   int64_t& number_of_steps_per_ring = num_devices_;
@@ -499,7 +499,7 @@ TEST_P(
         }
       }
     }
-    SynchronizeStreams(streams);
+    synchronizeStreams(streams);
     auto tc_reshaped =
         tc_.reshape({number_of_rings, params.M / params.S, params.N});
     torch::sum_out(tc_reshaped, dst_buffer_reshaped, 0);
