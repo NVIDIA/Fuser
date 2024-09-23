@@ -9,13 +9,8 @@
 #include <gtest/gtest.h>
 
 #include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
 
 #include <abstract_tensor.h>
-#include <abstract_tensor_schedule.h>
-#include <executor.h>
-#include <inlining.h>
-#include <ops/all_ops.h>
 
 namespace nvfuser {
 
