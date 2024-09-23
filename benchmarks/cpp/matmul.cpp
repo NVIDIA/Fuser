@@ -7,8 +7,8 @@
 // clang-format on
 #include <csrc/exceptions.h>
 #include <device_lower/analysis/bank_conflict.h>
-#include <executor.h>
 #include <fusion.h>
+#include <fusion_executor/executor.h>
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
 #include <ops/all_ops.h>
@@ -44,7 +44,7 @@ bool hasRequiredSmemSize(size_t required_size) {
 
 // TODO: separate compute and schedule definition once the can schedule
 //  logic and pattern matching is ready.
-void setupMatmul(Fusion* fusion, MmaLayout layout, MatmulParams params) {
+void setupMatmul(Fusion* fusion, MmaLayout layout, MatmulParams* mparams) {
   // Only hgemm on the initial setup
   auto a = makeContigTensor(2, DataType::Half);
   auto b = makeContigTensor(2, DataType::Half);
@@ -63,7 +63,7 @@ void setupMatmul(Fusion* fusion, MmaLayout layout, MatmulParams params) {
 
   preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(fusion);
 
-  scheduleMatmul(fusion, params);
+  scheduleMatmul(fusion, mparams);
 }
 
 void checkMatch(at::Tensor expect, at::Tensor result, int64_t k) {
@@ -143,7 +143,7 @@ PrimDataType computeIndexType(int m, int n, int k) {
 static void SingleMatmulBase(
     benchmark::State& benchmark_state,
     MmaLayout layout,
-    MatmulParams params) {
+    MatmulParams* mparams) {
   int64_t m = benchmark_state.range(0);
   int64_t n = benchmark_state.range(1);
   int64_t k = benchmark_state.range(2);
@@ -161,7 +161,7 @@ static void SingleMatmulBase(
   FusionGuard fg(fusion);
 
   // Define fusion graph
-  setupMatmul(fusion, layout, params);
+  setupMatmul(fusion, layout, mparams);
 
   KernelArgumentHolder args = KernelArgumentHolder::createKernelArgumentHolder(
       {inputs.first, inputs.second});
@@ -299,7 +299,7 @@ int computeAutoSplitKFactor(
 static void SingleMatmulPartitionedK(
     benchmark::State& benchmark_state,
     MmaLayout layout,
-    MatmulParams params,
+    MatmulParams* mparams,
     int64_t splitk_factor) {
   int64_t M = benchmark_state.range(0);
   int64_t N = benchmark_state.range(1);
@@ -334,7 +334,7 @@ static void SingleMatmulPartitionedK(
 
   fusion->addOutput(c);
 
-  scheduleMatmul(fusion, params);
+  scheduleMatmul(fusion, mparams);
 
   at::Tensor aten_a = matmulAtInput2D(
       layout, TensorMatmulPos::A, at::kHalf, M, N, Ki, splitk_factor);
@@ -388,16 +388,16 @@ static void NvFuserScheduler_Matmul(
   int k_stages = ceilDiv(benchmark_state.range(2), cta_tile.k);
   int number_of_stage = std::min(k_stages, (int)benchmark_state.range(4));
 
-  auto params = getMatmulParams(
+  auto mparams = getMatmulParams(
       cta_tile, number_of_stage, layout, partitionedk ? 1 : splitk_factor);
   if (use_smem_epilogue) {
-    if (!params.use_smem_epilogue) {
+    if (!mparams.use_smem_epilogue) {
       benchmark_state.SkipWithError(
           "Insufficient shared mem for smem epilogue");
     }
   } else {
-    params.use_smem_epilogue = false;
-    params.promote_prologue_smem_reuse = false;
+    mparams.use_smem_epilogue = false;
+    mparams.promote_prologue_smem_reuse = false;
   }
 
   NVFUSER_BENCHMARK_ARCH_SMEM_GUARD(
@@ -405,9 +405,9 @@ static void NvFuserScheduler_Matmul(
 
   // Run benchmark:
   if (partitionedk) {
-    SingleMatmulPartitionedK(benchmark_state, layout, params, splitk_factor);
+    SingleMatmulPartitionedK(benchmark_state, layout, &mparams, splitk_factor);
   } else {
-    SingleMatmulBase(benchmark_state, layout, params);
+    SingleMatmulBase(benchmark_state, layout, &mparams);
   }
 }
 
@@ -444,10 +444,10 @@ static void NvFuserScheduler_MatmulSplitKReduction(
   auto aten_c = at::randn({M, N, splitk_factor}, options);
   std::vector<c10::IValue> aten_inputs = {aten_c};
 
-  auto reduction_params = getReductionHeuristics(fusion, aten_inputs);
-  NVF_CHECK(reduction_params, "Reduction schedule failed");
-  scheduleReduction(fusion, *reduction_params);
-  auto lparams = reduction_params->lparams; // copy LaunchParams
+  auto rparams = getReductionHeuristics(fusion, aten_inputs);
+  NVF_CHECK(rparams, "Reduction schedule failed");
+  scheduleReduction(fusion, rparams.get());
+  auto lparams = rparams->lparams; // copy LaunchParams
 
   auto expected_output = aten_c.to(at::kDouble).sum(-1);
 

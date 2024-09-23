@@ -77,7 +77,7 @@ class AllocationInserter : public kir::ExprMutator {
           }
         }
       }
-      NVF_ERROR(false, "Could not find desired loop.");
+      NVF_THROW("Could not find desired loop.");
     };
 
     if (info.init_for_loop == nullptr) {
@@ -599,8 +599,7 @@ class AllocationInserter : public kir::ExprMutator {
   }
 
   void handle(kir::IfThenElse*) final {
-    NVF_ERROR(
-        false,
+    NVF_THROW(
         "Pass does not support conditional statements, ",
         "this pass should be run before any conditionals are placed in code.");
   }

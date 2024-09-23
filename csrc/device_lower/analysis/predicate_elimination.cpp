@@ -988,8 +988,7 @@ bool PredicateElimination::setReductionInitValue(
   } else if (existing_val->sameAs(reduction_init)) {
     return true;
   } else {
-    NVF_ERROR(
-        false,
+    NVF_THROW(
         "Inconsistent setting of initialization value for t",
         tv->name(),
         ". Prev: ",
@@ -1069,7 +1068,7 @@ std::string PredicateElimination::toString() const {
       } else if (auto tv = dynamic_cast<TensorView*>(out)) {
         non_predicated_tvs.pushBack(tv);
       } else {
-        NVF_ERROR(false, "Unexpected output ", out, " in ", expr);
+        NVF_THROW("Unexpected output ", out, " in ", expr);
       }
     }
   }

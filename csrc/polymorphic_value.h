@@ -272,8 +272,7 @@ inline PolymorphicValue signbit(const PolymorphicValue& a) {
   if (a.is<at::Tensor>()) {
     return PolymorphicValue(a.as<at::Tensor>().signbit());
   }
-  NVF_ERROR(
-      false, "PolymorphicValue signbit not implemented for ", a.type().name());
+  NVF_THROW("PolymorphicValue signbit not implemented for ", a.type().name());
 }
 
 inline PolymorphicValue fmod(
@@ -310,8 +309,7 @@ inline PolymorphicValue fmod(
       return PolymorphicValue(a.as<at::Tensor>().fmod(b.as<at::Tensor>()));
     }
   }
-  NVF_ERROR(
-      false,
+  NVF_THROW(
       "PolymorphicValue fmod not implemented for ",
       a.type().name(),
       " , ",
@@ -367,16 +365,14 @@ inline PolymorphicValue abs(const PolymorphicValue& a) {
   if (a.is<at::Tensor>()) {
     return a.as<at::Tensor>().abs();
   }
-  NVF_ERROR(
-      false, "PolymorphicValue abs not implemented for ", a.type().name());
+  NVF_THROW("PolymorphicValue abs not implemented for ", a.type().name());
 }
 
 inline PolymorphicValue erf(const PolymorphicValue& a) {
   if (a.is<at::Tensor>()) {
     return PolymorphicValue(a.as<at::Tensor>().erf());
   }
-  NVF_ERROR(
-      false, "PolymorphicValue erf not implemented for ", a.type().name());
+  NVF_THROW("PolymorphicValue erf not implemented for ", a.type().name());
 }
 
 // Convert scalars, vector of scalars, vector of vector of scalars, etc., into
@@ -417,8 +413,7 @@ inline PolymorphicValue toTensor(
     }
     return PolymorphicValue(at::stack(tensors));
   }
-  NVF_ERROR(
-      false, "PolymorphicValue toTensor not implemented for ", x.type().name());
+  NVF_THROW("PolymorphicValue toTensor not implemented for ", x.type().name());
 }
 
 // Convert PolymorphicValue to c10::Scalar.

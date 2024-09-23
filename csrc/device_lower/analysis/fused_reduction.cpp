@@ -161,8 +161,7 @@ class FusionInspector : private IterVisitor {
       } else if (preceding_expr->isA<WelfordOp>()) {
         fusion_list_.emplace_back(preceding_expr->as<WelfordOp>(), true);
       } else {
-        NVF_ERROR(
-            false, "Invalid preceding expr: ", preceding_expr->toString());
+        NVF_THROW("Invalid preceding expr: ", preceding_expr->toString());
       }
 
       fused_exprs_.insert(preceding_expr);
@@ -307,7 +306,7 @@ class FusionTransformer {
             op_types, init_vals, outputs, inputs, true);
       } else {
         NVF_ERROR(expr != nullptr);
-        NVF_ERROR(false, "Invalid expr: ", expr->toString());
+        NVF_THROW("Invalid expr: ", expr->toString());
       }
 
       NVF_ERROR(fused_expr != nullptr);

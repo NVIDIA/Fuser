@@ -421,7 +421,7 @@ TEST_F(CombinedSchedulerTest, SharedProducer) {
         fusion.addOutput(use_producer_2);
       } break;
       default:
-        NVF_ERROR(false, "Invalid case id");
+        NVF_THROW("Invalid case id");
     }
 
     fusion.addOutput(layer_norm_results.grad_input);
@@ -464,7 +464,7 @@ TEST_F(CombinedSchedulerTest, SharedProducer) {
         EXPECT_FALSE(runtime->isSegmented());
         break;
       default:
-        NVF_ERROR(false, "Invalid case id");
+        NVF_THROW("Invalid case id");
     }
 
     auto tolerance_overwrite = ValidationConstants();
@@ -910,15 +910,16 @@ TEST_F(CombinedSchedulerTest, InnerOuterNoOuterBroadcastTv) {
   at::Tensor t0 = at::randn({dim0, dim1}, options);
   std::vector<c10::IValue> aten_inputs = {t0};
 
-  auto heuristic =
+  auto persistent_params =
       getInnerOuterPersistentHeuristics(fusion_ptr.get(), aten_inputs);
-  NVF_CHECK(heuristic, "InnerOuterPersistentHeuristics was not generated!");
   NVF_CHECK(
-      !heuristic->project_persistent_buffers,
+      persistent_params, "InnerOuterPersistentHeuristics was not generated!");
+  NVF_CHECK(
+      !persistent_params->project_persistent_buffers,
       "Shouldn't project persistent buffers to inputs!");
 
-  scheduleInnerOuterPersistentKernel(fusion_ptr.get(), *heuristic);
-  auto lparams = heuristic->lparams;
+  scheduleInnerOuterPersistentKernel(fusion_ptr.get(), persistent_params.get());
+  auto lparams = persistent_params->lparams;
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs, lparams);
   auto cg_outputs = fe.runFusion(aten_inputs, lparams);

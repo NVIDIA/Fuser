@@ -32,6 +32,7 @@ namespace nvfuser {
 using IndexingTest = NVFuserTest;
 using PredicateIndexingTest = NVFuserFixtureParamTest<bool>;
 using ContigIndexingTest = NVFuserTest;
+using ContigPredicateIndexingTest = NVFuserTest;
 
 namespace {
 
@@ -528,7 +529,7 @@ TEST_F(IndexingTest, SimplePointwise1) {
                   tv->getLogicalDomain().at(1)->extent()));
         }
         default:
-          NVF_ERROR(false, "Unexpected tensor: ", tv->toString());
+          NVF_THROW("Unexpected tensor: ", tv->toString());
           break;
       }
       return nullptr;
@@ -616,7 +617,7 @@ TEST_F(IndexingTest, SimplePointwise2) {
           return global_ref;
         }
         default:
-          NVF_ERROR(false, "Unexpected tensor: ", tv->toString());
+          NVF_THROW("Unexpected tensor: ", tv->toString());
           break;
       }
     }
@@ -663,7 +664,7 @@ TEST_F(IndexingTest, SimpleReduction) {
           return loop_indices.at(0);
         }
         default:
-          NVF_ERROR(false, "Unexpected tensor: ", tv->toString());
+          NVF_THROW("Unexpected tensor: ", tv->toString());
           // gcc v11.4 requires this return statement
           return nullptr;
       }
@@ -842,7 +843,7 @@ TEST_F(IndexingTest, Reshape) {
         const override {
       switch (tv->name()) {
         case 0: {
-          // It isn't straightforward to do structual checking as the other
+          // It isn't straightforward to do structural checking as the other
           // tests since there's no particular rule about which domain is used
           // to provide the extent of the group. However, since everything
           // should be deterministic, string match should also work.
@@ -887,7 +888,7 @@ TEST_F(IndexingTest, SimpleBroadcast1) {
           return loop_indices.at(0);
         }
         default:
-          NVF_ERROR(false);
+          NVF_THROW();
       }
     }
   };
@@ -915,8 +916,8 @@ TEST_F(IndexingTest, SimpleBroadcast2) {
 
   // The first merge of the logical domains should be a trivial merge,
   // i.e., a merge with a extent-one domain. Thus, the indexing
-  // travesal should return "x + y * 4", where x and y are the loop
-  // indices, respecitvely.
+  // traversal should return "x + y * 4", where x and y are the loop
+  // indices, respectively.
 
   struct GetReference : AbstractGetReference {
     GetReference(const TensorIndexer& indexer, const IdModel& id_model)
@@ -947,7 +948,7 @@ TEST_F(IndexingTest, SimpleBroadcast2) {
               loop_indices.at(1));
         }
         default:
-          NVF_ERROR(false);
+          NVF_THROW();
       }
     }
   };
@@ -1010,7 +1011,7 @@ TEST_F(IndexingTest, SimpleBroadcast3) {
           return tv->fusion()->zeroVal();
         }
         default:
-          NVF_ERROR(false);
+          NVF_THROW();
       }
     }
   };
@@ -1266,7 +1267,7 @@ TEST_F(IndexingTest, MultiDevice2DTranspose) {
               loop_indices.at(2));
         }
         default:
-          NVF_ERROR(false);
+          NVF_THROW();
       }
     }
   };
@@ -1827,7 +1828,7 @@ TEST_F(IndexingTest, ResizePath) {
   // (i.e., iS4) to the inner allocation domain of tv0 (i.e.,
   // iS1). One is through the resize of tv1 itself, but the resize for
   // tv2 can also allow traversal reaching iS1 from iS4 since iS7 is
-  // mapped with iS7. In this case, indexng tv0 for tv1 needs to use
+  // mapped with iS7. In this case, indexing tv0 for tv1 needs to use
   // the resize for tv1 and ignore the other resize. Similarly when
   // indexing tv0 as the producer of tv2, the resize of tv2 needs to
   // be used.
@@ -1949,8 +1950,7 @@ TEST_F(IndexingTest, DoubleBuffering1) {
                     mulExpr(loop_indices.at(1), tv->axis(2)->extent()),
                     loop_indices.at(2)));
           } else {
-            NVF_ERROR(
-                false,
+            NVF_THROW(
                 "Unexpected circular buffer stage: ",
                 circular_buffer_loop_stage_);
           }
@@ -2053,8 +2053,7 @@ TEST_F(IndexingTest, DoubleBuffering4) {
                       tv->axis(3)->extent()),
                   loop_indices.at(3));
             } else {
-              NVF_ERROR(
-                  false, "Unexpected stage: ", circular_buffer_loop_stage_);
+              NVF_THROW("Unexpected stage: ", circular_buffer_loop_stage_);
             }
           } else {
             return nullptr;
@@ -2070,8 +2069,7 @@ TEST_F(IndexingTest, DoubleBuffering4) {
               return modExpr(
                   addExpr(loop_indices.at(2), createInt(1)), createInt(2));
             } else {
-              NVF_ERROR(
-                  false, "Unexpected stage: ", circular_buffer_loop_stage_);
+              NVF_THROW("Unexpected stage: ", circular_buffer_loop_stage_);
             }
           } else {
             if (circular_buffer_loop_stage_ == CircularBufferLoopStage::Main) {
@@ -2082,8 +2080,7 @@ TEST_F(IndexingTest, DoubleBuffering4) {
               return modExpr(
                   subExpr(tv->axis(2)->extent(), createInt(1)), createInt(2));
             } else {
-              NVF_ERROR(
-                  false, "Unexpected stage: ", circular_buffer_loop_stage_);
+              NVF_THROW("Unexpected stage: ", circular_buffer_loop_stage_);
             }
           }
         }
@@ -2175,8 +2172,7 @@ TEST_F(IndexingTest, DoubleBuffering6) {
                       mulExpr(loop_indices.at(3), createInt(16))),
                   loop_indices.at(4));
             } else {
-              NVF_ERROR(
-                  false, "Unexpected stage: ", circular_buffer_loop_stage_);
+              NVF_THROW("Unexpected stage: ", circular_buffer_loop_stage_);
             }
           } else {
             return nullptr;
@@ -2204,8 +2200,7 @@ TEST_F(IndexingTest, DoubleBuffering6) {
                       tv->axis(2)->extent(), tv->axis(3)->extent()));
               return addExpr(base_offset, buffer_offset);
             } else {
-              NVF_ERROR(
-                  false, "Unexpected stage: ", circular_buffer_loop_stage_);
+              NVF_THROW("Unexpected stage: ", circular_buffer_loop_stage_);
             }
           } else {
             if (circular_buffer_loop_stage_ == CircularBufferLoopStage::Main) {
@@ -2231,8 +2226,7 @@ TEST_F(IndexingTest, DoubleBuffering6) {
                       tv->axis(2)->extent(), tv->axis(3)->extent()));
               return addExpr(base_offset, buffer_offset);
             } else {
-              NVF_ERROR(
-                  false, "Unexpected stage: ", circular_buffer_loop_stage_);
+              NVF_THROW("Unexpected stage: ", circular_buffer_loop_stage_);
             }
           }
         }
@@ -2320,8 +2314,7 @@ TEST_F(IndexingTest, CircularBuffering1) {
                     mulExpr(loop_indices.at(1), tv->axis(2)->extent()),
                     loop_indices.at(2)));
           } else {
-            NVF_ERROR(
-                false,
+            NVF_THROW(
                 "Unexpected circular buffer stage: ",
                 circular_buffer_loop_stage_);
           }
@@ -2447,8 +2440,7 @@ TEST_F(IndexingTest, CircularBuffering2) {
                       mulExpr(loop_indices.at(3), createInt(16))),
                   loop_indices.at(4));
             } else {
-              NVF_ERROR(
-                  false, "Unexpected stage: ", circular_buffer_loop_stage_);
+              NVF_THROW("Unexpected stage: ", circular_buffer_loop_stage_);
             }
           } else {
             return nullptr;
@@ -2479,8 +2471,7 @@ TEST_F(IndexingTest, CircularBuffering2) {
                       tv->axis(2)->extent(), tv->axis(3)->extent()));
               return addExpr(base_offset, buffer_offset);
             } else {
-              NVF_ERROR(
-                  false, "Unexpected stage: ", circular_buffer_loop_stage_);
+              NVF_THROW("Unexpected stage: ", circular_buffer_loop_stage_);
             }
           } else {
             if (circular_buffer_loop_stage_ == CircularBufferLoopStage::Main) {
@@ -2504,8 +2495,7 @@ TEST_F(IndexingTest, CircularBuffering2) {
                       tv->axis(2)->extent(), tv->axis(3)->extent()));
               return addExpr(base_offset, buffer_offset);
             } else {
-              NVF_ERROR(
-                  false, "Unexpected stage: ", circular_buffer_loop_stage_);
+              NVF_THROW("Unexpected stage: ", circular_buffer_loop_stage_);
             }
           }
         }
@@ -2699,7 +2689,7 @@ TEST_F(PredicateIndexingTest, SimpleUnroll) {
     // (blockIdx.x * 4 + 0) * 128 + threadId.x >= 0 &&
     // (blockIdx.x * 4 + 3) * 128 + threadId.x < tv0.logical_size[0]
     //
-    // Note that "+ 0" remains since a symboic Val is just replaced
+    // Note that "+ 0" remains since a symbolic Val is just replaced
     // with zero.
     Val* getOuterPredicate(TensorView* tv) const override {
       std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
@@ -3009,8 +2999,8 @@ TEST_F(PredicateIndexingTest, DoubleBuffering1) {
       auto circular_buffer_index = for_loops_.at(0)->index();
 
       if (circular_buffer_loop_stage_ == CircularBufferLoopStage::Prolog) {
-        // 0 * 128 + bidx.x * 32 + tid.x >= 0 &&
-        // 0 * 128 + bidx.x * 32 + tid.x < N
+        // 0 * 128 + bidx.x * 32 + tidx.x >= 0 &&
+        // 0 * 128 + bidx.x * 32 + tidx.x < N
         // NOTE: Expression Simplification is disabled in
         // PredicateIndexValidator, so trivial index expression appears in the
         // expression.
@@ -3024,8 +3014,8 @@ TEST_F(PredicateIndexingTest, DoubleBuffering1) {
             geExpr(idx, tv->fusion()->zeroVal()),
             ltExpr(idx, tv->getLogicalDomain().at(0)->extent()));
       } else {
-        // (i + 1) * 128 + bidx.x * 32 + tid.x >= 0 &&
-        // (i + 1) * 128 + bidx.x * 32 + tid.x < N
+        // (i + 1) * 128 + bidx.x * 32 + tidx.x >= 0 &&
+        // (i + 1) * 128 + bidx.x * 32 + tidx.x < N
         auto idx = addExpr(
             mulExpr(
                 addExpr(circular_buffer_index, tv->fusion()->oneVal()),
@@ -3115,16 +3105,16 @@ TEST_F(PredicateIndexingTest, CircularBuffering1) {
 
       Val* idx = nullptr;
       if (circular_buffer_loop_stage_ == CircularBufferLoopStage::Prolog) {
-        // i * 128 + bidx.x * 32 + tid.x >= 0 &&
-        // i * 128 + bidx.x * 32 + tid.x < N
+        // i * 128 + bidx.x * 32 + tidx.x >= 0 &&
+        // i * 128 + bidx.x * 32 + tidx.x < N
         idx = addExpr(
             mulExpr(circular_buffer_index, createInt(128)),
             addExpr(
                 mulExpr(loop_indices.at(1), tv->axis(2)->extent()),
                 loop_indices.at(2)));
       } else {
-        // (i + 3) * 128 + bidx.x * 32 + tid.x >= 0 &&
-        // (i + 3) * 128 + bidx.x * 32 + tid.x < N
+        // (i + 3) * 128 + bidx.x * 32 + tidx.x >= 0 &&
+        // (i + 3) * 128 + bidx.x * 32 + tidx.x < N
         idx = addExpr(
             mulExpr(
                 addExpr(circular_buffer_index, createInt(3)), createInt(128)),
@@ -3343,7 +3333,7 @@ TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering1) {
 
   // [I0/4/1, 1, 4]
   //          ^  ^
-  //          |  +-- circular bufer
+  //          |  +-- circular buffer
   //          |
   //          +-- unswitch
   tv1->circularBuffer(/*number_of_stages=*/2);
@@ -3956,7 +3946,7 @@ TEST_F(PredicateIndexingTest, NonDivisibleSplitWithCircularBuffering) {
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
-// Non divisible split with unswitched circularing. The non divisible
+// Non divisible split with unswitched circular buffering. The non divisible
 // predicate should only use the one generated from the main loop and
 // the one from the prolog loop should not appear in the unswitch
 // predicate.
@@ -4158,7 +4148,7 @@ TEST_P(PredicateIndexingTest, UnswitchPredicateIssueRepro681) {
 // its required unswitch predicates should be generated from its
 // indexing path, not its logical to loop dependencies. In this test,
 // the tv2 transformation has an non-divisible split that needs to be
-// predicated, but since it's inline into tv3, the acual non-divisible
+// predicated, but since it's inline into tv3, the actual non-divisible
 // split should be based on tv3.
 TEST_F(PredicateIndexingTest, NonDivisibleSplitWithUnswitchAndBroadcast) {
   Fusion fusion;
@@ -4483,7 +4473,7 @@ TEST_F(ContigIndexingTest, SimplePointwise) {
               loop_indices.at(1));
         }
         default:
-          NVF_ERROR(false, "Unexpected tensor: ", tv->toString());
+          NVF_THROW("Unexpected tensor: ", tv->toString());
           break;
       }
       return nullptr;
@@ -4559,7 +4549,7 @@ TEST_F(ContigIndexingTest, NonContigInnermost) {
               loop_indices.at(1));
         }
         default:
-          NVF_ERROR(false, "Unexpected tensor: ", tv->toString());
+          NVF_THROW("Unexpected tensor: ", tv->toString());
           break;
       }
       return nullptr;
@@ -4624,7 +4614,7 @@ TEST_F(ContigIndexingTest, BroadcastInlining) {
           return loop_indices.at(0);
         }
         default:
-          NVF_ERROR(false, "Unexpected tensor: ", tv->toString());
+          NVF_THROW("Unexpected tensor: ", tv->toString());
           break;
       }
       return nullptr;
@@ -4692,7 +4682,7 @@ TEST_F(ContigIndexingTest, Resize) {
         case 2:
           return loop_indices.at(0);
         default:
-          NVF_ERROR(false, "Unexpected tensor: ", tv->toString());
+          NVF_THROW("Unexpected tensor: ", tv->toString());
           break;
       }
       return nullptr;
@@ -4848,6 +4838,235 @@ TEST_F(ContigIndexingTest, ConcretizedBroadcastMerge) {
   auto cg_outputs = fe.runFusion(aten_inputs);
 
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+}
+
+TEST_F(ContigPredicateIndexingTest, SimplePointwise1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
+  fusion.addOutput(tv2);
+
+  // Merge inner and outer, not outer and inner. This would disable
+  // contig indexing for normal tensor indexing but shouldn't matter
+  // for predicate indexing
+  tv2->merge(1, 0);
+  tv2->split(0, 4);
+
+  TransformPropagator propagator(tv2);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
+
+  tv1->inlineAt(1);
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    Val* getInlinePredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+
+      auto flatten_idx = addExpr(
+          mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
+          loop_indices.at(1));
+
+      // Since the flatten merge is ordered as inner then outer, the
+      // extent is inner_extent * outer_extent
+      auto flatten_extent = mulExpr(
+          tv->getLogicalDomain().at(1)->extent(),
+          tv->getLogicalDomain().at(0)->extent());
+
+      Val* zero = tv->fusion()->zeroVal();
+      return andExpr(
+          geExpr(flatten_idx, zero), ltExpr(flatten_idx, flatten_extent));
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion, true);
+}
+
+// Almost the same fusion as PredicateIndexingTest.SimpleUnswitch
+TEST_F(ContigPredicateIndexingTest, SimpleUnswitch) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv1);
+
+  auto tv2 = add(tv0, tv1);
+  fusion.addOutput(tv2);
+
+  tv0->cacheAfter();
+  tv1->cacheAfter();
+
+  tv2->flatten();
+  // For TIDx
+  tv2->split(0, 128);
+  // For serial
+  tv2->split(0, 8);
+  // For unswitch
+  tv2->split(0, 4);
+
+  TransformPropagator propagator(tv2);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
+
+  inlineMost();
+
+  tv2->axis(0)->parallelize(ParallelType::BIDx);
+  tv2->axis(1)->parallelize(ParallelType::Unswitch);
+  tv2->axis(3)->parallelize(ParallelType::TIDx);
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    // The unswitch predicate should look like:
+    //
+    // (((blockIdx.x * 4 + 0) * 8 + 0) * 128 + threadId.x >= 0 &&
+    // (((blockIdx.x * 4 + 3) * 8 + 7) * 128 + threadId.x <
+    // tv0.logical_size[0] * tv0.logical_size[1]
+    Val* getOuterPredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+      auto start_idx = addExpr(
+          mulExpr(
+              IrBuilder::addExpr(
+                  mulExpr(
+                      IrBuilder::addExpr(
+                          mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
+                          tv->fusion()->zeroVal()),
+                      tv->axis(2)->extent()),
+                  tv->fusion()->zeroVal()),
+              tv->axis(3)->extent()),
+          loop_indices.at(3));
+      auto stop_idx = addExpr(
+          mulExpr(
+              IrBuilder::addExpr(
+                  mulExpr(
+                      IrBuilder::addExpr(
+                          mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
+                          subExpr(
+                              tv->axis(1)->extent(), tv->fusion()->oneVal())),
+                      tv->axis(2)->extent()),
+                  subExpr(tv->axis(2)->extent(), tv->fusion()->oneVal())),
+              tv->axis(3)->extent()),
+          loop_indices.at(3));
+
+      return andExpr(
+          geExpr(start_idx, tv->fusion()->zeroVal()),
+          ltExpr(
+              stop_idx,
+              mulExpr(
+                  tv->getLogicalDomain().at(0)->extent(),
+                  tv->getLogicalDomain().at(1)->extent())));
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion, true);
+}
+
+// Make sure non-divisible split to prevent contig predicate indexing
+TEST_F(ContigPredicateIndexingTest, NonDivisibleSplit1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+
+  // [I0, I1] -> [I0/5, 5, I1]
+  auto tv1 = reshape(tv0, {10, 20}, {2, 5, 20});
+  fusion.addOutput(tv1);
+
+  auto tv2 = set(tv0);
+  fusion.addOutput(tv2);
+
+  // Merge first one of the split outputs with the innermost. Since
+  // the split for the reshape is guaranteed to be divisible, the
+  // output domain of the last merge should be the one to predicate
+  tv1->merge(1, 2);
+  tv1->merge(0, 1);
+
+  // While the transformations are the same as tv1, nvFuser doesn't
+  // know the corresponding split is actually divisible (note that the
+  // split for tv1 is an outer split by a factor of 2, whereas the
+  // split for tv2 is an inner split by a factor of 5), so it's
+  // considered non-divisible. The resulting predication should be done
+  // with each of the two logical domains.
+  tv2->split(0, 5);
+  // [ceilDiv(I0, 5), 5, I1]
+  // Merge first one of the split outputs with the innermost
+  tv2->merge(1, 2);
+  tv2->merge(0, 1);
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    Val* getInlinePredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+      auto zero = tv->fusion()->zeroVal();
+
+      // For tv1, since it's fully contiguous, the predicate should be
+      // just:
+      //
+      // i >= 0 && i < I0 * I1
+      //
+      // where i is the loop index of the sole loop.
+      //
+      // For tv2, since it isn't contiguous:
+      //
+      // I0: i / (5 * I1) * 5 + i % (5 * I1) / I1
+      // I1: i % (5 * I1) % I1
+
+      auto i = loop_indices.at(0);
+
+      if (tv->name() == 1) {
+        return andExpr(
+            geExpr(i, zero),
+            ltExpr(
+                i,
+                IrBuilder::mulExpr(
+                    tv->getLogicalDomain().at(0)->extent(),
+                    IrBuilder::mulExpr(
+                        tv->getLogicalDomain().at(1)->extent(),
+                        tv->getLogicalDomain().at(2)->extent()))));
+      } else {
+        NVF_ERROR(tv->name() == 2);
+
+        auto i0_ext = tv->getLogicalDomain().at(0)->extent();
+        auto i1_ext = tv->getLogicalDomain().at(1)->extent();
+        auto five_i1 = IrBuilder::mulExpr(createInt(5), i1_ext);
+        auto i0 = addExpr(
+            mulExpr(divExpr(i, five_i1), createInt(5)),
+            divExpr(modExpr(i, five_i1), i1_ext));
+        auto i1 = modExpr(modExpr(i, five_i1), i1_ext);
+        return andExpr(
+            andExpr(
+                andExpr(geExpr(i0, zero), ltExpr(i0, i0_ext)),
+                geExpr(i1, zero)),
+            ltExpr(i1, i1_ext));
+      }
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion, true);
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({10, 20}, options);
+  std::vector<c10::IValue> aten_inputs = {t0};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto outputs = fe.runFusion(aten_inputs);
+
+  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(IndexingTest, PerDimLogicalIndices) {

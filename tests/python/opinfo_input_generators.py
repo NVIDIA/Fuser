@@ -898,7 +898,7 @@ def pad_error_generator(
     delete_all_pad_width = [-3, 0, 0, 0]
     yield SampleInput(
         make_arg(input_shape), delete_all_pad_width, make_number(dtype)
-    ), RuntimeError, "extent_int >= 0"
+    ), RuntimeError, "Invalid resized domain extent"
 
     too_many_pad_width = [1, 1, 1, 1, 1, 1]
     yield SampleInput(
@@ -1153,17 +1153,17 @@ def slice_error_generator(
 
     check_start_indices = ErrorSample(
         {"start_indices": [-1, -2], "end_indices": [5, 5], "strides": [7, 7]},
-        "Slice operation start_indices must be greater-than-or-equal-to 0.",
+        "Slice operation start_indices must be greater than or equal to 0.",
     )
 
     check_end_indices = ErrorSample(
         {"start_indices": [3, 4], "end_indices": [1, 2], "strides": [1, 1]},
-        "Slice operation end_indices must be greater-than-or-equal-to start_indices.",
+        "Slice operation end_indices must be greater than or equal to start_indices.",
     )
 
     check_strides = ErrorSample(
         {"start_indices": [0, 0], "end_indices": [5, 5], "strides": [5, 5]},
-        "nvFuser Limitation: All slice operation strides must be of size 1.",
+        "nvFuser Limitation: All slice operation strides must be of const size 1.",
     )
 
     check_tensor_dims = ErrorSample(

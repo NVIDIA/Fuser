@@ -7,15 +7,15 @@
 // clang-format on
 #pragma once
 #include <exceptions.h>
-#include <executor_kernel_arg.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
+#include <fusion_executor/executor_kernel_arg.h>
 #include <scheduler/compile_time_info.h>
 #include <scheduler/heuristic.h>
-#include <scheduler/heuristic_types.h>
 #include <scheduler/matmul_heuristic.h>
 #include <scheduler/pointwise_heuristic.h>
 #include <scheduler/reduction_heuristic.h>
+#include <scheduler/scheduler_types.h>
 #include <scheduler/transpose_heuristic.h>
 #include <scheduler/utils.h>
 #include <utils.h>
@@ -25,6 +25,7 @@ namespace nvfuser {
 
 class SegmentedGroup;
 class ExpressionEvaluator;
+class FusionKernelRuntime;
 
 //!  SchedulerRuntimeInfo is the abstraction introduced in
 //! this PR for passing runtime input dependent information
@@ -170,7 +171,7 @@ class SchedulerRuntimeInfo : public NonCopyable {
   std::unordered_map<TensorView*, size_t> vectorword_map_;
 };
 
-class HeuristicSummary;
+class HeuristicDataCache;
 
 //! Virtual base class for schedule heuristics
 //!   heuristic implementations derive from this
@@ -178,96 +179,60 @@ class HeuristicSummary;
 //!   and a bool canSchedule(Fusion*) interface
 class SchedulerEntry {
  public:
-  //! Fusion runtime facing API,
-  //!   builds a new entry with the given heuristics
-  //!   corresponding to the given fusion
-  NVF_API static std::unique_ptr<SchedulerEntry> makeEntry(
-      ScheduleHeuristic sh,
-      Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
-
   virtual ~SchedulerEntry() = default;
-
-  //! External access for canSchedule utilities through SchedulerEntry
-  //!  to avoid exposing a single function to the namespace
-  NVF_API static bool canSchedule(
-      ScheduleHeuristic sh,
-      Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
-
-  //! Fusion segmenter facing API,
-  //!   returns a schedule that applies in the given fusion, returns a nullopt
-  //!   if no schedule in the registry can handle.
-  static std::optional<ScheduleHeuristic> proposeHeuristics(
-      Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info);
 
   //! Fusion runtime facing API,
   //!   schedule the given fusion with heuristics owned
   //!   by this entry, for actual heuristics to override
-  virtual void schedule(Fusion* fusion) = 0;
+  virtual void schedule(Fusion* fusion, const HeuristicParams* params) = 0;
+
+  virtual std::unique_ptr<HeuristicParams> computeHeuristics(
+      Fusion* fusion,
+      SchedulerRuntimeInfo& runtime_info,
+      HeuristicDataCache* data_cache = nullptr) = 0;
+
+  // Compile check that the scheduler maybe able to schedule the fusion
+  virtual bool canScheduleCompileTime(Fusion* fusion) = 0;
+
+  // Runtime check that the scheduler can take the fusion. Scheduler must be
+  // able to schedule the fusion if canScheduleCompileTime && this returns True.
+  virtual bool canScheduleRunTime(
+      Fusion* fusion,
+      SchedulerRuntimeInfo& runtime_info,
+      HeuristicDataCache* data_cache = nullptr) = 0;
+
+  // Dispatch heuristic type to the right derived class of scheduler entry.
+  // Scheduler entries are stateless so it's a lightweight class to dispatch to
+  // the virtual functions in this abstract class.
+  static std::unique_ptr<SchedulerEntry> makeSchedulerInstance(
+      SchedulerType scheduler_type);
 
   //! Heuristic comparison
   bool sameAs(const SchedulerEntry* other);
 
-  ScheduleHeuristic heuristic() const {
-    return heuristic_;
+  const HeuristicParams* params() const {
+    return params_.get();
   }
 
-  const std::shared_ptr<HeuristicParams>& params() const {
-    return params_;
-  }
-
-  const ReductionParams& reductionParams() const {
-    auto rparams = std::dynamic_pointer_cast<ReductionParams>(params_);
-    NVF_ERROR(
-        rparams != nullptr, "Heuristic parameter is not a reduction parameter");
-    return *rparams;
-  }
-
-  const PointwiseParams& pointwiseParams() const {
-    auto pparams = std::dynamic_pointer_cast<PointwiseParams>(params_);
-    NVF_ERROR(
-        pparams != nullptr, "Heuristic parameter is not a pointwise parameter");
-    return *pparams;
-  }
-
-  const TransposeParams& transposeParams() const {
-    auto tparams = std::dynamic_pointer_cast<TransposeParams>(params_);
-    NVF_ERROR(
-        tparams != nullptr, "Heuristic parameter is not a transpose parameter");
-    return *tparams;
-  }
-
-  const MatmulParams& matmulParams() const {
-    auto mparams = std::dynamic_pointer_cast<MatmulParams>(params_);
-    NVF_ERROR(
-        mparams != nullptr, "Heuristic parameter is not a matmul parameter");
-    return *mparams;
-  }
-
-  void updateLaunchConstraint(const LaunchParams& launch_params) {
-    params_->lparams = launch_params;
-  }
-
- protected:
-  explicit SchedulerEntry(ScheduleHeuristic heuristic)
-      : heuristic_(heuristic) {}
-
-  //! Heuristic parameters if applicable
-  std::shared_ptr<HeuristicParams> params_ = nullptr;
-
- private:
-  //! What kind of heuristics does this entry have?
-  const ScheduleHeuristic heuristic_;
+  std::unique_ptr<HeuristicParams> params_ = nullptr;
 };
 
-//! Hash function for a scheduler entry
-class SchedulerEntryHash {
- public:
-  size_t operator()(const SchedulerEntry& se) const;
-};
+namespace Schedule {
+
+//! External access for canSchedule utilities through SchedulerEntry
+//!  to avoid exposing a single function to the namespace
+bool canSchedule(
+    SchedulerType sh,
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicDataCache* data_cache = nullptr);
+
+//! Fusion segmenter facing API,
+//!   returns a schedule that applies in the given fusion, returns a nullopt
+//!   if no schedule in the registry can handle.
+std::optional<SchedulerType> proposeHeuristics(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info);
+} // namespace Schedule
 
 } // namespace nvfuser
