@@ -130,6 +130,7 @@ std::vector<Val*> collectRuntimeUsedValues(Fusion* fusion) {
 } // namespace
 
 PrecomputedValues::PrecomputedValues(Fusion* fusion) : fusion_(fusion) {
+  FUSER_PERF_SCOPE("PrecomputedValues::PrecomputedValues");
   loadSymbols(collectRuntimeUsedValues(fusion));
   initializeValueList(symbols());
   initializeNamedScalars();
@@ -172,6 +173,7 @@ void PrecomputedValues::bindConcreteParallelTypeValue(
 }
 
 void PrecomputedValues::bindInputs(const KernelArgumentHolder& args) {
+  FUSER_PERF_SCOPE("PrecomputedValues::bindInputs");
   if (hasValidValues()) {
     invalidate();
   }

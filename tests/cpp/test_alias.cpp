@@ -388,11 +388,11 @@ TEST_F(AliasTest, NotAllOutputsAlias_Pointwise) {
   EXPECT_THAT(
       runtime->fusionSegments()->groups(),
       UnorderedElementsAre(
-          HeuristicIs(ScheduleHeuristic::NoOp),
-          HeuristicIs(ScheduleHeuristic::PointWise)));
+          HeuristicIs(SchedulerType::NoOp),
+          HeuristicIs(SchedulerType::PointWise)));
 
   for (SegmentedGroup* group : runtime->fusionSegments()->groups()) {
-    if (group->heuristic() == ScheduleHeuristic::PointWise) {
+    if (group->schedulerType() == SchedulerType::PointWise) {
       const FusionExecutor& fe = runtime->executors().at(group->groupId());
       int num_stores = 0;
       for (auto i : c10::irange(group->outputs().size())) {
@@ -463,11 +463,11 @@ TEST_F(AliasTest, Issue1452) {
   EXPECT_THAT(
       runtime->fusionSegments()->groups(),
       UnorderedElementsAre(
-          HeuristicIs(ScheduleHeuristic::NoOp),
-          HeuristicIs(ScheduleHeuristic::PointWise)));
+          HeuristicIs(SchedulerType::NoOp),
+          HeuristicIs(SchedulerType::PointWise)));
 
   for (SegmentedGroup* group : runtime->fusionSegments()->groups()) {
-    if (group->heuristic() == ScheduleHeuristic::PointWise) {
+    if (group->schedulerType() == SchedulerType::PointWise) {
       const FusionExecutor& fe = runtime->executors().at(group->groupId());
       int num_stores = 0;
       for (auto i : c10::irange(group->outputs().size())) {
@@ -788,7 +788,7 @@ TEST_F(AliasTest, DoNotOverSegment_WithForks) {
   FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
   EXPECT_THAT(
       runtime->fusionSegments()->groups(),
-      Contains(HeuristicIs(ScheduleHeuristic::PointWise)).Times(1));
+      Contains(HeuristicIs(SchedulerType::PointWise)).Times(1));
 
   // For a similar reason as DoNotOverSegment_Straightline.
   // EXPECT_TRUE(out_tensors[1].is_alias_of(out_tensors[0]));
@@ -937,8 +937,8 @@ TEST_F(AliasTest, SegmentBoundary) {
   EXPECT_THAT(
       runtime->fusionSegments()->groups(),
       UnorderedElementsAre(
-          HeuristicIs(ScheduleHeuristic::NoOp),
-          HeuristicIs(ScheduleHeuristic::PointWise)));
+          HeuristicIs(SchedulerType::NoOp),
+          HeuristicIs(SchedulerType::PointWise)));
 }
 
 TEST_F(AliasTest, ReuseBuffer) {
@@ -1100,8 +1100,8 @@ TEST_F(AliasTest, PerfDebugVerboseWhenSomeKernelsNotLaunched) {
   EXPECT_THAT(
       runtime->fusionSegments()->groups(),
       UnorderedElementsAre(
-          HeuristicIs(ScheduleHeuristic::NoOp),
-          HeuristicIs(ScheduleHeuristic::PointWise)));
+          HeuristicIs(SchedulerType::NoOp),
+          HeuristicIs(SchedulerType::PointWise)));
 }
 
 TEST_F(AliasTest, NoKernelsAreLaunched) {
@@ -1187,7 +1187,7 @@ TEST_F(AliasTest, InplaceUpdate) {
   FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
   EXPECT_THAT(
       runtime->fusionSegments()->groups(),
-      UnorderedElementsAre(HeuristicIs(ScheduleHeuristic::PointWise)));
+      UnorderedElementsAre(HeuristicIs(SchedulerType::PointWise)));
 }
 
 TEST_F(AliasTest, Bookend_SegmentSetPreservesAllocation) {
@@ -1243,11 +1243,11 @@ TEST_F(AliasTest, Bookend_InputsAndOutputs) {
   EXPECT_THAT(
       runtime->fusionSegments()->groups(),
       UnorderedElementsAre(
-          HeuristicIs(ScheduleHeuristic::NoOp),
-          HeuristicIs(ScheduleHeuristic::NoOp),
-          HeuristicIs(ScheduleHeuristic::PointWise)));
+          HeuristicIs(SchedulerType::NoOp),
+          HeuristicIs(SchedulerType::NoOp),
+          HeuristicIs(SchedulerType::PointWise)));
   for (SegmentedGroup* group : runtime->fusionSegments()->groups()) {
-    if (group->heuristic() == ScheduleHeuristic::PointWise) {
+    if (group->schedulerType() == SchedulerType::PointWise) {
       EXPECT_THAT(group->inputs(), SizeIs(1));
       EXPECT_THAT(group->outputs(), SizeIs(1));
     }
@@ -1274,10 +1274,10 @@ TEST_F(AliasTest, Bookend_IntermediateTensors) {
   EXPECT_THAT(
       runtime->fusionSegments()->groups(),
       UnorderedElementsAre(
-          HeuristicIs(ScheduleHeuristic::NoOp),
-          HeuristicIs(ScheduleHeuristic::PointWise)));
+          HeuristicIs(SchedulerType::NoOp),
+          HeuristicIs(SchedulerType::PointWise)));
   for (SegmentedGroup* group : runtime->fusionSegments()->groups()) {
-    if (group->heuristic() == ScheduleHeuristic::PointWise) {
+    if (group->schedulerType() == SchedulerType::PointWise) {
       EXPECT_THAT(group->inputs(), SizeIs(1));
       EXPECT_THAT(group->outputs(), SizeIs(1));
     }
@@ -1310,9 +1310,9 @@ TEST_F(AliasTest, Bookend_AliasesOfSameTensor) {
   FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
   EXPECT_THAT(
       runtime->fusionSegments()->groups(),
-      Contains(HeuristicIs(ScheduleHeuristic::PointWise)).Times(1));
+      Contains(HeuristicIs(SchedulerType::PointWise)).Times(1));
   for (SegmentedGroup* group : runtime->fusionSegments()->groups()) {
-    if (group->heuristic() == ScheduleHeuristic::PointWise) {
+    if (group->schedulerType() == SchedulerType::PointWise) {
       EXPECT_THAT(group->inputs(), SizeIs(1));
       EXPECT_THAT(group->outputs(), SizeIs(1));
     }
@@ -1345,10 +1345,10 @@ TEST_F(AliasTest, Bookend_ReuseSegmentSet) {
   EXPECT_THAT(
       runtime->fusionSegments()->groups(),
       UnorderedElementsAre(
-          HeuristicIs(ScheduleHeuristic::PointWise),
-          HeuristicIs(ScheduleHeuristic::NoOp)));
+          HeuristicIs(SchedulerType::PointWise),
+          HeuristicIs(SchedulerType::NoOp)));
   for (SegmentedGroup* group : runtime->fusionSegments()->groups()) {
-    if (group->heuristic() == ScheduleHeuristic::PointWise) {
+    if (group->schedulerType() == SchedulerType::PointWise) {
       EXPECT_THAT(group->inputs(), SizeIs(1));
       EXPECT_THAT(group->outputs(), SizeIs(1));
     }
@@ -1422,8 +1422,8 @@ TEST_F(AliasTest, Bookend_Issue2375) {
   EXPECT_THAT(
       fec.getMostRecentKernelRuntime()->fusionSegments()->groups(),
       UnorderedElementsAre(
-          HeuristicIs(ScheduleHeuristic::NoOp),
-          HeuristicIs(ScheduleHeuristic::InnerPersistent)));
+          HeuristicIs(SchedulerType::NoOp),
+          HeuristicIs(SchedulerType::InnerPersistent)));
 }
 
 } // namespace nvfuser
