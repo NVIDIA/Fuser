@@ -61,16 +61,12 @@ bool Statement::lessThan(const Statement* stmt1, const Statement* stmt2) {
 }
 
 std::string Statement::toString(int indent_size) const {
-  NVF_ERROR(
-      false, "toString for IR node ", typeid(*this).name(), " is not defined");
+  NVF_THROW("toString for IR node ", typeid(*this).name(), " is not defined");
 }
 
 std::string Statement::toInlineString(int indent_size) const {
-  NVF_ERROR(
-      false,
-      "toInlineString for IR node ",
-      typeid(*this).name(),
-      " is not defined");
+  NVF_THROW(
+      "toInlineString for IR node ", typeid(*this).name(), " is not defined");
 }
 
 Fusion* Statement::fusion() const {
@@ -196,6 +192,14 @@ std::string Val::toInlineString(int indent_size) const {
 bool Val::isConstScalar() const {
   if (!isScalar()) {
     return false;
+  }
+  // elect.sync ptx picks a leader thread from membermask.
+  // It cannot be evaluated at compile-time.
+  if (Expr* def = definition()) {
+    if (def->isA<UnaryOp>() &&
+        def->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::ElectSync) {
+      return false;
+    }
   }
   return ir_utils::dependenciesSatisfied(this);
 }
@@ -345,12 +349,16 @@ bool Expr::sameAs(const Statement* other) const {
 }
 
 kir::Predicate* Expr::predicate() const {
-  NVF_ERROR(container()->isOneOf<kir::Kernel, hir::HostIrContainer>(), "Function invalid for fusion.");
+  NVF_ERROR(
+      (container()->isOneOf<kir::Kernel, hir::HostIrContainer>()),
+      "Function invalid for fusion.");
   return predicate_;
 }
 
 void Expr::setPredicate(kir::Predicate* predicate) {
-  NVF_ERROR(container()->isOneOf<kir::Kernel, hir::HostIrContainer>(), "Function invalid for fusion.");
+  NVF_ERROR(
+      (container()->isOneOf<kir::Kernel, hir::HostIrContainer>()),
+      "Function invalid for fusion.");
   predicate_ = predicate;
 }
 
@@ -379,8 +387,7 @@ Expr* Expr::withWritePredicate(kir::Predicate* predicate) {
 std::vector<PolymorphicValue> Expr::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-  NVF_ERROR(
-      false,
+  NVF_THROW(
       "`evaluate` method for expression ",
       getOpString(),
       " is not defined. ",

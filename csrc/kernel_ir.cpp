@@ -63,7 +63,7 @@ Predicate::Predicate(IrBuilderPasskey passkey, Val* value)
       value_(value) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isOneOf<kir::Kernel,hir::HostIrContainer>(),
+      (passkey.ir_container_->isOneOf<kir::Kernel, hir::HostIrContainer>()),
       "IR type only valid for Kernel or HostIr container.");
   NVF_ERROR(value != nullptr);
 }
@@ -293,8 +293,7 @@ const char* getPTXConstraints(Val* value) {
         return "l";
       }
     default:
-      NVF_ERROR(
-          false, "Unsupported data type ", dt, " for inline PTX assembly.");
+      NVF_THROW("Unsupported data type ", dt, " for inline PTX assembly.");
   }
 }
 
