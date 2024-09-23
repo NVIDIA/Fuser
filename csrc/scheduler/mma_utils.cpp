@@ -390,7 +390,7 @@ void scheduleWarpTile(
   //  m_dim  m_dim+1  m_dim+2  n_dim  n_dim+1  n_dim+2  k_dim  k_dim+1
   // [  Mwo       Mw       Mi    Nwo       Nw       Ni    Kwo       Ki]
 
-  // Nowwe reorder. The new_order will be
+  // Now we reorder. The new_order will be
   // [Kwo Mwo Nwo Mw Nw Mi Ni Ki]
 
   std::vector<IterDomain*> new_loop;

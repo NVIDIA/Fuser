@@ -1006,37 +1006,6 @@ class MultipleMatmulScheduler {
     scheduleBranch(bs_, bcw_smems_, params_->supported_vec_size.b);
   }
 
-  // Schedule acr and bcr
-  void scheduleLdMatrixLoads() {
-    auto scheduleLdMatrixBranch =
-        [&](const std::vector<TensorView*>& reg_operands,
-            MmaOperand operand_type) {
-          auto all_merged_roles = blockTileTensors(reg_operands);
-          for (size_t i : c10::irange(reg_operands.size())) {
-            TensorView* tv = reg_operands[i];
-            const std::vector<MatmulDimRole>& merged_roles =
-                all_merged_roles[i];
-
-            // Incoming mma_result = [... iMo iNo (iKf) rKg iMi iNi rKi]
-            mma_utils::scheduleWarpTile(tv, params_->tile_sizes, merged_roles);
-            // After scheduling warp tile, the last three dimensions are split
-            // and rearranged:
-            //        -3 -2 -1
-            //   [...  M  N  K]
-            // maps to
-            //         -8  -7 -6  -5 -4 -3 -2 -1
-            //   [... Kwo Mwo Nwo Mw Nw Mi Ni Ki]
-            // so now
-            //                   -12 -11  -10   -9   -8   -7   -6  -5  -4   -3
-            //                   -2   -1
-            // mma_result = [... iMo iNo (iKf) rKg rKwo iMwo iNwo iMw iNw iMin
-            // iNin rKin] splitk_sum = [... iMo iNo  rKf  iMi  iNi]
-          }
-        };
-    scheduleLdMatrixBranch(acrs_, MmaOperand::A);
-    scheduleLdMatrixBranch(bcrs_, MmaOperand::B);
-  }
-
   void scheduleMmaOperands(
       std::vector<TensorView*>& tvs,
       const std::optional<MmaOperand> operand_type) {
@@ -1097,7 +1066,7 @@ class MultipleMatmulScheduler {
     // Now for each operand, we load from smem to registers and compute a
     // prologue (generally) in registers. We typically refer to the register
     // buffer that is loaded from operand A's smem buffer using ldmatrix as
-    // "acr". This is the beginning of the register epilogue region for that
+    // "acr". This is the beginning of the register prologue region for that
     // operand. The end of that region is the first input to the MmaOp
     // expression, which we typically refer to as "ab". There is some special
     // handling of acr but otherwise we schedule ab and propagate backward
