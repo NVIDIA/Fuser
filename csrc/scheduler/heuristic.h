@@ -16,7 +16,7 @@
 namespace nvfuser {
 
 class SchedulerRuntimeInfo;
-class HeuristicSummary;
+class HeuristicDataCache;
 
 // Top-level class representing heuristic parameters. Most schedulers
 // have their own subclasses to have their specific parameters, except
@@ -79,7 +79,7 @@ class HeuristicParamsList {
   explicit HeuristicParamsList(
       SchedulerType scheduler_type,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
+      HeuristicDataCache* data_cache = nullptr);
 
   HeuristicParamsList(const HeuristicParamsList&) = delete;
   HeuristicParamsList& operator=(const HeuristicParamsList&) = delete;

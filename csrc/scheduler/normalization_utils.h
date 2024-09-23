@@ -20,7 +20,7 @@
 
 namespace nvfuser {
 class SchedulerRuntimeInfo;
-class HeuristicSummary;
+class HeuristicDataCache;
 
 namespace normalization_scheduler_utils {
 
@@ -227,7 +227,7 @@ struct PersistentKernelProperties {
 PersistentKernelProperties getPersistentKernelProperties(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache,
+    HeuristicDataCache* data_cache,
     SchedulerType heuristic);
 
 // Verify the presence of a reduction TensorView connected to a Fusion input

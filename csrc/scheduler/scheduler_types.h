@@ -34,7 +34,7 @@ namespace nvfuser {
 //!     2. canScheduleRunTime(
 //!            Fusion* fusion,
 //!            SchedulerRuntimeInfo& runtime_info,
-//!           HeuristicSummary* data_cache = nullptr):
+//!           HeuristicDataCache* data_cache = nullptr):
 //!        This function contains all canSchedule checks that will have to
 //!        involve runtime input information, and will be run both by the
 //!        segmenter and the kernel cache. The latency of this function will

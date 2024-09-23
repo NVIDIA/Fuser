@@ -47,7 +47,7 @@ bool MatmulScheduler::canScheduleCompileTime(Fusion* fusion) {
 bool MatmulScheduler::canScheduleRunTime(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache) {
+    HeuristicDataCache* data_cache) {
   FUSER_PERF_SCOPE("MatmulScheduler::canSchedule");
   auto reason = getMatmulRunTimeRejectReason(fusion, data_cache, runtime_info);
   if (!reason.empty()) {
@@ -60,7 +60,7 @@ bool MatmulScheduler::canScheduleRunTime(
 std::unique_ptr<HeuristicParams> MatmulScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache) {
+    HeuristicDataCache* data_cache) {
   auto mparams = getMatmulHeuristics(fusion, runtime_info, data_cache);
   NVF_ERROR(mparams != nullptr);
   return mparams;
