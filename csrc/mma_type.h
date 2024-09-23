@@ -81,7 +81,7 @@ struct MatMulTileOptions {
         warp_tile(warp_tile_),
         instruction_tile(instruction_tile_) {}
 
-  bool operator==(const MatMulTileOptions& other) {
+  bool operator==(const MatMulTileOptions& other) const {
     return cta_tile == other.cta_tile && warp_tile == other.warp_tile &&
         instruction_tile == other.instruction_tile;
   }

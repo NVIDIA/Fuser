@@ -590,7 +590,7 @@ TEST_F(AbstractTensorTest, SwizzleValGroups) {
   vv.swizzle(SwizzleType::XOR, 0, 1);
   EXPECT_EQ(g.disjointValSets().size(), 4);
   EXPECT_EQ(g.disjointExprSets().size(), 1);
-  EXPECT_EQ(v.domain, vv.domain);
+  EXPECT_EQ(v, vv);
 }
 
 TEST_F(AbstractTensorTest, SwizzleIterDomainWithValGroup) {
@@ -639,7 +639,7 @@ TEST_F(AbstractTensorTest, SwizzleIterDomainWithValGroup) {
   vv.swizzle(SwizzleType::XOR, 0, 1);
   EXPECT_EQ(g.disjointValSets().size(), 4);
   EXPECT_EQ(g.disjointExprSets().size(), 1);
-  EXPECT_EQ(v.domain, vv.domain);
+  EXPECT_EQ(v, vv);
 }
 
 TEST_F(AbstractTensorTest, SwizzleValGroupWithIterDomain) {
@@ -687,7 +687,7 @@ TEST_F(AbstractTensorTest, SwizzleValGroupWithIterDomain) {
   vv.swizzle(SwizzleType::XOR, 0, 1);
   EXPECT_EQ(g.disjointValSets().size(), 4);
   EXPECT_EQ(g.disjointExprSets().size(), 1);
-  EXPECT_EQ(v.domain, vv.domain);
+  EXPECT_EQ(v, vv);
 }
 
 TEST_F(AbstractTensorTest, Unzip) {
@@ -814,9 +814,9 @@ TEST_F(AbstractTensorTest, MergeTaggedTensor) {
     // Merge of matching tag sets preserves tag set
     EnumTaggedAbstractTensor v0({id0, id1}, {{TestTag::A}, {TestTag::A}});
 
-    ASSERT_EQ(v0.info.size(), 2);
-    EXPECT_EQ(v0.info.at(0).tags, std::unordered_set<TestTag>{TestTag::A});
-    EXPECT_EQ(v0.info.at(1).tags, std::unordered_set<TestTag>{TestTag::A});
+    ASSERT_EQ(v0.size(), 2);
+    EXPECT_EQ(v0.getTags(0), std::unordered_set<TestTag>{TestTag::A});
+    EXPECT_EQ(v0.getTags(1), std::unordered_set<TestTag>{TestTag::A});
 
     EXPECT_TRUE(v0.hasTag(0, TestTag::A));
     EXPECT_EQ(v0.getTag(0), TestTag::A);
@@ -825,7 +825,7 @@ TEST_F(AbstractTensorTest, MergeTaggedTensor) {
 
     v0.merge(0);
 
-    ASSERT_EQ(v0.info.size(), 1);
+    ASSERT_EQ(v0.size(), 1);
     EXPECT_EQ(v0.getTag(0), TestTag::A);
   }
 
@@ -833,9 +833,9 @@ TEST_F(AbstractTensorTest, MergeTaggedTensor) {
     // Tag sets should be unioned during merge
     EnumTaggedAbstractTensor v1({id0, id1}, {{TestTag::A}, {TestTag::B}});
 
-    ASSERT_EQ(v1.info.size(), 2);
-    EXPECT_EQ(v1.info.at(0).tags, std::unordered_set<TestTag>{TestTag::A});
-    EXPECT_EQ(v1.info.at(1).tags, std::unordered_set<TestTag>{TestTag::B});
+    ASSERT_EQ(v1.size(), 2);
+    EXPECT_EQ(v1.getTags(0), std::unordered_set<TestTag>{TestTag::A});
+    EXPECT_EQ(v1.getTags(1), std::unordered_set<TestTag>{TestTag::B});
 
     EXPECT_TRUE(v1.hasTag(0, TestTag::A));
     EXPECT_EQ(v1.getTag(0), TestTag::A);
@@ -844,7 +844,7 @@ TEST_F(AbstractTensorTest, MergeTaggedTensor) {
 
     v1.merge(0);
 
-    ASSERT_EQ(v1.info.size(), 1);
+    ASSERT_EQ(v1.size(), 1);
     EXPECT_TRUE(v1.hasTag(0, TestTag::A));
     EXPECT_TRUE(v1.hasTag(0, TestTag::B));
   }
@@ -854,10 +854,10 @@ TEST_F(AbstractTensorTest, MergeTaggedTensor) {
     EnumTaggedAbstractTensor v2(
         {id0, id1, id2}, {{TestTag::A}, {TestTag::A}, {TestTag::B}});
 
-    ASSERT_EQ(v2.info.size(), 3);
-    EXPECT_EQ(v2.info.at(0).tags, std::unordered_set<TestTag>{TestTag::A});
-    EXPECT_EQ(v2.info.at(1).tags, std::unordered_set<TestTag>{TestTag::A});
-    EXPECT_EQ(v2.info.at(2).tags, std::unordered_set<TestTag>{TestTag::B});
+    ASSERT_EQ(v2.size(), 3);
+    EXPECT_EQ(v2.getTags(0), std::unordered_set<TestTag>{TestTag::A});
+    EXPECT_EQ(v2.getTags(1), std::unordered_set<TestTag>{TestTag::A});
+    EXPECT_EQ(v2.getTags(2), std::unordered_set<TestTag>{TestTag::B});
 
     EXPECT_EQ(v2.getTag(0), TestTag::A);
     EXPECT_EQ(v2.getTag(1), TestTag::A);
@@ -865,7 +865,7 @@ TEST_F(AbstractTensorTest, MergeTaggedTensor) {
 
     v2.merge(0);
 
-    ASSERT_EQ(v2.info.size(), 2);
+    ASSERT_EQ(v2.size(), 2);
     EXPECT_EQ(v2.getTag(0), TestTag::A);
     EXPECT_EQ(v2.getTag(1), TestTag::B);
   }
@@ -885,7 +885,7 @@ TEST_F(AbstractTensorTest, SwizzleTaggedTensor) {
     EnumTaggedAbstractTensor v1(
         {id0, id1, id2}, {{TestTag::A}, {TestTag::B}, {TestTag::C}});
 
-    ASSERT_EQ(v1.info.size(), 3);
+    ASSERT_EQ(v1.size(), 3);
 
     EXPECT_EQ(v1.getTag(0), TestTag::A);
     EXPECT_EQ(v1.getTag(1), TestTag::B);
@@ -894,7 +894,7 @@ TEST_F(AbstractTensorTest, SwizzleTaggedTensor) {
     // NoSwizzle should not mix tags
     v1.swizzle(SwizzleType::NoSwizzle, 0, 1);
 
-    ASSERT_EQ(v1.info.size(), 3);
+    ASSERT_EQ(v1.size(), 3);
     EXPECT_EQ(v1.getTag(0), TestTag::A);
     EXPECT_EQ(v1.getTag(1), TestTag::B);
     EXPECT_EQ(v1.getTag(2), TestTag::C);
@@ -908,18 +908,12 @@ TEST_F(AbstractTensorTest, SwizzleTaggedTensor) {
     // An XOR swizzle will mix the tags
     v1.swizzle(SwizzleType::XOR, 1, 0);
 
-    ASSERT_EQ(v1.info.size(), 3);
-    EXPECT_TRUE(v1.hasTag(0, TestTag::A));
-    EXPECT_TRUE(v1.hasTag(0, TestTag::B));
-    EXPECT_FALSE(v1.hasTag(0, TestTag::C));
-
-    EXPECT_TRUE(v1.hasTag(1, TestTag::A));
-    EXPECT_TRUE(v1.hasTag(1, TestTag::B));
-    EXPECT_FALSE(v1.hasTag(1, TestTag::C));
-
-    EXPECT_FALSE(v1.hasTag(2, TestTag::A));
-    EXPECT_FALSE(v1.hasTag(2, TestTag::B));
-    EXPECT_TRUE(v1.hasTag(2, TestTag::C));
+    ASSERT_EQ(v1.size(), 3);
+    EXPECT_EQ(
+        v1.getTags(0), std::unordered_set<TestTag>({TestTag::A, TestTag::B}));
+    EXPECT_EQ(
+        v1.getTags(1), std::unordered_set<TestTag>({TestTag::A, TestTag::B}));
+    EXPECT_EQ(v1.getTags(2), std::unordered_set<TestTag>{TestTag::C});
   }
 }
 

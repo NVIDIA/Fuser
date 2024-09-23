@@ -413,8 +413,7 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
       } else if (isComplexType(*out()->getDataType())) {
         return {PolymorphicValue((std::complex<double>)in)};
       } else {
-        NVF_ERROR(
-            false, "dtype not supported in evaluator: ", *out()->getDataType());
+        NVF_THROW("dtype not supported in evaluator: ", *out()->getDataType());
       }
     case UnaryOpType::Reciprocal:
       return {1.0 / in};
@@ -442,8 +441,7 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
       if (*out()->getDataType() == DataType::Float) {
         return {PolymorphicValue((double)*(float*)in)};
       } else {
-        NVF_ERROR(
-            false, "dtype not supported in evaluator: ", *out()->getDataType());
+        NVF_THROW("dtype not supported in evaluator: ", *out()->getDataType());
       }
       break;
     case UnaryOpType::Sigmoid:
@@ -1568,8 +1566,7 @@ int GroupedReductionOp::getExprIndexOfOutput(Val* output_val) const {
     return (int)std::distance(outputs().begin(), it);
   }
 
-  NVF_ERROR(
-      false, "Not an output, ", output_val->toString(), ", of ", toString());
+  NVF_THROW("Not an output, ", output_val->toString(), ", of ", toString());
 }
 
 std::vector<PolymorphicValue> GroupedReductionOp::evaluate(
@@ -1968,8 +1965,7 @@ int GroupedWelfordOp::getExprIndexOfOutput(Val* output_val) const {
     }
   }
 
-  NVF_ERROR(
-      false, "Not an output, ", output_val->toString(), ", of ", toString());
+  NVF_THROW("Not an output, ", output_val->toString(), ", of ", toString());
 }
 
 Val* GroupedWelfordOp::getInitValOfOutput(Val* output_val) const {
@@ -2525,8 +2521,12 @@ std::string IterDomain::toInlineString(int indent_size) const {
 
 // Returns a new IterDomain matching properties of this except for
 // is_rfactor_domain_
-IterDomain* IterDomain::cloneWithoutRFactor() const {
+IterDomain* IterDomain::cloneWithoutRFactor(bool map_with_original) {
   auto cloned = IterDomainBuilder(this).resetRfactor().build();
+
+  if (map_with_original) {
+    fusion()->registerExactMapping(this, cloned);
+  }
 
   return cloned;
 }
@@ -3630,11 +3630,18 @@ void TensorDomain::setAllocationDomain(
 }
 
 std::vector<IterDomain*> TensorDomain::allIDs() const {
+  // loop_domain_ must be the first domain since loop domains are
+  // allowed to have extra domains that may not exist in other
+  // domains and IRBFS::getExprsBetween is not symmetric with respect
+  // to its two domain parameters. For example, it can find all exprs
+  // from a loop domain to a logical domain but may miss from logical
+  // to loop. See NVFuserTest.AllIDsWithExtraLoopIDs for a concrete
+  // example.
   std::array<const std::vector<IterDomain*>*, 5> all_domains = {
+      &loop_domain_,
       &logical_domain_,
       &root_domain_,
       &allocation_domain_,
-      &loop_domain_,
       &additional_ids_};
   VectorOfUniqueEntries<IterDomain*> discovered_ids;
   for (auto domain : all_domains) {

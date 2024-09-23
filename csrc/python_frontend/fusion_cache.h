@@ -27,9 +27,9 @@ struct UserSchedule {
   //! Runtime information for schedulers
   std::unique_ptr<SchedulerRuntimeInfo> runtime_info;
   //! The scheduler heuristic for this UserSchedule
-  std::unique_ptr<SchedulerEntry> heuristic_scheduler;
+  std::unique_ptr<HeuristicParams> heuristic_params;
   //! Concretized, Scheduled Fusion IR
-  std::unique_ptr<Fusion> schedule;
+  std::unique_ptr<Fusion> scheduled_fusion;
   //! Generated kernel container
   std::unique_ptr<FusionExecutor> executor;
   //! ID of fusion in python frontend fusion cache
@@ -48,20 +48,21 @@ struct UserSchedule {
   //! Get Fusion for UserSchedule
   Fusion* fusion() {
     NVF_ERROR(
-        schedule != nullptr, "Requires Fusion to use heuristic schedulers");
-    return schedule.get();
+        scheduled_fusion != nullptr,
+        "Requires Fusion to use heuristic schedulers");
+    return scheduled_fusion.get();
   }
 
   //! Return if we can schedule FusionDefinition with heuristic.
-  bool canSchedule(const ScheduleHeuristic& heuristic);
+  bool canSchedule(const SchedulerType& heuristic);
 
   //! Return if we can schedule FusionDefinition with heuristic along with any
   //! debug messages from canScheduleRejectReason.
   std::tuple<bool, std::string> canScheduleDebug(
-      const ScheduleHeuristic& heuristic);
+      const SchedulerType& scheduler_type);
 
   //! Schedule fusion with heuristic
-  void scheduleWithHeuristic(const ScheduleHeuristic& heuristic);
+  void scheduleWithType(SchedulerType scheduler_type);
 };
 
 //! \struct FusionSchedules
@@ -104,6 +105,14 @@ struct TrieNode {
   // Queries whether the entry denotes a leaf node which also represents
   // a the end of Fusion entry in the cache.
   bool isTerminal() const;
+  //! getException returns the cached Exception raise during construction of
+  //! Fusion. It returns std::nullopt if the no error thrown. This function is
+  //! called at the end of FusionDefinition::finalizeDefinition to avoid
+  //! silently using a bad FusionDefinition cached in FusionCache.
+  std::optional<std::string> getException();
+  //! setException is called to record exception message thrown during
+  //! construction of Fusion.
+  void setException(const char* e);
   //! Serialize TrieNode using flatbuffers
   NVF_API flatbuffers::Offset<serde::TrieNode> serialize(
       flatbuffers::FlatBufferBuilder& builder,
@@ -125,6 +134,9 @@ struct TrieNode {
   TrieNode* parent;
   //! For thread-Safe locking of a node
   std::mutex trie_node_lock;
+  //! exception is used to track if we failed to create a valid fusion for
+  //! FusionDefinition at this given TrieNode
+  std::optional<std::string> exception = std::nullopt;
 };
 
 //! \class FusionCache

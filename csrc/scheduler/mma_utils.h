@@ -423,7 +423,7 @@ NVF_API std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
 //! function is useful for testing that we provide accurate information to our
 //! heuristics.
 int64_t computeExpectedSharedMemoryUsage(
-    const MatmulParams& params,
+    const MatmulParams* mparams,
     const MmaDataTypes& data_types,
     bool smem_a_reuse_guaranteed = false,
     bool smem_b_reuse_guaranteed = false);

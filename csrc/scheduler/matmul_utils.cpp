@@ -71,33 +71,33 @@ inline std::optional<MmaMacro> getMmaOp(
 //! Find the number of circular buffer stages for shared memory operands, so
 //! that the entire pipeline is filled given problem and heuristics.
 void limitCircularBufferingSmemOperands(
-    std::shared_ptr<MatmulParams> params,
+    MatmulParams* mparams,
     const ProblemShape& problem_shape) {
   // Short-Circuit: Skip if matmul params do not use circular buffering
-  if (!params->circular_buffer_options.circular_buffer_smem_write) {
+  if (!mparams->circular_buffer_options.circular_buffer_smem_write) {
     return;
   }
 
   // The axes of the mma tensorviews are permuted to [B, M, N, K],
   // so K / cta_tile_k is the circular buffer axis for both operands.
   int64_t numerator =
-      ceilDiv(problem_shape[(size_t)MatmulDimRole::K], params->splitk_factor);
-  int64_t k_stages = ceilDiv(numerator, params->tile_sizes.cta_tile.k);
+      ceilDiv(problem_shape[(size_t)MatmulDimRole::K], mparams->splitk_factor);
+  int64_t k_stages = ceilDiv(numerator, mparams->tile_sizes.cta_tile.k);
   int64_t stages = std::min(
       k_stages,
-      (int64_t)params->circular_buffer_options.smem_circular_buffer_stage);
+      (int64_t)mparams->circular_buffer_options.smem_circular_buffer_stage);
 
-  params->circular_buffer_options.circular_buffer_smem_write = (stages != 1);
-  params->circular_buffer_options.smem_circular_buffer_stage = (int)stages;
+  mparams->circular_buffer_options.circular_buffer_smem_write = (stages != 1);
+  mparams->circular_buffer_options.smem_circular_buffer_stage = (int)stages;
 }
 
 //! A wrapper for core heuristics initialization.
-//! We should have already set params->mma_macro before calling this function.
+//! We should have already set mparams->mma_macro before calling this function.
 inline bool initCoreHeuristics(
-    std::shared_ptr<MatmulParams> params,
+    MatmulParams* mparams,
     const ProblemShape& problem_shape,
     const mma_utils::TensorRolesMap& tensor_roles) {
-  const GemmTile instruction_tile = getMmaOpShape(params->mma_macro);
+  const GemmTile instruction_tile = getMmaOpShape(mparams->mma_macro);
   GemmTile warp_tile = {-1, -1, -1};
   GemmTile cta_tile = {-1, -1, -1};
 
@@ -143,17 +143,17 @@ inline bool initCoreHeuristics(
     cta_tile = {warp_tile.m * m_ratio, warp_tile.n * n_ratio, warp_tile.k};
   }
 
-  params->tile_sizes = {cta_tile, warp_tile, instruction_tile};
+  mparams->tile_sizes = {cta_tile, warp_tile, instruction_tile};
 
   // stages and async mem copy
   {
     // NOTE: compilation errors when async is enabled on Turing devices
-    if (isAmpere(params->mma_macro)) {
+    if (isAmpere(mparams->mma_macro)) {
       constexpr int stages = 3;
 
-      params->circular_buffer_options.circular_buffer_smem_write = true;
-      params->circular_buffer_options.circular_buffer_smem_read = true;
-      params->circular_buffer_options.smem_circular_buffer_stage = stages;
+      mparams->circular_buffer_options.circular_buffer_smem_write = true;
+      mparams->circular_buffer_options.circular_buffer_smem_read = true;
+      mparams->circular_buffer_options.smem_circular_buffer_stage = stages;
     }
   }
 
@@ -167,18 +167,18 @@ inline bool initCoreHeuristics(
     }
     return min_size_bytes;
   };
-  params->async_gmem_load_operands = isCpAsyncOperandLoadSupported(
-      params.get(),
+  mparams->async_gmem_load_operands = isCpAsyncOperandLoadSupported(
+      mparams,
       std::min(
           roleMinDtypeSize(MatmulTensorRole::OPERAND_A),
           roleMinDtypeSize(MatmulTensorRole::OPERAND_B)));
 
-  if (!params->async_gmem_load_operands) {
+  if (!mparams->async_gmem_load_operands) {
     // Circular buffering requires async load. If we cannot use async load due
     // to unsupported vectorization width, then we can only circular buffer at
     // most.
-    params->circular_buffer_options.smem_circular_buffer_stage =
-        std::min(2, params->circular_buffer_options.smem_circular_buffer_stage);
+    mparams->circular_buffer_options.smem_circular_buffer_stage = std::min(
+        2, mparams->circular_buffer_options.smem_circular_buffer_stage);
   }
   return true;
 }
@@ -694,7 +694,7 @@ MatmulParams::SupportedVectorization getSupportedVectorization(
 
 std::string getMatmulRunTimeRejectReason(
     Fusion* fusion,
-    HeuristicSummary* data_cache,
+    HeuristicDataCache* data_cache,
     SchedulerRuntimeInfo& runtime_info) {
   // TODO: add proper set of checks
   return "";
@@ -808,9 +808,9 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
 }
 
 bool isCpAsyncOperandLoadSupported(
-    const MatmulParams* params,
+    const MatmulParams* mparams,
     int64_t min_dtype_size) {
-  if (!isAmpere(params->mma_macro)) {
+  if (!isAmpere(mparams->mma_macro)) {
     return false;
   }
   // Use cp.async for loading operands if vec size is compatible
@@ -821,23 +821,23 @@ bool isCpAsyncOperandLoadSupported(
   };
   // TODO: We should compute validCpAsyncVecSize for all the operand
   // dtype/vec_size pairs and AND them together
-  return params->circular_buffer_options.smem_circular_buffer_stage > 1 &&
+  return mparams->circular_buffer_options.smem_circular_buffer_stage > 1 &&
       validCpAsyncVecSize(
              min_dtype_size,
              std::min(
-                 params->supported_vec_size.a, params->supported_vec_size.b));
+                 mparams->supported_vec_size.a, mparams->supported_vec_size.b));
 }
 
-std::shared_ptr<MatmulParams> getMatmulHeuristics(
+std::unique_ptr<MatmulParams> getMatmulHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache) {
+    HeuristicDataCache* data_cache) {
   FusionGuard fg(fusion);
   (void)data_cache;
-  auto params = std::make_shared<MatmulParams>();
+  auto mparams = std::make_unique<MatmulParams>();
 
   // Set kernel index mode
-  params->cparams.index_type = runtime_info.getIndexType();
+  mparams->cparams.index_type = runtime_info.getIndexType();
 
   // Check initial conditions
   std::vector<mma_utils::MatmulPattern> patterns =
@@ -861,7 +861,7 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
       getMmaOp(device_prop->major * 10 + device_prop->minor, problem_shape);
   NVF_ERROR(
       mma_op.has_value(), "Failed to determine a MMA op for given problem.");
-  params->mma_macro = mma_op.value();
+  mparams->mma_macro = mma_op.value();
 
   const auto& tensor_roles_opt =
       mma_utils::getTensorRoles(fusion, id_model, id_roles);
@@ -869,7 +869,7 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
       tensor_roles_opt.isValid(), "Tensor roles map in mma is not valid.");
   const auto tensor_roles = tensor_roles_opt.getData();
 
-  params->supported_vec_size = getSupportedVectorization(
+  mparams->supported_vec_size = getSupportedVectorization(
       tensor_roles,
       id_roles,
       id_model.idGraph(IdMappingMode::PERMISSIVE),
@@ -884,7 +884,7 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
 
     // Fill in proper values using plugin
     matmul_heuristic_plugin::updateMatmulParams(
-        *params,
+        mparams.get(),
         problem_shape[(size_t)MatmulDimRole::M],
         problem_shape[(size_t)MatmulDimRole::N],
         problem_shape[(size_t)MatmulDimRole::K],
@@ -897,29 +897,30 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
         "Specify plugin location like this: "
         "NVFUSER_MATMUL_HEURISTIC_PLUGIN=/path/to/libmatmulheuristic.so");
     // Populate heuristic details
-    auto status = initCoreHeuristics(params, problem_shape, tensor_roles);
+    auto status =
+        initCoreHeuristics(mparams.get(), problem_shape, tensor_roles);
     NVF_ERROR(status, "Initialization of core part of heuristics failed.");
   }
 
   // Ensure that entire pipeline is filled for shared memory operands given
   // problem and heuristics.
-  limitCircularBufferingSmemOperands(params, problem_shape);
+  limitCircularBufferingSmemOperands(mparams.get(), problem_shape);
 
   // Disable magic zero for matmul kernels
-  params->cparams.enable_magic_zero = false;
+  mparams->cparams.enable_magic_zero = false;
 
   // Set whether to use shared memory for epilogue
-  std::tie(params->use_smem_epilogue, params->promote_prologue_smem_reuse) =
+  std::tie(mparams->use_smem_epilogue, mparams->promote_prologue_smem_reuse) =
       mma_utils::generateSharedMemoryEpilogueHeuristics(
-          params->tile_sizes,
-          params->circular_buffer_options.smem_circular_buffer_stage,
+          mparams->tile_sizes,
+          mparams->circular_buffer_options.smem_circular_buffer_stage,
           tensor_roles);
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
-    debug() << params->toString() << std::endl;
+    debug() << mparams->toString() << std::endl;
   }
 
-  return params;
+  return mparams;
 }
 
 } // namespace nvfuser

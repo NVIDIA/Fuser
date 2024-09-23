@@ -23,32 +23,27 @@ namespace nvfuser {
 //  should probably be only used to order innermost mnk axes.
 void moveInnerBroadcastLeft(TensorView* tv, int64_t number_of_inner_pos = 3);
 
-NVF_API void scheduleMatmul(Fusion* fusion, const MatmulParams& params);
+NVF_API void scheduleMatmul(Fusion* fusion, const MatmulParams* mparams);
 
 class MatmulScheduler : public SchedulerEntry {
  public:
-  explicit MatmulScheduler(
+  void schedule(Fusion* fusion, const HeuristicParams* params) override;
+
+  bool canScheduleCompileTime(Fusion* fusion) override;
+
+  bool canScheduleRunTime(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
+      HeuristicDataCache* data_cache = nullptr) override;
 
-  void schedule(Fusion* fusion) override;
-
-  static bool canScheduleCompileTime(Fusion* fusion);
-
-  static bool canScheduleRunTime(
-      Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
-  constexpr static ScheduleHeuristic heuristicType() {
-    return ScheduleHeuristic::Matmul;
+  constexpr static SchedulerType schedulerType() {
+    return SchedulerType::Matmul;
   }
 
- private:
-  void computeHeuristics(
+  std::unique_ptr<HeuristicParams> computeHeuristics(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
+      HeuristicDataCache* data_cache = nullptr) override;
 };
 
 } // namespace nvfuser

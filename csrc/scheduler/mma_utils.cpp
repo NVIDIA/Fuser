@@ -73,15 +73,15 @@ std::tuple<int64_t, int64_t, int64_t> computeSharedMemorySizes(
 }
 
 int64_t computeExpectedSharedMemoryUsage(
-    const MatmulParams& params,
+    const MatmulParams* mparams,
     const MmaDataTypes& data_types,
     bool smem_a_reuse_guaranteed,
     bool smem_b_reuse_guaranteed) {
   const auto [smem_a, smem_b, smem_c] = computeSharedMemorySizes(
-      params.tile_sizes, params.circular_buffer_options, data_types);
+      mparams->tile_sizes, mparams->circular_buffer_options, data_types);
 
-  if (params.use_smem_epilogue) {
-    if (params.promote_prologue_smem_reuse) {
+  if (mparams->use_smem_epilogue) {
+    if (mparams->promote_prologue_smem_reuse) {
       return (int64_t)std::max(
           smem_c + (smem_a_reuse_guaranteed ? 0 : smem_a) +
               (smem_b_reuse_guaranteed ? 0 : smem_b),
@@ -2093,8 +2093,7 @@ MmaOp* MatmulPattern::translateToMmaOp() {
     fms = fusedMultiplySum(A, B, {-1});
     mma_op = fms->definition()->as<MmaOp>();
   } else {
-    NVF_ERROR(
-        false,
+    NVF_THROW(
         "Could not translate matmul pattern with output ",
         output->toString(),
         " to MmaOp");
@@ -2263,8 +2262,7 @@ DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
     } else if (concrete_flags == 0b110) {
       dim_roles[g] = MatmulDimRole::N;
     } else {
-      NVF_ERROR(
-          false,
+      NVF_THROW(
           "IterDomain ValGroup should be present in at least two of A, B, output.",
           " present_flags: ",
           present_flags);
@@ -2447,7 +2445,7 @@ std::string toString(const mma_utils::AbstractMatmulTensor& abten) {
   std::ostringstream ss;
   ss << "AbstractMatmulTensor (" << abten.size() << "):" << std::endl;
   for (size_t i : c10::irange(abten.size())) {
-    const AbstractId& abs_id = abten.domain[i];
+    const AbstractId& abs_id = abten[i];
     const std::optional<MatmulDimRole> role = abten.getTag((int64_t)i).value();
     ss << "  " << (role.has_value() ? toString(role.value()) : "no role");
     if (abs_id.is<ValGroupAndItsGraph>()) {

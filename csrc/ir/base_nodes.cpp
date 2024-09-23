@@ -60,16 +60,12 @@ bool Statement::lessThan(const Statement* stmt1, const Statement* stmt2) {
 }
 
 std::string Statement::toString(int indent_size) const {
-  NVF_ERROR(
-      false, "toString for IR node ", typeid(*this).name(), " is not defined");
+  NVF_THROW("toString for IR node ", typeid(*this).name(), " is not defined");
 }
 
 std::string Statement::toInlineString(int indent_size) const {
-  NVF_ERROR(
-      false,
-      "toInlineString for IR node ",
-      typeid(*this).name(),
-      " is not defined");
+  NVF_THROW(
+      "toInlineString for IR node ", typeid(*this).name(), " is not defined");
 }
 
 Fusion* Statement::fusion() const {
@@ -386,8 +382,7 @@ Expr* Expr::withWritePredicate(kir::Predicate* predicate) {
 std::vector<PolymorphicValue> Expr::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-  NVF_ERROR(
-      false,
+  NVF_THROW(
       "`evaluate` method for expression ",
       getOpString(),
       " is not defined. ",

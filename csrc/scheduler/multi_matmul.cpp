@@ -528,9 +528,10 @@ AbstractTensor swizzleSharedMemory(TensorView* shared_mem_tv) {
 // Each of the named tensors above is scheduled differently. We schedule them
 // by building AbstractTensors for each tensor category; these are held in
 // MultipleMatmulScheduler::schedules_.
+// TODO: Inheret from SchedulerEntry
 class MultipleMatmulScheduler {
  public:
-  MultipleMatmulScheduler(Fusion* fusion, const MatmulParams& params)
+  MultipleMatmulScheduler(Fusion* fusion, const MatmulParams* params)
       : fusion_(fusion),
         params_(params),
         id_model_(fusion, /*build_graphs=*/false) {}
@@ -603,7 +604,7 @@ class MultipleMatmulScheduler {
         num_local_batch_dims_ = 1;
       }
     }
-    num_splitk_dims_ = params_.splitk_factor > 1 ? 1 : 0;
+    num_splitk_dims_ = params_->splitk_factor > 1 ? 1 : 0;
     // Subtract 6 for the [Mo, No, Ko, Mi, Ni, Ki]
     num_device_and_batch_dims_ = num_device_dims_ + num_local_batch_dims_;
   }
@@ -676,7 +677,7 @@ class MultipleMatmulScheduler {
   // Currently the support is for a, b, c and d as fusion inputs/outputs
   //  aka. no prolog fusion yet.
   void defineOperandCaches() {
-    LoadStoreOpType load_op = params_.async_gmem_load_operands
+    LoadStoreOpType load_op = params_->async_gmem_load_operands
         ? LoadStoreOpType::CpAsync
         : LoadStoreOpType::Set;
 
@@ -688,7 +689,7 @@ class MultipleMatmulScheduler {
       for (size_t i : c10::irange(operands.size())) {
         TensorView* operand = operands[i];
         CacheOp cache_op = CacheOp::Unspecified;
-        if (params_.async_gmem_load_operands) {
+        if (params_->async_gmem_load_operands) {
           int64_t vec_bytes = vec_size * dataTypeSize(operand->dtype());
           NVF_CHECK(
               vec_bytes == 4LL || vec_bytes == 8LL || vec_bytes == 16LL,
@@ -721,8 +722,8 @@ class MultipleMatmulScheduler {
         smem_operands[i]->setMemoryType(MemoryType::Shared);
       }
     };
-    cacheOperandsToSmem(as_, acw_smems_, params_.supported_vec_size.a);
-    cacheOperandsToSmem(bs_, bcw_smems_, params_.supported_vec_size.b);
+    cacheOperandsToSmem(as_, acw_smems_, params_->supported_vec_size.a);
+    cacheOperandsToSmem(bs_, bcw_smems_, params_->supported_vec_size.b);
 
     // We add two LoadStore operators to the inputs of our fusions. The first
     // one is for a read from global memory and the second one (below) is for a
@@ -751,6 +752,7 @@ class MultipleMatmulScheduler {
     };
     // Shared memory read
     addSetsForCacheReads(acw_smems_, acrs_);
+    cacheOperandsToSmem(bs_, bcw_smems_, params_->supported_vec_size.b);
     addSetsForCacheReads(bcw_smems_, bcrs_);
 
     // Now that we are finished possibly redefining the inputs to the MmaOps,
@@ -758,7 +760,7 @@ class MultipleMatmulScheduler {
     for (TensorView* mma_result : mma_results_) {
       MmaOp* mma = dynamic_cast<MmaOp*>(mma_result->definition());
       NVF_ERROR(mma != nullptr);
-      mma->setMacro(params_.mma_macro);
+      mma->setMacro(params_->mma_macro);
     }
   }
 
@@ -790,7 +792,7 @@ class MultipleMatmulScheduler {
   void swizzleBlockTiles(
       TensorView* tv,
       std::vector<MatmulDimRole>& outer_dim_roles) {
-    if (params_.grid_swizzle_factor != 1) {
+    if (params_->grid_swizzle_factor != 1) {
       // Find position of outer M and N dims in schedule_.tiled
       int64_t Mo_pos = -1, No_pos = -1;
       for (size_t i : c10::irange(outer_dim_roles.size())) {
@@ -801,8 +803,8 @@ class MultipleMatmulScheduler {
         }
       }
 
-      int factor = std::max(1, params_.grid_swizzle_factor); // must be >=1
-      switch (params_.cta_order) {
+      int factor = std::max(1, params_->grid_swizzle_factor); // must be >=1
+      switch (params_->cta_order) {
         case MatmulParams::TileRasterizationOrder::RowMajor:
           // split   [I1, I2/factor, factor]
           // reorder [I1, factor, I2/factor]
@@ -936,8 +938,8 @@ class MultipleMatmulScheduler {
   // unscheduled before this method is called. Axes will be ordered
   // according to canonicalDimOrdering, and then axes with the same role will
   // be merged. After that, we perform splits according to
-  // params_.tile_sizes.cta_tile, e.g. [M, K] -> [Mo, Ko, Mi, Ki]. Finally,
-  // depending on the value of params_.grid_swizzle_factor, if the TV has both
+  // params_->tile_sizes.cta_tile, e.g. [M, K] -> [Mo, Ko, Mi, Ki]. Finally,
+  // depending on the value of params_->grid_swizzle_factor, if the TV has both
   // M and N dimensions, we perform a 2D swizzle of the outer dimensions Mo and
   // No.
   std::vector<std::vector<MatmulDimRole>> blockTileTensors(
@@ -988,17 +990,17 @@ class MultipleMatmulScheduler {
       }
       NVF_ERROR(merged_roles.size() == axis_roles.size());
 
-      mma_utils::makeTile(tv, params_.tile_sizes.cta_tile, merged_roles);
+      mma_utils::makeTile(tv, params_->tile_sizes.cta_tile, merged_roles);
 
       swizzleBlockTiles(tv, merged_roles);
 
       all_merged_roles.push_back(merged_roles);
 
-      if (params_.splitk_factor > 1) {
+      if (params_->splitk_factor > 1) {
         // Outer K dimension in tv is in same position found in merged_roles
         for (size_t i : c10::irange(merged_roles.size())) {
           if (merged_roles[i] == MatmulDimRole::K) {
-            tv->split((int64_t)i, params_.splitk_factor, /*inner*/ false);
+            tv->split((int64_t)i, params_->splitk_factor, /*inner*/ false);
             break;
           }
         }
@@ -1017,7 +1019,7 @@ class MultipleMatmulScheduler {
                               const int64_t vec_size) {
       blockTileTensors(smem_operands);
       for (TensorView* tv : smem_operands) {
-        if (params_.promote_prologue_smem_reuse) {
+        if (params_->promote_prologue_smem_reuse) {
           tv->promoteReuse();
         }
         mma_utils::orderTiledConcreteIdAsMaybeAllocationDomain(tv);
@@ -1028,11 +1030,11 @@ class MultipleMatmulScheduler {
         // NOTE: this splits and parallelizes the inner dimension as
         //   TIDz, TIDy, TIDx, V
         mma_utils::scheduleContiguousVectorLoad(
-            tv, params_.tile_sizes, vec_size, /*vectorize=*/vec_size > 1);
+            tv, params_->tile_sizes, vec_size, /*vectorize=*/vec_size > 1);
       }
     };
-    scheduleBranch(as_, acw_smems_, params_.supported_vec_size.a);
-    scheduleBranch(bs_, bcw_smems_, params_.supported_vec_size.b);
+    scheduleBranch(as_, acw_smems_, params_->supported_vec_size.a);
+    scheduleBranch(bs_, bcw_smems_, params_->supported_vec_size.b);
   }
 
   // Schedule acr and bcr
@@ -1047,7 +1049,7 @@ class MultipleMatmulScheduler {
                 all_merged_roles[i];
 
             // Incoming mma_result = [... iMo iNo (iKf) rKg iMi iNi rKi]
-            mma_utils::scheduleWarpTile(tv, params_.tile_sizes, merged_roles);
+            mma_utils::scheduleWarpTile(tv, params_->tile_sizes, merged_roles);
             // After scheduling warp tile, the last three dimensions are split
             // and rearranged:
             //        -3 -2 -1
@@ -1084,7 +1086,7 @@ class MultipleMatmulScheduler {
       // Schedule warp tile
       // Incoming mma_result = [... iMo iNo (iKf) rKg iMi iNi rKi]
 
-      if (params_.use_smem_epilogue && params_.splitk_factor != 1) {
+      if (params_->use_smem_epilogue && params_->splitk_factor != 1) {
         // TODO:
         // This is a workaround for a problem that different dimensions in the
         // loop domain are mapped in the loop graph of IdModel due to the
@@ -1097,7 +1099,7 @@ class MultipleMatmulScheduler {
       // NOTE: this applies to either mma_result _or_ ab/bb since both have the
       // same number of dimensions.
       // TODO: use the version that uses merged_roles instead here
-      mma_utils::scheduleWarpTileWithReduction(operand, params_.tile_sizes);
+      mma_utils::scheduleWarpTileWithReduction(operand, params_->tile_sizes);
 
       // parallelize Mwo, Nwo by thread
       operand->axis((int64_t)merged_roles.size() + num_splitk_dims_ + 1)
@@ -1117,7 +1119,7 @@ class MultipleMatmulScheduler {
 
       // do split-K rFactor to define splitk_sum and smem_epilogue
       TensorView* splitk_sum = mma_result;
-      if (params_.splitk_factor != 1) {
+      if (params_->splitk_factor != 1) {
         splitk_sum = mma_result->rFactor({-4, -1});
         std::swap(splitk_sum, mma_result);
         splitk_sums_.push_back(splitk_sum);
@@ -1131,7 +1133,7 @@ class MultipleMatmulScheduler {
       //     splitk_sum      [..., iMo, iNo, rKf, iMi, iNi]
 
       TensorView* smem_epilogue = mma_result;
-      if (params_.use_smem_epilogue) {
+      if (params_->use_smem_epilogue) {
         // Note that for split-K
         //   splitk_sum = sum(mma_result)
         // becomes
@@ -1144,7 +1146,7 @@ class MultipleMatmulScheduler {
       // Schedule warp tile
       // Incoming mma_result = [... iMo iNo (iKf) rKg iMi iNi rKi]
 
-      if (params_.use_smem_epilogue && params_.splitk_factor != 1) {
+      if (params_->use_smem_epilogue && params_->splitk_factor != 1) {
         // TODO:
         // This is a workaround for a problem that different dimensions in the
         // loop domain are mapped in the loop graph of IdModel due to the
@@ -1157,7 +1159,7 @@ class MultipleMatmulScheduler {
       // NOTE: this applies to either mma_result _or_ ab/bb since both have the
       // same number of dimensions.
       // TODO: use the version that uses merged_roles instead here
-      mma_utils::scheduleWarpTileWithReduction(mma_result, params_.tile_sizes);
+      mma_utils::scheduleWarpTileWithReduction(mma_result, params_->tile_sizes);
 
       // This does a split-reorder-merge swizzle of the last two M and N
       // dimensions (and a possible final reduction dim). eg. [M64, N24, R]  ->
@@ -1218,7 +1220,7 @@ class MultipleMatmulScheduler {
       mma_result->axis((int64_t)merged_roles.size() + num_splitk_dims_ + 2)
           ->parallelize(ParallelType::TIDy);
 
-      if (params_.use_smem_epilogue) {
+      if (params_->use_smem_epilogue) {
         smem_epilogue->setMemoryType(MemoryType::Shared);
         auto swizzled_dom = swizzleSharedMemory<false>(smem_epilogue);
         smem_epilogue->setAllocationDomain(
@@ -1235,13 +1237,13 @@ class MultipleMatmulScheduler {
 
       // When we have both batch dims and splitk, parallelize splitk only.
       // If we only have batch dim, parallelize the batch dim.
-      if (params_.splitk_factor > 1) {
+      if (params_->splitk_factor > 1) {
         mma_result->axis(num_device_and_batch_dims_ + 2)
             ->parallelize(ParallelType::BIDz);
       } else if (num_local_batch_dims_ > 0) {
         mma_result->axis(num_device_dims_)->parallelize(ParallelType::BIDz);
       }
-      switch (params_.cta_order) {
+      switch (params_->cta_order) {
         case MatmulParams::TileRasterizationOrder::RowMajor:
           mma_result->axis(num_device_and_batch_dims_)
               ->parallelize(ParallelType::BIDx);
@@ -1314,7 +1316,7 @@ class MultipleMatmulScheduler {
       for (TensorView* mma_input : mma_inputs) {
         // Schedule mma_input, since we know it has the broadcast dimension M or
         // N, whereas the smem read might not
-        if (isTuring(params_.mma_macro) || isAmpere(params_.mma_macro)) {
+        if (isTuring(params_->mma_macro) || isAmpere(params_->mma_macro)) {
           moveInnerBroadcastLeft(mma_input);
         }
         mma_input->applyMmaSwizzle(operand_type);
@@ -1360,8 +1362,8 @@ class MultipleMatmulScheduler {
   }
 
   void scheduleOutputTensor(TensorView* c) {
-    const MatMulTileOptions& gemm_tile = params_.tile_sizes;
-    const int64_t vectorization_factor = params_.supported_vec_size.epilogue;
+    const MatMulTileOptions& gemm_tile = params_->tile_sizes;
+    const int64_t vectorization_factor = params_->supported_vec_size.epilogue;
     // input tensor is in the form of [Mo,No,cta_tile_m,cta_tile_n]
     checkConcreteStaticDim(c->axis(-2));
     checkConcreteStaticDim(c->axis(-1));
@@ -1439,7 +1441,7 @@ class MultipleMatmulScheduler {
         output_tvs.push_back(tv);
       }
     }
-    if (params_.use_smem_epilogue) {
+    if (params_->use_smem_epilogue) {
       blockTileTensors(output_tvs);
       for (auto [dc, d] : cached_outputs_) {
         // Schedule output tensor differently for better global memory access
@@ -1468,11 +1470,11 @@ class MultipleMatmulScheduler {
         // vectorization as specified by params.supported_vec_size.epilogue.
         NVF_ERROR(d->axis(-1)->extent()->isConst());
         int64_t d_extent = d->axis(-1)->extent()->value().as<int64_t>();
-        if (d_extent > params_.supported_vec_size.epilogue) {
+        if (d_extent > params_->supported_vec_size.epilogue) {
           // Should always be a divisible split
-          NVF_ERROR(d_extent % params_.supported_vec_size.epilogue == 0);
+          NVF_ERROR(d_extent % params_->supported_vec_size.epilogue == 0);
           d->split(
-              -1, params_.supported_vec_size.epilogue, /*inner_split=*/true);
+              -1, params_->supported_vec_size.epilogue, /*inner_split=*/true);
           d->axis(-2)->parallelize(ParallelType::Unroll);
         }
         d->axis(-1)->parallelize(ParallelType::Vectorize);
@@ -1510,7 +1512,7 @@ class MultipleMatmulScheduler {
           output_d, -1, c_tvs);
 
       std::unordered_set<ParallelType> parallel_types = {};
-      if (params_.use_smem_epilogue) {
+      if (params_->use_smem_epilogue) {
         //! In cases where smem epilogue feature is enabled, the vectorization
         //! of
         //!  domains will be propagated to fusion inputs that are epilogue
@@ -1529,14 +1531,14 @@ class MultipleMatmulScheduler {
   }
 
   void scheduleSplitKSum() {
-    if (params_.splitk_factor == 1) {
+    if (params_->splitk_factor == 1) {
       return;
     }
     for (TensorView* splitk_sum : splitk_sums_) {
       // Always use serial grid reduction for split-K sum
       splitk_sum->definition()->as<ReductionOp>()->requestSerialGridReduction();
 
-      if (params_.use_smem_epilogue) {
+      if (params_->use_smem_epilogue) {
         // Now that transforms are propagated backward to smem_epilogue, which
         // is before splitk_sum, we can vectorize the inner-most non-trivial
         // dimension of splitk_sum
@@ -1593,27 +1595,27 @@ class MultipleMatmulScheduler {
   // transforms have been applied and inlining
   void setUpCircularBuffering() {
     // Propagate mma output swizzle and parallelization down the DAG
-    if (params_.circular_buffer_options.circular_buffer_smem_write) {
+    if (params_->circular_buffer_options.circular_buffer_smem_write) {
       NVF_ERROR(
-          params_.circular_buffer_options.smem_circular_buffer_stage > 1,
+          params_->circular_buffer_options.smem_circular_buffer_stage > 1,
           "Invalid buffer stage config")
-      if (params_.circular_buffer_options.smem_circular_buffer_stage > 2) {
+      if (params_->circular_buffer_options.smem_circular_buffer_stage > 2) {
         NVF_ERROR(
-            params_.async_gmem_load_operands,
+            params_->async_gmem_load_operands,
             "Circular buffer only supports async load");
       }
 
       for (TensorView* acw_smem : acw_smems_) {
         acw_smem->circularBuffer(
-            params_.circular_buffer_options.smem_circular_buffer_stage);
+            params_->circular_buffer_options.smem_circular_buffer_stage);
       }
       for (TensorView* bcw_smem : bcw_smems_) {
         bcw_smem->circularBuffer(
-            params_.circular_buffer_options.smem_circular_buffer_stage);
+            params_->circular_buffer_options.smem_circular_buffer_stage);
       }
     }
 
-    if (params_.circular_buffer_options.circular_buffer_smem_read) {
+    if (params_->circular_buffer_options.circular_buffer_smem_read) {
       // Only apply circular buffering if we can fill the entire pipeline.
       auto safely_apply_circular_buffering = [](TensorView* tv) {
         constexpr int64_t number_of_stages = 2;
@@ -1632,8 +1634,8 @@ class MultipleMatmulScheduler {
       }
     }
 
-    if (params_.circular_buffer_options.circular_buffer_smem_read &&
-        params_.circular_buffer_options.circular_buffer_smem_write) {
+    if (params_->circular_buffer_options.circular_buffer_smem_read &&
+        params_->circular_buffer_options.circular_buffer_smem_write) {
       // rotate Kg loop
       // This assumes we have a single main loop. If there were multiple main
       // loops, then we would need to rotate each of them separately.
@@ -1649,7 +1651,7 @@ class MultipleMatmulScheduler {
 
  private:
   Fusion* fusion_;
-  const MatmulParams& params_;
+  const MatmulParams* params_;
   IdModel id_model_;
   // Permissive graph of id_model_, which we modify at times using e.g.
   // AbstractTensor.split or by mapping vals in cacheAfter and rFactor
@@ -1672,7 +1674,7 @@ class MultipleMatmulScheduler {
 
 } // namespace
 
-void scheduleMultipleMatmuls(Fusion* fusion, const MatmulParams& params) {
+void scheduleMultipleMatmuls(Fusion* fusion, const MatmulParams* params) {
   FusionGuard fg(fusion);
 
   MultipleMatmulScheduler(fusion, params).run();

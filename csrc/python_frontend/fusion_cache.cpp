@@ -185,17 +185,17 @@ void serialize() {
 std::mutex FusionCache::singleton_lock_;
 FusionCache* FusionCache::singleton_ = nullptr;
 
-UserSchedule::UserSchedule() : schedule(nullptr), executor(nullptr) {
-  schedule = std::make_unique<Fusion>();
+UserSchedule::UserSchedule() : scheduled_fusion(nullptr), executor(nullptr) {
+  scheduled_fusion = std::make_unique<Fusion>();
   executor = std::make_unique<FusionExecutor>();
 }
 
-bool UserSchedule::canSchedule(const ScheduleHeuristic& heuristic) {
-  return SchedulerEntry::canSchedule(heuristic, fusion(), *runtimeInfo());
+bool UserSchedule::canSchedule(const SchedulerType& scheduler_type) {
+  return Schedule::canSchedule(scheduler_type, fusion(), *runtimeInfo());
 }
 
 std::tuple<bool, std::string> UserSchedule::canScheduleDebug(
-    const ScheduleHeuristic& heuristic) {
+    const SchedulerType& scheduler_type) {
   // Enable collection of messages from canScheduleRejectReason
   DebugDumpOptionsGuard debug_dump_options_guard;
   DebugDumpOptionsGuard::getCurOptions().set(
@@ -205,17 +205,26 @@ std::tuple<bool, std::string> UserSchedule::canScheduleDebug(
   std::stringstream ss;
   DebugStreamGuard dsg(ss);
 
-  bool can_schedule = canSchedule(heuristic);
+  bool can_schedule = canSchedule(scheduler_type);
   return std::make_tuple(can_schedule, ss.str());
 }
 
-void UserSchedule::scheduleWithHeuristic(const ScheduleHeuristic& heuristic) {
+void UserSchedule::scheduleWithType(SchedulerType scheduler_type) {
   NVF_CHECK(
-      heuristic_scheduler == nullptr,
+      heuristic_params == nullptr,
       "Heuristic Scheduler is already defined for this UserSchedule");
-  heuristic_scheduler =
-      SchedulerEntry::makeEntry(heuristic, fusion(), *runtimeInfo());
-  heuristic_scheduler->schedule(fusion());
+  auto scheduler = SchedulerEntry::makeSchedulerInstance(scheduler_type);
+  SchedulerRuntimeInfo& runtime_info_ref = *runtimeInfo();
+
+  NVF_ERROR(
+      scheduler->canScheduleCompileTime(fusion()) &&
+          scheduler->canScheduleRunTime(fusion(), runtime_info_ref),
+      "Could not schedule fusion with ",
+      scheduler_type,
+      " scheduler.");
+
+  heuristic_params = scheduler->computeHeuristics(fusion(), runtime_info_ref);
+  scheduler->schedule(fusion(), heuristic_params.get());
 }
 
 FusionSchedules::FusionSchedules(int64_t fusion_id)
@@ -245,6 +254,16 @@ TrieNode::TrieNode(RecordFunctor* rec, TrieNode* _parent, size_t _fusion_id)
 
 bool TrieNode::isTerminal() const {
   return (record.get()->recordType() == serde::RecordType::End);
+}
+
+void TrieNode::setException(const char* e) {
+  std::lock_guard<std::mutex> guard(trie_node_lock);
+  exception = e;
+}
+
+std::optional<std::string> TrieNode::getException() {
+  std::lock_guard<std::mutex> guard(trie_node_lock);
+  return exception;
 }
 
 flatbuffers::Offset<serde::TrieNode> TrieNode::serialize(
@@ -741,7 +760,13 @@ void FusionCache::deserialize(std::string filename) {
           "The fusion id for this TrieNode should already be set.")
       Fusion* fusion =
           queryFusionSchedules(fb_trie_node->fusion_id())->preschedFusion();
-      state->buildFusionIr(fusion);
+      try {
+        // There could be bad fusion in the serialization.
+        state->buildFusionIr(fusion);
+      } catch (const std::exception& e) {
+        // catch exception and setException for the terminal node
+        trie_ptr->setException(e.what());
+      }
     }
 
     // Table TrieNode => Field: children: [ulong]
