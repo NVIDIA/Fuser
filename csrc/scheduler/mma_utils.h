@@ -84,23 +84,6 @@ void makeTile(
 using AbstractMatmulTensor = TaggedAbstractTensor<MatmulDimRole>;
 
 //! Abstract version of the above utility. Schedules the provided
-//! AbstractTensor and returns the resulting ID roles.
-void makeTile(
-    AbstractMatmulTensor& canonicalized_abstract_tensor,
-    const std::vector<int64_t>& tile_sizes);
-
-//! The above call assumes the axes in TV are [(B), M, N, K]. In this version,
-//! we provide the dimension roles that are present for this tensor.
-void makeTile(
-    TensorView* tv,
-    const GemmTile& tile_sizes,
-    const std::vector<MatmulDimRole>& axis_roles);
-
-//! We model each dimension of every tensor in the Fusion with ID roles
-//! described by MatmulDimRole.
-using AbstractMatmulTensor = TaggedAbstractTensor<MatmulDimRole>;
-
-//! Abstract version of the above utility. Schedules the provided
 //! AbstractMatmulTensor instead of a concrete TensorView.
 void makeTile(
     AbstractMatmulTensor& canonicalized_abstract_tensor,
