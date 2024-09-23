@@ -256,10 +256,16 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
 //
 // Detailed Pseudo-Code:
 // Pre-Prologue loop:
+//
+// - number_of_arrival_threads is the number of threads to call
+//   mbarrier::arrive or mbarrier::arriveExpectTx and to wait at
+//   mbarrier:wait.
+//
 // __shared__ __mbarrier_t barriers[num_stages];
 // __shared__ __mbarrier_token_t tokens[num_stages];
 // if (warp_id == 0 && electSync()()) {
 //   for (int64_t loop_index : irange(stages)) {
+//     int64_t number_of_arrive_threads = blockDim.x * blockDim.y * blockDim.z;
 //     mbarrier_init(mbarrier[loop_index], number_of_arrival_threads);
 //   }
 // }
