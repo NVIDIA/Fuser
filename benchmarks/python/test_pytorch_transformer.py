@@ -6,6 +6,11 @@
 Benchmarks Tensor parallel NanoGPT block using Pytorch TP API.
 
 Usage: torchrun --nproc-per-node=<number of processes> test_pytorch_transformer.py
+
+To capture annotated nsight trace:
+nsys profile -w true -t cuda,nvtx,osrt,cudnn,cublas -s cpu 
+--capture-range-end stop --capture-range=cudaProfilerApi 
+--cudabacktrace=true -o <trace> torchrun --nproc-per-node <> test_pytorch_transformer.py
 """
 
 import os
@@ -36,6 +41,27 @@ assert (
     world_size % 2 == 0
 ), f"TP examples require even number of GPUs, but got {world_size} gpus"
 
+
+def profile_loop(model, input, num_iters=10):
+    output = model(input)
+    output.sum().backward()
+
+    print("Start profile loop")
+    torch.cuda.cudart().cudaProfilerStart()
+    for i in range(num_iters):
+        print(i)
+        torch.cuda.nvtx.range_push(f'iteration{i}')
+        torch.cuda.nvtx.range_push("forward")
+        output = model(input)
+        torch.cuda.synchronize()
+        torch.cuda.nvtx.range_pop()
+
+        torch.cuda.nvtx.range_push("backward")
+        output.sum().backward()
+        torch.cuda.synchronize()
+        torch.cuda.nvtx.range_pop()
+        torch.cuda.nvtx.range_pop()
+    torch.cuda.cudart().cudaProfilerStop()
 
 def benchmark_loop(model, input):
     forward_time = 0.0
@@ -74,8 +100,9 @@ def benchmark_model(use_torch_compile=False):
     input = torch.rand(
         batch_size, sequence_length, config.n_embd, dtype=dtype, device="cuda"
     )
-    forward_time, backward_time = benchmark_loop(model, input)
-    print(f"torch.compile {not use_torch_compile}, Average forward time {forward_time}s, backward time {backward_time}s")
+    profile_loop(model, input)
+    # forward_time, backward_time = benchmark_loop(model, input)
+    # print(f"torch.compile {not use_torch_compile}, Average forward time {forward_time}s, backward time {backward_time}s")
 
 
 def benchmark_tensor_parallel(use_torch_compile=False):
@@ -105,14 +132,15 @@ def benchmark_tensor_parallel(use_torch_compile=False):
         batch_size, sequence_length, config.n_embd, dtype=dtype, device="cuda"
     )
 
-    forward_time, backward_time = benchmark_loop(tp_model, input)
-    print(
-        f"{rank}: torch.compile {not use_torch_compile}, Average tensor parallel forward time {forward_time}s, backward time {backward_time}s"
-    )
+    profile_loop(tp_model, input)
+    # forward_time, backward_time = benchmark_loop(tp_model, input)
+    # print(
+    #     f"{rank}: torch.compile {not use_torch_compile}, Average tensor parallel forward time {forward_time}s, backward time {backward_time}s"
+    # )
 
 
-benchmark_model()
-benchmark_model(True)
-benchmark_tensor_parallel()
+# benchmark_model()
+# benchmark_model(True)
+# benchmark_tensor_parallel()
 benchmark_tensor_parallel(True)
 dist.destroy_process_group()
