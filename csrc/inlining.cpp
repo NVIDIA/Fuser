@@ -169,11 +169,17 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
   const bool may_need_forwarding =
       lower_utils::hasRootToLoopLinearTransformations(producer) &&
       !ir_utils::compareDomains(
-           producer->getLoopDomain(), producer->getLogicalDomain())
+           producer->getLoopDomain(),
+           producer->getLogicalDomain(),
+           /*additional_ids=*/{},
+           /*ignore_broadcast=*/false)
            .dom0_has_unreachable_ids &&
       lower_utils::hasRootToLoopLinearTransformations(consumer) &&
       !ir_utils::compareDomains(
-           consumer->getLoopDomain(), consumer->getLogicalDomain())
+           consumer->getLoopDomain(),
+           consumer->getLogicalDomain(),
+           /*additional_ids=*/{},
+           /*ignore_broadcast=*/false)
            .dom0_has_unreachable_ids;
 
   if (may_need_forwarding) {

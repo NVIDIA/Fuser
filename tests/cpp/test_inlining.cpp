@@ -397,13 +397,15 @@ TEST_F(InliningTest, GetMaxProducerPosFromConsumerWithBroadcast) {
   auto tv4 = add(tv0, tv3);
   fusion.addOutput(tv4);
 
-  // Use the loop domain of tv4 as the reference
+  // Use the loop domain of tv4 as the reference.
 
   // tv2
   {
+    // One domain is missing. Can use either a clone of the tv3 inner
+    // broadcast domain or the tv4 inner non-broadcast domain.
     std::vector<IterDomain*> loop_domain{
         tv2->getLogicalDomain().at(0),
-        tv4->getLoopDomain().at(1)->cloneWithoutRFactor(
+        tv3->getLoopDomain().at(1)->cloneWithoutRFactor(
             /*map_with_original=*/true)};
     tv2->setLoopDomain(loop_domain);
   }
