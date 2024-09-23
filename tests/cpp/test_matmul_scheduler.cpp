@@ -17,7 +17,6 @@
 #include <scheduler/matmul_heuristic_plugin.h>
 #include <scheduler/matmul_heuristic_plugin_api.h>
 #include <scheduler/mma_utils.h>
-#include <scheduler/multi_matmul.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
@@ -2751,10 +2750,10 @@ TEST_F(MatmulSchedulerTest, Llama2FFNNoSegmentation) {
   params.circular_buffer_options.circular_buffer_smem_write = true;
   params.circular_buffer_options.circular_buffer_smem_read = true;
   params.circular_buffer_options.smem_circular_buffer_stage = 2;
-  // params.splitk_factor = 2;
-  // params.use_smem_epilogue = true;
-  // params.promote_prologue_smem_reuse = true;
-  scheduleMultipleMatmuls(fusion, &params);
+  params.splitk_factor = 2;
+  params.use_smem_epilogue = true;
+  params.promote_prologue_smem_reuse = true;
+  scheduleMatmul(fusion, &params);
 
   FusionExecutor fe;
   fe.compileFusion(fusion, inputs);
