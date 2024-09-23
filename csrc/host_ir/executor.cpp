@@ -276,6 +276,22 @@ void HostIrExecutor::handle(kir::IfThenElse* if_then_else) {
   }
 }
 
+void HostIrExecutor::handle(StartCoalescing* start_coalescing) {
+  auto backend = communicator_->getWorld();
+  NVF_ERROR(
+      backend->getBackendName() == "nccl",
+      "ProcessGroupUCC does not implement coalescence");
+  backend->startCoalescing();
+}
+
+void HostIrExecutor::handle(EndCoalescing* end_coalescing) {
+  auto backend = communicator_->getWorld();
+  NVF_ERROR(
+      backend->getBackendName() == "nccl",
+      "ProcessGroupUCC does not implement coalescence");
+  works_[end_coalescing] = backend->endCoalescing();
+}
+
 namespace {
 
 void handleWithExpressionEvaluator(

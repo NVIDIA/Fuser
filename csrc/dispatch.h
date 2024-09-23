@@ -144,7 +144,9 @@ class Val;
   f(PostOnStream);                    \
   f(SetCurrentStream);                \
   f(Wait);                            \
-  f(Synchronize);
+  f(Synchronize);                     \
+  f(StartCoalescing);                 \
+  f(EndCoalescing);
 
 // Forward declarations for all Val and Expr types
 
