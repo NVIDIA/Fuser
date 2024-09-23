@@ -582,8 +582,9 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
 
     LoadStoreOp* ldst = expr->as<LoadStoreOp>();
 
-    // There should be a single mbarrier_arrive_tx_ for all ldst in current
-    // stage.
+    // There is a single mbarrier_arrive_tx_ for each cpAsyncBulk load
+    // expression. A mbarrier_arrive_tx_ for another cpAsyncBulk load expression
+    // should not be active.
     NVF_ERROR(mbarrier_arrive_tx_ == nullptr);
     mbarrier_arrive_tx_ =
         createMbarrierArriveExpectTx(ldst, current_load_stage_);
