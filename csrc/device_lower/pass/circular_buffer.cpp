@@ -343,6 +343,22 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
             loop_type,
             exclude) {}
 
+  // For CircularBufferLoopCloner, all load operations are synchronous, so they
+  // are added sequentially. For TmaCircularBufferLoop, we have an mbarrier for
+  // each Tensorview and each circular buffer stage, but not for each individual
+  // TMA load operation. If there are serial IterDomains to the right of the
+  // computeAt position, nvfuser will generate a for-loop to launch multiple TMA
+  // load operations.
+  //
+  // When we encounter a CpAsyncBulk load expression, we create a mbarrier_wait
+  // for the main and epilogue loops and a arriveExpectTx for prologue and main
+  // loops. The expected_tx for arriveExpectTx is the cumulative transaction
+  // size for all TMA load operations for the TensorView. Next, we generate the
+  // nested for-loops for the serial IterDomains, but do not add them to the
+  // cloned circular buffer loop immediately. Once the cloned circular buffer
+  // loop is the only loop in the stack, add the arriveExpectTx and arrive
+  // expressions, then the nested for-loop structure calling the TMA load
+  // operations, and finally the mbarrier_wait.
   void processForLoop(ForLoop* cloned_loop) final {
     // Skip if there is not an active for-loop structure
     if (for_loop_stack_.empty()) {
