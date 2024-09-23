@@ -156,19 +156,19 @@ namespace nvfuser {
  */
 
 class SchedulerRuntimeInfo;
-class HeuristicSummary;
+class HeuristicDataCache;
 
-std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
+std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
-    HeuristicSummary* data_cache = nullptr);
+    HeuristicDataCache* data_cache = nullptr);
 
-std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
+std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache = nullptr);
+    HeuristicDataCache* data_cache = nullptr);
 
-void schedulePointwise(Fusion* fusion, const PointwiseParams& params);
+void schedulePointwise(Fusion* fusion, const PointwiseParams* params);
 
 NVF_API LaunchParams schedulePointwise(
     Fusion* fusion,
@@ -184,26 +184,21 @@ TensorView* getReferenceTensorView(Fusion* fusion);
 
 class PointWiseScheduler : public SchedulerEntry {
  public:
-  explicit PointWiseScheduler(
+  bool canScheduleCompileTime(Fusion* fusion) override;
+  bool canScheduleRunTime(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
+      HeuristicDataCache* data_cache = nullptr) override;
 
-  static bool canScheduleCompileTime(Fusion* fusion);
-  static bool canScheduleRunTime(
-      Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
-
-  constexpr static ScheduleHeuristic heuristicType() {
-    return ScheduleHeuristic::PointWise;
+  constexpr static SchedulerType schedulerType() {
+    return SchedulerType::PointWise;
   }
-  void schedule(Fusion* fusion) override;
+  void schedule(Fusion* fusion, const HeuristicParams* params) override;
 
-  void computeHeuristics(
+  std::unique_ptr<HeuristicParams> computeHeuristics(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
+      HeuristicDataCache* data_cache) override;
 };
 
 } // namespace nvfuser

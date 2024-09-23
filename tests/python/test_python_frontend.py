@@ -2103,15 +2103,15 @@ class TestNvFuserFrontend(NVFuserTest):
         checks = [
             (
                 check_start_indices,
-                "Slice operation start_indices must be greater-than-or-equal-to 0. .*",
+                "Slice operation start_indices must be greater than or equal to 0. .*",
             ),
             (
                 check_end_indices,
-                "Slice operation end_indices must be greater-than-or-equal-to start_indices. .*",
+                "Slice operation end_indices must be greater than or equal to start_indices. .*",
             ),
             (
                 check_strides,
-                "nvFuser Limitation: All slice operation strides must be of size 1. .*",
+                "nvFuser Limitation: All slice operation strides must be of const size 1.*",
             ),
             (
                 check_tensor_dims,
@@ -4345,3 +4345,35 @@ class TestNvFuserFrontend(NVFuserTest):
             ):
                 with FusionDefinition() as fd:
                     fusion_func(fd)
+
+    def test_slice_api(self):
+        x = torch.randn((2, 5, 10), dtype=torch.float32, device="cuda:0")
+
+        offset = (0, 1, 2)
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.define_tensor(
+                shape=[-1, -1, -1],
+                contiguity=[True, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[2, 1, 0],
+            )
+            T1 = fd.ops.slice(
+                T0, start_indices=offset, end_indices=(2, 5, 10), strides=(1, 1, 1)
+            )
+            fd.add_output(T1)
+            V_start = fd.define_vector(offset)
+            V_end = T0.shape()
+            T2 = fd.ops.slice(T0, V_start, V_end)
+            fd.add_output(T2)
+            dynamic_start = fd.define_vector(3)
+            dynamic_end = fd.define_vector(3)
+            T3 = fd.ops.slice(T0, dynamic_start, dynamic_end)
+            fd.add_output(T3)
+
+        inputs = [x, *offset, *x.shape]
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        for out in nvf_out:
+            self.assertTrue(out.allclose(x[:, 1:, 2:]))

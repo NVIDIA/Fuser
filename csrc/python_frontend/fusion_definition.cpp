@@ -13,7 +13,7 @@
 #include <python_frontend/fusion_cache.h>
 #include <python_frontend/fusion_definition.h>
 #include <python_frontend/translation.h>
-#include <scheduler/heuristic_types.h>
+#include <scheduler/scheduler_types.h>
 #include <utils.h>
 #include <validator_utils.h>
 
@@ -218,30 +218,30 @@ void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
 
   user_sched_ = fusionCache()->createUserSchedule(scheds, inputs, device);
 
-  // Building a new Fusion container for scheduling with definition such
-  // that the definition's tensor data members refer to the corresponding IR
-  // objects needed for scheduling. A simple copy of the container would
-  // mean the data members that represent tensors would refer to the IR
-  // objects in the original and not the copy needed for scheduling.
-  buildFusionIr(user_sched_->schedule.get());
+  // Building a new Fusion container for scheduling with definition such that
+  // the definition's tensor data members refer to the corresponding IR objects
+  // needed for scheduling. A simple copy of the container would mean the data
+  // members that represent tensors would refer to the IR objects in the
+  // original and not the copy needed for scheduling.
+  buildFusionIr(user_sched_->scheduled_fusion.get());
 
-  // Add TensorViews created by composite operations to Python
-  // FusionDefinition.
-  findHiddenTensorViews(user_sched_->schedule.get());
+  // Add TensorViews created by composite operations to Python FusionDefinition.
+  findHiddenTensorViews(user_sched_->scheduled_fusion.get());
 
   KernelArgumentHolder args =
       KernelArgumentHolder::createKernelArgumentHolder(inputs, device);
 
   // Concretize fusion
   std::unordered_map<Val*, Val*> symbolic_to_concrete_map =
-      DynamicTransform::concretizeFusion(user_sched_->schedule.get(), args);
+      DynamicTransform::concretizeFusion(
+          user_sched_->scheduled_fusion.get(), args);
 
   // Update symbolic values to their new concretized values.
   // Users will access concretized values in schedule function.
   updateSymbolicStates(symbolic_to_concrete_map);
 
   // Create runtime info for schedulers
-  Fusion* user_schedule_fusion = user_sched_->schedule.get();
+  Fusion* user_schedule_fusion = user_sched_->scheduled_fusion.get();
   user_sched_->runtime_info = std::make_unique<SchedulerRuntimeInfo>(
       user_schedule_fusion,
       args,
@@ -251,7 +251,7 @@ void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
   // Manually setting the fusion guard as there is not a good way of using a
   // guard in a local scope across the schedule function
   prev_fusion_ = FusionGuard::getCurFusion();
-  FusionGuard::setCurFusion(user_sched_->schedule.get());
+  FusionGuard::setCurFusion(user_sched_->scheduled_fusion.get());
 }
 
 void FusionDefinition::finalizeSchedule(
@@ -317,14 +317,14 @@ std::vector<at::Tensor> FusionDefinition::execute(
       }
       auto& user_sched = fusionCache()->queryUserSchedule(
           scheds, user_sched_id.value(), device);
-      scheds->last_user_def_scheduled_ir = user_sched.schedule.get();
+      scheds->last_user_def_scheduled_ir = user_sched.scheduled_fusion.get();
       scheds->last_user_def_executor = user_sched.executor.get();
 
-      if (user_sched.heuristic_scheduler == nullptr) {
+      if (user_sched.heuristic_params == nullptr) {
         // Manual schedule
         if (!user_sched.executor->isCompiled()) {
           user_sched.executor->compileFusion(
-              user_sched.schedule.get(),
+              user_sched.scheduled_fusion.get(),
               inputs,
               user_sched.fusion_id_,
               user_sched.device_id_);
@@ -335,19 +335,19 @@ std::vector<at::Tensor> FusionDefinition::execute(
         // Pass launch and compile params to compileFusion and runFusion.
         if (!user_sched.executor->isCompiled()) {
           user_sched.executor->compileFusion(
-              user_sched.schedule.get(),
+              user_sched.scheduled_fusion.get(),
               KernelArgumentHolder::createKernelArgumentHolder(
                   inputs, getCommonDeviceCUDA(inputs)),
-              user_sched.heuristic_scheduler->params()->lparams,
-              user_sched.heuristic_scheduler->params()->cparams,
-              user_sched.heuristic_scheduler->heuristic(),
+              user_sched.heuristic_params->lparams,
+              user_sched.heuristic_params->cparams,
+              user_sched.heuristic_params->scheduler_type,
               user_sched.fusion_id_,
               user_sched.device_id_);
         }
         outputs = user_sched.executor->runFusion(
             inputs,
-            user_sched.heuristic_scheduler->params()->lparams,
-            user_sched.heuristic_scheduler->params()->cparams);
+            user_sched.heuristic_params->lparams,
+            user_sched.heuristic_params->cparams);
       }
 
       if (isProfilerEnabledWithCupti()) {
@@ -402,7 +402,7 @@ std::string FusionDefinition::userScheduleIr() {
   }
 
   std::stringstream ss;
-  user_sched_->schedule->print(ss, false);
+  user_sched_->scheduled_fusion->print(ss, false);
   return ss.str();
 }
 
@@ -490,7 +490,7 @@ std::string FusionDefinition::scheduledFusionIrFor(
     if (user_sched_id.has_value()) {
       auto& user_sched = fusionCache()->queryUserSchedule(
           scheds, user_sched_id.value(), device);
-      auto user_sched_ir = user_sched.schedule.get();
+      auto user_sched_ir = user_sched.scheduled_fusion.get();
       std::stringstream ss;
       user_sched_ir->print(ss, tensor_transforms);
       return ss.str();
