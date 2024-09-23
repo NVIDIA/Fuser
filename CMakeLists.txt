@@ -204,7 +204,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/rng.cpp
   ${NVFUSER_SRCS_DIR}/logical_domain_map.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/cache_policy_refiner.cpp
-  ${NVFUSER_SRCS_DIR}/scheduler/heuristic_types.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/scheduler_types.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/mark_aliases.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/matmul.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/multi_matmul.cpp
@@ -650,6 +650,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/tests/cpp/test_matmul_aten_evaluation.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_matmul_sass.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_matmul_scheduler.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_multi_matmul_scheduler.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_mma.cpp
   )
   add_test(test_matmul "${MATMUL_TEST_SRCS}" "")

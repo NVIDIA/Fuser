@@ -84,19 +84,19 @@ namespace nvfuser {
 //   FusionManualScheduleTransposeComplexDAG1_CUDA
 
 class SchedulerRuntimeInfo;
-class HeuristicSummary;
+class HeuristicDataCache;
 
-std::shared_ptr<TransposeParams> getTransposeHeuristics(
+std::unique_ptr<TransposeParams> getTransposeHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
-    HeuristicSummary* data_cache = nullptr);
+    HeuristicDataCache* data_cache = nullptr);
 
-std::shared_ptr<TransposeParams> getTransposeHeuristics(
+std::unique_ptr<TransposeParams> getTransposeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache = nullptr);
+    HeuristicDataCache* data_cache = nullptr);
 
-NVF_API void scheduleTranspose(Fusion* fusion, TransposeParams params);
+NVF_API void scheduleTranspose(Fusion* fusion, const TransposeParams* params);
 
 NVF_API LaunchParams scheduleTranspose(
     Fusion* fusion,
@@ -110,34 +110,28 @@ NVF_API bool hasAtLeastTwoValidGroups(Fusion* fusion);
 // reason why we should not schedule at runtime.
 std::string getTransposeRuntimeRejectReason(
     Fusion* fusion,
-    HeuristicSummary* data_cache,
+    HeuristicDataCache* data_cache,
     SchedulerRuntimeInfo& runtime_info);
 
 class TransposeScheduler : public SchedulerEntry {
  public:
-  explicit TransposeScheduler(
+  bool canScheduleCompileTime(Fusion* fusion) override;
+
+  bool canScheduleRunTime(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
+      HeuristicDataCache* data_cache = nullptr) override;
 
-  static bool canScheduleCompileTime(Fusion* fusion);
-
-  static bool canScheduleRunTime(
-      Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
-
-  constexpr static ScheduleHeuristic heuristicType() {
-    return ScheduleHeuristic::Transpose;
+  constexpr static SchedulerType schedulerType() {
+    return SchedulerType::Transpose;
   }
 
-  void schedule(Fusion* fusion) override;
+  void schedule(Fusion* fusion, const HeuristicParams* params) override;
 
- private:
-  void computeHeuristics(
+  std::unique_ptr<HeuristicParams> computeHeuristics(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
+      HeuristicDataCache* data_cache) override;
 };
 
 } // namespace nvfuser
