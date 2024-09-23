@@ -1071,7 +1071,10 @@ FusionKernelRuntime::FusionKernelRuntime(
 
   executors_ = std::vector<FusionExecutor>(segmented_fusion_->groups().size());
   if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
-    segmented_fusion_->print();
+    const auto& communicator = Communicator::getInstance();
+    if (!communicator.is_available() || communicator.local_rank() == 0) {
+      segmented_fusion_->print();
+    }
   }
 
   // Even if we go through the segmented path we may still end up

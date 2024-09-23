@@ -14,7 +14,8 @@
 #include <ir/graphviz.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
-#include <multidevice/utils.h>
+#include <multidevice/communicator.h>
+#include <multidevice/utils.h> // For isResharding
 #include <ops/arith.h>
 #include <options.h>
 #include <scheduler/debug_utils.h>
@@ -1969,7 +1970,23 @@ std::pair<IrCloner, std::unique_ptr<Fusion>> SegmentedFusion::makeFusion(
   return std::make_pair(complete_to_segment_map, std::move(fusion_segment));
 }
 
-std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
+/*static*/ std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
+    std::unique_ptr<Fusion> fusion,
+    const KernelArgumentHolder* inputs,
+    const SegmentCandidateFinderOptions& options) {
+  if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
+    const auto& communicator = Communicator::getInstance();
+    if (!communicator.is_available() || communicator.local_rank() == 0) {
+      debug() << "Segment the fusion (Original Fusion Un-modified): "
+              << std::endl;
+      fusion->printMath();
+    }
+  }
+  SegmentCandidateFinder scf(std::move(fusion), inputs, options);
+  return std::move(scf.segmented_fusion_);
+}
+
+/*static*/ std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
     std::unique_ptr<Fusion> fusion,
     const KernelArgumentHolder* inputs,
     SchedulerRuntimeInfo& runtime_info) {
