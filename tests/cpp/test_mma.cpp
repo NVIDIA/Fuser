@@ -774,8 +774,8 @@ TEST_P(HopperRS, MultipleTile) {
       layout,
       data_type_to_aten(dtype));
 
-  debugging::setAsIdentity(inputs.first);
-  debugging::setAsARange(inputs.second);
+  debugging::setAsIdentity(inputs.first.squeeze());
+  debugging::setAsARange(inputs.second.squeeze());
 
   std::cout << "Inputs:\n";
   std::cout << inputs.first << "\n";

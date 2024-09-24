@@ -2026,7 +2026,6 @@ void IndexLowering::handle(const MmaOp* mma) {
                          ->index();
     Val* leading_bytes = getInnerStride(tv, mma);
     Val* stride_bytes = getOuterStride(tv, mma);
-    stride_bytes = tv->fusion()->zeroVal();
     if (swizzle == MmaInputSmemSwizzle::None && unitdim_b == UnitDim::M_or_N) {
       // tnspA and tnspB is ignored for NoSwizzle mode
       std::swap(leading_bytes, stride_bytes);
