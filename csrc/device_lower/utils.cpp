@@ -1906,13 +1906,13 @@ Val* proveLinearAndGetStride(
     const ValGroup& linear_g,
     const ValGroups& domain) {
   FusionGuard fg(linear_g->front()->fusion());
-  if (simplifyExpr(extent(linear_g))->isOne()) {
-    // If the extent of the linear group is 1, we always consider it as linear,
-    // regardless of its relationship with domain. For this case, we use stride
-    // zero as a placeholder, as "stride" is really meaningless for a dimension
-    // of size one.
-    return linear_g->front()->fusion()->zeroVal();
-  }
+  // if (simplifyExpr(extent(linear_g))->isOne()) {
+  //   // If the extent of the linear group is 1, we always consider it as linear,
+  //   // regardless of its relationship with domain. For this case, we use stride
+  //   // zero as a placeholder, as "stride" is really meaningless for a dimension
+  //   // of size one.
+  //   return linear_g->front()->fusion()->zeroVal();
+  // }
   // Propagate from linear_g to domain. Use frontier to keep track of the
   // how linear_g lives in the current propagation front.
   Projection frontier = linear_g;
