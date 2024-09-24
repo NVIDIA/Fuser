@@ -31,6 +31,7 @@ def test_validate_precomputed_values():
         float("nan"),
     ]
 
+    # nsys profile --capture-range=nvtx --capture-range-end=stop --nvtx-capture=test_nan --stats=true pytest tests/python/test_nan.py -s
     with nvtx.annotate("test_nan"):
         outs = fd.execute(ins)
         torch.cuda.synchronize()
