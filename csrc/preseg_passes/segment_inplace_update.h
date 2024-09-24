@@ -13,13 +13,13 @@ namespace nvfuser::preseg_passes {
 
 //! RemoveEmptyPass removes intermediate empty tensors (those with at least one
 //! extent zero thar are neither a fusion output or input).
-class InsertSegmentSetPass : public OptimizationPass<InsertSegmentSetPass> {
-  friend class OptimizationPass<InsertSegmentSetPass>;
+class SegmentInplaceUpdatePass : public OptimizationPass<SegmentInplaceUpdatePass> {
+  friend class OptimizationPass<SegmentInplaceUpdatePass>;
 
  protected:
   static void runPass(Fusion* fusion);
   static std::string name() {
-    return "InsertSegmentSet";
+    return "SegmentInplaceUpdate";
   }
 };
 
