@@ -51,18 +51,4 @@ class InnerOuterPersistentKernelScheduler : public SchedulerEntry {
       HeuristicDataCache* data_cache) override;
 };
 
-std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
-    Fusion* fusion,
-    const at::ArrayRef<c10::IValue>& runtime_inputs,
-    HeuristicDataCache* data_cache = nullptr);
-
-std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicDataCache* data_cache = nullptr);
-
-void scheduleInnerOuterPersistentKernel(
-    Fusion* fusion,
-    const ReductionParams* rparams);
-
 } // namespace nvfuser
