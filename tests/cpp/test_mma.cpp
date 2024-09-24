@@ -1585,6 +1585,8 @@ TEST_P(HopperSS, MultipleTile) {
     tv2->setLoopDomain(s.as<IterDomain*>());
   }
 
+  inlineMost();
+
   auto inputs = matmulAtInput3DHopperSS(
       2 * getM(macro),
       2 * getN(macro),
