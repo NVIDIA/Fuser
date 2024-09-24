@@ -1957,7 +1957,7 @@ std::unordered_set<ValGroup> projectTo(
       }
     }
   }
-  // Remove items that are not in `to`. This could happen `from` is not
+  // Remove items that are not in `to`. This could happen if `from` is not
   // connected to `to`.
   for (auto it = projection.begin(); it != projection.end();) {
     if (!to.has(*it)) {
