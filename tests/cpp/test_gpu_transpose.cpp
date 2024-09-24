@@ -274,8 +274,8 @@ TEST_F(TransposeTest, FusionScheduleTransposeNoReference) {
         SchedulerEntry::scheduleWith(
             &fusion, SchedulerType::Transpose, {input0, input1});
       },
-      testing::ThrowsMessage<nvfuser::nvfError>(
-          testing::HasSubstr("reference tensor")));
+      testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
+          "Could not schedule fusion with the SchedulerType: transpose")));
 }
 
 // x->broadcast--add->z
@@ -667,7 +667,7 @@ TEST_F(TransposeTest, FusionScheduleTransposeSmall) {
   at::Tensor input = at::randn({1024, 2, 2}, options);
 
   auto cg_outputs =
-      scheduleAndRun(&fusion, SchedulerType::Transpose, {input}).outputs;
+      scheduleAndRun(&fusion, SchedulerType::Transpose, {input}, false).outputs;
   testValidate(&fusion, cg_outputs, {input}, __LINE__, __FILE__);
 }
 
@@ -687,7 +687,7 @@ TEST_F(TransposeTest, FusionScheduleTransposeSmallInnerSize1) {
   at::Tensor input = at::randn({64 * 1024 * 1024, 2, 2}, options);
 
   auto cg_outputs =
-      scheduleAndRun(&fusion, SchedulerType::Transpose, {input}).outputs;
+      scheduleAndRun(&fusion, SchedulerType::Transpose, {input}, false).outputs;
   testValidate(&fusion, cg_outputs, {input}, __LINE__, __FILE__);
 }
 
@@ -707,7 +707,7 @@ TEST_F(TransposeTest, FusionScheduleTransposeSmallInnerSize2) {
   at::Tensor input = at::randn({2, 64 * 1024 * 1024, 2}, options);
 
   auto cg_outputs =
-      scheduleAndRun(&fusion, SchedulerType::Transpose, {input}).outputs;
+      scheduleAndRun(&fusion, SchedulerType::Transpose, {input}, false).outputs;
   testValidate(&fusion, cg_outputs, {input}, __LINE__, __FILE__);
 }
 
@@ -727,7 +727,7 @@ TEST_F(TransposeTest, FusionScheduleTransposeSmallInnerSize3) {
   at::Tensor input = at::randn({1024 * 1024, 2, 2, 2, 2, 2, 2, 2}, options);
 
   auto cg_outputs =
-      scheduleAndRun(&fusion, SchedulerType::Transpose, {input}).outputs;
+      scheduleAndRun(&fusion, SchedulerType::Transpose, {input}, false).outputs;
   testValidate(&fusion, cg_outputs, {input}, __LINE__, __FILE__);
 }
 
@@ -751,7 +751,8 @@ TEST_F(TransposeTest, FusionScheduleTranspose2DSmallInnerSize) {
     at::Tensor input = at::randn(shape, options);
 
     auto cg_outputs =
-        scheduleAndRun(&fusion, SchedulerType::Transpose, {input}).outputs;
+        scheduleAndRun(&fusion, SchedulerType::Transpose, {input}, false)
+            .outputs;
     testValidate(&fusion, cg_outputs, {input}, __LINE__, __FILE__);
   }
 }

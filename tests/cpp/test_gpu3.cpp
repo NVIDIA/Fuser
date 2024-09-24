@@ -6216,7 +6216,8 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteDifferentConcretizedDomains_CUDA) {
       // it should be segmented, if directly lowered, it should throw an error
       EXPECT_THAT(
           [&]() {
-            scheduleAndRun(&fusion, SchedulerType::Reduction, aten_inputs);
+            scheduleAndRun(
+                &fusion, SchedulerType::Reduction, aten_inputs, false);
           },
           testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
               "Producer is required to be in Global Memory based on parallelization strategy. RAW flags: (blockIdx.x)")));
@@ -7055,6 +7056,9 @@ TEST_F(NVFuserTest, FusionOptionsGuard_CUDA) {
   EnableOptionsGuard opt_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::WarnRegisterSpill);
 
+  // capture stdout and check stdout contains register spill warning
+  captureStdout();
+
   FusionExecutor fe;
   fe.compileFusion(
       &fusion,
@@ -7196,11 +7200,12 @@ TEST_F(NVFuserTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
     c10::optional<at::Tensor> aten_weight =
         at::randn({input_shape[1]}, options);
     c10::optional<at::Tensor> aten_bias = at::randn({input_shape[1]}, options);
-
+    auto fusion_copy = fusion;
     auto cg_results = scheduleAndRun(
         &fusion,
         SchedulerType::InnerPersistent,
-        {aten_input, aten_weight, aten_bias});
+        {aten_input, aten_weight, aten_bias},
+        false);
     auto persistent_params = cg_results.heuristic_params->as<ReductionParams>();
     NVF_CHECK(persistent_params, "Persistent schedule was not generated!");
     if (hidden_size * dataTypeSize(dtype) >
@@ -7215,7 +7220,7 @@ TEST_F(NVFuserTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
     }
 
     testValidate(
-        &fusion,
+        &fusion_copy,
         cg_results.outputs,
         {aten_input, aten_weight, aten_bias},
         __LINE__,

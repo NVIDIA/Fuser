@@ -250,7 +250,8 @@ TEST_F(RNGTest, BroadcastingRNGSmem) {
     at::Tensor input1 = at::zeros({5, 5}, options);
 
     auto outputs =
-        scheduleAndRun(fusion, SchedulerType::Transpose, {input0, input1})
+        scheduleAndRun(
+            fusion, SchedulerType::Transpose, {input0, input1}, false)
             .outputs;
     auto out = outputs[0];
 

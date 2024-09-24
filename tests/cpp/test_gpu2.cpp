@@ -2581,10 +2581,29 @@ TEST_P(WelfordReduction, Test) {
     outputs_of_red.push_back(M2_cast);
   }
 
-  auto cg_results =
-      scheduleAndRun(&fusion, SchedulerType::Reduction, {aten_input});
+  auto heuristic_params = SchedulerEntry::scheduleWith(
+      &fusion, SchedulerType::Reduction, {aten_input});
+  auto reduction_params = heuristic_params->as<ReductionParams>();
 
-  cg_results.outputs[1] /= rdim;
+  auto lparams = reduction_params->lparams;
+  auto cparams = reduction_params->cparams;
+
+  FusionExecutor fe;
+  // Needs to pass compile para to use the correct index type, otherwise the
+  // lowering pass will use int64 as the index tpye, since this test saves
+  // `tv_N` as index type, it may cause vectorization size validation error. For
+  // example, the heuristics set index type to int32 and the max vectorization
+  // factor is 4, if compile para is not passed to compileFusion, the lowering
+  // pass uses int64 as index type, so the max vectorization factor is 16 bytes
+  // sizeof(int64) = 2, which is wrong since the actual index type is int32
+  // and the max vectorization factor is 4.
+  fe.compileFusion(&fusion, {aten_input}, lparams, cparams);
+  auto outputs = fe.runFusion({aten_input}, lparams);
+
+  // by default Welford outputs sum of square diff so need to divide to
+  // get var
+
+  outputs[1] /= rdim;
 
   auto at_avg = aten_input.mean({axis});
   auto at_var = aten_input.var({axis}, false);
@@ -2594,14 +2613,14 @@ TEST_P(WelfordReduction, Test) {
   at_n = at_n.sum({axis});
 
   testValidate(
-      &fusion,
-      cg_results.outputs,
+      fe.kernel(),
+      outputs,
       {aten_input},
       {at_avg, at_var, at_n},
       __LINE__,
       __FILE__,
       "validate welford",
-      cg_results.heuristic_params->lparams);
+      reduction_params->lparams);
 }
 INSTANTIATE_TEST_SUITE_P(
     ,
