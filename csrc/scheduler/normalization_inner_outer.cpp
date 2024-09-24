@@ -753,14 +753,6 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
   return rparams;
 }
 
-std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
-    Fusion* fusion,
-    const at::ArrayRef<c10::IValue>& runtime_inputs,
-    HeuristicDataCache* data_cache) {
-  SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs);
-  return getInnerOuterPersistentHeuristics(fusion, runtime_info, data_cache);
-}
-
 void scheduleReductionCombinedOuter(
     Fusion* fusion,
     const ReductionParams* rparams,
