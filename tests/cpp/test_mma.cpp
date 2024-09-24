@@ -694,8 +694,24 @@ TEST_P(HopperRS, MultipleTile) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
+  constexpr int64_t num_tiles = 2;
+
   auto shapes = matmulAtInputShape3DHopperRS(
-      2 * getM(macro), 2 * getN(macro), 2 * getK(macro), layout);
+      num_tiles * getM(macro),
+      num_tiles * getN(macro),
+      num_tiles * getK(macro),
+      layout);
+
+  int64_t inner_tile_size = layout == MmaLayout::TT ? getN(macro) : getK(macro);
+  int64_t inner_size = num_tiles * inner_tile_size;
+  int64_t swizzle_size = getBytesFromSwizzle(swizzle_b) / dataTypeSize(dtype);
+  bool instruction_tile_span_multiple_swizzle = inner_size > swizzle_size;
+  bool span_uneven_swizzle = inner_tile_size % swizzle_size != 0;
+
+  if (instruction_tile_span_multiple_swizzle || span_uneven_swizzle) {
+    GTEST_SKIP() << "This test stores smem inputs on the inner dimension densely, "
+                    "which is not compatible with this macro and swizzle mode";
+  }
 
   auto tv0 = makeConcreteTensor(shapes.first, dtype);
   auto tv1 = makeConcreteTensor(shapes.second, dtype);
@@ -768,14 +784,11 @@ TEST_P(HopperRS, MultipleTile) {
   inlineMost();
 
   auto inputs = matmulAtInput3DHopperRS(
-      2 * getM(macro),
-      2 * getN(macro),
-      2 * getK(macro),
+      num_tiles * getM(macro),
+      num_tiles * getN(macro),
+      num_tiles * getK(macro),
       layout,
       data_type_to_aten(dtype));
-
-  debugging::setAsIdentity(inputs.first.squeeze());
-  debugging::setAsARange(inputs.second.squeeze());
 
   FusionExecutor fe;
   fe.compileFusion(
@@ -784,8 +797,6 @@ TEST_P(HopperRS, MultipleTile) {
   auto cg_outputs = fe.runFusion(
       {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
 
-  std::cout << "cg_outputs[0]:" << std::endl;
-  std::cout << cg_outputs[0] << std::endl;
   auto tref = atMatmul(
       inputs.first.squeeze().to(at::kFloat),
       inputs.second.squeeze().to(at::kFloat),
