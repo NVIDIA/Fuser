@@ -182,6 +182,12 @@ IndexMagicZeroInfo protectPredicateIndexWithMagicZero(
     Val* index,
     const IndexFromIdGraph& id_graph,
     const std::vector<ForLoop*>& loops) {
+  if (!GpuLower::current()->isNvFuserZeroEnabled()) {
+    IndexMagicZeroInfo not_proteced;
+    not_proteced.index = index;
+    return not_proteced;
+  }
+
   // Gather the loop indices
   std::unordered_set<Val*> loop_indices;
   for (auto loop_id : id_graph.resolved_loop_domains) {
