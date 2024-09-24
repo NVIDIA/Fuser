@@ -2739,4 +2739,38 @@ TEST_F(IdModelTest, MappingClonedIDs) {
   }
 }
 
+TEST_F(IdModelTest, LoopGraph) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(1);
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv1);
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 = add(tv0, tv3);
+  fusion.addOutput(tv4);
+
+  {
+    std::vector<IterDomain*> loop_domain{
+        tv2->getLogicalDomain().at(0),
+        tv3->getLogicalDomain().at(1)->cloneWithoutRFactor(true)};
+    tv2->setLoopDomain(loop_domain);
+  }
+
+  for (auto tv : fusion.allTvs()) {
+    tv->flatten();
+    tv->split(0, 32);
+  }
+
+  tv2->inlineAt(-1);
+  EXPECT_EQ(tv2->getComputeAtPosition(), tv2->getLoopDomain().size());
+
+  EXPECT_EQ(tv3->getMaxProducerPosition(), tv3->getLoopDomain().size())
+      << "Invalid producer position of " << tv3->toString();
+}
+
+
 } // namespace nvfuser

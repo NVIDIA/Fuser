@@ -9,6 +9,7 @@
 #include <id_model/loop_promotion.h>
 #include <id_model/to_string.h>
 #include <id_model/transform_replay.h>
+#include <id_model/utils.h>
 #include <id_model/validation_utils.h>
 
 #include <device_lower/analysis/trivial_broadcast.h>
@@ -16,10 +17,12 @@
 #include <device_lower/utils.h>
 #include <disjoint_set.h>
 #include <ir/utils.h>
+#include <iter_visitor.h>
 #include <logical_domain_map.h>
 #include <transform_iter.h>
 #include <val_graph_visitor.h>
 
+#include <fstream>
 #include <memory>
 #include <tuple>
 #include <utility>
@@ -592,13 +595,59 @@ StatefulInliningInfo buildStatefulInliningInfo(
 
       // Grab all iteration domains in producer that its compute at iter domains
       // depend on.
-      auto ca_dep_vals = DependencyCheck::getAllValsBetween(
-          {producer_logical.begin(), producer_logical.end()},
-          {producer_domain.begin(),
-           producer_domain.begin() + producer_tv->getComputeAtPosition()});
-      auto ca_deps_filter = ir_utils::filterByType<IterDomain>(ca_dep_vals);
-      VectorOfUniqueEntries<IterDomain*> all_producer_ca_deps(
-          ca_deps_filter.begin(), ca_deps_filter.end());
+      VectorOfUniqueEntries<IterDomain*> all_producer_ca_deps;
+      if (getenv("NEW")) {
+        auto ca_dep_vals = IRBFS::getValsBetween(
+            {producer_logical.begin(), producer_logical.end()},
+            {producer_domain.begin(),
+             producer_domain.begin() + producer_tv->getComputeAtPosition()});
+        auto ca_deps_filter = ir_utils::filterByType<IterDomain>(ca_dep_vals);
+        all_producer_ca_deps = VectorOfUniqueEntries<IterDomain*>(
+            ca_deps_filter.begin(), ca_deps_filter.end());
+        {
+          auto ca_dep_vals = DependencyCheck::getAllValsBetween(
+              {producer_logical.begin(), producer_logical.end()},
+              {producer_domain.begin(),
+               producer_domain.begin() + producer_tv->getComputeAtPosition()});
+          auto ca_deps_filter = ir_utils::filterByType<IterDomain>(ca_dep_vals);
+          VectorOfUniqueEntries<IterDomain*> old_all_producer_ca_deps =
+              VectorOfUniqueEntries<IterDomain*>(
+                  ca_deps_filter.begin(), ca_deps_filter.end());
+          if (all_producer_ca_deps.set() != old_all_producer_ca_deps.set()) {
+            std::cerr << "Mismatch found at " << expr->toString()
+                      << "with: " << producer_tv->toString() << "\n"
+                      << "Old: "
+                      << toDelimitedString(old_all_producer_ca_deps.vector())
+                      << "\nNew: "
+                      << toDelimitedString(all_producer_ca_deps.vector())
+                      << "\n";
+            for (const auto& old : old_all_producer_ca_deps) {
+              if (!all_producer_ca_deps.has(old)) {
+                std::cerr << "Found in old but missing from new: "
+                          << old->toString() << "\n";
+              }
+            }
+            for (const auto& new_val : all_producer_ca_deps) {
+              if (!old_all_producer_ca_deps.has(new_val)) {
+                std::cerr << "Found in new but missing from old: "
+                          << new_val->toString() << "\n";
+              }
+            }
+            producer_tv->printTransforms();
+            std::cout << std::endl;
+            NVF_THROW();
+          }
+        }
+
+      } else {
+        auto ca_dep_vals = DependencyCheck::getAllValsBetween(
+            {producer_logical.begin(), producer_logical.end()},
+            {producer_domain.begin(),
+             producer_domain.begin() + producer_tv->getComputeAtPosition()});
+        auto ca_deps_filter = ir_utils::filterByType<IterDomain>(ca_dep_vals);
+        all_producer_ca_deps = VectorOfUniqueEntries<IterDomain*>(
+            ca_deps_filter.begin(), ca_deps_filter.end());
+      }
 
       info.ordered_p_ca_ids.pushBack(all_producer_ca_deps);
 
