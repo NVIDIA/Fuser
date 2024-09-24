@@ -737,6 +737,11 @@ TEST_P(HopperRS, MultipleTile) {
   }
 
   {
+    tv2c->split(-3, getM(macro));
+    tv2c->split(-2, getN(macro));
+    tv2c->split(-1, getN(macro));
+    // [Mo, Mi, No, Ni, Ko, Ki] -> [Mo, No, Ko, Mi, Ni, Ki]
+    tv2c->reorder({{-5, -3}, {-3, -2}});
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         tv2c->getLoopDomain());
     tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
