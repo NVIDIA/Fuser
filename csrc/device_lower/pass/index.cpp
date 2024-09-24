@@ -1748,7 +1748,7 @@ static MmaInputSmemSwizzle getSwizzleMode(TensorView* tv) {
 // parallelized on Mma.
 ValGroup getInnerMmaLoopGroup(TensorView* tv, const MmaOp* mma) {
   ValGraph& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
-  auto alloc_domain = id_graph.toGroups(tv->getMaybeAllocationDomain());
+  auto alloc_domain = id_graph.toGroups(TensorDomain::noBroadcasts(tv->getMaybeAllocationDomain()));
   auto loop_domain =
       id_graph.toGroups(mma->out()->as<TensorView>()->getLoopDomain());
 
