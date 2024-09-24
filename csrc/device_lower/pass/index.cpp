@@ -1774,10 +1774,10 @@ ValGroup getInnerMmaLoopGroup(TensorView* tv, const MmaOp* mma) {
     exprs.pop_back();
     auto from =
         (direction == Direction::Backward ? id_graph.inputGroups(expr)
-                                         : id_graph.outputGroups(expr));
+                                          : id_graph.outputGroups(expr));
     auto to =
         (direction == Direction::Backward ? id_graph.outputGroups(expr)
-                                         : id_graph.inputGroups(expr));
+                                          : id_graph.inputGroups(expr));
     bool in_from = std::find(from.begin(), from.end(), inner) != from.end();
     if (!in_from) {
       continue;
@@ -1824,7 +1824,8 @@ Val* getInnerStride(TensorView* tv, const MmaOp* mma) {
 
 Val* getOuterStride(TensorView* tv, const MmaOp* mma) {
   ValGraph& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
-  auto logical_domain = id_graph.toGroups(tv->getLogicalDomain());
+  auto logical_domain =
+      id_graph.toGroups(TensorDomain::noBroadcasts(tv->getLogicalDomain()));
   auto loop_domain =
       id_graph.toGroups(mma->out()->as<TensorView>()->getLoopDomain());
   auto alloc_domain = id_graph.toGroups(tv->getMaybeAllocationDomain());
@@ -1876,10 +1877,8 @@ Val* getOuterStride(TensorView* tv, const MmaOp* mma) {
   auto is_projected_to_concrete = [&](int64_t i) {
     const auto& projection = projections_on_logical.at(i);
     for (auto id : tv->getLogicalDomain()) {
-      if (projection.count(id_graph.toGroup(id))) {
-        if (!id->isBroadcast()) {
-          return true;
-        }
+      if (!id->isBroadcast() && projection.count(id_graph.toGroup(id))) {
+        return true;
       }
     }
     return false;

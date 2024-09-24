@@ -388,8 +388,10 @@ TEST_P(HopperRS, SingleTile) {
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         tv2c->getLoopDomain());
-    tv2c->setLoopDomain(s.as<IterDomain*>());
     tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+    tv2c->axis(-1)->parallelize(ParallelType::Mma);
+    tv2c->axis(-2)->parallelize(ParallelType::Mma);
+    tv2c->axis(-3)->parallelize(ParallelType::Mma);
   }
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
@@ -528,12 +530,6 @@ TEST_P(HopperRS, FullSwizzle) {
   tv2c->split(-1, inner_size);
   tv2c->reorder({{-2, 0}});
 
-  // Now, the inner 3 dimensions are a single MMA tile.
-  // In the loop domain, just parallelize all of them as Mma.
-  tv2c->axis(1)->parallelize(ParallelType::Mma);
-  tv2c->axis(2)->parallelize(ParallelType::Mma);
-  tv2c->axis(3)->parallelize(ParallelType::Mma);
-
   if (layout == MmaLayout::TT) {
     // [M, K, N] -> [M, N, K]
     tv2c->reorder({{-1, -2}});
@@ -543,6 +539,9 @@ TEST_P(HopperRS, FullSwizzle) {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         tv2c->getLoopDomain());
     tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+    tv2c->axis(-1)->parallelize(ParallelType::Mma);
+    tv2c->axis(-2)->parallelize(ParallelType::Mma);
+    tv2c->axis(-3)->parallelize(ParallelType::Mma);
   }
 
   // Create a dummy broadcasting IterDomain to denote that this instruction
@@ -661,8 +660,10 @@ TEST_P(HopperRS, SingleTileWithTMALoad) {
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         tv2c->getLoopDomain());
-    tv2c->setLoopDomain(s.as<IterDomain*>());
     tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+    tv2c->axis(-1)->parallelize(ParallelType::Mma);
+    tv2c->axis(-2)->parallelize(ParallelType::Mma);
+    tv2c->axis(-3)->parallelize(ParallelType::Mma);
   }
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
@@ -745,8 +746,10 @@ TEST_P(HopperRS, SingleTileWithTMALoadStore) {
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         tv2c->getLoopDomain());
-    tv2c->setLoopDomain(s.as<IterDomain*>());
     tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+    tv2c->axis(-1)->parallelize(ParallelType::Mma);
+    tv2c->axis(-2)->parallelize(ParallelType::Mma);
+    tv2c->axis(-3)->parallelize(ParallelType::Mma);
   }
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
@@ -822,8 +825,10 @@ TEST_P(HopperRS, SingleTileWithTMALoadOuterDimNotSplit) {
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         tv2c->getLoopDomain());
-    tv2c->setLoopDomain(s.as<IterDomain*>());
     tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+    tv2c->axis(-1)->parallelize(ParallelType::Mma);
+    tv2c->axis(-2)->parallelize(ParallelType::Mma);
+    tv2c->axis(-3)->parallelize(ParallelType::Mma);
   }
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
@@ -1006,8 +1011,10 @@ TEST_P(HopperSS, SingleTile) {
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         tv2c->getLoopDomain());
-    tv2c->setLoopDomain(s.as<IterDomain*>());
     tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+    tv2c->axis(-1)->parallelize(ParallelType::Mma);
+    tv2c->axis(-2)->parallelize(ParallelType::Mma);
+    tv2c->axis(-3)->parallelize(ParallelType::Mma);
   }
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
@@ -1172,8 +1179,10 @@ TEST_P(HopperSS, FullSwizzle) {
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         tv2c->getLoopDomain());
-    tv2c->setLoopDomain(s.as<IterDomain*>());
     tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+    tv2c->axis(-1)->parallelize(ParallelType::Mma);
+    tv2c->axis(-2)->parallelize(ParallelType::Mma);
+    tv2c->axis(-3)->parallelize(ParallelType::Mma);
   }
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
@@ -1283,8 +1292,10 @@ TEST_P(HopperSS, SingleTileWithTMALoad) {
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         tv2c->getLoopDomain());
-    tv2c->setLoopDomain(s.as<IterDomain*>());
     tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+    tv2c->axis(-1)->parallelize(ParallelType::Mma);
+    tv2c->axis(-2)->parallelize(ParallelType::Mma);
+    tv2c->axis(-3)->parallelize(ParallelType::Mma);
   }
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
