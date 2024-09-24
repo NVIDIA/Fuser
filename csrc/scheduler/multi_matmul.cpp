@@ -1087,9 +1087,8 @@ class MultipleMatmulScheduler {
       std::vector<MatmulDimRole>& merged_roles = all_merged_roles[i];
 
       // do split-K rFactor to define splitk_sum and smem_epilogue
-      TensorView* splitk_sum = mma_result;
       if (params_->splitk_factor != 1) {
-        splitk_sum = mma_result->rFactor({-4, -1});
+        TensorView* splitk_sum = mma_result->rFactor({-4, -1});
         std::swap(splitk_sum, mma_result);
         splitk_sums_.push_back(splitk_sum);
       }
