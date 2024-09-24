@@ -7201,12 +7201,12 @@ TEST_F(NVFuserTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
         at::randn({input_shape[1]}, options);
     c10::optional<at::Tensor> aten_bias = at::randn({input_shape[1]}, options);
     auto fusion_copy = fusion;
-    auto cg_results = scheduleAndRun(
-        &fusion,
-        SchedulerType::InnerPersistent,
-        {aten_input, aten_weight, aten_bias},
-        false);
-    auto persistent_params = cg_results.heuristic_params->as<ReductionParams>();
+    auto scheduler =
+        SchedulerEntry::makeSchedulerInstance(SchedulerType::InnerPersistent);
+    SchedulerRuntimeInfo runtime_info(
+        &fusion, {aten_input, aten_weight, aten_bias});
+    auto heuristic_params = scheduler->computeHeuristics(&fusion, runtime_info);
+    auto persistent_params = heuristic_params->as<ReductionParams>();
     NVF_CHECK(persistent_params, "Persistent schedule was not generated!");
     if (hidden_size * dataTypeSize(dtype) >
         scheduler_utils::register_file_size) {
@@ -7219,9 +7219,13 @@ TEST_F(NVFuserTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
           "Shouldn't use shared memory buffer!");
     }
 
+    FusionExecutorCache fec(std::move(fusion_ptr));
+    auto cg_outputs =
+        fec.runFusionWithInputs({aten_input, aten_weight, aten_bias});
+
     testValidate(
         &fusion_copy,
-        cg_results.outputs,
+        cg_outputs,
         {aten_input, aten_weight, aten_bias},
         __LINE__,
         __FILE__,

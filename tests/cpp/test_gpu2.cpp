@@ -5625,7 +5625,7 @@ TEST_F(NVFuserTest, FusionZeroSizeTensorReduction_CUDA) {
   at::Tensor input1 = at::randn({0}, options);
   std::vector<c10::IValue> aten_inputs({input0, input1});
   auto cg_results =
-      scheduleAndRun(&fusion, SchedulerType::Reduction, aten_inputs);
+      scheduleAndRun(&fusion, SchedulerType::Reduction, aten_inputs, false);
   auto aten_output2 = input0.sum({1});
   at::Tensor aten_output3 = at::empty({0}, options);
 
