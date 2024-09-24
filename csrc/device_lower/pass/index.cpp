@@ -1746,10 +1746,11 @@ static MmaInputSmemSwizzle getSwizzleMode(TensorView* tv) {
 // Get the ValGroup of the ID in consumer's loop domain that corresponds to the
 // innermost dimension in the allocation domain of tv. This ID must be
 // parallelized on Mma.
-ValGroup getInnerMmaLoopGroup(TensorView tv, const MmaOp* mma) {
+ValGroup getInnerMmaLoopGroup(TensorView* tv, const MmaOp* mma) {
   ValGraph& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
-  auto alloc_domain = id_graph.toGroups(tv->getMaybeAllocDomain());
-  auto loop_domain = id_graph.toGroups(mma->out()->getLoopDomain());
+  auto alloc_domain = id_graph.toGroups(tv->getMaybeAllocationDomain());
+  auto loop_domain =
+      id_graph.toGroups(mma->out()->as<TensorView>()->getLoopDomain());
 
   // Start from the innermost dim in the allocation domain, propagate all the
   // way to the consumer's loop domain, and keep track of the inner dimension.
@@ -1785,7 +1786,7 @@ ValGroup getInnerMmaLoopGroup(TensorView tv, const MmaOp* mma) {
     inner = to.back();
   }
   IterDomain* inner_id = nullptr;
-  for (auto id : mma->out()->getLoopDomain()) {
+  for (auto id : mma->out()->as<TensorView>()->getLoopDomain()) {
     if (inner->has(id)) {
       inner_id = id;
       break;
@@ -1800,29 +1801,31 @@ ValGroup getInnerMmaLoopGroup(TensorView tv, const MmaOp* mma) {
   return inner;
 }
 
-Val* getInnerStride(TensorView tv, const MmaOp* mma) {
+Val* getInnerStride(TensorView* tv, const MmaOp* mma) {
   auto swizzle = getSwizzleMode(tv);
   auto swizzle_size = getBytesFromSwizzle(swizzle) / dataTypeSize(tv->dtype());
   ValGraph& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
-  auto alloc_domain = id_graph.toGroups(tv->getMaybeAllocDomain());
-  auto inner = getInnerLoopGroup(tv, mma);
+  auto alloc_domain = id_graph.toGroups(tv->getMaybeAllocationDomain());
+  auto inner = getInnerMmaLoopGroup(tv, mma);
   // At this point, we can just create the following schedule:
   //        inner
   //       /     \.
   //   linear   swizzle_size
   // and use proveLinearAndGetStride to find the stride of `linear` in the
   // allocation domain.
-  auto outer_of_tiling = split(id_graph, inner, swizzle_size).first;
+  auto outer_of_tiling = split(&id_graph, inner, swizzle_size).first;
   auto stride = lower_utils::proveLinearAndGetStride(
       id_graph, outer_of_tiling, alloc_domain);
   NVF_ERROR(stride != nullptr, "Could not get the stride of tiling");
   return SimplifyingIrBuilder::mulExpr(stride, dataTypeSize(tv->dtype()));
 }
 
-Val* getOuterStride(TensorView tv, const MmaOp* mma) {
+Val* getOuterStride(TensorView* tv, const MmaOp* mma) {
+  ValGraph& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
   auto logical_domain = id_graph.toGroups(tv->getLogicalDomain());
-  auto loop_domain = id_graph.toGroups(mma->out()->getLoopDomain());
-  auto alloc_domain = id_graph.toGroups(tv->getMaybeAllocDomain());
+  auto loop_domain =
+      id_graph.toGroups(mma->out()->as<TensorView>()->getLoopDomain());
+  auto alloc_domain = id_graph.toGroups(tv->getMaybeAllocationDomain());
 
   // In the consumer's loop domain, there should be exactly 3 IDs parallelized
   // on Mma. Which of these three dims are M, N, and K? We don't know. But we
@@ -1832,7 +1835,7 @@ Val* getOuterStride(TensorView tv, const MmaOp* mma) {
   auto inner = getInnerMmaLoopGroup(tv, mma);
   std::vector<ValGroup> mma_groups;
   mma_groups.reserve(2);
-  for (auto id : mma->out()->getLoopDomain()) {
+  for (auto id : mma->out()->as<TensorView>()->getLoopDomain()) {
     if (id->getParallelType() == ParallelType::Mma && !inner->has(id)) {
       mma_groups.emplace_back(id_graph.toGroup(id));
     }
@@ -1846,7 +1849,7 @@ Val* getOuterStride(TensorView tv, const MmaOp* mma) {
   std::vector<std::unordered_set<ValGroup>> projections_on_logical;
   projections_on_logical.reserve(mma_groups.size());
   for (auto g : mma_groups) {
-    projections_on_logical.emplace_back({g});
+    projections_on_logical.push_back({g});
   }
   auto exprs =
       ValGraphBFS::getExprsBetween(id_graph, loop_domain, logical_domain);
@@ -1878,7 +1881,8 @@ Val* getOuterStride(TensorView tv, const MmaOp* mma) {
       }
     }
     return false;
-  } ValGroup selected = nullptr;
+  };
+  ValGroup selected = nullptr;
   for (int64_t i = 0; i < mma_groups.size(); ++i) {
     if (is_projected_to_concrete(i)) {
       NVF_ERROR(
@@ -1898,7 +1902,7 @@ Val* getOuterStride(TensorView tv, const MmaOp* mma) {
   // and use proveLinearAndGetStride to find the stride of `linear` in the
   // allocation domain.
   constexpr int64_t core_matrix_outer_size = 8;
-  auto outer_of_tiling = split(id_graph, inner, core_matrix_outer_size).first;
+  auto outer_of_tiling = split(&id_graph, inner, core_matrix_outer_size).first;
   auto stride = lower_utils::proveLinearAndGetStride(
       id_graph, outer_of_tiling, alloc_domain);
   NVF_ERROR(stride != nullptr, "Could not get the stride of tiling");

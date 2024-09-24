@@ -130,7 +130,8 @@ std::pair<ValGroup, ValGroup> split(
   return split(
       graph,
       g,
-      IrBuilder::create<Val>(g->front()->fusion(), factor, DataType::Index),
+      IrBuilder::createInContainer<Val>(
+          g->front()->fusion(), factor, DataType::Index),
       inner_split);
 }
 
