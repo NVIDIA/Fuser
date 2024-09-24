@@ -604,7 +604,7 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
     if (has_vectorize_dim) {
       Expr* def = tv->definition();
       NVF_ERROR(
-          def == nullptr || def->isA<LoadStoreOp>() || def->isA<SliceOp>() || def->isA<PadOp>() ||
+          def == nullptr || def->isA<LoadStoreOp>() || def->isA<SliceOp>() ||
               (def->isA<ReductionOp>() &&
                def->as<ReductionOp>()->serialGridReductionRequested()),
           "Vectorized accesses cannot be inline with computation: ",
