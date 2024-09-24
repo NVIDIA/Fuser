@@ -114,7 +114,7 @@ void insertSegmentSet(Fusion* fusion) {
 }
 } // namespace
 
-void InsertSegmentSetPass::runPass(Fusion* fusion) {
+void SegmentInplaceUpdatePass::runPass(Fusion* fusion) {
   insertSegmentSet(fusion);
 }
 } // namespace nvfuser::preseg_passes
