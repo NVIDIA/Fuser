@@ -756,7 +756,11 @@ TEST_P(HopperRS, MultipleTile) {
   }
 
   auto inputs = matmulAtInput3DHopperRS(
-      2 * getM(macro), 2 * getN(macro), 2 * getK(macro), layout, data_type_to_aten(dtype));
+      2 * getM(macro),
+      2 * getN(macro),
+      2 * getK(macro),
+      layout,
+      data_type_to_aten(dtype));
 
   FusionExecutor fe;
   fe.compileFusion(
@@ -1487,7 +1491,7 @@ TEST_P(HopperSS, MultipleTile) {
   FusionGuard fg(&fusion);
 
   auto shapes = matmulAtInputShape3DHopperSS(
-      2*getM(macro), 2*getN(macro), 2*getK(macro), layout);
+      2 * getM(macro), 2 * getN(macro), 2 * getK(macro), layout);
 
   auto tv0 = makeConcreteTensor(shapes.first, dtype);
   auto tv1 = makeConcreteTensor(shapes.second, dtype);
@@ -1566,6 +1570,8 @@ TEST_P(HopperSS, MultipleTile) {
     tv2c->split(-3, getM(macro));
     tv2c->split(-2, getN(macro));
     tv2c->split(-1, getK(macro));
+    // [Mo, Mi, No, Ni, Ko, Ki] -> [Mo, No, Ko, Mi, Ni, Ki]
+    tv2c->reorder({{-5, -3}, {-3, -2}});
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         tv2c->getLoopDomain());
     tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
@@ -1580,7 +1586,11 @@ TEST_P(HopperSS, MultipleTile) {
   }
 
   auto inputs = matmulAtInput3DHopperSS(
-      2*getM(macro), 2*getN(macro), 2*getK(macro), layout, data_type_to_aten(dtype));
+      2 * getM(macro),
+      2 * getN(macro),
+      2 * getK(macro),
+      layout,
+      data_type_to_aten(dtype));
 
   FusionExecutor fe;
   fe.compileFusion(
