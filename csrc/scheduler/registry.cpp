@@ -151,12 +151,6 @@ class CompileTimeInfo : public HeuristicCompileTime::CompileTimeInfoBase {
 
 } // namespace
 
-HeuristicDataCache::HeuristicDataCache(
-    Fusion* fusion,
-    SchedulerType scheduler_type,
-    SchedulerRuntimeInfo& runtime_info)
-    : scheduler_type_(scheduler_type) {}
-
 void HeuristicDataCache::insert(HeuristicDataCache::EntryOwningPtr new_entry) {
   // Just override when insertion duplicates, equality not checked.
   entry_type_map_[new_entry->type()] = new_entry.get();
