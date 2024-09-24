@@ -706,11 +706,13 @@ TEST_P(HopperRS, MultipleTile) {
   int64_t inner_size = num_tiles * inner_tile_size;
   int64_t swizzle_size = getBytesFromSwizzle(swizzle_b) / dataTypeSize(dtype);
   bool instruction_tile_span_multiple_swizzle = inner_size > swizzle_size;
-  bool span_uneven_swizzle = inner_tile_size % swizzle_size != 0;
+  bool span_uneven_swizzle = inner_tile_size % swizzle_size != 0 &&
+      swizzle_size % inner_tile_size != 0;
 
   if (instruction_tile_span_multiple_swizzle || span_uneven_swizzle) {
-    GTEST_SKIP() << "This test stores smem inputs on the inner dimension densely, "
-                    "which is not compatible with this macro and swizzle mode";
+    GTEST_SKIP()
+        << "This test stores smem inputs on the inner dimension densely, "
+           "which is not compatible with this macro and swizzle mode";
   }
 
   auto tv0 = makeConcreteTensor(shapes.first, dtype);
