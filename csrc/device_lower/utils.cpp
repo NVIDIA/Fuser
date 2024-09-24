@@ -1276,7 +1276,7 @@ Val* extent(const Composition<Projection>& comp) {
 }
 
 Val* extent(const std::monostate&) {
-  NVF_ERROR(false, "Cannot get extent of std::monostate");
+  NVF_THROW("Cannot get extent of std::monostate");
 }
 
 Val* extent(const Projection& proj) {
@@ -1542,7 +1542,7 @@ Projection propagate(
     const ValGraph& id_graph,
     const ExprGroup& eg,
     Direction direction) {
-  NVF_ERROR(false, "Should not reach here.");
+  NVF_THROW("Should not reach here.");
 }
 
 Projection propagate(
@@ -1601,7 +1601,7 @@ Val* proveLinearAndGetStrideAfterPropagation(
 Val* proveLinearAndGetStrideAfterPropagation(
     const std::monostate&,
     const ValGroups& domain) {
-  NVF_ERROR(false, "Should not reach here.");
+  NVF_THROW("Should not reach here.");
   return nullptr;
 }
 

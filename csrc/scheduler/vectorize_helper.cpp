@@ -17,6 +17,7 @@
 #include <ir/iostream.h>
 #include <iter_visitor.h>
 #include <scheduler/registry.h>
+#include <scheduler/runtime_info.h>
 
 #include <c10/util/irange.h>
 
