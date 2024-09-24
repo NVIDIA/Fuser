@@ -932,7 +932,7 @@ class MultipleMatmulScheduler {
           new_loop.push_back(it->second);
         }
       }
-      NVF_ERROR(new_loop.size() == tv->nDims());
+      NVF_ERROR((int64_t)new_loop.size() == tv->nDims());
       tv->setLoopDomain(new_loop);
 
       // There could be multiple dimensions with the same role at this point, so
