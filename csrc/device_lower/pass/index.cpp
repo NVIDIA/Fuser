@@ -2037,7 +2037,7 @@ void IndexLowering::handle(const MmaOp* mma) {
         base_addr,
         leading_bytes,
         stride_bytes,
-        IrBuilder::create<Val>(1, DataType::UInt),
+        IrBuilder::create<Val>(0, DataType::UInt),
         swizzle);
     b = IrBuilder::create<kir::TensorIndex>(
         tv,
