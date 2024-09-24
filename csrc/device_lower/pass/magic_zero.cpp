@@ -125,6 +125,10 @@ void protectNonPredicateIndexWithMagicZero(
     const std::vector<ForLoop*>& loops,
     const std::vector<IterDomain*>& loop_domains,
     std::unordered_map<IterDomain*, Val*>& concrete_loop_idx_map) {
+  if (!GpuLower::current()->isNvFuserZeroEnabled()) {
+    return;
+  }
+
   // Find magic zero insertion point
   IterDomain* magic_zero_loop = nullptr;
 
