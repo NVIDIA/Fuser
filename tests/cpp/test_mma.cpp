@@ -13,10 +13,10 @@
 #include <exceptions.h>
 #include <fusion.h>
 #include <fusion_executor/executor.h>
+#include <inlining.h>
 #include <ir/all_nodes.h>
 #include <ops/all_ops.h>
 #include <scheduler/mma_utils.h>
-#include <inlining.h>
 #include <algorithm>
 #include <iterator>
 #include <unordered_map>
@@ -781,7 +781,8 @@ TEST_P(HopperRS, MultipleTile) {
   fe.compileFusion(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
 
-  auto cg_outputs = fe.runFusion({inputs.first, inputs.second}, matmul_cparams);
+  auto cg_outputs = fe.runFusion(
+      {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
   auto tref = atMatmul(
       inputs.first.squeeze().to(at::kFloat),
       inputs.second.squeeze().to(at::kFloat),
