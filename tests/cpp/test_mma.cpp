@@ -453,6 +453,7 @@ TEST_P(HopperRS, SingleTileTransposed) {
   tv0->axis(1)->parallelize(ParallelType::TIDx);
 
   tv1->applyMmaSwizzle(swizzle_b);
+  // This is where this test is different from SingleTile
   auto alloc = tv1->getAllocationDomain();
   std::swap(alloc[0], alloc[1]);
   tv1->setAllocationDomain(alloc, true);
