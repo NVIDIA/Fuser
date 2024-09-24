@@ -731,9 +731,9 @@ TEST_P(HopperRS, MultipleTile) {
   tv0->printTransforms();
   tv0->applyMmaSwizzle(MmaOperand::A);
 
-  tv0->merge(1);
-  tv0->merge(1);
-  tv0->axis(1)->parallelize(ParallelType::TIDx);
+  tv0->merge(3);
+  tv0->merge(3);
+  tv0->axis(3)->parallelize(ParallelType::TIDx);
 
   tv1->applyMmaSwizzle(swizzle_b);
 
