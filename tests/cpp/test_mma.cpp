@@ -709,7 +709,7 @@ TEST_P(HopperRS, MultipleTile) {
   bool span_uneven_swizzle = inner_tile_size % swizzle_size != 0 &&
       swizzle_size % inner_tile_size != 0;
 
-  if (instruction_tile_span_multiple_swizzle || span_uneven_swizzle) {
+  if (instruction_tile_span_multiple_swizzle && span_uneven_swizzle) {
     GTEST_SKIP()
         << "This test stores smem inputs on the inner dimension densely, "
            "which is not compatible with this macro and swizzle mode "
