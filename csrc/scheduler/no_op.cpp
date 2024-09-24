@@ -107,6 +107,15 @@ bool NoOpScheduler::canScheduleRunTime(
   return true;
 }
 
+std::unique_ptr<HeuristicParams> NoOpScheduler::computeHeuristics(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicDataCache* data_cache) {
+  auto params = std::make_unique<HeuristicParams>(SchedulerType::NoOp);
+  params->cparams.index_type = runtime_info.getIndexType();
+  return params;
+}
+
 void NoOpScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   NVF_ERROR(
       params->scheduler_type == schedulerType(),
@@ -123,15 +132,6 @@ void NoOpScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   scheduler_utils::clearMemorySpace(fusion);
 
   markAliases(fusion);
-}
-
-std::unique_ptr<HeuristicParams> NoOpScheduler::computeHeuristics(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicDataCache* data_cache) {
-  auto params = std::make_unique<HeuristicParams>(SchedulerType::NoOp);
-  params->cparams.index_type = runtime_info.getIndexType();
-  return params;
 }
 
 } // namespace nvfuser
