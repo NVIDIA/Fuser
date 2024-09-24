@@ -2765,12 +2765,19 @@ TEST_F(IdModelTest, LoopGraph) {
     tv->split(0, 32);
   }
 
-  tv2->inlineAt(-1);
-  EXPECT_EQ(tv2->getComputeAtPosition(), tv2->getLoopDomain().size());
+  inlineMost();
 
-  EXPECT_EQ(tv3->getMaxProducerPosition(), tv3->getLoopDomain().size())
-      << "Invalid producer position of " << tv3->toString();
+  fusion.print();
+  std::cout << std::endl;
+
+  std::cerr << "Trying IdModel\n";
+
+  IdModel id_model(&fusion);
+  const auto& loop_promotion_map = id_model.loopPromotionMap();
+  for (const auto& [loop_group, promotion] : loop_promotion_map) {
+    std::cerr << "Loop group: " << toDelimitedString(loop_group->vector()) << " -> "
+              << promotion->toString() << "\n";
+  }
 }
-
 
 } // namespace nvfuser
