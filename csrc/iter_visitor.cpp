@@ -270,7 +270,7 @@ void IterVisitor::traverseBetween(
                ir_utils::filterByType<Expr>(cycle.begin(), cycle.end())) {
             ss << expr << std::endl;
           }
-          NVF_ERROR(false, ss.str());
+          NVF_THROW(ss.str());
         }
         // Add all these new stmts to visit to the stack.
         stmt_stack.emplace_back(next_stmts.rbegin(), next_stmts.rend());
@@ -409,7 +409,7 @@ std::vector<Statement*> BackwardVisitor::next(Statement* stmt) {
   } else if (stmt->isExpr()) {
     return next(stmt->as<Expr>());
   } else {
-    NVF_ERROR(false, "BackwardVisitor could not detect type in next_dispatch.");
+    NVF_THROW("BackwardVisitor could not detect type in next_dispatch.");
   }
 }
 
@@ -1149,6 +1149,27 @@ bool DeadCodeRemover::modifyFusion() const {
   return modified_fusion;
 }
 
+std::vector<Val*> IRBFS::getReachableValsFrom(
+    const std::vector<Val*>& from,
+    const std::vector<Val*>& vals) {
+  IRBFS bfs(
+      {from.begin(), from.end()},
+      {vals.begin(), vals.end()},
+      /*require_all_to_visited=*/false);
+
+  bfs.traverse();
+
+  std::vector<Val*> reachable_vals;
+  for (auto val : vals) {
+    if (bfs.isVisited(val) ||
+        std::find(from.begin(), from.end(), val) != from.end()) {
+      reachable_vals.push_back(val);
+    }
+  }
+
+  return reachable_vals;
+}
+
 std::vector<Val*> IRBFS::getValsBetween(
     const std::vector<Val*>& from,
     const std::vector<Val*>& to) {
@@ -1170,27 +1191,6 @@ std::vector<Val*> IRBFS::getValsBetween(
   }
 
   return unique_vals.vector();
-}
-
-std::vector<Val*> IRBFS::getReachableValsFrom(
-    const std::vector<Val*>& from,
-    const std::vector<Val*>& vals) {
-  IRBFS bfs(
-      {from.begin(), from.end()},
-      {vals.begin(), vals.end()},
-      /*require_all_to_visited=*/false);
-
-  bfs.traverse();
-
-  std::vector<Val*> reachable_vals;
-  for (auto val : vals) {
-    if (bfs.isVisited(val) ||
-        std::find(from.begin(), from.end(), val) != from.end()) {
-      reachable_vals.push_back(val);
-    }
-  }
-
-  return reachable_vals;
 }
 
 std::vector<Val*> IRBFS::getDependenciesTo(

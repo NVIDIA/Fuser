@@ -2127,7 +2127,7 @@ TEST_F(ResizeTest, ResizePermuteAndSlice) {
 
   EXPECT_THAT(
       executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups(),
-      UnorderedElementsAre(HeuristicIs(ScheduleHeuristic::Transpose)));
+      UnorderedElementsAre(HeuristicIs(SchedulerType::Transpose)));
 }
 
 // When scheduling this test, the pointwise scheduler attempt to replay a Split
@@ -3460,11 +3460,11 @@ TEST_F(ResizeTest, AvoidVectorization) {
 
   // The pointwise scheduler should tell the vectorization factor is
   // 4.
-  auto params = getPointwiseHeuristics(&fusion, inputs);
-  ASSERT_TRUE(params->vectorize) << "Vectorization is expected to be possible";
-  ASSERT_EQ(params->unroll_factor, 4) << "Unexpected factor of vectorization";
+  auto pparams = getPointwiseHeuristics(&fusion, inputs);
+  ASSERT_TRUE(pparams->vectorize) << "Vectorization is expected to be possible";
+  ASSERT_EQ(pparams->unroll_factor, 4) << "Unexpected factor of vectorization";
 
-  schedulePointwise(&fusion, *params);
+  schedulePointwise(&fusion, pparams.get());
 
   // Make sure tv1 is not vectorized, i.e., no loop IterDomains are vectorized.
   EXPECT_THAT(
@@ -3481,8 +3481,8 @@ TEST_F(ResizeTest, AvoidVectorization) {
       << "Failed to vectorize: " << tv2;
 
   FusionExecutor fe;
-  fe.compileFusion(&fusion, inputs, params->lparams);
-  auto outputs = fe.runFusion(inputs, params->lparams);
+  fe.compileFusion(&fusion, inputs, pparams->lparams);
+  auto outputs = fe.runFusion(inputs, pparams->lparams);
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
 
@@ -3731,6 +3731,9 @@ TEST_F(ResizeTest, SliceScheduledLikeProducer) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
@@ -3828,6 +3831,9 @@ TEST_F(ResizeTest, SliceThenPadLeftHalf) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
@@ -3883,6 +3889,9 @@ TEST_F(ResizeTest, SliceThenPadRightHalf) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
@@ -3978,6 +3987,9 @@ TEST_F(ResizeTest, SliceThenConcat) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
@@ -4244,6 +4256,9 @@ TEST_F(ResizeTest, SliceSliceConcatConcat) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({i0}, options);
   std::vector<c10::IValue> aten_inputs({t0});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);

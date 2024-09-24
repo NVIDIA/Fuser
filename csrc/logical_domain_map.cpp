@@ -217,7 +217,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     } else if (producer->sameAs(op->bias()->as<TensorView>()->domain())) {
       input_position = 2;
     } else {
-      NVF_ERROR(false, "Producer did not match any LinearOp input.")
+      NVF_THROW("Producer did not match any LinearOp input.")
     }
 
     bool k_bcast = op->inA()->as<TensorView>()->axis(-1)->isBroadcast();
@@ -914,8 +914,7 @@ std::unordered_map<IterDomain*, IterDomain*> ComputeAtLogicalDomainMap::map(
              removed_broadcast_domains_.end())) {
       continue;
     }
-    NVF_ERROR(
-        false,
+    NVF_THROW(
         "Mapping IterDomain ",
         from_id,
         " of ",

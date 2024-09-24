@@ -288,7 +288,7 @@ class Context {
               assoc_comm::flatten(bop->rhs()), assoc_comm::flatten(bop->lhs()));
           break;
         default:
-          NVF_ERROR(false, "Unknown operator type ", bop->getBinaryOpType());
+          NVF_THROW("Unknown operator type ", bop->getBinaryOpType());
       }
     }
   }
@@ -640,7 +640,7 @@ const char* FlattenedAssocCommOp::getOpString() const {
     case BinaryOpType::Min:
       return "FlattenedMin";
     default:
-      NVF_ERROR(false, "Unknown operator type ", getOpType());
+      NVF_THROW("Unknown operator type ", getOpType());
   }
 }
 
@@ -2383,7 +2383,7 @@ Val* distributeGcdRemainderDivMod(Val* value, const Context& context) {
           return assoc_comm::flatten(result);
         }
         default:
-          NVF_ERROR(false);
+          NVF_THROW();
       }
     }
   }

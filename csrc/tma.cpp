@@ -41,7 +41,7 @@ inline CUtensorMapDataType getCUtensorMapDataType(DataType dtype) {
     case PrimDataType::Int32:
       return CU_TENSOR_MAP_DATA_TYPE_INT32;
     default:
-      NVF_ERROR(false, "Unknown tensor map data type!");
+      NVF_THROW("Unknown tensor map data type!");
   }
 }
 
@@ -55,7 +55,7 @@ inline CUtensorMapInterleave getCUtensorMapInterleave(
     case TensorMapInterleave::B32:
       return CU_TENSOR_MAP_INTERLEAVE_32B;
     default:
-      NVF_ERROR(false, "Unknown tensor map interleave type!");
+      NVF_THROW("Unknown tensor map interleave type!");
   }
 }
 
@@ -70,7 +70,7 @@ inline CUtensorMapSwizzle getCUtensorMapSwizzle(MmaInputSmemSwizzle swizzle) {
     case MmaInputSmemSwizzle::B128:
       return CU_TENSOR_MAP_SWIZZLE_128B;
     default:
-      NVF_ERROR(false, "Unknown tensor map swizzle type!");
+      NVF_THROW("Unknown tensor map swizzle type!");
   }
 }
 
@@ -86,7 +86,7 @@ inline CUtensorMapL2promotion getCUtensorMapL2Promotion(
     case TensorMapL2Promotion::B256:
       return CU_TENSOR_MAP_L2_PROMOTION_L2_256B;
     default:
-      NVF_ERROR(false, "Unknown tensor map L2 promotion type!");
+      NVF_THROW("Unknown tensor map L2 promotion type!");
   }
 }
 
@@ -98,7 +98,7 @@ inline CUtensorMapFloatOOBfill getCUtensorMapFloatOOBfill(
     case TensorMapFloatOOBFill::NaN_Request_Zero_FMA:
       return CU_TENSOR_MAP_FLOAT_OOB_FILL_NAN_REQUEST_ZERO_FMA;
     default:
-      NVF_ERROR(false, "Unknown tensor map OOB fill type!");
+      NVF_THROW("Unknown tensor map OOB fill type!");
   }
 }
 
@@ -444,7 +444,7 @@ std::vector<PolymorphicValue> kir::EncodeTensorMapTiled::evaluate(
 
   return {Opaque{tensor_map}};
 #else
-  NVF_ERROR(false, "TMA is only supported on CUDA 12 and above!");
+  NVF_THROW("TMA is only supported on CUDA 12 and above!");
 #endif
 }
 

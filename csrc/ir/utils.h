@@ -478,7 +478,7 @@ bool hasResizedRfactor(const TensorView* tv);
 // Returns tvs that have symbolic axes
 std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion);
 
-//! Validate dom0 and dom1 completely covers each other with no
+//! Check if dom0 and dom1 completely covers each other with no
 //! redundancy. When they are equivalent, we can consider them as a different
 //! view of the each other with affine transformations.
 //!
@@ -502,15 +502,23 @@ std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion);
 //! Broadcast IterDomains are ignored in this check, because we consider them as
 //! placeholders and allow them to be created (and annihilated?) arbitrarily as
 //! needed for convenience.
-NVF_API void validateDomainEquivalence(
+//!
+//! Returns if each domain has unreachable IDs. It is an error if
+//! redundant IDs are detected.
+struct CompareDomainResult {
+  bool dom0_has_unreachable_ids = false;
+  bool dom1_has_unreachable_ids = false;
+};
+CompareDomainResult compareDomains(
     std::vector<IterDomain*> dom0,
     const std::vector<IterDomain*>& dom1,
     const std::vector<IterDomain*>& additional_ids = {});
 
-std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> compareDomains(
+//! Validate dom0 and dom1 are equivalent
+void validateDomainEquivalence(
     std::vector<IterDomain*> dom0,
     const std::vector<IterDomain*>& dom1,
-    const std::vector<IterDomain*>& additional_ids);
+    const std::vector<IterDomain*>& additional_ids = {});
 
 //! Check if all the inputs required to compute needed_val are known
 template <
@@ -672,7 +680,7 @@ inline bool isMemoryPartitionedAcross(
     case MemoryType::Global:
       return isParallelTypeDeviceDim(parallel_type);
     default:
-      NVF_ERROR(false, "Unknown MemoryType: ", memory_type);
+      NVF_THROW("Unknown MemoryType: ", memory_type);
   }
 }
 
@@ -693,7 +701,7 @@ inline bool isMemorySharedAcross(
       return isParallelTypeThreadDim(parallel_type) ||
           isParallelTypeBlockDim(parallel_type);
     default:
-      NVF_ERROR(false, "Unknown MemoryType: ", memory_type);
+      NVF_THROW("Unknown MemoryType: ", memory_type);
   }
 }
 

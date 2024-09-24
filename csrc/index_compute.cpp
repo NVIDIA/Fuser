@@ -1301,7 +1301,7 @@ std::vector<Val*> Index::getGlobalProducerStridedIndices(
       strides[dim] = cur_contig_stride->fusion()->zeroVal();
       NVF_ERROR(!producer_dim_contiguity.has_value());
     } else if (!producer_dim_contiguity.has_value()) {
-      NVF_ERROR(false, "Expected value for dimension contiguity");
+      NVF_THROW("Expected value for dimension contiguity");
     } else if (producer_dim_contiguity.value()) {
       // If contig, used the stored stride which may be the previous
       // dimensions stride * previous dimensions size
@@ -1694,7 +1694,7 @@ std::vector<Val*> Index::getStrides(TensorView* tv) {
       strides[dim] = cur_contig_stride->fusion()->zeroVal();
       NVF_ERROR(!dim_contiguity.has_value());
     } else if (!dim_contiguity.has_value()) {
-      NVF_ERROR(false, "Expected value for dimension contiguity");
+      NVF_THROW("Expected value for dimension contiguity");
     } else if (dim_contiguity.value()) {
       // If contig, used the stored stride which may be the previous
       // dimensions stride * previous dimensions size
@@ -2174,8 +2174,7 @@ kir::TensorIndex* Index::getProducerIndex(
       } else if (items_per_thread == 4) {
         op = UnaryOpType::AdjustPartialLdMatrixAddrInTuring16;
       } else {
-        NVF_ERROR(
-            false,
+        NVF_THROW(
             "Unexpected output vectorizaiton for ldmatrix, expect 2, 4, or 8, get ",
             items_per_thread);
       }

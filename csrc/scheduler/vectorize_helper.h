@@ -25,7 +25,7 @@
 namespace nvfuser {
 
 class SchedulerRuntimeInfo;
-class HeuristicSummary;
+class HeuristicDataCache;
 
 namespace vectorize_helper {
 
@@ -181,7 +181,7 @@ class NVF_API ContiguousInnerDimensionsMapper
 
   Val* getProjectedExtent(IterDomain* id) const {
     if (projected_extent_.find(id) == projected_extent_.end()) {
-      NVF_ERROR(false, "Not projected: ", id->toString());
+      NVF_THROW("Not projected: ", id->toString());
     }
     return projected_extent_.at(id);
   }
@@ -315,7 +315,7 @@ class NVF_API ContiguousInnerDimensionsMapper
 int64_t getVectorizationFactor(
     SchedulerRuntimeInfo& runtime_info,
     TensorView* reference_tv,
-    HeuristicSummary* data_cache,
+    HeuristicDataCache* data_cache,
     int64_t break_point,
     const std::unordered_map<int64_t, int64_t>& logical_reorder = {});
 

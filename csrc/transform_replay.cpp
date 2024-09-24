@@ -129,11 +129,11 @@ class ReplaySelf : public ReplayTransformations {
   }
 
   void handle(Swizzle* swizzle) override {
-    NVF_ERROR(false, "Unexpected expr to self replay: ", swizzle->toString());
+    NVF_THROW("Unexpected expr to self replay: ", swizzle->toString());
   }
 
   void handle(Swizzle2D* swizzle) override {
-    NVF_ERROR(false, "Unexpected expr to self replay: ", swizzle->toString());
+    NVF_THROW("Unexpected expr to self replay: ", swizzle->toString());
   }
 
   void handle(Resize* resize) override {

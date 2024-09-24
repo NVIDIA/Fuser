@@ -62,7 +62,7 @@ std::ostream& operator<<(std::ostream& os, const State& state) {
     } else if (state.stype == serde::StateType::None) {
       os << "None";
     } else {
-      NVF_ERROR(false, "Unsupported StateType");
+      NVF_THROW("Unsupported StateType");
     }
   }
   return os;
