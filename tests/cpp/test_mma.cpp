@@ -722,6 +722,11 @@ TEST_P(HopperRS, MultipleTile) {
   auto tv2c = tv2->cacheBefore();
 
   moveInnerBroadcastLeft(tv0);
+  tv0->split(0, getN(macro));
+  tv0->split(1, getM(macro));
+  tv0->split(2, getK(macro));
+  // [No, Ni, Mo, Mi, Ko, Ki] -> // [Mo, No, Ko, Ni, Mi, Ki]
+  tv0->reorder({{2, 0}, {1, -3}, {-2, 2}});
   tv0->applyMmaSwizzle(MmaOperand::A);
 
   tv0->merge(1);
