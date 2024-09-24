@@ -434,7 +434,7 @@ void makeTile(
   abten.reorder(reorder_map_old_to_new);
 }
 
-void makeTile(TensorView* tv, std::vector<int64_t> tile_sizes) {
+void makeTile(TensorView* tv, const std::vector<int64_t>& tile_sizes) {
   // We will create an AbstractMatmulTensor so that we can use the abstract
   // makeTile implementation above.
 
@@ -2143,5 +2143,23 @@ std::optional<std::pair<DimRolesMap, TensorRolesMap>> allPatternRoles(
 }
 
 } // namespace mma_utils
+
+std::string toString(const mma_utils::AbstractMatmulTensor& abten) {
+  std::ostringstream ss;
+  ss << "AbstractMatmulTensor (" << abten.size() << "):" << std::endl;
+  for (size_t i : c10::irange(abten.size())) {
+    const AbstractId& abs_id = abten[(int64_t)i];
+    const std::optional<MatmulDimRole> role = abten.getTag((int64_t)i).value();
+    ss << "  " << (role.has_value() ? toString(role.value()) : "no role");
+    if (abs_id.is<ValGroupAndItsGraph>()) {
+      const ValGroup& g = abs_id.as<ValGroupAndItsGraph>().group;
+      for (Val* v : g->vector()) {
+        ss << " " << v->toString();
+      }
+    }
+    ss << std::endl;
+  }
+  return ss.str();
+}
 
 } // namespace nvfuser
