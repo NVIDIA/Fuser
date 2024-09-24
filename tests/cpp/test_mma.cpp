@@ -753,8 +753,8 @@ TEST_P(HopperRS, MultipleTile) {
   }
   {
     tv2->printTransforms();
-    tv2->split(-3, getM(macro));
-    tv2->split(-2, getN(macro));
+    tv2->split(-2, getM(macro));
+    tv2->split(-1, getN(macro));
     // [Mo, Mi, No, Ni] -> [Mo, No, Mi, Ni]
     tv2->reorder({{-3, -2}});
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
