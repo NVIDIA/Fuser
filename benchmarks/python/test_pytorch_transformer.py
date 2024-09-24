@@ -79,8 +79,8 @@ def benchmark_loop(model, input, profile):
 
     if profile:
         torch.cuda.cudart().cudaProfilerStop()
-    forward_time /= num_iters
-    backward_time /= num_iters
+    forward_time = forward_time / num_iters * 1000.0
+    backward_time = backward_time / num_iters * 1000.0
     return forward_time, backward_time
 
 
@@ -98,7 +98,7 @@ def benchmark_model(use_torch_compile, profile):
 
     forward_time, backward_time = benchmark_loop(model, input, profile)
     print(
-        f"torch.compile {not use_torch_compile}, Average forward time {forward_time}s, backward time {backward_time}s"
+        f"torch.compile {not use_torch_compile}, Average forward time {forward_time}ms, backward time {backward_time}ms"
     )
 
 
@@ -127,21 +127,21 @@ def benchmark_tensor_parallel(use_torch_compile, profile):
 
     forward_time, backward_time = benchmark_loop(tp_model, input, profile)
     print(
-        f"{rank}: torch.compile {not use_torch_compile}, Average tensor parallel forward time {forward_time}s, backward time {backward_time}s"
+        f"{rank}: torch.compile {use_torch_compile}, Average tensor parallel forward time {forward_time}ms, backward time {backward_time}ms"
     )
 
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
     "--compile",
-    dst="compile",
+    dest="compile",
     default=False,
     action="store_true",
     help="Use torch.compile",
 )
 parser.add_argument(
     "--profile",
-    dst="profile",
+    dest="profile",
     default=False,
     action="store_true",
     help="Adds cuda profiling ranges",

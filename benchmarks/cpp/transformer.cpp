@@ -18,8 +18,8 @@
 using namespace nvfuser;
 
 constexpr int64_t B = 1, E = 12288, H = 96, S = 2048;
-constexpr double kDropoutProb = 0.1, kParamScale = 0.02, kSdpaProb = 0.1,
-                 kSdpaScale = 1e-3;
+constexpr double kDropoutProb = 0.1, kParamScale = 0.02, kSdpaProb = 0.1;
+constexpr int64_t warmup_itrs = 10, num_itrs = 10;
 
 std::vector<at::Tensor> reference_mlp(
     at::Tensor x,
@@ -48,7 +48,7 @@ std::vector<at::Tensor> reference_mha(
     qkv[i] = qkv[i].reshape({B, S, H, E / H}).transpose(1, 2).to(at_dtype);
   }
   auto sdpa_out = at::_scaled_dot_product_flash_attention(
-      qkv[0], qkv[1], qkv[2], kSdpaProb, true, false, kSdpaScale);
+      qkv[0], qkv[1], qkv[2], kSdpaProb, true, false);
   auto sdpa = std::get<0>(sdpa_out);
   // Reassemble heads (B, H, S, E/H) to (B, S, H, E/H) to (B, S, E)
   auto y = sdpa.transpose(1, 2).reshape({B * S, E});
@@ -128,8 +128,7 @@ std::vector<at::Tensor> reference_mha_backwards(
               qkv[2],
               /*dropout_p=*/kSdpaProb,
               /*is_causal=*/true,
-              /*return_debug_mask=*/false,
-              /*scale=*/kSdpaScale);
+              /*return_debug_mask=*/false);
 
   // backwards pass
   auto dropout_grad =
@@ -157,8 +156,7 @@ std::vector<at::Tensor> reference_mha_backwards(
           /*dropout_p=*/kSdpaProb,
           /*is_causal=*/true,
           philox_seed,
-          philox_offset,
-          /*scale=*/kSdpaScale);
+          philox_offset);
   auto qkv_grad = at::cat(
       {q_grad.transpose(1, 2).view({B * S, E}),
        k_grad.transpose(1, 2).view({B * S, E}),
@@ -275,7 +273,7 @@ std::vector<TensorView*> mha(
       qkv[2],
       IrBuilder::create<Val>(kSdpaProb),
       IrBuilder::create<Val>(true),
-      IrBuilder::create<Val>(kSdpaScale));
+      nullptr);
   TensorView* sdpa_output = sdpa.output;
   // Linear 1
   TensorView* sdpa_transpose = transpose(sdpa_output, 2, 3);
@@ -497,7 +495,7 @@ std::vector<TensorView*> mha_backwards(
       /*is_causal=*/IrBuilder::create<Val>(true),
       sdpa_seed,
       sdpa_offset,
-      /*scale=*/IrBuilder::create<Val>(kSdpaScale));
+      /*scale=*/nullptr);
 
   TensorView* q_grad = transpose(sdpa_grad.grad_query, 2, 3);
   q_grad = reshape(q_grad, {D, B, S, H / D, E / H}, {D, B * S, E / D});
@@ -567,7 +565,7 @@ at::Tensor shardTensor(
   return slice;
 }
 
-void forward_transformer(Communicator* communicator_) {
+void forward_transformer(Communicator* communicator_, bool profile) {
   int64_t D = communicator_->size();
   auto dtype = DataType::BFloat16;
   at::ScalarType at_dtype = data_type_to_aten(dtype);
@@ -676,21 +674,37 @@ void forward_transformer(Communicator* communicator_) {
   cudaSetDevice(communicator_->deviceId());
   FusionExecutorCache fec(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
-  auto outputs = fec.runFusionWithInputs(inputs);
-  cudaDeviceSynchronize();
 
-  cudaProfilerStart();
-  for (auto i : c10::irange(5)) {
-    nvtxRangePush("Iteration");
-    fec.runFusionWithInputs(inputs);
-    cudaDeviceSynchronize();
-    nvtxRangePop();
+  auto forward_time = std::chrono::duration<double>::zero();
+  if (profile) {
+    cudaProfilerStart();
   }
-  cudaProfilerStop();
+  for (auto i : c10::irange(num_itrs + warmup_itrs)) {
+    if (i > warmup_itrs && profile) {
+        nvtxRangePush("Iteration");
+    }
+    auto start = std::chrono::high_resolution_clock::now();
+    auto outputs = fec.runFusionWithInputs(inputs);
+    cudaDeviceSynchronize();
+    auto end = std::chrono::high_resolution_clock::now();
+    if (i > warmup_itrs) {
+      forward_time += (end - start);
+      if (profile) {
+        nvtxRangePop();
+      }
+    }
+  }
+  if (profile) {
+    cudaProfilerStop();
+  }
+
+  double avg_forward_time = std::chrono::duration_cast<std::chrono::milliseconds>(forward_time).count() / (double) num_itrs;
+  std::cout << communicator_->deviceId() << ": Average forward time " << avg_forward_time << "ms" << std::endl;
 }
 
-int main() {
+int main(int argc, char** argv) {
+  // using this is as a flag for when to profile
+  bool profile = argc > 1;
   auto communicator_ = &Communicator::getInstance();
-  std::cout << "Number of devices " << communicator_->size() << std::endl;
-  forward_transformer(communicator_);
+  forward_transformer(communicator_, profile);
 }
