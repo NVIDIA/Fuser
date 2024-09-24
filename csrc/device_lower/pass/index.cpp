@@ -1757,16 +1757,10 @@ ValGroup getInnerMmaLoopGroup(TensorView* tv, const MmaOp* mma) {
   // way to the consumer's loop domain, and keep track of the inner dimension.
   // After propagating, the inner dimension should be a dimension that is
   // parallelized on Mma.
-  ValGroup inner = nullptr;
-  for (auto it = alloc_domain.rbegin(); it != alloc_domain.rend(); ++it) {
-    if (!(*it)->front()->as<IterDomain>()->isBroadcast()) {
-      inner = *it;
-      break;
-    }
-  }
   NVF_ERROR(
-      inner != nullptr,
+      !alloc_domain.empty(),
       "Matmul with all broadcasting dimension is not supported yet.");
+  ValGroup inner = alloc_domain.back();
 
   auto exprs =
       ValGraphBFS::getExprsBetween(id_graph, loop_domain, alloc_domain);
@@ -1835,7 +1829,7 @@ ValGroup getInnerMmaLoopGroup(TensorView* tv, const MmaOp* mma) {
 // 2. Split k_inst as above.
 // 3. Prove that `linear` is linear in the allocation domain of tv, and get the
 //    stride of `linear`.
-Val* getInnerStride(TensorView* tv, const MmaOp* mma) {
+Val* getInnerStrideBytes(TensorView* tv, const MmaOp* mma) {
   auto swizzle = getSwizzleMode(tv);
   auto swizzle_size = getBytesFromSwizzle(swizzle) / dataTypeSize(tv->dtype());
   ValGraph& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
@@ -1885,7 +1879,7 @@ Val* getInnerStride(TensorView* tv, const MmaOp* mma) {
 // 2. Split m_inst as above.
 // 3. Prove that `linear` is linear in the allocation domain of tv, and get the
 //    stride of `linear`.
-Val* getOuterStride(TensorView* tv, const MmaOp* mma) {
+Val* getOuterStrideBytes(TensorView* tv, const MmaOp* mma) {
   ValGraph& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
   auto logical_domain =
       id_graph.toGroups(TensorDomain::noBroadcasts(tv->getLogicalDomain()));
@@ -1992,8 +1986,8 @@ void IndexLowering::handle(const MmaOp* mma) {
     auto base_addr = lowerSrcIndex(tv, mma->out(), {}, true)
                          ->as<kir::TensorIndex>()
                          ->index();
-    Val* leading_bytes = getInnerStride(tv, mma);
-    Val* stride_bytes = getOuterStride(tv, mma);
+    Val* leading_bytes = getInnerStrideBytes(tv, mma);
+    Val* stride_bytes = getOuterStrideBytes(tv, mma);
     if (swizzle == MmaInputSmemSwizzle::None && unitdim_a == UnitDim::M_or_N) {
       // tnspA and tnspB is ignored for NoSwizzle mode
       std::swap(leading_bytes, stride_bytes);
@@ -2024,8 +2018,8 @@ void IndexLowering::handle(const MmaOp* mma) {
     auto base_addr = lowerSrcIndex(tv, mma->out(), {}, true)
                          ->as<kir::TensorIndex>()
                          ->index();
-    Val* leading_bytes = getInnerStride(tv, mma);
-    Val* stride_bytes = getOuterStride(tv, mma);
+    Val* leading_bytes = getInnerStrideBytes(tv, mma);
+    Val* stride_bytes = getOuterStrideBytes(tv, mma);
     if (swizzle == MmaInputSmemSwizzle::None && unitdim_b == UnitDim::M_or_N) {
       // tnspA and tnspB is ignored for NoSwizzle mode
       std::swap(leading_bytes, stride_bytes);
