@@ -34,7 +34,7 @@ jobs:
           export CC=clang
           export CXX=clang++
           wait
-          python setup.py build
+          python setup.py build --no-test --no-benchmark
 
   dynamic-type-meson:
     runs-on: ubuntu-latest
