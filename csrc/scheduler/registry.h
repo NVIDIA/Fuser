@@ -57,7 +57,7 @@ class SchedulerEntry {
   // by the scheduler. Returns the heuristics. This is simply a convenience
   // function for a common testing pattern. If validate is set to false
   // canSchedule will not be checked.
-  static std::unique_ptr<HeuristicParams> scheduleWith(
+  NVF_API static std::unique_ptr<HeuristicParams> scheduleWith(
       Fusion* fusion,
       SchedulerType scheduler_type,
       const at::ArrayRef<c10::IValue>& runtime_inputs,
