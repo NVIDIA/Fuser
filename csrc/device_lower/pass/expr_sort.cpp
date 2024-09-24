@@ -675,10 +675,6 @@ ExprGroup* ExprSegmentationSorter::makeEmptyGroup(
                    : out_tv->getComputeAtPosition())) {
         auto concrete_id = getConcreteID(out_tv->axis(tv_i));
         group->payload()->ca_domains.push_back(concrete_id);
-        if (out_tv->name() == 1) {
-          std::cerr << "ca_id: " << out_tv->axis(tv_i)->toString()
-                    << ", concrete: " << concrete_id->toString() << "\n";
-        }
       }
     }
     // Similarly for PA, unless all the inputs are either fusion
@@ -690,11 +686,6 @@ ExprGroup* ExprSegmentationSorter::makeEmptyGroup(
     }
     for (const auto tv_i : c10::irange(out_tv->getMaxProducerPosition())) {
       auto concrete_id = getConcreteID(out_tv->axis(tv_i));
-      if (out_tv->name() == 2) {
-        std::cerr << "pa_id: " << out_tv->axis(tv_i)->toString()
-                  << ", concrete: " << concrete_id->toString() << "\n";
-      }
-
       group->payload()->pa_domains.push_back(concrete_id);
     }
   }
