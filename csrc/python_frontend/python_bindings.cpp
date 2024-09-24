@@ -487,9 +487,9 @@ computeTensorDescriptor(
   return std::make_pair(contiguity_vec, stride_order_vec);
 }
 
-//! Copy definition from other FusionDefintion's presched CPP fusion.
-//! Primarily for testing purposes to check that the translation from CPP
-//! fusion is correct.
+// Copy definition from a FusionDefinion's pre-scheduled CPP fusion to a blank
+// FusionDefinition. Primarily for testing purposes to check that the
+// translation from CPP fusion is correct.
 void clone(FusionDefinition& from, FusionDefinition& to) {
   NVF_CHECK(from.completed(), "FusionDefinition definition does not exist!");
   NVF_ERROR(
