@@ -12,6 +12,7 @@
 #include <ir/cloner.h>
 #include <ir/interface_nodes.h>
 #include <iter_visitor.h>
+#include <logical_domain_map.h>
 #include <polymorphic_value.h>
 #include <visibility.h>
 
@@ -90,7 +91,9 @@ class ExpressionEvaluator {
   //! root IDs that are exactly mapped also get bound to the same
   //! value. This is currently just done with ExactLogicalDomainMap, but
   //! can be similarly done with the Exact CA map as well.
-  void propagateBoundValuesThroughExactMaps(Fusion* fusion);
+  void propagateBoundValuesThroughExactMaps(
+      Fusion* fusion,
+      ExactLogicalDomainMap* exact_map = nullptr);
 
   ExpressionEvaluator clone(IrCloner& ir_cloner) const;
 

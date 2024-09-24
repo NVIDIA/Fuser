@@ -16,35 +16,36 @@
 namespace nvfuser {
 
 // params: concrete vs symbolic input, sharded axis
-class MultideviceShardingTest
+class MultiDeviceReductionTest
     : public MultiDeviceTest,
       public testing::WithParamInterface<std::tuple<bool, int>> {};
 
-// Test memory allocation of multidevice fusion with unsharded inputs
-// and sharded intermediates, outputs.
-TEST_P(MultideviceShardingTest, UnshardedGlobalInput) {
-  auto [creates_concrete_tensor, sharded_dim] = GetParam();
+// Test multidevice fusion with unsharded inputs and sharded intermediates,
+// outputs.
+TEST_P(MultiDeviceReductionTest, UnshardedInput_ShardedOutput) {
+  auto [creates_concrete_tensor, sharded_input_dim] = GetParam();
+
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  int num_devices = communicator_->size();
+  const int num_devices = communicator_->size();
   auto mesh = DeviceMesh::createForNumDevices(num_devices);
-  std::vector<int64_t> input_size = {2, 3, 2, num_devices};
-  input_size[sharded_dim] = num_devices;
+  std::vector<int64_t> input_shape = {2, 3, 2, num_devices};
+  input_shape[sharded_input_dim] = num_devices;
 
   TensorView* tv0 = creates_concrete_tensor
-      ? makeContigConcreteTensor(input_size)
-      : makeContigTensor(4);
+      ? makeContigConcreteTensor(input_shape)
+      : makeContigTensor(input_shape.size());
   TensorView* tv1 = set(tv0);
   TensorView* tv2 = add(tv1, tv1);
-  TensorView* tv3 = sum(tv2, {sharded_dim});
+  TensorView* tv3 = sum(tv2, {sharded_input_dim});
 
   fusion->addInput(tv0);
   fusion->addOutput(tv1);
   fusion->addOutput(tv2);
   fusion->addOutput(tv3);
 
-  tv1->axis(sharded_dim)->parallelize(ParallelType::DIDx);
-  tv2->axis(sharded_dim)->parallelize(ParallelType::DIDx);
+  tv1->axis(sharded_input_dim)->parallelize(ParallelType::DIDx);
+  tv2->axis(sharded_input_dim)->parallelize(ParallelType::DIDx);
   tv3->axis(-1)->parallelize(ParallelType::DIDx);
 
   std::vector<TensorView*> tvs = {tv0, tv1, tv2, tv3};
@@ -52,31 +53,31 @@ TEST_P(MultideviceShardingTest, UnshardedGlobalInput) {
     tv->setDeviceMesh(mesh);
   }
 
-  auto x0 = at::randn(input_size, tensor_options);
+  auto x0 = at::randn(input_shape, tensor_options);
   std::vector<c10::IValue> inputs = {x0};
   auto x1 = shardTensor(x0, tv1);
   auto x2 = x1 + x1;
-  auto x3 = shardTensor(at::sum(x0 + x0, {sharded_dim}), tv3);
+  auto x3 = shardTensor(at::sum(x0 + x0, {sharded_input_dim}), tv3);
   FusionExecutorCache fec(std::move(fusion));
   auto outputs = fec.runFusionWithInputs(inputs);
 
   testValidate(fec.fusion(), outputs, inputs, {x1, x2, x3}, __LINE__, __FILE__);
 }
 
-// Test memory allocation of multidevice fusion with sharded input
-// and replicated intermediates and output.
-TEST_P(MultideviceShardingTest, ShardGlobalInput) {
+// Test multidevice fusion with sharded input and replicated intermediates and
+// output.
+TEST_P(MultiDeviceReductionTest, ShardedInput_ReplicatedOutput) {
   auto [creates_concrete_tensor, sharded_dim] = GetParam();
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   int num_devices = communicator_->size();
   auto mesh = DeviceMesh::createForNumDevices(num_devices);
-  std::vector<int64_t> unsharded_input_size = {3, 2, 5};
-  unsharded_input_size[sharded_dim] = num_devices;
+  std::vector<int64_t> unsharded_input_shape = {3, 2, 5};
+  unsharded_input_shape[sharded_dim] = num_devices;
 
   TensorView* tv0 = creates_concrete_tensor
-      ? makeContigConcreteTensor(unsharded_input_size)
-      : makeContigTensor(unsharded_input_size.size());
+      ? makeContigConcreteTensor(unsharded_input_shape)
+      : makeContigTensor(unsharded_input_shape.size());
   TensorView* tv1 = set(tv0);
   TensorView* tv2 = add(tv1, tv1);
   fusion->addInput(tv0);
@@ -90,7 +91,7 @@ TEST_P(MultideviceShardingTest, ShardGlobalInput) {
     tv->setDeviceMesh(mesh);
   }
 
-  auto x1 = at::randn(unsharded_input_size, tensor_options);
+  auto x1 = at::randn(unsharded_input_shape, tensor_options);
   std::vector<c10::IValue> inputs = {shardTensor(x1, tv0)};
   auto x2 = x1 * 2;
   FusionExecutorCache fec(std::move(fusion));
@@ -100,7 +101,7 @@ TEST_P(MultideviceShardingTest, ShardGlobalInput) {
 
 INSTANTIATE_TEST_SUITE_P(
     ,
-    MultideviceShardingTest,
+    MultiDeviceReductionTest,
     testing::Combine(testing::Bool(), testing::Values(0, 1)),
     [](const testing::TestParamInfo<std::tuple<bool, int>>& info)
         -> std::string {
@@ -115,8 +116,8 @@ INSTANTIATE_TEST_SUITE_P(
       return os.str();
     });
 
-TEST_F(MultideviceShardingTest, Slice) {
-  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+TEST_F(MultiDeviceTest, Slice) {
+  auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   auto mesh = DeviceMesh::createForNumDevices(communicator_->size());
 
@@ -150,8 +151,8 @@ TEST_F(MultideviceShardingTest, Slice) {
       __FILE__);
 }
 
-TEST_F(MultideviceShardingTest, LayerNorm) {
-  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+TEST_F(MultiDeviceTest, LayerNorm) {
+  auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   auto mesh = DeviceMesh::createForNumDevices(communicator_->size());
 
@@ -190,7 +191,7 @@ TEST_F(MultideviceShardingTest, LayerNorm) {
       __FILE__);
 }
 
-TEST_F(MultideviceShardingTest, Issue2758) {
+TEST_F(MultiDeviceTest, Issue2758) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -229,5 +230,76 @@ TEST_F(MultideviceShardingTest, Issue2758) {
       __LINE__,
       __FILE__);
 }
+
+class MultiDeviceBroadcastTest : public MultiDeviceTest,
+                                 public testing::WithParamInterface<bool> {};
+
+// This test and the following `ExpandedBroadcast` test verify the expression
+// evaluator correctly binds the extent of a broadcast dimension to 1 and the
+// expanded extent to the tensor size. There used to be a bug where it
+// incorrectly binds the extent(s) to the mesh size.
+//
+// `b(DID{i0})` and `b(i0)` bear the same semantics. The former is used more
+// often due to how parallelizeAllLike is implemented.
+TEST_P(MultiDeviceBroadcastTest, NotExpanded) {
+  const bool parallelizes_broadcast = GetParam();
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto num_devices = communicator_->size();
+  auto mesh = DeviceMesh::createForNumDevices(num_devices);
+
+  TensorView* in = TensorViewBuilder()
+                       .dtype(DataType::Float)
+                       .contiguity({std::nullopt, true})
+                       .shape({1, -1})
+                       .build();
+  in->setDeviceMesh(mesh);
+  if (parallelizes_broadcast) {
+    in->axis(0)->parallelize(ParallelType::DIDx);
+  }
+  TensorView* out = set(in);
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor in_tensor = at::randn({1, 8}, options);
+  at::Tensor out_tensor = fec.runFusionWithInputs({in_tensor})[0];
+  testValidate(fec.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
+}
+
+TEST_P(MultiDeviceBroadcastTest, Expanded) {
+  const bool parallelizes_broadcast = GetParam();
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto num_devices = communicator_->size();
+  auto mesh = DeviceMesh::createForNumDevices(num_devices);
+
+  TensorView* in = TensorViewBuilder()
+                       .dtype(DataType::Float)
+                       .contiguity({std::nullopt, true})
+                       .shape({3, -1})
+                       .expanded({true, false})
+                       .build();
+  in->setDeviceMesh(mesh);
+  if (parallelizes_broadcast) {
+    in->axis(0)->parallelize(ParallelType::DIDx);
+  }
+  TensorView* out = set(in);
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor in_tensor = at::randn({8}, options).as_strided({3, 8}, {0, 1});
+  at::Tensor out_tensor = fec.runFusionWithInputs({in_tensor})[0];
+  testValidate(fec.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
+}
+
+INSTANTIATE_TEST_SUITE_P(, MultiDeviceBroadcastTest, testing::Bool());
 
 } // namespace nvfuser

@@ -21,7 +21,7 @@
 namespace nvfuser {
 
 class SchedulerRuntimeInfo;
-class HeuristicSummary;
+class HeuristicDataCache;
 
 namespace scheduler_utils {
 
@@ -195,6 +195,12 @@ struct PersistentBufferInfo {
 
   // Map unmappable dims to projectable_buffer_inputs
   std::unordered_set<IterDomain*> unamppable_dims_projected_to_inputs;
+
+  // Some parameters used in
+  // normalization_scheduler_utils::isProjectBufferToInput
+  bool has_view_ops = false;
+  bool projection_with_exp_op = false;
+  bool projection_with_rng_op = false;
 };
 
 // Buffers whos roots can't map to all producer roots based on compute at. These
@@ -274,7 +280,7 @@ NVF_API PersistentBufferSizeReturn persistentBufferSize(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     const PersistentBufferInfo& persistent_buffers,
-    HeuristicSummary* data_cache = nullptr);
+    HeuristicDataCache* data_cache = nullptr);
 
 // Merges tensor view to the form:
 // [IterationDomain, ReductionDomain] Returns if <iteration dimensions,

@@ -135,4 +135,13 @@ NVF_API TensorView* slice(
     const std::vector<int64_t>& starts,
     const std::vector<int64_t>& stops);
 
+// Splits `in`'s dimension `dim` into `chunks` chunks. All but the last chunk
+// will be of size `ceil(dim_size/chunks)`. Unlike `torch.chunk` which returns
+// only positive-size chunks and therefore may return fewer than `chunks` of
+// them, this function returns exactly `chunks` chunks and a chunk of negative
+// size will lead to a concretization error. This difference is because that we
+// can't precompute the number of positive-size chunks when the dimension size
+// is symbolic.
+std::vector<TensorView*> chunk(TensorView* in, int64_t chunks, int64_t dim);
+
 } // namespace nvfuser

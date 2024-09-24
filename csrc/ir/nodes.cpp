@@ -333,7 +333,7 @@ std::vector<PolymorphicValue> IotaOp::evaluate(
     double end = start + step * ((double)length + 1);
     return {at::arange(start, end, step, options).narrow(0, 0, length)};
   } else {
-    NVF_ERROR(false, "Unsupported dtype in IotaOp evaluator: ", dtype());
+    NVF_THROW("Unsupported dtype in IotaOp evaluator: ", dtype());
   }
 }
 
@@ -413,8 +413,7 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
       } else if (isComplexType(*out()->getDataType())) {
         return {PolymorphicValue((std::complex<double>)in)};
       } else {
-        NVF_ERROR(
-            false, "dtype not supported in evaluator: ", *out()->getDataType());
+        NVF_THROW("dtype not supported in evaluator: ", *out()->getDataType());
       }
     case UnaryOpType::Reciprocal:
       return {1.0 / in};
@@ -442,8 +441,7 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
       if (*out()->getDataType() == DataType::Float) {
         return {PolymorphicValue((double)*(float*)in)};
       } else {
-        NVF_ERROR(
-            false, "dtype not supported in evaluator: ", *out()->getDataType());
+        NVF_THROW("dtype not supported in evaluator: ", *out()->getDataType());
       }
       break;
     case UnaryOpType::Sigmoid:
@@ -657,6 +655,9 @@ std::vector<PolymorphicValue> BinaryOp::evaluate(
       break;
     case BinaryOpType::Complex:
       return {at::complex(lhs.as<at::Tensor>(), rhs.as<at::Tensor>())};
+      break;
+    case BinaryOpType::Pow:
+      return {pow(lhs, rhs)};
       break;
     default:
       NVF_CHECK(
@@ -1565,8 +1566,7 @@ int GroupedReductionOp::getExprIndexOfOutput(Val* output_val) const {
     return (int)std::distance(outputs().begin(), it);
   }
 
-  NVF_ERROR(
-      false, "Not an output, ", output_val->toString(), ", of ", toString());
+  NVF_THROW("Not an output, ", output_val->toString(), ", of ", toString());
 }
 
 std::vector<PolymorphicValue> GroupedReductionOp::evaluate(
@@ -1965,8 +1965,7 @@ int GroupedWelfordOp::getExprIndexOfOutput(Val* output_val) const {
     }
   }
 
-  NVF_ERROR(
-      false, "Not an output, ", output_val->toString(), ", of ", toString());
+  NVF_THROW("Not an output, ", output_val->toString(), ", of ", toString());
 }
 
 Val* GroupedWelfordOp::getInitValOfOutput(Val* output_val) const {
@@ -2522,8 +2521,12 @@ std::string IterDomain::toInlineString(int indent_size) const {
 
 // Returns a new IterDomain matching properties of this except for
 // is_rfactor_domain_
-IterDomain* IterDomain::cloneWithoutRFactor() const {
+IterDomain* IterDomain::cloneWithoutRFactor(bool map_with_original) {
   auto cloned = IterDomainBuilder(this).resetRfactor().build();
+
+  if (map_with_original) {
+    fusion()->registerExactMapping(this, cloned);
+  }
 
   return cloned;
 }
@@ -3041,6 +3044,7 @@ TensorDomain::TensorDomain(
       logical_domain_(std::move(logical_domain)),
       allocation_domain_(std::move(allocation_domain)),
       loop_domain_(std::move(loop_domain)),
+      initial_loop_domain_(loop_domain_),
       contiguity_(
           contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
                              : std::move(contiguity)) {
@@ -3070,6 +3074,7 @@ TensorDomain::TensorDomain(IrBuilderPasskey passkey, const TensorDomain* src)
       logical_domain_(src->logical_domain_),
       allocation_domain_(src->allocation_domain_),
       loop_domain_(src->loop_domain_),
+      initial_loop_domain_(src->initial_loop_domain_),
       additional_ids_(src->additional_ids_),
       no_bcast_domain_(src->no_bcast_domain_),
       no_reduction_domain_(src->no_reduction_domain_),
@@ -3082,6 +3087,7 @@ TensorDomain::TensorDomain(const TensorDomain* src, IrCloner* ir_cloner)
       logical_domain_(ir_cloner->clone(src->logical_domain_)),
       allocation_domain_(ir_cloner->clone(src->allocation_domain_)),
       loop_domain_(ir_cloner->clone(src->loop_domain_)),
+      initial_loop_domain_(ir_cloner->clone(src->initial_loop_domain_)),
       additional_ids_(ir_cloner->clone(src->additional_ids_)),
       no_bcast_domain_(ir_cloner->clone(src->no_bcast_domain_)),
       no_reduction_domain_(ir_cloner->clone(src->no_reduction_domain_)),
@@ -3602,9 +3608,16 @@ std::pair<TensorDomain*, TensorDomain*> TensorDomain::rFactor(
 }
 
 void TensorDomain::setLoopDomain(std::vector<IterDomain*> new_loop_domain) {
-  ir_utils::validateDomainEquivalence(
+  auto [logical_unreachable, loop_unreachable] = ir_utils::compareDomains(
       logical_domain_, new_loop_domain, additional_ids_);
+  NVF_ERROR(
+      !logical_unreachable,
+      "Not all logical IDs are covered by loop domain. Loop: ",
+      toDelimitedString(new_loop_domain),
+      ". Logical: ",
+      toDelimitedString(logical_domain_));
   loop_domain_ = std::move(new_loop_domain);
+  initial_loop_domain_ = loop_domain_;
   resetDomains();
 }
 
@@ -3621,11 +3634,12 @@ void TensorDomain::setAllocationDomain(
 }
 
 std::vector<IterDomain*> TensorDomain::allIDs() const {
-  std::array<const std::vector<IterDomain*>*, 5> all_domains = {
+  std::array<const std::vector<IterDomain*>*, 6> all_domains = {
       &logical_domain_,
       &root_domain_,
-      &allocation_domain_,
+      &initial_loop_domain_,
       &loop_domain_,
+      &allocation_domain_,
       &additional_ids_};
   VectorOfUniqueEntries<IterDomain*> discovered_ids;
   for (auto domain : all_domains) {
@@ -3697,6 +3711,10 @@ Split::Split(
   // and need to check BestEffortReplay::findFirstMismatchedID addInput(factor);
   addAttribute(factor);
   addDataAttribute(inner_split);
+}
+
+Val* Split::isDivisible() const {
+  return IrBuilder::isDivisibleExpr(in()->extent(), factor());
 }
 
 std::string Split::toString(int indent_size) const {
@@ -4859,9 +4877,17 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
     const std::vector<PolymorphicValue>& inputs) const {
   // Backward tensor inputs: grad_input, query, key, value, output, logsumexp,
   // max_q/k
+  // Temporary handling of DID parallelization. See
+  // https://github.com/NVIDIA/Fuser/issues/2563
+  bool first_dim_is_did = this->key()->as<TensorView>()->axis(0)->isDeviceDim();
   std::vector<at::Tensor> bwd_inputs;
   for (auto idx : c10::irange(6)) {
-    bwd_inputs.emplace_back(inputs.at(idx).as<at::Tensor>());
+    auto in_tensor = inputs.at(idx).as<at::Tensor>();
+    // Removing the size 1 from sharded axis from tensors.
+    if (first_dim_is_did) {
+      in_tensor = in_tensor.squeeze(0);
+    }
+    bwd_inputs.push_back(in_tensor);
   }
   const auto dropout_p = inputs.at(6).as<double>();
   const auto is_causal = inputs.at(7).as<bool>();
@@ -4914,6 +4940,13 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
     }
     return output.slice(-1, 0, last_dim_size);
   };
+
+  // Add device dimension back to outputs.
+  if (first_dim_is_did) {
+    grad_query = grad_query.unsqueeze(0);
+    grad_key = grad_key.unsqueeze(0);
+    grad_value = grad_value.unsqueeze(0);
+  }
 
   return {
       slice_last_dim(grad_query),

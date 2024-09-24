@@ -15,6 +15,8 @@
 #include <ir/all_nodes.h>
 #include <kernel_ir.h>
 #include <parallel_type_bitmap.h>
+#include <val_graph.h>
+#include <val_graph_visitor.h>
 
 #include <bitset>
 #include <map>
@@ -127,6 +129,8 @@ std::unordered_map<ParallelType, IterDomain*> getParallelDomains(
 //! Returns true if the expression will be lowered to
 //!  a ldmatrix intrinsic.
 bool isLdMatrixOp(const Expr* expr);
+
+bool isStMatrixOp(const Expr* expr);
 
 //! Returns true if the expression will be lowered to
 //!  a cp.async intrinsic.
@@ -304,6 +308,10 @@ bool isExtentEqualToMaxParallelTypeExtent(const IterDomain* id);
 //! indexing special items in shared memory, like mbarrier.
 NVF_API Val* u32IndexScalarSmemTv(TensorView* tv);
 
+//! Get the uint32_t index of a TensorIndex. This is usually used for
+//! initializing a pipeline of mbarriers.
+NVF_API Val* u32IndexScalarSmemTv(kir::TensorIndex* index);
+
 //! Get the size of a global sync buffer needed to perform a grid reduction for
 //! each axis in bitmap.
 Val* getGridSyncBufferSize(const ParallelTypeBitmap& bitmap);
@@ -349,6 +357,23 @@ bool isReductionInitExpr(const Expr* expr);
 // non-divisible split, we still need to predicate each loop iteration
 // value.
 bool predicateAtEnd(ForLoop* loop);
+
+// Given linear_g and domain, prove that linear_g is linear with respect to
+// domain and return the stride. linear_g is linear with respect to domain if
+// there exists a strided view of domain such that linear_g is one of the
+// axes of that strided view. Usually, linear_g is a group in the loop domain of
+// some tensor, and domain is the allocation domain of some tensor. In this
+// case, if the index of linear_g is i, then this function proves that the index
+// is is a linear function of i, with the linear coefficient being the return
+// value. Note that this function does the proof and stride calculation in a
+// best-effort manner. It can not cover all linear cases. If the return value is
+// nullptr, it can be either because linear_g is not linear with respect to
+// domain, or because linear_g is actually linear with respect to domain, but it
+// is too hard for this function to find a proof.
+Val* proveLinearAndGetStride(
+    const ValGraph& id_graph,
+    const ValGroup& linear_g,
+    const ValGroups& domain);
 
 } // namespace lower_utils
 

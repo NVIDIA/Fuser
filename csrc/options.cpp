@@ -106,7 +106,6 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"cuda_full", DebugDumpOption::CudaFull},
       {"cuda_kernel", DebugDumpOption::CudaKernel},
       {"cuda_to_file", DebugDumpOption::CudaToFile},
-      {"debug_info", DebugDumpOption::DebugInfo},
       {"draw_segmented_fusion", DebugDumpOption::FusionSegmentsDrawing},
       {"expr_simplify", DebugDumpOption::ExprSimplification},
       {"expr_sort", DebugDumpOption::ExprSort},
@@ -122,6 +121,7 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"global_zeroed_memory", DebugDumpOption::GlobalZeroedMemory},
       {"host_ir", DebugDumpOption::HostIr},
       {"index_type", DebugDumpOption::IndexType},
+      {"indexing_verbose", DebugDumpOption::IndexingVerbose},
       {"kernel_args", DebugDumpOption::KernelArgs},
       {"kernel_ir", DebugDumpOption::KernelIr},
       {"launch_param", DebugDumpOption::LaunchParam},
@@ -152,6 +152,7 @@ std::unordered_map<EnableOption, std::vector<std::string>> Options<
     EnableOption>::getOptionsFromEnv() {
   const std::unordered_map<std::string, EnableOption> available_options = {
       {"fuse_matmul", EnableOption::FuseMatmul},
+      {"fuse_multiple_matmuls", EnableOption::FuseMultipleMatmuls},
       {"id_model", EnableOption::IdModel},
       {"kernel_db", EnableOption::KernelDb},
       {"kernel_profile", EnableOption::KernelProfile},
@@ -160,6 +161,8 @@ std::unordered_map<EnableOption, std::vector<std::string>> Options<
       {"static_fusion_count", EnableOption::StaticFusionCount},
       {"warn_register_spill", EnableOption::WarnRegisterSpill},
       {"io_to_lower_precision", EnableOption::IoToLowerPrecision},
+      {"kernel_debug", EnableOption::KernelDebug},
+      {"kernel_lineinfo", EnableOption::KernelLineInfo},
   };
 
   return parseEnvOptions("ENABLE", available_options);

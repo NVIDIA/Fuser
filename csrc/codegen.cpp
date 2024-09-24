@@ -539,7 +539,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       }
       code_ << "}";
     } else {
-      NVF_ERROR(false, "Unhandled constant type: ", dtype, " ", value);
+      NVF_THROW("Unhandled constant type: ", dtype, " ", value);
     }
   }
 
@@ -579,11 +579,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void handle(const kir::TensorIndex* ti) final {
-    bool is_volatile = ti->view()->getMemoryType() == MemoryType::Global &&
-        kernel_->summary().sync_map->needsRawSync(ti->view()).hasBID();
-    bool is_pointer = isPointerType(ti->index()->dtype());
-    if (is_pointer) {
-      bool is_u32_ptr = ti->index()->dtype() == DataType::SMemAddress;
+    if (isPointerType(ti->index()->dtype())) {
+      const bool is_u32_ptr = ti->index()->dtype() == DataType::SMemAddress;
       if (is_u32_ptr) {
         // DataType::SMemAddress is implemented as uint32_t in C++. The problem
         // for this implementation is, the type promotion rule in C++ for
@@ -598,10 +595,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       }
       return;
     }
-    bool different_dtype = ti->view()->dtype() != ti->dtype();
-    if (is_volatile) {
+
+    if (ti->view()->getMemoryType() == MemoryType::Global &&
+        kernel_->summary().sync_map->needsRawSync(ti->view()).hasBID()) {
       code_ << "*(volatile " << ti->getDataType().value() << "*)&";
     }
+
+    const bool different_dtype = ti->view()->dtype() != ti->dtype();
     if (different_dtype) {
       code_ << "(*reinterpret_cast<" << ti->getDataType().value() << "*>(&";
     }
@@ -613,11 +613,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void handle(const IterDomain*) final {
-    NVF_ERROR(false, "Unreachable");
+    NVF_THROW("Unreachable");
   }
 
   void handle(const TensorDomain*) final {
-    NVF_ERROR(false, "Unreachable");
+    NVF_THROW("Unreachable");
   }
 
   void handle(const TensorView* tv) final {
@@ -1083,7 +1083,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       // non-deterministic
       indent() << gen(sop->output(0)) << " = " << gen(sop->input(2)) << ";\n";
     } else {
-      NVF_ERROR(false, "unkown scatterOp");
+      NVF_THROW("unkown scatterOp");
     }
   }
 
@@ -1246,6 +1246,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     auto optype = ldst->opType();
     NVF_ERROR(
         optype != LoadStoreOpType::LdMatrix &&
+            optype != LoadStoreOpType::StMatrix &&
             optype != LoadStoreOpType::CpAsync,
         "ldmatrix and cp.async should be lowered as kir::Asm");
 
@@ -1973,8 +1974,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       }
       return;
     } else {
-      NVF_ERROR(
-          false, "Non-allreduce grouped grid welford is not yet supported");
+      NVF_THROW("Non-allreduce grouped grid welford is not yet supported");
     }
   }
 
@@ -2857,8 +2857,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void handle(const GroupedWelfordOp* grouped_wop) final {
-    NVF_ERROR(
-        false,
+    NVF_THROW(
         "Should not reach here as grouped welford is only enabled for grid welford,",
         " which is handled by its own handler");
   }
@@ -3005,7 +3004,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           }
         } break;
         default:
-          NVF_ERROR(false, "Unexpected memory type");
+          NVF_THROW("Unexpected memory type");
       }
     }
   }

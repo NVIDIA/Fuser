@@ -72,6 +72,20 @@ class LowerToInlinePtx : public kir::ExprMutator {
               std::vector<Val*>{ldst->in()},
               kir::Asm::Options{/*volatile=*/true}));
       return;
+    } else if (ir_utils::isStMatrixOp(ldst)) {
+      std::stringstream ss;
+      ss << "stmatrix.sync.aligned.x"
+         << std::get<ArrayType>(ldst->in()->dtype().type).size;
+      ss << ".m8n8.shared.b16";
+      registerReplace(
+          ldst,
+          // stmatrix has no output.
+          IrBuilder::create<kir::Asm>(
+              ss.str(),
+              std::vector<Val*>{},
+              std::vector<Val*>{ldst->out(), ldst->in()},
+              kir::Asm::Options{/*volatile=*/true}));
+      return;
     } else if (ir_utils::isCpAsyncOp(ldst)) {
       auto out_tv = ldst->out()->as<kir::TensorIndex>()->view();
       auto vec_size =
@@ -256,7 +270,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
     } else if (mma->isHopper()) {
       handleHopperMma(mma);
     } else {
-      NVF_ERROR(false, "Unsupported MMA architecture");
+      NVF_THROW("Unsupported MMA architecture");
     }
   }
 };

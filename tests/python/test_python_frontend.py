@@ -2105,15 +2105,15 @@ class TestNvFuserFrontend(NVFuserTest):
         checks = [
             (
                 check_start_indices,
-                "Slice operation start_indices must be greater-than-or-equal-to 0. .*",
+                "Slice operation start_indices must be greater than or equal to 0. .*",
             ),
             (
                 check_end_indices,
-                "Slice operation end_indices must be greater-than-or-equal-to start_indices. .*",
+                "Slice operation end_indices must be greater than or equal to start_indices. .*",
             ),
             (
                 check_strides,
-                "nvFuser Limitation: All slice operation strides must be of size 1. .*",
+                "nvFuser Limitation: All slice operation strides must be of const size 1.*",
             ),
             (
                 check_tensor_dims,
@@ -4251,9 +4251,7 @@ class TestNvFuserFrontend(NVFuserTest):
 
         with pytest.raises(
             Exception,
-            match=re.escape(
-                "Expected input 0, T0_g[ iS0{i0} ], to be an at::Tensor but got scalar 2"
-            ),
+            match="Expected input 0, .*, to be an at::Tensor but got scalar 2",
         ):
             nvf_out = fd.execute([scalar_inp, scalar_inp])
 
@@ -4267,10 +4265,7 @@ class TestNvFuserFrontend(NVFuserTest):
 
         with pytest.raises(
             Exception,
-            match=re.escape(
-                "Expected input 0, T0_g[ iS0{i0} ], to be bound to a tensor of dtype float,"
-                " but got a tensor of dtype __half"
-            ),
+            match="Expected input 0, .*, to be bound to a tensor of dtype float, but got a tensor of dtype __half",
         ):
             wrong_tensor_inp = torch.rand((15,), dtype=torch.float16, device="cuda:0")
             nvf_out = fd.execute([wrong_tensor_inp, 2.0])
@@ -4334,10 +4329,22 @@ fd.execute(inputs)
         fd.execute(inputs, print_repro=True)
 
         sys.stdout = old_stdout
+        
+        def find_start_line(lines):
+            # Enable skipping the repro header that might change due to number of
+            # or software version.
+            start_line = 0
+            for line in lines:
+                if line[0] == '#':
+                    start_line += 1
+                else:
+                    break
+            return start_line
 
         comp_str = test_stdout.getvalue()
         comp_str = comp_str.strip()
         comp_lines = comp_str.split("\n")
+        start_line = find_start_line(comp_lines)
 
         assert len(expected_lines) == len(
             comp_lines
@@ -4346,7 +4353,7 @@ fd.execute(inputs)
         )
         # Don't compare the first 5 lines as they may be device and cuda specific
         assert (
-            expected_lines[5:] == comp_lines[5:]
+            expected_lines[5:] == comp_lines[start_line:]
         ), "Reproduction script does not match expected output!"
 
         # Test fd.execute(inputs, save_repro_inputs=True) ; fd.last_repro_script()
@@ -4355,6 +4362,7 @@ fd.execute(inputs)
         comp_str = fd.last_repro_script()
         comp_str = comp_str.strip()
         comp_lines = comp_str.split("\n")
+        start_line = find_start_line(comp_lines)
 
         assert len(expected_lines) == len(
             comp_lines
@@ -4363,14 +4371,117 @@ fd.execute(inputs)
         )
         # Don't compare the first 5 lines as they may be device and cuda specific
         assert (
-            expected_lines[5:] == comp_lines[5:]
+            expected_lines[5:] == comp_lines[start_line:]
         ), "Reproduction script does not match expected output!"
 
-        # Second query of fd.last_repro_script() is expected to assert so the inputs are not held onto
-        with pytest.raises(
-            AssertionError,
-            match=re.escape(
-                "fd.last_repro_script() cannot provide a repro because fd.execute(inputs, save_repro_state=True) was not set!"
+        comp_str = fd.last_repro_script()
+        comp_str = comp_str.strip()
+        comp_lines = comp_str.split("\n")
+        start_line = find_start_line(comp_lines)
+
+        # Make sure that the fake_tensors are properly saved for repeated query
+        assert (
+            expected_lines[5:] == comp_lines[start_line:]
+        ), "The second query of the reproduction script does not match expected output!"
+
+# Test that replaced sizes using input tensor metadata are successfully computed
+    # See https://github.com/NVIDIA/Fuser/pull/2714 which surfaced this in
+    # failing thunder test
+    # thunder.tests.test_core.test_bsym_toposort_nvfuser_cuda_thunder.dtypes.float32
+    def test_replaced_sizes_pr2714(self):
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.define_tensor(
+                shape=[-1, -1],
+                contiguity=[True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[1, 0],
+            )
+            T1 = fd.define_tensor(
+                shape=[-1, -1],
+                contiguity=[True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[1, 0],
+            )
+            T2 = fd.ops.exp(T0)
+            T3 = fd.ops.tanh(T1)
+            S4 = fd.define_scalar(4, dtype=DataType.Int)
+            V5 = fd.define_vector([S4], dtype=DataType.Int)
+            T6 = fd.ops.reshape(T2, new_shape=V5)
+            S7 = fd.define_scalar(4, dtype=DataType.Int)
+            V8 = fd.define_vector([S7], dtype=DataType.Int)
+            T9 = fd.ops.reshape(T3, new_shape=V8)
+            T10 = fd.ops.add(T6, T9)
+            T11 = fd.ops.reciprocal(T0)
+            T12 = fd.ops.mul(T3, T11)
+            S13 = fd.define_scalar(2.00000, dtype=DataType.Double)
+            S14 = fd.ops.reciprocal(S13)
+            T15 = fd.ops.mul(T10, S14)
+            fd.add_output(T10)
+            fd.add_output(T12)
+            fd.add_output(T15)
+
+        inputs = [
+            torch.randn((4,), dtype=torch.float32, device="cuda:0").as_strided(
+                (2, 2), (2, 1)
             ),
-        ):
-            fd.last_repro_script()
+            torch.randn((4,), dtype=torch.float32, device="cuda:0").as_strided(
+                (2, 2), (2, 1)
+            ),
+        ]
+
+        self.exec_nvfuser(fusion_func, inputs)
+
+    # testing that error thrown in finalizeDefinition is not accidentally cached as legit fusion.
+    def test_fusion_definition_error_cache(self):
+        def fusion_func(fd: FusionDefinition) -> None:
+            # NOTE: it's important that the exception is thrown inside FusionDefinition::finalizeDefinition()
+            # e.g. https://github.com/NVIDIA/Fuser/blob/adbbc75e58e6c53c606e90c8bc64f020b4b9df85/csrc/python_frontend/fusion_record.h#L1276
+            T0 = fd.define_tensor(
+                shape=[-1, -1],
+                contiguity=[True, True],
+                dtype=DataType.Int,
+                is_cpu=True,
+                stride_order=[1, 0],
+            )
+
+        for i in range(2):
+            with pytest.raises(
+                Exception,
+                match="CPU non-scalar tensor is not supported!",
+            ):
+                with FusionDefinition() as fd:
+                    fusion_func(fd)
+
+    def test_slice_api(self):
+        x = torch.randn((2, 5, 10), dtype=torch.float32, device="cuda:0")
+
+        offset = (0, 1, 2)
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.define_tensor(
+                shape=[-1, -1, -1],
+                contiguity=[True, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[2, 1, 0],
+            )
+            T1 = fd.ops.slice(
+                T0, start_indices=offset, end_indices=(2, 5, 10), strides=(1, 1, 1)
+            )
+            fd.add_output(T1)
+            V_start = fd.define_vector(offset)
+            V_end = T0.shape()
+            T2 = fd.ops.slice(T0, V_start, V_end)
+            fd.add_output(T2)
+            dynamic_start = fd.define_vector(3)
+            dynamic_end = fd.define_vector(3)
+            T3 = fd.ops.slice(T0, dynamic_start, dynamic_end)
+            fd.add_output(T3)
+
+        inputs = [x, *offset, *x.shape]
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        for out in nvf_out:
+            self.assertTrue(out.allclose(x[:, 1:, 2:]))

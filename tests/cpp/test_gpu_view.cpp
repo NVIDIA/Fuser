@@ -14,10 +14,10 @@
 #include <device_lower/analysis/divisible_split.h>
 #include <device_lower/lower2device.h>
 #include <disjoint_set.h>
-#include <executor.h>
-#include <executor_params.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
+#include <fusion_executor/executor.h>
+#include <fusion_executor/executor_params.h>
 #include <fusion_segmenter.h>
 #include <inlining.h>
 #include <ir/all_nodes.h>
@@ -2449,8 +2449,8 @@ TEST_F(GpuViewTest, GroupNormOriginal) {
   EXPECT_THAT(
       executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups(),
       UnorderedElementsAre(
-          HeuristicIs(ScheduleHeuristic::PointWise),
-          HeuristicIs(ScheduleHeuristic::Reduction)));
+          HeuristicIs(SchedulerType::PointWise),
+          HeuristicIs(SchedulerType::Reduction)));
 
   testValidate(
       executor_cache.fusion(), cg_outputs, {t0, tw, tb}, __LINE__, __FILE__);
@@ -2619,8 +2619,8 @@ TEST_F(GpuViewTest, GroupNormReshapeMovedToOutput) {
   EXPECT_THAT(
       seg_groups,
       UnorderedElementsAre(
-          HeuristicIs(ScheduleHeuristic::InnerPersistent),
-          HeuristicIs(ScheduleHeuristic::NoOp)));
+          HeuristicIs(SchedulerType::InnerPersistent),
+          HeuristicIs(SchedulerType::NoOp)));
 
   testValidate(
       executor_cache.fusion(), cg_outputs, {t0, tw, tb}, __LINE__, __FILE__);
@@ -2701,11 +2701,9 @@ TEST_F(GpuViewTest, FusionMismatchingReshape) {
   // Parallelize all tensors as [BIDx, TIDx]
   schedule.merge(0);
   schedule.split(0, 128);
-#if 0
-  // TODO: sync analysis is not working yet
+
   schedule.parallelize(0, ParallelType::BIDx);
   schedule.parallelize(1, ParallelType::TIDx);
-#endif
 
   // Now, tv5 looks like:
   //

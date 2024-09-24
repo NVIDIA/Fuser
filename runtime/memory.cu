@@ -69,7 +69,7 @@ namespace Hopper {
 //
 // Document Reference:
 // https://docs.nvidia.com/cuda/parallel-thread-execution/#parallel-synchronization-and-communication-instructions-elect-sync
-__device__ inline bool elect_sync(const uint32_t& membermask) {
+__device__ inline bool electSync(const uint32_t& membermask) {
   uint32_t is_elected;
   asm volatile(
       "{\n\t .reg .pred P_OUT; \n\t"

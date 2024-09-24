@@ -68,6 +68,17 @@ class FusionDefinition(_C._FusionDefinition):
     def definition(self):
         raise NotImplementedError("definition() should be implemented by child class!")
 
+    # Unlike `schedule`, `multidevice_schedule` is designed for inter-device
+    # scheduling, The scheduling is done before concretization and therefore
+    # before pre-segmentation. `schedule` however assumes the FusionDefinition
+    # has been concretized and pre-segmented, and therefore requires
+    # `_setup_schedule` and `_finalize_schedule` to be called before and after.
+    #
+    # Note: there's a plan to embed multidevice schedules into FusionDefinition
+    # as annotating nodes. This may eventually replace `multidevice_schedule`.
+    def multidevice_schedule(self):
+        pass
+
     def schedule(self):
         raise NotImplementedError("schedule() should be implemented by child class!")
 
@@ -143,26 +154,32 @@ class FusionDefinition(_C._FusionDefinition):
             self.definition()
             self._finalize_definition()
 
+        defined_multidevice_schedule = (
+            type(self).multidevice_schedule != FusionDefinition.multidevice_schedule
+        )
+        defined_schedule = type(self).schedule != FusionDefinition.schedule
+        assert not (
+            defined_multidevice_schedule and defined_schedule
+        ), "I haven't tested what if both are defined. We don't plan to support this use case although it may just work."
+
+        if defined_multidevice_schedule:
+            self.multidevice_schedule()
+
         # If schedule is defined by child class and schedule is not defined for
         # inputs, make a schedule.
-        is_fusion_definition_child_class = (
-            type(self) != FusionDefinition
-        ) and issubclass(type(self), FusionDefinition)
-        defined_schedule = (
-            is_fusion_definition_child_class
-            and super(type(self), self).schedule != self.schedule
-        )
         if defined_schedule and not self._exist_schedule(inputs):
             self._setup_schedule(inputs)
             self.schedule()
             self._finalize_schedule(inputs)
 
         if save_repro_inputs:
-            self.inputs = inputs
+            from torch._subclasses.fake_tensor import FakeTensorMode
+            fake_mode = FakeTensorMode()
+            self.fake_inputs = [fake_mode.from_tensor(inp) for inp in inputs]
 
-        result = None
+        results = None
         try:
-            result = self._execute(
+            results = self._execute(
                 inputs,
                 device=device,
                 override_user_schedule=override_user_schedule,
@@ -171,11 +188,10 @@ class FusionDefinition(_C._FusionDefinition):
             )
             if print_repro:
                 print(self.repro_script_for(inputs))
+            return results
         except Exception as err:
             logger.exception(self._repro_error_str("executing", inputs))
             raise
-
-        return result
 
     def debug_output(self):
         """
@@ -210,14 +226,15 @@ class FusionDefinition(_C._FusionDefinition):
         except ImportError:
             raise ImportError("Unable to import pytorch_utils!")
 
-        if not tensor.is_cuda:
-            raise ValueError("Tensor should be on a cuda device!")
+        if not tensor.is_cuda and len(tensor.size()) != 0:
+            raise ValueError("CPU non-scalar tensor is not supported!")
 
         return self.define_tensor(
             sizes=tensor.size(),
             strides=tensor.stride(),
             dtype=torch_dtype_to_nvfuser_dtype(tensor.dtype),
             static_sizes=static_sizes,
+            is_cpu=tensor.is_cpu,
         )
 
     def fusion_ir(self):
@@ -326,17 +343,15 @@ class FusionDefinition(_C._FusionDefinition):
 
     def last_repro_script(self) -> str:
         assert (
-            self.inputs is not None
-        ), "fd.last_repro_script() cannot provide a repro because fd.execute(inputs, save_repro_state=True) was not set!"
-        script = self.repro_script_for(self.inputs)
-        # Release the input tensors after usage
-        self.inputs = None
+            self.fake_inputs is not None
+        ), "fd.last_repro_script() cannot provide a repro because fd.execute(inputs, save_repro_state=True) was not executed!"
+        script = self.repro_script_for(self.fake_inputs)
         return script
 
     def repro_script_for(self, inputs: list | None = None) -> str:
-        msg = "\n# CUDA devices:\n"
+        msg = "# CUDA devices:\n"
         for i in range(torch.cuda.device_count()):
-            msg += f"#  {0}: {torch.cuda.get_device_name(i)}\n"
+            msg += f"#  {i}: {torch.cuda.get_device_name(i)}\n"
         msg += (
             f"# torch version: {torch.__version__}\n"
             f"# cuda version: {torch.version.cuda}\n"

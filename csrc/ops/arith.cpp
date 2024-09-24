@@ -945,6 +945,8 @@ NVFUSER_DEFINE_BINARY_CAST_OP(mul, Mul)
 NVFUSER_DEFINE_BINARY_CAST_OP(pow, Pow)
 NVFUSER_DEFINE_BINARY_CAST_OP(remainder, Remainder)
 NVFUSER_DEFINE_BINARY_CAST_OP(sub, Sub)
+NVFUSER_DEFINE_BINARY_CAST_OP(minimum, Min)
+NVFUSER_DEFINE_BINARY_CAST_OP(maximum, Max)
 #undef NVFUSER_DEFINE_BINARY_CAST_OP
 
 #define NVFUSER_DEFINE_LOGICAL_OP(op_name, op_type)                       \
@@ -1174,16 +1176,16 @@ TensorView* newForReduction(
 
   auto reduced_axis_iter = axes_set.begin();
   for (const auto dim : c10::irange(orig_domain.size())) {
-    bool isReduction = false;
+    bool is_reduction = false;
     if (reduced_axis_iter != axes_set.end() && *reduced_axis_iter == dim) {
-      isReduction = true;
+      is_reduction = true;
       reduced_axis_iter++;
     }
 
     const IterDomain* id = orig_domain[dim];
 
     IterDomain* new_id = nullptr;
-    if (isReduction) {
+    if (is_reduction) {
       if (id->isBroadcast()) {
         NVF_CHECK(
             id->isImplicitBroadcast(),
@@ -1434,8 +1436,7 @@ TensorView* reductionOp(
       } else if (reduction_op_type == BinaryOpType::Mul) {
         out = pow(out, factor);
       } else {
-        NVF_ERROR(
-            false,
+        NVF_THROW(
             "Add and Mul are the only non-trivial expand reductions allowed");
       }
     }
@@ -2343,9 +2344,9 @@ static TensorView* newForMma(
 
   auto axis_iter = axes_set.begin();
   for (const auto dim : c10::irange(orig_domain_a.size())) {
-    bool isReduction = false;
+    bool is_reduction = false;
     if (axis_iter != axes_set.end() && *axis_iter == dim) {
-      isReduction = true;
+      is_reduction = true;
       axis_iter++;
     }
 
@@ -2354,7 +2355,7 @@ static TensorView* newForMma(
         : orig_domain_a[dim];
 
     NVF_CHECK(
-        !(isReduction && id->isBroadcast() && !id->isImplicitBroadcast()),
+        !(is_reduction && id->isBroadcast() && !id->isImplicitBroadcast()),
         "Cannot reduce an axis that is marked as broadcasted as it has an undetermined size. Tried to reduce ID = ",
         id,
         " of tensor ",
@@ -2365,7 +2366,7 @@ static TensorView* newForMma(
     new_domain.push_back(
         IterDomainBuilder(id->start(), id->extent())
             .stop_offset(id->stopOffset())
-            .iter_type(isReduction ? IterType::Reduction : id->getIterType())
+            .iter_type(is_reduction ? IterType::Reduction : id->getIterType())
             .build());
   }
 

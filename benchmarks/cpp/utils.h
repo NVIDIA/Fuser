@@ -9,8 +9,8 @@
 
 #include <csrc/exceptions.h>
 #include <device_lower/lower2device.h>
-#include <executor.h>
 #include <fusion.h>
+#include <fusion_executor/executor.h>
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
 #include <kernel_cache.h>
@@ -27,9 +27,9 @@
 
 using namespace nvfuser;
 
-std::string toString(const ReductionParams& rparams);
-std::string toString(const PointwiseParams& params);
-std::string toString(const TransposeParams& params);
+std::string toString(const ReductionParams* rparams);
+std::string toString(const PointwiseParams* params);
+std::string toString(const TransposeParams* params);
 std::string toString(const std::shared_ptr<HeuristicParams>& params);
 std::string toString(LaunchParams lparams);
 
