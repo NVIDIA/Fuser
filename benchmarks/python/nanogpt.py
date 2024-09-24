@@ -30,12 +30,9 @@ class CausalSelfAttention(nn.Module):
         super().__init__()
         assert config.n_embd % config.n_head == 0
         self.n_devices = config.n_devices
-        # Splitting key, query, and value projections
-        # Note: These were performed batched in the original implementation.
-        self.c_attn = nn.Linear(config.n_embd, 3*config.n_embd, bias=config.bias)
-        #self.c_attn_key = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
-        #self.c_attn_query = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
-        #self.c_attn_value = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
+        # Note: Performing the q,k,v computation in batch. If running this with validation
+        # it is the embedding dimension that is sharded not 3*embedding
+        self.c_attn = nn.Linear(config.n_embd, 3 * config.n_embd, bias=config.bias)
         # output projection
         self.c_proj = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
         # regularization
@@ -58,38 +55,28 @@ class CausalSelfAttention(nn.Module):
 
     def forward(self, x):
         # batch size, sequence length, embedding dimensionality (n_embd)
-        (B, T, C) = x.size()
-        # calculate query, key, values for all heads separately and move head forward to be the batch dim
-        # Note: The original script calculated this batched but we cannot use the Tensor API on a 3D weight
-        #q = self.c_attn_query(x)
-        #k = self.c_attn_key(x)
-        #v = self.c_attn_value(x)
         qkv = self.c_attn(x)
         B, T, C3 = qkv.size()
         q, k, v = qkv.split(C3 // 3, dim=2)
         B, T, C = q.size()
+        H = self.n_head // self.n_devices
 
         # Note: It looks like view needs to take in the sharded size.
         # Head dimension is parallelized
-        k = k.view(B, T, self.n_head, C // self.n_head).transpose(
-            1, 2
-        )  # (B, nh, T, hs)
-        q = q.view(B, T, self.n_head, C // self.n_head).transpose(
-            1, 2
-        )  # (B, nh, T, hs)
-        v = v.view(B, T, self.n_head, C // self.n_head).transpose(
-            1, 2
-        )  # (B, nh, T, hs)
+        k = k.view(B, T, H, C // H).transpose(1, 2)  # (B, nh, T, hs)
+        q = q.view(B, T, H, C // H).transpose(1, 2)  # (B, nh, T, hs)
+        v = v.view(B, T, H, C // H).transpose(1, 2)  # (B, nh, T, hs)
 
         # causal self-attention; Self-attend: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
         if self.flash:
             # efficient attention using Flash Attention CUDA kernels
+            # Note: set the dropout to always be true
             y = torch.nn.functional.scaled_dot_product_attention(
                 q,
                 k,
                 v,
                 attn_mask=None,
-                dropout_p=self.dropout if self.training else 0,
+                dropout_p=self.dropout,
                 is_causal=True,
             )
         else:
