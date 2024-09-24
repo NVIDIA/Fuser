@@ -187,14 +187,20 @@ class ValGraphBFS : public BFS<
   // It is an error if no valid path is found.
   static ExprPath getExprsBetween(
       const ValGraph& graph,
-      const ValGroups& from,
-      const ValGroups& to) {
-    ValGraphBFS bfs(
-        graph,
-        {from.vector().begin(), from.vector().end()},
-        {to.vector().begin(), to.vector().end()});
+      std::vector<NodeType> from,
+      std::vector<NodeType> to) {
+    ValGraphBFS bfs(graph, std::move(from), std::move(to));
     bfs.traverse();
     return bfs.getShortestExprPath();
+  }
+  static ExprPath getExprsBetween(
+      const ValGraph& graph,
+      const ValGroups& from,
+      const ValGroups& to) {
+    return getExprsBetween(
+        graph,
+        std::vector<NodeType>{from.vector().begin(), from.vector().end()},
+        std::vector<NodeType>{to.vector().begin(), to.vector().end()});
   }
 
   // Get all the val groups in vals that are reachable from the from groups
