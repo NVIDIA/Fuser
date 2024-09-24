@@ -777,17 +777,24 @@ TEST_P(HopperRS, MultipleTile) {
   debugging::setAsIdentity(inputs.first);
   debugging::setAsARange(inputs.second);
 
+  std::cout << "Inputs:\n";
+  std::cout << inputs.first << "\n";
+  std::cout << inputs.second << "\n";
+
   FusionExecutor fe;
   fe.compileFusion(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
 
   auto cg_outputs = fe.runFusion(
       {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
+  std::cout << "cg_outputs[0]:" << std::endl;
   std::cout << cg_outputs[0] << std::endl;
   auto tref = atMatmul(
       inputs.first.squeeze().to(at::kFloat),
       inputs.second.squeeze().to(at::kFloat),
       layout);
+  std::cout << "tref:" << std::endl;
+  std::cout << tref << std::endl;
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
