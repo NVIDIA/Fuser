@@ -174,6 +174,7 @@ class FusionDefinition(_C._FusionDefinition):
 
         if save_repro_inputs:
             from torch._subclasses.fake_tensor import FakeTensorMode
+
             fake_mode = FakeTensorMode()
             self.fake_inputs = [fake_mode.from_tensor(inp) for inp in inputs]
 
