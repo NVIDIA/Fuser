@@ -7,29 +7,31 @@
 // clang-format on
 #include <kernel_cache.h>
 
+#include <mutex>
+#include <sstream>
+
+#include <c10/cuda/CUDAGuard.h>
+#include <c10/util/irange.h>
+
 #include <debug.h>
 #include <driver_api.h>
 #include <dynamic_transform.h>
-#include <executor_params.h>
-#include <executor_utils.h>
+#include <fusion_executor/allocations.h>
+#include <fusion_executor/executor_params.h>
+#include <fusion_executor/executor_utils.h>
 #include <fusion_profiler.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
+#include <multidevice/communicator.h>
 #include <options.h>
 #include <preseg_passes/pre_segmenter.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/registry.h>
-#include <torch/csrc/jit/jit_log.h>
-#include <torch/csrc/jit/runtime/graph_executor.h>
 #include <utils.h>
 
-#include <c10/cuda/CUDAGuard.h>
-#include <c10/util/irange.h>
 #include <torch/csrc/jit/jit_log.h>
-
-#include <mutex>
-#include <sstream>
+#include <torch/csrc/jit/runtime/graph_executor.h>
 
 namespace nvfuser {
 
@@ -338,8 +340,7 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
         } else if (input.isComplexDouble()) {
           encodeBuffer(input.toComplexDouble(), encoding_);
         } else {
-          NVF_ERROR(
-              false,
+          NVF_THROW(
               "Unhandled input type when creating input ID. Cannot record ",
               input);
         }
@@ -694,6 +695,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     const KernelArgumentHolder& args,
     std::optional<PrimDataType> forced_index_type) {
   // Check for id hit case (Path 1)
+  FUSER_PERF_SCOPE("FusionExecutorCache::getKernelRuntimeFor");
   auto unique_id_opt = args.getCacheId();
   NVF_CHECK(
       unique_id_opt.has_value(),
@@ -726,24 +728,24 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
 
   // Initialize or fetch vector of FusionKernelRuntime objects associated with
   // each pair of device ID and concretization info.
-  auto config = std::make_pair(args.getDeviceIndex(), conc_info);
-  auto& kernel_runtimes = kernel_runtimes_.try_emplace(config).first->second;
-  auto result =
-      conc_info_id_map_.try_emplace(config, conc_info_id_map_.size() + 1);
+  auto device_concrete_key = std::make_pair(args.getDeviceIndex(), conc_info);
+  auto& kernel_runtimes =
+      kernel_runtimes_.try_emplace(device_concrete_key).first->second;
+  auto result = conc_info_id_map_.try_emplace(
+      device_concrete_key, conc_info_id_map_.size() + 1);
   if (result.second) {
-    deterministic_conc_info_.emplace_back(config);
+    deterministic_conc_info_.emplace_back(device_concrete_key);
   }
 
   // Check for re-use hit case
   //  a kernel runtime is re-usable if all the compiled
   //  kernels have the same heuristic parameters
-  std::unique_ptr<FusionHeuristics> new_heuristics;
+  std::unique_ptr<HeuristicParamsList> new_heuristics;
 
   FusionKernelRuntime* kernel_runtime = nullptr;
 
-  // reusing indicates whether we are following Path 2 (true) or Paths 3/4
-  // (false)
-  bool reusing = false;
+  // Check if we missed the KernelRuntime cache (Path 2) and need to generate a
+  // new kernel runtime (Path 3/4)
   // By default, we try to avoid recompiling whenever possible. However, this
   // can lead to suboptimal code if we only check that a compiled kernel is able
   // to run with some inputs, instead of whether it is optimal to do so. The
@@ -753,7 +755,8 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
   // above so that we only have Path 1 (hottest re-use path) and Path 4 (full
   // recompile).
   if (!isOptionDisabled(DisableOption::KernelReuse)) {
-    auto reuse_it = std::find_if(
+    FUSER_PERF_SCOPE("FusionExecutorCache::getKernelRuntimeFor::reuseKRT");
+    auto runtime_it = std::find_if(
         kernel_runtimes.begin(),
         kernel_runtimes.end(),
         [&args, &new_heuristics, &forced_index_type](auto& kernel_runtime) {
@@ -765,19 +768,20 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
           new_heuristics = std::move(maybe_heuristics.value());
           return true;
         });
-    if (reuse_it != kernel_runtimes.end()) {
-      kernel_runtime = reuse_it->get();
+    if (runtime_it != kernel_runtimes.end()) {
+      kernel_runtime = runtime_it->get();
       kernel_runtime->updateHeuristicsLaunchParams(new_heuristics.get());
-      reusing = true;
+      id_to_kernel_runtime_[unique_id] = kernel_runtime;
+      return kernel_runtime;
     }
   }
 
-  if (!reusing) {
+  {
+    FUSER_PERF_SCOPE("FusionExecutorCache::getKernelRuntimeFor::compileNewKRT");
     // Paths 3 or 4
     // cache miss, need to re-build an optimized graph for this case
 
-    // Clone fusion_ so that we can safely use an ExpressionEvaluator on it, for
-    // the purposes of computing the concretization info.
+    // Clone fusion_ so that we can safely concretize it
     auto conc_fusion = std::make_unique<Fusion>(*fusion_);
     if (initial_info.isDynamic()) {
       const auto& conc_initial_info =
@@ -810,7 +814,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
         /*serde_buffer=*/nullptr,
         forced_index_type,
         fusion_id_,
-        conc_info_id_map_.at(config),
+        conc_info_id_map_.at(device_concrete_key),
         kernel_runtimes.size(),
         auto_schedule_));
     kernel_runtime = kernel_runtimes.back().get();
@@ -818,10 +822,9 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     if (profiling_) {
       kernel_runtime->profile(true);
     }
+    id_to_kernel_runtime_[unique_id] = kernel_runtime;
+    return kernel_runtime;
   }
-
-  id_to_kernel_runtime_[unique_id] = kernel_runtime;
-  return kernel_runtime;
 }
 
 flatbuffers::Offset<serde::FusionExecutorCache> FusionExecutorCache::serialize(
@@ -839,8 +842,8 @@ flatbuffers::Offset<serde::FusionExecutorCache> FusionExecutorCache::serialize(
       fb_kernel_runtimes;
   fb_kernel_runtimes.reserve(kernel_runtimes_.size());
 
-  for (const auto& config : deterministic_conc_info_) {
-    const auto& device_runtimes = kernel_runtimes_.at(config);
+  for (const auto& device_concrete_key : deterministic_conc_info_) {
+    const auto& device_runtimes = kernel_runtimes_.at(device_concrete_key);
     std::vector<flatbuffers::Offset<serde::FusionKernelRuntime>>
         fb_device_runtimes;
     fb_device_runtimes.reserve(device_runtimes.size());
@@ -856,11 +859,11 @@ flatbuffers::Offset<serde::FusionExecutorCache> FusionExecutorCache::serialize(
 
     // We recompute the DynamicTransformConcretizationInfo during
     // deserialization using a metadata copy of kernel inputs.
-    auto&& [device_id, conc_info] = config;
+    auto&& [device_id, conc_info] = device_concrete_key;
     fb_kernel_runtimes.push_back(CreateKernelRuntimeStateDirect(
         builder,
         device_id,
-        conc_info_id_map_.at(config),
+        conc_info_id_map_.at(device_concrete_key),
         (conc_info != nullptr),
         &fb_device_runtimes));
   }
@@ -1017,9 +1020,14 @@ FusionKernelRuntime::FusionKernelRuntime(
       fusion.get());
 
   if (isDebugDumpEnabled(DebugDumpOption::FusionIrPreseg)) {
-    debug() << "Fusion IR after pre-segmenter optimization passes:"
-            << std::endl;
-    fusion->printMath();
+    const auto& communicator = Communicator::getInstance();
+    // Only the first local rank will print. Pre-segmenter fusion IR is device
+    // agnostic, so letting all ranks print isn't any more useful.
+    if (!communicator.is_available() || communicator.local_rank() == 0) {
+      debug() << "Fusion IR after pre-segmenter optimization passes:"
+              << std::endl;
+      fusion->printMath();
+    }
   }
 
   // SchedulerRuntimeInfo modifies the fusion, so it is required for both
@@ -1043,10 +1051,10 @@ FusionKernelRuntime::FusionKernelRuntime(
         segmented_groups->begin(),
         segmented_groups->end(),
         [](const serde::SegmentedGroup* sg) {
-          auto heuristic = static_cast<ScheduleHeuristic>(sg->heuristic());
-          return heuristic == ScheduleHeuristic::InnerPersistent ||
-              heuristic == ScheduleHeuristic::OuterPersistent ||
-              heuristic == ScheduleHeuristic::InnerOuterPersistent;
+          auto heuristic = static_cast<SchedulerType>(sg->heuristic());
+          return heuristic == SchedulerType::InnerPersistent ||
+              heuristic == SchedulerType::OuterPersistent ||
+              heuristic == SchedulerType::InnerOuterPersistent;
         });
 
     bool has_welford_ops = ir_utils::hasOpsOfType<WelfordOp>(fusion.get());
@@ -1126,20 +1134,21 @@ void FusionKernelRuntime::deserialize(
 
     // Create and schedule Fusion for this SegmentedGroup
     auto group_id = sg->groupId();
-    auto scheduler_entry = schedulers().at(group_id).get();
+    auto heuristic_params = schedulers().at(group_id).get();
     NVF_ERROR(
-        !sg || scheduler_entry->heuristic() == sg->heuristic(),
+        !sg || heuristic_params->scheduler_type == sg->schedulerType(),
         "Heuristics do not match.");
     auto fusion_to_run = segmented_fusion_->makeFusion(sg).second;
     FusionGuard fg(fusion_to_run.get());
-    scheduler_entry->schedule(fusion_to_run.get());
+    SchedulerEntry::makeSchedulerInstance(heuristic_params->scheduler_type)
+        ->schedule(fusion_to_run.get(), heuristic_params);
 
     executors_.at(group_id).deserialize(
         buffer->executors()->Get(group_id),
         fusion_to_run.get(),
         device_index,
-        scheduler_entry->params()->cparams,
-        scheduler_entry->heuristic(),
+        heuristic_params->cparams,
+        heuristic_params->scheduler_type,
         fusion_id_,
         concrete_id_,
         runtime_id_,
@@ -1161,12 +1170,12 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
   NVF_ERROR(sg, "runKernelWithInput: need valid group to run");
   auto [launch_params, compile_params] = getKernelConfig(args, sg);
   auto group_id = sg->groupId();
-  auto scheduler_entry = schedulers().at(group_id).get();
+  auto heuristic_params = schedulers().at(group_id).get();
   auto& executor = executors_.at(group_id);
 
   if (profiling_) {
     most_recent_executor_log_.fusion_executor = &executor;
-    most_recent_executor_log_.params = scheduler_entry->params()->clone();
+    most_recent_executor_log_.params = heuristic_params->clone();
   }
 
   // TODO: This is a work around for the fallback execution path where a kernel
@@ -1255,8 +1264,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
 
     auto fusion_to_run = segmented_fusion_->makeFusion(group_to_run).second;
     auto group_runtime_outputs =
-        executors_[group_to_run->groupId()].inferOutputSizes(
-            fusion_to_run.get(), group_runtime_inputs);
+        inferOutputSizes(fusion_to_run.get(), group_runtime_inputs);
 
     // map output args to tensor map
     args_manager.updateWithSegmentOutputs(
@@ -1284,10 +1292,10 @@ void FusionKernelRuntime::compileKernel(
     SegmentedGroup* sg) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::compileKernel");
   auto group_id = sg->groupId();
-  auto scheduler_entry = schedulers().at(group_id).get();
+  auto heuristic_params = schedulers().at(group_id).get();
 
   // Check that the heuristics are matched, in the case of segmented fusion
-  NVF_ERROR(!sg || scheduler_entry->heuristic() == sg->heuristic());
+  NVF_ERROR(!sg || heuristic_params->scheduler_type == sg->schedulerType());
   NVF_ERROR(!executors_.at(group_id).isCompiled());
 
   // Running a segment group as a single kernel,
@@ -1298,17 +1306,18 @@ void FusionKernelRuntime::compileKernel(
   }
   FusionGuard fg(fusion_to_run.get());
   if (auto_schedule_) {
-    scheduler_entry->schedule(fusion_to_run.get());
+    SchedulerEntry::makeSchedulerInstance(heuristic_params->scheduler_type)
+        ->schedule(fusion_to_run.get(), heuristic_params);
   }
   NVF_ERROR(
-      scheduler_entry->params()->cparams.index_type.has_value(),
+      heuristic_params->cparams.index_type.has_value(),
       "Kernel index type is not defined.");
   executors_.at(group_id).compileFusion(
       fusion_to_run.get(),
       args,
-      scheduler_entry->params()->lparams,
-      scheduler_entry->params()->cparams,
-      scheduler_entry->heuristic(),
+      heuristic_params->lparams,
+      heuristic_params->cparams,
+      heuristic_params->scheduler_type,
       fusion_id_,
       concrete_id_,
       runtime_id_,
@@ -1318,15 +1327,13 @@ void FusionKernelRuntime::compileKernel(
 std::pair<LaunchParams, CompileParams> FusionKernelRuntime::getKernelConfig(
     const KernelArgumentHolder& args,
     SegmentedGroup* sg) {
-  FUSER_PERF_SCOPE("FusionKernelRuntime::getKernelConfig");
   auto group_id = sg->groupId();
-  auto scheduler_entry = schedulers().at(group_id).get();
+  auto heuristic_params = schedulers().at(group_id).get();
 
   // Check that the heuristics are matched, in the case of segmented fusion
-  NVF_ERROR(!sg || scheduler_entry->heuristic() == sg->heuristic());
+  NVF_ERROR(!sg || heuristic_params->scheduler_type == sg->schedulerType());
 
-  return std::make_pair(
-      scheduler_entry->params()->lparams, scheduler_entry->params()->cparams);
+  return std::make_pair(heuristic_params->lparams, heuristic_params->cparams);
 }
 
 std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
@@ -1363,6 +1370,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
 
 std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
     runSegmentsWithInputs(KernelArgumentHolder& args) {
+  FUSER_PERF_SCOPE("FusionKernelRuntime::runSegmentsWithInputs");
   NVF_ERROR(
       args.size() == segmented_fusion_->inputs().size(),
       "Inputs were not set up correctly, received ",
@@ -1426,42 +1434,39 @@ std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
   return args_manager.getTensorMap();
 }
 
-const std::vector<FusionKernelRuntime::SchedulerEntryPtr>& FusionKernelRuntime::
+const std::vector<std::unique_ptr<HeuristicParams>>& FusionKernelRuntime::
     schedulers() const {
   return heuristics_->heuristicsList();
 }
 
 void FusionKernelRuntime::updateHeuristicsLaunchParams(
-    FusionHeuristics* update_heuristics) {
-  FUSER_PERF_SCOPE("FusionKernelRuntime::updateHeuristicsLaunchParams");
+    HeuristicParamsList* update_heuristics) {
   auto scheduler_list_length = heuristics_->heuristicsList().size();
   NVF_ERROR(
       update_heuristics->heuristicsList().size() == scheduler_list_length);
   for (const auto i : c10::irange(scheduler_list_length)) {
-    auto& schedulerPtr = heuristics_->heuristicsList()[i];
-    schedulerPtr->updateLaunchConstraint(
-        update_heuristics->heuristicsList()[i]->params()->lparams);
+    auto& heuristic_params = heuristics_->heuristicsList()[i];
+    heuristic_params->lparams = update_heuristics->heuristicsList()[i]->lparams;
   }
 }
 
-std::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
+std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
     getMaybeHeuristicsFor(
         const KernelArgumentHolder& args,
         std::optional<PrimDataType> forced_index_type) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::getMaybeHeuristicsFor");
 
   // The runtime group run order is different from the segmented_fusion group
-  // order. Instead of using FusionHeuristics::emplaceBack, we initialize
-  // FusionHeuristics with the desired number of groups.
+  // order. Instead of using HeuristicParamsList::emplaceBack, we initialize
+  // HeuristicParamsList with the desired number of groups.
   const int64_t num_groups = (int64_t)runtime_workspace_.group_run_order.size();
-  FusionKernelRuntime::HeuristicsPtr heuristics =
-      std::make_unique<FusionHeuristics>(num_groups);
+  std::unique_ptr<HeuristicParamsList> heuristics =
+      std::make_unique<HeuristicParamsList>(num_groups);
 
   // We make a mutable copy of args so that we can use it in an ArgumentManager
   KernelArgumentHolder mutable_args(args);
   ArgumentManager args_manager(
       mutable_args, runtime_workspace_, segmented_fusion_->inputs());
-
   // Follow group run order
   for (int64_t group_id : c10::irange(num_groups)) {
     auto group_to_run = runtime_workspace_.group_run_order.at(group_id);
@@ -1478,14 +1483,19 @@ std::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
     }
 
     // Create PrecomputedValues for fusion segment
-    auto evaluator_precomputed_values =
-        std::make_unique<PrecomputedValues>(fusion_to_run);
-    evaluator_precomputed_values->bindInputs(group_runtime_inputs);
-    // TODO Remove binding the original fusion inputs when creating heuristics
-    // for fusion segment.
-    evaluator_precomputed_values->bindValues(
-        group_to_run->getCompleteFusionInputs(), args);
-    evaluator_precomputed_values->evaluate();
+    std::unique_ptr<PrecomputedValues> evaluator_precomputed_values;
+    {
+      FUSER_PERF_SCOPE(
+          "FusionKernelRuntime::getMaybeHeuristicsFor::PrecomputedValues");
+      evaluator_precomputed_values =
+          std::make_unique<PrecomputedValues>(fusion_to_run);
+      evaluator_precomputed_values->bindInputs(group_runtime_inputs);
+      // TODO Remove binding the original fusion inputs when creating heuristics
+      // for fusion segment.
+      evaluator_precomputed_values->bindValues(
+          group_to_run->getCompleteFusionInputs(), args);
+      evaluator_precomputed_values->evaluate();
+    }
 
     // Get all tensorviews for segmented fusion
     std::vector<TensorView*> all_tvs_for_fusion_to_run =
@@ -1501,33 +1511,33 @@ std::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
     if (heuristics_ == nullptr) {
       // Add new scheduler entry for this segmented group
       heuristics->at(group_to_run->groupId()) =
-          segmented_fusion_->makeInitialSchedulerEntry(
+          segmented_fusion_->makeInitialHeuristicParams(
               group_to_run, fusion_to_run_info);
     } else {
       // Try to get scheduler entry
-      auto maybe_scheduler_entry =
-          group_to_run->getMaybeSchedulerEntry(fusion_to_run_info);
+      auto maybe_heuristic_params =
+          group_to_run->getMaybeHeuristicParams(fusion_to_run_info);
       // If unavailable, then return std::nullopt
-      if (!maybe_scheduler_entry.has_value()) {
+      if (!maybe_heuristic_params.has_value()) {
         return std::nullopt;
       }
       // Check if this scheduler entry matches the previous entry for this
       // segmented group. If no match, then return std::nullptr
-      auto scheduler_entry = std::move(maybe_scheduler_entry.value());
-      if (!scheduler_entry->sameAs(
+      auto heuristic_params = std::move(maybe_heuristic_params.value());
+      if (!heuristic_params->sameAs(
               heuristics_->at(group_to_run->groupId()).get())) {
         return std::nullopt;
       }
       // Add new scheduler entry for this segmented group
-      heuristics->at(group_to_run->groupId()) = std::move(scheduler_entry);
+      heuristics->at(group_to_run->groupId()) = std::move(heuristic_params);
     }
 
     // Generate metadata for the fusion's outputs
-    auto group_runtime_outputs = executors_.at(group_to_run->groupId())
-                                     .inferOutputSizes(
-                                         fusion_to_run,
-                                         group_runtime_inputs,
-                                         evaluator_precomputed_values.get());
+    auto group_runtime_outputs = inferOutputSizes(
+        fusion_to_run,
+        group_runtime_inputs,
+        evaluator_precomputed_values.get());
+
     args_manager.updateWithSegmentOutputs(
         group_to_run->outputs(), group_runtime_outputs, group_id);
   }

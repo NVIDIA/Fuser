@@ -468,9 +468,6 @@ void GpuLower::analysis(Fusion* fusion) {
   validateSwizzle(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateSwizzle");
 
-  validateResize(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "validateResize");
-
   validateReductions(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateReductions");
 

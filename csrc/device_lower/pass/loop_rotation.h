@@ -8,7 +8,7 @@
 #pragma once
 
 #include <exceptions.h>
-#include <executor_params.h>
+#include <fusion_executor/executor_params.h>
 #include <ir/all_nodes.h>
 
 namespace nvfuser {

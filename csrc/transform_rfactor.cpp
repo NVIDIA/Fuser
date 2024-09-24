@@ -222,15 +222,15 @@ class ReplayRFactor : public ReplayTransformations {
   }
 
   void handle(Resize* resize) override {
-    NVF_ERROR(false, "Unexpected expression: ", resize->toString());
+    NVF_THROW("Unexpected expression: ", resize->toString());
   }
 
   void handle(Swizzle* swizzle) override {
-    NVF_ERROR(false, "Unexpected expression: ", swizzle->toString());
+    NVF_THROW("Unexpected expression: ", swizzle->toString());
   }
 
   void handle(Swizzle2D* swizzle) override {
-    NVF_ERROR(false, "Unexpected expression: ", swizzle->toString());
+    NVF_THROW("Unexpected expression: ", swizzle->toString());
   }
 
   // The IterDomains in the original_domain that are being factored into the

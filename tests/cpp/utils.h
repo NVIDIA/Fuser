@@ -11,8 +11,9 @@
 #include <csrc/exceptions.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/pass/magic_zero.h>
-#include <executor.h>
 #include <expr_evaluator.h>
+#include <fusion_executor/allocations.h>
+#include <fusion_executor/executor.h>
 #include <id_model/id_model.h>
 #include <ir/all_nodes.h>
 #include <kernel_cache.h>
@@ -717,7 +718,7 @@ TensorView* canonicalizeInputToBMNK(
 // been used
 bool isSchedulerInUse(
     const nvfuser::FusionKernelRuntime* kernel_rt,
-    const ScheduleHeuristic& scheduler);
+    const SchedulerType& scheduler_type);
 
 // Disable magic zero
 constexpr CompileParams matmul_cparams{DataType::Int32, 255, false};

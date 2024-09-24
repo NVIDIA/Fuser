@@ -138,7 +138,7 @@ void ValGraphVisitor::traverse() {
     for (const ValGroup& vg : to_visit_vals) {
       ss << " " << nvfuser::toString(vg);
     }
-    NVF_ERROR(false, ss.str());
+    NVF_THROW(ss.str());
   }
 
   if (!to_visit_exprs.empty()) {
@@ -147,8 +147,31 @@ void ValGraphVisitor::traverse() {
     for (const ExprGroup& eg : to_visit_exprs) {
       ss << " " << nvfuser::toString(eg);
     }
-    NVF_ERROR(false, ss.str());
+    NVF_THROW(ss.str());
   }
+}
+
+ValGroups ValGraphBFS::getReachableValsFrom(
+    const ValGraph& graph,
+    const ValGroups& from,
+    const ValGroups& vals) {
+  ValGraphBFS bfs(
+      graph,
+      {from.begin(), from.end()},
+      {vals.begin(), vals.end()},
+      /*require_all_to_visited=*/false);
+
+  bfs.traverse();
+
+  ValGroups reachable_vals;
+  for (const ValGroup& val : vals) {
+    if (bfs.isVisited(val) ||
+        std::find(from.begin(), from.end(), val) != from.end()) {
+      reachable_vals.pushBack(val);
+    }
+  }
+
+  return reachable_vals;
 }
 
 } // namespace nvfuser

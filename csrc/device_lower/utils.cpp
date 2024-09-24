@@ -209,7 +209,7 @@ inline CpAsyncBulkTileType getCpAsyncBulkTileType(const Expr* expr) {
           getTv(ldst->out())->getMemoryType() == MemoryType::Global) {
         return CpAsyncBulkTileType::S2G;
       } else {
-        NVF_ERROR(false, "Invalid CpAsyncBulkTileType");
+        NVF_THROW("Invalid CpAsyncBulkTileType");
       }
     }
   }
@@ -364,7 +364,7 @@ std::unordered_map<ParallelType, IterDomain*> getParallelDomains(
   } else if (val->isA<kir::TensorIndex>()) {
     tv = val->as<kir::TensorIndex>()->view();
   } else {
-    NVF_ERROR(false, "Provided val is not TensorIndex or TensorView.");
+    NVF_THROW("Provided val is not TensorIndex or TensorView.");
   }
 
   std::unordered_map<ParallelType, IterDomain*> parallel_domains;
@@ -842,6 +842,14 @@ Val* u32IndexScalarSmemTv(TensorView* smem_tv) {
       UnaryOpType::ToUnsignedSmemAddr,
       u32addr,
       IrBuilder::metadataExpr(smem_tv));
+  return u32addr;
+}
+
+Val* u32IndexScalarSmemTv(kir::TensorIndex* index) {
+  auto ptr_address = IrBuilder::addressExpr(index);
+  auto u32addr = IrBuilder::create<Val>(DataType::SMemAddress);
+  IrBuilder::create<UnaryOp>(
+      UnaryOpType::ToUnsignedSmemAddr, u32addr, ptr_address);
   return u32addr;
 }
 
