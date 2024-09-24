@@ -4263,4 +4263,44 @@ TEST_F(ResizeTest, SliceSliceConcatConcat) {
   NVF_CHECK(ref.equal(cg_outputs[0]));
 }
 
+// Trivial case of slice vectorization. Just slicing a fusion input
+TEST_F(ResizeTest, VectorizePlayground) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  const int64_t slice_offset = 4;
+  const std::vector<int64_t> shape({1024L * 1024L});
+
+  // Using a concrete tensor to avoid dynamic reshape
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = pad(tv0, {IrBuilder::create<Val>(4L), IrBuilder::create<Val>(4L)});
+  // auto tv1 = slice(
+  //     tv0,
+  //     {{IrBuilder::create<Val>(slice_offset),
+  //       sub(tv0->axis(0)->extent(), IrBuilder::create<Val>(slice_offset))}});
+  fusion.addOutput(tv1);
+
+  tv1->split(0, 4);
+  tv1->split(0, 128);
+
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  tv1->axis(1)->parallelize(ParallelType::TIDx);
+  tv1->axis(2)->parallelize(ParallelType::Vectorize);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto ref =
+      t0.index({at::indexing::Slice(slice_offset, shape[0] - slice_offset)});
+  ASSERT_TRUE(ref.equal(cg_outputs[0]));
+}
+
 } // namespace nvfuser
