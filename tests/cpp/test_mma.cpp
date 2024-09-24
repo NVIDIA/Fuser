@@ -775,10 +775,6 @@ TEST_P(HopperRS, SingleTileWithTMALoadStore) {
 }
 
 TEST_P(HopperRS, SingleTileWithTMALoadOuterDimNotSplit) {
-  if (layout == MmaLayout::TT) {
-    GTEST_SKIP() << "Skipping test as we only handle TN layout in this test";
-  }
-
   Fusion fusion;
   FusionGuard fg(&fusion);
 
