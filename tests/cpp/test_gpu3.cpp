@@ -6490,7 +6490,7 @@ TEST_F(NVFuserTest, CompareLogicalAndLoopDomains) {
           "Not all logical IDs are covered by loop domain")));
 }
 
-TEST_F(NVFuserTest, AllIDsWithExtraLoopIDs) {
+TEST_F(NVFuserTest, AllIDsWithExtraLoopIDs1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -6549,6 +6549,86 @@ TEST_F(NVFuserTest, AllIDsWithExtraLoopIDs) {
       tv2->getLogicalDomain().begin(), tv2->getLogicalDomain().end());
   tv2_all_ids_ref.insert(tv2_inner_loop_domain);
   tv2_all_ids_ref.insert(tv2_merge_out);
+  tv2_all_ids_ref.insert(
+      tv2->getLoopDomain().begin(), tv2->getLoopDomain().end());
+
+  auto tv2_all_ids = tv2->domain()->allIDs();
+  std::unordered_set<IterDomain*> tv2_all_id_set(
+      tv2_all_ids.begin(), tv2_all_ids.end());
+
+  EXPECT_EQ(tv2_all_id_set, tv2_all_ids_ref);
+}
+
+TEST_F(NVFuserTest, AllIDsWithExtraLoopIDs2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // [i0, i1]
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  // [i0]
+  auto tv1 = makeSymbolicTensor(1);
+  fusion.addInput(tv1);
+
+  // [i0]
+  auto tv2 = set(tv1);
+  // [i0, b1]
+  auto tv3 = broadcast(tv2, {false, true});
+  // [i0, i1]
+  auto tv4 = add(tv0, tv3);
+  fusion.addOutput(tv4);
+
+  // Set the loop domain of tv2 the same as tv4. The new loop domain
+  // includes an ID that is not reachable from tv2 logical domain
+  auto tv2_inner_loop_domain =
+      tv4->getLoopDomain().at(1)->cloneWithoutRFactor();
+  std::vector<IterDomain*> tv2_initial_loop_domain{
+      tv2->getLogicalDomain().at(0), tv2_inner_loop_domain};
+  tv2->setLoopDomain(tv2_initial_loop_domain);
+
+  // Schedule only the extra dommain
+  tv2->split(1, 4);
+  auto tv2_split = tv2->axis(1)->definition();
+
+  // tv2 logical: [i0]
+  //   split(i1) -> i1/4, 4
+  // tv2 loop: [i0, i1/4, 4]
+  //
+  // All IDs: [i0, i1, i1/4, 4]
+
+  EXPECT_EQ(tv2->getInitialLoopDomain(), tv2_initial_loop_domain);
+
+  // Because the split only uses the extra ID, getExprsBetween from
+  // the loop domain to the logical domain does not traverse the
+  // split, just returning an empty vector.
+  EXPECT_TRUE(
+      IRBFS::getExprsBetween(
+          {tv2->getLoopDomain().begin(), tv2->getLoopDomain().end()},
+          {tv2->getLogicalDomain().begin(), tv2->getLogicalDomain().end()},
+          false)
+          .empty());
+
+  // From the initial loop to the current loop should find the split expr
+  auto exprs_between = IRBFS::getExprsBetween(
+      {tv2->getInitialLoopDomain().begin(), tv2->getInitialLoopDomain().end()},
+      {tv2->getLoopDomain().begin(), tv2->getLoopDomain().end()},
+      false);
+  EXPECT_EQ(exprs_between.size(), 1);
+  EXPECT_EQ(exprs_between.front().first, tv2_split);
+
+  // The initial loop domain and the current loop domain should be
+  // reachable to each other with no redundancy
+  auto tv2_loop_domain_comparison_results = ir_utils::compareDomains(
+      tv2->getInitialLoopDomain(), tv2->getLoopDomain());
+  EXPECT_FALSE(tv2_loop_domain_comparison_results.dom0_has_unreachable_ids);
+  EXPECT_FALSE(tv2_loop_domain_comparison_results.dom1_has_unreachable_ids);
+
+  // Make sure allIDs finds all the IDs including the extra IDs
+  std::unordered_set<IterDomain*> tv2_all_ids_ref;
+  tv2_all_ids_ref.insert(
+      tv2->getLogicalDomain().begin(), tv2->getLogicalDomain().end());
+  tv2_all_ids_ref.insert(
+      tv2->getInitialLoopDomain().begin(), tv2->getInitialLoopDomain().end());
   tv2_all_ids_ref.insert(
       tv2->getLoopDomain().begin(), tv2->getLoopDomain().end());
 
