@@ -201,6 +201,10 @@ class MultiMatmulSchedulerMatchTest
               << " to original IterDomain " << id_orig->toString();
     std::string suffix = suffix_ss.str();
     EXPECT_EQ(id_orig->getIterType(), id_new->getIterType()) << suffix;
+    // ParallelType checking is disabled altogether for now. We now check that
+    // the compiled code matches which verifies that the loop groups have the
+    // same ParallelType.
+    /*
     if (id_orig->isParallelized()) {
       // In some cases the new scheduler parallelizes IDs that were not
       // previously parallelized. This is OK as long as the generated kernels
@@ -211,6 +215,7 @@ class MultiMatmulSchedulerMatchTest
       EXPECT_EQ(id_orig->getParallelType(), id_new->getParallelType())
           << suffix;
     }
+    */
     EXPECT_EQ(id_orig->hasExpandedExtent(), id_new->hasExpandedExtent())
         << suffix;
     compareScalars(
@@ -223,7 +228,8 @@ class MultiMatmulSchedulerMatchTest
         << suffix;
     if (id_orig->definition() == nullptr) {
       if (Val* id_orig_cloned = cloner_->clone(id_orig)) {
-        EXPECT_TRUE(id_orig_cloned->sameAs(id_new)) << suffix;
+        // TODO: reinstate this check if we decide to check ParallelType again
+        // EXPECT_TRUE(id_orig_cloned->sameAs(id_new)) << suffix;
       }
     } else {
       Expr* def_orig = id_orig->definition();
@@ -459,6 +465,11 @@ TEST_P(MultiMatmulSchedulerMatchTest, MatmulBias0d) {
 }
 
 TEST_P(MultiMatmulSchedulerMatchTest, MatmulBias1d) {
+  if (params.use_smem_epilogue && params.splitk_factor == 1) {
+    GTEST_SKIP() << "Skipping case that does not compile with either scheduler."
+                 << " See https://github.com/NVIDIA/Fuser/issues/2979";
+  }
+
   auto [tv0, tv1] = getInputTVs();
 
   auto tv2 = makeContigTensor(1, DataType::Half);
@@ -474,6 +485,11 @@ TEST_P(MultiMatmulSchedulerMatchTest, MatmulBias1d) {
 }
 
 TEST_P(MultiMatmulSchedulerMatchTest, MatmulFloatBias1d) {
+  if (params.use_smem_epilogue && params.splitk_factor == 1) {
+    GTEST_SKIP() << "Skipping case that does not compile with either scheduler."
+                 << " See https://github.com/NVIDIA/Fuser/issues/2979";
+  }
+
   auto [tv0, tv1] = getInputTVs();
 
   auto tv2 = makeContigTensor(1, DataType::Float);
