@@ -414,6 +414,85 @@ TEST_P(HopperRS, SingleTile) {
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
+TEST_P(HopperRS, SingleTileTransposed) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto shapes = matmulAtInputShape3DHopperRS(
+      getM(macro), getN(macro), getK(macro), layout);
+
+  auto tv0 = makeConcreteTensor(shapes.first, dtype);
+  auto tv1 = makeConcreteTensor(shapes.second, dtype);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  // Just doing a gmem->register copy
+  tv0 = set(tv0);
+  // Just doing a gmem->smem copy
+  tv1 = set(tv1);
+  tv1->setMemoryType(MemoryType::Shared);
+
+  auto tv2 = fusedMultiplySum(tv0, tv1, {layout == MmaLayout::TT ? 1 : 2});
+
+  fusion.addOutput(tv2);
+
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
+  NVF_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+  mma_ops.front()->setMacro(macro);
+
+  auto tv2c = tv2->cacheBefore();
+
+  moveInnerBroadcastLeft(tv0);
+  tv0->applyMmaSwizzle(MmaOperand::A);
+
+  tv0->merge(1);
+  tv0->merge(1);
+  tv0->axis(1)->parallelize(ParallelType::TIDx);
+
+  tv1->applyMmaSwizzle(swizzle_b);
+  auto alloc = tv1->getAllocationDomain();
+  std::swap(alloc[0], alloc[1]);
+  tv1->setAllocationDomain(alloc, true);
+
+  naivelyParallelize(tv1);
+
+  if (layout == MmaLayout::TT) {
+    // [M, K, N] -> [M, N, K]
+    tv2c->reorder({{-1, -2}});
+  }
+
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2c->getLoopDomain());
+    tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+    tv2c->axis(-1)->parallelize(ParallelType::Mma);
+    tv2c->axis(-2)->parallelize(ParallelType::Mma);
+    tv2c->axis(-3)->parallelize(ParallelType::Mma);
+  }
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2->getLoopDomain());
+    tv2->setLoopDomain(s.as<IterDomain*>());
+  }
+
+  auto inputs = matmulAtInput3DHopperRS(
+      getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
+
+  FusionExecutor fe;
+  fe.compileFusion(
+      &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
+
+  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  auto tref = atMatmul(
+      inputs.first.squeeze().to(at::kFloat),
+      inputs.second.squeeze().to(at::kFloat),
+      layout);
+  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+}
+
 // There are only three possible swizzle modes for smem operands of Hopper MMA:
 // 32 byte, 64 byte, and 128 byte. Depending on the layout and the macro, the
 // inner size may be smaller than the swizzle size. For example, if the macro is
