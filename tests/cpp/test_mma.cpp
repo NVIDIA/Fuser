@@ -1116,6 +1116,122 @@ TEST_P(HopperSS, SingleTile) {
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
+TEST_P(HopperSS, SingleTileTransposed) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto shapes = matmulAtInputShape3DHopperSS(
+      getM(macro), getN(macro), getK(macro), layout);
+
+  auto tv0 = makeConcreteTensor(shapes.first, dtype);
+  auto tv1 = makeConcreteTensor(shapes.second, dtype);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  // Just doing a gmem->smem copy
+  tv0 = set(tv0);
+  tv0->setMemoryType(MemoryType::Shared);
+  tv1 = set(tv1);
+  tv1->setMemoryType(MemoryType::Shared);
+
+  int axes = 0;
+  switch (layout) {
+    case MmaLayout::NT:
+      axes = 0;
+      break;
+    case MmaLayout::TT:
+    case MmaLayout::NN:
+      axes = 1;
+      break;
+    case MmaLayout::TN:
+      axes = 2;
+      break;
+    default:
+      NVF_ERROR("Invalid layout");
+  }
+  auto tv2 = fusedMultiplySum(tv0, tv1, {axes});
+
+  // Reorder the accumulator as [M, N, K]
+  switch (layout) {
+    case MmaLayout::TT:
+      // [M, K, N] -> [M, N, K]
+      tv2->reorder({{-2, -1}});
+      break;
+    case MmaLayout::TN:
+      // [M, N, K]
+      break;
+    case MmaLayout::NT:
+      // [K, M, N] -> [M, N, K]
+      tv2->reorder({{-3, -1}});
+      break;
+    case MmaLayout::NN:
+      // [N, K, M] -> [M, N, K]
+      tv2->reorder({{-1, -3}});
+      break;
+    default:
+      NVF_ERROR("Invalid layout");
+  }
+  tv2->commitLeafToLogical();
+
+  fusion.addOutput(tv2);
+
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
+  NVF_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+  mma_ops.front()->setMacro(macro);
+
+  auto tv2c = tv2->cacheBefore();
+
+  // Bring related dims to innermost, that is:
+  // - Reorder tv0 as [1, M, K] or [1, K, M]
+  // - Reorder tv1 as [1, N, K] or [1, K, N]
+  moveInnerBroadcastLeft(tv0);
+  moveInnerBroadcastLeft(tv1);
+
+  tv0->applyMmaSwizzle(swizzle_a);
+  tv1->applyMmaSwizzle(swizzle_b);
+  // This is where this test is different from SingleTile
+  auto alloc0 = tv0->getAllocationDomain();
+  std::swap(alloc0[0], alloc0[1]);
+  tv0->setAllocationDomain(alloc0, true);
+  // This is where this test is different from SingleTile
+  auto alloc1 = tv1->getAllocationDomain();
+  std::swap(alloc1[0], alloc1[1]);
+  tv1->setAllocationDomain(alloc1, true);
+
+  naivelyParallelize(tv0);
+  naivelyParallelize(tv1);
+
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2c->getLoopDomain());
+    tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+    tv2c->axis(-1)->parallelize(ParallelType::Mma);
+    tv2c->axis(-2)->parallelize(ParallelType::Mma);
+    tv2c->axis(-3)->parallelize(ParallelType::Mma);
+  }
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2->getLoopDomain());
+    tv2->setLoopDomain(s.as<IterDomain*>());
+  }
+
+  auto inputs = matmulAtInput3DHopperSS(
+      getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
+
+  FusionExecutor fe;
+  fe.compileFusion(
+      &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
+  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  auto tref = atMatmul(
+      inputs.first.squeeze().to(at::kFloat),
+      inputs.second.squeeze().to(at::kFloat),
+      layout);
+  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+}
+
 // See the note in HopperRS.FullSwizzle for the explanation of this test.
 TEST_P(HopperSS, FullSwizzle) {
   Fusion fusion;
