@@ -17,10 +17,10 @@
 #include <ir/utils.h>
 #include <ops/alias.h>
 #include <ops/arith.h>
+#include <preseg_passes/segment_inplace_update.h>
 #include <sys_utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
-#include <preseg_passes/segment_inplace_update.h>
 
 namespace nvfuser {
 
@@ -1427,6 +1427,7 @@ TEST_F(AliasTest, Bookend_Issue2375) {
           HeuristicIs(SchedulerType::InnerPersistent)));
 }
 
+// Repro for https://github.com/NVIDIA/Fuser/issues/2664
 TEST_F(AliasTest, Issue2664) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -1454,11 +1455,10 @@ TEST_F(AliasTest, Issue2664) {
   auto t2 = at::randn({}, options);
   auto aten_out = (t2 + 1.0) * t1;
 
-  // preseg_passes::findBroadcast(fusion.get());
   FusionExecutorCache fec(std::move(fusion));
   auto out_tensors = fec.runFusionWithInputs({t1, t2});
-  testValidate(fec.fusion(), out_tensors, {t1, t2}, {aten_out}, __LINE__, __FILE__);
-
+  testValidate(
+      fec.fusion(), out_tensors, {t1, t2}, {aten_out}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

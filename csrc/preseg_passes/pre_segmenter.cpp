@@ -66,7 +66,7 @@ namespace nvfuser::preseg_passes {
   OptimizationPass<ExactMappedExtentSubstitutionPass>::runPass(fusion);
   OptimizationPass<AllocationDomainPass>::runPass(fusion);
   OptimizationPass<RemoveBcastSqueeze>::runPass(fusion);
-  // OptimizationPass<InsertSegmentSetPass>::runPass(fusion);
+  OptimizationPass<SegmentInplaceUpdatePass>::runPass(fusion);
 }
 
 } // namespace nvfuser::preseg_passes
