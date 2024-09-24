@@ -1933,6 +1933,32 @@ Val* proveLinearAndGetStride(
   return proveLinearAndGetStrideAfterPropagation(frontier, domain);
 }
 
+std::unordered_set<ValGroup> projectTo(
+    const ValGraph& id_graph,
+    const ValGroup& from,
+    const ValGroups& to) {
+  std::unordered_set<ValGroup> projection{from};
+  // Reverse order
+  auto exprs = ValGraphBFS::getExprsBetween(id_graph, to, {from});
+  while (!exprs.empty()) {
+    const auto [expr, direction] = exprs.back();
+    exprs.pop_back();
+    auto from =
+        (direction == Direction::Backward ? id_graph.inputGroups(expr)
+                                          : id_graph.outputGroups(expr));
+    auto to =
+        (direction == Direction::Backward ? id_graph.outputGroups(expr)
+                                          : id_graph.inputGroups(expr));
+    for (const auto& g : from) {
+      if (projection.count(g)) {
+        projection.erase(g);
+        projection.insert(to.begin(), to.end());
+      }
+    }
+  }
+  return projection;
+}
+
 } // namespace lower_utils
 
 } // namespace nvfuser

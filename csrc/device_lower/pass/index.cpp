@@ -1911,48 +1911,24 @@ Val* getOuterStride(TensorView* tv, const MmaOp* mma) {
       "Expecting 3 IDs in the loop domain of mma output to be parallelized on Mma,",
       " among which one must be the innermost of producer's allocation domain");
 
-  // Project mma_groups to the logical domain of tv.
-  std::vector<std::unordered_set<ValGroup>> projections_on_logical;
-  projections_on_logical.reserve(mma_groups.size());
-  for (const auto& g : mma_groups) {
-    projections_on_logical.push_back({g});
-  }
-  auto exprs =
-      ValGraphBFS::getExprsBetween(id_graph, loop_domain, logical_domain);
-  for (const auto& [expr, direction] : exprs) {
-    auto from =
-        (direction == Direction::Forward ? id_graph.inputGroups(expr)
-                                         : id_graph.outputGroups(expr));
-    auto to =
-        (direction == Direction::Forward ? id_graph.outputGroups(expr)
-                                         : id_graph.inputGroups(expr));
-    for (const auto& g : from) {
-      for (auto& projection_on_logical : projections_on_logical) {
-        if (projection_on_logical.count(g)) {
-          projection_on_logical.erase(g);
-          projection_on_logical.insert(to.begin(), to.end());
-        }
-      }
-    }
-  }
   // Get which group in mma_groups is projected to a concrete ID in the logical
   // domain of tv. There should be exactly one such group.
-  auto is_projected_to_concrete = [&](int64_t i) {
-    const auto& projection = projections_on_logical.at(i);
+  auto is_projected_to_concrete = [&](const ValGroup& g) {
+    auto projection_on_logical = lower_utils::projectTo(id_graph, g, logical_domain);
     for (auto id : tv->getLogicalDomain()) {
-      if (!id->isBroadcast() && projection.count(id_graph.toGroup(id))) {
+      if (!id->isBroadcast() && projection_on_logical.count(id_graph.toGroup(id))) {
         return true;
       }
     }
     return false;
   };
   ValGroup selected = nullptr;
-  for (int64_t i = 0; i < (int64_t)mma_groups.size(); ++i) {
-    if (is_projected_to_concrete(i)) {
+  for (auto &g : mma_groups) {
+    if (is_projected_to_concrete(g)) {
       NVF_ERROR(
           selected == nullptr,
           "Expecting exactly one group in mma output loop domain to be projected to a concrete ID in the logical domain of tv");
-      selected = mma_groups.at(i);
+      selected = std::move(g);
     }
   }
   NVF_ERROR(

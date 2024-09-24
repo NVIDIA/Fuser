@@ -375,6 +375,13 @@ Val* proveLinearAndGetStride(
     const ValGroup& linear_g,
     const ValGroups& domain);
 
+// Given `from`, project it to `to`. This function will return a subset of `to`
+// that is connected to `from`.
+std::unordered_set<ValGroup> projectTo(
+    const ValGraph& id_graph,
+    const ValGroup& from,
+    const ValGroups& to);
+
 } // namespace lower_utils
 
 } // namespace nvfuser
