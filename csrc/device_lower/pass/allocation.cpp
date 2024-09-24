@@ -542,18 +542,25 @@ class AllocationInserter : public kir::ExprMutator {
 
         // Map LoadStoreOp expression to ir nodes created in this pass
         GpuLower::current()->ldstMBarrierMap()[expr] = mbarrier;
-        GpuLower::current()->ldstMBarrierTokenMap()[expr] = mbarrier_tokens;
+        GpuLower::current()
+            ->tmaCircularBufferInfo()
+            .ldst_mbarrier_token_map[expr] = mbarrier_tokens;
         // Register tokens placeholder for MBarrierInit and MBarrierInvalidate,
         //  needed to manage life time of smem buffor in alias memory
-        GpuLower::current()->ldstMBarrierTokenMap()[mbarrier_init] =
-            mbarrier_tokens;
-        GpuLower::current()->ldstMBarrierTokenMap()[mbarrier_inval] =
-            mbarrier_tokens;
+        GpuLower::current()
+            ->tmaCircularBufferInfo()
+            .ldst_mbarrier_token_map[mbarrier_init] = mbarrier_tokens;
+        GpuLower::current()
+            ->tmaCircularBufferInfo()
+            .ldst_mbarrier_token_map[mbarrier_inval] = mbarrier_tokens;
         // Keep track of kir::Allocate for mBarrier and token objects,
         //  to simplify circular buffering pass logic
-        GpuLower::current()->mBarrierTokenSmemAllocSet().insert(mbarrier_alloc);
-        GpuLower::current()->mBarrierTokenSmemAllocSet().insert(
-            mbarrier_tokens_alloc);
+        GpuLower::current()
+            ->tmaCircularBufferInfo()
+            .mbarrier_token_smem_alloc_set.insert(mbarrier_alloc);
+        GpuLower::current()
+            ->tmaCircularBufferInfo()
+            .mbarrier_token_smem_alloc_set.insert(mbarrier_tokens_alloc);
       } else {
         // create and allocate a memory barrier
         TensorView* mbarrier = TensorViewBuilder()

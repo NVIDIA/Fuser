@@ -393,11 +393,14 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
     // A mbarrier token exists if the TensorView output for cpAsyncBulk load has
     // circular buffering depth > 1. ldstMBarrierTokenMap maps mbarrier_init,
     // mbarrier_inval, and cpAsynBulk to the same mbarrier token.
-    bool mbarrier_token_exists =
-        GpuLower::current()->ldstMBarrierTokenMap().count(expr) != 0;
+    bool mbarrier_token_exists = GpuLower::current()
+                                     ->tmaCircularBufferInfo()
+                                     .ldst_mbarrier_token_map.count(expr) != 0;
 
     bool is_ignorable_tma_smem_alloc =
-        (GpuLower::current()->mBarrierTokenSmemAllocSet().count(expr) != 0);
+        (GpuLower::current()
+             ->tmaCircularBufferInfo()
+             .mbarrier_token_smem_alloc_set.count(expr) != 0);
 
     bool is_ignorable_mbarrier_init =
         (expr->isA<kir::MBarrierInit>() && mbarrier_token_exists);
@@ -502,8 +505,10 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
     // Register mbarrier object to be used with new LoadStoreOp
     // from prolog loop
     NVF_ERROR(mbarrier_arrive_tx_->mbarrier()->isA<kir::TensorIndex>());
-    GpuLower::current()->ldstMBarrierIndexMap().emplace(
-        new_ldst, mbarrier_arrive_tx_->mbarrier()->as<kir::TensorIndex>());
+    GpuLower::current()
+        ->tmaCircularBufferInfo()
+        .ldst_mbarrier_index_map.emplace(
+            new_ldst, mbarrier_arrive_tx_->mbarrier()->as<kir::TensorIndex>());
 
     // If last cloned scope is the cloned_top_level_loop body, then add
     // mbarrier::arriveExpectTx and new loadStoreOp.
@@ -592,8 +597,10 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
     // Register mbarrier object to be used with LoadStoreOp
     //  from main loop
     NVF_ERROR(mbarrier_arrive_tx_->mbarrier()->isA<kir::TensorIndex>());
-    GpuLower::current()->ldstMBarrierIndexMap().emplace(
-        ldst, mbarrier_arrive_tx_->mbarrier()->as<kir::TensorIndex>());
+    GpuLower::current()
+        ->tmaCircularBufferInfo()
+        .ldst_mbarrier_index_map.emplace(
+            ldst, mbarrier_arrive_tx_->mbarrier()->as<kir::TensorIndex>());
 
     // Construct mBarrier::wait for current stage
     NVF_ERROR(
@@ -739,7 +746,8 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
 
     // Get mbarrier_token for this circular buffer stage.
     TensorView* all_mbarrier_tokens =
-        GpuLower::current()->ldstMBarrierTokenMap().at(ldst);
+        GpuLower::current()->tmaCircularBufferInfo().ldst_mbarrier_token_map.at(
+            ldst);
     kir::TensorIndex* stage_token =
         IrBuilder::create<kir::TensorIndex>(all_mbarrier_tokens, loop_index);
 
@@ -765,7 +773,8 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
 
     // Get mbarrier_token for this circular buffer stage.
     TensorView* all_mbarrier_tokens =
-        GpuLower::current()->ldstMBarrierTokenMap().at(ldst);
+        GpuLower::current()->tmaCircularBufferInfo().ldst_mbarrier_token_map.at(
+            ldst);
     kir::TensorIndex* stage_token =
         IrBuilder::create<kir::TensorIndex>(all_mbarrier_tokens, loop_index);
 
@@ -832,7 +841,9 @@ class GatherMBarrierAllocations : public kir::IrVisitor {
     }
 
     // Short-Circuit: Handle shared memory allocations for mbarrier
-    if (GpuLower::current()->mBarrierTokenSmemAllocSet().count(alloc) == 0) {
+    if (GpuLower::current()
+            ->tmaCircularBufferInfo()
+            .mbarrier_token_smem_alloc_set.count(alloc) == 0) {
       return;
     }
 
