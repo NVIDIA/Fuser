@@ -1851,7 +1851,7 @@ Val* getOuterStride(TensorView* tv, const MmaOp* mma) {
   // Project mma_groups to the logical domain of tv.
   std::vector<std::unordered_set<ValGroup>> projections_on_logical;
   projections_on_logical.reserve(mma_groups.size());
-  for (auto g : mma_groups) {
+  for (const auto& g : mma_groups) {
     projections_on_logical.push_back({g});
   }
   auto exprs =
@@ -1863,7 +1863,7 @@ Val* getOuterStride(TensorView* tv, const MmaOp* mma) {
     auto to =
         (direction == Direction::Forward ? id_graph.outputGroups(expr)
                                          : id_graph.inputGroups(expr));
-    for (auto g : from) {
+    for (const auto& g : from) {
       for (auto& projection_on_logical : projections_on_logical) {
         if (projection_on_logical.count(g)) {
           projection_on_logical.erase(g);
