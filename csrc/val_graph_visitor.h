@@ -188,19 +188,23 @@ class ValGraphBFS : public BFS<
   static ExprPath getExprsBetween(
       const ValGraph& graph,
       std::vector<NodeType> from,
-      std::vector<NodeType> to) {
-    ValGraphBFS bfs(graph, std::move(from), std::move(to));
+      std::vector<NodeType> to,
+      bool require_all_to_visited = true) {
+    ValGraphBFS bfs(
+        graph, std::move(from), std::move(to), require_all_to_visited);
     bfs.traverse();
     return bfs.getShortestExprPath();
   }
   static ExprPath getExprsBetween(
       const ValGraph& graph,
       const ValGroups& from,
-      const ValGroups& to) {
+      const ValGroups& to,
+      bool require_all_to_visited = true) {
     return getExprsBetween(
         graph,
         std::vector<NodeType>{from.vector().begin(), from.vector().end()},
-        std::vector<NodeType>{to.vector().begin(), to.vector().end()});
+        std::vector<NodeType>{to.vector().begin(), to.vector().end()},
+        require_all_to_visited);
   }
 
   // Get all the val groups in vals that are reachable from the from groups

@@ -1939,7 +1939,8 @@ std::unordered_set<ValGroup> projectTo(
     const ValGroups& to) {
   std::unordered_set<ValGroup> projection{from};
   // Reverse order
-  auto exprs = ValGraphBFS::getExprsBetween(id_graph, to, {from});
+  auto exprs = ValGraphBFS::getExprsBetween(
+      id_graph, to, {from}, /*require_all_to_visited=*/false);
   while (!exprs.empty()) {
     const auto [expr, direction] = exprs.back();
     exprs.pop_back();
@@ -1954,6 +1955,15 @@ std::unordered_set<ValGroup> projectTo(
         projection.erase(g);
         projection.insert(to.begin(), to.end());
       }
+    }
+  }
+  // Remove items that are not in `to`. This could happen `from` is not
+  // connected to `to`.
+  for (auto it = projection.begin(); it != projection.end();) {
+    if (!to.has(*it)) {
+      it = projection.erase(it);
+    } else {
+      ++it;
     }
   }
   return projection;

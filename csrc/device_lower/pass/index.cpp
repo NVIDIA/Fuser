@@ -1887,8 +1887,7 @@ Val* getInnerStride(TensorView* tv, const MmaOp* mma) {
 //    stride of `linear`.
 Val* getOuterStride(TensorView* tv, const MmaOp* mma) {
   ValGraph& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
-  auto logical_domain =
-      id_graph.toGroups(TensorDomain::noBroadcasts(tv->getLogicalDomain()));
+  auto logical_domain = id_graph.toGroups(tv->getLogicalDomain());
   auto loop_domain =
       id_graph.toGroups(mma->out()->as<TensorView>()->getLoopDomain());
   auto alloc_domain = id_graph.toGroups(tv->getMaybeAllocationDomain());
@@ -1914,16 +1913,18 @@ Val* getOuterStride(TensorView* tv, const MmaOp* mma) {
   // Get which group in mma_groups is projected to a concrete ID in the logical
   // domain of tv. There should be exactly one such group.
   auto is_projected_to_concrete = [&](const ValGroup& g) {
-    auto projection_on_logical = lower_utils::projectTo(id_graph, g, logical_domain);
+    auto projection_on_logical =
+        lower_utils::projectTo(id_graph, g, logical_domain);
     for (auto id : tv->getLogicalDomain()) {
-      if (!id->isBroadcast() && projection_on_logical.count(id_graph.toGroup(id))) {
+      if (!id->isBroadcast() &&
+          projection_on_logical.count(id_graph.toGroup(id))) {
         return true;
       }
     }
     return false;
   };
   ValGroup selected = nullptr;
-  for (auto &g : mma_groups) {
+  for (auto& g : mma_groups) {
     if (is_projected_to_concrete(g)) {
       NVF_ERROR(
           selected == nullptr,
