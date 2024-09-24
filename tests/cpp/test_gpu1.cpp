@@ -5305,9 +5305,14 @@ TEST_F(NVFuserTest, FusionReductionSchedulerMultiDimNonFastest_CUDA) {
   auto aten_output = aten_input.to(at::kDouble).sum(red_dims64);
   at::Tensor cg_output = at::empty(tensor_dims_out, options);
 
-  // Apply reduction heuristic
-  auto cg_results =
-      scheduleAndRun(&fusion, SchedulerType::Reduction, {aten_input});
+  auto heuristic_params = SchedulerEntry::scheduleWith(
+      &fusion, SchedulerType::Reduction, {aten_input});
+  FusionExecutor fusion_executor;
+  fusion_executor.compileFusion(
+      &fusion, {aten_input}, heuristic_params->lparams);
+  fusion_executor.runFusion(
+      {aten_input}, {cg_output}, heuristic_params->lparams);
+
   testValidate(
       &fusion,
       {cg_output},
@@ -5316,7 +5321,7 @@ TEST_F(NVFuserTest, FusionReductionSchedulerMultiDimNonFastest_CUDA) {
       __LINE__,
       __FILE__,
       "",
-      cg_results.heuristic_params->lparams);
+      heuristic_params->lparams);
 }
 
 TEST_F(NVFuserTest, FusionReductionSchedulerMultiDimFastest_CUDA) {
@@ -6183,8 +6188,8 @@ TEST_F(NVFuserTest, FusionTestMaskSoftmax_CUDA) {
   auto aten_out1 = aten_input + aten_mask;
   auto aten_output = at::_softmax(aten_out1, kReductionAxis, false);
 
-  auto cg_results =
-      scheduleAndRun(&fusion, SchedulerType::InnerPersistent, {aten_input});
+  auto cg_results = scheduleAndRun(
+      &fusion, SchedulerType::InnerPersistent, {aten_input, aten_mask});
 
   testValidate(
       &fusion,

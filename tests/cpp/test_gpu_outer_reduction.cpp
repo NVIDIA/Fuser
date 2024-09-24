@@ -2165,9 +2165,13 @@ TEST_F(OuterReductionTest, IterGroupedBlockReduction) {
 
   std::vector<c10::IValue> aten_inputs({t0});
 
-  auto cg_results =
-      scheduleAndRun(&fusion, SchedulerType::Reduction, aten_inputs);
-  auto rparams = cg_results.heuristic_params->as<ReductionParams>();
+  SchedulerRuntimeInfo runtime_info(&fusion, aten_inputs);
+  NVF_ERROR(
+      Schedule::canSchedule(SchedulerType::Reduction, &fusion, runtime_info));
+  auto scheduler =
+      SchedulerEntry::makeSchedulerInstance(SchedulerType::Reduction);
+  auto heuristic_params = scheduler->computeHeuristics(&fusion, runtime_info);
+  auto rparams = heuristic_params->as<ReductionParams>();
 
   // only do block reduction, enforce vectorization so we can group them
   const int vect_factor = 8;
@@ -2176,23 +2180,27 @@ TEST_F(OuterReductionTest, IterGroupedBlockReduction) {
   rparams->vectorize_iter_dom = true;
   rparams->unroll_factor_iter_dom = vect_factor;
 
+  scheduler->schedule(&fusion, rparams);
+  FusionExecutor fusion_executor;
+  fusion_executor.compileFusion(
+      &fusion, aten_inputs, heuristic_params->lparams);
+  auto cg_outputs =
+      fusion_executor.runFusion(aten_inputs, heuristic_params->lparams);
+
   // lowering & check iteration grouped reductions
   NVF_CHECK(
-      cg_results.fusion_executor->kernel()
-          ->summary()
-          .has_iter_grouped_reductions,
+      fusion_executor.kernel()->summary().has_iter_grouped_reductions,
       "There must be iter domain grouped reductions.");
   NVF_CHECK(
-      cg_results.fusion_executor->kernel()->summary().num_grouped_iterations ==
-          vect_factor,
+      fusion_executor.kernel()->summary().num_grouped_iterations == vect_factor,
       "Expected ",
       vect_factor,
       " grouped iterations, found ",
-      cg_results.fusion_executor->kernel()->summary().num_grouped_iterations);
+      fusion_executor.kernel()->summary().num_grouped_iterations);
 
   testValidate(
       &fusion,
-      cg_results.outputs,
+      cg_outputs,
       aten_inputs,
       {t0.to(at::kFloat).sum(0)},
       __LINE__,
