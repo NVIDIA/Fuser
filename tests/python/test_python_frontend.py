@@ -4329,13 +4329,13 @@ fd.execute(inputs)
         fd.execute(inputs, print_repro=True)
 
         sys.stdout = old_stdout
-        
+
         def find_start_line(lines):
             # Enable skipping the repro header that might change due to number of
             # or software version.
             start_line = 0
             for line in lines:
-                if line[0] == '#':
+                if line[0] == "#":
                     start_line += 1
                 else:
                     break
@@ -4384,7 +4384,7 @@ fd.execute(inputs)
             expected_lines[5:] == comp_lines[start_line:]
         ), "The second query of the reproduction script does not match expected output!"
 
-# Test that replaced sizes using input tensor metadata are successfully computed
+    # Test that replaced sizes using input tensor metadata are successfully computed
     # See https://github.com/NVIDIA/Fuser/pull/2714 which surfaced this in
     # failing thunder test
     # thunder.tests.test_core.test_bsym_toposort_nvfuser_cuda_thunder.dtypes.float32
