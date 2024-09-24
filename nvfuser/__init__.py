@@ -54,11 +54,6 @@ class FusionDefinition(_C._FusionDefinition):
         super(FusionDefinition, self).__init__(id, max_length)
         self.profiled = False
 
-    def clone(self):
-        new_fd = FusionDefinition()
-        self._clone(new_fd)
-        return new_fd
-
     def __enter__(self):
         return self._setup_definition()
 

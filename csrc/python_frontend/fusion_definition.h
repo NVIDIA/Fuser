@@ -165,11 +165,6 @@ class NVF_API FusionDefinition : public FusionState {
   FusionDefinition& operator=(const FusionDefinition& fd) = delete;
   FusionDefinition& operator=(FusionDefinition&& fd) = delete;
 
-  //! Copy definition from other FusionDefintion's presched CPP fusion.
-  //! Primarily for testing purposes to check that the translation from CPP
-  //! fusion is correct.
-  void clone(FusionDefinition& other);
-
   //! Enter Python Context Manager -- Reset trie for new cache lookup
   NVF_API FusionDefinition* setupDefinition();
   //! Exit Python Context Manager -- Triggers Fusion IR build if it is not
@@ -233,6 +228,9 @@ class NVF_API FusionDefinition : public FusionState {
     return id().has_value();
   }
 
+  //! Return a prescheduled Fusion object
+  Fusion* preschedFusion();
+
   //! Return UserSchedule struct if it exists
   UserSchedule* userSchedule();
 
@@ -257,8 +255,6 @@ class NVF_API FusionDefinition : public FusionState {
  private:
   //! Returns the FusionCache Ptr that holds the cache of Fusions
   FusionCache* fusionCache() const;
-  //! Return a prescheduled Fusion object
-  Fusion* preschedFusion();
   //! Composite operations can create hidden TensorViews in the CPP fusion
   //! These TensorViews are not visible from python definition. This function
   //! finds and adds them to FusionDefinition

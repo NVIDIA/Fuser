@@ -21,6 +21,7 @@
 #include <python_frontend/fusion_definition.h>
 #include <python_frontend/fusion_record.h>
 #include <python_frontend/python_bindings.h>
+#include <python_frontend/translation.h>
 #include <scheduler/registry.h>
 #include <scheduler/scheduler_types.h>
 #include <torch/csrc/jit/python/pybind_utils.h>
@@ -486,8 +487,22 @@ computeTensorDescriptor(
   return std::make_pair(contiguity_vec, stride_order_vec);
 }
 
+//! Copy definition from other FusionDefintion's presched CPP fusion.
+//! Primarily for testing purposes to check that the translation from CPP
+//! fusion is correct.
+void clone(FusionDefinition& from, FusionDefinition& to) {
+  NVF_CHECK(from.completed(), "FusionDefinition definition does not exist!");
+  NVF_ERROR(
+      !to.completed(), "Expected an incomplete definition before translation.");
+  translate(from.preschedFusion(), &to);
+}
+
 void initNvFuserPythonBindings(PyObject* module) {
   auto nvfuser = py::handle(module).cast<py::module>();
+
+  nvfuser.def("clone", [](FusionDefinition& from, FusionDefinition& to) {
+    clone(from, to);
+  });
 
   //! DataTypes supported by nvFuser in the FusionDefinition
   py::enum_<PrimDataType>(nvfuser, "DataType")
@@ -780,11 +795,6 @@ void initNvFuserPythonBindings(PyObject* module) {
             std::stringstream ss;
             self.print(ss);
             return ss.str();
-          })
-      .def(
-          "_clone",
-          [](FusionDefinition& self, FusionDefinition& other) {
-            self.clone(other);
           })
       .def(
           "_execute",
