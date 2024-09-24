@@ -751,6 +751,7 @@ TEST_P(HopperRS, MultipleTile) {
     tv2c->axis(-3)->parallelize(ParallelType::Mma);
   }
   {
+    tv2->printTransforms();
     tv2->split(-3, getM(macro));
     tv2->split(-2, getN(macro));
     tv2->split(-1, getK(macro));
