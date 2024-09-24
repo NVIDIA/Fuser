@@ -1196,7 +1196,6 @@ TEST_P(HopperSS, SingleTileTransposed) {
   auto alloc0 = tv0->getAllocationDomain();
   std::swap(alloc0[0], alloc0[1]);
   tv0->setAllocationDomain(alloc0, true);
-  // This is where this test is different from SingleTile
   auto alloc1 = tv1->getAllocationDomain();
   std::swap(alloc1[0], alloc1[1]);
   tv1->setAllocationDomain(alloc1, true);
