@@ -330,6 +330,10 @@ void HostIrExecutor::handle(ViewOp* view_op) {
   return handleWithExpressionEvaluator(view_op, expr_evaluator_);
 }
 
+void HostIrExecutor::handle(ReductionOp* reduction_op) {
+  return handleWithExpressionEvaluator(reduction_op, expr_evaluator_);
+}
+
 } // namespace hir
 
 } // namespace nvfuser

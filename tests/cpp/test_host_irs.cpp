@@ -946,6 +946,33 @@ TEST_F(ViewTest, SimpleReshape) {
   EXPECT_TRUE(outputs[1].equal(at::reshape(input_aten, {kY, kX})));
 }
 
+using ReductionHostIrTest = NVFuserTest;
+
+TEST_F(ReductionHostIrTest, Sum) {
+  constexpr int64_t kTensorSize = 32;
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  TensorView* a = makeContigTensor(1);
+  TensorView* b = sum(a, {0});
+
+  hic->addInput(a);
+  hic->addOutput(b);
+  hic->pushBackTopLevelExprs(b->definition());
+
+  HostIrExecutor hie(std::move(hic));
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
+  auto a_aten = at::randn({kTensorSize}, options);
+  std::unordered_map<Val*, c10::IValue> concrete_input_buffers = {{a, a_aten}};
+
+  auto outputs = hie.runWithInput(concrete_input_buffers);
+
+  // validate
+  EXPECT_TRUE(outputs[0].equal(at::sum(a_aten,0)));
+}
+
 } // namespace hir
 
 } // namespace nvfuser

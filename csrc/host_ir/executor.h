@@ -11,9 +11,8 @@
 #include <expr_evaluator.h>
 #include <fusion_executor/executor.h>
 #include <host_ir/container.h>
-#include <host_ir/host_ir.h>
+#include <ir/all_nodes.h>
 #include <kernel_cache.h>
-#include <kernel_ir.h>
 #include <multidevice/communicator.h>
 
 #include <c10/cuda/CUDAStream.h>
@@ -89,6 +88,7 @@ class HostIrExecutor final : public OptInDispatch {
   void handle(ViewOp* view_op) override;
   void handle(StartCoalescing* start_coalescing) override;
   void handle(EndCoalescing* end_coalescing) override;
+  void handle(ReductionOp* reduction_op) override;
 
   c10::cuda::CUDAStream getCUDAStream(Stream* stream);
 
