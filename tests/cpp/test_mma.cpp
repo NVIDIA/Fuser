@@ -727,6 +727,8 @@ TEST_P(HopperRS, MultipleTile) {
   tv0->split(0, getN(macro));
   // [No, Ni, Mo, Mi, Ko, Ki] -> // [Mo, No, Ko, Ni, Mi, Ki]
   tv0->reorder({{2, 0}, {1, -3}, {-2, 2}});
+  std::cout << tv0->toString() << std::endl;
+  tv0->printTransforms();
   tv0->applyMmaSwizzle(MmaOperand::A);
 
   tv0->merge(1);
