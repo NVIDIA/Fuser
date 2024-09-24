@@ -16,6 +16,7 @@
 #include <ir/all_nodes.h>
 #include <ops/all_ops.h>
 #include <scheduler/mma_utils.h>
+#include <inlining.h>
 #include <algorithm>
 #include <iterator>
 #include <unordered_map>
