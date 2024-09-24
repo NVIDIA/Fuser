@@ -336,7 +336,7 @@ class ExprSegmentationSorter {
     if (id == kernelScopeDomain()) {
       return id;
     } else {
-      return lower_utils::getConcreteDomain(id);
+      return lower_utils::getConcreteLoopDomain(id);
     }
   }
 
@@ -818,14 +818,16 @@ std::vector<IterDomain*> getLocalDomainOrdering(
                   tv_input->getComputePosition(tv_output),
                   tv_input->getMaxProducerPosition()),
           std::back_inserter(domain),
-          [](IterDomain* id) { return lower_utils::getConcreteDomain(id); });
+          [](IterDomain* id) {
+            return lower_utils::getConcreteLoopDomain(id);
+          });
 
       domain.erase(
           std::remove_if(
               domain.begin(),
               domain.end(),
               [&filter](IterDomain* id) {
-                return filter.find(lower_utils::getConcreteDomain(id)) ==
+                return filter.find(lower_utils::getConcreteLoopDomain(id)) ==
                     filter.end();
               }),
           domain.end());

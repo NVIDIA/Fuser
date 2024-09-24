@@ -153,7 +153,7 @@ void LoopNestGenerator::generate(const std::vector<Expr*>& exprs) {
       auto concrete_id =
           ca_map->getConcreteMappedID(tv_id, IdMappingMode::LOOP);
 #else
-      auto concrete_id = lower_utils::getConcreteDomain(tv_id);
+      auto concrete_id = lower_utils::getConcreteLoopDomain(tv_id);
 #endif
 
       if (concrete_id_dependencies.find(concrete_id) ==
@@ -228,7 +228,7 @@ void LoopNestGenerator::generate(const std::vector<Expr*>& exprs) {
         tv->axis(tv->nDims() - 1), IdMappingMode::LOOP);
 #else
     auto last_id_concrete =
-        lower_utils::getConcreteDomain(tv->axis(tv->nDims() - 1));
+        lower_utils::getConcreteLoopDomain(tv->axis(tv->nDims() - 1));
 #endif
     auto all_loops_it = concrete_id_dependencies.find(last_id_concrete);
     NVF_ERROR(

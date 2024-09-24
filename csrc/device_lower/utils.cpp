@@ -1018,14 +1018,19 @@ bool predicateAtEnd(ForLoop* loop) {
   return true;
 }
 
-IterDomain* getConcreteDomain(IterDomain* id) {
+IterDomain* getConcreteLoopDomain(IterDomain* id) {
   if (isIdModelOptionEnabled(IdModelEnableOption::Inlining)) {
     // TODO: getLoopPromotion needs to return a concrete domain even
     // with non-linear loop domains
-    // return getLoopPromotion(id, GpuLower::current()->idModel());
-    const auto& group =
-        GpuLower::current()->idModel().idGraph(IdMappingMode::LOOP).toGroup(id);
-    return group->front()->as<IterDomain>();
+    if (getenv("LOOP_PROMOTION")) {
+      return getLoopPromotion(id, GpuLower::current()->idModel());
+    } else {
+      const auto& group = GpuLower::current()
+                              ->idModel()
+                              .idGraph(IdMappingMode::LOOP)
+                              .toGroup(id);
+      return group->front()->as<IterDomain>();
+    }
   } else {
     const auto& ca_map = GpuLower::current()->caMap();
     return ca_map->getConcreteMappedID(id, IdMappingMode::LOOP);
