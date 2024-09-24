@@ -1804,6 +1804,37 @@ ValGroup getInnerMmaLoopGroup(TensorView* tv, const MmaOp* mma) {
   return inner;
 }
 
+// Compute the "leading_bytes" in the matrix descriptor of Mma. The leading
+// bytes is the stride of the innermost dimension in the allocation domain of tv
+// considering core matrices. For example, if the tv is [M, K], where K is the
+// inner, then the schedule of the loop domain of the mma output must be
+// something like:
+//      M            K
+//      |            |
+//     ...          ...
+//      |            |
+//     / \.         / \.
+//   ...  m_inst  ...  k_inst
+// where m_inst and k_inst are the instruction tiles of M and K, respectively,
+// that is, the number of items each TensorCore instruction can execute. Both
+// m_inst and k_inst must be parallelized on Mma. The leading_bytes is the
+// stride of the outer (k_inst/swizzle_size) in the allocation domain of tv.
+// That is, if we futher split k_inst as:
+//      M            K
+//      |            |
+//     ...          ...
+//      |            |
+//     / \.         / \.
+//   ...  m_inst  ...  k_inst
+//                     /    \.
+//               linear      swizzle_size
+// Then we would need to prove that `linear` is linear in the allocation domain
+// of tv, and the stride of `linear` is the leading_bytes. This function does
+// the following things:
+// 1. Find k_inst.
+// 2. Split k_inst as above.
+// 3. Prove that `linear` is linear in the allocation domain of tv, and get the
+//    stride of `linear`.
 Val* getInnerStride(TensorView* tv, const MmaOp* mma) {
   auto swizzle = getSwizzleMode(tv);
   auto swizzle_size = getBytesFromSwizzle(swizzle) / dataTypeSize(tv->dtype());
@@ -1823,6 +1854,37 @@ Val* getInnerStride(TensorView* tv, const MmaOp* mma) {
   return SimplifyingIrBuilder::mulExpr(stride, dataTypeSize(tv->dtype()));
 }
 
+// Compute the "stride_bytes" in the matrix descriptor of Mma. The stride
+// bytes is the stride of the outer dimension in the allocation domain of tv
+// considering core matrices. For example, if the tv is [M, K], where K is the
+// inner, then the schedule of the loop domain of the mma output must be
+// something like:
+//      M            K
+//      |            |
+//     ...          ...
+//      |            |
+//     / \.         / \.
+//   ...  m_inst  ...  k_inst
+// where m_inst and k_inst are the instruction tiles of M and K, respectively,
+// that is, the number of items each TensorCore instruction can execute. Both
+// m_inst and k_inst must be parallelized on Mma. The stride_bytes is the
+// stride of the outer (m_inst/8) in the allocation domain of tv.
+// That is, if we futher split m_inst as:
+//       M            K
+//       |            |
+//      ...          ...
+//       |            |
+//      / \.         / \.
+//    ...  m_inst  ...  k_inst
+//         /    \.
+//   linear      8
+// Then we would need to prove that `linear` is linear in the allocation domain
+// of tv, and the stride of `linear` is the stride_bytes. This function does
+// the following things:
+// 1. Find m_inst.
+// 2. Split m_inst as above.
+// 3. Prove that `linear` is linear in the allocation domain of tv, and get the
+//    stride of `linear`.
 Val* getOuterStride(TensorView* tv, const MmaOp* mma) {
   ValGraph& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
   auto logical_domain =
