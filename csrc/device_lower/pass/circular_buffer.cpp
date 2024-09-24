@@ -927,22 +927,28 @@ kir::IfThenElse* createCpAsyncBulkFixtures(
         IrBuilder::create<kir::TensorIndex>(all_mbarriers, loop->index());
 
     if (is_pre_prologue_stage) {
-      // Get all threads in CTA
-      NamedScalar* bdimx = NamedScalar::getParallelDim(ParallelType::TIDx);
-      NamedScalar* bdimy = NamedScalar::getParallelDim(ParallelType::TIDy);
-      NamedScalar* bdimz = NamedScalar::getParallelDim(ParallelType::TIDz);
-      Val* all_threads_in_cta = SimplifyingIrBuilder::mulExpr(
-          bdimx, SimplifyingIrBuilder::mulExpr(bdimy, bdimz));
-      all_threads_in_cta = SimplifyingIrBuilder::maybeCastExpr(
-          DataType::UInt32, all_threads_in_cta);
+      // Get mbarrier init created in allocation pass.
+      kir::MBarrierInit* alloc_mbarrier_init =
+          GpuLower::current()
+              ->tmaCircularBufferInfo()
+              .ldst_mbarrier_init_map[ldst];
+      NVF_ERROR(
+          alloc_mbarrier_init != nullptr,
+          "Missing mbarrier init for circular buffer cpAsyncBulk expression.");
 
-      // The wait condition for mbarrier is a all threads in CTA and the
-      // expected number of transaction bytes
+      // Initialize mbarrier for each circular buffer stage. Use the thread
+      // count from the MBarrierInit created in the allocation pass. The wait
+      // condition for mbarrier is a all threads in CTA and the expected number
+      // of transaction bytes
       kir::MBarrierInit* mbarrier_init = IrBuilder::create<kir::MBarrierInit>(
-          stage_mbarrier,
-          /*thread_count=*/all_threads_in_cta);
+          stage_mbarrier, alloc_mbarrier_init->threadCount());
       loop->body().push_back(mbarrier_init);
     } else {
+      NVF_ERROR(
+          GpuLower::current()
+                  ->tmaCircularBufferInfo()
+                  .ldst_mbarrier_inval_map.count(ldst) != 0,
+          "Missing mbarrier invalidate for circular buffer cpAsyncBulk expression.");
       // Invalidate the mbarrier for each circular buffer stage.
       kir::MBarrierInvalidate* mbarrier_inval =
           IrBuilder::create<kir::MBarrierInvalidate>(stage_mbarrier);

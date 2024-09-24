@@ -553,6 +553,14 @@ class AllocationInserter : public kir::ExprMutator {
         GpuLower::current()
             ->tmaCircularBufferInfo()
             .ldst_mbarrier_token_map[mbarrier_inval] = mbarrier_tokens;
+        // Associate each cpAsyncBulk load expression with its corresponding
+        // MBarrierInit and MBarrierInvalidate
+        GpuLower::current()
+            ->tmaCircularBufferInfo()
+            .ldst_mbarrier_init_map[expr] = mbarrier_init;
+        GpuLower::current()
+            ->tmaCircularBufferInfo()
+            .ldst_mbarrier_inval_map[expr] = mbarrier_inval;
         // Keep track of kir::Allocate for mBarrier and token objects,
         //  to simplify circular buffering pass logic
         GpuLower::current()
