@@ -32,9 +32,10 @@ class CausalSelfAttention(nn.Module):
         self.n_devices = config.n_devices
         # Splitting key, query, and value projections
         # Note: These were performed batched in the original implementation.
-        self.c_attn_key = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
-        self.c_attn_query = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
-        self.c_attn_value = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
+        self.c_attn = nn.Linear(config.n_embd, 3*config.n_embd, bias=config.bias)
+        #self.c_attn_key = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
+        #self.c_attn_query = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
+        #self.c_attn_value = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
         # output projection
         self.c_proj = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
         # regularization
@@ -58,22 +59,25 @@ class CausalSelfAttention(nn.Module):
     def forward(self, x):
         # batch size, sequence length, embedding dimensionality (n_embd)
         (B, T, C) = x.size()
-
         # calculate query, key, values for all heads separately and move head forward to be the batch dim
         # Note: The original script calculated this batched but we cannot use the Tensor API on a 3D weight
-        q = self.c_attn_query(x)
-        k = self.c_attn_key(x)
-        v = self.c_attn_value(x)
+        #q = self.c_attn_query(x)
+        #k = self.c_attn_key(x)
+        #v = self.c_attn_value(x)
+        qkv = self.c_attn(x)
+        B, T, C3 = qkv.size()
+        q, k, v = qkv.split(C3 // 3, dim=2)
+        B, T, C = q.size()
 
         # Note: It looks like view needs to take in the sharded size.
         # Head dimension is parallelized
-        k = k.view(B, T, self.n_head // self.n_devices, C // self.n_head).transpose(
+        k = k.view(B, T, self.n_head, C // self.n_head).transpose(
             1, 2
         )  # (B, nh, T, hs)
-        q = q.view(B, T, self.n_head // self.n_devices, C // self.n_head).transpose(
+        q = q.view(B, T, self.n_head, C // self.n_head).transpose(
             1, 2
         )  # (B, nh, T, hs)
-        v = v.view(B, T, self.n_head // self.n_devices, C // self.n_head).transpose(
+        v = v.view(B, T, self.n_head, C // self.n_head).transpose(
             1, 2
         )  # (B, nh, T, hs)
 
@@ -96,7 +100,7 @@ class CausalSelfAttention(nn.Module):
             att = self.attn_dropout(att)
             y = att @ v  # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
         y = (
-            y.transpose(1, 2).contiguous().view(B, T, C // self.n_devices)
+            y.transpose(1, 2).contiguous().view(B, T, C)
         )  # re-assemble all head outputs side by side
 
         # output projection

@@ -673,6 +673,7 @@ void forward_transformer(Communicator* communicator_) {
   //     ln_1_out_, mha_out_, ln_2_out_, mlp_out_, at_out};
 
   // Warm-up
+  cudaSetDevice(communicator_->deviceId());
   FusionExecutorCache fec(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
   auto outputs = fec.runFusionWithInputs(inputs);
@@ -680,11 +681,10 @@ void forward_transformer(Communicator* communicator_) {
 
   cudaProfilerStart();
   for (auto i : c10::irange(5)) {
-    nvtxRangePush("Iteration" + i);
-    outputs = fec.runFusionWithInputs(inputs);
+    nvtxRangePush("Iteration");
+    fec.runFusionWithInputs(inputs);
     cudaDeviceSynchronize();
     nvtxRangePop();
-    std::cout << "output size " << outputs.size() << std::endl;
   }
   cudaProfilerStop();
 }

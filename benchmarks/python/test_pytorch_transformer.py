@@ -1,4 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024-present NVIDIA CORPORATION & AFFILIATES.
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 
@@ -111,22 +110,23 @@ def benchmark_tensor_parallel(use_torch_compile=False):
     if not use_torch_compile:
         config.n_devices = world_size
     tp_model = Block(config).to(dtype).to("cuda")
-    if use_torch_compile:
-        tp_model = torch.compile(tp_model)
 
     # Parallelization plan. Tensor parallel
     tp_model = parallelize_module(
         module=tp_model,
         device_mesh=device_mesh,
         parallelize_plan={
-            "attn.c_attn_key": ColwiseParallel(),
-            "attn.c_attn_query": ColwiseParallel(),
-            "attn.c_attn_value": ColwiseParallel(),
+            "attn.c_attn": ColwiseParallel(),
+            #"attn.c_attn_query": ColwiseParallel(),
+            #"attn.c_attn_value": ColwiseParallel(),
             "attn.c_proj": RowwiseParallel(),
             "mlp.c_fc": ColwiseParallel(),
             "mlp.c_proj": RowwiseParallel(),
         },
     )
+    if use_torch_compile:
+        tp_model = torch.compile(tp_model)
+
     input = torch.rand(
         batch_size, sequence_length, config.n_embd, dtype=dtype, device="cuda"
     )
@@ -140,6 +140,6 @@ def benchmark_tensor_parallel(use_torch_compile=False):
 
 # benchmark_model()
 # benchmark_model(True)
-# benchmark_tensor_parallel()
+#benchmark_tensor_parallel()
 benchmark_tensor_parallel(True)
 dist.destroy_process_group()
