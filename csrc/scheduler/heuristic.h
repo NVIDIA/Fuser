@@ -17,7 +17,6 @@ namespace nvfuser {
 
 class SchedulerRuntimeInfo;
 class HeuristicDataCache;
-class SchedulerEntry;
 
 // Top-level class representing heuristic parameters. Most schedulers
 // have their own subclasses to have their specific parameters, except

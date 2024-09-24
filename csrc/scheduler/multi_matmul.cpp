@@ -1085,9 +1085,8 @@ class MultipleMatmulScheduler {
       std::vector<MatmulDimRole>& merged_roles = all_merged_roles[i];
 
       // do split-K rFactor to define splitk_sum and smem_epilogue
-      TensorView* splitk_sum = mma_result;
       if (params_->splitk_factor != 1) {
-        splitk_sum = mma_result->rFactor({-4, -1});
+        TensorView* splitk_sum = mma_result->rFactor({-4, -1});
         std::swap(splitk_sum, mma_result);
         splitk_sums_.push_back(splitk_sum);
       }
@@ -1244,7 +1243,7 @@ class MultipleMatmulScheduler {
     // Now for each operand, we load from smem to registers and compute a
     // prologue (generally) in registers. We typically refer to the register
     // buffer that is loaded from operand A's smem buffer using ldmatrix as
-    // "acr". This is the beginning of the register epilogue region for that
+    // "acr". This is the beginning of the register prologue region for that
     // operand. The end of that region is the first input to the MmaOp
     // expression, which we typically refer to as "ab". There is some special
     // handling of acr but otherwise we schedule ab and propagate backward
@@ -1283,9 +1282,7 @@ class MultipleMatmulScheduler {
       for (TensorView* mma_input : mma_inputs) {
         // Schedule mma_input, since we know it has the broadcast dimension M or
         // N, whereas the smem read might not
-        if (isTuring(params_->mma_macro) || isAmpere(params_->mma_macro)) {
-          moveInnerBroadcastLeft(mma_input);
-        }
+        moveInnerBroadcastLeft(mma_input);
         mma_input->applyMmaSwizzle(operand_type);
         scheduler_utils::BoundedDirectionalTransformPropagator::backward(
             mma_input,

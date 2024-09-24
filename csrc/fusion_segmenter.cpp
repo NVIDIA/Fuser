@@ -4409,8 +4409,7 @@ std::unique_ptr<HeuristicParams> SegmentedFusion::makeInitialHeuristicParams(
     SchedulerRuntimeInfo& runtime_info) {
   // This will be the first time each group is scheduled. So we'd want to
   //  construct the cache data here.
-  auto heuristic_data_cache_ptr = std::make_unique<HeuristicDataCache>(
-      runtime_info.fusion(), sg->schedulerType(), runtime_info);
+  auto heuristic_data_cache_ptr = std::make_unique<HeuristicDataCache>();
   auto heuristic_data_cache = heuristic_data_cache_ptr.get();
   setCachedHeuristicDataFor(sg, std::move(heuristic_data_cache_ptr));
   return SchedulerEntry::makeSchedulerInstance(sg->schedulerType())
