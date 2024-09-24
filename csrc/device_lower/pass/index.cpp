@@ -1748,7 +1748,8 @@ static MmaInputSmemSwizzle getSwizzleMode(TensorView* tv) {
 // parallelized on Mma.
 ValGroup getInnerMmaLoopGroup(TensorView* tv, const MmaOp* mma) {
   ValGraph& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
-  auto alloc_domain = id_graph.toGroups(TensorDomain::noBroadcasts(tv->getMaybeAllocationDomain()));
+  auto alloc_domain = id_graph.toGroups(
+      TensorDomain::noBroadcasts(tv->getMaybeAllocationDomain()));
   auto loop_domain =
       id_graph.toGroups(mma->out()->as<TensorView>()->getLoopDomain());
 
@@ -1903,7 +1904,8 @@ Val* getOuterStride(TensorView* tv, const MmaOp* mma) {
   // and use proveLinearAndGetStride to find the stride of `linear` in the
   // allocation domain.
   constexpr int64_t core_matrix_outer_size = 8;
-  auto outer_of_tiling = split(&id_graph, selected, core_matrix_outer_size).first;
+  auto outer_of_tiling =
+      split(&id_graph, selected, core_matrix_outer_size).first;
   auto stride = lower_utils::proveLinearAndGetStride(
       id_graph, outer_of_tiling, alloc_domain);
   NVF_ERROR(stride != nullptr, "Could not get the stride of tiling");
