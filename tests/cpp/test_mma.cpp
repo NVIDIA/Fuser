@@ -1618,6 +1618,7 @@ TEST_P(HopperSS, MultipleTile) {
   fe.compileFusion(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
   auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  std::cout << cg_outputs[0] << std::endl;
   auto tref = atMatmul(
       inputs.first.squeeze().to(at::kFloat),
       inputs.second.squeeze().to(at::kFloat),
