@@ -1050,7 +1050,7 @@ class MultipleMatmulScheduler {
   // MmaOperand contains only A and B. If tvs are outputs (i.e. not operands),
   // then operand_type should be std::nullopt.
   void scheduleMmaResults() {
-    NVF_THROW("scheduleEpilogue is not yet implemented");
+    NVF_THROW("scheduleMmaResults is not yet implemented");
   }
 
   void schedulePrologues() {
