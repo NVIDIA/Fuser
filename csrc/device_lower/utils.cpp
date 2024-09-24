@@ -1767,7 +1767,7 @@ PartOf<Projection> trimRedundant(const PartOf<Projection>& part) {
 
   Val* what_extent = nullptr;
   int64_t count = 0;
-  while (count < dq.size()) {
+  while (count < (int64_t)dq.size()) {
     count++;
     const auto& item = dq.at(dq.size() - count);
     what_extent = SimplifyingIrBuilder::mulExpr(what_extent, extent(item));
@@ -1776,7 +1776,7 @@ PartOf<Projection> trimRedundant(const PartOf<Projection>& part) {
       break;
     }
   }
-  while (count < dq.size()) {
+  while (count < (int64_t)dq.size()) {
     dq.pop_front();
   }
   NVF_ERROR(!dq.empty());
