@@ -45,6 +45,6 @@ class DebugStreamGuard {
 
 //! This is just a short alias to avoid having to type
 //! DebugStreamGuard::getCurStream() for each line we want to debug-print.
-NVF_API std::ostream& debug();
+NVF_API std::ostream& debug(bool only_first_local_rank = false);
 
 } // namespace nvfuser
