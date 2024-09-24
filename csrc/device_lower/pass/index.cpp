@@ -1884,7 +1884,7 @@ Val* getOuterStride(TensorView* tv, const MmaOp* mma) {
     return false;
   };
   ValGroup selected = nullptr;
-  for (int64_t i = 0; i < mma_groups.size(); ++i) {
+  for (int64_t i = 0; i < (int64_t)mma_groups.size(); ++i) {
     if (is_projected_to_concrete(i)) {
       NVF_ERROR(
           selected == nullptr,
