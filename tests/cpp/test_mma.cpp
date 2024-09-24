@@ -735,6 +735,7 @@ TEST_P(HopperRS, MultipleTile) {
   if (layout == MmaLayout::TT) {
     // [M, K, N] -> [M, N, K]
     tv2c->reorder({{-1, -2}});
+    tv2->reorder({{-1, -2}});
   }
 
   {
