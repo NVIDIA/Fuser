@@ -1768,13 +1768,15 @@ ValGroup getInnerMmaLoopGroup(TensorView* tv, const MmaOp* mma) {
       "Matmul with all broadcasting dimension is not supported yet.");
 
   auto exprs =
-      ValGraphBFS::getExprsBetween(id_graph, alloc_domain, loop_domain);
-  for (const auto& [expr, direction] : exprs) {
+      ValGraphBFS::getExprsBetween(id_graph, loop_domain, alloc_domain);
+  while (!exprs.empty()) {
+    auto [expr, direction] = exprs.back();
+    exprs.pop_back();
     auto from =
-        (direction == Direction::Forward ? id_graph.inputGroups(expr)
+        (direction == Direction::Backward ? id_graph.inputGroups(expr)
                                          : id_graph.outputGroups(expr));
     auto to =
-        (direction == Direction::Forward ? id_graph.outputGroups(expr)
+        (direction == Direction::Backward ? id_graph.outputGroups(expr)
                                          : id_graph.inputGroups(expr));
     bool in_from = std::find(from.begin(), from.end(), inner) != from.end();
     if (!in_from) {
