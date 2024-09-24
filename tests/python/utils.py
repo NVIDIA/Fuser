@@ -12,7 +12,7 @@ import torch
 # flake8 complains about DataType being unused in this file but it is necessary
 # to run captured fusion definition.
 # flake8: noqa
-from nvfuser import FusionCache, FusionDefinition, DataType
+from nvfuser import FusionCache, FusionDefinition, DataType, clone
 
 from torch.testing._internal.common_utils import TestCase
 
@@ -77,7 +77,8 @@ def check_captured_python_definition(reference_outputs, fd, inputs, device=None)
 def check_cpp_translation(reference_outputs, fd, inputs, device=None):
     try:
         torch.manual_seed(0)
-        cloned_fd = fd.clone()
+        cloned_fd = FusionDefinition()
+        clone(fd, cloned_fd)
         cloned_fd.segment(inputs)
         cloned_outputs = cloned_fd.execute(inputs, device=device)
 

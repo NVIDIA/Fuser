@@ -648,14 +648,6 @@ std::vector<std::pair<double, double>> FusionDefinition::getValTolerances(
   return get_val_constants(preschedFusion(), inputs);
 }
 
-void FusionDefinition::clone(FusionDefinition& other) {
-  NVF_CHECK(completed(), "FusionDefinition definition does not exist!");
-  NVF_ERROR(
-      !other.completed(),
-      "Expected an incomplete definition before translation.");
-  translate(preschedFusion(), &other);
-}
-
 void FusionDefinition::prepareGroupOrder() {
   NVF_ERROR(segmented_fusion_ != nullptr);
 

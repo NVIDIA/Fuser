@@ -54,11 +54,6 @@ class FusionDefinition(_C._FusionDefinition):
         super(FusionDefinition, self).__init__(id, max_length)
         self.profiled = False
 
-    def clone(self):
-        new_fd = FusionDefinition()
-        self._clone(new_fd)
-        return new_fd
-
     def segment(self, inputs):
         num_segments = self._setup_segmentation(inputs)
         if num_segments == 1:
