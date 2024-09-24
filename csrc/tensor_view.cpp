@@ -219,8 +219,23 @@ int64_t getConsumerPosAlignedToProducerCA(
 
   int64_t consumer_pos = consumer->nDims();
 
-  if (lower_utils::hasRootToLoopLinearTransformations(consumer) &&
-      lower_utils::hasRootToLoopLinearTransformations(producer)) {
+  const bool may_need_forwarding =
+      lower_utils::hasRootToLoopLinearTransformations(producer) &&
+      !ir_utils::compareDomains(
+           producer->getLoopDomain(),
+           producer->getLogicalDomain(),
+           /*additional_ids=*/{},
+           /*ignore_broadcast=*/false)
+           .dom0_has_unreachable_ids &&
+      lower_utils::hasRootToLoopLinearTransformations(consumer) &&
+      !ir_utils::compareDomains(
+           consumer->getLoopDomain(),
+           consumer->getLogicalDomain(),
+           /*additional_ids=*/{},
+           /*ignore_broadcast=*/false)
+           .dom0_has_unreachable_ids;
+
+  if (may_need_forwarding) {
     auto disjoint_sets = BestEffortReplay::replayPasC(
                              producer,
                              consumer,
@@ -233,7 +248,7 @@ int64_t getConsumerPosAlignedToProducerCA(
 
     while (consumer_pos > 0) {
       auto consumer_id = consumer->axis(consumer_pos - 1);
-      auto p_dom = producer->getLoopDomain();
+      const auto& p_dom = producer->getLoopDomain();
       if (std::any_of(
               p_dom.begin(),
               p_dom.begin() + producer_pos,
@@ -246,12 +261,12 @@ int64_t getConsumerPosAlignedToProducerCA(
     }
   } else {
     IdModel id_model({consumer->definition()}, {}, false);
-    id_model.buildExactGraph();
-    const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+    id_model.buildBroadcastGraph();
+    const auto& exact_graph = id_model.idGraph(IdMappingMode::BROADCAST);
 
     while (consumer_pos > 0) {
       auto consumer_id = consumer->axis(consumer_pos - 1);
-      auto p_dom = producer->getLoopDomain();
+      const auto& p_dom = producer->getLoopDomain();
       if (std::any_of(
               p_dom.begin(),
               p_dom.begin() + producer_pos,

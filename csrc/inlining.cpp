@@ -67,6 +67,16 @@ void MaxPosCalculator::buildUnmappableDims(bool compute_at_only) {
   }
 }
 
+const ValGraph& MaxPosCalculator::inliningGraph() {
+  if (id_model_.get() == nullptr) {
+    id_model_ = std::make_unique<IdModel>(
+        FusionGuard::getCurFusion(), /*build_graphs=*/false);
+    id_model_->buildBroadcastGraph();
+  }
+
+  return id_model_->idGraph(IdMappingMode::BROADCAST);
+}
+
 bool MaxPosCalculator::isAllowedID(
     IterDomain* id,
     TensorView* tv,
@@ -148,12 +158,46 @@ size_t MaxPosCalculator::getMaxPosSelf(
 size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
     TensorView* producer,
     TensorView* consumer,
-    bool best_effort) const {
-  std::cerr << "getMaxProducerPosFromConsumer: " << producer->toString() << ", "
-            << consumer->toString() << "\n";
+    bool best_effort) {
+  // Here, we have two methods to analayze inlining positions. One is
+  // the legacy BestEffortReplay-based one that allow forwarding of
+  // broadcast domains. This is the default method when both the
+  // producer and consumer tensors have loop domains that are derived
+  // from logical domains.
+  //
+  // When either of the two tensors has non-conventional loop domains
+  // through TensorView::setLoopDomain, IdModel-based analysis is
+  // required. At this moment, the IdModel-based analysis does not
+  // implement the broadcast forwarding, and therefore inlining of
+  // broadcast-merged domains does not work with this approach. In
+  // fact, it is likely we don't implement the forwarding with this
+  // approach as it may not be necessary.
+  //
+  // At this moment, in order to keep the existing behavior as is and
+  // at the same time allow inlinig with explicitly set loop domains,
+  // the legacy method is used whenever both the producer and consumer
+  // have loop domains that are derived from their logical domains
+  // with no redundancy. Otherwise, the IdModel-based method is used.
 
-  if (lower_utils::hasRootToLoopLinearTransformations(producer) &&
-      lower_utils::hasRootToLoopLinearTransformations(consumer)) {
+  // TODO: Consider caching these properties in TensorView as they
+  // could only change with setLoopDomain
+  const bool may_need_forwarding =
+      lower_utils::hasRootToLoopLinearTransformations(producer) &&
+      !ir_utils::compareDomains(
+           producer->getLoopDomain(),
+           producer->getLogicalDomain(),
+           /*additional_ids=*/{},
+           /*ignore_broadcast=*/false)
+           .dom0_has_unreachable_ids &&
+      lower_utils::hasRootToLoopLinearTransformations(consumer) &&
+      !ir_utils::compareDomains(
+           consumer->getLoopDomain(),
+           consumer->getLogicalDomain(),
+           /*additional_ids=*/{},
+           /*ignore_broadcast=*/false)
+           .dom0_has_unreachable_ids;
+
+  if (may_need_forwarding) {
     auto pairwise_logical_map = PairwiseLogicalDomainMap(producer, consumer);
     auto replay_CasP = BestEffortReplay::replayCasP(
         consumer, producer, -1, pairwise_logical_map);
@@ -177,28 +221,30 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
     }
     return producer->nDims();
   } else {
-    std::cerr << "Nonconventional loop domains: " << producer->toString()
-              << ", " << consumer->toString() << "\n";
-    NVF_ERROR(id_model_.get() != nullptr);
-    const auto& exact_graph = id_model_->idGraph(IdMappingMode::EXACT);
+    auto consumer_it = consumer->getLoopDomain().begin();
     for (const auto producer_pos : c10::irange(producer->nDims())) {
       auto p_id = producer->getLoopDomain().at(producer_pos);
-      auto c_id_it = std::find_if(
-          consumer->getLoopDomain().begin(),
-          consumer->getLoopDomain().end(),
-          [&](IterDomain* c_id) -> bool {
-            return exact_graph.disjointValSets().strictAreMapped(p_id, c_id);
-          });
-      if (c_id_it == consumer->getLoopDomain().end()) {
-        std::cerr << "No matching consumer id found: " << p_id->toString()
-                  << "\n";
+      // When p_id is a reduction, skip and continue to the next
+      // position. Since a producer reduction domain is never allowed
+      // to be inlined, it may make more sense to stop the analysis
+      // here. For now, just follow the same logic as
+      // getMatchedLeafPosWithoutReplayCasP, which simply skips
+      // reduction domains.
+      if (p_id->isReduction()) {
+        continue;
+      }
+
+      if (consumer_it == consumer->getLoopDomain().end()) {
         return producer_pos;
       }
 
-      IterDomain* c_id = *c_id_it;
-      if (!isAllowedID(c_id, consumer, best_effort, true, false, true)) {
+      IterDomain* c_id = *consumer_it;
+      if (!inliningGraph().disjointValSets().strictAreMapped(p_id, c_id) ||
+          !isAllowedID(c_id, consumer, best_effort, true, false, true)) {
         return producer_pos;
       }
+
+      ++consumer_it;
     }
 
     return producer->nDims();

@@ -32,6 +32,10 @@ class MaxPosCalculator {
   // map to all its consumer TVs.
   void buildUnmappableDims(bool compute_at_only);
 
+  // Get the IdModel graph for inlining analysis (i.e., the Broadcast
+  // graph). The graph is lazily created.
+  const ValGraph& inliningGraph();
+
  public:
   // Utility function to return if an id of tv is a valid iter domain to inline
   // within. This is used in getMaxPos{PasC,CasP}. Different variations of the
@@ -58,7 +62,7 @@ class MaxPosCalculator {
   size_t getMaxProducerPosFromConsumer(
       TensorView* producer,
       TensorView* consumer,
-      bool best_effort) const;
+      bool best_effort);
 
   // Checks producers, consumers, and siblings to see what the maximum position
   // in tv is that can be shared across both directions.
