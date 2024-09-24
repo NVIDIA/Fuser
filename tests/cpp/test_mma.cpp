@@ -750,10 +750,17 @@ TEST_P(HopperRS, MultipleTile) {
     tv2c->axis(-3)->parallelize(ParallelType::Mma);
   }
   {
+    tv2->split(-3, getM(macro));
+    tv2->split(-2, getN(macro));
+    tv2->split(-1, getK(macro));
+    // [Mo, Mi, No, Ni, Ko, Ki] -> [Mo, No, Ko, Mi, Ni, Ki]
+    tv2->reorder({{-5, -3}, {-3, -2}});
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         tv2->getLoopDomain());
     tv2->setLoopDomain(s.as<IterDomain*>());
   }
+
+  inlineMost();
 
   auto inputs = matmulAtInput3DHopperRS(
       2 * getM(macro),
@@ -1580,6 +1587,11 @@ TEST_P(HopperSS, MultipleTile) {
     tv2c->axis(-3)->parallelize(ParallelType::Mma);
   }
   {
+    tv2->split(-3, getM(macro));
+    tv2->split(-2, getN(macro));
+    tv2->split(-1, getK(macro));
+    // [Mo, Mi, No, Ni, Ko, Ki] -> [Mo, No, Ko, Mi, Ni, Ki]
+    tv2->reorder({{-5, -3}, {-3, -2}});
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         tv2->getLoopDomain());
     tv2->setLoopDomain(s.as<IterDomain*>());
