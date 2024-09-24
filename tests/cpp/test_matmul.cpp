@@ -116,7 +116,8 @@ TEST_P(MatmulTestWithLayout, AmpereMatmul) {
   mparams.circular_buffer_options.circular_buffer_smem_write = true;
   mparams.circular_buffer_options.circular_buffer_smem_read = true;
   mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
-  scheduleMatmul(&fusion, &mparams);
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
 
   auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
@@ -167,7 +168,8 @@ TEST_P(MatmulTestWithLayout, AmperePrologueFusionBroadcast) {
   mparams.circular_buffer_options.circular_buffer_smem_write = true;
   mparams.circular_buffer_options.circular_buffer_smem_read = true;
   mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
-  scheduleMatmul(&fusion, &mparams);
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
 
   auto inputs = matmulAtInput2D(M, N, K, layout);
 
@@ -223,7 +225,8 @@ TEST_P(MatmulTestWithLayout, AmpereProloguePointwise) {
   mparams.circular_buffer_options.circular_buffer_smem_write = true;
   mparams.circular_buffer_options.circular_buffer_smem_read = true;
   mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
-  scheduleMatmul(&fusion, &mparams);
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
 
   auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
@@ -279,7 +282,8 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulBFloat16) {
   mparams.circular_buffer_options.circular_buffer_smem_write = true;
   mparams.circular_buffer_options.circular_buffer_smem_read = true;
   mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
-  scheduleMatmul(&fusion, &mparams);
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
 
   auto inputs = matmulAtInput3DTuring(M, N, K, layout, at::kBFloat16);
 
@@ -337,7 +341,8 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulPipelineGmem) {
     mparams.async_gmem_load_operands = true;
     mparams.circular_buffer_options.circular_buffer_smem_write = true;
     mparams.circular_buffer_options.smem_circular_buffer_stage = stage;
-    scheduleMatmul(&fusion, &mparams);
+    SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+        ->schedule(&fusion, &mparams);
 
     auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
@@ -410,7 +415,8 @@ TEST_P(MatmulTestWithLayout, AmpereSwizzle) {
     mparams.cta_order = order;
     mparams.grid_swizzle_factor = swizzle;
 
-    scheduleMatmul(&fusion, &mparams);
+    SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+        ->schedule(&fusion, &mparams);
 
     auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
@@ -539,7 +545,8 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulRegCircularBuffer) {
     mparams.circular_buffer_options.circular_buffer_smem_write = true;
     mparams.circular_buffer_options.smem_circular_buffer_stage = stage;
     mparams.circular_buffer_options.circular_buffer_smem_read = true;
-    scheduleMatmul(&fusion, &mparams);
+    SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+        ->schedule(&fusion, &mparams);
 
     auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
@@ -1259,7 +1266,8 @@ TEST_P(MatmulTestWithLayout, TuringMatmul) {
   mparams.supported_vec_size = {8, 8, 4};
   mparams.mma_macro = MmaMacro::Turing_16_8_16;
   mparams.tile_sizes = gemm_tile;
-  scheduleMatmul(&fusion, &mparams);
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
 
   auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
@@ -1974,7 +1982,8 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulLargeLoad) {
   mparams.circular_buffer_options.circular_buffer_smem_write = true;
   mparams.circular_buffer_options.circular_buffer_smem_read = true;
   mparams.circular_buffer_options.smem_circular_buffer_stage = 3;
-  scheduleMatmul(&fusion, &mparams);
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
 
   auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
@@ -2025,7 +2034,8 @@ TEST_P(MatmulTestWithLayout, TuringMatmulLargeLoad) {
   mparams.supported_vec_size = {8, 8, 4};
   mparams.mma_macro = MmaMacro::Turing_16_16_16;
   mparams.tile_sizes = gemm_tile;
-  scheduleMatmul(&fusion, &mparams);
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
 
   auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
@@ -2092,7 +2102,8 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulTileCheck4warp) {
               data_types,
               true,
               true);
-      scheduleMatmul(&fusion, &mparams);
+      SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+          ->schedule(&fusion, &mparams);
 
       auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
@@ -2168,7 +2179,8 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulTileCheck8warp) {
                 mparams.circular_buffer_options.smem_circular_buffer_stage,
                 data_types);
 
-        scheduleMatmul(&fusion, &mparams);
+        SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+            ->schedule(&fusion, &mparams);
 
         auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
@@ -2234,7 +2246,8 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulTileCheck6warp) {
             gemm_tile,
             mparams.circular_buffer_options.smem_circular_buffer_stage,
             data_types);
-    scheduleMatmul(&fusion, &mparams);
+    SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+        ->schedule(&fusion, &mparams);
 
     auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
@@ -2289,7 +2302,8 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulLargeLoadLargeK) {
   mparams.circular_buffer_options.circular_buffer_smem_write = true;
   mparams.circular_buffer_options.circular_buffer_smem_read = true;
   mparams.circular_buffer_options.smem_circular_buffer_stage = 3;
-  scheduleMatmul(&fusion, &mparams);
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
 
   auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
@@ -2341,7 +2355,8 @@ TEST_P(MatmulTestWithLayout, AmpereSplitKLikeStridedBatchedMatmul) {
   mparams.circular_buffer_options.circular_buffer_smem_write = true;
   mparams.circular_buffer_options.circular_buffer_smem_read = true;
   mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
-  scheduleMatmul(&fusion, &mparams);
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
 
   auto t0 = matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K, B);
   auto t1 = matmulAtInput2D(layout, TensorMatmulPos::B, at::kHalf, M, N, K, B);
@@ -2410,7 +2425,8 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulSmemEpilogue) {
             mparams.circular_buffer_options.smem_circular_buffer_stage,
             data_types,
             ignore_occupancy_drop);
-    scheduleMatmul(&fusion, &mparams);
+    SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+        ->schedule(&fusion, &mparams);
 
     // If use_smem_epilogue is true, there should be 3 shared memory tensors 2
     // for prologue and 1 for epilogue.
@@ -2561,7 +2577,8 @@ TEST_F(MatmulTest, AmpereMatmulSmemEpiloguePromotionRequiredA100) {
     ASSERT_TRUE(mparams.promote_prologue_smem_reuse);
   }
 
-  scheduleMatmul(&fusion, &mparams);
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
 
   // FusionExecutor::compileFusion would fail otherwise.
   SKIP_IF_INSUFFICIENT_SMEM(&mparams, data_types);
@@ -2644,7 +2661,8 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulSmemEpilogueCast) {
           mparams.circular_buffer_options.smem_circular_buffer_stage,
           data_types,
           ignore_occupancy_drop);
-  scheduleMatmul(&fusion, &mparams);
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
 
   // If use_smem_epilogue is true, there should be 3 shared memory tensors 2
   // for prologue and 1 for epilogue.
@@ -2737,7 +2755,8 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulSmemEpilogueRelu) {
           mparams.circular_buffer_options.smem_circular_buffer_stage,
           data_types,
           ignore_occupancy_drop);
-  scheduleMatmul(&fusion, &mparams);
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
 
   // If use_smem_epilogue is true, there should be 3 shared memory tensors 2
   // for prologue and 1 for epilogue.
@@ -2844,7 +2863,8 @@ TEST_P(MatmulTestWithLayout, FusionAmpereMatmulSplitK_CUDA) {
         mparams.promote_prologue_smem_reuse = true;
       }
 
-      scheduleMatmul(&fusion, &mparams);
+      SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+          ->schedule(&fusion, &mparams);
 
       auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
@@ -2907,7 +2927,8 @@ TEST_P(MatmulTestWithLayout, FusionAmpereMatmulSplitKBias_CUDA) {
       mparams.use_smem_epilogue = use_smem_epilogue;
       mparams.promote_prologue_smem_reuse = true;
 
-      scheduleMatmul(&fusion, &mparams);
+      SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+          ->schedule(&fusion, &mparams);
 
       auto [aten_a, aten_b] = matmulAtInput3DTuring(M, N, K, layout);
       at::Tensor aten_bias = at::randn({M}, aten_a.options());
@@ -2967,7 +2988,8 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulBatchSplitK) {
       mparams.use_smem_epilogue = use_smem_epilogue;
       mparams.promote_prologue_smem_reuse = true;
 
-      scheduleMatmul(&fusion, &mparams);
+      SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+          ->schedule(&fusion, &mparams);
 
       at::Tensor aten_a =
           matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K, B);
@@ -3033,7 +3055,8 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulBatchSplitKBias) {
       mparams.use_smem_epilogue = use_smem_epilogue;
       mparams.promote_prologue_smem_reuse = true;
 
-      scheduleMatmul(&fusion, &mparams);
+      SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+          ->schedule(&fusion, &mparams);
 
       at::Tensor aten_a =
           matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K, B);
@@ -3095,7 +3118,8 @@ TEST_F(MatmulTest, ReproIssue1808) {
   mparams.circular_buffer_options.circular_buffer_smem_write = true;
   mparams.circular_buffer_options.circular_buffer_smem_read = true;
   mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
-  scheduleMatmul(&fusion, &mparams);
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
 
   auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
@@ -3249,7 +3273,8 @@ TEST_P(MatmulTestWithLayout, MisalignedVectorization) {
         mparams.circular_buffer_options.smem_circular_buffer_stage =
             mparams.async_gmem_load_operands ? 4 : 2;
 
-        scheduleMatmul(fusion.get(), &mparams);
+        SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+            ->schedule(fusion.get(), &mparams);
 
         FusionExecutor fe;
         NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -3301,7 +3326,8 @@ TEST_F(MatmulTest, MultipleConsecutiveDims) {
   mparams.circular_buffer_options.circular_buffer_smem_write = true;
   mparams.circular_buffer_options.circular_buffer_smem_read = true;
   mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
-  scheduleMatmul(&fusion, &mparams);
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::Tensor A = at::randn({M1, M2, K}, options);
@@ -3364,7 +3390,8 @@ TEST_F(MatmulTest, DISABLED_MultipleNonConsecutiveMDims) {
   mparams.circular_buffer_options.circular_buffer_smem_write = true;
   mparams.circular_buffer_options.circular_buffer_smem_read = true;
   mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
-  scheduleMatmul(&fusion, &mparams);
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::Tensor A = at::randn({M1, K, M2}, options);
@@ -3427,7 +3454,8 @@ TEST_F(MatmulTest, DISABLED_MultipleNonConsecutiveNDims) {
   mparams.circular_buffer_options.circular_buffer_smem_write = true;
   mparams.circular_buffer_options.circular_buffer_smem_read = true;
   mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
-  scheduleMatmul(&fusion, &mparams);
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::Tensor A = at::randn({M, K}, options);
@@ -3482,7 +3510,8 @@ TEST_F(MatmulTest, MultipleMDimsBatch) {
   mparams.circular_buffer_options.circular_buffer_smem_write = true;
   mparams.circular_buffer_options.circular_buffer_smem_read = true;
   mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
-  scheduleMatmul(&fusion, &mparams);
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::Tensor A = at::randn({M1, Batch, M2, K}, options);

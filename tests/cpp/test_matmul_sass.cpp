@@ -93,10 +93,11 @@ sass::Container getSASSFor(
       smem_circular_buffer_stage;
   mparams.use_smem_epilogue = use_smem_epilogue;
   mparams.promote_prologue_smem_reuse = promote_prologue_smem_reuse;
-  scheduleMatmul(&fusion, &mparams);
 
   auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
   FusionExecutor fe;
   fe.compileFusion(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
@@ -153,7 +154,8 @@ sass::Container getBinaryOpMulEpilogueSASSFor(
   mparams.circular_buffer_options.circular_buffer_smem_write = true;
   mparams.circular_buffer_options.circular_buffer_smem_read = true;
   mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
-  scheduleMatmul(&fusion, &mparams);
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
 
   at::manual_seed(0);
   auto inputs = matmulAtInput3DTuring(M, N, K, layout);
