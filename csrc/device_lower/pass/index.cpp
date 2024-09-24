@@ -2030,6 +2030,7 @@ void IndexLowering::handle(const MmaOp* mma) {
       // tnspA and tnspB is ignored for NoSwizzle mode
       std::swap(leading_bytes, stride_bytes);
     }
+    leading_bytes = IrBuilder::create<Val>(262143, DataType::Index);
     std::cout << "leading_bytes: " << leading_bytes->toInlineString() << std::endl;
     std::cout << "stride_bytes: " << stride_bytes->toInlineString() << std::endl;
     auto matrix_desc = constructMatrixDescriptor(
