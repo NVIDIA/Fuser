@@ -24,16 +24,11 @@ class ComputeType(Enum):
 
 
 # This benchmark is instrumented with cudaProfilerStart/Stop. Therefore, one
-# can collect stats of a non-warmup benchmark iteration using
+# can collect stats of the first few non-warmup benchmark iterations using
 #
 # ```bash
-# mpirun -np <processes> nsys profile --capture-range=cudaProfilerApi --capture-range-end=stop pytest tests/python/test_transformer_engine.py -k <filter> --only-mpi
+# mpirun -np <processes> nsys profile --capture-range=cudaProfilerApi --capture-range-end=repeat:<iterations> pytest tests/python/test_transformer_engine.py -k <filter> --only-mpi
 # ```
-#
-# Because of `--capture-range-end=stop`, the above command only profiles the
-# **first** iteration. This should be enough because timing changes very little
-# between iterations. One could specify `repeat:N` instead to capture multiple
-# iterations.
 @pytest.mark.mpi
 @pytest.mark.parametrize(
     "compute_type",
