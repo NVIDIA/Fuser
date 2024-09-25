@@ -21,170 +21,6 @@ constexpr int64_t B = 1, E = 12288, H = 96, S = 2048;
 constexpr double kDropoutProb = 0.1, kParamScale = 0.02, kSdpaProb = 0.1;
 constexpr int64_t warmup_itrs = 10, num_itrs = 10;
 
-std::vector<at::Tensor> reference_mlp(
-    at::Tensor x,
-    at::Tensor w0,
-    at::Tensor b0,
-    at::Tensor w1,
-    at::Tensor b1) {
-  auto at_dtype = w0.dtype();
-  auto linear0 = at::matmul(x, w0).to(at::kFloat) + b0;
-  auto gelu = at::gelu(linear0, "tanh").to(at_dtype);
-  auto linear1 = at::matmul(gelu, w1).to(at::kFloat) + b1;
-  auto [dropout, mask] = at::native_dropout(linear1, kDropoutProb, true);
-  return {linear0, gelu, linear1, dropout, mask};
-}
-
-std::vector<at::Tensor> reference_mha(
-    at::Tensor x,
-    at::Tensor w0,
-    at::Tensor b0,
-    at::Tensor w1,
-    at::Tensor b1) {
-  auto at_dtype = w0.dtype();
-  auto linear0 = (at::matmul(x, w0).to(at::kFloat) + b0).view({B, S, 3 * E});
-  auto qkv = linear0.split(E, 2);
-  for (auto i = 0; i < 3; i++) {
-    qkv[i] = qkv[i].reshape({B, S, H, E / H}).transpose(1, 2).to(at_dtype);
-  }
-  auto sdpa_out = at::_scaled_dot_product_flash_attention(
-      qkv[0], qkv[1], qkv[2], kSdpaProb, true, false);
-  auto sdpa = std::get<0>(sdpa_out);
-  // Reassemble heads (B, H, S, E/H) to (B, S, H, E/H) to (B, S, E)
-  auto y = sdpa.transpose(1, 2).reshape({B * S, E});
-  auto linear1 = at::matmul(y, w1).to(at::kFloat) + b1;
-  auto [dropout, mask] =
-      at::native_dropout(linear1.to(at::kFloat), kDropoutProb, true);
-  return {linear0, sdpa, linear1, dropout, mask};
-}
-
-std::vector<at::Tensor> reference_mlp_backwards(
-    at::Tensor grad,
-    at::Tensor x,
-    at::Tensor mask,
-    at::Tensor w0,
-    at::Tensor b0,
-    at::Tensor w1) {
-  auto at_dtype = w0.dtype();
-  // recompute activations
-  auto linear0 = at::matmul(x, w0).to(at::kFloat) + b0;
-  auto gelu = at::gelu(linear0, "tanh");
-
-  // backwards pass
-  auto dropout_grad =
-      at::native_dropout_backward(grad, mask, 1.0 / (1.0 - kDropoutProb));
-  auto dropout_grad_q = dropout_grad.to(at_dtype);
-  auto matmul1_grad = at::matmul(dropout_grad_q, w1.transpose(0, 1));
-  auto matmul1_grad_w =
-      at::matmul(dropout_grad_q.transpose(0, 1), gelu.to(at_dtype))
-          .transpose(0, 1);
-  auto matmul1_grad_b = at::sum(dropout_grad, {0});
-  auto gelu_grad =
-      at::gelu_backward(matmul1_grad.to(at::kFloat), linear0, "tanh");
-  auto gelu_grad_q = gelu_grad.to(at_dtype);
-  auto matmul0_grad_b = at::sum(gelu_grad, {0});
-  auto matmul0_grad = at::matmul(gelu_grad_q, w0.transpose(0, 1));
-  auto matmul0_grad_w =
-      at::matmul(gelu_grad_q.transpose(0, 1), x).transpose(0, 1);
-
-  std::vector<at::Tensor> grads = {
-      dropout_grad,
-      matmul1_grad_w,
-      matmul1_grad_b,
-      gelu_grad,
-      matmul0_grad_w,
-      matmul0_grad_b,
-      matmul0_grad};
-  return grads;
-}
-
-std::vector<at::Tensor> reference_mha_backwards(
-    at::Tensor y_grad,
-    at::Tensor x,
-    at::Tensor mask,
-    at::Tensor w0,
-    at::Tensor b0,
-    at::Tensor w1) {
-  auto at_dtype = w0.dtype();
-  // recompute up to sdpa
-  auto linear0 = (at::matmul(x, w0).to(at::kFloat) + b0).view({B, S, 3 * E});
-  auto qkv = linear0.split(E, /*dim=*/-1);
-  for (auto i = 0; i < 3; i++) {
-    qkv[i] = qkv[i].reshape({B, S, H, E / H}).transpose(1, 2).to(at_dtype);
-  }
-  auto
-      [sdpa_output,
-       log_sumexp,
-       cum_seq_q,
-       cum_seq_k,
-       query_seq_len,
-       key_seq_len,
-       philox_seed,
-       philox_offset,
-       debug_attn_mask] =
-          at::_scaled_dot_product_flash_attention(
-              qkv[0],
-              qkv[1],
-              qkv[2],
-              /*dropout_p=*/kSdpaProb,
-              /*is_causal=*/true,
-              /*return_debug_mask=*/false);
-
-  // backwards pass
-  auto dropout_grad =
-      at::native_dropout_backward(y_grad, mask, 1.0 / (1.0 - kDropoutProb));
-  auto dropout_grad_q = dropout_grad.to(at_dtype);
-  auto linear1_x_grad = at::matmul(dropout_grad_q, w1.transpose(0, 1));
-  auto sdpa_output_reshape = sdpa_output.transpose(1, 2).view({B * S, E});
-  auto linear1_w_grad =
-      at::matmul(dropout_grad_q.transpose(0, 1), sdpa_output_reshape)
-          .transpose(0, 1);
-  auto linear1_b_grad = at::sum(dropout_grad, {0});
-
-  auto [q_grad, k_grad, v_grad] =
-      at::_scaled_dot_product_flash_attention_backward(
-          linear1_x_grad.view({B, S, H, E / H}).transpose(1, 2),
-          qkv[0],
-          qkv[1],
-          qkv[2],
-          sdpa_output,
-          log_sumexp,
-          cum_seq_q,
-          cum_seq_k,
-          /*max_q=*/*query_seq_len.maybe_as_int(),
-          /*max_k=*/*key_seq_len.maybe_as_int(),
-          /*dropout_p=*/kSdpaProb,
-          /*is_causal=*/true,
-          philox_seed,
-          philox_offset);
-  auto qkv_grad = at::cat(
-      {q_grad.transpose(1, 2).view({B * S, E}),
-       k_grad.transpose(1, 2).view({B * S, E}),
-       v_grad.transpose(1, 2).view({B * S, E})},
-      -1);
-  auto linear0_b_grad = at::sum(qkv_grad.to(at::kFloat), {0});
-  auto linear0_x_grad = at::matmul(qkv_grad, w0.transpose(0, 1));
-  auto linear0_w_grad = at::matmul(qkv_grad.transpose(0, 1), x).transpose(0, 1);
-
-  // Note: sdpa_output, sdpa_logsumexp are saved for the backwards pass
-  // and become inputs to the nvfuser mha backwards pass
-  std::vector<at::Tensor> tensors = {
-      sdpa_output,
-      log_sumexp,
-      philox_seed,
-      philox_offset,
-      dropout_grad,
-      linear1_w_grad,
-      linear1_b_grad,
-      q_grad,
-      k_grad,
-      v_grad,
-      linear0_w_grad,
-      linear0_b_grad,
-      linear0_x_grad};
-  return tensors;
-}
-
 std::vector<TensorView*> mlp(
     TensorView* x,
     TensorView* w0,
@@ -635,27 +471,6 @@ void forward_transformer(Communicator* communicator_, bool profile) {
   auto mlp_w1_ = at::randn({4 * E, E}, options) * kParamScale;
   auto mlp_b1_ = at::randn({E}, options) * kParamScale;
 
-  at::manual_seed(getATenRandomSeed());
-  auto ln_1_ = at::native_layer_norm(
-      x_, norm_shape, /*weight=*/std::nullopt, /*bias=*/std::nullopt, kEps);
-  auto ln_1_out_ = std::get<0>(ln_1_);
-
-  auto mha_out_ = reference_mha(
-      ln_1_out_.to(at_dtype), mha_w0_, mha_b0_, mha_w1_, mha_b1_)[3];
-
-  auto resid1_ = mha_out_ + x_;
-  auto ln_2_ = at::native_layer_norm(
-      resid1_,
-      norm_shape,
-      /*weight=*/std::nullopt,
-      /*bias=*/std::nullopt,
-      kEps);
-  auto ln_2_out_ = std::get<0>(ln_2_);
-
-  auto mlp_out_ = reference_mlp(
-      ln_2_out_.to(at_dtype), mlp_w0_, mlp_b0_, mlp_w1_, mlp_b1_)[3];
-  auto at_out = resid1_ + mlp_out_;
-
   std::vector<c10::IValue> inputs = {
       x_,
       shardTensor(mha_w0_.view({E, 3, E}), 2, mesh, communicator_).view({1, E, 3 * E / D}),
@@ -667,27 +482,28 @@ void forward_transformer(Communicator* communicator_, bool profile) {
       shardTensor(mlp_w1_, 0, mesh, communicator_),
       mlp_b1_};
 
-  // std::vector<at::Tensor> expected_outputs = {
-  //     ln_1_out_, mha_out_, ln_2_out_, mlp_out_, at_out};
-
   // Warm-up
-  cudaSetDevice(communicator_->deviceId());
   FusionExecutorCache fec(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
 
-  if (profile) {
-    cudaProfilerStart();
-  }
+  cudaSetDevice(communicator_->deviceId());
+
   auto start = std::chrono::high_resolution_clock::now();
   for (auto i : c10::irange(num_itrs + warmup_itrs)) {
     if (i > warmup_itrs && profile) {
-      nvtxRangePush("Iteration");
+      nvtxRangePush(("Iteration" + std::to_string(i)).c_str());
     }
     if (i == warmup_itrs) {
       start = std::chrono::high_resolution_clock::now();
+      if (profile) {
+        cudaProfilerStart();
+      }
     }
     auto outputs = fec.runFusionWithInputs(inputs);
     cudaDeviceSynchronize();
+    // cudaDeviceSynchronize is not blocking until kernels are finished on all devices except 0
+    // TODO: are we not waiting until all kernels are appended to the stream?
+    std::cout << outputs[4][0][0] << std::endl; 
 
     if (i > warmup_itrs && profile) {
       nvtxRangePop();
