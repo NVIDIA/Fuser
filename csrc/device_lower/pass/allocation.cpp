@@ -575,14 +575,6 @@ class AllocationInserter : public kir::ExprMutator {
         GpuLower::current()
             ->tmaCircularBufferInfo()
             .ldst_mbarrier_token_map[mbarrier_inval] = mbarrier_tokens;
-        // Keep track of kir::Allocate for mBarrier and token objects,
-        //  to simplify circular buffering pass logic
-        GpuLower::current()
-            ->tmaCircularBufferInfo()
-            .mbarrier_token_smem_alloc_set.insert(mbarrier_alloc);
-        GpuLower::current()
-            ->tmaCircularBufferInfo()
-            .mbarrier_token_smem_alloc_set.insert(mbarrier_tokens_alloc);
       } else {
         // create and allocate a memory barrier
         TensorView* mbarrier = TensorViewBuilder()

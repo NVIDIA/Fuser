@@ -397,24 +397,6 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
                                      ->tmaCircularBufferInfo()
                                      .ldst_mbarrier_token_map.count(expr) != 0;
 
-    bool is_ignorable_tma_smem_alloc =
-        (GpuLower::current()
-             ->tmaCircularBufferInfo()
-             .mbarrier_token_smem_alloc_set.count(expr) != 0);
-
-    bool is_ignorable_mbarrier_init =
-        (expr->isA<kir::MBarrierInit>() && mbarrier_token_exists);
-
-    bool is_ignorable_mbarrier_inval =
-        (expr->isA<kir::MBarrierInvalidate>() && mbarrier_token_exists);
-
-    // Short-Circuit: skip shared memory allocation, mbarrier initialize and
-    // mbarrier invalidate
-    if (is_ignorable_tma_smem_alloc || is_ignorable_mbarrier_init ||
-        is_ignorable_mbarrier_inval) {
-      return;
-    }
-
     // Short-Circuit
     switch (loop_type_) {
       case CircularBufferLoopStage::Prolog: {
