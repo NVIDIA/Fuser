@@ -797,64 +797,6 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
   Val* current_load_stage_ = nullptr;
 };
 
-// This visitor class gathers the shared memory allocations for tokens and
-// mbarrier objects.
-class GatherMBarrierAllocations : public kir::IrVisitor {
- public:
-  static std::vector<Expr*> create(ForLoop* circular_buffer_loop) {
-    return GatherMBarrierAllocations().run(circular_buffer_loop);
-  }
-
- private:
-  GatherMBarrierAllocations() = default;
-
-  using kir::IrVisitor::handle;
-
-  std::vector<Expr*> run(ForLoop* circular_buffer_loop) {
-    handle(circular_buffer_loop);
-    return mbarrier_smem_allocations_;
-  }
-
-  void handle(ForLoop* fl) final {
-    kir::IrVisitor::handle(fl);
-  }
-
-  void handle(kir::IfThenElse* ite) final {
-    NVF_ERROR(false, "No IfThenElse should exist yet");
-  }
-
-  void dispatch(Expr* expr) final {
-    if (expr->isA<ForLoop>() || expr->isA<kir::IfThenElse>()) {
-      kir::IrVisitor::dispatch(expr);
-      return;
-    }
-
-    // Short-Circuit: Handle only allocate nodes
-    if (!expr->isA<kir::Allocate>()) {
-      return;
-    }
-
-    // Short-Circuit: Handle shared memory allocations
-    kir::Allocate* alloc = expr->as<kir::Allocate>();
-    if (alloc->memoryType() != MemoryType::Shared) {
-      return;
-    }
-
-    // Short-Circuit: Handle shared memory allocations for mbarrier
-    if (GpuLower::current()
-            ->tmaCircularBufferInfo()
-            .mbarrier_token_smem_alloc_set.count(alloc) == 0) {
-      return;
-    }
-
-    // Add shared memory allocations for mbarrier and mbarrier tokens
-    mbarrier_smem_allocations_.push_back(expr);
-  }
-
- private:
-  std::vector<Expr*> mbarrier_smem_allocations_;
-};
-
 // This function creates kir::Loop with range based on stage depth. It is
 // used for mbarrier initialization and invalidation.
 ForLoop* createStageDepthForLoop(ForLoop* circular_buffer_loop) {
@@ -1150,12 +1092,6 @@ class CircularBufferInserter : private kir::ExprMutator {
     // Pre-prologue loop:
     // - Allocate shared memory for mbarriers and mbarrier tokens
     // - Initialize mbarrier for all stages
-    std::vector<Expr*> smem_allocations =
-        GatherMBarrierAllocations::create(circular_buffer_loop);
-    for (Expr* expr : smem_allocations) {
-      registerInsertBefore(circular_buffer_loop, expr);
-    }
-
     kir::IfThenElse* pre_prologue_init = createCpAsyncBulkFixtures(
         circular_buffer_loop, loads, /*is_pre_prologue_stage=*/true);
     NVF_ERROR(pre_prologue_init != nullptr);
