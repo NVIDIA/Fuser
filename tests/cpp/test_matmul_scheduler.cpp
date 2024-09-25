@@ -2689,11 +2689,16 @@ TEST_P(MatmulFusionTest, Llama2FFN) {
   const FusionKernelRuntime* runtime =
       executor_cache.getMostRecentKernelRuntime();
 
-  EXPECT_TRUE(runtime->isSegmented());
-
   if (fusion_enabled) {
-    EXPECT_EQ(runtime->fusionSegments()->groups().size(), 2);
+    if (isOptionEnabled(EnableOption::FuseMultipleMatmuls)) {
+      EXPECT_FALSE(runtime->isSegmented());
+      EXPECT_EQ(runtime->fusionSegments()->groups().size(), 1);
+    } else {
+      EXPECT_TRUE(runtime->isSegmented());
+      EXPECT_EQ(runtime->fusionSegments()->groups().size(), 2);
+    }
   } else {
+    EXPECT_TRUE(runtime->isSegmented());
     EXPECT_EQ(runtime->fusionSegments()->groups().size(), 3);
   }
 }

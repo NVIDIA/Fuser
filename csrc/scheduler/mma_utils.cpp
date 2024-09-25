@@ -44,6 +44,39 @@ inline mma_utils::MmaDataTypes getMmaDataTypes(
 }
 
 //! Return sizes of smem_a, smem_b, smem_c in bytes
+std::vector<
+    std::
+        tuple<std::vector<int64_t>, std::vector<int64_t>, std::vector<int64_t>>>
+computeSharedMemorySizes(
+    const MatmulFusionTopology& topology,
+    const MatMulTileOptions& gemm_tile,
+    const MatmulParams::CircularBufferOptions& circular_buffer_options,
+    const MmaDataTypes& data_types) {
+  const auto properties = at::cuda::getCurrentDeviceProperties();
+
+  auto warp_dims = gemm_tile.cta_tile / gemm_tile.warp_tile;
+
+  int64_t ab_factor = circular_buffer_options.circular_buffer_smem_write
+      ? circular_buffer_options.smem_circular_buffer_stage
+      : 1;
+
+  // see scheduleContiguousVectorLoad
+  const int64_t vector_word = 8;
+  const int64_t round_to_factor = warp_dims.m * warp_dims.n * warp_dims.k *
+      properties->warpSize * vector_word;
+  const int64_t mk = gemm_tile.cta_tile.m * gemm_tile.cta_tile.k;
+  const int64_t nk = gemm_tile.cta_tile.n * gemm_tile.cta_tile.k;
+  const int64_t smem_a = ceilDiv(mk, round_to_factor) * round_to_factor *
+      ab_factor * dataTypeSize(data_types[0]);
+  const int64_t smem_b = ceilDiv(nk, round_to_factor) * round_to_factor *
+      ab_factor * dataTypeSize(data_types[1]);
+  const int64_t smem_c =
+      gemm_tile.cta_tile.m * gemm_tile.cta_tile.n * dataTypeSize(data_types[2]);
+
+  return {{{smem_a}, {smem_b}, {smem_c}}};
+}
+
+//! Return sizes of smem_a, smem_b, smem_c in bytes
 std::tuple<int64_t, int64_t, int64_t> computeSharedMemorySizes(
     const MatMulTileOptions& gemm_tile,
     const MatmulParams::CircularBufferOptions& circular_buffer_options,
