@@ -1200,7 +1200,7 @@ class CircularBufferInserter : private kir::ExprMutator {
 
 } // namespace
 
-std::pair<ForLoop*, Expr*> initializeMbarrier(
+std::pair<ForLoop*, kir::MBarrierInit*> initializeMbarrier(
     ForLoop* circular_buffer_loop,
     LoadStoreOp* ldst,
     TensorView* all_mbarriers) {
@@ -1231,14 +1231,11 @@ std::pair<ForLoop*, Expr*> initializeMbarrier(
   kir::MBarrierInit* mbarrier_init =
       IrBuilder::create<kir::MBarrierInit>(stage_mbarrier, all_threads_in_cta);
 
-  Expr* pred_mbarrier_init = mbarrier_init->withPredicate(
-      IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
-
-  loop->body().push_back(pred_mbarrier_init);
-  return {loop, pred_mbarrier_init};
+  loop->body().push_back(mbarrier_init);
+  return {loop, mbarrier_init};
 }
 
-std::pair<ForLoop*, Expr*> invalidateMbarrier(
+std::pair<ForLoop*, kir::MBarrierInvalidate*> invalidateMbarrier(
     ForLoop* circular_buffer_loop,
     LoadStoreOp* ldst,
     TensorView* all_mbarriers) {
@@ -1254,11 +1251,8 @@ std::pair<ForLoop*, Expr*> invalidateMbarrier(
   kir::MBarrierInvalidate* mbarrier_inval =
       IrBuilder::create<kir::MBarrierInvalidate>(stage_mbarrier);
 
-  Expr* pred_mbarrier_inval = mbarrier_inval->withPredicate(
-      IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
-
-  loop->body().push_back(pred_mbarrier_inval);
-  return {loop, pred_mbarrier_inval};
+  loop->body().push_back(mbarrier_inval);
+  return {loop, mbarrier_inval};
 }
 
 std::vector<Expr*> CircularBufferPass::run(const std::vector<Expr*>& exprs) {

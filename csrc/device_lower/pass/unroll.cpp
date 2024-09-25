@@ -51,6 +51,16 @@ void UnrollPass::dispatch(Expr* expr) {
     return;
   }
 
+  bool is_mbarrier_init = expr->isA<kir::MBarrierInit>();
+  bool is_mbarrier_inval = expr->isA<kir::MBarrierInvalidate>();
+  if (is_mbarrier_init || is_mbarrier_inval) {
+    kir::IfThenElse* inline_ite = IrBuilder::create<kir::IfThenElse>(
+        IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
+    kir::ExprMutator::registerReplace(expr, inline_ite);
+    inline_ite->thenBody().push_back(expr);
+    return;
+  }
+
   if (ir_utils::isTvOp(expr)) {
     DEBUG_PRINT_SCOPE_NAME("UnrollPass::dispatch", expr);
     // If tv op, predicate it

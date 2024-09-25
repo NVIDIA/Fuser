@@ -183,7 +183,7 @@ struct TmaCircularBufferInfo {
 //     mbarrier::init(...);
 //   }
 // }
-std::pair<ForLoop*, Expr*> initializeMbarrier(
+std::pair<ForLoop*, kir::MBarrierInit*> initializeMbarrier(
     ForLoop* circular_buffer_loop,
     LoadStoreOp* ldst,
     TensorView* all_mbarriers);
@@ -197,7 +197,7 @@ std::pair<ForLoop*, Expr*> initializeMbarrier(
 //     mbarrier::inval(...);
 //   }
 // }
-std::pair<ForLoop*, Expr*> invalidateMbarrier(
+std::pair<ForLoop*, kir::MBarrierInvalidate*> invalidateMbarrier(
     ForLoop* circular_buffer_loop,
     LoadStoreOp* ldst,
     TensorView* all_mbarriers);
