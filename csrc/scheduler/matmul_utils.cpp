@@ -262,11 +262,7 @@ std::string isMatmulFusionDefinitionSupported(
            {MatmulTensorRole::OPERAND_A, MatmulTensorRole::OPERAND_B}) {
         auto entry = tensor_roles.find(role);
         if (entry != tensor_roles.end()) {
-          if (1 == entry->second.size()) {
-            tvs_with_roles.insert(entry->second.begin(), entry->second.end());
-          } else {
-            return "There is other than one fusion input that can be MMA operand";
-          }
+          tvs_with_roles.insert(entry->second.begin(), entry->second.end());
         } else {
           return "No candidate in fusion inputs for MMA operand";
         }
@@ -376,10 +372,14 @@ class VectorizationCalculator {
   MatmulParams::SupportedVectorization compute() {
     const std::vector<int64_t> a_vecs =
         operandVectorizations(MatmulTensorRole::OPERAND_A);
-    NVF_ERROR(a_vecs.size() == 1, "Expected exactly one A operand");
+    // TODO: handle multiple operands using MatmulFusionTopology object
+    // To do this, we'll likely need to change the structure of MatmulParams to
+    // include a vectorization factor for each operand in each main loop.
+    //
+    // NVF_ERROR(a_vecs.size() == 1, "Expected exactly one A operand");
     const std::vector<int64_t> b_vecs =
         operandVectorizations(MatmulTensorRole::OPERAND_B);
-    NVF_ERROR(b_vecs.size() == 1, "Expected exactly one B operand");
+    // NVF_ERROR(b_vecs.size() == 1, "Expected exactly one B operand");
     return {a_vecs[0], b_vecs[0], epilogueVectorization()};
   }
 
@@ -690,6 +690,107 @@ MatmulParams::SupportedVectorization getSupportedVectorization(
   return calc.compute();
 }
 
+// Currently, both the default heuristic and plugins cannot account for
+// multiple matmuls being present in a single fusion, so they assume there
+// is only one. This can lead to errors due to register and shared memory
+// limitation unless we adjust the tile sizes.
+
+// [Adjusting CTA tile to account for multiple MmaOps]
+// If we have nm mma operations na A operands and nb B operands the smem
+// usage of the operand loads is:
+//   (na*(cm*ck) + nb*(cn*ck))*num_stages
+// where cm, cn, ck is the size of the CTA tile.
+// If we use smem for the epilogue unswizzling, we have the following total
+// smem use (assuming smem reuse):
+//   max((na*(cm*ck) + nb*(cn*ck))*num_stages, nm*(cm*cn))
+// and without smem reuse it is
+//   (na*(cm*ck) + nb*(cn*ck))*num_stages + nm*(cm*cn)
+//
+// Note that na <= nm and nb <= nm, so in any of the cases above we know
+// that the smem usage in this kernel is at most nm times that of the
+// single-matmul case corresponding to nm=na=nb=1. In order to guarantee
+// both the smem and register buffers are not too large, we can ensure
+// they're each at most nm times smaller than the original params.
+//
+// For example, if na=1, nb=2, nm=2, we should change cn -> cn / 2, assuming
+// that is still a multiple of the instruction tile size.
+//
+// A more extreme example is na=2, nb=2, nm=3. In this case, we could
+// instead change cm->cm/2 and cn->cn/2 and this would be sufficient since
+// it results in cm*cn -> nm*((cm/2)*(cn/2))=3*(cm*cn)/4
+//
+// If each pair of gmem operands is used in at most a single matmul, then
+// na*nb >= nm and we can just always divide cm and cn by na and nb
+// respectively as in these examples. However, it is possible that the same
+// two gmem operands could be used in separate matmuls if they have
+// different prologues. For example:
+//
+//   addInput(tv0);
+//   addInput(tv1);
+//   auto tv2 = matmul(tv0, tv1);
+//   auto tv3 = mul(tv1, tv1);
+//   auto tv4 = matmul(tv0, tv3);
+//   addOutput(tv2);
+//   addOutput(tv4);
+//
+// This has na=nb=1 and nm=2 and can be horizontally fused. In a situation
+// like this, we find the next highest divisor for na such that the cm*cn
+// register buffer (and smem_epilogue) size is sufficiently controlled.
+void convertSingleMatmulParamsToMulti(
+    MatmulParams* params,
+    Fusion* fusion,
+    IdModel& id_model,
+    const std::vector<mma_utils::MatmulPattern>& patterns) {
+  if (patterns.size() < 2) {
+    return;
+  }
+  const mma_utils::MatmulFusionTopologyOpt topology_opt =
+      mma_utils::computeMatmulTopology(fusion, id_model, patterns);
+  NVF_ERROR(topology_opt.isValid());
+  const mma_utils::MatmulFusionTopology& topology = topology_opt.getData();
+  int64_t num_as = 0, num_bs = 0;
+  for (const mma_utils::MainLoopDescriptor& ml : topology.main_loops) {
+    // Each main loop can re-use smem from previous main loops if needed
+    num_as = std::max(num_as, ml.num_as);
+    num_bs = std::max(num_bs, ml.num_bs);
+  }
+
+  const auto padToFactor = [](int64_t& a, int64_t b) {
+    NVF_ERROR(a <= b);
+    while (b % a != 0) {
+      a++;
+    }
+  };
+
+  int64_t m_divisor = num_as, n_divisor = num_bs;
+  padToFactor(num_as, params->tile_sizes.cta_tile.m);
+  padToFactor(num_bs, params->tile_sizes.cta_tile.n);
+
+  // Account for multiple register buffers
+  while (m_divisor * n_divisor < patterns.size()) {
+    m_divisor++;
+    padToFactor(m_divisor, params->tile_sizes.cta_tile.m);
+  }
+
+  // adjust warp_size if needed
+  if (params->tile_sizes.cta_tile.m <
+      m_divisor * params->tile_sizes.warp_tile.m) {
+    // TODO: check that warp tile is at least as large as instruction tile
+    // TODO: find another divisor to use for warp tile if needed
+    params->tile_sizes.warp_tile.m /= m_divisor;
+  }
+  // adjust warp_size if needed
+  if (params->tile_sizes.cta_tile.n <
+      n_divisor * params->tile_sizes.warp_tile.n) {
+    // TODO: check that warp tile is at least as large as instruction tile
+    // TODO: find another divisor to use for warp tile if needed
+    params->tile_sizes.warp_tile.n /= n_divisor;
+  }
+
+  params->tile_sizes.cta_tile.m /= m_divisor;
+  params->tile_sizes.cta_tile.n /= n_divisor;
+}
+
 } // anonymous namespace
 
 std::string getMatmulRunTimeRejectReason(
@@ -764,13 +865,21 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
     }
   }
 
-  if (patterns.size() > 1) {
+  if (patterns.size() > 1 &&
+      !isOptionEnabled(EnableOption::FuseMultipleMatmuls)) {
     return "Only a single matmul pattern can currently be fused";
   }
 
   // #3
   // Prepare an IdModel which will be reused to check remaining conditions
   IdModel id_model(fusion);
+  mma_utils::MatmulFusionTopologyOpt topology_opt =
+      computeMatmulTopology(fusion, id_model, patterns);
+  if (!topology_opt.isValid()) {
+    return topology_opt.getErrorMsg();
+  }
+
+  // TODO: below is specific to single-matmul Fusions. Generalize this
   const auto id_roles = patterns.front().getDimRoles(id_model);
   const mma_utils::TensorRolesMapOpt tensor_roles_opt =
       mma_utils::getTensorRoles(fusion, id_model, id_roles);
@@ -843,9 +952,6 @@ std::unique_ptr<MatmulParams> getMatmulHeuristics(
   std::vector<mma_utils::MatmulPattern> patterns =
       mma_utils::findMatmulPatterns(fusion);
   NVF_ERROR(!patterns.empty(), "No matmul patterns were found");
-  NVF_ERROR(
-      patterns.size() == 1,
-      "Only a single matmul pattern can currently be fused");
   mma_utils::MatmulPattern& pattern = patterns.front();
 
   // IdModel is used to analyze problem shape & layout
@@ -905,6 +1011,10 @@ std::unique_ptr<MatmulParams> getMatmulHeuristics(
   // Ensure that entire pipeline is filled for shared memory operands given
   // problem and heuristics.
   limitCircularBufferingSmemOperands(mparams.get(), problem_shape);
+
+  // Adjust parameters to account for multiple matmul patterns
+  // TODO: provide number of matmuls and basic topology to heuristic instead
+  convertSingleMatmulParamsToMulti(mparams.get(), fusion, id_model, patterns);
 
   // Disable magic zero for matmul kernels
   mparams->cparams.enable_magic_zero = false;
