@@ -386,7 +386,6 @@ class RingBasedOverlapTest : public OverlapTest {
   at::Tensor ta_reshaped_, tc_reshaped_;
 
   void SetUp() override {
-
     OverlapTest::SetUp();
 
     ASSERT_EQ(params.S % num_devices_, 0);
@@ -394,14 +393,19 @@ class RingBasedOverlapTest : public OverlapTest {
     number_of_rings_ = params.S / num_devices_;
 
     ta_reshaped_ = at::reshape(
-      ta_,
-      {number_of_steps_per_ring_,
-       number_of_rings_,
-       params.M / params.S,
-       params.K / num_devices_});
-    tc_reshaped_ = tc_.reshape({number_of_rings_, params.M / params.S, params.N});
+        ta_,
+        {number_of_steps_per_ring_,
+         number_of_rings_,
+         params.M / params.S,
+         params.K / num_devices_});
+    tc_reshaped_ =
+        tc_.reshape({number_of_rings_, params.M / params.S, params.N});
 
-    std::vector<int64_t> buffer_sizes = {number_of_steps_per_ring_, number_of_rings_, params.M / params.S, params.N};
+    std::vector<int64_t> buffer_sizes = {
+        number_of_steps_per_ring_,
+        number_of_rings_,
+        params.M / params.S,
+        params.N};
     src_buffer_ = at::empty(buffer_sizes, gpu_options_);
     dst_buffer_ = at::empty(buffer_sizes, gpu_options_);
   }
