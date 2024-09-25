@@ -675,31 +675,31 @@ void forward_transformer(Communicator* communicator_, bool profile) {
   FusionExecutorCache fec(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
 
-  auto forward_time = std::chrono::duration<double>::zero();
   if (profile) {
     cudaProfilerStart();
   }
+  auto start = std::chrono::high_resolution_clock::now();
   for (auto i : c10::irange(num_itrs + warmup_itrs)) {
     if (i > warmup_itrs && profile) {
-        nvtxRangePush("Iteration");
+      nvtxRangePush("Iteration");
     }
-    auto start = std::chrono::high_resolution_clock::now();
+    if (i == warmup_itrs) {
+      start = std::chrono::high_resolution_clock::now();
+    }
     auto outputs = fec.runFusionWithInputs(inputs);
     cudaDeviceSynchronize();
-    auto end = std::chrono::high_resolution_clock::now();
-    if (i > warmup_itrs) {
-      forward_time += (end - start);
-      if (profile) {
-        nvtxRangePop();
-      }
+
+    if (i > warmup_itrs && profile) {
+      nvtxRangePop();
     }
   }
+  auto end = std::chrono::high_resolution_clock::now();
   if (profile) {
     cudaProfilerStop();
   }
 
-  double avg_forward_time = std::chrono::duration_cast<std::chrono::milliseconds>(forward_time).count() / (double) num_itrs;
-  std::cout << communicator_->deviceId() << ": Average forward time " << avg_forward_time << "ms" << std::endl;
+  double foward_time = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() / (double) num_itrs;
+  std::cout << communicator_->deviceId() << ": Average forward time " << foward_time << "ms" << std::endl;
 }
 
 int main(int argc, char** argv) {
