@@ -1495,6 +1495,181 @@ MatmulOperandInnerDimsOpt getOperandInnerDims(
   return std::vector<MatmulDimRole>{innerdim_a, innerdim_b};
 }
 
+MatmulFusionTopologyOpt computeMatmulTopology(
+    Fusion* fusion,
+    IdModel& id_model,
+    const std::vector<MatmulPattern>& patterns) {
+  // Short-circuit for the common case of only a single pattern
+  if (patterns.size() == 1) {
+    MainLoopDescriptor main_loop{0, 0, 1};
+
+    // TODO: I think we should cache these inside MatmulPattern
+    DimRolesMap dim_roles = patterns.front().getDimRoles(id_model);
+    TensorRolesMapOpt tensor_roles_opt =
+        getTensorRoles(fusion, id_model, dim_roles);
+    if (!tensor_roles_opt.isValid()) {
+      return {tensor_roles_opt.getErrorMsg()};
+    }
+    const TensorRolesMap& tensor_roles = tensor_roles_opt.getData();
+
+    auto a_it = tensor_roles.find(MatmulTensorRole::OPERAND_A);
+    if (a_it != tensor_roles.end()) {
+      main_loop.num_as = a_it->second.size();
+    }
+    auto b_it = tensor_roles.find(MatmulTensorRole::OPERAND_B);
+    if (b_it != tensor_roles.end()) {
+      main_loop.num_bs = b_it->second.size();
+    }
+
+    return {{{main_loop}}};
+  }
+
+  // used for checking compatibility of dim roles across patterns
+  DimRolesMap merged_dim_roles;
+  // For each pattern, this is the index of a main loop that shares at least one
+  // operand with that pattern. It's a poor man's UnionFind structure
+  std::vector<std::pair<
+      std::unordered_set<TensorView*>,
+      std::unordered_set<TensorView*>>>
+      main_loop_operands;
+  for (const MatmulPattern& pattern : patterns) {
+    // Get dim and tensor roles for each pattern
+    DimRolesMap dim_roles = pattern.getDimRoles(id_model);
+    TensorRolesMapOpt tensor_roles_opt =
+        getTensorRoles(fusion, id_model, dim_roles);
+    if (!tensor_roles_opt.isValid()) {
+      return {tensor_roles_opt.getErrorMsg()};
+    }
+    const TensorRolesMap& tensor_roles = tensor_roles_opt.getData();
+    for (const auto& [vg, role] : dim_roles) {
+      // Check that dim roles are compatible between patterns
+      // Note that this implies that tensor roles are compatible
+      auto it = merged_dim_roles.find(vg);
+      if (it == merged_dim_roles.end()) {
+        merged_dim_roles[vg] = role;
+      } else if (it->second != role) {
+        return {"Dimension roles are not consistent across matmul patterns"};
+      }
+    }
+    main_loop_operands.emplace_back();
+    auto a_it = tensor_roles.find(MatmulTensorRole::OPERAND_A);
+    if (a_it != tensor_roles.end()) {
+      main_loop_operands.back().first.insert(
+          a_it->second.begin(), a_it->second.end());
+    }
+    auto b_it = tensor_roles.find(MatmulTensorRole::OPERAND_B);
+    if (b_it != tensor_roles.end()) {
+      main_loop_operands.back().second.insert(
+          b_it->second.begin(), b_it->second.end());
+    }
+  }
+
+  // Tracks which main loop each matmul will be computed in
+  std::vector<size_t> merged_main_loop;
+  merged_main_loop.reserve(main_loop_operands.size());
+  std::vector<int64_t> num_mmas_per_loop(main_loop_operands.size(), 1);
+  // Merge main loops if their operands overlap
+  const auto setsIntersect = [](const std::unordered_set<TensorView*>& set_a,
+                                const std::unordered_set<TensorView*>& set_b) {
+    for (TensorView* tv : set_a) {
+      if (set_b.count(tv) > 0) {
+        return true;
+      }
+    }
+    return false;
+  };
+  // Find root of merged_main_loop, with path compression
+  const auto find = [&merged_main_loop](size_t i) {
+    NVF_ERROR(i < merged_main_loop.size());
+    size_t p = i;
+    size_t root = merged_main_loop[p];
+    while (p != root) {
+      p = root;
+      root = merged_main_loop[p];
+    }
+    // path compression step
+    // Loop again to set parents along the path equal to root.
+    // On the next call, both loops will not be entered.
+    while (i != root) {
+      p = merged_main_loop[i];
+      merged_main_loop[i] = root;
+      i = p;
+    }
+    return root;
+  };
+  // Set merged_main_loop[j] = i and merge operand sets of j into i
+  const auto mergeLoops = [&](size_t i, size_t j) {
+    if (i == j) {
+      return;
+    }
+    i = find(i);
+    merged_main_loop[j] = i;
+    auto& [aj, bj] = main_loop_operands[j];
+    main_loop_operands[i].first.insert(aj.begin(), aj.end());
+    main_loop_operands[i].second.insert(bj.begin(), bj.end());
+    num_mmas_per_loop[i] += num_mmas_per_loop[j];
+    num_mmas_per_loop[j] = 0;
+  };
+  for (size_t j : c10::irange(main_loop_operands.size())) {
+    merged_main_loop.push_back(j);
+    for (size_t i : c10::irange(merged_main_loop.size())) {
+      size_t root_i = find(i);
+      if (setsIntersect(
+              main_loop_operands[root_i].first, main_loop_operands[j].first) ||
+          setsIntersect(
+              main_loop_operands[root_i].second,
+              main_loop_operands[j].second)) {
+        mergeLoops(i, j);
+        continue;
+      }
+    }
+  }
+
+  const ValGraph& graph = id_model.idGraph(IdMappingMode::BROADCAST);
+  const auto checkDimsCompatible =
+      [&](const std::unordered_set<TensorView*>& operands) {
+        TensorView* reference = nullptr;
+        for (TensorView* tv : operands) {
+          if (reference == nullptr) {
+            reference = tv;
+            continue;
+          }
+          if (tv->nDims() != reference->nDims()) {
+            return false;
+          }
+          for (size_t dim : c10::irange(tv->nDims())) {
+            IterDomain* idref = reference->axis((int64_t)dim);
+            IterDomain* idtv = tv->axis((int64_t)dim);
+            if (graph.toGroup(idref) != graph.toGroup(idtv)) {
+              return false;
+            }
+          }
+        }
+        return true;
+      };
+
+  std::vector<MainLoopDescriptor> main_loops;
+  NVF_ERROR(num_mmas_per_loop.size() == merged_main_loop.size());
+  for (size_t i : c10::irange(merged_main_loop.size())) {
+    if (find(i) != i) {
+      // Only process root entries
+      continue;
+    }
+    const auto& [as, bs] = main_loop_operands[i];
+    // TODO: check that all dimensions of each A tensor are mapped to the others
+    if (!checkDimsCompatible(as)) {
+      return {"Found incompatible dimensions in some A operands"};
+    }
+    if (!checkDimsCompatible(bs)) {
+      return {"Found incompatible dimensions in some B operands"};
+    }
+    main_loops.push_back(
+        {(int64_t)as.size(), (int64_t)bs.size(), num_mmas_per_loop[i]});
+  }
+
+  return {{main_loops}};
+}
+
 TensorRolesMapOpt getTensorRoles(
     Fusion* fusion,
     const IdModel& id_model,

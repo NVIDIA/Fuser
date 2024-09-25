@@ -344,6 +344,63 @@ struct MatmulPattern {
 //! Traverse the fusion to find supported matmul patterns
 std::vector<MatmulPattern> findMatmulPatterns(Fusion* fusion);
 
+//! Describes a single main loop which might compute multiple horizontally-fused
+//! MmaOps.
+//! For example, consider the following fusion
+//!   addInput(tv0);
+//!   addInput(tv1);
+//!   addInput(tv2);
+//!   tv3 = matmul(tv0, tv1);
+//!   tv4 = matmul(tv0, tv2);
+//!   tv5 = add(tv3, tv4);
+//!   addOutput(tv5);
+//! Assuming the sizes of tv1 and tv2 are equal we will compute both tv3 and tv4
+//! in the same main loop and write the output tv5 in a separate epilogue loop.
+//! The single main loop descriptor will be {1, 2, 2} in this case.
+//!
+//! Now consider the case where none of the operands are shared:
+//!   addInput(tv0);
+//!   addInput(tv1);
+//!   addInput(tv2);
+//!   addInput(tv3);
+//!   tv4 = matmul(tv0, tv1);
+//!   tv5 = matmul(tv2, tv3);
+//!   tv6 = add(tv3, tv4);
+//!   addOutput(tv6);
+//! In this case there is no advantage to computing tv4 and tv5 in the same
+//! loop so we create two separate main loops with descriptors {1, 1, 1} and {1,
+//! 1, 1}. This allows us to re-use the smem used for operand loads between the
+//! two matmuls, but note that we still need two separate register buffers to
+//! hold the mma results.
+struct MainLoopDescriptor {
+  int64_t num_as;
+  int64_t num_bs;
+  int64_t num_mmas;
+};
+
+//! This describes the dependencies in a matmul fusion. There can be multiple
+//! MmaOps in the Fusion; we hold an entry in mma_results for each of these.
+//! each MmaOp has both A and B operands. These can depend on fusion inputs or
+//! on the outputs of other MmaOps (i.e. vertical fusion).
+struct MatmulFusionTopology {
+  std::vector<MainLoopDescriptor> main_loops;
+};
+
+using MatmulFusionTopologyOpt = DataWrapperOpt<MatmulFusionTopology>;
+
+//! Given matmul patterns within a fusion, compute the topology descriptor. We
+//! do this by finding the fusion input dependencies of each MatmulPattern
+//! operand, then collecting patterns into main loops whenever their gmem
+//! operands overlap.
+//!
+//! Note that if the dimension roles for some matmuls do not match then this
+//! function throws an exception. For example, this will fail if an M dimension
+//! in one pattern is "Broadcast"-mapped to an N dimension in another pattern.
+NVF_API MatmulFusionTopologyOpt computeMatmulTopology(
+    Fusion* fusion,
+    IdModel& id_model,
+    const std::vector<MatmulPattern>& patterns);
+
 //! This is a vector of roles describing the inner dimension of each operand
 using MatmulOperandInnerDims = std::vector<MatmulDimRole>;
 

@@ -764,13 +764,21 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
     }
   }
 
-  if (patterns.size() > 1) {
+  if (patterns.size() > 1 &&
+      !isOptionEnabled(EnableOption::FuseMultipleMatmuls)) {
     return "Only a single matmul pattern can currently be fused";
   }
 
   // #3
   // Prepare an IdModel which will be reused to check remaining conditions
   IdModel id_model(fusion);
+  mma_utils::MatmulFusionTopologyOpt topology_opt =
+      computeMatmulTopology(fusion, id_model, patterns);
+  if (!topology_opt.isValid()) {
+    return topology_opt.getErrorMsg();
+  }
+
+  // TODO: below is specific to single-matmul Fusions. Generalize this
   const auto id_roles = patterns.front().getDimRoles(id_model);
   const mma_utils::TensorRolesMapOpt tensor_roles_opt =
       mma_utils::getTensorRoles(fusion, id_model, id_roles);
