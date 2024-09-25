@@ -86,6 +86,9 @@ class OverlapTest : public MultiDeviceTest {
 
   void SetUp() override {
     MultiDeviceTest::SetUp();
+    if (!communicator_->is_available()) {
+      return;
+    }
 
     num_devices_ = communicator_->size();
     my_device_index_ = communicator_->deviceId();
@@ -378,15 +381,27 @@ TEST_F(
 
 class RingBasedOverlapTest : public OverlapTest {
  protected:
+  int64_t number_of_steps_per_ring_, number_of_rings_;
   at::Tensor src_buffer_, dst_buffer_;
+  at::Tensor ta_reshaped_, tc_reshaped_;
+
   void SetUp() override {
-    use_coalescence_ = std::get<0>(GetParam());
-    params.backend_type = std::get<1>(GetParam());
 
     OverlapTest::SetUp();
 
-    std::vector<int64_t> buffer_sizes = {
-        params.S, params.M / params.S, params.N};
+    ASSERT_EQ(params.S % num_devices_, 0);
+    number_of_steps_per_ring_ = num_devices_;
+    number_of_rings_ = params.S / num_devices_;
+
+    ta_reshaped_ = at::reshape(
+      ta_,
+      {number_of_steps_per_ring_,
+       number_of_rings_,
+       params.M / params.S,
+       params.K / num_devices_});
+    tc_reshaped_ = tc_.reshape({number_of_rings_, params.M / params.S, params.N});
+
+    std::vector<int64_t> buffer_sizes = {number_of_steps_per_ring_, number_of_rings_, params.M / params.S, params.N};
     src_buffer_ = at::empty(buffer_sizes, gpu_options_);
     dst_buffer_ = at::empty(buffer_sizes, gpu_options_);
   }
@@ -413,50 +428,27 @@ TEST_F(
   std::vector<c10::cuda::CUDAStream> streams =
       createStreams(params.number_of_streams, my_device_index_);
 
-  ASSERT_EQ(params.S % num_devices_, 0);
-  int64_t number_of_steps_per_ring = num_devices_;
-  int64_t number_of_rings = params.S / num_devices_;
-
-  auto ta_reshaped = at::reshape(
-      ta_,
-      {number_of_steps_per_ring,
-       number_of_rings,
-       params.M / params.S,
-       params.K / num_devices_});
-  auto src_buffer_reshaped = at::reshape(
-      src_buffer_,
-      {number_of_steps_per_ring,
-       number_of_rings,
-       params.M / params.S,
-       params.N});
-  auto dst_buffer_reshaped = at::reshape(
-      dst_buffer_,
-      {number_of_steps_per_ring,
-       number_of_rings,
-       params.M / params.S,
-       params.N});
-
   for ([[maybe_unused]] const auto& _ :
        c10::irange(params.number_of_iterations)) {
     initializeIO();
 
-    for (auto i : c10::irange(number_of_rings)) {
-      for (auto j : c10::irange(number_of_steps_per_ring)) {
+    for (auto i : c10::irange(number_of_rings_)) {
+      for (auto j : c10::irange(number_of_steps_per_ring_)) {
         int64_t stream_index = (i + j) % streams.size();
         setCurrentCUDAStream(streams.at(stream_index));
 
         // define the sliced tensors
         auto slice_index =
-            (my_device_index_ + j + 1) % number_of_steps_per_ring;
-        auto ta_j = ta_reshaped.select(0, slice_index).select(0, i);
-        auto src_buffer_j = src_buffer_reshaped.select(0, j).select(0, i);
-        auto dst_buffer_j = dst_buffer_reshaped.select(0, j).select(0, i);
+            (my_device_index_ + j + 1) % number_of_steps_per_ring_;
+        auto ta_j = ta_reshaped_.select(0, slice_index).select(0, i);
+        auto src_buffer_j = src_buffer_.select(0, j).select(0, i);
+        auto dst_buffer_j = dst_buffer_.select(0, j).select(0, i);
 
         // define the peer ranks
         auto send_rank = slice_index;
         auto recv_rank =
-            (number_of_steps_per_ring + my_device_index_ - (j + 1)) %
-            number_of_steps_per_ring;
+            (number_of_steps_per_ring_ + my_device_index_ - (j + 1)) %
+            number_of_steps_per_ring_;
 
         // local compute
         torch::matmul_out(src_buffer_j, ta_j, tb_);
@@ -464,54 +456,16 @@ TEST_F(
         std::vector<at::Tensor> src = {src_buffer_j};
         std::vector<at::Tensor> dst = {dst_buffer_j};
 
-        if (use_coalescence_) {
-          if (world_communicator_->getBackendName() != "nccl") {
-            GTEST_SKIP() << "ProcessGroupUCC does not implement coalescence";
-          }
-          world_communicator_->startCoalescing();
-          // "tags" are not supported by nccl, so set it to 0
-          world_communicator_->send(src, send_rank, 0);
-          world_communicator_->recv(dst, recv_rank, 0);
-          world_communicator_->endCoalescing()->wait();
-        } else {
-          // if not coalesced, send/recv pairs must be posted in a global
-          // consistent order to avoid deadlock
-          int64_t recv_order = recv_rank;
-          int64_t send_order = my_device_index_;
-          if (recv_order < send_order) {
-            world_communicator_->recv(dst, recv_rank, 0)->wait();
-            world_communicator_->send(src, send_rank, 0)->wait();
-          } else if (recv_order > send_order) {
-            world_communicator_->send(src, send_rank, 0)->wait();
-            world_communicator_->recv(dst, recv_rank, 0)->wait();
-          } else {
-            // when not inside a coalesced group, send/recv to self throws an
-            // error
-            dst_buffer_j.copy_(src_buffer_j);
-          }
-        }
+        world_communicator_->startCoalescing();
+        // "tags" are not supported by nccl, so set it to 0
+        world_communicator_->send(src, send_rank, 0);
+        world_communicator_->recv(dst, recv_rank, 0);
+        world_communicator_->endCoalescing()->wait();
       }
     }
     synchronizeStreams(streams);
-    auto tc_reshaped =
-        tc_.reshape({number_of_rings, params.M / params.S, params.N});
-    torch::sum_out(tc_reshaped, dst_buffer_reshaped, 0);
+    torch::sum_out(tc_reshaped_, dst_buffer_, 0);
   }
 }
-
-INSTANTIATE_TEST_SUITE_P(
-    ,
-    RingBasedOverlapTest,
-    testing::Combine(
-        testing::Bool(),
-        testing::Values(CommunicatorBackend::nccl)),
-    [](const testing::TestParamInfo<RingBasedOverlapTestParams>& info)
-        -> std::string {
-      std::stringstream ss;
-      ss << (std::get<0>(info.param) ? "UsingCoalescence"
-                                     : "NotUsingCoalescence")
-         << "_" << std::get<1>(info.param);
-      return ss.str();
-    });
 
 } // namespace nvfuser
