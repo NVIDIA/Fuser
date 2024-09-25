@@ -73,9 +73,9 @@ bool canSchedule(
     HeuristicDataCache* data_cache = nullptr);
 
 //! Fusion segmenter facing API,
-//!   returns a schedule that applies in the given fusion, returns a nullopt
-//!   if no schedule in the registry can handle.
-std::optional<SchedulerType> proposeHeuristics(
+//!   returns a schedule that applies in the given fusion, returns
+//!   SchedulerType::None if no schedule in the registry can handle.
+SchedulerType proposeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info);
 } // namespace Schedule
