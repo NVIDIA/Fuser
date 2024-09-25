@@ -267,6 +267,11 @@ def run_benchmark(
     ], f'Unsupported device type: {device.split(":")[0]}. Use one of cuda/host.'
 
     host_bench_mode = None
+
+    # Store warmup rounds locally to modify for host:steady/dynamic cases.
+    global warmup_rounds
+    warmup_rounds = BENCHMARK_CONFIG["warmup_rounds"]
+
     if device.split(":")[0] == "host":
         # Host benchmarking expects a fusion function to generate fusion definitions everytime FusionCache is reset.
         assert fusion_fn is not None and benchmark_fn is None
@@ -286,9 +291,9 @@ def run_benchmark(
         ):
             # By default, warmup_rounds=1. If BENCHMARK_CONFIG['warmup_rounds'] == 0 through --benchmark-warmup-rounds, raise a warning that it was ignored.
             warnings.warn(
-                "--benchmark-warmup-rounds=0 was ignored for host benchmarking. Setting warmup_rounds=1."
+                "--benchmark-warmup-rounds=0 is ignored for host:steady/dynamic benchmarking. Setting warmup_rounds=1."
             )
-            BENCHMARK_CONFIG["warmup_rounds"] = 1
+            warmup_rounds = 1
 
     """
     Setup function: This is called before each benchmarking round. This function is used to:
@@ -355,7 +360,7 @@ def run_benchmark(
         benchmark_fn,
         setup=setup,
         rounds=BENCHMARK_CONFIG["rounds"],
-        warmup_rounds=BENCHMARK_CONFIG["warmup_rounds"],
+        warmup_rounds=warmup_rounds,
     )
 
     if device == "cuda":
