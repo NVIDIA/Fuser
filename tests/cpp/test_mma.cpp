@@ -1523,8 +1523,48 @@ TEST_P(HopperSS, MultipleTile) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
+  constexpr int64_t num_tiles = 2;
+
   auto shapes = matmulAtInputShape3DHopperSS(
-      2 * getM(macro), 2 * getN(macro), 2 * getK(macro), layout);
+      num_tiles * getM(macro),
+      num_tiles * getN(macro),
+      num_tiles * getK(macro),
+      layout);
+
+  const char* skip_reason =
+      "This test stores smem inputs on the inner dimension densely, "
+      "which is not compatible with this macro and swizzle mode "
+      "because TensorCore instructions span multiple swizzle patterns unevenly.";
+
+  {
+    int64_t inner_tile_size = layout == MmaLayout::TT || layout == MmaLayout::TN
+        ? getK(macro)
+        : getM(macro);
+    int64_t inner_size = num_tiles * inner_tile_size;
+    int64_t swizzle_size = getBytesFromSwizzle(swizzle_a) / dataTypeSize(dtype);
+    bool instruction_tile_span_multiple_swizzle = inner_size > swizzle_size;
+    bool span_uneven_swizzle = inner_tile_size % swizzle_size != 0 &&
+        swizzle_size % inner_tile_size != 0;
+
+    if (instruction_tile_span_multiple_swizzle && span_uneven_swizzle) {
+      GTEST_SKIP() << skip_reason;
+    }
+  }
+
+  {
+    int64_t inner_tile_size = layout == MmaLayout::TT || layout == MmaLayout::NT
+        ? getN(macro)
+        : getK(macro);
+    int64_t inner_size = num_tiles * inner_tile_size;
+    int64_t swizzle_size = getBytesFromSwizzle(swizzle_b) / dataTypeSize(dtype);
+    bool instruction_tile_span_multiple_swizzle = inner_size > swizzle_size;
+    bool span_uneven_swizzle = inner_tile_size % swizzle_size != 0 &&
+        swizzle_size % inner_tile_size != 0;
+
+    if (instruction_tile_span_multiple_swizzle && span_uneven_swizzle) {
+      GTEST_SKIP() << skip_reason;
+    }
+  }
 
   auto tv0 = makeConcreteTensor(shapes.first, dtype);
   auto tv1 = makeConcreteTensor(shapes.second, dtype);
@@ -1625,9 +1665,9 @@ TEST_P(HopperSS, MultipleTile) {
   inlineMost();
 
   auto inputs = matmulAtInput3DHopperSS(
-      2 * getM(macro),
-      2 * getN(macro),
-      2 * getK(macro),
+      num_tiles * getM(macro),
+      num_tiles * getN(macro),
+      num_tiles * getK(macro),
       layout,
       data_type_to_aten(dtype));
 
