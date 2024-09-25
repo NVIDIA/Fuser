@@ -116,7 +116,7 @@ bool canSchedule(
 }
 
 // Simply loop through the list as baseline strategy
-std::optional<SchedulerType> proposeHeuristics(
+SchedulerType proposeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info) {
   for (const auto& sh : all_heuristics_in_priority_order) {
@@ -125,7 +125,7 @@ std::optional<SchedulerType> proposeHeuristics(
       return sh;
     }
   }
-  return std::nullopt;
+  return SchedulerType::None;
 }
 } // namespace Schedule
 
