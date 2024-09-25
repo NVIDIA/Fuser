@@ -266,11 +266,13 @@ ValGraph IdModel::initializeIdGraph(bool propagate_through_exprs) const {
   return id_graph;
 }
 
-void IdModel::buildExactGraph() {
+ValGraph& IdModel::buildExactGraph() {
   // Initialize the maps with all the IterDomains used in the provded
   // expressions.
   NVF_ERROR(
       id_graphs_.emplace(IdMappingMode::EXACT, initializeIdGraph()).second);
+
+  auto& graph = idGraph(IdMappingMode::EXACT);
 
   for (auto expr : tv_exprs_) {
     TensorView* c_tv = ir_utils::getTvOutput(expr);
@@ -296,7 +298,7 @@ void IdModel::buildExactGraph() {
       for (auto c_id :
            getSortedKeys(exact_c2p_logical_map, Statement::lessThan)) {
         auto p_id = exact_c2p_logical_map.at(c_id);
-        idGraph(IdMappingMode::EXACT).mapVals(c_id, p_id);
+        graph.mapVals(c_id, p_id);
       }
     }
 
@@ -310,7 +312,7 @@ void IdModel::buildExactGraph() {
         for (auto domain_i : c10::irange(c_tv->getMaybeRootDomain().size())) {
           auto c_id = c_tv->getMaybeRootDomain()[domain_i];
           auto o_id = other_tv_output->getMaybeRootDomain()[domain_i];
-          idGraph(IdMappingMode::EXACT).mapVals(o_id, c_id);
+          graph.mapVals(o_id, c_id);
         }
       }
     } else {
@@ -323,17 +325,43 @@ void IdModel::buildExactGraph() {
           for (auto c_id :
                getSortedKeys(exact_c2p_root_map, Statement::lessThan)) {
             auto p_id = exact_c2p_root_map.at(c_id);
-            idGraph(IdMappingMode::EXACT).mapVals(c_id, p_id);
+            graph.mapVals(c_id, p_id);
           }
         }
       }
     }
 
     // TODO: Revisit if we really should map domains in the exact map
-    mapThroughLoopSwizzles(idGraph(IdMappingMode::EXACT));
+    mapThroughLoopSwizzles(graph);
   }
 
-  idGraph(IdMappingMode::EXACT).validateConsistency();
+  // Map additional exact mappings if registered. Only map those that
+  // appear in this IdModel and when they are the same (per sameAs).
+  if (!tv_exprs_.empty()) {
+    Fusion* fusion = tv_exprs_.front()->fusion();
+    if (fusion->hasRegisteredExactMappings()) {
+      DisjointSets<IterDomain*> additional_mappings =
+          fusion->registeredExactMappings();
+      for (const auto& disjoint_set : additional_mappings.disjointSets()) {
+        IterDomain* registerd_id = nullptr;
+        for (auto id : *disjoint_set) {
+          if (!graph.hasGroup(id)) {
+            continue;
+          }
+
+          if (registerd_id == nullptr) {
+            registerd_id = id;
+          } else {
+            graph.mapVals(registerd_id, id);
+          }
+        }
+      }
+    }
+  }
+
+  graph.validateConsistency();
+
+  return graph;
 }
 
 namespace {
@@ -372,7 +400,7 @@ std::vector<std::vector<Val*>> getTriviallyMappedIds(Expr* expr) {
 
 } // namespace
 
-void IdModel::buildAlmostExactGraph() {
+ValGraph& IdModel::buildAlmostExactGraph() {
   // Make sure the exact graph is already built
   maybeBuildGraph(IdMappingMode::EXACT);
 
@@ -415,9 +443,11 @@ void IdModel::buildAlmostExactGraph() {
   }
 
   almost_exact_graph.validateConsistency();
+
+  return almost_exact_graph;
 }
 
-void IdModel::buildBroadcastGraph() {
+ValGraph& IdModel::buildBroadcastGraph() {
   // Make sure the exact graph is already built
   maybeBuildGraph(IdMappingMode::EXACT);
 
@@ -454,9 +484,11 @@ void IdModel::buildBroadcastGraph() {
   }
 
   graph.validateConsistency();
+
+  return graph;
 }
 
-void IdModel::buildPermissiveGraph() {
+ValGraph& IdModel::buildPermissiveGraph() {
   maybeBuildGraph(IdMappingMode::BROADCAST);
 
   NVF_ERROR(
@@ -508,6 +540,8 @@ void IdModel::buildPermissiveGraph() {
   }
 
   graph.validateConsistency();
+
+  return graph;
 }
 
 namespace {
@@ -653,7 +687,7 @@ void IdModel::initializeLoopGraph(const StatefulInliningInfo& info) {
   }
 }
 
-void IdModel::buildLoopGraph() {
+ValGraph& IdModel::buildLoopGraph() {
   // Make sure the depedent graphs are already built
   maybeBuildGraph(IdMappingMode::EXACT);
   maybeBuildGraph(IdMappingMode::PERMISSIVE);
@@ -673,6 +707,8 @@ void IdModel::buildLoopGraph() {
   validateLoopGraphHasNoSelfMappedLeafDomains();
 
   idGraph(IdMappingMode::LOOP).validateConsistency();
+
+  return idGraph(IdMappingMode::LOOP);
 }
 
 void IdModel::buildAllGraphs() {

@@ -366,6 +366,57 @@ struct OpRecord : RecordFunctor {
   std::function<OutType(ArgTypes...)> fusion_op_;
 };
 
+struct SliceOpRecord : RecordFunctor {
+  SliceOpRecord(std::vector<State> _args, std::vector<State> _outputs)
+      : RecordFunctor(
+            std::move(_args),
+            std::move(_outputs),
+            "ops.slice",
+            serde::RecordType::SliceOp) {
+    arg_names_[1] = "start_indices";
+    arg_names_[2] = "end_indices";
+    arg_names_[3] = "strides";
+  }
+  ~SliceOpRecord() override = default;
+  RecordFunctor* clone() final {
+    return new SliceOpRecord(*this);
+  }
+
+  void operator()(FusionState& fd) final {
+    TensorView* arg = fd.getFusionState(args_.at(0).index)->as<TensorView>();
+    const std::vector<Val*>& start = fd.getFusionStateVector(args_.at(1).index);
+    const std::vector<Val*>& end = fd.getFusionStateVector(args_.at(2).index);
+    const std::vector<Val*>& stride =
+        fd.getFusionStateVector(args_.at(3).index);
+    std::vector<Slice> vec_slice;
+    for (const auto idx : c10::irange(arg->domain()->noReductions().size())) {
+      // NOTE: there's an extra move, we can use emplace_back if we go write
+      // some constructors for Slice.
+      Val* start_idx = start.at(idx);
+      Val* end_idx = end.at(idx);
+      Val* stride_idx = stride.at(idx);
+      NVF_CHECK(
+          !start_idx->isConstInt() || start_idx->evaluate().as<int64_t>() >= 0,
+          "Slice operation start_indices must be greater than or equal to 0. Start Indices: ",
+          start_idx->evaluate().as<int64_t>());
+      NVF_CHECK(
+          !start_idx->isConstInt() || !end_idx->isConstInt() ||
+              end_idx->evaluate().as<int64_t>() >=
+                  start_idx->evaluate().as<int64_t>(),
+          "Slice operation end_indices must be greater than or equal to start_indices. Start Indices: ",
+          start_idx->evaluate().as<int64_t>(),
+          " End Indices: ",
+          end_idx->evaluate().as<int64_t>());
+      NVF_CHECK(
+          stride_idx->isConstInt() && stride_idx->evaluate().as<int64_t>() == 1,
+          "nvFuser Limitation: All slice operation strides must be of const size 1.");
+      vec_slice.push_back({start_idx, end_idx, stride_idx});
+    }
+    auto output = slice(arg, vec_slice);
+    fd.setFusionState(outputs_.at(0).index, output);
+  }
+};
+
 struct ReshapeOpRecord : RecordFunctor {
   ReshapeOpRecord(std::vector<State> _args, std::vector<State> _outputs)
       : RecordFunctor(
@@ -1965,125 +2016,6 @@ struct ScalarRecord : RecordFunctor {
   PolymorphicValue value_;
   //! Scalar data type.
   PrimDataType dtype_;
-};
-
-struct SliceOpRecord : RecordFunctor {
-  SliceOpRecord(
-      std::vector<State> _args,
-      std::vector<State> _outputs,
-      std::vector<int64_t> start_indices,
-      std::vector<int64_t> end_indices,
-      std::vector<int64_t> strides)
-      : RecordFunctor(
-            std::move(_args),
-            std::move(_outputs),
-            "ops.slice",
-            serde::RecordType::SliceOp),
-        start_indices_(std::move(start_indices)),
-        end_indices_(std::move(end_indices)),
-        strides_(std::move(strides)) {}
-  ~SliceOpRecord() override = default;
-  RecordFunctor* clone() final {
-    return new SliceOpRecord(*this);
-  }
-
-  //! Child specific hash function in lower 32 bits.
-  //! | 31 -------- 20 | 19 --------  8 |  7 ------  0 |
-  //! | start_indices  | end_indices    | strides      |
-  size_t hash() const final {
-    auto result = RecordFunctor::hash();
-    size_t start_idx_hash = 0;
-    for (auto i : start_indices_) {
-      start_idx_hash ^= static_cast<size_t>(i);
-    }
-    size_t end_idx_hash = 0;
-    for (auto i : end_indices_) {
-      end_idx_hash ^= static_cast<size_t>(i);
-    }
-    size_t stride_hash = 0;
-    for (auto i : strides_) {
-      stride_hash ^= static_cast<size_t>(i);
-    }
-
-    result |= (start_idx_hash & 0xfff) << 20;
-    result |= (end_idx_hash & 0xfff) << 8;
-    return result | (stride_hash & 0xff);
-  }
-
-  bool operator==(const RecordFunctor& other) const final {
-    auto result = false;
-    if (auto child_ptr = dynamic_cast<const SliceOpRecord*>(&other)) {
-      result = RecordFunctor::operator==(other) &&
-          (start_indices_ == child_ptr->start_indices_) &&
-          (end_indices_ == child_ptr->end_indices_) &&
-          (strides_ == child_ptr->strides_);
-    }
-    return result;
-  }
-
-  void operator()(FusionState& fd) final {
-    auto arg = fd.getFusionState(args_.at(0).index)->as<TensorView>();
-    TensorView* output = slice(arg, start_indices_, end_indices_, strides_);
-    fd.setFusionState(outputs_.at(0).index, output);
-  }
-
-  void print(std::ostream& os, bool close_function = true) const final {
-    RecordFunctor::print(os, false);
-    os << ", start_indices=[";
-    bool first_arg = true;
-    for (auto idx : start_indices_) {
-      if (first_arg) {
-        first_arg = false;
-      } else {
-        os << ", ";
-      }
-      os << idx;
-    }
-    os << "], end_indices=[";
-    first_arg = true;
-    for (auto idx : end_indices_) {
-      if (first_arg) {
-        first_arg = false;
-      } else {
-        os << ", ";
-      }
-      os << idx;
-    }
-    os << "], strides=[";
-    first_arg = true;
-    for (auto stride : strides_) {
-      if (first_arg) {
-        first_arg = false;
-      } else {
-        os << ", ";
-      }
-      os << stride;
-    }
-    os << "]";
-    if (close_function) {
-      os << ")";
-    }
-  }
-
-  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
-      flatbuffers::FlatBufferBuilder& builder) const final {
-    return {
-        serde::RecordData::Slice,
-        serde::CreateSliceDirect(
-            builder, &start_indices_, &end_indices_, &strides_)
-            .Union()};
-  }
-
- private:
-  //! A slices beginning index for each dimension
-  //! Values must be greater-than or equal to 0
-  std::vector<int64_t> start_indices_;
-  //! A slices end index for each dimension (excluded from the slice)
-  //! Values are greater than or equal to the start index for a dimension
-  std::vector<int64_t> end_indices_;
-  //! For a dim, the step between start and end.
-  //! NOTE: Strides are currently limited to steps of 1
-  std::vector<int64_t> strides_;
 };
 
 //! Specialized Record Functor for recording FusionDefinition Start.

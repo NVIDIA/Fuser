@@ -308,8 +308,8 @@ TEST_F(NVFuserTest, FusionIndexSelectCanSch_CUDA) {
 
   // Schedule through magic scheduler
   SchedulerRuntimeInfo runtime_info(&fusion_fail, aten_inputs);
-  auto sch_fail = SchedulerEntry::canSchedule(
-      ScheduleHeuristic::PointWise, &fusion_fail, runtime_info);
+  auto sch_fail = Schedule::canSchedule(
+      SchedulerType::PointWise, &fusion_fail, runtime_info);
 
   // Negative Case II
   // lookup tv of index select cannot become conumser of other OP
@@ -336,8 +336,8 @@ TEST_F(NVFuserTest, FusionIndexSelectCanSch_CUDA) {
       input_pre, input1, input0, input_idx};
   // Schedule through magic scheduler
   SchedulerRuntimeInfo runtime_sum_info(&fusion_sum_fail, aten_sum_inputs);
-  auto sch_sum_fail = SchedulerEntry::canSchedule(
-      ScheduleHeuristic::Reduction, &fusion_sum_fail, runtime_sum_info);
+  auto sch_sum_fail = Schedule::canSchedule(
+      SchedulerType::Reduction, &fusion_sum_fail, runtime_sum_info);
 
   // Positive  Case I
   Fusion fusion_pass;
@@ -357,8 +357,8 @@ TEST_F(NVFuserTest, FusionIndexSelectCanSch_CUDA) {
   // Schedule through magic scheduler
   std::vector<c10::IValue> aten_inputs_pass = {input1, input0, input_idx};
   SchedulerRuntimeInfo runtime_info_pass(&fusion_pass, aten_inputs_pass);
-  auto sch_pass = SchedulerEntry::canSchedule(
-      ScheduleHeuristic::PointWise, &fusion_pass, runtime_info_pass);
+  auto sch_pass = Schedule::canSchedule(
+      SchedulerType::PointWise, &fusion_pass, runtime_info_pass);
 
   NVF_CHECK(sch_pass == true && sch_fail == false && sch_sum_fail == false);
 }
@@ -394,9 +394,9 @@ TEST_F(NVFuserTest, FusionIndexSelect_Sum_CUDA) {
   at::Tensor output = at::zeros({nElem_select}, options);
 
   std::vector<c10::IValue> aten_inputs = {input1, input0, input_idx};
-  auto reduction_params = getReductionHeuristics(&fusion, aten_inputs);
-  scheduleReduction(&fusion, *reduction_params);
-  auto lparams = reduction_params->lparams;
+  auto rparams = getReductionHeuristics(&fusion, aten_inputs);
+  scheduleReduction(&fusion, rparams.get());
+  auto lparams = rparams->lparams;
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs, lparams);
   fe.runFusion(aten_inputs, {output}, lparams);
