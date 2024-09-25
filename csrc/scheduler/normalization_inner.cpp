@@ -11,6 +11,7 @@
 #include <scheduler/normalization_utils.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/registry_utils.h>
+#include <scheduler/runtime_info.h>
 #include <scheduler/utils.h>
 
 #include <ATen/cuda/CUDAContext.h>
@@ -18,23 +19,23 @@
 namespace nvfuser {
 using PersistentKernelProperties =
     normalization_scheduler_utils::PersistentKernelProperties;
-InnerPersistentKernelScheduler::InnerPersistentKernelScheduler(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache)
-    : SchedulerEntry(heuristicType()) {
-  computeHeuristics(fusion, runtime_info, data_cache);
-}
 
-void InnerPersistentKernelScheduler::schedule(Fusion* fusion) {
+void InnerPersistentKernelScheduler::schedule(
+    Fusion* fusion,
+    const HeuristicParams* params) {
   FUSER_PERF_SCOPE("InnerPersistentKernelScheduler::schedule");
-  scheduleInnerPersistentKernel(fusion, reductionParams());
+  auto rparams = dynamic_cast<const ReductionParams*>(params);
+  NVF_ERROR(
+      rparams != nullptr && rparams->scheduler_type == schedulerType(),
+      "Incorrect parameters sent to InnerPersistentKernelScheduler::schedule",
+      params);
+  scheduleInnerPersistentKernel(fusion, rparams);
 }
 
 bool InnerPersistentKernelScheduler::canScheduleCompileTime(Fusion* fusion) {
   FUSER_PERF_SCOPE("InnerPersistentKernelScheduler::canScheduleCompileTime");
   return normalization_scheduler_utils::compileTimeCheck(
-      fusion, heuristicType());
+      fusion, schedulerType());
 }
 
 namespace {
@@ -42,11 +43,11 @@ namespace {
 std::pair<int64_t, int64_t> getPersistentBufferSize(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache,
+    HeuristicDataCache* data_cache,
     const std::vector<TensorView*>& reduction_tvs,
     const bool can_use_smem_persistent) {
   auto persistent_buffer_info_entry =
-      HeuristicSummaryEntry<HeuristicCompileTime::PersistentBufferInfo>(
+      HeuristicDataCacheEntry<HeuristicCompileTime::PersistentBufferInfo>(
           data_cache, [&fusion]() {
             return std::make_unique<scheduler_utils::PersistentBufferInfo>(
                 scheduler_utils::persistentBuffers(fusion));
@@ -63,7 +64,7 @@ std::pair<int64_t, int64_t> getPersistentBufferSize(
           runtime_info,
           persistent_buffer_info,
           persistent_buffer_size_info,
-          ScheduleHeuristic::InnerPersistent,
+          InnerPersistentKernelScheduler::schedulerType(),
           can_use_smem_persistent);
   auto persistent_buffer_size = project_persistent_buffers
       ? persistent_buffer_size_info.projected_persistent_buffer_size
@@ -83,10 +84,10 @@ std::pair<int64_t, int64_t> getPersistentBufferSize(
 bool InnerPersistentKernelScheduler::canScheduleRunTime(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache) {
+    HeuristicDataCache* data_cache) {
   FUSER_PERF_SCOPE("InnerPersistentKernelScheduler::canScheduleRunTime");
   auto reduction_tv_entry =
-      HeuristicSummaryEntry<HeuristicCompileTime::ReductionTVs>(
+      HeuristicDataCacheEntry<HeuristicCompileTime::ReductionTVs>(
           data_cache, [&fusion]() {
             return std::make_unique<std::vector<TensorView*>>(
                 scheduler_utils::getReductionTvs(fusion));
@@ -117,7 +118,7 @@ bool InnerPersistentKernelScheduler::canScheduleRunTime(
 
   if (persistent_buffer_size > available_persistent_buffer_size) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(),
+        schedulerType(),
         can_use_smem_persistent
             ? "not enough registers or shared memory for persistence."
             : "not enough registers for persistence and shared memory persistence is not supported yet.");
@@ -136,7 +137,7 @@ bool InnerPersistentKernelScheduler::canScheduleRunTime(
   if (required_sm_per_norm >
       scheduler_utils::safeDiv(device_multiprocessor_count, 2)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(), "requires over half GPU persistence.");
+        schedulerType(), "requires over half GPU persistence.");
     return false;
   }
 
@@ -152,20 +153,22 @@ bool InnerPersistentKernelScheduler::canScheduleRunTime(
                // half warp
                : (warp_size / 8) * device_multiprocessor_count)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(), "not enough blocks");
+        schedulerType(), "not enough blocks");
     return false;
   }
 
   return true;
 }
 
-void InnerPersistentKernelScheduler::computeHeuristics(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache) {
+std::unique_ptr<HeuristicParams> InnerPersistentKernelScheduler::
+    computeHeuristics(
+        Fusion* fusion,
+        SchedulerRuntimeInfo& runtime_info,
+        HeuristicDataCache* data_cache) {
   FUSER_PERF_SCOPE("InnerPersistentKernelScheduler::computeHeuristics");
-  params_ = getInnerPersistentHeuristics(fusion, runtime_info, data_cache);
-  NVF_ERROR(params_ != nullptr);
+  auto rparams = getInnerPersistentHeuristics(fusion, runtime_info, data_cache);
+  NVF_ERROR(rparams != nullptr);
+  return rparams;
 }
 
 namespace {
@@ -257,7 +260,7 @@ int64_t getMaxPersistentBatch(
 }
 
 // calculate bdimx, bdimy, occupancy, given a persistent batch size
-struct HeuristicParams {
+struct NormInnerParams {
   int64_t bdimx = -1;
   int64_t bdimy = -1;
   int64_t padded_bdimx = -1;
@@ -279,7 +282,7 @@ struct HeuristicParams {
   }
 };
 
-HeuristicParams getHeuristicParamsGivenPerisisentBatchSize(
+NormInnerParams getNormInnerParamsGivenPerisisentBatchSize(
     const int64_t reduction_count_after_vectorize,
     const int64_t total_iteration_numel,
     const int64_t max_multi_reduction_factor,
@@ -291,7 +294,7 @@ HeuristicParams getHeuristicParamsGivenPerisisentBatchSize(
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
   auto device_warp_size = dev_prop->warpSize;
   auto max_threads_per_block = dev_prop->maxThreadsPerBlock;
-  HeuristicParams params;
+  NormInnerParams params;
   params.persistent_batch_size = persistent_batch_size;
 
   // set bdimx and bdimy
@@ -346,8 +349,8 @@ HeuristicParams getHeuristicParamsGivenPerisisentBatchSize(
 // TODO: It leads to 10% regression for softmax around 2K to 6K and 16K.
 // See https://github.com/NVIDIA/Fuser/issues/1876
 bool compareTwoHeuristics(
-    const HeuristicParams& ha,
-    const HeuristicParams& hb,
+    const NormInnerParams& params_a,
+    const NormInnerParams& params_b,
     const int64_t min_non_buffer_registers,
     const int64_t target_warps_per_sm) {
   auto compare = [](int64_t a, int64_t b) -> int {
@@ -357,14 +360,16 @@ bool compareTwoHeuristics(
 
   // prefer occupancy larger than target
   score = compare(
-      ha.occupancy >= target_warps_per_sm, hb.occupancy >= target_warps_per_sm);
+      params_a.occupancy >= target_warps_per_sm,
+      params_b.occupancy >= target_warps_per_sm);
   if (score != 0) {
     return score > 0;
   }
 
   // prefer reduction count after vectorization is divisible by persistent
   // batch size
-  score = compare(ha.n_persistent_tails == 0, hb.n_persistent_tails == 0);
+  score = compare(
+      params_a.n_persistent_tails == 0, params_b.n_persistent_tails == 0);
   if (score != 0) {
     return score > 0;
   }
@@ -375,23 +380,23 @@ bool compareTwoHeuristics(
   // which usually leads to 10% lower in performance.
   constexpr int64_t opt_max_threads_per_block = 512;
   score = compare(
-      ha.non_buffer_registers > min_non_buffer_registers &&
-          ha.padded_bdimx <= opt_max_threads_per_block,
-      hb.non_buffer_registers > min_non_buffer_registers &&
-          hb.padded_bdimx <= opt_max_threads_per_block);
+      params_a.non_buffer_registers > min_non_buffer_registers &&
+          params_a.padded_bdimx <= opt_max_threads_per_block,
+      params_b.non_buffer_registers > min_non_buffer_registers &&
+          params_b.padded_bdimx <= opt_max_threads_per_block);
   if (score != 0) {
     return score > 0;
   }
 
   // Prefer large occupancy
-  score = compare(ha.occupancy, hb.occupancy);
+  score = compare(params_a.occupancy, params_b.occupancy);
   if (score != 0) {
     return score > 0;
   }
 
   // Tiebreaker, use large persistent batch size so more registers are used
   // for the persistent buffer.
-  return ha.persistent_batch_size > hb.persistent_batch_size;
+  return params_a.persistent_batch_size > params_b.persistent_batch_size;
 }
 
 // Generate a heuristic for each possible persistent batch size.
@@ -412,7 +417,7 @@ bool compareTwoHeuristics(
 // distribution, enhances register optimization, and prefers higher occupancy.
 void innerPersistentHeuristic2D(
     const PersistentKernelProperties& properties,
-    std::shared_ptr<ReductionParams> rparams) {
+    ReductionParams* rparams) {
   // Define two free parameters used in this heuristic.
   // register_overhead is all registers except those for the persistent
   // buffers. The register in each thread = register_overhead +
@@ -477,14 +482,14 @@ void innerPersistentHeuristic2D(
   // record which persistent batch size has the highest occupancy.
   int64_t idx_max_occupancy = -1;
   int64_t current_max_occupancy = -1;
-  std::vector<HeuristicParams> all_heuristics;
+  std::vector<NormInnerParams> all_heuristics;
   all_heuristics.reserve(
       batches_per_block_inner_reduction_max -
       batches_per_block_inner_reduction_min + 1);
   for (int64_t pbs = batches_per_block_inner_reduction_min;
        pbs <= batches_per_block_inner_reduction_max;
        pbs++) {
-    all_heuristics.push_back(getHeuristicParamsGivenPerisisentBatchSize(
+    all_heuristics.push_back(getNormInnerParamsGivenPerisisentBatchSize(
         parallel_after_vectorize,
         properties.total_iteration_numel,
         max_multi_reduction_factor,
@@ -501,7 +506,7 @@ void innerPersistentHeuristic2D(
 
   // Sort the heuristics and select the best one.
   // If no persistent batch size can achieve the target occupancy, and
-  HeuristicParams best_heuristic;
+  NormInnerParams best_heuristic;
   if (current_max_occupancy < target_warps_per_sm) {
     best_heuristic = all_heuristics.at(idx_max_occupancy);
   } else {
@@ -509,7 +514,7 @@ void innerPersistentHeuristic2D(
         all_heuristics.begin(),
         all_heuristics.end(),
         [&register_overhead](
-            const HeuristicParams& a, const HeuristicParams& b) {
+            const NormInnerParams& a, const NormInnerParams& b) {
           return compareTwoHeuristics(
               a, b, register_overhead, target_warps_per_sm);
         });
@@ -559,7 +564,7 @@ void innerPersistentHeuristic2D(
 
 void innerPersistentHeuristicSharedMemory(
     const PersistentKernelProperties& properties,
-    std::shared_ptr<ReductionParams> rparams) {
+    ReductionParams* rparams) {
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
   // Inner reduction domain
   // This heuristic is only used for cases with large total_reduction_numel.
@@ -601,7 +606,7 @@ void innerPersistentHeuristicSharedMemory(
 // TODO: clean and revise the heuristics
 void innerPersistentHeuristic3D(
     const PersistentKernelProperties& properties,
-    std::shared_ptr<ReductionParams> rparams) {
+    ReductionParams* rparams) {
   // Define two free parameters used in this heuristic.
   // register_overhead is all registers except those for the persistent
   // buffers. The register in each thread = register_overhead +
@@ -1084,10 +1089,10 @@ void innerPersistentHeuristic3D(
 
 } // namespace
 
-std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
+std::unique_ptr<ReductionParams> getInnerPersistentHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache) {
+    HeuristicDataCache* data_cache) {
   FusionGuard fg(fusion);
 
   // properties of the fusion
@@ -1096,10 +1101,10 @@ std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
           fusion,
           runtime_info,
           data_cache,
-          InnerPersistentKernelScheduler::heuristicType());
+          InnerPersistentKernelScheduler::schedulerType());
 
-  std::shared_ptr<ReductionParams> rparams =
-      std::make_shared<ReductionParams>();
+  std::unique_ptr<ReductionParams> rparams = std::make_unique<ReductionParams>(
+      InnerPersistentKernelScheduler::schedulerType());
 
   // shared heuristics for all cases
   rparams->persistent_kernel = true;
@@ -1113,13 +1118,13 @@ std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
     // all persistent buffers are moved to shared memory
     // TODO: allow only part of the buffers to be moved to shared memory
     rparams->smem_persistent_buffers = prop.persistent_buffers;
-    innerPersistentHeuristicSharedMemory(prop, rparams);
+    innerPersistentHeuristicSharedMemory(prop, rparams.get());
   } else if (prop.total_reduction_numel == prop.inner_most_dimension_numel) {
     rparams->tag = "2D Register Inner Persistent Heuristic.\n";
-    innerPersistentHeuristic2D(prop, rparams);
+    innerPersistentHeuristic2D(prop, rparams.get());
   } else {
     rparams->tag = "3D Register Inner Persistent Heuristic.\n";
-    innerPersistentHeuristic3D(prop, rparams);
+    innerPersistentHeuristic3D(prop, rparams.get());
   }
 
   // debug print
@@ -1130,19 +1135,22 @@ std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
   return rparams;
 }
 
-std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
+std::unique_ptr<ReductionParams> getInnerPersistentHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
-    HeuristicSummary* data_cache) {
+    HeuristicDataCache* data_cache) {
   SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs);
   return getInnerPersistentHeuristics(fusion, runtime_info, data_cache);
 }
 
 void scheduleInnerPersistentKernel(
     Fusion* fusion,
-    const ReductionParams& rparams) {
+    const ReductionParams* rparams) {
+  NVF_ERROR(
+      rparams->scheduler_type ==
+      InnerPersistentKernelScheduler::schedulerType());
   normalization_scheduler_utils::schedulePersistentKernel(
-      fusion, rparams, InnerPersistentKernelScheduler::heuristicType());
+      fusion, rparams, rparams->scheduler_type);
 }
 
 } // namespace nvfuser

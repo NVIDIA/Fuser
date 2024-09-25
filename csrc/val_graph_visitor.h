@@ -171,13 +171,15 @@ class ValGraphBFS : public BFS<
   ValGraphBFS(
       const ValGraph& graph,
       std::vector<NodeType> from_groups,
-      std::vector<NodeType> to_groups)
+      std::vector<NodeType> to_groups,
+      bool require_all_to_visited = true)
       : BFS(ValGraphDefinitions(graph),
             ValGraphUses(graph),
             ValGraphInputs(graph),
             ValGraphOutputs(graph),
             std::move(from_groups),
-            std::move(to_groups)) {}
+            std::move(to_groups),
+            require_all_to_visited) {}
 
  public:
   // Find the shortest path from the from_groups_ to to_groups_ on a
@@ -185,15 +187,27 @@ class ValGraphBFS : public BFS<
   // It is an error if no valid path is found.
   static ExprPath getExprsBetween(
       const ValGraph& graph,
-      const ValGroups& from,
-      const ValGroups& to) {
-    ValGraphBFS bfs(
-        graph,
-        {from.vector().begin(), from.vector().end()},
-        {to.vector().begin(), to.vector().end()});
+      std::vector<NodeType> from,
+      std::vector<NodeType> to) {
+    ValGraphBFS bfs(graph, std::move(from), std::move(to));
     bfs.traverse();
     return bfs.getShortestExprPath();
   }
+  static ExprPath getExprsBetween(
+      const ValGraph& graph,
+      const ValGroups& from,
+      const ValGroups& to) {
+    return getExprsBetween(
+        graph,
+        std::vector<NodeType>{from.vector().begin(), from.vector().end()},
+        std::vector<NodeType>{to.vector().begin(), to.vector().end()});
+  }
+
+  // Get all the val groups in vals that are reachable from the from groups
+  static ValGroups getReachableValsFrom(
+      const ValGraph& graph,
+      const ValGroups& from,
+      const ValGroups& vals);
 };
 
 } // namespace nvfuser

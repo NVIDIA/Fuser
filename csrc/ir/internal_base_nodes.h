@@ -111,7 +111,10 @@ class NVF_API IterDomain : public Val {
   //! Returns a new IterDomain matching properties of this
   //!
   //! This does NOT copy the is_rfactor_domain flag.
-  IterDomain* cloneWithoutRFactor() const;
+  //!
+  //! When map_with_original is true, the clone of the original is
+  //! mapped in the Exact graph.
+  IterDomain* cloneWithoutRFactor(bool map_with_original = false);
 
   //! Clone a vector domains
   static std::vector<IterDomain*> clone(
@@ -529,10 +532,22 @@ class TensorDomain : public Val {
     return root_domain_.empty() ? logical_domain_ : root_domain_;
   };
 
+  // Check if id is a root ID. Always return false if there's no root
+  // domain.
+  bool isRoot(const IterDomain* id) const {
+    return hasRoot() &&
+        std::find(root().begin(), root().end(), id) != root().end();
+  }
+
   // The output logical domain.
   const std::vector<IterDomain*>& logical() const {
     return logical_domain_;
   };
+
+  // Check if id is a logical ID.
+  bool isLogical(const IterDomain* id) const {
+    return std::find(logical().begin(), logical().end(), id) != logical().end();
+  }
 
   // The allocation domain. This describes how data is stored in memory in
   // outer-to-inner order.
@@ -540,9 +555,32 @@ class TensorDomain : public Val {
     return allocation_domain_;
   }
 
+  // Check if id is an allocation ID. Always return false if there's
+  // no allocation domain.
+  bool isAllocation(const IterDomain* id) const {
+    return hasAllocation() &&
+        std::find(allocation().begin(), allocation().end(), id) !=
+        allocation().end();
+  }
+
   // The loop domain after scheduling. This defines loop nests and loop indices.
   const std::vector<IterDomain*>& loop() const {
     return loop_domain_;
+  }
+
+  const std::vector<IterDomain*>& initialLoop() const {
+    return initial_loop_domain_;
+  }
+
+  // Check if id is a loop ID.
+  bool isLoop(const IterDomain* id) const {
+    return std::find(loop().begin(), loop().end(), id) != loop().end();
+  }
+
+  // Check if id is an intial loop ID.
+  bool isInitialLoop(const IterDomain* id) const {
+    return std::find(initialLoop().begin(), initialLoop().end(), id) !=
+        loop().end();
   }
 
   // Get all IDs that is on the shortest path between any of the domains
@@ -667,6 +705,10 @@ class TensorDomain : public Val {
   const std::vector<IterDomain*> logical_domain_;
   std::vector<IterDomain*> allocation_domain_;
   std::vector<IterDomain*> loop_domain_;
+  // Initial loop domain. Loop domain is updated with transformations
+  // such as split, but the initial loop domain can only change with
+  // setLoopDomain
+  std::vector<IterDomain*> initial_loop_domain_;
   std::vector<IterDomain*> additional_ids_;
 
   std::vector<IterDomain*> no_bcast_domain_;
