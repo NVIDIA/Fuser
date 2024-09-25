@@ -5663,8 +5663,8 @@ TEST_F(NVFuserTest, FusionZeroSizeTensorNormalization_CUDA) {
   at::Tensor input0 = at::randn({2, 4}, options);
   at::Tensor input1 = at::randn({0}, options);
 
-  auto cg_results =
-      scheduleAndRun(&fusion, SchedulerType::OuterPersistent, {input0, input1});
+  auto cg_results = scheduleAndRun(
+      &fusion, SchedulerType::OuterPersistent, {input0, input1}, false);
   auto aten_output2 = input0.sum({0}).add(input0);
   at::Tensor aten_output3 = at::empty({0}, options);
 
