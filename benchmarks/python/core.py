@@ -269,7 +269,6 @@ def run_benchmark(
     host_bench_mode = None
 
     # Store warmup rounds locally to modify for host:steady/dynamic cases.
-    global warmup_rounds
     warmup_rounds = BENCHMARK_CONFIG["warmup_rounds"]
 
     if device.split(":")[0] == "host":
