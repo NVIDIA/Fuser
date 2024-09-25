@@ -35,6 +35,7 @@
 #include <expr_simplifier.h>
 #include <fusion.h>
 #include <id_model/id_model.h>
+#include <id_model/utils.h>
 #include <instrumentation.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
@@ -424,9 +425,11 @@ void GpuLower::analysis(Fusion* fusion) {
         /*build_graphs=*/true,
         /*allow_self_mapping=*/false,
         /*validate=*/false);
-    std::cerr << "Loop graph\n"
-              << nvfuser::idGroupsString(
-                     id_model_->idGraph(IdMappingMode::LOOP));
+    if (getenv("DEBUG")) {
+      std::cerr << "Loop graph\n"
+                << nvfuser::idGroupsString(
+                       id_model_->idGraph(IdMappingMode::LOOP));
+    }
 #else
     // DEBUG build
     id_model_ = std::make_unique<IdModel>(
@@ -526,6 +529,11 @@ void GpuLower::analysis(Fusion* fusion) {
   compute_at_map_->allocateIndexVariables();
   dumpExprsIfEnabled(fusion_->exprs(), "allocateIndexVariables");
 
+  if (isIdModelOptionEnabled(IdModelEnableOption::Loop)) {
+    std::cerr << "Require: " << this->requiresIdModel() << "\n";
+    id_model_->allocateIndexVariables();
+  }
+
   if (this->requiresIdModel() || isOptionEnabled(EnableOption::IdModel)) {
     tensor_indexer_ = std::make_unique<TensorIndexer>(*id_model_);
   }
@@ -583,6 +591,16 @@ bool GpuLower::resolveComputeWith(Fusion* fusion) {
   }
 
   return updated;
+}
+
+Val* GpuLower::getLoopIndexVariable(
+    IterDomain* id,
+    CircularBufferLoopStage stage) const {
+  if (isIdModelOptionEnabled(IdModelEnableOption::Loop)) {
+    return idModel().getLoopIndexVariable(id, stage);
+  } else {
+    return caMap()->getIndexVariable(id, stage);
+  }
 }
 
 } // namespace nvfuser

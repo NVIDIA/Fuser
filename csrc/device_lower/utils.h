@@ -224,7 +224,9 @@ struct IterDomainDependencySorter {
         kernel_scope_domain_(kernel_scope_domain) {}
 
   // Return true if id0 should be before id1
-  // Orders such that if x maps to {y}, x comes before y in final ordering.
+  // Orders such that if x maps to {y}, x comes before y in final
+  // ordering.
+#if 0  
   inline bool operator()(IterDomain* id0, IterDomain* id1) {
     auto concrete_id_0 = id0 != kernel_scope_domain_
         ? compute_at_map_->getConcreteMappedID(id0, IdMappingMode::LOOP)
@@ -243,6 +245,9 @@ struct IterDomainDependencySorter {
 
     return false;
   }
+#else
+  bool operator()(IterDomain* id0, IterDomain* id1);
+#endif
 
   const std::unordered_map<IterDomain*, std::unordered_set<IterDomain*>>&
       concrete_id_dependencies_;

@@ -3688,6 +3688,9 @@ TEST_F(ResizeTest, SliceScheduledLikeProducer) {
 
   std::vector<int64_t> shape({100});
 
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
   // concrete shapes to avoid dynamic Fusion
   auto tv0 = makeConcreteTensor(shape);
   fusion.addInput(tv0);
@@ -3725,14 +3728,11 @@ TEST_F(ResizeTest, SliceScheduledLikeProducer) {
 #endif
   inlineMost();
   fusion.printMath();
-  fusion.printKernel();
+  // fusion.printKernel();
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
-
-  EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
@@ -3748,6 +3748,9 @@ TEST_F(ResizeTest, PadScheduledLikeConsumer) {
   FusionGuard fg(&fusion);
 
   std::vector<int64_t> shape({100});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   // concrete shapes to avoid dynamic Fusion
   auto tv0 = makeConcreteTensor(shape);
@@ -3778,9 +3781,6 @@ TEST_F(ResizeTest, PadScheduledLikeConsumer) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
-  EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
-
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
@@ -3796,6 +3796,9 @@ TEST_F(ResizeTest, SliceThenPadLeftHalf) {
   FusionGuard fg(&fusion);
 
   std::vector<int64_t> shape({100});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   // concrete shapes to avoid dynamic Fusion
   auto tv0 = makeContigConcreteTensor(shape);
@@ -3837,9 +3840,6 @@ TEST_F(ResizeTest, SliceThenPadLeftHalf) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
-  EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
-
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
@@ -3856,6 +3856,9 @@ TEST_F(ResizeTest, SliceThenPadRightHalf) {
   FusionGuard fg(&fusion);
 
   std::vector<int64_t> shape({100});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   // concrete shapes to avoid dynamic Fusion
   auto tv0 = makeContigConcreteTensor(shape);
@@ -3899,9 +3902,6 @@ TEST_F(ResizeTest, SliceThenPadRightHalf) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
-  EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
-
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
@@ -3918,6 +3918,9 @@ TEST_F(ResizeTest, SliceThenConcat) {
   FusionGuard fg(&fusion);
 
   std::vector<int64_t> shape({100});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   // concrete shapes to avoid dynamic Fusion
   auto tv0 = makeContigConcreteTensor(shape);
@@ -4000,9 +4003,6 @@ TEST_F(ResizeTest, SliceThenConcat) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
-  EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
-
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
@@ -4017,6 +4017,9 @@ TEST_F(ResizeTest, SliceSliceConcatConcat) {
 
   const int64_t i0 = 128;
   const int64_t rope_size = 32;
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   auto zero = fusion.zeroVal();
 
@@ -4271,9 +4274,6 @@ TEST_F(ResizeTest, SliceSliceConcatConcat) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({i0}, options);
   std::vector<c10::IValue> aten_inputs({t0});
-
-  EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);

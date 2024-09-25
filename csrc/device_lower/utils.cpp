@@ -642,6 +642,25 @@ std::vector<Expr*> replaceInputsInExpr(
   return ReplaceExprInput::replace(exprs, replacement_map);
 }
 
+bool IterDomainDependencySorter::operator()(IterDomain* id0, IterDomain* id1) {
+  auto concrete_id_0 = id0 != kernel_scope_domain_
+      ? lower_utils::getConcreteLoopDomain(id0)
+      : id0;
+  auto concrete_id_1 = id1 != kernel_scope_domain_
+      ? lower_utils::getConcreteLoopDomain(id1)
+      : id1;
+  if (concrete_id_dependencies_.find(concrete_id_0) !=
+      concrete_id_dependencies_.end()) {
+    const auto& dependencies_0 = concrete_id_dependencies_.at(concrete_id_0);
+    // if id0 depends on id1 it means id1 is inside id0, so id0 < id1
+    if (dependencies_0.count(concrete_id_1)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 std::vector<Expr*> getAllSwizzlesBetween(
     std::vector<IterDomain*> from,
     std::vector<IterDomain*> to) {
@@ -785,6 +804,7 @@ BasicAllocInfo getAllocInformation(
       }
     }
 
+#if 0
     if (tv->name() == 1) {
       std::cerr << "local_id: " << local_id->toString()
                 << ", fl: " << fl_id->toString() << ", are mapped? : "
@@ -792,6 +812,7 @@ BasicAllocInfo getAllocInformation(
                        local_id, fl_id, IdMappingMode::PERMISSIVE)
                 << "\n";
     }
+#endif
 
 #if 0
     if (GpuLower::current()->caMap()->areMapped(
@@ -812,11 +833,12 @@ BasicAllocInfo getAllocInformation(
     }
   }
 
+#if 0
   if (tv->name() == 1) {
     std::cerr << tv->toString() << "\n";
     std::cerr << "Allocation pos: " << info.alloc_pos << "\n";
   }
-
+#endif
   return info;
 }
 
@@ -1039,18 +1061,35 @@ bool predicateAtEnd(ForLoop* loop) {
 }
 
 IterDomain* getConcreteLoopDomain(IterDomain* id) {
-  if (isIdModelOptionEnabled(IdModelEnableOption::Inlining)) {
-    // TODO: getLoopPromotion needs to return a concrete domain even
-    // with non-linear loop domains
-    if (!getenv("NO_LOOP_PROMOTION")) {
-      return getLoopPromotion(id, GpuLower::current()->idModel());
-    } else {
-      const auto& group = GpuLower::current()
-                              ->idModel()
-                              .idGraph(IdMappingMode::LOOP)
-                              .toGroup(id);
-      return group->front()->as<IterDomain>();
+  if (isIdModelOptionEnabled(IdModelEnableOption::Loop)) {
+    const auto& loop_graph =
+        GpuLower::current()->idModel().idGraph(IdMappingMode::LOOP);
+    auto promotion = getLoopPromotion(id, GpuLower::current()->idModel());
+    const auto& ca_map = GpuLower::current()->caMap();
+    const auto& loop_group = loop_graph.toGroup(id);
+
+    // Try to see if the CA concrete domain can be used instead
+    for (auto loop_val : *loop_group) {
+      IterDomain* loop_id = loop_val->as<IterDomain>();
+      if (ca_map->idExistsInMap(loop_id, IdMappingMode::LOOP)) {
+        auto ca_map_concrete =
+            ca_map->getConcreteMappedID(loop_id, IdMappingMode::LOOP);
+        if (GpuLower::current()
+                ->idModel()
+                .idGraph(IdMappingMode::LOOP)
+                .disjointValSets()
+                .strictAreMapped(ca_map_concrete, promotion) &&
+            GpuLower::current()
+                ->idModel()
+                .idGraph(IdMappingMode::EXACT)
+                .disjointValSets()
+                .strictAreMapped(ca_map_concrete, promotion)) {
+          return ca_map_concrete;
+        }
+      }
     }
+
+    return promotion;
   } else {
     const auto& ca_map = GpuLower::current()->caMap();
     return ca_map->getConcreteMappedID(id, IdMappingMode::LOOP);

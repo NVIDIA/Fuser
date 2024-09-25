@@ -134,6 +134,10 @@ class IdModel : public PolymorphicBase {
       LoopPromotionMapBuilderCallback* loop_promotion_map_builder_callback =
           nullptr);
 
+  bool hasIdGraph(IdMappingMode mode) const {
+    return id_graphs_.find(mode) != id_graphs_.end();
+  }
+
   // Returns iter domain graph of provided mode. The graph must have
   // been already built.
   const ValGraph& idGraph(IdMappingMode mode) const;
@@ -223,6 +227,18 @@ class IdModel : public PolymorphicBase {
   //! all IterDomains in the disjoint set to that PType.
   void validateAndPropagatePType();
 
+  void allocateIndexVariables();
+
+  Val* getLoopIndexVariable(
+      IterDomain* id,
+      CircularBufferLoopStage circular_buffer_loop_stage =
+          CircularBufferLoopStage::NotApplicable) const;
+
+  Val* getLoopIndexVariable(
+      const ValGroup& loop_group,
+      CircularBufferLoopStage circular_buffer_loop_stage =
+          CircularBufferLoopStage::NotApplicable) const;
+
  protected:
   // Fills id_uses_ and id_definitions_ for all IterDomains active in the
   // fusion.
@@ -294,6 +310,16 @@ class IdModel : public PolymorphicBase {
 
   // Promotion domain for each loop group
   std::unordered_map<ValGroup, IterDomain*> loop_promotion_map_;
+
+  std::unordered_map<ValGroup, Val*> loop_index_variable_map_;
+
+  //! Allocated loop indices for circular buffer loop.
+  //!  only valid for disjoint sets on the loop ca map
+  //!  that have circular buffer-ed iterdomains.
+  using CircularBufferIndicesPtr =
+      std::unique_ptr<std::unordered_map<CircularBufferLoopStage, Val*>>;
+  std::unordered_map<ValGroup, CircularBufferIndicesPtr>
+      circular_buffered_loop_index_variable_map_;
 };
 
 // A utility function to update a map of ValGroups to ID from an old

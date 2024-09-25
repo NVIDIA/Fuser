@@ -731,28 +731,6 @@ class AllocationDomainSetup : private kir::IrVisitor {
   std::unordered_set<TensorView*> used_as_producer;
 };
 
-ParallelType getParallelType(const ValGroup& loop_group) {
-  ParallelType common_pt = ParallelType::Serial;
-  for (const auto val : *loop_group) {
-    auto pt = val->as<IterDomain>()->getParallelType();
-    if (common_pt == pt || pt == ParallelType::Serial) {
-      continue;
-    } else if (common_pt == ParallelType::Serial) {
-      common_pt = pt;
-    } else {
-      // Inconsistent parallelization
-      NVF_THROW(
-          "Inconsistent parallelization detected. ",
-          "Known type: ",
-          common_pt,
-          "New type: ",
-          pt);
-    }
-  }
-
-  return common_pt;
-}
-
 } // namespace
 
 TensorIndexer::TensorIndexer(IdModel& id_model) : id_model_(id_model) {
@@ -789,67 +767,11 @@ void TensorIndexer::buildLoopIndexMap() {
         continue;
       }
 
-      Val* loop_index = nullptr;
-
-      ParallelType ptype = getParallelType(loop_group);
-      if (
-          // TODO: Cleanup needed. ir_utils::isMemoryPartitionedAcross
-          // should be used, but that means we would need to consider
-          // multiple outputs with different memory types, though it
-          // should be uncommon in practice.
-          shouldUseZeroIndex(loop_group) || isParallelTypeDeviceDim(ptype)) {
-        loop_index = fusion->zeroVal();
-      } else if (isParallelTypeThread(ptype)) {
-        loop_index = NamedScalar::getParallelIndex(ptype);
-      } else {
-        // Until the transition to the IdModel-based indexing is
-        // completed, use the index Vals assigned for ComputeAtMap
-        // groups if available.
-        if (GpuLower::hasCurrent()) {
-          const auto& ca_map = GpuLower::current()->caMap();
-#if 0
-          for (const auto& id :
-               ir_utils::filterByType<IterDomain>(loop_group->vector())) {
-            if (!ca_map->getIdSets(IdMappingMode::LOOP).mappingExists(id)) {
-              continue;
-            }
-            loop_index = ca_map->getIndexVariable(id);
-            std::cerr << "Using caMap index: "
-                      << loop_index->toString()
-                      << ", of " << id->toString()
-                      << "\n";
-            break;
-          }
-#else
-          auto promotion = getLoopPromotion(loop_id, id_model_);
-          NVF_ERROR(
-              ca_map->getIdSets(IdMappingMode::LOOP).mappingExists(promotion));
-          loop_index = ca_map->getIndexVariable(promotion);
-#endif
-          NVF_ERROR(
-              loop_index != nullptr,
-              "No existing index found for ",
-              nvfuser::toString(loop_group));
-        } else {
-          loop_index = IrBuilder::create<Val>(DataType::Index);
-        }
-      }
+      Val* loop_index = GpuLower::current()->getLoopIndexVariable(loop_id);
 
       loop_index_map_[loop_group] = loop_index;
     }
   }
-}
-
-bool TensorIndexer::shouldUseZeroIndex(const ValGroup& loop_group) const {
-  // Trivial loop
-  auto promotion_id =
-      getLoopPromotion(loop_group->front()->as<IterDomain>(), id_model_);
-  if (promotion_id->isBroadcast() ||
-      simplifyExpr(promotion_id->extent())->isOneInt()) {
-    return true;
-  }
-
-  return false;
 }
 
 Val* TensorIndexer::getLoopIndex(IterDomain* loop_id) const {
@@ -941,6 +863,7 @@ Val* TensorIndexer::getLinearIndex(
       " not found in ",
       expr->toString());
 
+  // std::cerr << "getLinearIndex: " << tv->toString() << "\n";
   const bool as_consumer =
       std::find(expr->outputs().begin(), expr->outputs().end(), tv) !=
       expr->outputs().end();
@@ -1117,6 +1040,7 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
     ForLoop* unswitched_loop) const {
   const auto& zero_val = tv->fusion()->zeroVal();
 
+  // std::cerr << "getPredicates: " << tv->toString() << "\n";
   const std::vector<IterDomain*>& predicate_domains =
       getPredicateDomains(tv, expr);
 

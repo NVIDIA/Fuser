@@ -613,7 +613,10 @@ StatefulInliningInfo buildStatefulInliningInfo(
       // Grab all iteration domains in producer that its compute at iter domains
       // depend on.
       VectorOfUniqueEntries<IterDomain*> all_producer_ca_deps;
-      if (isIdModelOptionEnabled(IdModelEnableOption::Inlining)) {
+
+      // Disable for now
+      // if (isIdModelOptionEnabled(IdModelEnableOption::Inlining)) {
+      if (getenv("NEW")) {
         if (isLoopDomainFullyDerivedFromLogical(producer_tv)) {
           auto ca_dep_vals = DependencyCheck::getAllValsBetween(
               {producer_logical.begin(), producer_logical.end()},
@@ -1043,6 +1046,125 @@ void IdModel::validateAndPropagatePType() {
       id->as<IterDomain>()->parallelize(common_ptype);
     }
   }
+}
+
+void IdModel::allocateIndexVariables() {
+  FusionGuard fg(fusion_);
+
+  NVF_ERROR(GpuLower::hasCurrent());
+
+  NVF_ERROR(
+      hasIdGraph(IdMappingMode::LOOP),
+      "getLoopIndexVariable requires Loop graph");
+
+  // Follow the same logic as ComputeAtMap::allocateIndexVariables
+  for (const ValGroup& loop_group :
+       idGraph(IdMappingMode::LOOP).disjointValSets().disjointSets()) {
+    auto loop_promotion_map_it = loop_promotion_map_.find(loop_group);
+
+    // Not all loop groups actually correspond to a for-loop. Ideally,
+    // non for-loop loop groups should be removed. Such loop groups do
+    // not need indices and don't have loop promotion.
+    if (loop_promotion_map_it == loop_promotion_map_.end()) {
+      continue;
+    }
+
+    ParallelType ptype = getParallelType(loop_group);
+
+    Val* loop_index = nullptr;
+
+    // TODO: Cleanup needed. ir_utils::isMemoryPartitionedAcross
+    // should be used, but that means we would need to consider
+    // multiple outputs with different memory types, though it
+    // should be uncommon in practice.
+    if (shouldUseZeroIndex(loop_group, *this) ||
+        isParallelTypeDeviceDim(ptype)) {
+      loop_index = fusion_->zeroVal();
+    } else if (isParallelTypeThread(ptype)) {
+      loop_index = NamedScalar::getParallelIndex(ptype);
+    }
+
+    if (loop_index != nullptr) {
+      loop_index_variable_map_[loop_group] = loop_index;
+      continue;
+    }
+
+    if (GpuLower::current()->circularBufferInfo().isCircularBufferedIterDomain(
+            loop_group->front()->as<IterDomain>())) {
+      // Allocate index variable for each stage of the circular buffered loop.
+      circular_buffered_loop_index_variable_map_[loop_group] =
+          std::make_unique<CircularBufferIndices>(CircularBufferIndices(
+              {{CircularBufferLoopStage::Prolog,
+                IrBuilder::create<Val>(DataType::Index)},
+               {CircularBufferLoopStage::Main,
+                IrBuilder::create<Val>(DataType::Index)},
+               {CircularBufferLoopStage::Epilog,
+                IrBuilder::create<Val>(DataType::Index)}}));
+      continue;
+    }
+
+    // Until the transition to the IdModel-based indexing is
+    // completed, use the index Vals assigned for ComputeAtMap
+    // groups unless Loop option is enabled
+    if (isIdModelOptionEnabled(IdModelEnableOption::Loop)) {
+      loop_index = IrBuilder::create<Val>(DataType::Index);
+    } else {
+      const auto& ca_map = GpuLower::current()->caMap();
+      for (const auto& id :
+           ir_utils::filterByType<IterDomain>(loop_group->vector())) {
+        if (!ca_map->getIdSets(IdMappingMode::LOOP).mappingExists(id)) {
+          continue;
+        }
+        loop_index = ca_map->getIndexVariable(id);
+        break;
+      }
+      NVF_ERROR(
+          loop_index != nullptr,
+          "No existing index found for ",
+          nvfuser::toString(loop_group));
+    }
+
+    NVF_ERROR(loop_index != nullptr);
+    loop_index_variable_map_[loop_group] = loop_index;
+  }
+
+  return;
+}
+
+Val* IdModel::getLoopIndexVariable(
+    const ValGroup& loop_group,
+    CircularBufferLoopStage circular_buffer_loop_stage) const {
+  NVF_ERROR(
+      !loop_index_variable_map_.empty(),
+      "Loop index variables not generated. IdModel::allocateIndexVariables may have not been callled.");
+
+  // Check if this loop was modified by circular buffer pass.
+  bool is_circular_buffer_iterdomain =
+      GpuLower::current()->circularBufferInfo().isCircularBufferedIterDomain(
+          loop_group->front()->as<IterDomain>());
+
+  if (is_circular_buffer_iterdomain) {
+    // Use dedicated circular buffer index variable if the loop is circular
+    // buffer loop
+    if (circular_buffer_loop_stage == CircularBufferLoopStage::NotApplicable) {
+      // The circular buffered loop stages are created after the loop nest
+      //  lowering phase so this function will be querried before the double
+      //  buffer pass. At that point, no forloop has any circular buffer
+      //  stage defined, and we just default to using the main stage index.
+      circular_buffer_loop_stage = CircularBufferLoopStage::Main;
+    }
+    return circular_buffered_loop_index_variable_map_.at(loop_group)
+        ->at(circular_buffer_loop_stage);
+  } else {
+    return loop_index_variable_map_.at(loop_group);
+  }
+}
+
+Val* IdModel::getLoopIndexVariable(
+    IterDomain* id,
+    CircularBufferLoopStage circular_buffer_loop_stage) const {
+  const auto& loop_group = idGraph(IdMappingMode::LOOP).toGroup(id);
+  return getLoopIndexVariable(loop_group, circular_buffer_loop_stage);
 }
 
 } // namespace nvfuser

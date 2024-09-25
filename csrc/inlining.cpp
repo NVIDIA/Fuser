@@ -24,9 +24,6 @@ MaxPosCalculator::MaxPosCalculator(
     bool compute_at_only)
     : uninlinable_ids_(std::move(uninlinable_ids)) {
   buildUnmappableDims(compute_at_only);
-  for (auto id : unmappable_dims_) {
-    std::cerr << "Unmappable: " << id->toString() << "\n";
-  }
 }
 
 void MaxPosCalculator::buildUnmappableDims(bool compute_at_only) {

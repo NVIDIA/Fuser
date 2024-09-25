@@ -562,8 +562,10 @@ void LoopIndexingAnalysis::validateLoopStructure(
   for (auto for_loop : loops) {
     // Largely duplicating original logic
     auto loop_id = for_loop->iter_domain();
-    auto concrete_loop_id = GpuLower::current()->caMap()->getConcreteMappedID(
-        loop_id, IdMappingMode::EXACT);
+    // std::cerr << "Loop id: " << loop_id->toString() << "\n";
+    IterDomain* concrete_loop_id =
+        GpuLower::current()->caMap()->getConcreteMappedID(
+            loop_id, IdMappingMode::EXACT);
 
     NVF_ERROR(
         !concrete_to_loop.count(concrete_loop_id),
