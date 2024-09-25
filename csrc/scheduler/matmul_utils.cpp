@@ -907,6 +907,56 @@ std::unique_ptr<MatmulParams> getMatmulHeuristics(
     NVF_ERROR(status, "Initialization of core part of heuristics failed.");
   }
 
+  if (patterns.size() > 2) {
+    // Currently, both the default heuristic and plugins cannot account for
+    // multiple matmuls being present in a single fusion, so they assume there
+    // is only one. This can lead to errors due to register and shared memory
+    // limitation unless we adjust the tile sizes.
+    // TODO: provide number of matmuls and basic topology to heuristic instead
+
+    // [Adjusting CTA tile to account for multiple MmaOps]
+    // If we have nm mma operations na A operands and nb B operands the smem
+    // usage of the operand loads is:
+    //   (na*(cm*ck) + nb*(cn*ck))*num_stages
+    // where cm, cn, ck is the size of the CTA tile.
+    // If we use smem for the epilogue unswizzling, we have the following total
+    // smem use (assuming smem reuse):
+    //   max((na*(cm*ck) + nb*(cn*ck))*num_stages, nm*(cm*cn))
+    // and without smem reuse it is
+    //   (na*(cm*ck) + nb*(cn*ck))*num_stages + nm*(cm*cn)
+    //
+    // Note that na <= nm and nb <= nm, so in any of the cases above we know
+    // that the smem usage in this kernel is at most nm times that of the
+    // single-matmul case corresponding to nm=na=nb=1. In order to guarantee
+    // both the smem and register buffers are not too large, we can ensure
+    // they're each at most nm times smaller than the original params.
+    //
+    // For example, if na=1, nb=2, nm=2, we should change cn -> cn / 2, assuming
+    // that is still a multiple of the instruction tile size.
+    //
+    // A more extreme example is na=2, nb=2, nm=3. In this case, we could
+    // instead change cm->cm/2 and cn->cn/2 and this would be sufficient since
+    // it results in cm*cn -> nm*((cm/2)*(cn/2))=3*(cm*cn)/4
+    //
+    // If each pair of gmem operands is used in at most a single matmul, then
+    // na*nb >= nm and we can just always divide cm and cn by na and nb
+    // respectively as in these examples. However, it is possible that the same
+    // two gmem operands could be used in separate matmuls if they have
+    // different prologues. For example:
+    //
+    //   addInput(tv0);
+    //   addInput(tv1);
+    //   auto tv2 = matmul(tv0, tv1);
+    //   auto tv3 = mul(tv1, tv1);
+    //   auto tv4 = matmul(tv0, tv3);
+    //   addOutput(tv2);
+    //   addOutput(tv4);
+    //
+    // This has na=nb=1 and nm=2 and can be horizontally fused. In a situation
+    // like this, we find the next highest divisor for na such that the cm*cn
+    // register buffer (and smem_epilogue) size is sufficiently controlled.
+  }
+
   // Ensure that entire pipeline is filled for shared memory operands given
   // problem and heuristics.
   limitCircularBufferingSmemOperands(mparams.get(), problem_shape);
