@@ -424,6 +424,9 @@ void GpuLower::analysis(Fusion* fusion) {
         /*build_graphs=*/true,
         /*allow_self_mapping=*/false,
         /*validate=*/false);
+    std::cerr << "Loop graph\n"
+              << nvfuser::idGroupsString(
+                     id_model_->idGraph(IdMappingMode::LOOP));
 #else
     // DEBUG build
     id_model_ = std::make_unique<IdModel>(

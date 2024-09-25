@@ -2739,4 +2739,45 @@ TEST_F(IdModelTest, MappingClonedIDs) {
   }
 }
 
+TEST_F(IdModelTest, LoopGraph) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(1);
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv1);
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 = add(tv0, tv3);
+  fusion.addOutput(tv4);
+
+  {
+    std::vector<IterDomain*> loop_domain{
+        tv2->getLogicalDomain().at(0),
+        tv3->getLogicalDomain().at(1)->cloneWithoutRFactor(true)};
+    tv2->setLoopDomain(loop_domain);
+  }
+
+  for (auto tv : fusion.allTvs()) {
+    tv->flatten();
+    tv->split(0, 32);
+  }
+
+  inlineMost();
+
+  fusion.print();
+  std::cout << std::endl;
+
+  std::cerr << "Trying IdModel\n";
+
+  IdModel id_model(&fusion);
+  const auto& loop_promotion_map = id_model.loopPromotionMap();
+  for (const auto& [loop_group, promotion] : loop_promotion_map) {
+    std::cerr << "Loop group: " << toDelimitedString(loop_group->vector())
+              << " -> " << promotion->toString() << "\n";
+  }
+}
+
 } // namespace nvfuser

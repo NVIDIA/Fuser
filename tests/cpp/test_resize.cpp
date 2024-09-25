@@ -3771,6 +3771,9 @@ TEST_F(ResizeTest, PadScheduledLikeConsumer) {
     tv->axis(1)->parallelize(ParallelType::TIDx);
   }
 
+  inlineMost();
+  fusion.printMath();
+
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
@@ -3826,6 +3829,9 @@ TEST_F(ResizeTest, SliceThenPadLeftHalf) {
     tv->axis(0)->parallelize(ParallelType::BIDx);
     tv->axis(1)->parallelize(ParallelType::TIDx);
   }
+
+  inlineMost();
+  fusion.printMath();
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
@@ -3885,6 +3891,9 @@ TEST_F(ResizeTest, SliceThenPadRightHalf) {
     tv->axis(0)->parallelize(ParallelType::BIDx);
     tv->axis(1)->parallelize(ParallelType::TIDx);
   }
+
+  inlineMost();
+  fusion.printMath();
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
@@ -3983,6 +3992,9 @@ TEST_F(ResizeTest, SliceThenConcat) {
     tv->axis(0)->parallelize(ParallelType::BIDx);
     tv->axis(1)->parallelize(ParallelType::TIDx);
   }
+
+  inlineMost();
+  fusion.printMath();
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
@@ -4252,6 +4264,9 @@ TEST_F(ResizeTest, SliceSliceConcatConcat) {
     tv->axis(0)->parallelize(ParallelType::BIDx);
     tv->axis(1)->parallelize(ParallelType::TIDx);
   }
+
+  inlineMost();
+  fusion.printMath();
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({i0}, options);

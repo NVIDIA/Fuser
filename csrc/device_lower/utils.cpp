@@ -785,16 +785,36 @@ BasicAllocInfo getAllocInformation(
       }
     }
 
+    if (tv->name() == 1) {
+      std::cerr << "local_id: " << local_id->toString()
+                << ", fl: " << fl_id->toString() << ", are mapped? : "
+                << GpuLower::current()->caMap()->areMapped(
+                       local_id, fl_id, IdMappingMode::PERMISSIVE)
+                << "\n";
+    }
+
+#if 0
     if (GpuLower::current()->caMap()->areMapped(
             local_id, fl_id, IdMappingMode::PERMISSIVE)) {
       info.alloc_pos++;
     }
+#else
+    if (lower_utils::getConcreteLoopDomain(local_id) ==
+        lower_utils::getConcreteLoopDomain(fl_id)) {
+      info.alloc_pos++;
+    }
+#endif
 
     info.init_for_loop = fl;
 
     if (!outer_alloc_found) {
       info.alloc_for_loop = fl;
     }
+  }
+
+  if (tv->name() == 1) {
+    std::cerr << tv->toString() << "\n";
+    std::cerr << "Allocation pos: " << info.alloc_pos << "\n";
   }
 
   return info;
@@ -1022,7 +1042,7 @@ IterDomain* getConcreteLoopDomain(IterDomain* id) {
   if (isIdModelOptionEnabled(IdModelEnableOption::Inlining)) {
     // TODO: getLoopPromotion needs to return a concrete domain even
     // with non-linear loop domains
-    if (getenv("LOOP_PROMOTION")) {
+    if (!getenv("NO_LOOP_PROMOTION")) {
       return getLoopPromotion(id, GpuLower::current()->idModel());
     } else {
       const auto& group = GpuLower::current()

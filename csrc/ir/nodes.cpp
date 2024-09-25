@@ -4567,6 +4567,13 @@ ForLoop::ForLoop(
   // Storing IR nodes as Attribute is not safe with IrCloner, but fortunately
   // kernel IR does not need this feature.
   addDataAttribute(Scope(this));
+
+  std::cerr << "New loop with " << iter_domain->toString()
+            << ", index: " << index->toString() << "\n";
+  std::cerr
+      << "Index map: "
+      << GpuLower::current()->caMap()->getIndexVariable(iter_domain)->toString()
+      << "\n";
 }
 
 ForLoop::ForLoop(

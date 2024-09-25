@@ -54,7 +54,8 @@ inline std::unordered_set<IdModelEnableOption> getIdModelEnabledOptions() {
     opts.insert(IdModelEnableOption::UnswitchPredicate);
   }
 
-  if (hasEnableOptionArgument(EnableOption::IdModel, "inlining")) {
+  if (hasEnableOptionArgument(EnableOption::IdModel, "inlining") ||
+      hasEnableOptionArgument(EnableOption::IdModel, "all")) {
     opts.insert(IdModelEnableOption::Inlining);
   }
 

@@ -124,8 +124,8 @@ class AllocationInserter : public kir::ExprMutator {
           info.buffer->axis(axis_i)->isBroadcast()) {
         continue;
       }
-      auto concrete_id = gpu_lower->caMap()->getConcreteMappedID(
-          info.buffer->axis(axis_i), IdMappingMode::LOOP);
+      auto concrete_id =
+          lower_utils::getConcreteLoopDomain(info.buffer->axis(axis_i));
       init_dims.push_back(concrete_id);
     }
     Expr* init_expr = IrBuilder::create<LoadStoreOp>(
@@ -264,8 +264,8 @@ class AllocationInserter : public kir::ExprMutator {
         continue;
       }
 
-      auto concrete_id = gpu_lower->caMap()->getConcreteMappedID(
-          info.buffer->axis(axis_i), IdMappingMode::LOOP);
+      auto concrete_id =
+          lower_utils::getConcreteLoopDomain(info.buffer->axis(axis_i));
       const bool is_block_dim =
           isParallelTypeBlockDim(concrete_id->getParallelType());
       const bool is_thread_dim =

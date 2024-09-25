@@ -17,6 +17,7 @@
 #include <device_lower/utils.h>
 #include <disjoint_set.h>
 #include <ir/utils.h>
+#include <iter_visitor.h>
 #include <logical_domain_map.h>
 #include <transform_iter.h>
 #include <val_graph_visitor.h>
@@ -51,6 +52,16 @@ void mapThroughLoopSwizzles(ValGraph& graph) {
       graph.mapVals(swizzle->inY(), swizzle->outY());
     }
   }
+}
+
+bool isLoopDomainFullyDerivedFromLogical(TensorView* tv) {
+  return lower_utils::hasRootToLoopLinearTransformations(tv) &&
+      !ir_utils::compareDomains(
+           tv->getLoopDomain(),
+           tv->getLogicalDomain(),
+           /*additional_ids=*/{},
+           /*ignore_broadcast=*/false)
+           .dom0_has_unreachable_ids;
 }
 
 } // namespace
@@ -505,7 +516,14 @@ ValGraph& IdModel::buildPermissiveGraph() {
          ir_utils::filterByType<TensorView>(expr->outputs())) {
       auto tv_inputs = ir_utils::filterByType<TensorView>(expr->inputs());
 
+      if (!isLoopDomainFullyDerivedFromLogical(c_tv)) {
+        continue;
+      }
+
       for (auto p_tv : tv_inputs) {
+        if (!isLoopDomainFullyDerivedFromLogical(p_tv)) {
+          continue;
+        }
         ForwardingInfo permissive_forwarding(p_tv, c_tv);
         for (auto entry : permissive_forwarding.producer_forwarding_map) {
           graph.mapVals(entry.first, entry.second);
@@ -596,13 +614,20 @@ StatefulInliningInfo buildStatefulInliningInfo(
       // depend on.
       VectorOfUniqueEntries<IterDomain*> all_producer_ca_deps;
       if (isIdModelOptionEnabled(IdModelEnableOption::Inlining)) {
-        auto ca_dep_vals = IRBFS::getValsBetween(
-            {producer_logical.begin(), producer_logical.end()},
-            {producer_domain.begin(),
-             producer_domain.begin() + producer_tv->getComputeAtPosition()});
-        auto ca_deps_filter = ir_utils::filterByType<IterDomain>(ca_dep_vals);
-        all_producer_ca_deps = VectorOfUniqueEntries<IterDomain*>(
-            ca_deps_filter.begin(), ca_deps_filter.end());
+        if (isLoopDomainFullyDerivedFromLogical(producer_tv)) {
+          auto ca_dep_vals = DependencyCheck::getAllValsBetween(
+              {producer_logical.begin(), producer_logical.end()},
+              {producer_domain.begin(),
+               producer_domain.begin() + producer_tv->getComputeAtPosition()});
+          auto ca_deps_filter = ir_utils::filterByType<IterDomain>(ca_dep_vals);
+          all_producer_ca_deps = VectorOfUniqueEntries<IterDomain*>(
+              ca_deps_filter.begin(), ca_deps_filter.end());
+        } else {
+          all_producer_ca_deps = VectorOfUniqueEntries<IterDomain*>(
+              producer_tv->getLoopDomain().begin(),
+              producer_tv->getLoopDomain().begin() +
+                  producer_tv->getComputeAtPosition());
+        }
       } else {
         auto ca_dep_vals = DependencyCheck::getAllValsBetween(
             {producer_logical.begin(), producer_logical.end()},

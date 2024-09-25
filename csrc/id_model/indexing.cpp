@@ -807,14 +807,25 @@ void TensorIndexer::buildLoopIndexMap() {
         // groups if available.
         if (GpuLower::hasCurrent()) {
           const auto& ca_map = GpuLower::current()->caMap();
+#if 0
           for (const auto& id :
                ir_utils::filterByType<IterDomain>(loop_group->vector())) {
             if (!ca_map->getIdSets(IdMappingMode::LOOP).mappingExists(id)) {
               continue;
             }
             loop_index = ca_map->getIndexVariable(id);
+            std::cerr << "Using caMap index: "
+                      << loop_index->toString()
+                      << ", of " << id->toString()
+                      << "\n";
             break;
           }
+#else
+          auto promotion = getLoopPromotion(loop_id, id_model_);
+          NVF_ERROR(
+              ca_map->getIdSets(IdMappingMode::LOOP).mappingExists(promotion));
+          loop_index = ca_map->getIndexVariable(promotion);
+#endif
           NVF_ERROR(
               loop_index != nullptr,
               "No existing index found for ",
@@ -898,8 +909,6 @@ std::vector<Val*> TensorIndexer::getIndexFor(
     bool as_consumer,
     const ValGroups& index_groups,
     const std::vector<ForLoop*>& for_loops) const {
-  std::cerr << "getIndexFor: " << expr->toString()
-            << "as consumer: " << as_consumer << std::endl;
   auto info = computeIndex(expr, index_groups, for_loops);
   const auto& replacement_map = getIndexReplacementMap(
       expr, as_consumer, info.loop_domains, for_loops, info.index_map);
@@ -937,10 +946,6 @@ Val* TensorIndexer::getLinearIndex(
       expr->outputs().end();
 
   const auto alloc_info = getIndexingAllocationInfo(tv);
-
-  std::cerr << "getLinearIndex: " << tv->toString()
-            << ", alloc: " << toDelimitedString(alloc_info.domains)
-            << std::endl;
 
   const auto [contig_indices, contig_strides] =
       getContigIndexFor(expr, as_consumer, alloc_info, for_loops);
@@ -1110,7 +1115,6 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
     const Expr* expr,
     const std::vector<ForLoop*>& for_loops,
     ForLoop* unswitched_loop) const {
-  std::cerr << "getPredicates: " << tv->toString() << std::endl;
   const auto& zero_val = tv->fusion()->zeroVal();
 
   const std::vector<IterDomain*>& predicate_domains =
