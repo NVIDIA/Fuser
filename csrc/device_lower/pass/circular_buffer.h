@@ -177,14 +177,34 @@ struct TmaCircularBufferInfo {
   // Track mbarrier used for cpAsyncBulk load operation. Required by indexing
   // pass.
   std::unordered_map<const Expr*, kir::TensorIndex*> ldst_mbarrier_index_map;
-
-  // Track mbarrier init expression used for cpAsyncBulk load operation.
-  std::unordered_map<const Expr*, kir::MBarrierInit*> ldst_mbarrier_init_map;
-
-  // Track mbarrier invalidate expression used for cpAsyncBulk load operation.
-  std::unordered_map<const Expr*, kir::MBarrierInvalidate*>
-      ldst_mbarrier_inval_map;
 };
+
+// This helper function initializes mbarrier for all circular buffer stage.
+//
+// Expected result:
+// for (unsigned i = 0; i < stages; ++i) {
+//   if (warp_id == 0 && electSync()()) {
+//     mbarrier::init(...);
+//   }
+// }
+std::pair<ForLoop*, Expr*> initializeMbarrier(
+    ForLoop* circular_buffer_loop,
+    LoadStoreOp* ldst,
+    TensorView* all_mbarriers);
+
+// This helper function invalidates mbarrier for all circular buffer stage after
+// TMA memory operations.
+//
+// Expected result:
+// for (unsigned i = 0; i < stages; ++i) {
+//   if (warp_id == 0 && electSync()()) {
+//     mbarrier::inval(...);
+//   }
+// }
+std::pair<ForLoop*, Expr*> invalidateMbarrier(
+    ForLoop* circular_buffer_loop,
+    LoadStoreOp* ldst,
+    TensorView* all_mbarriers);
 
 class CircularBufferPass {
  public:
