@@ -55,8 +55,8 @@ class SchedulerEntry {
   // Checks the provided scheduler type can schedule the fusion with the
   // provided inputs. Schedules the fusion according to the heuristics provided
   // by the scheduler. Returns the heuristics. This is simply a convenience
-  // function for a common testing pattern. If validate_scheduler is set to false
-  // canSchedule will not be checked.
+  // function for a common testing pattern. If validate_scheduler is set to
+  // false canSchedule will not be checked.
   NVF_API static std::unique_ptr<HeuristicParams> scheduleWith(
       Fusion* fusion,
       SchedulerType scheduler_type,

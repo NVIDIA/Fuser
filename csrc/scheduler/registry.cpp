@@ -102,7 +102,8 @@ std::unique_ptr<HeuristicParams> SchedulerEntry::scheduleWith(
     bool validate_scheduler) {
   SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs);
   NVF_ERROR(
-      !validate_scheduler || Schedule::canSchedule(scheduler_type, fusion, runtime_info),
+      !validate_scheduler ||
+          Schedule::canSchedule(scheduler_type, fusion, runtime_info),
       "Could not schedule fusion with the SchedulerType: ",
       scheduler_type);
   auto scheduler_instance =
