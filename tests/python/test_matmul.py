@@ -185,7 +185,7 @@ class TestMatmul(NVFuserTest):
             fd.add_output(d)
 
         inputs = [
-                torch.randn(1, 2, 3, device="cuda:0"),
-                torch.randn(4, 3, device="cuda:0"),
-                ]
+            torch.randn(1, 2, 3, device="cuda:0"),
+            torch.randn(4, 3, device="cuda:0"),
+        ]
         self.exec_nvfuser(fusion_func, inputs)
