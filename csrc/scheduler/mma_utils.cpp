@@ -187,9 +187,6 @@ TensorView* getOperandTv(
   const auto it = tensor_roles.find(role);
   NVF_ERROR(it != tensor_roles.end(), "Could not find any tensors with role");
   const std::vector<TensorView*>& operands = it->second;
-  NVF_ERROR(
-      operands.size() == 1,
-      "Exactly one operand is expected in each A and B role");
   return operands.front();
 }
 

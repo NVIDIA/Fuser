@@ -262,11 +262,7 @@ std::string isMatmulFusionDefinitionSupported(
            {MatmulTensorRole::OPERAND_A, MatmulTensorRole::OPERAND_B}) {
         auto entry = tensor_roles.find(role);
         if (entry != tensor_roles.end()) {
-          if (1 == entry->second.size()) {
-            tvs_with_roles.insert(entry->second.begin(), entry->second.end());
-          } else {
-            return "There is other than one fusion input that can be MMA operand";
-          }
+          tvs_with_roles.insert(entry->second.begin(), entry->second.end());
         } else {
           return "No candidate in fusion inputs for MMA operand";
         }
@@ -376,10 +372,14 @@ class VectorizationCalculator {
   MatmulParams::SupportedVectorization compute() {
     const std::vector<int64_t> a_vecs =
         operandVectorizations(MatmulTensorRole::OPERAND_A);
-    NVF_ERROR(a_vecs.size() == 1, "Expected exactly one A operand");
+    // TODO: handle multiple operands using MatmulFusionTopology object
+    // To do this, we'll likely need to change the structure of MatmulParams to
+    // include a vectorization factor for each operand in each main loop.
+    //
+    // NVF_ERROR(a_vecs.size() == 1, "Expected exactly one A operand");
     const std::vector<int64_t> b_vecs =
         operandVectorizations(MatmulTensorRole::OPERAND_B);
-    NVF_ERROR(b_vecs.size() == 1, "Expected exactly one B operand");
+    // NVF_ERROR(b_vecs.size() == 1, "Expected exactly one B operand");
     return {a_vecs[0], b_vecs[0], epilogueVectorization()};
   }
 
@@ -851,9 +851,6 @@ std::unique_ptr<MatmulParams> getMatmulHeuristics(
   std::vector<mma_utils::MatmulPattern> patterns =
       mma_utils::findMatmulPatterns(fusion);
   NVF_ERROR(!patterns.empty(), "No matmul patterns were found");
-  NVF_ERROR(
-      patterns.size() == 1,
-      "Only a single matmul pattern can currently be fused");
   mma_utils::MatmulPattern& pattern = patterns.front();
 
   // IdModel is used to analyze problem shape & layout
