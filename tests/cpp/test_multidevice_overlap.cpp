@@ -54,7 +54,7 @@ struct OverlapTestParams {
   // fill input with new random values and repeat the operation
   int64_t number_of_iterations = 4;
   // Change CUDA stream at each iteration in a Round-Robin fashion
-  int64_t number_of_streams = 4;
+  int64_t number_of_streams = 3;
 };
 
 std::ostream& operator<<(std::ostream& out, const OverlapTestParams& params) {
@@ -575,21 +575,8 @@ class AGOverlapTest : public MultiDeviceTest {
   // Each rank calls uniform_ and gets the same values for ta_ and tb_ because the random seed is initialized the same
   // Therefore, we do not need to have one rank generate ta_ and tb_ and broadcast it to the rest of the ranks
   void initializeIO() {
-    if (my_device_index_ == 0) {
-      ta_.uniform_(1, 100);
-      tb_.uniform_(1, 100);
-    }
-    std::vector<torch::Tensor> tensors_a = {ta_};
-    std::vector<torch::Tensor> tensors_b = {tb_};
-    world_communicator_->broadcast(tensors_a, c10d::BroadcastOptions{
-        .rootRank = 0,
-        .rootTensor = 0
-    })->wait();
-    world_communicator_->broadcast(tensors_b, c10d::BroadcastOptions{
-        .rootRank = 0,
-        .rootTensor = 0
-    })->wait();
-    
+    ta_.uniform_();
+    tb_.uniform_();
     ta_sharded_.copy_(ta_.select(1, my_device_index_));
   }
 
