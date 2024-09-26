@@ -185,71 +185,6 @@ std::vector<Expr*> replaceInputsInExpr(
     const std::vector<Expr*>& exprs,
     const std::unordered_map<Val*, Val*>& replacement_map);
 
-// Go through all expressions and compute a local ordering of loops. operator<
-// is implemented based on the concrete_id_dependencies analysis done. If
-// there's no dependency between two IDs then order doesn't mater, otherwise we
-// can tell which is inner most by checking if there's any dependency
-// relationships.
-//
-// Dependency relationships in concrete_id_dependencies has a "global" view in
-// the fusion, so it can resolve ordering by only looking at id's and the
-// dependency map.
-//
-// For example two expressions may have domains: [I0], [I1] Yet we
-// won't know the ordering unless we see a domain with: [I0, I1]. This happened
-// in Indexing9 (also see Indexing17) test when merging T5 with
-// the group containing T10 (cache of T5, which is post broadcasted output) and
-// T6(pre broadcasted output).
-// T5 had the domain [0, 1, 2, 3, 4] produce at 3
-// T6 had the domain [0, 3, 4] compute at 3
-// Merging [0, 1, 2] and [0, 3, 4] resulted in the domain [0, 3, 4, 1, 2]
-//
-// If ID's are not in filter, we don't care about their ordering and ignore
-// them. This is because we're only focused on loops we will have to merge
-// across groups. If the domain is not in a produce at position in the producer
-// edges, or a compute at position in the consumer edges, the expressions we
-// look at may not have a unique ordering.
-//
-// The optional kernel_scope_domain parameter is only used in
-// expression sorting. It isn't in the CA map, but since we only have
-// a single unique IterDomain, the conrete ID is just itself.
-struct IterDomainDependencySorter {
-  IterDomainDependencySorter(
-      const std::unordered_map<IterDomain*, std::unordered_set<IterDomain*>>&
-          concrete_id_dependencies,
-      std::shared_ptr<const ComputeAtMap> compute_at_map,
-      IterDomain* kernel_scope_domain = nullptr)
-      : concrete_id_dependencies_(concrete_id_dependencies),
-        compute_at_map_(std::move(compute_at_map)),
-        kernel_scope_domain_(kernel_scope_domain) {}
-
-  // Return true if id0 should be before id1
-  // Orders such that if x maps to {y}, x comes before y in final ordering.
-  inline bool operator()(IterDomain* id0, IterDomain* id1) {
-    auto concrete_id_0 = id0 != kernel_scope_domain_
-        ? compute_at_map_->getConcreteMappedID(id0, IdMappingMode::LOOP)
-        : id0;
-    auto concrete_id_1 = id1 != kernel_scope_domain_
-        ? compute_at_map_->getConcreteMappedID(id1, IdMappingMode::LOOP)
-        : id1;
-    if (concrete_id_dependencies_.find(concrete_id_0) !=
-        concrete_id_dependencies_.end()) {
-      const auto& dependencies_0 = concrete_id_dependencies_.at(concrete_id_0);
-      // if id0 depends on id1 it means id1 is inside id0, so id0 < id1
-      if (dependencies_0.count(concrete_id_1)) {
-        return true;
-      }
-    }
-
-    return false;
-  }
-
-  const std::unordered_map<IterDomain*, std::unordered_set<IterDomain*>>&
-      concrete_id_dependencies_;
-  const std::shared_ptr<const ComputeAtMap> compute_at_map_;
-  const IterDomain* kernel_scope_domain_ = nullptr;
-};
-
 } // namespace ir_utils
 
 namespace lower_utils {
@@ -330,11 +265,6 @@ Val* getNumThreadsInTensorView(TensorView* tv);
 //! Get the unit dimensions of A and B for the given MmaOp.
 std::array<UnitDim, 2> getMmaLayout(const MmaOp* expr);
 
-//! Check if the given tv has a root domain -> loop domain linear
-//! transformation. This is a temporary check used to incrementally enable
-//! IdModel. Eventually, this should be removed.
-bool hasRootToLoopLinearTransformations(const TensorView* tv);
-
 // Returns true if expr is an expression that initializes a reduction
 // buffer.
 bool isReductionInitExpr(const Expr* expr);
@@ -374,6 +304,69 @@ Val* proveLinearAndGetStride(
     const ValGraph& id_graph,
     const ValGroup& linear_g,
     const ValGroups& domain);
+
+// Get the concrete loop domain of a given loop ID
+IterDomain* getConcreteLoopID(IterDomain* loop_id);
+
+// Go through all expressions and compute a local ordering of loops. operator<
+// is implemented based on the concrete_id_dependencies analysis done. If
+// there's no dependency between two IDs then order doesn't mater, otherwise we
+// can tell which is inner most by checking if there's any dependency
+// relationships.
+//
+// Dependency relationships in concrete_id_dependencies has a "global" view in
+// the fusion, so it can resolve ordering by only looking at id's and the
+// dependency map.
+//
+// For example two expressions may have domains: [I0], [I1] Yet we
+// won't know the ordering unless we see a domain with: [I0, I1]. This happened
+// in Indexing9 (also see Indexing17) test when merging T5 with
+// the group containing T10 (cache of T5, which is post broadcasted output) and
+// T6(pre broadcasted output).
+// T5 had the domain [0, 1, 2, 3, 4] produce at 3
+// T6 had the domain [0, 3, 4] compute at 3
+// Merging [0, 1, 2] and [0, 3, 4] resulted in the domain [0, 3, 4, 1, 2]
+//
+// If ID's are not in filter, we don't care about their ordering and ignore
+// them. This is because we're only focused on loops we will have to merge
+// across groups. If the domain is not in a produce at position in the producer
+// edges, or a compute at position in the consumer edges, the expressions we
+// look at may not have a unique ordering.
+//
+// The optional kernel_scope_domain parameter is only used in
+// expression sorting. It isn't in the CA map, but since we only have
+// a single unique IterDomain, the conrete ID is just itself.
+struct IterDomainDependencySorter {
+  IterDomainDependencySorter(
+      const std::unordered_map<IterDomain*, std::unordered_set<IterDomain*>>&
+          concrete_id_dependencies,
+      IterDomain* kernel_scope_domain = nullptr)
+      : concrete_id_dependencies_(concrete_id_dependencies),
+        kernel_scope_domain_(kernel_scope_domain) {}
+
+  // Return true if id0 should be before id1
+  // Orders such that if x maps to {y}, x comes before y in final ordering.
+  inline bool operator()(IterDomain* id0, IterDomain* id1) {
+    auto concrete_id_0 =
+        id0 != kernel_scope_domain_ ? getConcreteLoopID(id0) : id0;
+    auto concrete_id_1 =
+        id1 != kernel_scope_domain_ ? getConcreteLoopID(id1) : id1;
+    if (concrete_id_dependencies_.find(concrete_id_0) !=
+        concrete_id_dependencies_.end()) {
+      const auto& dependencies_0 = concrete_id_dependencies_.at(concrete_id_0);
+      // if id0 depends on id1 it means id1 is inside id0, so id0 < id1
+      if (dependencies_0.count(concrete_id_1)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  const std::unordered_map<IterDomain*, std::unordered_set<IterDomain*>>&
+      concrete_id_dependencies_;
+  const IterDomain* kernel_scope_domain_ = nullptr;
+};
 
 } // namespace lower_utils
 

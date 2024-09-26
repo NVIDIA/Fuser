@@ -102,8 +102,8 @@ bool isSerialBroadcastResolution(
   for (auto for_loop : for_loops) {
     // ForLoop::iter_domain() should be the concrete domain, but just
     // in case.
-    auto concrete_loop_id = GpuLower::current()->caMap()->getConcreteMappedID(
-        for_loop->iter_domain(), IdMappingMode::LOOP);
+    auto concrete_loop_id =
+        lower_utils::getConcreteLoopID(for_loop->iter_domain());
 
     // Check for any serial loop id with non-trivial extent. If the
     // concrete ID is a broadcast, it shouldn't materialize an actual

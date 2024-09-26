@@ -942,24 +942,6 @@ std::array<UnitDim, 2> getMmaLayout(const MmaOp* expr) {
   return layout;
 }
 
-bool hasRootToLoopLinearTransformations(const TensorView* tv) {
-  auto root = tv->getMaybeRootDomain();
-  auto loop = tv->getLoopDomain();
-  std::vector<Val*> loop_val(loop.begin(), loop.end());
-  auto all_ids_vec =
-      DependencyCheck::getAllValsBetween({root.begin(), root.end()}, loop_val);
-  std::unordered_set<Val*> all_ids_set(all_ids_vec.begin(), all_ids_vec.end());
-  auto alloc = tv->getMaybeAllocationDomain();
-  auto logical = tv->getLogicalDomain();
-  bool all_alloc_id_on_path = std::all_of(
-      alloc.begin(), alloc.end(), [&](Val* v) { return all_ids_set.count(v); });
-  bool all_logical_id_on_path =
-      std::all_of(logical.begin(), logical.end(), [&](Val* v) {
-        return all_ids_set.count(v);
-      });
-  return all_alloc_id_on_path && all_logical_id_on_path;
-}
-
 bool isReductionInitExpr(const Expr* expr) {
   // False if its output isn't a TensorView
   if (!ir_utils::isTvOp(expr)) {
@@ -1931,6 +1913,15 @@ Val* proveLinearAndGetStride(
   // After propagation, we should have the information about how linear_g lives
   // in domain. Parse this information to check if linear_g is linear in domain.
   return proveLinearAndGetStrideAfterPropagation(frontier, domain);
+}
+
+IterDomain* getConcreteLoopID(IterDomain* loop_id) {
+  NVF_ERROR(
+      GpuLower::hasCurrent(),
+      "GpuLower is required for getting a concrete loop domain");
+
+  return GpuLower::current()->caMap()->getConcreteMappedID(
+      loop_id, IdMappingMode::LOOP);
 }
 
 } // namespace lower_utils
