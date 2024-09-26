@@ -23,7 +23,9 @@ void canScheduleMessage(const Args&... args) {
   // Using builtin expect to reduce the overhead slightly,
   //  alternatively may want to allow this message in debug
   //  build only but that'd be inconvenient for user support.
-  if (C10_UNLIKELY(isDebugDumpEnabled(DebugDumpOption::FusionSegmenterLog))) {
+  if (C10_UNLIKELY(
+          isDebugDumpEnabled(DebugDumpOption::FusionSegmenterLog) ||
+          isDebugDumpEnabled(DebugDumpOption::SchedulerVerbose))) {
     debug() << c10::str(args...) << "\n";
   }
 }

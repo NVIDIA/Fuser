@@ -125,7 +125,7 @@ class AllocationInserter : public kir::ExprMutator {
         continue;
       }
       auto concrete_id =
-          lower_utils::getConcreteLoopDomain(info.buffer->axis(axis_i));
+          lower_utils::getConcreteLoopID(info.buffer->axis(axis_i));
       init_dims.push_back(concrete_id);
     }
     Expr* init_expr = IrBuilder::create<LoadStoreOp>(
@@ -265,7 +265,7 @@ class AllocationInserter : public kir::ExprMutator {
       }
 
       auto concrete_id =
-          lower_utils::getConcreteLoopDomain(info.buffer->axis(axis_i));
+          lower_utils::getConcreteLoopID(info.buffer->axis(axis_i));
       const bool is_block_dim =
           isParallelTypeBlockDim(concrete_id->getParallelType());
       const bool is_thread_dim =
@@ -365,7 +365,8 @@ class AllocationInserter : public kir::ExprMutator {
       }
 
       auto out_tv = out->as<TensorView>();
-      auto default_val = gpu_lower->predicateElimination().getInitValue(out_tv);
+      auto default_val =
+          gpu_lower_->predicateElimination().getInitValue(out_tv);
 
       Val* init = nullptr;
       if (expr->isA<ReductionOp>() && out_tv->hasReduction()) {
@@ -605,12 +606,12 @@ class AllocationInserter : public kir::ExprMutator {
   }
 
   AllocationInserter(const std::vector<Expr*>& exprs)
-      : gpu_lower(GpuLower::current()) {
+      : gpu_lower_(GpuLower::current()) {
     kir::ExprMutator::traverseAndInsert(exprs);
   }
 
  private:
-  GpuLower* gpu_lower;
+  GpuLower* gpu_lower_ = nullptr;
 
  public:
   static std::vector<Expr*> insert(const std::vector<Expr*>& exprs) {

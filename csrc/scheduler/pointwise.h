@@ -158,30 +158,6 @@ namespace nvfuser {
 class SchedulerRuntimeInfo;
 class HeuristicDataCache;
 
-std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
-    Fusion* fusion,
-    const at::ArrayRef<c10::IValue>& runtime_inputs,
-    HeuristicDataCache* data_cache = nullptr);
-
-std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicDataCache* data_cache = nullptr);
-
-void schedulePointwise(Fusion* fusion, const PointwiseParams* params);
-
-NVF_API LaunchParams schedulePointwise(
-    Fusion* fusion,
-    const at::ArrayRef<c10::IValue>& runtime_inputs);
-
-//! Utility for canSchedule interface to check if this fusion has
-//!  a fully broadcasted reference tensor, which is necessary for
-//!  the pointwise scheduler.
-bool hasReferenceTensorView(Fusion* fusion);
-
-// Return reference tensor view.
-TensorView* getReferenceTensorView(Fusion* fusion);
-
 class PointWiseScheduler : public SchedulerEntry {
  public:
   bool canScheduleCompileTime(Fusion* fusion) override;
@@ -190,15 +166,16 @@ class PointWiseScheduler : public SchedulerEntry {
       SchedulerRuntimeInfo& runtime_info,
       HeuristicDataCache* data_cache = nullptr) override;
 
-  constexpr static SchedulerType schedulerType() {
-    return SchedulerType::PointWise;
-  }
-  void schedule(Fusion* fusion, const HeuristicParams* params) override;
-
   std::unique_ptr<HeuristicParams> computeHeuristics(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
       HeuristicDataCache* data_cache) override;
+
+  void schedule(Fusion* fusion, const HeuristicParams* params) override;
+
+  constexpr static SchedulerType schedulerType() {
+    return SchedulerType::PointWise;
+  }
 };
 
 } // namespace nvfuser

@@ -141,20 +141,13 @@ void LoopNestGenerator::generate(const std::vector<Expr*>& exprs) {
   // lower_expr_sort, EXCEPT dependencies are in opposite order,
   // inner loops are dependant on outer loops.
 
-  const auto& ca_map = GpuLower::current()->caMap();
-
   std::unordered_map<IterDomain*, std::unordered_set<IterDomain*>>
       concrete_id_dependencies;
   for (auto tv : FusionGuard::getCurFusion()->allTvs()) {
     std::unordered_set<IterDomain*> dependencies;
 
     for (auto tv_id : tv->getLoopDomain()) {
-#if 0
-      auto concrete_id =
-          ca_map->getConcreteMappedID(tv_id, IdMappingMode::LOOP);
-#else
-      auto concrete_id = lower_utils::getConcreteLoopDomain(tv_id);
-#endif
+      auto concrete_id = lower_utils::getConcreteLoopID(tv_id);
 
       if (concrete_id_dependencies.find(concrete_id) ==
           concrete_id_dependencies.end()) {
@@ -223,13 +216,8 @@ void LoopNestGenerator::generate(const std::vector<Expr*>& exprs) {
       continue;
     }
 
-#if 0
-    auto last_id_concrete = ca_map->getConcreteMappedID(
-        tv->axis(tv->nDims() - 1), IdMappingMode::LOOP);
-#else
     auto last_id_concrete =
-        lower_utils::getConcreteLoopDomain(tv->axis(tv->nDims() - 1));
-#endif
+        lower_utils::getConcreteLoopID(tv->axis(tv->nDims() - 1));
     auto all_loops_it = concrete_id_dependencies.find(last_id_concrete);
     NVF_ERROR(
         all_loops_it != concrete_id_dependencies.end(),
@@ -244,8 +232,7 @@ void LoopNestGenerator::generate(const std::vector<Expr*>& exprs) {
     std::sort(
         loop_structure.rbegin(),
         loop_structure.rend(),
-        ir_utils::IterDomainDependencySorter(
-            concrete_id_dependencies, GpuLower::current()->caMap()));
+        lower_utils::IterDomainDependencySorter(concrete_id_dependencies));
     loop_structures_[tv] = loop_structure;
   }
 

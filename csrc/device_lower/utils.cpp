@@ -642,25 +642,6 @@ std::vector<Expr*> replaceInputsInExpr(
   return ReplaceExprInput::replace(exprs, replacement_map);
 }
 
-bool IterDomainDependencySorter::operator()(IterDomain* id0, IterDomain* id1) {
-  auto concrete_id_0 = id0 != kernel_scope_domain_
-      ? lower_utils::getConcreteLoopDomain(id0)
-      : id0;
-  auto concrete_id_1 = id1 != kernel_scope_domain_
-      ? lower_utils::getConcreteLoopDomain(id1)
-      : id1;
-  if (concrete_id_dependencies_.find(concrete_id_0) !=
-      concrete_id_dependencies_.end()) {
-    const auto& dependencies_0 = concrete_id_dependencies_.at(concrete_id_0);
-    // if id0 depends on id1 it means id1 is inside id0, so id0 < id1
-    if (dependencies_0.count(concrete_id_1)) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
 std::vector<Expr*> getAllSwizzlesBetween(
     std::vector<IterDomain*> from,
     std::vector<IterDomain*> to) {
@@ -1993,6 +1974,15 @@ Val* proveLinearAndGetStride(
   // After propagation, we should have the information about how linear_g lives
   // in domain. Parse this information to check if linear_g is linear in domain.
   return proveLinearAndGetStrideAfterPropagation(frontier, domain);
+}
+
+IterDomain* getConcreteLoopID(IterDomain* loop_id) {
+  NVF_ERROR(
+      GpuLower::hasCurrent(),
+      "GpuLower is required for getting a concrete loop domain");
+
+  return GpuLower::current()->caMap()->getConcreteMappedID(
+      loop_id, IdMappingMode::LOOP);
 }
 
 } // namespace lower_utils
