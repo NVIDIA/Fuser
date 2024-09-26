@@ -483,28 +483,8 @@ class AllocationInserter : public kir::ExprMutator {
                 .build();
         mbarrier->setMemoryType(MemoryType::Shared);
 
-        // Get all threads in CTA
-        Val* bdimx =
-            GpuLower::current()->parallelDimensionMap().get(ParallelType::TIDx);
-        Val* bdimy =
-            GpuLower::current()->parallelDimensionMap().get(ParallelType::TIDy);
-        Val* bdimz =
-            GpuLower::current()->parallelDimensionMap().get(ParallelType::TIDz);
-        Val* all_threads_in_cta = SimplifyingIrBuilder::mulExpr(
-            bdimx, SimplifyingIrBuilder::mulExpr(bdimy, bdimz));
-        all_threads_in_cta = SimplifyingIrBuilder::maybeCastExpr(
-            DataType::UInt32, all_threads_in_cta);
-
-        // The wait condition for mbarrier is a all participating threads in CTA
-        // and the expected number of transaction bytes
-        kir::MBarrierInit* mbarrier_init =
-            IrBuilder::create<kir::MBarrierInit>(mbarrier, all_threads_in_cta);
-
         kir::Allocate* mbarrier_alloc =
             IrBuilder::create<kir::Allocate>(mbarrier, MemoryType::Shared);
-
-        kir::MBarrierInvalidate* mbarrier_inval =
-            IrBuilder::create<kir::MBarrierInvalidate>(mbarrier);
 
         // For circular buffers we need to prepare a placeholder for the
         // tokens created by 'MBarrierArriveExpectTx' IR node. The tokens are
@@ -520,24 +500,40 @@ class AllocationInserter : public kir::ExprMutator {
         kir::Allocate* mbarrier_tokens_alloc = IrBuilder::create<kir::Allocate>(
             mbarrier_tokens, MemoryType::Shared);
 
-        // Add tokens, mbarriers, init, and inval operations around tma
-        // expression like this:
-        //
-        // __shared__ tokens[num_stages];
-        // __shared__ mbarrier[num_stages];
-        // for (circular_buffer_loop) {
-        //   init(mbarrier);
-        //   cp.async.bulk(data, mbarrier);
-        //   inval(mbarrier);
-        // }
-        // NOTE: Block sync ir node is not added here. It will be added in the
-        // circular buffering pass
         NVF_ERROR(ir_utils::isCpAsyncBulkLoad(expr));
         LoadStoreOp* ldst = expr->as<LoadStoreOp>();
         TensorView* out_tv = ldst->out()->as<TensorView>();
         ForLoop* circular_buffer_loop =
             GpuLower::current()->circularBufferInfo().getCircularBufferLoop(
                 out_tv, for_loops_);
+
+        auto&& [pre_prologue_init, mbarrier_init] =
+            initializeMbarrier(circular_buffer_loop, ldst, mbarrier);
+
+        auto&& [post_epilogue_inval, mbarrier_inval] =
+            invalidateMbarrier(circular_buffer_loop, ldst, mbarrier);
+
+        // Block sync is necessary to finish mbarrier initialization.
+        kir::BlockSync* sync = IrBuilder::create<kir::BlockSync>(false);
+
+        // Add tokens, mbarriers, init, and inval operations around tma
+        // expression like this:
+        //
+        // __shared__ tokens[num_stages];
+        // __shared__ mbarrier[num_stages];
+        // for (circular_buffer_stage) {
+        //   init(mbarrier[stage]);
+        // }
+        // block_sync();
+        //
+        // for (circular_buffer_loop) {
+        //   cp.async.bulk(data, mbarrier);
+        // }
+        //
+        // for (circular_buffer_stage) {
+        //   inval(mbarrier[stage]);
+        // }
+        //
 
         // Find the scope containing the circular buffer for-loop. It is the
         // scope one level higher than the circular buffer loop scope in scope_.
@@ -555,9 +551,16 @@ class AllocationInserter : public kir::ExprMutator {
             mbarrier_alloc,
             scope_containing_circular_buffer_loop);
 
-        Scope* expr_scope = scope_.empty() ? nullptr : scope_.back();
-        registerInsertBefore(expr, mbarrier_init, expr_scope);
-        registerInsertAfter(expr, mbarrier_inval, expr_scope);
+        registerInsertBefore(
+            circular_buffer_loop,
+            pre_prologue_init,
+            scope_containing_circular_buffer_loop);
+        registerInsertBefore(
+            circular_buffer_loop, sync, scope_containing_circular_buffer_loop);
+        registerInsertAfter(
+            circular_buffer_loop,
+            post_epilogue_inval,
+            scope_containing_circular_buffer_loop);
 
         // Map LoadStoreOp expression to ir nodes created in this pass
         GpuLower::current()->ldstMBarrierMap()[expr] = mbarrier;
@@ -572,22 +575,6 @@ class AllocationInserter : public kir::ExprMutator {
         GpuLower::current()
             ->tmaCircularBufferInfo()
             .ldst_mbarrier_token_map[mbarrier_inval] = mbarrier_tokens;
-        // Associate each cpAsyncBulk load expression with its corresponding
-        // MBarrierInit and MBarrierInvalidate
-        GpuLower::current()
-            ->tmaCircularBufferInfo()
-            .ldst_mbarrier_init_map[expr] = mbarrier_init;
-        GpuLower::current()
-            ->tmaCircularBufferInfo()
-            .ldst_mbarrier_inval_map[expr] = mbarrier_inval;
-        // Keep track of kir::Allocate for mBarrier and token objects,
-        //  to simplify circular buffering pass logic
-        GpuLower::current()
-            ->tmaCircularBufferInfo()
-            .mbarrier_token_smem_alloc_set.insert(mbarrier_alloc);
-        GpuLower::current()
-            ->tmaCircularBufferInfo()
-            .mbarrier_token_smem_alloc_set.insert(mbarrier_tokens_alloc);
       } else {
         // create and allocate a memory barrier
         TensorView* mbarrier = TensorViewBuilder()
