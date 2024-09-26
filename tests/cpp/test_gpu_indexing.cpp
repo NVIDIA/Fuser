@@ -143,13 +143,8 @@ TEST_F(NVFuserTest, FusionIndexing3_CUDA) {
   at::Tensor t1 = at::randn({w, x, y, z}, options);
 
   std::vector<c10::IValue> aten_inputs = {t0, t1};
-
-  auto lparams = schedulePointwise(&fusion, aten_inputs);
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs, lparams);
-  auto cg_outputs = fe.runFusion(aten_inputs, lparams);
-
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
@@ -236,27 +231,23 @@ TEST_F(NVFuserTest, FusionIndexing6_CUDA) {
 
   at::Tensor input0 = at::randn(tensor0_shape, options);
   at::Tensor input1 = at::randn(tensor1_shape, options);
+  std::vector<c10::IValue> aten_inputs({input0, input1});
+
+  auto cg_reults =
+      scheduleAndRun(&fusion, SchedulerType::Reduction, aten_inputs);
 
   std::vector<int64_t> reduction_axes{0, 1};
-  auto rparams = getReductionHeuristics(&fusion, {input0, input1});
-  NVF_CHECK(rparams, "Reduction schedule was not generated!");
-  scheduleReduction(&fusion, rparams.get());
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {input0, input1}, rparams->lparams);
-  auto cg_outputs = fe.runFusion({input0, input1}, rparams->lparams);
-
   auto aten_output = input0.add(input1).to(at::kDouble).sum(reduction_axes);
 
   testValidate(
       &fusion,
-      cg_outputs,
+      cg_reults.outputs,
       {input0, input1},
       {aten_output},
       __LINE__,
       __FILE__,
       "",
-      rparams->lparams);
+      cg_reults.heuristic_params->lparams);
 }
 
 TEST_F(NVFuserTest, FusionIndexing7_CUDA) {
@@ -379,12 +370,8 @@ TEST_F(NVFuserTest, FusionIndexing9_CUDA) {
   auto at_t3 = at::randn({numel_x, numel_y, numel_z}, options);
   std::vector<c10::IValue> aten_inputs = {at_t0, at_t3};
 
-  auto lparams = schedulePointwise(&fusion, aten_inputs);
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs, lparams);
-  auto cg_outputs = fe.runFusion(aten_inputs, lparams);
-
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 

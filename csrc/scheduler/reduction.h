@@ -19,22 +19,8 @@ namespace nvfuser {
 class SchedulerRuntimeInfo;
 class HeuristicDataCache;
 
-NVF_API std::unique_ptr<ReductionParams> getReductionHeuristics(
-    Fusion* fusion,
-    const at::ArrayRef<c10::IValue>& runtime_inputs,
-    HeuristicDataCache* data_cache = nullptr);
-
-std::unique_ptr<ReductionParams> getReductionHeuristics(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicDataCache* data_cache = nullptr);
-
-NVF_API void scheduleReduction(Fusion* fusion, const ReductionParams* rparams);
-
 class ReductionScheduler : public SchedulerEntry {
  public:
-  void schedule(Fusion* fusion, const HeuristicParams* params) override;
-
   bool canScheduleCompileTime(Fusion* fusion) override;
 
   bool canScheduleRunTime(
@@ -42,14 +28,16 @@ class ReductionScheduler : public SchedulerEntry {
       SchedulerRuntimeInfo& runtime_info,
       HeuristicDataCache* data_cache = nullptr) override;
 
-  constexpr static SchedulerType schedulerType() {
-    return SchedulerType::Reduction;
-  }
-
   std::unique_ptr<HeuristicParams> computeHeuristics(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
       HeuristicDataCache* data_cache) override;
+
+  void schedule(Fusion* fusion, const HeuristicParams* params) override;
+
+  constexpr static SchedulerType schedulerType() {
+    return SchedulerType::Reduction;
+  }
 };
 
 } // namespace nvfuser
