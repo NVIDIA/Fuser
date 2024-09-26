@@ -55,7 +55,7 @@ void mapThroughLoopSwizzles(ValGraph& graph) {
 }
 
 bool isLoopDomainFullyDerivedFromLogical(TensorView* tv) {
-  return lower_utils::hasRootToLoopLinearTransformations(tv) &&
+  return ir_utils::hasRootToLoopLinearTransformations(tv) &&
       !ir_utils::compareDomains(
            tv->getLoopDomain(),
            tv->getLogicalDomain(),

@@ -5,7 +5,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <device_lower/utils.h>
 #include <id_model/utils.h>
 #include <inlining.h>
 #include <ir/utils.h>
@@ -169,14 +168,14 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
   // TODO: Consider caching these properties in TensorView as they
   // could only change with setLoopDomain
   const bool may_need_forwarding =
-      lower_utils::hasRootToLoopLinearTransformations(producer) &&
+      ir_utils::hasRootToLoopLinearTransformations(producer) &&
       !ir_utils::compareDomains(
            producer->getLoopDomain(),
            producer->getLogicalDomain(),
            /*additional_ids=*/{},
            /*ignore_broadcast=*/false)
            .dom0_has_unreachable_ids &&
-      lower_utils::hasRootToLoopLinearTransformations(consumer) &&
+      ir_utils::hasRootToLoopLinearTransformations(consumer) &&
       !ir_utils::compareDomains(
            consumer->getLoopDomain(),
            consumer->getLogicalDomain(),

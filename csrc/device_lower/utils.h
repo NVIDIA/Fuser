@@ -335,11 +335,6 @@ Val* getNumThreadsInTensorView(TensorView* tv);
 //! Get the unit dimensions of A and B for the given MmaOp.
 std::array<UnitDim, 2> getMmaLayout(const MmaOp* expr);
 
-//! Check if the given tv has a root domain -> loop domain linear
-//! transformation. This is a temporary check used to incrementally enable
-//! IdModel. Eventually, this should be removed.
-bool hasRootToLoopLinearTransformations(const TensorView* tv);
-
 // Returns true if expr is an expression that initializes a reduction
 // buffer.
 bool isReductionInitExpr(const Expr* expr);
