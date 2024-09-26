@@ -527,7 +527,8 @@ void UnswitchPredicate::predicateOn(Expr* tv_expr) {
 
   if (!ir_utils::hasRootToLoopLinearTransformations(out_tv) ||
       (isIdModelOptionEnabled(IdModelEnableOption::UnswitchPredicate) &&
-       GpuLower::current()->isTensorIndexerEnabled())) {
+       GpuLower::current()->isTensorIndexerEnabled() &&
+       TensorIndexer::isSupported(GpuLower::current()->kernel()))) {
     ref_pred_info = gpu_lower->tensorIndexer().getPredicates(
         out_tv, tv_expr, for_loops_, unrolled_loop_);
   } else {

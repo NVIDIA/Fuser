@@ -119,6 +119,8 @@ class TensorIndexer {
       const std::vector<ForLoop*>& for_loops,
       ForLoop* unswitched_loop = nullptr) const;
 
+  static bool isSupported(Fusion* fusion);
+
  private:
   // Build a map of loop groups to their index Vals. See the comment
   // on loop_index_map_.

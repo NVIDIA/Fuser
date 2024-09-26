@@ -9,24 +9,32 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <compute_at_map.h>
-#include <fusion_executor/executor.h>
-#include <id_model/id_model.h>
-#include <id_model/to_string.h>
-#include <inlining.h>
-#include <ir/all_nodes.h>
-#include <ir/builder.h>
-#include <ops/all_ops.h>
-#include <scheduler/all_schedulers.h>
-
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
-#include <torch/torch.h>
+#include <abstract_tensor.h>
+#include <fusion.h>
+#include <id_model/id_model.h>
+#include <id_model/indexing.h>
+#include <id_model/to_string.h>
+#include <inlining.h>
+#include <ir/builder.h>
+#include <kernel_ir_dispatch.h>
+#include <ops/all_ops.h>
+#include <scheduler/utils.h>
+
+#include <algorithm>
+#include <utility>
+
+// This is a temporary scratch space. Some should be eventually merged
+// to test_indexing.cpp, others should just be dropped.
 
 namespace nvfuser {
 
-TEST_F(NVFuserTest, FusionIndexing1_CUDA) {
+using IndexingTestDraft = NVFuserTest;
+
+// Copied from NvFuserTest.FusionIndexing1_CUDA
+TEST_F(IndexingTestDraft, Test1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -63,6 +71,93 @@ TEST_F(NVFuserTest, FusionIndexing1_CUDA) {
   tv2->axis(1)->parallelize(ParallelType::Unroll);
   tv2->axis(2)->parallelize(ParallelType::TIDx);
 
+  fusion.print();
+  fusion.printKernel();
+
+  FusionExecutor fe;
+
+  at::Tensor t0 = at::randn({x, y, z}, options);
+  at::Tensor t1 = at::randn({w, x, y, z}, options);
+
+  std::vector<c10::IValue> aten_inputs = {t0, t1};
+
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+}
+
+TEST_F(IndexingTestDraft, TMP) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // int w = 3, x = 4, y = 7, z = 8;
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+
+  auto tv2 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv3 = add(tv2, IrBuilder::create<Val>(1.0));
+  fusion.addOutput(tv3);
+
+  tv2->inlineAt(1);
+  tv2->setMemoryType(MemoryType::Global);
+
+  fusion.print();
+  fusion.printKernel();
+
+  FusionExecutor fe;
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({3, 4}, options);
+  std::vector<c10::IValue> aten_inputs = {t0};
+
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  // testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+}
+
+// Moved from NvFuserTest.FusionIndexing1
+TEST_F(IndexingTestDraft, Indexing1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  int w = 3, x = 4, y = 7, z = 8;
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto tv0 = makeSymbolicTensor(3);
+  auto tv1 = makeSymbolicTensor(4);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  auto tv2 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv3 = broadcast(tv2, {true, false, false, false});
+  auto tv4 = add(tv3, tv1);
+
+  fusion.addOutput(tv4);
+
+  tv4->merge(0);
+  tv4->merge(0);
+  tv4->merge(0);
+
+  tv4->split(0, 128);
+  tv4->split(0, 4);
+
+  tv2->computeAt(tv4, 1);
+
+  tv4->axis(0)->parallelize(ParallelType::BIDx);
+  tv4->axis(1)->parallelize(ParallelType::Unroll);
+  tv4->axis(2)->parallelize(ParallelType::TIDx);
+
+  tv3->axis(1)->parallelize(ParallelType::Unroll);
+  tv3->axis(2)->parallelize(ParallelType::TIDx);
+
+  tv2->axis(1)->parallelize(ParallelType::Unroll);
+  tv2->axis(2)->parallelize(ParallelType::TIDx);
+
+  fusion.printKernel();
+
   FusionExecutor fe;
 
   at::Tensor t0 = at::randn({x, y, z}, options);
@@ -77,7 +172,8 @@ TEST_F(NVFuserTest, FusionIndexing1_CUDA) {
 }
 
 // Same as 1 but merge starting from inner most dimension
-TEST_F(NVFuserTest, FusionIndexing2_CUDA) {
+// Moved from NvFuserTest.FusionIndexing2
+TEST_F(IndexingTestDraft, Indexing2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -128,7 +224,8 @@ TEST_F(NVFuserTest, FusionIndexing2_CUDA) {
 }
 
 // Same compute as 1 and 2 but use a scheduler.
-TEST_F(NVFuserTest, FusionIndexing3_CUDA) {
+// Moved from NvFuserTest.FusionIndexing2
+TEST_F(IndexingTestDraft, Indexing3) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -158,8 +255,7 @@ TEST_F(NVFuserTest, FusionIndexing3_CUDA) {
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
-// Same as 3 but use 3 dimensions and concrete sizes
-TEST_F(NVFuserTest, FusionIndexing4_CUDA) {
+TEST_F(IndexingTestDraft, Indexing4) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -187,7 +283,7 @@ TEST_F(NVFuserTest, FusionIndexing4_CUDA) {
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionIndexing5_CUDA) {
+TEST_F(IndexingTestDraft, Indexing5) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -221,7 +317,7 @@ TEST_F(NVFuserTest, FusionIndexing5_CUDA) {
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionIndexing6_CUDA) {
+TEST_F(IndexingTestDraft, Indexing6) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -244,13 +340,13 @@ TEST_F(NVFuserTest, FusionIndexing6_CUDA) {
   at::Tensor input1 = at::randn(tensor1_shape, options);
 
   std::vector<int64_t> reduction_axes{0, 1};
-  auto rparams = getReductionHeuristics(&fusion, {input0, input1});
-  NVF_CHECK(rparams, "Reduction schedule was not generated!");
-  scheduleReduction(&fusion, rparams.get());
+  auto reduction_params = getReductionHeuristics(&fusion, {input0, input1});
+  NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
+  scheduleReduction(&fusion, reduction_params.get());
 
   FusionExecutor fe;
-  fe.compileFusion(&fusion, {input0, input1}, rparams->lparams);
-  auto cg_outputs = fe.runFusion({input0, input1}, rparams->lparams);
+  fe.compileFusion(&fusion, {input0, input1}, reduction_params->lparams);
+  auto cg_outputs = fe.runFusion({input0, input1}, reduction_params->lparams);
 
   auto aten_output = input0.add(input1).to(at::kDouble).sum(reduction_axes);
 
@@ -262,10 +358,10 @@ TEST_F(NVFuserTest, FusionIndexing6_CUDA) {
       __LINE__,
       __FILE__,
       "",
-      rparams->lparams);
+      reduction_params->lparams);
 }
 
-TEST_F(NVFuserTest, FusionIndexing7_CUDA) {
+TEST_F(IndexingTestDraft, Indexing7) {
   // Might be able to use this one without 6 as the heuristics in 6 may change
   // and this test is to cover the same issue.
   Fusion fusion;
@@ -312,7 +408,7 @@ TEST_F(NVFuserTest, FusionIndexing7_CUDA) {
       &fusion, cg_outputs, {at_t0, at_t1}, {aten_output}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionIndexing8_CUDA) {
+TEST_F(IndexingTestDraft, Indexing8) {
   // Same as 7 but with outer splits instead of inner
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -359,7 +455,7 @@ TEST_F(NVFuserTest, FusionIndexing8_CUDA) {
 }
 
 // Same as 5 but using implicit broadcast
-TEST_F(NVFuserTest, FusionIndexing9_CUDA) {
+TEST_F(IndexingTestDraft, IndexingTest9) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -394,7 +490,7 @@ TEST_F(NVFuserTest, FusionIndexing9_CUDA) {
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionIndexing10_CUDA) {
+TEST_F(IndexingTestDraft, Indexing10) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -453,7 +549,7 @@ TEST_F(NVFuserTest, FusionIndexing10_CUDA) {
   NVF_CHECK(output_ref.equal(output));
 }
 
-TEST_F(NVFuserTest, FusionIndexing11_CUDA) {
+TEST_F(IndexingTestDraft, Indexing11) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -503,7 +599,7 @@ TEST_F(NVFuserTest, FusionIndexing11_CUDA) {
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionIndexing12_CUDA) {
+TEST_F(IndexingTestDraft, Indexing12) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -541,7 +637,7 @@ TEST_F(NVFuserTest, FusionIndexing12_CUDA) {
       &fusion, cg_outputs, {aten_input}, aten_outputs, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionIndexing13_CUDA) {
+TEST_F(IndexingTestDraft, Indexing13) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -589,7 +685,7 @@ TEST_F(NVFuserTest, FusionIndexing13_CUDA) {
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionIndexing14_CUDA) {
+TEST_F(IndexingTestDraft, Indexing14) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -634,7 +730,7 @@ TEST_F(NVFuserTest, FusionIndexing14_CUDA) {
 // This excercises indexing with broadcast root axes. Non-broadcast
 // axes need to be preferred when propagating index exprs to root
 // axes. See, e.g., Index::getConsumerIndex_impl.
-TEST_F(NVFuserTest, FusionIndexing15_CUDA) {
+TEST_F(IndexingTestDraft, Indexing15) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -666,7 +762,7 @@ TEST_F(NVFuserTest, FusionIndexing15_CUDA) {
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionIndexing16_CUDA) {
+TEST_F(IndexingTestDraft, Indexing16) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -698,7 +794,7 @@ TEST_F(NVFuserTest, FusionIndexing16_CUDA) {
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionIndexing17_CUDA) {
+TEST_F(IndexingTestDraft, Indexing17) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -734,7 +830,7 @@ TEST_F(NVFuserTest, FusionIndexing17_CUDA) {
 }
 
 // TODO: Finish and enable test
-TEST_F(NVFuserTest, FusionIndexing18_CUDA) {
+TEST_F(IndexingTestDraft, Indexing18) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -775,7 +871,7 @@ TEST_F(NVFuserTest, FusionIndexing18_CUDA) {
 // Create a case where we're missing a valid concrete id so the compute at map
 // processing will fail. We need to be able to create the concrete ID not just
 // look for one.
-TEST_F(NVFuserTest, FusionIndexing19_CUDA) {
+TEST_F(IndexingTestDraft, Indexing19) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -818,152 +914,13 @@ TEST_F(NVFuserTest, FusionIndexing19_CUDA) {
     tensor->inlineAt(1);
   }
 
-  // Validation needs to be disabled as ComputeAtMap would fail with this fusion
-  IdModel id_model(
-      &fusion,
-      /* build_graphs */ true,
-      /* allow_self_mapping */ false,
-      /* validate */ false);
-
-  // All of the IDs that are generated with merge operations from the
-  // root domains should be mapped to the single group.
-  const ValGroup& merge_loop_group =
-      id_model.idGraph(IdMappingMode::LOOP).toGroup(tv1->getRootDomain().at(0));
-  for (auto tv : {tv1, tv2, tv4, tv5, tv6, tv8, tv9}) {
-    for (auto id : tv->domain()->allIDs()) {
-      if (dynamic_cast<Split*>(id->definition()) == nullptr) {
-        const ValGroup& loop_group =
-            id_model.idGraph(IdMappingMode::LOOP).toGroup(id);
-        ASSERT_EQ(loop_group, merge_loop_group)
-            << "Unexpected loop group: " << nvfuser::toString(loop_group);
-      }
-    }
-  }
-
-  const auto& promotion_map = id_model.loopPromotionMap();
-
-  // The merge loop group should be promoted to the output of the
-  // final merge in tv10
-  auto ref_merge_out = tv10->axis(0)
-                           ->definition()
-                           ->input(0)
-                           ->definition()
-                           ->input(0)
-                           ->as<IterDomain>();
-
-  auto promotion_map_it = promotion_map.find(merge_loop_group);
-  ASSERT_TRUE(promotion_map_it != promotion_map.end())
-      << "Loop promotion not found for merge loop group: "
-      << nvfuser::toString(merge_loop_group);
-  auto merge_out_promotion_id = promotion_map_it->second;
-  ASSERT_EQ(
-      id_model.idGraph(IdMappingMode::EXACT).toGroup(merge_out_promotion_id),
-      id_model.idGraph(IdMappingMode::EXACT).toGroup(ref_merge_out))
-      << "Merge loop group should be promoted to " << ref_merge_out->toString();
-  ASSERT_NE(
-      id_model.idGraph(IdMappingMode::LOOP).toGroup(merge_out_promotion_id),
-      id_model.idGraph(IdMappingMode::LOOP).toGroup(ref_merge_out))
-      << "Should not be loop-mapped with ref: "
-      << merge_out_promotion_id->toString();
-
-  // Get the corresponding reference ID in tv10
-  auto getRefId = [&](TensorView* tv, IterDomain* id) -> IterDomain* {
-    if (dynamic_cast<Split*>(id->definition()) != nullptr) {
-      if (id->uses().empty()) {
-        auto it = std::find(
-            tv->getLoopDomain().begin(), tv->getLoopDomain().end(), id);
-        NVF_ERROR(it != tv->getLoopDomain().end());
-        int leaf_pos =
-            static_cast<int>(std::distance(tv->getLoopDomain().begin(), it));
-        return tv10->axis(leaf_pos);
-      } else {
-        return tv10->axis(0)->definition()->input(0)->as<IterDomain>();
-      }
-    } else {
-      return ref_merge_out;
-    }
-  };
-
-  // Check if id is a leaf of a consumer tensor of tv
-  auto isIdOfConsumerTensor = [&](IterDomain* id, TensorView* tv) -> bool {
-    auto consumer_tvs = ir_utils::consumerTvsOf(tv);
-    return std::any_of(
-        consumer_tvs.begin(), consumer_tvs.end(), [&](auto consumer_tv) {
-          auto all_ids = consumer_tv->domain()->allIDs();
-          return std::find(all_ids.begin(), all_ids.end(), id) != all_ids.end();
-        });
-  };
-
-  // At this point, all of the IDs from the root until split are
-  // validated. Validating the remaining IDs
-  for (auto tv : {tv1, tv2, tv4, tv5, tv6, tv8, tv9}) {
-    for (auto id : tv->domain()->allIDs()) {
-      const auto& loop_group =
-          id_model.idGraph(IdMappingMode::LOOP).toGroup(id);
-      if (loop_group == merge_loop_group) {
-        // already validated
-        continue;
-      }
-
-      auto promotion_map_it = promotion_map.find(loop_group);
-      ASSERT_TRUE(promotion_map_it != promotion_map.end())
-          << "Loop promotion not found for " << id->toString() << " of "
-          << tv->toString()
-          << ". Loop group: " << nvfuser::toString(loop_group);
-
-      auto promotion_id = promotion_map_it->second;
-
-      // Promotion ID should be loop-mapped
-      ASSERT_TRUE(loop_group->has(promotion_id))
-          << "Loop promotion for " << id->toString() << " of " << tv->toString()
-          << " is promoted to an ID that isn't loop mapped: "
-          << promotion_id->toString() << std::endl;
-
-      auto promotion_exact_group =
-          id_model.idGraph(IdMappingMode::EXACT).toGroup(promotion_id);
-
-      auto ref_id = getRefId(tv, id);
-      auto ref_exact_group =
-          id_model.idGraph(IdMappingMode::EXACT).toGroup(ref_id);
-
-      ASSERT_EQ(promotion_exact_group, ref_exact_group)
-          << "Invalid promotion: " << id->toString() << " of " << tv->toString()
-          << ". Promotion group: " << nvfuser::toString(promotion_exact_group);
-
-      auto ref_loop_group =
-          id_model.idGraph(IdMappingMode::LOOP).toGroup(ref_id);
-      ASSERT_NE(loop_group, ref_loop_group)
-          << "Invalid promotion: " << id->toString() << " of " << tv->toString()
-          << ". Should not be loop-mapped with ref: "
-          << nvfuser::toString(loop_group);
-
-      // If id is a leaf, make sure it isn't mapped with
-      auto leaf_id_it =
-          std::find(tv->getLoopDomain().begin(), tv->getLoopDomain().end(), id);
-      if (leaf_id_it != tv->getLoopDomain().end() &&
-          std::distance(tv->getLoopDomain().begin(), leaf_id_it) >=
-              tv->getComputeAtPosition()) {
-        for (auto loop_mapped_id : *loop_group) {
-          if (loop_mapped_id == id) {
-            continue;
-          }
-          ASSERT_FALSE(
-              isIdOfConsumerTensor(loop_mapped_id->as<IterDomain>(), tv))
-              << "Invalid promotion: " << id->toString() << " of "
-              << tv->toString() << ". Found to mapped a consumer tensor: "
-              << loop_mapped_id->name();
-        }
-      }
-    }
-  }
-
   // The current ComputeAtMap fails with this fusion
   // fusion.printKernel();
 }
 
 // Progressive loop promotion. producer gets promoted in consumer, consumer is
 // promoted in a different way to its consumer.
-TEST_F(NVFuserTest, FusionIndexing20_CUDA) {
+TEST_F(IndexingTestDraft, Indexing20) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1115,7 +1072,7 @@ TEST_F(NVFuserTest, FusionIndexing20_CUDA) {
 }
 
 // Repro for issue #1873
-TEST_F(NVFuserTest, FusionInlineBroadcastIndexing0_CUDA) {
+TEST_F(IndexingTestDraft, InlineBroadcastIndexing0) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1152,7 +1109,7 @@ TEST_F(NVFuserTest, FusionInlineBroadcastIndexing0_CUDA) {
 }
 
 // Broadcast inline 3 times and merge all domains
-TEST_F(NVFuserTest, FusionMultiPromotion_CUDA) {
+TEST_F(IndexingTestDraft, MultiPromotion) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1201,10 +1158,10 @@ TEST_F(NVFuserTest, FusionMultiPromotion_CUDA) {
 
 // Broadcast and concretize same domain in two different ways and try to merge
 // their loops. The inlining pattern is invalid but the current
-// inlining check is not capable of flagging the inlining poistion as
+// inlining check is not capable of flagging the inlining position as
 // invalid. The loop promotion analysis should not find any promotion
 // of the loop group where all the leaf domains are merged into.
-TEST_F(NVFuserTest, FusionMultiPromotion2_CUDA) {
+TEST_F(IndexingTestDraft, MultiPromotion2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
   // [w]
@@ -1258,7 +1215,7 @@ TEST_F(NVFuserTest, FusionMultiPromotion2_CUDA) {
 // use case. In multi-gpu it may be the exact opposite where we split out the
 // outer most iter domain to the multi-gpu dimension, then schedule.
 
-TEST_F(NVFuserTest, FusionIndexSplitMerge_CUDA) {
+TEST_F(IndexingTestDraft, IndexSplitMerge) {
   Fusion fusion;
   FusionGuard fg(&fusion);
   // [w]
@@ -1301,6 +1258,315 @@ TEST_F(NVFuserTest, FusionIndexSplitMerge_CUDA) {
 
   testValidate(
       &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
+}
+
+TEST_F(IndexingTestDraft, Normalization) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  constexpr int ND = 3;
+  auto tv0 = makeSymbolicTensor(ND);
+  fusion.addInput(tv0);
+
+  TensorView* tv2 = nullptr;
+  tv2 = sum(tv0, {0, 2});
+  auto tv3 = broadcast(tv2, {true, false, true});
+  auto tv4 = sub(tv0, tv3);
+  fusion.addOutput(tv4);
+
+  Fusion fusion_copy = fusion;
+
+  std::vector<int64_t> input_shape{20, 10, 35};
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  if (getenv("CACHE")) {
+    FusionExecutorCache executor_cache(std::move(fusion_ptr));
+    auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  } else {
+    auto persistent_params = getInnerPersistentHeuristics(&fusion, aten_inputs);
+    NVF_CHECK(persistent_params, "Persistent schedule was not generated!");
+    scheduleInnerPersistentKernel(&fusion, persistent_params.get());
+
+    fusion.printKernel();
+
+    FusionExecutor fe;
+    fe.compileFusion(&fusion, aten_inputs);
+    auto cg_outputs = fe.runFusion(aten_inputs);
+    testValidate(&fusion_copy, cg_outputs, aten_inputs, __LINE__, __FILE__);
+  }
+}
+
+TEST_F(IndexingTestDraft, Reshape1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const std::vector<int64_t> shape1({100});
+  const std::vector<int64_t> shape2({4, 25});
+  const std::vector<int64_t> shape3({5, 2, 10});
+
+  // [i0]
+  auto tv0 = makeContigConcreteTensor(shape1);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+
+  // [i2, i3]
+  auto tv2 = reshape(tv1, shape1, shape2);
+
+  // [i2, i3]
+  auto tv3 = add(tv2, fusion.oneVal());
+
+  // [i4, i5, i6]
+  auto tv4 = reshape(tv3, shape2, shape3);
+
+  // [i4, i5, i6]
+  auto tv5 = add(tv4, fusion.oneVal());
+
+  fusion.addOutput(tv5);
+
+  TransformPropagator propagator(tv5);
+  MaxLogicalDomainInfoSpanningTree(tv5).traverse(&propagator);
+
+  inlineMost();
+
+  fusion.print();
+
+  // IdModel id_model(&fusion, true, false, false);
+}
+
+// Not a DAG due to a residual-like reshape path
+TEST_F(IndexingTestDraft, Reshape2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const std::vector<int64_t> shape1({100});
+  const std::vector<int64_t> shape2({4, 25});
+  const std::vector<int64_t> shape3({5, 2, 10});
+
+  // [i0]
+  auto tv0 = makeContigConcreteTensor(shape1);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+
+  // First path
+
+  // [i2, i3]
+  auto tv2 = reshape(tv1, shape1, shape2);
+
+  // [i2, i3]
+  auto tv3 = add(tv2, fusion.oneVal());
+
+  // Second path
+
+  // [i4, i5, i6]
+  auto tv4 = reshape(tv1, shape1, shape3);
+
+  // [i4, i5, i6]
+  auto tv5 = add(tv4, fusion.oneVal());
+
+  // [i2, i3]
+  auto tv6 = reshape(tv5, shape3, shape2);
+
+  // [i2, i3]
+  auto tv7 = add(tv3, tv6);
+
+  fusion.addOutput(tv7);
+
+  // Schedule two tensor groups differently
+  // {tv2, tv3, tv7}
+  // {tv4, tv5, tv6}
+
+  for (auto tv : {tv2, tv3, tv7}) {
+    tv->merge(0);
+    tv->split(0, 4);
+    tv->split(0, 32);
+  }
+
+  for (auto tv : {tv4, tv5}) {
+    tv->merge(0);
+    tv->merge(0);
+    tv->split(0, shape2[0], false);
+  }
+  for (auto tv : {tv4, tv5, tv6}) {
+    tv->split(1, 4);
+    tv->merge(0, 1);
+    tv->split(0, 32);
+  }
+
+  for (auto tv : {tv2, tv3, tv4, tv5}) {
+    tv->inlineAt(-1);
+  }
+
+  fusion.printMath();
+  fusion.print();
+
+  IdModel id_model(&fusion, true, false, false);
+}
+
+TEST_F(IndexingTestDraft, Simple1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  fusion.addOutput(tv1);
+
+  tv1->split(0, 4);
+
+  fusion.printKernel();
+
+  std::vector<int64_t> input_shape{17};
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+}
+
+TEST_F(IndexingTestDraft, Simple2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv0, IrBuilder::create<Val>(1.0));
+  fusion.addOutput(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->split(0, 4);
+  tv2->split(0, 8);
+
+  tv1->axis(1)->parallelize(ParallelType::TIDx);
+  tv2->axis(1)->parallelize(ParallelType::TIDx);
+
+  fusion.printKernel();
+
+  std::vector<int64_t> input_shape{17};
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+}
+
+TEST_F(IndexingTestDraft, Vectorize1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->split(0, 4);
+  tv2->split(0, 4);
+
+  tv1->axis(1)->parallelize(ParallelType::Vectorize);
+  tv2->axis(1)->parallelize(ParallelType::Vectorize);
+
+  inlineMost();
+
+  fusion.printKernel();
+
+  std::vector<int64_t> input_shape{32};
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+}
+
+TEST_F(IndexingTestDraft, Unswitch1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->split(0, 4);
+  tv2->split(0, 4);
+
+  tv2->axis(1)->parallelize(ParallelType::Unswitch);
+
+  inlineMost();
+
+  fusion.printKernel();
+
+  std::vector<int64_t> input_shape{32};
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+}
+
+TEST_F(IndexingTestDraft, Unswitch2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  tv1->split(0, 4);
+  tv1->split(0, 5);
+
+  tv1->axis(1)->parallelize(ParallelType::Unswitch);
+  tv1->axis(2)->parallelize(ParallelType::Unswitch);
+
+  inlineMost();
+
+  fusion.printKernel();
+
+  std::vector<int64_t> input_shape{32};
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

@@ -9,6 +9,7 @@
 #include <id_model/loop_promotion.h>
 #include <id_model/to_string.h>
 #include <id_model/transform_replay.h>
+#include <id_model/utils.h>
 #include <id_model/validation_utils.h>
 
 #include <device_lower/analysis/trivial_broadcast.h>
@@ -590,22 +591,23 @@ StatefulInliningInfo buildStatefulInliningInfo(
       const auto& producer_logical = producer_tv->getLogicalDomain();
       const auto& producer_domain = producer_tv->domain()->loop();
 
-      // Grab all iteration domains in producer that its compute at iter domains
-      // depend on.
-      auto ca_dep_vals = DependencyCheck::getAllValsBetween(
-          {producer_logical.begin(), producer_logical.end()},
-          {producer_domain.begin(),
-           producer_domain.begin() + producer_tv->getComputeAtPosition()});
-      auto ca_deps_filter = ir_utils::filterByType<IterDomain>(ca_dep_vals);
-      VectorOfUniqueEntries<IterDomain*> all_producer_ca_deps(
-          ca_deps_filter.begin(), ca_deps_filter.end());
-
-      info.ordered_p_ca_ids.pushBack(all_producer_ca_deps);
-
       // Gather info on and producer-consumer
       // mappings of CA domains and broadcast resolution
       for (auto consumer_tv :
            ir_utils::filterByType<TensorView>(expr->outputs())) {
+        // Grab all iteration domains in producer that its compute at iter
+        // domains depend on.
+        auto ca_dep_vals = DependencyCheck::getAllValsBetween(
+            {producer_logical.begin(), producer_logical.end()},
+            {producer_domain.begin(),
+             producer_domain.begin() +
+                 producer_tv->getComputePosition(consumer_tv)});
+        auto ca_deps_filter = ir_utils::filterByType<IterDomain>(ca_dep_vals);
+        VectorOfUniqueEntries<IterDomain*> all_producer_ca_deps(
+            ca_deps_filter.begin(), ca_deps_filter.end());
+
+        info.ordered_p_ca_ids.pushBack(all_producer_ca_deps);
+
         auto all_producer_ids = producer_tv->domain()->allIDs();
         auto all_consumer_ids = consumer_tv->domain()->allIDs();
 
@@ -692,12 +694,24 @@ ValGraph& IdModel::buildLoopGraph() {
   maybeBuildGraph(IdMappingMode::EXACT);
   maybeBuildGraph(IdMappingMode::PERMISSIVE);
 
+  if (!tv_exprs_.empty()) {
+    std::stringstream ss;
+    tv_exprs_.at(0)->fusion()->print(ss);
+    VERBOSE() << ss.str();
+  }
+
   const StatefulInliningInfo inlining_info =
       buildStatefulInliningInfo(tv_exprs_, idGraph(IdMappingMode::PERMISSIVE));
 
   initializeLoopGraph(inlining_info);
 
   validateLoopGraphHasNoSelfMappedLeafDomains();
+
+  VERBOSE() << "Initial loop graph:\n";
+  for (const auto& group :
+       idGraph(IdMappingMode::LOOP).disjointValSets().disjointSets()) {
+    VERBOSE() << nvfuser::toString(group) << std::endl;
+  }
 
   loop_promotion_map_ = LoopPromotionMapBuilder::get(
       *this, inlining_info, loop_promotion_map_builder_callback_);
@@ -712,6 +726,8 @@ ValGraph& IdModel::buildLoopGraph() {
 }
 
 void IdModel::buildAllGraphs() {
+  VERBOSE() << "*** Building all graphs ***\n";
+
   if (tvs_.empty()) {
     return;
   }

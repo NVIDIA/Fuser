@@ -411,10 +411,15 @@ void GpuLower::analysis(Fusion* fusion) {
   // information.
   compute_at_map_ = std::make_shared<ComputeAtMap>(fusion_);
 
+  resolveComputeWith(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "resolveComputeWith");
+
   // Transitory testing of IdModel if enabled. No existing
   // functionality should be affected. New IterDomains may be created,
   // so it is expected that generated code may use diffrent variable
-  // names
+  // names. Note computeWith should be resolved before building
+  // IdModel. Otherwise computeWith inlining is not reflected in the
+  // model.
   if (this->requiresIdModel() || isOptionEnabled(EnableOption::IdModel)) {
     // Enable validation in the DEBUG build mode
 #ifdef NDEBUG
@@ -434,9 +439,6 @@ void GpuLower::analysis(Fusion* fusion) {
 #endif
     id_model_->validateAndPropagatePType();
   }
-
-  resolveComputeWith(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "resolveComputeWith");
 
   if (isDebugDumpEnabled(DebugDumpOption::ComputeAtMap)) {
     debug() << compute_at_map_->toString() << std::endl;
@@ -523,7 +525,9 @@ void GpuLower::analysis(Fusion* fusion) {
   compute_at_map_->allocateIndexVariables();
   dumpExprsIfEnabled(fusion_->exprs(), "allocateIndexVariables");
 
-  if (this->requiresIdModel() || isOptionEnabled(EnableOption::IdModel)) {
+  if (this->requiresIdModel() ||
+      (isOptionEnabled(EnableOption::IdModel) &&
+       TensorIndexer::isSupported(fusion_))) {
     tensor_indexer_ = std::make_unique<TensorIndexer>(*id_model_);
   }
 

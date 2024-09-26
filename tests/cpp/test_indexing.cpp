@@ -23,6 +23,8 @@
 #include <kernel_ir_dispatch.h>
 #include <ops/all_ops.h>
 #include <scheduler/utils.h>
+#include <transform_iter.h>
+#include <val_graph_visitor.h>
 
 #include <algorithm>
 #include <utility>
@@ -199,6 +201,30 @@ class AbstractGetReference {
       CircularBufferLoopStage::NotApplicable;
 };
 
+void compareRecursively(Val* x, Val* y) {
+  std::cout << "Checking " << x->toInlineString() << ", " << y->toInlineString()
+            << std::endl;
+  if (x->sameAs(y)) {
+    std::cout << "Same: " << x->toString() << " (" << x->dtype()
+              << ")"
+                 ", "
+              << y->toString() << " (" << y->dtype() << ")" << std::endl;
+  } else if (x->definition() != nullptr) {
+    auto x_def = x->definition();
+    auto y_def = y->definition();
+    NVF_ERROR(y_def != nullptr);
+    NVF_ERROR(x_def->inputs().size() == y_def->inputs().size());
+    for (auto i : c10::irange(x->definition()->inputs().size())) {
+      std::cout << "Checking input " << i << std::endl;
+      compareRecursively(x_def->input(i), y_def->input(i));
+    }
+  } else {
+    std::cout << "Not same: " << x->toString() << " (" << x->dtype() << ") "
+              << ", " << y->toString() << " (" << y->dtype() << ") "
+              << std::endl;
+  }
+}
+
 template <typename GetReference>
 class IndexValidator : public kir::IrVisitor {
  public:
@@ -231,6 +257,18 @@ class IndexValidator : public kir::IrVisitor {
     auto out_ti = expr->output(0)->as<kir::TensorIndex>();
     for (auto inp : expr->inputs()) {
       if (inp->isA<kir::TensorIndex>()) {
+        // Since this is KIR, inp can be equal to out_ti when it was
+        // originally a reduction op in Fusion
+        if (inp == out_ti) {
+          Expr* original_def = out_ti->view()->definition();
+          NVF_ERROR(
+              original_def != nullptr && original_def->isA<ReductionOp>(),
+              "Unexpected input, ",
+              inp->toString(),
+              " in ",
+              expr->toString());
+          continue;
+        }
         validate(inp->as<kir::TensorIndex>(), out_ti);
       }
     }
@@ -255,6 +293,9 @@ class IndexValidator : public kir::IrVisitor {
           << (out_ti != nullptr ? "producer" : "consumer")
           << "\nRef: " << ref->toInlineString()
           << "\nActual: " << actual->toInlineString();
+      if (!actual->sameAs(ref)) {
+        compareRecursively(actual, ref);
+      }
       return;
     }
 

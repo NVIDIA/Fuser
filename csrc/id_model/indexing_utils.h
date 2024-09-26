@@ -7,14 +7,46 @@
 // clang-format on
 #pragma once
 
+#include <debug.h>
 #include <device_lower/analysis/index_compute.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
 #include <id_model/id_model.h>
 #include <id_model/to_string.h>
 
+#include <id_model/utils.h>
+
 namespace nvfuser {
 namespace indexing_utils {
+
+// Logging utility
+class DebugStream {
+ public:
+  DebugStream()
+      : enabled_(isDebugDumpEnabled(DebugDumpOption::IndexingVerbose)) {}
+
+  template <typename T>
+  DebugStream& operator<<(const T& v) {
+    if (enabled_) {
+      debug() << v;
+    }
+    return *this;
+  }
+
+  DebugStream& operator<<(std::ostream& (*endl)(std::ostream&)) {
+    if (enabled_) {
+      debug() << endl;
+    }
+    return *this;
+  }
+
+ private:
+  bool enabled_ = false;
+};
+
+inline DebugStream verbose() {
+  return DebugStream() << "[INDEXING] ";
+}
 
 // Get a matching ForLoop for a given loop iter domain. There may not
 // be such a loop if this loop-nest is for initializing a reduction

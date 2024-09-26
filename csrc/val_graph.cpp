@@ -6,8 +6,11 @@
  */
 // clang-format on
 #include <id_model/to_string.h>
+#include <id_model/utils.h>
 #include <ir/utils.h>
 #include <val_graph.h>
+
+#include <memory>
 
 namespace nvfuser {
 
@@ -30,9 +33,7 @@ ValGraph::ValGraph(const ValGraph& other)
       new_expr_groups.pushBack(toGroup(orig_expr_group->front()));
     }
 
-    NVF_ERROR(
-        unique_definitions_.emplace(new_val_group, std::move(new_expr_groups))
-            .second);
+    unique_definitions_[new_val_group] = new_expr_groups;
   }
 
   for (const auto& [orig_val_group, orig_expr_groups] : other.unique_uses_) {
@@ -268,10 +269,6 @@ void ValGraph::initializeVal(
     const VectorOfUniqueEntries<Expr*>& uses) {
   const ValGroup& val_disjoint_set =
       disjoint_vals_.initializeSet(val).first->second;
-
-  // For now, the definition of a val should be unique. Remove this
-  // assertion as necessary
-  NVF_ERROR(definitions.size() <= 1);
 
   ExprGroups def_groups;
   for (auto def : definitions) {
@@ -561,6 +558,56 @@ bool ValGraph::mapThroughExpr(Expr* first, Expr* second, bool forward) {
   }
 
   return true;
+}
+
+void ValGraph::removeTrivialExprs() {
+  ExprGroups trivial_expr_groups;
+  // This seems like it shouls just be a copy if.
+  for (const ExprGroup& expr_group : disjointExprSets().disjointSets()) {
+    if (isTrivialExprGroup(expr_group)) {
+      trivial_expr_groups.pushBack(expr_group);
+    }
+  }
+
+  // Clear out expressions that map inputs and outputs to the same group
+  // from definitions and uses. They shouldn't be important in traversal, and
+  // will break the terminal input/terminal output logic of traversal. Similar
+  // to what's drafted in buildIndexGraph
+  for (const ExprGroup& trivial_expr_group : trivial_expr_groups) {
+    // Complexity of erase not good as both disjoint set and vector of unique
+    // entries require a vector find to erase an entry.
+    eraseExprGroup(trivial_expr_group);
+  }
+}
+
+// Complexity here is not great. We might want a better complexity version when
+// erasing multiple expr_groups.
+void ValGraph::eraseExprGroup(const ExprGroup& expr_group) {
+  // Erase entries that exist in unique_definitions_ and unique_uses_
+  for (const ValGroup& id_group : disjointValSets().disjointSets()) {
+    // Make sure the entries exists
+    NVF_ERROR(
+        unique_definitions_.find(id_group) != unique_definitions_.end(),
+        "Broken definitions, couldn't find entry for id group, ",
+        nvfuser::toString(id_group, 0, true));
+    NVF_ERROR(
+        unique_uses_.find(id_group) != unique_uses_.end(),
+        "Broken uses, couldn't find entry for id group, ",
+        nvfuser::toString(id_group, 0, true));
+
+    unique_definitions_[id_group].erase(expr_group);
+    unique_uses_[id_group].erase(expr_group);
+  }
+
+  for (auto expr : *expr_group) {
+    disjoint_exprs_.erase(expr);
+  }
+}
+
+bool ValGraph::isTrivialExprGroup(const ExprGroup& expr_group) const {
+  return !ValGroups(inputGroups(expr_group))
+              .computeIntersect(ValGroups(outputGroups(expr_group)))
+              .empty();
 }
 
 void ValGraph::validateConsistency() const {
