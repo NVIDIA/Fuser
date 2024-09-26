@@ -50,7 +50,7 @@ def benchmark_loop(model, input, profile):
         torch.cuda.cudart().cudaProfilerStart()
 
     for i in range(num_iters + warmup_iters):
-        if i > warmup_iters:
+        if i >= warmup_iters:
             start = time.time()
             if profile:
                 torch.cuda.nvtx.range_push(f"iteration{i}")
@@ -59,7 +59,7 @@ def benchmark_loop(model, input, profile):
         output = model(input)
         torch.cuda.synchronize()
 
-        if i > warmup_iters:
+        if i >= warmup_iters:
             end = time.time()
             forward_time += end - start
             if profile:
@@ -70,7 +70,7 @@ def benchmark_loop(model, input, profile):
         output.sum().backward()
         torch.cuda.synchronize()
 
-        if i > warmup_iters:
+        if i >= warmup_iters:
             end = time.time()
             backward_time += end - start
             if profile:
