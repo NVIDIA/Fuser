@@ -19,6 +19,7 @@
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <scheduler/mma_utils.h>
+#include <scheduler/runtime_info.h>
 #include <transform_iter.h>
 #include <transform_replay.h>
 
@@ -968,7 +969,7 @@ PersistentBufferSizeReturn persistentBufferSize(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     const PersistentBufferInfo& persistent_buffer_info,
-    HeuristicSummary* data_cache) {
+    HeuristicDataCache* data_cache) {
   FUSER_PERF_SCOPE("scheduler_utils::persistentBufferSize");
 
   if (persistent_buffer_info.persistent_buffers.empty()) {
@@ -1048,7 +1049,7 @@ PersistentBufferSizeReturn persistentBufferSize(
   };
 
   auto persistent_buffer_info_entry =
-      HeuristicSummaryEntry<HeuristicCompileTime::ScopePersistentFactorInfo>(
+      HeuristicDataCacheEntry<HeuristicCompileTime::ScopePersistentFactorInfo>(
           data_cache, [&fusion, &persistent_buffer_info]() {
             return getScopePersistenceFactors(fusion, persistent_buffer_info);
           });

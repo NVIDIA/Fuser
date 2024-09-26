@@ -45,311 +45,262 @@ import torch
 
 
 def transformer_forward_fusion(fd: FusionDefinition) -> None:
+    # MHA dropout.rng_offset
+    S0 = fd.define_scalar(None, dtype=DataType.Int)
+    # MHA dropout.rng_seed
+    S1 = fd.define_scalar(None, dtype=DataType.Int)
+    # MLP dropout.rng_offset
+    S2 = fd.define_scalar(None, dtype=DataType.Int)
+    # MLP dropout.rng_seed
+    S3 = fd.define_scalar(None, dtype=DataType.Int)
     # x: input
-    T0 = fd.define_tensor(
-        shape=[1, -1, -1],
+    T4 = fd.define_tensor(
+        shape=[1, 2048, 12288],
         contiguity=[None, True, True],
         dtype=DataType.BFloat16,
         is_cpu=False,
         stride_order=[2, 1, 0],
     )
     # layer_norm0.weight
-    T1 = fd.define_tensor(
-        shape=[-1],
+    T5 = fd.define_tensor(
+        shape=[12288],
         contiguity=[True],
         dtype=DataType.BFloat16,
         is_cpu=False,
         stride_order=[0],
     )
     # layer_norm0.bias
-    T2 = fd.define_tensor(
-        shape=[-1],
+    T6 = fd.define_tensor(
+        shape=[12288],
         contiguity=[True],
         dtype=DataType.BFloat16,
         is_cpu=False,
         stride_order=[0],
     )
     # MHA linear0.weight
-    T3 = fd.define_tensor(
-        shape=[-1, -1],
+    T7 = fd.define_tensor(
+        shape=[36864, 12288],
         contiguity=[True, True],
         dtype=DataType.BFloat16,
         is_cpu=False,
         stride_order=[1, 0],
     )
     # MHA linear0.bias
-    T4 = fd.define_tensor(
-        shape=[-1],
+    T8 = fd.define_tensor(
+        shape=[36864],
         contiguity=[True],
         dtype=DataType.BFloat16,
         is_cpu=False,
         stride_order=[0],
     )
     # MHA linear1.weight
-    T5 = fd.define_tensor(
-        shape=[-1, -1],
+    T9 = fd.define_tensor(
+        shape=[12288, 12288],
         contiguity=[True, True],
         dtype=DataType.BFloat16,
         is_cpu=False,
         stride_order=[1, 0],
     )
     # MHA linear1.bias
-    T6 = fd.define_tensor(
-        shape=[-1],
+    T10 = fd.define_tensor(
+        shape=[12288],
         contiguity=[True],
         dtype=DataType.BFloat16,
         is_cpu=False,
         stride_order=[0],
     )
-    # MHA dropout.rng_offset
-    S7 = fd.define_scalar(None, dtype=DataType.Int)
-    # MHA dropout.rng_seed
-    S8 = fd.define_scalar(None, dtype=DataType.Int)
     # layer_norm1.weight
-    T9 = fd.define_tensor(
-        shape=[-1],
+    T11 = fd.define_tensor(
+        shape=[12288],
         contiguity=[True],
         dtype=DataType.BFloat16,
         is_cpu=False,
         stride_order=[0],
     )
     # layer_norm1.bias
-    T10 = fd.define_tensor(
-        shape=[-1],
+    T12 = fd.define_tensor(
+        shape=[12288],
         contiguity=[True],
         dtype=DataType.BFloat16,
         is_cpu=False,
         stride_order=[0],
     )
     # MLP linear0.weight
-    T11 = fd.define_tensor(
-        shape=[-1, -1],
+    T13 = fd.define_tensor(
+        shape=[49152, 12288],
         contiguity=[True, True],
         dtype=DataType.BFloat16,
         is_cpu=False,
         stride_order=[1, 0],
     )
     # MLP linear0.bias
-    T12 = fd.define_tensor(
-        shape=[-1],
+    T14 = fd.define_tensor(
+        shape=[49152],
         contiguity=[True],
         dtype=DataType.BFloat16,
         is_cpu=False,
         stride_order=[0],
     )
     # MLP linear1.weight
-    T13 = fd.define_tensor(
-        shape=[-1, -1],
+    T15 = fd.define_tensor(
+        shape=[12288, 49152],
         contiguity=[True, True],
         dtype=DataType.BFloat16,
         is_cpu=False,
         stride_order=[1, 0],
     )
     # MLP linear1.bias
-    T14 = fd.define_tensor(
-        shape=[-1],
+    T16 = fd.define_tensor(
+        shape=[12288],
         contiguity=[True],
         dtype=DataType.BFloat16,
         is_cpu=False,
         stride_order=[0],
     )
-    # MLP dropout.rng_offset
-    S15 = fd.define_scalar(None, dtype=DataType.Int)
-    # MLP dropout.rng_seed
-    S16 = fd.define_scalar(None, dtype=DataType.Int)
-
-    T17 = fd.ops.cast(T0, dtype=DataType.Float)
-    T18, T19 = fd.ops.var_mean(T17, dims=[2], correction=0, keepdim=False)
-    S20 = fd.define_scalar(1, dtype=DataType.Int)
-    S21 = fd.define_scalar(2048, dtype=DataType.Int)
-    S22 = fd.define_scalar(1, dtype=DataType.Int)
-    V23 = fd.define_vector([S20, S21, S22], dtype=DataType.Int)
-    T24 = fd.ops.broadcast_in_dim(T18, shape=V23, broadcast_dims=[0, 1])
-    S25 = fd.define_scalar(1, dtype=DataType.Int)
-    S26 = fd.define_scalar(2048, dtype=DataType.Int)
-    S27 = fd.define_scalar(1, dtype=DataType.Int)
-    V28 = fd.define_vector([S25, S26, S27], dtype=DataType.Int)
-    T29 = fd.ops.broadcast_in_dim(T19, shape=V28, broadcast_dims=[0, 1])
-    S30 = fd.define_scalar(1.00000e-05, dtype=DataType.Double)
-    T31 = fd.ops.add(T24, S30)
-    T32 = fd.ops.rsqrt(T31)
-    S33 = fd.define_scalar(1, dtype=DataType.Int)
-    S34 = fd.define_scalar(2048, dtype=DataType.Int)
-    S35 = fd.define_scalar(12288, dtype=DataType.Int)
-    V36 = fd.define_vector([S33, S34, S35], dtype=DataType.Int)
-    T37 = fd.ops.broadcast_in_dim(T29, shape=V36, broadcast_dims=[0, 1, 2])
-    T38 = fd.ops.sub(T17, T37)
-    S39 = fd.define_scalar(1, dtype=DataType.Int)
-    S40 = fd.define_scalar(2048, dtype=DataType.Int)
-    S41 = fd.define_scalar(12288, dtype=DataType.Int)
-    V42 = fd.define_vector([S39, S40, S41], dtype=DataType.Int)
-    T43 = fd.ops.broadcast_in_dim(T32, shape=V42, broadcast_dims=[0, 1, 2])
-    T44 = fd.ops.mul(T38, T43)
-    S45 = fd.define_scalar(1, dtype=DataType.Int)
-    S46 = fd.define_scalar(2048, dtype=DataType.Int)
-    S47 = fd.define_scalar(12288, dtype=DataType.Int)
-    V48 = fd.define_vector([S45, S46, S47], dtype=DataType.Int)
-    T49 = fd.ops.broadcast_in_dim(T1, shape=V48, broadcast_dims=[2])
-    T50 = fd.ops.cast(T49, dtype=DataType.Float)
-    T51 = fd.ops.mul(T44, T50)
-    S52 = fd.define_scalar(1, dtype=DataType.Int)
-    S53 = fd.define_scalar(2048, dtype=DataType.Int)
-    S54 = fd.define_scalar(12288, dtype=DataType.Int)
-    V55 = fd.define_vector([S52, S53, S54], dtype=DataType.Int)
-    T56 = fd.ops.broadcast_in_dim(T2, shape=V55, broadcast_dims=[2])
-    T57 = fd.ops.cast(T56, dtype=DataType.Float)
-    T58 = fd.ops.add(T51, T57)
-    T59 = fd.ops.cast(T58, dtype=DataType.BFloat16)
-    T60 = fd.ops.linear(T59, T3, T4)
-    T61 = fd.ops.slice(
-        T60, start_indices=[0, 0, 0], end_indices=[1, 2048, 12288], strides=[1, 1, 1]
+    S17 = fd.define_scalar(0.00000, dtype=DataType.Double)
+    S18 = fd.define_scalar(1.00000, dtype=DataType.Double)
+    T23 = fd.ops.uniform(
+        S17,
+        S18,
+        shape=[1, 2048, 12288],
+        rng_seed=S1,
+        rng_offset=S0,
+        dtype=DataType.BFloat16,
     )
-    T62 = fd.ops.slice(
-        T60,
+    S24 = fd.define_scalar(0.00000, dtype=DataType.Double)
+    S25 = fd.define_scalar(1.00000, dtype=DataType.Double)
+    T30 = fd.ops.uniform(
+        S24,
+        S25,
+        shape=[1, 2048, 12288],
+        rng_seed=S3,
+        rng_offset=S2,
+        dtype=DataType.BFloat16,
+    )
+    T31 = fd.ops.cast(T4, dtype=DataType.Float)
+    S32 = fd.define_scalar(0.900000, dtype=DataType.Double)
+    T33 = fd.ops.lt(T23, S32)
+    S34 = fd.define_scalar(0.900000, dtype=DataType.Double)
+    T35 = fd.ops.lt(T30, S34)
+    T36, T37 = fd.ops.var_mean(T31, dims=[2], correction=0, keepdim=False)
+    T42 = fd.ops.broadcast_in_dim(T36, shape=[1, 2048, 1], broadcast_dims=[0, 1])
+    T47 = fd.ops.broadcast_in_dim(T37, shape=[1, 2048, 1], broadcast_dims=[0, 1])
+    S48 = fd.define_scalar(1.00000e-05, dtype=DataType.Double)
+    T49 = fd.ops.add(T42, S48)
+    T54 = fd.ops.broadcast_in_dim(T47, shape=[1, 2048, 12288], broadcast_dims=[0, 1, 2])
+    T55 = fd.ops.rsqrt(T49)
+    T56 = fd.ops.sub(T31, T54)
+    T61 = fd.ops.broadcast_in_dim(T55, shape=[1, 2048, 12288], broadcast_dims=[0, 1, 2])
+    T62 = fd.ops.mul(T56, T61)
+    T67 = fd.ops.broadcast_in_dim(T5, shape=[1, 2048, 12288], broadcast_dims=[2])
+    T68 = fd.ops.cast(T67, dtype=DataType.Float)
+    T69 = fd.ops.mul(T62, T68)
+    T74 = fd.ops.broadcast_in_dim(T6, shape=[1, 2048, 12288], broadcast_dims=[2])
+    T75 = fd.ops.cast(T74, dtype=DataType.Float)
+    T76 = fd.ops.add(T69, T75)
+    T77 = fd.ops.cast(T76, dtype=DataType.BFloat16)
+    T78 = fd.ops.linear(T77, T7, T8)
+    T91 = fd.ops.slice(
+        T78, start_indices=[0, 0, 0], end_indices=[1, 2048, 12288], strides=[1, 1, 1]
+    )
+    T104 = fd.ops.slice(
+        T78,
         start_indices=[0, 0, 12288],
         end_indices=[1, 2048, 24576],
         strides=[1, 1, 1],
     )
-    T63 = fd.ops.slice(
-        T60,
+    T117 = fd.ops.slice(
+        T78,
         start_indices=[0, 0, 24576],
         end_indices=[1, 2048, 36864],
         strides=[1, 1, 1],
     )
-    S64 = fd.define_scalar(1, dtype=DataType.Int)
-    S65 = fd.define_scalar(2048, dtype=DataType.Int)
-    S66 = fd.define_scalar(96, dtype=DataType.Int)
-    S67 = fd.define_scalar(128, dtype=DataType.Int)
-    V68 = fd.define_vector([S64, S65, S66, S67], dtype=DataType.Int)
-    T69 = fd.ops.reshape(T62, new_shape=V68)
-    T70 = fd.ops.permute(T69, dims=[0, 2, 1, 3])
-    S71 = fd.define_scalar(1, dtype=DataType.Int)
-    S72 = fd.define_scalar(2048, dtype=DataType.Int)
-    S73 = fd.define_scalar(96, dtype=DataType.Int)
-    S74 = fd.define_scalar(128, dtype=DataType.Int)
-    V75 = fd.define_vector([S71, S72, S73, S74], dtype=DataType.Int)
-    T76 = fd.ops.reshape(T61, new_shape=V75)
-    T77 = fd.ops.permute(T76, dims=[0, 2, 1, 3])
-    S78 = fd.define_scalar(1, dtype=DataType.Int)
-    S79 = fd.define_scalar(2048, dtype=DataType.Int)
-    S80 = fd.define_scalar(96, dtype=DataType.Int)
-    S81 = fd.define_scalar(128, dtype=DataType.Int)
-    V82 = fd.define_vector([S78, S79, S80, S81], dtype=DataType.Int)
-    T83 = fd.ops.reshape(T63, new_shape=V82)
-    T84 = fd.ops.permute(T83, dims=[0, 2, 1, 3])
-    S85 = fd.define_scalar(0.100000, dtype=DataType.Double)
-    S86 = fd.define_scalar(True, dtype=DataType.Bool)
-    T87, T88, T89, T90 = fd.ops.sdpfa_fwd(T77, T70, T84, S85, S86, None)
-    T91 = fd.ops.permute(T87, dims=[0, 2, 1, 3])
-    T92 = fd.ops.stride_order(T91, stride_order=[3, 2, 1, 0])
-    S93 = fd.define_scalar(1, dtype=DataType.Int)
-    S94 = fd.define_scalar(2048, dtype=DataType.Int)
-    S95 = fd.define_scalar(12288, dtype=DataType.Int)
-    V96 = fd.define_vector([S93, S94, S95], dtype=DataType.Int)
-    T97 = fd.ops.reshape(T92, new_shape=V96)
-    T98 = fd.ops.linear(T97, T5, T6)
-    S99 = fd.define_scalar(0.00000, dtype=DataType.Double)
-    S100 = fd.define_scalar(1.00000, dtype=DataType.Double)
-    S101 = fd.define_scalar(1, dtype=DataType.Int)
-    S102 = fd.define_scalar(2048, dtype=DataType.Int)
-    S103 = fd.define_scalar(12288, dtype=DataType.Int)
-    V104 = fd.define_vector([S101, S102, S103], dtype=DataType.Int)
-    T105 = fd.ops.uniform(
-        S99, S100, shape=V104, rng_seed=S8, rng_offset=S7, dtype=DataType.BFloat16
-    )
-    S106 = fd.define_scalar(0.900000, dtype=DataType.Double)
-    T107 = fd.ops.lt(T105, S106)
-    T108 = fd.ops.cast(T98, dtype=DataType.Float)
-    T109 = fd.ops.cast(T107, dtype=DataType.Float)
-    T110 = fd.ops.mul(T108, T109)
-    S111 = fd.define_scalar(1.11111, dtype=DataType.Double)
-    T112 = fd.ops.mul(T110, S111)
-    T113 = fd.ops.add(T17, T112)
-    T114, T115 = fd.ops.var_mean(T113, dims=[2], correction=0, keepdim=False)
-    S116 = fd.define_scalar(1, dtype=DataType.Int)
-    S117 = fd.define_scalar(2048, dtype=DataType.Int)
-    S118 = fd.define_scalar(1, dtype=DataType.Int)
-    V119 = fd.define_vector([S116, S117, S118], dtype=DataType.Int)
-    T120 = fd.ops.broadcast_in_dim(T114, shape=V119, broadcast_dims=[0, 1])
-    S121 = fd.define_scalar(1, dtype=DataType.Int)
-    S122 = fd.define_scalar(2048, dtype=DataType.Int)
-    S123 = fd.define_scalar(1, dtype=DataType.Int)
-    V124 = fd.define_vector([S121, S122, S123], dtype=DataType.Int)
-    T125 = fd.ops.broadcast_in_dim(T115, shape=V124, broadcast_dims=[0, 1])
-    S126 = fd.define_scalar(1.00000e-05, dtype=DataType.Double)
-    T127 = fd.ops.add(T120, S126)
-    T128 = fd.ops.rsqrt(T127)
-    S129 = fd.define_scalar(1, dtype=DataType.Int)
-    S130 = fd.define_scalar(2048, dtype=DataType.Int)
-    S131 = fd.define_scalar(12288, dtype=DataType.Int)
-    V132 = fd.define_vector([S129, S130, S131], dtype=DataType.Int)
-    T133 = fd.ops.broadcast_in_dim(T125, shape=V132, broadcast_dims=[0, 1, 2])
-    T134 = fd.ops.sub(T113, T133)
-    S135 = fd.define_scalar(1, dtype=DataType.Int)
-    S136 = fd.define_scalar(2048, dtype=DataType.Int)
-    S137 = fd.define_scalar(12288, dtype=DataType.Int)
-    V138 = fd.define_vector([S135, S136, S137], dtype=DataType.Int)
-    T139 = fd.ops.broadcast_in_dim(T128, shape=V138, broadcast_dims=[0, 1, 2])
-    T140 = fd.ops.mul(T134, T139)
-    S141 = fd.define_scalar(1, dtype=DataType.Int)
-    S142 = fd.define_scalar(2048, dtype=DataType.Int)
-    S143 = fd.define_scalar(12288, dtype=DataType.Int)
-    V144 = fd.define_vector([S141, S142, S143], dtype=DataType.Int)
-    T145 = fd.ops.broadcast_in_dim(T9, shape=V144, broadcast_dims=[2])
-    T146 = fd.ops.cast(T145, dtype=DataType.Float)
-    T147 = fd.ops.mul(T140, T146)
-    S148 = fd.define_scalar(1, dtype=DataType.Int)
-    S149 = fd.define_scalar(2048, dtype=DataType.Int)
-    S150 = fd.define_scalar(12288, dtype=DataType.Int)
-    V151 = fd.define_vector([S148, S149, S150], dtype=DataType.Int)
-    T152 = fd.ops.broadcast_in_dim(T10, shape=V151, broadcast_dims=[2])
+    T123 = fd.ops.reshape(T104, new_shape=[1, 2048, 96, 128])
+    T124 = fd.ops.permute(T123, dims=[0, 2, 1, 3])
+    T130 = fd.ops.reshape(T91, new_shape=[1, 2048, 96, 128])
+    T131 = fd.ops.permute(T130, dims=[0, 2, 1, 3])
+    T137 = fd.ops.reshape(T117, new_shape=[1, 2048, 96, 128])
+    T138 = fd.ops.permute(T137, dims=[0, 2, 1, 3])
+    S139 = fd.define_scalar(0.100000, dtype=DataType.Double)
+    S140 = fd.define_scalar(True, dtype=DataType.Bool)
+    T141, T142, T143, T144 = fd.ops.sdpfa_fwd(T131, T124, T138, S139, S140, None)
+    T145 = fd.ops.permute(T141, dims=[0, 2, 1, 3])
+    T146 = fd.ops.stride_order(T145, stride_order=[3, 2, 1, 0])
+    T151 = fd.ops.reshape(T146, new_shape=[1, 2048, 12288])
+    T152 = fd.ops.linear(T151, T9, T10)
     T153 = fd.ops.cast(T152, dtype=DataType.Float)
-    T154 = fd.ops.add(T147, T153)
-    T155 = fd.ops.cast(T154, dtype=DataType.BFloat16)
-    T156 = fd.ops.linear(T155, T11, T12)
-    T157 = fd.ops.cast(T156, dtype=DataType.Float)
-    T158 = fd.ops.mul(T157, T157)
-    T159 = fd.ops.mul(T158, T157)
-    S160 = fd.define_scalar(0.500000, dtype=DataType.Double)
-    T161 = fd.ops.mul(S160, T157)
-    S162 = fd.define_scalar(0.0447150, dtype=DataType.Double)
-    T163 = fd.ops.mul(S162, T159)
-    T164 = fd.ops.add(T157, T163)
-    S165 = fd.define_scalar(0.797885, dtype=DataType.Double)
-    T166 = fd.ops.mul(S165, T164)
-    T167 = fd.ops.tanh(T166)
-    S168 = fd.define_scalar(1.00000, dtype=DataType.Double)
-    T169 = fd.ops.add(S168, T167)
-    T170 = fd.ops.mul(T161, T169)
-    T171 = fd.ops.cast(T170, dtype=DataType.BFloat16)
-    T172 = fd.ops.linear(T171, T13, T14)
-    S173 = fd.define_scalar(0.00000, dtype=DataType.Double)
-    S174 = fd.define_scalar(1.00000, dtype=DataType.Double)
-    S175 = fd.define_scalar(1, dtype=DataType.Int)
-    S176 = fd.define_scalar(2048, dtype=DataType.Int)
-    S177 = fd.define_scalar(12288, dtype=DataType.Int)
-    V178 = fd.define_vector([S175, S176, S177], dtype=DataType.Int)
-    T179 = fd.ops.uniform(
-        S173, S174, shape=V178, rng_seed=S16, rng_offset=S15, dtype=DataType.BFloat16
+    T154 = fd.ops.cast(T33, dtype=DataType.Float)
+    T155 = fd.ops.mul(T153, T154)
+    S156 = fd.define_scalar(1.11111, dtype=DataType.Double)
+    T157 = fd.ops.mul(T155, S156)
+    T158 = fd.ops.add(T31, T157)
+    T159, T160 = fd.ops.var_mean(T158, dims=[2], correction=0, keepdim=False)
+    T165 = fd.ops.broadcast_in_dim(T159, shape=[1, 2048, 1], broadcast_dims=[0, 1])
+    T170 = fd.ops.broadcast_in_dim(T160, shape=[1, 2048, 1], broadcast_dims=[0, 1])
+    S171 = fd.define_scalar(1.00000e-05, dtype=DataType.Double)
+    T172 = fd.ops.add(T165, S171)
+    T177 = fd.ops.broadcast_in_dim(
+        T170, shape=[1, 2048, 12288], broadcast_dims=[0, 1, 2]
     )
-    S180 = fd.define_scalar(0.900000, dtype=DataType.Double)
-    T181 = fd.ops.lt(T179, S180)
-    T182 = fd.ops.cast(T172, dtype=DataType.Float)
-    T183 = fd.ops.cast(T181, dtype=DataType.Float)
-    T184 = fd.ops.mul(T182, T183)
-    S185 = fd.define_scalar(1.11111, dtype=DataType.Double)
-    T186 = fd.ops.mul(T184, S185)
-    T187 = fd.ops.add(T113, T186)
-    T188 = fd.ops.cast(T187, dtype=DataType.BFloat16)
-    fd.add_output(T19)  # layer_norm0.welford_out.avg
-    fd.add_output(T32)  # layer_norm0.invstd
-    fd.add_output(T87)  # MHA sdpa.output
-    fd.add_output(T88)  # MHA sdpa.logsum_exp
-    fd.add_output(T89)  # MHA sdpa.philox_seed
-    fd.add_output(T90)  # MHA sdpa.philox_offset
-    fd.add_output(T115)  # layer_norm1.welford_out.avg
-    fd.add_output(T128)  # layer_norm1.invstd
-    fd.add_output(T188)  # output
+    T178 = fd.ops.rsqrt(T172)
+    T179 = fd.ops.sub(T158, T177)
+    T184 = fd.ops.broadcast_in_dim(
+        T178, shape=[1, 2048, 12288], broadcast_dims=[0, 1, 2]
+    )
+    T185 = fd.ops.mul(T179, T184)
+    T190 = fd.ops.broadcast_in_dim(T11, shape=[1, 2048, 12288], broadcast_dims=[2])
+    T191 = fd.ops.cast(T190, dtype=DataType.Float)
+    T192 = fd.ops.mul(T185, T191)
+    T197 = fd.ops.broadcast_in_dim(T12, shape=[1, 2048, 12288], broadcast_dims=[2])
+    T198 = fd.ops.cast(T197, dtype=DataType.Float)
+    T199 = fd.ops.add(T192, T198)
+    T200 = fd.ops.cast(T199, dtype=DataType.BFloat16)
+    T201 = fd.ops.linear(T200, T13, T14)
+    T202 = fd.ops.cast(T201, dtype=DataType.Float)
+    T203 = fd.ops.mul(T202, T202)
+    T204 = fd.ops.mul(T203, T202)
+    S205 = fd.define_scalar(0.0447150, dtype=DataType.Double)
+    T206 = fd.ops.mul(S205, T204)
+    T207 = fd.ops.add(T202, T206)
+    S208 = fd.define_scalar(0.797885, dtype=DataType.Double)
+    T209 = fd.ops.mul(S208, T207)
+    T210 = fd.ops.tanh(T209)
+    S211 = fd.define_scalar(0.500000, dtype=DataType.Double)
+    T212 = fd.ops.mul(S211, T202)
+    S213 = fd.define_scalar(1.00000, dtype=DataType.Double)
+    T214 = fd.ops.add(S213, T210)
+    T215 = fd.ops.mul(T212, T214)
+    T216 = fd.ops.cast(T215, dtype=DataType.BFloat16)
+    T217 = fd.ops.linear(T216, T15, T16)
+    T218 = fd.ops.cast(T217, dtype=DataType.Float)
+    T219 = fd.ops.cast(T35, dtype=DataType.Float)
+    T220 = fd.ops.mul(T218, T219)
+    S221 = fd.define_scalar(1.11111, dtype=DataType.Double)
+    T222 = fd.ops.mul(T220, S221)
+    T223 = fd.ops.add(T158, T222)
+    T224 = fd.ops.cast(T223, dtype=DataType.BFloat16)
+    # layer_norm0.welford_out.avg
+    fd.add_output(T37)
+    # layer_norm0.invstd
+    fd.add_output(T55)
+    # MHA linear0 output
+    fd.add_output(T78)
+    # MHA sdpa output
+    fd.add_output(T141)
+    # MHA sdpa logsum_exp
+    fd.add_output(T142)
+    # MHA sdpa philox_seed
+    fd.add_output(T143)
+    # MHA sdpa philox_offset
+    fd.add_output(T144)
+    # MHA dropout output
+    fd.add_output(T158)
+    # layer_norm1.welford_out.avg
+    fd.add_output(T160)
+    # layer_norm1.invstd
+    fd.add_output(T178)
+    # output
+    fd.add_output(T224)
 
 
 def test_transformer_forward(
@@ -361,6 +312,10 @@ def test_transformer_forward(
         transformer_forward_fusion(fd)
 
     inputs = [
+        29,
+        2142642406458297,
+        30,
+        2142642406458297,
         torch.randn(25165824, dtype=torch.bfloat16, device="cuda:0").as_strided(
             (1, 2048, 12288), (25165824, 12288, 1)
         ),
@@ -382,8 +337,6 @@ def test_transformer_forward(
         torch.randn(12288, dtype=torch.bfloat16, device="cuda:0").as_strided(
             (12288,), (1,)
         ),
-        29,
-        203641485758702,
         torch.randn(12288, dtype=torch.bfloat16, device="cuda:0").as_strided(
             (12288,), (1,)
         ),
@@ -402,8 +355,6 @@ def test_transformer_forward(
         torch.randn(12288, dtype=torch.bfloat16, device="cuda:0").as_strided(
             (12288,), (1,)
         ),
-        30,
-        203641485758702,
     ]
 
     if not disable_benchmarking:

@@ -2127,7 +2127,7 @@ TEST_F(ResizeTest, ResizePermuteAndSlice) {
 
   EXPECT_THAT(
       executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups(),
-      UnorderedElementsAre(HeuristicIs(ScheduleHeuristic::Transpose)));
+      UnorderedElementsAre(HeuristicIs(SchedulerType::Transpose)));
 }
 
 // When scheduling this test, the pointwise scheduler attempt to replay a Split
@@ -2365,8 +2365,8 @@ TEST_F(ResizeTest, SliceVectorization) {
 
   std::vector<c10::IValue> inputs = {t0, t1};
 
-  auto lparams = schedulePointwise(&fusion, inputs);
-
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, inputs).outputs;
   // check that we vectorize 4
   bool found_vectorize = false;
   for (auto id : fusion.outputs().at(0)->as<TensorView>()->getLoopDomain()) {
@@ -2377,10 +2377,6 @@ TEST_F(ResizeTest, SliceVectorization) {
     }
   }
   EXPECT_TRUE(found_vectorize);
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, inputs, lparams);
-  auto cg_outputs = fe.runFusion(inputs, lparams);
 
   auto ref = t0.narrow(0, 1, N) + t1;
 
@@ -3460,11 +3456,11 @@ TEST_F(ResizeTest, AvoidVectorization) {
 
   // The pointwise scheduler should tell the vectorization factor is
   // 4.
-  auto params = getPointwiseHeuristics(&fusion, inputs);
-  ASSERT_TRUE(params->vectorize) << "Vectorization is expected to be possible";
-  ASSERT_EQ(params->unroll_factor, 4) << "Unexpected factor of vectorization";
+  auto cg_results = scheduleAndRun(&fusion, SchedulerType::PointWise, inputs);
+  auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
 
-  schedulePointwise(&fusion, *params);
+  ASSERT_TRUE(pparams->vectorize) << "Vectorization is expected to be possible";
+  ASSERT_EQ(pparams->unroll_factor, 4) << "Unexpected factor of vectorization";
 
   // Make sure tv1 is not vectorized, i.e., no loop IterDomains are vectorized.
   EXPECT_THAT(
@@ -3480,10 +3476,7 @@ TEST_F(ResizeTest, AvoidVectorization) {
       Contains(Property(&IterDomain::getParallelType, ParallelType::Vectorize)))
       << "Failed to vectorize: " << tv2;
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, inputs, params->lparams);
-  auto outputs = fe.runFusion(inputs, params->lparams);
-  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  testValidate(&fusion, cg_results.outputs, inputs, __LINE__, __FILE__);
 }
 
 // MemoryPromotion generates code with volatile T. This test ensures that our
