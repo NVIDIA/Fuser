@@ -16,6 +16,7 @@
 #include <inlining.h>
 #include <kernel_cache.h>
 #include <ops/all_ops.h>
+#include <sys_utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
@@ -25,6 +26,11 @@ class FusionProfilerTest : public NVFuserTest {
  protected:
   void SetUp() override {
     NVFuserTest::SetUp();
+
+    if (detectComputeSanitizer()) {
+      GTEST_SKIP() << "Skipped as compute-sanitizer is uesd";
+    }
+
     // NOTE: The parent "SetUp()" triggers a Cuda Kernel on the device to fill
     // the a tensor with NaNs if this is true.  This creates a second kernel
     // in the profile that interfers accurately checking the kernel time.
@@ -35,9 +41,11 @@ class FusionProfilerTest : public NVFuserTest {
   }
 
   void TearDown() override {
-    ProfilerOptionsGuard::getCurOptions() = saved_;
-    if (ProfilerState::Running == FusionProfiler::state()) {
-      FusionProfiler::stop();
+    if (!detectComputeSanitizer()) {
+      ProfilerOptionsGuard::getCurOptions() = saved_;
+      if (ProfilerState::Running == FusionProfiler::state()) {
+        FusionProfiler::stop();
+      }
     }
     NVFuserTest::TearDown();
   }

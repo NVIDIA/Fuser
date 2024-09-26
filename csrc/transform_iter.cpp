@@ -37,7 +37,7 @@ void ReplayTransformations::handle(Split* s) {
   auto it = id_map_.find(id_in);
   if (it == id_map_.end()) {
     if (error_on_failure_) {
-      NVF_ERROR(false, "Transform traversal failed, dependencies not met.");
+      NVF_THROW("Transform traversal failed, dependencies not met.");
     } else {
       return;
     }
@@ -92,7 +92,7 @@ void ReplayTransformations::handle(Merge* m) {
     if (!(outer_found || inner_found) || (outer_found && !inner_bcast) ||
         (inner_found && !outer_bcast)) {
       if (error_on_failure_) {
-        NVF_ERROR(false, "Transform traversal failed, dependencies not met.");
+        NVF_THROW("Transform traversal failed, dependencies not met.");
       } else {
         return;
       }
@@ -153,7 +153,7 @@ void ReplayTransformations::handle(Swizzle* swizzle) {
 
   if (it_x == id_map_.end() || it_y == id_map_.end()) {
     if (error_on_failure_) {
-      NVF_ERROR(false, "Transform traversal failed, dependencies not met.");
+      NVF_THROW("Transform traversal failed, dependencies not met.");
     } else {
       return;
     }
@@ -198,7 +198,7 @@ void ReplayTransformations::handle(Swizzle2D* swizzle_2d) {
 
   if (it_x == id_map_.end() || it_y == id_map_.end()) {
     if (error_on_failure_) {
-      NVF_ERROR(false, "Transform traversal failed, dependencies not met.");
+      NVF_THROW("Transform traversal failed, dependencies not met.");
     } else {
       return;
     }
@@ -239,7 +239,7 @@ void ReplayTransformations::handle(Resize* exp) {
   auto it = id_map_.find(id_in);
   if (it == id_map_.end()) {
     if (error_on_failure_) {
-      NVF_ERROR(false, "Transform traversal failed, dependencies not met.");
+      NVF_THROW("Transform traversal failed, dependencies not met.");
     } else {
       return;
     }
@@ -325,8 +325,7 @@ void ReplayTransformations::runReplay() {
     auto it_replayed = id_map_.find(out);
     if (it_replayed == id_map_.end()) {
       if (error_on_failure_) {
-        NVF_ERROR(
-            false,
+        NVF_THROW(
             "Transform traversal failed, could not find expected output.");
       }
       continue;
@@ -764,7 +763,7 @@ ForwardingInfo::ForwardingInfo(
         TensorDomain::noReductions(producer->getLogicalDomain());
     active_tv = producer;
   } else {
-    NVF_ERROR(false, "Should not be reachable");
+    NVF_THROW("Should not be reachable");
   }
 
   NVF_ERROR(active_logical_dom.size() == active_dim_flags->size());

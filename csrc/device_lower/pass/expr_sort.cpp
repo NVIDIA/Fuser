@@ -1255,7 +1255,7 @@ void ExprSegmentationSorter::initializeForLoopDependencies() {
       desc << std::endl;
     }
 
-    NVF_ERROR(false, desc.str());
+    NVF_THROW(desc.str());
   }
 }
 

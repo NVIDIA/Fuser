@@ -317,8 +317,7 @@ std::unique_ptr<caching::VectorizedTensorInfo> getVectorizedTensorValidationInfo
         vectorized_tensor_info_ptr->global_inp_misaligned_tv.insert(
             producer_tv);
       } else {
-        NVF_ERROR(
-            false,
+        NVF_THROW(
             "Unsupported memory configuration for misaligned vectorization.");
       }
     }
@@ -747,7 +746,7 @@ std::vector<char> compileNvrtcProgramToPtx(const nvrtcProgram& program) {
 
 std::vector<char> compileNvrtcProgramToCubin(const nvrtcProgram& program) {
 #if CUDA_VERSION < 11010
-  NVF_ERROR(false, "SASS not supported in CUDA versions older than 11.1");
+  NVF_THROW("SASS not supported in CUDA versions older than 11.1");
 #endif
 
   size_t size = 0;
@@ -850,8 +849,7 @@ class NvrtcCompileDriver {
     if (result != NVRTC_SUCCESS) {
       // Print CUDA starting at first global function
       size_t kernel_start = src.find("__global__");
-      NVF_ERROR(
-          false,
+      NVF_THROW(
           "\n",
           src.substr(kernel_start),
           "\nCUDA NVRTC compile error: ",
@@ -950,7 +948,7 @@ class CuModuleLoadDataDriver {
       } else if (std::holds_alternative<char*>(opt_val)) {
         opt_val_voidp.at(i) = std::get<char*>(opt_val);
       } else {
-        NVF_ERROR(false, "Invalid option");
+        NVF_THROW("Invalid option");
       }
     }
 
@@ -978,6 +976,9 @@ void fillCompileOptions(
     const CompileParams& compile_params,
     std::optional<int64_t> opt_block_size) {
   nvrtc_compile_driver.setOption("--std=c++17");
+  if (isOptionEnabled(EnableOption::KernelDebug)) {
+    nvrtc_compile_driver.setOption("-G");
+  }
 
   // Suppress warnings for functions that are defined but unused, since we have
   // many unused functions in the preamble.
@@ -1008,7 +1009,7 @@ void fillCompileOptions(
   }
 
   // Add line info to generated kernels
-  if (isDebugDumpEnabled(DebugDumpOption::DebugInfo)) {
+  if (isOptionEnabled(EnableOption::KernelLineInfo)) {
     nvrtc_compile_driver.setOption("-lineinfo");
   }
 

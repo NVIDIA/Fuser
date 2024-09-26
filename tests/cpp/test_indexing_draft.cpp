@@ -342,7 +342,7 @@ TEST_F(IndexingTestDraft, Indexing6) {
   std::vector<int64_t> reduction_axes{0, 1};
   auto reduction_params = getReductionHeuristics(&fusion, {input0, input1});
   NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
-  scheduleReduction(&fusion, *reduction_params);
+  scheduleReduction(&fusion, reduction_params.get());
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, {input0, input1}, reduction_params->lparams);
@@ -1290,7 +1290,7 @@ TEST_F(IndexingTestDraft, Normalization) {
   } else {
     auto persistent_params = getInnerPersistentHeuristics(&fusion, aten_inputs);
     NVF_CHECK(persistent_params, "Persistent schedule was not generated!");
-    scheduleInnerPersistentKernel(&fusion, *persistent_params);
+    scheduleInnerPersistentKernel(&fusion, persistent_params.get());
 
     fusion.printKernel();
 

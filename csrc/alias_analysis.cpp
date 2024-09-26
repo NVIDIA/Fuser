@@ -225,7 +225,7 @@ void AliasFinder::handle(const ViewOp* view) {
       }
       allocation_to_contiguity.insert(merge_i, merge->out(), contiguity);
     } else {
-      NVF_ERROR(false, "Expect Split or Merge, but found: ", transform);
+      NVF_THROW("Expect Split or Merge, but found: ", transform);
     }
   }
 

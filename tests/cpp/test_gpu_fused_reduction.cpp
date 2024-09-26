@@ -2490,13 +2490,13 @@ TEST_F(NVFuserTest, FusionGeluBwdReduction_CUDA) {
 
   // fusion values
   std::vector<int64_t> reduction_axes{0};
-  auto reduction_params = getReductionHeuristics(&fusion, {at_grad, at_xvar});
-  NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
-  scheduleReduction(&fusion, *reduction_params);
+  auto rparams = getReductionHeuristics(&fusion, {at_grad, at_xvar});
+  NVF_CHECK(rparams, "Reduction schedule was not generated!");
+  scheduleReduction(&fusion, rparams.get());
 
   FusionExecutor fe;
-  fe.compileFusion(&fusion, {at_grad, at_xvar}, reduction_params->lparams);
-  auto cg_outputs = fe.runFusion({at_grad, at_xvar}, reduction_params->lparams);
+  fe.compileFusion(&fusion, {at_grad, at_xvar}, rparams->lparams);
+  auto cg_outputs = fe.runFusion({at_grad, at_xvar}, rparams->lparams);
 
   testValidate(
       &fusion,
@@ -2506,7 +2506,7 @@ TEST_F(NVFuserTest, FusionGeluBwdReduction_CUDA) {
       __LINE__,
       __FILE__,
       "",
-      reduction_params->lparams);
+      rparams->lparams);
 }
 
 // Test gathering for lookup as is done in the cross_entropy pattern

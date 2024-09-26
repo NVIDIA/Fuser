@@ -62,8 +62,7 @@ nvfuser::PolymorphicValue deserializePolymorphicValue(const Scalar* c) {
           std::complex<double>(c->real_value(), c->imag_value()));
     }
     default:
-      NVF_ERROR(
-          false, "Unable to deserialize serde::Scalar as PolymorphicValue.");
+      NVF_THROW("Unable to deserialize serde::Scalar as PolymorphicValue.");
   }
 }
 
@@ -113,7 +112,7 @@ flatbuffers::Offset<Scalar> serializeScalarCpu(
       return serializeScalar(builder, pv, nvfuser::DataType::ComplexDouble);
     }
     default:
-      NVF_ERROR(false, "Unsupported scalar type.");
+      NVF_THROW("Unsupported scalar type.");
   }
 }
 
@@ -205,7 +204,7 @@ flatbuffers::Offset<Scalar> serializeScalar(
     builder_.add_imag_value(std::imag(c));
     return builder_.Finish();
   }
-  NVF_ERROR(false, "Unable to convert ", v.type().name(), " to Scalar.");
+  NVF_THROW("Unable to convert ", v.type().name(), " to Scalar.");
 }
 
 } // namespace nvfuser::serde

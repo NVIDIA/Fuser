@@ -346,7 +346,7 @@ bool requiresIdModel(Fusion* fusion) {
   // If a tensor does not have a nice root->logical/allocation->loop
   // linear transformation history, use IdModel.
   for (auto tv : fusion->allTvs()) {
-    if (!lower_utils::hasRootToLoopLinearTransformations(tv)) {
+    if (!ir_utils::hasRootToLoopLinearTransformations(tv)) {
       return true;
     }
   }

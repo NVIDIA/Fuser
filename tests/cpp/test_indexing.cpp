@@ -570,7 +570,7 @@ TEST_F(IndexingTest, SimplePointwise1) {
                   tv->getLogicalDomain().at(1)->extent()));
         }
         default:
-          NVF_ERROR(false, "Unexpected tensor: ", tv->toString());
+          NVF_THROW("Unexpected tensor: ", tv->toString());
           break;
       }
       return nullptr;
@@ -658,7 +658,7 @@ TEST_F(IndexingTest, SimplePointwise2) {
           return global_ref;
         }
         default:
-          NVF_ERROR(false, "Unexpected tensor: ", tv->toString());
+          NVF_THROW("Unexpected tensor: ", tv->toString());
           break;
       }
     }
@@ -705,7 +705,7 @@ TEST_F(IndexingTest, SimpleReduction) {
           return loop_indices.at(0);
         }
         default:
-          NVF_ERROR(false, "Unexpected tensor: ", tv->toString());
+          NVF_THROW("Unexpected tensor: ", tv->toString());
           // gcc v11.4 requires this return statement
           return nullptr;
       }
@@ -929,7 +929,7 @@ TEST_F(IndexingTest, SimpleBroadcast1) {
           return loop_indices.at(0);
         }
         default:
-          NVF_ERROR(false);
+          NVF_THROW();
       }
     }
   };
@@ -989,7 +989,7 @@ TEST_F(IndexingTest, SimpleBroadcast2) {
               loop_indices.at(1));
         }
         default:
-          NVF_ERROR(false);
+          NVF_THROW();
       }
     }
   };
@@ -1052,7 +1052,7 @@ TEST_F(IndexingTest, SimpleBroadcast3) {
           return tv->fusion()->zeroVal();
         }
         default:
-          NVF_ERROR(false);
+          NVF_THROW();
       }
     }
   };
@@ -1308,7 +1308,7 @@ TEST_F(IndexingTest, MultiDevice2DTranspose) {
               loop_indices.at(2));
         }
         default:
-          NVF_ERROR(false);
+          NVF_THROW();
       }
     }
   };
@@ -1991,8 +1991,7 @@ TEST_F(IndexingTest, DoubleBuffering1) {
                     mulExpr(loop_indices.at(1), tv->axis(2)->extent()),
                     loop_indices.at(2)));
           } else {
-            NVF_ERROR(
-                false,
+            NVF_THROW(
                 "Unexpected circular buffer stage: ",
                 circular_buffer_loop_stage_);
           }
@@ -2095,8 +2094,7 @@ TEST_F(IndexingTest, DoubleBuffering4) {
                       tv->axis(3)->extent()),
                   loop_indices.at(3));
             } else {
-              NVF_ERROR(
-                  false, "Unexpected stage: ", circular_buffer_loop_stage_);
+              NVF_THROW("Unexpected stage: ", circular_buffer_loop_stage_);
             }
           } else {
             return nullptr;
@@ -2112,8 +2110,7 @@ TEST_F(IndexingTest, DoubleBuffering4) {
               return modExpr(
                   addExpr(loop_indices.at(2), createInt(1)), createInt(2));
             } else {
-              NVF_ERROR(
-                  false, "Unexpected stage: ", circular_buffer_loop_stage_);
+              NVF_THROW("Unexpected stage: ", circular_buffer_loop_stage_);
             }
           } else {
             if (circular_buffer_loop_stage_ == CircularBufferLoopStage::Main) {
@@ -2124,8 +2121,7 @@ TEST_F(IndexingTest, DoubleBuffering4) {
               return modExpr(
                   subExpr(tv->axis(2)->extent(), createInt(1)), createInt(2));
             } else {
-              NVF_ERROR(
-                  false, "Unexpected stage: ", circular_buffer_loop_stage_);
+              NVF_THROW("Unexpected stage: ", circular_buffer_loop_stage_);
             }
           }
         }
@@ -2217,8 +2213,7 @@ TEST_F(IndexingTest, DoubleBuffering6) {
                       mulExpr(loop_indices.at(3), createInt(16))),
                   loop_indices.at(4));
             } else {
-              NVF_ERROR(
-                  false, "Unexpected stage: ", circular_buffer_loop_stage_);
+              NVF_THROW("Unexpected stage: ", circular_buffer_loop_stage_);
             }
           } else {
             return nullptr;
@@ -2246,8 +2241,7 @@ TEST_F(IndexingTest, DoubleBuffering6) {
                       tv->axis(2)->extent(), tv->axis(3)->extent()));
               return addExpr(base_offset, buffer_offset);
             } else {
-              NVF_ERROR(
-                  false, "Unexpected stage: ", circular_buffer_loop_stage_);
+              NVF_THROW("Unexpected stage: ", circular_buffer_loop_stage_);
             }
           } else {
             if (circular_buffer_loop_stage_ == CircularBufferLoopStage::Main) {
@@ -2273,8 +2267,7 @@ TEST_F(IndexingTest, DoubleBuffering6) {
                       tv->axis(2)->extent(), tv->axis(3)->extent()));
               return addExpr(base_offset, buffer_offset);
             } else {
-              NVF_ERROR(
-                  false, "Unexpected stage: ", circular_buffer_loop_stage_);
+              NVF_THROW("Unexpected stage: ", circular_buffer_loop_stage_);
             }
           }
         }
@@ -2362,8 +2355,7 @@ TEST_F(IndexingTest, CircularBuffering1) {
                     mulExpr(loop_indices.at(1), tv->axis(2)->extent()),
                     loop_indices.at(2)));
           } else {
-            NVF_ERROR(
-                false,
+            NVF_THROW(
                 "Unexpected circular buffer stage: ",
                 circular_buffer_loop_stage_);
           }
@@ -2489,8 +2481,7 @@ TEST_F(IndexingTest, CircularBuffering2) {
                       mulExpr(loop_indices.at(3), createInt(16))),
                   loop_indices.at(4));
             } else {
-              NVF_ERROR(
-                  false, "Unexpected stage: ", circular_buffer_loop_stage_);
+              NVF_THROW("Unexpected stage: ", circular_buffer_loop_stage_);
             }
           } else {
             return nullptr;
@@ -2521,8 +2512,7 @@ TEST_F(IndexingTest, CircularBuffering2) {
                       tv->axis(2)->extent(), tv->axis(3)->extent()));
               return addExpr(base_offset, buffer_offset);
             } else {
-              NVF_ERROR(
-                  false, "Unexpected stage: ", circular_buffer_loop_stage_);
+              NVF_THROW("Unexpected stage: ", circular_buffer_loop_stage_);
             }
           } else {
             if (circular_buffer_loop_stage_ == CircularBufferLoopStage::Main) {
@@ -2546,8 +2536,7 @@ TEST_F(IndexingTest, CircularBuffering2) {
                       tv->axis(2)->extent(), tv->axis(3)->extent()));
               return addExpr(base_offset, buffer_offset);
             } else {
-              NVF_ERROR(
-                  false, "Unexpected stage: ", circular_buffer_loop_stage_);
+              NVF_THROW("Unexpected stage: ", circular_buffer_loop_stage_);
             }
           }
         }
@@ -4525,7 +4514,7 @@ TEST_F(ContigIndexingTest, SimplePointwise) {
               loop_indices.at(1));
         }
         default:
-          NVF_ERROR(false, "Unexpected tensor: ", tv->toString());
+          NVF_THROW("Unexpected tensor: ", tv->toString());
           break;
       }
       return nullptr;
@@ -4601,7 +4590,7 @@ TEST_F(ContigIndexingTest, NonContigInnermost) {
               loop_indices.at(1));
         }
         default:
-          NVF_ERROR(false, "Unexpected tensor: ", tv->toString());
+          NVF_THROW("Unexpected tensor: ", tv->toString());
           break;
       }
       return nullptr;
@@ -4666,7 +4655,7 @@ TEST_F(ContigIndexingTest, BroadcastInlining) {
           return loop_indices.at(0);
         }
         default:
-          NVF_ERROR(false, "Unexpected tensor: ", tv->toString());
+          NVF_THROW("Unexpected tensor: ", tv->toString());
           break;
       }
       return nullptr;
@@ -4734,7 +4723,7 @@ TEST_F(ContigIndexingTest, Resize) {
         case 2:
           return loop_indices.at(0);
         default:
-          NVF_ERROR(false, "Unexpected tensor: ", tv->toString());
+          NVF_THROW("Unexpected tensor: ", tv->toString());
           break;
       }
       return nullptr;

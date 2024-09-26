@@ -226,7 +226,7 @@ void compareDisjointSets(
       ss << "\t" << nvfuser::toString(id_set->vector()) << "\n";
     }
 
-    NVF_ERROR(false, ss.str());
+    NVF_THROW(ss.str());
   }
 
   for (const auto& id_model_id_set : id_model_sets.disjointSets()) {

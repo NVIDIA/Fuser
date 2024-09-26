@@ -244,13 +244,13 @@ TEST_F(NVFuserTest, FusionIndexing6_CUDA) {
   at::Tensor input1 = at::randn(tensor1_shape, options);
 
   std::vector<int64_t> reduction_axes{0, 1};
-  auto reduction_params = getReductionHeuristics(&fusion, {input0, input1});
-  NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
-  scheduleReduction(&fusion, *reduction_params);
+  auto rparams = getReductionHeuristics(&fusion, {input0, input1});
+  NVF_CHECK(rparams, "Reduction schedule was not generated!");
+  scheduleReduction(&fusion, rparams.get());
 
   FusionExecutor fe;
-  fe.compileFusion(&fusion, {input0, input1}, reduction_params->lparams);
-  auto cg_outputs = fe.runFusion({input0, input1}, reduction_params->lparams);
+  fe.compileFusion(&fusion, {input0, input1}, rparams->lparams);
+  auto cg_outputs = fe.runFusion({input0, input1}, rparams->lparams);
 
   auto aten_output = input0.add(input1).to(at::kDouble).sum(reduction_axes);
 
@@ -262,7 +262,7 @@ TEST_F(NVFuserTest, FusionIndexing6_CUDA) {
       __LINE__,
       __FILE__,
       "",
-      reduction_params->lparams);
+      rparams->lparams);
 }
 
 TEST_F(NVFuserTest, FusionIndexing7_CUDA) {
