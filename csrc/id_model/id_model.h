@@ -227,6 +227,24 @@ class IdModel : public PolymorphicBase {
   //! all IterDomains in the disjoint set to that PType.
   void validateAndPropagatePType();
 
+  //! (Copied from ComputeAtMap::allocateIndexVariables)
+  //!  Run through disjoint sets in the LOOP map and allocate the index
+  //!  variable for the associated for loop that will be generated
+  //!  for each disjoint sets in the loop map. This pre-allocation makes
+  //!  2 key assumptions about computeAt map that would very likely be
+  //!  long term invariant:
+  //!    1. All kir::forloop created in the lowering pass should belong
+  //!  to one of the disjoint sets in loop map.
+  //!    2. The lowering pass will *never* create a loop nest with 2
+  //!  different nesting levels mapped together, i.e. the case below
+  //!  never occurs:
+  //!   for i in IterDomain1
+  //!    for j in IterDomain2
+  //!     ...
+  //!   With loop_map.areMapped(IterDomain1, IterDomain2) == true.
+  //! Under this condition, we can pre-allocate all required index
+  //!  variable integers before creating any kir::forloop, and this
+  //!  would help optimizing the generated integer math for indexing.
   void allocateIndexVariables();
 
   Val* getLoopIndexVariable(
@@ -311,14 +329,13 @@ class IdModel : public PolymorphicBase {
   // Promotion domain for each loop group
   std::unordered_map<ValGroup, IterDomain*> loop_promotion_map_;
 
+  // Allocated Loop index variable through the LOOP graph
   std::unordered_map<ValGroup, Val*> loop_index_variable_map_;
 
-  //! Allocated loop indices for circular buffer loop.
-  //!  only valid for disjoint sets on the loop ca map
-  //!  that have circular buffer-ed iterdomains.
-  using CircularBufferIndicesPtr =
-      std::unique_ptr<std::unordered_map<CircularBufferLoopStage, Val*>>;
-  std::unordered_map<ValGroup, CircularBufferIndicesPtr>
+  // Allocated loop indices for circular buffer loops
+  std::unordered_map<
+      ValGroup,
+      std::unique_ptr<std::unordered_map<CircularBufferLoopStage, Val*>>>
       circular_buffered_loop_index_variable_map_;
 };
 

@@ -1103,9 +1103,9 @@ void IdModel::allocateIndexVariables() {
       continue;
     }
 
-    // Until the transition to the IdModel-based indexing is
-    // completed, use the index Vals assigned for ComputeAtMap
-    // groups unless Loop option is enabled
+    // If enabled, allocate own indices. Otherwise, use the one
+    // generated for ComputeAtMap for compatibility with the legacy
+    // indexing
     if (isIdModelOptionEnabled(IdModelEnableOption::Loop)) {
       loop_index = IrBuilder::create<Val>(DataType::Index);
     } else {
