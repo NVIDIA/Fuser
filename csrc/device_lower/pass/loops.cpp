@@ -232,8 +232,7 @@ void LoopNestGenerator::generate(const std::vector<Expr*>& exprs) {
     std::sort(
         loop_structure.rbegin(),
         loop_structure.rend(),
-        ir_utils::IterDomainDependencySorter(
-            concrete_id_dependencies, GpuLower::current()->caMap()));
+        lower_utils::IterDomainDependencySorter(concrete_id_dependencies));
     loop_structures_[tv] = loop_structure;
   }
 
