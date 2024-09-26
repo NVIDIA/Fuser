@@ -11,7 +11,6 @@
 #include <device_lower/pass/expr_sort.h>
 #include <device_lower/utils.h>
 #include <fusion.h>
-#include <id_model/utils.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/iostream.h>

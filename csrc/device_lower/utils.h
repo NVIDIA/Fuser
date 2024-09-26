@@ -288,8 +288,6 @@ bool isReductionInitExpr(const Expr* expr);
 // value.
 bool predicateAtEnd(ForLoop* loop);
 
-IterDomain* getConcreteLoopDomain(IterDomain* id);
-
 // Given linear_g and domain, prove that linear_g is linear with respect to
 // domain and return the stride. linear_g is linear with respect to domain if
 // there exists a strided view of domain such that linear_g is one of the

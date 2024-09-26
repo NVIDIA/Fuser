@@ -863,7 +863,6 @@ Val* TensorIndexer::getLinearIndex(
       " not found in ",
       expr->toString());
 
-  // std::cerr << "getLinearIndex: " << tv->toString() << "\n";
   const bool as_consumer =
       std::find(expr->outputs().begin(), expr->outputs().end(), tv) !=
       expr->outputs().end();
@@ -1040,7 +1039,6 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
     ForLoop* unswitched_loop) const {
   const auto& zero_val = tv->fusion()->zeroVal();
 
-  // std::cerr << "getPredicates: " << tv->toString() << "\n";
   const std::vector<IterDomain*>& predicate_domains =
       getPredicateDomains(tv, expr);
 
