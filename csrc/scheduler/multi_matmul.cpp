@@ -552,9 +552,6 @@ class MultipleMatmulScheduler {
     // schedule mma instruction output (mma_result)
     scheduleMmaResults();
 
-    // TODO: Remove this as the methods below are implemented
-    return;
-
     // schedule epilogue
     scheduleEpilogue();
 
