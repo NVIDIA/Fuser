@@ -8,6 +8,8 @@
 #include <debug.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
+#include <ops/alias.h>
+#include <ops/arith.h>
 #include <options.h>
 #include <preseg_passes/remove_bcast_squeeze.h>
 
@@ -16,6 +18,21 @@ namespace nvfuser::preseg_passes {
 namespace {
 
 enum class AxisOp { PRESERVE, SQUEEZE, BROADCAST };
+
+std::ostream& operator<<(std::ostream& os, AxisOp op) {
+  switch (op) {
+    case AxisOp::PRESERVE:
+      os << "PRESERVE";
+      break;
+    case AxisOp::SQUEEZE:
+      os << "SQUEEZE";
+      break;
+    case AxisOp::BROADCAST:
+      os << "BROADCAST";
+      break;
+  }
+  return os;
+}
 
 //! This represents the combined state of a collection of broadcast and squeeze
 //! operations
@@ -84,16 +101,13 @@ std::optional<AxisOp> getSimplifiedOpType(const AxisOps& ops) {
 
 //! This is useful for getting the axis flags needed to create a new BroadcastOp
 //! or SqueezeOp.
-std::vector<int64_t> nonPreservedDims(const AxisOps& ops) {
-  std::vector<int64_t> dims;
-
+std::vector<bool> nonPreservedDims(const AxisOps& ops) {
+  std::vector<bool> flags;
+  flags.reserve(ops.size());
   for (size_t i : c10::irange(ops.size())) {
-    if (ops[i] != AxisOp::PRESERVE) {
-      dims.push_back((int64_t)i);
-    }
+    flags.push_back(ops[i] != AxisOp::PRESERVE);
   }
-
-  return dims;
+  return flags;
 }
 
 //! Given a descriptors of two sequences of broadcast+squeeze ops, return a
@@ -112,65 +126,103 @@ AxisOps composeOps(const AxisOps& prev, const AxisOps& next) {
 
   size_t prev_pos = 0, next_pos = 0;
   AxisOps out;
-  while (prev_pos < prev.size() || next_pos < next.size()) {
-    if (prev_pos < prev.size()) {
-      AxisOp prev_op = prev[prev_pos];
-      if (next_pos < next.size()) {
-        AxisOp next_op = next[next_pos];
-        switch (next_op) {
-          case AxisOp::PRESERVE:
-            out.push_back(prev_op);
-            prev_pos++;
-            next_pos++;
-            break;
-          case AxisOp::SQUEEZE:
-            switch (prev_op) {
-              case AxisOp::PRESERVE:
-                out.push_back(AxisOp::SQUEEZE);
-                prev_pos++;
-                next_pos++;
-                break;
-            }
-            out.push_back(prev_op);
-            prev_pos++;
-            next_pos++;
-            break;
-        }
-      } else {
-        NVF_ERROR(
-            prev_op == AxisOp::SQUEEZE,
-            "Found non-squeeze prev op but ran out of next ops");
-        prev_pos++;
+  while (prev_pos < prev.size() && next_pos < next.size()) {
+    AxisOp prev_op = prev[prev_pos];
+    while (prev_op == AxisOp::SQUEEZE) {
+      // SQUEEZE is the only op that should not increment next_pos, since there
+      // is no corresponding output axis
+      out.push_back(AxisOp::SQUEEZE);
+      ++prev_pos;
+      if (prev_pos >= prev.size()) {
+        break;
       }
-    } else {
-      AxisOp next_op = next[next_pos];
-      NVF_ERROR(
-          next_op == AxisOp::BROADCAST,
-          "Found non-broadcast next op but ran out of previous non-squeeze ops");
+      prev_op = prev[prev_pos];
+    }
+    AxisOp next_op = next[next_pos];
+    while (next_op == AxisOp::BROADCAST) {
+      out.push_back(AxisOp::BROADCAST);
+      ++next_pos;
+      if (next_pos >= next.size()) {
+        break;
+      }
+      next_op = next[next_pos];
+    }
+
+    out.push_back(prev_op);
+    if (next_op != AxisOp::PRESERVE) {
       out.push_back(next_op);
-      next_pos++;
+    }
+
+    ++prev_pos;
+    ++next_pos;
+  }
+  while (prev_pos < prev.size()) {
+    NVF_ERROR(
+        prev[prev_pos] == AxisOp::SQUEEZE,
+        "Left-over previous ops must be squeeze");
+    out.push_back(AxisOp::SQUEEZE);
+    ++prev_pos;
+  }
+  while (next_pos < next.size()) {
+    NVF_ERROR(
+        next[next_pos] == AxisOp::BROADCAST,
+        "Left-over previous ops must be broadcast");
+    out.push_back(AxisOp::BROADCAST);
+    ++next_pos;
+  }
+  NVF_ERROR(prev_pos == prev.size());
+  NVF_ERROR(next_pos == next.size());
+  return out;
+}
+
+//! Simplifies a composed op by iteratively removing adjacent SQUEEZE and
+//! BROADCAST ops>
+AxisOps simplifyOps(AxisOps ops) {
+  while (true) {
+    bool changed = false;
+    for (auto cur = ops.begin(), next = ops.begin() + 1; next != ops.end();
+         cur++, next++) {
+      // In cases like this, we will have inserted the previous op to the left
+      // of the next op.
+      // TODO: prove the above. Is it true?
+      if (*cur == AxisOp::SQUEEZE && *next == AxisOp::BROADCAST) {
+        *cur = AxisOp::PRESERVE;
+        ops.erase(next);
+        changed = true;
+        break;
+      } else if (*cur == AxisOp::BROADCAST && *next == AxisOp::SQUEEZE) {
+        ops.erase(next);
+        ops.erase(cur);
+        changed = true;
+        break;
+      }
+    }
+    if (!changed) {
+      break;
     }
   }
-  return out;
+  return ops;
 }
 
 void maybeDoReplacement(Expr* first, Expr* second) {
   AxisOps composed_ops = composeOps(exprToOps(first), exprToOps(second));
-  std::optional<AxisOp> simple_op_type_opt = getSimplifiedOpType(composed_ops);
+  AxisOps simplified_ops = simplifyOps(composed_ops);
+  std::optional<AxisOp> simple_op_type_opt =
+      getSimplifiedOpType(simplified_ops);
   if (simple_op_type_opt.has_value()) {
+    TensorView* input_tv = first->input(0)->as<TensorView>();
+    Val* orig = second->output(0);
+    Val* replacement = nullptr;
     switch (simple_op_type_opt.value()) {
-      TensorView* input_tv = first->input(0)->as<TensorView>();
-      Val* orig = second->output(0);
-      Val* replacement = nullptr;
       case AxisOp::PRESERVE:
         // This is equivalent to a set Op
         replacement = input_tv;
         break;
       case AxisOp::SQUEEZE:
-        replacement = squeeze(input_tv, nonPreservedDims(composed_ops));
+        replacement = squeeze(input_tv, nonPreservedDims(simplified_ops));
         break;
       case AxisOp::BROADCAST:
-        replacement = broadcast(input_tv, nonPreservedDims(composed_ops));
+        replacement = broadcast(input_tv, nonPreservedDims(simplified_ops));
         break;
     }
     NVF_ERROR(replacement != nullptr);
