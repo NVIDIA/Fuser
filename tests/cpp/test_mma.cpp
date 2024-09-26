@@ -1109,7 +1109,6 @@ TEST_P(HopperSS, SingleTileTransposed) {
   tv0->applyMmaSwizzle(swizzle_a);
   tv1->applyMmaSwizzle(swizzle_b);
 
-
   // ****************************************************
   // This is where this test is different from SingleTile
   auto alloc0 = tv0->getAllocationDomain();
