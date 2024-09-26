@@ -323,13 +323,13 @@ std::vector<TensorView*> mha_qkv(
   // compute linear 0, q, k, and v
   TensorView* matmul0 = matmul(x, w0);
   TensorView* linear0 = add(matmul0, broadcast(b0, {false, true, false}));
-  linear0 = castOp(dtype, linear0);
+  // Forming the q,k,v vectors:
   TensorView* qkv_cat =
       reshape(linear0, {D, B * S, 3 * E / D}, {D, B, S, 3 * E / D});
   std::vector<TensorView*> qkv = chunk(qkv_cat, 3, -1);
   for (auto i : c10::irange(3)) {
     qkv[i] = reshape(qkv[i], {D, B, S, E / D}, {D, B, S, H / D, E / H});
-    qkv[i] = transpose(qkv[i], 2, 3);
+    qkv[i] = castOp(dtype, transpose(qkv[i], 2, 3));
     // Explicitly shard q, k, and v before calling SDPA node
     qkv[i]->setDeviceMesh(mesh);
     qkv[i]->axis(0)->parallelize(ParallelType::DIDx);
@@ -349,14 +349,13 @@ std::vector<TensorView*> mha(
   // Linear 0
   TensorView* matmul0 = matmul(x, w0);
   TensorView* linear0 = add(matmul0, broadcast(b0, {false, true, false}));
-  linear0 = castOp(dtype, linear0);
   // Forming the q,k,v vectors:
   TensorView* qkv_cat =
       reshape(linear0, {D, B * S, 3 * E / D}, {D, B, S, 3 * E / D});
   std::vector<TensorView*> qkv = chunk(qkv_cat, 3, -1);
   for (auto i : c10::irange(3)) {
     qkv[i] = reshape(qkv[i], {D, B, S, E / D}, {D, B, S, H / D, E / H});
-    qkv[i] = transpose(qkv[i], 2, 3);
+    qkv[i] = castOp(dtype, transpose(qkv[i], 2, 3));
     // Explicitly shard q, k, and v before calling SDPA node
     qkv[i]->setDeviceMesh(mesh);
     qkv[i]->axis(0)->parallelize(ParallelType::DIDx);
@@ -1008,34 +1007,28 @@ TEST_P(DistributedTransformerTest, Forward) {
   const auto options =
       at::TensorOptions().dtype(at_dtype).device(communicator_->device());
   auto x_ = at::randn({B * S, E}, options).to(at::kFloat);
-  auto ln0_w_ = at::randn(E, options).to(at::kFloat);
-  auto ln0_b_ = at::randn(E, options).to(at::kFloat);
+  auto ln0_w_ = at::randn(E, options).to(at::kFloat) * kParamScale;
+  auto ln0_b_ = at::randn(E, options).to(at::kFloat) * kParamScale;
   auto mha_w0_ = at::randn({E, 3 * E}, options) * kParamScale;
   auto mha_b0_ = at::randn({3 * E}, options) * kParamScale;
   auto mha_w1_ = at::randn({E, E}, options) * kParamScale;
   auto mha_b1_ = at::randn({E}, options) * kParamScale;
-  auto ln1_w_ = at::randn(E, options).to(at::kFloat);
-  auto ln1_b_ = at::randn(E, options).to(at::kFloat);
+  auto ln1_w_ = at::randn(E, options).to(at::kFloat) * kParamScale;
+  auto ln1_b_ = at::randn(E, options).to(at::kFloat) * kParamScale;
   auto mlp_w0_ = at::randn({E, 4 * E}, options) * kParamScale;
   auto mlp_b0_ = at::randn({4 * E}, options) * kParamScale;
   auto mlp_w1_ = at::randn({4 * E, E}, options) * kParamScale;
   auto mlp_b1_ = at::randn({E}, options) * kParamScale;
 
   at::manual_seed(getATenRandomSeed());
-  auto ln0_ = at::native_layer_norm(
-      x_, norm_shape, ln0_w_, ln0_b_, kEps);
+  auto ln0_ = at::native_layer_norm(x_, norm_shape, ln0_w_, ln0_b_, kEps);
   auto ln0_out_ = std::get<0>(ln0_);
 
   auto mha_out_ = reference_mha(
       ln0_out_.to(at_dtype), mha_w0_, mha_b0_, mha_w1_, mha_b1_)[3];
 
   auto resid0_ = mha_out_ + x_;
-  auto ln1_ = at::native_layer_norm(
-      resid0_,
-      norm_shape,
-      ln1_w_,
-      ln1_b_,
-      kEps);
+  auto ln1_ = at::native_layer_norm(resid0_, norm_shape, ln1_w_, ln1_b_, kEps);
   auto ln1_out_ = std::get<0>(ln1_);
 
   auto mlp_out_ = reference_mlp(
@@ -1236,15 +1229,11 @@ TEST_P(DistributedTransformerTest, Backward) {
   // Sharded inputs to outputs
   shardBetween(
       {mha_w0, mha_b0, mha_w1, mha_sdpa_out},
-      {mha_grads[1],
-       mha_grads[6],
-       mha_grads[7]},
+      {mha_grads[1], mha_grads[6], mha_grads[7]},
       mha_w0);
   shardBetween(
       {mlp_w0, mlp_w1, mlp_b0},
-      {mlp_grads[1],
-       mlp_grads[4],
-       mlp_grads[5]},
+      {mlp_grads[1], mlp_grads[4], mlp_grads[5]},
       mlp_w0);
 
   // Unsharded inputs to outputs
@@ -1273,14 +1262,14 @@ TEST_P(DistributedTransformerTest, Backward) {
   const auto options =
       at::TensorOptions().dtype(at_dtype).device(communicator_->device());
   auto x_ = at::randn({B * S, E}, options).to(at::kFloat);
-  auto ln0_w_ = at::randn(E, options).to(at::kFloat);
-  auto ln0_b_ = at::randn(E, options).to(at::kFloat);
+  auto ln0_w_ = at::randn(E, options).to(at::kFloat) * kParamScale;
+  auto ln0_b_ = at::randn(E, options).to(at::kFloat) * kParamScale;
   auto mha_w0_ = at::randn({E, 3 * E}, options) * kParamScale;
   auto mha_b0_ = at::randn({3 * E}, options) * kParamScale;
   auto mha_w1_ = at::randn({E, E}, options) * kParamScale;
   auto mha_b1_ = at::randn({E}, options) * kParamScale;
-  auto ln1_w_ = at::randn(E, options).to(at::kFloat);
-  auto ln1_b_ = at::randn(E, options).to(at::kFloat);
+  auto ln1_w_ = at::randn(E, options).to(at::kFloat) * kParamScale;
+  auto ln1_b_ = at::randn(E, options).to(at::kFloat) * kParamScale;
   auto mlp_w0_ = at::randn({E, 4 * E}, options) * kParamScale;
   auto mlp_b0_ = at::randn({4 * E}, options) * kParamScale;
   auto grad_ = at::randn({B * S, E}, options).to(at::kFloat) * kParamScale;
@@ -1369,17 +1358,9 @@ TEST_P(DistributedTransformerTest, Backward) {
       mha_out_[2].to(at::kFloat) // mha linear1
   };
 
-   hir::HostIrExecutorParams executor_params_{
-      .use_fusion_executor_cache = true,
-      .skip_auto_scheduling = false,
-      .cache_fusion_executor = false};
-  MultiDeviceExecutor runtime(
-      std::move(fusion), *communicator_, executor_params_);
-
-  // FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache fec(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
-  auto outputs = runtime.runWithInput(inputs);
-  // auto outputs = fec.runFusionWithInputs(inputs);
+  auto outputs = fec.runFusionWithInputs(inputs);
   validate(
       expected_outputs,
       outputs,
