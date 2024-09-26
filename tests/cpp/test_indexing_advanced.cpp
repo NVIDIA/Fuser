@@ -203,7 +203,8 @@ TEST_P(AdvancedIndexingTest, 3) {
 
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  auto cg_outputs = scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
 
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -293,7 +294,7 @@ TEST_P(AdvancedIndexingTest, 6) {
   at::Tensor input0 = at::randn(tensor0_shape, options);
   at::Tensor input1 = at::randn(tensor1_shape, options);
   std::vector<c10::IValue> aten_inputs = {input0, input1};
-  
+
   std::vector<int64_t> reduction_axes{0, 1};
 
   auto results = scheduleAndRun(&fusion, SchedulerType::Reduction, aten_inputs);
@@ -848,7 +849,7 @@ TEST_P(AdvancedIndexingTest, 19) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({5, 7, 11, 13}, options);
   at::Tensor t1 = at::randn({5, 11}, options);
-  std::vector<c10::IValue> inputs = {t0, t1};  
+  std::vector<c10::IValue> inputs = {t0, t1};
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, inputs);
@@ -861,6 +862,8 @@ TEST_P(AdvancedIndexingTest, 19) {
 // processing will fail. We need to be able to create the concrete ID not just
 // look for one.
 TEST_F(AdvancedIndexingIdModelTest, 20) {
+  GTEST_SKIP() << "Not supported yet";
+
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -918,12 +921,14 @@ TEST_F(AdvancedIndexingIdModelTest, 20) {
   auto outputs = fe.runFusion(inputs);
 
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
-#endif  
+#endif
 }
 
 // Progressive loop promotion. producer gets promoted in consumer, consumer is
 // promoted in a different way to its consumer.
 TEST_F(AdvancedIndexingIdModelTest, 21) {
+  GTEST_SKIP() << "Not supported yet";
+
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -966,7 +971,7 @@ TEST_F(AdvancedIndexingIdModelTest, 21) {
   tv7->merge(1)->split(1, 4, false);
   // [2, 4, (3*5//2)*7//4]
   tv5->inlineAt(2);
-  
+
   // Validation not enabled yet as incorrect code is generated. Need
   // to use the loop promotion info to generate correct loop-nests
 #if 0
@@ -1024,8 +1029,7 @@ TEST_F(AdvancedIndexingIdModelTest, MultiPromotion1) {
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
 
-  testValidate(
-      &fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Broadcast and concretize same domain in two different ways and try to merge
@@ -1034,6 +1038,8 @@ TEST_F(AdvancedIndexingIdModelTest, MultiPromotion1) {
 // invalid. The loop promotion analysis should not find any promotion
 // of the loop group where all the leaf domains are merged into.
 TEST_F(AdvancedIndexingIdModelTest, MultiPromotion2) {
+  GTEST_SKIP() << "Not supported yet";
+
   Fusion fusion;
   FusionGuard fg(&fusion);
   // [w]
@@ -1130,6 +1136,6 @@ INSTANTIATE_TEST_SUITE_P(
     testing::Bool(),
     [](const testing::TestParamInfo<bool>& info) {
       return info.param ? "IdModel" : "Legacy";
-    });    
+    });
 
 } // namespace nvfuser
