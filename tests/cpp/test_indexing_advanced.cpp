@@ -913,8 +913,8 @@ TEST_F(AdvancedIndexingIdModelTest, 20) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({7}, options);
   at::Tensor t1 = at::randn({7, 11}, options);
-  at::Tensor t2 = at::randn({7, 13}, options);  
-  std::vector<c10::IValue> inputs = {t0, t1, t2};  
+  at::Tensor t2 = at::randn({7, 13}, options);
+  std::vector<c10::IValue> inputs = {t0, t1, t2};
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, inputs);
