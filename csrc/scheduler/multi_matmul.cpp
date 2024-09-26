@@ -1057,6 +1057,7 @@ class MultipleMatmulScheduler {
 
       // do split-K rFactor to define splitk_sum and smem_epilogue
       if (params_->splitk_factor != 1) {
+        // Note that the split-K split is already done in blockTileTensors
         TensorView* splitk_sum = mma_result->rFactor({-4, -1});
         std::swap(splitk_sum, mma_result);
         splitk_sums_.push_back(splitk_sum);
