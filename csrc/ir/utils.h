@@ -706,4 +706,9 @@ inline bool isMemorySharedAcross(
   }
 }
 
+//! Check if the given tv has a root domain -> loop domain linear
+//! transformation. This is a temporary check used to incrementally enable
+//! IdModel. Eventually, this should be removed.
+bool hasRootToLoopLinearTransformations(const TensorView* tv);
+
 } // namespace nvfuser::ir_utils
