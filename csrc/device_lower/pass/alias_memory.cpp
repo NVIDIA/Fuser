@@ -890,23 +890,37 @@ class AllocationInfoMap : private kir::IrVisitor {
     // The liveness of the mbarrier and its token are mapped together.
     // The token is the mbarrier state of the last phase.
     if (auto init = dynamic_cast<kir::MBarrierInit*>(expr)) {
-      mark_liveness(init->mbarrier()->as<TensorView>(), /*is_write=*/true);
+      TensorView* tv = (init->mbarrier()->isA<kir::TensorIndex>())
+          ? init->mbarrier()->as<kir::TensorIndex>()->view()
+          : init->mbarrier()->as<TensorView>();
+      mark_liveness(tv, /*is_write=*/true);
 
       // Register start of lifetime for a mbarrier token returned by
       // MBarrierArriveExpectTx and MBarrierArrive.
-      if (GpuLower::current()->ldstMBarrierTokenMap().count(expr) > 0) {
+      if (GpuLower::current()
+              ->tmaCircularBufferInfo()
+              .ldst_mbarrier_token_map.count(expr) > 0) {
         mark_liveness(
-            GpuLower::current()->ldstMBarrierTokenMap()[expr],
+            GpuLower::current()
+                ->tmaCircularBufferInfo()
+                .ldst_mbarrier_token_map[expr],
             /*is_write=*/true);
       }
     } else if (auto inval = dynamic_cast<kir::MBarrierInvalidate*>(expr)) {
-      mark_liveness(inval->mbarrier()->as<TensorView>(), /*is_write=*/false);
+      TensorView* tv = (inval->mbarrier()->isA<kir::TensorIndex>())
+          ? inval->mbarrier()->as<kir::TensorIndex>()->view()
+          : inval->mbarrier()->as<TensorView>();
+      mark_liveness(tv, /*is_write=*/false);
 
       // Register end of lifetime for a mbarrier token returned by
       // returned by MBarrierArriveExpectTx and MBarrierArrive
-      if (GpuLower::current()->ldstMBarrierTokenMap().count(expr) > 0) {
+      if (GpuLower::current()
+              ->tmaCircularBufferInfo()
+              .ldst_mbarrier_token_map.count(expr) > 0) {
         mark_liveness(
-            GpuLower::current()->ldstMBarrierTokenMap()[expr],
+            GpuLower::current()
+                ->tmaCircularBufferInfo()
+                .ldst_mbarrier_token_map[expr],
             /*is_write=*/false);
       }
     }
