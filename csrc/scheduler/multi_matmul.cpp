@@ -548,11 +548,11 @@ class MultipleMatmulScheduler {
     //   ab=[iM, bN, iK]
     schedulePrologues();
 
-    // TODO: Remove this as the methods below are implemented
-    return;
-
     // schedule mma instruction output (mma_result)
     scheduleMmaResults();
+
+    // TODO: Remove this as the methods below are implemented
+    return;
 
     // schedule epilogue
     scheduleEpilogue();
@@ -1050,7 +1050,155 @@ class MultipleMatmulScheduler {
   // MmaOperand contains only A and B. If tvs are outputs (i.e. not operands),
   // then operand_type should be std::nullopt.
   void scheduleMmaResults() {
-    NVF_THROW("scheduleMmaResults is not yet implemented");
+    auto all_merged_roles = blockTileTensors(mma_results_);
+    for (size_t i : c10::irange(mma_results_.size())) {
+      TensorView*& mma_result = mma_results_[i];
+      std::vector<MatmulDimRole>& merged_roles = all_merged_roles[i];
+
+      // do split-K rFactor to define splitk_sum and smem_epilogue
+      if (params_->splitk_factor != 1) {
+        // Note that the split-K split is already done in blockTileTensors
+        TensorView* splitk_sum = mma_result->rFactor({-4, -1});
+        std::swap(splitk_sum, mma_result);
+        splitk_sums_.push_back(splitk_sum);
+      }
+
+      // At this point we have the following schedule:
+      //   No split-K
+      //     mma_result      [..., iMo, iNo, rKo, iMi, iNi, rKi]
+      //   Split-K
+      //     mma_result      [..., iMo, iNo, iKf, rKg, iMi, iNi, rKi]
+      //     splitk_sum      [..., iMo, iNo, rKf, iMi, iNi]
+
+      TensorView* smem_epilogue = mma_result;
+      if (params_->use_smem_epilogue) {
+        // Note that for split-K
+        //   splitk_sum = sum(mma_result)
+        // becomes
+        //   smem_epilogue = set(mma_result)
+        //   splitk_sum = sum(smem_epilogue)
+        smem_epilogue = mma_result->cacheAfter();
+        smem_epilogues_.push_back(smem_epilogue);
+        // smem_epilogue = [..., iMo, iNo, iKf, iMi, iNi]
+      }
+      // Schedule warp tile
+      // Incoming mma_result = [... iMo iNo (iKf) rKg iMi iNi rKi]
+
+      if (params_->use_smem_epilogue && params_->splitk_factor != 1) {
+        // TODO:
+        // This is a workaround for a problem that different dimensions in the
+        // loop domain are mapped in the loop graph of IdModel due to the
+        // mapping of compliment IDs. We should remove forwarding completely,
+        // and remove this workaround.
+        mma_result->split(-2, 1);
+        mma_result->merge(-3);
+      }
+
+      // NOTE: this applies to either mma_result _or_ ab/bb since both have the
+      // same number of dimensions.
+      // TODO: use the version that uses merged_roles instead here
+      mma_utils::scheduleWarpTileWithReduction(mma_result, params_->tile_sizes);
+
+      // This does a split-reorder-merge swizzle of the last two M and N
+      // dimensions (and a possible final reduction dim). eg. [M64, N24, R]  ->
+      // [WarpGroup128, N3, M2, N2, Ro, R4, R2] Before
+      //   mma_result  [... iMo iNo (iKf) rKg rKwo iMwo iNwo iMw iNw iMin iNin
+      //   rKin]
+      // After
+      //   mma_result  [... iMo iNo (iKf) rKg rKwo iMwo iNwo iMw
+      //                              iNw iMino iNino iMin2 iNin2 rKino rKin4
+      //                              rKin2]
+      auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+          mma_result->getLoopDomain());
+      mma_result->setLoopDomain(s.as<IterDomain*>());
+      mma_result->setAllocationDomain(s.as<IterDomain*>(), true);
+
+      // Parallelization strategy:
+      // Here the top two rows indicate how we can index each axis. The third
+      // row is what it represents: note that a suffix i means inner and o means
+      // outer here. The fourth row is the parallelization strategy:
+      //   - i means iterate (produce one value per element i.e. don't reduce)
+      //   - r means reduce this dimension
+      //   - B: block
+      //   - T: thread
+      //   - S: serial. This will become a for loop in the generated kernel
+      //   - iMMA: uncontracted axis in an MMA tensor core operation.
+      //   - rMMA: contract in an MMA tensor core operation.
+      //
+      // With split-K:
+      //   mma_result
+      //     nbatch +   1    2    3    4    5    6   7   8
+      //              -15  -14  -13  -12  -11  -10  -9  -8
+      //     [... iMo iNo (iKf) rKg rKwo iMwo iNwo iMw iNw     ...
+      //          iBx iBy  iBz   rS   rS  iTz  iTy  iS  iS
+      //                              9    10    11    12    13    14    15
+      //                             -7    -6    -5    -4    -3    -2    -1
+      //                    ...   iMino iNino iMin2 iNin2 rKino rKin4 rKin2]
+      //                            iTx  iMMA  iMMA  iMMA  rMMA  rMMA  rMMA
+      //   smem_epilogue   (unscheduled, same as original mma_result)
+      //   splitk_sum      (nullptr)
+      //
+      // Without split-K:
+      //   mma_result
+      //     nbatch +   1   2    3    4    5   6   7    8
+      //              -14 -13  -12  -11  -10  -9  -8   -7
+      //     [... iMo iNo rKg rKwo iMwo iNwo iMw iNw iMino
+      //    (iBz) iBx iBy  rS   rS  iTz  iTy  iS  iS  iTx
+      //                                   9    10    11     12    13    14
+      //                                  -6    -5    -4     -3    -2    -1
+      //                               iNino iMin2 iNin2  rKino rKin4 rKin2]
+      //                                iMMA  iMMA  iMMA   rMMA  rMMA  rMMA
+      //   smem_epilogue   (unscheduled, same as original mma_result)
+      //   splitk_sum
+      //     [... iMo iNo rKf  iMi  iNi]
+
+      // parallelize Mwo, Nwo by thread
+      mma_result->axis((int64_t)merged_roles.size() + num_splitk_dims_ + 1)
+          ->parallelize(ParallelType::TIDz);
+      mma_result->axis((int64_t)merged_roles.size() + num_splitk_dims_ + 2)
+          ->parallelize(ParallelType::TIDy);
+
+      if (params_->use_smem_epilogue) {
+        smem_epilogue->setMemoryType(MemoryType::Shared);
+        auto swizzled_dom = swizzleSharedMemory<false>(smem_epilogue);
+        smem_epilogue->setAllocationDomain(
+            swizzled_dom.as<IterDomain*>(), true);
+        scheduler_utils::BoundedDirectionalTransformPropagator::forward(
+            mma_result,
+            -1,
+            {smem_epilogue},
+            scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+                .propagateParallelType()
+                .propagateToBoundary());
+        smem_epilogue->axis(-1)->parallelize(ParallelType::Vectorize);
+      }
+
+      // When we have both batch dims and splitk, parallelize splitk only.
+      // If we only have batch dim, parallelize the batch dim.
+      if (params_->splitk_factor > 1) {
+        mma_result->axis(num_device_and_batch_dims_ + 2)
+            ->parallelize(ParallelType::BIDz);
+      } else if (num_local_batch_dims_ > 0) {
+        mma_result->axis(num_device_dims_)->parallelize(ParallelType::BIDz);
+      }
+      switch (params_->cta_order) {
+        case MatmulParams::TileRasterizationOrder::RowMajor:
+          mma_result->axis(num_device_and_batch_dims_)
+              ->parallelize(ParallelType::BIDx);
+          mma_result->axis(num_device_and_batch_dims_ + 1)
+              ->parallelize(ParallelType::BIDy);
+          break;
+        case MatmulParams::TileRasterizationOrder::ColumnMajor:
+          mma_result->axis(num_device_and_batch_dims_)
+              ->parallelize(ParallelType::BIDy);
+          mma_result->axis(num_device_and_batch_dims_ + 1)
+              ->parallelize(ParallelType::BIDx);
+          break;
+        default:
+          NVF_THROW(
+              "Invalid TileRasterizationOrder passed to Matmul scheduler");
+      }
+    }
   }
 
   void schedulePrologues() {
