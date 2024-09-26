@@ -897,13 +897,10 @@ class AllocationInfoMap : private kir::IrVisitor {
 
       // Register start of lifetime for a mbarrier token returned by
       // MBarrierArriveExpectTx and MBarrierArrive.
-      if (GpuLower::current()
-              ->tmaCircularBufferInfo()
-              .ldst_mbarrier_token_map.count(expr) > 0) {
+      if (GpuLower::current()->tmaCircularBufferInfo().existsMBarrierToken(
+              expr)) {
         mark_liveness(
-            GpuLower::current()
-                ->tmaCircularBufferInfo()
-                .ldst_mbarrier_token_map[expr],
+            GpuLower::current()->tmaCircularBufferInfo().getMBarrierToken(expr),
             /*is_write=*/true);
       }
     } else if (auto inval = dynamic_cast<kir::MBarrierInvalidate*>(expr)) {
@@ -914,13 +911,10 @@ class AllocationInfoMap : private kir::IrVisitor {
 
       // Register end of lifetime for a mbarrier token returned by
       // returned by MBarrierArriveExpectTx and MBarrierArrive
-      if (GpuLower::current()
-              ->tmaCircularBufferInfo()
-              .ldst_mbarrier_token_map.count(expr) > 0) {
+      if (GpuLower::current()->tmaCircularBufferInfo().existsMBarrierToken(
+              expr)) {
         mark_liveness(
-            GpuLower::current()
-                ->tmaCircularBufferInfo()
-                .ldst_mbarrier_token_map[expr],
+            GpuLower::current()->tmaCircularBufferInfo().getMBarrierToken(expr),
             /*is_write=*/false);
       }
     }

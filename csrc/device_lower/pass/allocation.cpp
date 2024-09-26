@@ -668,17 +668,16 @@ class AllocationInserter : public kir::ExprMutator {
 
         // Map LoadStoreOp expression to ir nodes created in this pass
         GpuLower::current()->ldstMBarrierMap()[expr] = mbarrier;
-        GpuLower::current()
-            ->tmaCircularBufferInfo()
-            .ldst_mbarrier_token_map[expr] = mbarrier_tokens;
-        // Register tokens placeholder for MBarrierInit and MBarrierInvalidate,
-        //  needed to manage life time of smem buffor in alias memory
-        GpuLower::current()
-            ->tmaCircularBufferInfo()
-            .ldst_mbarrier_token_map[mbarrier_init] = mbarrier_tokens;
-        GpuLower::current()
-            ->tmaCircularBufferInfo()
-            .ldst_mbarrier_token_map[mbarrier_inval] = mbarrier_tokens;
+
+        // Register tokens placeholder for cpAsyncBulk, MBarrierInit and
+        // MBarrierInvalidate. It is needed to manage lifetime of shared memory
+        // buffer in alias memory pass.
+        GpuLower::current()->tmaCircularBufferInfo().recordMBarrierToken(
+            expr, mbarrier_tokens);
+        GpuLower::current()->tmaCircularBufferInfo().recordMBarrierToken(
+            mbarrier_init, mbarrier_tokens);
+        GpuLower::current()->tmaCircularBufferInfo().recordMBarrierToken(
+            mbarrier_inval, mbarrier_tokens);
       } else {
         // create and allocate a memory barrier
         TensorView* mbarrier = TensorViewBuilder()
