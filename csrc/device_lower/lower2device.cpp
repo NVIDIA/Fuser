@@ -418,26 +418,11 @@ void GpuLower::analysis(Fusion* fusion) {
   // names
   if (this->requiresIdModel() || isOptionEnabled(EnableOption::IdModel)) {
     // Enable validation in the DEBUG build mode
-#ifdef NDEBUG
-    // Not DEBUG build
     id_model_ = std::make_unique<IdModel>(
         fusion_,
         /*build_graphs=*/true,
         /*allow_self_mapping=*/false,
         /*validate=*/false);
-    if (getenv("DEBUG")) {
-      std::cerr << "Loop graph\n"
-                << nvfuser::idGroupsString(
-                       id_model_->idGraph(IdMappingMode::LOOP));
-    }
-#else
-    // DEBUG build
-    id_model_ = std::make_unique<IdModel>(
-        fusion_,
-        /*build_graphs=*/true,
-        /*allow_self_mapping=*/false,
-        /*validate=*/true);
-#endif
     id_model_->validateAndPropagatePType();
   }
 
