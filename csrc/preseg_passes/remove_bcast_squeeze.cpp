@@ -43,9 +43,19 @@ AxisOps squeezeToOps(SqueezeOp* squeeze) {
   return ops;
 }
 
+AxisOps exprToOps(Expr* expr) {
+  if (auto* squeeze = dynamic_cast<SqueezeOp*>(expr)) {
+    return squeezeToOps(squeeze);
+  } else if (auto* bcast = dynamic_cast<BroadcastOp*>(expr)) {
+    return broadcastToOps(bcast);
+  }
+  NVF_THROW(
+      "exprToOps expects BroadcastOp or SqueezeOp. Found ", expr->toString());
+}
+
 //! Return true if we are unable to simplify this combination to a single
 //! operation.
-bool isTrivial(const AxisOps& ops) {
+std::optional<AxisOp> getSimplifiedOpType(const AxisOps& ops) {
   bool has_broadcast = false, has_squeeze = false;
   for (const AxisOp op : ops) {
     switch (op) {
@@ -59,7 +69,31 @@ bool isTrivial(const AxisOps& ops) {
         break;
     }
   }
-  return !has_broadcast || !has_squeeze;
+  if (has_broadcast && has_squeeze) {
+    // Composite op
+    return std::nullopt;
+  }
+  if (has_broadcast) {
+    return AxisOp::BROADCAST;
+  }
+  if (has_squeeze) {
+    return AxisOp::SQUEEZE;
+  }
+  return AxisOp::PRESERVE;
+}
+
+//! This is useful for getting the axis flags needed to create a new BroadcastOp
+//! or SqueezeOp.
+std::vector<int64_t> nonPreservedDims(const AxisOps& ops) {
+  std::vector<int64_t> dims;
+
+  for (size_t i : c10::irange(ops.size())) {
+    if (ops[i] != AxisOp::PRESERVE) {
+      dims.push_back((int64_t)i);
+    }
+  }
+
+  return dims;
 }
 
 //! Given a descriptors of two sequences of broadcast+squeeze ops, return a
@@ -120,6 +154,30 @@ AxisOps composeOps(const AxisOps& prev, const AxisOps& next) {
   return out;
 }
 
+void maybeDoReplacement(Expr* first, Expr* second) {
+  AxisOps composed_ops = composeOps(exprToOps(first), exprToOps(second));
+  std::optional<AxisOp> simple_op_type_opt = getSimplifiedOpType(composed_ops);
+  if (simple_op_type_opt.has_value()) {
+    switch (simple_op_type_opt.value()) {
+      TensorView* input_tv = first->input(0)->as<TensorView>();
+      Val* orig = second->output(0);
+      Val* replacement = nullptr;
+      case AxisOp::PRESERVE:
+        // This is equivalent to a set Op
+        replacement = input_tv;
+        break;
+      case AxisOp::SQUEEZE:
+        replacement = squeeze(input_tv, nonPreservedDims(composed_ops));
+        break;
+      case AxisOp::BROADCAST:
+        replacement = broadcast(input_tv, nonPreservedDims(composed_ops));
+        break;
+    }
+    NVF_ERROR(replacement != nullptr);
+    ir_utils::replaceValInAllExprInputsAndFusionOutputs(orig, replacement);
+  }
+}
+
 // Remove broadcast-squeeze and squeeze-broadcast patterns
 // TODO: still remove when have intermediate ops between broadcast and squeeze
 void removeBcastSqueeze(Fusion* fusion) {
@@ -136,10 +194,7 @@ void removeBcastSqueeze(Fusion* fusion) {
     if (auto squeeze = dynamic_cast<SqueezeOp*>(expr)) {
       if (auto bcast =
               dynamic_cast<BroadcastOp*>(squeeze->in()->definition())) {
-        if (bcast->getBroadcastDimFlags() == squeeze->getSqueezeDimFlags()) {
-          ir_utils::replaceValInAllExprInputsAndFusionOutputs(
-              squeeze->out(), bcast->in());
-        }
+        maybeDoReplacement(bcast, squeeze);
       }
     }
 
@@ -148,20 +203,8 @@ void removeBcastSqueeze(Fusion* fusion) {
     // after : M = someOp(X)
     // conditions: (1) broadcast and squeeze have the same dim flags
     if (auto bcast = dynamic_cast<BroadcastOp*>(expr)) {
-      std::cout << "Found bcast " << bcast->toString() << "  "
-                << bcast->getBroadcastDimFlags() << std::endl;
       if (auto squeeze = dynamic_cast<SqueezeOp*>(bcast->in()->definition())) {
-        std::cout << "    Found squeeze " << squeeze->toString() << "  "
-                  << squeeze->getSqueezeDimFlags() << std::endl;
-        if (bcast->getBroadcastDimFlags() == squeeze->getSqueezeDimFlags()) {
-          std::cout << "        REPLACING bcast out with squeeze in"
-                    << std::endl;
-          ir_utils::replaceValInAllExprInputsAndFusionOutputs(
-              bcast->out(), squeeze->in());
-        } else {
-          std::cout << "        NOT REPLACING bcast out with squeeze in"
-                    << std::endl;
-        }
+        maybeDoReplacement(squeeze, bcast);
       }
     }
   }
