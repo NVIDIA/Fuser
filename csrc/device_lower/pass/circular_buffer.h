@@ -165,6 +165,16 @@
 
 namespace nvfuser {
 
+struct TmaCircularBufferInfo {
+  // Track of mbarrier tokens returned by arrive and arriveExpectTx
+  // mbarrier operations for each load operation
+  std::unordered_map<const Expr*, TensorView*> ldst_mbarrier_token_map;
+
+  // Track mbarrier used for cpAsyncBulk load operation. Required by indexing
+  // pass.
+  std::unordered_map<const Expr*, kir::TensorIndex*> ldst_mbarrier_index_map;
+};
+
 class CircularBufferPass {
  public:
   //! Apply circular buffering transformations
