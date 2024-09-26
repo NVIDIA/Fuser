@@ -298,7 +298,7 @@ void scheduleWarpTile(
   // Find _inner_ tile dimensions present in tv
   std::vector<int64_t> inner_dims;
   std::vector<int64_t> required_inner_dim_sizes;
-  int64_t m_dim = -1, n_dim = -1, k_dim = -1;
+  std::optional<int64_t> m_dim, n_dim, k_dim;
   int64_t min_inner_pos = tv->nDims(); // position of outermost inner dim
   for (size_t i : c10::irange(merged_roles.size())) {
     int64_t i_tv = tv->nDims() - 1 - (int64_t)i;
@@ -329,7 +329,7 @@ void scheduleWarpTile(
   }
 
   NVF_ERROR(
-      k_dim != -1,
+      k_dim.has_value(),
       "scheduleWarpTile should only be called on an operand with K dimension but found ",
       tv->toString());
 
@@ -338,59 +338,59 @@ void scheduleWarpTile(
   //     m_dim  n_dim k_dim
   //[...     M,     N,    K]
   // Distribute warp tile:
-  if (m_dim != -1) {
-    tv->split(m_dim, warp_tile.m);
-    if (n_dim > m_dim) {
-      n_dim++;
+  if (m_dim.has_value()) {
+    tv->split(m_dim.value(), warp_tile.m);
+    if (n_dim.has_value() && n_dim.value() > m_dim.value()) {
+      n_dim.value()++;
     }
-    if (k_dim > m_dim) {
-      k_dim++;
+    if (k_dim.has_value() && k_dim.value() > m_dim.value()) {
+      k_dim.value()++;
     }
   }
-  if (n_dim != -1) {
-    tv->split(n_dim, warp_tile.n);
-    if (m_dim > n_dim) {
-      m_dim++;
+  if (n_dim.has_value()) {
+    tv->split(n_dim.value(), warp_tile.n);
+    if (m_dim.has_value() && m_dim.value() > n_dim.value()) {
+      m_dim.value()++;
     }
-    if (k_dim > m_dim) {
-      k_dim++;
+    if (k_dim.has_value() && k_dim.value() > m_dim.value()) {
+      k_dim.value()++;
     }
   }
 
   //  m_dim  m_dim+1  n_dim  n_dim+1  k_dim
   // [  Mwo       Mw    Nwo       Nw      K]
-  if (m_dim != -1) {
-    tv->split(m_dim + 1, instruction_tile.m);
-    if (n_dim > m_dim) {
-      n_dim++;
+  if (m_dim.has_value()) {
+    tv->split(m_dim.value() + 1, instruction_tile.m);
+    if (n_dim.has_value() && n_dim.value() > m_dim.value()) {
+      n_dim.value()++;
     }
-    if (k_dim > m_dim) {
-      k_dim++;
-    }
-  }
-  if (n_dim != -1) {
-    tv->split(n_dim + 1, instruction_tile.n);
-    if (m_dim > n_dim) {
-      m_dim++;
-    }
-    if (k_dim > m_dim) {
-      k_dim++;
+    if (k_dim.has_value() && k_dim.value() > m_dim.value()) {
+      k_dim.value()++;
     }
   }
-  if (k_dim != -1) {
-    tv->split(k_dim, instruction_tile.k);
-    if (m_dim > k_dim) {
-      m_dim++;
+  if (n_dim.has_value()) {
+    tv->split(n_dim.value() + 1, instruction_tile.n);
+    if (m_dim.has_value() && m_dim.value() > n_dim.value()) {
+      m_dim.value()++;
     }
-    if (n_dim > k_dim) {
-      n_dim++;
+    if (k_dim.has_value() && k_dim.value() > m_dim.value()) {
+      k_dim.value()++;
+    }
+  }
+  if (k_dim.has_value()) {
+    tv->split(k_dim.value(), instruction_tile.k);
+    if (m_dim.has_value() && m_dim.value() > k_dim.value()) {
+      m_dim.value()++;
+    }
+    if (n_dim.has_value() && n_dim.value() > k_dim.value()) {
+      n_dim.value()++;
     }
   }
 
   //  m_dim  m_dim+1  m_dim+2  n_dim  n_dim+1  n_dim+2  k_dim  k_dim+1
   // [  Mwo       Mw       Mi    Nwo       Nw       Ni    Kwo       Ki]
 
-  // Nowwe reorder. The new_order will be
+  // Now we reorder. The new_order will be
   // [Kwo Mwo Nwo Mw Nw Mi Ni Ki]
 
   std::vector<IterDomain*> new_loop;
@@ -399,19 +399,19 @@ void scheduleWarpTile(
   for (size_t i : c10::irange(min_inner_pos)) {
     new_loop.push_back(tv->axis((int64_t)i));
   }
-  if (k_dim != -1) {
-    new_loop.push_back(tv->axis(k_dim));
+  if (k_dim.has_value()) {
+    new_loop.push_back(tv->axis(k_dim.value()));
   }
   for (size_t j : c10::irange(3)) {
-    if (m_dim != -1) {
-      new_loop.push_back(tv->axis(m_dim + (int64_t)j));
+    if (m_dim.has_value()) {
+      new_loop.push_back(tv->axis(m_dim.value() + (int64_t)j));
     }
-    if (n_dim != -1) {
-      new_loop.push_back(tv->axis(n_dim + (int64_t)j));
+    if (n_dim.has_value()) {
+      new_loop.push_back(tv->axis(n_dim.value() + (int64_t)j));
     }
   }
-  if (k_dim != -1) {
-    new_loop.push_back(tv->axis(k_dim + 1));
+  if (k_dim.has_value()) {
+    new_loop.push_back(tv->axis(k_dim.value() + 1));
   }
   NVF_ERROR(new_loop.size() == tv->nDims());
 
