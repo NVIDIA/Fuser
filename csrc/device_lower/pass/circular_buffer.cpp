@@ -75,7 +75,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
     // Main: 0 to (extent-1)
     // Epilogue: (extent-1) to extent
 
-    Val* index = GpuLower::current()->caMap()->getIndexVariable(
+    Val* index = GpuLower::current()->getLoopIndexVariable(
         circular_buffer_loop_->iter_domain(), loop_type_);
     Val* start = circular_buffer_loop_->start();
     Val* stop = circular_buffer_loop_->stop();

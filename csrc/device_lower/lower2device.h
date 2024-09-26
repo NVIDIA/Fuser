@@ -304,6 +304,11 @@ class GpuLower : public NonCopyable {
     return validations_;
   }
 
+  Val* getLoopIndexVariable(
+      IterDomain* id,
+      CircularBufferLoopStage stage =
+          CircularBufferLoopStage::NotApplicable) const;
+
  private:
   void analysis(Fusion* fusion);
 
