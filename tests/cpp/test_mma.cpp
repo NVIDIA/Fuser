@@ -389,6 +389,14 @@ TEST_P(HopperRS, SingleTile) {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         tv2c->getLoopDomain());
     tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+    // Note: according to internal doc "Representing ldmatrix", we need both a
+    // read domain and a write domain to correctly represent MmaOp. Without this
+    // new mechanism, there is no correct loop domain, and the only choices are
+    // either we want to represent the smem read well, or represent the register
+    // write well. We choose to represent the smem read well here. Likely, this
+    // means we will not be able to have multiple tiles in register, but we can
+    // workaround this by always inlining the MmaOp most. We should fix this
+    // after we implemented the new read/write domain mechanism.
     tv2c->axis(-1)->parallelize(ParallelType::Mma);
     tv2c->axis(-2)->parallelize(ParallelType::Mma);
     tv2c->axis(-3)->parallelize(ParallelType::Mma);
@@ -539,6 +547,14 @@ TEST_P(HopperRS, FullSwizzle) {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         tv2c->getLoopDomain());
     tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+    // Note: according to internal doc "Representing ldmatrix", we need both a
+    // read domain and a write domain to correctly represent MmaOp. Without this
+    // new mechanism, there is no correct loop domain, and the only choices are
+    // either we want to represent the smem read well, or represent the register
+    // write well. We choose to represent the smem read well here. Likely, this
+    // means we will not be able to have multiple tiles in register, but we can
+    // workaround this by always inlining the MmaOp most. We should fix this
+    // after we implemented the new read/write domain mechanism.
     tv2c->axis(-1)->parallelize(ParallelType::Mma);
     tv2c->axis(-2)->parallelize(ParallelType::Mma);
     tv2c->axis(-3)->parallelize(ParallelType::Mma);
@@ -661,6 +677,14 @@ TEST_P(HopperRS, SingleTileWithTMALoad) {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         tv2c->getLoopDomain());
     tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+    // Note: according to internal doc "Representing ldmatrix", we need both a
+    // read domain and a write domain to correctly represent MmaOp. Without this
+    // new mechanism, there is no correct loop domain, and the only choices are
+    // either we want to represent the smem read well, or represent the register
+    // write well. We choose to represent the smem read well here. Likely, this
+    // means we will not be able to have multiple tiles in register, but we can
+    // workaround this by always inlining the MmaOp most. We should fix this
+    // after we implemented the new read/write domain mechanism.
     tv2c->axis(-1)->parallelize(ParallelType::Mma);
     tv2c->axis(-2)->parallelize(ParallelType::Mma);
     tv2c->axis(-3)->parallelize(ParallelType::Mma);
@@ -747,6 +771,14 @@ TEST_P(HopperRS, SingleTileWithTMALoadStore) {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         tv2c->getLoopDomain());
     tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+    // Note: according to internal doc "Representing ldmatrix", we need both a
+    // read domain and a write domain to correctly represent MmaOp. Without this
+    // new mechanism, there is no correct loop domain, and the only choices are
+    // either we want to represent the smem read well, or represent the register
+    // write well. We choose to represent the smem read well here. Likely, this
+    // means we will not be able to have multiple tiles in register, but we can
+    // workaround this by always inlining the MmaOp most. We should fix this
+    // after we implemented the new read/write domain mechanism.
     tv2c->axis(-1)->parallelize(ParallelType::Mma);
     tv2c->axis(-2)->parallelize(ParallelType::Mma);
     tv2c->axis(-3)->parallelize(ParallelType::Mma);
@@ -826,6 +858,14 @@ TEST_P(HopperRS, SingleTileWithTMALoadOuterDimNotSplit) {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         tv2c->getLoopDomain());
     tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+    // Note: according to internal doc "Representing ldmatrix", we need both a
+    // read domain and a write domain to correctly represent MmaOp. Without this
+    // new mechanism, there is no correct loop domain, and the only choices are
+    // either we want to represent the smem read well, or represent the register
+    // write well. We choose to represent the smem read well here. Likely, this
+    // means we will not be able to have multiple tiles in register, but we can
+    // workaround this by always inlining the MmaOp most. We should fix this
+    // after we implemented the new read/write domain mechanism.
     tv2c->axis(-1)->parallelize(ParallelType::Mma);
     tv2c->axis(-2)->parallelize(ParallelType::Mma);
     tv2c->axis(-3)->parallelize(ParallelType::Mma);
@@ -1012,6 +1052,14 @@ TEST_P(HopperSS, SingleTile) {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         tv2c->getLoopDomain());
     tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+    // Note: according to internal doc "Representing ldmatrix", we need both a
+    // read domain and a write domain to correctly represent MmaOp. Without this
+    // new mechanism, there is no correct loop domain, and the only choices are
+    // either we want to represent the smem read well, or represent the register
+    // write well. We choose to represent the smem read well here. Likely, this
+    // means we will not be able to have multiple tiles in register, but we can
+    // workaround this by always inlining the MmaOp most. We should fix this
+    // after we implemented the new read/write domain mechanism.
     tv2c->axis(-1)->parallelize(ParallelType::Mma);
     tv2c->axis(-2)->parallelize(ParallelType::Mma);
     tv2c->axis(-3)->parallelize(ParallelType::Mma);
@@ -1180,6 +1228,14 @@ TEST_P(HopperSS, FullSwizzle) {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         tv2c->getLoopDomain());
     tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+    // Note: according to internal doc "Representing ldmatrix", we need both a
+    // read domain and a write domain to correctly represent MmaOp. Without this
+    // new mechanism, there is no correct loop domain, and the only choices are
+    // either we want to represent the smem read well, or represent the register
+    // write well. We choose to represent the smem read well here. Likely, this
+    // means we will not be able to have multiple tiles in register, but we can
+    // workaround this by always inlining the MmaOp most. We should fix this
+    // after we implemented the new read/write domain mechanism.
     tv2c->axis(-1)->parallelize(ParallelType::Mma);
     tv2c->axis(-2)->parallelize(ParallelType::Mma);
     tv2c->axis(-3)->parallelize(ParallelType::Mma);
@@ -1293,6 +1349,14 @@ TEST_P(HopperSS, SingleTileWithTMALoad) {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         tv2c->getLoopDomain());
     tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+    // Note: according to internal doc "Representing ldmatrix", we need both a
+    // read domain and a write domain to correctly represent MmaOp. Without this
+    // new mechanism, there is no correct loop domain, and the only choices are
+    // either we want to represent the smem read well, or represent the register
+    // write well. We choose to represent the smem read well here. Likely, this
+    // means we will not be able to have multiple tiles in register, but we can
+    // workaround this by always inlining the MmaOp most. We should fix this
+    // after we implemented the new read/write domain mechanism.
     tv2c->axis(-1)->parallelize(ParallelType::Mma);
     tv2c->axis(-2)->parallelize(ParallelType::Mma);
     tv2c->axis(-3)->parallelize(ParallelType::Mma);
