@@ -1255,8 +1255,12 @@ TEST_F(ScatterGatherTest, GatherIterGoupedReduction) {
   at::Tensor input_idx = at::randint(0, input_dims[dim], index_dims, options_i);
   std::vector<c10::IValue> aten_inputs = {input, input_idx};
 
-  auto rparams = getReductionHeuristics(&fusion, aten_inputs);
-  NVF_CHECK(rparams, "Reduction schedule was not generated!");
+  auto reduction_scheduler =
+      SchedulerEntry::makeSchedulerInstance(SchedulerType::Reduction);
+  SchedulerRuntimeInfo runtime_info(&fusion, aten_inputs);
+  auto heuristic_params =
+      reduction_scheduler->computeHeuristics(&fusion, runtime_info);
+  auto rparams = heuristic_params->as<ReductionParams>();
 
   // Enforce vectorization so we can group them
   const int vect_factor = 2;
@@ -1271,7 +1275,7 @@ TEST_F(ScatterGatherTest, GatherIterGoupedReduction) {
     rparams->lparams.bind(2L, ParallelType::BIDy);
   }
 
-  scheduleReduction(&fusion, rparams.get());
+  reduction_scheduler->schedule(&fusion, rparams);
 
   // lowering & check iteration grouped reductions
   GpuLower gpulw(&fusion);

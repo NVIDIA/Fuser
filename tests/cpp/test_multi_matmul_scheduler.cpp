@@ -370,6 +370,8 @@ class MultiMatmulSchedulerMatchTest
     auto getTensorsToCompare = [](Fusion* fusion) {
       std::vector<TensorView*> tvs;
 
+      // returning all TV outputs means we will check all TVs in the fusion due
+      // to recursion
       for (Val* v : fusion->outputs()) {
         tvs.push_back(v->as<TensorView>());
       }

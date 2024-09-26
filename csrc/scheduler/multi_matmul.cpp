@@ -552,6 +552,9 @@ class MultipleMatmulScheduler {
     // schedule mma instruction output (mma_result)
     scheduleMmaResults();
 
+    // TODO: Remove this as the methods below are implemented
+    return;
+
     // schedule epilogue
     scheduleEpilogue();
 
@@ -930,7 +933,7 @@ class MultipleMatmulScheduler {
           new_loop.push_back(it->second);
         }
       }
-      NVF_ERROR(new_loop.size() == tv->nDims());
+      NVF_ERROR((int64_t)new_loop.size() == tv->nDims());
       tv->setLoopDomain(new_loop);
 
       // There could be multiple dimensions with the same role at this point, so
@@ -1086,6 +1089,7 @@ class MultipleMatmulScheduler {
 
       // do split-K rFactor to define splitk_sum and smem_epilogue
       if (params_->splitk_factor != 1) {
+        // Note that the split-K split is already done in blockTileTensors
         TensorView* splitk_sum = mma_result->rFactor({-4, -1});
         std::swap(splitk_sum, mma_result);
         splitk_sums_.push_back(splitk_sum);
@@ -1223,8 +1227,7 @@ class MultipleMatmulScheduler {
               ->parallelize(ParallelType::BIDx);
           break;
         default:
-          NVF_ERROR(
-              false,
+          NVF_THROW(
               "Invalid TileRasterizationOrder passed to Matmul scheduler");
       }
     }

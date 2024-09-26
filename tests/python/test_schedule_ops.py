@@ -17,15 +17,15 @@ from nvfuser import (
     DataType,
     ParallelType,
     MemoryType,
-    SchedulerHeuristic,
+    SchedulerType,
     LoadStoreOpType,
 )
 
 # NOTE We cannot iterate pybind11 enum directly, so we extract the entries here.
 all_scheduler_heuristics = [
     heuristic
-    for heuristic, _ in SchedulerHeuristic.__entries.values()
-    if not SchedulerHeuristic.none
+    for heuristic, _ in SchedulerType.__entries.values()
+    if not SchedulerType.none
 ]
 
 
@@ -873,7 +873,7 @@ class TestScheduleOps(TestCase):
 
             def schedule(self):
                 # Apply selected scheduler
-                _apply_scheduler_helper(fd.sched, SchedulerHeuristic.pointwise)
+                _apply_scheduler_helper(fd.sched, SchedulerType.pointwise)
 
         fd = Pointwise()
         nvf_out = fd.execute(inputs)
@@ -900,7 +900,7 @@ class TestScheduleOps(TestCase):
             def schedule(self):
                 # Test error msg for can_schedule
                 pointwise_status, error_msg = fd.sched.can_schedule(
-                    SchedulerHeuristic.pointwise
+                    SchedulerType.pointwise
                 )
                 assert not pointwise_status
                 assert (
@@ -909,7 +909,7 @@ class TestScheduleOps(TestCase):
                 )
 
                 # Apply selected scheduler
-                _apply_scheduler_helper(fd.sched, SchedulerHeuristic.reduction)
+                _apply_scheduler_helper(fd.sched, SchedulerType.reduction)
 
         fd = Reduction()
         nvf_out = fd.execute(inputs)
@@ -945,7 +945,7 @@ class TestScheduleOps(TestCase):
 
             def schedule(self):
                 # Apply selected scheduler
-                _apply_scheduler_helper(fd.sched, SchedulerHeuristic.inner_persistent)
+                _apply_scheduler_helper(fd.sched, SchedulerType.inner_persistent)
 
         fd = VarMean()
         nvf_out = fd.execute(inputs)
@@ -994,7 +994,7 @@ class TestScheduleOps(TestCase):
 
             def schedule(self):
                 # Apply selected scheduler
-                _apply_scheduler_helper(fd.sched, SchedulerHeuristic.inner_persistent)
+                _apply_scheduler_helper(fd.sched, SchedulerType.inner_persistent)
 
         fd = BatchNorm()
         nvf_out = fd.execute(inputs)
@@ -1049,7 +1049,7 @@ class TestScheduleOps(TestCase):
 
             def schedule(self):
                 # Apply selected scheduler
-                _apply_scheduler_helper(fd.sched, SchedulerHeuristic.expr_eval)
+                _apply_scheduler_helper(fd.sched, SchedulerType.expr_eval)
 
         for inputs in [inputs_tt, inputs_tn, inputs_nt, inputs_nn]:
             fd = Matmul(inputs)
@@ -1088,7 +1088,7 @@ class TestScheduleOps(TestCase):
                 assert len(fd.sched.to_string(self.x_reshape)) > 0
 
                 # Apply selected scheduler
-                _apply_scheduler_helper(fd.sched, SchedulerHeuristic.pointwise)
+                _apply_scheduler_helper(fd.sched, SchedulerType.pointwise)
 
         fd = Reshape()
         nvf_out = fd.execute(inputs)
@@ -1118,7 +1118,7 @@ class TestScheduleOps(TestCase):
 
             def schedule(self):
                 # Apply reduction schedule
-                _apply_scheduler_helper(fd.sched, SchedulerHeuristic.reduction)
+                _apply_scheduler_helper(fd.sched, SchedulerType.reduction)
 
         # Create Definition
         fd = FDScheduler()
