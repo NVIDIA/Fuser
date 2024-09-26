@@ -1757,16 +1757,10 @@ ValGroup getInnerMmaLoopGroup(TensorView* tv, const MmaOp* mma) {
   // way to the consumer's loop domain, and keep track of the inner dimension.
   // After propagating, the inner dimension should be a dimension that is
   // parallelized on Mma.
-  ValGroup inner = nullptr;
-  for (auto it = alloc_domain.rbegin(); it != alloc_domain.rend(); ++it) {
-    if (!(*it)->front()->as<IterDomain>()->isBroadcast()) {
-      inner = *it;
-      break;
-    }
-  }
   NVF_ERROR(
-      inner != nullptr,
+      !alloc_domain.empty(),
       "Matmul with all broadcasting dimension is not supported yet.");
+  ValGroup inner = alloc_domain.back();
 
   auto exprs =
       ValGraphBFS::getExprsBetween(id_graph, loop_domain, alloc_domain);
@@ -1835,7 +1829,7 @@ ValGroup getInnerMmaLoopGroup(TensorView* tv, const MmaOp* mma) {
 // 2. Split k_inst as above.
 // 3. Prove that `linear` is linear in the allocation domain of tv, and get the
 //    stride of `linear`.
-Val* getInnerStride(TensorView* tv, const MmaOp* mma) {
+Val* getInnerStrideBytes(TensorView* tv, const MmaOp* mma) {
   auto swizzle = getSwizzleMode(tv);
   auto swizzle_size = getBytesFromSwizzle(swizzle) / dataTypeSize(tv->dtype());
   ValGraph& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
@@ -1885,10 +1879,9 @@ Val* getInnerStride(TensorView* tv, const MmaOp* mma) {
 // 2. Split m_inst as above.
 // 3. Prove that `linear` is linear in the allocation domain of tv, and get the
 //    stride of `linear`.
-Val* getOuterStride(TensorView* tv, const MmaOp* mma) {
+Val* getOuterStrideBytes(TensorView* tv, const MmaOp* mma) {
   ValGraph& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
-  auto logical_domain =
-      id_graph.toGroups(TensorDomain::noBroadcasts(tv->getLogicalDomain()));
+  auto logical_domain = id_graph.toGroups(tv->getLogicalDomain());
   auto loop_domain =
       id_graph.toGroups(mma->out()->as<TensorView>()->getLoopDomain());
   auto alloc_domain = id_graph.toGroups(tv->getMaybeAllocationDomain());
@@ -1911,48 +1904,26 @@ Val* getOuterStride(TensorView* tv, const MmaOp* mma) {
       "Expecting 3 IDs in the loop domain of mma output to be parallelized on Mma,",
       " among which one must be the innermost of producer's allocation domain");
 
-  // Project mma_groups to the logical domain of tv.
-  std::vector<std::unordered_set<ValGroup>> projections_on_logical;
-  projections_on_logical.reserve(mma_groups.size());
-  for (const auto& g : mma_groups) {
-    projections_on_logical.push_back({g});
-  }
-  auto exprs =
-      ValGraphBFS::getExprsBetween(id_graph, loop_domain, logical_domain);
-  for (const auto& [expr, direction] : exprs) {
-    auto from =
-        (direction == Direction::Forward ? id_graph.inputGroups(expr)
-                                         : id_graph.outputGroups(expr));
-    auto to =
-        (direction == Direction::Forward ? id_graph.outputGroups(expr)
-                                         : id_graph.inputGroups(expr));
-    for (const auto& g : from) {
-      for (auto& projection_on_logical : projections_on_logical) {
-        if (projection_on_logical.count(g)) {
-          projection_on_logical.erase(g);
-          projection_on_logical.insert(to.begin(), to.end());
-        }
-      }
-    }
-  }
   // Get which group in mma_groups is projected to a concrete ID in the logical
   // domain of tv. There should be exactly one such group.
-  auto is_projected_to_concrete = [&](int64_t i) {
-    const auto& projection = projections_on_logical.at(i);
+  auto is_projected_to_concrete = [&](const ValGroup& g) {
+    auto projection_on_logical =
+        ValGraphBFS::getReachableValsFrom(id_graph, {g}, logical_domain);
     for (auto id : tv->getLogicalDomain()) {
-      if (!id->isBroadcast() && projection.count(id_graph.toGroup(id))) {
+      if (!id->isBroadcast() &&
+          projection_on_logical.has(id_graph.toGroup(id))) {
         return true;
       }
     }
     return false;
   };
   ValGroup selected = nullptr;
-  for (int64_t i = 0; i < (int64_t)mma_groups.size(); ++i) {
-    if (is_projected_to_concrete(i)) {
+  for (auto& g : mma_groups) {
+    if (is_projected_to_concrete(g)) {
       NVF_ERROR(
           selected == nullptr,
           "Expecting exactly one group in mma output loop domain to be projected to a concrete ID in the logical domain of tv");
-      selected = mma_groups.at(i);
+      selected = std::move(g);
     }
   }
   NVF_ERROR(
@@ -1992,8 +1963,8 @@ void IndexLowering::handle(const MmaOp* mma) {
     auto base_addr = lowerSrcIndex(tv, mma->out(), {}, true)
                          ->as<kir::TensorIndex>()
                          ->index();
-    Val* leading_bytes = getInnerStride(tv, mma);
-    Val* stride_bytes = getOuterStride(tv, mma);
+    Val* leading_bytes = getInnerStrideBytes(tv, mma);
+    Val* stride_bytes = getOuterStrideBytes(tv, mma);
     if (swizzle == MmaInputSmemSwizzle::None && unitdim_a == UnitDim::M_or_N) {
       // tnspA and tnspB is ignored for NoSwizzle mode
       std::swap(leading_bytes, stride_bytes);
@@ -2024,8 +1995,8 @@ void IndexLowering::handle(const MmaOp* mma) {
     auto base_addr = lowerSrcIndex(tv, mma->out(), {}, true)
                          ->as<kir::TensorIndex>()
                          ->index();
-    Val* leading_bytes = getInnerStride(tv, mma);
-    Val* stride_bytes = getOuterStride(tv, mma);
+    Val* leading_bytes = getInnerStrideBytes(tv, mma);
+    Val* stride_bytes = getOuterStrideBytes(tv, mma);
     if (swizzle == MmaInputSmemSwizzle::None && unitdim_b == UnitDim::M_or_N) {
       // tnspA and tnspB is ignored for NoSwizzle mode
       std::swap(leading_bytes, stride_bytes);
