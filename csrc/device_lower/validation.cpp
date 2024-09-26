@@ -568,9 +568,7 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
 
     for (const auto i : c10::irange(tv->nDims())) {
       IterDomain* id = tv->axis(i);
-      IterDomain* concrete_id =
-          GpuLower::current()->caMap()->getConcreteMappedID(
-              id, IdMappingMode::LOOP);
+      IterDomain* concrete_id = lower_utils::getConcreteLoopID(id);
 
       auto ptype = concrete_id->getParallelType();
 
@@ -853,8 +851,7 @@ void validateLoopSwizzle(
     NVF_ERROR(
         loop_domains.count(out_id),
         "Loop swizzle can only be direct producer of loop domains.");
-    if (GpuLower::current()->caMap()->getConcreteMappedID(
-            out_id, IdMappingMode::LOOP) != out_id) {
+    if (lower_utils::getConcreteLoopID(out_id) != out_id) {
       TORCH_WARN_ONCE("Ignored loop swizzle :", swizzle_expr->toString());
     }
   }
@@ -916,10 +913,7 @@ void validateAndConvertIterDomainGrouping(Fusion* fusion) {
     bool is_grouped = false;
     for (const auto id_idx : c10::irange(tv->nDims())) {
       const auto id = tv->axis(id_idx);
-      auto ptype = GpuLower::current()
-                       ->caMap()
-                       ->getConcreteMappedID(id, IdMappingMode::LOOP)
-                       ->getParallelType();
+      auto ptype = lower_utils::getConcreteLoopID(id)->getParallelType();
       if (ptype != ParallelType::Group) {
         // Not a grouped ID
         continue;

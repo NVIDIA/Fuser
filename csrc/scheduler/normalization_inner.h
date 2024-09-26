@@ -27,8 +27,6 @@ class HeuristicDataCache;
 
 class InnerPersistentKernelScheduler : public SchedulerEntry {
  public:
-  void schedule(Fusion* fusion, const HeuristicParams* params) override;
-
   bool canScheduleCompileTime(Fusion* fusion) override;
 
   bool canScheduleRunTime(
@@ -36,28 +34,16 @@ class InnerPersistentKernelScheduler : public SchedulerEntry {
       SchedulerRuntimeInfo& runtime_info,
       HeuristicDataCache* data_cache = nullptr) override;
 
-  constexpr static SchedulerType schedulerType() {
-    return SchedulerType::InnerPersistent;
-  }
-
   std::unique_ptr<HeuristicParams> computeHeuristics(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
       HeuristicDataCache* data_cache) override;
+
+  void schedule(Fusion* fusion, const HeuristicParams* params) override;
+
+  constexpr static SchedulerType schedulerType() {
+    return SchedulerType::InnerPersistent;
+  }
 };
-
-NVF_API std::unique_ptr<ReductionParams> getInnerPersistentHeuristics(
-    Fusion* fusion,
-    const at::ArrayRef<c10::IValue>& runtime_inputs,
-    HeuristicDataCache* data_cache = nullptr);
-
-NVF_API std::unique_ptr<ReductionParams> getInnerPersistentHeuristics(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicDataCache* data_cache = nullptr);
-
-NVF_API void scheduleInnerPersistentKernel(
-    Fusion* fusion,
-    const ReductionParams* rparams);
 
 } // namespace nvfuser

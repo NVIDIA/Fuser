@@ -372,8 +372,7 @@ class MultiMatmulSchedulerMatchTest
       auto mma_ops = ir_utils::getOpsOfType<MmaOp>(fusion);
       NVF_ERROR(mma_ops.size(), 1);
       MmaOp* mma = mma_ops.front();
-      return std::vector<TensorView*>{
-          mma->inA()->as<TensorView>(), mma->inB()->as<TensorView>()};
+      return std::vector<TensorView*>{mma->out()->as<TensorView>()};
     };
     std::vector<TensorView*> orig_compare_tvs = getTensorsToCompare(fusion);
     std::vector<TensorView*> new_compare_tvs = getTensorsToCompare(&new_fusion);

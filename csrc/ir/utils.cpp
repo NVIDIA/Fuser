@@ -797,7 +797,8 @@ std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion) {
 CompareDomainResult compareDomains(
     std::vector<IterDomain*> dom0,
     const std::vector<IterDomain*>& dom1,
-    const std::vector<IterDomain*>& additional_ids) {
+    const std::vector<IterDomain*>& additional_ids,
+    bool ignore_broadcast) {
   std::unordered_set<Val*> dom0_set(dom0.begin(), dom0.end());
   std::unordered_set<Val*> dom1_set(dom1.begin(), dom1.end());
   std::unordered_set<Val*> additional_ids_set(
@@ -860,7 +861,8 @@ CompareDomainResult compareDomains(
     }
     for (auto v : from) {
       bool ignorable =
-          v->as<IterDomain>()->isBroadcast() || additional_ids_set.count(v);
+          (ignore_broadcast && v->as<IterDomain>()->isBroadcast()) ||
+          additional_ids_set.count(v);
       NVF_ERROR(
           frontier.erase(v) == 1 || ignorable,
           "Invalid derived domain due to dependent expr: ",
@@ -899,13 +901,14 @@ CompareDomainResult compareDomains(
   // target_set. Returns true if any of iter domains is
   // unreachable. Additionaly, make sure none of iter domains has any
   // overlap with the other iter domains.
-  auto check_ids = [](const auto& ids_to_check,
-                      const auto& target_set) -> bool {
+  auto check_ids = [ignore_broadcast](
+                       const auto& ids_to_check,
+                       const auto& target_set) -> bool {
     bool unreachable = false;
     for (auto id : ids_to_check) {
       // Symbolic and broadcast IDs are ignored
       if (id->template as<IterDomain>()->getIterType() == IterType::Symbolic ||
-          id->template as<IterDomain>()->isBroadcast()) {
+          (ignore_broadcast && id->template as<IterDomain>()->isBroadcast())) {
         continue;
       }
       if (!target_set.count(id)) {
@@ -1128,6 +1131,24 @@ bool hasTrivialAllocationDomain(const TensorView* tv) {
 }
 bool hasUniformSiblings(Expr* expr) {
   return !expr->isOneOf<SdpaFwdOp, SdpaBwdOp>();
+}
+
+bool hasRootToLoopLinearTransformations(const TensorView* tv) {
+  auto root = tv->getMaybeRootDomain();
+  auto loop = tv->getLoopDomain();
+  std::vector<Val*> loop_val(loop.begin(), loop.end());
+  auto all_ids_vec =
+      DependencyCheck::getAllValsBetween({root.begin(), root.end()}, loop_val);
+  std::unordered_set<Val*> all_ids_set(all_ids_vec.begin(), all_ids_vec.end());
+  auto alloc = tv->getMaybeAllocationDomain();
+  auto logical = tv->getLogicalDomain();
+  bool all_alloc_id_on_path = std::all_of(
+      alloc.begin(), alloc.end(), [&](Val* v) { return all_ids_set.count(v); });
+  bool all_logical_id_on_path =
+      std::all_of(logical.begin(), logical.end(), [&](Val* v) {
+        return all_ids_set.count(v);
+      });
+  return all_alloc_id_on_path && all_logical_id_on_path;
 }
 
 } // namespace nvfuser::ir_utils
