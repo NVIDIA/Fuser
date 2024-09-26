@@ -261,7 +261,7 @@ int64_t getConsumerPosAlignedToProducerCA(
   } else {
     IdModel id_model({consumer->definition()}, {}, false);
     id_model.buildBroadcastGraph();
-    const auto& exact_graph = id_model.idGraph(IdMappingMode::BROADCAST);
+    const auto& inlining_graph = id_model.idGraph(IdMappingMode::BROADCAST);
 
     while (consumer_pos > 0) {
       auto consumer_id = consumer->axis(consumer_pos - 1);
@@ -269,8 +269,8 @@ int64_t getConsumerPosAlignedToProducerCA(
       if (std::any_of(
               p_dom.begin(),
               p_dom.begin() + producer_pos,
-              [&consumer_id, &exact_graph](IterDomain* p_id) {
-                return exact_graph.disjointValSets().strictAreMapped(
+              [&consumer_id, &inlining_graph](IterDomain* p_id) {
+                return inlining_graph.disjointValSets().strictAreMapped(
                     consumer_id, p_id);
               })) {
         break;
