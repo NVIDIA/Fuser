@@ -1231,8 +1231,10 @@ std::pair<ForLoop*, kir::MBarrierInit*> initializeMbarrier(
   kir::MBarrierInit* mbarrier_init =
       IrBuilder::create<kir::MBarrierInit>(stage_mbarrier, all_threads_in_cta);
 
-  loop->body().push_back(mbarrier_init);
-  return {loop, mbarrier_init};
+  Expr* pred_mbarrier_init = mbarrier_init->withPredicate(
+      IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
+  loop->body().push_back(pred_mbarrier_init);
+  return {loop, pred_mbarrier_init->as<kir::MBarrierInit>()};
 }
 
 std::pair<ForLoop*, kir::MBarrierInvalidate*> invalidateMbarrier(
@@ -1251,8 +1253,11 @@ std::pair<ForLoop*, kir::MBarrierInvalidate*> invalidateMbarrier(
   kir::MBarrierInvalidate* mbarrier_inval =
       IrBuilder::create<kir::MBarrierInvalidate>(stage_mbarrier);
 
-  loop->body().push_back(mbarrier_inval);
-  return {loop, mbarrier_inval};
+  Expr* pred_mbarrier_inval = mbarrier_inval->withPredicate(
+      IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
+
+  loop->body().push_back(pred_mbarrier_inval);
+  return {loop, pred_mbarrier_inval->as<kir::MBarrierInvalidate>()};
 }
 
 std::vector<Expr*> CircularBufferPass::run(const std::vector<Expr*>& exprs) {
