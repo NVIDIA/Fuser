@@ -1915,6 +1915,15 @@ Val* proveLinearAndGetStride(
   return proveLinearAndGetStrideAfterPropagation(frontier, domain);
 }
 
+IterDomain* getConcreteLoopID(IterDomain* loop_id) {
+  NVF_ERROR(
+      GpuLower::hasCurrent(),
+      "GpuLower is required for getting a concrete loop domain");
+
+  return GpuLower::current()->caMap()->getConcreteMappedID(
+      loop_id, IdMappingMode::LOOP);
+}
+
 } // namespace lower_utils
 
 } // namespace nvfuser
