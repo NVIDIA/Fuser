@@ -175,33 +175,6 @@ struct TmaCircularBufferInfo {
   std::unordered_map<const Expr*, kir::TensorIndex*> ldst_mbarrier_index_map;
 };
 
-// This helper function initializes mbarrier for all circular buffer stage.
-//
-// Expected result:
-// for (unsigned i = 0; i < stages; ++i) {
-//   if (warp_id == 0 && electSync()()) {
-//     mbarrier::init(...);
-//   }
-// }
-std::pair<ForLoop*, kir::MBarrierInit*> initializeMbarrier(
-    ForLoop* circular_buffer_loop,
-    LoadStoreOp* ldst,
-    TensorView* all_mbarriers);
-
-// This helper function invalidates mbarrier for all circular buffer stage after
-// TMA memory operations.
-//
-// Expected result:
-// for (unsigned i = 0; i < stages; ++i) {
-//   if (warp_id == 0 && electSync()()) {
-//     mbarrier::inval(...);
-//   }
-// }
-std::pair<ForLoop*, kir::MBarrierInvalidate*> invalidateMbarrier(
-    ForLoop* circular_buffer_loop,
-    LoadStoreOp* ldst,
-    TensorView* all_mbarriers);
-
 class CircularBufferPass {
  public:
   //! Apply circular buffering transformations

@@ -796,32 +796,6 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
   Val* current_load_stage_ = nullptr;
 };
 
-// This function creates kir::Loop with range based on stage depth. It is
-// used for mbarrier initialization and invalidation.
-ForLoop* createStageDepthForLoop(ForLoop* circular_buffer_loop) {
-  int64_t stage_depth =
-      GpuLower::current()->circularBufferInfo().getStageDepthFor(
-          circular_buffer_loop->iter_domain());
-
-  Val* loop_start = IrBuilder::create<Val>(0L, PrimDataType::Index);
-  Val* loop_index = IrBuilder::create<Val>(PrimDataType::Index);
-  Val* loop_stop = IrBuilder::create<Val>(stage_depth, DataType::Index);
-  IterDomainBuilder loop_domain_builder(loop_start, loop_stop);
-
-  ForLoop* loop = IrBuilder::create<ForLoop>(
-      loop_domain_builder.build(),
-      loop_index,
-      loop_start,
-      loop_stop,
-      /*step=*/GpuLower::current()->kernel()->oneVal(),
-      /*vectorize=*/false,
-      /*vectorize_shift=*/nullptr,
-      /*unroll_required=*/false,
-      CircularBufferLoopStage::NotApplicable);
-
-  return loop;
-}
-
 using InsertionInfo = std::unordered_map<ForLoop*, std::vector<Expr*>>;
 
 class IsCircularBufferLoadLoop : public kir::IrVisitor {
@@ -1216,66 +1190,6 @@ class CircularBufferInserter : private kir::ExprMutator {
 };
 
 } // namespace
-
-std::pair<ForLoop*, kir::MBarrierInit*> initializeMbarrier(
-    ForLoop* circular_buffer_loop,
-    LoadStoreOp* ldst,
-    TensorView* all_mbarriers) {
-  NVF_ERROR(circular_buffer_loop != nullptr);
-  NVF_ERROR(ir_utils::isCpAsyncBulk(ldst));
-  ForLoop* loop = createStageDepthForLoop(circular_buffer_loop);
-
-  // Get mbarrier for this circular buffer stage.
-  kir::TensorIndex* stage_mbarrier =
-      IrBuilder::create<kir::TensorIndex>(all_mbarriers, loop->index());
-
-  // Get all threads in CTA
-  Val* bdimx =
-      GpuLower::current()->parallelDimensionMap().get(ParallelType::TIDx);
-  Val* bdimy =
-      GpuLower::current()->parallelDimensionMap().get(ParallelType::TIDy);
-  Val* bdimz =
-      GpuLower::current()->parallelDimensionMap().get(ParallelType::TIDz);
-  Val* all_threads_in_cta = SimplifyingIrBuilder::mulExpr(
-      bdimx, SimplifyingIrBuilder::mulExpr(bdimy, bdimz));
-  all_threads_in_cta =
-      SimplifyingIrBuilder::maybeCastExpr(DataType::UInt32, all_threads_in_cta);
-
-  // Initialize mbarrier for each circular buffer stage. Use the thread
-  // count from the MBarrierInit created in the allocation pass. The wait
-  // condition for mbarrier is a all threads in CTA and the expected number
-  // of transaction bytes
-  kir::MBarrierInit* mbarrier_init =
-      IrBuilder::create<kir::MBarrierInit>(stage_mbarrier, all_threads_in_cta);
-
-  Expr* pred_mbarrier_init = mbarrier_init->withPredicate(
-      IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
-  loop->body().push_back(pred_mbarrier_init);
-  return {loop, pred_mbarrier_init->as<kir::MBarrierInit>()};
-}
-
-std::pair<ForLoop*, kir::MBarrierInvalidate*> invalidateMbarrier(
-    ForLoop* circular_buffer_loop,
-    LoadStoreOp* ldst,
-    TensorView* all_mbarriers) {
-  NVF_ERROR(circular_buffer_loop != nullptr);
-  NVF_ERROR(ir_utils::isCpAsyncBulk(ldst));
-  ForLoop* loop = createStageDepthForLoop(circular_buffer_loop);
-
-  // Get mbarrier for this circular buffer stage.
-  kir::TensorIndex* stage_mbarrier =
-      IrBuilder::create<kir::TensorIndex>(all_mbarriers, loop->index());
-
-  // Invalidate the mbarrier for each circular buffer stage.
-  kir::MBarrierInvalidate* mbarrier_inval =
-      IrBuilder::create<kir::MBarrierInvalidate>(stage_mbarrier);
-
-  Expr* pred_mbarrier_inval = mbarrier_inval->withPredicate(
-      IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
-
-  loop->body().push_back(pred_mbarrier_inval);
-  return {loop, pred_mbarrier_inval->as<kir::MBarrierInvalidate>()};
-}
 
 std::vector<Expr*> CircularBufferPass::run(const std::vector<Expr*>& exprs) {
   InsertionInfo insertion_info = CircularBufferLoopNestInspector::run(exprs);
