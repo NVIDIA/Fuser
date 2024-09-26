@@ -1227,6 +1227,15 @@ TEST_P(DistributedTransformerTest, Backward) {
        mha_grads[1],
        mha_grads[6],
        mha_grads[7]},
+      mlp_w0);
+  shardBetween(
+      {mha_w0, mha_b0, mha_w1, mlp_w0, mlp_w1, mlp_b0, mha_sdpa_out},
+      {mlp_grads[1],
+       mlp_grads[4],
+       mlp_grads[5],
+       mha_grads[1],
+       mha_grads[6],
+       mha_grads[7]},
       mha_w0);
 
   // Unsharded inputs to outputs
@@ -1251,6 +1260,8 @@ TEST_P(DistributedTransformerTest, Backward) {
        ln0_grads.grad_bias,
        dx},
       x);
+
+  fusion->print();
 
   const auto options =
       at::TensorOptions().dtype(at_dtype).device(communicator_->device());
@@ -1351,9 +1362,17 @@ TEST_P(DistributedTransformerTest, Backward) {
       mha_out_[2].to(at::kFloat) // mha linear1
   };
 
-  FusionExecutorCache fec(std::move(fusion));
+  // FusionExecutorCache fec(std::move(fusion));
+  hir::HostIrExecutorParams executor_params_{
+      .use_fusion_executor_cache = true,
+      .skip_auto_scheduling = false,
+      .cache_fusion_executor = false};
+  MultiDeviceExecutor runtime(
+      std::move(fusion), *communicator_, executor_params_);
+
   at::manual_seed(getATenRandomSeed());
-  auto outputs = fec.runFusionWithInputs(inputs);
+  auto outputs = runtime.runWithInput(inputs);
+  // auto outputs = fec.runFusionWithInputs(inputs);
   validate(
       expected_outputs,
       outputs,

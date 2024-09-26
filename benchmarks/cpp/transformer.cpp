@@ -739,6 +739,16 @@ void backward_transformer(Communicator* communicator_, bool profile, std::vector
        mha_grads[6],
        mha_grads[7]},
       mha_w0);
+    shardBetween(
+      {mha_w0, mha_b0, mha_w1, mlp_w0, mlp_w1, mlp_b0, mha_sdpa_out},
+      {mlp_grads[1],
+       mlp_grads[4],
+       mlp_grads[5],
+       mha_grads[1],
+       mha_grads[6],
+       mha_grads[7]},
+      mlp_w0);
+
 
   // Unsharded inputs to outputs
   shardBetween(
