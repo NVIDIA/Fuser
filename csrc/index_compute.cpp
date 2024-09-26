@@ -16,7 +16,7 @@
 #include <device_lower/pass/circular_buffer.h>
 #include <device_lower/pass/magic_zero.h>
 #include <device_lower/pass/unroll.h>
-#include <device_lower/utils.h>
+// #include <device_lower/utils.h>
 #include <device_lower/validation.h>
 #include <expr_simplifier.h>
 #include <id_model/utils.h>
@@ -1617,7 +1617,7 @@ std::vector<Val*> Index::getConsumerPerDimLogicalIndex(
     TensorView* consumer_tv,
     const std::vector<ForLoop*>& loops,
     const std::unordered_set<ForLoop*>& rotated_loops) {
-  if (!lower_utils::hasRootToLoopLinearTransformations(consumer_tv) ||
+  if (!ir_utils::hasRootToLoopLinearTransformations(consumer_tv) ||
       (isIdModelOptionEnabled(IdModelEnableOption::ConsumerIndex) &&
        GpuLower::current()->isTensorIndexerEnabled())) {
     const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
@@ -1643,7 +1643,7 @@ std::vector<Val*> Index::getProducerPerDimLogicalIndex(
     const std::vector<ForLoop*>& loops,
     const std::unordered_set<ForLoop*>& rotated_loops,
     const std::unordered_map<IterDomain*, Val*>& override_index) {
-  if (!lower_utils::hasRootToLoopLinearTransformations(producer_tv) ||
+  if (!ir_utils::hasRootToLoopLinearTransformations(producer_tv) ||
       (isIdModelOptionEnabled(IdModelEnableOption::ProducerIndex) &&
        GpuLower::current()->isTensorIndexerEnabled())) {
     const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
@@ -2128,7 +2128,7 @@ kir::TensorIndex* Index::getProducerIndex(
     DataType as_type) {
   Val* index = nullptr;
 
-  if (!lower_utils::hasRootToLoopLinearTransformations(producer) ||
+  if (!ir_utils::hasRootToLoopLinearTransformations(producer) ||
       (consumer->definition()->isA<MmaOp>() &&
        isHopper(consumer->definition()->as<MmaOp>()->macro())) ||
       (isIdModelOptionEnabled(IdModelEnableOption::ProducerIndex) &&
@@ -2233,7 +2233,7 @@ kir::TensorIndex* Index::getConsumerIndex(
     bool generate_pointer,
     DataType as_type) {
   Val* index = nullptr;
-  if (!lower_utils::hasRootToLoopLinearTransformations(consumer) ||
+  if (!ir_utils::hasRootToLoopLinearTransformations(consumer) ||
       (isIdModelOptionEnabled(IdModelEnableOption::ConsumerIndex) &&
        GpuLower::current()->isTensorIndexerEnabled())) {
     index = GpuLower::current()->tensorIndexer().getLinearIndex(

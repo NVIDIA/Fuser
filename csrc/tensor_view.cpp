@@ -219,14 +219,14 @@ int64_t getConsumerPosAlignedToProducerCA(
   int64_t consumer_pos = consumer->nDims();
 
   const bool may_need_forwarding =
-      lower_utils::hasRootToLoopLinearTransformations(producer) &&
+      ir_utils::hasRootToLoopLinearTransformations(producer) &&
       !ir_utils::compareDomains(
            producer->getLoopDomain(),
            producer->getLogicalDomain(),
            /*additional_ids=*/{},
            /*ignore_broadcast=*/false)
            .dom0_has_unreachable_ids &&
-      lower_utils::hasRootToLoopLinearTransformations(consumer) &&
+      ir_utils::hasRootToLoopLinearTransformations(consumer) &&
       !ir_utils::compareDomains(
            consumer->getLoopDomain(),
            consumer->getLogicalDomain(),

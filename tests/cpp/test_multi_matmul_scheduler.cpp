@@ -372,14 +372,8 @@ class MultiMatmulSchedulerMatchTest
       auto mma_ops = ir_utils::getOpsOfType<MmaOp>(fusion);
       NVF_ERROR(mma_ops.size(), 1);
       MmaOp* mma = mma_ops.front();
-      for (Val* v : InputsOf::outputs({mma->inA(), mma->inB()})) {
-        EXPECT_TRUE(v->isA<TensorView>());
-        EXPECT_TRUE(v->isFusionInput());
-        // Take the consumer of each input, which is the smem store
-        tvs.push_back(v->uses().at(0)->output(0)->as<TensorView>());
-      }
-
-      return tvs;
+      return std::vector<TensorView*>{
+          mma->inA()->as<TensorView>(), mma->inB()->as<TensorView>()};
     };
     std::vector<TensorView*> orig_compare_tvs = getTensorsToCompare(fusion);
     std::vector<TensorView*> new_compare_tvs = getTensorsToCompare(&new_fusion);
