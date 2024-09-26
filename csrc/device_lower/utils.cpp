@@ -785,8 +785,8 @@ BasicAllocInfo getAllocInformation(
       }
     }
 
-    if (lower_utils::getConcreteLoopDomain(local_id) ==
-        lower_utils::getConcreteLoopDomain(fl_id)) {
+    if (lower_utils::getConcreteLoopID(local_id) ==
+        lower_utils::getConcreteLoopID(fl_id)) {
       info.alloc_pos++;
     }
 
@@ -998,42 +998,6 @@ bool predicateAtEnd(ForLoop* loop) {
   // Now it is either loop_id is mapped with a vectorized IterDomain
   // or it's an output of view transformations.
   return true;
-}
-
-IterDomain* getConcreteLoopDomain(IterDomain* id) {
-  if (isIdModelOptionEnabled(IdModelEnableOption::Loop)) {
-    const auto& loop_graph =
-        GpuLower::current()->idModel().idGraph(IdMappingMode::LOOP);
-    auto promotion = getLoopPromotion(id, GpuLower::current()->idModel());
-    const auto& ca_map = GpuLower::current()->caMap();
-    const auto& loop_group = loop_graph.toGroup(id);
-
-    // Try to see if the CA concrete domain can be used instead
-    for (auto loop_val : *loop_group) {
-      IterDomain* loop_id = loop_val->as<IterDomain>();
-      if (ca_map->idExistsInMap(loop_id, IdMappingMode::LOOP)) {
-        auto ca_map_concrete =
-            ca_map->getConcreteMappedID(loop_id, IdMappingMode::LOOP);
-        if (GpuLower::current()
-                ->idModel()
-                .idGraph(IdMappingMode::LOOP)
-                .disjointValSets()
-                .strictAreMapped(ca_map_concrete, promotion) &&
-            GpuLower::current()
-                ->idModel()
-                .idGraph(IdMappingMode::EXACT)
-                .disjointValSets()
-                .strictAreMapped(ca_map_concrete, promotion)) {
-          return ca_map_concrete;
-        }
-      }
-    }
-
-    return promotion;
-  } else {
-    const auto& ca_map = GpuLower::current()->caMap();
-    return ca_map->getConcreteMappedID(id, IdMappingMode::LOOP);
-  }
 }
 
 // Implementation of:
@@ -1953,13 +1917,40 @@ Val* proveLinearAndGetStride(
   return proveLinearAndGetStrideAfterPropagation(frontier, domain);
 }
 
-IterDomain* getConcreteLoopID(IterDomain* loop_id) {
-  NVF_ERROR(
-      GpuLower::hasCurrent(),
-      "GpuLower is required for getting a concrete loop domain");
+IterDomain* getConcreteLoopID(IterDomain* id) {
+  if (isIdModelOptionEnabled(IdModelEnableOption::Loop)) {
+    const auto& loop_graph =
+        GpuLower::current()->idModel().idGraph(IdMappingMode::LOOP);
+    auto promotion = getLoopPromotion(id, GpuLower::current()->idModel());
+    const auto& ca_map = GpuLower::current()->caMap();
+    const auto& loop_group = loop_graph.toGroup(id);
 
-  return GpuLower::current()->caMap()->getConcreteMappedID(
-      loop_id, IdMappingMode::LOOP);
+    // Try to see if the CA concrete domain can be used instead
+    for (auto loop_val : *loop_group) {
+      IterDomain* loop_id = loop_val->as<IterDomain>();
+      if (ca_map->idExistsInMap(loop_id, IdMappingMode::LOOP)) {
+        auto ca_map_concrete =
+            ca_map->getConcreteMappedID(loop_id, IdMappingMode::LOOP);
+        if (GpuLower::current()
+                ->idModel()
+                .idGraph(IdMappingMode::LOOP)
+                .disjointValSets()
+                .strictAreMapped(ca_map_concrete, promotion) &&
+            GpuLower::current()
+                ->idModel()
+                .idGraph(IdMappingMode::EXACT)
+                .disjointValSets()
+                .strictAreMapped(ca_map_concrete, promotion)) {
+          return ca_map_concrete;
+        }
+      }
+    }
+
+    return promotion;
+  } else {
+    const auto& ca_map = GpuLower::current()->caMap();
+    return ca_map->getConcreteMappedID(id, IdMappingMode::LOOP);
+  }
 }
 
 } // namespace lower_utils
