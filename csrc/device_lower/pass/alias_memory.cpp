@@ -562,6 +562,7 @@ struct AllocationInfo {
   const kir::Allocate* alias_to = nullptr;
   bool is_inner_alias = false;
   bool should_try_alias = true;
+  bool is_cp_async_bulk = false;
   MemoryType mem_type = MemoryType::Local;
   DataType data_type = DataType::Float;
   std::string size_expr;
@@ -840,6 +841,9 @@ class AllocationInfoMap : private kir::IrVisitor {
     alloc_info->size_expr = size_print;
     alloc_info->loop_info = current_stack_.back();
     alloc_info->should_try_alias = should_try_alias;
+    alloc_info->is_cp_async_bulk =
+        (tv->definition() != nullptr &&
+         ir_utils::isCpAsyncBulk(tv->definition()));
 
     // record short cuts
     allocation_info_map_[alloc] = alloc_info;
@@ -1761,7 +1765,10 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
       auto top_size = allocSizeBytes(top_alloc);
       auto unaligned_address =
           SimplifyingIrBuilder::addExpr(top_alloc->address(), top_size);
-      auto aligned_address = alignExpr(unaligned_address);
+      // Shared memory allocations must by 128B aligned for cpAsyncBulk
+      // operations to avoid CUDA_ERROR_MISALIGNED_ADDRESS.
+      auto aligned_address = alignExpr(
+          unaligned_address, (alloc_info->is_cp_async_bulk) ? 128 : 16);
       // TODO: hoisting of addresses using for_loops_ recorded at first write
       alloc->setAddress(aligned_address);
     }
