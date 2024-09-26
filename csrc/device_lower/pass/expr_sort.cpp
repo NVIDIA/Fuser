@@ -335,8 +335,7 @@ class ExprSegmentationSorter {
     if (id == kernelScopeDomain()) {
       return id;
     } else {
-      return GpuLower::current()->caMap()->getConcreteMappedID(
-          id, IdMappingMode::LOOP);
+      return lower_utils::getConcreteLoopID(id);
     }
   }
 
@@ -798,8 +797,6 @@ std::vector<IterDomain*> getLocalDomainOrdering(
     return std::vector<IterDomain*>();
   }
 
-  const auto& ca_map = GpuLower::current()->caMap();
-
   std::unordered_set<IterDomain*> domains;
 
   for (auto expr : exprs) {
@@ -820,17 +817,15 @@ std::vector<IterDomain*> getLocalDomainOrdering(
                   tv_input->getComputePosition(tv_output),
                   tv_input->getMaxProducerPosition()),
           std::back_inserter(domain),
-          [&ca_map](IterDomain* id) {
-            return ca_map->getConcreteMappedID(id, IdMappingMode::LOOP);
-          });
+          lower_utils::getConcreteLoopID);
 
       domain.erase(
           std::remove_if(
               domain.begin(),
               domain.end(),
-              [&filter, &ca_map](IterDomain* id) {
-                return filter.find(ca_map->getConcreteMappedID(
-                           id, IdMappingMode::LOOP)) == filter.end();
+              [&filter](IterDomain* id) {
+                return filter.find(lower_utils::getConcreteLoopID(id)) ==
+                    filter.end();
               }),
           domain.end());
 

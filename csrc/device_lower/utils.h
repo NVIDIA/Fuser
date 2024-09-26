@@ -375,6 +375,9 @@ Val* proveLinearAndGetStride(
     const ValGroup& linear_g,
     const ValGroups& domain);
 
+// Get the concrete loop domain of a given loop ID
+IterDomain* getConcreteLoopID(IterDomain* loop_id);
+
 } // namespace lower_utils
 
 } // namespace nvfuser
