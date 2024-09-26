@@ -21,7 +21,15 @@ constexpr int64_t B = 1, E = 12288, H = 96, S = 2048;
 constexpr double kDropoutProb = 0.1, kParamScale = 0.02, kSdpaProb = 0.1;
 constexpr int64_t warmup_itrs = 10, num_itrs = 10;
 
-std::vector<TensorView*> mlp(
+struct MLP_Results {
+  TensorView* linear0;
+  TensorView* gelu;
+  TensorView* linear1;
+  TensorView* output;
+  TensorView* dropout_mask;
+};
+
+MLP_Results mlp(
     TensorView* x,
     TensorView* w0,
     TensorView* b0,
@@ -42,10 +50,10 @@ std::vector<TensorView*> mlp(
   // Dropout
   Val* prob = IrBuilder::create<Val>(1.0 - kDropoutProb);
   Val* scale = IrBuilder::create<Val>(1.0 / (1.0 - kDropoutProb));
-  auto dropout_result = dropout(linear1, prob, scale).output;
+  auto dropout_tvs = dropout(linear1, prob, scale);
 
   // Manual sharding annotations
-  for (auto tv : {x, b1, linear1, dropout_result}) {
+  for (auto tv : {x, b1, linear1, dropout_tvs.output}) {
     tv->setDeviceMesh(mesh);
   }
   for (auto tv : {w0, b0, w1, linear0, gelu}) {
@@ -53,7 +61,7 @@ std::vector<TensorView*> mlp(
     tv->axis(0)->parallelize(ParallelType::DIDx);
   }
 
-  return {linear0, gelu, linear1, dropout_result};
+  return {linear0, gelu, linear1, dropout_tvs.output, dropout_tvs.mask};
 }
 
 std::vector<TensorView*> mha_qkv(
@@ -78,8 +86,18 @@ std::vector<TensorView*> mha_qkv(
   }
   return qkv;
 }
+struct MHA_Results {
+  TensorView* linear0;
+  TensorView* sdpa_output;
+  TensorView* linear1;
+  TensorView* output;
+  TensorView* sdpa_log_sumexp;
+  TensorView* sdpa_philox_seed;
+  TensorView* sdpa_philox_offset;
+  TensorView* dropout_mask;
+};
 
-std::vector<TensorView*> mha(
+MHA_Results mha(
     TensorView* x,
     TensorView* w0,
     TensorView* b0,
@@ -121,16 +139,17 @@ std::vector<TensorView*> mha(
   // Dropout
   Val* prob = IrBuilder::create<Val>(1.0 - kDropoutProb);
   Val* scale = IrBuilder::create<Val>(1.0 / (1.0 - kDropoutProb));
-  auto dropout_result = dropout(linear1, prob, scale).output;
+  auto dropout_tvs = dropout(linear1, prob, scale);
 
-  for (auto tv : {x, b1, matmul1, linear1, dropout_result}) {
+  for (auto tv : {x, b1, matmul1, linear1, dropout_tvs.output}) {
     tv->setDeviceMesh(mesh);
   }
   for (auto tv : {w0, b0, w1, linear0, sdpa_output}) {
     tv->setDeviceMesh(mesh);
     tv->axis(0)->parallelize(ParallelType::DIDx);
   }
-  return {linear0, sdpa_output, linear1, dropout_result};
+  return {linear0, sdpa_output, linear1, dropout_tvs.output, 
+    sdpa.log_sumexp, sdpa.philox_seed, sdpa.philox_offset, dropout_tvs.mask};
 }
 
 // TODO: These linear_backwards helper functions can be merged once
@@ -401,7 +420,7 @@ at::Tensor shardTensor(
   return slice;
 }
 
-void forward_transformer(Communicator* communicator_, bool profile) {
+std::vector<at::Tensor> forward_transformer(Communicator* communicator_, bool profile) {
   int64_t D = communicator_->size();
   auto dtype = DataType::BFloat16;
   at::ScalarType at_dtype = data_type_to_aten(dtype);
@@ -410,20 +429,28 @@ void forward_transformer(Communicator* communicator_, bool profile) {
   const auto mesh = DeviceMesh::createForNumDevices(D);
 
   TensorView* x = makeContigConcreteTensor({B * S, E}, DataType::Float);
+  TensorView* ln0_w = makeContigTensor(1);
+  TensorView* ln0_b = makeContigTensor(1);
   TensorView* mha_w0 = makeContigConcreteTensor({D, E, 3 * E / D}, dtype);
   TensorView* mha_b0 = makeContigConcreteTensor({D, 3 * E / D}, dtype);
   TensorView* mha_w1 = makeContigConcreteTensor({D, E / D, E}, dtype);
   TensorView* mha_b1 = makeContigConcreteTensor({E}, dtype);
+  TensorView* ln1_w = makeContigTensor(1);
+  TensorView* ln1_b = makeContigTensor(1);
   TensorView* mlp_w0 = makeContigTensor(3, dtype);
   TensorView* mlp_b0 = makeContigTensor(2, dtype);
   TensorView* mlp_w1 = makeContigTensor(3, dtype);
   TensorView* mlp_b1 = makeContigTensor(1, dtype);
 
   fusion->addInput(x);
+  fusion->addInput(ln0_w);
+  fusion->addInput(ln0_b);
   fusion->addInput(mha_w0);
   fusion->addInput(mha_b0);
   fusion->addInput(mha_w1);
   fusion->addInput(mha_b1);
+  fusion->addInput(ln1_w);
+  fusion->addInput(ln1_b);
   fusion->addInput(mlp_w0);
   fusion->addInput(mlp_b0);
   fusion->addInput(mlp_w1);
@@ -433,38 +460,51 @@ void forward_transformer(Communicator* communicator_, bool profile) {
   auto eps = IrBuilder::create<Val>(kEps);
   std::vector<int64_t> norm_shape{E};
 
-  auto ln_1 =
-      layer_norm(x, norm_shape, /*weight=*/nullptr, /*bias=*/nullptr, eps);
+  auto ln_1 = layer_norm(x, norm_shape, ln0_w, ln0_b, eps);
   auto mha_in = castOp(dtype, ln_1.output);
-  auto mha_out = mha(mha_in, mha_w0, mha_b0, mha_w1, mha_b1, mesh)[3];
-  auto resid_1 = add(x, mha_out);
-  auto ln_2 = layer_norm(
-      resid_1, norm_shape, /*weight=*/nullptr, /*bias=*/nullptr, eps);
+  auto mha_tvs = mha(mha_in, mha_w0, mha_b0, mha_w1, mha_b1, mesh);
+  auto resid_1 = add(x, mha_tvs.output);
+  auto ln_2 = layer_norm(resid_1, norm_shape, ln1_w, ln1_b, eps);
   auto mlp_in = castOp(dtype, ln_2.output);
-  auto mlp_out = mlp(mlp_in, mlp_w0, mlp_b0, mlp_w1, mlp_b1, mesh)[3];
-  auto resid_2 = add(resid_1, mlp_out);
+  auto mlp_tvs = mlp(mlp_in, mlp_w0, mlp_b0, mlp_w1, mlp_b1, mesh);
+  auto resid_2 = add(resid_1, mlp_tvs.output);
 
-  fusion->addOutput(ln_1.output);
-  fusion->addOutput(mha_out);
-  fusion->addOutput(ln_2.output);
-  fusion->addOutput(mlp_out);
-  fusion->addOutput(resid_2);
+  fusion->addOutput(resid_2); // output of the layer
+  // Cached TVs for backward pass
+  fusion->addOutput(ln_1.mean);
+  fusion->addOutput(ln_1.invstd);
+  fusion->addOutput(mha_tvs.sdpa_output);
+  fusion->addOutput(mha_tvs.sdpa_log_sumexp);
+  fusion->addOutput(mha_tvs.sdpa_philox_seed);
+  fusion->addOutput(mha_tvs.sdpa_philox_offset);
+  fusion->addOutput(mha_tvs.linear1);
+  fusion->addOutput(mha_tvs.dropout_mask);
+  fusion->addOutput(ln_2.mean);
+  fusion->addOutput(ln_2.invstd);
+  fusion->addOutput(mlp_tvs.dropout_mask);
 
-  for (auto tv : {x, ln_1.output, ln_2.output, resid_2}) {
+  for (auto tv : {x, ln_1.output, ln_2.output, resid_2, ln0_w, ln0_b, ln1_w, ln1_b}) {
     tv->setDeviceMesh(mesh);
   }
 
-  shardBetween({mha_in->definition()}, {mha_out->definition()}, mha_w0);
-  shardBetween({mlp_in->definition()}, {mlp_out->definition()}, mlp_w0);
+  shardBetween({mha_in->definition()}, {mha_tvs.output->definition()}, mha_w0);
+  shardBetween({mlp_in->definition()}, {mlp_tvs.output->definition()}, mlp_w0);
   shardBetween({x}, {mha_in}, x);
 
   const auto options =
       at::TensorOptions().dtype(at_dtype).device(communicator_->device());
   auto x_ = at::randn({B * S, E}, options).to(at::kFloat);
+
+  auto ln0_w_ = at::randn(E, options).to(at::kFloat);
+  auto ln0_b_ = at::randn(E, options).to(at::kFloat);
+
   auto mha_w0_ = at::randn({E, 3 * E}, options) * kParamScale;
   auto mha_b0_ = at::randn({3 * E}, options) * kParamScale;
   auto mha_w1_ = at::randn({E, E}, options) * kParamScale;
   auto mha_b1_ = at::randn({E}, options) * kParamScale;
+
+  auto ln1_w_ = at::randn(E, options).to(at::kFloat);
+  auto ln1_b_ = at::randn(E, options).to(at::kFloat);
 
   auto mlp_w0_ = at::randn({E, 4 * E}, options) * kParamScale;
   auto mlp_b0_ = at::randn({4 * E}, options) * kParamScale;
@@ -473,37 +513,42 @@ void forward_transformer(Communicator* communicator_, bool profile) {
 
   std::vector<c10::IValue> inputs = {
       x_,
+      ln0_w_,
+      ln0_b_,
       shardTensor(mha_w0_.view({E, 3, E}), 2, mesh, communicator_).view({1, E, 3 * E / D}),
       shardTensor(mha_b0_.view({3, E}), 1, mesh, communicator_).view({1, 3 * E / D}),
       shardTensor(mha_w1_, 0, mesh, communicator_),
       mha_b1_,
+      ln1_w_,
+      ln1_b_,
       shardTensor(mlp_w0_, 1, mesh, communicator_),
       shardTensor(mlp_b0_, 0, mesh, communicator_),
       shardTensor(mlp_w1_, 0, mesh, communicator_),
       mlp_b1_};
 
-  // Warm-up
   FusionExecutorCache fec(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
+  std::vector<at::Tensor> outputs;
 
   cudaSetDevice(communicator_->deviceId());
+  std::cout << "PROFILE? " << profile << std::endl;
 
   auto start = std::chrono::high_resolution_clock::now();
   for (auto i : c10::irange(num_itrs + warmup_itrs)) {
-    if (i > warmup_itrs && profile) {
-      nvtxRangePush(("Iteration" + std::to_string(i)).c_str());
-    }
     if (i == warmup_itrs) {
       start = std::chrono::high_resolution_clock::now();
       if (profile) {
         cudaProfilerStart();
       }
     }
-    auto outputs = fec.runFusionWithInputs(inputs);
+    if (i >= warmup_itrs && profile) {
+      nvtxRangePush(("Iteration" + std::to_string(i)).c_str());
+    }
+    outputs = fec.runFusionWithInputs(inputs);
     cudaDeviceSynchronize();
     // cudaDeviceSynchronize is not blocking until kernels are finished on all devices except 0
     // TODO: are we not waiting until all kernels are appended to the stream?
-    std::cout << outputs[4][0][0] << std::endl; 
+    std::cout << outputs[0][0][0] << std::endl; 
 
     if (i > warmup_itrs && profile) {
       nvtxRangePop();
@@ -514,13 +559,295 @@ void forward_transformer(Communicator* communicator_, bool profile) {
     cudaProfilerStop();
   }
 
-  double foward_time = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() / (double) num_itrs;
+  double foward_time = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() / (double) num_itrs / 1000.0;
   std::cout << communicator_->deviceId() << ": Average forward time " << foward_time << "ms" << std::endl;
+  return outputs;
+}
+
+
+void backward_transformer(Communicator* communicator_, bool profile, std::vector<at::Tensor> fwd_tensors) {
+  auto dtype = DataType::BFloat16;
+  int64_t D = communicator_->size();
+  at::ScalarType at_dtype = data_type_to_aten(dtype);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  const auto mesh = DeviceMesh::createForNumDevices(D);
+  constexpr float kEps = 1e-5;
+  std::vector<int64_t> norm_shape{E};
+
+  TensorView* x = makeContigConcreteTensor({B * S, E});
+  TensorView* grad = makeContigTensor(2);
+  TensorView* mha_w0 = makeContigConcreteTensor({D, E, 3 * E / D}, dtype);
+  TensorView* mha_b0 = makeContigConcreteTensor({D, 3 * E / D}, dtype);
+  TensorView* mha_w1 = makeContigConcreteTensor({D, E / D, E}, dtype);
+  TensorView* mlp_w0 = makeContigTensor(3, dtype);
+  TensorView* mlp_b0 = makeContigTensor(2, dtype);
+  TensorView* mlp_w1 = makeContigTensor(3, dtype);
+  TensorView* mlp_b1 = makeContigTensor(1, dtype);
+  TensorView* mha_mask = makeContigTensor(2, DataType::Bool);
+  TensorView* mlp_mask = makeContigTensor(2, DataType::Bool);
+  TensorView* mha_sdpa_out = makeConcreteTensor({D, B, H / D, S, E / H}, dtype);
+  TensorView* mha_sdpa_log_sumexp =
+      makeContigConcreteTensor({D, B, H / D, S}, DataType::Float);
+  TensorView* mha_sdpa_seed = makeSymbolicTensor({}, DataType::Int);
+  TensorView* mha_sdpa_offset = makeSymbolicTensor({}, DataType::Int);
+  TensorView* ln1_w = makeContigTensor(1);
+  TensorView* ln1_b = makeContigTensor(1);
+  TensorView* ln1_mean = makeConcreteTensor({B * S, 1});
+  TensorView* ln1_rstd = makeConcreteTensor({B * S, 1});
+  TensorView* ln0_w = makeContigTensor(1);
+  TensorView* ln0_b = makeContigTensor(1);
+  TensorView* ln0_mean = makeConcreteTensor({B * S, 1});
+  TensorView* ln0_rstd = makeConcreteTensor({B * S, 1});
+  TensorView* mha_linear1 = makeContigTensor(2);
+
+  fusion->addInput(x);
+  fusion->addInput(grad);
+  fusion->addInput(mha_w0);
+  fusion->addInput(mha_b0);
+  fusion->addInput(mha_w1);
+  fusion->addInput(mlp_w0);
+  fusion->addInput(mlp_b0);
+  fusion->addInput(mlp_w1);
+  fusion->addInput(mlp_b1);
+  fusion->addInput(mlp_mask);
+  fusion->addInput(mha_mask);
+  fusion->addInput(mha_sdpa_out);
+  fusion->addInput(mha_sdpa_log_sumexp);
+  fusion->addInput(mha_sdpa_seed);
+  fusion->addInput(mha_sdpa_offset);
+  fusion->addInput(ln1_w);
+  fusion->addInput(ln1_b);
+  fusion->addInput(ln1_mean);
+  fusion->addInput(ln1_rstd);
+  fusion->addInput(ln0_w);
+  fusion->addInput(ln0_b);
+  fusion->addInput(ln0_mean);
+  fusion->addInput(ln0_rstd);
+  fusion->addInput(mha_linear1);
+
+  // Recomputation: Recompute, mha linear0, qkv, mlp linear0, and mlp gelu.
+  // Partially recompute layer norms using cached statistics.
+  // Note: The thunder trace recompute mha linear1, but this would result in 3
+  // AllReduces in the backwards pass.
+  auto ln_0 = layer_norm_with_cached_statistics(
+      x, ln0_mean, ln0_rstd, norm_shape, ln0_w, ln0_b);
+  auto mha_in = castOp(dtype, ln_0);
+  auto qkv = mha_qkv(mha_in, mha_w0, mha_b0, mesh);
+
+  Val* dropout_scale = IrBuilder::create<Val>(1.0 / (1.0 - kDropoutProb));
+  // Use input mha_mask to implement dropout
+  auto mha_out = mul(mha_linear1, mha_mask);
+  mha_out = mul(mha_out, dropout_scale);
+  auto resid_0 = add(x, mha_out);
+  auto ln_1 = layer_norm_with_cached_statistics(
+      resid_0, ln1_mean, ln1_rstd, norm_shape, ln1_w, ln1_b);
+  auto mlp_in = castOp(dtype, ln_1);
+  // Note: We only use linear0 and gelu outputs from the mlp forward pass.
+  auto mlp_tvs = mlp(mlp_in, mlp_w0, mlp_b0, mlp_w1, mlp_b1, mesh);
+
+  // Backwards
+  auto mlp_grads = mlp_backwards(
+      grad,
+      mlp_in,
+      mlp_mask,
+      mlp_w0,
+      mlp_b0,
+      mlp_w1,
+      mesh,
+      mlp_tvs.linear0,
+      mlp_tvs.gelu);
+  auto ln1_grads = layer_norm_backward(
+      castOp(DataType::Float, mlp_grads[6]),
+      resid_0,
+      norm_shape,
+      ln1_mean,
+      ln1_rstd,
+      ln1_w,
+      ln1_b,
+      {true, true, true});
+  auto resid1_grad = add(ln1_grads.grad_input, grad);
+  auto mha_grads = mha_backwards(
+      mha_in,
+      mha_w0,
+      mha_b0,
+      mha_w1,
+      mha_mask,
+      mha_sdpa_out,
+      mha_sdpa_log_sumexp,
+      mha_sdpa_seed,
+      mha_sdpa_offset,
+      resid1_grad,
+      qkv,
+      mesh);
+  auto ln0_grads = layer_norm_backward(
+      castOp(DataType::Float, mha_grads[8]),
+      x,
+      norm_shape,
+      ln0_mean,
+      ln0_rstd,
+      ln0_w,
+      ln0_b,
+      {true, true, true});
+  auto dx = add(ln0_grads.grad_input, resid1_grad);
+
+  fusion->addOutput(mlp_grads[1]); // mlp linear1 weight grad
+  fusion->addOutput(mlp_grads[2]); // mlp linear1 bias grad
+  fusion->addOutput(mlp_grads[4]); // mlp linear0 weight grad
+  fusion->addOutput(mlp_grads[5]); // mlp linear0 bias grad
+  fusion->addOutput(ln1_grads.grad_weight);
+  fusion->addOutput(ln1_grads.grad_bias);
+  fusion->addOutput(mha_grads[1]); // mha linear1 weight grad
+  fusion->addOutput(mha_grads[2]); // mha linear1 bias grad
+  fusion->addOutput(mha_grads[6]); // mha linear0 weight grad
+  fusion->addOutput(mha_grads[7]); // mha linear0 bias grad
+  fusion->addOutput(ln0_grads.grad_weight);
+  fusion->addOutput(ln0_grads.grad_bias);
+  fusion->addOutput(dx); // transformer grad input
+
+  // Sharding annotations for input and output TVs not sharded
+  // by mlp_backward, mha_backward, or mlp.
+  for (auto* tv :
+       {mha_linear1,
+        ln0_w,
+        ln0_b,
+        ln0_mean,
+        ln0_rstd,
+        ln1_w,
+        ln1_b,
+        ln1_mean,
+        ln1_rstd,
+        ln1_grads.grad_weight,
+        ln1_grads.grad_bias,
+        ln0_grads.grad_weight,
+        ln0_grads.grad_bias,
+        ln0_grads.grad_input}) {
+    tv->setDeviceMesh(mesh);
+  }
+  for (auto* tv : {mha_w0, mha_b0, mha_w1, mha_sdpa_out, mha_sdpa_log_sumexp}) {
+    tv->setDeviceMesh(mesh);
+    tv->axis(0)->parallelize(ParallelType::DIDx);
+  }
+
+  // Sharded inputs to outputs
+  shardBetween(
+      {mha_w0, mha_b0, mha_w1, mlp_w0, mlp_w1, mlp_b0, mha_sdpa_out},
+      {mlp_grads[1],
+       mlp_grads[4],
+       mlp_grads[5],
+       mha_grads[1],
+       mha_grads[6],
+       mha_grads[7]},
+      mha_w0);
+
+  // Unsharded inputs to outputs
+  shardBetween(
+      {x,
+       grad,
+       mha_mask,
+       mlp_mask,
+       mha_linear1,
+       ln0_mean,
+       ln0_w,
+       ln0_b,
+       ln1_mean,
+       ln1_w,
+       ln1_b,
+       mlp_b1},
+      {mlp_grads[2],
+       ln1_grads.grad_weight,
+       ln1_grads.grad_bias,
+       mha_grads[2],
+       ln0_grads.grad_weight,
+       ln0_grads.grad_bias,
+       dx},
+      x);
+
+  const auto options =
+      at::TensorOptions().dtype(at_dtype).device(communicator_->device());
+  auto x_ = at::randn({B * S, E}, options).to(at::kFloat);
+  auto ln0_w_ = at::randn(E, options).to(at::kFloat);
+  auto ln0_b_ = at::randn(E, options).to(at::kFloat);
+  auto mha_w0_ = at::randn({E, 3 * E}, options) * kParamScale;
+  auto mha_b0_ = at::randn({3 * E}, options) * kParamScale;
+  auto mha_w1_ = at::randn({E, E}, options) * kParamScale;
+  auto mha_b1_ = at::randn({E}, options) * kParamScale;
+  auto ln1_w_ = at::randn(E, options).to(at::kFloat);
+  auto ln1_b_ = at::randn(E, options).to(at::kFloat);
+  auto mlp_w0_ = at::randn({E, 4 * E}, options) * kParamScale;
+  auto mlp_b0_ = at::randn({4 * E}, options) * kParamScale;
+  auto grad_ = at::randn({B * S, E}, options).to(at::kFloat) * kParamScale;
+  auto mlp_w1_ = at::randn({4 * E, E}, options) * kParamScale;
+  auto mlp_b1_ = at::randn({E}, options) * kParamScale;
+
+  std::vector<c10::IValue> inputs = {
+      x_,
+      grad_,
+      shardTensor(mha_w0_.view({E, 3, E}), 2, mesh, communicator_).view({1, E, 3 * E / D}),
+      shardTensor(mha_b0_.view({3, E}), 1, mesh, communicator_).view({1, 3 * E / D}),
+      shardTensor(mha_w1_, 0, mesh, communicator_),
+      shardTensor(mlp_w0_, 1, mesh, communicator_),
+      shardTensor(mlp_b0_, 0, mesh, communicator_),
+      shardTensor(mlp_w1_, 0, mesh, communicator_),
+      mlp_b1_,
+      fwd_tensors[8], // mlp dropout mask
+      fwd_tensors[11], // mha dropout mask
+      fwd_tensors[3], // sdpa output
+      fwd_tensors[4], // sdpa logsum_exp
+      fwd_tensors[5], // sdpa seed
+      fwd_tensors[6], // sdpa offset
+      ln1_w_,
+      ln1_b_,
+      fwd_tensors[9],
+      fwd_tensors[10],
+      ln0_w_,
+      ln0_b_,
+      fwd_tensors[1],
+      fwd_tensors[2],
+      fwd_tensors[7]
+  };
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::manual_seed(getATenRandomSeed());
+  std::vector<at::Tensor> outputs;
+
+  cudaSetDevice(communicator_->deviceId());
+
+  auto start = std::chrono::high_resolution_clock::now();
+  for (auto i : c10::irange(num_itrs + warmup_itrs)) {
+    if (i == warmup_itrs) {
+      start = std::chrono::high_resolution_clock::now();
+      if (profile) {
+        cudaProfilerStart();
+      }
+    }
+    if (i >= warmup_itrs && profile) {
+      nvtxRangePush(("Iteration" + std::to_string(i)).c_str());
+    }
+    outputs = fec.runFusionWithInputs(inputs);
+    cudaDeviceSynchronize();
+    // cudaDeviceSynchronize is not blocking until kernels are finished on all devices except 0
+    // TODO: are we not waiting until all kernels are appended to the stream?
+    std::cout << outputs[0][0][0][0] << std::endl; 
+
+    if (i > warmup_itrs && profile) {
+      nvtxRangePop();
+    }
+  }
+  auto end = std::chrono::high_resolution_clock::now();
+  if (profile) {
+    cudaProfilerStop();
+  }
+
+  double backward_time = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() / (double) num_itrs / 1000.0;
+  std::cout << communicator_->deviceId() << ": Average backward time " << backward_time << "ms" << std::endl;
+
 }
 
 int main(int argc, char** argv) {
   // using this is as a flag for when to profile
   bool profile = argc > 1;
   auto communicator_ = &Communicator::getInstance();
-  forward_transformer(communicator_, profile);
+  auto outputs = forward_transformer(communicator_, false);
+  backward_transformer(communicator_, profile, outputs);
 }
