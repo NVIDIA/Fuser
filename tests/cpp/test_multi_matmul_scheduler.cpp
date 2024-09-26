@@ -227,10 +227,12 @@ class MultiMatmulSchedulerMatchTest
     EXPECT_EQ(id_new->definition() == nullptr, id_orig->definition() == nullptr)
         << suffix;
     if (id_orig->definition() == nullptr) {
+      // TODO: reinstate this check if we decide to check ParallelType again
+      /*
       if (Val* id_orig_cloned = cloner_->clone(id_orig)) {
-        // TODO: reinstate this check if we decide to check ParallelType again
-        // EXPECT_TRUE(id_orig_cloned->sameAs(id_new)) << suffix;
+        EXPECT_TRUE(id_orig_cloned->sameAs(id_new)) << suffix;
       }
+      */
     } else {
       Expr* def_orig = id_orig->definition();
       Expr* def_new = id_new->definition();
