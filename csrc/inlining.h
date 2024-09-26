@@ -8,6 +8,7 @@
 #pragma once
 
 #include <exceptions.h>
+#include <id_model/id_model.h>
 #include <ir/interface_nodes.h>
 #include <maxinfo_propagator.h>
 #include <transform_replay.h>
@@ -25,9 +26,15 @@ class MaxPosCalculator {
   // User set IterDomains to not inline
   std::unordered_set<IterDomain*> uninlinable_ids_;
 
+  std::unique_ptr<IdModel> id_model_;
+
   // Iterate through all TVs and collect the dimensions of each TV that don't
   // map to all its consumer TVs.
   void buildUnmappableDims(bool compute_at_only);
+
+  // Get the IdModel graph for inlining analysis (i.e., the Broadcast
+  // graph). The graph is lazily created.
+  const ValGraph& inliningGraph();
 
  public:
   // Utility function to return if an id of tv is a valid iter domain to inline
@@ -55,7 +62,7 @@ class MaxPosCalculator {
   size_t getMaxProducerPosFromConsumer(
       TensorView* producer,
       TensorView* consumer,
-      bool best_effort) const;
+      bool best_effort);
 
   // Checks producers, consumers, and siblings to see what the maximum position
   // in tv is that can be shared across both directions.

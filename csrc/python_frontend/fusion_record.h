@@ -389,7 +389,7 @@ struct SliceOpRecord : RecordFunctor {
     const std::vector<Val*>& stride =
         fd.getFusionStateVector(args_.at(3).index);
     std::vector<Slice> vec_slice;
-    for (const auto idx : c10::irange(arg->nDims())) {
+    for (const auto idx : c10::irange(arg->domain()->noReductions().size())) {
       // NOTE: there's an extra move, we can use emplace_back if we go write
       // some constructors for Slice.
       Val* start_idx = start.at(idx);
