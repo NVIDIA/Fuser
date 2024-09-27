@@ -14,8 +14,6 @@
 
 #include <utility>
 
-#include <fstream>
-
 namespace nvfuser {
 
 MaxPosCalculator::MaxPosCalculator(
