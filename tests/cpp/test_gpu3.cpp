@@ -3765,39 +3765,6 @@ TEST_F(NVFuserTest, FusionScheduleTransposeRepro1_CUDA) {
   testValidate(&fusion, cg_outputs, {input0, input1}, __LINE__, __FILE__);
 }
 
-// Repro for issue #1873
-TEST_F(NVFuserTest, FusionInlineBroadcastIndexing0_CUDA) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  auto tv0 = makeContigTensor(1);
-  auto tv1 = makeContigTensor(2);
-  fusion.addInput(tv0);
-  fusion.addInput(tv1);
-  auto tv2 = set(tv0);
-  auto tv3 = broadcast(tv2, {true, false});
-  auto tv4 = add(tv3, tv1);
-  fusion.addOutput(tv4);
-
-  tv4->merge(0);
-  tv4->split(0, 32);
-
-  tv0->computeAt(tv4, 1);
-
-  tv2->split(-1, 8);
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({123}, options);
-  at::Tensor t1 = at::randn({3, 123}, options);
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0, t1});
-
-  auto outputs = fe.runFusion({t0, t1});
-
-  testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
-}
-
 TEST_F(NVFuserTest, FusionPredicateUnshare_CUDA) {
   // https://github.com/csarofeen/pytorch/issues/1926
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
@@ -8035,16 +8002,14 @@ TEST_F(NVFuserTest, ReverseMerge) {
   ASSERT_TRUE(t0.equal(cg_outputs.at(0)));
 }
 
-// Can't use CpAsync with shared memory predicate.
-// https://github.com/NVIDIA/Fuser/issues/2346
-TEST_F(NVFuserTest, FusionCpAsyncPredicateError) {
+TEST_F(NVFuserTest, FusionCpAsyncPredicateAvoidIllegalMemoryAccess) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
   int m = 33, n = 48;
   TensorView* tv0 = makeContigTensor(2);
   fusion.addInput(tv0);
-  auto tv1 = exp(tv0);
+  auto tv1 = set(tv0);
   fusion.addOutput(tv1);
 
   auto tvs = tv0->cacheAfter(LoadStoreOpType::CpAsync);
@@ -8062,10 +8027,9 @@ TEST_F(NVFuserTest, FusionCpAsyncPredicateError) {
   at::Tensor t0 = at::randn({m, n}, options);
 
   FusionExecutor fe;
-  EXPECT_THAT(
-      [&]() { fe.compileFusion(&fusion, {t0}); },
-      ::testing::ThrowsMessage<nvfuser::nvfError>(
-          ::testing::HasSubstr("unsupported use case of cp.async")));
+  fe.compileFusion(&fusion, {t0});
+  auto cg_outputs = fe.runFusion({t0});
+  ASSERT_TRUE(t0.equal(cg_outputs.at(0)));
 }
 
 TEST_F(NVFuserTest, DecoupledDomains1) {

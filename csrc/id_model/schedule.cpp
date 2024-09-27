@@ -122,6 +122,19 @@ std::pair<ValGroup, ValGroup> split(
   return {graph->toGroup(outer_id), graph->toGroup(inner_id)};
 }
 
+std::pair<ValGroup, ValGroup> split(
+    ValGraph* graph,
+    const ValGroup& g,
+    int64_t factor,
+    bool inner_split) {
+  return split(
+      graph,
+      g,
+      IrBuilder::createInContainer<Val>(
+          g->front()->fusion(), factor, DataType::Index),
+      inner_split);
+}
+
 std::pair<ValGroup, ValGroup> swizzle(
     ValGraph* graph,
     SwizzleType swizzle_type,

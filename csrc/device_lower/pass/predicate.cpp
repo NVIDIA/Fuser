@@ -133,25 +133,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
       setWritePredicate(expr);
     }
 
-    // According to:
-    // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#data-movement-and-conversion-instructions-cp-async
-    // cp.async has a built-in mechanism `ignore-src` to ignore the source and
-    // fill zero. We can just invert the predicate and use it as `ignore-src`.
-    if (ir_utils::isCpAsyncOp(expr)) {
-      invertPredicate(expr);
-    }
-
     kir::ExprMutator::dispatch(expr);
-  }
-
-  // Invert the predicate of given expr.
-  void invertPredicate(Expr* expr) {
-    NVF_ERROR(expr != nullptr);
-    auto pred = expr->predicate()->value();
-    Val* invert = SimplifyingIrBuilder::logicalNotExpr(pred);
-    invert =
-        GpuLower::current()->commonScalarMap().hoistScalar(invert, for_loops_);
-    expr->predicate()->setValue(invert);
   }
 
   void setWritePredicate(Expr* expr) {
