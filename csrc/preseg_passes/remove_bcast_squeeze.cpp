@@ -193,19 +193,27 @@ AxisOps composeOps(const AxisOps& prev, const AxisOps& next) {
   return ops;
 }
 
-void maybeDoReplacement(Expr* first, Expr* second) {
+TensorView* maybeDoReplacement(TensorView* orig) {
+  Expr* second = orig->definition();
+  if (!isReplaceableExpr(second)) {
+    return orig;
+  }
+  Expr* first = second->input(0)->definition();
+  if (!isReplaceableExpr(first)) {
+    return orig;
+  }
+
   AxisOps first_ops = exprToAxisOps(first);
   AxisOps second_ops = exprToAxisOps(second);
   AxisOps simplified_ops = composeOps(first_ops, second_ops);
   std::optional<AxisOp> simple_op_type_opt =
       getSimplifiedOpType(simplified_ops);
+  TensorView* replacement = nullptr;
   if (simple_op_type_opt.has_value()) {
     TensorView* input_tv = first->input(0)->as<TensorView>();
-    Val* orig = second->output(0);
-    Val* replacement = nullptr;
     if (simplified_ops == first_ops) {
       // The second op was simply a "Set" operation, so we just skip it
-      replacement = first->output(0);
+      replacement = first->output(0)->as<TensorView>();
     } else {
       switch (simple_op_type_opt.value()) {
         case AxisOp::PRESERVE:
@@ -222,29 +230,34 @@ void maybeDoReplacement(Expr* first, Expr* second) {
     }
     NVF_ERROR(replacement != nullptr);
     ir_utils::replaceValInAllExprInputsAndFusionOutputs(orig, replacement);
-    if (Expr* new_second = replacement->definition(); replacement != input_tv &&
-        isReplaceableExpr(new_second) &&
-        isReplaceableExpr(new_second->input(0)->definition())) {
-      // If we actually did a replacement, then we should process the
-      // replacement. Otherwise we would miss it.
-      maybeDoReplacement(new_second->input(0)->definition(), new_second);
-    }
   }
+  return replacement;
 }
 
 // Remove broadcast-squeeze and squeeze-broadcast patterns
 void removeBcastSqueeze(Fusion* fusion) {
-  // Iterate backwards over fusion expressions.
-  // This will ensure we don't process expressions that are no longer valid
-  // after replacement.
-  auto exprs = fusion->exprs();
-  for (auto it = std::rbegin(exprs); it != std::rend(exprs); it++) {
-    Expr* expr = *it;
-    if (isReplaceableExpr(expr)) {
-      Expr* prev_expr = expr->input(0)->definition();
-      if (isReplaceableExpr(prev_expr)) {
-        maybeDoReplacement(prev_expr, expr);
-      }
+  // Iterate from outputs toward producers
+  std::vector<TensorView*> stack;
+  for (Val* outp : fusion->outputs()) {
+    if (auto* tv = dynamic_cast<TensorView*>(outp)) {
+      stack.push_back(tv);
+    }
+  }
+  while (!stack.empty()) {
+    TensorView* tv = stack.back();
+    stack.pop_back();
+    TensorView* maybe_replaced_tv = maybeDoReplacement(tv);
+    if (maybe_replaced_tv != tv) {
+      // If we made a replacement, process it before proceeding. For example, if
+      // we have broadcast->broadcast->squeeze, we might combine the second
+      // broadcast with the squeeze to form a new pattern of broadcast->squeeze,
+      // which we then need to process next.
+      stack.push_back(maybe_replaced_tv);
+    } else if (tv->definition() != nullptr) {
+      // Recurse to TensorView producers of tv
+      const auto producers =
+          ir_utils::filterByType<TensorView>(tv->definition()->inputs());
+      stack.insert(stack.end(), producers.begin(), producers.end());
     }
   }
 }
