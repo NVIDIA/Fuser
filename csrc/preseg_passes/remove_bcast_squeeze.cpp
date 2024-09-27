@@ -147,134 +147,92 @@ std::vector<bool> nonPreservedDims(const AxisOps& ops) {
 //! Given a descriptors of two sequences of broadcast+squeeze ops, return a
 //! descriptor of their composition, with a applied before b
 AxisOps composeOps(const AxisOps& prev, const AxisOps& next) {
-  // Find dims present after prev (i.e. non-SQUEEZE dims)
-
-  // Add ops from next. Positions in next are relative to the present dims from
-  // prev.
-  //   If the next op is a SQUEEZE then
-  //      If there is an adjacent BROADCAST, remove it
-  //      Otherwise, insert the SQUEEZE
-  //   If the next op is a BROADCAST then
-  //      If there is an adjacent SQUEEZE, replace it with PRESERVE
-  //      Otherwise, insert the BROADCAST
-
   size_t prev_pos = 0, next_pos = 0;
   AxisOps ops;
-  // op_from_prev tracks whether the inserted op was from the previous ops or
-  // next. This is used in simplification so that we can determine whether to
-  // insert a PRESERVE (for squeeze then broadcast) vs remove the ops altogether
-  // (for broadcast then squeeze).
-  std::vector<bool> op_from_prev;
-  const auto pushOp = [&ops, &op_from_prev](AxisOp op, bool from_prev) {
-    ops.push_back(op);
-    op_from_prev.push_back(from_prev);
-  };
-  while (prev_pos < prev.size() && next_pos < next.size()) {
-    AxisOp prev_op = prev[prev_pos];
-    while (prev_op == AxisOp::SQUEEZE) {
-      // SQUEEZE is the only op that should not increment next_pos, since there
-      // is no corresponding output axis
-      pushOp(AxisOp::SQUEEZE, true);
-      ++prev_pos;
-      if (prev_pos >= prev.size()) {
-        break;
-      }
-      prev_op = prev[prev_pos];
-    }
-    AxisOp next_op = next[next_pos];
-    while (next_op == AxisOp::BROADCAST) {
-      pushOp(AxisOp::BROADCAST, false);
-      ++next_pos;
-      if (next_pos >= next.size()) {
-        break;
-      }
-      next_op = next[next_pos];
-    }
-
-    pushOp(prev_op, true);
-    if (next_op != AxisOp::PRESERVE) {
-      pushOp(next_op, false);
-    }
-
-    ++prev_pos;
-    ++next_pos;
-  }
-  while (prev_pos < prev.size()) {
-    NVF_ERROR(
-        prev[prev_pos] == AxisOp::SQUEEZE,
-        "Left-over previous ops must be squeeze");
-    pushOp(AxisOp::SQUEEZE, true);
-    ++prev_pos;
-  }
-  while (next_pos < next.size()) {
-    NVF_ERROR(
-        next[next_pos] == AxisOp::BROADCAST,
-        "Left-over previous ops must be broadcast");
-    pushOp(AxisOp::BROADCAST, false);
-    ++next_pos;
-  }
-  NVF_ERROR(prev_pos == prev.size());
-  NVF_ERROR(next_pos == next.size());
-
-  // Simplify
   while (true) {
-    bool changed = false;
-    NVF_ERROR(ops.size() == op_from_prev.size());
-    for (size_t i : c10::irange(ops.size() - 1)) {
-      AxisOp cur = ops[i], next = ops[i + 1];
-      if ((cur == AxisOp::SQUEEZE && next == AxisOp::BROADCAST) ||
-          (cur == AxisOp::BROADCAST && next == AxisOp::SQUEEZE)) {
-        if (op_from_prev[i]) {
-          ops[i] = AxisOp::PRESERVE;
-          ops.erase(ops.begin() + i + 1);
-          op_from_prev.erase(op_from_prev.begin() + i + 1);
-          changed = true;
-          break;
-        } else {
-        }
-      } else if (cur == AxisOp::BROADCAST && next == AxisOp::SQUEEZE) {
-        // ops.erase(next);
-        // ops.erase(cur);
-        changed = true;
-        break;
-      }
+    // If there are previous squeezes, insert them since they don't affect next
+    // position
+
+    while (prev_pos < prev.size() && prev[prev_pos] == AxisOp::SQUEEZE) {
+      ops.push_back(AxisOp::SQUEEZE);
+      prev_pos++;
     }
-    if (!changed) {
+    // prev[prev_pos] now gives the provenance of the axis that next_pos points
+    // to if it's not a broadcast. If it is a broadcast, then we'll unzip some
+    // of these squeezes.
+    while (next_pos < next.size() && next[next_pos] == AxisOp::BROADCAST) {
+      if (ops.back() == AxisOp::SQUEEZE) {
+        ops.back() = AxisOp::PRESERVE;
+      } else {
+        ops.push_back(AxisOp::BROADCAST);
+      }
+      next_pos++;
+    }
+    if (prev_pos >= prev.size() || next_pos >= next.size()) {
+      NVF_ERROR(
+          prev_pos >= prev.size() && next_pos >= next.size(),
+          "Failed to align some ops");
       break;
     }
+    // Now we have prev[prev_pos] != SQUEEZE and next[next_pos] != BROADCAST,
+    // which means prev[prev_pos] provides the next op with its input. So here
+    // we are actually composing these aligned ops.
+    if (prev[prev_pos] == AxisOp::PRESERVE) {
+      ops.push_back(next[next_pos]);
+    } else if (next[next_pos] == AxisOp::PRESERVE) {
+      ops.push_back(prev[prev_pos]);
+    } else {
+      NVF_ERROR(
+          next[next_pos] == AxisOp::SQUEEZE &&
+          prev[prev_pos] == AxisOp::BROADCAST);
+      // Skip this op, since it is a "broadcast then squeeze" pattern
+    }
+    prev_pos++;
+    next_pos++;
   }
-
   return ops;
 }
 
 void maybeDoReplacement(Expr* first, Expr* second) {
-  AxisOps simplified_ops =
-      composeOps(exprToAxisOps(first), exprToAxisOps(second));
+  AxisOps first_ops = exprToAxisOps(first);
+  AxisOps second_ops = exprToAxisOps(second);
+  AxisOps simplified_ops = composeOps(first_ops, second_ops);
   std::optional<AxisOp> simple_op_type_opt =
       getSimplifiedOpType(simplified_ops);
   if (simple_op_type_opt.has_value()) {
     TensorView* input_tv = first->input(0)->as<TensorView>();
     Val* orig = second->output(0);
     Val* replacement = nullptr;
-    switch (simple_op_type_opt.value()) {
-      case AxisOp::PRESERVE:
-        // This is equivalent to a set Op
-        replacement = input_tv;
-        break;
-      case AxisOp::SQUEEZE:
-        replacement = squeeze(input_tv, nonPreservedDims(simplified_ops));
-        break;
-      case AxisOp::BROADCAST:
-        replacement = broadcast(input_tv, nonPreservedDims(simplified_ops));
-        break;
+    if (simplified_ops == first_ops) {
+      // The second op was simply a "Set" operation, so we just skip it
+      replacement = first->output(0);
+    } else {
+      switch (simple_op_type_opt.value()) {
+        case AxisOp::PRESERVE:
+          // This is equivalent to a set Op
+          replacement = input_tv;
+          break;
+        case AxisOp::SQUEEZE:
+          replacement = squeeze(input_tv, nonPreservedDims(simplified_ops));
+          break;
+        case AxisOp::BROADCAST:
+          replacement = broadcast(input_tv, nonPreservedDims(simplified_ops));
+          break;
+      }
     }
     NVF_ERROR(replacement != nullptr);
     ir_utils::replaceValInAllExprInputsAndFusionOutputs(orig, replacement);
+    if (Expr* new_second = replacement->definition(); replacement != input_tv &&
+        isReplaceableExpr(new_second) &&
+        isReplaceableExpr(new_second->input(0)->definition())) {
+      // If we actually did a replacement, then we should process the
+      // replacement. Otherwise we would miss it.
+      maybeDoReplacement(new_second->input(0)->definition(), new_second);
+    }
   }
 }
 
 // Remove broadcast-squeeze and squeeze-broadcast patterns
-// TODO: still remove when have intermediate ops between broadcast and squeeze
 void removeBcastSqueeze(Fusion* fusion) {
   // Iterate backwards over fusion expressions.
   // This will ensure we don't process expressions that are no longer valid
