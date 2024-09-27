@@ -205,10 +205,6 @@ TensorView* maybeDoReplacement(TensorView* orig) {
     return orig;
   }
 
-  std::cout << "Checking replaceable pair of exprs:" << std::endl;
-  std::cout << "  first=" << first->toString() << std::endl;
-  std::cout << "  second=" << second->toString() << std::endl;
-
   AxisOps first_ops = exprToAxisOps(first);
   AxisOps second_ops = exprToAxisOps(second);
   AxisOps simplified_ops = composeOps(first_ops, second_ops);
