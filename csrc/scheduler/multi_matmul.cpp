@@ -1446,13 +1446,12 @@ class MultipleMatmulScheduler {
 
       std::unordered_set<ParallelType> parallel_types = {};
       if (params_->use_smem_epilogue) {
-        //! In cases where smem epilogue feature is enabled, the vectorization
-        //! of
-        //!  domains will be propagated to fusion inputs that are epilogue
-        //!  inputs, this may result in unaligned memory reads. Vectorization is
-        //!  explicitly excluded form parallelization types to avoid this issue.
-        //! This should be changed when vectorization analysis is available and
-        //!  enabled for matmul scheduler.
+        // In cases where smem epilogue feature is enabled, the vectorization
+        //  of domains will be propagated to fusion inputs that are epilogue
+        //  inputs, this may result in unaligned memory reads. Vectorization is
+        //  explicitly excluded form parallelization types to avoid this issue.
+        // This should be changed when vectorization analysis is available and
+        //  enabled for matmul scheduler.
         parallel_types = allParallelTypesExcept({ParallelType::Vectorize});
       }
       scheduler_utils::parallelizeAllLike(
