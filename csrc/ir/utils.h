@@ -706,11 +706,6 @@ inline bool isMemorySharedAcross(
   }
 }
 
-// Used to check if tv is passed to blockIterGroupedYdimReduce.
-// It will be allocated as aligned Array to enusre aligned copy
-// to shared memory.
-bool isConsumedByIterGroupedReduction(const TensorView* tv);
-
 //! Check if the given tv has a root domain -> loop domain linear
 //! transformation. This is a temporary check used to incrementally enable
 //! IdModel. Eventually, this should be removed.

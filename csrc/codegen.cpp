@@ -2984,23 +2984,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                    << ");\n";
           break;
         case MemoryType::Local: {
-          // Should use aligned array of registers when:
-          // (1) vectorized ld/st with global memory, tv exists in kernel
-          //     summary vectorized_accesses.
-          // (2) vectorized ld/st with shared memory, tv is input to iteration
-          //     grouped reduction and vectorized in runtime function.
           auto va = kernel_->summary().vectorized_accesses;
-          unsigned int vect_factor = 0;
           if (va.find(tv) != va.end()) {
-            vect_factor = va.at(tv);
-          } else if (
-              kernel_->summary().num_grouped_iterations > 1 &&
-              ir_utils::isConsumedByIterGroupedReduction(tv)) {
-            vect_factor = kernel_->summary().num_grouped_iterations;
-          }
-          if (vect_factor > 0) {
             indent() << "Array<" << buffer_dtype << ", " << genInline(size)
-                     << ", " << vect_factor << "> " << genVariableName(tv)
+                     << ", " << va.at(tv) << "> " << genVariableName(tv)
                      << ";\n";
             aligned_array_of_regs_.insert(tv);
           } else {

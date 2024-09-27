@@ -439,7 +439,8 @@ class VectorizeValidator : public OptInDispatch {
     // Make sure there's only one vectorized ID
     IterDomain* v_id = nullptr;
     for (auto id : tv->getLoopDomain()) {
-      if (isParallelTypeVectorize(id->getParallelType())) {
+      auto ptype = id->getParallelType();
+      if (ptype == ParallelType::Vectorize || ptype == ParallelType::Group) {
         NVF_ERROR(
             v_id == nullptr,
             "Found two vectorized domains in ",
@@ -564,6 +565,7 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
   std::vector<Val*> used_vals = fusion->usedMathVals();
   for (auto* tv : ir_utils::filterByType<TensorView>(used_vals)) {
     bool has_vectorize_dim = false;
+    bool has_grouped_vectorize_dim = false;
     bool has_misaligned_vectorize_dim = false;
 
     for (const auto i : c10::irange(tv->nDims())) {
@@ -598,22 +600,34 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
             "Only allow misaligned vectorization between global and local memory.");
         has_misaligned_vectorize_dim = true;
       }
-    }
-    if (has_vectorize_dim) {
-      Expr* def = tv->definition();
-      NVF_ERROR(
-          def == nullptr || def->isA<LoadStoreOp>() || def->isA<SliceOp>() ||
-              (def->isA<ReductionOp>() &&
-               def->as<ReductionOp>()->serialGridReductionRequested()),
-          "Vectorized accesses cannot be inline with computation: ",
-          (def == nullptr ? tv->toString() : def->toString()));
-    }
-    // Validate the vectorized domain maps to the innermost domain of
-    // tv. Note that we don't need to validate its producer tv as
-    // both Vectorize and MisalignedVectorize can only be used with
-    // UnaryOp::Set.
-    if (has_vectorize_dim || has_misaligned_vectorize_dim) {
-      VectorizeValidator::validate(tv);
+
+      // ParallelType::Group is used for both iteration grouped reduction and
+      // fused reductions where 2 reductions are fused into one. Vectorized
+      // access to shared memory only exists in the first case.
+      if (ptype == ParallelType::Group) {
+        auto def = tv->definition();
+        auto grop = dynamic_cast<GroupedReductionOp*>(def);
+        if (grop->numHorizontallyGroupedExprs() == 1) {
+          has_grouped_vectorize_dim = true;
+        }
+      }
+      if (has_vectorize_dim) {
+        Expr* def = tv->definition();
+        NVF_ERROR(
+            def == nullptr || def->isA<LoadStoreOp>() || def->isA<SliceOp>() ||
+                (def->isA<ReductionOp>() &&
+                 def->as<ReductionOp>()->serialGridReductionRequested()),
+            "Vectorized accesses cannot be inline with computation: ",
+            (def == nullptr ? tv->toString() : def->toString()));
+      }
+      // Validate the vectorized domain maps to the innermost domain of
+      // tv. Note that we don't need to validate its producer tv as
+      // both Vectorize and MisalignedVectorize can only be used with
+      // UnaryOp::Set.
+      if (has_vectorize_dim || has_misaligned_vectorize_dim ||
+          has_grouped_vectorize_dim) {
+        VectorizeValidator::validate(tv);
+      }
     }
   }
 }
@@ -841,8 +855,8 @@ namespace {
 //  1. Throws an error if any output of the swizzle is not in loop_domain set.
 //  2. Warns if any output of the swizzle is not the concrete id of the loop
 //  map.
-// The second case would make the codegen ignore this swizzle, as if it was not
-// there at all.
+// The second case would make the codegen ignore this swizzle, as if it was
+// not there at all.
 void validateLoopSwizzle(
     Expr* swizzle_expr,
     std::unordered_set<IterDomain*>& loop_domains) {
@@ -878,8 +892,9 @@ void validateSwizzle(Fusion* fusion) {
            tv->getLoopDomain().end()});
 
       // Check inlined swizzles: only loop swizzles can be inlined currently
-      //  as inlining data swizzles would require addtional support of unswizzle
-      //  operator, which currently doesn't have important use cases.
+      //  as inlining data swizzles would require addtional support of
+      //  unswizzle operator, which currently doesn't have important use
+      //  cases.
       for (auto swizzle_expr : inlined_swizzles) {
         NVF_ERROR(
             swizzle_expr->as<Swizzle2D>()->swizzleMode() == SwizzleMode::Loop,

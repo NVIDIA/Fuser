@@ -299,7 +299,8 @@ std::unique_ptr<caching::VectorizedTensorInfo> getVectorizedTensorValidationInfo
 
     auto vector_dim = vector_info.vectorized_loop_id;
     const auto is_aligned =
-        vector_dim->getParallelType() == ParallelType::Vectorize;
+        vector_dim->getParallelType() == ParallelType::Vectorize ||
+        vector_dim->getParallelType() == ParallelType::Group;
 
     // Find fusion inputs and outputs that are used with misaligned
     // vectorization.
