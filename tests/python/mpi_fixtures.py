@@ -8,7 +8,7 @@ import pytest
 from mpi4py import MPI
 
 
-class MultideviceTest:
+class MpiTest:
     def __init__(self):
         self._communicator = MPI.COMM_WORLD
         self._local_size = int(os.environ["OMPI_COMM_WORLD_LOCAL_SIZE"])
@@ -35,8 +35,8 @@ class MultideviceTest:
 
 
 @pytest.fixture
-def multidevice_test():
-    fixture = MultideviceTest()
+def mpi_test():
+    fixture = MpiTest()
     yield fixture
     # Sync all ranks after each test for isolation.
     fixture.barrier()
