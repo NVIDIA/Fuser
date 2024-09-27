@@ -210,39 +210,40 @@ TensorView* maybeDoReplacement(TensorView* orig) {
   AxisOps simplified_ops = composeOps(first_ops, second_ops);
   std::optional<AxisOp> simple_op_type_opt =
       getSimplifiedOpType(simplified_ops);
-  TensorView* replacement = nullptr;
-  if (simple_op_type_opt.has_value()) {
+  if (!simple_op_type_opt.has_value()) {
+    return orig;
+  }
+  TensorView* replacement = orig;
+  if (simplified_ops == first_ops) {
+    // The second op was simply a "Set" operation, so we just skip it
+    replacement = first->output(0)->as<TensorView>();
+  } else {
     TensorView* input_tv = first->input(0)->as<TensorView>();
-    if (simplified_ops == first_ops) {
-      // The second op was simply a "Set" operation, so we just skip it
-      replacement = first->output(0)->as<TensorView>();
-    } else {
-      switch (simple_op_type_opt.value()) {
-        case AxisOp::PRESERVE:
-          // This is equivalent to a set Op
-          replacement = input_tv;
-          break;
-        case AxisOp::SQUEEZE:
-          replacement = squeeze(input_tv, nonPreservedDims(simplified_ops));
-          break;
-        case AxisOp::BROADCAST:
-          replacement = broadcast(input_tv, nonPreservedDims(simplified_ops));
-          break;
-      }
+    switch (simple_op_type_opt.value()) {
+      case AxisOp::PRESERVE:
+        // This is equivalent to a set Op
+        replacement = input_tv;
+        break;
+      case AxisOp::SQUEEZE:
+        replacement = squeeze(input_tv, nonPreservedDims(simplified_ops));
+        break;
+      case AxisOp::BROADCAST:
+        replacement = broadcast(input_tv, nonPreservedDims(simplified_ops));
+        break;
     }
-    NVF_ERROR(replacement != nullptr);
-    ir_utils::replaceValInAllExprInputsAndFusionOutputs(orig, replacement);
-    std::vector<IterDomain*> old_loop =
-        TensorDomain::noReductions(orig->getLoopDomain());
-    std::vector<IterDomain*> new_loop =
-        TensorDomain::noReductions(replacement->getLoopDomain());
-    NVF_ERROR(new_loop.size() == old_loop.size());
-    for (size_t i : c10::irange(old_loop.size())) {
-      if (old_loop[i]->isParallelized()) {
-        // In particular, we might have a Device dimension parallelized for the
-        // output, which we need to preserve.
-        new_loop[i]->parallelize(old_loop[i]->getParallelType());
-      }
+  }
+  NVF_ERROR(replacement != orig, "Expected non-trivial replacement");
+  ir_utils::replaceValInAllExprInputsAndFusionOutputs(orig, replacement);
+  std::vector<IterDomain*> old_loop =
+      TensorDomain::noReductions(orig->getLoopDomain());
+  std::vector<IterDomain*> new_loop =
+      TensorDomain::noReductions(replacement->getLoopDomain());
+  NVF_ERROR(new_loop.size() == old_loop.size());
+  for (size_t i : c10::irange(old_loop.size())) {
+    if (old_loop[i]->isParallelized()) {
+      // In particular, we might have a Device dimension parallelized for the
+      // output, which we need to preserve.
+      new_loop[i]->parallelize(old_loop[i]->getParallelType());
     }
   }
   return replacement;
