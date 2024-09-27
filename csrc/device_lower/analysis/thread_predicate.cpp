@@ -587,8 +587,7 @@ class ConcretizedBroadcastRedundantWriteRemover {
   void setConcretizedBroadcastLogicalDomain() {
     std::shared_ptr<const ComputeAtMap> caMap = GpuLower::current()->caMap();
     for (auto loop_id : candidate_loop_domains_) {
-      auto loop_concrete_id =
-          caMap->getConcreteMappedID(loop_id, IdMappingMode::LOOP);
+      auto loop_concrete_id = lower_utils::getConcreteLoopID(loop_id);
       auto concrete_logical_vals = IterVisitor::getInputsTo({loop_concrete_id});
       auto concrete_logical_ids =
           ir_utils::filterByType<IterDomain>(concrete_logical_vals);

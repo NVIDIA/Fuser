@@ -246,15 +246,14 @@ TEST_F(RNGTest, BroadcastingRNGSmem) {
     fusion->addOutput(tv4);
 
     auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
-    at::Tensor t0 = at::zeros({5, 1}, options);
-    at::Tensor t1 = at::zeros({5, 5}, options);
+    at::Tensor input0 = at::zeros({5, 1}, options);
+    at::Tensor input1 = at::zeros({5, 5}, options);
 
-    auto lparams = scheduleTranspose(fusion, {t0, t1});
-
-    FusionExecutor fe;
-    fe.compileFusion(fusion, {t0, t1}, lparams);
-    auto cg_outputs = fe.runFusion({t0, t1}, lparams);
-    auto out = cg_outputs[0];
+    auto outputs =
+        scheduleAndRun(
+            fusion, SchedulerType::Transpose, {input0, input1}, false)
+            .outputs;
+    auto out = outputs[0];
 
     NVF_CHECK((out.select(1, 0) == out.select(1, 1)).all().item<bool>())
     NVF_CHECK((out.select(1, 0) == out.select(1, 2)).all().item<bool>())
@@ -285,7 +284,8 @@ TEST_F(RNGTest, BroadcastingRNGSmemNonSquareTile) {
   TransposeParams tparams;
   tparams.tile_size1 = 8;
   tparams.tile_size2 = 4;
-  scheduleTranspose(fusion, &tparams);
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Transpose)
+      ->schedule(fusion, &tparams);
 
   FusionExecutor fe;
   fe.compileFusion(fusion, {t0, t1});

@@ -17,101 +17,12 @@
 #include <scheduler/pointwise.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/registry_utils.h>
+#include <scheduler/runtime_info.h>
 #include <scheduler/transpose.h>
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>
 
 namespace nvfuser {
-
-bool PointWiseScheduler::canScheduleCompileTime(Fusion* fusion) {
-  if (scheduler_utils::isResharding(fusion)) {
-    FUSER_PERF_SCOPE("PointWiseScheduler::canScheduleCompileTime");
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedulerType(), "Fusion is resharding.");
-    return false;
-  }
-
-  // Currently using the same path as the scheduler
-  // to eliminate mismatch between canSchedule and
-  // schedule pointwise.
-  if (!hasReferenceTensorView(fusion)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedulerType(), "cannot find reference tensor");
-    return false;
-  }
-
-  // Check that inputs of all select/gather-like ops are fusion inputs
-  if (registry_utils::rejectScheduleForMemoryPromotion(
-          fusion, schedulerType())) {
-    return false;
-  }
-
-  if (!ir_utils::getViewOps(fusion).empty()) {
-    ComputeAtMap ca_map(fusion);
-    if (registry_utils::requiresForwardViewReplay(fusion, ca_map)) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          schedulerType(), "Fusion requires view being reversible.");
-      return false;
-    }
-  }
-
-  if (ir_utils::hasAnyReductionOps(fusion)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedulerType(), "no support for reduction ops");
-    return false;
-  }
-
-  if (registry_utils::hasNonUniqueBcast(fusion)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedulerType(),
-        "Broadcasting dimension might be broadcasting to multiple sizes.");
-    return false;
-  }
-
-  return true;
-}
-
-bool PointWiseScheduler::canScheduleRunTime(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicDataCache* data_cache) {
-  FUSER_PERF_SCOPE("PointWiseScheduler::canScheduleRunTime");
-  auto can_schedule_transpose_entry =
-      HeuristicDataCacheEntry<HeuristicCompileTime::CanScheduleTranspose>(
-          data_cache, [fusion]() {
-            return std::make_unique<bool>(
-                TransposeScheduler().canScheduleCompileTime(fusion));
-          });
-  if (can_schedule_transpose_entry.get()) {
-    auto reason =
-        getTransposeRuntimeRejectReason(fusion, data_cache, runtime_info);
-    return !reason.empty();
-  }
-
-  return true;
-}
-
-void PointWiseScheduler::schedule(
-    Fusion* fusion,
-    const HeuristicParams* params) {
-  FUSER_PERF_SCOPE("PointWiseScheduler::schedule");
-  auto pparams = dynamic_cast<const PointwiseParams*>(params);
-  NVF_ERROR(
-      pparams != nullptr,
-      "Incorrect parameters sent to PointWiseScheduler::schedule",
-      params);
-  schedulePointwise(fusion, pparams);
-}
-
-std::unique_ptr<HeuristicParams> PointWiseScheduler::computeHeuristics(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicDataCache* data_cache) {
-  FUSER_PERF_SCOPE("PointWiseScheduler::computeHeuristics");
-  auto pparams = getPointwiseHeuristics(fusion, runtime_info, data_cache);
-  NVF_ERROR(pparams != nullptr);
-  return pparams;
-}
 
 namespace {
 // constexpr int64_t x_grid_limit = ((int64_t)1 << (int64_t)31) - (int64_t)1;
@@ -150,14 +61,6 @@ class DomainMap : public pointwise_utils::DomainMap {
 };
 
 } // namespace
-
-std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
-    Fusion* fusion,
-    const at::ArrayRef<c10::IValue>& runtime_inputs,
-    HeuristicDataCache* data_cache) {
-  SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs);
-  return getPointwiseHeuristics(fusion, runtime_info, data_cache);
-}
 
 std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     Fusion* fusion,
@@ -512,16 +415,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   return params;
 }
 
-// TODO: remove or return launch parameters
-LaunchParams schedulePointwise(
-    Fusion* fusion,
-    const at::ArrayRef<c10::IValue>& runtime_inputs) {
-  auto params = getPointwiseHeuristics(fusion, runtime_inputs);
-  NVF_ERROR(params != nullptr, "Could not schedule pointwise operation.");
-  schedulePointwise(fusion, params.get());
-  return params->lparams;
-}
-
+// Return reference tensor view.
 TensorView* getReferenceTensorView(Fusion* fusion) {
   FusionGuard fg(fusion);
   DomainMap domain_map(fusion);
@@ -529,8 +423,78 @@ TensorView* getReferenceTensorView(Fusion* fusion) {
   return reference_tv;
 }
 
+//! Utility for canSchedule interface to check if this fusion has
+//!  a fully broadcasted reference tensor, which is necessary for
+//!  the pointwise scheduler.
 bool hasReferenceTensorView(Fusion* fusion) {
   return getReferenceTensorView(fusion) != nullptr;
+}
+
+bool PointWiseScheduler::canScheduleCompileTime(Fusion* fusion) {
+  if (scheduler_utils::isResharding(fusion)) {
+    FUSER_PERF_SCOPE("PointWiseScheduler::canScheduleCompileTime");
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(), "Fusion is resharding.");
+    return false;
+  }
+
+  // Currently using the same path as the scheduler
+  // to eliminate mismatch between canSchedule and
+  // schedule pointwise.
+  if (!hasReferenceTensorView(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(), "cannot find reference tensor");
+    return false;
+  }
+
+  // Check that inputs of all select/gather-like ops are fusion inputs
+  if (registry_utils::rejectScheduleForMemoryPromotion(
+          fusion, schedulerType())) {
+    return false;
+  }
+
+  if (!ir_utils::getViewOps(fusion).empty()) {
+    ComputeAtMap ca_map(fusion);
+    if (registry_utils::requiresForwardViewReplay(fusion, ca_map)) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          schedulerType(), "Fusion requires view being reversible.");
+      return false;
+    }
+  }
+
+  if (ir_utils::hasAnyReductionOps(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(), "no support for reduction ops");
+    return false;
+  }
+
+  if (registry_utils::hasNonUniqueBcast(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(),
+        "Broadcasting dimension might be broadcasting to multiple sizes.");
+    return false;
+  }
+
+  return true;
+}
+
+bool PointWiseScheduler::canScheduleRunTime(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicDataCache* data_cache) {
+  FUSER_PERF_SCOPE("PointWiseScheduler::canScheduleRunTime");
+  auto can_schedule_transpose_entry =
+      HeuristicDataCacheEntry<HeuristicCompileTime::CanScheduleTranspose>(
+          data_cache, [fusion]() {
+            return std::make_unique<bool>(
+                TransposeScheduler().canScheduleCompileTime(fusion));
+          });
+  if (can_schedule_transpose_entry.get()) {
+    return !TransposeScheduler().canScheduleRunTime(
+        fusion, runtime_info, data_cache);
+  }
+
+  return true;
 }
 
 // TODO: Inline intermediate operations (avoid inlining unrolled/vectorized
@@ -926,6 +890,28 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   // fusion (which has fewer expressions) can potentially find a better
   // scheduler and we need to call markAliases only in NoOpScheduler.
   markAliases(fusion);
+}
+
+std::unique_ptr<HeuristicParams> PointWiseScheduler::computeHeuristics(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicDataCache* data_cache) {
+  FUSER_PERF_SCOPE("PointWiseScheduler::computeHeuristics");
+  auto pparams = getPointwiseHeuristics(fusion, runtime_info, data_cache);
+  NVF_ERROR(pparams != nullptr);
+  return pparams;
+}
+
+void PointWiseScheduler::schedule(
+    Fusion* fusion,
+    const HeuristicParams* params) {
+  FUSER_PERF_SCOPE("PointWiseScheduler::schedule");
+  auto pparams = dynamic_cast<const PointwiseParams*>(params);
+  NVF_ERROR(
+      pparams != nullptr,
+      "Incorrect parameters sent to PointWiseScheduler::schedule",
+      params);
+  schedulePointwise(fusion, pparams);
 }
 
 } // namespace nvfuser

@@ -61,10 +61,10 @@ NVF_API void scheduleWarpTileWithNoReduction(
 //! Eg.
 //!  A[B,I0,I1,I2] -> makeTile({1,2,3})
 //! Gives A[B, I0o, I1o, I2o, I0i(1), I1i(2), I2i(3)]
-void makeTile(TensorView* tv, std::vector<int64_t> tile_sizes);
+void makeTile(TensorView* tv, const std::vector<int64_t>& tile_sizes);
 
-//! The above call assumes the axes in TV are [(B), M, N, K]. In this version,
-//! we provide the dimension roles that are present for this tensor.
+//! The above call assumes the axes are [(B), M, N, K]. In this version, we
+//! provide the dimension roles that are present for this tensor.
 void makeTile(
     TensorView* tv,
     const GemmTile& tile_sizes,
@@ -464,5 +464,7 @@ std::optional<std::pair<DimRolesMap, TensorRolesMap>> allPatternRoles(
     const std::vector<MatmulPattern>& patterns);
 
 } // namespace mma_utils
+
+std::string toString(const mma_utils::AbstractMatmulTensor& abten);
 
 } // namespace nvfuser

@@ -10,6 +10,7 @@
 #include <scheduler/debug_utils.h>
 #include <scheduler/expr_eval_sched.h>
 #include <scheduler/registry_utils.h>
+#include <scheduler/runtime_info.h>
 
 namespace nvfuser {
 

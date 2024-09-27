@@ -13,6 +13,7 @@
 #include <scheduler/debug_utils.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/registry_utils.h>
+#include <scheduler/runtime_info.h>
 #include <scheduler/transpose.h>
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>
@@ -87,43 +88,6 @@ bool TransposeScheduler::canScheduleCompileTime(Fusion* fusion) {
   }
 
   return true;
-}
-
-bool TransposeScheduler::canScheduleRunTime(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicDataCache* data_cache) {
-  FUSER_PERF_SCOPE("TransposeScheduler::canScheduleRunTime");
-
-  auto reason =
-      getTransposeRuntimeRejectReason(fusion, data_cache, runtime_info);
-  if (!reason.empty()) {
-    scheduler_debug_utils::canScheduleRejectReason(schedulerType(), reason);
-    return false;
-  }
-  return true;
-}
-
-void TransposeScheduler::schedule(
-    Fusion* fusion,
-    const HeuristicParams* params) {
-  FUSER_PERF_SCOPE("TransposeScheduler::schedule");
-  auto tparams = dynamic_cast<const TransposeParams*>(params);
-  NVF_ERROR(
-      tparams != nullptr,
-      "Incorrect parameters sent to TransposeScheduler::schedule",
-      params);
-  scheduleTranspose(fusion, tparams);
-}
-
-std::unique_ptr<HeuristicParams> TransposeScheduler::computeHeuristics(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicDataCache* data_cache) {
-  FUSER_PERF_SCOPE("TransposeScheduler::computeHeuristics");
-  auto tparams = getTransposeHeuristics(fusion, runtime_info, data_cache);
-  NVF_ERROR(tparams != nullptr);
-  return tparams;
 }
 
 namespace {
@@ -686,8 +650,8 @@ getInnerMostDimInfoInReference(
   return innermost_info_entry;
 }
 
-} // namespace
-
+// If can schedule at runtime, returns empty string, otherwise returns the
+// reason why we should not schedule at runtime.
 std::string getTransposeRuntimeRejectReason(
     Fusion* fusion,
     HeuristicDataCache* data_cache,
@@ -820,16 +784,10 @@ std::string getTransposeRuntimeRejectReason(
   return "";
 }
 
+} // namespace
+
 bool hasAtLeastTwoValidGroups(Fusion* fusion) {
   return DomainMap::hasAtLeastTwoValidGroups(fusion);
-}
-
-std::unique_ptr<TransposeParams> getTransposeHeuristics(
-    Fusion* fusion,
-    const at::ArrayRef<c10::IValue>& runtime_inputs,
-    HeuristicDataCache* data_cache) {
-  SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs);
-  return getTransposeHeuristics(fusion, runtime_info, data_cache);
 }
 
 std::unique_ptr<TransposeParams> getTransposeHeuristics(
@@ -1047,16 +1005,6 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
   }
 
   return tparams;
-}
-
-// TODO: remove or return launch parameters
-LaunchParams scheduleTranspose(
-    Fusion* fusion,
-    const at::ArrayRef<c10::IValue>& runtime_inputs) {
-  auto params = getTransposeHeuristics(fusion, runtime_inputs);
-  NVF_ERROR(params != nullptr, "Could not schedule transpose operation.");
-  scheduleTranspose(fusion, params.get());
-  return params->lparams;
 }
 
 void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
@@ -1457,4 +1405,40 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
   scheduler_utils::promoteProducerMemoryTypes(fusion, cached_inputs);
 }
 
+bool TransposeScheduler::canScheduleRunTime(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicDataCache* data_cache) {
+  FUSER_PERF_SCOPE("TransposeScheduler::canScheduleRunTime");
+
+  auto reason =
+      getTransposeRuntimeRejectReason(fusion, data_cache, runtime_info);
+  if (!reason.empty()) {
+    scheduler_debug_utils::canScheduleRejectReason(schedulerType(), reason);
+    return false;
+  }
+  return true;
+}
+
+std::unique_ptr<HeuristicParams> TransposeScheduler::computeHeuristics(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicDataCache* data_cache) {
+  FUSER_PERF_SCOPE("TransposeScheduler::computeHeuristics");
+  auto tparams = getTransposeHeuristics(fusion, runtime_info, data_cache);
+  NVF_ERROR(tparams != nullptr);
+  return tparams;
+}
+
+void TransposeScheduler::schedule(
+    Fusion* fusion,
+    const HeuristicParams* params) {
+  FUSER_PERF_SCOPE("TransposeScheduler::schedule");
+  auto tparams = dynamic_cast<const TransposeParams*>(params);
+  NVF_ERROR(
+      tparams != nullptr,
+      "Incorrect parameters sent to TransposeScheduler::schedule",
+      params);
+  scheduleTranspose(fusion, tparams);
+}
 } // namespace nvfuser

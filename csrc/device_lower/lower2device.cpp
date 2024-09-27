@@ -346,7 +346,7 @@ bool requiresIdModel(Fusion* fusion) {
   // If a tensor does not have a nice root->logical/allocation->loop
   // linear transformation history, use IdModel.
   for (auto tv : fusion->allTvs()) {
-    if (!lower_utils::hasRootToLoopLinearTransformations(tv)) {
+    if (!ir_utils::hasRootToLoopLinearTransformations(tv)) {
       return true;
     }
   }
@@ -417,21 +417,11 @@ void GpuLower::analysis(Fusion* fusion) {
   // names
   if (this->requiresIdModel() || isOptionEnabled(EnableOption::IdModel)) {
     // Enable validation in the DEBUG build mode
-#ifdef NDEBUG
-    // Not DEBUG build
     id_model_ = std::make_unique<IdModel>(
         fusion_,
         /*build_graphs=*/true,
         /*allow_self_mapping=*/false,
         /*validate=*/false);
-#else
-    // DEBUG build
-    id_model_ = std::make_unique<IdModel>(
-        fusion_,
-        /*build_graphs=*/true,
-        /*allow_self_mapping=*/false,
-        /*validate=*/true);
-#endif
     id_model_->validateAndPropagatePType();
   }
 

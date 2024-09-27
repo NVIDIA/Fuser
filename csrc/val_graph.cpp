@@ -612,7 +612,9 @@ void ValGraph::validateConsistency() const {
           found,
           "ExprGroup not found in ",
           (&use_def_map == &unique_definitions_) ? "unique_definitions_"
-                                                 : "unique_uses_");
+                                                 : "unique_uses_",
+          ". Expr: ",
+          exprg->front()->toString());
     }
   }
 

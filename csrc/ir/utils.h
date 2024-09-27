@@ -512,7 +512,8 @@ struct CompareDomainResult {
 CompareDomainResult compareDomains(
     std::vector<IterDomain*> dom0,
     const std::vector<IterDomain*>& dom1,
-    const std::vector<IterDomain*>& additional_ids = {});
+    const std::vector<IterDomain*>& additional_ids = {},
+    bool ignore_broadcast = true);
 
 //! Validate dom0 and dom1 are equivalent
 void validateDomainEquivalence(
@@ -705,9 +706,14 @@ inline bool isMemorySharedAcross(
   }
 }
 
-// Used in codegen, to check if tv is passed to blockIterGroupedYdimReduce.
+// Used to check if tv is passed to blockIterGroupedYdimReduce.
 // It will be allocated as aligned Array to enusre aligned copy
 // to shared memory.
 bool isConsumedByIterGroupedReduction(const TensorView* tv);
+
+//! Check if the given tv has a root domain -> loop domain linear
+//! transformation. This is a temporary check used to incrementally enable
+//! IdModel. Eventually, this should be removed.
+bool hasRootToLoopLinearTransformations(const TensorView* tv);
 
 } // namespace nvfuser::ir_utils
