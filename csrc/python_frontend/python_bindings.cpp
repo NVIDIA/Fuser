@@ -21,8 +21,8 @@
 #include <python_frontend/fusion_definition.h>
 #include <python_frontend/fusion_record.h>
 #include <python_frontend/python_bindings.h>
-#include <scheduler/heuristic_types.h>
 #include <scheduler/registry.h>
+#include <scheduler/scheduler_types.h>
 #include <torch/csrc/jit/python/pybind_utils.h>
 #include <transform_replay.h>
 #include <iostream>
@@ -60,7 +60,8 @@ template <class ITERABLE>
 Vector define_vector_fn(
     FusionDefinition& self,
     ITERABLE& values,
-    bool inline_def = false) {
+    bool inline_def,
+    bool shape_check) {
   FUSER_PERF_SCOPE("python_frontend::define_vector_fn");
   std::vector<Scalar> args;
   size_t idx = 0;
@@ -68,7 +69,7 @@ Vector define_vector_fn(
     if (py::isinstance<py::int_>(item)) {
       auto int_value = py::cast<int64_t>(item);
       NVF_CHECK(
-          int_value >= -1,
+          !shape_check || int_value >= -1,
           "The value ",
           int_value,
           " at index ",
@@ -99,11 +100,15 @@ Vector define_vector_explicit_fn(
     FusionDefinition& self,
     ITERABLE& values,
     PrimDataType dtype = DataType::Int) {
-  return define_vector_fn<ITERABLE>(self, values, /*inline_def=*/false);
+  return define_vector_fn<ITERABLE>(
+      self, values, /*inline_def=*/false, /*shape_check=*/true);
 }
 
 template <class ShapeType>
-Vector ShapeAsVector(ShapeType shape, FusionDefinition& fd) {
+Vector SequenceAsVector(
+    ShapeType shape,
+    FusionDefinition& fd,
+    bool shape_check = true) {
   static_assert(
       std::is_same_v<ShapeType, Vector> ||
       std::is_same_v<ShapeType, py::list> ||
@@ -121,7 +126,8 @@ Vector ShapeAsVector(ShapeType shape, FusionDefinition& fd) {
     // ```
     // would not work because the compiler would try to instantiate
     // define_vector_fn<Vector> and fail.
-    return define_vector_fn<ShapeType>(fd, shape, /*inline_def=*/true);
+    return define_vector_fn<ShapeType>(
+        fd, shape, /*inline_def=*/true, /*shape_check=*/shape_check);
   }
 }
 
@@ -134,7 +140,7 @@ Tensor broadcast_in_dim_fn(
   FUSER_PERF_SCOPE("Operators.broadcast_in_dim");
   FusionDefinition* fd = op.fusion_definition;
   NVF_CHECK(op.validUse(), "Attempting to add to a completed definition!");
-  Vector output_shape = ShapeAsVector(generic_output_shape, *fd);
+  Vector output_shape = SequenceAsVector(generic_output_shape, *fd);
   NVF_CHECK(
       output_shape.size >= broadcast_dims.size(),
       "broadcast_dims vector size is too big for output shape!");
@@ -156,7 +162,7 @@ Tensor full_op_fn(
     PrimDataType dtype) {
   NVF_CHECK(self.validUse(), "Attempting to add to a completed definition!");
   FusionDefinition* fd = self.fusion_definition;
-  Vector output_shape = ShapeAsVector(generic_output_shape, *fd);
+  Vector output_shape = SequenceAsVector(generic_output_shape, *fd);
   Tensor output = fd->defineTensor(output_shape.size);
   fd->defineRecord(new FullOpRecord(
       {fd->recordingState(output_shape()), fd->recordingState(fill_value())},
@@ -173,7 +179,7 @@ Tensor reshape_fn(
   NVF_CHECK(self.validUse(), "Attempting to add to a completed definition!");
 
   FusionDefinition* fd = self.fusion_definition;
-  Vector new_shape = ShapeAsVector(generic_new_shape, *fd);
+  Vector new_shape = SequenceAsVector(generic_new_shape, *fd);
 
   Tensor output = fd->defineTensor(new_shape.size);
   fd->defineRecord(new ReshapeOpRecord(
@@ -200,7 +206,7 @@ Tensor random_dist_op_fn(
       "Random distributions only create floating point types! ",
       dtype);
   FusionDefinition* fd = self.fusion_definition;
-  Vector new_shape = ShapeAsVector(generic_new_shape, *fd);
+  Vector new_shape = SequenceAsVector(generic_new_shape, *fd);
 
   Tensor output = fd->defineTensor(new_shape.size);
   std::vector<State> arg_states = {
@@ -234,6 +240,78 @@ struct DimInfo {
     return stride == 0 || size == 1;
   }
 };
+
+template <class ShapeType>
+Tensor slice_fn(
+    FusionDefinition::Operators& self,
+    Tensor arg,
+    ShapeType start,
+    ShapeType end,
+    std::optional<ShapeType> strides) {
+  NVF_CHECK(self.validUse(), "Attempting to add to a completed definition!");
+
+  FusionDefinition* fd = self.fusion_definition;
+  Vector new_start = SequenceAsVector(start, *fd, /*shape_check=*/false);
+  Vector new_end = SequenceAsVector(end, *fd, /*shape_check=*/false);
+  size_t stride_index = 0;
+
+  if (strides.has_value()) {
+    Vector new_stride =
+        SequenceAsVector(strides.value(), *fd, /*shape_check=*/false);
+    NVF_CHECK(
+        new_start.size == new_stride.size,
+        "Slice start_indices and strides don't match! Start Indices: ",
+        new_start.size,
+        " Strides: ",
+        new_stride.size);
+    stride_index = new_stride();
+  } else {
+    // set stride with default value;
+    std::vector<Scalar> stride_vec;
+    stride_vec.reserve(new_start.size);
+    // Note: we cannot re-use the same ScalarRecord, otherwise, serialized
+    // python program uses `define_vector`, which would create multiple
+    // ScalarRecord, causing a cache miss.
+    for (auto i : c10::irange(new_start.size)) {
+      (void)i; // Supress unused variable warning
+      Scalar out = fd->defineScalar();
+      fd->defineRecord(new ScalarRecord(
+          {fd->recordingState(out())},
+          1,
+          DataType::Int,
+          /*inline_def=*/true));
+      stride_vec.push_back(out);
+    }
+    // Cannot inline definition with `Vector` here, since
+    // `FusionDefinition.ops.slice` expects start/end/stride to have the same
+    // type.
+    Vector default_stride = define_vector_base_fn(
+        *fd, stride_vec, !std::is_same_v<ShapeType, Vector>);
+    stride_index = default_stride();
+  }
+
+  NVF_CHECK(
+      arg.dims == new_start.size,
+      "Number of tensor dimensions does not match slice dimensions! Tensor-dims: ",
+      arg.dims,
+      " Slice-dims: ",
+      new_start.size);
+  NVF_CHECK(
+      new_start.size == new_end.size,
+      "Slice indexing attribute dimensions don't match! Start Indices: ",
+      new_start.size,
+      " End Indices: ",
+      new_end.size);
+
+  Tensor output = fd->defineTensor(arg.dims);
+  fd->defineRecord(new SliceOpRecord(
+      {fd->recordingState(arg()),
+       fd->recordingState(new_start()),
+       fd->recordingState(new_end()),
+       fd->recordingState(stride_index)},
+      {fd->recordingState(output())}));
+  return output;
+}
 
 } // namespace
 
@@ -463,17 +541,17 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("global", MemoryType::Global);
 
   //! Scheduler Type for scheduling
-  py::enum_<ScheduleHeuristic>(nvfuser, "SchedulerHeuristic")
-      .value("none", ScheduleHeuristic::None)
-      .value("no_op", ScheduleHeuristic::NoOp)
-      .value("pointwise", ScheduleHeuristic::PointWise)
-      .value("matmul", ScheduleHeuristic::Matmul)
-      .value("reduction", ScheduleHeuristic::Reduction)
-      .value("inner_persistent", ScheduleHeuristic::InnerPersistent)
-      .value("inner_outer_persistent", ScheduleHeuristic::InnerOuterPersistent)
-      .value("outer_persistent", ScheduleHeuristic::OuterPersistent)
-      .value("transpose", ScheduleHeuristic::Transpose)
-      .value("expr_eval", ScheduleHeuristic::ExprEval);
+  py::enum_<SchedulerType>(nvfuser, "SchedulerType")
+      .value("none", SchedulerType::None)
+      .value("no_op", SchedulerType::NoOp)
+      .value("pointwise", SchedulerType::PointWise)
+      .value("matmul", SchedulerType::Matmul)
+      .value("reduction", SchedulerType::Reduction)
+      .value("inner_persistent", SchedulerType::InnerPersistent)
+      .value("inner_outer_persistent", SchedulerType::InnerOuterPersistent)
+      .value("outer_persistent", SchedulerType::OuterPersistent)
+      .value("transpose", SchedulerType::Transpose)
+      .value("expr_eval", SchedulerType::ExprEval);
 
   nvfuser.def("compute_contiguity", computeContiguity);
   nvfuser.def("compute_tensor_descriptor", computeTensorDescriptor);
@@ -2714,87 +2792,23 @@ void initNvFuserPythonBindings(PyObject* module) {
 
   nvf_ops.def(
       "slice",
-      [](FusionDefinition::Operators& self,
-         Tensor arg,
-         const std::vector<int64_t>& start_indices,
-         const std::vector<int64_t>& end_indices,
-         // NOTE: Tried to use std::reference_wrapper to a vector and during
-         // testing, I was not getting the proper value back.  It was like
-         // like the code was referencing the strides vector that holds the
-         // default value.
-         std::optional<std::vector<int64_t>> opt_strides =
-             std::nullopt) -> Tensor {
-        FUSER_PERF_SCOPE("Operators.slice");
-        NVF_CHECK(
-            self.validUse(), "Attempting to add to a completed definition!");
-
-        std::vector<int64_t> strides;
-        if (opt_strides.has_value()) {
-          NVF_CHECK(
-              start_indices.size() == opt_strides.value().size(),
-              "Slice start_indices and strides don't match! Start Indices: ",
-              start_indices.size(),
-              " Strides: ",
-              opt_strides.value().size());
-          strides.assign(
-              opt_strides.value().begin(), opt_strides.value().end());
-        } else {
-          strides.resize(start_indices.size(), 1);
-        }
-
-        NVF_CHECK(
-            arg.dims == start_indices.size(),
-            "Number of tensor dimensions does not match slice dimensions! Tensor-dims: ",
-            arg.dims,
-            " Slice-dims: ",
-            start_indices.size());
-        NVF_CHECK(
-            start_indices.size() == end_indices.size(),
-            "Slice indexing attribute dimensions don't match! Start Indices: ",
-            start_indices.size(),
-            " End Indices: ",
-            end_indices.size(),
-            " Strides: ",
-            strides.size());
-        for (const auto i : c10::irange(arg.dims)) {
-          auto start_idx = start_indices[i];
-          auto end_idx = end_indices[i];
-          auto stride = strides[i];
-          NVF_CHECK(
-              start_idx >= 0,
-              "Slice operation start_indices must be greater-than-or-equal-to 0. Start Indices: ",
-              start_indices,
-              " End Indices: ",
-              end_indices,
-              " Strides: ",
-              strides);
-          NVF_CHECK(
-              end_idx >= start_idx,
-              "Slice operation end_indices must be greater-than-or-equal-to start_indices. Start Indices: ",
-              start_indices,
-              " End Indices: ",
-              end_indices,
-              " Strides: ",
-              strides);
-          NVF_CHECK(
-              stride == 1,
-              "nvFuser Limitation: All slice operation strides must be of size 1. Start Indices: ",
-              start_indices,
-              " End Indices: ",
-              end_indices,
-              " Strides: ",
-              strides);
-        }
-        FusionDefinition* fd = self.fusion_definition;
-        Tensor output = fd->defineTensor(arg.dims);
-        fd->defineRecord(new SliceOpRecord(
-            {fd->recordingState(arg())},
-            {fd->recordingState(output())},
-            start_indices,
-            end_indices,
-            strides));
-        return output;
-      },
+      slice_fn<Vector>,
+      py::arg("arg"),
+      py::arg("start_indices"),
+      py::arg("end_indices"),
+      py::arg("strides") = py::none(),
+      py::return_value_policy::reference);
+  nvf_ops.def(
+      "slice",
+      slice_fn<py::list>,
+      py::arg("arg"),
+      py::arg("start_indices"),
+      py::arg("end_indices"),
+      py::arg("strides") = py::none(),
+      py::return_value_policy::reference);
+  nvf_ops.def(
+      "slice",
+      slice_fn<py::tuple>,
       py::arg("arg"),
       py::arg("start_indices"),
       py::arg("end_indices"),
@@ -3437,43 +3451,44 @@ void initNvFuserPythonBindings(PyObject* module) {
   nvf_sched.def(
       "can_schedule",
       [](FusionDefinition::SchedOperators& self,
-         const ScheduleHeuristic& heuristic) {
+         const SchedulerType& scheduler_type) {
         NVF_CHECK(
             self.validUse(),
             "Attempting to use a SchedOperators Op prior to definition!");
         return self.fusion_definition->userSchedule()->canScheduleDebug(
-            heuristic);
+            scheduler_type);
       },
-      py::arg("heuristic"));
+      py::arg("scheduler_type"));
   nvf_sched.def(
       "find_compatible_schedulers", [](FusionDefinition::SchedOperators& self) {
         NVF_CHECK(
             self.validUse(),
             "Attempting to use a SchedOperators Op prior to definition!");
 
-        std::vector<ScheduleHeuristic> valid_heuristics;
-        valid_heuristics.reserve(all_heuristics_in_priority_order.size());
+        std::vector<SchedulerType> valid_scheduler_types;
+        valid_scheduler_types.reserve(all_heuristics_in_priority_order.size());
         std::copy_if(
             all_heuristics_in_priority_order.begin(),
             all_heuristics_in_priority_order.end(),
-            std::back_inserter(valid_heuristics),
+            std::back_inserter(valid_scheduler_types),
             [sched = self.fusion_definition->userSchedule()](
-                ScheduleHeuristic heuristic) {
-              return sched->canSchedule(heuristic);
+                SchedulerType scheduler_type) {
+              return sched->canSchedule(scheduler_type);
             });
-        return valid_heuristics;
+        return valid_scheduler_types;
       });
   nvf_sched.def(
       "schedule",
       [](FusionDefinition::SchedOperators& self,
-         const ScheduleHeuristic& heuristic) {
+         const SchedulerType& scheduler_type) {
         NVF_CHECK(
             self.validUse(),
             "Attempting to use a SchedOperators Op prior to definition!");
         UserSchedule* sched = self.fusion_definition->userSchedule();
-        auto&& [can_schedule, error_msg] = sched->canScheduleDebug(heuristic);
+        auto&& [can_schedule, error_msg] =
+            sched->canScheduleDebug(scheduler_type);
         NVF_CHECK(can_schedule, error_msg);
-        sched->scheduleWithHeuristic(heuristic);
+        sched->scheduleWithType(scheduler_type);
       },
       py::arg("heuristic"));
 }

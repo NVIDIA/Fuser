@@ -811,12 +811,10 @@ class DomainMerger {
         nonbulk_groups_(nonbulk_groups),
         dim_info_(dim_info) {
     ValGraph& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
-    domain_.domain.reserve(raw_tma_domain.size());
     contiguity_and_stride_.reserve(raw_tma_domain.size());
     for (auto& item : raw_tma_domain) {
-      domain_.domain.emplace_back(
+      domain_.emplaceBack(
           ValGroupAndItsGraph{std::move(std::get<0>(item)), &id_graph});
-      domain_.info.emplace_back();
       contiguity_and_stride_.emplace_back(std::get<1>(item), std::get<2>(item));
     }
   }

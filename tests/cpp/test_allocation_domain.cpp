@@ -1260,7 +1260,7 @@ TEST_F(AllocationDomainTest, Issue1290_ContiguityWasMissing) {
       fec.getMostRecentKernelRuntime()->fusionSegments()->groups();
   ASSERT_EQ(groups.size(), 1);
   SegmentedGroup* group = groups[0];
-  EXPECT_EQ(group->heuristic(), ScheduleHeuristic::PointWise);
+  EXPECT_EQ(group->schedulerType(), SchedulerType::PointWise);
 }
 
 TEST_F(AllocationDomainTest, Issue1290_ReplayCasPFailedDueToDifferentRanks) {

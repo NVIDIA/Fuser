@@ -1645,6 +1645,7 @@ class NVF_API Split : public Expr {
   Val* factor() const {
     return attributeVal(0);
   }
+  Val* isDivisible() const;
 
   bool innerSplit() const {
     return attribute<bool>(1);
