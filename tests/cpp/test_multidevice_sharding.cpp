@@ -305,26 +305,6 @@ TEST_F(MultiDeviceTest, Transpose) {
       UnorderedElementsAre(HeuristicIs(SchedulerType::Transpose)));
 }
 
-// TEST_F(MultiDeviceTest, Broadcast) {
-//   auto fusion = std::make_unique<Fusion>();
-//   FusionGuard fg(fusion.get());
-//
-//   const auto num_devices = communicator_->size();
-//   auto mesh = DeviceMesh::createForNumDevices(num_devices);
-//
-//   TensorView* in = makeContigConcreteTensor({1, -1});
-//   in->setDeviceMesh(mesh);
-//   TensorView* out = set(in);
-//   fusion->addInput(in);
-//   fusion->addOutput(out);
-//   in->axis(0)->parallelize(ParallelType::DIDx);
-//
-//   FusionExecutorCache fec(std::move(fusion));
-//   at::Tensor in_tensor = at::randn({1, 8}, tensor_options);
-//   at::Tensor out_tensor = fec.runFusionWithInputs({in_tensor})[0];
-//   testValidate(fec.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
-// }
-//
 // `MutliDeviceBroadcastTest`s verify the expression
 // evaluator correctly binds the extent of a broadcast dimension to 1 and the
 // expanded extent to the tensor size. There used to be a bug where it
