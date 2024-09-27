@@ -98,7 +98,7 @@ bool parseEnv(
   local_size = std::atoi(env);
 
   // retrieves master address
-  env = std::getenv("MASTER_ADDR");
+  env = std::getenv("NVFUSER_MASTER_ADDR");
   if (env) {
     // replace the potential aliased hostname by the "official" name
     master_addr = gethostbyname(env)->h_name;
@@ -106,17 +106,18 @@ bool parseEnv(
     master_addr = "localhost";
   } else {
     TORCH_WARN(
-        "the environment variable MASTER_ADDR "
+        "the environment variable NVFUSER_MASTER_ADDR "
         "must be specified in multi-node environment");
     return false;
   }
 
   // retrieves master port
-  if ((env = std::getenv("MASTER_PORT")) != nullptr) {
+  if ((env = std::getenv("NVFUSER_MASTER_PORT")) != nullptr) {
     master_port = std::atoi(env);
   } else {
-    LOG(INFO) << "The environment variable MASTER_PORT has not been specified. "
-              << "Set the master port to default: " << master_port;
+    LOG(INFO)
+        << "The environment variable NVFUSER_MASTER_PORT has not been specified. "
+        << "Set the master port to default: " << master_port;
   }
 
   return true;
@@ -178,7 +179,8 @@ Communicator::Communicator(
       size_(1),
       local_rank_(0),
       local_size_(1),
-      master_port_(c10d::TCPStoreOptions::kDefaultPort),
+      master_port_(
+          c10d::TCPStoreOptions::kDefaultPort + 42), // to avoid collision
       ucc_available_(false),
       nccl_available_(false) {
   // retrieves rank and communicator size
