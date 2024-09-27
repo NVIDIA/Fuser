@@ -323,7 +323,6 @@ std::vector<TensorView*> mha_qkv(
   // compute linear 0, q, k, and v
   TensorView* matmul0 = matmul(x, w0);
   TensorView* linear0 = add(matmul0, broadcast(b0, {false, true, false}));
-  // Forming the q,k,v vectors:
   TensorView* qkv_cat =
       reshape(linear0, {D, B * S, 3 * E / D}, {D, B, S, 3 * E / D});
   std::vector<TensorView*> qkv = chunk(qkv_cat, 3, -1);
