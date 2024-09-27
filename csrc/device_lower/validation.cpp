@@ -467,17 +467,20 @@ class VectorizeValidator : public OptInDispatch {
             tv->getDataType().value(), GpuLower::current()->indexType()) *
         vector_word_size;
 
-    // Allow half2, float2, float4 and same sized vtypes.
-    std::array<int64_t, 4> allowed_vector_sizes = {2, 4, 8, 16}; // NOLINT
-
-    NVF_CHECK(
-        std::find(
-            allowed_vector_sizes.begin(),
-            allowed_vector_sizes.end(),
-            vector_size) != allowed_vector_sizes.end(),
-        "Tried to vectorize a dim resulting in a word size of ",
-        vector_size,
-        " however, vector sizes only upto and including 16 bytes are supported.");
+    // skip these checks for grouped type, if larger than 16 bytes, runtime
+    // function will split it into multiple vector instructions.
+    if (v_id->getParallelType() != ParallelType::Group) {
+      // Allow half2, float2, float4 and same sized vtypes.
+      std::array<int64_t, 4> allowed_vector_sizes = {2, 4, 8, 16}; // NOLINT
+      NVF_CHECK(
+          std::find(
+              allowed_vector_sizes.begin(),
+              allowed_vector_sizes.end(),
+              vector_size) != allowed_vector_sizes.end(),
+          "Tried to vectorize a dim resulting in a word size of ",
+          vector_size,
+          " however, vector sizes only upto and including 16 bytes are supported.");
+    }
 
     auto consumer_vectorized_id =
         getVectorizedIdInAllocationDomain(v_id, tv, "consumer");
