@@ -146,10 +146,11 @@ void UnrollPass::dispatch(Expr* expr) {
       }
     }
 
+    // CpAsync uses inline predicate but still needs a IfThenElse predicate
+    // to avoid illegal memory access, see test
+    // FusionCpAsyncPredicateAvoidIllegalMemoryAccess
     if (lower_utils::supportInlinePredicate(expr)) {
       expr_with_predicate = expr_with_predicate->withPredicate(pred);
-      registerReplace(expr, expr_with_predicate);
-      return;
     }
 
     // If we need a predicate, put expr inside an if then else
