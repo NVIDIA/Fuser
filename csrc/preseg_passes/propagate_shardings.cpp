@@ -49,15 +49,42 @@ void validateMeshes(Fusion* fusion) {
 } // namespace
 
 void PropagateShardingsPass::runPass(Fusion* fusion) {
+  auto num_device_parallel_dimensions = [](const TensorView* tv) -> int64_t {
+    return std::count_if(
+        tv->getLoopDomain().begin(),
+        tv->getLoopDomain().end(),
+        std::mem_fn(&IterDomain::isDeviceDim));
+  };
+
   const std::vector<Expr*>& exprs = fusion->exprs();
   for (Expr* expr : exprs) {
     const auto& inputs = ir_utils::filterByType<TensorView>(expr->inputs());
-    auto i = std::find_if(
-        inputs.begin(), inputs.end(), std::mem_fn(&TensorView::hasDeviceMesh));
-    if (i == inputs.end()) {
+    // Pick the "most parallel" input tensor as the reference. This is useful
+    // for propagating tensor parallelism from weights to MLP's intermediate
+    // tensors. For example,
+    //
+    //   x: [b, s, h]; replicated.
+    //   w0: [h, 4*h]; column-wise sharded.
+    //   w1: [4*h, h]; row-wise sharded.
+    //   y = matmul(x, w0)
+    //   z = matmul(y, w1)
+    //
+    // With the above heuristic, `y` can be automatically sharded column-wise.
+    TensorView* ref_input = nullptr;
+    auto max_num_dids = std::numeric_limits<int64_t>::min();
+    for (auto* input : inputs) {
+      if (!input->hasDeviceMesh()) {
+        continue;
+      }
+      int64_t num_dids = num_device_parallel_dimensions(input);
+      if (num_dids > max_num_dids) {
+        max_num_dids = num_dids;
+        ref_input = input;
+      }
+    }
+    if (ref_input == nullptr) {
       continue;
     }
-    TensorView* input_with_mesh = *i;
 
     // Note: Tvs without a mesh are assumed to have no manual sharding
     // annotation and are sharded like the first producer Tv.
@@ -68,7 +95,7 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
         outputs_without_mesh.push_back(tv);
       }
     }
-    shardAllLike(input_with_mesh, outputs_without_mesh);
+    shardAllLike(ref_input, outputs_without_mesh);
   }
 
   // Back-propagate device meshes. This makes sure all TensorViews have a mesh
