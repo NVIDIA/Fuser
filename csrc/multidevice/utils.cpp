@@ -164,8 +164,15 @@ bool haveDifferentShardings(
       // trigger resharding.
       continue;
     }
-
     auto c_id = i->second;
+
+    // `b(DID{i0})` and `b(i0)` bear the same semantics, so don't treat it as
+    // resharding. The former is used more often due to how parallelizeAllLike
+    // is implemented.
+    if (p_id->isBroadcast() && c_id->isBroadcast()) {
+      continue;
+    }
+
     if (p_id->getParallelType() != c_id->getParallelType() &&
         (p_id->isDeviceDim() || c_id->isDeviceDim())) {
       // Mismatch found

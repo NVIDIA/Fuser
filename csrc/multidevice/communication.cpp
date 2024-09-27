@@ -71,7 +71,10 @@ void assertBuffersHaveSameSize(
     for (const auto& buf : bufs) {
       NVF_ERROR(
           buf.numel() == numel,
-          "all buffers must have the same number of elements");
+          "all buffers must have the same number of elements: ",
+          buf.numel(),
+          " vs ",
+          numel);
     }
   }
 }
