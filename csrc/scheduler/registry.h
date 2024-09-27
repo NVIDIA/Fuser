@@ -55,13 +55,13 @@ class SchedulerEntry {
   // Checks the provided scheduler type can schedule the fusion with the
   // provided inputs. Schedules the fusion according to the heuristics provided
   // by the scheduler. Returns the heuristics. This is simply a convenience
-  // function for a common testing pattern. If validate is set to false
-  // canSchedule will not be checked.
+  // function for a common testing pattern. If validate_scheduler is set to
+  // false canSchedule will not be checked.
   NVF_API static std::unique_ptr<HeuristicParams> scheduleWith(
       Fusion* fusion,
       SchedulerType scheduler_type,
       const at::ArrayRef<c10::IValue>& runtime_inputs,
-      bool validate = true);
+      bool validate_scheduler = true);
 
   //! Heuristic comparison
   bool sameAs(const SchedulerEntry* other);
@@ -84,9 +84,9 @@ bool canSchedule(
     HeuristicDataCache* data_cache = nullptr);
 
 //! Fusion segmenter facing API,
-//!   returns a schedule that applies in the given fusion, returns a nullopt
-//!   if no schedule in the registry can handle.
-std::optional<SchedulerType> proposeHeuristics(
+//!   returns a schedule that applies in the given fusion, returns
+//!   SchedulerType::None if no schedule in the registry can handle.
+SchedulerType proposeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info);
 } // namespace Schedule

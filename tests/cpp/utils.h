@@ -42,16 +42,17 @@ struct CGResultsPackage {
   std::unique_ptr<FusionExecutor> fusion_executor;
 };
 
-// Grabs heuristics and schedules with the provided scheduler type, compiels and
+// Grabs heuristics and schedules with the provided scheduler type, compiles and
 // runs with Fuion executor, returns a struct containing the outputs,
 // heuristic_params, and FusionExecutor. These structures are for convenience in
-// testing. If validate is set to false the scheduler check will still be run
-// but it will be ignored. Otherwise canScheduler returning false will throw.
+// testing. If validate_scheduler is set to false the scheduler check will still
+// be run but it will be ignored. Otherwise canScheduler returning false will
+// throw.
 CGResultsPackage scheduleAndRun(
     Fusion* fusion,
     SchedulerType scheduler_type,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
-    bool validate = true);
+    bool validate_scheduler = true);
 
 // Make s Stack used for TorchScript execution
 inline torch::jit::Stack createStack(std::vector<at::Tensor>&& list) {

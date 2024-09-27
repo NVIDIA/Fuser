@@ -9,6 +9,7 @@ from typing import List, Callable, Union
 import numpy as np
 from nvfuser import FusionDefinition, FusionCache
 from nvfuser.pytorch_utils import DEVICE_PROPERTIES
+import warnings
 
 # These variables can be overwritten through CLI commands
 # --benchmark-rounds=rounds --benchmark-warmup-rounds=warmup_rounds
@@ -259,40 +260,106 @@ def run_benchmark(
         outputs: Output of the target function
     """
 
-    assert device in [
+    # Check that the device is `cuda` or `host:{compile/steady/dynamic}`.
+    assert device.split(":")[0] in [
         "cuda",
         "host",
-    ], f"Unsupported device type: {device}. Use one of cuda/host."
+    ], f'Unsupported device type: {device.split(":")[0]}. Use one of cuda/host.'
 
-    if device == "host":
+    host_bench_mode = None
+
+    # Store warmup rounds locally to modify for host:steady/dynamic cases.
+    warmup_rounds = BENCHMARK_CONFIG["warmup_rounds"]
+
+    if device.split(":")[0] == "host":
+        # Host benchmarking expects a fusion function to generate fusion definitions everytime FusionCache is reset.
         assert fusion_fn is not None and benchmark_fn is None
 
+        # Reset the FusionCache to avoid any inadvertent fusion execution from affecting measurements
+        FusionCache.reset()
+
+        # device = 'host:compile', 'host:steady', 'host:dyanamic'
+        # Set the host_bench_mode -- The 3 modes require different setup calls.
+        host_bench_mode = device.split(":")[-1]
+        device = device.split(":")[0]  # device = 'host'
+
+        # Set the warmup rounds if required for `steady/dynamic` host latency measurement.
+        if (
+            host_bench_mode in ["steady", "dynamic"]
+            and BENCHMARK_CONFIG["warmup_rounds"] == 0
+        ):
+            # By default, warmup_rounds=1. If BENCHMARK_CONFIG['warmup_rounds'] == 0 through --benchmark-warmup-rounds, raise a warning that it was ignored.
+            warnings.warn(
+                "--benchmark-warmup-rounds=0 is ignored for host:steady/dynamic benchmarking. Setting warmup_rounds=1."
+            )
+            warmup_rounds = 1
+
+    """
+    Setup function: This is called before each benchmarking round. This function is used to:
+    1. Clear L2 cache.
+    2. For host latency benchmarks, the 3 modes use different setups.
+        a) 'compile': FusionCache is reset at every round to measure the first time overhead before instantiating fd.
+        b) 'steady': Nothing additional is required. The warmup round avoids including the first time overhead in the measurements.
+        c) 'dynamic': We maintain a global counter to track which input is executed. Once all the inputs have been executed once,
+        the FusionCache is reset again and we execute fd for the first input to avoid including the first time compile overhead in the dynamic measurement.
+    """
+
+    # Counter used in `dynamic` host latency benchmarking, unused in other cases.
+    global counter
+    counter = 0
+
+    def setup():
+        clear_l2_cache()
+        if device == "cuda":
+            return [inputs], {}
+
+        # Device = 'host'
+        # For device='host', we use the host_benchmark_fn below. It expects a list of fusion inputs, and the fd object.
+        assert host_bench_mode in [
+            "compile",
+            "steady",
+            "dynamic",
+        ], f"Expected host benchmark mode to be one of compile, steady, or dynamic, found {host_bench_mode}"
+
+        if host_bench_mode == "compile":
+            # Reset the FusionCache to measure initial host overhead correctly.
+            FusionCache.reset()
+
+        # Instantiate the fusion definition
+        with FusionDefinition() as fd:
+            fusion_fn(fd)
+
+        if host_bench_mode in ["compile", "steady"]:
+            return [inputs], {"fd": fd}
+
+        # For dynamic host latency benchmarking, return a particular input shape, and reset FusionCache if all inputs have been executed.
+        global counter
+        counter += 1
+        if counter % len(inputs) == 0:
+            # All inputs have been executed once.
+            FusionCache.reset()
+            with FusionDefinition() as fd:
+                fusion_fn(fd)
+            # Execute fd with the first inputs to avoid measuring first time overhead.
+            fd.execute(inputs[0])
+            counter += 1
+        return [inputs[counter % len(inputs)]], {"fd": fd}
+
+    # Create an instance of NVFBenchmark
     nvf_benchmark = NVFBenchmark(benchmark, device=device)
 
+    # The host_benchmark_fn uses the `fd` object returned from setup function.
     def host_benchmark_fn(inputs, fd):
         # Set the fd variable used to query the profile object
         nvf_benchmark.fd = fd
         return fd.execute(inputs, profile=True)
-
-    def setup():
-        clear_l2_cache()
-
-        if device == "host":
-            # Reset the FusionCache to measure host overhead correctly.
-            FusionCache.reset()
-            with FusionDefinition() as fd:
-                fusion_fn(fd)
-            # The benchmark_fn used is host_benchmark_fn above.
-            return [inputs], {"fd": fd}
-
-        return [inputs], {}
 
     benchmark_fn = benchmark_fn if benchmark_fn is not None else host_benchmark_fn
     outputs = nvf_benchmark.pedantic(
         benchmark_fn,
         setup=setup,
         rounds=BENCHMARK_CONFIG["rounds"],
-        warmup_rounds=BENCHMARK_CONFIG["warmup_rounds"],
+        warmup_rounds=warmup_rounds,
     )
 
     if device == "cuda":

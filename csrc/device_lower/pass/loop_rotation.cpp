@@ -119,9 +119,7 @@ class RotateLoop : kir::ExprMutator {
   std::unordered_set<Statement*> selection_;
 
   RotateLoop(IterDomain* loop_id, std::unordered_set<Statement*> selection)
-      : loop_concrete_id_(GpuLower::current()->caMap()->getConcreteMappedID(
-            loop_id,
-            IdMappingMode::LOOP)),
+      : loop_concrete_id_(lower_utils::getConcreteLoopID(loop_id)),
         selection_(std::move(selection)) {}
 
   // We use the following strategy on expr selection:

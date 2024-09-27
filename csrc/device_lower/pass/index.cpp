@@ -1470,11 +1470,11 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
   // mbarrier_wait are added by the circular buffer pass. Otherwise, those
   // nodes are added here.
   bool is_circular_buffered =
-      (GpuLower::current()->ldstMBarrierIndexMap().count(ldst) != 0);
+      (GpuLower::current()->tmaCircularBufferInfo().existsTensorIndex(ldst));
 
   if (is_circular_buffered) {
     kir::TensorIndex* mbarrier =
-        GpuLower::current()->ldstMBarrierIndexMap().at(ldst);
+        GpuLower::current()->tmaCircularBufferInfo().getTensorIndex(ldst);
     Val* mbarrier_index = lower_utils::u32IndexScalarSmemTv(mbarrier);
 
     // gmem indexing and expect_bytes for mbarrier
@@ -1490,7 +1490,8 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
     pushBack(new_ldst);
 
     // register new LoadStoreOp with mbarrier
-    GpuLower::current()->ldstMBarrierIndexMap()[new_ldst] = mbarrier;
+    GpuLower::current()->tmaCircularBufferInfo().recordTensorIndex(
+        new_ldst, mbarrier);
 
     GpuLower::current()->propagateExprInfo(ldst, back());
   } else {

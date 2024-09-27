@@ -28,6 +28,8 @@ constexpr std::string_view MATMUL_LOG_PREFIX = "[MATMUL DEBUG] ";
 //! Named descriptors of domains in matmul
 enum class MatmulDimRole { M = 0, N, K, Batch };
 
+std::string toString(MatmulDimRole role);
+
 //! Named descriptors of TensorView roles in fusion
 //!  OPERAND_A - an input to the fusion that is a producer of a matmul "A" input
 //!  OPERAND_B - an input to the fusion that is a producer of a matmul "B" input

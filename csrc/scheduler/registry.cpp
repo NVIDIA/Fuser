@@ -99,10 +99,11 @@ std::unique_ptr<HeuristicParams> SchedulerEntry::scheduleWith(
     Fusion* fusion,
     SchedulerType scheduler_type,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
-    bool validate) {
+    bool validate_scheduler) {
   SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs);
   NVF_ERROR(
-      !validate || Schedule::canSchedule(scheduler_type, fusion, runtime_info),
+      !validate_scheduler ||
+          Schedule::canSchedule(scheduler_type, fusion, runtime_info),
       "Could not schedule fusion with the SchedulerType: ",
       scheduler_type);
   auto scheduler_instance =
@@ -134,7 +135,7 @@ bool canSchedule(
 }
 
 // Simply loop through the list as baseline strategy
-std::optional<SchedulerType> proposeHeuristics(
+SchedulerType proposeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info) {
   for (const auto& sh : all_heuristics_in_priority_order) {
@@ -143,7 +144,7 @@ std::optional<SchedulerType> proposeHeuristics(
       return sh;
     }
   }
-  return std::nullopt;
+  return SchedulerType::None;
 }
 } // namespace Schedule
 

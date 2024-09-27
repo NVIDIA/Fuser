@@ -21,9 +21,9 @@ CGResultsPackage scheduleAndRun(
     Fusion* fusion,
     SchedulerType scheduler_type,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
-    bool validate) {
+    bool validate_scheduler) {
   auto heuristic_params = SchedulerEntry::scheduleWith(
-      fusion, scheduler_type, runtime_inputs, validate);
+      fusion, scheduler_type, runtime_inputs, validate_scheduler);
   auto fusion_executor = std::make_unique<FusionExecutor>();
   fusion_executor->compileFusion(
       fusion, runtime_inputs, heuristic_params->lparams);
