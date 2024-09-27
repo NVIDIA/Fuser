@@ -204,8 +204,8 @@ class NVFBenchmark:
         Current metrics:
             IOBytes: Total bytes in inputs + outputs
             BytesPerSecond: IOBytes * total_rounds / total_time
-            Bandwdith (GBps_v2): BytesPerSecond / (1e9)
-            % Peak Bandwidth (SOL_v2): 100 * Bandwidth /PEAK_BANDWIDTH
+            Bandwdith (GBps): BytesPerSecond / 1e9
+            % Peak Bandwidth (SOL): 100 * Bandwidth /PEAK_BANDWIDTH
         """
         if not iobytes:
             if isinstance(inputs, torch.Tensor):
@@ -226,9 +226,8 @@ class NVFBenchmark:
             iobytes * self.benchmark.stats["rounds"]
         ) / self.benchmark.stats["total"]
         self.benchmark.extra_info["Bandwidth (Bps)"] = bandwidth_bps
-        # 1G = 1e9
-        self.benchmark.extra_info["Bandwidth (GBps_v2)"] = bandwidth_bps / 1e9
-        self.benchmark.extra_info["% Peak Bandwidth (SOL_v2)"] = (
+        self.benchmark.extra_info["Bandwidth (GBps)"] = bandwidth_bps / 1e9
+        self.benchmark.extra_info["% Peak Bandwidth (SOL)"] = (
             100 * (bandwidth_bps / 1e9) / PEAK_BANDWIDTH_GBPS
         )
 
