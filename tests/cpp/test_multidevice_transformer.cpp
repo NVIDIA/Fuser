@@ -1006,14 +1006,14 @@ TEST_P(DistributedTransformerTest, Forward) {
   const auto options =
       at::TensorOptions().dtype(at_dtype).device(communicator_->device());
   auto x_ = at::randn({B * S, E}, options).to(at::kFloat);
-  auto ln0_w_ = at::ones(E, options).to(at::kFloat);
-  auto ln0_b_ = at::zeros(E, options).to(at::kFloat);
+  auto ln0_w_ = at::randn(E, options).to(at::kFloat);
+  auto ln0_b_ = at::randn(E, options).to(at::kFloat);
   auto mha_w0_ = at::randn({E, 3 * E}, options) * kParamScale;
   auto mha_b0_ = at::randn({3 * E}, options) * kParamScale;
   auto mha_w1_ = at::randn({E, E}, options) * kParamScale;
   auto mha_b1_ = at::randn({E}, options) * kParamScale;
-  auto ln1_w_ = at::ones(E, options).to(at::kFloat);
-  auto ln1_b_ = at::zeros(E, options).to(at::kFloat);
+  auto ln1_w_ = at::randn(E, options).to(at::kFloat);
+  auto ln1_b_ = at::randn(E, options).to(at::kFloat);
   auto mlp_w0_ = at::randn({E, 4 * E}, options) * kParamScale;
   auto mlp_b0_ = at::randn({4 * E}, options) * kParamScale;
   auto mlp_w1_ = at::randn({4 * E, E}, options) * kParamScale;
@@ -1055,7 +1055,7 @@ TEST_P(DistributedTransformerTest, Forward) {
   FusionExecutorCache fec(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
   auto outputs = fec.runFusionWithInputs(inputs);
-  validate(expected_outputs, outputs, {1e-5, 0.01, 0.01, 0.02, 0.02});
+  validate(expected_outputs, outputs, {1e-4, 0.01, 0.02, 0.02, 0.02});
 }
 
 TEST_P(DistributedTransformerTest, Backward) {
@@ -1261,14 +1261,14 @@ TEST_P(DistributedTransformerTest, Backward) {
   const auto options =
       at::TensorOptions().dtype(at_dtype).device(communicator_->device());
   auto x_ = at::randn({B * S, E}, options).to(at::kFloat);
-  auto ln0_w_ = at::ones(E, options).to(at::kFloat);
-  auto ln0_b_ = at::zeros(E, options).to(at::kFloat);
+  auto ln0_w_ = at::randn(E, options).to(at::kFloat);
+  auto ln0_b_ = at::randn(E, options).to(at::kFloat);
   auto mha_w0_ = at::randn({E, 3 * E}, options) * kParamScale;
   auto mha_b0_ = at::randn({3 * E}, options) * kParamScale;
   auto mha_w1_ = at::randn({E, E}, options) * kParamScale;
   auto mha_b1_ = at::randn({E}, options) * kParamScale;
-  auto ln1_w_ = at::ones(E, options).to(at::kFloat);
-  auto ln1_b_ = at::zeros(E, options).to(at::kFloat);
+  auto ln1_w_ = at::randn(E, options).to(at::kFloat);
+  auto ln1_b_ = at::randn(E, options).to(at::kFloat);
   auto mlp_w0_ = at::randn({E, 4 * E}, options) * kParamScale;
   auto mlp_b0_ = at::randn({4 * E}, options) * kParamScale;
   auto grad_ = at::randn({B * S, E}, options).to(at::kFloat) * kParamScale;
@@ -1363,7 +1363,7 @@ TEST_P(DistributedTransformerTest, Backward) {
   validate(
       expected_outputs,
       outputs,
-      {5e-4,
+      {1e-3,
        5e-4,
        2e-3,
        2e-3,
