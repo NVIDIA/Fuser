@@ -68,7 +68,9 @@ bool isSimpleTVSet(Expr* expr) {
     return false;
   }
   return ldst->opType() == LoadStoreOpType::Set &&
-      ldst->in()->isA<TensorView>();
+      ldst->in()->isA<TensorView>()
+      // The hasRoot() check is to prevent picking up Set.Permute ops here
+      && !ldst->out()->as<TensorView>()->hasRoot();
 }
 
 //! This defines the types of operations that are eligible for simplification in
@@ -203,6 +205,10 @@ TensorView* maybeDoReplacement(TensorView* orig) {
     return orig;
   }
 
+  std::cout << "Checking replaceable pair of exprs:" << std::endl;
+  std::cout << "  first=" << first->toString() << std::endl;
+  std::cout << "  second=" << second->toString() << std::endl;
+
   AxisOps first_ops = exprToAxisOps(first);
   AxisOps second_ops = exprToAxisOps(second);
   AxisOps simplified_ops = composeOps(first_ops, second_ops);
@@ -230,6 +236,18 @@ TensorView* maybeDoReplacement(TensorView* orig) {
     }
     NVF_ERROR(replacement != nullptr);
     ir_utils::replaceValInAllExprInputsAndFusionOutputs(orig, replacement);
+    std::vector<IterDomain*> old_loop =
+        TensorDomain::noReductions(orig->getLoopDomain());
+    std::vector<IterDomain*> new_loop =
+        TensorDomain::noReductions(replacement->getLoopDomain());
+    NVF_ERROR(new_loop.size() == old_loop.size());
+    for (size_t i : c10::irange(old_loop.size())) {
+      if (old_loop[i]->isParallelized()) {
+        // In particular, we might have a Device dimension parallelized for the
+        // output, which we need to preserve.
+        new_loop[i]->parallelize(old_loop[i]->getParallelType());
+      }
+    }
   }
   return replacement;
 }
