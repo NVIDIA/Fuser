@@ -551,7 +551,6 @@ c10::intrusive_ptr<c10d::Work> postSend(
     at::Tensor buffer,
     int64_t tag) {
   NVF_ERROR(peer < backend->getSize(), "invalid peer: ", peer);
-  NVF_ERROR(peer != my_device_index, "Send to self at device: ", peer);
 
   // Needed to match ProcessGroup API
   std::vector<at::Tensor> packed_buffer = {buffer};
@@ -567,7 +566,6 @@ c10::intrusive_ptr<c10d::Work> postRecv(
     at::Tensor buffer,
     int64_t tag) {
   NVF_ERROR(peer < backend->getSize(), "invalid peer: ", peer);
-  NVF_ERROR(peer != my_device_index, "Recv to self at device: ", peer);
 
   // Needed to match ProcessGroup API
   std::vector<at::Tensor> packed_buffer = {buffer};
