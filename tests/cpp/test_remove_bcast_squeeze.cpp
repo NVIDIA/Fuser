@@ -112,12 +112,19 @@ TEST_F(RemoveBcastSqueezeTest, BcastSqueezeUnmatchedDim) {
   auto tv4 = set(tv3);
   fusion->addOutput(tv4);
 
-  // preseg_passes shouldn't remove either broadcast or squeeze
-  // becuase broadcast dim doesn't match with squeeze dim
+  // preseg_passes should remove squeeze and alter broadcast flags to simply not
+  // insert the squeezed axis.
   preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
       fusion.get());
   EXPECT_TRUE(ir_utils::hasOpsOfType<BroadcastOp>(fusion.get()));
-  EXPECT_TRUE(ir_utils::hasOpsOfType<SqueezeOp>(fusion.get()));
+  EXPECT_FALSE(ir_utils::hasOpsOfType<SqueezeOp>(fusion.get()));
+  for (auto expr : fusion->exprs()) {
+    if (auto* bcast = dynamic_cast<BroadcastOp*>(expr)) {
+      EXPECT_EQ(
+          bcast->getBroadcastDimFlags(),
+          (std::vector<bool>{false, false, true}));
+    }
+  }
 }
 
 TEST_F(RemoveBcastSqueezeTest, BcastSqueezeOutputBcast) {

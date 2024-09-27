@@ -125,13 +125,22 @@ AxisOps composeOps(const AxisOps& prev, const AxisOps& next) {
   //      Otherwise, insert the BROADCAST
 
   size_t prev_pos = 0, next_pos = 0;
-  AxisOps out;
+  AxisOps ops;
+  // op_from_prev tracks whether the inserted op was from the previous ops or
+  // next. This is used in simplification so that we can determine whether to
+  // insert a PRESERVE (for squeeze then broadcast) vs remove the ops altogether
+  // (for broadcast then squeeze).
+  std::vector<bool> op_from_prev;
+  const auto pushOp = [&ops, &op_from_prev](AxisOp op, bool from_prev) {
+    ops.push_back(op);
+    op_from_prev.push_back(from_prev);
+  };
   while (prev_pos < prev.size() && next_pos < next.size()) {
     AxisOp prev_op = prev[prev_pos];
     while (prev_op == AxisOp::SQUEEZE) {
       // SQUEEZE is the only op that should not increment next_pos, since there
       // is no corresponding output axis
-      out.push_back(AxisOp::SQUEEZE);
+      pushOp(AxisOp::SQUEEZE, true);
       ++prev_pos;
       if (prev_pos >= prev.size()) {
         break;
@@ -140,7 +149,7 @@ AxisOps composeOps(const AxisOps& prev, const AxisOps& next) {
     }
     AxisOp next_op = next[next_pos];
     while (next_op == AxisOp::BROADCAST) {
-      out.push_back(AxisOp::BROADCAST);
+      pushOp(AxisOp::BROADCAST, false);
       ++next_pos;
       if (next_pos >= next.size()) {
         break;
@@ -148,9 +157,9 @@ AxisOps composeOps(const AxisOps& prev, const AxisOps& next) {
       next_op = next[next_pos];
     }
 
-    out.push_back(prev_op);
+    pushOp(prev_op, true);
     if (next_op != AxisOp::PRESERVE) {
-      out.push_back(next_op);
+      pushOp(next_op, false);
     }
 
     ++prev_pos;
@@ -160,37 +169,36 @@ AxisOps composeOps(const AxisOps& prev, const AxisOps& next) {
     NVF_ERROR(
         prev[prev_pos] == AxisOp::SQUEEZE,
         "Left-over previous ops must be squeeze");
-    out.push_back(AxisOp::SQUEEZE);
+    pushOp(AxisOp::SQUEEZE, true);
     ++prev_pos;
   }
   while (next_pos < next.size()) {
     NVF_ERROR(
         next[next_pos] == AxisOp::BROADCAST,
         "Left-over previous ops must be broadcast");
-    out.push_back(AxisOp::BROADCAST);
+    pushOp(AxisOp::BROADCAST, false);
     ++next_pos;
   }
   NVF_ERROR(prev_pos == prev.size());
   NVF_ERROR(next_pos == next.size());
-  return out;
-}
 
-//! Simplifies a composed op by iteratively removing adjacent SQUEEZE and
-//! BROADCAST ops>
-AxisOps simplifyOps(AxisOps ops) {
+  // Simplify
   while (true) {
     bool changed = false;
-    for (auto cur = ops.begin(), next = ops.begin() + 1; next != ops.end();
-         cur++, next++) {
-      // In cases like this, we will have inserted the previous op to the left
-      // of the next op.
-      // TODO: prove the above. Is it true?
-      if (*cur == AxisOp::SQUEEZE && *next == AxisOp::BROADCAST) {
-        *cur = AxisOp::PRESERVE;
-        ops.erase(next);
-        changed = true;
-        break;
-      } else if (*cur == AxisOp::BROADCAST && *next == AxisOp::SQUEEZE) {
+    NVF_ERROR(ops.size() == op_from_prev.size());
+    for (size_t i : c10::irange(ops.size() - 1)) {
+      AxisOp cur = ops[i], next = ops[i+1];
+      if (cur == AxisOp::SQUEEZE && next == AxisOp::BROADCAST)
+        || (cur == AxisOp::BROADCAST && next == AxisOp::SQUEEZE) {
+        if (op_from_prev[i]) {
+          ops[i] = AxisOp::PRESERVE;
+          ops.erase(ops.begin() + i + 1);
+          op_from_prev.erase(op_from_prev.begin() + i + 1);
+          changed = true;
+          break;
+        } else {
+        }
+      else if (*cur == AxisOp::BROADCAST && *next == AxisOp::SQUEEZE) {
         ops.erase(next);
         ops.erase(cur);
         changed = true;
@@ -201,12 +209,12 @@ AxisOps simplifyOps(AxisOps ops) {
       break;
     }
   }
+
   return ops;
 }
 
 void maybeDoReplacement(Expr* first, Expr* second) {
-  AxisOps composed_ops = composeOps(exprToOps(first), exprToOps(second));
-  AxisOps simplified_ops = simplifyOps(composed_ops);
+  AxisOps simplified_ops = composeOps(exprToOps(first), exprToOps(second));
   std::optional<AxisOp> simple_op_type_opt =
       getSimplifiedOpType(simplified_ops);
   if (simple_op_type_opt.has_value()) {
