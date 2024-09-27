@@ -440,7 +440,7 @@ class VectorizeValidator : public OptInDispatch {
     IterDomain* v_id = nullptr;
     for (auto id : tv->getLoopDomain()) {
       auto ptype = id->getParallelType();
-      if (ptype == ParallelType::Vectorize || ptype == ParallelType::Group) {
+      if (isParallelTypeVectorize(ptype) || ptype == ParallelType::Group) {
         NVF_ERROR(
             v_id == nullptr,
             "Found two vectorized domains in ",
@@ -589,7 +589,7 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
         has_vectorize_dim = true;
       }
 
-      if (concrete_id->getParallelType() == ParallelType::MisalignedVectorize) {
+      if (ptype == ParallelType::MisalignedVectorize) {
         NVF_ERROR(
             tv->getMaxComputePosition() == 0 ||
                 tv->getMaxComputePosition() == tv->nDims() - 1,
@@ -611,23 +611,25 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
           has_grouped_vectorize_dim = true;
         }
       }
-      if (has_vectorize_dim) {
-        Expr* def = tv->definition();
-        NVF_ERROR(
-            def == nullptr || def->isA<LoadStoreOp>() || def->isA<SliceOp>() ||
-                (def->isA<ReductionOp>() &&
-                 def->as<ReductionOp>()->serialGridReductionRequested()),
-            "Vectorized accesses cannot be inline with computation: ",
-            (def == nullptr ? tv->toString() : def->toString()));
-      }
-      // Validate the vectorized domain maps to the innermost domain of
-      // tv. Note that we don't need to validate its producer tv as
-      // both Vectorize and MisalignedVectorize can only be used with
-      // UnaryOp::Set.
-      if (has_vectorize_dim || has_misaligned_vectorize_dim ||
-          has_grouped_vectorize_dim) {
-        VectorizeValidator::validate(tv);
-      }
+    }
+
+    // Further process if tv has Vectorize, MisalignedVectorize or Group
+    if (has_vectorize_dim) {
+      Expr* def = tv->definition();
+      NVF_ERROR(
+          def == nullptr || def->isA<LoadStoreOp>() || def->isA<SliceOp>() ||
+              (def->isA<ReductionOp>() &&
+               def->as<ReductionOp>()->serialGridReductionRequested()),
+          "Vectorized accesses cannot be inline with computation: ",
+          (def == nullptr ? tv->toString() : def->toString()));
+    }
+    // Validate the vectorized domain maps to the innermost domain of
+    // tv. Note that we don't need to validate its producer tv as
+    // both Vectorize and MisalignedVectorize can only be used with
+    // UnaryOp::Set.
+    if (has_vectorize_dim || has_misaligned_vectorize_dim ||
+        has_grouped_vectorize_dim) {
+      VectorizeValidator::validate(tv);
     }
   }
 }
