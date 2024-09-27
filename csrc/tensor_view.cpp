@@ -61,9 +61,9 @@ std::string TensorView::toString(int indent_size) const {
       ss << "_l";
       break;
     default:
-      NVF_ERROR(false, "Unknown tensor memory type.");
+      NVF_THROW("Unknown tensor memory type.");
   }
-  ss << domain()->toString(indent_size);
+  ss << "_" << dtype() << domain()->toString(indent_size);
 
   if (getComputeAtPosition() > 0) {
     ss << " ca_pos( ";
@@ -216,26 +216,67 @@ int64_t getConsumerPosAlignedToProducerCA(
   // have the mapping iS22{( 3 * 1 )} <- iS1{3} We need the latter. Refer to
   // NVFuserTest.FusionComplexBCast1_CUDA
 
-  auto disjoint_sets =
-      BestEffortReplay::replayPasC(
-          producer, consumer, -1, PairwiseLogicalDomainMap(producer, consumer))
-          .getIterDomainEquivalence();
-
-  // Find the innermost position of consumer that has
-  //  been mapped within the producer ca axis.
   int64_t consumer_pos = consumer->nDims();
-  while (consumer_pos > 0) {
-    auto consumer_id = consumer->axis(consumer_pos - 1);
-    auto p_dom = producer->getLoopDomain();
-    if (std::any_of(
-            p_dom.begin(),
-            p_dom.begin() + producer_pos,
-            [&consumer_id, &disjoint_sets](IterDomain* p_id) {
-              return disjoint_sets.permissiveAreMapped(consumer_id, p_id);
-            })) {
-      break;
+
+  const bool may_need_forwarding =
+      ir_utils::hasRootToLoopLinearTransformations(producer) &&
+      !ir_utils::compareDomains(
+           producer->getLoopDomain(),
+           producer->getLogicalDomain(),
+           /*additional_ids=*/{},
+           /*ignore_broadcast=*/false)
+           .dom0_has_unreachable_ids &&
+      ir_utils::hasRootToLoopLinearTransformations(consumer) &&
+      !ir_utils::compareDomains(
+           consumer->getLoopDomain(),
+           consumer->getLogicalDomain(),
+           /*additional_ids=*/{},
+           /*ignore_broadcast=*/false)
+           .dom0_has_unreachable_ids;
+
+  if (may_need_forwarding) {
+    auto disjoint_sets = BestEffortReplay::replayPasC(
+                             producer,
+                             consumer,
+                             -1,
+                             PairwiseLogicalDomainMap(producer, consumer))
+                             .getIterDomainEquivalence();
+
+    // Find the innermost position of consumer that has
+    //  been mapped within the producer ca axis.
+
+    while (consumer_pos > 0) {
+      auto consumer_id = consumer->axis(consumer_pos - 1);
+      const auto& p_dom = producer->getLoopDomain();
+      if (std::any_of(
+              p_dom.begin(),
+              p_dom.begin() + producer_pos,
+              [&consumer_id, &disjoint_sets](IterDomain* p_id) {
+                return disjoint_sets.permissiveAreMapped(consumer_id, p_id);
+              })) {
+        break;
+      }
+      consumer_pos--;
     }
-    consumer_pos--;
+  } else {
+    IdModel id_model({consumer->definition()}, {}, false);
+    id_model.buildBroadcastGraph();
+    const auto& inlining_graph = id_model.idGraph(IdMappingMode::BROADCAST);
+
+    while (consumer_pos > 0) {
+      auto consumer_id = consumer->axis(consumer_pos - 1);
+      const auto& p_dom = producer->getLoopDomain();
+      if (std::any_of(
+              p_dom.begin(),
+              p_dom.begin() + producer_pos,
+              [&consumer_id, &inlining_graph](IterDomain* p_id) {
+                return inlining_graph.disjointValSets().strictAreMapped(
+                    consumer_id, p_id);
+              })) {
+        break;
+      }
+      consumer_pos--;
+    }
   }
 
   return consumer_pos;
@@ -447,7 +488,7 @@ bool TensorView::resolveComputeWith(const std::vector<Expr*>& sorted_exprs) {
   }
 
   // No expr found
-  NVF_ERROR(false, "No use expr found in the sorted expr list: ", toString());
+  NVF_THROW("No use expr found in the sorted expr list: ", toString());
 }
 
 void TensorView::clearComputeWith() {
@@ -831,7 +872,7 @@ TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
     IrBuilder::create<ReductionOp>(
         BinaryOpType::Add, this_mma->init(), consumer, producer);
   } else {
-    NVF_ERROR(false, "RFactor: unsupported tensor definition");
+    NVF_THROW("RFactor: unsupported tensor definition");
   }
   return producer;
 }
@@ -987,7 +1028,7 @@ std::vector<TensorView*> TensorView::rFactor(
         grouped_rop->outputs(),
         std::vector<Val*>{rf_tvs.begin(), rf_tvs.end()});
   } else {
-    NVF_ERROR(false, "Invalid definition: ", definition()->toString());
+    NVF_THROW("Invalid definition: ", definition()->toString());
   }
 
   return rf_tvs;
@@ -1318,7 +1359,7 @@ void TensorView::applyMmaSwizzle(MmaOperand operand) {
       }
       break;
     default:
-      NVF_ERROR(false, "unknown operand flag");
+      NVF_THROW("unknown operand flag");
       break;
   }
 }

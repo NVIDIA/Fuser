@@ -51,8 +51,7 @@ bool isOutermostAllocatedId(TensorView* tv, IterDomain* id) {
       return false;
     }
   }
-  NVF_ERROR(
-      false, "Id", id->toString(), " is not in TensorView ", tv->toString());
+  NVF_THROW("Id", id->toString(), " is not in TensorView ", tv->toString());
   return false;
 }
 
@@ -231,9 +230,57 @@ void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs) {
   }
 }
 
+void shardBetween(
+    const std::vector<Expr*>& from,
+    const std::vector<Expr*>& to,
+    TensorView* ref) {
+  std::vector<TensorView*> from_tvs;
+  std::vector<TensorView*> to_tvs;
+  for (auto expr : from) {
+    auto outputs = ir_utils::filterByType<TensorView>(expr->outputs());
+    std::copy(outputs.begin(), outputs.end(), std::back_inserter(from_tvs));
+  }
+
+  for (auto expr : to) {
+    auto outputs = ir_utils::filterByType<TensorView>(expr->outputs());
+    std::copy(outputs.begin(), outputs.end(), std::back_inserter(to_tvs));
+  }
+
+  shardBetween(from_tvs, to_tvs, ref);
+}
+
+void shardBetween(
+    const std::vector<TensorView*>& from,
+    const std::vector<TensorView*>& to,
+    TensorView* ref) {
+  std::unordered_set<TensorView*> boundary = {to.begin(), to.end()};
+  for (auto tv : from) {
+    auto expr = tv->definition();
+    if (expr == nullptr) {
+      continue;
+    }
+    auto inputs = ir_utils::filterByType<TensorView>(expr->inputs());
+    std::copy(
+        inputs.begin(), inputs.end(), std::inserter(boundary, boundary.end()));
+  }
+
+  std::unordered_set<TensorView*> all_tvs =
+      scheduler_utils::getAllTvsFrom(from, boundary);
+  shardAllLike(ref, {all_tvs.begin(), all_tvs.end()});
+
+  // Remove DID parallelizations on reduction axes.
+  for (auto* tv : all_tvs) {
+    for (IterDomain* id : tv->getLoopDomain()) {
+      if (id->isReduction() && id->isDeviceDim()) {
+        id->parallelize(ParallelType::Serial);
+      }
+    }
+  }
+}
+
 int64_t requestedNumberOfDevices(Fusion* fusion) {
   DeviceIdxType max_index = 0;
-  for (auto tv : ir_utils::allTvs(fusion)) {
+  for (auto tv : fusion->allTvs()) {
     if (tv->hasDeviceMesh()) {
       for (auto d_id : tv->getDeviceMesh().vector()) {
         max_index = std::max(max_index, d_id);
@@ -253,7 +300,7 @@ void unshard(TensorView* tv) {
 }
 
 void unshard(Fusion* fusion) {
-  for (auto tv : ir_utils::allTvs(fusion)) {
+  for (auto tv : fusion->allTvs()) {
     unshard(tv);
   }
 }

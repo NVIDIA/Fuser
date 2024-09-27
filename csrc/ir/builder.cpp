@@ -245,6 +245,10 @@ Val* IrBuilder::gcdExpr(Val* lhs, Val* rhs) {
   return newArithmeticExpr(BinaryOpType::Gcd, lhs, rhs);
 }
 
+Val* IrBuilder::isDivisibleExpr(Val* dividend, Val* divisor) {
+  return eqExpr(modExpr(dividend, divisor), dividend->fusion()->zeroVal());
+}
+
 Val* IrBuilder::getItemExpr(Val* array, Val* index) {
   auto item_dtype = std::get<ArrayType>(array->dtype().type).type;
   auto out = create<Val>(*item_dtype);

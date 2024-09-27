@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <scheduler/normalization_utils.h>
 #include <scheduler/registry.h>
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>
@@ -18,6 +19,7 @@
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <scheduler/mma_utils.h>
+#include <scheduler/runtime_info.h>
 #include <transform_iter.h>
 #include <transform_replay.h>
 
@@ -311,7 +313,7 @@ void parallelizeAllLike(
   }
 
   if (selected_tvs.empty()) {
-    selected_tvs = ir_utils::allTvs(reference_tv->fusion());
+    selected_tvs = reference_tv->fusion()->allTvs();
   }
   for (auto tv : selected_tvs) {
     if (tv->isFusionInput()) {
@@ -366,12 +368,6 @@ class PersistentBufferResolution : public IterVisitor {
       Fusion* fusion,
       TensorView* persistent_buffer) {
     PersistentBufferResolution resolution(fusion, persistent_buffer);
-
-    NVF_ERROR(
-        !resolution.resolution_points_.empty(),
-        "Could not resolve persistent buffer: ",
-        persistent_buffer);
-
     return resolution.resolution_points_;
   }
 
@@ -564,7 +560,7 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
   ComputeAtLogicalDomainMap logical_map;
   logical_map.build();
 
-  auto all_tvs = ir_utils::allTvs(fusion);
+  auto all_tvs = fusion->allTvs();
 
   for (auto producer : all_tvs) {
     // Are all producer ids mappable to all consumers
@@ -614,10 +610,34 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
 
   // Set the persistent buffer resolution points
   persistent_buffer_info.persistent_buffer_resolution_points = {};
+
+  // PersistentBufferResolution::getResolutionPointsOf does not work
+  // with non-straightline dependencies. See for example issue
+  // #1123. normalization_scheduler_utils::getResolutionPointsOf
+  // addresses the limitation, but those two functions currently do
+  // not produce the same results even for fusions that
+  // PersistentBufferResolution::getResolutionPointsOf can analyze. To
+  // unblock #1123, the old analysis remains to be used for now, and
+  // only when it fails to find resolution points, the new analysis is
+  // used as a fallback option.
+  // TODO: Completely replace the old analysis
   for (auto buffer : persistent_buffer_info.persistent_buffers) {
+    auto resolution_points =
+        PersistentBufferResolution::getResolutionPointsOf(fusion, buffer);
+    if (resolution_points.empty()) {
+      resolution_points =
+          normalization_scheduler_utils::getResolutionPointsOf(buffer);
+    }
+    NVF_ERROR(
+        !resolution_points.empty(),
+        "Fail to find resolution points of ",
+        buffer->toString());
     persistent_buffer_info.persistent_buffer_resolution_points.emplace_back(
-        PersistentBufferResolution::getResolutionPointsOf(fusion, buffer));
+        resolution_points);
   }
+
+  // don't project if there are view ops and no buffer can be projected
+  persistent_buffer_info.has_view_ops = !ir_utils::getViewOps(fusion).empty();
 
   // Find projectable persistent buffers
   auto reduction_tvs = getReductionTvs(fusion);
@@ -634,6 +654,11 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
       persistent_buffer_info.projectable_persistent_buffers.push_back(
           persistent_buffer);
     }
+  }
+
+  // Projection analysis below
+  if (persistent_buffer_info.projectable_persistent_buffers.empty()) {
+    return persistent_buffer_info;
   }
 
   // Get a list of inputs of the projectable buffers
@@ -663,6 +688,23 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
     }
     if (has_unmappable_dim) {
       persistent_buffer_info.projectable_buffer_inputs.emplace_back(input);
+    }
+  }
+
+  // check ops between persistent buffer and inputs.
+  // TODO: check more ops
+  const auto all_exprs = StmtSort::getExprsBetween(
+      {all_inputs.begin(), all_inputs.end()},
+      {persistent_buffer_info.projectable_persistent_buffers.begin(),
+       persistent_buffer_info.projectable_persistent_buffers.end()});
+  for (auto expr : all_exprs) {
+    if (expr->isA<UnaryOp>() &&
+        expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Exp) {
+      persistent_buffer_info.projection_with_exp_op = true;
+    }
+
+    if (expr->isA<RNGOp>()) {
+      persistent_buffer_info.projection_with_rng_op = true;
     }
   }
 
@@ -927,7 +969,7 @@ PersistentBufferSizeReturn persistentBufferSize(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     const PersistentBufferInfo& persistent_buffer_info,
-    HeuristicSummary* data_cache) {
+    HeuristicDataCache* data_cache) {
   FUSER_PERF_SCOPE("scheduler_utils::persistentBufferSize");
 
   if (persistent_buffer_info.persistent_buffers.empty()) {
@@ -1007,7 +1049,7 @@ PersistentBufferSizeReturn persistentBufferSize(
   };
 
   auto persistent_buffer_info_entry =
-      HeuristicSummaryEntry<HeuristicCompileTime::ScopePersistentFactorInfo>(
+      HeuristicDataCacheEntry<HeuristicCompileTime::ScopePersistentFactorInfo>(
           data_cache, [&fusion, &persistent_buffer_info]() {
             return getScopePersistenceFactors(fusion, persistent_buffer_info);
           });
@@ -1063,7 +1105,7 @@ std::pair<bool, bool> canonicalDimReduction(
 }
 
 std::vector<TensorView*> getReductionTvs(Fusion* fusion) {
-  auto all_tvs = ir_utils::allTvs(fusion);
+  auto all_tvs = fusion->allTvs();
   std::vector<TensorView*> reduction_tvs;
   for (auto tv : all_tvs) {
     if (!tv->isFusionInput() &&
@@ -1130,7 +1172,7 @@ std::vector<TensorView*> getTVsWithNonReductionRFactor(Fusion* fusion) {
 
 // Reset inputs and outputs to global memory, everything else to local.
 void clearMemorySpace(Fusion* fusion) {
-  for (auto tv : ir_utils::allTvs(fusion)) {
+  for (auto tv : fusion->allTvs()) {
     if (tv->isFusionInput() || tv->isFusionOutput()) {
       tv->setMemoryType(MemoryType::Global);
     } else {
@@ -1252,7 +1294,7 @@ IterDomain* projectIdToRoot(
         }
       }
     } else {
-      NVF_ERROR(false, "Didn't recognize the iterdomain expression: ", expr);
+      NVF_THROW("Didn't recognize the iterdomain expression: ", expr);
     }
     if (projected_id == nullptr) {
       break;
@@ -1312,7 +1354,7 @@ IterDomain* projectIdToRFactor(
         }
       }
     } else {
-      NVF_ERROR(false, "Didn't recognize the iterdomain expression: ", expr);
+      NVF_THROW("Didn't recognize the iterdomain expression: ", expr);
     }
     if (projected_id == nullptr) {
       break;
@@ -1413,7 +1455,7 @@ void FindAllMappedDims::propagateSibling(TensorView* from, TensorView* to) {
       }
     }
   }
-  NVF_ERROR(false, "Unable to find mapped root/logical domain");
+  NVF_THROW("Unable to find mapped root/logical domain");
 }
 
 std::unordered_set<IterDomain*> FindAllMappedDims::get() const {
@@ -1986,7 +2028,7 @@ DisjointSets<IterDomain*> disjointLogicalSets(Fusion* fusion) {
 
   // If iter domains are involved in any transformation from root domains to
   // logical domains they should be considered "contaminated".
-  for (auto tv : ir_utils::allTvs(fusion)) {
+  for (auto tv : fusion->allTvs()) {
     for (auto expr : StmtSort::getExprsTo(
              {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()})) {
       if (expr->isA<Merge>()) {
@@ -2001,8 +2043,7 @@ DisjointSets<IterDomain*> disjointLogicalSets(Fusion* fusion) {
         auto resize = expr->as<Resize>();
         disjoint_logical_ids.mapEntries(resize->in(), resize->out());
       } else {
-        NVF_ERROR(
-            false, "Expression type: ", expr->toString(), " not supported.");
+        NVF_THROW("Expression type: ", expr->toString(), " not supported.");
       }
     }
   }
@@ -2093,7 +2134,7 @@ std::unordered_map<int64_t, int64_t> domainReorderAsLogicalMap(TensorView* tv) {
       *find_it = resize->out();
     } else {
       NVF_ERROR(expr != nullptr);
-      NVF_ERROR(false, "Unexpected expression: ", expr->toString());
+      NVF_THROW("Unexpected expression: ", expr->toString());
     }
   }
 
@@ -2146,7 +2187,7 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
 
   // If iter domains are involved in any transformation from root domains to
   // logical domains they should be considered "contaminated".
-  for (auto tv : ir_utils::allTvs(fusion)) {
+  for (auto tv : fusion->allTvs()) {
     for (auto expr : StmtSort::getExprsBetween(
              {tv->getMaybeRootDomain().begin(), tv->getMaybeRootDomain().end()},
              {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()})) {
@@ -2183,7 +2224,7 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
 
   // If iter domains are involved in any transformation from root domains to
   // logical domains they should be considered "contaminated".
-  for (auto tv : ir_utils::allTvs(fusion)) {
+  for (auto tv : fusion->allTvs()) {
     if (!tv->hasRoot()) {
       continue;
     }
@@ -2249,7 +2290,7 @@ std::vector<std::pair<TensorView*, TensorView*>>
 getNonPointwiseProducerConsumerPairs(Fusion* fusion) {
   std::vector<std::pair<TensorView*, TensorView*>> tvs;
 
-  for (auto consumer : ir_utils::allTvs(fusion)) {
+  for (auto consumer : fusion->allTvs()) {
     if (consumer->isFusionInput()) {
       continue;
     }
@@ -2391,7 +2432,7 @@ void promoteProducerMemoryTypes(
       case MemoryType::Global:
         return 3;
       default:
-        NVF_ERROR(false, "Unexpected memory type: ", m_type);
+        NVF_THROW("Unexpected memory type: ", m_type);
     }
   };
 
@@ -2447,8 +2488,7 @@ void promoteProducerMemoryTypes(
       } else if (isParallelTypeBlockDim(producer_non_ca_id_ptype)) {
         setPromotion(producer, MemoryType::Global);
       } else {
-        NVF_ERROR(
-            false, "Unexpected parallel type: ", producer_non_ca_id_ptype);
+        NVF_THROW("Unexpected parallel type: ", producer_non_ca_id_ptype);
       }
     }
   }
@@ -2570,7 +2610,7 @@ void moveNonConcretizedBroadcastInnermost(
     }
   }
 
-  for (auto tv : ir_utils::allTvs(fusion)) {
+  for (auto tv : fusion->allTvs()) {
     std::vector<int64_t> broadcast_to_move;
     for (const auto i : c10::irange(tv->getLoopDomain().size())) {
       auto loop_id = tv->getLoopDomain().at(i);

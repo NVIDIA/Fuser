@@ -190,6 +190,10 @@ class NVF_API TensorView : public Val {
     return domain()->loop();
   };
 
+  const std::vector<IterDomain*>& getInitialLoopDomain() const {
+    return domain()->initialLoop();
+  };
+
   // If allocation domain exists in domain() return it, otherwise return
   // logical domain
   const std::vector<IterDomain*>& getMaybeAllocationDomain() const {

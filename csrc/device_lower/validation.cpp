@@ -189,7 +189,7 @@ void validateIr(Fusion* fusion) {
       "Tensor with dynamic transform must be concretized before lowering: ",
       toDelimitedString(dynamic_tvs.begin(), dynamic_tvs.end()));
 
-  auto all_tvs = ir_utils::allTvs(fusion);
+  auto all_tvs = fusion->allTvs();
   validateCpAsyncBulk(all_tvs);
 }
 
@@ -401,18 +401,26 @@ class VectorizeValidator : public OptInDispatch {
     if (!is_ldmatrix_trans) {
       // ldmatrix.trans is a hardware transpose instruction that can do
       // "vectorized" read from discontiguous memory
-      auto contiguity = tv->domain()->contiguity().at(last_alloc_dim_pos);
       NVF_CHECK(
-          last_alloc_dim == validator.vectorized_id_ &&
-              contiguity.value_or(false),
+          last_alloc_dim == validator.vectorized_id_,
           "Vectorized dim for ",
           name,
-          " has to be from a contiguous inner most position. tv: ",
+          " has to be from an inner most position. tv: ",
           tv,
           ", allocation domain: ",
-          ir_utils::toString(tv->getMaybeAllocationDomain()),
+          tv->getMaybeAllocationDomain(),
           ", vectorized id: ",
-          validator.vectorized_id_->toString(),
+          validator.vectorized_id_,
+          ", innermost id: ",
+          last_alloc_dim);
+
+      auto contiguity = tv->domain()->contiguity().at(last_alloc_dim_pos);
+      NVF_CHECK(
+          contiguity.value_or(false),
+          "The innermost position has to be contiguous. tv: ",
+          tv,
+          ", allocation domain: ",
+          tv->getMaybeAllocationDomain(),
           ", innermost id: ",
           last_alloc_dim->toString(),
           ", contiguity: ",
@@ -560,9 +568,7 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
 
     for (const auto i : c10::irange(tv->nDims())) {
       IterDomain* id = tv->axis(i);
-      IterDomain* concrete_id =
-          GpuLower::current()->caMap()->getConcreteMappedID(
-              id, IdMappingMode::LOOP);
+      IterDomain* concrete_id = lower_utils::getConcreteLoopID(id);
 
       auto ptype = concrete_id->getParallelType();
 
@@ -845,8 +851,7 @@ void validateLoopSwizzle(
     NVF_ERROR(
         loop_domains.count(out_id),
         "Loop swizzle can only be direct producer of loop domains.");
-    if (GpuLower::current()->caMap()->getConcreteMappedID(
-            out_id, IdMappingMode::LOOP) != out_id) {
+    if (lower_utils::getConcreteLoopID(out_id) != out_id) {
       TORCH_WARN_ONCE("Ignored loop swizzle :", swizzle_expr->toString());
     }
   }
@@ -904,14 +909,11 @@ void validateSwizzle(Fusion* fusion) {
 }
 
 void validateAndConvertIterDomainGrouping(Fusion* fusion) {
-  for (auto tv : ir_utils::allTvs(fusion)) {
+  for (auto tv : fusion->allTvs()) {
     bool is_grouped = false;
     for (const auto id_idx : c10::irange(tv->nDims())) {
       const auto id = tv->axis(id_idx);
-      auto ptype = GpuLower::current()
-                       ->caMap()
-                       ->getConcreteMappedID(id, IdMappingMode::LOOP)
-                       ->getParallelType();
+      auto ptype = lower_utils::getConcreteLoopID(id)->getParallelType();
       if (ptype != ParallelType::Group) {
         // Not a grouped ID
         continue;
@@ -1047,25 +1049,6 @@ void validateLookupTV(Fusion* fusion) {
           "Lookup input must be a fusion input: ",
           expr->toString());
     }
-  }
-}
-
-void validateResize(Fusion* fusion) {
-  auto fusion_vals = fusion->usedMathVals();
-  for (auto tv : ir_utils::filterByType<TensorView>(fusion_vals)) {
-    // Make sure resize is only used as part of root to logical transformations
-    auto rf_to_loop_exprs = StmtSort::getExprsBetween(
-        {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()},
-        {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
-
-    NVF_ERROR(
-        std::none_of(
-            rf_to_loop_exprs.begin(),
-            rf_to_loop_exprs.end(),
-            [](Expr* expr) { return expr->isA<Resize>(); }),
-        "Invalid use of resize detected with ",
-        tv->toString(),
-        ". Resize may only be used as part of root to logical transformations.");
   }
 }
 

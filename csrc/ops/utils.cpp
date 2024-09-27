@@ -323,6 +323,13 @@ IterDomain* newOutputIterDomain(
       continue;
     }
 
+    NVF_ERROR(
+        id->getParallelType() == ParallelType::Serial ||
+            isParallelTypeDeviceDim(id->getParallelType()),
+        id->getParallelType(),
+        " is not expected when building ops.");
+    parallel_type = promoteParallelType(parallel_type, id->getParallelType());
+
     if (id->isBroadcast()) {
       if (id->hasExpandedExtent()) {
         expanded_extent_val =
@@ -330,13 +337,6 @@ IterDomain* newOutputIterDomain(
       }
       continue;
     }
-
-    NVF_ERROR(
-        id->getParallelType() == ParallelType::Serial ||
-            isParallelTypeDeviceDim(id->getParallelType()),
-        id->getParallelType(),
-        " is not expected when building ops.");
-    parallel_type = promoteParallelType(parallel_type, id->getParallelType());
 
     if (extent_is_from_symbolic && !id->isSymbolic()) {
       // We prefer to use extents from non-Symbolic inputs if there are any
