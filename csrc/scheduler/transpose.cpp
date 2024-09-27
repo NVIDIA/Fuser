@@ -1394,7 +1394,11 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
   for (auto tv : {reference1, reference2}) {
     if (tv->isFusionInput()) {
       for (auto id : tv->getLoopDomain()) {
-        id->parallelize(ParallelType::Serial);
+        // DIDs are given as inputs instead of artifacts of this scheduler. So
+        // do not reset them.
+        if (!id->isDeviceDim()) {
+          id->parallelize(ParallelType::Serial);
+        }
       }
     }
   }
