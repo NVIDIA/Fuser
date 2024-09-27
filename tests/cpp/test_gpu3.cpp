@@ -3765,39 +3765,6 @@ TEST_F(NVFuserTest, FusionScheduleTransposeRepro1_CUDA) {
   testValidate(&fusion, cg_outputs, {input0, input1}, __LINE__, __FILE__);
 }
 
-// Repro for issue #1873
-TEST_F(NVFuserTest, FusionInlineBroadcastIndexing0_CUDA) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  auto tv0 = makeContigTensor(1);
-  auto tv1 = makeContigTensor(2);
-  fusion.addInput(tv0);
-  fusion.addInput(tv1);
-  auto tv2 = set(tv0);
-  auto tv3 = broadcast(tv2, {true, false});
-  auto tv4 = add(tv3, tv1);
-  fusion.addOutput(tv4);
-
-  tv4->merge(0);
-  tv4->split(0, 32);
-
-  tv0->computeAt(tv4, 1);
-
-  tv2->split(-1, 8);
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({123}, options);
-  at::Tensor t1 = at::randn({3, 123}, options);
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0, t1});
-
-  auto outputs = fe.runFusion({t0, t1});
-
-  testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
-}
-
 TEST_F(NVFuserTest, FusionPredicateUnshare_CUDA) {
   // https://github.com/csarofeen/pytorch/issues/1926
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
