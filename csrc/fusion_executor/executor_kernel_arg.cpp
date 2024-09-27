@@ -10,7 +10,7 @@
 // Extract size and strides
 #include <kernel_cache.h>
 
-#include <executor_kernel_arg.h>
+#include <fusion_executor/executor_kernel_arg.h>
 #include <instrumentation.h>
 #include <polymorphic_value.h>
 #include <serde/polymorphic_value.h>
@@ -55,7 +55,7 @@ PolymorphicValue IValueToPolymorphicValue(const c10::IValue& val) {
     case c10::ScalarType::Bool:
       return scalar_val.toBool();
     default:
-      NVF_ERROR(false, "Can not convert IValue to PolymorphicValue");
+      NVF_THROW("Can not convert IValue to PolymorphicValue");
   }
 }
 
@@ -227,8 +227,7 @@ std::vector<std::byte> polymorphicValueToBytes(
       int32_t v32 = (int32_t)v;
       return std::vector<std::byte>((std::byte*)&v32, (std::byte*)&v32 + 4);
     } else {
-      NVF_ERROR(
-          false,
+      NVF_THROW(
           "Cannot convert int64_t to ",
           dtype,
           " type: only int32 and int64 are supported.");
@@ -265,8 +264,7 @@ std::vector<std::byte> polymorphicValueToBytes(
       return std::vector<std::byte>(
           (std::byte*)&v8, (std::byte*)&v8 + sizeof(at::Float8_e5m2));
     } else {
-      NVF_ERROR(
-          false,
+      NVF_THROW(
           "Cannot convert double to ",
           dtype,
           " type: only half, bfloat16, float and double are supported.");
@@ -282,8 +280,7 @@ std::vector<std::byte> polymorphicValueToBytes(
       return std::vector<std::byte>(
           (std::byte*)&v32, (std::byte*)&v32 + sizeof(std::complex<float>));
     } else {
-      NVF_ERROR(
-          false,
+      NVF_THROW(
           "Cannot convert complex double to ",
           dtype,
           " type: only complex float and complex double are supported.");
@@ -350,11 +347,8 @@ std::vector<std::byte> polymorphicValueToBytes(
     // FUSER_PERF_SCOPE("polymorphicValueToBytes(Opaque)");
     return argument.as<Opaque>().bytes();
   } else {
-    NVF_ERROR(
-        false,
-        "Cannot convert ",
-        argument.type().name(),
-        " to kernel argument data.");
+    NVF_THROW(
+        "Cannot convert ", argument.type().name(), " to kernel argument data.");
   }
 }
 

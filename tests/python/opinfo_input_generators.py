@@ -311,7 +311,7 @@ def cat_error_generator(op, dtype=torch.float32, requires_grad: bool = False, **
         "Unexpected number of dimensions",
     )
     # All tensors must have same shape except for the cat dimension
-    shape_mismatch = (([(2, 3), (4, 5)], 0), RuntimeError, "known_size == this_size")
+    shape_mismatch = (([(2, 3), (4, 5)], 0), RuntimeError, "Tried to bind to a value")
 
     error_cases = [
         empty_input_tensors,
@@ -898,7 +898,7 @@ def pad_error_generator(
     delete_all_pad_width = [-3, 0, 0, 0]
     yield SampleInput(
         make_arg(input_shape), delete_all_pad_width, make_number(dtype)
-    ), RuntimeError, "extent_int >= 0"
+    ), RuntimeError, "Invalid resized domain extent"
 
     too_many_pad_width = [1, 1, 1, 1, 1, 1]
     yield SampleInput(
@@ -1153,17 +1153,17 @@ def slice_error_generator(
 
     check_start_indices = ErrorSample(
         {"start_indices": [-1, -2], "end_indices": [5, 5], "strides": [7, 7]},
-        "Slice operation start_indices must be greater-than-or-equal-to 0.",
+        "Slice operation start_indices must be greater than or equal to 0.",
     )
 
     check_end_indices = ErrorSample(
         {"start_indices": [3, 4], "end_indices": [1, 2], "strides": [1, 1]},
-        "Slice operation end_indices must be greater-than-or-equal-to start_indices.",
+        "Slice operation end_indices must be greater than or equal to start_indices.",
     )
 
     check_strides = ErrorSample(
         {"start_indices": [0, 0], "end_indices": [5, 5], "strides": [5, 5]},
-        "nvFuser Limitation: All slice operation strides must be of size 1.",
+        "nvFuser Limitation: All slice operation strides must be of const size 1.",
     )
 
     check_tensor_dims = ErrorSample(
@@ -1492,9 +1492,9 @@ def matmul_input_generator(
         requires_grad=requires_grad,
     )
 
-    B = 64
-    M = 512
-    N = 256
+    B = 4
+    M = 256
+    N = 128
     K = 32
 
     shapes_a = ((K,), (M, K), (1, K), (B, M, K), (B, 1, M, K))

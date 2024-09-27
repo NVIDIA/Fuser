@@ -97,7 +97,10 @@ void testValidate(
                 static_cast<int64_t>(
                     TensorDomain::noReductions(out_tv->getLogicalDomain())
                         .size()),
-        "Dimensionality mismatch in outputs.");
+        "Dimensionality mismatch in outputs: ",
+        aten_output_tensor.sizes(),
+        " vs ",
+        fusion_output_tensor.sizes());
 
     auto tolerance_values =
         getTolerance(out_tv->getDataType().value(), reduction_size, tolerances);
@@ -118,7 +121,7 @@ void testValidate(
           line_number,
           " in file ",
           file_name,
-          ".\n  Detected abs error of: ",
+          ".\n  Detected max abs error of: ",
           aten_output_tensor.sub(fusion_output_tensor)
               .abs()
               .max()
@@ -168,7 +171,7 @@ void testValidate(
 
 void validateSegmentation(
     FusionKernelRuntime* runtime,
-    const std::vector<ScheduleHeuristic>& expected_heuristics) {
+    const std::vector<SchedulerType>& expected_heuristics) {
   const auto& segment_groups = runtime->fusionSegments()->groups();
 
   NVF_CHECK(
@@ -185,11 +188,11 @@ void validateSegmentation(
   for (auto& group : segment_groups) {
     int64_t segment_order = group->producer_edges.empty() ? 0 : 1;
     NVF_CHECK(
-        group->heuristic() == expected_heuristics.at(segment_order),
+        group->schedulerType() == expected_heuristics.at(segment_order),
         "Expected to use the ",
         expected_heuristics.at(segment_order),
         " scheduler but ",
-        group->heuristic(),
+        group->schedulerType(),
         " was used");
   }
 }

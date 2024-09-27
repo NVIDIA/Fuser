@@ -133,6 +133,17 @@ class FusionDefinition(_C._FusionDefinition):
     def definition(self):
         raise NotImplementedError("definition() should be implemented by child class!")
 
+    # Unlike `schedule`, `multidevice_schedule` is designed for inter-device
+    # scheduling, The scheduling is done before concretization and therefore
+    # before pre-segmentation. `schedule` however assumes the FusionDefinition
+    # has been concretized and pre-segmented, and therefore requires
+    # `_setup_schedule` and `_finalize_schedule` to be called before and after.
+    #
+    # Note: there's a plan to embed multidevice schedules into FusionDefinition
+    # as annotating nodes. This may eventually replace `multidevice_schedule`.
+    def multidevice_schedule(self):
+        pass
+
     def schedule(self):
         raise NotImplementedError("schedule() should be implemented by child class!")
 
@@ -202,23 +213,26 @@ class FusionDefinition(_C._FusionDefinition):
             self.definition()
             self._finalize_definition()
 
+        defined_multidevice_schedule = (
+            type(self).multidevice_schedule != FusionDefinition.multidevice_schedule
+        )
+        defined_schedule = type(self).schedule != FusionDefinition.schedule
+        assert not (
+            defined_multidevice_schedule and defined_schedule
+        ), "I haven't tested what if both are defined. We don't plan to support this use case although it may just work."
+
+        if defined_multidevice_schedule:
+            self.multidevice_schedule()
+
         # If schedule is defined by child class and schedule is not defined for
         # inputs, make a schedule.
-        is_fusion_definition_child_class = (
-            type(self) != FusionDefinition
-        ) and issubclass(type(self), FusionDefinition)
-        defined_schedule = (
-            is_fusion_definition_child_class
-            and super(type(self), self).schedule != self.schedule
-        )
         if defined_schedule and not self._exist_schedule(inputs):
             self._setup_schedule(inputs)
             self.schedule()
             self._finalize_schedule(inputs)
 
-        result = None
         try:
-            result = self._execute(
+            return self._execute(
                 inputs,
                 device=device,
                 override_user_schedule=override_user_schedule,
@@ -228,8 +242,6 @@ class FusionDefinition(_C._FusionDefinition):
         except Exception as err:
             logger.exception(self.getReproErrorString("executing", inputs))
             raise
-
-        return result
 
     def debug_output(self):
         """
@@ -264,14 +276,15 @@ class FusionDefinition(_C._FusionDefinition):
         except ImportError:
             raise ImportError("Unable to import pytorch_utils!")
 
-        if not tensor.is_cuda:
-            raise ValueError("Tensor should be on a cuda device!")
+        if not tensor.is_cuda and len(tensor.size()) != 0:
+            raise ValueError("CPU non-scalar tensor is not supported!")
 
         return self.define_tensor(
             sizes=tensor.size(),
             strides=tensor.stride(),
             dtype=torch_dtype_to_nvfuser_dtype(tensor.dtype),
             static_sizes=static_sizes,
+            is_cpu=tensor.is_cpu,
         )
 
     def fusion_ir(self):

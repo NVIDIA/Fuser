@@ -9,6 +9,7 @@
 
 #include <fusion.h>
 #include <ir/interface_nodes.h>
+#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <multidevice/utils.h>
 

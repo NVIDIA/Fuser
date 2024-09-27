@@ -587,8 +587,7 @@ class ConcretizedBroadcastRedundantWriteRemover {
   void setConcretizedBroadcastLogicalDomain() {
     std::shared_ptr<const ComputeAtMap> caMap = GpuLower::current()->caMap();
     for (auto loop_id : candidate_loop_domains_) {
-      auto loop_concrete_id =
-          caMap->getConcreteMappedID(loop_id, IdMappingMode::LOOP);
+      auto loop_concrete_id = lower_utils::getConcreteLoopID(loop_id);
       auto concrete_logical_vals = IterVisitor::getInputsTo({loop_concrete_id});
       auto concrete_logical_ids =
           ir_utils::filterByType<IterDomain>(concrete_logical_vals);
@@ -734,7 +733,7 @@ void ThreadPredicateMap::build(Fusion* fusion) {
     updateBitSet(expr);
   }
 
-  for (auto tv : ir_utils::allTvs(fusion)) {
+  for (auto tv : fusion->allTvs()) {
     if (tv->getMemoryType() == MemoryType::Global) {
       avoidConcretizedBroadcastRedundantWrite(tv);
     }
@@ -842,11 +841,15 @@ ParallelTypeBitmap ThreadPredicateMap::getParallelBroadcastDomains(
   const bool output_smem = tv->getMemoryType() == MemoryType::Shared;
 
   for (auto id : iter_domains) {
-    if (!id->isBroadcast() ||
-        !GpuLower::current()->concretizedBroadcastDomains()->isConcretized(
+    if (!id->isBroadcast()) {
+      continue;
+    }
+
+    if (!GpuLower::current()->concretizedBroadcastDomains()->isConcretized(
             id)) {
       continue;
     }
+
     if (id->isBlockDim() || (!output_smem && id->isThreadDim())) {
       parallel_broadcast.set(id->getParallelType());
     }

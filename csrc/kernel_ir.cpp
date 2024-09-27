@@ -117,7 +117,7 @@ std::string TensorIndex::toString(int indent_size) const {
       ss << "_l";
       break;
     default:
-      NVF_ERROR(false, "Unknown tensor memory type.");
+      NVF_THROW("Unknown tensor memory type.");
   }
   ss << "[";
   ss << index()->toInlineString(indent_size);
@@ -293,8 +293,7 @@ const char* getPTXConstraints(Val* value) {
         return "l";
       }
     default:
-      NVF_ERROR(
-          false, "Unsupported data type ", dt, " for inline PTX assembly.");
+      NVF_THROW("Unsupported data type ", dt, " for inline PTX assembly.");
   }
 }
 
@@ -356,7 +355,7 @@ std::string Asm::parameters() const {
       }
       ss << "}";
     } else {
-      NVF_ERROR(false, "Unsupported data type ", dtype);
+      NVF_THROW("Unsupported data type ", dtype);
     }
   };
   for (auto out : outputs()) {
@@ -647,7 +646,7 @@ const char* AsyncWait::ptx() const {
     case AsyncOpType::WgMma:
       return "wgmma.wait_group.sync.aligned";
     default:
-      NVF_ERROR(false, "Unsupported async op type.");
+      NVF_THROW("Unsupported async op type.");
   }
 }
 
@@ -659,7 +658,7 @@ bool AsyncWait::memory() const {
     case AsyncOpType::WgMma:
       return true;
     default:
-      NVF_ERROR(false, "Unsupported async op type.");
+      NVF_THROW("Unsupported async op type.");
   }
 }
 
@@ -693,7 +692,7 @@ const char* AsyncCommit::ptx() const {
     case AsyncOpType::WgMma:
       return "wgmma.commit_group.sync.aligned";
     default:
-      NVF_ERROR(false, "Unsupported async op type.");
+      NVF_THROW("Unsupported async op type.");
   }
 }
 
@@ -705,7 +704,7 @@ bool AsyncCommit::memory() const {
     case AsyncOpType::WgMma:
       return true;
     default:
-      NVF_ERROR(false, "Unsupported async op type.");
+      NVF_THROW("Unsupported async op type.");
   }
 }
 
@@ -1250,7 +1249,7 @@ TensorIndex* AllocateFusedReduction::out() const {
           dynamic_cast<GroupedGridWelford*>(gridExpr())) {
     return grouped_grid_welford->out(0)->as<kir::TensorIndex>();
   } else {
-    NVF_ERROR(false, "Invalid grid expression: ", gridExpr()->toString());
+    NVF_THROW("Invalid grid expression: ", gridExpr()->toString());
   }
 }
 
@@ -1269,7 +1268,7 @@ const ParallelTypeBitmap& AllocateFusedReduction::threadPredicate() const {
           dynamic_cast<GroupedGridWelford*>(gridExpr())) {
     return grouped_grid_welford->threadPredicate();
   } else {
-    NVF_ERROR(false, "Invalid grid expression: ", gridExpr()->toString());
+    NVF_THROW("Invalid grid expression: ", gridExpr()->toString());
   }
 }
 

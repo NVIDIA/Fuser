@@ -11,12 +11,14 @@
 #include <csrc/exceptions.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/pass/magic_zero.h>
-#include <executor.h>
 #include <expr_evaluator.h>
+#include <fusion_executor/allocations.h>
+#include <fusion_executor/executor.h>
 #include <id_model/id_model.h>
 #include <ir/all_nodes.h>
 #include <kernel_cache.h>
 #include <kernel_ir_dispatch.h>
+#include <scheduler/registry.h>
 #include <transform_replay.h>
 
 #include <ATen/Context.h>
@@ -33,6 +35,24 @@
 #include <vector>
 
 namespace nvfuser {
+
+struct CGResultsPackage {
+  std::vector<at::Tensor> outputs;
+  std::unique_ptr<HeuristicParams> heuristic_params;
+  std::unique_ptr<FusionExecutor> fusion_executor;
+};
+
+// Grabs heuristics and schedules with the provided scheduler type, compiles and
+// runs with Fuion executor, returns a struct containing the outputs,
+// heuristic_params, and FusionExecutor. These structures are for convenience in
+// testing. If validate_scheduler is set to false the scheduler check will still
+// be run but it will be ignored. Otherwise canScheduler returning false will
+// throw.
+CGResultsPackage scheduleAndRun(
+    Fusion* fusion,
+    SchedulerType scheduler_type,
+    const at::ArrayRef<c10::IValue>& runtime_inputs,
+    bool validate_scheduler = true);
 
 // Make s Stack used for TorchScript execution
 inline torch::jit::Stack createStack(std::vector<at::Tensor>&& list) {
@@ -112,7 +132,7 @@ inline void clearL2Cache() {
 };
 
 inline TensorView* loweredTv(TensorView* tv, kir::Kernel* kernel) {
-  auto used_tvs = ir_utils::allTvs(kernel);
+  auto used_tvs = kernel->allTvs();
   TensorView* matching_tv = nullptr;
   for (auto lowered_tv : used_tvs) {
     if (lowered_tv->name() == tv->name()) {
@@ -717,7 +737,7 @@ TensorView* canonicalizeInputToBMNK(
 // been used
 bool isSchedulerInUse(
     const nvfuser::FusionKernelRuntime* kernel_rt,
-    const ScheduleHeuristic& scheduler);
+    const SchedulerType& scheduler_type);
 
 // Disable magic zero
 constexpr CompileParams matmul_cparams{DataType::Int32, 255, false};

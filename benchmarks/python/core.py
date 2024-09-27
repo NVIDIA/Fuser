@@ -1,128 +1,21 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024-present NVIDIA CORPORATION & AFFILIATES.
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
-import ctypes
-import gc
 import pytest_benchmark
 import torch
 from torch.autograd import DeviceType
 from torch.profiler import profile, ProfilerActivity
-from typing import List, Callable, Union, Tuple
+from typing import List, Callable, Union
 import numpy as np
 from nvfuser import FusionDefinition, FusionCache
-
-
-def get_device_properties() -> Tuple[int, float]:
-    """
-    Computes device properties using ctypes and cuda.
-    Note: Consider using CUDA-Python when CUDA support >= 12.0.
-    """
-    libnames = ("libcuda.so", "libcuda.dylib", "nvcuda.dll", "cuda.dll")
-    for libname in libnames:
-        try:
-            cuda = ctypes.CDLL(libname)
-        except OSError:
-            continue
-        else:
-            break
-    else:
-        raise OSError("could not load any of: " + " ".join(libnames))
-
-    # Device attribute enums (taken from cuda.h)
-    # https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__TYPES.html#group__CUDA__TYPES_1ge12b8a782bebe21b1ac0091bf9f4e2a3
-
-    CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK = 1
-    CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK = 8
-    CU_DEVICE_ATTRIBUTE_MAX_REGISTERS_PER_BLOCK = 12
-    CU_DEVICE_ATTRIBUTE_CLOCK_RATE = 13
-    CU_DEVICE_ATTRIBUTE_MEMORY_CLOCK_RATE = 36
-    CU_DEVICE_ATTRIBUTE_GLOBAL_MEMORY_BUS_WIDTH = 37
-    CU_DEVICE_ATTRIBUTE_L2_CACHE_SIZE = 38
-    CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_MULTIPROCESSOR = 39
-
-    device_properties = {}
-    device = torch.cuda.current_device()
-    cuda_properties = torch.cuda.get_device_properties(device)
-
-    device_properties["gpu_name"] = cuda_properties.name
-    device_properties["gpu_compute_capability_major"] = cuda_properties.major
-    device_properties["gpu_compute_capability_minor"] = cuda_properties.minor
-    device_properties["gpu_gmem_bytes"] = cuda_properties.total_memory
-    device_properties["gpu_sm_count"] = cuda_properties.multi_processor_count
-
-    max_threads_per_block = ctypes.c_int()
-    cuda.cuDeviceGetAttribute(
-        ctypes.byref(max_threads_per_block),
-        CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK,
-        device,
-    )
-    device_properties["gpu_max_threads_per_block"] = max_threads_per_block.value
-
-    smem_per_block = ctypes.c_int()
-    cuda.cuDeviceGetAttribute(
-        ctypes.byref(smem_per_block),
-        CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK,
-        device,
-    )
-    device_properties["gpu_smem_bytes_per_block"] = smem_per_block.value
-
-    max_reg_per_block = ctypes.c_int()
-    cuda.cuDeviceGetAttribute(
-        ctypes.byref(max_reg_per_block),
-        CU_DEVICE_ATTRIBUTE_MAX_REGISTERS_PER_BLOCK,
-        device,
-    )
-    device_properties["gpu_regs_per_block"] = max_reg_per_block.value
-
-    max_clock_khz = ctypes.c_int()
-    cuda.cuDeviceGetAttribute(
-        ctypes.byref(max_clock_khz),
-        CU_DEVICE_ATTRIBUTE_CLOCK_RATE,
-        device,
-    )
-    device_properties["gpu_clock_rate_khz"] = max_clock_khz.value
-
-    l2_cache_size = ctypes.c_int()
-    cuda.cuDeviceGetAttribute(
-        ctypes.byref(l2_cache_size), CU_DEVICE_ATTRIBUTE_L2_CACHE_SIZE, device
-    )
-    device_properties["gpu_l2_bytes"] = l2_cache_size.value
-
-    memory_clock_rate = ctypes.c_int()
-    cuda.cuDeviceGetAttribute(
-        ctypes.byref(memory_clock_rate), CU_DEVICE_ATTRIBUTE_MEMORY_CLOCK_RATE, device
-    )
-    device_properties["gpu_mem_clock_khz"] = memory_clock_rate.value
-
-    memory_bus_width = ctypes.c_int()
-    cuda.cuDeviceGetAttribute(
-        ctypes.byref(memory_bus_width),
-        CU_DEVICE_ATTRIBUTE_GLOBAL_MEMORY_BUS_WIDTH,
-        device,
-    )
-    device_properties["gpu_mem_bus_width"] = memory_bus_width.value
-
-    max_threads_per_sm = ctypes.c_int()
-    cuda.cuDeviceGetAttribute(
-        ctypes.byref(max_threads_per_sm),
-        CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_MULTIPROCESSOR,
-        device,
-    )
-    device_properties["gpu_max_threads_per_sm"] = max_threads_per_sm.value
-
-    # Compute peak bandwidth in GBps
-    peak_bandwidth = (2 * memory_bus_width.value * memory_clock_rate.value) / (1e6 * 8)
-    device_properties["gpu_peak_bandwidth_gbps"] = peak_bandwidth
-
-    return device_properties
-
+from nvfuser.pytorch_utils import DEVICE_PROPERTIES
+import warnings
 
 # These variables can be overwritten through CLI commands
 # --benchmark-rounds=rounds --benchmark-warmup-rounds=warmup_rounds
 # --benchmark-num-inputs=num_inputs
 BENCHMARK_CONFIG = {"rounds": 10, "warmup_rounds": 1, "num_inputs": None}
 
-DEVICE_PROPERTIES = get_device_properties()
 L2_CACHE_SIZE = DEVICE_PROPERTIES["gpu_l2_bytes"]
 PEAK_BANDWIDTH_GBPS = DEVICE_PROPERTIES["gpu_peak_bandwidth_gbps"]
 
@@ -144,18 +37,6 @@ def clear_dynamo_cache() -> None:
     Ref: https://github.com/pytorch/pytorch/issues/107444
     """
     torch._dynamo.reset()
-
-
-def clear_cuda_cache() -> None:
-    """
-    Utility function to clear CUDA cache before running a test.
-    """
-    if (
-        torch.cuda.memory_allocated()
-        or torch.cuda.memory_reserved() > 0.8 * DEVICE_PROPERTIES["gpu_gmem_bytes"]
-    ):
-        gc.collect()
-        torch.cuda.empty_cache()
 
 
 # Backward function for torch baseline benchmarks.
@@ -380,40 +261,106 @@ def run_benchmark(
         outputs: Output of the target function
     """
 
-    assert device in [
+    # Check that the device is `cuda` or `host:{compile/steady/dynamic}`.
+    assert device.split(":")[0] in [
         "cuda",
         "host",
-    ], f"Unsupported device type: {device}. Use one of cuda/host."
+    ], f'Unsupported device type: {device.split(":")[0]}. Use one of cuda/host.'
 
-    if device == "host":
+    host_bench_mode = None
+
+    # Store warmup rounds locally to modify for host:steady/dynamic cases.
+    warmup_rounds = BENCHMARK_CONFIG["warmup_rounds"]
+
+    if device.split(":")[0] == "host":
+        # Host benchmarking expects a fusion function to generate fusion definitions everytime FusionCache is reset.
         assert fusion_fn is not None and benchmark_fn is None
 
+        # Reset the FusionCache to avoid any inadvertent fusion execution from affecting measurements
+        FusionCache.reset()
+
+        # device = 'host:compile', 'host:steady', 'host:dyanamic'
+        # Set the host_bench_mode -- The 3 modes require different setup calls.
+        host_bench_mode = device.split(":")[-1]
+        device = device.split(":")[0]  # device = 'host'
+
+        # Set the warmup rounds if required for `steady/dynamic` host latency measurement.
+        if (
+            host_bench_mode in ["steady", "dynamic"]
+            and BENCHMARK_CONFIG["warmup_rounds"] == 0
+        ):
+            # By default, warmup_rounds=1. If BENCHMARK_CONFIG['warmup_rounds'] == 0 through --benchmark-warmup-rounds, raise a warning that it was ignored.
+            warnings.warn(
+                "--benchmark-warmup-rounds=0 is ignored for host:steady/dynamic benchmarking. Setting warmup_rounds=1."
+            )
+            warmup_rounds = 1
+
+    """
+    Setup function: This is called before each benchmarking round. This function is used to:
+    1. Clear L2 cache.
+    2. For host latency benchmarks, the 3 modes use different setups.
+        a) 'compile': FusionCache is reset at every round to measure the first time overhead before instantiating fd.
+        b) 'steady': Nothing additional is required. The warmup round avoids including the first time overhead in the measurements.
+        c) 'dynamic': We maintain a global counter to track which input is executed. Once all the inputs have been executed once,
+        the FusionCache is reset again and we execute fd for the first input to avoid including the first time compile overhead in the dynamic measurement.
+    """
+
+    # Counter used in `dynamic` host latency benchmarking, unused in other cases.
+    global counter
+    counter = 0
+
+    def setup():
+        clear_l2_cache()
+        if device == "cuda":
+            return [inputs], {}
+
+        # Device = 'host'
+        # For device='host', we use the host_benchmark_fn below. It expects a list of fusion inputs, and the fd object.
+        assert host_bench_mode in [
+            "compile",
+            "steady",
+            "dynamic",
+        ], f"Expected host benchmark mode to be one of compile, steady, or dynamic, found {host_bench_mode}"
+
+        if host_bench_mode == "compile":
+            # Reset the FusionCache to measure initial host overhead correctly.
+            FusionCache.reset()
+
+        # Instantiate the fusion definition
+        with FusionDefinition() as fd:
+            fusion_fn(fd)
+
+        if host_bench_mode in ["compile", "steady"]:
+            return [inputs], {"fd": fd}
+
+        # For dynamic host latency benchmarking, return a particular input shape, and reset FusionCache if all inputs have been executed.
+        global counter
+        counter += 1
+        if counter % len(inputs) == 0:
+            # All inputs have been executed once.
+            FusionCache.reset()
+            with FusionDefinition() as fd:
+                fusion_fn(fd)
+            # Execute fd with the first inputs to avoid measuring first time overhead.
+            fd.execute(inputs[0])
+            counter += 1
+        return [inputs[counter % len(inputs)]], {"fd": fd}
+
+    # Create an instance of NVFBenchmark
     nvf_benchmark = NVFBenchmark(benchmark, device=device)
 
+    # The host_benchmark_fn uses the `fd` object returned from setup function.
     def host_benchmark_fn(inputs, fd):
         # Set the fd variable used to query the profile object
         nvf_benchmark.fd = fd
         return fd.execute(inputs, profile=True)
-
-    def setup():
-        clear_l2_cache()
-
-        if device == "host":
-            # Reset the FusionCache to measure host overhead correctly.
-            FusionCache.reset()
-            with FusionDefinition() as fd:
-                fusion_fn(fd)
-            # The benchmark_fn used is host_benchmark_fn above.
-            return [inputs], {"fd": fd}
-
-        return [inputs], {}
 
     benchmark_fn = benchmark_fn if benchmark_fn is not None else host_benchmark_fn
     outputs = nvf_benchmark.pedantic(
         benchmark_fn,
         setup=setup,
         rounds=BENCHMARK_CONFIG["rounds"],
-        warmup_rounds=BENCHMARK_CONFIG["warmup_rounds"],
+        warmup_rounds=warmup_rounds,
     )
 
     if device == "cuda":

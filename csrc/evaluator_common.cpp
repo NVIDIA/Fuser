@@ -9,8 +9,8 @@
 
 #include <debug.h>
 #include <device_lower/lower2device.h>
-#include <executor_kernel_arg.h>
 #include <expr_evaluator.h>
+#include <fusion_executor/executor_kernel_arg.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
 #include <tensor_metadata.h>
@@ -98,7 +98,7 @@ void collectBufferSizes(
 
 std::vector<Val*> collectRuntimeUsedValues(Fusion* fusion) {
   std::vector<Val*> ret;
-  auto all_tvs = ir_utils::allTvs(fusion);
+  auto all_tvs = fusion->allTvs();
   // Collect extent and inputs
   for (auto tv : all_tvs) {
     for (auto id : tv->getLoopDomain()) {
@@ -130,6 +130,7 @@ std::vector<Val*> collectRuntimeUsedValues(Fusion* fusion) {
 } // namespace
 
 PrecomputedValues::PrecomputedValues(Fusion* fusion) : fusion_(fusion) {
+  FUSER_PERF_SCOPE("PrecomputedValues::PrecomputedValues");
   loadSymbols(collectRuntimeUsedValues(fusion));
   initializeValueList(symbols());
   initializeNamedScalars();
@@ -172,6 +173,7 @@ void PrecomputedValues::bindConcreteParallelTypeValue(
 }
 
 void PrecomputedValues::bindInputs(const KernelArgumentHolder& args) {
+  FUSER_PERF_SCOPE("PrecomputedValues::bindInputs");
   if (hasValidValues()) {
     invalidate();
   }
@@ -348,19 +350,22 @@ void PrecomputedValues::bindTensorMetaData(
 
   for (const auto dim : c10::irange(logical_domain.size())) {
     IterDomain* id = logical_domain[dim];
-    auto dim_size = tensor.size(static_cast<int64_t>(dim));
-    if (id->isDeviceDim()) {
-      dim_size = tv->getDeviceMesh().size(id->getParallelType());
-    }
-
-    if (id->hasExpandedExtent()) {
-      Val* extent = id->extent();
-      Val* expanded_extent = id->expandedExtent();
-      bindValue(extent->evaluatorIndex(), 1L);
-      bindValue(expanded_extent->evaluatorIndex(), dim_size);
+    const auto dim_size = tensor.size(static_cast<int64_t>(dim));
+    if (id->isBroadcast()) {
+      // DIDs are ignored for broadcast. See MultideviceShardingTest.Broadcast
+      // and .ExpandedBroadcast.
+      bindValue(id->extent()->evaluatorIndex(), 1L);
+      if (id->hasExpandedExtent()) {
+        bindValue(id->expandedExtent()->evaluatorIndex(), dim_size);
+      }
     } else {
-      Val* extent = id->extent();
-      bindValue(extent->evaluatorIndex(), dim_size);
+      if (id->isDeviceDim()) {
+        bindValue(
+            id->extent()->evaluatorIndex(),
+            tv->getDeviceMesh().size(id->getParallelType()));
+      } else {
+        bindValue(id->extent()->evaluatorIndex(), dim_size);
+      }
     }
   }
 
@@ -562,8 +567,7 @@ void NaiveValueMachine::runUnaryOp(int index) {
       } else if (data_type_[index] == DataType::Bool) {
         dest = PolymorphicValue((bool)src);
       } else {
-        NVF_ERROR(
-            false, "dtype not supported in evaluator: ", data_type_[index]);
+        NVF_THROW("dtype not supported in evaluator: ", data_type_[index]);
       }
       break;
     case UnaryOpType::Abs:

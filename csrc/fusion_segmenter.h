@@ -15,6 +15,7 @@
 #include <options.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/registry.h>
+#include <scheduler/runtime_info.h>
 #include <utils.h>
 #include <visibility.h>
 
@@ -115,8 +116,8 @@ class SegmentedGroup {
   }
 
   //! Returns the schedule heuristic associated with this group
-  ScheduleHeuristic heuristic() const {
-    return heuristic_;
+  SchedulerType schedulerType() const {
+    return scheduler_type_;
   }
 
   //! Returns the exprs that make up this group
@@ -153,7 +154,7 @@ class SegmentedGroup {
   //!  Note that the schedule params can be different.
   //! Returns a nullopt if this group cannot be scheduled
   //!  with the same heuristics.
-  std::optional<std::unique_ptr<SchedulerEntry>> getMaybeSchedulerEntry(
+  std::optional<std::unique_ptr<HeuristicParams>> getMaybeHeuristicParams(
       SchedulerRuntimeInfo& runtime_info);
 
   //! Query if this is a group for a fusion input
@@ -186,7 +187,7 @@ class SegmentedGroup {
   int group_id_ = -1;
 
   //! The scheduler to use for compiling this group
-  ScheduleHeuristic heuristic_ = ScheduleHeuristic::None;
+  SchedulerType scheduler_type_ = SchedulerType::None;
 
   //! Exprs that make up the group
   std::vector<Expr*> exprs_;
@@ -237,9 +238,9 @@ class SegmentedGroup {
   //! on level values of this, neighbors, and merged neighbors of neighbors
   std::vector<NeighborGroup> getMergeCandidates();
 
-  //! Assign schedule heuristic to this group
-  void setHeuristic(ScheduleHeuristic sh) {
-    heuristic_ = sh;
+  //! Assign scheduler type to this group
+  void setSchedulerType(SchedulerType scheduler_type) {
+    scheduler_type_ = scheduler_type;
   }
 
   //! Assign Id for this group
@@ -260,64 +261,6 @@ class SegmentedGroup {
 
 std::ostream& operator<<(std::ostream& os, const SegmentedGroup* group);
 
-//! Auxiliary class for storing heuristics. The managed data is either
-//!  a single scheduler entry for complete fusion,
-//!  or a vector of schedulers, one for each segment, for segmented fusion.
-class FusionHeuristics {
-  using SchedulerEntryOwningPtr = std::unique_ptr<SchedulerEntry>;
-
- public:
-  //! Constructor for segmented fusion case. Created with empty list and
-  //!  uses emplaceBack for inserting heuristics in order
-  explicit FusionHeuristics() = default;
-
-  //! Constructor fills heuristics_ with nullptr, which allows us to create
-  //! SchedulerEntries out of order.
-  explicit FusionHeuristics(size_t num_heuristics) {
-    heuristics_.reserve(num_heuristics);
-    std::fill_n(std::back_inserter(heuristics_), num_heuristics, nullptr);
-  }
-
-  //! Constructor for complete fusion case, generates the scheduler entry
-  //!  for the fusion owning the given expression
-  explicit FusionHeuristics(
-      ScheduleHeuristic schedule_heuristic,
-      SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr)
-      : is_segmented_(false) {
-    heuristics_.emplace_back(SchedulerEntry::makeEntry(
-        schedule_heuristic, runtime_info.fusion(), runtime_info, data_cache));
-  }
-
-  FusionHeuristics(const FusionHeuristics&) = delete;
-  FusionHeuristics& operator=(const FusionHeuristics&) = delete;
-
-  SchedulerEntryOwningPtr& at(int index) {
-    return heuristics_.at(index);
-  }
-
-  //! Place a scheduler entry on the list. Applies to segmented fusion only.
-  void emplaceBack(SchedulerEntryOwningPtr&& pt) {
-    NVF_ERROR(is_segmented_);
-    heuristics_.emplace_back(std::move(pt));
-  }
-
-  //! Returns list of schedulers for a segmneted fusion.
-  const std::vector<SchedulerEntryOwningPtr>& heuristicsList() const {
-    return heuristics_;
-  }
-
-  //! Returns the single scheduler for a complete fusion.
-  SchedulerEntry* singleKernelHeuristics() {
-    NVF_ERROR(!is_segmented_);
-    return heuristics_.begin()->get();
-  }
-
- private:
-  std::vector<SchedulerEntryOwningPtr> heuristics_;
-  bool is_segmented_ = true;
-};
-
 //! Exported Interface for representing segmented fusion graph
 //!   this class owns the segmented groups
 class SegmentedFusion {
@@ -329,7 +272,7 @@ class SegmentedFusion {
   //!  as the only group.
   static std::unique_ptr<SegmentedFusion> fromCompleteFusion(
       std::unique_ptr<Fusion> fusion,
-      ScheduleHeuristic heuristic,
+      SchedulerType scheduler_type,
       const KernelArgumentHolder& runtime_inputs);
 
   //! Is the fusion segmented?
@@ -375,7 +318,7 @@ class SegmentedFusion {
   std::pair<IrCloner, std::unique_ptr<Fusion>> makeFusion(SegmentedGroup* sg);
 
   //! Make a heuristics entry for a group and parameters
-  std::unique_ptr<SchedulerEntry> makeInitialSchedulerEntry(
+  std::unique_ptr<HeuristicParams> makeInitialHeuristicParams(
       SegmentedGroup* sg,
       SchedulerRuntimeInfo& runtime_info);
 
@@ -397,7 +340,7 @@ class SegmentedFusion {
   //! API for adding edges
   SegmentedEdge* newEdge(SegmentedGroup* from, SegmentedGroup* to, Val* val);
 
-  HeuristicSummary* getCachedHeuristicDataFor(SegmentedGroup* group);
+  HeuristicDataCache* getCachedHeuristicDataFor(SegmentedGroup* group);
 
   //! Lower FP precision of inputs and outputs specified by the given
   //! edges.
@@ -495,8 +438,8 @@ class SegmentedFusion {
   DataType force_half_precision_type_;
 
   //! Static traversal information to be used for fast heuristics lookup
-  std::unordered_map<SegmentedGroup*, std::unique_ptr<HeuristicSummary>>
-      heuristic_summary_cache_;
+  std::unordered_map<SegmentedGroup*, std::unique_ptr<HeuristicDataCache>>
+      heuristic_data_cache_;
 
   //! The number of values in fusion after constructing segmented fusion.
   //! Used for checking state during deserialization.
@@ -521,7 +464,7 @@ class SegmentedFusion {
   //! Keep heuristic checking intermediate data
   void setCachedHeuristicDataFor(
       SegmentedGroup* group,
-      std::unique_ptr<HeuristicSummary> data);
+      std::unique_ptr<HeuristicDataCache> data);
 
   //! Utility to give unique name for each segmented fusion
   static size_t segmentedFusionName() {
@@ -726,9 +669,9 @@ class SegmentCandidateFinder {
 
   void finalize();
 
-  //! Return the resulting heuristic corresponding to the merged
+  //! Return the resulting SchedulerType corresponding to the merged
   //!  group built by merging the two groups connected by edge
-  ScheduleHeuristic deriveHeuristic(SegmentedGroup* edge);
+  SchedulerType deriveSchedulerType(SegmentedGroup* edge);
 
   GroupDependencyAnalysis* getGroupDependency();
 

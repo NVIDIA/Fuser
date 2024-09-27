@@ -1645,6 +1645,7 @@ class NVF_API Split : public Expr {
   Val* factor() const {
     return attributeVal(0);
   }
+  Val* isDivisible() const;
 
   bool innerSplit() const {
     return attribute<bool>(1);
@@ -2353,7 +2354,7 @@ class Scope {
   }
 
   bool operator==(const Scope&) const {
-    NVF_ERROR(false, "Should not reach here");
+    NVF_THROW("Should not reach here");
   }
 
   // Insert expr before pos

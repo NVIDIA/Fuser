@@ -102,8 +102,8 @@ bool isSerialBroadcastResolution(
   for (auto for_loop : for_loops) {
     // ForLoop::iter_domain() should be the concrete domain, but just
     // in case.
-    auto concrete_loop_id = GpuLower::current()->caMap()->getConcreteMappedID(
-        for_loop->iter_domain(), IdMappingMode::LOOP);
+    auto concrete_loop_id =
+        lower_utils::getConcreteLoopID(for_loop->iter_domain());
 
     // Check for any serial loop id with non-trivial extent. If the
     // concrete ID is a broadcast, it shouldn't materialize an actual
@@ -232,7 +232,7 @@ class BufferReuseDebugPrinter {
           handle(debug_entry->second);
           break;
         default:
-          NVF_ERROR(false, "unreachable");
+          NVF_THROW("unreachable");
       }
     }
     os_ << "\n\n";
@@ -295,7 +295,7 @@ class BufferReuseDebugPrinter {
     //  if this printer can be used for
     //  other passes or we have more
     //  complex ite pattern.
-    NVF_ERROR(false, "unsupported");
+    NVF_THROW("unsupported");
   }
 
   void printAllocInfo(const kir::Allocate* alloc);
@@ -483,8 +483,7 @@ class ScopeMap : private kir::IrVisitor {
   }
 
   void handle(kir::IfThenElse* ite) final {
-    NVF_ERROR(
-        false, "lower_alias_memory: no support for IfThenElse at this phase.");
+    NVF_THROW("lower_alias_memory: no support for IfThenElse at this phase.");
   }
 
   //! Factory function for internal loop information data
@@ -563,6 +562,7 @@ struct AllocationInfo {
   const kir::Allocate* alias_to = nullptr;
   bool is_inner_alias = false;
   bool should_try_alias = true;
+  bool is_cp_async_bulk = false;
   MemoryType mem_type = MemoryType::Local;
   DataType data_type = DataType::Float;
   std::string size_expr;
@@ -786,8 +786,7 @@ class AllocationInfoMap : private kir::IrVisitor {
   }
 
   void handle(kir::IfThenElse* ite) final {
-    NVF_ERROR(
-        false, "lower_alias_memory: no support for IfThenElse at this phase.");
+    NVF_THROW("lower_alias_memory: no support for IfThenElse at this phase.");
   }
 
   // Generate allocation info for allocation after some pre-filtering
@@ -842,6 +841,9 @@ class AllocationInfoMap : private kir::IrVisitor {
     alloc_info->size_expr = size_print;
     alloc_info->loop_info = current_stack_.back();
     alloc_info->should_try_alias = should_try_alias;
+    alloc_info->is_cp_async_bulk =
+        (tv->definition() != nullptr &&
+         ir_utils::isCpAsyncBulk(tv->definition()));
 
     // record short cuts
     allocation_info_map_[alloc] = alloc_info;
@@ -866,20 +868,55 @@ class AllocationInfoMap : private kir::IrVisitor {
   }
 
   void collectLivenessInfoOfExprMBarrier(Expr* expr) {
-    const auto expr_pos = scope_map_.getExprPos(expr);
+    int64_t expr_pos = scope_map_.getExprPos(expr);
 
+    auto mark_liveness = [&expr_pos, this](TensorView* tv, bool is_write) {
+      AllocationInfo* alloc_info = getAllocInfoFromTV(tv);
+      if (is_write) {
+        alloc_info->inner_live_interval->markWrite(expr_pos);
+      } else {
+        alloc_info->inner_live_interval->markRead(expr_pos);
+      }
+      ScopeInfo* outer_loop_info = ascendLoopNestToSameLevelAs(alloc_info);
+      int64_t outer_pos =
+          outer_loop_info ? outer_loop_info->start_pos : expr_pos;
+      if (is_write) {
+        alloc_info->outer_live_interval->markWrite(outer_pos);
+      } else {
+        alloc_info->outer_live_interval->markRead(outer_pos);
+      }
+    };
+
+    // The liveness of the mbarrier and its token are mapped together.
+    // The token is the mbarrier state of the last phase.
     if (auto init = dynamic_cast<kir::MBarrierInit*>(expr)) {
-      auto alloc_info = getAllocInfoFromTV(init->mbarrier()->as<TensorView>());
-      alloc_info->inner_live_interval->markWrite(expr_pos);
-      auto outer_loop_info = ascendLoopNestToSameLevelAs(alloc_info);
-      auto write_pos = outer_loop_info ? outer_loop_info->start_pos : expr_pos;
-      alloc_info->outer_live_interval->markWrite(write_pos);
+      TensorView* tv = (init->mbarrier()->isA<kir::TensorIndex>())
+          ? init->mbarrier()->as<kir::TensorIndex>()->view()
+          : init->mbarrier()->as<TensorView>();
+      mark_liveness(tv, /*is_write=*/true);
+
+      // Register start of lifetime for a mbarrier token returned by
+      // MBarrierArriveExpectTx and MBarrierArrive.
+      if (GpuLower::current()->tmaCircularBufferInfo().existsMBarrierToken(
+              expr)) {
+        mark_liveness(
+            GpuLower::current()->tmaCircularBufferInfo().getMBarrierToken(expr),
+            /*is_write=*/true);
+      }
     } else if (auto inval = dynamic_cast<kir::MBarrierInvalidate*>(expr)) {
-      auto alloc_info = getAllocInfoFromTV(inval->mbarrier()->as<TensorView>());
-      alloc_info->inner_live_interval->markRead(expr_pos);
-      auto outer_loop_info = ascendLoopNestToSameLevelAs(alloc_info);
-      auto write_pos = outer_loop_info ? outer_loop_info->start_pos : expr_pos;
-      alloc_info->outer_live_interval->markRead(write_pos);
+      TensorView* tv = (inval->mbarrier()->isA<kir::TensorIndex>())
+          ? inval->mbarrier()->as<kir::TensorIndex>()->view()
+          : inval->mbarrier()->as<TensorView>();
+      mark_liveness(tv, /*is_write=*/false);
+
+      // Register end of lifetime for a mbarrier token returned by
+      // returned by MBarrierArriveExpectTx and MBarrierArrive
+      if (GpuLower::current()->tmaCircularBufferInfo().existsMBarrierToken(
+              expr)) {
+        mark_liveness(
+            GpuLower::current()->tmaCircularBufferInfo().getMBarrierToken(expr),
+            /*is_write=*/false);
+      }
     }
   }
 
@@ -1736,7 +1773,10 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
       auto top_size = allocSizeBytes(top_alloc);
       auto unaligned_address =
           SimplifyingIrBuilder::addExpr(top_alloc->address(), top_size);
-      auto aligned_address = alignExpr(unaligned_address);
+      // Shared memory allocations must by 128B aligned for cpAsyncBulk
+      // operations to avoid CUDA_ERROR_MISALIGNED_ADDRESS.
+      auto aligned_address = alignExpr(
+          unaligned_address, (alloc_info->is_cp_async_bulk) ? 128 : 16);
       // TODO: hoisting of addresses using for_loops_ recorded at first write
       alloc->setAddress(aligned_address);
     }

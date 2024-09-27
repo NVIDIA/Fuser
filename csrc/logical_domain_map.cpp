@@ -57,13 +57,19 @@ PairwiseLogicalDomainMap::PairwiseLogicalDomainMap(
   NVF_ERROR(producer != nullptr);
   NVF_ERROR(consumer != nullptr);
   NVF_ERROR(producer->fusion() == consumer->fusion());
+  NVF_ERROR(consumer->definition() != nullptr);
+  auto producer_tvs_of_consumer = ir_utils::producerTvsOf(consumer);
   // Make sure they are really a producer and its consumer
   NVF_ERROR(
-      producer->isConsumerOf(consumer),
-      "Not a producer-consumer pair: ",
+      std::find(
+          producer_tvs_of_consumer.begin(),
+          producer_tvs_of_consumer.end(),
+          producer) != producer_tvs_of_consumer.end(),
+      "Expected ",
       producer,
-      ", ",
-      consumer);
+      " is a producer of ",
+      consumer,
+      " but it is not.");
 }
 
 namespace {
@@ -211,7 +217,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     } else if (producer->sameAs(op->bias()->as<TensorView>()->domain())) {
       input_position = 2;
     } else {
-      NVF_ERROR(false, "Producer did not match any LinearOp input.")
+      NVF_THROW("Producer did not match any LinearOp input.")
     }
 
     bool k_bcast = op->inA()->as<TensorView>()->axis(-1)->isBroadcast();
@@ -687,11 +693,11 @@ bool ComputeAtLogicalDomainMap::canMap(
     const TensorDomain* td_b,
     const IterDomain* id_b) const {
   NVF_ERROR(
-      id_a->definition() == nullptr || id_a->isRFactorProduct(),
+      td_a->isLogical(id_a) || td_a->isRoot(id_a),
       "Non-root domain is not supported: ",
       id_a);
   NVF_ERROR(
-      id_b->definition() == nullptr || id_b->isRFactorProduct(),
+      td_b->isLogical(id_b) || td_b->isRoot(id_b),
       "Non-root domain is not supported: ",
       id_b);
 
@@ -736,7 +742,7 @@ bool ComputeAtLogicalDomainMap::canMap(
     const TensorDomain* td_b,
     const IterDomain* id_b) const {
   NVF_ERROR(
-      id_b->definition() == nullptr || id_b->isRFactorProduct(),
+      td_b->isLogical(id_b) || td_b->isRoot(id_b),
       "Non-root domain is not supported: ",
       id_b);
 
@@ -908,8 +914,7 @@ std::unordered_map<IterDomain*, IterDomain*> ComputeAtLogicalDomainMap::map(
              removed_broadcast_domains_.end())) {
       continue;
     }
-    NVF_ERROR(
-        false,
+    NVF_THROW(
         "Mapping IterDomain ",
         from_id,
         " of ",

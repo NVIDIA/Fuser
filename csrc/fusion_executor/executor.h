@@ -8,16 +8,17 @@
 #pragma once
 #include <device_lower/lower2device.h>
 #include <exceptions.h>
-#include <executor_params.h>
-#include <executor_utils.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
+#include <fusion_executor/allocations.h>
+#include <fusion_executor/executor_params.h>
+#include <fusion_executor/executor_utils.h>
 #include <host_ir/container.h>
 #include <ir/all_nodes.h>
 #include <ir/cloner.h>
 #include <ir/printer.h>
 #include <multidevice/communicator.h>
-#include <scheduler/heuristic_types.h>
+#include <scheduler/scheduler_types.h>
 #include <serde/fusion_cache_generated.h>
 #include <utils.h>
 #include <atomic>
@@ -28,48 +29,15 @@
 
 namespace nvfuser {
 
-bool shouldFillAllocationWithNan();
-NVF_API void setFillAllocationWithNan(bool value);
-
 // TODO: Should this actually be in launch params?
 struct CompileOptions {
   c10::Device device = c10::Device(c10::DeviceType::CUDA, 0);
 };
 
-//! Used in distributed setting where we only want to
-//!  allocate output space and receive output data from
-//!  a different rank instead of computing them.
-std::vector<at::Tensor> allocOutputSpace(
-    const at::ArrayRef<c10::IValue>& inputs,
-    Fusion* fusion,
-    const c10::Device& device);
-
 class FusionExecutor : public NonCopyable {
  public:
-  struct GlobalBufferInfo {
-    TensorView* tv = nullptr;
-    std::vector<int64_t> sizes;
-    std::vector<int64_t> strides;
-    at::ScalarType type = at::ScalarType::Undefined;
-    bool zero_init = false;
-    bool resets_to_zero = false;
-    bool is_profile_buffer = false;
-  };
-
   // NVF_API was added for nvfuser_extension. See examples/sinh_extension.
   NVF_API FusionExecutor();
-
-  //! This function is useful for parallel compilation of segmented fusions.
-  //! It returns non-allocated KernelArgumentHolder, representing the output
-  //! sizes from kernel execution.
-  //! Notes: 1. This API should ignore aliased outputs instead of
-  //! pushing scalar int 0 as a place-holder.
-  //! 2. This API does not allocate output in memory, but only returns the
-  //! inferred output sizes.
-  KernelArgumentHolder inferOutputSizes(
-      Fusion* fusion,
-      const KernelArgumentHolder& args,
-      PrecomputedValues* evaluator_precomputed_values = nullptr);
 
   //! To compile a fusion with the 32-bit index type, CompileParams
   //! must be passed in. There used to be an index type associated
@@ -79,7 +47,7 @@ class FusionExecutor : public NonCopyable {
       const KernelArgumentHolder& args,
       const LaunchParams& launch_constraints,
       CompileParams compile_params,
-      ScheduleHeuristic heuristic = ScheduleHeuristic::None,
+      SchedulerType sceduler_type = SchedulerType::None,
       int64_t fusion_id = 0,
       int64_t concrete_id = 0,
       int64_t runtime_id = 0,
@@ -111,17 +79,21 @@ class FusionExecutor : public NonCopyable {
         args,
         LaunchParams(),
         CompileParams(),
-        ScheduleHeuristic::None,
+        SchedulerType::None,
         fusion_id,
         concrete_id);
   }
 
   //! Computes fusion outputs through expression evaluator.
   std::vector<at::Tensor> evaluateFusionOutputs(
-      KernelArgumentHolder& args,
       std::vector<at::Tensor> outputs,
       ExpressionEvaluator& expr_eval);
 
+  // TODO: args shouldn't come in a reference here because we will append the
+  // outputs to be able to send it to the kernel. For now none of the users are
+  // reconsuming the args, so it is okay. It isn't done now because changing it
+  // from a reference makes a call as runFusion({}) ambiguous, and that is used
+  // in some places in the codebase.
   NVF_API std::vector<at::Tensor> runFusion(
       KernelArgumentHolder& args,
       const LaunchParams& launch_constraints = LaunchParams(),
@@ -231,7 +203,7 @@ class FusionExecutor : public NonCopyable {
     if (host_ir_container_ != nullptr) {
       return host_ir_container_->as<Fusion>();
     }
-    NVF_ERROR(false, "unreachable because of the isCompiled check");
+    NVF_THROW("unreachable because of the isCompiled check");
   }
 
   const ThreadPredicateMap& threadPredMap() const {
@@ -322,7 +294,7 @@ class FusionExecutor : public NonCopyable {
   }
 
   void createKernelId(
-      ScheduleHeuristic heuristic = ScheduleHeuristic::None,
+      SchedulerType scheduler_type = SchedulerType::None,
       int64_t fusion_id = 0,
       int64_t concrete_id = 0,
       int64_t runtime_id = 0,
@@ -332,7 +304,7 @@ class FusionExecutor : public NonCopyable {
     NVF_ERROR(runtime_id > -1, "Invalid runtime_id.");
     NVF_ERROR(group_id > -1, "Invalid group_id");
 
-    heuristic_ = heuristic;
+    scheduler_type_ = scheduler_type;
     fusion_id_ = fusion_id;
     concrete_id_ = concrete_id;
     runtime_id_ = runtime_id;
@@ -343,7 +315,7 @@ class FusionExecutor : public NonCopyable {
     if (isOptionEnabled(EnableOption::StaticFusionCount)) {
       ss << global_fusion_count_.load();
     } else {
-      ss << toString(heuristic_);
+      ss << toString(scheduler_type_);
       ss << "_f" << fusion_id_;
       ss << "_c" << concrete_id_;
       ss << "_r" << runtime_id_;
@@ -392,7 +364,7 @@ class FusionExecutor : public NonCopyable {
       Fusion* fusion,
       int8_t device_index,
       CompileParams compile_params,
-      ScheduleHeuristic heuristic,
+      SchedulerType scheduler_type,
       int64_t fusion_id,
       int64_t concrete_id,
       int64_t runtime_id,
@@ -405,15 +377,10 @@ class FusionExecutor : public NonCopyable {
       const int64_t warp_size,
       DataType index_dtype);
 
-  int64_t computeSharedMemory(
-      ExpressionEvaluator& expr_eval,
-      const std::vector<const kir::Allocate*>& buffers,
-      DataType index_dtype,
-      int64_t smem_offset = 0);
-
   //! Return information necessay for allocating intermediate tensors,
   //! including temporary work buffers as well as intermediate
   //! global-memory tensors
+  // TODO: Move to allocations.h/cpp
   std::vector<GlobalBufferInfo> getIntermediateBufferInfo(
       ExpressionEvaluator& expr_eval,
       DataType index_dtype);
@@ -543,7 +510,7 @@ class FusionExecutor : public NonCopyable {
   inline static std::atomic<int64_t> global_fusion_count_;
 
   // Scheduling Heuristic for this Fusion
-  ScheduleHeuristic heuristic_ = ScheduleHeuristic::None;
+  SchedulerType scheduler_type_ = SchedulerType::None;
 
   // Kernel name for fusion executor
   std::string kernel_id_;

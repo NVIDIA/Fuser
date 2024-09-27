@@ -13,9 +13,9 @@
 
 #include <device_lower/utils.h>
 #include <exceptions.h>
-#include <executor_utils.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
+#include <fusion_executor/executor_utils.h>
 #include <ir/iostream.h>
 
 namespace nvfuser {
@@ -147,8 +147,7 @@ std::pair<double, double> getTolerance(
     case DataType::Bool:
       return {0.0, 0.0};
     default:
-      NVF_ERROR(
-          false, "Do not have tolerance computation for type ", dtype, ".");
+      NVF_THROW("Do not have tolerance computation for type ", dtype, ".");
   }
 }
 

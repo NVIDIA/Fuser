@@ -23,8 +23,8 @@
 #include <device_lower/pass/scalar_hoist.h>
 #include <device_lower/pass/warp_reduce.h>
 #include <exceptions.h>
-#include <executor_params.h>
 #include <expr_simplifier.h>
+#include <fusion_executor/executor_params.h>
 #include <id_model/id_model.h>
 #include <id_model/indexing.h>
 #include <ir/all_nodes.h>
@@ -112,6 +112,10 @@ class GpuLower : public NonCopyable {
     return std::const_pointer_cast<const ComputeAtMap>(compute_at_map_);
   }
 
+  bool hasIdModel() const {
+    return id_model_.get() != nullptr;
+  }
+
   IdModel& idModel() {
     NVF_ERROR(id_model_.get());
     return *id_model_;
@@ -176,6 +180,10 @@ class GpuLower : public NonCopyable {
 
   CircularBufferInfo& circularBufferInfo() {
     return circular_buffer_info_;
+  }
+
+  TmaCircularBufferInfo& tmaCircularBufferInfo() {
+    return tma_circular_buffer_info_;
   }
 
   CommonScalarMap& commonScalarMap() {
@@ -330,6 +338,7 @@ class GpuLower : public NonCopyable {
   ParallelDimensionMap parallel_dimension_map_;
   NonDivisibleSplitInfo non_divisible_split_info_;
   CircularBufferInfo circular_buffer_info_;
+  TmaCircularBufferInfo tma_circular_buffer_info_;
   CommonScalarMap common_scalar_map_;
   FusedReductionInfo fused_reduction_info_;
   std::shared_ptr<const SyncMap> sync_map_;

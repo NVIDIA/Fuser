@@ -108,7 +108,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
         break;
       }
       case CircularBufferLoopStage::NotApplicable: {
-        NVF_ERROR(false, "Unsupported loop mode, got: ", loop_type_);
+        NVF_THROW("Unsupported loop mode, got: ", loop_type_);
       }
     }
 
@@ -153,7 +153,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
   }
 
   void handle(kir::IfThenElse* ite) final {
-    NVF_ERROR(false, "No IfThenElse should exist yet");
+    NVF_THROW("No IfThenElse should exist yet");
   }
 
   void dispatch(Expr* expr) override {
@@ -199,7 +199,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
         break;
       }
       case CircularBufferLoopStage::NotApplicable: {
-        NVF_ERROR(false, "Unsupported loop mode, got: ", loop_type_);
+        NVF_THROW("Unsupported loop mode, got: ", loop_type_);
       }
     }
   }
@@ -569,6 +569,52 @@ class CircularBufferInserter : private kir::ExprMutator {
 };
 
 } // namespace
+
+void TmaCircularBufferInfo::recordMBarrierToken(
+    const Expr* expr,
+    TensorView* mbarrier_tokens) {
+  NVF_ERROR(
+      ir_utils::isCpAsyncBulkLoad(expr) || expr->isA<kir::MBarrierInit>() ||
+      expr->isA<kir::MBarrierInvalidate>());
+  NVF_ERROR(ldst_mbarrier_token_map_.count(expr) == 0);
+  ldst_mbarrier_token_map_.emplace(expr, mbarrier_tokens);
+}
+
+bool TmaCircularBufferInfo::existsMBarrierToken(const Expr* expr) const {
+  return ldst_mbarrier_token_map_.count(expr) != 0;
+}
+
+TensorView* TmaCircularBufferInfo::getMBarrierToken(const Expr* expr) {
+  NVF_ERROR(
+      ir_utils::isCpAsyncBulkLoad(expr) || expr->isA<kir::MBarrierInit>() ||
+      expr->isA<kir::MBarrierInvalidate>());
+  // short-circuit: expr does not have mbarrier token.
+  if (ldst_mbarrier_token_map_.count(expr) == 0) {
+    return nullptr;
+  }
+  return ldst_mbarrier_token_map_.at(expr);
+}
+
+void TmaCircularBufferInfo::recordTensorIndex(
+    const Expr* expr,
+    kir::TensorIndex* index) {
+  NVF_ERROR(ir_utils::isCpAsyncBulkLoad(expr));
+  NVF_ERROR(ldst_mbarrier_index_map_.count(expr) == 0);
+  ldst_mbarrier_index_map_.emplace(expr, index);
+}
+
+bool TmaCircularBufferInfo::existsTensorIndex(const Expr* expr) const {
+  return ldst_mbarrier_index_map_.count(expr) != 0;
+}
+
+kir::TensorIndex* TmaCircularBufferInfo::getTensorIndex(const Expr* expr) {
+  NVF_ERROR(ir_utils::isCpAsyncBulkLoad(expr));
+  // short-circuit: expr does not have tensor index.
+  if (ldst_mbarrier_index_map_.count(expr) == 0) {
+    return nullptr;
+  }
+  return ldst_mbarrier_index_map_.at(expr);
+}
 
 std::vector<Expr*> CircularBufferPass::run(const std::vector<Expr*>& exprs) {
   InsertionInfo insertion_info = CircularBufferLoopNestInspector::run(exprs);

@@ -92,7 +92,7 @@ class KernelIrScanner : private IrVisitor {
         }
         break;
       default:
-        NVF_ERROR(false, "Unknown memory type to allocate.");
+        NVF_THROW("Unknown memory type to allocate.");
     }
   }
 
@@ -219,6 +219,15 @@ class KernelIrScanner : private IrVisitor {
     // Do we have grid broadcasts?
     summary_.has_grid_broadcasts =
         summary_.has_grid_broadcasts || parallel_types.hasBID();
+  }
+
+  void handle(IfThenElse* ite) final {
+    // Do we have any elect sync predicates?
+    if (ite->predicate()->predicate_type() == PredicateType::ElectSync) {
+      summary_.has_elect_sync_predicate = true;
+    }
+    // Run default handle
+    IrVisitor::handle(ite);
   }
 
  private:
