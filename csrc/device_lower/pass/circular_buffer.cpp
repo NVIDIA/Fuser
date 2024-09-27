@@ -318,21 +318,22 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
 //   }
 // }
 //
-class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
+class CloneTmaCircularBufferLoopAndInsertSync
+    : public CircularBufferLoopCloner {
  public:
   static ForLoop* clone(
       ForLoop* circular_buffer_loop,
       const std::vector<Expr*>& circular_buffer_load_exprs,
       CircularBufferLoopStage loop_type,
       const std::unordered_set<Expr*>& exclude = {}) {
-    TmaCircularBufferLoopCloner cloner(
+    CloneTmaCircularBufferLoopAndInsertSync cloner(
         circular_buffer_loop, circular_buffer_load_exprs, loop_type, exclude);
     cloner.duplicate();
     return cloner.cloned_top_level_loop_;
   }
 
  private:
-  TmaCircularBufferLoopCloner(
+  CloneTmaCircularBufferLoopAndInsertSync(
       ForLoop* circular_buffer_loop,
       const std::vector<Expr*>& circular_buffer_load_exprs,
       CircularBufferLoopStage loop_type,
@@ -654,8 +655,9 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
   //    tokens[next_stage] = mbarrier::arrive(mbarrier[next_stage]);
   //  }
   //
-  //  expr can be a single cpAsyncBulk expression or a nested for-loop structure
-  //  of cpAsyncBulk expressions.
+  //  The expr input argument can be a single cpAsyncBulk expression or a nested
+  //  for-loop structure of cpAsyncBulk expressions if there are serial
+  //  iterDomains to the right of the computeAt position.
   void addTmaLoadBlock(Expr* expr) {
     NVF_ERROR(mbarrier_arrive_tx_ != nullptr);
     NVF_ERROR(expr != nullptr);
@@ -979,26 +981,26 @@ class CircularBufferInserter : private kir::ExprMutator {
     // Prologue loop:
     //  - launch only
     //  - arrive_expect_tx and tma load operations
-    ForLoop* prologue_loop = TmaCircularBufferLoopCloner::clone(
+    ForLoop* prologue_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
         circular_buffer_loop, loads, CircularBufferLoopStage::Prolog);
     registerInsertBefore(circular_buffer_loop, prologue_loop);
 
     // Main loop:
     //  - Launch and wait
     //  - arrive_expect_tx, tma load operations, and mbarrier_wait)
-    ForLoop* main_loop = TmaCircularBufferLoopCloner::clone(
+    ForLoop* main_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
         circular_buffer_loop, loads, CircularBufferLoopStage::Main);
     registerReplace(circular_buffer_loop, main_loop);
 
-    // We can use exclude argument in TmaCircularBufferLoopCloner clone to
-    // avoid duplicating allocations if main loop is trivial.
+    // We can use exclude argument in CloneTmaCircularBufferLoopAndInsertSync
+    // clone to avoid duplicating allocations if main loop is trivial.
     std::unordered_set<Expr*> expressions_allocated_in_main_loop;
     getAllocInTrivialLoop(main_loop, expressions_allocated_in_main_loop);
 
     // Epilogue loop:
     //  - wait only
     //  - mbarrier_wait
-    ForLoop* epilogue_loop = TmaCircularBufferLoopCloner::clone(
+    ForLoop* epilogue_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
         circular_buffer_loop,
         loads,
         CircularBufferLoopStage::Epilog,
