@@ -163,7 +163,7 @@ AxisOps composeOps(const AxisOps& prev, const AxisOps& next) {
     // to if it's not a broadcast. If it is a broadcast, then we'll unzip some
     // of these squeezes.
     while (next_pos < next.size() && next[next_pos] == AxisOp::BROADCAST) {
-      if (ops.back() == AxisOp::SQUEEZE) {
+      if (!ops.empty() && ops.back() == AxisOp::SQUEEZE) {
         ops.back() = AxisOp::PRESERVE;
       } else {
         ops.push_back(AxisOp::BROADCAST);
