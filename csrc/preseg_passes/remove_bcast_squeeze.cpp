@@ -39,7 +39,7 @@ std::ostream& operator<<(std::ostream& os, AxisOp op) {
 using AxisOps = std::vector<AxisOp>;
 
 //! Convert a broadcast Expr to an AxisOps descriptor
-AxisOps broadcastToOps(BroadcastOp* bcast) {
+AxisOps broadcastToAxisOps(BroadcastOp* bcast) {
   AxisOps ops;
   const std::vector<bool>& flags = bcast->getBroadcastDimFlags();
   ops.reserve(flags.size());
@@ -50,7 +50,7 @@ AxisOps broadcastToOps(BroadcastOp* bcast) {
 }
 
 //! Convert a squeeze Expr to an AxisOps descriptor
-AxisOps squeezeToOps(SqueezeOp* squeeze) {
+AxisOps squeezeToAxisOps(SqueezeOp* squeeze) {
   AxisOps ops;
   const std::vector<bool>& flags = squeeze->getSqueezeDimFlags();
   ops.reserve(flags.size());
@@ -60,14 +60,47 @@ AxisOps squeezeToOps(SqueezeOp* squeeze) {
   return ops;
 }
 
-AxisOps exprToOps(Expr* expr) {
+//! Checks whether this is a simple Set of a TensorView. If not, then this might
+//! represent a scalar set, or a segment_set.
+bool isSimpleTVSet(Expr* expr) {
+  auto* ldst = dynamic_cast<LoadStoreOp*>(expr);
+  if (ldst == nullptr) {
+    return false;
+  }
+  return ldst->opType() == LoadStoreOpType::Set &&
+      ldst->in()->isA<TensorView>();
+}
+
+//! This defines the types of operations that are eligible for simplification in
+//! this pass.
+bool isReplaceableExpr(Expr* expr) {
+  if (expr == nullptr) {
+    return false;
+  }
+  return expr->isA<BroadcastOp>() || expr->isA<SqueezeOp>() ||
+      isSimpleTVSet(expr);
+}
+
+//! Convert a LoadStoreOp to an AxisOps of all PRESERVE ops
+AxisOps setToAxisOps(LoadStoreOp* ldst) {
+  NVF_ERROR(isSimpleTVSet(ldst));
+  return AxisOps(
+      ldst->in()->as<TensorView>()->getLogicalDomain().size(),
+      AxisOp::PRESERVE);
+}
+
+//! Convert a replaceable op to an AxisOps object
+AxisOps exprToAxisOps(Expr* expr) {
   if (auto* squeeze = dynamic_cast<SqueezeOp*>(expr)) {
-    return squeezeToOps(squeeze);
+    return squeezeToAxisOps(squeeze);
   } else if (auto* bcast = dynamic_cast<BroadcastOp*>(expr)) {
-    return broadcastToOps(bcast);
+    return broadcastToAxisOps(bcast);
+  } else if (auto* ldst = dynamic_cast<LoadStoreOp*>(expr)) {
+    return setToAxisOps(ldst);
   }
   NVF_THROW(
-      "exprToOps expects BroadcastOp or SqueezeOp. Found ", expr->toString());
+      "exprToAxisOps expects BroadcastOp or SqueezeOp. Found ",
+      expr->toString());
 }
 
 //! Return true if we are unable to simplify this combination to a single
@@ -96,6 +129,7 @@ std::optional<AxisOp> getSimplifiedOpType(const AxisOps& ops) {
   if (has_squeeze) {
     return AxisOp::SQUEEZE;
   }
+  // Preserve indicates this is a set op
   return AxisOp::PRESERVE;
 }
 
@@ -187,9 +221,9 @@ AxisOps composeOps(const AxisOps& prev, const AxisOps& next) {
     bool changed = false;
     NVF_ERROR(ops.size() == op_from_prev.size());
     for (size_t i : c10::irange(ops.size() - 1)) {
-      AxisOp cur = ops[i], next = ops[i+1];
-      if (cur == AxisOp::SQUEEZE && next == AxisOp::BROADCAST)
-        || (cur == AxisOp::BROADCAST && next == AxisOp::SQUEEZE) {
+      AxisOp cur = ops[i], next = ops[i + 1];
+      if ((cur == AxisOp::SQUEEZE && next == AxisOp::BROADCAST) ||
+          (cur == AxisOp::BROADCAST && next == AxisOp::SQUEEZE)) {
         if (op_from_prev[i]) {
           ops[i] = AxisOp::PRESERVE;
           ops.erase(ops.begin() + i + 1);
@@ -198,9 +232,9 @@ AxisOps composeOps(const AxisOps& prev, const AxisOps& next) {
           break;
         } else {
         }
-      else if (*cur == AxisOp::BROADCAST && *next == AxisOp::SQUEEZE) {
-        ops.erase(next);
-        ops.erase(cur);
+      } else if (cur == AxisOp::BROADCAST && next == AxisOp::SQUEEZE) {
+        // ops.erase(next);
+        // ops.erase(cur);
         changed = true;
         break;
       }
@@ -214,7 +248,8 @@ AxisOps composeOps(const AxisOps& prev, const AxisOps& next) {
 }
 
 void maybeDoReplacement(Expr* first, Expr* second) {
-  AxisOps simplified_ops = composeOps(exprToOps(first), exprToOps(second));
+  AxisOps simplified_ops =
+      composeOps(exprToAxisOps(first), exprToAxisOps(second));
   std::optional<AxisOp> simple_op_type_opt =
       getSimplifiedOpType(simplified_ops);
   if (simple_op_type_opt.has_value()) {
@@ -247,24 +282,10 @@ void removeBcastSqueeze(Fusion* fusion) {
   auto exprs = fusion->exprs();
   for (auto it = std::rbegin(exprs); it != std::rend(exprs); it++) {
     Expr* expr = *it;
-    // step-1: find and remove broadcast + squeeze pattern
-    // before: Y = broadcast(X); Z = squeeze(Y);  M = someOp(Z)
-    // after : M = someOp(X)
-    // conditions: (1) broadcast and squeeze have the same dim flags
-    if (auto squeeze = dynamic_cast<SqueezeOp*>(expr)) {
-      if (auto bcast =
-              dynamic_cast<BroadcastOp*>(squeeze->in()->definition())) {
-        maybeDoReplacement(bcast, squeeze);
-      }
-    }
-
-    // step-2: find and remove squeeze + broadcast pattern
-    // before: Y = squeeze(X); Z = broadcast(Y);  M = someOp(Z)
-    // after : M = someOp(X)
-    // conditions: (1) broadcast and squeeze have the same dim flags
-    if (auto bcast = dynamic_cast<BroadcastOp*>(expr)) {
-      if (auto squeeze = dynamic_cast<SqueezeOp*>(bcast->in()->definition())) {
-        maybeDoReplacement(squeeze, bcast);
+    if (isReplaceableExpr(expr)) {
+      Expr* prev_expr = expr->input(0)->definition();
+      if (isReplaceableExpr(prev_expr)) {
+        maybeDoReplacement(prev_expr, expr);
       }
     }
   }
