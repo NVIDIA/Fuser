@@ -607,7 +607,7 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
       if (ptype == ParallelType::Group) {
         auto def = tv->definition();
         auto grop = dynamic_cast<GroupedReductionOp*>(def);
-        if (grop->numHorizontallyGroupedExprs() == 1) {
+        if (grop && grop->numHorizontallyGroupedExprs() == 1) {
           has_grouped_vectorize_dim = true;
         }
       }
