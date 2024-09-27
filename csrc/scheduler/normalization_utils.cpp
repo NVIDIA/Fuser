@@ -1221,22 +1221,14 @@ void movePersistentBufferToSmem(
     // other for the buffer's input tensor if the buffer is a cached input
     // and it is not in [smem_persistent_buffers].
     bool use_smem = isSharedMemoryPersistent(tv);
-    bool is_cached_input = false;
     if (!use_smem &&
         std::find(cached_inputs.begin(), cached_inputs.end(), tv) !=
             cached_inputs.end()) {
       auto input_tv = ir_utils::producerTvsOf(tv).at(0);
       use_smem = isSharedMemoryPersistent(input_tv);
-      is_cached_input = true;
     }
     if (use_smem) {
       tv->setMemoryType(MemoryType::Shared);
-      auto dev_prop = at::cuda::getCurrentDeviceProperties();
-      if (is_cached_input && dev_prop->major >= 8) {
-        tv->definition()->as<LoadStoreOp>()->setOpType(
-            LoadStoreOpType::CpAsync);
-        tv->definition()->as<LoadStoreOp>()->setCacheOp(CacheOp::Unspecified);
-      }
     }
   }
 }
