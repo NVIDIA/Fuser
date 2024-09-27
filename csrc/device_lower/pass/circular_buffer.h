@@ -165,6 +165,37 @@
 
 namespace nvfuser {
 
+class TmaCircularBufferInfo {
+ public:
+  // Map cpAsyncBulk, MBarrierInit, and MBarrierInvalidate to its mbarrier
+  // tokens
+  void recordMBarrierToken(const Expr* expr, TensorView* mbarrier_tokens);
+
+  // Check if expression has mbarrier tokens
+  bool existsMBarrierToken(const Expr* expr) const;
+
+  // Get mbarrier tokens for expression
+  TensorView* getMBarrierToken(const Expr* expr);
+
+  // Map cpAsyncBul to its tensor index
+  void recordTensorIndex(const Expr* expr, kir::TensorIndex* index);
+
+  // Check if tensor index exists for expression
+  bool existsTensorIndex(const Expr* expr) const;
+
+  // Get tensor index for expression
+  kir::TensorIndex* getTensorIndex(const Expr* expr);
+
+ private:
+  // Track of mbarrier tokens returned by arrive and arriveExpectTx
+  // mbarrier operations for each load operation
+  std::unordered_map<const Expr*, TensorView*> ldst_mbarrier_token_map_;
+
+  // Track mbarrier used for cpAsyncBulk load operation. Required by indexing
+  // pass.
+  std::unordered_map<const Expr*, kir::TensorIndex*> ldst_mbarrier_index_map_;
+};
+
 class CircularBufferPass {
  public:
   //! Apply circular buffering transformations

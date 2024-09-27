@@ -386,7 +386,6 @@ TEST_F(InliningTest, GetMaxProducerPosFromConsumerWithBroadcast) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  // [i0, i1*i2]
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
   auto tv1 = makeSymbolicTensor(1);
@@ -589,6 +588,194 @@ TEST_F(InliningTest, GetMaxPosAllNormalization) {
       }
     }
   }
+}
+
+// Test producer position using the same fusion as
+// GetMaxProducerPosFromConsumerWithBroadcast
+TEST_F(InliningTest, ProducerPosWithBroadcast) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(1);
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv1);
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 = add(tv0, tv3);
+  fusion.addOutput(tv4);
+
+  {
+    std::vector<IterDomain*> loop_domain{
+        tv2->getLogicalDomain().at(0),
+        tv3->getLogicalDomain().at(1)->cloneWithoutRFactor(true)};
+    tv2->setLoopDomain(loop_domain);
+  }
+
+  for (auto tv : fusion.allTvs()) {
+    tv->flatten();
+    tv->split(0, 32);
+  }
+
+  tv2->inlineAt(-1);
+  EXPECT_EQ(tv2->getComputeAtPosition(), tv2->getLoopDomain().size());
+
+  EXPECT_EQ(tv3->getMaxProducerPosition(), tv3->getLoopDomain().size())
+      << "Invalid producer position of " << tv3->toString();
+}
+
+// Test producer position using the same fusion as
+// GetMaxPosAllNormalization
+TEST_F(InliningTest, ProducerPosNormalization) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape1({3, 4 * 5});
+  std::vector<int64_t> shape2({3, 4, 5});
+
+  // Inner normalization pattern
+
+  // [i0, i1*i2]
+  auto tv0 = makeConcreteTensor(shape1);
+  fusion.addInput(tv0);
+
+  // [i0, i1, i2]
+  auto tv1 = reshape(tv0, shape1, shape2);
+  // [i0, r1, r2]
+  auto tv2 = sum(tv1, {1, 2});
+  // [i0]
+  auto tv3 = add(tv2, fusion.oneVal());
+  // [i0, b3, b4]
+  auto tv4 = broadcast(tv3, {false, true, true});
+  // [i0, i1, i2]
+  auto tv5 = sub(tv1, tv4);
+  // [i0, i1*i2]
+  auto tv6 = reshape(tv5, shape2, shape1);
+  fusion.addOutput(tv6);
+
+  // tv1 is the persistent tensor. Its inner two domains are the
+  // persistent domains. The outermost domain is the only inlinable
+  // domain.
+
+  // Set [i0, i1*i2] as the loop domain of each of tensors
+
+  auto reshape_split_factor = tv1->axis(1)->definition()->as<Split>()->factor();
+
+  tv1->setLoopDomain(tv1->getRootDomain());
+
+  // tv2
+  {
+    std::vector<IterDomain*> loop_domain{
+        tv2->getLogicalDomain().at(0),
+        IterDomainBuilder(tv1->getLoopDomain().at(1))
+            .resetRfactor()
+            .iter_type(IterType::Reduction)
+            .build()};
+    IrBuilder::create<Split>(
+        tv2->getLogicalDomain().at(1),
+        tv2->getLogicalDomain().at(2),
+        loop_domain[1],
+        reshape_split_factor,
+        false);
+    tv2->setLoopDomain(loop_domain);
+  }
+
+  // Set the loop domain of tv4 before tv3. Use a clone of tv4 in
+  // tv3.
+
+  // tv4
+  {
+    std::vector<IterDomain*> loop_domain{
+        tv4->getLogicalDomain().at(0),
+        IterDomainBuilder(fusion.zeroVal(), fusion.oneVal())
+            .iter_type(IterType::Broadcast)
+            .build()};
+    IrBuilder::create<Split>(
+        tv4->getLogicalDomain().at(1),
+        tv4->getLogicalDomain().at(2),
+        loop_domain[1],
+        reshape_split_factor,
+        false);
+    tv4->setLoopDomain(loop_domain);
+  }
+
+  // tv3
+  {
+    std::vector<IterDomain*> loop_domain{
+        tv3->getLogicalDomain().at(0),
+        tv4->getLoopDomain().at(1)->cloneWithoutRFactor(
+            /*map_with_original=*/true)};
+    tv3->setLoopDomain(loop_domain);
+  }
+
+  // tv5
+  {
+    std::vector<IterDomain*> loop_domain{
+        tv5->getLogicalDomain().at(0),
+        tv1->getLoopDomain().at(1)->cloneWithoutRFactor()};
+    IrBuilder::create<Split>(
+        tv5->getLogicalDomain().at(1),
+        tv5->getLogicalDomain().at(2),
+        loop_domain[1],
+        reshape_split_factor,
+        false);
+    tv5->setLoopDomain(loop_domain);
+  }
+
+  // tv6
+  {
+    std::vector<IterDomain*> loop_domain{
+        tv6->getRootDomain().at(0),
+        tv1->getLoopDomain().at(1)->cloneWithoutRFactor()};
+    IrBuilder::create<Split>(
+        tv6->getRootDomain().at(1),
+        tv6->getRootDomain().at(2),
+        loop_domain[1],
+        reshape_split_factor,
+        false);
+    tv6->setLoopDomain(loop_domain);
+  }
+
+  for (auto tv : fusion.allTvs()) {
+    if (tv->isFusionInput()) {
+      continue;
+    }
+
+    tv->split(1, 4);
+    tv->split(1, 128);
+  }
+
+  inlineMost();
+
+  // All tensors should look like: [i0, i1*i2/128/4, 128, 4]. The
+  // computeAt position and max producer position of each tensor
+  // should be:
+  //      ca_pos   producer_pos
+  // tv1:   1          0
+  // tv2:   1          1
+  // tv3:   1          1
+  // tv4:   1          1
+  // tv5:   4          1
+  // tv6:   4          4
+
+  EXPECT_EQ(tv1->getComputeAtPosition(), 1);
+  EXPECT_EQ(tv1->getMaxProducerPosition(), 0);
+
+  EXPECT_EQ(tv2->getComputeAtPosition(), 1);
+  EXPECT_EQ(tv2->getMaxProducerPosition(), 1);
+
+  EXPECT_EQ(tv3->getComputeAtPosition(), 1);
+  EXPECT_EQ(tv3->getMaxProducerPosition(), 1);
+
+  EXPECT_EQ(tv4->getComputeAtPosition(), 1);
+  EXPECT_EQ(tv4->getMaxProducerPosition(), 1);
+
+  EXPECT_EQ(tv5->getComputeAtPosition(), 4);
+  EXPECT_EQ(tv5->getMaxProducerPosition(), 1);
+
+  EXPECT_EQ(tv6->getComputeAtPosition(), 4);
+  EXPECT_EQ(tv6->getMaxProducerPosition(), 4);
 }
 
 } // namespace nvfuser
