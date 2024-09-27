@@ -470,7 +470,7 @@ TEST_P(MultiMatmulSchedulerMatchTest, MatmulBias0d) {
 }
 
 TEST_P(MultiMatmulSchedulerMatchTest, MatmulBias1d) {
-  if (params.use_smem_epilogue && params.splitk_factor == 1) {
+  if (mparams.use_smem_epilogue && mparams.splitk_factor == 1) {
     GTEST_SKIP() << "Skipping case that does not compile with either scheduler."
                  << " See https://github.com/NVIDIA/Fuser/issues/2979";
   }
@@ -490,7 +490,7 @@ TEST_P(MultiMatmulSchedulerMatchTest, MatmulBias1d) {
 }
 
 TEST_P(MultiMatmulSchedulerMatchTest, MatmulFloatBias1d) {
-  if (params.use_smem_epilogue && params.splitk_factor == 1) {
+  if (mparams.use_smem_epilogue && mparams.splitk_factor == 1) {
     GTEST_SKIP() << "Skipping case that does not compile with either scheduler."
                  << " See https://github.com/NVIDIA/Fuser/issues/2979";
   }
