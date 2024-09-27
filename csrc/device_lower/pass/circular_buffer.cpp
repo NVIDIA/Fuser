@@ -411,10 +411,9 @@ class CloneTmaCircularBufferLoopAndInsertSync
     bool mbarrier_token_exists =
         GpuLower::current()->tmaCircularBufferInfo().existsMBarrierToken(expr);
 
-    // Short-Circuit
+    // Handle Short-Circuit conditions
     switch (loop_type_) {
       case CircularBufferLoopStage::Prolog: {
-        // Skip expression if it is not circular buffer expression
         TensorView* out_tv = ir_utils::getTvOutput(expr);
         bool is_circular_buffer_load_expr = std::any_of(
             circular_buffer_load_exprs_.begin(),
@@ -424,11 +423,14 @@ class CloneTmaCircularBufferLoopAndInsertSync
               NVF_ERROR(circular_buffer_tv != nullptr);
               return out_tv == circular_buffer_tv;
             });
+        // Short-circuit: skip expression if it is not circular buffer load
+        // expression.
         if (!is_circular_buffer_load_expr) {
           return;
         }
 
-        // NOTE: There can be circular buffered TVs without TMA load exprs.
+        // Short-circuit: There can be circular buffered loads without
+        // cpAsyncBulk load expressions.
         if (!mbarrier_token_exists) {
           for_loop_stack_.back()->body().push_back(expr);
           return;
@@ -437,7 +439,8 @@ class CloneTmaCircularBufferLoopAndInsertSync
       }
       case CircularBufferLoopStage::Main:
       case CircularBufferLoopStage::Epilog: {
-        // Add expression if not circular-buffered load store operation
+        // Short-circuit: Add expression if not circular-buffered load store
+        // operation.
         if (!expr->isA<LoadStoreOp>() || !mbarrier_token_exists) {
           for_loop_stack_.back()->body().push_back(expr);
           return;
@@ -449,6 +452,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
       }
     }
 
+    // Handle cpAsyncBulk expression with circular buffered TensorView output.
     switch (loop_type_) {
       case CircularBufferLoopStage::Prolog: {
         return handlePrologueLoop(expr);
