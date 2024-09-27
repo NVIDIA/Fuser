@@ -66,6 +66,7 @@ class Val;
   f(TensorView);                 \
   f(NamedScalar);
 #define DISPATCH_FOR_ALL_KIR_VALS(f) f(Predicate) f(TensorIndex)
+#define DISPATCH_FOR_ALL_HIR_VALS(f) f(Stream)
 
 #define DISPATCH_FOR_ALL_EXPRS(f) \
   f(FullOp);                      \
@@ -107,7 +108,10 @@ class Val;
   f(Resize);                      \
   f(MatmulOp);                    \
   f(LinearOp);                    \
-  f(Communication);
+  f(SdpaFwdOp);                   \
+  f(SdpaBwdOp);                   \
+  f(Communication);               \
+  f(ForLoop);
 #define DISPATCH_FOR_ALL_KIR_EXPRS(f) \
   f(Allocate);                        \
   f(Asm);                             \
@@ -122,7 +126,6 @@ class Val;
   f(BlockSerializeRelease);           \
   f(AsyncWait);                       \
   f(AsyncCommit);                     \
-  f(ForLoop);                         \
   f(IfThenElse);                      \
   f(GridReduction);                   \
   f(GroupedGridReduction);            \
@@ -137,7 +140,9 @@ class Val;
   f(EncodeTensorMapTiled);
 #define DISPATCH_FOR_ALL_HIR_EXPRS(f) \
   f(HostUnit);                        \
-  f(PostOnStream);
+  f(PostOnStream);                    \
+  f(SetCurrentStream);                \
+  f(Wait);
 
 // Forward declarations for all Val and Expr types
 
@@ -158,6 +163,7 @@ DISPATCH_FOR_ALL_KIR_EXPRS(M)
 namespace hir {
 
 #define M(e) class e;
+DISPATCH_FOR_ALL_HIR_VALS(M)
 DISPATCH_FOR_ALL_HIR_EXPRS(M)
 #undef M
 
@@ -190,6 +196,7 @@ class OptOutConstDispatch : public PolymorphicBase {
   DISPATCH_FOR_ALL_KIR_EXPRS(M)
 #undef M
 #define M(e) virtual void handle(const hir::e* stmt);
+  DISPATCH_FOR_ALL_HIR_VALS(M)
   DISPATCH_FOR_ALL_HIR_EXPRS(M)
 #undef M
 };
@@ -215,6 +222,7 @@ class NVF_API OptOutDispatch : public PolymorphicBase {
   DISPATCH_FOR_ALL_KIR_EXPRS(M)
 #undef M
 #define M(e) virtual void handle(hir::e* stmt);
+  DISPATCH_FOR_ALL_HIR_VALS(M)
   DISPATCH_FOR_ALL_HIR_EXPRS(M)
 #undef M
 };

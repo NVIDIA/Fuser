@@ -8,11 +8,14 @@
 #pragma once
 
 #include <dispatch.h>
-#include <executor.h>
+#include <expr_evaluator.h>
+#include <fusion_executor/executor.h>
 #include <host_ir/container.h>
 #include <host_ir/host_ir.h>
 #include <kernel_cache.h>
 #include <multidevice/communicator.h>
+
+#include <c10/cuda/CUDAStream.h>
 
 namespace nvfuser {
 
@@ -53,20 +56,44 @@ class HostIrExecutor final : public OptInDispatch {
   std::vector<at::Tensor> runWithInput(
       std::unordered_map<Val*, c10::IValue> val_to_IValue);
 
+  const std::vector<Val*>& inputs() {
+    return container_->inputs();
+  }
+
+  std::ostream& print(std::ostream& os) const {
+    return container_->print(os);
+  };
+
+  const auto& getFusionExecutorCaches() {
+    return fec_;
+  };
+
+  const auto& getCudaStreams() {
+    return streams_;
+  }
+
  private:
   using OptInDispatch::handle;
+  void handle(SetCurrentStream* set_current_stream) override;
   void handle(PostOnStream* post_ir) override;
-  void postCompute(PostOnStream* post_ir);
-  void postCommunication(PostOnStream* post_ir);
+  void handle(Communication* communication) override;
+  void handle(Wait* wait) override;
+  void handle(ForLoop* for_loop) override;
+  void handle(SliceOp* slice_op) override;
+  void handle(MatmulOp* matmul_op) override;
+  void handle(SelectOp* select_op) override;
 
   std::unique_ptr<HostIrContainer> container_;
   Communicator* communicator_;
   HostIrExecutorParams params_;
   // Stores concrete computed values
-  std::unordered_map<Val*, c10::IValue> val_to_IValue_;
+  ExpressionEvaluator expr_evaluator_;
   // Cache Fusions, FusionExecutors
   std::unordered_map<HostUnit*, FusionExecutor> fe_;
   std::unordered_map<HostUnit*, FusionExecutorCache> fec_;
+  using StreamKey = std::variant<int64_t, Stream*>;
+  std::unordered_map<StreamKey, c10::cuda::CUDAStream> streams_;
+  std::unordered_map<Communication*, c10::intrusive_ptr<c10d::Work>> works_;
 };
 
 } // namespace hir

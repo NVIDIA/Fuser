@@ -45,12 +45,37 @@ struct RecordFunctor {
       std::vector<State> _args,
       std::vector<State> _outputs,
       std::string _name,
-      serde::RecordType _record_type)
+      serde::RecordType _record_type,
+      bool _inline_def = false)
       : args_(std::move(_args)),
         arg_names_(args_.size()),
         outputs_(std::move(_outputs)),
         name_(std::move(_name)),
-        record_type_(_record_type) {}
+        record_type_(_record_type),
+        inline_def_(
+            _inline_def &&
+            !isOptionDisabled(DisableOption::PythonInlineDefinitions)) {
+    // Set this Record as the parent of each output
+    if (inline_def_) {
+      for (auto& out : outputs_) {
+        out.setInlineDefRecord(this);
+      }
+    }
+  }
+  RecordFunctor(const RecordFunctor& other)
+      : args_(other.args_),
+        arg_names_(other.arg_names_),
+        outputs_(other.outputs_),
+        name_(other.name_),
+        record_type_(other.record_type_),
+        inline_def_(other.inline_def_) {
+    // Set this Record as the parent of each output
+    if (inline_def_) {
+      for (auto& out : outputs_) {
+        out.setInlineDefRecord(this);
+      }
+    }
+  }
   virtual ~RecordFunctor() = default;
   //! Allows for copying of Child Class objects with RecordFunctor pointers.
   virtual RecordFunctor* clone() = 0;
@@ -67,6 +92,8 @@ struct RecordFunctor {
     for (auto output : outputs_) {
       output_hash ^= ((output.index << 1) ^ static_cast<size_t>(output.stype));
     }
+    // NOTE: The inline_def is not part of the hash as it is not used for
+    // comparison
     return ((static_cast<size_t>(record_type_) & 0xff) << 56) |
         ((output_hash & 0xff) << 48) | ((arg_hash & 0xffff) << 32);
   }
@@ -96,6 +123,8 @@ struct RecordFunctor {
         }
       }
     }
+    // NOTE: The inline_def is not part of the equality operator as it is not
+    // used for comparison
     return result;
   }
 
@@ -147,6 +176,9 @@ struct RecordFunctor {
   //! The base print function when printing Record for a given FusionState
   //! in python formated code.
   virtual void print(std::ostream& os, bool close_function = true) const {
+    NVF_ERROR(
+        !inline_def_,
+        "The default print function does not handle inline definitions!");
     bool first_output = true;
     for (auto& output : outputs_) {
       if (first_output) {
@@ -188,8 +220,19 @@ struct RecordFunctor {
     return outputs_.size();
   }
 
+  const std::vector<State>& outputs() const {
+    return outputs_;
+  }
+  std::vector<State>& args() {
+    return args_;
+  }
+
   serde::RecordType recordType() const {
     return record_type_;
+  }
+
+  bool inlineDef() const {
+    return inline_def_;
   }
 
   //! Set the name of an argument. If given, it will be listed as a keyword
@@ -212,6 +255,8 @@ struct RecordFunctor {
   //! Record Type of child class used for hashing
   //! enum class RecordType is defined in flatbuffer schema
   serde::RecordType record_type_;
+  //! Indicates if a record was defined inline with another record for printing
+  bool inline_def_;
   //! Whether this record type returns a tuple of unknown length. This is only
   //! used for TensorSizesRecord.
   bool always_returns_tuple_ = false;
@@ -319,6 +364,57 @@ struct OpRecord : RecordFunctor {
  private:
   //! An nvFuser Arith Operation function signature
   std::function<OutType(ArgTypes...)> fusion_op_;
+};
+
+struct SliceOpRecord : RecordFunctor {
+  SliceOpRecord(std::vector<State> _args, std::vector<State> _outputs)
+      : RecordFunctor(
+            std::move(_args),
+            std::move(_outputs),
+            "ops.slice",
+            serde::RecordType::SliceOp) {
+    arg_names_[1] = "start_indices";
+    arg_names_[2] = "end_indices";
+    arg_names_[3] = "strides";
+  }
+  ~SliceOpRecord() override = default;
+  RecordFunctor* clone() final {
+    return new SliceOpRecord(*this);
+  }
+
+  void operator()(FusionState& fd) final {
+    TensorView* arg = fd.getFusionState(args_.at(0).index)->as<TensorView>();
+    const std::vector<Val*>& start = fd.getFusionStateVector(args_.at(1).index);
+    const std::vector<Val*>& end = fd.getFusionStateVector(args_.at(2).index);
+    const std::vector<Val*>& stride =
+        fd.getFusionStateVector(args_.at(3).index);
+    std::vector<Slice> vec_slice;
+    for (const auto idx : c10::irange(arg->domain()->noReductions().size())) {
+      // NOTE: there's an extra move, we can use emplace_back if we go write
+      // some constructors for Slice.
+      Val* start_idx = start.at(idx);
+      Val* end_idx = end.at(idx);
+      Val* stride_idx = stride.at(idx);
+      NVF_CHECK(
+          !start_idx->isConstInt() || start_idx->evaluate().as<int64_t>() >= 0,
+          "Slice operation start_indices must be greater than or equal to 0. Start Indices: ",
+          start_idx->evaluate().as<int64_t>());
+      NVF_CHECK(
+          !start_idx->isConstInt() || !end_idx->isConstInt() ||
+              end_idx->evaluate().as<int64_t>() >=
+                  start_idx->evaluate().as<int64_t>(),
+          "Slice operation end_indices must be greater than or equal to start_indices. Start Indices: ",
+          start_idx->evaluate().as<int64_t>(),
+          " End Indices: ",
+          end_idx->evaluate().as<int64_t>());
+      NVF_CHECK(
+          stride_idx->isConstInt() && stride_idx->evaluate().as<int64_t>() == 1,
+          "nvFuser Limitation: All slice operation strides must be of const size 1.");
+      vec_slice.push_back({start_idx, end_idx, stride_idx});
+    }
+    auto output = slice(arg, vec_slice);
+    fd.setFusionState(outputs_.at(0).index, output);
+  }
 };
 
 struct ReshapeOpRecord : RecordFunctor {
@@ -538,7 +634,7 @@ struct DimsOpRecord : RecordFunctor {
       output->setAllocationDomain(allocation_domain, true);
       fd.setFusionState(outputs_.at(0).index, output);
     } else {
-      NVF_ERROR(false, "op_type is not recognized by dims operator.");
+      NVF_THROW("op_type is not recognized by dims operator.");
     }
   }
 
@@ -549,7 +645,7 @@ struct DimsOpRecord : RecordFunctor {
     } else if constexpr (op_type == serde::RecordType::StrideOrderOp) {
       os << ", stride_order=[";
     } else {
-      NVF_ERROR(false, "op_type is not recognized by dims operator.");
+      NVF_THROW("op_type is not recognized by dims operator.");
     }
     bool first_arg = true;
     for (auto dim : dims_) {
@@ -1201,7 +1297,7 @@ struct TensorRecord : RecordFunctor {
       // correctly with `contig_index` and `index`.
       //
       // stride_order[i] indicates that:
-      //   `rfactor_domain[i]` (and therefore `root_domain[i]` for input) maps
+      //   `logical_domain[i]` (and therefore `root_domain[i]` for input) maps
       //   to `alloc_domain[rank - 1 - stride_order_[i]]`
       //
       // Hence `index` on root domain would be corresponding to the contiguity
@@ -1396,7 +1492,7 @@ struct OutputRecord : RecordFunctor {
       if constexpr (std::is_same_v<OutputType, TensorView>) {
         fd.aliasOutputToInput(output, alias_input);
       } else {
-        NVF_ERROR(false, "Scalar outputs should not alias inputs.");
+        NVF_THROW("Scalar outputs should not alias inputs.");
       }
     } else {
       if constexpr (std::is_same_v<OutputType, TensorView>) {
@@ -1772,12 +1868,14 @@ struct ScalarRecord : RecordFunctor {
   ScalarRecord(
       std::vector<State> _outputs,
       PolymorphicValue value,
-      std::optional<PrimDataType> dtype)
+      std::optional<PrimDataType> dtype,
+      bool inline_def = false)
       : RecordFunctor(
             {},
             std::move(_outputs),
             "define_scalar",
-            serde::RecordType::Scalar),
+            serde::RecordType::Scalar,
+            inline_def),
         value_(
             dtype.has_value() ? castToDtype(std::move(value), dtype.value())
                               : std::move(value)),
@@ -1829,15 +1927,19 @@ struct ScalarRecord : RecordFunctor {
   }
 
   void print(std::ostream& os, bool close_function = true) const final {
-    RecordFunctor::print(os, false);
-    if (value_.hasValue()) {
+    if (inline_def_) {
+      NVF_CHECK(
+          value_.hasValue(),
+          "Only ScalarRecords with values support inline definitions!");
       if (value_.is<bool>()) {
+        NVF_CHECK(
+            dtype_ == PrimDataType::Bool,
+            "A ScalarRecord for Bool inline definition not have a matching data type!");
         os << ((bool)value_ ? "True" : "False");
-      } else if (value_.is<std::complex<double>>()) {
-        os << std::showpoint << std::real(value_.as<std::complex<double>>())
-           << "+" << std::showpoint
-           << std::imag(value_.as<std::complex<double>>()) << "j";
       } else if (value_.is<double>()) {
+        NVF_CHECK(
+            dtype_ == PrimDataType::Double,
+            "A ScalarRecord for Double inline definition not have a matching data type!");
         if (std::isinf(value_.as<double>())) {
           if (std::signbit(value_.as<double>())) {
             os << "float(\"-inf\")";
@@ -1850,18 +1952,51 @@ struct ScalarRecord : RecordFunctor {
           os << std::showpoint << value_.as<double>();
         }
       } else if (value_.is<int64_t>()) {
+        NVF_CHECK(
+            dtype_ == PrimDataType::Int,
+            "A ScalarRecord for Int inline definition not have a matching data type!");
         os << value_;
       } else {
-        NVF_CHECK(false, "Unsupported dtype.");
+        NVF_THROW("A ScalarRecord with an unsupported inline definition type!");
       }
+      // NOTE: close_function is not relevant for the inline definition as the
+      // printing is specific to each operator and not partially done with the
+      // base class print method.
     } else {
-      os << "None";
-    }
+      RecordFunctor::print(os, false);
+      if (value_.hasValue()) {
+        if (value_.is<bool>()) {
+          os << ((bool)value_ ? "True" : "False");
+        } else if (value_.is<std::complex<double>>()) {
+          os << std::showpoint << std::real(value_.as<std::complex<double>>())
+             << "+" << std::showpoint
+             << std::imag(value_.as<std::complex<double>>()) << "j";
+        } else if (value_.is<double>()) {
+          if (std::isinf(value_.as<double>())) {
+            if (std::signbit(value_.as<double>())) {
+              os << "float(\"-inf\")";
+            } else {
+              os << "float(\"inf\")";
+            }
+          } else if (std::isnan(value_.as<double>())) {
+            os << "float(\"nan\")";
+          } else {
+            os << std::showpoint << value_.as<double>();
+          }
+        } else if (value_.is<int64_t>()) {
+          os << value_;
+        } else {
+          NVF_CHECK(false, "Unsupported dtype.");
+        }
+      } else {
+        os << "None";
+      }
 
-    os << ", dtype=" << dtypeToPyString(dtype_);
+      os << ", dtype=" << dtypeToPyString(dtype_);
 
-    if (close_function) {
-      os << ")";
+      if (close_function) {
+        os << ")";
+      }
     }
   }
 
@@ -1881,125 +2016,6 @@ struct ScalarRecord : RecordFunctor {
   PolymorphicValue value_;
   //! Scalar data type.
   PrimDataType dtype_;
-};
-
-struct SliceOpRecord : RecordFunctor {
-  SliceOpRecord(
-      std::vector<State> _args,
-      std::vector<State> _outputs,
-      std::vector<int64_t> start_indices,
-      std::vector<int64_t> end_indices,
-      std::vector<int64_t> strides)
-      : RecordFunctor(
-            std::move(_args),
-            std::move(_outputs),
-            "ops.slice",
-            serde::RecordType::SliceOp),
-        start_indices_(std::move(start_indices)),
-        end_indices_(std::move(end_indices)),
-        strides_(std::move(strides)) {}
-  ~SliceOpRecord() override = default;
-  RecordFunctor* clone() final {
-    return new SliceOpRecord(*this);
-  }
-
-  //! Child specific hash function in lower 32 bits.
-  //! | 31 -------- 20 | 19 --------  8 |  7 ------  0 |
-  //! | start_indices  | end_indices    | strides      |
-  size_t hash() const final {
-    auto result = RecordFunctor::hash();
-    size_t start_idx_hash = 0;
-    for (auto i : start_indices_) {
-      start_idx_hash ^= static_cast<size_t>(i);
-    }
-    size_t end_idx_hash = 0;
-    for (auto i : end_indices_) {
-      end_idx_hash ^= static_cast<size_t>(i);
-    }
-    size_t stride_hash = 0;
-    for (auto i : strides_) {
-      stride_hash ^= static_cast<size_t>(i);
-    }
-
-    result |= (start_idx_hash & 0xfff) << 20;
-    result |= (end_idx_hash & 0xfff) << 8;
-    return result | (stride_hash & 0xff);
-  }
-
-  bool operator==(const RecordFunctor& other) const final {
-    auto result = false;
-    if (auto child_ptr = dynamic_cast<const SliceOpRecord*>(&other)) {
-      result = RecordFunctor::operator==(other) &&
-          (start_indices_ == child_ptr->start_indices_) &&
-          (end_indices_ == child_ptr->end_indices_) &&
-          (strides_ == child_ptr->strides_);
-    }
-    return result;
-  }
-
-  void operator()(FusionState& fd) final {
-    auto arg = fd.getFusionState(args_.at(0).index)->as<TensorView>();
-    TensorView* output = slice(arg, start_indices_, end_indices_, strides_);
-    fd.setFusionState(outputs_.at(0).index, output);
-  }
-
-  void print(std::ostream& os, bool close_function = true) const final {
-    RecordFunctor::print(os, false);
-    os << ", start_indices=[";
-    bool first_arg = true;
-    for (auto idx : start_indices_) {
-      if (first_arg) {
-        first_arg = false;
-      } else {
-        os << ", ";
-      }
-      os << idx;
-    }
-    os << "], end_indices=[";
-    first_arg = true;
-    for (auto idx : end_indices_) {
-      if (first_arg) {
-        first_arg = false;
-      } else {
-        os << ", ";
-      }
-      os << idx;
-    }
-    os << "], strides=[";
-    first_arg = true;
-    for (auto stride : strides_) {
-      if (first_arg) {
-        first_arg = false;
-      } else {
-        os << ", ";
-      }
-      os << stride;
-    }
-    os << "]";
-    if (close_function) {
-      os << ")";
-    }
-  }
-
-  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
-      flatbuffers::FlatBufferBuilder& builder) const final {
-    return {
-        serde::RecordData::Slice,
-        serde::CreateSliceDirect(
-            builder, &start_indices_, &end_indices_, &strides_)
-            .Union()};
-  }
-
- private:
-  //! A slices beginning index for each dimension
-  //! Values must be greater-than or equal to 0
-  std::vector<int64_t> start_indices_;
-  //! A slices end index for each dimension (excluded from the slice)
-  //! Values are greater than or equal to the start index for a dimension
-  std::vector<int64_t> end_indices_;
-  //! For a dim, the step between start and end.
-  //! NOTE: Strides are currently limited to steps of 1
-  std::vector<int64_t> strides_;
 };
 
 //! Specialized Record Functor for recording FusionDefinition Start.
@@ -2682,12 +2698,14 @@ struct VectorRecord : RecordFunctor {
   VectorRecord(
       std::vector<State> _args,
       std::vector<State> _outputs,
-      PrimDataType dtype)
+      PrimDataType dtype,
+      bool inline_def = false)
       : RecordFunctor(
             std::move(_args),
             std::move(_outputs),
             "define_vector",
-            serde::RecordType::Vector),
+            serde::RecordType::Vector,
+            inline_def),
         dtype_(dtype) {}
   ~VectorRecord() override = default;
   RecordFunctor* clone() final {
@@ -2727,28 +2745,43 @@ struct VectorRecord : RecordFunctor {
   }
 
   void print(std::ostream& os, bool close_function = true) const final {
-    bool first_output = true;
-    for (auto& output : outputs_) {
-      if (first_output) {
-        first_output = false;
-      } else {
-        os << ", ";
+    if (inline_def_) {
+      bool first_arg = true;
+      NVF_CHECK(outputs_.size() == 1, "VectorRecord's does not have 1 output!");
+      os << "[";
+      for (auto& arg : args_) {
+        if (first_arg) {
+          first_arg = false;
+        } else {
+          os << ", ";
+        }
+        os << arg;
       }
-      os << output;
-    }
-    os << " = fd." << name_ << "([";
-    bool first_arg = true;
-    for (auto& arg : args_) {
-      if (first_arg) {
-        first_arg = false;
-      } else {
-        os << ", ";
+      os << "]";
+    } else {
+      bool first_output = true;
+      for (auto& output : outputs_) {
+        if (first_output) {
+          first_output = false;
+        } else {
+          os << ", ";
+        }
+        os << output;
       }
-      os << arg;
-    }
-    os << "], dtype=" << dtypeToPyString(dtype_);
-    if (close_function) {
-      os << ")";
+      os << " = fd." << name_ << "([";
+      bool first_arg = true;
+      for (auto& arg : args_) {
+        if (first_arg) {
+          first_arg = false;
+        } else {
+          os << ", ";
+        }
+        os << arg;
+      }
+      os << "], dtype=" << dtypeToPyString(dtype_);
+      if (close_function) {
+        os << ")";
+      }
     }
   }
 
@@ -2762,6 +2795,91 @@ struct VectorRecord : RecordFunctor {
  private:
   //! Scalar data type.
   PrimDataType dtype_;
+};
+
+struct SdpaFwdOpRecord : RecordFunctor {
+  SdpaFwdOpRecord(std::vector<State> args, std::vector<State> outputs)
+      : RecordFunctor(
+            std::move(args),
+            std::move(outputs),
+            "ops.sdpfa_fwd",
+            serde::RecordType::SdpaFwdOp) {}
+  ~SdpaFwdOpRecord() override = default;
+  RecordFunctor* clone() final {
+    return new SdpaFwdOpRecord(*this);
+  }
+
+  void operator()(FusionState& fd) final {
+    auto query = fd.getFusionState(args_.at(0).index)->as<TensorView>();
+    auto key = fd.getFusionState(args_.at(1).index)->as<TensorView>();
+    auto value = fd.getFusionState(args_.at(2).index)->as<TensorView>();
+    auto dropout_p = (args_.at(3).stype == serde::StateType::Scalar)
+        ? fd.getFusionState(args_.at(3).index)->as<Val>()
+        : nullptr;
+    auto is_causal = (args_.at(4).stype == serde::StateType::Scalar)
+        ? fd.getFusionState(args_.at(4).index)->as<Val>()
+        : nullptr;
+    auto scale = (args_.at(5).stype == serde::StateType::Scalar)
+        ? fd.getFusionState(args_.at(5).index)->as<Val>()
+        : nullptr;
+    auto output = sdpfa_fwd(query, key, value, dropout_p, is_causal, scale);
+    fd.setFusionState(outputs_.at(0).index, output.output);
+    fd.setFusionState(outputs_.at(1).index, output.log_sumexp);
+    fd.setFusionState(outputs_.at(2).index, output.philox_seed);
+    fd.setFusionState(outputs_.at(3).index, output.philox_offset);
+  }
+};
+
+struct SdpaBwdOpRecord : RecordFunctor {
+  SdpaBwdOpRecord(std::vector<State> args, std::vector<State> outputs)
+      : RecordFunctor(
+            std::move(args),
+            std::move(outputs),
+            "ops.sdpfa_bwd",
+            serde::RecordType::SdpaBwdOp) {}
+  ~SdpaBwdOpRecord() override = default;
+  RecordFunctor* clone() final {
+    return new SdpaBwdOpRecord(*this);
+  }
+
+  void operator()(FusionState& fd) final {
+    auto grad_output = fd.getFusionState(args_.at(0).index)->as<TensorView>();
+    auto query = fd.getFusionState(args_.at(1).index)->as<TensorView>();
+    auto key = fd.getFusionState(args_.at(2).index)->as<TensorView>();
+    auto value = fd.getFusionState(args_.at(3).index)->as<TensorView>();
+    auto output = fd.getFusionState(args_.at(4).index)->as<TensorView>();
+    auto log_sumexp = fd.getFusionState(args_.at(5).index)->as<TensorView>();
+
+    auto dropout_p = (args_.at(6).stype == serde::StateType::Scalar)
+        ? fd.getFusionState(args_.at(6).index)->as<Val>()
+        : nullptr;
+    auto is_causal = (args_.at(7).stype == serde::StateType::Scalar)
+        ? fd.getFusionState(args_.at(7).index)->as<Val>()
+        : nullptr;
+
+    auto philox_seed = fd.getFusionState(args_.at(8).index)->as<TensorView>();
+    auto philox_offset = fd.getFusionState(args_.at(9).index)->as<TensorView>();
+
+    auto scale = (args_.at(10).stype == serde::StateType::Scalar)
+        ? fd.getFusionState(args_.at(10).index)->as<Val>()
+        : nullptr;
+
+    auto grad = sdpfa_bwd(
+        grad_output,
+        query,
+        key,
+        value,
+        output,
+        log_sumexp,
+        dropout_p,
+        is_causal,
+        philox_seed,
+        philox_offset,
+        scale);
+    fd.setFusionState(outputs_.at(0).index, grad.grad_query);
+    fd.setFusionState(outputs_.at(1).index, grad.grad_key);
+    fd.setFusionState(outputs_.at(2).index, grad.grad_value);
+  }
 };
 
 } // namespace nvfuser::python_frontend

@@ -2,7 +2,8 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
-from .core import DEVICE_PROPERTIES, BENCHMARK_CONFIG
+from .core import BENCHMARK_CONFIG
+from nvfuser.pytorch_utils import DEVICE_PROPERTIES
 
 
 def pytest_addoption(parser):
@@ -21,7 +22,11 @@ def pytest_addoption(parser):
         action="store_true",
         help="Benchmarks torch eager mode.",
     )
-
+    parser.addoption(
+        "--benchmark-thunder",
+        action="store_true",
+        help="Benchmarks thunder jit.",
+    )
     parser.addoption(
         "--benchmark-torchcompile",
         action="store_true",
@@ -42,6 +47,13 @@ def pytest_addoption(parser):
         action="store",
         default=1,
         help="Number of warmup rounds for each benchmark.",
+    )
+
+    parser.addoption(
+        "--benchmark-num-inputs",
+        action="store",
+        default=None,
+        help="Number of inputs to randomly sample for each benchmark.",
     )
 
 
@@ -70,9 +82,15 @@ def pytest_configure(config):
     BENCHMARK_CONFIG["warmup_rounds"] = int(
         config.getoption("--benchmark-warmup-rounds")
     )
+    if config.getoption("--benchmark-num-inputs"):
+        BENCHMARK_CONFIG["num_inputs"] = int(config.getoption("--benchmark-num-inputs"))
     config.addinivalue_line(
         "markers",
         "inner_outer_persistent: mark tests using inner_outer_persistent scheduler if not being segmented.",
+    )
+    config.addinivalue_line(
+        "markers",
+        "inner_persistent: mark tests using inner_persistent scheduler if not being segmented.",
     )
 
 
@@ -83,6 +101,7 @@ def pytest_collection_modifyitems(session, config, items):
         compile = true: torch.compile benchmark
     """
     run_eager = config.getoption("--benchmark-eager")
+    run_thunder = config.getoption("--benchmark-thunder")
     run_torchcompile = config.getoption("--benchmark-torchcompile")
 
     if not run_eager:
@@ -108,3 +127,9 @@ def pytest_collection_modifyitems(session, config, items):
                 and item.callspec.params["compile"]
             ):
                 item.add_marker(skip_torchcompile)
+
+    if not run_thunder:
+        skip_thunder = pytest.mark.skip(reason="need --benchmark-thunder option to run")
+        for item in items:
+            if "thunder" in item.nodeid:
+                item.add_marker(skip_thunder)

@@ -127,7 +127,7 @@ namespace nvfuser {
 
 class TensorDomain;
 class TensorView;
-class RootDomainMap;
+class LogicalDomainMap;
 
 struct TransformReplayOptions {
   // In theory, it makes more sense to have skip_target_swizzle = true by
@@ -203,7 +203,7 @@ class NVF_API TransformReplay {
       const TensorView* producer,
       const TensorView* consumer,
       int64_t consumer_compute_at_axis,
-      const RootDomainMap& root_map,
+      const LogicalDomainMap& logical_map,
       TransformReplayOptions opt = {});
 
   // Replay producer as consumer, returns {replayed_consumer_domain,
@@ -219,7 +219,7 @@ class NVF_API TransformReplay {
       const TensorView* consumer,
       const TensorView* producer,
       int64_t producer_compute_at_axis,
-      const RootDomainMap& root_map,
+      const LogicalDomainMap& logical_map,
       TransformReplayOptions opt = {});
 
   // Self replay.
@@ -227,7 +227,7 @@ class NVF_API TransformReplay {
       const TensorDomain* new_self_root,
       const TensorDomain* self);
 
-  // Returns the leaf position in producer that matches with `consumer_pos` in
+  // Returns the loop position in producer that matches with `consumer_pos` in
   // consumer. Returns -1 if matching is impossible. This function can be used
   // to test if replay is needed for getting matching outer dims. This function
   // should be consistent with `replayPasC`: if you pass the tensors just
@@ -247,7 +247,7 @@ class NVF_API TransformReplay {
       int64_t consumer_pos,
       bool skip_resize = false);
 
-  // Returns the leaf position in consumer that matches with `producer_pos` in
+  // Returns the loop position in consumer that matches with `producer_pos` in
   // producer. Behavior similar to getMatchedLeafPosWithoutReplayPasC, except
   // that we are also ignoring reductions in the producer.
   //
@@ -269,7 +269,7 @@ class NVF_API TransformReplay {
 };
 
 class NVF_API TransformPropagator
-    : public MaxRootDomainInfoSpanningTree::Propagator {
+    : public MaxLogicalDomainInfoSpanningTree::Propagator {
  protected:
   std::unordered_map<TensorView*, int64_t> replayed_pos_;
 
@@ -281,7 +281,7 @@ class NVF_API TransformPropagator
 };
 
 struct MostInlinedTransformPropagator
-    : public MaxRootDomainInfoSpanningTree::Propagator {
+    : public MaxLogicalDomainInfoSpanningTree::Propagator {
   void propagateC2P(TensorView* from, TensorView* to) override;
   void propagateP2C(TensorView* from, TensorView* to) override;
   void propagateSibling(TensorView* from, TensorView* to) override;
@@ -289,9 +289,8 @@ struct MostInlinedTransformPropagator
 
 // Replays an `Expr` with the new input, `new_in`. This function currently has
 // the following limitations:
-// 1. It doesn't set isRFactorProduct correctly (#1857).
-// 2. It requires `e` to be a unary op, and therefore takes a single new input.
-// 3. It requires `e` to be a TensorView op, which takes and produces only
+// 1. It requires `e` to be a unary op, and therefore takes a single new input.
+// 2. It requires `e` to be a TensorView op, which takes and produces only
 // TensorViews.
 Expr* replayExprWithNewInput(Expr* e, Val* new_in);
 

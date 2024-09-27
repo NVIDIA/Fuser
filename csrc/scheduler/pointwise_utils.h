@@ -45,9 +45,9 @@ class DomainMap {
       std::unordered_set<IterDomain*>& in_concrete_ids,
       IterDomain* out_id) const;
 
-  // Check if in_ids are mapped to ids through any rfactor domain as
+  // Check if in_ids are mapped to ids through any root domain as
   // well as indirectly accessed domains with ops like torch_gather
-  void eraseifInputMappedThroughRFactorDomainAndIndexing(
+  void eraseifInputMappedThroughRootDomainAndIndexing(
       std::unordered_set<IterDomain*>& in_ids,
       const std::vector<IterDomain*>& ids) const;
 
@@ -61,12 +61,13 @@ class DomainMap {
   std::vector<TensorView*> tvs_with_rfactor_;
 };
 
-// Returns number of non-reduction/non-broadcast dims in rfactor domain
+// Returns number of non-reduction/non-broadcas/non-device dims in logical
+// domain
 inline int64_t nRootDims(const TensorView* tv) {
-  auto root_dom = tv->getRFactorDomain();
+  auto logical_dom = tv->getLogicalDomain();
   int64_t tv_n_dims = 0;
-  for (auto dim : root_dom) {
-    if (!dim->isReduction() && !dim->isBroadcast()) {
+  for (auto dim : logical_dom) {
+    if (!dim->isReduction() && !dim->isBroadcast() && !dim->isDeviceDim()) {
       tv_n_dims++;
     }
   }

@@ -5,9 +5,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <id_model/utils.h>
 #include <inlining.h>
 #include <ir/utils.h>
-#include <root_domain_map.h>
+#include <iter_visitor.h>
+#include <logical_domain_map.h>
 #include <transform_iter.h>
 
 #include <utility>
@@ -27,25 +29,36 @@ void MaxPosCalculator::buildUnmappableDims(bool compute_at_only) {
   if (compute_at_only) {
     return;
   }
-  ComputeAtRootDomainMap root_map;
-  root_map.build();
-  auto all_tvs = ir_utils::allTvs(FusionGuard::getCurFusion());
+  ComputeAtLogicalDomainMap logical_map;
+  logical_map.build();
+  auto all_tvs = FusionGuard::getCurFusion()->allTvs();
   for (auto tv : all_tvs) {
     auto consumers = ir_utils::consumerTvsOf(tv);
     for (auto consumer : consumers) {
       // Grab dimensions in producer and consumer that are mappable to eachother
-      // based on the computeAtRootDomainMap. This will tell us which dimensions
-      // can be inlined based on avoiding trying to inline reduction structures.
+      // based on the computeAtLogicalDomainMap. This will tell us which
+      // dimensions can be inlined based on avoiding trying to inline reduction
+      // structures.
       auto mappable_roots =
-          root_map.getMappableDims(tv->domain(), consumer->domain());
-      for (auto tv_root_id : tv->getRFactorDomain()) {
-        if (mappable_roots.find(tv_root_id) == mappable_roots.end() &&
-            !ir_utils::isSqueezedID(tv, tv_root_id)) {
-          unmappable_dims_.emplace(tv_root_id);
+          logical_map.getMappableDims(tv->domain(), consumer->domain());
+      for (auto tv_logical_id : tv->getLogicalDomain()) {
+        if (mappable_roots.find(tv_logical_id) == mappable_roots.end() &&
+            !ir_utils::isSqueezedID(tv, tv_logical_id)) {
+          unmappable_dims_.emplace(tv_logical_id);
         }
       }
     }
   }
+}
+
+const ValGraph& MaxPosCalculator::inliningGraph() {
+  if (id_model_.get() == nullptr) {
+    id_model_ = std::make_unique<IdModel>(
+        FusionGuard::getCurFusion(), /*build_graphs=*/false);
+    id_model_->buildBroadcastGraph();
+  }
+
+  return id_model_->idGraph(IdMappingMode::BROADCAST);
 }
 
 bool MaxPosCalculator::isAllowedID(
@@ -76,13 +89,15 @@ bool MaxPosCalculator::isAllowedID(
   }
 
   if (!allow_unmappable) {
-    auto root_dom = tv->getRFactorDomain();
-    std::unordered_set<Val*> root_dom_set(root_dom.begin(), root_dom.end());
-    auto all_vals = DependencyCheck::getAllValsBetween(root_dom_set, {id});
+    const auto& logical_dom = tv->getLogicalDomain();
+    std::unordered_set<Val*> logical_dom_set(
+        logical_dom.begin(), logical_dom.end());
+    auto all_vals =
+        IRBFS::getValsBetween({logical_dom.begin(), logical_dom.end()}, {id});
     bool is_unmappable = false;
     for (auto val : all_vals) {
       auto id = val->as<IterDomain>();
-      if (root_dom_set.count(val) > 0 && unmappable_dims_.count(id) > 0) {
+      if (logical_dom_set.count(val) > 0 && unmappable_dims_.count(id) > 0) {
         is_unmappable = true;
         break;
       }
@@ -99,7 +114,7 @@ size_t MaxPosCalculator::getMaxPosSelf(
     bool allow_reduction,
     bool allow_vectorize,
     bool allow_unmappable) const {
-  auto dom = tv->getLeafDomain();
+  const auto& dom = tv->getLoopDomain();
   auto iter = std::find_if(
       dom.begin(),
       dom.end(),
@@ -127,29 +142,97 @@ size_t MaxPosCalculator::getMaxPosSelf(
 size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
     TensorView* producer,
     TensorView* consumer,
-    bool best_effort) const {
-  auto pairwise_root_map = PairwiseRootDomainMap(producer, consumer);
-  auto replay_CasP =
-      BestEffortReplay::replayCasP(consumer, producer, -1, pairwise_root_map);
-  auto p2c_replay_map = replay_CasP.getReplay();
+    bool best_effort) {
+  // Here, we have two methods to analayze inlining positions. One is
+  // the legacy BestEffortReplay-based one that allow forwarding of
+  // broadcast domains. This is the default method when both the
+  // producer and consumer tensors have loop domains that are derived
+  // from logical domains.
+  //
+  // When either of the two tensors has non-conventional loop domains
+  // through TensorView::setLoopDomain, IdModel-based analysis is
+  // required. At this moment, the IdModel-based analysis does not
+  // implement the broadcast forwarding, and therefore inlining of
+  // broadcast-merged domains does not work with this approach. In
+  // fact, it is likely we don't implement the forwarding with this
+  // approach as it may not be necessary.
+  //
+  // At this moment, in order to keep the existing behavior as is and
+  // at the same time allow inlinig with explicitly set loop domains,
+  // the legacy method is used whenever both the producer and consumer
+  // have loop domains that are derived from their logical domains
+  // with no redundancy. Otherwise, the IdModel-based method is used.
 
-  for (const auto producer_pos : c10::irange(producer->nDims())) {
-    // If the producer position is mismatching with the consumer, then we can
-    // not inline into this position, otherwise the max producer position of
-    // the consumer will become invalid and expression sort will fail.
-    if (TransformReplay::getMatchedLeafPosWithoutReplayCasP(
-            consumer, producer, producer_pos + 1) < 0) {
-      return producer_pos;
-    }
-    auto map_it = p2c_replay_map.find(producer->axis(producer_pos));
-    if (map_it != p2c_replay_map.end()) {
-      auto c_id = map_it->second;
-      if (!isAllowedID(c_id, consumer, best_effort, true, false, true)) {
+  // TODO: Consider caching these properties in TensorView as they
+  // could only change with setLoopDomain
+  const bool may_need_forwarding =
+      ir_utils::hasRootToLoopLinearTransformations(producer) &&
+      !ir_utils::compareDomains(
+           producer->getLoopDomain(),
+           producer->getLogicalDomain(),
+           /*additional_ids=*/{},
+           /*ignore_broadcast=*/false)
+           .dom0_has_unreachable_ids &&
+      ir_utils::hasRootToLoopLinearTransformations(consumer) &&
+      !ir_utils::compareDomains(
+           consumer->getLoopDomain(),
+           consumer->getLogicalDomain(),
+           /*additional_ids=*/{},
+           /*ignore_broadcast=*/false)
+           .dom0_has_unreachable_ids;
+
+  if (may_need_forwarding) {
+    auto pairwise_logical_map = PairwiseLogicalDomainMap(producer, consumer);
+    auto replay_CasP = BestEffortReplay::replayCasP(
+        consumer, producer, -1, pairwise_logical_map);
+    auto p2c_replay_map = replay_CasP.getReplay();
+
+    for (const auto producer_pos : c10::irange(producer->nDims())) {
+      // If the producer position is mismatching with the consumer, then we can
+      // not inline into this position, otherwise the max producer position of
+      // the consumer will become invalid and expression sort will fail.
+      if (TransformReplay::getMatchedLeafPosWithoutReplayCasP(
+              consumer, producer, producer_pos + 1) < 0) {
         return producer_pos;
       }
+      auto map_it = p2c_replay_map.find(producer->axis(producer_pos));
+      if (map_it != p2c_replay_map.end()) {
+        auto c_id = map_it->second;
+        if (!isAllowedID(c_id, consumer, best_effort, true, false, true)) {
+          return producer_pos;
+        }
+      }
     }
+    return producer->nDims();
+  } else {
+    auto consumer_it = consumer->getLoopDomain().begin();
+    for (const auto producer_pos : c10::irange(producer->nDims())) {
+      auto p_id = producer->getLoopDomain().at(producer_pos);
+      // When p_id is a reduction, skip and continue to the next
+      // position. Since a producer reduction domain is never allowed
+      // to be inlined, it may make more sense to stop the analysis
+      // here. For now, just follow the same logic as
+      // getMatchedLeafPosWithoutReplayCasP, which simply skips
+      // reduction domains.
+      if (p_id->isReduction()) {
+        continue;
+      }
+
+      if (consumer_it == consumer->getLoopDomain().end()) {
+        return producer_pos;
+      }
+
+      IterDomain* c_id = *consumer_it;
+      if (!inliningGraph().disjointValSets().strictAreMapped(p_id, c_id) ||
+          !isAllowedID(c_id, consumer, best_effort, true, false, true)) {
+        return producer_pos;
+      }
+
+      ++consumer_it;
+    }
+
+    return producer->nDims();
   }
-  return producer->nDims();
 }
 
 size_t MaxPosCalculator::getMaxPosAll(
@@ -171,7 +254,7 @@ size_t MaxPosCalculator::getMaxPosAll(
 }
 
 void inlineMost(const std::unordered_set<IterDomain*>& uninlinable_ids) {
-  inlineMost(ir_utils::allTvs(FusionGuard::getCurFusion()), uninlinable_ids);
+  inlineMost(FusionGuard::getCurFusion()->allTvs(), uninlinable_ids);
 }
 
 void inlineMost(
@@ -282,7 +365,7 @@ std::unordered_map<TensorView*, int64_t> getPositionsMappedTo(
     TensorView* reference_tv,
     int64_t reference_pos) {
   std::unordered_map<TensorView*, int64_t> mapped_positions;
-  MaxRootDomainInfoSpanningTree tree(reference_tv, reference_pos);
+  MaxLogicalDomainInfoSpanningTree tree(reference_tv, reference_pos);
   FindMappedPositions propagator(mapped_positions, reference_tv, reference_pos);
   tree.traverse(&propagator);
   return mapped_positions;

@@ -10,10 +10,12 @@
 #include <dynamic_transform.h>
 #include <evaluator_common.h>
 #include <exceptions.h>
-#include <executor.h>
 #include <fusion.h>
+#include <fusion_executor/executor.h>
 #include <fusion_segmenter.h>
+#include <logical_domain_map.h>
 #include <scheduler/all_schedulers.h>
+#include <scheduler/heuristic.h>
 #include <scheduler/registry.h>
 #include <serde/fusion_cache_generated.h>
 
@@ -26,12 +28,12 @@
 namespace nvfuser {
 
 class SegmentedGroup;
-class FusionHeuristics;
+class HeuristicParamsList;
 class SchedulerRuntimeInfo;
 
 // Utilities for benchmarking and profiling
 struct ExecutorLog {
-  std::shared_ptr<HeuristicParams> params = nullptr;
+  std::unique_ptr<HeuristicParams> params = nullptr;
   FusionExecutor* fusion_executor = nullptr;
 };
 
@@ -97,7 +99,7 @@ void prepareRuntimeOrder(SegmentedFusion*, RuntimeWorkSpace&);
 //! executors_ objects from the flatbuffer binary.
 class FusionKernelRuntime {
  public:
-  NVF_API explicit FusionKernelRuntime(
+  explicit FusionKernelRuntime(
       std::unique_ptr<Fusion> fusion,
       const KernelArgumentHolder& inputs,
       const serde::FusionKernelRuntime* serde_buffer = nullptr,
@@ -108,8 +110,6 @@ class FusionKernelRuntime {
       bool auto_schedule = true);
 
   //! Type notations within FusionKernelRuntime Context
-  using HashType = size_t;
-  using SchedulerEntryPtr = std::unique_ptr<SchedulerEntry>;
 
   //! Evicts internally cached parameters based on input sizes.
   //!  An interface used by runtime caches.
@@ -144,7 +144,7 @@ class FusionKernelRuntime {
     if (schedulers().empty()) {
       return PrimDataType::Int;
     }
-    auto index_type = schedulers().at(0).get()->params()->cparams.index_type;
+    auto index_type = schedulers().at(0).get()->cparams.index_type;
     NVF_ERROR(index_type.has_value());
     return index_type.value();
   }
@@ -205,7 +205,7 @@ class FusionKernelRuntime {
   }
 
   //! Returns the list of heuristics in this runtime
-  FusionHeuristics* schedulerHeuristics() const {
+  HeuristicParamsList* schedulerHeuristics() const {
     return heuristics_.get();
   }
 
@@ -213,7 +213,7 @@ class FusionKernelRuntime {
   //!  most recent kernel launch.
   //! TODO: have a interface for grabbing all recent logs. Need to put a buffer
   //! space for recent logs
-  ExecutorLog getMostRecentExecutorLog() const {
+  const ExecutorLog& getMostRecentExecutorLog() const {
     NVF_ERROR(profiling_, "Executor log is only produced in profiling mode");
     return most_recent_executor_log_;
   }
@@ -223,14 +223,14 @@ class FusionKernelRuntime {
   //  any segment cannot be scheduled or the parameters don't match
   //
   // Heuristics must use the index type of forced_index_type if given.
-  using HeuristicsPtr = std::unique_ptr<FusionHeuristics>;
-  NVF_API std::optional<HeuristicsPtr> getMaybeHeuristicsFor(
+  NVF_API std::optional<std::unique_ptr<HeuristicParamsList>>
+  getMaybeHeuristicsFor(
       const KernelArgumentHolder& args,
       std::optional<PrimDataType> forced_index_type = std::nullopt);
 
   //! Copy the launch params given in the parameter heuristics to prepare
   //!  for kernel launch for a new input dimension but same heuristics
-  void updateHeuristicsLaunchParams(FusionHeuristics* update_heuristics);
+  void updateHeuristicsLaunchParams(HeuristicParamsList* update_heuristics);
 
   const std::vector<FusionExecutor>& executors() const {
     return executors_;
@@ -261,7 +261,8 @@ class FusionKernelRuntime {
       SegmentedGroup* sg);
 
   //! Access the list of schedulers maintained in this runtime instance
-  NVF_API const std::vector<SchedulerEntryPtr>& schedulers() const;
+  NVF_API const std::vector<std::unique_ptr<HeuristicParams>>& schedulers()
+      const;
 
  private:
   //! Entries indexed by groupID:
@@ -274,7 +275,7 @@ class FusionKernelRuntime {
   KernelArgumentHolder args_metadata_;
 
   //! Heuristics object holding scheduler entries for all segments
-  HeuristicsPtr heuristics_;
+  std::unique_ptr<HeuristicParamsList> heuristics_;
 
   // Checks if this runtime instance is for a single-kernel fusion (false) or a
   //  segmented fusion (true).
@@ -289,6 +290,7 @@ class FusionKernelRuntime {
   //! store number of arguments in KernelArgumentHolder after each segment
   //! used to check if arguments are erased if not being used in the following
   //! segments
+  //! Only used in a single test: test_gpu3::FusionClearGmemBetweenSegments_CUDA
   std::vector<int64_t> num_live_args_after_segment_runs_;
 
   // States for profiling support
@@ -302,6 +304,8 @@ class FusionKernelRuntime {
   //! The sum of the last kernel execution times
   float kernel_time_ms_ = 0;
 
+  //! something to do with parallel compilation, not sure what it's actually
+  //! being used to protect.
   std::mutex mutex_;
 
   // ID of fusion in python frontend fusion cache, which maps to a single
@@ -337,7 +341,7 @@ class InputsIdLookup : public NonCopyable {
   //! constructor where maximum cache size is fixed during init
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init,cppcoreguidelines-avoid-magic-numbers)
   explicit InputsIdLookup(size_t max_cache_size = 100)
-      : max_cache_size_(max_cache_size){};
+      : max_cache_size_(max_cache_size) {}
 
   //! struct to hold return value for lookupId.
   struct IdLookupReturn {
@@ -524,6 +528,8 @@ class FusionExecutorCache {
   //! cases as our analysis of index type may be overly conservative
   //! for intermediate tensors.
   //! WARING: Correctness is not guaranteed.
+  //! TODO: Check usage of forced_index_type. It's a lot of plumbing, what's the
+  //! value.
   NVF_API std::vector<at::Tensor> runFusionWithInputs(
       const at::ArrayRef<c10::IValue>& inputs,
       std::optional<PrimDataType> forced_index_type = std::nullopt,
@@ -580,7 +586,7 @@ class FusionExecutorCache {
   // TODO: in a follow up we need a global logging structure
   //  to capture runtime profiling info. We also need to define
   //  a suitable profiling window / buffer size.
-  ExecutorLog getMostRecentExecutorInfo() {
+  const ExecutorLog& getMostRecentExecutorInfo() {
     NVF_ERROR(most_recent_runtime_ != nullptr);
     return most_recent_runtime_->getMostRecentExecutorLog();
   }
@@ -670,13 +676,6 @@ class FusionExecutorCache {
   //! Deserialize Fusion Executor Cache using flatbuffers
   void deserialize(const serde::FusionExecutorCache* buffer, int64_t fusion_id);
 
-  //! Allocate the outputs of the Fusion given inputs
-  //! TODO: re-implement
-  std::vector<at::Tensor> allocOutputSpace(
-      const at::ArrayRef<c10::IValue>& inputs) {
-    return runFusionWithInputs(inputs);
-  }
-
  private:
   //! evict cached short cut entry in `code_to_fe_lookup_` as well as cached
   //! entry in `FusionExecutor`
@@ -705,13 +704,13 @@ class FusionExecutorCache {
   using ConcreteInfo =
       std::pair<int8_t, const DynamicTransformConcretizationInfo*>;
 
-  //! Holds FusionKernelRuntime for scheduled, static Fusions. The key in this
-  //! map is a (device, concretization info) pair. In case fusion_ contains
-  //! no dynamic transforms, the second part of the key is null. When a new set
-  //! of inputs is received, we extract the corresponding value from this map,
-  //! which is a vector of FusionKernelRuntime objects representing scheduled
-  //! Fusions. We then check each of these to see if we can re-use any of those
-  //! kernels and if not, we create a new one.
+  //! Holds FusionKernelRuntime for concretized and scheduled Fusions. The key
+  //! in this map is a (device, concretization info) pair. In case fusion_
+  //! contains no dynamic transforms, the second part of the key is null. When a
+  //! new set of inputs is received, we extract the corresponding value from
+  //! this map, which is a vector of FusionKernelRuntime objects representing
+  //! scheduled Fusions. We then check each of these to see if we can re-use all
+  //! of those kernels and if not, we create a new one.
   std::unordered_map<
       ConcreteInfo,
       std::vector<std::unique_ptr<FusionKernelRuntime>>,
@@ -719,18 +718,22 @@ class FusionExecutorCache {
       PairPointerEquals>
       kernel_runtimes_;
 
-  //! This class owns the initial info and concretization info associated to
-  //! each vector of kernel runtimes
-  std::vector<std::unique_ptr<DynamicTransformInitialInfo>>
-      cached_initial_info_;
+  //! This seems to just own the unique pointer of
+  //! DynamicTransformConcretizationInfo which is implicitly being used for
+  //! lifetime of entries in kernel_runtimes_. We should push the lifetime to
+  //! the unordered_map if possible.
   std::vector<std::unique_ptr<DynamicTransformConcretizationInfo>>
       cached_conc_info_;
+
   //! Map each pair of device_id and concretization info to an integer id
   std::unordered_map<ConcreteInfo, int64_t, PairPointerHash, PairPointerEquals>
       conc_info_id_map_;
   //! For serialization, track a deterministic order for (device_id and
   //! concretization info) pair
   std::vector<ConcreteInfo> deterministic_conc_info_;
+
+  //! This is cached to speed up finding concretization info
+  std::unique_ptr<ExactLogicalDomainMap> exact_map_;
 
   //! Logging state for most recent compilation
   bool profiling_ = false;
@@ -741,7 +744,7 @@ class FusionExecutorCache {
   //! Logging state for most recent compilation
   ExecutorLog most_recent_executor_log_;
 
-  //! short-cut for cache hit
+  //! Short-cut for exact size cache hit
   std::unordered_map<size_t, FusionKernelRuntime*> id_to_kernel_runtime_;
 
   //! Profiling info:

@@ -5,8 +5,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#pragma once
+
 #include <preseg_passes/optimization_pass.h>
-#include <visibility.h>
 
 namespace nvfuser::preseg_passes {
 

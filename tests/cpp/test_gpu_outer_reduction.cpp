@@ -94,14 +94,14 @@ TEST_F(OuterReductionTest, GroupedGridWelfordOuterOpt) {
     auto ref_rf = ref->rFactor({-3}, {tvs.avg, tvs.var_sum, tvs.n}).at(0);
 
     TransformPropagator propagator(ref_rf);
-    MaxRootDomainInfoSpanningTree(ref_rf).traverse(&propagator);
+    MaxLogicalDomainInfoSpanningTree(ref_rf).traverse(&propagator);
 
     ref_rf->axis(1)->parallelize(ParallelType::BIDx);
     ref_rf->axis(2)->parallelize(ParallelType::TIDx);
     ref_rf->axis(3)->parallelize(ParallelType::BIDy);
     ref_rf->axis(5)->parallelize(ParallelType::TIDy);
 
-    scheduler_utils::parallelizeAllLike(ref_rf, ir_utils::allTvs(&fusion));
+    scheduler_utils::parallelizeAllLike(ref_rf, fusion.allTvs());
 
     tv1->axis(-1)->parallelize(ParallelType::Vectorize);
     tv3->axis(-1)->parallelize(ParallelType::Group);
@@ -529,7 +529,7 @@ void scheduleNormalization(Fusion& fusion, const OuterReductionParams& params) {
   reduction_tv_rf->reorder(vec_reorder_map);
 
   TransformPropagator propagator(reduction_tv_rf);
-  MaxRootDomainInfoSpanningTree(reduction_tv_rf).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(reduction_tv_rf).traverse(&propagator);
 
   // Clear vectorization and unswitch as we want to selectively use
   // them
@@ -541,10 +541,10 @@ void scheduleNormalization(Fusion& fusion, const OuterReductionParams& params) {
   // Clear unswitch
   IterDomain* unswitch_id = nullptr;
   auto unswitch_id_it = std::find_if(
-      reduction_tv_rf->getLeafDomain().begin(),
-      reduction_tv_rf->getLeafDomain().end(),
+      reduction_tv_rf->getLoopDomain().begin(),
+      reduction_tv_rf->getLoopDomain().end(),
       [](auto id) { return id->getParallelType() == ParallelType::Unswitch; });
-  if (unswitch_id_it != reduction_tv_rf->getLeafDomain().end()) {
+  if (unswitch_id_it != reduction_tv_rf->getLoopDomain().end()) {
     unswitch_id = *unswitch_id_it;
   }
 
@@ -552,8 +552,7 @@ void scheduleNormalization(Fusion& fusion, const OuterReductionParams& params) {
     unswitch_id->parallelize(ParallelType::Serial);
   }
 
-  scheduler_utils::parallelizeAllLike(
-      reduction_tv_rf, ir_utils::allTvs(&fusion));
+  scheduler_utils::parallelizeAllLike(reduction_tv_rf, fusion.allTvs());
 
   // Vectorize inputs
   for (auto input_cache : input_caches) {
@@ -591,7 +590,7 @@ void scheduleNormalization(Fusion& fusion, const OuterReductionParams& params) {
   if (params.use_compute_with) {
     // Only apply computeWith to the main 4D tensors
     for (auto input_cache : input_caches) {
-      if (input_cache->getRFactorDomain().size() == 4) {
+      if (input_cache->getLogicalDomain().size() == 4) {
         input_cache->computeWith(-1, true);
       }
     }
@@ -1419,12 +1418,12 @@ void grid_persistent_reduction_outer_norm_like_scheduler(
         "Unexpected number of segments: ",
         runtime->fusionSegments()->groups().size());
 
-    const auto& scheduler_entry =
+    const auto& heuristic_params =
         runtime->schedulerHeuristics()->heuristicsList().at(0);
     NVF_CHECK(
-        scheduler_entry->heuristic() == ScheduleHeuristic::OuterPersistent,
+        heuristic_params->scheduler_type == SchedulerType::OuterPersistent,
         "Unexpected heuristic was chosen: ",
-        scheduler_entry->heuristic());
+        heuristic_params->scheduler_type);
 
     if (benchmark_mode) {
       for (int i = 0; i < 10; ++i) {
@@ -1577,12 +1576,12 @@ void grid_persistent_welford_outer_norm_like_scheduler(
         "Unexpected number of segments: ",
         runtime->fusionSegments()->groups().size());
 
-    const auto& scheduler_entry =
+    const auto& heuristic_params =
         runtime->schedulerHeuristics()->heuristicsList().at(0);
     NVF_CHECK(
-        scheduler_entry->heuristic() == ScheduleHeuristic::OuterPersistent,
+        heuristic_params->scheduler_type == SchedulerType::OuterPersistent,
         "Unexpected heuristic was chosen: ",
-        scheduler_entry->heuristic());
+        heuristic_params->scheduler_type);
 
     if (benchmark_mode) {
       for (int i = 0; i < 10; ++i) {
@@ -1756,12 +1755,12 @@ void grid_persistent_batchnorm_scheduler(
         "Unexpected number of segments: ",
         runtime->fusionSegments()->groups().size());
 
-    const auto& scheduler_entry =
+    const auto& heuristic_params =
         runtime->schedulerHeuristics()->heuristicsList().at(0);
     NVF_CHECK(
-        scheduler_entry->heuristic() == ScheduleHeuristic::OuterPersistent,
+        heuristic_params->scheduler_type == SchedulerType::OuterPersistent,
         "Unexpected heuristic was chosen: ",
-        scheduler_entry->heuristic());
+        heuristic_params->scheduler_type);
 
     if (benchmark_mode) {
       for (int i = 0; i < 10; ++i) {
@@ -1893,12 +1892,12 @@ void grid_persistent_reduction_outer_norm_bwd_like_scheduler(
         "Unexpected number of segments: ",
         runtime->fusionSegments()->groups().size());
 
-    const auto& scheduler_entry =
+    const auto& heuristic_params =
         runtime->schedulerHeuristics()->heuristicsList().at(0);
     NVF_CHECK(
-        scheduler_entry->heuristic() == ScheduleHeuristic::OuterPersistent,
+        heuristic_params->scheduler_type == SchedulerType::OuterPersistent,
         "Unexpected heuristic was chosen: ",
-        scheduler_entry->heuristic());
+        heuristic_params->scheduler_type);
 
     if (benchmark_mode) {
       for (int i = 0; i < 10; ++i) {
@@ -2065,12 +2064,12 @@ void grid_persistent_batchnorm_bwd_scheduler(
         "Unexpected number of segments: ",
         runtime->fusionSegments()->groups().size());
 
-    const auto& scheduler_entry =
+    const auto& heuristic_params =
         runtime->schedulerHeuristics()->heuristicsList().at(0);
     NVF_CHECK(
-        scheduler_entry->heuristic() == ScheduleHeuristic::OuterPersistent,
+        heuristic_params->scheduler_type == SchedulerType::OuterPersistent,
         "Unexpected heuristic was chosen: ",
-        scheduler_entry->heuristic());
+        heuristic_params->scheduler_type);
 
     if (benchmark_mode) {
       for (int i = 0; i < 10; ++i) {
@@ -2166,34 +2165,38 @@ TEST_F(OuterReductionTest, IterGroupedBlockReduction) {
 
   std::vector<c10::IValue> aten_inputs({t0});
 
-  auto heuristics_params = getReductionHeuristics(&fusion, aten_inputs);
-  NVF_CHECK(heuristics_params, "Reduction schedule was not generated!");
+  SchedulerRuntimeInfo runtime_info(&fusion, aten_inputs);
+  NVF_ERROR(
+      Schedule::canSchedule(SchedulerType::Reduction, &fusion, runtime_info));
+  auto scheduler =
+      SchedulerEntry::makeSchedulerInstance(SchedulerType::Reduction);
+  auto heuristic_params = scheduler->computeHeuristics(&fusion, runtime_info);
+  auto rparams = heuristic_params->as<ReductionParams>();
 
   // only do block reduction, enforce vectorization so we can group them
   const int vect_factor = 8;
-  heuristics_params->cross_grid_inner_reduction = false;
-  heuristics_params->split_grid_dim_inner_reduction = false;
-  heuristics_params->vectorize_iter_dom = true;
-  heuristics_params->unroll_factor_iter_dom = vect_factor;
-  scheduleReduction(&fusion, *heuristics_params);
+  rparams->cross_grid_inner_reduction = false;
+  rparams->split_grid_dim_inner_reduction = false;
+  rparams->vectorize_iter_dom = true;
+  rparams->unroll_factor_iter_dom = vect_factor;
+
+  scheduler->schedule(&fusion, rparams);
+  FusionExecutor fusion_executor;
+  fusion_executor.compileFusion(
+      &fusion, aten_inputs, heuristic_params->lparams);
+  auto cg_outputs =
+      fusion_executor.runFusion(aten_inputs, heuristic_params->lparams);
 
   // lowering & check iteration grouped reductions
-  GpuLower gpulw(&fusion);
-  gpulw.run();
   NVF_CHECK(
-      gpulw.kernel()->summary().has_iter_grouped_reductions,
+      fusion_executor.kernel()->summary().has_iter_grouped_reductions,
       "There must be iter domain grouped reductions.");
   NVF_CHECK(
-      gpulw.kernel()->summary().num_grouped_iterations == vect_factor,
+      fusion_executor.kernel()->summary().num_grouped_iterations == vect_factor,
       "Expected ",
       vect_factor,
       " grouped iterations, found ",
-      gpulw.kernel()->summary().num_grouped_iterations);
-
-  FusionExecutor fe;
-  auto lparams = heuristics_params->lparams;
-  fe.compileFusion(&fusion, aten_inputs, lparams);
-  auto cg_outputs = fe.runFusion(aten_inputs, lparams);
+      fusion_executor.kernel()->summary().num_grouped_iterations);
 
   testValidate(
       &fusion,
@@ -2203,7 +2206,7 @@ TEST_F(OuterReductionTest, IterGroupedBlockReduction) {
       __LINE__,
       __FILE__,
       "",
-      lparams);
+      rparams->lparams);
 }
 
 namespace {
@@ -2238,7 +2241,7 @@ void shmooTestsOfIterGroupedBlockOrGridReduction(
   fusion.addOutput(tv2);
 
   // manually set how to schedule the fusion
-  auto rparams = std::make_shared<ReductionParams>();
+  auto rparams = std::make_unique<ReductionParams>();
   // vectorize
   rparams->vectorize_iter_dom = true;
   rparams->unroll_factor_iter_dom = vect;
@@ -2267,7 +2270,8 @@ void shmooTestsOfIterGroupedBlockOrGridReduction(
       bdimy,
       LaunchParams::UNINITIALIZED_VAL);
   rparams->lparams = lparams;
-  scheduleReduction(&fusion, *rparams);
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Reduction)
+      ->schedule(&fusion, rparams.get());
 
   // lowering & check iteration grouped reductions
   GpuLower gpulw(&fusion);
@@ -2456,6 +2460,145 @@ TEST_F(OuterReductionTest, OuterReductionMagicScheduler) {
       test(dim0, dim1);
     }
   }
+}
+
+TEST_F(OuterReductionTest, IterGroupedMultipleReductions) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(2);
+  auto tv1 = makeContigTensor(2);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  auto tv2 = sum(tv0, {0});
+  auto tv3 = add(tv0, tv1);
+  auto tv4 = sum(tv3, {0});
+  fusion.addOutput(tv2);
+  fusion.addOutput(tv4);
+
+  int vect = 4, unroll = 2;
+  int bdimx = 32, bdimy = 16;
+  int gdimx = 8, gdimy = 8;
+  int serial = 2;
+  int iter_dim = vect * bdimx * gdimx;
+  int redu_dim = unroll * bdimy * gdimy * serial;
+
+  // manually set how to schedule the fusion
+  auto rparams = std::make_shared<ReductionParams>();
+  // vectorize
+  rparams->vectorize_iter_dom = true;
+  rparams->unroll_factor_iter_dom = vect;
+  // use bdimx
+  rparams->multiple_reds_per_blk = true;
+  rparams->block_dim_iter_dom = ParallelType::TIDx;
+  // use gdimx
+  rparams->grid_dim_iter_dom = ParallelType::BIDx;
+  // use unroll
+  rparams->unroll_factor_inner_reduction = unroll;
+  // use bdimy
+  rparams->cross_block_inner_reduction = true;
+  rparams->block_dim_inner_reduction = ParallelType::TIDy;
+  // use gdimy
+  rparams->cross_grid_inner_reduction = true;
+  rparams->split_grid_dim_inner_reduction = true;
+  rparams->grid_dim_inner_reduction = ParallelType::BIDy;
+  // set launch para
+  auto lparams = LaunchParams(
+      gdimx,
+      gdimy,
+      LaunchParams::UNINITIALIZED_VAL,
+      bdimx,
+      bdimy,
+      LaunchParams::UNINITIALIZED_VAL);
+  rparams->lparams = lparams;
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Reduction)
+      ->schedule(&fusion, rparams.get());
+
+  // Ensure we have two iteration grouped reductions
+  int num_iter_grouped_reductions = 0;
+  const auto& reduction_tvs =
+      scheduler_utils::getReductionTvs(fusion_ptr.get());
+  for (auto tv : reduction_tvs) {
+    bool has_grid_reduction = false;
+    bool has_grouped_domain = false;
+    for (auto id : tv->getLoopDomain()) {
+      if (id->isReduction() && id->getParallelType() == ParallelType::BIDy) {
+        has_grid_reduction = true;
+      }
+      if (id->getParallelType() == ParallelType::Group) {
+        has_grouped_domain = true;
+      }
+    }
+    if (has_grid_reduction) {
+      EXPECT_TRUE(has_grouped_domain)
+          << "Expect Iteration domain grouped grid reduction, tv: "
+          << tv->toString();
+    }
+    if (has_grid_reduction && has_grouped_domain) {
+      num_iter_grouped_reductions++;
+    }
+  }
+  EXPECT_TRUE(num_iter_grouped_reductions == 2)
+      << "Expect 2 Iteration domain grouped grid reductions, got: "
+      << num_iter_grouped_reductions;
+
+  FusionExecutor fe;
+  std::vector<int64_t> shape({redu_dim, iter_dim});
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  auto t1 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
+
+  fe.compileFusion(&fusion, aten_inputs, lparams);
+  auto cg_outputs = fe.runFusion(aten_inputs, lparams);
+
+  testValidate(
+      &fusion,
+      cg_outputs,
+      aten_inputs,
+      {t0.sum(0), (t0 + t1).sum(0)},
+      __LINE__,
+      __FILE__,
+      "",
+      lparams);
+}
+
+// Repro of https://github.com/NVIDIA/Fuser/pull/2766
+TEST_F(NVFuserTest, SmallOuterBlockReductionIssue2766) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape{100, 2, 128};
+
+  auto tv0 = makeContigTensor(2);
+  fusion.addInput(tv0);
+
+  auto tv1 = reshape(
+      tv0,
+      {IrBuilder::create<Val>(shape[0]),
+       IrBuilder::create<Val>(shape[1]),
+       IrBuilder::create<Val>(shape[2])});
+  auto tv2 = sum(tv1, {1});
+  fusion.addOutput(tv2);
+
+  // Previously, after the extent replacement of the lowering, the reduction
+  // reference tensor got a reduction domain of a static size, which is just 1,
+  // but the pre-reshape tensors still kept using symbolic extents. Before
+  // https://github.com/NVIDIA/Fuser/pull/2714, the scheduler decided to not use
+  // TIDy because the reference tensor has a static size of 1, but since the
+  // other tensors still had dynamic sizes, it resulted in the dynamic
+  // allocation error.
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({shape[0] * shape[1], shape[2]}, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto outputs = fec.runFusionWithInputs(inputs);
+
+  testValidate(fec.fusion(), outputs, inputs, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

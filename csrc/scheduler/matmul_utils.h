@@ -13,16 +13,16 @@
 namespace nvfuser {
 
 class SchedulerRuntimeInfo;
-class HeuristicSummary;
+class HeuristicDataCache;
 class MatmulParams;
 
 //! An implementation of functionality that will prepare heuristics for fusion
 //!  that represents matmul. May return empty object if any of conditions are
 //!  not met.
-std::shared_ptr<MatmulParams> getMatmulHeuristics(
+std::unique_ptr<MatmulParams> getMatmulHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache = nullptr);
+    HeuristicDataCache* data_cache = nullptr);
 
 //! An implementation of compile time checks. Returns messasge if given fusion
 //!  does not represent matmul, otherwise an empty string is returned.
@@ -32,7 +32,7 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion);
 //!  does not represent matmul, otherwise an empty string is returned.
 std::string getMatmulRunTimeRejectReason(
     Fusion* fusion,
-    HeuristicSummary* data_cache,
+    HeuristicDataCache* data_cache,
     SchedulerRuntimeInfo& runtime_info);
 
 //! This is a utility to determine whether we can use cp.async to load the
@@ -40,7 +40,6 @@ std::string getMatmulRunTimeRejectReason(
 //! async_gmem_load_operands.
 bool NVF_API isCpAsyncOperandLoadSupported(
     const MatmulParams* params,
-    int64_t dtype_size_a,
-    int64_t dtype_size_b);
+    int64_t min_dtype_size);
 
 } // namespace nvfuser

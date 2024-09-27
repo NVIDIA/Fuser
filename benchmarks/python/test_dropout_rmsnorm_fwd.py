@@ -3,8 +3,12 @@
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
 from nvfuser import FusionDefinition, DataType
-from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from .core import run_benchmark, clear_cuda_cache, compute_total_iobytes
+from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype, clear_cuda_cache
+from .core import (
+    run_benchmark,
+    clear_dynamo_cache,
+    compute_total_iobytes,
+)
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
 
@@ -153,6 +157,8 @@ def test_dropout_rmsnorm_fwd_baseline_benchmark(
     compile: bool,
 ):
     clear_cuda_cache()
+    if compile:
+        clear_dynamo_cache()
     dropout_p = 0.2
 
     inputs = [

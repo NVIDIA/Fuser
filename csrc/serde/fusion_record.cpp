@@ -32,7 +32,7 @@ std::optional<bool> mapContiguityEnumToOptional(Contiguity v) {
     case Contiguity::None:
       return std::nullopt;
   }
-  NVF_ERROR(false, "Invalid contiguity type.");
+  NVF_THROW("Invalid contiguity type.");
   return std::nullopt;
 }
 
@@ -308,6 +308,18 @@ void RecordFunctorFactory::registerAllParsers() {
         Val*>(ternary_alpha_val, RecordType::Ternary_Alpha_VAL, buffer);
   };
   registerParser(RecordType::Ternary_Alpha_VAL, ternary_alpha_val_parser);
+
+  auto deserializeSdpaFwdRecord = [&](const RecordFunctor* buffer) {
+    return new python_frontend::SdpaFwdOpRecord(
+        parseStateArgs(buffer->args()), parseStateArgs(buffer->outputs()));
+  };
+  registerParser(RecordType::SdpaFwdOp, deserializeSdpaFwdRecord);
+
+  auto deserializeSdpaBwdRecord = [&](const RecordFunctor* buffer) {
+    return new python_frontend::SdpaBwdOpRecord(
+        parseStateArgs(buffer->args()), parseStateArgs(buffer->outputs()));
+  };
+  registerParser(RecordType::SdpaBwdOp, deserializeSdpaBwdRecord);
   // END OpRecord Parsers
 
   // START Reduction Parsers
@@ -513,13 +525,8 @@ void RecordFunctorFactory::registerAllParsers() {
   registerParser(RecordType::ReshapeOp, deserializeReshapeRecord);
 
   auto deserializeSliceRecord = [](const RecordFunctor* buffer) {
-    auto data = buffer->data_as_Slice();
     return new python_frontend::SliceOpRecord(
-        parseStateArgs(buffer->args()),
-        parseStateArgs(buffer->outputs()),
-        parseVector(data->start_indices()),
-        parseVector(data->end_indices()),
-        parseVector(data->strides()));
+        parseStateArgs(buffer->args()), parseStateArgs(buffer->outputs()));
   };
   registerParser(RecordType::SliceOp, deserializeSliceRecord);
 
@@ -788,6 +795,8 @@ void RecordFunctorFactory::setupFunctionMaps() {
   NVFUSER_BINARY_TV_OP("pow", pow)
   NVFUSER_BINARY_TV_OP("remainder", remainder)
   NVFUSER_BINARY_TV_OP("sub", sub)
+  NVFUSER_BINARY_TV_OP("minimum", minimum)
+  NVFUSER_BINARY_TV_OP("maximum", maximum)
   NVFUSER_BINARY_TV_OP("mod", mod)
   NVFUSER_BINARY_TV_OP("eq", eq)
   NVFUSER_BINARY_TV_OP("ge", ge)

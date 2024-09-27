@@ -13,13 +13,13 @@
 namespace nvfuser {
 
 class Expr;
+class ForLoop;
+class Scope;
 
 namespace kir {
 class Predicate;
 class TensorIndex;
-class ForLoop;
 class IfThenElse;
-class Scope;
 
 // Base visitor class that visits all nodes in provided vector<Expr*>.
 //

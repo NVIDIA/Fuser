@@ -23,13 +23,13 @@ namespace {
 
 //! Get a vector of the integer positions of constant zero extent axes in the
 //! input domain. This will typically be used like
-//! `emptyAxes(TensorDomain::noReductions(tv->getRFactorDomain()))`
+//! `emptyAxes(TensorDomain::noReductions(tv->getLogicalDomain()))`
 std::vector<int64_t> emptyAxes(const std::vector<IterDomain*>& domain) {
   std::vector<int64_t> empty_axes;
   for (auto ax : c10::irange(domain.size())) {
     auto id = domain.at(ax);
     if (id->getMaybeExpandedExtent()->isConst() &&
-        id->getMaybeExpandedExtent()->evaluate() == 0) {
+        id->getMaybeExpandedExtent()->evaluate().as<int64_t>() == 0) {
       empty_axes.push_back((int64_t)ax);
     }
   }
@@ -41,7 +41,7 @@ std::vector<int64_t> emptyAxes(const std::vector<IterDomain*>& domain) {
 //! their extents to a constant 0. Here we check for those constant zero
 //! extents.
 bool isTVEmpty(TensorView* tv) {
-  return !emptyAxes(TensorDomain::noReductions(tv->getRFactorDomain())).empty();
+  return !emptyAxes(TensorDomain::noReductions(tv->getLogicalDomain())).empty();
 }
 
 //! EmptyTensorRemover performs a backward traversal of the Fusion. When it
@@ -108,10 +108,10 @@ class EmptyTensorRemover : public DeadCodeRemover {
     }
   }
 
-  //! Gets a vector of extents for noReduction(tv->getRFactorDomain())
+  //! Gets a vector of extents for noReduction(tv->getLogicalDomain())
   static std::vector<Val*> noReductionShape(TensorView* tv) {
     std::vector<Val*> shape;
-    for (auto id : TensorDomain::noReductions(tv->getRFactorDomain())) {
+    for (auto id : TensorDomain::noReductions(tv->getLogicalDomain())) {
       shape.push_back(id->getMaybeExpandedExtent());
     }
     return shape;
@@ -129,7 +129,7 @@ class EmptyTensorRemover : public DeadCodeRemover {
   void handle(ReductionOp* rop) final {
     auto in = rop->in()->as<TensorView>();
     auto empty_input_axes =
-        emptyAxes(TensorDomain::noReductions(in->getRFactorDomain()));
+        emptyAxes(TensorDomain::noReductions(in->getLogicalDomain()));
     if (empty_input_axes.empty()) {
       // Input is not empty, handle like any other op
       return;
@@ -138,7 +138,7 @@ class EmptyTensorRemover : public DeadCodeRemover {
     // The input is empty in some axes. Assert that they are all reduced
     for (auto ax : empty_input_axes) {
       auto id = out->getMaybeRootDomain().at(ax);
-      // Input rfactor domain positions correspond to output root positions
+      // Input logical domain positions correspond to output root positions
       NVF_ERROR(
           id->isReduction(),
           "Found unexpected unreduced empty axis at position ",
@@ -164,7 +164,7 @@ class EmptyTensorRemover : public DeadCodeRemover {
   void handle(WelfordOp* wop) final {
     auto in = wop->in()->as<TensorView>();
     auto empty_input_axes =
-        emptyAxes(TensorDomain::noReductions(in->getRFactorDomain()));
+        emptyAxes(TensorDomain::noReductions(in->getLogicalDomain()));
     if (empty_input_axes.empty()) {
       // Input is not empty, handle like any other op
       return;
@@ -175,7 +175,7 @@ class EmptyTensorRemover : public DeadCodeRemover {
     // The input is empty in some axes. Assert that they are all reduced
     for (auto ax : empty_input_axes) {
       auto id = avg->getMaybeRootDomain().at(ax);
-      // Input rfactor domain positions correspond to output root positions
+      // Input logical domain positions correspond to output root positions
       NVF_ERROR(
           id->isReduction(),
           "Found unexpected unreduced empty axis at position ",
@@ -256,9 +256,9 @@ class EmptyTensorRemover : public DeadCodeRemover {
           inp->definition() && inp->definition()->isA<PadOp>(),
           "Inputs to CatOp must be outputs of PadOps");
       auto tv = inp->definition()->as<PadOp>()->in()->as<TensorView>();
-      auto cat_id = TensorDomain::noReductions(tv->getRFactorDomain()).at(dim);
+      auto cat_id = TensorDomain::noReductions(tv->getLogicalDomain()).at(dim);
       if (cat_id->getMaybeExpandedExtent()->isConst() &&
-          cat_id->getMaybeExpandedExtent()->evaluate() == 0) {
+          cat_id->getMaybeExpandedExtent()->evaluate().as<int64_t>() == 0) {
         continue;
       }
       non_empty_inputs.push_back(tv);
@@ -275,7 +275,7 @@ class EmptyTensorRemover : public DeadCodeRemover {
       // the original IterType is correct, so we pass it here to avoid creating
       // new Symbolic axes.
       auto iter_type =
-          old_tv->getRFactorDomain().at(cop->concatenatedDim())->getIterType();
+          old_tv->getLogicalDomain().at(cop->concatenatedDim())->getIterType();
       auto new_tv = cat(non_empty_inputs, dim, iter_type);
       registerReplacement(old_tv, new_tv);
     }
@@ -287,8 +287,8 @@ class EmptyTensorRemover : public DeadCodeRemover {
   //! extent when we do the replacement.
   void handle(PadOp* pop) final {
     auto in = pop->in()->as<TensorView>();
-    auto in_rfactor = TensorDomain::noReductions(in->getRFactorDomain());
-    if (!emptyAxes(in_rfactor).empty()) {
+    auto in_logical = TensorDomain::noReductions(in->getLogicalDomain());
+    if (!emptyAxes(in_logical).empty()) {
       auto out = pop->out()->as<TensorView>();
       auto shape = noReductionShape(out);
       auto dtype = out->getDataType().value();
@@ -300,11 +300,11 @@ class EmptyTensorRemover : public DeadCodeRemover {
   //! We handle MmaOp just as if it were written as a sum ReductionOp.
   void handle(MmaOp* mop) final {
     auto A = mop->inA()->as<TensorView>();
-    auto A_rfactor = TensorDomain::noReductions(A->getRFactorDomain());
+    auto A_logical = TensorDomain::noReductions(A->getLogicalDomain());
     // We only need to check empty axes in A. If any reduced axes are empty
     // here, they will be empty in B also. If any non-reduced axes are empty,
     // the output will also be empty, and this expression will already be dead.
-    if (!emptyAxes(A_rfactor).empty()) {
+    if (!emptyAxes(A_logical).empty()) {
       auto out = mop->out()->as<TensorView>();
       auto shape = noReductionShape(out);
       auto dtype = out->getDataType().value();

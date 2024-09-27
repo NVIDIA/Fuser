@@ -161,8 +161,7 @@ class FusionInspector : private IterVisitor {
       } else if (preceding_expr->isA<WelfordOp>()) {
         fusion_list_.emplace_back(preceding_expr->as<WelfordOp>(), true);
       } else {
-        NVF_ERROR(
-            false, "Invalid preceding expr: ", preceding_expr->toString());
+        NVF_THROW("Invalid preceding expr: ", preceding_expr->toString());
       }
 
       fused_exprs_.insert(preceding_expr);
@@ -172,7 +171,7 @@ class FusionInspector : private IterVisitor {
   ParallelTypeBitmap getReductionParallelTypeStates(Expr* expr) {
     ParallelTypeBitmap parallel_reduction_axes;
 
-    for (auto id : ir_utils::getTvOutput(expr)->getLeafDomain()) {
+    for (auto id : ir_utils::getTvOutput(expr)->getLoopDomain()) {
       auto pt = id->getParallelType();
       if (id->isReduction() && isParallelTypeThread(pt)) {
         parallel_reduction_axes.set(pt);
@@ -198,7 +197,7 @@ class FusionInspector : private IterVisitor {
 
     // Make sure the broadcast parallel types are the types reduced by
     // the preceding reduction op
-    for (auto id : broadcast_out->getLeafDomain()) {
+    for (auto id : broadcast_out->getLoopDomain()) {
       auto pt = id->getParallelType();
       if (!isParallelTypeThread(pt)) {
         continue;
@@ -307,7 +306,7 @@ class FusionTransformer {
             op_types, init_vals, outputs, inputs, true);
       } else {
         NVF_ERROR(expr != nullptr);
-        NVF_ERROR(false, "Invalid expr: ", expr->toString());
+        NVF_THROW("Invalid expr: ", expr->toString());
       }
 
       NVF_ERROR(fused_expr != nullptr);
@@ -323,7 +322,7 @@ class FusionTransformer {
         // broadcast output tensor without a broadcast expression.
         for (auto reduction_out :
              ir_utils::filterByType<TensorView>(fused_expr->outputs())) {
-          for (auto id : reduction_out->getLeafDomain()) {
+          for (auto id : reduction_out->getLoopDomain()) {
             if (id->isReduction()) {
               GpuLower::current()->fusedReductionInfo().markAsAllreduce(id);
               GpuLower::current()->threadPredMap().markAsUpdated(reduction_out);

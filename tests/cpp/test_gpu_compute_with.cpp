@@ -13,10 +13,10 @@
 #include <device_lower/lower2device.h>
 #include <device_lower/pass/magic_zero.h>
 #include <disjoint_set.h>
-#include <executor.h>
-#include <executor_params.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
+#include <fusion_executor/executor.h>
+#include <fusion_executor/executor_params.h>
 #include <fusion_segmenter.h>
 #include <grouped_reduction.h>
 #include <inlining.h>
@@ -29,8 +29,8 @@
 #include <kernel_cache.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
+#include <logical_domain_map.h>
 #include <ops/all_ops.h>
-#include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>
@@ -130,7 +130,7 @@ TEST_F(NVFuserTest, FusionComputeWith1_CUDA) {
 
   // Set the global inlining only with the outer axis
   std::unordered_set<IterDomain*> uninlinable;
-  for (auto tv : ir_utils::allTvs(&fusion)) {
+  for (auto tv : fusion.allTvs()) {
     if (tv->nDims() == 2) {
       uninlinable.insert(tv->axis(1));
     }
@@ -197,7 +197,7 @@ TEST_F(NVFuserTest, FusionComputeWith2_CUDA) {
 
   input_tv0->split(-1, vec);
   input_tv0->split(-2, tidx);
-  MaxRootDomainInfoSpanningTree tree(input_tv0);
+  MaxLogicalDomainInfoSpanningTree tree(input_tv0);
   TransformPropagatorWithCheck tp(input_tv0);
   tree.traverse(&tp);
 
@@ -241,7 +241,7 @@ TEST_F(NVFuserTest, FusionComputeWith3_CUDA) {
 
   tv2->split(-1, 4);
   tv2->split(-2, 3);
-  MaxRootDomainInfoSpanningTree tree(tv2);
+  MaxLogicalDomainInfoSpanningTree tree(tv2);
   TransformPropagatorWithCheck tp(tv2);
   tree.traverse(&tp);
 
@@ -283,7 +283,7 @@ TEST_F(NVFuserTest, FusionComputeWith4_CUDA) {
   tv2->split(0, 4);
   tv2->split(0, 32);
 
-  MaxRootDomainInfoSpanningTree tree(tv2);
+  MaxLogicalDomainInfoSpanningTree tree(tv2);
   TransformPropagatorWithCheck tp(tv2);
   tree.traverse(&tp);
 
@@ -329,7 +329,7 @@ TEST_F(NVFuserTest, FusionComputeWith5_CUDA) {
 
   tv1->split(-1, 4);
 
-  MaxRootDomainInfoSpanningTree tree(tv1);
+  MaxLogicalDomainInfoSpanningTree tree(tv1);
   TransformPropagatorWithCheck tp(tv1);
   tree.traverse(&tp);
 
@@ -423,8 +423,8 @@ TEST_F(NVFuserTest, FusionComputeWith6_CUDA) {
   auto tv3_rf = ir_utils::rFactorHelper(tv3, {-3, -2});
 
   TransformPropagator propagator(tv3_rf);
-  MaxRootDomainInfoSpanningTree(tv3_rf).traverse(&propagator);
-  scheduler_utils::parallelizeAllLike(tv3_rf, ir_utils::allTvs(&fusion));
+  MaxLogicalDomainInfoSpanningTree(tv3_rf).traverse(&propagator);
+  scheduler_utils::parallelizeAllLike(tv3_rf, fusion.allTvs());
 
   tv1->axis(-1)->parallelize(ParallelType::Vectorize);
   tv7->axis(-1)->parallelize(ParallelType::Vectorize);

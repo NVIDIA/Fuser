@@ -3,9 +3,9 @@
 # SPDX-License-Identifier: BSD-3-Clause
 from nvfuser import FusionDefinition, DataType
 from .global_params import PROMOTE_DTYPES
-from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
+from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype, clear_cuda_cache
 import torch
-from .core import run_benchmark, clear_cuda_cache, unary_bwd_torch
+from .core import run_benchmark, unary_bwd_torch, clear_dynamo_cache
 import numpy as np
 
 
@@ -441,6 +441,8 @@ def norm_fwd_baseline_benchmark(
     norm: str,
 ):
     clear_cuda_cache()
+    if compile:
+        clear_dynamo_cache()
 
     assert norm in ["batch_norm", "instance_norm"], NotImplementedError
 
@@ -474,6 +476,8 @@ def norm_bwd_baseline_benchmark(
     norm: str,
 ):
     clear_cuda_cache()
+    if compile:
+        clear_dynamo_cache()
 
     assert norm in ["batch_norm", "instance_norm"], NotImplementedError
 

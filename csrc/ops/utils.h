@@ -8,7 +8,8 @@
 #pragma once
 
 #include <exceptions.h>
-#include <ir/all_nodes.h>
+#include <ir/base_nodes.h>
+#include <ir/interface_nodes.h>
 #include <scheduler/matmul_utils.h>
 #include <type.h>
 #include <visibility.h>
@@ -16,6 +17,9 @@
 #include <vector>
 
 namespace nvfuser {
+
+enum class AttnRole { Q = 0, K, V, Mask };
+
 namespace ops {
 
 TensorView* maybe_broadcast_inner_to_rank(TensorView* t, size_t rank);
@@ -47,14 +51,14 @@ IterType promoteIterType(IterType type1, IterType type2);
 // 3. A/B are atleast 1D and one of them is > 2D: [B, M, K] x [K, N] -> [B, M,
 // N] (Mapping A: {id_B, id_M, nullptr}, Mapping B: {nullptr, nullptr, id_N})
 // Args:
-// 1. input_domain: root/rfactor domain without reductions for any input to
+// 1. input_domain: root/logical domain without reductions for any input to
 // MatmulOp
-// 2. input_role: Specifies if the input is A / B (MatmulRole::Input_A/Input_B)
+// 2. input_position: Specifies if the input is A / B (0 or 1)
 // 3: out_size: MatmulOp output dimension (input and output may not be the same
 // size).
 std::vector<IterDomain*> mapMatmulOpIterDomains(
     const std::vector<IterDomain*>& input_domain,
-    MatmulRole input_role,
+    int64_t input_position,
     size_t out_size);
 
 // For LinearOp, the output is the same as the first input (A[*,
@@ -62,15 +66,16 @@ std::vector<IterDomain*> mapMatmulOpIterDomains(
 // (B[out_features, in_features]), the last dimension of output is out_features.
 // If bias is 1D (bias[out_features]) it maps to the last dimension of the
 // output. Args:
-// 1. input_domain: root/rfactor domain without reductions for any input to
+// 1. input_domain: root/logical domain without reductions for any input to
 // LinearOp
-// 2. input_role: Specifies if the input is A / B / Bias
-// (MatmulRole::Input_A/Input_B/Input_C) 3: out_size: LinearOp output dimension
-// (input and output may not be the same size).
+// 2. input_position: Specifies if the input is A / B / Bias (0, 1, or 2)
+// (MatmulTensorRole::Input_A/Input_B/Input_C) 3: out_size: LinearOp output
+// dimension (input and output may not be the same size).
 std::vector<IterDomain*> mapLinearOpIterDomains(
     const std::vector<IterDomain*>& input_domain,
-    MatmulRole input_role,
-    size_t out_size);
+    int64_t input_position,
+    size_t out_size,
+    bool k_bcast);
 
 // Takes a vector of aligned input iterdomains to create the output iterdomain.
 // This is used if the input iterdomains are not trivially mapped to the output
@@ -81,8 +86,10 @@ IterDomain* newOutputIterDomain(
     const std::vector<IterDomain*>& ids,
     const std::optional<IterType> force_iter_type = std::nullopt);
 
-// Takes a vector of tensorviews and assumes they are all aligned to create the
-// output tensorview. For eg: BinaryOp.
+// Takes a vector of `Val*`s and assumes they are all aligned to create the
+// output tensorview, e.g., for BinaryOp. `vals` can contain scalars, e.g, when
+// creating the output TensorView for `tv0+scalar`. This is for convenience and
+// scalars will be ignored.
 std::vector<IterDomain*> newOutputDomain(const std::vector<Val*>& vals);
 
 TensorView* newOutputTV(const std::vector<Val*>& vals, DataType dtype);

@@ -7,8 +7,8 @@
 // clang-format on
 #include <csrc/exceptions.h>
 #include <device_lower/analysis/bank_conflict.h>
-#include <executor.h>
 #include <fusion.h>
+#include <fusion_executor/executor.h>
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
 #include <ops/all_ops.h>
@@ -17,6 +17,7 @@
 #include <scheduler/matmul.h>
 #include <scheduler/matmul_heuristic.h>
 #include <scheduler/mma_utils.h>
+#include <tests/cpp/utils.h>
 #include <utils.h>
 
 #include <benchmark/benchmark.h>
@@ -44,7 +45,7 @@ bool hasRequiredSmemSize(size_t required_size) {
 
 // TODO: separate compute and schedule definition once the can schedule
 //  logic and pattern matching is ready.
-void setupMatmul(Fusion* fusion, MmaLayout layout, MatmulParams params) {
+void setupMatmul(Fusion* fusion, MmaLayout layout, MatmulParams* mparams) {
   // Only hgemm on the initial setup
   auto a = makeContigTensor(2, DataType::Half);
   auto b = makeContigTensor(2, DataType::Half);
@@ -61,7 +62,9 @@ void setupMatmul(Fusion* fusion, MmaLayout layout, MatmulParams params) {
 
   fusion->addOutput(d);
 
-  scheduleMatmul(fusion, params);
+  preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(fusion);
+
+  scheduleMatmul(fusion, mparams);
 }
 
 void checkMatch(at::Tensor expect, at::Tensor result, int64_t k) {
@@ -141,7 +144,7 @@ PrimDataType computeIndexType(int m, int n, int k) {
 static void SingleMatmulBase(
     benchmark::State& benchmark_state,
     MmaLayout layout,
-    MatmulParams params) {
+    MatmulParams* mparams) {
   int64_t m = benchmark_state.range(0);
   int64_t n = benchmark_state.range(1);
   int64_t k = benchmark_state.range(2);
@@ -159,9 +162,7 @@ static void SingleMatmulBase(
   FusionGuard fg(fusion);
 
   // Define fusion graph
-  setupMatmul(fusion, layout, params);
-
-  preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(fusion);
+  setupMatmul(fusion, layout, mparams);
 
   KernelArgumentHolder args = KernelArgumentHolder::createKernelArgumentHolder(
       {inputs.first, inputs.second});
@@ -248,9 +249,10 @@ MatmulParams getMatmulParams(
   params.mma_macro = MmaMacro::Ampere_16_16_16;
   params.tile_sizes = gemm_tile;
   params.async_gmem_load_operands = true;
-  params.double_buffer_options.double_buffer_smem_write = true;
-  params.double_buffer_options.double_buffer_smem_read = true;
-  params.double_buffer_options.smem_double_buffer_stage = stage_number;
+  params.circular_buffer_options.circular_buffer_smem_write =
+      (stage_number > 1);
+  params.circular_buffer_options.circular_buffer_smem_read = (stage_number > 1);
+  params.circular_buffer_options.smem_circular_buffer_stage = stage_number;
   params.splitk_factor = splitk_factor;
   std::tie(params.use_smem_epilogue, params.promote_prologue_smem_reuse) =
       mma_utils::generateSharedMemoryEpilogueHeuristics(
@@ -298,7 +300,7 @@ int computeAutoSplitKFactor(
 static void SingleMatmulPartitionedK(
     benchmark::State& benchmark_state,
     MmaLayout layout,
-    MatmulParams params,
+    MatmulParams* mparams,
     int64_t splitk_factor) {
   int64_t M = benchmark_state.range(0);
   int64_t N = benchmark_state.range(1);
@@ -333,7 +335,7 @@ static void SingleMatmulPartitionedK(
 
   fusion->addOutput(c);
 
-  scheduleMatmul(fusion, params);
+  scheduleMatmul(fusion, mparams);
 
   at::Tensor aten_a = matmulAtInput2D(
       layout, TensorMatmulPos::A, at::kHalf, M, N, Ki, splitk_factor);
@@ -375,7 +377,6 @@ static void NvFuserScheduler_Matmul(
     bool partitionedk = false,
     bool use_smem_epilogue = false) {
   int num_warps = benchmark_state.range(3);
-  int number_of_stage = benchmark_state.range(4);
 
   auto cta_tile = GemmTile(32 * num_warps, 128, 32);
 
@@ -385,16 +386,19 @@ static void NvFuserScheduler_Matmul(
     splitk_factor = computeAutoSplitKFactor(M, N, cta_tile.m, cta_tile.n);
   }
 
-  auto params = getMatmulParams(
+  int k_stages = ceilDiv(benchmark_state.range(2), cta_tile.k);
+  int number_of_stage = std::min(k_stages, (int)benchmark_state.range(4));
+
+  auto mparams = getMatmulParams(
       cta_tile, number_of_stage, layout, partitionedk ? 1 : splitk_factor);
   if (use_smem_epilogue) {
-    if (!params.use_smem_epilogue) {
+    if (!mparams.use_smem_epilogue) {
       benchmark_state.SkipWithError(
           "Insufficient shared mem for smem epilogue");
     }
   } else {
-    params.use_smem_epilogue = false;
-    params.promote_prologue_smem_reuse = false;
+    mparams.use_smem_epilogue = false;
+    mparams.promote_prologue_smem_reuse = false;
   }
 
   NVFUSER_BENCHMARK_ARCH_SMEM_GUARD(
@@ -402,9 +406,9 @@ static void NvFuserScheduler_Matmul(
 
   // Run benchmark:
   if (partitionedk) {
-    SingleMatmulPartitionedK(benchmark_state, layout, params, splitk_factor);
+    SingleMatmulPartitionedK(benchmark_state, layout, &mparams, splitk_factor);
   } else {
-    SingleMatmulBase(benchmark_state, layout, params);
+    SingleMatmulBase(benchmark_state, layout, &mparams);
   }
 }
 
@@ -441,44 +445,42 @@ static void NvFuserScheduler_MatmulSplitKReduction(
   auto aten_c = at::randn({M, N, splitk_factor}, options);
   std::vector<c10::IValue> aten_inputs = {aten_c};
 
-  auto reduction_params = getReductionHeuristics(fusion, aten_inputs);
-  NVF_CHECK(reduction_params, "Reduction schedule failed");
-  scheduleReduction(fusion, *reduction_params);
-  auto lparams = reduction_params->lparams; // copy LaunchParams
+  auto heuristic_params = SchedulerEntry::scheduleWith(
+      fusion, SchedulerType::Reduction, aten_inputs);
 
   auto expected_output = aten_c.to(at::kDouble).sum(-1);
 
   // Disable magic zero
-  CompileParams cparams;
-  cparams.enable_magic_zero = false;
-  cparams.index_type = computeIndexType(M, N * splitk_factor, 1);
+  heuristic_params->cparams.enable_magic_zero = false;
+  heuristic_params->cparams.index_type =
+      computeIndexType(M, N * splitk_factor, 1);
 
   KernelArgumentHolder args =
       KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
 
   // Compile kernel
   FusionExecutor fe;
-  fe.compileFusion(fusion, args, lparams, cparams);
+  fe.compileFusion(
+      fusion, args, heuristic_params->lparams, heuristic_params->cparams);
 
   NVF_CHECK(
-      getBankConflictInfo(fe.kernel(), lparams).empty(),
+      getBankConflictInfo(fe.kernel(), heuristic_params->lparams).empty(),
       "Shared memory bank conflict not removed.");
 
   // Warm up run
-  auto outputs = fe.runFusion(aten_inputs, lparams);
+  auto outputs = fe.runFusion(aten_inputs, heuristic_params->lparams);
 
   checkMatch(expected_output, outputs.at(0).to(at::kDouble), splitk_factor);
 
-  runBenchmarkIterations(benchmark_state, &fe, aten_inputs, lparams);
+  runBenchmarkIterations(
+      benchmark_state, &fe, aten_inputs, heuristic_params->lparams);
 
   // TODO: FLOPS calculation
 }
 // ----------------------------- Benchmark Instantiation-------
 
-#define LegacyMs \
-  { 2048 }
-#define LegacyNs \
-  { 3456 }
+#define LegacyMs {2048}
+#define LegacyNs {3456}
 #define LegacyKs benchmark::CreateDenseRange(512, 4096, /*step=*/512)
 
 // clang-format off
@@ -532,8 +534,7 @@ static void NvFuserScheduler_MatmulSplitKReduction(
 // size. Below you will find all the factors of 108, which is the number of SMs
 // on an A100. Note that 8warp uses tile size (256, 128) in which case SplitKMs
 // should be changed to 256.
-#define SplitKMs \
-  { 128, 256 }
+#define SplitKMs {128, 256}
 
 // Dynamically find all valid values of N that divide number of SMs
 static std::vector<long int> splitKNs(long int tileN = 128) {
@@ -546,15 +547,11 @@ static std::vector<long int> splitKNs(long int tileN = 128) {
   }
   return Ns;
 }
-#define SplitKKs \
-  { 65536 }
+#define SplitKKs {65536}
 
-#define Layouts \
-  { MmaLayout::TT, MmaLayout::TN, MmaLayout::NT, MmaLayout::NN }
-#define NumWarps \
-  { 4, 8 }
-#define NumStages \
-  { 3, 4, 5 }
+#define Layouts {MmaLayout::TT, MmaLayout::TN, MmaLayout::NT, MmaLayout::NN}
+#define NumWarps {4, 8}
+#define NumStages {3, 4, 5}
 
 //! Simple cartesian product of three integers. Used to emulate ArgsProduct
 template <typename T>

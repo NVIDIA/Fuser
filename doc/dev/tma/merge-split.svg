@@ -1,0 +1,285 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!--
+ * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+-->
+
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="191mm"
+   height="87mm"
+   style="background-color:white"
+   viewBox="0 0 191 87"
+   version="1.1"
+   id="svg1"
+   inkscape:version="1.3.2 (091e20ef0f, 2023-11-25, custom)"
+   sodipodi:docname="merge-split.svg"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview1"
+     pagecolor="#ffffff"
+     bordercolor="#666666"
+     borderopacity="1.0"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:document-units="mm"
+     inkscape:zoom="1.1135662"
+     inkscape:cx="396.47395"
+     inkscape:cy="500.19477"
+     inkscape:window-width="3840"
+     inkscape:window-height="1500"
+     inkscape:window-x="0"
+     inkscape:window-y="0"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="layer1" />
+  <defs
+     id="defs1">
+    <marker
+       style="overflow:visible"
+       id="marker9"
+       refX="0"
+       refY="0"
+       orient="auto-start-reverse"
+       inkscape:stockid="Dart arrow"
+       markerWidth="1"
+       markerHeight="1"
+       viewBox="0 0 1 1"
+       inkscape:isstock="true"
+       inkscape:collect="always"
+       preserveAspectRatio="xMidYMid">
+      <path
+         style="fill:context-stroke;fill-rule:evenodd;stroke:none"
+         d="M 0,0 5,-5 -12.5,0 5,5 Z"
+         transform="scale(-0.5)"
+         id="path9" />
+    </marker>
+    <marker
+       style="overflow:visible"
+       id="DartArrow"
+       refX="0"
+       refY="0"
+       orient="auto-start-reverse"
+       inkscape:stockid="Dart arrow"
+       markerWidth="1"
+       markerHeight="1"
+       viewBox="0 0 1 1"
+       inkscape:isstock="true"
+       inkscape:collect="always"
+       preserveAspectRatio="xMidYMid">
+      <path
+         style="fill:context-stroke;fill-rule:evenodd;stroke:none"
+         d="M 0,0 5,-5 -12.5,0 5,5 Z"
+         transform="scale(-0.5)"
+         id="path6" />
+    </marker>
+    <marker
+       style="overflow:visible"
+       id="DartArrow-7"
+       refX="0"
+       refY="0"
+       orient="auto-start-reverse"
+       inkscape:stockid="Dart arrow"
+       markerWidth="1"
+       markerHeight="1"
+       viewBox="0 0 1 1"
+       inkscape:isstock="true"
+       inkscape:collect="always"
+       preserveAspectRatio="xMidYMid">
+      <path
+         style="fill:context-stroke;fill-rule:evenodd;stroke:none"
+         d="M 0,0 5,-5 -12.5,0 5,5 Z"
+         transform="scale(-0.5)"
+         id="path6-5" />
+    </marker>
+    <marker
+       style="overflow:visible"
+       id="DartArrow-9"
+       refX="0"
+       refY="0"
+       orient="auto-start-reverse"
+       inkscape:stockid="Dart arrow"
+       markerWidth="1"
+       markerHeight="1"
+       viewBox="0 0 1 1"
+       inkscape:isstock="true"
+       inkscape:collect="always"
+       preserveAspectRatio="xMidYMid">
+      <path
+         style="fill:context-stroke;fill-rule:evenodd;stroke:none"
+         d="M 0,0 5,-5 -12.5,0 5,5 Z"
+         transform="scale(-0.5)"
+         id="path6-1" />
+    </marker>
+    <marker
+       style="overflow:visible"
+       id="DartArrow-7-2"
+       refX="0"
+       refY="0"
+       orient="auto-start-reverse"
+       inkscape:stockid="Dart arrow"
+       markerWidth="1"
+       markerHeight="1"
+       viewBox="0 0 1 1"
+       inkscape:isstock="true"
+       inkscape:collect="always"
+       preserveAspectRatio="xMidYMid">
+      <path
+         style="fill:context-stroke;fill-rule:evenodd;stroke:none"
+         d="M 0,0 5,-5 -12.5,0 5,5 Z"
+         transform="scale(-0.5)"
+         id="path6-5-7" />
+    </marker>
+  </defs>
+  <g
+     inkscape:label="Layer 1"
+     inkscape:groupmode="layer"
+     id="layer1">
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-weight:normal;font-size:10.5833px;line-height:1.25;font-family:sans-serif;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.264583"
+       x="151.10197"
+       y="40.838547"
+       id="text5"><tspan
+         sodipodi:role="line"
+         id="tspan5"
+         style="text-align:center;text-anchor:middle;stroke-width:0.264583"
+         x="151.10197"
+         y="40.838547">Identity</tspan><tspan
+         sodipodi:role="line"
+         style="text-align:center;text-anchor:middle;stroke-width:0.264583"
+         x="151.10197"
+         y="54.067673"
+         id="tspan7">Transformation</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-weight:normal;font-size:50.8px;line-height:1.25;font-family:sans-serif;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.264583"
+       x="66.620049"
+       y="61.365971"
+       id="text6"><tspan
+         sodipodi:role="line"
+         id="tspan6"
+         style="font-size:50.8px;fill:#ff0000;stroke-width:0.264583"
+         x="66.620049"
+         y="61.365971">=</tspan></text>
+    <g
+       id="g8-6"
+       transform="translate(0.22951803,76.286085)">
+      <g
+         id="g11"
+         transform="translate(-4.752,-8.0784)">
+        <g
+           id="g8"
+           transform="translate(1.8801956,-76.286085)">
+          <text
+             xml:space="preserve"
+             style="font-style:normal;font-weight:normal;font-size:10.5833px;line-height:1.25;font-family:sans-serif;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.264583"
+             x="6.1993332"
+             y="17.997007"
+             id="text1"><tspan
+               sodipodi:role="line"
+               id="tspan1"
+               style="stroke-width:0.264583"
+               x="6.1993332"
+               y="17.997007">I0</tspan></text>
+          <text
+             xml:space="preserve"
+             style="font-style:normal;font-weight:normal;font-size:10.5833px;line-height:1.25;font-family:sans-serif;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.264583"
+             x="42.692299"
+             y="17.991716"
+             id="text2"><tspan
+               sodipodi:role="line"
+               id="tspan2"
+               style="stroke-width:0.264583"
+               x="42.692299"
+               y="17.991716">I1</tspan></text>
+        </g>
+        <text
+           xml:space="preserve"
+           style="font-style:normal;font-weight:normal;font-size:10.5833px;line-height:1.25;font-family:sans-serif;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.264583"
+           x="14.04079"
+           y="41.158768"
+           id="text3"
+           transform="translate(-0.22951803,-76.286085)"><tspan
+             sodipodi:role="line"
+             id="tspan3"
+             style="stroke-width:0.264583"
+             x="14.04079"
+             y="41.158768">Merge</tspan></text>
+        <text
+           xml:space="preserve"
+           style="font-style:normal;font-weight:normal;font-size:10.5833px;line-height:1.25;font-family:sans-serif;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.264583"
+           x="19.485897"
+           y="66.290398"
+           id="text4"
+           transform="translate(-0.22951803,-76.286085)"><tspan
+             sodipodi:role="line"
+             id="tspan4"
+             style="stroke-width:0.264583"
+             x="19.485897"
+             y="66.290398">Split</tspan></text>
+        <g
+           id="g7"
+           transform="translate(0.91848167,-76.286085)">
+          <path
+             style="fill:none;stroke:#000000;stroke-width:1;stroke-linecap:butt;stroke-linejoin:miter;stroke-dasharray:none;stroke-opacity:1;marker-end:url(#DartArrow)"
+             d="M 11.188932,19.358298 23.306533,30.050296"
+             id="path7" />
+          <path
+             style="fill:none;stroke:#000000;stroke-width:1;stroke-linecap:butt;stroke-linejoin:miter;stroke-dasharray:none;stroke-opacity:1;marker-end:url(#DartArrow-7)"
+             d="M 47.394277,19.358298 35.276676,30.050296"
+             id="path7-5" />
+        </g>
+        <g
+           id="g9"
+           transform="translate(4.4447029,-91.492485)">
+          <path
+             style="fill:none;stroke:#000000;stroke-width:1;stroke-linecap:butt;stroke-linejoin:miter;stroke-dasharray:none;stroke-opacity:1;marker-end:url(#DartArrow-9)"
+             d="m 24.135987,85.083469 -12.1176,10.691998"
+             id="path7-3" />
+          <path
+             style="fill:none;stroke:#000000;stroke-width:1;stroke-linecap:butt;stroke-linejoin:miter;stroke-dasharray:none;stroke-opacity:1;marker-end:url(#DartArrow-7-2)"
+             d="M 27.394778,85.083469 39.512379,95.775467"
+             id="path7-5-6" />
+        </g>
+        <path
+           style="fill:none;stroke:#000000;stroke-width:1;stroke-linecap:butt;stroke-linejoin:miter;stroke-dasharray:none;stroke-opacity:1;marker-end:url(#marker9)"
+           d="m 30.439604,43.955998 v 7.840803"
+           id="path8"
+           transform="translate(-0.22951803,-76.286085)" />
+        <g
+           id="g10"
+           transform="translate(-0.11475901,-1.5875)">
+          <text
+             xml:space="preserve"
+             style="font-style:normal;font-weight:normal;font-size:10.5833px;line-height:1.25;font-family:sans-serif;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.264583"
+             x="6.1993332"
+             y="17.997007"
+             id="text1-1"><tspan
+               sodipodi:role="line"
+               id="tspan1-8"
+               style="stroke-width:0.264583"
+               x="6.1993332"
+               y="17.997007">I0'</tspan></text>
+          <text
+             xml:space="preserve"
+             style="font-style:normal;font-weight:normal;font-size:10.5833px;line-height:1.25;font-family:sans-serif;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.264583"
+             x="42.692299"
+             y="17.991716"
+             id="text2-7"><tspan
+               sodipodi:role="line"
+               id="tspan2-9"
+               style="stroke-width:0.264583"
+               x="42.692299"
+               y="17.991716">I1'</tspan></text>
+        </g>
+      </g>
+    </g>
+  </g>
+</svg>

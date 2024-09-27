@@ -7,12 +7,20 @@
 // clang-format on
 #include <ATen/cuda/CUDAContext.h>
 #include <device_lower/utils.h>
+#include <fusion_executor/allocations.h>
 #include <fusion_segmenter.h>
+#include <host_ir/container.h>
+#include <host_ir/host_ir.h>
+#include <ir/builder.h>
 #include <ir/utils.h>
 #include <multidevice/device_mesh.h>
 #include <multidevice/executor.h>
 #include <multidevice/lower_communication.h>
 #include <multidevice/utils.h>
+#include <preseg_passes/insert_reshardings.h>
+#include <preseg_passes/make_resharding_contiguous.h>
+#include <preseg_passes/propagate_shardings.h>
+#include <preseg_passes/reorder_sharded_axis.h>
 
 namespace nvfuser {
 
@@ -48,46 +56,99 @@ std::unique_ptr<Fusion> copyFusionAndChangeOutputs(
 MultiDeviceExecutor::MultiDeviceExecutor(
     std::unique_ptr<Fusion> fusion,
     Communicator& comm,
-    MultiDeviceExecutorParams params)
-    : comm_(comm), params_(params) {
+    hir::HostIrExecutorParams params)
+    : comm_(comm), complete_fusion_(std::move(fusion)) {
   // Sharding PreSegmenter passes.
   // Note: passes run before PreSegmenter optimization passes.
-  propagateShardings(fusion.get());
-  insertReshardings(fusion.get());
-  insertShardedAxisReordering(fusion.get());
-  setShardedAllocationDomain(fusion.get());
+  preseg_passes::OptimizationPass<
+      preseg_passes::PropagateShardingsPass>::runPass(complete_fusion_.get());
+  preseg_passes::OptimizationPass<
+      preseg_passes::InsertReshardingsPass>::runPass(complete_fusion_.get());
+  preseg_passes::OptimizationPass<
+      preseg_passes::ReorderShardedAxisPass>::runPass(complete_fusion_.get());
+  preseg_passes::OptimizationPass<preseg_passes::MakeReshardingContiguousPass>::
+      runPass(complete_fusion_.get());
+
+  // Performs segmentation at the inter-device communications
+  // Each SegmentedGroup represents a pipeline's stage, and can be either
+  // 1) a Fusion which doesn't involve inter-device communication
+  // 2) a Fusion comprised of one Expr, representing inter-device communication
   SegmentCandidateFinderOptions options{
       .run_translate_welford = false,
       .run_combine_reductions = false,
       .run_herrmann_merge = true,
       .run_final_merge = true,
       .only_segment_resharding_exprs = true};
+  std::unique_ptr<SegmentedFusion> staged_fusion =
+      SegmentCandidateFinder::segment(
+          std::make_unique<Fusion>(*complete_fusion_), nullptr, options);
+  // Infer a topologically ordered traversal of the segmented fusion to
+  // determine the order for launching the kernels/comms
+  RuntimeWorkSpace workspace;
+  prepareRuntimeOrder(staged_fusion.get(), workspace);
 
-  staged_fusion_ =
-      SegmentCandidateFinder::segment(std::move(fusion), nullptr, options);
+  // Create the HostIrContainer representing the host program. Each segment of
+  // the segmented fusion will be translated to a HostIR
+  auto hic = std::make_unique<hir::HostIrContainer>();
+  FusionGuard fg(hic.get());
+  IrCloner ir_cloner(hic.get());
+  auto clone =
+      [&ir_cloner](const std::vector<Val*>& vals) -> std::vector<Val*> {
+    std::vector<Val*> cloned_vals(vals.size());
+    std::transform(
+        vals.begin(), vals.end(), cloned_vals.begin(), [&ir_cloner](Val* val) {
+          return ir_cloner.clone(val);
+        });
+    return cloned_vals;
+  };
 
-  for (auto group : staged_fusion_->groups()) {
+  for (auto group : workspace.group_run_order) {
+    std::vector<Expr*> host_exprs;
     NVF_ERROR(!group->exprs().empty(), "invalid segmentation");
-    is_resharding_[group] = std::any_of(
+    if (involvedDevices(group->exprs().at(0)).count(comm_.deviceId()) == 0) {
+      continue;
+    }
+    const bool is_resharding = std::any_of(
         group->exprs().begin(), group->exprs().end(), [](auto expr) {
           return isResharding(expr);
         });
-    NVF_ERROR(
-        !is_resharding_[group] || group->exprs().size() == 1,
-        "Communications cannot be fused");
-    auto expr = group->exprs().at(0);
-    should_run_[group] = involvedDevices(expr).count(comm_.deviceId());
+    if (!is_resharding) {
+      auto host_unit = IrBuilder::create<hir::HostUnit>(
+          staged_fusion->makeFusion(group).second);
+      auto post_on_stream = IrBuilder::create<hir::PostOnStream>(
+          host_unit, clone(group->inputs()), clone(group->outputs()));
+      hic->pushBackTopLevelExprs(post_on_stream);
+    } else {
+      NVF_ERROR(
+          group->exprs().size() == 1,
+          "Communication segments must contain only one Expr");
+      std::vector<Communication*> communications =
+          lowerCommunication(ir_cloner.clone(group->exprs().at(0)));
+      for (Communication* communication : communications) {
+        auto wait = IrBuilder::create<hir::Wait>(communication);
+        hic->pushBackTopLevelExprs(communication);
+        hic->pushBackTopLevelExprs(wait);
+      }
+    }
   }
-  // prepare the order in which to launch the kernels/comms
-  prepareRuntimeOrder(staged_fusion_.get(), workspace);
+  for (auto input : staged_fusion->inputs()) {
+    hic->addInput(ir_cloner.clone(input));
+  }
+  for (auto output : staged_fusion->outputs()) {
+    hic->addOutput(ir_cloner.clone(output));
+  }
+
+  // Create the HostIrExecutor representing the host program
+  host_ir_executor_ =
+      std::make_unique<hir::HostIrExecutor>(std::move(hic), &comm, params);
 
   // Allocator setup
   // vals_to_allocate_ stores the tensors that need to be allocated at runtime,
   // which correspond to the destination buffers of interdevice communications.
   // TODO: reuse allocated buffers and support inplace collectives
-  for (SegmentedGroup* group : staged_fusion_->groups()) {
-    if (is_resharding_[group]) {
-      NVF_ERROR(group->exprs().size() == 1);
+  // TODO: handle allocation as Host Ir
+  for (SegmentedGroup* group : staged_fusion->groups()) {
+    if (isResharding(group->exprs().at(0))) {
       NVF_ERROR(group->exprs().at(0)->outputs().size() == 1);
       auto val = group->exprs().at(0)->outputs().at(0);
       NVF_ERROR(val->isA<TensorView>());
@@ -98,143 +159,39 @@ MultiDeviceExecutor::MultiDeviceExecutor(
       }
     }
   }
-  allocator_fusion_ =
-      copyFusionAndChangeOutputs(completeFusion(), vals_to_allocate_);
-}
-
-void MultiDeviceExecutor::postKernel(
-    SegmentedGroup* group,
-    const LaunchParams& launch_params) {
-  if (!should_run_.at(group)) {
-    return;
-  }
-  // get the IValues corresponding to the group's input
-  std::vector<c10::IValue> group_input_IValues;
-  for (auto& input : group->inputs()) {
-    NVF_ERROR(
-        val_to_IValue_.find(input) != val_to_IValue_.end(),
-        "Device ",
-        comm_.deviceId(),
-        " has no buffer associated with Val ",
-        input,
-        " for handling group ",
-        toString(group));
-    NVF_ERROR(val_to_IValue_.at(input).isTensor());
-    group_input_IValues.push_back(val_to_IValue_.at(input));
-  }
-
-  // placeholder for storing the group's outputs
-  std::vector<at::Tensor> outputs;
-
-  // Compile the group and execute it with FusionExecutor
-  // Check if the executor has been cached. If not, create and cache it
-  if (params_.use_fusion_executor_cache) {
-    auto fusion = staged_fusion_->makeFusion(group).second;
-    fec_.try_emplace(
-        group, std::move(fusion), 0, !params_.skip_auto_scheduling);
-    outputs = fec_.at(group).runFusionWithInputs(group_input_IValues);
-  } else {
-    auto [it, has_emplaced] = fe_.try_emplace(group);
-    auto& fe = it->second;
-    if (has_emplaced) {
-      auto fusion = staged_fusion_->makeFusion(group).second;
-      fe.compileFusion(fusion.get(), group_input_IValues, launch_params);
-    }
-    outputs = fe.runFusion(group_input_IValues, launch_params);
-    if (!params_.cache_fusion_executor) {
-      fe_.erase(group);
-    }
-  }
-
-  // Store the outputs in the context
-  for (auto output_idx : c10::irange(outputs.size())) {
-    val_to_IValue_[group->outputs().at(output_idx)] = outputs.at(output_idx);
-  }
-}
-
-void MultiDeviceExecutor::postCommunication(SegmentedGroup* group) {
-  // Lower the group into a vector of Communications
-  NVF_ERROR(
-      group->exprs().size() == 1,
-      "Communication segments must contain only one Expr");
-  auto expr = group->exprs().at(0);
-  NVF_ERROR(
-      expr->inputs().size() == 1, "Communication must have exactly one input");
-  NVF_ERROR(
-      expr->outputs().size() == 1,
-      "Communication must have exactly one output");
-
-  auto communications = lowerCommunication(comm_.deviceId(), expr);
-
-  // Compute input_tensor and output_tensor.
-  auto input_val = expr->inputs().at(0);
-  auto output_val = expr->outputs().at(0);
-  at::Tensor input_tensor;
-  if (val_to_IValue_.find(input_val) != val_to_IValue_.end()) {
-    input_tensor = val_to_IValue_.at(input_val).toTensor();
-  }
-  at::Tensor output_tensor;
-  if (val_to_IValue_.find(output_val) != val_to_IValue_.end()) {
-    output_tensor = val_to_IValue_.at(output_val).toTensor();
-  }
-
-  // post and wait communications
-  for (Communication* communication : communications) {
-    c10d::Backend* backend =
-        comm_.getBackendForTeam(communication->team(), std::nullopt);
-    c10::intrusive_ptr<c10d::Work> work = postSingleCommunication(
-        communication, comm_.deviceId(), backend, input_tensor, output_tensor);
-    if (work != nullptr) {
-      work->wait();
-    }
-  }
+  allocator_fusion_ = copyFusionAndChangeOutputs(
+      staged_fusion->completeFusion(), vals_to_allocate_);
+  vals_to_allocate_ = clone(vals_to_allocate_);
 }
 
 std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
-    const std::vector<c10::IValue>& inputs,
-    const LaunchParams& launch_params) {
+    const std::vector<c10::IValue>& inputs) {
   // make sure the communicator can run the Fusion (e.g. there is enough GPUs,
   // etc)
   auto error_msg = validate();
   NVF_ERROR(error_msg.empty(), error_msg);
 
+  // Stores concrete computed values,
+  std::unordered_map<Val*, c10::IValue> val_to_IValue;
+
   // Make sure inputs align at global boundary.
   NVF_ERROR(
-      inputs.size() == staged_fusion_->inputs().size(),
+      inputs.size() == host_ir_executor_->inputs().size(),
       "Wrong number of inputs");
+  // process input values:
+  for (auto input_idx : c10::irange(inputs.size())) {
+    val_to_IValue[host_ir_executor_->inputs().at(input_idx)] =
+        inputs.at(input_idx);
+  }
 
   auto allocations =
       allocOutputSpace(inputs, allocator_fusion_.get(), comm()->device());
   NVF_ERROR(vals_to_allocate_.size() == allocations.size());
   for (auto i : c10::irange(allocations.size())) {
-    val_to_IValue_[vals_to_allocate_.at(i)] = allocations.at(i);
+    val_to_IValue[vals_to_allocate_.at(i)] = allocations.at(i);
   }
 
-  // process input values:
-  for (auto input_idx : c10::irange(inputs.size())) {
-    val_to_IValue_[staged_fusion_->inputs().at(input_idx)] =
-        inputs.at(input_idx);
-  }
-
-  // Run through the groups to launch kernels and comms
-  for (auto group : workspace.group_run_order) {
-    if (!is_resharding_.at(group)) {
-      postKernel(group, launch_params);
-    } else {
-      postCommunication(group);
-    }
-  }
-
-  // Collect global outputs from context
-  std::vector<at::Tensor> outputs;
-  for (auto output_val : staged_fusion_->outputs()) {
-    auto output = (val_to_IValue_.find(output_val) != val_to_IValue_.end())
-        ? val_to_IValue_.at(output_val).toTensor()
-        : at::Tensor();
-    outputs.push_back(output);
-  }
-
-  return outputs;
+  return host_ir_executor_->runWithInput(val_to_IValue);
 }
 
 std::string MultiDeviceExecutor::validate() const {
@@ -258,23 +215,8 @@ std::string MultiDeviceExecutor::validate() const {
   return "";
 }
 
-std::ostream& MultiDeviceExecutor::print() {
-  int compute_segment_counter = 0;
-  int communication_counter = 0;
-  for (auto group : workspace.group_run_order) {
-    if (is_resharding_[group]) {
-      debug() << "Communication " << communication_counter << ": "
-              << group->exprs().at(0) << "\n";
-      communication_counter++;
-    } else {
-      debug() << "Compute segment " << compute_segment_counter << ":{\n";
-      auto fusion = staged_fusion_->makeFusion(group).second;
-      fusion->print();
-      debug() << "}\n";
-      compute_segment_counter++;
-    }
-  }
-  return debug();
+std::ostream& MultiDeviceExecutor::print(std::ostream& os) {
+  return host_ir_executor_->print(os);
 }
 
 } // namespace nvfuser

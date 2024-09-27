@@ -301,7 +301,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                 << var_name_ss.str();
         } else {
           code_ << "Tensor<" << param->dtype() << ", "
-                << TensorDomain::noReductions(tv->getRFactorDomain()).size()
+                << TensorDomain::noReductions(tv->getLogicalDomain()).size()
                 << ", "
                 << TensorDomain::noReductions(tv->getMaybeAllocationDomain())
                        .size()
@@ -457,7 +457,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       // This expr should just be an individul expr with no nested
       // scope
       NVF_ERROR(
-          !stmt->isA<kir::IfThenElse>() && !stmt->isA<kir::ForLoop>(),
+          !stmt->isA<kir::IfThenElse>() && !stmt->isA<ForLoop>(),
           "Invalid expr: ",
           stmt->toString());
     } else {
@@ -539,7 +539,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       }
       code_ << "}";
     } else {
-      NVF_ERROR(false, "Unhandled constant type: ", dtype, " ", value);
+      NVF_THROW("Unhandled constant type: ", dtype, " ", value);
     }
   }
 
@@ -579,11 +579,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void handle(const kir::TensorIndex* ti) final {
-    bool is_volatile = ti->view()->getMemoryType() == MemoryType::Global &&
-        kernel_->summary().sync_map->needsRawSync(ti->view()).hasBID();
-    bool is_pointer = isPointerType(ti->index()->dtype());
-    if (is_pointer) {
-      bool is_u32_ptr = ti->index()->dtype() == DataType::SMemAddress;
+    if (isPointerType(ti->index()->dtype())) {
+      const bool is_u32_ptr = ti->index()->dtype() == DataType::SMemAddress;
       if (is_u32_ptr) {
         // DataType::SMemAddress is implemented as uint32_t in C++. The problem
         // for this implementation is, the type promotion rule in C++ for
@@ -598,10 +595,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       }
       return;
     }
-    bool different_dtype = ti->view()->dtype() != ti->dtype();
-    if (is_volatile) {
+
+    if (ti->view()->getMemoryType() == MemoryType::Global &&
+        kernel_->summary().sync_map->needsRawSync(ti->view()).hasBID()) {
       code_ << "*(volatile " << ti->getDataType().value() << "*)&";
     }
+
+    const bool different_dtype = ti->view()->dtype() != ti->dtype();
     if (different_dtype) {
       code_ << "(*reinterpret_cast<" << ti->getDataType().value() << "*>(&";
     }
@@ -613,11 +613,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void handle(const IterDomain*) final {
-    NVF_ERROR(false, "Unreachable");
+    NVF_THROW("Unreachable");
   }
 
   void handle(const TensorDomain*) final {
-    NVF_ERROR(false, "Unreachable");
+    NVF_THROW("Unreachable");
   }
 
   void handle(const TensorView* tv) final {
@@ -786,17 +786,19 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     indent() << "}\n";
     auto op_type = rop->getRNGOpType();
     indent() << gen(rop->output(0)) << " = " << op_type;
-    if (needFloatSuffix(op_type) && rop->dtype() == DataType::Float) {
-      code_ << "f";
+    if (needFloatSuffix(op_type)) {
+      if (rop->dtype() == DataType::Float) {
+        code_ << "f";
+      } else if (rop->dtype() == DataType::BFloat16) {
+        code_ << "_bfloat";
+      } else if (rop->dtype() == DataType::Half) {
+        code_ << "_half";
+      }
+      // Generate other datatypes in double
     }
     code_ << "(rng_result, rng_component" << rop->name();
     switch (op_type) {
-      case RNGOpType::UniformRange: {
-        auto parameters = rop->getParameters();
-        NVF_ERROR(parameters.size() == 2);
-        code_ << ", " << gen(parameters[0]) << ", " << gen(parameters[1]);
-        break;
-      }
+      case RNGOpType::UniformRange:
       case RNGOpType::NormalGeneral: {
         auto parameters = rop->getParameters();
         NVF_ERROR(parameters.size() == 2);
@@ -1081,7 +1083,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       // non-deterministic
       indent() << gen(sop->output(0)) << " = " << gen(sop->input(2)) << ";\n";
     } else {
-      NVF_ERROR(false, "unkown scatterOp");
+      NVF_THROW("unkown scatterOp");
     }
   }
 
@@ -1244,6 +1246,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     auto optype = ldst->opType();
     NVF_ERROR(
         optype != LoadStoreOpType::LdMatrix &&
+            optype != LoadStoreOpType::StMatrix &&
             optype != LoadStoreOpType::CpAsync,
         "ldmatrix and cp.async should be lowered as kir::Asm");
 
@@ -1253,8 +1256,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
       // dispatch mma initialization
       if (std::any_of(
-              out_tv->getLeafDomain().begin(),
-              out_tv->getLeafDomain().end(),
+              out_tv->getLoopDomain().begin(),
+              out_tv->getLoopDomain().end(),
               [&](IterDomain* id) { return id->isMma(); })) {
         auto mma = dynamic_cast<MmaOp*>(out_tv->definition());
         NVF_ERROR(mma != nullptr, "CodeGen: mma op not in mma loop");
@@ -1285,10 +1288,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         NVF_ERROR(optype == LoadStoreOpType::Set);
         if (ldst->in()->isScalar()) {
           // Note:
-          //  Double buffered local tensors need indexed initialization,
+          //  Circular buffered local tensors need indexed initialization,
           //   so will need to use `arraySet` option.
           if (out_tv->getMemoryType() == MemoryType::Local &&
-              !(out_tv->isDoubleBuffered() || out_tv->isCircularBuffered())) {
+              !out_tv->isCircularBuffered()) {
             // Vectorized initialization, explicit type conversion is needed for
             // complex numbers
             indent() << genVariableName(out_tv) << ".set("
@@ -1971,8 +1974,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       }
       return;
     } else {
-      NVF_ERROR(
-          false, "Non-allreduce grouped grid welford is not yet supported");
+      NVF_THROW("Non-allreduce grouped grid welford is not yet supported");
     }
   }
 
@@ -2025,7 +2027,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         grouped_loops_.begin(),
         grouped_loops_.end(),
         std::back_inserter(loop_indices),
-        [](const kir::ForLoop* loop) { return loop->index(); });
+        [](const ForLoop* loop) { return loop->index(); });
 
     // All combinations of loop index integer values
     const auto index_val_sets = getGroupedLoopIndexConcreteIntSets();
@@ -2682,7 +2684,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       states[pt] = ReductionParallelTypeState::Iter;
     }
 
-    for (auto id : alloc_fused_reduction->out()->view()->getLeafDomain()) {
+    for (auto id : alloc_fused_reduction->out()->view()->getLoopDomain()) {
       auto pt = id->getParallelType();
       if (isParallelTypeThread(pt)) {
         auto state = id->isReduction() ? ReductionParallelTypeState::Reduce
@@ -2718,7 +2720,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
              << reduction_name << ";\n";
   }
 
-  void handleTrivialLoop(const kir::ForLoop* loop) {
+  void handleTrivialLoop(const ForLoop* loop) {
     if (loop->vectorize()) {
       vectorize_scope_ = true;
     }
@@ -2748,10 +2750,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         par_domains.find(ParallelType::TIDz) != par_domains.end() &&
         par_domains.at(ParallelType::TIDz)->isReduction();
 
+    NVF_ERROR(
+        !tidx && tidy && !tidz,
+        "blockIterGroupedYdimReduce only supports reduction along TIDy");
+
     const auto data_type = output->dtype();
 
     ArgumentBuilder template_args;
-    template_args.arg(tidx).arg(tidy).arg(tidz);
     template_args.arg(isAligned());
     template_args.arg(num_grouped_iterations);
 
@@ -2778,7 +2783,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
     func_args.arg(genCall(data_type, genInline(init)));
 
-    indent() << genCall("blockIterGroupedReduce", template_args, func_args)
+    indent() << genCall("blockIterGroupedYdimReduce", template_args, func_args)
              << ";\n";
   }
 
@@ -2852,13 +2857,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void handle(const GroupedWelfordOp* grouped_wop) final {
-    NVF_ERROR(
-        false,
+    NVF_THROW(
         "Should not reach here as grouped welford is only enabled for grid welford,",
         " which is handled by its own handler");
   }
 
-  void handle(const kir::ForLoop* loop) final {
+  void handle(const ForLoop* loop) final {
     if (loop->isTrivial()) {
       handleTrivialLoop(loop);
       return;
@@ -2890,20 +2894,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       indent() << "#pragma unroll 1\n";
     }
 
-    indent() << "for(nvfuser_index_t " << gen_index;
-    if (loop->iter_domain()->isParallelized()) {
-      code_ << " = " << gen_start << "; ";
-    } else {
-      // Do not start at  the start of the ID when not parallelized. Instead,
-      // start at 0. Predicates will protect buffers between 0 and ID->start(),
-      // however if we started at ID->start and extent == ID->start, we could
-      // have a "degenerate" loop (loop with no iterations). It may not be an
-      // issue to have a 0-sized loop, but all potential consequences haven't
-      // been covered. One example is WAR analysis which could incorrectly think
-      // a barrier inside a 0-sized loop actually provides protection.
-      code_ << " = 0; ";
-    }
-    code_ << gen_index << " < " << gen_stop << "; " << step_code.str() << ") ";
+    indent() << "for(nvfuser_index_t " << gen_index << " = " << gen_start
+             << "; " << gen_index << " < " << gen_stop << "; "
+             << step_code.str() << ") ";
     startBlock(true);
     kir::ConstIrVisitor::handle(loop);
     endBlock();
@@ -3011,7 +3004,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           }
         } break;
         default:
-          NVF_ERROR(false, "Unexpected memory type");
+          NVF_THROW("Unexpected memory type");
       }
     }
   }
@@ -3372,7 +3365,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   //! should be inlined.
   std::unordered_set<const Val*> alloc_set_;
   //! Keep track of grouped loops
-  std::deque<const kir::ForLoop*> grouped_loops_;
+  std::deque<const ForLoop*> grouped_loops_;
   //! Used to replace symbolic indices with concrete values
   std::unordered_map<const Val*, int64_t> index_replacement_map_;
   //! Keep track of thread alignment property

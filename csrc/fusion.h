@@ -11,8 +11,10 @@
 #include <exceptions.h>
 
 #include <debug.h>
-#include <executor_params.h>
+#include <fusion_executor/executor_params.h>
+#include <fusion_guard.h>
 #include <ir/base_nodes.h>
+#include <ir/cloner.h>
 #include <ir/container.h>
 #include <iter_visitor.h>
 #include <visibility.h>
@@ -25,11 +27,11 @@
 
 namespace nvfuser {
 
-//! Usage: FusionGuard and Fusion are required user interfaces for any operation
-//! underlying the code generator. In order to create values, expressions, and
-//! generate code a Fusion instance must be active. It is the responsibility of
-//! the user to create a Fusion instance and register it with the fusion guard.
-//! The simplest example of this is:
+//! Usage: FusionGuard (defined in fusion_guard.h) and Fusion are required user
+//! interfaces for any operation underlying the code generator. In order to
+//! create values, expressions, and generate code a Fusion instance must be
+//! active. It is the responsibility of the user to create a Fusion instance and
+//! register it with the fusion guard. The simplest example of this is:
 //!
 //!     Fusion fusion;
 //!     FusionGuard fg(&fusion);
@@ -64,24 +66,6 @@ class SegmentedFusion;
 class KernelArgumentHolder;
 
 class DynamicTransformConcretizationInfo;
-
-//! Fusion Guard is our "context manager". It holds the active fusion and
-//! allows it to be accessed anywhere through FusionGuard::getCurFusion()
-class FusionGuard {
- public:
-  //! Set the active fusion so it can be manipulated.
-  NVF_API explicit FusionGuard(Fusion* fusion);
-
-  NVF_API ~FusionGuard();
-
-  NVF_API static Fusion* getCurFusion();
-  static void setCurFusion(Fusion* fusion);
-
- private:
-  Fusion* prev_fusion_;
-
-  static thread_local Fusion* active_fusion_;
-};
 
 // Set the enum base to `int` so it can be safely serialized as a part of
 // serde::InputOutputAlias.
@@ -145,6 +129,9 @@ class NVF_API Fusion : public IrContainer {
 
   //! Register input as an input of the fusion
   void addInput(Val* input);
+
+  //! Add output to outputs_ without modifying hide_output
+  void addOutputInternal(Val* output);
 
   //! Register output as an output of the fusion
   void addOutput(Val* output);
@@ -259,28 +246,6 @@ class NVF_API Fusion : public IrContainer {
   //! describing how they alias. Returns <nullptr,nullptr> when `output` is not
   //! aliased.
   const AliasInfo& getOutputAlias(const Val* output) const;
-
-  // mark input at index to be permuted by permutation
-  void setPermutationOnInput(int index, std::vector<int64_t> permutation) {
-    permuted_input_map_.insert({index, permutation});
-  }
-
-  // mark output at index to be restored by permutation
-  void setPermutationOnOutput(int index, std::vector<int64_t> permutation) {
-    permuted_output_map_.insert({index, permutation});
-  }
-
-  // return a map of indices to permutation, which indicates all input tensors
-  // that needs to be permuted
-  const PermutationMap& getPermutationInputMap() const {
-    return permuted_input_map_;
-  }
-
-  // return a map of indices to permutation, which indicates all output tensors
-  // that needs to be permuted
-  const PermutationMap& getPermutationOutputMap() const {
-    return permuted_output_map_;
-  }
 
   bool isTVUseInfoValid() {
     return all_tv_uses_valid_;
@@ -448,6 +413,25 @@ class NVF_API Fusion : public IrContainer {
     expected_dynamic_smem_bytes_ = bytes;
   }
 
+  //! This is a cached version of ir_utils::allTvs that is invalidated. Return a
+  //! copy of the vector instead of a reference as it can be invalidated by many
+  //! operations. If we returned a reference and are iterating on it while
+  //! making modifications to the fusion, it can easily cause a segfault.
+  std::vector<TensorView*> allTvs();
+
+  //! Specify id0 and id1 are mapped in the Exact graph. This should
+  //! be used only when absolutely necessary.
+  //!
+  //! Currently, id0->sameAs(id1) needs to hold. It will be an error
+  //! otherwise.
+  void registerExactMapping(IterDomain* id0, IterDomain* id1);
+
+  bool hasRegisteredExactMappings() const {
+    return hasManaged(exact_mappings_key);
+  }
+
+  DisjointSets<IterDomain*> registeredExactMappings() const;
+
  protected:
   friend SegmentCandidateFinder;
   friend SegmentedFusion;
@@ -475,8 +459,9 @@ class NVF_API Fusion : public IrContainer {
 
   //! Declare that TensorView uses need to be updated (but don't actually do
   //! the update).
-  void invalidateTvUses() {
+  void invalidateTvsAndUses() {
     all_tv_uses_valid_ = false;
+    all_tvs_ptr_.reset();
   }
 
  private:
@@ -492,12 +477,6 @@ class NVF_API Fusion : public IrContainer {
   // io alias pointing from output to input
   std::unordered_map<const Val*, AliasInfo> io_alias_;
 
-  // See Note [ Permutation support in nvfuser ]
-  // map from indices of input tensor to permutation
-  PermutationMap permuted_input_map_;
-  // map from indices of output tensor to permutation
-  PermutationMap permuted_output_map_;
-
   // Records if the current use data in the IR nodes are valid
   //  the states are either all valid or all invalid
   bool all_tv_uses_valid_ = false;
@@ -510,7 +489,27 @@ class NVF_API Fusion : public IrContainer {
   // If set to a non-negative value during scheduling, this will be checked by
   // the executor.
   int64_t expected_dynamic_smem_bytes_ = -1LL;
+
+  std::unique_ptr<std::vector<TensorView*>> all_tvs_ptr_ = nullptr;
+
+  inline static const std::string exact_mappings_key = "exact_mappings";
 };
+
+template <typename T>
+size_t Fusion::manage(T data) {
+  std::any a = data;
+  return manage(a, [](IrCloner& cloner, std::any data) {
+    return std::any(cloner.clone(std::any_cast<T>(data)));
+  });
+}
+
+template <typename T>
+void Fusion::manage(std::string key, T data) {
+  std::any a = data;
+  manage(key, a, [](IrCloner& cloner, std::any data) {
+    return std::any(cloner.clone(std::any_cast<T>(data)));
+  });
+}
 
 // Returns true if all fusion outputs are expression evaluated.
 bool isExpressionEvaluated(Fusion* fusion);

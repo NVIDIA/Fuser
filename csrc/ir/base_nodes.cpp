@@ -60,16 +60,12 @@ bool Statement::lessThan(const Statement* stmt1, const Statement* stmt2) {
 }
 
 std::string Statement::toString(int indent_size) const {
-  NVF_ERROR(
-      false, "toString for IR node ", typeid(*this).name(), " is not defined");
+  NVF_THROW("toString for IR node ", typeid(*this).name(), " is not defined");
 }
 
 std::string Statement::toInlineString(int indent_size) const {
-  NVF_ERROR(
-      false,
-      "toInlineString for IR node ",
-      typeid(*this).name(),
-      " is not defined");
+  NVF_THROW(
+      "toInlineString for IR node ", typeid(*this).name(), " is not defined");
 }
 
 Fusion* Statement::fusion() const {
@@ -110,7 +106,7 @@ bool Val::removeUse(Expr* expr) {
     uses_.erase(it);
     if (this->isA<TensorView>()) {
       // Call for a rebuild of uses_ vector
-      fusion()->invalidateTvUses();
+      fusion()->invalidateTvsAndUses();
     }
     return true;
   }
@@ -196,6 +192,14 @@ bool Val::isConstScalar() const {
   if (!isScalar()) {
     return false;
   }
+  // elect.sync ptx picks a leader thread from membermask.
+  // It cannot be evaluated at compile-time.
+  if (Expr* def = definition()) {
+    if (def->isA<UnaryOp>() &&
+        def->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::ElectSync) {
+      return false;
+    }
+  }
   return ir_utils::dependenciesSatisfied(this);
 }
 
@@ -218,19 +222,21 @@ PolymorphicValue Val::evaluate() {
 }
 
 bool Val::isZero() const {
-  return value().hasValue() && value() == 0;
+  return value().hasValue() && (bool)(value() == 0.0);
 }
 
 bool Val::isZeroInt() const {
-  return value().hasValue() && value().is<int64_t>() && value() == 0;
+  return value().hasValue() && value().is<int64_t>() &&
+      value().as<int64_t>() == 0;
 }
 
 bool Val::isOne() const {
-  return value().hasValue() && value() == 1;
+  return value().hasValue() && (bool)(value() == 1.0);
 }
 
 bool Val::isOneInt() const {
-  return value().hasValue() && value().is<int64_t>() && value() == 1;
+  return value().hasValue() && value().is<int64_t>() &&
+      value().as<int64_t>() == 1;
 }
 
 bool Val::isTrue() const {
@@ -244,23 +250,6 @@ bool Val::isFalse() const {
 std::optional<DataType> Val::getDataType() const {
   NVF_ERROR(dtype_ != DataType::Null, "Value does not have a data type.");
   return dtype_;
-}
-
-bool Val::isProducerOf(const Val* other) const {
-  NVF_ERROR(other != nullptr);
-  NVF_ERROR(container() == other->container());
-
-  if (definition() == nullptr) {
-    return false;
-  }
-  return std::any_of(
-      definition()->inputs().begin(),
-      definition()->inputs().end(),
-      [other](const Val* input) { return input == other; });
-}
-
-bool Val::isConsumerOf(const Val* other) const {
-  return other->isProducerOf(this);
 }
 
 // We don't register with the active fusion in Expr as this needs to be done
@@ -393,8 +382,7 @@ Expr* Expr::withWritePredicate(kir::Predicate* predicate) {
 std::vector<PolymorphicValue> Expr::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-  NVF_ERROR(
-      false,
+  NVF_THROW(
       "`evaluate` method for expression ",
       getOpString(),
       " is not defined. ",
@@ -417,7 +405,7 @@ std::vector<PolymorphicValue> Expr::evaluate(
 }
 
 void Expr::addDataAttribute(PolymorphicValue attr) {
-  addAttribute(IrBuilder::create<Val>(container(), std::move(attr)));
+  addAttribute(IrBuilder::createInContainer<Val>(container(), std::move(attr)));
 }
 
 } // namespace nvfuser

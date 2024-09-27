@@ -3,10 +3,10 @@
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
 from nvfuser import FusionDefinition, DataType
-from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
+from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype, clear_cuda_cache
 from .core import (
     run_benchmark,
-    clear_cuda_cache,
+    clear_dynamo_cache,
     unary_bwd_torch,
     compute_total_iobytes,
 )
@@ -194,13 +194,16 @@ def test_dropout_layernorm_bwd_nvf_benchmark(
 @pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
-def test_dropout_layernorm_fwd_baseline_benchmark(
+def test_dropout_layernorm_bwd_baseline_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
     compile: bool,
 ):
     clear_cuda_cache()
+    if compile:
+        clear_dynamo_cache()
+
     dropout_p = 0.2
     input1 = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
     input2 = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)

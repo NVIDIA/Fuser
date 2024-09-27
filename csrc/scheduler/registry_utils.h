@@ -11,7 +11,7 @@
 namespace nvfuser {
 
 class TensorView;
-class ComputeAtRootDomainMap;
+class ComputeAtLogicalDomainMap;
 class ComputeAtMap;
 class ExpressionEvaluator;
 class KernelArgumentHolder;
@@ -21,7 +21,7 @@ namespace registry_utils {
 bool checkPatternEquivalence(
     TensorView* out_tv0,
     TensorView* out_tv1,
-    const ComputeAtRootDomainMap& root_map);
+    const ComputeAtLogicalDomainMap& logical_map);
 
 // Reusing some code from lowering specifically in lower_trivial_broadcast.cpp
 // ConcretizedBroadcastDomains::maybeNonUniquelyConcretized this checks if
@@ -34,7 +34,7 @@ bool hasNonUniqueBcast(Fusion* fusion);
 // TODO: remove this requirement entirely
 bool rejectScheduleForMemoryPromotion(
     Fusion* fusion,
-    ScheduleHeuristic schedule_strategy);
+    SchedulerType scheduler_type);
 
 bool isConnectedFusionGraph(Fusion* fusion);
 

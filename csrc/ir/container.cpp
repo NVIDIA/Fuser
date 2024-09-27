@@ -6,9 +6,11 @@
  */
 // clang-format on
 #include <instrumentation.h>
+#include <ir/base_nodes.h>
 #include <ir/builder.h>
 #include <ir/cloner.h>
 #include <ir/container.h>
+#include <ir/internal_nodes.h>
 
 namespace nvfuser {
 
@@ -243,7 +245,8 @@ bool IrContainer::inContainer(const Statement* stmt) const {
 // Shortcuts for frequently used vals
 Val* IrContainer::zeroVal() {
   if (!zero_val_) {
-    auto zero_val = IrBuilder::create<Val>(this, 0L, DataType::Index);
+    auto zero_val =
+        IrBuilder::createInContainer<Val>(this, 0L, DataType::Index);
     NVF_ERROR(vals_up_.back().get() == zero_val);
     zero_val_ = std::unique_ptr<Val>(vals_up_.back().release());
     vals_up_.pop_back();
@@ -258,13 +261,13 @@ Val* IrContainer::zeroVal(DataType dtype) {
     return falseVal();
   } else {
     // NOTE: this does not cache values
-    return IrBuilder::create<Val>(this, 0L, dtype);
+    return IrBuilder::createInContainer<Val>(this, 0L, dtype);
   }
 }
 
 Val* IrContainer::oneVal() {
   if (!one_val_) {
-    auto one_val = IrBuilder::create<Val>(this, 1L, DataType::Index);
+    auto one_val = IrBuilder::createInContainer<Val>(this, 1L, DataType::Index);
     NVF_ERROR(vals_up_.back().get() == one_val);
     one_val_ = std::unique_ptr<Val>(vals_up_.back().release());
     vals_up_.pop_back();
@@ -279,13 +282,14 @@ Val* IrContainer::oneVal(DataType dtype) {
     return trueVal();
   } else {
     // NOTE: this does not cache values
-    return IrBuilder::create<Val>(this, 1L, dtype);
+    return IrBuilder::createInContainer<Val>(this, 1L, dtype);
   }
 }
 
 Val* IrContainer::falseVal() {
   if (!false_val_) {
-    auto false_val = IrBuilder::create<Val>(this, false, DataType::Bool);
+    auto false_val =
+        IrBuilder::createInContainer<Val>(this, false, DataType::Bool);
     NVF_ERROR(vals_up_.back().get() == false_val);
     false_val_ = std::unique_ptr<Val>(vals_up_.back().release());
     vals_up_.pop_back();
@@ -295,7 +299,8 @@ Val* IrContainer::falseVal() {
 
 Val* IrContainer::trueVal() {
   if (!true_val_) {
-    auto true_val = IrBuilder::create<Val>(this, true, DataType::Bool);
+    auto true_val =
+        IrBuilder::createInContainer<Val>(this, true, DataType::Bool);
     NVF_ERROR(vals_up_.back().get() == true_val);
     true_val_ = std::unique_ptr<Val>(vals_up_.back().release());
     vals_up_.pop_back();
@@ -317,8 +322,10 @@ NamedScalar* IrContainer::magicZeroVal() {
 
 Val* IrContainer::metadataOf(Val* v) {
   if (metadata_.count(v) == 0) {
-    auto metadata_val = IrBuilder::create<Val>(this, metaDataTypeOf(v));
-    auto metadata_expr = IrBuilder::create<GetMetaData>(this, metadata_val, v);
+    auto metadata_val =
+        IrBuilder::createInContainer<Val>(this, metaDataTypeOf(v));
+    auto metadata_expr =
+        IrBuilder::createInContainer<GetMetaData>(this, metadata_val, v);
     metadata_[v] = std::make_pair(metadata_val, metadata_expr);
   }
   return metadata_.at(v).first;

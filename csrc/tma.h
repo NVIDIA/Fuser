@@ -34,7 +34,7 @@
 //         split: [I1/16, 16, I2]
 //         split: [I1/16, 8, 2, I2]
 //         split: [I1/16, 8, 2, I2/32, 32]
-//   leaf domain: [I1/16, 8, 2, I2/32, 32]
+//   loop domain: [I1/16, 8, 2, I2/32, 32]
 //
 // Because TMA does bulk transfer, there is a dedicated paralle type `Bulk` for
 // it. In the above example, the gmem_tensor must be parallelized as

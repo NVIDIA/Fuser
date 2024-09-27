@@ -51,7 +51,7 @@ void IrPrinter::handle(const kir::Kernel* kernel) {
   NVF_CHECK(kernel != nullptr);
 
   // kernel declaration
-  os_ << "\nKERNEL (";
+  os_ << "\n%Kernel { (";
   for (auto in : kernel->inputs()) {
     os_ << in->toString();
     if (in != kernel->inputs().back()) {
@@ -73,44 +73,49 @@ void IrPrinter::handle(const kir::Kernel* kernel) {
     os_ << expr->toString();
   }
   indent_size_--;
-  os_ << "END.\n\n";
+  os_ << "\n} // %Kernel.\n\n";
 }
 
 void IrPrinter::handle(kir::Kernel& kernel) {
   handle(&kernel);
 }
 
-void IrPrinter::handle(const hir::HostIrContainer* host_fusion) {
-  NVF_CHECK(host_fusion != nullptr);
+void IrPrinter::handle(const hir::HostIrContainer* host_ir_container) {
+  NVF_CHECK(host_ir_container != nullptr);
 
-  // host_fusion declaration
-  os() << "\nHOST FUSION (";
-  for (auto in : host_fusion->inputs()) {
+  // host_ir_container declaration
+  os() << "\n%HostIrContainer { (";
+  for (auto in : host_ir_container->inputs()) {
     os() << in->toString(indent_size_);
-    if (in != host_fusion->inputs().back()) {
+    if (in != host_ir_container->inputs().back()) {
       os() << ", ";
     }
   }
   os() << ") -> (";
-  for (auto out : host_fusion->outputs()) {
+  for (auto out : host_ir_container->outputs()) {
     os() << out->toString(indent_size_);
-    if (out != host_fusion->outputs().back()) {
+    if (out != host_ir_container->outputs().back()) {
       os() << ", ";
     }
   }
   os() << ") :\n";
 
-  // host_fusion body
+  // host_ir_container body
   indent_size_++;
-  for (auto expr : host_fusion->topLevelExprs()) {
+  for (auto expr : host_ir_container->topLevelExprs()) {
     os() << expr->toString(indent_size_);
   }
   indent_size_--;
-  os() << "END.\n\n";
+  for (auto* host_unit : ir_utils::filterByType<hir::HostUnit>(
+           host_ir_container->unordered_exprs())) {
+    os() << std::endl;
+    os() << host_unit->toString(indent_size_);
+  }
+  os() << "} // %HostIrContainer\n\n";
 }
 
-void IrPrinter::handle(hir::HostIrContainer& host_fusion) {
-  handle(&host_fusion);
+void IrPrinter::handle(hir::HostIrContainer& host_ir_container) {
+  handle(&host_ir_container);
 }
 
 void IrTransformPrinter::handle(Fusion* f) {
@@ -124,21 +129,21 @@ void IrTransformPrinter::handle(Fusion* f) {
 }
 
 void IrTransformPrinter::printTransforms(const TensorView* tv) {
-  const auto& rfactor_domain = tv->getRFactorDomain();
+  const auto& logical_domain = tv->getLogicalDomain();
   if (tv->hasRoot()) {
     const auto& root_domain = tv->getRootDomain();
     os() << " root domain : (" << toDelimitedString(root_domain) << ")\n";
 
     const auto all_exp = DependencyCheck::getAllExprsBetween(
         {root_domain.begin(), root_domain.end()},
-        {rfactor_domain.begin(), rfactor_domain.end()});
+        {logical_domain.begin(), logical_domain.end()});
 
     for (const auto exp : all_exp) {
       os() << "  " << exp->toString();
     }
   }
 
-  os() << " rfactor domain : (" << toDelimitedString(rfactor_domain) << ")\n";
+  os() << " logical domain : (" << toDelimitedString(logical_domain) << ")\n";
 
   if (tv->hasAllocation()) {
     const auto& alloc_domain = tv->getAllocationDomain();
@@ -149,15 +154,15 @@ void IrTransformPrinter::printTransforms(const TensorView* tv) {
 
   os() << " contiguity: " << tv->domain()->getContiguityString() << "\n";
 
-  const auto& from = tv->getRFactorDomain();
-  const auto& leaf = tv->getLeafDomain();
+  const auto& from = tv->getLogicalDomain();
+  const auto& loop = tv->getLoopDomain();
   const auto all_exp = DependencyCheck::getAllExprsBetween(
-      {from.begin(), from.end()}, {leaf.begin(), leaf.end()});
+      {from.begin(), from.end()}, {loop.begin(), loop.end()});
 
   for (const auto exp : all_exp) {
     os() << "  " << exp->toString();
   }
-  os() << " leaf domain : (" << toDelimitedString(leaf) << ")\n";
+  os() << " loop domain : (" << toDelimitedString(loop) << ")\n";
 }
 
 std::ostream& operator<<(std::ostream& os, const Statement* stmt) {

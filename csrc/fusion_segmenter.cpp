@@ -89,7 +89,7 @@ flatbuffers::Offset<serde::SegmentedGroup> SegmentedGroup::serialize(
       &input_vals_fb,
       &output_vals_fb,
       group_id_,
-      toUnderlying(heuristic_),
+      toUnderlying(scheduler_type_),
       &exprs_fb,
       level_,
       visited_,
@@ -120,7 +120,7 @@ void SegmentedGroup::deserialize(
 
   group_id_ = buffer->group_id();
 
-  heuristic_ = static_cast<ScheduleHeuristic>(buffer->heuristic());
+  scheduler_type_ = static_cast<SchedulerType>(buffer->heuristic());
 
   exprs_ = convertContainer<int64_t, Expr*>(exprs, *buffer->exprs());
 
@@ -328,7 +328,7 @@ void SegmentedGroup::finalize() {
     if (auto tv = dynamic_cast<TensorView*>(i)) {
       // We do not need to add scalars which are the extents of already-added
       // input TensorViews
-      for (auto id : TensorDomain::noReductions(tv->getRFactorDomain())) {
+      for (auto id : TensorDomain::noReductions(tv->getLogicalDomain())) {
         input_set.insert(id->getMaybeExpandedExtent());
       }
     }
@@ -372,7 +372,7 @@ void SegmentedGroup::finalize() {
 }
 
 std::ostream& operator<<(std::ostream& os, const SegmentedGroup* group) {
-  os << "g{";
+  os << toString(group->schedulerType()) << "{";
   auto expr_to_print = group->exprs();
   std::sort(
       expr_to_print.begin(),
@@ -390,12 +390,11 @@ std::ostream& operator<<(std::ostream& os, const SegmentedGroup* group) {
   if (group->isMerged()) {
     os << " (merged)";
   }
-  os << "\n";
   return os;
 }
 
 void SegmentedGroup::print() const {
-  debug() << this << "\n";
+  debug() << this << std::endl;
 }
 
 bool SegmentedGroup::isFusionInputGroup() const {
@@ -410,12 +409,12 @@ std::string toString(const SegmentedGroup* group) {
 
 std::ostream& operator<<(std::ostream& os, const SegmentedEdge* edge) {
   os << "e{ " << edge->from << " -> " << edge->to << "("
-     << edge->val->toString() << ") }\n";
+     << edge->val->toString() << ") }";
   return os;
 }
 
 void SegmentedEdge::print() const {
-  debug() << this << "\n";
+  debug() << this << std::endl;
 }
 
 std::string toString(const SegmentedEdge* edge) {
@@ -426,7 +425,7 @@ std::string toString(const SegmentedEdge* edge) {
 
 std::unique_ptr<SegmentedFusion> SegmentedFusion::fromCompleteFusion(
     std::unique_ptr<Fusion> fusion_ptr,
-    ScheduleHeuristic heuristic,
+    SchedulerType scheduler_type,
     const KernelArgumentHolder& runtime_inputs) {
   auto fusion = fusion_ptr.get();
   NVF_ERROR(
@@ -435,13 +434,13 @@ std::unique_ptr<SegmentedFusion> SegmentedFusion::fromCompleteFusion(
 
   // convert Welford to two-pass if option is enabled and the original heuristic
   // is persistent
-  auto isPersistentHeuristic = [&heuristic]() {
-    return heuristic == ScheduleHeuristic::InnerPersistent ||
-        heuristic == ScheduleHeuristic::OuterPersistent ||
-        heuristic == ScheduleHeuristic::InnerOuterPersistent;
+  auto isPersistentScheduler = [&scheduler_type]() {
+    return scheduler_type == SchedulerType::InnerPersistent ||
+        scheduler_type == SchedulerType::OuterPersistent ||
+        scheduler_type == SchedulerType::InnerOuterPersistent;
   };
   SegmentCandidateFinderOptions scfo;
-  if (scfo.run_translate_welford && isPersistentHeuristic()) {
+  if (scfo.run_translate_welford && isPersistentScheduler()) {
     SegmentCandidateFinder::translateWelfordInFusion(fusion, runtime_inputs);
   }
 
@@ -460,7 +459,7 @@ std::unique_ptr<SegmentedFusion> SegmentedFusion::fromCompleteFusion(
 
   // Assign heuristics and id for the complete fusion
   //  to share the runtime path of segmented fusion.
-  single_group->setHeuristic(heuristic);
+  single_group->setSchedulerType(scheduler_type);
   single_group->setID(0);
 
   // Used to log the number of values and expressions in the fusion for
@@ -580,7 +579,7 @@ void SegmentedFusion::deserialize(const serde::SegmentedFusion* buffer) {
   FUSER_PERF_SCOPE("SegmentedFusion::deserialize");
   NVF_ERROR(buffer != nullptr, "serde::SegmentedFusion is nullptr.");
 
-  // NOTE SchedulerEntry::proposeHeuristics can add values and expressions to
+  // NOTE Schedule::proposeHeuristics can add values and expressions to
   // the fusion. We relax the constraints here because we already know the
   // proposed scheduler for each segmented group.
   NVF_ERROR(
@@ -711,14 +710,13 @@ void SegmentedFusion::Impl::cleanUnused() {
 //! Return mapping from SegmentedGroup to integer id
 std::unordered_map<SegmentedGroup*, int64_t> SegmentedFusion::Impl::groups_map()
     const {
-  using GroupPtr = std::unique_ptr<SegmentedGroup>;
   std::unordered_map<SegmentedGroup*, int64_t> group_map;
   int64_t count = 0;
   std::transform(
       groups_.begin(),
       groups_.end(),
       std::inserter(group_map, group_map.end()),
-      [&count](const GroupPtr& group_up) {
+      [&count](const std::unique_ptr<SegmentedGroup>& group_up) {
         return std::make_pair(group_up.get(), count++);
       });
   return group_map;
@@ -727,14 +725,13 @@ std::unordered_map<SegmentedGroup*, int64_t> SegmentedFusion::Impl::groups_map()
 //! Return mapping from SegmentedEdge to integer id
 std::unordered_map<SegmentedEdge*, int64_t> SegmentedFusion::Impl::edges_map()
     const {
-  using EdgePtr = std::unique_ptr<SegmentedEdge>;
   std::unordered_map<SegmentedEdge*, int64_t> edge_map;
   int64_t count = 0;
   std::transform(
       edges_.begin(),
       edges_.end(),
       std::inserter(edge_map, edge_map.end()),
-      [&count](const EdgePtr& edge_up) {
+      [&count](const std::unique_ptr<SegmentedEdge>& edge_up) {
         return std::make_pair(edge_up.get(), count++);
       });
   return edge_map;
@@ -955,19 +952,15 @@ std::vector<Val*> getAllOutputs(
 std::vector<Val*> allInputsIfTrueElseOutputs(
     const std::vector<SegmentedGroup*>& segmented_groups,
     bool get_inputs = true) {
-  // Helper to distinguish if we are getting inputs or outputs
-  using EdgeVec = std::vector<SegmentedEdge*>;
-  using ValVec = std::vector<Val*>;
-
   // Get producer edges to get inputs, consumer edges to get outputs
   auto edges_to_process_from_or_to_group =
-      [get_inputs](SegmentedGroup* group) -> EdgeVec& {
+      [get_inputs](SegmentedGroup* group) -> std::vector<SegmentedEdge*>& {
     return get_inputs ? group->producer_edges : group->consumer_edges;
   };
 
   // Get the group that is connected to current group
   auto global_vals_from_or_to_group =
-      [get_inputs](SegmentedGroup* group) -> ValVec& {
+      [get_inputs](SegmentedGroup* group) -> std::vector<Val*>& {
     return get_inputs ? group->input_vals : group->output_vals;
   };
 
@@ -1104,28 +1097,30 @@ void detailGroupPrint(std::ostream& os, const SegmentedGroup* group) {
   };
 
   os << "g{";
-  if (group->heuristic() != ScheduleHeuristic::None) {
-    os << "(" << toString(group->heuristic()) << ")";
+  if (group->schedulerType() != SchedulerType::None) {
+    os << "(" << toString(group->schedulerType()) << ")";
   }
-  os << "\n";
-  os << "inputs: \n";
+  os << std::endl;
+  os << "group id: " << group->groupId() << std::endl;
+  os << "inputs:" << std::endl;
   for (auto input : sort_val_by_name(getAllInputs(group))) {
-    os << input << " " << input->getDataType().value() << "\n";
+    indent(os, 1) << input << " " << input->getDataType().value() << std::endl;
   }
-  os << "outputs: \n";
+  os << "outputs:" << std::endl;
   for (auto output : sort_val_by_name(getAllOutputs(group))) {
-    os << output << " " << output->getDataType().value() << "\n";
+    indent(os, 1) << output << " " << output->getDataType().value()
+                  << std::endl;
   }
 
-  os << "\n\n";
+  os << std::endl << std::endl;
 
   auto expr_to_print = groupExprPrintSorting(group->exprs());
 
   for (const auto i : c10::irange(expr_to_print.size())) {
     os << expr_to_print[i]->toString();
-    os << "(" << expr_to_print[i]->name() << ")\n";
+    os << "(" << expr_to_print[i]->name() << ")" << std::endl;
   }
-  os << "}\n\n";
+  os << "}" << std::endl << std::endl;
 }
 
 //! Insert casts for an intermediate tensorview, i.e. ones
@@ -1158,18 +1153,19 @@ TensorView* castIntermediateValueInCompleteFusion(
   auto make_consumer_tv = [&](TensorView* from, DataType data_type) {
     // Keep broadcast axes and remove reduction axes
     size_t i = 0;
-    auto no_reduction_root_domain =
-        TensorDomain::noReductions(original_fp32_tv->getRFactorDomain());
-    std::vector<IterDomain*> new_root_domain(no_reduction_root_domain.size());
-    for (const auto& dom : no_reduction_root_domain) {
-      new_root_domain[i++] = dom->cloneWithoutRFactor();
+    auto no_reduction_logical_domain =
+        TensorDomain::noReductions(original_fp32_tv->getLogicalDomain());
+    std::vector<IterDomain*> new_logical_domain(
+        no_reduction_logical_domain.size());
+    for (const auto& dom : no_reduction_logical_domain) {
+      new_logical_domain[i++] = dom->cloneWithoutRFactor();
     }
 
     // Create the actual domain and tv.
     return IrBuilder::create<TensorView>(
         IrBuilder::create<TensorDomain>(
-            new_root_domain,
-            TensorDomain::getContiguityFilledWith(new_root_domain, true)),
+            new_logical_domain,
+            TensorDomain::getContiguityFilledWith(new_logical_domain, true)),
         data_type);
   };
 
@@ -1450,9 +1446,6 @@ void SegmentedFusion::revertInputOutputPrecisionChanges(
 //!        currently O(n^2). O(nlogn) would be a reasonable
 //!        goal to achieve.
 class GroupDependencyAnalysis : public NonCopyable, public SegmenterAnalysis {
-  using GroupSetOwningPtr = std::unique_ptr<GroupSet>;
-  using DependencyMap = std::unordered_map<SegmentedGroup*, GroupSetOwningPtr>;
-
  public:
   //! Populate producers of all groups in segmented fusion
   explicit GroupDependencyAnalysis(const SegmentedFusion* segmented_fusion)
@@ -1561,7 +1554,7 @@ class GroupDependencyAnalysis : public NonCopyable, public SegmenterAnalysis {
   }
 
   //! Utility to access known producers of a group so far
-  GroupSetOwningPtr& getAllKnownProducersSet(SegmentedGroup* group) {
+  std::unique_ptr<GroupSet>& getAllKnownProducersSet(SegmentedGroup* group) {
     auto& producer_set_ptr = known_producers_of_[group];
     if (!producer_set_ptr) {
       producer_set_ptr = std::make_unique<GroupSet>();
@@ -1586,7 +1579,8 @@ class GroupDependencyAnalysis : public NonCopyable, public SegmenterAnalysis {
 
  private:
   const SegmentedFusion* segmented_fusion_;
-  DependencyMap known_producers_of_;
+  std::unordered_map<SegmentedGroup*, std::unique_ptr<GroupSet>>
+      known_producers_of_;
 };
 
 //! Finds the common producers of given set of groups
@@ -1745,7 +1739,7 @@ void GroupDependencyAnalysis::computeAllProducers() {
       to_visit.erase(to_update);
       visited.pushBack(to_update);
     } else {
-      NVF_ERROR(false, "unreachable, original graph not a DAG");
+      NVF_THROW("unreachable, original graph not a DAG");
     }
   }
 }
@@ -1794,11 +1788,11 @@ std::ostream& operator<<(
   os << "Segmented_Fusion{ \n";
   os << "groups: \n";
   for (const auto g : sorted_groups_to_print) {
-    os << g << "\n";
+    os << "  " << g << "\n";
   }
   os << "edges: \n";
   for (const auto e : sorted_edges_to_print) {
-    os << e << "\n";
+    os << "  " << e << "\n";
   }
   os << "\ngroup details:\n";
   for (const auto g : sorted_groups_to_print) {
@@ -1821,67 +1815,67 @@ std::string toString(const SegmentedFusion* segmented_fusion) {
   return ss.str();
 }
 
-//! Sets the rfactor as root and erases rfactor of all inputs in fusion. Any
+//! Sets the root as logical and erases root of all inputs in fusion. Any
 //! non-constant expressions in those extents are replaced by new scalars with
 //! no definition. These mutations are performed throughout the Fusion so that
-//! downstream expressions dependent on the original inputs' rfactor extents can
+//! downstream expressions dependent on the original inputs' logical extents can
 //! be computed properly.
-void convertInputRfactorsToRoots(Fusion* fusion) {
+void eraseInputDistinctRootDomains(Fusion* fusion) {
   FusionGuard fg(fusion);
 
   // Holds all Val replacements across all inputs
   std::unordered_map<Val*, Val*> replacement_map;
 
   for (auto tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
-    // Create a new root domain and replacement TensorDomain.
-    // Given an rfactor domain, create a new IterDomain.
+    // Create a new logical domain and replacement TensorDomain.
+    // Given an logical domain, create a new IterDomain.
     // Otherwise, clone the previous IterDomain
-    std::vector<IterDomain*> new_root_domain;
-    auto rfactor = tv->getRFactorDomain();
-    new_root_domain.reserve(rfactor.size());
+    std::vector<IterDomain*> new_logical_domain;
+    auto logical = tv->getLogicalDomain();
+    new_logical_domain.reserve(logical.size());
 
-    // Does the domain (root / rfactor) contain all concrete sized extents?
+    // Does the logical domain contain all concrete sized extents?
     bool tv_is_concrete = true;
-    for (auto id : rfactor) {
+    for (auto id : logical) {
       if (!id->extent()->isConstScalar()) {
         tv_is_concrete = false;
         break;
       }
     }
 
-    for (const auto& id : rfactor) {
+    for (const auto& id : logical) {
       if (id->isRFactorProduct()) {
-        // Create new symbolic extents for rfactor iterDomains
+        // Create new symbolic extents for logical iterDomains
         auto domain_extent = (!tv_is_concrete)
             ? IrBuilder::create<Val>(DataType::Index)
             : id->extent();
         replacement_map.emplace(id->extent(), domain_extent);
-        new_root_domain.push_back(IterDomainBuilder(id)
-                                      .extent(domain_extent)
-                                      .resetSchedulingParams()
-                                      .build());
+        new_logical_domain.push_back(IterDomainBuilder(id)
+                                         .extent(domain_extent)
+                                         .resetSchedulingParams()
+                                         .build());
       } else {
-        new_root_domain.push_back(id->cloneWithoutRFactor());
+        new_logical_domain.push_back(id->cloneWithoutRFactor());
       }
     }
 
-    NVF_ERROR(new_root_domain.size() == tv->domain()->contiguity().size());
+    NVF_ERROR(new_logical_domain.size() == tv->domain()->contiguity().size());
     TensorDomain* new_td = nullptr;
 
     if (tv->domain()->hasAllocation()) {
-      // we need to reorder the root domain into allocation domain consistently
-      // with the mapping from the old TensorView rfactor domain to its
-      // allocation domain
+      // we need to reorder the logical domain into allocation domain
+      // consistently with the mapping from the old TensorView logical domain to
+      // its allocation domain
       const auto& alloc = tv->getAllocationDomain();
       NVF_ERROR(
-          alloc.size() == rfactor.size(),
-          "size between rfactor and alloc doesn't match");
+          alloc.size() == logical.size(),
+          "size between logical and alloc doesn't match");
       const auto rank = alloc.size();
       std::vector<int64_t> stride_order(rank, -1);
       for (auto i : c10::irange(rank)) {
         bool found_match = false;
         for (auto j : c10::irange(rank)) {
-          if (alloc[i] == rfactor[j]) {
+          if (alloc[i] == logical[j]) {
             stride_order[j] = static_cast<int64_t>(rank - 1 - i);
             found_match = true;
             break;
@@ -1889,14 +1883,40 @@ void convertInputRfactorsToRoots(Fusion* fusion) {
         }
         NVF_ERROR(
             found_match,
-            "cannot match IterDomain between allocation domain to rfactor domain");
+            "cannot match IterDomain between allocation domain to logical domain");
       }
       new_td = IrBuilder::create<TensorDomain>(
-          new_root_domain, stride_order, tv->domain()->contiguity());
+          new_logical_domain, stride_order, tv->domain()->contiguity());
     } else {
       new_td = IrBuilder::create<TensorDomain>(
-          new_root_domain, tv->domain()->contiguity());
+          new_logical_domain, tv->domain()->contiguity());
     }
+
+    // Remove reduction domains from new_td
+    if (new_td->hasReduction()) {
+      std::vector<std::optional<bool>> no_red_contiguity;
+      for (size_t i : c10::irange(new_td->maybeAllocation().size())) {
+        if (new_td->maybeAllocation()[i]->isReduction()) {
+          continue;
+        }
+        no_red_contiguity.push_back(new_td->contiguity()[i]);
+      }
+      if (new_td->hasAllocation()) {
+        const std::vector<IterDomain*> new_logical =
+            TensorDomain::noReductions(new_td->logical());
+        new_td = IrBuilder::create<TensorDomain>(
+            /*root_domain=*/std::vector<IterDomain*>{},
+            /*logical_domain=*/new_logical,
+            /*allocation=*/TensorDomain::noReductions(new_td->allocation()),
+            /*loop_domain=*/new_logical,
+            /*contiguity=*/no_red_contiguity);
+      } else {
+        new_td = IrBuilder::create<TensorDomain>(
+            /*logical_domain=*/TensorDomain::noReductions(new_td->logical()),
+            /*contiguity=*/no_red_contiguity);
+      }
+    }
+
     replacement_map.emplace(tv->domain(), new_td);
   }
 
@@ -1942,9 +1962,9 @@ std::pair<IrCloner, std::unique_ptr<Fusion>> SegmentedFusion::makeFusion(
     fusion_segment->addOutput(complete_to_segment_map.clone(out));
   }
 
-  // Replace all vals that are rfactor extents in fusion_segment->inputs() with
+  // Replace all vals that are logical extents in fusion_segment->inputs() with
   // new Vals so that they can be bound to the segment inputs.
-  convertInputRfactorsToRoots(fusion_segment.get());
+  eraseInputDistinctRootDomains(fusion_segment.get());
 
   return std::make_pair(complete_to_segment_map, std::move(fusion_segment));
 }
@@ -1956,11 +1976,11 @@ std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
   if (!hasSegmentHints(fusion.get())) {
     scheduler_debug_utils::canScheduleMessage(
         "***Runtime***: Try to schedule fusion un-segmented:\n");
-    const auto maybe_complete_fusion_heuristic =
-        SchedulerEntry::proposeHeuristics(fusion.get(), runtime_info);
-    if (maybe_complete_fusion_heuristic.has_value()) {
+    const auto fusion_heuristic_type =
+        Schedule::proposeHeuristics(fusion.get(), runtime_info);
+    if (fusion_heuristic_type != SchedulerType::None) {
       return SegmentedFusion::fromCompleteFusion(
-          std::move(fusion), maybe_complete_fusion_heuristic.value(), *inputs);
+          std::move(fusion), fusion_heuristic_type, *inputs);
     }
   } else {
     scheduler_debug_utils::canScheduleMessage(
@@ -1971,7 +1991,7 @@ std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
         "\n***Runtime***: Try to schedule fusion segmented:\n");
     return SegmentCandidateFinder::segment(std::move(fusion), inputs);
   } else {
-    NVF_ERROR(false, "unreachable!");
+    NVF_THROW("unreachable!");
   }
 }
 
@@ -2149,7 +2169,7 @@ SegmentedGroup* SegmentCandidateFinder::mergeNodes() {
       edge->to->producer_edges.push_back(new_edge);
     }
 
-    // Disconnect the merged groups before deriveHeuristic, which
+    // Disconnect the merged groups before deriveSchedulerType, which
     // may temporarily inject type cast and can get confused if stale
     // edges exist
     for (auto merged_group : {group1, group2}) {
@@ -2158,7 +2178,7 @@ SegmentedGroup* SegmentCandidateFinder::mergeNodes() {
           disconnected_edges.begin(), disconnected_edges.end());
     }
 
-    joined_group->setHeuristic(deriveHeuristic(joined_group));
+    joined_group->setSchedulerType(deriveSchedulerType(joined_group));
     // Need to maintain the group dependency data if it has been intialized
     //  by previous merging
     if (group_dependency_) {
@@ -2301,7 +2321,7 @@ SegmentedGroup* SegmentCandidateFinder::mergeAllGivenGroups(
 
   clean_up_edges_.clear();
 
-  joined_group->setHeuristic(deriveHeuristic(joined_group));
+  joined_group->setSchedulerType(deriveSchedulerType(joined_group));
   return joined_group;
 }
 
@@ -2342,7 +2362,7 @@ class FusionSegmentGuard : public NonCopyable {
     NVF_ERROR(fusion_ != nullptr);
 #ifndef NDEBUG
     num_original_exprs_ = fusion_->exprs().size();
-    original_tvs_ = ir_utils::allTvs(fusion_);
+    original_tvs_ = fusion_->allTvs();
 #endif // NDEBUG
     narrowToNewSegment(inputs, outputs);
   }
@@ -2354,7 +2374,7 @@ class FusionSegmentGuard : public NonCopyable {
     FUSER_PERF_SCOPE("Segmenter::FusionSegmentGuard");
 #ifndef NDEBUG
     num_original_exprs_ = fusion_->exprs().size();
-    original_tvs_ = ir_utils::allTvs(fusion_);
+    original_tvs_ = fusion_->allTvs();
 #endif // NDEBUG
     lowered_edges_ = segmented_fusion_->castInputOutputToLowerPrecision(
         segmented_fusion_->edges());
@@ -2370,7 +2390,7 @@ class FusionSegmentGuard : public NonCopyable {
     FUSER_PERF_SCOPE("Segmenter::FusionSegmentGuard");
 #ifndef NDEBUG
     num_original_exprs_ = fusion_->exprs().size();
-    original_tvs_ = ir_utils::allTvs(fusion_);
+    original_tvs_ = fusion_->allTvs();
 #endif // NDEBUG
 
     // Cast inputs and outputs of a merged group consisting of a and
@@ -2399,7 +2419,7 @@ class FusionSegmentGuard : public NonCopyable {
     FUSER_PERF_SCOPE("Segmenter::FusionSegmentGuard");
 #ifndef NDEBUG
     num_original_exprs_ = fusion_->exprs().size();
-    original_tvs_ = ir_utils::allTvs(fusion_);
+    original_tvs_ = fusion_->allTvs();
 #endif // NDEBUG
 
     // Cast inputs and outputs of a merged group consisting of
@@ -2440,7 +2460,7 @@ class FusionSegmentGuard : public NonCopyable {
         num_original_exprs_,
         ", actual: ",
         num_current_exprs);
-    auto current_tvs = ir_utils::allTvs(fusion_);
+    auto current_tvs = fusion_->allTvs();
     NVF_ERROR(
         original_tvs_ == current_tvs, "Failed to revert temporary changes.");
 #endif
@@ -2468,7 +2488,7 @@ class FusionSegmentGuard : public NonCopyable {
     }
 
     for (auto new_out : new_outputs) {
-      fusion_->addOutput(new_out);
+      fusion_->addOutputInternal(new_out);
     }
   }
 
@@ -2496,7 +2516,7 @@ class FusionSegmentGuard : public NonCopyable {
     }
 
     for (auto old_out : old_outputs_) {
-      fusion_->addOutput(old_out);
+      fusion_->addOutputInternal(old_out);
     }
   }
 
@@ -2512,7 +2532,7 @@ class FusionSegmentGuard : public NonCopyable {
 #endif
 };
 
-std::optional<ScheduleHeuristic> tryMerge(
+SchedulerType tryMerge(
     SegmentedFusion* segmented_fusion,
     SchedulerRuntimeInfo& runtime_info,
     SegmentedGroup* a,
@@ -2529,13 +2549,13 @@ std::optional<ScheduleHeuristic> tryMerge(
       "\n**Segmenter** Considering fusion:\n",
       segmented_fusion->completeFusion());
   if (tryingToMergeSegmenterSet(segmented_fusion->completeFusion())) {
-    return std::nullopt;
+    return SchedulerType::None;
   }
-  return SchedulerEntry::proposeHeuristics(
+  return Schedule::proposeHeuristics(
       segmented_fusion->completeFusion(), runtime_info);
 }
 
-std::optional<ScheduleHeuristic> tryMerge(
+SchedulerType tryMerge(
     SegmentedFusion* segmented_fusion,
     SchedulerRuntimeInfo& runtime_info,
     const std::vector<SegmentedGroup*>& segmented_groups) {
@@ -2551,9 +2571,9 @@ std::optional<ScheduleHeuristic> tryMerge(
       "\n**Segmenter** Considering fusion:\n",
       segmented_fusion->completeFusion());
   if (tryingToMergeSegmenterSet(segmented_fusion->completeFusion())) {
-    return std::nullopt;
+    return SchedulerType::None;
   }
-  return SchedulerEntry::proposeHeuristics(
+  return Schedule::proposeHeuristics(
       segmented_fusion->completeFusion(), runtime_info);
 }
 
@@ -2589,16 +2609,21 @@ void deDuplicateScalarExprs(std::vector<Expr*>& exprs) {
 
 } // namespace
 
-std::optional<std::unique_ptr<SchedulerEntry>> SegmentedGroup::
-    getMaybeSchedulerEntry(SchedulerRuntimeInfo& runtime_info) {
-  FUSER_PERF_SCOPE("SegmentedFusion::getMaybeSchedulerEntry");
-  auto data_cache = segmented_fusion_->getCachedHeuristicDataFor(this);
-  if (!SchedulerEntry::canSchedule(
-          heuristic(), runtime_info.fusion(), runtime_info, data_cache)) {
+std::optional<std::unique_ptr<HeuristicParams>> SegmentedGroup::
+    getMaybeHeuristicParams(SchedulerRuntimeInfo& runtime_info) {
+  FUSER_PERF_SCOPE("SegmentedFusion::getMaybeHeuristicParams");
+  auto heuristic_data_cache =
+      segmented_fusion_->getCachedHeuristicDataFor(this);
+  if (!Schedule::canSchedule(
+          schedulerType(),
+          runtime_info.fusion(),
+          runtime_info,
+          heuristic_data_cache)) {
     return std::nullopt;
   }
-  return SchedulerEntry::makeEntry(
-      heuristic(), runtime_info.fusion(), runtime_info, data_cache);
+  return SchedulerEntry::makeSchedulerInstance(schedulerType())
+      ->computeHeuristics(
+          runtime_info.fusion(), runtime_info, heuristic_data_cache);
 }
 
 void SegmentedGroup::resetExprList() {
@@ -2781,13 +2806,12 @@ bool TranslateApplicableWelford::isValidPersistentFusion(
   auto persistent_sh =
       normalization_scheduler_utils::getPersistentHeuristicFor(reduction_type);
 
-  if (!SchedulerEntry::canSchedule(
-          persistent_sh, translated_fusion, runtime_info)) {
+  if (!Schedule::canSchedule(persistent_sh, translated_fusion, runtime_info)) {
     return false;
   }
-
-  auto scheduler =
-      SchedulerEntry::makeEntry(persistent_sh, translated_fusion, runtime_info);
+  auto scheduler = SchedulerEntry::makeSchedulerInstance(persistent_sh);
+  auto heuristic_params =
+      scheduler->computeHeuristics(translated_fusion, runtime_info);
 
   // Translate welford to two-pass enhances performance for block
   // reductions by reducing instructions and the impact of an extra block
@@ -2795,8 +2819,8 @@ bool TranslateApplicableWelford::isValidPersistentFusion(
   // However, when it comes to cross grid reduction, the additional grid
   // synchronization carries substantial overhead and does not yield any
   // performance gains.
-  return scheduler->reductionParams().persistent_kernel &&
-      !scheduler->reductionParams().cross_grid_outer_reduction;
+  return heuristic_params->as<ReductionParams>()->persistent_kernel &&
+      !heuristic_params->as<ReductionParams>()->cross_grid_outer_reduction;
 }
 
 // Note that when segmented it is assumed that insertion of lower
@@ -2927,27 +2951,28 @@ void TranslateApplicableWelford::translateSingleWelford(WelfordOp* welford) {
 
   // Create normalization based welford graph
   //  largely taken from batchnorm cpp benchmark
-  const auto& in_root = TensorDomain::noReductions(in_val->getRFactorDomain());
-  const auto& out_root = out_avg->getRFactorDomain();
+  const auto& in_logical =
+      TensorDomain::noReductions(in_val->getLogicalDomain());
+  const auto& out_logical = out_avg->getLogicalDomain();
   std::vector<int64_t> red_axes;
 
   NVF_ERROR(
-      in_root.size() == out_root.size(),
+      in_logical.size() == out_logical.size(),
       "Invalid root domains of Welford input and output.",
       " Input: ",
-      ir_utils::toString(in_root),
+      ir_utils::toString(in_logical),
       ". Output: ",
-      ir_utils::toString(out_root));
+      ir_utils::toString(out_logical));
 
   // Create scalar version of the feature element
   //  counting.
   Val* num_features = IrBuilder::create<Val>(1.0);
-  std::vector<bool> broadcast_mask(in_root.size(), false);
-  for (const auto i : c10::irange((int64_t)in_root.size())) {
-    if (out_root.at(i)->isReduction()) {
+  std::vector<bool> broadcast_mask(in_logical.size(), false);
+  for (const auto i : c10::irange((int64_t)in_logical.size())) {
+    if (out_logical.at(i)->isReduction()) {
       red_axes.push_back(i);
       broadcast_mask[i] = true;
-      num_features = mul(num_features, out_root.at(i)->extent());
+      num_features = mul(num_features, out_logical.at(i)->extent());
     }
   }
 
@@ -3146,10 +3171,10 @@ class CombineReductions {
         all_groups_to_merge.begin(), all_groups_to_merge.end());
 
     // Final sanity check: the merged group can actually be scheduled
-    if (!tryMerge(
+    if (tryMerge(
             segment_candidate_finder_->segmented_fusion_.get(),
             segment_candidate_finder_->runtimeInfo(),
-            all_groups_to_merge_vec)) {
+            all_groups_to_merge_vec) == SchedulerType::None) {
       return nullptr;
     }
 
@@ -3286,7 +3311,7 @@ class CombineReductions {
           if (tryMerge(
                   segment_candidate_finder_->segmented_fusion_.get(),
                   segment_candidate_finder_->runtimeInfo(),
-                  groups_to_merge_vec)) {
+                  groups_to_merge_vec) != SchedulerType::None) {
             // Found a valid horizontal merge, want to proceed with merging here
             auto joined_group = segment_candidate_finder_->mergeAllGivenGroups(
                 groups_to_merge_vec);
@@ -3457,7 +3482,7 @@ class CombineReductions {
       auto out_tv = rop->out()->template as<TensorView>();
       NVF_ERROR(out_tv != nullptr);
       has_reduction_ = out_tv->hasReduction();
-      auto& root_domain = out_tv->getRFactorDomain();
+      auto& root_domain = out_tv->getLogicalDomain();
       root_domain_size_ = root_domain.size();
 
       for (const auto i : c10::irange(root_domain_size_)) {
@@ -3627,7 +3652,7 @@ std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
 
   // Not sure this could happen. Just assert for now.
   if (producer_edge_it == group->producer_edges.end()) {
-    NVF_ERROR(false, "Unexpected");
+    NVF_THROW("Unexpected");
     return std::nullopt;
   }
 
@@ -3653,23 +3678,24 @@ bool SegmentCandidateFinder::codeGenSupportedMerge(
     }
     return true;
   }
-  auto h = tryMerge(segmented_fusion_.get(), runtimeInfo(), group1, group2);
-  return h.has_value();
+  return tryMerge(segmented_fusion_.get(), runtimeInfo(), group1, group2) !=
+      SchedulerType::None;
 }
 
 // TODO: consider caching the heuristics value so tryMerge doesn't have to be
 //       called twice
-ScheduleHeuristic SegmentCandidateFinder::deriveHeuristic(
+SchedulerType SegmentCandidateFinder::deriveSchedulerType(
     SegmentedGroup* group) {
   if (options_.only_segment_resharding_exprs) {
-    // We don't need to generate a heuristic for multidevice segments at this
-    // moment
-    return ScheduleHeuristic::None;
+    // We don't need to generate a SchedulerType for multidevice segments at
+    // this moment
+    return SchedulerType::None;
   }
-  auto h = tryMerge(segmented_fusion_.get(), runtimeInfo(), group);
+  auto scheduler_type = tryMerge(segmented_fusion_.get(), runtimeInfo(), group);
   NVF_ERROR(
-      h.has_value(), "Can not find a scheduler to schedule fusion segment");
-  return h.value();
+      scheduler_type != SchedulerType::None,
+      "Can not find a scheduler to schedule fusion segment");
+  return scheduler_type;
 }
 
 SegmentCandidateFinder::SegmentCandidateFinder(
@@ -3858,8 +3884,8 @@ void SegmentCandidateFinder::findSegments() {
 
   for (auto group : groups()) {
     if (!group->outputs().empty()) {
-      // Set heuristics in case single reduction kernels were left out
-      group->setHeuristic(deriveHeuristic(group));
+      // Set SchedulerType in case single reduction kernels were left out
+      group->setSchedulerType(deriveSchedulerType(group));
     }
   }
 
@@ -3961,6 +3987,23 @@ UnaryOp* shouldForward(Val* v) {
   // group that ought to work in theory but doesn't work in practice with the
   // downstream logic. See #1813 for an example.
   if (unary_use->out()->isFusionOutput()) {
+    return nullptr;
+  }
+
+  // prevent forward to a SegmenterSet, which could cause unary op forward to a
+  // no-op segment. See issue: https://github.com/NVIDIA/Fuser/issues/2658
+  if (std::any_of(
+          unary_use->out()->uses().begin(),
+          unary_use->out()->uses().end(),
+          [](const Expr* next_use) {
+            if (const LoadStoreOp* use =
+                    dynamic_cast<const LoadStoreOp*>(next_use)) {
+              if (use->opType() == LoadStoreOpType::SegmenterSet) {
+                return true;
+              }
+            }
+            return false;
+          })) {
     return nullptr;
   }
 
@@ -4111,12 +4154,12 @@ void SegmentCandidateFinder::resolveScalarsInGroup(SegmentedGroup* group) {
       to_visit.push_back(id->getMaybeExpandedExtent());
     }
     if (tv->domain()->hasRoot()) {
-      // traverse from root to rfactor and inspect all Expr attrs and outputs
+      // traverse from root to logical and inspect all Expr attrs and outputs
       std::vector<Val*> all_vals;
       for (const auto id_expr : StmtSort::getExprsBetween(
                {tv->getRootDomain().begin(), tv->getRootDomain().end()},
-               {tv->getRFactorDomain().begin(),
-                tv->getRFactorDomain().end()})) {
+               {tv->getLogicalDomain().begin(),
+                tv->getLogicalDomain().end()})) {
         all_vals.insert(
             all_vals.end(), id_expr->inputs().begin(), id_expr->inputs().end());
         all_vals.insert(
@@ -4139,11 +4182,11 @@ void SegmentCandidateFinder::resolveScalarsInGroup(SegmentedGroup* group) {
     }
   };
 
-  // Segment TensorView inputs will have their rfactor extents available, so we
+  // Segment TensorView inputs will have their logical extents available, so we
   // avoid adding them as separate scalar inputs.
   for (auto e : group->producer_edges) {
     if (const auto tv = dynamic_cast<TensorView*>(e->val)) {
-      for (auto id : TensorDomain::noReductions(tv->getRFactorDomain())) {
+      for (auto id : TensorDomain::noReductions(tv->getLogicalDomain())) {
         visited.insert(id->getMaybeExpandedExtent());
       }
     }
@@ -4160,10 +4203,10 @@ void SegmentCandidateFinder::resolveScalarsInGroup(SegmentedGroup* group) {
                               [&tv](SegmentedEdge* e) {
                                 return e->val == tv;
                               })) {
-        // Intermediate group inputs (producer edges) will have their rfactor
+        // Intermediate group inputs (producer edges) will have their logical
         // domain reassigned as the root domain, so there is no need to process
         // them. Tensors computed inside this group will need processing,
-        // however, as their root->rfactor transforms must be computed in this
+        // however, as their root->logical transforms must be computed in this
         // group.
         processTV(tv);
       }
@@ -4194,7 +4237,7 @@ void SegmentCandidateFinder::resolveScalarsInGroup(SegmentedGroup* group) {
     input_set.insert(inp);
     if (auto tv = dynamic_cast<TensorView*>(inp)) {
       for (IterDomain* id :
-           TensorDomain::noReductions(tv->getRFactorDomain())) {
+           TensorDomain::noReductions(tv->getLogicalDomain())) {
         // Extents of inputs will already be bound. This prevents adding them
         // as redundant inputs.
         input_set.insert(id->getMaybeExpandedExtent());
@@ -4349,7 +4392,7 @@ void SegmentCandidateFinder::finalize() {
 
   // Finalize each group, fill in the missing inputs, i.e. tensor dims.
   for (auto g : groups()) {
-    g->setHeuristic(deriveHeuristic(g));
+    g->setSchedulerType(deriveSchedulerType(g));
     g->finalize();
   }
 }
@@ -4362,24 +4405,23 @@ GroupDependencyAnalysis* SegmentCandidateFinder::getGroupDependency() {
   return group_dependency_->as<GroupDependencyAnalysis>();
 }
 
-FusionKernelRuntime::SchedulerEntryPtr SegmentedFusion::
-    makeInitialSchedulerEntry(
-        SegmentedGroup* sg,
-        SchedulerRuntimeInfo& runtime_info) {
+std::unique_ptr<HeuristicParams> SegmentedFusion::makeInitialHeuristicParams(
+    SegmentedGroup* sg,
+    SchedulerRuntimeInfo& runtime_info) {
   // This will be the first time each group is scheduled. So we'd want to
   //  construct the cache data here.
-  auto data_cache_ptr = std::make_unique<HeuristicSummary>(
-      runtime_info.fusion(), sg->heuristic(), runtime_info);
-  auto data_cache = data_cache_ptr.get();
-  setCachedHeuristicDataFor(sg, std::move(data_cache_ptr));
-  return SchedulerEntry::makeEntry(
-      sg->heuristic(), runtime_info.fusion(), runtime_info, data_cache);
+  auto heuristic_data_cache_ptr = std::make_unique<HeuristicDataCache>();
+  auto heuristic_data_cache = heuristic_data_cache_ptr.get();
+  setCachedHeuristicDataFor(sg, std::move(heuristic_data_cache_ptr));
+  return SchedulerEntry::makeSchedulerInstance(sg->schedulerType())
+      ->computeHeuristics(
+          runtime_info.fusion(), runtime_info, heuristic_data_cache);
 }
 
-HeuristicSummary* SegmentedFusion::getCachedHeuristicDataFor(
+HeuristicDataCache* SegmentedFusion::getCachedHeuristicDataFor(
     SegmentedGroup* group) {
-  auto data_it = heuristic_summary_cache_.find(group);
-  if (data_it == heuristic_summary_cache_.end()) {
+  auto data_it = heuristic_data_cache_.find(group);
+  if (data_it == heuristic_data_cache_.end()) {
     return nullptr;
   }
   return data_it->second.get();
@@ -4387,9 +4429,9 @@ HeuristicSummary* SegmentedFusion::getCachedHeuristicDataFor(
 
 void SegmentedFusion::setCachedHeuristicDataFor(
     SegmentedGroup* group,
-    std::unique_ptr<HeuristicSummary> data) {
-  NVF_ERROR(!heuristic_summary_cache_.count(group));
-  heuristic_summary_cache_[group] = std::move(data);
+    std::unique_ptr<HeuristicDataCache> data) {
+  NVF_ERROR(!heuristic_data_cache_.count(group));
+  heuristic_data_cache_[group] = std::move(data);
 }
 
 void SegmentedFusion::validateDAG() const {

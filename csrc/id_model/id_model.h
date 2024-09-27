@@ -23,12 +23,12 @@ class ValGraph;
 class LoopPromotionMapBuilderCallback;
 
 struct StatefulInliningInfo {
-  // All producer ids within (including dependencies of) inlined leaf domains,
+  // All producer ids within (including dependencies of) inlined loop domains,
   // used for deterministic order
   VectorOfUniqueEntries<IterDomain*> ordered_p_ca_ids;
 
   // p2c mappings through the fusion within (including dependencies of) inlined
-  // leaf domains.
+  // loop domains.
   std::unordered_map<IterDomain*, VectorOfUniqueEntries<Val*>>
       p2c_ca_permissive_maps;
 
@@ -76,7 +76,7 @@ StatefulInliningInfo buildStatefulInliningInfo(
 // threadIdx.y{i0i}](computeAt = 1) which can easily happen when using shared
 // memory. Loop is actually defined for all iteration domains, and resembles
 // groups of iter domains that are effectively inlined with each other.
-// Therefore iter domain's that are a common dependency of inlined leaf domains
+// Therefore iter domain's that are a common dependency of inlined loop domains
 // may be loop mapped together.
 //
 // Loop promotion is a mechanism by which to capture inlined resolved
@@ -86,6 +86,9 @@ StatefulInliningInfo buildStatefulInliningInfo(
 //
 // IdMappingMode::EXACT
 //   Don't map any broadcast axes to non-broadcast axes
+//   Do not forward through any broadcast IDs
+// IdMappingMode::BROADCAST
+//   Map any broadcast axes to non-broadcast axes
 //   Do not forward through any broadcast IDs
 // IdMappingMode::PERMISSIVE
 //   Forward broadcast axes in replay
@@ -127,7 +130,7 @@ class IdModel : public PolymorphicBase {
       Fusion* fusion,
       bool build_graphs = true,
       bool allow_self_mapping = false,
-      bool validate = true,
+      bool validate = false,
       LoopPromotionMapBuilderCallback* loop_promotion_map_builder_callback =
           nullptr);
 
@@ -153,28 +156,41 @@ class IdModel : public PolymorphicBase {
 
   std::string toString() const;
 
+  bool empty() const {
+    return tvs_.empty();
+  }
+
+  Fusion* fusion() const {
+    return fusion_;
+  }
+
   // Build all graphs, i.e., Exact, AlmostExact, Permissive and
   // LOOP. This is by default called from the constructor
   void buildAllGraphs();
 
   // Fills disjoint_ids_[IdMappingMode::EXACT] for relationships between inputs
   // and first output of expr
-  void buildExactGraph();
+  ValGraph& buildExactGraph();
 
   // Fills disjoint_ids_[IdMappingMode::ALMOSTEXACT]. Initialize AlmostExact as
   // Exact entries, then map anything that's either merged with a size-1 or
   // split by a size-1 dimension.
-  void buildAlmostExactGraph();
+  ValGraph& buildAlmostExactGraph();
 
-  // Fills disjoint_ids_[IdMappingMode::PERMISSIVE]. Initialize it as
+  // Fills disjoint_ids_[IdMappingMode::BROADCAST]. Initialize it as
   // Exact entries, then map through broadcasts. Build the Exact graph
   // as well if not yet done.
-  void buildPermissiveGraph();
+  ValGraph& buildBroadcastGraph();
+
+  // Fills disjoint_ids_[IdMappingMode::PERMISSIVE]. Initialize it as
+  // BROADCAST entries, then map through forwarded domains. Build the
+  // BROADCAST graph as well if not yet done.
+  ValGraph& buildPermissiveGraph();
 
   // Fills disjoint_ids_[IdMappingMode::LOOP]. Map only inlined
   // domains that are mapped in the permissive graph. Build the Exact
   // and Permissive graphs as well if not yet done.
-  void buildLoopGraph();
+  ValGraph& buildLoopGraph();
 
   // Build a graph. Dependent graphs are also built if not yet done.
   void buildGraph(IdMappingMode mode);
@@ -202,6 +218,11 @@ class IdModel : public PolymorphicBase {
   // replayed expression and adding potential mappings through the expression.
   Expr* addReplayAs(std::vector<IterDomain*> new_inputs, Expr* expr);
 
+  //! Run through disjoint sets in the LOOP graph, make sure there's only one
+  //! non-serial parallel type in each disjoint set, set the parallel type of
+  //! all IterDomains in the disjoint set to that PType.
+  void validateAndPropagatePType();
+
  protected:
   // Fills id_uses_ and id_definitions_ for all IterDomains active in the
   // fusion.
@@ -220,11 +241,14 @@ class IdModel : public PolymorphicBase {
   void assertNoSelfMapping();
 
   // Loop graph represents the loop structure of the given fusion, so
-  // there must not be any mapping between the leaf domains of each
+  // there must not be any mapping between the loop domains of each
   // tensor.
   void validateLoopGraphHasNoSelfMappedLeafDomains() const;
 
  protected:
+  // Fusion where iter domains belong
+  Fusion* fusion_ = nullptr;
+
   // All tensor expressions that this model analyzes
   std::vector<Expr*> tv_exprs_;
 

@@ -253,17 +253,20 @@ inline const char* nvfCheckMsgImpl(const char* /*msg*/, const char* args) {
 #define STRINGIZE_IMPL(x) #x
 #define STRINGIZE(x) STRINGIZE_IMPL(x)
 
-#define NVF_ERROR(cond, ...)                                  \
-  if ((!(cond))) {                                            \
-    nvfuser::nvfErrorFail(                                  \
+#define NVF_THROW(...) \
+  nvfuser::nvfErrorFail(                                    \
         __FUNCTION__,                                       \
         __FILE__,                                           \
         static_cast<uint32_t>(__LINE__),                    \
-        #cond " INTERNAL ASSERT FAILED at " \
-        STRINGIZE(__FILE__) ":" STRINGIZE(__LINE__) \
+        " INTERNAL ASSERT FAILED at "                       \
+        STRINGIZE(__FILE__) ":" STRINGIZE(__LINE__)         \
         ", please report a bug with repro script to NVFuser at " \
-        "https://github.com/NVIDIA/Fuser/issues. ", \
-        nvfuser::to_str(__VA_ARGS__)); \
+        "https://github.com/NVIDIA/Fuser/issues. ",         \
+        nvfuser::to_str(__VA_ARGS__));
+
+#define NVF_ERROR(cond, ...) \
+  if ((!(cond))) {           \
+    NVF_THROW(__VA_ARGS__)   \
   }
 
 #define NVF_CHECK_MSG(cond, type, ...) \

@@ -115,12 +115,12 @@ struct NVF_API NotImplementedStruct : public Struct {
 
   std::function<PolymorphicValue()> getter(
       const std::string& key) const override {
-    NVF_ERROR(false, "Not implemented");
+    NVF_THROW("Not implemented");
   }
 
   std::function<void(const PolymorphicValue&)> setter(
       const std::string& key) override {
-    NVF_ERROR(false, "Not implemented");
+    NVF_THROW("Not implemented");
   }
 };
 

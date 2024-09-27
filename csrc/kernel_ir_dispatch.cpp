@@ -200,7 +200,7 @@ void ExprMutator::registerMutation(
   } else if (mode == MutationMode::REMOVE) {
     removal_.push_back(mutation);
   } else {
-    NVF_ERROR(false, "Invalid mutation type");
+    NVF_THROW("Invalid mutation type");
   }
 }
 

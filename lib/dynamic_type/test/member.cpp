@@ -9,6 +9,8 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
+#include <memory>
+
 #include "dynamic_type/dynamic_type.h"
 
 using namespace dynamic_type;
@@ -311,4 +313,40 @@ TEST_F(DynamicTypeTest, MemberFunctions) {
   EXPECT_EQ(
       (jj->*&J::noexcept_false_qualifiers)(), "noexcept(false) qualifiers");
   EXPECT_EQ((jj->*&J::noexcept_true_qualifiers)(), "noexcept(true) qualifiers");
+}
+
+TEST_F(DynamicTypeTest, ArrowOp) {
+  int num_dtor_calls = 0;
+  struct S {
+    int aaa;
+    int& num_dtor_calls;
+    S(int aaa, int& num_dtor_calls)
+        : aaa(aaa), num_dtor_calls(num_dtor_calls) {}
+    ~S() {
+      num_dtor_calls++;
+    };
+  } s(12, num_dtor_calls);
+  EXPECT_EQ(num_dtor_calls, 0);
+  using IntSVec = DynamicType<Containers<std::vector>, int, S*>;
+  IntSVec x(&s);
+  EXPECT_EQ(x->aaa, 12);
+
+  using Pointer =
+      DynamicType<NoContainers, S*, std::shared_ptr<S>, std::unique_ptr<S>>;
+  S s1(34, num_dtor_calls);
+  auto s2 = std::make_shared<S>(56, num_dtor_calls);
+  auto s3 = std::make_unique<S>(78, num_dtor_calls);
+  Pointer ptr;
+  ptr = &s1;
+  EXPECT_EQ(ptr->aaa, 34);
+  ptr = s2;
+  EXPECT_EQ(ptr->aaa, 56);
+  s2 = nullptr;
+  EXPECT_EQ(num_dtor_calls, 0);
+  ptr = std::move(s3);
+  EXPECT_EQ(num_dtor_calls, 1);
+  EXPECT_EQ(ptr->aaa, 78);
+  EXPECT_EQ(num_dtor_calls, 1);
+  ptr = {};
+  EXPECT_EQ(num_dtor_calls, 2);
 }

@@ -23,7 +23,7 @@ namespace reduction_scheduler_utils {
 // RFactor of reduction_tv will be returned if applicable otherwise reduction_tv
 // is returned
 TensorView* scheduleReductionTV(
-    const ReductionParams& rparams,
+    const ReductionParams* rparams,
     TensorView* reduction_tv,
     bool has_iter_axis);
 

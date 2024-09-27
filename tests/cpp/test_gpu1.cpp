@@ -13,10 +13,10 @@
 #include <device_lower/lower2device.h>
 #include <device_lower/pass/magic_zero.h>
 #include <disjoint_set.h>
-#include <executor.h>
-#include <executor_params.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
+#include <fusion_executor/executor.h>
+#include <fusion_executor/executor_params.h>
 #include <fusion_segmenter.h>
 #include <grouped_reduction.h>
 #include <inlining.h>
@@ -29,8 +29,8 @@
 #include <kernel_cache.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
+#include <logical_domain_map.h>
 #include <ops/all_ops.h>
-#include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>
@@ -94,7 +94,7 @@ TEST_F(NVFuserTest, FusionIrGraphGenerator_CUDA) {
   tv6->merge(0);
   tv6->split(0, 4);
   TransformPropagatorWithCheck propagator(tv6);
-  MaxRootDomainInfoSpanningTree(tv6).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv6).traverse(&propagator);
 
   tv4->axis(2)->parallelize(ParallelType::BIDy);
   tv6->axis(0)->parallelize(ParallelType::BIDx);
@@ -154,7 +154,7 @@ TEST_F(NVFuserTest, FusionClear_CUDA) {
 
     tv3->split(0, 4);
     TransformPropagatorWithCheck propagator(tv3);
-    MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+    MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
     tv3->axis(0)->parallelize(ParallelType::BIDx);
     tv2->axis(1)->parallelize(ParallelType::Unroll);
@@ -195,7 +195,7 @@ TEST_F(NVFuserTest, FusionClear_CUDA) {
     tv3->reorder({{2, 0}, {3, 1}, {0, 3}});
     // tv3 [i0outer, i0inner{4}, i1, i2]
     TransformPropagatorWithCheck propagator(tv3);
-    MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+    MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
     tv3->axis(1)->parallelize(ParallelType::BIDx);
 
@@ -237,7 +237,7 @@ TEST_F(NVFuserTest, FusionCopy_CUDA) {
     tv3->split(-1, 4);
     tv3->reorder({{2, 0}, {3, 1}, {0, 3}});
     TransformPropagatorWithCheck propagator(tv3);
-    MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+    MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
     tv3->axis(0)->parallelize(ParallelType::BIDx);
     tv3->axis(-1)->parallelize(ParallelType::TIDx);
@@ -312,7 +312,7 @@ TEST_F(NVFuserTest, FusionMove_CUDA) {
     tv3->split(-1, 4);
     tv3->reorder({{2, 0}, {3, 1}, {0, 3}});
     TransformPropagatorWithCheck propagator(tv3);
-    MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+    MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
     tv3->axis(0)->parallelize(ParallelType::BIDx);
     tv3->axis(-1)->parallelize(ParallelType::TIDx);
@@ -579,7 +579,7 @@ TEST_F(NVFuserTest, FusionTVSplit_CUDA) {
   ASSERT_TRUE(outer->isA<BinaryOp>());
   auto bop = outer->as<BinaryOp>();
   EXPECT_EQ(bop->getBinaryOpType(), BinaryOpType::CeilDiv);
-  ASSERT_TRUE(bop->lhs()->sameAs(tv->getRFactorDomain()[2]->extent()));
+  ASSERT_TRUE(bop->lhs()->sameAs(tv->getLogicalDomain()[2]->extent()));
   ASSERT_TRUE(bop->rhs()->sameAs(IrBuilder::create<Val>(2L, DataType::Index)));
 
   IterDomain* inner = static_cast<IterDomain*>(tv->axis(3));
@@ -601,9 +601,9 @@ TEST_F(NVFuserTest, FusionTVMerge_CUDA) {
       tv->nDims() == 2 && axisOp->isA<BinaryOp>() &&
       static_cast<BinaryOp*>(axisOp)->getBinaryOpType() == BinaryOpType::Mul &&
       static_cast<BinaryOp*>(axisOp)->lhs() ==
-          tv->getRFactorDomain()[1]->extent() &&
+          tv->getLogicalDomain()[1]->extent() &&
       static_cast<BinaryOp*>(axisOp)->rhs() ==
-          tv->getRFactorDomain()[2]->extent());
+          tv->getLogicalDomain()[2]->extent());
 }
 
 TEST_F(NVFuserTest, FusionTVReorder_CUDA) {
@@ -621,7 +621,7 @@ TEST_F(NVFuserTest, FusionTVReorder_CUDA) {
   auto tv = makeSymbolicTensor(3);
   std::vector<IterDomain*> ref;
   ref = std::vector<IterDomain*>(
-      tv->getLeafDomain().begin(), tv->getLeafDomain().end());
+      tv->getLoopDomain().begin(), tv->getLoopDomain().end());
 
   tv->reorder(shift_left);
   for (const auto i : c10::irange(tv->nDims())) {
@@ -630,7 +630,7 @@ TEST_F(NVFuserTest, FusionTVReorder_CUDA) {
 
   tv = makeSymbolicTensor(3);
   ref = std::vector<IterDomain*>(
-      tv->getLeafDomain().begin(), tv->getLeafDomain().end());
+      tv->getLoopDomain().begin(), tv->getLoopDomain().end());
 
   tv->reorder(shift_left);
   for (const auto i : c10::irange(tv->nDims())) {
@@ -639,7 +639,7 @@ TEST_F(NVFuserTest, FusionTVReorder_CUDA) {
 
   tv = makeSymbolicTensor(3);
   ref = std::vector<IterDomain*>(
-      tv->getLeafDomain().begin(), tv->getLeafDomain().end());
+      tv->getLoopDomain().begin(), tv->getLoopDomain().end());
 
   tv->reorder(shift_right);
   NVF_CHECK(ref[ref.size() - 1]->sameAs(tv->axis(0)));
@@ -649,7 +649,7 @@ TEST_F(NVFuserTest, FusionTVReorder_CUDA) {
 
   tv = makeSymbolicTensor(3);
   ref = std::vector<IterDomain*>(
-      tv->getLeafDomain().begin(), tv->getLeafDomain().end());
+      tv->getLoopDomain().begin(), tv->getLoopDomain().end());
   tv->reorder(swap);
   NVF_CHECK(ref[0]->sameAs(tv->axis(2)));
   NVF_CHECK(ref[2]->sameAs(tv->axis(0)));
@@ -807,7 +807,7 @@ TEST_F(NVFuserTest, FusionOuterSplit_CUDA) {
   tv2->reorder({{0, 1}, {1, 0}});
   // I0*I1*I2o{4}i{2}, [I0*I1*I2o{4}o, I2i]
   TransformPropagatorWithCheck propagator(tv2);
-  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
 
   inlineMost();
 
@@ -849,7 +849,7 @@ TEST_F(NVFuserTest, FusionCodeGen_CUDA) {
   tv2 = tv2->reorder({{0, 1}, {1, 0}, {3, 2}});
   //[I0i{4}*I1, I0o, I2i{2}, I2o]
   TransformPropagatorWithCheck propagator(tv2);
-  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
 
   inlineMost();
 
@@ -887,7 +887,7 @@ TEST_F(NVFuserTest, FusionCodeGen2_CUDA) {
   tv3->reorder({{2, 0}, {3, 1}, {0, 3}});
   // I0o, I0i{4}, I1, I2]
   TransformPropagatorWithCheck propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   tv3->axis(0)->parallelize(ParallelType::BIDx);
   tv3->axis(-1)->parallelize(ParallelType::TIDx);
@@ -940,7 +940,7 @@ TEST_F(NVFuserTest, FusionSimplePWise_CUDA) {
   tv3->split(0, 128);
   tv3->split(0, 4);
   TransformPropagatorWithCheck propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   // Parallelize TV3
   tv3->axis(0)->parallelize(ParallelType::BIDx);
@@ -997,7 +997,7 @@ TEST_F(NVFuserTest, FusionSimplePWiseDtypeComplex_CUDA) {
   tv3->split(0, 128);
   tv3->split(0, 4);
   TransformPropagatorWithCheck propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   // Parallelize TV3
   tv3->axis(0)->parallelize(ParallelType::BIDx);
@@ -1047,7 +1047,7 @@ TEST_F(NVFuserTest, FusionExecKernel_CUDA) {
   tv3->split(0, 128);
   tv3->split(0, 4);
   TransformPropagatorWithCheck propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   // Parallelize TV3
   tv3->axis(0)->parallelize(ParallelType::BIDx);
@@ -1430,13 +1430,13 @@ TEST_F(NVFuserTest, FusionAdvancedComputeAt7_CUDA) {
   tv7->axis(1)->parallelize(ParallelType::TIDx);
 
   tv0->computeAt(tv7, 1);
-  auto tv5_domain = tv5->getLeafDomain();
+  auto tv5_domain = tv5->getLoopDomain();
 
   // These computeAt transformations should not affect the TV5 domain
   tv0->computeAt(tv4, -1);
   tv2->computeAt(tv4, -1);
 
-  auto tv5_domain_current = tv5->getLeafDomain();
+  auto tv5_domain_current = tv5->getLoopDomain();
   NVF_CHECK(tv5_domain == tv5_domain_current, "Invalid TV5 domain");
 
   const int numel_x = 100;
@@ -5032,29 +5032,20 @@ TEST_F(NVFuserTest, FusionReductionKeepDimScheduler_CUDA) {
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   at::Tensor aten_input = at::randn({bid_x, tid_x}, options);
+  auto cg_results =
+      scheduleAndRun(&fusion, SchedulerType::Reduction, {aten_input});
   auto aten_output =
       aten_input.to(at::kDouble).sum({red_dim}, /*keepdim=*/true);
 
-  // Apply reduction heuristic
-  auto reduction_params = getReductionHeuristics(&fusion, {aten_input});
-  NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
-  scheduleReduction(&fusion, *reduction_params);
-
-  auto lparams = reduction_params->lparams;
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {aten_input}, lparams);
-  auto cg_outputs = fe.runFusion({aten_input}, lparams);
-
   testValidate(
       &fusion,
-      cg_outputs,
+      cg_results.outputs,
       {aten_input},
       {aten_output},
       __LINE__,
       __FILE__,
       "",
-      lparams);
+      cg_results.heuristic_params->lparams);
 }
 
 TEST_F(NVFuserTest, FusionSumTo_CUDA) {
@@ -5158,29 +5149,19 @@ TEST_F(NVFuserTest, FusionReductionScheduler_CUDA) {
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   at::Tensor aten_input = at::randn({bid_x, tid_x}, options);
+  auto cg_results =
+      scheduleAndRun(&fusion, SchedulerType::Reduction, {aten_input});
   auto aten_output = aten_input.to(at::kDouble).sum({red_dim});
-
-  // Apply reduction heuristic
-  auto reduction_params = getReductionHeuristics(&fusion, {aten_input});
-  NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
-  scheduleReduction(&fusion, *reduction_params);
-
-  auto lparams = reduction_params->lparams;
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {aten_input}, lparams);
-  // no broadcasting needed, omitting the last optional argument;
-  auto cg_outputs = fe.runFusion({aten_input}, lparams);
 
   testValidate(
       &fusion,
-      cg_outputs,
+      cg_results.outputs,
       {aten_input},
       {aten_output},
       __LINE__,
       __FILE__,
       "",
-      lparams);
+      cg_results.heuristic_params->lparams);
 }
 
 // This test checks if our system could correctly handles the case where both
@@ -5324,15 +5305,13 @@ TEST_F(NVFuserTest, FusionReductionSchedulerMultiDimNonFastest_CUDA) {
   auto aten_output = aten_input.to(at::kDouble).sum(red_dims64);
   at::Tensor cg_output = at::empty(tensor_dims_out, options);
 
-  // Apply reduction heuristic
-  auto reduction_params = getReductionHeuristics(&fusion, {aten_input});
-  NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
-  scheduleReduction(&fusion, *reduction_params);
-  auto lparams = reduction_params->lparams;
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {aten_input}, lparams);
-  fe.runFusion({aten_input}, {cg_output}, lparams);
+  auto heuristic_params = SchedulerEntry::scheduleWith(
+      &fusion, SchedulerType::Reduction, {aten_input});
+  FusionExecutor fusion_executor;
+  fusion_executor.compileFusion(
+      &fusion, {aten_input}, heuristic_params->lparams);
+  fusion_executor.runFusion(
+      {aten_input}, {cg_output}, heuristic_params->lparams);
 
   testValidate(
       &fusion,
@@ -5342,7 +5321,7 @@ TEST_F(NVFuserTest, FusionReductionSchedulerMultiDimNonFastest_CUDA) {
       __LINE__,
       __FILE__,
       "",
-      lparams);
+      heuristic_params->lparams);
 }
 
 TEST_F(NVFuserTest, FusionReductionSchedulerMultiDimFastest_CUDA) {
@@ -5366,201 +5345,169 @@ TEST_F(NVFuserTest, FusionReductionSchedulerMultiDimFastest_CUDA) {
   const auto options =
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor aten_input = at::randn(tensor_dims_in, options);
+  auto cg_results =
+      scheduleAndRun(&fusion, SchedulerType::Reduction, {aten_input});
   auto aten_output = aten_input.to(at::kDouble).sum(red_dims64);
-
-  auto reduction_params = getReductionHeuristics(&fusion, {aten_input});
-  NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
-  scheduleReduction(&fusion, *reduction_params);
-  auto lparams = reduction_params->lparams;
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {aten_input}, lparams);
-  auto cg_outputs = fe.runFusion({aten_input}, lparams);
 
   testValidate(
       &fusion,
-      cg_outputs,
+      cg_results.outputs,
       {aten_input},
       {aten_output},
       __LINE__,
       __FILE__,
       "",
-      lparams);
+      cg_results.heuristic_params->lparams);
 }
 
-TEST_F(NVFuserTest, FusionReductionSchedulerNoODimShmoo_CUDA) {
-  std::vector<DataType> dtypes = {
-      DataType::Double,
-      DataType::Float,
-      DataType::Half,
-      DataType::ComplexFloat,
-      DataType::ComplexDouble};
+// data type and reduction dimension size
+using ReductionNoODimParams = std::tuple<DataType, int64_t>;
+using ReductionNoODim = NVFuserFixtureParamTest<ReductionNoODimParams>;
+TEST_P(ReductionNoODim, Test) {
+  auto [dtype, rdim] = GetParam();
 
-#if defined(CUDA_VERSION) && CUDA_VERSION >= 11000
-  if (at::cuda::getDeviceProperties(0)->major >= 8) {
-    dtypes.insert(dtypes.end(), DataType::BFloat16);
+  at::ScalarType aten_dtype = data_type_to_aten(dtype);
+
+  // Shmoo tests can occupy a lot of memory due to allocating many
+  // different tensor sizes. So in order to avoid an OOM during this
+  // test, we manually clear the allocator after it's reached a certain
+  // threshold.
+  maybeClearAllocator();
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  bool is_fp16 = dtype == DataType::Half;
+  bool is_bf16 = dtype == DataType::BFloat16;
+
+  TensorView* tv0 = makeSymbolicTensor(1, dtype);
+  fusion.addInput(tv0);
+
+  TensorView* tv0_cast = tv0;
+  if (is_fp16 || is_bf16) {
+    tv0_cast = castOp(DataType::Float, tv0);
   }
-#endif
 
-  std::vector<int64_t> red_dims;
+  TensorView* tv1 = sum(tv0_cast, {0});
 
-  // Tried to cut down the number iterations with just
-  // doing every other power of 2.
-  for (int i = 1; i <= 1024 * 1024; i <<= 2) {
-    red_dims.push_back(i);
+  TensorView* tv1_cast = tv1;
+  if (is_fp16) {
+    tv1_cast = castOp(DataType::Half, tv1);
+  }
+  if (is_bf16) {
+    tv1_cast = castOp(DataType::BFloat16, tv1);
   }
 
-  for (auto dtype : dtypes) {
-    at::ScalarType aten_dtype = data_type_to_aten(dtype);
-    for (auto& rdim : red_dims) {
-      // Shmoo tests can occupy a lot of memory due to allocating many
-      // different tensor sizes. So in order to avoid an OOM during this
-      // test, we manually clear the allocator after it's reached a certain
-      // threshold.
-      maybeClearAllocator();
+  fusion.addOutput(tv1_cast);
 
-      Fusion fusion;
-      FusionGuard fg(&fusion);
+  auto options = at::TensorOptions().dtype(aten_dtype).device(at::kCUDA, 0);
 
-      bool is_fp16 = dtype == DataType::Half;
-      bool is_bf16 = dtype == DataType::BFloat16;
+  at::Tensor aten_input = at::randn({rdim}, options);
+  auto cg_results =
+      scheduleAndRun(&fusion, SchedulerType::Reduction, {aten_input});
+  auto aten_output = aten_input.to(at::kDouble).sum({0});
 
-      TensorView* tv0 = makeSymbolicTensor(1, dtype);
-      fusion.addInput(tv0);
+  testValidate(
+      &fusion,
+      cg_results.outputs,
+      {aten_input},
+      {aten_output},
+      __LINE__,
+      __FILE__,
+      "",
+      cg_results.heuristic_params->lparams);
+}
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    ReductionNoODim,
+    ::testing::Combine(
+        testing::ValuesIn(getFloatingDataTypes()), // data type
+        testing::ValuesIn(Pow2Vals1to1Million)), // reduction dimension size
+    [](const testing::TestParamInfo<ReductionNoODimParams>& info)
+        -> std::string {
+      std::stringstream ss;
+      ss << "dtype_" << std::get<0>(info.param);
+      ss << "_rsize_" << std::get<1>(info.param);
+      return sanitizeTestName(ss.str());
+    });
 
-      TensorView* tv0_cast = tv0;
-      if (is_fp16 || is_bf16) {
-        tv0_cast = castOp(DataType::Float, tv0);
-      }
+// data type, reduction dim size, iteration dim size, reduction axis
+using ReductionWithIterDimParams =
+    std::tuple<DataType, int64_t, int64_t, int64_t>;
+using ReductionWithIterDim =
+    NVFuserFixtureParamTest<ReductionWithIterDimParams>;
+TEST_P(ReductionWithIterDim, Test) {
+  auto [dtype, rdim, odim, axis] = GetParam();
 
-      TensorView* tv1 = sum(tv0_cast, {0});
+  at::ScalarType aten_dtype = data_type_to_aten(dtype);
 
-      TensorView* tv1_cast = tv1;
-      if (is_fp16) {
-        tv1_cast = castOp(DataType::Half, tv1);
-      }
-      if (is_bf16) {
-        tv1_cast = castOp(DataType::BFloat16, tv1);
-      }
+  // Shmoo tests can occupy a lot of memory due to allocating many
+  // different tensor sizes. So in order to avoid an OOM during this
+  // test, we manually clear the allocator after it's reached a certain
+  // threshold.
+  maybeClearAllocator();
 
-      fusion.addOutput(tv1_cast);
+  Fusion fusion;
+  FusionGuard fg(&fusion);
 
-      auto options = at::TensorOptions().dtype(aten_dtype).device(at::kCUDA, 0);
+  bool is_fp16 = dtype == DataType::Half;
+  bool is_bf16 = dtype == DataType::BFloat16;
 
-      at::Tensor aten_input = at::randn({rdim}, options);
-      auto aten_output = aten_input.to(at::kDouble).sum({0});
+  TensorView* tv0 = makeSymbolicTensor(2, dtype);
+  fusion.addInput(tv0);
 
-      auto reduction_params = getReductionHeuristics(&fusion, {aten_input});
-      NVF_CHECK(reduction_params != nullptr, "Reduction is not found!");
-      scheduleReduction(&fusion, *reduction_params);
-      auto lparams = reduction_params->lparams;
-
-      FusionExecutor fe;
-      fe.compileFusion(&fusion, {aten_input}, lparams);
-      auto cg_outputs = fe.runFusion({aten_input}, lparams);
-
-      testValidate(
-          &fusion,
-          cg_outputs,
-          {aten_input},
-          {aten_output},
-          __LINE__,
-          __FILE__,
-          "",
-          lparams);
-    }
+  TensorView* tv0_cast = tv0;
+  if (is_fp16 || is_bf16) {
+    tv0_cast = castOp(DataType::Float, tv0);
   }
+
+  TensorView* tv1 = sum(tv0_cast, {axis});
+
+  TensorView* tv1_cast = tv1;
+  if (is_fp16) {
+    tv1_cast = castOp(DataType::Half, tv1);
+  }
+  if (is_bf16) {
+    tv1_cast = castOp(DataType::BFloat16, tv1);
+  }
+  fusion.addOutput(tv1_cast);
+
+  auto options = at::TensorOptions().dtype(aten_dtype).device(at::kCUDA, 0);
+
+  at::Tensor aten_input =
+      (axis ? at::randn({odim, rdim}, options)
+            : at::randn({rdim, odim}, options));
+  auto cg_results =
+      scheduleAndRun(&fusion, SchedulerType::Reduction, {aten_input});
+  auto aten_output = aten_input.to(at::kDouble).sum({axis});
+  testValidate(
+      &fusion,
+      cg_results.outputs,
+      {aten_input},
+      {aten_output},
+      __LINE__,
+      __FILE__,
+      "",
+      cg_results.heuristic_params->lparams);
 }
 
-TEST_F(NVFuserTest, FusionReductionSchedulerDimShmoo_CUDA) {
-  std::vector<DataType> dtypes = {
-      DataType::Double,
-      DataType::Float,
-      DataType::Half,
-      DataType::ComplexFloat,
-      DataType::ComplexDouble};
-#if defined(CUDA_VERSION) && CUDA_VERSION >= 11000
-  if (at::cuda::getDeviceProperties(0)->major >= 8) {
-    dtypes.insert(dtypes.end(), DataType::BFloat16);
-  }
-#endif
-
-  std::vector<int64_t> red_axis = {1, 0};
-  std::vector<int64_t> output_dims = {160, 320};
-  std::vector<int64_t> red_dims;
-
-  // Tried to cut down the number iterations with just
-  // doing every other power of 2.
-  for (int64_t i = 1; i <= 1024 * 1024; i <<= 2) {
-    red_dims.push_back(i);
-  }
-
-  for (auto dtype : dtypes) {
-    at::ScalarType aten_dtype = data_type_to_aten(dtype);
-    for (auto& axis : red_axis) {
-      for (auto& odim : output_dims) {
-        for (auto& rdim : red_dims) {
-          // Shmoo tests can occupy a lot of memory due to allocating many
-          // different tensor sizes. So in order to avoid an OOM during this
-          // test, we manually clear the allocator after it's reached a certain
-          // threshold.
-          maybeClearAllocator();
-
-          Fusion fusion;
-          FusionGuard fg(&fusion);
-
-          bool is_fp16 = dtype == DataType::Half;
-          bool is_bf16 = dtype == DataType::BFloat16;
-
-          TensorView* tv0 = makeSymbolicTensor(2, dtype);
-          fusion.addInput(tv0);
-
-          TensorView* tv0_cast = tv0;
-          if (is_fp16 || is_bf16) {
-            tv0_cast = castOp(DataType::Float, tv0);
-          }
-
-          TensorView* tv1 = sum(tv0_cast, {axis});
-
-          TensorView* tv1_cast = tv1;
-          if (is_fp16) {
-            tv1_cast = castOp(DataType::Half, tv1);
-          }
-          if (is_bf16) {
-            tv1_cast = castOp(DataType::BFloat16, tv1);
-          }
-          fusion.addOutput(tv1_cast);
-
-          auto options =
-              at::TensorOptions().dtype(aten_dtype).device(at::kCUDA, 0);
-
-          at::Tensor aten_input =
-              (axis ? at::randn({odim, rdim}, options)
-                    : at::randn({rdim, odim}, options));
-
-          auto reduction_params = getReductionHeuristics(&fusion, {aten_input});
-          NVF_CHECK(reduction_params != nullptr, "Reduction is not found!");
-          scheduleReduction(&fusion, *reduction_params);
-          auto lparams = reduction_params->lparams;
-
-          FusionExecutor fe;
-          fe.compileFusion(&fusion, {aten_input}, lparams);
-          auto cg_outputs = fe.runFusion({aten_input}, lparams);
-          auto aten_output = aten_input.to(at::kDouble).sum({axis});
-          testValidate(
-              &fusion,
-              cg_outputs,
-              {aten_input},
-              {aten_output},
-              __LINE__,
-              __FILE__,
-              "",
-              lparams);
-        }
-      }
-    }
-  }
-}
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    ReductionWithIterDim,
+    ::testing::Combine(
+        testing::ValuesIn(getFloatingDataTypes()), // data type
+        testing::ValuesIn(Pow2Vals1to1Million), // reduction dimension size
+        testing::Values(160, 320), // iteration dimension size
+        testing::Values(0, 1)), // reduction axis
+    [](const testing::TestParamInfo<ReductionWithIterDimParams>& info)
+        -> std::string {
+      std::stringstream ss;
+      ss << "dtype_" << std::get<0>(info.param);
+      ss << "_rsize_" << std::get<1>(info.param);
+      ss << "_isize_" << std::get<2>(info.param);
+      ss << "_raxis_" << std::get<3>(info.param);
+      return sanitizeTestName(ss.str());
+    });
 
 TEST_F(NVFuserTest, FusionCacheBefore_CUDA) {
   // TVM Cache Write
@@ -6182,26 +6129,18 @@ TEST_F(NVFuserTest, FusionMagicSchedulerSoftmax_CUDA) {
     auto aten_output =
         at::_softmax(aten_input.to(at::kDouble), kReductionAxis, false);
 
-    auto reduction_params = getInnerPersistentHeuristics(&fusion, {aten_input});
-    NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
-
-    scheduleInnerPersistentKernel(&fusion, *reduction_params);
-
-    auto lparams = reduction_params->lparams;
-
-    nvfuser::FusionExecutor fe;
-    fe.compileFusion(&fusion, {aten_input}, lparams);
-    auto cg_outputs = fe.runFusion({aten_input}, lparams);
+    auto cg_results =
+        scheduleAndRun(&fusion, SchedulerType::InnerPersistent, {aten_input});
 
     testValidate(
         &fusion,
-        cg_outputs,
+        cg_results.outputs,
         {aten_input},
         {aten_output},
         __LINE__,
         __FILE__,
         "",
-        lparams);
+        cg_results.heuristic_params->lparams);
   };
 
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
@@ -6249,27 +6188,18 @@ TEST_F(NVFuserTest, FusionTestMaskSoftmax_CUDA) {
   auto aten_out1 = aten_input + aten_mask;
   auto aten_output = at::_softmax(aten_out1, kReductionAxis, false);
 
-  auto reduction_params =
-      getInnerPersistentHeuristics(&fusion, {aten_input, aten_mask});
-  NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
-
-  scheduleInnerPersistentKernel(&fusion, *reduction_params);
-
-  auto lparams = reduction_params->lparams;
-
-  nvfuser::FusionExecutor fe;
-  fe.compileFusion(&fusion, {aten_input, aten_mask}, lparams);
-  auto cg_outputs = fe.runFusion({aten_input, aten_mask}, lparams);
+  auto cg_results = scheduleAndRun(
+      &fusion, SchedulerType::InnerPersistent, {aten_input, aten_mask});
 
   testValidate(
       &fusion,
-      cg_outputs,
+      cg_results.outputs,
       {aten_input, aten_mask},
       {aten_output},
       __LINE__,
       __FILE__,
       "",
-      lparams);
+      cg_results.heuristic_params->lparams);
 }
 
 TEST_F(NVFuserTest, FusionMagicSchedulerLayerNormBackward_CUDA) {
@@ -6438,15 +6368,11 @@ TEST_F(NVFuserTest, FusionMagicSchedulerLayerNormalization_CUDA) {
 
   // Check reduction axis is same for all reductions
   // Generate Launch Parameters
-  auto reduction_params = getInnerPersistentHeuristics(&fusion, {aten_input});
-  ASSERT_TRUE(reduction_params) << "Reduction schedule was not generated!";
-
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto cg_outputs = fec.runFusionWithInputs({aten_input});
-
+  auto cg_results =
+      scheduleAndRun(&fusion, SchedulerType::InnerPersistent, {aten_input});
   testValidate(
       &fusion,
-      cg_outputs,
+      cg_results.outputs,
       {aten_input},
       {std::get<0>(aten_outputs),
        std::get<1>(aten_outputs),
@@ -6455,13 +6381,11 @@ TEST_F(NVFuserTest, FusionMagicSchedulerLayerNormalization_CUDA) {
       __FILE__,
       "");
 
-  auto rt = fec.getMostRecentKernelRuntime();
-  ASSERT_FALSE(rt->isSegmented());
-  auto kernel = rt->executors().at(0).kernel();
-
   // tv11 and tv17 should not be predicated. See issue #496
-  ASSERT_FALSE(PredicatedChecker::isPredicated(11, kernel));
-  ASSERT_FALSE(PredicatedChecker::isPredicated(17, kernel));
+  ASSERT_FALSE(PredicatedChecker::isPredicated(
+      11, cg_results.fusion_executor->kernel()));
+  ASSERT_FALSE(PredicatedChecker::isPredicated(
+      17, cg_results.fusion_executor->kernel()));
 }
 
 TEST_F(NVFuserTest, FusionMagicSchedulerRMSNormalization_CUDA) {
@@ -6495,11 +6419,9 @@ TEST_F(NVFuserTest, FusionMagicSchedulerRMSNormalization_CUDA) {
   auto output = at::mul(aten_input, invstd);
   //// Check reduction axis is same for all reductions
   //// Generate Launch Parameters
-  auto reduction_params = getInnerPersistentHeuristics(&fusion, {aten_input});
-  NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
-
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto cg_outputs = fec.runFusionWithInputs({aten_input});
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::InnerPersistent, {aten_input})
+          .outputs;
 
   testValidate(
       &fusion,

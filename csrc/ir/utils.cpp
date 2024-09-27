@@ -403,25 +403,6 @@ std::vector<TensorView*> outputTvsOf(std::vector<TensorView*> tvs) {
   return uniqueEntries<TensorView>(out_tvs);
 }
 
-std::vector<TensorView*> allTvs(Fusion* fusion) {
-  auto used_vals = fusion->usedMathVals();
-  auto used_tvs = ir_utils::filterByType<TensorView>(used_vals);
-
-  // This shouldn't be necessary but FusionSegmentIoAlias_CUDA due to aliasing
-  // is having an input disconnected from outputs, and these iter domains are
-  // being checked in compute at maps in scheduling logic. This shouldn't hurt
-  // AFAICT.
-  auto tv_inputs = ir_utils::filterByType<TensorView>(fusion->inputs());
-
-  std::vector<TensorView*> all_tvs({used_tvs.begin(), used_tvs.end()});
-  // Sometimes inputs are not connected to outputs, however, we still include
-  // them when returning allTvs because they are registered as an input.
-  all_tvs.insert(all_tvs.end(), tv_inputs.begin(), tv_inputs.end());
-
-  // all_tvs has duplicates, to deduplicate it and return
-  return uniqueEntries<TensorView>(all_tvs);
-}
-
 VectorOfUniqueEntries<TensorView*> allTvsOfExprs(
     const std::vector<Expr*>& exprs) {
   VectorOfUniqueEntries<TensorView*> all_tvs;
@@ -438,7 +419,7 @@ VectorOfUniqueEntries<TensorView*> allTvsOfExprs(
 std::vector<TensorView*> allTvsExcept(
     Fusion* fusion,
     const std::unordered_set<TensorView*>& except) {
-  auto all_tvs = allTvs(fusion);
+  auto all_tvs = fusion->allTvs();
   std::vector<TensorView*> result;
   for (auto tv : all_tvs) {
     if (except.count(tv) == 0) {
@@ -454,10 +435,6 @@ std::vector<Expr*> getAllTypesOfReductionOps(Fusion* fusion) {
 
 bool hasAnyReductionOps(Fusion* fusion) {
   return hasOpsOfType<ReductionOp, GroupedReductionOp, WelfordOp>(fusion);
-}
-
-bool hasAnyMatmulOps(Fusion* fusion) {
-  return hasOpsOfType<LinearOp, MmaOp, MatmulOp>(fusion);
 }
 
 namespace {
@@ -590,11 +567,20 @@ bool isReductionTvOp(const Expr* expr) {
 }
 
 bool isPointwiseTvOp(const Expr* expr) {
-  // LoadStoreOp with rfactor domain means transpose, which is not
+  // LoadStoreOp with producer projection means transpose, which is not
   // considered pointwise
   return isTvOp(expr) &&
       (expr->isOneOf<UnaryOp, BinaryOp, TernaryOp>() ||
        (expr->isA<LoadStoreOp>() && !ir_utils::getTvOutput(expr)->hasRoot()));
+}
+
+bool isSegmentSet(const Expr* e) {
+  if (const auto* ldst = dynamic_cast<const LoadStoreOp*>(e)) {
+    if (ldst->opType() == LoadStoreOpType::SegmenterSet) {
+      return true;
+    }
+  }
+  return false;
 }
 
 std::vector<ViewOp*> getViewOps(Fusion* fusion) {
@@ -682,10 +668,10 @@ bool isSqueezeInput(const TensorView* tv) {
 }
 
 bool isSqueezedID(const TensorView* tv, const IterDomain* id) {
-  auto root_dom = TensorDomain::noReductions(tv->getRFactorDomain());
+  auto logical_dom = TensorDomain::noReductions(tv->getLogicalDomain());
   auto squeezes = ir_utils::filterByType<SqueezeOp>(tv->uses());
-  for (auto i : c10::irange(root_dom.size())) {
-    if (root_dom[i] != id) {
+  for (auto i : c10::irange(logical_dom.size())) {
+    if (logical_dom[i] != id) {
       continue;
     }
     for (auto squeeze : squeezes) {
@@ -732,18 +718,6 @@ IterDomain* getConsumerOfIndexedProducerID(const Expr* expr) {
 bool isIndexedConsumerID(const TensorView* tv, const IterDomain* id) {
   return tv->definition()->isA<ScatterOp>() &&
       tv->definition()->as<ScatterOp>()->getIndexedID() == id;
-}
-
-std::vector<IterDomain*> allIDsOf(const TensorView* tv) {
-  const auto& root_domain = tv->getMaybeRootDomain();
-  const auto& domain = tv->getLeafDomain();
-  // Grab all values in the history of the tensor view's domain
-  auto all_vals = DependencyCheck::getAllValsBetween(
-      {root_domain.begin(), root_domain.end()}, {domain.begin(), domain.end()});
-
-  // Filter so we only have iteration domains (ignore Ints used in split)
-  auto all_ids = ir_utils::filterByType<IterDomain>(all_vals);
-  return std::vector<IterDomain*>(all_ids.begin(), all_ids.end());
 }
 
 bool isIndexSelectLookupTv(const TensorView* tv) {
@@ -802,7 +776,7 @@ bool hasResizedRfactor(const TensorView* tv) {
   }
   auto root_to_rf_exprs = StmtSort::getExprsBetween(
       {tv->getRootDomain().begin(), tv->getRootDomain().end()},
-      {tv->getRFactorDomain().begin(), tv->getRFactorDomain().end()});
+      {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()});
   return std::any_of(
       root_to_rf_exprs.begin(), root_to_rf_exprs.end(), [](Expr* expr) {
         return expr->isA<Resize>();
@@ -810,7 +784,7 @@ bool hasResizedRfactor(const TensorView* tv) {
 }
 
 std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion) {
-  const auto all_tvs = ir_utils::allTvs(fusion);
+  const auto all_tvs = fusion->allTvs();
   std::vector<TensorView*> dynamic_tvs;
   std::copy_if(
       all_tvs.begin(),
@@ -820,84 +794,37 @@ std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion) {
   return dynamic_tvs;
 }
 
-namespace {
+CompareDomainResult compareDomains(
+    std::vector<IterDomain*> dom0,
+    const std::vector<IterDomain*>& dom1,
+    const std::vector<IterDomain*>& additional_ids,
+    bool ignore_broadcast) {
+  std::unordered_set<Val*> dom0_set(dom0.begin(), dom0.end());
+  std::unordered_set<Val*> dom1_set(dom1.begin(), dom1.end());
+  std::unordered_set<Val*> additional_ids_set(
+      additional_ids.begin(), additional_ids.end());
 
-class ValidateDomainEquivalence : private IterVisitor {
- public:
-  ValidateDomainEquivalence(
-      const std::vector<IterDomain*>& initial_domain,
-      const std::vector<IterDomain*>& derived_domain)
-      : initial_domain_({initial_domain.begin(), initial_domain.end()}),
-        derived_domain_({derived_domain.begin(), derived_domain.end()}),
-        frontier_({initial_domain.begin(), initial_domain.end()}) {
-    // empty domain are equivalent.
-    if (initial_domain.empty() && derived_domain.empty()) {
-      return;
-    }
-    NVF_ERROR(!initial_domain.empty());
-    NVF_ERROR(!derived_domain.empty());
-    // Make sure there's no duplicate in the parameter vectors
-    NVF_ERROR(
-        initial_domain.size() == initial_domain_.size(),
-        "Duplicated entry is detected in inial_domain: ",
-        toDelimitedString(initial_domain));
-    NVF_ERROR(
-        derived_domain.size() == derived_domain_.size(),
-        "Duplicated entry is detected in derived_domain: ",
-        toDelimitedString(derived_domain));
+  // empty domain are equivalent.
+  if (dom0.empty() && dom1.empty()) {
+    return {};
+  }
+  // Make sure there's no duplicate in the parameter vectors
+  NVF_ERROR(
+      dom0.size() == dom0_set.size(),
+      "Duplicated entry is detected in dom0: ",
+      toDelimitedString(dom0));
+  NVF_ERROR(
+      dom1.size() == dom1_set.size(),
+      "Duplicated entry is detected in dom1: ",
+      toDelimitedString(dom1));
 
-    traverseBetween(
-        {initial_domain.begin(), initial_domain.end()},
-        {derived_domain.begin(), derived_domain.end()});
+  dom0.insert(dom0.end(), additional_ids.begin(), additional_ids.end());
+  auto exprs = IRBFS::getExprsBetween(
+      {dom0.begin(), dom0.end()}, {dom1.begin(), dom1.end()}, false);
 
-    // At this point, the frontier set and the derived set should be
-    // equal, except when there's a symbolic ID in the derived set,
-    // where the traversal may be incomplete.
-    if (std::any_of(derived_domain.begin(), derived_domain.end(), [](auto id) {
-          return id->getIterType() == IterType::Symbolic;
-        })) {
-      // Make sure all non-symbolic IDs of the derived set are included
-      // in the frontier set
-      NVF_ERROR(
-          std::all_of(
-              derived_domain.begin(),
-              derived_domain.end(),
-              [&](auto id) {
-                return id->getIterType() == IterType::Symbolic ||
-                    frontier_.count(id);
-              }),
-          "Invalid derived domain. Initial domain: ",
-          toDelimitedString(initial_domain),
-          ". Derived domain: ",
-          toDelimitedString(derived_domain));
-      // Similarly, all frontier vals should be included in the
-      // derived set. It is also possible that an ID in the initial
-      // domain set still remains in the frontier set as there may be
-      // no expr connecting to the derived set, e.g., dynamic reshape
-      NVF_ERROR(
-          std::all_of(
-              frontier_.begin(),
-              frontier_.end(),
-              [&](Val* val) {
-                NVF_ERROR(val->isA<IterDomain>());
-                return derived_domain_.count(val->as<IterDomain>()) ||
-                    initial_domain_.count(val);
-              }),
-          "Invalid derived domain. Initial domain: ",
-          toDelimitedString(initial_domain),
-          ". Derived domain: ",
-          toDelimitedString(derived_domain));
-    } else {
-      NVF_ERROR(
-          derived_domain_ == frontier_,
-          "Invalid derived domain. Initial domain: ",
-          toDelimitedString(initial_domain),
-          ". Derived domain: ",
-          toDelimitedString(derived_domain));
-    }
-  };
+  std::unordered_set<Val*> frontier(dom0.begin(), dom0.end());
 
-  void dispatch(Expr* expr) override {
+  for (auto [expr, direction] : exprs) {
     NVF_ERROR(
         std::all_of(expr->inputs().begin(), expr->inputs().end(), [](Val* v) {
           return v->isA<IterDomain>();
@@ -906,45 +833,142 @@ class ValidateDomainEquivalence : private IterVisitor {
         std::all_of(expr->outputs().begin(), expr->outputs().end(), [](Val* v) {
           return v->isA<IterDomain>();
         }));
-    // If any of the inputs is included in derived_domain_, that means there's a
-    // dependency within derived_domain_ and the dependent domains
-    // redundantly cover the initial domain
-    NVF_ERROR(
-        std::none_of(
-            expr->inputs().begin(),
-            expr->inputs().end(),
-            [&](Val* input_val) {
-              return derived_domain_.find(input_val) != derived_domain_.end();
-            }),
-        "Invalid derived domain due to dependent expr: ",
-        expr->toString(),
-        ". Derived domain: ",
-        toDelimitedString(derived_domain_));
-    for (auto out : expr->outputs()) {
-      // Make sure the output is not yet visited
+    std::vector<Val*> from;
+    std::vector<Val*> to;
+    if (direction == Direction::Forward) {
+      from = expr->inputs();
+      to = expr->outputs();
+    } else {
+      from = expr->outputs();
+      to = expr->inputs();
+    }
+    if (std::all_of(from.begin(), from.end(), [&](Val* v) {
+          return additional_ids_set.count(v);
+        })) {
+      additional_ids_set.insert(to.begin(), to.end());
+      continue;
+    }
+    for (auto v : to) {
+      if (additional_ids_set.count(v)) {
+        continue;
+      }
       NVF_ERROR(
-          frontier_.insert(out).second,
+          frontier.insert(v).second,
           "Invalid derived domain due to dependent expr: ",
           expr->toString(),
           ". Output should just show up once: ",
-          out->toString());
+          v->toString());
     }
-    for (auto inp : expr->inputs()) {
+    for (auto v : from) {
+      bool ignorable =
+          (ignore_broadcast && v->as<IterDomain>()->isBroadcast()) ||
+          additional_ids_set.count(v);
       NVF_ERROR(
-          frontier_.erase(inp) == 1,
+          frontier.erase(v) == 1 || ignorable,
           "Invalid derived domain due to dependent expr: ",
           expr->toString(),
           ". Input not seen before: ",
-          inp->toString());
+          v->toString());
     }
   }
 
- private:
-  const std::unordered_set<Val*> initial_domain_;
-  const std::unordered_set<Val*> derived_domain_;
-  //! Traversal frontier vals
-  std::unordered_set<Val*> frontier_;
-};
+  // Remove symbolic IDs that appear both in frontier and in dom1_set. These IDs
+  // are carried over without any transformation.
+  auto is_symb = [](Val* v) {
+    return v->as<IterDomain>()->getIterType() == IterType::Symbolic;
+  };
+  std::vector<Val*> ids_to_remove;
+  for (Val* id : frontier) {
+    if (is_symb(id) && dom1_set.count(id)) {
+      ids_to_remove.push_back(id);
+    }
+  }
+  for (Val* id : ids_to_remove) {
+    frontier.erase(id);
+    dom1_set.erase(id);
+  }
+  // At this point, the frontier set and dom1 should be equal, except when
+  // there's a symbolic ID in frontier or dom1, where the transformations are
+  // incomplete.
+  bool frontier_has_symbolic =
+      std::any_of(frontier.begin(), frontier.end(), is_symb);
+  bool dom1_has_symbolic =
+      std::any_of(dom1_set.begin(), dom1_set.end(), is_symb);
+
+  CompareDomainResult result;
+
+  // Check if iter domains can be reachable from
+  // target_set. Returns true if any of iter domains is
+  // unreachable. Additionaly, make sure none of iter domains has any
+  // overlap with the other iter domains.
+  auto check_ids = [ignore_broadcast](
+                       const auto& ids_to_check,
+                       const auto& target_set) -> bool {
+    bool unreachable = false;
+    for (auto id : ids_to_check) {
+      // Symbolic and broadcast IDs are ignored
+      if (id->template as<IterDomain>()->getIterType() == IterType::Symbolic ||
+          (ignore_broadcast && id->template as<IterDomain>()->isBroadcast())) {
+        continue;
+      }
+      if (!target_set.count(id)) {
+        // not found in target, which means either:
+        //
+        // 1. id is unreachable from target_set, or
+        // 2. id is reachable from target_set but was erased from
+        // target_set as it was used as an input in the traversal.
+        //
+        // The second case means id is redundant
+        NVF_ERROR(
+            IRBFS::getReachableValsFrom(
+                {target_set.begin(), target_set.end()}, {id})
+                .empty(),
+            id->toString(),
+            " is redundant in ",
+            toDelimitedString(target_set));
+
+        unreachable = true;
+        // Do not break here. The return value is now determined to be
+        // true, but the remaining IDs need also to be checked if they
+        // are redundant.
+      }
+    }
+    return unreachable;
+  };
+
+  if (!frontier_has_symbolic) {
+    result.dom1_has_unreachable_ids = check_ids(dom1, frontier);
+  }
+
+  if (!dom1_has_symbolic) {
+    result.dom0_has_unreachable_ids = check_ids(frontier, dom1_set);
+  }
+
+  return result;
+}
+
+void validateDomainEquivalence(
+    std::vector<IterDomain*> dom0,
+    const std::vector<IterDomain*>& dom1,
+    const std::vector<IterDomain*>& additional_ids) {
+  const auto compare_result = compareDomains(dom0, dom1, additional_ids);
+
+  NVF_ERROR(
+      !compare_result.dom0_has_unreachable_ids,
+      "dom0 has unreachable IDs. dom0: ",
+      toDelimitedString(dom0),
+      ". dom1: ",
+      toDelimitedString(dom1));
+
+  NVF_ERROR(
+      !compare_result.dom1_has_unreachable_ids,
+      "dom1 has unreachable IDs. dom0: ",
+      toDelimitedString(dom0),
+      ". dom1: ",
+      toDelimitedString(dom1));
+}
+
+namespace {
 
 std::vector<Statement*> next(Statement* stmt) {
   if (stmt->isVal()) {
@@ -962,12 +986,6 @@ std::vector<Statement*> next(Statement* stmt) {
 }
 
 } // namespace
-
-void validateDomainEquivalence(
-    const std::vector<IterDomain*>& initial_domain,
-    const std::vector<IterDomain*>& derived_domain) {
-  ValidateDomainEquivalence(initial_domain, derived_domain);
-}
 
 std::vector<Statement*> checkCycle(
     Fusion* fusion,
@@ -1035,7 +1053,7 @@ bool isAlignedScopeExpr(const Expr* expr) {
       return false;
     }
 
-  } else if (auto fl = dynamic_cast<const kir::ForLoop*>(expr)) {
+  } else if (auto fl = dynamic_cast<const ForLoop*>(expr)) {
     // If the start, stop, step are not thread dependent
     //  then this for loop should be thread independent.
     if (getRegisterType(fl->start()) == RegisterType::GeneralPurpose ||
@@ -1044,7 +1062,7 @@ bool isAlignedScopeExpr(const Expr* expr) {
       return false;
     }
   } else {
-    NVF_ERROR(false, "Invalid scope expr: ", expr->toString());
+    NVF_THROW("Invalid scope expr: ", expr->toString());
   }
 
   return true;
@@ -1088,7 +1106,7 @@ bool isTensorStride(const Val* val) {
 }
 
 int64_t getVectorizeSize(const TensorView* tv) {
-  for (auto id : tv->getLeafDomain()) {
+  for (auto id : tv->getLoopDomain()) {
     if (!isParallelTypeVectorize(id->getParallelType())) {
       continue;
     }
@@ -1107,9 +1125,30 @@ bool hasTrivialAllocationDomain(const TensorView* tv) {
     return true;
   }
   const std::vector<IterDomain*>& alloc = tv->getMaybeAllocationDomain();
-  const std::vector<IterDomain*>& rf = tv->getRFactorDomain();
-  return TensorDomain::noBroadcasts(TensorDomain::noReductions(rf)) ==
+  const std::vector<IterDomain*>& logical = tv->getLogicalDomain();
+  return TensorDomain::noBroadcasts(TensorDomain::noReductions(logical)) ==
       TensorDomain::noBroadcasts(TensorDomain::noReductions(alloc));
+}
+bool hasUniformSiblings(Expr* expr) {
+  return !expr->isOneOf<SdpaFwdOp, SdpaBwdOp>();
+}
+
+bool hasRootToLoopLinearTransformations(const TensorView* tv) {
+  auto root = tv->getMaybeRootDomain();
+  auto loop = tv->getLoopDomain();
+  std::vector<Val*> loop_val(loop.begin(), loop.end());
+  auto all_ids_vec =
+      DependencyCheck::getAllValsBetween({root.begin(), root.end()}, loop_val);
+  std::unordered_set<Val*> all_ids_set(all_ids_vec.begin(), all_ids_vec.end());
+  auto alloc = tv->getMaybeAllocationDomain();
+  auto logical = tv->getLogicalDomain();
+  bool all_alloc_id_on_path = std::all_of(
+      alloc.begin(), alloc.end(), [&](Val* v) { return all_ids_set.count(v); });
+  bool all_logical_id_on_path =
+      std::all_of(logical.begin(), logical.end(), [&](Val* v) {
+        return all_ids_set.count(v);
+      });
+  return all_alloc_id_on_path && all_logical_id_on_path;
 }
 
 } // namespace nvfuser::ir_utils
@@ -1178,7 +1217,7 @@ MmaLayout getInputLayout(
     return MmaLayout::NN;
   }
 
-  NVF_ERROR(false, "Unsupported input layout");
+  NVF_THROW("Unsupported input layout");
 }
 
 MmaOpDetails getMmaOpDetails(
@@ -1186,9 +1225,9 @@ MmaOpDetails getMmaOpDetails(
     TensorView* in_a,
     TensorView* in_b) {
   const auto in_a_details =
-      getDetailsFor(TensorDomain::noDevices(in_a->getRFactorDomain()));
+      getDetailsFor(TensorDomain::noDevices(in_a->getLogicalDomain()));
   const auto in_b_details =
-      getDetailsFor(TensorDomain::noDevices(in_b->getRFactorDomain()));
+      getDetailsFor(TensorDomain::noDevices(in_b->getLogicalDomain()));
   const auto out_details =
       getDetailsFor(TensorDomain::noDevices(out->getMaybeRootDomain()));
 

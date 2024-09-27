@@ -290,7 +290,7 @@ void IrGraphGenerator::generateScheduleGraph() {
       // Maybe not the best way to handle the root domain, but should be okay
       addArc(
           tv,
-          IrBuilder::create<TensorDomain>(tv->getRFactorDomain()),
+          IrBuilder::create<TensorDomain>(tv->getLogicalDomain()),
           "[style=dashed, color=green, arrowhead=none]");
 
       if (tv->domain()->hasRoot()) {
@@ -340,7 +340,7 @@ void IrGraphGenerator::handle(const TensorDomain* td) {
   graph_def_ << "    " << getid(td) << " [label=\"TensorDomain\", "
              << "shape=note, color=gray, "
              << "style=filled, fillcolor=gray90, fontsize=10];\n";
-  for (auto iter_domain : td->leaf()) {
+  for (auto iter_domain : td->loop()) {
     addArc(iter_domain, td, "[color=gray]");
   }
 }
@@ -369,7 +369,7 @@ void IrGraphGenerator::handle(const TensorView* tv) {
   label << "{T" << tv->name() << "|";
   label << "{";
   bool first_axis = true;
-  for (auto iter_domain : tv->getLeafDomain()) {
+  for (auto iter_domain : tv->getLoopDomain()) {
     if (first_axis) {
       first_axis = false;
     } else {
@@ -400,7 +400,7 @@ class TransformToDot {
   void handle(TensorView*);
   void handle(Expr*);
   void handle(IterDomain*);
-  void markRfactor(TensorView* tv);
+  void markLogical(TensorView* tv);
 
   // Make sure the root domains are ordered correctly
   // TODO: ordering of allocation domain
@@ -423,10 +423,10 @@ void TransformToDot::handle(Fusion* fusion) {
   ++indent_;
   indent() << "node [shape=plaintext fontsize=\"20\"];\n";
 
-  // Make sure the leaf domains are ordered correctly
+  // Make sure the loop domains are ordered correctly
   indent() << "graph [ordering=\"out\"];\n";
 
-  for (const auto tv : ir_utils::allTvs(fusion)) {
+  for (const auto tv : fusion->allTvs()) {
     handle(tv);
   }
 
@@ -444,19 +444,19 @@ void TransformToDot::handle(TensorView* tv) {
   indent() << "graph [style=dotted];\n";
 
   // TODO: Mark allocation domains too?
-  markRfactor(tv);
+  markLogical(tv);
 
   // Note this won't print allocation domains if not in the path
-  // between the root and leaf domains
+  // between the root and loop domains
   const auto all_exp = DependencyCheck::getAllExprsBetween(
       {tv->getMaybeRootDomain().begin(), tv->getMaybeRootDomain().end()},
-      {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});
+      {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
 
   for (auto exp : all_exp) {
     handle(exp);
   }
 
-  // The ordering of leaf domains should be taken care by the
+  // The ordering of loop domains should be taken care by the
   // "ordering" attribute.
   enforceRootOrder(tv);
 
@@ -464,8 +464,8 @@ void TransformToDot::handle(TensorView* tv) {
   indent() << "}\n";
 }
 
-void TransformToDot::markRfactor(TensorView* tv) {
-  for (auto id : tv->getRFactorDomain()) {
+void TransformToDot::markLogical(TensorView* tv) {
+  for (auto id : tv->getLogicalDomain()) {
     indent() << id->name() << " [shape=circle];\n";
   }
 }
@@ -477,7 +477,7 @@ void TransformToDot::enforceRootOrder(TensorView* tv) {
   indent() << "edge [style=invis];\n";
   bool first = true;
   std::stringstream ss;
-  for (auto id : tv->getRFactorDomain()) {
+  for (auto id : tv->getLogicalDomain()) {
     if (!first) {
       ss << " -> ";
     }

@@ -50,7 +50,6 @@ class AsyncWait;
 class AsyncCommit;
 class InitMagicZero;
 class UpdateMagicZero;
-class ForLoop;
 class IfThenElse;
 class GridReduction;
 class GroupedGridReduction;
@@ -60,7 +59,6 @@ class GroupedGridWelford;
 class AllocateFusedReduction;
 
 // Expr container
-class Scope;
 
 class Predicate final : public Val {
  public:
@@ -85,7 +83,8 @@ class Predicate final : public Val {
   const Expr* expr() const {
     NVF_ERROR(
         ptype_ != PredicateType::Unswitch &&
-        ptype_ != PredicateType::Vectorize && ptype_ != PredicateType::Manual);
+        ptype_ != PredicateType::Vectorize && ptype_ != PredicateType::Manual &&
+        ptype_ != PredicateType::ElectSync);
     return expr_;
   }
 
@@ -93,7 +92,8 @@ class Predicate final : public Val {
     NVF_ERROR(
         ptype_ == PredicateType::Inline ||
         ptype_ == PredicateType::Misaligned ||
-        ptype_ == PredicateType::ReductionWrite);
+        ptype_ == PredicateType::ReductionWrite ||
+        ptype_ == PredicateType::ElectSync);
     return thread_pred_;
   }
 
@@ -718,217 +718,6 @@ class UpdateMagicZero final : public Expr {
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
-};
-
-// TODO(kir): promote to IR node
-class Scope {
- public:
-  explicit Scope(Expr* owner) : owner_(owner) {}
-
-  std::string toString(int indent_size = 0) const;
-
-  const std::vector<Expr*>& exprs() const {
-    return exprs_;
-  }
-
-  bool empty() const {
-    return exprs_.empty();
-  }
-
-  auto size() const {
-    return exprs_.size();
-  }
-
-  auto& at(size_t i) {
-    return exprs_.at(i);
-  }
-
-  auto& at(size_t i) const {
-    return exprs_.at(i);
-  }
-
-  auto& operator[](size_t i) {
-    return at(i);
-  }
-
-  auto& operator[](size_t i) const {
-    return at(i);
-  }
-
-  // Insert expr before expression at pos
-  std::vector<Expr*>::iterator insert(size_t pos, Expr* expr);
-
-  // Insert expr before ref
-  std::vector<Expr*>::iterator insert_before(Expr* ref, Expr* expr);
-
-  // Insert expr after ref
-  std::vector<Expr*>::iterator insert_after(Expr* ref, Expr* expr);
-
-  void push_back(Expr* e) {
-    exprs_.push_back(e);
-  }
-
-  // Erase expr at pos
-  void erase(size_t pos);
-
-  // Erase expr ref
-  void erase(Expr* ref);
-
-  bool contains(Expr* expr) const;
-
-  void clear();
-
-  Expr* owner() const {
-    return owner_;
-  }
-
-  bool operator==(const Scope&) const {
-    NVF_ERROR(false, "Should not reach here");
-  }
-
-  // Insert expr before pos
-  std::vector<Expr*>::iterator insert(
-      std::vector<Expr*>::const_iterator pos,
-      Expr* expr);
-
- private:
-  // Erase expr at pos
-  void erase(std::vector<Expr*>::const_iterator pos);
-
- private:
-  std::vector<Expr*> exprs_;
-
-  //! Owner exprssion of this scope, e.g., IfThenElse
-  Expr* owner_ = nullptr;
-};
-
-//! ForLoop provides scoping around an int iterator from 0 to range. Exprs
-//! placed in its body are considered inside the scope of the for loop. In the
-//! future the implementation should look quite different so that we can do
-//! proper dependency annalysis like in Fusion.
-//!
-//! TODO(kir): this is not a real expression
-//!
-//! ForLoop may represent a part of an iteration domain representend
-//! by iter_domain_. In that case, the loop extent field, extent_, may
-//! be smaller than the extent of iter_domain_.
-class NVF_API ForLoop final : public Expr {
- public:
-  using Expr::Expr;
-
-  //! By default, start and stop are the same as those of iter_domain.
-  //! Step is one by default.
-  //!
-  //! TODO: cleaner way to set options?
-  ForLoop(
-      IrBuilderPasskey passkey,
-      IterDomain* iter_domain,
-      Val* index,
-      Val* start,
-      Val* stop,
-      Val* step,
-      bool vectorize,
-      Val* vectorize_shift,
-      bool unroll_required,
-      DoubleBufferLoopStage double_buffer_loop_stage);
-
-  ForLoop(
-      IrBuilderPasskey passkey,
-      IterDomain* iter_domain,
-      Val* index,
-      DoubleBufferLoopStage double_buffer_loop_stage);
-
-  ForLoop(IrBuilderPasskey passkey, IterDomain* iter_domain);
-
-  ForLoop(IrBuilderPasskey passkey, const ForLoop* other);
-
-  NVFUSER_DECLARE_CLONE_AND_CREATE
-
-  const char* getOpString() const override {
-    return "ForLoop";
-  }
-
-  std::string toString(int indent_size = 0) const override;
-  std::string toInlineString(int indent_size = 0) const override;
-
-  Val* index() const {
-    return input(0);
-  }
-
-  Val* indexOrStartIfTrivial() const {
-    return isTrivial() ? start() : index();
-  }
-
-  Val* start() const;
-
-  Val* stop() const;
-
-  Val* step() const;
-
-  Val* simplifiedStop() const;
-
-  // [pre | vectorize | post] <= inner-most, merged root domain
-  // shift_ is applied to vectorize and post sections.
-  Val* vectorize_shift() const {
-    return attributeVal(4);
-  }
-
-  IterDomain* iter_domain() const {
-    return input(1)->as<IterDomain>();
-  }
-
-  // TODO: Return pointer instead of reference to be more consistent
-  Scope& body() {
-    return attribute<Scope>(7);
-  }
-
-  const Scope& body() const {
-    return attribute<Scope>(7);
-  }
-
-  bool empty() const {
-    return body().empty();
-  }
-
-  // vectorize is true when the for-loop contains a vectorize set
-  // the flag is used to omit the for-loop from the kernel
-  bool vectorize() const {
-    return attribute<bool>(3);
-  }
-
-  //! True if unrolled (i.e., "#pragma unroll" is attached)
-  bool isUnrolled() const;
-
-  //! True if unroll is required for avoiding stack allocation
-  bool isUnrollRequired() const {
-    return attribute<bool>(5);
-  }
-
-  //! Set unrolling required
-  void requireUnroll() {
-    attribute<bool>(5) = true;
-  }
-
-  //! True if no actual for-loop is materialized
-  bool isTrivial() const;
-
-  //! True if loop is grouped reduction/welford
-  bool isGroup() const;
-
-  //! Returns the stage of a double buffered iterdomain
-  //!  that this for loop materializes.
-  auto doubleBufferLoopStage() const {
-    return attribute<DoubleBufferLoopStage>(6);
-  }
-
- private:
-  //! Returns if a loop could be unrolled.
-  bool isUnrollable() const;
-
-  //! Not storing this as an attribute because this is only a cache for
-  //! simplifiedStop. We are not interested in keeping this across clone/serde,
-  //! etc.
-  mutable Val* simplified_stop_ = nullptr;
 };
 
 //! IfThenElse provides scoping for an boolean operator. Exprs placed in its

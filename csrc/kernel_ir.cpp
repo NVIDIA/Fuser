@@ -9,6 +9,7 @@
 #include <device_lower/utils.h>
 #include <expr_evaluator.h>
 #include <expr_simplifier.h>
+#include <host_ir/container.h>
 #include <ir/builder.h>
 #include <ir/cloner.h>
 #include <ir/iostream.h>
@@ -116,7 +117,7 @@ std::string TensorIndex::toString(int indent_size) const {
       ss << "_l";
       break;
     default:
-      NVF_ERROR(false, "Unknown tensor memory type.");
+      NVF_THROW("Unknown tensor memory type.");
   }
   ss << "[";
   ss << index()->toInlineString(indent_size);
@@ -292,8 +293,7 @@ const char* getPTXConstraints(Val* value) {
         return "l";
       }
     default:
-      NVF_ERROR(
-          false, "Unsupported data type ", dt, " for inline PTX assembly.");
+      NVF_THROW("Unsupported data type ", dt, " for inline PTX assembly.");
   }
 }
 
@@ -355,7 +355,7 @@ std::string Asm::parameters() const {
       }
       ss << "}";
     } else {
-      NVF_ERROR(false, "Unsupported data type ", dtype);
+      NVF_THROW("Unsupported data type ", dtype);
     }
   };
   for (auto out : outputs()) {
@@ -646,7 +646,7 @@ const char* AsyncWait::ptx() const {
     case AsyncOpType::WgMma:
       return "wgmma.wait_group.sync.aligned";
     default:
-      NVF_ERROR(false, "Unsupported async op type.");
+      NVF_THROW("Unsupported async op type.");
   }
 }
 
@@ -658,7 +658,7 @@ bool AsyncWait::memory() const {
     case AsyncOpType::WgMma:
       return true;
     default:
-      NVF_ERROR(false, "Unsupported async op type.");
+      NVF_THROW("Unsupported async op type.");
   }
 }
 
@@ -692,7 +692,7 @@ const char* AsyncCommit::ptx() const {
     case AsyncOpType::WgMma:
       return "wgmma.commit_group.sync.aligned";
     default:
-      NVF_ERROR(false, "Unsupported async op type.");
+      NVF_THROW("Unsupported async op type.");
   }
 }
 
@@ -704,7 +704,7 @@ bool AsyncCommit::memory() const {
     case AsyncOpType::WgMma:
       return true;
     default:
-      NVF_ERROR(false, "Unsupported async op type.");
+      NVF_THROW("Unsupported async op type.");
   }
 }
 
@@ -747,359 +747,6 @@ std::string UpdateMagicZero::toInlineString(int indent_size) const {
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(UpdateMagicZero)
-
-std::string Scope::toString(int indent_size) const {
-  std::stringstream ss;
-  for (auto expr : exprs()) {
-    ss << expr->toString(indent_size);
-  }
-  return ss.str();
-}
-
-std::vector<Expr*>::iterator Scope::insert(
-    std::vector<Expr*>::const_iterator pos,
-    Expr* expr) {
-  return exprs_.insert(pos, expr);
-}
-
-std::vector<Expr*>::iterator Scope::insert_before(Expr* ref, Expr* expr) {
-  const auto it = std::find(exprs_.begin(), exprs_.end(), ref);
-  NVF_ERROR(
-      it != exprs_.end(),
-      "Tried to insert ",
-      expr,
-      " before the reference: ",
-      ref,
-      " @ ",
-      (size_t)ref,
-      " however the reference was not found in this scope.");
-  return insert(it, expr);
-}
-
-std::vector<Expr*>::iterator Scope::insert_after(Expr* ref, Expr* expr) {
-  const auto it = std::find(exprs_.begin(), exprs_.end(), ref);
-  NVF_ERROR(
-      it != exprs_.end(),
-      "Tried to insert ",
-      expr,
-      " after the reference: ",
-      ref,
-      " however the reference was not found in this scope.");
-  return insert(it + 1, expr);
-}
-
-std::vector<Expr*>::iterator Scope::insert(size_t pos, Expr* expr) {
-  const auto it = exprs_.begin() + (std::ptrdiff_t)pos;
-  return insert(it, expr);
-}
-
-void Scope::erase(std::vector<Expr*>::const_iterator pos) {
-  // Remove the scope of the expr if this is the scope
-  C10_UNUSED auto expr = *pos;
-  exprs_.erase(pos);
-}
-
-void Scope::erase(Expr* ref) {
-  const auto it = std::find(exprs_.begin(), exprs_.end(), ref);
-  if (it != exprs_.end()) {
-    erase(it);
-  }
-}
-
-void Scope::erase(size_t pos) {
-  erase(exprs_.begin() + (std::ptrdiff_t)pos);
-}
-
-bool Scope::contains(Expr* expr) const {
-  const auto it = std::find(exprs_.begin(), exprs_.end(), expr);
-  return it != exprs_.end();
-}
-
-void Scope::clear() {
-  exprs_.clear();
-}
-
-ForLoop::ForLoop(
-    IrBuilderPasskey passkey,
-    IterDomain* iter_domain,
-    Val* index,
-    Val* start,
-    Val* stop,
-    Val* step,
-    bool vectorize,
-    Val* vectorize_shift,
-    bool unroll_required,
-    DoubleBufferLoopStage double_buffer_loop_stage)
-    : Expr(passkey) {
-  NVF_ERROR(passkey.ir_container_ != nullptr);
-  NVF_ERROR(
-      passkey.ir_container_->isA<kir::Kernel>(),
-      "IR type only valid for Kernel container.");
-  NVF_ERROR(isIntegralType(index->dtype()));
-  addInput(index);
-  addInput(iter_domain);
-  if (start == nullptr && iter_domain->isThread()) {
-    start = NamedScalar::getParallelIndex(iter_domain->getParallelType());
-  }
-  if (step == nullptr) {
-    if (iter_domain->isThread()) {
-      step = NamedScalar::getParallelDim(iter_domain->getParallelType());
-    } else {
-      step = FusionGuard::getCurFusion()->oneVal();
-    }
-  }
-  NVF_ERROR(
-      index->dtype() == DataType::Index, "Loop index must be an index type.");
-  NVF_ERROR(
-      start == nullptr || start->dtype() == DataType::Index,
-      "Loop start must be an index type.");
-  NVF_ERROR(
-      step->dtype() == DataType::Index, "Loop step must be an index type.");
-  NVF_ERROR(
-      stop == nullptr || stop->dtype() == DataType::Index,
-      "Loop stop must be an index type.");
-  addAttribute(start);
-  addAttribute(stop);
-  addAttribute(step);
-  addDataAttribute(vectorize);
-  addAttribute(vectorize_shift);
-  addDataAttribute(unroll_required);
-  addDataAttribute(double_buffer_loop_stage);
-  // Storing IR nodes as Attribute is not safe with IrCloner, but fortunately
-  // kernel IR does not need this feature.
-  addDataAttribute(Scope(this));
-}
-
-ForLoop::ForLoop(
-    IrBuilderPasskey passkey,
-    IterDomain* iter_domain,
-    Val* index,
-    DoubleBufferLoopStage double_buffer_loop_stage)
-    : ForLoop(
-          passkey,
-          iter_domain,
-          index,
-          nullptr,
-          nullptr,
-          nullptr,
-          !iter_domain->isBroadcast() &&
-              isParallelTypeVectorize(iter_domain->getParallelType()),
-          nullptr,
-          false,
-          double_buffer_loop_stage) {}
-
-ForLoop::ForLoop(IrBuilderPasskey passkey, IterDomain* iter_domain)
-    : ForLoop(
-          passkey,
-          iter_domain,
-          GpuLower::current()->caMap()->getIndexVariable(iter_domain),
-          DoubleBufferLoopStage::NotApplicable) {}
-
-ForLoop::ForLoop(IrBuilderPasskey passkey, const ForLoop* other)
-    : ForLoop(
-          passkey,
-          other->iter_domain(),
-          other->index(),
-          other->start(),
-          other->stop(),
-          other->step(),
-          other->vectorize(),
-          other->vectorize_shift(),
-          other->isUnrollRequired(),
-          other->doubleBufferLoopStage()) {}
-
-std::string ForLoop::toString(int indent_size) const {
-  std::stringstream ss;
-  indent(ss, indent_size) << "FOR " << index()->toString() << " in "
-                          << iter_domain()->toString() << ":\n"
-                          << body().toString(indent_size + 1);
-  return ss.str();
-}
-
-std::string ForLoop::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "Tensor op can not be printed inline");
-}
-
-bool ForLoop::isUnrollable() const {
-  // Start and stop must be constant, must not be a broadcast
-  // dimension, cannot be bound to a parallel dimension, must not be
-  // vectorized.
-  return start()->isConstScalar() && stop()->isConstScalar() &&
-      !iter_domain()->isThread() && !iter_domain()->isDeviceDim() &&
-      !iter_domain()->isBroadcast() && !vectorize();
-}
-
-bool ForLoop::isUnrolled() const {
-  if (isUnrollRequired() && !isUnrollable()) {
-    TORCH_WARN(
-        "Unroll required but not possible. Register allocation disabled. Loop index: ",
-        index()->toString());
-    return false;
-  }
-
-  // Size-one loop will not be materialized as a loop, so return false
-  if (start()->isZeroInt() && stop()->isOneInt()) {
-    return false;
-  }
-
-  // Unroll if required.
-  if (isUnrollRequired()) {
-    return true;
-  }
-
-  // Don't unroll if not possible
-  if (!isUnrollable()) {
-    return false;
-  }
-
-  // Unrolling is technically possible but avoided
-  if (iter_domain()->getParallelType() == ParallelType::Unswitch) {
-    // Use ParallelType::Unroll if unrolling is desired. Note that
-    // unswitched size-one loops are not unrolled as they are not
-    // materialized as actual for-loops.
-    return false;
-  }
-
-  return true;
-}
-
-Val* ForLoop::start() const {
-  if (attributeVal(0) != nullptr) {
-    return attributeVal(0);
-  } else {
-    // clang-tidy complains without this
-    NVF_ERROR(iter_domain() != nullptr);
-    return iter_domain()->start();
-  }
-}
-
-Val* ForLoop::stop() const {
-  if (attributeVal(1) != nullptr) {
-    return attributeVal(1);
-  } else {
-    // clang-tidy complains without this
-    NVF_ERROR(iter_domain() != nullptr);
-    return iter_domain()->extent();
-  }
-}
-
-Val* ForLoop::step() const {
-  NVF_ERROR(attributeVal(2) != nullptr);
-  return attributeVal(2);
-}
-
-Val* ForLoop::simplifiedStop() const {
-  if (simplified_stop_ == nullptr) {
-    simplified_stop_ =
-        GpuLower::current()->commonScalarMap().hoistScalar(stop(), {});
-  }
-  return simplified_stop_;
-}
-
-bool ForLoop::isTrivial() const {
-  // These loops are not materialized
-  if (vectorize() || iter_domain()->isBroadcast() ||
-      iter_domain()->isStride() || iter_domain()->isMma() ||
-      iter_domain()->isBulk() || iter_domain()->isDeviceDim()) {
-    return true;
-  }
-
-  if (index()->isConstScalar() || index()->definition() != nullptr) {
-    return true;
-  }
-
-  // By default, a parallelized loop would look like:
-  //
-  //   for (int x = threadIdx.x; x < stop; x += blockDim.x) {
-  //     do_some_comp(x);
-  //   }
-  //
-  // When stop is guaranteed to be smaller or equal to the number of
-  // threads, the for-loop is not necessary. In the above case, we
-  // would just generate the loop body without the for clause but
-  // references to the loop index replaced by the loop start value.
-  //
-  // When the loop end is the same as the IterDomain extent, the
-  // assumption can be safely made. This is more conservative than
-  // necessary since the loop stop value just needs to be <= the
-  // IterDomain extent. However, at this point, this conservative
-  // analysis seems sufficient.
-  if (stop() == iter_domain()->extent() && iter_domain()->isThread()) {
-    return true;
-  }
-
-  // Extent-1 loop: for (int i = 0; i < 1; ++i) {
-  if (start()->isZeroInt() && simplifiedStop()->isOneInt() &&
-      step()->isOneInt()) {
-    return true;
-  }
-
-  // Another extent-1 loop: for (int i = N - 1; i < N; ++i) {
-  if (start()->definition() != nullptr &&
-      start()->definition()->isA<BinaryOp>() &&
-      start()->definition()->as<BinaryOp>()->getBinaryOpType() ==
-          BinaryOpType::Sub &&
-      start()->definition()->as<BinaryOp>()->lhs() == stop() &&
-      start()->definition()->as<BinaryOp>()->rhs()->isOneInt()) {
-    return true;
-  }
-
-  return false;
-}
-
-namespace {
-
-//! A utility class to check if an expression of a particular type exists
-class ExprFinder : kir::ConstIrVisitor {
- public:
-  //! True if expr or any of its nested expressions is a type included in
-  //! expr_types
-  static bool exists(
-      const Expr* expr,
-      const std::unordered_set<std::type_index>& expr_types) {
-    ExprFinder finder(expr_types);
-    finder.handle(std::vector<const Expr*>{expr});
-    return finder.is_found_;
-  }
-
- private:
-  ExprFinder(const std::unordered_set<std::type_index>& expr_types)
-      : expr_types_(expr_types) {}
-
-  using kir::ConstIrVisitor::handle;
-
-  void dispatch(const Expr* expr) final {
-    if (expr_types_.find(typeid(*expr)) != expr_types_.end()) {
-      is_found_ = true;
-      return;
-    }
-    kir::ConstIrVisitor::dispatch(expr);
-  }
-
- private:
-  const std::unordered_set<std::type_index>& expr_types_;
-  bool is_found_ = false;
-};
-
-} // namespace
-
-bool ForLoop::isGroup() const {
-  //! True if loop is grouped. The IterDomain of the loop must have
-  //! ParallelType::Group, but it isn't sufficient as the loop may be
-  //! for an initialization expression, for which the loop shold not
-  //! be grouped. Make sure a GroupedGridReduction is found.
-  if (iter_domain()->getParallelType() != ParallelType::Group) {
-    return false;
-  }
-
-  return ExprFinder::exists(
-      this,
-      {typeid(GroupedReductionOp),
-       typeid(kir::GroupedGridReduction),
-       typeid(kir::GroupedGridWelford)});
-}
-
-NVFUSER_DEFINE_CLONE_AND_CREATE(ForLoop)
 
 IfThenElse::IfThenElse(IrBuilderPasskey passkey, Predicate* cond)
     : Expr(passkey) {
@@ -1469,7 +1116,7 @@ int64_t GroupedGridWelford::getSmemBufferSize(
   // GroupCount
 
   int64_t group_count = 1;
-  for (auto axis : out_tv->getLeafDomain()) {
+  for (auto axis : out_tv->getLoopDomain()) {
     auto pt = axis->getParallelType();
     if (pt == ParallelType::Group) {
       auto extent_int = axis->extent()->value().as<int64_t>();
@@ -1602,7 +1249,7 @@ TensorIndex* AllocateFusedReduction::out() const {
           dynamic_cast<GroupedGridWelford*>(gridExpr())) {
     return grouped_grid_welford->out(0)->as<kir::TensorIndex>();
   } else {
-    NVF_ERROR(false, "Invalid grid expression: ", gridExpr()->toString());
+    NVF_THROW("Invalid grid expression: ", gridExpr()->toString());
   }
 }
 
@@ -1621,7 +1268,7 @@ const ParallelTypeBitmap& AllocateFusedReduction::threadPredicate() const {
           dynamic_cast<GroupedGridWelford*>(gridExpr())) {
     return grouped_grid_welford->threadPredicate();
   } else {
-    NVF_ERROR(false, "Invalid grid expression: ", gridExpr()->toString());
+    NVF_THROW("Invalid grid expression: ", gridExpr()->toString());
   }
 }
 

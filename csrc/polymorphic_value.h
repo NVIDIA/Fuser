@@ -185,11 +185,7 @@ class StructHandle {
   StructHandle& operator=(const StructHandle& other) = default;
   StructHandle& operator=(StructHandle&& other) = default;
 
-  //! This is a shallow comparison operator that just checks whether we point to
-  //! the same exact Struct
-  bool operator==(const StructHandle& other) const {
-    return struct_ptr_ == other.struct_ptr_;
-  }
+  bool operator==(const StructHandle& other) const;
 
   template <typename T>
   bool is() const {
@@ -225,20 +221,7 @@ using PolymorphicValue = dynamic_type::DynamicType<
 
 namespace PolymorphicValue_functions {
 
-inline std::string toString(const PolymorphicValue& v) {
-  std::stringstream ss;
-  if (v.is<at::Tensor>()) {
-    const auto& t = v.as<at::Tensor>();
-    ss << "Tensor(sizes=" << t.sizes() << ", "
-       << "stride=" << t.strides() << ", dtype=" << t.dtype()
-       << ", device=" << t.device() << ", data_ptr=" << t.data_ptr() << ")";
-  } else if (v.is<std::monostate>()) {
-    ss << "std::monostate";
-  } else {
-    ss << v;
-  }
-  return ss.str();
-}
+NVF_API std::string toString(const PolymorphicValue& v);
 
 template <typename T>
 inline bool isNan(const T& a) {
@@ -277,6 +260,60 @@ inline bool isSame(const PolymorphicValue& a, const PolymorphicValue& b) {
         a.as<std::complex<double>>(), b.as<std::complex<double>>());
   }
   return a == b;
+}
+
+inline PolymorphicValue signbit(const PolymorphicValue& a) {
+  if (a.is<int64_t>()) {
+    return PolymorphicValue(std::signbit(a.as<int64_t>()));
+  }
+  if (a.is<double>()) {
+    return PolymorphicValue(std::signbit(a.as<double>()));
+  }
+  if (a.is<at::Tensor>()) {
+    return PolymorphicValue(a.as<at::Tensor>().signbit());
+  }
+  NVF_THROW("PolymorphicValue signbit not implemented for ", a.type().name());
+}
+
+inline PolymorphicValue fmod(
+    const PolymorphicValue& a,
+    const PolymorphicValue& b) {
+  // TODO: relax the type check
+  NVF_ERROR(
+      a.is<at::Tensor>() || a.type() == b.type(),
+      "fmod is not implemented for mismatch dtypes");
+  if (a.is<int64_t>()) {
+    if (b.is<int64_t>()) {
+      return PolymorphicValue(std::fmod(a.as<int64_t>(), b.as<int64_t>()));
+    }
+    if (b.is<double>()) {
+      return PolymorphicValue(std::fmod(a.as<int64_t>(), b.as<double>()));
+    }
+  }
+  if (a.is<double>()) {
+    if (b.is<int64_t>()) {
+      return PolymorphicValue(std::fmod(a.as<double>(), b.as<int64_t>()));
+    }
+    if (b.is<double>()) {
+      return PolymorphicValue(std::fmod(a.as<double>(), b.as<double>()));
+    }
+  }
+  if (a.is<at::Tensor>()) {
+    if (b.is<int64_t>()) {
+      return PolymorphicValue(a.as<at::Tensor>().fmod(b.as<int64_t>()));
+    }
+    if (b.is<double>()) {
+      return PolymorphicValue(a.as<at::Tensor>().fmod(b.as<double>()));
+    }
+    if (b.is<at::Tensor>()) {
+      return PolymorphicValue(a.as<at::Tensor>().fmod(b.as<at::Tensor>()));
+    }
+  }
+  NVF_THROW(
+      "PolymorphicValue fmod not implemented for ",
+      a.type().name(),
+      " , ",
+      b.type().name());
 }
 
 inline PolymorphicValue ceildiv(
@@ -328,16 +365,14 @@ inline PolymorphicValue abs(const PolymorphicValue& a) {
   if (a.is<at::Tensor>()) {
     return a.as<at::Tensor>().abs();
   }
-  NVF_ERROR(
-      false, "PolymorphicValue abs not implemented for ", a.type().name());
+  NVF_THROW("PolymorphicValue abs not implemented for ", a.type().name());
 }
 
 inline PolymorphicValue erf(const PolymorphicValue& a) {
   if (a.is<at::Tensor>()) {
     return PolymorphicValue(a.as<at::Tensor>().erf());
   }
-  NVF_ERROR(
-      false, "PolymorphicValue erf not implemented for ", a.type().name());
+  NVF_THROW("PolymorphicValue erf not implemented for ", a.type().name());
 }
 
 // Convert scalars, vector of scalars, vector of vector of scalars, etc., into
@@ -378,8 +413,7 @@ inline PolymorphicValue toTensor(
     }
     return PolymorphicValue(at::stack(tensors));
   }
-  NVF_ERROR(
-      false, "PolymorphicValue toTensor not implemented for ", x.type().name());
+  NVF_THROW("PolymorphicValue toTensor not implemented for ", x.type().name());
 }
 
 // Convert PolymorphicValue to c10::Scalar.

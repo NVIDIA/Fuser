@@ -51,9 +51,8 @@ TEST_F(MoveSplitCatTest, Noncancellable_DifferentOrder) {
   FusionGuard fg(fusion.get());
 
   TensorView* in = makeContigConcreteTensor({2, 6});
-  TensorView* s0 = slice(in, {0, 0}, {2, 3});
-  TensorView* s1 = slice(in, {0, 3}, {2, 6});
-  TensorView* out = cat({s1, s0}, /*dim=*/-1);
+  std::vector<TensorView*> slices = chunk(in, /*chunks=*/2, /*dim=*/-1);
+  TensorView* out = cat({slices[1], slices[0]}, /*dim=*/-1);
 
   fusion->addInput(in);
   fusion->addOutput(out);
@@ -73,10 +72,9 @@ TEST_F(MoveSplitCatTest, Cancellable_SetWithoutPermute) {
   FusionGuard fg(fusion.get());
 
   TensorView* in = makeContigConcreteTensor({2, 5});
-  TensorView* s0 = slice(in, {0, 0}, {2, 2});
-  TensorView* s1 = slice(in, {0, 2}, {2, 5});
-  s0 = set(s0);
-  s1 = set(s1);
+  std::vector<TensorView*> slices = chunk(in, /*chunks=*/2, /*dim=*/-1);
+  TensorView* s0 = set(slices[0]);
+  TensorView* s1 = set(slices[1]);
   TensorView* out = cat({s0, s1}, /*dim=*/-1);
 
   fusion->addInput(in);
@@ -183,10 +181,9 @@ TEST_F(MoveSplitCatTest, Cancellable_IncompatibleAllocationOrder) {
   FusionGuard fg(fusion.get());
 
   TensorView* in = makeContigConcreteTensor({2, 3, 5});
-  TensorView* s0 = slice(in, {0, 0, 0}, {2, 3, 2});
-  TensorView* s1 = slice(in, {0, 0, 2}, {2, 3, 5});
-  s0 = permute(s0, {1, 0, 2});
-  s1 = permute(s1, {1, 0, 2});
+  std::vector<TensorView*> slices = chunk(in, /*chunks=*/2, /*dim=*/-1);
+  TensorView* s0 = permute(slices[0], {1, 0, 2});
+  TensorView* s1 = permute(slices[1], {1, 0, 2});
   TensorView* out = cat({s0, s1}, /*dim=*/-1);
   out->setAllocationDomain({out->axis(2), out->axis(0), out->axis(1)}, true);
 
@@ -247,11 +244,10 @@ TEST_F(MoveSplitCatTest, Noncancellable_WrongAxis) {
   FusionGuard fg(fusion.get());
 
   TensorView* in = makeContigConcreteTensor({2, 2, 4});
-  TensorView* s0 = slice(in, {0, 0, 0}, {2, 2, 2});
-  TensorView* s1 = slice(in, {0, 0, 2}, {2, 2, 4});
+  std::vector<TensorView*> slices = chunk(in, /*num_slices=*/2, /*dim=*/-1);
   // dim=2 is the split dimension.
-  s0 = permute(s0, {1, 2, 0});
-  s1 = permute(s1, {1, 2, 0});
+  TensorView* s0 = permute(slices[0], {1, 2, 0});
+  TensorView* s1 = permute(slices[1], {1, 2, 0});
   // After permutation, dim=1 is the split dimension. However, the following
   // `cat` is along dim=0.
   TensorView* out = cat({s0, s1}, /*dim=*/0);

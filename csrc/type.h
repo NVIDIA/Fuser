@@ -36,6 +36,7 @@ enum class ValType {
   NamedScalar,
   Predicate,
   TensorIndex,
+  Stream,
   Others
 };
 
@@ -45,6 +46,7 @@ enum class ValType {
 // Misaligned - PredicateCompute::getInlinePredicate + Misaligned flag
 // ReductionWrite - Same as Inline but without reduction axes
 // LoopRotation - Predicate added by loop rotation, currently always true.
+// ElectSync - Select a single thread to launch asynchronous operations.
 enum class PredicateType {
   Manual,
   Inline,
@@ -52,7 +54,8 @@ enum class PredicateType {
   Vectorize,
   Misaligned,
   ReductionWrite,
-  LoopRotation
+  LoopRotation,
+  ElectSync
 };
 
 // Index type is a convenience type that may be a 64 or 32 signed integer.
@@ -135,7 +138,7 @@ struct StructType {
         return *field.type;
       }
     }
-    NVF_ERROR(false, "Field ", name, " not found in struct ", this->name);
+    NVF_THROW("Field ", name, " not found in struct ", this->name);
   }
 
   inline bool operator==(const StructType& other) const;
@@ -588,6 +591,7 @@ enum class UnaryOpType {
   IsReal,
 
   // Special unary ops
+  ElectSync,
   ToUnsignedSmemAddr,
   AdjustPartialLdMatrixAddrInTuring8,
   AdjustPartialLdMatrixAddrInTuring16
@@ -706,7 +710,6 @@ enum class IterType {
   Iteration,
   Reduction,
   Broadcast,
-  Gather,
   Stride,
   GatherScatter,
   VectorComponent,
@@ -717,17 +720,21 @@ enum class IterType {
 enum class IdMappingMode {
   EXACT,
   ALMOSTEXACT,
-  LOOP,
+  BROADCAST,
   PERMISSIVE,
+  LOOP,
+  // TODO: Reconsider if this graph is really necessary
   PERMISSIVE_RESIZE,
+  // TODO: Reconsider if this graph is really necessary
   INNERMOST
 };
 
-static constexpr std::array<IdMappingMode, 6> kIdMappingModes = {
+static constexpr std::array<IdMappingMode, 7> kIdMappingModes = {
     IdMappingMode::EXACT,
     IdMappingMode::ALMOSTEXACT,
-    IdMappingMode::LOOP,
+    IdMappingMode::BROADCAST,
     IdMappingMode::PERMISSIVE,
+    IdMappingMode::LOOP,
     IdMappingMode::PERMISSIVE_RESIZE,
     IdMappingMode::INNERMOST};
 
@@ -753,12 +760,13 @@ enum class LoadStoreOpType {
   SegmenterSet,
   LdMatrix,
   CpAsync,
-  CpAsyncBulkTensorTile
+  CpAsyncBulkTensorTile,
+  StMatrix
 };
 
-// Used to label what part of the double buffered iterdomain
+// Used to label what part of the circular buffered iterdomain
 //  a for loop is materializing.
-enum class DoubleBufferLoopStage { NotApplicable, Prolog, Main, Epilog };
+enum class CircularBufferLoopStage { NotApplicable, Prolog, Main, Epilog };
 
 //! Supported swizzle types,
 //!  corresponds to swizzles functions on the runtime cuda
@@ -766,7 +774,7 @@ enum class DoubleBufferLoopStage { NotApplicable, Prolog, Main, Epilog };
 //!
 //!  TODO: unify with existing swizzle logic, currently
 //!    doesn't have the same type.
-enum class SwizzleType { NoSwizzle = 0, XOR };
+enum class SwizzleType { NoSwizzle = 0, XOR, CyclicShift };
 enum class Swizzle2DType { NoSwizzle = 0, ZShape, XOR, CyclicShift };
 
 //! Modes of swizzle, see [Note on swizzle mode].
@@ -900,7 +908,7 @@ NVF_API std::ostream& operator<<(std::ostream&, const MemoryType);
 NVF_API std::ostream& operator<<(std::ostream&, const IterType);
 std::ostream& operator<<(std::ostream&, const IdMappingMode);
 NVF_API std::ostream& operator<<(std::ostream&, const LoadStoreOpType);
-std::ostream& operator<<(std::ostream&, const DoubleBufferLoopStage);
+std::ostream& operator<<(std::ostream&, const CircularBufferLoopStage);
 std::ostream& operator<<(std::ostream&, const SwizzleType&);
 std::ostream& operator<<(std::ostream&, const Swizzle2DType&);
 std::ostream& operator<<(std::ostream&, const SwizzleMode&);
@@ -955,8 +963,7 @@ constexpr inline size_t primDataTypeSize(PrimDataType type) {
     case DataType::Float8_e5m2:
       return sizeof(at::Float8_e5m2);
     case DataType::Index:
-      NVF_ERROR(
-          false, "The actual type of Index is only known at compile time.");
+      NVF_THROW("The actual type of Index is only known at compile time.");
     case DataType::Int:
       return sizeof(int64_t);
     case DataType::Int32:
@@ -968,7 +975,7 @@ constexpr inline size_t primDataTypeSize(PrimDataType type) {
     case DataType::SMemAddress:
       return sizeof(unsigned);
     default:
-      NVF_ERROR(false, "Size undefined for data type.");
+      NVF_THROW("Size undefined for data type.");
   }
 }
 

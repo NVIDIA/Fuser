@@ -18,6 +18,14 @@ def get_sha() -> str:
             .strip()
         )
     except Exception:
+        import os
+
+        # assume the $NVFUSER_VERSION is in sha form
+        if nvfuser_version := os.environ.get("NVFUSER_VERSION"):
+            assert (
+                len(nvfuser_version) < 11
+            ), "The NVFUSER_VERSION should be in sha form"
+            return nvfuser_version
         return UNKNOWN
 
 

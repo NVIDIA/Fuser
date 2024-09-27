@@ -5,18 +5,19 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <ir/builder.h>
-#include <ops/arith.h>
-#include <ops/utils.h>
-
 #include <algorithm>
 #include <limits>
+
+#include <ir/builder.h>
+#include <ir/utils.h>
+#include <ops/arith.h>
+#include <ops/utils.h>
 
 namespace nvfuser {
 namespace ops {
 
 TensorView* maybe_broadcast_inner_to_rank(TensorView* t, size_t rank) {
-  size_t t_rank = TensorDomain::noReductions(t->getRFactorDomain()).size();
+  size_t t_rank = TensorDomain::noReductions(t->getLogicalDomain()).size();
 
   // broadcast inner on inp to match rank with other.
   if (t_rank < rank) {
@@ -30,11 +31,11 @@ TensorView* maybe_broadcast_inner_to_rank(TensorView* t, size_t rank) {
 }
 
 TensorView* maybe_broadcast_index_tv(TensorView* t, size_t dim, size_t rank) {
-  size_t ori_rank = TensorDomain::noReductions(t->getRFactorDomain()).size();
+  size_t oli_rank = TensorDomain::noReductions(t->getLogicalDomain()).size();
   NVF_ERROR(
-      ori_rank == 1,
+      oli_rank == 1,
       "The rank of index tensorview in index_select must be 1, but got ",
-      ori_rank);
+      oli_rank);
   NVF_ERROR(
       dim < rank,
       "The dim of index_select must be < rank, but got ",
@@ -125,7 +126,7 @@ IterType promoteIterType(IterType type1, IterType type2) {
   // Iteration: Default
   // Reduction: Should not appear here
   // Broadcast: Propagated only if type1 and type2 are Broadcast
-  // Gather: Converted to Iteration
+  // GatherScatter: Converted to Iteration
   // Stride: Shold not appear here
   // VectorComponent: Converted to Iteration
 
@@ -138,13 +139,11 @@ IterType promoteIterType(IterType type1, IterType type2) {
       "Invalid IterType: ",
       type2);
 
-  // Do not propagate Gather and VectorComponent
-  if (type1 == IterType::Gather || type1 == IterType::VectorComponent ||
-      type1 == IterType::GatherScatter) {
+  // Do not propagate GatherScatter and VectorComponent
+  if (type1 == IterType::VectorComponent || type1 == IterType::GatherScatter) {
     type1 = IterType::Iteration;
   }
-  if (type2 == IterType::Gather || type2 == IterType::VectorComponent ||
-      type2 == IterType::GatherScatter) {
+  if (type2 == IterType::VectorComponent || type2 == IterType::GatherScatter) {
     type2 = IterType::Iteration;
   }
 
@@ -181,28 +180,35 @@ IterType promoteIterType(IterType type1, IterType type2) {
 //! index.
 std::vector<IterDomain*> mapMatmulOpIterDomains(
     const std::vector<IterDomain*>& input_domain,
-    MatmulRole input_role,
+    int64_t input_position,
     size_t out_size) {
   NVF_ERROR(
-      input_role == MatmulRole::INPUT_A || input_role == MatmulRole::INPUT_B,
-      "Unexpected input type.");
+      input_position == 0 || input_position == 1,
+      "Input position must be 0 or 1. Found ",
+      input_position);
   std::vector<IterDomain*> mapping(out_size, nullptr);
   auto inp_size = (int64_t)input_domain.size();
 
   // Input A to matmul: {*, M, K}
   // Input B to matmul: {*, K, N}
-  auto kpos = input_role == MatmulRole::INPUT_A ? inp_size - 1 : inp_size - 2;
+  auto kpos = inp_size - 1;
+  if (input_position == 1 && inp_size > 1) {
+    kpos = inp_size - 2;
+  }
+  bool k_bcast = input_domain.at(kpos)->isBroadcast();
+  int64_t red_dims = k_bcast ? 0 : 1;
+
+  // Last position is a reduction dimension mapping to K if K is not broadcast.
+  if (!k_bcast) {
+    mapping[out_size - 1] = input_domain.at(kpos);
+    ;
+  }
 
   if (inp_size == 1) {
-    // Only reduction axis {K}
-    mapping[out_size - 1] = input_domain[0];
     return mapping;
   }
 
-  // Last position is a reduction dimension mapping to K
-  mapping[out_size - 1] = input_domain.at(kpos);
-
-  for (auto out_idx = (int64_t)out_size - 2, inp_idx = inp_size - 1;
+  for (auto out_idx = (int64_t)out_size - 1 - red_dims, inp_idx = inp_size - 1;
        inp_idx >= 0;
        inp_idx--) {
     if (inp_idx != kpos) {
@@ -212,7 +218,7 @@ std::vector<IterDomain*> mapMatmulOpIterDomains(
     // Consider [iM, iK] x [iK]: [iM, rK]. Since out_size < inp_size,
     // input A and output are not right-aligned. In this case, the output index
     // pointer should not be moved when the reduction axis is encountered.
-    else if (inp_size <= (int64_t)out_size - 1) {
+    else if (inp_size <= (int64_t)out_size - red_dims) {
       out_idx--;
     }
   }
@@ -222,34 +228,48 @@ std::vector<IterDomain*> mapMatmulOpIterDomains(
 
 std::vector<IterDomain*> mapLinearOpIterDomains(
     const std::vector<IterDomain*>& input_domain,
-    MatmulRole input_role,
-    size_t out_size) {
+    int64_t input_position,
+    size_t out_size,
+    bool k_bcast) {
   std::vector<IterDomain*> mapping(out_size, nullptr);
   auto inp_size = input_domain.size();
+
+  NVF_ERROR(
+      input_position == 0 || input_position == 1 || input_position == 2,
+      "Input position must be 0, 1, or 2. Found ",
+      input_position);
+
+  auto red_dims = k_bcast ? 0 : 1;
 
   // Input A: {*, M, K}
   // Input B: {*, N, K} / {K}
   // Bias: {N} / {}
-  switch (input_role) {
-    case MatmulRole::INPUT_A: {
-      // Linear output is same as input for all but the last dimension
+
+  // Map K if K is not bcast
+  if (input_position != 2 && !k_bcast) {
+    mapping[out_size - 1] = input_domain.back();
+  }
+
+  switch (input_position) {
+    case 0: {
+      // Linear output is same as input for inp_size - 1 dimensions.
+      // K is already mapped above if not broadcast.
       for (auto inx : c10::irange(inp_size - 1)) {
         mapping[inx] = input_domain[inx];
       }
-      mapping[out_size - 1] = input_domain.back();
       break;
     }
-    case MatmulRole::INPUT_B: {
-      for (auto inx : c10::irange(inp_size)) {
-        // Map N, K to the last two positions of the output.
-        mapping[out_size - 1 - inx] = input_domain[inp_size - 1 - inx];
+    case 1: {
+      // Map N / out_features if present
+      if (inp_size > 1) {
+        mapping[out_size - 1 - red_dims] = input_domain.front();
       }
       break;
     }
-    case MatmulRole::INPUT_C: {
+    case 2: {
       if (inp_size > 0) {
         // Bias is 1D tensor of shape {out_features}
-        mapping[out_size - 2] = input_domain[0];
+        mapping[out_size - 1 - red_dims] = input_domain.front();
       }
       break;
     }
@@ -258,6 +278,22 @@ std::vector<IterDomain*> mapLinearOpIterDomains(
   }
   return mapping;
 }
+
+namespace {
+ParallelType promoteParallelType(ParallelType a, ParallelType b) {
+  if (a == b) {
+    return a;
+  }
+  NVF_ERROR(
+      a == ParallelType::Serial || b == ParallelType::Serial,
+      "Doesn't know how to resolve ",
+      a,
+      " and ",
+      b,
+      " at this moment.");
+  return a == ParallelType::Serial ? b : a;
+}
+} // namespace
 
 // Adding these pragmas since gcc-12.2.1
 // incorrectly reports a warning with the use of evaluate
@@ -278,19 +314,22 @@ IterDomain* newOutputIterDomain(
   Val* extent_val = nullptr;
   bool extent_is_from_symbolic = true;
   Val* expanded_extent_val = nullptr;
+  auto parallel_type = ParallelType::Serial;
   std::optional<IterType> iter_type = std::nullopt;
 
-  std::vector<IterDomain*> ids;
-  ids.reserve(input_ids.size());
+  for (auto id : input_ids) {
+    // Filter out any nullptrs
+    if (id == nullptr) {
+      continue;
+    }
 
-  // Filter out any nullptrs
-  std::copy_if(
-      input_ids.begin(),
-      input_ids.end(),
-      std::back_inserter(ids),
-      [](IterDomain* id) { return id != nullptr; });
+    NVF_ERROR(
+        id->getParallelType() == ParallelType::Serial ||
+            isParallelTypeDeviceDim(id->getParallelType()),
+        id->getParallelType(),
+        " is not expected when building ops.");
+    parallel_type = promoteParallelType(parallel_type, id->getParallelType());
 
-  for (auto id : ids) {
     if (id->isBroadcast()) {
       if (id->hasExpandedExtent()) {
         expanded_extent_val =
@@ -298,6 +337,7 @@ IterDomain* newOutputIterDomain(
       }
       continue;
     }
+
     if (extent_is_from_symbolic && !id->isSymbolic()) {
       // We prefer to use extents from non-Symbolic inputs if there are any
       // because they might indicate a broadcast axis that is resolved in this
@@ -343,6 +383,7 @@ IterDomain* newOutputIterDomain(
         IterDomainBuilder(
             IrBuilder::create<Val>(start_offset, DataType::Index), extent_val)
             .stop_offset(IrBuilder::create<Val>(stop_offset, DataType::Index))
+            .parallel_type(parallel_type)
             .iter_type(iter_type.value())
             .build();
   } else {
@@ -350,6 +391,7 @@ IterDomain* newOutputIterDomain(
                      FusionGuard::getCurFusion()->zeroVal(),
                      FusionGuard::getCurFusion()->oneVal())
                      .expanded_extent(expanded_extent_val)
+                     .parallel_type(parallel_type)
                      .iter_type(IterType::Broadcast)
                      .build();
   }
@@ -362,8 +404,8 @@ IterDomain* newOutputIterDomain(
 std::vector<IterDomain*> newOutputDomain(const std::vector<Val*>& vals) {
   std::vector<TensorView*> tvs;
   for (auto val : vals) {
-    if (val->getValType() == ValType::TensorView) {
-      tvs.push_back(val->as<TensorView>());
+    if (auto* tv = dynamic_cast<TensorView*>(val)) {
+      tvs.push_back(tv);
     }
   }
   NVF_CHECK(
@@ -371,13 +413,13 @@ std::vector<IterDomain*> newOutputDomain(const std::vector<Val*>& vals) {
       "Tried to create new output TensorView but received empty list.");
 
   std::vector<IterDomain*> out_domain(
-      TensorDomain::noReductions(tvs[0]->getRFactorDomain()).size(), nullptr);
+      TensorDomain::noReductions(tvs[0]->getLogicalDomain()).size(), nullptr);
 
   for (const auto dim_i : c10::irange(out_domain.size())) {
     std::vector<IterDomain*> input_ids;
     input_ids.reserve(tvs.size());
-    for (auto tv : tvs) {
-      auto dom = TensorDomain::noReductions(tv->getRFactorDomain());
+    for (auto* tv : tvs) {
+      auto dom = TensorDomain::noReductions(tv->getLogicalDomain());
       input_ids.emplace_back(dom[dim_i]);
     }
     out_domain[dim_i] = newOutputIterDomain(input_ids);
@@ -387,10 +429,23 @@ std::vector<IterDomain*> newOutputDomain(const std::vector<Val*>& vals) {
 
 TensorView* newOutputTV(const std::vector<Val*>& vals, DataType dtype) {
   auto out_domain = newOutputDomain(vals);
-  return IrBuilder::create<TensorView>(
+  auto* new_out = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
       dtype);
+
+  DeviceMesh new_mesh;
+  // Find the first input that has a mesh. This seems arbitrary, but is at this
+  // moment safest because it's consistent with PropagateShardingsPass.
+  for (auto* tv : ir_utils::filterByType<TensorView>(vals)) {
+    if (tv->hasDeviceMesh()) {
+      new_mesh = tv->getDeviceMesh();
+      break;
+    }
+  }
+  new_out->setDeviceMesh(new_mesh);
+
+  return new_out;
 }
 
 std::vector<Val*> maybeBroadcast(const std::vector<Val*>& vals) {
@@ -400,7 +455,7 @@ std::vector<Val*> maybeBroadcast(const std::vector<Val*>& vals) {
     if (val->getValType().value() == ValType::TensorView) {
       n_dims = std::max(
           n_dims,
-          TensorDomain::noReductions(val->as<TensorView>()->getRFactorDomain())
+          TensorDomain::noReductions(val->as<TensorView>()->getLogicalDomain())
               .size());
     }
   }
@@ -420,9 +475,7 @@ Val* newValLike(Val* val, DataType dtype) {
   NVF_CHECK(
       dtype != DataType::Null, "Invalid datatype provided for new value.");
 
-  const ValType vtype = val->getValType().value();
-
-  if (vtype == ValType::TensorView) {
+  if (val->isA<TensorView>()) {
     return newOutputTV({val}, dtype);
   }
 

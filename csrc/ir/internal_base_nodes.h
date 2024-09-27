@@ -57,7 +57,6 @@ class IterDomainBuilder {
   IterDomainBuilder& is_rfactor_domain(bool _is_rfactor_domain);
   IterDomainBuilder& is_padded_dimension(bool _is_padded_dimension);
   IterDomainBuilder& padded_to_size(std::optional<int64_t> _padded_to_size);
-  IterDomainBuilder& is_mma_swizzled(bool _is_mma_swizzled);
 
   NVF_API IterDomain* build() const;
 
@@ -75,7 +74,6 @@ class IterDomainBuilder {
   bool is_rfactor_domain_ = false;
   bool is_padded_dimension_ = false;
   std::optional<int64_t> padded_to_size_ = std::nullopt;
-  bool is_mma_swizzled_ = false;
 };
 
 //! Simply a representation of an annotated 1D iterable from start to extent.
@@ -98,8 +96,7 @@ class NVF_API IterDomain : public Val {
       IterType iter_type,
       bool is_rfactor_domain,
       bool is_padded_dimension,
-      std::optional<int64_t> padded_to_size_,
-      bool is_mma_swizzled);
+      std::optional<int64_t> padded_to_size);
 
   IterDomain(const IterDomain* src, IrCloner* ir_cloner);
 
@@ -114,7 +111,10 @@ class NVF_API IterDomain : public Val {
   //! Returns a new IterDomain matching properties of this
   //!
   //! This does NOT copy the is_rfactor_domain flag.
-  IterDomain* cloneWithoutRFactor() const;
+  //!
+  //! When map_with_original is true, the clone of the original is
+  //! mapped in the Exact graph.
+  IterDomain* cloneWithoutRFactor(bool map_with_original = false);
 
   //! Clone a vector domains
   static std::vector<IterDomain*> clone(
@@ -186,10 +186,6 @@ class NVF_API IterDomain : public Val {
 
   bool isGatherScatter() const {
     return getIterType() == IterType::GatherScatter;
-  }
-
-  bool isGather() const {
-    return getIterType() == IterType::Gather;
   }
 
   bool isStride() const {
@@ -338,7 +334,7 @@ class NVF_API IterDomain : public Val {
   //! In the actual mma macros, the loopnests it implements is a
   //!  transformed version of above to match the mma swizzle.
   //!  So it's different implicit loopnest for different macros.
-  //!  WarpMmaSwizzler will label the instruction loops case-by-case.
+  //!  MmaSwizzler will label the instruction loops case-by-case.
   bool isMma() const {
     return parallel_type_ == ParallelType::Mma;
   }
@@ -359,26 +355,6 @@ class NVF_API IterDomain : public Val {
       IterDomain* in_x,
       IterDomain* in_y,
       SwizzleMode swizzle_mode = SwizzleMode::Data);
-
-  bool isMmaSwizzled() const {
-    return is_mma_swizzled_;
-  }
-
-  //! Used by WarpMmaSwizzler, this is an utility for WarpMmaSwizzler
-  //!  to lock the thread swizzled iterdomains.
-  //! Only true for the iterdomains produced by WarpMmaSwizzler.
-  //! Mma ops require specific swizzle patterns
-  //!  and this label utility is to prevent any further transform on the
-  //!  iterdomains involved in the swizzle so that the pattern remain correct in
-  //!  generated code.
-  //!
-  //! Note:
-  //!    Used only through WarpMmaSwizzler only and mma validation relies on
-  //!    this
-  //!  flag being set on the correct iterdomains.
-  void toMmaSwizzled() {
-    is_mma_swizzled_ = true;
-  }
 
  protected:
   friend TensorDomain;
@@ -410,11 +386,6 @@ class NVF_API IterDomain : public Val {
   bool is_rfactor_domain_ = false;
   bool is_padded_dimension_ = false;
   std::optional<int64_t> padded_to_size_ = std::nullopt;
-
-  //! Tracks if this id represents a thread swizzled loop or
-  //!   models an implicit loop within instructions. Should not make
-  //!   any changes once an id is warp mapped.
-  bool is_mma_swizzled_ = false;
 };
 
 //! TensorDomain holds a vector of IterDomains. It holds an IterDomain for every
@@ -435,36 +406,36 @@ class TensorDomain : public Val {
  public:
   NVF_API explicit TensorDomain(
       IrBuilderPasskey,
-      std::vector<IterDomain*> rfactor_domain,
+      std::vector<IterDomain*> logical_domain,
       std::vector<std::optional<bool>> contiguity = {});
 
   // See notes [ Note stride order and contiguity vector ] in
   // python_bindings.cpp
   TensorDomain(
       IrBuilderPasskey,
-      std::vector<IterDomain*> rfactor_domain,
+      std::vector<IterDomain*> logical_domain,
       std::vector<int64_t> stride_order,
       std::vector<std::optional<bool>> contiguity = {});
 
   TensorDomain(
       IrBuilderPasskey,
-      std::vector<IterDomain*> rfactor_domain,
-      std::vector<IterDomain*> leaf_domain,
+      std::vector<IterDomain*> logical_domain,
+      std::vector<IterDomain*> loop_domain,
       std::vector<std::optional<bool>> contiguity = {});
 
   TensorDomain(
       IrBuilderPasskey,
       std::vector<IterDomain*> root_domain,
-      std::vector<IterDomain*> rfactor_domain,
-      std::vector<IterDomain*> leaf_domain,
+      std::vector<IterDomain*> logical_domain,
+      std::vector<IterDomain*> loop_domain,
       std::vector<std::optional<bool>> contiguity = {});
 
   TensorDomain(
       IrBuilderPasskey,
       std::vector<IterDomain*> root_domain,
-      std::vector<IterDomain*> rfactor_domain,
+      std::vector<IterDomain*> logical_domain,
       std::vector<IterDomain*> allocation,
-      std::vector<IterDomain*> leaf_domain,
+      std::vector<IterDomain*> loop_domain,
       std::vector<std::optional<bool>> contiguity = {});
 
   TensorDomain(IrBuilderPasskey, const TensorDomain* src);
@@ -479,7 +450,7 @@ class TensorDomain : public Val {
   }
 
   int64_t nDims() const {
-    return (int64_t)leaf_domain_.size();
+    return (int64_t)loop_domain_.size();
   }
 
   bool sameAs(const Statement* other) const override;
@@ -488,15 +459,15 @@ class TensorDomain : public Val {
       const std::vector<IterDomain*>& lhs,
       const std::vector<IterDomain*>& rhs);
 
-  // When `leaf_only` is false, prints also the root, rfactor and allocation
+  // When `loop_only` is false, prints also the root, logical and allocation
   // domain if not empty.
-  std::string toString(int indent_size, bool leaf_only) const;
+  std::string toString(int indent_size, bool loop_only) const;
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
   // Note: [Contiguity]
   // Contiguity is a vector of optional<bool> which has the same number of
-  // elements as rfactor_domain_. The contiguity of a broadcast dimension is
+  // elements as logical_domain_. The contiguity of a broadcast dimension is
   // meaningless, so it has to be nullopt. The contiguity of a non-broadcasting
   // dimension is true if and only if it is memory dense with the next
   // non-broadcasting dimension.
@@ -523,7 +494,7 @@ class TensorDomain : public Val {
   bool hasGridBroadcast() const;
 
   bool hasBroadcast() const {
-    return no_bcast_domain_.size() != leaf_domain_.size();
+    return no_bcast_domain_.size() != loop_domain_.size();
   }
 
   bool hasRoot() const {
@@ -552,19 +523,31 @@ class TensorDomain : public Val {
   }
 
   // The input logical domain. The root domain of a consumer should equal the
-  // rfactor domain of its producer ignoring reduction dimensions.
+  // logical domain of its producer ignoring reduction dimensions.
   const std::vector<IterDomain*>& root() const {
     return root_domain_;
   };
 
   const std::vector<IterDomain*>& maybeRoot() const {
-    return root_domain_.empty() ? rfactor_domain_ : root_domain_;
+    return root_domain_.empty() ? logical_domain_ : root_domain_;
   };
 
+  // Check if id is a root ID. Always return false if there's no root
+  // domain.
+  bool isRoot(const IterDomain* id) const {
+    return hasRoot() &&
+        std::find(root().begin(), root().end(), id) != root().end();
+  }
+
   // The output logical domain.
-  const std::vector<IterDomain*>& rfactor() const {
-    return rfactor_domain_;
+  const std::vector<IterDomain*>& logical() const {
+    return logical_domain_;
   };
+
+  // Check if id is a logical ID.
+  bool isLogical(const IterDomain* id) const {
+    return std::find(logical().begin(), logical().end(), id) != logical().end();
+  }
 
   // The allocation domain. This describes how data is stored in memory in
   // outer-to-inner order.
@@ -572,19 +555,57 @@ class TensorDomain : public Val {
     return allocation_domain_;
   }
 
-  // The loop domain after scheduling. This defines loop nests and loop indices.
-  const std::vector<IterDomain*>& leaf() const {
-    return leaf_domain_;
+  // Check if id is an allocation ID. Always return false if there's
+  // no allocation domain.
+  bool isAllocation(const IterDomain* id) const {
+    return hasAllocation() &&
+        std::find(allocation().begin(), allocation().end(), id) !=
+        allocation().end();
   }
 
+  // The loop domain after scheduling. This defines loop nests and loop indices.
+  const std::vector<IterDomain*>& loop() const {
+    return loop_domain_;
+  }
+
+  const std::vector<IterDomain*>& initialLoop() const {
+    return initial_loop_domain_;
+  }
+
+  // Check if id is a loop ID.
+  bool isLoop(const IterDomain* id) const {
+    return std::find(loop().begin(), loop().end(), id) != loop().end();
+  }
+
+  // Check if id is an intial loop ID.
+  bool isInitialLoop(const IterDomain* id) const {
+    return std::find(initialLoop().begin(), initialLoop().end(), id) !=
+        loop().end();
+  }
+
+  // Get all IDs that is on the shortest path between any of the domains
+  // (logical domain, root domain, loop domain, allocation domain) following
+  // definition and uses path. Return values are topologically ordered and
+  // unique.
+  std::vector<IterDomain*> allIDs() const;
+
   const std::vector<IterDomain*>& maybeAllocation() const {
-    return hasAllocation() ? allocation_domain_ : rfactor();
+    return hasAllocation() ? allocation_domain_ : logical();
   };
 
-  // Set the allocation domain of this TensorDomain. The new allocation domain
-  // must satisfy root <= allocation <= leaf, that is, it must be within the
-  // history between root and leaf domain. Because contiguity is always defined
-  // w.r.t. the allocation domain, the contiguity must be updated accordingly.
+  // Additional IDs that are not on the path from one of
+  // root/logical/allocation/loop domain to another. We need to keep track of
+  // these IDs to ensure that we can find all paths/IDs of interest.
+  const std::vector<IterDomain*>& additionalIDs() const {
+    return additional_ids_;
+  }
+
+  // Set the loop domain of this TensorDomain.
+  NVF_API void setLoopDomain(std::vector<IterDomain*> new_loop_domain);
+
+  // Set the allocation domain of this TensorDomain. Because contiguity is
+  // always defined w.r.t. the allocation domain, the contiguity must be updated
+  // accordingly.
   NVF_API void setAllocationDomain(
       std::vector<IterDomain*> new_allocation_domain,
       std::vector<std::optional<bool>> new_contiguity);
@@ -601,9 +622,9 @@ class TensorDomain : public Val {
   }
 
   void resetDomains() {
-    no_reduction_domain_ = noReductions(leaf_domain_);
-    no_bcast_domain_ = noBroadcasts(leaf_domain_);
-    has_reduction_ = hasReduction(leaf_domain_);
+    no_reduction_domain_ = noReductions(loop_domain_);
+    no_bcast_domain_ = noBroadcasts(loop_domain_);
+    has_reduction_ = hasReduction(loop_domain_);
   }
 
   // i here is int, as we want to accept negative value and ::size_type can be a
@@ -614,6 +635,9 @@ class TensorDomain : public Val {
 
   //! Returns a position of a root domain
   int64_t rootPosOf(IterDomain* id) const;
+
+  //! Create a new broadcast IterDomain with the given extent in the loop domain
+  void broadcast(int64_t axis, Val* extent);
 
   // Split "axis" into 2 axes
   //! inner_split dictates if the factor section of the split should be inside
@@ -660,11 +684,11 @@ class TensorDomain : public Val {
   static bool hasBroadcast(const std::vector<IterDomain*>&);
   static bool hasReduction(const std::vector<IterDomain*>&);
 
-  // Get a vector whose size is the number of IDs in the given rfactor_domain
+  // Get a vector whose size is the number of IDs in the given logical_domain
   // filled with fill_value or nullopt depending on whether its corresponding ID
   // is broadcast.
   NVF_API static std::vector<std::optional<bool>> getContiguityFilledWith(
-      const std::vector<IterDomain*>& rfactor_domain,
+      const std::vector<IterDomain*>& logical_domain,
       bool fill_value);
 
   // pair is in order where second is the consumer of first
@@ -678,9 +702,14 @@ class TensorDomain : public Val {
 
  private:
   const std::vector<IterDomain*> root_domain_;
-  const std::vector<IterDomain*> rfactor_domain_;
+  const std::vector<IterDomain*> logical_domain_;
   std::vector<IterDomain*> allocation_domain_;
-  std::vector<IterDomain*> leaf_domain_;
+  std::vector<IterDomain*> loop_domain_;
+  // Initial loop domain. Loop domain is updated with transformations
+  // such as split, but the initial loop domain can only change with
+  // setLoopDomain
+  std::vector<IterDomain*> initial_loop_domain_;
+  std::vector<IterDomain*> additional_ids_;
 
   std::vector<IterDomain*> no_bcast_domain_;
   std::vector<IterDomain*> no_reduction_domain_;

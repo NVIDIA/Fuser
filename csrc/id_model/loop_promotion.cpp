@@ -136,7 +136,7 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
     callback_->postStep1(iel_promotion_map, iel_graph);
   }
 
-  // Step 2: Propagate the root promotions to intermediate and leaf groups.
+  // Step 2: Propagate the root promotions to intermediate and loop groups.
   // At this point, the promotion may not be final as the analysis is
   // localized to IEL groups. The map is used in the next step to
   // build mappings of the loop groups.
@@ -168,7 +168,7 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
   // the loop graph promotions to partially inlined domains. This time
   // only the partially inlined domains need to be considered, so we
   // first find the Step-3 promotions that are producers to partially
-  // inlined consumers. These promotions are propagated down to leaf
+  // inlined consumers. These promotions are propagated down to loop
   // domains through the IEL graph, which are then used to
   // propagate back to the loop groups in Step 5. Unlike Step 2, the
   // initial IEL promotion map is empty and is populated with the loop
@@ -351,7 +351,7 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
       for (const ValGroup& entry : loop_exact_resolved_intersection) {
         err_msg << "\n  " << entry->toString();
       }
-      NVF_ERROR(false, err_msg.str());
+      NVF_THROW(err_msg.str());
     }
 
     const ValGroup& exact_resolution_group =
@@ -380,7 +380,7 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
       for (const ValGroup& entry : promoted_iel_groups) {
         err_msg << "\n  " << entry->toString();
       }
-      NVF_ERROR(false, err_msg.str());
+      NVF_THROW(err_msg.str());
     }
 
     iel_promotion_map[iel_group] =
@@ -765,7 +765,7 @@ IterDomain* LoopPromotionMapBuilder::findPromotionOfLoopGroup(
     // it is guaranteed to represent this loop group because all the
     // domains merged into this loop_id must be non-broadcast
     // domains. A concrete example can be found in test
-    // LoopPromotionWithRfactorDomains1.
+    // LoopPromotionWithViewRFactor1.
     if (id_model_.viewRfactorIds().find(loop_id) !=
         id_model_.viewRfactorIds().end()) {
       return loop_id;
@@ -866,7 +866,7 @@ void LoopPromotionMapBuilder::sanityCheckLoopPromotionMap(
   const auto& loop_graph = idGraph(IdMappingMode::LOOP);
   for (const ValGroup& loop_group :
        loop_graph.disjointValSets().disjointSets()) {
-    // Non-leaf loop groups are not guaranteed to have valid
+    // Non-loop loop groups are not guaranteed to have valid
     // promotions. See for example FusionRepro1713, where root domains
     // are all grouped together but there's no valid promotion.
     if (loop_graph.hasUses(loop_group)) {

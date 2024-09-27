@@ -79,7 +79,7 @@ class ValidateSiblings : public IterVisitor {
 
       auto replay =
           BestEffortReplay(
-              sibling->getLeafDomain(), ref_output->getLeafDomain(), id_map)
+              sibling->getLoopDomain(), ref_output->getLoopDomain(), id_map)
               .getIterDomainEquivalence();
 
       for (const auto i : c10::irange(ref_ndims)) {
@@ -141,7 +141,7 @@ void validateIterDomainUsage(Fusion* fusion) {
   std::unordered_map<IterDomain*, TensorView*> domain_use_map;
 
   for (auto tv : ir_utils::filterByType<TensorView>(used_vals)) {
-    for (auto id : ir_utils::allIDsOf(tv)) {
+    for (auto id : tv->domain()->allIDs()) {
       auto it = domain_use_map.find(id);
       NVF_ERROR(
           it == domain_use_map.end(),
@@ -159,7 +159,7 @@ void validateIterDomainUsage(Fusion* fusion) {
 
 void validateCpAsyncBulk(const std::vector<TensorView*>& tvs) {
   for (auto tv : tvs) {
-    for (auto id : tv->getLeafDomain()) {
+    for (auto id : tv->getLoopDomain()) {
       if (id->getParallelType() == ParallelType::Bulk) {
         NVF_ERROR(
             ir_utils::isCpAsyncBulk(tv->definition()),
@@ -189,7 +189,7 @@ void validateIr(Fusion* fusion) {
       "Tensor with dynamic transform must be concretized before lowering: ",
       toDelimitedString(dynamic_tvs.begin(), dynamic_tvs.end()));
 
-  auto all_tvs = ir_utils::allTvs(fusion);
+  auto all_tvs = fusion->allTvs();
   validateCpAsyncBulk(all_tvs);
 }
 
@@ -232,12 +232,12 @@ void checkContiguity(
   NVF_ERROR(producer->getMemoryType() == MemoryType::Global);
 
   // TODO: we should use BestEffortReplay to find the correct c2p map for
-  // allocation domain when it is different from rFactor domain.
+  // allocation domain when it is different from logical domain.
   NVF_ERROR(
       !consumer->hasAllocation() && !producer->hasAllocation(),
       "Misaligned vectorization for allocation domain is not supported.");
   auto alloc_c2p =
-      PairwiseRootDomainMap(producer, consumer).mapConsumerToProducer();
+      PairwiseLogicalDomainMap(producer, consumer).mapConsumerToProducer();
 
   std::unordered_map<IterDomain*, std::optional<bool>>
       producer_domain_contiguity;
@@ -327,7 +327,7 @@ class VectorizeValidator : public OptInDispatch {
     }
   }
 
-  // Given the vectorized leaf ID in a tensor, find its innermost ancestors in
+  // Given the vectorized loop ID in a tensor, find its innermost ancestors in
   // the allocation domain.
   static IterDomain* getVectorizedIdInAllocationDomain(
       IterDomain* v_id,
@@ -366,7 +366,7 @@ class VectorizeValidator : public OptInDispatch {
 
     NVF_ERROR(validator.vectorized_id_ != nullptr);
 
-    // Contiguity is based on rfactor domain.
+    // Contiguity is based on logical domain.
     IterDomain* last_alloc_dim = nullptr;
     size_t last_alloc_dim_pos = 0;
     for (size_t i = tv->getMaybeAllocationDomain().size(); i > 0; i--) {
@@ -401,18 +401,26 @@ class VectorizeValidator : public OptInDispatch {
     if (!is_ldmatrix_trans) {
       // ldmatrix.trans is a hardware transpose instruction that can do
       // "vectorized" read from discontiguous memory
-      auto contiguity = tv->domain()->contiguity().at(last_alloc_dim_pos);
       NVF_CHECK(
-          last_alloc_dim == validator.vectorized_id_ &&
-              contiguity.value_or(false),
+          last_alloc_dim == validator.vectorized_id_,
           "Vectorized dim for ",
           name,
-          " has to be from a contiguous inner most position. tv: ",
+          " has to be from an inner most position. tv: ",
           tv,
           ", allocation domain: ",
-          ir_utils::toString(tv->getMaybeAllocationDomain()),
+          tv->getMaybeAllocationDomain(),
           ", vectorized id: ",
-          validator.vectorized_id_->toString(),
+          validator.vectorized_id_,
+          ", innermost id: ",
+          last_alloc_dim);
+
+      auto contiguity = tv->domain()->contiguity().at(last_alloc_dim_pos);
+      NVF_CHECK(
+          contiguity.value_or(false),
+          "The innermost position has to be contiguous. tv: ",
+          tv,
+          ", allocation domain: ",
+          tv->getMaybeAllocationDomain(),
           ", innermost id: ",
           last_alloc_dim->toString(),
           ", contiguity: ",
@@ -430,7 +438,7 @@ class VectorizeValidator : public OptInDispatch {
   static void validate(TensorView* tv) {
     // Make sure there's only one vectorized ID
     IterDomain* v_id = nullptr;
-    for (auto id : tv->getLeafDomain()) {
+    for (auto id : tv->getLoopDomain()) {
       if (isParallelTypeVectorize(id->getParallelType())) {
         NVF_ERROR(
             v_id == nullptr,
@@ -511,11 +519,11 @@ class VectorizeValidator : public OptInDispatch {
     // vectorized set operations, so the word size is the size of this
     // specific vectorized set.
     vectorized_set_info.word_size = vector_word_size;
-    vectorized_set_info.vectorized_leaf_id = v_id;
+    vectorized_set_info.vectorized_loop_id = v_id;
     vectorized_set_info.vectorized_consumer_alloc_id = consumer_vectorized_id;
 
     // Validate producer
-    auto pairwise_map = PairwiseRootDomainMap(producer_tv, tv);
+    auto pairwise_map = PairwiseLogicalDomainMap(producer_tv, tv);
     auto producer_replayed_as_consumer =
         TransformReplay::replayPasC(
             producer_tv,
@@ -560,9 +568,7 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
 
     for (const auto i : c10::irange(tv->nDims())) {
       IterDomain* id = tv->axis(i);
-      IterDomain* concrete_id =
-          GpuLower::current()->caMap()->getConcreteMappedID(
-              id, IdMappingMode::LOOP);
+      IterDomain* concrete_id = lower_utils::getConcreteLoopID(id);
 
       auto ptype = concrete_id->getParallelType();
 
@@ -727,14 +733,9 @@ void validateMmaTensors(MmaOp* mma) {
   }
 
   for (auto tv : to_validate) {
-    for (auto id : tv->getLeafDomain()) {
+    for (auto id : tv->getLoopDomain()) {
       auto ptype = id->getParallelType();
       if (ptype == ParallelType::TIDx) {
-        NVF_ERROR(
-            id->isMmaSwizzled(),
-            "TIDx for mma input/output must be set by WarpMmaSwizzler",
-            id,
-            tv);
         if (!tidx_validated) {
           // Check that TIDx is exact lane_id
           const auto& paralel_dim_map =
@@ -777,25 +778,6 @@ void validateMmaTensors(MmaOp* mma) {
           tv->getMemoryType() == MemoryType::Local,
           "Only supporting register input for mma input on Ampere/Turing");
     }
-
-    NVF_ERROR(
-        std::all_of(
-            tv->getLeafDomain().begin() + tv->getComputeAtPosition(),
-            tv->getLeafDomain().end(),
-            [](IterDomain* id) {
-              return id->isMmaSwizzled() ||
-                  // MMA instructions can only take inputs from registers,
-                  //  so we always assume mma op inputs are located on
-                  //  registers.
-                  // Currently requiring that serial ids on the right of the
-                  //  CA axis are constant sized to ensure early detection of
-                  //  invalid mma schedules.
-                  ((id->isBroadcast() || id->extent()->isConstInt()) &&
-                   id->getParallelType() == ParallelType::Serial) ||
-                  id->isThread();
-            }),
-        "All id's on the right of CA pos needs to be mma-swizzled by WarpMmaSwizzler\n",
-        tv);
   };
 
   validate_operand(mma->inA()->as<TensorView>(), MmaOperand::A);
@@ -813,7 +795,7 @@ void validateSizeMemoryOp(LoadStoreOp* ldst) {
 
   int64_t byte_size = 1;
   auto output = ldst->out()->as<TensorView>();
-  for (auto id : output->getLeafDomain()) {
+  for (auto id : output->getLoopDomain()) {
     if (id->getParallelType() == ParallelType::Vectorize) {
       byte_size = id->extent()->evaluate().as<int64_t>();
       break;
@@ -856,21 +838,20 @@ void validateMma(Fusion* fusion) {
 namespace {
 
 // Utility function to validate a loop swizzle:
-//  1. Throws an error if any output of the swizzle is not in leaf_domain set.
+//  1. Throws an error if any output of the swizzle is not in loop_domain set.
 //  2. Warns if any output of the swizzle is not the concrete id of the loop
 //  map.
 // The second case would make the codegen ignore this swizzle, as if it was not
 // there at all.
 void validateLoopSwizzle(
     Expr* swizzle_expr,
-    std::unordered_set<IterDomain*>& leaf_domains) {
+    std::unordered_set<IterDomain*>& loop_domains) {
   for (auto out_id :
        ir_utils::filterByType<IterDomain>(swizzle_expr->outputs())) {
     NVF_ERROR(
-        leaf_domains.count(out_id),
-        "Loop swizzle can only be direct producer of leaf domains.");
-    if (GpuLower::current()->caMap()->getConcreteMappedID(
-            out_id, IdMappingMode::LOOP) != out_id) {
+        loop_domains.count(out_id),
+        "Loop swizzle can only be direct producer of loop domains.");
+    if (lower_utils::getConcreteLoopID(out_id) != out_id) {
       TORCH_WARN_ONCE("Ignored loop swizzle :", swizzle_expr->toString());
     }
   }
@@ -882,19 +863,19 @@ void validateSwizzle(Fusion* fusion) {
   auto used_vals = fusion->usedMathVals();
   for (auto tv : ir_utils::filterByType<TensorView>(used_vals)) {
     if (tv->hasSwizzleOp()) {
-      std::unordered_set<IterDomain*> tv_leaf_domain_set(
-          tv->getLeafDomain().begin(), tv->getLeafDomain().end());
+      std::unordered_set<IterDomain*> tv_loop_domain_set(
+          tv->getLoopDomain().begin(), tv->getLoopDomain().end());
 
       // Make sure no swizzle op is inlined:
       auto inlined_swizzles = ir_utils::getAllSwizzlesBetween(
-          tv->getRFactorDomain(),
-          {tv->getLeafDomain().begin(),
-           tv->getLeafDomain().begin() + tv->getMaxComputePosition()});
+          tv->getLogicalDomain(),
+          {tv->getLoopDomain().begin(),
+           tv->getLoopDomain().begin() + tv->getMaxComputePosition()});
 
       auto not_inlined_swizzles = ir_utils::getAllSwizzlesBetween(
-          tv->getRFactorDomain(),
-          {tv->getLeafDomain().begin() + tv->getMaxComputePosition(),
-           tv->getLeafDomain().end()});
+          tv->getLogicalDomain(),
+          {tv->getLoopDomain().begin() + tv->getMaxComputePosition(),
+           tv->getLoopDomain().end()});
 
       // Check inlined swizzles: only loop swizzles can be inlined currently
       //  as inlining data swizzles would require addtional support of unswizzle
@@ -903,7 +884,7 @@ void validateSwizzle(Fusion* fusion) {
         NVF_ERROR(
             swizzle_expr->as<Swizzle2D>()->swizzleMode() == SwizzleMode::Loop,
             "Only support inlining loop swizzles");
-        validateLoopSwizzle(swizzle_expr, tv_leaf_domain_set);
+        validateLoopSwizzle(swizzle_expr, tv_loop_domain_set);
       }
 
       std::unordered_set<Expr*> inlined_swizzle_set(
@@ -920,7 +901,7 @@ void validateSwizzle(Fusion* fusion) {
             "Cannot partially inline across swizzle domains.",
             swizzle_expr->toString());
         if (swizzle_expr->as<Swizzle2D>()->swizzleMode() == SwizzleMode::Loop) {
-          validateLoopSwizzle(swizzle_expr, tv_leaf_domain_set);
+          validateLoopSwizzle(swizzle_expr, tv_loop_domain_set);
         }
       }
     }
@@ -928,14 +909,11 @@ void validateSwizzle(Fusion* fusion) {
 }
 
 void validateAndConvertIterDomainGrouping(Fusion* fusion) {
-  for (auto tv : ir_utils::allTvs(fusion)) {
+  for (auto tv : fusion->allTvs()) {
     bool is_grouped = false;
     for (const auto id_idx : c10::irange(tv->nDims())) {
       const auto id = tv->axis(id_idx);
-      auto ptype = GpuLower::current()
-                       ->caMap()
-                       ->getConcreteMappedID(id, IdMappingMode::LOOP)
-                       ->getParallelType();
+      auto ptype = lower_utils::getConcreteLoopID(id)->getParallelType();
       if (ptype != ParallelType::Group) {
         // Not a grouped ID
         continue;
@@ -1008,13 +986,8 @@ void validateAndConvertIterDomainGrouping(Fusion* fusion) {
       std::vector<Val*> inputs({rop->in()});
 
       fusion->removeExpr(rop);
-      IrBuilder::create<GroupedReductionOp>(
-          static_cast<IrContainer*>(fusion),
-          op_types,
-          init_vals,
-          outputs,
-          inputs,
-          is_allreduce);
+      IrBuilder::createInContainer<GroupedReductionOp>(
+          fusion, op_types, init_vals, outputs, inputs, is_allreduce);
     } else if (tv->definition()->isA<WelfordOp>()) {
       // Convert WelfordOp to GroupedWelfordOp
       auto wop = def->as<WelfordOp>();
@@ -1039,12 +1012,8 @@ void validateAndConvertIterDomainGrouping(Fusion* fusion) {
       std::vector<WelfordTriplet> init_vals(
           {{wop->initAvg(), wop->initVar(), wop->initN()}});
       fusion->removeExpr(wop);
-      IrBuilder::create<GroupedWelfordOp>(
-          static_cast<IrContainer*>(fusion),
-          output_vals,
-          input_vals,
-          init_vals,
-          is_allreduce);
+      IrBuilder::createInContainer<GroupedWelfordOp>(
+          fusion, output_vals, input_vals, init_vals, is_allreduce);
     }
   }
 }
@@ -1056,7 +1025,7 @@ void validateGroupedReductions(Fusion* fusion) {
           grouped_reduction_op->numHorizontallyGroupedExprs();
       int64_t num_grouped_iterations = 1;
       auto out_tv = ir_utils::getTvOutput(grouped_reduction_op);
-      for (auto axis : out_tv->getLeafDomain()) {
+      for (auto axis : out_tv->getLoopDomain()) {
         if (axis->getParallelType() == ParallelType::Group) {
           num_grouped_iterations *= axis->extent()->value().as<int64_t>();
         }
@@ -1083,30 +1052,11 @@ void validateLookupTV(Fusion* fusion) {
   }
 }
 
-void validateResize(Fusion* fusion) {
-  auto fusion_vals = fusion->usedMathVals();
-  for (auto tv : ir_utils::filterByType<TensorView>(fusion_vals)) {
-    // Make sure resize is only used as part of rfactor transformations
-    auto rf_to_leaf_exprs = StmtSort::getExprsBetween(
-        {tv->getRFactorDomain().begin(), tv->getRFactorDomain().end()},
-        {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});
-
-    NVF_ERROR(
-        std::none_of(
-            rf_to_leaf_exprs.begin(),
-            rf_to_leaf_exprs.end(),
-            [](Expr* expr) { return expr->isA<Resize>(); }),
-        "Invalid use of resize detected with ",
-        tv->toString(),
-        ". Resize may only be used as part of rfactor transformations.");
-  }
-}
-
 void validateReductions(Fusion* fusion) {
   for (auto rop : ir_utils::getOpsOfType<ReductionOp>(fusion)) {
     auto in = rop->in()->as<TensorView>();
     auto out = rop->out()->as<TensorView>();
-    PairwiseRootDomainMap c2p_map(in, out);
+    PairwiseLogicalDomainMap c2p_map(in, out);
     c2p_map.mapBroadcast(true);
     auto c2p = c2p_map.mapConsumerToProducer();
     for (auto out_id : out->getMaybeRootDomain()) {

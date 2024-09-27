@@ -8,6 +8,7 @@
 #pragma once
 
 #include <fusion.h>
+#include <host_ir/host_ir.h>
 
 namespace nvfuser {
 
@@ -40,8 +41,11 @@ class HostIrContainer final : public Fusion {
     return top_level_exprs_.push_back(expr);
   }
 
+  Stream* getDefaultStream();
+
  private:
   std::vector<Expr*> top_level_exprs_;
+  Stream* default_stream_ = nullptr;
 };
 
 } // namespace hir

@@ -11,6 +11,7 @@
 
 #include <kernel_cache.h>
 #include <python_frontend/fusion_record.h>
+#include <scheduler/registry.h>
 
 #include <memory>
 #include <mutex>
@@ -23,14 +24,45 @@ namespace nvfuser::python_frontend {
 struct UserSchedule {
   UserSchedule();
 
-  //! Scheduled Fusion IR
-  std::unique_ptr<Fusion> schedule;
+  //! Runtime information for schedulers
+  std::unique_ptr<SchedulerRuntimeInfo> runtime_info;
+  //! The scheduler heuristic for this UserSchedule
+  std::unique_ptr<HeuristicParams> heuristic_params;
+  //! Concretized, Scheduled Fusion IR
+  std::unique_ptr<Fusion> scheduled_fusion;
   //! Generated kernel container
   std::unique_ptr<FusionExecutor> executor;
   //! ID of fusion in python frontend fusion cache
   int64_t fusion_id_ = -1;
   //! device ID for this user schedule
   int64_t device_id_ = -1;
+
+  //! Get scheduler runtime info for UserSchedule
+  SchedulerRuntimeInfo* runtimeInfo() {
+    NVF_ERROR(
+        runtime_info != nullptr,
+        "Requires SchedulerRuntimeInfo to use heuristic schedulers");
+    return runtime_info.get();
+  }
+
+  //! Get Fusion for UserSchedule
+  Fusion* fusion() {
+    NVF_ERROR(
+        scheduled_fusion != nullptr,
+        "Requires Fusion to use heuristic schedulers");
+    return scheduled_fusion.get();
+  }
+
+  //! Return if we can schedule FusionDefinition with heuristic.
+  bool canSchedule(const SchedulerType& heuristic);
+
+  //! Return if we can schedule FusionDefinition with heuristic along with any
+  //! debug messages from canScheduleRejectReason.
+  std::tuple<bool, std::string> canScheduleDebug(
+      const SchedulerType& scheduler_type);
+
+  //! Schedule fusion with heuristic
+  void scheduleWithType(SchedulerType scheduler_type);
 };
 
 //! \struct FusionSchedules
@@ -73,6 +105,14 @@ struct TrieNode {
   // Queries whether the entry denotes a leaf node which also represents
   // a the end of Fusion entry in the cache.
   bool isTerminal() const;
+  //! getException returns the cached Exception raise during construction of
+  //! Fusion. It returns std::nullopt if the no error thrown. This function is
+  //! called at the end of FusionDefinition::finalizeDefinition to avoid
+  //! silently using a bad FusionDefinition cached in FusionCache.
+  std::optional<std::string> getException();
+  //! setException is called to record exception message thrown during
+  //! construction of Fusion.
+  void setException(const char* e);
   //! Serialize TrieNode using flatbuffers
   NVF_API flatbuffers::Offset<serde::TrieNode> serialize(
       flatbuffers::FlatBufferBuilder& builder,
@@ -94,6 +134,9 @@ struct TrieNode {
   TrieNode* parent;
   //! For thread-Safe locking of a node
   std::mutex trie_node_lock;
+  //! exception is used to track if we failed to create a valid fusion for
+  //! FusionDefinition at this given TrieNode
+  std::optional<std::string> exception = std::nullopt;
 };
 
 //! \class FusionCache
@@ -158,6 +201,11 @@ class FusionCache {
       RecordFunctor* rec) const;
   //! Query a Fusion's Schedules based on fusion id or cache id
   FusionSchedules* queryFusionSchedules(size_t fusion_id) const;
+  //! Determine if a user schedule exists for given inputs.
+  bool existUserSchedule(
+      const FusionSchedules* scheds,
+      const at::ArrayRef<c10::IValue>& inputs,
+      int device);
   //! Lookup the User Schedule Id and return null if one does not exist.
   //! NOTE: this method cannot be const because the InputsIdLookup can
   //! cause a modification to that data member for cache eviction.

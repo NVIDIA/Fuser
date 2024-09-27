@@ -10,9 +10,10 @@
 #include <device_lower/analysis/bank_conflict.h>
 #include <device_lower/lower2device.h>
 #include <disjoint_set.h>
-#include <executor_params.h>
 #include <fusion.h>
+#include <fusion_executor/executor_params.h>
 #include <fusion_segmenter.h>
+#include <host_ir/container.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/cloner.h>
@@ -20,30 +21,12 @@
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <kernel.h>
+#include <ops/alias.h>
 #include <ops/arith.h>
 
 #include <iterator>
 
 namespace nvfuser {
-
-/*static*/ thread_local Fusion* FusionGuard::active_fusion_ = nullptr;
-
-FusionGuard::FusionGuard(Fusion* fusion) : prev_fusion_(active_fusion_) {
-  active_fusion_ = fusion;
-}
-
-FusionGuard::~FusionGuard() {
-  active_fusion_ = prev_fusion_;
-}
-
-// Cast to non-cast because many users need it.
-/*static*/ Fusion* FusionGuard::getCurFusion() {
-  return active_fusion_;
-}
-
-/*static*/ void FusionGuard::setCurFusion(Fusion* fusion) {
-  active_fusion_ = fusion;
-}
 
 void swap(Fusion& a, Fusion& b) noexcept {
   FUSER_PERF_SCOPE("Fusion swap");
@@ -56,8 +39,6 @@ void swap(Fusion& a, Fusion& b) noexcept {
   swap(a.outputs_, b.outputs_);
 
   swap(a.io_alias_, b.io_alias_);
-  swap(a.permuted_input_map_, b.permuted_input_map_);
-  swap(a.permuted_output_map_, b.permuted_output_map_);
 }
 
 std::unique_ptr<SegmentedFusion> Fusion::segment(
@@ -94,9 +75,6 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
         .hide_output = alias_info.hide_output};
   }
 
-  to->permuted_input_map_ = from->permuted_input_map_;
-  to->permuted_output_map_ = from->permuted_output_map_;
-
   to->all_tv_uses_valid_ = from->all_tv_uses_valid_;
   // This should never be true on copy, but copying for completeness.
   to->is_during_update_uses_ = from->is_during_update_uses_;
@@ -118,6 +96,14 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
   }
 
   to->expected_dynamic_smem_bytes_ = from->expected_dynamic_smem_bytes_;
+
+  if (from->all_tvs_ptr_ != nullptr) {
+    to->all_tvs_ptr_ = std::make_unique<std::vector<TensorView*>>();
+    to->all_tvs_ptr_->reserve(from->all_tvs_ptr_->size());
+    for (TensorView* from_tv : *from->all_tvs_ptr_) {
+      to->all_tvs_ptr_->push_back(ir_cloner.clone(from_tv)->as<TensorView>());
+    }
+  }
 
   return ir_cloner;
 }
@@ -168,12 +154,11 @@ void Fusion::clear() noexcept {
 
   io_alias_.clear();
 
-  permuted_input_map_.clear();
-  permuted_output_map_.clear();
   managed_data_.clear();
   managed_named_data_.clear();
 
-  all_tv_uses_valid_ = false;
+  invalidateTvsAndUses();
+
   is_during_update_uses_ = false;
 }
 
@@ -184,13 +169,19 @@ void Fusion::removeExpr(Expr* expr) {
   // we're going with the strictest model which errors.
 
   for (auto out : expr->outputs()) {
+    if (out->isA<TensorView>()) {
+      invalidateTvsAndUses();
+    }
     out->setDefinition(nullptr);
   }
 
   // Remove uses in inputs
   for (auto inp : expr->inputs()) {
-    // Note that if inp is a TensorView, this may call invalidateTvUses
+    // Note that if inp is a TensorView, this may call invalidateTvsAndUses
     inp->removeUse(expr);
+    if (inp->isA<TensorView>()) {
+      invalidateTvsAndUses();
+    }
   }
 
   IrContainer::removeExpr(expr);
@@ -233,6 +224,8 @@ void Fusion::removeVal(Val* val) {
     removeExpr(e);
   }
   IrContainer::removeVal(val);
+
+  invalidateTvsAndUses();
 }
 
 void Fusion::addInput(Val* input) {
@@ -255,22 +248,10 @@ void Fusion::addInput(Val* input) {
   inputs_.push_back(input);
   input->setIsFusionInput(true);
 
-  all_tv_uses_valid_ = false;
+  invalidateTvsAndUses();
 }
 
-void Fusion::addOutput(Val* output) {
-  // We currently don't support explicitly outputing aliased inputs. This is
-  // because they are already marked as output for in-place update. It's tricky
-  // to allow marking them explicitly as real output, since that requires us to
-  // register/identify output not only by `Val*` pointer, but also by indices;
-  // it also requires us to magically arrange `outputs_` entries in proper order
-  // ^^^ this doesn't look intuitive on `outputs_` in fusion.
-  // I think we can solve this by marking addOutput on io_alias_ keys after
-  // fusion is fully defined. Tracking this in #1488
-  // Apparently we can't do this neither at the time. I think segmentation
-  // unfortunately would call addOutput after we marked io_alias_ map.
-  // NVF_CHECK(io_alias_.count(output) == 0,
-  //     "can't register aliased output as real output");
+void Fusion::addOutputInternal(Val* output) {
   assertInContainer(output, "Cannot register output ");
   NVF_CHECK(
       output->isA<TensorView>(),
@@ -281,7 +262,24 @@ void Fusion::addOutput(Val* output) {
   outputs_.push_back(output);
   output->setIsFusionOutput(true);
 
-  all_tv_uses_valid_ = false;
+  invalidateTvsAndUses();
+}
+
+void Fusion::addOutput(Val* output) {
+  // special handling for returning aliased output. We just need to remove its
+  // existing entry in the outputs_ used for inplace update
+  if (io_alias_.count(output) != 0) {
+    // if previous output is only added for aliasing purpose, we should remove
+    // the previous entry and add a new one. Otherwise, it may be positioned
+    // wrong in the output list.
+    if (io_alias_[output].hide_output) {
+      removeOutput(output);
+    }
+    // output shouldn't be hidden any more
+    io_alias_[output].hide_output = false;
+  }
+
+  addOutputInternal(output);
 }
 
 void Fusion::removeInput(Val* input) {
@@ -290,7 +288,7 @@ void Fusion::removeInput(Val* input) {
     inputs_.erase(find_input);
   }
   input->setIsFusionInput(false);
-  all_tv_uses_valid_ = false;
+  invalidateTvsAndUses();
 }
 
 void Fusion::removeOutput(Val* output) {
@@ -299,7 +297,7 @@ void Fusion::removeOutput(Val* output) {
     outputs_.erase(find_output);
   }
   output->setIsFusionOutput(false);
-  all_tv_uses_valid_ = false;
+  invalidateTvsAndUses();
 }
 
 void Fusion::replaceOutput(Val* output, Val* replacement) {
@@ -319,10 +317,14 @@ void Fusion::replaceOutput(Val* output, Val* replacement) {
     }
     if (output->getValType().value() == ValType::TensorView) {
       output->setIsFusionOutput(false);
-      output->as<TensorView>()->setMemoryType(MemoryType::Local);
+      // If `output` is both an input and an output before the replacement,
+      // don't localize it.
+      if (!output->isFusionInput()) {
+        output->as<TensorView>()->setMemoryType(MemoryType::Local);
+      }
     }
     // Mark uses invalid so that they will be reset next time uses() is called
-    invalidateTvUses();
+    invalidateTvsAndUses();
   }
 
   // Temporary WAR for issue #1112
@@ -344,11 +346,12 @@ bool Fusion::isNoOp() {
   }
 
   for (auto out_tv : ir_utils::filterByType<TensorView>(outputs())) {
-    const std::vector<IterDomain*>& root_dom =
-        TensorDomain::noReductions(out_tv->getRFactorDomain());
+    const std::vector<IterDomain*>& logical_dom =
+        TensorDomain::noReductions(out_tv->getLogicalDomain());
     const bool size_zero =
-        std::any_of(root_dom.begin(), root_dom.end(), [](IterDomain* id) {
-          return id->extent()->isConstScalar() && id->extent()->evaluate() == 0;
+        std::any_of(logical_dom.begin(), logical_dom.end(), [](IterDomain* id) {
+          return id->extent()->isConstScalar() &&
+              id->extent()->evaluate().as<int64_t>() == 0;
         });
     if (!size_zero) {
       return false;
@@ -373,7 +376,7 @@ void Fusion::validateInputs() {
   std::unordered_set<Val*> input_dims;
   auto inp_tvs = ir_utils::filterByType<TensorView>(inputs());
   for (auto tv : inp_tvs) {
-    for (auto id : tv->getRFactorDomain()) {
+    for (auto id : tv->getLogicalDomain()) {
       input_dims.emplace(id->extent());
     }
   }
@@ -403,7 +406,7 @@ std::ostream& Fusion::print(std::ostream& os, bool include_tensor_transforms)
     IrTransformPrinter t_exprs(os);
     t_exprs.handle(this);
   }
-  os << "}\n";
+  os << "} // %kernel\n";
 
   return os;
 }
@@ -499,12 +502,12 @@ void Fusion::printMath(bool from_outputs_only) {
   auto exprs_for_print = exprs();
   debug() << "Inputs:" << std::endl;
   for (auto inp : inputs()) {
-    debug() << "  " << inp << ", " << inp->getDataType().value() << std::endl;
+    debug() << "  " << inp << std::endl;
   }
 
   debug() << "Outputs:" << std::endl;
   for (auto out : outputs()) {
-    debug() << "  " << out << ", " << out->getDataType().value() << std::endl;
+    debug() << "  " << out << std::endl;
   }
 
   // If we want everything in the fusion, grab all values without uses to
@@ -523,7 +526,7 @@ void Fusion::printMath(bool from_outputs_only) {
   for (auto expr : exprs_for_print) {
     debug() << expr;
   }
-  debug() << "}\n\n";
+  debug() << "} // %kernel_math \n\n";
 }
 
 std::vector<Val*> Fusion::inputsAndCreated() {
@@ -577,30 +580,30 @@ void Fusion::registerExpr(Expr* expr) {
     // Don't just add this expr as a use of the input if it's a tensor as the
     // whole fusion needs to be traversed to rebuild the usage lists
     if (input->isA<TensorView>()) {
-      invalidateTvUses();
+      invalidateTvsAndUses();
     } else {
       input->addUse(expr);
     }
   }
 
-  // Kernel is the only container type that is non-ssa. This is mainly (maybe
-  // only) because of initialization expressions which would overwrite tensor
-  // view definitions.
-  bool is_ssa = !this->isA<kir::Kernel>();
+  // Kernel and host are non-ssa. This is mainly (maybe only) because of
+  // initialization expressions which would overwrite tensor view definitions.
+  const bool is_ssa =
+      !this->isA<kir::Kernel>() && !this->isA<hir::HostIrContainer>();
 
   for (Val* output : expr->outputs()) {
     assertInContainer(output, "Output to expr is invalid, ");
     if (output->definition() != nullptr && is_ssa) {
       removeExpr(output->definition());
     }
-    if (is_ssa || (!is_ssa && output->definition() == nullptr)) {
+    if (is_ssa || output->definition() == nullptr) {
       output->setDefinition(expr);
       if (output->isA<TensorView>()) {
         // Updating the definition might change the path to output TVs.
         // If that happens, our definition-based traversal can change and
         // introduce whole new branches, so we need to recompute the uses_
         // vector after setDefinition.
-        invalidateTvUses();
+        invalidateTvsAndUses();
       }
     }
   }
@@ -640,7 +643,7 @@ std::vector<Val*> Fusion::usedMathVals() {
   const auto inputs = InputsOf::outputs(outputs());
   auto used_math_vals = DependencyCheck::getAllValsBetween(
       {inputs.begin(), inputs.end()}, outputs());
-  // When an expre has multiple outputs and only some of them are
+  // When an expression has multiple outputs and only some of them are
   // used, the rest aren't included in used_math_vals as they are not
   // used. However, we want them to be included as they must show up
   // in the fusion.
@@ -807,6 +810,11 @@ void Fusion::aliasOutputToInput(
     output = castOp(input->getDataType().value(), output);
   }
 
+  if (output->isFusionInput()) {
+    // ensure that codegen produce a write operation on the buffer.
+    output = set(output);
+  }
+
   NVF_ERROR(
       isAliasCompatible(input, output),
       "The input and output values are not alias-compatible.");
@@ -818,9 +826,9 @@ void Fusion::aliasOutputToInput(
       .aliased_io = input,
       .hide_output = !output->isFusionOutput()};
 
-  // TODO: output should be marked at the end of fusion definition #1488
+  // only add output when it's not in outputs_
   if (!output->isFusionOutput()) {
-    addOutput(output);
+    addOutputInternal(output);
   }
 }
 
@@ -842,6 +850,62 @@ bool isExpressionEvaluated(Fusion* fusion) {
       fusion->outputs().begin(), fusion->outputs().end(), [&fusion](Val* out) {
         return fusion->getOutputAlias(out).type == AllocationType::Evaluate;
       });
+}
+
+namespace {
+std::vector<TensorView*> findAllTvs(Fusion* fusion) {
+  auto used_vals = fusion->usedMathVals();
+  auto used_tvs = ir_utils::filterByType<TensorView>(used_vals);
+
+  // This shouldn't be necessary but FusionSegmentIoAlias_CUDA due to aliasing
+  // is having an input disconnected from outputs, and these iter domains are
+  // being checked in compute at maps in scheduling logic. This shouldn't hurt
+  // AFAICT.
+  auto tv_inputs = ir_utils::filterByType<TensorView>(fusion->inputs());
+
+  std::vector<TensorView*> all_tvs({used_tvs.begin(), used_tvs.end()});
+  // Sometimes inputs are not connected to outputs, however, we still include
+  // them when returning allTvs because they are registered as an input.
+  all_tvs.insert(all_tvs.end(), tv_inputs.begin(), tv_inputs.end());
+
+  VectorOfUniqueEntries<TensorView*> unique_vector(
+      all_tvs.begin(), all_tvs.end());
+
+  // all_tvs has duplicates, to deduplicate it and return
+  return unique_vector.vector();
+}
+} // namespace
+
+std::vector<TensorView*> Fusion::allTvs() {
+  if (all_tvs_ptr_ == nullptr) {
+    all_tvs_ptr_ = std::make_unique<std::vector<TensorView*>>(findAllTvs(this));
+  }
+  return std::vector<TensorView*>(*all_tvs_ptr_);
+}
+
+void Fusion::registerExactMapping(IterDomain* id0, IterDomain* id1) {
+  NVF_ERROR(
+      id0->sameAs(id1),
+      "Invalid domains to map: ",
+      id0->toString(),
+      ", ",
+      id1->toString());
+
+  if (!hasRegisteredExactMappings()) {
+    manage(exact_mappings_key, DisjointSets<IterDomain*>{});
+  }
+
+  auto& id_mappings = getManaged<DisjointSets<IterDomain*>>(exact_mappings_key);
+
+  id_mappings.mapEntries(id0, id1);
+}
+
+DisjointSets<IterDomain*> Fusion::registeredExactMappings() const {
+  if (!hasRegisteredExactMappings()) {
+    return {};
+  }
+
+  return getManaged<DisjointSets<IterDomain*>>(exact_mappings_key);
 }
 
 } // namespace nvfuser

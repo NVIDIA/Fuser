@@ -117,9 +117,9 @@ DomainMap::DomainMap(Fusion* fusion) : fusion_(fusion), ca_map_(fusion) {
 // Determine if all IterDomains in input are mapped to the given tensor
 bool DomainMap::areAllInputIdsMappedTo(TensorView* input_tv, TensorView* tv)
     const {
-  // Get concrete IDs for input root or rfactor domain
+  // Get concrete IDs for input root or logical domain
   std::unordered_set<IterDomain*> in_concrete_ids;
-  for (auto in_id : input_tv->getRFactorDomain()) {
+  for (auto in_id : input_tv->getLogicalDomain()) {
     if (canIgnoreIndexedInputDomainID(input_tv, in_id, ca_map_)) {
       continue;
     }
@@ -136,8 +136,8 @@ bool DomainMap::areAllInputIdsMappedTo(TensorView* input_tv, TensorView* tv)
 
   // Erase all input concrete IDs mapped to the output domain
   // Ignore unresolved broadcast dimensions
-  eraseifInputMappedThroughRFactorDomainAndIndexing(
-      in_concrete_ids, tv->getRFactorDomain());
+  eraseifInputMappedThroughRootDomainAndIndexing(
+      in_concrete_ids, tv->getLogicalDomain());
 
   return in_concrete_ids.empty();
 }
@@ -174,7 +174,7 @@ bool DomainMap::eraseIfMapped(
   }
 }
 
-void DomainMap::eraseifInputMappedThroughRFactorDomainAndIndexing(
+void DomainMap::eraseifInputMappedThroughRootDomainAndIndexing(
     std::unordered_set<IterDomain*>& in_ids,
     const std::vector<IterDomain*>& ids) const {
   // Use ComputeAtMap::getAllDisjointSetProducers to grab all producer

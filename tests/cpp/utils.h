@@ -11,11 +11,14 @@
 #include <csrc/exceptions.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/pass/magic_zero.h>
-#include <executor.h>
 #include <expr_evaluator.h>
+#include <fusion_executor/allocations.h>
+#include <fusion_executor/executor.h>
+#include <id_model/id_model.h>
 #include <ir/all_nodes.h>
 #include <kernel_cache.h>
 #include <kernel_ir_dispatch.h>
+#include <scheduler/registry.h>
 #include <transform_replay.h>
 
 #include <ATen/Context.h>
@@ -32,6 +35,24 @@
 #include <vector>
 
 namespace nvfuser {
+
+struct CGResultsPackage {
+  std::vector<at::Tensor> outputs;
+  std::unique_ptr<HeuristicParams> heuristic_params;
+  std::unique_ptr<FusionExecutor> fusion_executor;
+};
+
+// Grabs heuristics and schedules with the provided scheduler type, compiles and
+// runs with Fuion executor, returns a struct containing the outputs,
+// heuristic_params, and FusionExecutor. These structures are for convenience in
+// testing. If validate_scheduler is set to false the scheduler check will still
+// be run but it will be ignored. Otherwise canScheduler returning false will
+// throw.
+CGResultsPackage scheduleAndRun(
+    Fusion* fusion,
+    SchedulerType scheduler_type,
+    const at::ArrayRef<c10::IValue>& runtime_inputs,
+    bool validate_scheduler = true);
 
 // Make s Stack used for TorchScript execution
 inline torch::jit::Stack createStack(std::vector<at::Tensor>&& list) {
@@ -111,7 +132,7 @@ inline void clearL2Cache() {
 };
 
 inline TensorView* loweredTv(TensorView* tv, kir::Kernel* kernel) {
-  auto used_tvs = ir_utils::allTvs(kernel);
+  auto used_tvs = kernel->allTvs();
   TensorView* matching_tv = nullptr;
   for (auto lowered_tv : used_tvs) {
     if (lowered_tv->name() == tv->name()) {
@@ -207,7 +228,7 @@ class UnswitchInElseChecker : public kir::IrVisitor {
     within_else_ = prev_within_else;
   }
 
-  void handle(kir::ForLoop* for_loop) final {
+  void handle(ForLoop* for_loop) final {
     if (for_loop->iter_domain()->getParallelType() == ParallelType::Unswitch) {
       found_in_else_ = found_in_else_ || within_else_;
     }
@@ -250,8 +271,8 @@ class PredicateMagicZeroChecker : public kir::IrVisitor {
       }
     }
 
-    if (expr->isA<kir::ForLoop>()) {
-      handle(expr->as<kir::ForLoop>());
+    if (expr->isA<ForLoop>()) {
+      handle(expr->as<ForLoop>());
     } else if (expr->isA<kir::IfThenElse>()) {
       handle(expr->as<kir::IfThenElse>());
     } else {
@@ -420,113 +441,6 @@ size_t getCRandomSeed();
 //! Returns the seed for ATen functions like at::randn() used for every test.
 size_t getATenRandomSeed();
 
-// Fixture class must be uniquely identified, i.e., can't be in an
-// anonymous namespace
-class NVFuserTest : public ::testing::Test {
- protected:
-  void SetUp() override {
-    // requires PASCAL or newer
-    if (!deviceMajorMinorCheck(6)) {
-      GTEST_SKIP() << "skipping tests on pre-PASCAL GPUs";
-    }
-    setFillAllocationWithNan(true);
-
-    maybeClearAllocator();
-
-    // If NVFUSER_TEST_RANDOM_SEED is provided, use that for the C random seed.
-    // Otherwise, use system time. If a test fails, this seed will be printed.
-    at::manual_seed(getATenRandomSeed());
-
-    // If NVFUSER_TEST_ATEN_RANDOM_SEED is provided, use that for the ATen
-    // random seed. Otherwise, use zero. If a test fails, this seed will be
-    // printed.
-    std::srand(getCRandomSeed());
-  }
-
-  void TearDown() override {
-    if (::testing::Test::HasFailure()) {
-      auto test_info = ::testing::UnitTest::GetInstance()->current_test_info();
-      std::cerr << "To reproduce: NVFUSER_TEST_RANDOM_SEED=" << getCRandomSeed()
-                << " NVFUSER_TEST_ATEN_RANDOM_SEED=" << getATenRandomSeed()
-                << " nvfuser_tests --gtest_filter='"
-                << test_info->test_suite_name() << "." << test_info->name()
-                << "'" << std::endl;
-    }
-
-    // Make sure capturing of stdout is stopped
-    ensureStopCaptureStdout();
-  }
-
-  // Start capturing of stdout if not already started
-  void captureStdout() {
-    if (!capturing_) {
-      testing::internal::CaptureStdout();
-      capturing_ = true;
-    }
-  }
-
-  // Stop capturing of stdout if being captured
-  void ensureStopCaptureStdout() {
-    if (capturing_) {
-      testing::internal::GetCapturedStdout();
-      capturing_ = false;
-    }
-  }
-
-  // Get capturing stdout
-  std::string getCapturedStdout() {
-    NVF_ERROR(capturing_, "Not captured");
-    auto str = testing::internal::GetCapturedStdout();
-    capturing_ = false;
-    return str;
-  }
-
- private:
-  bool capturing_ = false;
-};
-
-// Fixture with param class must be uniquely identified, i.e., can't be in an
-// anonymous namespace
-template <typename tParam>
-class NVFuserFixtureParamTest : public NVFuserTest,
-                                public ::testing::WithParamInterface<tParam> {};
-
-// assert that the given fusion lowers to the given CUDA kernel
-void assertCUDAKernel(Fusion* fusion, const std::string& expected_kernel);
-
-namespace sass {
-
-// For SASS instruction definitions, see:
-// https://docs.nvidia.com/cuda/cuda-binary-utilities/index.html#instruction-set-reference
-
-struct Instruction {
-  std::string str;
-  size_t address;
-
-  std::string predicate() const;
-  std::string action() const; // The part of the string that is not predicate
-  std::string op() const; // Some thing like: LDGSTS.E.128
-  std::string opCode() const; // Something like LDGSTS
-  std::vector<std::string> modifiers() const; // Something like {E, 128}
-  std::vector<std::string> args()
-      const; // Something like {[R217+0x1800], [R202.64]}
-};
-
-struct Label {
-  std::string name;
-};
-
-struct Container {
-  std::unordered_map<std::string, std::string> attributes;
-  std::vector<std::variant<Instruction, Label>> code;
-
-  std::string toString();
-};
-
-Container parse(const std::string& nvdisasm_output);
-
-} // namespace sass
-
 inline bool cudaArchGuardShouldSkip(int required_major, int required_minor) {
   int capability_major = at::cuda::getCurrentDeviceProperties()->major;
   int capability_minor = at::cuda::getCurrentDeviceProperties()->minor;
@@ -584,17 +498,178 @@ inline bool cudaArchGuardShouldSkip(
     COMPILE_FUSION;                                                          \
   }
 
-static constexpr std::array<MmaLayout, 4> kAllSupportedMmaLayout = {
-    MmaLayout::TT,
-    MmaLayout::NT,
-    MmaLayout::TN,
-    MmaLayout::NN};
+// Fixture class must be uniquely identified, i.e., can't be in an
+// anonymous namespace
+class NVFuserTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    // Enable logging so debug messages in PyTorch can be printed out
+    // via `TORCH_CPP_LOG_LEVEL`.
+    c10::initLogging();
+
+    // requires PASCAL or newer
+    if (!deviceMajorMinorCheck(6)) {
+      GTEST_SKIP() << "skipping tests on pre-PASCAL GPUs";
+    }
+    setFillAllocationWithNan(true);
+
+    maybeClearAllocator();
+
+    // If NVFUSER_TEST_RANDOM_SEED is provided, use that for the C random seed.
+    // Otherwise, use system time. If a test fails, this seed will be printed.
+    at::manual_seed(getATenRandomSeed());
+
+    // If NVFUSER_TEST_ATEN_RANDOM_SEED is provided, use that for the ATen
+    // random seed. Otherwise, use zero. If a test fails, this seed will be
+    // printed.
+    std::srand(getCRandomSeed());
+  }
+
+  void TearDown() override {
+    if (::testing::Test::HasFailure()) {
+      auto test_info = ::testing::UnitTest::GetInstance()->current_test_info();
+      std::cerr << "To reproduce: NVFUSER_TEST_RANDOM_SEED=" << getCRandomSeed()
+                << " NVFUSER_TEST_ATEN_RANDOM_SEED=" << getATenRandomSeed()
+                << " nvfuser_tests --gtest_filter='"
+                << test_info->test_suite_name() << "." << test_info->name()
+                << "'" << std::endl;
+    }
+
+    // Make sure capturing of stdout is stopped
+    ensureStopCaptureStdout();
+
+    // Make sure profiler is unset in case it was set during test
+    ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::Enable);
+    ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::EnableNocupti);
+  }
+
+  // Start capturing of stdout if not already started
+  void captureStdout() {
+    if (!capturing_) {
+      testing::internal::CaptureStdout();
+      capturing_ = true;
+    }
+  }
+
+  // Stop capturing of stdout if being captured
+  void ensureStopCaptureStdout() {
+    if (capturing_) {
+      testing::internal::GetCapturedStdout();
+      capturing_ = false;
+    }
+  }
+
+  // Get capturing stdout
+  std::string getCapturedStdout() {
+    NVF_ERROR(capturing_, "Not captured");
+    auto str = testing::internal::GetCapturedStdout();
+    capturing_ = false;
+    return str;
+  }
+
+ private:
+  bool capturing_ = false;
+};
+
+class HopperBase : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    if (cudaArchGuardShouldSkip(9, 0)) {
+      GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
+    }
+    NVFuserTest::SetUp();
+  }
+};
+
+// Fixture with param class must be uniquely identified, i.e., can't be in an
+// anonymous namespace
+template <typename tParam>
+class NVFuserFixtureParamTest : public NVFuserTest,
+                                public ::testing::WithParamInterface<tParam> {};
+
+// assert that the given fusion lowers to the given CUDA kernel
+void assertCUDAKernel(Fusion* fusion, const std::string& expected_kernel);
+
+namespace sass {
+
+// For SASS instruction definitions, see:
+// https://docs.nvidia.com/cuda/cuda-binary-utilities/index.html#instruction-set-reference
+
+struct Instruction {
+  std::string str;
+  size_t address;
+
+  std::string predicate() const;
+  std::string action() const; // The part of the string that is not predicate
+  std::string op() const; // Some thing like: LDGSTS.E.128
+  std::string opCode() const; // Something like LDGSTS
+  std::vector<std::string> modifiers() const; // Something like {E, 128}
+  std::vector<std::string> args()
+      const; // Something like {[R217+0x1800], [R202.64]}
+};
+
+struct Label {
+  std::string name;
+};
+
+struct Container {
+  std::unordered_map<std::string, std::string> attributes;
+  std::vector<std::variant<Instruction, Label>> code;
+
+  std::string toString();
+};
+
+Container parse(const std::string& nvdisasm_output);
+
+} // namespace sass
+
+static auto kAllSupportedMmaLayout =
+    testing::Values(MmaLayout::TT, MmaLayout::TN, MmaLayout::NT, MmaLayout::NN);
+
+inline std::string mmaLayoutName(
+    const testing::TestParamInfo<MmaLayout>& info) {
+  return toString(info.param);
+}
 
 static auto kAllSmemSwizzleModes = testing::Values(
     MmaInputSmemSwizzle::None,
     MmaInputSmemSwizzle::B128,
     MmaInputSmemSwizzle::B64,
     MmaInputSmemSwizzle::B32);
+
+static auto kAllHopperMacros = testing::Values(
+    MmaMacro::Hopper_64_8_16,
+    MmaMacro::Hopper_64_16_16,
+    MmaMacro::Hopper_64_24_16,
+    MmaMacro::Hopper_64_32_16,
+    MmaMacro::Hopper_64_40_16,
+    MmaMacro::Hopper_64_48_16,
+    MmaMacro::Hopper_64_56_16,
+    MmaMacro::Hopper_64_64_16,
+    MmaMacro::Hopper_64_72_16,
+    MmaMacro::Hopper_64_80_16,
+    MmaMacro::Hopper_64_88_16,
+    MmaMacro::Hopper_64_96_16,
+    MmaMacro::Hopper_64_104_16,
+    MmaMacro::Hopper_64_112_16,
+    MmaMacro::Hopper_64_120_16,
+    MmaMacro::Hopper_64_128_16,
+    MmaMacro::Hopper_64_136_16,
+    MmaMacro::Hopper_64_144_16,
+    MmaMacro::Hopper_64_152_16,
+    MmaMacro::Hopper_64_160_16,
+    MmaMacro::Hopper_64_168_16,
+    MmaMacro::Hopper_64_176_16,
+    MmaMacro::Hopper_64_184_16,
+    MmaMacro::Hopper_64_192_16,
+    MmaMacro::Hopper_64_200_16,
+    MmaMacro::Hopper_64_208_16,
+    MmaMacro::Hopper_64_216_16,
+    MmaMacro::Hopper_64_224_16,
+    MmaMacro::Hopper_64_232_16,
+    MmaMacro::Hopper_64_240_16,
+    MmaMacro::Hopper_64_248_16,
+    MmaMacro::Hopper_64_256_16);
 
 // Utility to generate matmul input tensors based on given layout
 at::Tensor atMatmul(at::Tensor a, at::Tensor b, MmaLayout layout);
@@ -662,16 +737,10 @@ TensorView* canonicalizeInputToBMNK(
 // been used
 bool isSchedulerInUse(
     const nvfuser::FusionKernelRuntime* kernel_rt,
-    const ScheduleHeuristic& scheduler);
+    const SchedulerType& scheduler_type);
 
 // Disable magic zero
 constexpr CompileParams matmul_cparams{DataType::Int32, 255, false};
-
-// Validate that the fusion is segmented with desired scheduler, currently only
-// supporting two segments
-void validateSegmentation(
-    FusionKernelRuntime* runtime,
-    const std::vector<ScheduleHeuristic>& expected_heuristics);
 
 // Utility to generate tensor with bias applied on the input tensor
 TensorView* biasEpilogue(TensorView* tensor, TensorView* bias);
@@ -683,4 +752,23 @@ at::Tensor atBiasEpilogue(const at::Tensor& tensor, const at::Tensor& bias);
 // Get the number of SMs on the current device
 int64_t getNumSMs();
 
+bool checkMapped(const ValGraph& vg, IterDomain* x, IterDomain* y);
+
+// This uses mma_utils::getOperandInnerDims(fusion) to get the inner allocation
+// dimensions of fusion operands and translate that into one of the MmaOp
+// layouts TT, TN, NT, or NN.
+MmaLayout getMatmulProblemLayout(Fusion* fusion);
+
+// Get floating data types including half, float, double, complex_float,
+// complex_double, and bfloat16 if supported by the device.
+std::vector<DataType> getFloatingDataTypes(bool include_complex = true);
+
+// gtest requires test name contains only alphanumeric characters and
+// underscores. Sanitize name e.g. std::complex<float> -> std_complex_float
+std::string sanitizeTestName(const std::string& name);
+
+// values frequently used in tests
+constexpr std::array<int64_t, 21> Pow2Vals1to1Million = {
+    1,    2,    4,    8,     16,    32,    64,     128,    256,    512,    1024,
+    2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288, 1048576};
 } // namespace nvfuser

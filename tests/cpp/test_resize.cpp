@@ -9,9 +9,9 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <executor.h>
-#include <executor_utils.h>
 #include <fusion.h>
+#include <fusion_executor/executor.h>
+#include <fusion_executor/executor_utils.h>
 #include <inlining.h>
 #include <kernel_cache.h>
 #include <ops/all_ops.h>
@@ -23,14 +23,23 @@
 
 namespace nvfuser {
 
-class ResizeTest : public NVFuserTest {};
+using ResizeTest = NVFuserFixtureParamTest<bool>;
 
 using testing::Each;
+using testing::HasSubstr;
 using testing::Not;
 using testing::Property;
+using testing::ThrowsMessage;
+using testing::UnorderedElementsAre;
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    ResizeTest,
+    testing::Bool(),
+    testing::PrintToStringParamName());
 
 // Simple pad test
-TEST_F(ResizeTest, Pad1) {
+TEST_P(ResizeTest, Pad1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -47,6 +56,13 @@ TEST_F(ResizeTest, Pad1) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
+  EnableOptionsGuard enable_options_guard;
+  if (GetParam()) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  } else {
+    EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
+  }
+
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
@@ -57,7 +73,7 @@ TEST_F(ResizeTest, Pad1) {
 }
 
 // pad + split
-TEST_F(ResizeTest, Pad2) {
+TEST_P(ResizeTest, Pad2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -76,6 +92,13 @@ TEST_F(ResizeTest, Pad2) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
+  EnableOptionsGuard enable_options_guard;
+  if (GetParam()) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  } else {
+    EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
+  }
+
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
@@ -86,7 +109,7 @@ TEST_F(ResizeTest, Pad2) {
 }
 
 // pad, merge + split, inlineMost
-TEST_F(ResizeTest, Pad3) {
+TEST_P(ResizeTest, Pad3) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -107,7 +130,7 @@ TEST_F(ResizeTest, Pad3) {
   tv4->split(0, 32);
 
   TransformPropagator propagator(tv4);
-  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
 
   inlineMost();
 
@@ -122,6 +145,13 @@ TEST_F(ResizeTest, Pad3) {
   auto t1 = at::randn(padded_shape, options);
   std::vector<c10::IValue> aten_inputs({t0, t1});
 
+  EnableOptionsGuard enable_options_guard;
+  if (GetParam()) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  } else {
+    EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
+  }
+
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
@@ -130,7 +160,7 @@ TEST_F(ResizeTest, Pad3) {
 }
 
 // pad + parallelization
-TEST_F(ResizeTest, Pad4) {
+TEST_P(ResizeTest, Pad4) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -149,6 +179,13 @@ TEST_F(ResizeTest, Pad4) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
+  EnableOptionsGuard enable_options_guard;
+  if (GetParam()) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  } else {
+    EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
+  }
+
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
@@ -159,7 +196,7 @@ TEST_F(ResizeTest, Pad4) {
 }
 
 // pad + parallelization + RAW sync
-TEST_F(ResizeTest, Pad5) {
+TEST_P(ResizeTest, Pad5) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -197,6 +234,13 @@ TEST_F(ResizeTest, Pad5) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
+  EnableOptionsGuard enable_options_guard;
+  if (GetParam()) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  } else {
+    EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
+  }
+
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
@@ -207,7 +251,7 @@ TEST_F(ResizeTest, Pad5) {
 }
 
 // pad + merge + split parallelization
-TEST_F(ResizeTest, Pad6) {
+TEST_P(ResizeTest, Pad6) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -228,7 +272,7 @@ TEST_F(ResizeTest, Pad6) {
   tv4->split(0, 32);
 
   TransformPropagator propagator(tv4);
-  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
 
   inlineMost();
 
@@ -241,6 +285,13 @@ TEST_F(ResizeTest, Pad6) {
   auto t1 = at::randn(padded_shape, options);
   std::vector<c10::IValue> aten_inputs({t0, t1});
 
+  EnableOptionsGuard enable_options_guard;
+  if (GetParam()) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  } else {
+    EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
+  }
+
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
@@ -250,7 +301,7 @@ TEST_F(ResizeTest, Pad6) {
 
 // pad + unswitch. Having different extents in an unswitched loop nest
 // needs a special care (see UnrollPass::canOmitElseClause)
-TEST_F(ResizeTest, Pad7) {
+TEST_P(ResizeTest, Pad7) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -269,7 +320,7 @@ TEST_F(ResizeTest, Pad7) {
   tv3->reorder({{1, 2}});
 
   TransformPropagator propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   inlineMost();
 
@@ -284,6 +335,13 @@ TEST_F(ResizeTest, Pad7) {
 
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
+
+  EnableOptionsGuard enable_options_guard;
+  if (GetParam()) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  } else {
+    EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
+  }
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
@@ -315,7 +373,7 @@ TEST_F(ResizeTest, Pad8) {
   tv4->split(0, 128);
 
   TransformPropagator propagator(tv4);
-  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
 
   inlineMost();
 
@@ -340,7 +398,7 @@ TEST_F(ResizeTest, Pad8) {
 }
 #endif
 
-TEST_F(ResizeTest, PadScheduler1) {
+TEST_P(ResizeTest, PadScheduler1) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -357,6 +415,13 @@ TEST_F(ResizeTest, PadScheduler1) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
+  EnableOptionsGuard enable_options_guard;
+  if (GetParam()) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  } else {
+    EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
+  }
+
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
@@ -365,7 +430,7 @@ TEST_F(ResizeTest, PadScheduler1) {
   NVF_CHECK(ref.equal(cg_outputs[0]));
 }
 
-TEST_F(ResizeTest, PadScheduler2) {
+TEST_P(ResizeTest, PadScheduler2) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
@@ -388,6 +453,13 @@ TEST_F(ResizeTest, PadScheduler2) {
   auto t0 = at::randn(shape, options);
   auto t1 = at::randn(padded_shape, options);
   std::vector<c10::IValue> aten_inputs({t0, t1});
+
+  EnableOptionsGuard enable_options_guard;
+  if (GetParam()) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  } else {
+    EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
+  }
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
@@ -436,7 +508,7 @@ TEST_F(ResizeTest, PadScheduler3) {
 // Two pad exprs, both using the same symbolic pad widths, segmented
 // into two kernels. Make sure the symbolic inputs are available to
 // both of the segmented kernels.
-TEST_F(ResizeTest, PadScheduler4) {
+TEST_P(ResizeTest, PadScheduler4) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -464,6 +536,13 @@ TEST_F(ResizeTest, PadScheduler4) {
   std::vector<int64_t> pad_extents{1, 1};
   std::vector<c10::IValue> aten_inputs({t0, 1, 1});
 
+  EnableOptionsGuard enable_options_guard;
+  if (GetParam()) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  } else {
+    EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
+  }
+
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
@@ -473,7 +552,7 @@ TEST_F(ResizeTest, PadScheduler4) {
 
 // Pad a broadcast
 // See https://github.com/NVIDIA/Fuser/issues/798
-TEST_F(ResizeTest, PadBroadcastInput) {
+TEST_P(ResizeTest, PadBroadcastInput) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -496,6 +575,13 @@ TEST_F(ResizeTest, PadBroadcastInput) {
 
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
+
+  EnableOptionsGuard enable_options_guard;
+  if (GetParam()) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  } else {
+    EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
+  }
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
@@ -590,7 +676,7 @@ TEST_F(ResizeTest, Cat3) {
   tv2->split(0, 4);
 
   TransformPropagator propagator(tv2);
-  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
 
   inlineMost();
 
@@ -631,7 +717,7 @@ TEST_F(ResizeTest, Cat4) {
   tv2->split(0, 128);
 
   TransformPropagator propagator(tv2);
-  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
 
   tv2->axis(0)->parallelize(ParallelType::BIDx);
   tv2->axis(1)->parallelize(ParallelType::TIDx);
@@ -674,7 +760,7 @@ TEST_F(ResizeTest, Cat5) {
   tv4->split(0, 128);
 
   TransformPropagator propagator(tv4);
-  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
 
   inlineMost();
 
@@ -722,7 +808,7 @@ TEST_F(ResizeTest, Cat6) {
   tv3->merge(0);
   tv3->split(0, 4);
   TransformPropagator propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   inlineMost();
 
@@ -773,7 +859,7 @@ TEST_F(ResizeTest, Cat7) {
     concat_tv->split(0, 128);
 
     TransformPropagator propagator(concat_tv);
-    MaxRootDomainInfoSpanningTree(concat_tv).traverse(&propagator);
+    MaxLogicalDomainInfoSpanningTree(concat_tv).traverse(&propagator);
 
     inlineMost();
 
@@ -1021,7 +1107,8 @@ TEST_F(ResizeTest, Slice4) {
   tv5->setMemoryType(MemoryType::Global);
   SetSelector tv5_rf_selector({tv1, tv3, tv5, tv5_cache});
   TransformPropagator tv5_rf_tp(tv5_rf);
-  MaxRootDomainInfoSpanningTree(tv5_rf, &tv5_rf_selector).traverse(&tv5_rf_tp);
+  MaxLogicalDomainInfoSpanningTree(tv5_rf, &tv5_rf_selector)
+      .traverse(&tv5_rf_tp);
   inlineMost(std::vector<TensorView*>{tv1, tv3, tv5_rf});
   tv5_rf->axis(0)->parallelize(ParallelType::BIDx);
   tv5_rf->axis(1)->parallelize(ParallelType::TIDx);
@@ -1034,7 +1121,8 @@ TEST_F(ResizeTest, Slice4) {
   tv6->setMemoryType(MemoryType::Global);
   SetSelector tv6_rf_selector({tv2, tv4, tv6, tv6_cache});
   TransformPropagator tv6_rf_tp(tv6_rf);
-  MaxRootDomainInfoSpanningTree(tv6_rf, &tv6_rf_selector).traverse(&tv6_rf_tp);
+  MaxLogicalDomainInfoSpanningTree(tv6_rf, &tv6_rf_selector)
+      .traverse(&tv6_rf_tp);
   inlineMost(std::vector<TensorView*>{tv2, tv4, tv6_rf});
   tv6_rf->axis(0)->parallelize(ParallelType::BIDx);
   tv6_rf->axis(1)->parallelize(ParallelType::TIDx);
@@ -1096,7 +1184,7 @@ TEST_F(ResizeTest, Slice5) {
   // tv1 to tv3 through tv0, which should work as both tensors are
   // sliced in the same way.
   TransformPropagator propagator(tv2);
-  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
 
   inlineMost();
 
@@ -1141,7 +1229,7 @@ std::vector<std::pair<int64_t, int64_t>> slice_cases(
      {-13, -11}});
 
 // Test slice with a variety of constant ranges
-TEST_F(NVFuserTest, SliceConstantShmoo_CUDA) {
+TEST_F(ResizeTest, SliceConstantShmoo) {
   for (auto [start, stop] : slice_cases) {
     Fusion fusion;
     FusionGuard fg(&fusion);
@@ -1170,7 +1258,7 @@ TEST_F(NVFuserTest, SliceConstantShmoo_CUDA) {
 }
 
 // Test slice with a variety of non-constant input ranges
-TEST_F(NVFuserTest, SliceInputShmoo_CUDA) {
+TEST_F(ResizeTest, SliceInputShmoo) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1218,9 +1306,9 @@ TEST_F(NVFuserTest, SliceInputShmoo_CUDA) {
   }
 }
 
-// Same as SliceInputShmoo_CUDA but use FusionExecutorCache, which
+// Same as SliceInputShmoo but use FusionExecutorCache, which
 // might re-concretize when output sizes change
-TEST_F(NVFuserTest, SliceInputShmooFusionExecutorCache_CUDA) {
+TEST_F(ResizeTest, SliceInputShmooFusionExecutorCache) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
@@ -1316,7 +1404,7 @@ TEST_F(ResizeTest, SliceExtentSimplification) {
       << "Unexpected resize output extent: " << resize_extent->toInlineString();
 }
 
-TEST_F(ResizeTest, PadReduceScheduler1) {
+TEST_P(ResizeTest, PadReduceScheduler1) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
@@ -1349,6 +1437,13 @@ TEST_F(ResizeTest, PadReduceScheduler1) {
       pad_extents.end(),
       std::back_inserter(aten_inputs),
       [](auto pad_extent) { return pad_extent; });
+
+  EnableOptionsGuard enable_options_guard;
+  if (GetParam()) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  } else {
+    EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
+  }
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
@@ -1633,7 +1728,7 @@ TEST_F(ResizeTest, SoftmaxSliceScheduler2) {
 }
 
 // Same as Pad1 but pad by specified value
-TEST_F(ResizeTest, PadWithValue) {
+TEST_P(ResizeTest, PadWithValue) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1653,6 +1748,13 @@ TEST_F(ResizeTest, PadWithValue) {
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
+  EnableOptionsGuard enable_options_guard;
+  if (GetParam()) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  } else {
+    EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
+  }
+
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
@@ -1663,7 +1765,7 @@ TEST_F(ResizeTest, PadWithValue) {
 }
 
 // Same as Pad1 but pad by negative value to create an empty tensor
-TEST_F(ResizeTest, PadToEmptyTensor) {
+TEST_P(ResizeTest, PadToEmptyTensor) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -1678,12 +1780,19 @@ TEST_F(ResizeTest, PadToEmptyTensor) {
           IrBuilder::create<Val>(2.0));
   fusion->addOutput(tv1);
   // set allocation domain to trigger validation check on size/stride
-  tv1->setAllocationDomain(tv1->getRFactorDomain(), true);
+  tv1->setAllocationDomain(tv1->getLogicalDomain(), true);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
+
+  EnableOptionsGuard enable_options_guard;
+  if (GetParam()) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  } else {
+    EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
+  }
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
@@ -1694,7 +1803,7 @@ TEST_F(ResizeTest, PadToEmptyTensor) {
 }
 
 // Test that padding Half tensor by Double does not promote output
-TEST_F(ResizeTest, PadHalfWithDoubleValue) {
+TEST_P(ResizeTest, PadHalfWithDoubleValue) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1713,6 +1822,13 @@ TEST_F(ResizeTest, PadHalfWithDoubleValue) {
 
   auto t0 = at::ones(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
+
+  EnableOptionsGuard enable_options_guard;
+  if (GetParam()) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  } else {
+    EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
+  }
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
@@ -1901,86 +2017,38 @@ TEST_F(ResizeTest, FusionSliceForNanoGPT2) {
 }
 
 // C++ version of TestNvFuserFrontend.test_nanogpt_split_mha_linears
-TEST_F(ResizeTest, FusionSliceForNanoGPT3) {
+TEST_F(ResizeTest, SliceForNanoGPT3) {
   // To verify input caching condition in this test, disable aliasing as that
   // will skip compilation and no kernel will exist.
   preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
       optimization_guard(false);
 
-  auto fusion_ptr = std::make_unique<Fusion>();
-  auto& fusion = *fusion_ptr;
-  FusionGuard fg(fusion_ptr.get());
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
 
   EnableOptionsGuard opt_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
 
-  std::vector<int64_t> input_shape{16, 128, 3072};
+  auto* in = makeSymbolicTensor(3);
+  fusion->addInput(in);
 
-  auto tv0 = makeSymbolicTensor(3);
-
-  fusion.addInput(tv0);
-
-  auto tv1 = slice(
-      tv0,
-      {{IrBuilder::create<Val>(0L), IrBuilder::create<Val>(16L)},
-       {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(128L)},
-       {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(1024L)}});
-  auto tv2 = slice(
-      tv0,
-      {{IrBuilder::create<Val>(0L), IrBuilder::create<Val>(16L)},
-       {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(128L)},
-       {IrBuilder::create<Val>(1024L), IrBuilder::create<Val>(2048L)}});
-  auto tv3 = slice(
-      tv0,
-      {{IrBuilder::create<Val>(0L), IrBuilder::create<Val>(16L)},
-       {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(128L)},
-       {IrBuilder::create<Val>(2048L), IrBuilder::create<Val>(3072L)}});
-
-  auto tv4 = reshape(tv1, {16, 128, 1024}, {16, 128, 16, 64});
-  auto tv5 = reshape(tv2, {16, 128, 1024}, {16, 128, 16, 64});
-  auto tv6 = reshape(tv3, {16, 128, 1024}, {16, 128, 16, 64});
-
-  // TODO: add permute
-  fusion.addOutput(tv4);
-  fusion.addOutput(tv5);
-  fusion.addOutput(tv6);
+  std::vector<TensorView*> slices = chunk(in, /*chunks=*/3, /*dim=*/-1);
+  for (auto* slice : slices) {
+    TensorView* out = reshape(slice, {16, 128, 1024}, {16, 128, 16, 64});
+    // TODO: add permute
+    fusion->addOutput(out);
+  }
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto in_tensor = at::randn({16, 128, 3072}, options);
 
-  auto t0 = at::randn(input_shape, options);
-  std::vector<c10::IValue> aten_inputs({t0});
-
-  FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+  testValidate(
+      executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
-  NVF_CHECK(!runtime->isSegmented(), "Segmentation not expected");
-
-  auto kernel = runtime->executors().at(0).kernel();
-  NVF_CHECK(
-      !kernel->summary().has_cooperative_grid_reduction,
-      "Grid sync should not be used as slicing input should avoid input caching");
-
-  auto at_t1 = t0.index(
-      {at::indexing::Slice(0, 16),
-       at::indexing::Slice(0, 128),
-       at::indexing::Slice(0, 1024)});
-  auto at_t2 = t0.index(
-      {at::indexing::Slice(0, 16),
-       at::indexing::Slice(0, 128),
-       at::indexing::Slice(1024, 2048)});
-  auto at_t3 = t0.index(
-      {at::indexing::Slice(0, 16),
-       at::indexing::Slice(0, 128),
-       at::indexing::Slice(2048, 3072)});
-
-  auto at_t4 = at_t1.reshape({16, 128, 16, 64});
-  auto at_t5 = at_t2.reshape({16, 128, 16, 64});
-  auto at_t6 = at_t3.reshape({16, 128, 16, 64});
-
-  NVF_CHECK(cg_outputs.at(0).equal(at_t4));
-  NVF_CHECK(cg_outputs.at(1).equal(at_t5));
-  NVF_CHECK(cg_outputs.at(2).equal(at_t6));
+  EXPECT_FALSE(runtime->isSegmented());
 }
 
 TEST_F(ResizeTest, ResizeReshapeAndSlice) {
@@ -1998,7 +2066,10 @@ TEST_F(ResizeTest, ResizeReshapeAndSlice) {
       tv1,
       {{IrBuilder::create<Val>(0L), IrBuilder::create<Val>(2L)},
        {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(2L)}});
-  fusion->addOutput(tv2);
+  // Without the `add`, the fusion will be accepted by NoOp, defeating the
+  // purpose of testing PointWise.
+  auto tv3 = add(tv2, tv2);
+  fusion->addOutput(tv3);
 
   std::vector<int64_t> shape({4, 8});
 
@@ -2009,14 +2080,11 @@ TEST_F(ResizeTest, ResizeReshapeAndSlice) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  testValidate(
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
-  NVF_CHECK(!runtime->isSegmented(), "Segmentation not expected");
-
-  auto ref = t0.reshape({8, 4}).index(
-      {at::indexing::Slice(0, 2), at::indexing::Slice(0, 2)});
-
-  NVF_CHECK(ref.equal(cg_outputs.at(0)));
+  EXPECT_FALSE(runtime->isSegmented());
 }
 
 // Make sure resize works with the transpose scheduler
@@ -2042,7 +2110,8 @@ TEST_F(ResizeTest, ResizePermuteAndSlice) {
       {{IrBuilder::create<Val>(1L), IrBuilder::create<Val>(shape.at(0) - 1)},
        {IrBuilder::create<Val>(2L), IrBuilder::create<Val>(shape.at(1) - 2)}});
   auto tv3 = transpose(tv2, 0, 1);
-  fusion->addOutput(tv3);
+  auto tv5 = add(tv3, tv3);
+  fusion->addOutput(tv5);
   auto tv4 = add(tv2, IrBuilder::create<Val>(1.0));
   fusion->addOutput(tv4);
 
@@ -2053,19 +2122,12 @@ TEST_F(ResizeTest, ResizePermuteAndSlice) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
-
-  auto runtime = executor_cache.getMostRecentKernelRuntime();
-  NVF_CHECK(!runtime->isSegmented(), "Segmentation not expected");
-
-  auto heuristic =
-      runtime->schedulerHeuristics()->heuristicsList().at(0).get()->heuristic();
-  NVF_CHECK(
-      heuristic == ScheduleHeuristic::Transpose,
-      "Unexpected heuristic: ",
-      heuristic);
-
   testValidate(
       executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
+
+  EXPECT_THAT(
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups(),
+      UnorderedElementsAre(HeuristicIs(SchedulerType::Transpose)));
 }
 
 // When scheduling this test, the pointwise scheduler attempt to replay a Split
@@ -2220,11 +2282,9 @@ TEST_F(ResizeTest, FusionSqueezeSymbolic) {
   NVF_CHECK(ref0.equal(cg_outputs[0]));
 
   EXPECT_THAT(
-      [&]() {
-        fec.runFusionWithInputs({t0, 10});
-      },
-      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-          "must concretize to IterType::Broadcast but found")));
+      [&]() { fec.runFusionWithInputs({t0, 10}); },
+      ThrowsMessage<nvfError>(
+          HasSubstr("must concretize to IterType::Broadcast but found")));
 }
 
 // See https://github.com/NVIDIA/Fuser/issues/365
@@ -2305,11 +2365,11 @@ TEST_F(ResizeTest, SliceVectorization) {
 
   std::vector<c10::IValue> inputs = {t0, t1};
 
-  auto lparams = schedulePointwise(&fusion, inputs);
-
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, inputs).outputs;
   // check that we vectorize 4
   bool found_vectorize = false;
-  for (auto id : fusion.outputs().at(0)->as<TensorView>()->getLeafDomain()) {
+  for (auto id : fusion.outputs().at(0)->as<TensorView>()->getLoopDomain()) {
     if (id->getParallelType() == ParallelType::Vectorize) {
       EXPECT_EQ(id->extent()->evaluate(), 4);
       found_vectorize = true;
@@ -2317,10 +2377,6 @@ TEST_F(ResizeTest, SliceVectorization) {
     }
   }
   EXPECT_TRUE(found_vectorize);
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, inputs, lparams);
-  auto cg_outputs = fe.runFusion(inputs, lparams);
 
   auto ref = t0.narrow(0, 1, N) + t1;
 
@@ -2332,7 +2388,7 @@ TEST_F(ResizeTest, SliceVectorization) {
 // Concretize a symbolic pad that results in a broadcast (static pads)
 // In this test, the sizes and pad widths are static, so there should be nothing
 // to concretize.
-TEST_F(NVFuserTest, ResizePadToBroadcastStatic_CUDA) {
+TEST_P(ResizeTest, ResizePadToBroadcastStatic) {
   std::vector<int64_t> t0_size = {2, 3, 2, 5, 6};
   std::vector<int64_t> t1_size = {2, 4, 4, 3, 5};
   // Note there are only 8 input scalars for 5D input. Implicit no-pad of dim 0
@@ -2381,6 +2437,13 @@ TEST_F(NVFuserTest, ResizePadToBroadcastStatic_CUDA) {
   auto t1 = at::randn(t1_size, options);
   std::vector<c10::IValue> aten_inputs({t0, t1});
 
+  EnableOptionsGuard enable_options_guard;
+  if (GetParam()) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  } else {
+    EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
+  }
+
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
@@ -2399,7 +2462,7 @@ TEST_F(NVFuserTest, ResizePadToBroadcastStatic_CUDA) {
 }
 
 // Concretize a symbolic pad that results in a broadcast (dynamic pads)
-TEST_F(NVFuserTest, ResizePadToBroadcastDynamic_CUDA) {
+TEST_P(ResizeTest, ResizePadToBroadcastDynamic) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -2446,6 +2509,13 @@ TEST_F(NVFuserTest, ResizePadToBroadcastDynamic_CUDA) {
   });
   aten_inputs.insert(aten_inputs.end(), pad_widths.begin(), pad_widths.end());
 
+  EnableOptionsGuard enable_options_guard;
+  if (GetParam()) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  } else {
+    EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
+  }
+
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
@@ -2466,7 +2536,7 @@ TEST_F(NVFuserTest, ResizePadToBroadcastDynamic_CUDA) {
 }
 
 // See https://github.com/NVIDIA/Fuser/issues/596
-TEST_F(NVFuserTest, ResizePadToBroadcastIssue596_CUDA) {
+TEST_P(ResizeTest, ResizePadToBroadcastIssue596) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -2487,6 +2557,13 @@ TEST_F(NVFuserTest, ResizePadToBroadcastIssue596_CUDA) {
   auto t0 = at::randn({2}, options);
   auto t1 = at::randn({3}, options);
   std::vector<c10::IValue> aten_inputs({t0, t1});
+
+  EnableOptionsGuard enable_options_guard;
+  if (GetParam()) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  } else {
+    EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
+  }
 
   auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
   FusionKernelRuntime runtime(std::move(fusion), args);
@@ -2642,7 +2719,7 @@ TEST_F(ResizeTest, Slice1DVectorizeManual2) {
   tv1->split(0, 128);
 
   TransformPropagator propagator(tv1);
-  MaxRootDomainInfoSpanningTree(tv1).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
 
   tv1->axis(0)->parallelize(ParallelType::BIDx);
   tv1->axis(1)->parallelize(ParallelType::TIDx);
@@ -2693,7 +2770,7 @@ TEST_F(ResizeTest, Slice1DVectorizeManual3) {
   tv1->split(0, 128);
 
   TransformPropagator propagator(tv1);
-  MaxRootDomainInfoSpanningTree(tv1).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
 
   tv1->axis(0)->parallelize(ParallelType::BIDx);
   tv1->axis(1)->parallelize(ParallelType::TIDx);
@@ -2845,8 +2922,8 @@ TEST_F(ResizeTest, Slice3DVectorizeManual1) {
 
   EXPECT_THAT(
       [&]() { fe.runFusion(aten_inputs); },
-      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-          "with word size 2 not possible due to invalid stride")));
+      ThrowsMessage<nvfError>(
+          HasSubstr("with word size 2 not possible due to invalid stride")));
 }
 
 // Similar to Slice3DVectorizeManual2 but with a middle broadcast
@@ -2888,8 +2965,8 @@ TEST_F(ResizeTest, Slice3DVectorizeManual2) {
 
   EXPECT_THAT(
       [&]() { fe.runFusion(aten_inputs); },
-      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-          "with word size 4 not possible due to invalid stride")));
+      ThrowsMessage<nvfError>(
+          HasSubstr("with word size 4 not possible due to invalid stride")));
 }
 
 // Repro of issue 540 without transpose
@@ -2942,7 +3019,7 @@ TEST_F(ResizeTest, SliceAndReshapeRepro540Manual) {
   tv4->reorder({{1, -1}});
 
   TransformPropagator propagator(tv4);
-  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
 
   tv4->axis(0)->parallelize(ParallelType::BIDx);
   tv4->axis(1)->parallelize(ParallelType::Unswitch);
@@ -2981,7 +3058,7 @@ TEST_F(ResizeTest, SliceAndReshapeRepro540Manual) {
 // Test concretizing a pad that follows a reshape. This requires the
 // ExpressionEvaluator used in concretization to propagate shapes properly
 // across symbolic reshapes in order to infer the size of the downstream pad.
-TEST_F(ResizeTest, ReshapeToPad) {
+TEST_P(ResizeTest, ReshapeToPad) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -3001,6 +3078,13 @@ TEST_F(ResizeTest, ReshapeToPad) {
   auto tv1 = reshape(tv0, {s2, s3});
   auto tv2 = pad(tv1, {fusion.zeroVal(), s0, fusion.zeroVal(), s1});
   fusion.addOutput(tv2);
+
+  EnableOptionsGuard enable_options_guard;
+  if (GetParam()) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  } else {
+    EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
+  }
 
   FusionExecutorCache fusion_executor_cache(std::move(fusion_ptr));
 
@@ -3145,7 +3229,7 @@ TEST_F(ResizeTest, CatOfExpandedBroadcast) {
 // padded in the empty dim as well as the expanded dims.
 // This should match test_python_frontend.py::test_pad_expanded_empty
 // See https://github.com/NVIDIA/Fuser/issues/870
-TEST_F(ResizeTest, PadExpandedEmpty) {
+TEST_P(ResizeTest, PadExpandedEmpty) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(&fusion);
@@ -3178,6 +3262,13 @@ TEST_F(ResizeTest, PadExpandedEmpty) {
   auto t0 = at::randn({0}, options).as_strided({2, 0, 3}, {0, 0, 0});
   std::vector<c10::IValue> aten_inputs({t0});
 
+  EnableOptionsGuard enable_options_guard;
+  if (GetParam()) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  } else {
+    EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
+  }
+
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
@@ -3187,7 +3278,7 @@ TEST_F(ResizeTest, PadExpandedEmpty) {
 
 // Test that we can pad properly along broadcast dims
 // See https://github.com/NVIDIA/Fuser/issues/868
-TEST_F(ResizeTest, PadOfBroadcast) {
+TEST_P(ResizeTest, PadOfBroadcast) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -3204,6 +3295,13 @@ TEST_F(ResizeTest, PadOfBroadcast) {
   auto t0 = at::randn(shape0, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
+  EnableOptionsGuard enable_options_guard;
+  if (GetParam()) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  } else {
+    EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
+  }
+
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
@@ -3213,7 +3311,7 @@ TEST_F(ResizeTest, PadOfBroadcast) {
 
 // Test that we can cat along broadcast dims that have been expanded
 // See https://github.com/NVIDIA/Fuser/issues/868
-TEST_F(ResizeTest, PadOfExpandedBroadcast) {
+TEST_P(ResizeTest, PadOfExpandedBroadcast) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -3233,6 +3331,13 @@ TEST_F(ResizeTest, PadOfExpandedBroadcast) {
   auto t0 = at::randn(shape0, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
+  EnableOptionsGuard enable_options_guard;
+  if (GetParam()) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  } else {
+    EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
+  }
+
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
@@ -3240,7 +3345,7 @@ TEST_F(ResizeTest, PadOfExpandedBroadcast) {
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, dynamicReshapeIssue1393) {
+TEST_F(ResizeTest, DynamicReshapeIssue1393) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion* fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
@@ -3351,30 +3456,27 @@ TEST_F(ResizeTest, AvoidVectorization) {
 
   // The pointwise scheduler should tell the vectorization factor is
   // 4.
-  auto params = getPointwiseHeuristics(&fusion, inputs);
-  ASSERT_TRUE(params->vectorize) << "Vectorization is expected to be possible";
-  ASSERT_EQ(params->unroll_factor, 4) << "Unexpected factor of vectorization";
+  auto cg_results = scheduleAndRun(&fusion, SchedulerType::PointWise, inputs);
+  auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
 
-  schedulePointwise(&fusion, *params);
+  ASSERT_TRUE(pparams->vectorize) << "Vectorization is expected to be possible";
+  ASSERT_EQ(pparams->unroll_factor, 4) << "Unexpected factor of vectorization";
 
-  // Make sure tv1 is not vectorized, i.e., no leaf IterDomains are vectorized.
+  // Make sure tv1 is not vectorized, i.e., no loop IterDomains are vectorized.
   EXPECT_THAT(
-      tv1->getLeafDomain(),
+      tv1->getLoopDomain(),
       Each(
           Property(&IterDomain::getParallelType, Not(ParallelType::Vectorize))))
       << "Unexpected vectorization: " << tv1;
 
-  // Make sure tv2 should be vectorized, i.e., at least one leaf IterDomain is
+  // Make sure tv2 should be vectorized, i.e., at least one loop IterDomain is
   // vectorized.
   EXPECT_THAT(
-      tv2->getLeafDomain(),
+      tv2->getLoopDomain(),
       Contains(Property(&IterDomain::getParallelType, ParallelType::Vectorize)))
       << "Failed to vectorize: " << tv2;
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, inputs, params->lparams);
-  auto outputs = fe.runFusion(inputs, params->lparams);
-  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  testValidate(&fusion, cg_results.outputs, inputs, __LINE__, __FILE__);
 }
 
 // MemoryPromotion generates code with volatile T. This test ensures that our
@@ -3440,6 +3542,718 @@ TEST_F(ResizeTest, CatMemoryPromotionReducedFloating) {
         __FILE__,
         "");
   }
+}
+
+TEST_F(ResizeTest, PadDtypes) {
+  auto sizes = {0, 10};
+  auto dtypes = {
+      at::kBool,
+      at::kFloat,
+      at::kLong,
+      at::kDouble,
+      at::kHalf,
+      at::kBFloat16,
+      at::kInt,
+      at::kComplexFloat,
+      at::kComplexDouble};
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  Val* size = IrBuilder::create<Val>(DataType::Int);
+  Val* fill_val = IrBuilder::create<Val>(DataType::Int);
+  fusion->addInput(size);
+  fusion->addInput(fill_val);
+  for (auto dtype : dtypes) {
+    if (!isSupportedTypeByDevice(aten_to_data_type(dtype))) {
+      continue;
+    }
+    auto full_tv = full({size}, fill_val, aten_to_data_type(dtype));
+    auto out_tv =
+        pad(full_tv, {IrBuilder::create<Val>(1L), IrBuilder::create<Val>(1L)});
+    fusion->addOutput(out_tv);
+
+    auto* pad_value = out_tv->definition()->as<PadOp>()->value();
+    EXPECT_TRUE(pad_value->isZero());
+    EXPECT_FALSE(pad_value->isOne());
+  }
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  for (auto size : sizes) {
+    auto cg_outputs = executor_cache.runFusionWithInputs({size, 8});
+
+    testValidate(
+        executor_cache.fusion(), cg_outputs, {size, 8}, __LINE__, __FILE__);
+  }
+}
+
+TEST_F(ResizeTest, Issue2552) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* x = makeContigConcreteTensor({1, 3});
+  TensorView* y = makeContigConcreteTensor({1, 3});
+  fusion->addInput(x);
+  fusion->addInput(y);
+  x = expand(x, {IrBuilder::create<Val>(2), x->axis(1)->extent()});
+  x = slice(x, /*starts=*/{0, 0}, /*stops=*/{1, 3});
+  fusion->addOutput(x);
+  TensorView* z = add(x, y);
+  fusion->addOutput(z);
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto options = at::dtype(at::kFloat).device(at::kCUDA);
+  at::Tensor x_tensor = at::randn({1, 3}, options);
+  at::Tensor y_tensor = at::randn({1, 3}, options);
+  std::vector<at::Tensor> out_tensors =
+      fec.runFusionWithInputs({x_tensor, y_tensor});
+  testValidate(
+      fec.fusion(), out_tensors, {x_tensor, y_tensor}, __LINE__, __FILE__);
+}
+
+TEST_F(ResizeTest, Chunk_NegativeSize) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigTensor(1);
+  fusion->addInput(in);
+  std::vector<TensorView*> outs = chunk(in, /*chunks=*/6, /*dim=*/0);
+  for (auto* out : outs) {
+    fusion->addOutput(out);
+  }
+
+  FusionExecutorCache fec(std::move(fusion));
+  EXPECT_THAT(
+      [&]() {
+        auto in_tensor = at::randn({13}).cuda();
+        fec.runFusionWithInputs({in_tensor});
+      },
+      ThrowsMessage<nvfError>(HasSubstr("Invalid resized domain extent")));
+}
+
+TEST_F(ResizeTest, Chunk_SizeZero) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigTensor(1);
+  fusion->addInput(in);
+  std::vector<TensorView*> outs = chunk(in, /*chunks=*/6, /*dim=*/0);
+  for (auto* out : outs) {
+    fusion->addOutput(out);
+  }
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto in_tensor = at::randn({15}).cuda();
+  auto out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+
+  EXPECT_EQ(out_tensors.back().numel(), 0);
+}
+
+TEST_F(ResizeTest, Chunk_Uneven) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigTensor(1);
+  fusion->addInput(in);
+  std::vector<TensorView*> outs = chunk(in, /*chunks=*/6, /*dim=*/0);
+  for (auto* out : outs) {
+    fusion->addOutput(out);
+  }
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto in_tensor = at::randn({16}).cuda();
+  auto out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+
+  EXPECT_EQ(out_tensors.back().numel(), 1);
+}
+
+// Schedule a slice with the loop domain derived from the producer
+// domain. See PR #2897.
+// Note that the IdModel-based indexing is automatically enabled as
+// there are tensors that have non-trivial loop domains as defined by
+// requiresIdModel in lower2device.cpp.
+TEST_F(ResizeTest, SliceScheduledLikeProducer) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape({100});
+
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 =
+      slice(tv0, {{IrBuilder::create<Val>(1L), IrBuilder::create<Val>(99)}});
+
+  auto tv2 = set(tv1);
+
+  fusion.addOutput(tv2);
+
+  tv1->setLoopDomain(tv1->getRootDomain());
+
+  auto tv2_loop_id = tv0->getLoopDomain().at(0)->cloneWithoutRFactor();
+
+  IrBuilder::create<Resize>(
+      tv2->getLogicalDomain().at(0),
+      tv2_loop_id,
+      IrBuilder::create<Val>(-1, DataType::Index),
+      IrBuilder::create<Val>(-1, DataType::Index));
+
+  tv2->setLoopDomain({tv2_loop_id});
+
+  for (auto tv : {tv1, tv2}) {
+    tv->split(0, 32);
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(1)->parallelize(ParallelType::TIDx);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto ref = t0.index({at::indexing::Slice(1, shape[0] - 1)});
+
+  NVF_CHECK(ref.equal(cg_outputs[0]));
+}
+
+TEST_F(ResizeTest, PadScheduledLikeConsumer) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape({100});
+
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1));
+  auto tv2 = pad(tv1, {IrBuilder::create<Val>(1), IrBuilder::create<Val>(1)});
+
+  auto tv3 = add(tv2, IrBuilder::create<Val>(1));
+  fusion.addOutput(tv3);
+
+  auto tv1_padded = IterDomain::resize(
+      tv1->getLoopDomain().at(0),
+      IrBuilder::create<Val>(1, DataType::Index),
+      IrBuilder::create<Val>(1, DataType::Index));
+  tv1->setLoopDomain({tv1_padded});
+
+  for (auto tv : {tv1, tv2, tv3}) {
+    tv->split(0, 32);
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(1)->parallelize(ParallelType::TIDx);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto ref = at::pad(t0 + 1, {1, 1}) + 1;
+
+  NVF_CHECK(ref.equal(cg_outputs[0]));
+}
+
+// Slicing the left half and pad it to the original extent
+TEST_F(ResizeTest, SliceThenPadLeftHalf) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape({100});
+
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+
+  auto tv2 =
+      slice(tv1, {{fusion.zeroVal(), IrBuilder::create<Val>(shape[0] / 2)}});
+
+  auto tv3 = pad(tv2, {fusion.zeroVal(), IrBuilder::create<Val>(shape[0] / 2)});
+
+  fusion.addOutput(tv3);
+
+  tv2->setLoopDomain(tv2->getRootDomain());
+
+  std::vector<IterDomain*> tv3_loop{
+      tv2->getRootDomain()[0]->cloneWithoutRFactor(),
+  };
+
+  IrBuilder::create<Resize>(
+      tv3->getRootDomain().at(0),
+      tv3_loop.at(0),
+      fusion.zeroVal(),
+      IrBuilder::create<Val>(-shape[0] / 2, DataType::Index));
+
+  tv3->setLoopDomain(tv3_loop);
+
+  for (auto tv : {tv1, tv2, tv3}) {
+    tv->split(0, 32);
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(1)->parallelize(ParallelType::TIDx);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto ref = at::pad(
+      t0.index({at::indexing::Slice(0, shape[0] / 2)}), {0, shape[0] / 2});
+
+  EXPECT_TRUE(ref.equal(cg_outputs[0]));
+}
+
+// Slicing the right half and pad it to the original extent
+TEST_F(ResizeTest, SliceThenPadRightHalf) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape({100});
+
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+
+  auto tv2 = slice(
+      tv1,
+      {{IrBuilder::create<Val>(shape[0] / 2),
+        IrBuilder::create<Val>(shape[0])}});
+
+  auto tv3 = pad(tv2, {IrBuilder::create<Val>(shape[0] / 2), fusion.zeroVal()});
+
+  fusion.addOutput(tv3);
+
+  tv2->setLoopDomain(tv2->getRootDomain());
+
+  std::vector<IterDomain*> tv3_loop{
+      tv2->getRootDomain()[0]->cloneWithoutRFactor(),
+  };
+
+  IrBuilder::create<Resize>(
+      tv3->getRootDomain().at(0),
+      tv3_loop.at(0),
+      IrBuilder::create<Val>(-shape[0] / 2, DataType::Index),
+      fusion.zeroVal());
+
+  tv3->setLoopDomain(tv3_loop);
+
+  for (auto tv : {tv1, tv2, tv3}) {
+    tv->split(0, 32);
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(1)->parallelize(ParallelType::TIDx);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto ref = at::pad(
+      t0.index({at::indexing::Slice(shape[0] / 2, shape[0])}),
+      {shape[0] / 2, 0});
+
+  EXPECT_TRUE(ref.equal(cg_outputs[0]));
+}
+
+TEST_F(ResizeTest, SliceThenConcat) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape({100});
+
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+
+  // TODO: Use cat instead of the manual pad + add
+
+  // left half
+  auto tv2 =
+      slice(tv1, {{fusion.zeroVal(), IrBuilder::create<Val>(shape[0] / 2)}});
+  auto tv3 = pad(tv2, {fusion.zeroVal(), IrBuilder::create<Val>(shape[0] / 2)});
+
+  // right half
+  auto tv4 = slice(
+      tv1,
+      {{IrBuilder::create<Val>(shape[0] / 2),
+        IrBuilder::create<Val>(shape[0])}});
+  auto tv5 = pad(tv4, {IrBuilder::create<Val>(shape[0] / 2), fusion.zeroVal()});
+
+  auto tv6 = add(tv3, tv5);
+
+  fusion.addOutput(tv6);
+
+  tv2->setLoopDomain(tv2->getRootDomain());
+
+  {
+    std::vector<IterDomain*> tv3_loop{
+        tv2->getRootDomain()[0]->cloneWithoutRFactor(),
+    };
+    IrBuilder::create<Resize>(
+        tv3->getRootDomain().at(0),
+        tv3_loop.at(0),
+        fusion.zeroVal(),
+        IrBuilder::create<Val>(-shape[0] / 2, DataType::Index));
+    tv3->setLoopDomain(tv3_loop);
+  }
+
+  tv4->setLoopDomain(tv4->getRootDomain());
+
+  {
+    std::vector<IterDomain*> tv5_loop{
+        tv4->getRootDomain()[0]->cloneWithoutRFactor(),
+    };
+    IrBuilder::create<Resize>(
+        tv5->getRootDomain().at(0),
+        tv5_loop.at(0),
+        IrBuilder::create<Val>(-shape[0] / 2, DataType::Index),
+        fusion.zeroVal());
+    tv5->setLoopDomain(tv5_loop);
+  }
+
+  {
+    std::vector<IterDomain*> tv6_loop{
+        tv2->getRootDomain()[0]->cloneWithoutRFactor(),
+    };
+    auto left_half = IterDomain::resize(
+        tv6_loop[0],
+        fusion.zeroVal(),
+        IrBuilder::create<Val>(-shape[0] / 2, DataType::Index));
+    IrBuilder::create<Resize>(
+        tv6->getLogicalDomain().at(0),
+        left_half,
+        fusion.zeroVal(),
+        IrBuilder::create<Val>(shape[0] / 2, DataType::Index));
+    tv6->setLoopDomain(tv6_loop);
+  }
+
+  for (auto tv : {tv1, tv2, tv3, tv4, tv5, tv6}) {
+    tv->split(0, 32);
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(1)->parallelize(ParallelType::TIDx);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  EXPECT_TRUE(t0.equal(cg_outputs[0]));
+}
+
+// RoPE pattern except for the rotation
+TEST_F(ResizeTest, SliceSliceConcatConcat) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const int64_t i0 = 128;
+  const int64_t rope_size = 32;
+
+  auto zero = fusion.zeroVal();
+
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeContigConcreteTensor({i0});
+  fusion.addInput(tv0);
+
+  // [i0]
+  auto tv1 = set(tv0);
+
+  // [rope_size]
+  auto tv2 = slice(tv1, {{zero, IrBuilder::create<Val>(rope_size)}});
+
+  auto rope_size_half = IrBuilder::create<Val>(rope_size / 2);
+
+  // first half
+  // [0:rope_size/2]
+  auto tv3 = slice(tv2, {{zero, rope_size_half}});
+  // do some uop
+  auto tv4 = add(tv3, IrBuilder::create<Val>(1));
+  // Pad back
+  // [0:rope_size]
+  auto tv5 = pad(tv4, {zero, rope_size_half});
+
+  // second half
+  // [rope_size/2:]
+  auto tv6 = slice(tv2, {{rope_size_half, IrBuilder::create<Val>(rope_size)}});
+
+  // do some uop
+  auto tv7 = add(tv6, IrBuilder::create<Val>(2));
+  // Pad back
+  // [rope_size]
+  auto tv8 = pad(tv7, {rope_size_half, zero});
+
+  // [rope_size]
+  auto tv9 = add(tv5, tv8);
+
+  // [i0]
+  auto tv10 = pad(tv9, {zero, IrBuilder::create<Val>(i0 - rope_size)});
+
+  // [rope_size:]
+  auto tv11 = slice(
+      tv1, {{IrBuilder::create<Val>(rope_size), IrBuilder::create<Val>(i0)}});
+  // [i0]
+  auto tv12 = pad(tv11, {IrBuilder::create<Val>(rope_size), zero});
+
+  auto tv13 = add(tv10, tv12);
+
+  fusion.addOutput(tv13);
+
+  auto ref_loop = tv0->getLogicalDomain()[0];
+
+  // tv2
+  // std::vector<IterDomain*> tv2_loop = tv2->getRootDomain();
+  tv2->setLoopDomain(tv2->getRootDomain());
+
+  // tv3
+  {
+    auto loop_id = ref_loop->cloneWithoutRFactor();
+    // Connect to tv3 root
+    IrBuilder::create<Resize>(
+        tv3->getRootDomain().at(0),
+        loop_id,
+        zero,
+        IrBuilder::create<Val>(-(i0 - rope_size), DataType::Index));
+    tv3->setLoopDomain({loop_id});
+  }
+
+  // tv4
+  {
+    auto loop_id = ref_loop->cloneWithoutRFactor();
+    auto root_id = tv3->getRootDomain().at(0)->cloneWithoutRFactor();
+    // Connect to tv3 root
+    IrBuilder::create<Resize>(
+        root_id,
+        loop_id,
+        zero,
+        IrBuilder::create<Val>(-(i0 - rope_size), DataType::Index));
+    // Connect to tv4 logical
+    IrBuilder::create<Resize>(
+        tv4->getLogicalDomain().at(0),
+        root_id,
+        zero,
+        IrBuilder::create<Val>(-rope_size / 2, DataType::Index));
+    tv4->setLoopDomain({loop_id});
+  }
+
+  // tv5
+  {
+    auto loop_id = ref_loop->cloneWithoutRFactor();
+    auto root_id = tv3->getRootDomain().at(0)->cloneWithoutRFactor();
+    // Connect to tv3 root
+    IrBuilder::create<Resize>(
+        root_id,
+        loop_id,
+        zero,
+        IrBuilder::create<Val>(-(i0 - rope_size), DataType::Index));
+    // Connect to tv5 root
+    IrBuilder::create<Resize>(
+        tv5->getRootDomain().at(0),
+        root_id,
+        zero,
+        IrBuilder::create<Val>(-rope_size / 2, DataType::Index));
+    tv5->setLoopDomain({loop_id});
+  }
+
+  // tv6
+  {
+    auto loop_id = ref_loop->cloneWithoutRFactor();
+    // Connect to tv6 root
+    IrBuilder::create<Resize>(
+        tv6->getRootDomain().at(0),
+        loop_id,
+        zero,
+        IrBuilder::create<Val>(-(i0 - rope_size), DataType::Index));
+    tv6->setLoopDomain({loop_id});
+  }
+
+  // tv7
+  {
+    auto loop_id = ref_loop->cloneWithoutRFactor();
+    auto root_id = tv6->getRootDomain().at(0)->cloneWithoutRFactor();
+    // Connect to tv6 root
+    IrBuilder::create<Resize>(
+        root_id,
+        loop_id,
+        zero,
+        IrBuilder::create<Val>(-(i0 - rope_size), DataType::Index));
+    // Connect to tv7 logical
+    IrBuilder::create<Resize>(
+        tv7->getLogicalDomain().at(0),
+        root_id,
+        IrBuilder::create<Val>(-rope_size / 2, DataType::Index),
+        zero);
+    tv7->setLoopDomain({loop_id});
+  }
+
+  // tv8
+  {
+    auto loop_id = ref_loop->cloneWithoutRFactor();
+    auto root_id = tv6->getRootDomain().at(0)->cloneWithoutRFactor();
+    // Connect to tv6 root
+    IrBuilder::create<Resize>(
+        root_id,
+        loop_id,
+        zero,
+        IrBuilder::create<Val>(-(i0 - rope_size), DataType::Index));
+    // Connect to tv8 root
+    IrBuilder::create<Resize>(
+        tv8->getRootDomain().at(0),
+        root_id,
+        IrBuilder::create<Val>(-rope_size / 2, DataType::Index),
+        zero);
+    tv8->setLoopDomain({loop_id});
+  }
+
+  // tv9
+  {
+    // Create a path from ref through the left-half path. The
+    // right-half path should work too.
+    auto loop_id = ref_loop->cloneWithoutRFactor();
+    auto tv2_logical_id = tv2->getLogicalDomain()[0]->cloneWithoutRFactor();
+    IrBuilder::create<Resize>(
+        tv2_logical_id,
+        loop_id,
+        zero,
+        IrBuilder::create<Val>(-(i0 - rope_size), DataType::Index));
+    auto tv3_logical_id = tv3->getLogicalDomain()[0]->cloneWithoutRFactor();
+    IrBuilder::create<Resize>(
+        tv3_logical_id,
+        tv2_logical_id,
+        zero,
+        IrBuilder::create<Val>(-rope_size / 2, DataType::Index));
+    IrBuilder::create<Resize>(
+        tv9->getLogicalDomain()[0],
+        tv3_logical_id,
+        zero,
+        IrBuilder::create<Val>(rope_size / 2, DataType::Index));
+    tv9->setLoopDomain({loop_id});
+  }
+
+  // tv10
+  {
+    // Create a path from ref through the left-half path. The
+    // right-half path should work too.
+    auto loop_id = ref_loop->cloneWithoutRFactor();
+    auto tv2_logical_id = tv2->getLogicalDomain()[0]->cloneWithoutRFactor();
+    IrBuilder::create<Resize>(
+        tv2_logical_id,
+        loop_id,
+        zero,
+        IrBuilder::create<Val>(-(i0 - rope_size), DataType::Index));
+    auto tv3_logical_id = tv3->getLogicalDomain()[0]->cloneWithoutRFactor();
+    IrBuilder::create<Resize>(
+        tv3_logical_id,
+        tv2_logical_id,
+        zero,
+        IrBuilder::create<Val>(-rope_size / 2, DataType::Index));
+    IrBuilder::create<Resize>(
+        tv10->getRootDomain()[0],
+        tv3_logical_id,
+        zero,
+        IrBuilder::create<Val>(rope_size / 2, DataType::Index));
+    tv10->setLoopDomain({loop_id});
+  }
+
+  // tv11
+  tv11->setLoopDomain(tv11->getRootDomain());
+
+  // tv12
+  {
+    auto loop_id = ref_loop->cloneWithoutRFactor();
+    IrBuilder::create<Resize>(
+        tv12->getRootDomain().at(0),
+        loop_id,
+        IrBuilder::create<Val>(-rope_size, DataType::Index),
+        zero);
+    tv12->setLoopDomain({loop_id});
+  }
+
+  // tv13
+  {
+    auto loop_id = ref_loop->cloneWithoutRFactor();
+    auto tv12_id = tv11->getLogicalDomain().at(0)->cloneWithoutRFactor();
+    IrBuilder::create<Resize>(
+        tv12_id,
+        loop_id,
+        IrBuilder::create<Val>(-rope_size, DataType::Index),
+        zero);
+    IrBuilder::create<Resize>(
+        tv13->getLogicalDomain().at(0),
+        tv12_id,
+        IrBuilder::create<Val>(rope_size, DataType::Index),
+        zero);
+    tv13->setLoopDomain({loop_id});
+  }
+
+  for (auto tv : fusion.allTvs()) {
+    if (tv->isFusionInput()) {
+      continue;
+    }
+
+    tv->split(0, 4);
+    tv->split(0, 16);
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(1)->parallelize(ParallelType::TIDx);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({i0}, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto ref = at::concat(
+      {at::slice(t0, 0, 0, rope_size / 2) + 1,
+       at::slice(t0, 0, rope_size / 2, rope_size) + 2,
+       at::slice(t0, 0, rope_size)},
+      0);
+
+  NVF_CHECK(ref.equal(cg_outputs[0]));
 }
 
 } // namespace nvfuser

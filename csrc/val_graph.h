@@ -10,6 +10,7 @@
 #include <disjoint_set.h>
 #include <ir/all_nodes.h>
 
+#include <iostream>
 #include <string>
 #include <type_traits>
 #include <unordered_map>
@@ -29,9 +30,9 @@ namespace nvfuser {
 // T1 = set(T0);
 // T2 = set(T1);
 //
-// T0: root [I0, I1], leaf [I0, I1]
-// T1: root [I2, I3], leaf [I2*I3/4, 4]
-// T2: root [I4, I5], leaf [I4*I5/4, 4]
+// T0: root [I0, I1], loop [I0, I1]
+// T1: root [I2, I3], loop [I2*I3/4, 4]
+// T2: root [I4, I5], loop [I4*I5/4, 4]
 //
 // The Exact ValGraph consists of ValGroups of:
 //
@@ -184,8 +185,12 @@ class ValGraph {
 
   std::string toString() const;
 
+  std::string toGraphvizDotGraph() const;
+
   // Initializes entries for the provided Val with its definitions and
-  // uses.
+  // uses. The provided Val will have its own new ValGroup, each item in the
+  // definitions and uses will become a new ExprGroup, and these new ExprGroups
+  // will be the definitions and uses of the new ValGroup.
   void initializeVal(
       Val* val,
       const VectorOfUniqueEntries<Expr*>& definitions,
@@ -194,6 +199,13 @@ class ValGraph {
   // Same as the above exept val->definition() and val->uses() are
   // used
   void initializeVal(Val* val);
+
+  // Initializes entries for the provided Val. The provided Val will be added to
+  // the provided existing ValGroup. There will be no changes on the definitions
+  // and uses of the provided ValGroup.
+  void initializeVal(Val* v, ValGroup vg) {
+    disjoint_vals_.appendToSet(v, vg);
+  }
 
   // Add expr to the disjoint sets as a sole group. Used for
   // registering replayed domains and exprs. Error if the expr is
@@ -242,7 +254,8 @@ class ValGraph {
     auto extent_match = [](IterDomain* id0, IterDomain* id1) -> bool {
       return id0->extent()->sameAs(id1->extent()) ||
           (id0->extent()->isConstInt() && id1->extent()->isConstInt() &&
-           id0->extent()->evaluate() == id1->extent()->evaluate());
+           id0->extent()->evaluate().as<int64_t>() ==
+               id1->extent()->evaluate().as<int64_t>());
     };
 
     // If one pair of the domains are mapped in the given graph, the
@@ -351,7 +364,22 @@ class ValGraph {
 struct ValGroupAndItsGraph {
   ValGroup group;
   ValGraph* graph;
+  bool operator==(const ValGroupAndItsGraph& other) const {
+    return group == other.group && graph == other.graph;
+  }
+  bool operator!=(const ValGroupAndItsGraph& other) const {
+    return !operator==(other);
+  }
+  operator const ValGroup&() const {
+    return group;
+  }
 };
+
+inline std::ostream& operator<<(
+    std::ostream& os,
+    const ValGroupAndItsGraph& g) {
+  return os << g.group;
+}
 
 // Returns the first pair of id's in ids detected to match each other on the
 // given ID graph. TODO: what this is really looking for is if
@@ -388,7 +416,7 @@ struct ValGroupAndItsGraph {
 // Note, however, that the above example is not detectable at this
 // moment as the self mapping is partial through reshape. The analysis
 // below would need to be extended to consider producer and consumers
-// of domains as well rather than just root, rfactor and leaf domains.
+// of domains as well rather than just root, logical and loop domains.
 std::optional<std::pair<IterDomain*, IterDomain*>> detectSelfMapping(
     const std::vector<IterDomain*>& ids,
     const ValGraph& id_graph);
@@ -397,7 +425,7 @@ struct SelfMapping {
   IterDomain* id1;
   IterDomain* id2;
   // For debugging, records which domain `id1` and `id2` belong to. This value
-  // is either "Root", "RFactor", or "Leaf". Consider making it an enum.
+  // is either "Root", "Logical", or "Leaf". Consider making it an enum.
   std::string where;
 };
 

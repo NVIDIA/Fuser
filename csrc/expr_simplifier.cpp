@@ -288,7 +288,7 @@ class Context {
               assoc_comm::flatten(bop->rhs()), assoc_comm::flatten(bop->lhs()));
           break;
         default:
-          NVF_ERROR(false, "Unknown operator type ", bop->getBinaryOpType());
+          NVF_THROW("Unknown operator type ", bop->getBinaryOpType());
       }
     }
   }
@@ -640,7 +640,7 @@ const char* FlattenedAssocCommOp::getOpString() const {
     case BinaryOpType::Min:
       return "FlattenedMin";
     default:
-      NVF_ERROR(false, "Unknown operator type ", getOpType());
+      NVF_THROW("Unknown operator type ", getOpType());
   }
 }
 
@@ -1513,7 +1513,7 @@ bool isPositiveHelper(Val* value, const Context& context) {
 
 bool isNonZero(Val* value, const Context& context) {
   value = foldConstants(value);
-  if (value->value().hasValue() && value->value() != 0) {
+  if (value->value().hasValue() && (bool)(value->value() != 0)) {
     return true;
   }
   if (isPositive(value, context)) {
@@ -1977,7 +1977,7 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
       // 0 / a -> 0
       if (rhs->isOne() ||
           (isValidDenominator(rhs, context) && lhs->value().hasValue() &&
-           lhs->value().is<int64_t>() && lhs->value() == 0)) {
+           lhs->value().is<int64_t>() && lhs->value().as<int64_t>() == 0)) {
         return lhs;
       }
     } else if (bop->getBinaryOpType() == BinaryOpType::CeilDiv) {
@@ -1985,7 +1985,7 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
       // 0 / a -> 0
       if (rhs->isOne() ||
           (isValidDenominator(rhs, context) && lhs->value().hasValue() &&
-           lhs->value().is<int64_t>() && lhs->value() == 0)) {
+           lhs->value().is<int64_t>() && lhs->value().as<int64_t>() == 0)) {
         return lhs;
       }
     }
@@ -2383,7 +2383,7 @@ Val* distributeGcdRemainderDivMod(Val* value, const Context& context) {
           return assoc_comm::flatten(result);
         }
         default:
-          NVF_ERROR(false);
+          NVF_THROW();
       }
     }
   }
@@ -2791,6 +2791,9 @@ Val* simplifyExpr(
   std::unique_ptr<std::unordered_set<std::string>> disabled_passes = nullptr;
   if (isOptionDisabled(DisableOption::ExprSimplify)) {
     const auto& v = getDisableOptionArguments(DisableOption::ExprSimplify);
+    if (v.empty()) {
+      return value;
+    }
     disabled_passes =
         std::make_unique<std::unordered_set<std::string>>(v.begin(), v.end());
   }

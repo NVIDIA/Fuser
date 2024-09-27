@@ -24,7 +24,7 @@ void NonDivisibleSplitInfo::build(Fusion* fusion) {
       continue;
     }
     const std::vector<Val*> domain_vals(
-        tv->getLeafDomain().begin(), tv->getLeafDomain().end());
+        tv->getLoopDomain().begin(), tv->getLoopDomain().end());
     current_tv_ = tv;
     clearReachability();
     traverseTo(domain_vals);

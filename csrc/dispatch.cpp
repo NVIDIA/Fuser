@@ -60,12 +60,17 @@ void Val::dispatch(T handler, Val* val) {
     return;
     DISPATCH_FOR_ALL_KIR_VALS(M)
 #undef M
+#define M(e)                                 \
+  case ValType::e:                           \
+    ptr(handler)->handle(val->as<hir::e>()); \
+    return;
+    DISPATCH_FOR_ALL_HIR_VALS(M)
+#undef M
     default:
       ptr(handler)->handle(val);
       return;
   }
-  NVF_ERROR(
-      false,
+  NVF_THROW(
       "Unknown valtype in dispatch! val: ",
       val->toString(),
       " = ",
@@ -96,7 +101,7 @@ void Expr::dispatch(T handler, Expr* expr) {
   }
   DISPATCH_FOR_ALL_HIR_EXPRS(M)
 #undef M
-  NVF_ERROR(false, "Unknown exprtype in dispatch: ", typeid(*expr).name());
+  NVF_THROW("Unknown exprtype in dispatch: ", typeid(*expr).name());
 }
 
 template <typename T>
@@ -106,7 +111,7 @@ void Statement::dispatch(T handler, Statement* stmt) {
   } else if (stmt->isExpr()) {
     ptr(handler)->dispatch(stmt->as<Expr>());
   } else {
-    NVF_ERROR(false, "Unknown stmttype in dispatch!");
+    NVF_THROW("Unknown stmttype in dispatch!");
   }
 }
 
@@ -125,12 +130,17 @@ void Val::constDispatch(T handler, const Val* val) {
     return;
     DISPATCH_FOR_ALL_KIR_VALS(M)
 #undef M
+#define M(e)                                 \
+  case ValType::e:                           \
+    ptr(handler)->handle(val->as<hir::e>()); \
+    return;
+    DISPATCH_FOR_ALL_HIR_VALS(M)
+#undef M
     default:
       ptr(handler)->handle(val);
       return;
   }
-  NVF_ERROR(
-      false,
+  NVF_THROW(
       "Unknown valtype in dispatch! val: ",
       val->toString(),
       " = ",
@@ -161,7 +171,7 @@ void Expr::constDispatch(T handler, const Expr* expr) {
   }
   DISPATCH_FOR_ALL_HIR_EXPRS(M)
 #undef M
-  NVF_ERROR(false, "Unknown exprtype in dispatch: ", typeid(*expr).name());
+  NVF_THROW("Unknown exprtype in dispatch: ", typeid(*expr).name());
 }
 
 template <typename T>
@@ -170,8 +180,9 @@ void Statement::constDispatch(T handler, const Statement* stmt) {
     ptr(handler)->dispatch(stmt->as<Val>());
   } else if (stmt->isExpr()) {
     ptr(handler)->dispatch(stmt->as<Expr>());
-  } else
-    NVF_ERROR(false, "Unknown stmttype in dispatch!");
+  } else {
+    NVF_THROW("Unknown stmttype in dispatch!");
+  }
 }
 
 /*
@@ -200,11 +211,17 @@ void Val::mutatorDispatch(T mutator, Val* val) {
     return;
     DISPATCH_FOR_ALL_KIR_VALS(M)
 #undef M
+#define M(e)                                 \
+  case ValType::e:                           \
+    ptr(mutator)->mutate(val->as<hir::e>()); \
+    return;
+    DISPATCH_FOR_ALL_HIR_VALS(M)
+#undef M
     default:
       ptr(mutator)->mutate(val);
       return;
   }
-  NVF_ERROR(false, "Unknown valtype in dispatch!");
+  NVF_THROW("Unknown valtype in dispatch!");
 }
 
 template <typename T>
@@ -217,7 +234,7 @@ void Statement::mutatorDispatch(T mutator, Statement* stmt) {
     ptr(mutator)->mutate(stmt->as<Expr>());
     return;
   }
-  NVF_ERROR(false, "Unknown stmttype in dispatch!");
+  NVF_THROW("Unknown stmttype in dispatch!");
 }
 
 /*
@@ -284,31 +301,23 @@ void OptOutConstDispatch::dispatch(const Val* v) {
 
 void OptInConstDispatch::unhandled(const Statement* stmt) {
   if (stmt->isExpr()) {
-    NVF_ERROR(
-        false,
-        "Handle not overriden for ",
-        stmt->as<Expr>()->getOpString(),
-        ".");
+    NVF_THROW(
+        "Handle not overriden for ", stmt->as<Expr>()->getOpString(), ".");
   } else if (stmt->isVal()) {
-    NVF_ERROR(
-        false, "Handle not overriden for ", stmt->getValType().value(), ".");
+    NVF_THROW("Handle not overriden for ", stmt->getValType().value(), ".");
   } else {
-    NVF_ERROR(false, "Unrecognized statement type.");
+    NVF_THROW("Unrecognized statement type.");
   }
 }
 
 void OptInDispatch::unhandled(Statement* stmt) {
   if (stmt->isExpr()) {
-    NVF_ERROR(
-        false,
-        "Handle not overriden for ",
-        stmt->as<Expr>()->getOpString(),
-        ".");
+    NVF_THROW(
+        "Handle not overriden for ", stmt->as<Expr>()->getOpString(), ".");
   } else if (stmt->isVal()) {
-    NVF_ERROR(
-        false, "Handle not overriden for ", stmt->getValType().value(), ".");
+    NVF_THROW("Handle not overriden for ", stmt->getValType().value(), ".");
   } else {
-    NVF_ERROR(false, "Unrecognized statement type.");
+    NVF_THROW("Unrecognized statement type.");
   }
 }
 
@@ -332,6 +341,7 @@ DISPATCH_FOR_ALL_KIR_VALS(M)
   void OptOutConstDispatch::handle(const hir::e* stmt) { \
     unhandled(stmt);                                     \
   }
+DISPATCH_FOR_ALL_HIR_VALS(M)
 DISPATCH_FOR_ALL_HIR_EXPRS(M)
 #undef M
 
@@ -358,6 +368,7 @@ DISPATCH_FOR_ALL_KIR_EXPRS(M)
   void OptOutDispatch::handle(hir::e* stmt) { \
     unhandled(stmt);                          \
   }
+DISPATCH_FOR_ALL_HIR_VALS(M)
 DISPATCH_FOR_ALL_HIR_EXPRS(M)
 #undef M
 

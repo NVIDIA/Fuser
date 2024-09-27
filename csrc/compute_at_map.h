@@ -141,7 +141,7 @@ class IterDomainGraph {
  private:
   void build(Fusion* fusion);
 
-  void initializeId(IterDomain* id, bool is_rfactor_id, bool is_leaf_id);
+  void initializeId(IterDomain* id, bool is_rfactor_id, bool is_loop_id);
 
   // Checks if exprsMap then if forward will map outputs else inputs in exact
   // and permissive map.
@@ -177,7 +177,7 @@ class IterDomainGraph {
   friend class IdModelValidator;
 };
 
-using DoubleBufferIndices = std::unordered_map<DoubleBufferLoopStage, Val*>;
+using CircularBufferIndices = std::unordered_map<CircularBufferLoopStage, Val*>;
 
 class ComputeAtMap {
  public:
@@ -255,10 +255,10 @@ class ComputeAtMap {
   // Returns if the provided ID is an rfactor id
   bool isRfactor(IterDomain* ref_id) const;
 
-  // Returns all rfactor domains in rfactor_concrete_count_reset_domains_ that
+  // Returns all logical domains in rfactor_concrete_count_reset_domains_ that
   // are in the disjoint set of the provided IterDomain. This will be every
   // rfactor ID the provided ID "depends" on in the map.
-  std::vector<IterDomain*> getRfactorDomainsOfIdGroup(
+  std::vector<IterDomain*> getLogicalDomainsOfIdGroup(
       IterDomain* ref_id,
       IdMappingMode mode) const;
 
@@ -271,17 +271,18 @@ class ComputeAtMap {
 
   // Returns if the ID actually has a disjoint set meaning it has been processed
   // in the creation of the compute at map.
-  bool idExistsInMap(IterDomain* id) const;
+  bool idExistsInMap(IterDomain* id, IdMappingMode mode = IdMappingMode::EXACT)
+      const;
 
   //! Returns the pre-allocated index variable integer used in
-  //!  the kir::ForLoop corresponding to the given IterDomain.
+  //!  the ForLoop corresponding to the given IterDomain.
   //!  this interface is only valid if the ID has a loop mapping,
   //!  ca_map will throw exceptions if given iterdomain doesn't
   //!  have a loop map entry.
   Val* getIndexVariable(
       IterDomain* id,
-      DoubleBufferLoopStage double_buffer_loop_stage =
-          DoubleBufferLoopStage::NotApplicable) const;
+      CircularBufferLoopStage circular_buffer_loop_stage =
+          CircularBufferLoopStage::NotApplicable) const;
 
   // Returns if expr_1 and expr_2 have exact mapped IterDomains in
   // inputs/outputs (order matters) and if the expressions have matching
@@ -373,14 +374,14 @@ class ComputeAtMap {
   std::unordered_map<const VectorOfUniqueEntries<IterDomain*>*, Val*>
       loop_index_variable_map_;
 
-  //! Allocated loop indices for double buffer loop.
+  //! Allocated loop indices for circular buffer loop.
   //!  only valid for disjoint sets on the loop ca map
-  //!  that have double buffer-ed iterdomains.
-  using DoubleBufferIndicesPtr = std::unique_ptr<DoubleBufferIndices>;
+  //!  that have circular buffer-ed iterdomains.
+  using CircularBufferIndicesPtr = std::unique_ptr<CircularBufferIndices>;
   std::unordered_map<
       const VectorOfUniqueEntries<IterDomain*>*,
-      DoubleBufferIndicesPtr>
-      double_buffered_loop_index_variable_map_;
+      CircularBufferIndicesPtr>
+      circular_buffered_loop_index_variable_map_;
 
   // Shortcut to access the fusion this computeAt map was
   //  built from.

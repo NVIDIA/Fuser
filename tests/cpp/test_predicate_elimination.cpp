@@ -102,7 +102,7 @@ TEST_F(PredicateEliminationTest, 3) {
   tv1->split(0, 10);
   tv1->split(0, 33);
   TransformPropagatorWithCheck propagator(tv1);
-  MaxRootDomainInfoSpanningTree(tv1).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
 
   auto tv4 = tv1->rFactor({-1});
   auto tv5 = tv1->rFactor({-1});
@@ -157,7 +157,7 @@ TEST_F(PredicateEliminationTest, 4) {
   tv1->split(0, 11);
   tv1->reorder({{1, 2}, {2, 1}});
   TransformPropagatorWithCheck propagator(tv1);
-  MaxRootDomainInfoSpanningTree(tv1).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
 
   tv1->axis(0)->parallelize(ParallelType::TIDy);
   tv1->axis(1)->parallelize(ParallelType::TIDx);
@@ -207,7 +207,7 @@ TEST_F(PredicateEliminationTest, 5) {
 
   tvs2.avg->split(0, 4);
   TransformPropagatorWithCheck propagator(tvs2.avg);
-  MaxRootDomainInfoSpanningTree(tvs2.avg).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tvs2.avg).traverse(&propagator);
   auto avg_rf = ir_utils::rFactorHelper(tvs2.avg, {1});
 
   avg_rf->axis(0)->parallelize(ParallelType::TIDx);
@@ -253,7 +253,7 @@ TEST_F(PredicateEliminationTest, 6) {
 
   tv4->split(1, 5);
   TransformPropagatorWithCheck propagator(tv4);
-  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
 
   tv4->reorder({{0, 1}, {1, 0}});
   tv3->computeAt(tv4, 1);
@@ -300,7 +300,7 @@ TEST_F(PredicateEliminationTest, 7) {
   tv3->split(-1, 4);
   tv3->split(-1, 3);
   TransformPropagatorWithCheck propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   tv0->computeAt(tv3, 1);
 
@@ -347,9 +347,9 @@ TEST_F(PredicateEliminationTest, 8) {
 
   std::vector<int64_t> reduction_axes = {0, 2, 3};
 
-  Val* num_features = IrBuilder::create<Val>(tv1->container(), 1.0);
+  Val* num_features = IrBuilder::create<Val>(1.0);
   for (const auto dim : reduction_axes) {
-    num_features = mul(num_features, tv1->getLeafDomain()[dim]->extent());
+    num_features = mul(num_features, tv1->getLoopDomain()[dim]->extent());
   }
 
   auto tv5 = mul(tv1, tv0);

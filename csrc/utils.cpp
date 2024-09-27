@@ -37,84 +37,35 @@ c10::ThreadPool* getThreadPool() {
   return &pool;
 }
 
-C10_DIAGNOSTIC_PUSH_AND_IGNORED_IF_DEFINED("-Wunused-function")
-void debugPrint(const c10::TensorTypePtr& type) {
-  std::stringstream sizes_s;
-  if (auto sizes = type->symbolic_sizes().sizes()) {
-    for (const auto& shape_symbol : *sizes) {
-      if (shape_symbol.is_static()) {
-        sizes_s << shape_symbol.static_size() << ", ";
-      } else {
-        sizes_s << "s(" << *reinterpret_cast<const int64_t*>(&shape_symbol)
-                << "), ";
-      }
-    }
-  } else {
-    sizes_s << "no size available";
+std::string debug_str(const c10::IValue& val) {
+  if (val.isTensor()) {
+    return debug_str(val.toTensor());
   }
-  debug() << "sizes:" << sizes_s.str() << std::endl;
-  if (const auto& stride_properties = type->stride_properties().sizes()) {
-    std::stringstream stride_s;
-    std::stringstream index_s;
-    std::stringstream contig_s;
 
-    for (const auto& stride_property : *stride_properties) {
-      if (stride_property.has_value() && stride_property->stride_.has_value()) {
-        stride_s << *stride_property->stride_ << ", ";
-      } else {
-        stride_s << "?, ";
-      }
-      if (stride_property.has_value() &&
-          stride_property->stride_index_.has_value()) {
-        index_s << *stride_property->stride_index_ << ", ";
-      } else {
-        index_s << "?, ";
-      }
-      if (stride_property.has_value() &&
-          stride_property->contiguous_.has_value()) {
-        contig_s << *stride_property->contiguous_ << ", ";
-      } else {
-        contig_s << "?, ";
-      }
-    }
-    debug() << "stride: " << stride_s.str() << std::endl;
-    debug() << "stride index: " << index_s.str() << std::endl;
-    debug() << "contiguous: " << contig_s.str() << std::endl;
-  } else {
-    debug() << "no stride properties available" << std::endl;
-  }
-}
-C10_DIAGNOSTIC_POP()
-
-bool is_zero_dim_tensor(const std::shared_ptr<c10::TensorType>& tensor_type) {
-  return tensor_type && tensor_type->dim().has_value() &&
-      tensor_type->dim().value() == 0;
+  std::stringstream out_s;
+  out_s << val.toScalar();
+  return out_s.str();
 }
 
-bool is_zero_sized_tensor(const std::shared_ptr<c10::TensorType>& tensor_type) {
-  auto opt_sizes = tensor_type->sizes().concrete_sizes();
-  if (opt_sizes.has_value()) {
-    auto sizes = opt_sizes.value();
-    for (const auto& size : sizes) {
-      if (size == 0) {
-        return true;
-      }
-    }
+std::string debug_str(const at::Tensor& tensor) {
+  std::stringstream ss;
+  ss << "Tensor:";
+  ss << " device: " << tensor.device();
+  ss << ", dtype: " << tensor.dtype();
+  ss << ", shape: " << tensor.sizes();
+
+  if (!tensor.is_contiguous()) {
+    ss << ", strides: " << tensor.strides();
   }
-  return false;
+  return ss.str();
 }
 
 bool is_cpu_scalar(const at::Tensor& tensor) {
   return tensor.device().is_cpu() && tensor.numel() == 1 && tensor.dim() == 0;
 }
 
-bool is_cpu_scalar(const c10::TensorType& tensor_type) {
-  auto opt_device = tensor_type.device();
-  auto opt_dim = tensor_type.dim();
-  auto opt_numel = tensor_type.numel();
-  return opt_device.has_value() && opt_device->is_cpu() &&
-      opt_dim.has_value() && opt_numel.has_value() && opt_dim.value() == 0 &&
-      opt_numel.value() == 1;
+bool is_meta_scalar(const at::Tensor& tensor) {
+  return tensor.device().is_meta() && tensor.numel() == 1 && tensor.dim() == 0;
 }
 
 int8_t getCommonDeviceCUDA(
@@ -128,7 +79,7 @@ int8_t getCommonDeviceCUDA(
     found_device = true;
   }
   for (const auto& input : inputs) {
-    if (!input.isTensor()) {
+    if (!input.isTensor() || !input.toTensor().defined()) {
       continue;
     }
     const auto& device = input.toTensor().device();

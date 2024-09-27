@@ -154,7 +154,7 @@ Val* parseIdentifier(std::string_view token_str) {
   } else if (token_str.at(0) == 'd') {
     return randomlyReuseOrCreateNamedScalar(token_str, DataType::Double);
   } else {
-    NVF_ERROR(false, "Identifier with unknown type: ", token_str);
+    NVF_THROW("Identifier with unknown type: ", token_str);
   }
 }
 
@@ -858,62 +858,70 @@ TEST_F(ExprSimplifierTest, Compare) {
     return simplifyExpr(x, {}, {assumption})->value();
   };
 
-  EXPECT_TRUE(simplify("i1 <= i1"_, "i1 < i2"_));
+  EXPECT_TRUE(simplify("i1 <= i1"_, "i1 < i2"_).as<bool>());
 
-  EXPECT_TRUE(simplify("i1 < i3"_, "i1 < i2 && i2 < i3"_));
-  EXPECT_TRUE(simplify("i1 < i3"_, "i1 < i2 && i2 <= i3"_));
-  EXPECT_TRUE(simplify("i1 < i3"_, "i1 <= i2 && i2 < i3"_));
+  EXPECT_TRUE(simplify("i1 < i3"_, "i1 < i2 && i2 < i3"_).as<bool>());
+  EXPECT_TRUE(simplify("i1 < i3"_, "i1 < i2 && i2 <= i3"_).as<bool>());
+  EXPECT_TRUE(simplify("i1 < i3"_, "i1 <= i2 && i2 < i3"_).as<bool>());
   EXPECT_FALSE(simplify("i1 < i3"_, "i1 <= i2 && i2 <= i3"_).hasValue());
 
-  EXPECT_TRUE(simplify("i1 > i3"_, "i1 > i2 && i2 > i3"_));
-  EXPECT_TRUE(simplify("i1 > i3"_, "i1 > i2 && i2 >= i3"_));
-  EXPECT_TRUE(simplify("i1 > i3"_, "i1 >= i2 && i2 > i3"_));
+  EXPECT_TRUE(simplify("i1 > i3"_, "i1 > i2 && i2 > i3"_).as<bool>());
+  EXPECT_TRUE(simplify("i1 > i3"_, "i1 > i2 && i2 >= i3"_).as<bool>());
+  EXPECT_TRUE(simplify("i1 > i3"_, "i1 >= i2 && i2 > i3"_).as<bool>());
   EXPECT_FALSE(simplify("i1 > i3"_, "i1 >= i2 && i2 >= i3"_).hasValue());
 
-  EXPECT_TRUE(simplify("i1 <= i3"_, "i1 < i2 && i2 < i3"_));
-  EXPECT_TRUE(simplify("i1 <= i3"_, "i1 < i2 && i2 <= i3"_));
-  EXPECT_TRUE(simplify("i1 <= i3"_, "i1 <= i2 && i2 < i3"_));
-  EXPECT_TRUE(simplify("i1 <= i3"_, "i1 <= i2 && i2 <= i3"_));
+  EXPECT_TRUE(simplify("i1 <= i3"_, "i1 < i2 && i2 < i3"_).as<bool>());
+  EXPECT_TRUE(simplify("i1 <= i3"_, "i1 < i2 && i2 <= i3"_).as<bool>());
+  EXPECT_TRUE(simplify("i1 <= i3"_, "i1 <= i2 && i2 < i3"_).as<bool>());
+  EXPECT_TRUE(simplify("i1 <= i3"_, "i1 <= i2 && i2 <= i3"_).as<bool>());
 
-  EXPECT_TRUE(simplify("i1 >= i3"_, "i1 > i2 && i2 > i3"_));
-  EXPECT_TRUE(simplify("i1 >= i3"_, "i1 > i2 && i2 >= i3"_));
-  EXPECT_TRUE(simplify("i1 >= i3"_, "i1 >= i2 && i2 > i3"_));
-  EXPECT_TRUE(simplify("i1 >= i3"_, "i1 >= i2 && i2 >= i3"_));
+  EXPECT_TRUE(simplify("i1 >= i3"_, "i1 > i2 && i2 > i3"_).as<bool>());
+  EXPECT_TRUE(simplify("i1 >= i3"_, "i1 > i2 && i2 >= i3"_).as<bool>());
+  EXPECT_TRUE(simplify("i1 >= i3"_, "i1 >= i2 && i2 > i3"_).as<bool>());
+  EXPECT_TRUE(simplify("i1 >= i3"_, "i1 >= i2 && i2 >= i3"_).as<bool>());
 
-  EXPECT_TRUE(simplify(
-      "i1 < 3"_,
-      "i1 < i2 && i2 <= i3 && i3 < i4 && i4 <= i5 && i5 <= i6 && i6 < i7 && i7 <= i8 && i8 <= 2"_));
+  EXPECT_TRUE(
+      simplify(
+          "i1 < 3"_,
+          "i1 < i2 && i2 <= i3 && i3 < i4 && i4 <= i5 && i5 <= i6 && i6 < i7 && i7 <= i8 && i8 <= 2"_)
+          .as<bool>());
 
-  EXPECT_TRUE(simplify("i1 <= i1 * i2"_, "i1 >= 0 && i2 > 0"_));
-  EXPECT_TRUE(simplify("i1 >= i1 * i2"_, "i1 <= 0 && i2 > 0"_));
-  EXPECT_TRUE(simplify("d1 <= d1 * d2"_, "d1 >= 0.0 && d2 >= 1.0"_));
-  EXPECT_TRUE(simplify("d1 >= d1 * d2"_, "d1 <= 0.0 && d2 >= 1.0"_));
+  EXPECT_TRUE(simplify("i1 <= i1 * i2"_, "i1 >= 0 && i2 > 0"_).as<bool>());
+  EXPECT_TRUE(simplify("i1 >= i1 * i2"_, "i1 <= 0 && i2 > 0"_).as<bool>());
+  EXPECT_TRUE(simplify("d1 <= d1 * d2"_, "d1 >= 0.0 && d2 >= 1.0"_).as<bool>());
+  EXPECT_TRUE(simplify("d1 >= d1 * d2"_, "d1 <= 0.0 && d2 >= 1.0"_).as<bool>());
   EXPECT_TRUE(
       simplifyExpr(
           "ceilDiv( T0.logical_size[0] , 128 ) * 4 >= ceilDiv( T0.logical_size[0] , 128 )"_)
-          ->value());
-
-  EXPECT_TRUE(simplify("ceilDiv( i1 , i2 ) > 0"_, "i1 > 0 && i2 > 0"_));
-  EXPECT_TRUE(simplify("ceilDiv( i1 , i2 ) >= 1"_, "i1 > 0 && i2 > 0"_));
-
-  EXPECT_TRUE(simplify(
-      "blockIdx.x < ceilDiv( T0.logical_size[0] , 128 ) * 4"_,
-      "blockIdx.x < ceilDiv( T0.logical_size[0] , 128 ) * 4"_));
-
-  EXPECT_TRUE(simplify("i1 % i2 < i2"_, "i2 >= 0"_));
+          ->value()
+          .as<bool>());
 
   EXPECT_TRUE(
-      simplifyExpr("T0.logical_size[0] - 1 < T0.logical_size[0]"_)->value());
+      simplify("ceilDiv( i1 , i2 ) > 0"_, "i1 > 0 && i2 > 0"_).as<bool>());
+  EXPECT_TRUE(
+      simplify("ceilDiv( i1 , i2 ) >= 1"_, "i1 > 0 && i2 > 0"_).as<bool>());
+
+  EXPECT_TRUE(simplify(
+                  "blockIdx.x < ceilDiv( T0.logical_size[0] , 128 ) * 4"_,
+                  "blockIdx.x < ceilDiv( T0.logical_size[0] , 128 ) * 4"_)
+                  .as<bool>());
+
+  EXPECT_TRUE(simplify("i1 % i2 < i2"_, "i2 >= 0"_).as<bool>());
+
+  EXPECT_TRUE(simplifyExpr("T0.logical_size[0] - 1 < T0.logical_size[0]"_)
+                  ->value()
+                  .as<bool>());
   EXPECT_TRUE(
       simplifyExpr(
           "T0.logical_size[0] + 1 + 2 + 3 < T0.logical_size[0] + 1 + 2 + 3 + 4"_)
-          ->value());
+          ->value()
+          .as<bool>());
   // Two terms of the LHS are both the same as the single RHS term,
   // but the removal should be done only for one of them. If doubly
   // removed, the predicate would be false
-  EXPECT_TRUE(simplify("i1 + i1 > i1"_, "i1 > 0"_));
-  EXPECT_TRUE(simplify("i1 < i1 + i1"_, "i1 > 0"_));
-  EXPECT_TRUE(simplify("i1 + i1 < i1 + i1 + i1"_, "i1 > 0"_));
+  EXPECT_TRUE(simplify("i1 + i1 > i1"_, "i1 > 0"_).as<bool>());
+  EXPECT_TRUE(simplify("i1 < i1 + i1"_, "i1 > 0"_).as<bool>());
+  EXPECT_TRUE(simplify("i1 + i1 < i1 + i1 + i1"_, "i1 > 0"_).as<bool>());
 }
 
 TEST_F(ExprSimplifierTest, FundamentalDivisionWithRemainderProperty) {
@@ -1163,10 +1171,10 @@ TEST_F(ExprSimplifierTest, DivModLessThan) {
 // See https://github.com/NVIDIA/Fuser/pull/1827
 TEST_F(ExprSimplifierTest, OrderTransitivity) {
   // Macro is just for nicer error printing
-#define EXPECT_VALUE_TRUE(val)          \
-  EXPECT_TRUE(val->value().hasValue()); \
-  if (val->value().hasValue()) {        \
-    EXPECT_TRUE(val->value());          \
+#define EXPECT_VALUE_TRUE(val)            \
+  EXPECT_TRUE(val->value().hasValue());   \
+  if (val->value().hasValue()) {          \
+    EXPECT_TRUE(val->value().as<bool>()); \
   }
   EXPECT_VALUE_TRUE(simplifyExpr("neg( 8 ) < 0"_, {}, {}));
 

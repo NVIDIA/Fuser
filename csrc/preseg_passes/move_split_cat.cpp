@@ -76,7 +76,7 @@ class CancelSplitCat {
   //
   // Before calling this function, we already checked the chains contain the
   // same sequence of op type and attributes and transform IterDomains in the
-  // same way. So this function takes the rfactor domain of any one of the
+  // same way. So this function takes the logical domain of any one of the
   // slices and the catted IterDomain at the end of that chain.
   //
   // Example 1:
@@ -201,18 +201,18 @@ bool CancelSplitCat::sameIterDomainTransforms(
 
   {
     // Check slices[i0][j] and slices[i1][j] are mapped.
-    const std::vector<IterDomain*>& first_rfactor =
-        slices[0]->out()->getRFactorDomain();
-    size_t num_dims = first_rfactor.size();
+    const std::vector<IterDomain*>& first_ligical =
+        slices[0]->out()->getLogicalDomain();
+    size_t num_dims = first_ligical.size();
     for (size_t i = 1; i < slices.size(); i++) {
-      const std::vector<IterDomain*>& other_rfactor =
-          slices[i]->out()->getRFactorDomain();
-      if (other_rfactor.size() != num_dims) {
+      const std::vector<IterDomain*>& other_logical =
+          slices[i]->out()->getLogicalDomain();
+      if (other_logical.size() != num_dims) {
         return false;
       }
       for (size_t j = 0; j < num_dims; j++) {
         if (!exact_graph.disjointValSets().strictAreMapped(
-                first_rfactor[j], other_rfactor[j])) {
+                first_ligical[j], other_logical[j])) {
           return false;
         }
       }
@@ -261,7 +261,7 @@ TensorView* slicesFormSplit(
              static_cast<int64_t>(slice->out()->getMaybeRootDomain().size()))) {
       const bool sliced =
           (slice->out()->getMaybeRootDomain()[j] !=
-           slice->out()->getRFactorDomain()[j]);
+           slice->out()->getLogicalDomain()[j]);
       if ((j == split_axis) != sliced) {
         return nullptr;
       }
@@ -279,7 +279,7 @@ TensorView* slicesFormSplit(
   // slightly lengthy workaround.
   if (!slices.back()
            ->out()
-           ->getRFactorDomain()[split_axis]
+           ->getLogicalDomain()[split_axis]
            ->definition()
            ->as<Resize>()
            ->rightExpand()
@@ -438,7 +438,7 @@ TensorView* CancelSplitCat::findCancelingSplit(
   }
 
   cat_axis = computeCatAxisAfterZipping(
-      slices[0]->out()->getRFactorDomain(),
+      slices[0]->out()->getLogicalDomain(),
       pads[0]->out()->as<TensorView>()->getMaybeRootDomain()[cat_axis]);
   if (cat_axis == -1) {
     return nullptr;

@@ -24,18 +24,15 @@
 
 namespace nvfuser {
 
-/*
-   This file implements the class Communicator which sets up the inter-process
-   Backend. This class contains inter-process information, such as the rank, the
-   world size, as well as the Process Group that can be called to perform
-   inter-process communications.
-
-   Each process is associated with a unique deviceId and device. The actual MPI
-   rank remains private to the class and should not be used by the user. The
-   communicator class holds privately the mappings ranks <-> device IDs <->
-   device.
-
-*/
+// This file implements the class Communicator which sets up the inter-process
+// Backend. This class contains inter-process information, such as the rank, the
+// world size, as well as the Process Group that can be called to perform
+// inter-process communications.
+//
+// Each process is associated with a unique deviceId and device. The actual MPI
+// rank remains private to the class and should not be used by the user. The
+// communicator class holds privately the mappings ranks <-> device IDs <->
+// device.
 
 using RankType = DeviceIdxType;
 
@@ -53,12 +50,32 @@ constexpr int comm_server_local_rank_default = 0;
 
 class Communicator {
  public:
-  Communicator(
-      CommunicatorBackend backend = comm_backend_default,
-      RankType server_local_rank = comm_server_local_rank_default);
+  static Communicator& getInstance() {
+    // This isn't the best practice to use singleton. Ideally, we'd like to
+    // ```
+    // static Communicator communicator;
+    // ```
+    // and let the destructor clean it up at program exit after `main` returns.
+    // This however would cause a "driver shutting down" error, likely because
+    // another static variable destructor shuts down the CUDA driver before
+    // ~Communicator. Note that the order of static variable destruction
+    // across translation units is undefined.
+    //
+    // Therefore, we `new Communicator()` as a raw pointer and let the user
+    // call Communicator::getInstance().cleanup() to clean up the Communicator
+    // explicitly before the end of `main`. For example, the cleanup method is
+    // called via MultiDeviceTestEnvironment::TearDown in C++ unit tests and
+    // nvfuser._cleanup() in Python.
+    static auto* communicator = new Communicator();
+    return *communicator;
+  }
 
   Communicator(const Communicator&) = delete;
   Communicator& operator=(const Communicator&) = delete;
+  ~Communicator() = delete;
+  // As said in `getInstance`, the user of this class is supposed to call this
+  // method to clean up the singleton. This obviously can only be called once.
+  void cleanup();
 
   // returns if distributed config is available
   auto is_available() const {
@@ -81,14 +98,16 @@ class Communicator {
   }
 
   // performs a blocking barrier in the communicator
-  void barrier(std::optional<CommunicatorBackend> backend = std::nullopt) {
-    getWorld(backend)->barrier()->wait();
-  }
+  void barrier(std::optional<CommunicatorBackend> backend = std::nullopt);
 
   // returns the backend associated with a team
+  // the argument "prefix" is prepended to the key used to retrieve preexisting
+  // backends. Prefix is used to distinguish between different backends with the
+  // same team
   c10d::Backend* getBackendForTeam(
       const Team& team,
-      std::optional<CommunicatorBackend> backend);
+      std::optional<CommunicatorBackend> backend,
+      const std::string& prefix = "");
 
   // returns the device associated with the current process
   auto device() const {
@@ -123,6 +142,10 @@ class Communicator {
   }
 
  private:
+  Communicator(
+      CommunicatorBackend backend = comm_backend_default,
+      RankType server_local_rank = comm_server_local_rank_default);
+
   // returns the rank corresponding to a device index
   RankType dIdToRank(DeviceIdxType d_id) const {
     return static_cast<RankType>(d_id);

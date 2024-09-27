@@ -14,10 +14,11 @@
 namespace nvfuser {
 
 ForwardDropoutResult dropout(TensorView* x, Val* prob) {
-  auto p1m = sub(IrBuilder::create<Val>(x->container(), 1.), prob);
+  auto p1m = sub(IrBuilder::createInContainer<Val>(x->container(), 1.), prob);
   auto zero_check =
-      add(eq(p1m, IrBuilder::create<Val>(x->container(), 0.)), p1m);
-  auto scale = div(IrBuilder::create<Val>(x->container(), 1.), zero_check);
+      add(eq(p1m, IrBuilder::createInContainer<Val>(x->container(), 0.)), p1m);
+  auto scale =
+      div(IrBuilder::createInContainer<Val>(x->container(), 1.), zero_check);
   return dropout(x, p1m, scale);
 }
 
@@ -60,36 +61,46 @@ static TensorView* newForLinear(
     TensorView* input,
     TensorView* weight,
     TensorView* bias) {
-  auto input_domain = TensorDomain::noReductions(input->getRFactorDomain());
-  auto weight_domain = TensorDomain::noReductions(weight->getRFactorDomain());
+  auto input_domain = TensorDomain::noReductions(input->getLogicalDomain());
+  auto weight_domain = TensorDomain::noReductions(weight->getLogicalDomain());
+
+  // Output has a reduction axis rK if K is not bcast
+  NVF_CHECK(
+      input_domain.back()->isBroadcast() == weight_domain.back()->isBroadcast(),
+      "K should be broadcast in both inputs and weights, or neither.");
+  bool k_bcast = input_domain.back()->isBroadcast();
+  size_t red_dims = k_bcast ? 0 : 1;
 
   // Linear: a = {*, in_features}, b = {out_features, in_features} /
-  // {in_features}.The linear output is {*, (out_features), rK}.
-  // The first out_size -2 dimensions are as the first input, followed by
-  // out_features (if present) and an additional reduction axis K.
-  auto ndims_out = input_domain.size() + weight_domain.size() - 1;
+  // {in_features}.The linear output is {*, (out_features), rK?}.
+  // Reduction K is present only when K is not bcast.
+  auto ndims_out =
+      (input_domain.size() - 1) + (weight_domain.size() - 1) + red_dims;
 
   const std::vector<IterDomain*>& mapping_a =
-      ops::mapLinearOpIterDomains(input_domain, MatmulRole::INPUT_A, ndims_out);
-  const std::vector<IterDomain*>& mapping_b = ops::mapLinearOpIterDomains(
-      weight_domain, MatmulRole::INPUT_B, ndims_out);
+      ops::mapLinearOpIterDomains(input_domain, 0, ndims_out, k_bcast);
+  const std::vector<IterDomain*>& mapping_b =
+      ops::mapLinearOpIterDomains(weight_domain, 1, ndims_out, k_bcast);
   std::vector<IterDomain*> mapping_bias(ndims_out, nullptr);
   if (bias != nullptr) {
-    auto bias_domain = TensorDomain::noReductions(bias->getRFactorDomain());
-    mapping_bias = ops::mapLinearOpIterDomains(
-        bias_domain, MatmulRole::INPUT_C, ndims_out);
+    auto bias_domain = TensorDomain::noReductions(bias->getLogicalDomain());
+    mapping_bias =
+        ops::mapLinearOpIterDomains(bias_domain, 2, ndims_out, k_bcast);
   }
 
   std::vector<IterDomain*> out_domain(ndims_out, nullptr);
 
-  for (auto idx : c10::irange(ndims_out - 1)) {
+  for (auto idx : c10::irange(ndims_out - red_dims)) {
     out_domain[idx] = ops::newOutputIterDomain(
         {mapping_a.at(idx), mapping_b.at(idx), mapping_bias.at(idx)});
   }
-  // Specify the iterdomain for K as reduction
-  out_domain[ndims_out - 1] = ops::newOutputIterDomain(
-      {mapping_a.back(), mapping_b.back()},
-      /*force_iter_type=*/IterType::Reduction);
+
+  if (!k_bcast) {
+    // Specify the iterdomain for K as reduction
+    out_domain[ndims_out - 1] = ops::newOutputIterDomain(
+        {mapping_a.back(), mapping_b.back()},
+        /*force_iter_type=*/IterType::Reduction);
+  }
 
   TensorDomain* td = IrBuilder::create<TensorDomain>(
       out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
@@ -101,11 +112,11 @@ static TensorView* newForLinear(
 
 TensorView* linear(TensorView* input, TensorView* weight, TensorView* bias) {
   auto input_ndims =
-      TensorDomain::noReductions(input->getRFactorDomain()).size();
+      TensorDomain::noReductions(input->getLogicalDomain()).size();
   NVF_CHECK(input_ndims > 0, "Input A must be atleast 1D.");
 
   auto weight_ndims =
-      TensorDomain::noReductions(weight->getRFactorDomain()).size();
+      TensorDomain::noReductions(weight->getLogicalDomain()).size();
   NVF_CHECK(
       weight_ndims == 1 || weight_ndims == 2,
       "Input B must be a 1D / 2D tensor.");
@@ -166,9 +177,9 @@ namespace {
 template <typename T>
 T* sign(T* x) {
   NVF_ERROR(x != nullptr, "Input is invalid.");
-  auto zero = IrBuilder::create<Val>(x->container(), 0.);
-  auto one = IrBuilder::create<Val>(x->container(), 1.);
-  auto minus_one = IrBuilder::create<Val>(x->container(), -1.);
+  auto zero = IrBuilder::createInContainer<Val>(x->container(), 0.);
+  auto one = IrBuilder::createInContainer<Val>(x->container(), 1.);
+  auto minus_one = IrBuilder::createInContainer<Val>(x->container(), -1.);
   auto sign = where(gt(x, zero), one, where(lt(x, zero), minus_one, zero));
   return castOp(x->getDataType().value(), sign);
 }
@@ -196,9 +207,9 @@ TensorView* softplus(TensorView* x, Val* beta, Val* threshold) {
 TensorView* gelu(TensorView* x) {
   NVF_ERROR(x != nullptr, "Input is invalid");
 
-  auto kappa = IrBuilder::create<Val>(x->container(), M_SQRT1_2);
-  auto half = IrBuilder::create<Val>(x->container(), 0.5);
-  auto one = IrBuilder::create<Val>(x->container(), 1.);
+  auto kappa = IrBuilder::createInContainer<Val>(x->container(), M_SQRT1_2);
+  auto half = IrBuilder::createInContainer<Val>(x->container(), 0.5);
+  auto one = IrBuilder::createInContainer<Val>(x->container(), 1.);
 
   auto cdf = mul(half, add(one, erf(mul(x, kappa))));
   auto y = mul(x, cdf);
@@ -212,17 +223,24 @@ TensorView* gelu_backward(TensorView* dy, TensorView* x) {
   constexpr double kAlpha = M_2_SQRTPI * M_SQRT1_2 * 0.5;
   const double kHalf = 0.5;
 
-  auto cdf_1 = mul(x, IrBuilder::create<Val>(x->container(), M_SQRT1_2));
+  auto cdf_1 =
+      mul(x, IrBuilder::createInContainer<Val>(x->container(), M_SQRT1_2));
   auto cdf_2 = erf(cdf_1);
-  auto cdf_3 = add(cdf_2, IrBuilder::create<Val>(x->container(), 1.));
-  auto cdf_4 = mul(cdf_3, IrBuilder::create<Val>(x->container(), kHalf));
+  auto cdf_3 =
+      add(cdf_2, IrBuilder::createInContainer<Val>(x->container(), 1.));
+  auto cdf_4 =
+      mul(cdf_3, IrBuilder::createInContainer<Val>(x->container(), kHalf));
 
   auto pdf_1 = mul(x, x);
-  auto pdf_2 = mul(pdf_1, IrBuilder::create<Val>(x->container(), -kHalf));
+  auto pdf_2 =
+      mul(pdf_1, IrBuilder::createInContainer<Val>(x->container(), -kHalf));
   auto pdf_3 = exp(pdf_2);
 
-  auto out =
-      addcmul(cdf_4, x, pdf_3, IrBuilder::create<Val>(x->container(), kAlpha));
+  auto out = addcmul(
+      cdf_4,
+      x,
+      pdf_3,
+      IrBuilder::createInContainer<Val>(x->container(), kAlpha));
   auto dx = mul(out, dy);
   return dx;
 }
@@ -235,14 +253,17 @@ TensorView* tanh_gelu(TensorView* x) {
 
   auto x_cube = mul(x, mul(x, x));
 
-  auto inner_1 = mul(IrBuilder::create<Val>(x->container(), kKappa), x_cube);
+  auto inner_1 =
+      mul(IrBuilder::createInContainer<Val>(x->container(), kKappa), x_cube);
   auto inner_2 = add(x, inner_1);
-  auto inner_3 = mul(IrBuilder::create<Val>(x->container(), kBeta), inner_2);
+  auto inner_3 =
+      mul(IrBuilder::createInContainer<Val>(x->container(), kBeta), inner_2);
   auto tanh_inner = tanh(inner_3);
 
-  auto out =
-      mul(x, add(IrBuilder::create<Val>(x->container(), 1.), tanh_inner));
-  auto y = mul(IrBuilder::create<Val>(x->container(), 0.5), out);
+  auto out = mul(
+      x,
+      add(IrBuilder::createInContainer<Val>(x->container(), 1.), tanh_inner));
+  auto y = mul(IrBuilder::createInContainer<Val>(x->container(), 0.5), out);
   return y;
 }
 
@@ -255,27 +276,23 @@ TensorView* tanh_gelu_backward(TensorView* dy, TensorView* x) {
 
   auto x_sq = mul(x, x);
   auto x_cube = mul(x, x_sq);
+  auto beta = IrBuilder::create<Val>(kBeta);
+  auto kappa = IrBuilder::create<Val>(kKappa);
+  auto one = IrBuilder::create<Val>(1.0);
+  auto half = IrBuilder::create<Val>(0.5);
 
-  auto inner_1 = mul(IrBuilder::create<Val>(x->container(), kKappa), x_cube);
-  auto inner_2 = add(x, inner_1);
-  auto inner_3 = mul(IrBuilder::create<Val>(x->container(), kBeta), inner_2);
-  auto tanh_inner = tanh(inner_3);
+  auto inner = mul(beta, add(x, mul(kappa, x_cube)));
+  auto tanh_inner = tanh(inner);
 
-  auto left = mul(IrBuilder::create<Val>(x->container(), 0.5), x);
-  auto right = add(IrBuilder::create<Val>(x->container(), 1.), tanh_inner);
+  auto left = mul(half, x);
+  auto right = add(one, tanh_inner);
 
-  auto left_derivative =
-      mul(IrBuilder::create<Val>(x->container(), 0.5), right);
+  auto left_derivative = mul(half, right);
 
-  auto tanh_inner_sq = mul(tanh_inner, tanh_inner);
-  auto tanh_derivative =
-      sub(IrBuilder::create<Val>(x->container(), 1.0), tanh_inner_sq);
-
-  auto constant_mul_x_sq =
-      mul(IrBuilder::create<Val>(x->container(), kBeta * 3 * kKappa), x_sq);
+  auto tanh_derivative = sub(one, mul(tanh_inner, tanh_inner));
   auto inner_derivative =
-      add(IrBuilder::create<Val>(x->container(), kBeta), constant_mul_x_sq);
-  auto right_derivative = mul(left, mul(tanh_derivative, inner_derivative));
+      mul(beta, add(one, mul(mul(IrBuilder::create<Val>(3.0), kappa), x_sq)));
+  auto right_derivative = mul(mul(left, tanh_derivative), inner_derivative);
 
   auto dx = mul(dy, add(left_derivative, right_derivative));
   return dx;
@@ -285,7 +302,7 @@ TensorView* tanh_backward(TensorView* dy, TensorView* tanh_x) {
   NVF_ERROR(dy != nullptr, "Grad Output is invalid.");
   NVF_ERROR(tanh_x != nullptr, "Input is invalid");
 
-  auto one = IrBuilder::create<Val>(tanh_x->container(), 1.);
+  auto one = IrBuilder::createInContainer<Val>(tanh_x->container(), 1.);
   auto tanh_sq = mul(tanh_x, tanh_x);
   auto sub_tanh_sq = sub(one, tanh_sq);
   auto dx = mul(dy, sub_tanh_sq);
@@ -295,7 +312,7 @@ TensorView* tanh_backward(TensorView* dy, TensorView* tanh_x) {
 TensorView* leaky_relu(TensorView* x, Val* negative_slope) {
   NVF_ERROR(x != nullptr, "input is invalid.");
   NVF_ERROR(negative_slope != nullptr, "negative_slope is invalid");
-  auto zero = IrBuilder::create<Val>(x->container(), 0.);
+  auto zero = IrBuilder::createInContainer<Val>(x->container(), 0.);
   return where(ge(x, zero), x, mul(negative_slope, x));
 }
 
@@ -314,37 +331,49 @@ namespace {
 
 //! Create new output for matmul
 static TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
-  auto orig_domain_a = TensorDomain::noReductions(tv_a->getRFactorDomain());
-  auto orig_domain_b = TensorDomain::noReductions(tv_b->getRFactorDomain());
+  auto orig_domain_a = TensorDomain::noReductions(tv_a->getLogicalDomain());
+  auto orig_domain_b = TensorDomain::noReductions(tv_b->getLogicalDomain());
 
   auto ndims_a = orig_domain_a.size();
   auto ndims_b = orig_domain_b.size();
 
+  auto b_kpos = orig_domain_b.size() > 1 ? ndims_b - 2 : ndims_b - 1;
+  NVF_CHECK(
+      orig_domain_a.back()->isBroadcast() ==
+          orig_domain_b.at(b_kpos)->isBroadcast(),
+      "K should be broadcast in both A and B, or neither.");
+
+  // Output has a reduction axis rK if K is not bcast
+  bool k_bcast = orig_domain_a.back()->isBroadcast();
+  size_t red_dims = k_bcast ? 0 : 1;
+
   // Matmul output size is same as the higher dimensional input size if both A/B
-  // > 1D, but with 1 additional IterType::Reduction axis rK.
-  auto ndims_out = std::max(ndims_a, ndims_b) + 1;
+  // > 1D, but with 1 additional IterType::Reduction axis rK if K is not
+  // broadcast.
+  auto ndims_out = std::max(ndims_a, ndims_b) + red_dims;
   if (std::min(ndims_a, ndims_b) == 1) {
     // If one of the inputs is 1D, the output size is the same as the higher
     // dimensional input size, since we will include a Reduction axis for K in
     // the output. For example: [iM, iK] x [iK] -> [iM, rK]
-    ndims_out = std::max(ndims_a, ndims_b);
+    ndims_out = std::max(ndims_a, ndims_b) - 1 + red_dims;
   }
 
   std::vector<IterDomain*> out_domain(ndims_out, nullptr);
 
-  const std::vector<IterDomain*>& mapping_a = ops::mapMatmulOpIterDomains(
-      orig_domain_a, MatmulRole::INPUT_A, ndims_out);
-  const std::vector<IterDomain*>& mapping_b = ops::mapMatmulOpIterDomains(
-      orig_domain_b, MatmulRole::INPUT_B, ndims_out);
+  const std::vector<IterDomain*>& mapping_a =
+      ops::mapMatmulOpIterDomains(orig_domain_a, 0, ndims_out);
+  const std::vector<IterDomain*>& mapping_b =
+      ops::mapMatmulOpIterDomains(orig_domain_b, 1, ndims_out);
 
-  for (auto idx : c10::irange(ndims_out - 1)) {
+  for (auto idx : c10::irange(ndims_out - red_dims)) {
     out_domain[idx] =
         ops::newOutputIterDomain({mapping_a.at(idx), mapping_b.at(idx)});
   }
-
-  out_domain[ndims_out - 1] = ops::newOutputIterDomain(
-      {mapping_a.back(), mapping_b.back()},
-      /*force_iter_type=*/IterType::Reduction);
+  if (!k_bcast) {
+    out_domain[ndims_out - 1] = ops::newOutputIterDomain(
+        {mapping_a.back(), mapping_b.back()},
+        /*force_iter_type=*/IterType::Reduction);
+  }
 
   TensorDomain* td = IrBuilder::create<TensorDomain>(
       out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
@@ -373,41 +402,233 @@ TensorView* matmul(TensorView* tv_a, TensorView* tv_b) {
       " and ",
       tv_b->dtype());
 
-  // Check for K=1 i.e. reduction of broadcast. In these cases we don't need a
-  // matmul so we translate it to a multiplication+cast
-  auto b_k_axis = tv_b->nDims() == 1 ? -1 : -2;
-  NVF_CHECK(
-      tv_a->axis(-1)->isBroadcast() == tv_b->axis(b_k_axis)->isBroadcast(),
-      "K dimension must be broadcast in both operands or none");
-  if (tv_a->axis(-1)->isBroadcast()) {
-    TensorView* float_result = nullptr;
-    if (tv_a->nDims() == 1 && tv_b->nDims() == 1) {
-      // [1] @ [1] = []
-      float_result =
-          mul(squeeze(tv_a, std::vector<int64_t>{0}),
-              squeeze(tv_b, std::vector<int64_t>{0}));
-    } else if (tv_a->nDims() == 1) {
-      // [1] @ [..., 1, N] = [..., N]
-      float_result = mul(tv_a, squeeze(tv_b, std::vector<int64_t>{-2}));
-    } else if (tv_b->nDims() == 1) {
-      // [..., M, 1] @ [1] = [..., M]
-      float_result = mul(squeeze(tv_a, std::vector<int64_t>{-1}), tv_b);
-    } else {
-      float_result = mul(tv_a, tv_b);
-    }
-    return maybeCastOp(tv_a->dtype(), float_result);
-  }
-
-  if (tv_a->nDims() == 1 && tv_b->nDims() == 1) {
-    // Return the dot product instead of creating the MatmulOp.
-    // Cast back the output if needed since torch.matmul maintains input dtype.
-    return maybeCastOp(tv_a->dtype(), sum(mul(tv_a, tv_b), {0}));
-  }
-
-  // For all other cases, create a new MatmulOp
+  // Create a new MatmulOp
   TensorView* out = newForMatmul(tv_a, tv_b);
   IrBuilder::create<MatmulOp>(out, tv_a, tv_b);
   return out;
+}
+
+SdpfaFwdResult sdpfa_fwd(
+    TensorView* query,
+    TensorView* key,
+    TensorView* value,
+    Val* dropout_p,
+    Val* is_causal,
+    Val* scale) {
+  NVF_CHECK(
+      query->dtype() == key->dtype() && query->dtype() == value->dtype(),
+      "Expected query, key, and value to have the same dtype but got: ",
+      query->dtype(),
+      " ",
+      key->dtype(),
+      " ,and ",
+      value->dtype());
+
+  auto query_domain = TensorDomain::noReductions(query->getLogicalDomain());
+  auto key_domain = TensorDomain::noReductions(key->getLogicalDomain());
+  auto value_domain = TensorDomain::noReductions(value->getLogicalDomain());
+
+  // Temporary handling of DID parallelization see
+  // https://github.com/NVIDIA/Fuser/issues/2563
+  bool has_device_dim = (query_domain.size() == 5);
+  if (has_device_dim) {
+    NVF_CHECK(
+        query_domain[0]->isDeviceDim(),
+        "Only suport DID parallelization on outermost axis");
+    NVF_CHECK(
+        key_domain[0]->isDeviceDim(),
+        "Only suport DID parallelization on outermost axis");
+    NVF_CHECK(
+        value_domain[0]->isDeviceDim(),
+        "Only suport DID parallelization on outermost axis");
+  }
+
+  auto concrete_query_size = TensorDomain::noDevices(query_domain).size();
+  auto concrete_key_size = TensorDomain::noDevices(key_domain).size();
+  auto concrete_value_size = TensorDomain::noDevices(value_domain).size();
+
+  NVF_CHECK(
+      concrete_query_size == 4 && concrete_key_size == 4 &&
+          concrete_value_size == 4,
+      "Expected query, key, and value to be 4D but got: ",
+      concrete_query_size,
+      " ",
+      concrete_key_size,
+      " ,and ",
+      concrete_value_size);
+
+  NVF_CHECK(
+      !dropout_p || dropout_p->isScalar(),
+      "Expected dropout to be a scalar double.");
+  NVF_CHECK(
+      !is_causal || is_causal->isScalar(),
+      "Expected is_causal to be a scalar boolean.");
+  NVF_CHECK(
+      !scale || scale->isScalar(), "Expected scale to be a scalar double.");
+
+  // Query: [DIDx(D)?,N,H,L,E], Key: [DIDx(D)?,N,H,S,E], Value:
+  // [DIDx(D)?,N,H,S,Ev] Output: [DIDx(D)?,N,H,L,Ev] N, H are mapped for all
+  // inputs to outputs. L is mapped from query to output. Ev is mapped from
+  // value to output. Note: There is no mapping for S, E. This may change in the
+  // future if we add additional reduction ids to the output.
+  auto ndims_out = query_domain.size();
+
+  // TensorView for attention output
+  std::vector<IterDomain*> out_domain(ndims_out, nullptr);
+  for (auto idx : c10::irange(ndims_out - 2)) {
+    out_domain[idx] = ops::newOutputIterDomain(
+        {query_domain.at(idx), key_domain.at(idx), value_domain.at(idx)});
+  }
+  out_domain[ndims_out - 2] =
+      ops::newOutputIterDomain({query_domain.at(ndims_out - 2)});
+  out_domain[ndims_out - 1] =
+      ops::newOutputIterDomain({value_domain.at(ndims_out - 1)});
+
+  TensorDomain* attn_td = IrBuilder::create<TensorDomain>(
+      out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
+  TensorView* output = IrBuilder::create<TensorView>(attn_td, query->dtype());
+
+  // TensorView for log_sumexp [DIDx(D)?,N, H, L]
+  std::vector<IterDomain*> log_sumexp_dom(ndims_out - 1, nullptr);
+  for (auto idx : c10::irange(ndims_out - 2)) {
+    log_sumexp_dom[idx] = ops::newOutputIterDomain(
+        {query_domain.at(idx), key_domain.at(idx), value_domain.at(idx)});
+  }
+  log_sumexp_dom[ndims_out - 2] =
+      ops::newOutputIterDomain({query_domain.at(ndims_out - 2)});
+  TensorDomain* log_sumexp_td = IrBuilder::create<TensorDomain>(
+      log_sumexp_dom,
+      TensorDomain::getContiguityFilledWith(log_sumexp_dom, true));
+  TensorView* log_sumexp =
+      IrBuilder::create<TensorView>(log_sumexp_td, DataType::Float);
+
+  // Scalar tensors of int64_t dtype.
+  TensorView* philox_seed = TensorViewBuilder().dtype(DataType::Int).build();
+  TensorView* philox_offset = TensorViewBuilder().dtype(DataType::Int).build();
+  philox_seed->setCpuScalar(true);
+  philox_offset->setCpuScalar(true);
+
+  // Set default values for dropout_p (0.0), is_causal(false)
+  if (dropout_p == nullptr) {
+    dropout_p = IrBuilder::create<Val>(0.0, DataType::Double);
+  }
+
+  if (is_causal == nullptr) {
+    is_causal = IrBuilder::create<Val>(false, DataType::Bool);
+  }
+
+  IrBuilder::create<SdpaFwdOp>(
+      output,
+      log_sumexp,
+      philox_seed,
+      philox_offset,
+      query,
+      key,
+      value,
+      dropout_p,
+      is_causal,
+      scale);
+  return {output, log_sumexp, philox_seed, philox_offset};
+}
+
+SdpfaBwdResult sdpfa_bwd(
+    TensorView* grad_output,
+    TensorView* query,
+    TensorView* key,
+    TensorView* value,
+    TensorView* output,
+    TensorView* log_sumexp,
+    Val* dropout_p,
+    Val* is_causal,
+    TensorView* philox_seed,
+    TensorView* philox_offset,
+    Val* scale) {
+  NVF_CHECK(
+      query->dtype() == key->dtype() && query->dtype() == value->dtype(),
+      "Expected query, key, and value to have the same dtype but got: ",
+      query->dtype(),
+      " ",
+      key->dtype(),
+      " ,and ",
+      value->dtype());
+
+  auto query_domain = TensorDomain::noReductions(query->getLogicalDomain());
+  auto key_domain = TensorDomain::noReductions(key->getLogicalDomain());
+  auto value_domain = TensorDomain::noReductions(value->getLogicalDomain());
+
+  // Temporary handling of DID parallelization see
+  // https://github.com/NVIDIA/Fuser/issues/2563
+  bool has_device_dim = (query_domain.size() == 5);
+  if (has_device_dim) {
+    auto check_first_is_did = [](const std::vector<IterDomain*>& ids) -> void {
+      NVF_CHECK(
+          ids[0]->isDeviceDim(),
+          "Only support DID parallelization on outermost axis");
+    };
+    check_first_is_did(query_domain);
+    check_first_is_did(key_domain);
+    check_first_is_did(value_domain);
+    check_first_is_did(grad_output->getLogicalDomain());
+    check_first_is_did(output->getLogicalDomain());
+  }
+
+  auto concrete_query_size = TensorDomain::noDevices(query_domain).size();
+  auto concrete_key_size = TensorDomain::noDevices(key_domain).size();
+  auto concrete_value_size = TensorDomain::noDevices(value_domain).size();
+
+  NVF_CHECK(
+      concrete_query_size == 4 && concrete_key_size == 4 &&
+          concrete_value_size == 4,
+      "Expected query, key, and value to be 4D but got: ",
+      concrete_query_size,
+      " ",
+      concrete_key_size,
+      " ,and ",
+      concrete_value_size);
+
+  NVF_CHECK(
+      !dropout_p || dropout_p->isScalar(),
+      "Expected dropout to be a scalar double.");
+  NVF_CHECK(
+      !is_causal || is_causal->isScalar(),
+      "Expected is_causal to be a scalar boolean.");
+  NVF_CHECK(
+      !scale || scale->isScalar(), "Expected scale to be a scalar double.");
+
+  // Set default values for dropout_p (0.0), is_causal(false)
+  if (dropout_p == nullptr) {
+    dropout_p = IrBuilder::create<Val>(0.0, DataType::Double);
+  }
+
+  if (is_causal == nullptr) {
+    is_causal = IrBuilder::create<Val>(false, DataType::Bool);
+  }
+
+  // Mark CPU scalar tensors.
+  philox_seed->setCpuScalar(true);
+  philox_offset->setCpuScalar(true);
+
+  // Query: [N,H,L,E], Key: [N,H,S,E], Value: [N,H,S,Ev] Output: [N,H,L,Ev]
+  TensorView* grad_query = ops::newOutputTV({query}, query->dtype());
+  TensorView* grad_key = ops::newOutputTV({key}, key->dtype());
+  TensorView* grad_value = ops::newOutputTV({value}, value->dtype());
+
+  IrBuilder::create<SdpaBwdOp>(
+      grad_query,
+      grad_key,
+      grad_value,
+      grad_output,
+      query,
+      key,
+      value,
+      output,
+      log_sumexp,
+      dropout_p,
+      is_causal,
+      philox_seed,
+      philox_offset,
+      scale);
+  return {grad_query, grad_key, grad_value};
 }
 
 } // namespace nvfuser

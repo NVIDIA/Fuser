@@ -9,6 +9,7 @@
 
 #include <ir/base_nodes.h>
 #include <ir/builder.h>
+#include <ir/interface_nodes.h>
 #include <multidevice/communicator.h>
 #include <multidevice/device_mesh.h>
 #include <multidevice/multidevice.h>
@@ -48,13 +49,11 @@ class Communication : public Expr {
   // Only specify `root` for types that have root.
   // Only specify `red_op` for reduction types.
   // Only specify `scattered_axis` for ReduceScatter.
-  //
-  // TODO: pass in input/output TV and compute root, mesh and scatteredAxis from
-  // them.
   Communication(
       IrBuilderPasskey passkey,
       CommunicationType type,
-      DeviceMesh mesh, // Might not contain `root`.
+      TensorView* out,
+      TensorView* in,
       Team team, // All devices involved in this communication. It must include
                  // `root`. It can be a subset of `root`+`mesh` in case of 2D
                  // sharding.
@@ -79,34 +78,37 @@ class Communication : public Expr {
     return attribute<CommunicationType>(0);
   }
 
-  const DeviceMesh& mesh() const {
-    return attribute<DeviceMesh>(1);
+  TensorView* out() const {
+    return output(0)->as<TensorView>();
+  }
+
+  TensorView* in() const {
+    return input(0)->as<TensorView>();
   }
 
   const Team& team() const {
-    return attribute<Team>(2);
+    return attribute<Team>(1);
   }
 
   DeviceIdxType root() const {
-    return attribute<DeviceIdxType>(3);
+    return attribute<DeviceIdxType>(2);
   }
 
   RedOpType reduceOp() const {
-    return attribute<RedOpType>(4);
+    return attribute<RedOpType>(3);
   }
 
   int64_t scatteredAxis() const {
-    return attribute<int64_t>(5);
-  }
-
-  bool isRootInMesh() const {
-    return mesh().has(root());
+    return attribute<int64_t>(4);
   }
 
   // PyTorch's process group expects the root to be specified
   // as an integer between 0 and world_size-1. We choose it to be
   // the device's relative index within the team
   int64_t getRootRelativeIndex();
+
+ private:
+  void validate();
 };
 
 // The method "post" triggers the execution of the communication. This call is

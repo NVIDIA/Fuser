@@ -29,19 +29,21 @@ namespace nvfuser {
 // complex transformations.
 class OrderedIdInformation : public OptInDispatch {
  public:
-  OrderedIdInformation() = delete;
-
-  OrderedIdInformation(
+  static OrderedIdInformation get(
       const std::vector<IterDomain*>& ids,
       const std::vector<IterDomain*>& alloc_domain,
-      std::shared_ptr<const ConcretizedBroadcastDomains> concrete_info);
+      std::shared_ptr<const ConcretizedBroadcastDomains> concrete_info) {
+    OrderedIdInformation info(alloc_domain, concrete_info);
+    info.traverseTo(ids);
+    return info;
+  }
 
   const std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>>&
   idToAllocIds() const {
     return id_to_alloc_ids_;
   }
 
-  bool isConsistentlyOrdered(IterDomain* id) const {
+  virtual bool isConsistentlyOrdered(IterDomain* id) const {
     return consistently_ordered_ids_.find(id) !=
         consistently_ordered_ids_.end();
   }
@@ -51,7 +53,20 @@ class OrderedIdInformation : public OptInDispatch {
         exclusively_consumes_allocs_.end();
   }
 
- private:
+  virtual std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>>::
+      const_iterator
+      findAllocIDs(IterDomain* id) const {
+    return id_to_alloc_ids_.find(id);
+  }
+
+ protected:
+  OrderedIdInformation(
+      const std::vector<IterDomain*>& alloc_domain,
+      std::shared_ptr<const ConcretizedBroadcastDomains> concrete_info =
+          nullptr);
+
+  void traverseTo(const std::vector<IterDomain*>& ids);
+
   // Returns if the id in active_ids should be in exclusively_consumes_allocs_
   bool checkExclusivelyConsumesAllocs(IterDomain* id);
 
@@ -65,6 +80,27 @@ class OrderedIdInformation : public OptInDispatch {
 
   void handle(Resize* resize) override;
 
+  virtual std::vector<IterDomain*>::const_iterator findActiveId(
+      IterDomain* id) const {
+    return std::find(active_ids_.begin(), active_ids_.end(), id);
+  }
+
+  bool isActiveId(IterDomain* id) const {
+    return findActiveId(id) != active_ids_.end();
+  }
+
+  int64_t getActiveIdPos(IterDomain* id) const {
+    auto it = findActiveId(id);
+    NVF_ERROR(it != active_ids_.end());
+    return std::distance(active_ids_.begin(), it);
+  }
+
+  bool isConcretized(IterDomain* id) const {
+    NVF_ERROR(concrete_info_ != nullptr);
+    return concrete_info_->isConcretized(id);
+  }
+
+ protected:
   // Track which allocation ids were used to generate each iter domain
   std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>>
       id_to_alloc_ids_;
@@ -107,6 +143,9 @@ class OrderedIdInformation : public OptInDispatch {
   // the domain is concretized within the local indexing, not in the entire
   // fusion.
   std::shared_ptr<const ConcretizedBroadcastDomains> concrete_info_;
+
+  // TODO: Temporary WAR to do ContigIDGroup-specific processing
+  bool using_id_graph_ = false;
 };
 
 // Based on provided divisible split set, goes through expressions and marks all
@@ -172,15 +211,12 @@ class ContigIDs : public OptInDispatch {
       bool ignore_indexability = false,
       bool ignore_consistent_ordering = false);
 
-  //! \param ids IterDomains on the leaves of the domain we're looking for
-  //! contiguous indexing into.
-  //! \param alloc_domain the allocation domain of the domain we're looking for
-  //! contiguous indexing into.
-  //! \param alloc_contiguity the contiguity of the alloc_domain.
-  //! \param concrete_to_ref concrete ids of the exact map that the reference
-  //! index is using for indexing.
-  //! \param divisible_splits a set of all splits in the fusion that are
-  //! divisible.
+  //! \param ids IterDomains on the loop domain we're looking for contiguous
+  //! indexing into. \param alloc_domain the allocation domain of the domain
+  //! we're looking for contiguous indexing into. \param alloc_contiguity the
+  //! contiguity of the alloc_domain. \param concrete_to_ref concrete ids of the
+  //! exact map that the reference index is using for indexing. \param
+  //! divisible_splits a set of all splits in the fusion that are divisible.
   //! \param ca_map compute at map of the fusion.
   //! \param concrete_info concretized broadcast information of the fusion.
   //! \param p2c_id_map map from producer to consumer ids used for indexing

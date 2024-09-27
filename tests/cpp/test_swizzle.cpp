@@ -8,6 +8,9 @@
 #include <csrc/exceptions.h>
 #include <gtest/gtest.h>
 
+#include <abstract_tensor.h>
+#include <device_lower/analysis/bank_conflict.h>
+#include <inlining.h>
 #include <kernel_cache.h>
 #include <ops/all_ops.h>
 #include <swizzle.h>
@@ -17,10 +20,12 @@
 
 namespace nvfuser {
 
+// TODO: migrate these tests to new swizzle
+class LegacySwizzleTest : public NVFuserTest {};
 class SwizzleTest : public NVFuserTest {};
 
 // Test a basic swizzle pattern
-TEST_F(SwizzleTest, SimpleSwizzle0) {
+TEST_F(LegacySwizzleTest, SimpleSwizzle0) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -60,7 +65,7 @@ TEST_F(SwizzleTest, SimpleSwizzle0) {
 }
 
 // Test swizzle inlining
-TEST_F(SwizzleTest, SimpleSwizzle1) {
+TEST_F(LegacySwizzleTest, SimpleSwizzle1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -101,7 +106,7 @@ TEST_F(SwizzleTest, SimpleSwizzle1) {
 // Test sync insertion and memory check in parallelized swizzles.
 //  In this test, data is parallel written into smem in zcurve
 //   pattern and then read out and output to global mem unswizzled.
-TEST_F(SwizzleTest, SimpleSwizzle2) {
+TEST_F(LegacySwizzleTest, SimpleSwizzle2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -156,7 +161,7 @@ TEST_F(SwizzleTest, SimpleSwizzle2) {
 }
 
 // Test BestEffortReplay behavior with swizzle op
-TEST_F(SwizzleTest, SwizzleMapping) {
+TEST_F(LegacySwizzleTest, SwizzleMapping) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -185,13 +190,13 @@ TEST_F(SwizzleTest, SwizzleMapping) {
   tv1->computeAt(tv2, -1);
 
   // Check BestEffortReplay behavior with skip swizzles option on.
-  PairwiseRootDomainMap root_map(tv1, tv2);
+  PairwiseLogicalDomainMap logical_map(tv1, tv2);
 
   // Check producer to consumer map,
   //  i.e. unswizzled tensor to swizzled tensor map
   //----------------------------------------------------------
   auto p2c_disjoint_id_map =
-      BestEffortReplay::replayCasP(tv2, tv1, -1, root_map)
+      BestEffortReplay::replayCasP(tv2, tv1, -1, logical_map)
           .getIterDomainEquivalence();
   // P2C map should exist and both the x and y map should
   //  map to the output of the swizzle op.
@@ -207,7 +212,7 @@ TEST_F(SwizzleTest, SwizzleMapping) {
   //  i.e. swizzled tensor to unswizzled tensor map
   //----------------------------------------------------------
   auto c2p_disjoint_id_map =
-      BestEffortReplay::replayPasC(tv1, tv2, -1, root_map)
+      BestEffortReplay::replayPasC(tv1, tv2, -1, logical_map)
           .getIterDomainEquivalence();
 
   auto swizzle_op = tv2->axis(-1)->definition()->as<Swizzle2D>();
@@ -254,7 +259,7 @@ TEST_F(SwizzleTest, SwizzleMapping) {
 }
 
 // Test a basic loop swizzle pattern
-TEST_F(SwizzleTest, LoopSwizzle0) {
+TEST_F(LegacySwizzleTest, LoopSwizzle0) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -285,7 +290,7 @@ TEST_F(SwizzleTest, LoopSwizzle0) {
 }
 
 // Outer block zshape pattern
-TEST_F(SwizzleTest, LoopSwizzle1) {
+TEST_F(LegacySwizzleTest, LoopSwizzle1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -320,7 +325,7 @@ TEST_F(SwizzleTest, LoopSwizzle1) {
 }
 
 // Test assertion in unsupported pattern: non-leaf loop swizzle.
-TEST_F(SwizzleTest, LoopSwizzleCheck0) {
+TEST_F(LegacySwizzleTest, LoopSwizzleCheck0) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -339,7 +344,7 @@ TEST_F(SwizzleTest, LoopSwizzleCheck0) {
   // Swizzle the inner tile.
   tv2->swizzle(Swizzle2DType::ZShape, -2, -1, SwizzleMode::Loop);
 
-  // Make swizzle output not a leaf domain.
+  // Make swizzle output not a loop domain.
   tv2->merge(-2);
 
   tv0->computeAt(tv2, -1);
@@ -349,7 +354,7 @@ TEST_F(SwizzleTest, LoopSwizzleCheck0) {
 }
 
 // Test assertion in unsupported pattern: half-inlined loop swizzle.
-TEST_F(SwizzleTest, LoopSwizzleCheck1) {
+TEST_F(LegacySwizzleTest, LoopSwizzleCheck1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -380,7 +385,7 @@ TEST_F(SwizzleTest, LoopSwizzleCheck1) {
   ASSERT_ANY_THROW(fe.compileFusion(&fusion));
 }
 
-TEST_F(SwizzleTest, SwizzleVectorize) {
+TEST_F(LegacySwizzleTest, SwizzleVectorize) {
   // When there is a swizzle, non of the involved dimensions are contiguous, so
   // unable to vectorize.
   Fusion fusion;
@@ -399,7 +404,7 @@ TEST_F(SwizzleTest, SwizzleVectorize) {
   ASSERT_ANY_THROW(GpuLower(&fusion).run());
 }
 
-TEST_F(SwizzleTest, TransposeBankConflictSwizzle1) {
+TEST_F(LegacySwizzleTest, TransposeBankConflictSwizzle1) {
   // Both Xor and CyclicShift swizzling should fully remove bank confliction of
   // a 32x32 non-vectorized transpose.
   std::vector<Swizzle2DType> swizzles{
@@ -440,7 +445,7 @@ TEST_F(SwizzleTest, TransposeBankConflictSwizzle1) {
   }
 }
 
-TEST_F(SwizzleTest, TransposeBankConflictSwizzle2) {
+TEST_F(LegacySwizzleTest, TransposeBankConflictSwizzle2) {
   // ZShape should remove half of the bank confliction of a 32x32 non-vectorized
   // transpose.
   Fusion fusion;
@@ -471,7 +476,7 @@ TEST_F(SwizzleTest, TransposeBankConflictSwizzle2) {
   ASSERT_EQ(bank_conflict_info.at(tv1).first, std::vector<int64_t>{16});
 }
 
-TEST_F(SwizzleTest, DataSwizzleGlobal) {
+TEST_F(LegacySwizzleTest, DataSwizzleGlobal) {
   // Data swizzle is ignored in global indexing, so we should just throw an
   // error if someone wants to do so.
   Fusion fusion;
@@ -531,7 +536,7 @@ at::Tensor getSwizzledTensor(
 
 } // namespace
 
-TEST_F(SwizzleTest, SwizzleExampleZShape) {
+TEST_F(LegacySwizzleTest, SwizzleExampleZShape) {
   //    1 2 3      1 2 3
   //    4 5 6  =>  6 5 4
   //    7 8 9      7 8 9
@@ -544,7 +549,7 @@ TEST_F(SwizzleTest, SwizzleExampleZShape) {
   NVF_CHECK(at::equal(input, unswizzled));
 }
 
-TEST_F(SwizzleTest, SwizzleExampleXor) {
+TEST_F(LegacySwizzleTest, SwizzleExampleXor) {
   //    1   2  3  4       1   2   3  4
   //    5   6  7  8       6   5   8  7
   //    9  10 11 12  =>   11  12  9 10
@@ -560,7 +565,7 @@ TEST_F(SwizzleTest, SwizzleExampleXor) {
   NVF_CHECK(at::equal(input, unswizzled));
 }
 
-TEST_F(SwizzleTest, SwizzleExampleCyclicShift) {
+TEST_F(LegacySwizzleTest, SwizzleExampleCyclicShift) {
   //    1   2  3  4       1   2   3   4
   //    5   6  7  8       8   5   6   7
   //    9  10 11 12  =>   11  12  9  10
@@ -576,7 +581,7 @@ TEST_F(SwizzleTest, SwizzleExampleCyclicShift) {
   NVF_CHECK(at::equal(input, unswizzled));
 }
 
-TEST_F(SwizzleTest, SwizzleIndexing170) {
+TEST_F(LegacySwizzleTest, SwizzleIndexing170) {
   // https://github.com/NVIDIA/Fuser/issues/170
   GTEST_SKIP() << "Repro for an unfixed bug";
   Fusion fusion;
@@ -617,7 +622,7 @@ TEST_F(SwizzleTest, SwizzleIndexing170) {
   testValidate(&fusion, outputs, {t}, __LINE__, __FILE__);
 }
 
-TEST_F(SwizzleTest, TransformPropagatorSkipSwizzleOnTarget) {
+TEST_F(LegacySwizzleTest, TransformPropagatorSkipSwizzleOnTarget) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   auto tv0 = makeConcreteTensor({64, 64});
@@ -641,17 +646,17 @@ TEST_F(SwizzleTest, TransformPropagatorSkipSwizzleOnTarget) {
   tv0->merge(0);
 
   TransformPropagatorWithCheck propagator(tv0);
-  MaxRootDomainInfoSpanningTree(tv0).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv0).traverse(&propagator);
 
   auto exprs = StmtSort::getExprsBetween(
-      {tv1->getRFactorDomain().begin(), tv1->getRFactorDomain().end()},
-      {tv1->getLeafDomain().begin(), tv1->getLeafDomain().end()});
+      {tv1->getLogicalDomain().begin(), tv1->getLogicalDomain().end()},
+      {tv1->getLoopDomain().begin(), tv1->getLoopDomain().end()});
   EXPECT_TRUE(std::any_of(exprs.begin(), exprs.end(), [](Expr* expr) {
     return expr->isA<Swizzle2D>();
   }));
 }
 
-TEST_F(SwizzleTest, SwizzleInRFactor) {
+TEST_F(LegacySwizzleTest, SwizzleInProducerProjection) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   auto tv0 = makeSymbolicTensor(2);
@@ -664,7 +669,7 @@ TEST_F(SwizzleTest, SwizzleInRFactor) {
   tv1->reorder({{2, 1}});
   tv1->merge(0);
   tv1->merge(1);
-  tv1->commitLeafToRFactor();
+  tv1->commitLeafToLogical();
   fusion->addOutput(tv1);
 
   tv1->axis(0)->parallelize(ParallelType::BIDx);
@@ -688,6 +693,53 @@ TEST_F(SwizzleTest, SwizzleInRFactor) {
     }
   }
   testValidate(fusion.get(), outputs, {t}, {expect}, __LINE__, __FILE__);
+}
+
+TEST_F(SwizzleTest, Transpose1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = transpose(tv1, 0, 1);
+  fusion.addOutput(tv2);
+  tv1->setMemoryType(MemoryType::Shared);
+
+  std::vector<IterDomain*> dim0{tv1->axis(0), tv2->axis(1)};
+  std::vector<IterDomain*> dim1{tv1->axis(1), tv2->axis(0)};
+  AbstractTensor loop{dim0, dim1};
+
+  loop.split(1, 32);
+  loop.split(0, 32);
+  loop.reorder({{1, 2}});
+  loop.merge(0);
+  loop.parallelize(0, ParallelType::BIDx);
+  // BIDx, 32, 32
+
+  auto smem_alloc = loop.unzip()[0];
+  smem_alloc.swizzle(SwizzleType::XOR, 1, 2);
+  tv1->setAllocationDomain(smem_alloc.as<IterDomain*>(), true);
+
+  std::swap(loop[1][1], loop[2][1]);
+  loop.merge(1);
+  loop.split(1, 256);
+  loop.parallelize(2, ParallelType::TIDx);
+  // BIDx, 4, TIDx
+
+  auto uz = loop.unzip();
+  tv1->setLoopDomain(uz[0].as<IterDomain*>());
+  tv2->setLoopDomain(uz[1].as<IterDomain*>());
+
+  inlineMost();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t = at::randn({10240, 10240}, options);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t});
+  EXPECT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+  std::vector<at::Tensor> outputs = fe.runFusion({t});
+  EXPECT_TRUE(at::equal(t.t(), outputs[0]));
 }
 
 } // namespace nvfuser

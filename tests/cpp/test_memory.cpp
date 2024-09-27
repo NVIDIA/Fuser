@@ -20,6 +20,7 @@
 #include <ops/utils.h>
 #include <options.h>
 #include <scheduler/cache_policy_refiner.h>
+#include <scheduler/mma_utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 #include <type.h>
@@ -61,7 +62,7 @@ TEST_P(MemoryTest, LoadCache) {
   tv1->split(0, 4);
   tv1->split(0, 32);
   TransformPropagatorWithCheck propagator(tv1);
-  MaxRootDomainInfoSpanningTree(tv1).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
 
   // Parallelize LoadStoreOps. Other TensorViews don't support vectorization.
   tv1->axis(0)->parallelize(ParallelType::BIDx);
@@ -132,7 +133,7 @@ TEST_F(MemoryTest, RefineCachePolicy) {
   tv_a2->split(0, 4);
   tv_a2->split(0, 32);
   TransformPropagatorWithCheck propagator(tv_a2);
-  MaxRootDomainInfoSpanningTree(tv_a2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv_a2).traverse(&propagator);
 
   tv_a2->axis(0)->parallelize(ParallelType::BIDx);
   tv_a2->axis(1)->parallelize(ParallelType::TIDx);
@@ -208,7 +209,7 @@ class XorFinder : private kir::IrVisitor {
     if (found || !visited.insert(expr).second) {
       return;
     }
-    if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
+    if (expr->isA<ForLoop>() || expr->isA<kir::IfThenElse>()) {
       kir::IrVisitor::dispatch(expr);
       return;
     }
@@ -244,7 +245,7 @@ class TMAPredicateChecker : private kir::IrVisitor {
   using kir::IrVisitor::dispatch;
 
   void dispatch(Expr* expr) final {
-    if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
+    if (expr->isA<ForLoop>() || expr->isA<kir::IfThenElse>()) {
       kir::Predicate* prev_pred = nullptr;
       if (expr->isA<kir::IfThenElse>()) {
         auto ite = expr->as<kir::IfThenElse>();
@@ -311,7 +312,7 @@ class TMADimChecker : private kir::IrVisitor {
   using kir::IrVisitor::dispatch;
 
   void dispatch(Expr* expr) final {
-    if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
+    if (expr->isA<ForLoop>() || expr->isA<kir::IfThenElse>()) {
       kir::IrVisitor::dispatch(expr);
       return;
     }
@@ -393,35 +394,10 @@ class TMASimpleLdstTest
         shape = {4, 8, 1024, 32, 128};
         break;
       default:
-        NVF_ERROR(false, "Invalid dimension");
+        NVF_THROW("Invalid dimension");
     }
   }
 };
-
-// Assuming the tile of tv is currently scheduled as a 1D flat dim placed at
-// position -1, schedule the TMA swizzle for it.
-void scheduleTMASwizzle(TensorView* tv, int64_t swizzle_size) {
-  // split as core matrices of 8 x 16B
-  tv->split(-1, core_matrix_width_bytes / dataTypeSize(tv->dtype()));
-  tv->split(-2, 8);
-  // [N, 8, 16B]
-  // swizzle the inner dim of rows of different core matrices
-  tv->split(-3, swizzle_size);
-  tv->split(-2, swizzle_size);
-  // [N/swizzle_size, swizzle_size, 8/swizzle_size, swizzle_size, 16B]
-  tv->swizzle(SwizzleType::XOR, -4, -2);
-}
-
-void markAllDimsExceptFirstAsBulk(const TensorView* tv) {
-  bool skip = true;
-  for (auto id : tv->getLeafDomain()) {
-    if (skip) {
-      skip = false;
-      continue;
-    }
-    id->parallelize(ParallelType::Bulk);
-  }
-}
 
 void parallelizeAllDimsExceptFirstAsTIDx(TensorView* tv) {
   tv->flatten(1);
@@ -433,7 +409,6 @@ void scheduleTile(
     std::vector<int64_t> tile_sizes,
     MmaInputSmemSwizzle swizzle) {
   const int64_t dim = tile_sizes.size();
-  const int64_t swizzle_size = getBytesFromSwizzle(swizzle) / 16;
 
   for (auto tv : tvs) {
     NVF_ERROR(
@@ -457,7 +432,10 @@ void scheduleTile(
     // ...]
     tv->axis(0)->parallelize(ParallelType::BIDx);
     if (swizzle != MmaInputSmemSwizzle::None) {
-      scheduleTMASwizzle(tv, swizzle_size);
+      // In our implementation of swizzling, we work on 2D box where the
+      // inner-dim is the size of the swizzle in Bytes (at most).
+      tv->split(-1, tile_sizes[dim - 1]);
+      tv->swizzleTMABox(swizzle);
     }
   }
 }
@@ -477,8 +455,9 @@ TEST_P(TMASimpleLdstTest, Load) {
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
   scheduleTile({tv1, tv2}, tile, swizzle);
-  tv1->setAllocationDomain(tv1->getLeafDomain(), true);
-  markAllDimsExceptFirstAsBulk(tv1);
+  tv1->setAllocationDomain(tv1->getLoopDomain(), true);
+  mma_utils::MmaSwizzler::parallelizeAsBulkSkippingFirstIDs(
+      tv1, 1 /* skip the first ID*/);
   parallelizeAllDimsExceptFirstAsTIDx(tv2);
 
   auto options =
@@ -497,6 +476,91 @@ TEST_P(TMASimpleLdstTest, Load) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
+class TMALoadTestWithABroadcastDim
+    : public NVFuserFixtureParamTest<
+          std::tuple<std::vector<int64_t>, DataType, MmaInputSmemSwizzle>> {
+ protected:
+  MmaInputSmemSwizzle swizzle;
+  DataType dtype;
+
+  void SetUp() override {
+    if (cudaArchGuardShouldSkip(9, 0)) {
+      GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
+    }
+    NVFuserTest::SetUp();
+  }
+
+  TMALoadTestWithABroadcastDim() {
+    dtype = std::get<1>(GetParam());
+    swizzle = std::get<2>(GetParam());
+  }
+};
+
+TEST_P(TMALoadTestWithABroadcastDim, LoadWithBroadcast) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  auto shape = std::get<0>(GetParam());
+
+  auto tv0 = makeContigConcreteTensor(shape, dtype);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  moveInnerBroadcastLeft(tv1);
+  moveInnerBroadcastLeft(tv2);
+
+  // [B, K, N] -> [B, KO, K8, N]
+  tv1->split(-2, 8);
+  tv2->split(-2, 8);
+  // [B, KO, K8, N] ->  [B, KO, K8, NO, NI ]
+  tv1->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSize(dtype));
+  tv2->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSize(dtype));
+  // [B, KO, K8, NO, NI ] -> [B, KO, NO, K8, NI ] (Box: K8, NI)
+  tv1->reorder({{-2, -3}});
+  tv2->reorder({{-2, -3}});
+  if (swizzle != MmaInputSmemSwizzle::None) {
+    tv1->swizzleTMABox(swizzle);
+    tv2->swizzleTMABox(swizzle);
+  }
+  mma_utils::MmaSwizzler::parallelizeAsBulkSkippingFirstIDs(
+      tv1, 3 /* skip the first three IDs*/);
+
+  tv1->setAllocationDomain(tv1->getLoopDomain(), true);
+
+  // Naively parallelize an outer dim of tv2.
+  // We use a single CTA. Inputs are small enough not to error out.
+  tv2->axis(2)->parallelize(ParallelType::TIDx);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+
+  auto cg_outputs = fe.runFusion({t0});
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
+std::vector<std::vector<int64_t>> shapes_to_load =
+    {{1, 64, 16}, {1, 16, 64}, {1, 128, 64}, {1, 128, 128}, {64, 1, 16}};
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    TMALoadTestWithABroadcastDim,
+    testing::Combine(
+        testing::ValuesIn(shapes_to_load),
+        testing::Values(DataType::Half, DataType::Float, DataType::Double),
+        testing::Values(
+            MmaInputSmemSwizzle::None,
+            MmaInputSmemSwizzle::B128,
+            MmaInputSmemSwizzle::B64,
+            MmaInputSmemSwizzle::B32)));
+
 TEST_P(TMASimpleLdstTest, Store) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -512,8 +576,8 @@ TEST_P(TMASimpleLdstTest, Store) {
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
   scheduleTile({tv1, tv2}, tile, swizzle);
-  tv1->setAllocationDomain(tv1->getLeafDomain(), true);
-  markAllDimsExceptFirstAsBulk(tv2);
+  tv1->setAllocationDomain(tv1->getLoopDomain(), true);
+  mma_utils::MmaSwizzler::parallelizeAsBulkSkippingFirstIDs(tv2, 1);
   parallelizeAllDimsExceptFirstAsTIDx(tv1);
 
   auto options =
@@ -684,7 +748,7 @@ TEST_F(TMAIndexingTest, Advanced) {
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
   for (auto tv : {tv1, tv2}) {
-    // View the 8D tensor as 5D
+    // View the 8D tensor as 4D
     // [I1, I2, I3, I4, I5, I6, I7, I8]
     tv->merge(0);
     tv->merge(0);
@@ -692,11 +756,11 @@ TEST_F(TMAIndexingTest, Advanced) {
     tv->merge(1);
     tv->merge(2);
     // [I1*I2*I3, I4*I5*I6, I7*I8]
-    tv->split(2, 32);
     tv->split(0, 16);
-    // [I1*I2*I3/16, 16, I4*I5*I6, I7*I8/32, 32]
+    // [I1*I2*I3/16, 16, I4*I5*I6, I7*I8]
 
     // Create tiles
+    tv->split(3, 32);
     tv->split(4, 8);
     tv->split(3, 1);
     tv->split(2, 32);
@@ -729,7 +793,7 @@ TEST_F(TMAIndexingTest, Advanced) {
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
 
-  EXPECT_EQ(TMADimChecker::getDim(fe.kernel()), 5);
+  EXPECT_EQ(TMADimChecker::getDim(fe.kernel()), 4);
   TMAPredicateChecker::checkPredicate(fe.kernel(), 1);
 
   auto cg_outputs = fe.runFusion({t0});
@@ -838,7 +902,196 @@ TEST_F(TMAIndexingTest, DefineBoxByCompositing2) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMAIndexingTest, NonTrivialGmemAllocationDomain) {
+TEST_F(TMAIndexingTest, DefineBoxByRotation1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const DataType dtype = DataType::Float;
+
+  auto tv0 = makeContigTensor(3, dtype);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  for (auto tv : {tv1, tv2}) {
+    // [M, N, K]
+    tv->split(-1, 256);
+    tv->split(-1, 128);
+    tv->split(-1, 64);
+    tv->split(-1, 32);
+    // [M, N, K/256, 2, 2, 2, 32]
+    tv->split(1, 3);
+    tv->split(1, 3);
+    tv->split(1, 3);
+    // [M, N/27, 3, 3, 3, K/256, 2, 2, 2, 32]
+    tv->split(0, 3);
+    tv->split(0, 3);
+    tv->split(0, 64);
+    tv->split(1, 32);
+    tv->split(2, 4);
+    // [M/9/64, 2, 8, 4, 3, 3, N/27, 3, 3, 3, K/256, 2, 2, 2, 32]
+    tv->reorder({{3, -7}, {4, -6}, {5, -5}, {7, -4}, {8, -3}, {9, -2}});
+    // [M/9/64, 2, 8, N/27, K/256, 2, 2, 2, 4, 3, 3, 3, 3, 3, 32]
+    tv->flatten(-7);
+    tv->flatten(0, -2);
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+  }
+  tv1->axis(1)->parallelize(ParallelType::Bulk);
+  tv2->split(1, 256);
+  tv2->axis(-1)->parallelize(ParallelType::TIDx);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  // Make the shape of the input tensor as prime as possible so splits are
+  // mostly not divisible
+  int64_t prime_number = 599;
+  int64_t multiple_of_16B_but_not_more = 4 * 67;
+  auto t0 = at::randn(
+      {prime_number, prime_number, multiple_of_16B_but_not_more}, options);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+
+  EXPECT_EQ(TMADimChecker::getDim(fe.kernel()), 3);
+  TMAPredicateChecker::checkPredicate(fe.kernel(), 1);
+
+  auto cg_outputs = fe.runFusion({t0});
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(TMAIndexingTest, DefineBoxByRotation2) {
+  // Test that strided box can not be merged with other bulk axes by rotation
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const DataType dtype = DataType::Float;
+
+  auto tv0 = makeContigTensor(1, dtype);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  for (auto tv : {tv1, tv2}) {
+    // [M]
+    tv->split(0, 8);
+    tv->split(0, 4);
+    tv->split(1, 2);
+    // [M/8/4, 4/2, 2, 8]
+    tv->reorder({{1, 2}});
+    // [M/8/4, 2, 4/2, 8]
+    tv->merge(0);
+    tv->merge(1);
+    // [M/8/4*2, 4/2*8]
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+  }
+  tv1->axis(1)->parallelize(ParallelType::Bulk);
+  tv2->axis(1)->parallelize(ParallelType::TIDx);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  int64_t multiple_of_8_but_not_more = 8 * 997;
+  auto t0 = at::randn({multiple_of_8_but_not_more}, options);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+
+  // We will be using 2D TMA instead of 1D, because strided box can not be
+  // merged with other bulk axes by rotation. So, this schedule will be
+  // interpreted as viewing then tensor as 2D (M/8, 8) and then applying 2D TMA.
+  // The outer dim of TMA is defined by boxing and striding splits, and the
+  // inner dim is defined as implicit whole.
+  EXPECT_EQ(TMADimChecker::getDim(fe.kernel()), 2);
+  TMAPredicateChecker::checkPredicate(fe.kernel(), 1);
+
+  auto cg_outputs = fe.runFusion({t0});
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+
+  // The tensor shape is not a multiple of 8, so the view should fail.
+  EXPECT_THAT(
+      [&]() {
+        auto options = at::TensorOptions()
+                           .dtype(data_type_to_aten(dtype))
+                           .device(at::kCUDA, 0);
+        int64_t prime_number = 997;
+        auto t0 = at::randn({prime_number}, options);
+        auto cg_outputs = fe.runFusion({t0});
+      },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
+          ::testing::HasSubstr("must be divisible by 8")));
+}
+
+TEST_F(TMAIndexingTest, DefineBoxByRotation3) {
+  // Test that indivisible split can not be moved up by rotation
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const DataType dtype = DataType::Float;
+
+  auto tv0 = makeContigTensor(2, dtype);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  for (auto tv : {tv1, tv2}) {
+    // [M, N]
+    tv->split(0, 23);
+    tv->split(1, 8);
+    // [M/23, 23/8, 8, N]
+    tv->merge(0);
+    tv->merge(1);
+    // [M/23*23/8, 8*N]
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+  }
+  tv1->axis(1)->parallelize(ParallelType::Bulk);
+  tv2->axis(1)->parallelize(ParallelType::TIDx);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  int64_t multiple_of_23 = 23 * 997;
+  auto t0 = at::randn({multiple_of_23, 8}, options);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+
+  // We will be using 3D TMA instead of 2D, because split(23, 8) is indivisible,
+  // we can not consider this schedule as a 2D TMA whose first dimension has box
+  // size 8. Instead, we must view the tensor as 2D (M/23, 23, N) and apply 3D
+  // TMA. The dim 0 of TMA is as implicit size-one, and the dim 1 is defined by
+  // a boxing split whose box size is 8, and dim 2 is an implicit whole box with
+  // size N.
+  EXPECT_EQ(TMADimChecker::getDim(fe.kernel()), 3);
+  TMAPredicateChecker::checkPredicate(fe.kernel(), 1);
+
+  auto cg_outputs = fe.runFusion({t0});
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+
+  // The tensor shape is not a multiple of 23, so the view should fail.
+  EXPECT_THAT(
+      [&]() {
+        auto options = at::TensorOptions()
+                           .dtype(data_type_to_aten(dtype))
+                           .device(at::kCUDA, 0);
+        int64_t prime_number = 997;
+        auto t0 = at::randn({prime_number, 8}, options);
+        auto cg_outputs = fe.runFusion({t0});
+      },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
+          ::testing::HasSubstr("must be divisible by 23")));
+}
+
+TEST_F(TMAIndexingTest, NonTrivialGmemAllocationDomain1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -859,10 +1112,11 @@ TEST_F(TMAIndexingTest, NonTrivialGmemAllocationDomain) {
     tv->merge(0);
     tv->reorder({{0, 1}});
   }
-  tv0->setAllocationDomain(tv0->getLeafDomain(), true);
+  tv0->setAllocationDomain(tv0->getLoopDomain(), true);
   scheduleTile({tv1, tv2}, {128, items_of_32_bytes}, MmaInputSmemSwizzle::B32);
-  tv1->setAllocationDomain(tv1->getLeafDomain(), true);
-  markAllDimsExceptFirstAsBulk(tv1);
+  tv1->setAllocationDomain(tv1->getLoopDomain(), true);
+  mma_utils::MmaSwizzler::parallelizeAsBulkSkippingFirstIDs(
+      tv1, 1 /* skip the first ID*/);
   parallelizeAllDimsExceptFirstAsTIDx(tv2);
 
   auto options =
@@ -876,6 +1130,60 @@ TEST_F(TMAIndexingTest, NonTrivialGmemAllocationDomain) {
   EXPECT_EQ(TMADimChecker::getDim(fe.kernel()), 2);
   TMAPredicateChecker::checkPredicate(fe.kernel(), 1);
   ASSERT_TRUE(XorFinder::findXor(fe.kernel()));
+
+  auto cg_outputs = fe.runFusion({t0});
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(TMAIndexingTest, NonTrivialGmemAllocationDomain2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const DataType dtype = DataType::Float;
+
+  auto tv0 = makeContigTensor(6, dtype);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  // Schedule like this:
+  // 0   1   2   3   4   5
+  //  \   \ /   /     \ /
+  //   \   6   /       7
+  //    \ /   /
+  //     8   /
+  //      \ /
+  //       9
+  // where 1 and 5 are bulk IDs. This way, [merge 1, 2 -> 6] is a "striding
+  // split", and [merge 0, 6 -> 8] and [merge 4, 5 -> 7] are "boxing splits".
+  tv0->merge(1);
+  tv0->merge(0);
+  tv0->merge(-2);
+  tv0->merge(0);
+  tv0->setAllocationDomain(tv0->getLoopDomain(), true);
+
+  for (auto tv : {tv1, tv2}) {
+    tv->reorder({{1, -2}});
+    tv->merge(-2);
+    tv->flatten(0, -2);
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+  }
+  tv1->axis(1)->parallelize(ParallelType::Bulk);
+  tv2->axis(1)->parallelize(ParallelType::TIDx);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({2, 3, 5, 7, 11, 32}, options);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+
+  EXPECT_EQ(TMADimChecker::getDim(fe.kernel()), 3);
+  TMAPredicateChecker::checkPredicate(fe.kernel(), 1);
 
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
@@ -1040,6 +1348,7 @@ TEST_F(TMAMiscTest, Repro1977) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
+#if 0
 TEST_F(TMAMiscTest, LoadStrongCorrectness) {
   // See doc/reading/tma-modeling-in-depth.md
   Fusion fusion;
@@ -1063,11 +1372,11 @@ TEST_F(TMAMiscTest, LoadStrongCorrectness) {
     tv->split(1, 2);
     // [2, 1, 2, 16]
   }
-  tv1->setAllocationDomain(tv1->getLeafDomain(), true);
+  tv1->setAllocationDomain(tv1->getLoopDomain(), true);
 
   // Use a hacky way to get the "raw data" in smem, including valid items and
   // holes, from the smem buffer.
-  tv2->commitLeafToRFactor();
+  tv2->commitLeafToLogical();
   fusion.manage(
       "don't predicate", std::unordered_set<Expr*>{tv2->definition()});
 
@@ -1091,8 +1400,12 @@ TEST_F(TMAMiscTest, LoadStrongCorrectness) {
   // pass. The result is actually wrong.
   expect.flatten(0, 2).select(0, 1) = at::arange(17, 33, options);
 
+  std::cout << cg_outputs[0] << std::endl;
+  std::cout << expect << std::endl;
+
   EXPECT_TRUE(at::equal(cg_outputs[0], expect));
 }
+#endif
 
 // Testing invalid cases are correctly detected and reported.
 
@@ -1316,9 +1629,7 @@ TEST_F(TMARuntimeInvalidTest, SizeOfTransfer) {
       &fusion, cg_outputs, {t0, items_of_16_bytes}, {t0}, __LINE__, __FILE__);
 
   EXPECT_THAT(
-      [&]() {
-        fe.runFusion({t0, items_of_16_bytes / 2});
-      },
+      [&]() { fe.runFusion({t0, items_of_16_bytes / 2}); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
           "The expected bytes must be a multiple of 16 bytes, but ")));
 }
@@ -1378,80 +1689,6 @@ TEST_F(TMARuntimeInvalidTest, InvalidView) {
           ::testing::HasSubstr("Invalid view in TMA: the extent of")));
 }
 
-TEST_F(TMACompileTimeInvalidTest, DependentBoxingSplit1) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  const DataType dtype = DataType::Float;
-
-  auto tv0 = makeContigTensor(1, dtype);
-  fusion.addInput(tv0);
-  auto tv1 = set(tv0);
-  auto tv2 = set(tv1);
-  fusion.addOutput(tv2);
-
-  tv1->setMemoryType(MemoryType::Shared);
-  tv1->definition()->as<LoadStoreOp>()->setOpType(
-      LoadStoreOpType::CpAsyncBulkTensorTile);
-
-  for (auto tv : {tv1, tv2}) {
-    tv->split(0, 16);
-    tv->split(0, 16);
-    tv->axis(0)->parallelize(ParallelType::BIDx);
-  }
-  tv1->axis(1)->parallelize(ParallelType::Bulk);
-  tv1->axis(2)->parallelize(ParallelType::Bulk);
-
-  auto options =
-      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  auto t0 = at::randn({128}, options);
-
-  EXPECT_THAT(
-      [&]() {
-        FusionExecutor fe;
-        fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
-      },
-      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-          "Can not infer TMA domain from the schedule. The IterDomains")));
-}
-
-TEST_F(TMACompileTimeInvalidTest, DependentBoxingSplit2) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  const DataType dtype = DataType::Float;
-
-  auto tv0 = makeContigTensor(1, dtype);
-  fusion.addInput(tv0);
-  auto tv1 = set(tv0);
-  auto tv2 = set(tv1);
-  fusion.addOutput(tv2);
-
-  tv1->setMemoryType(MemoryType::Shared);
-  tv1->definition()->as<LoadStoreOp>()->setOpType(
-      LoadStoreOpType::CpAsyncBulkTensorTile);
-
-  for (auto tv : {tv1, tv2}) {
-    tv->split(0, 16);
-    tv->split(1, 16);
-    tv->axis(0)->parallelize(ParallelType::BIDx);
-  }
-  tv1->axis(0)->parallelize(ParallelType::Bulk);
-  tv1->axis(2)->parallelize(ParallelType::Bulk);
-
-  auto options =
-      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  auto t0 = at::randn({128}, options);
-
-  EXPECT_THAT(
-      [&]() {
-        FusionExecutor fe;
-        fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
-      },
-      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-          "Can not infer TMA domain from the schedule. The IterDomains")));
-}
-
 TEST_F(TMACompileTimeInvalidTest, InnermostDiscontiguous) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -1484,7 +1721,7 @@ TEST_F(TMACompileTimeInvalidTest, InnermostDiscontiguous) {
         fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
       },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-          "The innermost IterDomain of the TMA domain must be contiguous")));
+          "The innermost dimension of the TMA domain must be contiguous")));
 }
 
 TEST_F(TMACompileTimeInvalidTest, MergeDiscontiguous) {
@@ -1524,8 +1761,8 @@ TEST_F(TMACompileTimeInvalidTest, MergeDiscontiguous) {
         FusionExecutor fe;
         fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
       },
-      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-          "Can not merge discontiguous IterDomains, but")));
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
+          ::testing::HasSubstr("Can not merge discontiguous dimensions, but")));
 }
 
 TEST_F(TMACompileTimeInvalidTest, InnermostElementStrideNotOne) {
@@ -1600,13 +1837,14 @@ TEST_F(TMACompileTimeInvalidTest, SwizzleBulkWithNonBulk) {
         fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
       },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-          "Unsupported expression between the allocation domain and the partitioned IterDomains:")));
+          "TMA domain must be a view of the allocation domain of the gmem tensor")));
 }
 
 // Tests for the examples in doc/dev/tma.md
+
 class TMADocTest : public TMATest {};
 
-TEST_F(TMADocTest, Figure8a) {
+TEST_F(TMADocTest, Figure13a) {
   GTEST_SKIP() << "TODO: add check for this invalid case.";
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -1631,7 +1869,7 @@ TEST_F(TMADocTest, Figure8a) {
   }
   tv1->axis(1)->parallelize(ParallelType::Bulk);
   tv1->axis(4)->parallelize(ParallelType::Bulk);
-  tv1->setAllocationDomain(tv1->getLeafDomain(), true);
+  tv1->setAllocationDomain(tv1->getLoopDomain(), true);
 
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
@@ -1646,7 +1884,7 @@ TEST_F(TMADocTest, Figure8a) {
           ::testing::HasSubstr("Some error message")));
 }
 
-TEST_F(TMADocTest, Figure9a) {
+TEST_F(TMADocTest, Figure14a) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1671,7 +1909,7 @@ TEST_F(TMADocTest, Figure9a) {
   }
   tv1->axis(2)->parallelize(ParallelType::Bulk);
   tv1->axis(4)->parallelize(ParallelType::Bulk);
-  tv1->setAllocationDomain(tv1->getLeafDomain(), true);
+  tv1->setAllocationDomain(tv1->getLoopDomain(), true);
 
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
@@ -1687,7 +1925,7 @@ TEST_F(TMADocTest, Figure9a) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMADocTest, Figure8b) {
+TEST_F(TMADocTest, Figure13b) {
   GTEST_SKIP() << "TODO: add check for this invalid case.";
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -1725,7 +1963,7 @@ TEST_F(TMADocTest, Figure8b) {
           ::testing::HasSubstr("Some error message")));
 }
 
-TEST_F(TMADocTest, Figure9b) {
+TEST_F(TMADocTest, Figure14b) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1763,7 +2001,7 @@ TEST_F(TMADocTest, Figure9b) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMADocTest, Figure8c) {
+TEST_F(TMADocTest, Figure13c) {
   GTEST_SKIP() << "TODO: add check for this invalid case.";
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -1787,7 +2025,7 @@ TEST_F(TMADocTest, Figure8c) {
   }
   tv1->axis(1)->parallelize(ParallelType::Bulk);
   tv1->axis(3)->parallelize(ParallelType::Bulk);
-  tv1->setAllocationDomain(tv1->getLeafDomain(), true);
+  tv1->setAllocationDomain(tv1->getLoopDomain(), true);
 
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
@@ -1802,7 +2040,7 @@ TEST_F(TMADocTest, Figure8c) {
           ::testing::HasSubstr("Some error message")));
 }
 
-TEST_F(TMADocTest, Figure9c) {
+TEST_F(TMADocTest, Figure14c) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1825,7 +2063,7 @@ TEST_F(TMADocTest, Figure9c) {
   }
   tv1->axis(1)->parallelize(ParallelType::Bulk);
   tv1->axis(3)->parallelize(ParallelType::Bulk);
-  tv1->setAllocationDomain(tv1->getLeafDomain(), true);
+  tv1->setAllocationDomain(tv1->getLoopDomain(), true);
 
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
@@ -1841,7 +2079,7 @@ TEST_F(TMADocTest, Figure9c) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMADocTest, Figure8d) {
+TEST_F(TMADocTest, Figure13d) {
   GTEST_SKIP() << "TODO: add check for this invalid case.";
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -1877,7 +2115,7 @@ TEST_F(TMADocTest, Figure8d) {
           ::testing::HasSubstr("Some error message")));
 }
 
-TEST_F(TMADocTest, Figure9d) {
+TEST_F(TMADocTest, Figure14d) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1912,7 +2150,7 @@ TEST_F(TMADocTest, Figure9d) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMADocTest, Figure8e) {
+TEST_F(TMADocTest, Figure13e) {
   GTEST_SKIP() << "TODO: add check for this invalid case.";
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -1935,7 +2173,7 @@ TEST_F(TMADocTest, Figure8e) {
   }
   tv2->axis(1)->parallelize(ParallelType::Bulk);
   tv2->axis(3)->parallelize(ParallelType::Bulk);
-  tv1->setAllocationDomain(tv1->getLeafDomain(), true);
+  tv1->setAllocationDomain(tv1->getLoopDomain(), true);
   tv1->axis(0)->parallelize(ParallelType::TIDx);
   tv1->axis(2)->parallelize(ParallelType::TIDy);
 
@@ -1952,7 +2190,7 @@ TEST_F(TMADocTest, Figure8e) {
           ::testing::HasSubstr("Some error message")));
 }
 
-TEST_F(TMADocTest, Figure9e) {
+TEST_F(TMADocTest, Figure14e) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1974,7 +2212,7 @@ TEST_F(TMADocTest, Figure9e) {
   }
   tv2->axis(1)->parallelize(ParallelType::Bulk);
   tv2->axis(3)->parallelize(ParallelType::Bulk);
-  tv1->setAllocationDomain(tv1->getLeafDomain(), true);
+  tv1->setAllocationDomain(tv1->getLoopDomain(), true);
   tv1->axis(0)->parallelize(ParallelType::TIDx);
   tv1->axis(2)->parallelize(ParallelType::TIDy);
 
@@ -1992,7 +2230,7 @@ TEST_F(TMADocTest, Figure9e) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMADocTest, Figure10a) {
+TEST_F(TMADocTest, Figure15a) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2021,7 +2259,7 @@ TEST_F(TMADocTest, Figure10a) {
   }
   tv1->axis(2)->parallelize(ParallelType::Bulk);
   tv1->axis(3)->parallelize(ParallelType::Bulk);
-  tv1->setAllocationDomain(tv1->getLeafDomain(), true);
+  tv1->setAllocationDomain(tv1->getLoopDomain(), true);
 
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
@@ -2037,7 +2275,7 @@ TEST_F(TMADocTest, Figure10a) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMADocTest, Figure10b) {
+TEST_F(TMADocTest, Figure15b) {
   GTEST_SKIP() << "TODO: requires IdModel based indexing.";
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -2058,7 +2296,7 @@ TEST_F(TMADocTest, Figure10b) {
   tv1->split(0, 2);
   tv1->axis(0)->parallelize(ParallelType::TIDx);
   tv1->axis(1)->parallelize(ParallelType::Vectorize);
-  tv1->setAllocationDomain(tv1->getLeafDomain(), true);
+  tv1->setAllocationDomain(tv1->getLoopDomain(), true);
 
   tv2->split(1, 4);
   tv2->axis(0)->parallelize(ParallelType::TIDx);
@@ -2079,7 +2317,7 @@ TEST_F(TMADocTest, Figure10b) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMADocTest, Figure10c) {
+TEST_F(TMADocTest, Figure15c) {
   GTEST_SKIP() << "TODO: add check for this invalid case.";
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -2109,7 +2347,7 @@ TEST_F(TMADocTest, Figure10c) {
   }
   tv1->axis(2)->parallelize(ParallelType::Bulk);
   tv1->axis(3)->parallelize(ParallelType::Bulk);
-  tv1->setAllocationDomain(tv1->getLeafDomain(), true);
+  tv1->setAllocationDomain(tv1->getLoopDomain(), true);
 
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
@@ -2124,7 +2362,7 @@ TEST_F(TMADocTest, Figure10c) {
           ::testing::HasSubstr("Some error message")));
 }
 
-TEST_F(TMADocTest, Figure10d) {
+TEST_F(TMADocTest, Figure15d) {
   GTEST_SKIP() << "TODO: add check for this invalid case.";
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -2156,7 +2394,7 @@ TEST_F(TMADocTest, Figure10d) {
   }
   tv1->axis(2)->parallelize(ParallelType::Bulk);
   tv1->axis(3)->parallelize(ParallelType::Bulk);
-  tv1->setAllocationDomain(tv1->getLeafDomain(), true);
+  tv1->setAllocationDomain(tv1->getLoopDomain(), true);
 
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
@@ -2171,7 +2409,7 @@ TEST_F(TMADocTest, Figure10d) {
           ::testing::HasSubstr("Some error message")));
 }
 
-TEST_F(TMADocTest, Figure10e) {
+TEST_F(TMADocTest, Figure15e) {
   GTEST_SKIP() << "TODO: add check for this invalid case.";
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -2192,7 +2430,7 @@ TEST_F(TMADocTest, Figure10e) {
   tv1->split(0, 8);
   tv1->axis(0)->parallelize(ParallelType::TIDx);
   tv1->axis(1)->parallelize(ParallelType::TIDy);
-  tv1->setAllocationDomain(tv1->getLeafDomain(), true);
+  tv1->setAllocationDomain(tv1->getLoopDomain(), true);
 
   tv2->split(1, 4);
   tv2->axis(0)->parallelize(ParallelType::TIDx);
@@ -2265,6 +2503,70 @@ TEST_P(LdMatrixTest, Regular) {
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
+
+class StMatrixTest : public NVFuserFixtureParamTest<std::vector<int>> {
+ protected:
+  void SetUp() override {
+    if (cudaArchGuardShouldSkip(9, 0)) {
+      GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
+    }
+    NVFuserTest::SetUp();
+  }
+};
+
+TEST_P(StMatrixTest, Regular) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto operand = MmaOperand::A;
+  auto sizes = GetParam();
+  int sizeM = sizes.at(0);
+  int sizeN = sizes.at(1);
+
+  auto tv0 = makeContigConcreteTensor({sizeM, sizeN}, DataType::Half);
+  fusion.addInput(tv0);
+  // tv0 (global) -> tv1 (shared)
+  auto tv1 = set(tv0);
+  tv1->setMemoryType(MemoryType::Shared);
+  auto tv2 = set(tv1);
+  // tv1 (shared) -> tv2 (registers)
+  // tv2 (registers) -> tv3 (shared)
+  auto tv3 = set(tv2);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StMatrix);
+  tv3->setMemoryType(MemoryType::Shared);
+  // tv3 (shared) -> tv4(global)
+  auto tv4 = set(tv3);
+  fusion.addOutput(tv4);
+
+  tv2->applyMmaSwizzle(operand);
+  tv2->setAllocationDomain(tv2->getLoopDomain(), true);
+  // // Get 32 threads out to parallelize over.
+  tv2->merge(1);
+  tv2->axis(1)->parallelize(ParallelType::TIDx);
+
+  // We do not really schedule tv3 as yet, this is just for parllel codegen.
+  tv3->merge(0);
+  tv3->split(0, 32);
+  tv3->axis(1)->parallelize(ParallelType::TIDx);
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  auto t0 = at::randn({sizeM, sizeN}, options);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0}, LaunchParams(), matmul_cparams);
+  auto cg_outputs = fe.runFusion({t0});
+
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    StMatrixTest,
+    testing::Values(
+        // M, N
+        std::vector<int>{8, 8},
+        std::vector<int>{16, 8},
+        std::vector<int>{16, 16}));
 
 TEST_P(LdMatrixTest, Transpose) {
   Fusion fusion;

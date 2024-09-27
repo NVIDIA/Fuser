@@ -42,10 +42,54 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
 
   using kir::ExprMutator::handle;
 
+  // The ElectSync predicate expects a single thread to run operations within
+  // If-Then-Else. Any TensorView with thread parallelization is incompatible
+  // with this If-Then-Else because it can create a conflicting predicate.
+  void checkElectSyncCompatibility(Expr* expr) {
+    NVF_CHECK(expr->predicate()->predicate_type() == PredicateType::ElectSync);
+    NVF_ERROR(expr->isA<kir::IfThenElse>());
+
+    // Check all the expressions in the scope
+    auto check_scope_compatibility = [](Scope& scope) {
+      for (Expr* expr : scope.exprs()) {
+        // Thread predicates are generated based on the expression's outputs
+        for (Val* val : expr->outputs()) {
+          // short-circuit
+          if (!val->isA<kir::TensorIndex>()) {
+            continue;
+          }
+          // Check that none of the IterDomains in TensorView are parallelized
+          // with a thread dimension like TIDx, TIDy, or TIDz.
+          TensorView* tv = val->as<kir::TensorIndex>()->view();
+          bool is_thread_parallelized = std::any_of(
+              tv->domain()->loop().begin(),
+              tv->domain()->loop().end(),
+              [](IterDomain* id) { return id->isThreadDim(); });
+          NVF_ERROR(
+              !is_thread_parallelized,
+              "This thread-parallelized TensorView ",
+              tv->toString(),
+              " is incorrectly contained within a If-Then-Else with the ",
+              "ElectSync predicate.");
+        }
+      }
+    };
+
+    // Check the thenBody and elseBody of If-Then-Else
+    kir::IfThenElse* ite = expr->as<kir::IfThenElse>();
+    check_scope_compatibility(ite->thenBody());
+    check_scope_compatibility(ite->elseBody());
+  }
+
   void dispatch(Expr* expr) final {
     if (expr != nullptr && expr->predicate() != nullptr) {
       // Replace expr predicate with bool conditional
       auto conditional = generateConditional(expr->predicate());
+
+      if (expr->predicate()->predicate_type() == PredicateType::ElectSync) {
+        checkElectSyncCompatibility(expr);
+      }
+
       if (expr->predicate()->predicate_type() == PredicateType::Vectorize) {
         if (expr->isA<kir::IfThenElse>()) {
           // TODO: This logic doesn't seem to fit well here, for unswitch the
@@ -182,8 +226,8 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
             pred->predicate_type());
       }
       case PredicateType::Vectorize: {
-        std::vector<kir::ForLoop*> outer_loops;
-        kir::ForLoop* vectorized_loop = nullptr;
+        std::vector<ForLoop*> outer_loops;
+        ForLoop* vectorized_loop = nullptr;
         for (auto loop : for_loops_) {
           if (loop->iter_domain()->getParallelType() ==
               ParallelType::Vectorize) {
@@ -209,6 +253,27 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
         // here.
         return IrBuilder::create<Val>(true, DataType::Bool);
       }
+      case PredicateType::ElectSync: {
+        Val* zero = IrBuilder::create<Val>(0L, PrimDataType::UInt);
+        Val* warp_size = IrBuilder::create<Val>(32L, PrimDataType::UInt);
+        Val* full_mask_val =
+            IrBuilder::create<Val>(0xFFFFFFFF, PrimDataType::UInt32);
+
+        Val* elect_sync_val = IrBuilder::create<Val>(PrimDataType::Bool);
+        IrBuilder::create<UnaryOp>(
+            UnaryOpType::ElectSync, elect_sync_val, full_mask_val);
+
+        Val* first_warp = IrBuilder::logicalAndExpr(
+            IrBuilder::logicalAndExpr(
+                IrBuilder::ltExpr(
+                    NamedScalar::getParallelIndex(ParallelType::TIDx),
+                    warp_size),
+                IrBuilder::eqExpr(
+                    NamedScalar::getParallelIndex(ParallelType::TIDy), zero)),
+            IrBuilder::eqExpr(
+                NamedScalar::getParallelIndex(ParallelType::TIDz), zero));
+        return IrBuilder::logicalAndExpr(first_warp, elect_sync_val);
+      }
       default:
         break;
     }
@@ -216,7 +281,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
   }
 
   // Keep track of the loop in which the currently visiting expr is a rotated.
-  std::unordered_set<kir::ForLoop*> rotated_loop_;
+  std::unordered_set<ForLoop*> rotated_loop_;
 };
 
 } // namespace

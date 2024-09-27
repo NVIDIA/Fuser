@@ -24,8 +24,8 @@ jobs:
 
     # This job only runs for pull request comments
     if: |
-         contains( 'xwang233,jjsjann123,', format('{0},', github.actor)) &&
-         github.event.comment.body == '!dontusethis'
+         github.event.comment.body == '!dontusethis' &&
+         (github.actor == 'xwang233' || github.actor == 'jjsjann123')
     steps:
       - name: Check if comment is issued by authorized person
         run: blossom-ci

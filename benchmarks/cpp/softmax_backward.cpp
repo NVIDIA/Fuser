@@ -7,8 +7,8 @@
 // clang-format on
 #include <csrc/exceptions.h>
 #include <device_lower/lower2device.h>
-#include <executor.h>
 #include <fusion.h>
+#include <fusion_executor/executor.h>
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
 #include <ops/all_ops.h>

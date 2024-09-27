@@ -3,8 +3,8 @@
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
 from nvfuser import FusionDefinition, DataType
-from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from .core import run_benchmark, clear_cuda_cache
+from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype, clear_cuda_cache
+from .core import run_benchmark, clear_dynamo_cache
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
 
@@ -79,6 +79,8 @@ def test_gelu_fwd_baseline_benchmark(
     compile: bool,
 ):
     clear_cuda_cache()
+    if compile:
+        clear_dynamo_cache()
     inputs = [
         torch.randn(size, device="cuda", dtype=dtype, requires_grad=True),  # in_tensor
         torch.ones(size[-1], device="cuda", dtype=dtype),  # bias

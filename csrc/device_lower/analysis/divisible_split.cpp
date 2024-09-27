@@ -25,11 +25,11 @@ std::unordered_set<Split*> getAllDivisibleSplits(
     const ComputeAtMap* ca_map) {
   std::unordered_set<Split*> all_divisible_splits;
 
-  auto all_tvs = ir_utils::allTvs(fusion);
+  auto all_tvs = fusion->allTvs();
   // Find all tensor views with a view like rfactor. Splits used in view
   // transformations must be divisible by definition.
   for (auto tv : all_tvs) {
-    auto rfactor_dom = tv->getRFactorDomain();
+    auto logical_dom = tv->getLogicalDomain();
     // Not view if there's no rfactor axis
     if (!tv->domain()->hasViewLikeRFactor()) {
       continue;
@@ -38,7 +38,7 @@ std::unordered_set<Split*> getAllDivisibleSplits(
     // Take the view transformations and add all the splits. Those splits are
     // the only divisible splits.
     auto view_exprs =
-        StmtSort::getExprsTo({rfactor_dom.begin(), rfactor_dom.end()});
+        StmtSort::getExprsTo({logical_dom.begin(), logical_dom.end()});
     auto split_exprs = ir_utils::filterByType<Split>(view_exprs);
     all_divisible_splits.insert(split_exprs.begin(), split_exprs.end());
   }
@@ -47,13 +47,13 @@ std::unordered_set<Split*> getAllDivisibleSplits(
   // Gather vectorized splits.
   for (auto tv : all_tvs) {
     auto vec_id_it = std::find_if(
-        tv->getLeafDomain().begin(),
-        tv->getLeafDomain().end(),
+        tv->getLoopDomain().begin(),
+        tv->getLoopDomain().end(),
         [](IterDomain* id) {
           return id->getParallelType() == ParallelType::Vectorize;
         });
 
-    if (vec_id_it == tv->getLeafDomain().end()) {
+    if (vec_id_it == tv->getLoopDomain().end()) {
       continue;
     }
 

@@ -44,7 +44,8 @@ std::string getSerdeTmpFile() {
 
 std::string getSerdeFile(std::optional<int64_t> device_id) {
   auto device_prop = (device_id.has_value())
-      ? at::cuda::getDeviceProperties(device_id.value())
+      ? at::cuda::getDeviceProperties(
+            static_cast<c10::DeviceIndex>(device_id.value()))
       : at::cuda::getCurrentDeviceProperties();
   int cuda_major = 0;
   int cuda_minor = 0;
@@ -114,7 +115,8 @@ const serde::FusionCache* verifyFusionCache(
 
   // Check device major and minor versions
   auto device_prop = (device_id.has_value())
-      ? at::cuda::getDeviceProperties(device_id.value())
+      ? at::cuda::getDeviceProperties(
+            static_cast<c10::DeviceIndex>(device_id.value()))
       : at::cuda::getCurrentDeviceProperties();
   NVF_CHECK(
       device_prop->major == fusion_cache_buffer->device_major() &&
@@ -183,9 +185,46 @@ void serialize() {
 std::mutex FusionCache::singleton_lock_;
 FusionCache* FusionCache::singleton_ = nullptr;
 
-UserSchedule::UserSchedule() : schedule(nullptr), executor(nullptr) {
-  schedule = std::make_unique<Fusion>();
+UserSchedule::UserSchedule() : scheduled_fusion(nullptr), executor(nullptr) {
+  scheduled_fusion = std::make_unique<Fusion>();
   executor = std::make_unique<FusionExecutor>();
+}
+
+bool UserSchedule::canSchedule(const SchedulerType& scheduler_type) {
+  return Schedule::canSchedule(scheduler_type, fusion(), *runtimeInfo());
+}
+
+std::tuple<bool, std::string> UserSchedule::canScheduleDebug(
+    const SchedulerType& scheduler_type) {
+  // Enable collection of messages from canScheduleRejectReason
+  DebugDumpOptionsGuard debug_dump_options_guard;
+  DebugDumpOptionsGuard::getCurOptions().set(
+      DebugDumpOption::FusionSegmenterLog);
+
+  // Send debug messages to stringstream
+  std::stringstream ss;
+  DebugStreamGuard dsg(ss);
+
+  bool can_schedule = canSchedule(scheduler_type);
+  return std::make_tuple(can_schedule, ss.str());
+}
+
+void UserSchedule::scheduleWithType(SchedulerType scheduler_type) {
+  NVF_CHECK(
+      heuristic_params == nullptr,
+      "Heuristic Scheduler is already defined for this UserSchedule");
+  auto scheduler = SchedulerEntry::makeSchedulerInstance(scheduler_type);
+  SchedulerRuntimeInfo& runtime_info_ref = *runtimeInfo();
+
+  NVF_ERROR(
+      scheduler->canScheduleCompileTime(fusion()) &&
+          scheduler->canScheduleRunTime(fusion(), runtime_info_ref),
+      "Could not schedule fusion with ",
+      scheduler_type,
+      " scheduler.");
+
+  heuristic_params = scheduler->computeHeuristics(fusion(), runtime_info_ref);
+  scheduler->schedule(fusion(), heuristic_params.get());
 }
 
 FusionSchedules::FusionSchedules(int64_t fusion_id)
@@ -215,6 +254,16 @@ TrieNode::TrieNode(RecordFunctor* rec, TrieNode* _parent, size_t _fusion_id)
 
 bool TrieNode::isTerminal() const {
   return (record.get()->recordType() == serde::RecordType::End);
+}
+
+void TrieNode::setException(const char* e) {
+  std::lock_guard<std::mutex> guard(trie_node_lock);
+  exception = e;
+}
+
+std::optional<std::string> TrieNode::getException() {
+  std::lock_guard<std::mutex> guard(trie_node_lock);
+  return exception;
 }
 
 flatbuffers::Offset<serde::TrieNode> TrieNode::serialize(
@@ -410,6 +459,7 @@ FusionSchedules* FusionCache::queryFusionSchedules(size_t fusion_id) const {
   NVF_CHECK(ptr != nullptr, "Unexpected null FusionSchedules object.");
   return ptr;
 }
+
 std::optional<size_t> FusionCache::queryUserScheduleId(
     const FusionSchedules* scheds,
     const at::ArrayRef<c10::IValue>& inputs) {
@@ -425,6 +475,7 @@ std::optional<size_t> FusionCache::queryUserScheduleId(
   }
   return result;
 }
+
 const UserSchedule& FusionCache::queryUserSchedule(
     const FusionSchedules* scheds,
     size_t id,
@@ -437,6 +488,28 @@ const UserSchedule& FusionCache::queryUserSchedule(
   NVF_CHECK(
       user_sched != user_scheds.end(), "Lookup of non-existent user schedule!");
   return user_sched->second.at(device);
+}
+
+bool FusionCache::existUserSchedule(
+    const FusionSchedules* scheds,
+    const at::ArrayRef<c10::IValue>& inputs,
+    int device) {
+  // Short-Circuit: No user schedules
+  if (scheds->user_def_schedules.empty()) {
+    return false;
+  }
+
+  // Short-Circuit: User schedule does not exist for fusion and inputs.
+  InputsIdLookup::IdLookupReturn input_id =
+      user_def_input_encodings_.lookupId(inputs);
+  auto user_sched_iter = scheds->user_def_schedules.find(input_id.id);
+  if (user_sched_iter == scheds->user_def_schedules.end()) {
+    return false;
+  }
+
+  // A vector of user schedules exists for fusion and inputs.
+  // Now, check that user schedule exists for specified device.
+  return device < (int)user_sched_iter->second.size();
 }
 
 TrieNode* FusionCache::createChild(TrieNode* node, RecordFunctor* rec) {
@@ -687,7 +760,13 @@ void FusionCache::deserialize(std::string filename) {
           "The fusion id for this TrieNode should already be set.")
       Fusion* fusion =
           queryFusionSchedules(fb_trie_node->fusion_id())->preschedFusion();
-      state->buildFusionIr(fusion);
+      try {
+        // There could be bad fusion in the serialization.
+        state->buildFusionIr(fusion);
+      } catch (const std::exception& e) {
+        // catch exception and setException for the terminal node
+        trie_ptr->setException(e.what());
+      }
     }
 
     // Table TrieNode => Field: children: [ulong]

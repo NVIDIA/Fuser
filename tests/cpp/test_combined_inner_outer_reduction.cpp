@@ -34,271 +34,128 @@ namespace nvfuser {
 
 using namespace at::indexing;
 
-// mean & var
-std::tuple<float, float> getMeanVar(const std::vector<float>& v) {
-  const int nele = v.size();
-  float mean = std::accumulate(v.begin(), v.end(), 0.0f) / nele;
-  std::vector<float> sub_mean(nele);
-  std::transform(v.begin(), v.end(), sub_mean.begin(), [mean](float x) {
-    return x - mean;
-  });
-  float sq_sum = std::inner_product(
-      sub_mean.begin(), sub_mean.end(), sub_mean.begin(), 0.0);
-  float stdev = std::sqrt(sq_sum / nele);
-  return {mean, stdev};
-}
+// tuple of data type, batch size (outer dim), hidden size (inner dim)
+using CombinedSchedulerParams = std::tuple<DataType, int64_t, int64_t>;
+using CombinedSchedulerTest = NVFuserFixtureParamTest<CombinedSchedulerParams>;
+TEST_P(CombinedSchedulerTest, LayerNormBackward) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto [dtype, batch_size, hidden_size] = GetParam();
 
-// This case is to test the correctness of the combined inner and outer
-// scheduler used in layer norm backward. It can also be configured to test the
-// performance using different data types.
-TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
-  auto runTest = [](const std::vector<int64_t>& batch_shape,
-                    const std::vector<int64_t>& norm_shape,
-                    DataType dtype,
-                    bool isBenchmark,
-                    int verbose) {
-    std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
-    Fusion& fusion = *fusion_ptr.get();
-    FusionGuard fg(&fusion);
+  std::vector<int64_t> norm_shape{hidden_size};
+  std::vector<int64_t> input_shape{batch_size, hidden_size};
+  std::vector<int64_t> outer_shape{batch_size, 1};
+  bool fp16_or_bf16 = dtype == DataType::Half || dtype == DataType::BFloat16;
+  auto grad_out = makeContigTensor(input_shape.size(), dtype);
+  auto input = makeContigTensor(input_shape.size(), dtype);
+  auto mean =
+      makeConcreteTensor(outer_shape, fp16_or_bf16 ? DataType::Float : dtype);
+  auto rstd =
+      makeConcreteTensor(outer_shape, fp16_or_bf16 ? DataType::Float : dtype);
+  auto weight = makeContigTensor(norm_shape.size(), dtype);
+  auto bias = makeContigTensor(norm_shape.size(), dtype);
+  fusion->addInput(grad_out);
+  fusion->addInput(input);
+  fusion->addInput(mean);
+  fusion->addInput(rstd);
+  fusion->addInput(weight);
+  fusion->addInput(bias);
 
-    std::vector<int64_t> input_shape(batch_shape);
-    std::copy(
-        norm_shape.begin(), norm_shape.end(), std::back_inserter(input_shape));
-
-    const size_t kM = input_shape.size();
-    const size_t kN = norm_shape.size();
-    const size_t kOuterNumDims = kM - kN;
-    std::vector<int64_t> outer_shape;
-    for (const auto idx : c10::irange(kOuterNumDims)) {
-      outer_shape.push_back(input_shape[idx]);
-    }
-    for (const auto idx : c10::irange(kOuterNumDims, kM)) {
-      // just to avoid unused variable warning
-      outer_shape.push_back(1 + idx - idx);
-    }
-
-    auto grad_out = makeContigTensor(input_shape.size(), dtype);
-    auto input = makeContigTensor(input_shape.size(), dtype);
-    auto mean = makeConcreteTensor(
-        outer_shape, dtype == DataType::Half ? DataType::Float : dtype);
-    auto rstd = makeConcreteTensor(
-        outer_shape, dtype == DataType::Half ? DataType::Float : dtype);
-    auto weight = makeContigTensor(norm_shape.size(), dtype);
-    auto bias = makeContigTensor(norm_shape.size(), dtype);
-    fusion.addInput(grad_out);
-    fusion.addInput(input);
-    fusion.addInput(mean);
-    fusion.addInput(rstd);
-    fusion.addInput(weight);
-    fusion.addInput(bias);
-
-    if (dtype == DataType::Half) {
-      grad_out = castOp(DataType::Float, grad_out);
-      input = castOp(DataType::Float, input);
-      weight = castOp(DataType::Float, weight);
-      bias = castOp(DataType::Float, bias);
-    }
-
-    auto layer_norm_results = layer_norm_backward(
-        grad_out,
-        input,
-        norm_shape,
-        mean,
-        rstd,
-        weight,
-        bias,
-        {true, true, true});
-
-    if (dtype == DataType::Half) {
-      layer_norm_results.grad_input =
-          castOp(dtype, layer_norm_results.grad_input);
-      layer_norm_results.grad_bias =
-          castOp(dtype, layer_norm_results.grad_bias);
-      layer_norm_results.grad_weight =
-          castOp(dtype, layer_norm_results.grad_weight);
-    }
-
-    fusion.addOutput(layer_norm_results.grad_input);
-    fusion.addOutput(layer_norm_results.grad_weight);
-    fusion.addOutput(layer_norm_results.grad_bias);
-
-    auto maybe_fp16_options = at::TensorOptions()
-                                  .dtype(data_type_to_aten(dtype))
-                                  .device(at::kCUDA, 0);
-
-    // Reduce the scale to avoid fp16 overflow. In segmented scenarios,
-    // intermediates across different segments are saved in fp16. Input down
-    // scaling is essential to avert fp16 overflow. Refer to:
-    // https://github.com/NVIDIA/Fuser/issues/704
-    constexpr float scale_down_factor = 0.01;
-    constexpr float scale_back_factor = 1.0 / scale_down_factor;
-    at::Tensor aten_grad_out = at::randn(input_shape, maybe_fp16_options)
-                                   .mul(scale_down_factor)
-                                   .to(data_type_to_aten(dtype));
-    at::Tensor aten_input = at::randn(input_shape, maybe_fp16_options)
-                                .mul(scale_down_factor)
-                                .to(data_type_to_aten(dtype));
-    at::Tensor aten_weight = at::randn(norm_shape, maybe_fp16_options)
-                                 .mul(scale_down_factor)
-                                 .to(data_type_to_aten(dtype));
-    at::Tensor aten_bias = at::randn(norm_shape, maybe_fp16_options)
-                               .mul(scale_down_factor)
-                               .to(data_type_to_aten(dtype));
-
-    auto at_weight = c10::optional<at::Tensor>(aten_weight);
-    auto at_bias = c10::optional<at::Tensor>(aten_bias);
-
-    const float kEps = 1e-5;
-    auto aten_results =
-        at::native_layer_norm(aten_input, norm_shape, at_weight, at_bias, kEps);
-    auto aten_output = std::get<0>(aten_results);
-    auto aten_mean = std::get<1>(aten_results);
-    auto aten_rstd = std::get<2>(aten_results);
-
-    FusionExecutorCache fec(std::move(fusion_ptr));
-    std::vector<c10::IValue> aten_inputs = {
-        aten_grad_out,
-        aten_input,
-        aten_mean,
-        aten_rstd,
-        aten_weight,
-        aten_bias};
-    auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
-
-    auto aten_gradients = at::native_layer_norm_backward(
-        aten_grad_out,
-        aten_input,
-        norm_shape,
-        aten_mean,
-        aten_rstd,
-        c10::optional<at::Tensor>(aten_weight),
-        c10::optional<at::Tensor>(aten_bias),
-        {true, true, true});
-
-    testValidate(
-        &fusion,
-        {cg_outputs[0].mul(scale_back_factor),
-         cg_outputs[1].mul(scale_back_factor),
-         cg_outputs[2].mul(scale_back_factor)},
-        aten_inputs,
-        {std::get<0>(aten_gradients).mul(scale_back_factor),
-         std::get<1>(aten_gradients).mul(scale_back_factor),
-         std::get<2>(aten_gradients).mul(scale_back_factor)},
-        __LINE__,
-        __FILE__);
-    if (isBenchmark) {
-      FusionKernelRuntime* fkr = fec.getMostRecentKernelRuntime();
-      fkr->enableKernelTimeMeasurement();
-
-      constexpr int nwarm = 5;
-      constexpr int niter = 10;
-      std::vector<float> bw(niter, 0.f);
-      std::vector<float> timeus(niter, 0.f);
-
-      size_t read_write_bytes = 0;
-      const std::vector<at::Tensor> aten_inputs_tmp = {
-          aten_grad_out,
-          aten_input,
-          aten_mean,
-          aten_rstd,
-          aten_weight,
-          aten_bias};
-      const std::vector<at::Tensor> aten_output_tmp = {
-          std::get<0>(aten_gradients),
-          std::get<1>(aten_gradients),
-          std::get<2>(aten_gradients)};
-      for (auto input : aten_inputs_tmp) {
-        read_write_bytes += input.numel() * input.element_size();
-      }
-      for (auto output : aten_output_tmp) {
-        read_write_bytes += output.numel() * output.element_size();
-      }
-
-      for (int i = 0; i < nwarm + niter; i++) {
-        clearL2Cache();
-        // fe.runFusion(inputs, outputs, launch_constraints);
-        auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
-        if (i >= nwarm) {
-          float runTimeus = 0.0f;
-          int num_kernels = fkr->executors().size();
-          for (int i = 0; i < num_kernels; i++) {
-            const FusionExecutor& fe = fkr->executors()[i];
-            runTimeus += fe.kernelTimeMs() * 1e3;
-          }
-          float bandwidth = read_write_bytes / 1e9 / (runTimeus * 1e-6);
-          timeus[i - nwarm] = runTimeus;
-          bw[i - nwarm] = bandwidth;
-          if (verbose == 2)
-            std::cout << "iter= " << i << ", bandwidth= " << bandwidth << "GB/s"
-                      << ", time= " << runTimeus << " us" << std::endl;
-        }
-      }
-      return getMeanVar(timeus);
-    } else {
-      if (verbose == 1) {
-        std::stringstream sdim0, sdim1;
-        std::for_each(
-            batch_shape.begin(), batch_shape.end(), [&sdim0](int64_t n) {
-              sdim0 << n << " x ";
-            });
-        std::for_each(
-            norm_shape.begin(), norm_shape.end(), [&sdim1](int64_t n) {
-              sdim1 << n << " x ";
-            });
-        std::string str1 = sdim1.str();
-        str1.erase(str1.end() - 2);
-        std::cout << "passed, shape= " << sdim0.str() << str1 << std::endl;
-      }
-      return std::make_tuple(-1.0f, -1.0f);
-    }
-  };
-
-  std::vector<DataType> data_types = {DataType::Half, DataType::Float};
-  std::vector<std::vector<int64_t>> batch_sizes = {{216}};
-  std::vector<std::vector<int64_t>> hidden_sizes = {
-      {3},
-      {32},
-      {96},
-      {576},
-      {768},
-      {1024},
-      {1280},
-      {1600},
-      {1984},
-      {1987},
-      {65536}};
-  bool isBenchmark = false;
-  bool onlyTestFirstCase = false;
-  int verbose = 0;
-  for (auto dtype : data_types) {
-    for (auto batch_shape : batch_sizes) {
-      for (auto norm_shape : hidden_sizes) {
-        std::tuple<float, float> avg_var =
-            runTest(batch_shape, norm_shape, dtype, isBenchmark, verbose);
-        if (isBenchmark) {
-          std::stringstream sdim0, sdim1;
-          std::for_each(
-              batch_shape.begin(), batch_shape.end(), [&sdim0](int64_t n) {
-                sdim0 << n << " x ";
-              });
-          std::for_each(
-              norm_shape.begin(), norm_shape.end(), [&sdim1](int64_t n) {
-                sdim1 << n << " x ";
-              });
-          std::cout << "shape= " << sdim0.str() << sdim1.str()
-                    << ", time_us mean(var)= " << std::get<0>(avg_var) << " ("
-                    << std::get<1>(avg_var) << ")" << std::endl;
-        }
-        if (onlyTestFirstCase)
-          break;
-      }
-      if (onlyTestFirstCase)
-        break;
-    }
-    if (onlyTestFirstCase)
-      break;
+  if (fp16_or_bf16) {
+    grad_out = castOp(DataType::Float, grad_out);
+    input = castOp(DataType::Float, input);
+    weight = castOp(DataType::Float, weight);
+    bias = castOp(DataType::Float, bias);
   }
+  auto layer_norm_results = layer_norm_backward(
+      grad_out,
+      input,
+      norm_shape,
+      mean,
+      rstd,
+      weight,
+      bias,
+      {true, true, true});
+
+  if (fp16_or_bf16) {
+    layer_norm_results.grad_input =
+        castOp(dtype, layer_norm_results.grad_input);
+    layer_norm_results.grad_bias = castOp(dtype, layer_norm_results.grad_bias);
+    layer_norm_results.grad_weight =
+        castOp(dtype, layer_norm_results.grad_weight);
+  }
+
+  fusion->addOutput(layer_norm_results.grad_input);
+  fusion->addOutput(layer_norm_results.grad_weight);
+  fusion->addOutput(layer_norm_results.grad_bias);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+
+  at::Tensor aten_grad_out = at::randn(input_shape, options);
+  at::Tensor aten_input = at::randn(input_shape, options);
+  at::Tensor aten_weight = at::randn(norm_shape, options);
+  at::Tensor aten_bias = at::randn(norm_shape, options);
+
+  constexpr float kEps = 1e-5;
+  auto aten_results = at::native_layer_norm(
+      aten_input, norm_shape, aten_weight, aten_bias, kEps);
+  auto aten_output = std::get<0>(aten_results);
+  auto aten_mean = std::get<1>(aten_results);
+  auto aten_rstd = std::get<2>(aten_results);
+
+  FusionExecutorCache fec(std::move(fusion));
+  std::vector<c10::IValue> aten_inputs = {
+      aten_grad_out, aten_input, aten_mean, aten_rstd, aten_weight, aten_bias};
+  auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
+
+  auto aten_gradients = at::native_layer_norm_backward(
+      aten_grad_out,
+      aten_input,
+      norm_shape,
+      aten_mean,
+      aten_rstd,
+      aten_weight,
+      aten_bias,
+      {true, true, true});
+
+  testValidate(
+      fec.fusion(),
+      {cg_outputs[0], cg_outputs[1], cg_outputs[2]},
+      aten_inputs,
+      {std::get<0>(aten_gradients),
+       std::get<1>(aten_gradients),
+       std::get<2>(aten_gradients)},
+      __LINE__,
+      __FILE__);
 }
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    CombinedSchedulerTest,
+    ::testing::Combine(
+        // aten doesn't support complex data types
+        testing::ValuesIn(getFloatingDataTypes(/*include_complex=*/false)),
+        testing::Values(216), // batch size
+        testing::Values(
+            3,
+            32,
+            96,
+            576,
+            768,
+            1024,
+            1280,
+            1600,
+            1984,
+            1987,
+            65536)), // hidden size
+    [](const testing::TestParamInfo<CombinedSchedulerParams>& info)
+        -> std::string {
+      std::stringstream ss;
+      ss << "dtype_" << std::get<0>(info.param);
+      ss << "_batch_" << std::get<1>(info.param);
+      ss << "_hidden_" << std::get<2>(info.param);
+      return sanitizeTestName(ss.str());
+    });
 
 // This case is to test the correctness of the combined inner and outer
 // scheduler, if link_inner_outer = true, the inner and outer reductions are
@@ -306,7 +163,7 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
 // fusion should be segmented since the current combined scheduler assumes there
 // is no shared consumer between inter reductions and outer reductions and among
 // tensors in outer reductions.
-TEST_F(NVFuserTest, CombinedSchedulerSharedConsumer_CUDA) {
+TEST_F(CombinedSchedulerTest, SharedConsumer) {
   auto runTest = [](const std::vector<int64_t>& batch_shape,
                     const std::vector<int64_t>& norm_shape,
                     DataType dtype,
@@ -455,7 +312,7 @@ TEST_F(NVFuserTest, CombinedSchedulerSharedConsumer_CUDA) {
 // This case is to test the correctness of the combined inner and outer
 // scheduler. One tensor is using the inner reduction results and outer
 // reduction results. should be segmented.
-TEST_F(NVFuserTest, CombinedSchedulerSharedProducer_CUDA) {
+TEST_F(CombinedSchedulerTest, SharedProducer) {
   auto runTest = [](const std::vector<int64_t>& batch_shape,
                     const std::vector<int64_t>& norm_shape,
                     DataType dtype,
@@ -531,9 +388,9 @@ TEST_F(NVFuserTest, CombinedSchedulerSharedProducer_CUDA) {
         fusion.addOutput(use_outer);
       } break;
       case 1: {
-        // tensor bias is a producer of the inner reduction and also a produer
-        // of a consumer of the outer reduction results this a not allowed,
-        // expect segmented
+        // tensor bias is a producer of the inner reduction and also a
+        // produer of a consumer of the outer reduction results this a not
+        // allowed, expect segmented
         auto bias_broad = add(bias, mean);
         auto use_inner = sum(bias_broad, {-1});
         auto use_outer = add(layer_norm_results.grad_weight, bias);
@@ -541,10 +398,10 @@ TEST_F(NVFuserTest, CombinedSchedulerSharedProducer_CUDA) {
         fusion.addOutput(use_outer);
       } break;
       case 2: {
-        // tensor bias is a producer of the outer reduction and also a produer
-        // of a consumer of the inner reduction results this a allowed, becase
-        // the first part of outer reduction is computed with inner reduction.
-        // expect unsegmented
+        // tensor bias is a producer of the outer reduction and also a
+        // produer of a consumer of the inner reduction results this a
+        // allowed, becase the first part of outer reduction is computed
+        // with inner reduction. expect unsegmented
         auto bias_broad = add(bias, mean);
         auto use_inner = add(layer_norm_results.grad_input, bias_broad);
         auto use_outer = sum(bias_broad, {0});
@@ -564,7 +421,7 @@ TEST_F(NVFuserTest, CombinedSchedulerSharedProducer_CUDA) {
         fusion.addOutput(use_producer_2);
       } break;
       default:
-        NVF_ERROR(false, "Invalid case id");
+        NVF_THROW("Invalid case id");
     }
 
     fusion.addOutput(layer_norm_results.grad_input);
@@ -578,12 +435,10 @@ TEST_F(NVFuserTest, CombinedSchedulerSharedProducer_CUDA) {
     at::Tensor aten_input = at::randn(input_shape, maybe_fp16_options);
     at::Tensor aten_weight = at::randn(norm_shape, maybe_fp16_options);
     at::Tensor aten_bias = at::randn(norm_shape, maybe_fp16_options);
-    auto at_weight = c10::optional<at::Tensor>(aten_weight);
-    auto at_bias = c10::optional<at::Tensor>(aten_bias);
 
-    const float kEps = 1e-5;
-    auto aten_results =
-        at::native_layer_norm(aten_input, norm_shape, at_weight, at_bias, kEps);
+    constexpr float kEps = 1e-5;
+    auto aten_results = at::native_layer_norm(
+        aten_input, norm_shape, aten_weight, aten_bias, kEps);
     auto aten_output = std::get<0>(aten_results);
     auto aten_mean = std::get<1>(aten_results);
     auto aten_rstd = std::get<2>(aten_results);
@@ -598,48 +453,19 @@ TEST_F(NVFuserTest, CombinedSchedulerSharedProducer_CUDA) {
         aten_bias};
     auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
 
-    auto aten_gradients = at::native_layer_norm_backward(
-        aten_grad_out,
-        aten_input,
-        norm_shape,
-        aten_mean,
-        aten_rstd,
-        c10::optional<at::Tensor>(aten_weight),
-        c10::optional<at::Tensor>(aten_bias),
-        {true, true, true});
-
-    // check the results depending on the case
-    at::Tensor aten_use_inner, aten_use_outer;
-    bool expected_segmented;
+    FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
     switch (case_id) {
-      case 0: {
-        aten_use_inner = std::get<0>(aten_gradients) + aten_input;
-        aten_use_outer = std::get<1>(aten_gradients) + aten_input;
-        expected_segmented = true;
-      } break;
-      case 1: {
-        aten_use_inner = (aten_bias + aten_mean).sum({-1});
-        aten_use_outer = std::get<1>(aten_gradients) + aten_bias;
-        expected_segmented = true;
-      } break;
-      case 2: {
-        aten_use_inner = std::get<0>(aten_gradients) + (aten_bias + aten_mean);
-        aten_use_outer = (aten_bias + aten_mean).sum({0});
-        expected_segmented = false;
-      } break;
-      case 3: {
-        aten_use_inner = std::get<1>(aten_gradients) + (aten_bias + 1.0);
-        aten_use_outer = std::get<2>(aten_gradients) + (aten_bias + 1.0);
-        expected_segmented = true;
-      } break;
+      case 0:
+      case 1:
+      case 3:
+        EXPECT_TRUE(runtime->isSegmented());
+        break;
+      case 2:
+        EXPECT_FALSE(runtime->isSegmented());
+        break;
       default:
-        NVF_ERROR(false, "Invalid case id");
+        NVF_THROW("Invalid case id");
     }
-    bool is_segmented = fec.getMostRecentKernelRuntime()->isSegmented();
-    NVF_CHECK(
-        is_segmented == expected_segmented,
-        expected_segmented ? "Fusion should be segmented!"
-                           : "Fusion should not be segmented!");
 
     auto tolerance_overwrite = ValidationConstants();
     // bump tolerance, CI errors are higher than local
@@ -653,11 +479,6 @@ TEST_F(NVFuserTest, CombinedSchedulerSharedProducer_CUDA) {
         &fusion,
         cg_outputs,
         aten_inputs,
-        {aten_use_inner,
-         aten_use_outer,
-         std::get<0>(aten_gradients),
-         std::get<1>(aten_gradients),
-         std::get<2>(aten_gradients)},
         __LINE__,
         __FILE__,
         "",
@@ -676,7 +497,7 @@ TEST_F(NVFuserTest, CombinedSchedulerSharedProducer_CUDA) {
 }
 
 // Manual schedule of inner and outer reduction on the same tensor
-TEST_F(NVFuserTest, CombinedReduction_CUDA) {
+TEST_F(CombinedSchedulerTest, CombinedReduction) {
   // https://github.com/csarofeen/pytorch/issues/2566
   // this case will fail, if using tidx = 8 and tidy = 64
   // for inner reduction, tidy is derived as 10240 / (tidx*vecx*nloadx) = 64
@@ -837,7 +658,7 @@ TEST_F(NVFuserTest, CombinedReduction_CUDA) {
 
 // Manual schedule of inner and outer reduction on the same tensor. Each block
 // will do multiple reductions.
-TEST_F(NVFuserTest, CombinedReductionMultiPerBlock_CUDA) {
+TEST_F(CombinedSchedulerTest, CombinedReductionMultiPerBlock) {
   auto ceilDiv = [](const int a, const int b) { return (a + b - 1) / b; };
   constexpr bool verbose = false;
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
@@ -1015,7 +836,7 @@ TEST_F(NVFuserTest, CombinedReductionMultiPerBlock_CUDA) {
 
 // Reproduce of issue 1023, where iteration axis in inner reduction tv doesn't
 // match to reduction axis in outer reduction tv.
-TEST_F(NVFuserTest, CombinedSchedulerInnerOuterMismatch) {
+TEST_F(CombinedSchedulerTest, InnerOuterMismatch) {
   auto test = [](const std::vector<int64_t>& outer_reduction_axis) {
     std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
     Fusion& fusion = *fusion_ptr.get();
@@ -1070,7 +891,7 @@ TEST_F(NVFuserTest, CombinedSchedulerInnerOuterMismatch) {
 // outer broadcast tvs, e.g. in layer norm backward and RMS norm backward.
 // This test covers the branch where the outer broadcast tensor is not exist
 // and data type is fp32, so the buffer is not projected to inputs.
-TEST_F(NVFuserTest, CombinedSchedulerInnerOuterNoOuterBroadcastTv) {
+TEST_F(CombinedSchedulerTest, InnerOuterNoOuterBroadcastTv) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -1089,15 +910,16 @@ TEST_F(NVFuserTest, CombinedSchedulerInnerOuterNoOuterBroadcastTv) {
   at::Tensor t0 = at::randn({dim0, dim1}, options);
   std::vector<c10::IValue> aten_inputs = {t0};
 
-  auto heuristic =
+  auto persistent_params =
       getInnerOuterPersistentHeuristics(fusion_ptr.get(), aten_inputs);
-  NVF_CHECK(heuristic, "InnerOuterPersistentHeuristics was not generated!");
   NVF_CHECK(
-      !heuristic->project_persistent_buffers,
+      persistent_params, "InnerOuterPersistentHeuristics was not generated!");
+  NVF_CHECK(
+      !persistent_params->project_persistent_buffers,
       "Shouldn't project persistent buffers to inputs!");
 
-  scheduleInnerOuterPersistentKernel(fusion_ptr.get(), *heuristic);
-  auto lparams = heuristic->lparams;
+  scheduleInnerOuterPersistentKernel(fusion_ptr.get(), persistent_params.get());
+  auto lparams = persistent_params->lparams;
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs, lparams);
   auto cg_outputs = fe.runFusion(aten_inputs, lparams);

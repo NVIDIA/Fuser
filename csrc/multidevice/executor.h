@@ -11,6 +11,8 @@
 #include <exceptions.h>
 #include <fusion.h>
 #include <fusion_segmenter.h>
+#include <host_ir/executor.h>
+#include <ir/cloner.h>
 #include <multidevice/communication.h>
 #include <multidevice/communicator.h>
 #include <multidevice/multidevice.h>
@@ -29,11 +31,10 @@ namespace nvfuser {
        parallel type ParallelType::DIDx
 
   We make the following assumptions on the Fusion:
-  - Only the outmost (non-reduction) axis is allowed to be parallelized
+  - Only one (non-reduction) axis is allowed to be parallelized
     with ParallelType::DIDx. Moreover, this axis cannot be split/merged.
   - We only support 1D device meshes for now
-  - We only support TensorView, not Scalars
-  - We only support static shapes
+  - We only support TensorViews in communication segments.
 
   Summary of the different steps performed by the MultiDeviceExecutor:
   I. At instantiation:
@@ -68,30 +69,15 @@ namespace nvfuser {
      device scheduling.
 */
 
-struct MultiDeviceExecutorParams {
-  // Experimental: whether to use FusionExecutorCache rather than
-  // FusionExecutor.
-  bool use_fusion_executor_cache = false;
-  // Experimental: whether to apply auto-scheduling in FusionExecutorCache if
-  // use_fusion_executor_cache=true. WAR: temporary hack mainly use for
-  // development
-  bool skip_auto_scheduling = false;
-  // Experimental: whether to cache fusion executor. WAR: avoid recompilation
-  // but implicitely assumes that the input shape don't change over iterations
-  bool cache_fusion_executor = false;
-};
-
 class MultiDeviceExecutor {
  public:
   MultiDeviceExecutor(
       std::unique_ptr<Fusion> fusion,
       Communicator& comm,
-      MultiDeviceExecutorParams params = MultiDeviceExecutorParams());
+      hir::HostIrExecutorParams params = hir::HostIrExecutorParams());
 
   // Run the fusion on several devices with the given global inputs
-  std::vector<at::Tensor> runWithInput(
-      const std::vector<c10::IValue>& inputs,
-      const LaunchParams& launch_params = LaunchParams());
+  std::vector<at::Tensor> runWithInput(const std::vector<c10::IValue>& inputs);
 
   // Returns the Communicator
   Communicator* comm() const {
@@ -100,7 +86,7 @@ class MultiDeviceExecutor {
 
   // Returns the Fusion
   auto completeFusion() const {
-    return staged_fusion_->completeFusion();
+    return complete_fusion_.get();
   }
 
   // check if the runtime is valid returns an error msg.
@@ -108,42 +94,25 @@ class MultiDeviceExecutor {
   std::string validate() const;
 
   //! Print to default debugging output stream
-  std::ostream& print();
+  std::ostream& print(std::ostream& os = debug());
+
+  const auto& getFusionExecutorCaches() {
+    return host_ir_executor_->getFusionExecutorCaches();
+  };
 
  private:
-  // execute locally a SegmentedGroup that does not involve inter-device
-  // communication. Launch Params are used only if
-  // params_.use_fusion_executor_cache = false
-  void postKernel(SegmentedGroup* group, const LaunchParams& launch_params);
-  // execute a SegmentedGroup representing inter-device communication
-  void postCommunication(SegmentedGroup* group);
-
-  // Stores concrete computed values,
-  std::unordered_map<Val*, c10::IValue> val_to_IValue_;
-
   // holds the Communicator to be used for execution
   Communicator& comm_;
-  // holds the fusion after segmentation at the inter-device communications
-  // Each SegmentedGroup represents a pipeline's stage, and can be either
-  // 1) a Fusion which doesn't involve inter-device communication
-  // 2) a Fusion comprised of one Expr, representing inter-device communication
-  std::unique_ptr<SegmentedFusion> staged_fusion_;
-  // Stores the order in which the pipeline's stage should be executed
-  RuntimeWorkSpace workspace;
-  // Cache Fusions, FusionExecutors, and Communications
-  std::unordered_map<SegmentedGroup*, FusionExecutor> fe_;
-  std::unordered_map<SegmentedGroup*, FusionExecutorCache> fec_;
-  // Cache whether a SegmentedGroup should be run by the current device
-  std::unordered_map<SegmentedGroup*, bool> should_run_;
-  // Cache whether a SegmentedGroup requires inter-device communication
-  std::unordered_map<SegmentedGroup*, bool> is_resharding_;
+  // holds the original complete fusion
+  std::unique_ptr<Fusion> complete_fusion_;
+  // holds the HostIrExecutor used for execution
+  std::unique_ptr<hir::HostIrExecutor> host_ir_executor_;
   // Cached objects used for MultiDevice allocation
+  // TODO: remove and handle the allocation through Host Irs
   std::unique_ptr<Fusion> allocator_fusion_;
   // Cache the tensors that need to be allocated at runtime, which correspond to
   // the destination buffers of interdevice communications.
   std::vector<Val*> vals_to_allocate_;
-
-  MultiDeviceExecutorParams params_;
 };
 
 } // namespace nvfuser

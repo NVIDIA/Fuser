@@ -186,6 +186,10 @@ class NVF_API Statement : public NonCopyable, public PolymorphicBase {
   IrContainer* ir_container_ = nullptr;
 };
 
+inline std::string toString(Statement* stmt) {
+  return stmt->toString();
+}
+
 //! A Val represents a "value." These are objects, like tensors, scalars, and
 //! memory locations, that are inputs and outputs of computations (represented
 //! by Exprs, below)
@@ -260,7 +264,7 @@ class NVF_API Val : public Statement {
       : Statement(src, ir_cloner),
         vtype_(src->vtype_),
         dtype_(src->dtype_),
-        value_(src->value_){};
+        value_(src->value_) {}
 
   std::string toString(int indent_size = 0) const override;
 
@@ -368,12 +372,6 @@ class NVF_API Val : public Statement {
   bool isFusionOutput() const {
     return is_fusion_output_;
   }
-
-  //! Returns true when other is a producer of this
-  bool isProducerOf(const Val* other) const;
-
-  //! Returns true when other is a consumer of this
-  bool isConsumerOf(const Val* other) const;
 
   bool sameType(const Statement* other) override {
     return Statement::sameType(other) &&
@@ -682,7 +680,7 @@ bool Val::isDefinitionType() const {
       std::vector<Val*> inputs,                            \
       std::vector<Val*> outputs,                           \
       std::vector<Statement*> attributes) {                \
-    return IrBuilder::create<ClassName>(                   \
+    return IrBuilder::createInContainer<ClassName>(        \
         container, inputs, outputs, attributes);           \
   }
 

@@ -40,8 +40,8 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
     kir::ExprMutator::traverseAndInsert(exprs);
   }
 
-  void handle(kir::ForLoop* fl) final {
-    kir::Scope* scope = scope_.empty() ? nullptr : scope_.back();
+  void handle(ForLoop* fl) final {
+    Scope* scope = scope_.empty() ? nullptr : scope_.back();
     if (containsAnyDirectChildMisalignedVectorize(fl)) {
       for_loops_.push_back(fl);
       auto new_fl = handleMisalignedVectorize(for_loops_, fl);
@@ -138,7 +138,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
 
   // Create constants for handling misaligned addresses
   VectorizeData createVectorizeConstants(
-      const std::vector<kir::ForLoop*>& for_loop_structure,
+      const std::vector<ForLoop*>& for_loop_structure,
       const ReferenceTensors& tensors,
       kir::IfThenElse* parent_scope_ite) {
     // Generate vectorize index
@@ -157,7 +157,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
 
     // >>>>>>>>>>>>>
     // Number of elements in vectorize access
-    auto vector_size = tensors.vec_tv->getLeafDomain().back()->extent();
+    auto vector_size = tensors.vec_tv->getLoopDomain().back()->extent();
 
     // Size of memory type for the elements
     Val* data_size_in_bytes = IrBuilder::create<Val>(
@@ -232,7 +232,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
   // Vectorized : [shift - (extent-remainder))
   // From the first to the last aligned address
   kir::IfThenElse* createVectorizeSection(
-      const std::vector<kir::ForLoop*>& child_loops,
+      const std::vector<ForLoop*>& child_loops,
       const VectorizeData& params) {
     auto vectorized_child_loops = cloneForLoops(
         child_loops, params.vector_size, nullptr, true, params.shift);
@@ -257,7 +257,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
   // Initial : [0 - shift)
   // From the initial address until the first aligned address
   kir::IfThenElse* createInitialSection(
-      const std::vector<kir::ForLoop*>& child_loops,
+      const std::vector<ForLoop*>& child_loops,
       const VectorizeData& params) {
     auto pre_child_loops = cloneForLoops(
         child_loops, params.vector_size, params.shift, false, nullptr);
@@ -283,7 +283,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
   // Remainder : [(extent-remainder) - extent)
   // From the last aligned address until the end of the extent
   kir::IfThenElse* createRemainderSection(
-      const std::vector<kir::ForLoop*>& child_loops,
+      const std::vector<ForLoop*>& child_loops,
       const VectorizeData& params) {
     auto post_child_loops = cloneForLoops(
         child_loops, params.vector_size, params.remainder, false, params.shift);
@@ -308,9 +308,9 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
     return remainder_ite;
   }
 
-  kir::ForLoop* handleMisalignedVectorize(
-      std::vector<kir::ForLoop*> for_loop_structure,
-      const kir::ForLoop* parent_for_loop) {
+  ForLoop* handleMisalignedVectorize(
+      std::vector<ForLoop*> for_loop_structure,
+      const ForLoop* parent_for_loop) {
     auto child_loops = findChildForLoops(parent_for_loop);
 
     // Assumption: All vectorize operations have the same shift
@@ -322,7 +322,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
 
     // The parent_for_loop contains allocate, read, compute, write operations
     const auto new_parent_for_loop =
-        IrBuilder::create<kir::ForLoop>(parent_for_loop);
+        IrBuilder::create<ForLoop>(parent_for_loop);
 
     // Transfer all expressions except for-loops to new parent for-loop
     // All expressions are placed at the beginning of the new for-loop
@@ -360,7 +360,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
 
   // Determine that the expression is LoadStoreOp AND
   // the output TensorView domain is vectorized
-  bool isVectorizeSetOp(kir::ForLoop* fl, Expr* expr) {
+  bool isVectorizeSetOp(ForLoop* fl, Expr* expr) {
     if (fl->iter_domain()->getParallelType() !=
         ParallelType::MisalignedVectorize) {
       return false;
@@ -381,13 +381,13 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
   // pred_stop value - Predicate loop body as (index < pred_stop) if non null
   // vectorize flag - Do not generate for loop header
   // shift value - Add shift to global indices generated within for loop
-  std::vector<kir::ForLoop*> cloneForLoops(
-      const std::vector<kir::ForLoop*>& for_loops_,
+  std::vector<ForLoop*> cloneForLoops(
+      const std::vector<ForLoop*>& for_loops_,
       Val* loop_stop,
       Val* pred_stop,
       bool vectorize,
       Val* vectorize_shift) {
-    std::vector<kir::ForLoop*> cloned_for_loops;
+    std::vector<ForLoop*> cloned_for_loops;
 
     for (auto fl : for_loops_) {
       auto first_expr = fl->body().exprs().front();
@@ -397,7 +397,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
       // it should only contain a single expression
       NVF_ERROR(!has_vectorize_op || fl->body().exprs().size() == 1);
 
-      const auto new_loop = IrBuilder::create<kir::ForLoop>(
+      const auto new_loop = IrBuilder::create<ForLoop>(
           fl->iter_domain(),
           fl->index(),
           GpuLower::current()->kernel()->zeroVal(),
@@ -406,7 +406,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
           vectorize && has_vectorize_op,
           vectorize_shift,
           fl->isUnrollRequired(),
-          fl->doubleBufferLoopStage());
+          fl->circularBufferLoopStage());
 
       auto body = &new_loop->body();
 
@@ -431,22 +431,20 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
   }
 
   // Add all expressions except for loops to new parent for loop
-  void copyExprsExceptForLoops(
-      const kir::ForLoop* for_loop,
-      kir::ForLoop* new_loop) {
-    std::vector<kir::ForLoop*> loops;
+  void copyExprsExceptForLoops(const ForLoop* for_loop, ForLoop* new_loop) {
+    std::vector<ForLoop*> loops;
     for (auto expr : for_loop->body().exprs()) {
-      if (!expr->isA<kir::ForLoop>()) {
+      if (!expr->isA<ForLoop>()) {
         new_loop->body().push_back(expr);
       }
     }
   }
 
   // Find any child for loops inside parent for loop
-  std::vector<kir::ForLoop*> findChildForLoops(const kir::ForLoop* for_loop) {
-    std::vector<kir::ForLoop*> loops;
+  std::vector<ForLoop*> findChildForLoops(const ForLoop* for_loop) {
+    std::vector<ForLoop*> loops;
     for (auto expr : for_loop->body().exprs()) {
-      if (auto nested_for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
+      if (auto nested_for_loop = dynamic_cast<ForLoop*>(expr)) {
         loops.push_back(nested_for_loop);
       }
     }
@@ -457,8 +455,8 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
   // Add child For-Loop to for_loop_structure
   // Enable vectorize flag in child For-Loop
   Expr* findFirstVectorizedSetOp(
-      std::vector<kir::ForLoop*>& for_loop_structure,
-      const std::vector<kir::ForLoop*>& for_loops_) {
+      std::vector<ForLoop*>& for_loop_structure,
+      const std::vector<ForLoop*>& for_loops_) {
     for (auto fl : for_loops_) {
       auto first_expr = fl->body().exprs().front();
       bool has_vectorize_op = isVectorizeSetOp(fl, first_expr);
@@ -472,63 +470,63 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
 
   // Get full extent for the inner-most, merged root domain
   Val* getVectorizeExtent(TensorView* producer_tv, TensorView* consumer_tv) {
-    auto p2c =
-        PairwiseRootDomainMap(producer_tv, consumer_tv).mapProducerToConsumer();
+    auto p2c = PairwiseLogicalDomainMap(producer_tv, consumer_tv)
+                   .mapProducerToConsumer();
 
     auto consumer_root_right_of_ca_domains = IterVisitor::getInputsTo(
-        {consumer_tv->getLeafDomain().begin() +
+        {consumer_tv->getLoopDomain().begin() +
              consumer_tv->getComputeAtPosition(),
-         consumer_tv->getLeafDomain().end()});
+         consumer_tv->getLoopDomain().end()});
     auto producer_root_right_of_ca_domains = IterVisitor::getInputsTo(
-        {producer_tv->getLeafDomain().begin() +
+        {producer_tv->getLoopDomain().begin() +
              producer_tv->getComputeAtPosition(),
-         producer_tv->getLeafDomain().end()});
+         producer_tv->getLoopDomain().end()});
 
     const auto& consumer_contig = consumer_tv->domain()->contiguity();
     const auto& producer_contig = producer_tv->domain()->contiguity();
 
-    const auto& producer_root_domain = producer_tv->getRFactorDomain();
-    const auto& consumer_root_domain = consumer_tv->getRFactorDomain();
+    const auto& producer_logical_domain = producer_tv->getLogicalDomain();
+    const auto& consumer_logical_domain = consumer_tv->getLogicalDomain();
 
-    // Calculate extent of merged root domains
+    // Calculate extent of merged logical domains
     Val* extent = nullptr;
-    auto consumer_root_idx = int(consumer_root_domain.size()) - 1;
-    for (int i = int(producer_root_domain.size()) - 1; i >= 0; --i) {
-      auto producer_root_id = producer_root_domain.at(i);
+    auto consumer_logical_idx = int(consumer_logical_domain.size()) - 1;
+    for (int i = int(producer_logical_domain.size()) - 1; i >= 0; --i) {
+      auto producer_logical_id = producer_logical_domain.at(i);
 
       // If the producer ID is reduction or broadcast, it should be safe
       // to ignore.
-      if (producer_root_id->isReduction()) {
+      if (producer_logical_id->isReduction()) {
         continue;
-      } else if (producer_root_id->isBroadcast()) {
-        --consumer_root_idx;
+      } else if (producer_logical_id->isBroadcast()) {
+        --consumer_logical_idx;
         continue;
       }
 
-      // There must be a matching consumer root ID as the producer ID is
+      // There must be a matching consumer logical ID as the producer ID is
       // not reduction and the expression between them is LoadStoreOp.
-      auto it = p2c.find(producer_root_id);
-      NVF_ERROR(it != p2c.end(), "No matching consumer root ID found");
-      auto consumer_root_id = it->second;
+      auto it = p2c.find(producer_logical_id);
+      NVF_ERROR(it != p2c.end(), "No matching consumer logical ID found");
+      auto consumer_logical_id = it->second;
 
       // Don't extend the vectorization domain beyond the CA position
       if (std::find(
               consumer_root_right_of_ca_domains.begin(),
               consumer_root_right_of_ca_domains.end(),
-              consumer_root_id) == consumer_root_right_of_ca_domains.end() ||
+              consumer_logical_id) == consumer_root_right_of_ca_domains.end() ||
           std::find(
               producer_root_right_of_ca_domains.begin(),
               producer_root_right_of_ca_domains.end(),
-              producer_root_id) == producer_root_right_of_ca_domains.end()) {
+              producer_logical_id) == producer_root_right_of_ca_domains.end()) {
         break;
       }
 
       // We now know it's safe to extend the vectorization domain to these
       // axes. It shouldn't matter whether producer or consumer is used.
       if (extent == nullptr) {
-        extent = consumer_root_id->extent();
+        extent = consumer_logical_id->extent();
       } else {
-        extent = IrBuilder::mulExpr(extent, consumer_root_id->extent());
+        extent = IrBuilder::mulExpr(extent, consumer_logical_id->extent());
       }
 
       // If it's not contiguous, extending the vectorization domain
@@ -536,7 +534,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
       auto producer_dim_contiguity = producer_contig.at(i);
       NVF_ERROR(producer_dim_contiguity.has_value());
 
-      auto consumer_dim_contiguity = consumer_contig.at(consumer_root_idx);
+      auto consumer_dim_contiguity = consumer_contig.at(consumer_logical_idx);
       NVF_ERROR(consumer_dim_contiguity.has_value());
 
       if (!(producer_dim_contiguity.value() &&
@@ -544,7 +542,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
         break;
       }
 
-      --consumer_root_idx;
+      --consumer_logical_idx;
     }
 
     NVF_ERROR(extent != nullptr);
@@ -553,7 +551,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
   }
 
   Val* createNamedScalarFromValue(
-      kir::Scope& body,
+      Scope& body,
       Val* val,
       const std::string& name,
       bool address = false) {
@@ -564,7 +562,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
   }
 
   // Keep track of the loop in which the currently visiting expr is a rotated.
-  std::unordered_set<kir::ForLoop*> rotated_loop_;
+  std::unordered_set<ForLoop*> rotated_loop_;
 };
 
 } // namespace
@@ -574,10 +572,10 @@ std::vector<Expr*> processMisalignedVectorization(
   return MisalignedVectorizationModifier::processMisalignedVectorization(exprs);
 }
 
-bool containsAnyDirectChildMisalignedVectorize(const kir::ForLoop* fl) {
+bool containsAnyDirectChildMisalignedVectorize(const ForLoop* fl) {
   for (auto expr : fl->body().exprs()) {
-    if (expr->isA<kir::ForLoop>()) {
-      auto child_fl = expr->as<kir::ForLoop>();
+    if (expr->isA<ForLoop>()) {
+      auto child_fl = expr->as<ForLoop>();
       if (child_fl->iter_domain()->getParallelType() ==
           ParallelType::MisalignedVectorize) {
         return true;

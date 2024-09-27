@@ -1,7 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024-present NVIDIA CORPORATION & AFFILIATES.
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
-import pytest
 import torch
 from nvfuser import FusionDefinition, DataType
 
@@ -32,7 +31,3 @@ def test_validate_precomputed_values():
     )
     # Cmoparing any number to NaN results in False.
     torch.testing.assert_close(outs[0].cpu(), torch.full((2, 5), False))
-
-
-if __name__ == "__main__":
-    pytest.main(["-v", __file__])

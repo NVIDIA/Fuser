@@ -72,12 +72,12 @@ int64_t getLdMatrixNumThreads(int64_t word_size) {
       // and all the 32 threads contain useful addresses.
       return 32;
     default:
-      NVF_ERROR(false, "Invalid word size for ldmatrix");
+      NVF_THROW("Invalid word size for ldmatrix");
   }
 }
 
 std::vector<int64_t> evaluateAddressesOnFirstPhase(
-    const std::vector<kir::ForLoop*>& for_loops,
+    const std::vector<ForLoop*>& for_loops,
     ExpressionEvaluator expr_eval_common,
     LoadStoreOp* ldst,
     bool is_producer) {
@@ -227,7 +227,7 @@ class BankConflictInfo : public kir::IrVisitor {
   using kir::IrVisitor::handle;
 
   void dispatch(Expr* expr) final {
-    if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
+    if (expr->isA<ForLoop>() || expr->isA<kir::IfThenElse>()) {
       kir::IrVisitor::dispatch(expr);
       return;
     }

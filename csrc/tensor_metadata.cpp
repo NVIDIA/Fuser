@@ -20,10 +20,10 @@ namespace nvfuser {
 
 namespace {
 
-// Forward traverse from rFactor domain to allocation domain, compute frontier
+// Forward traverse from logical domain to allocation domain, compute frontier
 // sizes and strides, validate that splits are divisible and merges are
 // contiguous, and update active_ids_ correspondingly.
-class ForwardTraverseFromRFactorToAlloc {
+class ForwardTraverseFromLogicalToAlloc {
   ExpressionEvaluator& ee_;
   std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>>& active_ids_;
 
@@ -34,14 +34,14 @@ class ForwardTraverseFromRFactorToAlloc {
     auto in_it = active_ids_.find(in);
     // NVF_ERROR(in_it != active_ids_.end())
     if (in_it == active_ids_.end()) {
-      // TODO: see [Allocation domain on both side of rFactor]
+      // TODO: see [Allocation domain on both side of logical]
       return;
     }
     auto [in_size, in_stride] = in_it->second;
     auto factor = ee_.evaluate(split->factor()).as<int64_t>();
     NVF_ERROR(
         in_size % factor == 0,
-        "The rFactor domain and allocation domain of fusion input/output ",
+        "The logical domain and allocation domain of fusion input/output ",
         "tensors must be a one-to-one map, therefore, ",
         "non-divisible split is not allowed in allocation domain");
     NVF_ERROR(active_ids_.erase(in) == 1);
@@ -66,14 +66,14 @@ class ForwardTraverseFromRFactorToAlloc {
     // NVF_ERROR(inner_it != active_ids_.end())
     // NVF_ERROR(outer_it != active_ids_.end())
     if (inner_it == active_ids_.end() || outer_it == active_ids_.end()) {
-      // TODO: see [Allocation domain on both side of rFactor]
+      // TODO: see [Allocation domain on both side of logical]
       return;
     }
     auto [inner_size, inner_stride] = inner_it->second;
     auto [outer_size, outer_stride] = outer_it->second;
     NVF_ERROR(
         inner_stride * inner_size == outer_stride,
-        "The rFactor domain and allocation domain of fusion input/output ",
+        "The logical domain and allocation domain of fusion input/output ",
         "tensors must be a one-to-one map, therefore, ",
         "merging of discontiguous dimensions is not allowed in allocation domain");
     NVF_ERROR(active_ids_.erase(inner) == 1);
@@ -92,30 +92,30 @@ class ForwardTraverseFromRFactorToAlloc {
     } else if (auto merge = dynamic_cast<Merge*>(expr)) {
       handle(merge);
     } else {
-      NVF_ERROR(false, "Unsupported transormation in allocation domain");
+      NVF_THROW("Unsupported transormation in allocation domain");
     }
   }
 
  public:
-  ForwardTraverseFromRFactorToAlloc(
+  ForwardTraverseFromLogicalToAlloc(
       ExpressionEvaluator& ee,
       std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>>& active_ids)
       : ee_(ee), active_ids_(active_ids) {}
 
   void run(
       TensorView* tv,
-      const std::vector<IterDomain*>& rfactor,
+      const std::vector<IterDomain*>& logical,
       const std::vector<IterDomain*>& alloc) {
     auto forward_exprs = StmtSort::getExprsBetween(
-        {rfactor.begin(), rfactor.end()}, {alloc.begin(), alloc.end()});
+        {logical.begin(), logical.end()}, {alloc.begin(), alloc.end()});
     for (auto expr : forward_exprs) {
       handle(expr);
     }
   }
 };
 
-// Similar to ForwardTraverseFromRFactorToAlloc, but in the opposite direction.
-class BackwardTraverseFromRFactorToAlloc {
+// Similar to ForwardTraverseFromLogicalToAlloc, but in the opposite direction.
+class BackwardTraverseFromLogicalToAlloc {
   at::Tensor tensor_;
   ExpressionEvaluator& ee_;
   std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>>& active_ids_;
@@ -129,14 +129,14 @@ class BackwardTraverseFromRFactorToAlloc {
     // NVF_ERROR(inner_it != active_ids_.end())
     // NVF_ERROR(outer_it != active_ids_.end())
     if (inner_it == active_ids_.end() || outer_it == active_ids_.end()) {
-      // TODO: see [Allocation domain on both side of rFactor]
+      // TODO: see [Allocation domain on both side of logical]
       return;
     }
     auto [inner_size, inner_stride] = inner_it->second;
     auto [outer_size, outer_stride] = outer_it->second;
     NVF_ERROR(
         inner_stride * inner_size == outer_stride,
-        "The rFactor domain and allocation domain of fusion input/output ",
+        "The logical domain and allocation domain of fusion input/output ",
         "tensors must be a one-to-one map, therefore, ",
         "splitting one dimension into discontiguous dimensions is not allowed in allocation domain");
     NVF_ERROR(active_ids_.erase(inner) == 1);
@@ -157,13 +157,13 @@ class BackwardTraverseFromRFactorToAlloc {
     auto out_it = active_ids_.find(out);
     // NVF_ERROR(out_it != active_ids_.end())
     if (out_it == active_ids_.end()) {
-      // TODO: see [Allocation domain on both side of rFactor]
+      // TODO: see [Allocation domain on both side of logical]
       return;
     }
     auto [out_size, out_stride] = out_it->second;
     NVF_ERROR(
         out_size % factor == 0,
-        "The rFactor domain and allocation domain of fusion input/output ",
+        "The logical domain and allocation domain of fusion input/output ",
         "tensors must be a one-to-one map, therefore, ",
         "the size of the output must divisible by the size of inner dimension");
     NVF_ERROR(active_ids_.erase(out) == 1);
@@ -185,22 +185,22 @@ class BackwardTraverseFromRFactorToAlloc {
     } else if (auto merge = dynamic_cast<Merge*>(expr)) {
       handle(merge);
     } else {
-      NVF_ERROR(false, "Unsupported transormation in allocation domain");
+      NVF_THROW("Unsupported transormation in allocation domain");
     }
   }
 
  public:
-  BackwardTraverseFromRFactorToAlloc(
+  BackwardTraverseFromLogicalToAlloc(
       ExpressionEvaluator& ee,
       std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>>& active_ids)
       : ee_(ee), active_ids_(active_ids) {}
 
   void run(
       TensorView* tv,
-      const std::vector<IterDomain*>& rfactor,
+      const std::vector<IterDomain*>& logical,
       const std::vector<IterDomain*>& alloc) {
     auto backward_exprs = StmtSort::getExprsBetween(
-        {alloc.begin(), alloc.end()}, {rfactor.begin(), rfactor.end()});
+        {alloc.begin(), alloc.end()}, {logical.begin(), logical.end()});
     std::reverse(backward_exprs.begin(), backward_exprs.end());
     for (auto expr : backward_exprs) {
       handle(expr);
@@ -291,18 +291,18 @@ inferAndValidateAllocationSizesAndStrides(
   }
   const auto& alloc =
       TensorDomain::noReductions(tv->getMaybeAllocationDomain());
-  const auto& rfactor = TensorDomain::noReductions(tv->getRFactorDomain());
+  const auto& logical = TensorDomain::noReductions(tv->getLogicalDomain());
 
   // active IDs and their shape and stride
   std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>> active_ids;
-  NVF_ERROR((int64_t)rfactor.size() == tensor.dim());
-  for (int64_t i : c10::irange((int64_t)rfactor.size())) {
-    auto rf_id = rfactor.at(i);
+  NVF_ERROR((int64_t)logical.size() == tensor.dim());
+  for (int64_t i : c10::irange((int64_t)logical.size())) {
+    auto rf_id = logical.at(i);
     active_ids[rf_id] = {tensor.size(i), tensor.stride(i)};
   }
 
-  ForwardTraverseFromRFactorToAlloc(ee, active_ids).run(tv, rfactor, alloc);
-  BackwardTraverseFromRFactorToAlloc(ee, active_ids).run(tv, rfactor, alloc);
+  ForwardTraverseFromLogicalToAlloc(ee, active_ids).run(tv, logical, alloc);
+  BackwardTraverseFromLogicalToAlloc(ee, active_ids).run(tv, logical, alloc);
 
   // Now active_ids should contain the final sizes and strides, unordered. We
   // need to put them to the correct order.
@@ -323,6 +323,30 @@ inferAndValidateAllocationSizesAndStrides(
   return {std::move(sizes), std::move(strides)};
 }
 
+namespace {
+std::pair<std::vector<int64_t>, std::vector<int64_t>> unshardedSizesAndStrides(
+    TensorView* tv,
+    c10::IntArrayRef sizes,
+    c10::IntArrayRef strides) {
+  std::vector<int64_t> unsharded_sizes(sizes.size());
+  std::vector<int64_t> unsharded_strides(strides.size());
+  for (const auto i : c10::irange(sizes.size())) {
+    IterDomain* id = tv->getLogicalDomain()[i];
+    if (id->isDeviceDim()) {
+      unsharded_sizes[i] = tv->getDeviceMesh().size(id->getParallelType());
+      // This probably doesn't matter in practice unless a kernel accidentally
+      // tries to access the data on another rank. To be safe, set the stride
+      // to zero, analogous to an expanded broadcast dimension.
+      unsharded_strides[i] = 0;
+    } else {
+      unsharded_sizes[i] = sizes[i];
+      unsharded_strides[i] = strides[i];
+    }
+  }
+  return {unsharded_sizes, unsharded_strides};
+}
+} // namespace
+
 std::vector<PolymorphicValue> GetMetaData::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
@@ -330,23 +354,33 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
   NVF_ERROR(
       in()->isA<TensorView>(),
       "Currently, GetMetaData only supports TensorView");
-  TensorView* tv = in()->as<TensorView>();
+  auto* tv = in()->as<TensorView>();
 
-  const at::Tensor& input = inputs.at(0).as<at::Tensor>();
+  const auto& input = inputs[0].as<at::Tensor>();
 
   NVF_ERROR(
       input.is_cuda() || input.is_meta(),
-      "GetMetaData expects a CUDA tensor as input, but got undefined tensor");
+      "GetMetaData expects a CUDA/meta tensor as input, but got: ",
+      input);
 
   std::shared_ptr<Struct> struct_ = std::make_shared<TensorMetaData>();
   TensorMetaData* metadata = (TensorMetaData*)struct_.get();
   metadata->dtype =
       std::get<PrimDataType>(aten_to_data_type(input.scalar_type()).type);
   metadata->data = input.data_ptr();
-  // If tensor is sharded then logical_size and logical_stride will
-  // refer to size and stride of the sharded tensor.
-  metadata->logical_size = input.sizes();
-  metadata->logical_stride = input.strides();
+
+  if (isSharded(tv)) {
+    auto [unsharded_sizes, unsharded_strides] =
+        unshardedSizesAndStrides(tv, input.sizes(), input.strides());
+    metadata->logical_size_data = std::move(unsharded_sizes);
+    metadata->logical_size = c10::makeArrayRef(metadata->logical_size_data);
+    metadata->logical_stride_data = std::move(unsharded_strides);
+    metadata->logical_stride = c10::makeArrayRef(metadata->logical_stride_data);
+  } else {
+    metadata->logical_size = input.sizes();
+    metadata->logical_stride = input.strides();
+  }
+
   if (tv->hasAllocation()) {
     auto allocation_data =
         inferAndValidateAllocationSizesAndStrides(input, tv, ee);
@@ -355,8 +389,8 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
     metadata->alloc_stride_data = std::move(allocation_data.second);
     metadata->alloc_stride = c10::makeArrayRef(metadata->alloc_stride_data);
   } else {
-    metadata->alloc_size = input.sizes();
-    metadata->alloc_stride = input.strides();
+    metadata->alloc_size = metadata->logical_size;
+    metadata->alloc_stride = metadata->logical_stride;
     // TODO: validateAllocationSizesAndStrides
   }
   return {PolymorphicValue(std::move(struct_))};

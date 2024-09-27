@@ -4,9 +4,11 @@
 import torch
 from typing import Union, List, Tuple
 from nvfuser import DataType
-from .core import DEVICE_PROPERTIES
+from .core import BENCHMARK_CONFIG
+from nvfuser.pytorch_utils import DEVICE_PROPERTIES
 import itertools
 import os
+from random import sample
 
 # BENCHMARK_MODE = weekly/nightly.
 BENCHMARK_MODE = os.getenv("BENCHMARK_MODE")
@@ -55,12 +57,8 @@ def generate_input_sizes(dims: Union[int, List] = 2) -> List[Tuple]:
     """
     The weekly vs nightly input ranges only differ for 2D inputs currently.
     Nightly input range:
-        Batch size: [16->16384] Hidden size: [768, 4*18432] (step size = 256)
+        Batch size: [16, 512, 2048, 8192, 16384] Hidden size: [768, 4*18432] (step size = 256)
     Weekly input range:
-        Batch size:
-            [16]: Latency bound state
-            [512, 1024]: Just filled the machine
-            [16384]: Steady state (full machine)
         Hidden size: Additonally benchmark hidden sizes at
             [step_size + 2, step_size + 4, step_size + 8, step_size + 16] to check vectorization.
     Note: The hidden size is restricted to 2 * 18432 for the batch size 16384 to avoid OOM.
@@ -74,11 +72,7 @@ def generate_input_sizes(dims: Union[int, List] = 2) -> List[Tuple]:
             input_ranges = []
 
             step_size = 256
-            # max_batch_range: set according to max size that fits in GPU memory
-            batch_range = [2**i for i in range(4, 14)]  # {16, 8192}
-
-            if BENCHMARK_MODE == "weekly":
-                batch_range = [16, 512, 1024]
+            batch_range = [16, 512, 2048, 8192]
 
             # max_hidden_size = 4 * d_model_max (max hidden size in feedforward layers)
             # NOTE: (This is not applicable to the updated implementation but leaving it here for future updates).
@@ -157,6 +151,9 @@ def generate_input_sizes(dims: Union[int, List] = 2) -> List[Tuple]:
             raise NotImplementedError(
                 f"Generating input sizes of dimension {dim} is not implemented"
             )
+    if BENCHMARK_CONFIG["num_inputs"] is not None:
+        inputs = sample(inputs, BENCHMARK_CONFIG["num_inputs"])
+
     return inputs
 
 
@@ -170,4 +167,8 @@ def generate_attn_inputs():
             batch_range, seq_lengths, LLM_CONFIGS
         )
     ]
+
+    if BENCHMARK_CONFIG["num_inputs"] is not None:
+        inputs = sample(inputs, BENCHMARK_CONFIG["num_inputs"])
+
     return inputs

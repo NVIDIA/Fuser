@@ -78,7 +78,7 @@ TEST_F(RemoveBcastSqueezeTest, BcastSqueezeMultipleUses) {
   auto tv1 = set(tv0);
   auto tv2 = broadcast(tv1, is_broadcast_dim);
   auto tv3 = squeeze(tv2, is_broadcast_dim);
-  auto tv4 = set(tv3);
+  auto tv4 = add(tv3, tv3);
   auto tv5 = add(tv2, tvb);
   fusion->addOutput(tv4);
   fusion->addOutput(tv5);
@@ -97,14 +97,7 @@ TEST_F(RemoveBcastSqueezeTest, BcastSqueezeMultipleUses) {
   FusionExecutorCache executor_cache(std::move(fusion));
   std::vector<at::Tensor> outputs =
       executor_cache.runFusionWithInputs({t0, t1});
-  auto ref = t0.unsqueeze(-1) + t1;
-  testValidate(
-      executor_cache.fusion(),
-      outputs,
-      {t0, t1},
-      {t0, ref},
-      __LINE__,
-      __FILE__);
+  testValidate(executor_cache.fusion(), outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
 TEST_F(RemoveBcastSqueezeTest, BcastSqueezeUnmatchedDim) {

@@ -70,7 +70,7 @@ class MemberStatements : public OptOutDispatch {
 
   void handle(TensorDomain* stmt) final {
     next_stmts_.insert(
-        next_stmts_.end(), stmt->leaf().begin(), stmt->leaf().end());
+        next_stmts_.end(), stmt->loop().begin(), stmt->loop().end());
   }
 
   void handle(TensorView* tv) final {
@@ -270,7 +270,7 @@ void IterVisitor::traverseBetween(
                ir_utils::filterByType<Expr>(cycle.begin(), cycle.end())) {
             ss << expr << std::endl;
           }
-          NVF_ERROR(false, ss.str());
+          NVF_THROW(ss.str());
         }
         // Add all these new stmts to visit to the stack.
         stmt_stack.emplace_back(next_stmts.rbegin(), next_stmts.rend());
@@ -409,7 +409,7 @@ std::vector<Statement*> BackwardVisitor::next(Statement* stmt) {
   } else if (stmt->isExpr()) {
     return next(stmt->as<Expr>());
   } else {
-    NVF_ERROR(false, "BackwardVisitor could not detect type in next_dispatch.");
+    NVF_THROW("BackwardVisitor could not detect type in next_dispatch.");
   }
 }
 
@@ -1124,7 +1124,9 @@ bool DeadCodeRemover::modifyFusion() const {
     if (old_val->isFusionOutput()) {
       fusion_->replaceOutput(old_val, new_val);
     }
-    for (auto use : old_val->uses()) {
+    // Copy old_val->uses() since we will modify it as we replace its Exprs
+    const std::vector<Expr*> old_uses = old_val->uses();
+    for (auto use : old_uses) {
       ir_utils::replaceValInExprInputs(use, old_val, new_val);
     }
     modified_fusion = true;
@@ -1145,6 +1147,72 @@ bool DeadCodeRemover::modifyFusion() const {
         " was marked for removal but has not yet been removed.");
   }
   return modified_fusion;
+}
+
+std::vector<Val*> IRBFS::getReachableValsFrom(
+    const std::vector<Val*>& from,
+    const std::vector<Val*>& vals) {
+  IRBFS bfs(
+      {from.begin(), from.end()},
+      {vals.begin(), vals.end()},
+      /*require_all_to_visited=*/false);
+
+  bfs.traverse();
+
+  std::vector<Val*> reachable_vals;
+  for (auto val : vals) {
+    if (bfs.isVisited(val) ||
+        std::find(from.begin(), from.end(), val) != from.end()) {
+      reachable_vals.push_back(val);
+    }
+  }
+
+  return reachable_vals;
+}
+
+std::vector<Val*> IRBFS::getValsBetween(
+    const std::vector<Val*>& from,
+    const std::vector<Val*>& to) {
+  auto path =
+      IRBFS::getExprsBetween(from, to, /*require_all_to_visited=*/false);
+
+  VectorOfUniqueEntries<Val*> unique_vals;
+  for (auto [expr, _] : path) {
+    unique_vals.pushBack(expr->outputs());
+    unique_vals.pushBack(expr->inputs());
+  }
+
+  // If a val in from is found in to, just copy it to the returned val
+  // set since there's no corresponding expr.
+  for (auto from_val : from) {
+    if (std::find(to.begin(), to.end(), from_val) != to.end()) {
+      unique_vals.pushBack(from_val);
+    }
+  }
+
+  return unique_vals.vector();
+}
+
+std::vector<Val*> IRBFS::getDependenciesTo(
+    const std::vector<Val*>& vals,
+    const std::vector<Val*>& to) {
+  auto path = IRBFS::getExprsBetween(vals, to, /*require_all_to_visited=*/true);
+
+  VectorOfUniqueEntries<Val*> unique_vals;
+
+  std::unordered_set<Val*> val_set{vals.begin(), vals.end()};
+
+  for (auto [expr, direction] : path) {
+    auto inputs =
+        (direction == Direction::Forward) ? expr->inputs() : expr->outputs();
+    for (auto val : inputs) {
+      if (val_set.find(val) != val_set.end()) {
+        unique_vals.pushBack(val);
+      }
+    }
+  }
+
+  return unique_vals.vector();
 }
 
 } // namespace nvfuser

@@ -25,7 +25,9 @@
 
 namespace nvfuser::preseg_passes {
 
-TEST_F(NVFuserTest, FusionTestOptimizationPassFlag_CUDA) {
+using PresegTest = NVFuserTest;
+
+TEST_F(PresegTest, FusionTestOptimizationPassFlag) {
   class DerivedPass : public OptimizationPass<DerivedPass> {
     friend class OptimizationPass<DerivedPass>;
 
@@ -53,7 +55,7 @@ TEST_F(NVFuserTest, FusionTestOptimizationPassFlag_CUDA) {
           ::testing::HasSubstr("running DerivedPass")));
 }
 
-TEST_F(NVFuserTest, FusionCyclicGraph_CUDA) {
+TEST_F(PresegTest, FusionCyclicGraph) {
   {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
@@ -145,7 +147,7 @@ TEST_F(NVFuserTest, FusionCyclicGraph_CUDA) {
 }
 
 // Test cast optimization
-TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
+TEST_F(PresegTest, FusionTestCastOptimization) {
   std::vector<int64_t> input_shape{3, 7, 8};
   auto options = at::TensorOptions().dtype(at::kDouble).device(at::kCUDA, 0);
   at::Tensor at_x = at::randn(input_shape, options);
@@ -164,8 +166,7 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
     tv = castOp(DataType::Double, tv);
     // (input)double -> float -> half -> float -> double
     fusion->addOutput(tv);
-    preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
-        fusion.get());
+    OptimizationPass<PreSegmenter>::runPass(fusion.get());
     // simplified as (input)double -> half -> double
     auto ref_tv = castOp(DataType::Half, tv0);
     ref_tv = castOp(DataType::Double, ref_tv);
@@ -185,8 +186,7 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
     tv = castOp(DataType::Half, tv);
     // (input)double -> float -> double -> half
     fusion->addOutput(tv);
-    preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
-        fusion.get());
+    OptimizationPass<PreSegmenter>::runPass(fusion.get());
     // simplified as (input)double -> half
     auto ref_tv = castOp(DataType::Half, tv0);
     ASSERT_TRUE(ref_tv->sameAs(fusion->outputs()[0]));
@@ -207,8 +207,7 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
     tv = castOp(DataType::Half, tv);
     // (input)double -> float -> half -> float -> double -> half
     fusion->addOutput(tv);
-    preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
-        fusion.get());
+    OptimizationPass<PreSegmenter>::runPass(fusion.get());
     // simplified as (input)double -> half
     auto ref_tv = castOp(DataType::Half, tv0);
     ASSERT_TRUE(ref_tv->sameAs(fusion->outputs()[0]));
@@ -226,8 +225,7 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
     tv = castOp(DataType::Float, tv);
     // (input)float -> double -> float
     fusion->addOutput(tv);
-    preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
-        fusion.get());
+    OptimizationPass<PreSegmenter>::runPass(fusion.get());
     // TODO: should I have copied the tensor to avoid an aliased output?!
     // simplified as (input)
     ASSERT_TRUE(tv0->sameAs(fusion->outputs()[0]));
@@ -253,8 +251,7 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
     // (input)float -> double -> half -> float -> double -> float -> double ->
     // float -> double -> float
     fusion->addOutput(tv);
-    preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
-        fusion.get());
+    OptimizationPass<PreSegmenter>::runPass(fusion.get());
     // simplified as (input)float -> half -> float
     auto ref_tv = castOp(DataType::Half, tv0);
     ref_tv = castOp(DataType::Float, ref_tv);
@@ -276,8 +273,7 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
     tv = castOp(DataType::Float, tv);
     // (input)float -> double -> half -> float -> bfloat16 -> float
     fusion->addOutput(tv);
-    preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
-        fusion.get());
+    OptimizationPass<PreSegmenter>::runPass(fusion.get());
     // simplified as (input)float -> half -> bfloat16 -> float
     auto ref_tv = castOp(DataType::Half, tv0);
     ref_tv = castOp(DataType::BFloat16, ref_tv);
@@ -302,8 +298,7 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
     // (input)int32 -> double -> complex double -> int64 -> bfloat16 -> float ->
     // double
     fusion->addOutput(tv);
-    preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
-        fusion.get());
+    OptimizationPass<PreSegmenter>::runPass(fusion.get());
     // simplified as (input)int32 -> bfloat16 -> double
     auto ref_tv = castOp(DataType::BFloat16, tv0);
     ref_tv = castOp(DataType::Double, ref_tv);
@@ -325,8 +320,7 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
     tv = castOp(DataType::Float, tv);
     // (input)float -> double(output0) -> half -> double -> float(output1)
     fusion->addOutput(tv);
-    preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
-        fusion.get());
+    OptimizationPass<PreSegmenter>::runPass(fusion.get());
     // simplified as (input)float -> double(output0) -> half -> float(output1)
     auto ref_tv = castOp(DataType::Double, tv0);
     ASSERT_TRUE(ref_tv->sameAs(fusion->outputs()[0]));
@@ -348,8 +342,7 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
     tv = castOp(DataType::Half, tv);
     // (input)float -> half -> bfloat16 -> half
     fusion->addOutput(tv);
-    preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
-        fusion.get());
+    OptimizationPass<PreSegmenter>::runPass(fusion.get());
     // simplified as (input)float -> half -> bfloat -> half
     auto ref_tv = castOp(DataType::Half, tv0);
     ref_tv = castOp(DataType::BFloat16, ref_tv);
@@ -359,7 +352,7 @@ TEST_F(NVFuserTest, FusionTestCastOptimization_CUDA) {
 }
 
 // Test that we remove empty output branch before segmentation
-TEST_F(NVFuserTest, FusionRemoveEmptyOutput_CUDA) {
+TEST_F(PresegTest, FusionRemoveEmptyOutput) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(fusion_ptr.get());
@@ -394,7 +387,7 @@ TEST_F(NVFuserTest, FusionRemoveEmptyOutput_CUDA) {
 }
 
 // Test that we replace empty reduction with full
-TEST_F(NVFuserTest, FusionRemoveEmptyReduction_CUDA) {
+TEST_F(PresegTest, FusionRemoveEmptyReduction) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(fusion_ptr.get());
@@ -426,7 +419,7 @@ TEST_F(NVFuserTest, FusionRemoveEmptyReduction_CUDA) {
 // In this test, a reduction over a non-empty axis occurs first, followed by a
 // reduction over the remaining empty axis. The output is actually not empty,
 // even though the first reduction results in an empty tensor.
-TEST_F(NVFuserTest, FusionRemoveEmptyReductionWithNonReduction_CUDA) {
+TEST_F(PresegTest, FusionRemoveEmptyReductionWithNonReduction) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(fusion_ptr.get());
@@ -457,7 +450,7 @@ TEST_F(NVFuserTest, FusionRemoveEmptyReductionWithNonReduction_CUDA) {
 }
 
 // Test that we replace empty Welford with full
-TEST_F(NVFuserTest, FusionRemoveEmptyWelford_CUDA) {
+TEST_F(PresegTest, FusionRemoveEmptyWelford) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(fusion_ptr.get());
@@ -503,7 +496,7 @@ TEST_F(NVFuserTest, FusionRemoveEmptyWelford_CUDA) {
 }
 
 // Test that we replace empty tensors in cat properly
-TEST_F(NVFuserTest, FusionRemoveEmptyCat_CUDA) {
+TEST_F(PresegTest, FusionRemoveEmptyCat) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(fusion_ptr.get());
@@ -549,7 +542,7 @@ TEST_F(NVFuserTest, FusionRemoveEmptyCat_CUDA) {
 }
 
 // Test that we replace empty tensors in pad properly
-TEST_F(NVFuserTest, FusionRemoveEmptyPad_CUDA) {
+TEST_F(PresegTest, FusionRemoveEmptyPad) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(fusion_ptr.get());
@@ -587,7 +580,7 @@ TEST_F(NVFuserTest, FusionRemoveEmptyPad_CUDA) {
 }
 
 // Test that we replace empty tensors in matmuls properly
-TEST_F(NVFuserTest, FusionRemoveEmptyMatmul_CUDA) {
+TEST_F(PresegTest, FusionRemoveEmptyMatmul) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(fusion_ptr.get());
@@ -631,4 +624,54 @@ TEST_F(NVFuserTest, FusionRemoveEmptyMatmul_CUDA) {
   testValidate(preseg_fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
+TEST_F(PresegTest, ReplaceOutput) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* x = makeContigTensor(1);
+  fusion->addInput(x);
+  fusion->addOutput(x);
+
+  TensorView* y = add(x, x);
+  fusion->replaceOutput(x, y);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({10}, at::device(at::kCUDA));
+  at::Tensor out_tensor = fec.runFusionWithInputs({in_tensor})[0];
+
+  testValidate(fec.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
+}
+
+TEST_F(PresegTest, ExtentSubstitution) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  const std::vector<int64_t> input_shape = {128};
+  const std::vector<int64_t> group_shape = {32, 4};
+  auto tv0 = makeContigTensor(input_shape.size());
+  auto tv1 = makeContigTensor(input_shape.size());
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = reshape(tv0, input_shape, group_shape);
+  auto tv3 = reshape(tv1, input_shape, group_shape);
+  auto tv4 = add(tv2, tv3);
+  fusion->addOutput(tv4);
+
+  OptimizationPass<PreSegmenter>::runPass(fusion.get());
+  // two inputs should be same after ExactMappedExtentSubstitutionPass in
+  // OptimizationPass
+  const auto& inputs = fusion.get()->inputs();
+  TensorView* input1 = dynamic_cast<TensorView*>(inputs.at(0));
+  TensorView* input2 = dynamic_cast<TensorView*>(inputs.at(1));
+  auto extend1 = input1->getLogicalDomain().at(0)->extent();
+  auto extend2 = input2->getLogicalDomain().at(0)->extent();
+  EXPECT_EQ(extend1, extend2);
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+  auto t1 = at::randn(input_shape, options);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
+  testValidate(
+      executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
+}
 } // namespace nvfuser::preseg_passes

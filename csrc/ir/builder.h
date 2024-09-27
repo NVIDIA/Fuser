@@ -8,8 +8,9 @@
 #pragma once
 
 #include <exceptions.h>
-#include <ir/all_nodes.h>
+#include <fusion_guard.h>
 #include <ir/builder_passkey.h>
+#include <ir/container.h>
 #include <utils.h>
 #include <visibility.h>
 
@@ -19,7 +20,12 @@ namespace kir {
 class Kernel;
 }
 
+class ArrayConstruct;
 class IrCloner;
+class NamedScalar;
+class StructConstruct;
+class TensorView;
+class Val;
 
 //! IR builder interface
 class IrBuilder {
@@ -29,19 +35,13 @@ class IrBuilder {
   template <class T, class... Args>
   static T* create(Args&&... args) {
     Fusion* fusion = FusionGuard::getCurFusion();
-    // return create<T>(fusion, std::forward<Args>(args)...);
-    NVF_ERROR(fusion != nullptr, "Need an active container to build IR.");
-    T* node = new T(IrBuilderPasskey(fusion), std::forward<Args>(args)...);
-
-    fusion->registerStmt(IrBuilderPasskey(fusion), node);
-
-    return node;
+    return createInContainer<T>(fusion, std::forward<Args>(args)...);
   }
 
   //! Allocate a new IR node, forwarding the arguments to the appropriate
   //! constructor and registering with the container
   template <class T, class... Args>
-  static T* create(IrContainer* container, Args&&... args) {
+  static T* createInContainer(IrContainer* container, Args&&... args) {
     NVF_ERROR(container != nullptr, "Need an active container to build IR.");
     T* node = new T(IrBuilderPasskey(container), std::forward<Args>(args)...);
 
@@ -71,8 +71,9 @@ class IrBuilder {
   // Binary operations
   NVF_API static Val* logicalAndExpr(Val* lhs, Val* rhs);
   NVF_API static Val* logicalOrExpr(Val* lhs, Val* rhs);
-  static Val* bitwiseAndExpr(Val* lhs, Val* rhs);
-  static Val* bitwiseOrExpr(Val* lhs, Val* rhs);
+  NVF_API static Val* bitwiseAndExpr(Val* lhs, Val* rhs);
+  NVF_API static Val* bitwiseOrExpr(Val* lhs, Val* rhs);
+  NVF_API static Val* bitwiseXorExpr(Val* lhs, Val* rhs);
   NVF_API static Val* lShiftExpr(Val* lhs, Val* rhs);
   NVF_API static Val* rShiftExpr(Val* lhs, Val* rhs);
   NVF_API static Val* eqExpr(Val* lhs, Val* rhs);
@@ -90,6 +91,7 @@ class IrBuilder {
   NVF_API static Val* maxExpr(Val* lhs, Val* rhs);
   NVF_API static Val* minExpr(Val* lhs, Val* rhs);
   NVF_API static Val* gcdExpr(Val* lhs, Val* rhs);
+  NVF_API static Val* isDivisibleExpr(Val* dividend, Val* divisor);
 
   // Ternary operations
   NVF_API static Val* whereExpr(Val* pred, Val* lhs, Val* rhs);

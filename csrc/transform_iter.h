@@ -18,7 +18,7 @@
 
 namespace nvfuser {
 
-class RootDomainMap;
+class LogicalDomainMap;
 
 namespace {
 
@@ -83,14 +83,14 @@ class ReplayTransformations : public IterVisitor {
     return id_map_;
   }
 
-  // Returns leaf_ids_ the size_t marks the order in which they were put into
+  // Returns loop_ids_ the size_t marks the order in which they were put into
   // the map, this is part of the structure because it's used to generate the
   // order from 'getLeafIDs'
   const std::unordered_map<IterDomain*, size_t>& getUnorderedLeafIDs() {
     if (!ran_replay_) {
       runReplay();
     }
-    return leaf_ids_;
+    return loop_ids_;
   }
 
   // Returns all terminating IDs that resulted from the replay. Leaf IDs are run
@@ -99,7 +99,7 @@ class ReplayTransformations : public IterVisitor {
     if (!ran_replay_) {
       runReplay();
     }
-    return leaf_vec_;
+    return loop_vec_;
   }
 
  protected:
@@ -131,7 +131,7 @@ class ReplayTransformations : public IterVisitor {
   // NOLINTNEXTLINE(cppcoreguidelines-non-private-member-variables-in-classes)
   std::unordered_map<IterDomain*, IterDomain*> id_map_;
   // NOLINTNEXTLINE(cppcoreguidelines-non-private-member-variables-in-classes)
-  std::unordered_map<IterDomain*, size_t> leaf_ids_;
+  std::unordered_map<IterDomain*, size_t> loop_ids_;
 
  private:
   bool error_on_failure_ = true;
@@ -155,7 +155,7 @@ class ReplayTransformations : public IterVisitor {
 
   size_t counter_ = 0;
 
-  std::vector<IterDomain*> leaf_vec_;
+  std::vector<IterDomain*> loop_vec_;
 
   bool ran_replay_ = false; // Mark if replay has been run
 };
@@ -176,7 +176,7 @@ class ReplayTransformations : public IterVisitor {
 // compliment_map would have the entry i0->b1i and i0*b1i->b2o
 //
 // The first is to fast forward transformations in consumer involving broadcast
-// axes not in producer. The compliment map is to use later to compute what leaf
+// axes not in producer. The compliment map is to use later to compute what loop
 // nodes we may have after the forwarding process is finished. Leaf nodes are
 // only important for replayCasP, so look there to see how this is done. Forward
 // map is used for replayCasP and replayPasC.
@@ -191,7 +191,7 @@ class ForwardingInfo {
 
   // Given a forward id map id_input -> id_forwarded
   // Track the other inputs in the expr that id_input is an input to. These will
-  // be used to adjust the replay's leaf tracking. Don't need to track one to
+  // be used to adjust the replay's loop tracking. Don't need to track one to
   // many as currently transformations on IterDomains can only have maximum 2
   // inputs, but maybe in the future we'll have more.
   std::unordered_map<IterDomain*, std::vector<IterDomain*>>
@@ -239,15 +239,15 @@ class ForwardingInfo {
  * There's an issue when we want to replay T4 to have transformations similar to
  * those on T0. Primarily T0's "rfactor" domain has a strict match requirement
  * on T4's root domain. If transformations on top of T0 don't match T4's
- * transformations (from T4's root domain to T4's rfactor domain), T4 cannot be
+ * transformations (from T4's root domain to T4's logical domain), T4 cannot be
  * replayed like T0 on those domains as they would generate incorrect code in
  * the system today.
  *
  * Side note potentially for the future: In theory we could actually disconnect
- * T4's view from it's rfactor domain. This would allow rfactor domains to be
+ * T4's view from it's logical domain. This would allow logical domains to be
  * "reversible". The way this would have to be implemented is that there just
- * needs to be a path of transformations from a tensors leaf domains, to its
- * root domains, and its rfactor domain. It shouldn't really matter if those
+ * needs to be a path of transformations from a tensors loop domains, to its
+ * root domains, and its logical domain. It shouldn't really matter if those
  * connections are forward or backward through transformations. The only thing
  * that really matters is they're connected. This is left for future work as it
  * could have significant impact on other parts of the system like how loops are
@@ -256,7 +256,7 @@ class ForwardingInfo {
  * T0 doesn't have this constraint if we want to replay T0 as T4, so this is
  * directional based on rfactor. Therefore to replay T0 transformations onto T4
  * we want to make sure those transformations are consistent with T4 (between
- * T4's root and rfactor domain). Best Effort Replay does not actually add any
+ * T4's root and logical domain). Best Effort Replay does not actually add any
  * transformations to the tensors provided. However, it will provide information
  * to determine producers's transformations are consistent with consumers
  * transformations (or the other way around). Best Effort Replay will return
@@ -320,22 +320,22 @@ class BestEffortReplay {
   std::unordered_map<IterDomain*, IterDomain*> target2replay_id_map_;
   std::unordered_map<IterDomain*, IterDomain*> replay_forward_id_map_;
   std::unordered_map<IterDomain*, IterDomain*> target_forward_id_map_;
-  std::unordered_map<IterDomain*, size_t> leaf_ids_;
+  std::unordered_map<IterDomain*, size_t> loop_ids_;
   std::vector<IterDomain*> forwarded_ids_;
   std::unordered_map<IterDomain*, IterDomain*> skipped_resize_id_map_;
 
   // Need to track which id's have been forwarded. Later will need to make sure
-  // leaf nodes to produce "compliment" axes are properly tracked. i.e.
+  // loop nodes to produce "compliment" axes are properly tracked. i.e.
   // T[i0, b1, b2, i3]
   // -> T[i0, b1o, b1i, b2o, b2i, i3]
   // -> T[i0*b1i*b2o, b1o, b2i, i3]
   // -> T[i0*b1i*b2o*i3, b1o, b2i]
   // If we forwarded i0 -> i0*b1i*b2o*i3, we need to know that b1o and b2i
-  // are leaf nodes even though their split wasn't part of targets replay. These
+  // are loop nodes even though their split wasn't part of targets replay. These
   // are important IterDomains to track for transformation replays as otherwise
   // we could easily drop axes we need by accident
 
-  // Counter to make sure best effort replay leaf_ids can be grabbed
+  // Counter to make sure best effort replay loop_ids can be grabbed
   // deterministicly, important to make sure replays are run to run
   // deterministic.
   size_t counter = 0;
@@ -382,6 +382,8 @@ class BestEffortReplay {
   bool skip_replay_swizzle_ = true;
   bool skip_target_swizzle_ = true;
 
+  bool error_on_failure_ = true;
+
   bool inReplayForwardMap(IterDomain* id) const {
     return replay_forward_id_map_.find(id) != replay_forward_id_map_.end();
   }
@@ -408,7 +410,7 @@ class BestEffortReplay {
     }
   }
 
-  //! Adds complimenting IDs of forwarded IDs to the leaf map
+  //! Adds complimenting IDs of forwarded IDs to the loop map
   void addComplimentLeafIDs(
       const std::unordered_map<IterDomain*, IterDomain*>& forwarding_map,
       const std::unordered_map<IterDomain*, std::vector<IterDomain*>>&
@@ -438,7 +440,8 @@ class BestEffortReplay {
       std::unordered_map<IterDomain*, IterDomain*> target_forward_id_map = {},
       bool skip_replay_swizzle = true,
       bool skip_target_swizzle = true,
-      bool skip_resize = false);
+      bool skip_resize = false,
+      bool error_on_failure = true);
 
   // Return iter domain map from target_domain IDs to their "replayed"
   // replay_domain IDs. If not in map, was not replayed.
@@ -448,24 +451,24 @@ class BestEffortReplay {
 
   // ids in replay that did not have matching transforms in target_domain
   const std::unordered_map<IterDomain*, size_t>& getUnorderedLeafIDs() {
-    return leaf_ids_;
+    return loop_ids_;
   }
 
   // Returned ordered set of IDs in getUnorderedLeafIDs
   std::vector<IterDomain*> getLeafIDs() {
     std::set<std::pair<IterDomain*, size_t>, id_int_lt> ordered_set;
-    for (auto entry : leaf_ids_) {
+    for (auto entry : loop_ids_) {
       ordered_set.emplace(entry);
     }
 
-    std::vector<IterDomain*> leaf_vec_;
-    leaf_vec_.resize(ordered_set.size());
+    std::vector<IterDomain*> loop_vec_;
+    loop_vec_.resize(ordered_set.size());
     std::transform(
         ordered_set.begin(),
         ordered_set.end(),
-        leaf_vec_.begin(),
+        loop_vec_.begin(),
         [](std::pair<IterDomain*, size_t> entry) { return entry.first; });
-    return leaf_vec_;
+    return loop_vec_;
   }
 
   // Get a disjoint sets representing the equivalence of IterDomains. The
@@ -482,27 +485,27 @@ class BestEffortReplay {
   NVF_API DisjointSets<IterDomain*> getIterDomainEquivalence();
 
   // Runs a best effort replay that ignores broadcast axes that appear in
-  // consumer that are not mapped to producer in root_map.
+  // consumer that are not mapped to producer in logical_map.
   //
   // When skip_resize is true, resize is ignored or in other words forwarded
   NVF_API static BestEffortReplay replayCasP(
       const TensorView* consumer,
       const TensorView* producer,
       int64_t producer_compute_at_axis,
-      const RootDomainMap& root_map,
+      const LogicalDomainMap& logical_map,
       bool skip_consumer_swizzle = true,
       bool skip_producer_swizzle = true,
       bool skip_resize = true);
 
   // Runs a best effort replay that ignores broadcast axes that appear in
-  // consumer that are not mapped to producer in root_map.
+  // consumer that are not mapped to producer in logical_map.
   //
   // When skip_resize is true, resize is ignored or in other words forwarded
   NVF_API static BestEffortReplay replayPasC(
       const TensorView* producer,
       const TensorView* consumer,
       int64_t consumer_compute_at_axis,
-      const RootDomainMap& root_map,
+      const LogicalDomainMap& logical_map,
       bool skip_producer_swizzle = true,
       bool skip_consumer_swizzle = true,
       bool skip_resize = true);

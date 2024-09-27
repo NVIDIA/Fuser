@@ -74,7 +74,7 @@ The TMA domain for the above matmul example is shown in the Figure 3 below:
 
 ![Figure 3: The TMA domain of the matmul example](tma/matmul-tma-domain.svg)
 
-Please note that the TMA domain is not a member of a TensorDomain like the root/rFactor/allocation/leaf domains.
+Please note that the TMA domain is not a member of a TensorDomain like the root/logical/allocation/loop domains.
 Instead, it is a virtual domain that only exists in the user's mind.
 
 Also note that the IterDomain expressions between the global tensor's allocation domain and the TMA domain must be a view,
@@ -85,9 +85,10 @@ for example, we can not merge discontiguous IterDomains ([why?](../reading/divis
 After having scheduled a TMA domain, the next step is to define box.
 There are two ways of defining box: partitioning and compositing.
 
-#### Define box by partitioning
+#### The canonical way to define box
 
-Defining box by partitioning is as simple as: select an IterDomain in the TMA domain, then
+The canonical way to define box is by partitioning.
+It is as simple as: select an IterDomain in the TMA domain, then
 inner split that IterDomain by the box size of that dimension.
 
 We call this split expression a "*boxing split*", the input of this split a "*partitioned IterDomain*",
@@ -100,7 +101,29 @@ the schedule should look like the Figure 4 below:
 
 Please note that, although in the above example, the split is divisible, this does not have to be the case in general.
 
-#### Define box by compositing
+#### Define box by mathematical equivalence
+
+Ideally, for an arbitrary schedule,
+as long as there exist a canonical way of defining box that is mathematically equivalent to this schedule,
+during lowering, we should be able to automatically translate this schedule to the canonical way and infer all the informations needed for generating a TMA instruction.
+
+Mathematical equivalence of IterDomain transformations is studied in [The Mathematical Theory of IterDomain](../reading/iterdomain.md).
+
+In practice, supporting all mathematical equivalence is not possible.
+Just like expression simplification, NVFuser does the mathematical equivalence analysis in a best effort manner.
+Some known supported mathematical equivalence are listed below:
+
+##### Define box by compositing
+
+Mathematically, if we merge two IterDomains `[I0, I1]` together and split with the factor of `I1`'s extent, we get back equivalent IterDomains.
+Visually, we have the Figure 5 below:
+
+![Figure 5: Merge-split = identity transformation](tma/merge-split.svg)
+
+TODO: add a proof to [The Mathematical Theory of IterDomain](../reading/iterdomain.md)
+
+By taking advantage of this mathematical equivalence property of IterDomain transformations,
+we have the following "define box by compositing" strategy:
 
 Define box by compositing is to select a slice of IterDomains from the TMA domain and consider the innermost IterDomain(s) in the slice as box.
 The IterDomains within the slice must be contiguous to each other.
@@ -108,36 +131,77 @@ For example, if the TMA domain of a tensor is `T[I1{1024}, I2{2}, I3{4}, I4{8}]`
 then we can select `[I3{4}, I4{8}]` as box IterDomains.
 This defines boxes of size 32, and there are in total 2048 boxes.
 
-It is helpful to imagine the tensor as shown in the following Figure 5:
+It is helpful to imagine the tensor as its canonical form, as shown in the following Figure 6:
 
-![Figure 5: Define box by compositing](tma/box-by-compositing.svg)
+![Figure 6: Define box by compositing](tma/box-by-compositing.svg)
 
 In this mental model, `I1`, `I2`, `I3` and `I4` were first imaginarily merged to form `I5`.
 Then we defined box on `I5` by partitioning.
 The terms used in defining box by partitioning is also valid here,
 the only difference is that these terms now refers to imaginary splits and IterDomains instead of real ones.
-For convenience, we also call `[I3, I4]` "*box IterDomain*" (
-Note that we never call `I3` or `I4` itself a box IterDomain,
+For convenience, we also call `[I3, I4]` "*box IterDomain*"
+(Note that we never call `I3` or `I4` itself a box IterDomain,
 we only call `I3` and `I4` together box IterDomain).
 Similarly, we call `[I1, I2]` "*coordinate IterDomain*".
 
-As we can see in Figure 5, when we define box by compositing,
+As we can see in Figure 6, when we define box by compositing,
 the dimensionality of the TMA domain does not equal to the dimensionality of the TMA instruction.
 Instead, the dimensionality of the imaginary TMA domain equals to the dimensionality of TMA instruction.
 
 Note that the number of IterDomains selected as box in a slice can be arbitrary.
 It can be as small as 0 IterDomains, or as large as the entire slice.
 When 0 IterDomains are selected as box, the box size is implicitly one.
+For this case, we call this box dimension "implicit size-one".
 When the entire slice is selected as box, the tensor only have one box on that dimension, and the size of the box equals the size of that dimension.
+For this case, we call this box dimension "implicit whole".
 
-We can use both styles of box defining at the same time in the same tensor.
-For example, in Figure 6 below:
+##### Define box by rotation
 
-![Figure 6: Define box by partitioning and compositing](tma/box-by-partitioning-and-compositing.svg)
+The name "rotation" comes from [tree rotation](https://en.wikipedia.org/wiki/Tree_rotation).
+According to Theorem 2.1 in [The Mathematical Theory of IterDomain](../reading/iterdomain.md),
+the IterDomain transformations in the Figure 7 below are equivalent:
+
+![Figure 7: Equivalence of Split-Split](../reading/iterdomain/split-split.svg)
+
+We support defining boxes by both rotating left and rotating right.
+For example, in the Figure 8 below:
+
+![Figure 8: Define box by rotation](tma/box-by-rotation.svg)
+
+For the schedule on the left hand side of Figure 8,
+if we define `[I3, I4]` as the box IterDomain.
+Because the schedule on the left hand side is mathematically equivalent to the schedule on the right hand side,
+we can imagine the schedule on the left hand side as the right hand side,
+and consider `I1` as the box IterDomain.
+
+Similarly, for the schedule on the right hand side,
+if we define `I4` as the box IterDomain.
+Because the schedule on the right hand side is mathematically equivalent to the schedule on the left hand side,
+we can imagine the schedule on the right hand side as the left hand side,
+and consider `I5` as the coordinate IterDomain.
+Note that in order to be able to rotate the right hand side schedule as the left hand side,
+the split defining `I4` must be divisible.
+However, the split defining `I1` does not have to be divisible.
+
+This way of thinking is illustrated in the Figure 9 below:
+
+![Figure 9: Define box by rotation imagined](tma/box-by-rotation-imagined.svg)
+
+It is possible to define box by multiple rotation, as shown in the following Figure 10:
+
+![Figure 10: Define box by rotation imagined](tma/box-by-multiple-rotation.svg)
+
+##### Mixing different strategies
+
+We can use different box defining strategies together at the same time in the same tensor.
+For example, in Figure 11 below:
+
+![Figure 11: Define box by partitioning and compositing](tma/box-by-partitioning-and-compositing.svg)
 
 The TMA domain of the tensor has nine IterDomains.
 The contiguities of these nine IterDomains are `(T, T, T, F, T, T, T, T, T)`.
 We scheduled a 5D TMA operation, where in these five dimensions, one of them defines box by partitioning, and others define box by compositing.
+There is no other box defining strategies used.
 Green color means box IterDomain and brown color means coordinate IterDomain.
 The first dimension is `[I1, I2]`, where `I1` is coordinate IterDomain and `I2` is box IterDomain.
 The second dimension is `I3`, it is the only dimension that defines box by partitioning.
@@ -158,9 +222,9 @@ and use the word *tile* and *box* interchangeably.
 For strided tile, we do an inner-split on the box IterDomain by the *element stride*.
 We call this split "*striding split*", the inner output of this split "*stride IterDomain*",
 and the outer output of this split "*tile IterDomain*".
-For the example in Figure 1 on the right hand side, the schedule looks like the Figure 7 below:
+For the example in Figure 1 on the right hand side, the schedule looks like the Figure 12 below:
 
-![Figure 7: Strided tile](tma/strided-tile.svg)
+![Figure 12: Strided tile](tma/strided-tile.svg)
 
 Note that if the box is defined by compositing,
 the box IterDomain can be a list of IterDomains instead of a single IterDomain.
@@ -191,11 +255,11 @@ the allocation domain is also required to be a multiple of whole tiles,
 because tile is the minimum unit of a TMA operation.
 If a schedule indicates the opposite, then this schedule is wrong.
 
-The Figure 8 below shows some invalid schedule on the shared memory tensor:
+The Figure 13 below shows some invalid schedule on the shared memory tensor:
 
-![Figure 8: Some invalid smem schedule](tma/invalid-smem-discontiguous.svg)
+![Figure 13: Some invalid smem schedule](tma/invalid-smem-discontiguous.svg)
 
-These examples can also be found in unit tests `TMADocTest.Figure8*`.
+These examples can also be found in unit tests `TMADocTest.Figure13*`.
 
 These examples have the same reason for being invalid: The tile in shared memory is not contiguous.
 
@@ -220,11 +284,11 @@ Also `I2` is not a multiple of `I6`, which is not allowed as well.
 In the example (e), the allocated IterDomains are `[I3, I4, I5, I6]`.
 The `I5` between `I4` and `I6` makes the tile discontiguous in shared memory.
 
-The Figure 9 below shows some valid schedule on the shared memory tensor:
+The Figure 14 below shows some valid schedule on the shared memory tensor:
 
-![Figure 9: Some valid smem schedule](tma/valid-smem-contig.svg)
+![Figure 14: Some valid smem schedule](tma/valid-smem-contig.svg)
 
-These examples can also be found in unit tests `TMADocTest.Figure9*`.
+These examples can also be found in unit tests `TMADocTest.Figure14*`.
 
 Example (a) is valid because it flipped the order of `I8` and `I7` to make `I7` inner,
 and the `I5` between `I7` and `I6` is `blockIdx.x` parallelized therefore not allocated.
@@ -242,11 +306,11 @@ Except for the above mentioned constraints,
 we do not have further limitation on what the allocation domain should look like.
 Especially, as long as we are keeping each tile contiguous in memory, we can view it arbitrarily.
 
-The following Figure 10 shows some additional valid and invalid schedules:
+The following Figure 15 shows some additional valid and invalid schedules:
 
-![Figure 10: Additional valid and invalid smem schedule](tma/arbitrary-view.svg)
+![Figure 15: Additional valid and invalid smem schedule](tma/arbitrary-view.svg)
 
-These examples can also be found in unit tests `TMADocTest.Figure10*`.
+These examples can also be found in unit tests `TMADocTest.Figure15*`.
 
 In the above figure, example (a) and (b) are valid because the allocation domains satisfy the constraint that they must be a multiple of whole tiles and each tile is contiguous in memory.
 
@@ -260,7 +324,7 @@ the overall allocation domain is not a multiple of whole tiles.
 For TMA store, the flexibility of being able to arbitrarily view the tile can be convenient,
 because the schedule of the shared memory tensor not only defines the memory layout,
 but also defines the loop structure and the parallelization strategy on how the shared memory tensor will be written.
-With this flexibility, we can often just make the leaf domain and the allocation domain the same.
+With this flexibility, we can often just make the loop domain and the allocation domain the same.
 
 For TMA load, this is not the case.
 The schedule of the shared memory tensor defines how TMA will write shared memory.
@@ -285,6 +349,11 @@ the TMA domain can be completely inferred from the schedule.
 > We do not have validation on shared memory schedule yet.
 > If you scheduled something invalid, likely you will see misaligned address error or silent wrong result.
 
+> [!WARNING]
+> When using circular buffering with TMA, a single thread is select to launch the TMA load and mbarrier operations.
+> In this case, we cannot apply any block parallelization to the consumer TensorView, which will create a thread predicate.
+> A compile-time error will occur if you apply circular buffering and block parallelization together.
+
 #### Data swizzle
 
 So far we have been ignoring the shared memory swizzle feature of TMA and
@@ -293,9 +362,9 @@ TMA can store a tile in shared memory in a swizzled layout.
 There are four swizzling mode: no swizzle, 32 byte swizzle, 64 byte swizzle, and 128 byte swizzle.
 The no swizzle mode is the the mode that we have been assuming.
 
-The `N` byte swizzle mode can be considered as the Figure 11 below:
+The `N` byte swizzle mode can be considered as the Figure 16 below:
 
-![Figure 11: Swizzle](tma/swizzle.svg)
+![Figure 16: Swizzle](tma/swizzle.svg)
 
 TMA requires the size of the innermost dimension to be the swizzle size (`N` bytes).
 For example, if using 64 byte swizzle on `fp16` tensors,
@@ -389,20 +458,20 @@ For 128 byte swizzle, the above shape is `[-1, 8, 1, 8, 16B]`,
 where the `1` can be omitted and just use `[-1, 8, 8, 16B]` in practice
 (and be sure that you use the correct axis for swizzle if you do so).
 
-The Figure 12 below shows an example schedule of the consumer of a TMA load of a `fp16` tensor with 64 byte swizzle:
+The Figure 17 below shows an example schedule of the consumer of a TMA load of a `fp16` tensor with 64 byte swizzle:
 
-![Figure 12: Schedule of 64 byte swizzle](tma/swizzle-schedule.svg)
+![Figure 17: Schedule of 64 byte swizzle](tma/swizzle-schedule.svg)
 
 ### Step 5: schedule the consumer tensor
 
 In nvFuser, the consumer dictates the loop nests and parallelization of an expression,
-and the leaf domain of the consumer has the responsibility of specifying these information.
+and the loop domain of the consumer has the responsibility of specifying these information.
 
 Most generally, when we enter this step,
-we might see the leaf domain of the consumer tensor already scheduled partially,
-as shown in the Figure 13 below:
+we might see the loop domain of the consumer tensor already scheduled partially,
+as shown in the Figure 18 below:
 
-![Figure 13: Consumer schedule](./tma/consumer-schedule.svg)
+![Figure 18: Consumer schedule](./tma/consumer-schedule.svg)
 
 It is important to note that, tile IterDomains and non-tile IterDomains must be transformed separately in the consumer of a TMA expression.
 Transforming tile IterDomain and non-tile IterDomain together,
@@ -411,7 +480,7 @@ such as merging a tile IterDomain with a non-tile IterDomain, is an error in the
 We are not interested in further transforming the tile branch in this step,
 because TMA only cares about the boxing and striding split.
 However you transform the tile IterDomains after they are created by the boxing/striding split will just be ignored.
-So we just immediately parallelize all the IterDomains in the leaf domain from the tile branch as `ParallelType::Bulk` without doing any transformation.
+So we just immediately parallelize all the IterDomains in the loop domain from the tile branch as `ParallelType::Bulk` without doing any transformation.
 Oh, well, I may be wrong.
 Sometimes, merging all of these IterDomains first then parallelize the merged IterDomain as `ParallelType::Bulk` takes less keystrokes.
 So, maybe do the latter instead of the former.

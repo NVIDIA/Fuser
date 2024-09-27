@@ -5,8 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <executor.h>
 #include <fusion.h>
+#include <fusion_executor/executor.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 
@@ -46,13 +46,11 @@ static void setup_vit_base_patch16_224_bcast7(Fusion* fusion, void* null) {
   auto t11 = mul(t10, t4);
   auto t25 = mul(t9, t11);
   auto t26 = sum(t25, {0, 1});
-  auto t36 = set(t26);
   auto t27 = sum(t9, {0, 1});
-  auto t37 = set(t27);
   auto t39 = castOp(DataType::Half, t11);
 
-  fusion->addOutput(t36);
-  fusion->addOutput(t37);
+  fusion->addOutput(t26);
+  fusion->addOutput(t27);
   fusion->addOutput(t39);
 }
 

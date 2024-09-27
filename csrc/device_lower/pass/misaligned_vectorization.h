@@ -113,6 +113,6 @@ namespace nvfuser {
 std::vector<Expr*> processMisalignedVectorization(
     const std::vector<Expr*>& exprs);
 
-bool containsAnyDirectChildMisalignedVectorize(const kir::ForLoop* fl);
+bool containsAnyDirectChildMisalignedVectorize(const ForLoop* fl);
 
 } // namespace nvfuser

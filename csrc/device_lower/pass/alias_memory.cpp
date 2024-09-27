@@ -66,7 +66,7 @@ IterDomain* exactConcreteId(IterDomain* id) {
 //! indeed used multiple times. See also issue #2163.
 bool isSerialBroadcastResolution(
     TensorView* producer,
-    const std::vector<kir::ForLoop*>& for_loops) {
+    const std::vector<ForLoop*>& for_loops) {
   //! Note: see issue #1785:
   //!  serial broadcast resolution doesn't only happen to
   //! immediate outputs of broadcast ops. We can also have
@@ -102,8 +102,8 @@ bool isSerialBroadcastResolution(
   for (auto for_loop : for_loops) {
     // ForLoop::iter_domain() should be the concrete domain, but just
     // in case.
-    auto concrete_loop_id = GpuLower::current()->caMap()->getConcreteMappedID(
-        for_loop->iter_domain(), IdMappingMode::LOOP);
+    auto concrete_loop_id =
+        lower_utils::getConcreteLoopID(for_loop->iter_domain());
 
     // Check for any serial loop id with non-trivial extent. If the
     // concrete ID is a broadcast, it shouldn't materialize an actual
@@ -115,35 +115,36 @@ bool isSerialBroadcastResolution(
     }
   }
 
-  // Collect the root id's that the serial loop iterdomain
+  // Collect the logical id's that the serial loop iterdomain
   //  are transformed from.
-  // NOTE: This does not necessarily capture the actual root domains
+  // NOTE: This does not necessarily capture the actual logical domains
   //  as the concrete domains may be post-view domains. We need to
   //  traverse across view boundaries as we do in indexing. This
   //  should not result in false aliasing but may miss safe aliasing
   //  opportunities.
-  auto serial_loop_roots = InputsOf::outputs(serial_loop_concrete_ids);
+  auto serial_loop_logicals = InputsOf::outputs(serial_loop_concrete_ids);
 
-  // Collect exact concrete id's in producer's root domain
-  std::unordered_set<IterDomain*> producer_exact_concrete_root_ids;
-  auto producer_root = TensorDomain::noReductions(producer->getRFactorDomain());
+  // Collect exact concrete id's in producer's logical domain
+  std::unordered_set<IterDomain*> producer_exact_concrete_logical_ids;
+  auto producer_logical =
+      TensorDomain::noReductions(producer->getLogicalDomain());
   std::transform(
-      producer_root.begin(),
-      producer_root.end(),
+      producer_logical.begin(),
+      producer_logical.end(),
       std::inserter(
-          producer_exact_concrete_root_ids,
-          producer_exact_concrete_root_ids.begin()),
+          producer_exact_concrete_logical_ids,
+          producer_exact_concrete_logical_ids.begin()),
       exactConcreteId);
 
-  // Check if serial loop roots indexes any exact root id's that
-  //  is not within the set of producer's root exact id's. These
+  // Check if serial loop logicals indexes any exact logical id's that
+  //  is not within the set of producer's logical exact id's. These
   //  id's will imply that the same producer pixel is accessed
   //  in multiple iterations of the materialized serial loop.
-  for (auto serial_loop_root :
-       ir_utils::filterByType<IterDomain>(serial_loop_roots)) {
-    if (!producer_exact_concrete_root_ids.count(
+  for (auto serial_loop_logical :
+       ir_utils::filterByType<IterDomain>(serial_loop_logicals)) {
+    if (!producer_exact_concrete_logical_ids.count(
             GpuLower::current()->caMap()->getConcreteMappedID(
-                serial_loop_root, IdMappingMode::EXACT))) {
+                serial_loop_logical, IdMappingMode::EXACT))) {
       return true;
     }
   }
@@ -213,7 +214,7 @@ class BufferReuseDebugPrinter {
   using DebugEntryPtr = std::unique_ptr<DebugEntry>;
 
  public:
-  BufferReuseDebugPrinter() : ir_printer_(os_){};
+  BufferReuseDebugPrinter() : ir_printer_(os_) {};
 
   std::string dumpDebugInfo(const AllocationInfoMap* allocation_info_map) {
     allocation_info_map_ = allocation_info_map;
@@ -231,7 +232,7 @@ class BufferReuseDebugPrinter {
           handle(debug_entry->second);
           break;
         default:
-          NVF_ERROR(false, "unreachable");
+          NVF_THROW("unreachable");
       }
     }
     os_ << "\n\n";
@@ -269,7 +270,7 @@ class BufferReuseDebugPrinter {
   }
 
   void handle(const Expr* node) {
-    if (auto for_loop = dynamic_cast<const kir::ForLoop*>(node)) {
+    if (auto for_loop = dynamic_cast<const ForLoop*>(node)) {
       handle(for_loop);
     } else if (auto ite = dynamic_cast<const kir::IfThenElse*>(node)) {
       handle(ite);
@@ -282,7 +283,7 @@ class BufferReuseDebugPrinter {
     }
   }
 
-  void handle(const kir::ForLoop* node) {
+  void handle(const ForLoop* node) {
     indent();
     os_ << "FOR " << node->index()->toString() << " in "
         << node->iter_domain()->toString() << ":\n";
@@ -294,7 +295,7 @@ class BufferReuseDebugPrinter {
     //  if this printer can be used for
     //  other passes or we have more
     //  complex ite pattern.
-    NVF_ERROR(false, "unsupported");
+    NVF_THROW("unsupported");
   }
 
   void printAllocInfo(const kir::Allocate* alloc);
@@ -402,7 +403,7 @@ struct ScopeInfo {
   int64_t end_pos = -1;
 
   // nullptr means it's global scope
-  kir::ForLoop* loop = nullptr;
+  ForLoop* loop = nullptr;
 };
 
 class ScopeMap;
@@ -454,7 +455,7 @@ class ScopeMap : private kir::IrVisitor {
       : global_scope_info_{makeAndRegisterScopeInfo(nullptr)} {
     handle(exprs);
     // Note that this introduces a position at the end of the scope with no
-    // corresponding Expr. See also handle(kir::ForLoop*) below.
+    // corresponding Expr. See also handle(ForLoop*) below.
     expr_pos_map_.moveToNext();
     global_scope_info_->end_pos = expr_pos_map_.getCurrentPos();
 
@@ -472,7 +473,7 @@ class ScopeMap : private kir::IrVisitor {
     kir::IrVisitor::dispatch(expr);
   }
 
-  void handle(kir::ForLoop* for_loop) final {
+  void handle(ForLoop* for_loop) final {
     auto loop_info = makeAndRegisterScopeInfo(for_loop);
     kir::IrVisitor::handle(for_loop);
     // Note that this introduces a position at the end of the scope with no
@@ -482,12 +483,11 @@ class ScopeMap : private kir::IrVisitor {
   }
 
   void handle(kir::IfThenElse* ite) final {
-    NVF_ERROR(
-        false, "lower_alias_memory: no support for IfThenElse at this phase.");
+    NVF_THROW("lower_alias_memory: no support for IfThenElse at this phase.");
   }
 
   //! Factory function for internal loop information data
-  ScopeInfo* makeAndRegisterScopeInfo(kir::ForLoop* loop) {
+  ScopeInfo* makeAndRegisterScopeInfo(ForLoop* loop) {
     auto loop_info_ptr = std::make_unique<ScopeInfo>();
     auto loop_info = loop_info_ptr.get();
 
@@ -515,7 +515,7 @@ class ScopeMap : private kir::IrVisitor {
     return std::move(all_scope_info_);
   }
 
-  ScopeInfo* getLoopScopeInfo(const kir::ForLoop* loop) const {
+  ScopeInfo* getLoopScopeInfo(const ForLoop* loop) const {
     auto it = loop_to_scope_info_map_.find(loop);
     NVF_ERROR(
         it != loop_to_scope_info_map_.end(),
@@ -542,7 +542,7 @@ class ScopeMap : private kir::IrVisitor {
   ScopeInfo* global_scope_info_ = nullptr;
 
   //! map loop to scope info
-  std::unordered_map<const kir::ForLoop*, ScopeInfo*> loop_to_scope_info_map_;
+  std::unordered_map<const ForLoop*, ScopeInfo*> loop_to_scope_info_map_;
 
   ExprPosMap expr_pos_map_;
 };
@@ -562,6 +562,7 @@ struct AllocationInfo {
   const kir::Allocate* alias_to = nullptr;
   bool is_inner_alias = false;
   bool should_try_alias = true;
+  bool is_cp_async_bulk = false;
   MemoryType mem_type = MemoryType::Local;
   DataType data_type = DataType::Float;
   std::string size_expr;
@@ -763,7 +764,7 @@ class AllocationInfoMap : private kir::IrVisitor {
     collectLivenessInfoOfExpr(expr);
   }
 
-  void handle(kir::ForLoop* for_loop) final {
+  void handle(ForLoop* for_loop) final {
     auto loop_info = scope_map_.getLoopScopeInfo(for_loop);
     if (!for_loop->isTrivial()) {
       // Parallelized loops do not result in for loops in the CUDA kernel, so
@@ -785,8 +786,7 @@ class AllocationInfoMap : private kir::IrVisitor {
   }
 
   void handle(kir::IfThenElse* ite) final {
-    NVF_ERROR(
-        false, "lower_alias_memory: no support for IfThenElse at this phase.");
+    NVF_THROW("lower_alias_memory: no support for IfThenElse at this phase.");
   }
 
   // Generate allocation info for allocation after some pre-filtering
@@ -841,6 +841,9 @@ class AllocationInfoMap : private kir::IrVisitor {
     alloc_info->size_expr = size_print;
     alloc_info->loop_info = current_stack_.back();
     alloc_info->should_try_alias = should_try_alias;
+    alloc_info->is_cp_async_bulk =
+        (tv->definition() != nullptr &&
+         ir_utils::isCpAsyncBulk(tv->definition()));
 
     // record short cuts
     allocation_info_map_[alloc] = alloc_info;
@@ -865,20 +868,55 @@ class AllocationInfoMap : private kir::IrVisitor {
   }
 
   void collectLivenessInfoOfExprMBarrier(Expr* expr) {
-    const auto expr_pos = scope_map_.getExprPos(expr);
+    int64_t expr_pos = scope_map_.getExprPos(expr);
 
+    auto mark_liveness = [&expr_pos, this](TensorView* tv, bool is_write) {
+      AllocationInfo* alloc_info = getAllocInfoFromTV(tv);
+      if (is_write) {
+        alloc_info->inner_live_interval->markWrite(expr_pos);
+      } else {
+        alloc_info->inner_live_interval->markRead(expr_pos);
+      }
+      ScopeInfo* outer_loop_info = ascendLoopNestToSameLevelAs(alloc_info);
+      int64_t outer_pos =
+          outer_loop_info ? outer_loop_info->start_pos : expr_pos;
+      if (is_write) {
+        alloc_info->outer_live_interval->markWrite(outer_pos);
+      } else {
+        alloc_info->outer_live_interval->markRead(outer_pos);
+      }
+    };
+
+    // The liveness of the mbarrier and its token are mapped together.
+    // The token is the mbarrier state of the last phase.
     if (auto init = dynamic_cast<kir::MBarrierInit*>(expr)) {
-      auto alloc_info = getAllocInfoFromTV(init->mbarrier()->as<TensorView>());
-      alloc_info->inner_live_interval->markWrite(expr_pos);
-      auto outer_loop_info = ascendLoopNestToSameLevelAs(alloc_info);
-      auto write_pos = outer_loop_info ? outer_loop_info->start_pos : expr_pos;
-      alloc_info->outer_live_interval->markWrite(write_pos);
+      TensorView* tv = (init->mbarrier()->isA<kir::TensorIndex>())
+          ? init->mbarrier()->as<kir::TensorIndex>()->view()
+          : init->mbarrier()->as<TensorView>();
+      mark_liveness(tv, /*is_write=*/true);
+
+      // Register start of lifetime for a mbarrier token returned by
+      // MBarrierArriveExpectTx and MBarrierArrive.
+      if (GpuLower::current()->tmaCircularBufferInfo().existsMBarrierToken(
+              expr)) {
+        mark_liveness(
+            GpuLower::current()->tmaCircularBufferInfo().getMBarrierToken(expr),
+            /*is_write=*/true);
+      }
     } else if (auto inval = dynamic_cast<kir::MBarrierInvalidate*>(expr)) {
-      auto alloc_info = getAllocInfoFromTV(inval->mbarrier()->as<TensorView>());
-      alloc_info->inner_live_interval->markRead(expr_pos);
-      auto outer_loop_info = ascendLoopNestToSameLevelAs(alloc_info);
-      auto write_pos = outer_loop_info ? outer_loop_info->start_pos : expr_pos;
-      alloc_info->outer_live_interval->markRead(write_pos);
+      TensorView* tv = (inval->mbarrier()->isA<kir::TensorIndex>())
+          ? inval->mbarrier()->as<kir::TensorIndex>()->view()
+          : inval->mbarrier()->as<TensorView>();
+      mark_liveness(tv, /*is_write=*/false);
+
+      // Register end of lifetime for a mbarrier token returned by
+      // returned by MBarrierArriveExpectTx and MBarrierArrive
+      if (GpuLower::current()->tmaCircularBufferInfo().existsMBarrierToken(
+              expr)) {
+        mark_liveness(
+            GpuLower::current()->tmaCircularBufferInfo().getMBarrierToken(expr),
+            /*is_write=*/false);
+      }
     }
   }
 
@@ -1241,7 +1279,7 @@ class ReusableAllocationFinder : private kir::IrVisitor {
     return false;
   }
 
-  void handle(kir::ForLoop* for_loop) final {
+  void handle(ForLoop* for_loop) final {
     current_visible_buffer_stack_.emplace_back(
         std::make_unique<std::vector<AllocationInfo*>>());
     kir::IrVisitor::handle(for_loop);
@@ -1735,7 +1773,10 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
       auto top_size = allocSizeBytes(top_alloc);
       auto unaligned_address =
           SimplifyingIrBuilder::addExpr(top_alloc->address(), top_size);
-      auto aligned_address = alignExpr(unaligned_address);
+      // Shared memory allocations must by 128B aligned for cpAsyncBulk
+      // operations to avoid CUDA_ERROR_MISALIGNED_ADDRESS.
+      auto aligned_address = alignExpr(
+          unaligned_address, (alloc_info->is_cp_async_bulk) ? 128 : 16);
       // TODO: hoisting of addresses using for_loops_ recorded at first write
       alloc->setAddress(aligned_address);
     }
@@ -2005,7 +2046,7 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
 
   //! Recurse into loop, then process ENDFOR position as a potential last read.
   //! An ENDFOR cannot be a first write.
-  void handle(kir::ForLoop* loop) final {
+  void handle(ForLoop* loop) final {
     kir::ExprMutator::handle(loop);
 
     // We might have a last read outer position that is the end of a for loop.

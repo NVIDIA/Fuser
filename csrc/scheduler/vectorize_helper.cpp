@@ -12,9 +12,12 @@
 #include <device_lower/analysis/divisible_split.h>
 #include <expr_evaluator.h>
 #include <expr_simplifier.h>
+#include <instrumentation.h>
 #include <ir/builder.h>
+#include <ir/iostream.h>
 #include <iter_visitor.h>
 #include <scheduler/registry.h>
+#include <scheduler/runtime_info.h>
 
 #include <c10/util/irange.h>
 
@@ -67,18 +70,18 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
   // Exclude reduction IDs if the reference is a fusion input as they
   // don't manifest at all in the fusion. This simplifies the
   // analysis in getContigMergeOfInnerSize, which only looks at
-  // non-reduction rfactor domains. Including reduction domains here
+  // non-reduction logical domains. Including reduction domains here
   // can result in incorrect ordering
   // NOTE: this is necessary to enable vectorization in
   // NVFuserTest.FusionSegmentReduceSoftmax_CUDA
-  auto rfactor_domain = reference->getRFactorDomain();
+  auto logical_domain = reference->getLogicalDomain();
   auto filtered_ids = ids;
   if (reference->isFusionInput()) {
-    rfactor_domain = TensorDomain::noReductions(rfactor_domain);
+    logical_domain = TensorDomain::noReductions(logical_domain);
     filtered_ids = TensorDomain::noReductions(filtered_ids);
   } else {
     NVF_ERROR(
-        !TensorDomain::hasReduction(rfactor_domain) &&
+        !TensorDomain::hasReduction(logical_domain) &&
             !TensorDomain::hasReduction(filtered_ids),
         "Unexpected reduction domain given to ContiguousInnerDimensionsMapper");
   }
@@ -92,11 +95,11 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
   // Ordering of dimensions is important in this analysis, if an ordering is
   // contiguous in the reference, but not the target tensor views, then we
   // cannot consider that a contiguous merge dimension for vectorization.
-  auto projected_rfactor = projectId(filtered_ids, rfactor_domain);
+  auto projected_logical = projectId(filtered_ids, logical_domain);
 
   std::shared_ptr<Information> reference_information = MappedDomain::build(
-      projectId(projected_rfactor, reference->getMaybeRootDomain()),
-      projected_rfactor,
+      projectId(projected_logical, reference->getMaybeRootDomain()),
+      projected_logical,
       reference->hasRoot() /*shouldn't matter how we initialize this*/);
 
   // Stop recording before traversal
@@ -379,7 +382,7 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
   auto backward_exprs = StmtSort::getExprsBetween(
       {to.begin(), to.end()}, {frontier.begin(), frontier.end()});
 
-  // Mapping from rfactor to root, reverse expressions
+  // Mapping from logical to root, reverse expressions
   std::reverse(backward_exprs.begin(), backward_exprs.end());
 
   for (auto* expr : backward_exprs) {
@@ -393,10 +396,8 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     } else {
       // TODO: I wonder if we should just remove all inputs instead of erroring.
       // Seems that would be safe.
-      NVF_ERROR(
-          false,
-          "ProjectDimensions does not support expr type: ",
-          expr->toString());
+      NVF_THROW(
+          "ProjectDimensions does not support expr type: ", expr->toString());
     } // switch on expr type
   } // For loop on the transform expressions
 
@@ -407,7 +408,7 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
   auto forward_exprs = StmtSort::getExprsBetween(
       {frontier.begin(), frontier.end()}, {to.begin(), to.end()});
 
-  // Map forward through transforms since we're going from root to rfactor
+  // Map forward through transforms since we're going from root to logical
   for (auto* expr : forward_exprs) {
     if (Merge* merge = dynamic_cast<Merge*>(expr)) {
       propagateCombine(merge);
@@ -419,10 +420,8 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     } else {
       // TODO: I wonder if we should just remove all inputs instead of erroring.
       // Seems that would be safe.
-      NVF_ERROR(
-          false,
-          "ProjectDimensions does not support expr type: ",
-          expr->toString());
+      NVF_THROW(
+          "ProjectDimensions does not support expr type: ", expr->toString());
     } // switch on expr type
   } // For loop on the transform expressions
 
@@ -463,8 +462,8 @@ ContiguousInnerDimensionsMapper::computeInfoC2P(
   // resolved broadcast iterdomain is `i2`/`b2`, which would give clear_pos=1.
   // So we'll skip all from_ids with index < clear_pos. see issue:
   // https://github.com/NVIDIA/Fuser/issues/1567#issuecomment-1894605385
-  PairwiseRootDomainMap root_map(to, from);
-  auto c2p_map = root_map.mapConsumerToProducer();
+  PairwiseLogicalDomainMap logical_map(to, from);
+  auto c2p_map = logical_map.mapConsumerToProducer();
 
   // Id's in consumer to clear from the mapped set due to broadcast
   // concretization.
@@ -486,22 +485,22 @@ ContiguousInnerDimensionsMapper::computeInfoC2P(
     }
   }
 
-  std::vector<IterDomain*> producer_rfactor_ids;
+  std::vector<IterDomain*> producer_logical_ids;
   for (auto i : c10::irange(clear_pos, (int64_t)from_ids.size())) {
     auto from_id = from_ids[i];
     auto c2p_it = c2p_map.find(from_id);
     if (c2p_it != c2p_map.end() &&
         consumer_ids_to_clear.find(c2p_it->first) ==
             consumer_ids_to_clear.end()) {
-      producer_rfactor_ids.push_back(c2p_it->second);
+      producer_logical_ids.push_back(c2p_it->second);
       if (recording_) {
         addProjectedExtent(c2p_it->second, getProjectedExtent(c2p_it->first));
       }
     }
   }
   return MappedDomain::build(
-      projectId(producer_rfactor_ids, to->getMaybeRootDomain()),
-      producer_rfactor_ids,
+      projectId(producer_logical_ids, to->getMaybeRootDomain()),
+      producer_logical_ids,
       true);
 }
 
@@ -511,7 +510,7 @@ ContiguousInnerDimensionsMapper::computeInfoP2C(
     TensorView* to,
     std::shared_ptr<MaxInfoSpanningTree::Information> from_info) {
   auto from_ids = std::dynamic_pointer_cast<const MappedDomain>(from_info)
-                      ->mapped_rfactor_ids_;
+                      ->mapped_logical_ids_;
   // If we have a case where we have a reduction that's being tracked in a
   // producer but not a consumer we should break off the dimensions connected to
   // the left of that reduction unless the producer is a fusion
@@ -531,25 +530,25 @@ ContiguousInnerDimensionsMapper::computeInfoP2C(
   // T3[i1, i2] = T2
   // Then i1 and i2 are contiguous in both T0 and T3, but due to the sum on T1
   // we will have removed i1.
-  PairwiseRootDomainMap root_map(from, to);
-  auto p2c_map = root_map.mapProducerToConsumer();
+  PairwiseLogicalDomainMap logical_map(from, to);
+  auto p2c_map = logical_map.mapProducerToConsumer();
   std::vector<IterDomain*> consumer_root_ids;
 
   // Id's in producer to clear from the mapped set due to reductions.
   std::unordered_set<IterDomain*> producer_ids_to_clear;
   if (!from->isFusionInput() && from->hasReduction()) {
-    // Find the last reduction dimension in the rfactor domain.
+    // Find the last reduction dimension in the logical domain.
     int64_t clear_pos = -1;
-    for (auto i : c10::irange((int64_t)from->getRFactorDomain().size())) {
-      if (from->getRFactorDomain()[i]->isReduction()) {
+    for (auto i : c10::irange((int64_t)from->getLogicalDomain().size())) {
+      if (from->getLogicalDomain()[i]->isReduction()) {
         clear_pos = i;
       }
     }
     // Clear everything to the left of the inner most reduction dimension.
     if (clear_pos >= 0) {
       producer_ids_to_clear.insert(
-          from->getRFactorDomain().begin(),
-          from->getRFactorDomain().begin() + clear_pos + 1);
+          from->getLogicalDomain().begin(),
+          from->getLogicalDomain().begin() + clear_pos + 1);
     }
   }
 
@@ -566,7 +565,7 @@ ContiguousInnerDimensionsMapper::computeInfoP2C(
   }
   return MappedDomain::build(
       consumer_root_ids,
-      projectId(consumer_root_ids, to->getRFactorDomain()),
+      projectId(consumer_root_ids, to->getLogicalDomain()),
       false);
 }
 
@@ -618,42 +617,42 @@ ContiguousInnerDimensionsMapper::computeInfoSibling(
   }
 
   NVF_ERROR(
-      from->getRFactorDomain().size() == to->getRFactorDomain().size(),
-      "Siblings of different rfactor sizes not supported, but found:\n  ",
+      from->getLogicalDomain().size() == to->getLogicalDomain().size(),
+      "Siblings of different logical sizes not supported, but found:\n  ",
       from->toString(),
       "\n  and\n  ",
       to->toString(),
-      "\nhave rfactor sizes of ",
-      from->getRFactorDomain().size(),
+      "\nhave logical sizes of ",
+      from->getLogicalDomain().size(),
       " and ",
-      to->getRFactorDomain().size());
+      to->getLogicalDomain().size());
 
-  auto from_rfactor_ids =
+  auto from_logical_ids =
       std::dynamic_pointer_cast<const MappedDomain>(from_info)
-          ->mapped_rfactor_ids_;
-  std::vector<IterDomain*> sibling_rfactor_ids;
+          ->mapped_logical_ids_;
+  std::vector<IterDomain*> sibling_logical_ids;
 
-  for (auto from_rfactor_id : from_rfactor_ids) {
+  for (auto from_logical_id : from_logical_ids) {
     auto from_it = std::find(
-        from->getRFactorDomain().begin(),
-        from->getRFactorDomain().end(),
-        from_rfactor_id);
+        from->getLogicalDomain().begin(),
+        from->getLogicalDomain().end(),
+        from_logical_id);
     NVF_ERROR(
-        from_it != from->getRFactorDomain().end(),
+        from_it != from->getLogicalDomain().end(),
         "Expected ",
-        from_rfactor_id->toString(),
-        " to be in the rfactor of ",
+        from_logical_id->toString(),
+        " to be in the logical of ",
         from->toString());
-    auto pos = std::distance(from->getRFactorDomain().begin(), from_it);
-    sibling_rfactor_ids.push_back(to->getRFactorDomain()[pos]);
+    auto pos = std::distance(from->getLogicalDomain().begin(), from_it);
+    sibling_logical_ids.push_back(to->getLogicalDomain()[pos]);
     if (recording_) {
       addProjectedExtent(
-          to->getRFactorDomain()[pos],
-          getProjectedExtent(from->getRFactorDomain()[pos]));
+          to->getLogicalDomain()[pos],
+          getProjectedExtent(from->getLogicalDomain()[pos]));
     }
   }
 
-  return MappedDomain::build(sibling_root_ids, sibling_rfactor_ids, false);
+  return MappedDomain::build(sibling_root_ids, sibling_logical_ids, false);
 }
 
 // MaxInfoSpanningTree functions
@@ -686,12 +685,13 @@ void ContiguousInnerDimensionsMapper::propagateSibling(
 
 Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
     TensorView* of_tv) {
+  FusionGuard fg(of_tv->fusion());
   Val* product_of_inner_extents = of_tv->container()->oneVal();
   auto of_tv_alloc = of_tv->getMaybeAllocationDomain();
 
   NVF_ERROR(hasMappedDims(of_tv));
 
-  const std::vector<IterDomain*>& projected_dims = mappedRFactorIds(of_tv);
+  const std::vector<IterDomain*>& projected_dims = mappedLogicalIds(of_tv);
   auto of_tv_alloc_no_reductions = TensorDomain::noReductions(of_tv_alloc);
 
   auto contiguity = of_tv->domain()->contiguity();
@@ -742,7 +742,7 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
 
     auto contiguity_i = contiguity.at(alloc_ii);
     if (!contiguity_i.has_value()) {
-      NVF_ERROR(false, "contiguity flag at alloc_ii can't be null");
+      NVF_THROW("contiguity flag at alloc_ii can't be null");
     } else {
       // Not contiguous
       if (!contiguity_i.value()) {
@@ -776,14 +776,14 @@ namespace {
 // to outer most position. e.g. T0[i0, r1, b2] will return 3 Mapper instances
 // associated with:
 // {{i0, r1, b2}, {r1, b2}, {b2}}
-// Note that the reference `ref` will be reordered per `rfactor_reorder_map`
+// Note that the reference `ref` will be reordered per `logical_reorder_map`
 std::vector<std::unordered_map<TensorView*, Val*>> getTvToContigInnerSizeMapsOf(
     TensorView* ref,
-    const std::unordered_map<int64_t, int64_t>& rfactor_reorder_map) {
+    const std::unordered_map<int64_t, int64_t>& logical_reorder_map) {
   std::vector<std::unordered_map<TensorView*, Val*>> mappers;
-  auto root_dom = ref->getRFactorDomain();
-  if (!rfactor_reorder_map.empty()) {
-    root_dom = TensorDomain::orderedAs(root_dom, rfactor_reorder_map);
+  auto root_dom = ref->getLogicalDomain();
+  if (!logical_reorder_map.empty()) {
+    root_dom = TensorDomain::orderedAs(root_dom, logical_reorder_map);
   }
   while (!root_dom.empty()) {
     mappers.push_back(ContiguousInnerDimensionsMapper::map(ref, root_dom)
@@ -798,26 +798,28 @@ std::vector<std::unordered_map<TensorView*, Val*>> getTvToContigInnerSizeMapsOf(
 int64_t getVectorizationFactor(
     SchedulerRuntimeInfo& runtime_info,
     TensorView* reference_tv,
-    HeuristicSummary* data_cache,
+    HeuristicDataCache* data_cache,
     int64_t break_point,
-    const std::unordered_map<int64_t, int64_t>& rfactor_reorder_map) {
-  auto vectorizable_inputs_outputs_entry =
-      HeuristicSummaryEntry<HeuristicCompileTime::VectorizableInputsAndOutputs>(
-          data_cache, [&reference_tv]() {
-            return std::make_unique<std::vector<TensorView*>>(
-                scheduler_utils::getInputsOutputsWithInnerDim(
-                    reference_tv, true, true));
-          });
+    const std::unordered_map<int64_t, int64_t>& logical_reorder_map) {
+  FUSER_PERF_SCOPE("vectorize_helper::getVectorizationFactor");
+
+  auto vectorizable_inputs_outputs_entry = HeuristicDataCacheEntry<
+      HeuristicCompileTime::VectorizableInputsAndOutputs>(
+      data_cache, [&reference_tv]() {
+        return std::make_unique<std::vector<TensorView*>>(
+            scheduler_utils::getInputsOutputsWithInnerDim(
+                reference_tv, true, true));
+      });
 
   auto& vectorizable_inputs_outputs = vectorizable_inputs_outputs_entry.get();
 
   auto vectorize_maps_entry =
-      HeuristicSummaryEntry<HeuristicCompileTime::TvToContigInnerSizeMaps>(
-          data_cache, [&reference_tv, &rfactor_reorder_map]() {
+      HeuristicDataCacheEntry<HeuristicCompileTime::TvToContigInnerSizeMaps>(
+          data_cache, [&reference_tv, &logical_reorder_map]() {
             return std::make_unique<
                 std::vector<std::unordered_map<TensorView*, Val*>>>(
                 getTvToContigInnerSizeMapsOf(
-                    reference_tv, rfactor_reorder_map));
+                    reference_tv, logical_reorder_map));
           });
 
   if (vectorizable_inputs_outputs.empty()) {
@@ -860,7 +862,8 @@ int64_t getVectorizationFactor(
         runtime_info.expressionEvaluator().evaluate(inner_size_it->second);
     NVF_ERROR(
         inner_size_opt.hasValue(),
-        "Vectorization heuristic could not evaluate inner most size.");
+        "Vectorization heuristic could not evaluate inner most size: ",
+        inner_size_it->second);
 
     max_vec_size = std::min(
         scheduler_utils::maxVectorizationWidth(inner_size_opt.as<int64_t>()),
@@ -886,7 +889,7 @@ int64_t getVectorizationFactorTransposeGroup(
         virtual_innermost_dim.begin(), reference->axis(static_cast<int>(dim)));
   }
   virtual_innermost_dim.push_back(
-      reference->getRFactorDomain()[inner_most_dim]);
+      reference->getLogicalDomain()[inner_most_dim]);
 
   // NOTE: do I need to consider stride here?! sounds like
   // ContiguousInnerDimensionsMapper::map requires reference to be
@@ -897,15 +900,11 @@ int64_t getVectorizationFactorTransposeGroup(
           .getTvToContigMergeOfInnerSizeMap();
   for (auto tv : vec_tv) {
     auto inner_size_it = contig_inner_map.find(tv);
-    auto tv_vectorize_factor_opt = inner_size_it == contig_inner_map.end()
+    int64_t tv_vectorize_factor = inner_size_it == contig_inner_map.end()
         ? 1
-        : runtime_info.expressionEvaluator().evaluate(inner_size_it->second);
-    // TODO: Do not assert here. we can just reduce vectorization size to 1 if
-    // we can't infer an inner size.
-    NVF_ERROR(
-        tv_vectorize_factor_opt.hasValue(),
-        "Vectorization heuristic could not evaluate inner most size.");
-    int64_t tv_vectorize_factor = tv_vectorize_factor_opt.as<int64_t>();
+        : runtime_info.expressionEvaluator()
+              .evaluate(inner_size_it->second)
+              .as<int64_t>();
     max_vectorization = std::min(
         max_vectorization,
         scheduler_utils::maxVectorizationWidth(tv_vectorize_factor));
@@ -918,6 +917,9 @@ int64_t getVectorizationBreakPointOfReductionProducer(
     TensorView* reduction_consumer,
     TensorView* reduction_producer,
     int64_t consumer_innermost_ndims) {
+  FUSER_PERF_SCOPE(
+      "vectorize_helper::getVectorizationBreakPointOfReductionProducer");
+
   NVF_ERROR(
       reduction_consumer->definition() != nullptr &&
           ir_utils::isReductionOp(reduction_consumer->definition()) &&
@@ -938,8 +940,9 @@ int64_t getVectorizationBreakPointOfReductionProducer(
     return break_point;
   }
 
-  const auto c2p = PairwiseRootDomainMap(reduction_producer, reduction_consumer)
-                       .mapConsumerToProducer();
+  const auto c2p =
+      PairwiseLogicalDomainMap(reduction_producer, reduction_consumer)
+          .mapConsumerToProducer();
 
   // Grab all the corresponding producer IDs that are mapped with the
   // innermost consumer IDs
@@ -958,8 +961,8 @@ int64_t getVectorizationBreakPointOfReductionProducer(
   }
 
   int num_detected_producer_innermost_ids = 0;
-  for (auto it = reduction_producer->getRFactorDomain().rbegin();
-       it != reduction_producer->getRFactorDomain().rend();
+  for (auto it = reduction_producer->getLogicalDomain().rbegin();
+       it != reduction_producer->getLogicalDomain().rend();
        ++it) {
     auto producer_rf_id = *it;
 
@@ -990,7 +993,7 @@ int64_t getVectorizationBreakPointOfReductionProducer(
 
     // Neither reduction nor mapped to consumer innermost IDs.
     // This should not happen
-    NVF_ERROR(false, "Unexpected producer RF ID: ", producer_rf_id->toString())
+    NVF_THROW("Unexpected producer RF ID: ", producer_rf_id->toString())
   }
 
   return break_point;

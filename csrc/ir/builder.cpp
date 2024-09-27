@@ -14,6 +14,7 @@
 
 #include <ir/all_nodes.h>
 #include <ir/container.h>
+#include <type_promotion.h>
 
 #include <complex>
 #include <cstdint>
@@ -172,6 +173,10 @@ Val* IrBuilder::bitwiseOrExpr(Val* lhs, Val* rhs) {
   return newArithmeticExpr(BinaryOpType::BitwiseOr, lhs, rhs);
 }
 
+Val* IrBuilder::bitwiseXorExpr(Val* lhs, Val* rhs) {
+  return newArithmeticExpr(BinaryOpType::BitwiseXor, lhs, rhs);
+}
+
 Val* IrBuilder::lShiftExpr(Val* lhs, Val* rhs) {
   return newArithmeticExpr(BinaryOpType::Lshift, lhs, rhs);
 }
@@ -240,17 +245,21 @@ Val* IrBuilder::gcdExpr(Val* lhs, Val* rhs) {
   return newArithmeticExpr(BinaryOpType::Gcd, lhs, rhs);
 }
 
+Val* IrBuilder::isDivisibleExpr(Val* dividend, Val* divisor) {
+  return eqExpr(modExpr(dividend, divisor), dividend->fusion()->zeroVal());
+}
+
 Val* IrBuilder::getItemExpr(Val* array, Val* index) {
   auto item_dtype = std::get<ArrayType>(array->dtype().type).type;
   auto out = create<Val>(*item_dtype);
-  create<GetItem>(array->container(), out, array, index);
+  createInContainer<GetItem>(array->container(), out, array, index);
   return out;
 }
 
 Val* IrBuilder::getItemExpr(Val* array, PolymorphicValue index) {
   auto item_dtype = std::get<ArrayType>(array->dtype().type).type;
   auto out = create<Val>(*item_dtype);
-  create<GetItem>(
+  createInContainer<GetItem>(
       array->container(), out, array, create<Val>(index, DataType::Int));
   return out;
 }
@@ -259,7 +268,8 @@ Val* IrBuilder::getAttrExpr(Val* struct_, std::string attr) {
   auto struct_type = std::get<StructType>(struct_->dtype().type);
   const auto& item_type = struct_type.fieldDataType(attr);
   auto out = create<Val>(item_type);
-  create<GetAttr>(struct_->container(), out, struct_, std::move(attr));
+  createInContainer<GetAttr>(
+      struct_->container(), out, struct_, std::move(attr));
   return out;
 }
 
@@ -352,7 +362,7 @@ Val* SimplifyingIrBuilder::addExpr(Val* lhs, Val* rhs) {
   } else if (lhs == nullptr) {
     return rhs;
   } else if (lhs->isConst()) {
-    return addExpr(rhs, lhs->value());
+    return addExpr(rhs, lhs->value(), lhs->dtype());
   } else if (rhs->isConst()) {
     return addExpr(lhs, rhs->value(), rhs->dtype());
   } else {
@@ -395,9 +405,9 @@ Val* SimplifyingIrBuilder::mulExpr(Val* lhs, Val* rhs) {
   } else if (lhs == nullptr) {
     return rhs;
   } else if (lhs->isConst()) {
-    return mulExpr(rhs, lhs->value());
+    return mulExpr(rhs, lhs->value(), lhs->dtype());
   } else if (rhs->isConst()) {
-    return mulExpr(lhs, rhs->value());
+    return mulExpr(lhs, rhs->value(), rhs->dtype());
   } else {
     return IrBuilder::mulExpr(lhs, rhs);
   }
@@ -407,6 +417,7 @@ Val* SimplifyingIrBuilder::divExpr(Val* lhs, Val* rhs) {
   if (rhs->isOneInt()) {
     return lhs;
   }
+
   return IrBuilder::divExpr(lhs, rhs);
 }
 
@@ -523,7 +534,10 @@ Val* SimplifyingIrBuilder::bitwiseAndExpr(Val* lhs, Val* rhs) {
   bool lhs_all_ones = false;
   if (lhs_scalar && lhs_scalar->isConst()) {
     if (rhs_scalar && rhs_scalar->isConst()) {
-      return IrBuilder::create<Val>(lhs_scalar->value() & rhs_scalar->value());
+      DataType out_dtype =
+          computeTypes(TypePromotion::default_op_config, {lhs, rhs});
+      return IrBuilder::create<Val>(
+          lhs_scalar->value() & rhs_scalar->value(), out_dtype);
     }
     lhs_zero = lhs_scalar->value().as<int64_t>() == 0;
     lhs_all_ones = lhs_scalar->value().as<int64_t>() == -1;
@@ -564,7 +578,10 @@ Val* SimplifyingIrBuilder::bitwiseOrExpr(Val* lhs, Val* rhs) {
   bool lhs_all_ones = false;
   if (lhs_scalar && lhs_scalar->isConst()) {
     if (rhs_scalar && rhs_scalar->isConst()) {
-      return IrBuilder::create<Val>(lhs_scalar->value() | rhs_scalar->value());
+      DataType out_dtype =
+          computeTypes(TypePromotion::default_op_config, {lhs, rhs});
+      return IrBuilder::create<Val>(
+          lhs_scalar->value() | rhs_scalar->value(), out_dtype);
     }
     lhs_zero = lhs_scalar->value().as<int64_t>() == 0;
     lhs_all_ones = lhs_scalar->value().as<int64_t>() == -1;
@@ -603,7 +620,9 @@ Val* minOrMaxExpr(
   } else if (lhs == nullptr || lhs->sameAs(rhs)) {
     return rhs;
   } else if (lhs->isConst() && rhs->isConst()) {
-    return IrBuilder::create<Val>(func(lhs->value(), rhs->value()));
+    DataType out_dtype =
+        computeTypes(TypePromotion::default_op_config, {lhs, rhs});
+    return IrBuilder::create<Val>(func(lhs->value(), rhs->value()), out_dtype);
   } else {
     return ir_builder_func(lhs, rhs);
   }

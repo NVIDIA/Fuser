@@ -178,23 +178,31 @@ class NVF_API TensorView : public Val {
     return domain()->maybeRoot();
   };
 
-  const std::vector<IterDomain*>& getRFactorDomain() const {
-    return domain()->rfactor();
+  const std::vector<IterDomain*>& getLogicalDomain() const {
+    return domain()->logical();
   };
 
   const std::vector<IterDomain*>& getAllocationDomain() const {
     return domain()->allocation();
   };
 
-  const std::vector<IterDomain*>& getLeafDomain() const {
-    return domain()->leaf();
+  const std::vector<IterDomain*>& getLoopDomain() const {
+    return domain()->loop();
+  };
+
+  const std::vector<IterDomain*>& getInitialLoopDomain() const {
+    return domain()->initialLoop();
   };
 
   // If allocation domain exists in domain() return it, otherwise return
-  // rfactor domain
+  // logical domain
   const std::vector<IterDomain*>& getMaybeAllocationDomain() const {
     return domain()->maybeAllocation();
   };
+
+  void setLoopDomain(std::vector<IterDomain*> new_loop_domain) {
+    domain()->setLoopDomain(std::move(new_loop_domain));
+  }
 
   void setAllocationDomain(
       std::vector<IterDomain*> new_allocation_domain,
@@ -278,6 +286,10 @@ class NVF_API TensorView : public Val {
       int64_t position,
       ComputeAtMode mode = ComputeAtMode::Standard);
 
+  //! Create a new broadcast IterDomain with the given extent in the loop domain
+  TensorView* broadcast(int64_t axis, int64_t extent = 1);
+  TensorView* broadcast(int64_t axis, Val* extent);
+
   // Split "axis" into 2 axes
   //! inner_split dictates if the factor section of the split should be inside
   //! the
@@ -312,7 +324,7 @@ class NVF_API TensorView : public Val {
       const std::initializer_list<std::pair<const int64_t, int64_t>>& old2new);
 
   // Reorder axes based on the vector permutation.
-  // In terms of the function above, this can be seen as ol2new[index] =
+  // In terms of the function above, this can be seen as old2new[index] =
   // permutation[index]
   TensorView* reorder(const std::vector<int64_t>& permutation);
   TensorView* reorder(const std::initializer_list<int64_t>& permutation);
@@ -383,16 +395,8 @@ class NVF_API TensorView : public Val {
 
   void setMemoryType(MemoryType mt);
 
-  // Apply double buffering transformation
-  void doubleBuffer();
-
   // Apply circular buffering transformation
-  void circularBuffer(int64_t number_of_stage);
-
-  // Returns true if this tensor is double buffered.
-  bool isDoubleBuffered() const {
-    return is_double_buffered_;
-  }
+  void circularBuffer(int64_t number_of_stages);
 
   // Returns true if this tensor is circular buffered.
   bool isCircularBuffered() const {
@@ -409,15 +413,34 @@ class NVF_API TensorView : public Val {
   //!  this should be used on the tvs that are either inputs/outputs of an
   //!  MmaOp, or any tv's that are involved in prolog/epilog fusions and need to
   //!  have a matching thread swizzle with the mma operand/result.
-  //! More detail on usage see [WarpMmaSwizzler] in scheduler/mma_utils.h .
+  //! More detail on usage see [MmaSwizzler] in scheduler/mma_utils.h .
   void applyMmaSwizzle(MmaOperand operand);
   void applyMmaSwizzle(MmaInputSmemSwizzle swizzle);
+
+  //! Function to schedule the swizzled TMA box.
+  //! This functions works on the assumption that the TMA box is 2D
+  //! and the inner-dimension is less or equal to the swizzle size.
+  //! This doesn't work for the swizzle none mode. For more details
+  //! refer to the figure doc/dev/tma/swizzle.svg
+  void swizzleTMABox(MmaInputSmemSwizzle swizzle);
+
+  //! Transforms the innermost iterdomains according to the given mma swizzle,
+  //!  this should be used on the tvs that are inputs of a MmaOp or are loaded
+  //!  using TMA.
+  void applyMmaSwizzleForTMALoad(
+      MmaInputSmemSwizzle swizzle,
+      bool permute_outer_dim = true);
 
   //! Returns if this tensor view has swizzle operator on its tensor domain.
   //!  This is the temporary flag for indicating that the new swizzle
   //!  implementation is used and will be removed in follow ups.
   bool hasSwizzleOp() const {
     return has_swizzle_op_;
+  }
+
+  //! A temporary helper function for the transition from Swizzle2D to Swizzle
+  void setHasSwizzleOp() {
+    has_swizzle_op_ = true;
   }
 
   friend TransformPropagator;
@@ -495,14 +518,14 @@ class NVF_API TensorView : public Val {
   // example, grouping multiple reductions.
   void updateMaxProducerPosition();
 
-  // Commit the current changes in leaf domain into rFactor domain. This
+  // Commit the current changes in loop domain into rFactor domain. This
   // function can be used to do implicit transpose and view, but today, only
   // implicit transpose is being tested. This function can be dangerous: it
   // changes the the semantics of the current tensor without updating its
   // consumers consistently, and there is no reliable way to detect this
   // inconsistency. It is the responsibility of the caller of this function to
   // ensure consistency.
-  void commitLeafToRFactor();
+  void commitLeafToLogical();
 
   //! Request that we reclaim the memory of this tv before any subsequent
   //! tensors are allocated.
@@ -559,7 +582,6 @@ class NVF_API TensorView : public Val {
   int64_t compute_at_pos_ = 0;
   int64_t max_producer_pos_ = 0;
   MemoryType memory_type_ = MemoryType::Local;
-  bool is_double_buffered_ = false;
 
   //! Indicates if the tensor is circular buffered.
   bool is_circular_buffered_ = false;

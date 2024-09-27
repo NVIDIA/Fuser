@@ -21,13 +21,13 @@ void validateIr(Fusion* fusion);
 //! used in code generation as well as runtime validation.
 void validateAndCollectVectorizeInfo(Fusion* fusion);
 
-//! Find the contig allocation domains that a vectorized leaf domain
+//! Find the contig allocation domains that a vectorized loop domain
 //! of a consumer TV depends on. Required for runtime validation.
 void fillConsumerVectorizedContigAllocationDomains(
     const TensorView* consumer_tv,
     const ContigIDs& contig_finder);
 
-//! Find the contig allocation domains that a vectorized leaf domain
+//! Find the contig allocation domains that a vectorized loop domain
 //! of a producer TV depends on. Required for runtime validation.
 //! Producer must be transformed as consumer.
 void fillProducerVectorizedContigAllocationDomains(
@@ -67,9 +67,6 @@ void validateGroupedReductions(Fusion* fusion);
 
 //! Validate all of the lookup TVs are ensured to be fusion inputs
 void validateLookupTV(Fusion* fusion);
-
-//! Validate resize usage
-void validateResize(Fusion* fusion);
 
 //! Check that there are no reductions over unexpanded broadcasts
 void validateReductions(Fusion* fusion);

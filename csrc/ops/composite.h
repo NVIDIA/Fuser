@@ -76,4 +76,44 @@ NVF_API TensorView* view_as_real(TensorView* x);
 // layouts via strides. This has the same functionality as torch.matmul
 TensorView* matmul(TensorView* tv_a, TensorView* tv_b);
 
+// Scaled Dot Product Flash Attention Forward Result
+struct SdpfaFwdResult {
+  TensorView* output = nullptr;
+  TensorView* log_sumexp = nullptr;
+  TensorView* philox_seed = nullptr;
+  TensorView* philox_offset = nullptr;
+};
+
+// Scaled Dot Product Flash Attention Forward API.
+// Returns the same output as at::_scaled_dot_product_flash_attention
+SdpfaFwdResult sdpfa_fwd(
+    TensorView* query,
+    TensorView* key,
+    TensorView* value,
+    Val* dropout_p,
+    Val* is_causal,
+    Val* scale);
+
+// Scaled Dot Product Flash Attention Backward Result
+struct SdpfaBwdResult {
+  TensorView* grad_query = nullptr;
+  TensorView* grad_key = nullptr;
+  TensorView* grad_value = nullptr;
+};
+
+// Scaled Dot Product Flash Attention Backward API.
+// Returns the same output as at::_scaled_dot_product_flash_attention_backward
+SdpfaBwdResult sdpfa_bwd(
+    TensorView* grad_output,
+    TensorView* query,
+    TensorView* key,
+    TensorView* value,
+    TensorView* output,
+    TensorView* log_sumexp,
+    Val* dropout_p,
+    Val* is_causal,
+    TensorView* philox_seed,
+    TensorView* philox_offset,
+    Val* scale);
+
 } // namespace nvfuser

@@ -12,7 +12,7 @@
 #include <instrumentation.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 
 #include <unordered_set>
 #include <vector>
@@ -23,12 +23,7 @@ namespace nvfuser {
 // versions that are doing indexing
 class IndexLowering : private OptOutConstDispatch {
  public:
-  static std::vector<Expr*> getIndexedExprs(std::vector<Expr*> incoming_exprs) {
-    FUSER_PERF_SCOPE("GpuLower::Lower::IndexLowering::getIndexedExprs");
-    IndexLowering il;
-    il.generate(incoming_exprs);
-    return il.lowered_exprs_;
-  }
+  static std::vector<Expr*> getIndexedExprs(std::vector<Expr*> incoming_exprs);
 
  private:
   IndexLowering() = default;
@@ -72,13 +67,15 @@ class IndexLowering : private OptOutConstDispatch {
   void handle(const SliceOp*) final;
   void handle(const CatOp*) final;
 
-  void handle(const kir::ForLoop*) final;
+  void handle(const ForLoop*) final;
   void handle(const kir::IfThenElse*) final;
   void handle(const kir::Allocate*) final;
   void handle(const kir::BlockSync*) final;
   void handle(const kir::GridSync*) final;
   void handle(const kir::MBarrierInit*) final;
   void handle(const kir::MBarrierInvalidate*) final;
+  void handle(const kir::MBarrierArriveExpectTx*) final;
+  void handle(const kir::MBarrierWait*) final;
   void handle(const kir::AsyncWait*) final;
   void handle(const kir::AsyncCommit*) final;
   void handle(const kir::BlockSerializeWait*) final;
@@ -87,7 +84,7 @@ class IndexLowering : private OptOutConstDispatch {
   void generate(const std::vector<Expr*>& exprs);
 
   // Get the loop in which the currently visiting expr is a rotated expr.
-  const std::unordered_set<kir::ForLoop*>& getRotatedLoop() const {
+  const std::unordered_set<ForLoop*>& getRotatedLoop() const {
     return rotated_loop_;
   }
 
@@ -167,13 +164,6 @@ class IndexLowering : private OptOutConstDispatch {
   // fused reduction.
   void allocateUniqueFusedReduction(Expr* expr, TensorView* out_tv);
 
-  //! Get index of producer_tv as if broadcast_id had Iteration type instead of
-  //! Broadcast
-  Val* getIterationIndexForBroadcast(
-      TensorView* producer_tv,
-      TensorView* consumer_tv,
-      IterDomain* broadcast_id) const;
-
  private:
   std::vector<Expr*> lowered_exprs_;
 
@@ -183,14 +173,14 @@ class IndexLowering : private OptOutConstDispatch {
   // to be able to carry both around because when we push back to a scope it
   // could be either the body or else body of the IfThenElse. However, we want
   // to understand the nesting of IfThenElse/ForLoop nodes.
-  kir::Scope* active_scope_ = nullptr;
+  Scope* active_scope_ = nullptr;
 
   // Track for loops to send to indexing. Similar to what's done in
   // kir::IrVisitor
-  std::vector<kir::ForLoop*> for_loops_;
+  std::vector<ForLoop*> for_loops_;
 
   // Keep track of the loop in which the currently visiting expr is a rotated.
-  std::unordered_set<kir::ForLoop*> rotated_loop_;
+  std::unordered_set<ForLoop*> rotated_loop_;
 
   // Maps to keep track of allocated buffers and objects that must be
   // allocated only once

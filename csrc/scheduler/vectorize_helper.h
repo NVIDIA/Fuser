@@ -25,7 +25,7 @@
 namespace nvfuser {
 
 class SchedulerRuntimeInfo;
-class HeuristicSummary;
+class HeuristicDataCache;
 
 namespace vectorize_helper {
 
@@ -129,7 +129,7 @@ namespace vectorize_helper {
 //
 // MaxInfoSpanningTree::computeInfoC2P runs first with recording_=false and
 // will effectively compute the values of projected_root_ids_ and
-// projected_rfactor_ids_. However it will compute these by running all edges
+// projected_logical_ids_. However it will compute these by running all edges
 // between expressions. Therefore,
 // MaxInfoSpanningTree::Propagator::propagateC2P later simply calls
 // MaxInfoSpanningTree::computeInfoC2P with recording_=true where it will
@@ -170,18 +170,18 @@ class NVF_API ContiguousInnerDimensionsMapper
         ->mapped_root_ids_;
   }
 
-  const std::vector<IterDomain*>& mappedRFactorIds(TensorView* tv) const {
+  const std::vector<IterDomain*>& mappedLogicalIds(TensorView* tv) const {
     NVF_ERROR(
         tv_infos_.find(tv) != tv_infos_.end(),
         "TensorView not found: ",
         tv->toString());
     return std::dynamic_pointer_cast<const MappedDomain>(tv_infos_.at(tv))
-        ->mapped_rfactor_ids_;
+        ->mapped_logical_ids_;
   }
 
   Val* getProjectedExtent(IterDomain* id) const {
     if (projected_extent_.find(id) == projected_extent_.end()) {
-      NVF_ERROR(false, "Not projected: ", id->toString());
+      NVF_THROW("Not projected: ", id->toString());
     }
     return projected_extent_.at(id);
   }
@@ -201,32 +201,32 @@ class NVF_API ContiguousInnerDimensionsMapper
 
     static std::shared_ptr<MappedDomain> build(
         std::vector<IterDomain*> root_ids,
-        std::vector<IterDomain*> rfactor_ids,
+        std::vector<IterDomain*> logical_ids,
         bool is_c2p) {
       auto ptr = std::make_shared<MappedDomain>();
       ptr->mapped_root_ids_ = root_ids;
-      ptr->mapped_rfactor_ids_ = rfactor_ids;
+      ptr->mapped_logical_ids_ = logical_ids;
       ptr->is_c2p_ = is_c2p;
       return ptr;
     }
 
     operator bool() const final {
-      return !mapped_root_ids_.empty() || !mapped_rfactor_ids_.empty();
+      return !mapped_root_ids_.empty() || !mapped_logical_ids_.empty();
     }
 
     bool operator<(const Information& other_info) const final {
       auto other_mapped_domain = dynamic_cast<const MappedDomain&>(other_info);
 
       if (is_c2p_) {
-        return mapped_rfactor_ids_.size() <
-            other_mapped_domain.mapped_rfactor_ids_.size();
+        return mapped_logical_ids_.size() <
+            other_mapped_domain.mapped_logical_ids_.size();
       }
       return mapped_root_ids_.size() <
           other_mapped_domain.mapped_root_ids_.size();
     }
 
     std::vector<IterDomain*> mapped_root_ids_;
-    std::vector<IterDomain*> mapped_rfactor_ids_;
+    std::vector<IterDomain*> mapped_logical_ids_;
     // Information is not symmetric between c2p and p2c, track which direction
     // the computation is in for the < operator
     bool is_c2p_ = true;
@@ -279,7 +279,7 @@ class NVF_API ContiguousInnerDimensionsMapper
       TensorView* to,
       std::shared_ptr<Information> from_info) final;
 
-  // Projection from root<->rfactor domains
+  // Projection from root<->logical domains
   std::vector<IterDomain*> projectId(
       const std::vector<IterDomain*>& from,
       const std::vector<IterDomain*>& to);
@@ -310,14 +310,14 @@ class NVF_API ContiguousInnerDimensionsMapper
   std::unordered_map<IterDomain*, Val*> projected_extent_;
 };
 
-// rfactor_reorder_map is provided to assume reference_tv will be reordered per
+// logical_reorder_map is provided to assume reference_tv will be reordered per
 // the map, hence changing the order of IterDomain in the reference
 int64_t getVectorizationFactor(
     SchedulerRuntimeInfo& runtime_info,
     TensorView* reference_tv,
-    HeuristicSummary* data_cache,
+    HeuristicDataCache* data_cache,
     int64_t break_point,
-    const std::unordered_map<int64_t, int64_t>& rfactor_reorder = {});
+    const std::unordered_map<int64_t, int64_t>& logical_reorder = {});
 
 int64_t getVectorizationFactorTransposeGroup(
     SchedulerRuntimeInfo& runtime_info,

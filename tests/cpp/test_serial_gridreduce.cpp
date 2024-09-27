@@ -103,7 +103,7 @@ TEST_F(SerialGridReductionTest, Scheduling) {
         });
 
         TransformPropagator propagator(tv3);
-        MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+        MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
         scheduler_utils::parallelizeAllLike(tv3);
 
         // Here we just transpose A and B in tv2, so that it will be partially

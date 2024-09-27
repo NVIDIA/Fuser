@@ -77,7 +77,7 @@ const ValGroup& ValGraph::toGroup(Val* val) const {
   auto disjoint_set_it = disjoint_vals_.disjointSetMap().find(val);
   NVF_ERROR(
       disjoint_set_it != disjoint_vals_.disjointSetMap().end(),
-      "\nId group could not be found in graph associated with: ",
+      "\nVal group could not be found in graph associated with: ",
       val->toString(),
       "\n");
   return disjoint_set_it->second;
@@ -612,7 +612,9 @@ void ValGraph::validateConsistency() const {
           found,
           "ExprGroup not found in ",
           (&use_def_map == &unique_definitions_) ? "unique_definitions_"
-                                                 : "unique_uses_");
+                                                 : "unique_uses_",
+          ". Expr: ",
+          exprg->front()->toString());
     }
   }
 
@@ -670,14 +672,14 @@ std::optional<SelfMapping> hasSelfMapping(
     const TensorView* tv,
     const ValGraph& id_graph) {
   std::optional<std::pair<IterDomain*, IterDomain*>> mapped =
-      detectSelfMapping(tv->getRFactorDomain(), id_graph);
+      detectSelfMapping(tv->getLogicalDomain(), id_graph);
   // Logical domains.
   if (mapped.has_value()) {
     return SelfMapping{
         .id1 = mapped->first, .id2 = mapped->second, .where = "Logical"};
   }
 
-  // Rfactor domains
+  // Root domains
   if (tv->hasRoot()) {
     mapped = detectSelfMapping(tv->getRootDomain(), id_graph);
     if (mapped.has_value()) {
@@ -690,12 +692,91 @@ std::optional<SelfMapping> hasSelfMapping(
   // TODO: Exact map isn't quite right here, it should be based on the index
   // map. However, it should also be impossible for index map to generate a
   // case like this.
-  mapped = detectSelfMapping(tv->getLeafDomain(), id_graph);
+  mapped = detectSelfMapping(tv->getLoopDomain(), id_graph);
   if (mapped.has_value()) {
     return SelfMapping{
         .id1 = mapped->first, .id2 = mapped->second, .where = "Leaf"};
   }
   return std::nullopt;
+}
+
+std::string ValGraph::toGraphvizDotGraph() const {
+  std::stringstream dot;
+
+  dot << "digraph ValGraph {\n";
+
+  const std::string indent = "  ";
+
+  // Use the pointer value as the name and attach a label with the
+  // val names
+  std::unordered_map<ValGroup, std::string> val_names;
+  for (const auto& val_group : disjointValSets().disjointSets()) {
+    std::stringstream name;
+    name << "val_" << val_group.get();
+    val_names.emplace(val_group, name.str());
+  }
+
+  std::unordered_map<ExprGroup, std::string> expr_names;
+  for (const auto& group : disjointExprSets().disjointSets()) {
+    std::stringstream name;
+    name << "expr_" << group.get();
+    expr_names.emplace(group, name.str());
+  }
+
+  auto getGroupLabel = [](const auto& group) -> std::string {
+    std::set<StmtNameType> names;
+    for (const auto val : *group) {
+      names.insert(val->name());
+    }
+    std::stringstream ss;
+    const int line_limit = 5;
+    int wrap_counter = 0;
+    bool first_name = true;
+    for (const auto& name : names) {
+      if (wrap_counter == line_limit) {
+        ss << "\n";
+        wrap_counter = 0;
+      } else if (!first_name) {
+        ss << " ";
+      }
+      ss << name;
+      first_name = false;
+      ++wrap_counter;
+    }
+    return ss.str();
+  };
+
+  for (const auto& val_group : disjointValSets().disjointSets()) {
+    dot << indent << val_names.at(val_group)
+        << " [label=\"V: " << getGroupLabel(val_group) << "\"];\n";
+  }
+
+  for (const auto& expr_group : disjointExprSets().disjointSets()) {
+    dot << indent << expr_names.at(expr_group)
+        << " [label=\"E: " << getGroupLabel(expr_group) << "\"];\n";
+  }
+
+  for (const auto& val_group : disjointValSets().disjointSets()) {
+    dot << indent << "// Definitions of " << nvfuser::toString(val_group)
+        << "\n";
+    for (const auto& def : getDefinitions(val_group)) {
+      dot << indent << expr_names.at(def) << " -> " << val_names.at(val_group)
+          << "\n";
+    }
+
+    dot << indent << "// Uses of " << nvfuser::toString(val_group) << "\n";
+
+    for (const auto& use : getUses(val_group)) {
+      dot << indent << val_names.at(val_group) << " -> " << expr_names.at(use)
+          << "\n";
+    }
+
+    dot << "\n";
+  }
+
+  dot << "}\n";
+
+  return dot.str();
 }
 
 } // namespace nvfuser

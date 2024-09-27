@@ -118,8 +118,8 @@ bool exprsMap(
 
 IdModelValidator::IdModelValidator(Fusion* fusion, bool allow_self_mapping)
     : ca_map_(fusion, allow_self_mapping) {
-  for (auto tv : ir_utils::allTvs(fusion)) {
-    for (auto id : ir_utils::allIDsOf(tv)) {
+  for (auto tv : fusion->allTvs()) {
+    for (auto id : tv->domain()->allIDs()) {
       if (id->definition() && id->definition()->isA<Swizzle2D>()) {
         has_swizzle_ = true;
         break;
@@ -226,7 +226,7 @@ void compareDisjointSets(
       ss << "\t" << nvfuser::toString(id_set->vector()) << "\n";
     }
 
-    NVF_ERROR(false, ss.str());
+    NVF_THROW(ss.str());
   }
 
   for (const auto& id_model_id_set : id_model_sets.disjointSets()) {

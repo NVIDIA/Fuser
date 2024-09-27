@@ -6,8 +6,8 @@
  */
 // clang-format on
 #include <device_lower/lower2device.h>
-#include <executor.h>
 #include <fusion.h>
+#include <fusion_executor/executor.h>
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
 #include <ops/all_ops.h>
@@ -22,8 +22,7 @@
 
 using namespace nvfuser;
 
-#define TRANSPOSE_CONFIG \
-  { true, false, false, false }
+#define TRANSPOSE_CONFIG {true, false, false, false}
 
 struct TransposeConfig {
   bool input1_transpose_axes = false;

@@ -14,6 +14,8 @@
 // for operator<<(std::ostream&, const std::vector<T>&)
 #include <c10/util/Logging.h>
 
+#include <type.h>
+
 namespace nvfuser {
 
 DeviceMesh::DeviceMesh(std::vector<DeviceIdxType> devices) {
@@ -45,6 +47,13 @@ void DeviceMesh::setDevices(std::vector<DeviceIdxType> devices) {
 std::ostream& operator<<(std::ostream& out, const DeviceMesh& mesh) {
   out << "DeviceMesh{" << mesh.vector() << "}";
   return out;
+}
+
+int64_t DeviceMesh::size(const ParallelType parallel_type) const {
+  NVF_ERROR(
+      parallel_type == ParallelType::DIDx,
+      "We support only 1-D sharding for now.");
+  return size();
 }
 
 } // namespace nvfuser

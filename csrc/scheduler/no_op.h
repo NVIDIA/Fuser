@@ -14,7 +14,7 @@ namespace nvfuser {
 
 class Fusion;
 class SchedulerRuntimeInfo;
-class HeuristicSummary;
+class HeuristicDataCache;
 
 //! NoOp scheduler represents the case where scheduler will
 //!  not do any scheduling operations and forward the un-scheduled
@@ -25,30 +25,24 @@ class HeuristicSummary;
 
 class NoOpScheduler : public SchedulerEntry {
  public:
-  explicit NoOpScheduler(
-      Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
-
   //! Check if the no-op heuristics apply in given fusion
-  static bool canScheduleCompileTime(Fusion* fusion);
+  bool canScheduleCompileTime(Fusion* fusion) override;
 
-  static bool canScheduleRunTime(
+  bool canScheduleRunTime(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
+      HeuristicDataCache* data_cache = nullptr) override;
 
-  constexpr static ScheduleHeuristic heuristicType() {
-    return ScheduleHeuristic::NoOp;
+  constexpr static SchedulerType schedulerType() {
+    return SchedulerType::NoOp;
   }
 
-  void schedule(Fusion* fusion) override;
+  void schedule(Fusion* fusion, const HeuristicParams* params) override;
 
- private:
-  void computeHeuristics(
+  std::unique_ptr<HeuristicParams> computeHeuristics(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
+      HeuristicDataCache* data_cache) override;
 };
 
 //! Provides a dummy heuristic type to ensure
@@ -56,15 +50,17 @@ class NoOpScheduler : public SchedulerEntry {
 class NoOpHeuristic : public HeuristicParams {
  public:
   using HeuristicParams::HeuristicParams;
+  NoOpHeuristic() : HeuristicParams(SchedulerType::NoOp) {};
 
   size_t hash() const override {
     return 0;
   }
-  std::shared_ptr<HeuristicParams> clone() const override {
-    return std::make_shared<NoOpHeuristic>();
+  std::unique_ptr<HeuristicParams> clone() const override {
+    return std::make_unique<NoOpHeuristic>(*this);
   }
-  bool sameAs(const std::shared_ptr<HeuristicParams>& other) const override {
-    auto other_casted = std::dynamic_pointer_cast<ReductionParams>(other);
+
+  bool sameAs(const HeuristicParams* other) const override {
+    auto other_casted = dynamic_cast<const NoOpHeuristic*>(other);
     return other_casted != nullptr && other_casted->cparams == cparams;
   };
 };

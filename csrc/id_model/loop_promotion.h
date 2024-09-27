@@ -71,7 +71,7 @@ class LoopPromotionMapBuilder {
   // Helper function for building loop promotion map.
   //
   // Propagate promotion mappings from root IEL groups to intermediate
-  // and leaf IEL groups by traversing IEL exprs. For each expr, if an
+  // and loop IEL groups by traversing IEL exprs. For each expr, if an
   // input is promoted, the output needs to be promoted too. If
   // there's already an equivalent expr that uses the promoted inputs,
   // create a mapping from the outputs of the IEL expr to the outputs

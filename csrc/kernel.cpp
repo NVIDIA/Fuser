@@ -41,7 +41,7 @@ class KernelIrScanner : private IrVisitor {
   inline int64_t getNumOfGroupedIterations(GroupedReductionOp* grouped_rop) {
     int64_t num_grouped_iterations = 1;
     auto out_tv = ir_utils::getTvOutput(grouped_rop);
-    for (auto axis : out_tv->getLeafDomain()) {
+    for (auto axis : out_tv->getLoopDomain()) {
       if (axis->getParallelType() == ParallelType::Group) {
         num_grouped_iterations *= axis->extent()->value().as<int64_t>();
       }
@@ -92,7 +92,7 @@ class KernelIrScanner : private IrVisitor {
         }
         break;
       default:
-        NVF_ERROR(false, "Unknown memory type to allocate.");
+        NVF_THROW("Unknown memory type to allocate.");
     }
   }
 
@@ -221,6 +221,15 @@ class KernelIrScanner : private IrVisitor {
         summary_.has_grid_broadcasts || parallel_types.hasBID();
   }
 
+  void handle(IfThenElse* ite) final {
+    // Do we have any elect sync predicates?
+    if (ite->predicate()->predicate_type() == PredicateType::ElectSync) {
+      summary_.has_elect_sync_predicate = true;
+    }
+    // Run default handle
+    IrVisitor::handle(ite);
+  }
+
  private:
   size_t max_smem_type_size_ = 0;
   KernelSummary summary_;
@@ -282,7 +291,7 @@ class ValidateAllocation : private OptOutConstDispatch {
         if (tv == nullptr) {
           continue;
         }
-        for (const auto& axis : tv->getLeafDomain()) {
+        for (const auto& axis : tv->getLoopDomain()) {
           if (!GpuLower::current()->caMap()->areMapped(
                   loop_id, axis, IdMappingMode::LOOP)) {
             continue;
@@ -353,6 +362,7 @@ void Kernel::finalize(std::vector<Expr*> top_level_exprs) {
   summary_.vectorized_set_info = GpuLower::current()->vectorizedSetInfo();
   summary_.sync_map = GpuLower::current()->syncMap();
   summary_.parallel_dimension_map = GpuLower::current()->parallelDimensionMap();
+  summary_.circular_buffer_info = GpuLower::current()->circularBufferInfo();
   summary_.min_device_version = GpuLower::current()->minDeviceVersion();
   summary_.min_device_version_reason =
       GpuLower::current()->minDeviceVersionReason();

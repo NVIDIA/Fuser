@@ -8,8 +8,8 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include <executor_kernel_arg.h>
 #include <fusion.h>
+#include <fusion_executor/executor_kernel_arg.h>
 #include <fusion_segmenter.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
@@ -17,6 +17,8 @@
 #include <multidevice/lower_communication.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
+#include <preseg_passes/insert_reshardings.h>
+#include <preseg_passes/reorder_sharded_axis.h>
 #include <tests/cpp/utils.h>
 
 #include <algorithm>
@@ -34,6 +36,9 @@ class ReshardingTest : public NVFuserFixtureParamTest<ReshardingTestParams> {
     fg_ = std::make_unique<FusionGuard>(fusion_.get());
   }
   void validate() {
+    // TODO(wujingyue): after preseg passes are integrated to
+    // FusionExecutorCache, simplify validation by using
+    // FusionExecutorCache::getMostRecentKernelRuntime()->fusionSegments()->groups().
     for (auto expr : fusion_->exprs()) {
       EXPECT_TRUE(!isResharding(expr) || isLowerableToCommunication(expr))
           << "on expr=" << expr;
@@ -67,162 +72,223 @@ class ReshardingTest : public NVFuserFixtureParamTest<ReshardingTestParams> {
   std::unique_ptr<FusionGuard> fg_;
 };
 
-TEST_F(ReshardingTest, Detection) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
+TEST_F(ReshardingTest, Set_SameMesh_NoParallelTypes) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
 
-  DeviceMesh mesh0 = {0, 1};
-  DeviceMesh mesh1 = {0, 2};
-  DeviceMesh mesh2 = {0, 1, 2};
+  TensorView* in = makeContigTensor(3);
+  in->setDeviceMesh({0, 1});
+  TensorView* out = set(in);
 
-  TensorView* tv0 = makeContigTensor(3);
-  fusion->addInput(tv0);
-  tv0->setDeviceMesh(mesh0);
+  EXPECT_FALSE(isResharding(out->definition()));
+}
 
-  TensorView* tv1 = set(tv0);
-  tv1->setDeviceMesh(mesh0);
+TEST_F(ReshardingTest, Set_DifferentMeshes) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
 
-  TensorView* tv2 = set(tv1); // resharding
-  tv2->setDeviceMesh(mesh1);
+  TensorView* in = makeContigTensor(3);
+  TensorView* out = set(in);
+  in->setDeviceMesh({0, 1});
+  out->setDeviceMesh({0, 2});
 
-  TensorView* tv3 = set(tv2);
-  tv3->setDeviceMesh(mesh1);
+  EXPECT_TRUE(isResharding(out->definition()));
+}
 
-  TensorView* tv4 = set(tv3); // resharding
-  tv4->setDeviceMesh(mesh2);
+TEST_F(ReshardingTest, Set_DifferentParallelTypes) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
 
-  TensorView* tv5 = set(tv4); // resharding
-  tv5->setDeviceMesh(mesh2);
-  tv5->axis(0)->parallelize(ParallelType::DIDx);
+  TensorView* in = makeContigTensor(3);
+  in->setDeviceMesh({0, 1, 2});
+  TensorView* out = set(in);
+  out->axis(0)->parallelize(ParallelType::DIDx);
 
-  TensorView* tv6 = set(tv5);
-  tv6->setDeviceMesh(mesh2);
-  tv6->axis(0)->parallelize(ParallelType::DIDx);
+  EXPECT_TRUE(isResharding(out->definition()));
+}
 
-  TensorView* tv7 = set(tv6); // resharding
-  tv7->setDeviceMesh(mesh2);
+TEST_F(ReshardingTest, Set_SameMesh_SameParallelType) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
 
-  TensorView* tv8 = sum(tv0, {0});
-  tv8->setDeviceMesh(mesh0);
+  TensorView* in = makeContigTensor(3);
+  in->setDeviceMesh({0, 1, 2});
+  in->axis(0)->parallelize(ParallelType::DIDx);
+  TensorView* out = set(in);
 
-  TensorView* tv9 = sum(tv0, {0}); // resharding, but seems invalid
-  tv9->setDeviceMesh(mesh0);
-  tv9->axis(0)->parallelize(ParallelType::DIDx);
+  EXPECT_FALSE(isResharding(out->definition()));
+}
 
-  TensorView* tv10 = sum(tv0, {0}); // resharding,
-  tv10->setDeviceMesh(mesh0);
-  tv10->axis(1)->parallelize(ParallelType::DIDx);
+TEST_F(ReshardingTest, Sum_SameMesh_NoParallelTypes) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
 
-  TensorView* tv11 = sum(tv0, {0}); // resharding,
-  tv11->setDeviceMesh(mesh1);
+  TensorView* in = makeContigTensor(3);
+  in->setDeviceMesh({0, 1, 2});
+  TensorView* out = sum(in, {0});
 
-  TensorView* tv12 = sum(tv5, {0}); // not resharding
-  tv12->setDeviceMesh(mesh2);
-  tv12->axis(0)->parallelize(ParallelType::DIDx);
+  EXPECT_FALSE(isResharding(out->definition()));
+}
 
-  TensorView* tv13 = sum(tv5, {0}); // resharding
-  tv13->setDeviceMesh(mesh2);
-  tv13->axis(1)->parallelize(ParallelType::DIDx);
+TEST_F(ReshardingTest, Sum_DifferentParallelTypes) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
 
-  TensorView* tv14 = sum(tv5, {0}); // resharding
-  tv14->setDeviceMesh(mesh2);
-  tv14->axis(0)->parallelize(ParallelType::DIDx);
-  tv14->axis(1)->parallelize(ParallelType::DIDx);
+  TensorView* in = makeContigTensor(3);
+  in->setDeviceMesh({0, 1, 2});
+  TensorView* out = sum(in, {0});
+  out->axis(0)->parallelize(ParallelType::DIDx);
 
-  TensorView* tv15 = add(tv0, tv1);
-  tv15->setDeviceMesh(mesh0);
+  EXPECT_TRUE(isResharding(out->definition()));
+}
 
-  TensorView* tv16 = add(tv0, tv1); // resharding
-  tv16->setDeviceMesh(mesh1);
+TEST_F(ReshardingTest, Sum_DifferentMeshes) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
 
-  TensorView* tv17 = add(tv0, tv1); // resharding
-  tv17->setDeviceMesh(mesh0);
-  tv17->axis(0)->parallelize(ParallelType::DIDx);
+  TensorView* in = makeContigTensor(3);
+  TensorView* out = sum(in, {0});
 
-  TensorView* tv18 = add(tv5, tv6);
-  tv18->setDeviceMesh(mesh2);
-  tv18->axis(0)->parallelize(ParallelType::DIDx);
+  in->setDeviceMesh({0, 1});
+  out->setDeviceMesh({0, 1, 2});
 
-  TensorView* tv19 = add(tv5, tv7); // resharding
-  tv19->setDeviceMesh(mesh2);
-  tv19->axis(0)->parallelize(ParallelType::DIDx);
+  EXPECT_TRUE(isResharding(out->definition()));
+}
 
-  TensorView* tv20 = add(tv5, tv7); // resharding
-  tv20->setDeviceMesh(mesh2);
+TEST_F(ReshardingTest, Sum_ParallelizeDifferentAxes) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
 
-  TensorView* tv21 = add(tv0, tv7); // resharding
-  tv21->setDeviceMesh(mesh2);
+  TensorView* in = makeContigTensor(3);
+  in->setDeviceMesh({0, 1, 2});
+  in->axis(0)->parallelize(ParallelType::DIDx);
+  TensorView* out = sum(in, {0});
+  out->axis(1)->parallelize(ParallelType::DIDx);
 
-  TensorView* tv22 = sum(tv5, {1});
-  tv22->setDeviceMesh(mesh2);
-  tv22->axis(0)->parallelize(ParallelType::DIDx);
+  EXPECT_TRUE(isResharding(out->definition()));
+}
 
-  TensorView* tv23 = sum(tv5, {1}); // resharding
-  tv23->setDeviceMesh(mesh2);
+TEST_F(ReshardingTest, Sum_ParallelizeSameAxis) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
 
-  TensorView* tv24 = sum(tv7, {0});
-  tv24->setDeviceMesh(mesh2);
+  TensorView* in = makeContigTensor(3);
+  in->setDeviceMesh({0, 1, 2});
+  in->axis(0)->parallelize(ParallelType::DIDx);
+  TensorView* out = sum(in, {1});
 
-  TensorView* tv25 = sum(tv7, {0}); // not resharding but invalid
-  tv25->setDeviceMesh(mesh2);
-  tv22->axis(0)->parallelize(ParallelType::DIDx);
+  EXPECT_FALSE(isResharding(out->definition()));
+}
 
-  TensorView* tv26 = add(tv5, tv6); // resharding
-  tv26->setDeviceMesh(mesh2);
+TEST_F(ReshardingTest, Sum_AllReduce) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
 
-  fusion->addOutput(tv1);
-  fusion->addOutput(tv2);
-  fusion->addOutput(tv3);
-  fusion->addOutput(tv4);
-  fusion->addOutput(tv5);
-  fusion->addOutput(tv6);
-  fusion->addOutput(tv7);
-  fusion->addOutput(tv8);
-  fusion->addOutput(tv9);
-  fusion->addOutput(tv10);
-  fusion->addOutput(tv11);
-  fusion->addOutput(tv12);
-  fusion->addOutput(tv13);
-  fusion->addOutput(tv14);
-  fusion->addOutput(tv15);
-  fusion->addOutput(tv16);
-  fusion->addOutput(tv17);
-  fusion->addOutput(tv18);
-  fusion->addOutput(tv19);
-  fusion->addOutput(tv20);
-  fusion->addOutput(tv21);
-  fusion->addOutput(tv22);
-  fusion->addOutput(tv23);
-  fusion->addOutput(tv24);
-  fusion->addOutput(tv25);
-  fusion->addOutput(tv26);
+  TensorView* in = makeContigTensor(3);
+  in->setDeviceMesh({0, 1, 2});
+  in->axis(0)->parallelize(ParallelType::DIDx);
+  TensorView* out = sum(in, {0});
 
-  EXPECT_FALSE(isResharding(tv1->definition()));
-  EXPECT_TRUE(isResharding(tv2->definition()));
-  EXPECT_FALSE(isResharding(tv3->definition()));
-  EXPECT_TRUE(isResharding(tv4->definition()));
-  EXPECT_TRUE(isResharding(tv5->definition()));
-  EXPECT_FALSE(isResharding(tv6->definition()));
-  EXPECT_TRUE(isResharding(tv7->definition()));
-  EXPECT_FALSE(isResharding(tv8->definition()));
-  EXPECT_TRUE(isResharding(tv9->definition()));
-  EXPECT_TRUE(isResharding(tv10->definition()));
-  EXPECT_TRUE(isResharding(tv11->definition()));
-  EXPECT_FALSE(isResharding(tv12->definition()));
-  EXPECT_TRUE(isResharding(tv13->definition()));
-  EXPECT_TRUE(isResharding(tv14->definition()));
-  EXPECT_FALSE(isResharding(tv15->definition()));
-  EXPECT_TRUE(isResharding(tv16->definition()));
-  EXPECT_TRUE(isResharding(tv17->definition()));
-  EXPECT_FALSE(isResharding(tv18->definition()));
-  EXPECT_TRUE(isResharding(tv19->definition()));
-  EXPECT_TRUE(isResharding(tv20->definition()));
-  EXPECT_TRUE(isResharding(tv21->definition()));
-  EXPECT_FALSE(isResharding(tv22->definition()));
-  EXPECT_TRUE(isResharding(tv23->definition()));
-  EXPECT_FALSE(isResharding(tv24->definition()));
-  EXPECT_FALSE(isResharding(tv25->definition()));
-  EXPECT_TRUE(isResharding(tv26->definition()));
+  EXPECT_TRUE(isResharding(out->definition()));
+}
+
+TEST_F(ReshardingTest, Add_SameMesh_NoParallelTypes) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* x = makeContigTensor(3);
+  TensorView* y = makeContigTensor(3);
+  TensorView* z = add(x, y);
+
+  for (auto* tv : {x, y, z}) {
+    tv->setDeviceMesh({0, 1});
+  }
+
+  EXPECT_FALSE(isResharding(z->definition()));
+}
+
+TEST_F(ReshardingTest, Add_DifferentMeshes) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* x = makeContigTensor(3);
+  TensorView* y = makeContigTensor(3);
+  TensorView* z = add(x, y);
+
+  for (auto* tv : {x, y}) {
+    tv->setDeviceMesh({0, 1});
+  }
+  z->setDeviceMesh({0, 1, 2});
+
+  EXPECT_TRUE(isResharding(z->definition()));
+}
+
+TEST_F(ReshardingTest, Add_OnlyOutputParallelized) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* x = makeContigTensor(3);
+  TensorView* y = makeContigTensor(3);
+  TensorView* z = add(x, y);
+
+  for (auto* tv : {x, y, z}) {
+    tv->setDeviceMesh({0, 1});
+  }
+  z->axis(0)->parallelize(ParallelType::DIDx);
+
+  EXPECT_TRUE(isResharding(z->definition()));
+}
+
+TEST_F(ReshardingTest, Add_OnlyInputsParallelized) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* x = makeContigTensor(3);
+  TensorView* y = makeContigTensor(3);
+  TensorView* z = add(x, y);
+
+  for (auto* tv : {x, y, z}) {
+    tv->setDeviceMesh({0, 1});
+  }
+  for (auto* tv : {x, y}) {
+    tv->axis(0)->parallelize(ParallelType::DIDx);
+  }
+
+  EXPECT_TRUE(isResharding(z->definition()));
+}
+
+TEST_F(ReshardingTest, Add_SameMesh_SameParallelTypes) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* x = makeContigTensor(3);
+  TensorView* y = makeContigTensor(3);
+  TensorView* z = add(x, y);
+
+  for (auto* tv : {x, y, z}) {
+    tv->setDeviceMesh({0, 1});
+    tv->axis(0)->parallelize(ParallelType::DIDx);
+  }
+
+  EXPECT_FALSE(isResharding(z->definition()));
+}
+
+TEST_F(ReshardingTest, Add_InputsParallelizedDifferently) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* x = makeContigTensor(3);
+  TensorView* y = makeContigTensor(3);
+  TensorView* z = add(x, y);
+
+  for (auto* tv : {x, y, z}) {
+    tv->setDeviceMesh({0, 1, 2});
+  }
+  for (auto* tv : {x, z}) {
+    tv->axis(0)->parallelize(ParallelType::DIDx);
+  }
+
+  EXPECT_TRUE(isResharding(z->definition()));
 }
 
 TEST_F(ReshardingTest, InsertResharding_Before) {
@@ -245,7 +311,8 @@ TEST_F(ReshardingTest, InsertResharding_Before) {
   a->axis(0)->parallelize(ParallelType::DIDx);
   c->axis(1)->parallelize(ParallelType::DIDx);
 
-  insertReshardings(&fusion);
+  preseg_passes::OptimizationPass<
+      preseg_passes::InsertReshardingsPass>::runPass(&fusion);
   std::vector<Val*> outputs = fusion.outputs();
 
   c = outputs[0]->as<TensorView>();
@@ -273,7 +340,8 @@ TEST_F(ReshardingTest, InsertResharding_After) {
   a->axis(0)->parallelize(ParallelType::DIDx);
   b->axis(1)->parallelize(ParallelType::DIDx);
 
-  insertReshardings(&fusion);
+  preseg_passes::OptimizationPass<
+      preseg_passes::InsertReshardingsPass>::runPass(&fusion);
   std::vector<Val*> outputs = fusion.outputs();
 
   b = outputs[0]->as<TensorView>();
@@ -302,7 +370,8 @@ TEST_F(ReshardingTest, InsertShardedAxisReordering) {
   b->axis(1)->parallelize(ParallelType::DIDx);
   c->axis(1)->parallelize(ParallelType::DIDx);
 
-  insertReshardings(&fusion);
+  preseg_passes::OptimizationPass<
+      preseg_passes::InsertReshardingsPass>::runPass(&fusion);
   int num_inner_reshardings = 0;
   for (auto expr : fusion.exprs()) {
     if (isResharding(expr) && isInnerResharding(expr)) {
@@ -311,7 +380,8 @@ TEST_F(ReshardingTest, InsertShardedAxisReordering) {
   }
   EXPECT_GT(num_inner_reshardings, 0);
 
-  insertShardedAxisReordering(&fusion);
+  preseg_passes::OptimizationPass<
+      preseg_passes::ReorderShardedAxisPass>::runPass(&fusion);
   for (auto expr : fusion.exprs()) {
     if (isResharding(expr)) {
       EXPECT_FALSE(isInnerResharding(expr));
@@ -362,8 +432,10 @@ TEST_P(ReshardingTest, Insert) {
     tv2->axis(sharded_axis)->parallelize(ParallelType::DIDx);
   }
 
-  insertReshardings(fusion_.get());
-  insertShardedAxisReordering(fusion_.get());
+  preseg_passes::OptimizationPass<
+      preseg_passes::InsertReshardingsPass>::runPass(fusion_.get());
+  preseg_passes::OptimizationPass<
+      preseg_passes::ReorderShardedAxisPass>::runPass(fusion_.get());
   validate();
 }
 

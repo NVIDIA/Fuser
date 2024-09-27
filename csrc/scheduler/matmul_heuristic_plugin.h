@@ -26,16 +26,17 @@ bool hasPlugin();
 
 //! If there is no user-defined plugin (see hasPlugin()) we return false.
 //! Otherwise, we use the plugin to modify the heuristic parameters in place. M,
-//! N, K, layout, and precision must be provided. For convenience, we use
-//! `roles_map` to build the precision string.
+//! N, K, layout (inner allocated dimension roles of each operand), and
+//! precision must be provided. For convenience, we use `roles_map` to build the
+//! precision string.
 bool updateMatmulParams(
-    MatmulParams& params,
+    MatmulParams* params,
     int64_t M,
     int64_t N,
     int64_t K,
     int64_t batch_size,
-    MmaLayout layout,
-    const mma_utils::RolesMap& roles_map);
+    const mma_utils::MatmulOperandInnerDims& inner_dims,
+    const mma_utils::TensorRolesMap& tensor_roles);
 
 //! Defines the type of the "makeConfig" symbol
 using KernelConfigFactory = std::function<std::unique_ptr<KernelConfig>()>;

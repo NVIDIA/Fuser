@@ -9,8 +9,8 @@
 #include <gtest/gtest.h>
 
 #include <device_lower/utils.h>
-#include <executor.h>
 #include <fusion.h>
+#include <fusion_executor/executor.h>
 #include <ops/all_ops.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>

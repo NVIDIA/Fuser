@@ -76,6 +76,7 @@ void record_cupti_activity(CUpti_Activity* pRecord, FILE* pFileHandle) {
           pExternalCorrelationRecord->correlationId);
       break;
     }
+    case CUPTI_ACTIVITY_KIND_RUNTIME:
     case CUPTI_ACTIVITY_KIND_DRIVER:
       // NOTE: Driver activity is enabled in order to capture ext correlation
       // records but the driver activity records are not of interest to record.
@@ -100,7 +101,7 @@ void record_cupti_activity_buffer(
 
   // This is an arbitrary record limit to make sure we do not get into an
   // infinite loop;
-  const size_t max_records = 100;
+  const size_t max_records = 10000;
   bool found_max_limit = false;
 
   for (size_t i = 0; i < max_records; ++i) {
@@ -108,7 +109,7 @@ void record_cupti_activity_buffer(
     if (status == CUPTI_SUCCESS) {
       // Processes a valid CUPTI Activty record and records it with the
       // fusion profiling infrastructure if the record is of interest.
-      record_cupti_activity(pRecord, stdout);
+      record_cupti_activity(pRecord, pFileHandle);
     } else if (status == CUPTI_ERROR_MAX_LIMIT_REACHED) {
       // This case is hit every time an activity buffer is read and you reach
       // the end of the buffer activity to consume. Therefore, it is the
@@ -174,7 +175,7 @@ const char* profiler_state2string(const ProfilerState& pstate) {
     case ProfilerState::Processed:
       return "Processed";
     default:
-      NVF_ERROR(false, "Unexpected ProfilerState enum value!");
+      NVF_THROW("Unexpected ProfilerState enum value!");
   }
 }
 
@@ -375,6 +376,13 @@ void SegmentProfiler::outputBytesAccessed(int64_t bytes) {
   output_bytes_ = bytes;
 }
 
+void SegmentProfiler::scheduler(const std::string& name) {
+  scheduler_ = name;
+}
+const std::string& SegmentProfiler::scheduler() const {
+  return scheduler_;
+}
+
 uint32_t SegmentProfiler::segmentId() const {
   return segment_id_;
 }
@@ -414,6 +422,7 @@ auto FusionProfile::toTuple(const FusionProfile& prof, size_t seg_id) {
       kp.grid_str,
       kp.block_str,
       kp.cluster_str,
+      kp.scheduler,
       kp.device,
       kp.stream,
       kp.peak_bandwidth_gbs,
@@ -477,6 +486,7 @@ const std::vector<ProfileAttrDescriptor> FusionProfile::profile_attr_descs{
     {"S-Grid", false, true, true, 16, true, 0, std::nullopt},
     {"S-Block", false, true, true, 16, false, 0, std::nullopt},
     {"S-Cluster", true, true, true, 16, false, 0, std::nullopt},
+    {"S-Sched", true, true, false, 15, false, 0, std::nullopt},
     {"S-Dev", true, true, false, 5, true, 0, std::nullopt},
     {"S-Stm", true, true, false, 5, true, 0, std::nullopt},
     {"S-PkBw(GB/s)", true, true, false, 12, true, 3, std::nullopt},
@@ -486,7 +496,7 @@ const std::vector<ProfileAttrDescriptor> FusionProfile::profile_attr_descs{
 namespace {
 // The operator* overloads are to satisfy the compiler and should not be called!
 double operator*(const std::basic_string<char>& a, double b) {
-  NVF_ERROR(false, "This types operator* overload should not be called!");
+  NVF_THROW("This types operator* overload should not be called!");
   return 0.0;
 }
 
@@ -599,7 +609,6 @@ std::ostream& operator<<(std::ostream& os, const FusionProfile& fp) {
 
 FusionProfiler::FusionProfiler()
     : cupti_disabled_(false),
-      cpp_printing_enabled_(true),
       cupti_buffer_(FusionProfiler::cupti_activity_buffer_size),
       state_(ProfilerState::Ready),
       fusion_id_(-1),
@@ -646,14 +655,6 @@ ProfilerState FusionProfiler::state() {
   return get()->state_;
 }
 
-void FusionProfiler::setCppPrinting(bool enable) {
-  get()->cpp_printing_enabled_ = enable;
-}
-
-bool FusionProfiler::cppPrintingEnabled() {
-  return get()->cpp_printing_enabled_;
-}
-
 void FusionProfiler::createSegments(size_t num) {
   FusionProfiler* fp = get();
   NVF_CHECK(
@@ -666,6 +667,12 @@ void FusionProfiler::createSegments(size_t num) {
   }
 }
 SegmentProfiler& FusionProfiler::segment(size_t idx) {
+  NVF_CHECK(
+      get()->segments_.size() > idx,
+      "FusionProfiler: You are attempting to access non-existent segments! Segments: ",
+      get()->segments_.size(),
+      " Idx: ",
+      idx);
   return get()->segments_.at(idx);
 }
 
@@ -677,6 +684,7 @@ SegmentProfiler& FusionProfiler::segment(size_t idx) {
     NVFUSER_CUPTI_SAFE_CALL(
         cuptiActivityEnable(CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL));
     NVFUSER_CUPTI_SAFE_CALL(cuptiActivityEnable(CUPTI_ACTIVITY_KIND_DRIVER));
+    NVFUSER_CUPTI_SAFE_CALL(cuptiActivityEnable(CUPTI_ACTIVITY_KIND_RUNTIME));
     NVFUSER_CUPTI_SAFE_CALL(
         cuptiActivityEnable(CUPTI_ACTIVITY_KIND_EXTERNAL_CORRELATION));
   }
@@ -722,6 +730,7 @@ const DeviceDescriptor& FusionProfiler::deviceDescriptor(const int device_id) {
     NVFUSER_CUPTI_SAFE_CALL(
         cuptiActivityDisable(CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL));
     NVFUSER_CUPTI_SAFE_CALL(cuptiActivityDisable(CUPTI_ACTIVITY_KIND_DRIVER));
+    NVFUSER_CUPTI_SAFE_CALL(cuptiActivityDisable(CUPTI_ACTIVITY_KIND_RUNTIME));
     NVFUSER_CUPTI_SAFE_CALL(
         cuptiActivityDisable(CUPTI_ACTIVITY_KIND_EXTERNAL_CORRELATION));
     // This will be populated by the following `cuptiActivityFlushAll` call.
@@ -766,6 +775,8 @@ const DeviceDescriptor& FusionProfiler::deviceDescriptor(const int device_id) {
       kprof.block_str = toString(kprof.block);
       kprof.cluster_str = toString(kprof.cluster);
       kprof.shared_mem_str = toString(kprof.shared_mem);
+
+      kprof.scheduler = segment(kp_idx).scheduler();
 
       kernel_time_ms += kprof.time_ms;
       fprof.kernel_profiles[kp_idx] = std::move(kprof);

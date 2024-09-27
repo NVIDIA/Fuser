@@ -30,7 +30,7 @@ NVF_API std::pair<Val*, Val*> dispatchSwizzle(
     Val* maybe_size_x,
     Val* maybe_size_y);
 
-std::pair<Val*, Val*> dispatchSwizzle(
+NVF_API std::pair<Val*, Val*> dispatchSwizzle(
     SwizzleType type,
     Val* x,
     Val* y,
@@ -39,6 +39,13 @@ std::pair<Val*, Val*> dispatchSwizzle(
 
 NVF_API std::pair<Val*, Val*> dispatchUnSwizzle(
     Swizzle2DType type,
+    Val* x,
+    Val* y,
+    Val* maybe_size_x,
+    Val* maybe_size_y);
+
+NVF_API std::pair<Val*, Val*> dispatchUnSwizzle(
+    SwizzleType type,
     Val* x,
     Val* y,
     Val* maybe_size_x,

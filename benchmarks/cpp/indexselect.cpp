@@ -9,8 +9,8 @@
 // Based on NVFuserTest.FusionBiasGeluBwd_CUDA
 
 #include <device_lower/lower2device.h>
-#include <executor.h>
 #include <fusion.h>
+#include <fusion_executor/executor.h>
 #include <ir/builder.h>
 #include <ops/arith.h>
 #include <scheduler/all_schedulers.h>
@@ -86,7 +86,8 @@ static void NvFuserScheduler_IndexSelect_AutoSchedule(
     benchmark_state.ResumeTiming();
 
     // Auto-schedule
-    schedulePointwise(&fusion, c10::ArrayRef<c10::IValue>(inputs));
+    SchedulerEntry::scheduleWith(
+        &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
   }
 }
 
@@ -105,7 +106,8 @@ static void NvFuserScheduler_IndexSelect_Lower(
   // inputs
   std::vector<c10::IValue> inputs = setupInputs();
 
-  schedulePointwise(&fusion, c10::ArrayRef<c10::IValue>(inputs));
+  SchedulerEntry::scheduleWith(
+      &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
 
   for (auto _ : benchmark_state) {
     GpuLower(&fusion).run();
@@ -126,12 +128,13 @@ static void NvFuserScheduler_IndexSelect_Compile(
   // inputs
   std::vector<c10::IValue> inputs = setupInputs();
 
-  auto lparams = schedulePointwise(&fusion, c10::ArrayRef<c10::IValue>(inputs));
+  auto heuristic_params = SchedulerEntry::scheduleWith(
+      &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
 
   for (auto _ : benchmark_state) {
     FusionExecutor executor;
     executor.compileFusion(
-        &fusion, c10::ArrayRef<c10::IValue>(inputs), lparams);
+        &fusion, c10::ArrayRef<c10::IValue>(inputs), heuristic_params->lparams);
   }
 }
 
@@ -149,17 +152,22 @@ static void NvFuserScheduler_IndexSelect_RunFusion(
   // inputs
   std::vector<c10::IValue> inputs = setupInputs();
 
-  auto lparams = schedulePointwise(&fusion, c10::ArrayRef<c10::IValue>(inputs));
+  auto heuristic_params = SchedulerEntry::scheduleWith(
+      &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
 
   FusionExecutor executor;
-  executor.compileFusion(&fusion, c10::ArrayRef<c10::IValue>(inputs), lparams);
+  executor.compileFusion(
+      &fusion, c10::ArrayRef<c10::IValue>(inputs), heuristic_params->lparams);
 
   C10_CUDA_CHECK(cudaDeviceSynchronize());
 
   at::Tensor output = at::empty_like(inputs[0].toTensor());
 
   for (auto _ : benchmark_state) {
-    executor.runFusion(c10::ArrayRef<c10::IValue>(inputs), {output}, lparams);
+    executor.runFusion(
+        c10::ArrayRef<c10::IValue>(inputs),
+        {output},
+        heuristic_params->lparams);
     C10_CUDA_CHECK(cudaDeviceSynchronize());
     clearL2Cache();
   }

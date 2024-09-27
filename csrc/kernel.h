@@ -9,6 +9,7 @@
 
 #include <exceptions.h>
 
+#include <device_lower/analysis/circular_buffer.h>
 #include <device_lower/analysis/sync_information.h>
 #include <device_lower/pass/warp_reduce.h>
 #include <fusion.h>
@@ -121,6 +122,14 @@ struct KernelSummary {
 
   //! Plain text description of why min_device_version_ is required
   std::string min_device_version_reason;
+
+  //! Track Circular Buffer TensorViews
+  CircularBufferInfo circular_buffer_info;
+
+  //! Track if there are ElectSync predicates in this Kernel.
+  //! Reason: At runtime, we check that at least a single warp along TIDx axis
+  //! exists.
+  bool has_elect_sync_predicate = false;
 };
 
 class KernelPerformanceProfile {
@@ -171,7 +180,7 @@ class KernelPerformanceProfile {
 
   // TODO: Allow profiling of ForLoops
   //! Map profiled ForLoop to profile entry offsets
-  // std::unordered_map<const kir::ForLoop*, int64_t> loop_entry_map_;
+  // std::unordered_map<const ForLoop*, int64_t> loop_entry_map_;
 };
 
 class KernelInternalProxy;

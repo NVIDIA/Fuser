@@ -13,7 +13,7 @@
 #include <device_lower/analysis/divisible_split.h>
 #include <device_lower/pass/alias_memory.h>
 #include <device_lower/pass/allocation.h>
-#include <device_lower/pass/double_buffer.h>
+#include <device_lower/pass/circular_buffer.h>
 #include <device_lower/pass/expr_sort.h>
 #include <device_lower/pass/fusion_simplifier.h>
 #include <device_lower/pass/grid_serialization.h>
@@ -67,7 +67,7 @@ class KIRCleaner : public OptOutDispatch {
  private:
   using OptOutDispatch::handle;
   void dispatch(Expr* expr) final {
-    if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
+    if (expr->isA<ForLoop>() || expr->isA<kir::IfThenElse>()) {
       OptOutDispatch::dispatch(expr);
     } else {
       // Any non-scoping expr is not considered nop
@@ -75,7 +75,7 @@ class KIRCleaner : public OptOutDispatch {
     }
   }
 
-  void handle(kir::ForLoop* fl) final {
+  void handle(ForLoop* fl) final {
     auto exprs = fl->body().exprs();
     fl->body().clear();
     for (auto expr : exprs) {
@@ -151,7 +151,7 @@ void GpuLower::collectPaddedParallelDims() {
 
   auto used_vals = fusion_->usedMathVals();
   for (auto tv : ir_utils::filterByType<TensorView>(used_vals)) {
-    for (auto id : tv->getLeafDomain()) {
+    for (auto id : tv->getLoopDomain()) {
       if (tv->definition()) {
         // TODO: Support GroupedReductionOp
         if (auto reduction = dynamic_cast<ReductionOp*>(tv->definition())) {
@@ -179,7 +179,8 @@ void GpuLower::collectPaddedParallelDims() {
             size_after_padding.value() == warp_size;
 
         if (id->extent()->isConstInt() &&
-            id->extent()->evaluate() > warp_size && !padding_to_single_warp) {
+            id->extent()->evaluate().as<int64_t>() > warp_size &&
+            !padding_to_single_warp) {
           // If we see any other TIDx binding that's larger than
           //  a warp or unknown, we shouldn't lower warp reduce
           //  to a single warp type.
@@ -188,7 +189,7 @@ void GpuLower::collectPaddedParallelDims() {
         } else if (can_be_single_warp) {
           if (padding_to_single_warp ||
               (id->extent()->isConstInt() &&
-               id->extent()->evaluate() == warp_size)) {
+               id->extent()->evaluate().as<int64_t>() == warp_size)) {
             warp_pad_info_.is_tidx_single_warp = true;
           }
         }
@@ -270,7 +271,7 @@ GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
            {"insertRawThreadSynchronization", insertRawThreadSynchronization},
            {"reuseMemoryAllocations", reuseMemoryAllocations},
            {"insertWarThreadSynchronization", insertWarThreadSynchronization},
-           {"DoubleBufferPass", DoubleBufferPass::run},
+           {"CircularBufferPass", CircularBufferPass::run},
            {"rotateLoops", rotateLoops},
            {"UnrollPass", UnrollPass::runPass},
            {"processMisalignedVectorization", processMisalignedVectorization},
@@ -330,6 +331,28 @@ kir::Kernel* GpuLower::run() {
   return kernel_.get();
 }
 
+bool requiresIdModel(Fusion* fusion) {
+  // TMA requires IdModel
+  for (auto expr : fusion->exprs()) {
+    if (auto ldst = dynamic_cast<LoadStoreOp*>(expr)) {
+      if (ldst->opType() == LoadStoreOpType::CpAsyncBulkTensorTile) {
+        return true;
+      }
+    }
+    if (expr->isA<MmaOp>()) {
+      return true;
+    }
+  }
+  // If a tensor does not have a nice root->logical/allocation->loop
+  // linear transformation history, use IdModel.
+  for (auto tv : fusion->allTvs()) {
+    if (!ir_utils::hasRootToLoopLinearTransformations(tv)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void GpuLower::analysis(Fusion* fusion) {
   FUSER_PERF_SCOPE("GpuLower::lower");
   NVF_ERROR(fusion != nullptr);
@@ -353,6 +376,8 @@ void GpuLower::analysis(Fusion* fusion) {
   segmenterHintCleanup(fusion_);
   FusionGuard fg(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "segmenterHintCleanup");
+
+  this->requiresIdModel() = nvfuser::requiresIdModel(fusion_);
 
   // Temporarily set allKnownVals to inputs. In the future, we will have a real
   // pass to determine how to set allKnownVals.
@@ -390,8 +415,14 @@ void GpuLower::analysis(Fusion* fusion) {
   // functionality should be affected. New IterDomains may be created,
   // so it is expected that generated code may use diffrent variable
   // names
-  if (true || isOptionEnabled(EnableOption::IdModel)) {
-    IdModel id_model(fusion_);
+  if (this->requiresIdModel() || isOptionEnabled(EnableOption::IdModel)) {
+    // Enable validation in the DEBUG build mode
+    id_model_ = std::make_unique<IdModel>(
+        fusion_,
+        /*build_graphs=*/true,
+        /*allow_self_mapping=*/false,
+        /*validate=*/false);
+    id_model_->validateAndPropagatePType();
   }
 
   resolveComputeWith(fusion_);
@@ -426,9 +457,6 @@ void GpuLower::analysis(Fusion* fusion) {
   // Validate swizzle usage on the fusion schedule.
   validateSwizzle(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateSwizzle");
-
-  validateResize(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "validateResize");
 
   validateReductions(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateReductions");
@@ -479,11 +507,18 @@ void GpuLower::analysis(Fusion* fusion) {
   pred_elimination_ = std::make_unique<PredicateElimination>(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "build predicateElimination");
 
-  doubleBufferInfo().build(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "build doubleBufferInfo");
+  circularBufferInfo().build(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "build circularBufferInfo");
 
   compute_at_map_->allocateIndexVariables();
   dumpExprsIfEnabled(fusion_->exprs(), "allocateIndexVariables");
+
+  if (this->requiresIdModel() || isOptionEnabled(EnableOption::IdModel)) {
+    tensor_indexer_ = std::make_unique<TensorIndexer>(*id_model_);
+  }
+
+  consumerToTMAInfo() = getConsumerToTMAInfoMap(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "getConsumerToTMAInfoMap");
 }
 
 kir::Kernel* GpuLower::kernel() const {

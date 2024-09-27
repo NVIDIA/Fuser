@@ -58,6 +58,30 @@ __device__ inline unsigned adjustPartialLdMatrixAddrInTuring(
 
 namespace Hopper {
 
+// Description: Elect a leader thread from a set of threads in a warp
+//
+// The common pattern is to select any thread from the first warp without
+// creating a serialized, peeling loop.
+//
+// Code example: threadIdx.x / 32 == 0 && ptx::elect_sync(~0)
+//
+// Compile Explorer Reference: https://ce.nvidia.com/z/d9x4q8
+//
+// Document Reference:
+// https://docs.nvidia.com/cuda/parallel-thread-execution/#parallel-synchronization-and-communication-instructions-elect-sync
+__device__ inline bool electSync(const uint32_t& membermask) {
+  uint32_t is_elected;
+  asm volatile(
+      "{\n\t .reg .pred P_OUT; \n\t"
+      "elect.sync _|P_OUT, %1;\n\t"
+      "selp.b32 %0, 1, 0, P_OUT; \n"
+      "}"
+      : "=r"(is_elected)
+      : "r"(membermask)
+      :);
+  return static_cast<bool>(is_elected);
+}
+
 // References:
 //
 // TMA:

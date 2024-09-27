@@ -652,8 +652,11 @@ TEST_F(SmemReuseTest, ExpandInterferes) {
       tv->setMemoryType(MemoryType::Shared);
     }
 
-    // tv3 is trying to reuse tv1's memory. however it has a concrete size.
-    // The reuse only happens when tv1 is also concrete.
+    // tv3 is trying to reuse tv1's memory. Even though tv3 has a concrete size
+    // and tv1 might not, tv1's extent will always be replaced by the constant
+    // since they are exact mapped (see the replaceSymbolicSizes lowering
+    // pass). Otherwise, we would only do this replacement when tv1 is also
+    // concrete.
     {
       bool t3_alias_t1 = false;
       GpuLower gpulw(fusion.get());
@@ -669,11 +672,7 @@ TEST_F(SmemReuseTest, ExpandInterferes) {
           }
         }
       }
-      if (is_concrete) {
-        EXPECT_TRUE(t3_alias_t1);
-      } else {
-        EXPECT_FALSE(t3_alias_t1);
-      }
+      EXPECT_TRUE(t3_alias_t1);
     }
 
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);

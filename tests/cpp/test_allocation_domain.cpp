@@ -8,7 +8,7 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <executor.h>
+#include <fusion_executor/executor.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ops/all_ops.h>
@@ -205,7 +205,7 @@ TEST_F(AllocationDomainTest, Tensor3d_To_NHWC3d) {
   tv1->split(1, w);
   // [N, H, W, C]
   tv1->reorder({{-1, 1}});
-  tv1->commitLeafToRFactor();
+  tv1->commitLeafToLogical();
   // [N, C, H, W]
 
   tv1->reorder({{1, -1}});
@@ -257,7 +257,7 @@ TEST_F(AllocationDomainTest, Tensor3d_To_NHWC4d_FwdBwd) {
   tv1->merge(0);
   tv1->split(1, w);
   tv1->split(1, h);
-  tv1->commitLeafToRFactor();
+  tv1->commitLeafToLogical();
   // [N, C, H, W]
 
   tv1->reorder({{1, -1}});
@@ -370,7 +370,7 @@ TEST_F(AllocationDomainTest, NHWC1d_To_NHWC4d) {
   tv0->split(0, w);
   tv0->split(0, h);
   tv0->reorder({{-1, 1}});
-  tv0->commitLeafToRFactor();
+  tv0->commitLeafToLogical();
 
   auto tv1 = set(tv0);
   fusion.addOutput(tv1);
@@ -486,7 +486,7 @@ TEST_F(AllocationDomainTest, NHWC1d_To_NHWC1d) {
   tv0->split(0, w);
   tv0->split(0, h);
   tv0->reorder({{-1, 1}});
-  tv0->commitLeafToRFactor();
+  tv0->commitLeafToLogical();
 
   auto tv1 = set(tv0);
   fusion.addOutput(tv1);
@@ -551,7 +551,7 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d) {
   // [N, H, W, C]
   tv0->reorder({{-1, 1}});
   // [N, C, H, W]
-  tv0->commitLeafToRFactor();
+  tv0->commitLeafToLogical();
 
   auto tv1 = set(tv0);
   fusion.addOutput(tv1);
@@ -682,7 +682,7 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheBefore) {
   // [N, H, W, C]
   tv0->reorder({{-1, 1}});
   // [N, C, H, W]
-  tv0->commitLeafToRFactor();
+  tv0->commitLeafToLogical();
 
   auto tv1 = set(tv0);
   fusion.addOutput(tv1);
@@ -805,7 +805,7 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheAfter) {
 }
 
 // NOT similar to NHWC2d_To_NHWC2d, because cacheAfter requires the
-// allocation tensor to be between rFactor domain and leaf domain, which is not
+// allocation tensor to be between rFactor domain and loop domain, which is not
 // the case for NHWC2d_To_NHWC2d
 TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheAfter) {
   auto fusion_ptr = std::make_unique<Fusion>();
@@ -967,7 +967,7 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheFork) {
   // [N, H, W, C]
   tv0->reorder({{-1, 1}});
   // [N, C, H, W]
-  tv0->commitLeafToRFactor();
+  tv0->commitLeafToLogical();
 
   auto tv1 = set(tv0);
   fusion.addOutput(tv1);
@@ -998,10 +998,10 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheFork) {
   auto tv3 = tv1->cacheFork();
 
   std::vector<IterDomain*> expected_new_allocation_domain{
-      tv3->getRFactorDomain().at(0),
-      tv3->getRFactorDomain().at(2),
-      tv3->getRFactorDomain().at(3),
-      tv3->getRFactorDomain().at(1)};
+      tv3->getLogicalDomain().at(0),
+      tv3->getLogicalDomain().at(2),
+      tv3->getLogicalDomain().at(3),
+      tv3->getLogicalDomain().at(1)};
 
   ASSERT_EQ(tv0->getAllocationDomain(), tv0_2d);
   ASSERT_EQ(tv1->getAllocationDomain(), tv1_nhwc);
@@ -1260,7 +1260,7 @@ TEST_F(AllocationDomainTest, Issue1290_ContiguityWasMissing) {
       fec.getMostRecentKernelRuntime()->fusionSegments()->groups();
   ASSERT_EQ(groups.size(), 1);
   SegmentedGroup* group = groups[0];
-  EXPECT_EQ(group->heuristic(), ScheduleHeuristic::PointWise);
+  EXPECT_EQ(group->schedulerType(), SchedulerType::PointWise);
 }
 
 TEST_F(AllocationDomainTest, Issue1290_ReplayCasPFailedDueToDifferentRanks) {
@@ -1418,7 +1418,7 @@ TEST_F(AllocationDomainTest, ClearReductionIterDomainsPatch) {
       {tv1->axis(1), tv1->axis(2), tv1->axis(0)},
       {std::nullopt, std::nullopt, true});
   // copy entries from old domain for validation later
-  std::vector<IterDomain*> rfactor_copy = tv1->getRFactorDomain();
+  std::vector<IterDomain*> logical_copy = tv1->getLogicalDomain();
   std::vector<IterDomain*> alloc_copy = tv1->getAllocationDomain();
   std::vector<std::optional<bool>> contig_copy = tv1->getContiguity();
   // clear reduction iter domain removed reduction iter domain from both root
@@ -1427,7 +1427,7 @@ TEST_F(AllocationDomainTest, ClearReductionIterDomainsPatch) {
   // entry 2 is removed since tv1->axis(2) is a reduction iter domain in tv1's
   // root domain
   EXPECT_THAT(
-      tv1->getRFactorDomain(), ElementsAre(rfactor_copy[0], rfactor_copy[1]));
+      tv1->getLogicalDomain(), ElementsAre(logical_copy[0], logical_copy[1]));
   // entry 1 is removed since tv1->axis(2) is a reduction iter domain and tv1's
   // allocation domain looks like {tv1->axis(1), tv1->axis(2), tv1->axis(0)},
   EXPECT_THAT(

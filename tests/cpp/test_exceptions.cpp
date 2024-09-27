@@ -49,7 +49,7 @@ void failCheck() {
 }
 
 void failError() {
-  NVF_ERROR(false, "message ", getAssertionArgument());
+  NVF_THROW("message ", getAssertionArgument());
 }
 } // namespace
 

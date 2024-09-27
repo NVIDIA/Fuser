@@ -15,10 +15,14 @@
 #include <preseg_passes/allocation_order_inference.h>
 #include <preseg_passes/consecutive_cast.h>
 #include <preseg_passes/exact_mapped_extent_substitution.h>
+#include <preseg_passes/insert_reshardings.h>
+#include <preseg_passes/make_resharding_contiguous.h>
 #include <preseg_passes/mark_aliases_prepare.h>
 #include <preseg_passes/move_split_cat.h>
+#include <preseg_passes/propagate_shardings.h>
 #include <preseg_passes/remove_bcast_squeeze.h>
 #include <preseg_passes/remove_empty.h>
+#include <preseg_passes/reorder_sharded_axis.h>
 
 namespace nvfuser::preseg_passes {
 
@@ -30,6 +34,13 @@ namespace nvfuser::preseg_passes {
     fusion->printMath();
     debug() << "========================================" << std::endl;
   }
+
+  // For resharding across GPUs.
+  OptimizationPass<PropagateShardingsPass>::runPass(fusion);
+  OptimizationPass<InsertReshardingsPass>::runPass(fusion);
+  OptimizationPass<ReorderShardedAxisPass>::runPass(fusion);
+  OptimizationPass<MakeReshardingContiguousPass>::runPass(fusion);
+
   // Replace TensorViews with zero extent. Outputs and inputs may still be empty
   OptimizationPass<RemoveEmptyPass>::runPass(fusion);
   // removes consecutive cast operations

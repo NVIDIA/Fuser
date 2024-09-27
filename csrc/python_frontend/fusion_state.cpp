@@ -15,6 +15,22 @@ using namespace nvfuser::inst;
 
 namespace nvfuser::python_frontend {
 
+bool State::inlineDef() const {
+  return inline_def_record_.has_value();
+}
+void State::setInlineDefRecord(const RecordFunctor* record) {
+  NVF_CHECK(
+      record, "Attemped to set the record for an inline definition as Null!");
+  inline_def_record_ = std::optional<const RecordFunctor*>(record);
+}
+const RecordFunctor* State::inlineDefRecord() const {
+  NVF_CHECK(
+      inlineDef(),
+      "Attempting to query the inline definition Record State that is not inline defined!");
+  NVF_CHECK(inline_def_record_.value(), "Inline definition Record is Null!");
+  return inline_def_record_.value();
+}
+
 bool State::operator==(const State& other) const {
   NVF_ERROR(
       (index == other.index ? (stype == other.stype) : true),
@@ -31,18 +47,24 @@ bool State::operator!=(const State& other) const {
 
 // Generalized printing of State
 std::ostream& operator<<(std::ostream& os, const State& state) {
-  if (state.stype == serde::StateType::Scalar) {
-    os << "S";
-  } else if (state.stype == serde::StateType::Tensor) {
-    os << "T";
-  } else if (state.stype == serde::StateType::Vector) {
-    os << "V";
-  } else if (state.stype == serde::StateType::None) {
-    os << "None";
+  if (state.inlineDef()) {
+    NVF_CHECK(
+        state.inlineDefRecord()->inlineDef(),
+        "The State Object's definition record is not set with an inline definition!");
+    state.inlineDefRecord()->print(os);
   } else {
-    NVF_ERROR(false, "Unsupported StateType");
+    if (state.stype == serde::StateType::Scalar) {
+      os << "S" << state.index;
+    } else if (state.stype == serde::StateType::Tensor) {
+      os << "T" << state.index;
+    } else if (state.stype == serde::StateType::Vector) {
+      os << "V" << state.index;
+    } else if (state.stype == serde::StateType::None) {
+      os << "None";
+    } else {
+      NVF_THROW("Unsupported StateType");
+    }
   }
-  os << state.index;
   return os;
 }
 
@@ -81,6 +103,22 @@ void FusionState::addRecord(RecordFunctor* record) {
   FUSER_PERF_SCOPE("FusionContainer::addRecord");
   recording_.emplace_back(record);
   num_recording_states_ += record->numOutputs();
+  RecordFunctor* state_record = recording_.back().get();
+
+  // NOTE: when the outputs are added to the Record constructor,
+  // the Record is not constructed.  Therefore, the information has to be
+  // propagated when the Record is added to the FusionState.
+  for (const auto& out : state_record->outputs()) {
+    if (state_record->inlineDef()) {
+      NVF_CHECK(
+          out.index < recording_state_.size(),
+          "Output state is not found in recording_state! Index: ",
+          out.index,
+          " Size: ",
+          recording_state_.size());
+      recording_state_.at(out.index).setInlineDefRecord(state_record);
+    }
+  }
 }
 
 Fusion* FusionState::fusion() {
@@ -116,7 +154,7 @@ void FusionState::addFusionStateVector(std::vector<Val*> val) {
 Val* FusionState::getFusionState(size_t index) const {
   const auto& ret = fusion_state_.at(index);
   NVF_CHECK(ret.size() == 1, "Expecting to return only one Val*.");
-  return ret[0];
+  return ret.front();
 }
 
 const std::vector<Val*>& FusionState::getFusionStateVector(size_t index) const {
@@ -148,15 +186,6 @@ void FusionState::addInput(Val* input) {
 void FusionState::addOutput(Val* output) {
   NVF_CHECK(fusion_ != nullptr, "Fusion is undefined.");
   fusion_->addOutput(output);
-}
-
-void FusionState::addOutput(
-    Val* output,
-    const std::vector<int64_t>& permutation) {
-  NVF_CHECK(fusion_ != nullptr, "Fusion is undefined.");
-  fusion_->addOutput(output);
-  fusion_->setPermutationOnOutput(
-      (int)fusion_->outputs().size() - 1, permutation);
 }
 
 void FusionState::aliasOutputToInput(Val* output, Val* input) {
