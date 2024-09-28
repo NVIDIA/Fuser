@@ -9,10 +9,10 @@
 
 #include <c10/util/ArrayRef.h>
 
-#include <fusion_executor/executor.h>
-#include <fusion_executor/executor_kernel_arg.h>
-#include <kernel_cache_utils.h>
 #include <polymorphic_value.h>
+#include <runtime/executor.h>
+#include <runtime/executor_kernel_arg.h>
+#include <runtime/fusion_cache_utils.h>
 
 #include <mutex>
 #include <vector>

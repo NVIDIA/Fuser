@@ -7,8 +7,8 @@
 // clang-format on
 #include "utils.h"
 
-#include <kernel_cache_runtime.h>
 #include <options.h>
+#include <runtime/fusion_kernel_runtime.h>
 
 #include <benchmark/benchmark.h>
 #include <cuda_runtime.h>

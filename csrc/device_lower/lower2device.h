@@ -24,7 +24,6 @@
 #include <device_lower/pass/warp_reduce.h>
 #include <exceptions.h>
 #include <expr_simplifier.h>
-#include <fusion_executor/executor_params.h>
 #include <id_model/id_model.h>
 #include <id_model/indexing.h>
 #include <ir/all_nodes.h>
@@ -34,6 +33,7 @@
 #include <non_divisible_split.h>
 #include <options.h>
 #include <parallel_dimension_map.h>
+#include <runtime/executor_params.h>
 #include <vectorization_info.h>
 #include <visibility.h>
 

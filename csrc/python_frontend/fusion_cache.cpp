@@ -10,9 +10,9 @@
 
 #include <debug.h>
 #include <instrumentation.h>
-#include <kernel_cache_runtime.h>
 #include <options.h>
 #include <python_frontend/fusion_cache.h>
+#include <runtime/fusion_kernel_runtime.h>
 #include <serde/fusion_record.h>
 #include <utils.h>
 

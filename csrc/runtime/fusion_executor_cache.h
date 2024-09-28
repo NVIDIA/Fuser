@@ -12,7 +12,7 @@
 #include <exceptions.h>
 #include <fusion.h>
 #include <fusion_segmenter.h>
-#include <kernel_cache_utils.h>
+#include <runtime/fusion_cache_utils.h>
 #include <scheduler/heuristic.h>
 #include <serde/fusion_cache_generated.h>
 

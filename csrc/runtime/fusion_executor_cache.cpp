@@ -5,30 +5,30 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <kernel_cache.h>
+#include <runtime/fusion_executor_cache.h>
 
 #include <c10/util/irange.h>
 
 #include <dynamic_transform.h>
 #include <fusion.h>
-#include <fusion_executor/executor_kernel_arg.h>
-#include <kernel_cache_runtime.h>
 #include <logical_domain_map.h>
+#include <runtime/executor_kernel_arg.h>
+#include <runtime/fusion_kernel_runtime.h>
 #include <type.h>
 
 #include <debug.h>
 #include <dynamic_transform.h>
-#include <fusion_executor/allocations.h>
-#include <fusion_executor/executor_params.h>
-#include <fusion_executor/executor_utils.h>
 #include <fusion_profiler.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
-#include <kernel_cache_utils.h>
 #include <logical_domain_map.h>
 #include <multidevice/communicator.h>
 #include <options.h>
 #include <preseg_passes/pre_segmenter.h>
+#include <runtime/allocations.h>
+#include <runtime/executor_params.h>
+#include <runtime/executor_utils.h>
+#include <runtime/fusion_cache_utils.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/registry.h>
 #include <utils.h>

@@ -5,16 +5,16 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <kernel_cache_runtime.h>
+#include <runtime/fusion_kernel_runtime.h>
 
 #include <fusion.h>
-#include <fusion_executor/executor.h>
 #include <fusion_profiler.h>
 #include <fusion_segmenter.h>
 #include <instrumentation.h>
 #include <ir/base_nodes.h>
-#include <kernel_cache_utils.h>
 #include <preseg_passes/pre_segmenter.h>
+#include <runtime/executor.h>
+#include <runtime/fusion_cache_utils.h>
 #include <scheduler/heuristic.h>
 #include <serde/fusion_cache_generated.h>
 #include <type.h>

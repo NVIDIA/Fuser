@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <kernel_cache_runtime.h>
+#include <runtime/fusion_kernel_runtime.h>
 #include <tests/cpp/validator.h>
 
 #include <validator_utils.h>

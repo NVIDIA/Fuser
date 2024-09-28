@@ -11,8 +11,8 @@
 #include <exceptions.h>
 #include <fusion.h>
 #include <ir/base_nodes.h>
-#include <kernel_cache.h>
 #include <options.h>
+#include <runtime/fusion_executor_cache.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/registry.h>
 #include <scheduler/runtime_info.h>
