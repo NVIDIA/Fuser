@@ -15,6 +15,7 @@
 #include <fusion_executor/executor.h>
 #include <ir/all_nodes.h>
 #include <ops/all_ops.h>
+#include <scheduler/matmul_utils.h>
 #include <scheduler/mma_utils.h>
 #include <algorithm>
 #include <iterator>
@@ -148,7 +149,7 @@ std::vector<at::Tensor> scheduleCompileAndRun(
   auto tv2c = tv2->cacheBefore();
 
   // [M, N, K] or [M, K, N] -> [N, M, K]
-  moveInnerBroadcastLeft(tv0);
+  matmul_utils::moveInnerBroadcastLeft(tv0);
   tv0->applyMmaSwizzle(MmaOperand::A);
   tv1->applyMmaSwizzle(MmaOperand::B);
 
@@ -369,7 +370,7 @@ TEST_P(HopperRS, SingleTile) {
 
   auto tv2c = tv2->cacheBefore();
 
-  moveInnerBroadcastLeft(tv0);
+  matmul_utils::moveInnerBroadcastLeft(tv0);
   tv0->applyMmaSwizzle(MmaOperand::A);
 
   tv0->merge(1);
@@ -499,7 +500,7 @@ TEST_P(HopperRS, FullSwizzle) {
 
   auto tv2c = tv2->cacheBefore();
 
-  moveInnerBroadcastLeft(tv0); // n, m, k
+  matmul_utils::moveInnerBroadcastLeft(tv0); // n, m, k
 
   // Split the inner dimension by the inner size, and reorder the outer
   // of the split to dim 0.
@@ -658,14 +659,14 @@ TEST_P(HopperRS, SingleTileWithTMALoad) {
 
   auto tv2c = tv2->cacheBefore();
 
-  moveInnerBroadcastLeft(tv0);
+  matmul_utils::moveInnerBroadcastLeft(tv0);
   tv0->applyMmaSwizzle(MmaOperand::A);
 
   tv0->merge(1);
   tv0->merge(1);
   tv0->axis(1)->parallelize(ParallelType::TIDx);
 
-  moveInnerBroadcastLeft(tv1);
+  matmul_utils::moveInnerBroadcastLeft(tv1);
   tv1->applyMmaSwizzleForTMALoad(swizzle_b);
 
   if (layout == MmaLayout::TT) {
@@ -748,14 +749,14 @@ TEST_P(HopperRS, SingleTileWithTMALoadStore) {
 
   auto tv2c = tv2->cacheBefore();
 
-  moveInnerBroadcastLeft(tv0);
+  matmul_utils::moveInnerBroadcastLeft(tv0);
   tv0->applyMmaSwizzle(MmaOperand::A);
 
   tv0->merge(1);
   tv0->merge(1);
   tv0->axis(1)->parallelize(ParallelType::TIDx);
 
-  moveInnerBroadcastLeft(tv1);
+  matmul_utils::moveInnerBroadcastLeft(tv1);
   tv1->applyMmaSwizzleForTMALoad(swizzle_b);
 
   if (layout == MmaLayout::TT) {
@@ -843,7 +844,7 @@ TEST_P(HopperRS, SingleTileWithTMALoadOuterDimNotSplit) {
 
   auto tv2c = tv2->cacheBefore();
 
-  moveInnerBroadcastLeft(tv0);
+  matmul_utils::moveInnerBroadcastLeft(tv0);
   tv0->applyMmaSwizzle(MmaOperand::A);
 
   tv0->merge(1);
@@ -1039,8 +1040,8 @@ TEST_P(HopperSS, SingleTile) {
   // Bring related dims to innermost, that is:
   // - Reorder tv0 as [1, M, K] or [1, K, M]
   // - Reorder tv1 as [1, N, K] or [1, K, N]
-  moveInnerBroadcastLeft(tv0);
-  moveInnerBroadcastLeft(tv1);
+  matmul_utils::moveInnerBroadcastLeft(tv0);
+  matmul_utils::moveInnerBroadcastLeft(tv1);
 
   tv0->applyMmaSwizzle(swizzle_a);
   tv1->applyMmaSwizzle(swizzle_b);
@@ -1186,8 +1187,8 @@ TEST_P(HopperSS, FullSwizzle) {
   // Bring related dims to innermost, that is:
   // - Reorder tv0 as [1, M, K] or [1, K, M]
   // - Reorder tv1 as [1, N, K] or [1, K, N]
-  moveInnerBroadcastLeft(tv0);
-  moveInnerBroadcastLeft(tv1);
+  matmul_utils::moveInnerBroadcastLeft(tv0);
+  matmul_utils::moveInnerBroadcastLeft(tv1);
 
   // Just schedule tv0 and tv1 the same way as in SingleTile. Note that although
   // the schedule are the same, the memory layout is different.
@@ -1335,8 +1336,8 @@ TEST_P(HopperSS, SingleTileWithTMALoad) {
 
   auto tv2c = tv2->cacheBefore();
 
-  moveInnerBroadcastLeft(tv0);
-  moveInnerBroadcastLeft(tv1);
+  matmul_utils::moveInnerBroadcastLeft(tv0);
+  matmul_utils::moveInnerBroadcastLeft(tv1);
   tv0->applyMmaSwizzleForTMALoad(swizzle_a);
   tv1->applyMmaSwizzleForTMALoad(swizzle_b);
 

@@ -202,10 +202,8 @@ TEST_P(AdvancedIndexingTest, 3) {
   at::Tensor t1 = at::randn({w, x, y, z}, options);
 
   std::vector<c10::IValue> aten_inputs = {t0, t1};
-
   auto cg_outputs =
       scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
-
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
@@ -293,23 +291,23 @@ TEST_P(AdvancedIndexingTest, 6) {
 
   at::Tensor input0 = at::randn(tensor0_shape, options);
   at::Tensor input1 = at::randn(tensor1_shape, options);
-  std::vector<c10::IValue> aten_inputs = {input0, input1};
+  std::vector<c10::IValue> aten_inputs({input0, input1});
+
+  auto cg_results =
+      scheduleAndRun(&fusion, SchedulerType::Reduction, aten_inputs);
 
   std::vector<int64_t> reduction_axes{0, 1};
-
-  auto results = scheduleAndRun(&fusion, SchedulerType::Reduction, aten_inputs);
-
   auto aten_output = input0.add(input1).to(at::kDouble).sum(reduction_axes);
 
   testValidate(
       &fusion,
-      results.outputs,
+      cg_results.outputs,
       {input0, input1},
       {aten_output},
       __LINE__,
       __FILE__,
       "",
-      results.heuristic_params->lparams);
+      cg_results.heuristic_params->lparams);
 }
 
 TEST_P(AdvancedIndexingTest, 7) {
@@ -434,7 +432,6 @@ TEST_P(AdvancedIndexingTest, 9) {
 
   auto cg_outputs =
       scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
-
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
