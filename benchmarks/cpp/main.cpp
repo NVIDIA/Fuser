@@ -7,6 +7,7 @@
 // clang-format on
 #include "utils.h"
 
+#include <kernel_cache_runtime.h>
 #include <options.h>
 
 #include <benchmark/benchmark.h>

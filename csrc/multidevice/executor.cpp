@@ -13,7 +13,7 @@
 #include <host_ir/host_ir.h>
 #include <ir/builder.h>
 #include <ir/utils.h>
-#include <kernel_cache_utils.h>
+#include <kernel_cache_runtime.h>
 #include <multidevice/device_mesh.h>
 #include <multidevice/executor.h>
 #include <multidevice/lower_communication.h>

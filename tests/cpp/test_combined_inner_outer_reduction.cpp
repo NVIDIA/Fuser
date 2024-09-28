@@ -13,6 +13,7 @@
 #include <inlining.h>
 #include <ir/utils.h>
 #include <kernel_cache.h>
+#include <kernel_cache_runtime.h>
 #include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/normalization_utils.h>

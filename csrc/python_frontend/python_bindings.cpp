@@ -15,6 +15,7 @@
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
+#include <kernel_cache_runtime.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <python_frontend/fusion_cache.h>

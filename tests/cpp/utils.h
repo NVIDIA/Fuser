@@ -17,6 +17,7 @@
 #include <id_model/id_model.h>
 #include <ir/all_nodes.h>
 #include <kernel_cache.h>
+#include <kernel_cache_runtime.h>
 #include <kernel_ir_dispatch.h>
 #include <scheduler/registry.h>
 #include <transform_replay.h>

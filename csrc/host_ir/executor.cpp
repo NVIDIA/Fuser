@@ -9,6 +9,7 @@
 #include <dynamic_transform.h>
 #include <host_ir/executor.h>
 #include <ir/utils.h>
+#include <kernel_cache_runtime.h>
 
 namespace nvfuser {
 
