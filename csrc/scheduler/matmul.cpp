@@ -23,77 +23,6 @@
 #include "mma_type.h"
 
 namespace nvfuser {
-
-void MatmulScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
-  FUSER_PERF_SCOPE("MatmulScheduler::schedule");
-  auto mparams = dynamic_cast<const MatmulParams*>(params);
-  NVF_ERROR(
-      mparams != nullptr,
-      "Incorrect parameters sent to MatmulScheduler::schedule",
-      params);
-  scheduleMatmul(fusion, mparams);
-}
-
-bool MatmulScheduler::canScheduleCompileTime(Fusion* fusion) {
-  const auto msg = getMatmulCompileTimeRejectReason(fusion);
-  if (!msg.empty()) {
-    scheduler_debug_utils::canScheduleRejectReason(schedulerType(), msg);
-    return false;
-  }
-
-  return true;
-}
-
-bool MatmulScheduler::canScheduleRunTime(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicDataCache* data_cache) {
-  FUSER_PERF_SCOPE("MatmulScheduler::canSchedule");
-  auto reason = getMatmulRunTimeRejectReason(fusion, data_cache, runtime_info);
-  if (!reason.empty()) {
-    scheduler_debug_utils::canScheduleRejectReason(schedulerType(), reason);
-    return false;
-  }
-  return true;
-}
-
-std::unique_ptr<HeuristicParams> MatmulScheduler::computeHeuristics(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicDataCache* data_cache) {
-  auto mparams = getMatmulHeuristics(fusion, runtime_info, data_cache);
-  NVF_ERROR(mparams != nullptr);
-  return mparams;
-}
-
-void moveInnerBroadcastLeft(TensorView* tv, int64_t number_of_inner_pos) {
-  NVF_ERROR(tv->nDims() >= number_of_inner_pos);
-  std::vector<int64_t> broadcast_pos;
-  std::vector<int64_t> nonbroadcast_pos;
-
-  for (auto i : c10::irange(number_of_inner_pos)) {
-    auto axis_idx = i - number_of_inner_pos;
-    auto id = tv->axis(axis_idx);
-    if (id->isBroadcast()) {
-      broadcast_pos.push_back(axis_idx);
-    } else {
-      nonbroadcast_pos.push_back(axis_idx);
-    }
-  }
-
-  auto combined_pos_vec = broadcast_pos;
-  combined_pos_vec.insert(
-      combined_pos_vec.end(), nonbroadcast_pos.begin(), nonbroadcast_pos.end());
-
-  std::unordered_map<int64_t, int64_t> order_map;
-  for (auto i : c10::irange(number_of_inner_pos)) {
-    order_map[combined_pos_vec.at(i)] = i - number_of_inner_pos;
-  }
-
-  // Apply ordering.
-  tv->reorder(order_map);
-}
-
 namespace {
 
 // Returns true if given number is power of 2
@@ -730,8 +659,6 @@ void scheduleSplitKSum(
   splitk_sum->axis(-1)->parallelize(ParallelType::Vectorize);
 }
 
-} // namespace
-
 void scheduleMatmul(Fusion* fusion, const MatmulParams* mparams) {
   if (isOptionEnabled(EnableOption::FuseMultipleMatmuls)) {
     scheduleMultipleMatmuls(fusion, mparams);
@@ -1061,8 +988,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams* mparams) {
   //   and needs more configurability.
   // ------------------------------------------------------------------
   if (isTuring(mparams->mma_macro) || isAmpere(mparams->mma_macro)) {
-    moveInnerBroadcastLeft(ab);
-    moveInnerBroadcastLeft(bb);
+    matmul_utils::moveInnerBroadcastLeft(ab);
+    matmul_utils::moveInnerBroadcastLeft(bb);
   }
 
   ab->applyMmaSwizzle(MmaOperand::A);
@@ -1329,6 +1256,52 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams* mparams) {
       /*smem_a_reuse_guaranteed=*/guaranteed_operand_reuse,
       /*smem_b_reuse_guaranteed=*/guaranteed_operand_reuse);
   fusion->setExpectedDynamicSmemBytes(estimated_smem);
+}
+
+} // namespace
+
+bool MatmulScheduler::canScheduleCompileTime(Fusion* fusion) {
+  const auto msg = matmul_utils::getMatmulCompileTimeRejectReason(fusion);
+  if (!msg.empty()) {
+    scheduler_debug_utils::canScheduleRejectReason(schedulerType(), msg);
+    return false;
+  }
+
+  return true;
+}
+
+bool MatmulScheduler::canScheduleRunTime(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicDataCache* data_cache) {
+  FUSER_PERF_SCOPE("MatmulScheduler::canSchedule");
+  auto reason = matmul_utils::getMatmulRunTimeRejectReason(
+      fusion, data_cache, runtime_info);
+  if (!reason.empty()) {
+    scheduler_debug_utils::canScheduleRejectReason(schedulerType(), reason);
+    return false;
+  }
+  return true;
+}
+
+std::unique_ptr<HeuristicParams> MatmulScheduler::computeHeuristics(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicDataCache* data_cache) {
+  auto mparams =
+      matmul_utils::getMatmulHeuristics(fusion, runtime_info, data_cache);
+  NVF_ERROR(mparams != nullptr);
+  return mparams;
+}
+
+void MatmulScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
+  FUSER_PERF_SCOPE("MatmulScheduler::schedule");
+  auto mparams = dynamic_cast<const MatmulParams*>(params);
+  NVF_ERROR(
+      mparams != nullptr,
+      "Incorrect parameters sent to MatmulScheduler::schedule",
+      params);
+  scheduleMatmul(fusion, mparams);
 }
 
 } // namespace nvfuser

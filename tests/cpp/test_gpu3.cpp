@@ -7952,17 +7952,7 @@ TEST_F(NVFuserTest, TemplateFunctionTypeMismatch) {
                      .dtype(data_type_to_aten(input_dtype))
                      .device(at::kCUDA, 0);
   auto t0 = at::randn({batch_size, hidden_size}, options);
-  std::vector<c10::IValue> inputs{t0};
-
-  auto persistent_params = getOuterPersistentHeuristics(fusion, inputs);
-  NVF_CHECK(persistent_params, "Reduction schedule was not generated!");
-  scheduleOuterPersistentKernel(fusion, persistent_params.get());
-  KernelArgumentHolder args =
-      KernelArgumentHolder::createKernelArgumentHolder(inputs);
-  FusionExecutor fe;
-  fe.compileFusion(
-      fusion, args, persistent_params->lparams, persistent_params->cparams);
-  auto cg_outputs = fe.runFusion(args, persistent_params->lparams);
+  scheduleAndRun(fusion, SchedulerType::OuterPersistent, {t0});
 }
 
 // Test block reduction across TIDx and TIDz
