@@ -1021,14 +1021,6 @@ std::unique_ptr<ReductionParams> getInnerPersistentHeuristics(
   return rparams;
 }
 
-std::unique_ptr<ReductionParams> getInnerPersistentHeuristics(
-    Fusion* fusion,
-    const at::ArrayRef<c10::IValue>& runtime_inputs,
-    HeuristicDataCache* data_cache) {
-  SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs);
-  return getInnerPersistentHeuristics(fusion, runtime_info, data_cache);
-}
-
 } // namespace
 
 bool InnerPersistentKernelScheduler::canScheduleCompileTime(Fusion* fusion) {

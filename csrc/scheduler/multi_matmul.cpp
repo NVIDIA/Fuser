@@ -1251,7 +1251,7 @@ class MultipleMatmulScheduler {
       for (TensorView* mma_input : mma_inputs) {
         // Schedule mma_input, since we know it has the broadcast dimension M or
         // N, whereas the smem read might not
-        moveInnerBroadcastLeft(mma_input);
+        matmul_utils::moveInnerBroadcastLeft(mma_input);
         mma_input->applyMmaSwizzle(operand_type);
         scheduler_utils::BoundedDirectionalTransformPropagator::backward(
             mma_input,
