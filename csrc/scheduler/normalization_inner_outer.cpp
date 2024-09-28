@@ -18,174 +18,6 @@
 #include <ATen/cuda/CUDAContext.h>
 
 namespace nvfuser {
-
-void InnerOuterPersistentKernelScheduler::schedule(
-    Fusion* fusion,
-    const HeuristicParams* params) {
-  FUSER_PERF_SCOPE("InnerOuterPersistentKernelScheduler::schedule");
-  auto rparams = dynamic_cast<const ReductionParams*>(params);
-  NVF_ERROR(
-      rparams != nullptr && rparams->scheduler_type == schedulerType(),
-      "Incorrect parameters sent to InnerOuterPersistentKernelScheduler::schedule",
-      params);
-  scheduleInnerOuterPersistentKernel(fusion, rparams);
-}
-
-bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
-    Fusion* fusion) {
-  FUSER_PERF_SCOPE(
-      "InnerOuterPersistentKernelScheduler::canScheduleCompileTime");
-  // common checks for all persistent heuristics
-  if (!normalization_scheduler_utils::checkOpsAndInputs(
-          fusion, schedulerType())) {
-    return false;
-  }
-
-  // check reduction type
-  auto reduction_tvs = scheduler_utils::getReductionTvs(fusion);
-  if (reduction_tvs.empty()) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedulerType(), "no reduction tv");
-    return false;
-  }
-  auto reduction_type =
-      reduction_scheduler_utils::getReductionType(reduction_tvs);
-  const SchedulerType persistent_heuristic =
-      normalization_scheduler_utils::getPersistentHeuristicFor(reduction_type);
-  if (persistent_heuristic != schedulerType()) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedulerType(),
-        "schedulerType() doesn't match with reduction type `",
-        persistent_heuristic,
-        "`.");
-    return false;
-  }
-  std::vector<TensorView*> inner_reduction_tvs;
-  std::vector<TensorView*> outer_reduction_tvs;
-  for (auto tv : reduction_tvs) {
-    if (scheduler_utils::isFastestDimReduction(tv)) {
-      inner_reduction_tvs.emplace_back(tv);
-    } else {
-      outer_reduction_tvs.emplace_back(tv);
-    }
-  }
-
-  // check connections between inner reduction and outer reduction tvs.
-  if (!normalization_scheduler_utils::checkIfReductionsAreInnerOuter(
-          inner_reduction_tvs, outer_reduction_tvs)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedulerType(),
-        "to use combined reduction, inner reduction tensor should be [I,I,...,R,R] and outer reduction tensor should be [R,R,...,I,I]");
-    return false;
-  }
-
-  if (!normalization_scheduler_utils::hasSharedInput(
-          inner_reduction_tvs, outer_reduction_tvs)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedulerType(),
-        "to use combined reduction, inner reduction and outer reduction should have shared input.");
-    return false;
-  }
-
-  if (!normalization_scheduler_utils::isConnectedOnlyThroughReductionProducer(
-          inner_reduction_tvs, outer_reduction_tvs)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedulerType(),
-        "to use combined reduction, inner reduction and outer reduction should not have shared consumer, their consumers should not have shared non-outer-reduction producer.");
-    return false;
-  }
-
-  if (!ir_utils::getViewOps(fusion).empty()) {
-    ComputeAtMap ca_map(fusion);
-    if (registry_utils::requiresForwardViewReplay(fusion, ca_map)) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          schedulerType(), "Fusion requires view being reversible.");
-      return false;
-    }
-    // Persistent scheduler simply uses reference_tv as the reference, if
-    // that changes, this needs to be changed.
-    auto reference_tv = inner_reduction_tvs[0];
-    if (registry_utils::reductionInterferingView(
-            fusion, ca_map, reference_tv)) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          schedulerType(), "View may interfere with normalization scheduling.");
-      return false;
-    }
-  }
-
-  // Before examining the reduction axes want to quickly
-  //   check the reductions have the same axis width
-  //   to avoid building root domain map in easier cases
-  bool valid_axis_count = false;
-  size_t axis_count = 0;
-  auto reduction_root_size = [](TensorView* red_tv) {
-    size_t count = 0;
-    for (auto id : red_tv->getMaybeRootDomain()) {
-      if (!id->isBroadcast()) {
-        count++;
-      }
-    }
-    return count;
-  };
-
-  for (auto red : reduction_tvs) {
-    if (!valid_axis_count) {
-      valid_axis_count = true;
-      axis_count = reduction_root_size(red);
-    } else {
-      if (reduction_root_size(red) != axis_count) {
-        scheduler_debug_utils::canScheduleRejectReason(
-            schedulerType(),
-            "inconsistent reduction root size: ",
-            red->toString(),
-            ", expected: ",
-            axis_count);
-        return false;
-      }
-    }
-  }
-
-  // the reduction axis of outer reduction tv should match to the iteration axis
-  // of the inner reduction tv.
-  if (!normalization_scheduler_utils::isReductionIterationAxisMatched(
-          inner_reduction_tvs, outer_reduction_tvs)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedulerType(),
-        "to use combined reduction, every iteration axis in inner reduction tv should match to a reduction domain in outer reduction tv.");
-    return false;
-  }
-
-  if (!normalization_scheduler_utils::checkReductionPattern(
-          fusion, schedulerType(), inner_reduction_tvs, outer_reduction_tvs)) {
-    return false;
-  }
-
-  // Only accept persistent kernels
-  auto persistent_buffer_info = scheduler_utils::persistentBuffers(fusion);
-  if (persistent_buffer_info.persistent_buffers.empty()) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedulerType(), "no persistent buffer identified");
-    return false;
-  }
-
-  if (registry_utils::SchedulerTopologyChecker::
-          hasNonNormalizePostReductionBCast(fusion)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedulerType(), "unsupported post reduction normalization");
-    return false;
-  }
-
-  if (registry_utils::SchedulerTopologyChecker::
-          hasGatherToBroadcastBeforeReduction(fusion, reduction_tvs)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedulerType(),
-        "has unsupported gather-like ops before normalization");
-    return false;
-  }
-
-  return true;
-}
-
 namespace {
 
 // The roundup is due to the fact that the shared memory buffer is allocated
@@ -572,105 +404,6 @@ std::pair<int64_t, int64_t> getBufferBatchSizeAndThreadsPerBlock(
   return std::make_pair(inner_batch, threads_per_block);
 }
 
-} // namespace
-
-bool InnerOuterPersistentKernelScheduler::canScheduleRunTime(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicDataCache* data_cache) {
-  FUSER_PERF_SCOPE("InnerOuterPersistentKernelScheduler::canScheduleRunTime");
-  auto reduction_tv_entry =
-      HeuristicDataCacheEntry<HeuristicCompileTime::ReductionTVs>(
-          data_cache, [&fusion]() {
-            return std::make_unique<std::vector<TensorView*>>(
-                scheduler_utils::getReductionTvs(fusion));
-          });
-
-  auto& reduction_tvs = reduction_tv_entry.get();
-  TensorView* first_inner_reduction_tv = nullptr;
-  for (auto tv : reduction_tvs) {
-    if (scheduler_utils::isFastestDimReduction(tv)) {
-      first_inner_reduction_tv = tv;
-      break;
-    }
-  }
-  auto reference_tv = first_inner_reduction_tv;
-
-  auto properties = scheduler_utils::getReductionProperties(
-      fusion, runtime_info, reference_tv);
-
-  const int64_t warp_size = at::cuda::getCurrentDeviceProperties()->warpSize;
-
-  auto reduced_tv = ir_utils::getSoleProducerTv(reference_tv);
-  const auto vectorize_factor = vectorize_helper::getVectorizationFactor(
-      runtime_info,
-      reduced_tv,
-      data_cache,
-      (int)(reduced_tv->nDims() - properties.inner_most_dimension_ndims));
-
-  // check if there is enough register and shared memory for persistence
-  const auto buffer_params = getPersistentBufferStorageParams(
-      fusion, runtime_info, data_cache, reduction_tvs, vectorize_factor);
-
-  const int64_t device_multiprocessor_count =
-      (int64_t)at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
-
-  if (!buffer_params.has_enough_regs_and_smem) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedulerType(),
-        "not enough registers or shared memory for persistence");
-    return false;
-  }
-
-  const int64_t device_max_threads_per_multiprocessor =
-      (int64_t)at::cuda::getCurrentDeviceProperties()
-          ->maxThreadsPerMultiProcessor;
-
-  const int64_t required_sm_per_norm = ceilDiv(
-      buffer_params.regs_buffer_size, scheduler_utils::register_file_size);
-
-  // If the persistence requires over half the device don't do grid
-  // persistence as we can't overlap the grid comms.
-  if (required_sm_per_norm >
-      scheduler_utils::safeDiv(device_multiprocessor_count, 2)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedulerType(), "requires over half GPU persistence.");
-    return false;
-  }
-
-  // Don't go persistent if we can't use a small fraction of the
-  // available SMs yet have a large reduction size.
-  if ( // Large reduction dim
-      properties.total_reduction_numel >=
-          device_max_threads_per_multiprocessor * 4 &&
-      properties.total_iteration_numel <
-          (properties.fastest_dim_reduction
-               ? scheduler_utils::safeDiv(device_multiprocessor_count, 8)
-               // Make sure we at least use a quarter of the device * a
-               // half warp
-               : (warp_size / 8) * device_multiprocessor_count)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedulerType(), "not enough blocks");
-    return false;
-  }
-
-  return true;
-}
-
-std::unique_ptr<HeuristicParams> InnerOuterPersistentKernelScheduler::
-    computeHeuristics(
-        Fusion* fusion,
-        SchedulerRuntimeInfo& runtime_info,
-        HeuristicDataCache* data_cache) {
-  FUSER_PERF_SCOPE("InnerOuterPersistentKernelScheduler::computeHeuristics");
-  auto rparams =
-      getInnerOuterPersistentHeuristics(fusion, runtime_info, data_cache);
-  NVF_ERROR(rparams != nullptr);
-  return rparams;
-}
-
-namespace {
-
 // The innerOuterPersistentHeuristic is tuned for layer_norm backward on A100
 // ======= Method if hidden_size > 1024 =======
 // (1) Inner reduction is one reduction per block. Reduction domain is
@@ -935,8 +668,6 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
   return rparams;
 }
 
-} // namespace
-
 std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
@@ -1021,16 +752,6 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
 
   return rparams;
 }
-
-std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
-    Fusion* fusion,
-    const at::ArrayRef<c10::IValue>& runtime_inputs,
-    HeuristicDataCache* data_cache) {
-  SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs);
-  return getInnerOuterPersistentHeuristics(fusion, runtime_info, data_cache);
-}
-
-namespace {
 
 void scheduleReductionCombinedOuter(
     Fusion* fusion,
@@ -1142,8 +863,6 @@ void scheduleReductionCombinedOuter(
     outer_reference_tvs.emplace_back(outer_reference_tv);
   }
 }
-
-} // namespace
 
 // fusion is the input IR that will be modified by this function
 void scheduleInnerOuterPersistentKernel(
@@ -1302,4 +1021,267 @@ void scheduleInnerOuterPersistentKernel(
   inlineMost();
 }
 
+} // namespace
+
+bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
+    Fusion* fusion) {
+  FUSER_PERF_SCOPE(
+      "InnerOuterPersistentKernelScheduler::canScheduleCompileTime");
+  // common checks for all persistent heuristics
+  if (!normalization_scheduler_utils::checkOpsAndInputs(
+          fusion, schedulerType())) {
+    return false;
+  }
+
+  // check reduction type
+  auto reduction_tvs = scheduler_utils::getReductionTvs(fusion);
+  if (reduction_tvs.empty()) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(), "no reduction tv");
+    return false;
+  }
+  auto reduction_type =
+      reduction_scheduler_utils::getReductionType(reduction_tvs);
+  const SchedulerType persistent_heuristic =
+      normalization_scheduler_utils::getPersistentHeuristicFor(reduction_type);
+  if (persistent_heuristic != schedulerType()) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(),
+        "schedulerType() doesn't match with reduction type `",
+        persistent_heuristic,
+        "`.");
+    return false;
+  }
+  std::vector<TensorView*> inner_reduction_tvs;
+  std::vector<TensorView*> outer_reduction_tvs;
+  for (auto tv : reduction_tvs) {
+    if (scheduler_utils::isFastestDimReduction(tv)) {
+      inner_reduction_tvs.emplace_back(tv);
+    } else {
+      outer_reduction_tvs.emplace_back(tv);
+    }
+  }
+
+  // check connections between inner reduction and outer reduction tvs.
+  if (!normalization_scheduler_utils::checkIfReductionsAreInnerOuter(
+          inner_reduction_tvs, outer_reduction_tvs)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(),
+        "to use combined reduction, inner reduction tensor should be [I,I,...,R,R] and outer reduction tensor should be [R,R,...,I,I]");
+    return false;
+  }
+
+  if (!normalization_scheduler_utils::hasSharedInput(
+          inner_reduction_tvs, outer_reduction_tvs)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(),
+        "to use combined reduction, inner reduction and outer reduction should have shared input.");
+    return false;
+  }
+
+  if (!normalization_scheduler_utils::isConnectedOnlyThroughReductionProducer(
+          inner_reduction_tvs, outer_reduction_tvs)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(),
+        "to use combined reduction, inner reduction and outer reduction should not have shared consumer, their consumers should not have shared non-outer-reduction producer.");
+    return false;
+  }
+
+  if (!ir_utils::getViewOps(fusion).empty()) {
+    ComputeAtMap ca_map(fusion);
+    if (registry_utils::requiresForwardViewReplay(fusion, ca_map)) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          schedulerType(), "Fusion requires view being reversible.");
+      return false;
+    }
+    // Persistent scheduler simply uses reference_tv as the reference, if
+    // that changes, this needs to be changed.
+    auto reference_tv = inner_reduction_tvs[0];
+    if (registry_utils::reductionInterferingView(
+            fusion, ca_map, reference_tv)) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          schedulerType(), "View may interfere with normalization scheduling.");
+      return false;
+    }
+  }
+
+  // Before examining the reduction axes want to quickly
+  //   check the reductions have the same axis width
+  //   to avoid building root domain map in easier cases
+  bool valid_axis_count = false;
+  size_t axis_count = 0;
+  auto reduction_root_size = [](TensorView* red_tv) {
+    size_t count = 0;
+    for (auto id : red_tv->getMaybeRootDomain()) {
+      if (!id->isBroadcast()) {
+        count++;
+      }
+    }
+    return count;
+  };
+
+  for (auto red : reduction_tvs) {
+    if (!valid_axis_count) {
+      valid_axis_count = true;
+      axis_count = reduction_root_size(red);
+    } else {
+      if (reduction_root_size(red) != axis_count) {
+        scheduler_debug_utils::canScheduleRejectReason(
+            schedulerType(),
+            "inconsistent reduction root size: ",
+            red->toString(),
+            ", expected: ",
+            axis_count);
+        return false;
+      }
+    }
+  }
+
+  // the reduction axis of outer reduction tv should match to the iteration axis
+  // of the inner reduction tv.
+  if (!normalization_scheduler_utils::isReductionIterationAxisMatched(
+          inner_reduction_tvs, outer_reduction_tvs)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(),
+        "to use combined reduction, every iteration axis in inner reduction tv should match to a reduction domain in outer reduction tv.");
+    return false;
+  }
+
+  if (!normalization_scheduler_utils::checkReductionPattern(
+          fusion, schedulerType(), inner_reduction_tvs, outer_reduction_tvs)) {
+    return false;
+  }
+
+  // Only accept persistent kernels
+  auto persistent_buffer_info = scheduler_utils::persistentBuffers(fusion);
+  if (persistent_buffer_info.persistent_buffers.empty()) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(), "no persistent buffer identified");
+    return false;
+  }
+
+  if (registry_utils::SchedulerTopologyChecker::
+          hasNonNormalizePostReductionBCast(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(), "unsupported post reduction normalization");
+    return false;
+  }
+
+  if (registry_utils::SchedulerTopologyChecker::
+          hasGatherToBroadcastBeforeReduction(fusion, reduction_tvs)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(),
+        "has unsupported gather-like ops before normalization");
+    return false;
+  }
+
+  return true;
+}
+
+bool InnerOuterPersistentKernelScheduler::canScheduleRunTime(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicDataCache* data_cache) {
+  FUSER_PERF_SCOPE("InnerOuterPersistentKernelScheduler::canScheduleRunTime");
+  auto reduction_tv_entry =
+      HeuristicDataCacheEntry<HeuristicCompileTime::ReductionTVs>(
+          data_cache, [&fusion]() {
+            return std::make_unique<std::vector<TensorView*>>(
+                scheduler_utils::getReductionTvs(fusion));
+          });
+
+  auto& reduction_tvs = reduction_tv_entry.get();
+  TensorView* first_inner_reduction_tv = nullptr;
+  for (auto tv : reduction_tvs) {
+    if (scheduler_utils::isFastestDimReduction(tv)) {
+      first_inner_reduction_tv = tv;
+      break;
+    }
+  }
+  auto reference_tv = first_inner_reduction_tv;
+
+  auto properties = scheduler_utils::getReductionProperties(
+      fusion, runtime_info, reference_tv);
+
+  const int64_t warp_size = at::cuda::getCurrentDeviceProperties()->warpSize;
+
+  auto reduced_tv = ir_utils::getSoleProducerTv(reference_tv);
+  const auto vectorize_factor = vectorize_helper::getVectorizationFactor(
+      runtime_info,
+      reduced_tv,
+      data_cache,
+      (int)(reduced_tv->nDims() - properties.inner_most_dimension_ndims));
+
+  // check if there is enough register and shared memory for persistence
+  const auto buffer_params = getPersistentBufferStorageParams(
+      fusion, runtime_info, data_cache, reduction_tvs, vectorize_factor);
+
+  const int64_t device_multiprocessor_count =
+      (int64_t)at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+
+  if (!buffer_params.has_enough_regs_and_smem) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(),
+        "not enough registers or shared memory for persistence");
+    return false;
+  }
+
+  const int64_t device_max_threads_per_multiprocessor =
+      (int64_t)at::cuda::getCurrentDeviceProperties()
+          ->maxThreadsPerMultiProcessor;
+
+  const int64_t required_sm_per_norm = ceilDiv(
+      buffer_params.regs_buffer_size, scheduler_utils::register_file_size);
+
+  // If the persistence requires over half the device don't do grid
+  // persistence as we can't overlap the grid comms.
+  if (required_sm_per_norm >
+      scheduler_utils::safeDiv(device_multiprocessor_count, 2)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(), "requires over half GPU persistence.");
+    return false;
+  }
+
+  // Don't go persistent if we can't use a small fraction of the
+  // available SMs yet have a large reduction size.
+  if ( // Large reduction dim
+      properties.total_reduction_numel >=
+          device_max_threads_per_multiprocessor * 4 &&
+      properties.total_iteration_numel <
+          (properties.fastest_dim_reduction
+               ? scheduler_utils::safeDiv(device_multiprocessor_count, 8)
+               // Make sure we at least use a quarter of the device * a
+               // half warp
+               : (warp_size / 8) * device_multiprocessor_count)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(), "not enough blocks");
+    return false;
+  }
+
+  return true;
+}
+
+std::unique_ptr<HeuristicParams> InnerOuterPersistentKernelScheduler::
+    computeHeuristics(
+        Fusion* fusion,
+        SchedulerRuntimeInfo& runtime_info,
+        HeuristicDataCache* data_cache) {
+  FUSER_PERF_SCOPE("InnerOuterPersistentKernelScheduler::computeHeuristics");
+  auto rparams =
+      getInnerOuterPersistentHeuristics(fusion, runtime_info, data_cache);
+  NVF_ERROR(rparams != nullptr);
+  return rparams;
+}
+
+void InnerOuterPersistentKernelScheduler::schedule(
+    Fusion* fusion,
+    const HeuristicParams* params) {
+  FUSER_PERF_SCOPE("InnerOuterPersistentKernelScheduler::schedule");
+  auto rparams = dynamic_cast<const ReductionParams*>(params);
+  NVF_ERROR(
+      rparams != nullptr && rparams->scheduler_type == schedulerType(),
+      "Incorrect parameters sent to InnerOuterPersistentKernelScheduler::schedule",
+      params);
+  scheduleInnerOuterPersistentKernel(fusion, rparams);
+}
 } // namespace nvfuser

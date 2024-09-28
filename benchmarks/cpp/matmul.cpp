@@ -64,7 +64,8 @@ void setupMatmul(Fusion* fusion, MmaLayout layout, MatmulParams* mparams) {
 
   preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(fusion);
 
-  scheduleMatmul(fusion, mparams);
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(fusion, mparams);
 }
 
 void checkMatch(at::Tensor expect, at::Tensor result, int64_t k) {
@@ -335,7 +336,8 @@ static void SingleMatmulPartitionedK(
 
   fusion->addOutput(c);
 
-  scheduleMatmul(fusion, mparams);
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(fusion, mparams);
 
   at::Tensor aten_a = matmulAtInput2D(
       layout, TensorMatmulPos::A, at::kHalf, M, N, Ki, splitk_factor);
