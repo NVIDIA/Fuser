@@ -163,6 +163,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/iter_visitor.cpp
   ${NVFUSER_SRCS_DIR}/kernel.cpp
   ${NVFUSER_SRCS_DIR}/kernel_cache.cpp
+  ${NVFUSER_SRCS_DIR}/kernel_cache_utils.cpp
   ${NVFUSER_SRCS_DIR}/kernel_db/kernel_db.cpp
   ${NVFUSER_SRCS_DIR}/kernel_db/utils.cpp
   ${NVFUSER_SRCS_DIR}/kernel_ir.cpp
