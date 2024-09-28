@@ -5663,27 +5663,20 @@ TEST_F(NVFuserTest, FusionZeroSizeTensorNormalization_CUDA) {
   at::Tensor input0 = at::randn({2, 4}, options);
   at::Tensor input1 = at::randn({0}, options);
 
-  auto persistent_params =
-      getOuterPersistentHeuristics(&fusion, {input0, input1});
-  NVF_CHECK(persistent_params, "Reduction schedule was not generated!");
-  scheduleOuterPersistentKernel(&fusion, persistent_params.get());
-
-  auto lparams = persistent_params->lparams;
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {input0, input1}, lparams);
-  auto cg_outputs = fe.runFusion({input0, input1}, lparams);
+  auto cg_results = scheduleAndRun(
+      &fusion, SchedulerType::OuterPersistent, {input0, input1}, false);
   auto aten_output2 = input0.sum({0}).add(input0);
   at::Tensor aten_output3 = at::empty({0}, options);
 
   testValidate(
       &fusion,
-      cg_outputs,
+      cg_results.outputs,
       {input0, input1},
       {aten_output2, aten_output3},
       __LINE__,
       __FILE__,
       "",
-      lparams);
+      cg_results.heuristic_params->lparams);
 }
 
 TEST_F(NVFuserTest, FusionWelford1Output_CUDA) {
