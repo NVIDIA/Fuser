@@ -374,6 +374,13 @@ ValGraph& IdModel::buildExactGraph() {
 
   graph.validateConsistency();
 
+  if (isDebugDumpEnabled(DebugDumpOption::IndexingVerbose)) {
+    std::ofstream ofs("exact_graph.dot", std::ofstream::trunc);
+    auto dot_string = graph.toGraphvizDotGraph();
+    ofs << dot_string;
+    ofs.close();
+  }
+
   return graph;
 }
 

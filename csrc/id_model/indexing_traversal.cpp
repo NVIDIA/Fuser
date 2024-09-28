@@ -43,4 +43,48 @@ IndexingTraversal::IndexingTraversal(
   }
 }
 
+bool IndexingTraversal::excludeFromTraversal(const NodeType& group) const {
+  const ExprGroup* eg = std::get_if<ExprGroup>(&group);
+  if (eg == nullptr || (*eg)->empty()) {
+    return false;
+  }
+
+  auto resize = dynamic_cast<Resize*>((*eg)->front());
+  if (resize == nullptr) {
+    return false;
+  }
+
+  auto is_included_resize = [&](const ExprGroup& eg) -> bool {
+    auto resize = dynamic_cast<Resize*>(eg->front());
+    if (resize == nullptr) {
+      return false;
+    }
+
+    return std::any_of(eg->begin(), eg->end(), [&](Expr* expr) -> bool {
+      return resize_paths_.find(expr->as<Resize>()) != resize_paths_.end();
+    });
+  };
+
+  if (is_included_resize(*eg)) {
+    return false;
+  }
+
+  bool is_forward = isVisited(inputs_(*eg).at(0));
+
+  ValGroup inp = is_forward ? inputs_(*eg).at(0) : outputs_(*eg).at(0);
+
+  const ExprGroups& other_ops = is_forward ? uses_(inp) : definition_(inp);
+
+  // If there's any other resize op that's in the resize path, exclude
+  // this resize
+
+  for (const ExprGroup& expr_g : other_ops) {
+    if (is_included_resize(expr_g)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 } // namespace nvfuser

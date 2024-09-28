@@ -14,6 +14,7 @@
 #include <id_model/contiguity.h>
 #include <id_model/id_model_index_compute.h>
 #include <id_model/indexing.h>
+#include <id_model/indexing_traversal.h>
 #include <id_model/indexing_utils.h>
 #include <id_model/predicate_indexing.h>
 #include <id_model/to_string.h>
@@ -863,6 +864,9 @@ Val* TensorIndexer::getLinearIndex(
       " not found in ",
       expr->toString());
 
+  std::cerr << "getLinearIndex: " << tv->toString() << " in "
+            << expr->toString();
+
   const bool as_consumer =
       std::find(expr->outputs().begin(), expr->outputs().end(), tv) !=
       expr->outputs().end();
@@ -914,6 +918,10 @@ IndexingInfo TensorIndexer::computeIndex(
   const auto loop_domains = getLoopDomains(expr);
 
   const ValGroups loop_groups = traversalGraph().toGroups(loop_domains);
+  std::cerr << "computeIndex getExprsBetween: "
+            << nvfuser::toString(loop_groups) << " -> "
+            << nvfuser::toString(index_groups) << "\n";
+
   const ExprPath<ExprGroup> traversal_path = IndexingTraversal::getExprsBetween(
       expr, traversalGraph(), loop_groups, index_groups);
 
