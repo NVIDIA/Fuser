@@ -6,7 +6,7 @@
  */
 // clang-format on
 #include <device_lower/lower2device.h>
-#include <id_model/indexing_utils.h>
+#include <id_model/utils.h>
 #include <ir/utils.h>
 #include <kernel_ir.h>
 
@@ -710,8 +710,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
     for (size_t idx = consumer_tv->getComputeAtPosition();
          idx < loop_domain.size();
          ++idx) {
-      IterDomain* id =
-          indexing_utils::getLoopPromotion(loop_domain.at(idx), id_model);
+      IterDomain* id = getLoopPromotion(loop_domain.at(idx), id_model);
       if (!isParallelTypeThread(id->getParallelType()) &&
           id->getParallelType() != ParallelType::Bulk) {
         expected_bytes =
