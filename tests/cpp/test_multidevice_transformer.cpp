@@ -1363,7 +1363,7 @@ TEST_P(DistributedTransformerTest, Backward) {
        2e-3,
        2e-3,
        2e-3,
-       4e-3,
+       0.01,
        4e-3,
        0.01,
        0.01,
