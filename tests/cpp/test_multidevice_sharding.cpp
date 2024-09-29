@@ -333,18 +333,21 @@ TEST_F(MultiDeviceTest, Transpose) {
       UnorderedElementsAre(HeuristicIs(SchedulerType::Transpose)));
 }
 
-class MultiDeviceBroadcastTest : public MultiDeviceTest,
-                                 public testing::WithParamInterface<bool> {};
-
-// This test and the following `ExpandedBroadcast` test verify the expression
+// `MutliDeviceBroadcastTest`s verify the expression
 // evaluator correctly binds the extent of a broadcast dimension to 1 and the
 // expanded extent to the tensor size. There used to be a bug where it
 // incorrectly binds the extent(s) to the mesh size.
 //
 // `b(DID{i0})` and `b(i0)` bear the same semantics. The former is used more
 // often due to how parallelizeAllLike is implemented.
-TEST_P(MultiDeviceBroadcastTest, NotExpanded) {
-  const bool parallelizes_broadcast = GetParam();
+class MultiDeviceBroadcastTest
+    : public MultiDeviceTest,
+      public testing::WithParamInterface<std::tuple<bool, bool, bool>> {};
+
+TEST_P(MultiDeviceBroadcastTest, DeviceParallel) {
+  // Whether to DID-parallelize the broadcast dimension in the input and in the
+  // output.
+  auto [expanded, parallelizes_in, parallelizes_out] = GetParam();
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -352,56 +355,35 @@ TEST_P(MultiDeviceBroadcastTest, NotExpanded) {
   const auto num_devices = communicator_->size();
   auto mesh = DeviceMesh::createForNumDevices(num_devices);
 
+  const int64_t broadcast_dim_extent = (expanded ? 3 : 1);
   TensorView* in = TensorViewBuilder()
                        .dtype(DataType::Float)
                        .contiguity({std::nullopt, true})
-                       .shape({1, -1})
+                       .shape({broadcast_dim_extent, -1})
+                       .expanded({expanded, false})
                        .build();
   in->setDeviceMesh(mesh);
-  if (parallelizes_broadcast) {
-    in->axis(0)->parallelize(ParallelType::DIDx);
-  }
   TensorView* out = set(in);
   fusion->addInput(in);
   fusion->addOutput(out);
 
-  FusionExecutorCache fec(std::move(fusion));
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor in_tensor = at::randn({1, 8}, options);
-  at::Tensor out_tensor = fec.runFusionWithInputs({in_tensor})[0];
-  testValidate(fec.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
-}
-
-TEST_P(MultiDeviceBroadcastTest, Expanded) {
-  const bool parallelizes_broadcast = GetParam();
-
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  const auto num_devices = communicator_->size();
-  auto mesh = DeviceMesh::createForNumDevices(num_devices);
-
-  TensorView* in = TensorViewBuilder()
-                       .dtype(DataType::Float)
-                       .contiguity({std::nullopt, true})
-                       .shape({3, -1})
-                       .expanded({true, false})
-                       .build();
-  in->setDeviceMesh(mesh);
-  if (parallelizes_broadcast) {
+  if (parallelizes_in) {
     in->axis(0)->parallelize(ParallelType::DIDx);
   }
-  TensorView* out = set(in);
-  fusion->addInput(in);
-  fusion->addOutput(out);
+  if (parallelizes_out) {
+    out->axis(0)->parallelize(ParallelType::DIDx);
+  }
 
   FusionExecutorCache fec(std::move(fusion));
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor in_tensor = at::randn({8}, options).as_strided({3, 8}, {0, 1});
+  at::Tensor in_tensor = at::randn({8}, tensor_options)
+                             .as_strided({broadcast_dim_extent, 8}, {0, 1});
   at::Tensor out_tensor = fec.runFusionWithInputs({in_tensor})[0];
   testValidate(fec.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
 }
 
-INSTANTIATE_TEST_SUITE_P(, MultiDeviceBroadcastTest, testing::Bool());
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    MultiDeviceBroadcastTest,
+    testing::Combine(testing::Bool(), testing::Bool(), testing::Bool()));
 
 } // namespace nvfuser
