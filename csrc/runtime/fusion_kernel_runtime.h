@@ -9,6 +9,7 @@
 
 #include <c10/util/ArrayRef.h>
 
+#include <fusion_segmenter.h>
 #include <polymorphic_value.h>
 #include <runtime/executor.h>
 #include <runtime/executor_kernel_arg.h>
@@ -19,7 +20,6 @@
 
 namespace nvfuser {
 
-class SegmentedFusion;
 class HeuristicParamsList;
 enum class PrimDataType;
 class Fusion;

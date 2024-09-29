@@ -25,7 +25,6 @@
 
 namespace nvfuser {
 
-class FusionKernelRuntime;
 class SegmentedGroup;
 class SegmentCandidateFinder;
 
