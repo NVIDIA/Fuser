@@ -289,9 +289,13 @@ class FusionExecutorCache {
   //! Map each pair of device_id and concretization info to an integer id
   std::unordered_map<ConcreteInfo, int64_t, PairPointerHash, PairPointerEquals>
       conc_info_id_map_;
+
   //! For serialization, track a deterministic order for (device_id and
   //! concretization info) pair
   std::vector<ConcreteInfo> deterministic_conc_info_;
+
+  //! Short-cut for exact size cache hit
+  std::unordered_map<size_t, FusionKernelRuntime*> id_to_kernel_runtime_;
 
   //! This is cached to speed up finding concretization info
   std::unique_ptr<ExactLogicalDomainMap> exact_map_;
@@ -304,9 +308,6 @@ class FusionExecutorCache {
 
   //! Logging state for most recent compilation
   ExecutorLog most_recent_executor_log_;
-
-  //! Short-cut for exact size cache hit
-  std::unordered_map<size_t, FusionKernelRuntime*> id_to_kernel_runtime_;
 
   //! Profiling info:
   //! TODO: this can be largely expanded to look at complete
