@@ -18,6 +18,7 @@
 
 #include <fusion_segmenter.h>
 #include <ir/all_nodes.h>
+#include <ir/iostream.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <options.h>
@@ -126,6 +127,7 @@ at::Tensor MultiDeviceTest::shardTensor(at::Tensor tensor, TensorView* tv) {
   if (!isSharded(tv)) {
     return tensor;
   }
+  NVF_ERROR(tv->hasDeviceMesh(), "`tv` has no DeviceMesh: ", tv);
   return shardTensor(tensor, getShardedAxis(tv), tv->getDeviceMesh());
 }
 
