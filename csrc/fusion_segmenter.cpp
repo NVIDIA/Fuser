@@ -1969,27 +1969,27 @@ std::pair<IrCloner, std::unique_ptr<Fusion>> SegmentedFusion::makeFusion(
   return std::make_pair(complete_to_segment_map, std::move(fusion_segment));
 }
 
-  std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
-      const Fusion* fusion,
-      const KernelArgumentHolder* inputs,
-      SegmentCandidateFinderOptions options) {
-    auto fusion_copy = std::make_unique<Fusion>(*fusion);
-    return segment(std::move(fusion_copy), inputs, options);
-  }
+std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
+    const Fusion* fusion,
+    const KernelArgumentHolder* inputs,
+    SegmentCandidateFinderOptions options) {
+  auto fusion_copy = std::make_unique<Fusion>(*fusion);
+  return segment(std::move(fusion_copy), inputs, options);
+}
 
-  // Perform segmentation on and take ownership of the given fusion
-  std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
-      std::unique_ptr<Fusion> fusion,
-      const KernelArgumentHolder* inputs,
-      SegmentCandidateFinderOptions options) {
-    if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
-      debug() << "Segment the fusion (Original Fusion Un-modified): "
-              << std::endl;
-      fusion->printMath();
-    }
-    SegmentCandidateFinder scf(std::move(fusion), inputs, options);
-    return std::move(scf.segmented_fusion_);
+// Perform segmentation on and take ownership of the given fusion
+std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
+    std::unique_ptr<Fusion> fusion,
+    const KernelArgumentHolder* inputs,
+    SegmentCandidateFinderOptions options) {
+  if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
+    debug() << "Segment the fusion (Original Fusion Un-modified): "
+            << std::endl;
+    fusion->printMath();
   }
+  SegmentCandidateFinder scf(std::move(fusion), inputs, options);
+  return std::move(scf.segmented_fusion_);
+}
 
 std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
     std::unique_ptr<Fusion> fusion,
