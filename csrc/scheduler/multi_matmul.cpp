@@ -590,7 +590,11 @@ class MultipleMatmulScheduler {
     TensorView* mma_result = patterns_.front().output;
     num_device_dims_ = numDeviceDims(mma_result);
     for (const auto& it : id_roles_) {
-      if (it.second == MatmulDimRole::Batch) {
+      if (it.second == MatmulDimRole::Batch &&
+          // Skip device dims
+          !std::any_of(it.first->begin(), it.first->end(), [](Val* v) {
+            return v->as<IterDomain>()->isDeviceDim();
+          })) {
         // All batch dims will be merged into one, if any exist
         num_local_batch_dims_ = 1;
       }
@@ -1251,7 +1255,7 @@ class MultipleMatmulScheduler {
       for (TensorView* mma_input : mma_inputs) {
         // Schedule mma_input, since we know it has the broadcast dimension M or
         // N, whereas the smem read might not
-        moveInnerBroadcastLeft(mma_input);
+        matmul_utils::moveInnerBroadcastLeft(mma_input);
         mma_input->applyMmaSwizzle(operand_type);
         scheduler_utils::BoundedDirectionalTransformPropagator::backward(
             mma_input,
