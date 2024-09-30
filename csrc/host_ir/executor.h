@@ -79,6 +79,7 @@ class HostIrExecutor final : public OptInDispatch {
   void handle(Communication* communication) override;
   void handle(Wait* wait) override;
   void handle(ForLoop* for_loop) override;
+  void handle(kir::IfThenElse* if_then_else) override;
   void handle(SliceOp* slice_op) override;
   void handle(MatmulOp* matmul_op) override;
   void handle(SelectOp* select_op) override;
