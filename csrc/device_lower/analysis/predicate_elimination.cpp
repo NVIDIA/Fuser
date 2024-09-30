@@ -239,6 +239,14 @@ class PredicateChcker : public IterVisitor {
         predicateNonDivisibleRootDomains(expr) ||
         predicateNonDivisibleSplit(expr) || predicateExpandReduce(expr) ||
         predicateRNGOp(expr);
+
+    // For CpAsyncOp in matmul, must use inline predicate without IfThenElse
+    // predicate to ensure the out of bounday shared memory data is set to zero.
+    NVF_ERROR(
+        !(ir_utils::isCpAsyncOp(expr) && needs_predicate_smem_access &&
+          GpuLower::current()->hasMmaOps()),
+        "predicate removal: unsupported use case of cp.async");
+
     if (needs_predicate_) {
       return;
     }

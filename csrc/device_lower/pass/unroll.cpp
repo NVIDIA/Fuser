@@ -172,6 +172,12 @@ void UnrollPass::dispatch(Expr* expr) {
     // FusionCpAsyncPredicateAvoidIllegalMemoryAccess
     if (lower_utils::supportInlinePredicate(expr)) {
       expr_with_predicate = expr_with_predicate->withPredicate(pred);
+      // For matmul, must use inline predicate without IfThenElse predicate to
+      // ensure the out of bounday shared memory data is set to zero.
+      if (GpuLower::current()->hasMmaOps()) {
+        registerReplace(expr, expr_with_predicate);
+        return;
+      }
     }
 
     // If we need a predicate, put expr inside an if then else
