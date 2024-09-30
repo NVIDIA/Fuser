@@ -73,8 +73,8 @@ def test_linear(mpi_test):
         def definition(self):
             d, b, s, h = self._num_devices, self._batch, self._sequence, self._hidden
             self.inp = self.define_tensor([b, s, h])
-            self.weight = self.define_tensor([d, h, h])
-            self.bias = self.define_tensor([d, h])
+            self.weight = self.define_tensor([d, h, h], contiguity=[True, True, True])
+            self.bias = self.define_tensor([d, h], contiguity=[True, True])
             out = self.ops.linear(self.inp, self.weight, self.bias)
             self.add_output(out)
 
@@ -101,5 +101,11 @@ def test_linear(mpi_test):
     fn = Model(d, b, s, h)
     out_tensors = fn.execute([inp_tensor, weight_tensor, bias_tensor])
 
-    unsharded_out_tensor = torch.linear(inp_tensor, unsharded_weight_tensor, unsharded_bias_tensor)
-    torch.testing.assert_close(out_tensors[0], unsharded_out_tensor[..., rank * h: (rank + 1) * h])
+    # [b, s, d*h]
+    unsharded_out_tensor = torch.nn.functional.linear(
+        inp_tensor, unsharded_weight_tensor, unsharded_bias_tensor
+    )
+    sharded_out_tensor = unsharded_out_tensor.view([b, s, d, h]).permute(2, 0, 1, 3)[
+        rank : rank + 1
+    ]
+    torch.testing.assert_close(out_tensors[0], sharded_out_tensor)

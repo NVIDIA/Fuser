@@ -7,6 +7,7 @@
 // clang-format on
 #include <ATen/cuda/CUDAContext.h>
 #include <ir/builder.h>
+#include <ir/iostream.h>
 #include <ops/all_ops.h>
 #include <ops/utils.h>
 #include <transform_view.h>
@@ -113,20 +114,16 @@ TensorView* newForLinear(
 TensorView* linear(TensorView* input, TensorView* weight, TensorView* bias) {
   auto input_ndims =
       TensorDomain::noReductions(input->getLogicalDomain()).size();
-  NVF_CHECK(input_ndims > 0, "Input A must be atleast 1D.");
+  NVF_CHECK(input_ndims > 0, "Input A must be at least 1D.");
 
   auto weight_ndims =
       TensorDomain::noReductions(weight->getLogicalDomain()).size();
   NVF_CHECK(
-      weight_ndims == 1 || weight_ndims == 2,
-      "Input B must be a 1D / 2D tensor.");
-
-  // Note: This constraint is not documented but F.linear errors out if bias is
-  // given with 1D weights.
-  NVF_CHECK(
-      weight_ndims == 2 || bias == nullptr,
-      "Expected B to be a 2D matrix if bias is given, got 1D.")
-
+      weight_ndims >= 2,
+      "Input B must be at least 2D. The last two dimensions represent out "
+      "features and in features. The extra, preceding dimensions are expected "
+      "to be parallelized on DIDs during scheduling: ",
+      weight);
   NVF_CHECK(
       input->dtype() == weight->dtype(),
       "Expected input and weight dtypes to have the same dtype, got: ",
@@ -134,13 +131,21 @@ TensorView* linear(TensorView* input, TensorView* weight, TensorView* bias) {
       " and ",
       weight->dtype());
 
-  NVF_CHECK(
-      bias == nullptr || bias->dtype() == input->dtype(),
-      "Expected bias to have the same dtype as A and B, got: ",
-      bias->dtype(),
-      " and ",
-      input->dtype());
-  // For all other cases, create a new LinearOp
+  if (bias != nullptr) {
+    NVF_CHECK(
+        TensorDomain::noReductions(bias->getLogicalDomain()).size() >= 1,
+        "Input bias must be at least 1D. The last dimension represents out "
+        "features. The extra, preceding dimensions are expected to be "
+        "parallelized on DIDs during scheduling: ",
+        bias);
+    NVF_CHECK(
+        bias->dtype() == input->dtype(),
+        "Expected bias to have the same dtype as A and B, got: ",
+        bias->dtype(),
+        " and ",
+        input->dtype());
+  }
+
   TensorView* out = newForLinear(input, weight, bias);
   IrBuilder::create<LinearOp>(out, input, weight, bias);
   return out;
