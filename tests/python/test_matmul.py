@@ -141,7 +141,7 @@ class TestMatmul(NVFuserTest):
             fd.add_output(T2)
             fd.add_output(T4)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        self.exec_nvfuser(fusion_func, inputs)
 
     # Tests broadcast reduction axis in matmul: Issue #2532.
     def test_repro_issue2532(self):
@@ -174,7 +174,7 @@ class TestMatmul(NVFuserTest):
                 (1025, 1, 1024), (1024, 1024, 1)
             ),
         ]
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        self.exec_nvfuser(fusion_func, inputs)
 
     def test_linear_slice(self):
         def fusion_func(fd: FusionDefinition) -> None:
