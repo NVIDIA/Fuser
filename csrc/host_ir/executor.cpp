@@ -281,7 +281,6 @@ void HostIrExecutor::handle(EndCoalescing* end_coalescing) {
   works_[end_coalescing] = backend->endCoalescing();
 }
 
-
 void HostIrExecutor::unhandled(Statement* stmt) {
   NVF_ERROR(stmt->isA<Expr>(), stmt, " must be an Expr");
   auto* expr = stmt->as<Expr>();

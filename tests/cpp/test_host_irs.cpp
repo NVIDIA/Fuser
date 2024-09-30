@@ -853,7 +853,6 @@ INSTANTIATE_TEST_SUITE_P(
       return ss.str();
     });
 
-
 using ViewTest = NVFuserTest;
 
 TEST_F(ViewTest, SimpleReshape) {
@@ -913,7 +912,7 @@ TEST_F(ReductionHostIrTest, Sum) {
   auto outputs = hie.runWithInput(concrete_input_buffers);
 
   // validate
-  EXPECT_TRUE(outputs[0].equal(at::sum(a_aten,0)));
+  EXPECT_TRUE(outputs[0].equal(at::sum(a_aten, 0)));
 }
 
 } // namespace hir
