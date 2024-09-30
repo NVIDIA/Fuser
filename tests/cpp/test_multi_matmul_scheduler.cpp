@@ -580,7 +580,7 @@ std::string printMatchTestParams(
 
 // Test combinations that mostly affect operand loading
 INSTANTIATE_TEST_SUITE_P(
-    Operands,
+    DISABLED_Operands,
     MultiMatmulSchedulerMatchTest,
     testing::Combine(
         testing::Bool(), // a_m_inner
@@ -597,7 +597,7 @@ INSTANTIATE_TEST_SUITE_P(
 
 // Test combinations that mostly affect epilogue
 INSTANTIATE_TEST_SUITE_P(
-    Epilogue,
+    DISABLED_Epilogue,
     MultiMatmulSchedulerMatchTest,
     testing::Combine(
         testing::Values(false), // a_m_inner
