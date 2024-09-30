@@ -72,6 +72,12 @@ struct BarrierOptions {
 
 class Backend : public torch::CustomClassHolder {
  public:
+  void startCoalescing() {}
+
+  c10::intrusive_ptr<Work> endCoalescing() {
+    return c10::make_intrusive<Work>();
+  }
+
   c10::intrusive_ptr<Work> barrier(
       const BarrierOptions& opts = BarrierOptions()) {
     return c10::make_intrusive<Work>();
