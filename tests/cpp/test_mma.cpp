@@ -661,7 +661,7 @@ TEST_P(HopperRS, SingleTileTransposed) {
 
   auto tv2c = tv2->cacheBefore();
 
-  moveInnerBroadcastLeft(tv0);
+  matmul_utils::moveInnerBroadcastLeft(tv0);
   tv0->applyMmaSwizzle(MmaOperand::A);
 
   tv0->merge(1);
@@ -1395,8 +1395,8 @@ TEST_P(HopperSS, SingleTileTransposed) {
   // Bring related dims to innermost, that is:
   // - Reorder tv0 as [1, M, K] or [1, K, M]
   // - Reorder tv1 as [1, N, K] or [1, K, N]
-  moveInnerBroadcastLeft(tv0);
-  moveInnerBroadcastLeft(tv1);
+  matmul_utils::moveInnerBroadcastLeft(tv0);
+  matmul_utils::moveInnerBroadcastLeft(tv1);
 
   tv0->applyMmaSwizzle(swizzle_a);
   tv1->applyMmaSwizzle(swizzle_b);

@@ -1441,6 +1441,17 @@ void IndexLowering::handle(const kir::MBarrierInvalidate* minval) {
   GpuLower::current()->propagateExprInfo(minval, minval_indexed);
 }
 
+void IndexLowering::handle(const kir::MBarrierArrive* arrive_transaction) {
+  NVF_ERROR(
+      arrive_transaction->mbarrier()->isA<kir::TensorIndex>(),
+      "Expected kir::TensorIndex in MBarrierArriveExpectTx");
+
+  Val* smem_address_ptr = lower_utils::u32IndexScalarSmemTv(
+      arrive_transaction->mbarrier()->as<kir::TensorIndex>());
+  pushBack(IrBuilder::create<kir::MBarrierArrive>(
+      arrive_transaction->state(), smem_address_ptr));
+}
+
 void IndexLowering::handle(
     const kir::MBarrierArriveExpectTx* arrive_transaction) {
   NVF_ERROR(
