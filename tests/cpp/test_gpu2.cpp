@@ -3278,7 +3278,7 @@ TEST_F(NVFuserTest, FusionMultipleVectorize_CUDA) {
   auto log1 =
       executor_cache.getMostRecentExecutorInfo().params->as<PointwiseParams>();
   NVF_CHECK(log1 != nullptr);
-  NVF_CHECK(log1->vectorize);
+  NVF_CHECK(log1->vectorization_factor > 1);
 
   testValidate(
       executor_cache.fusion(), outputs, {t0, t1}, {t2}, __LINE__, __FILE__);
@@ -3292,7 +3292,7 @@ TEST_F(NVFuserTest, FusionMultipleVectorize_CUDA) {
   auto log2 =
       executor_cache.getMostRecentExecutorInfo().params->as<PointwiseParams>();
   NVF_CHECK(log2 != nullptr);
-  NVF_CHECK(log2->vectorize);
+  NVF_CHECK(log2->vectorization_factor > 1);
 
   testValidate(
       executor_cache.fusion(), outputs, {t0, t1}, {t2}, __LINE__, __FILE__);
@@ -3306,7 +3306,7 @@ TEST_F(NVFuserTest, FusionMultipleVectorize_CUDA) {
   auto log3 =
       executor_cache.getMostRecentExecutorInfo().params->as<PointwiseParams>();
   NVF_CHECK(log3 != nullptr);
-  NVF_CHECK(log3->vectorize);
+  NVF_CHECK(log3->vectorization_factor > 1);
 
   testValidate(
       executor_cache.fusion(), outputs, {t0, t1}, {t2}, __LINE__, __FILE__);

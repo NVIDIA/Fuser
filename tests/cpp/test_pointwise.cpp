@@ -30,10 +30,7 @@ int64_t getVecSizeForPointwise(const FusionExecutorCache& fec) {
                                       ->heuristicsList()
                                       .at(0)
                                       ->as<PointwiseParams>();
-  if (!params->vectorize) {
-    return 1;
-  }
-  return params->unroll_factor;
+  return params->vectorization_factor;
 }
 
 bool hasVectorizationCache(TensorView* tv) {
@@ -314,8 +311,7 @@ TEST_F(PointwiseTest, Issue1567VectorizeAllocationDomain) {
       scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs);
   auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
 
-  EXPECT_TRUE(pparams->vectorize);
-  EXPECT_EQ(pparams->unroll_factor, 4);
+  EXPECT_EQ(pparams->vectorization_factor, 4);
   EXPECT_TRUE(hasVectorizationCache(tv0));
   EXPECT_TRUE(hasVectorizationCache(tv1));
 
@@ -349,8 +345,7 @@ TEST_F(PointwiseTest, Issue1567VectorizationFactorAnalysisCase0) {
       scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs, false);
   auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
 
-  EXPECT_TRUE(pparams->vectorize);
-  EXPECT_EQ(pparams->unroll_factor, 4);
+  EXPECT_EQ(pparams->vectorization_factor, 4);
   EXPECT_FALSE(hasVectorizationCache(tv0));
   EXPECT_TRUE(hasVectorizationCache(tv1));
 
@@ -384,8 +379,7 @@ TEST_F(PointwiseTest, Issue1567VectorizationFactorAnalysisCase1) {
       scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs);
   auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
 
-  EXPECT_TRUE(pparams->vectorize);
-  EXPECT_EQ(pparams->unroll_factor, 2);
+  EXPECT_EQ(pparams->vectorization_factor, 2);
   EXPECT_TRUE(hasVectorizationCache(tv0));
   EXPECT_TRUE(hasVectorizationCache(tv1));
 
@@ -425,8 +419,7 @@ TEST_F(PointwiseTest, Issue1567VectorizationFactorAnalysisCase2) {
       scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs);
   auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
 
-  EXPECT_TRUE(pparams->vectorize);
-  EXPECT_EQ(pparams->unroll_factor, 4);
+  EXPECT_EQ(pparams->vectorization_factor, 4);
   EXPECT_TRUE(hasVectorizationCache(tv0));
   EXPECT_TRUE(hasVectorizationCache(tv1));
 
@@ -463,8 +456,7 @@ TEST_F(PointwiseTest, VIssue1567ectorizationFactorAnalysisCase3) {
       scheduleAndRun(fusion, SchedulerType::PointWise, aten_inputs);
   auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
 
-  EXPECT_TRUE(pparams->vectorize);
-  EXPECT_EQ(pparams->unroll_factor, 2);
+  EXPECT_EQ(pparams->vectorization_factor, 2);
   EXPECT_TRUE(hasVectorizationCache(tv0));
   EXPECT_TRUE(hasVectorizationCache(tv1));
 
@@ -545,12 +537,13 @@ TEST_F(PointwiseTest, ShardedPointwise) {
     // instead of int which causes PointwiseParams::sameAs to return false,
     // despite the pointwise specific parameters being identical, so we just
     // explicitly check pointwise schedule params.
-    EXPECT_EQ(sharded_pparams->vectorize, unsharded_pparams->vectorize);
     EXPECT_EQ(sharded_pparams->break_point, unsharded_pparams->break_point);
     EXPECT_EQ(sharded_pparams->split_block, unsharded_pparams->split_block);
     EXPECT_EQ(
         sharded_pparams->split_grid_y_dim, unsharded_pparams->split_grid_y_dim);
-    EXPECT_EQ(sharded_pparams->unroll_factor, unsharded_pparams->unroll_factor);
+    EXPECT_EQ(
+        sharded_pparams->vectorization_factor,
+        unsharded_pparams->vectorization_factor);
     EXPECT_EQ(
         sharded_pparams->flip_grid_binding,
         unsharded_pparams->flip_grid_binding);
@@ -673,4 +666,40 @@ TEST_F(PointwiseTest, VectorizeWithExpandedBroadcast) {
   EXPECT_GT(getVecSizeForPointwise(fec), 1);
 }
 
+TEST_F(PointwiseTest, UnrollOnTopOfVectorize) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeContigTensor(2);
+  auto tv1 = makeContigTensor(1);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = broadcast(tv1, {true, false});
+  auto tv3 = add(tv0, tv2);
+  fusion->addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({1024, 2048}, options);
+  auto t1 = at::randn({2048}, options);
+  std::vector<c10::IValue> runtime_inputs{t0, t1};
+
+  // generate heuristics
+  SchedulerRuntimeInfo runtime_info(fusion.get(), runtime_inputs);
+  auto scheduler_instance =
+      SchedulerEntry::makeSchedulerInstance(SchedulerType::PointWise);
+  auto heuristic_params =
+      scheduler_instance->computeHeuristics(fusion.get(), runtime_info);
+  auto pparams = heuristic_params->as<PointwiseParams>();
+
+  // modify heuristics to enforce unroll on top of vectorization
+  pparams->vectorization_factor = 4;
+  pparams->unroll_factor = 2;
+
+  // schedule, compile, run, validate
+  scheduler_instance->schedule(fusion.get(), pparams);
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), runtime_inputs, pparams->lparams);
+  auto cg_outputs = fe.runFusion(runtime_inputs, pparams->lparams);
+  testValidate(fusion.get(), cg_outputs, runtime_inputs, __LINE__, __FILE__);
+}
 } // namespace nvfuser
