@@ -20,7 +20,7 @@ namespace nvfuser {
 
 namespace {
 
-std::vector<c10::cuda::CUDAStream> CreateStreams(
+std::vector<c10::cuda::CUDAStream> createStreams(
     int64_t number_of_streams,
     int64_t my_device_index) {
   std::vector<c10::cuda::CUDAStream> streams;
@@ -32,7 +32,7 @@ std::vector<c10::cuda::CUDAStream> CreateStreams(
   return streams;
 }
 
-void SynchronizeStreams(const std::vector<c10::cuda::CUDAStream>& streams) {
+void synchronizeStreams(const std::vector<c10::cuda::CUDAStream>& streams) {
   std::for_each(streams.begin(), streams.end(), [](const auto& stream) {
     stream.synchronize();
   });
@@ -263,7 +263,7 @@ TEST_F(
     CollectiveBasedOverlapTest,
     ReduceScatterBasedPipeliningATenImplementation) {
   std::vector<c10::cuda::CUDAStream> streams =
-      CreateStreams(params.number_of_streams, my_device_index_);
+      createStreams(params.number_of_streams, my_device_index_);
 
   for ([[maybe_unused]] const auto& _ :
        c10::irange(params.number_of_iterations)) {
@@ -285,7 +285,7 @@ TEST_F(
           ->wait();
     }
   }
-  SynchronizeStreams(streams);
+  synchronizeStreams(streams);
 }
 
 TEST_F(
@@ -379,23 +379,13 @@ TEST_F(
   }
 }
 
-using RingBasedOverlapTestParams = std::tuple<
-    bool, // use_coalescence
-    CommunicatorBackend>;
-
-class RingBasedOverlapTest
-    : public OverlapTest,
-      public testing::WithParamInterface<RingBasedOverlapTestParams> {
+class RingBasedOverlapTest : public OverlapTest {
  protected:
-  bool use_coalescence_;
   int64_t number_of_steps_per_ring_, number_of_rings_;
   at::Tensor src_buffer_, dst_buffer_;
   at::Tensor ta_reshaped_, tc_reshaped_;
 
   void SetUp() override {
-    use_coalescence_ = std::get<0>(GetParam());
-    params.backend_type = std::get<1>(GetParam());
-
     OverlapTest::SetUp();
 
     ASSERT_EQ(params.S % num_devices_, 0);
@@ -403,14 +393,19 @@ class RingBasedOverlapTest
     number_of_rings_ = params.S / num_devices_;
 
     ta_reshaped_ = at::reshape(
-      ta_,
-      {number_of_steps_per_ring_,
-       number_of_rings_,
-       params.M / params.S,
-       params.K / num_devices_});
-    tc_reshaped_ = tc_.reshape({number_of_rings_, params.M / params.S, params.N});
+        ta_,
+        {number_of_steps_per_ring_,
+         number_of_rings_,
+         params.M / params.S,
+         params.K / num_devices_});
+    tc_reshaped_ =
+        tc_.reshape({number_of_rings_, params.M / params.S, params.N});
 
-    std::vector<int64_t> buffer_sizes = {number_of_steps_per_ring_, number_of_rings_, params.M / params.S, params.N};
+    std::vector<int64_t> buffer_sizes = {
+        number_of_steps_per_ring_,
+        number_of_rings_,
+        params.M / params.S,
+        params.N};
     src_buffer_ = at::empty(buffer_sizes, gpu_options_);
     dst_buffer_ = at::empty(buffer_sizes, gpu_options_);
   }
@@ -431,11 +426,11 @@ class RingBasedOverlapTest
   }
 };
 
-TEST_P(
+TEST_F(
     RingBasedOverlapTest,
     ReduceScatterRingBasedPipeliningATenImplementation) {
   std::vector<c10::cuda::CUDAStream> streams =
-      CreateStreams(params.number_of_streams, my_device_index_);
+      createStreams(params.number_of_streams, my_device_index_);
 
   for ([[maybe_unused]] const auto& _ :
        c10::irange(params.number_of_iterations)) {
@@ -465,55 +460,20 @@ TEST_P(
         std::vector<at::Tensor> src = {src_buffer_j};
         std::vector<at::Tensor> dst = {dst_buffer_j};
 
-        if (use_coalescence_) {
-          if (world_communicator_->getBackendName() != "nccl") {
-            GTEST_SKIP() << "ProcessGroupUCC does not implement coalescence";
-          }
-          world_communicator_->startCoalescing();
-          // "tags" are not supported by nccl, so set it to 0
-          world_communicator_->send(src, send_rank, 0);
-          world_communicator_->recv(dst, recv_rank, 0);
-          world_communicator_->endCoalescing()->wait();
-        } else {
-          // if not coalesced, send/recv pairs must be posted in a global
-          // consistent order to avoid deadlock
-          int64_t recv_order = recv_rank;
-          int64_t send_order = my_device_index_;
-          if (recv_order < send_order) {
-            world_communicator_->recv(dst, recv_rank, 0)->wait();
-            world_communicator_->send(src, send_rank, 0)->wait();
-          } else if (recv_order > send_order) {
-            world_communicator_->send(src, send_rank, 0)->wait();
-            world_communicator_->recv(dst, recv_rank, 0)->wait();
-          } else {
-            // when not inside a coalesced group, send/recv to self throws an
-            // error
-            dst_buffer_j.copy_(src_buffer_j);
-          }
-        }
+        world_communicator_->startCoalescing();
+        // "tags" are not supported by nccl, so set it to 0
+        world_communicator_->send(src, send_rank, 0);
+        world_communicator_->recv(dst, recv_rank, 0);
+        world_communicator_->endCoalescing()->wait();
       }
     }
-    SynchronizeStreams(streams);
+    synchronizeStreams(streams);
     torch::sum_out(tc_reshaped_, dst_buffer_, 0);
   }
 }
 
-INSTANTIATE_TEST_SUITE_P(
-    ,
-    RingBasedOverlapTest,
-    testing::Combine(
-        testing::Bool(),
-        testing::Values(CommunicatorBackend::nccl)),
-    [](const testing::TestParamInfo<RingBasedOverlapTestParams>& info)
-        -> std::string {
-      std::stringstream ss;
-      ss << (std::get<0>(info.param) ? "UsingCoalescence"
-                                     : "NotUsingCoalescence")
-         << "_" << std::get<1>(info.param);
-      return ss.str();
-    });
 
-TEST_P(
+TEST_F(
     RingBasedOverlapTest,
     ReduceScatterRingBasedPipeliningHostIrImplementation) {
   auto hic = std::make_unique<hir::HostIrContainer>();

@@ -73,13 +73,9 @@ TEST_F(GpuViewTest, FusionViewDtypeSameSizeOutput) {
   at::Tensor at_bias = at::randn(input_shape, options);
   std::vector<c10::IValue> aten_inputs = {at_x, at_bias};
 
-  auto lparams = schedulePointwise(&fusion, aten_inputs);
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs, lparams);
-  auto outputs = fe.runFusion(aten_inputs, lparams);
-
-  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(GpuViewTest, FusionViewDtypeFailMismatchSize) {
@@ -192,13 +188,9 @@ TEST_F(GpuViewTest, FusionReshapeOutput) {
   at::Tensor at_bias = at::randn(input_shape, options);
   std::vector<c10::IValue> aten_inputs = {at_x, at_bias};
 
-  auto lparams = schedulePointwise(&fusion, aten_inputs);
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs, lparams);
-  auto outputs = fe.runFusion(aten_inputs, lparams);
-
-  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(GpuViewTest, FusionReshapeFailMismatchSize) {
@@ -504,13 +496,9 @@ void addViewGeluFusion(
     at::Tensor at_bias = at::randn(input_shape, options);
     std::vector<c10::IValue> aten_inputs = {at_x, at_bias};
 
-    auto lparams = schedulePointwise(&fusion, aten_inputs);
-
-    FusionExecutor fe;
-    fe.compileFusion(&fusion, aten_inputs, lparams);
-    auto outputs = fe.runFusion(aten_inputs, lparams);
-
-    testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+    auto cg_outputs =
+        scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
+    testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
   }
 }
 
@@ -574,13 +562,9 @@ void geluViewAddFusion(
     at::Tensor at_bias = at::randn(inferred_output, options);
     std::vector<c10::IValue> aten_inputs = {at_x, at_bias};
 
-    auto lparams = schedulePointwise(&fusion, aten_inputs);
-
-    FusionExecutor fe;
-    fe.compileFusion(&fusion, aten_inputs, lparams);
-    auto outputs = fe.runFusion(aten_inputs, lparams);
-
-    testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+    auto cg_outputs =
+        scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
+    testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
   }
 }
 
@@ -618,13 +602,9 @@ void geluViewBinaryAddFusion(
     at::Tensor at_bias = at::randn(input_shape2, options);
     std::vector<c10::IValue> aten_inputs = {at_x, at_bias};
 
-    auto lparams = schedulePointwise(&fusion, aten_inputs);
-
-    FusionExecutor fe;
-    fe.compileFusion(&fusion, aten_inputs, lparams);
-    auto outputs = fe.runFusion(aten_inputs, lparams);
-
-    testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+    auto cg_outputs =
+        scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
+    testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
   }
 }
 
@@ -1226,7 +1206,9 @@ TEST_F(GpuViewTest, FusionReshapeVectorize) {
 
   at::Tensor input = at::randn({256, 256, 256}, options);
 
-  auto lparams = schedulePointwise(&fusion, {input});
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, {input}).outputs;
+  testValidate(&fusion, cg_outputs, {input}, __LINE__, __FILE__);
 
   auto hasVectorization = [](TensorView* tv) -> bool {
     for (auto i : tv->getLoopDomain()) {
@@ -1245,12 +1227,6 @@ TEST_F(GpuViewTest, FusionReshapeVectorize) {
       NVF_CHECK(hasVectorization(c));
     }
   }
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {input}, lparams);
-  auto outputs = fe.runFusion({input}, lparams);
-
-  testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
 }
 
 TEST_F(GpuViewTest, FusionExpandFlatten) {
@@ -2225,13 +2201,9 @@ TEST_F(GpuViewTest, FusionReshapeZeroDimInput) {
 
   std::vector<c10::IValue> aten_inputs = {at_x, at_y};
 
-  auto lparams = schedulePointwise(&fusion, aten_inputs);
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs, lparams);
-  auto outputs = fe.runFusion(aten_inputs, lparams);
-
-  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(GpuViewTest, FusionReshapeZeroDimOutput) {
@@ -2264,13 +2236,9 @@ TEST_F(GpuViewTest, FusionReshapeZeroDimOutput) {
 
   std::vector<c10::IValue> aten_inputs = {at_x, at_y, at_z};
 
-  auto lparams = schedulePointwise(&fusion, aten_inputs);
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs, lparams);
-  auto outputs = fe.runFusion(aten_inputs, lparams);
-
-  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(GpuViewTest, FusionReshapeZeroDimInputOutput) {
@@ -2299,13 +2267,9 @@ TEST_F(GpuViewTest, FusionReshapeZeroDimInputOutput) {
 
   std::vector<c10::IValue> aten_inputs = {at_x, at_y};
 
-  auto lparams = schedulePointwise(&fusion, aten_inputs);
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs, lparams);
-  auto outputs = fe.runFusion(aten_inputs, lparams);
-
-  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(GpuViewTest, ReshapeOfReshape) {

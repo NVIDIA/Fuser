@@ -10,7 +10,6 @@
 
 #include <abstract_tensor.h>
 #include <device_lower/utils.h>
-#include <expr_evaluator.h>
 #include <id_model/id_model.h>
 #include <ir/printer.h>
 #include <logical_domain_map.h>

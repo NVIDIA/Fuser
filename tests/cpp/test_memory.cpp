@@ -511,8 +511,8 @@ TEST_P(TMALoadTestWithABroadcastDim, LoadWithBroadcast) {
   tv1->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
-  moveInnerBroadcastLeft(tv1);
-  moveInnerBroadcastLeft(tv2);
+  matmul_utils::moveInnerBroadcastLeft(tv1);
+  matmul_utils::moveInnerBroadcastLeft(tv2);
 
   // [B, K, N] -> [B, KO, K8, N]
   tv1->split(-2, 8);
