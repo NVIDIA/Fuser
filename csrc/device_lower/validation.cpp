@@ -441,8 +441,9 @@ class VectorizeValidator : public OptInDispatch {
     for (auto id : tv->getLoopDomain()) {
       auto ptype = id->getParallelType();
       if (isParallelTypeVectorize(ptype) || ptype == ParallelType::Group) {
+        // Should have only one vectorized id but multiple group ids are allowed
         NVF_ERROR(
-            v_id == nullptr,
+            v_id == nullptr || ptype == ParallelType::Group,
             "Found two vectorized domains in ",
             tv,
             " only one is allowed.");
@@ -604,13 +605,13 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
         has_misaligned_vectorize_dim = true;
       }
 
-      // ParallelType::Group is used for both iteration grouped reduction and
-      // fused reductions where 2 reductions are fused into one. Vectorized
-      // access to shared memory only exists in the first case.
+      // ParallelType::Group is used for both reduction & normalization.
+      // When used to group iteration dims of outer reduction tvs, it has
+      // vectorized access to shared memory and global memory.
       if (ptype == ParallelType::Group) {
         auto def = tv->definition();
         auto grop = dynamic_cast<GroupedReductionOp*>(def);
-        if (grop && grop->numHorizontallyGroupedExprs() == 1) {
+        if (grop && (!grop->isAllreduce())) {
           has_grouped_vectorize_dim = true;
         }
       }
