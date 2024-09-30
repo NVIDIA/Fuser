@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <device_lower/lower2device.h>
+#include <device_lower/utils.h>
 #include <ir/utils.h>
 #include <kernel_ir.h>
 
@@ -161,14 +162,12 @@ void CircularBufferInfo::build(Fusion* fusion) {
     //  variable would need to be allocated in each
     //  circular buffer stage.
     concrete_circular_buffered_loop_id_.insert(
-        GpuLower::current()->caMap()->getConcreteMappedID(
-            circular_buffer_axis, IdMappingMode::LOOP));
+        lower_utils::getConcreteLoopID(circular_buffer_axis));
   }
 }
 
 bool CircularBufferInfo::isCircularBufferedIterDomain(IterDomain* id) {
-  auto concrete_loop_id = GpuLower::current()->caMap()->getConcreteMappedID(
-      id, IdMappingMode::LOOP);
+  auto concrete_loop_id = lower_utils::getConcreteLoopID(id);
   return concrete_circular_buffered_loop_id_.count(concrete_loop_id);
 }
 
@@ -209,8 +208,7 @@ void CircularBufferInfo::setCircularBufferAxis(
 }
 
 void CircularBufferInfo::setStageDepth(IterDomain* id, int64_t stage_depth) {
-  auto concrete_loop_id = GpuLower::current()->caMap()->getConcreteMappedID(
-      id, IdMappingMode::LOOP);
+  auto concrete_loop_id = lower_utils::getConcreteLoopID(id);
 
   auto maybe_exisiting_depth_it = stage_depth_.find(concrete_loop_id);
   if (maybe_exisiting_depth_it == stage_depth_.end()) {
@@ -240,8 +238,7 @@ IterDomain* CircularBufferInfo::getCircularBufferAxis(
 
 int64_t CircularBufferInfo::getStageDepthFor(
     IterDomain* circular_buffer_axis) const {
-  auto concrete_id = GpuLower::current()->caMap()->getConcreteMappedID(
-      circular_buffer_axis, IdMappingMode::LOOP);
+  auto concrete_id = lower_utils::getConcreteLoopID(circular_buffer_axis);
 
   auto maybe_depth_it = stage_depth_.find(concrete_id);
 

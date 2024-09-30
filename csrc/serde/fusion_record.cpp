@@ -525,13 +525,8 @@ void RecordFunctorFactory::registerAllParsers() {
   registerParser(RecordType::ReshapeOp, deserializeReshapeRecord);
 
   auto deserializeSliceRecord = [](const RecordFunctor* buffer) {
-    auto data = buffer->data_as_Slice();
     return new python_frontend::SliceOpRecord(
-        parseStateArgs(buffer->args()),
-        parseStateArgs(buffer->outputs()),
-        parseVector(data->start_indices()),
-        parseVector(data->end_indices()),
-        parseVector(data->strides()));
+        parseStateArgs(buffer->args()), parseStateArgs(buffer->outputs()));
   };
   registerParser(RecordType::SliceOp, deserializeSliceRecord);
 

@@ -23,79 +23,6 @@
 #include "mma_type.h"
 
 namespace nvfuser {
-
-MatmulScheduler::MatmulScheduler(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache)
-    : SchedulerEntry(heuristicType()) {
-  computeHeuristics(fusion, runtime_info);
-}
-
-void MatmulScheduler::schedule(Fusion* fusion) {
-  FUSER_PERF_SCOPE("Schedule Matmul Fusion");
-  scheduleMatmul(fusion, matmulParams());
-}
-
-bool MatmulScheduler::canScheduleCompileTime(Fusion* fusion) {
-  const auto msg = getMatmulCompileTimeRejectReason(fusion);
-  if (!msg.empty()) {
-    scheduler_debug_utils::canScheduleRejectReason(heuristicType(), msg);
-    return false;
-  }
-
-  return true;
-}
-
-bool MatmulScheduler::canScheduleRunTime(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache) {
-  FUSER_PERF_SCOPE("MatmulScheduler::canSchedule");
-  auto reason = getMatmulRunTimeRejectReason(fusion, data_cache, runtime_info);
-  if (!reason.empty()) {
-    scheduler_debug_utils::canScheduleRejectReason(heuristicType(), reason);
-    return false;
-  }
-  return true;
-}
-
-void MatmulScheduler::computeHeuristics(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache) {
-  params_ = getMatmulHeuristics(fusion, runtime_info, data_cache);
-  NVF_ERROR(params_ != nullptr);
-}
-
-void moveInnerBroadcastLeft(TensorView* tv, int64_t number_of_inner_pos) {
-  NVF_ERROR(tv->nDims() >= number_of_inner_pos);
-  std::vector<int64_t> broadcast_pos;
-  std::vector<int64_t> nonbroadcast_pos;
-
-  for (auto i : c10::irange(number_of_inner_pos)) {
-    auto axis_idx = i - number_of_inner_pos;
-    auto id = tv->axis(axis_idx);
-    if (id->isBroadcast()) {
-      broadcast_pos.push_back(axis_idx);
-    } else {
-      nonbroadcast_pos.push_back(axis_idx);
-    }
-  }
-
-  auto combined_pos_vec = broadcast_pos;
-  combined_pos_vec.insert(
-      combined_pos_vec.end(), nonbroadcast_pos.begin(), nonbroadcast_pos.end());
-
-  std::unordered_map<int64_t, int64_t> order_map;
-  for (auto i : c10::irange(number_of_inner_pos)) {
-    order_map[combined_pos_vec.at(i)] = i - number_of_inner_pos;
-  }
-
-  // Apply ordering.
-  tv->reorder(order_map);
-}
-
 namespace {
 
 // Returns true if given number is power of 2
@@ -534,7 +461,7 @@ AbstractTensor swizzleSharedMemory(TensorView* shared_mem_tv) {
 void scheduleProlog(
     TensorView* shared_mem_tv,
     int64_t vec_size,
-    const MatmulParams& params) {
+    const MatmulParams* mparams) {
   shared_mem_tv->setMemoryType(MemoryType::Shared);
 
   // The following line allows us to reclaim the memory allocated to
@@ -542,7 +469,7 @@ void scheduleProlog(
   // needed. This is not done by default as we do not insert new syncs unless
   // requested to do so. If smem is not used for the epilogue, this call will
   // have no effect.
-  if (params.promote_prologue_smem_reuse) {
+  if (mparams->promote_prologue_smem_reuse) {
     shared_mem_tv->promoteReuse();
   }
 
@@ -559,7 +486,7 @@ void scheduleProlog(
   //    current effort tries to focus on generating swizzles.
   shared_mem_tv->merge(-2);
   mma_utils::scheduleContiguousVectorLoad(
-      shared_mem_tv, params.tile_sizes, vec_size, /*vectorize=*/vec_size > 1);
+      shared_mem_tv, mparams->tile_sizes, vec_size, /*vectorize=*/vec_size > 1);
 
   // Propagate prolog tensors
   //  propagate up the DAG, and propagate parallel type.
@@ -732,11 +659,9 @@ void scheduleSplitKSum(
   splitk_sum->axis(-1)->parallelize(ParallelType::Vectorize);
 }
 
-} // namespace
-
-void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
+void scheduleMatmul(Fusion* fusion, const MatmulParams* mparams) {
   if (isOptionEnabled(EnableOption::FuseMultipleMatmuls)) {
-    scheduleMultipleMatmuls(fusion, params);
+    scheduleMultipleMatmuls(fusion, mparams);
     return;
   }
 
@@ -790,7 +715,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       b_operands.size() == 1, "We currently require exactly one B operand");
   TensorView* b = b_operands.back();
 
-  const auto& gemm_tile = params.tile_sizes;
+  const auto& gemm_tile = mparams->tile_sizes;
 
   // Collect mma swizzle info
   auto mma = mma_ops.front();
@@ -835,7 +760,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // Currently the support is for a, b, c and d as fusion inputs/outputs
   //  aka. no prolog fusion yet.
 
-  mma->setMacro(params.mma_macro);
+  mma->setMacro(mparams->mma_macro);
 
   // Setup register and shared memory stages:
   //   TODO: this section goes to a separate matmul util,
@@ -854,11 +779,11 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   TensorView* acr = nullptr;
   TensorView* bcr = nullptr;
 
-  // Use cp.async as requested in scheduler params.
+  // Use cp.async as requested in scheduler mparams->
   LoadStoreOpType load_op = LoadStoreOpType::Set;
   CacheOp cache_op_a = CacheOp::Unspecified;
   CacheOp cache_op_b = CacheOp::Unspecified;
-  if (params.async_gmem_load_operands) {
+  if (mparams->async_gmem_load_operands) {
     load_op = LoadStoreOpType::CpAsync;
     auto getCacheOp = [](int64_t vec_size, TensorView* operand) -> CacheOp {
       int64_t vec_bytes = vec_size * dataTypeSize(operand->dtype());
@@ -876,8 +801,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
           "MatmulParams::async_gmem_load_operands should be set to false in this case.");
       return vec_bytes == 16LL ? CacheOp::Global : CacheOp::AllLevels;
     };
-    cache_op_a = getCacheOp(params.supported_vec_size.a, a);
-    cache_op_b = getCacheOp(params.supported_vec_size.b, b);
+    cache_op_a = getCacheOp(mparams->supported_vec_size.a, a);
+    cache_op_b = getCacheOp(mparams->supported_vec_size.b, b);
   }
 
   NVF_ERROR(a->uses().size() == 1);
@@ -946,9 +871,9 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   TensorView* smem_epilogue = mma_result;
 
   // Swizzle block tiles:
-  if (params.grid_swizzle_factor != 1) {
-    int factor = std::max(1, params.grid_swizzle_factor); // must be >=1
-    if (params.cta_order == MatmulParams::TileRasterizationOrder::RowMajor) {
+  if (mparams->grid_swizzle_factor != 1) {
+    int factor = std::max(1, mparams->grid_swizzle_factor); // must be >=1
+    if (mparams->cta_order == MatmulParams::TileRasterizationOrder::RowMajor) {
       mma_result->split(num_device_and_batch_dims + 1, factor);
       // [I1, I2/factor, factor]
       mma_result->reorder(
@@ -957,7 +882,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       mma_result->merge(num_device_and_batch_dims);
       // [I1*factor, I2/factor]
     } else if (
-        params.cta_order == MatmulParams::TileRasterizationOrder::ColumnMajor) {
+        mparams->cta_order ==
+        MatmulParams::TileRasterizationOrder::ColumnMajor) {
       mma_result->split(num_device_and_batch_dims, factor);
       // [I1/factor, factor, I2]
       mma_result->reorder(
@@ -971,9 +897,9 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // [..., iMo, iNo, rKo, iMi, iNi, rKi]
   int num_splitk_dims = 0;
   TensorView* splitk_sum = nullptr;
-  if (params.splitk_factor != 1) {
+  if (mparams->splitk_factor != 1) {
     // Split Ko -> [rKf, rKg]
-    mma_result->split(-4, params.splitk_factor, /*inner*/ false);
+    mma_result->split(-4, mparams->splitk_factor, /*inner*/ false);
     // After split [..., iMo, iNo, rKf, rKg, iMi, iNi, rKi]
     // rFactor converts
     //   mma_result = mma(A, B, {/*Kf*/-5, /*Kg*/-4, /*Ki*/-1});
@@ -995,7 +921,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   //     mma_result      [..., iMo, iNo, iKf, rKg, iMi, iNi, rKi]
   //     splitk_sum      [..., iMo, iNo, rKf, iMi, iNi]
 
-  if (params.use_smem_epilogue) {
+  if (mparams->use_smem_epilogue) {
     // Note that for split-K
     //   splitk_sum = sum(mma_result)
     // becomes
@@ -1008,7 +934,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // Propagate tiling globally
   scheduler_utils::transformPropagateToAllFrom(mma_result, -1);
 
-  if (params.use_smem_epilogue && params.splitk_factor != 1) {
+  if (mparams->use_smem_epilogue && mparams->splitk_factor != 1) {
     // TODO:
     // This is a workaround for a problem that different dimensions in the loop
     // domain are mapped in the loop graph of IdModel due to the mapping of
@@ -1049,8 +975,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // Schedule prolog:
   //   TODO: this section needs more configurability.
   // ------------------------------------------------------------------
-  scheduleProlog(acw_smem, params.supported_vec_size.a, params);
-  scheduleProlog(bcw_smem, params.supported_vec_size.b, params);
+  scheduleProlog(acw_smem, mparams->supported_vec_size.a, mparams);
+  scheduleProlog(bcw_smem, mparams->supported_vec_size.b, mparams);
 
   // Get the input to the mma op.
   mma = mma_result->definition()->as<MmaOp>();
@@ -1061,9 +987,9 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   //   TODO: this section goes to a separate matmul util,
   //   and needs more configurability.
   // ------------------------------------------------------------------
-  if (isTuring(params.mma_macro) || isAmpere(params.mma_macro)) {
-    moveInnerBroadcastLeft(ab);
-    moveInnerBroadcastLeft(bb);
+  if (isTuring(mparams->mma_macro) || isAmpere(mparams->mma_macro)) {
+    matmul_utils::moveInnerBroadcastLeft(ab);
+    matmul_utils::moveInnerBroadcastLeft(bb);
   }
 
   ab->applyMmaSwizzle(MmaOperand::A);
@@ -1178,7 +1104,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   } else if (num_local_batch_dims > 0) {
     mma_result->axis(num_device_dims)->parallelize(ParallelType::BIDz);
   }
-  switch (params.cta_order) {
+  switch (mparams->cta_order) {
     case MatmulParams::TileRasterizationOrder::RowMajor:
       mma_result->axis(num_device_and_batch_dims)
           ->parallelize(ParallelType::BIDx);
@@ -1208,7 +1134,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       {ParallelType::TIDy, ParallelType::TIDz});
 
   // handle epilogue and always vectorize Ki
-  if (params.use_smem_epilogue) {
+  if (mparams->use_smem_epilogue) {
     smem_epilogue->setMemoryType(MemoryType::Shared);
     auto swizzled_dom = swizzleSharedMemory<false>(smem_epilogue);
     smem_epilogue->setAllocationDomain(swizzled_dom.as<IterDomain*>(), true);
@@ -1225,7 +1151,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       // Schedule output tensor differently for better global memory access
       // pattern.
       scheduleOutputTensor(
-          mma_result, d, gemm_tile, params.supported_vec_size.epilogue);
+          mma_result, d, gemm_tile, mparams->supported_vec_size.epilogue);
       d->axis(-1)->parallelize(ParallelType::Vectorize);
 
       // Propagate output tensor transformations back to smem_epilogue
@@ -1244,13 +1170,14 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       // We might propagate an inner dimension that is not compatible with the
       // output or bias-like inputs. In those cases, we will further split this
       // dimension with an outer unrolled loop to achieve the proper
-      // vectorization as specified by params.supported_vec_size.epilogue.
+      // vectorization as specified by mparams->supported_vec_size.epilogue.
       NVF_ERROR(d->axis(-1)->extent()->isConst());
       int64_t d_extent = d->axis(-1)->extent()->value().as<int64_t>();
-      if (d_extent > params.supported_vec_size.epilogue) {
+      if (d_extent > mparams->supported_vec_size.epilogue) {
         // Should always be a divisible split
-        NVF_ERROR(d_extent % params.supported_vec_size.epilogue == 0);
-        d->split(-1, params.supported_vec_size.epilogue, /*inner_split=*/true);
+        NVF_ERROR(d_extent % mparams->supported_vec_size.epilogue == 0);
+        d->split(
+            -1, mparams->supported_vec_size.epilogue, /*inner_split=*/true);
         d->axis(-2)->parallelize(ParallelType::Unroll);
       }
       d->axis(-1)->parallelize(ParallelType::Vectorize);
@@ -1260,11 +1187,11 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   //  operations, input tvs with non-core roles
   //  core roles: essential for matmul, for example mma inputs' producers
   if (has_non_mma_input_tvs) {
-    scheduleFusionInputsForEpilogue(tensor_roles, params.use_smem_epilogue);
+    scheduleFusionInputsForEpilogue(tensor_roles, mparams->use_smem_epilogue);
   }
 
   scheduleSplitKSum(
-      splitk_sum, num_device_and_batch_dims, params.use_smem_epilogue);
+      splitk_sum, num_device_and_batch_dims, mparams->use_smem_epilogue);
 
   // auto inline for all tensors except register tensors
   inlineMost(ir_utils::allTvsExcept(fusion, {acr, bcr, ab, bb}));
@@ -1276,23 +1203,23 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       num_device_and_batch_dims + 6 + num_splitk_dims);
 
   // Propagate mma output swizzle and parallelization down the DAG
-  if (params.circular_buffer_options.circular_buffer_smem_write) {
+  if (mparams->circular_buffer_options.circular_buffer_smem_write) {
     NVF_ERROR(
-        params.circular_buffer_options.smem_circular_buffer_stage > 1,
+        mparams->circular_buffer_options.smem_circular_buffer_stage > 1,
         "Invalid buffer stage config")
-    if (params.circular_buffer_options.smem_circular_buffer_stage > 2) {
+    if (mparams->circular_buffer_options.smem_circular_buffer_stage > 2) {
       NVF_ERROR(
-          params.async_gmem_load_operands,
+          mparams->async_gmem_load_operands,
           "Circular buffer only supports async load");
     }
 
     acw_smem->circularBuffer(
-        params.circular_buffer_options.smem_circular_buffer_stage);
+        mparams->circular_buffer_options.smem_circular_buffer_stage);
     bcw_smem->circularBuffer(
-        params.circular_buffer_options.smem_circular_buffer_stage);
+        mparams->circular_buffer_options.smem_circular_buffer_stage);
   }
 
-  if (params.circular_buffer_options.circular_buffer_smem_read) {
+  if (mparams->circular_buffer_options.circular_buffer_smem_read) {
     // Only apply circular buffering if we can fill the entire pipeline.
     auto safely_apply_circular_buffering = [](TensorView* tv) {
       constexpr int64_t number_of_stages = 2;
@@ -1307,8 +1234,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     safely_apply_circular_buffering(bcr);
   }
 
-  if (params.circular_buffer_options.circular_buffer_smem_read &&
-      params.circular_buffer_options.circular_buffer_smem_write) {
+  if (mparams->circular_buffer_options.circular_buffer_smem_read &&
+      mparams->circular_buffer_options.circular_buffer_smem_write) {
     // rotate Kg loop
     scheduler_utils::rotateLoop(
         mma_result,
@@ -1324,11 +1251,57 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   bool guaranteed_operand_reuse =
       num_local_batch_dims == 0 || num_splitk_dims == 0;
   int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
-      params,
+      mparams,
       data_types,
       /*smem_a_reuse_guaranteed=*/guaranteed_operand_reuse,
       /*smem_b_reuse_guaranteed=*/guaranteed_operand_reuse);
   fusion->setExpectedDynamicSmemBytes(estimated_smem);
+}
+
+} // namespace
+
+bool MatmulScheduler::canScheduleCompileTime(Fusion* fusion) {
+  const auto msg = matmul_utils::getMatmulCompileTimeRejectReason(fusion);
+  if (!msg.empty()) {
+    scheduler_debug_utils::canScheduleRejectReason(schedulerType(), msg);
+    return false;
+  }
+
+  return true;
+}
+
+bool MatmulScheduler::canScheduleRunTime(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicDataCache* data_cache) {
+  FUSER_PERF_SCOPE("MatmulScheduler::canSchedule");
+  auto reason = matmul_utils::getMatmulRunTimeRejectReason(
+      fusion, data_cache, runtime_info);
+  if (!reason.empty()) {
+    scheduler_debug_utils::canScheduleRejectReason(schedulerType(), reason);
+    return false;
+  }
+  return true;
+}
+
+std::unique_ptr<HeuristicParams> MatmulScheduler::computeHeuristics(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicDataCache* data_cache) {
+  auto mparams =
+      matmul_utils::getMatmulHeuristics(fusion, runtime_info, data_cache);
+  NVF_ERROR(mparams != nullptr);
+  return mparams;
+}
+
+void MatmulScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
+  FUSER_PERF_SCOPE("MatmulScheduler::schedule");
+  auto mparams = dynamic_cast<const MatmulParams*>(params);
+  NVF_ERROR(
+      mparams != nullptr,
+      "Incorrect parameters sent to MatmulScheduler::schedule",
+      params);
+  scheduleMatmul(fusion, mparams);
 }
 
 } // namespace nvfuser

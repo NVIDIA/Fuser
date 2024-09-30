@@ -151,4 +151,27 @@ void ValGraphVisitor::traverse() {
   }
 }
 
+ValGroups ValGraphBFS::getReachableValsFrom(
+    const ValGraph& graph,
+    const ValGroups& from,
+    const ValGroups& vals) {
+  ValGraphBFS bfs(
+      graph,
+      {from.begin(), from.end()},
+      {vals.begin(), vals.end()},
+      /*require_all_to_visited=*/false);
+
+  bfs.traverse();
+
+  ValGroups reachable_vals;
+  for (const ValGroup& val : vals) {
+    if (bfs.isVisited(val) ||
+        std::find(from.begin(), from.end(), val) != from.end()) {
+      reachable_vals.pushBack(val);
+    }
+  }
+
+  return reachable_vals;
+}
+
 } // namespace nvfuser

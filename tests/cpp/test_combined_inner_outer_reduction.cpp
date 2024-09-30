@@ -910,18 +910,13 @@ TEST_F(CombinedSchedulerTest, InnerOuterNoOuterBroadcastTv) {
   at::Tensor t0 = at::randn({dim0, dim1}, options);
   std::vector<c10::IValue> aten_inputs = {t0};
 
-  auto heuristic =
-      getInnerOuterPersistentHeuristics(fusion_ptr.get(), aten_inputs);
-  NVF_CHECK(heuristic, "InnerOuterPersistentHeuristics was not generated!");
-  NVF_CHECK(
-      !heuristic->project_persistent_buffers,
-      "Shouldn't project persistent buffers to inputs!");
+  auto cg_results =
+      scheduleAndRun(&fusion, SchedulerType::InnerOuterPersistent, aten_inputs);
 
-  scheduleInnerOuterPersistentKernel(fusion_ptr.get(), *heuristic);
-  auto lparams = heuristic->lparams;
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs, lparams);
-  auto cg_outputs = fe.runFusion(aten_inputs, lparams);
+  auto persistent_params = cg_results.heuristic_params->as<ReductionParams>();
+  NVF_CHECK(
+      !persistent_params->project_persistent_buffers,
+      "Shouldn't project persistent buffers to inputs!");
 
   auto t1 = t0.sum({1});
   auto t2 = t1.unsqueeze(-1);
@@ -929,12 +924,12 @@ TEST_F(CombinedSchedulerTest, InnerOuterNoOuterBroadcastTv) {
   auto t4 = t0.sum({0});
   testValidate(
       &fusion,
-      cg_outputs,
+      cg_results.outputs,
       aten_inputs,
       {t3, t4},
       __LINE__,
       __FILE__,
       "",
-      lparams);
+      persistent_params->lparams);
 }
 } // namespace nvfuser

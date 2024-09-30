@@ -476,31 +476,29 @@ struct DispatchParallelize {
 //   auto vv = v.strip(); // [id0]
 
 template <typename Info>
-struct AbstractTensorWithInfo {
-  std::vector<AbstractId> domain;
-  std::vector<Info> info;
-
+class AbstractTensorWithInfo {
+ public:
   AbstractTensorWithInfo() = default;
 
   // These constructors use default info
   AbstractTensorWithInfo(std::vector<AbstractId> domain)
-      : domain(std::move(domain)), info(domain.size()) {}
+      : domain_(std::move(domain)), info_(domain_.size()) {}
   AbstractTensorWithInfo(const std::vector<IterDomain*>& domain)
-      : domain(domain.begin(), domain.end()), info(domain.size()) {}
+      : domain_(domain.begin(), domain.end()), info_(domain_.size()) {}
   AbstractTensorWithInfo(std::initializer_list<AbstractId> domain)
-      : domain(domain), info(domain.size()) {}
+      : domain_(domain), info_(domain_.size()) {}
 
   // These constructors use provided info
   AbstractTensorWithInfo(std::vector<AbstractId> domain, std::vector<Info> info)
-      : domain(std::move(domain)), info(std::move(info)) {}
+      : domain_(std::move(domain)), info_(std::move(info)) {}
   AbstractTensorWithInfo(
       const std::vector<IterDomain*>& domain,
       std::vector<Info> info)
-      : domain(domain.begin(), domain.end()), info(std::move(info)) {}
+      : domain_(domain.begin(), domain.end()), info_(std::move(info)) {}
   AbstractTensorWithInfo(
       std::initializer_list<AbstractId> domain,
       std::initializer_list<Info> info)
-      : domain(domain), info(info) {}
+      : domain_(domain), info_(info) {}
 
   virtual ~AbstractTensorWithInfo() = default;
 
@@ -508,7 +506,7 @@ struct AbstractTensorWithInfo {
   std::vector<T> as() const {
     std::vector<T> result;
     std::transform(
-        domain.begin(), domain.end(), std::back_inserter(result), [](auto x) {
+        domain_.begin(), domain_.end(), std::back_inserter(result), [](auto x) {
           return (T)x;
         });
     return result;
@@ -516,105 +514,105 @@ struct AbstractTensorWithInfo {
 
   std::vector<std::pair<AbstractId, Info>> domainAndInfo() const {
     std::vector<std::pair<AbstractId, Info>> result;
-    NVF_ERROR(domain.size() == info.size());
-    result.reserve(domain.size());
-    for (size_t i : c10::irange(domain.size())) {
-      result.emplace_back(domain[i], info[i]);
+    NVF_ERROR(domain_.size() == info_.size());
+    result.reserve(domain_.size());
+    for (size_t i : c10::irange(domain_.size())) {
+      result.emplace_back(domain_[i], info_[i]);
     }
     return result;
   }
 
   decltype(auto) operator[](int64_t i) {
-    i = wrapDim(i, (int64_t)domain.size());
-    return domain[i];
+    i = wrapDim(i, (int64_t)domain_.size());
+    return domain_[i];
   }
 
   decltype(auto) operator[](int64_t i) const {
-    i = wrapDim(i, (int64_t)domain.size());
-    return domain[i];
+    i = wrapDim(i, (int64_t)domain_.size());
+    return domain_[i];
   }
 
   decltype(auto) size() const {
-    return domain.size();
+    return domain_.size();
   }
 
   decltype(auto) empty() const {
-    return domain.empty();
+    return domain_.empty();
   }
 
   decltype(auto) begin() {
-    return domain.begin();
+    return domain_.begin();
   }
 
   decltype(auto) begin() const {
-    return domain.begin();
+    return domain_.begin();
   }
 
   decltype(auto) end() {
-    return domain.end();
+    return domain_.end();
   }
 
   decltype(auto) end() const {
-    return domain.end();
+    return domain_.end();
   }
 
   decltype(auto) rbegin() {
-    return domain.rbegin();
+    return domain_.rbegin();
   }
 
   decltype(auto) rbegin() const {
-    return domain.rbegin();
+    return domain_.rbegin();
   }
 
   decltype(auto) rend() {
-    return domain.rend();
+    return domain_.rend();
   }
 
   decltype(auto) rend() const {
-    return domain.rend();
+    return domain_.rend();
   }
 
   decltype(auto) cbegin() const {
-    return domain.cbegin();
+    return domain_.cbegin();
   }
 
   decltype(auto) cend() const {
-    return domain.cend();
+    return domain_.cend();
   }
 
   decltype(auto) crbegin() const {
-    return domain.crbegin();
+    return domain_.crbegin();
   }
 
   decltype(auto) crend() const {
-    return domain.crend();
+    return domain_.crend();
   }
 
   AbstractTensorWithInfo& pushBack(AbstractId id) {
-    domain.push_back(std::move(id));
-    info.resize(domain.size());
+    domain_.push_back(std::move(id));
+    info_.resize(domain_.size());
     return *this;
   }
 
-  AbstractTensorWithInfo& pushBack(AbstractId id, const Info& info_) {
-    domain.push_back(std::move(id));
-    info.push_back(info_);
+  AbstractTensorWithInfo& pushBack(AbstractId id, const Info& id_info) {
+    domain_.push_back(std::move(id));
+    info_.push_back(id_info);
     return *this;
   }
 
   template <typename... Args>
   AbstractTensorWithInfo& emplaceBack(Args&&... args) {
-    domain.emplace_back(std::forward<Args>(args)...);
-    info.resize(domain.size());
+    domain_.emplace_back(std::forward<Args>(args)...);
+    info_.emplace_back();
     return *this;
   }
 
   bool operator==(const AbstractTensorWithInfo& other) const {
-    return domain == other.domain && info == other.info;
+    return domain_ == other.domain_ && info_ == other.info_;
   }
 
-  bool operator==(const std::vector<AbstractId>& dom) const {
-    return domain == dom;
+  bool operator==(const std::vector<AbstractId>& domain) const {
+    return domain_ == domain;
   }
 
   template <typename T>
@@ -625,8 +623,8 @@ struct AbstractTensorWithInfo {
   AbstractTensorWithInfo& parallelize(
       int64_t axis,
       ParallelType parallel_type) {
-    axis = wrapDim(axis, (int64_t)domain.size());
-    AbstractId::dispatch(DispatchParallelize{}, parallel_type, domain[axis]);
+    axis = wrapDim(axis, (int64_t)domain_.size());
+    AbstractId::dispatch(DispatchParallelize{}, parallel_type, domain_[axis]);
     return *this;
   }
 
@@ -634,17 +632,17 @@ struct AbstractTensorWithInfo {
       int64_t axis,
       Val* factor,
       bool inner_split = true) {
-    NVF_ERROR(domain.size() == info.size());
+    NVF_ERROR(domain_.size() == info_.size());
 
-    axis = wrapDim(axis, (int64_t)domain.size());
+    axis = wrapDim(axis, (int64_t)domain_.size());
     auto [outer, inner] = AbstractId::dispatch(
-        DispatchSplit{}, domain[axis], factor, inner_split);
-    std::swap(domain[axis], inner);
-    domain.insert(domain.begin() + axis, outer);
+        DispatchSplit{}, domain_[axis], factor, inner_split);
+    std::swap(domain_[axis], inner);
+    domain_.insert(domain_.begin() + axis, outer);
 
-    auto [info_outer, info_inner] = Info::split(info[axis]);
-    info[axis] = std::move(info_outer);
-    info.insert(info.begin() + axis, std::move(info_inner));
+    auto [info_outer, info_inner] = Info::split(info_[axis]);
+    info_[axis] = std::move(info_outer);
+    info_.insert(info_.begin() + axis, std::move(info_inner));
 
     return *this;
   }
@@ -658,24 +656,24 @@ struct AbstractTensorWithInfo {
   }
 
   AbstractTensorWithInfo& merge(int64_t axis_o, int64_t axis_i) {
-    NVF_ERROR(domain.size() == info.size());
+    NVF_ERROR(domain_.size() == info_.size());
 
-    axis_o = wrapDim(axis_o, (int64_t)domain.size());
-    axis_i = wrapDim(axis_i, (int64_t)domain.size());
+    axis_o = wrapDim(axis_o, (int64_t)domain_.size());
+    axis_i = wrapDim(axis_i, (int64_t)domain_.size());
 
     auto output =
-        AbstractId::dispatch(DispatchMerge{}, domain[axis_o], domain[axis_i]);
+        AbstractId::dispatch(DispatchMerge{}, domain_[axis_o], domain_[axis_i]);
     // axis_o is the outer input of this merge but does not
     // automatically mean it's an outer domain in this AbstractTensorWithInfo.
     auto domain_outer_pos = axis_o < axis_i ? axis_o : axis_i;
     auto domain_inner_pos = axis_o < axis_i ? axis_i : axis_o;
 
-    domain.erase(domain.begin() + domain_inner_pos);
-    std::swap(domain[domain_outer_pos], output);
+    domain_.erase(domain_.begin() + domain_inner_pos);
+    std::swap(domain_[domain_outer_pos], output);
 
-    info[domain_outer_pos] =
-        Info::merge(info[domain_outer_pos], info[domain_inner_pos]);
-    info.erase(info.begin() + domain_inner_pos);
+    info_[domain_outer_pos] =
+        Info::merge(info_[domain_outer_pos], info_[domain_inner_pos]);
+    info_.erase(info_.begin() + domain_inner_pos);
 
     return *this;
   }
@@ -686,28 +684,28 @@ struct AbstractTensorWithInfo {
 
   AbstractTensorWithInfo& reorder(
       const std::unordered_map<int64_t, int64_t>& old2new) {
-    NVF_ERROR(domain.size() == info.size());
+    NVF_ERROR(domain_.size() == info_.size());
 
     NVF_ERROR(
-        !domain.empty() || old2new.empty(), "Tried to reorder a 0-dim domain");
+        !domain_.empty() || old2new.empty(), "Tried to reorder a 0-dim domain");
 
-    auto new2old = ir_utils::normalizeOld2New(old2new, (int64_t)domain.size());
+    auto new2old = ir_utils::normalizeOld2New(old2new, (int64_t)domain_.size());
 
     std::vector<AbstractId> reordered_domain;
     std::transform(
         new2old.begin(),
         new2old.end(),
         std::back_inserter(reordered_domain),
-        [this](int64_t i) { return domain[i]; });
-    domain = std::move(reordered_domain);
+        [this](int64_t i) { return domain_[i]; });
+    domain_ = std::move(reordered_domain);
 
     std::vector<Info> reordered_info;
     std::transform(
         new2old.begin(),
         new2old.end(),
         std::back_inserter(reordered_info),
-        [this](int64_t i) { return info[i]; });
-    info = std::move(reordered_info);
+        [this](int64_t i) { return info_[i]; });
+    info_ = std::move(reordered_info);
 
     return *this;
   }
@@ -734,9 +732,9 @@ struct AbstractTensorWithInfo {
   // Both `from` and `to` are inclusive.
 
   AbstractTensorWithInfo& flatten(int64_t from = 0, int64_t to = -1) {
-    NVF_ERROR(!domain.empty(), "Tried to do flatten on a 0-dim domains");
-    from = wrapDim(from, (int64_t)domain.size());
-    to = wrapDim(to, (int64_t)domain.size());
+    NVF_ERROR(!domain_.empty(), "Tried to do flatten on a 0-dim domains");
+    from = wrapDim(from, (int64_t)domain_.size());
+    to = wrapDim(to, (int64_t)domain_.size());
     NVF_CHECK(from <= to, "Invalid flatten range. From: ", from, " To: ", to);
     int64_t num_merges = to - from;
     for (auto _ : c10::irange(num_merges)) {
@@ -750,21 +748,21 @@ struct AbstractTensorWithInfo {
       SwizzleType swizzle_type,
       int64_t x,
       int64_t y) {
-    NVF_ERROR(domain.size() == info.size());
+    NVF_ERROR(domain_.size() == info_.size());
 
-    x = wrapDim(x, (int64_t)domain.size());
-    y = wrapDim(y, (int64_t)domain.size());
+    x = wrapDim(x, (int64_t)domain_.size());
+    y = wrapDim(y, (int64_t)domain_.size());
 
     auto [out_x, out_y] = AbstractId::dispatch(
-        DispatchSwizzle{}, swizzle_type, domain[x], domain[y]);
+        DispatchSwizzle{}, swizzle_type, domain_[x], domain_[y]);
 
-    std::swap(domain[x], out_x);
-    std::swap(domain[y], out_y);
+    std::swap(domain_[x], out_x);
+    std::swap(domain_[y], out_y);
 
     auto [info_outer, info_inner] =
-        Info::swizzle(swizzle_type, info[x], info[y]);
-    info[x] = std::move(info_outer);
-    info[y] = std::move(info_inner);
+        Info::swizzle(swizzle_type, info_[x], info_[y]);
+    info_[x] = std::move(info_outer);
+    info_[y] = std::move(info_inner);
 
     return *this;
   }
@@ -775,21 +773,21 @@ struct AbstractTensorWithInfo {
       Swizzle2DType swizzle_type,
       int64_t x,
       int64_t y) {
-    NVF_ERROR(domain.size() == info.size());
+    NVF_ERROR(domain_.size() == info_.size());
 
-    x = wrapDim(x, (int64_t)domain.size());
-    y = wrapDim(y, (int64_t)domain.size());
+    x = wrapDim(x, (int64_t)domain_.size());
+    y = wrapDim(y, (int64_t)domain_.size());
 
     auto [out_x, out_y] = AbstractId::dispatch(
-        DispatchLegacySwizzle{}, swizzle_type, domain[x], domain[y]);
+        DispatchLegacySwizzle{}, swizzle_type, domain_[x], domain_[y]);
 
-    std::swap(domain[x], out_x);
-    std::swap(domain[y], out_y);
+    std::swap(domain_[x], out_x);
+    std::swap(domain_[y], out_y);
 
     auto [info_outer, info_inner] =
-        Info::swizzle(swizzle_type, info[x], info[y]);
-    info[x] = std::move(info_outer);
-    info[y] = std::move(info_inner);
+        Info::swizzle(swizzle_type, info_[x], info_[y]);
+    info_[x] = std::move(info_outer);
+    info_[y] = std::move(info_inner);
 
     return *this;
   }
@@ -802,7 +800,7 @@ struct AbstractTensorWithInfo {
 
     // Check and get the size of each vector
     int64_t size = -1;
-    for (const auto& aid : domain) {
+    for (const auto& aid : domain_) {
       if (!aid.is<std::vector>()) {
         continue;
       }
@@ -820,14 +818,14 @@ struct AbstractTensorWithInfo {
     // all the unzipped AbstractTensors
     result.resize(size);
     for (auto i : c10::irange(size)) {
-      for (const auto& aid : domain) {
+      for (const auto& aid : domain_) {
         if (aid.is<std::vector>()) {
-          result[i].domain.emplace_back(aid[i]);
+          result[i].domain_.emplace_back(aid[i]);
         } else {
-          result[i].domain.emplace_back(aid);
+          result[i].domain_.emplace_back(aid);
         }
       }
-      result[i].info = info;
+      result[i].info_ = info_;
     }
     return result;
   }
@@ -842,7 +840,7 @@ struct AbstractTensorWithInfo {
 
     for (const auto& tensor : tensors) {
       NVF_CHECK(
-          tensor.domain.size() == tensors[0].domain.size(),
+          tensor.size() == tensors[0].size(),
           "Can not stack AbstractTensors with different number of domains.");
     }
 
@@ -850,19 +848,19 @@ struct AbstractTensorWithInfo {
         std::all_of(
             tensors.begin(),
             tensors.end(),
-            [&tensors](auto t) { return t.info == tensors[0].info; }),
+            [&tensors](auto t) { return t.info_ == tensors[0].info_; }),
         "Cannot zip AbstractTensors whose info does not match");
 
     AbstractTensorWithInfo result;
-    result.info = std::move(tensors[0].info);
-    result.domain.reserve(tensors[0].domain.size());
-    for (auto i : c10::irange(tensors[0].domain.size())) {
-      std::vector<AbstractId> domain;
-      domain.reserve(tensors.size());
+    result.info_ = std::move(tensors[0].info_);
+    result.domain_.reserve(tensors[0].domain_.size());
+    for (auto i : c10::irange(tensors[0].domain_.size())) {
+      std::vector<AbstractId> ids;
+      ids.reserve(tensors.size());
       for (auto& tensor : tensors) {
-        domain.emplace_back(std::move(tensor.domain[i]));
+        ids.emplace_back(std::move(tensor.domain_[i]));
       }
-      result.domain.emplace_back(std::move(domain));
+      result.domain_.emplace_back(std::move(ids));
     }
 
     return result;
@@ -884,19 +882,21 @@ struct AbstractTensorWithInfo {
   // [dim0={id0, id1, id4}, dim1={id2, id3, id5}].
   AbstractTensorWithInfo& addRow(AbstractTensorWithInfo tensor) {
     NVF_CHECK(
-        domain.size() == tensor.domain.size(),
+        domain_.size() == tensor.domain_.size(),
         "Can not add a new row with different number of domains.");
     NVF_CHECK(
         std::all_of(
-            domain.begin(),
-            domain.end(),
+            domain_.begin(),
+            domain_.end(),
             [](const AbstractId& aid) { return aid.is<std::vector>(); }),
         "Can not add a new row to an AbstractTensor with non-vector domains.");
 
-    NVF_CHECK(info == tensor.info, "Cannot add a new row with mismatched info");
+    NVF_CHECK(
+        info_ == tensor.info_, "Cannot add a new row with mismatched info");
 
-    for (auto i : c10::irange(domain.size())) {
-      domain[i].as<std::vector>().emplace_back(std::move(tensor.domain[i]));
+    for (auto i : c10::irange(size())) {
+      domain_[i].template as<std::vector>().emplace_back(
+          std::move(tensor.domain_[i]));
     }
     return *this;
   }
@@ -912,6 +912,10 @@ struct AbstractTensorWithInfo {
     std::swap(result, *this);
     return *this;
   }
+
+ protected:
+  std::vector<AbstractId> domain_;
+  std::vector<Info> info_;
 };
 
 struct EmptyInfo {
@@ -979,7 +983,8 @@ struct TagSetInfo {
 //! tags for each axis. The tags can be any hashable type with equality;
 //! typically Tag would be an enum.
 template <typename Tag>
-struct TaggedAbstractTensor : AbstractTensorWithInfo<TagSetInfo<Tag>> {
+class TaggedAbstractTensor : public AbstractTensorWithInfo<TagSetInfo<Tag>> {
+ public:
   TaggedAbstractTensor(
       std::vector<AbstractId> domain,
       const std::vector<std::unordered_set<Tag>>& tag_sets)
@@ -1000,8 +1005,13 @@ struct TaggedAbstractTensor : AbstractTensorWithInfo<TagSetInfo<Tag>> {
             {tag_sets.begin(), tag_sets.end()}) {}
 
   const std::unordered_set<Tag>& getTags(int64_t i) const {
-    i = wrapDim(i, (int64_t)this->info.size());
-    return this->info[i].tags;
+    i = wrapDim(i, (int64_t)this->size());
+    return this->info_[i].tags;
+  }
+
+  std::unordered_set<Tag>& getTags(int64_t i) {
+    i = wrapDim(i, (int64_t)this->size());
+    return this->info_[i].tags;
   }
 
   bool hasTag(int64_t i, Tag tag) const {

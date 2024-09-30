@@ -424,7 +424,7 @@ Val* PredicateCompute::getInlinePredicate(
   }
 
   std::vector<PredicateInfo> pred_info_vec;
-  if (!lower_utils::hasRootToLoopLinearTransformations(out_tv) ||
+  if (!ir_utils::hasRootToLoopLinearTransformations(out_tv) ||
       (isIdModelOptionEnabled(IdModelEnableOption::InlinePredicate) &&
        GpuLower::current()->isTensorIndexerEnabled())) {
     pred_info_vec =
@@ -525,7 +525,7 @@ void UnswitchPredicate::predicateOn(Expr* tv_expr) {
 
   std::vector<PredicateInfo> ref_pred_info;
 
-  if (!lower_utils::hasRootToLoopLinearTransformations(out_tv) ||
+  if (!ir_utils::hasRootToLoopLinearTransformations(out_tv) ||
       (isIdModelOptionEnabled(IdModelEnableOption::UnswitchPredicate) &&
        GpuLower::current()->isTensorIndexerEnabled())) {
     ref_pred_info = gpu_lower->tensorIndexer().getPredicates(

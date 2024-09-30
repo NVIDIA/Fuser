@@ -175,3 +175,17 @@ class TestMatmul(NVFuserTest):
             ),
         ]
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+    def test_linear_slice(self):
+        def fusion_func(fd: FusionDefinition) -> None:
+            a = fd.define_tensor([1, 2, 3])
+            b = fd.define_tensor([4, 3])
+            c = fd.ops.linear(a, b)
+            d = fd.ops.slice(c, start_indices=[0, 0, 0], end_indices=[1, 2, 3])
+            fd.add_output(d)
+
+        inputs = [
+            torch.randn(1, 2, 3, device="cuda:0"),
+            torch.randn(4, 3, device="cuda:0"),
+        ]
+        self.exec_nvfuser(fusion_func, inputs)

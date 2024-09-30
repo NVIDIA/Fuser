@@ -142,4 +142,19 @@ size_t hash(const MatMulTileOptions& opts) {
       (hash(opts.cta_tile) << 2);
 }
 
+std::string toString(const MatmulDimRole role) {
+  switch (role) {
+    case MatmulDimRole::Batch:
+      return "Batch";
+    case MatmulDimRole::M:
+      return "M";
+    case MatmulDimRole::N:
+      return "N";
+    case MatmulDimRole::K:
+      return "K";
+  }
+  // Unreachable
+  return "Unrecognized role";
+}
+
 } // namespace nvfuser

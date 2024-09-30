@@ -14,8 +14,8 @@
 
 namespace nvfuser {
 
-//! Each ScheduleHeuristic maps to a scheduler in distinct CPP files.
-//! For instance, ScheduleHeuristic::PointWise maps to PointWiseScheduler in
+//! Each SchedulerType maps to a scheduler in distinct CPP files.
+//! For instance, SchedulerType::PointWise maps to PointWiseScheduler in
 //! pointwise.cpp.
 //!
 //!    Each of the scheduler needs to provide 3 interface functions:
@@ -34,7 +34,7 @@ namespace nvfuser {
 //!     2. canScheduleRunTime(
 //!            Fusion* fusion,
 //!            SchedulerRuntimeInfo& runtime_info,
-//!           HeuristicSummary* data_cache = nullptr):
+//!           HeuristicDataCache* data_cache = nullptr):
 //!        This function contains all canSchedule checks that will have to
 //!        involve runtime input information, and will be run both by the
 //!        segmenter and the kernel cache. The latency of this function will
@@ -46,7 +46,7 @@ namespace nvfuser {
 //!        This function will be called when compiling a kernel. It should apply
 //!        scheduling to the given fusion
 
-enum class ScheduleHeuristic {
+enum class SchedulerType {
   None,
   NoOp,
   PointWise,
@@ -60,19 +60,19 @@ enum class ScheduleHeuristic {
 };
 
 //! Define a schedule table to loop over all the heuristics in priority order.
-constexpr std::array<ScheduleHeuristic, 9> all_heuristics_in_priority_order = {
-    ScheduleHeuristic::ExprEval,
-    ScheduleHeuristic::NoOp,
-    ScheduleHeuristic::Matmul,
-    ScheduleHeuristic::Reduction,
-    ScheduleHeuristic::Transpose,
-    ScheduleHeuristic::PointWise,
-    ScheduleHeuristic::InnerPersistent,
-    ScheduleHeuristic::OuterPersistent,
-    ScheduleHeuristic::InnerOuterPersistent};
+constexpr std::array<SchedulerType, 9> all_heuristics_in_priority_order = {
+    SchedulerType::ExprEval,
+    SchedulerType::NoOp,
+    SchedulerType::Matmul,
+    SchedulerType::Reduction,
+    SchedulerType::Transpose,
+    SchedulerType::PointWise,
+    SchedulerType::InnerPersistent,
+    SchedulerType::OuterPersistent,
+    SchedulerType::InnerOuterPersistent};
 
-std::string toString(ScheduleHeuristic sh);
+std::string toString(SchedulerType sh);
 
-NVF_API std::ostream& operator<<(std::ostream& os, ScheduleHeuristic sh);
+NVF_API std::ostream& operator<<(std::ostream& os, SchedulerType sh);
 
 } // namespace nvfuser

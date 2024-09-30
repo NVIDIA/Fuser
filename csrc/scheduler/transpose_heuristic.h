@@ -21,6 +21,7 @@ namespace nvfuser {
 // are equivelent!
 class TransposeParams : public HeuristicParams {
  public:
+  TransposeParams() : HeuristicParams(SchedulerType::Transpose) {};
   static constexpr int64_t getMaxThreadsPerBlock() {
     return 128;
   }
@@ -53,20 +54,18 @@ class TransposeParams : public HeuristicParams {
   using HeuristicParams::HeuristicParams;
 
   // Warning: Does not check launch parameters!
-  bool sameAs(
-      const std::shared_ptr<HeuristicParams>& other_base) const override {
-    auto other_casted = std::dynamic_pointer_cast<TransposeParams>(other_base);
-    if (other_casted == nullptr) {
+  bool sameAs(const HeuristicParams* other_base) const override {
+    auto other = dynamic_cast<const TransposeParams*>(other_base);
+    if (other == nullptr) {
       return false;
     }
-    const TransposeParams& other = *other_casted;
-    bool attr_equal = other.cparams == cparams &&
-        other.split_before_tiling == split_before_tiling &&
-        other.dims_merged_with_1 == dims_merged_with_1 &&
-        other.dims_merged_with_2 == dims_merged_with_2 &&
-        other.vectorize_factor1 == vectorize_factor1 &&
-        other.vectorize_factor2 == vectorize_factor2 &&
-        other.tile_size1 == tile_size1 && other.tile_size2 == tile_size2;
+    bool attr_equal = other->cparams == cparams &&
+        other->split_before_tiling == split_before_tiling &&
+        other->dims_merged_with_1 == dims_merged_with_1 &&
+        other->dims_merged_with_2 == dims_merged_with_2 &&
+        other->vectorize_factor1 == vectorize_factor1 &&
+        other->vectorize_factor2 == vectorize_factor2 &&
+        other->tile_size1 == tile_size1 && other->tile_size2 == tile_size2;
     return attr_equal;
   }
 
@@ -150,8 +149,8 @@ class TransposeParams : public HeuristicParams {
         tile_size2);
   }
 
-  std::shared_ptr<HeuristicParams> clone() const override {
-    return std::make_shared<TransposeParams>(*this);
+  std::unique_ptr<HeuristicParams> clone() const override {
+    return std::make_unique<TransposeParams>(*this);
   }
 
   int64_t getThreadsPerBlock() const {

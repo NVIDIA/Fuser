@@ -12,7 +12,9 @@
 
 #include <debug.h>
 #include <fusion_executor/executor_params.h>
+#include <fusion_guard.h>
 #include <ir/base_nodes.h>
+#include <ir/cloner.h>
 #include <ir/container.h>
 #include <iter_visitor.h>
 #include <visibility.h>
@@ -25,11 +27,11 @@
 
 namespace nvfuser {
 
-//! Usage: FusionGuard and Fusion are required user interfaces for any operation
-//! underlying the code generator. In order to create values, expressions, and
-//! generate code a Fusion instance must be active. It is the responsibility of
-//! the user to create a Fusion instance and register it with the fusion guard.
-//! The simplest example of this is:
+//! Usage: FusionGuard (defined in fusion_guard.h) and Fusion are required user
+//! interfaces for any operation underlying the code generator. In order to
+//! create values, expressions, and generate code a Fusion instance must be
+//! active. It is the responsibility of the user to create a Fusion instance and
+//! register it with the fusion guard. The simplest example of this is:
 //!
 //!     Fusion fusion;
 //!     FusionGuard fg(&fusion);
@@ -64,24 +66,6 @@ class SegmentedFusion;
 class KernelArgumentHolder;
 
 class DynamicTransformConcretizationInfo;
-
-//! Fusion Guard is our "context manager". It holds the active fusion and
-//! allows it to be accessed anywhere through FusionGuard::getCurFusion()
-class FusionGuard {
- public:
-  //! Set the active fusion so it can be manipulated.
-  NVF_API explicit FusionGuard(Fusion* fusion);
-
-  NVF_API ~FusionGuard();
-
-  NVF_API static Fusion* getCurFusion();
-  static void setCurFusion(Fusion* fusion);
-
- private:
-  Fusion* prev_fusion_;
-
-  static thread_local Fusion* active_fusion_;
-};
 
 // Set the enum base to `int` so it can be safely serialized as a part of
 // serde::InputOutputAlias.
@@ -435,6 +419,19 @@ class NVF_API Fusion : public IrContainer {
   //! making modifications to the fusion, it can easily cause a segfault.
   std::vector<TensorView*> allTvs();
 
+  //! Specify id0 and id1 are mapped in the Exact graph. This should
+  //! be used only when absolutely necessary.
+  //!
+  //! Currently, id0->sameAs(id1) needs to hold. It will be an error
+  //! otherwise.
+  void registerExactMapping(IterDomain* id0, IterDomain* id1);
+
+  bool hasRegisteredExactMappings() const {
+    return hasManaged(exact_mappings_key);
+  }
+
+  DisjointSets<IterDomain*> registeredExactMappings() const;
+
  protected:
   friend SegmentCandidateFinder;
   friend SegmentedFusion;
@@ -494,7 +491,25 @@ class NVF_API Fusion : public IrContainer {
   int64_t expected_dynamic_smem_bytes_ = -1LL;
 
   std::unique_ptr<std::vector<TensorView*>> all_tvs_ptr_ = nullptr;
+
+  inline static const std::string exact_mappings_key = "exact_mappings";
 };
+
+template <typename T>
+size_t Fusion::manage(T data) {
+  std::any a = data;
+  return manage(a, [](IrCloner& cloner, std::any data) {
+    return std::any(cloner.clone(std::any_cast<T>(data)));
+  });
+}
+
+template <typename T>
+void Fusion::manage(std::string key, T data) {
+  std::any a = data;
+  manage(key, a, [](IrCloner& cloner, std::any data) {
+    return std::any(cloner.clone(std::any_cast<T>(data)));
+  });
+}
 
 // Returns true if all fusion outputs are expression evaluated.
 bool isExpressionEvaluated(Fusion* fusion);
