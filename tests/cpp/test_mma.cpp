@@ -1037,7 +1037,7 @@ TEST_P(HopperRS, MultipleTile) {
 
   auto tv2c = tv2->cacheBefore();
 
-  moveInnerBroadcastLeft(tv0);
+  matmul_utils::moveInnerBroadcastLeft(tv0);
   // Split by tile
   tv0->split(2, getK(macro));
   tv0->split(1, getM(macro));
