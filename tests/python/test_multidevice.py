@@ -39,7 +39,7 @@ def test_pointwise(multidevice_test):
     unsharded_input = torch.randn(num_devices, 4, device="cuda")
     sharded_input = unsharded_input[rank : rank + 1]
 
-    class MultiDeviceModel(FusionDefinition):
+    class Model(FusionDefinition):
         def definition(self):
             self.t0 = self.define_tensor(
                 (-1, -1), contiguity=(False, False), dtype=DataType.Float
@@ -55,6 +55,6 @@ def test_pointwise(multidevice_test):
             self.sched._set_device_mesh(self.t2, mesh)
             self.sched.parallelize(self.t0, 0, nvfuser.ParallelType.mesh_x)
 
-    fn = MultiDeviceModel()
+    fn = Model()
     outputs = fn.execute([sharded_input])
     torch.testing.assert_close(outputs[0], unsharded_input.relu() * 2)
