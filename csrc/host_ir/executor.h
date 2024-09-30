@@ -47,7 +47,7 @@ struct HostIrExecutorParams {
   bool cache_fusion_executor = false;
 };
 
-class HostIrExecutor final : public OptInDispatch {
+class HostIrExecutor final : public OptOutDispatch {
  public:
   HostIrExecutor(
       std::unique_ptr<HostIrContainer> container,
@@ -73,7 +73,7 @@ class HostIrExecutor final : public OptInDispatch {
   }
 
  private:
-  using OptInDispatch::handle;
+  using OptOutDispatch::handle;
   void handle(SetCurrentStream* set_current_stream) override;
   void handle(Synchronize* synchronize) override;
   void handle(PostOnStream* post_ir) override;
@@ -81,13 +81,9 @@ class HostIrExecutor final : public OptInDispatch {
   void handle(P2PCommunication* communication) override;
   void handle(Wait* wait) override;
   void handle(ForLoop* for_loop) override;
-  void handle(SliceOp* slice_op) override;
-  void handle(MatmulOp* matmul_op) override;
-  void handle(SelectOp* select_op) override;
-  void handle(ViewOp* view_op) override;
   void handle(StartCoalescing* start_coalescing) override;
   void handle(EndCoalescing* end_coalescing) override;
-  void handle(ReductionOp* reduction_op) override;
+  void unhandled(Statement* stmt) override;
 
   c10::cuda::CUDAStream getCUDAStream(Stream* stream);
 
