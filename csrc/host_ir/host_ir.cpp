@@ -206,7 +206,6 @@ bool Wait::sameAs(const Statement* other) const {
   return false;
 }
 
-
 StartCoalescing::StartCoalescing(IrBuilderPasskey passkey) : Expr(passkey) {
   NVF_ERROR(
       passkey.ir_container_->isA<HostIrContainer>(), // NOLINT
