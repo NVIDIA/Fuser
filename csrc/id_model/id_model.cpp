@@ -801,6 +801,16 @@ void IdModel::buildAllGraphs() {
   }
 
   buildLoopGraph();
+
+  if (getenv("DEBUG")) {
+    std::cerr << "Exact graph\n"
+              << idGraph(IdMappingMode::EXACT).toString() << "\n";
+    std::cerr << "loop promotion:\n";
+    for (const auto& [loop_group, promotion] : loop_promotion_map_) {
+      std::cerr << nvfuser::toString(loop_group) << " -> "
+                << promotion->toString() << "\n";
+    }
+  }
 }
 
 void IdModel::buildGraph(IdMappingMode mode) {

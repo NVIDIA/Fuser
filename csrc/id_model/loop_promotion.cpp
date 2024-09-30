@@ -95,6 +95,28 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
 }
 
 std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
+  // If there's no broadcast, any domain of each loop group is a valid
+  // promotion domain.
+  if (getenv("SKIP_LOOP_PROMOTION") ||
+      std::none_of(
+          idGraph(IdMappingMode::EXACT)
+              .disjointValSets()
+              .disjointSets()
+              .begin(),
+          idGraph(IdMappingMode::EXACT).disjointValSets().disjointSets().end(),
+          [](const ValGroup& exact_group) -> bool {
+            return exact_group->at(0)->as<IterDomain>()->isBroadcast();
+          })) {
+    return buildWithNoBroadcast();
+  }
+
+  // Cyclic exact graph is not supported. Specifically,
+  // computeCoveredGroups would fail as it uses ValGraphStmtSort.
+  NVF_ERROR(
+      !isCyclic(idGraph(IdMappingMode::EXACT)),
+      "Cyclic exact graph is not supported: ",
+      idGraph(IdMappingMode::EXACT).toString());
+
   // Make an intersection of the exact and loop map. This will group together
   // entries in each loop group that are exact with each other. This provides a
   // better graph to do promotion and replays.
@@ -896,6 +918,20 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::get(
     LoopPromotionMapBuilderCallback* callback) {
   LoopPromotionMapBuilder builder(id_model, inlining_info, callback);
   return builder.build();
+}
+
+std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
+    buildWithNoBroadcast() {
+  const auto& loop_graph = idGraph(IdMappingMode::LOOP);
+
+  std::unordered_map<ValGroup, IterDomain*> map;
+  for (const ValGroup& loop_group :
+       loop_graph.disjointValSets().disjointSets()) {
+    NVF_ERROR(!loop_group->empty());
+    map.emplace(loop_group, loop_group->front()->as<IterDomain>());
+  }
+
+  return map;
 }
 
 } // namespace nvfuser

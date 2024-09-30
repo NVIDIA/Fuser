@@ -4388,7 +4388,7 @@ TEST_F(ResizeTest, SliceConcatAdd) {
   EXPECT_TRUE(ref.equal(cg_outputs[0]));
 }
 
-TEST_F(ResizeTest, SliceRotateThenConcat) {
+TEST_F(ResizeTest, SliceThenRotate) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -4418,13 +4418,13 @@ TEST_F(ResizeTest, SliceRotateThenConcat) {
         IrBuilder::create<Val>(shape[0])}});
   auto tv5 = pad(tv4, {fusion.zeroVal(), IrBuilder::create<Val>(shape[0] / 2)});
 
-  auto tv6 = add(tv3, tv5);
+  auto tv6 = add(tv5, tv3);
 
-  auto tv7 = add(tv1, tv6);
+  fusion.addOutput(tv6);
 
-  fusion.addOutput(tv7);
-
-  tv2->setLoopDomain(tv2->getRootDomain());
+  if (getenv("LOOP")) {
+    tv2->setLoopDomain(tv2->getRootDomain());
+  }
 
   if (false) {
     std::vector<IterDomain*> tv3_loop{
@@ -4438,7 +4438,9 @@ TEST_F(ResizeTest, SliceRotateThenConcat) {
     tv3->setLoopDomain(tv3_loop);
   }
 
-  tv4->setLoopDomain(tv4->getRootDomain());
+  if (getenv("LOOP")) {
+    tv4->setLoopDomain(tv4->getRootDomain());
+  }
 
   if (false) {
     std::vector<IterDomain*> tv5_loop{
@@ -4492,6 +4494,498 @@ TEST_F(ResizeTest, SliceRotateThenConcat) {
   auto ref = at::cat(
       {t0.index({at::indexing::Slice(shape[0] / 2, at::indexing::None)}),
        t0.index({at::indexing::Slice(0, shape[0] / 2)})});
+
+  std::cout << "input:\n" << t0 << "\n";
+  std::cout << "ref:\n" << ref << "\n";
+  std::cout << "result:\n" << cg_outputs[0] << "\n";
+
+  EXPECT_TRUE(ref.equal(cg_outputs[0]));
+}
+
+TEST_F(ResizeTest, SliceRotateThenConcat) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape({8});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+
+  // TODO: Use cat instead of the manual pad + add
+
+  // left half
+  auto tv2 =
+      slice(tv1, {{fusion.zeroVal(), IrBuilder::create<Val>(shape[0] / 2)}});
+
+  auto tv3 = pad(tv2, {IrBuilder::create<Val>(shape[0] / 2), fusion.zeroVal()});
+
+  // right half
+  auto tv4 = slice(
+      tv1,
+      {{IrBuilder::create<Val>(shape[0] / 2),
+        IrBuilder::create<Val>(shape[0])}});
+  auto tv5 = pad(tv4, {fusion.zeroVal(), IrBuilder::create<Val>(shape[0] / 2)});
+
+  auto tv6 = add(tv5, tv3);
+
+  auto tv7 = add(tv1, tv6);
+
+  fusion.addOutput(tv7);
+
+  // This doesn't work...
+  if (getenv("LOOP")) {
+    tv2->setLoopDomain(tv2->getRootDomain());
+  }
+
+  if (false) {
+    std::vector<IterDomain*> tv3_loop{
+        tv2->getRootDomain()[0]->cloneWithoutRFactor(),
+    };
+    IrBuilder::create<Resize>(
+        tv3->getRootDomain().at(0),
+        tv3_loop.at(0),
+        fusion.zeroVal(),
+        IrBuilder::create<Val>(-shape[0] / 2, DataType::Index));
+    tv3->setLoopDomain(tv3_loop);
+  }
+
+  if (getenv("LOOP")) {
+    tv4->setLoopDomain(tv4->getRootDomain());
+  }
+
+  if (false) {
+    std::vector<IterDomain*> tv5_loop{
+        tv4->getRootDomain()[0]->cloneWithoutRFactor(),
+    };
+    IrBuilder::create<Resize>(
+        tv5->getRootDomain().at(0),
+        tv5_loop.at(0),
+        IrBuilder::create<Val>(-shape[0] / 2, DataType::Index),
+        fusion.zeroVal());
+    tv5->setLoopDomain(tv5_loop);
+  }
+
+  if (false) {
+    std::vector<IterDomain*> tv6_loop{
+        tv2->getRootDomain()[0]->cloneWithoutRFactor(),
+    };
+    auto left_half = IterDomain::resize(
+        tv6_loop[0],
+        fusion.zeroVal(),
+        IrBuilder::create<Val>(-shape[0] / 2, DataType::Index));
+    IrBuilder::create<Resize>(
+        tv6->getLogicalDomain().at(0),
+        left_half,
+        fusion.zeroVal(),
+        IrBuilder::create<Val>(shape[0] / 2, DataType::Index));
+    tv6->setLoopDomain(tv6_loop);
+  }
+
+#if 0
+  for (auto tv : {tv1, tv2, tv3, tv4, tv5, tv6}) {
+    tv->split(0, 32);
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(1)->parallelize(ParallelType::TIDx);
+  }
+#endif
+
+  // inlineMost();
+
+  fusion.print();
+  fusion.printKernel();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto ref =
+      t0 +
+      at::cat(
+          {t0.index({at::indexing::Slice(shape[0] / 2, at::indexing::None)}),
+           t0.index({at::indexing::Slice(0, shape[0] / 2)})});
+
+  std::cout << "input:\n" << t0 << "\n";
+  std::cout << "ref:\n" << ref << "\n";
+  std::cout << "result:\n" << cg_outputs[0] << "\n";
+
+  EXPECT_TRUE(ref.equal(cg_outputs[0]));
+}
+
+TEST_F(ResizeTest, SliceSliceRotateConcat) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape({32});
+  const int64_t rope_size = 8;
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+
+  auto tv2 =
+      slice(tv1, {{fusion.zeroVal(), IrBuilder::create<Val>(rope_size)}});
+
+  // left half
+  auto tv3 =
+      slice(tv2, {{fusion.zeroVal(), IrBuilder::create<Val>(rope_size / 2)}});
+
+  auto tv4 =
+      pad(tv3, {IrBuilder::create<Val>(rope_size / 2), fusion.zeroVal()});
+
+  // right half
+  auto tv5 = slice(
+      tv2,
+      {{IrBuilder::create<Val>(rope_size / 2),
+        IrBuilder::create<Val>(rope_size)}});
+  auto tv6 = pad(tv5, {fusion.zeroVal(), IrBuilder::create<Val>(rope_size)});
+
+  // concat
+  auto tv7 = add(tv6, tv4);
+
+  // auto tv7 = add(tv1, tv6);
+
+  fusion.addOutput(tv7);
+
+  // This doesn't work...
+  if (getenv("LOOP")) {
+    tv2->setLoopDomain(tv2->getRootDomain());
+  }
+
+  if (false) {
+    std::vector<IterDomain*> tv3_loop{
+        tv2->getRootDomain()[0]->cloneWithoutRFactor(),
+    };
+    IrBuilder::create<Resize>(
+        tv3->getRootDomain().at(0),
+        tv3_loop.at(0),
+        fusion.zeroVal(),
+        IrBuilder::create<Val>(-shape[0] / 2, DataType::Index));
+    tv3->setLoopDomain(tv3_loop);
+  }
+
+  if (getenv("LOOP")) {
+    tv4->setLoopDomain(tv4->getRootDomain());
+  }
+
+  if (false) {
+    std::vector<IterDomain*> tv5_loop{
+        tv4->getRootDomain()[0]->cloneWithoutRFactor(),
+    };
+    IrBuilder::create<Resize>(
+        tv5->getRootDomain().at(0),
+        tv5_loop.at(0),
+        IrBuilder::create<Val>(-shape[0] / 2, DataType::Index),
+        fusion.zeroVal());
+    tv5->setLoopDomain(tv5_loop);
+  }
+
+  if (false) {
+    std::vector<IterDomain*> tv6_loop{
+        tv2->getRootDomain()[0]->cloneWithoutRFactor(),
+    };
+    auto left_half = IterDomain::resize(
+        tv6_loop[0],
+        fusion.zeroVal(),
+        IrBuilder::create<Val>(-shape[0] / 2, DataType::Index));
+    IrBuilder::create<Resize>(
+        tv6->getLogicalDomain().at(0),
+        left_half,
+        fusion.zeroVal(),
+        IrBuilder::create<Val>(shape[0] / 2, DataType::Index));
+    tv6->setLoopDomain(tv6_loop);
+  }
+
+#if 0
+  for (auto tv : {tv1, tv2, tv3, tv4, tv5, tv6}) {
+    tv->split(0, 32);
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(1)->parallelize(ParallelType::TIDx);
+  }
+#endif
+
+  // inlineMost();
+
+  fusion.print();
+  fusion.printKernel();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto ref =
+      t0 +
+      at::cat(
+          {t0.index({at::indexing::Slice(shape[0] / 2, at::indexing::None)}),
+           t0.index({at::indexing::Slice(0, shape[0] / 2)})});
+
+  std::cout << "input:\n" << t0 << "\n";
+  std::cout << "ref:\n" << ref << "\n";
+  std::cout << "result:\n" << cg_outputs[0] << "\n";
+
+  EXPECT_TRUE(ref.equal(cg_outputs[0]));
+}
+
+TEST_F(ResizeTest, ReshapeSliceSliceRotateConcat) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape({16});
+  const int64_t rope_size = 4;
+  std::vector<int64_t> shape2({shape[0] / rope_size, rope_size});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  // [32]
+  auto tv1 = set(tv0);
+
+  // [4, 8]
+  auto tv2 = reshape(tv1, shape, shape2);
+
+  // [1, 8]
+  auto tv3 = slice(
+      tv2,
+      {{fusion.zeroVal(), IrBuilder::create<Val>(1)},
+       {fusion.zeroVal(), IrBuilder::create<Val>(shape2[1])}});
+
+  // left half
+  // [1, 4]
+  auto tv4 = slice(
+      tv3,
+      {{fusion.zeroVal(), IrBuilder::create<Val>(1)},
+       {fusion.zeroVal(), IrBuilder::create<Val>(shape2[1] / 2)}});
+  // [1, 8]
+  auto tv5 =
+      pad(tv4, {IrBuilder::create<Val>(shape2[1] / 2), fusion.zeroVal()});
+
+  // right half
+  // [1, 4]
+  auto tv6 = slice(
+      tv3,
+      {{fusion.zeroVal(), IrBuilder::create<Val>(1)},
+       {IrBuilder::create<Val>(shape2[1] / 2),
+        IrBuilder::create<Val>(shape2[1])}});
+  // [1, 8]
+  auto tv7 =
+      pad(tv6, {fusion.zeroVal(), IrBuilder::create<Val>(shape2[1] / 2)});
+
+  // concat
+  // [1, 8]
+  auto tv8 = add(tv7, tv5);
+
+  // [4, 8]
+  auto tv9 =
+      pad(tv8,
+          {fusion.zeroVal(),
+           fusion.zeroVal(),
+           fusion.zeroVal(),
+           IrBuilder::create<Val>(3)});
+  // [4, 8]
+
+  // [3, 8]
+  auto tv10 = slice(
+      tv2,
+      {{IrBuilder::create<Val>(1), IrBuilder::create<Val>(shape2[0])},
+       {fusion.zeroVal(), IrBuilder::create<Val>(shape2[1])}});
+  auto tv11 =
+      pad(tv10,
+          {fusion.zeroVal(),
+           fusion.zeroVal(),
+           IrBuilder::create<Val>(1),
+           fusion.zeroVal()});
+  // [4, 8]
+
+  auto tv12 = add(tv9, tv11);
+
+  auto tv13 = reshape(tv12, shape2, shape);
+
+  fusion.addOutput(tv13);
+
+  tv1->split(0, 4, false);
+
+  tv3->setLoopDomain(tv3->getRootDomain());
+
+  // tv4
+  {
+    auto outer_root = tv3->getRootDomain().at(0)->cloneWithoutRFactor();
+    // Replay tv3 root-to-logical resize
+    IrBuilder::create<Resize>(
+        tv4->getMaybeRootDomain().at(0),
+        outer_root,
+        fusion.zeroVal(),
+        IrBuilder::create<Val>(-shape2[0] + 1, DataType::Index));
+    tv4->setLoopDomain({outer_root, tv4->getLogicalDomain().at(1)});
+  }
+
+  // tv5
+  {
+    auto outer_root = tv3->getRootDomain().at(0)->cloneWithoutRFactor();
+    // Replay tv3 root-to-logical resize
+    IrBuilder::create<Resize>(
+        tv5->getMaybeRootDomain().at(0),
+        outer_root,
+        fusion.zeroVal(),
+        IrBuilder::create<Val>(-shape2[0] + 1, DataType::Index));
+    tv5->setLoopDomain({outer_root, tv5->getLogicalDomain().at(1)});
+  }
+
+  // tv6
+  {
+    auto outer_root = tv3->getRootDomain().at(0)->cloneWithoutRFactor();
+    // Replay tv3 root-to-logical resize
+    IrBuilder::create<Resize>(
+        tv6->getMaybeRootDomain().at(0),
+        outer_root,
+        fusion.zeroVal(),
+        IrBuilder::create<Val>(-shape2[0] + 1, DataType::Index));
+    tv6->setLoopDomain({outer_root, tv6->getLogicalDomain().at(1)});
+  }
+
+  // tv7
+  {
+    auto outer_root = tv3->getRootDomain().at(0)->cloneWithoutRFactor();
+    // Replay tv3 root-to-logical resize
+    IrBuilder::create<Resize>(
+        tv7->getMaybeRootDomain().at(0),
+        outer_root,
+        fusion.zeroVal(),
+        IrBuilder::create<Val>(-shape2[0] + 1, DataType::Index));
+    tv7->setLoopDomain({outer_root, tv7->getLogicalDomain().at(1)});
+  }
+
+  // tv8
+  {
+    auto outer_root = tv3->getRootDomain().at(0)->cloneWithoutRFactor();
+    // Replay tv3 root-to-logical resize
+    IrBuilder::create<Resize>(
+        tv8->getMaybeRootDomain().at(0),
+        outer_root,
+        fusion.zeroVal(),
+        IrBuilder::create<Val>(-shape2[0] + 1, DataType::Index));
+    tv8->setLoopDomain({outer_root, tv8->getLogicalDomain().at(1)});
+  }
+
+  // tv9
+  {
+    auto outer_root = tv3->getRootDomain().at(0)->cloneWithoutRFactor();
+    // Replay tv3 root-to-logical resize
+    IrBuilder::create<Resize>(
+        tv9->getMaybeRootDomain().at(0),
+        outer_root,
+        fusion.zeroVal(),
+        IrBuilder::create<Val>(-shape2[0] + 1, DataType::Index));
+    tv9->setLoopDomain({outer_root, tv9->getLogicalDomain().at(1)});
+  }
+
+  // tv10
+  tv10->setLoopDomain(tv10->getRootDomain());
+
+  // tv11
+  {
+    auto outer_root = tv10->getRootDomain().at(0)->cloneWithoutRFactor();
+    // Replay tv10 root-to-logical resize
+    IrBuilder::create<Resize>(
+        tv11->getMaybeRootDomain().at(0),
+        outer_root,
+        IrBuilder::create<Val>(-1, DataType::Index),
+        fusion.zeroVal());
+    tv11->setLoopDomain({outer_root, tv11->getLogicalDomain().at(1)});
+  }
+
+  // tv12
+  {
+    auto outer_root = tv3->getRootDomain().at(0)->cloneWithoutRFactor();
+    // Replay tv3 root-to-logical resize
+    auto sliced_root = IterDomain::resize(
+        outer_root,
+        fusion.zeroVal(),
+        IrBuilder::create<Val>(-shape2[0] + 1, DataType::Index));
+    IrBuilder::create<Resize>(
+        tv12->getMaybeRootDomain().at(0),
+        sliced_root,
+        fusion.zeroVal(),
+        IrBuilder::create<Val>(shape2[0] - 1, DataType::Index));
+    tv12->setLoopDomain({outer_root, tv12->getLogicalDomain().at(1)});
+  }
+
+  // tv13
+  {
+    auto outer_root = tv3->getRootDomain().at(0)->cloneWithoutRFactor();
+    // Replay tv3 root-to-logical resize
+    auto sliced_root = IterDomain::resize(
+        outer_root,
+        fusion.zeroVal(),
+        IrBuilder::create<Val>(-shape2[0] + 1, DataType::Index));
+    IrBuilder::create<Resize>(
+        tv13->getMaybeRootDomain().at(0),
+        sliced_root,
+        fusion.zeroVal(),
+        IrBuilder::create<Val>(shape2[0] - 1, DataType::Index));
+    tv13->setLoopDomain({outer_root, tv13->getRootDomain().at(1)});
+  }
+
+  for (auto tv : fusion.allTvs()) {
+    if (tv->nDims() == 2) {
+      tv->axis(0)->parallelize(ParallelType::TIDx);
+    }
+  }
+
+  if (getenv("INLINE")) {
+    // inlineMost();
+    for (auto tv : fusion.allTvs()) {
+      if (tv->nDims() == 2) {
+        tv->inlineAt(1);
+      }
+    }
+  }
+
+  tv1->axis(-1)->parallelize(ParallelType::Vectorize);
+
+  fusion.print();
+  fusion.printKernel();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto t1 = t0.index({at::indexing::Slice(0, rope_size)});
+  auto t2 = t1.index({at::indexing::Slice(0, rope_size / 2)});
+  auto t3 = t1.index({at::indexing::Slice(rope_size / 2, rope_size)});
+  auto t4 = at::cat({t3, t2});
+  auto t5 = t0.index({at::indexing::Slice(rope_size)});
+  auto t6 = at::cat({t4, t5});
+  auto ref = t6;
+
+  std::cout << "input:\n" << t0 << "\n";
+  std::cout << "ref:\n" << ref << "\n";
+  std::cout << "result:\n" << cg_outputs[0] << "\n";
 
   EXPECT_TRUE(ref.equal(cg_outputs[0]));
 }

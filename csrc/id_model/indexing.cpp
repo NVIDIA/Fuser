@@ -864,8 +864,10 @@ Val* TensorIndexer::getLinearIndex(
       " not found in ",
       expr->toString());
 
-  std::cerr << "getLinearIndex: " << tv->toString() << " in "
-            << expr->toString();
+  if (getenv("DEBUG")) {
+    std::cerr << "getLinearIndex: " << tv->toString() << " in "
+              << expr->toString();
+  }
 
   const bool as_consumer =
       std::find(expr->outputs().begin(), expr->outputs().end(), tv) !=
@@ -918,10 +920,11 @@ IndexingInfo TensorIndexer::computeIndex(
   const auto loop_domains = getLoopDomains(expr);
 
   const ValGroups loop_groups = traversalGraph().toGroups(loop_domains);
-  std::cerr << "computeIndex getExprsBetween: "
-            << nvfuser::toString(loop_groups) << " -> "
-            << nvfuser::toString(index_groups) << "\n";
-
+  if (getenv("DEBUG")) {
+    std::cerr << "computeIndex getExprsBetween: "
+              << nvfuser::toString(loop_groups) << " -> "
+              << nvfuser::toString(index_groups) << "\n";
+  }
   const ExprPath<ExprGroup> traversal_path = IndexingTraversal::getExprsBetween(
       expr, traversalGraph(), loop_groups, index_groups);
 
@@ -945,6 +948,10 @@ IndexingInfo TensorIndexer::computeIndex(
   }
 
   for (const auto& [expr_group, direction] : traversal_path) {
+    if (getenv("DEBUG")) {
+      std::cerr << "Traversing " << direction << ": "
+                << expr_group->front()->toString();
+    }
     index_compute.propagate(expr_group, direction);
 
     // Propagate loop dependencies from inputs to outputs
@@ -1046,6 +1053,10 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
     const std::vector<ForLoop*>& for_loops,
     ForLoop* unswitched_loop) const {
   const auto& zero_val = tv->fusion()->zeroVal();
+
+  if (getenv("DEBUG")) {
+    std::cerr << "getPredicates: " << tv->toString() << "\n";
+  }
 
   const std::vector<IterDomain*>& predicate_domains =
       getPredicateDomains(tv, expr);

@@ -61,6 +61,8 @@ class LoopPromotionMapBuilder {
 
   std::unordered_map<ValGroup, IterDomain*> build();
 
+  std::unordered_map<ValGroup, IterDomain*> buildWithNoBroadcast();
+
   ValGraph& idGraph(IdMappingMode mode);
   const ValGraph& idGraph(IdMappingMode mode) const;
 

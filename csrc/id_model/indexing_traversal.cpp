@@ -73,17 +73,38 @@ bool IndexingTraversal::excludeFromTraversal(const NodeType& group) const {
 
   ValGroup inp = is_forward ? inputs_(*eg).at(0) : outputs_(*eg).at(0);
 
-  const ExprGroups& other_ops = is_forward ? uses_(inp) : definition_(inp);
+  const ExprGroups& uses_of_inp = uses_(inp);
+  const ExprGroups& defs_of_inp = definition_(inp);
 
   // If there's any other resize op that's in the resize path, exclude
   // this resize
-
-  for (const ExprGroup& expr_g : other_ops) {
-    if (is_included_resize(expr_g)) {
-      return true;
+#if 0
+  std::cerr << "Checking if any other op is included. is_forward: "
+            << is_forward << "\n"
+            << resize->toString();
+#endif
+  for (const auto& use_or_def : {uses_of_inp, defs_of_inp}) {
+    for (const ExprGroup& expr_g : use_or_def) {
+      if (expr_g == *eg) {
+        continue;
+      }
+      // Don't care if already visited
+      if (isVisited(expr_g)) {
+        continue;
+      }
+      auto resize = dynamic_cast<Resize*>((expr_g)->front());
+      if (resize != nullptr) {
+        // std::cerr << "Other resize: " << resize->toString();
+        if (is_included_resize(expr_g)) {
+          // std::cerr << "Other resize included\n";
+          return true;
+        }
+        // std::cerr << "Other resize not included\n";
+      }
     }
   }
 
+  // std::cerr << "Not exluding: " << resize->toString();
   return false;
 }
 
