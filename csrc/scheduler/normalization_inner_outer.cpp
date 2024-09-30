@@ -834,7 +834,7 @@ void scheduleReductionCombinedOuter(
             axisID, NamedScalar::getParallelDim(ParallelType::TIDx));
         outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::TIDx);
       }
-      if (rparams.combined_split_grid_inner_dim) {
+      if (rparams->combined_split_grid_inner_dim) {
         outer_reduction_tv->split(
             axisID, NamedScalar::getParallelDim(ParallelType::BIDy));
       }
@@ -860,7 +860,7 @@ void scheduleReductionCombinedOuter(
         outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::TIDx);
       }
 
-      if (rparams.combined_split_grid_inner_dim) {
+      if (rparams->combined_split_grid_inner_dim) {
         outer_reduction_tv->split(
             axisID, NamedScalar::getParallelDim(ParallelType::BIDy));
       }
