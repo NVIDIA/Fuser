@@ -8,7 +8,6 @@
 #include <dispatch.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
-#include <host_ir/container.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ir/cloner.h>
@@ -349,16 +348,12 @@ bool Expr::sameAs(const Statement* other) const {
 }
 
 kir::Predicate* Expr::predicate() const {
-  NVF_ERROR(
-      (container()->isOneOf<kir::Kernel, hir::HostIrContainer>()),
-      "Function invalid for fusion.");
+  NVF_ERROR(container()->isA<kir::Kernel>(), "Function invalid for fusion.");
   return predicate_;
 }
 
 void Expr::setPredicate(kir::Predicate* predicate) {
-  NVF_ERROR(
-      (container()->isOneOf<kir::Kernel, hir::HostIrContainer>()),
-      "Function invalid for fusion.");
+  NVF_ERROR(container()->isA<kir::Kernel>(), "Function invalid for fusion.");
   predicate_ = predicate;
 }
 

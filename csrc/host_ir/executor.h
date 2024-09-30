@@ -11,7 +11,7 @@
 #include <expr_evaluator.h>
 #include <fusion_executor/executor.h>
 #include <host_ir/container.h>
-#include <ir/all_nodes.h>
+#include <host_ir/host_ir.h>
 #include <kernel_cache.h>
 #include <multidevice/communicator.h>
 
@@ -81,7 +81,6 @@ class HostIrExecutor final : public OptInDispatch {
   void handle(P2PCommunication* communication) override;
   void handle(Wait* wait) override;
   void handle(ForLoop* for_loop) override;
-  void handle(kir::IfThenElse* if_then_else) override;
   void handle(SliceOp* slice_op) override;
   void handle(MatmulOp* matmul_op) override;
   void handle(SelectOp* select_op) override;

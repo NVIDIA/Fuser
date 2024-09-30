@@ -63,8 +63,8 @@ Predicate::Predicate(IrBuilderPasskey passkey, Val* value)
       value_(value) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      (passkey.ir_container_->isOneOf<kir::Kernel, hir::HostIrContainer>()),
-      "IR type only valid for Kernel or HostIr container.");
+      passkey.ir_container_->isA<kir::Kernel>(),
+      "IR type only valid for Kernel container.");
   NVF_ERROR(value != nullptr);
 }
 
