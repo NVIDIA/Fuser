@@ -21,8 +21,8 @@
 #include <python_frontend/fusion_definition.h>
 #include <python_frontend/fusion_record.h>
 #include <python_frontend/python_bindings.h>
-#include <scheduler/heuristic_types.h>
 #include <scheduler/registry.h>
+#include <scheduler/scheduler_types.h>
 #include <torch/csrc/jit/python/pybind_utils.h>
 #include <transform_replay.h>
 #include <iostream>
@@ -541,17 +541,17 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("global", MemoryType::Global);
 
   //! Scheduler Type for scheduling
-  py::enum_<ScheduleHeuristic>(nvfuser, "SchedulerHeuristic")
-      .value("none", ScheduleHeuristic::None)
-      .value("no_op", ScheduleHeuristic::NoOp)
-      .value("pointwise", ScheduleHeuristic::PointWise)
-      .value("matmul", ScheduleHeuristic::Matmul)
-      .value("reduction", ScheduleHeuristic::Reduction)
-      .value("inner_persistent", ScheduleHeuristic::InnerPersistent)
-      .value("inner_outer_persistent", ScheduleHeuristic::InnerOuterPersistent)
-      .value("outer_persistent", ScheduleHeuristic::OuterPersistent)
-      .value("transpose", ScheduleHeuristic::Transpose)
-      .value("expr_eval", ScheduleHeuristic::ExprEval);
+  py::enum_<SchedulerType>(nvfuser, "SchedulerType")
+      .value("none", SchedulerType::None)
+      .value("no_op", SchedulerType::NoOp)
+      .value("pointwise", SchedulerType::PointWise)
+      .value("matmul", SchedulerType::Matmul)
+      .value("reduction", SchedulerType::Reduction)
+      .value("inner_persistent", SchedulerType::InnerPersistent)
+      .value("inner_outer_persistent", SchedulerType::InnerOuterPersistent)
+      .value("outer_persistent", SchedulerType::OuterPersistent)
+      .value("transpose", SchedulerType::Transpose)
+      .value("expr_eval", SchedulerType::ExprEval);
 
   nvfuser.def("compute_contiguity", computeContiguity);
   nvfuser.def("compute_tensor_descriptor", computeTensorDescriptor);
@@ -3451,43 +3451,44 @@ void initNvFuserPythonBindings(PyObject* module) {
   nvf_sched.def(
       "can_schedule",
       [](FusionDefinition::SchedOperators& self,
-         const ScheduleHeuristic& heuristic) {
+         const SchedulerType& scheduler_type) {
         NVF_CHECK(
             self.validUse(),
             "Attempting to use a SchedOperators Op prior to definition!");
         return self.fusion_definition->userSchedule()->canScheduleDebug(
-            heuristic);
+            scheduler_type);
       },
-      py::arg("heuristic"));
+      py::arg("scheduler_type"));
   nvf_sched.def(
       "find_compatible_schedulers", [](FusionDefinition::SchedOperators& self) {
         NVF_CHECK(
             self.validUse(),
             "Attempting to use a SchedOperators Op prior to definition!");
 
-        std::vector<ScheduleHeuristic> valid_heuristics;
-        valid_heuristics.reserve(all_heuristics_in_priority_order.size());
+        std::vector<SchedulerType> valid_scheduler_types;
+        valid_scheduler_types.reserve(all_heuristics_in_priority_order.size());
         std::copy_if(
             all_heuristics_in_priority_order.begin(),
             all_heuristics_in_priority_order.end(),
-            std::back_inserter(valid_heuristics),
+            std::back_inserter(valid_scheduler_types),
             [sched = self.fusion_definition->userSchedule()](
-                ScheduleHeuristic heuristic) {
-              return sched->canSchedule(heuristic);
+                SchedulerType scheduler_type) {
+              return sched->canSchedule(scheduler_type);
             });
-        return valid_heuristics;
+        return valid_scheduler_types;
       });
   nvf_sched.def(
       "schedule",
       [](FusionDefinition::SchedOperators& self,
-         const ScheduleHeuristic& heuristic) {
+         const SchedulerType& scheduler_type) {
         NVF_CHECK(
             self.validUse(),
             "Attempting to use a SchedOperators Op prior to definition!");
         UserSchedule* sched = self.fusion_definition->userSchedule();
-        auto&& [can_schedule, error_msg] = sched->canScheduleDebug(heuristic);
+        auto&& [can_schedule, error_msg] =
+            sched->canScheduleDebug(scheduler_type);
         NVF_CHECK(can_schedule, error_msg);
-        sched->scheduleWithHeuristic(heuristic);
+        sched->scheduleWithType(scheduler_type);
       },
       py::arg("heuristic"));
 }

@@ -2521,8 +2521,12 @@ std::string IterDomain::toInlineString(int indent_size) const {
 
 // Returns a new IterDomain matching properties of this except for
 // is_rfactor_domain_
-IterDomain* IterDomain::cloneWithoutRFactor() const {
+IterDomain* IterDomain::cloneWithoutRFactor(bool map_with_original) {
   auto cloned = IterDomainBuilder(this).resetRfactor().build();
+
+  if (map_with_original) {
+    fusion()->registerExactMapping(this, cloned);
+  }
 
   return cloned;
 }
@@ -3040,6 +3044,7 @@ TensorDomain::TensorDomain(
       logical_domain_(std::move(logical_domain)),
       allocation_domain_(std::move(allocation_domain)),
       loop_domain_(std::move(loop_domain)),
+      initial_loop_domain_(loop_domain_),
       contiguity_(
           contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
                              : std::move(contiguity)) {
@@ -3069,6 +3074,7 @@ TensorDomain::TensorDomain(IrBuilderPasskey passkey, const TensorDomain* src)
       logical_domain_(src->logical_domain_),
       allocation_domain_(src->allocation_domain_),
       loop_domain_(src->loop_domain_),
+      initial_loop_domain_(src->initial_loop_domain_),
       additional_ids_(src->additional_ids_),
       no_bcast_domain_(src->no_bcast_domain_),
       no_reduction_domain_(src->no_reduction_domain_),
@@ -3081,6 +3087,7 @@ TensorDomain::TensorDomain(const TensorDomain* src, IrCloner* ir_cloner)
       logical_domain_(ir_cloner->clone(src->logical_domain_)),
       allocation_domain_(ir_cloner->clone(src->allocation_domain_)),
       loop_domain_(ir_cloner->clone(src->loop_domain_)),
+      initial_loop_domain_(ir_cloner->clone(src->initial_loop_domain_)),
       additional_ids_(ir_cloner->clone(src->additional_ids_)),
       no_bcast_domain_(ir_cloner->clone(src->no_bcast_domain_)),
       no_reduction_domain_(ir_cloner->clone(src->no_reduction_domain_)),
@@ -3610,6 +3617,7 @@ void TensorDomain::setLoopDomain(std::vector<IterDomain*> new_loop_domain) {
       ". Logical: ",
       toDelimitedString(logical_domain_));
   loop_domain_ = std::move(new_loop_domain);
+  initial_loop_domain_ = loop_domain_;
   resetDomains();
 }
 
@@ -3626,11 +3634,12 @@ void TensorDomain::setAllocationDomain(
 }
 
 std::vector<IterDomain*> TensorDomain::allIDs() const {
-  std::array<const std::vector<IterDomain*>*, 5> all_domains = {
+  std::array<const std::vector<IterDomain*>*, 6> all_domains = {
       &logical_domain_,
       &root_domain_,
-      &allocation_domain_,
+      &initial_loop_domain_,
       &loop_domain_,
+      &allocation_domain_,
       &additional_ids_};
   VectorOfUniqueEntries<IterDomain*> discovered_ids;
   for (auto domain : all_domains) {
@@ -3702,6 +3711,10 @@ Split::Split(
   // and need to check BestEffortReplay::findFirstMismatchedID addInput(factor);
   addAttribute(factor);
   addDataAttribute(inner_split);
+}
+
+Val* Split::isDivisible() const {
+  return IrBuilder::isDivisibleExpr(in()->extent(), factor());
 }
 
 std::string Split::toString(int indent_size) const {

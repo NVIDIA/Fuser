@@ -419,6 +419,19 @@ class NVF_API Fusion : public IrContainer {
   //! making modifications to the fusion, it can easily cause a segfault.
   std::vector<TensorView*> allTvs();
 
+  //! Specify id0 and id1 are mapped in the Exact graph. This should
+  //! be used only when absolutely necessary.
+  //!
+  //! Currently, id0->sameAs(id1) needs to hold. It will be an error
+  //! otherwise.
+  void registerExactMapping(IterDomain* id0, IterDomain* id1);
+
+  bool hasRegisteredExactMappings() const {
+    return hasManaged(exact_mappings_key);
+  }
+
+  DisjointSets<IterDomain*> registeredExactMappings() const;
+
  protected:
   friend SegmentCandidateFinder;
   friend SegmentedFusion;
@@ -478,6 +491,8 @@ class NVF_API Fusion : public IrContainer {
   int64_t expected_dynamic_smem_bytes_ = -1LL;
 
   std::unique_ptr<std::vector<TensorView*>> all_tvs_ptr_ = nullptr;
+
+  inline static const std::string exact_mappings_key = "exact_mappings";
 };
 
 template <typename T>

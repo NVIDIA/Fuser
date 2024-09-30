@@ -16,39 +16,25 @@
 #include <visibility.h>
 
 namespace nvfuser {
-
-// Move the broadcast axes to the left on the specified number of inner
-// dimensions e.g.  (when number_of_inner_pos == 3):
-//      [... I0, B, I1] -> [... B, I0, I1]
-//  should probably be only used to order innermost mnk axes.
-void moveInnerBroadcastLeft(TensorView* tv, int64_t number_of_inner_pos = 3);
-
-NVF_API void scheduleMatmul(Fusion* fusion, const MatmulParams& params);
-
 class MatmulScheduler : public SchedulerEntry {
  public:
-  explicit MatmulScheduler(
+  bool canScheduleCompileTime(Fusion* fusion) override;
+
+  bool canScheduleRunTime(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
+      HeuristicDataCache* data_cache = nullptr) override;
 
-  void schedule(Fusion* fusion) override;
-
-  static bool canScheduleCompileTime(Fusion* fusion);
-
-  static bool canScheduleRunTime(
+  std::unique_ptr<HeuristicParams> computeHeuristics(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
-  constexpr static ScheduleHeuristic heuristicType() {
-    return ScheduleHeuristic::Matmul;
+      HeuristicDataCache* data_cache = nullptr) override;
+
+  void schedule(Fusion* fusion, const HeuristicParams* params) override;
+
+  constexpr static SchedulerType schedulerType() {
+    return SchedulerType::Matmul;
   }
-
- private:
-  void computeHeuristics(
-      Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
 };
 
 } // namespace nvfuser

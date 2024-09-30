@@ -9,6 +9,7 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
+#include <abstract_tensor.h>
 #include <device_lower/utils.h>
 #include <fusion.h>
 #include <fusion_executor/executor_utils.h>
@@ -1124,6 +1125,505 @@ TEST_F(NVFuserTest, FusionSASSDumpError_CUDA) {
 
   auto cg_outputs = fe.runFusion({t0});
   testValidate(fe.kernel(), cg_outputs, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(NVFuserTest, ProveLinearAndGetStride) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto size = IrBuilder::create<Val>(DataType::Index);
+  IterDomainBuilder builder(fusion.zeroVal(), size);
+
+  ValGraph g;
+  auto id0 = builder.build();
+  auto id1 = builder.build();
+  g.initializeVal(id0);
+  g.initializeVal(id1);
+  ValGroupAndItsGraph g0{g.toGroup(id0), &g};
+  ValGroupAndItsGraph g1{g.toGroup(id1), &g};
+
+  AbstractTensor v1_({g0, g1});
+  AbstractTensor v2_ = v1_;
+  AbstractTensor v3_ = v1_;
+  AbstractTensor v4_ = v1_;
+
+  // v1:
+  //        I0         I1
+  //       /  \       /  \.
+  //          128        128
+  //          / \        / \.
+  //         /   \      /   \.
+  //        /     \    /     \.
+  //       /       \  /       \.
+  //      /         \/        64.
+  //     /          /\       /  \.
+  //    /          /  \     /    \.
+  //   16         2    8   8      8
+  //                    \ /
+  //                    xor
+  //                    / \.
+  //                   8   8
+  v1_.split(-1, 128);
+  v1_.split(-1, 64);
+  v1_.split(-1, 8);
+  v1_.split(0, 128);
+  v1_.split(1, 8);
+  // [I0o, 16, 8, I1o, 2, 8, 8]
+  v1_.reorder({{3, 1}, {2, 4}});
+  // [I0o, I1o, 16, 2, 8, 8, 8]
+  v1_.swizzle(SwizzleType::XOR, 4, 5);
+  auto v1__ = v1_.as<ValGroupAndItsGraph>();
+  std::vector<ValGroup> v1(v1__.begin(), v1__.end());
+
+  // v2:
+  //        I0         I1
+  //       /  \       /  \.
+  //          128        128
+  //          / \        / \.
+  //         2  64      8  16
+  //            / \        / \.
+  //           8   8      1   64
+  v2_.split(-1, 128);
+  v2_.split(-1, 16);
+  v2_.split(-1, 64);
+  v2_.split(0, 128);
+  v2_.split(1, 64);
+  v2_.split(2, 8);
+  // [I0o, 2, 8, 8, I1o, 8, 1, 64]
+  v2_.reorder({{4, 1}});
+  // [I0o, I1o, 2, 8, 8, 8, 1, 64]
+  auto v2__ = v2_.as<ValGroupAndItsGraph>();
+  std::vector<ValGroup> v2(v2__.begin(), v2__.end());
+
+  // v3:
+  //        I0         I1
+  //       /  \       /  \.
+  //          32         256
+  //          / \        / \.
+  //         /   \      /   \.
+  //        /     \    /     \.
+  //       /       \  /       \.
+  //      /         \/        64.
+  //     /          /\       /  \.
+  //    /          /  \     /    \.
+  //   4          4    8   8      8
+  //                    \ /
+  //                    xor
+  //                   /   \.
+  //                  8     8
+  v3_.split(-1, 256);
+  v3_.split(-1, 64);
+  v3_.split(-1, 8);
+  v3_.split(0, 32);
+  v3_.split(1, 8);
+  // [I0o, 4, 8, I1o, 4, 8, 8]
+  v3_.reorder({{3, 1}, {2, 4}});
+  // [I0o, I1o, 4, 4, 8, 8, 8]
+  v3_.swizzle(SwizzleType::XOR, 4, 5);
+  auto v3__ = v3_.as<ValGroupAndItsGraph>();
+  std::vector<ValGroup> v3(v3__.begin(), v3__.end());
+
+  // v4:
+  //        I0         I1
+  //       /  \       /  \.
+  //          32         256
+  //          / \        / \.
+  //         2  16      2  128
+  //            / \        / \.
+  //           2   8      2   64
+  v4_.split(-1, 256);
+  v4_.split(-1, 128);
+  v4_.split(-1, 64);
+  v4_.split(0, 32);
+  v4_.split(1, 16);
+  v4_.split(2, 8);
+  // [I0o, 2, 2, 8, I1o, 2, 2, 64]
+  v4_.reorder({{4, 1}});
+  // [I0o, I1o, 2, 2, 8, 2, 2, 64]
+  auto v4__ = v4_.as<ValGroupAndItsGraph>();
+  std::vector<ValGroup> v4(v4__.begin(), v4__.end());
+
+  // v1 in v1
+  Val* v1_0_in_v1 = lower_utils::proveLinearAndGetStride(g, v1[0], v1);
+  EXPECT_NE(v1_0_in_v1, nullptr);
+
+  Val* v1_1_in_v1 = lower_utils::proveLinearAndGetStride(g, v1[1], v1);
+  EXPECT_EQ(simplifyExpr(v1_1_in_v1)->value(), 16384);
+
+  Val* v1_2_in_v1 = lower_utils::proveLinearAndGetStride(g, v1[2], v1);
+  EXPECT_EQ(simplifyExpr(v1_2_in_v1)->value(), 1024);
+
+  Val* v1_3_in_v1 = lower_utils::proveLinearAndGetStride(g, v1[3], v1);
+  EXPECT_EQ(simplifyExpr(v1_3_in_v1)->value(), 512);
+
+  Val* v1_4_in_v1 = lower_utils::proveLinearAndGetStride(g, v1[4], v1);
+  EXPECT_EQ(simplifyExpr(v1_4_in_v1)->value(), 64);
+
+  Val* v1_5_in_v1 = lower_utils::proveLinearAndGetStride(g, v1[5], v1);
+  EXPECT_EQ(simplifyExpr(v1_5_in_v1)->value(), 8);
+
+  Val* v1_6_in_v1 = lower_utils::proveLinearAndGetStride(g, v1[6], v1);
+  EXPECT_EQ(simplifyExpr(v1_6_in_v1)->value(), 1);
+
+  // v1 in v2
+  Val* v1_0_in_v2 = lower_utils::proveLinearAndGetStride(g, v1[0], v2);
+  EXPECT_NE(v1_0_in_v2, nullptr);
+
+  Val* v1_1_in_v2 = lower_utils::proveLinearAndGetStride(g, v1[1], v2);
+  EXPECT_EQ(simplifyExpr(v1_1_in_v2)->value(), 65536);
+
+  Val* v1_2_in_v2 = lower_utils::proveLinearAndGetStride(g, v1[2], v2);
+  EXPECT_EQ(simplifyExpr(v1_2_in_v2)->value(), 4096);
+
+  Val* v1_3_in_v2 = lower_utils::proveLinearAndGetStride(g, v1[3], v2);
+  EXPECT_EQ(simplifyExpr(v1_3_in_v2)->value(), 256);
+
+  Val* v1_4_in_v2 = lower_utils::proveLinearAndGetStride(g, v1[4], v2);
+  EXPECT_EQ(v1_4_in_v2, nullptr);
+
+  Val* v1_5_in_v2 = lower_utils::proveLinearAndGetStride(g, v1[5], v2);
+  EXPECT_EQ(v1_5_in_v2, nullptr);
+
+  Val* v1_6_in_v2 = lower_utils::proveLinearAndGetStride(g, v1[6], v2);
+  EXPECT_EQ(simplifyExpr(v1_6_in_v2)->value(), 1);
+
+  // v1 in v3
+  Val* v1_0_in_v3 = lower_utils::proveLinearAndGetStride(g, v1[0], v3);
+  EXPECT_NE(v1_0_in_v3, nullptr);
+
+  Val* v1_1_in_v3 = lower_utils::proveLinearAndGetStride(g, v1[1], v3);
+  EXPECT_EQ(v1_1_in_v3, nullptr);
+
+  Val* v1_2_in_v3 = lower_utils::proveLinearAndGetStride(g, v1[2], v3);
+  EXPECT_EQ(v1_2_in_v3, nullptr);
+
+  Val* v1_3_in_v3 = lower_utils::proveLinearAndGetStride(g, v1[3], v3);
+  EXPECT_EQ(simplifyExpr(v1_3_in_v3)->value(), 512);
+
+#if 0
+  // Not support yet, need to map mathematical equivalence in the almost-exact graph.
+  Val* v1_4_in_v3 = lower_utils::proveLinearAndGetStride(g, v1[4], v3);
+  EXPECT_EQ(simplifyExpr(v1_4_in_v3)->value(), 64);
+
+  Val* v1_5_in_v3 = lower_utils::proveLinearAndGetStride(g, v1[5], v3);
+  EXPECT_EQ(simplifyExpr(v1_5_in_v3)->value(), 8);
+#endif
+
+  Val* v1_6_in_v3 = lower_utils::proveLinearAndGetStride(g, v1[6], v3);
+  EXPECT_EQ(simplifyExpr(v1_6_in_v3)->value(), 1);
+
+  // v1 in v4
+  Val* v1_0_in_v4 = lower_utils::proveLinearAndGetStride(g, v1[0], v4);
+  EXPECT_NE(v1_0_in_v4, nullptr);
+
+  Val* v1_1_in_v4 = lower_utils::proveLinearAndGetStride(g, v1[1], v4);
+  EXPECT_EQ(v1_1_in_v4, nullptr);
+
+  Val* v1_2_in_v4 = lower_utils::proveLinearAndGetStride(g, v1[2], v4);
+  EXPECT_EQ(v1_2_in_v4, nullptr);
+
+  Val* v1_3_in_v4 = lower_utils::proveLinearAndGetStride(g, v1[3], v4);
+  EXPECT_EQ(simplifyExpr(v1_3_in_v4)->value(), 64);
+
+  Val* v1_4_in_v4 = lower_utils::proveLinearAndGetStride(g, v1[4], v4);
+  EXPECT_EQ(v1_4_in_v4, nullptr);
+
+  Val* v1_5_in_v4 = lower_utils::proveLinearAndGetStride(g, v1[5], v4);
+  EXPECT_EQ(v1_5_in_v4, nullptr);
+
+  Val* v1_6_in_v4 = lower_utils::proveLinearAndGetStride(g, v1[6], v4);
+  EXPECT_EQ(simplifyExpr(v1_6_in_v4)->value(), 1);
+
+  // v2 in v1
+  Val* v2_0_in_v1 = lower_utils::proveLinearAndGetStride(g, v2[0], v1);
+  EXPECT_NE(v2_0_in_v1, nullptr);
+
+  Val* v2_1_in_v1 = lower_utils::proveLinearAndGetStride(g, v2[1], v1);
+  EXPECT_EQ(simplifyExpr(v2_1_in_v1)->value(), 16384);
+
+  Val* v2_2_in_v1 = lower_utils::proveLinearAndGetStride(g, v2[2], v1);
+  EXPECT_EQ(simplifyExpr(v2_2_in_v1)->value(), 8192);
+
+  Val* v2_3_in_v1 = lower_utils::proveLinearAndGetStride(g, v2[3], v1);
+  EXPECT_EQ(simplifyExpr(v2_3_in_v1)->value(), 1024);
+
+  Val* v2_4_in_v1 = lower_utils::proveLinearAndGetStride(g, v2[4], v1);
+  EXPECT_EQ(v2_4_in_v1, nullptr);
+
+  Val* v2_5_in_v1 = lower_utils::proveLinearAndGetStride(g, v2[5], v1);
+  EXPECT_EQ(v2_5_in_v1, nullptr);
+
+  Val* v2_6_in_v1 = lower_utils::proveLinearAndGetStride(g, v2[6], v1);
+  EXPECT_EQ(simplifyExpr(v2_6_in_v1)->value(), 0);
+
+  Val* v2_7_in_v1 = lower_utils::proveLinearAndGetStride(g, v2[7], v1);
+  EXPECT_EQ(v2_7_in_v1, nullptr);
+
+  // v2 in v2
+  Val* v2_0_in_v2 = lower_utils::proveLinearAndGetStride(g, v2[0], v2);
+  EXPECT_NE(v2_0_in_v2, nullptr);
+
+  Val* v2_1_in_v2 = lower_utils::proveLinearAndGetStride(g, v2[1], v2);
+  EXPECT_EQ(simplifyExpr(v2_1_in_v2)->value(), 65536);
+
+  Val* v2_2_in_v2 = lower_utils::proveLinearAndGetStride(g, v2[2], v2);
+  EXPECT_EQ(simplifyExpr(v2_2_in_v2)->value(), 32768);
+
+  Val* v2_3_in_v2 = lower_utils::proveLinearAndGetStride(g, v2[3], v2);
+  EXPECT_EQ(simplifyExpr(v2_3_in_v2)->value(), 4096);
+
+  Val* v2_4_in_v2 = lower_utils::proveLinearAndGetStride(g, v2[4], v2);
+  EXPECT_EQ(simplifyExpr(v2_4_in_v2)->value(), 512);
+
+  Val* v2_5_in_v2 = lower_utils::proveLinearAndGetStride(g, v2[5], v2);
+  EXPECT_EQ(simplifyExpr(v2_5_in_v2)->value(), 64);
+
+  Val* v2_6_in_v2 = lower_utils::proveLinearAndGetStride(g, v2[6], v2);
+  EXPECT_EQ(simplifyExpr(v2_6_in_v2)->value(), 0);
+
+  Val* v2_7_in_v2 = lower_utils::proveLinearAndGetStride(g, v2[7], v2);
+  EXPECT_EQ(simplifyExpr(v2_7_in_v2)->value(), 1);
+
+  // v2 in v3
+  Val* v2_0_in_v3 = lower_utils::proveLinearAndGetStride(g, v2[0], v3);
+  EXPECT_NE(v2_0_in_v3, nullptr);
+
+  Val* v2_1_in_v3 = lower_utils::proveLinearAndGetStride(g, v2[1], v3);
+  EXPECT_EQ(v2_1_in_v3, nullptr);
+
+  Val* v2_2_in_v3 = lower_utils::proveLinearAndGetStride(g, v2[2], v3);
+  EXPECT_NE(v2_2_in_v3, nullptr);
+
+  Val* v2_3_in_v3 = lower_utils::proveLinearAndGetStride(g, v2[3], v3);
+  EXPECT_EQ(v2_3_in_v3, nullptr);
+
+  Val* v2_4_in_v3 = lower_utils::proveLinearAndGetStride(g, v2[4], v3);
+  EXPECT_EQ(v2_4_in_v3, nullptr);
+
+  Val* v2_5_in_v3 = lower_utils::proveLinearAndGetStride(g, v2[5], v3);
+  EXPECT_EQ(v2_5_in_v3, nullptr);
+
+  Val* v2_6_in_v3 = lower_utils::proveLinearAndGetStride(g, v2[6], v3);
+  EXPECT_EQ(simplifyExpr(v2_6_in_v3)->value(), 0);
+
+  Val* v2_7_in_v3 = lower_utils::proveLinearAndGetStride(g, v2[7], v3);
+  EXPECT_EQ(v2_7_in_v3, nullptr);
+
+  // v2 in v4
+  Val* v2_0_in_v4 = lower_utils::proveLinearAndGetStride(g, v2[0], v4);
+  EXPECT_NE(v2_0_in_v4, nullptr);
+
+  Val* v2_1_in_v4 = lower_utils::proveLinearAndGetStride(g, v2[1], v4);
+  EXPECT_EQ(v2_1_in_v4, nullptr);
+
+  Val* v2_2_in_v4 = lower_utils::proveLinearAndGetStride(g, v2[2], v4);
+  EXPECT_NE(v2_2_in_v4, nullptr);
+
+  Val* v2_3_in_v4 = lower_utils::proveLinearAndGetStride(g, v2[3], v4);
+  EXPECT_EQ(v2_3_in_v4, nullptr);
+
+  Val* v2_4_in_v4 = lower_utils::proveLinearAndGetStride(g, v2[4], v4);
+  EXPECT_EQ(simplifyExpr(v2_4_in_v4)->value(), 256);
+
+  Val* v2_5_in_v4 = lower_utils::proveLinearAndGetStride(g, v2[5], v4);
+  EXPECT_EQ(simplifyExpr(v2_5_in_v4)->value(), 16);
+
+  Val* v2_6_in_v4 = lower_utils::proveLinearAndGetStride(g, v2[6], v4);
+  EXPECT_EQ(simplifyExpr(v2_6_in_v4)->value(), 0);
+
+  Val* v2_7_in_v4 = lower_utils::proveLinearAndGetStride(g, v2[7], v4);
+  EXPECT_EQ(simplifyExpr(v2_7_in_v4)->value(), 1);
+
+  // v3 in v1
+  Val* v3_0_in_v1 = lower_utils::proveLinearAndGetStride(g, v3[0], v1);
+  EXPECT_EQ(v3_0_in_v1, nullptr);
+
+  Val* v3_1_in_v1 = lower_utils::proveLinearAndGetStride(g, v3[1], v1);
+  EXPECT_EQ(simplifyExpr(v3_1_in_v1)->value(), 32768);
+
+  Val* v3_2_in_v1 = lower_utils::proveLinearAndGetStride(g, v3[2], v1);
+  EXPECT_EQ(simplifyExpr(v3_2_in_v1)->value(), 1024);
+
+  Val* v3_3_in_v1 = lower_utils::proveLinearAndGetStride(g, v3[3], v1);
+  EXPECT_EQ(v3_3_in_v1, nullptr);
+
+#if 0
+  // Not support yet, need to map mathematical equivalence in the almost-exact graph.
+  Val* v3_4_in_v1 = lower_utils::proveLinearAndGetStride(g, v3[4], v1);
+  EXPECT_EQ(simplifyExpr(v3_4_in_v1)->value(), 64);
+
+  Val* v3_5_in_v1 = lower_utils::proveLinearAndGetStride(g, v3[5], v1);
+  EXPECT_EQ(simplifyExpr(v3_5_in_v1)->value(), 8);
+#endif
+
+  Val* v3_6_in_v1 = lower_utils::proveLinearAndGetStride(g, v3[6], v1);
+  EXPECT_EQ(simplifyExpr(v3_6_in_v1)->value(), 1);
+
+  // v3 in v2
+  Val* v3_0_in_v2 = lower_utils::proveLinearAndGetStride(g, v3[0], v2);
+  EXPECT_EQ(v3_0_in_v2, nullptr);
+
+  Val* v3_1_in_v2 = lower_utils::proveLinearAndGetStride(g, v3[1], v2);
+  EXPECT_EQ(simplifyExpr(v3_1_in_v2)->value(), 131072);
+
+  Val* v3_2_in_v2 = lower_utils::proveLinearAndGetStride(g, v3[2], v2);
+  EXPECT_EQ(simplifyExpr(v3_2_in_v2)->value(), 4096);
+
+  Val* v3_3_in_v2 = lower_utils::proveLinearAndGetStride(g, v3[3], v2);
+  EXPECT_EQ(v3_3_in_v2, nullptr);
+
+  Val* v3_4_in_v2 = lower_utils::proveLinearAndGetStride(g, v3[4], v2);
+  EXPECT_EQ(v3_4_in_v2, nullptr);
+
+  Val* v3_5_in_v2 = lower_utils::proveLinearAndGetStride(g, v3[5], v2);
+  EXPECT_EQ(v3_5_in_v2, nullptr);
+
+  Val* v3_6_in_v2 = lower_utils::proveLinearAndGetStride(g, v3[6], v2);
+  EXPECT_EQ(simplifyExpr(v3_6_in_v2)->value(), 1);
+
+  // v3 in v3
+  Val* v3_0_in_v3 = lower_utils::proveLinearAndGetStride(g, v3[0], v3);
+  EXPECT_NE(v3_0_in_v3, nullptr);
+
+  Val* v3_1_in_v3 = lower_utils::proveLinearAndGetStride(g, v3[1], v3);
+  EXPECT_EQ(simplifyExpr(v3_1_in_v3)->value(), 8192);
+
+  Val* v3_2_in_v3 = lower_utils::proveLinearAndGetStride(g, v3[2], v3);
+  EXPECT_EQ(simplifyExpr(v3_2_in_v3)->value(), 2048);
+
+  Val* v3_3_in_v3 = lower_utils::proveLinearAndGetStride(g, v3[3], v3);
+  EXPECT_EQ(simplifyExpr(v3_3_in_v3)->value(), 512);
+
+  Val* v3_4_in_v3 = lower_utils::proveLinearAndGetStride(g, v3[4], v3);
+  EXPECT_EQ(simplifyExpr(v3_4_in_v3)->value(), 64);
+
+  Val* v3_5_in_v3 = lower_utils::proveLinearAndGetStride(g, v3[5], v3);
+  EXPECT_EQ(simplifyExpr(v3_5_in_v3)->value(), 8);
+
+  Val* v3_6_in_v3 = lower_utils::proveLinearAndGetStride(g, v3[6], v3);
+  EXPECT_EQ(simplifyExpr(v3_6_in_v3)->value(), 1);
+
+  // v3 in v4
+  Val* v3_0_in_v4 = lower_utils::proveLinearAndGetStride(g, v3[0], v4);
+  EXPECT_NE(v3_0_in_v4, nullptr);
+
+  Val* v3_1_in_v4 = lower_utils::proveLinearAndGetStride(g, v3[1], v4);
+  EXPECT_EQ(simplifyExpr(v3_1_in_v4)->value(), 8192);
+
+  Val* v3_2_in_v4 = lower_utils::proveLinearAndGetStride(g, v3[2], v4);
+  EXPECT_EQ(simplifyExpr(v3_2_in_v4)->value(), 2048);
+
+  Val* v3_3_in_v4 = lower_utils::proveLinearAndGetStride(g, v3[3], v4);
+  EXPECT_EQ(simplifyExpr(v3_3_in_v4)->value(), 64);
+
+  Val* v3_4_in_v4 = lower_utils::proveLinearAndGetStride(g, v3[4], v4);
+  EXPECT_EQ(v3_4_in_v4, nullptr);
+
+  Val* v3_5_in_v4 = lower_utils::proveLinearAndGetStride(g, v3[5], v4);
+  EXPECT_EQ(v3_5_in_v4, nullptr);
+
+  Val* v3_6_in_v4 = lower_utils::proveLinearAndGetStride(g, v3[6], v4);
+  EXPECT_EQ(simplifyExpr(v3_6_in_v4)->value(), 1);
+
+  // v4 in v1
+  Val* v4_0_in_v1 = lower_utils::proveLinearAndGetStride(g, v4[0], v1);
+  EXPECT_EQ(v4_0_in_v1, nullptr);
+
+  Val* v4_1_in_v1 = lower_utils::proveLinearAndGetStride(g, v4[1], v1);
+  EXPECT_EQ(simplifyExpr(v4_1_in_v1)->value(), 32768);
+
+  Val* v4_2_in_v1 = lower_utils::proveLinearAndGetStride(g, v4[2], v1);
+  EXPECT_EQ(simplifyExpr(v4_2_in_v1)->value(), 2048);
+
+  Val* v4_3_in_v1 = lower_utils::proveLinearAndGetStride(g, v4[3], v1);
+  EXPECT_EQ(simplifyExpr(v4_3_in_v1)->value(), 1024);
+
+  Val* v4_4_in_v1 = lower_utils::proveLinearAndGetStride(g, v4[4], v1);
+  EXPECT_EQ(v4_4_in_v1, nullptr);
+
+  Val* v4_5_in_v1 = lower_utils::proveLinearAndGetStride(g, v4[5], v1);
+  EXPECT_EQ(simplifyExpr(v4_5_in_v1)->value(), 16384);
+
+  Val* v4_6_in_v1 = lower_utils::proveLinearAndGetStride(g, v4[6], v1);
+  EXPECT_EQ(simplifyExpr(v4_6_in_v1)->value(), 512);
+
+  Val* v4_7_in_v1 = lower_utils::proveLinearAndGetStride(g, v4[7], v1);
+  EXPECT_EQ(v4_7_in_v1, nullptr);
+
+  // v4 in v2
+  Val* v4_0_in_v2 = lower_utils::proveLinearAndGetStride(g, v4[0], v2);
+  EXPECT_EQ(v4_0_in_v2, nullptr);
+
+  Val* v4_1_in_v2 = lower_utils::proveLinearAndGetStride(g, v4[1], v2);
+  EXPECT_EQ(simplifyExpr(v4_1_in_v2)->value(), 131072);
+
+  Val* v4_2_in_v2 = lower_utils::proveLinearAndGetStride(g, v4[2], v2);
+  EXPECT_EQ(simplifyExpr(v4_2_in_v2)->value(), 8192);
+
+  Val* v4_3_in_v2 = lower_utils::proveLinearAndGetStride(g, v4[3], v2);
+  EXPECT_EQ(simplifyExpr(v4_3_in_v2)->value(), 4096);
+
+  Val* v4_4_in_v2 = lower_utils::proveLinearAndGetStride(g, v4[4], v2);
+  EXPECT_EQ(simplifyExpr(v4_4_in_v2)->value(), 512);
+
+  Val* v4_5_in_v2 = lower_utils::proveLinearAndGetStride(g, v4[5], v2);
+  EXPECT_EQ(simplifyExpr(v4_5_in_v2)->value(), 65536);
+
+  Val* v4_6_in_v2 = lower_utils::proveLinearAndGetStride(g, v4[6], v2);
+  EXPECT_EQ(simplifyExpr(v4_6_in_v2)->value(), 256);
+
+  Val* v4_7_in_v2 = lower_utils::proveLinearAndGetStride(g, v4[7], v2);
+  EXPECT_EQ(v4_7_in_v2, nullptr);
+
+  // v4 in v3
+  Val* v4_0_in_v3 = lower_utils::proveLinearAndGetStride(g, v4[0], v3);
+  EXPECT_NE(v4_0_in_v3, nullptr);
+
+  Val* v4_1_in_v3 = lower_utils::proveLinearAndGetStride(g, v4[1], v3);
+  EXPECT_EQ(simplifyExpr(v4_1_in_v3)->value(), 8192);
+
+  Val* v4_2_in_v3 = lower_utils::proveLinearAndGetStride(g, v4[2], v3);
+  EXPECT_EQ(simplifyExpr(v4_2_in_v3)->value(), 4096);
+
+  Val* v4_3_in_v3 = lower_utils::proveLinearAndGetStride(g, v4[3], v3);
+  EXPECT_EQ(simplifyExpr(v4_3_in_v3)->value(), 2048);
+
+  Val* v4_4_in_v3 = lower_utils::proveLinearAndGetStride(g, v4[4], v3);
+  EXPECT_EQ(v4_4_in_v3, nullptr);
+
+  Val* v4_5_in_v3 = lower_utils::proveLinearAndGetStride(g, v4[5], v3);
+  EXPECT_EQ(simplifyExpr(v4_5_in_v3)->value(), 1024);
+
+  Val* v4_6_in_v3 = lower_utils::proveLinearAndGetStride(g, v4[6], v3);
+  EXPECT_EQ(simplifyExpr(v4_6_in_v3)->value(), 512);
+
+  Val* v4_7_in_v3 = lower_utils::proveLinearAndGetStride(g, v4[7], v3);
+  EXPECT_EQ(v4_7_in_v3, nullptr);
+
+  // v4 in v4
+  Val* v4_0_in_v4 = lower_utils::proveLinearAndGetStride(g, v4[0], v4);
+  EXPECT_NE(v4_0_in_v4, nullptr);
+
+  Val* v4_1_in_v4 = lower_utils::proveLinearAndGetStride(g, v4[1], v4);
+  EXPECT_EQ(simplifyExpr(v4_1_in_v4)->value(), 8192);
+
+  Val* v4_2_in_v4 = lower_utils::proveLinearAndGetStride(g, v4[2], v4);
+  EXPECT_EQ(simplifyExpr(v4_2_in_v4)->value(), 4096);
+
+  Val* v4_3_in_v4 = lower_utils::proveLinearAndGetStride(g, v4[3], v4);
+  EXPECT_EQ(simplifyExpr(v4_3_in_v4)->value(), 2048);
+
+  Val* v4_4_in_v4 = lower_utils::proveLinearAndGetStride(g, v4[4], v4);
+  EXPECT_EQ(simplifyExpr(v4_4_in_v4)->value(), 256);
+
+  Val* v4_5_in_v4 = lower_utils::proveLinearAndGetStride(g, v4[5], v4);
+  EXPECT_EQ(simplifyExpr(v4_5_in_v4)->value(), 128);
+
+  Val* v4_6_in_v4 = lower_utils::proveLinearAndGetStride(g, v4[6], v4);
+  EXPECT_EQ(simplifyExpr(v4_6_in_v4)->value(), 64);
+
+  Val* v4_7_in_v4 = lower_utils::proveLinearAndGetStride(g, v4[7], v4);
+  EXPECT_EQ(simplifyExpr(v4_7_in_v4)->value(), 1);
 }
 
 } // namespace nvfuser

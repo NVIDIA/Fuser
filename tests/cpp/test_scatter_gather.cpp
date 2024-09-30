@@ -625,7 +625,7 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorPointwise2) {
   auto outputs = fec.runFusionWithInputs(aten_inputs);
 
   validateSegmentation(
-      fec.getMostRecentKernelRuntime(), {ScheduleHeuristic::PointWise});
+      fec.getMostRecentKernelRuntime(), {SchedulerType::PointWise});
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -660,7 +660,7 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorReduction1) {
 
   validateSegmentation(
       fec.getMostRecentKernelRuntime(),
-      {ScheduleHeuristic::Reduction, ScheduleHeuristic::PointWise});
+      {SchedulerType::Reduction, SchedulerType::PointWise});
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -700,7 +700,7 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorReduction2) {
 
   validateSegmentation(
       fec.getMostRecentKernelRuntime(),
-      {ScheduleHeuristic::PointWise, ScheduleHeuristic::Reduction});
+      {SchedulerType::PointWise, SchedulerType::Reduction});
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -738,7 +738,7 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorReduction3) {
   auto outputs = fec.runFusionWithInputs(aten_inputs);
 
   validateSegmentation(
-      fec.getMostRecentKernelRuntime(), {ScheduleHeuristic::Reduction});
+      fec.getMostRecentKernelRuntime(), {SchedulerType::Reduction});
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -780,7 +780,7 @@ TEST_F(ScatterGatherTest, DISABLED_TakeAlongAxisIntermediateTensorReduction4) {
   auto outputs = fec.runFusionWithInputs(aten_inputs);
 
   validateSegmentation(
-      fec.getMostRecentKernelRuntime(), {ScheduleHeuristic::Reduction});
+      fec.getMostRecentKernelRuntime(), {SchedulerType::Reduction});
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -818,7 +818,7 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorNormalization1) {
   auto outputs = fec.runFusionWithInputs(aten_inputs);
 
   validateSegmentation(
-      fec.getMostRecentKernelRuntime(), {ScheduleHeuristic::InnerPersistent});
+      fec.getMostRecentKernelRuntime(), {SchedulerType::InnerPersistent});
 
   auto t0_d = t0.to(at::kDouble);
   auto ref = at::take_along_dim(
@@ -862,7 +862,7 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorNormalization2) {
 
   validateSegmentation(
       fec.getMostRecentKernelRuntime(),
-      {ScheduleHeuristic::PointWise, ScheduleHeuristic::InnerPersistent});
+      {SchedulerType::PointWise, SchedulerType::InnerPersistent});
 
   auto t5 = at::take_along_dim(t0.to(at::kDouble) + 1, t1.unsqueeze(-1), 1)
                 .squeeze(1);
@@ -906,7 +906,7 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorNormalization3) {
   auto outputs = fec.runFusionWithInputs(aten_inputs);
 
   validateSegmentation(
-      fec.getMostRecentKernelRuntime(), {ScheduleHeuristic::InnerPersistent});
+      fec.getMostRecentKernelRuntime(), {SchedulerType::InnerPersistent});
 
   auto t3 = at::take_along_dim(t0.to(at::kDouble) + 1, t1, 1);
   auto ref = t3 / t3.sum({1}).unsqueeze(-1);
@@ -950,7 +950,7 @@ TEST_F(
   // reduction are different, so they are segmented out
   validateSegmentation(
       fec.getMostRecentKernelRuntime(),
-      {ScheduleHeuristic::InnerPersistent, ScheduleHeuristic::Reduction});
+      {SchedulerType::InnerPersistent, SchedulerType::Reduction});
 
   auto t0_d = t0.to(at::kDouble);
   auto t5 = at::take_along_dim(t0_d / t0_d.sum({1}).unsqueeze(-1), t1, 1);
@@ -999,7 +999,7 @@ TEST_F(
   auto outputs = fec.runFusionWithInputs(aten_inputs);
 
   validateSegmentation(
-      fec.getMostRecentKernelRuntime(), {ScheduleHeuristic::InnerPersistent});
+      fec.getMostRecentKernelRuntime(), {SchedulerType::InnerPersistent});
 
   auto t0_d = t0.to(at::kDouble);
   auto t6 = at::take_along_dim(
@@ -1049,7 +1049,7 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorTranspose1) {
   auto outputs = fec.runFusionWithInputs(aten_inputs);
 
   validateSegmentation(
-      fec.getMostRecentKernelRuntime(), {ScheduleHeuristic::Transpose});
+      fec.getMostRecentKernelRuntime(), {SchedulerType::Transpose});
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -1092,7 +1092,7 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorTranspose2) {
   auto outputs = fec.runFusionWithInputs(aten_inputs);
 
   validateSegmentation(
-      fec.getMostRecentKernelRuntime(), {ScheduleHeuristic::PointWise});
+      fec.getMostRecentKernelRuntime(), {SchedulerType::PointWise});
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -1139,7 +1139,7 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorTranspose3) {
   // Transpose scheduler should work for this case but not currently
   // supported
   validateSegmentation(
-      fec.getMostRecentKernelRuntime(), {ScheduleHeuristic::PointWise});
+      fec.getMostRecentKernelRuntime(), {SchedulerType::PointWise});
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -1196,11 +1196,11 @@ TEST_F(ScatterGatherTest, TakeAlongAxisCrossEntropyLoss) {
 
   validateSegmentation(
       kernel_runtime,
-      {ScheduleHeuristic::InnerPersistent, ScheduleHeuristic::Reduction});
+      {SchedulerType::InnerPersistent, SchedulerType::Reduction});
 
   // Make sure take_along_axis is in the persistent group
   for (const auto group : kernel_runtime->fusionSegments()->groups()) {
-    if (group->heuristic() == ScheduleHeuristic::InnerPersistent) {
+    if (group->schedulerType() == SchedulerType::InnerPersistent) {
       NVF_CHECK(std::any_of(
           group->exprs().begin(), group->exprs().end(), [](Expr* expr) {
             return expr->isA<TorchGatherOp>();
@@ -1255,23 +1255,27 @@ TEST_F(ScatterGatherTest, GatherIterGoupedReduction) {
   at::Tensor input_idx = at::randint(0, input_dims[dim], index_dims, options_i);
   std::vector<c10::IValue> aten_inputs = {input, input_idx};
 
-  auto heuristics_params = getReductionHeuristics(&fusion, aten_inputs);
-  NVF_CHECK(heuristics_params, "Reduction schedule was not generated!");
+  auto reduction_scheduler =
+      SchedulerEntry::makeSchedulerInstance(SchedulerType::Reduction);
+  SchedulerRuntimeInfo runtime_info(&fusion, aten_inputs);
+  auto heuristic_params =
+      reduction_scheduler->computeHeuristics(&fusion, runtime_info);
+  auto rparams = heuristic_params->as<ReductionParams>();
 
   // Enforce vectorization so we can group them
   const int vect_factor = 2;
-  heuristics_params->vectorize_iter_dom = true;
-  heuristics_params->unroll_factor_iter_dom = vect_factor;
+  rparams->vectorize_iter_dom = true;
+  rparams->unroll_factor_iter_dom = vect_factor;
   // Enforce grid reduction, which requires a determined BIDy
   // If the heuristic does not have a BIDy, bind it to 2
-  heuristics_params->cross_grid_inner_reduction = true;
-  heuristics_params->split_grid_dim_inner_reduction = true;
-  heuristics_params->grid_dim_inner_reduction = ParallelType::BIDy;
-  if (!heuristics_params->lparams.hasDim(ParallelType::BIDy)) {
-    heuristics_params->lparams.bind(2L, ParallelType::BIDy);
+  rparams->cross_grid_inner_reduction = true;
+  rparams->split_grid_dim_inner_reduction = true;
+  rparams->grid_dim_inner_reduction = ParallelType::BIDy;
+  if (!rparams->lparams.hasDim(ParallelType::BIDy)) {
+    rparams->lparams.bind(2L, ParallelType::BIDy);
   }
 
-  scheduleReduction(&fusion, *heuristics_params);
+  reduction_scheduler->schedule(&fusion, rparams);
 
   // lowering & check iteration grouped reductions
   GpuLower gpulw(&fusion);
@@ -1287,7 +1291,7 @@ TEST_F(ScatterGatherTest, GatherIterGoupedReduction) {
       gpulw.kernel()->summary().num_grouped_iterations);
 
   FusionExecutor fe;
-  auto lparams = heuristics_params->lparams;
+  auto lparams = rparams->lparams;
   fe.compileFusion(&fusion, aten_inputs, lparams);
   auto cg_outputs = fe.runFusion(aten_inputs, lparams);
 

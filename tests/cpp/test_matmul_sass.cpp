@@ -82,21 +82,22 @@ sass::Container getSASSFor(
   gemm_tile.warp_tile = warp_tile;
   gemm_tile.instruction_tile = instruction_tile;
 
-  MatmulParams params;
-  params.supported_vec_size = {8, 8, 4};
-  params.mma_macro = macro;
-  params.tile_sizes = gemm_tile;
-  params.async_gmem_load_operands = true;
-  params.circular_buffer_options.circular_buffer_smem_write = true;
-  params.circular_buffer_options.circular_buffer_smem_read = true;
-  params.circular_buffer_options.smem_circular_buffer_stage =
+  MatmulParams mparams;
+  mparams.supported_vec_size = {8, 8, 4};
+  mparams.mma_macro = macro;
+  mparams.tile_sizes = gemm_tile;
+  mparams.async_gmem_load_operands = true;
+  mparams.circular_buffer_options.circular_buffer_smem_write = true;
+  mparams.circular_buffer_options.circular_buffer_smem_read = true;
+  mparams.circular_buffer_options.smem_circular_buffer_stage =
       smem_circular_buffer_stage;
-  params.use_smem_epilogue = use_smem_epilogue;
-  params.promote_prologue_smem_reuse = promote_prologue_smem_reuse;
-  scheduleMatmul(&fusion, params);
+  mparams.use_smem_epilogue = use_smem_epilogue;
+  mparams.promote_prologue_smem_reuse = promote_prologue_smem_reuse;
 
   auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
   FusionExecutor fe;
   fe.compileFusion(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
@@ -145,15 +146,16 @@ sass::Container getBinaryOpMulEpilogueSASSFor(
   gemm_tile.warp_tile = warp_tile;
   gemm_tile.instruction_tile = instruction_tile;
 
-  MatmulParams params;
-  params.supported_vec_size = {8, 8, 4};
-  params.mma_macro = macro;
-  params.tile_sizes = gemm_tile;
-  params.async_gmem_load_operands = true;
-  params.circular_buffer_options.circular_buffer_smem_write = true;
-  params.circular_buffer_options.circular_buffer_smem_read = true;
-  params.circular_buffer_options.smem_circular_buffer_stage = 4;
-  scheduleMatmul(&fusion, params);
+  MatmulParams mparams;
+  mparams.supported_vec_size = {8, 8, 4};
+  mparams.mma_macro = macro;
+  mparams.tile_sizes = gemm_tile;
+  mparams.async_gmem_load_operands = true;
+  mparams.circular_buffer_options.circular_buffer_smem_write = true;
+  mparams.circular_buffer_options.circular_buffer_smem_read = true;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
 
   at::manual_seed(0);
   auto inputs = matmulAtInput3DTuring(M, N, K, layout);

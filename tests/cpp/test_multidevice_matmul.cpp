@@ -109,7 +109,7 @@ TEST_F(DistributedMatmulTest, MulSum_LayoutTN_NoComms) {
   const FusionKernelRuntime* kernel_runtime = fec.getMostRecentKernelRuntime();
   EXPECT_THAT(
       kernel_runtime->fusionSegments()->groups(),
-      Contains(HeuristicIs(ScheduleHeuristic::Matmul)).Times(1));
+      Contains(HeuristicIs(SchedulerType::Matmul)).Times(1));
 }
 
 TEST_F(DistributedMatmulTest, Matmul_LayoutTN_NoComms) {
@@ -164,7 +164,7 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutTN_NoComms) {
   const FusionKernelRuntime* kernel_runtime = fec.getMostRecentKernelRuntime();
   EXPECT_THAT(
       kernel_runtime->fusionSegments()->groups(),
-      Contains(HeuristicIs(ScheduleHeuristic::ExprEval)).Times(1));
+      Contains(HeuristicIs(SchedulerType::ExprEval)).Times(1));
 }
 
 TEST_F(DistributedMatmulTest, Matmul_LayoutTN_Allgather) {
@@ -216,7 +216,7 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutTN_Allgather) {
   const FusionKernelRuntime* kernel_runtime = fec.getMostRecentKernelRuntime();
   EXPECT_THAT(
       kernel_runtime->fusionSegments()->groups(),
-      Contains(HeuristicIs(ScheduleHeuristic::ExprEval)).Times(1));
+      Contains(HeuristicIs(SchedulerType::ExprEval)).Times(1));
 }
 
 TEST_F(DistributedMatmulTest, Matmul_LayoutNT_AllReduce) {
@@ -265,7 +265,7 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutNT_AllReduce) {
   const FusionKernelRuntime* kernel_runtime = fec.getMostRecentKernelRuntime();
   EXPECT_THAT(
       kernel_runtime->fusionSegments()->groups(),
-      Contains(HeuristicIs(ScheduleHeuristic::ExprEval)).Times(1));
+      Contains(HeuristicIs(SchedulerType::ExprEval)).Times(1));
 }
 
 TEST_F(DistributedMatmulTest, Matmul_LayoutNT_ReduceScatter) {
@@ -322,7 +322,7 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutNT_ReduceScatter) {
   const FusionKernelRuntime* kernel_runtime = fec.getMostRecentKernelRuntime();
   EXPECT_THAT(
       kernel_runtime->fusionSegments()->groups(),
-      Contains(HeuristicIs(ScheduleHeuristic::ExprEval)).Times(1));
+      Contains(HeuristicIs(SchedulerType::ExprEval)).Times(1));
 }
 
 // Reproduces #2721.
