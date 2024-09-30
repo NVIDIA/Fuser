@@ -61,20 +61,20 @@ class MultiMatmulSchedulerMatchTest
     gemm_tile.warp_tile = GemmTile(64, 64, 32);
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-    params.mma_macro = MmaMacro::Ampere_16_8_16;
-    params.supported_vec_size = {vec_size_a, vec_size_b, vec_size_epilogue};
-    params.tile_sizes = gemm_tile;
-    params.circular_buffer_options.circular_buffer_smem_write = true;
-    params.circular_buffer_options.circular_buffer_smem_read = true;
-    params.circular_buffer_options.smem_circular_buffer_stage = 4;
-    params.async_gmem_load_operands =
-        params.circular_buffer_options.smem_circular_buffer_stage > 1;
-    params.use_smem_epilogue = smem_epilogue;
-    params.splitk_factor = splitk_factor;
-    params.cta_order = cta_order_col_major
+    mparams.mma_macro = MmaMacro::Ampere_16_8_16;
+    mparams.supported_vec_size = {vec_size_a, vec_size_b, vec_size_epilogue};
+    mparams.tile_sizes = gemm_tile;
+    mparams.circular_buffer_options.circular_buffer_smem_write = true;
+    mparams.circular_buffer_options.circular_buffer_smem_read = true;
+    mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
+    mparams.async_gmem_load_operands =
+        mparams.circular_buffer_options.smem_circular_buffer_stage > 1;
+    mparams.use_smem_epilogue = smem_epilogue;
+    mparams.splitk_factor = splitk_factor;
+    mparams.cta_order = cta_order_col_major
         ? MatmulParams::TileRasterizationOrder::ColumnMajor
         : MatmulParams::TileRasterizationOrder::RowMajor;
-    params.grid_swizzle_factor = grid_swizzle_factor;
+    mparams.grid_swizzle_factor = grid_swizzle_factor;
   }
 
   void SetUp() {
@@ -362,10 +362,11 @@ class MultiMatmulSchedulerMatchTest
     cloner_ = std::make_unique<IrCloner>(Fusion::copy(fusion, &new_fusion));
 
     // Schedule fusion with original matmul scheduler
-    scheduleMatmul(fusion, &params);
+    SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+        ->schedule(fusion, &mparams);
 
     // Schedule cloned fusion with new scheduler
-    scheduleMultipleMatmuls(&new_fusion, &params);
+    scheduleMultipleMatmuls(&new_fusion, &mparams);
 
     // Find tensors to compare. Note that these, and all producer tensors will
     // be checked.
@@ -400,7 +401,7 @@ class MultiMatmulSchedulerMatchTest
   }
 
  protected:
-  MatmulParams params;
+  MatmulParams mparams;
   Fusion* fusion = nullptr;
   bool a_m_inner = false, b_k_inner = false;
   int64_t vec_size_a, vec_size_b, vec_size_epilogue;
@@ -469,7 +470,7 @@ TEST_P(MultiMatmulSchedulerMatchTest, MatmulBias0d) {
 }
 
 TEST_P(MultiMatmulSchedulerMatchTest, MatmulBias1d) {
-  if (params.use_smem_epilogue && params.splitk_factor == 1) {
+  if (mparams.use_smem_epilogue && mparams.splitk_factor == 1) {
     GTEST_SKIP() << "Skipping case that does not compile with either scheduler."
                  << " See https://github.com/NVIDIA/Fuser/issues/2979";
   }
@@ -489,7 +490,7 @@ TEST_P(MultiMatmulSchedulerMatchTest, MatmulBias1d) {
 }
 
 TEST_P(MultiMatmulSchedulerMatchTest, MatmulFloatBias1d) {
-  if (params.use_smem_epilogue && params.splitk_factor == 1) {
+  if (mparams.use_smem_epilogue && mparams.splitk_factor == 1) {
     GTEST_SKIP() << "Skipping case that does not compile with either scheduler."
                  << " See https://github.com/NVIDIA/Fuser/issues/2979";
   }
