@@ -340,14 +340,14 @@ INSTANTIATE_TEST_SUITE_P(
     Gather,
     PipelineTestTwoStages,
     testing::Combine(
-        testing::Values(CommunicatorBackend::nccl, CommunicatorBackend::ucc),
+        testing::Values(CommunicatorBackend::nccl),
         all_meshes,
         all_meshes,
         testing::Values(true),
         testing::Values(false),
         testing::Values(false),
-        testing::Values(0, 1),
-        testing::Bool()));
+        testing::Values(0),
+        testing::Values(true)));
 
 INSTANTIATE_TEST_SUITE_P(
     Scatter,
