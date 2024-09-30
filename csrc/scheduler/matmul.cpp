@@ -65,7 +65,7 @@ void MatmulScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
       mparams != nullptr,
       "Incorrect parameters sent to MatmulScheduler::schedule",
       params);
-  scheduleMatmul(fusion, mparams);
+  scheduleMultipleMatmuls(fusion, mparams);
 }
 
 } // namespace nvfuser
