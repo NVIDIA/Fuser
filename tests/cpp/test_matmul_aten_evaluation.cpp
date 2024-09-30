@@ -341,7 +341,7 @@ INSTANTIATE_TEST_SUITE_P(
             Sizes({b, m, k}),
             Sizes({1, k}),
             Sizes({b, 1, k})),
-        testing::Values(Sizes({k}), Sizes({n, k}), Sizes({1, k})),
+        testing::Values(Sizes({n, k}), Sizes({1, k})),
         testing::Values(std::nullopt)));
 
 INSTANTIATE_TEST_SUITE_P(

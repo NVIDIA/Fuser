@@ -117,15 +117,7 @@ TensorView* linear(TensorView* input, TensorView* weight, TensorView* bias) {
 
   auto weight_ndims =
       TensorDomain::noReductions(weight->getLogicalDomain()).size();
-  NVF_CHECK(
-      weight_ndims == 1 || weight_ndims == 2,
-      "Input B must be a 1D / 2D tensor.");
-
-  // Note: This constraint is not documented but F.linear errors out if bias is
-  // given with 1D weights.
-  NVF_CHECK(
-      weight_ndims == 2 || bias == nullptr,
-      "Expected B to be a 2D matrix if bias is given, got 1D.")
+  NVF_CHECK(weight_ndims == 2, "Input B must be a 2D tensor.");
 
   NVF_CHECK(
       input->dtype() == weight->dtype(),
