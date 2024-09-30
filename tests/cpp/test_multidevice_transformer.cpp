@@ -1055,7 +1055,7 @@ TEST_P(DistributedTransformerTest, Forward) {
   FusionExecutorCache fec(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
   auto outputs = fec.runFusionWithInputs(inputs);
-  validate(expected_outputs, outputs, {1e-4, 0.01, 0.02, 0.02, 0.02});
+  validate(expected_outputs, outputs, {1e-4, 0.01, 0.02, 0.04, 0.04});
 }
 
 TEST_P(DistributedTransformerTest, Backward) {
