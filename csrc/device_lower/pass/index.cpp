@@ -1441,6 +1441,17 @@ void IndexLowering::handle(const kir::MBarrierInvalidate* minval) {
   GpuLower::current()->propagateExprInfo(minval, minval_indexed);
 }
 
+void IndexLowering::handle(const kir::MBarrierArrive* arrive_transaction) {
+  NVF_ERROR(
+      arrive_transaction->mbarrier()->isA<kir::TensorIndex>(),
+      "Expected kir::TensorIndex in MBarrierArriveExpectTx");
+
+  Val* smem_address_ptr = lower_utils::u32IndexScalarSmemTv(
+      arrive_transaction->mbarrier()->as<kir::TensorIndex>());
+  pushBack(IrBuilder::create<kir::MBarrierArrive>(
+      arrive_transaction->state(), smem_address_ptr));
+}
+
 void IndexLowering::handle(
     const kir::MBarrierArriveExpectTx* arrive_transaction) {
   NVF_ERROR(
@@ -1882,7 +1893,8 @@ Val* getInnerStrideBytes(TensorView* tv, const MmaOp* mma) {
 //    stride of `linear`.
 Val* getOuterStrideBytes(TensorView* tv, const MmaOp* mma) {
   ValGraph& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
-  auto logical_domain = id_graph.toGroups(tv->getLogicalDomain());
+  auto logical_domain =
+      id_graph.toGroups(TensorDomain::noBroadcasts(tv->getLogicalDomain()));
   auto loop_domain =
       id_graph.toGroups(mma->out()->as<TensorView>()->getLoopDomain());
   auto alloc_domain = id_graph.toGroups(tv->getMaybeAllocationDomain());
@@ -1909,10 +1921,10 @@ Val* getOuterStrideBytes(TensorView* tv, const MmaOp* mma) {
   // domain of tv. There should be exactly one such group.
   auto is_projected_to_concrete = [&](const ValGroup& g) {
     auto projection_on_logical =
-        ValGraphBFS::getReachableValsFrom(id_graph, {g}, logical_domain);
+        ValGraphBFS::projectTo(id_graph, {g}, logical_domain);
     for (auto id : tv->getLogicalDomain()) {
       if (!id->isBroadcast() &&
-          projection_on_logical.has(id_graph.toGroup(id))) {
+          projection_on_logical.count(id_graph.toGroup(id))) {
         return true;
       }
     }
