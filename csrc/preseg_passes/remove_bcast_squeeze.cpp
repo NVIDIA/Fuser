@@ -156,53 +156,165 @@ std::vector<bool> nonPreservedDims(const AxisOps& ops) {
 //! Given a descriptors of two sequences of broadcast+squeeze ops, return a
 //! descriptor of their composition
 AxisOps composeOps(const AxisOps& prev, const AxisOps& next) {
+  // We build ops by iterating in both prev and next simultaneously. To do this,
+  // we hold the indices in each vector of ops that are "aligned". Alignment in
+  // this context means that the previous op results in an axes (i.e. the
+  // previous op is not a SQUEEZE) that is used by the next op (i.e. the next op
+  // is not a BROADCAST).
+  //
+  // The outer loop below performs one iteration for every dimension in the
+  // _intermediate_ tensor between prev and next. This means there is one main
+  // loop iteration per "aligned" pair of ops.
+  //
+  // In each main loop iteration, we first process _unaligned_ ops in next and
+  // prev, i.e. previous squeezes and next broadcasts. We cancel as many of
+  // these operations as possible by converting them to PRESERVE ops and we
+  // insert the remainder unmodified. After processing unaligned ops, we know
+  // the next op pair is an aligned pair, meaning the previous op in the pair
+  // results in an intermediate axis that is consumed in the next op. This
+  // implies that the previous op is not a SQUEEZE and the next op is not a
+  // BROADCAST. If either is PRESERVE, then we can simplify the composition by
+  // simply using the other op. The only case left is then "broadcast then
+  // squeeze", which we ignore since it does not consume an input axis or
+  // produce an output axis.
+  //
+  // For example:
+  //
+  //   prev = [ S S P B P P S ]
+  //   next = [ B P P S P B B ]
+  //
+  // The input has dimension 6, the intermediate tensor has dimension 4, and the
+  // output has dimension 6. The composition is equivalent to [ S P P P B ]. We
+  // perform 4 main loop iterations corresponding to the four intermediate
+  // dimensions.
+  //
+  //   ops = []
+  //   prev = [ (prev_pos)S S P B P P S ]
+  //   next = [ (next_pos)B P P S P B B ]
+  //
+  //   First main loop iteration:
+  //
+  //     (run processUnalignedOps()):
+  //
+  //     // one cancelled SQUEEZE becomes PRESERVE
+  //     ops = [ S P ]
+  //     prev = [ S S (prev_pos)P B P P S ]
+  //     next = [ B (next_pos)P P S P B B ]
+  //
+  //     (process aligned ops "preserve then preserve")
+  //     ops = [ S P P ]
+  //     prev = [ S S P (prev_pos)B P P S ]
+  //     next = [ B P (next_pos)P S P B B ]
+  //
+  //   Second main loop iteration:
+  //
+  //     (run processUnalignedOps()) // no change
+  //
+  //     (process aligned ops "broadcast then preserve")
+  //     ops = [ S P P B ]
+  //     prev = [ S S P B (prev_pos)P P S ]
+  //     next = [ B P P (next_pos)S P B B ]
+  //
+  //   Third main loop iteration:
+  //     (run processUnalignedOps()) // no change
+  //
+  //     (process aligned ops "preserve then squeeze")
+  //     // Note that we would normally insert SQUEEZE resulting in
+  //        ops = [ S P P B S ], but instead we remove the
+  //        previously-inserted BROADCAST to PRESERVE in pushOp(AxisOp::SQUEEZE)
+  //     ops = [ S P P ]
+  //     prev = [ S S P B P (prev_pos)P S ]
+  //     next = [ B P P S (next_pos)P B B ]
+  //
+  //   Third main loop iteration:
+  //     (run processUnalignedOps()) // no change
+  //
+  //     (process aligned ops "preserve then preserve")
+  //     ops = [ S P P P ]
+  //     prev = [ S S P B P P (prev_pos)S ]
+  //     next = [ B P P S P (next_pos)B B ]
+  //
+  //   Post-processing:
+  //     (run processUnalignedOps())
+  //     ops = [ S P P P B ]
+  //     prev = [ S S P B P S (prev_pos) ]
+  //     next = [ B P P S B B (next_pos) ]
   size_t prev_pos = 0, next_pos = 0;
   size_t prev_size = prev.size(), next_size = next.size();
   AxisOps ops;
-  while (true) {
-    // If there are previous squeezes, insert them since they don't affect next
-    // position
+
+  // This does op.push_back(op), unless this op can be combined with the
+  // previous op on the ops stack
+  const auto pushOp = [&](AxisOp op) {
+    if (ops.empty()) {
+      ops.push_back(op);
+      return;
+    }
+    AxisOp existing_op = ops.back();
+
+    if (existing_op == AxisOp::SQUEEZE && op == AxisOp::BROADCAST) {
+      ops.back() = AxisOp::PRESERVE;
+    } else if (existing_op == AxisOp::BROADCAST && op == AxisOp::SQUEEZE) {
+      ops.resize(ops.size() - 1);
+    } else {
+      ops.push_back(op);
+    }
+  };
+
+  // This is run when we are unsure whether prev[prev_pos] is aligned with
+  // next[next_pos]. It processes previous squeezes and next broadcasts,
+  // combining them when possible.
+  const auto processUnalignedOps = [&]() {
+    // Count number of consecutive previous SQUEEZE ops
     while (prev_pos < prev_size && prev[prev_pos] == AxisOp::SQUEEZE) {
-      ops.push_back(AxisOp::SQUEEZE);
+      pushOp(AxisOp::SQUEEZE);
       prev_pos++;
     }
 
-    // prev[prev_pos] now gives the provenance of the axis that next_pos points
-    // to if it's not a broadcast. If it is a broadcast, then we'll unzip some
-    // of these squeezes.
+    // Count number of consecutive next BROADCAST ops
     while (next_pos < next_size && next[next_pos] == AxisOp::BROADCAST) {
-      if (!ops.empty() && ops.back() == AxisOp::SQUEEZE) {
-        // This is a "squeeze then broadcast" pattern
-        ops.back() = AxisOp::PRESERVE;
-      } else {
-        ops.push_back(AxisOp::BROADCAST);
-      }
+      pushOp(AxisOp::BROADCAST);
       next_pos++;
     }
+  };
 
-    if (prev_pos >= prev_size || next_pos >= next_size) {
-      NVF_ERROR(
-          prev_pos >= prev_size && next_pos >= next_size,
-          "Failed to align some ops");
-      break;
-    }
-
+  // main loop
+  for (; prev_pos < prev_size && next_pos < next_size; prev_pos++, next_pos++) {
+    processUnalignedOps();
     // Now we have prev[prev_pos] != SQUEEZE and next[next_pos] != BROADCAST,
     // which means prev[prev_pos] provides the next op with its input. So here
     // we are actually composing these aligned ops.
+
+    if (prev_pos >= prev_size || next_pos >= next_size) {
+      break;
+    }
+
     if (prev[prev_pos] == AxisOp::PRESERVE) {
-      ops.push_back(next[next_pos]);
+      pushOp(next[next_pos]);
     } else if (next[next_pos] == AxisOp::PRESERVE) {
-      ops.push_back(prev[prev_pos]);
+      // NOTE: else here implies prev[prev_pos] == AxisOp::BROADCAST
+      pushOp(prev[prev_pos]);
     } else {
-      // Otherwise this is a "broadcast then squeeze" pattern, so skip it
+      // Otherwise this is a "broadcast then squeeze" pattern, which means this
+      // intermediate axis did not exist in the input and does not exist in the
+      // output, so skip the op altogether
       NVF_ERROR(
           next[next_pos] == AxisOp::SQUEEZE &&
           prev[prev_pos] == AxisOp::BROADCAST);
     }
-    prev_pos++;
-    next_pos++;
   }
+
+  // If there are left-over unaligned ops at the end of either prev or next,
+  // process them now
+  processUnalignedOps();
+
+  // If we have not exhausted prev or next, it means that there are more
+  // intermediate axes that have not yet been processed, which should not
+  // happen.
+  NVF_ERROR(
+      prev_pos == prev_size && next_pos == next_size,
+      "Failed to align some ops");
+
   return ops;
 }
 
@@ -249,7 +361,12 @@ TensorView* maybeDoReplacement(TensorView* orig) {
       TensorDomain::noReductions(orig->getLoopDomain());
   std::vector<IterDomain*> new_loop =
       TensorDomain::noReductions(replacement->getLoopDomain());
-  NVF_ERROR(new_loop.size() == old_loop.size());
+  NVF_ERROR(
+      new_loop.size() == old_loop.size(),
+      "Replacement ",
+      replacement->toString(),
+      " has different dimension than original ",
+      orig->toString());
   for (size_t i : c10::irange(old_loop.size())) {
     if (old_loop[i]->isParallelized()) {
       NVF_ERROR(
