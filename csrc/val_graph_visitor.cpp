@@ -14,8 +14,7 @@
 namespace nvfuser {
 
 bool ValGraphVisitor::traverse() {
-  if (graph().disjointValSets().size() == 0 ||
-      graph().disjointExprSets().size() == 0) {
+  if (graph().disjointValSets().size() == 0) {
     return true;
   }
   const ValGroups terminating_inputs = graph().getTerminatingInputs();
@@ -69,10 +68,6 @@ bool ValGraphVisitor::traverse() {
       return true;
     }
     const ExprGroups& unique_defs = graph().getDefinitions(val_group);
-    std::cerr << "is ready: " << nvfuser::toString(val_group) << "\n";
-    for (const auto& def : unique_defs) {
-      std::cerr << "\tDef: " << nvfuser::toString(def) << "\n";
-    }
     return std::all_of(
         unique_defs.begin(), unique_defs.end(), [&](ExprGroup expr_group) {
           if (expr_group->empty() || visited_exprs.has(expr_group)) {
@@ -122,8 +117,6 @@ bool ValGraphVisitor::traverse() {
 
         something_was_processed = true;
         visited_exprs.pushBack(current_expr_group);
-        std::cerr << "Visiting expr: " << nvfuser::toString(current_expr_group)
-                  << "\n";
 
         for (const ValGroup& output_group :
              graph().outputGroups(current_expr_group)) {
@@ -146,8 +139,6 @@ bool ValGraphVisitor::traverse() {
 
         something_was_processed = true;
         visited_vals.pushBack(current_val_group);
-        std::cerr << "Visiting val: " << nvfuser::toString(current_val_group)
-                  << "\n";
 
         for (const ExprGroup& use_group : graph().getUses(current_val_group)) {
           to_visit_exprs.push_back(use_group);
