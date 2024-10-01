@@ -1860,8 +1860,8 @@ TEST_P(HopperSS, MultipleTile) {
   // Bring related dims to innermost, that is:
   // - Reorder tv0 as [1, M, K] or [1, K, M]
   // - Reorder tv1 as [1, N, K] or [1, K, N]
-  moveInnerBroadcastLeft(tv0);
-  moveInnerBroadcastLeft(tv1);
+  matmul_utils::moveInnerBroadcastLeft(tv0);
+  matmul_utils::moveInnerBroadcastLeft(tv1);
 
   // Note that we do not split tv0 and tv1 by tile. We just directly swizzle the
   // entire CTA. This means, the location of core matrices of each instruction
