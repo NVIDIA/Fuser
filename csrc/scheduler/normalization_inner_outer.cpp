@@ -450,6 +450,7 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
     int64_t inner_batch = -1;
     int64_t bdimx = -1;
     int64_t bdimy = -1;
+    int64_t bdimz = -1;
     int64_t gdimy = -1;
     int64_t tmp_gmem_write_vect = -1;
     int64_t vectorization_factor_outer = -1;
@@ -613,6 +614,11 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
     rparams->block_dim_inner_reduction_extra = ParallelType::TIDy;
     rparams->static_bdimx = true;
     rparams->static_bdimy = true;
+    iop.bdimz = ceilDiv(
+        ceilDiv(
+            ceilDiv(inner_dim_numel / iop.inner_vect, iop.bdimx), iop.bdimy),
+        iop.inner_batch);
+    NVF_ERROR(iop.bdimz == 1, "bdimz must be 1.");
   }
 
   // check all the parameters in InnerOuterParams are set.
@@ -640,7 +646,7 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
       LaunchParams::UNINITIALIZED_VAL,
       iop.bdimx,
       iop.bdimy,
-      LaunchParams::UNINITIALIZED_VAL);
+      iop.bdimz);
 
   if (!rparams->smem_persistent_buffers.empty()) {
     rparams->tag =
