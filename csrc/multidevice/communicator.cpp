@@ -234,7 +234,12 @@ void Communicator::cleanup() {
   store_ = nullptr;
 
 #if defined(NVFUSER_DISTRIBUTED) && defined(USE_C10D_NCCL)
-  for (auto& [key, backend] : backends_) {
+  // Sort backends to work around a NCCL bug (nvbugs/4889623). Closing backends
+  // in different orders between ranks have been causing a hang.
+  std::vector<std::pair<std::string, c10::intrusive_ptr<c10d::Backend>>>
+      keyed_backends(backends_.begin(), backends_.end());
+  std::sort(keyed_backends.begin(), keyed_backends.end());
+  for (auto& [key, backend] : keyed_backends) {
     // Call shutdown before destructing a ProcessGroupNCCL as instructed by
     // https://github.com/pytorch/pytorch/blob/e62073d7997c9e63896cb5289ffd0874a8cc1838/torch/csrc/distributed/c10d/ProcessGroupNCCL.cpp#L1164-L1170.
     if (auto* pg_nccl = dynamic_cast<c10d::ProcessGroupNCCL*>(backend.get())) {
