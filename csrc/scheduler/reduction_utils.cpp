@@ -142,23 +142,23 @@ TensorView* scheduleReductionTV(
     if (rparams->vectorize_inner_reduction) {
       vectorize(inner_reduce_axis, rparams->unroll_factor_inner_reduction);
     }
-    if (rparams.combined_inner_outer && !rparams.multiple_reds_per_blk) {
-      // inner_parallel(inner_reduce_axis, rparams.block_dim_inner_reduction);
+    if (rparams->combined_inner_outer && !rparams->multiple_reds_per_blk) {
+      // inner_parallel(inner_reduce_axis, rparams->block_dim_inner_reduction);
       NVF_ERROR(
-          rparams.static_bdimx,
+          rparams->static_bdimx,
           "blockDim.x must be static for combined_inner_outer");
       inner_parallel_static(
           inner_reduce_axis,
-          rparams.block_dim_inner_reduction,
-          rparams.lparams.bdimx());
+          rparams->block_dim_inner_reduction,
+          rparams->lparams.bdimx());
 
       NVF_ERROR(
-          rparams.static_bdimy,
+          rparams->static_bdimy,
           "blockDim.y must be static for combined_inner_outer");
       inner_parallel_static(
           inner_reduce_axis,
-          rparams.block_dim_inner_reduction_extra,
-          rparams.lparams.bdimy());
+          rparams->block_dim_inner_reduction_extra,
+          rparams->lparams.bdimy());
     }
     auto outer_i = inner_reduce_axis;
     if (rparams->cross_grid_inner_reduction) {
@@ -175,13 +175,13 @@ TensorView* scheduleReductionTV(
       outer_unroll(outer_i++, rparams->unroll_factor_inner_reduction);
     }
 
-    if (rparams.combined_inner_outer && !rparams.multiple_reds_per_blk) {
+    if (rparams->combined_inner_outer && !rparams->multiple_reds_per_blk) {
       reduction_tv->axis(outer_i)->parallelize(ParallelType::TIDz);
     } else {
       reduction_tv->axis(outer_i)->parallelize(
           rparams->block_dim_inner_reduction);
     }
-    if (rparams.pad_inner_reduction_to_warp) {
+    if (rparams->pad_inner_reduction_to_warp) {
       reduction_tv->axis(outer_i)->padToMultipleOfWarp();
     }
   } else {
@@ -278,16 +278,16 @@ TensorView* scheduleReductionTV(
       inner_unswitch(iter_axis);
     }
 
-    if (isParallelTypeThread(rparams.grid_dim_iter_dom)) {
-      if (rparams.split_grid_dim_iter_dom_outer) {
-        if (rparams.combined_inner_outer && !rparams.multiple_reds_per_blk) {
+    if (isParallelTypeThread(rparams->grid_dim_iter_dom)) {
+      if (rparams->split_grid_dim_iter_dom_outer) {
+        if (rparams->combined_inner_outer && !rparams->multiple_reds_per_blk) {
           inner_parallel_static(
-              iter_axis, rparams.grid_dim_iter_dom, rparams.lparams.gdimy());
+              iter_axis, rparams->grid_dim_iter_dom, rparams->lparams.gdimy());
         } else {
-          outer_parallel(iter_axis, rparams.grid_dim_iter_dom);
+          outer_parallel(iter_axis, rparams->grid_dim_iter_dom);
         }
-      } else if (rparams.split_grid_dim_iter_dom_inner) {
-        inner_parallel(iter_axis, rparams.grid_dim_iter_dom);
+      } else if (rparams->split_grid_dim_iter_dom_inner) {
+        inner_parallel(iter_axis, rparams->grid_dim_iter_dom);
       } else {
         reduction_tv->axis(iter_axis)->parallelize(rparams->grid_dim_iter_dom);
       }

@@ -783,17 +783,17 @@ void scheduleReductionCombinedOuter(
     mergeReductionOrIterDomains(outer_reduction_tv, false);
     if (rparams->multiple_reds_per_blk) {
       outer_reduction_tv->split(
-          0, NamedScalar::getParallelDim(rparams.block_dim_iter_dom));
+          0, NamedScalar::getParallelDim(rparams->block_dim_iter_dom));
       outer_reduction_tv->split(
-          0, NamedScalar::getParallelDim(rparams.grid_dim_iter_dom), false);
+          0, NamedScalar::getParallelDim(rparams->grid_dim_iter_dom), false);
     } else {
-      outer_reduction_tv->split(0, rparams.lparams.gdimy());
+      outer_reduction_tv->split(0, rparams->lparams.gdimy());
     }
 
     if (rparams->multiple_reds_per_blk) {
       outer_reduction_tv->rFactor({1});
     }
-    TensorView* partialResult = rparams.multiple_reds_per_blk
+    TensorView* partialResult = rparams->multiple_reds_per_blk
         ? outer_reduction_tv->rFactor({1})
         : outer_reduction_tv->rFactor({0});
     partialResult->cacheBefore();
@@ -842,7 +842,7 @@ void scheduleReductionCombinedOuter(
 
     } else {
       // reduction domain
-      outer_reduction_tv->split(0, rparams.lparams.bdimy());
+      outer_reduction_tv->split(0, rparams->lparams.bdimy());
       outer_reduction_tv->axis(1)->parallelize(ParallelType::TIDy);
 
       // iteration domain
@@ -853,8 +853,8 @@ void scheduleReductionCombinedOuter(
             ParallelType::Vectorize);
       }
 
-      if (rparams.lparams.bdimx() > 1) {
-        outer_reduction_tv->split(axisID, rparams.lparams.bdimx());
+      if (rparams->lparams.bdimx() > 1) {
+        outer_reduction_tv->split(axisID, rparams->lparams.bdimx());
         outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::TIDx);
       }
 
