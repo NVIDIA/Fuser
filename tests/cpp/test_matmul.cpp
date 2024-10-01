@@ -3624,8 +3624,8 @@ TEST_F(HopperMatmulTest, HSHNT128BSwizzle) {
 
   inlineMost();
 
-  tv0c->circularBuffer(/*number_of_stages=*/4);
-  tv1c->circularBuffer(/*number_of_stages=*/4);
+  // tv0c->circularBuffer(/*number_of_stages=*/4);
+  // tv1c->circularBuffer(/*number_of_stages=*/4);
 
   auto inputs =
       matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
