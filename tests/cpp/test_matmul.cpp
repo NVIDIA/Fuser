@@ -3536,4 +3536,109 @@ INSTANTIATE_TEST_SUITE_P(
     kAllSupportedMmaLayout,
     mmaLayoutName);
 
+using HopperMatmulTest = HopperBase;
+
+TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int64_t M = 1024 * 16, N = 1024 * 16, K = 1024;
+  constexpr auto macro = MmaMacro::Hopper_64_256_16;
+  constexpr auto layout = MmaLayout::NT; // [K, M] x [K, N] -> [M, N]
+  constexpr auto swizzle = MmaInputSmemSwizzle::B128;
+  const auto dtype = DataType::Half;
+
+  auto tv0 = makeContigConcreteTensor({-1, -1, 1}, dtype);
+  auto tv1 = makeContigConcreteTensor({-1, 1, -1}, dtype);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  auto tv2 = fusedMultiplySum(tv0, tv1, {0});
+
+  // Reorder the accumulator as [M, N, K]
+  // [K, M, N] -> [M, N, K]
+  tv2->reorder({{-3, -1}});
+  tv2->commitLeafToLogical();
+
+  auto tv3 = castOp(DataType::Half, tv2);
+
+  fusion.addOutput(tv3);
+
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
+  NVF_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+  mma_ops.front()->setMacro(macro);
+
+  // gmem [K, M, 1] x gmem [K, 1, N] -mma-> register [M, N, rK]
+  // register [M, N, rK] -cast-> gmem [M, N]
+
+  auto tv0c = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv0c->setMemoryType(MemoryType::Shared);
+  auto tv1c = tv1->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv1c->setMemoryType(MemoryType::Shared);
+  auto tv3c = tv3->cacheBefore();
+
+  // gmem [K, M, 1] -TMA-> smem [K, M, 1]
+  // gmem [K, 1, N] -TMA-> smem [K, 1, N]
+  // smem [K, M, 1] x smem [K, 1, N] -mma-> register [M, N, rK]
+  // register [M, N, rK] -cast-> register [M, N] -set-> gmem [M, N]
+
+  // Create tiles
+  tv2->split(-3, getM(macro));
+  tv2->split(-2, getN(macro));
+  tv2->split(-1, getK(macro));
+  // [Mo, Mi, No, Ni, Ko, Ki] -> [Mo, No, Ko, Mi, Ni, Ki]
+  tv2->reorder({{-5, -3}, {-3, -2}});
+  tv2->axis(0)->parallelize(ParallelType::BIDy);
+  tv2->axis(1)->parallelize(ParallelType::BIDx);
+
+  TransformPropagator propagator(tv2);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
+  scheduler_utils::parallelizeAllLike(tv2);
+
+  // [..., Mi, Ni, Ki] -> [..., Ni, Ki, Mi]
+  tv0c->reorder({{-3, -1}});
+  tv0c->applyMmaSwizzleForTMALoad(swizzle);
+  // [..., Mi, Ni, Ki] -> [..., Mi, Ki, Ni]
+  tv1c->reorder({{-1, -2}});
+  tv1c->applyMmaSwizzleForTMALoad(swizzle);
+
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2->getLoopDomain());
+    tv2->setAllocationDomain(s.as<IterDomain*>(), true);
+    tv2->axis(-1)->parallelize(ParallelType::Mma);
+    tv2->axis(-2)->parallelize(ParallelType::Mma);
+    tv2->axis(-3)->parallelize(ParallelType::Mma);
+  }
+
+  for (auto tv : {tv3c, tv3}) {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv->getLoopDomain());
+    tv->setLoopDomain(s.as<IterDomain*>());
+  }
+  tv3->axis(-1)->parallelize(ParallelType::Vectorize);
+
+  inlineMost();
+
+  // TODO: looks like this test will hang if I enable this
+  // tv0c->circularBuffer(/*number_of_stages=*/4);
+  // tv1c->circularBuffer(/*number_of_stages=*/4);
+
+  auto inputs =
+      matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
+
+  FusionExecutor fe;
+  fe.compileFusion(
+      &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
+  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  auto tref = atMatmul(
+      inputs.first.squeeze(),
+      inputs.second.squeeze(),
+      layout);
+  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+}
+
 } // namespace nvfuser
