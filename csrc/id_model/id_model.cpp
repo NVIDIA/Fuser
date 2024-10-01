@@ -1012,7 +1012,7 @@ void IdModel::validateAndPropagatePType() {
   }
 }
 
-void IdModel::allocateIndexVariables() {
+void IdModel::allocateLoopIndexVariables() {
   FusionGuard fg(fusion_);
 
   NVF_ERROR(GpuLower::hasCurrent());

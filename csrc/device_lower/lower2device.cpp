@@ -515,7 +515,7 @@ void GpuLower::analysis(Fusion* fusion) {
   dumpExprsIfEnabled(fusion_->exprs(), "allocateIndexVariables");
 
   if (isIdModelOptionEnabled(IdModelEnableOption::Loop)) {
-    id_model_->allocateIndexVariables();
+    id_model_->allocateLoopIndexVariables();
   }
 
   if (this->requiresIdModel() || isOptionEnabled(EnableOption::IdModel)) {

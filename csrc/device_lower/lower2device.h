@@ -304,6 +304,10 @@ class GpuLower : public NonCopyable {
     return validations_;
   }
 
+  // Get the index variable assigned for a given loop ID. Currently
+  //  it's a wrapper around ComputeAtMap::getIndexVariable or
+  // IdModel::getLoopIndexVariable if IdModelEnableOption::Loop is
+  //  enabled.
   Val* getLoopIndexVariable(
       IterDomain* id,
       CircularBufferLoopStage stage =
