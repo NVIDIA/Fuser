@@ -945,7 +945,7 @@ void MmaSwizzler::scheduleTMALoadForMma(
     // [Ko, K8, No, N8]
     tv->reorder({{-2, -3}});
     // [Ko, No, K8, N8]
-    num_ids_to_skip += 2;
+    // num_ids_to_skip += 2;
   } else {
     auto dtype = tv->getDataType().value();
 
@@ -961,7 +961,7 @@ void MmaSwizzler::scheduleTMALoadForMma(
     // [NO, K, NI] ->
     // [NO, KO(2), KIO(2), KII(4), NIO(2), NII(8)]
     tv->swizzleTMABox(swizzle);
-    num_ids_to_skip += 1;
+    // num_ids_to_skip += 1;
   }
 
   parallelizeAsBulkSkippingFirstIDs(tv, num_ids_to_skip);
