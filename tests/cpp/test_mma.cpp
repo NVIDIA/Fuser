@@ -12,10 +12,10 @@
 
 #include <exceptions.h>
 #include <fusion.h>
-#include <fusion_executor/executor.h>
 #include <inlining.h>
 #include <ir/all_nodes.h>
 #include <ops/all_ops.h>
+#include <runtime/executor.h>
 #include <scheduler/matmul_utils.h>
 #include <scheduler/mma_utils.h>
 #include <algorithm>
