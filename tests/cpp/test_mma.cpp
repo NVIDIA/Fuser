@@ -948,7 +948,7 @@ TEST_P(HopperRS, SingleTileWithTMALoadOuterDimNotSplit) {
 
   // In this case we don't split the outer dimension, thus having
   // fewer TMA loads.
-  tv1->applyMmaSwizzleForTMALoad(swizzle_b, /* don't split outer dim*/ false);
+  tv1->applyMmaSwizzleForTMALoad(swizzle_b);
 
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
@@ -1176,34 +1176,6 @@ class HopperSS : public HopperBase,
     swizzle_b = std::get<4>(GetParam());
   }
 };
-
-std::pair<std::vector<int64_t>, std::vector<int64_t>>
-matmulAtInputShape3DHopperSS(int M, int N, int K, MmaLayout layout) {
-  switch (layout) {
-    case MmaLayout::TT:
-      return {{M, K, 1}, {1, K, N}};
-    case MmaLayout::TN:
-      return {{M, 1, K}, {1, N, K}};
-    case MmaLayout::NT:
-      return {{K, M, 1}, {K, 1, N}};
-    case MmaLayout::NN:
-      return {{1, K, M}, {N, K, 1}};
-    default:
-      NVF_CHECK(false, "unsupported data layout.");
-  }
-}
-
-std::pair<at::Tensor, at::Tensor> matmulAtInput3DHopperSS(
-    int M,
-    int N,
-    int K,
-    MmaLayout layout,
-    c10::ScalarType dtype) {
-  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
-  auto shapes = matmulAtInputShape3DHopperSS(M, N, K, layout);
-  return std::make_pair(
-      at::randn(shapes.first, options), at::randn(shapes.second, options));
-}
 
 TEST_P(HopperSS, SingleTile) {
   Fusion fusion;

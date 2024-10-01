@@ -233,8 +233,7 @@ class MmaSwizzler {
   //! outermost.
   static void scheduleTMALoadForMma(
       TensorView* tv,
-      MmaInputSmemSwizzle swizzle,
-      bool permute_outer_dim = true);
+      MmaInputSmemSwizzle swizzle);
 
   //! Parallelize all dims as bulk expect the first dims mentioned in the second
   //! param.

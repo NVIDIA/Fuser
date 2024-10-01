@@ -574,9 +574,9 @@ class NVFuserTest : public ::testing::Test {
 class HopperBase : public NVFuserTest {
  protected:
   void SetUp() override {
-    if (cudaArchGuardShouldSkip(9, 0)) {
-      GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
-    }
+    // if (cudaArchGuardShouldSkip(9, 0)) {
+    //   GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
+    // }
     NVFuserTest::SetUp();
   }
 };
@@ -718,6 +718,38 @@ at::Tensor matmulAtInput2D(
     const int64_t K,
     const int64_t B = 0,
     const int64_t device = 0);
+
+std::
+    pair<std::vector<int64_t>, std::vector<int64_t>> inline matmulAtInputShape3DHopperSS(
+        int M,
+        int N,
+        int K,
+        MmaLayout layout) {
+  switch (layout) {
+    case MmaLayout::TT:
+      return {{M, K, 1}, {1, K, N}};
+    case MmaLayout::TN:
+      return {{M, 1, K}, {1, N, K}};
+    case MmaLayout::NT:
+      return {{K, M, 1}, {K, 1, N}};
+    case MmaLayout::NN:
+      return {{1, K, M}, {N, K, 1}};
+    default:
+      NVF_CHECK(false, "unsupported data layout.");
+  }
+}
+
+inline std::pair<at::Tensor, at::Tensor> matmulAtInput3DHopperSS(
+    int M,
+    int N,
+    int K,
+    MmaLayout layout,
+    c10::ScalarType dtype) {
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  auto shapes = matmulAtInputShape3DHopperSS(M, N, K, layout);
+  return std::make_pair(
+      at::randn(shapes.first, options), at::randn(shapes.second, options));
+}
 
 // Given a tensor view created by matmulAtInput2D or matmulAtInput3DTuring,
 // insert permute/BroadcastOp as needed to make it [B, M, N, K]. The returned
