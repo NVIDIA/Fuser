@@ -4280,11 +4280,6 @@ class TestNvFuserFrontend(NVFuserTest):
 
     def test_repro_script_generation(self):
         expected_str = """
-# CUDA devices:
-#  0: NVIDIA A100 80GB PCIe
-# torch version: 2.5.0a0+git25d5a81
-# cuda version: 12.6
-# nvfuser version: 0.2.10+gitb2e3f89
 import torch
 from nvfuser import FusionDefinition, DataType
 
@@ -4330,21 +4325,33 @@ fd.execute(inputs)
 
         sys.stdout = old_stdout
 
-        def find_start_line(lines):
+        def canonicalize(input):
+            lines = None
+            if isinstance(input, str):
+                comp_str = input.strip()
+                lines = comp_str.split("\n")
+            else:
+                lines = input
+            new_lines = []
             # Enable skipping the repro header that might change due to number of
             # or software version.
-            start_line = 0
             for line in lines:
-                if line[0] == "#":
-                    start_line += 1
+                if re.match(r"^# .*", line):
+                    continue
+                elif re.fullmatch(
+                    r"^def nvfuser_fusion_id\d+\(fd : FusionDefinition\) -> None :",
+                    line,
+                ):
+                    new_lines += [
+                        "def nvfuser_fusion_id0(fd : FusionDefinition) -> None :"
+                    ]
+                elif re.fullmatch(r"^    nvfuser_fusion_id\d+\(fd\)", line):
+                    new_lines += ["    nvfuser_fusion_id0(fd)"]
                 else:
-                    break
-            return start_line
+                    new_lines += [line]
+            return new_lines
 
-        comp_str = test_stdout.getvalue()
-        comp_str = comp_str.strip()
-        comp_lines = comp_str.split("\n")
-        start_line = find_start_line(comp_lines)
+        comp_lines = canonicalize(test_stdout.getvalue())
 
         assert len(expected_lines) == len(
             comp_lines
@@ -4353,35 +4360,33 @@ fd.execute(inputs)
         )
         # Don't compare the first 5 lines as they may be device and cuda specific
         assert (
-            expected_lines[5:] == comp_lines[start_line:]
+            expected_lines == comp_lines
         ), "Reproduction script does not match expected output!"
 
         # Test fd.execute(inputs, save_repro_inputs=True) ; fd.last_repro_script()
         fd.execute(inputs, save_repro_inputs=True)
 
-        comp_str = fd.last_repro_script()
-        comp_str = comp_str.strip()
-        comp_lines = comp_str.split("\n")
-        start_line = find_start_line(comp_lines)
+        comp_lines = canonicalize(fd.last_repro_script())
 
         assert len(expected_lines) == len(
             comp_lines
         ), "Reproduction script does not have the expected number of lines! Expected: {} Actual: {}".format(
             len(expected_lines), len(comp_lines)
         )
-        # Don't compare the first 5 lines as they may be device and cuda specific
         assert (
-            expected_lines[5:] == comp_lines[start_line:]
+            expected_lines == comp_lines
         ), "Reproduction script does not match expected output!"
 
-        comp_str = fd.last_repro_script()
-        comp_str = comp_str.strip()
-        comp_lines = comp_str.split("\n")
-        start_line = find_start_line(comp_lines)
+        comp_lines = canonicalize(fd.last_repro_script())
 
         # Make sure that the fake_tensors are properly saved for repeated query
+        assert len(expected_lines) == len(
+            comp_lines
+        ), "The second query of the eproduction script does not have the expected number of lines! Expected: {} Actual: {}".format(
+            len(expected_lines), len(comp_lines)
+        )
         assert (
-            expected_lines[5:] == comp_lines[start_line:]
+            expected_lines == comp_lines
         ), "The second query of the reproduction script does not match expected output!"
 
     # Test that replaced sizes using input tensor metadata are successfully computed
