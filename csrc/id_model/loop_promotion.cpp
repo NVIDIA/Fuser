@@ -94,7 +94,40 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
   return loop_promotion_map_to_propagate;
 }
 
+namespace {
+
+// Check if all the domains of each loop group are exactly mapped. If
+// so, the full promotion analysis should not be necessary.
+bool isLoopGraphUniform(const IdModel& id_model) {
+  const auto& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
+  return std::all_of(
+      loop_graph.disjointValSets().disjointSets().begin(),
+      loop_graph.disjointValSets().disjointSets().end(),
+      [&](const ValGroup& loop_group) -> bool {
+        return id_model.idGraph(IdMappingMode::EXACT)
+                   .toGroups(*loop_group)
+                   .size() == 1;
+      });
+}
+
+} // namespace
+
 std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
+  // Some quick shortcut conditions to skip the full loop promotion
+  // analysis. These are not comprehensive. Should add more conditions
+  // if necessary.
+  if (inlining_info_.p2c_root_broadcast_resolution_map.empty() ||
+      isLoopGraphUniform(id_model_)) {
+    return buildWithNoBroadcast();
+  }
+
+  // Cyclic exact graph is not supported. Specifically,
+  // computeCoveredGroups would fail as it uses ValGraphStmtSort.
+  NVF_ERROR(
+      !isCyclic(idGraph(IdMappingMode::EXACT)),
+      "Cyclic exact graph is not supported: ",
+      idGraph(IdMappingMode::EXACT).toString());
+
   // Make an intersection of the exact and loop map. This will group together
   // entries in each loop group that are exact with each other. This provides a
   // better graph to do promotion and replays.
@@ -896,6 +929,20 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::get(
     LoopPromotionMapBuilderCallback* callback) {
   LoopPromotionMapBuilder builder(id_model, inlining_info, callback);
   return builder.build();
+}
+
+std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
+    buildWithNoBroadcast() {
+  const auto& loop_graph = idGraph(IdMappingMode::LOOP);
+
+  std::unordered_map<ValGroup, IterDomain*> map;
+  for (const ValGroup& loop_group :
+       loop_graph.disjointValSets().disjointSets()) {
+    NVF_ERROR(!loop_group->empty());
+    map.emplace(loop_group, loop_group->front()->as<IterDomain>());
+  }
+
+  return map;
 }
 
 } // namespace nvfuser
