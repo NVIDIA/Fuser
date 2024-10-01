@@ -35,7 +35,6 @@
 #include <preseg_passes/pre_segmenter.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/matmul.h>
-#include <scheduler/matmul_utils.h>
 #include <scheduler/mma_utils.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>
@@ -3600,9 +3599,11 @@ TEST_F(HopperMatmulTest, HSHNT128BSwizzle) {
   MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
   scheduler_utils::parallelizeAllLike(tv2);
 
-  matmul_utils::moveInnerBroadcastLeft(tv0c);
+  // [..., Mi, Ni, Ki] -> [..., Ni, Ki, Mi]
+  tv0c->reorder({{-3, -1}});
   tv0c->applyMmaSwizzleForTMALoad(swizzle);
-  matmul_utils::moveInnerBroadcastLeft(tv1c);
+  // [..., Mi, Ni, Ki] -> [..., Mi, Ki, Ni]
+  tv1c->reorder({{-1, -2}});
   tv1c->applyMmaSwizzleForTMALoad(swizzle);
 
   {
