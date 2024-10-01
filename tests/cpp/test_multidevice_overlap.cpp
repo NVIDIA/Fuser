@@ -590,7 +590,6 @@ class AGOverlapTest : public MultiDeviceTest {
         << "\n expected: " << tc_expected_;
   }
 };
-// clang-format off
 // This test implements an allgather-based pipelining overlapping technique,
 // similar to the above reduce-scattered based pipelining overlapping technique
 // clang-format on
