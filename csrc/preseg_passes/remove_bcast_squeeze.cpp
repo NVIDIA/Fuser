@@ -8,6 +8,7 @@
 #include <debug.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
+#include <multidevice/utils.h>
 #include <ops/alias.h>
 #include <ops/arith.h>
 #include <options.h>
@@ -60,22 +61,6 @@ AxisOps squeezeToAxisOps(SqueezeOp* squeeze) {
   return ops;
 }
 
-//! Check whether the loop domains are the same size and have the same
-//! parallelization, ignoring reduction dimensions.
-bool hasCompatibleParallelization(TensorView* orig_tv, TensorView* new_tv) {
-  std::vector<IterDomain*> orig_domain =
-      TensorDomain::noReductions(orig_tv->getLoopDomain());
-  std::vector<IterDomain*> new_domain =
-      TensorDomain::noReductions(new_tv->getLoopDomain());
-  NVF_ERROR(orig_domain.size() == new_domain.size());
-  for (size_t i : c10::irange(orig_domain.size())) {
-    if (orig_domain[i]->getParallelType() != new_domain[i]->getParallelType()) {
-      return false;
-    }
-  }
-  return true;
-}
-
 //! Checks whether this is a simple Set of a TensorView. If not, then this might
 //! represent a scalar set, or a segment_set.
 bool isSimpleTVSet(Expr* expr) {
@@ -88,15 +73,16 @@ bool isSimpleTVSet(Expr* expr) {
   return ldst->opType() == LoadStoreOpType::Set && in_tv != nullptr &&
       out_tv != nullptr
       // The hasRoot() check is to prevent picking up Set.Permute ops here
-      && !ldst->out()->as<TensorView>()->hasRoot()
-      // A set operation that changes parallelization is not considered trivial
-      && hasCompatibleParallelization(in_tv, out_tv);
+      && !ldst->out()->as<TensorView>()->hasRoot();
 }
 
 //! This defines the types of operations that are eligible for simplification in
 //! this pass.
 bool isReplaceableExpr(Expr* expr) {
   if (expr == nullptr) {
+    return false;
+  }
+  if (isResharding(expr)) {
     return false;
   }
   return expr->isA<BroadcastOp>() || expr->isA<SqueezeOp>() ||
@@ -248,13 +234,6 @@ TensorView* maybeDoReplacement(TensorView* orig) {
       case AxisOp::PRESERVE:
         // This is equivalent to a set Op
         replacement = input_tv;
-        // Check that parallelization is consistent for replacement. We do not
-        // want to alter the parallelization of input_tv here; we only
-        // parallelize _new_ TVs. If the parallelization is inconsistent, we
-        // simply refuse to make the replacement.
-        if (!hasCompatibleParallelization(orig, replacement)) {
-          return orig;
-        }
         break;
       case AxisOp::SQUEEZE:
         replacement = squeeze(input_tv, nonPreservedDims(simplified_ops));
