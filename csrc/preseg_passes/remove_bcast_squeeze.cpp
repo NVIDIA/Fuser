@@ -165,35 +165,38 @@ std::vector<bool> nonPreservedDims(const AxisOps& ops) {
 }
 
 //! Given a descriptors of two sequences of broadcast+squeeze ops, return a
-//! descriptor of their composition, with a applied before b
+//! descriptor of their composition
 AxisOps composeOps(const AxisOps& prev, const AxisOps& next) {
   size_t prev_pos = 0, next_pos = 0;
   AxisOps ops;
   while (true) {
     // If there are previous squeezes, insert them since they don't affect next
     // position
-
     while (prev_pos < prev.size() && prev[prev_pos] == AxisOp::SQUEEZE) {
       ops.push_back(AxisOp::SQUEEZE);
       prev_pos++;
     }
+
     // prev[prev_pos] now gives the provenance of the axis that next_pos points
     // to if it's not a broadcast. If it is a broadcast, then we'll unzip some
     // of these squeezes.
     while (next_pos < next.size() && next[next_pos] == AxisOp::BROADCAST) {
       if (!ops.empty() && ops.back() == AxisOp::SQUEEZE) {
+        // This is a "squeeze then broadcast" pattern
         ops.back() = AxisOp::PRESERVE;
       } else {
         ops.push_back(AxisOp::BROADCAST);
       }
       next_pos++;
     }
+
     if (prev_pos >= prev.size() || next_pos >= next.size()) {
       NVF_ERROR(
           prev_pos >= prev.size() && next_pos >= next.size(),
           "Failed to align some ops");
       break;
     }
+
     // Now we have prev[prev_pos] != SQUEEZE and next[next_pos] != BROADCAST,
     // which means prev[prev_pos] provides the next op with its input. So here
     // we are actually composing these aligned ops.
@@ -202,10 +205,10 @@ AxisOps composeOps(const AxisOps& prev, const AxisOps& next) {
     } else if (next[next_pos] == AxisOp::PRESERVE) {
       ops.push_back(prev[prev_pos]);
     } else {
+      // Otherwise this is a "broadcast then squeeze" pattern, so skip it
       NVF_ERROR(
           next[next_pos] == AxisOp::SQUEEZE &&
           prev[prev_pos] == AxisOp::BROADCAST);
-      // Skip this op, since it is a "broadcast then squeeze" pattern
     }
     prev_pos++;
     next_pos++;
@@ -276,16 +279,23 @@ TensorView* maybeDoReplacement(TensorView* orig) {
 
 // Remove broadcast-squeeze and squeeze-broadcast patterns
 void removeBcastSqueeze(Fusion* fusion) {
-  // Iterate from outputs toward producers
+  // Iterate from outputs toward producers using a depth-first search for
+  // replaceable patterns
   std::vector<TensorView*> stack;
   for (Val* outp : fusion->outputs()) {
     if (auto* tv = dynamic_cast<TensorView*>(outp)) {
       stack.push_back(tv);
     }
   }
+  std::unordered_set<TensorView*> visited;
   while (!stack.empty()) {
     TensorView* tv = stack.back();
     stack.pop_back();
+    if (visited.count(tv) > 0) {
+      continue;
+    }
+    // avoid re-visiting producers when they have multiple uses
+    visited.insert(tv);
     TensorView* maybe_replaced_tv = maybeDoReplacement(tv);
     if (maybe_replaced_tv != tv) {
       // If we made a replacement, process it before proceeding. For example, if
