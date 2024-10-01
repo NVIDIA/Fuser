@@ -60,6 +60,8 @@ AxisOps squeezeToAxisOps(SqueezeOp* squeeze) {
   return ops;
 }
 
+//! Check whether the loop domains are the same size and have the same
+//! parallelization, ignoring reduction dimensions.
 bool hasCompatibleParallelization(TensorView* orig_tv, TensorView* new_tv) {
   std::vector<IterDomain*> orig_domain =
       TensorDomain::noReductions(orig_tv->getLoopDomain());
@@ -123,8 +125,9 @@ AxisOps exprToAxisOps(Expr* expr) {
       expr->toString());
 }
 
-//! Return true if we are unable to simplify this combination to a single
-//! operation.
+//! Return non-null if we are unable to simplify this combination to a single
+//! operation. Otherwise returns the type of operation (PRESERVE indicates this
+//! is a set operation).
 std::optional<AxisOp> getSimplifiedOpType(const AxisOps& ops) {
   bool has_broadcast = false, has_squeeze = false;
   for (const AxisOp op : ops) {
@@ -149,7 +152,7 @@ std::optional<AxisOp> getSimplifiedOpType(const AxisOps& ops) {
   if (has_squeeze) {
     return AxisOp::SQUEEZE;
   }
-  // Preserve indicates this is a set op
+  // PRESERVE indicates this is a set op
   return AxisOp::PRESERVE;
 }
 
@@ -270,6 +273,10 @@ TensorView* maybeDoReplacement(TensorView* orig) {
   NVF_ERROR(new_loop.size() == old_loop.size());
   for (size_t i : c10::irange(old_loop.size())) {
     if (old_loop[i]->isParallelized()) {
+      NVF_ERROR(
+          old_loop[i]->isDeviceDim(),
+          "Before scheduling, we expect the only parallelized ",
+          "dimensions to be device dims");
       // In particular, we might have a Device dimension parallelized for the
       // output, which we need to preserve.
       new_loop[i]->parallelize(old_loop[i]->getParallelType());
