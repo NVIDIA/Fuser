@@ -115,8 +115,6 @@ class FusionDefinition(_C._FusionDefinition):
             inputs (List[Union[Tensor, Scalar]]): A list of inputs to fusion.
 
         Kwargs:
-            override_user_schedule (bool): For a user defined schedule,
-                override with auto-generated schedule (default: False)
             device (Optional[Union[int, str, torch.device]]): This is a hint to run
                 the Fusion on the given CUDA device. This is not typically
                 necessary, as the device is usually inferred from the locations
@@ -126,12 +124,14 @@ class FusionDefinition(_C._FusionDefinition):
                 must either tell NVFuser where to run the resulting kernel, or
                 let it default to 0. Note that passing this option providing
                 and input tensors that lie on another device is an error.
-            print_repro (bool): Prints a reproduction script to stdout.
-            profile (bool): Captures a CUPTI based profile of a fusion.
+            override_user_schedule (bool): For a user defined schedule,
+                override with auto-generated schedule (default: False)
             capture_debug_output (bool): Whether to capture any printed
                 debugging information as a string. If True, the string can be
                 retrieved after execution using :meth:`get_debug_output`. If False,
                 then that method will return None when called.
+            print_repro (bool): Prints a reproduction script to stdout.
+            profile (bool): Captures a CUPTI based profile of a fusion.
             save_repro_inputs (bool): Saves the inputs for last_repro_script() to
                 provide a provide a reproduction script.
 
