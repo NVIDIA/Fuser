@@ -508,7 +508,7 @@ class AGOverlapTest : public MultiDeviceTest {
   c10d::Backend* world_communicator_;
 
   // Define I/O and intermediate Tensor shapes
-  // A has shape (S, sharded(n), M/(S*n), K)
+  // A has shape (S, sharded(D), M/(S*D), K)
   // B(K,N)
   // C has shape (S, M/S, N)
   std::vector<int64_t> ta_sizes;
