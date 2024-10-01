@@ -368,7 +368,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   // preserve the old heuristic where unroll is used only when vectorization is
   // not used. should allow to use both unroll and vectorization together in
   // heuristics tuning.
-  if (params->vectorization_factor > 1) {
+  if (params->vectorization_factor == 1) {
     params->unroll_factor = scheduler_utils::safeDiv(
         max_vect_unroll_factor, params->vectorization_factor);
   }
