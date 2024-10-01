@@ -3624,6 +3624,7 @@ TEST_F(HopperMatmulTest, HSHNT128BSwizzle) {
 
   inlineMost();
 
+  // TODO: looks like this test will hang if I enable this
   // tv0c->circularBuffer(/*number_of_stages=*/4);
   // tv1c->circularBuffer(/*number_of_stages=*/4);
 
