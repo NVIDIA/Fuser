@@ -61,6 +61,9 @@ class LoopPromotionMapBuilder {
 
   std::unordered_map<ValGroup, IterDomain*> build();
 
+  // Shortcut to build a map of promotion IDs without doing the full
+  // loop promotion analysis. Can only be used when the full analysis
+  // is not requierd.
   std::unordered_map<ValGroup, IterDomain*> buildWithNoBroadcast();
 
   ValGraph& idGraph(IdMappingMode mode);

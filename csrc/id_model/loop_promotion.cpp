@@ -94,19 +94,30 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
   return loop_promotion_map_to_propagate;
 }
 
+namespace {
+
+// Check if all the domains of each loop group are exactly mapped. If
+// so, the full promotion analysis should not be necessary.
+bool isLoopGraphUniform(const IdModel& id_model) {
+  const auto& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
+  return std::all_of(
+      loop_graph.disjointValSets().disjointSets().begin(),
+      loop_graph.disjointValSets().disjointSets().end(),
+      [&](const ValGroup& loop_group) -> bool {
+        return id_model.idGraph(IdMappingMode::EXACT)
+                   .toGroups(*loop_group)
+                   .size() == 1;
+      });
+}
+
+} // namespace
+
 std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
-  // If there's no broadcast, any domain of each loop group is a valid
-  // promotion domain.
-  if (getenv("SKIP_LOOP_PROMOTION") ||
-      std::none_of(
-          idGraph(IdMappingMode::EXACT)
-              .disjointValSets()
-              .disjointSets()
-              .begin(),
-          idGraph(IdMappingMode::EXACT).disjointValSets().disjointSets().end(),
-          [](const ValGroup& exact_group) -> bool {
-            return exact_group->at(0)->as<IterDomain>()->isBroadcast();
-          })) {
+  // Some quick shortcut conditions to skip the full loop promotion
+  // analysis. These are not comprehensive. Should add more conditions
+  // if necessary.
+  if (inlining_info_.p2c_root_broadcast_resolution_map.empty() ||
+      isLoopGraphUniform(id_model_)) {
     return buildWithNoBroadcast();
   }
 
