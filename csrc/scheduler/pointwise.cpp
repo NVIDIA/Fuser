@@ -365,8 +365,13 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
           break_point,
           logical_reorder_map));
 
-  params->unroll_factor = scheduler_utils::safeDiv(
-      max_vect_unroll_factor, params->vectorization_factor);
+  // preserve the old heuristic where unroll is used only when vectorization is
+  // not used. should allow to use both unroll and vectorization together in
+  // heuristics tuning.
+  if (params->vectorization_factor > 1) {
+    params->unroll_factor = scheduler_utils::safeDiv(
+        max_vect_unroll_factor, params->vectorization_factor);
+  }
 
   NVF_ERROR(right_elem_count > 0 || break_point == 0);
   NVF_ERROR(!(bdimy > 1 && gdim_right > 1));
