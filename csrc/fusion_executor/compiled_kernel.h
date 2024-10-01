@@ -11,7 +11,6 @@
 #include <expr_evaluator.h>
 #include <fusion.h>
 #include <fusion_executor/allocations.h>
-#include <fusion_executor/compiled_kernel.h>
 #include <fusion_executor/executor_params.h>
 #include <fusion_executor/executor_utils.h>
 #include <host_ir/container.h>
@@ -20,7 +19,7 @@
 #include <ir/printer.h>
 #include <multidevice/communicator.h>
 #include <scheduler/scheduler_types.h>
-#include <serde/fusion_cache_generated.h>
+// #include <serde/fusion_cache_generated.h>
 #include <utils.h>
 #include <atomic>
 
@@ -30,10 +29,15 @@
 
 namespace nvfuser {
 
-class FusionExecutor : public NonCopyable {
+// TODO: Should this actually be in launch params?
+struct CompileOptions {
+  c10::Device device = c10::Device(c10::DeviceType::CUDA, 0);
+};
+
+class CompiledKernel : public NonCopyable {
  public:
   // NVF_API was added for nvfuser_extension. See examples/sinh_extension.
-  NVF_API FusionExecutor();
+  NVF_API CompiledKernel() = default;
 
   //! To compile a fusion with the 32-bit index type, CompileParams
   //! must be passed in. There used to be an index type associated
@@ -80,44 +84,6 @@ class FusionExecutor : public NonCopyable {
         concrete_id);
   }
 
-  //! Computes fusion outputs through expression evaluator.
-  std::vector<at::Tensor> evaluateFusionOutputs(
-      std::vector<at::Tensor> outputs,
-      ExpressionEvaluator& expr_eval);
-
-  // TODO: args shouldn't come in a reference here because we will append the
-  // outputs to be able to send it to the kernel. For now none of the users are
-  // reconsuming the args, so it is okay. It isn't done now because changing it
-  // from a reference makes a call as runFusion({}) ambiguous, and that is used
-  // in some places in the codebase.
-  NVF_API std::vector<at::Tensor> runFusion(
-      KernelArgumentHolder& args,
-      const LaunchParams& launch_constraints = LaunchParams(),
-      CompileParams compile_params = CompileParams(),
-      std::vector<at::Tensor> outputs = {});
-
-  std::vector<at::Tensor> runFusion(
-      const at::ArrayRef<c10::IValue>& inputs,
-      const std::vector<at::Tensor>& outputs,
-      const LaunchParams& launch_constraints = LaunchParams(),
-      CompileParams compile_params = CompileParams(),
-      const std::optional<size_t>& opt_code = std::nullopt) {
-    KernelArgumentHolder args =
-        KernelArgumentHolder::createKernelArgumentHolder(inputs);
-    if (opt_code.has_value()) {
-      args.setCacheId(*opt_code);
-    }
-    return runFusion(args, launch_constraints, compile_params, outputs);
-  }
-
-  std::vector<at::Tensor> runFusion(
-      const at::ArrayRef<c10::IValue>& inputs,
-      const LaunchParams& launch_constraints = LaunchParams(),
-      CompileParams compile_params = CompileParams(),
-      const std::optional<size_t>& opt_code = std::nullopt) {
-    return runFusion(inputs, {}, launch_constraints, compile_params, opt_code);
-  }
-
   // Register a lowering hooks that are called to modify the GpuLower object
   // before running lowering passes. The main use case is for unit tests to
   // modify the lowering process.
@@ -131,15 +97,14 @@ class FusionExecutor : public NonCopyable {
     post_lowering_hooks_.push_back(std::move(hook));
   }
 
-  // Function to query whether compilation was attempted for a `FusionExecutor`
+  // Function to query whether compilation was attempted for a `CompiledKernel`
   bool isCompiled() const {
-    int num_compiled_artifacts = (fusion_ != nullptr) + (lowered_ != nullptr) +
-        (host_ir_container_ != nullptr);
+    int num_compiled_artifacts = (fusion_ != nullptr) + (lowered_ != nullptr);
     NVF_ERROR(num_compiled_artifacts <= 1);
     return num_compiled_artifacts == 1;
   };
 
-  // function to query whether a `FusionExecutor` has a compiled kernel to
+  // function to query whether a `CompiledKernel` has a compiled kernel to
   // execute
   bool hasCompiledKernel() const {
     if (compiled_kernel_ != nullptr) {
@@ -149,35 +114,6 @@ class FusionExecutor : public NonCopyable {
           "fusion_ should only be initialized when using expression evaluator.");
     }
     return validKernelId() && lowered_ && compiled_kernel_ != nullptr;
-  };
-
-  void evictCache(size_t cache_id) {
-    executor_entry_lookup_.erase(cache_id);
-  }
-
-  // struct used to hold necessary information to launch compiled kernel on a
-  // given input set.
-  //
-  // TODO: strides would also be important when we handle permutations in
-  //       codegen.
-  //
-  struct ExecutorEntry {
-    bool init = false;
-    LaunchParams launch_params;
-    std::vector<GlobalBufferInfo> outputs;
-    // Temporary work buffers and intemediate global-memory tensors
-    std::vector<GlobalBufferInfo> intermediates;
-    // The arguments to the kernel. These are configured in computeArgs and
-    // recomputeArgs.
-    // For the common case of a tensor argument, these correspond to the
-    // `struct Tensor` data in runtime/tensor.cu. That means each tensor
-    // element in `args` would be a sizeof(void*) + len(shape)*sizeof(int) +
-    // len(shape)*sizeof(int) byte array (here "int" is used in place of the
-    // index type, which varies in practice).
-    std::vector<std::vector<std::byte>> args;
-    // This is just the data() pointers to the above `args`; cuLaunchKernel
-    // requires an array of this form.
-    std::vector<void*> arg_ptrs;
   };
 
   using ExecutorCompileTimeInfoCache =
@@ -196,9 +132,6 @@ class FusionExecutor : public NonCopyable {
     if (lowered_ != nullptr) {
       return lowered_->kernel()->as<Fusion>();
     }
-    if (host_ir_container_ != nullptr) {
-      return host_ir_container_->as<Fusion>();
-    }
     NVF_THROW("unreachable because of the isCompiled check");
   }
 
@@ -206,37 +139,9 @@ class FusionExecutor : public NonCopyable {
     return lowered_->threadPredMap();
   }
 
-  //! Internal knob used for debugging/profiling only
-  void setExecuteKernelFlag(bool execute_kernel) {
-    execute_kernel_ = execute_kernel;
-  }
-
-  //! get occupancy of the last kernel execution
-  float getKernelOccupancy() const {
-    NVF_ERROR(
-        kernel_occupancy_ > 0,
-        "Occupancy unknown, should run with dump occupancy or perf_debug_verbose");
-    return kernel_occupancy_;
-  }
-
-  void setKernelOccupancy(float occupancy) {
-    kernel_occupancy_ = occupancy;
-  }
-
   //! get register spills (load + store) of the compiled kernel
   int getKernelRegisterSpills() const {
     return compiled_kernel_->register_spills;
-  }
-  //! Returns the input bytes accessed for a kernel
-  //! \note It is important to sample the args struct prior to adding the
-  // 1    output to the args struct
-  int64_t inputBytesProcessed(const KernelArgumentHolder& args);
-  //! Returns the output bytes accessed for a kernel
-  int64_t outputBytesProcessed(const std::vector<at::Tensor>& outputs);
-
-  //! Returns the launch parameters from the last kernel execution
-  LaunchParams lastLaunchParams() const {
-    return launch_params_;
   }
 
   //! Returns the string of the compiled kernel
@@ -350,134 +255,42 @@ class FusionExecutor : public NonCopyable {
     disable_parameter_cache_ = true;
   }
 
-  //! Serialize Fusion Executor using flatbuffers
-  flatbuffers::Offset<serde::FusionExecutor> serialize(
-      flatbuffers::FlatBufferBuilder& builder) const;
+  // //! Serialize Fusion Executor using flatbuffers
+  // flatbuffers::Offset<serde::CompiledKernel> serialize(
+  //     flatbuffers::FlatBufferBuilder& builder) const;
 
-  //! Deserialize Fusion Executor using flatbuffers
-  void deserialize(
-      const serde::FusionExecutor* buffer,
-      Fusion* fusion,
-      int8_t device_index,
-      CompileParams compile_params,
-      SchedulerType scheduler_type,
-      int64_t fusion_id,
-      int64_t concrete_id,
-      int64_t runtime_id,
-      int64_t group_id);
+  // //! Serialize CompiledKernel using flatbuffers
+  // flatbuffers::Offset<serde::CudaKernel> serialize(
+  //     flatbuffers::FlatBufferBuilder& builder,
+  //     const executor_utils::CompiledKernel* kernel) const;
+
+  // //! Deserialize Fusion Executor using flatbuffers
+  // void deserialize(
+  //     const serde::CompiledKernel* buffer,
+  //     Fusion* fusion,
+  //     int8_t device_index,
+  //     CompileParams compile_params,
+  //     SchedulerType scheduler_type,
+  //     int64_t fusion_id,
+  //     int64_t concrete_id,
+  //     int64_t runtime_id,
+  //     int64_t group_id);
 
  private:
-  LaunchParams computeLaunchParams(
-      const LaunchParams& launch_constraints,
-      ExpressionEvaluator& expr_eval,
-      const int64_t warp_size,
-      DataType index_dtype);
-
-  //! Return information necessay for allocating intermediate tensors,
-  //! including temporary work buffers as well as intermediate
-  //! global-memory tensors
-  // TODO: Move to allocations.h/cpp
-  std::vector<GlobalBufferInfo> getIntermediateBufferInfo(
-      ExpressionEvaluator& expr_eval,
-      DataType index_dtype);
-
   void setUsedTVs();
 
   const std::vector<TensorView*>& getUsedTVs() const {
     return used_tvs_;
   };
 
-  ExecutorCompileTimeInfoCache* compileTimeDataCache() {
-    return &compile_time_info_cache_;
-  }
-
-  //! TODO: Consider changing this to a constructor of ExecutorEntry
-  void initializeExecutorEntry(
-      ExecutorEntry& executor_entry,
-      const KernelArgumentHolder& args,
-      const LaunchParams& launch_constraints,
-      const CompileParams& compile_params,
-      const std::vector<at::Tensor>& outputs,
-      DataType index_type);
-
-  std::unique_ptr<PrecomputedValues>& evaluatorPrecomputedValues();
-
   // Recompile the kernel if the number of threads in the block has increased
   // or maxrregcount has changed
   void recompileKernel(
       const LaunchParams& new_launch_params,
       const CompileParams& new_compile_params);
-  // Creates the initial set of arguments to a kernel, based on the arguments
-  // to we have now.
-  void computeArgs(ExecutorEntry&, ExpressionEvaluator&, const kir::Kernel*)
-      const;
-  // Updates an existing set of arguments based on the current arguments. It is
-  // is an error to call this before `computeArgs` has been invoked.
-  // recomputeArgs will fail if the arity of the function changes, or the rank
-  // of any tensor changes (as these are compiled-in to the generated kernel
-  // and therefore would require us to do a larger recompilation).
-  void recomputeArgs(ExecutorEntry&, ExpressionEvaluator&, const kir::Kernel*)
-      const;
-
-  //! Serialize CompiledKernel using flatbuffers
-  flatbuffers::Offset<serde::CudaKernel> serialize(
-      flatbuffers::FlatBufferBuilder& builder,
-      const executor_utils::CompiledKernel* kernel) const;
-
-  // ExecutorEntry is an internal POD struct for the FusionExecutor class.
-  // We define ExecutorEntry's serialize and deserialize as private methods in
-  // FusionExecutor.
-  flatbuffers::Offset<serde::ExecutorEntry> serialize(
-      flatbuffers::FlatBufferBuilder& builder,
-      const ExecutorEntry& data) const;
-
-  //! Deserialize ExecutorEntry using flatbuffers
-  ExecutorEntry deserialize(const serde::ExecutorEntry* buffer);
-
-  // GlobalBufferInfo is an internal POD struct for the FusionExecutor class.
-  // We define GlobalBufferInfo's serialize and deserialize as private methods
-  // in FusionExecutor.
-  flatbuffers::Offset<serde::GlobalBufferInfo> serialize(
-      flatbuffers::FlatBufferBuilder& builder,
-      const GlobalBufferInfo& data,
-      int64_t tv_position,
-      bool is_fusion_output) const;
-
-  //! Deserialize GlobalBufferInfo using flatbuffers
-  GlobalBufferInfo deserialize(const serde::GlobalBufferInfo* buffer);
-
-  //! Get the current dynamic shared memory size
-  int64_t getAvailableDynamicSmemSize();
-
-  //! Get the static shared memory size of the current compiled kernel
-  int64_t getStaticSmemSize();
-
-  //! Check if the shared memory size can be expandable to accommodate
-  //! the given dynamic size. The total shared memory size consumed
-  //! would be the sum of the static and dynamic sizes.
-  void validateDynamicSmemSize(int64_t dynamic_smem_size);
-
-  //! Make sure the dynamic shared memory size is at least as large as
-  //! the given size
-  int64_t ensureAvailableDynamicSmemSize(int64_t dynamic_smem_size);
-
-  //! Clear the cached properties of the compiled kernel
-  void resetCompiledKernelProperties();
 
  private:
-  CompiledKernel compiled_kernel_2_;
-
   CompileOptions options_;
-
-  //! Absolute limit of all available shared mem space from cudaDeviceProp
-  int64_t device_smem_limit_ = 0;
-
-  //! Static shared memory size of the current compiled kernel
-  std::optional<int64_t> static_smem_size_ = std::nullopt;
-
-  //! Available shared memory space for dynamic allocation for the current
-  //!  compiled kernel at the current shared memory/L1 configuration
-  std::optional<int64_t> available_dynamic_smem_size_ = std::nullopt;
 
   // Assuming sm70 or above:
   //  limit of statically allocated smem is 48 KB:
@@ -493,10 +306,10 @@ class FusionExecutor : public NonCopyable {
   std::vector<TensorView*> used_tvs_;
 
   // ID of fusion in python frontend fusion cache, which maps to a single
-  // FusionExecutorCache.
+  // CompiledKernelCache.
   int64_t fusion_id_ = -1;
 
-  // ID of (device, concrete_info) key in FusionExecutorCache
+  // ID of (device, concrete_info) key in CompiledKernelCache
   int64_t concrete_id_ = -1;
 
   // ID of FusionKernelRuntime given (device, concrete_info) key
@@ -518,36 +331,10 @@ class FusionExecutor : public NonCopyable {
   // Initialized for non-compiled fusions
   std::unique_ptr<Fusion> fusion_;
 
-  std::unique_ptr<hir::HostIrContainer> host_ir_container_;
-
   // Track the block size this kernel was compiled with. If the block size
   // increases, recompile to adjust maxregister count.
   int64_t block_size_high_water_mark_ = 1;
   int64_t maxrregcount_high_water_mark_ = 255;
-
-  // lookup table to take short cut to retrieve recorded information in order to
-  // launch kernels without re-inference parameters.
-  std::unordered_map<size_t, ExecutorEntry> executor_entry_lookup_;
-
-  // Compile time information caching. This is used for shape inference
-  //  support. The cache stores graph information that are available
-  //  without shape information so that each shape inference call will
-  //  not need to re-compute them.
-  ExecutorCompileTimeInfoCache compile_time_info_cache_;
-
-  // Cached expr eval
-  std::unique_ptr<PrecomputedValues> evaluator_precomputed_values_ = nullptr;
-
-  // Profiling support: knob to control wheter we actually execute the
-  // kernel on the GPU or not
-  bool execute_kernel_ = true;
-
-  // Heuristic tuning support: the last kernel occupancy, if
-  // DebugDumpOption::Occupancy is true
-  float kernel_occupancy_ = -1.0f;
-
-  // Profiling support: the last launch param used
-  LaunchParams launch_params_;
 
   // Profiling support: disable caching of launch params and output allocation
   // output allocation is also disable when output sizes are dependent on

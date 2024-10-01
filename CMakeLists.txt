@@ -126,6 +126,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/expr_simplifier.cpp
   ${NVFUSER_SRCS_DIR}/fusion.cpp
   ${NVFUSER_SRCS_DIR}/fusion_executor/allocations.cpp
+  ${NVFUSER_SRCS_DIR}/fusion_executor/compiled_kernel.cpp
   ${NVFUSER_SRCS_DIR}/fusion_executor/executor.cpp
   ${NVFUSER_SRCS_DIR}/fusion_executor/executor_kernel_arg.cpp
   ${NVFUSER_SRCS_DIR}/fusion_executor/executor_params.cpp
