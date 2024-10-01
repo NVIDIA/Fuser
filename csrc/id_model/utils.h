@@ -25,6 +25,8 @@ enum class IdModelEnableOption {
   ProducerIndex,
   InlinePredicate,
   UnswitchPredicate,
+  // Uses the loop promotion to generate loops. Indexing and
+  // predication need to be enabled as well.
   Loop,
 };
 
