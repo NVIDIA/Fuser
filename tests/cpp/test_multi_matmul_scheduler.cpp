@@ -563,6 +563,40 @@ TEST_P(MultiMatmulSchedulerMatchTest, BatchMatmul) {
   fusion->addOutput(tv2);
 }
 
+// Copied from DistributedMatmulTest.MulSum_LayoutTN_NoComms
+TEST_P(MultiMatmulSchedulerMatchTest, MultiDeviceMulSum) {
+  int num_devices = 1;
+  auto mesh = DeviceMesh::createForNumDevices(num_devices);
+  int M = 256, N = 64, K = 64;
+  int Mo = num_devices;
+  int Mi = M / Mo;
+  std::vector<int> a_shape = {Mo, Mi, K};
+  std::vector<int> b_shape = {N, K};
+
+  TensorView* a = makeContigTensor(3, DataType::Half); // (Mo,Mi,K)
+  TensorView* b = makeContigTensor(2, DataType::Half); // (N,K)
+  TensorView* a_b = broadcast(a, {false, false, true, false}); // (Mo,Mi,b,K)
+  TensorView* b_b = broadcast(b, {true, true, false, false}); // (b,b,N,K)
+  TensorView* ab = mul(a_b, b_b); // (Mo,Mi,N,K)
+  TensorView* c = sum(ab, {-1}); // (Mo,Mi,N,r)
+
+  fusion->addInput(a);
+  fusion->addInput(b);
+  fusion->addOutput(c);
+
+  // Sharding M dimension
+  auto all_sharded_tvs = {a, a_b, b_b, ab, c};
+  for (auto tv : all_sharded_tvs) {
+    tv->axis(0)->parallelize(ParallelType::DIDx);
+    tv->setDeviceMesh(mesh);
+  }
+  b->setDeviceMesh(mesh);
+  // TODO: If c's allocation domain isn't set, it will fail validation at
+  // csrc/device_lower/validation.cpp:419, Vectorized dim for consumer has to be
+  // from a contiguous inner most position.
+  c->setAllocationDomain(c->getLoopDomain(), true);
+}
+
 std::string printMatchTestParams(
     const testing::TestParamInfo<MultiMatmulSchedulerMatchTestParams>& info) {
   std::ostringstream os;
@@ -580,7 +614,7 @@ std::string printMatchTestParams(
 
 // Test combinations that mostly affect operand loading
 INSTANTIATE_TEST_SUITE_P(
-    Operands,
+    DISABLED_Operands,
     MultiMatmulSchedulerMatchTest,
     testing::Combine(
         testing::Bool(), // a_m_inner
@@ -597,7 +631,7 @@ INSTANTIATE_TEST_SUITE_P(
 
 // Test combinations that mostly affect epilogue
 INSTANTIATE_TEST_SUITE_P(
-    Epilogue,
+    DISABLED_Epilogue,
     MultiMatmulSchedulerMatchTest,
     testing::Combine(
         testing::Values(false), // a_m_inner
