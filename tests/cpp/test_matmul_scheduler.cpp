@@ -110,15 +110,17 @@ void checkUnsegmentedVectorization(
   // expected to match whole fusion with single segment
   EXPECT_FALSE(runtime->isSegmented());
 
-  ASSERT_TRUE(isSchedulerInUse(runtime, ScheduleHeuristic::Matmul));
+  ASSERT_TRUE(isSchedulerInUse(runtime, SchedulerType::Matmul));
 
   // Check that supported_vec_size matches expected.
-  const MatmulParams& params =
-      runtime->schedulerHeuristics()->heuristicsList().front()->matmulParams();
+  const MatmulParams* params = runtime->schedulerHeuristics()
+                                   ->heuristicsList()
+                                   .front()
+                                   ->as<MatmulParams>();
 
-  EXPECT_EQ(params.supported_vec_size.a, expected_vec_A);
-  EXPECT_EQ(params.supported_vec_size.b, expected_vec_B);
-  EXPECT_EQ(params.supported_vec_size.epilogue, expected_vec_epilogue);
+  EXPECT_EQ(params->supported_vec_size.a, expected_vec_A);
+  EXPECT_EQ(params->supported_vec_size.b, expected_vec_B);
+  EXPECT_EQ(params->supported_vec_size.epilogue, expected_vec_epilogue);
 }
 
 // Matmul test that uses segmenter for fusion:
@@ -2074,17 +2076,17 @@ TEST_P(MatmulSchedulerTestWithLayout, MisalignedVectorization) {
         // expected to match whole fusion with single segment
         EXPECT_FALSE(runtime->isSegmented());
 
-        ASSERT_TRUE(isSchedulerInUse(runtime, ScheduleHeuristic::Matmul));
+        ASSERT_TRUE(isSchedulerInUse(runtime, SchedulerType::Matmul));
 
         // Check that supported_vec_size matches expected.
-        const MatmulParams& params = runtime->schedulerHeuristics()
+        const MatmulParams* params = runtime->schedulerHeuristics()
                                          ->heuristicsList()
                                          .front()
-                                         ->matmulParams();
+                                         ->as<MatmulParams>();
 
-        EXPECT_EQ(params.supported_vec_size.a, expected_vec_A);
-        EXPECT_EQ(params.supported_vec_size.b, expected_vec_B);
-        EXPECT_EQ(params.supported_vec_size.epilogue, expected_vec_epilogue);
+        EXPECT_EQ(params->supported_vec_size.a, expected_vec_A);
+        EXPECT_EQ(params->supported_vec_size.b, expected_vec_B);
+        EXPECT_EQ(params->supported_vec_size.epilogue, expected_vec_epilogue);
 
         EXPECT_TRUE(outputs[0].allclose(tref, 0.001, 0.001));
       };
@@ -2270,17 +2272,17 @@ TEST_P(MatmulSchedulerTestWithLayout, StridedInputs) {
         // expected to match whole fusion with single segment
         EXPECT_FALSE(runtime->isSegmented());
 
-        ASSERT_TRUE(isSchedulerInUse(runtime, ScheduleHeuristic::Matmul));
+        ASSERT_TRUE(isSchedulerInUse(runtime, SchedulerType::Matmul));
 
         // Check that supported_vec_size matches expected.
-        const MatmulParams& params = runtime->schedulerHeuristics()
+        const MatmulParams* params = runtime->schedulerHeuristics()
                                          ->heuristicsList()
                                          .front()
-                                         ->matmulParams();
+                                         ->as<MatmulParams>();
 
-        EXPECT_EQ(params.supported_vec_size.a, expected_vec_A);
-        EXPECT_EQ(params.supported_vec_size.b, expected_vec_B);
-        EXPECT_EQ(params.supported_vec_size.epilogue, expected_vec_epilogue);
+        EXPECT_EQ(params->supported_vec_size.a, expected_vec_A);
+        EXPECT_EQ(params->supported_vec_size.b, expected_vec_B);
+        EXPECT_EQ(params->supported_vec_size.epilogue, expected_vec_epilogue);
 
         EXPECT_TRUE(outputs[0].allclose(tref, 0.001, 0.001));
       };
@@ -2479,7 +2481,7 @@ TEST_F(MatmulSchedulerPluginTest, BasicMatmul) {
       "fusion got segmented, expected to match whole fusion with single segment");
 
   NVF_CHECK(
-      isSchedulerInUse(runtime, ScheduleHeuristic::Matmul),
+      isSchedulerInUse(runtime, SchedulerType::Matmul),
       "matmul scheduler was not used to handle prepared fusion");
 
   HeuristicParams* heur = runtime->getMostRecentExecutorLog().params.get();
@@ -2729,13 +2731,13 @@ class AllocationDomainTest
     gemm_tile.warp_tile = GemmTile(64, 64, 32);
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-    params.mma_macro = MmaMacro::Ampere_16_8_16;
-    params.supported_vec_size = {8, 8, 4};
-    params.tile_sizes = gemm_tile;
-    params.async_gmem_load_operands = true;
-    params.circular_buffer_options.circular_buffer_smem_write = true;
-    params.circular_buffer_options.circular_buffer_smem_read = true;
-    params.circular_buffer_options.smem_circular_buffer_stage = 4;
+    mparams.mma_macro = MmaMacro::Ampere_16_8_16;
+    mparams.supported_vec_size = {8, 8, 4};
+    mparams.tile_sizes = gemm_tile;
+    mparams.async_gmem_load_operands = true;
+    mparams.circular_buffer_options.circular_buffer_smem_write = true;
+    mparams.circular_buffer_options.circular_buffer_smem_read = true;
+    mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
   }
 
   std::pair<TensorView*, TensorView*> getInputTVs(
@@ -2772,7 +2774,7 @@ class AllocationDomainTest
     return {t0, t1};
   }
 
-  MatmulParams params;
+  MatmulParams mparams;
 
  private:
   preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
@@ -2805,7 +2807,8 @@ TEST_P(AllocationDomainTest, BasicMatmul) {
   auto tv2 = fusedMultiplySum(tv0b, tv1b, {2});
   fusion->addOutput(tv2);
 
-  scheduleMatmul(fusion.get(), params);
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(fusion.get(), &mparams);
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
   FusionExecutor fe;
@@ -2837,7 +2840,8 @@ TEST_P(AllocationDomainTest, BasicMatmulNoTranspose) {
   auto tv2 = fusedMultiplySum(tv0b, tv1b, {1});
   fusion->addOutput(tv2);
 
-  scheduleMatmul(fusion.get(), params);
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(fusion.get(), &mparams);
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
   FusionExecutor fe;
@@ -2872,7 +2876,8 @@ TEST_P(AllocationDomainTest, BasicMatmulWithPrologueSet) {
   auto tv2 = fusedMultiplySum(tv0b, tv1b, {2});
   fusion->addOutput(tv2);
 
-  scheduleMatmul(fusion.get(), params);
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(fusion.get(), &mparams);
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
   FusionExecutor fe;
@@ -2909,7 +2914,8 @@ TEST_P(AllocationDomainTest, BasicMatmulWithPrologueSetCastSin) {
 
   fusion->addOutput(tv2);
 
-  scheduleMatmul(fusion.get(), params);
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(fusion.get(), &mparams);
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
   FusionExecutor fe;
@@ -2945,7 +2951,8 @@ TEST_P(AllocationDomainTest, BasicMatmulWithPrologueSetCastSinNoTranspose) {
 
   fusion->addOutput(tv2);
 
-  scheduleMatmul(fusion.get(), params);
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(fusion.get(), &mparams);
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
   FusionExecutor fe;
@@ -2981,7 +2988,8 @@ TEST_P(AllocationDomainTest, BasicMatmulWithPrologueSetCastSinSetNoTranspose) {
 
   fusion->addOutput(tv2);
 
-  scheduleMatmul(fusion.get(), params);
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(fusion.get(), &mparams);
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
   FusionExecutor fe;
@@ -3017,7 +3025,8 @@ TEST_P(AllocationDomainTest, MatmulWithPrologueSetCastSinTranspose) {
 
   fusion->addOutput(tv2);
 
-  scheduleMatmul(fusion.get(), params);
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(fusion.get(), &mparams);
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
   FusionExecutor fe;

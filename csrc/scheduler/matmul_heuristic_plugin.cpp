@@ -126,7 +126,7 @@ void fillProblemDescription(
   problem.precision = precision;
 }
 
-void copyParamsToConfig(KernelConfig* config, const MatmulParams& params) {
+void copyParamsToConfig(KernelConfig* config, const MatmulParams* mparams) {
   const auto setConfigTile = [](KernelConfig::Tile& output,
                                 const GemmTile& gemm_tile) {
     output[0] = gemm_tile.m;
@@ -134,75 +134,74 @@ void copyParamsToConfig(KernelConfig* config, const MatmulParams& params) {
     output[2] = gemm_tile.k;
   };
   config->load_stages =
-      params.circular_buffer_options.smem_circular_buffer_stage;
-  config->async_gmem_load_operands = params.async_gmem_load_operands;
-  setConfigTile(config->cta_tile, params.tile_sizes.cta_tile);
-  setConfigTile(config->warp_tile, params.tile_sizes.warp_tile);
-  setConfigTile(config->instruction_tile, params.tile_sizes.instruction_tile);
-  config->splitk_factor = params.splitk_factor;
-  config->grid_swizzle_factor = params.grid_swizzle_factor;
+      mparams->circular_buffer_options.smem_circular_buffer_stage;
+  config->async_gmem_load_operands = mparams->async_gmem_load_operands;
+  setConfigTile(config->cta_tile, mparams->tile_sizes.cta_tile);
+  setConfigTile(config->warp_tile, mparams->tile_sizes.warp_tile);
+  setConfigTile(config->instruction_tile, mparams->tile_sizes.instruction_tile);
+  config->splitk_factor = mparams->splitk_factor;
+  config->grid_swizzle_factor = mparams->grid_swizzle_factor;
   config->cta_order =
-      params.cta_order == MatmulParams::TileRasterizationOrder::RowMajor ? 0
-                                                                         : 1;
+      mparams->cta_order == MatmulParams::TileRasterizationOrder::RowMajor ? 0
+                                                                           : 1;
   config->circular_buffer_smem_read =
-      params.circular_buffer_options.circular_buffer_smem_read;
+      mparams->circular_buffer_options.circular_buffer_smem_read;
   config->rotate_ldmatrix_out_of_main_loop =
-      params.rotate_ldmatrix_out_of_main_loop;
-  config->problem.supported_vec_size.a = (uint8_t)params.supported_vec_size.a;
-  config->problem.supported_vec_size.b = (uint8_t)params.supported_vec_size.b;
+      mparams->rotate_ldmatrix_out_of_main_loop;
+  config->problem.supported_vec_size.a = (uint8_t)mparams->supported_vec_size.a;
+  config->problem.supported_vec_size.b = (uint8_t)mparams->supported_vec_size.b;
   config->problem.supported_vec_size.epilogue =
-      (uint8_t)params.supported_vec_size.epilogue;
+      (uint8_t)mparams->supported_vec_size.epilogue;
 }
 
-void copyConfigToParams(MatmulParams& params, const KernelConfig* config) {
+void copyConfigToParams(MatmulParams* mparams, const KernelConfig* config) {
   const auto setGemmTile = [](GemmTile& gemm_tile,
                               const KernelConfig::Tile& input) {
     gemm_tile.m = input[0];
     gemm_tile.n = input[1];
     gemm_tile.k = input[2];
   };
-  setGemmTile(params.tile_sizes.cta_tile, config->cta_tile);
-  setGemmTile(params.tile_sizes.warp_tile, config->warp_tile);
-  setGemmTile(params.tile_sizes.instruction_tile, config->instruction_tile);
-  params.circular_buffer_options.smem_circular_buffer_stage =
+  setGemmTile(mparams->tile_sizes.cta_tile, config->cta_tile);
+  setGemmTile(mparams->tile_sizes.warp_tile, config->warp_tile);
+  setGemmTile(mparams->tile_sizes.instruction_tile, config->instruction_tile);
+  mparams->circular_buffer_options.smem_circular_buffer_stage =
       config->load_stages;
-  params.async_gmem_load_operands = config->async_gmem_load_operands;
+  mparams->async_gmem_load_operands = config->async_gmem_load_operands;
   // Update mma macro if necessary to match instruction tile
-  MmaMacroEncode menc(params.mma_macro); // this will record the family
+  MmaMacroEncode menc(mparams->mma_macro); // this will record the family
   menc.m = config->instruction_tile[0]; // update instruction tile size
   menc.n = config->instruction_tile[1];
   menc.k = config->instruction_tile[2];
-  params.mma_macro = menc; // cast back to uint64_t
-  params.splitk_factor = config->splitk_factor;
-  params.grid_swizzle_factor = config->grid_swizzle_factor;
+  mparams->mma_macro = menc; // cast back to uint64_t
+  mparams->splitk_factor = config->splitk_factor;
+  mparams->grid_swizzle_factor = config->grid_swizzle_factor;
   switch (config->cta_order) {
     case 0:
-      params.cta_order = MatmulParams::TileRasterizationOrder::RowMajor;
+      mparams->cta_order = MatmulParams::TileRasterizationOrder::RowMajor;
       break;
     case 1:
-      params.cta_order = MatmulParams::TileRasterizationOrder::ColumnMajor;
+      mparams->cta_order = MatmulParams::TileRasterizationOrder::ColumnMajor;
       break;
     default:
-      NVF_ERROR(
-          false,
+      NVF_THROW(
           "Unrecognized cta_order returned by plugin: ",
           config->cta_order,
           ". Expected 0 (row-major) or 1 (column-major)");
   }
-  params.circular_buffer_options.circular_buffer_smem_read =
+  mparams->circular_buffer_options.circular_buffer_smem_read =
       config->circular_buffer_smem_read;
-  params.rotate_ldmatrix_out_of_main_loop =
+  mparams->rotate_ldmatrix_out_of_main_loop =
       config->rotate_ldmatrix_out_of_main_loop;
 
   // enable circular buffering if configured
-  params.circular_buffer_options.circular_buffer_smem_write =
+  mparams->circular_buffer_options.circular_buffer_smem_write =
       config->load_stages > 1;
 }
 
 } // namespace
 
 bool updateMatmulParams(
-    MatmulParams& params,
+    MatmulParams* mparams,
     int64_t m,
     int64_t n,
     int64_t k,
@@ -217,7 +216,7 @@ bool updateMatmulParams(
   std::unique_ptr<KernelConfig> config = config_factory();
 
   // Set previous heuristic values so they are available to the plugin
-  copyParamsToConfig(config.get(), params);
+  copyParamsToConfig(config.get(), mparams);
 
   // The heuristic must know the input shapes, precision, and layout.
   std::string precision = rolesToPrecisionString(tensor_roles);
@@ -227,8 +226,8 @@ bool updateMatmulParams(
   // Execute the user-provided heuristic
   config->configure();
 
-  // Load values from config back into params
-  copyConfigToParams(params, config.get());
+  // Load values from config back into mparams
+  copyConfigToParams(mparams, config.get());
 
   return true;
 }

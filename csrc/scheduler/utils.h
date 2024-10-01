@@ -21,7 +21,7 @@
 namespace nvfuser {
 
 class SchedulerRuntimeInfo;
-class HeuristicSummary;
+class HeuristicDataCache;
 
 namespace scheduler_utils {
 
@@ -280,7 +280,7 @@ NVF_API PersistentBufferSizeReturn persistentBufferSize(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     const PersistentBufferInfo& persistent_buffers,
-    HeuristicSummary* data_cache = nullptr);
+    HeuristicDataCache* data_cache = nullptr);
 
 // Merges tensor view to the form:
 // [IterationDomain, ReductionDomain] Returns if <iteration dimensions,

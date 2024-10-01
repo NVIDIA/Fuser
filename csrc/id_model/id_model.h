@@ -170,27 +170,27 @@ class IdModel : public PolymorphicBase {
 
   // Fills disjoint_ids_[IdMappingMode::EXACT] for relationships between inputs
   // and first output of expr
-  void buildExactGraph();
+  ValGraph& buildExactGraph();
 
   // Fills disjoint_ids_[IdMappingMode::ALMOSTEXACT]. Initialize AlmostExact as
   // Exact entries, then map anything that's either merged with a size-1 or
   // split by a size-1 dimension.
-  void buildAlmostExactGraph();
+  ValGraph& buildAlmostExactGraph();
 
   // Fills disjoint_ids_[IdMappingMode::BROADCAST]. Initialize it as
   // Exact entries, then map through broadcasts. Build the Exact graph
   // as well if not yet done.
-  void buildBroadcastGraph();
+  ValGraph& buildBroadcastGraph();
 
   // Fills disjoint_ids_[IdMappingMode::PERMISSIVE]. Initialize it as
   // BROADCAST entries, then map through forwarded domains. Build the
   // BROADCAST graph as well if not yet done.
-  void buildPermissiveGraph();
+  ValGraph& buildPermissiveGraph();
 
   // Fills disjoint_ids_[IdMappingMode::LOOP]. Map only inlined
   // domains that are mapped in the permissive graph. Build the Exact
   // and Permissive graphs as well if not yet done.
-  void buildLoopGraph();
+  ValGraph& buildLoopGraph();
 
   // Build a graph. Dependent graphs are also built if not yet done.
   void buildGraph(IdMappingMode mode);

@@ -1436,8 +1436,7 @@ TensorView* reductionOp(
       } else if (reduction_op_type == BinaryOpType::Mul) {
         out = pow(out, factor);
       } else {
-        NVF_ERROR(
-            false,
+        NVF_THROW(
             "Add and Mul are the only non-trivial expand reductions allowed");
       }
     }

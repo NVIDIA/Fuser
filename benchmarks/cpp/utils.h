@@ -27,9 +27,9 @@
 
 using namespace nvfuser;
 
-std::string toString(const ReductionParams& rparams);
-std::string toString(const PointwiseParams& params);
-std::string toString(const TransposeParams& params);
+std::string toString(const ReductionParams* rparams);
+std::string toString(const PointwiseParams* params);
+std::string toString(const TransposeParams* params);
 std::string toString(const std::shared_ptr<HeuristicParams>& params);
 std::string toString(LaunchParams lparams);
 

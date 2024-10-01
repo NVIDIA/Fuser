@@ -6,9 +6,11 @@
  */
 // clang-format on
 #include <instrumentation.h>
+#include <ir/base_nodes.h>
 #include <ir/builder.h>
 #include <ir/cloner.h>
 #include <ir/container.h>
+#include <ir/internal_nodes.h>
 
 namespace nvfuser {
 

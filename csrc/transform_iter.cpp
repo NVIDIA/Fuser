@@ -325,8 +325,7 @@ void ReplayTransformations::runReplay() {
     auto it_replayed = id_map_.find(out);
     if (it_replayed == id_map_.end()) {
       if (error_on_failure_) {
-        NVF_ERROR(
-            false,
+        NVF_THROW(
             "Transform traversal failed, could not find expected output.");
       }
       continue;

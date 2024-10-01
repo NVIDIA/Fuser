@@ -14,6 +14,7 @@
 #include <scheduler/reduction.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/registry_utils.h>
+#include <scheduler/runtime_info.h>
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>
 
@@ -62,7 +63,7 @@ void reduceProductTo(int64_t& z, int64_t& y, int64_t& x, const int64_t max) {
   }
 }
 
-std::shared_ptr<ReductionParams> innerReductionHeuristic(
+std::unique_ptr<ReductionParams> innerReductionHeuristic(
     const int64_t total_reduction_numel,
     const int64_t total_iteration_numel,
     const int64_t inner_most_dimension_numel,
@@ -378,7 +379,7 @@ std::shared_ptr<ReductionParams> innerReductionHeuristic(
     // require iterating over this entire function.
   }
 
-  auto rparams = std::make_shared<ReductionParams>();
+  auto rparams = std::make_unique<ReductionParams>();
   rparams->fastest_dim = true;
   rparams->cross_block_inner_reduction = true;
   rparams->block_dim_inner_reduction = ParallelType::TIDx;
@@ -507,8 +508,8 @@ std::shared_ptr<ReductionParams> innerReductionHeuristic(
   return rparams;
 }
 
-struct OuterReductionHeuristicParams {
-  OuterReductionHeuristicParams(
+struct OuterReductionParams {
+  OuterReductionParams(
       int64_t total_iteration_numel,
       int64_t total_reduction_numel)
       : total_iteration_numel(total_iteration_numel),
@@ -552,11 +553,11 @@ struct OuterReductionHeuristicParams {
 };
 // compare block reduction with grid reduction
 bool isBetterThan(
-    const OuterReductionHeuristicParams& block_hp,
-    const OuterReductionHeuristicParams& grid_hp,
+    const OuterReductionParams& block_params,
+    const OuterReductionParams& grid_params,
     int64_t sm_count) {
   NVF_ERROR(
-      block_hp.grdim == 1,
+      block_params.grdim == 1,
       "Only support compare block reduction heuristic with grid reduction not vice versa");
 
   // use block reduction if its SM usage >= 90% and its iter_unroll_factor is
@@ -567,10 +568,10 @@ bool isBetterThan(
   // TODO: if we know the fusion is memory bound (e.g. pure reduction), we can
   // use a lower threshold. For computation bound (e.g. gelu bwd), relaxing
   // the threshold leads to regression.
-  float f_wave = (float)block_hp.gidim / (float)sm_count;
+  float f_wave = (float)block_params.gidim / (float)sm_count;
   float sm_efficiency = f_wave / std::ceil(f_wave);
   if (sm_efficiency >= 0.9f &&
-      block_hp.iter_unroll_factor >= grid_hp.iter_unroll_factor) {
+      block_params.iter_unroll_factor >= grid_params.iter_unroll_factor) {
     return true;
   }
 
@@ -583,7 +584,8 @@ bool isBetterThan(
   // This condition is a WAR. Ideally, the grid reduction heuristics should be
   // improved, but given that the impact is likely negligible, we decided to do
   // this quick adjustment.
-  if (block_hp.gidim * block_hp.grdim >= grid_hp.gidim * grid_hp.grdim) {
+  if (block_params.gidim * block_params.grdim >=
+      grid_params.gidim * grid_params.grdim) {
     return true;
   }
 
@@ -591,8 +593,8 @@ bool isBetterThan(
   return false;
 }
 
-std::shared_ptr<ReductionParams> heuristicParaToSchedulerPara(
-    const OuterReductionHeuristicParams& hp) {
+std::unique_ptr<ReductionParams> heuristicParaToSchedulerPara(
+    const OuterReductionParams& params) {
   int64_t gdimx = LaunchParams::UNINITIALIZED_VAL;
   int64_t gdimy = LaunchParams::UNINITIALIZED_VAL;
 
@@ -602,21 +604,22 @@ std::shared_ptr<ReductionParams> heuristicParaToSchedulerPara(
   // Always disabled for now.
   // bool flip_grid = gidim > 1 && gidim < 8;
   const bool flip_grid = false;
-  auto rparams = std::make_shared<ReductionParams>();
+  auto rparams = std::make_unique<ReductionParams>();
   // cross grid implies cross block
-  rparams->cross_block_inner_reduction = hp.bdimy > 1 || hp.grdim > 1;
-  rparams->cross_grid_inner_reduction = hp.grdim > 1;
+  rparams->cross_block_inner_reduction = params.bdimy > 1 || params.grdim > 1;
+  rparams->cross_grid_inner_reduction = params.grdim > 1;
   if (rparams->cross_grid_inner_reduction) {
     rparams->split_grid_dim_inner_reduction = true;
     rparams->grid_dim_inner_reduction =
         flip_grid ? ParallelType::BIDx : ParallelType::BIDy;
     if (flip_grid) {
-      gdimx = std::min(hp.grdim, scheduler_utils::x_grid_limit);
+      gdimx = std::min(params.grdim, scheduler_utils::x_grid_limit);
     } else {
-      gdimy = std::min(hp.grdim, scheduler_utils::y_grid_limit);
+      gdimy = std::min(params.grdim, scheduler_utils::y_grid_limit);
     }
   }
-  rparams->multiple_reds_per_blk = hp.bdimx > 1 || hp.iter_unroll_factor > 1;
+  rparams->multiple_reds_per_blk =
+      params.bdimx > 1 || params.iter_unroll_factor > 1;
 
   if (rparams->multiple_reds_per_blk) {
     rparams->block_dim_iter_dom = ParallelType::TIDx;
@@ -624,8 +627,8 @@ std::shared_ptr<ReductionParams> heuristicParaToSchedulerPara(
 
   rparams->grid_dim_iter_dom =
       flip_grid ? ParallelType::BIDy : ParallelType::BIDx;
-  if (hp.gidim > (flip_grid ? scheduler_utils::y_grid_limit
-                            : scheduler_utils::x_grid_limit)) {
+  if (params.gidim > (flip_grid ? scheduler_utils::y_grid_limit
+                                : scheduler_utils::x_grid_limit)) {
     rparams->split_grid_dim_iter_dom_outer = true;
     if (flip_grid) {
       gdimy = scheduler_utils::y_grid_limit;
@@ -644,36 +647,35 @@ std::shared_ptr<ReductionParams> heuristicParaToSchedulerPara(
     }
   }
 
-  rparams->unroll_factor_inner_reduction = hp.redu_unroll_factor;
+  rparams->unroll_factor_inner_reduction = params.redu_unroll_factor;
 
-  rparams->unroll_factor_iter_dom = hp.iter_unroll_factor;
-  rparams->vectorize_iter_dom = hp.iter_unroll_factor > 1;
+  rparams->unroll_factor_iter_dom = params.iter_unroll_factor;
+  rparams->vectorize_iter_dom = params.iter_unroll_factor > 1;
 
   rparams->lparams = LaunchParams(
       gdimx,
       gdimy,
       LaunchParams::UNINITIALIZED_VAL,
-      rparams->multiple_reds_per_blk ? hp.bdimx : hp.bdimy,
-      rparams->multiple_reds_per_blk ? hp.bdimy
+      rparams->multiple_reds_per_blk ? params.bdimx : params.bdimy,
+      rparams->multiple_reds_per_blk ? params.bdimy
                                      : LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL);
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
-    debug() << hp.toString() << std::endl;
+    debug() << params.toString() << std::endl;
     debug() << rparams->toString() << std::endl;
   }
   return rparams;
 }
 
-OuterReductionHeuristicParams getBlockOuterReduction(
+OuterReductionParams getBlockOuterReduction(
     int64_t total_reduction_numel,
     int64_t total_iteration_numel,
     int64_t vectorize_factor,
     int64_t max_unroll,
     int64_t sm_count,
     int64_t max_threads_per_block) {
-  OuterReductionHeuristicParams hp(
-      total_iteration_numel, total_reduction_numel);
+  OuterReductionParams params(total_iteration_numel, total_reduction_numel);
 
   int64_t sm_count_pow2 = scheduler_utils::lastPow2(sm_count);
   // Step-1, set iteration dim
@@ -684,9 +686,9 @@ OuterReductionHeuristicParams getBlockOuterReduction(
   // for each warp.
   // starts gidim from 32 and iter_unroll from 1, defers fully vectorization
   // to SM usage is high enough.
-  hp.bdimx = std::min(8L, hp.iDimAvail());
-  hp.gidim = std::min(std::min(32L, sm_count_pow2), hp.iDimAvail());
-  hp.iter_unroll_factor = 1;
+  params.bdimx = std::min(8L, params.iDimAvail());
+  params.gidim = std::min(std::min(32L, sm_count_pow2), params.iDimAvail());
+  params.iter_unroll_factor = 1;
 
   // (2) increase iter_unroll to its maximum following two rules:
   // (2.1) ensure divisible split
@@ -699,57 +701,60 @@ OuterReductionHeuristicParams getBlockOuterReduction(
   // bdimx-vect-gidim = 8-4-128 = 4096
   // bdimx-vect-gidim = 8-8-128 = 8192
   int64_t max_iter_unroll = vectorize_factor;
-  while (hp.iDimAvail() > 1) {
-    if (hp.iDimAvail() % 2 == 0 &&
-        hp.iter_unroll_factor * 2 <= max_iter_unroll) {
-      hp.iter_unroll_factor *= 2;
+  while (params.iDimAvail() > 1) {
+    if (params.iDimAvail() % 2 == 0 &&
+        params.iter_unroll_factor * 2 <= max_iter_unroll) {
+      params.iter_unroll_factor *= 2;
     }
-    if (hp.iDimAvail() > 1) {
-      hp.gidim *= 2;
+    if (params.iDimAvail() > 1) {
+      params.gidim *= 2;
     }
-    if (hp.iter_unroll_factor == max_iter_unroll) {
+    if (params.iter_unroll_factor == max_iter_unroll) {
       break;
     }
   }
 
   // (3) reset gidim, ensures enough blocks to saturate the
   // device but doesn't use more SMs than available.
-  hp.gidim = std::min(
-      ceilDiv(total_iteration_numel, hp.bdimx * hp.iter_unroll_factor),
+  params.gidim = std::min(
+      ceilDiv(total_iteration_numel, params.bdimx * params.iter_unroll_factor),
       sm_count);
 
   // (4) increase bdimx to its maximum
-  hp.bdimx = ceilDiv(total_iteration_numel, hp.gidim * hp.iter_unroll_factor);
-  hp.bdimx = std::min(
-      scheduler_utils::roundUpPow2(hp.bdimx),
-      scheduler_utils::roundUpToN(hp.bdimx, 32));
-  hp.bdimx = std::min(hp.bdimx, max_threads_per_block);
+  params.bdimx =
+      ceilDiv(total_iteration_numel, params.gidim * params.iter_unroll_factor);
+  params.bdimx = std::min(
+      scheduler_utils::roundUpPow2(params.bdimx),
+      scheduler_utils::roundUpToN(params.bdimx, 32));
+  params.bdimx = std::min(params.bdimx, max_threads_per_block);
 
   // (5) re-calculate gidim after bdimx to fix round up differences. Also
   // handles extreme cases where iter dim is larger than iter_unroll_factor x
   // max_threads_per_block x sm count
-  hp.gidim = ceilDiv(total_iteration_numel, hp.bdimx * hp.iter_unroll_factor);
+  params.gidim =
+      ceilDiv(total_iteration_numel, params.bdimx * params.iter_unroll_factor);
 
   // Step-2, set Reduction dim
   // (1) reduction unroll takes what is left by iter unroll
-  hp.redu_unroll_factor = std::min(
-      hp.rDimAvail(),
-      scheduler_utils::safeDiv(max_unroll, hp.iter_unroll_factor));
+  params.redu_unroll_factor = std::min(
+      params.rDimAvail(),
+      scheduler_utils::safeDiv(max_unroll, params.iter_unroll_factor));
 
   // (2) bdimy takes what is left by bdimx.
-  hp.bdimy = std::min(hp.rDimAvail(), max_threads_per_block / hp.bdimx);
+  params.bdimy =
+      std::min(params.rDimAvail(), max_threads_per_block / params.bdimx);
 
   // Step-3, final check
   // (1) revisit bdimx just in case bdimy doesn't take all the left threads
-  while (hp.bdimy * hp.bdimx * 2 <= max_threads_per_block &&
-         hp.gidim / 2 >= sm_count_pow2) {
-    hp.bdimx *= 2;
-    hp.gidim /= 2;
+  while (params.bdimy * params.bdimx * 2 <= max_threads_per_block &&
+         params.gidim / 2 >= sm_count_pow2) {
+    params.bdimx *= 2;
+    params.gidim /= 2;
   }
-  return hp;
+  return params;
 }
 
-OuterReductionHeuristicParams getGridOuterReduction(
+OuterReductionParams getGridOuterReduction(
     const int64_t total_reduction_numel,
     const int64_t total_iteration_numel,
     const int64_t n_tensor_inputs,
@@ -971,18 +976,17 @@ OuterReductionHeuristicParams getGridOuterReduction(
     }
   }
 
-  OuterReductionHeuristicParams hp(
-      total_iteration_numel, total_reduction_numel);
-  hp.bdimx = bdimx;
-  hp.bdimy = bdimy;
-  hp.grdim = grdim;
-  hp.gidim = gidim;
-  hp.iter_unroll_factor = iter_unroll_factor;
-  hp.redu_unroll_factor = inner_reduction_unroll_factor;
-  return hp;
+  OuterReductionParams params(total_iteration_numel, total_reduction_numel);
+  params.bdimx = bdimx;
+  params.bdimy = bdimy;
+  params.grdim = grdim;
+  params.gidim = gidim;
+  params.iter_unroll_factor = iter_unroll_factor;
+  params.redu_unroll_factor = inner_reduction_unroll_factor;
+  return params;
 }
 
-std::shared_ptr<ReductionParams> outerReductionHeuristic(
+std::unique_ptr<ReductionParams> outerReductionHeuristic(
     const int64_t total_reduction_numel,
     const int64_t total_iteration_numel,
     const int64_t n_tensor_inputs,
@@ -1015,7 +1019,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
           std::max((int64_t)n_tensor_inputs >> 2, (int64_t)1)));
 
   // block or grid reduction heuristic
-  auto grid_hp = getGridOuterReduction(
+  auto grid_params = getGridOuterReduction(
       total_reduction_numel,
       total_iteration_numel,
       n_tensor_inputs,
@@ -1026,7 +1030,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
       max_threads_per_sm);
 
   // block reduction heuristic
-  auto block_hp = getBlockOuterReduction(
+  auto block_params = getBlockOuterReduction(
       total_reduction_numel,
       total_iteration_numel,
       (int64_t)vectorize_factor,
@@ -1035,188 +1039,14 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
       max_threads_per_block);
 
   // pick the better heuristic
-  if (isBetterThan(block_hp, grid_hp, sm_count)) {
-    return heuristicParaToSchedulerPara(block_hp);
+  if (isBetterThan(block_params, grid_params, sm_count)) {
+    return heuristicParaToSchedulerPara(block_params);
   } else {
-    return heuristicParaToSchedulerPara(grid_hp);
+    return heuristicParaToSchedulerPara(grid_params);
   }
 }
 
-} // namespace
-
-ReductionScheduler::ReductionScheduler(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache)
-    : SchedulerEntry(heuristicType()) {
-  computeHeuristics(fusion, runtime_info, data_cache);
-}
-
-void ReductionScheduler::computeHeuristics(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache) {
-  FUSER_PERF_SCOPE("ReductionScheduler::computeHeuristics");
-  params_ = getReductionHeuristics(fusion, runtime_info, data_cache);
-  NVF_ERROR(params_ != nullptr);
-}
-
-void ReductionScheduler::schedule(Fusion* fusion) {
-  FUSER_PERF_SCOPE("ReductionScheduler::schedule");
-  scheduleReduction(fusion, reductionParams());
-}
-
-//! Check if the reduction heuristics apply in given fusion
-bool ReductionScheduler::canScheduleCompileTime(Fusion* fusion) {
-  FUSER_PERF_SCOPE("ReductionScheduler::canScheduleCompileTime");
-  if (scheduler_utils::isResharding(fusion)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(), "Fusion is resharding.");
-    return false;
-  }
-
-  // Needs at least one reduction to consider.
-  if (!ir_utils::hasAnyReductionOps(fusion)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(), "No reduction op to schedule");
-    return false;
-  }
-
-  if (ir_utils::filterByType<TensorView>(fusion->inputs()).empty()) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(), "Scheduling not supported with no input");
-    return false;
-  }
-
-  // Check that inputs of all select/gather-like ops are fusion inputs
-  if (registry_utils::rejectScheduleForMemoryPromotion(
-          fusion, heuristicType())) {
-    return false;
-  }
-
-  auto reduction_tvs = scheduler_utils::getReductionTvs(fusion);
-
-  if (reduction_tvs.empty()) {
-    // Use pointwise logic
-    return false;
-  }
-
-  if (registry_utils::hasNonUniqueBcast(fusion)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(),
-        "Broadcasting dimension might be broadcasting to multiple sizes.");
-    return false;
-  }
-
-  if (!ir_utils::getViewOps(fusion).empty()) {
-    ComputeAtMap ca_map(fusion);
-    if (registry_utils::requiresForwardViewReplay(fusion, ca_map)) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          heuristicType(), "Fusion requires view being reversible.");
-      return false;
-    }
-
-    // Reduction scheduler simply uses reduction_tvs[0] as the reference, if
-    // that changes, this needs to be changed.
-    if (registry_utils::reductionInterferingView(
-            fusion, ca_map, reduction_tvs[0])) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          heuristicType(), "View may interfere with reduction scheduling.");
-      return false;
-    }
-  }
-
-  // Make sure reduction axes are consistent through the fusion
-  auto reduction_ops = ir_utils::getAllTypesOfReductionOps(fusion);
-  if (reduction_ops.size() > 1) {
-    // Before examining the reduction axes want to quickly
-    //   check the reductions have the same axis width
-    //   to avoid building root domain map in easier cases
-    bool valid_axis_count = false;
-    size_t axis_count = 0;
-    auto reduction_root_size = [](TensorView* red_tv) {
-      size_t count = 0;
-      for (auto id : red_tv->getMaybeRootDomain()) {
-        if (!id->isBroadcast()) {
-          count++;
-        }
-      }
-      return count;
-    };
-
-    for (auto red : reduction_tvs) {
-      if (!valid_axis_count) {
-        valid_axis_count = true;
-        axis_count = reduction_root_size(red);
-      } else {
-        if (reduction_root_size(red) != axis_count) {
-          scheduler_debug_utils::canScheduleRejectReason(
-              heuristicType(),
-              "Inconsistent reduction root size: ",
-              red->toString(),
-              ", expected: ",
-              axis_count);
-          return false;
-        }
-      }
-    }
-
-    // Use root domain map to check the reduction ops have the same axes
-    FusionGuard fg(fusion);
-    ComputeAtLogicalDomainMap logical_map;
-    logical_map.build(true);
-
-    // red_ops.size()>1 checked before
-    for (size_t it = 1; it < reduction_tvs.size(); it++) {
-      if (!registry_utils::checkPatternEquivalence(
-              reduction_tvs[it - 1], reduction_tvs[it], logical_map)) {
-        scheduler_debug_utils::canScheduleRejectReason(
-            heuristicType(),
-            "Un-mapped multi-reduction: ",
-            reduction_tvs[it - 1]->toString(),
-            " and ",
-            reduction_tvs[it]->toString());
-        return false;
-      }
-    }
-  }
-
-  // Doesn't allow persistent kernels in this scheduler
-  auto persistent_buffer_info = scheduler_utils::persistentBuffers(fusion);
-  if (!persistent_buffer_info.persistent_buffers.empty()) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(),
-        "need persistent buffers that reduction scheduler doesn't handle");
-    return false;
-  }
-
-  if (!registry_utils::SchedulerTopologyChecker::supportedPostReductionFusion(
-          fusion, reduction_tvs) ||
-      registry_utils::SchedulerTopologyChecker::hasPostReductionBCast(fusion)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(), "has unsupported post reduction fusion");
-    return false;
-  }
-
-  if (registry_utils::SchedulerTopologyChecker::
-          hasGatherToBroadcastBeforeReduction(fusion, reduction_tvs)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(), "has unsupported gather-like ops before reduction");
-    return false;
-  }
-
-  return true;
-}
-
-bool ReductionScheduler::canScheduleRunTime(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache) {
-  FUSER_PERF_SCOPE("ReductionScheduler::canScheduleRunTime");
-  return true;
-}
-
-std::shared_ptr<ReductionParams> reductionHeuristic(
+std::unique_ptr<ReductionParams> reductionHeuristic(
     const int64_t total_reduction_numel,
     const int64_t total_iteration_numel,
     const int64_t inner_most_dimension_numel,
@@ -1243,23 +1073,14 @@ std::shared_ptr<ReductionParams> reductionHeuristic(
   }
 }
 
-std::shared_ptr<ReductionParams> getReductionHeuristics(
-    Fusion* fusion,
-    const at::ArrayRef<c10::IValue>& runtime_inputs,
-    HeuristicSummary* data_cache) {
-  SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs);
-
-  return getReductionHeuristics(fusion, runtime_info, data_cache);
-}
-
-std::shared_ptr<ReductionParams> getReductionHeuristics(
+std::unique_ptr<ReductionParams> getReductionHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache) {
+    HeuristicDataCache* data_cache) {
   FusionGuard fg(fusion);
 
   auto reduction_tv_entry =
-      HeuristicSummaryEntry<HeuristicCompileTime::ReductionTVs>(
+      HeuristicDataCacheEntry<HeuristicCompileTime::ReductionTVs>(
           data_cache, [&fusion]() {
             return std::make_unique<std::vector<TensorView*>>(
                 scheduler_utils::getReductionTvs(fusion));
@@ -1291,7 +1112,7 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
   auto reduced_tv = ir_utils::getSoleProducerTv(reduction_tv);
 
   auto unrollable_inputs_outputs_entry =
-      HeuristicSummaryEntry<HeuristicCompileTime::UnrollableInputsAndOutputs>(
+      HeuristicDataCacheEntry<HeuristicCompileTime::UnrollableInputsAndOutputs>(
           data_cache, [&reduced_tv]() {
             return std::make_unique<std::vector<TensorView*>>(
                 scheduler_utils::getInputsOutputsWithInnerDim(
@@ -1302,7 +1123,7 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
 
   // Although properties contains runtime information
   // "inner_most_dimension_ndims" is a compile time value
-  auto vec_break_point = HeuristicSummaryEntry<
+  auto vec_break_point = HeuristicDataCacheEntry<
       HeuristicCompileTime::VectorizationBreakPointOfReductionProducer>(
       data_cache, [&reduction_tv, &reduced_tv, &properties]() {
         return std::make_unique<int64_t>(
@@ -1350,10 +1171,10 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
 }
 
 // fusion is the input IR that will be modified by this function
-void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
+void scheduleReduction(Fusion* fusion, const ReductionParams* rparams) {
   FusionGuard fg(fusion);
 
-  bool unroll = rparams.isUnrolled();
+  bool unroll = rparams->isUnrolled();
 
   // Cache inputs if unrolled
   auto cached_inputs = scheduler_utils::cacheInputs(fusion, unroll);
@@ -1387,11 +1208,11 @@ void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
   }
 
   NVF_ERROR(
-      !(rparams.schedule_3D && isSharded(reduction_tv)),
+      !(rparams->schedule_3D && isSharded(reduction_tv)),
       "Multidevice nvFuser does not support 3D reduction schedules");
 
   auto dim_analysis = scheduler_utils::canonicalDimReduction(
-      fusion, reduction_tv, rparams.fastest_dim && rparams.schedule_3D);
+      fusion, reduction_tv, rparams->fastest_dim && rparams->schedule_3D);
 
   bool has_iter_axis = dim_analysis.first;
   bool has_red_axis = dim_analysis.second;
@@ -1402,7 +1223,7 @@ void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
 
   if (!has_iter_axis) {
     NVF_ERROR(
-        rparams.fastest_dim,
+        rparams->fastest_dim,
         "If all dims are reduction, should be sending it to fastest dim scheduler.");
   }
 
@@ -1415,7 +1236,7 @@ void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
       reference_tv != nullptr && reduction_tv != nullptr,
       "Need these two tensor views to finish the scheduling.");
   const bool vectorize =
-      rparams.vectorize_inner_reduction || rparams.vectorize_iter_dom;
+      rparams->vectorize_inner_reduction || rparams->vectorize_iter_dom;
 
   // allow iter domain grouped reduction for block and grid outer reductions.
   // TODO: the var name is confusing, should rename
@@ -1424,10 +1245,10 @@ void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
   // grouped welford is only enabled for grid persistent.
   // see validateAndConvertIterDomainGrouping
   const bool has_welford = ir_utils::hasOpsOfType<WelfordOp>(fusion);
-  const bool use_iter_grouped_reduction = !rparams.fastest_dim &&
+  const bool use_iter_grouped_reduction = !rparams->fastest_dim &&
       (has_welford
-           ? rparams.cross_grid_inner_reduction && rparams.persistent_kernel
-           : rparams.cross_block_inner_reduction);
+           ? rparams->cross_grid_inner_reduction && rparams->persistent_kernel
+           : rparams->cross_block_inner_reduction);
 
   scheduler_utils::moveNonConcretizedBroadcastInnermost(fusion, {reference_tv});
 
@@ -1451,4 +1272,177 @@ void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
   markAliases(fusion);
 }
 
+} // namespace
+
+//! Check if the reduction heuristics apply in given fusion
+bool ReductionScheduler::canScheduleCompileTime(Fusion* fusion) {
+  FUSER_PERF_SCOPE("ReductionScheduler::canScheduleCompileTime");
+  if (scheduler_utils::isResharding(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(), "Fusion is resharding.");
+    return false;
+  }
+
+  // Needs at least one reduction to consider.
+  if (!ir_utils::hasAnyReductionOps(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(), "No reduction op to schedule");
+    return false;
+  }
+
+  if (ir_utils::filterByType<TensorView>(fusion->inputs()).empty()) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(), "Scheduling not supported with no input");
+    return false;
+  }
+
+  // Check that inputs of all select/gather-like ops are fusion inputs
+  if (registry_utils::rejectScheduleForMemoryPromotion(
+          fusion, schedulerType())) {
+    return false;
+  }
+
+  auto reduction_tvs = scheduler_utils::getReductionTvs(fusion);
+
+  if (reduction_tvs.empty()) {
+    // Use pointwise logic
+    return false;
+  }
+
+  if (registry_utils::hasNonUniqueBcast(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(),
+        "Broadcasting dimension might be broadcasting to multiple sizes.");
+    return false;
+  }
+
+  if (!ir_utils::getViewOps(fusion).empty()) {
+    ComputeAtMap ca_map(fusion);
+    if (registry_utils::requiresForwardViewReplay(fusion, ca_map)) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          schedulerType(), "Fusion requires view being reversible.");
+      return false;
+    }
+
+    // Reduction scheduler simply uses reduction_tvs[0] as the reference, if
+    // that changes, this needs to be changed.
+    if (registry_utils::reductionInterferingView(
+            fusion, ca_map, reduction_tvs[0])) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          schedulerType(), "View may interfere with reduction scheduling.");
+      return false;
+    }
+  }
+
+  // Make sure reduction axes are consistent through the fusion
+  auto reduction_ops = ir_utils::getAllTypesOfReductionOps(fusion);
+  if (reduction_ops.size() > 1) {
+    // Before examining the reduction axes want to quickly
+    //   check the reductions have the same axis width
+    //   to avoid building root domain map in easier cases
+    bool valid_axis_count = false;
+    size_t axis_count = 0;
+    auto reduction_root_size = [](TensorView* red_tv) {
+      size_t count = 0;
+      for (auto id : red_tv->getMaybeRootDomain()) {
+        if (!id->isBroadcast()) {
+          count++;
+        }
+      }
+      return count;
+    };
+
+    for (auto red : reduction_tvs) {
+      if (!valid_axis_count) {
+        valid_axis_count = true;
+        axis_count = reduction_root_size(red);
+      } else {
+        if (reduction_root_size(red) != axis_count) {
+          scheduler_debug_utils::canScheduleRejectReason(
+              schedulerType(),
+              "Inconsistent reduction root size: ",
+              red->toString(),
+              ", expected: ",
+              axis_count);
+          return false;
+        }
+      }
+    }
+
+    // Use root domain map to check the reduction ops have the same axes
+    FusionGuard fg(fusion);
+    ComputeAtLogicalDomainMap logical_map;
+    logical_map.build(true);
+
+    // red_ops.size()>1 checked before
+    for (size_t it = 1; it < reduction_tvs.size(); it++) {
+      if (!registry_utils::checkPatternEquivalence(
+              reduction_tvs[it - 1], reduction_tvs[it], logical_map)) {
+        scheduler_debug_utils::canScheduleRejectReason(
+            schedulerType(),
+            "Un-mapped multi-reduction: ",
+            reduction_tvs[it - 1]->toString(),
+            " and ",
+            reduction_tvs[it]->toString());
+        return false;
+      }
+    }
+  }
+
+  // Doesn't allow persistent kernels in this scheduler
+  auto persistent_buffer_info = scheduler_utils::persistentBuffers(fusion);
+  if (!persistent_buffer_info.persistent_buffers.empty()) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(),
+        "need persistent buffers that reduction scheduler doesn't handle");
+    return false;
+  }
+
+  if (!registry_utils::SchedulerTopologyChecker::supportedPostReductionFusion(
+          fusion, reduction_tvs) ||
+      registry_utils::SchedulerTopologyChecker::hasPostReductionBCast(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(), "has unsupported post reduction fusion");
+    return false;
+  }
+
+  if (registry_utils::SchedulerTopologyChecker::
+          hasGatherToBroadcastBeforeReduction(fusion, reduction_tvs)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(), "has unsupported gather-like ops before reduction");
+    return false;
+  }
+
+  return true;
+}
+
+bool ReductionScheduler::canScheduleRunTime(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicDataCache* data_cache) {
+  FUSER_PERF_SCOPE("ReductionScheduler::canScheduleRunTime");
+  return true;
+}
+
+std::unique_ptr<HeuristicParams> ReductionScheduler::computeHeuristics(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicDataCache* data_cache) {
+  FUSER_PERF_SCOPE("ReductionScheduler::computeHeuristics");
+  auto rparams = getReductionHeuristics(fusion, runtime_info, data_cache);
+  NVF_ERROR(rparams != nullptr);
+  return rparams;
+}
+
+void ReductionScheduler::schedule(
+    Fusion* fusion,
+    const HeuristicParams* params) {
+  FUSER_PERF_SCOPE("ReductionScheduler::schedule");
+  auto rparams = dynamic_cast<const ReductionParams*>(params);
+  NVF_ERROR(
+      rparams != nullptr,
+      "Incorrect parameters sent to ReductionScheduler::schedule",
+      params);
+  scheduleReduction(fusion, rparams);
+}
 } // namespace nvfuser

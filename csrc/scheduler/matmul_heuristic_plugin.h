@@ -30,7 +30,7 @@ bool hasPlugin();
 //! precision must be provided. For convenience, we use `roles_map` to build the
 //! precision string.
 bool updateMatmulParams(
-    MatmulParams& params,
+    MatmulParams* params,
     int64_t M,
     int64_t N,
     int64_t K,

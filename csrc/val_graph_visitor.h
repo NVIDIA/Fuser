@@ -171,13 +171,15 @@ class ValGraphBFS : public BFS<
   ValGraphBFS(
       const ValGraph& graph,
       std::vector<NodeType> from_groups,
-      std::vector<NodeType> to_groups)
+      std::vector<NodeType> to_groups,
+      bool require_all_to_visited = true)
       : BFS(ValGraphDefinitions(graph),
             ValGraphUses(graph),
             ValGraphInputs(graph),
             ValGraphOutputs(graph),
             std::move(from_groups),
-            std::move(to_groups)) {}
+            std::move(to_groups),
+            require_all_to_visited) {}
 
  public:
   // Find the shortest path from the from_groups_ to to_groups_ on a
@@ -185,15 +187,38 @@ class ValGraphBFS : public BFS<
   // It is an error if no valid path is found.
   static ExprPath getExprsBetween(
       const ValGraph& graph,
-      const ValGroups& from,
-      const ValGroups& to) {
+      std::vector<NodeType> from,
+      std::vector<NodeType> to,
+      bool require_all_to_visited = true) {
     ValGraphBFS bfs(
-        graph,
-        {from.vector().begin(), from.vector().end()},
-        {to.vector().begin(), to.vector().end()});
+        graph, std::move(from), std::move(to), require_all_to_visited);
     bfs.traverse();
     return bfs.getShortestExprPath();
   }
+  static ExprPath getExprsBetween(
+      const ValGraph& graph,
+      const ValGroups& from,
+      const ValGroups& to,
+      bool require_all_to_visited = true) {
+    return getExprsBetween(
+        graph,
+        std::vector<NodeType>{from.vector().begin(), from.vector().end()},
+        std::vector<NodeType>{to.vector().begin(), to.vector().end()},
+        require_all_to_visited);
+  }
+
+  // Get all the val groups in vals that are reachable from the from groups
+  static ValGroups getReachableValsFrom(
+      const ValGraph& graph,
+      const ValGroups& from,
+      const ValGroups& vals);
+
+  // Given `from`, project it to `to`. This function will return a subset of
+  // `to` that is connected to `from`.
+  static std::unordered_set<ValGroup> projectTo(
+      const ValGraph& id_graph,
+      const ValGroup& from,
+      const ValGroups& to);
 };
 
 } // namespace nvfuser

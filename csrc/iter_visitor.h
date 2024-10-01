@@ -616,6 +616,27 @@ class IRBFS
   static std::vector<Val*> getReachableValsFrom(
       const std::vector<Val*>& from,
       const std::vector<Val*>& vals);
+
+  // Traverse from a given set of vals to another set of vals and
+  // return all vals between them. Note that if none of the Vals in the
+  // second set is reachable, nothing will be returned. For example,
+  // if a forward Merge needs to be traversed to get to the target Val
+  // set, both of the two inputs must be given or reachable from the
+  // given starting Val set.
+  //
+  // NOTE: getValsBetween(from, to) != getValsBetween(to, from). For
+  // example, suppose from={i0}, to={i2}, and merge(i0, i1) =
+  // i2. Since i1 is missing, nothing will be returned. However, if
+  // from={i2} and to={i0}, then the backward merge can be traversed
+  // as its sole input is available, so {i0} would be returned.
+  static std::vector<Val*> getValsBetween(
+      const std::vector<Val*>& from,
+      const std::vector<Val*>& to);
+
+  // Get all dependencies of to in from.
+  static std::vector<Val*> getDependenciesTo(
+      const std::vector<Val*>& from,
+      const std::vector<Val*>& to);
 };
 
 } // namespace nvfuser

@@ -108,15 +108,16 @@ TEST_P(MatmulTestWithLayout, AmpereMatmul) {
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-  MatmulParams params;
-  params.supported_vec_size = {8, 8, 4};
-  params.mma_macro = MmaMacro::Ampere_16_8_16;
-  params.tile_sizes = gemm_tile;
-  params.async_gmem_load_operands = true;
-  params.circular_buffer_options.circular_buffer_smem_write = true;
-  params.circular_buffer_options.circular_buffer_smem_read = true;
-  params.circular_buffer_options.smem_circular_buffer_stage = 4;
-  scheduleMatmul(&fusion, params);
+  MatmulParams mparams;
+  mparams.supported_vec_size = {8, 8, 4};
+  mparams.mma_macro = MmaMacro::Ampere_16_8_16;
+  mparams.tile_sizes = gemm_tile;
+  mparams.async_gmem_load_operands = true;
+  mparams.circular_buffer_options.circular_buffer_smem_write = true;
+  mparams.circular_buffer_options.circular_buffer_smem_read = true;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
 
   auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
@@ -159,15 +160,16 @@ TEST_P(MatmulTestWithLayout, AmperePrologueFusionBroadcast) {
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-  MatmulParams params;
-  params.supported_vec_size = {8, 8, 4};
-  params.mma_macro = MmaMacro::Ampere_16_8_16;
-  params.tile_sizes = gemm_tile;
-  params.async_gmem_load_operands = true;
-  params.circular_buffer_options.circular_buffer_smem_write = true;
-  params.circular_buffer_options.circular_buffer_smem_read = true;
-  params.circular_buffer_options.smem_circular_buffer_stage = 4;
-  scheduleMatmul(&fusion, params);
+  MatmulParams mparams;
+  mparams.supported_vec_size = {8, 8, 4};
+  mparams.mma_macro = MmaMacro::Ampere_16_8_16;
+  mparams.tile_sizes = gemm_tile;
+  mparams.async_gmem_load_operands = true;
+  mparams.circular_buffer_options.circular_buffer_smem_write = true;
+  mparams.circular_buffer_options.circular_buffer_smem_read = true;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
 
   auto inputs = matmulAtInput2D(M, N, K, layout);
 
@@ -215,15 +217,16 @@ TEST_P(MatmulTestWithLayout, AmpereProloguePointwise) {
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-  MatmulParams params;
-  params.supported_vec_size = {8, 8, 4};
-  params.mma_macro = MmaMacro::Ampere_16_8_16;
-  params.tile_sizes = gemm_tile;
-  params.async_gmem_load_operands = true;
-  params.circular_buffer_options.circular_buffer_smem_write = true;
-  params.circular_buffer_options.circular_buffer_smem_read = true;
-  params.circular_buffer_options.smem_circular_buffer_stage = 4;
-  scheduleMatmul(&fusion, params);
+  MatmulParams mparams;
+  mparams.supported_vec_size = {8, 8, 4};
+  mparams.mma_macro = MmaMacro::Ampere_16_8_16;
+  mparams.tile_sizes = gemm_tile;
+  mparams.async_gmem_load_operands = true;
+  mparams.circular_buffer_options.circular_buffer_smem_write = true;
+  mparams.circular_buffer_options.circular_buffer_smem_read = true;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
 
   auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
@@ -271,15 +274,16 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulBFloat16) {
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-  MatmulParams params;
-  params.supported_vec_size = {8, 8, 4};
-  params.mma_macro = MmaMacro::Ampere_16_8_16;
-  params.tile_sizes = gemm_tile;
-  params.async_gmem_load_operands = true;
-  params.circular_buffer_options.circular_buffer_smem_write = true;
-  params.circular_buffer_options.circular_buffer_smem_read = true;
-  params.circular_buffer_options.smem_circular_buffer_stage = 4;
-  scheduleMatmul(&fusion, params);
+  MatmulParams mparams;
+  mparams.supported_vec_size = {8, 8, 4};
+  mparams.mma_macro = MmaMacro::Ampere_16_8_16;
+  mparams.tile_sizes = gemm_tile;
+  mparams.async_gmem_load_operands = true;
+  mparams.circular_buffer_options.circular_buffer_smem_write = true;
+  mparams.circular_buffer_options.circular_buffer_smem_read = true;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
 
   auto inputs = matmulAtInput3DTuring(M, N, K, layout, at::kBFloat16);
 
@@ -329,15 +333,16 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulPipelineGmem) {
     gemm_tile.warp_tile = GemmTile(64, 64, 32);
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-    MatmulParams params;
-    params.supported_vec_size = {8, 8, 4};
-    params.mma_macro = MmaMacro::Ampere_16_8_16;
-    params.tile_sizes = gemm_tile;
-    params.tile_sizes = gemm_tile;
-    params.async_gmem_load_operands = true;
-    params.circular_buffer_options.circular_buffer_smem_write = true;
-    params.circular_buffer_options.smem_circular_buffer_stage = stage;
-    scheduleMatmul(&fusion, params);
+    MatmulParams mparams;
+    mparams.supported_vec_size = {8, 8, 4};
+    mparams.mma_macro = MmaMacro::Ampere_16_8_16;
+    mparams.tile_sizes = gemm_tile;
+    mparams.tile_sizes = gemm_tile;
+    mparams.async_gmem_load_operands = true;
+    mparams.circular_buffer_options.circular_buffer_smem_write = true;
+    mparams.circular_buffer_options.smem_circular_buffer_stage = stage;
+    SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+        ->schedule(&fusion, &mparams);
 
     auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
@@ -398,19 +403,20 @@ TEST_P(MatmulTestWithLayout, AmpereSwizzle) {
     gemm_tile.warp_tile = GemmTile(64, 64, 32);
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-    MatmulParams params;
-    params.supported_vec_size = {8, 8, 4};
-    params.mma_macro = MmaMacro::Ampere_16_8_16;
-    params.tile_sizes = gemm_tile;
-    params.async_gmem_load_operands = true;
-    params.circular_buffer_options.circular_buffer_smem_write = true;
-    params.circular_buffer_options.circular_buffer_smem_read = true;
-    params.circular_buffer_options.smem_circular_buffer_stage = 3;
+    MatmulParams mparams;
+    mparams.supported_vec_size = {8, 8, 4};
+    mparams.mma_macro = MmaMacro::Ampere_16_8_16;
+    mparams.tile_sizes = gemm_tile;
+    mparams.async_gmem_load_operands = true;
+    mparams.circular_buffer_options.circular_buffer_smem_write = true;
+    mparams.circular_buffer_options.circular_buffer_smem_read = true;
+    mparams.circular_buffer_options.smem_circular_buffer_stage = 3;
 
-    params.cta_order = order;
-    params.grid_swizzle_factor = swizzle;
+    mparams.cta_order = order;
+    mparams.grid_swizzle_factor = swizzle;
 
-    scheduleMatmul(&fusion, params);
+    SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+        ->schedule(&fusion, &mparams);
 
     auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
@@ -531,15 +537,16 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulRegCircularBuffer) {
     gemm_tile.warp_tile = GemmTile(64, 64, 32);
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-    MatmulParams params;
-    params.supported_vec_size = {8, 8, 4};
-    params.mma_macro = MmaMacro::Ampere_16_8_16;
-    params.tile_sizes = gemm_tile;
-    params.async_gmem_load_operands = true;
-    params.circular_buffer_options.circular_buffer_smem_write = true;
-    params.circular_buffer_options.smem_circular_buffer_stage = stage;
-    params.circular_buffer_options.circular_buffer_smem_read = true;
-    scheduleMatmul(&fusion, params);
+    MatmulParams mparams;
+    mparams.supported_vec_size = {8, 8, 4};
+    mparams.mma_macro = MmaMacro::Ampere_16_8_16;
+    mparams.tile_sizes = gemm_tile;
+    mparams.async_gmem_load_operands = true;
+    mparams.circular_buffer_options.circular_buffer_smem_write = true;
+    mparams.circular_buffer_options.smem_circular_buffer_stage = stage;
+    mparams.circular_buffer_options.circular_buffer_smem_read = true;
+    SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+        ->schedule(&fusion, &mparams);
 
     auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
@@ -1255,11 +1262,12 @@ TEST_P(MatmulTestWithLayout, TuringMatmul) {
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-  MatmulParams params;
-  params.supported_vec_size = {8, 8, 4};
-  params.mma_macro = MmaMacro::Turing_16_8_16;
-  params.tile_sizes = gemm_tile;
-  scheduleMatmul(&fusion, params);
+  MatmulParams mparams;
+  mparams.supported_vec_size = {8, 8, 4};
+  mparams.mma_macro = MmaMacro::Turing_16_8_16;
+  mparams.tile_sizes = gemm_tile;
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
 
   auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
@@ -1966,15 +1974,16 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulLargeLoad) {
   gemm_tile.cta_tile = GemmTile(128, 128, 64);
   gemm_tile.warp_tile = GemmTile(64, 64, 64);
   gemm_tile.instruction_tile = GemmTile(16, 16, 16);
-  MatmulParams params;
-  params.supported_vec_size = {8, 8, 4};
-  params.mma_macro = MmaMacro::Ampere_16_16_16;
-  params.tile_sizes = gemm_tile;
-  params.async_gmem_load_operands = true;
-  params.circular_buffer_options.circular_buffer_smem_write = true;
-  params.circular_buffer_options.circular_buffer_smem_read = true;
-  params.circular_buffer_options.smem_circular_buffer_stage = 3;
-  scheduleMatmul(&fusion, params);
+  MatmulParams mparams;
+  mparams.supported_vec_size = {8, 8, 4};
+  mparams.mma_macro = MmaMacro::Ampere_16_16_16;
+  mparams.tile_sizes = gemm_tile;
+  mparams.async_gmem_load_operands = true;
+  mparams.circular_buffer_options.circular_buffer_smem_write = true;
+  mparams.circular_buffer_options.circular_buffer_smem_read = true;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 3;
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
 
   auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
@@ -2021,11 +2030,12 @@ TEST_P(MatmulTestWithLayout, TuringMatmulLargeLoad) {
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
   gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
-  MatmulParams params;
-  params.supported_vec_size = {8, 8, 4};
-  params.mma_macro = MmaMacro::Turing_16_16_16;
-  params.tile_sizes = gemm_tile;
-  scheduleMatmul(&fusion, params);
+  MatmulParams mparams;
+  mparams.supported_vec_size = {8, 8, 4};
+  mparams.mma_macro = MmaMacro::Turing_16_16_16;
+  mparams.tile_sizes = gemm_tile;
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
 
   auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
@@ -2077,22 +2087,23 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulTileCheck4warp) {
       gemm_tile.warp_tile = GemmTile(mn_size / 2, mn_size / 2, k_size);
       gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
-      MatmulParams params;
-      params.supported_vec_size = {8, 8, 4};
-      params.mma_macro = MmaMacro::Ampere_16_16_16;
-      params.tile_sizes = gemm_tile;
-      params.async_gmem_load_operands = true;
-      params.circular_buffer_options.circular_buffer_smem_write = true;
+      MatmulParams mparams;
+      mparams.supported_vec_size = {8, 8, 4};
+      mparams.mma_macro = MmaMacro::Ampere_16_16_16;
+      mparams.tile_sizes = gemm_tile;
+      mparams.async_gmem_load_operands = true;
+      mparams.circular_buffer_options.circular_buffer_smem_write = true;
       mma_utils::MmaDataTypes data_types = {
           DataType::Half, DataType::Half, DataType::Float};
-      std::tie(params.use_smem_epilogue, params.promote_prologue_smem_reuse) =
+      std::tie(mparams.use_smem_epilogue, mparams.promote_prologue_smem_reuse) =
           mma_utils::generateSharedMemoryEpilogueHeuristics(
               gemm_tile,
-              params.circular_buffer_options.smem_circular_buffer_stage,
+              mparams.circular_buffer_options.smem_circular_buffer_stage,
               data_types,
               true,
               true);
-      scheduleMatmul(&fusion, params);
+      SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+          ->schedule(&fusion, &mparams);
 
       auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
@@ -2151,23 +2162,25 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulTileCheck8warp) {
         gemm_tile.warp_tile = GemmTile(m_size / 4, n_size / 2, k_size);
         gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
-        MatmulParams params;
-        params.supported_vec_size = {8, 8, 4};
-        params.mma_macro = MmaMacro::Ampere_16_16_16;
-        params.tile_sizes = gemm_tile;
-        params.async_gmem_load_operands = true;
-        params.circular_buffer_options.circular_buffer_smem_write = true;
-        params.circular_buffer_options.circular_buffer_smem_read = true;
-        params.circular_buffer_options.smem_circular_buffer_stage = 2;
+        MatmulParams mparams;
+        mparams.supported_vec_size = {8, 8, 4};
+        mparams.mma_macro = MmaMacro::Ampere_16_16_16;
+        mparams.tile_sizes = gemm_tile;
+        mparams.async_gmem_load_operands = true;
+        mparams.circular_buffer_options.circular_buffer_smem_write = true;
+        mparams.circular_buffer_options.circular_buffer_smem_read = true;
+        mparams.circular_buffer_options.smem_circular_buffer_stage = 2;
         mma_utils::MmaDataTypes data_types = {
             DataType::Half, DataType::Half, DataType::Float};
-        std::tie(params.use_smem_epilogue, params.promote_prologue_smem_reuse) =
+        std::tie(
+            mparams.use_smem_epilogue, mparams.promote_prologue_smem_reuse) =
             mma_utils::generateSharedMemoryEpilogueHeuristics(
                 gemm_tile,
-                params.circular_buffer_options.smem_circular_buffer_stage,
+                mparams.circular_buffer_options.smem_circular_buffer_stage,
                 data_types);
 
-        scheduleMatmul(&fusion, params);
+        SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+            ->schedule(&fusion, &mparams);
 
         auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
@@ -2218,22 +2231,23 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulTileCheck6warp) {
     gemm_tile.warp_tile = GemmTile(64, 64, k_size);
     gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
-    MatmulParams params;
-    params.supported_vec_size = {8, 8, 4};
-    params.mma_macro = MmaMacro::Ampere_16_16_16;
-    params.tile_sizes = gemm_tile;
-    params.async_gmem_load_operands = true;
-    params.circular_buffer_options.circular_buffer_smem_write = true;
-    params.circular_buffer_options.circular_buffer_smem_read = true;
-    params.circular_buffer_options.smem_circular_buffer_stage = 2;
+    MatmulParams mparams;
+    mparams.supported_vec_size = {8, 8, 4};
+    mparams.mma_macro = MmaMacro::Ampere_16_16_16;
+    mparams.tile_sizes = gemm_tile;
+    mparams.async_gmem_load_operands = true;
+    mparams.circular_buffer_options.circular_buffer_smem_write = true;
+    mparams.circular_buffer_options.circular_buffer_smem_read = true;
+    mparams.circular_buffer_options.smem_circular_buffer_stage = 2;
     mma_utils::MmaDataTypes data_types = {
         DataType::Half, DataType::Half, DataType::Float};
-    std::tie(params.use_smem_epilogue, params.promote_prologue_smem_reuse) =
+    std::tie(mparams.use_smem_epilogue, mparams.promote_prologue_smem_reuse) =
         mma_utils::generateSharedMemoryEpilogueHeuristics(
             gemm_tile,
-            params.circular_buffer_options.smem_circular_buffer_stage,
+            mparams.circular_buffer_options.smem_circular_buffer_stage,
             data_types);
-    scheduleMatmul(&fusion, params);
+    SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+        ->schedule(&fusion, &mparams);
 
     auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
@@ -2280,15 +2294,16 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulLargeLoadLargeK) {
   gemm_tile.warp_tile = GemmTile(64, 64, 64);
   gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
-  MatmulParams params;
-  params.supported_vec_size = {8, 8, 4};
-  params.mma_macro = MmaMacro::Ampere_16_16_16;
-  params.tile_sizes = gemm_tile;
-  params.async_gmem_load_operands = true;
-  params.circular_buffer_options.circular_buffer_smem_write = true;
-  params.circular_buffer_options.circular_buffer_smem_read = true;
-  params.circular_buffer_options.smem_circular_buffer_stage = 3;
-  scheduleMatmul(&fusion, params);
+  MatmulParams mparams;
+  mparams.supported_vec_size = {8, 8, 4};
+  mparams.mma_macro = MmaMacro::Ampere_16_16_16;
+  mparams.tile_sizes = gemm_tile;
+  mparams.async_gmem_load_operands = true;
+  mparams.circular_buffer_options.circular_buffer_smem_write = true;
+  mparams.circular_buffer_options.circular_buffer_smem_read = true;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 3;
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
 
   auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
@@ -2332,15 +2347,16 @@ TEST_P(MatmulTestWithLayout, AmpereSplitKLikeStridedBatchedMatmul) {
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-  MatmulParams params;
-  params.supported_vec_size = {8, 8, 4};
-  params.mma_macro = MmaMacro::Ampere_16_8_16;
-  params.tile_sizes = gemm_tile;
-  params.async_gmem_load_operands = true;
-  params.circular_buffer_options.circular_buffer_smem_write = true;
-  params.circular_buffer_options.circular_buffer_smem_read = true;
-  params.circular_buffer_options.smem_circular_buffer_stage = 4;
-  scheduleMatmul(&fusion, params);
+  MatmulParams mparams;
+  mparams.supported_vec_size = {8, 8, 4};
+  mparams.mma_macro = MmaMacro::Ampere_16_8_16;
+  mparams.tile_sizes = gemm_tile;
+  mparams.async_gmem_load_operands = true;
+  mparams.circular_buffer_options.circular_buffer_smem_write = true;
+  mparams.circular_buffer_options.circular_buffer_smem_read = true;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
 
   auto t0 = matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K, B);
   auto t1 = matmulAtInput2D(layout, TensorMatmulPos::B, at::kHalf, M, N, K, B);
@@ -2393,28 +2409,29 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulSmemEpilogue) {
     gemm_tile.warp_tile = GemmTile(32, 32, 32);
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-    MatmulParams params;
-    params.supported_vec_size = {8, 8, 4};
-    params.mma_macro = MmaMacro::Ampere_16_8_16;
-    params.tile_sizes = gemm_tile;
-    params.async_gmem_load_operands = true;
-    params.circular_buffer_options.circular_buffer_smem_write = num_stages > 1;
-    params.circular_buffer_options.circular_buffer_smem_read = num_stages > 1;
-    params.circular_buffer_options.smem_circular_buffer_stage = num_stages;
+    MatmulParams mparams;
+    mparams.supported_vec_size = {8, 8, 4};
+    mparams.mma_macro = MmaMacro::Ampere_16_8_16;
+    mparams.tile_sizes = gemm_tile;
+    mparams.async_gmem_load_operands = true;
+    mparams.circular_buffer_options.circular_buffer_smem_write = num_stages > 1;
+    mparams.circular_buffer_options.circular_buffer_smem_read = num_stages > 1;
+    mparams.circular_buffer_options.smem_circular_buffer_stage = num_stages;
     mma_utils::MmaDataTypes data_types = {
         DataType::Half, DataType::Half, DataType::Float};
-    std::tie(params.use_smem_epilogue, params.promote_prologue_smem_reuse) =
+    std::tie(mparams.use_smem_epilogue, mparams.promote_prologue_smem_reuse) =
         mma_utils::generateSharedMemoryEpilogueHeuristics(
             gemm_tile,
-            params.circular_buffer_options.smem_circular_buffer_stage,
+            mparams.circular_buffer_options.smem_circular_buffer_stage,
             data_types,
             ignore_occupancy_drop);
-    scheduleMatmul(&fusion, params);
+    SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+        ->schedule(&fusion, &mparams);
 
     // If use_smem_epilogue is true, there should be 3 shared memory tensors 2
     // for prologue and 1 for epilogue.
     int num_shared_mem_tensors = 0;
-    int expected_num_shared_mem_tensors = params.use_smem_epilogue ? 3 : 2;
+    int expected_num_shared_mem_tensors = mparams.use_smem_epilogue ? 3 : 2;
     for (const auto& tv : fusion.allTvs()) {
       if (tv->getMemoryType() == MemoryType::Shared) {
         num_shared_mem_tensors++;
@@ -2452,7 +2469,7 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulSmemEpilogue) {
         "Result validation failed. Max diff: ",
         (cg_outputs[0] - tref).abs().max());
 
-    if (!params.use_smem_epilogue) {
+    if (!mparams.use_smem_epilogue) {
       GTEST_SKIP()
           << "Test conducted without utilizing shared memory epilogue due to the device's constrained shared memory capacity.";
     }
@@ -2465,7 +2482,7 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulSmemEpilogue) {
     //   - use_smem_epilogue && promote_prologue_smem_reuse : max(A + B, C)
     auto smem_allocs = fe.kernel()->summary().dynamic_smem_allocations;
     NVF_CHECK(smem_allocs.size() == 3);
-    if (params.promote_prologue_smem_reuse) {
+    if (mparams.promote_prologue_smem_reuse) {
       // Check prologue shared memory re-use
       // smem_allocs = {A, B, C} where C is the epilogue buffer
       // since A and B have no further uses, we should be able to reuse both
@@ -2537,33 +2554,34 @@ TEST_F(MatmulTest, AmpereMatmulSmemEpiloguePromotionRequiredA100) {
   gemm_tile.warp_tile = GemmTile(16, 32, 64);
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-  MatmulParams params;
-  params.supported_vec_size = {8, 8, 4};
-  params.mma_macro = MmaMacro::Ampere_16_8_16;
-  params.tile_sizes = gemm_tile;
-  params.async_gmem_load_operands = true;
-  params.circular_buffer_options.circular_buffer_smem_write = true;
-  params.circular_buffer_options.circular_buffer_smem_read = true;
-  params.circular_buffer_options.smem_circular_buffer_stage = 6;
+  MatmulParams mparams;
+  mparams.supported_vec_size = {8, 8, 4};
+  mparams.mma_macro = MmaMacro::Ampere_16_8_16;
+  mparams.tile_sizes = gemm_tile;
+  mparams.async_gmem_load_operands = true;
+  mparams.circular_buffer_options.circular_buffer_smem_write = true;
+  mparams.circular_buffer_options.circular_buffer_smem_read = true;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 6;
   mma_utils::MmaDataTypes data_types = {
       DataType::Half, DataType::Half, DataType::Float};
-  std::tie(params.use_smem_epilogue, params.promote_prologue_smem_reuse) =
+  std::tie(mparams.use_smem_epilogue, mparams.promote_prologue_smem_reuse) =
       mma_utils::generateSharedMemoryEpilogueHeuristics(
           gemm_tile,
-          params.circular_buffer_options.smem_circular_buffer_stage,
+          mparams.circular_buffer_options.smem_circular_buffer_stage,
           data_types,
           /*ignore_occupancy_drop=*/false);
 
   if (deviceMajorMinorCheck(8, 0)) {
     // Test that we promote smem reuse on A100. This might differ on devices
     // with different amounts of smem.
-    ASSERT_TRUE(params.promote_prologue_smem_reuse);
+    ASSERT_TRUE(mparams.promote_prologue_smem_reuse);
   }
 
-  scheduleMatmul(&fusion, params);
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
 
   // FusionExecutor::compileFusion would fail otherwise.
-  SKIP_IF_INSUFFICIENT_SMEM(params, data_types);
+  SKIP_IF_INSUFFICIENT_SMEM(&mparams, data_types);
 
   at::manual_seed(0);
   auto inputs = matmulAtInput3DTuring(M, N, K, layout);
@@ -2589,11 +2607,11 @@ TEST_F(MatmulTest, AmpereMatmulSmemEpiloguePromotionRequiredA100) {
       "Result validation failed. Max diff: ",
       (cg_outputs[0] - tref).abs().max());
 
-  if (!params.use_smem_epilogue) {
+  if (!mparams.use_smem_epilogue) {
     GTEST_SKIP()
         << "Test conducted without utilizing shared memory epilogue due to the device's constrained shared memory capacity.";
   }
-  if (!params.promote_prologue_smem_reuse) {
+  if (!mparams.promote_prologue_smem_reuse) {
     GTEST_SKIP()
         << "Test conducted with shared memory epilogue but without promoting prologue smem re-use.";
   }
@@ -2627,28 +2645,29 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulSmemEpilogueCast) {
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-  MatmulParams params;
-  params.supported_vec_size = {8, 8, 8};
-  params.mma_macro = MmaMacro::Ampere_16_8_16;
-  params.tile_sizes = gemm_tile;
-  params.async_gmem_load_operands = true;
-  params.circular_buffer_options.circular_buffer_smem_write = true;
-  params.circular_buffer_options.circular_buffer_smem_read = true;
-  params.circular_buffer_options.smem_circular_buffer_stage = 4;
+  MatmulParams mparams;
+  mparams.supported_vec_size = {8, 8, 8};
+  mparams.mma_macro = MmaMacro::Ampere_16_8_16;
+  mparams.tile_sizes = gemm_tile;
+  mparams.async_gmem_load_operands = true;
+  mparams.circular_buffer_options.circular_buffer_smem_write = true;
+  mparams.circular_buffer_options.circular_buffer_smem_read = true;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
   mma_utils::MmaDataTypes data_types = {
       DataType::Half, DataType::Half, DataType::Float};
-  std::tie(params.use_smem_epilogue, params.promote_prologue_smem_reuse) =
+  std::tie(mparams.use_smem_epilogue, mparams.promote_prologue_smem_reuse) =
       mma_utils::generateSharedMemoryEpilogueHeuristics(
           gemm_tile,
-          params.circular_buffer_options.smem_circular_buffer_stage,
+          mparams.circular_buffer_options.smem_circular_buffer_stage,
           data_types,
           ignore_occupancy_drop);
-  scheduleMatmul(&fusion, params);
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
 
   // If use_smem_epilogue is true, there should be 3 shared memory tensors 2
   // for prologue and 1 for epilogue.
   int num_shared_mem_tensors = 0;
-  int expected_num_shared_mem_tensors = params.use_smem_epilogue ? 3 : 2;
+  int expected_num_shared_mem_tensors = mparams.use_smem_epilogue ? 3 : 2;
   for (const auto& tv : fusion.allTvs()) {
     if (tv->getMemoryType() == MemoryType::Shared) {
       num_shared_mem_tensors++;
@@ -2686,7 +2705,7 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulSmemEpilogueCast) {
       "Result validation failed. Max diff: ",
       (cg_outputs[0] - tref).abs().max());
 
-  if (!params.use_smem_epilogue) {
+  if (!mparams.use_smem_epilogue) {
     GTEST_SKIP()
         << "Test conducted without utilizing shared memory epilogue due to the device's constrained shared memory capacity.";
   }
@@ -2720,28 +2739,29 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulSmemEpilogueRelu) {
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-  MatmulParams params;
-  params.supported_vec_size = {8, 8, 4};
-  params.mma_macro = MmaMacro::Ampere_16_8_16;
-  params.tile_sizes = gemm_tile;
-  params.async_gmem_load_operands = true;
-  params.circular_buffer_options.circular_buffer_smem_write = true;
-  params.circular_buffer_options.circular_buffer_smem_read = true;
-  params.circular_buffer_options.smem_circular_buffer_stage = 4;
+  MatmulParams mparams;
+  mparams.supported_vec_size = {8, 8, 4};
+  mparams.mma_macro = MmaMacro::Ampere_16_8_16;
+  mparams.tile_sizes = gemm_tile;
+  mparams.async_gmem_load_operands = true;
+  mparams.circular_buffer_options.circular_buffer_smem_write = true;
+  mparams.circular_buffer_options.circular_buffer_smem_read = true;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
   mma_utils::MmaDataTypes data_types = {
       DataType::Half, DataType::Half, DataType::Float};
-  std::tie(params.use_smem_epilogue, params.promote_prologue_smem_reuse) =
+  std::tie(mparams.use_smem_epilogue, mparams.promote_prologue_smem_reuse) =
       mma_utils::generateSharedMemoryEpilogueHeuristics(
           gemm_tile,
-          params.circular_buffer_options.smem_circular_buffer_stage,
+          mparams.circular_buffer_options.smem_circular_buffer_stage,
           data_types,
           ignore_occupancy_drop);
-  scheduleMatmul(&fusion, params);
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
 
   // If use_smem_epilogue is true, there should be 3 shared memory tensors 2
   // for prologue and 1 for epilogue.
   int num_shared_mem_tensors = 0;
-  int expected_num_shared_mem_tensors = params.use_smem_epilogue ? 3 : 2;
+  int expected_num_shared_mem_tensors = mparams.use_smem_epilogue ? 3 : 2;
   for (const auto& tv : fusion.allTvs()) {
     if (tv->getMemoryType() == MemoryType::Shared) {
       num_shared_mem_tensors++;
@@ -2780,7 +2800,7 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulSmemEpilogueRelu) {
       "Result validation failed. Max diff: ",
       (cg_outputs[0] - tref).abs().max());
 
-  if (!params.use_smem_epilogue) {
+  if (!mparams.use_smem_epilogue) {
     GTEST_SKIP()
         << "Test conducted without utilizing shared memory epilogue due to the device's constrained shared memory capacity.";
   }
@@ -2819,13 +2839,14 @@ TEST_P(MatmulTestWithLayout, FusionAmpereMatmulSplitK_CUDA) {
       gemm_tile.warp_tile = GemmTile(64, 64, 32);
       gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-      MatmulParams params;
-      params.supported_vec_size = {8, 8, 4};
-      params.mma_macro = MmaMacro::Ampere_16_8_16;
-      params.tile_sizes = gemm_tile;
-      params.splitk_factor = splitk_factor;
+      MatmulParams mparams;
+      mparams.supported_vec_size = {8, 8, 4};
+      mparams.mma_macro = MmaMacro::Ampere_16_8_16;
+      mparams.tile_sizes = gemm_tile;
+      mparams.splitk_factor = splitk_factor;
       if (use_smem_epilogue) {
-        std::tie(params.use_smem_epilogue, params.promote_prologue_smem_reuse) =
+        std::tie(
+            mparams.use_smem_epilogue, mparams.promote_prologue_smem_reuse) =
             mma_utils::generateSharedMemoryEpilogueHeuristics(
                 gemm_tile,
                 1,
@@ -2833,16 +2854,17 @@ TEST_P(MatmulTestWithLayout, FusionAmpereMatmulSplitK_CUDA) {
                 true,
                 true,
                 true);
-        if (!params.use_smem_epilogue) {
+        if (!mparams.use_smem_epilogue) {
           std::cout
               << "Skipping smem epilogue due to shared memory constraints on this device"
               << std::endl;
           continue;
         }
-        params.promote_prologue_smem_reuse = true;
+        mparams.promote_prologue_smem_reuse = true;
       }
 
-      scheduleMatmul(&fusion, params);
+      SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+          ->schedule(&fusion, &mparams);
 
       auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
@@ -2897,15 +2919,16 @@ TEST_P(MatmulTestWithLayout, FusionAmpereMatmulSplitKBias_CUDA) {
       gemm_tile.warp_tile = GemmTile(64, 64, 32);
       gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-      MatmulParams params;
-      params.supported_vec_size = {8, 8, 4};
-      params.mma_macro = MmaMacro::Ampere_16_8_16;
-      params.tile_sizes = gemm_tile;
-      params.splitk_factor = splitk_factor;
-      params.use_smem_epilogue = use_smem_epilogue;
-      params.promote_prologue_smem_reuse = true;
+      MatmulParams mparams;
+      mparams.supported_vec_size = {8, 8, 4};
+      mparams.mma_macro = MmaMacro::Ampere_16_8_16;
+      mparams.tile_sizes = gemm_tile;
+      mparams.splitk_factor = splitk_factor;
+      mparams.use_smem_epilogue = use_smem_epilogue;
+      mparams.promote_prologue_smem_reuse = true;
 
-      scheduleMatmul(&fusion, params);
+      SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+          ->schedule(&fusion, &mparams);
 
       auto [aten_a, aten_b] = matmulAtInput3DTuring(M, N, K, layout);
       at::Tensor aten_bias = at::randn({M}, aten_a.options());
@@ -2957,15 +2980,16 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulBatchSplitK) {
       gemm_tile.warp_tile = GemmTile(64, 64, 32);
       gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-      MatmulParams params;
-      params.supported_vec_size = {8, 8, 4};
-      params.mma_macro = MmaMacro::Ampere_16_8_16;
-      params.tile_sizes = gemm_tile;
-      params.splitk_factor = splitk_factor;
-      params.use_smem_epilogue = use_smem_epilogue;
-      params.promote_prologue_smem_reuse = true;
+      MatmulParams mparams;
+      mparams.supported_vec_size = {8, 8, 4};
+      mparams.mma_macro = MmaMacro::Ampere_16_8_16;
+      mparams.tile_sizes = gemm_tile;
+      mparams.splitk_factor = splitk_factor;
+      mparams.use_smem_epilogue = use_smem_epilogue;
+      mparams.promote_prologue_smem_reuse = true;
 
-      scheduleMatmul(&fusion, params);
+      SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+          ->schedule(&fusion, &mparams);
 
       at::Tensor aten_a =
           matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K, B);
@@ -3023,15 +3047,16 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulBatchSplitKBias) {
       gemm_tile.warp_tile = GemmTile(64, 64, 32);
       gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-      MatmulParams params;
-      params.supported_vec_size = {8, 8, 4};
-      params.mma_macro = MmaMacro::Ampere_16_8_16;
-      params.tile_sizes = gemm_tile;
-      params.splitk_factor = splitk_factor;
-      params.use_smem_epilogue = use_smem_epilogue;
-      params.promote_prologue_smem_reuse = true;
+      MatmulParams mparams;
+      mparams.supported_vec_size = {8, 8, 4};
+      mparams.mma_macro = MmaMacro::Ampere_16_8_16;
+      mparams.tile_sizes = gemm_tile;
+      mparams.splitk_factor = splitk_factor;
+      mparams.use_smem_epilogue = use_smem_epilogue;
+      mparams.promote_prologue_smem_reuse = true;
 
-      scheduleMatmul(&fusion, params);
+      SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+          ->schedule(&fusion, &mparams);
 
       at::Tensor aten_a =
           matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K, B);
@@ -3085,15 +3110,16 @@ TEST_F(MatmulTest, ReproIssue1808) {
   gemm_tile.warp_tile = GemmTile(80, 24, 16);
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-  MatmulParams params;
-  params.supported_vec_size = {8, 8, 4};
-  params.mma_macro = MmaMacro::Ampere_16_8_16;
-  params.tile_sizes = gemm_tile;
-  params.async_gmem_load_operands = true;
-  params.circular_buffer_options.circular_buffer_smem_write = true;
-  params.circular_buffer_options.circular_buffer_smem_read = true;
-  params.circular_buffer_options.smem_circular_buffer_stage = 4;
-  scheduleMatmul(&fusion, params);
+  MatmulParams mparams;
+  mparams.supported_vec_size = {8, 8, 4};
+  mparams.mma_macro = MmaMacro::Ampere_16_8_16;
+  mparams.tile_sizes = gemm_tile;
+  mparams.async_gmem_load_operands = true;
+  mparams.circular_buffer_options.circular_buffer_smem_write = true;
+  mparams.circular_buffer_options.circular_buffer_smem_read = true;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
 
   auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
@@ -3228,9 +3254,9 @@ TEST_P(MatmulTestWithLayout, MisalignedVectorization) {
           return std::min(vec_size, (int64_t)(16 / tens.element_size()));
         };
 
-        MatmulParams params;
-        params.mma_macro = MmaMacro::Ampere_16_8_16;
-        params.supported_vec_size = {
+        MatmulParams mparams;
+        mparams.mma_macro = MmaMacro::Ampere_16_8_16;
+        mparams.supported_vec_size = {
             .a = atenSupportedVectorization(t0),
             .b = atenSupportedVectorization(t1),
             .epilogue = std::min(
@@ -3240,14 +3266,15 @@ TEST_P(MatmulTestWithLayout, MisalignedVectorization) {
                     (int64_t)(16 / (downcast_output ? 2 : 4))))};
         // Supported vectorization determines whether we are able to do async
         // gmem->smem loads.
-        params.async_gmem_load_operands = params.supported_vec_size.a >= 4 &&
-            params.supported_vec_size.b >= 4;
-        params.circular_buffer_options.circular_buffer_smem_write = true;
+        mparams.async_gmem_load_operands = mparams.supported_vec_size.a >= 4 &&
+            mparams.supported_vec_size.b >= 4;
+        mparams.circular_buffer_options.circular_buffer_smem_write = true;
         // If we cannot use cp.async, it means we cannot do circular buffering
-        params.circular_buffer_options.smem_circular_buffer_stage =
-            params.async_gmem_load_operands ? 4 : 2;
+        mparams.circular_buffer_options.smem_circular_buffer_stage =
+            mparams.async_gmem_load_operands ? 4 : 2;
 
-        scheduleMatmul(fusion.get(), params);
+        SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+            ->schedule(fusion.get(), &mparams);
 
         FusionExecutor fe;
         NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -3290,16 +3317,17 @@ TEST_F(MatmulTest, MultipleConsecutiveDims) {
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-  MatmulParams params;
+  MatmulParams mparams;
   // Supported vec size is based on inner dim
-  params.supported_vec_size = {4, 8, 4};
-  params.mma_macro = MmaMacro::Ampere_16_8_16;
-  params.tile_sizes = gemm_tile;
-  params.async_gmem_load_operands = true;
-  params.circular_buffer_options.circular_buffer_smem_write = true;
-  params.circular_buffer_options.circular_buffer_smem_read = true;
-  params.circular_buffer_options.smem_circular_buffer_stage = 4;
-  scheduleMatmul(&fusion, params);
+  mparams.supported_vec_size = {4, 8, 4};
+  mparams.mma_macro = MmaMacro::Ampere_16_8_16;
+  mparams.tile_sizes = gemm_tile;
+  mparams.async_gmem_load_operands = true;
+  mparams.circular_buffer_options.circular_buffer_smem_write = true;
+  mparams.circular_buffer_options.circular_buffer_smem_read = true;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::Tensor A = at::randn({M1, M2, K}, options);
@@ -3353,16 +3381,17 @@ TEST_F(MatmulTest, DISABLED_MultipleNonConsecutiveMDims) {
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-  MatmulParams params;
+  MatmulParams mparams;
   // Supported vec size is based on inner dim
-  params.supported_vec_size = {4, 8, 4};
-  params.mma_macro = MmaMacro::Ampere_16_8_16;
-  params.tile_sizes = gemm_tile;
-  params.async_gmem_load_operands = true;
-  params.circular_buffer_options.circular_buffer_smem_write = true;
-  params.circular_buffer_options.circular_buffer_smem_read = true;
-  params.circular_buffer_options.smem_circular_buffer_stage = 4;
-  scheduleMatmul(&fusion, params);
+  mparams.supported_vec_size = {4, 8, 4};
+  mparams.mma_macro = MmaMacro::Ampere_16_8_16;
+  mparams.tile_sizes = gemm_tile;
+  mparams.async_gmem_load_operands = true;
+  mparams.circular_buffer_options.circular_buffer_smem_write = true;
+  mparams.circular_buffer_options.circular_buffer_smem_read = true;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::Tensor A = at::randn({M1, K, M2}, options);
@@ -3415,17 +3444,18 @@ TEST_F(MatmulTest, DISABLED_MultipleNonConsecutiveNDims) {
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-  MatmulParams params;
+  MatmulParams mparams;
   // Output is M, N1, N2, contiguous so fully vectorizable despite size N2=2 in
   // inner dim.
-  params.supported_vec_size = {8, 2, 4};
-  params.mma_macro = MmaMacro::Ampere_16_8_16;
-  params.tile_sizes = gemm_tile;
-  params.async_gmem_load_operands = true;
-  params.circular_buffer_options.circular_buffer_smem_write = true;
-  params.circular_buffer_options.circular_buffer_smem_read = true;
-  params.circular_buffer_options.smem_circular_buffer_stage = 4;
-  scheduleMatmul(&fusion, params);
+  mparams.supported_vec_size = {8, 2, 4};
+  mparams.mma_macro = MmaMacro::Ampere_16_8_16;
+  mparams.tile_sizes = gemm_tile;
+  mparams.async_gmem_load_operands = true;
+  mparams.circular_buffer_options.circular_buffer_smem_write = true;
+  mparams.circular_buffer_options.circular_buffer_smem_read = true;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::Tensor A = at::randn({M, K}, options);
@@ -3471,16 +3501,17 @@ TEST_F(MatmulTest, MultipleMDimsBatch) {
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-  MatmulParams params;
+  MatmulParams mparams;
   // Supported vec size is based on inner dim
-  params.supported_vec_size = {4, 8, 4};
-  params.mma_macro = MmaMacro::Ampere_16_8_16;
-  params.tile_sizes = gemm_tile;
-  params.async_gmem_load_operands = true;
-  params.circular_buffer_options.circular_buffer_smem_write = true;
-  params.circular_buffer_options.circular_buffer_smem_read = true;
-  params.circular_buffer_options.smem_circular_buffer_stage = 4;
-  scheduleMatmul(&fusion, params);
+  mparams.supported_vec_size = {4, 8, 4};
+  mparams.mma_macro = MmaMacro::Ampere_16_8_16;
+  mparams.tile_sizes = gemm_tile;
+  mparams.async_gmem_load_operands = true;
+  mparams.circular_buffer_options.circular_buffer_smem_write = true;
+  mparams.circular_buffer_options.circular_buffer_smem_read = true;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::Tensor A = at::randn({M1, Batch, M2, K}, options);

@@ -28,25 +28,6 @@
 
 namespace nvfuser {
 
-/*static*/ thread_local Fusion* FusionGuard::active_fusion_ = nullptr;
-
-FusionGuard::FusionGuard(Fusion* fusion) : prev_fusion_(active_fusion_) {
-  active_fusion_ = fusion;
-}
-
-FusionGuard::~FusionGuard() {
-  active_fusion_ = prev_fusion_;
-}
-
-// Cast to non-cast because many users need it.
-/*static*/ Fusion* FusionGuard::getCurFusion() {
-  return active_fusion_;
-}
-
-/*static*/ void FusionGuard::setCurFusion(Fusion* fusion) {
-  active_fusion_ = fusion;
-}
-
 void swap(Fusion& a, Fusion& b) noexcept {
   FUSER_PERF_SCOPE("Fusion swap");
 
@@ -900,6 +881,31 @@ std::vector<TensorView*> Fusion::allTvs() {
     all_tvs_ptr_ = std::make_unique<std::vector<TensorView*>>(findAllTvs(this));
   }
   return std::vector<TensorView*>(*all_tvs_ptr_);
+}
+
+void Fusion::registerExactMapping(IterDomain* id0, IterDomain* id1) {
+  NVF_ERROR(
+      id0->sameAs(id1),
+      "Invalid domains to map: ",
+      id0->toString(),
+      ", ",
+      id1->toString());
+
+  if (!hasRegisteredExactMappings()) {
+    manage(exact_mappings_key, DisjointSets<IterDomain*>{});
+  }
+
+  auto& id_mappings = getManaged<DisjointSets<IterDomain*>>(exact_mappings_key);
+
+  id_mappings.mapEntries(id0, id1);
+}
+
+DisjointSets<IterDomain*> Fusion::registeredExactMappings() const {
+  if (!hasRegisteredExactMappings()) {
+    return {};
+  }
+
+  return getManaged<DisjointSets<IterDomain*>>(exact_mappings_key);
 }
 
 } // namespace nvfuser

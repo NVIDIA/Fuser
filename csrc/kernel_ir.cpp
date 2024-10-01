@@ -293,8 +293,7 @@ const char* getPTXConstraints(Val* value) {
         return "l";
       }
     default:
-      NVF_ERROR(
-          false, "Unsupported data type ", dt, " for inline PTX assembly.");
+      NVF_THROW("Unsupported data type ", dt, " for inline PTX assembly.");
   }
 }
 

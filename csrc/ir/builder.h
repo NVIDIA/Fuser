@@ -8,8 +8,9 @@
 #pragma once
 
 #include <exceptions.h>
-#include <ir/all_nodes.h>
+#include <fusion_guard.h>
 #include <ir/builder_passkey.h>
+#include <ir/container.h>
 #include <utils.h>
 #include <visibility.h>
 
@@ -19,7 +20,12 @@ namespace kir {
 class Kernel;
 }
 
+class ArrayConstruct;
 class IrCloner;
+class NamedScalar;
+class StructConstruct;
+class TensorView;
+class Val;
 
 //! IR builder interface
 class IrBuilder {
@@ -85,6 +91,7 @@ class IrBuilder {
   NVF_API static Val* maxExpr(Val* lhs, Val* rhs);
   NVF_API static Val* minExpr(Val* lhs, Val* rhs);
   NVF_API static Val* gcdExpr(Val* lhs, Val* rhs);
+  NVF_API static Val* isDivisibleExpr(Val* dividend, Val* divisor);
 
   // Ternary operations
   NVF_API static Val* whereExpr(Val* pred, Val* lhs, Val* rhs);

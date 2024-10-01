@@ -335,8 +335,7 @@ class ExprSegmentationSorter {
     if (id == kernelScopeDomain()) {
       return id;
     } else {
-      return GpuLower::current()->caMap()->getConcreteMappedID(
-          id, IdMappingMode::LOOP);
+      return lower_utils::getConcreteLoopID(id);
     }
   }
 
@@ -798,8 +797,6 @@ std::vector<IterDomain*> getLocalDomainOrdering(
     return std::vector<IterDomain*>();
   }
 
-  const auto& ca_map = GpuLower::current()->caMap();
-
   std::unordered_set<IterDomain*> domains;
 
   for (auto expr : exprs) {
@@ -820,17 +817,15 @@ std::vector<IterDomain*> getLocalDomainOrdering(
                   tv_input->getComputePosition(tv_output),
                   tv_input->getMaxProducerPosition()),
           std::back_inserter(domain),
-          [&ca_map](IterDomain* id) {
-            return ca_map->getConcreteMappedID(id, IdMappingMode::LOOP);
-          });
+          lower_utils::getConcreteLoopID);
 
       domain.erase(
           std::remove_if(
               domain.begin(),
               domain.end(),
-              [&filter, &ca_map](IterDomain* id) {
-                return filter.find(ca_map->getConcreteMappedID(
-                           id, IdMappingMode::LOOP)) == filter.end();
+              [&filter](IterDomain* id) {
+                return filter.find(lower_utils::getConcreteLoopID(id)) ==
+                    filter.end();
               }),
           domain.end());
 
@@ -842,8 +837,7 @@ std::vector<IterDomain*> getLocalDomainOrdering(
   std::sort(
       merged_domain.begin(),
       merged_domain.end(),
-      ir_utils::IterDomainDependencySorter(
-          concrete_id_dependencies, GpuLower::current()->caMap()));
+      lower_utils::IterDomainDependencySorter(concrete_id_dependencies));
   return merged_domain;
 }
 
@@ -1332,10 +1326,8 @@ bool ExprSegmentationSorter::supportedMerge(ExprGroup* sg1, ExprGroup* sg2) {
   // For the consumer, if there's a dependency from PA to CA, definitely
   // not possible to merge
   if (!consumer_pa_domain.empty() && !consumer_ca_domain.empty() &&
-      ir_utils::IterDomainDependencySorter(
-          concrete_id_dependencies_,
-          GpuLower::current()->caMap(),
-          kernelScopeDomain())(
+      lower_utils::IterDomainDependencySorter(
+          concrete_id_dependencies_, kernelScopeDomain())(
           consumer_pa_domain.back(), consumer_ca_domain.back())) {
     if (isDebugDumpEnabled(DebugDumpOption::ExprSortVerbose)) {
       debug() << "Not supported as the consumer has a dependency from PA to CA"
@@ -1349,10 +1341,8 @@ bool ExprSegmentationSorter::supportedMerge(ExprGroup* sg1, ExprGroup* sg2) {
   // dependency from CA to PA
   if (consumer_pa_domain.size() < consumer_ca_domain.size() &&
       !(!consumer_pa_domain.empty() && !consumer_ca_domain.empty() &&
-        ir_utils::IterDomainDependencySorter(
-            concrete_id_dependencies_,
-            GpuLower::current()->caMap(),
-            kernelScopeDomain())(
+        lower_utils::IterDomainDependencySorter(
+            concrete_id_dependencies_, kernelScopeDomain())(
             consumer_ca_domain.back(), consumer_pa_domain.back()))) {
     if (isDebugDumpEnabled(DebugDumpOption::ExprSortVerbose)) {
       debug() << "Not supported as the consumer has more PA domains than CA"

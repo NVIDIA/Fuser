@@ -77,15 +77,11 @@ TEST_F(TransposeTest, FusionScheduleTransposeSimple) {
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     at::Tensor input = at::randn({256, 1024, 1024}, options);
 
-    auto lparams = scheduleTranspose(&fusion, {input});
-
-    FusionExecutor fe;
-    fe.compileFusion(&fusion, {input}, lparams);
-    auto outputs = fe.runFusion({input}, lparams);
-
+    auto cg_outputs =
+        scheduleAndRun(&fusion, SchedulerType::Transpose, {input}).outputs;
     auto tv_ref = input.sin().transpose(1, 2).cos();
 
-    testValidate(&fusion, outputs, {input}, {tv_ref}, __LINE__, __FILE__);
+    testValidate(&fusion, cg_outputs, {input}, {tv_ref}, __LINE__, __FILE__);
   }
 }
 
@@ -107,15 +103,10 @@ TEST_F(TransposeTest, FusionScheduleTransposeSinTransposeCos) {
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     at::Tensor input = at::randn({256, 1024, 1024}, options);
 
-    auto lparams = scheduleTranspose(&fusion, {input});
-
-    FusionExecutor fe;
-    fe.compileFusion(&fusion, {input}, lparams);
-    auto outputs = fe.runFusion({input}, lparams);
-
+    auto cg_outputs =
+        scheduleAndRun(&fusion, SchedulerType::Transpose, {input}).outputs;
     auto tv_ref = input.transpose(0, 2).sin().transpose(1, 2).cos();
-
-    testValidate(&fusion, outputs, {input}, {tv_ref}, __LINE__, __FILE__);
+    testValidate(&fusion, cg_outputs, {input}, {tv_ref}, __LINE__, __FILE__);
   }
 }
 
@@ -142,13 +133,10 @@ TEST_F(TransposeTest, FusionScheduleTransposeMultipleInput) {
   at::Tensor input0 = at::randn({256, 1024, 1024}, options);
   at::Tensor input1 = at::randn({256, 1024, 1024}, options);
 
-  auto lparams = scheduleTranspose(&fusion, {input0, input1});
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {input0, input1}, lparams);
-  auto outputs = fe.runFusion({input0, input1}, lparams);
-
-  testValidate(&fusion, outputs, {input0, input1}, __LINE__, __FILE__);
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::Transpose, {input0, input1})
+          .outputs;
+  testValidate(&fusion, cg_outputs, {input0, input1}, __LINE__, __FILE__);
 }
 
 // t0->sin->transpose->t5
@@ -170,17 +158,13 @@ TEST_F(TransposeTest, FusionScheduleTransposeMultipleOutput) {
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     at::Tensor input = at::randn({32, 1024, 1024}, options);
 
-    auto lparams = scheduleTranspose(&fusion, {input});
-
-    FusionExecutor fe;
-    fe.compileFusion(&fusion, {input}, lparams);
-    auto outputs = fe.runFusion({input}, lparams);
-
+    auto cg_outputs =
+        scheduleAndRun(&fusion, SchedulerType::Transpose, {input}).outputs;
     auto tv_ref1 = input.sin().transpose(0, 2);
     auto tv_ref2 = input.cos().transpose(0, 2);
 
     testValidate(
-        &fusion, outputs, {input}, {tv_ref1, tv_ref2}, __LINE__, __FILE__);
+        &fusion, cg_outputs, {input}, {tv_ref1, tv_ref2}, __LINE__, __FILE__);
   }
 }
 
@@ -209,13 +193,10 @@ TEST_F(TransposeTest, FusionScheduleTransposeMultipleInputOutput) {
   at::Tensor input0 = at::randn({32, 1024, 1024}, options);
   at::Tensor input1 = at::randn({32, 1024, 1024}, options);
 
-  auto lparams = scheduleTranspose(&fusion, {input0, input1});
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {input0, input1}, lparams);
-  auto outputs = fe.runFusion({input0, input1}, lparams);
-
-  testValidate(&fusion, outputs, {input0, input1}, __LINE__, __FILE__);
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::Transpose, {input0, input1})
+          .outputs;
+  testValidate(&fusion, cg_outputs, {input0, input1}, __LINE__, __FILE__);
 }
 
 /*
@@ -239,13 +220,9 @@ TEST_F(TransposeTest, FusionScheduleTransposeMatchingSkipConnection) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input = at::randn({32, 1024, 1024}, options);
 
-  auto lparams = scheduleTranspose(&fusion, {input});
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {input}, lparams);
-  auto outputs = fe.runFusion({input}, lparams);
-
-  testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::Transpose, {input}).outputs;
+  testValidate(&fusion, cg_outputs, {input}, __LINE__, __FILE__);
 }
 
 // x->transpose--add->z
@@ -267,13 +244,10 @@ TEST_F(TransposeTest, FusionScheduleTransposeBroadcast) {
   at::Tensor input0 = at::randn({1024, 256, 1024}, options);
   at::Tensor input1 = at::randn({1024, 1024}, options);
 
-  auto lparams = scheduleTranspose(&fusion, {input0, input1});
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {input0, input1}, lparams);
-  auto outputs = fe.runFusion({input0, input1}, lparams);
-
-  testValidate(&fusion, outputs, {input0, input1}, __LINE__, __FILE__);
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::Transpose, {input0, input1})
+          .outputs;
+  testValidate(&fusion, cg_outputs, {input0, input1}, __LINE__, __FILE__);
 }
 
 // x->broadcast--add->z
@@ -296,9 +270,12 @@ TEST_F(TransposeTest, FusionScheduleTransposeNoReference) {
   at::Tensor input1 = at::randn({1024, 1024}, options);
 
   EXPECT_THAT(
-      [&]() { scheduleTranspose(&fusion, {input0, input1}); },
-      testing::ThrowsMessage<nvfuser::nvfError>(
-          testing::HasSubstr("reference tensor")));
+      [&]() {
+        SchedulerEntry::scheduleWith(
+            &fusion, SchedulerType::Transpose, {input0, input1});
+      },
+      testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
+          "Could not schedule fusion with the SchedulerType: transpose")));
 }
 
 // x->broadcast--add->z
@@ -321,13 +298,10 @@ TEST_F(TransposeTest, FusionScheduleBroadcastOnly) {
       at::Tensor input0 = at::randn({1024, 1, 256}, options);
       at::Tensor input1 = at::randn({1024, 1024, 1}, options);
 
-      auto lparams = scheduleTranspose(&fusion, {input0, input1});
-
-      FusionExecutor fe;
-      fe.compileFusion(&fusion, {input0, input1}, lparams);
-      auto outputs = fe.runFusion({input0, input1}, lparams);
-
-      testValidate(&fusion, outputs, {input0, input1}, __LINE__, __FILE__);
+      auto cg_outputs =
+          scheduleAndRun(&fusion, SchedulerType::Transpose, {input0, input1})
+              .outputs;
+      testValidate(&fusion, cg_outputs, {input0, input1}, __LINE__, __FILE__);
     }
   }
 }
@@ -391,13 +365,12 @@ TEST_F(TransposeTest, FusionScheduleTransposeComplexDAG1) {
   at::Tensor input1 = at::randn({1024, 512, 256}, options);
   at::Tensor input2 = at::randn({512, 256, 1024}, options);
 
-  auto lparams = scheduleTranspose(&fusion, {input0, input1, input2});
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {input0, input1, input2}, lparams);
-  auto outputs = fe.runFusion({input0, input1, input2}, lparams);
-
-  testValidate(&fusion, outputs, {input0, input1, input2}, __LINE__, __FILE__);
+  auto cg_outputs =
+      scheduleAndRun(
+          &fusion, SchedulerType::Transpose, {input0, input1, input2})
+          .outputs;
+  testValidate(
+      &fusion, cg_outputs, {input0, input1, input2}, __LINE__, __FILE__);
 }
 
 // mermaid graph:
@@ -670,13 +643,12 @@ TEST_F(TransposeTest, FusionScheduleTransposeMissingDim) {
   at::Tensor input1 = at::randn({1, 512, 1}, options);
   at::Tensor input2 = at::randn({512}, options);
 
-  auto lparams = scheduleTranspose(&fusion, {input0, input1, input2});
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {input0, input1, input2}, lparams);
-  auto outputs = fe.runFusion({input0, input1, input2}, lparams);
-
-  testValidate(&fusion, outputs, {input0, input1, input2}, __LINE__, __FILE__);
+  auto cg_outputs =
+      scheduleAndRun(
+          &fusion, SchedulerType::Transpose, {input0, input1, input2})
+          .outputs;
+  testValidate(
+      &fusion, cg_outputs, {input0, input1, input2}, __LINE__, __FILE__);
 }
 
 // x->sin->transpose->cos->y
@@ -694,13 +666,9 @@ TEST_F(TransposeTest, FusionScheduleTransposeSmall) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input = at::randn({1024, 2, 2}, options);
 
-  auto lparams = scheduleTranspose(&fusion, {input});
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {input}, lparams);
-  auto outputs = fe.runFusion({input}, lparams);
-
-  testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::Transpose, {input}, false).outputs;
+  testValidate(&fusion, cg_outputs, {input}, __LINE__, __FILE__);
 }
 
 // x->sin->transpose->cos->y
@@ -718,13 +686,9 @@ TEST_F(TransposeTest, FusionScheduleTransposeSmallInnerSize1) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input = at::randn({64 * 1024 * 1024, 2, 2}, options);
 
-  auto lparams = scheduleTranspose(&fusion, {input});
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {input}, lparams);
-  auto outputs = fe.runFusion({input}, lparams);
-
-  testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::Transpose, {input}, false).outputs;
+  testValidate(&fusion, cg_outputs, {input}, __LINE__, __FILE__);
 }
 
 // x->sin->transpose->cos->y
@@ -742,13 +706,9 @@ TEST_F(TransposeTest, FusionScheduleTransposeSmallInnerSize2) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input = at::randn({2, 64 * 1024 * 1024, 2}, options);
 
-  auto lparams = scheduleTranspose(&fusion, {input});
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {input}, lparams);
-  auto outputs = fe.runFusion({input}, lparams);
-
-  testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::Transpose, {input}, false).outputs;
+  testValidate(&fusion, cg_outputs, {input}, __LINE__, __FILE__);
 }
 
 // x->sin->transpose->cos->y
@@ -766,13 +726,9 @@ TEST_F(TransposeTest, FusionScheduleTransposeSmallInnerSize3) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input = at::randn({1024 * 1024, 2, 2, 2, 2, 2, 2, 2}, options);
 
-  auto lparams = scheduleTranspose(&fusion, {input});
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {input}, lparams);
-  auto outputs = fe.runFusion({input}, lparams);
-
-  testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::Transpose, {input}, false).outputs;
+  testValidate(&fusion, cg_outputs, {input}, __LINE__, __FILE__);
 }
 
 // x->sin->transpose->cos->y
@@ -794,13 +750,10 @@ TEST_F(TransposeTest, FusionScheduleTranspose2DSmallInnerSize) {
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     at::Tensor input = at::randn(shape, options);
 
-    auto lparams = scheduleTranspose(&fusion, {input});
-
-    FusionExecutor fe;
-    fe.compileFusion(&fusion, {input}, lparams);
-    auto outputs = fe.runFusion({input}, lparams);
-
-    testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
+    auto cg_outputs =
+        scheduleAndRun(&fusion, SchedulerType::Transpose, {input}, false)
+            .outputs;
+    testValidate(&fusion, cg_outputs, {input}, __LINE__, __FILE__);
   }
 }
 
@@ -1095,17 +1048,17 @@ TEST_F(TransposeTest, TransposeAggregatedVectorizationWidth) {
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
   NVF_CHECK(!runtime->isSegmented(), "Segmentation not expected");
-  auto scheduler = runtime->schedulerHeuristics()->heuristicsList().at(0).get();
-  auto heuristic = scheduler->heuristic();
+  auto heuristic_params =
+      runtime->schedulerHeuristics()->heuristicsList().at(0).get();
   NVF_CHECK(
-      heuristic == ScheduleHeuristic::Transpose,
+      heuristic_params->scheduler_type == SchedulerType::Transpose,
       "Unexpected heuristic: ",
-      heuristic);
+      heuristic_params->scheduler_type);
   NVF_CHECK(
-      scheduler->transposeParams().vectorize_factor1 == 4,
+      heuristic_params->as<TransposeParams>()->vectorize_factor1 == 4,
       "expecting vectorization for group 1 to be 4");
   NVF_CHECK(
-      scheduler->transposeParams().vectorize_factor2 == 4,
+      heuristic_params->as<TransposeParams>()->vectorize_factor2 == 4,
       "expecting vectorization for group 2 to be 4");
 
   auto ref = t0.transpose(0, 4).transpose(1, 3);
@@ -1171,10 +1124,13 @@ TEST_F(TransposeTest, ReshapePermuteTransposeScheduler) {
   auto runtime = executor_cache.getMostRecentKernelRuntime();
   NVF_CHECK(!runtime->isSegmented(), "Segmentation not expected");
 
-  auto heuristic =
-      runtime->schedulerHeuristics()->heuristicsList().at(0).get()->heuristic();
+  auto heuristic = runtime->schedulerHeuristics()
+                       ->heuristicsList()
+                       .at(0)
+                       .get()
+                       ->scheduler_type;
   NVF_CHECK(
-      heuristic == ScheduleHeuristic::Transpose,
+      heuristic == SchedulerType::Transpose,
       "Unexpected heuristic: ",
       heuristic);
 
@@ -1213,10 +1169,13 @@ TEST_F(
   auto runtime = executor_cache.getMostRecentKernelRuntime();
   NVF_CHECK(!runtime->isSegmented(), "Segmentation not expected");
 
-  auto heuristic =
-      runtime->schedulerHeuristics()->heuristicsList().at(0).get()->heuristic();
+  auto heuristic = runtime->schedulerHeuristics()
+                       ->heuristicsList()
+                       .at(0)
+                       .get()
+                       ->scheduler_type;
   NVF_CHECK(
-      heuristic != ScheduleHeuristic::Transpose,
+      heuristic != SchedulerType::Transpose,
       "Unexpected heuristic: ",
       heuristic);
 
@@ -1323,9 +1282,9 @@ TEST_F(TransposeTest, TransposeSplitAggregatedVectorizationWidth) {
   NVF_CHECK(!runtime->isSegmented(), "Segmentation not expected");
   // TODO: check on vectorization!
   auto heuristic =
-      runtime->schedulerHeuristics()->heuristicsList().at(0)->heuristic();
+      runtime->schedulerHeuristics()->heuristicsList().at(0)->scheduler_type;
   NVF_CHECK(
-      heuristic == ScheduleHeuristic::Transpose,
+      heuristic == SchedulerType::Transpose,
       "Unexpected heuristic: ",
       heuristic);
 
@@ -1372,16 +1331,22 @@ TEST_F(TransposeTest, ReductionIterDomainOnInputsIssue1659) {
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
   NVF_CHECK(runtime->isSegmented(), "Segmentation expected");
-  auto heuristic0 =
-      runtime->schedulerHeuristics()->heuristicsList().at(0).get()->heuristic();
+  auto heuristic0 = runtime->schedulerHeuristics()
+                        ->heuristicsList()
+                        .at(0)
+                        .get()
+                        ->scheduler_type;
   NVF_CHECK(
-      heuristic0 == ScheduleHeuristic::Reduction,
+      heuristic0 == SchedulerType::Reduction,
       "Unexpected heuristic: ",
       heuristic0);
-  auto heuristic1 =
-      runtime->schedulerHeuristics()->heuristicsList().at(1).get()->heuristic();
+  auto heuristic1 = runtime->schedulerHeuristics()
+                        ->heuristicsList()
+                        .at(1)
+                        .get()
+                        ->scheduler_type;
   NVF_CHECK(
-      heuristic1 == ScheduleHeuristic::Transpose,
+      heuristic1 == SchedulerType::Transpose,
       "Unexpected heuristic: ",
       heuristic1);
   testValidate(fusion_ptr, cg_outputs, {t0, t1}, __LINE__, __FILE__);

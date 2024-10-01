@@ -18,6 +18,28 @@
 
 namespace nvfuser {
 
+namespace {
+
+std::vector<c10::cuda::CUDAStream> createStreams(
+    int64_t number_of_streams,
+    int64_t my_device_index) {
+  std::vector<c10::cuda::CUDAStream> streams;
+  std::generate_n(
+      std::back_inserter(streams), number_of_streams, [my_device_index]() {
+        return c10::cuda::getStreamFromPool(
+            /*isHighPriority=*/false, my_device_index);
+      });
+  return streams;
+}
+
+void synchronizeStreams(const std::vector<c10::cuda::CUDAStream>& streams) {
+  std::for_each(streams.begin(), streams.end(), [](const auto& stream) {
+    stream.synchronize();
+  });
+}
+
+} // namespace
+
 struct OverlapTestParams {
   // Tensors sizes
   int64_t M = std::pow(2, 6);
@@ -57,11 +79,12 @@ class OverlapTest : public MultiDeviceTest {
   int64_t my_device_index_;
   std::vector<int64_t> all_devices_;
   at::Tensor ta_unsharded_, tb_unsharded_;
-  at::Tensor ta_, tb_, tc_locally_reduced_, tc_;
+  at::Tensor ta_, tb_, tc_;
+  at::TensorOptions gpu_options_;
   // stores the backend
   c10d::Backend* world_communicator_;
 
-  void SetUp() {
+  void SetUp() override {
     MultiDeviceTest::SetUp();
     if (!communicator_->is_available()) {
       return;
@@ -92,10 +115,6 @@ class OverlapTest : public MultiDeviceTest {
     std::vector<int64_t> tb_unsharded_sizes = {
         num_devices_, params.K / num_devices_, params.N};
     std::vector<int64_t> tb_sizes = {params.K / num_devices_, params.N};
-    std::vector<int64_t> tc_locally_reduced_sizes = {
-        std::min(params.S, params.number_of_streams),
-        params.M / params.S,
-        params.N}; // we need at most `number_of_streams` slices
     std::vector<int64_t> tc_sizes = {
         params.S, params.M / (params.S * num_devices_), params.N};
 
@@ -105,28 +124,21 @@ class OverlapTest : public MultiDeviceTest {
     // expected result locally, hence, this way of doing is convenient for
     // validating data correctness.
     auto cpu_options = at::TensorOptions().dtype(at::kFloat);
-    at::TensorOptions gpu_options = cpu_options.device(communicator_->device());
+    gpu_options_ = cpu_options.device(communicator_->device());
 
     // Unsharded tensors are large and only used for validating data corectness.
     // Therefore, to improve GPU memory footprint, we allocate those tensors on
     // the CPU
     ta_unsharded_ = at::empty(ta_unsharded_sizes, cpu_options);
     tb_unsharded_ = at::empty(tb_unsharded_sizes, cpu_options);
-    ta_ = at::empty(ta_sizes, gpu_options);
-    tb_ = at::empty(tb_sizes, gpu_options);
-
-    // We pre-allocate the output and some intermediate buffers so we do not
-    // rely on torch allocator, which do not behave well with multi-stream
-    // programming.
-    tc_locally_reduced_ = at::empty(tc_locally_reduced_sizes, gpu_options);
-    tc_ = at::empty(tc_sizes, gpu_options);
+    ta_ = at::empty(ta_sizes, gpu_options_);
+    tb_ = at::empty(tb_sizes, gpu_options_);
+    tc_ = at::empty(tc_sizes, gpu_options_);
 
     // Debug print
     if (communicator_->deviceId() == 0 && debug_print) {
       debug() << "ta_sizes()=" << ta_.sizes() << std::endl
               << "tb_sizes()=" << tb_.sizes() << std::endl
-              << "tc_locally_reduced_sizes()=" << tc_locally_reduced_.sizes()
-              << std::endl
               << "tc_sizes()=" << tc_.sizes() << std::endl;
     }
   }
@@ -138,23 +150,54 @@ class OverlapTest : public MultiDeviceTest {
     tb_.copy_(tb_unsharded_.select(0, my_device_index_));
   }
 
-  void validate() {
-    // compute the expected output for data correctness validation
+  // compute the expected output for data correctness validation
+  at::Tensor getUnshardedExpectedResult() {
     auto tc_unsharded_unreduced =
         ta_unsharded_.unsqueeze(-1) * tb_unsharded_.unsqueeze(-3).unsqueeze(0);
-    auto tc_unsharded_expected = at::sum(tc_unsharded_unreduced, {1, 3});
+    return at::sum(tc_unsharded_unreduced, {1, 3});
+  }
+
+  virtual at::Tensor getExpectedResult() {
+    NVF_THROW("must be implemented in child class");
+    return at::Tensor();
+  }
+
+  void validate() {
+    auto tc_expected = getExpectedResult();
+    auto tc_cpu = tc_.to(torch::kCPU);
+    EXPECT_TRUE(tc_cpu.allclose(tc_expected, 1e-1, 1e-1))
+        << "Unexpected results, obtained:" << tc_cpu
+        << "\n expected: " << tc_expected;
+  }
+
+  void TearDown() override {
+    validate();
+    MultiDeviceTest::TearDown();
+  }
+};
+
+class CollectiveBasedOverlapTest : public OverlapTest {
+ protected:
+  at::Tensor tc_locally_reduced_;
+  void SetUp() override {
+    OverlapTest::SetUp();
+
+    std::vector<int64_t> tc_locally_reduced_sizes = {
+        std::min(params.S, params.number_of_streams),
+        params.M / params.S,
+        params.N}; // we need at most `number_of_streams` slices
+    tc_locally_reduced_ = at::empty(tc_locally_reduced_sizes, gpu_options_);
+  }
+
+  at::Tensor getExpectedResult() override {
+    auto tc_unsharded_expected = getUnshardedExpectedResult();
     auto tc_unsharded_expected_reshaped = at::reshape(
         tc_unsharded_expected,
         {params.S,
          num_devices_,
          params.M / (params.S * num_devices_),
          params.N});
-    auto tc_expected_ =
-        tc_unsharded_expected_reshaped.select(1, my_device_index_);
-
-    EXPECT_TRUE(tc_.to(torch::kCPU).allclose(tc_expected_, 1e-1, 1e-1))
-        << "Unexpected results, obtained:" << tc_
-        << "\n expected: " << tc_expected_;
+    return tc_unsharded_expected_reshaped.select(1, my_device_index_);
   }
 };
 
@@ -216,15 +259,11 @@ class OverlapTest : public MultiDeviceTest {
 //      the second is scattered. This is why we choose the layouts to be
 //      [S, sharded_axis, M, ...]
 // clang-format on
-TEST_F(OverlapTest, ReduceScatterBasedPipeliningATenImplementation) {
-  std::vector<c10::cuda::CUDAStream> streams;
-  std::generate_n(
-      std::back_inserter(streams),
-      params.number_of_streams,
-      [my_device_index = my_device_index_]() {
-        return c10::cuda::getStreamFromPool(
-            /*isHighPriority=*/false, my_device_index);
-      });
+TEST_F(
+    CollectiveBasedOverlapTest,
+    ReduceScatterBasedPipeliningATenImplementation) {
+  std::vector<c10::cuda::CUDAStream> streams =
+      createStreams(params.number_of_streams, my_device_index_);
 
   for ([[maybe_unused]] const auto& _ :
        c10::irange(params.number_of_iterations)) {
@@ -246,10 +285,12 @@ TEST_F(OverlapTest, ReduceScatterBasedPipeliningATenImplementation) {
           ->wait();
     }
   }
-  validate();
+  synchronizeStreams(streams);
 }
 
-TEST_F(OverlapTest, ReduceScatterBasedPipeliningHostIrImplementation) {
+TEST_F(
+    CollectiveBasedOverlapTest,
+    ReduceScatterBasedPipeliningHostIrImplementation) {
   auto hic = std::make_unique<hir::HostIrContainer>();
   FusionGuard::setCurFusion(hic.get());
 
@@ -336,7 +377,99 @@ TEST_F(OverlapTest, ReduceScatterBasedPipeliningHostIrImplementation) {
 
     hie.runWithInput(std::move(inputs));
   }
-  validate();
+}
+
+class RingBasedOverlapTest : public OverlapTest {
+ protected:
+  int64_t number_of_steps_per_ring_, number_of_rings_;
+  at::Tensor src_buffer_, dst_buffer_;
+  at::Tensor ta_reshaped_, tc_reshaped_;
+
+  void SetUp() override {
+    OverlapTest::SetUp();
+
+    ASSERT_EQ(params.S % num_devices_, 0);
+    number_of_steps_per_ring_ = num_devices_;
+    number_of_rings_ = params.S / num_devices_;
+
+    ta_reshaped_ = at::reshape(
+        ta_,
+        {number_of_steps_per_ring_,
+         number_of_rings_,
+         params.M / params.S,
+         params.K / num_devices_});
+    tc_reshaped_ =
+        tc_.reshape({number_of_rings_, params.M / params.S, params.N});
+
+    std::vector<int64_t> buffer_sizes = {
+        number_of_steps_per_ring_,
+        number_of_rings_,
+        params.M / params.S,
+        params.N};
+    src_buffer_ = at::empty(buffer_sizes, gpu_options_);
+    dst_buffer_ = at::empty(buffer_sizes, gpu_options_);
+  }
+
+  at::Tensor getExpectedResult() override {
+    auto tc_unsharded_expected = getUnshardedExpectedResult();
+    // the natural layout here differs from the collective based pipelining.
+    // Here, the output is sharded on the outermost axis whereas, in the
+    // collective based pipelining, it is sharded on axis(1). The two layouts
+    // coincide in the classical case where params.S = num_devices_
+    auto tc_unsharded_expected_reshaped = at::reshape(
+        tc_unsharded_expected,
+        {num_devices_, params.S / num_devices_, params.M / params.S, params.N});
+    auto tc_expected =
+        tc_unsharded_expected_reshaped.select(0, my_device_index_);
+    return tc_expected.reshape(
+        {params.S, params.M / (params.S * num_devices_), params.N});
+  }
+};
+
+TEST_F(
+    RingBasedOverlapTest,
+    ReduceScatterRingBasedPipeliningATenImplementation) {
+  std::vector<c10::cuda::CUDAStream> streams =
+      createStreams(params.number_of_streams, my_device_index_);
+
+  for ([[maybe_unused]] const auto& _ :
+       c10::irange(params.number_of_iterations)) {
+    initializeIO();
+
+    for (auto i : c10::irange(number_of_rings_)) {
+      for (auto j : c10::irange(number_of_steps_per_ring_)) {
+        int64_t stream_index = (i + j) % streams.size();
+        setCurrentCUDAStream(streams.at(stream_index));
+
+        // define the sliced tensors
+        auto slice_index =
+            (my_device_index_ + j + 1) % number_of_steps_per_ring_;
+        auto ta_j = ta_reshaped_.select(0, slice_index).select(0, i);
+        auto src_buffer_j = src_buffer_.select(0, j).select(0, i);
+        auto dst_buffer_j = dst_buffer_.select(0, j).select(0, i);
+
+        // define the peer ranks
+        auto send_rank = slice_index;
+        auto recv_rank =
+            (number_of_steps_per_ring_ + my_device_index_ - (j + 1)) %
+            number_of_steps_per_ring_;
+
+        // local compute
+        torch::matmul_out(src_buffer_j, ta_j, tb_);
+        // communication
+        std::vector<at::Tensor> src = {src_buffer_j};
+        std::vector<at::Tensor> dst = {dst_buffer_j};
+
+        world_communicator_->startCoalescing();
+        // "tags" are not supported by nccl, so set it to 0
+        world_communicator_->send(src, send_rank, 0);
+        world_communicator_->recv(dst, recv_rank, 0);
+        world_communicator_->endCoalescing()->wait();
+      }
+    }
+    synchronizeStreams(streams);
+    torch::sum_out(tc_reshaped_, dst_buffer_, 0);
+  }
 }
 
 } // namespace nvfuser

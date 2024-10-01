@@ -308,8 +308,8 @@ TEST_F(NVFuserTest, FusionIndexSelectCanSch_CUDA) {
 
   // Schedule through magic scheduler
   SchedulerRuntimeInfo runtime_info(&fusion_fail, aten_inputs);
-  auto sch_fail = SchedulerEntry::canSchedule(
-      ScheduleHeuristic::PointWise, &fusion_fail, runtime_info);
+  auto sch_fail = Schedule::canSchedule(
+      SchedulerType::PointWise, &fusion_fail, runtime_info);
 
   // Negative Case II
   // lookup tv of index select cannot become conumser of other OP
@@ -336,8 +336,8 @@ TEST_F(NVFuserTest, FusionIndexSelectCanSch_CUDA) {
       input_pre, input1, input0, input_idx};
   // Schedule through magic scheduler
   SchedulerRuntimeInfo runtime_sum_info(&fusion_sum_fail, aten_sum_inputs);
-  auto sch_sum_fail = SchedulerEntry::canSchedule(
-      ScheduleHeuristic::Reduction, &fusion_sum_fail, runtime_sum_info);
+  auto sch_sum_fail = Schedule::canSchedule(
+      SchedulerType::Reduction, &fusion_sum_fail, runtime_sum_info);
 
   // Positive  Case I
   Fusion fusion_pass;
@@ -357,8 +357,8 @@ TEST_F(NVFuserTest, FusionIndexSelectCanSch_CUDA) {
   // Schedule through magic scheduler
   std::vector<c10::IValue> aten_inputs_pass = {input1, input0, input_idx};
   SchedulerRuntimeInfo runtime_info_pass(&fusion_pass, aten_inputs_pass);
-  auto sch_pass = SchedulerEntry::canSchedule(
-      ScheduleHeuristic::PointWise, &fusion_pass, runtime_info_pass);
+  auto sch_pass = Schedule::canSchedule(
+      SchedulerType::PointWise, &fusion_pass, runtime_info_pass);
 
   NVF_CHECK(sch_pass == true && sch_fail == false && sch_sum_fail == false);
 }
@@ -391,22 +391,21 @@ TEST_F(NVFuserTest, FusionIndexSelect_Sum_CUDA) {
       at::randn({nElem_select, nFeat}, options); // output&elemwise
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   at::Tensor input_idx = at::randint(0, nElem, (nElem_select), options_i);
-  at::Tensor output = at::zeros({nElem_select}, options);
+  at::Tensor cg_output = at::zeros({nElem_select}, options);
 
   std::vector<c10::IValue> aten_inputs = {input1, input0, input_idx};
-  auto reduction_params = getReductionHeuristics(&fusion, aten_inputs);
-  scheduleReduction(&fusion, *reduction_params);
-  auto lparams = reduction_params->lparams;
+  auto heuristic_params = SchedulerEntry::scheduleWith(
+      &fusion, SchedulerType::Reduction, aten_inputs);
   FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs, lparams);
-  fe.runFusion(aten_inputs, {output}, lparams);
+  fe.compileFusion(&fusion, aten_inputs, heuristic_params->lparams);
+  fe.runFusion(aten_inputs, {cg_output}, heuristic_params->lparams);
 
   auto tv0_ref = at::index_select(input0, 0, input_idx);
   at::Tensor tv2_ref = tv0_ref * input1;
   at::Tensor output_add = tv2_ref + 17.0;
   at::Tensor output_ref = output_add.sum({1});
 
-  NVF_CHECK(output_ref.allclose(output));
+  NVF_CHECK(output_ref.allclose(cg_output));
 }
 
 TEST_F(NVFuserTest, FusionIndexSelectIdxTvFuseable_CUDA) {

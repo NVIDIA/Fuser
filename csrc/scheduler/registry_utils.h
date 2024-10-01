@@ -34,7 +34,7 @@ bool hasNonUniqueBcast(Fusion* fusion);
 // TODO: remove this requirement entirely
 bool rejectScheduleForMemoryPromotion(
     Fusion* fusion,
-    ScheduleHeuristic schedule_strategy);
+    SchedulerType scheduler_type);
 
 bool isConnectedFusionGraph(Fusion* fusion);
 

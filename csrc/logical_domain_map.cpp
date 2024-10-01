@@ -742,7 +742,7 @@ bool ComputeAtLogicalDomainMap::canMap(
     const TensorDomain* td_b,
     const IterDomain* id_b) const {
   NVF_ERROR(
-      id_b->definition() == nullptr || id_b->isRFactorProduct(),
+      td_b->isLogical(id_b) || td_b->isRoot(id_b),
       "Non-root domain is not supported: ",
       id_b);
 
@@ -914,8 +914,7 @@ std::unordered_map<IterDomain*, IterDomain*> ComputeAtLogicalDomainMap::map(
              removed_broadcast_domains_.end())) {
       continue;
     }
-    NVF_ERROR(
-        false,
+    NVF_THROW(
         "Mapping IterDomain ",
         from_id,
         " of ",

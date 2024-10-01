@@ -2700,4 +2700,43 @@ TEST_F(IdModelTest, BroadcastGraph) {
   }
 }
 
+TEST_F(IdModelTest, MappingClonedIDs) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(1);
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv1);
+  auto tv3 = broadcast(tv2, {true, false});
+  auto tv4 = add(tv0, tv3);
+  fusion.addOutput(tv4);
+
+  std::vector<IterDomain*> tv2_loop_domain{
+      tv4->axis(0)->cloneWithoutRFactor(/*map_with_original=*/true),
+      tv2->axis(0)};
+  tv2->setLoopDomain(tv2_loop_domain);
+
+  auto exact_mappings = fusion.registeredExactMappings();
+  EXPECT_EQ(exact_mappings.disjointSets().size(), 1);
+  const auto mapping = exact_mappings.disjointSets().at(0);
+  VectorOfUniqueEntries<IterDomain*> ref_mapping{
+      tv2->getLoopDomain().at(0), tv4->getLoopDomain().at(0)};
+  EXPECT_EQ(mapping->set(), ref_mapping.set())
+      << "Expected: " << ref_mapping.toString()
+      << ". Actual: " << mapping->toString();
+
+  IdModel id_model_after_clone(&fusion);
+  for (const auto i : c10::irange(tv2->getLoopDomain().size())) {
+    EXPECT_TRUE(id_model_after_clone.idGraph(IdMappingMode::EXACT)
+                    .disjointValSets()
+                    .strictAreMapped(
+                        tv2->getLoopDomain().at(i), tv4->getLoopDomain().at(i)))
+        << "Exact mapping expected: " << tv2->getLoopDomain().at(i)->toString()
+        << ", " << tv4->getLoopDomain().at(i)->toString();
+  }
+}
+
 } // namespace nvfuser
