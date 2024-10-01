@@ -168,11 +168,12 @@ std::vector<bool> nonPreservedDims(const AxisOps& ops) {
 //! descriptor of their composition
 AxisOps composeOps(const AxisOps& prev, const AxisOps& next) {
   size_t prev_pos = 0, next_pos = 0;
+  size_t prev_size = prev.size(), next_size = next.size();
   AxisOps ops;
   while (true) {
     // If there are previous squeezes, insert them since they don't affect next
     // position
-    while (prev_pos < prev.size() && prev[prev_pos] == AxisOp::SQUEEZE) {
+    while (prev_pos < prev_size && prev[prev_pos] == AxisOp::SQUEEZE) {
       ops.push_back(AxisOp::SQUEEZE);
       prev_pos++;
     }
@@ -180,7 +181,7 @@ AxisOps composeOps(const AxisOps& prev, const AxisOps& next) {
     // prev[prev_pos] now gives the provenance of the axis that next_pos points
     // to if it's not a broadcast. If it is a broadcast, then we'll unzip some
     // of these squeezes.
-    while (next_pos < next.size() && next[next_pos] == AxisOp::BROADCAST) {
+    while (next_pos < next_size && next[next_pos] == AxisOp::BROADCAST) {
       if (!ops.empty() && ops.back() == AxisOp::SQUEEZE) {
         // This is a "squeeze then broadcast" pattern
         ops.back() = AxisOp::PRESERVE;
@@ -190,9 +191,9 @@ AxisOps composeOps(const AxisOps& prev, const AxisOps& next) {
       next_pos++;
     }
 
-    if (prev_pos >= prev.size() || next_pos >= next.size()) {
+    if (prev_pos >= prev_size || next_pos >= next_size) {
       NVF_ERROR(
-          prev_pos >= prev.size() && next_pos >= next.size(),
+          prev_pos >= prev_size && next_pos >= next_size,
           "Failed to align some ops");
       break;
     }
