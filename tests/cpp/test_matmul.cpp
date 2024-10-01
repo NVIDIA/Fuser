@@ -3635,8 +3635,8 @@ TEST_F(HopperMatmulTest, HSHNT128BSwizzle) {
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
   auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
   auto tref = atMatmul(
-      inputs.first.squeeze().to(at::kFloat),
-      inputs.second.squeeze().to(at::kFloat),
+      inputs.first.squeeze(),
+      inputs.second.squeeze(),
       layout);
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
