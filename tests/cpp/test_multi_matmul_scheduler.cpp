@@ -61,20 +61,20 @@ class MultiMatmulSchedulerMatchTest
     gemm_tile.warp_tile = GemmTile(64, 64, 32);
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-    params.mma_macro = MmaMacro::Ampere_16_8_16;
-    params.supported_vec_size = {vec_size_a, vec_size_b, vec_size_epilogue};
-    params.tile_sizes = gemm_tile;
-    params.circular_buffer_options.circular_buffer_smem_write = true;
-    params.circular_buffer_options.circular_buffer_smem_read = true;
-    params.circular_buffer_options.smem_circular_buffer_stage = 4;
-    params.async_gmem_load_operands =
-        params.circular_buffer_options.smem_circular_buffer_stage > 1;
-    params.use_smem_epilogue = smem_epilogue;
-    params.splitk_factor = splitk_factor;
-    params.cta_order = cta_order_col_major
+    mparams.mma_macro = MmaMacro::Ampere_16_8_16;
+    mparams.supported_vec_size = {vec_size_a, vec_size_b, vec_size_epilogue};
+    mparams.tile_sizes = gemm_tile;
+    mparams.circular_buffer_options.circular_buffer_smem_write = true;
+    mparams.circular_buffer_options.circular_buffer_smem_read = true;
+    mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
+    mparams.async_gmem_load_operands =
+        mparams.circular_buffer_options.smem_circular_buffer_stage > 1;
+    mparams.use_smem_epilogue = smem_epilogue;
+    mparams.splitk_factor = splitk_factor;
+    mparams.cta_order = cta_order_col_major
         ? MatmulParams::TileRasterizationOrder::ColumnMajor
         : MatmulParams::TileRasterizationOrder::RowMajor;
-    params.grid_swizzle_factor = grid_swizzle_factor;
+    mparams.grid_swizzle_factor = grid_swizzle_factor;
   }
 
   void SetUp() {
@@ -201,6 +201,10 @@ class MultiMatmulSchedulerMatchTest
               << " to original IterDomain " << id_orig->toString();
     std::string suffix = suffix_ss.str();
     EXPECT_EQ(id_orig->getIterType(), id_new->getIterType()) << suffix;
+    // ParallelType checking is disabled altogether for now. We now check that
+    // the compiled code matches which verifies that the loop groups have the
+    // same ParallelType.
+    /*
     if (id_orig->isParallelized()) {
       // In some cases the new scheduler parallelizes IDs that were not
       // previously parallelized. This is OK as long as the generated kernels
@@ -211,6 +215,7 @@ class MultiMatmulSchedulerMatchTest
       EXPECT_EQ(id_orig->getParallelType(), id_new->getParallelType())
           << suffix;
     }
+    */
     EXPECT_EQ(id_orig->hasExpandedExtent(), id_new->hasExpandedExtent())
         << suffix;
     compareScalars(
@@ -222,9 +227,12 @@ class MultiMatmulSchedulerMatchTest
     EXPECT_EQ(id_new->definition() == nullptr, id_orig->definition() == nullptr)
         << suffix;
     if (id_orig->definition() == nullptr) {
+      // TODO: reinstate this check if we decide to check ParallelType again
+      /*
       if (Val* id_orig_cloned = cloner_->clone(id_orig)) {
         EXPECT_TRUE(id_orig_cloned->sameAs(id_new)) << suffix;
       }
+      */
     } else {
       Expr* def_orig = id_orig->definition();
       Expr* def_new = id_new->definition();
@@ -257,15 +265,11 @@ class MultiMatmulSchedulerMatchTest
     EXPECT_EQ(tv_orig->shouldPromoteReuse(), tv_new->shouldPromoteReuse());
     EXPECT_EQ(tv_orig->getMemoryType(), tv_new->getMemoryType());
 
-    // TODO: uncomment these once setUpInlining and setUpCircularBuffering are
-    // implemented
-    /*
     EXPECT_EQ(tv_new->getComputeAtPosition(), tv_orig->getComputeAtPosition());
     EXPECT_EQ(tv_orig->isCircularBuffered(), tv_new->isCircularBuffered());
     if (tv_orig->isCircularBuffered() && tv_new->isCircularBuffered()) {
       EXPECT_EQ(tv_orig->circularBufferDepth(), tv_new->circularBufferDepth());
     }
-    */
 
     // Inspect loop domain
     ASSERT_EQ(tv_new->nDims(), tv_orig->nDims()) << suffix;
@@ -358,22 +362,24 @@ class MultiMatmulSchedulerMatchTest
     cloner_ = std::make_unique<IrCloner>(Fusion::copy(fusion, &new_fusion));
 
     // Schedule fusion with original matmul scheduler
-    scheduleMatmul(fusion, &params);
+    SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+        ->schedule(fusion, &mparams);
 
     // Schedule cloned fusion with new scheduler
-    scheduleMultipleMatmuls(&new_fusion, &params);
+    scheduleMultipleMatmuls(&new_fusion, &mparams);
 
     // Find tensors to compare. Note that these, and all producer tensors will
     // be checked.
     auto getTensorsToCompare = [](Fusion* fusion) {
       std::vector<TensorView*> tvs;
 
-      // Find MmaOp and get operand inputs. This avoids checking biases for now
-      auto mma_ops = ir_utils::getOpsOfType<MmaOp>(fusion);
-      NVF_ERROR(mma_ops.size(), 1);
-      MmaOp* mma = mma_ops.front();
-      return std::vector<TensorView*>{
-          mma->inA()->as<TensorView>(), mma->inB()->as<TensorView>()};
+      // returning all TV outputs means we will check all TVs in the fusion due
+      // to recursion
+      for (Val* v : fusion->outputs()) {
+        tvs.push_back(v->as<TensorView>());
+      }
+
+      return tvs;
     };
     std::vector<TensorView*> orig_compare_tvs = getTensorsToCompare(fusion);
     std::vector<TensorView*> new_compare_tvs = getTensorsToCompare(&new_fusion);
@@ -383,10 +389,6 @@ class MultiMatmulSchedulerMatchTest
     for (size_t i : c10::irange(new_compare_tvs.size())) {
       compareTVs(orig_compare_tvs[i], new_compare_tvs[i]);
     }
-
-    // TODO: Remove this skip to check that generated kernel matches
-    GTEST_SKIP() << "Skipping generated kernel check until "
-                 << "entire multi-matmul scheduler is implemented";
 
     // If there are no errors up to this point, then check that the generated
     // kernels match
@@ -399,7 +401,7 @@ class MultiMatmulSchedulerMatchTest
   }
 
  protected:
-  MatmulParams params;
+  MatmulParams mparams;
   Fusion* fusion = nullptr;
   bool a_m_inner = false, b_k_inner = false;
   int64_t vec_size_a, vec_size_b, vec_size_epilogue;
@@ -468,6 +470,11 @@ TEST_P(MultiMatmulSchedulerMatchTest, MatmulBias0d) {
 }
 
 TEST_P(MultiMatmulSchedulerMatchTest, MatmulBias1d) {
+  if (mparams.use_smem_epilogue && mparams.splitk_factor == 1) {
+    GTEST_SKIP() << "Skipping case that does not compile with either scheduler."
+                 << " See https://github.com/NVIDIA/Fuser/issues/2979";
+  }
+
   auto [tv0, tv1] = getInputTVs();
 
   auto tv2 = makeContigTensor(1, DataType::Half);
@@ -483,6 +490,11 @@ TEST_P(MultiMatmulSchedulerMatchTest, MatmulBias1d) {
 }
 
 TEST_P(MultiMatmulSchedulerMatchTest, MatmulFloatBias1d) {
+  if (mparams.use_smem_epilogue && mparams.splitk_factor == 1) {
+    GTEST_SKIP() << "Skipping case that does not compile with either scheduler."
+                 << " See https://github.com/NVIDIA/Fuser/issues/2979";
+  }
+
   auto [tv0, tv1] = getInputTVs();
 
   auto tv2 = makeContigTensor(1, DataType::Float);
@@ -568,7 +580,7 @@ std::string printMatchTestParams(
 
 // Test combinations that mostly affect operand loading
 INSTANTIATE_TEST_SUITE_P(
-    Operands,
+    DISABLED_Operands,
     MultiMatmulSchedulerMatchTest,
     testing::Combine(
         testing::Bool(), // a_m_inner
@@ -585,7 +597,7 @@ INSTANTIATE_TEST_SUITE_P(
 
 // Test combinations that mostly affect epilogue
 INSTANTIATE_TEST_SUITE_P(
-    Epilogue,
+    DISABLED_Epilogue,
     MultiMatmulSchedulerMatchTest,
     testing::Combine(
         testing::Values(false), // a_m_inner

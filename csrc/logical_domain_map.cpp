@@ -742,7 +742,7 @@ bool ComputeAtLogicalDomainMap::canMap(
     const TensorDomain* td_b,
     const IterDomain* id_b) const {
   NVF_ERROR(
-      id_b->definition() == nullptr || id_b->isRFactorProduct(),
+      td_b->isLogical(id_b) || td_b->isRoot(id_b),
       "Non-root domain is not supported: ",
       id_b);
 

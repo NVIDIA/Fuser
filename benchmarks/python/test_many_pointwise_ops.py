@@ -31,31 +31,51 @@ def pointwise_ops_fusion(fd: FusionDefinition, dtype: DataType, num_iters: int):
 
 # NOTE: num_iters restricted due to issue #1234.
 @pytest.mark.parametrize("num_iters", [2, 4, 8, 16])
+@pytest.mark.parametrize("host_bench_mode", ["compile", "steady", "dynamic"])
 def test_pointwise_ops_benchmark(
     benchmark,
     num_iters: int,
+    host_bench_mode: str,
     disable_validation: bool,
     disable_benchmarking: bool,
 ):
     clear_cuda_cache()
+
     inputs = [torch.randn(13, device="cuda", dtype=torch.float16) for _ in range(2)]
+
+    # Generate multiple inputs to measure dynamic shape overhead.
+    if host_bench_mode == "dynamic":
+        input_sizes = [5, 10, 13, 15, 17, 20]
+        inputs = [
+            [torch.randn(size, device="cuda", dtype=torch.float16) for _ in range(2)]
+            for size in input_sizes
+        ]
+
     with FusionDefinition() as fd:
         pointwise_ops_fusion(fd, torch_dtype_to_nvfuser_dtype(torch.float16), num_iters)
 
-    if not disable_validation:
-        eager_output = inputs[0] + inputs[1]
+    def validate(input):
+        eager_output = input[0] + input[1]
         for _ in range(num_iters):
             x = torch.cos(eager_output)
             y = torch.sin(eager_output)
             eager_output = x + y
-        fd.validate(inputs, [eager_output])
+        fd.validate(input, [eager_output])
+
+    if not disable_validation:
+        if host_bench_mode == "dynamic":
+            # Run validate for all input sizes.
+            for input in inputs:
+                validate(input)
+        else:
+            validate(inputs)
 
     if not disable_benchmarking:
         run_benchmark(
             benchmark,
             None,
             inputs,
-            device="host",
+            device=f"host:{host_bench_mode}",
             fusion_fn=partial(
                 pointwise_ops_fusion,
                 dtype=torch_dtype_to_nvfuser_dtype(torch.float16),
