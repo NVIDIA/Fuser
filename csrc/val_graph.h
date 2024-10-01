@@ -370,6 +370,9 @@ struct ValGroupAndItsGraph {
   bool operator!=(const ValGroupAndItsGraph& other) const {
     return !operator==(other);
   }
+  operator const ValGroup&() const {
+    return group;
+  }
 };
 
 inline std::ostream& operator<<(

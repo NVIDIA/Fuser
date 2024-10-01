@@ -10,7 +10,6 @@
 
 #include <abstract_tensor.h>
 #include <device_lower/utils.h>
-#include <expr_evaluator.h>
 #include <id_model/id_model.h>
 #include <ir/printer.h>
 #include <logical_domain_map.h>
@@ -434,7 +433,7 @@ void makeTile(
   abten.reorder(reorder_map_old_to_new);
 }
 
-void makeTile(TensorView* tv, std::vector<int64_t> tile_sizes) {
+void makeTile(TensorView* tv, const std::vector<int64_t>& tile_sizes) {
   // We will create an AbstractMatmulTensor so that we can use the abstract
   // makeTile implementation above.
 
@@ -1088,7 +1087,6 @@ void MmaSwizzler::scheduleOperandRead(
     // For example, [K, M]
     tv->split(-2, 8);
     tv->split(-1, 8);
-    // For example transpose2 == false
     // [Ko, K8, Mo, M8]
     // Note: the extent of Mo may not be a multiple of swizzle_size, but we
     // still split swizzle_size. If this is the case, effectively we are
@@ -2144,5 +2142,23 @@ std::optional<std::pair<DimRolesMap, TensorRolesMap>> allPatternRoles(
 }
 
 } // namespace mma_utils
+
+std::string toString(const mma_utils::AbstractMatmulTensor& abten) {
+  std::ostringstream ss;
+  ss << "AbstractMatmulTensor (" << abten.size() << "):" << std::endl;
+  for (size_t i : c10::irange(abten.size())) {
+    const AbstractId& abs_id = abten[(int64_t)i];
+    const std::optional<MatmulDimRole> role = abten.getTag((int64_t)i).value();
+    ss << "  " << (role.has_value() ? toString(role.value()) : "no role");
+    if (abs_id.is<ValGroupAndItsGraph>()) {
+      const ValGroup& g = abs_id.as<ValGroupAndItsGraph>().group;
+      for (Val* v : g->vector()) {
+        ss << " " << v->toString();
+      }
+    }
+    ss << std::endl;
+  }
+  return ss.str();
+}
 
 } // namespace nvfuser

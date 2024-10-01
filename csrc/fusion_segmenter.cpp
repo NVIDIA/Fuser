@@ -1976,11 +1976,11 @@ std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
   if (!hasSegmentHints(fusion.get())) {
     scheduler_debug_utils::canScheduleMessage(
         "***Runtime***: Try to schedule fusion un-segmented:\n");
-    const auto maybe_complete_fusion_heuristic =
+    const auto fusion_heuristic_type =
         Schedule::proposeHeuristics(fusion.get(), runtime_info);
-    if (maybe_complete_fusion_heuristic.has_value()) {
+    if (fusion_heuristic_type != SchedulerType::None) {
       return SegmentedFusion::fromCompleteFusion(
-          std::move(fusion), maybe_complete_fusion_heuristic.value(), *inputs);
+          std::move(fusion), fusion_heuristic_type, *inputs);
     }
   } else {
     scheduler_debug_utils::canScheduleMessage(
@@ -2532,7 +2532,7 @@ class FusionSegmentGuard : public NonCopyable {
 #endif
 };
 
-std::optional<SchedulerType> tryMerge(
+SchedulerType tryMerge(
     SegmentedFusion* segmented_fusion,
     SchedulerRuntimeInfo& runtime_info,
     SegmentedGroup* a,
@@ -2549,13 +2549,13 @@ std::optional<SchedulerType> tryMerge(
       "\n**Segmenter** Considering fusion:\n",
       segmented_fusion->completeFusion());
   if (tryingToMergeSegmenterSet(segmented_fusion->completeFusion())) {
-    return std::nullopt;
+    return SchedulerType::None;
   }
   return Schedule::proposeHeuristics(
       segmented_fusion->completeFusion(), runtime_info);
 }
 
-std::optional<SchedulerType> tryMerge(
+SchedulerType tryMerge(
     SegmentedFusion* segmented_fusion,
     SchedulerRuntimeInfo& runtime_info,
     const std::vector<SegmentedGroup*>& segmented_groups) {
@@ -2571,7 +2571,7 @@ std::optional<SchedulerType> tryMerge(
       "\n**Segmenter** Considering fusion:\n",
       segmented_fusion->completeFusion());
   if (tryingToMergeSegmenterSet(segmented_fusion->completeFusion())) {
-    return std::nullopt;
+    return SchedulerType::None;
   }
   return Schedule::proposeHeuristics(
       segmented_fusion->completeFusion(), runtime_info);
@@ -3171,10 +3171,10 @@ class CombineReductions {
         all_groups_to_merge.begin(), all_groups_to_merge.end());
 
     // Final sanity check: the merged group can actually be scheduled
-    if (!tryMerge(
+    if (tryMerge(
             segment_candidate_finder_->segmented_fusion_.get(),
             segment_candidate_finder_->runtimeInfo(),
-            all_groups_to_merge_vec)) {
+            all_groups_to_merge_vec) == SchedulerType::None) {
       return nullptr;
     }
 
@@ -3311,7 +3311,7 @@ class CombineReductions {
           if (tryMerge(
                   segment_candidate_finder_->segmented_fusion_.get(),
                   segment_candidate_finder_->runtimeInfo(),
-                  groups_to_merge_vec)) {
+                  groups_to_merge_vec) != SchedulerType::None) {
             // Found a valid horizontal merge, want to proceed with merging here
             auto joined_group = segment_candidate_finder_->mergeAllGivenGroups(
                 groups_to_merge_vec);
@@ -3678,8 +3678,8 @@ bool SegmentCandidateFinder::codeGenSupportedMerge(
     }
     return true;
   }
-  auto h = tryMerge(segmented_fusion_.get(), runtimeInfo(), group1, group2);
-  return h.has_value();
+  return tryMerge(segmented_fusion_.get(), runtimeInfo(), group1, group2) !=
+      SchedulerType::None;
 }
 
 // TODO: consider caching the heuristics value so tryMerge doesn't have to be
@@ -3691,10 +3691,11 @@ SchedulerType SegmentCandidateFinder::deriveSchedulerType(
     // this moment
     return SchedulerType::None;
   }
-  auto h = tryMerge(segmented_fusion_.get(), runtimeInfo(), group);
+  auto scheduler_type = tryMerge(segmented_fusion_.get(), runtimeInfo(), group);
   NVF_ERROR(
-      h.has_value(), "Can not find a scheduler to schedule fusion segment");
-  return h.value();
+      scheduler_type != SchedulerType::None,
+      "Can not find a scheduler to schedule fusion segment");
+  return scheduler_type;
 }
 
 SegmentCandidateFinder::SegmentCandidateFinder(
@@ -4409,8 +4410,7 @@ std::unique_ptr<HeuristicParams> SegmentedFusion::makeInitialHeuristicParams(
     SchedulerRuntimeInfo& runtime_info) {
   // This will be the first time each group is scheduled. So we'd want to
   //  construct the cache data here.
-  auto heuristic_data_cache_ptr = std::make_unique<HeuristicDataCache>(
-      runtime_info.fusion(), sg->schedulerType(), runtime_info);
+  auto heuristic_data_cache_ptr = std::make_unique<HeuristicDataCache>();
   auto heuristic_data_cache = heuristic_data_cache_ptr.get();
   setCachedHeuristicDataFor(sg, std::move(heuristic_data_cache_ptr));
   return SchedulerEntry::makeSchedulerInstance(sg->schedulerType())

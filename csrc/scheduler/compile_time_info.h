@@ -232,11 +232,6 @@ class HeuristicDataCache {
   using EntryType = HeuristicCompileTime::CompileTimeEntryType;
 
  public:
-  HeuristicDataCache(
-      Fusion* fusion,
-      SchedulerType scheduler_type,
-      SchedulerRuntimeInfo& runtime_info);
-
   bool hasEntry(EntryType entry_type) {
     return entry_type_map_.find(entry_type) != entry_type_map_.end();
   }
@@ -250,7 +245,6 @@ class HeuristicDataCache {
  private:
   std::vector<EntryOwningPtr> entries_;
   std::unordered_map<EntryType, EntryPtr> entry_type_map_;
-  SchedulerType scheduler_type_;
 };
 
 //! A utility class to facilitate accessing HeuristicDataCache.

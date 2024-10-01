@@ -34,7 +34,12 @@ std::pair<ValGroup, ValGroup> split(
     ValGraph* graph,
     const ValGroup& g,
     Val* factor,
-    bool inner_split);
+    bool inner_split = true);
+std::pair<ValGroup, ValGroup> split(
+    ValGraph* graph,
+    const ValGroup& g,
+    int64_t factor,
+    bool inner_split = true);
 
 // Given a ValGraph and two ValGroups g0 and g1 in this graph, if there is
 // already a swizzle of g0 with g1 in graph, return the output ValGroups of that

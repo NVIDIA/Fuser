@@ -591,4 +591,8 @@ T pow(T a, T b) {
   }
 }
 
+template <typename T>
+using MaybeUniqueOwningPtr = dynamic_type::
+    DynamicType<dynamic_type::NoContainers, T*, std::unique_ptr<T>>;
+
 } // namespace nvfuser

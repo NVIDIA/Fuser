@@ -19,6 +19,7 @@
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <scheduler/mma_utils.h>
+#include <scheduler/runtime_info.h>
 #include <transform_iter.h>
 #include <transform_replay.h>
 

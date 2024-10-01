@@ -91,6 +91,7 @@ class IrBuilder {
   NVF_API static Val* maxExpr(Val* lhs, Val* rhs);
   NVF_API static Val* minExpr(Val* lhs, Val* rhs);
   NVF_API static Val* gcdExpr(Val* lhs, Val* rhs);
+  NVF_API static Val* isDivisibleExpr(Val* dividend, Val* divisor);
 
   // Ternary operations
   NVF_API static Val* whereExpr(Val* pred, Val* lhs, Val* rhs);
