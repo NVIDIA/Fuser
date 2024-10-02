@@ -218,4 +218,40 @@ ValGroups ValGraphBFS::getReachableValsFrom(
   return reachable_vals;
 }
 
+std::unordered_set<ValGroup> ValGraphBFS::projectTo(
+    const ValGraph& id_graph,
+    const ValGroup& from,
+    const ValGroups& to) {
+  std::unordered_set<ValGroup> projection{from};
+  // Reverse order
+  auto exprs = ValGraphBFS::getExprsBetween(
+      id_graph, to, {from}, /*require_all_to_visited=*/false);
+  while (!exprs.empty()) {
+    const auto [expr, direction] = exprs.back();
+    exprs.pop_back();
+    auto from =
+        (direction == Direction::Backward ? id_graph.inputGroups(expr)
+                                          : id_graph.outputGroups(expr));
+    auto to =
+        (direction == Direction::Backward ? id_graph.outputGroups(expr)
+                                          : id_graph.inputGroups(expr));
+    for (const auto& g : from) {
+      if (projection.count(g)) {
+        projection.erase(g);
+        projection.insert(to.begin(), to.end());
+      }
+    }
+  }
+  // Remove items that are not in `to`. This could happen if `from` is not
+  // connected to `to`.
+  for (auto it = projection.begin(); it != projection.end();) {
+    if (!to.has(*it)) {
+      it = projection.erase(it);
+    } else {
+      ++it;
+    }
+  }
+  return projection;
+}
+
 } // namespace nvfuser

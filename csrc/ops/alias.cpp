@@ -387,6 +387,9 @@ TensorView* permute(TensorView* x, const std::vector<int64_t>& new2old) {
           out_logical,
           TensorDomain::getContiguityFilledWith(out_logical, true)),
       x->getDataType().value());
+  if (x->hasDeviceMesh()) {
+    out_tensor->setDeviceMesh(x->getDeviceMesh());
+  }
   IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out_tensor, x);
   return out_tensor;
 }
