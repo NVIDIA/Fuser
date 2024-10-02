@@ -9,6 +9,7 @@
 #include <id_model/loop_promotion.h>
 #include <id_model/to_string.h>
 #include <ir/utils.h>
+#include <iter_visitor.h>
 #include <val_graph_visitor.h>
 
 namespace nvfuser {
@@ -939,7 +940,49 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
   for (const ValGroup& loop_group :
        loop_graph.disjointValSets().disjointSets()) {
     NVF_ERROR(!loop_group->empty());
-    map.emplace(loop_group, loop_group->front()->as<IterDomain>());
+
+    // Any domain of this loop group can be the promotion ID. Try to
+    // find the simplest one, which means:
+    //
+    // - Prefer IDs with a constant extent
+    // - Prefer IDs with an extent that consists of a smaller number
+    // of exprs.
+
+    IterDomain* promotion = nullptr;
+    int64_t num_exprs = 0;
+    bool is_const = false;
+
+    for (Val* val : *loop_group) {
+      IterDomain* loop_id = val->as<IterDomain>();
+      auto this_num_exprs =
+          (int64_t)StmtSort::getExprsTo({loop_id->extent()}).size();
+      auto this_is_const = loop_id->extent()->isConstInt();
+
+      // First ID
+      if (promotion == nullptr) {
+        is_const = this_is_const;
+        promotion = loop_id;
+        num_exprs = this_num_exprs;
+        continue;
+      }
+
+      // If new ID is non-const while the current promotion is const,
+      // or if both IDs are const or non-const and the number of
+      // expressions is not smaller, keep the current promotion
+      if ((is_const && !this_is_const) ||
+          (is_const == this_is_const && this_num_exprs >= num_exprs)) {
+        continue;
+      }
+
+      // Update the current promotion
+      is_const = this_is_const;
+      promotion = loop_id;
+      num_exprs = this_num_exprs;
+    }
+
+    NVF_ERROR(promotion != nullptr);
+
+    map.emplace(loop_group, promotion);
   }
 
   return map;
