@@ -371,3 +371,38 @@ def test_multi_inplace():
 
     torch.testing.assert_close(inputs[1], ref_out[0])
     torch.testing.assert_close(inputs[2], ref_out[1])
+
+# Example 4 for Issue 2664: There is no explicit broadcast. However, the aliased input has a broadcast dimension that is concretized in the fusion.
+# T0 has a implicit broadcast which is used in add(T3) and neg (T4). T4 is used to inplace update T0, which causes RW race.
+def test_implicit_bcast_inplace():
+    def fusion_func(fd: FusionDefinition) -> None:
+        T0 = fd.define_tensor(
+            shape=[-1, 1],
+            contiguity=[True, None],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        T1 = fd.define_tensor(
+            shape=[-1, -1],
+            contiguity=[True, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        T3 = fd.ops.add(T1, T0)
+        T4 = fd.ops.neg(T0)
+        fd.add_output(T3)
+        fd.add_output(T4, T0)
+
+    inputs = [
+        torch.randn((4194304, 1), dtype=torch.float32, device="cuda:0"),
+        torch.randn((4194304, 128), dtype=torch.float32, device="cuda:0"),
+    ]
+    with FusionDefinition() as fd:
+        fusion_func(fd)
+    ref_out = [inputs[0] + inputs[1], -inputs[0]]
+    out = fd.execute(inputs)
+
+    torch.testing.assert_close(ref_out[0], out[0])
+    torch.testing.assert_close(ref_out[1], inputs[0])
