@@ -133,7 +133,7 @@ TensorView* linear(TensorView* input, TensorView* weight, TensorView* bias) {
 
   if (bias != nullptr) {
     NVF_CHECK(
-        TensorDomain::noReductions(bias->getLogicalDomain()).size() >= 1,
+        !TensorDomain::noReductions(bias->getLogicalDomain()).empty(),
         "Input bias must be at least 1D. The last dimension represents out "
         "features. The extra, preceding dimensions are expected to be "
         "parallelized on DIDs during scheduling: ",
