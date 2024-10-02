@@ -9,8 +9,8 @@
 #include <exceptions.h>
 #include <iostream>
 
-#include <kernel_cache.h>
 #include <python_frontend/fusion_state.h>
+#include <runtime/fusion_executor_cache.h>
 #include <visibility.h>
 
 namespace nvfuser::python_frontend {

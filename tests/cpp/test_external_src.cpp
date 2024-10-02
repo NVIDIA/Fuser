@@ -10,7 +10,7 @@
 #include <gtest/gtest.h>
 
 #include <fusion.h>
-#include <fusion_executor/executor_utils.h>
+#include <runtime/executor_utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 #include <utils.h>

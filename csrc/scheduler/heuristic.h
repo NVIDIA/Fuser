@@ -7,7 +7,7 @@
 // clang-format on
 #pragma once
 
-#include <fusion_executor/executor_params.h>
+#include <runtime/executor_params.h>
 #include <scheduler/scheduler_types.h>
 #include <utils.h>
 
