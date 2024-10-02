@@ -8,11 +8,11 @@
 #include <csrc/exceptions.h>
 #include <device_lower/analysis/bank_conflict.h>
 #include <fusion.h>
-#include <fusion_executor/executor.h>
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
 #include <ops/all_ops.h>
 #include <preseg_passes/pre_segmenter.h>
+#include <runtime/executor.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/matmul.h>
 #include <scheduler/matmul_heuristic.h>

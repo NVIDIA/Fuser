@@ -7,7 +7,6 @@
 // clang-format on
 #include <ATen/cuda/CUDAContext.h>
 #include <device_lower/utils.h>
-#include <fusion_executor/allocations.h>
 #include <fusion_segmenter.h>
 #include <host_ir/container.h>
 #include <host_ir/host_ir.h>
@@ -21,6 +20,8 @@
 #include <preseg_passes/make_resharding_contiguous.h>
 #include <preseg_passes/propagate_shardings.h>
 #include <preseg_passes/reorder_sharded_axis.h>
+#include <runtime/allocations.h>
+#include <runtime/fusion_kernel_runtime.h>
 
 namespace nvfuser {
 

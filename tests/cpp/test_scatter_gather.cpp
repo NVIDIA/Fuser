@@ -11,12 +11,12 @@
 #include <torch/torch.h>
 
 #include <exceptions.h>
-#include <fusion_executor/executor.h>
 #include <inlining.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
-#include <kernel_cache.h>
 #include <ops/all_ops.h>
+#include <runtime/executor.h>
+#include <runtime/fusion_executor_cache.h>
 #include <scheduler/all_schedulers.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>

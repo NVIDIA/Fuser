@@ -8,10 +8,10 @@
 #pragma once
 
 #include <exceptions.h>
-#include <fusion_executor/executor_params.h>
 #include <ir/base_nodes.h>
 #include <kernel.h>
 #include <polymorphic_value.h>
+#include <runtime/executor_params.h>
 #include <visibility.h>
 
 #include <unordered_map>

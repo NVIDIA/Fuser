@@ -12,8 +12,8 @@
 #include <grouped_reduction.h>
 #include <inlining.h>
 #include <ir/utils.h>
-#include <kernel_cache.h>
 #include <ops/all_ops.h>
+#include <runtime/fusion_executor_cache.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>

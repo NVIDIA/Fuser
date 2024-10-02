@@ -16,8 +16,6 @@
 #include <disjoint_set.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
-#include <fusion_executor/executor.h>
-#include <fusion_executor/executor_params.h>
 #include <fusion_profiler.h>
 #include <fusion_segmenter.h>
 #include <ir/all_nodes.h>
@@ -26,12 +24,14 @@
 #include <ir/printer.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
-#include <kernel_cache.h>
 #include <kernel_ir.h>
 #include <logical_domain_map.h>
 #include <mma_type.h>
 #include <ops/all_ops.h>
 #include <preseg_passes/pre_segmenter.h>
+#include <runtime/executor.h>
+#include <runtime/executor_params.h>
+#include <runtime/fusion_executor_cache.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/matmul.h>
 #include <scheduler/mma_utils.h>

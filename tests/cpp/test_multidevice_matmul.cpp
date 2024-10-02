@@ -10,7 +10,6 @@
 
 #include <expr_evaluator.h>
 #include <fusion.h>
-#include <fusion_executor/executor.h>
 #include <fusion_segmenter.h>
 #include <ir/all_nodes.h>
 #include <ir/interface_nodes.h>
@@ -19,6 +18,7 @@
 #include <ir/utils.h>
 #include <mma_type.h>
 #include <ops/all_ops.h>
+#include <runtime/executor.h>
 #include <scheduler/mma_utils.h>
 #include <scheduler/utils.h>
 #include <tests/cpp/multidevice.h>
