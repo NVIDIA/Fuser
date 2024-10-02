@@ -71,7 +71,8 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
     shardAllLike(input_with_mesh, outputs_without_mesh);
   }
 
-  // Back-propagate device meshes. This is needed in addition to the forward
+  // Back-propagate device meshes. This makes sure all TensorViews have a mesh
+  // if any of them has one. This is needed in addition to the forward
   // propagation for ops that don't take any TensorView operands, e.g.,
   // `uniform` used in dropout. See MultiDeviceTest.BackpropMeshes for an
   // example.
