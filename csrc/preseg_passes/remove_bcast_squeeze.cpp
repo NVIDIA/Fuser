@@ -179,64 +179,58 @@ AxisOps composeOps(const AxisOps& prev, const AxisOps& next) {
   // produce an output axis.
   //
   // For example:
-  //
   //   prev = [ S S P B P P S ]
   //   next = [ B P P S P B B ]
   //
   // The input has dimension 6, the intermediate tensor has dimension 4, and the
-  // output has dimension 6. The composition is equivalent to [ S P P P B ]. We
-  // perform 4 main loop iterations corresponding to the four intermediate
+  // output has dimension 6. The composition is equivalent to [ S P P P P P B ].
+  // We perform 4 main loop iterations corresponding to the four intermediate
   // dimensions.
   //
   //   ops = []
   //   prev = [ (prev_pos)S S P B P P S ]
   //   next = [ (next_pos)B P P S P B B ]
   //
+  //   (run processUnalignedOps()): // one cancelled SQUEEZE becomes PRESERVE
+  //   ops = [ S P ]
+  //   prev = [ S S (prev_pos)P B P P S ]
+  //   next = [ B (next_pos)P P S P B B ]
+  //
   //   First main loop iteration:
-  //
-  //     (run processUnalignedOps()):
-  //
-  //     // one cancelled SQUEEZE becomes PRESERVE
-  //     ops = [ S P ]
-  //     prev = [ S S (prev_pos)P B P P S ]
-  //     next = [ B (next_pos)P P S P B B ]
-  //
   //     (process aligned ops "preserve then preserve")
   //     ops = [ S P P ]
   //     prev = [ S S P (prev_pos)B P P S ]
   //     next = [ B P (next_pos)P S P B B ]
   //
-  //   Second main loop iteration:
-  //
   //     (run processUnalignedOps()) // no change
   //
+  //   Second main loop iteration:
   //     (process aligned ops "broadcast then preserve")
   //     ops = [ S P P B ]
   //     prev = [ S S P B (prev_pos)P P S ]
   //     next = [ B P P (next_pos)S P B B ]
   //
-  //   Third main loop iteration:
   //     (run processUnalignedOps()) // no change
   //
+  //   Third main loop iteration:
   //     (process aligned ops "preserve then squeeze")
   //     // Note that we would normally insert SQUEEZE resulting in
-  //        ops = [ S P P B S ], but instead we remove the
+  //        ops = [ S P P B S ], but instead we change the
   //        previously-inserted BROADCAST to PRESERVE in pushOp(AxisOp::SQUEEZE)
-  //     ops = [ S P P ]
+  //     ops = [ S P P P ]
   //     prev = [ S S P B P (prev_pos)P S ]
   //     next = [ B P P S (next_pos)P B B ]
   //
-  //   Third main loop iteration:
   //     (run processUnalignedOps()) // no change
   //
+  //   Fourth main loop iteration:
   //     (process aligned ops "preserve then preserve")
-  //     ops = [ S P P P ]
+  //     ops = [ S P P P P ]
   //     prev = [ S S P B P P (prev_pos)S ]
   //     next = [ B P P S P (next_pos)B B ]
   //
-  //   Post-processing:
-  //     (run processUnalignedOps())
-  //     ops = [ S P P P B ]
+  //     (run processUnalignedOps()) // one cancelled SQUEEZE becomes PRESERVE
+  //     ops = [ S P P P P P B ]
   //     prev = [ S S P B P S (prev_pos) ]
   //     next = [ B P P S B B (next_pos) ]
   size_t prev_pos = 0, next_pos = 0;
@@ -252,10 +246,9 @@ AxisOps composeOps(const AxisOps& prev, const AxisOps& next) {
     }
     AxisOp existing_op = ops.back();
 
-    if (existing_op == AxisOp::SQUEEZE && op == AxisOp::BROADCAST) {
+    if ((existing_op == AxisOp::SQUEEZE && op == AxisOp::BROADCAST) ||
+        (existing_op == AxisOp::BROADCAST && op == AxisOp::SQUEEZE)) {
       ops.back() = AxisOp::PRESERVE;
-    } else if (existing_op == AxisOp::BROADCAST && op == AxisOp::SQUEEZE) {
-      ops.resize(ops.size() - 1);
     } else {
       ops.push_back(op);
     }
@@ -278,16 +271,14 @@ AxisOps composeOps(const AxisOps& prev, const AxisOps& next) {
     }
   };
 
+  // Process unaligned ops at the beginning of each op list
+  processUnalignedOps();
+
   // main loop
-  for (; prev_pos < prev_size && next_pos < next_size; prev_pos++, next_pos++) {
-    processUnalignedOps();
+  while (prev_pos < prev_size && next_pos < next_size) {
     // Now we have prev[prev_pos] != SQUEEZE and next[next_pos] != BROADCAST,
     // which means prev[prev_pos] provides the next op with its input. So here
     // we are actually composing these aligned ops.
-
-    if (prev_pos >= prev_size || next_pos >= next_size) {
-      break;
-    }
 
     if (prev[prev_pos] == AxisOp::PRESERVE) {
       pushOp(next[next_pos]);
@@ -302,11 +293,13 @@ AxisOps composeOps(const AxisOps& prev, const AxisOps& next) {
           next[next_pos] == AxisOp::SQUEEZE &&
           prev[prev_pos] == AxisOp::BROADCAST);
     }
-  }
 
-  // If there are left-over unaligned ops at the end of either prev or next,
-  // process them now
-  processUnalignedOps();
+    // Move to next position and process unaligned ops until we reach the end of
+    // the lists or another aligned op
+    prev_pos++;
+    next_pos++;
+    processUnalignedOps();
+  }
 
   // If we have not exhausted prev or next, it means that there are more
   // intermediate axes that have not yet been processed, which should not
