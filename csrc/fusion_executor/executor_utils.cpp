@@ -812,8 +812,10 @@ std::optional<int64_t> getMaxRegCount(
     max_register = env_max_reg_count;
   }
 
-  // At this point, max_register should be <= max_register_limit if set
-  if (max_register <= max_register_limit) {
+  // only need to set this option when we want to limit the register usage,
+  // otherwise compiler with cuda-12.7 may use more registers than needed,
+  // which may cause lower occupancy and performance regression.
+  if (max_register < max_register_limit) {
     return max_register;
   } else {
     return std::optional<int64_t>();
