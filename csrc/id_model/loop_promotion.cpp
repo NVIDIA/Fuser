@@ -165,6 +165,13 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
   std::unordered_map<ValGroup, IterDomain*> iel_promotion_map =
       buildInlineRootResolutionMap(iel_graph, inlining_info_);
 
+  if (getenv("DEBUG")) {
+    std::cerr << "Step 1:\n";
+    for (const auto& [g, i] : iel_promotion_map) {
+      std::cerr << nvfuser::toString(g) << " -> " << i->toString() << "\n";
+    }
+  }
+
   if (callback_) {
     callback_->postStep1(iel_promotion_map, iel_graph);
   }
@@ -177,6 +184,13 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
 
   if (callback_) {
     callback_->postStep2(iel_promotion_map, iel_graph);
+  }
+
+  if (getenv("DEBUG")) {
+    std::cerr << "Step 2:\n";
+    for (const auto& [g, i] : iel_promotion_map) {
+      std::cerr << nvfuser::toString(g) << " -> " << i->toString() << "\n";
+    }
   }
 
   // Step 3: Determine the promotion of each loop graph based on the

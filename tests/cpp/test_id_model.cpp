@@ -2739,7 +2739,7 @@ TEST_F(IdModelTest, MappingClonedIDs) {
   }
 }
 
-TEST_F(IdModelTest, LoopGraph) {
+TEST_F(IdModelTest, LoopGraphWithSetLoopDomain) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2767,16 +2767,28 @@ TEST_F(IdModelTest, LoopGraph) {
 
   inlineMost();
 
-  fusion.print();
-  std::cout << std::endl;
-
-  std::cerr << "Trying IdModel\n";
-
   IdModel id_model(&fusion);
+
+  // Make sure that:
+  // - all loop IDs of tv2, tv3 and tv4 are grouped together.
+  // - Promotion should still pick the most concrete one
+  const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+  const auto& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
   const auto& loop_promotion_map = id_model.loopPromotionMap();
-  for (const auto& [loop_group, promotion] : loop_promotion_map) {
-    std::cerr << "Loop group: " << toDelimitedString(loop_group->vector())
-              << " -> " << promotion->toString() << "\n";
+  for (const auto i : c10::irange(tv2->getLoopDomain().size())) {
+    const auto& loop_group = loop_graph.toGroup(tv2->getLoopDomain().at(i));
+    for (auto tv : {tv3, tv4}) {
+      EXPECT_TRUE(loop_group->has(tv->getLoopDomain().at(i)))
+          << "Loop ID not mapped with tv2 loop ID: "
+          << tv->getLoopDomain().at(i)->toString()
+          << ", tv2 loop ID: " << tv2->getLoopDomain().at(i)->toString();
+    }
+
+    auto loop_promotion_map_it = loop_promotion_map.find(loop_group);
+    ASSERT_NE(loop_promotion_map_it, loop_promotion_map.end());
+    auto promotion = loop_promotion_map_it->second;
+    EXPECT_TRUE(exact_graph.disjointValSets().strictAreMapped(
+        promotion, tv4->getLoopDomain().at(i)));
   }
 }
 

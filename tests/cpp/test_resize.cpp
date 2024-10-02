@@ -3708,21 +3708,18 @@ TEST_F(ResizeTest, SliceScheduledLikeProducer) {
 
   tv2->setLoopDomain({tv2_loop_id});
 
-  fusion.print();
-
-#if 1
   for (auto tv : {tv1, tv2}) {
     tv->split(0, 32);
-    // With inlining, this should be sufficient
-    if (tv == tv2) {
-      tv->axis(0)->parallelize(ParallelType::BIDx);
-      tv->axis(1)->parallelize(ParallelType::TIDx);
-    }
   }
-#endif
+
   inlineMost();
-  fusion.printMath();
-  // fusion.printKernel();
+
+  for (auto tv : {tv1, tv2}) {
+    EXPECT_EQ(tv->getComputeAtPosition(), 2)
+        << "Invalid computeAt position: " << tv->toString();
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(1)->parallelize(ParallelType::TIDx);
+  }
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
@@ -3764,12 +3761,16 @@ TEST_F(ResizeTest, PadScheduledLikeConsumer) {
 
   for (auto tv : {tv1, tv2, tv3}) {
     tv->split(0, 32);
-    tv->axis(0)->parallelize(ParallelType::BIDx);
-    tv->axis(1)->parallelize(ParallelType::TIDx);
   }
 
   inlineMost();
-  fusion.printMath();
+
+  for (auto tv : {tv1, tv2, tv3}) {
+    EXPECT_EQ(tv->getComputeAtPosition(), 2)
+        << "Invalid computeAt position: " << tv->toString();
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(1)->parallelize(ParallelType::TIDx);
+  }
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
@@ -3823,12 +3824,16 @@ TEST_F(ResizeTest, SliceThenPadLeftHalf) {
 
   for (auto tv : {tv1, tv2, tv3}) {
     tv->split(0, 32);
-    tv->axis(0)->parallelize(ParallelType::BIDx);
-    tv->axis(1)->parallelize(ParallelType::TIDx);
   }
 
   inlineMost();
-  fusion.printMath();
+
+  for (auto tv : {tv1, tv2, tv3}) {
+    EXPECT_EQ(tv->getComputeAtPosition(), 2)
+        << "Invalid computeAt position: " << tv->toString();
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(1)->parallelize(ParallelType::TIDx);
+  }
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
@@ -3885,12 +3890,16 @@ TEST_F(ResizeTest, SliceThenPadRightHalf) {
 
   for (auto tv : {tv1, tv2, tv3}) {
     tv->split(0, 32);
-    tv->axis(0)->parallelize(ParallelType::BIDx);
-    tv->axis(1)->parallelize(ParallelType::TIDx);
   }
 
   inlineMost();
-  fusion.printMath();
+
+  for (auto tv : {tv1, tv2, tv3}) {
+    EXPECT_EQ(tv->getComputeAtPosition(), 2)
+        << "Invalid computeAt position: " << tv->toString();
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(1)->parallelize(ParallelType::TIDx);
+  }
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
@@ -3986,12 +3995,16 @@ TEST_F(ResizeTest, SliceThenConcat) {
 
   for (auto tv : {tv1, tv2, tv3, tv4, tv5, tv6}) {
     tv->split(0, 32);
-    tv->axis(0)->parallelize(ParallelType::BIDx);
-    tv->axis(1)->parallelize(ParallelType::TIDx);
   }
 
   inlineMost();
-  fusion.printMath();
+
+  for (auto tv : {tv1, tv2, tv3, tv4, tv5, tv6}) {
+    EXPECT_EQ(tv->getComputeAtPosition(), 2)
+        << "Invalid computeAt position: " << tv->toString();
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(1)->parallelize(ParallelType::TIDx);
+  }
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
@@ -4255,15 +4268,21 @@ TEST_F(ResizeTest, SliceSliceConcatConcat) {
     if (tv->isFusionInput()) {
       continue;
     }
-
     tv->split(0, 4);
     tv->split(0, 16);
-    tv->axis(0)->parallelize(ParallelType::BIDx);
-    tv->axis(1)->parallelize(ParallelType::TIDx);
   }
 
   inlineMost();
-  fusion.printMath();
+
+  for (auto tv : fusion.allTvs()) {
+    if (tv->isFusionInput()) {
+      continue;
+    }
+    EXPECT_EQ(tv->getComputeAtPosition(), 3)
+        << "Invalid computeAt position: " << tv->toString();
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(1)->parallelize(ParallelType::TIDx);
+  }
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({i0}, options);
