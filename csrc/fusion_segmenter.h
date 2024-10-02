@@ -11,10 +11,10 @@
 #include <exceptions.h>
 #include <fusion.h>
 #include <ir/base_nodes.h>
-#include <kernel_cache.h>
 #include <options.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/registry.h>
+#include <scheduler/runtime_info.h>
 #include <utils.h>
 #include <visibility.h>
 
@@ -527,24 +527,13 @@ class SegmentCandidateFinder {
   static std::unique_ptr<SegmentedFusion> segment(
       const Fusion* fusion,
       const KernelArgumentHolder* inputs,
-      SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions()) {
-    auto fusion_copy = std::make_unique<Fusion>(*fusion);
-    return segment(std::move(fusion_copy), inputs, options);
-  }
+      SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions());
 
   // Perform segmentation on and take ownership of the given fusion
   static std::unique_ptr<SegmentedFusion> segment(
       std::unique_ptr<Fusion> fusion,
       const KernelArgumentHolder* inputs,
-      SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions()) {
-    if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
-      debug() << "Segment the fusion (Original Fusion Un-modified): "
-              << std::endl;
-      fusion->printMath();
-    }
-    SegmentCandidateFinder scf(std::move(fusion), inputs, options);
-    return std::move(scf.segmented_fusion_);
-  }
+      SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions());
 
   static std::unique_ptr<SegmentedFusion> segment(
       std::unique_ptr<Fusion> fusion,

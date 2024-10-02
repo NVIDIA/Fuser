@@ -12,9 +12,11 @@
 
 #include <exceptions.h>
 #include <fusion.h>
-#include <fusion_executor/executor.h>
+#include <inlining.h>
 #include <ir/all_nodes.h>
 #include <ops/all_ops.h>
+#include <runtime/executor.h>
+#include <scheduler/matmul_utils.h>
 #include <scheduler/mma_utils.h>
 #include <algorithm>
 #include <iterator>
@@ -148,7 +150,7 @@ std::vector<at::Tensor> scheduleCompileAndRun(
   auto tv2c = tv2->cacheBefore();
 
   // [M, N, K] or [M, K, N] -> [N, M, K]
-  moveInnerBroadcastLeft(tv0);
+  matmul_utils::moveInnerBroadcastLeft(tv0);
   tv0->applyMmaSwizzle(MmaOperand::A);
   tv1->applyMmaSwizzle(MmaOperand::B);
 
@@ -314,30 +316,6 @@ class HopperRS : public HopperBase,
   }
 };
 
-std::pair<std::vector<int64_t>, std::vector<int64_t>>
-matmulAtInputShape3DHopperRS(int M, int N, int K, MmaLayout layout) {
-  switch (layout) {
-    case MmaLayout::TT:
-      return {{M, K, 1}, {1, K, N}};
-    case MmaLayout::TN:
-      return {{M, 1, K}, {1, N, K}};
-    default:
-      NVF_CHECK(false, "unsupported data layout.");
-  }
-}
-
-std::pair<at::Tensor, at::Tensor> matmulAtInput3DHopperRS(
-    int M,
-    int N,
-    int K,
-    MmaLayout layout,
-    c10::ScalarType dtype) {
-  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
-  auto shapes = matmulAtInputShape3DHopperRS(M, N, K, layout);
-  return std::make_pair(
-      at::randn(shapes.first, options), at::randn(shapes.second, options));
-}
-
 TEST_P(HopperRS, SingleTile) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -369,7 +347,7 @@ TEST_P(HopperRS, SingleTile) {
 
   auto tv2c = tv2->cacheBefore();
 
-  moveInnerBroadcastLeft(tv0);
+  matmul_utils::moveInnerBroadcastLeft(tv0);
   tv0->applyMmaSwizzle(MmaOperand::A);
 
   tv0->merge(1);
@@ -388,8 +366,18 @@ TEST_P(HopperRS, SingleTile) {
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         tv2c->getLoopDomain());
-    tv2c->setLoopDomain(s.as<IterDomain*>());
     tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+    // Note: according to internal doc "Representing ldmatrix", we need both a
+    // read domain and a write domain to correctly represent MmaOp. Without this
+    // new mechanism, there is no correct loop domain, and the only choices are
+    // either we want to represent the smem read well, or represent the register
+    // write well. We choose to represent the smem read well here. Likely, this
+    // means we will not be able to have multiple tiles in register, but we can
+    // workaround this by always inlining the MmaOp most. We should fix this
+    // after we implemented the new read/write domain mechanism.
+    tv2c->axis(-1)->parallelize(ParallelType::Mma);
+    tv2c->axis(-2)->parallelize(ParallelType::Mma);
+    tv2c->axis(-3)->parallelize(ParallelType::Mma);
   }
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
@@ -489,7 +477,7 @@ TEST_P(HopperRS, FullSwizzle) {
 
   auto tv2c = tv2->cacheBefore();
 
-  moveInnerBroadcastLeft(tv0); // n, m, k
+  matmul_utils::moveInnerBroadcastLeft(tv0); // n, m, k
 
   // Split the inner dimension by the inner size, and reorder the outer
   // of the split to dim 0.
@@ -528,12 +516,6 @@ TEST_P(HopperRS, FullSwizzle) {
   tv2c->split(-1, inner_size);
   tv2c->reorder({{-2, 0}});
 
-  // Now, the inner 3 dimensions are a single MMA tile.
-  // In the loop domain, just parallelize all of them as Mma.
-  tv2c->axis(1)->parallelize(ParallelType::Mma);
-  tv2c->axis(2)->parallelize(ParallelType::Mma);
-  tv2c->axis(3)->parallelize(ParallelType::Mma);
-
   if (layout == MmaLayout::TT) {
     // [M, K, N] -> [M, N, K]
     tv2c->reorder({{-1, -2}});
@@ -543,6 +525,17 @@ TEST_P(HopperRS, FullSwizzle) {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         tv2c->getLoopDomain());
     tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+    // Note: according to internal doc "Representing ldmatrix", we need both a
+    // read domain and a write domain to correctly represent MmaOp. Without this
+    // new mechanism, there is no correct loop domain, and the only choices are
+    // either we want to represent the smem read well, or represent the register
+    // write well. We choose to represent the smem read well here. Likely, this
+    // means we will not be able to have multiple tiles in register, but we can
+    // workaround this by always inlining the MmaOp most. We should fix this
+    // after we implemented the new read/write domain mechanism.
+    tv2c->axis(-1)->parallelize(ParallelType::Mma);
+    tv2c->axis(-2)->parallelize(ParallelType::Mma);
+    tv2c->axis(-3)->parallelize(ParallelType::Mma);
   }
 
   // Create a dummy broadcasting IterDomain to denote that this instruction
@@ -610,6 +603,100 @@ TEST_P(HopperRS, FullSwizzle) {
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
+// Same as SingleTile, except that the core matrices of B are stored
+// in a transposed way in smem. This is useful for testing if we are
+// inferring strides of core matrices correctly.
+TEST_P(HopperRS, SingleTileTransposed) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto shapes = matmulAtInputShape3DHopperRS(
+      getM(macro), getN(macro), getK(macro), layout);
+
+  auto tv0 = makeConcreteTensor(shapes.first, dtype);
+  auto tv1 = makeConcreteTensor(shapes.second, dtype);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  // Just doing a gmem->register copy
+  tv0 = set(tv0);
+  // Just doing a gmem->smem copy
+  tv1 = set(tv1);
+  tv1->setMemoryType(MemoryType::Shared);
+
+  auto tv2 = fusedMultiplySum(tv0, tv1, {layout == MmaLayout::TT ? 1 : 2});
+
+  fusion.addOutput(tv2);
+
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
+  NVF_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+  mma_ops.front()->setMacro(macro);
+
+  auto tv2c = tv2->cacheBefore();
+
+  matmul_utils::moveInnerBroadcastLeft(tv0);
+  tv0->applyMmaSwizzle(MmaOperand::A);
+
+  tv0->merge(1);
+  tv0->merge(1);
+  tv0->axis(1)->parallelize(ParallelType::TIDx);
+
+  tv1->applyMmaSwizzle(swizzle_b);
+
+  // ****************************************************
+  // This is where this test is different from SingleTile
+  auto alloc = tv1->getAllocationDomain();
+  std::swap(alloc[0], alloc[1]);
+  tv1->setAllocationDomain(alloc, true);
+  // ****************************************************
+
+  naivelyParallelize(tv1);
+
+  if (layout == MmaLayout::TT) {
+    // [M, K, N] -> [M, N, K]
+    tv2c->reorder({{-1, -2}});
+  }
+
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2c->getLoopDomain());
+    tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+    // Note: according to internal doc "Representing ldmatrix", we need both a
+    // read domain and a write domain to correctly represent MmaOp. Without this
+    // new mechanism, there is no correct loop domain, and the only choices are
+    // either we want to represent the smem read well, or represent the register
+    // write well. We choose to represent the smem read well here. Likely, this
+    // means we will not be able to have multiple tiles in register, but we can
+    // workaround this by always inlining the MmaOp most. We should fix this
+    // after we implemented the new read/write domain mechanism.
+    tv2c->axis(-1)->parallelize(ParallelType::Mma);
+    tv2c->axis(-2)->parallelize(ParallelType::Mma);
+    tv2c->axis(-3)->parallelize(ParallelType::Mma);
+  }
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2->getLoopDomain());
+    tv2->setLoopDomain(s.as<IterDomain*>());
+  }
+
+  auto inputs = matmulAtInput3DHopperRS(
+      getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
+
+  FusionExecutor fe;
+  fe.compileFusion(
+      &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
+
+  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  auto tref = atMatmul(
+      inputs.first.squeeze().to(at::kFloat),
+      inputs.second.squeeze().to(at::kFloat),
+      layout);
+  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+}
+
 TEST_P(HopperRS, SingleTileWithTMALoad) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -643,14 +730,14 @@ TEST_P(HopperRS, SingleTileWithTMALoad) {
 
   auto tv2c = tv2->cacheBefore();
 
-  moveInnerBroadcastLeft(tv0);
+  matmul_utils::moveInnerBroadcastLeft(tv0);
   tv0->applyMmaSwizzle(MmaOperand::A);
 
   tv0->merge(1);
   tv0->merge(1);
   tv0->axis(1)->parallelize(ParallelType::TIDx);
 
-  moveInnerBroadcastLeft(tv1);
+  matmul_utils::moveInnerBroadcastLeft(tv1);
   tv1->applyMmaSwizzleForTMALoad(swizzle_b);
 
   if (layout == MmaLayout::TT) {
@@ -661,8 +748,18 @@ TEST_P(HopperRS, SingleTileWithTMALoad) {
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         tv2c->getLoopDomain());
-    tv2c->setLoopDomain(s.as<IterDomain*>());
     tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+    // Note: according to internal doc "Representing ldmatrix", we need both a
+    // read domain and a write domain to correctly represent MmaOp. Without this
+    // new mechanism, there is no correct loop domain, and the only choices are
+    // either we want to represent the smem read well, or represent the register
+    // write well. We choose to represent the smem read well here. Likely, this
+    // means we will not be able to have multiple tiles in register, but we can
+    // workaround this by always inlining the MmaOp most. We should fix this
+    // after we implemented the new read/write domain mechanism.
+    tv2c->axis(-1)->parallelize(ParallelType::Mma);
+    tv2c->axis(-2)->parallelize(ParallelType::Mma);
+    tv2c->axis(-3)->parallelize(ParallelType::Mma);
   }
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
@@ -723,14 +820,14 @@ TEST_P(HopperRS, SingleTileWithTMALoadStore) {
 
   auto tv2c = tv2->cacheBefore();
 
-  moveInnerBroadcastLeft(tv0);
+  matmul_utils::moveInnerBroadcastLeft(tv0);
   tv0->applyMmaSwizzle(MmaOperand::A);
 
   tv0->merge(1);
   tv0->merge(1);
   tv0->axis(1)->parallelize(ParallelType::TIDx);
 
-  moveInnerBroadcastLeft(tv1);
+  matmul_utils::moveInnerBroadcastLeft(tv1);
   tv1->applyMmaSwizzleForTMALoad(swizzle_b);
 
   if (layout == MmaLayout::TT) {
@@ -745,8 +842,18 @@ TEST_P(HopperRS, SingleTileWithTMALoadStore) {
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         tv2c->getLoopDomain());
-    tv2c->setLoopDomain(s.as<IterDomain*>());
     tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+    // Note: according to internal doc "Representing ldmatrix", we need both a
+    // read domain and a write domain to correctly represent MmaOp. Without this
+    // new mechanism, there is no correct loop domain, and the only choices are
+    // either we want to represent the smem read well, or represent the register
+    // write well. We choose to represent the smem read well here. Likely, this
+    // means we will not be able to have multiple tiles in register, but we can
+    // workaround this by always inlining the MmaOp most. We should fix this
+    // after we implemented the new read/write domain mechanism.
+    tv2c->axis(-1)->parallelize(ParallelType::Mma);
+    tv2c->axis(-2)->parallelize(ParallelType::Mma);
+    tv2c->axis(-3)->parallelize(ParallelType::Mma);
   }
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
@@ -808,7 +915,7 @@ TEST_P(HopperRS, SingleTileWithTMALoadOuterDimNotSplit) {
 
   auto tv2c = tv2->cacheBefore();
 
-  moveInnerBroadcastLeft(tv0);
+  matmul_utils::moveInnerBroadcastLeft(tv0);
   tv0->applyMmaSwizzle(MmaOperand::A);
 
   tv0->merge(1);
@@ -822,8 +929,18 @@ TEST_P(HopperRS, SingleTileWithTMALoadOuterDimNotSplit) {
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         tv2c->getLoopDomain());
-    tv2c->setLoopDomain(s.as<IterDomain*>());
     tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+    // Note: according to internal doc "Representing ldmatrix", we need both a
+    // read domain and a write domain to correctly represent MmaOp. Without this
+    // new mechanism, there is no correct loop domain, and the only choices are
+    // either we want to represent the smem read well, or represent the register
+    // write well. We choose to represent the smem read well here. Likely, this
+    // means we will not be able to have multiple tiles in register, but we can
+    // workaround this by always inlining the MmaOp most. We should fix this
+    // after we implemented the new read/write domain mechanism.
+    tv2c->axis(-1)->parallelize(ParallelType::Mma);
+    tv2c->axis(-2)->parallelize(ParallelType::Mma);
+    tv2c->axis(-3)->parallelize(ParallelType::Mma);
   }
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
@@ -839,6 +956,147 @@ TEST_P(HopperRS, SingleTileWithTMALoadOuterDimNotSplit) {
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
 
   auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  auto tref = atMatmul(
+      inputs.first.squeeze().to(at::kFloat),
+      inputs.second.squeeze().to(at::kFloat),
+      layout);
+  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+}
+
+TEST_P(HopperRS, MultipleTile) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int64_t num_tiles = 2;
+
+  auto shapes = matmulAtInputShape3DHopperRS(
+      num_tiles * getM(macro),
+      num_tiles * getN(macro),
+      num_tiles * getK(macro),
+      layout);
+
+  int64_t inner_tile_size = layout == MmaLayout::TT ? getN(macro) : getK(macro);
+  int64_t inner_size = num_tiles * inner_tile_size;
+  int64_t swizzle_size = getBytesFromSwizzle(swizzle_b) / dataTypeSize(dtype);
+  bool instruction_tile_span_multiple_swizzle = inner_size > swizzle_size;
+  bool span_uneven_swizzle = inner_tile_size % swizzle_size != 0 &&
+      swizzle_size % inner_tile_size != 0;
+
+  if (instruction_tile_span_multiple_swizzle && span_uneven_swizzle) {
+    GTEST_SKIP()
+        << "This test stores smem inputs on the inner dimension densely, "
+           "which is not compatible with this macro and swizzle mode "
+           "because TensorCore instructions span multiple swizzle patterns unevenly.";
+  }
+
+  auto tv0 = makeConcreteTensor(shapes.first, dtype);
+  auto tv1 = makeConcreteTensor(shapes.second, dtype);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  // Just doing a gmem->register copy
+  tv0 = set(tv0);
+  // Just doing a gmem->smem copy
+  tv1 = set(tv1);
+  tv1->setMemoryType(MemoryType::Shared);
+
+  auto tv2 = fusedMultiplySum(tv0, tv1, {layout == MmaLayout::TT ? 1 : 2});
+
+  fusion.addOutput(tv2);
+
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
+  NVF_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+  mma_ops.front()->setMacro(macro);
+
+  auto tv2c = tv2->cacheBefore();
+
+  matmul_utils::moveInnerBroadcastLeft(tv0);
+  // Split by tile
+  tv0->split(2, getK(macro));
+  tv0->split(1, getM(macro));
+  tv0->split(0, getN(macro));
+  // [No, Ni, Mo, Mi, Ko, Ki] -> // [Mo, No, Ko, Ni, Mi, Ki]
+  tv0->reorder({{2, 0}, {1, -3}, {-2, 2}});
+  tv0->applyMmaSwizzle(MmaOperand::A);
+
+  tv0->merge(4);
+  tv0->merge(4);
+  tv0->axis(4)->parallelize(ParallelType::TIDx);
+
+  // Note that we do not split tv1 by tile. We just directly swizzle the entire
+  // CTA. This means, the location of core matrices of each instruction will be
+  // discontiguous. For example, something like this:
+  //  it0 it0 it1 it1
+  //  it0 it0 it1 it1
+  //  it2 it2 it3 it3
+  //  it2 it2 it3 it3
+  // where itX refers to "instruction tile X".
+  //
+  // Being discontiguous is not a problem, as long as different core matrices
+  // are stored in a strided manner, and we will be able to infer the correct
+  // stride.
+  tv1->applyMmaSwizzle(swizzle_b);
+
+  naivelyParallelize(tv1);
+
+  if (layout == MmaLayout::TT) {
+    // [M, K, N] -> [M, N, K]
+    tv2c->reorder({{-1, -2}});
+  }
+
+  {
+    // Split by tile
+    tv2c->split(-3, getM(macro));
+    tv2c->split(-2, getN(macro));
+    tv2c->split(-1, getK(macro));
+    // [Mo, Mi, No, Ni, Ko, Ki] -> [Mo, No, Ko, Mi, Ni, Ki]
+    tv2c->reorder({{-5, -3}, {-3, -2}});
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2c->getLoopDomain());
+    tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+    // Note: according to internal doc "Representing ldmatrix", we need both a
+    // read domain and a write domain to correctly represent MmaOp. Without this
+    // new mechanism, there is no correct loop domain, and the only choices are
+    // either we want to represent the smem read well, or represent the register
+    // write well. We choose to represent the smem read well here. Likely, this
+    // means we will not be able to have multiple tiles in register, but we can
+    // workaround this by always inlining the MmaOp most. We should fix this
+    // after we implemented the new read/write domain mechanism.
+    tv2c->axis(-1)->parallelize(ParallelType::Mma);
+    tv2c->axis(-2)->parallelize(ParallelType::Mma);
+    tv2c->axis(-3)->parallelize(ParallelType::Mma);
+  }
+  {
+    // Split by tile
+    tv2->split(-2, getM(macro));
+    tv2->split(-1, getN(macro));
+    // [Mo, Mi, No, Ni] -> [Mo, No, Mi, Ni]
+    tv2->reorder({{-3, -2}});
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2->getLoopDomain());
+    tv2->setLoopDomain(s.as<IterDomain*>());
+  }
+
+  // Inline most. Register will only have one tile.
+  inlineMost();
+
+  auto inputs = matmulAtInput3DHopperRS(
+      num_tiles * getM(macro),
+      num_tiles * getN(macro),
+      num_tiles * getK(macro),
+      layout,
+      data_type_to_aten(dtype));
+
+  FusionExecutor fe;
+  fe.compileFusion(
+      &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
+
+  auto cg_outputs = fe.runFusion(
+      {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
+
   auto tref = atMatmul(
       inputs.first.squeeze().to(at::kFloat),
       inputs.second.squeeze().to(at::kFloat),
@@ -894,34 +1152,6 @@ class HopperSS : public HopperBase,
     swizzle_b = std::get<4>(GetParam());
   }
 };
-
-std::pair<std::vector<int64_t>, std::vector<int64_t>>
-matmulAtInputShape3DHopperSS(int M, int N, int K, MmaLayout layout) {
-  switch (layout) {
-    case MmaLayout::TT:
-      return {{M, K, 1}, {1, K, N}};
-    case MmaLayout::TN:
-      return {{M, 1, K}, {1, N, K}};
-    case MmaLayout::NT:
-      return {{K, M, 1}, {K, 1, N}};
-    case MmaLayout::NN:
-      return {{1, K, M}, {N, K, 1}};
-    default:
-      NVF_CHECK(false, "unsupported data layout.");
-  }
-}
-
-std::pair<at::Tensor, at::Tensor> matmulAtInput3DHopperSS(
-    int M,
-    int N,
-    int K,
-    MmaLayout layout,
-    c10::ScalarType dtype) {
-  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
-  auto shapes = matmulAtInputShape3DHopperSS(M, N, K, layout);
-  return std::make_pair(
-      at::randn(shapes.first, options), at::randn(shapes.second, options));
-}
 
 TEST_P(HopperSS, SingleTile) {
   Fusion fusion;
@@ -994,8 +1224,8 @@ TEST_P(HopperSS, SingleTile) {
   // Bring related dims to innermost, that is:
   // - Reorder tv0 as [1, M, K] or [1, K, M]
   // - Reorder tv1 as [1, N, K] or [1, K, N]
-  moveInnerBroadcastLeft(tv0);
-  moveInnerBroadcastLeft(tv1);
+  matmul_utils::moveInnerBroadcastLeft(tv0);
+  matmul_utils::moveInnerBroadcastLeft(tv1);
 
   tv0->applyMmaSwizzle(swizzle_a);
   tv1->applyMmaSwizzle(swizzle_b);
@@ -1006,8 +1236,147 @@ TEST_P(HopperSS, SingleTile) {
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         tv2c->getLoopDomain());
-    tv2c->setLoopDomain(s.as<IterDomain*>());
     tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+    // Note: according to internal doc "Representing ldmatrix", we need both a
+    // read domain and a write domain to correctly represent MmaOp. Without this
+    // new mechanism, there is no correct loop domain, and the only choices are
+    // either we want to represent the smem read well, or represent the register
+    // write well. We choose to represent the smem read well here. Likely, this
+    // means we will not be able to have multiple tiles in register, but we can
+    // workaround this by always inlining the MmaOp most. We should fix this
+    // after we implemented the new read/write domain mechanism.
+    tv2c->axis(-1)->parallelize(ParallelType::Mma);
+    tv2c->axis(-2)->parallelize(ParallelType::Mma);
+    tv2c->axis(-3)->parallelize(ParallelType::Mma);
+  }
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2->getLoopDomain());
+    tv2->setLoopDomain(s.as<IterDomain*>());
+  }
+
+  auto inputs = matmulAtInput3DHopperSS(
+      getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
+
+  FusionExecutor fe;
+  fe.compileFusion(
+      &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
+  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  auto tref = atMatmul(
+      inputs.first.squeeze().to(at::kFloat),
+      inputs.second.squeeze().to(at::kFloat),
+      layout);
+  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+}
+
+// Same as SingleTile, except that the core matrices of A and B are stored
+// in a transposed way in smem. This is useful for testing if we are
+// inferring strides of core matrices correctly.
+TEST_P(HopperSS, SingleTileTransposed) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto shapes = matmulAtInputShape3DHopperSS(
+      getM(macro), getN(macro), getK(macro), layout);
+
+  auto tv0 = makeConcreteTensor(shapes.first, dtype);
+  auto tv1 = makeConcreteTensor(shapes.second, dtype);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  // Just doing a gmem->smem copy
+  tv0 = set(tv0);
+  tv0->setMemoryType(MemoryType::Shared);
+  tv1 = set(tv1);
+  tv1->setMemoryType(MemoryType::Shared);
+
+  int axes = 0;
+  switch (layout) {
+    case MmaLayout::NT:
+      axes = 0;
+      break;
+    case MmaLayout::TT:
+    case MmaLayout::NN:
+      axes = 1;
+      break;
+    case MmaLayout::TN:
+      axes = 2;
+      break;
+    default:
+      NVF_ERROR("Invalid layout");
+  }
+  auto tv2 = fusedMultiplySum(tv0, tv1, {axes});
+
+  // Reorder the accumulator as [M, N, K]
+  switch (layout) {
+    case MmaLayout::TT:
+      // [M, K, N] -> [M, N, K]
+      tv2->reorder({{-2, -1}});
+      break;
+    case MmaLayout::TN:
+      // [M, N, K]
+      break;
+    case MmaLayout::NT:
+      // [K, M, N] -> [M, N, K]
+      tv2->reorder({{-3, -1}});
+      break;
+    case MmaLayout::NN:
+      // [N, K, M] -> [M, N, K]
+      tv2->reorder({{-1, -3}});
+      break;
+    default:
+      NVF_ERROR("Invalid layout");
+  }
+  tv2->commitLeafToLogical();
+
+  fusion.addOutput(tv2);
+
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
+  NVF_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+  mma_ops.front()->setMacro(macro);
+
+  auto tv2c = tv2->cacheBefore();
+
+  // Bring related dims to innermost, that is:
+  // - Reorder tv0 as [1, M, K] or [1, K, M]
+  // - Reorder tv1 as [1, N, K] or [1, K, N]
+  matmul_utils::moveInnerBroadcastLeft(tv0);
+  matmul_utils::moveInnerBroadcastLeft(tv1);
+
+  tv0->applyMmaSwizzle(swizzle_a);
+  tv1->applyMmaSwizzle(swizzle_b);
+
+  // ****************************************************
+  // This is where this test is different from SingleTile
+  auto alloc0 = tv0->getAllocationDomain();
+  std::swap(alloc0[0], alloc0[1]);
+  tv0->setAllocationDomain(alloc0, true);
+  auto alloc1 = tv1->getAllocationDomain();
+  std::swap(alloc1[0], alloc1[1]);
+  tv1->setAllocationDomain(alloc1, true);
+  // ****************************************************
+
+  naivelyParallelize(tv0);
+  naivelyParallelize(tv1);
+
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2c->getLoopDomain());
+    tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+    // Note: according to internal doc "Representing ldmatrix", we need both a
+    // read domain and a write domain to correctly represent MmaOp. Without this
+    // new mechanism, there is no correct loop domain, and the only choices are
+    // either we want to represent the smem read well, or represent the register
+    // write well. We choose to represent the smem read well here. Likely, this
+    // means we will not be able to have multiple tiles in register, but we can
+    // workaround this by always inlining the MmaOp most. We should fix this
+    // after we implemented the new read/write domain mechanism.
+    tv2c->axis(-1)->parallelize(ParallelType::Mma);
+    tv2c->axis(-2)->parallelize(ParallelType::Mma);
+    tv2c->axis(-3)->parallelize(ParallelType::Mma);
   }
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
@@ -1131,8 +1500,8 @@ TEST_P(HopperSS, FullSwizzle) {
   // Bring related dims to innermost, that is:
   // - Reorder tv0 as [1, M, K] or [1, K, M]
   // - Reorder tv1 as [1, N, K] or [1, K, N]
-  moveInnerBroadcastLeft(tv0);
-  moveInnerBroadcastLeft(tv1);
+  matmul_utils::moveInnerBroadcastLeft(tv0);
+  matmul_utils::moveInnerBroadcastLeft(tv1);
 
   // Just schedule tv0 and tv1 the same way as in SingleTile. Note that although
   // the schedule are the same, the memory layout is different.
@@ -1172,8 +1541,18 @@ TEST_P(HopperSS, FullSwizzle) {
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         tv2c->getLoopDomain());
-    tv2c->setLoopDomain(s.as<IterDomain*>());
     tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+    // Note: according to internal doc "Representing ldmatrix", we need both a
+    // read domain and a write domain to correctly represent MmaOp. Without this
+    // new mechanism, there is no correct loop domain, and the only choices are
+    // either we want to represent the smem read well, or represent the register
+    // write well. We choose to represent the smem read well here. Likely, this
+    // means we will not be able to have multiple tiles in register, but we can
+    // workaround this by always inlining the MmaOp most. We should fix this
+    // after we implemented the new read/write domain mechanism.
+    tv2c->axis(-1)->parallelize(ParallelType::Mma);
+    tv2c->axis(-2)->parallelize(ParallelType::Mma);
+    tv2c->axis(-3)->parallelize(ParallelType::Mma);
   }
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
@@ -1270,8 +1649,8 @@ TEST_P(HopperSS, SingleTileWithTMALoad) {
 
   auto tv2c = tv2->cacheBefore();
 
-  moveInnerBroadcastLeft(tv0);
-  moveInnerBroadcastLeft(tv1);
+  matmul_utils::moveInnerBroadcastLeft(tv0);
+  matmul_utils::moveInnerBroadcastLeft(tv1);
   tv0->applyMmaSwizzleForTMALoad(swizzle_a);
   tv1->applyMmaSwizzleForTMALoad(swizzle_b);
 
@@ -1283,8 +1662,18 @@ TEST_P(HopperSS, SingleTileWithTMALoad) {
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         tv2c->getLoopDomain());
-    tv2c->setLoopDomain(s.as<IterDomain*>());
     tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+    // Note: according to internal doc "Representing ldmatrix", we need both a
+    // read domain and a write domain to correctly represent MmaOp. Without this
+    // new mechanism, there is no correct loop domain, and the only choices are
+    // either we want to represent the smem read well, or represent the register
+    // write well. We choose to represent the smem read well here. Likely, this
+    // means we will not be able to have multiple tiles in register, but we can
+    // workaround this by always inlining the MmaOp most. We should fix this
+    // after we implemented the new read/write domain mechanism.
+    tv2c->axis(-1)->parallelize(ParallelType::Mma);
+    tv2c->axis(-2)->parallelize(ParallelType::Mma);
+    tv2c->axis(-3)->parallelize(ParallelType::Mma);
   }
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
@@ -1294,6 +1683,185 @@ TEST_P(HopperSS, SingleTileWithTMALoad) {
 
   auto inputs = matmulAtInput3DHopperSS(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
+
+  FusionExecutor fe;
+  fe.compileFusion(
+      &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
+  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  auto tref = atMatmul(
+      inputs.first.squeeze().to(at::kFloat),
+      inputs.second.squeeze().to(at::kFloat),
+      layout);
+  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+}
+
+TEST_P(HopperSS, MultipleTile) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int64_t num_tiles = 2;
+
+  auto shapes = matmulAtInputShape3DHopperSS(
+      num_tiles * getM(macro),
+      num_tiles * getN(macro),
+      num_tiles * getK(macro),
+      layout);
+
+  const char* skip_reason =
+      "This test stores smem inputs on the inner dimension densely, "
+      "which is not compatible with this macro and swizzle mode "
+      "because TensorCore instructions span multiple swizzle patterns unevenly.";
+
+  {
+    // Check if need to skip due to unsupported memory layout for A
+    int64_t inner_tile_size = layout == MmaLayout::TT || layout == MmaLayout::TN
+        ? getK(macro)
+        : getM(macro);
+    int64_t inner_size = num_tiles * inner_tile_size;
+    int64_t swizzle_size = getBytesFromSwizzle(swizzle_a) / dataTypeSize(dtype);
+    bool instruction_tile_span_multiple_swizzle = inner_size > swizzle_size;
+    bool span_uneven_swizzle = inner_tile_size % swizzle_size != 0 &&
+        swizzle_size % inner_tile_size != 0;
+
+    if (instruction_tile_span_multiple_swizzle && span_uneven_swizzle) {
+      GTEST_SKIP() << skip_reason;
+    }
+  }
+
+  {
+    // Check if need to skip due to unsupported memory layout for B
+    int64_t inner_tile_size = layout == MmaLayout::TT || layout == MmaLayout::NT
+        ? getN(macro)
+        : getK(macro);
+    int64_t inner_size = num_tiles * inner_tile_size;
+    int64_t swizzle_size = getBytesFromSwizzle(swizzle_b) / dataTypeSize(dtype);
+    bool instruction_tile_span_multiple_swizzle = inner_size > swizzle_size;
+    bool span_uneven_swizzle = inner_tile_size % swizzle_size != 0 &&
+        swizzle_size % inner_tile_size != 0;
+
+    if (instruction_tile_span_multiple_swizzle && span_uneven_swizzle) {
+      GTEST_SKIP() << skip_reason;
+    }
+  }
+
+  auto tv0 = makeConcreteTensor(shapes.first, dtype);
+  auto tv1 = makeConcreteTensor(shapes.second, dtype);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  // Just doing a gmem->smem copy
+  tv0 = set(tv0);
+  tv0->setMemoryType(MemoryType::Shared);
+  tv1 = set(tv1);
+  tv1->setMemoryType(MemoryType::Shared);
+
+  int axes = 0;
+  switch (layout) {
+    case MmaLayout::NT:
+      axes = 0;
+      break;
+    case MmaLayout::TT:
+    case MmaLayout::NN:
+      axes = 1;
+      break;
+    case MmaLayout::TN:
+      axes = 2;
+      break;
+    default:
+      NVF_ERROR("Invalid layout");
+  }
+  auto tv2 = fusedMultiplySum(tv0, tv1, {axes});
+
+  // Reorder the accumulator as [M, N, K]
+  switch (layout) {
+    case MmaLayout::TT:
+      // [M, K, N] -> [M, N, K]
+      tv2->reorder({{-2, -1}});
+      break;
+    case MmaLayout::TN:
+      // [M, N, K]
+      break;
+    case MmaLayout::NT:
+      // [K, M, N] -> [M, N, K]
+      tv2->reorder({{-3, -1}});
+      break;
+    case MmaLayout::NN:
+      // [N, K, M] -> [M, N, K]
+      tv2->reorder({{-1, -3}});
+      break;
+    default:
+      NVF_ERROR("Invalid layout");
+  }
+  tv2->commitLeafToLogical();
+
+  fusion.addOutput(tv2);
+
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
+  NVF_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+  mma_ops.front()->setMacro(macro);
+
+  auto tv2c = tv2->cacheBefore();
+
+  // Bring related dims to innermost, that is:
+  // - Reorder tv0 as [1, M, K] or [1, K, M]
+  // - Reorder tv1 as [1, N, K] or [1, K, N]
+  matmul_utils::moveInnerBroadcastLeft(tv0);
+  matmul_utils::moveInnerBroadcastLeft(tv1);
+
+  // Note that we do not split tv0 and tv1 by tile. We just directly swizzle the
+  // entire CTA. This means, the location of core matrices of each instruction
+  // will be discontiguous. For example, something like this:
+  //  it0 it0 it1 it1
+  //  it0 it0 it1 it1
+  //  it2 it2 it3 it3
+  //  it2 it2 it3 it3
+  // where itX refers to "instruction tile X".
+  //
+  // Being discontiguous is not a problem, as long as different core matrices
+  // are stored in a strided manner, and we will be able to infer the correct
+  // stride.
+  tv0->applyMmaSwizzle(swizzle_a);
+  tv1->applyMmaSwizzle(swizzle_b);
+
+  naivelyParallelize(tv0);
+  naivelyParallelize(tv1);
+
+  {
+    // Split by tile
+    tv2c->split(-3, getM(macro));
+    tv2c->split(-2, getN(macro));
+    tv2c->split(-1, getK(macro));
+    // [Mo, Mi, No, Ni, Ko, Ki] -> [Mo, No, Ko, Mi, Ni, Ki]
+    tv2c->reorder({{-5, -3}, {-3, -2}});
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2c->getLoopDomain());
+    tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
+    tv2c->axis(-1)->parallelize(ParallelType::Mma);
+    tv2c->axis(-2)->parallelize(ParallelType::Mma);
+    tv2c->axis(-3)->parallelize(ParallelType::Mma);
+  }
+  {
+    // Split by tile
+    tv2->split(-2, getM(macro));
+    tv2->split(-1, getN(macro));
+    // [Mo, Mi, No, Ni] -> [Mo, No, Mi, Ni]
+    tv2->reorder({{-3, -2}});
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2->getLoopDomain());
+    tv2->setLoopDomain(s.as<IterDomain*>());
+  }
+
+  inlineMost();
+
+  auto inputs = matmulAtInput3DHopperSS(
+      num_tiles * getM(macro),
+      num_tiles * getN(macro),
+      num_tiles * getK(macro),
+      layout,
+      data_type_to_aten(dtype));
 
   FusionExecutor fe;
   fe.compileFusion(

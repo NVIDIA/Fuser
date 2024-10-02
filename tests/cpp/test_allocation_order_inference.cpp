@@ -8,11 +8,11 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <fusion_executor/executor.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ops/all_ops.h>
 #include <preseg_passes/allocation_order_inference.h>
+#include <runtime/executor.h>
 
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>

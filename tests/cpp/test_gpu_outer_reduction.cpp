@@ -12,8 +12,8 @@
 #include <grouped_reduction.h>
 #include <inlining.h>
 #include <ir/utils.h>
-#include <kernel_cache.h>
 #include <ops/all_ops.h>
+#include <runtime/fusion_executor_cache.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>
@@ -2165,8 +2165,13 @@ TEST_F(OuterReductionTest, IterGroupedBlockReduction) {
 
   std::vector<c10::IValue> aten_inputs({t0});
 
-  auto rparams = getReductionHeuristics(&fusion, aten_inputs);
-  NVF_CHECK(rparams, "Reduction schedule was not generated!");
+  SchedulerRuntimeInfo runtime_info(&fusion, aten_inputs);
+  NVF_ERROR(
+      Schedule::canSchedule(SchedulerType::Reduction, &fusion, runtime_info));
+  auto scheduler =
+      SchedulerEntry::makeSchedulerInstance(SchedulerType::Reduction);
+  auto heuristic_params = scheduler->computeHeuristics(&fusion, runtime_info);
+  auto rparams = heuristic_params->as<ReductionParams>();
 
   // only do block reduction, enforce vectorization so we can group them
   const int vect_factor = 8;
@@ -2174,25 +2179,24 @@ TEST_F(OuterReductionTest, IterGroupedBlockReduction) {
   rparams->split_grid_dim_inner_reduction = false;
   rparams->vectorize_iter_dom = true;
   rparams->unroll_factor_iter_dom = vect_factor;
-  scheduleReduction(&fusion, rparams.get());
+
+  scheduler->schedule(&fusion, rparams);
+  FusionExecutor fusion_executor;
+  fusion_executor.compileFusion(
+      &fusion, aten_inputs, heuristic_params->lparams);
+  auto cg_outputs =
+      fusion_executor.runFusion(aten_inputs, heuristic_params->lparams);
 
   // lowering & check iteration grouped reductions
-  GpuLower gpulw(&fusion);
-  gpulw.run();
   NVF_CHECK(
-      gpulw.kernel()->summary().has_iter_grouped_reductions,
+      fusion_executor.kernel()->summary().has_iter_grouped_reductions,
       "There must be iter domain grouped reductions.");
   NVF_CHECK(
-      gpulw.kernel()->summary().num_grouped_iterations == vect_factor,
+      fusion_executor.kernel()->summary().num_grouped_iterations == vect_factor,
       "Expected ",
       vect_factor,
       " grouped iterations, found ",
-      gpulw.kernel()->summary().num_grouped_iterations);
-
-  FusionExecutor fe;
-  auto lparams = rparams->lparams;
-  fe.compileFusion(&fusion, aten_inputs, lparams);
-  auto cg_outputs = fe.runFusion(aten_inputs, lparams);
+      fusion_executor.kernel()->summary().num_grouped_iterations);
 
   testValidate(
       &fusion,
@@ -2202,7 +2206,7 @@ TEST_F(OuterReductionTest, IterGroupedBlockReduction) {
       __LINE__,
       __FILE__,
       "",
-      lparams);
+      rparams->lparams);
 }
 
 namespace {
@@ -2237,7 +2241,7 @@ void shmooTestsOfIterGroupedBlockOrGridReduction(
   fusion.addOutput(tv2);
 
   // manually set how to schedule the fusion
-  auto rparams = std::make_shared<ReductionParams>();
+  auto rparams = std::make_unique<ReductionParams>();
   // vectorize
   rparams->vectorize_iter_dom = true;
   rparams->unroll_factor_iter_dom = vect;
@@ -2266,7 +2270,8 @@ void shmooTestsOfIterGroupedBlockOrGridReduction(
       bdimy,
       LaunchParams::UNINITIALIZED_VAL);
   rparams->lparams = lparams;
-  scheduleReduction(&fusion, rparams.get());
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Reduction)
+      ->schedule(&fusion, rparams.get());
 
   // lowering & check iteration grouped reductions
   GpuLower gpulw(&fusion);
@@ -2507,7 +2512,8 @@ TEST_F(OuterReductionTest, IterGroupedMultipleReductions) {
       bdimy,
       LaunchParams::UNINITIALIZED_VAL);
   rparams->lparams = lparams;
-  scheduleReduction(&fusion, rparams.get());
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Reduction)
+      ->schedule(&fusion, rparams.get());
 
   // Ensure we have two iteration grouped reductions
   int num_iter_grouped_reductions = 0;

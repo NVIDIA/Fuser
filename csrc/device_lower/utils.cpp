@@ -11,15 +11,20 @@
 #include <c10/util/irange.h>
 #include <device_lower/analysis/thread_predicate.h>
 #include <device_lower/lower2device.h>
+#include <device_lower/utils.h>
+#include <id_model/utils.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <kernel_ir_dispatch.h>
 #include <logical_domain_map.h>
 #include <ops/arith.h>
+#include <val_graph_visitor.h>
 
 #include <expr_simplifier.h>
 #include <algorithm>
+#include <deque>
+#include <memory>
 
 // TODO: refactor this file (one per namespace)
 
@@ -780,8 +785,8 @@ BasicAllocInfo getAllocInformation(
       }
     }
 
-    if (GpuLower::current()->caMap()->areMapped(
-            local_id, fl_id, IdMappingMode::PERMISSIVE)) {
+    if (lower_utils::getConcreteLoopID(local_id) ==
+        lower_utils::getConcreteLoopID(fl_id)) {
       info.alloc_pos++;
     }
 
@@ -939,24 +944,6 @@ std::array<UnitDim, 2> getMmaLayout(const MmaOp* expr) {
   return layout;
 }
 
-bool hasRootToLoopLinearTransformations(const TensorView* tv) {
-  auto root = tv->getMaybeRootDomain();
-  auto loop = tv->getLoopDomain();
-  std::vector<Val*> loop_val(loop.begin(), loop.end());
-  auto all_ids_vec =
-      DependencyCheck::getAllValsBetween({root.begin(), root.end()}, loop_val);
-  std::unordered_set<Val*> all_ids_set(all_ids_vec.begin(), all_ids_vec.end());
-  auto alloc = tv->getMaybeAllocationDomain();
-  auto logical = tv->getLogicalDomain();
-  bool all_alloc_id_on_path = std::all_of(
-      alloc.begin(), alloc.end(), [&](Val* v) { return all_ids_set.count(v); });
-  bool all_logical_id_on_path =
-      std::all_of(logical.begin(), logical.end(), [&](Val* v) {
-        return all_ids_set.count(v);
-      });
-  return all_alloc_id_on_path && all_logical_id_on_path;
-}
-
 bool isReductionInitExpr(const Expr* expr) {
   // False if its output isn't a TensorView
   if (!ir_utils::isTvOp(expr)) {
@@ -1011,6 +998,971 @@ bool predicateAtEnd(ForLoop* loop) {
   // Now it is either loop_id is mapped with a vectorized IterDomain
   // or it's an output of view transformations.
   return true;
+}
+
+// Implementation of:
+//   Val* proveLinearAndGetStride(
+//       const ValGraph& id_graph,
+//       const ValGroup& linear_g,
+//       const ValGroups& domain);
+//
+// The idea is similar to the vectorization helper in vectorize_helper.h:
+// We propagate from linear_g to domain, and figure out how linear_g project to
+// domain. From the projection, we will know if linear_g is linear and the
+// stride. For example, let's consider the following two schedules (same example
+// as the NVFuserTest.ProveLinearAndGetStride test):
+//
+// v1:
+//        I0         I1
+//       /  \       /  \.
+//          128        128
+//          / \        / \.
+//         /   \      /   \.
+//        /     \    /     \.
+//       /       \  /       \.
+//      /         \/        64.
+//     /          /\       /  \.
+//    /          /  \     /    \.
+//   16        [2]   8   8      8
+//                    \ /
+//                    xor
+//                    / \.
+//                   8   8
+//
+// v3:
+//        I0         I1
+//       /  \       /  \.
+//          32         256
+//          / \        / \.
+//         /   \      /   \.
+//        /     \    /     \.
+//       /       \  /       \.
+//      /         \/        64.
+//     /          /\       /  \.
+//    /          /  \     /    \.
+//   4          4    8   8      8
+//                    \ /
+//                    xor
+//                   /   \.
+//                  8     8
+//
+// Suppose that the [2] in v1 is linear_g, and the leaves in v3 are domain.
+// Domain is in the order [I0o, I1o, 4, 4, 8, 8, 8]. To figure out if linear_g
+// is linear in domain, we start from propagating linear_g back in v1. The first
+// step we see is the split of 128 into [2] and 64. From this split, we know
+// that when [2] projects to the 128, it projects to the 2 after a 64 on its
+// inner. The next step is the split of I1 by 128 in v1. Similarly, we know that
+// when [2] projects to I1, it projects to the 2 after a 64 on its inner.
+// Because the I1 in v1 and v3 are mapped, then we will continue propagation in
+// v3. The next step is to process the split of I1 into I1o and 256 in v3. We
+// already know that when [2] projects to I1, it projects to the 2 after a 64 on
+// its inner. Because 2 * 64 = 128, which is a factor of 256, we know that the
+// 256 is able to fully cover the [2] in I1. Therefore, I1o is unrelated to [2],
+// and we only need to focus on the 256. And when the [2] projects to this 256,
+// it projects to the 2 after a 64 on its inner. The next step is to process the
+// split of 256 into 4 and 64. Because the 64 happens to be the extent of the
+// inner of [2] in the 256, we know that the [2] will be fully covered by the
+// inner 2 of the 4 of the output of the split. So, we know that, when the [2]
+// projects to the 4, it projects to the inner 2 of the 4. Now we have finished
+// propagation and reached domain. Because [2] is the inner of the 4, and the 4
+// is linear in domain, so we have proved that [2] is linear in domain. In
+// domain, the domains on the right of the 4 are 8, 8, 8, so the stride is 8*8*8
+// = 512.
+namespace {
+
+// From the above example, we can see that how linear_g lives in domain could be
+// complicated. It can be, for example:
+//   1. linear_g is equivalent to a single ValGroup in domain. For example,
+//      linear_g itself is inside domain.
+//   2. linear_g is the inner of a ValGroup in domain. For example, something
+//      like:
+//        x  linear_g
+//         \ /
+//          g
+//      where g is a ValGroup in domain.
+//   3. linear_g is the outer of a ValGroup in domain. For example, something
+//      like:
+//        linear_g   x
+//                \ /
+//                 g
+//      where g is a ValGroup in domain.
+//   4. linear_g is the middle of a ValGroup in domain, where on the right,
+//      there is a 2. For example, something like:
+//        linear_g   2
+//                \ /
+//            x   g1
+//             \ /
+//              g
+//      where g is a ValGroup in domain.
+//   5. linear_g is projected as g1, g2, g3 in domain. For example, something
+//      like:
+//          linear_g
+//            /   \.
+//          g1    g23
+//                / \.
+//               g2  g3
+//      where g1, g2, g3 are ValGroups in domain.
+//   6. linear_g is projected as the inner 2 of g1, g2, and the outer 4 of g3.
+//      For example, something like:
+//             linear_g
+//              /   \.
+//        x    2     4    8
+//         \  /       \  /
+//          ga         g3
+//         /  \.
+//        g1   g2
+//      where g1, g2, g3 are ValGroups in domain.
+//
+// We use a dynamic type called Projection to represent structures like above.
+// Because dynamic type can be recursive, it is very expressive and can
+// represent all the cases above. It is helpful to think of the dynamic type
+// Projection as a formal language to describe how linear_g is projected in
+// domain. Different types in the dynamic type Projection are different types of
+// abstract syntax tree nodes for this language. Note that neither the above
+// examples nor the dynamic type Projection is exhaustive. For example,
+// "linear_g is projected as the merge of the inner of g with the outer of g in
+// reverse order" is not covered. For the case where we can not represent using
+// the language of the dynamic type Projection, we will use the std::monostate
+// to denote "unknown". In the future, if we need more expressive power, we can
+// extend the dynamic type Projection with more types of abstract syntax tree
+// nodes. Because the dynamic type Projection is recursive, the theoretical
+// upper limit of the expressive power of this design is as high as the world
+// that a formal language can describe.
+
+// selected = PartOf(what, inner_extent, selected_extent) represents that the
+// selected node is part of `what`. This projection usually comes from merge.
+// For example, if we have
+//   selected    2
+//           \  /
+//            g1
+// then
+//   selected = PartOf(g1, 2, extent_of_selected).
+template <typename Projection>
+struct PartOf {
+  // Part of what?
+  std::shared_ptr<Projection> what;
+  // The structure of `what` is shown below:
+  //   .--------------------------.
+  //   | outer | selected | inner |
+  //   '--------------------------'
+  // `inner_extent` refers to the extent of `inner`, which can also be
+  // understood as the stride of `selected` in `what`. If `selected` is the
+  // innermost of `what`, then there is nothing on the inner of `selected`. For
+  // this case, we say the inner_extent is one, and assign nullptr here.
+  Val* inner_extent = nullptr;
+  // The extent of the `selected`. This value is just carried over and never
+  // changed.
+  Val* selected_extent = nullptr;
+
+  bool operator==(const PartOf& other) const {
+    return what->type() == other.what->type() && *what == *other.what &&
+        inner_extent == other.inner_extent &&
+        selected_extent == other.selected_extent;
+  }
+  bool operator!=(const PartOf& other) const {
+    return !(*this == other);
+  }
+};
+
+// selected = Composition{g1, g2, g3} represents that the `selected` is a
+// composition of g1, g2, and g3. This projection usually comes from split. For
+// example, if we have
+//    selected
+//     /   \.
+//   g1     g2
+// then:
+//   selected = Composition{g1, g2}.
+template <typename... Args>
+using Composition = std::deque<Args...>;
+
+using Projection = dynamic_type::
+    DynamicType<dynamic_type::Containers<Composition, PartOf>, ValGroup>;
+
+// Utilities to print the entire abstract syntax tree of a projection.
+std::string print(const Projection& proj);
+
+std::string print(const ValGroup& group) {
+  return group->toString();
+}
+
+std::string print(const PartOf<Projection>& part) {
+  auto str_or_null = [](Val* val) {
+    return val == nullptr ? "nullptr" : val->toInlineString();
+  };
+  return "PartOf(what=" + print(*part.what) +
+      ", inner_extent=" + str_or_null(part.inner_extent) +
+      ", selected_extent=" + str_or_null(part.selected_extent) + ")";
+}
+
+std::string print(const Composition<Projection>& vec) {
+  std::stringstream ss;
+  ss << "[";
+  for (const auto& g : vec) {
+    ss << print(g) << ", ";
+  }
+  ss << "]";
+  return ss.str();
+}
+
+std::string print(const std::monostate&) {
+  return "std::monostate";
+}
+
+std::string print(const Projection& proj) {
+  return Projection::dispatch(
+      [&](const auto& proj) { return print(proj); }, proj);
+}
+
+// Utilities to check if a ValGroup is contained in proj or its subtree.
+bool related(const Projection& proj, const ValGroup& to);
+
+bool related(const ValGroup& group, const ValGroup& to) {
+  return group == to;
+}
+
+bool related(const PartOf<Projection>& part, const ValGroup& to) {
+  return related(*part.what, to);
+}
+
+bool related(const Composition<Projection>& comp, const ValGroup& to) {
+  return std::any_of(
+      comp.begin(), comp.end(), [&](const auto& g) { return related(g, to); });
+}
+
+bool related(const std::monostate&, const ValGroup& to) {
+  return false;
+}
+
+bool related(const Projection& proj, const ValGroup& to) {
+  return Projection::dispatch(
+      [&](const auto& proj) { return related(proj, to); }, proj);
+}
+
+// Utilities to get the extent of a projection.
+Val* extent(const Projection& proj);
+
+Val* extent(const ValGroup& group) {
+  return group->front()->as<IterDomain>()->extent();
+}
+
+Val* extent(const PartOf<Projection>& part) {
+  return part.selected_extent;
+}
+
+Val* extent(const Composition<Projection>& comp) {
+  return std::accumulate(
+      comp.begin(),
+      comp.end(),
+      static_cast<Val*>(nullptr),
+      [](Val* acc, const auto& g) {
+        return SimplifyingIrBuilder::mulExpr(acc, extent(g));
+      });
+}
+
+Val* extent(const std::monostate&) {
+  NVF_THROW("Cannot get extent of std::monostate");
+}
+
+Val* extent(const Projection& proj) {
+  return Projection::dispatch(
+      [&](const auto& proj) { return extent(proj); }, proj);
+}
+
+// Simplify the abstract syntax tree so that it is easier to be pattern
+// matched. Defined below.
+Projection simplify(Projection proj);
+
+// Given an expression on the traversal path and its direction, get the from
+// and to groups. Note that the traversal path is obtained by running BFS from
+// domain to linear_g, so the direction is flipped with respect to how we
+// propagate from linear_g to domain.
+auto fromGroups(
+    const ValGraph& id_graph,
+    const ExprGroup& eg,
+    Direction direction) {
+  return direction == Direction::Forward ? id_graph.outputGroups(eg)
+                                         : id_graph.inputGroups(eg);
+}
+
+auto toGroups(
+    const ValGraph& id_graph,
+    const ExprGroup& eg,
+    Direction direction) {
+  return direction == Direction::Forward ? id_graph.inputGroups(eg)
+                                         : id_graph.outputGroups(eg);
+}
+
+// Do the propagation to project linear_g on domain through the given
+// expression, build out and simplify the abstract syntax tree on the fly by
+// substituting equivalent items. For example, if we have
+//   2   [2]  3
+//    \    \ /
+//     \    6
+//      \  /
+//       12   2
+//        \  /
+//         24
+//        /  \.
+//       4    6
+// and the linear_g is [2], when we propagate from [2] to 24, we will build out
+// the abstract syntax tree with the following steps:
+//
+// First, we will traverse the expression 6 = merge(2, 3). We will build out
+//   linear_g = PartOf{what=6, inner_extent=3, selected_extent=2}
+//
+// Second, we will traverse the expression 12 = merge(2, 6). From this
+// expression, we know that
+//   6 = PartOf{what=12, inner_extent=nullptr, selected_extent=6}
+// Substituting definition of 6, in the above definition of linear_g, we get
+//   linear_g = PartOf{
+//     what=PartOf{what=12, inner_extent=nullptr, selected_extent=6},
+//     inner_extent=3,
+//     selected_extent=2
+//   }
+//
+// Third, we will traverse the expression 24 = merge(12, 2). From this
+// expression, we know that
+//   12 = PartOf{what=24, inner_extent=2, selected_extent=12}
+// Substituting definition of 12, in the above definition of linear_g, we get
+//   linear_g = PartOf{
+//     what=PartOf{
+//        what=PartOf{what=24, inner_extent=2, selected_extent=12},
+//        inner_extent=nullptr,
+//        selected_extent=6
+//     },
+//     inner_extent=3,
+//     selected_extent=2
+//   }
+//
+// Finally, we will traverse the expression 4, 6 = split(24). From this
+// expression, we know that
+//   24 = Composition{4, 6}
+// Substituting definition of 24, in the above definition of linear_g, we get
+//   linear_g = PartOf{
+//     what=PartOf{
+//       what=PartOf{
+//         what=Composition{4, 6},
+//         inner_extent=2,
+//         selected_extent=12
+//       },
+//       inner_extent=nullptr,
+//       selected_extent=6
+//     },
+//     inner_extent=3,
+//     selected_extent=2
+//   }
+//
+// Note that the dynamic type Projection has limited expressiveness, we may
+// encounter cases where the projection can not be represented in the language
+// of the dynamic type Projection. For such cases, we will just use
+// std::monostate to denote "unknown".
+Projection propagate(
+    const Projection& proj,
+    const ValGraph& id_graph,
+    const ExprGroup& eg,
+    Direction direction);
+
+Projection propagate(
+    const ValGroup& group,
+    const ValGraph& id_graph,
+    const ExprGroup& eg,
+    Direction direction) {
+  auto from = fromGroups(id_graph, eg, direction);
+  auto to = toGroups(id_graph, eg, direction);
+  if (from.size() == 1 && to.size() == 2) {
+    // If we have
+    //    group
+    //    /   \.
+    //   g1   g2
+    // and the split is divisible, then build the following abstract syntax
+    // tree:
+    //   group = Composition{g1, g2}
+    // If the split is not divisible, then build the following abstract syntax
+    // tree:
+    //   group = PartOf{what=Composition{g1, g2},
+    //                  inner_extent=nullptr,
+    //                  selected_extent=extent(group)}
+    NVF_ERROR(eg->front()->isA<Split>() || eg->front()->isA<Merge>());
+    if (from.front() != group) {
+      return group;
+    }
+    auto comp = Composition<Projection>{to.front(), to.back()};
+    bool may_be_indivisible_split = eg->front()->isA<Split>() &&
+        !simplifyExpr(eg->front()->as<Split>()->isDivisible())->isTrue();
+    if (may_be_indivisible_split) {
+      return PartOf<Projection>{
+          std::make_shared<Projection>(comp),
+          /*inner_extent=*/nullptr,
+          /*selected_extent=*/extent(group)};
+    }
+    return comp;
+  } else if (from.size() == 2 && to.size() == 1) {
+    // If we have
+    //   group    g1
+    //        \  /
+    //         g2
+    // then build the following abstract syntax tree
+    //   group = PartOf{what=g2,
+    //                  inner_extent=extent(g1),
+    //                  selected_extent=extent(group)}
+    //
+    // If we have
+    //   g1   group
+    //     \  /
+    //      g2
+    // then build the following abstract syntax tree
+    //   group = PartOf{what=g2,
+    //                  inner_extent=nullptr,
+    //                  selected_extent=extent(group)}
+    NVF_ERROR(eg->front()->isA<Split>() || eg->front()->isA<Merge>());
+    if (from.front() != group && from.back() != group) {
+      return group;
+    }
+    return PartOf<Projection>{
+        std::make_shared<Projection>(to.front()),
+        /*inner_extent=*/from.front() == group ? extent(from.back()) : nullptr,
+        /*selected_extent=*/
+        simplifyExpr(extent(group))};
+  }
+  if (std::none_of(from.begin(), from.end(), [&](const auto& g) {
+        return g == group;
+      })) {
+    return group;
+  }
+  // Not representable (or don't know how to represent) by the language of the
+  // dynamic type Projection.
+  return {};
+}
+
+Projection propagate(
+    const PartOf<Projection>& part,
+    const ValGraph& id_graph,
+    const ExprGroup& eg,
+    Direction direction) {
+  // Just recursively propagate subtree.
+  auto from = fromGroups(id_graph, eg, direction);
+  auto to = toGroups(id_graph, eg, direction);
+  auto propagated = propagate(*part.what, id_graph, eg, direction);
+  if (!propagated.hasValue()) {
+    return {};
+  }
+  auto result = PartOf<Projection>{
+      std::make_shared<Projection>(propagated),
+      part.inner_extent,
+      part.selected_extent};
+  return simplify(result);
+}
+
+template <typename Container1, typename Container2>
+auto search(Container1& from, Container2& substr) {
+  return std::search(
+      from.begin(),
+      from.end(),
+      substr.begin(),
+      substr.end(),
+      [](const Projection& a, const Projection& b) {
+        return a.type() == b.type() && a == b;
+      });
+}
+
+Projection propagate(
+    const Composition<Projection>& comp,
+    const ValGraph& id_graph,
+    const ExprGroup& eg,
+    Direction direction) {
+  auto from = fromGroups(id_graph, eg, direction);
+  auto to = toGroups(id_graph, eg, direction);
+  int64_t num_related_components =
+      std::count_if(comp.begin(), comp.end(), [&](const auto& proj) {
+        return std::any_of(from.begin(), from.end(), [&](const auto& g) {
+          return related(proj, g);
+        });
+      });
+
+  // Not related at all. No-op.
+  if (num_related_components == 0) {
+    return comp;
+  }
+
+  // If only one item in `comp` is related to from, then we can just treat `eg`
+  // as a "unary op" and recursively propagate subtrees.
+  if (num_related_components == 1) {
+    Composition<Projection> result;
+    for (const auto& proj : comp) {
+      auto propagated = propagate(proj, id_graph, eg, direction);
+      if (!propagated.hasValue()) {
+        return {};
+      }
+      result.emplace_back(std::move(propagated));
+    }
+    return simplify(result);
+  }
+
+  // If more than one group in `from` is related to comp, this is more complex.
+  // We need to check if these involved multiple groups in comp are transformed
+  // by `eg` in a compatible way, in the sense that after the transformation,
+  // the result is still representable by language of the dynamic type
+  // Projection.
+  if (from.size() == 2 && to.size() == 1) {
+    NVF_ERROR(eg->front()->isA<Split>() || eg->front()->isA<Merge>());
+    // If merging two contiguous components, replace them with the merged
+    // ValGroup.
+    Composition<Projection> result = comp;
+    auto it = search(result, from);
+    if (it != comp.end()) {
+      result.erase(it + 1, it + (int64_t)from.size());
+      *it = to.front();
+      return simplify(result);
+    }
+  }
+
+  // Not representable (or don't know how to represent) by the language of the
+  // dynamic type Projection.
+  return {};
+}
+
+Projection propagate(
+    const std::monostate&,
+    const ValGraph& id_graph,
+    const ExprGroup& eg,
+    Direction direction) {
+  NVF_THROW("Should not reach here.");
+}
+
+Projection propagate(
+    const Projection& proj,
+    const ValGraph& id_graph,
+    const ExprGroup& eg,
+    Direction direction) {
+  return Projection::dispatch(
+      [&](const auto& proj) {
+        return propagate(proj, id_graph, eg, direction);
+      },
+      proj);
+}
+
+// After propagation, we should have the information about how linear_g lives
+// in domain. Parse this information to check if linear_g is linear in domain,
+// and if it is, compute the stride.
+Val* proveLinearAndGetStrideAfterPropagation(
+    const Projection& proj,
+    const ValGroups& domain);
+
+Val* proveLinearAndGetStrideAfterPropagation(
+    const ValGroup& group,
+    const ValGroups& domain) {
+  Val* stride = group->front()->fusion()->oneVal();
+  for (auto it = domain.rbegin(); it != domain.rend(); ++it) {
+    if (*it == group) {
+      return stride;
+    }
+    stride = SimplifyingIrBuilder::mulExpr(stride, extent(*it));
+  }
+  return nullptr;
+}
+
+Val* proveLinearAndGetStrideAfterPropagation(
+    const PartOf<Projection>& part,
+    const ValGroups& domain) {
+  auto inner_stride =
+      proveLinearAndGetStrideAfterPropagation(*part.what, domain);
+  if (inner_stride == nullptr) {
+    return nullptr;
+  }
+  return SimplifyingIrBuilder::mulExpr(inner_stride, part.inner_extent);
+}
+
+Val* proveLinearAndGetStrideAfterPropagation(
+    const Composition<Projection>& comp,
+    const ValGroups& domain) {
+  auto it = search(domain, comp);
+  if (it == domain.end()) {
+    return nullptr;
+  }
+  return proveLinearAndGetStrideAfterPropagation(comp.back(), domain);
+}
+
+Val* proveLinearAndGetStrideAfterPropagation(
+    const std::monostate&,
+    const ValGroups& domain) {
+  NVF_THROW("Should not reach here.");
+  return nullptr;
+}
+
+Val* proveLinearAndGetStrideAfterPropagation(
+    const Projection& proj,
+    const ValGroups& domain) {
+  return Projection::dispatch(
+      [&](const auto& proj) {
+        return proveLinearAndGetStrideAfterPropagation(proj, domain);
+      },
+      proj);
+}
+
+// Simplify the abstract syntax tree so that it is easier to be pattern
+// matched.
+Projection simplify(const ValGroup& group) {
+  return group;
+}
+
+PartOf<Projection> cancelCommonFactors(const PartOf<Projection>& part) {
+  // If `what` is a composition and inner_extent is a multiple of the extent of
+  // the last items in `what`, we can simplify the inner_extent and `what` by
+  // canceling the last items in `what`.
+  //
+  // Example:
+  // PartOf{what=[5,3,2], inner_extent=42} => PartOf{what=[5], inner_extent=7}
+  //
+  // Proof of correctness:
+  // Suppose we have an IterDomain I0, and I0 is split in two different ways:
+  //           I0
+  //          /  \.
+  //         /    \.
+  //     split    split
+  //     /   \    /   \.
+  //   I1  I2{m} I3   I4{n}
+  // Assuming I0 is divisible by m, then we have:
+  //   I3 = PartOf{what=I0, inner_extent=n} ............ (1)
+  // Let g = gcd(m, n), and m = g*m', n = g*n'. Then according to Theorem 2.1 in
+  // doc/reading/iterdomain.md, the above transformation is mathematically
+  // equivalent to the following transformation:
+  //               I0
+  //               |
+  //             split
+  //             /   \.
+  //           Io   Ig{g}
+  //          /  \.
+  //         /    \.
+  //        /      \.
+  //    split      split
+  //    /   \      /   \.
+  //   I1 I2'{m'} I3 I4'{n'}
+  // where
+  //   I2 = merge(I2', Ig), I4 = merge(I4', Ig)
+  // Note that
+  //   I0 = Composition{I1, I2', Ig}
+  // substitute to the above equation (1), we get:
+  //   I3 = PartOf{what=[I1, I2', Ig], inner_extent=n} ............ (2)
+  // Because I0 is divisible by m, Io is also divisible by m'. So we have:
+  //   I3 = PartOf{what=Io, inner_extent=n'}
+  // and
+  //   Io = [I1, I2']
+  // That is,
+  //   I3 = PartOf{what=[I1, I2'], inner_extent=n'} ............ (3)
+  // Comparing equation (2) and (3), we have:
+  //   PartOf{what=[I1, I2', Ig], inner_extent=n} =
+  //     PartOf{what=[I1, I2'], inner_extent=n'}
+  // That is, we can cancel the common factor of `what` and inner_extent.
+  if (!part.what->is<Composition>()) {
+    return part;
+  }
+  auto dq = part.what->as<Composition>();
+
+  Val* new_inner_extent = part.inner_extent;
+  if (new_inner_extent == nullptr) {
+    return part;
+  }
+
+  while (!dq.empty() &&
+         simplifyExpr(
+             IrBuilder::isDivisibleExpr(new_inner_extent, extent(dq.back())))
+             ->isTrue()) {
+    new_inner_extent =
+        simplifyExpr(IrBuilder::divExpr(new_inner_extent, extent(dq.back())));
+    dq.pop_back();
+  }
+  if (new_inner_extent->isOne()) {
+    new_inner_extent = nullptr;
+  }
+  NVF_ERROR(!dq.empty());
+  if (dq.size() == 1) {
+    return PartOf<Projection>{
+        std::make_shared<Projection>(dq.front()),
+        new_inner_extent,
+        part.selected_extent};
+  }
+  return PartOf<Projection>{
+      std::make_shared<Projection>(std::move(dq)),
+      new_inner_extent,
+      part.selected_extent};
+}
+
+PartOf<Projection> trimRedundant(const PartOf<Projection>& part) {
+  // If part.what is a composition then we only keep the minimum number of
+  // items in `what` that is sufficient to represent the selected_extent *
+  // inner_extent.
+  //
+  // Example:
+  // PartOf{what=[7, 3, 5, 2], inner_extent=3, selected_extent=5} =>
+  //   PartOf{what=[3, 5, 2], inner_extent=3, selected_extent=5}
+  //
+  // Proof of correctness:
+  // Suppose we have an IterDomain I0, and I0 is split in two different ways:
+  //             I0
+  //            /  \.
+  //           /    \.
+  //       split    split
+  //       /   \    /   \.
+  //     I1  I2{m} I3   I4{n}
+  //               |
+  //             split
+  //              /  \.
+  //             I5  I6{k}
+  // Assuming I0 is divisible by m, then we have:
+  //   I6 = PartOf{what=I0, inner_extent=n, selected_extent=k}
+  // and
+  //   I0 = Composition{I1, I2}
+  // substitute to the above equation, we get:
+  //   I6 = PartOf{what=[I1, I2], inner_extent=n, selected_extent=k}
+  //                                                       ............ (1)
+  // For the case where m is a multiple of n*k, according to Theorem 2.1 in
+  // doc/reading/iterdomain.md, the above transformation is mathematically
+  // equivalent to the following transformation:
+  //               I0
+  //               |
+  //             split
+  //             /   \.
+  //            I1   I2{m}
+  //                   |
+  //                 split
+  //                 /   \.
+  //                I7   I4{n}
+  //                 |
+  //               split
+  //               /   \.
+  //              I8   I6{k}
+  // where
+  //   I5 = merge(I1, I8)
+  // In the above transformation, we have:
+  //   I6 = PartOf{what=I2, inner_extent=n, selected_extent=k}
+  // Comparing equation (1) and the above equation, we have:
+  //   PartOf{what=[I1, I2], inner_extent=n, selected_extent=k} =
+  //     PartOf{what=I2, inner_extent=n, selected_extent=k}
+  // Note that the condition of Theorem 2.1 requires that the extent of I2 is
+  // a multiple of n*k, which is the same as the condition of this
+  // simplification.
+  if (!part.what->is<Composition>()) {
+    return part;
+  }
+  auto dq = part.what->as<Composition>();
+
+  Val* required_extent =
+      SimplifyingIrBuilder::mulExpr(part.selected_extent, part.inner_extent);
+
+  Val* what_extent = nullptr;
+  int64_t count = 0;
+  while (count < (int64_t)dq.size()) {
+    count++;
+    const auto& item = dq.at(dq.size() - count);
+    what_extent = SimplifyingIrBuilder::mulExpr(what_extent, extent(item));
+    if (simplifyExpr(IrBuilder::isDivisibleExpr(what_extent, required_extent))
+            ->isTrue()) {
+      break;
+    }
+  }
+  while (count < (int64_t)dq.size()) {
+    dq.pop_front();
+  }
+  NVF_ERROR(!dq.empty());
+  if (dq.size() == 1) {
+    return PartOf<Projection>{
+        std::make_shared<Projection>(dq.front()),
+        part.inner_extent,
+        part.selected_extent};
+  }
+  return PartOf<Projection>{
+      std::make_shared<Projection>(std::move(dq)),
+      part.inner_extent,
+      part.selected_extent};
+}
+
+PartOf<Projection> mergeParts(const PartOf<Projection>& part) {
+  // Combine PartOf(what=PartOf(what=x), ...) into PartOf(what=x, ...).
+  //
+  // Example:
+  // PartOf{
+  //   what=PartOf{what=24, inner_extent=2, selected_extent=12},
+  //   inner_extent=3,
+  //   selected_extent=2}
+  // =>
+  // PartOf{what=24, inner_extent=6, selected_extent=2}
+  if (!part.what->is<PartOf>()) {
+    return part;
+  }
+  const auto& what = part.what->as<PartOf>();
+
+  return PartOf<Projection>{
+      what.what,
+      SimplifyingIrBuilder::mulExpr(part.inner_extent, what.inner_extent),
+      part.selected_extent};
+}
+
+Projection eliminateTrivialPartOf(const PartOf<Projection>& part) {
+  // If part.what has the same extent as the selected extent, and there is no
+  // inner extent in part, then the full `what` is identical to the selected
+  // part.
+  //
+  // Example:
+  // PartOf{what=5, inner_extent=nullptr, selected_extent=5} => 5
+  if (part.inner_extent == nullptr &&
+      simplifyExpr(IrBuilder::eqExpr(extent(*part.what), part.selected_extent))
+          ->isTrue()) {
+    return *part.what;
+  }
+  return part;
+}
+
+Projection simplify(const PartOf<Projection>& part) {
+  // Recursively simplify subtree.
+  auto simplified = PartOf<Projection>{
+      std::make_shared<Projection>(simplify(*part.what)),
+      part.inner_extent,
+      part.selected_extent};
+  // Run simplification rules.
+  simplified = cancelCommonFactors(simplified);
+  simplified = trimRedundant(simplified);
+  simplified = mergeParts(simplified);
+  return eliminateTrivialPartOf(simplified);
+}
+
+Composition<Projection> flattenCompositions(
+    const Composition<Projection>& comp) {
+  // Flatten the composition into a single level.
+  //
+  // Example:
+  // Composition{Composition{5, 3}, 2} => Composition{5, 3, 2}
+  Composition<Projection> result;
+  for (const auto& proj : comp) {
+    if (proj.is<Composition>()) {
+      const auto& flat = proj.as<Composition>();
+      result.insert(result.end(), flat.begin(), flat.end());
+    } else {
+      result.push_back(proj);
+    }
+  }
+  return result;
+}
+
+Projection eliminateTrivialComposition(const Composition<Projection>& comp) {
+  // If the composition has only one element, then the composition is the same
+  // as the element.
+  //
+  // Example:
+  // Composition{5} => 5
+  if (comp.size() == 1) {
+    return comp.front();
+  }
+  return comp;
+}
+
+Projection simplify(const Composition<Projection>& comp) {
+  // Recursively simplify subtrees.
+  Composition<Projection> simplified;
+  for (const auto& proj : comp) {
+    simplified.push_back(simplify(proj));
+  }
+
+  // Run simplification rules.
+  simplified = flattenCompositions(simplified);
+  return eliminateTrivialComposition(simplified);
+}
+
+Projection simplify(const std::monostate& null) {
+  return null;
+}
+
+Projection simplify(Projection projection) {
+  // Run simplifications until convergence.
+  auto simplified = projection;
+  do {
+    projection = simplified;
+    simplified = Projection::dispatch(
+        [&](const auto& projection) { return simplify(projection); },
+        projection);
+  } while (simplified.type() != projection.type() || simplified != projection);
+  return projection;
+}
+
+} // namespace
+
+Val* proveLinearAndGetStride(
+    const ValGraph& id_graph,
+    const ValGroup& linear_g,
+    const ValGroups& domain) {
+  FusionGuard fg(linear_g->front()->fusion());
+  if (simplifyExpr(extent(linear_g))->isOne()) {
+    // If the extent of the linear group is 1, we always consider it as linear,
+    // regardless of its relationship with domain. For this case, we use stride
+    // zero as a placeholder, as "stride" is really meaningless for a dimension
+    // of size one.
+    return linear_g->front()->fusion()->zeroVal();
+  }
+  // Propagate from linear_g to domain. Use frontier to keep track of the
+  // how linear_g lives in the current propagation front.
+  Projection frontier = linear_g;
+  auto path = ValGraphBFS::getExprsBetween(id_graph, domain, {linear_g});
+  while (!path.empty()) {
+    const auto& [eg, direction] = path.back();
+    path.pop_back();
+    auto from = fromGroups(id_graph, eg, direction);
+    frontier = propagate(frontier, id_graph, eg, direction);
+    if (!frontier.hasValue()) {
+      // Not representable (or don't know how to represent) by the language of
+      // the dynamic type Projection.
+      return nullptr;
+    }
+  }
+  // After propagation, we should have the information about how linear_g lives
+  // in domain. Parse this information to check if linear_g is linear in domain.
+  return proveLinearAndGetStrideAfterPropagation(frontier, domain);
+}
+
+IterDomain* getConcreteLoopID(IterDomain* id) {
+  // Currently, the concrete loop ID depends on if loops are generated
+  // based on the IdModel loop promotion, which needs to be enabled
+  // explicitly by the IdModelEnableOption::Loop option.
+  if (isIdModelOptionEnabled(IdModelEnableOption::Loop)) {
+    // If enabled, the concret ID should be basically just the
+    // promotion ID itself. However, just to reduce literacl changes
+    // of generated kernels so that the CI diff check could report
+    // smaller number of errors, we try to see if the concrete ID by
+    // ComputeAtMap could be used as a substitute. If yes, that ID is
+    // returned instead of the promotion ID.
+
+    const auto& loop_graph =
+        GpuLower::current()->idModel().idGraph(IdMappingMode::LOOP);
+    auto promotion = getLoopPromotion(id, GpuLower::current()->idModel());
+    const auto& ca_map = GpuLower::current()->caMap();
+    const auto& loop_group = loop_graph.toGroup(id);
+
+    // Try to see if the CA concrete domain can be used instead
+    for (auto loop_val : *loop_group) {
+      IterDomain* loop_id = loop_val->as<IterDomain>();
+      if (ca_map->idExistsInMap(loop_id, IdMappingMode::LOOP)) {
+        auto ca_map_concrete =
+            ca_map->getConcreteMappedID(loop_id, IdMappingMode::LOOP);
+        if (GpuLower::current()
+                ->idModel()
+                .idGraph(IdMappingMode::LOOP)
+                .disjointValSets()
+                .strictAreMapped(ca_map_concrete, promotion) &&
+            GpuLower::current()
+                ->idModel()
+                .idGraph(IdMappingMode::EXACT)
+                .disjointValSets()
+                .strictAreMapped(ca_map_concrete, promotion)) {
+          return ca_map_concrete;
+        }
+      }
+    }
+
+    // The CAMap concrete ID is not a valid concrete ID. Use the
+    // promotion ID instead.
+    return promotion;
+  } else {
+    const auto& ca_map = GpuLower::current()->caMap();
+    return ca_map->getConcreteMappedID(id, IdMappingMode::LOOP);
+  }
 }
 
 } // namespace lower_utils

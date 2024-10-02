@@ -21,6 +21,7 @@
 #include <python_frontend/fusion_definition.h>
 #include <python_frontend/fusion_record.h>
 #include <python_frontend/python_bindings.h>
+#include <runtime/fusion_kernel_runtime.h>
 #include <scheduler/registry.h>
 #include <scheduler/scheduler_types.h>
 #include <torch/csrc/jit/python/pybind_utils.h>
@@ -541,7 +542,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("global", MemoryType::Global);
 
   //! Scheduler Type for scheduling
-  py::enum_<SchedulerType>(nvfuser, "SchedulerHeuristic")
+  py::enum_<SchedulerType>(nvfuser, "SchedulerType")
       .value("none", SchedulerType::None)
       .value("no_op", SchedulerType::NoOp)
       .value("pointwise", SchedulerType::PointWise)

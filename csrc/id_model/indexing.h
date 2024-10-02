@@ -155,11 +155,6 @@ class TensorIndexer {
   // producer-based indexing.
   std::vector<IterDomain*> getLoopDomains(const Expr* expr) const;
 
-  // Check if the loop index of a loop group should be always
-  // just zero. For example, a loop group with an extent of one, i.e.,
-  // a broadcast-only loop group, should just use zero.
-  bool shouldUseZeroIndex(const ValGroup& loop_group) const;
-
   // For a given indexng traversal path toward allocation_domains,
   // return the contiguous domains and their strides that can provide
   // equivalent indexing results.

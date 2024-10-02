@@ -11,6 +11,7 @@
 #include <scheduler/normalization_utils.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/registry_utils.h>
+#include <scheduler/runtime_info.h>
 #include <scheduler/utils.h>
 
 #include <ATen/cuda/CUDAContext.h>
@@ -18,24 +19,6 @@
 namespace nvfuser {
 using PersistentKernelProperties =
     normalization_scheduler_utils::PersistentKernelProperties;
-
-void InnerPersistentKernelScheduler::schedule(
-    Fusion* fusion,
-    const HeuristicParams* params) {
-  FUSER_PERF_SCOPE("InnerPersistentKernelScheduler::schedule");
-  auto rparams = dynamic_cast<const ReductionParams*>(params);
-  NVF_ERROR(
-      rparams != nullptr && rparams->scheduler_type == schedulerType(),
-      "Incorrect parameters sent to InnerPersistentKernelScheduler::schedule",
-      params);
-  scheduleInnerPersistentKernel(fusion, rparams);
-}
-
-bool InnerPersistentKernelScheduler::canScheduleCompileTime(Fusion* fusion) {
-  FUSER_PERF_SCOPE("InnerPersistentKernelScheduler::canScheduleCompileTime");
-  return normalization_scheduler_utils::compileTimeCheck(
-      fusion, schedulerType());
-}
 
 namespace {
 
@@ -77,100 +60,6 @@ std::pair<int64_t, int64_t> getPersistentBufferSize(
   return std::make_pair(
       persistent_buffer_size, available_persistent_buffer_size);
 }
-
-} // namespace
-
-bool InnerPersistentKernelScheduler::canScheduleRunTime(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicDataCache* data_cache) {
-  FUSER_PERF_SCOPE("InnerPersistentKernelScheduler::canScheduleRunTime");
-  auto reduction_tv_entry =
-      HeuristicDataCacheEntry<HeuristicCompileTime::ReductionTVs>(
-          data_cache, [&fusion]() {
-            return std::make_unique<std::vector<TensorView*>>(
-                scheduler_utils::getReductionTvs(fusion));
-          });
-
-  auto& reduction_tvs = reduction_tv_entry.get();
-
-  auto reference_tv = reduction_tvs[0];
-
-  auto properties = scheduler_utils::getReductionProperties(
-      fusion, runtime_info, reference_tv);
-
-  const int64_t warp_size = at::cuda::getCurrentDeviceProperties()->warpSize;
-
-  // check reduction properties, don't use shared memory persistent if 3D
-  // reduction
-  bool can_use_smem_persistent =
-      properties.total_reduction_numel == properties.inner_most_dimension_numel;
-
-  // pair of persistent_buffer_size and available_persistent_buffer_size
-  const std::pair<int64_t, int64_t> buffer_size = getPersistentBufferSize(
-      fusion, runtime_info, data_cache, reduction_tvs, can_use_smem_persistent);
-  const int64_t persistent_buffer_size = buffer_size.first;
-  const int64_t available_persistent_buffer_size = buffer_size.second;
-
-  const int64_t device_multiprocessor_count =
-      (int64_t)at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
-
-  if (persistent_buffer_size > available_persistent_buffer_size) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedulerType(),
-        can_use_smem_persistent
-            ? "not enough registers or shared memory for persistence."
-            : "not enough registers for persistence and shared memory persistence is not supported yet.");
-    return false;
-  }
-
-  const int64_t device_max_threads_per_multiprocessor =
-      (int64_t)at::cuda::getCurrentDeviceProperties()
-          ->maxThreadsPerMultiProcessor;
-
-  const int64_t required_sm_per_norm =
-      ceilDiv(persistent_buffer_size, scheduler_utils::register_file_size);
-
-  // If the persistence requires over half the device don't do grid
-  // persistence as we can't overlap the grid comms.
-  if (required_sm_per_norm >
-      scheduler_utils::safeDiv(device_multiprocessor_count, 2)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedulerType(), "requires over half GPU persistence.");
-    return false;
-  }
-
-  // Don't go persistent if we can't use a small fraction of the
-  // available SMs yet have a large reduction size.
-  if ( // Large reduction dim
-      properties.total_reduction_numel >=
-          device_max_threads_per_multiprocessor * 4 &&
-      properties.total_iteration_numel <
-          (properties.fastest_dim_reduction
-               ? scheduler_utils::safeDiv(device_multiprocessor_count, 8)
-               // Make sure we at least use a quarter of the device * a
-               // half warp
-               : (warp_size / 8) * device_multiprocessor_count)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedulerType(), "not enough blocks");
-    return false;
-  }
-
-  return true;
-}
-
-std::unique_ptr<HeuristicParams> InnerPersistentKernelScheduler::
-    computeHeuristics(
-        Fusion* fusion,
-        SchedulerRuntimeInfo& runtime_info,
-        HeuristicDataCache* data_cache) {
-  FUSER_PERF_SCOPE("InnerPersistentKernelScheduler::computeHeuristics");
-  auto rparams = getInnerPersistentHeuristics(fusion, runtime_info, data_cache);
-  NVF_ERROR(rparams != nullptr);
-  return rparams;
-}
-
-namespace {
 
 // Return the maximum register count each thread can use and achieved occupancy.
 // We always guarantee the returned register count is at least as large as the
@@ -1086,8 +975,6 @@ void innerPersistentHeuristic3D(
       LaunchParams::UNINITIALIZED_VAL);
 }
 
-} // namespace
-
 std::unique_ptr<ReductionParams> getInnerPersistentHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
@@ -1134,22 +1021,117 @@ std::unique_ptr<ReductionParams> getInnerPersistentHeuristics(
   return rparams;
 }
 
-std::unique_ptr<ReductionParams> getInnerPersistentHeuristics(
-    Fusion* fusion,
-    const at::ArrayRef<c10::IValue>& runtime_inputs,
-    HeuristicDataCache* data_cache) {
-  SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs);
-  return getInnerPersistentHeuristics(fusion, runtime_info, data_cache);
+} // namespace
+
+bool InnerPersistentKernelScheduler::canScheduleCompileTime(Fusion* fusion) {
+  FUSER_PERF_SCOPE("InnerPersistentKernelScheduler::canScheduleCompileTime");
+  return normalization_scheduler_utils::compileTimeCheck(
+      fusion, schedulerType());
 }
 
-void scheduleInnerPersistentKernel(
+bool InnerPersistentKernelScheduler::canScheduleRunTime(
     Fusion* fusion,
-    const ReductionParams* rparams) {
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicDataCache* data_cache) {
+  FUSER_PERF_SCOPE("InnerPersistentKernelScheduler::canScheduleRunTime");
+  auto reduction_tv_entry =
+      HeuristicDataCacheEntry<HeuristicCompileTime::ReductionTVs>(
+          data_cache, [&fusion]() {
+            return std::make_unique<std::vector<TensorView*>>(
+                scheduler_utils::getReductionTvs(fusion));
+          });
+
+  auto& reduction_tvs = reduction_tv_entry.get();
+
+  auto reference_tv = reduction_tvs[0];
+
+  auto properties = scheduler_utils::getReductionProperties(
+      fusion, runtime_info, reference_tv);
+
+  const int64_t warp_size = at::cuda::getCurrentDeviceProperties()->warpSize;
+
+  // check reduction properties, don't use shared memory persistent if 3D
+  // reduction
+  bool can_use_smem_persistent =
+      properties.total_reduction_numel == properties.inner_most_dimension_numel;
+
+  // pair of persistent_buffer_size and available_persistent_buffer_size
+  const std::pair<int64_t, int64_t> buffer_size = getPersistentBufferSize(
+      fusion, runtime_info, data_cache, reduction_tvs, can_use_smem_persistent);
+  const int64_t persistent_buffer_size = buffer_size.first;
+  const int64_t available_persistent_buffer_size = buffer_size.second;
+
+  const int64_t device_multiprocessor_count =
+      (int64_t)at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+
+  if (persistent_buffer_size > available_persistent_buffer_size) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(),
+        can_use_smem_persistent
+            ? "not enough registers or shared memory for persistence."
+            : "not enough registers for persistence and shared memory persistence is not supported yet.");
+    return false;
+  }
+
+  const int64_t device_max_threads_per_multiprocessor =
+      (int64_t)at::cuda::getCurrentDeviceProperties()
+          ->maxThreadsPerMultiProcessor;
+
+  const int64_t required_sm_per_norm =
+      ceilDiv(persistent_buffer_size, scheduler_utils::register_file_size);
+
+  // If the persistence requires over half the device don't do grid
+  // persistence as we can't overlap the grid comms.
+  if (required_sm_per_norm >
+      scheduler_utils::safeDiv(device_multiprocessor_count, 2)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(), "requires over half GPU persistence.");
+    return false;
+  }
+
+  // Don't go persistent if we can't use a small fraction of the
+  // available SMs yet have a large reduction size.
+  if ( // Large reduction dim
+      properties.total_reduction_numel >=
+          device_max_threads_per_multiprocessor * 4 &&
+      properties.total_iteration_numel <
+          (properties.fastest_dim_reduction
+               ? scheduler_utils::safeDiv(device_multiprocessor_count, 8)
+               // Make sure we at least use a quarter of the device * a
+               // half warp
+               : (warp_size / 8) * device_multiprocessor_count)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(), "not enough blocks");
+    return false;
+  }
+
+  return true;
+}
+
+std::unique_ptr<HeuristicParams> InnerPersistentKernelScheduler::
+    computeHeuristics(
+        Fusion* fusion,
+        SchedulerRuntimeInfo& runtime_info,
+        HeuristicDataCache* data_cache) {
+  FUSER_PERF_SCOPE("InnerPersistentKernelScheduler::computeHeuristics");
+  auto rparams = getInnerPersistentHeuristics(fusion, runtime_info, data_cache);
+  NVF_ERROR(rparams != nullptr);
+  return rparams;
+}
+
+void InnerPersistentKernelScheduler::schedule(
+    Fusion* fusion,
+    const HeuristicParams* params) {
+  FUSER_PERF_SCOPE("InnerPersistentKernelScheduler::schedule");
+  auto rparams = dynamic_cast<const ReductionParams*>(params);
+  NVF_ERROR(
+      rparams != nullptr && rparams->scheduler_type == schedulerType(),
+      "Incorrect parameters sent to InnerPersistentKernelScheduler::schedule",
+      params);
   NVF_ERROR(
       rparams->scheduler_type ==
       InnerPersistentKernelScheduler::schedulerType());
   normalization_scheduler_utils::schedulePersistentKernel(
       fusion, rparams, rparams->scheduler_type);
 }
-
 } // namespace nvfuser

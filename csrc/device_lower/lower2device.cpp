@@ -35,6 +35,7 @@
 #include <expr_simplifier.h>
 #include <fusion.h>
 #include <id_model/id_model.h>
+#include <id_model/utils.h>
 #include <instrumentation.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
@@ -346,7 +347,7 @@ bool requiresIdModel(Fusion* fusion) {
   // If a tensor does not have a nice root->logical/allocation->loop
   // linear transformation history, use IdModel.
   for (auto tv : fusion->allTvs()) {
-    if (!lower_utils::hasRootToLoopLinearTransformations(tv)) {
+    if (!ir_utils::hasRootToLoopLinearTransformations(tv)) {
       return true;
     }
   }
@@ -417,21 +418,11 @@ void GpuLower::analysis(Fusion* fusion) {
   // names
   if (this->requiresIdModel() || isOptionEnabled(EnableOption::IdModel)) {
     // Enable validation in the DEBUG build mode
-#ifdef NDEBUG
-    // Not DEBUG build
     id_model_ = std::make_unique<IdModel>(
         fusion_,
         /*build_graphs=*/true,
         /*allow_self_mapping=*/false,
         /*validate=*/false);
-#else
-    // DEBUG build
-    id_model_ = std::make_unique<IdModel>(
-        fusion_,
-        /*build_graphs=*/true,
-        /*allow_self_mapping=*/false,
-        /*validate=*/true);
-#endif
     id_model_->validateAndPropagatePType();
   }
 
@@ -523,6 +514,10 @@ void GpuLower::analysis(Fusion* fusion) {
   compute_at_map_->allocateIndexVariables();
   dumpExprsIfEnabled(fusion_->exprs(), "allocateIndexVariables");
 
+  if (isIdModelOptionEnabled(IdModelEnableOption::Loop)) {
+    id_model_->allocateLoopIndexVariables();
+  }
+
   if (this->requiresIdModel() || isOptionEnabled(EnableOption::IdModel)) {
     tensor_indexer_ = std::make_unique<TensorIndexer>(*id_model_);
   }
@@ -580,6 +575,16 @@ bool GpuLower::resolveComputeWith(Fusion* fusion) {
   }
 
   return updated;
+}
+
+Val* GpuLower::getLoopIndexVariable(
+    IterDomain* id,
+    CircularBufferLoopStage stage) const {
+  if (isIdModelOptionEnabled(IdModelEnableOption::Loop)) {
+    return idModel().getLoopIndexVariable(id, stage);
+  } else {
+    return caMap()->getIndexVariable(id, stage);
+  }
 }
 
 } // namespace nvfuser

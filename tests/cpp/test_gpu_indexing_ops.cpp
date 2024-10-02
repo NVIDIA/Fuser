@@ -8,8 +8,8 @@
 #include <csrc/exceptions.h>
 #include <gtest/gtest.h>
 
-#include <kernel_cache.h>
 #include <ops/all_ops.h>
+#include <runtime/fusion_executor_cache.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
@@ -391,22 +391,21 @@ TEST_F(NVFuserTest, FusionIndexSelect_Sum_CUDA) {
       at::randn({nElem_select, nFeat}, options); // output&elemwise
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   at::Tensor input_idx = at::randint(0, nElem, (nElem_select), options_i);
-  at::Tensor output = at::zeros({nElem_select}, options);
+  at::Tensor cg_output = at::zeros({nElem_select}, options);
 
   std::vector<c10::IValue> aten_inputs = {input1, input0, input_idx};
-  auto rparams = getReductionHeuristics(&fusion, aten_inputs);
-  scheduleReduction(&fusion, rparams.get());
-  auto lparams = rparams->lparams;
+  auto heuristic_params = SchedulerEntry::scheduleWith(
+      &fusion, SchedulerType::Reduction, aten_inputs);
   FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs, lparams);
-  fe.runFusion(aten_inputs, {output}, lparams);
+  fe.compileFusion(&fusion, aten_inputs, heuristic_params->lparams);
+  fe.runFusion(aten_inputs, {cg_output}, heuristic_params->lparams);
 
   auto tv0_ref = at::index_select(input0, 0, input_idx);
   at::Tensor tv2_ref = tv0_ref * input1;
   at::Tensor output_add = tv2_ref + 17.0;
   at::Tensor output_ref = output_add.sum({1});
 
-  NVF_CHECK(output_ref.allclose(output));
+  NVF_CHECK(output_ref.allclose(cg_output));
 }
 
 TEST_F(NVFuserTest, FusionIndexSelectIdxTvFuseable_CUDA) {

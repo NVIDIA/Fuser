@@ -13,8 +13,6 @@
 #include <disjoint_set.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
-#include <fusion_executor/executor.h>
-#include <fusion_executor/executor_params.h>
 #include <fusion_segmenter.h>
 #include <grouped_reduction.h>
 #include <inlining.h>
@@ -24,10 +22,12 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
-#include <kernel_cache.h>
 #include <kernel_ir.h>
 #include <logical_domain_map.h>
 #include <ops/all_ops.h>
+#include <runtime/executor.h>
+#include <runtime/executor_params.h>
+#include <runtime/fusion_executor_cache.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>
@@ -2488,25 +2488,18 @@ TEST_F(NVFuserTest, FusionGeluBwdReduction_CUDA) {
   auto at_output_pointwise = at::gelu_backward(at_grad, at_x, "tanh");
   auto at_output_reduction = at_output_pointwise.sum({0});
 
-  // fusion values
-  std::vector<int64_t> reduction_axes{0};
-  auto rparams = getReductionHeuristics(&fusion, {at_grad, at_xvar});
-  NVF_CHECK(rparams, "Reduction schedule was not generated!");
-  scheduleReduction(&fusion, rparams.get());
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {at_grad, at_xvar}, rparams->lparams);
-  auto cg_outputs = fe.runFusion({at_grad, at_xvar}, rparams->lparams);
-
+  std::vector<c10::IValue> aten_inputs({at_grad, at_xvar});
+  auto cg_results =
+      scheduleAndRun(&fusion, SchedulerType::Reduction, aten_inputs);
   testValidate(
       &fusion,
-      cg_outputs,
-      {at_grad, at_xvar},
+      cg_results.outputs,
+      aten_inputs,
       {at_output_pointwise, at_output_reduction},
       __LINE__,
       __FILE__,
       "",
-      rparams->lparams);
+      cg_results.heuristic_params->lparams);
 }
 
 // Test gathering for lookup as is done in the cross_entropy pattern

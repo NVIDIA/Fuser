@@ -86,32 +86,9 @@ namespace nvfuser {
 class SchedulerRuntimeInfo;
 class HeuristicDataCache;
 
-std::unique_ptr<TransposeParams> getTransposeHeuristics(
-    Fusion* fusion,
-    const at::ArrayRef<c10::IValue>& runtime_inputs,
-    HeuristicDataCache* data_cache = nullptr);
-
-std::unique_ptr<TransposeParams> getTransposeHeuristics(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicDataCache* data_cache = nullptr);
-
-NVF_API void scheduleTranspose(Fusion* fusion, const TransposeParams* params);
-
-NVF_API LaunchParams scheduleTranspose(
-    Fusion* fusion,
-    const at::ArrayRef<c10::IValue>& runtime_inputs);
-
 //! Utility for canSchedule interface to check if this fusion has at least two
 //! groups, each with a fully broadcasted reference tensor.
 NVF_API bool hasAtLeastTwoValidGroups(Fusion* fusion);
-
-// If can schedule at runtime, returns empty string, otherwise returns the
-// reason why we should not schedule at runtime.
-std::string getTransposeRuntimeRejectReason(
-    Fusion* fusion,
-    HeuristicDataCache* data_cache,
-    SchedulerRuntimeInfo& runtime_info);
 
 class TransposeScheduler : public SchedulerEntry {
  public:
@@ -122,16 +99,16 @@ class TransposeScheduler : public SchedulerEntry {
       SchedulerRuntimeInfo& runtime_info,
       HeuristicDataCache* data_cache = nullptr) override;
 
-  constexpr static SchedulerType schedulerType() {
-    return SchedulerType::Transpose;
-  }
-
-  void schedule(Fusion* fusion, const HeuristicParams* params) override;
-
   std::unique_ptr<HeuristicParams> computeHeuristics(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
       HeuristicDataCache* data_cache) override;
+
+  void schedule(Fusion* fusion, const HeuristicParams* params) override;
+
+  constexpr static SchedulerType schedulerType() {
+    return SchedulerType::Transpose;
+  }
 };
 
 } // namespace nvfuser

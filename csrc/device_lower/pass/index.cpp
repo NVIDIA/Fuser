@@ -8,6 +8,7 @@
 #include <device_lower/analysis/index_compute.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
+#include <id_model/schedule.h>
 #include <index_compute.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
@@ -1440,6 +1441,17 @@ void IndexLowering::handle(const kir::MBarrierInvalidate* minval) {
   GpuLower::current()->propagateExprInfo(minval, minval_indexed);
 }
 
+void IndexLowering::handle(const kir::MBarrierArrive* arrive_transaction) {
+  NVF_ERROR(
+      arrive_transaction->mbarrier()->isA<kir::TensorIndex>(),
+      "Expected kir::TensorIndex in MBarrierArriveExpectTx");
+
+  Val* smem_address_ptr = lower_utils::u32IndexScalarSmemTv(
+      arrive_transaction->mbarrier()->as<kir::TensorIndex>());
+  pushBack(IrBuilder::create<kir::MBarrierArrive>(
+      arrive_transaction->state(), smem_address_ptr));
+}
+
 void IndexLowering::handle(
     const kir::MBarrierArriveExpectTx* arrive_transaction) {
   NVF_ERROR(
@@ -1470,11 +1482,11 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
   // mbarrier_wait are added by the circular buffer pass. Otherwise, those
   // nodes are added here.
   bool is_circular_buffered =
-      (GpuLower::current()->ldstMBarrierIndexMap().count(ldst) != 0);
+      (GpuLower::current()->tmaCircularBufferInfo().existsTensorIndex(ldst));
 
   if (is_circular_buffered) {
     kir::TensorIndex* mbarrier =
-        GpuLower::current()->ldstMBarrierIndexMap().at(ldst);
+        GpuLower::current()->tmaCircularBufferInfo().getTensorIndex(ldst);
     Val* mbarrier_index = lower_utils::u32IndexScalarSmemTv(mbarrier);
 
     // gmem indexing and expect_bytes for mbarrier
@@ -1490,7 +1502,8 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
     pushBack(new_ldst);
 
     // register new LoadStoreOp with mbarrier
-    GpuLower::current()->ldstMBarrierIndexMap()[new_ldst] = mbarrier;
+    GpuLower::current()->tmaCircularBufferInfo().recordTensorIndex(
+        new_ldst, mbarrier);
 
     GpuLower::current()->propagateExprInfo(ldst, back());
   } else {
@@ -1742,10 +1755,212 @@ static MmaInputSmemSwizzle getSwizzleMode(TensorView* tv) {
       swizzle->inX()->extent()->evaluate().as<int64_t>() * 16);
 }
 
+// Get the ValGroup of the ID in consumer's loop domain that corresponds to the
+// innermost dimension in the allocation domain of tv. This ID must be
+// parallelized on Mma.
+ValGroup getInnerMmaLoopGroup(TensorView* tv, const MmaOp* mma) {
+  ValGraph& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
+  auto alloc_domain = id_graph.toGroups(
+      TensorDomain::noBroadcasts(tv->getMaybeAllocationDomain()));
+  auto loop_domain =
+      id_graph.toGroups(mma->out()->as<TensorView>()->getLoopDomain());
+
+  // Start from the innermost dim in the allocation domain, propagate all the
+  // way to the consumer's loop domain, and keep track of the inner dimension.
+  // After propagating, the inner dimension should be a dimension that is
+  // parallelized on Mma.
+  NVF_ERROR(
+      !alloc_domain.empty(),
+      "Matmul with all broadcasting dimension is not supported yet.");
+  ValGroup inner = alloc_domain.back();
+
+  auto exprs =
+      ValGraphBFS::getExprsBetween(id_graph, loop_domain, alloc_domain);
+  while (!exprs.empty()) {
+    auto [expr, direction] = exprs.back();
+    exprs.pop_back();
+    auto from =
+        (direction == Direction::Backward ? id_graph.inputGroups(expr)
+                                          : id_graph.outputGroups(expr));
+    auto to =
+        (direction == Direction::Backward ? id_graph.outputGroups(expr)
+                                          : id_graph.inputGroups(expr));
+    bool in_from = std::find(from.begin(), from.end(), inner) != from.end();
+    if (!in_from) {
+      continue;
+    }
+    NVF_ERROR(
+        from.back() == inner,
+        "Expecting the innermost of the alloc domain to stay inner");
+    inner = to.back();
+  }
+  IterDomain* inner_id = nullptr;
+  for (auto id : mma->out()->as<TensorView>()->getLoopDomain()) {
+    if (inner->has(id)) {
+      inner_id = id;
+      break;
+    }
+  }
+  NVF_ERROR(
+      inner_id != nullptr,
+      "Could not find innermost ID in the loop domain of mma output");
+  NVF_ERROR(
+      inner_id->getParallelType() == ParallelType::Mma,
+      "Expecting the innermost ID to be parallelized on Mma");
+  return inner;
+}
+
+// Compute the "leading_bytes" in the matrix descriptor of Mma. The leading
+// bytes is the stride of the innermost dimension in the allocation domain of tv
+// considering core matrices. For example, if the tv is [M, K], where K is the
+// inner, then the schedule of the loop domain of the mma output must be
+// something like:
+//      M            K
+//      |            |
+//     ...          ...
+//      |            |
+//     / \.         / \.
+//   ...  m_inst  ...  k_inst
+// where m_inst and k_inst are the instruction tiles of M and K, respectively,
+// that is, the number of items each TensorCore instruction can execute. Both
+// m_inst and k_inst must be parallelized on Mma. The leading_bytes is the
+// stride of the outer (k_inst/swizzle_size) in the allocation domain of tv.
+// That is, if we futher split k_inst as:
+//      M            K
+//      |            |
+//     ...          ...
+//      |            |
+//     / \.         / \.
+//   ...  m_inst  ...  k_inst
+//                     /    \.
+//               linear      swizzle_size
+// Then we would need to prove that `linear` is linear in the allocation domain
+// of tv, and the stride of `linear` is the leading_bytes. This function does
+// the following things:
+// 1. Find k_inst.
+// 2. Split k_inst as above.
+// 3. Prove that `linear` is linear in the allocation domain of tv, and get the
+//    stride of `linear`.
+Val* getInnerStrideBytes(TensorView* tv, const MmaOp* mma) {
+  auto swizzle = getSwizzleMode(tv);
+  auto swizzle_size = getBytesFromSwizzle(swizzle) / dataTypeSize(tv->dtype());
+  ValGraph& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
+  auto alloc_domain = id_graph.toGroups(tv->getMaybeAllocationDomain());
+  auto inner = getInnerMmaLoopGroup(tv, mma);
+  // At this point, we can just create the following schedule:
+  //        inner
+  //       /     \.
+  //   linear   swizzle_size
+  // and use proveLinearAndGetStride to find the stride of `linear` in the
+  // allocation domain.
+  auto outer_of_tiling = split(&id_graph, inner, swizzle_size).first;
+  auto stride = lower_utils::proveLinearAndGetStride(
+      id_graph, outer_of_tiling, alloc_domain);
+  NVF_ERROR(stride != nullptr, "Could not get the stride of tiling");
+  return SimplifyingIrBuilder::mulExpr(stride, dataTypeSize(tv->dtype()));
+}
+
+// Compute the "stride_bytes" in the matrix descriptor of Mma. The stride
+// bytes is the stride of the outer dimension in the allocation domain of tv
+// considering core matrices. For example, if the tv is [M, K], where K is the
+// inner, then the schedule of the loop domain of the mma output must be
+// something like:
+//      M            K
+//      |            |
+//     ...          ...
+//      |            |
+//     / \.         / \.
+//   ...  m_inst  ...  k_inst
+// where m_inst and k_inst are the instruction tiles of M and K, respectively,
+// that is, the number of items each TensorCore instruction can execute. Both
+// m_inst and k_inst must be parallelized on Mma. The stride_bytes is the
+// stride of the outer (m_inst/8) in the allocation domain of tv.
+// That is, if we futher split m_inst as:
+//       M            K
+//       |            |
+//      ...          ...
+//       |            |
+//      / \.         / \.
+//    ...  m_inst  ...  k_inst
+//         /    \.
+//   linear      8
+// Then we would need to prove that `linear` is linear in the allocation domain
+// of tv, and the stride of `linear` is the stride_bytes. This function does
+// the following things:
+// 1. Find m_inst.
+// 2. Split m_inst as above.
+// 3. Prove that `linear` is linear in the allocation domain of tv, and get the
+//    stride of `linear`.
+Val* getOuterStrideBytes(TensorView* tv, const MmaOp* mma) {
+  ValGraph& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
+  auto logical_domain =
+      id_graph.toGroups(TensorDomain::noBroadcasts(tv->getLogicalDomain()));
+  auto loop_domain =
+      id_graph.toGroups(mma->out()->as<TensorView>()->getLoopDomain());
+  auto alloc_domain = id_graph.toGroups(tv->getMaybeAllocationDomain());
+
+  // In the consumer's loop domain, there should be exactly 3 IDs parallelized
+  // on Mma. Which of these three dims are M, N, and K? We don't know. But we
+  // don't really care. What we do care is, which is the inner? which is the
+  // broadcast? We would find the loop dim that is neither inner nor broadcast,
+  // and the stride of that dim is the one we are looking for.
+  auto inner = getInnerMmaLoopGroup(tv, mma);
+  std::vector<ValGroup> mma_groups;
+  mma_groups.reserve(2);
+  for (auto id : mma->out()->as<TensorView>()->getLoopDomain()) {
+    if (id->getParallelType() == ParallelType::Mma && !inner->has(id)) {
+      mma_groups.emplace_back(id_graph.toGroup(id));
+    }
+  }
+  NVF_ERROR(
+      mma_groups.size() == 2,
+      "Expecting 3 IDs in the loop domain of mma output to be parallelized on Mma,",
+      " among which one must be the innermost of producer's allocation domain");
+
+  // Get which group in mma_groups is projected to a concrete ID in the logical
+  // domain of tv. There should be exactly one such group.
+  auto is_projected_to_concrete = [&](const ValGroup& g) {
+    auto projection_on_logical =
+        ValGraphBFS::projectTo(id_graph, {g}, logical_domain);
+    for (auto id : tv->getLogicalDomain()) {
+      if (!id->isBroadcast() &&
+          projection_on_logical.count(id_graph.toGroup(id))) {
+        return true;
+      }
+    }
+    return false;
+  };
+  ValGroup selected = nullptr;
+  for (auto& g : mma_groups) {
+    if (is_projected_to_concrete(g)) {
+      NVF_ERROR(
+          selected == nullptr,
+          "Expecting exactly one group in mma output loop domain to be projected to a concrete ID in the logical domain of tv");
+      selected = std::move(g);
+    }
+  }
+  NVF_ERROR(
+      selected != nullptr,
+      "No group in mma output loop domain is projected to a concrete ID in the logical domain of tv");
+
+  // At this point, we can just create the following schedule:
+  //      selected
+  //       /     \.
+  //   linear     8
+  // and use proveLinearAndGetStride to find the stride of `linear` in the
+  // allocation domain.
+  constexpr int64_t core_matrix_outer_size = 8;
+  auto outer_of_tiling =
+      split(&id_graph, selected, core_matrix_outer_size).first;
+  auto stride = lower_utils::proveLinearAndGetStride(
+      id_graph, outer_of_tiling, alloc_domain);
+  NVF_ERROR(stride != nullptr, "Could not get the stride of tiling");
+  return SimplifyingIrBuilder::mulExpr(stride, dataTypeSize(tv->dtype()));
+}
+
 // Reference for smem strides:
 // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#strides
 void IndexLowering::handle(const MmaOp* mma) {
-  constexpr int64_t core_matrix_outer_size = 8;
   Val* a = nullptr;
   Val* b = nullptr;
   const auto& [unitdim_a, unitdim_b] = lower_utils::getMmaLayout(mma);
@@ -1761,22 +1976,16 @@ void IndexLowering::handle(const MmaOp* mma) {
     auto base_addr = lowerSrcIndex(tv, mma->out(), {}, true)
                          ->as<kir::TensorIndex>()
                          ->index();
-    int64_t leading_bytes = core_matrix_outer_size *
-        getBytesFromSwizzle(swizzle); // swizzle period in bytes
-    int64_t inner_size =
-        unitdim_a == UnitDim::K ? getK(mma->macro()) : getM(mma->macro());
-    int64_t stride_bytes = core_matrix_outer_size *
-        /*number of core matrices, rounded up to handle padding */
-        roundUpToMultiple(inner_size * /*bytes per item*/ 2L,
-                          getBytesFromSwizzle(swizzle));
+    Val* leading_bytes = getInnerStrideBytes(tv, mma);
+    Val* stride_bytes = getOuterStrideBytes(tv, mma);
     if (swizzle == MmaInputSmemSwizzle::None && unitdim_a == UnitDim::M_or_N) {
       // tnspA and tnspB is ignored for NoSwizzle mode
       std::swap(leading_bytes, stride_bytes);
     }
     auto matrix_desc = constructMatrixDescriptor(
         base_addr,
-        IrBuilder::create<Val>(leading_bytes, DataType::UInt),
-        IrBuilder::create<Val>(stride_bytes, DataType::UInt),
+        leading_bytes,
+        stride_bytes,
         IrBuilder::create<Val>(0, DataType::UInt),
         getSwizzleMode(tv));
     a = IrBuilder::create<kir::TensorIndex>(
@@ -1799,22 +2008,16 @@ void IndexLowering::handle(const MmaOp* mma) {
     auto base_addr = lowerSrcIndex(tv, mma->out(), {}, true)
                          ->as<kir::TensorIndex>()
                          ->index();
-    int64_t leading_bytes = core_matrix_outer_size *
-        getBytesFromSwizzle(swizzle); // swizzle period in bytes
-    int64_t inner_size =
-        unitdim_b == UnitDim::K ? getK(mma->macro()) : getN(mma->macro());
-    int64_t stride_bytes = core_matrix_outer_size *
-        /*number of core matrices, rounded up to handle padding */
-        roundUpToMultiple(inner_size * /*bytes per item*/ 2L,
-                          getBytesFromSwizzle(swizzle));
+    Val* leading_bytes = getInnerStrideBytes(tv, mma);
+    Val* stride_bytes = getOuterStrideBytes(tv, mma);
     if (swizzle == MmaInputSmemSwizzle::None && unitdim_b == UnitDim::M_or_N) {
       // tnspA and tnspB is ignored for NoSwizzle mode
       std::swap(leading_bytes, stride_bytes);
     }
     auto matrix_desc = constructMatrixDescriptor(
         base_addr,
-        IrBuilder::create<Val>(leading_bytes, DataType::UInt),
-        IrBuilder::create<Val>(stride_bytes, DataType::UInt),
+        leading_bytes,
+        stride_bytes,
         IrBuilder::create<Val>(0, DataType::UInt),
         swizzle);
     b = IrBuilder::create<kir::TensorIndex>(

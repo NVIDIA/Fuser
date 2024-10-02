@@ -7,7 +7,7 @@
 // clang-format on
 #pragma once
 
-#include <fusion_executor/executor_params.h>
+#include <runtime/executor_params.h>
 #include <scheduler/scheduler_types.h>
 #include <utils.h>
 
@@ -17,7 +17,6 @@ namespace nvfuser {
 
 class SchedulerRuntimeInfo;
 class HeuristicDataCache;
-class SchedulerEntry;
 
 // Top-level class representing heuristic parameters. Most schedulers
 // have their own subclasses to have their specific parameters, except

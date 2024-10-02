@@ -10,9 +10,9 @@
 
 #include <device_lower/lower2device.h>
 #include <fusion.h>
-#include <fusion_executor/executor.h>
 #include <ir/builder.h>
 #include <ops/arith.h>
+#include <runtime/executor.h>
 #include <scheduler/all_schedulers.h>
 
 #include <benchmark/benchmark.h>
@@ -116,7 +116,8 @@ static void NvFuserScheduler_GeluBackward_AutoSchedule(
     benchmark_state.ResumeTiming();
 
     // Auto-schedule
-    schedulePointwise(&fusion, c10::ArrayRef<c10::IValue>(inputs));
+    SchedulerEntry::scheduleWith(
+        &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
   }
 }
 
@@ -135,7 +136,8 @@ static void NvFuserScheduler_GeluBackward_Lower(
   // inputs
   std::vector<c10::IValue> inputs = setupInputs();
 
-  schedulePointwise(&fusion, c10::ArrayRef<c10::IValue>(inputs));
+  SchedulerEntry::scheduleWith(
+      &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
 
   for (auto _ : benchmark_state) {
     GpuLower(&fusion).run();
@@ -156,11 +158,12 @@ static void NvFuserScheduler_GeluBackward_Compile(
   // inputs
   std::vector<c10::IValue> inputs = setupInputs();
 
-  auto lparams = schedulePointwise(&fusion, c10::ArrayRef<c10::IValue>(inputs));
+  auto heuristic_params = SchedulerEntry::scheduleWith(
+      &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
 
   for (auto _ : benchmark_state) {
     FusionExecutor executor;
-    executor.compileFusion(&fusion, inputs, lparams);
+    executor.compileFusion(&fusion, inputs, heuristic_params->lparams);
   }
 }
 
@@ -181,15 +184,17 @@ static void NvFuserScheduler_GeluBackward_RunFusion(
   // outputs
   std::vector<at::Tensor> outputs;
 
-  auto lparams = schedulePointwise(&fusion, c10::ArrayRef<c10::IValue>(inputs));
+  auto heuristic_params = SchedulerEntry::scheduleWith(
+      &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
 
   FusionExecutor executor;
-  executor.compileFusion(&fusion, inputs, lparams);
+  executor.compileFusion(&fusion, inputs, heuristic_params->lparams);
 
   C10_CUDA_CHECK(cudaDeviceSynchronize());
 
   for (auto _ : benchmark_state) {
-    outputs = executor.runFusion(c10::ArrayRef<c10::IValue>(inputs), lparams);
+    outputs = executor.runFusion(
+        c10::ArrayRef<c10::IValue>(inputs), heuristic_params->lparams);
     C10_CUDA_CHECK(cudaDeviceSynchronize());
     clearL2Cache();
   }
@@ -210,12 +215,14 @@ static void NvFuserScheduler_GeluBackward_RunFusion_GpuOnly(
   // inputs
   std::vector<c10::IValue> inputs = setupInputs();
 
-  auto lparams = schedulePointwise(&fusion, c10::ArrayRef<c10::IValue>(inputs));
+  auto heuristic_params = SchedulerEntry::scheduleWith(
+      &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
 
   FusionExecutor executor;
-  executor.compileFusion(&fusion, inputs, lparams);
+  executor.compileFusion(&fusion, inputs, heuristic_params->lparams);
 
-  runBenchmarkIterations(benchmark_state, &executor, inputs, lparams);
+  runBenchmarkIterations(
+      benchmark_state, &executor, inputs, heuristic_params->lparams);
 }
 
 BENCHMARK(NvFuserScheduler_GeluBackward_RunFusion_GpuOnly)
@@ -237,14 +244,16 @@ static void NvFuserScheduler_GeluBackward_RunFusion_CpuOnly(
   // outputs
   std::vector<at::Tensor> outputs;
 
-  auto lparams = schedulePointwise(&fusion, c10::ArrayRef<c10::IValue>(inputs));
+  auto heuristic_params = SchedulerEntry::scheduleWith(
+      &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
 
   FusionExecutor executor;
   executor.setExecuteKernelFlag(false);
-  executor.compileFusion(&fusion, inputs, lparams);
+  executor.compileFusion(&fusion, inputs, heuristic_params->lparams);
 
   for (auto _ : benchmark_state) {
-    outputs = executor.runFusion(c10::ArrayRef<c10::IValue>(inputs), lparams);
+    outputs = executor.runFusion(
+        c10::ArrayRef<c10::IValue>(inputs), heuristic_params->lparams);
   }
 }
 

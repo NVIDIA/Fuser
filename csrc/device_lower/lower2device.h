@@ -24,7 +24,6 @@
 #include <device_lower/pass/warp_reduce.h>
 #include <exceptions.h>
 #include <expr_simplifier.h>
-#include <fusion_executor/executor_params.h>
 #include <id_model/id_model.h>
 #include <id_model/indexing.h>
 #include <ir/all_nodes.h>
@@ -34,6 +33,7 @@
 #include <non_divisible_split.h>
 #include <options.h>
 #include <parallel_dimension_map.h>
+#include <runtime/executor_params.h>
 #include <vectorization_info.h>
 #include <visibility.h>
 
@@ -182,6 +182,10 @@ class GpuLower : public NonCopyable {
     return circular_buffer_info_;
   }
 
+  TmaCircularBufferInfo& tmaCircularBufferInfo() {
+    return tma_circular_buffer_info_;
+  }
+
   CommonScalarMap& commonScalarMap() {
     return common_scalar_map_;
   }
@@ -228,32 +232,6 @@ class GpuLower : public NonCopyable {
 
   const std::unordered_map<const Expr*, TensorView*>& ldstMBarrierMap() const {
     return ldst_mbarrier_map_;
-  }
-
-  std::unordered_map<const Expr*, TensorView*>& ldstMBarrierTokenMap() {
-    return ldst_mbarrier_token_map_;
-  }
-
-  const std::unordered_map<const Expr*, TensorView*>& ldstMBarrierTokenMap()
-      const {
-    return ldst_mbarrier_token_map_;
-  }
-
-  std::unordered_set<const Expr*>& mBarrierTokenSmemAllocSet() {
-    return mbarrier_token_smem_alloc_set_;
-  }
-
-  const std::unordered_set<const Expr*>& mBarrierTokenSmemAllocSet() const {
-    return mbarrier_token_smem_alloc_set_;
-  }
-
-  std::unordered_map<const Expr*, kir::TensorIndex*>& ldstMBarrierIndexMap() {
-    return ldst_mbarrier_index_map_;
-  }
-
-  const std::unordered_map<const Expr*, kir::TensorIndex*>&
-  ldstMBarrierIndexMap() const {
-    return ldst_mbarrier_index_map_;
   }
 
   bool isNvFuserZeroEnabled() {
@@ -326,6 +304,15 @@ class GpuLower : public NonCopyable {
     return validations_;
   }
 
+  // Get the index variable assigned for a given loop ID. Currently
+  //  it's a wrapper around ComputeAtMap::getIndexVariable or
+  // IdModel::getLoopIndexVariable if IdModelEnableOption::Loop is
+  //  enabled.
+  Val* getLoopIndexVariable(
+      IterDomain* id,
+      CircularBufferLoopStage stage =
+          CircularBufferLoopStage::NotApplicable) const;
+
  private:
   void analysis(Fusion* fusion);
 
@@ -360,6 +347,7 @@ class GpuLower : public NonCopyable {
   ParallelDimensionMap parallel_dimension_map_;
   NonDivisibleSplitInfo non_divisible_split_info_;
   CircularBufferInfo circular_buffer_info_;
+  TmaCircularBufferInfo tma_circular_buffer_info_;
   CommonScalarMap common_scalar_map_;
   FusedReductionInfo fused_reduction_info_;
   std::shared_ptr<const SyncMap> sync_map_;
@@ -388,19 +376,6 @@ class GpuLower : public NonCopyable {
   //! "extent mod split_factor == 0" and an error message for divisibility check
   //! for vectorization.
   std::vector<std::pair<const Val*, std::string>> validations_;
-
-  // Keep track of placeholders for tokens returned by arrive/expected tx
-  // mbarrier operations for each load/store operation that requires such
-  // synchronization
-  std::unordered_map<const Expr*, TensorView*> ldst_mbarrier_token_map_;
-
-  // Collection of kir::Allocate for smem buffers used for mbarrier and token
-  // objects from cpAsyncBulk synchronization
-  std::unordered_set<const Expr*> mbarrier_token_smem_alloc_set_;
-
-  // Keep track what mbarrier object is used in load/store operation that
-  // requires such synchronization, required by indexing pass
-  std::unordered_map<const Expr*, kir::TensorIndex*> ldst_mbarrier_index_map_;
 
   Fusion* fusion_ = nullptr;
 

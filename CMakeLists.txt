@@ -125,11 +125,6 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/expr_evaluator.cpp
   ${NVFUSER_SRCS_DIR}/expr_simplifier.cpp
   ${NVFUSER_SRCS_DIR}/fusion.cpp
-  ${NVFUSER_SRCS_DIR}/fusion_executor/allocations.cpp
-  ${NVFUSER_SRCS_DIR}/fusion_executor/executor.cpp
-  ${NVFUSER_SRCS_DIR}/fusion_executor/executor_kernel_arg.cpp
-  ${NVFUSER_SRCS_DIR}/fusion_executor/executor_params.cpp
-  ${NVFUSER_SRCS_DIR}/fusion_executor/executor_utils.cpp
   ${NVFUSER_SRCS_DIR}/fusion_guard.cpp
   ${NVFUSER_SRCS_DIR}/fusion_segmenter.cpp
   ${NVFUSER_SRCS_DIR}/global_allocator.cpp
@@ -162,11 +157,11 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/ir/utils.cpp
   ${NVFUSER_SRCS_DIR}/iter_visitor.cpp
   ${NVFUSER_SRCS_DIR}/kernel.cpp
-  ${NVFUSER_SRCS_DIR}/kernel_cache.cpp
   ${NVFUSER_SRCS_DIR}/kernel_db/kernel_db.cpp
   ${NVFUSER_SRCS_DIR}/kernel_db/utils.cpp
   ${NVFUSER_SRCS_DIR}/kernel_ir.cpp
   ${NVFUSER_SRCS_DIR}/kernel_ir_dispatch.cpp
+  ${NVFUSER_SRCS_DIR}/logical_domain_map.cpp
   ${NVFUSER_SRCS_DIR}/maxinfo_propagator.cpp
   ${NVFUSER_SRCS_DIR}/mma_type.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/communication.cpp
@@ -202,9 +197,16 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/preseg_passes/remove_empty.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/reorder_sharded_axis.cpp
   ${NVFUSER_SRCS_DIR}/rng.cpp
-  ${NVFUSER_SRCS_DIR}/logical_domain_map.cpp
+  ${NVFUSER_SRCS_DIR}/runtime/allocations.cpp
+  ${NVFUSER_SRCS_DIR}/runtime/executor.cpp
+  ${NVFUSER_SRCS_DIR}/runtime/executor_kernel_arg.cpp
+  ${NVFUSER_SRCS_DIR}/runtime/executor_params.cpp
+  ${NVFUSER_SRCS_DIR}/runtime/executor_utils.cpp
+  ${NVFUSER_SRCS_DIR}/runtime/fusion_cache_utils.cpp
+  ${NVFUSER_SRCS_DIR}/runtime/fusion_executor_cache.cpp
+  ${NVFUSER_SRCS_DIR}/runtime/fusion_kernel_runtime.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/cache_policy_refiner.cpp
-  ${NVFUSER_SRCS_DIR}/scheduler/scheduler_types.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/heuristic.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/mark_aliases.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/matmul.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/multi_matmul.cpp
@@ -222,6 +224,8 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/reduction_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/registry.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/registry_utils.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/runtime_info.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/scheduler_types.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/transpose.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/vectorize_helper.cpp
@@ -276,6 +280,9 @@ endif()
 add_library(codegen_internal OBJECT ${NVFUSER_SRCS})
 
 if(NOT MSVC)
+  # -Werror is not enabled, because of gcc 12.2 used in manylinux image.
+  # consider enable this when we upgrade. linking comment:
+  # https://github.com/NVIDIA/Fuser/pull/3001#discussion_r1772551266
   target_compile_options(codegen_internal PRIVATE
     -Wall -Wno-unused-function
     # -Werror
@@ -524,14 +531,13 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_gpu3.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu_compute_with.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu_fused_reduction.cpp
-  ${NVFUSER_ROOT}/tests/cpp/test_gpu_indexing.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu_indexing_ops.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu_outer_reduction.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu_transpose.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu_utils.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_id_model.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_indexing.cpp
-  ${NVFUSER_ROOT}/tests/cpp/test_inlining.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_indexing_advanced.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_iter_visitor.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_linked_hash_map.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_loop_rotation.cpp
@@ -650,7 +656,6 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/tests/cpp/test_matmul_aten_evaluation.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_matmul_sass.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_matmul_scheduler.cpp
-    ${NVFUSER_ROOT}/tests/cpp/test_multi_matmul_scheduler.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_mma.cpp
   )
   add_test(test_matmul "${MATMUL_TEST_SRCS}" "")

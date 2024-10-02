@@ -8,15 +8,16 @@
 #include <csrc/exceptions.h>
 #include <device_lower/analysis/bank_conflict.h>
 #include <fusion.h>
-#include <fusion_executor/executor.h>
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
 #include <ops/all_ops.h>
 #include <preseg_passes/pre_segmenter.h>
+#include <runtime/executor.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/matmul.h>
 #include <scheduler/matmul_heuristic.h>
 #include <scheduler/mma_utils.h>
+#include <tests/cpp/utils.h>
 #include <utils.h>
 
 #include <benchmark/benchmark.h>
@@ -63,7 +64,8 @@ void setupMatmul(Fusion* fusion, MmaLayout layout, MatmulParams* mparams) {
 
   preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(fusion);
 
-  scheduleMatmul(fusion, mparams);
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(fusion, mparams);
 }
 
 void checkMatch(at::Tensor expect, at::Tensor result, int64_t k) {
@@ -334,7 +336,8 @@ static void SingleMatmulPartitionedK(
 
   fusion->addOutput(c);
 
-  scheduleMatmul(fusion, mparams);
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(fusion, mparams);
 
   at::Tensor aten_a = matmulAtInput2D(
       layout, TensorMatmulPos::A, at::kHalf, M, N, Ki, splitk_factor);
@@ -444,35 +447,35 @@ static void NvFuserScheduler_MatmulSplitKReduction(
   auto aten_c = at::randn({M, N, splitk_factor}, options);
   std::vector<c10::IValue> aten_inputs = {aten_c};
 
-  auto rparams = getReductionHeuristics(fusion, aten_inputs);
-  NVF_CHECK(rparams, "Reduction schedule failed");
-  scheduleReduction(fusion, rparams.get());
-  auto lparams = rparams->lparams; // copy LaunchParams
+  auto heuristic_params = SchedulerEntry::scheduleWith(
+      fusion, SchedulerType::Reduction, aten_inputs);
 
   auto expected_output = aten_c.to(at::kDouble).sum(-1);
 
   // Disable magic zero
-  CompileParams cparams;
-  cparams.enable_magic_zero = false;
-  cparams.index_type = computeIndexType(M, N * splitk_factor, 1);
+  heuristic_params->cparams.enable_magic_zero = false;
+  heuristic_params->cparams.index_type =
+      computeIndexType(M, N * splitk_factor, 1);
 
   KernelArgumentHolder args =
       KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
 
   // Compile kernel
   FusionExecutor fe;
-  fe.compileFusion(fusion, args, lparams, cparams);
+  fe.compileFusion(
+      fusion, args, heuristic_params->lparams, heuristic_params->cparams);
 
   NVF_CHECK(
-      getBankConflictInfo(fe.kernel(), lparams).empty(),
+      getBankConflictInfo(fe.kernel(), heuristic_params->lparams).empty(),
       "Shared memory bank conflict not removed.");
 
   // Warm up run
-  auto outputs = fe.runFusion(aten_inputs, lparams);
+  auto outputs = fe.runFusion(aten_inputs, heuristic_params->lparams);
 
   checkMatch(expected_output, outputs.at(0).to(at::kDouble), splitk_factor);
 
-  runBenchmarkIterations(benchmark_state, &fe, aten_inputs, lparams);
+  runBenchmarkIterations(
+      benchmark_state, &fe, aten_inputs, heuristic_params->lparams);
 
   // TODO: FLOPS calculation
 }
