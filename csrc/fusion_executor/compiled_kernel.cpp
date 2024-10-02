@@ -140,7 +140,7 @@ std::string getStructuredCodeFromExternalFiles(const int64_t fusion_id) {
 
 void CompiledKernel::compileFusion(
     Fusion* fusion,
-    const KernelArgumentHolder& args,
+    c10::Device device,
     const LaunchParams& launch_params,
     CompileParams compile_params,
     SchedulerType scheduler_type,
@@ -153,8 +153,7 @@ void CompiledKernel::compileFusion(
   NVF_ERROR(
       !fusion->outputs().empty(), "No output found for this kernel, aborting.");
 
-  // TODO: refactor the options_ passed through
-  options_.device = c10::Device(c10::DeviceType::CUDA, args.getDeviceIndex());
+  options_.device = device;
 
   // NOTE: Profiling needs to be started below the isExpressionEvaluated query
   // given the conditional can exit early from compilation.
@@ -163,7 +162,7 @@ void CompiledKernel::compileFusion(
         group_id >= 0,
         "An invalid segment id is passed to FusionProfiler!:",
         group_id);
-    FusionProfiler::segment(group_id).startCompile(args.getDeviceIndex());
+    FusionProfiler::segment(group_id).startCompile(device.index());
   }
 
   for (auto out : fusion->outputs()) {
@@ -200,51 +199,6 @@ void CompiledKernel::compileFusion(
     fusion->print();
   } else if (isDebugDumpEnabled(DebugDumpOption::FusionIrMath)) {
     fusion->printMath();
-  }
-
-  //! Force index_type to int and disable magic zero if we detect that the
-  //! kernel contains any TMA memory operations.
-  const std::vector<Expr*>& exprs = fusion->exprs();
-  bool has_cp_async_bulk = std::any_of(exprs.begin(), exprs.end(), [](Expr* e) {
-    return ir_utils::isCpAsyncBulk(e);
-  });
-
-  // Disable magic zero if there are any TMA operations in Fusion
-  if (has_cp_async_bulk) {
-    compile_params.enable_magic_zero = false;
-  }
-
-  // Set the index type of compile params if not already set. If set,
-  // make sure the compile param type is valid with the given kernel
-  // arguments.
-  auto arg_index_type = args.getSmallestIndexTypeOfArguments();
-  if (compile_params.index_type.has_value()) {
-    // If the int32 compilation is requested, but the arguments demand
-    // int64, that's an error
-    NVF_ERROR(
-        !(compile_params.index_type.value() == PrimDataType::Int32 &&
-          arg_index_type == PrimDataType::Int),
-        "Compilation with int32 is requested but int64 is required for the arguments");
-    NVF_ERROR(
-        !has_cp_async_bulk ||
-            (compile_params.index_type.value() == PrimDataType::Int32),
-        "Compilation with int64 is requested but int32 is required because ",
-        "of TMA operations.");
-
-  } else if (arg_index_type == PrimDataType::Int) {
-    // If the given compile option doesn't specify the index type, and
-    // the arguments require 64-bit indexing, we need to use 64-bit
-    // indexing. Note that if the arg type is 32-bit, it doesn't mean
-    // it's safe to use 32-bit for the whole kernel, so unless it's
-    // specified through CompileParams, we do not use 32-bit indexing.
-    compile_params.index_type = arg_index_type;
-    NVF_ERROR(
-        !has_cp_async_bulk,
-        "Compilation with int64 is required based on input arguments, but ",
-        "int32 is required because of TMA operations.");
-  } else if (has_cp_async_bulk) {
-    // TMA operations require 32-bit indexing.
-    compile_params.index_type = PrimDataType::Int32;
   }
 
   c10::DeviceGuard dg(options_.device);
@@ -295,6 +249,7 @@ void CompiledKernel::compileFusion(
     }
   }
 
+  // TODO: pass in kernel name?
   kernel_code_ = codegen::generateCudaKernel(kernel, kernelName());
 
   // If NVFUSER_EXTERNAL_SRC is set, utilize the external source code.

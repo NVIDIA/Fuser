@@ -44,45 +44,45 @@ class CompiledKernel : public NonCopyable {
   //! with KernelArgumentHolder, but it is no longer the case.
   NVF_API void compileFusion(
       Fusion* fusion,
-      const KernelArgumentHolder& args,
-      const LaunchParams& launch_constraints,
+      c10::Device device,
+      const LaunchParams& launch_params,
       CompileParams compile_params,
-      SchedulerType sceduler_type = SchedulerType::None,
+      SchedulerType scheduler_type = SchedulerType::None,
       int64_t fusion_id = 0,
       int64_t concrete_id = 0,
       int64_t runtime_id = 0,
       int64_t group_id = 0);
 
-  // TODO: merge it with the overload above.
-  //! This API is merely here so we don't have to go back and update all cpp
-  //! tests.
-  void compileFusion(
-      Fusion* fusion,
-      const at::ArrayRef<c10::IValue>& inputs = {},
-      const LaunchParams& launch_constraints = LaunchParams(),
-      CompileParams compile_params = CompileParams()) {
-    KernelArgumentHolder args =
-        KernelArgumentHolder::createKernelArgumentHolder(inputs);
-    compileFusion(fusion, args, launch_constraints, compile_params);
-  }
+  // // TODO: merge it with the overload above.
+  // //! This API is merely here so we don't have to go back and update all cpp
+  // //! tests.
+  // void compileFusion(
+  //     Fusion* fusion,
+  //     const at::ArrayRef<c10::IValue>& inputs = {},
+  //     const LaunchParams& launch_constraints = LaunchParams(),
+  //     CompileParams compile_params = CompileParams()) {
+  //   KernelArgumentHolder args =
+  //       KernelArgumentHolder::createKernelArgumentHolder(inputs);
+  //   compileFusion(fusion, args, launch_constraints, compile_params);
+  // }
 
-  //! Used by user defined schedules in python frontend
-  void compileFusion(
-      Fusion* fusion,
-      const at::ArrayRef<c10::IValue>& inputs,
-      int64_t fusion_id,
-      int64_t concrete_id) {
-    KernelArgumentHolder args =
-        KernelArgumentHolder::createKernelArgumentHolder(inputs);
-    compileFusion(
-        fusion,
-        args,
-        LaunchParams(),
-        CompileParams(),
-        SchedulerType::None,
-        fusion_id,
-        concrete_id);
-  }
+  // //! Used by user defined schedules in python frontend
+  // void compileFusion(
+  //     Fusion* fusion,
+  //     const at::ArrayRef<c10::IValue>& inputs,
+  //     int64_t fusion_id,
+  //     int64_t concrete_id) {
+  //   KernelArgumentHolder args =
+  //       KernelArgumentHolder::createKernelArgumentHolder(inputs);
+  //   compileFusion(
+  //       fusion,
+  //       args,
+  //       LaunchParams(),
+  //       CompileParams(),
+  //       SchedulerType::None,
+  //       fusion_id,
+  //       concrete_id);
+  // }
 
   // Register a lowering hooks that are called to modify the GpuLower object
   // before running lowering passes. The main use case is for unit tests to
@@ -158,8 +158,12 @@ class CompiledKernel : public NonCopyable {
   NVF_API std::string getStructuredCode() const;
 
   //! Returns a const reference to the latest compiled kernel.
-  const executor_utils::CompiledKernel& compiledKernel() const {
-    return *compiled_kernel_;
+  const std::unique_ptr<executor_utils::CompiledKernel>& compiledKernel()
+      const {
+    return compiled_kernel_;
+  }
+  std::unique_ptr<executor_utils::CompiledKernel>& compiledKernel() {
+    return compiled_kernel_;
   }
 
   //! Returns the disassembled latest compiled binary
@@ -183,7 +187,7 @@ class CompiledKernel : public NonCopyable {
     return global_fusion_count_.load();
   }
 
-  int64_t groupId() const {
+  const int64_t& groupId() const {
     return group_id_;
   }
   void setGroupId(int64_t gid) {
@@ -255,6 +259,83 @@ class CompiledKernel : public NonCopyable {
     disable_parameter_cache_ = true;
   }
 
+  // Temporary accessors for refactor:
+  CompileOptions& options() {
+    return options_;
+  }
+  int64_t& fusionId() {
+    return fusion_id_;
+  }
+  const int64_t& fusionId() const {
+    return fusion_id_;
+  }
+  int64_t& concreteId() {
+    return concrete_id_;
+  }
+  int64_t& runtimeId() {
+    return runtime_id_;
+  }
+  const int64_t& concreteId() const {
+    return concrete_id_;
+  }
+  const int64_t& runtimeId() const {
+    return runtime_id_;
+  }
+  int64_t& groupId() {
+    return group_id_;
+  }
+  static std::atomic<int64_t>& globalFusionCount() {
+    return global_fusion_count_;
+  }
+  SchedulerType& schedulerType() {
+    return scheduler_type_;
+  }
+  const SchedulerType& schedulerType() const {
+    return scheduler_type_;
+  }
+  std::string& kernelId() {
+    return kernel_id_;
+  }
+  const std::string& kernelId() const {
+    return kernel_id_;
+  }
+  std::unique_ptr<GpuLower>& lowered() {
+    return lowered_;
+  }
+  std::unique_ptr<Fusion>& fusion() {
+    return fusion_;
+  }
+  const std::unique_ptr<GpuLower>& lowered() const {
+    return lowered_;
+  }
+  int64_t& blockSizeHighWaterMark() {
+    return block_size_high_water_mark_;
+  }
+  int64_t& maxrregcountHighWaterMark() {
+    return maxrregcount_high_water_mark_;
+  }
+  const int64_t& blockSizeHighWaterMark() const {
+    return block_size_high_water_mark_;
+  }
+  const int64_t& maxrregcountHighWaterMark() const {
+    return maxrregcount_high_water_mark_;
+  }
+  bool& disablePaarameterCache() {
+    return disable_parameter_cache_;
+  }
+  std::string& kernelCode() {
+    return kernel_code_;
+  }
+  const std::string& kernelCode() const {
+    return kernel_code_;
+  }
+  std::vector<std::function<void(GpuLower*)>>& loweringHooks() {
+    return lowering_hooks_;
+  }
+  std::vector<std::function<void(kir::Kernel*)>>& postLoweringHooks() {
+    return post_lowering_hooks_;
+  }
+
   // //! Serialize Fusion Executor using flatbuffers
   // flatbuffers::Offset<serde::CompiledKernel> serialize(
   //     flatbuffers::FlatBufferBuilder& builder) const;
@@ -276,7 +357,7 @@ class CompiledKernel : public NonCopyable {
   //     int64_t runtime_id,
   //     int64_t group_id);
 
- private:
+  //  private:
   void setUsedTVs();
 
   const std::vector<TensorView*>& getUsedTVs() const {
@@ -353,8 +434,6 @@ class CompiledKernel : public NonCopyable {
   // Post-lowering hooks that are called to modify the kernel after lowering.
   // The main use case is for unit tests to modify the kernel.
   std::vector<std::function<void(kir::Kernel*)>> post_lowering_hooks_;
-
-  Communicator* communicator_;
 };
 
 } // namespace nvfuser
