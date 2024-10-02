@@ -439,11 +439,9 @@ class VectorizeValidator : public OptInDispatch {
     // Make sure there's only one vectorized ID
     IterDomain* v_id = nullptr;
     for (auto id : tv->getLoopDomain()) {
-      auto ptype = id->getParallelType();
-      if (isParallelTypeVectorize(ptype) || ptype == ParallelType::Group) {
-        // Should have only one vectorized id but multiple group ids are allowed
+      if (isParallelTypeVectorize(id->getParallelType())) {
         NVF_ERROR(
-            v_id == nullptr || ptype == ParallelType::Group,
+            v_id == nullptr,
             "Found two vectorized domains in ",
             tv,
             " only one is allowed.");
@@ -468,20 +466,17 @@ class VectorizeValidator : public OptInDispatch {
             tv->getDataType().value(), GpuLower::current()->indexType()) *
         vector_word_size;
 
-    // skip these checks for grouped type, if larger than 16 bytes, runtime
-    // function will split it into multiple vector instructions.
-    if (v_id->getParallelType() != ParallelType::Group) {
-      // Allow half2, float2, float4 and same sized vtypes.
-      std::array<int64_t, 4> allowed_vector_sizes = {2, 4, 8, 16}; // NOLINT
-      NVF_CHECK(
-          std::find(
-              allowed_vector_sizes.begin(),
-              allowed_vector_sizes.end(),
-              vector_size) != allowed_vector_sizes.end(),
-          "Tried to vectorize a dim resulting in a word size of ",
-          vector_size,
-          " however, vector sizes only upto and including 16 bytes are supported.");
-    }
+    // Allow half2, float2, float4 and same sized vtypes.
+    std::array<int64_t, 4> allowed_vector_sizes = {2, 4, 8, 16}; // NOLINT
+
+    NVF_CHECK(
+        std::find(
+            allowed_vector_sizes.begin(),
+            allowed_vector_sizes.end(),
+            vector_size) != allowed_vector_sizes.end(),
+        "Tried to vectorize a dim resulting in a word size of ",
+        vector_size,
+        " however, vector sizes only upto and including 16 bytes are supported.");
 
     auto consumer_vectorized_id =
         getVectorizedIdInAllocationDomain(v_id, tv, "consumer");
@@ -569,7 +564,6 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
   std::vector<Val*> used_vals = fusion->usedMathVals();
   for (auto* tv : ir_utils::filterByType<TensorView>(used_vals)) {
     bool has_vectorize_dim = false;
-    bool has_grouped_vectorize_dim = false;
     bool has_misaligned_vectorize_dim = false;
 
     for (const auto i : c10::irange(tv->nDims())) {
@@ -607,17 +601,22 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
 
       // ParallelType::Group is used for both reduction & normalization.
       // When used to group iteration dims of outer reduction tvs, it has
-      // vectorized access to shared memory and global memory.
+      // vectorized access to shared memory and global memory. No need to
+      // validate, since they are register arrays defined in runtime function.
       if (ptype == ParallelType::Group) {
         auto def = tv->definition();
         auto grop = dynamic_cast<GroupedReductionOp*>(def);
         if (grop && (!grop->isAllreduce())) {
-          has_grouped_vectorize_dim = true;
+          auto vector_word_size =
+              concrete_id->extent()->evaluate().as<int64_t>();
+          auto producer_tv = def->inputs().at(0)->as<TensorView>();
+          GpuLower::current()->vectorizedAccesses().emplace(
+              producer_tv, vector_word_size);
         }
+        break;
       }
     }
 
-    // Further process if tv has Vectorize, MisalignedVectorize or Group
     if (has_vectorize_dim) {
       Expr* def = tv->definition();
       NVF_ERROR(
@@ -631,8 +630,7 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
     // tv. Note that we don't need to validate its producer tv as
     // both Vectorize and MisalignedVectorize can only be used with
     // UnaryOp::Set.
-    if (has_vectorize_dim || has_misaligned_vectorize_dim ||
-        has_grouped_vectorize_dim) {
+    if (has_vectorize_dim || has_misaligned_vectorize_dim) {
       VectorizeValidator::validate(tv);
     }
   }
