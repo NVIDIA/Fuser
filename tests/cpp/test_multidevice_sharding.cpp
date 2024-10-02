@@ -274,6 +274,26 @@ TEST_F(MultiDeviceTest, Transpose) {
       UnorderedElementsAre(HeuristicIs(SchedulerType::Transpose)));
 }
 
+TEST_F(MultiDeviceTest, NonContiguous) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto num_devices = communicator_->size();
+  auto mesh = DeviceMesh::createForNumDevices(num_devices);
+
+  TensorView* in = makeConcreteTensor({num_devices, -1});
+  in->setDeviceMesh(mesh);
+  TensorView* out = set(in);
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  in->axis(0)->parallelize(ParallelType::DIDx);
+
+  at::Tensor in_tensor = at::randn({1, 1024}, tensor_options);
+  FusionExecutorCache fec(std::move(fusion));
+  fec.runFusionWithInputs({in_tensor});
+}
+
 class MultiDeviceBroadcastTest : public MultiDeviceTest,
                                  public testing::WithParamInterface<bool> {};
 
