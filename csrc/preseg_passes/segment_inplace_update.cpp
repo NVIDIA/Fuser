@@ -9,6 +9,8 @@
 #include <vector>
 
 #include <fusion.h>
+#include <id_model/id_model.h>
+#include <id_model/to_string.h>
 #include <ir/utils.h>
 #include <ops/alias.h>
 #include <preseg_passes/segment_inplace_update.h>
@@ -24,9 +26,12 @@ namespace nvfuser::preseg_passes {
 // direct/indirect producer/consumer tensorviews.
 // 3. For all aliased tensorviews, if the aliased tensorview or the aliased
 // input is present in the set of visited tensorviews in step 2, we insert a
-// segment set and set to force a separate copy kernel. This ensures that all
-// write operations to the fusion inputs occur after the read operations have
-// completed. See Issue #2664: https:// github.com/NVIDIA/Fuser/issues/2664
+// segment set and set to force a separate copy kernel. Additionally,
+// we check for implict broadcasts if any aliased input already has a
+// broadcast dimension that is concretized later in the fusion. This ensures
+// that all write operations to the fusion inputs occur after the read
+// operations have completed. See Issue #2664: https://
+// github.com/NVIDIA/Fuser/issues/2664
 namespace {
 void insertSegmentSet(Fusion* fusion) {
   std::vector<TensorView*> aliased_tvs;
@@ -95,17 +100,48 @@ void insertSegmentSet(Fusion* fusion) {
     }
   }
 
-  // For all aliased tensorviews, if that tv or the aliased input is a
-  // producer/consumer of a broadcast op, insert a (segment_set + set) to
-  // force the inplace update into a separate copy kernel. NOTE: We cannot use
-  // a segment_set alone. Since, there will be no data flow across this
-  // segment_set (the output of segment_set is an output of given fusion with
-  // no uses), it will be merged with other segments.
+  // Use permissive IdModel graph to identify any concretized broadcast
+  // iterdomain in any aliased input.
+  auto id_model =
+      IdModel(fusion, /*build_graphs=*/false, /*allow_self_mapping=*/true);
+  id_model.buildPermissiveGraph();
+  const ValGraph& permissive_graph =
+      id_model.idGraph(IdMappingMode::PERMISSIVE);
+
+  auto hasConcretizedBroadcast = [&](TensorView* tv) -> bool {
+    if (!tv->hasBroadcast()) {
+      return false;
+    }
+    for (IterDomain* id : tv->getLogicalDomain()) {
+      if (!id->isBroadcast()) {
+        continue;
+      }
+      if (!permissive_graph.hasGroup(id)) {
+        continue;
+      }
+      const ValGroup& val_group = permissive_graph.toGroup(id);
+      for (auto other_id : val_group.get()->vector()) {
+        if (!other_id->as<IterDomain>()->isBroadcast()) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+
+  // For all aliased tensorviews:
+  // 1) if that tv or the correspodning aliased input is a producer/consumer of
+  // a broadcast op, or 2) the aliased input has a concretized broadcast, insert
+  // a (segment_set + set) to force the inplace update into a separate copy
+  // kernel. NOTE: We cannot use a segment_set alone. Since, there will be no
+  // data flow across this segment_set (the output of segment_set is an output
+  // of given fusion with no uses), it will be merged with other segments.
   // https://github.com/NVIDIA/Fuser/blob/92b635125ae509cc6b2ccbe29e957586a9cbb059/csrc/fusion_segmenter.cpp#L2331-L2346
   for (auto aliased_tv : aliased_tvs) {
-    TensorView* aliased_io =
+    TensorView* aliased_input =
         fusion->getOutputAlias(aliased_tv).aliased_io->as<TensorView>();
-    if (visited_tvs.count(aliased_tv) || visited_tvs.count(aliased_io)) {
+    if (visited_tvs.count(aliased_tv) || visited_tvs.count(aliased_input) ||
+        hasConcretizedBroadcast(aliased_input)) {
       TensorView* alias_seg = segment_set(aliased_tv);
       TensorView* alias_copy = set(alias_seg);
       fusion->replaceOutput(aliased_tv, alias_copy);
