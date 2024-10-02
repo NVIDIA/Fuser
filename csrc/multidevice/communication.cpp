@@ -247,7 +247,7 @@ std::string P2PCommunication::toString(const int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "P2PCommunication " << name() << " ("
                           << "type=" << type() << ", "
-                          << " buffer=" << buffer() << ", "
+                          << "buffer=" << buffer() << ", "
                           << "peer=" << peer() << ", "
                           << "tag=" << tag() << ")\n";
   return ss.str();
