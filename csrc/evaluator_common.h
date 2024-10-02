@@ -9,9 +9,9 @@
 #include <device_lower/lower2device.h>
 #include <exceptions.h>
 #include <fusion.h>
-#include <fusion_executor/executor_params.h>
 #include <ir/all_nodes.h>
 #include <polymorphic_value.h>
+#include <runtime/executor_params.h>
 #include <utils.h>
 #include <visibility.h>
 
