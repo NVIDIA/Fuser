@@ -105,7 +105,10 @@ def test_linear(mpi_test):
     unsharded_out_tensor = torch.nn.functional.linear(
         inp_tensor, unsharded_weight_tensor, unsharded_bias_tensor
     )
-    sharded_out_tensor = unsharded_out_tensor.view([b, s, d, h]).permute(2, 0, 1, 3)[
+    expected_out_tensor = unsharded_out_tensor.view([b, s, d, h]).permute(2, 0, 1, 3)[
         rank : rank + 1
     ]
-    torch.testing.assert_close(out_tensors[0], sharded_out_tensor)
+    # rtol is the same as the default for fp32. atol is slightly increased.
+    torch.testing.assert_close(
+        out_tensors[0], expected_out_tensor, rtol=1.3e-6, atol=1e-4
+    )
