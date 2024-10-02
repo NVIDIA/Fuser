@@ -2808,8 +2808,6 @@ TEST_F(IdModelTest, LoopPromotionWithCyclicGraph) {
     auto tv6 = add(tv2, tv5);
     fusion.addOutput(tv6);
 
-    fusion.printMath();
-
     IdModel id_model(&fusion, /*build_graphs=*/false);
     id_model.buildExactGraph();
 
