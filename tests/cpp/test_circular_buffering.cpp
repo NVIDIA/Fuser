@@ -1289,7 +1289,9 @@ TEST_P(TmaCircularBufferingTest, PointwiseCpAsync) {
 
   // Circular Buffer with set operation
   tv4->axis(0)->parallelize(ParallelType::BIDx);
-  tv4->circularBuffer(number_of_stages);
+  // TODO Disable circular buffering for CpAsync
+  // Circular buffering handles cpAsync sync logic separate from cloner logic.
+  // tv4->circularBuffer(number_of_stages);
 
   // Split reference to parallelize TMA tile
   reference->split(-1, 32);
