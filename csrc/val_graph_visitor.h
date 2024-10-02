@@ -77,6 +77,8 @@ class ValGraphVisitor {
   virtual void handle(const ValGroup& val_group) = 0;
   virtual void handle(const ExprGroup& expr_group) = 0;
 
+  // Returns if the traversal was successful. If false, error_message_
+  // should be populated.
   bool traverse();
 
   const ValGraph& graph() {
