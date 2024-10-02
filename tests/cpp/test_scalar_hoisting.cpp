@@ -8,9 +8,9 @@
 #include <gtest/gtest.h>
 
 #include <fusion.h>
-#include <fusion_executor/executor.h>
 #include <inlining.h>
 #include <ops/all_ops.h>
+#include <runtime/executor.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
