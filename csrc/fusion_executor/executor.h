@@ -123,7 +123,7 @@ class FusionExecutor : public NonCopyable {
   // modify the lowering process.
   void registerLoweringHook(std::function<void(GpuLower*)> hook) {
     if (use_external_compiler_) {
-      compiled_kernel_2_.registerLoweringHook(hook);
+      compiled_kernel_2_->registerLoweringHook(hook);
     } else {
       lowering_hooks_.push_back(std::move(hook));
     }
@@ -133,7 +133,7 @@ class FusionExecutor : public NonCopyable {
   // lowering. The main use case is for unit tests to modify the kernel.
   void registerPostLoweringHook(std::function<void(kir::Kernel*)> hook) {
     if (use_external_compiler_) {
-      compiled_kernel_2_.registerPostLoweringHook(std::move(hook));
+      compiled_kernel_2_->registerPostLoweringHook(std::move(hook));
     } else {
       post_lowering_hooks_.push_back(std::move(hook));
     }
@@ -142,10 +142,10 @@ class FusionExecutor : public NonCopyable {
   // Function to query whether compilation was attempted for a `FusionExecutor`
   bool isCompiled() const {
     if (use_external_compiler_) {
-      return compiled_kernel_2_.isCompiled();
+      return compiled_kernel_2_->isCompiled();
     }
-    int num_compiled_artifacts = (fusion() != nullptr) +
-        (lowered() != nullptr) + (host_ir_container_ != nullptr);
+    int num_compiled_artifacts = (fusion_ != nullptr) + (lowered_ != nullptr) +
+        (host_ir_container_ != nullptr);
     NVF_ERROR(num_compiled_artifacts <= 1);
     return num_compiled_artifacts == 1;
   };
@@ -154,7 +154,7 @@ class FusionExecutor : public NonCopyable {
   // execute
   bool hasCompiledKernel() const {
     if (use_external_compiler_) {
-      return compiled_kernel_2_.hasCompiledKernel();
+      return compiled_kernel_2_->hasCompiledKernel();
     }
     if (compiled_kernel_ != nullptr) {
       NVF_ERROR(compiled_kernel_->function != nullptr);
@@ -199,7 +199,7 @@ class FusionExecutor : public NonCopyable {
 
   kir::Kernel* kernel() const {
     if (use_external_compiler_) {
-      return compiled_kernel_2_.kernel();
+      return compiled_kernel_2_->kernel();
     }
     NVF_ERROR(lowered());
     return lowered()->kernel();
@@ -209,13 +209,13 @@ class FusionExecutor : public NonCopyable {
     NVF_ERROR(isCompiled());
     if (fusion_ != nullptr) {
       if (use_external_compiler_) {
-        return compiled_kernel_2_.fusion();
+        return compiled_kernel_2_->fusion();
       }
       return fusion_.get();
     }
     if (lowered() != nullptr) {
       if (use_external_compiler_) {
-        return compiled_kernel_2_.fusion();
+        return compiled_kernel_2_->lowered()->kernel()->as<Fusion>();
       }
       return lowered()->kernel()->as<Fusion>();
     }
@@ -227,7 +227,7 @@ class FusionExecutor : public NonCopyable {
 
   const ThreadPredicateMap& threadPredMap() const {
     if (use_external_compiler_) {
-      return compiled_kernel_2_.threadPredMap();
+      return compiled_kernel_2_->threadPredMap();
     }
     return lowered()->threadPredMap();
   }
@@ -252,7 +252,7 @@ class FusionExecutor : public NonCopyable {
   //! get register spills (load + store) of the compiled kernel
   int getKernelRegisterSpills() const {
     if (use_external_compiler_) {
-      return compiled_kernel_2_.getKernelRegisterSpills();
+      return compiled_kernel_2_->getKernelRegisterSpills();
     }
     return compiled_kernel_->register_spills;
   }
@@ -271,7 +271,7 @@ class FusionExecutor : public NonCopyable {
   //! Returns the string of the compiled kernel
   NVF_API std::string kernelString() const {
     if (use_external_compiler_) {
-      return compiled_kernel_2_.kernelString();
+      return compiled_kernel_2_->kernelString();
     }
     NVF_ERROR(!kernelCode().empty(), "Kernel code not generated");
     return kernelCode();
@@ -288,13 +288,13 @@ class FusionExecutor : public NonCopyable {
   const std::unique_ptr<executor_utils::CompiledKernel>& compiledKernel()
       const {
     if (use_external_compiler_) {
-      return compiled_kernel_2_.compiledKernel();
+      return compiled_kernel_2_->compiledKernel();
     }
     return compiled_kernel_;
   }
   std::unique_ptr<executor_utils::CompiledKernel>& compiledKernel() {
     if (use_external_compiler_) {
-      return compiled_kernel_2_.compiledKernel();
+      return compiled_kernel_2_->compiledKernel();
     }
     return compiled_kernel_;
   }
@@ -303,7 +303,7 @@ class FusionExecutor : public NonCopyable {
   NVF_API std::string disassembledBinary(
       const std::string& nvdisasm_args = "") const {
     if (use_external_compiler_) {
-      return compiled_kernel_2_.disassembledBinary(nvdisasm_args);
+      return compiled_kernel_2_->disassembledBinary(nvdisasm_args);
     }
     return executor_utils::disassembleBinary(
         compiled_kernel_->cubin, nvdisasm_args);
@@ -312,7 +312,7 @@ class FusionExecutor : public NonCopyable {
   //! Returns the disassembled latest compiled binary
   NVF_API std::string disassembledKernelSASS() const {
     if (use_external_compiler_) {
-      return compiled_kernel_2_.disassembledKernelSASS();
+      return compiled_kernel_2_->disassembledKernelSASS();
     }
     return executor_utils::disassembleBinary(
         compiled_kernel_->cubin, "-fun 1 -c");
@@ -328,27 +328,27 @@ class FusionExecutor : public NonCopyable {
 
   const int64_t& groupId() const {
     if (use_external_compiler_) {
-      return compiled_kernel_2_.groupId();
+      return compiled_kernel_2_->groupId();
     }
     return group_id_;
   }
   int64_t& groupId() {
     if (use_external_compiler_) {
-      return compiled_kernel_2_.groupId();
+      return compiled_kernel_2_->groupId();
     }
     return group_id_;
   }
 
   void setGroupId(int64_t gid) {
     if (use_external_compiler_) {
-      return compiled_kernel_2_.setGroupId(gid);
+      return compiled_kernel_2_->setGroupId(gid);
     }
     group_id_ = gid;
   }
 
   bool validKernelId() const {
     if (use_external_compiler_) {
-      return compiled_kernel_2_.validKernelId();
+      return compiled_kernel_2_->validKernelId();
     }
     return !kernelId().empty();
   }
@@ -360,7 +360,7 @@ class FusionExecutor : public NonCopyable {
       int64_t runtime_id = 0,
       int64_t group_id = 0) {
     if (use_external_compiler_) {
-      return compiled_kernel_2_.createKernelId(
+      return compiled_kernel_2_->createKernelId(
           scheduler_type, fusion_id, concrete_id, runtime_id, group_id);
     }
     NVF_ERROR(fusion_id > -1, "Invalid fusion_id.");
@@ -390,7 +390,7 @@ class FusionExecutor : public NonCopyable {
 
   std::string kernelName() const {
     if (use_external_compiler_) {
-      return compiled_kernel_2_.kernelName();
+      return compiled_kernel_2_->kernelName();
     }
     NVF_ERROR(!kernelId().empty(), "Invalid kernel name for fusion executor.");
     std::stringstream ss;
@@ -419,7 +419,7 @@ class FusionExecutor : public NonCopyable {
   //! Internal knob used for debugging/profiling only
   void disableLaunchParamCache() {
     if (use_external_compiler_) {
-      compiled_kernel_2_.disableLaunchParamCache();
+      compiled_kernel_2_->disableLaunchParamCache();
     } else {
       disablePaarameterCache() = true;
     }
@@ -460,7 +460,7 @@ class FusionExecutor : public NonCopyable {
 
   const std::vector<TensorView*>& getUsedTVs() const {
     if (use_external_compiler_) {
-      return compiled_kernel_2_.getUsedTVs();
+      return compiled_kernel_2_->getUsedTVs();
     }
     return used_tvs_;
   };
@@ -545,43 +545,43 @@ class FusionExecutor : public NonCopyable {
   // Temporary accessors for refactor:
   CompileOptions& options() {
     if (use_external_compiler_) {
-      return compiled_kernel_2_.options();
+      return compiled_kernel_2_->options();
     }
     return options_;
   }
   int64_t& fusionId() {
     if (use_external_compiler_) {
-      return compiled_kernel_2_.fusionId();
+      return compiled_kernel_2_->fusionId();
     }
     return fusion_id_;
   }
   const int64_t& fusionId() const {
     if (use_external_compiler_) {
-      return compiled_kernel_2_.fusionId();
+      return compiled_kernel_2_->fusionId();
     }
     return fusion_id_;
   }
   int64_t& concreteId() {
     if (use_external_compiler_) {
-      return compiled_kernel_2_.concreteId();
+      return compiled_kernel_2_->concreteId();
     }
     return concrete_id_;
   }
   int64_t& runtimeId() {
     if (use_external_compiler_) {
-      return compiled_kernel_2_.runtimeId();
+      return compiled_kernel_2_->runtimeId();
     }
     return runtime_id_;
   }
   const int64_t& concreteId() const {
     if (use_external_compiler_) {
-      return compiled_kernel_2_.concreteId();
+      return compiled_kernel_2_->concreteId();
     }
     return concrete_id_;
   }
   const int64_t& runtimeId() const {
     if (use_external_compiler_) {
-      return compiled_kernel_2_.runtimeId();
+      return compiled_kernel_2_->runtimeId();
     }
     return runtime_id_;
   }
@@ -590,103 +590,103 @@ class FusionExecutor : public NonCopyable {
   }
   SchedulerType& schedulerType() {
     if (use_external_compiler_) {
-      return compiled_kernel_2_.schedulerType();
+      return compiled_kernel_2_->schedulerType();
     }
     return scheduler_type_;
   }
   const SchedulerType& schedulerType() const {
     if (use_external_compiler_) {
-      return compiled_kernel_2_.schedulerType();
+      return compiled_kernel_2_->schedulerType();
     }
     return scheduler_type_;
   }
   std::string& kernelId() {
     if (use_external_compiler_) {
-      return compiled_kernel_2_.kernelId();
+      return compiled_kernel_2_->kernelId();
     }
     return kernel_id_;
   }
   const std::string& kernelId() const {
     if (use_external_compiler_) {
-      return compiled_kernel_2_.kernelId();
+      return compiled_kernel_2_->kernelId();
     }
     return kernel_id_;
   }
   std::unique_ptr<GpuLower>& lowered() {
     if (use_external_compiler_) {
-      return compiled_kernel_2_.lowered();
+      return compiled_kernel_2_->lowered();
     }
     return lowered_;
   }
   const std::unique_ptr<GpuLower>& lowered() const {
     if (use_external_compiler_) {
-      return compiled_kernel_2_.lowered();
+      return compiled_kernel_2_->lowered();
     }
     return lowered_;
   }
-  std::unique_ptr<Fusion>& fusion() {
+  Fusion* fusion() {
     if (use_external_compiler_) {
-      return compiled_kernel_2_.fusion();
+      return compiled_kernel_2_->fusion();
     }
-    return fusion_;
+    return fusion_.get();
   }
   int64_t& blockSizeHighWaterMark() {
     if (use_external_compiler_) {
-      return compiled_kernel_2_.blockSizeHighWaterMark();
+      return compiled_kernel_2_->blockSizeHighWaterMark();
     }
     return block_size_high_water_mark_;
   }
   int64_t& maxrregcountHighWaterMark() {
     if (use_external_compiler_) {
-      return compiled_kernel_2_.maxrregcountHighWaterMark();
+      return compiled_kernel_2_->maxrregcountHighWaterMark();
     }
     return maxrregcount_high_water_mark_;
   }
   const int64_t& blockSizeHighWaterMark() const {
     if (use_external_compiler_) {
-      return compiled_kernel_2_.blockSizeHighWaterMark();
+      return compiled_kernel_2_->blockSizeHighWaterMark();
     }
     return block_size_high_water_mark_;
   }
   const int64_t& maxrregcountHighWaterMark() const {
     if (use_external_compiler_) {
-      return compiled_kernel_2_.maxrregcountHighWaterMark();
+      return compiled_kernel_2_->maxrregcountHighWaterMark();
     }
     return maxrregcount_high_water_mark_;
   }
   bool& disablePaarameterCache() {
     if (use_external_compiler_) {
-      return compiled_kernel_2_.disablePaarameterCache();
+      return compiled_kernel_2_->disablePaarameterCache();
     }
     return disable_parameter_cache_;
   }
   std::string& kernelCode() {
     if (use_external_compiler_) {
-      return compiled_kernel_2_.kernelCode();
+      return compiled_kernel_2_->kernelCode();
     }
     return kernel_code_;
   }
   const std::string& kernelCode() const {
     if (use_external_compiler_) {
-      return compiled_kernel_2_.kernelCode();
+      return compiled_kernel_2_->kernelCode();
     }
     return kernel_code_;
   }
   std::vector<std::function<void(GpuLower*)>>& loweringHooks() {
     if (use_external_compiler_) {
-      return compiled_kernel_2_.loweringHooks();
+      return compiled_kernel_2_->loweringHooks();
     }
     return lowering_hooks_;
   }
   std::vector<std::function<void(kir::Kernel*)>>& postLoweringHooks() {
     if (use_external_compiler_) {
-      return compiled_kernel_2_.postLoweringHooks();
+      return compiled_kernel_2_->postLoweringHooks();
     }
     return post_lowering_hooks_;
   }
 
  private:
-  CompiledKernel compiled_kernel_2_;
+  std::unique_ptr<CompiledKernel> compiled_kernel_2_;
   bool use_external_compiler_ = false;
 
   CompileOptions options_;

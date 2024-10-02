@@ -154,7 +154,7 @@ std::string FusionExecutor::getStructuredCode(
     const std::string& kernel_str,
     PrimDataType index_type) const {
   if (use_external_compiler_) {
-    return compiled_kernel_2_.getStructuredCode(kernel_str, index_type);
+    return compiled_kernel_2_->getStructuredCode(kernel_str, index_type);
   }
   // generating cuda code;
   std::string code = "";
@@ -186,7 +186,7 @@ std::string FusionExecutor::getStructuredCode(
 
 std::string FusionExecutor::getStructuredCode() const {
   if (use_external_compiler_) {
-    return compiled_kernel_2_.getStructuredCode();
+    return compiled_kernel_2_->getStructuredCode();
   }
   return getStructuredCode(kernelString(), kernel()->indexType());
 }
@@ -208,7 +208,7 @@ void FusionExecutor::compileFusion(
       "No output found for this kernel, aborting.");
 
   if (isExpressionEvaluated(_fusion)) {
-    fusion() = std::make_unique<Fusion>(*_fusion);
+    fusion_ = std::make_unique<Fusion>(*_fusion);
     return;
   }
 
@@ -271,6 +271,9 @@ void FusionExecutor::compileFusion(
     // TMA operations require 32-bit indexing.
     compile_params.index_type = PrimDataType::Int32;
   }
+  if (!compile_params.index_type.has_value()) {
+    compile_params.index_type = arg_index_type;
+  }
 
   c10::DeviceGuard dg(options().device);
 
@@ -282,12 +285,20 @@ void FusionExecutor::compileFusion(
   device_smem_limit_ = static_cast<int64_t>(properties->sharedMemPerBlockOptin);
   warp_size_ = properties->warpSize;
 
+  // Lowered is needed to compute launch parameters as it uses the CA map. We
+  // could modify that, but simply generating that part first.
+  use_external_compiler_ = true;
+  compiled_kernel_2_ =
+      std::make_unique<CompiledKernel>(_fusion, compile_params);
+
   // TODO: pass block_size here;
   std::optional<int64_t> dynamic_smem = std::nullopt;
   std::optional<int64_t> block_size = std::nullopt;
   auto launch_params = launch_constraints;
   if (!args.empty()) {
-    auto expr_eval = executor_utils::bindInputs(args, fusion().get());
+    auto expr_eval = executor_utils::bindInputs(
+        args, compiled_kernel_2_->lowered()->kernel()->as<Fusion>());
+    NVF_ERROR(compile_params.index_type.has_value());
     launch_params = computeLaunchParams(
         launch_constraints,
         expr_eval,
@@ -298,12 +309,12 @@ void FusionExecutor::compileFusion(
     NVF_ERROR(block_size > 0, "launch param inferred block size < 0");
   }
 
-  use_external_compiler_ = true;
-  compiled_kernel_2_.compileFusion(
-      _fusion,
+  // Now that we have launch parameters we can compile the kernel. It's a bit
+  // odd we need launch parameters for compilation, need to go back and check
+  // why this is the case.
+  compiled_kernel_2_->compileFusion(
       options().device,
       launch_params,
-      compile_params,
       scheduler_type,
       fusion_id,
       concrete_id,
@@ -331,8 +342,10 @@ LaunchParams FusionExecutor::computeLaunchParams(
   LaunchParams launch_params;
 
   auto data_cache = compileTimeDataCache();
-
   auto lower = lowered().get();
+  if (getUsedTVs().empty()) {
+    setUsedTVs();
+  }
   auto& used_tvs = getUsedTVs();
   auto parallel_binding_ids_entry =
       executor_utils::caching::ExecutorCompileTimeEntry<
@@ -532,7 +545,7 @@ std::vector<GlobalBufferInfo> FusionExecutor::getIntermediateBufferInfo(
 
 void FusionExecutor::setUsedTVs() {
   if (use_external_compiler_) {
-    compiled_kernel_2_.setUsedTVs();
+    compiled_kernel_2_->setUsedTVs();
     return;
   }
   auto used_vals = fusion()->usedMathVals();
@@ -849,7 +862,7 @@ void FusionExecutor::recompileKernel(
     const LaunchParams& new_launch_params,
     const CompileParams& new_compile_params) {
   if (use_external_compiler_) {
-    return compiled_kernel_2_.recompileKernel(
+    return compiled_kernel_2_->recompileKernel(
         new_launch_params, new_compile_params);
   }
   FUSER_PERF_SCOPE("FusionExecutor::runFusion::recompileKernel");
@@ -890,7 +903,7 @@ int64_t FusionExecutor::getAvailableDynamicSmemSize() {
     NVFUSER_CUDA_SAFE_CALL(cuFuncGetAttribute(
         &size,
         CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
-        compiled_kernel_->function));
+        compiledKernel()->function));
     available_dynamic_smem_size_ = size;
   }
   return available_dynamic_smem_size_.value();
@@ -906,7 +919,7 @@ int64_t FusionExecutor::getStaticSmemSize() {
     NVFUSER_CUDA_SAFE_CALL(cuFuncGetAttribute(
         &size,
         CU_FUNC_ATTRIBUTE_SHARED_SIZE_BYTES,
-        compiled_kernel_->function));
+        compiledKernel()->function));
     static_smem_size_ = size;
   }
   return static_smem_size_.value();
@@ -945,7 +958,7 @@ int64_t FusionExecutor::ensureAvailableDynamicSmemSize(
   if (dynamic_smem_size > getAvailableDynamicSmemSize()) {
     validateDynamicSmemSize(dynamic_smem_size);
     NVFUSER_CUDA_SAFE_CALL(cuFuncSetAttribute(
-        compiled_kernel_->function,
+        compiledKernel()->function,
         CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
         dynamic_smem_size));
     available_dynamic_smem_size_ = dynamic_smem_size;
@@ -1017,9 +1030,11 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       " provided number of outputs does not match fusion output");
 
   // Bind fusion inputs
-  auto expr_eval = executor_utils::bindInputs(args, fusion().get());
+  std::cout << "A" << std::endl;
+  auto expr_eval = executor_utils::bindInputs(args, fusion());
+  std::cout << "B" << std::endl;
 
-  if (isExpressionEvaluated(fusion().get())) {
+  if (isExpressionEvaluated(fusion())) {
     FUSER_PERF_SCOPE("FusionExecutor::runFusion::evaluate_with_ExprEval");
     outputs = evaluateFusionOutputs(outputs, expr_eval);
     if (isProfilerEnabled()) {
@@ -1111,7 +1126,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   // only allocate outputs when not given
   if (outputs.empty()) {
     outputs = allocateOutputs(
-        fusion().get(), executor_entry->outputs, options().device, expr_eval);
+        fusion(), executor_entry->outputs, options().device, expr_eval);
   }
   args.push(outputs);
 
@@ -1222,7 +1237,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       int blocks_per_sm = -1;
       NVFUSER_CUDA_SAFE_CALL(cuOccupancyMaxActiveBlocksPerMultiprocessor(
           &blocks_per_sm,
-          compiled_kernel_->function,
+          compiledKernel()->function,
           launch_params_.nThreads(),
           launch_params_.smem()));
 
@@ -1249,7 +1264,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     if (!kernel()->summary().has_cooperative_grid_reduction) {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
       NVFUSER_CUDA_SAFE_CALL(cuLaunchKernel(
-          compiled_kernel_->function,
+          compiledKernel()->function,
           launch_params_.gdimx(),
           launch_params_.gdimy(),
           launch_params_.gdimz(),
@@ -1263,7 +1278,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     } else {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchCooperativeKernel");
       NVFUSER_CUDA_SAFE_CALL(cuLaunchCooperativeKernel(
-          compiled_kernel_->function,
+          compiledKernel()->function,
           launch_params_.gdimx(),
           launch_params_.gdimy(),
           launch_params_.gdimz(),
@@ -1321,7 +1336,7 @@ void FusionExecutor::compileRtc(
     bool structured,
     PrimDataType index_type) {
   if (use_external_compiler_) {
-    return compiled_kernel_2_.compileRtc(code, name, structured, index_type);
+    return compiled_kernel_2_->compileRtc(code, name, structured, index_type);
   }
   FUSER_PERF_SCOPE("FusionExecutor::compileRtc");
   NVF_ERROR(
@@ -1337,7 +1352,7 @@ void FusionExecutor::compileRtc(
   } else {
     scode = code;
   }
-  compiled_kernel_ =
+  compiledKernel() =
       executor_utils::getCompiledKernel(std::nullopt, scode, name, kernelId());
 }
 
@@ -1346,7 +1361,7 @@ float FusionExecutor::runRtc(
     const std::vector<at::Tensor>& args,
     PrimDataType index_type) {
   if (use_external_compiler_) {
-    return compiled_kernel_2_.runRtc(launch_params, args, index_type);
+    return compiled_kernel_2_->runRtc(launch_params, args, index_type);
   }
   FUSER_PERF_SCOPE("FusionExecutor::runRtc");
 
@@ -1384,7 +1399,7 @@ float FusionExecutor::runRtc(
   }
 
   NVFUSER_CUDA_SAFE_CALL(cuLaunchKernel(
-      compiled_kernel_->function,
+      compiledKernel()->function,
       launch_params.gdimx(),
       launch_params.gdimy(),
       launch_params.gdimz(),
@@ -1444,14 +1459,14 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
       &executor_entry_lookup_keys_fb,
       &executor_entry_lookup_values_fb,
       toUnderlying(kernel()->indexType()),
-      serialize(builder, compiled_kernel_.get()));
+      serialize(builder, compiledKernel().get()));
 }
 
 flatbuffers::Offset<serde::CudaKernel> FusionExecutor::serialize(
     flatbuffers::FlatBufferBuilder& builder,
     const executor_utils::CompiledKernel* compiled_kernel) const {
   NVF_ERROR(
-      compiled_kernel_ != nullptr &&
+      compiledKernel() != nullptr &&
           (!compiled_kernel->cubin.empty() || !compiled_kernel->ptx.empty()),
       "Expected compiled cuda kernel before serializing FusionExecutor.");
 
@@ -1580,7 +1595,7 @@ void FusionExecutor::deserialize(
   // TODO Should we set fusion_id, concrete_id, runtime_id, and group_id when we
   // skip compilation?
   if (isExpressionEvaluated(_fusion)) {
-    fusion() = std::make_unique<Fusion>(*_fusion);
+    fusion_ = std::make_unique<Fusion>(*_fusion);
     NVF_ERROR(!hasCompiledKernel(), "Failed to deserialize FusionExecutor");
     return;
   }
@@ -1640,7 +1655,7 @@ void FusionExecutor::deserialize(
         deserialize(buffer->executor_entry_lookup_values()->Get(idx)));
   }
 
-  compiled_kernel_ = executor_utils::getCompiledKernel(
+  compiledKernel() = executor_utils::getCompiledKernel(
       buffer->compiled_kernel(), compile_params);
 
   NVF_ERROR(hasCompiledKernel(), "Failed to deserialize FusionExecutor");

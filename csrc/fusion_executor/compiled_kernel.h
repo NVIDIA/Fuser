@@ -38,15 +38,14 @@ class CompiledKernel : public NonCopyable {
  public:
   // NVF_API was added for nvfuser_extension. See examples/sinh_extension.
   NVF_API CompiledKernel() = default;
+  NVF_API CompiledKernel(Fusion* fusion, CompileParams compile_params);
 
   //! To compile a fusion with the 32-bit index type, CompileParams
   //! must be passed in. There used to be an index type associated
   //! with KernelArgumentHolder, but it is no longer the case.
   NVF_API void compileFusion(
-      Fusion* fusion,
       c10::Device device,
       const LaunchParams& launch_params,
-      CompileParams compile_params,
       SchedulerType scheduler_type = SchedulerType::None,
       int64_t fusion_id = 0,
       int64_t concrete_id = 0,
@@ -99,9 +98,7 @@ class CompiledKernel : public NonCopyable {
 
   // Function to query whether compilation was attempted for a `CompiledKernel`
   bool isCompiled() const {
-    int num_compiled_artifacts = (fusion_ != nullptr) + (lowered_ != nullptr);
-    NVF_ERROR(num_compiled_artifacts <= 1);
-    return num_compiled_artifacts == 1;
+    return lowered_ != nullptr;
   };
 
   // function to query whether a `CompiledKernel` has a compiled kernel to
@@ -109,9 +106,6 @@ class CompiledKernel : public NonCopyable {
   bool hasCompiledKernel() const {
     if (compiled_kernel_ != nullptr) {
       NVF_ERROR(compiled_kernel_->function != nullptr);
-      NVF_ERROR(
-          fusion_ == nullptr,
-          "fusion_ should only be initialized when using expression evaluator.");
     }
     return validKernelId() && lowered_ && compiled_kernel_ != nullptr;
   };
@@ -125,14 +119,8 @@ class CompiledKernel : public NonCopyable {
   }
 
   Fusion* fusion() const {
-    NVF_ERROR(isCompiled());
-    if (fusion_ != nullptr) {
-      return fusion_.get();
-    }
-    if (lowered_ != nullptr) {
-      return lowered_->kernel()->as<Fusion>();
-    }
-    NVF_THROW("unreachable because of the isCompiled check");
+    NVF_ERROR(lowered_ != nullptr);
+    return lowered_->kernel()->as<Fusion>();
   }
 
   const ThreadPredicateMap& threadPredMap() const {
@@ -302,9 +290,11 @@ class CompiledKernel : public NonCopyable {
   std::unique_ptr<GpuLower>& lowered() {
     return lowered_;
   }
-  std::unique_ptr<Fusion>& fusion() {
-    return fusion_;
+  Fusion* fusion() {
+    NVF_ERROR(lowered_ != nullptr);
+    return lowered_->kernel()->as<Fusion>();
   }
+
   const std::unique_ptr<GpuLower>& lowered() const {
     return lowered_;
   }
@@ -372,7 +362,7 @@ class CompiledKernel : public NonCopyable {
 
  private:
   CompileOptions options_;
-
+  CompileParams compile_params_;
   // Assuming sm70 or above:
   //  limit of statically allocated smem is 48 KB:
   // See:
@@ -407,10 +397,7 @@ class CompiledKernel : public NonCopyable {
   // Kernel name for fusion executor
   std::string kernel_id_;
 
-  std::unique_ptr<GpuLower> lowered_;
-
-  // Initialized for non-compiled fusions
-  std::unique_ptr<Fusion> fusion_;
+  std::unique_ptr<GpuLower> lowered_ = nullptr;
 
   // Track the block size this kernel was compiled with. If the block size
   // increases, recompile to adjust maxregister count.

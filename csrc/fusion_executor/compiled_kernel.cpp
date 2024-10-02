@@ -138,11 +138,21 @@ std::string getStructuredCodeFromExternalFiles(const int64_t fusion_id) {
 }
 } // namespace
 
-void CompiledKernel::compileFusion(
+NVF_API CompiledKernel::CompiledKernel(
     Fusion* fusion,
+    CompileParams compile_params)
+    : compile_params_(compile_params),
+      lowered_(std::make_unique<GpuLower>(fusion, compile_params)) {
+  FUSER_PERF_SCOPE("CompiledKernel::CompiledKernel");
+  for (const auto& hook : lowering_hooks_) {
+    hook(lowered_.get());
+  }
+  lowered_->run();
+}
+
+void CompiledKernel::compileFusion(
     c10::Device device,
     const LaunchParams& launch_params,
-    CompileParams compile_params,
     SchedulerType scheduler_type,
     int64_t fusion_id,
     int64_t concrete_id,
@@ -151,7 +161,8 @@ void CompiledKernel::compileFusion(
   FUSER_PERF_SCOPE("CompiledKernel::compileFusion");
 
   NVF_ERROR(
-      !fusion->outputs().empty(), "No output found for this kernel, aborting.");
+      !fusion()->outputs().empty(),
+      "No output found for this kernel, aborting.");
 
   options_.device = device;
 
@@ -165,7 +176,7 @@ void CompiledKernel::compileFusion(
     FusionProfiler::segment(group_id).startCompile(device.index());
   }
 
-  for (auto out : fusion->outputs()) {
+  for (auto out : fusion()->outputs()) {
     const auto logical_domain = out->as<TensorView>()->getLogicalDomain();
     // walking through outputs to see if output shapes are dependent on
     // non-tensor inputs. For which case, we should have disabled output
@@ -196,9 +207,9 @@ void CompiledKernel::compileFusion(
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::FusionIr)) {
-    fusion->print();
+    fusion()->print();
   } else if (isDebugDumpEnabled(DebugDumpOption::FusionIrMath)) {
-    fusion->printMath();
+    fusion()->printMath();
   }
 
   c10::DeviceGuard dg(options_.device);
@@ -209,13 +220,6 @@ void CompiledKernel::compileFusion(
   // TODO: These properties should be set as part of the constructor so that it
   // can be const
   warp_size_ = properties->warpSize;
-
-  lowered_ = std::make_unique<GpuLower>(fusion, compile_params);
-  for (const auto& hook : lowering_hooks_) {
-    hook(lowered_.get());
-  }
-  lowered_->run();
-
   kir::Kernel* kernel = lowered_->kernel();
 
   for (const auto& hook : post_lowering_hooks_) {
@@ -325,13 +329,13 @@ void CompiledKernel::compileFusion(
   // run - not great. We should have better heuristics.
   block_size_high_water_mark_ =
       std::max<int64_t>(launch_params.nThreads(), block_size_high_water_mark_);
-  maxrregcount_high_water_mark_ = compile_params.maxrregcount;
+  maxrregcount_high_water_mark_ = compile_params_.maxrregcount;
   compiled_kernel_ = executor_utils::getCompiledKernel(
       kernel_code_,
       structured_code,
       kernelName(),
       kernel_id_,
-      compile_params,
+      compile_params_,
       launch_params.nThreads());
 
   NVF_ERROR(validKernelId(), "Invalid kernel id for CompiledKernel.");
