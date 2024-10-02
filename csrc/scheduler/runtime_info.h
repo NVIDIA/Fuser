@@ -11,7 +11,7 @@
 
 #include <expr_evaluator.h>
 #include <fusion.h>
-#include <fusion_executor/executor_kernel_arg.h>
+#include <runtime/executor_kernel_arg.h>
 #include <utils.h>
 #include <visibility.h>
 

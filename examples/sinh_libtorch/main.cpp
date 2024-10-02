@@ -4,7 +4,7 @@
  * All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  */
-#include <fusion_executor/executor.h>
+#include <runtime/executor.h>
 #include <ops/arith.h>
 #include <scheduler/all_schedulers.h>
 #include <memory>

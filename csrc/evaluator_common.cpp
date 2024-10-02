@@ -10,9 +10,9 @@
 #include <debug.h>
 #include <device_lower/lower2device.h>
 #include <expr_evaluator.h>
-#include <fusion_executor/executor_kernel_arg.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
+#include <runtime/executor_kernel_arg.h>
 #include <tensor_metadata.h>
 
 #include <optional>
