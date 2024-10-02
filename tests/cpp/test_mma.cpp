@@ -10,6 +10,7 @@
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
+#include <device_lower/analysis/bank_conflict.h>
 #include <exceptions.h>
 #include <fusion.h>
 #include <inlining.h>
@@ -18,6 +19,7 @@
 #include <runtime/executor.h>
 #include <scheduler/matmul_utils.h>
 #include <scheduler/mma_utils.h>
+
 #include <algorithm>
 #include <iterator>
 #include <unordered_map>
@@ -689,6 +691,8 @@ TEST_P(HopperRS, SingleTileTransposed) {
   fe.compileFusion(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
 
+  EXPECT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+
   auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.squeeze().to(at::kFloat),
@@ -773,6 +777,8 @@ TEST_P(HopperRS, SingleTileWithTMALoad) {
   FusionExecutor fe;
   fe.compileFusion(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
+
+  EXPECT_TRUE(getBankConflictInfo(fe.kernel()).empty());
 
   auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
   auto tref = atMatmul(
@@ -870,6 +876,8 @@ TEST_P(HopperRS, SingleTileWithTMALoadStore) {
   fe.compileFusion(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
 
+  // EXPECT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+
   auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.squeeze().to(at::kFloat),
@@ -954,6 +962,8 @@ TEST_P(HopperRS, SingleTileWithTMALoadOuterDimNotSplit) {
   FusionExecutor fe;
   fe.compileFusion(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
+
+  EXPECT_TRUE(getBankConflictInfo(fe.kernel()).empty());
 
   auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
   auto tref = atMatmul(
@@ -1261,6 +1271,9 @@ TEST_P(HopperSS, SingleTile) {
   FusionExecutor fe;
   fe.compileFusion(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
+
+  EXPECT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+
   auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.squeeze().to(at::kFloat),
@@ -1687,6 +1700,9 @@ TEST_P(HopperSS, SingleTileWithTMALoad) {
   FusionExecutor fe;
   fe.compileFusion(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
+
+  // EXPECT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+
   auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.squeeze().to(at::kFloat),
