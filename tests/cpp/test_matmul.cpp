@@ -3543,7 +3543,7 @@ TEST_F(HopperMatmulTest, HSHNT128BSwizzle) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  constexpr int64_t M = 64, N = 256, K = 16*1024;
+  constexpr int64_t M = 64, N = 256, K = 1024;
   constexpr auto macro = MmaMacro::Hopper_64_256_16;
   constexpr auto layout = MmaLayout::NT; // [K, M] x [K, N] -> [M, N]
   constexpr auto swizzle = MmaInputSmemSwizzle::B128;
