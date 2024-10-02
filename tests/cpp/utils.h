@@ -719,7 +719,7 @@ at::Tensor matmulAtInput2D(
     const int64_t B = 0,
     const int64_t device = 0);
 
-std::pair<std::vector<int64_t>, std::vector<int64_t>>
+inline std::pair<std::vector<int64_t>, std::vector<int64_t>>
 matmulAtInputShape3DHopperRS(int M, int N, int K, MmaLayout layout) {
   switch (layout) {
     case MmaLayout::TT:
@@ -731,7 +731,7 @@ matmulAtInputShape3DHopperRS(int M, int N, int K, MmaLayout layout) {
   }
 }
 
-std::pair<at::Tensor, at::Tensor> matmulAtInput3DHopperRS(
+inline std::pair<at::Tensor, at::Tensor> matmulAtInput3DHopperRS(
     int M,
     int N,
     int K,
@@ -743,7 +743,7 @@ std::pair<at::Tensor, at::Tensor> matmulAtInput3DHopperRS(
       at::randn(shapes.first, options), at::randn(shapes.second, options));
 }
 
-std::pair<std::vector<int64_t>, std::vector<int64_t>>
+inline std::pair<std::vector<int64_t>, std::vector<int64_t>>
 matmulAtInputShape3DHopperSS(int M, int N, int K, MmaLayout layout) {
   switch (layout) {
     case MmaLayout::TT:
@@ -759,7 +759,7 @@ matmulAtInputShape3DHopperSS(int M, int N, int K, MmaLayout layout) {
   }
 }
 
-std::pair<at::Tensor, at::Tensor> matmulAtInput3DHopperSS(
+inline std::pair<at::Tensor, at::Tensor> matmulAtInput3DHopperSS(
     int M,
     int N,
     int K,
