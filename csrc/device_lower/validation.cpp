@@ -599,10 +599,12 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
         has_misaligned_vectorize_dim = true;
       }
 
-      // ParallelType::Group is used for both reduction & normalization.
-      // When used to group iteration dims of outer reduction tvs, it has
-      // vectorized access to shared memory and global memory. No need to
-      // validate, since they are register arrays defined in runtime function.
+      // ParallelType::Group is used for both reduction and normalization.
+      // In grouped outer reduction, the runtime function uses vectorized data
+      // transfers between registers and shared memory. The producer tensor is
+      // stored in registers and loaded into shared memory in a vectorized
+      // manner, so we add it to the vectorizedAccesses map to ensure register
+      // alignment.
       if (ptype == ParallelType::Group) {
         auto def = tv->definition();
         auto grop = dynamic_cast<GroupedReductionOp*>(def);
