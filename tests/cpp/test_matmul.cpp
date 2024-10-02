@@ -3639,6 +3639,7 @@ TEST_F(HopperMatmulTest, HSHNT128BSwizzle) {
       inputs.first.squeeze(),
       inputs.second.squeeze(),
       layout);
+  std::cout << (cg_outputs[0] - tref).abs().max() << std::endl;
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
