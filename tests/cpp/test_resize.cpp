@@ -4762,50 +4762,49 @@ TEST_F(ResizeTest, ReshapeSliceSliceRotateConcat) {
   // [32]
   auto tv1 = set(tv0);
 
-  // [4, 8]
+  // [4, 4]
   auto tv2 = reshape(tv1, shape, shape2);
 
-  // [1, 8]
+  // [1, 4]
   auto tv3 = slice(
       tv2,
       {{fusion.zeroVal(), IrBuilder::create<Val>(1)},
        {fusion.zeroVal(), IrBuilder::create<Val>(shape2[1])}});
 
   // left half
-  // [1, 4]
+  // [1, 2]
   auto tv4 = slice(
       tv3,
       {{fusion.zeroVal(), IrBuilder::create<Val>(1)},
        {fusion.zeroVal(), IrBuilder::create<Val>(shape2[1] / 2)}});
-  // [1, 8]
+  // [1, 4]
   auto tv5 =
       pad(tv4, {IrBuilder::create<Val>(shape2[1] / 2), fusion.zeroVal()});
 
   // right half
-  // [1, 4]
+  // [1, 2]
   auto tv6 = slice(
       tv3,
       {{fusion.zeroVal(), IrBuilder::create<Val>(1)},
        {IrBuilder::create<Val>(shape2[1] / 2),
         IrBuilder::create<Val>(shape2[1])}});
-  // [1, 8]
+  // [1, 4]
   auto tv7 =
       pad(tv6, {fusion.zeroVal(), IrBuilder::create<Val>(shape2[1] / 2)});
 
   // concat
-  // [1, 8]
+  // [1, 4]
   auto tv8 = add(tv7, tv5);
 
-  // [4, 8]
+  // [4, 4]
   auto tv9 =
       pad(tv8,
           {fusion.zeroVal(),
            fusion.zeroVal(),
            fusion.zeroVal(),
            IrBuilder::create<Val>(3)});
-  // [4, 8]
 
-  // [3, 8]
+  // [3, 4]
   auto tv10 = slice(
       tv2,
       {{IrBuilder::create<Val>(1), IrBuilder::create<Val>(shape2[0])},
@@ -4816,7 +4815,6 @@ TEST_F(ResizeTest, ReshapeSliceSliceRotateConcat) {
            fusion.zeroVal(),
            IrBuilder::create<Val>(1),
            fusion.zeroVal()});
-  // [4, 8]
 
   auto tv12 = add(tv9, tv11);
 
@@ -4837,7 +4835,12 @@ TEST_F(ResizeTest, ReshapeSliceSliceRotateConcat) {
         outer_root,
         fusion.zeroVal(),
         IrBuilder::create<Val>(-shape2[0] + 1, DataType::Index));
-    tv4->setLoopDomain({outer_root, tv4->getLogicalDomain().at(1)});
+    if (getenv("INNER")) {
+      // This doesn't work
+      tv4->setLoopDomain({outer_root, tv4->getRootDomain().at(1)});
+    } else {
+      tv4->setLoopDomain({outer_root, tv4->getLogicalDomain().at(1)});
+    }
   }
 
   // tv5
