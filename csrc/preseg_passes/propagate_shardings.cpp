@@ -16,29 +16,8 @@
 
 namespace nvfuser::preseg_passes {
 
-void PropagateShardingsPass::runPass(Fusion* fusion) {
-  for (Expr* expr : fusion->exprs()) {
-    const auto& inputs = ir_utils::filterByType<TensorView>(expr->inputs());
-    const auto& outputs = ir_utils::filterByType<TensorView>(expr->outputs());
-
-    auto i = std::find_if(
-        inputs.begin(), inputs.end(), std::mem_fn(&TensorView::hasDeviceMesh));
-    if (i == inputs.end()) {
-      continue;
-    }
-    TensorView* input_with_mesh = *i;
-
-    // Note: Tvs without a mesh are assumed to have no manual sharding
-    // annotation and are sharded like the first producer Tv.
-    std::vector<TensorView*> outputs_without_mesh;
-    for (TensorView* tv : outputs) {
-      if (!tv->hasDeviceMesh()) {
-        outputs_without_mesh.push_back(tv);
-      }
-    }
-    shardAllLike(input_with_mesh, outputs_without_mesh);
-  }
-
+namespace {
+void validateMeshes(Fusion* fusion) {
   // Validate that meshes are assigned to all TensorViews or none.
   TensorView* tv_with_mesh = nullptr;
   TensorView* tv_without_mesh = nullptr;
@@ -66,6 +45,34 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
       " assigned a mesh and ",
       tv_without_mesh,
       " not.");
+}
+
+} // namespace
+
+void PropagateShardingsPass::runPass(Fusion* fusion) {
+  for (Expr* expr : fusion->exprs()) {
+    const auto& inputs = ir_utils::filterByType<TensorView>(expr->inputs());
+    const auto& outputs = ir_utils::filterByType<TensorView>(expr->outputs());
+
+    auto i = std::find_if(
+        inputs.begin(), inputs.end(), std::mem_fn(&TensorView::hasDeviceMesh));
+    if (i == inputs.end()) {
+      continue;
+    }
+    TensorView* input_with_mesh = *i;
+
+    // Note: Tvs without a mesh are assumed to have no manual sharding
+    // annotation and are sharded like the first producer Tv.
+    std::vector<TensorView*> outputs_without_mesh;
+    for (TensorView* tv : outputs) {
+      if (!tv->hasDeviceMesh()) {
+        outputs_without_mesh.push_back(tv);
+      }
+    }
+    shardAllLike(input_with_mesh, outputs_without_mesh);
+  }
+
+  validateMeshes(fusion);
 }
 
 } // namespace nvfuser::preseg_passes

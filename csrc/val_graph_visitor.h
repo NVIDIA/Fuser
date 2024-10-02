@@ -212,6 +212,13 @@ class ValGraphBFS : public BFS<
       const ValGraph& graph,
       const ValGroups& from,
       const ValGroups& vals);
+
+  // Given `from`, project it to `to`. This function will return a subset of
+  // `to` that is connected to `from`.
+  static std::unordered_set<ValGroup> projectTo(
+      const ValGraph& id_graph,
+      const ValGroup& from,
+      const ValGroups& to);
 };
 
 } // namespace nvfuser
