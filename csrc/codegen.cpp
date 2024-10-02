@@ -2960,10 +2960,16 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           aligned_array_of_regs_.insert(tv);
         }
       }
-      // // tv is aligned if alias is aligned
-      // if (aligned_array_of_regs_.count(alias_tv) > 0) {
-      //   aligned_array_of_regs_.insert(tv);
-      // }
+      // If the original allocation is aligned, its aliasing tv should also
+      // be aligned due to auto type derivation. For example, in test
+      // `CombinedSchedulerTest.LayerNormBackward/dtype_float_batch_216_hidden_65536`
+      // we have: `Array<float, 4, 4> T32; auto& T29 = T32;`
+      // Compiler treats `T29` as aligned array instead of regular array, when
+      // passing `T29` to a runtime function, should use `T29.array` instead of
+      // `T29`.
+      if (aligned_array_of_regs_.count(alias_tv) > 0) {
+        aligned_array_of_regs_.insert(tv);
+      }
     } else {
       // Standard Memory Allocation
       switch (tv->getMemoryType()) {
