@@ -29,7 +29,9 @@ class SchedulerEntry {
   //! Fusion runtime facing API,
   //!   schedule the given fusion with heuristics owned
   //!   by this entry, for actual heuristics to override
-  NVF_API virtual void schedule(Fusion* fusion, const HeuristicParams* params) = 0;
+  NVF_API virtual void schedule(
+      Fusion* fusion,
+      const HeuristicParams* params) = 0;
 
   virtual std::unique_ptr<HeuristicParams> computeHeuristics(
       Fusion* fusion,
