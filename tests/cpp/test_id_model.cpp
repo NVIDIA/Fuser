@@ -2739,4 +2739,108 @@ TEST_F(IdModelTest, MappingClonedIDs) {
   }
 }
 
+TEST_F(IdModelTest, LoopPromotionWithCyclicGraph) {
+  // This test includes multiple cases. Each one is a fairly trivial
+  // test, so they are all put in one test.
+
+  // Test with reshape
+  {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+
+    auto tv0 = makeConcreteTensor({10});
+    fusion.addInput(tv0);
+    auto tv1 = reshape(tv0, {10}, {2, 5});
+    auto tv2 = reshape(tv1, {2, 5}, {10});
+    auto tv3 = add(tv0, tv2);
+    fusion.addOutput(tv3);
+
+    IdModel id_model(&fusion, /*build_graphs=*/false);
+    id_model.buildExactGraph();
+
+    // The exact graph is cyclic, but the loop promotion should be
+    // generated successfully as this fusion should not require the full
+    // promotion analysis.
+    EXPECT_TRUE(isCyclic(id_model.idGraph(IdMappingMode::EXACT)));
+
+    id_model.buildLoopGraph();
+    EXPECT_TRUE(!id_model.loopPromotionMap().empty());
+  }
+
+  // Test with slice and pad
+  {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+
+    auto tv0 = makeConcreteTensor({10});
+    fusion.addInput(tv0);
+    auto tv1 = slice(tv0, {{fusion.zeroVal(), IrBuilder::create<Val>(5)}});
+    auto tv2 = pad(tv1, {fusion.zeroVal(), IrBuilder::create<Val>(5)});
+    auto tv3 = add(tv0, tv2);
+    fusion.addOutput(tv3);
+
+    IdModel id_model(&fusion, /*build_graphs=*/false);
+    id_model.buildExactGraph();
+
+    // The exact graph is cyclic, but the loop promotion should be
+    // generated successfully as this fusion should not require the full
+    // promotion analysis.
+    EXPECT_TRUE(isCyclic(id_model.idGraph(IdMappingMode::EXACT)));
+
+    id_model.buildLoopGraph();
+    EXPECT_TRUE(!id_model.loopPromotionMap().empty());
+  }
+
+  // Test with reshape that requires the full promotion analysis
+  {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+
+    auto tv0 = makeConcreteTensor({10});
+    fusion.addInput(tv0);
+    auto tv1 = makeConcreteTensor({2});
+    fusion.addInput(tv1);
+    auto tv2 = reshape(tv0, {10}, {2, 5});
+    auto tv3 = reshape(tv2, {2, 5}, {10});
+    auto tv4 = add(tv0, tv3);
+    fusion.addOutput(tv4);
+    auto tv5 = broadcast(tv1, {false, true});
+    auto tv6 = add(tv2, tv5);
+    fusion.addOutput(tv6);
+
+    fusion.printMath();
+
+    IdModel id_model(&fusion, /*build_graphs=*/false);
+    id_model.buildExactGraph();
+
+    std::ofstream ofs("exact_graph.dot", std::ofstream::trunc);
+    auto dot_string =
+        id_model.idGraph(IdMappingMode::EXACT).toGraphvizDotGraph();
+    ofs << dot_string;
+    ofs.close();
+
+    // The exact graph is cyclic
+    EXPECT_TRUE(isCyclic(id_model.idGraph(IdMappingMode::EXACT)));
+
+    // While the fusion has a broadcast, since it's never merged with
+    // a non-concrete domain, it should not require the full promotion
+    // analysis.
+    id_model.buildLoopGraph();
+    EXPECT_TRUE(!id_model.loopPromotionMap().empty());
+
+    // However, if the broadcast domain gets inlined, it should not
+    // follow the shortcut path and because of the cycle, the loop
+    // promotion analysis should fail.
+    tv5->flatten();
+    tv6->flatten();
+    tv5->inlineAt(1);
+
+    IdModel id_model2(&fusion, /*build_graphs=*/false);
+    EXPECT_THAT(
+        [&]() { id_model2.buildLoopGraph(); },
+        ::testing::ThrowsMessage<nvfuser::nvfError>(
+            ::testing::HasSubstr("Cyclic exact graph is not supported")));
+  }
+}
+
 } // namespace nvfuser

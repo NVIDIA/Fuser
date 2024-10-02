@@ -172,6 +172,20 @@ bool ValGraphVisitor::traverse() {
     return false;
   }
 
+  // If not all exprs are visited, that should mean there must be a
+  // cyclic subgraph. The subgraph should have no terminating input,
+  // so it should not be visited at all. Note that some Val groups may
+  // not be visited, which should be fine.
+  if (visited_exprs.size() != graph().disjointExprSets().size()) {
+    std::stringstream ss;
+    ss << "The graph has an infinite loop. The following Exprs should be visited but are never ready:";
+    for (const ExprGroup& eg : to_visit_exprs) {
+      ss << " " << nvfuser::toString(eg);
+    }
+    error_message_ = ss.str();
+    return false;
+  }
+
   return true;
 }
 
