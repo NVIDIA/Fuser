@@ -46,14 +46,12 @@ void validateMeshes(Fusion* fusion) {
       tv_without_mesh,
       " not.");
 }
-
 } // namespace
 
 void PropagateShardingsPass::runPass(Fusion* fusion) {
-  for (Expr* expr : fusion->exprs()) {
+  const std::vector<Expr*>& exprs = fusion->exprs();
+  for (Expr* expr : exprs) {
     const auto& inputs = ir_utils::filterByType<TensorView>(expr->inputs());
-    const auto& outputs = ir_utils::filterByType<TensorView>(expr->outputs());
-
     auto i = std::find_if(
         inputs.begin(), inputs.end(), std::mem_fn(&TensorView::hasDeviceMesh));
     if (i == inputs.end()) {
@@ -63,13 +61,39 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
 
     // Note: Tvs without a mesh are assumed to have no manual sharding
     // annotation and are sharded like the first producer Tv.
+    const auto& outputs = ir_utils::filterByType<TensorView>(expr->outputs());
     std::vector<TensorView*> outputs_without_mesh;
-    for (TensorView* tv : outputs) {
+    for (auto* tv : outputs) {
       if (!tv->hasDeviceMesh()) {
         outputs_without_mesh.push_back(tv);
       }
     }
     shardAllLike(input_with_mesh, outputs_without_mesh);
+  }
+
+  // Back-propagate device meshes. This makes sure all TensorViews have a mesh
+  // if any of them has one. This is needed in addition to the forward
+  // propagation for ops that don't take any TensorView operands, e.g.,
+  // `uniform` used in dropout. See MultiDeviceTest.BackpropMeshes for an
+  // example.
+  for (auto i_expr = exprs.rbegin(); i_expr != exprs.rend(); i_expr++) {
+    Expr* expr = *i_expr;
+    const auto& outputs = ir_utils::filterByType<TensorView>(expr->outputs());
+    auto i_output = std::find_if(
+        outputs.begin(),
+        outputs.end(),
+        std::mem_fn(&TensorView::hasDeviceMesh));
+    if (i_output == outputs.end()) {
+      continue;
+    }
+    TensorView* output_with_mesh = *i_output;
+
+    const auto& inputs = ir_utils::filterByType<TensorView>(expr->inputs());
+    for (auto* tv : inputs) {
+      if (!tv->hasDeviceMesh()) {
+        tv->setDeviceMesh(output_with_mesh->getDeviceMesh());
+      }
+    }
   }
 
   validateMeshes(fusion);
