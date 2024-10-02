@@ -13,8 +13,22 @@
 
 namespace nvfuser {
 
-void ValGraphVisitor::traverse() {
+bool ValGraphVisitor::traverse() {
+  if (graph().disjointValSets().size() == 0) {
+    return true;
+  }
   const ValGroups terminating_inputs = graph().getTerminatingInputs();
+
+  // If no terminating input is found, that should mean there's a
+  // cycle.
+  if (terminating_inputs.empty()) {
+    std::stringstream ss;
+    ss << "Unsupported graph: No terminating input found, likely a cyclic graph: ";
+    ss << graph().toString();
+    error_message_ = ss.str();
+    return false;
+  }
+
   std::deque<ValGroup> to_visit_vals(
       terminating_inputs.begin(), terminating_inputs.end());
   ValGroups visited_vals;
@@ -59,6 +73,11 @@ void ValGraphVisitor::traverse() {
           if (expr_group->empty() || visited_exprs.has(expr_group)) {
             return true;
           }
+
+          if (!allow_cycle_) {
+            return false;
+          }
+
           // Handle ExprGroups that return one or some of its input ValGroups as
           // output. This expr_group is not visited yet, which means there're
           // input ValGroups that are not yet visited. If those not-visited
@@ -67,6 +86,7 @@ void ValGraphVisitor::traverse() {
           for (const ValGroup& input_group : graph().inputGroups(expr_group)) {
             if (input_group != val_group && !visited_vals.has(input_group) &&
                 input_group->empty()) {
+              // TODO: Why input_group->empty()?
               return false;
             }
           }
@@ -138,7 +158,8 @@ void ValGraphVisitor::traverse() {
     for (const ValGroup& vg : to_visit_vals) {
       ss << " " << nvfuser::toString(vg);
     }
-    NVF_THROW(ss.str());
+    error_message_ = ss.str();
+    return false;
   }
 
   if (!to_visit_exprs.empty()) {
@@ -147,8 +168,45 @@ void ValGraphVisitor::traverse() {
     for (const ExprGroup& eg : to_visit_exprs) {
       ss << " " << nvfuser::toString(eg);
     }
-    NVF_THROW(ss.str());
+    error_message_ = ss.str();
+    return false;
   }
+
+  // If not all exprs are visited, that should mean there must be a
+  // cyclic subgraph. The subgraph should have no terminating input,
+  // so it should not be visited at all. Note that some Val groups may
+  // not be visited, which should be fine.
+  if (visited_exprs.size() != graph().disjointExprSets().size()) {
+    std::stringstream ss;
+    ss << "The graph has an infinite loop. The following Exprs should be visited but are never ready:";
+    for (const ExprGroup& eg : to_visit_exprs) {
+      ss << " " << nvfuser::toString(eg);
+    }
+    error_message_ = ss.str();
+    return false;
+  }
+
+  return true;
+}
+
+namespace {
+
+class ValGraphCycleDetector : public ValGraphVisitor {
+ public:
+  ValGraphCycleDetector(const ValGraph& graph)
+      : ValGraphVisitor(graph, /*allow_cycle=*/false),
+        cycle_detected_(!traverse()) {}
+
+  void handle(const ValGroup& val_group) override {}
+  void handle(const ExprGroup& expr_group) override {}
+
+  bool cycle_detected_ = false;
+};
+
+} // namespace
+
+bool isCyclic(const ValGraph& graph) {
+  return ValGraphCycleDetector(graph).cycle_detected_;
 }
 
 ValGroups ValGraphBFS::getReachableValsFrom(
