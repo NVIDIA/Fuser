@@ -397,8 +397,7 @@ TEST_F(DistributedMatmulTest, AnnotateWeightOnly) {
   std::vector<c10::IValue> inputs({x_tensor, sharded_w_tensor});
   std::vector<at::Tensor> outputs = fec.runFusionWithInputs(inputs);
 
-  at::Tensor expected_y_tensor =
-      at::bmm(x_tensor.unsqueeze(0).expand({mesh.size(), -1, -1}), w_tensor);
+  at::Tensor expected_y_tensor = at::matmul(x_tensor, w_tensor);
   testValidate(
       fec.fusion(),
       outputs,
