@@ -3539,6 +3539,32 @@ INSTANTIATE_TEST_SUITE_P(
 
 using HopperMatmulTest = HopperBase;
 
+template <typename data_type>
+void compare(
+    int64_t tensor_outer_dim,
+    int64_t tensor_inner_dim,
+    at::Tensor result,
+    at::Tensor reference) {
+  at::Tensor reference_cpu_data = reference.cpu();
+  at::Tensor result_cpu_data = result.cpu();
+
+  auto reference_cpu = reference_cpu_data.accessor<data_type, 2>();
+  auto result_cpu = result_cpu_data.accessor<data_type, 2>();
+
+  constexpr double tolerance = 1e-3;
+  for (int64_t out_pos = 0; out_pos < tensor_outer_dim; ++out_pos) {
+    for (int64_t in_pos = 0; in_pos < tensor_inner_dim; ++in_pos) {
+      if (fabs(
+              (double)reference_cpu[out_pos][in_pos] -
+              (double)result_cpu[out_pos][in_pos]) > tolerance) {
+        std::cout << "[" << out_pos << ", " << in_pos
+                  << "] - result: " << result_cpu[out_pos][in_pos]
+                  << " | ref: " << reference_cpu[out_pos][in_pos] << std::endl;
+      }
+    }
+  }
+}
+
 TEST_F(HopperMatmulTest, HSHNT128BSwizzle) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -3630,27 +3656,30 @@ TEST_F(HopperMatmulTest, HSHNT128BSwizzle) {
 
   auto inputs =
       matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
-  inputs.first = inputs.first.sign().to(data_type_to_aten(dtype));
-  inputs.second = inputs.second.sign().to(data_type_to_aten(dtype));
+  // inputs.first = inputs.first.sign().to(data_type_to_aten(dtype));
+  // inputs.second = inputs.second.sign().to(data_type_to_aten(dtype));
 
   FusionExecutor fe;
   fe.compileFusion(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
   auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
   auto tref = atMatmul(
-      inputs.first.squeeze().to(at::kDouble),
-      inputs.second.squeeze().to(at::kDouble),
-      layout).to(data_type_to_aten(dtype));
-  std::cout << (cg_outputs[0] - tref).abs().max() << std::endl;
-  auto compare = at::stack({cg_outputs[0].flatten(), tref.flatten()}, 1);
-  auto abs_diff = (cg_outputs[0] - tref).abs();
-  auto rel_diff = abs_diff / tref.abs().clamp(1e-6);
-  std::cout << "Max abs diff: " << abs_diff.max() << std::endl;
-  std::cout << "Max rel diff: " << rel_diff.max() << std::endl;
-  auto tol = 0.1;
-  auto bad = (abs_diff > tol).logical_and(rel_diff > tol);
-  std::cout << bad.nonzero() << std::endl;
-  // std::cout << compare.index_select(0, bad.flatten().nonzero().flatten()) << std::endl;
+                  inputs.first.squeeze().to(at::kDouble),
+                  inputs.second.squeeze().to(at::kDouble),
+                  layout)
+                  .to(data_type_to_aten(dtype));
+  // std::cout << (cg_outputs[0] - tref).abs().max() << std::endl;
+  // auto compare = at::stack({cg_outputs[0].flatten(), tref.flatten()}, 1);
+  // auto abs_diff = (cg_outputs[0] - tref).abs();
+  // auto rel_diff = abs_diff / tref.abs().clamp(1e-6);
+  // std::cout << "Max abs diff: " << abs_diff.max() << std::endl;
+  // std::cout << "Max rel diff: " << rel_diff.max() << std::endl;
+  // auto tol = 0.1;
+  // auto bad = (abs_diff > tol).logical_and(rel_diff > tol);
+  // std::cout << bad.nonzero() << std::endl;
+  // std::cout << compare.index_select(0, bad.flatten().nonzero().flatten()) <<
+  // std::endl;
+  compare(M, N, cg_outputs[0], tref);
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, tol, tol));
 }
 
