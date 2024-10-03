@@ -1716,8 +1716,8 @@ TEST_P(TmaCircularBufferingTest, MatmulWithBroadcastedInput) {
   tv0_cache_local->circularBuffer(number_of_stages);
   tv1_cache_local->circularBuffer(number_of_stages);
 
-  // tv0_cache_smem->circularBuffer(number_of_stages);
-  // tv1_cache_smem->circularBuffer(number_of_stages);
+  tv0_cache_smem->circularBuffer(number_of_stages);
+  tv1_cache_smem->circularBuffer(number_of_stages);
 
   constexpr int64_t K = 1024;
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
