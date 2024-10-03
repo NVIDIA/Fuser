@@ -1846,14 +1846,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const auto sync_buffer = grop->sync_buffer()->buffer()->as<TensorView>();
 
     ArgumentBuilder func_args(block_nest_level_ + 1, kTab);
-    auto output_tv = output->view();
-    auto va = kernel_->summary().vectorized_accesses;
-    if (va.find(output_tv) != va.end()) {
-      func_args.arg(genVariableName(output) + ".array");
-    } else {
-      func_args.arg(genVariableName(output));
-    }
-    func_args.arg(genVariableName(input));
+    func_args.arg(genVariableNameConvertAlignedArray(output));
+    func_args.arg(genVariableNameConvertAlignedArray(input));
     func_args.arg(genReductionOp(op_type, data_type));
     func_args.arg("&").append(genVariableName(work_buffer)).append("[0]");
     func_args.arg("&").append(genVariableName(sync_buffer)).append("[0]");
@@ -2761,14 +2755,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     template_args.arg(num_grouped_iterations);
 
     ArgumentBuilder func_args;
-    auto output_tv = output->view();
-    auto va = kernel_->summary().vectorized_accesses;
-    if (va.find(output_tv) != va.end()) {
-      func_args.arg(genVariableName(output) + ".array");
-    } else {
-      func_args.arg(genVariableName(output));
-    }
-    func_args.arg(genVariableName(input));
+    func_args.arg(genVariableNameConvertAlignedArray(output->view()));
+    func_args.arg(genVariableNameConvertAlignedArray(input->view()));
     func_args.arg(genReductionOp(reduction_op_type, output->dtype()));
     func_args.arg(genStaticCast(genPtrType(data_type), "shared_mem"));
     NVF_ERROR(read_pred != nullptr && read_pred->hasValue());
@@ -2974,6 +2962,16 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         if (alloc->memoryType() == MemoryType::Local) {
           aligned_array_of_regs_.insert(tv);
         }
+      }
+      // If the original allocation is aligned, its aliasing tv should also
+      // be aligned due to auto type derivation. For example, in test
+      // `CombinedSchedulerTest.LayerNormBackward/dtype_float_batch_216_hidden_65536`
+      // we have: `Array<float, 4, 4> T32; auto& T29 = T32;`
+      // Compiler treats `T29` as aligned array instead of regular array, when
+      // passing `T29` to a runtime function, should use `T29.array` instead of
+      // `T29`.
+      if (aligned_array_of_regs_.count(alias_tv) > 0) {
+        aligned_array_of_regs_.insert(tv);
       }
     } else {
       // Standard Memory Allocation
