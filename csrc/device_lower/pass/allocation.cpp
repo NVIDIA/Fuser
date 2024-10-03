@@ -9,7 +9,7 @@
 #include <device_lower/pass/allocation.h>
 #include <expr_evaluator.h>
 #include <expr_simplifier.h>
-#include <id_model/indexing_utils.h>
+#include <id_model/utils.h>
 #include <instrumentation.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
@@ -338,7 +338,7 @@ class AllocationInserter : public kir::ExprMutator {
                              info.buffer->getLoopDomain().end(),
                              id) != info.buffer->getLoopDomain().end();
           if (is_loop) {
-            id = indexing_utils::getLoopPromotion(id, id_model);
+            id = getLoopPromotion(id, id_model);
           }
 
           alloc_dims.push_back(id->extent());

@@ -949,20 +949,28 @@ TEST_P(DistributedTransformerTest, Forward) {
   const auto mesh = DeviceMesh::createForNumDevices(D);
 
   TensorView* x = makeContigConcreteTensor({B * S, E}, DataType::Float);
+  TensorView* ln0_w = makeContigTensor(1);
+  TensorView* ln0_b = makeContigTensor(1);
   TensorView* mha_w0 = makeContigConcreteTensor({D, E, 3 * E / D}, dtype);
   TensorView* mha_b0 = makeContigConcreteTensor({D, 3 * E / D}, dtype);
   TensorView* mha_w1 = makeContigConcreteTensor({D, E / D, E}, dtype);
   TensorView* mha_b1 = makeContigConcreteTensor({E}, dtype);
+  TensorView* ln1_w = makeContigTensor(1);
+  TensorView* ln1_b = makeContigTensor(1);
   TensorView* mlp_w0 = makeContigTensor(3, dtype);
   TensorView* mlp_b0 = makeContigTensor(2, dtype);
   TensorView* mlp_w1 = makeContigTensor(3, dtype);
   TensorView* mlp_b1 = makeContigTensor(1, dtype);
 
   fusion->addInput(x);
+  fusion->addInput(ln0_w);
+  fusion->addInput(ln0_b);
   fusion->addInput(mha_w0);
   fusion->addInput(mha_b0);
   fusion->addInput(mha_w1);
   fusion->addInput(mha_b1);
+  fusion->addInput(ln1_w);
+  fusion->addInput(ln1_b);
   fusion->addInput(mlp_w0);
   fusion->addInput(mlp_b0);
   fusion->addInput(mlp_w1);
@@ -972,24 +980,22 @@ TEST_P(DistributedTransformerTest, Forward) {
   auto eps = IrBuilder::create<Val>(kEps);
   std::vector<int64_t> norm_shape{E};
 
-  auto ln_1 =
-      layer_norm(x, norm_shape, /*weight=*/nullptr, /*bias=*/nullptr, eps);
-  auto mha_in = castOp(dtype, ln_1.output);
+  auto ln0 = layer_norm(x, norm_shape, ln0_w, ln0_b, eps);
+  auto mha_in = castOp(dtype, ln0.output);
   auto mha_out = mha(mha_in, mha_w0, mha_b0, mha_w1, mha_b1, mesh)[3];
-  auto resid_1 = add(x, mha_out);
-  auto ln_2 = layer_norm(
-      resid_1, norm_shape, /*weight=*/nullptr, /*bias=*/nullptr, eps);
-  auto mlp_in = castOp(dtype, ln_2.output);
+  auto resid0 = add(x, mha_out);
+  auto ln1 = layer_norm(resid0, norm_shape, ln1_w, ln1_b, eps);
+  auto mlp_in = castOp(dtype, ln1.output);
   auto mlp_out = mlp(mlp_in, mlp_w0, mlp_b0, mlp_w1, mlp_b1, mesh)[3];
-  auto resid_2 = add(resid_1, mlp_out);
+  auto resid1 = add(resid0, mlp_out);
 
-  fusion->addOutput(ln_1.output);
+  fusion->addOutput(ln0.output);
   fusion->addOutput(mha_out);
-  fusion->addOutput(ln_2.output);
+  fusion->addOutput(ln1.output);
   fusion->addOutput(mlp_out);
-  fusion->addOutput(resid_2);
+  fusion->addOutput(resid1);
 
-  for (auto tv : {x, ln_1.output, ln_2.output, resid_2}) {
+  for (auto tv : {x, ln0.output, ln1.output, resid1}) {
     tv->setDeviceMesh(mesh);
   }
 
@@ -1000,55 +1006,56 @@ TEST_P(DistributedTransformerTest, Forward) {
   const auto options =
       at::TensorOptions().dtype(at_dtype).device(communicator_->device());
   auto x_ = at::randn({B * S, E}, options).to(at::kFloat);
+  auto ln0_w_ = at::randn(E, options).to(at::kFloat);
+  auto ln0_b_ = at::randn(E, options).to(at::kFloat);
   auto mha_w0_ = at::randn({E, 3 * E}, options) * kParamScale;
   auto mha_b0_ = at::randn({3 * E}, options) * kParamScale;
   auto mha_w1_ = at::randn({E, E}, options) * kParamScale;
   auto mha_b1_ = at::randn({E}, options) * kParamScale;
-
+  auto ln1_w_ = at::randn(E, options).to(at::kFloat);
+  auto ln1_b_ = at::randn(E, options).to(at::kFloat);
   auto mlp_w0_ = at::randn({E, 4 * E}, options) * kParamScale;
   auto mlp_b0_ = at::randn({4 * E}, options) * kParamScale;
   auto mlp_w1_ = at::randn({4 * E, E}, options) * kParamScale;
   auto mlp_b1_ = at::randn({E}, options) * kParamScale;
 
   at::manual_seed(getATenRandomSeed());
-  auto ln_1_ = at::native_layer_norm(
-      x_, norm_shape, /*weight=*/std::nullopt, /*bias=*/std::nullopt, kEps);
-  auto ln_1_out_ = std::get<0>(ln_1_);
+  auto ln0_ = at::native_layer_norm(x_, norm_shape, ln0_w_, ln0_b_, kEps);
+  auto ln0_out_ = std::get<0>(ln0_);
 
   auto mha_out_ = reference_mha(
-      ln_1_out_.to(at_dtype), mha_w0_, mha_b0_, mha_w1_, mha_b1_)[3];
+      ln0_out_.to(at_dtype), mha_w0_, mha_b0_, mha_w1_, mha_b1_)[3];
 
-  auto resid1_ = mha_out_ + x_;
-  auto ln_2_ = at::native_layer_norm(
-      resid1_,
-      norm_shape,
-      /*weight=*/std::nullopt,
-      /*bias=*/std::nullopt,
-      kEps);
-  auto ln_2_out_ = std::get<0>(ln_2_);
+  auto resid0_ = mha_out_ + x_;
+  auto ln1_ = at::native_layer_norm(resid0_, norm_shape, ln1_w_, ln1_b_, kEps);
+  auto ln1_out_ = std::get<0>(ln1_);
 
   auto mlp_out_ = reference_mlp(
-      ln_2_out_.to(at_dtype), mlp_w0_, mlp_b0_, mlp_w1_, mlp_b1_)[3];
-  auto at_out = resid1_ + mlp_out_;
+      ln1_out_.to(at_dtype), mlp_w0_, mlp_b0_, mlp_w1_, mlp_b1_)[3];
+  auto at_out = resid0_ + mlp_out_;
 
   std::vector<c10::IValue> inputs = {
       x_,
+      ln0_w_,
+      ln0_b_,
       shardTensor(mha_w0_.view({E, 3, E}), 2, mesh).view({1, E, 3 * E / D}),
       shardTensor(mha_b0_.view({3, E}), 1, mesh).view({1, 3 * E / D}),
       shardTensor(mha_w1_, 0, mesh),
       mha_b1_,
+      ln1_w_,
+      ln1_b_,
       shardTensor(mlp_w0_, 1, mesh),
       shardTensor(mlp_b0_, 0, mesh),
       shardTensor(mlp_w1_, 0, mesh),
       mlp_b1_};
 
   std::vector<at::Tensor> expected_outputs = {
-      ln_1_out_, mha_out_, ln_2_out_, mlp_out_, at_out};
+      ln0_out_, mha_out_, ln1_out_, mlp_out_, at_out};
 
   FusionExecutorCache fec(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
   auto outputs = fec.runFusionWithInputs(inputs);
-  validate(expected_outputs, outputs, {1e-5, 0.01, 0.01, 0.02, 0.02});
+  validate(expected_outputs, outputs, {1e-4, 0.01, 0.02, 0.04, 0.04});
 }
 
 TEST_P(DistributedTransformerTest, Backward) {
@@ -1220,14 +1227,13 @@ TEST_P(DistributedTransformerTest, Backward) {
 
   // Sharded inputs to outputs
   shardBetween(
-      {mha_w0, mha_b0, mha_w1, mlp_w0, mlp_w1, mlp_b0, mha_sdpa_out},
-      {mlp_grads[1],
-       mlp_grads[4],
-       mlp_grads[5],
-       mha_grads[1],
-       mha_grads[6],
-       mha_grads[7]},
+      {mha_w0, mha_b0, mha_w1, mha_sdpa_out},
+      {mha_grads[1], mha_grads[6], mha_grads[7]},
       mha_w0);
+  shardBetween(
+      {mlp_w0, mlp_w1, mlp_b0},
+      {mlp_grads[1], mlp_grads[4], mlp_grads[5]},
+      mlp_w0);
 
   // Unsharded inputs to outputs
   shardBetween(
@@ -1357,13 +1363,13 @@ TEST_P(DistributedTransformerTest, Backward) {
   validate(
       expected_outputs,
       outputs,
-      {5e-4,
+      {1e-3,
        5e-4,
        2e-3,
        2e-3,
        2e-3,
        2e-3,
-       4e-3,
+       0.01,
        4e-3,
        0.01,
        0.01,

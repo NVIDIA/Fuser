@@ -10,10 +10,10 @@
 
 #include <fusion.h>
 #include <ir/interface_nodes.h>
-#include <kernel_cache.h>
 #include <ops/all_ops.h>
 #include <preseg_passes/mark_aliases_prepare.h>
 #include <preseg_passes/optimization_pass.h>
+#include <runtime/fusion_executor_cache.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 

@@ -8,11 +8,11 @@
 #include <c10/util/irange.h>
 
 // Extract size and strides
-#include <kernel_cache.h>
+#include <runtime/fusion_executor_cache.h>
 
-#include <fusion_executor/executor_kernel_arg.h>
 #include <instrumentation.h>
 #include <polymorphic_value.h>
+#include <runtime/executor_kernel_arg.h>
 #include <serde/polymorphic_value.h>
 #include <tensor_metadata.h>
 
