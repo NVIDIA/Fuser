@@ -1693,12 +1693,12 @@ TEST_P(TmaCircularBufferingTest, MatmulWithBroadcastedInput) {
 
   // (BSX/TSX * TSX * BSX) = 1024 floats = 4096 bytes * (number of buffers)
   // Apply circular buffering to smem and local cache tensors
-  tv0_cache_smem->axis(-3)->parallelize(ParallelType::Bulk);
-  tv0_cache_smem->axis(-2)->parallelize(ParallelType::Bulk);
+  tv0_cache_smem->axis(-5)->parallelize(ParallelType::Bulk);
+  tv0_cache_smem->axis(-4)->parallelize(ParallelType::Bulk);
   tv0_cache_smem->axis(-1)->parallelize(ParallelType::Bulk);
 
-  tv1_cache_smem->axis(-3)->parallelize(ParallelType::Bulk);
-  tv1_cache_smem->axis(-2)->parallelize(ParallelType::Bulk);
+  tv1_cache_smem->axis(-5)->parallelize(ParallelType::Bulk);
+  tv1_cache_smem->axis(-4)->parallelize(ParallelType::Bulk);
   tv1_cache_smem->axis(-1)->parallelize(ParallelType::Bulk);
 
   // Apply ParallelType::Bulk to global output tensor.
