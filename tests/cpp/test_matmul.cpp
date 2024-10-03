@@ -3658,7 +3658,7 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
   auto inputs =
       matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
   for (auto t : {&inputs.first, &inputs.second}) {
-    *t = ((at::arange(t->numel(), t->options()).reshape(t->sizes()) % 3) - 1)
+    *t = ((at::arange(t->numel(), t->options().dtype(at::kLong)).reshape(t->sizes()) % 3) - 1)
              .to(t->options());
     std::cout << *t << std::endl;
   }
