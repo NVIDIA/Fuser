@@ -646,7 +646,7 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
       LaunchParams::UNINITIALIZED_VAL,
       iop.bdimx,
       iop.bdimy,
-      iop.bdimz);
+      LaunchParams::UNINITIALIZED_VAL);
 
   if (!rparams->smem_persistent_buffers.empty()) {
     rparams->tag =
