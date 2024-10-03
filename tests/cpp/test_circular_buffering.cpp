@@ -1697,8 +1697,8 @@ TEST_P(TmaCircularBufferingTest, MatmulWithBroadcastedInput) {
   tv0_cache_smem->axis(-4)->parallelize(ParallelType::Bulk);
   tv0_cache_smem->axis(-1)->parallelize(ParallelType::Bulk);
 
-  tv1_cache_smem->axis(-5)->parallelize(ParallelType::Bulk);
-  tv1_cache_smem->axis(-4)->parallelize(ParallelType::Bulk);
+  tv1_cache_smem->axis(-3)->parallelize(ParallelType::Bulk);
+  tv1_cache_smem->axis(-2)->parallelize(ParallelType::Bulk);
   tv1_cache_smem->axis(-1)->parallelize(ParallelType::Bulk);
 
   // Apply ParallelType::Bulk to global output tensor.
