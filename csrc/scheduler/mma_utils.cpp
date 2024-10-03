@@ -803,12 +803,7 @@ std::unordered_set<IterDomain*> getMmaDomainSet(
 // -> Merge -> () -> Split -> (K, M) -> Reorder -> (M , K) -> Split -> M, K_o,
 // K_in. If we start with K_in we can end up with M.
 IterDomain* getIDinConsumerRoot(IterDomain* id, TensorView* tv) {
-  std::cerr << "getIDinConsumerRoot: " << id->toString() << ", "
-            << tv->toString() << "\n";
-  while (
-      !((tv->domain()->hasRoot() && tv->domain()->isRoot(id)) ||
-        (!tv->domain()->hasRoot() && tv->domain()->isLogical(id)))) {
-    std::cerr << id->toString() << "\n";
+  while (!tv->domain()->isMaybeRoot(id)) {
     Expr* expr = id->definition();
     NVF_ERROR(expr != nullptr);
     NVF_CHECK(expr->isA<Merge>() || expr->isA<Split>());
