@@ -3660,7 +3660,7 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
   for (auto t : {&inputs.first, &inputs.second}) {
     *t = ((at::arange(t->numel(), t->options().dtype(at::kLong)).reshape(t->sizes()) % 3) - 1)
              .to(t->options());
-    std::cout << *t << std::endl;
+    // std::cout << *t << std::endl;
   }
 
   FusionExecutor fe;
