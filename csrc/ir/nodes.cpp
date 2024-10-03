@@ -4614,7 +4614,7 @@ ForLoop::ForLoop(IrBuilderPasskey passkey, IterDomain* iter_domain)
     : ForLoop(
           passkey,
           iter_domain,
-          GpuLower::current()->caMap()->getIndexVariable(iter_domain),
+          GpuLower::current()->getLoopIndexVariable(iter_domain),
           CircularBufferLoopStage::NotApplicable) {}
 
 ForLoop::ForLoop(IrBuilderPasskey passkey, const ForLoop* other)

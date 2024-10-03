@@ -125,11 +125,6 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/expr_evaluator.cpp
   ${NVFUSER_SRCS_DIR}/expr_simplifier.cpp
   ${NVFUSER_SRCS_DIR}/fusion.cpp
-  ${NVFUSER_SRCS_DIR}/fusion_executor/allocations.cpp
-  ${NVFUSER_SRCS_DIR}/fusion_executor/executor.cpp
-  ${NVFUSER_SRCS_DIR}/fusion_executor/executor_kernel_arg.cpp
-  ${NVFUSER_SRCS_DIR}/fusion_executor/executor_params.cpp
-  ${NVFUSER_SRCS_DIR}/fusion_executor/executor_utils.cpp
   ${NVFUSER_SRCS_DIR}/fusion_guard.cpp
   ${NVFUSER_SRCS_DIR}/fusion_segmenter.cpp
   ${NVFUSER_SRCS_DIR}/global_allocator.cpp
@@ -162,11 +157,11 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/ir/utils.cpp
   ${NVFUSER_SRCS_DIR}/iter_visitor.cpp
   ${NVFUSER_SRCS_DIR}/kernel.cpp
-  ${NVFUSER_SRCS_DIR}/kernel_cache.cpp
   ${NVFUSER_SRCS_DIR}/kernel_db/kernel_db.cpp
   ${NVFUSER_SRCS_DIR}/kernel_db/utils.cpp
   ${NVFUSER_SRCS_DIR}/kernel_ir.cpp
   ${NVFUSER_SRCS_DIR}/kernel_ir_dispatch.cpp
+  ${NVFUSER_SRCS_DIR}/logical_domain_map.cpp
   ${NVFUSER_SRCS_DIR}/maxinfo_propagator.cpp
   ${NVFUSER_SRCS_DIR}/mma_type.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/communication.cpp
@@ -202,7 +197,14 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/preseg_passes/remove_empty.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/reorder_sharded_axis.cpp
   ${NVFUSER_SRCS_DIR}/rng.cpp
-  ${NVFUSER_SRCS_DIR}/logical_domain_map.cpp
+  ${NVFUSER_SRCS_DIR}/runtime/allocations.cpp
+  ${NVFUSER_SRCS_DIR}/runtime/executor.cpp
+  ${NVFUSER_SRCS_DIR}/runtime/executor_kernel_arg.cpp
+  ${NVFUSER_SRCS_DIR}/runtime/executor_params.cpp
+  ${NVFUSER_SRCS_DIR}/runtime/executor_utils.cpp
+  ${NVFUSER_SRCS_DIR}/runtime/fusion_cache_utils.cpp
+  ${NVFUSER_SRCS_DIR}/runtime/fusion_executor_cache.cpp
+  ${NVFUSER_SRCS_DIR}/runtime/fusion_kernel_runtime.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/cache_policy_refiner.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/heuristic.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/mark_aliases.cpp
@@ -656,7 +658,6 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/tests/cpp/test_matmul_aten_evaluation.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_matmul_sass.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_matmul_scheduler.cpp
-    ${NVFUSER_ROOT}/tests/cpp/test_multi_matmul_scheduler.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_mma.cpp
   )
   add_test(test_matmul "${MATMUL_TEST_SRCS}" "")

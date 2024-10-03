@@ -8,8 +8,8 @@
 #pragma once
 
 #include <exceptions.h>
-#include <fusion_executor/executor_params.h>
 #include <ir/all_nodes.h>
+#include <runtime/executor_params.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/scheduler_types.h>
 #include <scheduler/utils.h>

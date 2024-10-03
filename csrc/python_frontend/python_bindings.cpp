@@ -22,6 +22,7 @@
 #include <python_frontend/fusion_record.h>
 #include <python_frontend/python_bindings.h>
 #include <python_frontend/translation.h>
+#include <runtime/fusion_kernel_runtime.h>
 #include <scheduler/registry.h>
 #include <scheduler/scheduler_types.h>
 #include <torch/csrc/jit/python/pybind_utils.h>

@@ -86,7 +86,7 @@ BUILD_DIR = ""
 INSTALL_DIR = ""
 INSTALL_REQUIRES = []
 EXTRAS_REQUIRE = {}
-CPP_STANDARD = 17
+CPP_STANDARD = 20
 forward_args = []
 for i, arg in enumerate(sys.argv):
     if arg == "--cmake-only":
