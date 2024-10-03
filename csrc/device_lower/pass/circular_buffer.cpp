@@ -155,7 +155,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
   }
 
   void handle(kir::IfThenElse* ite) final {
-    NVF_THROW("No IfThenElse should exist yet");
+    NVF_THROW("No IfThenElse should exist yet:\n", ite->toString());
   }
 
   void dispatch(Expr* expr) override {
@@ -706,12 +706,11 @@ class CloneTmaCircularBufferLoopAndInsertSync
     // product of all coordinate TMA iterDomains to the right of the circular
     // buffer axis.
     const std::vector<IterDomain*>& loop_domain = consumer_tv->getLoopDomain();
-    const IdModel& id_model = GpuLower::current()->idModel();
     for (size_t idx = consumer_tv->getComputeAtPosition();
          idx < loop_domain.size();
          ++idx) {
-      IterDomain* id = getLoopPromotion(loop_domain.at(idx), id_model);
-      if (!isParallelTypeThread(id->getParallelType()) &&
+      IterDomain* id = loop_domain.at(idx);
+      if (!id->isBroadcast() && !isParallelTypeThread(id->getParallelType()) &&
           id->getParallelType() != ParallelType::Bulk) {
         expected_bytes =
             SimplifyingIrBuilder::mulExpr(expected_bytes, id->extent());
