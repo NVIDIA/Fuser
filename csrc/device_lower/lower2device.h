@@ -214,14 +214,6 @@ class GpuLower : public NonCopyable {
     return requires_id_model_;
   }
 
-  bool hasMmaOps() const {
-    return has_mma_ops_;
-  }
-
-  bool& hasMmaOps() {
-    return has_mma_ops_;
-  }
-
   FusedReductionInfo& fusedReductionInfo() {
     return fused_reduction_info_;
   }
@@ -381,11 +373,6 @@ class GpuLower : public NonCopyable {
   // A temporary flag which is true if the fusion uses any feature that requires
   // the new experimental id model
   bool requires_id_model_ = false;
-
-  // Indicate the presence of mma ops in the kernel, which requires inline
-  // predicate of CpAsync. Set in MinimumDeviceVersion pass where mma ops are
-  // detected.
-  bool has_mma_ops_ = false;
 };
 
 } // namespace nvfuser
