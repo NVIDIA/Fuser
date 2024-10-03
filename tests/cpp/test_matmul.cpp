@@ -3649,7 +3649,8 @@ TEST_F(HopperMatmulTest, HSHNT128BSwizzle) {
   std::cout << "Max rel diff: " << rel_diff.max() << std::endl;
   auto tol = 0.1;
   auto bad = (abs_diff > tol).logical_and(rel_diff > tol);
-  std::cout << compare.index_select(0, bad.flatten().nonzero().flatten()) << std::endl;
+  std::cout << bad.nonzero() << std::endl;
+  // std::cout << compare.index_select(0, bad.flatten().nonzero().flatten()) << std::endl;
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, tol, tol));
 }
 
