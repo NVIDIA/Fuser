@@ -196,8 +196,7 @@ void HostIrExecutor::handle(P2PCommunication* communication) {
       communicator_->deviceId(),
       expr_evaluator_.evaluate(communication->peer()).as<int64_t>(),
       communicator_->getWorld(),
-      buffer,
-      expr_evaluator_.evaluate(communication->tag()).as<int64_t>());
+      buffer);
 }
 
 void HostIrExecutor::handle(Wait* wait) {

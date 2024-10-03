@@ -123,8 +123,7 @@ class P2PCommunication : public Expr {
       IrBuilderPasskey passkey,
       P2PCommunicationType type,
       TensorView* buffer,
-      Val* peer,
-      Val* tag = nullptr);
+      Val* peer);
 
   P2PCommunication(const P2PCommunication& other) = delete;
   P2PCommunication& operator=(const P2PCommunication& other) = delete;
@@ -149,10 +148,6 @@ class P2PCommunication : public Expr {
 
   Val* peer() const {
     return attributeVal(1);
-  }
-
-  Val* tag() const {
-    return attributeVal(2);
   }
 };
 
@@ -227,7 +222,6 @@ c10::intrusive_ptr<c10d::Work> postSingleCommunication(
     DeviceIdxType my_device_index,
     DeviceIdxType peer,
     c10d::Backend* backend,
-    at::Tensor buffer,
-    int64_t tag);
+    at::Tensor buffer);
 
 } // namespace nvfuser
