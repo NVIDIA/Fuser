@@ -167,14 +167,15 @@ void UnrollPass::dispatch(Expr* expr) {
       }
     }
 
-    // CpAsync uses inline predicate but still needs a IfThenElse predicate
-    // to avoid illegal memory access, see test
-    // FusionCpAsyncPredicateAvoidIllegalMemoryAccess
+    // Try to use inline predicate if possible.
+    // If don't need shared memory predicate, just use inline predicate.
+    // otherwise, also need to add IfThenElse predicate to avoid illegal memory
+    // access. see test FusionCpAsyncPredicateAvoidIllegalMemoryAccess
     if (lower_utils::supportInlinePredicate(expr)) {
       expr_with_predicate = expr_with_predicate->withPredicate(pred);
-      // For matmul, must use inline predicate without IfThenElse predicate to
-      // ensure the out of bounday shared memory data is set to zero.
-      if (GpuLower::current()->hasMmaOps()) {
+      if (!GpuLower::current()
+               ->predicateElimination()
+               .needsSharedMemoryPredicate(expr)) {
         registerReplace(expr, expr_with_predicate);
         return;
       }
