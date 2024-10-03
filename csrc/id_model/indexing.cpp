@@ -14,6 +14,7 @@
 #include <id_model/contiguity.h>
 #include <id_model/id_model_index_compute.h>
 #include <id_model/indexing.h>
+#include <id_model/indexing_traversal.h>
 #include <id_model/indexing_utils.h>
 #include <id_model/predicate_indexing.h>
 #include <id_model/to_string.h>
