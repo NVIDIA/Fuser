@@ -3630,6 +3630,8 @@ TEST_F(HopperMatmulTest, HSHNT128BSwizzle) {
 
   auto inputs =
       matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
+  inputs.first = inputs.first.sign().to(data_type_to_aten(dtype));
+  inputs.second = inputs.second.sign().to(data_type_to_aten(dtype));
 
   FusionExecutor fe;
   fe.compileFusion(
