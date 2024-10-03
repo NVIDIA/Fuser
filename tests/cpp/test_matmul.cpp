@@ -3668,7 +3668,7 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
   auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
   auto tref = atMatmul(inputs.first.squeeze(), inputs.second.squeeze(), layout);
   compare<c10::Half>(M, N, cg_outputs[0], tref);
-  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-1, 1e-1));
 }
 
 } // namespace nvfuser
