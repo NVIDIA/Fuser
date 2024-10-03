@@ -3645,7 +3645,10 @@ TEST_F(HopperMatmulTest, HSHNT128BSwizzle) {
   auto rel_diff = abs_diff / tref.abs().clamp(1e-6);
   std::cout << "Max abs diff: " << abs_diff.max() << std::endl;
   std::cout << "Max rel diff: " << rel_diff.max() << std::endl;
-  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 0.1, 0.1));
+  auto tol = 0.1;
+  auto bad = (abs_diff > tol).and(rel_diff > tol);
+  std::cout << compare.index_select(0, bad.nonzero().view(-1)) << std::endl;
+  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, tol, tol));
 }
 
 } // namespace nvfuser
