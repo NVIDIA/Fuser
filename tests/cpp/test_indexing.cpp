@@ -18,6 +18,7 @@
 #include <id_model/indexing.h>
 #include <id_model/indexing_utils.h>
 #include <id_model/to_string.h>
+#include <id_model/utils.h>
 #include <inlining.h>
 #include <ir/builder.h>
 #include <kernel_ir_dispatch.h>
@@ -49,7 +50,7 @@ std::vector<IterDomain*> getLoopDomains(
     const IdModel& id_model) {
   std::vector<IterDomain*> loop_domains;
   for (auto loop_id : tv->getLoopDomain()) {
-    loop_domains.push_back(indexing_utils::getLoopPromotion(loop_id, id_model));
+    loop_domains.push_back(getLoopPromotion(loop_id, id_model));
   }
 
   return loop_domains;

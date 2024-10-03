@@ -10,8 +10,8 @@
 #include <gtest/gtest.h>
 
 #include <fusion.h>
-#include <kernel_cache.h>
 #include <ops/all_ops.h>
+#include <runtime/fusion_executor_cache.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
