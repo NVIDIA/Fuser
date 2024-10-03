@@ -3638,8 +3638,8 @@ TEST_F(HopperMatmulTest, HSHNT128BSwizzle) {
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
   auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
   auto tref = atMatmul(
-      inputs.first.squeeze().to(kDouble),
-      inputs.second.squeeze().to(kDouble),
+      inputs.first.squeeze().to(at::kDouble),
+      inputs.second.squeeze().to(at::kDouble),
       layout).to(data_type_to_aten(dtype));
   std::cout << (cg_outputs[0] - tref).abs().max() << std::endl;
   auto compare = at::stack({cg_outputs[0].flatten(), tref.flatten()}, 1);
