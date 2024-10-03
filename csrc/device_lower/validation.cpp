@@ -159,12 +159,44 @@ void validateIterDomainUsage(Fusion* fusion) {
 
 void validateCpAsyncBulk(const std::vector<TensorView*>& tvs) {
   for (auto tv : tvs) {
+    bool is_cp_aync_bulk = ir_utils::isCpAsyncBulk(tv->definition());
     for (auto id : tv->getLoopDomain()) {
       if (id->getParallelType() == ParallelType::Bulk) {
         NVF_ERROR(
-            ir_utils::isCpAsyncBulk(tv->definition()),
+            is_cp_aync_bulk,
             "ParallelType::Bulk is only supported for cp.async.bulk.");
+        NVF_ERROR(
+            id->getIterType() == IterType::Iteration,
+            "ParallelType::Bulk is only supported for IterType::Iteration.");
       }
+    }
+    if (!is_cp_aync_bulk) {
+      continue;
+    }
+    std::unordered_set<ParallelType> valid_parallel_types{
+        ParallelType::DIDx,
+        ParallelType::BIDz,
+        ParallelType::BIDy,
+        ParallelType::BIDx,
+        ParallelType::TIDz,
+        ParallelType::TIDy,
+        ParallelType::TIDx,
+        ParallelType::Unroll,
+        ParallelType::Unswitch,
+        ParallelType::Bulk,
+        ParallelType::Serial};
+    std::unordered_set<IterType> valid_iter_types{
+        IterType::Iteration, IterType::Broadcast};
+    for (auto id : tv->getLoopDomain()) {
+      NVF_ERROR(
+          valid_parallel_types.find(id->getParallelType()) !=
+              valid_parallel_types.end(),
+          "Invalid parallel type for cp.async.bulk: ",
+          id->getParallelType());
+      NVF_ERROR(
+          valid_iter_types.find(id->getIterType()) != valid_iter_types.end(),
+          "Invalid iter type for cp.async.bulk: ",
+          id->getIterType());
     }
   }
 }

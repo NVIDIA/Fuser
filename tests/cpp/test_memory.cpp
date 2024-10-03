@@ -1438,6 +1438,64 @@ TEST_F(TMACompileTimeInvalidTest, BulkNotInTMA) {
           "ParallelType::Bulk is only supported for cp.async.bulk.")));
 }
 
+TEST_F(TMACompileTimeInvalidTest, BulkBroadcast) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({1});
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  tv1->setMemoryType(MemoryType::Shared);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  // ParallelType on Broadcast
+  tv1->axis(0)->parallelize(ParallelType::Bulk);
+
+  EXPECT_THAT(
+      [&]() {
+        auto options =
+            at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+        auto t0 = at::randn({32}, options);
+        FusionExecutor fe;
+        fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+      },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
+          "ParallelType::Bulk is only supported for IterType::Iteration.")));
+}
+
+TEST_F(TMACompileTimeInvalidTest, InvalidParallelType) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({8});
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  tv1->setMemoryType(MemoryType::Shared);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  // ParallelType on Broadcast
+  tv1->axis(0)->parallelize(ParallelType::Vectorize);
+
+  EXPECT_THAT(
+      [&]() {
+        auto options =
+            at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+        auto t0 = at::randn({32}, options);
+        FusionExecutor fe;
+        fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+      },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
+          ::testing::HasSubstr("Invalid parallel type for cp.async.bulk: V")));
+}
+
 TEST_F(TMARuntimeInvalidTest, MisalignedGlobalAddress) {
   // According to the CUDA programming guide, the global address must be
   // aligned 16 byte:
