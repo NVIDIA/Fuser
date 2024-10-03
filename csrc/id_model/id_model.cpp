@@ -22,7 +22,6 @@
 #include <transform_iter.h>
 #include <val_graph_visitor.h>
 
-#include <fstream>
 #include <memory>
 #include <tuple>
 #include <utility>
