@@ -149,12 +149,12 @@ bool needsPredicateSharedMemAccess(const Expr* expr) {
       if (producer->getMemoryType() == MemoryType::Shared ||
           consumer->getMemoryType() == MemoryType::Shared) {
         if (needSharedMemPredicate(producer, consumer)) {
-          return RECORD_AND_RETURN(true);
+          RECORD_AND_RETURN(true);
         }
       }
     }
   }
-  return RECORD_AND_RETURN(false);
+  RECORD_AND_RETURN(false);
 }
 
 class ProducerConsumerPairAnalyzer : public OptOutDispatch {
