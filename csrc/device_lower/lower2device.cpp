@@ -472,12 +472,6 @@ void GpuLower::analysis(Fusion* fusion) {
   fuseReductionsAndBroadcasts(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "fuseReductionsAndBroadcasts");
 
-  // Want to run this after parallel map is
-  // created. vectorized_accesses_ and vectorized_set_info_ are
-  // filled.
-  validateAndCollectVectorizeInfo(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "validateAndCollectVectorizeInfo");
-
   // Depends on ComputeAtMap
   validateAndConvertIterDomainGrouping(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateAndConvertIterDomainGrouping");
@@ -487,6 +481,12 @@ void GpuLower::analysis(Fusion* fusion) {
   // validateAndConvertIterDomainGrouping
   validateGroupedReductions(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateGroupedReductions");
+
+  // Want to run this after parallel map is created.
+  // Needs info about grouped reductions.
+  // vectorized_accesses_ and vectorized_set_info_ are filled.
+  validateAndCollectVectorizeInfo(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "validateAndCollectVectorizeInfo");
 
   // all of the lookup TVs are fusion inputs
   validateLookupTV(fusion_);

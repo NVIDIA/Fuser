@@ -219,10 +219,12 @@ __device__ void blockIterGroupedYdimReduce(
   // is 4 x 16 = 64 bytes which is only half of the maximum 128 bytes per
   // transaction. we should change the layout from [TIDy, TIDx, N] to [N/4,
   // TIDy, TIDx, 4]
+  constexpr unsigned int array_bytes = sizeof(T) * N;
   constexpr unsigned int total_loads =
-      sizeof(T) * N / 16 > 1 ? sizeof(T) * N / 16 : 1;
+      array_bytes / 16 > 1 ? array_bytes / 16 : 1;
   constexpr unsigned int elements_per_load =
       16 / sizeof(T) > N ? N : 16 / sizeof(T);
+  constexpr unsigned int align_size = array_bytes > 16 ? 16 : array_bytes;
 
   // assume TIDy is the reduction dimension, TIDx is the iteration dimension
   // TIDz is not used
@@ -246,8 +248,8 @@ __device__ void blockIterGroupedYdimReduce(
   int np2 = 1 << (31 - __clz(reduction_size));
   if (reduction_tid < np2 && reduction_tid + np2 < reduction_size) {
     // vectorized load from smem to regs
-    T self[N];
-    T peer[N];
+    __align__(align_size) T self[N];
+    __align__(align_size) T peer[N];
 #pragma unroll
     for (unsigned int i = 0; i < total_loads; ++i) {
       int self_offset = smem_offset_inter * i + smem_offset_intra;
@@ -276,8 +278,8 @@ __device__ void blockIterGroupedYdimReduce(
   for (int factor = np2 / 2; factor > 1; factor >>= 1) {
     if (reduction_tid < factor) {
       // vectorized load from smem to regs
-      T self[N];
-      T peer[N];
+      __align__(align_size) T self[N];
+      __align__(align_size) T peer[N];
 #pragma unroll
       for (unsigned int i = 0; i < total_loads; ++i) {
         int self_offset = smem_offset_inter * i + smem_offset_intra;
@@ -306,14 +308,14 @@ __device__ void blockIterGroupedYdimReduce(
   // last reduction
   if (should_write && write_pred) {
     // init result
-    T result[N];
+    __align__(align_size) T result[N];
 #pragma unroll
     for (int i = 0; i < N; ++i) {
       result[i] = out[i];
     }
 
     // copy first element to result
-    T self[N];
+    __align__(align_size) T self[N];
 #pragma unroll
     for (unsigned int i = 0; i < total_loads; ++i) {
       int self_offset = smem_offset_inter * i + smem_offset_intra;
@@ -327,7 +329,7 @@ __device__ void blockIterGroupedYdimReduce(
 
     // reduction of the 2nd last element
     if (reduction_size > 1) {
-      T peer[N];
+      __align__(align_size) T peer[N];
 #pragma unroll
       for (unsigned int i = 0; i < total_loads; ++i) {
         int peer_offset =
