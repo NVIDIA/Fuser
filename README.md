@@ -8,6 +8,9 @@
 
 A fusion code generator focused on the [Pytorch Deep Learning Framework](https://pytorch.org/) for NVIDIA GPUs (commonly known as "nvFuser").  nvFuser is used as a code region executor for [Lightning.ai Thunder](https://github.com/Lightning-AI/lightning-thunder) which is a source-to-source compiler for Pytorch.
 
+# Contents
+[Installation](##Instalation) [Developer](##Developer)
+
 ## Installation
 
 We publish nightly wheel packages on https://pypi.nvidia.com, while build against stable torch version on https://pypi.org.
