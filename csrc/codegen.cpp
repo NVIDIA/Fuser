@@ -2952,10 +2952,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       } else {
         indent() << "// Alias Allocation (changing dtype) - "
                  << alloc->memoryType() << "\n";
+        auto va = kernel_->summary().vectorized_accesses;
+        auto it = va.find(tv);
+        int64_t alias_alignment = it == va.end() ? 1 : it->second;
         indent() << "auto " << genVariableName(tv)
                  << " = *reinterpret_cast<Array<" << buffer_dtype << ", "
-                 << genInline(size) << ">*>(&" << genVariableName(alias_tv)
-                 << ");\n";
+                 << genInline(size) << ", " << alias_alignment << ">*>(&"
+                 << genVariableName(alias_tv) << ");\n";
         if (alloc->memoryType() == MemoryType::Local) {
           aligned_array_of_regs_.insert(tv);
         }

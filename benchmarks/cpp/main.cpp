@@ -8,6 +8,7 @@
 #include "utils.h"
 
 #include <options.h>
+#include <runtime/fusion_kernel_runtime.h>
 
 #include <benchmark/benchmark.h>
 #include <cuda_runtime.h>

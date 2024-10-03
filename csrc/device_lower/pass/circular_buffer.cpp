@@ -6,7 +6,7 @@
  */
 // clang-format on
 #include <device_lower/lower2device.h>
-#include <id_model/indexing_utils.h>
+#include <id_model/utils.h>
 #include <ir/utils.h>
 #include <kernel_ir.h>
 
@@ -77,7 +77,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
     // Main: 0 to (extent-1)
     // Epilogue: (extent-1) to extent
 
-    Val* index = GpuLower::current()->caMap()->getIndexVariable(
+    Val* index = GpuLower::current()->getLoopIndexVariable(
         circular_buffer_loop_->iter_domain(), loop_type_);
     Val* start = circular_buffer_loop_->start();
     Val* stop = circular_buffer_loop_->stop();
@@ -710,8 +710,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
     for (size_t idx = consumer_tv->getComputeAtPosition();
          idx < loop_domain.size();
          ++idx) {
-      IterDomain* id =
-          indexing_utils::getLoopPromotion(loop_domain.at(idx), id_model);
+      IterDomain* id = getLoopPromotion(loop_domain.at(idx), id_model);
       if (!isParallelTypeThread(id->getParallelType()) &&
           id->getParallelType() != ParallelType::Bulk) {
         expected_bytes =
