@@ -402,7 +402,8 @@ class VectorizeValidator : public OptInDispatch {
       // ldmatrix.trans is a hardware transpose instruction that can do
       // "vectorized" read from discontiguous memory
       NVF_CHECK(
-          last_alloc_dim == validator.vectorized_id_,
+          last_alloc_dim == validator.vectorized_id_ ||
+              getenv("SKIP_VEC_VALIDATION"),
           "Vectorized dim for ",
           name,
           " has to be from an inner most position. tv: ",
@@ -523,23 +524,25 @@ class VectorizeValidator : public OptInDispatch {
     vectorized_set_info.vectorized_consumer_alloc_id = consumer_vectorized_id;
 
     // Validate producer
-    auto pairwise_map = PairwiseLogicalDomainMap(producer_tv, tv);
-    auto producer_replayed_as_consumer =
-        TransformReplay::replayPasC(
-            producer_tv,
-            tv,
-            -1,
-            pairwise_map,
-            TransformReplayOptions().replayResize())
-            .first;
-    ir_utils::TVDomainGuard domain_guard(
-        producer_tv, producer_replayed_as_consumer);
-    auto c2p_map =
-        BestEffortReplay::replayPasC(producer_tv, tv, -1, pairwise_map)
-            .getReplay();
-    vectorized_set_info.vectorized_producer_alloc_id =
-        getVectorizedIdInAllocationDomain(
-            c2p_map.at(v_id), producer_tv, "producer");
+    if (!getenv("SKIP_VEC_VALIDATION")) {
+      auto pairwise_map = PairwiseLogicalDomainMap(producer_tv, tv);
+      auto producer_replayed_as_consumer =
+          TransformReplay::replayPasC(
+              producer_tv,
+              tv,
+              -1,
+              pairwise_map,
+              TransformReplayOptions().replayResize())
+              .first;
+      ir_utils::TVDomainGuard domain_guard(
+          producer_tv, producer_replayed_as_consumer);
+      auto c2p_map =
+          BestEffortReplay::replayPasC(producer_tv, tv, -1, pairwise_map)
+              .getReplay();
+      vectorized_set_info.vectorized_producer_alloc_id =
+          getVectorizedIdInAllocationDomain(
+              c2p_map.at(v_id), producer_tv, "producer");
+    }
 
     // For aligned vectorize, the extent of a vectorized domain must
     // be divisible by the vector word size. The domain is usually

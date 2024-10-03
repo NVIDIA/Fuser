@@ -802,8 +802,15 @@ std::unordered_set<IterDomain*> getMmaDomainSet(
 // from K, but while going back up the DAG we end up with a non-K ID. Eg: (K, M)
 // -> Merge -> () -> Split -> (K, M) -> Reorder -> (M , K) -> Split -> M, K_o,
 // K_in. If we start with K_in we can end up with M.
-IterDomain* getIDinConsumerRoot(IterDomain* id) {
-  while (Expr* expr = id->definition()) {
+IterDomain* getIDinConsumerRoot(IterDomain* id, TensorView* tv) {
+  std::cerr << "getIDinConsumerRoot: " << id->toString() << ", "
+            << tv->toString() << "\n";
+  while (
+      !((tv->domain()->hasRoot() && tv->domain()->isRoot(id)) ||
+        (!tv->domain()->hasRoot() && tv->domain()->isLogical(id)))) {
+    std::cerr << id->toString() << "\n";
+    Expr* expr = id->definition();
+    NVF_ERROR(expr != nullptr);
     NVF_CHECK(expr->isA<Merge>() || expr->isA<Split>());
     if (expr->isA<Split>()) {
       NVF_CHECK(
@@ -837,8 +844,8 @@ bool isLdMatrixTranspose(const LoadStoreOp* ldst) {
   const auto producer = ir_utils::getTvInput(ldst);
 
   // Get the innermost ID and go back up the DAG to the root domain.
-  auto corresponding_id_in_consumer_root =
-      getIDinConsumerRoot(consumer->getMaybeAllocationDomain().back());
+  auto corresponding_id_in_consumer_root = getIDinConsumerRoot(
+      consumer->getMaybeAllocationDomain().back(), consumer);
 
   // This gives us the ID in the consumer root domain.
   // We'll later map this ID to one in the producer.
