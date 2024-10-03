@@ -1481,7 +1481,6 @@ TEST_F(TMACompileTimeInvalidTest, InvalidParallelType) {
   tv1->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
-  // ParallelType on Broadcast
   tv1->axis(0)->parallelize(ParallelType::Vectorize);
 
   EXPECT_THAT(
