@@ -3554,13 +3554,13 @@ void compare(
   constexpr double tolerance = 0;
   for (int64_t out_pos = 0; out_pos < tensor_outer_dim; ++out_pos) {
     for (int64_t in_pos = 0; in_pos < tensor_inner_dim; ++in_pos) {
-      if (fabs(
-              (double)reference_cpu[out_pos][in_pos] -
-              (double)result_cpu[out_pos][in_pos]) > tolerance) {
+      // if (fabs(
+      //         (double)reference_cpu[out_pos][in_pos] -
+      //         (double)result_cpu[out_pos][in_pos]) > tolerance) {
         std::cout << "[" << out_pos << ", " << in_pos
                   << "] - result: " << result_cpu[out_pos][in_pos]
                   << " | ref: " << reference_cpu[out_pos][in_pos] << std::endl;
-      }
+      // }
     }
   }
 }
