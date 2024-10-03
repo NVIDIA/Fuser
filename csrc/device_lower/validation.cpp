@@ -159,7 +159,7 @@ void validateIterDomainUsage(Fusion* fusion) {
 
 void validateCpAsyncBulk(const std::vector<TensorView*>& tvs) {
   for (auto tv : tvs) {
-    bool is_cp_aync_bulk = ir_utils::isCpAsyncBulk(tv->definition());
+    bool is_cp_async_bulk = ir_utils::isCpAsyncBulk(tv->definition());
     for (auto id : tv->getLoopDomain()) {
       if (id->getParallelType() == ParallelType::Bulk) {
         NVF_ERROR(
