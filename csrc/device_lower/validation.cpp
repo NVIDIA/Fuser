@@ -165,9 +165,6 @@ void validateCpAsyncBulk(const std::vector<TensorView*>& tvs) {
         NVF_ERROR(
             is_cp_async_bulk,
             "ParallelType::Bulk is only supported for cp.async.bulk.");
-        NVF_ERROR(
-            id->getIterType() == IterType::Iteration,
-            "ParallelType::Bulk is only supported for IterType::Iteration.");
       }
     }
     if (!is_cp_async_bulk) {
