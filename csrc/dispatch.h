@@ -142,7 +142,8 @@ class Val;
   f(HostUnit);                        \
   f(PostOnStream);                    \
   f(SetCurrentStream);                \
-  f(Wait);
+  f(Wait);                            \
+  f(Synchronize);
 
 // Forward declarations for all Val and Expr types
 

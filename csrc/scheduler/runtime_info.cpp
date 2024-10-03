@@ -6,8 +6,8 @@
  */
 // clang-format on
 // #include <ATen/cuda/CUDAContext.h>
-#include <fusion_executor/executor_utils.h>
 #include <instrumentation.h>
+#include <runtime/executor_utils.h>
 #include <scheduler/registry_utils.h>
 #include <scheduler/runtime_info.h>
 #include <tensor_metadata.h>
