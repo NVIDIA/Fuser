@@ -3569,6 +3569,8 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
+  at::manual_seed(0);
+
   constexpr int64_t M = 1024 * 16, N = 1024 * 16, K = 1024;
   constexpr auto macro = MmaMacro::Hopper_64_256_16;
   constexpr auto layout = MmaLayout::NT; // [K, M] x [K, N] -> [M, N]
