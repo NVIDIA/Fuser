@@ -336,17 +336,13 @@ class VectorizeValidator : public OptInDispatch {
     NVF_ERROR(GpuLower::current()->hasIdModel());
 
     const auto& id_model = GpuLower::current()->idModel();
-
     const auto& indexing_graph =
         id_model.idGraph(TensorIndexer::traversalGraphType());
 
-    const auto alloc_groups =
-        indexing_graph.toGroups(tv->getMaybeAllocationDomain());
-    const auto vec_loop_groups =
-        indexing_graph.toGroups(std::vector<Val*>{v_id});
-
     auto expr_path = ValGraphBFS::getExprsBetween(
-        indexing_graph, alloc_groups, vec_loop_groups);
+        indexing_graph,
+        indexing_graph.toGroups(tv->getMaybeAllocationDomain()),
+        indexing_graph.toGroups(std::vector<Val*>{v_id}));
     expr_path = reverse(expr_path);
 
     ValGroup cur_group = indexing_graph.toGroup(v_id);
@@ -355,12 +351,11 @@ class VectorizeValidator : public OptInDispatch {
 
     for (const auto& [expr_g, dir] : expr_path) {
       Expr* expr = expr_g->front();
-      std::cerr << expr->toString() << dir << "\n";
-      if (expr->isOneOf<Swizzle, Swizzle2D>()) {
-        // Not supported
-        cur_group.reset();
-        break;
-      }
+      NVF_ERROR(
+          expr->isA<Merge>() || expr->isA<Split>() || expr->isA<Resize>() ||
+              expr->isA<Swizzle>() || expr->isA<Swizzle2D>(),
+          "Unexpected expr: ",
+          expr->toString());
 
       const auto& inputs = dir == Direction::Forward
           ? indexing_graph.inputGroups(expr_g)
@@ -369,29 +364,42 @@ class VectorizeValidator : public OptInDispatch {
           ? indexing_graph.outputGroups(expr_g)
           : indexing_graph.inputGroups(expr_g);
 
+      if (expr->isOneOf<Swizzle, Swizzle2D>()) {
+        // Not supported
+        if (std::find(inputs.begin(), inputs.end(), cur_group) !=
+                inputs.end() ||
+            std::find(outputs.begin(), outputs.end(), cur_group) !=
+                outputs.end()) {
+          cur_group.reset();
+          break;
+        }
+      }
+
       visited_ids.insert(outputs.begin(), outputs.end());
+
+      if (std::find(inputs.begin(), inputs.end(), cur_group) == inputs.end()) {
+        continue;
+      }
+
       if (expr->isA<Resize>()) {
         // No validatiton is done at this moment
-        continue;
+        cur_group = outputs[0];
+      } else if (inputs.size() == 2) {
+        NVF_ERROR(outputs.size() == 1);
+        if (cur_group == inputs[1]) {
+          cur_group = outputs[0];
+        } else if (cur_group == inputs[0]) {
+          cur_group.reset();
+          break;
+        }
       } else {
-        NVF_ERROR(expr->isA<Merge>() || expr->isA<Split>());
-        if (inputs.size() == 2) {
-          NVF_ERROR(outputs.size() == 1);
-          if (cur_group == inputs[1]) {
-            cur_group = outputs[0];
-          } else {
-            cur_group.reset();
-            break;
-          }
+        NVF_ERROR(inputs.size() == 1);
+        NVF_ERROR(outputs.size() == 2);
+        if (outputs[1]->front()->as<IterDomain>()->isBroadcast()) {
+          NVF_ERROR(!outputs[0]->front()->as<IterDomain>()->isBroadcast());
+          cur_group = outputs[0];
         } else {
-          NVF_ERROR(inputs.size() == 1);
-          NVF_ERROR(outputs.size() == 2);
-          if (outputs[1]->front()->as<IterDomain>()->isBroadcast()) {
-            NVF_ERROR(!outputs[0]->front()->as<IterDomain>()->isBroadcast());
-            cur_group = outputs[0];
-          } else {
-            cur_group = outputs[1];
-          }
+          cur_group = outputs[1];
         }
       }
     }
@@ -533,7 +541,7 @@ class VectorizeValidator : public OptInDispatch {
       TensorView* tv,
       std::string name) {
     std::vector<IterDomain*> vec_alloc_ids;
-    if (GpuLower::current()->hasIdModel()) {
+    if (!getenv("DISABLE") && GpuLower::current()->hasIdModel()) {
       vec_alloc_ids = getVectorizedIdInAllocationDomainIdModel(v_id, tv);
     } else {
       vec_alloc_ids = getVectorizedIdInAllocationDomain(v_id, tv);
@@ -638,7 +646,7 @@ class VectorizeValidator : public OptInDispatch {
     vectorized_set_info.vectorized_consumer_alloc_id = consumer_vectorized_id;
 
     // Validate producer
-    if (GpuLower::current()->hasIdModel()) {
+    if (!getenv("DISABLE") && GpuLower::current()->hasIdModel()) {
       // No need to do replayPasC when using IdModel
       vectorized_set_info.vectorized_producer_alloc_id =
           getAndValidateVectorizedIdInAllocationDomain(
