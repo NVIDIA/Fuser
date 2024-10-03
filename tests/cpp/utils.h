@@ -176,8 +176,6 @@ class PredicatedChecker : public kir::IrVisitor {
     return checker.predicated_ite_;
   }
   static bool isSharedMemoryPredicatedByIfThenElse(kir::Kernel* kernel) {
-    std::cout << "Checking if shared memory is predicated by if-then-else"
-              << std::endl;
     for (auto tv : kernel->allTvs()) {
       if (tv->getMemoryType() == MemoryType::Shared &&
           isPredicatedByIfThenElse(tv->name(), kernel)) {
