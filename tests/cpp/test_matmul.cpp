@@ -3539,6 +3539,32 @@ INSTANTIATE_TEST_SUITE_P(
 
 using HopperMatmulTest = HopperBase;
 
+template <typename data_type>
+void compare(
+    int64_t tensor_outer_dim,
+    int64_t tensor_inner_dim,
+    at::Tensor result,
+    at::Tensor reference) {
+  at::Tensor reference_cpu_data = reference.cpu();
+  at::Tensor result_cpu_data = result.cpu();
+
+  auto reference_cpu = reference_cpu_data.accessor<data_type, 2>();
+  auto result_cpu = result_cpu_data.accessor<data_type, 2>();
+
+  constexpr double tolerance = 1e-3;
+  for (int64_t out_pos = 0; out_pos < tensor_outer_dim; ++out_pos) {
+    for (int64_t in_pos = 0; in_pos < tensor_inner_dim; ++in_pos) {
+      if (fabs(
+              (double)reference_cpu[out_pos][in_pos] -
+              (double)result_cpu[out_pos][in_pos]) > tolerance) {
+        std::cout << "[" << out_pos << ", " << in_pos
+                  << "] - result: " << result_cpu[out_pos][in_pos]
+                  << " | ref: " << reference_cpu[out_pos][in_pos] << std::endl;
+      }
+    }
+  }
+}
+
 TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -3635,6 +3661,7 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
   auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
   auto tref = atMatmul(inputs.first.squeeze(), inputs.second.squeeze(), layout);
+  compare(M, N, cg_outputs[0], tref);
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
