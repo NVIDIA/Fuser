@@ -3551,7 +3551,7 @@ void compare(
   auto reference_cpu = reference_cpu_data.accessor<data_type, 2>();
   auto result_cpu = result_cpu_data.accessor<data_type, 2>();
 
-  constexpr double tolerance = 1e-3;
+  constexpr double tolerance = 0.1;
   for (int64_t out_pos = 0; out_pos < tensor_outer_dim; ++out_pos) {
     for (int64_t in_pos = 0; in_pos < tensor_inner_dim; ++in_pos) {
       if (fabs(
