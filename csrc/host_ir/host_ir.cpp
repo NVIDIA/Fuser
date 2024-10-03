@@ -203,8 +203,9 @@ bool Wait::sameAs(const Statement* other) const {
 
 Synchronize::Synchronize(IrBuilderPasskey passkey, Stream* stream)
     : Expr(passkey, {}, {}, {stream}) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<HostIrContainer>(), // NOLINT
+      passkey.ir_container_->isA<HostIrContainer>(),
       this,
       "must be registered in a HostIrContainer");
 }
