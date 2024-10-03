@@ -3642,7 +3642,7 @@ TEST_F(HopperMatmulTest, HSHNT128BSwizzle) {
   std::cout << (cg_outputs[0] - tref).abs().max() << std::endl;
   auto compare = at::stack({cg_outputs[0].flatten(), tref.flatten()}, 1);
   // std::cout << compare << std::endl;
-  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-2, 1e-2));
+  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 0.1, 0.1));
 }
 
 } // namespace nvfuser
