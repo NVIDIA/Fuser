@@ -3641,7 +3641,10 @@ TEST_F(HopperMatmulTest, HSHNT128BSwizzle) {
       layout);
   std::cout << (cg_outputs[0] - tref).abs().max() << std::endl;
   auto compare = at::stack({cg_outputs[0].flatten(), tref.flatten()}, 1);
-  // std::cout << compare << std::endl;
+  auto abs_diff = (cg_outputs[0] - tref).abs();
+  auto rel_diff = abs_diff / tref.abs().clamp(1e-6);
+  std::cout << "Max abs diff: " << abs_diff.max() << std::endl;
+  std::cout << "Max rel diff: " << rel_diff.max() << std::endl;
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 0.1, 0.1));
 }
 
