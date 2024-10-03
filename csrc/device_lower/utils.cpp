@@ -1918,7 +1918,17 @@ Val* proveLinearAndGetStride(
 }
 
 IterDomain* getConcreteLoopID(IterDomain* id) {
+  // Currently, the concrete loop ID depends on if loops are generated
+  // based on the IdModel loop promotion, which needs to be enabled
+  // explicitly by the IdModelEnableOption::Loop option.
   if (isIdModelOptionEnabled(IdModelEnableOption::Loop)) {
+    // If enabled, the concret ID should be basically just the
+    // promotion ID itself. However, just to reduce literacl changes
+    // of generated kernels so that the CI diff check could report
+    // smaller number of errors, we try to see if the concrete ID by
+    // ComputeAtMap could be used as a substitute. If yes, that ID is
+    // returned instead of the promotion ID.
+
     const auto& loop_graph =
         GpuLower::current()->idModel().idGraph(IdMappingMode::LOOP);
     auto promotion = getLoopPromotion(id, GpuLower::current()->idModel());
@@ -1946,6 +1956,8 @@ IterDomain* getConcreteLoopID(IterDomain* id) {
       }
     }
 
+    // The CAMap concrete ID is not a valid concrete ID. Use the
+    // promotion ID instead.
     return promotion;
   } else {
     const auto& ca_map = GpuLower::current()->caMap();

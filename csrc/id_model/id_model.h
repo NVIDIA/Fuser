@@ -245,13 +245,15 @@ class IdModel : public PolymorphicBase {
   //! Under this condition, we can pre-allocate all required index
   //!  variable integers before creating any kir::forloop, and this
   //!  would help optimizing the generated integer math for indexing.
-  void allocateIndexVariables();
+  void allocateLoopIndexVariables();
 
+  // Get the index variable assigned for a given loop ID
   Val* getLoopIndexVariable(
       IterDomain* id,
       CircularBufferLoopStage circular_buffer_loop_stage =
           CircularBufferLoopStage::NotApplicable) const;
 
+  // Get the index variable assigned for a given loop group
   Val* getLoopIndexVariable(
       const ValGroup& loop_group,
       CircularBufferLoopStage circular_buffer_loop_stage =

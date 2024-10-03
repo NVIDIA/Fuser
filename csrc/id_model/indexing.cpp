@@ -768,7 +768,13 @@ void TensorIndexer::buildLoopIndexMap() {
         continue;
       }
 
-      Val* loop_index = GpuLower::current()->getLoopIndexVariable(loop_id);
+      Val* loop_index = nullptr;
+
+      if (shouldUseZeroIndex(loop_group, id_model_)) {
+        loop_index = fusion->zeroVal();
+      } else {
+        loop_index = GpuLower::current()->getLoopIndexVariable(loop_id);
+      }
 
       loop_index_map_[loop_group] = loop_index;
     }

@@ -25,6 +25,8 @@ enum class IdModelEnableOption {
   ProducerIndex,
   InlinePredicate,
   UnswitchPredicate,
+  // Uses the loop promotion to generate loops. Indexing and
+  // predication need to be enabled as well.
   Loop,
 };
 
@@ -85,16 +87,6 @@ inline bool isIdModelOptionEnabled(IdModelEnableOption option) {
   return opts.find(option) != opts.end();
 }
 
-inline bool isIdModelIndexingEnabled() {
-  return isIdModelOptionEnabled(IdModelEnableOption::ConsumerIndex) &&
-      isIdModelOptionEnabled(IdModelEnableOption::ProducerIndex);
-}
-
-inline bool isIdModelPredicateEnabled() {
-  return isIdModelOptionEnabled(IdModelEnableOption::InlinePredicate) &&
-      isIdModelOptionEnabled(IdModelEnableOption::UnswitchPredicate);
-}
-
 // Get the promotion domain of a given loop domain.
 inline IterDomain* getLoopPromotion(
     IterDomain* loop_id,
@@ -136,6 +128,9 @@ inline ParallelType getParallelType(const ValGroup& loop_group) {
   return common_pt;
 }
 
+// Check if the loop index of a loop group should be always
+// just zero. For example, a loop group with an extent of one, i.e.,
+// a broadcast-only loop group, should just use zero.
 inline bool shouldUseZeroIndex(
     const ValGroup& loop_group,
     const IdModel& id_model) {

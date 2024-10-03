@@ -710,8 +710,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
     for (size_t idx = consumer_tv->getComputeAtPosition();
          idx < loop_domain.size();
          ++idx) {
-      IterDomain* id =
-          getLoopPromotion(loop_domain.at(idx), id_model);
+      IterDomain* id = getLoopPromotion(loop_domain.at(idx), id_model);
       if (!isParallelTypeThread(id->getParallelType()) &&
           id->getParallelType() != ParallelType::Bulk) {
         expected_bytes =
