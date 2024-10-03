@@ -5327,6 +5327,22 @@ TEST_F(ResizeTest, RoPE4) {
   std::vector<int64_t> shape1({2, 16, 1024, 32 / 2});
   const int64_t rope_size = 4;
 
+  if (auto env = getenv("BSZ")) {
+    shape1[0] = std::atoi(env);
+  }
+
+  if (auto env = getenv("N_HEAD")) {
+    shape1[1] = std::atoi(env);
+  }
+
+  if (auto env = getenv("BLOCK_SIZE")) {
+    shape1[2] = std::atoi(env);
+  }
+
+  if (auto env = getenv("HEAD_SIZE")) {
+    shape1[3] = std::atoi(env) / 2;
+  }
+
   std::vector<int64_t> shape2(
       {shape1[0], shape1[1], shape1[2], shape1[3] / rope_size, rope_size});
 
@@ -5417,7 +5433,7 @@ TEST_F(ResizeTest, RoPE4) {
           {fusion.zeroVal(),
            fusion.zeroVal(),
            fusion.zeroVal(),
-           IrBuilder::create<Val>(rope_size - 1)});
+           IrBuilder::create<Val>(shape2[3] - 1)});
 
   // x[..., rope_n_elem :]
   auto tv17 = slice(
@@ -5444,7 +5460,7 @@ TEST_F(ResizeTest, RoPE4) {
 
   fusion.printMath();
 
-  tv3->split(-1, rope_size, false);
+  tv3->split(-1, shape2[3], false);
 
   int64_t x_rope_slice_dim = 3;
 
