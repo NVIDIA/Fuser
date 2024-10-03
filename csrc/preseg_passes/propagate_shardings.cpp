@@ -98,6 +98,14 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
     shardAllLike(ref_input, outputs_without_mesh);
   }
 
+  for (TensorView* tv : fusion->allTvs()) {
+    for (IterDomain* id : tv->getLoopDomain()) {
+      if (id->isBroadcast() && id->isDeviceDim()) {
+        id->parallelize(ParallelType::Serial);
+      }
+    }
+  }
+
   // Back-propagate device meshes. This makes sure all TensorViews have a mesh
   // if any of them has one. This is needed in addition to the forward
   // propagation for ops that don't take any TensorView operands, e.g.,

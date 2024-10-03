@@ -166,10 +166,9 @@ bool haveDifferentShardings(
     }
     auto c_id = i->second;
 
-    // `b(DID{i0})` and `b(i0)` bear the same semantics, so don't treat it as
-    // resharding. The former is used more often due to how parallelizeAllLike
-    // is implemented.
-    if (p_id->isBroadcast() && c_id->isBroadcast()) {
+    // `b(DID{i0})` and `b(i0)` bear the same semantics, so don't treat a
+    // mapping from/to a broadcast dimension as resharding.
+    if (p_id->isBroadcast() || c_id->isBroadcast()) {
       continue;
     }
 
