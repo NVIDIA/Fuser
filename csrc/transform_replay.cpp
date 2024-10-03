@@ -899,11 +899,10 @@ int64_t TransformReplay::getMatchedLeafPosWithoutReplayPasC(
 }
 
 // We want to ignore reductions in the producer in a CasP replay.
-// TODO: idmodel
 int64_t TransformReplay::getMatchedLeafPosWithoutReplayCasP(
     const TensorView* consumer,
     const TensorView* producer,
-    int64_t producer_loop_pos,
+    int64_t producer_pos,
     bool skip_resize) {
   FUSER_PERF_SCOPE("transform_replay.cpp::getMatchedLeafPosWithoutReplayCasP");
 
@@ -913,15 +912,14 @@ int64_t TransformReplay::getMatchedLeafPosWithoutReplayCasP(
   id_map p2c_logical_map = pairwise_map.mapProducerToConsumer();
 
   // IterDomains in `producer` root that are not reduction
-  const auto& producer_loop_domain = producer->getLoopDomain();
-  auto unskippable_producer_loop_ids_vec =
-      TensorDomain::noReductions(producer_loop_domain);
-  std::unordered_set<IterDomain*> unskippable_producer_loop_ids(
-      unskippable_producer_loop_ids_vec.begin(),
-      unskippable_producer_loop_ids_vec.end());
+  const auto producer_domain = producer->getLoopDomain();
+  auto unskippable_producer_ids_vec =
+      TensorDomain::noReductions(producer_domain);
+  std::unordered_set<IterDomain*> unskippable_producer_ids(
+      unskippable_producer_ids_vec.begin(), unskippable_producer_ids_vec.end());
 
   // IterDomains in `consumer` root also in `producer` root
-  const auto& consumer_loop_domain = consumer->getLoopDomain();
+  const auto consumer_domain = consumer->getLoopDomain();
 
   std::unordered_set<Val*> mapped_consumer_roots;
   for (auto entry : p2c_logical_map) {
@@ -929,56 +927,55 @@ int64_t TransformReplay::getMatchedLeafPosWithoutReplayCasP(
   }
 
   auto unskippable_consumer_ids_vec = DependencyCheck::getAllValsBetween(
-      mapped_consumer_roots,
-      {consumer_loop_domain.begin(), consumer_loop_domain.end()});
+      mapped_consumer_roots, {consumer_domain.begin(), consumer_domain.end()});
 
   std::unordered_set<Val*> unskippable_consumer_ids(
       unskippable_consumer_ids_vec.begin(), unskippable_consumer_ids_vec.end());
 
-  auto it_producer_loop = producer_loop_domain.begin();
-  auto it_consumer_loop = consumer_loop_domain.begin();
+  auto it_producer = producer_domain.begin();
+  auto it_consumer = consumer_domain.begin();
 
   auto disjoint_sets =
       BestEffortReplay::replayPasC(
           producer, consumer, -1, pairwise_map, true, true, skip_resize)
           .getIterDomainEquivalence();
 
-  int64_t mismatched_producer_loop_pos = 0;
-  int64_t mismatched_consumer_loop_pos = 0;
-  while (it_producer_loop != producer_loop_domain.end()) {
-    if (producer_loop_pos == mismatched_producer_loop_pos) {
-      return mismatched_consumer_loop_pos;
+  int64_t mismatched_producer_pos = 0;
+  int64_t mismatched_consumer_pos = 0;
+  while (it_producer != producer_domain.end()) {
+    if (producer_pos == mismatched_producer_pos) {
+      return mismatched_consumer_pos;
     }
 
-    auto producer_loop_id = *it_producer_loop;
-    if (unskippable_producer_loop_ids.count(producer_loop_id) == 0) {
-      ++it_producer_loop;
-      ++mismatched_producer_loop_pos;
+    auto producer_id = *it_producer;
+    if (unskippable_producer_ids.count(producer_id) == 0) {
+      ++it_producer;
+      ++mismatched_producer_pos;
       continue;
     }
 
-    if (it_consumer_loop == consumer_loop_domain.end()) {
+    if (it_consumer == consumer_domain.end()) {
       return -1;
     }
 
-    auto consumer_loop_id = *it_consumer_loop;
-    if (unskippable_consumer_ids.count(consumer_loop_id) == 0) {
-      ++it_consumer_loop;
-      ++mismatched_consumer_loop_pos;
+    auto consumer_id = *it_consumer;
+    if (unskippable_consumer_ids.count(consumer_id) == 0) {
+      ++it_consumer;
+      ++mismatched_consumer_pos;
       continue;
     }
 
-    if (disjoint_sets.permissiveAreMapped(producer_loop_id, consumer_loop_id)) {
-      ++mismatched_producer_loop_pos;
-      ++mismatched_consumer_loop_pos;
-      ++it_producer_loop;
-      ++it_consumer_loop;
+    if (disjoint_sets.permissiveAreMapped(producer_id, consumer_id)) {
+      ++mismatched_producer_pos;
+      ++mismatched_consumer_pos;
+      ++it_producer;
+      ++it_consumer;
     } else {
       return -1;
     }
   }
-  if (producer_loop_pos == mismatched_producer_loop_pos) {
-    return mismatched_consumer_loop_pos;
+  if (producer_pos == mismatched_producer_pos) {
+    return mismatched_consumer_pos;
   }
   return -1;
 }

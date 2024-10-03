@@ -106,10 +106,8 @@ class IrCloner {
         if (first) {
           auto it = cloned_disjoint_sets.initializeSet(clone_of_val).first;
           new_set = it->second;
-          NVF_ERROR(new_set.get() != nullptr);
           first = false;
         } else {
-          NVF_ERROR(new_set.get() != nullptr);
           cloned_disjoint_sets.appendToSet(clone_of_val, new_set);
         }
       }
