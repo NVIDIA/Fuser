@@ -12,10 +12,10 @@
 
 #include <exceptions.h>
 #include <fusion.h>
-#include <fusion_executor/executor.h>
 #include <inlining.h>
 #include <ir/all_nodes.h>
 #include <ops/all_ops.h>
+#include <runtime/executor.h>
 #include <scheduler/matmul_utils.h>
 #include <scheduler/mma_utils.h>
 #include <algorithm>
@@ -315,30 +315,6 @@ class HopperRS : public HopperBase,
     swizzle_b = std::get<3>(GetParam());
   }
 };
-
-std::pair<std::vector<int64_t>, std::vector<int64_t>>
-matmulAtInputShape3DHopperRS(int M, int N, int K, MmaLayout layout) {
-  switch (layout) {
-    case MmaLayout::TT:
-      return {{M, K, 1}, {1, K, N}};
-    case MmaLayout::TN:
-      return {{M, 1, K}, {1, N, K}};
-    default:
-      NVF_CHECK(false, "unsupported data layout.");
-  }
-}
-
-std::pair<at::Tensor, at::Tensor> matmulAtInput3DHopperRS(
-    int M,
-    int N,
-    int K,
-    MmaLayout layout,
-    c10::ScalarType dtype) {
-  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
-  auto shapes = matmulAtInputShape3DHopperRS(M, N, K, layout);
-  return std::make_pair(
-      at::randn(shapes.first, options), at::randn(shapes.second, options));
-}
 
 TEST_P(HopperRS, SingleTile) {
   Fusion fusion;
@@ -1176,34 +1152,6 @@ class HopperSS : public HopperBase,
     swizzle_b = std::get<4>(GetParam());
   }
 };
-
-std::pair<std::vector<int64_t>, std::vector<int64_t>>
-matmulAtInputShape3DHopperSS(int M, int N, int K, MmaLayout layout) {
-  switch (layout) {
-    case MmaLayout::TT:
-      return {{M, K, 1}, {1, K, N}};
-    case MmaLayout::TN:
-      return {{M, 1, K}, {1, N, K}};
-    case MmaLayout::NT:
-      return {{K, M, 1}, {K, 1, N}};
-    case MmaLayout::NN:
-      return {{1, K, M}, {N, K, 1}};
-    default:
-      NVF_CHECK(false, "unsupported data layout.");
-  }
-}
-
-std::pair<at::Tensor, at::Tensor> matmulAtInput3DHopperSS(
-    int M,
-    int N,
-    int K,
-    MmaLayout layout,
-    c10::ScalarType dtype) {
-  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
-  auto shapes = matmulAtInputShape3DHopperSS(M, N, K, layout);
-  return std::make_pair(
-      at::randn(shapes.first, options), at::randn(shapes.second, options));
-}
 
 TEST_P(HopperSS, SingleTile) {
   Fusion fusion;

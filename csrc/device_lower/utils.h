@@ -16,7 +16,6 @@
 #include <kernel_ir.h>
 #include <parallel_type_bitmap.h>
 #include <val_graph.h>
-#include <val_graph_visitor.h>
 
 #include <bitset>
 #include <map>

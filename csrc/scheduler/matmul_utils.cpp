@@ -15,13 +15,13 @@
 // NOTE: included to avoid compilation error caused by missing destructor in
 // 'SchedulerRuntimeInfo'
 #include <debug.h>
-#include <fusion_executor/executor_utils.h>
 #include <id_model/id_model.h>
 #include <ir/base_nodes.h>
 #include <ir/interface_nodes.h>
 #include <ir/internal_nodes.h>
 #include <ir/utils.h>
 #include <options.h>
+#include <runtime/executor_utils.h>
 #include <val_graph.h>
 #include <algorithm>
 #include <deque>
