@@ -363,7 +363,7 @@ TEST_P(MultiDeviceBroadcastTest, DeviceParallel) {
                        .expanded({expanded, false})
                        .build();
   in->setDeviceMesh(mesh);
-  TensorView* out = set(in);
+  TensorView* out = add(in, in);
   fusion->addInput(in);
   fusion->addOutput(out);
 
