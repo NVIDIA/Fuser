@@ -6,13 +6,13 @@
  */
 // clang-format on
 
-#include <fusion_executor/allocations.h>
+#include <runtime/allocations.h>
 
 #include <expr_evaluator.h>
-#include <fusion_executor/executor_kernel_arg.h>
-#include <fusion_executor/executor_utils.h>
 #include <instrumentation.h>
 #include <polymorphic_value.h>
+#include <runtime/executor_kernel_arg.h>
+#include <runtime/executor_utils.h>
 #include <tensor_metadata.h>
 
 namespace nvfuser {

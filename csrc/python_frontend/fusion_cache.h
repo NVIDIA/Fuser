@@ -9,8 +9,8 @@
 #include <exceptions.h>
 #include <visibility.h>
 
-#include <kernel_cache.h>
 #include <python_frontend/fusion_record.h>
+#include <runtime/fusion_executor_cache.h>
 #include <scheduler/registry.h>
 
 #include <memory>
