@@ -3543,7 +3543,7 @@ TEST_F(HopperMatmulTest, HSHNT128BSwizzle) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  constexpr int64_t M = 1024, N = 1024*2, K = 1024;
+  constexpr int64_t M = 1024 * 16, N = 1024 * 16, K = 1024;
   constexpr auto macro = MmaMacro::Hopper_64_256_16;
   constexpr auto layout = MmaLayout::NT; // [K, M] x [K, N] -> [M, N]
   constexpr auto swizzle = MmaInputSmemSwizzle::B128;
@@ -3638,9 +3638,9 @@ TEST_F(HopperMatmulTest, HSHNT128BSwizzle) {
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
   auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
   auto tref = atMatmul(
-      inputs.first.squeeze(),
-      inputs.second.squeeze(),
-      layout);
+      inputs.first.squeeze().to(kDouble),
+      inputs.second.squeeze().to(kDouble),
+      layout).to(data_type_to_aten(dtype));
   std::cout << (cg_outputs[0] - tref).abs().max() << std::endl;
   auto compare = at::stack({cg_outputs[0].flatten(), tref.flatten()}, 1);
   auto abs_diff = (cg_outputs[0] - tref).abs();
