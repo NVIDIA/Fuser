@@ -233,79 +233,62 @@ std::vector<IterDomain*> mapLinearOpIterDomains(
     bool k_bcast) {
   std::vector<IterDomain*> mapping(out_size, nullptr);
 
-  NVF_ERROR(
-      input_position == 0 || input_position == 1 || input_position == 2,
-      "Input position must be 0, 1, or 2. Found ",
-      input_position);
-
   // Input: {*_i, K}
   // Weight: {*_wb, N, K}
   // Bias: {*_wb, N}
   // Output: {*_wb, *_i, N, (rK)}. rK exists iff K is not a broadcast.
-  switch (input_position) {
-    case 0: {
-      // Fill `mapping` from the back.
-      // Map K if K is not a broadcast.
-      auto in_index = input_domain.rbegin();
-      auto out_index = static_cast<int64_t>(out_size) - 1;
-      if (!k_bcast) {
-        mapping[out_index] = *in_index;
-        in_index++;
-        out_index--;
-      } else {
-        in_index++;
-      }
-
-      // Skip N.
+  if (input_position == 0) {
+    // Fill `mapping` from the back.
+    auto in_r_index = static_cast<int64_t>(input_domain.size()) - 1;
+    auto out_index = static_cast<int64_t>(out_size) - 1;
+    // Map K if K is not a broadcast.
+    if (!k_bcast) {
+      mapping[out_index] = input_domain[in_r_index];
       out_index--;
-
-      // Map the rest, i.e., *_i.
-      while (in_index != input_domain.rend()) {
-        mapping[out_index] = *in_index;
-        in_index++;
-        out_index--;
-      }
-      break;
     }
-    case 1: {
-      auto in_r_index = static_cast<int64_t>(input_domain.size()) - 1;
-      // Map K if K is not broadcast.
-      auto out_index = static_cast<int64_t>(out_size) - 1;
-      if (!k_bcast) {
+    in_r_index--;
+
+    // Skip N because it's not in the input.
+    out_index--;
+
+    // Map the rest, i.e., *_i.
+    while (in_r_index >= 0) {
+      mapping[out_index] = input_domain[in_r_index];
+      in_r_index--;
+      out_index--;
+    }
+  } else {
+    NVF_ERROR(
+        input_position == 1 || input_position == 2,
+        "Input position must be 0, 1, or 2. Found ",
+        input_position);
+
+    auto in_r_index = static_cast<int64_t>(input_domain.size()) - 1;
+    auto out_index = static_cast<int64_t>(out_size) - 1;
+    if (k_bcast) {
+      // If K is a broadcast, don't map K.
+      if (input_position == 1) {
+        // Skip K in the weight.
+        in_r_index--;
+      }
+    } else {
+      // Otherwise, map K in the weight.
+      if (input_position == 1) {
         mapping[out_index] = input_domain[in_r_index];
         in_r_index--;
-        out_index--;
-      } else {
-        in_r_index--;
       }
-      // Fill `N`
-      mapping[out_index] = input_domain[in_r_index];
-
-      // Fill *_wb from the front.
-      out_index = 0;
-      for (auto in_index : c10::irange(in_r_index)) {
-        mapping[out_index] = input_domain[in_index];
-        out_index++;
-      }
-      break;
+      out_index--;
     }
-    case 2: {
-      auto out_index = static_cast<int64_t>(out_size) - 1;
-      // If K is not a broadcast, skip K.
-      if (!k_bcast) {
-        out_index--;
-      }
-      // Fill `N`
-      mapping[out_index] = input_domain.back();
 
-      // Fill *_wb from the front.
-      for (auto index : c10::irange(input_domain.size() - 1)) {
-        mapping[index] = input_domain[index];
-      }
-      break;
+    // Fill `N`
+    mapping[out_index] = input_domain[in_r_index];
+
+    // Fill *_wb from the front.
+    out_index = 0;
+    for (auto in_index : c10::irange(in_r_index)) {
+      mapping[out_index] = input_domain[in_index];
+      out_index++;
     }
-    default:
-      NVF_ERROR("Unexpected input type.");
   }
   return mapping;
 }
