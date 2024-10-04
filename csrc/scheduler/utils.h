@@ -7,7 +7,6 @@
 // clang-format on
 #pragma once
 
-#include <compute_at_map.h>
 #include <device_lower/pass/loop_rotation.h>
 #include <disjoint_set.h>
 #include <exceptions.h>
@@ -20,6 +19,7 @@
 
 namespace nvfuser {
 
+class ComputeAtMap;
 class SchedulerRuntimeInfo;
 class HeuristicDataCache;
 
@@ -700,6 +700,10 @@ bool isResharding(Fusion* fusion);
 void moveNonConcretizedBroadcastInnermost(
     Fusion* fusion,
     const std::unordered_set<TensorView*>& ignored_tvs = {});
+
+void scheduleLoopDomainsLike(
+    const std::vector<TensorView*>& tvs,
+    const std::vector<IterDomain*>& ref_loop_dom);
 
 } // namespace scheduler_utils
 } // namespace nvfuser
