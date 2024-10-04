@@ -3539,9 +3539,37 @@ INSTANTIATE_TEST_SUITE_P(
 
 using HopperMatmulTest = HopperBase;
 
+template <typename data_type>
+void compare(
+    int64_t tensor_outer_dim,
+    int64_t tensor_inner_dim,
+    at::Tensor result,
+    at::Tensor reference) {
+  at::Tensor reference_cpu_data = reference.cpu();
+  at::Tensor result_cpu_data = result.cpu();
+
+  auto reference_cpu = reference_cpu_data.accessor<data_type, 2>();
+  auto result_cpu = result_cpu_data.accessor<data_type, 2>();
+
+  constexpr double tolerance = 0;
+  for (int64_t out_pos = 0; out_pos < tensor_outer_dim; ++out_pos) {
+    for (int64_t in_pos = 0; in_pos < tensor_inner_dim; ++in_pos) {
+      if (fabs(
+              (double)reference_cpu[out_pos][in_pos] -
+              (double)result_cpu[out_pos][in_pos]) > tolerance) {
+        std::cout << "[" << out_pos << ", " << in_pos
+                  << "] - result: " << result_cpu[out_pos][in_pos]
+                  << " | ref: " << reference_cpu[out_pos][in_pos] << std::endl;
+      }
+    }
+  }
+}
+
 TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
   Fusion fusion;
   FusionGuard fg(&fusion);
+
+  at::manual_seed(0);
 
   constexpr int64_t M = 1024 * 16, N = 1024 * 16, K = 1024;
   constexpr auto macro = MmaMacro::Hopper_64_256_16;
@@ -3624,19 +3652,26 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
 
   inlineMost();
 
-  // TODO: looks like this test will hang if I enable this
-  // tv0c->circularBuffer(/*number_of_stages=*/4);
-  // tv1c->circularBuffer(/*number_of_stages=*/4);
+  tv0c->circularBuffer(/*number_of_stages=*/4);
+  tv1c->circularBuffer(/*number_of_stages=*/4);
 
   auto inputs =
       matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
+  for (auto t : {&inputs.first, &inputs.second}) {
+    *t = ((at::arange(t->numel(), t->options().dtype(at::kDouble)).sin()) * 2)
+             .to(c10::kInt)
+             .reshape(t->sizes())
+             .to(t->options());
+    // std::cout << *t << std::endl;
+  }
 
   FusionExecutor fe;
   fe.compileFusion(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
   auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
   auto tref = atMatmul(inputs.first.squeeze(), inputs.second.squeeze(), layout);
-  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+  // compare<c10::Half>(M, N, cg_outputs[0], tref);
+  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 0, 0));
 }
 
 } // namespace nvfuser
