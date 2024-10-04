@@ -21,9 +21,6 @@ class PointwiseParams : public HeuristicParams {
  public:
   PointwiseParams() : HeuristicParams(SchedulerType::PointWise) {};
 
-  // vectorize if true, otherwise unroll
-  bool vectorize = false;
-
   // Treat pointwise operation as 2-Dimensional, this is the location where we
   // split from left side of the domain to right. i.e. 0 means problem is
   // treated as 1-D, 1 of 3 would mean we treat the first dimension as the outer
@@ -42,7 +39,9 @@ class PointwiseParams : public HeuristicParams {
   // BIDy on the inner most dimension.
   bool flip_grid_binding = false;
 
-  // Unroll or vectorization factor
+  // vectorization factor
+  int64_t vectorization_factor = 1;
+  // Unroll factor
   int64_t unroll_factor = 1;
 
   using HeuristicParams::HeuristicParams;
@@ -54,7 +53,8 @@ class PointwiseParams : public HeuristicParams {
       return false;
     }
     bool attr_equal = other->cparams == cparams &&
-        other->vectorize == vectorize && other->break_point == break_point &&
+        other->vectorization_factor == vectorization_factor &&
+        other->break_point == break_point &&
         other->split_block == split_block &&
         other->split_grid_y_dim == split_grid_y_dim &&
         other->unroll_factor == unroll_factor &&
@@ -78,12 +78,11 @@ class PointwiseParams : public HeuristicParams {
         ss << "  Split y grid dim\n";
       }
     }
+    if (vectorization_factor > 1) {
+      ss << "Vectorize, Factor: " << vectorization_factor << "\n";
+    }
     if (unroll_factor > 1) {
-      if (vectorize) {
-        ss << "Vectorize, Factor: " << unroll_factor << "\n";
-      } else {
-        ss << "Unroll, Factor: " << unroll_factor << "\n";
-      }
+      ss << "Unroll, Factor: " << unroll_factor << "\n";
     }
     if (flip_grid_binding) {
       ss << "Flip BIDx/BIDy bindings\n";
@@ -94,7 +93,7 @@ class PointwiseParams : public HeuristicParams {
 
   // Warning: Hash is not based on launch parameters!
   size_t hash() const override {
-    size_t attr_hash = static_cast<size_t>(vectorize) ^
+    size_t attr_hash = static_cast<size_t>(vectorization_factor) ^
         static_cast<size_t>(break_point) << 4 ^
         static_cast<size_t>(split_block) << 5 ^
         static_cast<size_t>(split_grid_y_dim) << 6 ^
