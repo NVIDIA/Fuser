@@ -437,6 +437,7 @@ class FusionTranslator : public OptInConstDispatch {
         getFunction<ResultType, ArgTypes...>(e->as<ExprType>())));
   }
 
+  // Map UnaryOp to python_frontend OpRecord
   void handle(const UnaryOp* uop) final {
     // short-circuit: Handle cast operation separately
     if (uop->getUnaryOpType() == UnaryOpType::Cast) {
