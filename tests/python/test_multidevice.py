@@ -312,13 +312,7 @@ class TransformerForwardFusion(FusionDefinition):
         T198 = self.ops.cast(T197, dtype=DataType.Float)
         T199 = self.ops.add(T192, T198)
         T200 = self.ops.cast(T199, dtype=DataType.BFloat16)
-        # T201 = self.ops.linear(T200, self.mlp_linear0_weight, self.mlp_linear0_bias)
-        T201 = self.ops.add(
-            self.ops.matmul(T200, self.ops.permute(self.mlp_linear0_weight, [0, 2, 1])),
-            self.ops.broadcast_in_dim(
-                self.mlp_linear0_bias, [d, 1, 49152 // d], [0, 2]
-            ),
-        )
+        T201 = self.ops.linear(T200, self.mlp_linear0_weight, self.mlp_linear0_bias)
         T202 = self.ops.cast(T201, dtype=DataType.Float)
         T203 = self.ops.mul(T202, T202)
         T204 = self.ops.mul(T203, T202)
@@ -335,14 +329,21 @@ class TransformerForwardFusion(FusionDefinition):
         T215 = self.ops.mul(T212, T214)
         T216 = self.ops.cast(T215, dtype=DataType.BFloat16)
         # T217 = self.ops.linear(T216, self.mlp_linear1_weight, self.mlp_linear1_bias)
+        # [b,s,h]        [d,b,s,4h/d]        [d,h,4h/d]                  [h]
         T217_local_matmul = self.ops.matmul(
-            T216, self.ops.permute(self.mlp_linear1_weight, [0, 2, 1])
+            T216,
+            self.ops.broadcast_in_dim(
+                self.ops.permute(self.mlp_linear1_weight, [0, 2, 1]),
+                [d, 1, 49152 // d, 12288],
+                [0, 2, 3],
+            ),
         )
         T217_matmul = self.ops.sum(T217_local_matmul, [0])
-        T217 = self.ops.add(
+        T217_biasadd = self.ops.add(
             T217_matmul,
             self.ops.broadcast_in_dim(self.mlp_linear1_bias, [1, 1, 12288], [2]),
         )
+        T217 = self.ops.cast(T217_biasadd, dtype=DataType.BFloat16)
         T218 = self.ops.cast(T217, dtype=DataType.Float)
         T219 = self.ops.cast(T35, dtype=DataType.Float)
         T220 = self.ops.mul(T218, T219)
