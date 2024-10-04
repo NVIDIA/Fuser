@@ -210,10 +210,8 @@ std::tuple<bool, std::string> UserSchedule::canScheduleDebug(
   return std::make_tuple(can_schedule, ss.str());
 }
 
-void UserSchedule::scheduleWithType(SchedulerType scheduler_type) {
-  NVF_CHECK(
-      heuristic_params == nullptr,
-      "Heuristic Scheduler is already defined for this UserSchedule");
+std::unique_ptr<HeuristicParams> UserSchedule::computeHeuristics(
+    SchedulerType scheduler_type) {
   auto scheduler = SchedulerEntry::makeSchedulerInstance(scheduler_type);
   SchedulerRuntimeInfo& runtime_info_ref = *runtimeInfo();
 
@@ -223,9 +221,38 @@ void UserSchedule::scheduleWithType(SchedulerType scheduler_type) {
       "Could not schedule fusion with ",
       scheduler_type,
       " scheduler.");
+  return scheduler->computeHeuristics(fusion(), runtime_info_ref);
+}
 
+void UserSchedule::scheduleWithType(SchedulerType scheduler_type) {
+  NVF_CHECK(
+      heuristic_params == nullptr,
+      "Heuristic Scheduler is already defined for this UserSchedule");
+  auto scheduler = SchedulerEntry::makeSchedulerInstance(scheduler_type);
+  SchedulerRuntimeInfo& runtime_info_ref = *runtimeInfo();
+  NVF_ERROR(
+      scheduler->canScheduleCompileTime(fusion()) &&
+          scheduler->canScheduleRunTime(fusion(), runtime_info_ref),
+      "Could not schedule fusion with ",
+      scheduler_type,
+      " scheduler.");
   heuristic_params = scheduler->computeHeuristics(fusion(), runtime_info_ref);
   scheduler->schedule(fusion(), heuristic_params.get());
+}
+
+void UserSchedule::scheduleWithType(
+    SchedulerType scheduler_type,
+    HeuristicParams* heuristic_params) {
+  auto scheduler = SchedulerEntry::makeSchedulerInstance(scheduler_type);
+  SchedulerRuntimeInfo& runtime_info_ref = *runtimeInfo();
+
+  NVF_ERROR(
+      scheduler->canScheduleCompileTime(fusion()) &&
+          scheduler->canScheduleRunTime(fusion(), runtime_info_ref),
+      "Could not schedule fusion with ",
+      scheduler_type,
+      " scheduler.");
+  scheduler->schedule(fusion(), heuristic_params);
 }
 
 FusionSchedules::FusionSchedules(int64_t fusion_id)
@@ -566,7 +593,8 @@ TrieNode* FusionCache::createChild(TrieNode* node, RecordFunctor* rec) {
 UserSchedule* FusionCache::createUserSchedule(
     FusionSchedules* scheds,
     const at::ArrayRef<c10::IValue>& inputs,
-    int device) {
+    int device,
+    bool overwrite_existing_schedule) {
   FUSER_PERF_SCOPE("FusionCache::createUserSchedule");
   std::lock_guard<std::mutex> guard(scheds->scheds_lock);
   auto& user_scheds = scheds->user_def_schedules;
@@ -578,8 +606,10 @@ UserSchedule* FusionCache::createUserSchedule(
     if (static_cast<size_t>(device) >= user_scheds[input_id.id].size()) {
       user_scheds[input_id.id].resize(device + 1);
     } else {
-      TORCH_WARN(
-          "You are overwriting the current user schedule for a definition!");
+      if (!overwrite_existing_schedule) {
+        TORCH_WARN(
+            "You are overwriting the current user schedule for a definition!");
+      }
       user_scheds[input_id.id].at(device) = UserSchedule();
     }
   }
