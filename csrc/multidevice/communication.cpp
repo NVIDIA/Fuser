@@ -555,7 +555,12 @@ c10::intrusive_ptr<c10d::Work> postRecv(
     DeviceIdxType peer,
     c10d::Backend* backend,
     at::Tensor buffer) {
-  NVF_ERROR(peer < backend->getSize(), "invalid peer: ", peer, ", which should be strictly smaller than the world size ", backend->getSize());
+  NVF_ERROR(
+      peer < backend->getSize(),
+      "invalid peer: ",
+      peer,
+      ", which should be strictly smaller than the world size ",
+      backend->getSize());
 
   // Needed to match ProcessGroup API
   std::vector<at::Tensor> packed_buffer = {buffer};
