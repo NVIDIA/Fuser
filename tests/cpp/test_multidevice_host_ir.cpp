@@ -311,11 +311,11 @@ TEST_F(P2PCommHostIrTest, CoalescedRingPairwiseExchange) {
 
   auto* start_coalescing = IrBuilder::create<StartCoalescing>();
   auto* send = IrBuilder::create<P2PCommunication>(
-      P2PCommunicationType::send,
+      P2PCommunicationType::SEND,
       send_buffer,
       IrBuilder::create<Val>(send_peer));
   auto* recv = IrBuilder::create<P2PCommunication>(
-      P2PCommunicationType::recv,
+      P2PCommunicationType::RECV,
       recv_buffer,
       IrBuilder::create<Val>(recv_peer));
   auto* end_coalescing = IrBuilder::create<EndCoalescing>();

@@ -257,7 +257,6 @@ std::string StartCoalescing::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Cannot be printed inline");
 }
 
-
 // TODO: implement
 bool StartCoalescing::sameAs(const Statement* other) const {
   return false;
