@@ -35,6 +35,7 @@
 #include <expr_simplifier.h>
 #include <fusion.h>
 #include <id_model/id_model.h>
+#include <id_model/utils.h>
 #include <instrumentation.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
@@ -471,12 +472,6 @@ void GpuLower::analysis(Fusion* fusion) {
   fuseReductionsAndBroadcasts(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "fuseReductionsAndBroadcasts");
 
-  // Want to run this after parallel map is
-  // created. vectorized_accesses_ and vectorized_set_info_ are
-  // filled.
-  validateAndCollectVectorizeInfo(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "validateAndCollectVectorizeInfo");
-
   // Depends on ComputeAtMap
   validateAndConvertIterDomainGrouping(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateAndConvertIterDomainGrouping");
@@ -486,6 +481,12 @@ void GpuLower::analysis(Fusion* fusion) {
   // validateAndConvertIterDomainGrouping
   validateGroupedReductions(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateGroupedReductions");
+
+  // Want to run this after parallel map is created.
+  // Needs info about grouped reductions.
+  // vectorized_accesses_ and vectorized_set_info_ are filled.
+  validateAndCollectVectorizeInfo(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "validateAndCollectVectorizeInfo");
 
   // all of the lookup TVs are fusion inputs
   validateLookupTV(fusion_);
@@ -512,6 +513,10 @@ void GpuLower::analysis(Fusion* fusion) {
 
   compute_at_map_->allocateIndexVariables();
   dumpExprsIfEnabled(fusion_->exprs(), "allocateIndexVariables");
+
+  if (isIdModelOptionEnabled(IdModelEnableOption::Loop)) {
+    id_model_->allocateLoopIndexVariables();
+  }
 
   if (this->requiresIdModel() || isOptionEnabled(EnableOption::IdModel)) {
     tensor_indexer_ = std::make_unique<TensorIndexer>(*id_model_);
@@ -570,6 +575,16 @@ bool GpuLower::resolveComputeWith(Fusion* fusion) {
   }
 
   return updated;
+}
+
+Val* GpuLower::getLoopIndexVariable(
+    IterDomain* id,
+    CircularBufferLoopStage stage) const {
+  if (isIdModelOptionEnabled(IdModelEnableOption::Loop)) {
+    return idModel().getLoopIndexVariable(id, stage);
+  } else {
+    return caMap()->getIndexVariable(id, stage);
+  }
 }
 
 } // namespace nvfuser

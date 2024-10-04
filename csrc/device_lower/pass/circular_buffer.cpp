@@ -6,7 +6,7 @@
  */
 // clang-format on
 #include <device_lower/lower2device.h>
-#include <id_model/indexing_utils.h>
+#include <id_model/utils.h>
 #include <ir/utils.h>
 #include <kernel_ir.h>
 
@@ -77,7 +77,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
     // Main: 0 to (extent-1)
     // Epilogue: (extent-1) to extent
 
-    Val* index = GpuLower::current()->caMap()->getIndexVariable(
+    Val* index = GpuLower::current()->getLoopIndexVariable(
         circular_buffer_loop_->iter_domain(), loop_type_);
     Val* start = circular_buffer_loop_->start();
     Val* stop = circular_buffer_loop_->stop();
@@ -155,7 +155,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
   }
 
   void handle(kir::IfThenElse* ite) final {
-    NVF_THROW("No IfThenElse should exist yet");
+    NVF_THROW("No IfThenElse should exist yet:\n", ite->toString());
   }
 
   void dispatch(Expr* expr) override {
@@ -706,13 +706,11 @@ class CloneTmaCircularBufferLoopAndInsertSync
     // product of all coordinate TMA iterDomains to the right of the circular
     // buffer axis.
     const std::vector<IterDomain*>& loop_domain = consumer_tv->getLoopDomain();
-    const IdModel& id_model = GpuLower::current()->idModel();
     for (size_t idx = consumer_tv->getComputeAtPosition();
          idx < loop_domain.size();
          ++idx) {
-      IterDomain* id =
-          indexing_utils::getLoopPromotion(loop_domain.at(idx), id_model);
-      if (!isParallelTypeThread(id->getParallelType()) &&
+      IterDomain* id = loop_domain.at(idx);
+      if (!id->isBroadcast() && !isParallelTypeThread(id->getParallelType()) &&
           id->getParallelType() != ParallelType::Bulk) {
         expected_bytes =
             SimplifyingIrBuilder::mulExpr(expected_bytes, id->extent());

@@ -5,21 +5,21 @@
 import pytest
 import torch
 
-import multidevice
+import mpi_fixtures
 import nvfuser
 from nvfuser import DataType, FusionDefinition
 
 
-multidevice_test = multidevice.multidevice_test
+mpi_test = mpi_fixtures.mpi_test
 
 
 @pytest.mark.mpi
-def test_sizes_and_ranks(multidevice_test):
+def test_sizes_and_ranks(mpi_test):
     size, rank, local_size, local_rank = (
-        multidevice_test.size,
-        multidevice_test.rank,
-        multidevice_test.local_size,
-        multidevice_test.local_rank,
+        mpi_test.size,
+        mpi_test.rank,
+        mpi_test.local_size,
+        mpi_test.local_rank,
     )
     assert size > 0
     assert rank >= 0 and rank < size
@@ -28,11 +28,11 @@ def test_sizes_and_ranks(multidevice_test):
 
 
 @pytest.mark.mpi
-def test_pointwise(multidevice_test):
-    num_devices = multidevice_test.size
-    rank = multidevice_test.rank
+def test_pointwise(mpi_test):
+    num_devices = mpi_test.size
+    rank = mpi_test.rank
 
-    torch.cuda.set_device(multidevice_test.local_rank)
+    torch.cuda.set_device(mpi_test.local_rank)
 
     # Just so each rank receives the same unsharded input.
     torch.manual_seed(0)
