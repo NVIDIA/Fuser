@@ -225,7 +225,6 @@ void checkContiguity(
 // they are also contiguous in producer. Producer-consumer relationship is
 // assumed to be through a set operation.
 void checkContiguity(
-    // const std::unordered_set<IterDomain*>& domains,
     const std::vector<IterDomain*>& vec_alloc_ids,
     TensorView* consumer,
     TensorView* producer) {
@@ -290,8 +289,7 @@ class VectorizeValidator : public OptInDispatch {
     } else if (s->inner() == vectorized_id_) {
       vectorized_id_ = s->in();
     }
-    domains_.insert(s->outer());
-    domains_.insert(s->inner());
+    domains_.insert(s->in());
   }
 
   void handle(Merge* m) final {
@@ -329,9 +327,46 @@ class VectorizeValidator : public OptInDispatch {
     }
   }
 
-  static std::vector<IterDomain*> getVectorizedIdInAllocationDomainIdModel(
+  // Given the vectorized loop ID in a tensor, find its innermost
+  // ancestors in the allocation domain. Broadcast IDs are ignored.
+  // All dependent allocation IDs are also returned.
+  static std::pair<IterDomain*, std::vector<IterDomain*>> getDependentAllocIDs(
       IterDomain* v_id,
       TensorView* tv) {
+    VectorizeValidator validator(v_id);
+    auto replay_exprs = DependencyCheck::getAllExprsBetween(
+        {tv->getMaybeAllocationDomain().begin(),
+         tv->getMaybeAllocationDomain().end()},
+        {v_id});
+
+    for (auto expr_it = replay_exprs.rbegin(); expr_it != replay_exprs.rend();
+         ++expr_it) {
+      auto expr = *expr_it;
+      validator.dispatch(expr);
+    }
+
+    NVF_CHECK(
+        validator.is_valid,
+        "Invalid vectorized pattern found, vectorization iter domains must be descendants of inner-most dimension.",
+        "Issue found in, ",
+        tv,
+        "\n");
+
+    std::vector<IterDomain*> dep_alloc_ids;
+    for (auto alloc : tv->getMaybeAllocationDomain()) {
+      if (validator.domains_.find(alloc) != validator.domains_.end()) {
+        dep_alloc_ids.push_back(alloc);
+      }
+    }
+
+    return {validator.vectorized_id_, dep_alloc_ids};
+  }
+
+  // Given the vectorized loop ID in a tensor, find its innermost
+  // ancestors in the allocation domain. Broadcast IDs are ignored.
+  // All dependent allocation IDs are also returned.
+  static std::pair<IterDomain*, std::vector<IterDomain*>>
+  getDependentAllocIDsIdModel(IterDomain* v_id, TensorView* tv) {
     NVF_ERROR(GpuLower::hasCurrent());
     NVF_ERROR(GpuLower::current()->hasIdModel());
 
@@ -411,66 +446,34 @@ class VectorizeValidator : public OptInDispatch {
         ", vec ID: ",
         v_id->toString());
 
-    std::vector<IterDomain*> vec_alloc_ids;
+    IterDomain* innermost_alloc_id = nullptr;
+    std::vector<IterDomain*> dep_alloc_ids;
     for (auto alloc : tv->getMaybeAllocationDomain()) {
       const auto& alloc_group = indexing_graph.toGroup(alloc);
       if (visited_ids.find(alloc_group) != visited_ids.end()) {
-        vec_alloc_ids.push_back(alloc);
+        dep_alloc_ids.push_back(alloc);
+      }
+      if (cur_group == alloc_group) {
+        innermost_alloc_id = alloc;
       }
     }
 
-    return vec_alloc_ids;
-  }
-
-  // Given the vectorized loop ID in a tensor, find its innermost ancestors in
-  // the allocation domain.
-  static std::vector<IterDomain*> getVectorizedIdInAllocationDomain(
-      IterDomain* v_id,
-      TensorView* tv) {
-    VectorizeValidator validator(v_id);
-    auto replay_exprs = DependencyCheck::getAllExprsBetween(
-        {tv->getMaybeAllocationDomain().begin(),
-         tv->getMaybeAllocationDomain().end()},
-        {v_id});
-
-    for (auto expr_it = replay_exprs.rbegin(); expr_it != replay_exprs.rend();
-         ++expr_it) {
-      auto expr = *expr_it;
-      validator.dispatch(expr);
-    }
-
-    NVF_CHECK(
-        validator.is_valid,
-        "Invalid vectorized pattern found, vectorization iter domains must be descendants of inner-most dimension.",
-        "Issue found in, ",
-        tv,
-        "\n");
-
-    std::vector<IterDomain*> vec_alloc_ids;
-    for (auto alloc : tv->getMaybeAllocationDomain()) {
-      if (validator.domains_.find(alloc) != validator.domains_.end()) {
-        vec_alloc_ids.push_back(alloc);
-      }
-    }
-
-    return vec_alloc_ids;
+    return {innermost_alloc_id, dep_alloc_ids};
   }
 
   static void validateAllocationVectorizedId(
-      const std::vector<IterDomain*>& vec_alloc_ids,
+      IterDomain* vec_alloc_id,
+      const std::vector<IterDomain*>& dep_alloc_ids,
       TensorView* tv,
       std::string name) {
-    NVF_ERROR(!vec_alloc_ids.empty());
-    IterDomain* innermost_id = vec_alloc_ids.back();
-
-    if (innermost_id->getParallelType() == ParallelType::MisalignedVectorize) {
+    if (vec_alloc_id->getParallelType() == ParallelType::MisalignedVectorize) {
       if (tv->getMemoryType() == MemoryType::Global) {
-        checkContiguity(vec_alloc_ids, tv);
+        checkContiguity(dep_alloc_ids, tv);
       } else if (tv->definition()->isA<LoadStoreOp>()) {
         auto input = tv->definition()->input(0);
         NVF_ERROR(input->isA<TensorView>());
         auto input_tv = input->as<TensorView>();
-        checkContiguity(vec_alloc_ids, tv, input_tv);
+        checkContiguity(dep_alloc_ids, tv, input_tv);
       }
     }
 
@@ -510,7 +513,7 @@ class VectorizeValidator : public OptInDispatch {
       // ldmatrix.trans is a hardware transpose instruction that can do
       // "vectorized" read from discontiguous memory
       NVF_CHECK(
-          last_alloc_dim == innermost_id,
+          last_alloc_dim == vec_alloc_id,
           "Vectorized dim for ",
           name,
           " has to be from an inner most position. tv: ",
@@ -518,7 +521,7 @@ class VectorizeValidator : public OptInDispatch {
           ", allocation domain: ",
           tv->getMaybeAllocationDomain(),
           ", vectorized id: ",
-          innermost_id->toString(),
+          vec_alloc_id->toString(),
           ", innermost id: ",
           last_alloc_dim);
 
@@ -540,16 +543,13 @@ class VectorizeValidator : public OptInDispatch {
       IterDomain* v_id,
       TensorView* tv,
       std::string name) {
-    std::vector<IterDomain*> vec_alloc_ids;
-    if (!getenv("DISABLE") && GpuLower::current()->hasIdModel()) {
-      vec_alloc_ids = getVectorizedIdInAllocationDomainIdModel(v_id, tv);
-    } else {
-      vec_alloc_ids = getVectorizedIdInAllocationDomain(v_id, tv);
-    }
-    NVF_CHECK(!vec_alloc_ids.empty())
+    const auto& [vec_alloc_id, vec_alloc_ids] =
+        GpuLower::current()->hasIdModel()
+        ? getDependentAllocIDsIdModel(v_id, tv)
+        : getDependentAllocIDs(v_id, tv);
 
-    validateAllocationVectorizedId(vec_alloc_ids, tv, name);
-    return vec_alloc_ids.back();
+    validateAllocationVectorizedId(vec_alloc_id, vec_alloc_ids, tv, name);
+    return vec_alloc_id;
   }
 
  private:
