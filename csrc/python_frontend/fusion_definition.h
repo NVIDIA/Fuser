@@ -228,6 +228,9 @@ class NVF_API FusionDefinition : public FusionState {
     return id().has_value();
   }
 
+  //! Return a prescheduled Fusion object
+  Fusion* preschedFusion();
+
   //! Return UserSchedule struct if it exists
   UserSchedule* userSchedule();
 
@@ -252,8 +255,6 @@ class NVF_API FusionDefinition : public FusionState {
  private:
   //! Returns the FusionCache Ptr that holds the cache of Fusions
   FusionCache* fusionCache() const;
-  //! Return a prescheduled Fusion object
-  Fusion* preschedFusion();
   //! Composite operations can create hidden TensorViews in the CPP fusion
   //! These TensorViews are not visible from python definition. This function
   //! finds and adds them to FusionDefinition

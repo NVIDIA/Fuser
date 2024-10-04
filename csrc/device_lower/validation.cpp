@@ -220,7 +220,8 @@ void checkContiguity(
   }
 }
 
-// Check all allocation iter domains in consumer_alloc_ids,
+// Check all allocation iter domains that are the dependencies of the
+// vectorization iter domain,
 // making sure they're contiguous. Map these domains to producer and make sure
 // they are also contiguous in producer. Producer-consumer relationship is
 // assumed to be through a set operation.
@@ -554,6 +555,7 @@ class VectorizeValidator : public OptInDispatch {
         : getDependentAllocIDs(v_id, tv);
 
     validateAllocationVectorizedId(vec_alloc_id, dep_alloc_ids, tv, name);
+
     return vec_alloc_id;
   }
 

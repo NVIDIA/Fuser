@@ -78,6 +78,7 @@ class HostIrExecutor final : public OptInDispatch {
   void handle(Synchronize* synchronize) override;
   void handle(PostOnStream* post_ir) override;
   void handle(Communication* communication) override;
+  void handle(P2PCommunication* communication) override;
   void handle(Wait* wait) override;
   void handle(ForLoop* for_loop) override;
   void handle(SliceOp* slice_op) override;
