@@ -547,6 +547,10 @@ class TensorDomain : public Val {
         std::find(root().begin(), root().end(), id) != root().end();
   }
 
+  bool isMaybeRoot(const IterDomain* id) const {
+    return (hasRoot() && isRoot(id)) || (!hasRoot() && isLogical(id));
+  }
+
   // The output logical domain.
   const std::vector<IterDomain*>& logical() const {
     return logical_domain_;
