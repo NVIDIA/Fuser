@@ -7,6 +7,7 @@ import torch
 
 import mpi_fixtures
 import nvfuser
+import utils
 from nvfuser import DataType, FusionDefinition
 
 
@@ -395,6 +396,10 @@ class TransformerForwardFusion(FusionDefinition):
         self.sched.parallelize(self.mlp_linear1_weight, 0, nvfuser.ParallelType.mesh_x)
 
 
+@pytest.mark.skipif(
+    utils.is_pre_ampere(),
+    reason="Flash Attention is only supported on Ampere and newer devices.",
+)
 @pytest.mark.mpi
 def test_transformer_forward(mpi_test):
     d = mpi_test.size
