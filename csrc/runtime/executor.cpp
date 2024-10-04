@@ -379,7 +379,7 @@ void FusionExecutor::compileFusion(
     file_name << "__tmp_kernel_" << kernel_id_ << ".cu";
     debug() << "PRINTING: " << file_name.str() << std::endl;
     std::ofstream out(file_name.str());
-    out << code << std::endl;
+    out << structured_code << std::endl;
     out.close();
   }
 
