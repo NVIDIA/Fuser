@@ -11,12 +11,12 @@
 #include <exceptions.h>
 
 #include <debug.h>
-#include <fusion_executor/executor_params.h>
 #include <fusion_guard.h>
 #include <ir/base_nodes.h>
 #include <ir/cloner.h>
 #include <ir/container.h>
 #include <iter_visitor.h>
+#include <runtime/executor_params.h>
 #include <visibility.h>
 
 #include <any>

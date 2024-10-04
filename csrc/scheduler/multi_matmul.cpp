@@ -23,7 +23,7 @@
 
 // NOTE: included to avoid compilation error caused by missing destructor in
 // 'SchedulerRuntimeInfo'
-#include <fusion_executor/executor_utils.h>
+#include <runtime/executor_utils.h>
 #include "mma_type.h"
 
 namespace nvfuser {
@@ -590,7 +590,11 @@ class MultipleMatmulScheduler {
     TensorView* mma_result = patterns_.front().output;
     num_device_dims_ = numDeviceDims(mma_result);
     for (const auto& it : id_roles_) {
-      if (it.second == MatmulDimRole::Batch) {
+      if (it.second == MatmulDimRole::Batch &&
+          // Skip device dims
+          !std::any_of(it.first->begin(), it.first->end(), [](Val* v) {
+            return v->as<IterDomain>()->isDeviceDim();
+          })) {
         // All batch dims will be merged into one, if any exist
         num_local_batch_dims_ = 1;
       }

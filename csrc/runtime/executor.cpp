@@ -6,15 +6,12 @@
  */
 // clang-format on
 
-#include <fusion_executor/executor.h>
+#include <runtime/executor.h>
 
 #include <codegen.h>
 #include <debug.h>
 #include <device_lower/analysis/bank_conflict.h>
 #include <driver_api.h>
-#include <fusion_executor/allocations.h>
-#include <fusion_executor/executor_kernel_arg.h>
-#include <fusion_executor/executor_utils.h>
 #include <fusion_profiler.h>
 #include <global_allocator.h>
 #include <instrumentation.h>
@@ -28,6 +25,9 @@
 #include <multidevice/utils.h>
 #include <options.h>
 #include <polymorphic_value.h>
+#include <runtime/allocations.h>
+#include <runtime/executor_kernel_arg.h>
+#include <runtime/executor_utils.h>
 #include <serde/utils.h>
 #include <tensor_metadata.h>
 #include <utils.h>

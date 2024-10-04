@@ -9,11 +9,11 @@
 
 #include <dispatch.h>
 #include <expr_evaluator.h>
-#include <fusion_executor/executor.h>
 #include <host_ir/container.h>
 #include <host_ir/host_ir.h>
-#include <kernel_cache.h>
 #include <multidevice/communicator.h>
+#include <runtime/executor.h>
+#include <runtime/fusion_executor_cache.h>
 
 #include <c10/cuda/CUDAStream.h>
 
@@ -75,6 +75,7 @@ class HostIrExecutor final : public OptInDispatch {
  private:
   using OptInDispatch::handle;
   void handle(SetCurrentStream* set_current_stream) override;
+  void handle(Synchronize* synchronize) override;
   void handle(PostOnStream* post_ir) override;
   void handle(Communication* communication) override;
   void handle(P2PCommunication* communication) override;
@@ -83,6 +84,8 @@ class HostIrExecutor final : public OptInDispatch {
   void handle(SliceOp* slice_op) override;
   void handle(MatmulOp* matmul_op) override;
   void handle(SelectOp* select_op) override;
+
+  c10::cuda::CUDAStream getCUDAStream(Stream* stream);
 
   std::unique_ptr<HostIrContainer> container_;
   Communicator* communicator_;

@@ -8,7 +8,7 @@
 #include <device_lower/analysis/index_compute.h>
 #include <device_lower/lower2device.h>
 #include <id_model/indexing.h>
-#include <id_model/indexing_utils.h>
+#include <id_model/utils.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
 #include <transform_iter.h>
@@ -709,10 +709,8 @@ SyncMap::SyncMap(Fusion* fusion) {
 
               // Case 1
               const auto& id_model = GpuLower::current()->idModel();
-              auto producer_loop_id =
-                  indexing_utils::getLoopPromotion(p_id, id_model);
-              auto consumer_loop_id =
-                  indexing_utils::getLoopPromotion(c_id, id_model);
+              auto producer_loop_id = getLoopPromotion(p_id, id_model);
+              auto consumer_loop_id = getLoopPromotion(c_id, id_model);
               const auto& indexing_traveral_graph =
                   id_model.idGraph(TensorIndexer::traversalGraphType());
               if (indexing_traveral_graph.disjointValSets().strictAreMapped(
