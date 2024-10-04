@@ -237,36 +237,36 @@ std::string getString(const TernaryOp* top) {
   }
 }
 
-#define GET_FUNCTION_TERNARY_SPECIALIZATION(                                  \
-    ResultType, InType1, InType2, InType3)                                    \
-  template <>                                                                 \
-  std::function<ResultType(InType1, InType2, InType3)>                        \
-  getFunction<ResultType, InType1, InType2, InType3>(const TernaryOp* top) {  \
-    auto get_std_function = [](ResultType (*fn)(InType1, InType2, InType3)) { \
-      return static_cast<ResultType (*)(InType1, InType2, InType3)>(fn);      \
-    };                                                                        \
-                                                                              \
-    switch (top->getTernaryOpType()) {                                        \
-      case TernaryOpType::Clamp:                                              \
-        return get_std_function(clamp);                                       \
-        break;                                                                \
-      case TernaryOpType::Lerp:                                               \
-        return get_std_function(lerp);                                        \
-        break;                                                                \
-      case TernaryOpType::Threshold:                                          \
-        return get_std_function(threshold);                                   \
-        break;                                                                \
-      case TernaryOpType::Where:                                              \
-        return get_std_function(where);                                       \
-        break;                                                                \
-      default:                                                                \
-        NVF_CHECK(                                                            \
-            false,                                                            \
-            "Unexpected operator type: ",                                     \
-            top->getTernaryOpType(),                                          \
-            " in ",                                                           \
-            top->toString());                                                 \
-    }                                                                         \
+#define GET_FUNCTION_TERNARY_SPECIALIZATION(                                 \
+    ResultType, InType1, InType2, InType3)                                   \
+  template <>                                                                \
+  std::function<ResultType(InType1, InType2, InType3)>                       \
+  getFunction<ResultType, InType1, InType2, InType3>(const TernaryOp* top) { \
+    auto wrap_function = [](ResultType (*fn)(InType1, InType2, InType3)) {   \
+      return fn;                                                             \
+    };                                                                       \
+                                                                             \
+    switch (top->getTernaryOpType()) {                                       \
+      case TernaryOpType::Clamp:                                             \
+        return wrap_function(clamp);                                         \
+        break;                                                               \
+      case TernaryOpType::Lerp:                                              \
+        return wrap_function(lerp);                                          \
+        break;                                                               \
+      case TernaryOpType::Threshold:                                         \
+        return wrap_function(threshold);                                     \
+        break;                                                               \
+      case TernaryOpType::Where:                                             \
+        return wrap_function(where);                                         \
+        break;                                                               \
+      default:                                                               \
+        NVF_CHECK(                                                           \
+            false,                                                           \
+            "Unexpected operator type: ",                                    \
+            top->getTernaryOpType(),                                         \
+            " in ",                                                          \
+            top->toString());                                                \
+    }                                                                        \
   }
 
 // Template specializations for std::function for TernaryOp
