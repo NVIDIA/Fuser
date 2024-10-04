@@ -364,6 +364,12 @@ class VectorizeValidator : public OptInDispatch {
   // Given the vectorized loop ID in a tensor, find its innermost
   // ancestors in the allocation domain. Broadcast IDs are ignored.
   // All dependent allocation IDs are also returned.
+  //
+  // This should work return almost the same results as
+  // getDependentAllocIDs, except when loop IDs are not fully
+  // derived from logical IDs. The above version does not work
+  // correctly for such a case, whereas this version addresses the
+  // limitation by using ValGraphBFS.
   static std::pair<IterDomain*, std::unordered_set<IterDomain*>>
   getDependentAllocIDsIdModel(IterDomain* v_id, TensorView* tv) {
     NVF_ERROR(GpuLower::hasCurrent());
