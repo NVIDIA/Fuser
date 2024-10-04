@@ -1047,7 +1047,6 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
   // Bind fusion inputs
   auto expr_eval = executor_utils::bindInputs(args, fusion());
-
   if (isExpressionEvaluated(fusion())) {
     FUSER_PERF_SCOPE("FusionExecutor::runFusion::evaluate_with_ExprEval");
     outputs = evaluateFusionOutputs(outputs, expr_eval);

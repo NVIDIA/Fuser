@@ -620,7 +620,23 @@ class FusionExecutor : public NonCopyable {
     if (use_external_compiler_) {
       return compiled_kernel_2_->fusion();
     }
-    return fusion_.get();
+    NVF_ERROR(isCompiled());
+    if (fusion_ != nullptr) {
+      if (use_external_compiler_) {
+        return compiled_kernel_2_->fusion();
+      }
+      return fusion_.get();
+    }
+    if (lowered() != nullptr) {
+      if (use_external_compiler_) {
+        return compiled_kernel_2_->lowered()->kernel()->as<Fusion>();
+      }
+      return lowered()->kernel()->as<Fusion>();
+    }
+    if (host_ir_container_ != nullptr) {
+      return host_ir_container_->as<Fusion>();
+    }
+    NVF_THROW("unreachable because of the isCompiled check");
   }
   int64_t& blockSizeHighWaterMark() {
     if (use_external_compiler_) {
