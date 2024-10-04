@@ -445,9 +445,7 @@ void clone(FusionDefinition& from, FusionDefinition& to) {
 void initNvFuserPythonBindings(PyObject* module) {
   auto nvfuser = py::handle(module).cast<py::module>();
 
-  nvfuser.def("clone", [](FusionDefinition& from, FusionDefinition& to) {
-    clone(from, to);
-  });
+  nvfuser.def("clone", clone);
 
   //! DataTypes supported by nvFuser in the FusionDefinition
   py::enum_<PrimDataType>(nvfuser, "DataType")
