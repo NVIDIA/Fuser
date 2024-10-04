@@ -219,12 +219,12 @@ void checkContiguity(
   }
 }
 
-// Check all allocation iter domains in consumer that are present in domain,
+// Check all allocation iter domains in consumer_alloc_ids,
 // making sure they're contiguous. Map these domains to producer and make sure
 // they are also contiguous in producer. Producer-consumer relationship is
 // assumed to be through a set operation.
 void checkContiguity(
-    const std::unordered_set<IterDomain*>& dep_alloc_ids,
+    const std::unordered_set<IterDomain*>& consumer_alloc_ids,
     TensorView* consumer,
     TensorView* producer) {
   // This seems not quite right, shouldn't we be able to reverse this?
@@ -250,7 +250,7 @@ void checkContiguity(
     producer_domain_contiguity.insert({alloc, contiguity});
   }
 
-  for (auto consumer_alloc : dep_alloc_ids) {
+  for (auto consumer_alloc : consumer_alloc_ids) {
     auto producer_alloc = alloc_c2p.at(consumer_alloc);
     NVF_ERROR(
         producer_domain_contiguity.find(producer_alloc) !=
