@@ -36,32 +36,40 @@ TEST_F(LoopSchedulingTest, Test1) {
   auto tv1 = set(tv0);
   auto tv2 = reshape(tv1, {10}, {2, 5});
   auto tv3 = set(tv2);
-  fusion.addOutput(tv3);
+  auto tv4 = reshape(tv3, {2, 5}, {10});
+  auto tv5 = set(tv4);
+  fusion.addOutput(tv5);
 
   fusion.printMath();
 
   std::vector<IterDomain*> ref = tv0->getLogicalDomain();
-  scheduler_utils::scheduleLoopDomainsLike({tv1, tv2, tv3}, ref);
+  scheduler_utils::scheduleLoopDomainsLike(fusion.allTvs(), ref);
 
-  for (auto tv : {tv1, tv2, tv3}) {
+  for (auto tv : fusion.allTvs()) {
     tv->split(0, 3);
   }
-
-  fusion.print();
 
   inlineMost();
   fusion.print();
 
   IdModel id_model(&fusion);
 
-  auto ref_loop_domain = tv1->getLoopDomain();
-  for (auto tv : {tv2, tv3}) {
-    EXPECT_EQ(ref_loop_domain.size(), tv->getLoopDomain().size());
-    for (const auto i : c10::irange(ref_loop_domain.size())) {
-      EXPECT_TRUE(id_model.idGraph(IdMappingMode::LOOP)
+  ref = tv1->getLoopDomain();
+  for (auto tv : fusion.allTvs()) {
+    EXPECT_EQ(ref.size(), tv->getLoopDomain().size());
+    for (const auto i : c10::irange(ref.size())) {
+      EXPECT_TRUE(id_model.idGraph(IdMappingMode::EXACT)
                       .disjointValSets()
-                      .strictAreMapped(
-                          ref_loop_domain.at(i), tv->getLoopDomain().at(i)));
+                      .strictAreMapped(ref.at(i), tv->getLoopDomain().at(i)))
+          << "Not mapped: " << ref.at(i)->toString() << ", "
+          << tv->getLoopDomain().at(i)->toString() << ", " << tv->toString();
+      if (!tv->isFusionInput()) {
+        EXPECT_TRUE(id_model.idGraph(IdMappingMode::LOOP)
+                        .disjointValSets()
+                        .strictAreMapped(ref.at(i), tv->getLoopDomain().at(i)))
+            << "Not mapped: " << ref.at(i)->toString() << ", "
+            << tv->getLoopDomain().at(i)->toString() << ", " << tv->toString();
+      }
     }
   }
 

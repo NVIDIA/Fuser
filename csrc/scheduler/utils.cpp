@@ -2687,8 +2687,8 @@ class ReplayTransform : OptInConstDispatch {
   using OptInConstDispatch::handle;
 
   void handle(const Split* split) final {
-    NVF_ERROR(output_ids_.size() == 2);
     NVF_ERROR(input_ids_.size() == 1);
+    NVF_ERROR(output_ids_.size() == 2);
     replayed_expr_ = IrBuilder::createInContainer<Split>(
         split->fusion(),
         output_ids_[0],
@@ -2698,7 +2698,12 @@ class ReplayTransform : OptInConstDispatch {
         split->innerSplit());
   }
 
-  void handle(const Merge* merge) final {}
+  void handle(const Merge* merge) final {
+    NVF_ERROR(input_ids_.size() == 2);
+    NVF_ERROR(output_ids_.size() == 1);
+    replayed_expr_ = IrBuilder::createInContainer<Merge>(
+        merge->fusion(), output_ids_[0], input_ids_[0], input_ids_[1]);
+  }
 
   void handle(const Swizzle2D* swizzle_2d) final {}
 
