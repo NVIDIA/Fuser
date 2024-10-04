@@ -186,6 +186,31 @@ class Wait : public Expr {
   }
 };
 
+class Synchronize : public Expr {
+ public:
+  using Expr::Expr;
+  Synchronize(IrBuilderPasskey passkey, Stream* stream);
+
+  Synchronize(const Synchronize& other) = delete;
+  Synchronize& operator=(const Synchronize& other) = delete;
+  Synchronize(Synchronize&& other) = delete;
+  Synchronize& operator=(Synchronize&& other) = delete;
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  const char* getOpString() const override {
+    return "hir::Synchronize";
+  }
+
+  bool sameAs(const Statement* other) const override;
+
+  Stream* stream() const {
+    return attributes_.at(0)->as<Stream>();
+  }
+};
+
 class StartCoalescing : public Expr {
  public:
   using Expr::Expr;

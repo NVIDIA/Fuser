@@ -240,7 +240,7 @@ INSTANTIATE_TEST_SUITE_P(
       return s;
     });
 
-class P2PCommHostIrTest : public MultiDeviceTest {};
+using P2PCommHostIrTest = MultiDeviceTest;
 
 TEST_F(P2PCommHostIrTest, RingPairwiseExchange) {
   constexpr int64_t kTensorSize = 1024;
@@ -257,12 +257,12 @@ TEST_F(P2PCommHostIrTest, RingPairwiseExchange) {
   TensorView* recv_buffer = makeContigTensor(1);
 
   auto* send = IrBuilder::create<P2PCommunication>(
-      P2PCommunicationType::send,
+      P2PCommunicationType::SEND,
       send_buffer,
       IrBuilder::create<Val>(send_peer));
 
   auto* recv = IrBuilder::create<P2PCommunication>(
-      P2PCommunicationType::recv,
+      P2PCommunicationType::RECV,
       recv_buffer,
       IrBuilder::create<Val>(recv_peer));
 

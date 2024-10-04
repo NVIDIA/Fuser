@@ -9,6 +9,7 @@
 #include <dynamic_transform.h>
 #include <host_ir/executor.h>
 #include <ir/utils.h>
+#include <runtime/fusion_kernel_runtime.h>
 
 namespace nvfuser {
 
@@ -77,8 +78,7 @@ std::vector<at::Tensor> HostIrExecutor::runWithInput(
   return getKnownTensorOrUndefined(container_->outputs(), expr_evaluator_);
 }
 
-void HostIrExecutor::handle(SetCurrentStream* set_current_stream) {
-  Stream* stream = set_current_stream->stream();
+c10::cuda::CUDAStream HostIrExecutor::getCUDAStream(Stream* stream) {
   StreamKey stream_key = stream;
   // if stream points to an index, it represents the dynamic value of that index
   if (Val* index = stream->index(); index != nullptr) {
@@ -95,7 +95,15 @@ void HostIrExecutor::handle(SetCurrentStream* set_current_stream) {
          c10::cuda::getStreamFromPool(
              /*isHighPriority=*/false, static_cast<c10::DeviceIndex>(i))});
   }
-  setCurrentCUDAStream(streams_.at(stream_key));
+  return streams_.at(stream_key);
+}
+
+void HostIrExecutor::handle(SetCurrentStream* set_current_stream) {
+  setCurrentCUDAStream(getCUDAStream(set_current_stream->stream()));
+}
+
+void HostIrExecutor::handle(Synchronize* synchronize) {
+  getCUDAStream(synchronize->stream()).synchronize();
 }
 
 void HostIrExecutor::handle(PostOnStream* post_ir) {
@@ -196,8 +204,7 @@ void HostIrExecutor::handle(P2PCommunication* communication) {
       communicator_->deviceId(),
       expr_evaluator_.evaluate(communication->peer()).as<int64_t>(),
       communicator_->getWorld(),
-      buffer,
-      expr_evaluator_.evaluate(communication->tag()).as<int64_t>());
+      buffer);
 }
 
 void HostIrExecutor::handle(Wait* wait) {

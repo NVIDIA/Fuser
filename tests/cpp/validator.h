@@ -13,7 +13,7 @@
 #include <vector>
 
 #include <fusion.h>
-#include <kernel_cache.h>
+#include <runtime/fusion_executor_cache.h>
 #include <scheduler/scheduler_types.h>
 #include <validator_utils.h>
 

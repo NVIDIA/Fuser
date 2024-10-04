@@ -144,6 +144,7 @@ class Val;
   f(PostOnStream);                    \
   f(SetCurrentStream);                \
   f(Wait);                            \
+  f(Synchronize);                     \
   f(StartCoalescing);                 \
   f(EndCoalescing);
 
