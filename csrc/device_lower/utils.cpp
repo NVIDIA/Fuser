@@ -352,15 +352,13 @@ std::optional<std::pair<IterDomain*, IterDomain*>> getMaybeWarpReductionDim(
   // reduction only in xdim.
   if (!reduction_on_ydim && !reduction_on_zdim) {
     if (reduction_on_xdim->hasPaddingToMultipleOfWarp()) {
-      return std::optional<std::pair<IterDomain*, IterDomain*>>(
-          std::make_pair(reduction_on_xdim, nullptr));
+      return std::make_pair(reduction_on_xdim, nullptr);
     }
 
     if (reduction_on_xdim->extent()->isConstInt()) {
       auto extent_value = reduction_on_xdim->extent()->evaluate();
       if (extent_value % at::cuda::warp_size() == 0) {
-        return std::optional<std::pair<IterDomain*, IterDomain*>>(
-            std::make_pair(reduction_on_xdim, nullptr));
+        return std::make_pair(reduction_on_xdim, nullptr);
       }
     }
   } else if (reduction_on_xdim && reduction_on_ydim && reduction_on_zdim) {
@@ -371,8 +369,7 @@ std::optional<std::pair<IterDomain*, IterDomain*>> getMaybeWarpReductionDim(
       auto extent_x_value = reduction_on_xdim->extent()->evaluate();
       auto extent_y_value = reduction_on_ydim->extent()->evaluate();
       if ((extent_x_value * extent_y_value) % at::cuda::warp_size() == 0) {
-        return std::optional<std::pair<IterDomain*, IterDomain*>>(
-            std::make_pair(reduction_on_xdim, reduction_on_ydim));
+        return std::make_pair(reduction_on_xdim, reduction_on_ydim);
       }
     }
   }
