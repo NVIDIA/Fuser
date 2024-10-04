@@ -4263,6 +4263,21 @@ std::vector<PolymorphicValue> MatmulOp::evaluate(
     const std::vector<PolymorphicValue>& inputs) const {
   const auto a = inputs.at(0).as<at::Tensor>();
   const auto b = inputs.at(1).as<at::Tensor>();
+
+  if (a.dim() > 2 && b.dim() > 2) {
+    auto a_dom = TensorDomain::noReductions(
+        input(0)->as<TensorView>()->getLogicalDomain());
+    auto b_dom = TensorDomain::noReductions(
+        input(1)->as<TensorView>()->getLogicalDomain());
+    int64_t a_index = a.dim() - 3;
+    int64_t b_index = b.dim() - 3;
+    while (a_index >= 0 && b_index >= 0) {
+      NVF_ERROR(a_dom[a_index]->isDeviceDim() == b_dom[b_index]->isDeviceDim());
+      a_index--;
+      b_index--;
+    }
+  }
+
   return {at::matmul(a, b)};
 }
 
