@@ -5172,6 +5172,7 @@ __device__ inline uint64_t arriveExpectTX(
 #endif
 
 __device__ inline void wait(uint32_t smem_barrier_ptr, uint64_t state) {
+  __nanosleep(100000);
 #if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900))
   asm volatile(
       "{\n"
