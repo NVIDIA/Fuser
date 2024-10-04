@@ -4344,6 +4344,8 @@ std::vector<PolymorphicValue> LinearOp::evaluate(
     }
   };
 
+  // The squeezes and unsqueezes are currently required to support a sharded
+  // linear layer. Remove them after #2563.
   auto num_device_dims = weight.dim() - 2;
   squeeze_device_dims(weight, num_device_dims);
 

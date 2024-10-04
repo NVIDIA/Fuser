@@ -116,6 +116,16 @@ TensorView* linear(TensorView* input, TensorView* weight, TensorView* bias) {
       TensorDomain::noReductions(input->getLogicalDomain()).size();
   NVF_CHECK(input_ndims > 0, "Input A must be at least 1D.");
 
+  // `linear` previously supported 1D weight and 0D bias. The support was
+  // however removed by #3073 to support sharded linear layers, yet-another
+  // workaround of #2563. Otherwise, it would be unclear whether a 2D weight is
+  // one device dimension plus a non-device or two non-devices.
+  //
+  // If needed, we can still support 1D weight and 0D bias in Thunder by
+  // changing the thunder-to-nvFuser bridge to convert a 1D/0D linear to
+  // unsqueeze followed by a 2D/1D linear followed by a squeeze. It'll likely
+  // be the same speed because nvFuser treats squeezes and unsqueezes as meta
+  // ops and run them on the host.
   auto weight_ndims =
       TensorDomain::noReductions(weight->getLogicalDomain()).size();
   NVF_CHECK(
