@@ -1062,7 +1062,7 @@ class TestNvFuserFrontend(NVFuserTest):
             ncf,
             ncd,
             nb,
-        ), _ = self.exec_nvfuser(fusion_func, inputs)
+        ), _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
 
         eager_out = torch.where(inputs[0], 3.0, 5.0)
 
