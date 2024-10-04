@@ -115,12 +115,22 @@ def test_linear(mpi_test):
 
 
 class TransformerForwardFusion(FusionDefinition):
-    def __init__(self, num_devices):
+    def __init__(self, num_devices, batch, sequence, head, hidden):
         super().__init__()
         self._num_devices = num_devices
+        self._batch = batch
+        self._sequence = sequence
+        self._head = head
+        self._hidden = hidden
 
     def definition(self) -> None:
-        d = self._num_devices
+        d, b, s, a, h = (
+            self._num_devices,
+            self._batch,
+            self._sequence,
+            self._head,
+            self._hidden,
+        )
 
         # MHA dropout.rng_offset
         S0 = self.define_scalar(None, dtype=DataType.Int)
@@ -131,67 +141,67 @@ class TransformerForwardFusion(FusionDefinition):
         # MLP dropout.rng_seed
         S3 = self.define_scalar(None, dtype=DataType.Int)
         self.input = self.define_tensor(
-            shape=[1, 2048, 12288],
-            contiguity=[None, True, True],
+            shape=[b, s, h],
+            contiguity=[True if b > 1 else None, True, True],
             dtype=DataType.BFloat16,
         )
         self.layernorm0_weight = self.define_tensor(
-            shape=[12288],
+            shape=[h],
             contiguity=[True],
             dtype=DataType.BFloat16,
         )
         self.layernorm0_bias = self.define_tensor(
-            shape=[12288],
+            shape=[h],
             contiguity=[True],
             dtype=DataType.BFloat16,
         )
         self.mha_linear0_weight = self.define_tensor(
-            shape=[36864, 12288],
+            shape=[h * 3, h],
             contiguity=[True, True],
             dtype=DataType.BFloat16,
         )
         self.mha_linear0_bias = self.define_tensor(
-            shape=[36864],
+            shape=[h * 3],
             contiguity=[True],
             dtype=DataType.BFloat16,
         )
         self.mha_linear1_weight = self.define_tensor(
-            shape=[12288, 12288],
+            shape=[h, h],
             contiguity=[True, True],
             dtype=DataType.BFloat16,
         )
         self.mha_linear1_bias = self.define_tensor(
-            shape=[12288],
+            shape=[h],
             contiguity=[True],
             dtype=DataType.BFloat16,
         )
         self.layernorm1_weight = self.define_tensor(
-            shape=[12288],
+            shape=[h],
             contiguity=[True],
             dtype=DataType.BFloat16,
         )
         self.layernorm1_bias = self.define_tensor(
-            shape=[12288],
+            shape=[h],
             contiguity=[True],
             dtype=DataType.BFloat16,
         )
         self.mlp_linear0_weight = self.define_tensor(
-            shape=[d, 49152 // d, 12288],
+            shape=[d, h * 4 // d, h],
             contiguity=[True if d > 1 else None, True, True],
             dtype=DataType.BFloat16,
         )
         self.mlp_linear0_bias = self.define_tensor(
-            shape=[d, 49152 // d],
+            shape=[d, h * 4 // d],
             contiguity=[True if d > 1 else None, True],
             dtype=DataType.BFloat16,
         )
         self.mlp_linear1_weight = self.define_tensor(
-            shape=[d, 12288, 49152 // d],
+            shape=[d, h, h * 4 // d],
             contiguity=[True if d > 1 else None, True, True],
             dtype=DataType.BFloat16,
         )
         self.mlp_linear1_bias = self.define_tensor(
-            shape=[12288],
+            shape=[h],
             contiguity=[True],
             dtype=DataType.BFloat16,
         )
@@ -200,7 +210,7 @@ class TransformerForwardFusion(FusionDefinition):
         T23 = self.ops.uniform(
             S17,
             S18,
-            shape=[1, 2048, 12288],
+            shape=[b, s, h],
             rng_seed=S1,
             rng_offset=S0,
             dtype=DataType.BFloat16,
@@ -210,7 +220,7 @@ class TransformerForwardFusion(FusionDefinition):
         T30 = self.ops.uniform(
             S24,
             S25,
-            shape=[1, 2048, 12288],
+            shape=[b, s, h],
             rng_seed=S3,
             rng_offset=S2,
             dtype=DataType.BFloat16,
@@ -221,26 +231,22 @@ class TransformerForwardFusion(FusionDefinition):
         S34 = self.define_scalar(0.900000, dtype=DataType.Double)
         T35 = self.ops.lt(T30, S34)
         T36, T37 = self.ops.var_mean(T31, dims=[2], correction=0, keepdim=False)
-        T42 = self.ops.broadcast_in_dim(T36, shape=[1, 2048, 1], broadcast_dims=[0, 1])
-        T47 = self.ops.broadcast_in_dim(T37, shape=[1, 2048, 1], broadcast_dims=[0, 1])
+        T42 = self.ops.broadcast_in_dim(T36, shape=[b, s, 1], broadcast_dims=[0, 1])
+        T47 = self.ops.broadcast_in_dim(T37, shape=[b, s, 1], broadcast_dims=[0, 1])
         S48 = self.define_scalar(1.00000e-05, dtype=DataType.Double)
         T49 = self.ops.add(T42, S48)
-        T54 = self.ops.broadcast_in_dim(
-            T47, shape=[1, 2048, 12288], broadcast_dims=[0, 1, 2]
-        )
+        T54 = self.ops.broadcast_in_dim(T47, shape=[b, s, h], broadcast_dims=[0, 1, 2])
         T55 = self.ops.rsqrt(T49)
         T56 = self.ops.sub(T31, T54)
-        T61 = self.ops.broadcast_in_dim(
-            T55, shape=[1, 2048, 12288], broadcast_dims=[0, 1, 2]
-        )
+        T61 = self.ops.broadcast_in_dim(T55, shape=[b, s, h], broadcast_dims=[0, 1, 2])
         T62 = self.ops.mul(T56, T61)
         T67 = self.ops.broadcast_in_dim(
-            self.layernorm0_weight, shape=[1, 2048, 12288], broadcast_dims=[2]
+            self.layernorm0_weight, shape=[b, s, h], broadcast_dims=[2]
         )
         T68 = self.ops.cast(T67, dtype=DataType.Float)
         T69 = self.ops.mul(T62, T68)
         T74 = self.ops.broadcast_in_dim(
-            self.layernorm0_bias, shape=[1, 2048, 12288], broadcast_dims=[2]
+            self.layernorm0_bias, shape=[b, s, h], broadcast_dims=[2]
         )
         T75 = self.ops.cast(T74, dtype=DataType.Float)
         T76 = self.ops.add(T69, T75)
@@ -249,33 +255,33 @@ class TransformerForwardFusion(FusionDefinition):
         T91 = self.ops.slice(
             T78,
             start_indices=[0, 0, 0],
-            end_indices=[1, 2048, 12288],
+            end_indices=[b, s, h],
             strides=[1, 1, 1],
         )
         T104 = self.ops.slice(
             T78,
-            start_indices=[0, 0, 12288],
-            end_indices=[1, 2048, 24576],
+            start_indices=[0, 0, h],
+            end_indices=[b, s, h * 2],
             strides=[1, 1, 1],
         )
         T117 = self.ops.slice(
             T78,
-            start_indices=[0, 0, 24576],
-            end_indices=[1, 2048, 36864],
+            start_indices=[0, 0, h * 2],
+            end_indices=[b, s, h * 3],
             strides=[1, 1, 1],
         )
-        T123 = self.ops.reshape(T104, new_shape=[1, 2048, 96, 128])
+        T123 = self.ops.reshape(T104, new_shape=[b, s, a, h // a])
         T124 = self.ops.permute(T123, dims=[0, 2, 1, 3])
-        T130 = self.ops.reshape(T91, new_shape=[1, 2048, 96, 128])
+        T130 = self.ops.reshape(T91, new_shape=[b, s, a, h // a])
         T131 = self.ops.permute(T130, dims=[0, 2, 1, 3])
-        T137 = self.ops.reshape(T117, new_shape=[1, 2048, 96, 128])
+        T137 = self.ops.reshape(T117, new_shape=[b, s, a, h // a])
         T138 = self.ops.permute(T137, dims=[0, 2, 1, 3])
         S139 = self.define_scalar(0.100000, dtype=DataType.Double)
         S140 = self.define_scalar(True, dtype=DataType.Bool)
         T141, T142, T143, T144 = self.ops.sdpfa_fwd(T131, T124, T138, S139, S140, None)
         T145 = self.ops.permute(T141, dims=[0, 2, 1, 3])
         T146 = self.ops.stride_order(T145, stride_order=[3, 2, 1, 0])
-        T151 = self.ops.reshape(T146, new_shape=[1, 2048, 12288])
+        T151 = self.ops.reshape(T146, new_shape=[b, s, h])
         T152 = self.ops.linear(T151, self.mha_linear1_weight, self.mha_linear1_bias)
         T153 = self.ops.cast(T152, dtype=DataType.Float)
         T154 = self.ops.cast(T33, dtype=DataType.Float)
@@ -284,30 +290,26 @@ class TransformerForwardFusion(FusionDefinition):
         T157 = self.ops.mul(T155, S156)
         T158 = self.ops.add(T31, T157)
         T159, T160 = self.ops.var_mean(T158, dims=[2], correction=0, keepdim=False)
-        T165 = self.ops.broadcast_in_dim(
-            T159, shape=[1, 2048, 1], broadcast_dims=[0, 1]
-        )
-        T170 = self.ops.broadcast_in_dim(
-            T160, shape=[1, 2048, 1], broadcast_dims=[0, 1]
-        )
+        T165 = self.ops.broadcast_in_dim(T159, shape=[b, s, 1], broadcast_dims=[0, 1])
+        T170 = self.ops.broadcast_in_dim(T160, shape=[b, s, 1], broadcast_dims=[0, 1])
         S171 = self.define_scalar(1.00000e-05, dtype=DataType.Double)
         T172 = self.ops.add(T165, S171)
         T177 = self.ops.broadcast_in_dim(
-            T170, shape=[1, 2048, 12288], broadcast_dims=[0, 1, 2]
+            T170, shape=[b, s, h], broadcast_dims=[0, 1, 2]
         )
         T178 = self.ops.rsqrt(T172)
         T179 = self.ops.sub(T158, T177)
         T184 = self.ops.broadcast_in_dim(
-            T178, shape=[1, 2048, 12288], broadcast_dims=[0, 1, 2]
+            T178, shape=[b, s, h], broadcast_dims=[0, 1, 2]
         )
         T185 = self.ops.mul(T179, T184)
         T190 = self.ops.broadcast_in_dim(
-            self.layernorm1_weight, shape=[1, 2048, 12288], broadcast_dims=[2]
+            self.layernorm1_weight, shape=[b, s, h], broadcast_dims=[2]
         )
         T191 = self.ops.cast(T190, dtype=DataType.Float)
         T192 = self.ops.mul(T185, T191)
         T197 = self.ops.broadcast_in_dim(
-            self.layernorm1_bias, shape=[1, 2048, 12288], broadcast_dims=[2]
+            self.layernorm1_bias, shape=[b, s, h], broadcast_dims=[2]
         )
         T198 = self.ops.cast(T197, dtype=DataType.Float)
         T199 = self.ops.add(T192, T198)
@@ -334,14 +336,14 @@ class TransformerForwardFusion(FusionDefinition):
             T216,
             self.ops.broadcast_in_dim(
                 self.ops.permute(self.mlp_linear1_weight, [0, 2, 1]),
-                [d, 1, 49152 // d, 12288],
+                [d, 1, h * 4 // d, h],
                 [0, 2, 3],
             ),
         )
         T217_matmul = self.ops.sum(T217_local_matmul, [0])
         T217_biasadd = self.ops.add(
             T217_matmul,
-            self.ops.broadcast_in_dim(self.mlp_linear1_bias, [1, 1, 12288], [2]),
+            self.ops.broadcast_in_dim(self.mlp_linear1_bias, [1, 1, h], [2]),
         )
         T217 = self.ops.cast(T217_biasadd, dtype=DataType.BFloat16)
         T218 = self.ops.cast(T217, dtype=DataType.Float)
@@ -390,61 +392,46 @@ class TransformerForwardFusion(FusionDefinition):
 
 @pytest.mark.mpi
 def test_transformer_forward(mpi_test):
-    num_devices = mpi_test.size
+    d = mpi_test.size
     rank = mpi_test.rank
+
+    b, s, a, h = 2, 2048, 96, 12288
+
+    if h * 4 % d != 0:
+        pytest.skip(
+            f"We only support even split, so {h} * 4 has to be divisible by {d}."
+        )
 
     torch.cuda.set_device(mpi_test.local_rank)
 
     mlp_linear0_weight = torch.randn(
-        num_devices, 49152 // num_devices, 12288, dtype=torch.bfloat16, device="cuda"
+        d, h * 4 // d, h, dtype=torch.bfloat16, device="cuda"
     )
-    mlp_linear0_bias = torch.randn(
-        num_devices, 49152 // num_devices, dtype=torch.bfloat16, device="cuda"
-    )
+    mlp_linear0_bias = torch.randn(d, h * 4 // d, dtype=torch.bfloat16, device="cuda")
     mlp_linear1_weight = torch.randn(
-        num_devices, 12288, 49152 // num_devices, dtype=torch.bfloat16, device="cuda"
+        d, h, h * 4 // d, dtype=torch.bfloat16, device="cuda"
     )
     ins = [
         29,
         2142642406458297,
         30,
         2142642406458297,
-        torch.randn(25165824, dtype=torch.bfloat16, device="cuda").as_strided(
-            (1, 2048, 12288), (25165824, 12288, 1)
-        ),
-        torch.randn(12288, dtype=torch.bfloat16, device="cuda").as_strided(
-            (12288,), (1,)
-        ),
-        torch.randn(12288, dtype=torch.bfloat16, device="cuda").as_strided(
-            (12288,), (1,)
-        ),
-        torch.randn(452984832, dtype=torch.bfloat16, device="cuda").as_strided(
-            (36864, 12288), (12288, 1)
-        ),
-        torch.randn(36864, dtype=torch.bfloat16, device="cuda").as_strided(
-            (36864,), (1,)
-        ),
-        torch.randn(150994944, dtype=torch.bfloat16, device="cuda").as_strided(
-            (12288, 12288), (12288, 1)
-        ),
-        torch.randn(12288, dtype=torch.bfloat16, device="cuda").as_strided(
-            (12288,), (1,)
-        ),
-        torch.randn(12288, dtype=torch.bfloat16, device="cuda").as_strided(
-            (12288,), (1,)
-        ),
-        torch.randn(12288, dtype=torch.bfloat16, device="cuda").as_strided(
-            (12288,), (1,)
-        ),
+        torch.randn(b, s, h, dtype=torch.bfloat16, device="cuda"),
+        torch.randn(h, dtype=torch.bfloat16, device="cuda"),
+        torch.randn(h, dtype=torch.bfloat16, device="cuda"),
+        torch.randn(h * 3, h, dtype=torch.bfloat16, device="cuda"),
+        torch.randn(h * 3, dtype=torch.bfloat16, device="cuda"),
+        torch.randn(h, h, dtype=torch.bfloat16, device="cuda"),
+        torch.randn(h, dtype=torch.bfloat16, device="cuda"),
+        torch.randn(h, dtype=torch.bfloat16, device="cuda"),
+        torch.randn(h, dtype=torch.bfloat16, device="cuda"),
         mlp_linear0_weight[rank : rank + 1],
         mlp_linear0_bias[rank : rank + 1],
         mlp_linear1_weight[rank : rank + 1],
-        torch.randn(12288, dtype=torch.bfloat16, device="cuda").as_strided(
-            (12288,), (1,)
-        ),
+        torch.randn(h, dtype=torch.bfloat16, device="cuda"),
     ]
 
-    fd = TransformerForwardFusion(num_devices)
+    fd = TransformerForwardFusion(d, b, s, a, h)
 
     outs = fd.execute(ins)
     (
@@ -464,14 +451,14 @@ def test_transformer_forward(mpi_test):
     def assert_shape_is(t: torch.Tensor, sizes: list[int]) -> None:
         assert t.shape == torch.Size(sizes)
 
-    assert_shape_is(layernorm0_avg, [1, 2048])
-    assert_shape_is(layernorm0_invstd, [1, 2048, 1])
-    assert_shape_is(mha_linear0, [1, 2048, 36864])
-    assert_shape_is(sdpa_out, [1, 96, 2048, 128])
-    assert_shape_is(sdpa_logsum_exp, [1, 96, 2048])
+    assert_shape_is(layernorm0_avg, [b, s])
+    assert_shape_is(layernorm0_invstd, [b, s, 1])
+    assert_shape_is(mha_linear0, [b, s, h * 3])
+    assert_shape_is(sdpa_out, [b, a, s, h // a])
+    assert_shape_is(sdpa_logsum_exp, [b, a, s])
     assert_shape_is(sdpa_seed, [])
     assert_shape_is(sdpa_offset, [])
-    assert_shape_is(mha_dropout, [1, 2048, 12288])
-    assert_shape_is(layernorm1_avg, [1, 2048])
-    assert_shape_is(layernorm1_invstd, [1, 2048, 1])
-    assert_shape_is(output, [1, 2048, 12288])
+    assert_shape_is(mha_dropout, [b, s, h])
+    assert_shape_is(layernorm1_avg, [b, s])
+    assert_shape_is(layernorm1_invstd, [b, s, 1])
+    assert_shape_is(output, [b, s, h])
