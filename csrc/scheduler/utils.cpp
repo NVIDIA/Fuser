@@ -14,6 +14,7 @@
 #include <expr_evaluator.h>
 #include <id_model/id_model.h>
 #include <instrumentation.h>
+#include <ir/builder.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
 #include <multidevice/utils.h>
@@ -22,11 +23,14 @@
 #include <scheduler/runtime_info.h>
 #include <transform_iter.h>
 #include <transform_replay.h>
+#include <val_graph_visitor.h>
 
 #include <ATen/cuda/CUDAContext.h>
 
 #include <algorithm>
 #include <queue>
+
+#include <fstream>
 
 namespace nvfuser {
 namespace scheduler_utils {
@@ -2653,6 +2657,245 @@ void moveNonConcretizedBroadcastInnermost(
     }
 
     tv->reorder(old2new);
+  }
+}
+
+namespace {
+
+// Similar to id_model/transform_replay.h but using a given list of
+// outputs in addition to inputs
+class ReplayTransform : OptInConstDispatch {
+ public:
+  static Expr* replayAs(
+      const std::vector<IterDomain*>& ordered_inputs,
+      const std::vector<IterDomain*>& ordered_outputs,
+      const Expr* expression_to_match) {
+    ReplayTransform replay(
+        ordered_inputs, ordered_outputs, expression_to_match);
+    return replay.replayed_expr_;
+  }
+
+ private:
+  ReplayTransform(
+      const std::vector<IterDomain*>& ordered_inputs,
+      const std::vector<IterDomain*>& ordered_outputs,
+      const Expr* expression_to_match)
+      : input_ids_(ordered_inputs), output_ids_(ordered_outputs) {
+    OptOutConstDispatch::dispatch(expression_to_match);
+  }
+
+  using OptInConstDispatch::handle;
+
+  void handle(const Split* split) final {
+    NVF_ERROR(output_ids_.size() == 2);
+    NVF_ERROR(input_ids_.size() == 1);
+    replayed_expr_ = IrBuilder::createInContainer<Split>(
+        split->fusion(),
+        output_ids_[0],
+        output_ids_[1],
+        input_ids_[0],
+        split->factor(),
+        split->innerSplit());
+  }
+
+  void handle(const Merge* merge) final {}
+
+  void handle(const Swizzle2D* swizzle_2d) final {}
+
+  void handle(const Swizzle* swizzle) final {}
+
+  // We're going to replay this resize operation on the corresponding IDs
+  //  if replaying resize is enabled.
+  void handle(const Resize* resize) final {}
+
+ private:
+  Expr* replayed_expr_ = nullptr;
+  const std::vector<IterDomain*>& input_ids_;
+  const std::vector<IterDomain*>& output_ids_;
+};
+
+class LoopDomainScheduler {
+ public:
+  LoopDomainScheduler(std::vector<IterDomain*> ref_loop_dom)
+      : ref_loop_dom_(std::move(ref_loop_dom)) {
+    NVF_ERROR(!ref_loop_dom_.empty());
+
+    // For now, ref must not be a broadcast domain
+    NVF_ERROR(
+        std::none_of(
+            ref_loop_dom_.begin(),
+            ref_loop_dom_.end(),
+            [](IterDomain* id) { return id->isBroadcast(); }),
+        "Broadcast referene not supported: ",
+        toDelimitedString(ref_loop_dom_));
+
+    Fusion* fusion = ref_loop_dom_.front()->fusion();
+    id_model_ = std::make_unique<IdModel>(fusion, /*build_graphs=*/false);
+    id_model_->buildExactGraph();
+
+    if (getenv("DEBUG")) {
+      std::ofstream ofs("graph.dot", std::ofstream::trunc);
+      auto dot_string = graph().toGraphvizDotGraph();
+      ofs << dot_string;
+      ofs.close();
+    }
+
+    ref_id_groups_ = graph().toGroups(ref_loop_dom_);
+  }
+
+  void schedule(TensorView* tv);
+
+ private:
+  ValGraph& graph() {
+    return id_model_->idGraph(IdMappingMode::EXACT);
+  }
+
+  Expr* replay(
+      const ExprGroup& expr_g,
+      Direction dir,
+      const ValGroups& input_groups,
+      const ValGroups& output_groups,
+      const std::unordered_map<ValGroup, IterDomain*>& group_to_id) const {
+    std::cerr << "Replaying the expr: " << expr_g->front()->toString();
+    std::vector<IterDomain*> inputs;
+    std::vector<IterDomain*> outputs;
+    std::transform(
+        input_groups.begin(),
+        input_groups.end(),
+        std::back_inserter(inputs),
+        [&](const ValGroup& input_g) -> IterDomain* {
+          return group_to_id.at(input_g);
+        });
+    std::transform(
+        output_groups.begin(),
+        output_groups.end(),
+        std::back_inserter(outputs),
+        [&](const ValGroup& output_g) -> IterDomain* {
+          return group_to_id.at(output_g);
+        });
+    Expr* replayed_expr = ReplayTransform::replayAs(
+        dir == Direction::Forward ? inputs : outputs,
+        dir == Direction::Forward ? outputs : inputs,
+        expr_g->front());
+    std::cerr << "Replayed expr: " << replayed_expr->toString();
+    return replayed_expr;
+  }
+
+ private:
+  std::vector<IterDomain*> ref_loop_dom_;
+  std::unique_ptr<IdModel> id_model_;
+  ValGroups ref_id_groups_;
+};
+
+void LoopDomainScheduler::schedule(TensorView* tv) {
+  std::cerr << "Scheduling " << tv->toString() << "\n";
+  std::cerr << "Logical domain: " << toDelimitedString(tv->getLogicalDomain())
+            << "\n";
+
+  auto all_ids = tv->domain()->allIDs();
+  std::unordered_map<ValGroup, IterDomain*> group_to_id;
+  ValGroups all_id_groups;
+  for (auto id : all_ids) {
+    const auto& group = graph().toGroup(id);
+    group_to_id.emplace(group, id);
+    all_id_groups.pushBack(group);
+  }
+
+  const ExprGroups all_expr_groups = graph().toGroups(tv->domain()->allExprs());
+
+  ValGroups logical_id_groups = graph().toGroups(tv->getLogicalDomain());
+
+  const auto ndims = (int64_t)ref_loop_dom_.size();
+
+  std::vector<IterDomain*> loop_domain(ndims);
+
+  // Find missing ids
+  ValGroups missing_ref_id_groups;
+  for (const auto i : c10::irange(ndims)) {
+    const auto& ref_id_group = ref_id_groups_.at(i);
+    if (!all_id_groups.has(ref_id_group)) {
+      missing_ref_id_groups.pushBack(ref_id_group);
+      // Don't force mapping at this point since that may not be necessary
+      auto clone = ref_loop_dom_.at(i)->cloneWithoutRFactor();
+      loop_domain.at(i) = clone;
+      group_to_id.emplace(ref_id_group, clone);
+      all_id_groups.pushBack(ref_id_group);
+    } else {
+      auto it = group_to_id.find(ref_id_group);
+      NVF_ERROR(it != group_to_id.end());
+      loop_domain.at(i) = it->second;
+    }
+  }
+
+  if (missing_ref_id_groups.empty()) {
+    std::cerr << "All IDs already found in the tensor: "
+              << toDelimitedString(loop_domain) << "\n";
+    tv->setLoopDomain(loop_domain);
+    return;
+  }
+
+  auto ref_to_logical =
+      ValGraphBFS::getExprsBetween(graph(), ref_id_groups_, logical_id_groups);
+
+  for (const auto& [expr_g, dir] : ref_to_logical) {
+    std::cerr << "Traversing " << dir << " " << expr_g->front()->toString();
+
+    if (all_expr_groups.has(expr_g)) {
+      std::cerr << "Expr already in this tensor\n";
+      continue;
+    }
+
+    const auto input_groups = dir == Direction::Forward
+        ? graph().inputGroups(expr_g)
+        : graph().outputGroups(expr_g);
+    const auto output_groups = dir == Direction::Forward
+        ? graph().outputGroups(expr_g)
+        : graph().inputGroups(expr_g);
+
+    // All inputs must be already in all_id_groups
+    auto inputs_it = std::find_if(
+        input_groups.begin(),
+        input_groups.end(),
+        [&](const ValGroup& input_g) -> bool {
+          return !all_id_groups.has(input_g);
+        });
+    NVF_ERROR(
+        inputs_it == input_groups.end(),
+        "Unknown input group found: ",
+        nvfuser::toString(*inputs_it));
+
+    // Clone outputs if not found
+    for (const auto& output_g : output_groups) {
+      if (all_id_groups.has(output_g)) {
+        continue;
+      }
+
+      auto clone = output_g->front()->as<IterDomain>()->cloneWithoutRFactor();
+      all_id_groups.pushBack(output_g);
+      group_to_id.emplace(output_g, clone);
+    }
+
+    replay(expr_g, dir, input_groups, output_groups, group_to_id);
+  }
+
+  tv->setLoopDomain(loop_domain);
+}
+
+} // namespace
+
+void scheduleLoopDomainsLike(
+    const std::vector<TensorView*>& tvs,
+    const std::vector<IterDomain*>& ref_loop_dom) {
+  std::cerr << "scheduleLoopDomainsLike: " << toDelimitedString(tvs) << "\n";
+  std::cerr << "Ref: " << toDelimitedString(ref_loop_dom) << "\n";
+
+  if (tvs.empty()) {
+    return;
+  }
+
+  LoopDomainScheduler scheduler(ref_loop_dom);
+  for (auto tv : tvs) {
+    scheduler.schedule(tv);
   }
 }
 
