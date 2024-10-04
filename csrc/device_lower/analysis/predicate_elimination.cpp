@@ -47,16 +47,27 @@ namespace {
 //   are exact so that the shared mem read/write would not
 //   run out of bound because of thread over-subscription.
 bool isExactParallelSharedMemAccess(TensorView* tv) {
+  // check TIDxyz used in the fusion
+  auto used_tids_map = GpuLower::current()->parallelDimensionMap().getMap();
   for (auto id : tv->getLoopDomain()) {
     if (id->isThreadDim()) {
       // Need to predicate to avoid out of bound access
       //  because of over-subscribed block size.
       if (!lower_utils::isExtentEqualToMaxParallelTypeExtent(id)) {
         return false;
+      } else {
+        NVF_ERROR(
+            used_tids_map.erase(id->getParallelType()) == 1,
+            "Exact parallel shared mem access: TID ",
+            id->getParallelType(),
+            " not used in the fusion.");
       }
     }
   }
-  return true;
+  // If empty all TIDs are exact.
+  // If not empty, some TIDs used by other tensor views are not used by
+  // this tv, needs predicate.
+  return used_tids_map.empty();
 }
 
 // Check for conditions where the predicate cannot be removed
