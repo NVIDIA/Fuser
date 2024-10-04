@@ -114,6 +114,10 @@ def test_linear(mpi_test):
     )
 
 
+# This is ported over from https://github.com/NVIDIA/Fuser/blob/0d33366bf69393bfcc626e28d15dc830609aae2d/benchmarks/python/test_transformer.py#L306. The major changes are:
+# 1. Replace magic values with variables for flexibility and readability.
+# 2. Split device dimensions and parallelize them.
+# 3. Decompose the second linear layer in MLP so the matmul result can be allreduced.
 class TransformerForwardFusion(FusionDefinition):
     def __init__(self, num_devices, batch, sequence, head, hidden):
         super().__init__()
@@ -124,6 +128,7 @@ class TransformerForwardFusion(FusionDefinition):
         self._hidden = hidden
 
     def definition(self) -> None:
+        # Same notations as in https://arxiv.org/pdf/2205.05198
         d, b, s, a, h = (
             self._num_devices,
             self._batch,
