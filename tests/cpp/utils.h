@@ -175,11 +175,20 @@ class PredicatedChecker : public kir::IrVisitor {
     PredicatedChecker checker(tv_name, kernel->topLevelExprs());
     return checker.predicated_ite_;
   }
+
   static bool isSharedMemoryPredicatedByIfThenElse(kir::Kernel* kernel) {
     for (auto tv : kernel->allTvs()) {
-      if (tv->getMemoryType() == MemoryType::Shared &&
-          isPredicatedByIfThenElse(tv->name(), kernel)) {
-        return true;
+      // If a tv is CpAsync copied to shared memory, then LdMatrix copied to
+      // registers, should use inline predicate instead of if-then-else
+      if (tv->definition() != nullptr &&
+          ir_utils::isCpAsyncOp(tv->definition())) {
+        const auto& consumers = ir_utils::consumerTvsOf(tv);
+        if (std::any_of(
+                consumers.begin(), consumers.end(), [&](TensorView* tv) {
+                  return ir_utils::isLdMatrixOp(tv->definition());
+                })) {
+          return isPredicatedByIfThenElse(tv->name(), kernel);
+        }
       }
     }
     return false;
