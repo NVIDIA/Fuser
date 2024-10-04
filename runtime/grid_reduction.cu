@@ -749,8 +749,13 @@ __device__ void iterGroupedGridReduceLastBlock(
   const auto input_stride_for_thread_in_segment =
       index_utils::maskedSize<!X_THREAD, !Y_THREAD, !Z_THREAD>(blockDim);
 
-  // T inp = init_val;
-  T inp[vec_size];
+  constexpr unsigned int max_align_bytes = 16;
+  constexpr unsigned int vec_bytes = sizeof(T) * vec_size;
+  constexpr unsigned int align_bytes =
+      vec_bytes > max_align_bytes ? max_align_bytes : vec_bytes;
+  // Ensure alignment for vectorized load/store to smem in grouped block
+  // reduction
+  __align__(align_bytes) T inp[vec_size];
 #pragma unroll
   for (int i = 0; i < vec_size; i++) {
     inp[i] = init_val;
@@ -800,8 +805,9 @@ __device__ void iterGroupedGridReduceLastBlock(
     }
   }
 
-  // Block reduce the per thread values into per "participating" thread values
-  // T inp_tmp = init_val;
+  // Block reduce the per thread values into per "participating" thread values.
+  // inp_tmp stores output results, not being vectorized loaded to smem, no need
+  // to enforce alignment.
   T inp_tmp[vec_size];
 #pragma unroll
   for (int i = 0; i < vec_size; i++) {

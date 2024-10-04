@@ -57,7 +57,7 @@ TensorView* dropout_backward(TensorView* dy, TensorView* mask, Val* scale) {
 
 namespace {
 
-static TensorView* newForLinear(
+TensorView* newForLinear(
     TensorView* input,
     TensorView* weight,
     TensorView* bias) {
@@ -330,7 +330,7 @@ TensorView* view_as_real(TensorView* x) {
 namespace {
 
 //! Create new output for matmul
-static TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
+TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
   auto orig_domain_a = TensorDomain::noReductions(tv_a->getLogicalDomain());
   auto orig_domain_b = TensorDomain::noReductions(tv_b->getLogicalDomain());
 

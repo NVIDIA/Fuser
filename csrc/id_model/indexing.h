@@ -9,12 +9,10 @@
 
 #include <device_lower/analysis/trivial_broadcast.h>
 #include <id_model/id_model.h>
-#include <id_model/indexing_traversal.h>
 #include <ir/base_nodes.h>
 #include <ir/interface_nodes.h>
 #include <options.h>
 #include <type.h>
-#include <val_graph_visitor.h>
 
 // Just for PredicateInfo. Should be moved to its own header file
 #include <index_compute.h>

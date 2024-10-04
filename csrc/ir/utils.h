@@ -711,4 +711,8 @@ inline bool isMemorySharedAcross(
 //! IdModel. Eventually, this should be removed.
 bool hasRootToLoopLinearTransformations(const TensorView* tv);
 
+//! In addition to the above hasRootToLoopLinearTransformations, it
+//! also checks the loop domain has any extra domain
+bool isLoopDomainFullyDerivedFromLogicalDomain(TensorView* tv);
+
 } // namespace nvfuser::ir_utils

@@ -24,6 +24,8 @@ class PredicateElimination : public IterVisitor {
   //! \param expr Tensor expression
   bool canOmitPredicate(const Expr* expr) const;
 
+  bool needsSharedMemoryPredicate(const Expr* expr) const;
+
   //! Value to initialize out-of-bound regions
   Val* getInitValue(TensorView* tv) const;
 
