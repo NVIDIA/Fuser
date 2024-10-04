@@ -94,12 +94,11 @@ std::string toString(const PointwiseParams* pparams) {
     ss << "1D"
        << "/";
   }
+  if (pparams->vectorization_factor > 1) {
+    ss << "Vectorize, Factor: " << pparams->vectorization_factor << "\n";
+  }
   if (pparams->unroll_factor > 1) {
-    if (pparams->vectorize) {
-      ss << "Vectorize, Factor: " << pparams->unroll_factor;
-    } else {
-      ss << "Unroll, Factor: " << pparams->unroll_factor;
-    }
+    ss << "Unroll, Factor: " << pparams->unroll_factor << "\n";
   }
   return ss.str();
 }

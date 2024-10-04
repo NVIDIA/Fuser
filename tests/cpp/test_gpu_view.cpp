@@ -1705,10 +1705,7 @@ TEST_F(GpuViewTest, FusionReshapeMagicSchedule6) {
   NVF_CHECK(
       executor_cache.getMostRecentExecutorInfo()
           .params->as<PointwiseParams>()
-          ->vectorize &&
-      executor_cache.getMostRecentExecutorInfo()
-          .params->as<PointwiseParams>()
-          ->unroll_factor);
+          ->vectorization_factor > 1);
 
   testValidate(&fusion, cg_outputs, {t0, t3}, __LINE__, __FILE__);
 }
