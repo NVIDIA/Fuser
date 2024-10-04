@@ -212,10 +212,18 @@ void FusionExecutor::compileFusion(
     return;
   }
 
-  const std::vector<Expr*>& exprs = _fusion->exprs();
-  if (std::all_of(exprs.begin(), exprs.end(), [](Expr* e) {
+  std::vector<Expr*> exprs = _fusion->exprs();
+  if (std::any_of(exprs.begin(), exprs.end(), [](Expr* e) {
         return isResharding(e) && isLowerableToCommunication(e);
       })) {
+    NVF_ERROR(
+        std::all_of(
+            exprs.begin(),
+            exprs.end(),
+            [](Expr* e) {
+              return isResharding(e) && isLowerableToCommunication(e);
+            }),
+        "Could not execute fusion as all expressions in a host IR container must be communication based at this point.");
     host_ir_container_ = std::make_unique<hir::HostIrContainer>();
     IrCloner cloner = Fusion::copy(_fusion, host_ir_container_.get());
     for (Expr* e : exprs) {
@@ -1030,9 +1038,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       " provided number of outputs does not match fusion output");
 
   // Bind fusion inputs
-  std::cout << "A" << std::endl;
   auto expr_eval = executor_utils::bindInputs(args, fusion());
-  std::cout << "B" << std::endl;
 
   if (isExpressionEvaluated(fusion())) {
     FUSER_PERF_SCOPE("FusionExecutor::runFusion::evaluate_with_ExprEval");
