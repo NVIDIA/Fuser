@@ -3242,6 +3242,29 @@ void TensorDomain::setContiguity(
   contiguity_ = contig;
 }
 
+std::vector<int64_t> TensorDomain::strideOrder() const {
+  // short-circuit: no allocation domain; default stride-order
+  if (allocation_domain_.empty()) {
+    return {};
+  }
+
+  std::vector<int64_t> stride_order;
+  stride_order.reserve(logical_domain_.size());
+
+  for (size_t logical_idx : c10::irange(logical_domain_.size())) {
+    IterDomain* logical_id = logical_domain_.at(logical_idx);
+    auto alloc_iter = std::find(
+        allocation_domain_.begin(), allocation_domain_.end(), logical_id);
+    NVF_ERROR(
+        alloc_iter != allocation_domain_.end(),
+        "Unable to find logical IterDomain in allocation domain.");
+    int64_t alloc_idx = std::distance(allocation_domain_.begin(), alloc_iter);
+    stride_order.push_back((int64_t)logical_domain_.size() - 1 - alloc_idx);
+  }
+
+  return stride_order;
+}
+
 bool TensorDomain::hasBlockReduction() const {
   return std::any_of(
       loop_domain_.begin(), loop_domain_.end(), [](IterDomain* id) {

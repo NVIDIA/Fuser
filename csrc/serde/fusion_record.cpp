@@ -807,6 +807,8 @@ void RecordFunctorFactory::setupFunctionMaps() {
   NVFUSER_BINARY_TV_OP("bitwise_and", bitwise_and)
   NVFUSER_BINARY_TV_OP("bitwise_or", bitwise_or)
   NVFUSER_BINARY_TV_OP("bitwise_xor", bitwise_xor)
+  NVFUSER_BINARY_TV_OP("logical_and", logical_and)
+  NVFUSER_BINARY_TV_OP("logical_or", logical_or)
   NVFUSER_BINARY_TV_OP("bitwise_left_shift", bitwise_left_shift)
   NVFUSER_BINARY_TV_OP("bitwise_right_shift", bitwise_right_shift)
   NVFUSER_BINARY_TV_OP("logical_right_shift", logical_right_shift)
