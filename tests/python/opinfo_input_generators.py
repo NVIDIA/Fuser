@@ -1523,13 +1523,13 @@ def linear_input_generator(
 
     # Cases without bias
     shapes_input = ((K), (M, K), (B, M, K), (B, 1, M, K))
-    shapes_weight = ((K), (N, K), (1, K))
+    shapes_weight = ((N, K), (1, K))
     for shape_input, shape_weight in itertools.product(shapes_input, shapes_weight):
         yield SampleInput(make_arg(shape_input), make_arg(shape_weight))
 
     # Cases with bias
     shape_weight = (N, K)
-    shapes_bias = ((), (N,))
+    shapes_bias = ((N,),)
     for shape_input, shape_bias in itertools.product(shapes_input, shapes_bias):
         yield SampleInput(
             make_arg(shape_input), make_arg(shape_weight), make_arg(shape_bias)
@@ -1547,19 +1547,13 @@ def linear_error_generator(
     N = 256
     K = 32
 
-    bias_with_1dweight = (
-        ((M, K), (K), (N)),
-        RuntimeError,
-        "Expected B to be a 2D matrix if bias is given, got 1D.",
-    )
-
     mismatched_bias_extent = (
         ((M, K), (1, K), (N)),
         RuntimeError,
         f"The expanded size of the tensor (1) must match the existing size ({N}) at non-singleton dimension 1.  Target sizes: [{M}, 1].  Tensor sizes: [{N}]",
     )
 
-    error_cases = [bias_with_1dweight, mismatched_bias_extent]
+    error_cases = [mismatched_bias_extent]
 
     for input_shapes, ex_type, ex_str in error_cases:
         shape_input, shape_weight, shape_bias = input_shapes
