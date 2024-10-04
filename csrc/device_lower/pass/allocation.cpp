@@ -508,7 +508,7 @@ class AllocationInserter : public kir::ExprMutator {
         init = default_val;
       }
 
-      if (ir_utils::isCpAsyncOp(expr)) {
+      if (ir_utils::isCpAsyncOp(expr) || ir_utils::isCpAsyncBulk(expr)) {
         NVF_CHECK(
             init == nullptr || init->isZero(),
             "cp.async initialized with non-zero is not supported");
