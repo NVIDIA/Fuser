@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <multidevice/communicator.h>
+#include <options.h>
 
 #include <netdb.h>
 #include <map>
@@ -183,6 +184,10 @@ Communicator::Communicator(
           c10d::TCPStoreOptions::kDefaultPort + 42), // to avoid collision
       ucc_available_(false),
       nccl_available_(false) {
+  if (isOptionDisabled(DisableOption::Multidevice)) {
+    return;
+  }
+
   // retrieves rank and communicator size
   is_available_ = parseEnv(
       rank_, size_, local_rank_, local_size_, master_addr_, master_port_);

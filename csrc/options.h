@@ -134,6 +134,7 @@ enum class DisableOption {
   WelfordVectorization, //! Disable vectorizaton of Welford ops
   ReuseMismatchedTypeRegisters, //! Disable explicitly re-using registers unless
                                 //! types match
+  Multidevice, //! Disable creation of multidevice communicator
   EndOfOption //! Placeholder for counting the number of elements
 };
 
