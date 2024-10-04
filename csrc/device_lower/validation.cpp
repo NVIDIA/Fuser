@@ -10,6 +10,7 @@
 #include <contiguity.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
+#include <id_model/id_model.h>
 #include <instrumentation.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
@@ -376,16 +377,15 @@ class VectorizeValidator : public OptInDispatch {
     NVF_ERROR(GpuLower::current()->hasIdModel());
 
     const auto& id_model = GpuLower::current()->idModel();
-    const auto& indexing_graph =
-        id_model.idGraph(TensorIndexer::traversalGraphType());
+    const auto& graph = id_model.idGraph(IdMappingMode::EXACT);
 
     auto expr_path = ValGraphBFS::getExprsBetween(
-        indexing_graph,
-        indexing_graph.toGroups(tv->getMaybeAllocationDomain()),
-        indexing_graph.toGroups(std::vector<Val*>{v_id}));
+        graph,
+        graph.toGroups(tv->getMaybeAllocationDomain()),
+        graph.toGroups(std::vector<Val*>{v_id}));
     expr_path = reverse(expr_path);
 
-    ValGroup cur_group = indexing_graph.toGroup(v_id);
+    ValGroup cur_group = graph.toGroup(v_id);
     std::unordered_set<ValGroup> visited_ids;
     visited_ids.insert(cur_group);
 
@@ -398,11 +398,11 @@ class VectorizeValidator : public OptInDispatch {
           expr->toString());
 
       const auto& inputs = dir == Direction::Forward
-          ? indexing_graph.inputGroups(expr_g)
-          : indexing_graph.outputGroups(expr_g);
+          ? graph.inputGroups(expr_g)
+          : graph.outputGroups(expr_g);
       const auto& outputs = dir == Direction::Forward
-          ? indexing_graph.outputGroups(expr_g)
-          : indexing_graph.inputGroups(expr_g);
+          ? graph.outputGroups(expr_g)
+          : graph.inputGroups(expr_g);
 
       if (expr->isOneOf<Swizzle, Swizzle2D>()) {
         // Not supported
@@ -454,7 +454,7 @@ class VectorizeValidator : public OptInDispatch {
     IterDomain* innermost_alloc_id = nullptr;
     std::unordered_set<IterDomain*> dep_alloc_ids;
     for (auto alloc : tv->getMaybeAllocationDomain()) {
-      const auto& alloc_group = indexing_graph.toGroup(alloc);
+      const auto& alloc_group = graph.toGroup(alloc);
       if (visited_ids.find(alloc_group) != visited_ids.end()) {
         dep_alloc_ids.emplace(alloc);
       }
