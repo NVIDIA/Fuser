@@ -6,12 +6,12 @@
  */
 // clang-format on
 #include <debug.h>
-#include <fusion_executor/executor_kernel_arg.h>
 #include <fusion_profiler.h>
 #include <instrumentation.h>
 #include <options.h>
 #include <python_frontend/fusion_cache.h>
 #include <python_frontend/fusion_definition.h>
+#include <runtime/executor_kernel_arg.h>
 #include <scheduler/scheduler_types.h>
 #include <utils.h>
 #include <validator_utils.h>

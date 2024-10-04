@@ -15,8 +15,8 @@
 #include <exceptions.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
-#include <fusion_executor/executor_utils.h>
 #include <ir/iostream.h>
+#include <runtime/executor_utils.h>
 
 namespace nvfuser {
 

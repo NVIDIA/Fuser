@@ -1151,6 +1151,16 @@ bool hasRootToLoopLinearTransformations(const TensorView* tv) {
   return all_alloc_id_on_path && all_logical_id_on_path;
 }
 
+bool isLoopDomainFullyDerivedFromLogicalDomain(TensorView* tv) {
+  return ir_utils::hasRootToLoopLinearTransformations(tv) &&
+      !ir_utils::compareDomains(
+           tv->getLoopDomain(),
+           tv->getLogicalDomain(),
+           /*additional_ids=*/{},
+           /*ignore_broadcast=*/false)
+           .dom0_has_unreachable_ids;
+}
+
 } // namespace nvfuser::ir_utils
 
 namespace nvfuser::MmaOpUtils {

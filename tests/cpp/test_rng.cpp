@@ -11,8 +11,8 @@
 
 #include <fusion.h>
 #include <ir/all_nodes.h>
-#include <kernel_cache.h>
 #include <ops/all_ops.h>
+#include <runtime/fusion_executor_cache.h>
 #include <scheduler/all_schedulers.h>
 #include <tests/cpp/rng_helper.h>
 #include <tests/cpp/utils.h>
