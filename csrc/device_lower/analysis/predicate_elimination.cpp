@@ -139,6 +139,7 @@ bool needSharedMemPredicate(TensorView* producer, TensorView* consumer) {
 }
 
 bool needsPredicateSharedMemAccess(const Expr* expr) {
+  DEBUG_PRINT_SCOPE(expr);
   // This is initial step to gradually remove predicates around
   //  sharedmem access in suitable situations.
   // Using an additional variable to track the predicate-on reasons
@@ -148,12 +149,12 @@ bool needsPredicateSharedMemAccess(const Expr* expr) {
       if (producer->getMemoryType() == MemoryType::Shared ||
           consumer->getMemoryType() == MemoryType::Shared) {
         if (needSharedMemPredicate(producer, consumer)) {
-          return true;
+          RECORD_AND_RETURN(true);
         }
       }
     }
   }
-  return false;
+  RECORD_AND_RETURN(false);
 }
 
 class ProducerConsumerPairAnalyzer : public OptOutDispatch {

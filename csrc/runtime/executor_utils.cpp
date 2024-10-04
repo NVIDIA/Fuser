@@ -14,13 +14,13 @@
 #include <contiguity.h>
 #include <debug.h>
 #include <driver_api.h>
-#include <fusion_executor/executor_utils.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <kernel_db/kernel_db.h>
 #include <options.h>
+#include <runtime/executor_utils.h>
 #include <tensor_metadata.h>
 #include <torch/csrc/jit/resource_guard.h>
 #include <utils.h>

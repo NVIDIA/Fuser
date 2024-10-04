@@ -316,6 +316,8 @@ const char* predicate_type2string(PredicateType t) {
       return "ReductionWrite";
     case PredicateType::LoopRotation:
       return "LoopRotation";
+    case PredicateType::ElectSync:
+      return "ElectSync";
     default:
       NVF_THROW("No string found for predicate type.");
   }

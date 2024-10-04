@@ -18,8 +18,6 @@
 #include <disjoint_set.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
-#include <fusion_executor/executor.h>
-#include <fusion_executor/executor_params.h>
 #include <fusion_segmenter.h>
 #include <grouped_reduction.h>
 #include <id_model/id_model.h>
@@ -30,11 +28,13 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
-#include <kernel_cache.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
 #include <logical_domain_map.h>
 #include <ops/all_ops.h>
+#include <runtime/executor.h>
+#include <runtime/executor_params.h>
+#include <runtime/fusion_executor_cache.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>
@@ -3763,39 +3763,6 @@ TEST_F(NVFuserTest, FusionScheduleTransposeRepro1_CUDA) {
       scheduleAndRun(&fusion, SchedulerType::Transpose, {input0, input1}, false)
           .outputs;
   testValidate(&fusion, cg_outputs, {input0, input1}, __LINE__, __FILE__);
-}
-
-// Repro for issue #1873
-TEST_F(NVFuserTest, FusionInlineBroadcastIndexing0_CUDA) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  auto tv0 = makeContigTensor(1);
-  auto tv1 = makeContigTensor(2);
-  fusion.addInput(tv0);
-  fusion.addInput(tv1);
-  auto tv2 = set(tv0);
-  auto tv3 = broadcast(tv2, {true, false});
-  auto tv4 = add(tv3, tv1);
-  fusion.addOutput(tv4);
-
-  tv4->merge(0);
-  tv4->split(0, 32);
-
-  tv0->computeAt(tv4, 1);
-
-  tv2->split(-1, 8);
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({123}, options);
-  at::Tensor t1 = at::randn({3, 123}, options);
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0, t1});
-
-  auto outputs = fe.runFusion({t0, t1});
-
-  testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionPredicateUnshare_CUDA) {

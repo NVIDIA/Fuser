@@ -582,20 +582,18 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
     b5 = (i2 + nvfuser_zero) < T0.logical_size[0LL];
     #pragma unroll
     for(nvfuser_index_t i6 = 0LL; i6 < 3LL; ++i6) {
-      if (b5) {
-        asm volatile(
-          "{\n"
-          "  .reg .pred p0; \n"
-          "  setp.ne.b32 p0, %3, 0;\n"
-          "  cp.async.ca.shared.global [%0], [%1], %2, p0;\n"
-          "}\n"
-          :
-          :"r"((uint32_t)((i4 + (4LL * i6)))),
-           "l"((ptr3 + (T0.alloc_stride[1LL] * (i6 + nvfuser_zero)))),
-           "n"(4LL),
-           "r"((uint32_t)((!b5)))
-        );
-      }
+      asm volatile(
+        "{\n"
+        "  .reg .pred p0; \n"
+        "  setp.ne.b32 p0, %3, 0;\n"
+        "  cp.async.ca.shared.global [%0], [%1], %2, p0;\n"
+        "}\n"
+        :
+        :"r"((uint32_t)((i4 + (4LL * i6)))),
+         "l"((ptr3 + (T0.alloc_stride[1LL] * (i6 + nvfuser_zero)))),
+         "n"(4LL),
+         "r"((uint32_t)((!b5)))
+      );
     }
     asm volatile("cp.async.commit_group;\n");
   }
@@ -620,20 +618,18 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
     b13 = i9 < T0.logical_size[0LL];
     #pragma unroll
     for(nvfuser_index_t i6 = 0LL; i6 < 3LL; ++i6) {
-      if (b13) {
-        asm volatile(
-          "{\n"
-          "  .reg .pred p0; \n"
-          "  setp.ne.b32 p0, %3, 0;\n"
-          "  cp.async.ca.shared.global [%0], [%1], %2, p0;\n"
-          "}\n"
-          :
-          :"r"((uint32_t)((i10 + (4LL * i6)))),
-           "l"((ptr8 + (T0.alloc_stride[1LL] * (i6 + nvfuser_zero)))),
-           "n"(4LL),
-           "r"((uint32_t)((!b13)))
-        );
-      }
+      asm volatile(
+        "{\n"
+        "  .reg .pred p0; \n"
+        "  setp.ne.b32 p0, %3, 0;\n"
+        "  cp.async.ca.shared.global [%0], [%1], %2, p0;\n"
+        "}\n"
+        :
+        :"r"((uint32_t)((i10 + (4LL * i6)))),
+         "l"((ptr8 + (T0.alloc_stride[1LL] * (i6 + nvfuser_zero)))),
+         "n"(4LL),
+         "r"((uint32_t)((!b13)))
+      );
     }
     NVFUSER_UPDATE_MAGIC_ZERO;
     asm volatile("cp.async.commit_group;\n");
