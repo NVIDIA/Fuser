@@ -111,7 +111,7 @@ class Communication : public Expr {
   void validate();
 };
 
-enum class P2PCommunicationType { send, recv };
+enum class P2PCommunicationType { SEND, RECV };
 
 std::ostream& operator<<(std::ostream& os, const P2PCommunicationType& type);
 

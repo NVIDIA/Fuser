@@ -212,10 +212,10 @@ std::string Communication::toInlineString(int indent_size) const {
 
 std::ostream& operator<<(std::ostream& os, const P2PCommunicationType& type) {
   switch (type) {
-    case P2PCommunicationType::send:
+    case P2PCommunicationType::SEND:
       os << "send";
       break;
-    case P2PCommunicationType::recv:
+    case P2PCommunicationType::RECV:
       os << "recv";
       break;
     default:
@@ -555,7 +555,7 @@ c10::intrusive_ptr<c10d::Work> postRecv(
     DeviceIdxType peer,
     c10d::Backend* backend,
     at::Tensor buffer) {
-  NVF_ERROR(peer < backend->getSize(), "invalid peer: ", peer);
+  NVF_ERROR(peer < backend->getSize(), "invalid peer: ", peer, ", which should be strictly smaller than the world size ", backend->getSize());
 
   // Needed to match ProcessGroup API
   std::vector<at::Tensor> packed_buffer = {buffer};
@@ -573,9 +573,9 @@ c10::intrusive_ptr<c10d::Work> postSingleCommunication(
   NVF_ERROR(backend != nullptr);
 
   switch (communication->type()) {
-    case P2PCommunicationType::send:
+    case P2PCommunicationType::SEND:
       return postSend(communication, my_device_index, peer, backend, buffer);
-    case P2PCommunicationType::recv:
+    case P2PCommunicationType::RECV:
       return postRecv(communication, my_device_index, peer, backend, buffer);
     default:
       NVF_THROW("Wrong communication type: ", communication->type());
