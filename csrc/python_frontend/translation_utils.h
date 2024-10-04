@@ -14,91 +14,89 @@ namespace nvfuser::python_frontend {
 // Get std::function for BinaryOp
 template <typename ResultType, typename... ArgTypes>
 std::function<ResultType(ArgTypes...)> getFunction(const BinaryOp* bop) {
-  auto get_std_function = [](ResultType (*fn)(ArgTypes...)) {
-    return static_cast<ResultType (*)(ArgTypes...)>(fn);
-  };
+  auto wrap_function = [](ResultType (*fn)(ArgTypes...)) { return fn; };
 
   switch (bop->getBinaryOpType()) {
     case BinaryOpType::Add:
-      return get_std_function(add);
+      return wrap_function(add);
       break;
     case BinaryOpType::Atan2:
-      return get_std_function(atan2);
+      return wrap_function(atan2);
       break;
     case BinaryOpType::Div:
-      return get_std_function(div);
+      return wrap_function(div);
       break;
     case BinaryOpType::Fmod:
-      return get_std_function(fmod);
+      return wrap_function(fmod);
       break;
     case BinaryOpType::Mul:
-      return get_std_function(mul);
+      return wrap_function(mul);
       break;
     case BinaryOpType::Nextafter:
-      return get_std_function(nextafter);
+      return wrap_function(nextafter);
       break;
     case BinaryOpType::Pow:
-      return get_std_function(pow);
+      return wrap_function(pow);
       break;
     case BinaryOpType::Remainder:
-      return get_std_function(remainder);
+      return wrap_function(remainder);
       break;
     case BinaryOpType::Sub:
-      return get_std_function(sub);
+      return wrap_function(sub);
       break;
     case BinaryOpType::Mod:
-      return get_std_function(mod);
+      return wrap_function(mod);
       break;
     case BinaryOpType::Eq:
-      return get_std_function(eq);
+      return wrap_function(eq);
       break;
     case BinaryOpType::NE:
-      return get_std_function(ne);
+      return wrap_function(ne);
       break;
     case BinaryOpType::GT:
-      return get_std_function(gt);
+      return wrap_function(gt);
       break;
     case BinaryOpType::GE:
-      return get_std_function(ge);
+      return wrap_function(ge);
       break;
     case BinaryOpType::LT:
-      return get_std_function(lt);
+      return wrap_function(lt);
       break;
     case BinaryOpType::LE:
-      return get_std_function(le);
+      return wrap_function(le);
       break;
     case BinaryOpType::BitwiseAnd:
-      return get_std_function(bitwise_and);
+      return wrap_function(bitwise_and);
       break;
     case BinaryOpType::BitwiseOr:
-      return get_std_function(bitwise_or);
+      return wrap_function(bitwise_or);
       break;
     case BinaryOpType::BitwiseXor:
-      return get_std_function(bitwise_xor);
+      return wrap_function(bitwise_xor);
       break;
     case BinaryOpType::LogicalAnd:
-      return get_std_function(logical_and);
+      return wrap_function(logical_and);
       break;
     case BinaryOpType::LogicalOr:
-      return get_std_function(logical_or);
+      return wrap_function(logical_or);
       break;
     case BinaryOpType::Lshift:
-      return get_std_function(bitwise_left_shift);
+      return wrap_function(bitwise_left_shift);
       break;
     case BinaryOpType::Rshift:
-      return get_std_function(bitwise_right_shift);
+      return wrap_function(bitwise_right_shift);
       break;
     case BinaryOpType::Gcd:
-      return get_std_function(gcd);
+      return wrap_function(gcd);
       break;
     case BinaryOpType::Min:
-      return get_std_function(minimum);
+      return wrap_function(minimum);
       break;
     case BinaryOpType::Max:
-      return get_std_function(maximum);
+      return wrap_function(maximum);
       break;
     case BinaryOpType::CeilDiv:
-      return get_std_function(ceilDiv);
+      return wrap_function(ceilDiv);
       break;
     default:
       NVF_CHECK(
