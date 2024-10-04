@@ -14,107 +14,105 @@ namespace nvfuser::python_frontend {
 // Get std::function for UnaryOp
 template <typename ResultType, typename... ArgTypes>
 std::function<ResultType(ArgTypes...)> getFunction(const UnaryOp* uop) {
-  auto get_std_function = [](ResultType (*fn)(ArgTypes...)) {
-    return static_cast<ResultType (*)(ArgTypes...)>(fn);
-  };
+  auto wrap_function = [](ResultType (*fn)(ArgTypes...)) { return fn; };
 
   switch (uop->getUnaryOpType()) {
     case UnaryOpType::Abs:
-      return get_std_function(abs);
+      return wrap_function(abs);
     case UnaryOpType::Acos:
-      return get_std_function(acos);
+      return wrap_function(acos);
     case UnaryOpType::Acosh:
-      return get_std_function(acosh);
+      return wrap_function(acosh);
     case UnaryOpType::Asin:
-      return get_std_function(asin);
+      return wrap_function(asin);
     case UnaryOpType::Asinh:
-      return get_std_function(asinh);
+      return wrap_function(asinh);
     case UnaryOpType::Atan:
-      return get_std_function(atan);
+      return wrap_function(atan);
     case UnaryOpType::Atanh:
-      return get_std_function(atanh);
+      return wrap_function(atanh);
     case UnaryOpType::Ceil:
-      return get_std_function(ceil);
+      return wrap_function(ceil);
     case UnaryOpType::Cos:
-      return get_std_function(cos);
+      return wrap_function(cos);
     case UnaryOpType::Cosh:
-      return get_std_function(cosh);
+      return wrap_function(cosh);
     case UnaryOpType::Exp:
-      return get_std_function(exp);
+      return wrap_function(exp);
     case UnaryOpType::Exp2:
-      return get_std_function(exp2);
+      return wrap_function(exp2);
     case UnaryOpType::Expm1:
-      return get_std_function(expm1);
+      return wrap_function(expm1);
     case UnaryOpType::Erf:
-      return get_std_function(erf);
+      return wrap_function(erf);
     case UnaryOpType::Erfc:
-      return get_std_function(erfc);
+      return wrap_function(erfc);
     case UnaryOpType::Erfinv:
-      return get_std_function(erfinv);
+      return wrap_function(erfinv);
     case UnaryOpType::Erfcinv:
-      return get_std_function(erfcinv);
+      return wrap_function(erfcinv);
     case UnaryOpType::Floor:
-      return get_std_function(floor);
+      return wrap_function(floor);
     case UnaryOpType::Frac:
-      return get_std_function(frac);
+      return wrap_function(frac);
     case UnaryOpType::Lgamma:
-      return get_std_function(lgamma);
+      return wrap_function(lgamma);
     case UnaryOpType::Log:
-      return get_std_function(log);
+      return wrap_function(log);
     case UnaryOpType::Log10:
-      return get_std_function(log10);
+      return wrap_function(log10);
     case UnaryOpType::Log1p:
-      return get_std_function(log1p);
+      return wrap_function(log1p);
     case UnaryOpType::Log2:
-      return get_std_function(log2);
+      return wrap_function(log2);
     case UnaryOpType::Neg:
-      return get_std_function(neg);
+      return wrap_function(neg);
     case UnaryOpType::LogicalNot:
-      return get_std_function(logical_not);
+      return wrap_function(logical_not);
     case UnaryOpType::BitwiseNot:
-      return get_std_function(bitwise_not);
+      return wrap_function(bitwise_not);
     case UnaryOpType::Reciprocal:
-      return get_std_function(reciprocal);
+      return wrap_function(reciprocal);
     case UnaryOpType::Relu:
-      return get_std_function(relu);
+      return wrap_function(relu);
     case UnaryOpType::Rsqrt:
-      return get_std_function(rsqrt);
+      return wrap_function(rsqrt);
     case UnaryOpType::Round:
-      return get_std_function(round);
+      return wrap_function(round);
     case UnaryOpType::Sigmoid:
-      return get_std_function(sigmoid);
+      return wrap_function(sigmoid);
     case UnaryOpType::Signbit:
-      return get_std_function(signbit);
+      return wrap_function(signbit);
     case UnaryOpType::Silu:
-      return get_std_function(silu);
+      return wrap_function(silu);
     case UnaryOpType::Sin:
-      return get_std_function(sin);
+      return wrap_function(sin);
     case UnaryOpType::Sinh:
-      return get_std_function(sinh);
+      return wrap_function(sinh);
     case UnaryOpType::Sqrt:
-      return get_std_function(sqrt);
+      return wrap_function(sqrt);
     case UnaryOpType::Tan:
-      return get_std_function(tan);
+      return wrap_function(tan);
     case UnaryOpType::Tanh:
-      return get_std_function(tanh);
+      return wrap_function(tanh);
     case UnaryOpType::Trunc:
-      return get_std_function(trunc);
+      return wrap_function(trunc);
     case UnaryOpType::IsFinite:
-      return get_std_function(isfinite);
+      return wrap_function(isfinite);
     case UnaryOpType::IsInf:
-      return get_std_function(isinf);
+      return wrap_function(isinf);
     case UnaryOpType::IsNan:
-      return get_std_function(isnan);
+      return wrap_function(isnan);
     case UnaryOpType::IsNegInf:
-      return get_std_function(isneginf);
+      return wrap_function(isneginf);
     case UnaryOpType::IsPosInf:
-      return get_std_function(isposinf);
+      return wrap_function(isposinf);
     case UnaryOpType::IsReal:
-      return get_std_function(isreal);
+      return wrap_function(isreal);
     case UnaryOpType::Real:
-      return get_std_function(real);
+      return wrap_function(real);
     case UnaryOpType::Imag:
-      return get_std_function(imag);
+      return wrap_function(imag);
     default:
       NVF_CHECK(
           false,
@@ -225,18 +223,16 @@ std::function<ResultType(ArgTypes...)> getFunction(const BinaryOp* bop) {
 // Get std::function for TernaryOp
 template <typename ResultType, typename... ArgTypes>
 std::function<ResultType(ArgTypes...)> getFunction(const TernaryOp* top) {
-  auto get_std_function = [](ResultType (*fn)(ArgTypes...)) {
-    return static_cast<ResultType (*)(ArgTypes...)>(fn);
-  };
+  auto wrap_function = [](ResultType (*fn)(ArgTypes...)) { return fn; };
 
   // clamp and threshold define a subset of TernaryOp configurations, so they
   // are handled in a separate template specialization.
   switch (top->getTernaryOpType()) {
     case TernaryOpType::Lerp:
-      return get_std_function(lerp);
+      return wrap_function(lerp);
       break;
     case TernaryOpType::Where:
-      return get_std_function(where);
+      return wrap_function(where);
       break;
     default:
       NVF_CHECK(
