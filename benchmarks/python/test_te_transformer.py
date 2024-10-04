@@ -81,6 +81,7 @@ def transformer_engine(profile):
         num_heads,
         set_parallel_mode=True,
         tp_group=tp_group,
+        attn_input_format='bshd'
     )
     transformer_layer.to(dtype).to("cuda")
 
