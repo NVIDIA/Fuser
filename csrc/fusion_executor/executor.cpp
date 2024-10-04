@@ -317,6 +317,14 @@ void FusionExecutor::compileFusion(
     NVF_ERROR(block_size > 0, "launch param inferred block size < 0");
   }
 
+  for (const auto& hook : lowering_hooks_) {
+    compiled_kernel_2_->registerLoweringHook(hook);
+  }
+
+  for (const auto& hook : post_lowering_hooks_) {
+    compiled_kernel_2_->registerPostLoweringHook(hook);
+  }
+
   // Now that we have launch parameters we can compile the kernel. It's a bit
   // odd we need launch parameters for compilation, need to go back and check
   // why this is the case.

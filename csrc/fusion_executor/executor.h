@@ -122,21 +122,13 @@ class FusionExecutor : public NonCopyable {
   // before running lowering passes. The main use case is for unit tests to
   // modify the lowering process.
   void registerLoweringHook(std::function<void(GpuLower*)> hook) {
-    if (use_external_compiler_) {
-      compiled_kernel_2_->registerLoweringHook(hook);
-    } else {
-      lowering_hooks_.push_back(std::move(hook));
-    }
+    lowering_hooks_.push_back(std::move(hook));
   }
 
   // Register a post-lowering hooks that are called to modify the kernel after
   // lowering. The main use case is for unit tests to modify the kernel.
   void registerPostLoweringHook(std::function<void(kir::Kernel*)> hook) {
-    if (use_external_compiler_) {
-      compiled_kernel_2_->registerPostLoweringHook(std::move(hook));
-    } else {
-      post_lowering_hooks_.push_back(std::move(hook));
-    }
+    post_lowering_hooks_.push_back(std::move(hook));
   }
 
   // Function to query whether compilation was attempted for a `FusionExecutor`
