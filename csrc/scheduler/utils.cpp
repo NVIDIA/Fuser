@@ -2681,6 +2681,16 @@ class ReplayTransform : OptInConstDispatch {
       const std::vector<IterDomain*>& ordered_outputs,
       const Expr* expression_to_match)
       : input_ids_(ordered_inputs), output_ids_(ordered_outputs) {
+    for (const auto& out : ordered_outputs) {
+      NVF_ERROR(
+          out->definition() == nullptr,
+          "Should not rewrite definition of ",
+          out->toString(),
+          ". Existing definition: ",
+          out->definition()->toString(),
+          "New definition: ",
+          expression_to_match->toString());
+    }
     OptOutConstDispatch::dispatch(expression_to_match);
   }
 
@@ -2819,8 +2829,10 @@ void LoopDomainScheduler::schedule(TensorView* tv) {
 
   const ExprGroups all_expr_groups = graph().toGroups(tv->domain()->allExprs());
 
-  ValGroups logical_id_groups =
-      graph().toGroups(TensorDomain::noBroadcasts(tv->getLogicalDomain()));
+  for (const auto& exprg : all_expr_groups) {
+    std::cerr << "Available expr: " << nvfuser::toString(exprg) << ": "
+              << exprg->front()->toString();
+  }
 
   const auto ndims = (int64_t)ref_loop_dom_.size();
 
@@ -2832,7 +2844,7 @@ void LoopDomainScheduler::schedule(TensorView* tv) {
     const auto& ref_id_group = ref_id_groups_.at(i);
     if (!all_id_groups.has(ref_id_group)) {
       missing_ref_id_groups.pushBack(ref_id_group);
-      // Don't force mapping at this point since that may not be necessary
+      // TODO: Don't force mapping at this point since that may not be necessary
       auto clone = ref_loop_dom_.at(i)->cloneWithoutRFactor(true);
       loop_domain.at(i) = clone;
       group_to_id.emplace(ref_id_group, clone);
@@ -2851,9 +2863,29 @@ void LoopDomainScheduler::schedule(TensorView* tv) {
     return;
   }
 
+#if 0
+  ValGroups logical_id_groups =
+      graph().toGroups(TensorDomain::noBroadcasts(tv->getLogicalDomain()));
+
+  std::cerr << "getExprsBetween: "
+            << nvfuser::toString(ref_id_groups_)
+            << " -> " << nvfuser::toString(logical_id_groups) << "\n";
+
   auto ref_to_logical =
       ValGraphBFS::getExprsBetween(graph(), ref_id_groups_, logical_id_groups);
+#else
+  auto tv_to_ref = ValGraphBFS::getExprsBetween(
+      graph(),
+      graph().toGroups(all_ids),
+      ref_id_groups_,
+      /*require_all_to_visited=*/false);
+  auto ref_to_logical = reverse(tv_to_ref);
+#endif
 
+  std::cerr << "Replay path\n";
+  for (const auto& [expr_g, dir] : ref_to_logical) {
+    std::cerr << "\t" << dir << " " << expr_g->front()->toString();
+  }
   for (const auto& [expr_g, dir] : ref_to_logical) {
     std::cerr << "Traversing " << dir << " " << expr_g->front()->toString();
 
@@ -2894,6 +2926,8 @@ void LoopDomainScheduler::schedule(TensorView* tv) {
 
     replay(expr_g, dir, input_groups, output_groups, group_to_id);
   }
+
+  // TODO: Check if logical IDs of tv can be reached from the ref loop domain
 
   std::cerr << "Setting the loop domain of " << tv->toString() << " with "
             << toDelimitedString(loop_domain) << "\n";

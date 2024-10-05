@@ -3695,17 +3695,8 @@ TEST_F(ResizeTest, SliceScheduledLikeProducer) {
 
   fusion.addOutput(tv2);
 
-  tv1->setLoopDomain(tv1->getRootDomain());
-
-  auto tv2_loop_id = tv0->getLoopDomain().at(0)->cloneWithoutRFactor();
-
-  IrBuilder::create<Resize>(
-      tv2->getLogicalDomain().at(0),
-      tv2_loop_id,
-      IrBuilder::create<Val>(-1, DataType::Index),
-      IrBuilder::create<Val>(-1, DataType::Index));
-
-  tv2->setLoopDomain({tv2_loop_id});
+  std::vector<IterDomain*> ref_loop = tv0->getLogicalDomain();
+  scheduler_utils::scheduleLoopDomainsLike(fusion.allTvs(), ref_loop);
 
   for (auto tv : {tv1, tv2}) {
     tv->split(0, 32);
@@ -3752,11 +3743,8 @@ TEST_F(ResizeTest, PadScheduledLikeConsumer) {
   auto tv3 = add(tv2, IrBuilder::create<Val>(1));
   fusion.addOutput(tv3);
 
-  auto tv1_padded = IterDomain::resize(
-      tv1->getLoopDomain().at(0),
-      IrBuilder::create<Val>(1, DataType::Index),
-      IrBuilder::create<Val>(1, DataType::Index));
-  tv1->setLoopDomain({tv1_padded});
+  std::vector<IterDomain*> ref_loop = tv2->getLogicalDomain();
+  scheduler_utils::scheduleLoopDomainsLike(fusion.allTvs(), ref_loop);
 
   for (auto tv : {tv1, tv2, tv3}) {
     tv->split(0, 32);
@@ -3807,19 +3795,8 @@ TEST_F(ResizeTest, SliceThenPadLeftHalf) {
 
   fusion.addOutput(tv3);
 
-  tv2->setLoopDomain(tv2->getRootDomain());
-
-  std::vector<IterDomain*> tv3_loop{
-      tv2->getRootDomain()[0]->cloneWithoutRFactor(),
-  };
-
-  IrBuilder::create<Resize>(
-      tv3->getRootDomain().at(0),
-      tv3_loop.at(0),
-      fusion.zeroVal(),
-      IrBuilder::create<Val>(-shape[0] / 2, DataType::Index));
-
-  tv3->setLoopDomain(tv3_loop);
+  std::vector<IterDomain*> ref_loop = tv0->getLogicalDomain();
+  scheduler_utils::scheduleLoopDomainsLike(fusion.allTvs(), ref_loop);
 
   for (auto tv : {tv1, tv2, tv3}) {
     tv->split(0, 32);
@@ -3873,19 +3850,8 @@ TEST_F(ResizeTest, SliceThenPadRightHalf) {
 
   fusion.addOutput(tv3);
 
-  tv2->setLoopDomain(tv2->getRootDomain());
-
-  std::vector<IterDomain*> tv3_loop{
-      tv2->getRootDomain()[0]->cloneWithoutRFactor(),
-  };
-
-  IrBuilder::create<Resize>(
-      tv3->getRootDomain().at(0),
-      tv3_loop.at(0),
-      IrBuilder::create<Val>(-shape[0] / 2, DataType::Index),
-      fusion.zeroVal());
-
-  tv3->setLoopDomain(tv3_loop);
+  std::vector<IterDomain*> ref_loop = tv0->getLogicalDomain();
+  scheduler_utils::scheduleLoopDomainsLike(fusion.allTvs(), ref_loop);
 
   for (auto tv : {tv1, tv2, tv3}) {
     tv->split(0, 32);
@@ -3948,49 +3914,10 @@ TEST_F(ResizeTest, SliceThenConcat) {
 
   fusion.addOutput(tv6);
 
-  tv2->setLoopDomain(tv2->getRootDomain());
+  std::vector<IterDomain*> ref_loop = tv0->getLogicalDomain();
+  scheduler_utils::scheduleLoopDomainsLike(fusion.allTvs(), ref_loop);
 
-  {
-    std::vector<IterDomain*> tv3_loop{
-        tv2->getRootDomain()[0]->cloneWithoutRFactor(),
-    };
-    IrBuilder::create<Resize>(
-        tv3->getRootDomain().at(0),
-        tv3_loop.at(0),
-        fusion.zeroVal(),
-        IrBuilder::create<Val>(-shape[0] / 2, DataType::Index));
-    tv3->setLoopDomain(tv3_loop);
-  }
-
-  tv4->setLoopDomain(tv4->getRootDomain());
-
-  {
-    std::vector<IterDomain*> tv5_loop{
-        tv4->getRootDomain()[0]->cloneWithoutRFactor(),
-    };
-    IrBuilder::create<Resize>(
-        tv5->getRootDomain().at(0),
-        tv5_loop.at(0),
-        IrBuilder::create<Val>(-shape[0] / 2, DataType::Index),
-        fusion.zeroVal());
-    tv5->setLoopDomain(tv5_loop);
-  }
-
-  {
-    std::vector<IterDomain*> tv6_loop{
-        tv2->getRootDomain()[0]->cloneWithoutRFactor(),
-    };
-    auto left_half = IterDomain::resize(
-        tv6_loop[0],
-        fusion.zeroVal(),
-        IrBuilder::create<Val>(-shape[0] / 2, DataType::Index));
-    IrBuilder::create<Resize>(
-        tv6->getLogicalDomain().at(0),
-        left_half,
-        fusion.zeroVal(),
-        IrBuilder::create<Val>(shape[0] / 2, DataType::Index));
-    tv6->setLoopDomain(tv6_loop);
-  }
+  fusion.print();
 
   for (auto tv : {tv1, tv2, tv3, tv4, tv5, tv6}) {
     tv->split(0, 32);
@@ -4076,6 +4003,7 @@ TEST_F(ResizeTest, SliceSliceConcatConcat) {
 
   fusion.addOutput(tv13);
 
+#if 0
   auto ref_loop = tv0->getLogicalDomain()[0];
 
   // tv2
@@ -4262,6 +4190,10 @@ TEST_F(ResizeTest, SliceSliceConcatConcat) {
         zero);
     tv13->setLoopDomain({loop_id});
   }
+#endif
+
+  std::vector<IterDomain*> ref_loop = tv0->getLogicalDomain();
+  scheduler_utils::scheduleLoopDomainsLike(fusion.allTvs(), ref_loop);
 
   for (auto tv : fusion.allTvs()) {
     if (tv->isFusionInput()) {
