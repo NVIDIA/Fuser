@@ -207,6 +207,9 @@ void FusionExecutor::compileFusion(
       !_fusion->outputs().empty(),
       "No output found for this kernel, aborting.");
 
+  // TODO: refactor the options_ passed through
+  options_.device = c10::Device(c10::DeviceType::CUDA, args.getDeviceIndex());
+
   if (isExpressionEvaluated(_fusion)) {
     fusion_ = std::make_unique<Fusion>(*_fusion);
     return;
