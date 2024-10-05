@@ -72,8 +72,10 @@ TensorView* newForLinear(
   bool k_bcast = input_domain.back()->isBroadcast();
   size_t red_dims = k_bcast ? 0 : 1;
 
-  // Linear: a = {*, in_features}, b = {out_features, in_features} /
-  // {in_features}.The linear output is {*, (out_features), rK?}.
+  // input: {*_i, in_features},
+  // weight: {*_wb, out_features, in_features}
+  // output: {*_wb, *_i, out_features, rK?}.
+  //
   // Reduction K is present only when K is not bcast.
   auto ndims_out =
       (input_domain.size() - 1) + (weight_domain.size() - 1) + red_dims;
@@ -449,13 +451,13 @@ SdpfaFwdResult sdpfa_fwd(
   if (has_device_dim) {
     NVF_CHECK(
         query_domain[0]->isDeviceDim(),
-        "Only suport DID parallelization on outermost axis");
+        "Only support DID parallelization on outermost axis");
     NVF_CHECK(
         key_domain[0]->isDeviceDim(),
-        "Only suport DID parallelization on outermost axis");
+        "Only support DID parallelization on outermost axis");
     NVF_CHECK(
         value_domain[0]->isDeviceDim(),
-        "Only suport DID parallelization on outermost axis");
+        "Only support DID parallelization on outermost axis");
   }
 
   auto concrete_query_size = TensorDomain::noDevices(query_domain).size();
