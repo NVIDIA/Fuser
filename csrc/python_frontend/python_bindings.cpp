@@ -1425,7 +1425,8 @@ void initNvFuserPythonBindings(PyObject* module) {
         NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;
-        Tensor output = fd->defineTensor(arg1.dims);
+        // See newForLinear for how the output rank is computed.
+        Tensor output = fd->defineTensor(arg1.dims + arg2.dims - 2);
 
         if (bias.has_value()) {
           fd->defineRecord(

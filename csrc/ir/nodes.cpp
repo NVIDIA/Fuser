@@ -4326,14 +4326,42 @@ std::string LinearOp::toInlineString(int indent_size) const {
 std::vector<PolymorphicValue> LinearOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-  const auto a = inputs.at(0).as<at::Tensor>();
-  const auto b = inputs.at(1).as<at::Tensor>();
+  const auto in = inputs.at(0).as<at::Tensor>();
+  auto weight = inputs.at(1).as<at::Tensor>();
 
+  auto squeeze_device_dims = [](at::Tensor& t,
+                                int64_t num_device_dims) -> void {
+    // Record the initial shape for the error message.
+    std::vector<int64_t> shape = t.sizes().vec();
+    for ([[maybe_unused]] auto _ : c10::irange(num_device_dims)) {
+      NVF_CHECK(
+          t.size(0) == 1,
+          "When the weight is >2D, expect its preceding dimensions and "
+          "the bias's preceding dimensions to "
+          "be DID-parallel and therefore size-1: ",
+          shape);
+      t = t.squeeze(0);
+    }
+  };
+
+  // The squeezes and unsqueezes are currently required to support a sharded
+  // linear layer. Remove them after #2563.
+  auto num_device_dims = weight.dim() - 2;
+  squeeze_device_dims(weight, num_device_dims);
+
+  at::Tensor out;
   if (has_bias()) {
-    const auto bias = inputs.at(2).as<at::Tensor>();
-    return {at::linear(a, b, bias)};
+    auto bias = inputs.at(2).as<at::Tensor>();
+    squeeze_device_dims(bias, num_device_dims);
+    out = at::linear(in, weight, bias);
+  } else {
+    out = at::linear(in, weight);
   }
-  return {at::linear(a, b)};
+
+  for ([[maybe_unused]] auto _ : c10::irange(num_device_dims)) {
+    out = out.unsqueeze(0);
+  }
+  return {out};
 }
 
 SdpaFwdOp::SdpaFwdOp(
