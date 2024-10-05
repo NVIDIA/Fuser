@@ -13,6 +13,7 @@
 #include <python_frontend/fusion_definition.h>
 #include <python_frontend/translation.h>
 #include <runtime/executor_kernel_arg.h>
+#include <scheduler/compile_time_info.h>
 #include <scheduler/scheduler_types.h>
 #include <utils.h>
 #include <validator_utils.h>
@@ -220,6 +221,9 @@ void FusionDefinition::setupSchedule(
 
   user_sched_ = fusionCache()->createUserSchedule(
       scheds, inputs, device, overwrite_existing_schedule);
+
+  // Create scheduler data cache
+  user_sched_->data_cache = std::make_unique<HeuristicDataCache>();
 
   // Building a new Fusion container for scheduling with definition such that
   // the definition's tensor data members refer to the corresponding IR objects
