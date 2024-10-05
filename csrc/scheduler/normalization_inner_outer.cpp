@@ -186,7 +186,9 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
     SchedulerRuntimeInfo& runtime_info,
     HeuristicDataCache* data_cache,
     const std::vector<TensorView*>& reduction_tvs,
-    const int64_t vectorize_factor) {
+    const int64_t vectorize_factor,
+    const int64_t threads_per_block_min,
+    const int64_t threads_per_block_max) {
   FUSER_PERF_SCOPE(
       "normalization_inner_outer::getPersistentBufferStorageParams");
 
@@ -230,9 +232,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
 
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
   int64_t smem_overhead = scheduler_utils::getSharedMemoryOverheadPerBlock(
-      fusion,
-      reduction_tvs,
-      InnerOuterPersistentKernelScheduler::threads_per_block_max);
+      fusion, reduction_tvs, threads_per_block_max);
   int64_t available_smem =
       (int64_t)dev_prop->sharedMemPerMultiprocessor - smem_overhead;
   int64_t available_regs = scheduler_utils::register_file_size_56k;
@@ -281,8 +281,8 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
         tv_buffer_size_regs,
         dataTypeSize(current_tv->getDataType().value()),
         vectorize_factor,
-        InnerOuterPersistentKernelScheduler::threads_per_block_min,
-        InnerOuterPersistentKernelScheduler::threads_per_block_max,
+        threads_per_block_min,
+        threads_per_block_max,
         dev_prop->warpSize);
     buffer_params.smem_buffer_size += tv_buffer_size_smem;
 
@@ -332,6 +332,8 @@ std::pair<int64_t, int64_t> getBufferBatchSizeAndThreadsPerBlock(
     const int64_t outer_dim_numel,
     const int64_t persistent_buffer_size,
     const int64_t vectorize_factor,
+    const int64_t threads_per_block_min,
+    const int64_t threads_per_block_max,
     const int64_t warp_size) {
   // if inner_dim_numel <= 1024, we are doing multiple reductions per block
   // with a constant batch size of 1 if vectorized. See Step 5 of
@@ -380,11 +382,8 @@ std::pair<int64_t, int64_t> getBufferBatchSizeAndThreadsPerBlock(
   };
 
   const int64_t after_vectorization = inner_dim_numel / vectorize_factor;
-  const int64_t threads_per_block_min = std::min(
-      after_vectorization,
-      InnerOuterPersistentKernelScheduler::threads_per_block_min);
-  const int64_t threads_per_block_max =
-      InnerOuterPersistentKernelScheduler::threads_per_block_max;
+  const int64_t threads_per_block_min_after_vectorization =
+      std::min(after_vectorization, threads_per_block_min);
   const int64_t batch_min = getMinimumBatch();
   const int64_t batch_max = getMaximumInnerOuterPersistentBufferBatch();
 
@@ -392,7 +391,7 @@ std::pair<int64_t, int64_t> getBufferBatchSizeAndThreadsPerBlock(
   // is larger than batch_max, try increase threads per block by a warp until
   // the threads_per_block reaches threads_per_block_max or the batch size
   // reaches batch_min.
-  int64_t threads_per_block = threads_per_block_min;
+  int64_t threads_per_block = threads_per_block_min_after_vectorization;
   int64_t inner_batch = ceilDiv(after_vectorization, threads_per_block);
   while (inner_batch > batch_max &&
          threads_per_block + warp_size <= threads_per_block_max &&
@@ -432,6 +431,8 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
     const int64_t smem_overhead,
     const size_t tmp_gmem_dtype_size,
     const size_t vectorize_factor,
+    const int64_t threads_per_block_min,
+    const int64_t threads_per_block_max,
     const bool project_to_input,
     const PrimDataType index_type) {
   auto rparams = std::make_unique<ReductionParams>(
@@ -512,6 +513,8 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
           outer_dim_numel,
           regs_buffer_size,
           iop.inner_vect,
+          threads_per_block_min,
+          threads_per_block_max,
           dev_prop->warpSize);
   iop.inner_batch = persistent_batch;
 
@@ -743,12 +746,30 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
                 scheduler_utils::persistentBuffers(fusion));
           });
 
+  auto scheduler_hyperparameters_entry =
+      HeuristicDataCacheEntry<HeuristicCompileTime::SchedulerHyperParameters>(
+          data_cache, [&]() {
+            return std::make_unique<scheduler_utils::SchedulerHyperParameters>(
+                /*vectorize_factor=*/vectorize_factor,
+                /*unroll_factor=*/1,
+                /*threads_per_block=*/
+                InnerOuterPersistentKernelScheduler::threads_per_block_min);
+          });
+  scheduler_utils::SchedulerHyperParameters& hp =
+      scheduler_hyperparameters_entry.get();
+
   auto& persistent_buffer_info = persistent_buffer_info_entry.get();
   NVF_ERROR(
       !persistent_buffer_info.persistent_buffers.empty(),
       "Persistent scheduler requires persistent buffers.");
   auto buffer_params = getPersistentBufferStorageParams(
-      fusion, runtime_info, data_cache, reduction_tvs, vectorize_factor);
+      fusion,
+      runtime_info,
+      data_cache,
+      reduction_tvs,
+      hp.vectorize_factor,
+      hp.threads_per_block,
+      InnerOuterPersistentKernelScheduler::threads_per_block_max);
 
   std::unique_ptr<ReductionParams> rparams = innerOuterPersistentHeuristic(
       properties.total_iteration_numel,
@@ -757,7 +778,9 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
       buffer_params.smem_buffer_size,
       buffer_params.smem_overhead,
       max_outer_reduction_dtype_size,
-      vectorize_factor,
+      hp.vectorize_factor,
+      hp.threads_per_block,
+      InnerOuterPersistentKernelScheduler::threads_per_block_max,
       buffer_params.project_to_input,
       runtime_info.getIndexType());
 
@@ -1242,9 +1265,27 @@ bool InnerOuterPersistentKernelScheduler::canScheduleRunTime(
       data_cache,
       (int)(reduced_tv->nDims() - properties.inner_most_dimension_ndims));
 
+  auto scheduler_hyperparameters_entry =
+      HeuristicDataCacheEntry<HeuristicCompileTime::SchedulerHyperParameters>(
+          data_cache, [&]() {
+            return std::make_unique<scheduler_utils::SchedulerHyperParameters>(
+                /*vectorize_factor=*/vectorize_factor,
+                /*unroll_factor=*/1,
+                /*threads_per_block=*/
+                InnerOuterPersistentKernelScheduler::threads_per_block_min);
+          });
+  scheduler_utils::SchedulerHyperParameters& hp =
+      scheduler_hyperparameters_entry.get();
+
   // check if there is enough register and shared memory for persistence
   const auto buffer_params = getPersistentBufferStorageParams(
-      fusion, runtime_info, data_cache, reduction_tvs, vectorize_factor);
+      fusion,
+      runtime_info,
+      data_cache,
+      reduction_tvs,
+      hp.vectorize_factor,
+      hp.threads_per_block,
+      InnerOuterPersistentKernelScheduler::threads_per_block_max);
 
   const int64_t device_multiprocessor_count =
       (int64_t)at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
