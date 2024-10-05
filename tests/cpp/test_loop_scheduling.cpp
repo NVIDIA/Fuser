@@ -132,7 +132,7 @@ TEST_F(LoopSchedulingTest, ReshapeWithBroadcast) {
   ofs << dot_string;
   ofs.close();
 #endif
-  
+
   ref = tv4->getLoopDomain();
   for (auto tv : fusion.allTvs()) {
     EXPECT_EQ(ref.size(), tv->getLoopDomain().size());
@@ -170,54 +170,65 @@ TEST_F(LoopSchedulingTest, ReshapeWithBroadcast) {
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
 
-TEST_F(LoopSchedulingTest, TMP1) {
+TEST_F(LoopSchedulingTest, Slice) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeConcreteTensor({10});
+  std::vector<int64_t> shape({100});
+
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeConcreteTensor(shape);
   fusion.addInput(tv0);
-  auto tv1 = set(tv0);
-  auto tv2 = reshape(tv1, {10}, {2, 5});
-  auto tv3 = set(tv2);
-  fusion.addOutput(tv3);
 
-  fusion.printMath();
+  auto tv1 =
+      slice(tv0, {{IrBuilder::create<Val>(1L), IrBuilder::create<Val>(99)}});
 
-  // std::vector<IterDomain*> ref = tv0->getLogicalDomain();
-  // scheduler_utils::scheduleLoopDomainsLike({tv1, tv2, tv3}, ref);
+  auto tv2 = set(tv1);
 
-  // for (auto tv : {tv1, tv2, tv3}) {
-  // tv->split(0, 3);
-  //}
+  fusion.addOutput(tv2);
 
-  // fusion.print();
-  // fusion.printKernel();
+  std::vector<IterDomain*> ref_loop = tv0->getLogicalDomain();
+  scheduler_utils::scheduleLoopDomainsLike(fusion.allTvs(), ref_loop);
 
-  tv2->setLoopDomain(tv2->getRootDomain());
-
-  auto clone = tv2->getLoopDomain().at(0)->cloneWithoutRFactor();
-  auto tv2_split = tv2->getLogicalDomain().at(0)->definition()->as<Split>();
-  auto tv3_split = IrBuilder::create<Split>(
-      tv3->getLogicalDomain().at(0),
-      tv3->getLogicalDomain().at(1),
-      clone,
-      tv2_split->factor(),
-      tv2_split->innerSplit());
-  tv3->setLoopDomain({clone});
-
-  std::cerr << "Original: " << tv2_split->toString();
-  std::cerr << "Replayed: " << tv3_split->toString();
+  for (auto tv : fusion.allTvs()) {
+    tv->split(0, 32);
+  }
 
   inlineMost();
-  fusion.print();
-
   IdModel id_model(&fusion);
 
-  std::cerr << id_model.idGraph(IdMappingMode::EXACT).toString();
+  ref_loop = tv0->getLoopDomain();
 
-  std::cerr << "LOOP\n" << id_model.idGraph(IdMappingMode::LOOP).toString();
+  for (auto tv : fusion.allTvs()) {
+    EXPECT_EQ(ref_loop.size(), tv->getLoopDomain().size());
+    for (const auto i : c10::irange(ref_loop.size())) {
+      EXPECT_TRUE(
+          id_model.idGraph(IdMappingMode::EXACT)
+              .disjointValSets()
+              .strictAreMapped(ref_loop.at(i), tv->getLoopDomain().at(i)))
+          << "Not mapped: " << ref_loop.at(i)->toString() << ", "
+          << tv->getLoopDomain().at(i)->toString() << ", " << tv->toString();
+    }
+  }
 
-  fusion.printKernel();
+  for (auto tv : {tv1, tv2}) {
+    EXPECT_EQ(tv->getComputeAtPosition(), 2)
+        << "Invalid computeAt position: " << tv->toString();
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(1)->parallelize(ParallelType::TIDx);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto ref = t0.index({at::indexing::Slice(1, shape[0] - 1)});
+
+  NVF_CHECK(ref.equal(cg_outputs[0]));
 }
 
 } // namespace nvfuser

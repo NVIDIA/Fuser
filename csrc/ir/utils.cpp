@@ -945,7 +945,7 @@ CompareDomainResult compareDomains(
     if (std::any_of(frontier.begin(), frontier.end(), [&](Val* id) {
           return id->as<IterDomain>()->getIterType() != IterType::Symbolic &&
               !(ignore_broadcast && id->as<IterDomain>()->isBroadcast()) &&
-              dom1_set.count(id);
+              !dom1_set.count(id);
         })) {
       // This frontier id isn't in dom1, which should mean
       result.dom0_has_unaccounted_ids = true;

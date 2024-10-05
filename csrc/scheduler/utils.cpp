@@ -2705,13 +2705,24 @@ class ReplayTransform : OptInConstDispatch {
         merge->fusion(), output_ids_[0], input_ids_[0], input_ids_[1]);
   }
 
-  void handle(const Swizzle2D* swizzle_2d) final {}
+  void handle(const Resize* resize) final {
+    NVF_ERROR(input_ids_.size() == 1);
+    NVF_ERROR(output_ids_.size() == 1);
+    replayed_expr_ = IrBuilder::createInContainer<Resize>(
+        resize->fusion(),
+        output_ids_[0],
+        input_ids_[0],
+        resize->leftExpand(),
+        resize->rightExpand());
+  }
 
-  void handle(const Swizzle* swizzle) final {}
+  void handle(const Swizzle2D* swizzle_2d) final {
+    NVF_THROW("Unsupported");
+  }
 
-  // We're going to replay this resize operation on the corresponding IDs
-  //  if replaying resize is enabled.
-  void handle(const Resize* resize) final {}
+  void handle(const Swizzle* swizzle) final {
+    NVF_THROW("Unsupported");
+  }
 
  private:
   Expr* replayed_expr_ = nullptr;
