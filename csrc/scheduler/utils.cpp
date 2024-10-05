@@ -2808,7 +2808,8 @@ void LoopDomainScheduler::schedule(TensorView* tv) {
 
   const ExprGroups all_expr_groups = graph().toGroups(tv->domain()->allExprs());
 
-  ValGroups logical_id_groups = graph().toGroups(tv->getLogicalDomain());
+  ValGroups logical_id_groups =
+      graph().toGroups(TensorDomain::noBroadcasts(tv->getLogicalDomain()));
 
   const auto ndims = (int64_t)ref_loop_dom_.size();
 
@@ -2821,7 +2822,7 @@ void LoopDomainScheduler::schedule(TensorView* tv) {
     if (!all_id_groups.has(ref_id_group)) {
       missing_ref_id_groups.pushBack(ref_id_group);
       // Don't force mapping at this point since that may not be necessary
-      auto clone = ref_loop_dom_.at(i)->cloneWithoutRFactor();
+      auto clone = ref_loop_dom_.at(i)->cloneWithoutRFactor(true);
       loop_domain.at(i) = clone;
       group_to_id.emplace(ref_id_group, clone);
       all_id_groups.pushBack(ref_id_group);
@@ -2883,6 +2884,8 @@ void LoopDomainScheduler::schedule(TensorView* tv) {
     replay(expr_g, dir, input_groups, output_groups, group_to_id);
   }
 
+  std::cerr << "Setting the loop domain of " << tv->toString() << " with "
+            << toDelimitedString(loop_domain) << "\n";
   tv->setLoopDomain(loop_domain);
 }
 

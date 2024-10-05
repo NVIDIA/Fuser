@@ -2932,17 +2932,14 @@ TensorDomain::TensorDomain(
     IrBuilderPasskey passkey,
     std::vector<IterDomain*> logical_domain,
     std::vector<std::optional<bool>> contiguity)
-    : Val(passkey, ValType::TensorDomain, DataType::Null),
-      logical_domain_(std::move(logical_domain)),
-      loop_domain_(logical_domain_),
-      contiguity_(
-          contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
-                             : std::move(contiguity)) {
-  validateContiguity(maybeAllocation(), contiguity_);
-
-  // resetDomains initializes other member variables, required by clang-tidy
-  resetDomains();
-}
+    : TensorDomain(
+          passkey,
+          /*root_domain=*/{},
+          logical_domain,
+          /*allocation_domain=*/{},
+          /*loop_domain=*/logical_domain,
+          /*initial_loop_domain=*/logical_domain,
+          contiguity) {}
 
 TensorDomain::TensorDomain(
     IrBuilderPasskey passkey,
@@ -2985,23 +2982,14 @@ TensorDomain::TensorDomain(
     std::vector<IterDomain*> logical_domain,
     std::vector<IterDomain*> loop_domain,
     std::vector<std::optional<bool>> contiguity)
-    : Val(passkey, ValType::TensorDomain, DataType::Null),
-      logical_domain_(std::move(logical_domain)),
-      loop_domain_(std::move(loop_domain)),
-      contiguity_(
-          contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
-                             : std::move(contiguity)) {
-  validateContiguity(maybeAllocation(), contiguity_);
-
-  NVF_CHECK(
-      loop_domain_.empty() == logical_domain_.empty(),
-      "logical domain and loop domain can only be both empty or neither empty");
-  ir_utils::validateDomainEquivalence(
-      logical_domain_, loop_domain_, additional_ids_);
-
-  // resetDomains initializes other member variables, required by clang-tidy
-  resetDomains();
-}
+    : TensorDomain(
+          passkey,
+          {},
+          logical_domain,
+          {},
+          loop_domain,
+          loop_domain,
+          contiguity) {}
 
 TensorDomain::TensorDomain(
     IrBuilderPasskey passkey,
@@ -3009,28 +2997,14 @@ TensorDomain::TensorDomain(
     std::vector<IterDomain*> logical_domain,
     std::vector<IterDomain*> loop_domain,
     std::vector<std::optional<bool>> contiguity)
-    : Val(passkey, ValType::TensorDomain, DataType::Null),
-      root_domain_(std::move(root_domain)),
-      logical_domain_(std::move(logical_domain)),
-      loop_domain_(std::move(loop_domain)),
-      contiguity_(
-          contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
-                             : std::move(contiguity)) {
-  validateContiguity(maybeAllocation(), contiguity_);
-
-  NVF_CHECK(
-      loop_domain_.empty() == logical_domain_.empty(),
-      "logical domain and loop domain can only be both empty or neither empty");
-  ir_utils::validateDomainEquivalence(
-      logical_domain_, loop_domain_, additional_ids_);
-  if (!root_domain_.empty()) {
-    ir_utils::validateDomainEquivalence(
-        logical_domain_, root_domain_, additional_ids_);
-  }
-
-  // resetDomains initializes other member variables, required by clang-tidy
-  resetDomains();
-}
+    : TensorDomain(
+          passkey,
+          root_domain,
+          logical_domain,
+          {},
+          loop_domain,
+          loop_domain,
+          contiguity) {}
 
 TensorDomain::TensorDomain(
     IrBuilderPasskey passkey,
@@ -3039,12 +3013,29 @@ TensorDomain::TensorDomain(
     std::vector<IterDomain*> allocation_domain,
     std::vector<IterDomain*> loop_domain,
     std::vector<std::optional<bool>> contiguity)
+    : TensorDomain(
+          passkey,
+          root_domain,
+          logical_domain,
+          allocation_domain,
+          loop_domain,
+          loop_domain,
+          contiguity) {}
+
+TensorDomain::TensorDomain(
+    IrBuilderPasskey passkey,
+    std::vector<IterDomain*> root_domain,
+    std::vector<IterDomain*> logical_domain,
+    std::vector<IterDomain*> allocation_domain,
+    std::vector<IterDomain*> loop_domain,
+    std::vector<IterDomain*> initial_loop_domain,
+    std::vector<std::optional<bool>> contiguity)
     : Val(passkey, ValType::TensorDomain, DataType::Null),
       root_domain_(std::move(root_domain)),
       logical_domain_(std::move(logical_domain)),
       allocation_domain_(std::move(allocation_domain)),
       loop_domain_(std::move(loop_domain)),
-      initial_loop_domain_(loop_domain_),
+      initial_loop_domain_(std::move(initial_loop_domain)),
       contiguity_(
           contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
                              : std::move(contiguity)) {
@@ -3053,8 +3044,10 @@ TensorDomain::TensorDomain(
   NVF_CHECK(
       loop_domain_.empty() == logical_domain_.empty(),
       "logical domain and loop domain can only be both empty or neither empty");
-  ir_utils::validateDomainEquivalence(
-      logical_domain_, loop_domain_, additional_ids_);
+  validateLoopDomain(loop_domain_);
+  if (loop_domain_ != initial_loop_domain) {
+    validateLoopDomain(initial_loop_domain_);
+  }
   if (!root_domain_.empty()) {
     ir_utils::validateDomainEquivalence(
         logical_domain_, root_domain_, additional_ids_);
@@ -3630,15 +3623,26 @@ std::pair<TensorDomain*, TensorDomain*> TensorDomain::rFactor(
   return TransformRFactor::runReplay(this, axes_);
 }
 
+void TensorDomain::validateLoopDomain(
+    const std::vector<IterDomain*>& loop_domain) const {
+  std::cerr << "Validating " << toDelimitedString(loop_domain)
+            << ", logical: " << toDelimitedString(logical_domain_) << "\n";
+  auto [logical_unaccounted, loop_unreachable] =
+      ir_utils::compareDomains(logical_domain_, loop_domain, additional_ids_);
+  if (logical_unaccounted) {
+    auto [loop_unaccounted, logical_unreachable] =
+        ir_utils::compareDomains(loop_domain, logical_domain_, additional_ids_);
+    NVF_ERROR(
+        !logical_unreachable,
+        "Not all logical IDs are covered by loop domain. Loop: ",
+        toDelimitedString(loop_domain),
+        ". Logical: ",
+        toDelimitedString(logical_domain_));
+  }
+}
+
 void TensorDomain::setLoopDomain(std::vector<IterDomain*> new_loop_domain) {
-  auto [logical_unreachable, loop_unreachable] = ir_utils::compareDomains(
-      logical_domain_, new_loop_domain, additional_ids_);
-  NVF_ERROR(
-      !logical_unreachable,
-      "Not all logical IDs are covered by loop domain. Loop: ",
-      toDelimitedString(new_loop_domain),
-      ". Logical: ",
-      toDelimitedString(logical_domain_));
+  validateLoopDomain(new_loop_domain);
   loop_domain_ = std::move(new_loop_domain);
   initial_loop_domain_ = loop_domain_;
   resetDomains();
