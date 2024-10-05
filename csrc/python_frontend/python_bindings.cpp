@@ -23,8 +23,10 @@
 #include <python_frontend/python_bindings.h>
 #include <python_frontend/translation.h>
 #include <runtime/fusion_kernel_runtime.h>
+#include <scheduler/compile_time_info.h>
 #include <scheduler/registry.h>
 #include <scheduler/scheduler_types.h>
+#include <scheduler/utils.h>
 #include <torch/csrc/jit/python/pybind_utils.h>
 #include <transform_replay.h>
 #include <iostream>
@@ -661,6 +663,35 @@ void initNvFuserPythonBindings(PyObject* module) {
   pointwise_config.def(
       "__repr__", [](const PointwiseParams& self) { return self.toString(); });
 
+  py::class_<scheduler_utils::SchedulerHyperParameters> hyperparameters(
+      nvfuser, "SchedulerHyperParameters");
+  hyperparameters.def(py::init<int64_t, int64_t, int64_t>());
+  hyperparameters.def_property(
+      "vectorize_factor",
+      [](scheduler_utils::SchedulerHyperParameters& self) {
+        return self.vectorize_factor;
+      },
+      [](scheduler_utils::SchedulerHyperParameters& self,
+         int64_t vectorize_factor_) {
+        self.vectorize_factor = vectorize_factor_;
+      });
+  hyperparameters.def_property(
+      "unroll_factor",
+      [](scheduler_utils::SchedulerHyperParameters& self) {
+        return self.unroll_factor;
+      },
+      [](scheduler_utils::SchedulerHyperParameters& self,
+         int64_t unroll_factor_) { self.unroll_factor = unroll_factor_; });
+  hyperparameters.def_property(
+      "threads_per_block",
+      [](scheduler_utils::SchedulerHyperParameters& self) {
+        return self.threads_per_block;
+      },
+      [](scheduler_utils::SchedulerHyperParameters& self,
+         int64_t threads_per_block_) {
+        self.threads_per_block = threads_per_block_;
+      });
+
   //! KernelProfiles are encapsulated in FusionProfiles where each KP
   //! is associated with a segment.
   py::class_<KernelProfile> kernel_prof(nvfuser, "KernelProfile");
@@ -1249,7 +1280,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   py::class_<FusionDefinition::Operators> nvf_ops(fusion_def, "Operators");
   nvf_ops.def(py::init<FusionDefinition*>());
 
-  // ******************** INSERT OP BINDINGS BELOW HERE ********************
+// ******************** INSERT OP BINDINGS BELOW HERE ********************
 #define OP_PREFIX "Operators."
 #define NVFUSER_PYTHON_BINDING_UNARY_OP(op_str, op_name)                      \
   nvf_ops.def(                                                                \
@@ -3585,6 +3616,26 @@ void initNvFuserPythonBindings(PyObject* module) {
             sched->computeHeuristics(SchedulerType::PointWise);
         return *parameters->as<PointwiseParams>();
       });
+  nvf_sched.def(
+      "schedule_hyperparameters",
+      [](FusionDefinition::SchedOperators& self)
+          -> scheduler_utils::SchedulerHyperParameters& {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        UserSchedule* sched = self.fusion_definition->userSchedule();
+        auto scheduler_hyperparameters_entry = HeuristicDataCacheEntry<
+            HeuristicCompileTime::SchedulerHyperParameters>(
+            sched->data_cache.get(), []() {
+              return std::make_unique<
+                  scheduler_utils::SchedulerHyperParameters>(
+                  /*vectorize_factor=*/1,
+                  /*unroll_factor=*/1,
+                  /*threads_per_block=*/1);
+            });
+        return scheduler_hyperparameters_entry.get();
+      },
+      py::return_value_policy::reference);
 }
 
 void cleanup() {
