@@ -232,7 +232,7 @@ TEST_P(CombineMulSumAsMmaTestWithLayout, AmpereMulSumToMatmul_Schedule) {
   FusionExecutor fe;
   fe.compileFusion(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
-  ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+  ASSERT_TRUE(getBankConflictInfo(fe.compiledKernel()->kernel()).empty());
   auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -273,7 +273,8 @@ TEST_P(CombineMulSumAsMmaTestWithLayout, UseMatmulScheduler) {
       ir_utils::getOpsOfType<MmaOp>(executor_cache.getMostRecentKernelRuntime()
                                         ->executors()
                                         .at(0)
-                                        .kernel())
+                                        .compiledKernel()
+                                        ->kernel())
           .empty());
 
   // Ensure that the matmul scheduler ran.
@@ -392,9 +393,9 @@ TEST_P(MatmulNodeTranslationTest, AutomaticSchedulerMatmulNode) {
 
   if (scheduler_type == SchedulerType::Matmul) {
     // Ensure there's an MmaOp.
-    EXPECT_FALSE(
-        ir_utils::getOpsOfType<MmaOp>(runtime->executors().at(0).kernel())
-            .empty());
+    EXPECT_FALSE(ir_utils::getOpsOfType<MmaOp>(
+                     runtime->executors().at(0).compiledKernel()->kernel())
+                     .empty());
   }
 
   testValidate(
@@ -573,9 +574,9 @@ TEST_P(LinearNodeTranslationTest, AutomaticSchedulerLinearNode) {
     // do if ExprEval accepts the segment.
     ASSERT_EQ(scheduler_type, SchedulerType::Matmul);
     // Ensure there's an MmaOp.
-    EXPECT_FALSE(
-        ir_utils::getOpsOfType<MmaOp>(runtime->executors().at(0).kernel())
-            .empty());
+    EXPECT_FALSE(ir_utils::getOpsOfType<MmaOp>(
+                     runtime->executors().at(0).compiledKernel()->kernel())
+                     .empty());
   }
 
   testValidate(

@@ -184,7 +184,11 @@ void PrecomputedValues::bindValues(
     const std::vector<Val*>& inputs,
     const KernelArgumentHolder& args) {
   NVF_ERROR(
-      args.size() == inputs.size(), "kernel inputs size does not match args");
+      args.size() == inputs.size(),
+      "kernel inputs size does not match args: ",
+      args.size(),
+      " vs ",
+      inputs.size());
 
   for (const auto i : c10::irange((int64_t)inputs.size())) {
     const auto input = inputs[i];

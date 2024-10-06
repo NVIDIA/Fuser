@@ -5814,7 +5814,8 @@ TEST_F(NVFuserTest, FusionSmem_CUDA) {
 
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 
-  NVF_CHECK(fe.kernel()->summary().war_hazard_syncs_count == 0);
+  NVF_CHECK(
+      fe.compiledKernel()->kernel()->summary().war_hazard_syncs_count == 0);
 }
 
 TEST_F(NVFuserTest, FusionSmemReduce_CUDA) {
@@ -5862,7 +5863,8 @@ TEST_F(NVFuserTest, FusionSmemReduce_CUDA) {
 
   testValidate(
       &fusion, cg_outputs, {aten_input}, {aten_output}, __LINE__, __FILE__);
-  NVF_CHECK(fe.kernel()->summary().war_hazard_syncs_count == 0);
+  NVF_CHECK(
+      fe.compiledKernel()->kernel()->summary().war_hazard_syncs_count == 0);
 }
 
 TEST_F(NVFuserTest, FusionSmemBlockGemm_CUDA) {
@@ -5933,7 +5935,8 @@ TEST_F(NVFuserTest, FusionSmemBlockGemm_CUDA) {
   testValidate(
       &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
 
-  NVF_CHECK(fe.kernel()->summary().war_hazard_syncs_count == 0);
+  NVF_CHECK(
+      fe.compiledKernel()->kernel()->summary().war_hazard_syncs_count == 0);
 }
 
 TEST_F(NVFuserTest, FusionSmemBlockGemmCache_CUDA) {
@@ -6022,7 +6025,8 @@ TEST_F(NVFuserTest, FusionSmemBlockGemmCache_CUDA) {
   testValidate(
       &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
 
-  NVF_CHECK(fe.kernel()->summary().war_hazard_syncs_count == 0);
+  NVF_CHECK(
+      fe.compiledKernel()->kernel()->summary().war_hazard_syncs_count == 0);
 }
 
 TEST_F(NVFuserTest, FusionSmemDynamicPersistentSoftmax2D_CUDA) {
@@ -6383,9 +6387,9 @@ TEST_F(NVFuserTest, FusionMagicSchedulerLayerNormalization_CUDA) {
 
   // tv11 and tv17 should not be predicated. See issue #496
   ASSERT_FALSE(PredicatedChecker::isPredicated(
-      11, cg_results.fusion_executor->kernel()));
+      11, cg_results.fusion_executor->compiledKernel()->kernel()));
   ASSERT_FALSE(PredicatedChecker::isPredicated(
-      17, cg_results.fusion_executor->kernel()));
+      17, cg_results.fusion_executor->compiledKernel()->kernel()));
 }
 
 TEST_F(NVFuserTest, FusionMagicSchedulerRMSNormalization_CUDA) {
@@ -7214,7 +7218,8 @@ TEST_F(NVFuserTest, FusionSmemDynamicReductionSymbolic_CUDA) {
       __FILE__,
       "",
       lparams);
-  NVF_CHECK(fe.kernel()->summary().war_hazard_syncs_count == 0);
+  NVF_CHECK(
+      fe.compiledKernel()->kernel()->summary().war_hazard_syncs_count == 0);
 }
 
 TEST_F(NVFuserTest, FusionSmemDynamicReductionSymbolicArg_CUDA) {
@@ -7278,7 +7283,8 @@ TEST_F(NVFuserTest, FusionSmemDynamicReductionSymbolicArg_CUDA) {
       "",
       lparams);
 
-  NVF_CHECK(fe.kernel()->summary().war_hazard_syncs_count == 0);
+  NVF_CHECK(
+      fe.compiledKernel()->kernel()->summary().war_hazard_syncs_count == 0);
 }
 
 TEST_F(NVFuserTest, FusionSmemDynamicPwiseMulSymbolicArgWAR_CUDA) {
@@ -7335,7 +7341,8 @@ TEST_F(NVFuserTest, FusionSmemDynamicPwiseMulSymbolicArgWAR_CUDA) {
   testValidate(
       &fusion, cg_outputs, aten_inputs, __LINE__, __FILE__, "", lparams);
 
-  NVF_CHECK(fe.kernel()->summary().war_hazard_syncs_count == 1);
+  NVF_CHECK(
+      fe.compiledKernel()->kernel()->summary().war_hazard_syncs_count == 1);
 }
 
 TEST_F(NVFuserTest, FusionSmemDynamicTiledGemm_CUDA) {
@@ -7461,7 +7468,8 @@ TEST_F(NVFuserTest, FusionSmemDynamicTiledGemm_CUDA) {
   testValidate(
       &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
 
-  NVF_CHECK(fe.kernel()->summary().war_hazard_syncs_count == 1);
+  NVF_CHECK(
+      fe.compiledKernel()->kernel()->summary().war_hazard_syncs_count == 1);
 }
 
 } // namespace nvfuser

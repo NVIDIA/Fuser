@@ -29,7 +29,7 @@
 
 namespace nvfuser {
 
-// TODO: Should this actually be in launch params?
+// TODO: Bury this someplace more useful.
 struct CompileOptions {
   c10::Device device = c10::Device(c10::DeviceType::CUDA, 0);
 };
@@ -45,7 +45,7 @@ class CompiledKernel : public NonCopyable {
   //! with KernelArgumentHolder, but it is no longer the case.
   NVF_API void compileFusion(
       c10::Device device,
-      const LaunchParams& launch_params,
+      int64_t block_size,
       SchedulerType scheduler_type = SchedulerType::None,
       int64_t fusion_id = 0,
       int64_t concrete_id = 0,
@@ -121,10 +121,6 @@ class CompiledKernel : public NonCopyable {
   Fusion* fusion() const {
     NVF_ERROR(lowered_ != nullptr);
     return lowered_->kernel()->as<Fusion>();
-  }
-
-  const ThreadPredicateMap& threadPredMap() const {
-    return lowered_->threadPredMap();
   }
 
   //! get register spills (load + store) of the compiled kernel

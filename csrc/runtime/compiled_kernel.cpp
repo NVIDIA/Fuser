@@ -152,7 +152,7 @@ NVF_API CompiledKernel::CompiledKernel(
 
 void CompiledKernel::compileFusion(
     c10::Device device,
-    const LaunchParams& launch_params,
+    int64_t block_size,
     SchedulerType scheduler_type,
     int64_t fusion_id,
     int64_t concrete_id,
@@ -318,8 +318,7 @@ void CompiledKernel::compileFusion(
     NVF_THROW(ss.str());
   }
 
-  NVF_ERROR(
-      launch_params.nThreads() > 0, "launch param inferred block size < 0");
+  NVF_ERROR(block_size > 0, "launch param inferred block size < 0");
 
   // TODO: high water mark should be computed via occupancy API after
   // compilation.
@@ -328,7 +327,7 @@ void CompiledKernel::compileFusion(
   // compilation, it will just generate a kernel that gets ditched at the first
   // run - not great. We should have better heuristics.
   block_size_high_water_mark_ =
-      std::max<int64_t>(launch_params.nThreads(), block_size_high_water_mark_);
+      std::max<int64_t>(block_size, block_size_high_water_mark_);
   maxrregcount_high_water_mark_ = compile_params_.maxrregcount;
   compiled_kernel_ = executor_utils::getCompiledKernel(
       kernel_code_,
@@ -336,7 +335,7 @@ void CompiledKernel::compileFusion(
       kernelName(),
       kernel_id_,
       compile_params_,
-      launch_params.nThreads());
+      block_size);
 
   NVF_ERROR(validKernelId(), "Invalid kernel id for CompiledKernel.");
 
@@ -698,7 +697,6 @@ void CompiledKernel::recompileKernel(
     const LaunchParams& new_launch_params,
     const CompileParams& new_compile_params) {
   FUSER_PERF_SCOPE("CompiledKernel::runFusion::recompileKernel");
-
   const auto structured_code = getStructuredCode();
   block_size_high_water_mark_ = new_launch_params.nThreads();
   maxrregcount_high_water_mark_ = new_compile_params.maxrregcount;

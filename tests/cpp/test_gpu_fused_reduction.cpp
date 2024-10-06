@@ -378,7 +378,8 @@ TEST_F(NVFuserTest, FusionGridAllreduce6_CUDA) {
   auto t0_double = t0.to(at::kDouble);
   auto ref = t0_double + t0_double.sum({0}).unsqueeze(0);
 
-  testValidate(fe.kernel(), outputs, {t0}, {ref}, __LINE__, __FILE__);
+  testValidate(
+      fe.compiledKernel()->kernel(), outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionGridAllreduceWelford1_CUDA) {
@@ -659,7 +660,8 @@ TEST_F(NVFuserTest, FusionGroupedReduction1_CUDA) {
 
   auto ref = t0.sum({1}) * 2;
 
-  testValidate(fe.kernel(), outputs, {t0}, {ref}, __LINE__, __FILE__);
+  testValidate(
+      fe.compiledKernel()->kernel(), outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
 // Grouping reductions with different ops
@@ -704,7 +706,8 @@ TEST_F(NVFuserTest, FusionGroupedReduction2_CUDA) {
 
   auto ref = (t0 + 1).sum({1}) + std::get<0>((t0 + 2).max(1));
 
-  testValidate(fe.kernel(), outputs, {t0}, {ref}, __LINE__, __FILE__);
+  testValidate(
+      fe.compiledKernel()->kernel(), outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
 // Grouped reduction with different types
@@ -747,7 +750,8 @@ TEST_F(NVFuserTest, FusionGroupedReduction3_CUDA) {
 
   auto ref = t0.sum({1}) + t0.to(c10::kDouble).sum({1}).to(c10::kFloat);
 
-  testValidate(fe.kernel(), outputs, {t0}, {ref}, __LINE__, __FILE__);
+  testValidate(
+      fe.compiledKernel()->kernel(), outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
 // Testing validation
@@ -833,7 +837,8 @@ TEST_F(NVFuserTest, FusionGroupedReduction6_CUDA) {
   fe.compileFusion(&fusion, {t0});
   auto outputs = fe.runFusion({t0});
 
-  testValidate(fe.kernel(), outputs, {t0}, __LINE__, __FILE__);
+  testValidate(
+      fe.compiledKernel()->kernel(), outputs, {t0}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionGroupedReduction7_CUDA) {
@@ -898,7 +903,8 @@ TEST_F(NVFuserTest, FusionGroupedReductionRfactor1_CUDA) {
 
   auto ref = t0.sum({0}) * 2;
 
-  testValidate(fe.kernel(), outputs, {t0}, {ref}, __LINE__, __FILE__);
+  testValidate(
+      fe.compiledKernel()->kernel(), outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
 // Rfactoring grouped reductions
@@ -943,7 +949,8 @@ TEST_F(NVFuserTest, FusionGroupedReductionRfactor2_CUDA) {
 
   auto ref = t0.sum({0}) * 2;
 
-  testValidate(fe.kernel(), outputs, {t0}, {ref}, __LINE__, __FILE__);
+  testValidate(
+      fe.compiledKernel()->kernel(), outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
 // Group reductions of tensors that have computeAt positions set
@@ -989,7 +996,8 @@ TEST_F(NVFuserTest, FusionGroupedReductionAfterComputeAt_CUDA) {
 
   auto ref = (t0 + 1).sum({1}) * 2;
 
-  testValidate(fe.kernel(), outputs, {t0}, {ref}, __LINE__, __FILE__);
+  testValidate(
+      fe.compiledKernel()->kernel(), outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionGroupAllreduce1_CUDA) {
@@ -1030,7 +1038,8 @@ TEST_F(NVFuserTest, FusionGroupAllreduce1_CUDA) {
   auto t3 = t0.sum({0}).unsqueeze(-1);
   auto ref = t0 + t3 + t3;
 
-  testValidate(fe.kernel(), outputs, {t0}, {ref}, __LINE__, __FILE__);
+  testValidate(
+      fe.compiledKernel()->kernel(), outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
 // Grid reductionso of different types
@@ -1084,7 +1093,8 @@ TEST_F(NVFuserTest, FusionGroupAllreduce2_CUDA) {
   auto t6 = t0.to(c10::kDouble).sum({1}).unsqueeze(-1).to(c10::kFloat);
   auto ref = t0 + t2 + t6;
 
-  testValidate(fe.kernel(), outputs, {t0}, {ref}, __LINE__, __FILE__);
+  testValidate(
+      fe.compiledKernel()->kernel(), outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
 // Grouping 3 grid allreduces
@@ -1132,7 +1142,13 @@ TEST_F(NVFuserTest, FusionGroupAllreduce3_CUDA) {
   auto t6 = t0 / std::get<0>(t0.max(0)).unsqueeze(0);
   auto t9 = t0 - std::get<0>(t0.min(0)).unsqueeze(0);
 
-  testValidate(fe.kernel(), outputs, {t0}, {t3, t6, t9}, __LINE__, __FILE__);
+  testValidate(
+      fe.compiledKernel()->kernel(),
+      outputs,
+      {t0},
+      {t3, t6, t9},
+      __LINE__,
+      __FILE__);
 }
 
 // Grouping 8 grid allreduces
@@ -1189,7 +1205,8 @@ TEST_F(NVFuserTest, FusionGroupAllreduce4_CUDA) {
     ref = add(ref, bc);
   }
 
-  testValidate(fe.kernel(), outputs, {t0}, {ref}, __LINE__, __FILE__);
+  testValidate(
+      fe.compiledKernel()->kernel(), outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
 // Variation of FusionGroupAllreduce5_CUDA but with different
@@ -1275,7 +1292,13 @@ TEST_F(NVFuserTest, FusionGroupAllreduce5_CUDA) {
   auto t15 = t12 / t12.sum({0}).unsqueeze(0).to(at::kComplexDouble);
   auto t19 = t16 / t16.sum({0}).unsqueeze(0).to(at::kComplexDouble);
   auto ref = t3 + t7 + t11 + t15 + t19;
-  testValidate(fe.kernel(), outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+  testValidate(
+      fe.compiledKernel()->kernel(),
+      outputs,
+      aten_inputs,
+      {ref},
+      __LINE__,
+      __FILE__);
 }
 
 // Persistent batchnorm backward with grouped allreduce
@@ -1483,7 +1506,12 @@ TEST_F(NVFuserTest, FusionPersistentBNBackwardAllreduce_CUDA) {
   }
 
   testValidate(
-      fe.kernel(), outputs, aten_inputs, {at_grad_input}, __LINE__, __FILE__);
+      fe.compiledKernel()->kernel(),
+      outputs,
+      aten_inputs,
+      {at_grad_input},
+      __LINE__,
+      __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionGroupedReductionReEntrant1_CUDA) {
@@ -1541,7 +1569,8 @@ TEST_F(NVFuserTest, FusionGroupedReductionReEntrant1_CUDA) {
   auto t0_double = t0.to(at::kDouble);
   auto ref = (t0_double + 1).sum({0}) + (t0_double + 2).sum({0});
 
-  testValidate(fe.kernel(), outputs, {t0}, {ref}, __LINE__, __FILE__);
+  testValidate(
+      fe.compiledKernel()->kernel(), outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
 // Channels-last batch norm with vectorization. Relies on re-entrant
@@ -1664,7 +1693,13 @@ TEST_F(NVFuserTest, FusionGroupedReductionChannelsLastBatchNormLike_CUDA) {
       (t1_double - t2_double.unsqueeze(0).unsqueeze(0).unsqueeze(0));
   auto t9 = t8.sum(at_reduction_axes);
 
-  testValidate(fe.kernel(), outputs, aten_inputs, {t5, t9}, __LINE__, __FILE__);
+  testValidate(
+      fe.compiledKernel()->kernel(),
+      outputs,
+      aten_inputs,
+      {t5, t9},
+      __LINE__,
+      __FILE__);
 }
 
 // Test the grouped grid allreduce with BN-like outer reductions
@@ -1801,7 +1836,12 @@ TEST_F(
   auto t13 = t1_double + t12;
 
   testValidate(
-      fe.kernel(), outputs, aten_inputs, {t11, t13}, __LINE__, __FILE__);
+      fe.compiledKernel()->kernel(),
+      outputs,
+      aten_inputs,
+      {t11, t13},
+      __LINE__,
+      __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce1_CUDA) {
@@ -1875,7 +1915,8 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce1_CUDA) {
   auto t0_double = t0.to(at::kDouble);
   auto ref = t0_double + t0_double.sum({0}).unsqueeze(0);
 
-  testValidate(fe.kernel(), outputs, {t0}, {ref}, __LINE__, __FILE__);
+  testValidate(
+      fe.compiledKernel()->kernel(), outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
 // Test grouping of two domains
@@ -1953,7 +1994,8 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce2_CUDA) {
   auto t0_double = t0.to(at::kDouble);
   auto ref = t0_double + t0_double.sum({0}).unsqueeze(0);
 
-  testValidate(fe.kernel(), outputs, {t0}, {ref}, __LINE__, __FILE__);
+  testValidate(
+      fe.compiledKernel()->kernel(), outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
 // Group both expressions and iterations
@@ -2039,7 +2081,8 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce3_CUDA) {
   auto t8 = t0_double + 2 + (t0_double + 2).sum({0}).unsqueeze(0);
   auto ref = t4 + t8;
 
-  testValidate(fe.kernel(), outputs, {t0}, {ref}, __LINE__, __FILE__);
+  testValidate(
+      fe.compiledKernel()->kernel(), outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
 // ParallelType::Group with computeAt
@@ -2129,7 +2172,8 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce4_CUDA) {
   auto t0_double = t0.to(at::kDouble);
   auto ref = t0_double + t0_double.sum({0}).unsqueeze(0);
 
-  testValidate(fe.kernel(), outputs, {t0}, {ref}, __LINE__, __FILE__);
+  testValidate(
+      fe.compiledKernel()->kernel(), outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelford1_CUDA) {
@@ -2190,7 +2234,8 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelford1_CUDA) {
   auto t0_double = t0.to(at::kDouble);
   auto ref = t0_double + t0_double.mean({0}).unsqueeze(0);
 
-  testValidate(fe.kernel(), outputs, {t0}, {ref}, __LINE__, __FILE__);
+  testValidate(
+      fe.compiledKernel()->kernel(), outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
 // Test grouping of two domains
@@ -2255,7 +2300,8 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelford2_CUDA) {
   auto t0_double = t0.to(at::kDouble);
   auto ref = t0_double + t0_double.mean({0}).unsqueeze(0);
 
-  testValidate(fe.kernel(), outputs, {t0}, {ref}, __LINE__, __FILE__);
+  testValidate(
+      fe.compiledKernel()->kernel(), outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
 // Follows the pattern of persistent outer grid welford in batchnorm

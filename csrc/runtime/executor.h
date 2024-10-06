@@ -133,28 +133,13 @@ class FusionExecutor : public NonCopyable {
 
   // Function to query whether compilation was attempted for a `FusionExecutor`
   bool isCompiled() const {
-    if (use_external_compiler_) {
-      return compiled_kernel_2_->isCompiled();
+    if (compiledKernel()) {
+      return true;
     }
     int num_compiled_artifacts = (fusion_ != nullptr) + (lowered_ != nullptr) +
         (host_ir_container_ != nullptr);
     NVF_ERROR(num_compiled_artifacts <= 1);
     return num_compiled_artifacts == 1;
-  };
-
-  // function to query whether a `FusionExecutor` has a compiled kernel to
-  // execute
-  bool hasCompiledKernel() const {
-    if (use_external_compiler_) {
-      return compiled_kernel_2_->hasCompiledKernel();
-    }
-    if (compiled_kernel_ != nullptr) {
-      NVF_ERROR(compiled_kernel_->function != nullptr);
-      NVF_ERROR(
-          fusion() == nullptr,
-          "fusion() should only be initialized when using expression evaluator.");
-    }
-    return validKernelId() && lowered() && compiled_kernel_ != nullptr;
   };
 
   void evictCache(size_t cache_id) {
@@ -189,41 +174,6 @@ class FusionExecutor : public NonCopyable {
   using ExecutorCompileTimeInfoCache =
       executor_utils::caching::ExecutorCompileTimeInfoCache;
 
-  kir::Kernel* kernel() const {
-    if (use_external_compiler_) {
-      return compiled_kernel_2_->kernel();
-    }
-    NVF_ERROR(lowered());
-    return lowered()->kernel();
-  }
-
-  Fusion* fusion() const {
-    NVF_ERROR(isCompiled());
-    if (fusion_ != nullptr) {
-      if (use_external_compiler_) {
-        return compiled_kernel_2_->fusion();
-      }
-      return fusion_.get();
-    }
-    if (lowered() != nullptr) {
-      if (use_external_compiler_) {
-        return compiled_kernel_2_->lowered()->kernel()->as<Fusion>();
-      }
-      return lowered()->kernel()->as<Fusion>();
-    }
-    if (host_ir_container_ != nullptr) {
-      return host_ir_container_->as<Fusion>();
-    }
-    NVF_THROW("unreachable because of the isCompiled check");
-  }
-
-  const ThreadPredicateMap& threadPredMap() const {
-    if (use_external_compiler_) {
-      return compiled_kernel_2_->threadPredMap();
-    }
-    return lowered()->threadPredMap();
-  }
-
   //! Internal knob used for debugging/profiling only
   void setExecuteKernelFlag(bool execute_kernel) {
     execute_kernel_ = execute_kernel;
@@ -241,13 +191,6 @@ class FusionExecutor : public NonCopyable {
     kernel_occupancy_ = occupancy;
   }
 
-  //! get register spills (load + store) of the compiled kernel
-  int getKernelRegisterSpills() const {
-    if (use_external_compiler_) {
-      return compiled_kernel_2_->getKernelRegisterSpills();
-    }
-    return compiled_kernel_->register_spills;
-  }
   //! Returns the input bytes accessed for a kernel
   //! \note It is important to sample the args struct prior to adding the
   // 1    output to the args struct
@@ -260,161 +203,12 @@ class FusionExecutor : public NonCopyable {
     return launch_params_;
   }
 
-  //! Returns the string of the compiled kernel
-  NVF_API std::string kernelString() const {
-    if (use_external_compiler_) {
-      return compiled_kernel_2_->kernelString();
-    }
-    NVF_ERROR(!kernelCode().empty(), "Kernel code not generated");
-    return kernelCode();
-  }
-
-  // Add preamble and wrap in namespace
-  NVF_API std::string getStructuredCode(
-      const std::string& kernel,
-      PrimDataType index_type) const;
-
-  NVF_API std::string getStructuredCode() const;
-
-  //! Returns a const reference to the latest compiled kernel.
-  const std::unique_ptr<executor_utils::CompiledKernel>& compiledKernel()
-      const {
-    if (use_external_compiler_) {
-      return compiled_kernel_2_->compiledKernel();
-    }
-    return compiled_kernel_;
-  }
-  std::unique_ptr<executor_utils::CompiledKernel>& compiledKernel() {
-    if (use_external_compiler_) {
-      return compiled_kernel_2_->compiledKernel();
-    }
-    return compiled_kernel_;
-  }
-
-  //! Returns the disassembled latest compiled binary
-  NVF_API std::string disassembledBinary(
-      const std::string& nvdisasm_args = "") const {
-    if (use_external_compiler_) {
-      return compiled_kernel_2_->disassembledBinary(nvdisasm_args);
-    }
-    return executor_utils::disassembleBinary(
-        compiled_kernel_->cubin, nvdisasm_args);
-  }
-
-  //! Returns the disassembled latest compiled binary
-  NVF_API std::string disassembledKernelSASS() const {
-    if (use_external_compiler_) {
-      return compiled_kernel_2_->disassembledKernelSASS();
-    }
-    return executor_utils::disassembleBinary(
-        compiled_kernel_->cubin, "-fun 1 -c");
-  }
-
   static void setGlobalFusionCount(int64_t new_fusion_count) {
     CompiledKernel::setGlobalFusionCount(new_fusion_count);
   }
 
   static int64_t getGlobalFusionCount() {
     return CompiledKernel::getGlobalFusionCount();
-  }
-
-  const int64_t& groupId() const {
-    if (use_external_compiler_) {
-      return compiled_kernel_2_->groupId();
-    }
-    return group_id_;
-  }
-  int64_t& groupId() {
-    if (use_external_compiler_) {
-      return compiled_kernel_2_->groupId();
-    }
-    return group_id_;
-  }
-
-  void setGroupId(int64_t gid) {
-    if (use_external_compiler_) {
-      return compiled_kernel_2_->setGroupId(gid);
-    }
-    group_id_ = gid;
-  }
-
-  bool validKernelId() const {
-    if (use_external_compiler_) {
-      return compiled_kernel_2_->validKernelId();
-    }
-    return !kernelId().empty();
-  }
-
-  void createKernelId(
-      SchedulerType scheduler_type = SchedulerType::None,
-      int64_t fusion_id = 0,
-      int64_t concrete_id = 0,
-      int64_t runtime_id = 0,
-      int64_t group_id = 0) {
-    if (use_external_compiler_) {
-      return compiled_kernel_2_->createKernelId(
-          scheduler_type, fusion_id, concrete_id, runtime_id, group_id);
-    }
-    NVF_ERROR(fusion_id > -1, "Invalid fusion_id.");
-    NVF_ERROR(concrete_id > -1, "Invalid concrete_id.");
-    NVF_ERROR(runtime_id > -1, "Invalid runtime_id.");
-    NVF_ERROR(group_id > -1, "Invalid group_id");
-
-    schedulerType() = scheduler_type;
-    fusionId() = fusion_id;
-    concreteId() = concrete_id;
-    runtimeId() = runtime_id;
-    groupId() = group_id;
-    ++globalFusionCount();
-
-    std::stringstream ss;
-    if (isOptionEnabled(EnableOption::StaticFusionCount)) {
-      ss << globalFusionCount().load();
-    } else {
-      ss << toString(schedulerType());
-      ss << "_f" << fusionId();
-      ss << "_c" << concreteId();
-      ss << "_r" << runtimeId();
-      ss << "_g" << groupId();
-    }
-    kernelId() = ss.str();
-  }
-
-  std::string kernelName() const {
-    if (use_external_compiler_) {
-      return compiled_kernel_2_->kernelName();
-    }
-    NVF_ERROR(!kernelId().empty(), "Invalid kernel name for fusion executor.");
-    std::stringstream ss;
-    ss << "nvfuser_" << kernelId();
-    return ss.str();
-  }
-
-  //! Internal tests only. Compiles CUDA code with NVRTC directly from
-  //! string. This util provides a path to test runtime code, i.e. the
-  //! resource strings.
-  // TODO: Consider split out compileRtc and runRtc to a different
-  //! class. Not much code is shared with the normal path.
-  NVF_API void compileRtc(
-      const std::string& code,
-      const std::string& name,
-      bool structured,
-      PrimDataType index_type);
-
-  //! Internal tests only. Runs the compiled CUDA kernel from
-  //! compileRtc. Return the elapsed milliseconds.
-  NVF_API float runRtc(
-      const LaunchParams& launch_params,
-      const std::vector<at::Tensor>& args,
-      PrimDataType indextype);
-
-  //! Internal knob used for debugging/profiling only
-  void disableLaunchParamCache() {
-    if (use_external_compiler_) {
-      compiled_kernel_2_->disableLaunchParamCache();
-    } else {
-      disablePaarameterCache() = true;
-    }
   }
 
   //! Serialize Fusion Executor using flatbuffers
@@ -433,6 +227,14 @@ class FusionExecutor : public NonCopyable {
       int64_t runtime_id,
       int64_t group_id);
 
+  const std::unique_ptr<CompiledKernel>& compiledKernel() const {
+    return compiled_kernel_2_;
+  }
+
+  const std::unique_ptr<hir::HostIrContainer>& hostIrContainer() const {
+    return host_ir_container_;
+  }
+
  private:
   LaunchParams computeLaunchParams(
       const LaunchParams& launch_constraints,
@@ -447,15 +249,6 @@ class FusionExecutor : public NonCopyable {
   std::vector<GlobalBufferInfo> getIntermediateBufferInfo(
       ExpressionEvaluator& expr_eval,
       DataType index_dtype);
-
-  void setUsedTVs();
-
-  const std::vector<TensorView*>& getUsedTVs() const {
-    if (use_external_compiler_) {
-      return compiled_kernel_2_->getUsedTVs();
-    }
-    return used_tvs_;
-  };
 
   ExecutorCompileTimeInfoCache* compileTimeDataCache() {
     return &compile_time_info_cache_;
@@ -472,11 +265,6 @@ class FusionExecutor : public NonCopyable {
 
   std::unique_ptr<PrecomputedValues>& evaluatorPrecomputedValues();
 
-  // Recompile the kernel if the number of threads in the block has increased
-  // or maxrregcount has changed
-  void recompileKernel(
-      const LaunchParams& new_launch_params,
-      const CompileParams& new_compile_params);
   // Creates the initial set of arguments to a kernel, based on the arguments
   // to we have now.
   void computeArgs(ExecutorEntry&, ExpressionEvaluator&, const kir::Kernel*)
@@ -534,170 +322,18 @@ class FusionExecutor : public NonCopyable {
   //! Clear the cached properties of the compiled kernel
   void resetCompiledKernelProperties();
 
-  // Temporary accessors for refactor:
-  CompileOptions& options() {
-    if (use_external_compiler_) {
-      return compiled_kernel_2_->options();
-    }
-    return options_;
+  std::unique_ptr<CompiledKernel>& compiledKernel_() {
+    return compiled_kernel_2_;
   }
-  int64_t& fusionId() {
-    if (use_external_compiler_) {
-      return compiled_kernel_2_->fusionId();
+
+  void disableLaunchParamCache() {
+    if (compiledKernel()) {
+      compiledKernel()->disableLaunchParamCache();
     }
-    return fusion_id_;
-  }
-  const int64_t& fusionId() const {
-    if (use_external_compiler_) {
-      return compiled_kernel_2_->fusionId();
-    }
-    return fusion_id_;
-  }
-  int64_t& concreteId() {
-    if (use_external_compiler_) {
-      return compiled_kernel_2_->concreteId();
-    }
-    return concrete_id_;
-  }
-  int64_t& runtimeId() {
-    if (use_external_compiler_) {
-      return compiled_kernel_2_->runtimeId();
-    }
-    return runtime_id_;
-  }
-  const int64_t& concreteId() const {
-    if (use_external_compiler_) {
-      return compiled_kernel_2_->concreteId();
-    }
-    return concrete_id_;
-  }
-  const int64_t& runtimeId() const {
-    if (use_external_compiler_) {
-      return compiled_kernel_2_->runtimeId();
-    }
-    return runtime_id_;
-  }
-  static std::atomic<int64_t>& globalFusionCount() {
-    return CompiledKernel::globalFusionCount();
-  }
-  SchedulerType& schedulerType() {
-    if (use_external_compiler_) {
-      return compiled_kernel_2_->schedulerType();
-    }
-    return scheduler_type_;
-  }
-  const SchedulerType& schedulerType() const {
-    if (use_external_compiler_) {
-      return compiled_kernel_2_->schedulerType();
-    }
-    return scheduler_type_;
-  }
-  std::string& kernelId() {
-    if (use_external_compiler_) {
-      return compiled_kernel_2_->kernelId();
-    }
-    return kernel_id_;
-  }
-  const std::string& kernelId() const {
-    if (use_external_compiler_) {
-      return compiled_kernel_2_->kernelId();
-    }
-    return kernel_id_;
-  }
-  std::unique_ptr<GpuLower>& lowered() {
-    if (use_external_compiler_) {
-      return compiled_kernel_2_->lowered();
-    }
-    return lowered_;
-  }
-  const std::unique_ptr<GpuLower>& lowered() const {
-    if (use_external_compiler_) {
-      return compiled_kernel_2_->lowered();
-    }
-    return lowered_;
-  }
-  Fusion* fusion() {
-    if (use_external_compiler_) {
-      return compiled_kernel_2_->fusion();
-    }
-    NVF_ERROR(isCompiled());
-    if (fusion_ != nullptr) {
-      if (use_external_compiler_) {
-        return compiled_kernel_2_->fusion();
-      }
-      return fusion_.get();
-    }
-    if (lowered() != nullptr) {
-      if (use_external_compiler_) {
-        return compiled_kernel_2_->lowered()->kernel()->as<Fusion>();
-      }
-      return lowered()->kernel()->as<Fusion>();
-    }
-    if (host_ir_container_ != nullptr) {
-      return host_ir_container_->as<Fusion>();
-    }
-    NVF_THROW("unreachable because of the isCompiled check");
-  }
-  int64_t& blockSizeHighWaterMark() {
-    if (use_external_compiler_) {
-      return compiled_kernel_2_->blockSizeHighWaterMark();
-    }
-    return block_size_high_water_mark_;
-  }
-  int64_t& maxrregcountHighWaterMark() {
-    if (use_external_compiler_) {
-      return compiled_kernel_2_->maxrregcountHighWaterMark();
-    }
-    return maxrregcount_high_water_mark_;
-  }
-  const int64_t& blockSizeHighWaterMark() const {
-    if (use_external_compiler_) {
-      return compiled_kernel_2_->blockSizeHighWaterMark();
-    }
-    return block_size_high_water_mark_;
-  }
-  const int64_t& maxrregcountHighWaterMark() const {
-    if (use_external_compiler_) {
-      return compiled_kernel_2_->maxrregcountHighWaterMark();
-    }
-    return maxrregcount_high_water_mark_;
-  }
-  bool& disablePaarameterCache() {
-    if (use_external_compiler_) {
-      return compiled_kernel_2_->disablePaarameterCache();
-    }
-    return disable_parameter_cache_;
-  }
-  std::string& kernelCode() {
-    if (use_external_compiler_) {
-      return compiled_kernel_2_->kernelCode();
-    }
-    return kernel_code_;
-  }
-  const std::string& kernelCode() const {
-    if (use_external_compiler_) {
-      return compiled_kernel_2_->kernelCode();
-    }
-    return kernel_code_;
-  }
-  std::vector<std::function<void(GpuLower*)>>& loweringHooks() {
-    if (use_external_compiler_) {
-      return compiled_kernel_2_->loweringHooks();
-    }
-    return lowering_hooks_;
-  }
-  std::vector<std::function<void(kir::Kernel*)>>& postLoweringHooks() {
-    if (use_external_compiler_) {
-      return compiled_kernel_2_->postLoweringHooks();
-    }
-    return post_lowering_hooks_;
   }
 
  private:
   std::unique_ptr<CompiledKernel> compiled_kernel_2_;
-  bool use_external_compiler_ = false;
-
-  CompileOptions options_;
 
   //! Absolute limit of all available shared mem space from cudaDeviceProp
   int64_t device_smem_limit_ = 0;
@@ -778,12 +414,6 @@ class FusionExecutor : public NonCopyable {
 
   // Profiling support: the last launch param used
   LaunchParams launch_params_;
-
-  // Profiling support: disable caching of launch params and output allocation
-  // output allocation is also disable when output sizes are dependent on
-  // runtime scalar inputs, such as for the case of tensor factory. see
-  // https://github.com/csarofeen/pytorch/issues/2002
-  bool disable_parameter_cache_ = false;
 
   // Profiling support: kept copy of the cuda kernel
   std::string kernel_code_;
