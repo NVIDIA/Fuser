@@ -32,6 +32,7 @@ class ComputeType(Enum):
 @pytest.mark.mpi
 @pytest.mark.parametrize(
     "compute_type",
+    # TODO(#3119): add the backward test back.
     # [ComputeType.FORWARD, ComputeType.BACKWARD],
     # ids=["forward", "backward"],
     [ComputeType.FORWARD],
