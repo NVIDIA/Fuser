@@ -219,6 +219,8 @@ class BFS {
 
       if (const ExprT* e = std::get_if<ExprT>(&node)) {
         path.emplace_back(*e, direction);
+        std::cerr << "pushbakc to shortest path: " << direction << " "
+                  << toString(*e) << "\n";
       }
 
       if (std::find(from_.begin(), from_.end(), node) != from_.end()) {
@@ -342,7 +344,7 @@ class BFS {
       const ExprT& expr) const {
     // Either all inputs or all outputs must have been visited
     decltype(auto) inputs = inputs_(expr);
-    if (!inputs.empty() &&
+    if (!inputs.empty() && allowed_direction_ != Direction::Backward &&
         std::all_of(
             inputs.begin(), inputs.end(), [&](const ValT& input) -> bool {
               return isDependencySatisfied(input);
@@ -357,7 +359,7 @@ class BFS {
     }
 
     decltype(auto) outputs = outputs_(expr);
-    if (!outputs.empty() &&
+    if (!outputs.empty() && allowed_direction_ != Direction::Forward &&
         std::all_of(
             outputs.begin(), outputs.end(), [&](const ValT& output) -> bool {
               return isDependencySatisfied(output);
@@ -422,6 +424,7 @@ class BFS {
 
   // Mark a node as visited
   virtual void setVisited(const NodeType& node) {
+    std::cerr << "setVisited: " << toString(node) << "\n";
     visited_.emplace(node);
   }
 

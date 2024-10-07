@@ -2907,12 +2907,14 @@ void LoopDomainScheduler::schedule(TensorView* tv) {
   //
   // Backward search from the ref to the inputs
 
+  std::cerr << "getExprs from ancestor to tv\n";
   auto ancestor_to_tv = ValGraphBFS::getExprsBetween(
       graph(),
       all_ancestors_of_ref_,
       graph().toGroups(tv->getMaybeRootDomain()),
       /*require_all_to_visited=*/true,
       Direction::Forward);
+  std::cerr << "Ancestor to to exprs\n";
   for (const auto& [expr_g, dir] : ancestor_to_tv) {
     std::cerr << "\t" << dir << " " << expr_g->front()->toString();
   }

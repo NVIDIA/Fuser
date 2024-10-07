@@ -231,4 +231,93 @@ TEST_F(LoopSchedulingTest, Slice) {
   NVF_CHECK(ref.equal(cg_outputs[0]));
 }
 
+// Iter domain cannot have multiple definitions, whereas ValGroup can.
+// This means that the traversal path in ValGraph may not be a valid
+// history to construct within a tensor domain. For example, a path
+// with a forward expr followed by a backward expr is invalid since it
+// requires the output of the forward expr to have both of the exprs
+// as its definitions. This test constructs a fusion where the
+// ValGraph shortest path of two tensors results in the invalid
+// pattern. The loop domain scheduler should be able to find a
+// non-shortest but valid path.
+TEST_F(LoopSchedulingTest, ReshapeTraversalDirection) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({12});
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+
+  auto tv2 = reshape(tv1, {12}, {3, 4});
+  auto tv3 = reshape(tv2, {3, 4}, {3, 2, 2});
+  auto tv4 = reshape(tv3, {3, 2, 2}, {6, 2});
+  auto tv5 = set(tv4);
+  auto tv6 = reshape(tv5, {6, 2}, {12});
+
+  auto tv7 = reshape(tv1, {12}, {4, 3});
+  auto tv8 = reshape(tv7, {4, 3}, {12});
+
+  auto tv9 = add(tv6, tv8);
+  fusion.addOutput(tv9);
+
+  // Consider a case where the loop domain of tv4 is scheduled using
+  // tv7 as the reference. From the
+  // tv7 loop domain to tv4, the shortest path goes
+  // through the logical domain of tv8 (and also tv6 and
+  // tv9). However, that path cannot be used sicne that would result
+  // in multi-definition iter domains. Instead,
+  // scheduleLoopDomainsLike should use the path
+  // from tv7 through tv1: backward split (tv7 reshape) -> forward
+  // split (tv2 reshape) -> forward split (tv3 reshape) -> forward
+  // merge (tv4 reshape).
+
+  std::vector<IterDomain*> ref = tv7->getLogicalDomain();
+  scheduler_utils::scheduleLoopDomainsLike({tv5}, ref);
+
+  ASSERT_EQ(tv5->getLogicalDomain().size(), ref.size())
+      << "Unexpected number of dimensions: "
+      << toDelimitedString(tv5->getLoopDomain());
+
+  IdModel id_model(&fusion, /*build_models=*/false);
+  const auto& exact_graph = id_model.buildExactGraph();
+
+  for (const auto i : c10::irange(tv5->getLoopDomain().size())) {
+    EXPECT_TRUE(exact_graph.disjointValSets().strictAreMapped(
+        tv5->getLoopDomain().at(i), ref.at(i)))
+        << "Expected exact mapping of loop domains: "
+        << tv5->getLoopDomain().at(i)->toString() << ", "
+        << ref.at(i)->toString();
+  }
+
+  // Validate the history of tv5 loop IDs
+  auto tv5_loop_to_logical = IRBFS::getExprsBetween(
+      {tv5->getLoopDomain().begin(), tv5->getLoopDomain().end()},
+      {tv5->getLogicalDomain().begin(), tv5->getLogicalDomain().end()});
+
+  // 1. Backward split (tv7 reshape)
+  EXPECT_TRUE(
+      exact_graph.disjointExprSets().strictAreMapped(
+          tv5_loop_to_logical.at(0).first,
+          tv7->getLogicalDomain().at(0)->definition()) &&
+      tv5_loop_to_logical.at(0).second == Direction::Backward);
+  // 2. Forward split (tv2 reshape)
+  EXPECT_TRUE(
+      exact_graph.disjointExprSets().strictAreMapped(
+          tv5_loop_to_logical.at(1).first,
+          tv2->getLogicalDomain().at(0)->definition()) &&
+      tv5_loop_to_logical.at(1).second == Direction::Forward);
+  // 3. Forward split (tv3 reshape)
+  EXPECT_TRUE(
+      exact_graph.disjointExprSets().strictAreMapped(
+          tv5_loop_to_logical.at(2).first,
+          tv3->getLogicalDomain().at(1)->definition()) &&
+      tv5_loop_to_logical.at(2).second == Direction::Forward);
+  // 4. Forward merge (tv4 reshape).
+  EXPECT_TRUE(
+      exact_graph.disjointExprSets().strictAreMapped(
+          tv5_loop_to_logical.at(3).first,
+          tv4->getLogicalDomain().at(0)->definition()) &&
+      tv5_loop_to_logical.at(3).second == Direction::Forward);
+}
+
 } // namespace nvfuser
