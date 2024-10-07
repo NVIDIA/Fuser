@@ -503,7 +503,7 @@ class AllgatherOverlapTest : public MultiDeviceTest {
   int64_t my_device_index_;
   std::vector<int64_t> all_devices_;
   at::Tensor ta_unsharded_, tb_unsharded_, tc_unsharded_;
-  at::Tensor ta_, tc_;
+  at::Tensor ta_, ta_allgathered_;
   // stores the backend
   c10d::Backend* world_communicator_;
 
@@ -515,8 +515,6 @@ class AllgatherOverlapTest : public MultiDeviceTest {
   std::vector<int64_t> tb_unsharded_sizes;
   std::vector<int64_t> tc_unsharded_sizes;
   std::vector<int64_t> ta_sizes;
-  std::vector<int64_t> tc_sizes;
-  std::vector<int64_t> tc_j_sizes;
 
   void SetUp() {
     MultiDeviceTest::SetUp();
@@ -544,10 +542,6 @@ class AllgatherOverlapTest : public MultiDeviceTest {
         params.S, num_devices_, params.M / (num_devices_ * params.S), params.N};
     ta_sizes = std::vector<int64_t>{
         params.S, params.M / (num_devices_ * params.S), params.K};
-    tc_sizes = std::vector<int64_t>{
-        params.S, params.M / (num_devices_ * params.S), params.N};
-    tc_j_sizes = std::vector<int64_t>{
-        params.M / params.S, params.N};
 
     // Set up input tensors. We create the full unsharded tensors and define the
     // actual input as the shard corresponding to the current device. Having the
@@ -561,7 +555,7 @@ class AllgatherOverlapTest : public MultiDeviceTest {
     tb_unsharded_ = at::empty(tb_unsharded_sizes, gpu_options);
     tc_unsharded_ = at::empty(tc_unsharded_sizes, gpu_options);
     ta_ = at::empty(ta_sizes, gpu_options);
-    tc_ = at::empty(tc_sizes, gpu_options);
+    ta_allgathered_ = at::empty(ta_unsharded_sizes, gpu_options);
 
     // Debug print
     if (communicator_->deviceId() == 0 && debug_print) {
@@ -582,16 +576,14 @@ class AllgatherOverlapTest : public MultiDeviceTest {
   void validate() {
     // compute the expected output for data correctness validation
     auto tb_unsharded_cpu = tb_unsharded_.to(torch::kCPU);
-    auto ta_unsharded_cpu = ta_unsharded_.to(torch::kCPU);
-    auto tc_unsharded_expected_ = torch::matmul(ta_unsharded_cpu, tb_unsharded_cpu);
+    auto tc_unsharded_expected_ = torch::matmul(ta_unsharded_, tb_unsharded_cpu);
     EXPECT_TRUE(tc_unsharded_.to(torch::kCPU).allclose(tc_unsharded_expected_, 1e-1, 1e-1))
-        << "Unexpected results, obtained:" << tc_unsharded_
-        << "\n expected: " << tc_unsharded_expected_;
+        << "Unexpected results, obtained: " << tc_unsharded_
+        << "expected: " << tc_unsharded_expected_;
   }
 };
 // This test implements an allgather-based pipelining overlapping technique,
 // similar to the above reduce-scattered based pipelining overlapping technique
-// clang-format on
 TEST_F(AllgatherOverlapTest, AllgatherBasedPipeliningATenImplementation) {
   std::vector<c10::cuda::CUDAStream> streams;
   std::generate_n(
@@ -610,15 +602,15 @@ TEST_F(AllgatherOverlapTest, AllgatherBasedPipeliningATenImplementation) {
       int64_t stream_index = j % streams.size();
       setCurrentCUDAStream(streams.at(stream_index));
 
-      // local compute
-      auto ta_j = ta_.select(0, j); // params.M / (num_devices_ * params.S), params.K
-      auto tc_j = tc_.select(0, j); // params.M / (num_devices_ * params.S), params.N
-      torch::matmul_out(tc_j, ta_j, tb_unsharded_); // params.M / (num_devices_ * params.S), params.N
-
       // communication
-      auto tc_unsharded_j = tc_unsharded_.select(0, j); // num_devices_, params.M / (num_devices_ * params.S), params.N
-      world_communicator_->_allgather_base(tc_unsharded_j, tc_j) // num_devices_, params.M / (num_devices_ * params.S), params.N
+      auto ta_j = ta_.select(0, j); // params.M / (num_devices_ * params.S), params.K
+      auto ta_allgathered_j = ta_allgathered_.select(0, j);
+      world_communicator_->_allgather_base(ta_allgathered_j, ta_j) // num_devices_, params.M / (num_devices_ * params.S), params.K
           ->wait();
+
+      // local compute
+      auto tc_j = tc_unsharded_.select(0, j); // num_devices_, params.M / (num_devices_ * params.S), params.N
+      torch::matmul_out(tc_j, ta_allgathered_j, tb_unsharded_); // num_devices_, params.M / (num_devices_ * params.S), params.N
     }
 
     for (const auto& stream : streams) {
