@@ -21,6 +21,7 @@
 #include <python_frontend/fusion_definition.h>
 #include <python_frontend/fusion_record.h>
 #include <python_frontend/python_bindings.h>
+#include <python_frontend/translation.h>
 #include <runtime/fusion_kernel_runtime.h>
 #include <scheduler/registry.h>
 #include <scheduler/scheduler_types.h>
@@ -487,8 +488,20 @@ computeTensorDescriptor(
   return std::make_pair(contiguity_vec, stride_order_vec);
 }
 
+// Copy definition from a FusionDefinion's pre-scheduled CPP fusion to a blank
+// FusionDefinition. Primarily for testing purposes to check that the
+// translation from CPP fusion is correct.
+void clone(FusionDefinition& from, FusionDefinition& to) {
+  NVF_CHECK(from.completed(), "FusionDefinition definition does not exist!");
+  NVF_ERROR(
+      !to.completed(), "Expected an incomplete definition before translation.");
+  translate(from.preschedFusion(), &to);
+}
+
 void initNvFuserPythonBindings(PyObject* module) {
   auto nvfuser = py::handle(module).cast<py::module>();
+
+  nvfuser.def("clone", clone);
 
   //! DataTypes supported by nvFuser in the FusionDefinition
   py::enum_<PrimDataType>(nvfuser, "DataType")
@@ -1412,7 +1425,8 @@ void initNvFuserPythonBindings(PyObject* module) {
         NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;
-        Tensor output = fd->defineTensor(arg1.dims);
+        // See newForLinear for how the output rank is computed.
+        Tensor output = fd->defineTensor(arg1.dims + arg2.dims - 2);
 
         if (bias.has_value()) {
           fd->defineRecord(

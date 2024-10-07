@@ -20,7 +20,6 @@
 #include <type.h>
 
 #include <ATen/cuda/CUDAContext.h>
-#include <limits>
 
 namespace nvfuser {
 
@@ -198,13 +197,13 @@ namespace {
 // Check contiguity for all allocation domains associated with Misaligned
 // Vectorize ParallelType
 void checkContiguity(
-    const std::unordered_set<IterDomain*>& domains,
+    const std::unordered_set<IterDomain*>& dep_alloc_ids,
     TensorView* tv) {
   NVF_ERROR(tv->getMemoryType() == MemoryType::Global);
 
   for (const auto idx : c10::irange(tv->getMaybeAllocationDomain().size())) {
     auto alloc = tv->getMaybeAllocationDomain()[idx];
-    if (domains.find(alloc) != domains.end()) {
+    if (dep_alloc_ids.find(alloc) != dep_alloc_ids.end()) {
       NVF_ERROR(
           !alloc->isBroadcast(),
           "Misaligned vectorization prohibits merging broadcast domains.",
@@ -219,12 +218,13 @@ void checkContiguity(
   }
 }
 
-// Check all allocation iter domains in consumer that are present in domain,
+// Check all allocation iter domains that are the dependencies of the
+// vectorization iter domain,
 // making sure they're contiguous. Map these domains to producer and make sure
 // they are also contiguous in producer. Producer-consumer relationship is
 // assumed to be through a set operation.
 void checkContiguity(
-    const std::unordered_set<IterDomain*>& domains,
+    const std::unordered_set<IterDomain*>& consumer_alloc_ids,
     TensorView* consumer,
     TensorView* producer) {
   // This seems not quite right, shouldn't we be able to reverse this?
@@ -233,6 +233,8 @@ void checkContiguity(
 
   // TODO: we should use BestEffortReplay to find the correct c2p map for
   // allocation domain when it is different from logical domain.
+  // This logic is outdated, but it's only for MisalignedVectorize,
+  // which is not actively used.
   NVF_ERROR(
       !consumer->hasAllocation() && !producer->hasAllocation(),
       "Misaligned vectorization for allocation domain is not supported.");
@@ -248,27 +250,25 @@ void checkContiguity(
     producer_domain_contiguity.insert({alloc, contiguity});
   }
 
-  for (auto consumer_alloc : consumer->getMaybeAllocationDomain()) {
-    if (domains.find(consumer_alloc) != domains.end()) {
-      auto producer_alloc = alloc_c2p.at(consumer_alloc);
-      NVF_ERROR(
-          producer_domain_contiguity.find(producer_alloc) !=
-          producer_domain_contiguity.end());
+  for (auto consumer_alloc : consumer_alloc_ids) {
+    auto producer_alloc = alloc_c2p.at(consumer_alloc);
+    NVF_ERROR(
+        producer_domain_contiguity.find(producer_alloc) !=
+        producer_domain_contiguity.end());
 
-      NVF_ERROR(
-          !consumer_alloc->isBroadcast() || !producer_alloc->isBroadcast(),
-          "Misaligned vectorization prohibits merging broadcast domains.",
-          "Issue found in, ",
-          consumer);
+    NVF_ERROR(
+        !consumer_alloc->isBroadcast() || !producer_alloc->isBroadcast(),
+        "Misaligned vectorization prohibits merging broadcast domains.",
+        "Issue found in, ",
+        consumer);
 
-      NVF_ERROR(alloc_c2p.find(consumer_alloc) != alloc_c2p.end());
+    NVF_ERROR(alloc_c2p.find(consumer_alloc) != alloc_c2p.end());
 
-      NVF_ERROR(
-          producer_domain_contiguity.at(producer_alloc).value_or(false),
-          "Cannot merge non-contiguous allocation domains with misaligned vectorization.",
-          "Issue found in, ",
-          consumer);
-    }
+    NVF_ERROR(
+        producer_domain_contiguity.at(producer_alloc).value_or(false),
+        "Cannot merge non-contiguous allocation domains with misaligned vectorization.",
+        "Issue found in, ",
+        consumer);
   }
 }
 
@@ -288,8 +288,7 @@ class VectorizeValidator : public OptInDispatch {
     } else if (s->inner() == vectorized_id_) {
       vectorized_id_ = s->in();
     }
-    domains_.insert(s->outer());
-    domains_.insert(s->inner());
+    domains_.insert(s->in());
   }
 
   void handle(Merge* m) final {
@@ -327,12 +326,11 @@ class VectorizeValidator : public OptInDispatch {
     }
   }
 
-  // Given the vectorized loop ID in a tensor, find its innermost ancestors in
-  // the allocation domain.
-  static IterDomain* getVectorizedIdInAllocationDomain(
-      IterDomain* v_id,
-      TensorView* tv,
-      std::string name) {
+  // Given the vectorized loop ID in a tensor, find its innermost
+  // ancestors in the allocation domain. Broadcast IDs are ignored.
+  // All dependent allocation IDs are also returned.
+  static std::pair<IterDomain*, std::unordered_set<IterDomain*>>
+  getDependentAllocIDs(IterDomain* v_id, TensorView* tv) {
     auto replay_exprs = DependencyCheck::getAllExprsBetween(
         {tv->getMaybeAllocationDomain().begin(),
          tv->getMaybeAllocationDomain().end()},
@@ -353,18 +351,31 @@ class VectorizeValidator : public OptInDispatch {
         tv,
         "\n");
 
-    if (v_id->getParallelType() == ParallelType::MisalignedVectorize) {
+    std::unordered_set<IterDomain*> dep_alloc_ids;
+    for (auto alloc : tv->getMaybeAllocationDomain()) {
+      if (validator.domains_.find(alloc) != validator.domains_.end()) {
+        dep_alloc_ids.emplace(alloc);
+      }
+    }
+
+    return {validator.vectorized_id_, dep_alloc_ids};
+  }
+
+  static void validateAllocationVectorizedId(
+      IterDomain* vec_alloc_id,
+      const std::unordered_set<IterDomain*>& dep_alloc_ids,
+      TensorView* tv,
+      std::string name) {
+    if (vec_alloc_id->getParallelType() == ParallelType::MisalignedVectorize) {
       if (tv->getMemoryType() == MemoryType::Global) {
-        checkContiguity(validator.domains_, tv);
+        checkContiguity(dep_alloc_ids, tv);
       } else if (tv->definition()->isA<LoadStoreOp>()) {
         auto input = tv->definition()->input(0);
         NVF_ERROR(input->isA<TensorView>());
         auto input_tv = input->as<TensorView>();
-        checkContiguity(validator.domains_, tv, input_tv);
+        checkContiguity(dep_alloc_ids, tv, input_tv);
       }
     }
-
-    NVF_ERROR(validator.vectorized_id_ != nullptr);
 
     // Contiguity is based on logical domain.
     IterDomain* last_alloc_dim = nullptr;
@@ -392,7 +403,7 @@ class VectorizeValidator : public OptInDispatch {
     if (last_alloc_dim == nullptr) {
       // Should never get here, but that would mean there are no concrete
       // dims, so we should be fine.
-      return nullptr;
+      return;
     }
 
     auto ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
@@ -402,7 +413,7 @@ class VectorizeValidator : public OptInDispatch {
       // ldmatrix.trans is a hardware transpose instruction that can do
       // "vectorized" read from discontiguous memory
       NVF_CHECK(
-          last_alloc_dim == validator.vectorized_id_,
+          last_alloc_dim == vec_alloc_id,
           "Vectorized dim for ",
           name,
           " has to be from an inner most position. tv: ",
@@ -410,7 +421,7 @@ class VectorizeValidator : public OptInDispatch {
           ", allocation domain: ",
           tv->getMaybeAllocationDomain(),
           ", vectorized id: ",
-          validator.vectorized_id_,
+          vec_alloc_id->toString(),
           ", innermost id: ",
           last_alloc_dim);
 
@@ -426,7 +437,17 @@ class VectorizeValidator : public OptInDispatch {
           ", contiguity: ",
           contiguity.has_value() ? (*contiguity ? "t" : "f") : "n");
     }
-    return validator.vectorized_id_;
+  }
+
+  static IterDomain* getAndValidateVectorizedIdInAllocationDomain(
+      IterDomain* v_id,
+      TensorView* tv,
+      std::string name) {
+    const auto& [vec_alloc_id, dep_alloc_ids] = getDependentAllocIDs(v_id, tv);
+
+    validateAllocationVectorizedId(vec_alloc_id, dep_alloc_ids, tv, name);
+
+    return vec_alloc_id;
   }
 
  private:
@@ -450,8 +471,8 @@ class VectorizeValidator : public OptInDispatch {
     }
 
     // If no vectorized ids found simply return. If vectorized access is
-    // broadcast, it won't generate an actual vector instruction, so can safely
-    // be ignore
+    // broadcast, it won't generate an actual vector instruction, so can
+    // be safely ignored
     if (v_id == nullptr || v_id->isBroadcast()) {
       return;
     }
@@ -479,7 +500,7 @@ class VectorizeValidator : public OptInDispatch {
         " however, vector sizes only upto and including 16 bytes are supported.");
 
     auto consumer_vectorized_id =
-        getVectorizedIdInAllocationDomain(v_id, tv, "consumer");
+        getAndValidateVectorizedIdInAllocationDomain(v_id, tv, "consumer");
     if (consumer_vectorized_id == nullptr) {
       return;
     }
@@ -538,7 +559,7 @@ class VectorizeValidator : public OptInDispatch {
         BestEffortReplay::replayPasC(producer_tv, tv, -1, pairwise_map)
             .getReplay();
     vectorized_set_info.vectorized_producer_alloc_id =
-        getVectorizedIdInAllocationDomain(
+        getAndValidateVectorizedIdInAllocationDomain(
             c2p_map.at(v_id), producer_tv, "producer");
 
     // For aligned vectorize, the extent of a vectorized domain must

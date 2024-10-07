@@ -164,7 +164,7 @@ class SetCurrentStream : public Expr {
 class Wait : public Expr {
  public:
   using Expr::Expr;
-  Wait(IrBuilderPasskey passkey, Communication* communication);
+  Wait(IrBuilderPasskey passkey, Expr* expr);
 
   Wait(const Wait& other) = delete;
   Wait& operator=(const Wait& other) = delete;
@@ -181,8 +181,8 @@ class Wait : public Expr {
 
   bool sameAs(const Statement* other) const override;
 
-  Communication* communication() const {
-    return attributes_.at(0)->as<Communication>();
+  Expr* communication() const {
+    return attributes_.at(0)->as<Expr>();
   }
 };
 
