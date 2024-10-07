@@ -416,12 +416,14 @@ def test_transformer_forward(mpi_test):
 
     torch.cuda.set_device(mpi_test.local_rank)
 
+    # To reduce memory footprint, create unsharded data on CPU and copy only
+    # the needed slice to GPU.
     mlp_linear0_weight = torch.randn(
-        d, h * 4 // d, h, dtype=torch.bfloat16, device="cuda"
+        d, h * 4 // d, h, dtype=torch.bfloat16
     )
-    mlp_linear0_bias = torch.randn(d, h * 4 // d, dtype=torch.bfloat16, device="cuda")
+    mlp_linear0_bias = torch.randn(d, h * 4 // d, dtype=torch.bfloat16)
     mlp_linear1_weight = torch.randn(
-        d, h, h * 4 // d, dtype=torch.bfloat16, device="cuda"
+        d, h, h * 4 // d, dtype=torch.bfloat16
     )
     ins = [
         29,
@@ -437,9 +439,9 @@ def test_transformer_forward(mpi_test):
         torch.randn(h, dtype=torch.bfloat16, device="cuda"),
         torch.randn(h, dtype=torch.bfloat16, device="cuda"),
         torch.randn(h, dtype=torch.bfloat16, device="cuda"),
-        mlp_linear0_weight[rank : rank + 1],
-        mlp_linear0_bias[rank : rank + 1],
-        mlp_linear1_weight[rank : rank + 1],
+        mlp_linear0_weight[rank : rank + 1].cuda(),
+        mlp_linear0_bias[rank : rank + 1].cuda(),
+        mlp_linear1_weight[rank : rank + 1].cuda(),
         torch.randn(h, dtype=torch.bfloat16, device="cuda"),
     ]
 
