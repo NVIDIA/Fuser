@@ -111,6 +111,46 @@ class Communication : public Expr {
   void validate();
 };
 
+enum class P2PCommunicationType { SEND, RECV };
+
+std::ostream& operator<<(std::ostream& os, const P2PCommunicationType& type);
+
+class P2PCommunication : public Expr {
+ public:
+  using Expr::Expr;
+
+  P2PCommunication(
+      IrBuilderPasskey passkey,
+      P2PCommunicationType type,
+      TensorView* buffer,
+      Val* peer);
+
+  P2PCommunication(const P2PCommunication& other) = delete;
+  P2PCommunication& operator=(const P2PCommunication& other) = delete;
+  P2PCommunication(P2PCommunication&& other) = delete;
+  P2PCommunication& operator=(P2PCommunication&& other) = delete;
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  const char* getOpString() const override {
+    return "P2PCommunication";
+  }
+
+  P2PCommunicationType type() const {
+    return attribute<P2PCommunicationType>(0);
+  }
+
+  TensorView* buffer() const {
+    return input(0)->as<TensorView>();
+  }
+
+  Val* peer() const {
+    return attributeVal(1);
+  }
+};
+
 // The method "post" triggers the execution of the communication. This call is
 // non-blocking. The communication can be posted multiple times.
 // It is assumed that the current device_index (given by
@@ -176,5 +216,12 @@ c10::intrusive_ptr<c10d::Work> postSingleCommunication(
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor);
+
+c10::intrusive_ptr<c10d::Work> postSingleCommunication(
+    P2PCommunication* communication,
+    DeviceIdxType my_device_index,
+    DeviceIdxType peer,
+    c10d::Backend* backend,
+    at::Tensor buffer);
 
 } // namespace nvfuser

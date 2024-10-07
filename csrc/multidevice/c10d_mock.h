@@ -156,6 +156,10 @@ class Backend : public torch::CustomClassHolder {
       const ReduceOptions& opts = ReduceOptions()) {
     return c10::make_intrusive<Work>();
   }
+
+  int getSize() const {
+    return 0;
+  }
 };
 
 struct TCPStoreOptions {
