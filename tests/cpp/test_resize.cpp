@@ -3459,8 +3459,8 @@ TEST_F(ResizeTest, AvoidVectorization) {
   auto cg_results = scheduleAndRun(&fusion, SchedulerType::PointWise, inputs);
   auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
 
-  ASSERT_TRUE(pparams->vectorize) << "Vectorization is expected to be possible";
-  ASSERT_EQ(pparams->unroll_factor, 4) << "Unexpected factor of vectorization";
+  ASSERT_EQ(pparams->vectorization_factor, 4)
+      << "Unexpected factor of vectorization";
 
   // Make sure tv1 is not vectorized, i.e., no loop IterDomains are vectorized.
   EXPECT_THAT(
@@ -3681,6 +3681,9 @@ TEST_F(ResizeTest, SliceScheduledLikeProducer) {
 
   std::vector<int64_t> shape({100});
 
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
   // concrete shapes to avoid dynamic Fusion
   auto tv0 = makeConcreteTensor(shape);
   fusion.addInput(tv0);
@@ -3706,6 +3709,13 @@ TEST_F(ResizeTest, SliceScheduledLikeProducer) {
 
   for (auto tv : {tv1, tv2}) {
     tv->split(0, 32);
+  }
+
+  inlineMost();
+
+  for (auto tv : {tv1, tv2}) {
+    EXPECT_EQ(tv->getComputeAtPosition(), 2)
+        << "Invalid computeAt position: " << tv->toString();
     tv->axis(0)->parallelize(ParallelType::BIDx);
     tv->axis(1)->parallelize(ParallelType::TIDx);
   }
@@ -3713,9 +3723,6 @@ TEST_F(ResizeTest, SliceScheduledLikeProducer) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
-
-  EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
@@ -3731,6 +3738,9 @@ TEST_F(ResizeTest, PadScheduledLikeConsumer) {
   FusionGuard fg(&fusion);
 
   std::vector<int64_t> shape({100});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   // concrete shapes to avoid dynamic Fusion
   auto tv0 = makeConcreteTensor(shape);
@@ -3750,6 +3760,13 @@ TEST_F(ResizeTest, PadScheduledLikeConsumer) {
 
   for (auto tv : {tv1, tv2, tv3}) {
     tv->split(0, 32);
+  }
+
+  inlineMost();
+
+  for (auto tv : {tv1, tv2, tv3}) {
+    EXPECT_EQ(tv->getComputeAtPosition(), 2)
+        << "Invalid computeAt position: " << tv->toString();
     tv->axis(0)->parallelize(ParallelType::BIDx);
     tv->axis(1)->parallelize(ParallelType::TIDx);
   }
@@ -3757,9 +3774,6 @@ TEST_F(ResizeTest, PadScheduledLikeConsumer) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
-
-  EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
@@ -3776,6 +3790,9 @@ TEST_F(ResizeTest, SliceThenPadLeftHalf) {
   FusionGuard fg(&fusion);
 
   std::vector<int64_t> shape({100});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   // concrete shapes to avoid dynamic Fusion
   auto tv0 = makeContigConcreteTensor(shape);
@@ -3806,6 +3823,13 @@ TEST_F(ResizeTest, SliceThenPadLeftHalf) {
 
   for (auto tv : {tv1, tv2, tv3}) {
     tv->split(0, 32);
+  }
+
+  inlineMost();
+
+  for (auto tv : {tv1, tv2, tv3}) {
+    EXPECT_EQ(tv->getComputeAtPosition(), 2)
+        << "Invalid computeAt position: " << tv->toString();
     tv->axis(0)->parallelize(ParallelType::BIDx);
     tv->axis(1)->parallelize(ParallelType::TIDx);
   }
@@ -3813,9 +3837,6 @@ TEST_F(ResizeTest, SliceThenPadLeftHalf) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
-
-  EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
@@ -3833,6 +3854,9 @@ TEST_F(ResizeTest, SliceThenPadRightHalf) {
   FusionGuard fg(&fusion);
 
   std::vector<int64_t> shape({100});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   // concrete shapes to avoid dynamic Fusion
   auto tv0 = makeContigConcreteTensor(shape);
@@ -3865,6 +3889,13 @@ TEST_F(ResizeTest, SliceThenPadRightHalf) {
 
   for (auto tv : {tv1, tv2, tv3}) {
     tv->split(0, 32);
+  }
+
+  inlineMost();
+
+  for (auto tv : {tv1, tv2, tv3}) {
+    EXPECT_EQ(tv->getComputeAtPosition(), 2)
+        << "Invalid computeAt position: " << tv->toString();
     tv->axis(0)->parallelize(ParallelType::BIDx);
     tv->axis(1)->parallelize(ParallelType::TIDx);
   }
@@ -3872,9 +3903,6 @@ TEST_F(ResizeTest, SliceThenPadRightHalf) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
-
-  EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
@@ -3892,6 +3920,9 @@ TEST_F(ResizeTest, SliceThenConcat) {
   FusionGuard fg(&fusion);
 
   std::vector<int64_t> shape({100});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   // concrete shapes to avoid dynamic Fusion
   auto tv0 = makeContigConcreteTensor(shape);
@@ -3963,6 +3994,13 @@ TEST_F(ResizeTest, SliceThenConcat) {
 
   for (auto tv : {tv1, tv2, tv3, tv4, tv5, tv6}) {
     tv->split(0, 32);
+  }
+
+  inlineMost();
+
+  for (auto tv : {tv1, tv2, tv3, tv4, tv5, tv6}) {
+    EXPECT_EQ(tv->getComputeAtPosition(), 2)
+        << "Invalid computeAt position: " << tv->toString();
     tv->axis(0)->parallelize(ParallelType::BIDx);
     tv->axis(1)->parallelize(ParallelType::TIDx);
   }
@@ -3970,9 +4008,6 @@ TEST_F(ResizeTest, SliceThenConcat) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
-
-  EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
@@ -3988,6 +4023,9 @@ TEST_F(ResizeTest, SliceSliceConcatConcat) {
 
   const int64_t i0 = 128;
   const int64_t rope_size = 32;
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   auto zero = fusion.zeroVal();
 
@@ -4229,9 +4267,18 @@ TEST_F(ResizeTest, SliceSliceConcatConcat) {
     if (tv->isFusionInput()) {
       continue;
     }
-
     tv->split(0, 4);
     tv->split(0, 16);
+  }
+
+  inlineMost();
+
+  for (auto tv : fusion.allTvs()) {
+    if (tv->isFusionInput()) {
+      continue;
+    }
+    EXPECT_EQ(tv->getComputeAtPosition(), 3)
+        << "Invalid computeAt position: " << tv->toString();
     tv->axis(0)->parallelize(ParallelType::BIDx);
     tv->axis(1)->parallelize(ParallelType::TIDx);
   }
@@ -4239,9 +4286,6 @@ TEST_F(ResizeTest, SliceSliceConcatConcat) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({i0}, options);
   std::vector<c10::IValue> aten_inputs({t0});
-
-  EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);

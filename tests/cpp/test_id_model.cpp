@@ -2841,4 +2841,57 @@ TEST_F(IdModelTest, LoopPromotionWithCyclicGraph) {
   }
 }
 
+TEST_F(IdModelTest, LoopGraphWithSetLoopDomain) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(1);
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv1);
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 = add(tv0, tv3);
+  fusion.addOutput(tv4);
+
+  {
+    std::vector<IterDomain*> loop_domain{
+        tv2->getLogicalDomain().at(0),
+        tv3->getLogicalDomain().at(1)->cloneWithoutRFactor(true)};
+    tv2->setLoopDomain(loop_domain);
+  }
+
+  for (auto tv : fusion.allTvs()) {
+    tv->flatten();
+    tv->split(0, 32);
+  }
+
+  inlineMost();
+
+  IdModel id_model(&fusion);
+
+  // Make sure that:
+  // - all loop IDs of tv2, tv3 and tv4 are grouped together.
+  // - Promotion should still pick the most concrete one
+  const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+  const auto& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
+  const auto& loop_promotion_map = id_model.loopPromotionMap();
+  for (const auto i : c10::irange(tv2->getLoopDomain().size())) {
+    const auto& loop_group = loop_graph.toGroup(tv2->getLoopDomain().at(i));
+    for (auto tv : {tv3, tv4}) {
+      EXPECT_TRUE(loop_group->has(tv->getLoopDomain().at(i)))
+          << "Loop ID not mapped with tv2 loop ID: "
+          << tv->getLoopDomain().at(i)->toString()
+          << ", tv2 loop ID: " << tv2->getLoopDomain().at(i)->toString();
+    }
+
+    auto loop_promotion_map_it = loop_promotion_map.find(loop_group);
+    ASSERT_NE(loop_promotion_map_it, loop_promotion_map.end());
+    auto promotion = loop_promotion_map_it->second;
+    EXPECT_TRUE(exact_graph.disjointValSets().strictAreMapped(
+        promotion, tv4->getLoopDomain().at(i)));
+  }
+}
+
 } // namespace nvfuser

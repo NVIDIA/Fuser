@@ -18,7 +18,12 @@ from typing import Callable
 from nvfuser import FusionCache, FusionDefinition
 from nvfuser.pytorch_utils import clear_cuda_cache
 
-from utils import check_captured_python_definition, debug_serde, basic_serde_check
+from utils import (
+    check_captured_python_definition,
+    check_cpp_translation,
+    debug_serde,
+    basic_serde_check,
+)
 
 
 def serde_check_ops(test_fn: Callable):
@@ -80,6 +85,9 @@ def torch_correctness_test_fn(fd_fn: Callable, nvf_op: OpInfo, sample: SampleInp
     inputs_cap = deepcopy(inputs)
     nvfuser_result = fd.execute(inputs)
     assert check_captured_python_definition(nvfuser_result, fd, inputs_cap)
+
+    if nvf_op.is_clonable:
+        assert check_cpp_translation(nvfuser_result, fd, inputs_cap)
 
     torch_result = nvf_op.reference(*sample.args, **sample.kwargs)
 

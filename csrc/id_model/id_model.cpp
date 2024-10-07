@@ -22,7 +22,6 @@
 #include <transform_iter.h>
 #include <val_graph_visitor.h>
 
-#include <fstream>
 #include <memory>
 #include <tuple>
 #include <utility>
@@ -506,7 +505,17 @@ ValGraph& IdModel::buildPermissiveGraph() {
          ir_utils::filterByType<TensorView>(expr->outputs())) {
       auto tv_inputs = ir_utils::filterByType<TensorView>(expr->inputs());
 
+      // If the loop domain is not generated from the logial domain
+      // with not extra IDs, broadcast forwarding is not
+      // supported. As such, permissive mappings are not generated.
+      if (!ir_utils::isLoopDomainFullyDerivedFromLogicalDomain(c_tv)) {
+        continue;
+      }
+
       for (auto p_tv : tv_inputs) {
+        if (!ir_utils::isLoopDomainFullyDerivedFromLogicalDomain(p_tv)) {
+          continue;
+        }
         ForwardingInfo permissive_forwarding(p_tv, c_tv);
         for (auto entry : permissive_forwarding.producer_forwarding_map) {
           graph.mapVals(entry.first, entry.second);
@@ -597,13 +606,28 @@ StatefulInliningInfo buildStatefulInliningInfo(
       // depend on.
       VectorOfUniqueEntries<IterDomain*> all_producer_ca_deps;
 
-      auto ca_dep_vals = DependencyCheck::getAllValsBetween(
-          {producer_logical.begin(), producer_logical.end()},
-          {producer_domain.begin(),
-           producer_domain.begin() + producer_tv->getComputeAtPosition()});
-      auto ca_deps_filter = ir_utils::filterByType<IterDomain>(ca_dep_vals);
-      all_producer_ca_deps = VectorOfUniqueEntries<IterDomain*>(
-          ca_deps_filter.begin(), ca_deps_filter.end());
+      // Broadcast forwarding is not applied when the loop domain is
+      // not fully derived from the logical domain. In that case, the
+      // loop promotion analysis effectively does nothing, however, we
+      // still need to make loop groups, for which ordered_p_ca_ids as
+      // well as p2c_ca_permissive_maps are required. Since no
+      // promotion analysis is done, only loop IDs need to be
+      // considered.
+
+      if (ir_utils::isLoopDomainFullyDerivedFromLogicalDomain(producer_tv)) {
+        auto ca_dep_vals = DependencyCheck::getAllValsBetween(
+            {producer_logical.begin(), producer_logical.end()},
+            {producer_domain.begin(),
+             producer_domain.begin() + producer_tv->getComputeAtPosition()});
+        auto ca_deps_filter = ir_utils::filterByType<IterDomain>(ca_dep_vals);
+        all_producer_ca_deps = VectorOfUniqueEntries<IterDomain*>(
+            ca_deps_filter.begin(), ca_deps_filter.end());
+      } else {
+        all_producer_ca_deps = VectorOfUniqueEntries<IterDomain*>(
+            producer_tv->getLoopDomain().begin(),
+            producer_tv->getLoopDomain().begin() +
+                producer_tv->getComputeAtPosition());
+      }
 
       info.ordered_p_ca_ids.pushBack(all_producer_ca_deps);
 
@@ -635,7 +659,6 @@ StatefulInliningInfo buildStatefulInliningInfo(
     }
 
     if (ir_utils::hasUniformSiblings(expr)) {
-      // Siblings should always be mapped
       auto consumer_tvs = ir_utils::filterByType<TensorView>(expr->outputs());
       if (consumer_tvs.size() > 1) {
         auto all_consumer_ids = consumer_tvs.vector().at(0)->domain()->allIDs();

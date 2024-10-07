@@ -120,6 +120,34 @@ INSTANTIATE_TEST_SUITE_P(
       return os.str();
     });
 
+TEST_F(MultiDeviceTest, Reduction) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto mesh = DeviceMesh::createForNumDevices(communicator_->size());
+
+  TensorView* in = makeContigTensor(2);
+  TensorView* out = sum(in, {0});
+
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  in->setDeviceMesh(mesh);
+  in->axis(0)->parallelize(ParallelType::DIDx);
+
+  auto unsharded_in_tensor = at::randn({mesh.size(), 4}, tensor_options);
+  auto in_tensor = shardTensor(unsharded_in_tensor, in);
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(
+      fec.fusion(),
+      out_tensors,
+      {in_tensor},
+      {unsharded_in_tensor.sum(0)},
+      __LINE__,
+      __FILE__);
+}
+
 TEST_F(MultiDeviceTest, Slice) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
