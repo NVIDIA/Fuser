@@ -36,8 +36,6 @@ def test_pointwise(mpi_test):
 
     torch.cuda.set_device(mpi_test.local_rank)
 
-    # Just so each rank receives the same unsharded input.
-    torch.manual_seed(0)
     unsharded_input = torch.randn(num_devices, 4, device="cuda")
     sharded_input = unsharded_input[rank : rank + 1]
 
@@ -93,7 +91,6 @@ def test_linear(mpi_test):
     torch.cuda.set_device(mpi_test.local_rank)
 
     b, s, e = 2, 1024, 768
-    torch.manual_seed(0)
     inp_tensor = torch.randn(b, s, e, device="cuda")
     unsharded_weight_tensor = torch.randn(d * e, e, device="cuda")
     weight_tensor = unsharded_weight_tensor.view([d, e, e])[rank : rank + 1]
@@ -161,7 +158,6 @@ def test_sdpa(mpi_test):
                 self.sched.parallelize(t, 0, nvfuser.ParallelType.mesh_x)
 
     torch.cuda.set_device(mpi_test.local_rank)
-    torch.manual_seed(0)
     q, k, v = [
         torch.randn(b, h, s, e // h, dtype=torch.bfloat16, device="cuda")
         for _ in range(3)
