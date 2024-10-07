@@ -111,7 +111,8 @@ class Val;
   f(SdpaFwdOp);                   \
   f(SdpaBwdOp);                   \
   f(Communication);               \
-  f(ForLoop);
+  f(ForLoop);                     \
+  f(P2PCommunication);
 #define DISPATCH_FOR_ALL_KIR_EXPRS(f) \
   f(Allocate);                        \
   f(Asm);                             \
