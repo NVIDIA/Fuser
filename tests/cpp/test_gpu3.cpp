@@ -6352,7 +6352,7 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
             tv1->getLogicalDomain(), {tv1->axis(1), tv1->axis(2)});
       },
       testing::ThrowsMessage<nvfuser::nvfError>(
-          testing::HasSubstr("dom0 has unreachable IDs")));
+          testing::HasSubstr("dom0 has unaccounted IDs")));
 
   tv1->merge(0);
   // [I0/4*4, I1]
@@ -6388,7 +6388,7 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
             tv1->getLogicalDomain());
       },
       testing::ThrowsMessage<nvfuser::nvfError>(
-          testing::HasSubstr("is redundant")));
+          testing::HasSubstr("dom0 has unaccounted IDs")));
 
   // Testing symbolic domains
   auto tv2 = reshape(

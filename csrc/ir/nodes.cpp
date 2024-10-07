@@ -2936,7 +2936,7 @@ TensorDomain::TensorDomain(
           passkey,
           /*root_domain=*/{},
           logical_domain,
-          /*allocation_domain=*/{},
+          /*allocation=*/{},
           /*loop_domain=*/logical_domain,
           /*initial_loop_domain=*/logical_domain,
           contiguity) {}
@@ -3045,7 +3045,7 @@ TensorDomain::TensorDomain(
       loop_domain_.empty() == logical_domain_.empty(),
       "logical domain and loop domain can only be both empty or neither empty");
   validateLoopDomain(loop_domain_);
-  if (loop_domain_ != initial_loop_domain) {
+  if (!initial_loop_domain_.empty() && loop_domain_ != initial_loop_domain_) {
     validateLoopDomain(initial_loop_domain_);
   }
   if (!root_domain_.empty()) {
@@ -3625,8 +3625,6 @@ std::pair<TensorDomain*, TensorDomain*> TensorDomain::rFactor(
 
 void TensorDomain::validateLoopDomain(
     const std::vector<IterDomain*>& loop_domain) const {
-  std::cerr << "Validating " << toDelimitedString(loop_domain)
-            << ", logical: " << toDelimitedString(logical_domain_) << "\n";
   auto [logical_unaccounted, loop_unreachable] =
       ir_utils::compareDomains(logical_domain_, loop_domain, additional_ids_);
   if (logical_unaccounted) {

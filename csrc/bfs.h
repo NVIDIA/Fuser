@@ -219,8 +219,6 @@ class BFS {
 
       if (const ExprT* e = std::get_if<ExprT>(&node)) {
         path.emplace_back(*e, direction);
-        std::cerr << "pushbakc to shortest path: " << direction << " "
-                  << toString(*e) << "\n";
       }
 
       if (std::find(from_.begin(), from_.end(), node) != from_.end()) {
@@ -424,7 +422,6 @@ class BFS {
 
   // Mark a node as visited
   virtual void setVisited(const NodeType& node) {
-    std::cerr << "setVisited: " << toString(node) << "\n";
     visited_.emplace(node);
   }
 

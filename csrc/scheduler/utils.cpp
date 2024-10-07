@@ -2774,7 +2774,6 @@ class LoopDomainScheduler {
         graph().disjointValSets().disjointSets();
     all_ancestors_of_ref_ = ValGraphBFS::getReachableValsFrom(
         graph(), ref_id_groups_, all_val_groups, Direction::Backward);
-
     for (const auto& g : all_ancestors_of_ref_) {
       std::cerr << "Ancestor: " << nvfuser::toString(g) << "\n";
     }
