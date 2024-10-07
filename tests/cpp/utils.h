@@ -176,10 +176,12 @@ class PredicatedChecker : public kir::IrVisitor {
     return checker.predicated_ite_;
   }
 
-  static bool isSharedMemoryPredicatedByIfThenElse(kir::Kernel* kernel) {
+  // If CpAsync from gmem to smem, then loaded from smem to registers using
+  // ldmatrix, then it is used in mma and should not use if-then-else predicate.
+  // If just CpAsync from gmem to smem, without further copy to register, then
+  // it is not used in mma and can use if-then-else predicate.
+  static bool isCpAsyncMmaPredicatedByIfThenElse(kir::Kernel* kernel) {
     for (auto tv : kernel->allTvs()) {
-      // If a tv is CpAsync copied to shared memory, then LdMatrix copied to
-      // registers, should use inline predicate instead of if-then-else
       if (tv->definition() != nullptr &&
           ir_utils::isCpAsyncOp(tv->definition())) {
         const auto& consumers = ir_utils::consumerTvsOf(tv);
