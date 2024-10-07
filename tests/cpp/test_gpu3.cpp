@@ -7884,7 +7884,9 @@ TEST_F(NVFuserTest, AvoidCachingSliceInput) {
   const auto num_segments = kernel_runtime->fusionSegments()->groups().size();
   NVF_CHECK(num_segments == 3, "Expect 3 segments, got: ", num_segments);
   for (const auto& fe : kernel_runtime->executors()) {
-    for (auto expr : fe.compiledKernel()->fusion()->exprs()) {
+    auto exprs = fe.compiledKernel() ? fe.compiledKernel()->fusion()->exprs()
+                                     : fe.fusion()->exprs();
+    for (auto expr : exprs) {
       if (expr->isA<SliceOp>()) {
         auto slice = expr->as<SliceOp>();
         NVF_CHECK(

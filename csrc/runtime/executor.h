@@ -136,8 +136,8 @@ class FusionExecutor : public NonCopyable {
     if (compiledKernel()) {
       return true;
     }
-    int num_compiled_artifacts = (fusion_ != nullptr) + (lowered_ != nullptr) +
-        (host_ir_container_ != nullptr);
+    int num_compiled_artifacts =
+        (fusion_ != nullptr) + (host_ir_container_ != nullptr);
     NVF_ERROR(num_compiled_artifacts <= 1);
     return num_compiled_artifacts == 1;
   };
@@ -231,8 +231,17 @@ class FusionExecutor : public NonCopyable {
     return compiled_kernel_2_;
   }
 
+  const std::unique_ptr<CompiledKernel>& initCompiledKernel() {
+    compiledKernel_() = std::make_unique<CompiledKernel>();
+    return compiledKernel();
+  }
+
   const std::unique_ptr<hir::HostIrContainer>& hostIrContainer() const {
     return host_ir_container_;
+  }
+
+  const std::unique_ptr<Fusion>& fusion() const {
+    return fusion_;
   }
 
  private:
@@ -345,51 +354,12 @@ class FusionExecutor : public NonCopyable {
   //!  compiled kernel at the current shared memory/L1 configuration
   std::optional<int64_t> available_dynamic_smem_size_ = std::nullopt;
 
-  // Assuming sm70 or above:
-  //  limit of statically allocated smem is 48 KB:
-  // See:
-  // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#shared-memory-7-x
-  // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#shared-memory-8-x
-  const int64_t max_static_smem_ = 48 << 10;
-
   int64_t warp_size_ = 0;
-  std::unique_ptr<executor_utils::CompiledKernel> compiled_kernel_;
-
-  // TensorViews actually used in the kernel.
-  std::vector<TensorView*> used_tvs_;
-
-  // ID of fusion in python frontend fusion cache, which maps to a single
-  // FusionExecutorCache.
-  int64_t fusion_id_ = -1;
-
-  // ID of (device, concrete_info) key in FusionExecutorCache
-  int64_t concrete_id_ = -1;
-
-  // ID of FusionKernelRuntime given (device, concrete_info) key
-  int64_t runtime_id_ = -1;
-
-  // ID of segment in FusionKernelRuntime
-  int64_t group_id_ = -1;
-
-  inline static std::atomic<int64_t> global_fusion_count_;
-
-  // Scheduling Heuristic for this Fusion
-  SchedulerType scheduler_type_ = SchedulerType::None;
-
-  // Kernel name for fusion executor
-  std::string kernel_id_;
-
-  std::unique_ptr<GpuLower> lowered_;
 
   // Initialized for non-compiled fusions
   std::unique_ptr<Fusion> fusion_;
 
   std::unique_ptr<hir::HostIrContainer> host_ir_container_;
-
-  // Track the block size this kernel was compiled with. If the block size
-  // increases, recompile to adjust maxregister count.
-  int64_t block_size_high_water_mark_ = 1;
-  int64_t maxrregcount_high_water_mark_ = 255;
 
   // lookup table to take short cut to retrieve recorded information in order
   // to launch kernels without re-inference parameters.
@@ -415,9 +385,6 @@ class FusionExecutor : public NonCopyable {
   // Profiling support: the last launch param used
   LaunchParams launch_params_;
 
-  // Profiling support: kept copy of the cuda kernel
-  std::string kernel_code_;
-
   // Lowering hooks that are called after the GpuLower instance is created
   // before running lowering passes.
   // The main use case is for unit tests to modify the lowering process.
@@ -428,6 +395,11 @@ class FusionExecutor : public NonCopyable {
   std::vector<std::function<void(kir::Kernel*)>> post_lowering_hooks_;
 
   Communicator* communicator_;
+
+  // TODO: Remove once we remove ExprEval and HostIR compilation and execution
+  // from this class
+  int64_t group_id_ = -1;
+  SchedulerType scheduler_type_ = SchedulerType::None;
 };
 
 } // namespace nvfuser

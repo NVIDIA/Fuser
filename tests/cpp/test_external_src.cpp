@@ -38,13 +38,12 @@ TEST_F(ExternalSrcExample, Reduction_CUDA) {
     return;
   }
 
-  std::cout << "Compiling " << path << std::endl;
   std::ifstream cuda_src(path);
   std::stringstream buffer;
   buffer << cuda_src.rdbuf();
   std::string cuda_src_str = buffer.str();
 
-  fe.compiledKernel()->compileRtc(
+  fe.initCompiledKernel()->compileRtc(
       cuda_src_str, "kernel1", true, PrimDataType::Int32);
 
   // The following is a sample launch pattern of the compiled
@@ -72,25 +71,16 @@ TEST_F(ExternalSrcExample, Reduction_CUDA) {
   auto t3 = t2.unsqueeze(0).unsqueeze(0).unsqueeze(0);
   auto ref = t1 - t3;
 
-  float read_write_bytes =
-      input_shape[0] * input_shape[1] * input_shape[2] * input_shape[3] * 2 * 2;
-
   for (int i = 0; i < 5; ++i) {
     auto t14 = at::zeros_like(t0, options_float);
     auto t15 = at::zeros_like(t0, options_float);
     auto t16 = at::zeros_like(t0, options_int);
     auto t17 = at::zeros({8}, options_long);
     clearL2Cache();
-    std::cout << "Launching the kernel" << std::endl;
-    float elapsed_time_ms = fe.compiledKernel()->runRtc(
+    fe.compiledKernel()->runRtc(
         lp, {t0, t7, t14, t15, t16, t17}, PrimDataType::Int32);
-    std::cout << "kernel run in " << elapsed_time_ms << " ms, achieved "
-              << (read_write_bytes / elapsed_time_ms / 1000.0 / 1000.0)
-              << " GB/s" << std::endl;
 
     auto fusion_out = t7.to(at::kFloat);
-    std::cout << "Max diff: " << (ref - fusion_out).abs().max().item<float>()
-              << std::endl;
     NVF_CHECK(ref.allclose(fusion_out, /*rtol*/ 0.005, /*atol*/ 0.5));
   }
 }
@@ -110,13 +100,13 @@ TEST_F(ExternalSrcExample, Matmul_CUDA) {
     return;
   }
 
-  std::cout << "Compiling " << path << std::endl;
+  // std::cout << "Compiling " << path << std::endl;
   std::ifstream cuda_src(path);
   std::stringstream buffer;
   buffer << cuda_src.rdbuf();
   std::string cuda_src_str = buffer.str();
 
-  fe.compiledKernel()->compileRtc(
+  fe.initCompiledKernel()->compileRtc(
       cuda_src_str, "kernel1", true, PrimDataType::Int32);
 
   int M = 2048, N = 3456, K = 2048;
@@ -130,13 +120,9 @@ TEST_F(ExternalSrcExample, Matmul_CUDA) {
   for (int i = 0; i < 5; ++i) {
     auto output = at::zeros_like(at_output);
     clearL2Cache();
-    std::cout << "Launching the kernel" << std::endl;
-    float elapsed_time_ms = fe.compiledKernel()->runRtc(
+    fe.compiledKernel()->runRtc(
         lp, {inputs.first, inputs.second, output}, PrimDataType::Int32);
-    std::cout << "kernel run in " << elapsed_time_ms << " ms." << std::endl;
 
-    std::cout << "Max diff: " << (at_output - output).abs().max().item<float>()
-              << std::endl;
     NVF_CHECK(at_output.allclose(output, /*rtol*/ 0.005, /*atol*/ 0.5));
   }
 }

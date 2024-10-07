@@ -1974,7 +1974,8 @@ __global__ void kernel1(Tensor<float, 1> T0, Tensor<float, 1> T1) {
   }
 }
     )";
-  fe.compiledKernel()->compileRtc(kernel, "kernel1", false, PrimDataType::Int);
+  fe.initCompiledKernel()->compileRtc(
+      kernel, "kernel1", false, PrimDataType::Int);
   LaunchParams lp(
       256, // gdimx
       1, // gdimy
@@ -2030,7 +2031,8 @@ __global__ void kernel1(
     }
 }
     )";
-  fe.compiledKernel()->compileRtc(kernel, "kernel1", false, PrimDataType::Int);
+  fe.initCompiledKernel()->compileRtc(
+      kernel, "kernel1", false, PrimDataType::Int);
   LaunchParams lp(
       1, // gdimx
       1, // gdimy
@@ -2102,7 +2104,8 @@ __global__ void kernel1(
     }
 }
     )";
-  fe.compiledKernel()->compileRtc(kernel, "kernel1", false, PrimDataType::Int);
+  fe.initCompiledKernel()->compileRtc(
+      kernel, "kernel1", false, PrimDataType::Int);
   LaunchParams lp(
       1, // gdimx
       1, // gdimy
@@ -2183,7 +2186,8 @@ __global__ void kernel1(
     }
 }
     )";
-  fe.compiledKernel()->compileRtc(kernel, "kernel1", false, PrimDataType::Int);
+  fe.initCompiledKernel()->compileRtc(
+      kernel, "kernel1", false, PrimDataType::Int);
   LaunchParams lp(
       1, // gdimx
       1, // gdimy
@@ -2258,7 +2262,8 @@ __global__ void kernel1(
     }
 }
     )";
-  fe.compiledKernel()->compileRtc(kernel, "kernel1", false, PrimDataType::Int);
+  fe.initCompiledKernel()->compileRtc(
+      kernel, "kernel1", false, PrimDataType::Int);
   LaunchParams lp(
       x, // gdimx
       y, // gdimy

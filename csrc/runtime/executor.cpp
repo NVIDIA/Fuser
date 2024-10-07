@@ -111,6 +111,8 @@ void FusionExecutor::compileFusion(
     int64_t concrete_id,
     int64_t runtime_id,
     int64_t group_id) {
+  group_id_ = group_id;
+  scheduler_type_ = scheduler_type;
   FUSER_PERF_SCOPE("FusionExecutor::compileFusion");
   NVF_ERROR(
       !_fusion->outputs().empty(),
@@ -897,13 +899,16 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
   if (isProfilerEnabled()) {
     NVF_CHECK(
-        compiledKernel_()->groupId() >= 0,
+        (compiledKernel_() && compiledKernel_()->groupId() >= 0) ||
+            group_id_ >= 0,
         "An invalid segment id is passed to FusionProfiler!:",
-        compiledKernel_()->groupId());
-    SegmentProfiler& sprof =
-        FusionProfiler::segment(compiledKernel_()->groupId());
+        compiledKernel_() ? compiledKernel_()->groupId() : group_id_);
+    SegmentProfiler& sprof = FusionProfiler::segment(
+        compiledKernel_() ? compiledKernel_()->groupId() : group_id_);
     sprof.inputBytesAccessed(inputBytesProcessed(args));
-    sprof.scheduler(toString(compiledKernel_()->schedulerType()));
+    sprof.scheduler(toString(
+        compiledKernel_() ? compiledKernel_()->schedulerType()
+                          : scheduler_type_));
     sprof.startKernel(args.getDeviceIndex());
   }
 
@@ -918,7 +923,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     FUSER_PERF_SCOPE("FusionExecutor::runFusion::evaluate_with_ExprEval");
     outputs = evaluateFusionOutputs(outputs, expr_eval);
     if (isProfilerEnabled()) {
-      auto& sprof = FusionProfiler::segment(compiledKernel_()->groupId());
+      auto& sprof = FusionProfiler::segment(group_id_);
       sprof.stopKernel();
       sprof.outputBytesAccessed(outputBytesProcessed(outputs));
     }
