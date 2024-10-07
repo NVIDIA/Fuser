@@ -2666,19 +2666,19 @@ namespace {
 
 // Similar to id_model/transform_replay.h but using a given list of
 // outputs in addition to inputs
-class ReplayTransform : OptInConstDispatch {
+class LoopDomainSchedulerReplayTransform : OptInConstDispatch {
  public:
   static Expr* replayAs(
       const std::vector<IterDomain*>& ordered_inputs,
       const std::vector<IterDomain*>& ordered_outputs,
       const Expr* expression_to_match) {
-    ReplayTransform replay(
+    LoopDomainSchedulerReplayTransform replay(
         ordered_inputs, ordered_outputs, expression_to_match);
     return replay.replayed_expr_;
   }
 
  private:
-  ReplayTransform(
+  LoopDomainSchedulerReplayTransform(
       const std::vector<IterDomain*>& ordered_inputs,
       const std::vector<IterDomain*>& ordered_outputs,
       const Expr* expression_to_match)
@@ -2809,7 +2809,7 @@ class LoopDomainScheduler {
         [&](const ValGroup& output_g) -> IterDomain* {
           return group_to_id.at(output_g);
         });
-    Expr* replayed_expr = ReplayTransform::replayAs(
+    Expr* replayed_expr = LoopDomainSchedulerReplayTransform::replayAs(
         dir == Direction::Forward ? inputs : outputs,
         dir == Direction::Forward ? outputs : inputs,
         expr_g->front());
@@ -2906,36 +2906,53 @@ void LoopDomainScheduler::schedule(TensorView* tv) {
   //
   // Backward search from the ref to the inputs
 
-  std::cerr << "getExprs from ancestor to tv\n";
-  auto ancestor_to_tv = ValGraphBFS::getExprsBetween(
-      graph(),
-      all_ancestors_of_ref_,
-      graph().toGroups(tv->getMaybeRootDomain()),
-      /*require_all_to_visited=*/true,
-      Direction::Forward);
-  std::cerr << "Ancestor to to exprs\n";
-  for (const auto& [expr_g, dir] : ancestor_to_tv) {
-    std::cerr << "\t" << dir << " " << expr_g->front()->toString();
-  }
-  auto ancestor_to_tv_inputs = getInputsOfExprPath(graph(), ancestor_to_tv);
-  for (const auto& vg : ancestor_to_tv_inputs) {
-    std::cerr << "Input to anc: " << nvfuser::toString(vg) << "\n";
-  }
-  auto ref_to_inputs = ValGraphBFS::getExprsBetween(
-      graph(),
-      ref_id_groups_,
-      ancestor_to_tv_inputs,
-      /*require_all_to_visited=*/true,
-      Direction::Backward);
+  ValGroups tv_target_domains =
+      graph().toGroups(TensorDomain::noBroadcasts(tv->getMaybeRootDomain()));
+  ValGraphBFS::ExprPath ref_to_logical;
+  if (std::all_of(
+          tv_target_domains.begin(),
+          tv_target_domains.end(),
+          [&](const ValGroup& tv_target_domain) {
+            return all_ancestors_of_ref_.has(tv_target_domain);
+          })) {
+    ref_to_logical = ValGraphBFS::getExprsBetween(
+        graph(),
+        ref_id_groups_,
+        tv_target_domains,
+        /*require_all_to_visited=*/true,
+        Direction::Backward);
+  } else {
+    std::cerr << "getExprs from ancestor to tv\n";
+    auto ancestor_to_tv = ValGraphBFS::getExprsBetween(
+        graph(),
+        all_ancestors_of_ref_,
+        graph().toGroups(tv->getMaybeRootDomain()),
+        /*require_all_to_visited=*/true,
+        Direction::Forward);
+    std::cerr << "Ancestor to to exprs\n";
+    for (const auto& [expr_g, dir] : ancestor_to_tv) {
+      std::cerr << "\t" << dir << " " << expr_g->front()->toString();
+    }
+    auto ancestor_to_tv_inputs = getInputsOfExprPath(graph(), ancestor_to_tv);
+    for (const auto& vg : ancestor_to_tv_inputs) {
+      std::cerr << "Input to anc: " << nvfuser::toString(vg) << "\n";
+    }
+    auto ref_to_inputs = ValGraphBFS::getExprsBetween(
+        graph(),
+        ref_id_groups_,
+        ancestor_to_tv_inputs,
+        /*require_all_to_visited=*/true,
+        Direction::Backward);
 
-  // Overall traversal path: ref_to_inputs -> ancestor_to_tv_inputs
-  for (const auto& [expr_g, dir] : ref_to_inputs) {
-    std::cerr << "\t" << dir << " " << expr_g->front()->toString();
-  }
+    // Overall traversal path: ref_to_inputs -> ancestor_to_tv_inputs
+    for (const auto& [expr_g, dir] : ref_to_inputs) {
+      std::cerr << "\t" << dir << " " << expr_g->front()->toString();
+    }
 
-  auto ref_to_logical = ref_to_inputs;
-  ref_to_logical.insert(
-      ref_to_logical.end(), ancestor_to_tv.begin(), ancestor_to_tv.end());
+    ref_to_logical = ref_to_inputs;
+    ref_to_logical.insert(
+        ref_to_logical.end(), ancestor_to_tv.begin(), ancestor_to_tv.end());
+  }
 
   for (const auto& [expr_g, dir] : ref_to_logical) {
     std::cerr << "Traversing " << dir << " " << expr_g->front()->toString();

@@ -20,7 +20,7 @@
 
 namespace nvfuser {
 
-class LoopSchedulingTest : public NVFuserTest {
+class LoopDomainSchedulingTest : public NVFuserTest {
  protected:
   void SetUp() override {
     EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
@@ -30,7 +30,7 @@ class LoopSchedulingTest : public NVFuserTest {
   EnableOptionsGuard enable_options_guard_;
 };
 
-TEST_F(LoopSchedulingTest, ReshapeSplitThenMerge) {
+TEST_F(LoopDomainSchedulingTest, ReshapeSplitThenMerge) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -93,7 +93,7 @@ TEST_F(LoopSchedulingTest, ReshapeSplitThenMerge) {
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
 
-TEST_F(LoopSchedulingTest, ReshapeWithBroadcast) {
+TEST_F(LoopDomainSchedulingTest, ReshapeWithBroadcast) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -125,13 +125,6 @@ TEST_F(LoopSchedulingTest, ReshapeWithBroadcast) {
   tv2->domain()->validateLoopDomain(tv2->getLoopDomain());
 
   IdModel id_model(&fusion);
-
-#if 0
-  std::ofstream ofs("exact_graph.dot", std::ofstream::trunc);
-  auto dot_string = id_model.idGraph(IdMappingMode::EXACT).toGraphvizDotGraph();
-  ofs << dot_string;
-  ofs.close();
-#endif
 
   ref = tv4->getLoopDomain();
   for (auto tv : fusion.allTvs()) {
@@ -170,7 +163,7 @@ TEST_F(LoopSchedulingTest, ReshapeWithBroadcast) {
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
 
-TEST_F(LoopSchedulingTest, Slice) {
+TEST_F(LoopDomainSchedulingTest, Slice) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -240,7 +233,7 @@ TEST_F(LoopSchedulingTest, Slice) {
 // ValGraph shortest path of two tensors results in the invalid
 // pattern. The loop domain scheduler should be able to find a
 // non-shortest but valid path.
-TEST_F(LoopSchedulingTest, ReshapeTraversalDirection) {
+TEST_F(LoopDomainSchedulingTest, ReshapeTraversalDirection) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
