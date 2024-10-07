@@ -2223,8 +2223,8 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulTileCheck8warp) {
                 LaunchParams(),
                 matmul_cparams));
         ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
-        ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-            fe.kernel()));
+        ASSERT_FALSE(
+            PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(fe.kernel()));
         auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
         auto tref = atMatmul(
             inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -3338,8 +3338,8 @@ TEST_P(MatmulTestWithLayout, MisalignedVectorization) {
             fe.compileFusion(
                 fusion.get(), inputs, LaunchParams(), matmul_cparams));
         ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
-        ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-            fe.kernel()));
+        ASSERT_FALSE(
+            PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(fe.kernel()));
         auto outputs = fe.runFusion(inputs);
 
         EXPECT_TRUE(outputs[0].allclose(tref, 0.001, 0.001));
