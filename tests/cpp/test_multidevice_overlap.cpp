@@ -495,15 +495,15 @@ TEST_F(
   }
 }
 
-class AGOverlapTest : public MultiDeviceTest {
+class AllgatherOverlapTest : public MultiDeviceTest {
  protected:
   OverlapTestParams params;
 
   int64_t num_devices_;
   int64_t my_device_index_;
   std::vector<int64_t> all_devices_;
-  at::Tensor ta_, tb_, tc_;
-  at::Tensor ta_sharded_, tc_sharded_;
+  at::Tensor ta_unsharded_, tb_unsharded_, tc_unsharded_;
+  at::Tensor ta_, tc_;
   // stores the backend
   c10d::Backend* world_communicator_;
 
@@ -511,11 +511,11 @@ class AGOverlapTest : public MultiDeviceTest {
   // A has shape (S, sharded(D), M/(S*D), K)
   // B(K,N)
   // C has shape (S, M/S, N)
+  std::vector<int64_t> ta_unsharded_sizes;
+  std::vector<int64_t> tb_unsharded_sizes;
+  std::vector<int64_t> tc_unsharded_sizes;
   std::vector<int64_t> ta_sizes;
-  std::vector<int64_t> tb_sizes;
   std::vector<int64_t> tc_sizes;
-  std::vector<int64_t> ta_sharded_sizes;
-  std::vector<int64_t> tc_sharded_sizes;
   std::vector<int64_t> tc_j_sizes;
 
   void SetUp() {
@@ -523,8 +523,7 @@ class AGOverlapTest : public MultiDeviceTest {
 
     num_devices_ = communicator_->size();
     my_device_index_ = communicator_->deviceId();
-    ASSERT_EQ(params.M % num_devices_, 0);
-    ASSERT_EQ(params.S % num_devices_, 0);
+    ASSERT_EQ(params.M  % (num_devices_ * params.S), 0);
 
     // Setup the world communicators
     std::vector<int64_t> devices(num_devices_);
@@ -538,14 +537,14 @@ class AGOverlapTest : public MultiDeviceTest {
       debug() << params << std::endl;
     }
 
-    ta_sizes = std::vector<int64_t>{
+    ta_unsharded_sizes = std::vector<int64_t>{
         params.S, num_devices_, params.M / (num_devices_ * params.S), params.K};
-    tb_sizes = std::vector<int64_t>{params.K, params.N};
-    tc_sizes = std::vector<int64_t>{
+    tb_unsharded_sizes = std::vector<int64_t>{params.K, params.N};
+    tc_unsharded_sizes = std::vector<int64_t>{
         params.S, num_devices_, params.M / (num_devices_ * params.S), params.N};
-    ta_sharded_sizes = std::vector<int64_t>{
+    ta_sizes = std::vector<int64_t>{
         params.S, params.M / (num_devices_ * params.S), params.K};
-    tc_sharded_sizes = std::vector<int64_t>{
+    tc_sizes = std::vector<int64_t>{
         params.S, params.M / (num_devices_ * params.S), params.N};
     tc_j_sizes = std::vector<int64_t>{
         params.M / params.S, params.N};
@@ -558,41 +557,46 @@ class AGOverlapTest : public MultiDeviceTest {
     auto cpu_options = at::TensorOptions().dtype(at::kFloat);
     at::TensorOptions gpu_options = cpu_options.device(communicator_->device());
 
+    ta_unsharded_ = at::empty(ta_unsharded_sizes, cpu_options);
+    tb_unsharded_ = at::empty(tb_unsharded_sizes, gpu_options);
+    tc_unsharded_ = at::empty(tc_unsharded_sizes, gpu_options);
     ta_ = at::empty(ta_sizes, gpu_options);
-    tb_ = at::empty(tb_sizes, gpu_options);
     tc_ = at::empty(tc_sizes, gpu_options);
-    ta_sharded_ = at::empty(ta_sharded_sizes, gpu_options);
-    tc_sharded_ = at::empty(tc_sharded_sizes, gpu_options);
 
     // Debug print
     if (communicator_->deviceId() == 0 && debug_print) {
-      debug() << "ta_sizes()=" << ta_.sizes() << std::endl
-              << "tb_sizes()=" << tb_.sizes() << std::endl
-              << "tc_sizes()=" << tc_.sizes() << std::endl;
+      debug() << "ta_unsharded_sizes()=" << ta_unsharded_.sizes() << std::endl
+              << "tb_unsharded_sizes()=" << tb_unsharded_.sizes() << std::endl
+              << "tc_unsharded_sizes()=" << tc_unsharded_.sizes() << std::endl;
     }
   }
 
   // Each rank calls uniform_ and gets the same values for ta_ and tb_ because the random seed is initialized the same
   // Therefore, we do not need to have one rank generate ta_ and tb_ and broadcast it to the rest of the ranks
   void initializeIO() {
-    ta_.uniform_();
-    tb_.uniform_();
-    ta_sharded_.copy_(ta_.select(1, my_device_index_));
+    ta_unsharded_.uniform_();
+    tb_unsharded_.uniform_();
+    ta_.copy_(ta_unsharded_.select(1, my_device_index_));
   }
 
   void validate() {
     // compute the expected output for data correctness validation
-    auto tb_cpu = tb_.to(torch::kCPU);
-    auto ta_cpu = ta_.to(torch::kCPU);
-    auto tc_expected_ = torch::matmul(ta_cpu, tb_cpu);
-    EXPECT_TRUE(tc_.to(torch::kCPU).allclose(tc_expected_, 1e-1, 1e-1))
-        << "Unexpected results, obtained:" << tc_
-        << "\n expected: " << tc_expected_;
+    auto tb_unsharded_cpu = tb_unsharded_.to(torch::kCPU);
+    auto ta_unsharded_cpu = ta_unsharded_.to(torch::kCPU);
+    auto tc_unsharded_expected_ = torch::matmul(ta_unsharded_cpu, tb_unsharded_cpu);
+    EXPECT_TRUE(tc_unsharded_.to(torch::kCPU).allclose(tc_unsharded_expected_, 1e-1, 1e-1))
+        << "Unexpected results, obtained:" << tc_unsharded_
+        << "\n expected: " << tc_unsharded_expected_;
   }
 };
 // This test implements an allgather-based pipelining overlapping technique,
 // similar to the above reduce-scattered based pipelining overlapping technique
+<<<<<<< HEAD
 TEST_F(AGOverlapTest, AllgatherBasedPipeliningATenImplementation) {
+=======
+// clang-format on
+TEST_F(AllgatherOverlapTest, AllgatherBasedPipeliningATenImplementation) {
+>>>>>>> 1df9ebdf (Review feedback)
   std::vector<c10::cuda::CUDAStream> streams;
   std::generate_n(
       std::back_inserter(streams),
@@ -611,14 +615,18 @@ TEST_F(AGOverlapTest, AllgatherBasedPipeliningATenImplementation) {
       setCurrentCUDAStream(streams.at(stream_index));
 
       // local compute
-      auto ta_sharded_j = ta_sharded_.select(0, j); // params.M / (num_devices_ * params.S), params.K
-      auto tc_sharded_j = tc_sharded_.select(0, j); // params.M / (num_devices_ * params.S), params.N
-      torch::matmul_out(tc_sharded_j, ta_sharded_j, tb_); // params.M / (num_devices_ * params.S), params.N
+      auto ta_j = ta_.select(0, j); // params.M / (num_devices_ * params.S), params.K
+      auto tc_j = tc_.select(0, j); // params.M / (num_devices_ * params.S), params.N
+      torch::matmul_out(tc_j, ta_j, tb_unsharded_); // params.M / (num_devices_ * params.S), params.N
 
       // communication
-      auto tc_j = tc_.select(0, j); // num_devices_, params.M / (num_devices_ * params.S), params.N
-      world_communicator_->_allgather_base(tc_j, tc_sharded_j) // num_devices_, params.M / (num_devices_ * params.S), params.N
+      auto tc_unsharded_j = tc_unsharded_.select(0, j); // num_devices_, params.M / (num_devices_ * params.S), params.N
+      world_communicator_->_allgather_base(tc_unsharded_j, tc_j) // num_devices_, params.M / (num_devices_ * params.S), params.N
           ->wait();
+    }
+
+    for (const auto& stream : streams) {
+      cudaStreamSynchronize(stream);
     }
 
     validate();
