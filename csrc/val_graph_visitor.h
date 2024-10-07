@@ -184,14 +184,16 @@ class ValGraphBFS : public BFS<
       const ValGraph& graph,
       std::vector<NodeType> from_groups,
       std::vector<NodeType> to_groups,
-      bool require_all_to_visited = true)
+      bool require_all_to_visited = true,
+      Direction allowed_direction = Direction::Undefined)
       : BFS(ValGraphDefinitions(graph),
             ValGraphUses(graph),
             ValGraphInputs(graph),
             ValGraphOutputs(graph),
             std::move(from_groups),
             std::move(to_groups),
-            require_all_to_visited) {}
+            require_all_to_visited,
+            allowed_direction) {}
 
  public:
   // Find the shortest path from the from_groups_ to to_groups_ on a
@@ -201,9 +203,14 @@ class ValGraphBFS : public BFS<
       const ValGraph& graph,
       std::vector<NodeType> from,
       std::vector<NodeType> to,
-      bool require_all_to_visited = true) {
+      bool require_all_to_visited = true,
+      Direction allowed_direction = Direction::Undefined) {
     ValGraphBFS bfs(
-        graph, std::move(from), std::move(to), require_all_to_visited);
+        graph,
+        std::move(from),
+        std::move(to),
+        require_all_to_visited,
+        allowed_direction);
     bfs.traverse();
     return bfs.getShortestExprPath();
   }
@@ -211,26 +218,30 @@ class ValGraphBFS : public BFS<
       const ValGraph& graph,
       const ValGroups& from,
       const ValGroups& to,
-      bool require_all_to_visited = true) {
+      bool require_all_to_visited = true,
+      Direction allowed_direction = Direction::Undefined) {
     return getExprsBetween(
         graph,
         std::vector<NodeType>{from.vector().begin(), from.vector().end()},
         std::vector<NodeType>{to.vector().begin(), to.vector().end()},
-        require_all_to_visited);
+        require_all_to_visited,
+        allowed_direction);
   }
 
   // Get all the val groups in vals that are reachable from the from groups
   static ValGroups getReachableValsFrom(
       const ValGraph& graph,
       const ValGroups& from,
-      const ValGroups& vals);
+      const ValGroups& vals,
+      Direction allowed_direction = Direction::Undefined);
 
   // Given `from`, project it to `to`. This function will return a subset of
   // `to` that is connected to `from`.
   static std::unordered_set<ValGroup> projectTo(
       const ValGraph& id_graph,
       const ValGroup& from,
-      const ValGroups& to);
+      const ValGroups& to,
+      Direction allowed_direction = Direction::Undefined);
 };
 
 } // namespace nvfuser

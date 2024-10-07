@@ -10,6 +10,7 @@
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>
 
+#include <bfs.h>
 #include <contiguity.h>
 #include <expr_evaluator.h>
 #include <id_model/id_model.h>
@@ -28,6 +29,7 @@
 #include <ATen/cuda/CUDAContext.h>
 
 #include <algorithm>
+#include <functional>
 #include <queue>
 
 #include <fstream>
@@ -2767,6 +2769,15 @@ class LoopDomainScheduler {
     }
 
     ref_id_groups_ = graph().toGroups(ref_loop_dom_);
+
+    std::vector<ValGroup> all_val_groups =
+        graph().disjointValSets().disjointSets();
+    all_ancestors_of_ref_ = ValGraphBFS::getReachableValsFrom(
+        graph(), ref_id_groups_, all_val_groups, Direction::Backward);
+
+    for (const auto& g : all_ancestors_of_ref_) {
+      std::cerr << "Ancestor: " << nvfuser::toString(g) << "\n";
+    }
   }
 
   void schedule(TensorView* tv);
@@ -2811,7 +2822,34 @@ class LoopDomainScheduler {
   std::vector<IterDomain*> ref_loop_dom_;
   std::unique_ptr<IdModel> id_model_;
   ValGroups ref_id_groups_;
+  ValGroups all_ancestors_of_ref_;
 };
+
+ValGroups getInputsOfExprPath(
+    const ValGraph& graph,
+    const ValGraphBFS::ExprPath& path) {
+  ValGroups inputs;
+  std::unordered_set<ValGroup> all_outputs;
+
+  for (const auto& [expr_g, dir] : path) {
+    const auto input_groups = dir == Direction::Forward
+        ? graph.inputGroups(expr_g)
+        : graph.outputGroups(expr_g);
+    const auto output_groups = dir == Direction::Forward
+        ? graph.outputGroups(expr_g)
+        : graph.inputGroups(expr_g);
+    for (const auto& inp : input_groups) {
+      if (all_outputs.find(inp) == all_outputs.end()) {
+        inputs.pushBack(inp);
+      }
+    }
+    for (const auto& out : output_groups) {
+      all_outputs.emplace(out);
+    }
+  }
+
+  return inputs;
+}
 
 void LoopDomainScheduler::schedule(TensorView* tv) {
   std::cerr << "Scheduling " << tv->toString() << "\n";
@@ -2863,29 +2901,41 @@ void LoopDomainScheduler::schedule(TensorView* tv) {
     return;
   }
 
-#if 0
-  ValGroups logical_id_groups =
-      graph().toGroups(TensorDomain::noBroadcasts(tv->getLogicalDomain()));
+  // Forward search to tv root
+  //
+  // Find inputs of the traversal path
+  //
+  // Backward search from the ref to the inputs
 
-  std::cerr << "getExprsBetween: "
-            << nvfuser::toString(ref_id_groups_)
-            << " -> " << nvfuser::toString(logical_id_groups) << "\n";
-
-  auto ref_to_logical =
-      ValGraphBFS::getExprsBetween(graph(), ref_id_groups_, logical_id_groups);
-#else
-  auto tv_to_ref = ValGraphBFS::getExprsBetween(
+  auto ancestor_to_tv = ValGraphBFS::getExprsBetween(
       graph(),
-      graph().toGroups(all_ids),
-      ref_id_groups_,
-      /*require_all_to_visited=*/false);
-  auto ref_to_logical = reverse(tv_to_ref);
-#endif
-
-  std::cerr << "Replay path\n";
-  for (const auto& [expr_g, dir] : ref_to_logical) {
+      all_ancestors_of_ref_,
+      graph().toGroups(tv->getMaybeRootDomain()),
+      /*require_all_to_visited=*/true,
+      Direction::Forward);
+  for (const auto& [expr_g, dir] : ancestor_to_tv) {
     std::cerr << "\t" << dir << " " << expr_g->front()->toString();
   }
+  auto ancestor_to_tv_inputs = getInputsOfExprPath(graph(), ancestor_to_tv);
+  for (const auto& vg : ancestor_to_tv_inputs) {
+    std::cerr << "Input to anc: " << nvfuser::toString(vg) << "\n";
+  }
+  auto ref_to_inputs = ValGraphBFS::getExprsBetween(
+      graph(),
+      ref_id_groups_,
+      ancestor_to_tv_inputs,
+      /*require_all_to_visited=*/true,
+      Direction::Backward);
+
+  // Overall traversal path: ref_to_inputs -> ancestor_to_tv_inputs
+  for (const auto& [expr_g, dir] : ref_to_inputs) {
+    std::cerr << "\t" << dir << " " << expr_g->front()->toString();
+  }
+
+  auto ref_to_logical = ref_to_inputs;
+  ref_to_logical.insert(
+      ref_to_logical.end(), ancestor_to_tv.begin(), ancestor_to_tv.end());
+
   for (const auto& [expr_g, dir] : ref_to_logical) {
     std::cerr << "Traversing " << dir << " " << expr_g->front()->toString();
 
