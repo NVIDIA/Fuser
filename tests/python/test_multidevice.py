@@ -119,6 +119,7 @@ def test_linear(mpi_test):
 # 1. Replace magic values with variables for flexibility and readability.
 # 2. Split device dimensions and parallelize them.
 # 3. Decompose the second linear layer in MLP so the matmul result can be allreduced.
+# 4. Rename the receiving variables for `define_scalar`s and `define_tensor`s for readability.
 class TransformerForwardFusion(FusionDefinition):
     def __init__(self, num_devices, batch, sequence, head, hidden):
         super().__init__()
@@ -138,14 +139,10 @@ class TransformerForwardFusion(FusionDefinition):
             self._hidden,
         )
 
-        # MHA dropout.rng_offset
-        S0 = self.define_scalar(None, dtype=DataType.Int)
-        # MHA dropout.rng_seed
-        S1 = self.define_scalar(None, dtype=DataType.Int)
-        # MLP dropout.rng_offset
-        S2 = self.define_scalar(None, dtype=DataType.Int)
-        # MLP dropout.rng_seed
-        S3 = self.define_scalar(None, dtype=DataType.Int)
+        mha_dropout_rng_offset = self.define_scalar(None, dtype=DataType.Int)
+        mha_dropout_rng_seed = self.define_scalar(None, dtype=DataType.Int)
+        mlp_dropout_rng_offset = self.define_scalar(None, dtype=DataType.Int)
+        mlp_dropout_rng_seed = self.define_scalar(None, dtype=DataType.Int)
         self.input = self.define_tensor(
             shape=[b, s, e],
             contiguity=[True if b > 1 else None, True, True],
@@ -217,8 +214,8 @@ class TransformerForwardFusion(FusionDefinition):
             S17,
             S18,
             shape=[b, s, e],
-            rng_seed=S1,
-            rng_offset=S0,
+            rng_seed=mha_dropout_rng_seed,
+            rng_offset=mha_dropout_rng_offset,
             dtype=DataType.BFloat16,
         )
         S24 = self.define_scalar(0.00000, dtype=DataType.Double)
@@ -227,8 +224,8 @@ class TransformerForwardFusion(FusionDefinition):
             S24,
             S25,
             shape=[b, s, e],
-            rng_seed=S3,
-            rng_offset=S2,
+            rng_seed=mlp_dropout_rng_seed,
+            rng_offset=mlp_dropout_rng_offset,
             dtype=DataType.BFloat16,
         )
         T31 = self.ops.cast(self.input, dtype=DataType.Float)
