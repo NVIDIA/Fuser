@@ -336,6 +336,8 @@ class TransformerForwardFusion(FusionDefinition):
         T214 = self.ops.add(S213, T210)
         T215 = self.ops.mul(T212, T214)
         T216 = self.ops.cast(T215, dtype=DataType.BFloat16)
+        # TODO(#3125): nvFuser is missing an API to construct a sharded linear
+        # like this. Therefore, I decomposed it by hand.
         # T217 = self.ops.linear(T216, self.mlp_linear1_weight, self.mlp_linear1_bias)
         # [b,s,h]        [d,b,s,4h/d]        [d,h,4h/d]                  [h]
         T217_local_matmul = self.ops.matmul(
