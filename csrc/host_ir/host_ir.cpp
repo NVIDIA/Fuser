@@ -257,11 +257,6 @@ std::string StartCoalescing::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Cannot be printed inline");
 }
 
-// TODO: implement
-bool StartCoalescing::sameAs(const Statement* other) const {
-  return false;
-}
-
 EndCoalescing::EndCoalescing(IrBuilderPasskey passkey) : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
@@ -280,11 +275,6 @@ std::string EndCoalescing::toString(int indent_size) const {
 
 std::string EndCoalescing::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Cannot be printed inline");
-}
-
-// TODO: implement
-bool EndCoalescing::sameAs(const Statement* other) const {
-  return false;
 }
 
 } // namespace hir

@@ -241,8 +241,6 @@ class StartCoalescing : public Expr {
   const char* getOpString() const override {
     return "hir::StartCoalescing";
   }
-
-  bool sameAs(const Statement* other) const override;
 };
 
 class EndCoalescing : public Expr {
@@ -262,8 +260,6 @@ class EndCoalescing : public Expr {
   const char* getOpString() const override {
     return "hir::EndCoalescing";
   }
-
-  bool sameAs(const Statement* other) const override;
 };
 
 } // namespace hir
