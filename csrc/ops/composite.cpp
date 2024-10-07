@@ -455,8 +455,9 @@ SdpfaFwdResult sdpfa_fwd(
       " vs ",
       value_domain);
   NVF_CHECK(
-      query_domain.size() >= 4,
-      "Expect Q/K/V to be at least 4D: ",
+      query_domain.size() == 4 || query_domain.size() == 5,
+      "Expect Q/K/V to be either 4D or 5D. If 5D, the first dimension is "
+      "expected to be device parallel during expression evaluation: ",
       query_domain);
 
   NVF_CHECK(

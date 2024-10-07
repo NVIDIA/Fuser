@@ -144,6 +144,8 @@ def test_sdpa(mpi_test):
                 contiguity=[True if d > 1 else None, True, True, True, True],
                 dtype=DataType.BFloat16,
             )
+            # TODO(#3123): support sharded dropout and change this to a
+            # positive probability.
             dropout_p = self.define_scalar(0.0, dtype=DataType.Double)
             is_causal = self.define_scalar(True, dtype=DataType.Bool)
             sdpa_result = self.ops.sdpfa_fwd(
@@ -165,9 +167,7 @@ def test_sdpa(mpi_test):
         for _ in range(3)
     ]
 
-    with torch.random.fork_rng(
-        devices=[torch.cuda.current_device()]
-    ) and torch.nn.attention.sdpa_kernel(SDPBackend.FLASH_ATTENTION):
+    with torch.nn.attention.sdpa_kernel(SDPBackend.FLASH_ATTENTION):
         expected_attn = torch.nn.functional.scaled_dot_product_attention(
             q,
             k,
@@ -179,16 +179,16 @@ def test_sdpa(mpi_test):
 
     rank = mpi_test.rank
 
-    # Sequence-parallelize Q, K, V or the attention output of an SDPA.
-    def sequence_parallelize(t: torch.Tensor) -> torch.Tensor:
+    # Head-parallelize Q, K, V or the attention output of an SDPA.
+    def head_parallelize(t: torch.Tensor) -> torch.Tensor:
         assert t.shape == torch.Size([b, a, s, h // a])
         return t.view([b, d, a // d, s, h // a]).transpose(0, 1)[rank : rank + 1]
 
     fd = Model()
-    attn = fd.execute(
-        [sequence_parallelize(q), sequence_parallelize(k), sequence_parallelize(v)]
-    )[0]
+    attn = fd.execute([head_parallelize(q), head_parallelize(k), head_parallelize(v)])[
+        0
+    ]
     # Use the default rtol for bfloat16 and a relaxed atol.
     torch.testing.assert_close(
-        attn, sequence_parallelize(expected_attn), rtol=1.6e-2, atol=1e-3
+        attn, head_parallelize(expected_attn), rtol=1.6e-2, atol=1e-3
     )
