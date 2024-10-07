@@ -134,6 +134,10 @@ class IdModel : public PolymorphicBase {
       LoopPromotionMapBuilderCallback* loop_promotion_map_builder_callback =
           nullptr);
 
+  bool hasIdGraph(IdMappingMode mode) const {
+    return id_graphs_.find(mode) != id_graphs_.end();
+  }
+
   // Returns iter domain graph of provided mode. The graph must have
   // been already built.
   const ValGraph& idGraph(IdMappingMode mode) const;
@@ -223,6 +227,38 @@ class IdModel : public PolymorphicBase {
   //! all IterDomains in the disjoint set to that PType.
   void validateAndPropagatePType();
 
+  //! (Copied from ComputeAtMap::allocateIndexVariables)
+  //!  Run through disjoint sets in the LOOP map and allocate the index
+  //!  variable for the associated for loop that will be generated
+  //!  for each disjoint sets in the loop map. This pre-allocation makes
+  //!  2 key assumptions about computeAt map that would very likely be
+  //!  long term invariant:
+  //!    1. All kir::forloop created in the lowering pass should belong
+  //!  to one of the disjoint sets in loop map.
+  //!    2. The lowering pass will *never* create a loop nest with 2
+  //!  different nesting levels mapped together, i.e. the case below
+  //!  never occurs:
+  //!   for i in IterDomain1
+  //!    for j in IterDomain2
+  //!     ...
+  //!   With loop_map.areMapped(IterDomain1, IterDomain2) == true.
+  //! Under this condition, we can pre-allocate all required index
+  //!  variable integers before creating any kir::forloop, and this
+  //!  would help optimizing the generated integer math for indexing.
+  void allocateLoopIndexVariables();
+
+  // Get the index variable assigned for a given loop ID
+  Val* getLoopIndexVariable(
+      IterDomain* id,
+      CircularBufferLoopStage circular_buffer_loop_stage =
+          CircularBufferLoopStage::NotApplicable) const;
+
+  // Get the index variable assigned for a given loop group
+  Val* getLoopIndexVariable(
+      const ValGroup& loop_group,
+      CircularBufferLoopStage circular_buffer_loop_stage =
+          CircularBufferLoopStage::NotApplicable) const;
+
  protected:
   // Fills id_uses_ and id_definitions_ for all IterDomains active in the
   // fusion.
@@ -294,6 +330,15 @@ class IdModel : public PolymorphicBase {
 
   // Promotion domain for each loop group
   std::unordered_map<ValGroup, IterDomain*> loop_promotion_map_;
+
+  // Allocated Loop index variable through the LOOP graph
+  std::unordered_map<ValGroup, Val*> loop_index_variable_map_;
+
+  // Allocated loop indices for circular buffer loops
+  std::unordered_map<
+      ValGroup,
+      std::unique_ptr<std::unordered_map<CircularBufferLoopStage, Val*>>>
+      circular_buffered_loop_index_variable_map_;
 };
 
 // A utility function to update a map of ValGroups to ID from an old

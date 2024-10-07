@@ -14,8 +14,8 @@
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ir/utils.h>
-#include <kernel_cache.h>
 #include <ops/all_ops.h>
+#include <runtime/fusion_executor_cache.h>
 #include <scheduler/utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>

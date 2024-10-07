@@ -11,6 +11,8 @@
 #include <c10/util/irange.h>
 #include <device_lower/analysis/thread_predicate.h>
 #include <device_lower/lower2device.h>
+#include <device_lower/utils.h>
+#include <id_model/utils.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
@@ -800,8 +802,8 @@ BasicAllocInfo getAllocInformation(
       }
     }
 
-    if (GpuLower::current()->caMap()->areMapped(
-            local_id, fl_id, IdMappingMode::PERMISSIVE)) {
+    if (lower_utils::getConcreteLoopID(local_id) ==
+        lower_utils::getConcreteLoopID(fl_id)) {
       info.alloc_pos++;
     }
 
@@ -1932,13 +1934,52 @@ Val* proveLinearAndGetStride(
   return proveLinearAndGetStrideAfterPropagation(frontier, domain);
 }
 
-IterDomain* getConcreteLoopID(IterDomain* loop_id) {
-  NVF_ERROR(
-      GpuLower::hasCurrent(),
-      "GpuLower is required for getting a concrete loop domain");
+IterDomain* getConcreteLoopID(IterDomain* id) {
+  // Currently, the concrete loop ID depends on if loops are generated
+  // based on the IdModel loop promotion, which needs to be enabled
+  // explicitly by the IdModelEnableOption::Loop option.
+  if (isIdModelOptionEnabled(IdModelEnableOption::Loop)) {
+    // If enabled, the concret ID should be basically just the
+    // promotion ID itself. However, just to reduce literacl changes
+    // of generated kernels so that the CI diff check could report
+    // smaller number of errors, we try to see if the concrete ID by
+    // ComputeAtMap could be used as a substitute. If yes, that ID is
+    // returned instead of the promotion ID.
 
-  return GpuLower::current()->caMap()->getConcreteMappedID(
-      loop_id, IdMappingMode::LOOP);
+    const auto& loop_graph =
+        GpuLower::current()->idModel().idGraph(IdMappingMode::LOOP);
+    auto promotion = getLoopPromotion(id, GpuLower::current()->idModel());
+    const auto& ca_map = GpuLower::current()->caMap();
+    const auto& loop_group = loop_graph.toGroup(id);
+
+    // Try to see if the CA concrete domain can be used instead
+    for (auto loop_val : *loop_group) {
+      IterDomain* loop_id = loop_val->as<IterDomain>();
+      if (ca_map->idExistsInMap(loop_id, IdMappingMode::LOOP)) {
+        auto ca_map_concrete =
+            ca_map->getConcreteMappedID(loop_id, IdMappingMode::LOOP);
+        if (GpuLower::current()
+                ->idModel()
+                .idGraph(IdMappingMode::LOOP)
+                .disjointValSets()
+                .strictAreMapped(ca_map_concrete, promotion) &&
+            GpuLower::current()
+                ->idModel()
+                .idGraph(IdMappingMode::EXACT)
+                .disjointValSets()
+                .strictAreMapped(ca_map_concrete, promotion)) {
+          return ca_map_concrete;
+        }
+      }
+    }
+
+    // The CAMap concrete ID is not a valid concrete ID. Use the
+    // promotion ID instead.
+    return promotion;
+  } else {
+    const auto& ca_map = GpuLower::current()->caMap();
+    return ca_map->getConcreteMappedID(id, IdMappingMode::LOOP);
+  }
 }
 
 } // namespace lower_utils

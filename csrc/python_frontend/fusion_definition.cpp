@@ -6,12 +6,13 @@
  */
 // clang-format on
 #include <debug.h>
-#include <fusion_executor/executor_kernel_arg.h>
 #include <fusion_profiler.h>
 #include <instrumentation.h>
 #include <options.h>
 #include <python_frontend/fusion_cache.h>
 #include <python_frontend/fusion_definition.h>
+#include <python_frontend/translation.h>
+#include <runtime/executor_kernel_arg.h>
 #include <scheduler/scheduler_types.h>
 #include <utils.h>
 #include <validator_utils.h>
@@ -359,9 +360,9 @@ std::vector<at::Tensor> FusionDefinition::execute(
     }
   }
 
-  // when `!override_user_schedule == true`, it *could* have produced an output
-  // already at this point and we would not want to overwrite generated output
-  // through user scheduled kernel.
+  // when `!override_user_schedule == true`, it *could* have produced an
+  // output already at this point and we would not want to overwrite
+  // generated output through user scheduled kernel.
   if (outputs.empty()) {
     outputs = scheds->auto_gen_schedules->runFusionWithInputs(
         inputs, std::nullopt, selected_device);
