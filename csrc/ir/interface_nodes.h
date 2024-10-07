@@ -427,9 +427,7 @@ class NVF_API TensorView : public Val {
   //! Transforms the innermost iterdomains according to the given mma swizzle,
   //!  this should be used on the tvs that are inputs of a MmaOp or are loaded
   //!  using TMA.
-  void applyMmaSwizzleForTMALoad(
-      MmaInputSmemSwizzle swizzle,
-      bool permute_outer_dim = true);
+  void applyMmaSwizzleForTMALoad(MmaInputSmemSwizzle swizzle);
 
   //! Returns if this tensor view has swizzle operator on its tensor domain.
   //!  This is the temporary flag for indicating that the new swizzle
