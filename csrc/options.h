@@ -134,7 +134,12 @@ enum class DisableOption {
   WelfordVectorization, //! Disable vectorizaton of Welford ops
   ReuseMismatchedTypeRegisters, //! Disable explicitly re-using registers unless
                                 //! types match
-  Multidevice, //! Disable creation of multidevice communicator
+  Multidevice, //! Disable creation of multidevice communicator. Mainly for
+               //! debugging. This option quickly disables the multidevice
+               //! module even when Fuser is built with multidevice support. We
+               //! need this in particular to investigate possible conflicts
+               //! between nvFuser communicator and the framework also setting
+               //! up `c10d::ProcessGroup`
   EndOfOption //! Placeholder for counting the number of elements
 };
 
