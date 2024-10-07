@@ -299,6 +299,56 @@ TEST_F(P2PCommHostIrTest, RingPairwiseExchange) {
   EXPECT_TRUE(torch::allclose(ref_output, outputs.back()));
 }
 
+TEST_F(P2PCommHostIrTest, CoalescedRingPairwiseExchange) {
+  constexpr int64_t kTensorSize = 1024;
+  const int64_t communicator_size = communicator_->size();
+  const int64_t my_device_index = communicator_->deviceId();
+  const int64_t send_peer = (my_device_index + 1) % communicator_size;
+  const int64_t recv_peer =
+      (communicator_size + my_device_index - 1) % communicator_size;
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard::setCurFusion(hic.get());
+
+  TensorView* send_buffer = makeContigTensor(1);
+  TensorView* recv_buffer = makeContigTensor(1);
+
+  auto* start_coalescing = IrBuilder::create<StartCoalescing>();
+  auto* send = IrBuilder::create<P2PCommunication>(
+      P2PCommunicationType::SEND,
+      send_buffer,
+      IrBuilder::create<Val>(send_peer));
+  auto* recv = IrBuilder::create<P2PCommunication>(
+      P2PCommunicationType::RECV,
+      recv_buffer,
+      IrBuilder::create<Val>(recv_peer));
+  auto* end_coalescing = IrBuilder::create<EndCoalescing>();
+  auto* wait = IrBuilder::create<Wait>(end_coalescing);
+
+  hic->addInput(send_buffer);
+  hic->addOutput(recv_buffer);
+
+  std::vector<Expr*> top_level_exprs = {
+      start_coalescing, send, recv, end_coalescing, wait};
+  for (auto host_expr : top_level_exprs) {
+    hic->pushBackTopLevelExprs(host_expr);
+  }
+
+  HostIrExecutor hie(std::move(hic), communicator_);
+
+  auto options = at::TensorOptions().device(communicator_->device());
+  at::Tensor send_buffer_aten =
+      at::randn(kTensorSize, options) + my_device_index;
+  at::Tensor recv_buffer_aten = at::empty(kTensorSize, options);
+
+  auto outputs = hie.runWithInput(
+      {{send_buffer, send_buffer_aten}, {recv_buffer, recv_buffer_aten}});
+
+  // validate the obtained results
+  at::Tensor ref_output = send_buffer_aten + (recv_peer - my_device_index);
+  EXPECT_TRUE(torch::allclose(ref_output, outputs.back()));
+}
+
 } // namespace hir
 
 } // namespace nvfuser
