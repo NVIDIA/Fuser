@@ -250,6 +250,10 @@ TEST_F(P2PCommHostIrTest, RingPairwiseExchange) {
   const int64_t recv_peer =
       (communicator_size + my_device_index - 1) % communicator_size;
 
+  if (communicator_size < 2) {
+    GTEST_SKIP() << "needs at least two ranks";
+  }
+
   auto hic = std::make_unique<HostIrContainer>();
   FusionGuard::setCurFusion(hic.get());
 
