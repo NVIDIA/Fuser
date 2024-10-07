@@ -591,12 +591,8 @@ class AllgatherOverlapTest : public MultiDeviceTest {
 };
 // This test implements an allgather-based pipelining overlapping technique,
 // similar to the above reduce-scattered based pipelining overlapping technique
-<<<<<<< HEAD
-TEST_F(AGOverlapTest, AllgatherBasedPipeliningATenImplementation) {
-=======
 // clang-format on
 TEST_F(AllgatherOverlapTest, AllgatherBasedPipeliningATenImplementation) {
->>>>>>> 1df9ebdf (Review feedback)
   std::vector<c10::cuda::CUDAStream> streams;
   std::generate_n(
       std::back_inserter(streams),
