@@ -10,14 +10,14 @@
 #include <exceptions.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
-#include <fusion_executor/allocations.h>
-#include <fusion_executor/executor_params.h>
-#include <fusion_executor/executor_utils.h>
 #include <host_ir/container.h>
 #include <ir/all_nodes.h>
 #include <ir/cloner.h>
 #include <ir/printer.h>
 #include <multidevice/communicator.h>
+#include <runtime/allocations.h>
+#include <runtime/executor_params.h>
+#include <runtime/executor_utils.h>
 #include <scheduler/scheduler_types.h>
 #include <serde/fusion_cache_generated.h>
 #include <utils.h>

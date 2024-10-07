@@ -9,11 +9,11 @@
 
 #include <dispatch.h>
 #include <expr_evaluator.h>
-#include <fusion_executor/executor.h>
 #include <host_ir/container.h>
 #include <host_ir/host_ir.h>
-#include <kernel_cache.h>
 #include <multidevice/communicator.h>
+#include <runtime/executor.h>
+#include <runtime/fusion_executor_cache.h>
 
 #include <c10/cuda/CUDAStream.h>
 
@@ -75,11 +75,15 @@ class HostIrExecutor final : public OptOutDispatch {
  private:
   using OptOutDispatch::handle;
   void handle(SetCurrentStream* set_current_stream) override;
+  void handle(Synchronize* synchronize) override;
   void handle(PostOnStream* post_ir) override;
   void handle(Communication* communication) override;
+  void handle(P2PCommunication* communication) override;
   void handle(Wait* wait) override;
   void handle(ForLoop* for_loop) override;
   void unhandled(Statement* stmt) override;
+
+  c10::cuda::CUDAStream getCUDAStream(Stream* stream);
 
   std::unique_ptr<HostIrContainer> container_;
   Communicator* communicator_;
@@ -91,7 +95,7 @@ class HostIrExecutor final : public OptOutDispatch {
   std::unordered_map<HostUnit*, FusionExecutorCache> fec_;
   using StreamKey = std::variant<int64_t, Stream*>;
   std::unordered_map<StreamKey, c10::cuda::CUDAStream> streams_;
-  std::unordered_map<Communication*, c10::intrusive_ptr<c10d::Work>> works_;
+  std::unordered_map<Expr*, c10::intrusive_ptr<c10d::Work>> works_;
 };
 
 } // namespace hir

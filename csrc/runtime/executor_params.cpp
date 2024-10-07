@@ -6,7 +6,7 @@
  */
 // clang-format on
 #include <debug.h>
-#include <fusion_executor/executor_params.h>
+#include <runtime/executor_params.h>
 
 #include <ATen/cuda/CUDAContext.h>
 

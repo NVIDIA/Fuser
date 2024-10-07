@@ -8,7 +8,6 @@
 #include <gtest/gtest.h>
 
 #include <fusion.h>
-#include <fusion_executor/executor_kernel_arg.h>
 #include <fusion_segmenter.h>
 #include <host_ir/container.h>
 #include <host_ir/executor.h>
@@ -17,6 +16,7 @@
 #include <multidevice/lower_communication.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
+#include <runtime/executor_kernel_arg.h>
 #include <tests/cpp/utils.h>
 
 #include <algorithm>

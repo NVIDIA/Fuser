@@ -9,10 +9,12 @@
 #include <host_ir/container.h>
 #include <host_ir/host_ir.h>
 #include <ir/builder.h>
+#include <ir/builder_passkey.h>
 #include <ir/cloner.h>
 #include <ir/printer.h>
 #include <ir/utils.h>
 #include <kernel_ir.h>
+#include <multidevice/communication.h>
 #include <ops/all_ops.h>
 
 namespace nvfuser {
@@ -21,7 +23,8 @@ namespace hir {
 
 HostUnit::HostUnit(IrBuilderPasskey passkey, std::unique_ptr<Fusion> fusion)
     : Expr(passkey), fusion_(std::make_unique<Fusion>(*fusion)) {
-  NVF_ERROR(passkey.ir_container_->isA<hir::HostIrContainer>()); // NOLINT
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(passkey.ir_container_->isA<HostIrContainer>());
 }
 
 HostUnit::HostUnit(const HostUnit* src, IrCloner* ir_cloner)
@@ -65,8 +68,9 @@ PostOnStream::PostOnStream(
     std::vector<Val*> inputs,
     std::vector<Val*> outputs)
     : Expr(passkey, std::move(inputs), std::move(outputs), {host_op}) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<hir::HostIrContainer>(), // NOLINT
+      passkey.ir_container_->isA<HostIrContainer>(),
       this,
       "must be registered in a HostIrContainer");
   NVF_ERROR(
@@ -152,7 +156,8 @@ bool Stream::sameAs(const Statement* other) const {
 
 SetCurrentStream::SetCurrentStream(IrBuilderPasskey passkey, Stream* stream)
     : Expr(passkey, {stream}, {}, {stream}) {
-  NVF_ERROR(passkey.ir_container_->isA<hir::HostIrContainer>()); // NOLINT
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(passkey.ir_container_->isA<HostIrContainer>());
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(SetCurrentStream)
@@ -174,12 +179,17 @@ bool SetCurrentStream::sameAs(const Statement* other) const {
   return false;
 }
 
-Wait::Wait(IrBuilderPasskey passkey, Communication* communication)
-    : Expr(passkey, {}, {}, {communication}) {
+Wait::Wait(IrBuilderPasskey passkey, Expr* expr)
+    : Expr(passkey, {}, {}, {expr}) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<hir::HostIrContainer>(), // NOLINT
+      passkey.ir_container_->isA<HostIrContainer>(),
       this,
       "must be registered in a HostIrContainer");
+  NVF_ERROR(
+      (expr->isOneOf<Communication, P2PCommunication>()),
+      expr,
+      "must be a Communication or a P2PCommunication");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Wait)
@@ -198,6 +208,32 @@ std::string Wait::toInlineString(int indent_size) const {
 
 // TODO: implement
 bool Wait::sameAs(const Statement* other) const {
+  return false;
+}
+
+Synchronize::Synchronize(IrBuilderPasskey passkey, Stream* stream)
+    : Expr(passkey, {}, {}, {stream}) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
+      passkey.ir_container_->isA<HostIrContainer>(),
+      this,
+      "must be registered in a HostIrContainer");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(Synchronize)
+
+std::string Synchronize::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "Synchronize " << stream() << std::endl;
+  return ss.str();
+}
+
+std::string Synchronize::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Cannot be printed inline");
+}
+
+// TODO: implement
+bool Synchronize::sameAs(const Statement* other) const {
   return false;
 }
 
