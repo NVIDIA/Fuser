@@ -239,7 +239,7 @@ void FusionExecutor::compileFusion(
   // odd we need launch parameters for compilation, need to go back and check
   // why this is the case.
   compiledKernel_()->compileFusion(
-      compiledKernel_()->options().device,
+      device,
       launch_params.nThreads(),
       scheduler_type,
       fusion_id,
