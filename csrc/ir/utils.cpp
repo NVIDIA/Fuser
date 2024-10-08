@@ -941,15 +941,7 @@ CompareDomainResult compareDomains(
   }
 
   if (!dom1_has_symbolic) {
-    // result.dom0_has_unreachable_ids = check_ids(frontier, dom1_set);
-    if (std::any_of(frontier.begin(), frontier.end(), [&](Val* id) {
-          return id->as<IterDomain>()->getIterType() != IterType::Symbolic &&
-              !(ignore_broadcast && id->as<IterDomain>()->isBroadcast()) &&
-              !dom1_set.count(id);
-        })) {
-      // This frontier id isn't in dom1, which should mean
-      result.dom0_has_unaccounted_ids = true;
-    }
+    result.dom0_has_unreachable_ids = check_ids(frontier, dom1_set);
   }
 
   return result;
@@ -962,8 +954,8 @@ void validateDomainEquivalence(
   const auto compare_result = compareDomains(dom0, dom1, additional_ids);
 
   NVF_ERROR(
-      !compare_result.dom0_has_unaccounted_ids,
-      "dom0 has unaccounted IDs. dom0: ",
+      !compare_result.dom0_has_unreachable_ids,
+      "dom0 has unreachable IDs. dom0: ",
       toDelimitedString(dom0),
       ". dom1: ",
       toDelimitedString(dom1));
@@ -1166,7 +1158,7 @@ bool isLoopDomainFullyDerivedFromLogicalDomain(TensorView* tv) {
            tv->getLogicalDomain(),
            /*additional_ids=*/{},
            /*ignore_broadcast=*/false)
-           .dom0_has_unaccounted_ids;
+           .dom0_has_unreachable_ids;
 }
 
 } // namespace nvfuser::ir_utils

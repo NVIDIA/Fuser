@@ -40,8 +40,6 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 
-#include <fstream>
-#include <iostream>
 #include <list>
 #include <unordered_map>
 #include <unordered_set>
@@ -426,14 +424,6 @@ void GpuLower::analysis(Fusion* fusion) {
         /*allow_self_mapping=*/false,
         /*validate=*/false);
     id_model_->validateAndPropagatePType();
-
-    {
-      std::ofstream ofs("lower_exact.dot", std::ofstream::trunc);
-      auto dot_string =
-          id_model_->idGraph(IdMappingMode::EXACT).toGraphvizDotGraph();
-      ofs << dot_string;
-      ofs.close();
-    }
   }
 
   resolveComputeWith(fusion_);

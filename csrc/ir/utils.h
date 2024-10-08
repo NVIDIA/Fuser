@@ -506,7 +506,7 @@ std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion);
 //! Returns if each domain has unreachable IDs. It is an error if
 //! redundant IDs are detected.
 struct CompareDomainResult {
-  bool dom0_has_unaccounted_ids = false;
+  bool dom0_has_unreachable_ids = false;
   bool dom1_has_unreachable_ids = false;
 };
 CompareDomainResult compareDomains(

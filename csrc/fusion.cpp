@@ -884,14 +884,13 @@ std::vector<TensorView*> Fusion::allTvs() {
 }
 
 void Fusion::registerExactMapping(IterDomain* id0, IterDomain* id1) {
-#if 0
   NVF_ERROR(
       id0->sameAs(id1),
       "Invalid domains to map: ",
       id0->toString(),
       ", ",
       id1->toString());
-#endif
+
   if (!hasRegisteredExactMappings()) {
     manage(exact_mappings_key, DisjointSets<IterDomain*>{});
   }
@@ -907,20 +906,6 @@ DisjointSets<IterDomain*> Fusion::registeredExactMappings() const {
   }
 
   return getManaged<DisjointSets<IterDomain*>>(exact_mappings_key);
-}
-
-void Fusion::updateExactMappings(
-    IterDomain* original_id,
-    IterDomain* replacement_id) {
-  if (!hasRegisteredExactMappings()) {
-    return;
-  }
-
-  auto mappings = registeredExactMappings();
-
-  if (mappings.mappingExists(original_id)) {
-    registerExactMapping(original_id, replacement_id);
-  }
 }
 
 } // namespace nvfuser
