@@ -160,8 +160,8 @@ void IndexLowering::handle(const ForLoop* for_loop) {
   active_scope_ = prev_scope;
 }
 
-void IndexLowering::handle(const kir::Asm* asm) {
-  pushBack(asm);
+void IndexLowering::handle(const kir::Asm* asm_) {
+  pushBack(asm_);
 }
 
 void IndexLowering::handle(const RNGOp* rop) {
