@@ -2591,7 +2591,7 @@ class StMatrixTest : public NVFuserFixtureParamTest<StMatrixTestParams> {
 };
 
 // This tile a larger piece of memory to 8x8, 16x8 or 16x16 tiles. This helps
-// break down a store to multiple multiple stmatrix calls.
+// break down a store to multiple stmatrix calls.
 void tileInnerStmatrixCall(TensorView* tv, int tile_m, int tile_n) {
   // [M, N] -> [M, no, tile_n]
   tv->split(-1, tile_n);
@@ -2627,22 +2627,12 @@ void scheduleStmatrixOutput(TensorView* tv, int tile_m, int tile_n) {
   // (16x16):  [8, 32(TIDX), 2, 2, 2]
   tv->axis(1)->parallelize(ParallelType::TIDx);
 
-  if (tile_m == 8 && tile_n == 8) {
-    // (8x8):  [32, 32(TIDX), 1(Mma), 1(Mma), 2(vec)]
-    tv->axis(2)->parallelize(ParallelType::Mma);
-    tv->axis(3)->parallelize(ParallelType::Mma);
-    tv->axis(4)->parallelize(ParallelType::Vectorize);
-  } else if (tile_m == 16 && tile_n == 8) {
-    // (16x8): [16, 32(TIDX), 1(Mma), 4(Vec)]
-    tv->axis(2)->parallelize(ParallelType::Mma);
-    tv->merge(3);
-    tv->axis(3)->parallelize(ParallelType::Vectorize);
-  } else if (tile_m == 16 && tile_n == 16) {
-    // (16x16):  [8, 32(TIDX), 8(Vec)]
-    tv->merge(2);
-    tv->merge(2);
-    tv->axis(2)->parallelize(ParallelType::Vectorize);
-  }
+  // (8x8):  [32, 32(TIDX), 1*1*2(vec)]
+  // (16x8): [16, 32(TIDX), 1*2*2(Vec)]
+  // (16x16):  [8, 32(TIDX), 2*2*2(Vec)]
+  tv->merge(2);
+  tv->merge(2);
+  tv->axis(2)->parallelize(ParallelType::Vectorize);
 }
 
 TEST_P(StMatrixSingleTileTest, Regular) {
@@ -2660,37 +2650,34 @@ TEST_P(StMatrixSingleTileTest, Regular) {
 
   auto tv0 = makeContigConcreteTensor({sizeM, sizeN}, DataType::Half);
   fusion.addInput(tv0);
-  // tv0 (global) -> tv1 (shared)
+  // tv0 (global) -> tv1 (registers)
   auto tv1 = set(tv0);
-  tv1->setMemoryType(MemoryType::Shared);
+  // tv1 (registers) -> tv2 (shared)
   auto tv2 = set(tv1);
-  // tv1 (shared) -> tv2 (registers)
-  // tv2 (registers) -> tv3 (shared)
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StMatrix);
+  tv2->setMemoryType(MemoryType::Shared);
+  // tv2 (shared) -> tv3(global)
   auto tv3 = set(tv2);
-  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StMatrix);
-  tv3->setMemoryType(MemoryType::Shared);
-  // tv3 (shared) -> tv4(global)
-  auto tv4 = set(tv3);
-  fusion.addOutput(tv4);
+  fusion.addOutput(tv3);
 
-  tv1->merge(0);
-  tv1->split(0, 32);
+  tv0->merge(0);
+  tv0->split(0, 32);
+  tv0->axis(1)->parallelize(ParallelType::TIDx);
+
+  tileInnerStmatrixCall(tv1, sizeM, sizeN);
+  tileInnerStmatrixCall(tv2, sizeM, sizeN);
+
+  scheduleSwizzleHelper(tv1);
+  tv1->setAllocationDomain(tv1->getLoopDomain(), true);
+  // // Get 32 threads out to parallelize over.
+  tv1->merge(1);
   tv1->axis(1)->parallelize(ParallelType::TIDx);
 
-  tileInnerStmatrixCall(tv2, sizeM, sizeN);
-  tileInnerStmatrixCall(tv3, sizeM, sizeN);
+  scheduleStmatrixOutput(tv2, sizeM, sizeN);
 
-  scheduleSwizzleHelper(tv2);
-  tv2->setAllocationDomain(tv2->getLoopDomain(), true);
-  // // Get 32 threads out to parallelize over.
-  tv2->merge(1);
-  tv2->axis(1)->parallelize(ParallelType::TIDx);
-
-  scheduleStmatrixOutput(tv3, sizeM, sizeN);
-
-  tv4->merge(0);
-  tv4->split(0, 32);
-  tv4->axis(1)->parallelize(ParallelType::TIDx);
+  tv3->merge(0);
+  tv3->split(0, 32);
+  tv3->axis(1)->parallelize(ParallelType::TIDx);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   auto t0 = at::randn({sizeM, sizeN}, options);
@@ -2724,37 +2711,34 @@ TEST_P(StMatrixTest, Regular) {
 
   auto tv0 = makeContigConcreteTensor({sizeM, sizeN}, DataType::Half);
   fusion.addInput(tv0);
-  // tv0 (global) -> tv1 (shared)
+  // tv0 (global) -> tv1 (registers)
   auto tv1 = set(tv0);
-  tv1->setMemoryType(MemoryType::Shared);
+  // tv1 (register) -> tv2 (shared)
   auto tv2 = set(tv1);
-  // tv1 (shared) -> tv2 (registers)
-  // tv2 (registers) -> tv3 (shared)
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StMatrix);
+  tv2->setMemoryType(MemoryType::Shared);
+  // tv2 (shared) -> tv3(global)
   auto tv3 = set(tv2);
-  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StMatrix);
-  tv3->setMemoryType(MemoryType::Shared);
-  // tv3 (shared) -> tv4(global)
-  auto tv4 = set(tv3);
-  fusion.addOutput(tv4);
+  fusion.addOutput(tv3);
 
-  tv1->merge(0);
-  tv1->split(0, 32);
+  tv0->merge(0);
+  tv0->split(0, 32);
+  tv0->axis(1)->parallelize(ParallelType::TIDx);
+
+  tileInnerStmatrixCall(tv1, tile_m, tile_n);
+  tileInnerStmatrixCall(tv2, tile_m, tile_n);
+
+  scheduleSwizzleHelper(tv1);
+  tv1->setAllocationDomain(tv1->getLoopDomain(), true);
+  // // Get 32 threads out to parallelize over.
+  tv1->merge(1);
   tv1->axis(1)->parallelize(ParallelType::TIDx);
 
-  tileInnerStmatrixCall(tv2, tile_m, tile_n);
-  tileInnerStmatrixCall(tv3, tile_m, tile_n);
+  scheduleStmatrixOutput(tv2, tile_m, tile_n);
 
-  scheduleSwizzleHelper(tv2);
-  tv2->setAllocationDomain(tv2->getLoopDomain(), true);
-  // // Get 32 threads out to parallelize over.
-  tv2->merge(1);
-  tv2->axis(1)->parallelize(ParallelType::TIDx);
-
-  scheduleStmatrixOutput(tv3, tile_m, tile_n);
-
-  tv4->merge(0);
-  tv4->split(0, 32);
-  tv4->axis(1)->parallelize(ParallelType::TIDx);
+  tv3->merge(0);
+  tv3->split(0, 32);
+  tv3->axis(1)->parallelize(ParallelType::TIDx);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   auto t0 = at::randn({sizeM, sizeN}, options);
