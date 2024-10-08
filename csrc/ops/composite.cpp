@@ -7,6 +7,7 @@
 // clang-format on
 #include <ATen/cuda/CUDAContext.h>
 #include <ir/builder.h>
+#include <ir/iostream.h>
 #include <ops/all_ops.h>
 #include <ops/utils.h>
 #include <transform_view.h>
@@ -57,7 +58,7 @@ TensorView* dropout_backward(TensorView* dy, TensorView* mask, Val* scale) {
 
 namespace {
 
-static TensorView* newForLinear(
+TensorView* newForLinear(
     TensorView* input,
     TensorView* weight,
     TensorView* bias) {
@@ -71,8 +72,10 @@ static TensorView* newForLinear(
   bool k_bcast = input_domain.back()->isBroadcast();
   size_t red_dims = k_bcast ? 0 : 1;
 
-  // Linear: a = {*, in_features}, b = {out_features, in_features} /
-  // {in_features}.The linear output is {*, (out_features), rK?}.
+  // input: {*_i, in_features},
+  // weight: {*_wb, out_features, in_features}
+  // output: {*_wb, *_i, out_features, rK?}.
+  //
   // Reduction K is present only when K is not bcast.
   auto ndims_out =
       (input_domain.size() - 1) + (weight_domain.size() - 1) + red_dims;
@@ -113,20 +116,26 @@ static TensorView* newForLinear(
 TensorView* linear(TensorView* input, TensorView* weight, TensorView* bias) {
   auto input_ndims =
       TensorDomain::noReductions(input->getLogicalDomain()).size();
-  NVF_CHECK(input_ndims > 0, "Input A must be atleast 1D.");
+  NVF_CHECK(input_ndims > 0, "Input A must be at least 1D.");
 
+  // `linear` previously supported 1D weight and 0D bias. The support was
+  // however removed by #3073 to support sharded linear layers, yet-another
+  // workaround of #2563. Otherwise, it would be unclear whether a 2D weight is
+  // one device dimension plus a non-device or two non-devices.
+  //
+  // If needed, we can still support 1D weight and 0D bias in Thunder by
+  // changing the thunder-to-nvFuser bridge to convert a 1D/0D linear to
+  // unsqueeze followed by a 2D/1D linear followed by a squeeze. It'll likely
+  // be the same speed because nvFuser treats squeezes and unsqueezes as meta
+  // ops and run them on the host.
   auto weight_ndims =
       TensorDomain::noReductions(weight->getLogicalDomain()).size();
   NVF_CHECK(
-      weight_ndims == 1 || weight_ndims == 2,
-      "Input B must be a 1D / 2D tensor.");
-
-  // Note: This constraint is not documented but F.linear errors out if bias is
-  // given with 1D weights.
-  NVF_CHECK(
-      weight_ndims == 2 || bias == nullptr,
-      "Expected B to be a 2D matrix if bias is given, got 1D.")
-
+      weight_ndims >= 2,
+      "Input B must be at least 2D. The last two dimensions represent out "
+      "features and in features. The extra, preceding dimensions are expected "
+      "to be parallelized on DIDs during scheduling: ",
+      weight);
   NVF_CHECK(
       input->dtype() == weight->dtype(),
       "Expected input and weight dtypes to have the same dtype, got: ",
@@ -134,13 +143,21 @@ TensorView* linear(TensorView* input, TensorView* weight, TensorView* bias) {
       " and ",
       weight->dtype());
 
-  NVF_CHECK(
-      bias == nullptr || bias->dtype() == input->dtype(),
-      "Expected bias to have the same dtype as A and B, got: ",
-      bias->dtype(),
-      " and ",
-      input->dtype());
-  // For all other cases, create a new LinearOp
+  if (bias != nullptr) {
+    NVF_CHECK(
+        !TensorDomain::noReductions(bias->getLogicalDomain()).empty(),
+        "Input bias must be at least 1D. The last dimension represents out "
+        "features. The extra, preceding dimensions are expected to be "
+        "parallelized on DIDs during scheduling: ",
+        bias);
+    NVF_CHECK(
+        bias->dtype() == input->dtype(),
+        "Expected bias to have the same dtype as A and B, got: ",
+        bias->dtype(),
+        " and ",
+        input->dtype());
+  }
+
   TensorView* out = newForLinear(input, weight, bias);
   IrBuilder::create<LinearOp>(out, input, weight, bias);
   return out;
@@ -330,7 +347,7 @@ TensorView* view_as_real(TensorView* x) {
 namespace {
 
 //! Create new output for matmul
-static TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
+TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
   auto orig_domain_a = TensorDomain::noReductions(tv_a->getLogicalDomain());
   auto orig_domain_b = TensorDomain::noReductions(tv_b->getLogicalDomain());
 
@@ -427,35 +444,21 @@ SdpfaFwdResult sdpfa_fwd(
   auto query_domain = TensorDomain::noReductions(query->getLogicalDomain());
   auto key_domain = TensorDomain::noReductions(key->getLogicalDomain());
   auto value_domain = TensorDomain::noReductions(value->getLogicalDomain());
-
-  // Temporary handling of DID parallelization see
-  // https://github.com/NVIDIA/Fuser/issues/2563
-  bool has_device_dim = (query_domain.size() == 5);
-  if (has_device_dim) {
-    NVF_CHECK(
-        query_domain[0]->isDeviceDim(),
-        "Only suport DID parallelization on outermost axis");
-    NVF_CHECK(
-        key_domain[0]->isDeviceDim(),
-        "Only suport DID parallelization on outermost axis");
-    NVF_CHECK(
-        value_domain[0]->isDeviceDim(),
-        "Only suport DID parallelization on outermost axis");
-  }
-
-  auto concrete_query_size = TensorDomain::noDevices(query_domain).size();
-  auto concrete_key_size = TensorDomain::noDevices(key_domain).size();
-  auto concrete_value_size = TensorDomain::noDevices(value_domain).size();
-
   NVF_CHECK(
-      concrete_query_size == 4 && concrete_key_size == 4 &&
-          concrete_value_size == 4,
-      "Expected query, key, and value to be 4D but got: ",
-      concrete_query_size,
-      " ",
-      concrete_key_size,
-      " ,and ",
-      concrete_value_size);
+      query_domain.size() == key_domain.size(),
+      query_domain,
+      " vs ",
+      key_domain);
+  NVF_CHECK(
+      query_domain.size() == value_domain.size(),
+      query_domain,
+      " vs ",
+      value_domain);
+  NVF_CHECK(
+      query_domain.size() == 4 || query_domain.size() == 5,
+      "Expect Q/K/V to be either 4D or 5D. If 5D, the first dimension is "
+      "expected to be device parallel during expression evaluation: ",
+      query_domain);
 
   NVF_CHECK(
       !dropout_p || dropout_p->isScalar(),

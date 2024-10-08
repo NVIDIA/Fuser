@@ -106,7 +106,7 @@ TensorView* getTvInput(const Expr*);
 //! Returns the iterdomain that maps to the thread dimension grouped
 //!  to warps. Returns nullopt if the reduction is not to be lowered to
 //!  a warp reduction.
-std::optional<IterDomain*> getMaybeWarpReductionDim(
+std::optional<std::pair<IterDomain*, IterDomain*>> getMaybeWarpReductionDim(
     const Val* output,
     const Val* input);
 

@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <multidevice/communicator.h>
+#include <options.h>
 
 #include <netdb.h>
 #include <map>
@@ -27,13 +28,13 @@ namespace nvfuser {
 
 std::ostream& operator<<(std::ostream& out, const CommunicatorBackend& cb) {
   switch (cb) {
-    case CommunicatorBackend::nccl:
+    case CommunicatorBackend::kNccl:
       out << "NCCL";
       break;
-    case CommunicatorBackend::ucc:
+    case CommunicatorBackend::kUcc:
       out << "UCC";
       break;
-    case CommunicatorBackend::gloo:
+    case CommunicatorBackend::kGloo:
       out << "GLOO";
       break;
   }
@@ -125,7 +126,7 @@ bool parseEnv(
 
 inline std::string getTeamKey(const Team& team, CommunicatorBackend backend) {
   std::string backend_str =
-      (backend == CommunicatorBackend::ucc) ? "ucc" : "nccl";
+      (backend == CommunicatorBackend::kUcc) ? "ucc" : "nccl";
   return std::accumulate(
       std::begin(team),
       std::end(team),
@@ -143,7 +144,7 @@ c10::intrusive_ptr<c10d::Backend> createBackend(
     RankType rank,
     int64_t size) {
 #ifdef USE_C10D_NCCL
-  if (backend == CommunicatorBackend::nccl) {
+  if (backend == CommunicatorBackend::kNccl) {
     auto pg_opts = c10::make_intrusive<::c10d::ProcessGroupNCCL::Options>();
     return c10::make_intrusive<::c10d::ProcessGroupNCCL>(
         store, rank, size, pg_opts);
@@ -151,7 +152,7 @@ c10::intrusive_ptr<c10d::Backend> createBackend(
 #endif
 
 #ifdef USE_C10D_GLOO
-  if (backend == CommunicatorBackend::gloo) {
+  if (backend == CommunicatorBackend::kGloo) {
     auto pg_opts = c10d::ProcessGroupGloo::Options::create();
     return c10::make_intrusive<::c10d::ProcessGroupGloo>(
         store, rank, size, pg_opts);
@@ -159,7 +160,7 @@ c10::intrusive_ptr<c10d::Backend> createBackend(
 #endif
 
 #if defined(USE_C10D_UCC) && defined(NVFUSER_BUILD_WITH_UCC)
-  if (backend == CommunicatorBackend::ucc) {
+  if (backend == CommunicatorBackend::kUcc) {
     constexpr auto timeout = std::chrono::milliseconds(30 * 60 * 1000);
     return c10d::ProcessGroupUCC::createProcessGroupUCC(
         store, static_cast<int>(rank), static_cast<int>(size), timeout);
@@ -183,6 +184,10 @@ Communicator::Communicator(
           c10d::TCPStoreOptions::kDefaultPort + 42), // to avoid collision
       ucc_available_(false),
       nccl_available_(false) {
+  if (isOptionDisabled(DisableOption::Multidevice)) {
+    return;
+  }
+
   // retrieves rank and communicator size
   is_available_ = parseEnv(
       rank_, size_, local_rank_, local_size_, master_addr_, master_port_);
