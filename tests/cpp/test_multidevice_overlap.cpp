@@ -576,7 +576,7 @@ class AllgatherOverlapTest : public MultiDeviceTest {
   void validate() {
     // compute the expected output for data correctness validation
     auto tc_unsharded_expected_ = torch::matmul(ta_unsharded_, tb_unsharded_.cpu());
-    EXPECT_TRUE(tc_unsharded_.to(torch::kCPU).allclose(tc_unsharded_expected_, 1e-1, 1e-1))
+    EXPECT_TRUE(tc_unsharded_.cpu().allclose(tc_unsharded_expected_, 1e-1, 1e-1))
         << "Unexpected results, obtained: " << tc_unsharded_
         << "expected: " << tc_unsharded_expected_;
   }
