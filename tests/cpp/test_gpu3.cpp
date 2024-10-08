@@ -7992,16 +7992,14 @@ TEST_F(NVFuserTest, ReverseMerge) {
   ASSERT_TRUE(t0.equal(cg_outputs.at(0)));
 }
 
-// Can't use CpAsync with shared memory predicate.
-// https://github.com/NVIDIA/Fuser/issues/2346
-TEST_F(NVFuserTest, FusionCpAsyncPredicateError) {
+TEST_F(NVFuserTest, FusionCpAsyncPredicateAvoidIllegalMemoryAccess) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
   int m = 33, n = 48;
   TensorView* tv0 = makeContigTensor(2);
   fusion.addInput(tv0);
-  auto tv1 = exp(tv0);
+  auto tv1 = set(tv0);
   fusion.addOutput(tv1);
 
   auto tvs = tv0->cacheAfter(LoadStoreOpType::CpAsync);
@@ -8019,10 +8017,9 @@ TEST_F(NVFuserTest, FusionCpAsyncPredicateError) {
   at::Tensor t0 = at::randn({m, n}, options);
 
   FusionExecutor fe;
-  EXPECT_THAT(
-      [&]() { fe.compileFusion(&fusion, {t0}); },
-      ::testing::ThrowsMessage<nvfuser::nvfError>(
-          ::testing::HasSubstr("unsupported use case of cp.async")));
+  fe.compileFusion(&fusion, {t0});
+  auto cg_outputs = fe.runFusion({t0});
+  ASSERT_TRUE(t0.equal(cg_outputs.at(0)));
 }
 
 TEST_F(NVFuserTest, DecoupledDomains1) {

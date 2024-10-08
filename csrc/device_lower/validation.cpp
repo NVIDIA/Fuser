@@ -10,6 +10,7 @@
 #include <contiguity.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
+#include <id_model/id_model.h>
 #include <instrumentation.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
@@ -18,6 +19,7 @@
 #include <transform_iter.h>
 #include <transform_replay.h>
 #include <type.h>
+#include <val_graph_visitor.h>
 
 #include <ATen/cuda/CUDAContext.h>
 
@@ -395,6 +397,114 @@ class VectorizeValidator : public OptInDispatch {
     return {validator.vectorized_id_, dep_alloc_ids};
   }
 
+  // Given the vectorized loop ID in a tensor, find its innermost
+  // ancestors in the allocation domain. Broadcast IDs are ignored.
+  // All dependent allocation IDs are also returned.
+  //
+  // This should work return almost the same results as
+  // getDependentAllocIDs, except when loop IDs are not fully
+  // derived from logical IDs. The above version does not work
+  // correctly for such a case, whereas this version addresses the
+  // limitation by using ValGraphBFS.
+  static std::pair<IterDomain*, std::unordered_set<IterDomain*>>
+  getDependentAllocIDsIdModel(IterDomain* v_id, TensorView* tv) {
+    NVF_ERROR(GpuLower::hasCurrent());
+    NVF_ERROR(GpuLower::current()->hasIdModel());
+
+    const auto& id_model = GpuLower::current()->idModel();
+    const auto& graph = id_model.idGraph(IdMappingMode::EXACT);
+
+    auto expr_path = ValGraphBFS::getExprsBetween(
+        graph,
+        graph.toGroups(tv->getMaybeAllocationDomain()),
+        graph.toGroups(std::vector<Val*>{v_id}));
+    expr_path = reverse(expr_path);
+
+    ValGroup cur_group = graph.toGroup(v_id);
+    std::unordered_set<ValGroup> visited_ids;
+    visited_ids.insert(cur_group);
+
+    for (const auto& [expr_g, dir] : expr_path) {
+      Expr* expr = expr_g->front();
+      NVF_ERROR(
+          expr->isA<Merge>() || expr->isA<Split>() || expr->isA<Resize>() ||
+              expr->isA<Swizzle>() || expr->isA<Swizzle2D>(),
+          "Unexpected expr: ",
+          expr->toString());
+
+      const auto& inputs = dir == Direction::Forward
+          ? graph.inputGroups(expr_g)
+          : graph.outputGroups(expr_g);
+      const auto& outputs = dir == Direction::Forward
+          ? graph.outputGroups(expr_g)
+          : graph.inputGroups(expr_g);
+
+      if (expr->isOneOf<Swizzle, Swizzle2D>()) {
+        // Not supported.
+        // TODO: Checking the outputs too since that is what
+        // VectorizeValidator::handle(Swizzle*) and
+        // VectorizeValidator::handle(Swizzle2D*) do, but unclear
+        // why.
+        if (std::find(inputs.begin(), inputs.end(), cur_group) !=
+                inputs.end() ||
+            std::find(outputs.begin(), outputs.end(), cur_group) !=
+                outputs.end()) {
+          cur_group.reset();
+          break;
+        }
+      }
+
+      visited_ids.insert(outputs.begin(), outputs.end());
+
+      if (std::find(inputs.begin(), inputs.end(), cur_group) == inputs.end()) {
+        continue;
+      }
+
+      if (expr->isA<Resize>()) {
+        // No validatiton is done at this moment
+        cur_group = outputs[0];
+      } else if (inputs.size() == 2) {
+        NVF_ERROR(outputs.size() == 1);
+        if (cur_group == inputs[1]) {
+          cur_group = outputs[0];
+        } else if (cur_group == inputs[0]) {
+          cur_group.reset();
+          break;
+        }
+      } else {
+        NVF_ERROR(inputs.size() == 1);
+        NVF_ERROR(outputs.size() == 2);
+        if (outputs[1]->front()->as<IterDomain>()->isBroadcast()) {
+          NVF_ERROR(!outputs[0]->front()->as<IterDomain>()->isBroadcast());
+          cur_group = outputs[0];
+        } else {
+          cur_group = outputs[1];
+        }
+      }
+    }
+
+    NVF_ERROR(
+        cur_group.get() != nullptr,
+        "Valid corresponding allocation ID not found. ",
+        tv->toString(),
+        ", vec ID: ",
+        v_id->toString());
+
+    IterDomain* innermost_alloc_id = nullptr;
+    std::unordered_set<IterDomain*> dep_alloc_ids;
+    for (auto alloc : tv->getMaybeAllocationDomain()) {
+      const auto& alloc_group = graph.toGroup(alloc);
+      if (visited_ids.find(alloc_group) != visited_ids.end()) {
+        dep_alloc_ids.emplace(alloc);
+      }
+      if (cur_group == alloc_group) {
+        innermost_alloc_id = alloc;
+      }
+    }
+
+    return {innermost_alloc_id, dep_alloc_ids};
+  }
+
   static void validateAllocationVectorizedId(
       IterDomain* vec_alloc_id,
       const std::unordered_set<IterDomain*>& dep_alloc_ids,
@@ -477,7 +587,10 @@ class VectorizeValidator : public OptInDispatch {
       IterDomain* v_id,
       TensorView* tv,
       std::string name) {
-    const auto& [vec_alloc_id, dep_alloc_ids] = getDependentAllocIDs(v_id, tv);
+    const auto& [vec_alloc_id, dep_alloc_ids] =
+        GpuLower::current()->hasIdModel()
+        ? getDependentAllocIDsIdModel(v_id, tv)
+        : getDependentAllocIDs(v_id, tv);
 
     validateAllocationVectorizedId(vec_alloc_id, dep_alloc_ids, tv, name);
 
@@ -578,23 +691,30 @@ class VectorizeValidator : public OptInDispatch {
     vectorized_set_info.vectorized_consumer_alloc_id = consumer_vectorized_id;
 
     // Validate producer
-    auto pairwise_map = PairwiseLogicalDomainMap(producer_tv, tv);
-    auto producer_replayed_as_consumer =
-        TransformReplay::replayPasC(
-            producer_tv,
-            tv,
-            -1,
-            pairwise_map,
-            TransformReplayOptions().replayResize())
-            .first;
-    ir_utils::TVDomainGuard domain_guard(
-        producer_tv, producer_replayed_as_consumer);
-    auto c2p_map =
-        BestEffortReplay::replayPasC(producer_tv, tv, -1, pairwise_map)
-            .getReplay();
-    vectorized_set_info.vectorized_producer_alloc_id =
-        getAndValidateVectorizedIdInAllocationDomain(
-            c2p_map.at(v_id), producer_tv, "producer");
+    if (GpuLower::current()->hasIdModel()) {
+      // No need to do replayPasC when using IdModel
+      vectorized_set_info.vectorized_producer_alloc_id =
+          getAndValidateVectorizedIdInAllocationDomain(
+              v_id, producer_tv, "producer");
+    } else {
+      auto pairwise_map = PairwiseLogicalDomainMap(producer_tv, tv);
+      auto producer_replayed_as_consumer =
+          TransformReplay::replayPasC(
+              producer_tv,
+              tv,
+              -1,
+              pairwise_map,
+              TransformReplayOptions().replayResize())
+              .first;
+      ir_utils::TVDomainGuard domain_guard(
+          producer_tv, producer_replayed_as_consumer);
+      auto c2p_map =
+          BestEffortReplay::replayPasC(producer_tv, tv, -1, pairwise_map)
+              .getReplay();
+      vectorized_set_info.vectorized_producer_alloc_id =
+          getAndValidateVectorizedIdInAllocationDomain(
+              c2p_map.at(v_id), producer_tv, "producer");
+    }
 
     // For aligned vectorize, the extent of a vectorized domain must
     // be divisible by the vector word size. The domain is usually
