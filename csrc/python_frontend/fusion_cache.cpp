@@ -221,7 +221,8 @@ std::unique_ptr<HeuristicParams> UserSchedule::computeHeuristics(
       "Could not schedule fusion with ",
       scheduler_type,
       " scheduler.");
-  return scheduler->computeHeuristics(fusion(), runtime_info_ref);
+  return scheduler->computeHeuristics(
+      fusion(), runtime_info_ref, data_cache.get());
 }
 
 void UserSchedule::scheduleWithType(SchedulerType scheduler_type) {
@@ -236,7 +237,8 @@ void UserSchedule::scheduleWithType(SchedulerType scheduler_type) {
       "Could not schedule fusion with ",
       scheduler_type,
       " scheduler.");
-  heuristic_params = scheduler->computeHeuristics(fusion(), runtime_info_ref);
+  heuristic_params = scheduler->computeHeuristics(
+      fusion(), runtime_info_ref, data_cache.get());
   scheduler->schedule(fusion(), heuristic_params.get());
 }
 

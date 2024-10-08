@@ -11,6 +11,7 @@
 
 #include <python_frontend/fusion_record.h>
 #include <runtime/fusion_executor_cache.h>
+#include <scheduler/compile_time_info.h>
 #include <scheduler/registry.h>
 
 #include <memory>
@@ -26,8 +27,10 @@ struct UserSchedule {
 
   //! Runtime information for schedulers
   std::unique_ptr<SchedulerRuntimeInfo> runtime_info;
-  //! The scheduler heuristic for this UserSchedule
+  //! The scheduler heuristic parameters for this UserSchedule.
   std::unique_ptr<HeuristicParams> heuristic_params;
+  //! The compile-time data cache.
+  std::unique_ptr<HeuristicDataCache> data_cache;
   //! Concretized, Scheduled Fusion IR
   std::unique_ptr<Fusion> scheduled_fusion;
   //! Generated kernel container
