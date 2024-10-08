@@ -119,8 +119,10 @@ TEST_F(OuterReductionTest, GroupedGridWelfordOuterOpt) {
     fe.compileFusion(&fusion, aten_inputs);
 
     NVF_CHECK(
-        fe.kernel()->summary().has_outer_grouped_grid_welford ==
-            params.should_use_opt,
+        fe.compiledKernel()
+                ->kernel()
+                ->summary()
+                .has_outer_grouped_grid_welford == params.should_use_opt,
         (params.should_use_opt ? "Failed to use the optimized implementation"
                                : "Should not use the optimized implementation"),
         ": ",
@@ -923,7 +925,7 @@ void grid_persistent_batchnorm_manual(
       true);
 
   testValidate(
-      fe.kernel(),
+      fe.compiledKernel()->kernel(),
       {cg_outputs.at(2)},
       aten_inputs,
       {at_output},
@@ -1251,7 +1253,7 @@ void grid_persistent_batchnorm_bwd_manual(
       {true, true, true});
 
   testValidate(
-      fe.kernel(),
+      fe.compiledKernel()->kernel(),
       cg_outputs,
       aten_inputs,
       {std::get<0>(at_output), std::get<1>(at_output), std::get<2>(at_output)},
@@ -2189,14 +2191,23 @@ TEST_F(OuterReductionTest, IterGroupedBlockReduction) {
 
   // lowering & check iteration grouped reductions
   NVF_CHECK(
-      fusion_executor.kernel()->summary().has_iter_grouped_reductions,
+      fusion_executor.compiledKernel()
+          ->kernel()
+          ->summary()
+          .has_iter_grouped_reductions,
       "There must be iter domain grouped reductions.");
   NVF_CHECK(
-      fusion_executor.kernel()->summary().num_grouped_iterations == vect_factor,
+      fusion_executor.compiledKernel()
+              ->kernel()
+              ->summary()
+              .num_grouped_iterations == vect_factor,
       "Expected ",
       vect_factor,
       " grouped iterations, found ",
-      fusion_executor.kernel()->summary().num_grouped_iterations);
+      fusion_executor.compiledKernel()
+          ->kernel()
+          ->summary()
+          .num_grouped_iterations);
 
   testValidate(
       &fusion,

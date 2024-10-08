@@ -369,7 +369,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
 
 void FusionKernelRuntime::disableLaunchParamCache() {
   for (auto& executor : executors_) {
-    executor.disableLaunchParamCache();
+    executor.compiledKernel()->disableLaunchParamCache();
   }
 }
 
@@ -592,9 +592,10 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
   // TODO: This is a work around for the fallback execution path where a kernel
   // is not compiled. Perhaps the gorup/segment Id needs to be specified to the
   // executor at its constructor.  Currently, initialization is ad hoc.
-  if (executor.groupId() < 0) {
-    executor.setGroupId(group_id);
-  }
+  // TODO: Re enable
+  // if (executor.compiledKernel()->groupId() < 0) {
+  //   executor.compiledKernel()->setGroupId(group_id);
+  // }
   auto outputs = executor.runFusion(args, launch_params, compile_params);
 
   return outputs;

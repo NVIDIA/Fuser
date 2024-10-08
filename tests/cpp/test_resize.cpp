@@ -1889,8 +1889,11 @@ TEST_F(ResizeTest, FusionSliceForNanoGPT1) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-  auto kernel =
-      executor_cache.getMostRecentKernelRuntime()->executors().at(0).kernel();
+  auto kernel = executor_cache.getMostRecentKernelRuntime()
+                    ->executors()
+                    .at(0)
+                    .compiledKernel()
+                    ->kernel();
   NVF_CHECK(
       !kernel->summary().has_cooperative_grid_reduction,
       "Grid sync should not be used as slicing input should avoid input caching");
@@ -1951,8 +1954,11 @@ TEST_F(ResizeTest, FusionSliceForNanoGPT2) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-  auto kernel =
-      executor_cache.getMostRecentKernelRuntime()->executors().at(0).kernel();
+  auto kernel = executor_cache.getMostRecentKernelRuntime()
+                    ->executors()
+                    .at(0)
+                    .compiledKernel()
+                    ->kernel();
 
   // Make sure the slices ops use the same producer
   TensorView* known_slice_producer = nullptr;

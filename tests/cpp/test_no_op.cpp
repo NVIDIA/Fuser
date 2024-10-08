@@ -230,7 +230,9 @@ TEST_F(NoOpTest, ExpandedReduction) {
       runtime->fusionSegments()->groups(),
       UnorderedElementsAre(HeuristicIs(SchedulerType::NoOp)));
   const auto& executor = runtime->executors().front();
-  EXPECT_THAT(executor.kernel()->summary().global_allocations, IsEmpty());
+  EXPECT_THAT(
+      executor.compiledKernel()->kernel()->summary().global_allocations,
+      IsEmpty());
 }
 
 } // namespace nvfuser

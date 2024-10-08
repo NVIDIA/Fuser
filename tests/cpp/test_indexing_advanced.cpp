@@ -810,7 +810,13 @@ TEST_P(AdvancedIndexingTest, 18) {
 
   auto ref = (t0.unsqueeze(-1) + t1).sum();
 
-  testValidate(fe.kernel(), cg_outputs, inputs, {ref}, __LINE__, __FILE__);
+  testValidate(
+      fe.compiledKernel()->kernel(),
+      cg_outputs,
+      inputs,
+      {ref},
+      __LINE__,
+      __FILE__);
 }
 
 TEST_P(AdvancedIndexingTest, 19) {

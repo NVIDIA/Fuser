@@ -582,7 +582,8 @@ TEST_P(CircularBufferingTest, SmemBlockGemmCache) {
   //   insertion to ensure ordering of circular buffered tensor access.
   // The check below makes sure that the sync is inserted so that the
   //   test isn't running on a race condition.
-  NVF_CHECK(fe.kernel()->summary().war_hazard_syncs_count > 0);
+  NVF_CHECK(
+      fe.compiledKernel()->kernel()->summary().war_hazard_syncs_count > 0);
 }
 
 // Vectorized reset test for circular buffered registers

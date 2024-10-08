@@ -183,30 +183,30 @@ std::string FusionExecutorCache::getCode(
   NVF_CHECK(kernel_runtime->isCompiled(), "Fusion is not compiled!");
 
   bool first_kernel = true;
-  for (const auto& exec : kernel_runtime->executors()) {
+  for (const auto& fe : kernel_runtime->executors()) {
     if (first_kernel) {
       first_kernel = false;
     } else {
       kernel_code += "\n";
     }
-    kernel_code += exec.kernelString();
+    kernel_code += fe.compiledKernel()->kernelString();
   }
 
   if (intrinsic_code) {
-    const auto& execs = kernel_runtime->executors();
-    const FusionExecutor& fe = execs[0];
-    auto index_type = fe.kernel()->indexType();
+    const auto& fes = kernel_runtime->executors();
+    auto index_type = fes[0].compiledKernel()->kernel()->indexType();
     // Make sure all the segment index types match. All segments currently
     // use the same index type but this code change in the future.
-    for (const auto& exec : execs) {
+    for (const auto& fe : fes) {
       NVF_CHECK(
-          index_type == exec.kernel()->indexType(),
+          index_type == fe.compiledKernel()->kernel()->indexType(),
           "Index Type mismatch between Segment Executors: ",
           index_type,
           " ",
-          exec.kernel()->indexType());
+          fe.compiledKernel()->kernel()->indexType());
     }
-    std::string full_code = fe.getStructuredCode(kernel_code, index_type);
+    std::string full_code =
+        fes[0].compiledKernel()->getStructuredCode(kernel_code, index_type);
     return full_code;
   } else {
     return kernel_code;
@@ -239,7 +239,7 @@ std::string FusionExecutorCache::getScheduledIr(
     ss << fs << "\n";
   }
   for (auto& exec : kernel_runtime->executors()) {
-    auto sched_ir = exec.kernel()->as<Fusion>();
+    auto sched_ir = exec.compiledKernel()->kernel()->as<Fusion>();
     sched_ir->print(ss, tensor_transforms);
   }
   return ss.str();

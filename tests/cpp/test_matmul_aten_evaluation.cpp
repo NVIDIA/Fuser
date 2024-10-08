@@ -240,7 +240,7 @@ TEST_P(LinearNodeParametrizedTest, LinearNodeConcrete) {
       fec.getMostRecentKernelRuntime()->executors();
   EXPECT_EQ(executors.size(), 1);
   // Verify that fusion compilation was skipped.
-  EXPECT_FALSE(executors.front().hasCompiledKernel());
+  EXPECT_FALSE(executors.front().compiledKernel()->hasCompiledKernel());
 
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
@@ -290,7 +290,7 @@ TEST_P(LinearNodeParametrizedTest, LinearNodeSymbolic) {
       fec.getMostRecentKernelRuntime()->executors();
   EXPECT_EQ(executors.size(), 1);
   // Verify that fusion compilation was skipped.
-  EXPECT_FALSE(executors.front().hasCompiledKernel());
+  EXPECT_FALSE(executors.front().compiledKernel()->hasCompiledKernel());
 
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }

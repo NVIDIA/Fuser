@@ -737,7 +737,7 @@ TEST_F(SwizzleTest, Transpose1) {
   auto t = at::randn({10240, 10240}, options);
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t});
-  EXPECT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+  EXPECT_TRUE(getBankConflictInfo(fe.compiledKernel()->kernel()).empty());
   std::vector<at::Tensor> outputs = fe.runFusion({t});
   EXPECT_TRUE(at::equal(t.t(), outputs[0]));
 }

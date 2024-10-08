@@ -1119,12 +1119,13 @@ TEST_F(NVFuserTest, FusionSASSDumpError_CUDA) {
   fe.compileFusion(&fusion, {t0});
 
   EXPECT_THAT(
-      [&]() { fe.disassembledKernelSASS(); },
+      [&]() { fe.compiledKernel()->disassembledKernelSASS(); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(
           ::testing::HasSubstr("I am fake")));
 
   auto cg_outputs = fe.runFusion({t0});
-  testValidate(fe.kernel(), cg_outputs, {t0}, __LINE__, __FILE__);
+  testValidate(
+      fe.compiledKernel()->kernel(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, ProveLinearAndGetStride) {

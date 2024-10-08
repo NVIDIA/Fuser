@@ -19,10 +19,10 @@ namespace nvfuser {
 namespace {
 void assertIsCompiledToHostIrContainer(const FusionExecutorCache& fec) {
   FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
-  const std::vector<FusionExecutor>& executors = runtime->executors();
-  EXPECT_THAT(executors, testing::SizeIs(1));
-  for (const auto& executor : executors) {
-    EXPECT_TRUE(executor.fusion()->isA<hir::HostIrContainer>())
+  const std::vector<FusionExecutor>& fes = runtime->executors();
+  EXPECT_THAT(fes, testing::SizeIs(1));
+  for (const auto& fe : fes) {
+    EXPECT_TRUE(fe.hostIrContainer())
         << "failed to compile to a HostIrContainer with Communications";
   }
 }

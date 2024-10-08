@@ -390,7 +390,8 @@ TEST_F(PredicateEliminationTest, 8) {
       fec.getMostRecentKernelRuntime()->executors();
   NVF_CHECK(compiled_executors.size() == 1, "Unexpected scheduling");
   NVF_CHECK(
-      !PredicatedChecker::isPredicated(tv6, compiled_executors.at(0).kernel()),
+      !PredicatedChecker::isPredicated(
+          tv6, compiled_executors.at(0).compiledKernel()->kernel()),
       "T6 should not be predicated");
 }
 

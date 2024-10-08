@@ -178,7 +178,8 @@ static void SingleMatmulBase(
   FusionExecutor fe;
   fe.compileFusion(fusion, args, launch_constraints, cparams);
   NVF_CHECK(
-      getBankConflictInfo(fe.kernel(), launch_constraints).empty(),
+      getBankConflictInfo(fe.compiledKernel()->kernel(), launch_constraints)
+          .empty(),
       "Shared memory bank conflict not removed.");
 
   std::vector<c10::IValue> aten_inputs({inputs.first, inputs.second});
@@ -359,7 +360,7 @@ static void SingleMatmulPartitionedK(
   auto lparams = LaunchParams();
   fe.compileFusion(fusion, args, lparams, cparams);
   NVF_CHECK(
-      getBankConflictInfo(fe.kernel(), lparams).empty(),
+      getBankConflictInfo(fe.compiledKernel()->kernel(), lparams).empty(),
       "Shared memory bank conflict not removed.");
 
   // Warm up run
@@ -466,7 +467,9 @@ static void NvFuserScheduler_MatmulSplitKReduction(
       fusion, args, heuristic_params->lparams, heuristic_params->cparams);
 
   NVF_CHECK(
-      getBankConflictInfo(fe.kernel(), heuristic_params->lparams).empty(),
+      getBankConflictInfo(
+          fe.compiledKernel()->kernel(), heuristic_params->lparams)
+          .empty(),
       "Shared memory bank conflict not removed.");
 
   // Warm up run
