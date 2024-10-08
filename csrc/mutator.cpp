@@ -108,6 +108,8 @@ void OptOutMutator::mutate(IterDomain* id) {
   // This guarantees we replace id in all downstream expressions
   registerMutation(id, new_id);
 
+  id->fusion()->updateExactMappings(id, new_id);
+
   // Preserve definition if it exists in id. This is important since otherwise
   // we might disconnect the root to logical transform path. For example if id
   // is one output of a Split operation and the other output is unmodified,
@@ -143,7 +145,8 @@ void OptOutMutator::mutate(TensorDomain* td) {
   std::vector<IterDomain*> allocation_dom = td->hasAllocation()
       ? updateIdVec(td->allocation())
       : std::vector<IterDomain*>();
-  std::vector<IterDomain*> domain = updateIdVec(td->loop());
+  std::vector<IterDomain*> loop_domain = updateIdVec(td->loop());
+  std::vector<IterDomain*> initial_loop_domain = updateIdVec(td->initialLoop());
 
   if (!mutated) {
     return;
@@ -154,7 +157,8 @@ void OptOutMutator::mutate(TensorDomain* td) {
       root_dom,
       logical_dom,
       allocation_dom,
-      domain,
+      loop_domain,
+      initial_loop_domain,
       td->contiguity());
   registerMutation(td, mutated_val);
 }

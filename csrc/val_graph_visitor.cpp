@@ -212,12 +212,14 @@ bool isCyclic(const ValGraph& graph) {
 ValGroups ValGraphBFS::getReachableValsFrom(
     const ValGraph& graph,
     const ValGroups& from,
-    const ValGroups& vals) {
+    const ValGroups& vals,
+    Direction allowed_direction) {
   ValGraphBFS bfs(
       graph,
       {from.begin(), from.end()},
       {vals.begin(), vals.end()},
-      /*require_all_to_visited=*/false);
+      /*require_all_to_visited=*/false,
+      allowed_direction);
 
   bfs.traverse();
 
@@ -235,11 +237,16 @@ ValGroups ValGraphBFS::getReachableValsFrom(
 std::unordered_set<ValGroup> ValGraphBFS::projectTo(
     const ValGraph& id_graph,
     const ValGroup& from,
-    const ValGroups& to) {
+    const ValGroups& to,
+    Direction allowed_direction) {
   std::unordered_set<ValGroup> projection{from};
   // Reverse order
   auto exprs = ValGraphBFS::getExprsBetween(
-      id_graph, to, {from}, /*require_all_to_visited=*/false);
+      id_graph,
+      to,
+      {from},
+      /*require_all_to_visited=*/false,
+      allowed_direction);
   while (!exprs.empty()) {
     const auto [expr, direction] = exprs.back();
     exprs.pop_back();

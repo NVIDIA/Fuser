@@ -6352,7 +6352,7 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
             tv1->getLogicalDomain(), {tv1->axis(1), tv1->axis(2)});
       },
       testing::ThrowsMessage<nvfuser::nvfError>(
-          testing::HasSubstr("dom0 has unreachable IDs")));
+          testing::HasSubstr("dom0 has unaccounted IDs")));
 
   tv1->merge(0);
   // [I0/4*4, I1]
@@ -6388,7 +6388,7 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
             tv1->getLogicalDomain());
       },
       testing::ThrowsMessage<nvfuser::nvfError>(
-          testing::HasSubstr("is redundant")));
+          testing::HasSubstr("dom0 has unaccounted IDs")));
 
   // Testing symbolic domains
   auto tv2 = reshape(
@@ -6586,10 +6586,8 @@ TEST_F(NVFuserTest, AllIDsWithExtraLoopIDs2) {
 
   // The initial loop domain and the current loop domain should be
   // reachable to each other with no redundancy
-  auto tv2_loop_domain_comparison_results = ir_utils::compareDomains(
+  ir_utils::validateDomainEquivalence(
       tv2->getInitialLoopDomain(), tv2->getLoopDomain());
-  EXPECT_FALSE(tv2_loop_domain_comparison_results.dom0_has_unreachable_ids);
-  EXPECT_FALSE(tv2_loop_domain_comparison_results.dom1_has_unreachable_ids);
 
   // Make sure allIDs finds all the IDs including the extra IDs
   std::unordered_set<IterDomain*> tv2_all_ids_ref;

@@ -432,6 +432,8 @@ class NVF_API Fusion : public IrContainer {
 
   DisjointSets<IterDomain*> registeredExactMappings() const;
 
+  void updateExactMappings(IterDomain* original_id, IterDomain* replacement_id);
+
  protected:
   friend SegmentCandidateFinder;
   friend SegmentedFusion;

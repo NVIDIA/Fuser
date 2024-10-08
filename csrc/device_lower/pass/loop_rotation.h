@@ -9,7 +9,6 @@
 
 #include <exceptions.h>
 #include <ir/all_nodes.h>
-#include <runtime/executor_params.h>
 
 namespace nvfuser {
 

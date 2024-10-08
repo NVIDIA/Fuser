@@ -126,14 +126,16 @@ class BFS {
       OutputsT outputs,
       std::vector<NodeType> from,
       std::vector<NodeType> to,
-      bool require_all_to_visited = true)
+      bool require_all_to_visited = true,
+      Direction allowed_direction = Direction::Undefined)
       : definition_(std::move(definition)),
         uses_(std::move(uses)),
         inputs_(std::move(inputs)),
         outputs_(std::move(outputs)),
         from_(std::move(from)),
         to_(std::move(to)),
-        require_all_to_visited_(require_all_to_visited) {}
+        require_all_to_visited_(require_all_to_visited),
+        allowed_direction_(allowed_direction) {}
 
   // Traverse from from_ to to_, recording each taken
   // path to generate the shortest path after the travesal
@@ -340,7 +342,7 @@ class BFS {
       const ExprT& expr) const {
     // Either all inputs or all outputs must have been visited
     decltype(auto) inputs = inputs_(expr);
-    if (!inputs.empty() &&
+    if (!inputs.empty() && allowed_direction_ != Direction::Backward &&
         std::all_of(
             inputs.begin(), inputs.end(), [&](const ValT& input) -> bool {
               return isDependencySatisfied(input);
@@ -355,7 +357,7 @@ class BFS {
     }
 
     decltype(auto) outputs = outputs_(expr);
-    if (!outputs.empty() &&
+    if (!outputs.empty() && allowed_direction_ != Direction::Forward &&
         std::all_of(
             outputs.begin(), outputs.end(), [&](const ValT& output) -> bool {
               return isDependencySatisfied(output);
@@ -433,18 +435,30 @@ class BFS {
     };
 
     if (const ExprT* e = std::get_if<ExprT>(&node)) {
-      for (const auto& v : inputs_(*e)) {
-        add_to_visit_list(v);
+      if (allowed_direction_ == Direction::Backward ||
+          allowed_direction_ == Direction::Undefined) {
+        for (const auto& v : inputs_(*e)) {
+          add_to_visit_list(v);
+        }
       }
-      for (const auto& v : outputs_(*e)) {
-        add_to_visit_list(v);
+      if (allowed_direction_ == Direction::Forward ||
+          allowed_direction_ == Direction::Undefined) {
+        for (const auto& v : outputs_(*e)) {
+          add_to_visit_list(v);
+        }
       }
     } else if (const ValT* v = std::get_if<ValT>(&node)) {
-      for (const auto& e : uses_(*v)) {
-        add_to_visit_list(e);
+      if (allowed_direction_ == Direction::Forward ||
+          allowed_direction_ == Direction::Undefined) {
+        for (const auto& e : uses_(*v)) {
+          add_to_visit_list(e);
+        }
       }
-      for (const auto& e : definition_(*v)) {
-        add_to_visit_list(e);
+      if (allowed_direction_ == Direction::Backward ||
+          allowed_direction_ == Direction::Undefined) {
+        for (const auto& e : definition_(*v)) {
+          add_to_visit_list(e);
+        }
       }
     } else {
       NVF_THROW();
@@ -488,6 +502,7 @@ class BFS {
   std::unordered_map<NodeType, std::pair<Direction, std::vector<NodeType>>>
       prev_nodes_;
   bool require_all_to_visited_ = true;
+  Direction allowed_direction_ = Direction::Undefined;
 };
 
 } // namespace nvfuser
