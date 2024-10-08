@@ -210,7 +210,7 @@ TEST_P(CommunicationTest, SendRecv) {
     GTEST_SKIP() << "This test needs at least 2 GPUs and 2 ranks.";
   }
 
-  if (GetParam() == CommunicatorBackend::ucc) {
+  if (GetParam() == CommunicatorBackend::kUcc) {
     GTEST_SKIP() << "TODO(#3120): investigate why this test hangs on H100";
   }
 
@@ -410,7 +410,7 @@ TEST_P(CommunicationTest, ReduceScatter) {
 INSTANTIATE_TEST_SUITE_P(
     ,
     CommunicationTest,
-    testing::Values(CommunicatorBackend::nccl, CommunicatorBackend::ucc),
+    testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
     testing::PrintToStringParamName());
 
 } // namespace nvfuser
