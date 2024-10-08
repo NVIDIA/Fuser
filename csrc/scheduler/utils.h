@@ -701,6 +701,8 @@ void moveNonConcretizedBroadcastInnermost(
     Fusion* fusion,
     const std::unordered_set<TensorView*>& ignored_tvs = {});
 
+// Make the loop domains of given tensors look like a given reference
+// domain
 void scheduleLoopDomainsLike(
     const std::vector<TensorView*>& tvs,
     const std::vector<IterDomain*>& ref_loop_dom);

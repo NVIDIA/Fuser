@@ -2761,38 +2761,33 @@ class LoopDomainScheduler {
     id_model_ = std::make_unique<IdModel>(fusion, /*build_graphs=*/false);
     id_model_->buildExactGraph();
 
-    if (getenv("DEBUG")) {
-      std::ofstream ofs("graph.dot", std::ofstream::trunc);
-      auto dot_string = graph().toGraphvizDotGraph();
-      ofs << dot_string;
-      ofs.close();
-    }
-
     ref_id_groups_ = graph().toGroups(ref_loop_dom_);
 
     std::vector<ValGroup> all_val_groups =
         graph().disjointValSets().disjointSets();
     all_ancestors_of_ref_ = ValGraphBFS::getReachableValsFrom(
         graph(), ref_id_groups_, all_val_groups, Direction::Backward);
-    for (const auto& g : all_ancestors_of_ref_) {
-      std::cerr << "Ancestor: " << nvfuser::toString(g) << "\n";
-    }
   }
 
   void schedule(TensorView* tv);
 
  private:
-  ValGraph& graph() {
+  ValGraph& graph() const {
     return id_model_->idGraph(IdMappingMode::EXACT);
   }
 
+  ValGraphBFS::ExprPath getReplayPath(TensorView* tv) const;
+
+  // Replay an ExprGroup with given lists of input and output
+  // groups. NOte that inputs and outputs are based on a given
+  // direction. If it's Backward, the given inputs are used as the
+  // outputs of the expr.
   Expr* replay(
       const ExprGroup& expr_g,
       Direction dir,
       const ValGroups& input_groups,
       const ValGroups& output_groups,
       const std::unordered_map<ValGroup, IterDomain*>& group_to_id) const {
-    std::cerr << "Replaying the expr: " << expr_g->front()->toString();
     std::vector<IterDomain*> inputs;
     std::vector<IterDomain*> outputs;
     std::transform(
@@ -2813,7 +2808,6 @@ class LoopDomainScheduler {
         dir == Direction::Forward ? inputs : outputs,
         dir == Direction::Forward ? outputs : inputs,
         expr_g->front());
-    std::cerr << "Replayed expr: " << replayed_expr->toString();
     return replayed_expr;
   }
 
@@ -2824,37 +2818,19 @@ class LoopDomainScheduler {
   ValGroups all_ancestors_of_ref_;
 };
 
-ValGroups getInputsOfExprPath(
-    const ValGraph& graph,
-    const ValGraphBFS::ExprPath& path) {
-  ValGroups inputs;
-  std::unordered_set<ValGroup> all_outputs;
-
-  for (const auto& [expr_g, dir] : path) {
-    const auto input_groups = dir == Direction::Forward
-        ? graph.inputGroups(expr_g)
-        : graph.outputGroups(expr_g);
-    const auto output_groups = dir == Direction::Forward
-        ? graph.outputGroups(expr_g)
-        : graph.inputGroups(expr_g);
-    for (const auto& inp : input_groups) {
-      if (all_outputs.find(inp) == all_outputs.end()) {
-        inputs.pushBack(inp);
-      }
-    }
-    for (const auto& out : output_groups) {
-      all_outputs.emplace(out);
-    }
-  }
-
-  return inputs;
-}
-
 void LoopDomainScheduler::schedule(TensorView* tv) {
   std::cerr << "Scheduling " << tv->toString() << "\n";
   std::cerr << "Logical domain: " << toDelimitedString(tv->getLogicalDomain())
             << "\n";
 
+  // Quick shortcut
+  if (ref_id_groups_ == graph().toGroups(tv->getLoopDomain())) {
+    // No need to change the current loop domain
+    return;
+  }
+
+  // All of the existing IDs are reused as much as possible to
+  // minimize creating new IDs.
   auto all_ids = tv->domain()->allIDs();
   std::unordered_map<ValGroup, IterDomain*> group_to_id;
   ValGroups all_id_groups;
@@ -2864,110 +2840,47 @@ void LoopDomainScheduler::schedule(TensorView* tv) {
     all_id_groups.pushBack(group);
   }
 
-  const ExprGroups all_expr_groups = graph().toGroups(tv->domain()->allExprs());
+  // New loop domain to set for the tv
+  std::vector<IterDomain*> loop_domain(ref_loop_dom_.size());
 
-  for (const auto& exprg : all_expr_groups) {
-    std::cerr << "Available expr: " << nvfuser::toString(exprg) << ": "
-              << exprg->front()->toString();
-  }
-
-  const auto ndims = (int64_t)ref_loop_dom_.size();
-
-  std::vector<IterDomain*> loop_domain(ndims);
-
-  // Find missing ids
-  ValGroups missing_ref_id_groups;
-  for (const auto i : c10::irange(ndims)) {
-    const auto& ref_id_group = ref_id_groups_.at(i);
-    if (!all_id_groups.has(ref_id_group)) {
-      missing_ref_id_groups.pushBack(ref_id_group);
+  // Find missing IDs.
+  bool has_missing_ids = false;
+  for (const auto i : c10::irange(ref_loop_dom_.size())) {
+    const auto& ref_id_group = ref_id_groups_.at((int64_t)i);
+    if (all_id_groups.has(ref_id_group)) {
+      // This loop ID already exists.
+      auto it = group_to_id.find(ref_id_group);
+      NVF_ERROR(it != group_to_id.end());
+      loop_domain.at(i) = it->second;
+    } else {
+      // Need to create a new ID for the loop ID
+      has_missing_ids = true;
       // TODO: Don't force mapping at this point since that may not be necessary
       auto clone = ref_loop_dom_.at(i)->cloneWithoutRFactor(true);
       loop_domain.at(i) = clone;
       group_to_id.emplace(ref_id_group, clone);
       all_id_groups.pushBack(ref_id_group);
-    } else {
-      auto it = group_to_id.find(ref_id_group);
-      NVF_ERROR(it != group_to_id.end());
-      loop_domain.at(i) = it->second;
     }
   }
 
-  if (missing_ref_id_groups.empty()) {
-    std::cerr << "All IDs already found in the tensor: "
-              << toDelimitedString(loop_domain) << "\n";
+  // If no new ID is created, no expr replay is necessary
+  if (!has_missing_ids) {
     tv->setLoopDomain(loop_domain);
     return;
   }
 
-  // Forward search to tv root
-  //
-  // Find inputs of the traversal path
-  //
-  // Backward search from the ref to the inputs
+  const auto path_from_ref = getReplayPath(tv);
+  const ExprGroups all_existing_expr_groups =
+      graph().toGroups(tv->domain()->allExprs());
 
-  ValGroups tv_target_domains =
-      graph().toGroups(TensorDomain::noBroadcasts(tv->getMaybeRootDomain()));
-  ValGraphBFS::ExprPath ref_to_logical;
-  if (std::all_of(
-          tv_target_domains.begin(),
-          tv_target_domains.end(),
-          [&](const ValGroup& tv_target_domain) {
-            return all_ancestors_of_ref_.has(tv_target_domain);
-          })) {
-    ref_to_logical = ValGraphBFS::getExprsBetween(
-        graph(),
-        ref_id_groups_,
-        tv_target_domains,
-        /*require_all_to_visited=*/true,
-        Direction::Backward);
-  } else {
-    std::cerr << "getExprs from ancestor to tv\n";
-    auto ancestor_to_tv = ValGraphBFS::getExprsBetween(
-        graph(),
-        all_ancestors_of_ref_,
-        graph().toGroups(tv->getMaybeRootDomain()),
-        /*require_all_to_visited=*/true,
-        Direction::Forward);
-    std::cerr << "Ancestor to to exprs\n";
-    for (const auto& [expr_g, dir] : ancestor_to_tv) {
-      std::cerr << "\t" << dir << " " << expr_g->front()->toString();
-    }
-    auto ancestor_to_tv_inputs = getInputsOfExprPath(graph(), ancestor_to_tv);
-    for (const auto& vg : ancestor_to_tv_inputs) {
-      std::cerr << "Input to anc: " << nvfuser::toString(vg) << "\n";
-    }
-    auto ref_to_inputs = ValGraphBFS::getExprsBetween(
-        graph(),
-        ref_id_groups_,
-        ancestor_to_tv_inputs,
-        /*require_all_to_visited=*/true,
-        Direction::Backward);
-
-    // Overall traversal path: ref_to_inputs -> ancestor_to_tv_inputs
-    for (const auto& [expr_g, dir] : ref_to_inputs) {
-      std::cerr << "\t" << dir << " " << expr_g->front()->toString();
-    }
-
-    ref_to_logical = ref_to_inputs;
-    ref_to_logical.insert(
-        ref_to_logical.end(), ancestor_to_tv.begin(), ancestor_to_tv.end());
-  }
-
-  for (const auto& [expr_g, dir] : ref_to_logical) {
-    std::cerr << "Traversing " << dir << " " << expr_g->front()->toString();
-
-    if (all_expr_groups.has(expr_g)) {
-      std::cerr << "Expr already in this tensor\n";
+  for (const auto& [expr_g, dir] : path_from_ref) {
+    // Skip if the tensor already has the expr
+    if (all_existing_expr_groups.has(expr_g)) {
       continue;
     }
 
-    const auto input_groups = dir == Direction::Forward
-        ? graph().inputGroups(expr_g)
-        : graph().outputGroups(expr_g);
-    const auto output_groups = dir == Direction::Forward
-        ? graph().outputGroups(expr_g)
-        : graph().inputGroups(expr_g);
+    const auto input_groups = inputGroups(graph(), expr_g, dir);
+    const auto output_groups = outputGroups(graph(), expr_g, dir);
 
     // All inputs must be already in all_id_groups
     auto inputs_it = std::find_if(
@@ -2987,6 +2900,8 @@ void LoopDomainScheduler::schedule(TensorView* tv) {
         continue;
       }
 
+      // No need to force exact mapping since this clone is going to
+      // be connected with tv
       auto clone = output_g->front()->as<IterDomain>()->cloneWithoutRFactor();
       all_id_groups.pushBack(output_g);
       group_to_id.emplace(output_g, clone);
@@ -2995,11 +2910,88 @@ void LoopDomainScheduler::schedule(TensorView* tv) {
     replay(expr_g, dir, input_groups, output_groups, group_to_id);
   }
 
-  // TODO: Check if logical IDs of tv can be reached from the ref loop domain
-
-  std::cerr << "Setting the loop domain of " << tv->toString() << " with "
-            << toDelimitedString(loop_domain) << "\n";
   tv->setLoopDomain(loop_domain);
+}
+
+ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(TensorView* tv) const {
+  // Forward search to tv root
+  //
+  // Find inputs of the traversal path
+  //
+  // Backward search from the ref to the inputs
+
+  // Find the path to the root domain of the tensor. It is important
+  // to use the root domain if available since there can be multiple
+  // forward paths to the logical domain in the ValGraph. For example,
+  //
+  // t0 = [i0]
+  // t1 = reshape(t0, {i0}, [i0/4, 4})
+  // t2 = reshape(t1, {i0/4, 4], {i0})
+  // t3 = reshape(t0, {i0}, {i0/8, 8})
+  // t4 = reshape(t3, {i0/8, 8}, {i0})
+  // t5 = t2 + t4
+  //
+  // Suppose we want to set the t2 loop domain as t0. In this case,
+  // since the logical doamin of t2 is mapped with the logical domains
+  // of t4, there're two paths from t0 loop domain to the t2
+  // logical domain: one through t1 reshape and another through t3
+  // reshape. Notice that the second path cannot be used as that would
+  // mean the t2 logical domain would have another definition (exactly mapped
+  // with the t4 merge reshape). This issue can be avoided by using the root
+  // domain of tv2 as the target of path finding.
+  ValGroups tv_target_domains =
+      graph().toGroups(TensorDomain::noBroadcasts(tv->getMaybeRootDomain()));
+
+  // If all the target domains are an ancestor of the reference
+  // domains, just a single backward BFS should be enough to find a
+  // valid path
+  if (std::all_of(
+          tv_target_domains.begin(),
+          tv_target_domains.end(),
+          [&](const ValGroup& tv_target_domain) {
+            return all_ancestors_of_ref_.has(tv_target_domain);
+          })) {
+    return ValGraphBFS::getExprsBetween(
+        graph(),
+        ref_id_groups_,
+        tv_target_domains,
+        /*require_all_to_visited=*/true,
+        Direction::Backward);
+  }
+
+  // TODO: Cleanup from here
+  std::cerr << "getExprs from ancestor to tv\n";
+  auto ancestor_to_tv = ValGraphBFS::getExprsBetween(
+      graph(),
+      all_ancestors_of_ref_,
+      graph().toGroups(tv->getMaybeRootDomain()),
+      /*require_all_to_visited=*/true,
+      Direction::Forward);
+  std::cerr << "Ancestor to to exprs\n";
+  for (const auto& [expr_g, dir] : ancestor_to_tv) {
+    std::cerr << "\t" << dir << " " << expr_g->front()->toString();
+  }
+  auto ancestor_to_tv_inputs = getInputsOfExprPath(graph(), ancestor_to_tv);
+  for (const auto& vg : ancestor_to_tv_inputs) {
+    std::cerr << "Input to anc: " << nvfuser::toString(vg) << "\n";
+  }
+  auto ref_to_inputs = ValGraphBFS::getExprsBetween(
+      graph(),
+      ref_id_groups_,
+      ancestor_to_tv_inputs,
+      /*require_all_to_visited=*/true,
+      Direction::Backward);
+
+  // Overall traversal path: ref_to_inputs -> ancestor_to_tv_inputs
+  for (const auto& [expr_g, dir] : ref_to_inputs) {
+    std::cerr << "\t" << dir << " " << expr_g->front()->toString();
+  }
+
+  auto ref_to_logical = ref_to_inputs;
+  ref_to_logical.insert(
+      ref_to_logical.end(), ancestor_to_tv.begin(), ancestor_to_tv.end());
+
+  return ref_to_logical;
 }
 
 } // namespace
@@ -3007,14 +2999,12 @@ void LoopDomainScheduler::schedule(TensorView* tv) {
 void scheduleLoopDomainsLike(
     const std::vector<TensorView*>& tvs,
     const std::vector<IterDomain*>& ref_loop_dom) {
-  std::cerr << "scheduleLoopDomainsLike: " << toDelimitedString(tvs) << "\n";
-  std::cerr << "Ref: " << toDelimitedString(ref_loop_dom) << "\n";
-
   if (tvs.empty()) {
     return;
   }
 
   LoopDomainScheduler scheduler(ref_loop_dom);
+
   for (auto tv : tvs) {
     scheduler.schedule(tv);
   }

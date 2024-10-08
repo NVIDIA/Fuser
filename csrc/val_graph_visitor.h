@@ -244,4 +244,46 @@ class ValGraphBFS : public BFS<
       Direction allowed_direction = Direction::Undefined);
 };
 
+inline std::vector<ValGroup> inputGroups(
+    const ValGraph& graph,
+    const ExprGroup& expr,
+    Direction dir) {
+  return dir == Direction::Forward ? graph.inputGroups(expr)
+                                   : graph.outputGroups(expr);
+}
+
+inline std::vector<ValGroup> outputGroups(
+    const ValGraph& graph,
+    const ExprGroup& expr,
+    Direction dir) {
+  return dir == Direction::Forward ? graph.outputGroups(expr)
+                                   : graph.inputGroups(expr);
+}
+
+inline ValGroups getInputsOfExprPath(
+    const ValGraph& graph,
+    const ValGraphBFS::ExprPath& path) {
+  ValGroups inputs;
+  std::unordered_set<ValGroup> all_outputs;
+
+  for (const auto& [expr_g, dir] : path) {
+    for (const auto& inp : inputGroups(graph, expr_g, dir)) {
+      if (all_outputs.find(inp) == all_outputs.end()) {
+        inputs.pushBack(inp);
+      }
+    }
+    for (const auto& out : outputGroups(graph, expr_g, dir)) {
+      all_outputs.emplace(out);
+    }
+  }
+
+  return inputs;
+}
+
+inline ValGroups getOutputsOfExprPath(
+    const ValGraph& graph,
+    const ValGraphBFS::ExprPath& path) {
+  return getInputsOfExprPath(graph, reverse(path));
+}
+
 } // namespace nvfuser
