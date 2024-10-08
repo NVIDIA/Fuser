@@ -234,6 +234,14 @@ std::function<ResultType(ArgTypes...)> getFunction(const TernaryOp* top) {
     case TernaryOpType::Where:
       return wrap_function(where);
       break;
+    case TernaryOpType::Threshold:
+    case TernaryOpType::Clamp:
+      NVF_CHECK(
+          false,
+          "Invalid function arguments for operator type",
+          top->getTernaryOpType(),
+          " in ",
+          top->toString());
     default:
       NVF_CHECK(
           false,

@@ -269,7 +269,8 @@ std::string getString(const TernaryOp* top) {
     }                                                                        \
   }
 
-// Template specializations for std::function for TernaryOp
+// Fully specialized template functions to create std::function for TernaryOp.
+// They are placed in the cpp file to avoid violating the One Definition Rule.
 GET_FUNCTION_TERNARY_SPECIALIZATION(TensorView*, TensorView*, Val*, Val*)
 GET_FUNCTION_TERNARY_SPECIALIZATION(Val*, Val*, Val*, Val*)
 
