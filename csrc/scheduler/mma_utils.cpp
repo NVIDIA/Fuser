@@ -929,14 +929,9 @@ void MmaSwizzler::parallelizeAsBulkSkippingFirstIDs(
   }
 }
 
-// Please note that we currently do not fully support
-// not splitting the outer dimension. This only works when
-// the inner-dimension is not split, that is the inner dim
-// is less or equal to the swizzle size (in bytes).
 void MmaSwizzler::scheduleTMALoadForMma(
     TensorView* tv,
-    MmaInputSmemSwizzle swizzle,
-    bool permute_outer_dim) {
+    MmaInputSmemSwizzle swizzle) {
   // In the comments below I have kept K as the outer dimension. That is
   // just to have a concrete running example - it can be inner or outer.
 
@@ -968,16 +963,7 @@ void MmaSwizzler::scheduleTMALoadForMma(
     // [NO, K, NI] ->
     // [NO, KO(2), KIO(2), KII(4), NIO(2), NII(8)]
     tv->swizzleTMABox(swizzle);
-
-    // If the outer dim is split, then we pull out KO to be outside NO
-    // and KO and NO are both not marked bulk parallel, else NO is outer
-    // and only NO is not marked bulk parallel.
-    if (permute_outer_dim) {
-      // [NO, KO(2), KIO(2), KII(4), NIO(2), NII(8)] ->
-      // [KO(2), NO(2), KIO(2), KII(4), NIO(2), NII(8)]
-      tv->reorder({{-6, -5}});
-    }
-    num_ids_to_skip += permute_outer_dim ? 2 : 1;
+    num_ids_to_skip += 1;
   }
 
   parallelizeAsBulkSkippingFirstIDs(tv, num_ids_to_skip);

@@ -169,6 +169,33 @@ class PredicatedChecker : public kir::IrVisitor {
     return isPredicated(tv->name(), kernel);
   }
 
+  static bool isPredicatedByIfThenElse(
+      StmtNameType tv_name,
+      kir::Kernel* kernel) {
+    PredicatedChecker checker(tv_name, kernel->topLevelExprs());
+    return checker.predicated_ite_;
+  }
+
+  // If CpAsync from gmem to smem, then loaded from smem to registers using
+  // ldmatrix, then it is used in mma and should not use if-then-else predicate.
+  // If just CpAsync from gmem to smem, without further copy to register, then
+  // it is not used in mma and can use if-then-else predicate.
+  static bool isCpAsyncMmaPredicatedByIfThenElse(kir::Kernel* kernel) {
+    for (auto tv : kernel->allTvs()) {
+      if (tv->definition() != nullptr &&
+          ir_utils::isCpAsyncOp(tv->definition())) {
+        const auto& consumers = ir_utils::consumerTvsOf(tv);
+        if (std::any_of(
+                consumers.begin(), consumers.end(), [&](TensorView* tv) {
+                  return ir_utils::isLdMatrixOp(tv->definition());
+                })) {
+          return isPredicatedByIfThenElse(tv->name(), kernel);
+        }
+      }
+    }
+    return false;
+  }
+
  private:
   PredicatedChecker() = delete;
 

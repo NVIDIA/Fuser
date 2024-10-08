@@ -1147,11 +1147,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       const kir::TensorIndex* input,
       const Val* init,
       BinaryOpType reduction_op_type,
-      kir::Predicate* read_pred) {
-    ArgumentBuilder template_args;
-    template_args.arg(kernel_->getWarpPaddedParallelInfo().is_tidx_single_warp);
-    template_args.arg(isAligned());
-
+      kir::Predicate* read_pred,
+      std::pair<IterDomain*, IterDomain*> reduction_dims) {
     ArgumentBuilder func_args;
     func_args.arg(gen(output));
     func_args.arg(gen(input));
@@ -1161,8 +1158,27 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(genInline(read_pred));
     func_args.arg(genStaticCast(output->dtype(), genInline(init)));
 
-    indent() << genCall("warp::warpReduceTIDX", template_args, func_args)
-             << ";\n";
+    ArgumentBuilder template_args;
+    if (reduction_dims.first->getParallelType() == ParallelType::TIDx &&
+        reduction_dims.second == nullptr) {
+      template_args.arg(
+          kernel_->getWarpPaddedParallelInfo().is_tidx_single_warp);
+      template_args.arg(isAligned());
+      indent() << genCall("warp::warpReduceTIDX", template_args, func_args)
+               << ";\n";
+    } else if (
+        reduction_dims.first->getParallelType() == ParallelType::TIDx &&
+        reduction_dims.second->getParallelType() == ParallelType::TIDy) {
+      auto bdimx = reduction_dims.first->extent()->evaluate();
+      auto bdimy = reduction_dims.second->extent()->evaluate();
+      template_args.arg(bdimx);
+      template_args.arg(bdimy);
+      template_args.arg(isAligned());
+      indent() << genCall("warp::warpReduceTIDXY", template_args, func_args)
+               << ";\n";
+    } else {
+      NVF_ERROR(false, "Invalid warp reduction dims");
+    }
   }
 
   void genBlockReduction(
@@ -1229,8 +1245,15 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     if (!has_block_reduce) {
       genSerialReduction(output, input, op_type);
     } else if (
-        auto reduction_id = ir_utils::getMaybeWarpReductionDim(output, input)) {
-      genWarpReduction(output, input, rop->init(), op_type, rop->predicate());
+        auto reduction_ids =
+            ir_utils::getMaybeWarpReductionDim(output, input)) {
+      genWarpReduction(
+          output,
+          input,
+          rop->init(),
+          op_type,
+          rop->predicate(),
+          reduction_ids.value());
     } else {
       genBlockReduction(
           output,
@@ -2824,14 +2847,15 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       if (!has_block_reduce) {
         genSerialReduction(output, input, op_type);
       } else if (
-          auto reduction_id =
+          auto reduction_ids =
               ir_utils::getMaybeWarpReductionDim(output, input)) {
         genWarpReduction(
             output,
             input,
             grouped_rop->initVal(i),
             op_type,
-            grouped_rop->predicate());
+            grouped_rop->predicate(),
+            reduction_ids.value());
       } else {
         genBlockReduction(
             output,
