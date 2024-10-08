@@ -160,6 +160,10 @@ void IndexLowering::handle(const ForLoop* for_loop) {
   active_scope_ = prev_scope;
 }
 
+void IndexLowering::handle(const kir::Asm* asm) {
+  pushBack(asm);
+}
+
 void IndexLowering::handle(const RNGOp* rop) {
   // Write random tensor indices into the consumer
   //  tensor index if the output is a tensor.
