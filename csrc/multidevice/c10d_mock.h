@@ -78,6 +78,10 @@ class Backend : public torch::CustomClassHolder {
     return c10::make_intrusive<Work>();
   }
 
+  const std::string getBackendName() const {
+    return "";
+  };
+
   c10::intrusive_ptr<Work> barrier(
       const BarrierOptions& opts = BarrierOptions()) {
     return c10::make_intrusive<Work>();
