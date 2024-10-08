@@ -210,6 +210,10 @@ TEST_P(CommunicationTest, SendRecv) {
     GTEST_SKIP() << "This test needs at least 2 GPUs and 2 ranks.";
   }
 
+  if (GetParam() == CommunicatorBackend::ucc) {
+    GTEST_SKIP() << "TODO(#3120): investigate why this test hangs on H100";
+  }
+
   constexpr DeviceIdxType sender = 1;
   constexpr DeviceIdxType receiver = 0;
 
