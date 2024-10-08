@@ -497,6 +497,9 @@ def test_transformer_forward(mpi_test):
     mlp_linear0_weight = torch.randn(d, e * 4 // d, e, dtype=torch.bfloat16)
     mlp_linear0_bias = torch.randn(d, e * 4 // d, dtype=torch.bfloat16)
     mlp_linear1_weight = torch.randn(d, e, e * 4 // d, dtype=torch.bfloat16)
+    # See TransformerForwardFusion.definition for the meanings of these
+    # arguments. They are passed in in the same order as the `define_scalar`s
+    # and `define_tensor`s.
     ins = [
         29,
         2142642406458297,
