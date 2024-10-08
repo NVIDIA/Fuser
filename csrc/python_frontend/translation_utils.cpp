@@ -237,7 +237,7 @@ std::string getString(const TernaryOp* top) {
   }
 }
 
-#define GET_FUNCTION_TERNARY_SPECIALIZATION(                                 \
+#define GET_FUNCTION_TERNARY_SPECIALIZATION_DEFINITION(                      \
     ResultType, InType1, InType2, InType3)                                   \
   template <>                                                                \
   std::function<ResultType(InType1, InType2, InType3)>                       \
@@ -270,8 +270,11 @@ std::string getString(const TernaryOp* top) {
   }
 
 // Fully specialized template functions to create std::function for TernaryOp.
-// They are placed in the cpp file to avoid violating the One Definition Rule.
-GET_FUNCTION_TERNARY_SPECIALIZATION(TensorView*, TensorView*, Val*, Val*)
-GET_FUNCTION_TERNARY_SPECIALIZATION(Val*, Val*, Val*, Val*)
+GET_FUNCTION_TERNARY_SPECIALIZATION_DEFINITION(
+    TensorView*,
+    TensorView*,
+    Val*,
+    Val*)
+GET_FUNCTION_TERNARY_SPECIALIZATION_DEFINITION(Val*, Val*, Val*, Val*)
 
 } // namespace nvfuser::python_frontend

@@ -252,6 +252,18 @@ std::function<ResultType(ArgTypes...)> getFunction(const TernaryOp* top) {
   }
 }
 
+// Fully specialized template functions to create std::function for TernaryOp.
+template <>
+std::function<TensorView*(TensorView*, Val*, Val*)> getFunction<
+    TensorView*,
+    TensorView*,
+    Val*,
+    Val*>(const TernaryOp* top);
+
+template <>
+std::function<Val*(Val*, Val*, Val*)> getFunction<Val*, Val*, Val*, Val*>(
+    const TernaryOp* top);
+
 // Get string name for UnaryOp
 std::string getString(const UnaryOp* uop);
 
