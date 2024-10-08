@@ -571,6 +571,7 @@ class AllocationInserter : public kir::ExprMutator {
         // Needs to do a wgmma.fence.sync.aligned so that the initial values of
         // the accumulator are visible to TensorCore.
         if (auto mma = dynamic_cast<MmaOp*>(expr)) {
+          std::cout << "mma->macro(): " << mma->macro() << std::endl;
           if (isHopper(mma->macro())) {
             auto wgmma_fence = IrBuilder::create<kir::Asm>(
                 "wgmma.fence.sync.aligned",
