@@ -3679,11 +3679,14 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
     // [Mo, No, Ko, Mio, Mii, Nio, Nii, Ki]
     // -> [Mo, No, Ko, Mio, Nio, Mii, Nii, Ki]
     tv2->reorder({{-4, -3}});
+    tv2->merge(-5);
+    tv2->axis(-5)->parallelize(ParallelType::TIDy);
     scheduler_utils::BoundedDirectionalTransformPropagator::forward(
         tv2,
         -1,
         {tv3},
         scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+            .propagateParallelType()
             .propagateToBoundary());
   }
 
