@@ -9,6 +9,7 @@
 #include <host_ir/container.h>
 #include <host_ir/host_ir.h>
 #include <ir/builder.h>
+#include <ir/builder_passkey.h>
 #include <ir/cloner.h>
 #include <ir/printer.h>
 #include <ir/utils.h>
@@ -22,7 +23,8 @@ namespace hir {
 
 HostUnit::HostUnit(IrBuilderPasskey passkey, std::unique_ptr<Fusion> fusion)
     : Expr(passkey), fusion_(std::make_unique<Fusion>(*fusion)) {
-  NVF_ERROR(passkey.ir_container_->isA<HostIrContainer>()); // NOLINT
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(passkey.ir_container_->isA<HostIrContainer>());
 }
 
 HostUnit::HostUnit(const HostUnit* src, IrCloner* ir_cloner)
@@ -66,8 +68,9 @@ PostOnStream::PostOnStream(
     std::vector<Val*> inputs,
     std::vector<Val*> outputs)
     : Expr(passkey, std::move(inputs), std::move(outputs), {host_op}) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<HostIrContainer>(), // NOLINT
+      passkey.ir_container_->isA<HostIrContainer>(),
       this,
       "must be registered in a HostIrContainer");
   NVF_ERROR(
@@ -153,7 +156,8 @@ bool Stream::sameAs(const Statement* other) const {
 
 SetCurrentStream::SetCurrentStream(IrBuilderPasskey passkey, Stream* stream)
     : Expr(passkey, {stream}, {}, {stream}) {
-  NVF_ERROR(passkey.ir_container_->isA<HostIrContainer>()); // NOLINT
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(passkey.ir_container_->isA<HostIrContainer>());
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(SetCurrentStream)
@@ -177,8 +181,9 @@ bool SetCurrentStream::sameAs(const Statement* other) const {
 
 Wait::Wait(IrBuilderPasskey passkey, Expr* expr)
     : Expr(passkey, {}, {}, {expr}) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<HostIrContainer>(), // NOLINT
+      passkey.ir_container_->isA<HostIrContainer>(),
       this,
       "must be registered in a HostIrContainer");
   NVF_ERROR(
@@ -208,8 +213,9 @@ bool Wait::sameAs(const Statement* other) const {
 
 Synchronize::Synchronize(IrBuilderPasskey passkey, Stream* stream)
     : Expr(passkey, {}, {}, {stream}) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<HostIrContainer>(), // NOLINT
+      passkey.ir_container_->isA<HostIrContainer>(),
       this,
       "must be registered in a HostIrContainer");
 }
@@ -232,8 +238,9 @@ bool Synchronize::sameAs(const Statement* other) const {
 }
 
 StartCoalescing::StartCoalescing(IrBuilderPasskey passkey) : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<HostIrContainer>(), // NOLINT
+      passkey.ir_container_->isA<HostIrContainer>(),
       this,
       "must be registered in a HostIrContainer");
 }
@@ -250,14 +257,10 @@ std::string StartCoalescing::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Cannot be printed inline");
 }
 
-// TODO: implement
-bool StartCoalescing::sameAs(const Statement* other) const {
-  return false;
-}
-
 EndCoalescing::EndCoalescing(IrBuilderPasskey passkey) : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<HostIrContainer>(), // NOLINT
+      passkey.ir_container_->isA<HostIrContainer>(),
       this,
       "must be registered in a HostIrContainer");
 }
@@ -272,11 +275,6 @@ std::string EndCoalescing::toString(int indent_size) const {
 
 std::string EndCoalescing::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Cannot be printed inline");
-}
-
-// TODO: implement
-bool EndCoalescing::sameAs(const Statement* other) const {
-  return false;
 }
 
 } // namespace hir

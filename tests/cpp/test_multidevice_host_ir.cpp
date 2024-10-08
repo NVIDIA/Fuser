@@ -240,7 +240,7 @@ INSTANTIATE_TEST_SUITE_P(
       return s;
     });
 
-class P2PCommHostIrTest : public MultiDeviceTest {};
+using P2PCommHostIrTest = MultiDeviceTest;
 
 TEST_F(P2PCommHostIrTest, RingPairwiseExchange) {
   constexpr int64_t kTensorSize = 1024;
@@ -250,6 +250,10 @@ TEST_F(P2PCommHostIrTest, RingPairwiseExchange) {
   const int64_t recv_peer =
       (communicator_size + my_device_index - 1) % communicator_size;
 
+  if (communicator_size < 2) {
+    GTEST_SKIP() << "needs at least two ranks";
+  }
+
   auto hic = std::make_unique<HostIrContainer>();
   FusionGuard::setCurFusion(hic.get());
 
@@ -257,12 +261,12 @@ TEST_F(P2PCommHostIrTest, RingPairwiseExchange) {
   TensorView* recv_buffer = makeContigTensor(1);
 
   auto* send = IrBuilder::create<P2PCommunication>(
-      P2PCommunicationType::send,
+      P2PCommunicationType::SEND,
       send_buffer,
       IrBuilder::create<Val>(send_peer));
 
   auto* recv = IrBuilder::create<P2PCommunication>(
-      P2PCommunicationType::recv,
+      P2PCommunicationType::RECV,
       recv_buffer,
       IrBuilder::create<Val>(recv_peer));
 
@@ -311,11 +315,11 @@ TEST_F(P2PCommHostIrTest, CoalescedRingPairwiseExchange) {
 
   auto* start_coalescing = IrBuilder::create<StartCoalescing>();
   auto* send = IrBuilder::create<P2PCommunication>(
-      P2PCommunicationType::send,
+      P2PCommunicationType::SEND,
       send_buffer,
       IrBuilder::create<Val>(send_peer));
   auto* recv = IrBuilder::create<P2PCommunication>(
-      P2PCommunicationType::recv,
+      P2PCommunicationType::RECV,
       recv_buffer,
       IrBuilder::create<Val>(recv_peer));
   auto* end_coalescing = IrBuilder::create<EndCoalescing>();

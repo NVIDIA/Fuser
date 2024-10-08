@@ -9,6 +9,7 @@
 #include <dynamic_transform.h>
 #include <host_ir/executor.h>
 #include <ir/utils.h>
+#include <runtime/fusion_kernel_runtime.h>
 
 namespace nvfuser {
 
@@ -203,8 +204,7 @@ void HostIrExecutor::handle(P2PCommunication* communication) {
       communicator_->deviceId(),
       expr_evaluator_.evaluate(communication->peer()).as<int64_t>(),
       communicator_->getWorld(),
-      buffer,
-      expr_evaluator_.evaluate(communication->tag()).as<int64_t>());
+      buffer);
 }
 
 void HostIrExecutor::handle(Wait* wait) {

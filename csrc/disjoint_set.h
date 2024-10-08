@@ -487,7 +487,7 @@ class DisjointSets {
     return ss.str();
   }
 
-  auto size() const {
+  int64_t size() const {
     return disjoint_sets_.size();
   }
 

@@ -363,6 +363,29 @@ TEST_F(
 
   hic->pushBackTopLevelExprs(for_loop);
 
+  // Synchronize all streams
+  auto* i_stream =
+      IrBuilder::create<Val>(DataType::Index); // running index of the for-loop
+  auto* start_stream = hic->zeroVal();
+  auto* stop_stream =
+      IrBuilder::create<Val>(params.number_of_streams, DataType::Index);
+  auto* step_stream = hic->oneVal();
+  auto* for_loop_stream = IrBuilder::create<ForLoop>(
+      /*IterDomain=*/makeContigConcreteTensor({params.number_of_streams})
+          ->axis(0),
+      /*index=*/i_stream,
+      start_stream,
+      stop_stream,
+      step_stream,
+      /*vectorize=*/false,
+      /*vectorize_shift=*/nullptr,
+      /*unroll_required=*/false,
+      CircularBufferLoopStage::NotApplicable);
+  auto* sync_stream = IrBuilder::create<hir::Synchronize>(
+      IrBuilder::create<hir::Stream>(i_stream));
+  for_loop_stream->body().push_back(sync_stream);
+  hic->pushBackTopLevelExprs(for_loop_stream);
+
   // The following line is artificial but necessary to make
   // tva_j->isProducerOf(tvc_locally_reduced_j) == true
   hic->addOutput(tvc_locally_reduced_j);
@@ -545,9 +568,9 @@ TEST_F(
 
   auto* start_coalescing = IrBuilder::create<hir::StartCoalescing>();
   auto* send = IrBuilder::create<P2PCommunication>(
-      P2PCommunicationType::send, src_buffer_ij, send_rank);
+      P2PCommunicationType::SEND, src_buffer_ij, send_rank);
   auto* recv = IrBuilder::create<P2PCommunication>(
-      P2PCommunicationType::recv, dst_buffer_ij, recv_rank);
+      P2PCommunicationType::RECV, dst_buffer_ij, recv_rank);
   auto* end_coalescing = IrBuilder::create<hir::EndCoalescing>();
   auto* wait = IrBuilder::create<hir::Wait>(end_coalescing);
 

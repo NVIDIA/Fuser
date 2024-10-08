@@ -9,11 +9,11 @@
 
 #include <dispatch.h>
 #include <expr_evaluator.h>
-#include <fusion_executor/executor.h>
 #include <host_ir/container.h>
 #include <host_ir/host_ir.h>
-#include <kernel_cache.h>
 #include <multidevice/communicator.h>
+#include <runtime/executor.h>
+#include <runtime/fusion_executor_cache.h>
 
 #include <c10/cuda/CUDAStream.h>
 

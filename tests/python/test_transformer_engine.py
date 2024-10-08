@@ -12,10 +12,10 @@ from functools import partial
 
 import transformer_engine.pytorch as te
 
-import multidevice
+import mpi_fixtures
 
 
-multidevice_test = multidevice.multidevice_test
+mpi_test = mpi_fixtures.mpi_test
 
 
 class ComputeType(Enum):
@@ -35,7 +35,7 @@ class ComputeType(Enum):
     [ComputeType.FORWARD, ComputeType.BACKWARD],
     ids=["forward", "backward"],
 )
-def test_transformer_layer(multidevice_test, benchmark, compute_type):
+def test_transformer_layer(mpi_test, benchmark, compute_type):
     # Hyperparameters for GPT-3
     hidden_size = 12288
     num_heads = 96
@@ -44,8 +44,8 @@ def test_transformer_layer(multidevice_test, benchmark, compute_type):
     sequence_length = 2048
     dtype = torch.bfloat16
 
-    size = multidevice_test.size
-    rank = multidevice_test.rank
+    size = mpi_test.size
+    rank = mpi_test.rank
 
     torch.cuda.set_device(rank)
     os.environ["MASTER_ADDR"] = "localhost"

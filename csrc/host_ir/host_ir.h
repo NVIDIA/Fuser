@@ -211,6 +211,19 @@ class Synchronize : public Expr {
   }
 };
 
+// For ProcessGroupNCCL, startCoalescing and endCoalescing correspond to
+// ncclGroupStart and ncclGroupEnd respectively. Those calls group p2p calls
+// that need to be progressed together -- one global work handle returned by
+// endCoalescing needs to be progressed. This has the following main advantages:
+// 1) calls are progressed concurrently
+// 2) since NICs are two-sided, a send and a recv calls need to be coalesced to
+//    achieve full BW.
+// 3) If not coalesced, we can easily reach a deadlock if the
+//    send/recv pairs are not ordered correctly.
+// It is in general preferable to coalesce send/recv calls. The only drawback is
+// that we don't have a fine-grain control on synchronicity, in other words, we
+// can only synchronize with the grouped communication at once.
+// Remark: ProcessGroupUCC does not implement coalesced groups for now
 class StartCoalescing : public Expr {
  public:
   using Expr::Expr;
@@ -228,8 +241,6 @@ class StartCoalescing : public Expr {
   const char* getOpString() const override {
     return "hir::StartCoalescing";
   }
-
-  bool sameAs(const Statement* other) const override;
 };
 
 class EndCoalescing : public Expr {
@@ -249,8 +260,6 @@ class EndCoalescing : public Expr {
   const char* getOpString() const override {
     return "hir::EndCoalescing";
   }
-
-  bool sameAs(const Statement* other) const override;
 };
 
 } // namespace hir
