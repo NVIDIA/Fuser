@@ -444,35 +444,21 @@ SdpfaFwdResult sdpfa_fwd(
   auto query_domain = TensorDomain::noReductions(query->getLogicalDomain());
   auto key_domain = TensorDomain::noReductions(key->getLogicalDomain());
   auto value_domain = TensorDomain::noReductions(value->getLogicalDomain());
-
-  // Temporary handling of DID parallelization see
-  // https://github.com/NVIDIA/Fuser/issues/2563
-  bool has_device_dim = (query_domain.size() == 5);
-  if (has_device_dim) {
-    NVF_CHECK(
-        query_domain[0]->isDeviceDim(),
-        "Only support DID parallelization on outermost axis");
-    NVF_CHECK(
-        key_domain[0]->isDeviceDim(),
-        "Only support DID parallelization on outermost axis");
-    NVF_CHECK(
-        value_domain[0]->isDeviceDim(),
-        "Only support DID parallelization on outermost axis");
-  }
-
-  auto concrete_query_size = TensorDomain::noDevices(query_domain).size();
-  auto concrete_key_size = TensorDomain::noDevices(key_domain).size();
-  auto concrete_value_size = TensorDomain::noDevices(value_domain).size();
-
   NVF_CHECK(
-      concrete_query_size == 4 && concrete_key_size == 4 &&
-          concrete_value_size == 4,
-      "Expected query, key, and value to be 4D but got: ",
-      concrete_query_size,
-      " ",
-      concrete_key_size,
-      " ,and ",
-      concrete_value_size);
+      query_domain.size() == key_domain.size(),
+      query_domain,
+      " vs ",
+      key_domain);
+  NVF_CHECK(
+      query_domain.size() == value_domain.size(),
+      query_domain,
+      " vs ",
+      value_domain);
+  NVF_CHECK(
+      query_domain.size() == 4 || query_domain.size() == 5,
+      "Expect Q/K/V to be either 4D or 5D. If 5D, the first dimension is "
+      "expected to be device parallel during expression evaluation: ",
+      query_domain);
 
   NVF_CHECK(
       !dropout_p || dropout_p->isScalar(),
