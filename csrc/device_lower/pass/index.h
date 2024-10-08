@@ -38,7 +38,6 @@ class IndexLowering : private OptOutConstDispatch {
   // Insert an expression before the current top-level expression.
   void insertAtTopLevel(Expr* expr);
 
-  void handle(const kir::Asm*) final;
   void handle(const FullOp*) final;
   void handle(const IotaOp*) final;
   void handle(const EyeOp*) final;
@@ -68,6 +67,7 @@ class IndexLowering : private OptOutConstDispatch {
   void handle(const SliceOp*) final;
   void handle(const CatOp*) final;
 
+  void handle(const kir::Asm*) final;
   void handle(const ForLoop*) final;
   void handle(const kir::IfThenElse*) final;
   void handle(const kir::Allocate*) final;
