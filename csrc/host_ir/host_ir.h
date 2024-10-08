@@ -211,6 +211,57 @@ class Synchronize : public Expr {
   }
 };
 
+// For ProcessGroupNCCL, startCoalescing and endCoalescing correspond to
+// ncclGroupStart and ncclGroupEnd respectively. Those calls group p2p calls
+// that need to be progressed together -- one global work handle returned by
+// endCoalescing needs to be progressed. This has the following main advantages:
+// 1) calls are progressed concurrently
+// 2) since NICs are two-sided, a send and a recv calls need to be coalesced to
+//    achieve full BW.
+// 3) If not coalesced, we can easily reach a deadlock if the
+//    send/recv pairs are not ordered correctly.
+// It is in general preferable to coalesce send/recv calls. The only drawback is
+// that we don't have a fine-grain control on synchronicity, in other words, we
+// can only synchronize with the grouped communication at once.
+// Remark: ProcessGroupUCC does not implement coalesced groups for now
+class StartCoalescing : public Expr {
+ public:
+  using Expr::Expr;
+  StartCoalescing(IrBuilderPasskey passkey);
+
+  StartCoalescing(const StartCoalescing& other) = delete;
+  StartCoalescing& operator=(const StartCoalescing& other) = delete;
+  StartCoalescing(StartCoalescing&& other) = delete;
+  StartCoalescing& operator=(StartCoalescing&& other) = delete;
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  const char* getOpString() const override {
+    return "hir::StartCoalescing";
+  }
+};
+
+class EndCoalescing : public Expr {
+ public:
+  using Expr::Expr;
+  EndCoalescing(IrBuilderPasskey passkey);
+
+  EndCoalescing(const EndCoalescing& other) = delete;
+  EndCoalescing& operator=(const EndCoalescing& other) = delete;
+  EndCoalescing(EndCoalescing&& other) = delete;
+  EndCoalescing& operator=(EndCoalescing&& other) = delete;
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  const char* getOpString() const override {
+    return "hir::EndCoalescing";
+  }
+};
+
 } // namespace hir
 
 } // namespace nvfuser
