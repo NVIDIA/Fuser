@@ -10818,6 +10818,7 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
   __syncthreads();
   float T2[128];
   ((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))).set(0);
+  asm volatile("wgmma.fence.sync.aligned;\n");
   #pragma unroll
   for(nvfuser_index_t i21 = 0; i21 < 7; ++i21) {
     nvfuser_index_t i22;
@@ -10875,8 +10876,6 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
       T10[((7 + i25) % 8)] = mbarrier::arrive(toSmem((&T9[((7 + i25) % 8)])));
     }
     mbarrier::wait(toSmem((&T9[i32])), T10[i32]);
-    asm volatile("wgmma.fence.sync.aligned;\n");
-    asm volatile("fence.proxy.async;\n");
     asm volatile(
       "{\n"
       "  .reg .pred p0; \n"
@@ -11038,8 +11037,6 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
     for(nvfuser_index_t i38 = 0; i38 < (ceilDiv(64, 64)); ++i38) {
       mbarrier::wait(toSmem((&T9[(i34 % 8)])), T10[(i34 % 8)]);
     }
-    asm volatile("wgmma.fence.sync.aligned;\n");
-    asm volatile("fence.proxy.async;\n");
     asm volatile(
       "{\n"
       "  .reg .pred p0; \n"
