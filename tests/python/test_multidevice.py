@@ -415,13 +415,9 @@ def test_transformer_forward(mpi_test):
 
     # To reduce memory footprint, create unsharded data on CPU and copy only
     # the needed slice to GPU.
-    mlp_linear0_weight = torch.randn(
-        d, e * 4 // d, e, dtype=torch.bfloat16
-    )
+    mlp_linear0_weight = torch.randn(d, e * 4 // d, e, dtype=torch.bfloat16)
     mlp_linear0_bias = torch.randn(d, e * 4 // d, dtype=torch.bfloat16)
-    mlp_linear1_weight = torch.randn(
-        d, e, e * 4 // d, dtype=torch.bfloat16
-    )
+    mlp_linear1_weight = torch.randn(d, e, e * 4 // d, dtype=torch.bfloat16)
     ins = [
         29,
         2142642406458297,
