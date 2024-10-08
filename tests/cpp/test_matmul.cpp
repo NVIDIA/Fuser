@@ -3613,8 +3613,8 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
   constexpr auto swizzle = MmaInputSmemSwizzle::B128;
   const auto dtype = DataType::Half;
 
-  const int64_t cta_m = 4 * getM(macro);
-  const int64_t cta_n = 4 * getN(macro);
+  const int64_t cta_m = 2 * getM(macro);
+  const int64_t cta_n = 2 * getN(macro);
 
   auto tv0 = makeContigConcreteTensor({-1, -1, 1}, dtype);
   auto tv1 = makeContigConcreteTensor({-1, 1, -1}, dtype);
