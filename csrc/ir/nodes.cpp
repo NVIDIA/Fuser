@@ -4458,8 +4458,26 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
   // https://github.com/NVIDIA/Fuser/issues/2563
   bool handle_device_dim = false;
   if (query.dim() == 5) {
-    NVF_CHECK(key.dim() == 5 && value.dim() == 5);
     handle_device_dim = true;
+
+    NVF_CHECK(key.dim() == 5 && value.dim() == 5);
+
+    auto query_domain =
+        TensorDomain::noReductions(this->query()->getLogicalDomain());
+    auto key_domain =
+        TensorDomain::noReductions(this->key()->getLogicalDomain());
+    auto value_domain =
+        TensorDomain::noReductions(this->value()->getLogicalDomain());
+    NVF_CHECK(
+        query_domain.front()->isDeviceDim(),
+        "Only support DID parallelization on outermost axis");
+    NVF_CHECK(
+        key_domain.front()->isDeviceDim(),
+        "Only support DID parallelization on outermost axis");
+    NVF_CHECK(
+        value_domain.front()->isDeviceDim(),
+        "Only support DID parallelization on outermost axis");
+
     query = query.squeeze(0);
     key = key.squeeze(0);
     value = value.squeeze(0);

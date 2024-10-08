@@ -2138,16 +2138,16 @@ class MatmulOp : public Expr {
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
-  Val* out() const {
-    return output(0);
+  TensorView* out() const {
+    return output(0)->as<TensorView>();
   }
 
-  Val* inA() const {
-    return input(0);
+  TensorView* inA() const {
+    return input(0)->as<TensorView>();
   }
 
-  Val* inB() const {
-    return input(1);
+  TensorView* inB() const {
+    return input(1)->as<TensorView>();
   }
 
   std::vector<PolymorphicValue> evaluate(
@@ -2256,20 +2256,20 @@ class SdpaFwdOp : public Expr {
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
-  Val* attn_out() const {
-    return output(0);
+  TensorView* attn_out() const {
+    return output(0)->as<TensorView>();
   }
 
-  Val* query() const {
-    return input(0);
+  TensorView* query() const {
+    return input(0)->as<TensorView>();
   }
 
-  Val* key() const {
-    return input(1);
+  TensorView* key() const {
+    return input(1)->as<TensorView>();
   }
 
-  Val* value() const {
-    return input(2);
+  TensorView* value() const {
+    return input(2)->as<TensorView>();
   }
 
   Val* dropout_p() const {

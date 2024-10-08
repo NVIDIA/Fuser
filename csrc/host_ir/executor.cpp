@@ -265,6 +265,22 @@ void HostIrExecutor::handle(ForLoop* for_loop) {
   }
 }
 
+void HostIrExecutor::handle(StartCoalescing* start_coalescing) {
+  auto backend = communicator_->getWorld();
+  NVF_ERROR(
+      backend->getBackendName() == "nccl",
+      "ProcessGroupUCC does not implement coalescence");
+  backend->startCoalescing();
+}
+
+void HostIrExecutor::handle(EndCoalescing* end_coalescing) {
+  auto backend = communicator_->getWorld();
+  NVF_ERROR(
+      backend->getBackendName() == "nccl",
+      "ProcessGroupUCC does not implement coalescence");
+  works_[end_coalescing] = backend->endCoalescing();
+}
+
 void HostIrExecutor::unhandled(Statement* stmt) {
   NVF_ERROR(stmt->isA<Expr>(), stmt, " must be an Expr");
   auto* expr = stmt->as<Expr>();
