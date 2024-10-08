@@ -3613,6 +3613,7 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
   constexpr auto swizzle = MmaInputSmemSwizzle::B128;
   const auto dtype = DataType::Half;
 
+  constexpr int64_t stages = 8;
   const int64_t cta_m = 4 * getM(macro);
   const int64_t cta_n = 1 * getN(macro);
 
@@ -3708,8 +3709,8 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
 
   inlineMost();
 
-  tv0c->circularBuffer(/*number_of_stages=*/4);
-  tv1c->circularBuffer(/*number_of_stages=*/4);
+  tv0c->circularBuffer(stages);
+  tv1c->circularBuffer(stages);
 
   auto inputs =
       matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
