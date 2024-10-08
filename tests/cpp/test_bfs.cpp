@@ -16,6 +16,9 @@
 #include <tests/cpp/validator.h>
 #include <val_graph_visitor.h>
 
+#include <fstream>
+#include <iostream>
+
 namespace nvfuser {
 
 using BFSTest = NVFuserTest;
@@ -387,6 +390,80 @@ TEST_F(BFSTest, FindDependencyWithIRBFSGetValsBetween) {
       tv1->getLogicalDomain().at(1), tv1->getLogicalDomain().at(3)};
 
   EXPECT_EQ(all_deps, ref);
+}
+
+// Test directed getExprsBetween
+TEST_F(BFSTest, TraversalDirection) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({32});
+  fusion.addInput(tv0);
+
+  // Create two reshape paths leading to the same output shape
+
+  auto tv1 = reshape(tv0, {16}, {2, 8});
+  auto tv2 = reshape(tv1, {2, 8}, {2, 2, 4});
+  auto tv3 = reshape(tv2, {2, 2, 4}, {2, 2, 2, 2});
+  auto tv4 = reshape(tv3, {2, 2, 2, 2}, {2, 2, 4});
+  auto tv5 = reshape(tv4, {2, 2, 4}, {2, 8});
+  auto tv6 = reshape(tv5, {2, 8}, {16});
+  auto tv7 = reshape(tv6, {16}, {4, 4});
+  auto tv8 = reshape(tv7, {4, 4}, {16});
+
+  auto tv9 = reshape(tv0, {16}, {8, 2});
+  auto tv10 = reshape(tv9, {8, 2}, {16});
+
+  // Merge point
+  auto tv11 = add(tv8, tv10);
+  fusion.addOutput(tv11);
+
+  IdModel id_model(&fusion, /*build_models=*/false);
+  const auto& exact_graph = id_model.buildExactGraph();
+
+  // Shortest path from the input to tv7 should forward the second
+  // path and then move one Merge backward
+  auto shortest_path = ValGraphBFS::getExprsBetween(
+      exact_graph,
+      exact_graph.toGroups(tv0->getLogicalDomain()),
+      exact_graph.toGroups(tv7->getLogicalDomain()),
+      /*require_all_to_visited=*/true,
+      Direction::Undefined);
+  ValGraphBFS::ExprPath shortest_path_reference = {
+      {exact_graph.toGroup(tv9->axis(-1)->definition()), Direction::Forward},
+      {exact_graph.toGroup(tv10->axis(-1)->definition()), Direction::Forward},
+      {exact_graph.toGroup(tv8->axis(-1)->definition()), Direction::Backward}};
+  EXPECT_EQ(shortest_path, shortest_path_reference)
+      << "Reference: " << shortest_path_reference
+      << ". Actual: " << shortest_path;
+
+  // Forward only path should take tv1 through tv7
+  auto forward_path = ValGraphBFS::getExprsBetween(
+      exact_graph,
+      exact_graph.toGroups(tv0->getLogicalDomain()),
+      exact_graph.toGroups(tv7->getLogicalDomain()),
+      /*require_all_to_visited=*/true,
+      Direction::Forward);
+  ValGraphBFS::ExprPath forward_path_reference = {
+      {exact_graph.toGroup(tv1->axis(-1)->definition()), Direction::Forward},
+      {exact_graph.toGroup(tv2->axis(-1)->definition()), Direction::Forward},
+      {exact_graph.toGroup(tv3->axis(-1)->definition()), Direction::Forward},
+      {exact_graph.toGroup(tv4->axis(-1)->definition()), Direction::Forward},
+      {exact_graph.toGroup(tv5->axis(-1)->definition()), Direction::Forward},
+      {exact_graph.toGroup(tv6->axis(-1)->definition()), Direction::Forward},
+      {exact_graph.toGroup(tv7->axis(-1)->definition()), Direction::Forward}};
+  EXPECT_EQ(forward_path, forward_path_reference)
+      << "Reference: " << forward_path_reference
+      << ". Actual: " << forward_path;
+
+  // Backward only path should not find anything
+  auto backward_path = ValGraphBFS::getExprsBetween(
+      exact_graph,
+      exact_graph.toGroups(tv0->getLogicalDomain()),
+      exact_graph.toGroups(tv7->getLogicalDomain()),
+      /*require_all_to_visited=*/false,
+      Direction::Backward);
+  EXPECT_TRUE(backward_path.empty()) << "Actual: " << backward_path;
 }
 
 } // namespace nvfuser
