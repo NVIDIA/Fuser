@@ -3917,8 +3917,6 @@ TEST_F(ResizeTest, SliceThenConcat) {
   std::vector<IterDomain*> ref_loop = tv0->getLogicalDomain();
   scheduler_utils::scheduleLoopDomainsLike(fusion.allTvs(), ref_loop);
 
-  fusion.print();
-
   for (auto tv : {tv1, tv2, tv3, tv4, tv5, tv6}) {
     tv->split(0, 32);
   }
