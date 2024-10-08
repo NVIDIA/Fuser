@@ -438,15 +438,6 @@ class TensorDomain : public Val {
       std::vector<IterDomain*> loop_domain,
       std::vector<std::optional<bool>> contiguity = {});
 
-  TensorDomain(
-      IrBuilderPasskey,
-      std::vector<IterDomain*> root_domain,
-      std::vector<IterDomain*> logical_domain,
-      std::vector<IterDomain*> allocation,
-      std::vector<IterDomain*> loop_domain,
-      std::vector<IterDomain*> initial_loop_domain,
-      std::vector<std::optional<bool>> contiguity = {});
-
   TensorDomain(IrBuilderPasskey, const TensorDomain* src);
 
   TensorDomain(const TensorDomain* src, IrCloner* ir_cloner);
@@ -623,9 +614,6 @@ class TensorDomain : public Val {
   const std::vector<IterDomain*>& additionalIDs() const {
     return additional_ids_;
   }
-
-  void validateLoopDomain(
-      const std::vector<IterDomain*>& new_loop_domain) const;
 
   // Set the loop domain of this TensorDomain.
   NVF_API void setLoopDomain(std::vector<IterDomain*> new_loop_domain);
