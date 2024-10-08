@@ -37,14 +37,14 @@ namespace nvfuser {
 using RankType = DeviceIdxType;
 
 // Supported backends. TODO: gloo untested
-enum class CommunicatorBackend { nccl, ucc, gloo };
+enum class CommunicatorBackend { kNccl, kUcc, kGloo };
 
 std::ostream& operator<<(std::ostream& out, const CommunicatorBackend& cb);
 
 #ifdef USE_C10D_NCCL
-constexpr CommunicatorBackend comm_backend_default = CommunicatorBackend::nccl;
+constexpr CommunicatorBackend comm_backend_default = CommunicatorBackend::kNccl;
 #else
-constexpr CommunicatorBackend comm_backend_default = CommunicatorBackend::ucc;
+constexpr CommunicatorBackend comm_backend_default = CommunicatorBackend::kUcc;
 #endif
 constexpr int comm_server_local_rank_default = 0;
 
@@ -133,9 +133,9 @@ class Communicator {
 
   // returns if a backend is available for creation
   bool isBackendAvailable(CommunicatorBackend backend) const {
-    if (backend == CommunicatorBackend::ucc) {
+    if (backend == CommunicatorBackend::kUcc) {
       return ucc_available_;
-    } else if (backend == CommunicatorBackend::nccl) {
+    } else if (backend == CommunicatorBackend::kNccl) {
       return nccl_available_;
     }
     return false;
