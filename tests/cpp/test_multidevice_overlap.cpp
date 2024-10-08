@@ -612,10 +612,7 @@ TEST_F(AllgatherOverlapTest, AllgatherBasedPipeliningATenImplementation) {
       torch::matmul_out(tc_j, ta_allgathered_j, tb_unsharded_); // num_devices_, params.M / (num_devices_ * params.S), params.N
     }
 
-    for (const auto& stream : streams) {
-      cudaStreamSynchronize(stream);
-    }
-
+    synchronizeStreams(streams);
     validate();
   }
 }
