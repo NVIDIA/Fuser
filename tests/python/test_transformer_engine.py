@@ -32,11 +32,8 @@ class ComputeType(Enum):
 @pytest.mark.mpi
 @pytest.mark.parametrize(
     "compute_type",
-    # TODO(#3119): add the backward test back.
-    # [ComputeType.FORWARD, ComputeType.BACKWARD],
-    # ids=["forward", "backward"],
-    [ComputeType.FORWARD],
-    ids=["forward"],
+    [ComputeType.FORWARD, ComputeType.BACKWARD],
+    ids=["forward", "backward"],
 )
 def test_transformer_layer(mpi_test, benchmark, compute_type):
     # Hyperparameters for GPT-3
