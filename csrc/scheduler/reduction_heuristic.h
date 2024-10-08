@@ -129,6 +129,9 @@ class ReductionParams : public HeuristicParams {
   bool tidx_for_outer_reduction = false;
   // pad outer reduction to warp
   bool pad_outer_reduction_to_warp = false;
+  // in outer reduction part of inner-outer persistent scheduler, may further
+  // split inner dim by grid
+  bool combined_split_grid_inner_dim = false;
   // partial result of outer reduction is written to gmem then read back in a
   // different parallel pattern set the vectorization factor of its read and
   // write
@@ -191,6 +194,7 @@ class ReductionParams : public HeuristicParams {
         other->tidx_for_outer_reduction == tidx_for_outer_reduction &&
         other->pad_outer_reduction_to_warp == pad_outer_reduction_to_warp &&
         other->vectorization_factor_outer == vectorization_factor_outer &&
+        other->combined_split_grid_inner_dim == combined_split_grid_inner_dim &&
         other->vectorization_factor_tmp_gmem_write ==
             vectorization_factor_tmp_gmem_write;
 

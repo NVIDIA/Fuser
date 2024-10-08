@@ -113,8 +113,8 @@ void checkLinearOpIdMapping(
   vg.validateConsistency();
 
   // input: [* , in_features]
-  // weight: [out_features, in_features] / [out_features]
-  // bias (optional): [out_features]/[]
+  // weight: [out_features, in_features]
+  // bias (optional): [out_features]
   // output = [*, (out_features), rK]
 
   bool k_bcast = input->axis(-1)->isBroadcast();
@@ -341,7 +341,7 @@ INSTANTIATE_TEST_SUITE_P(
             Sizes({b, m, k}),
             Sizes({1, k}),
             Sizes({b, 1, k})),
-        testing::Values(Sizes({k}), Sizes({n, k}), Sizes({1, k})),
+        testing::Values(Sizes({n, k}), Sizes({1, k})),
         testing::Values(std::nullopt)));
 
 INSTANTIATE_TEST_SUITE_P(
@@ -355,7 +355,7 @@ INSTANTIATE_TEST_SUITE_P(
             Sizes({1, k}),
             Sizes({b, 1, k})),
         testing::Values(Sizes({n, k})),
-        testing::Values(Sizes({}), Sizes({n}))));
+        testing::Values(Sizes({n}))));
 
 INSTANTIATE_TEST_SUITE_P(
     LinearReductionAxisIsOne,
@@ -368,6 +368,6 @@ INSTANTIATE_TEST_SUITE_P(
             Sizes({1, 1}),
             Sizes({b, 1, 1})),
         testing::Values(Sizes({n, 1})),
-        testing::Values(Sizes({}), Sizes({n}))));
+        testing::Values(Sizes({n}))));
 
 } // namespace nvfuser

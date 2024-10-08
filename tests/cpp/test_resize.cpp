@@ -3459,8 +3459,8 @@ TEST_F(ResizeTest, AvoidVectorization) {
   auto cg_results = scheduleAndRun(&fusion, SchedulerType::PointWise, inputs);
   auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
 
-  ASSERT_TRUE(pparams->vectorize) << "Vectorization is expected to be possible";
-  ASSERT_EQ(pparams->unroll_factor, 4) << "Unexpected factor of vectorization";
+  ASSERT_EQ(pparams->vectorization_factor, 4)
+      << "Unexpected factor of vectorization";
 
   // Make sure tv1 is not vectorized, i.e., no loop IterDomains are vectorized.
   EXPECT_THAT(

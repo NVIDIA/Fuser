@@ -191,8 +191,24 @@ void HostIrExecutor::handle(Communication* communication) {
       output_tensor);
 }
 
+void HostIrExecutor::handle(P2PCommunication* communication) {
+  NVF_ERROR(
+      communicator_ != nullptr && communicator_->is_available(),
+      "A valid communicator must be provided");
+
+  at::Tensor buffer =
+      getKnownTensorOrUndefined(communication->buffer(), expr_evaluator_);
+
+  works_[communication] = postSingleCommunication(
+      communication,
+      communicator_->deviceId(),
+      expr_evaluator_.evaluate(communication->peer()).as<int64_t>(),
+      communicator_->getWorld(),
+      buffer);
+}
+
 void HostIrExecutor::handle(Wait* wait) {
-  Communication* communication = wait->communication();
+  Expr* communication = wait->communication();
   NVF_ERROR(works_.find(communication) != works_.end(), "no wait req");
   auto& work = works_.at(communication);
   if (work != nullptr) {
@@ -249,14 +265,28 @@ void HostIrExecutor::handle(ForLoop* for_loop) {
   }
 }
 
-namespace {
+void HostIrExecutor::handle(StartCoalescing* start_coalescing) {
+  auto backend = communicator_->getWorld();
+  NVF_ERROR(
+      backend->getBackendName() == "nccl",
+      "ProcessGroupUCC does not implement coalescence");
+  backend->startCoalescing();
+}
 
-void handleWithExpressionEvaluator(
-    Expr* expr,
-    ExpressionEvaluator& expr_evaluator) {
+void HostIrExecutor::handle(EndCoalescing* end_coalescing) {
+  auto backend = communicator_->getWorld();
+  NVF_ERROR(
+      backend->getBackendName() == "nccl",
+      "ProcessGroupUCC does not implement coalescence");
+  works_[end_coalescing] = backend->endCoalescing();
+}
+
+void HostIrExecutor::unhandled(Statement* stmt) {
+  NVF_ERROR(stmt->isA<Expr>(), stmt, " must be an Expr");
+  auto* expr = stmt->as<Expr>();
   for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
     NVF_ERROR(
-        expr_evaluator.isKnown(input),
+        expr_evaluator_.isKnown(input),
         "input ",
         input->toString(),
         " of the expression ",
@@ -264,23 +294,9 @@ void handleWithExpressionEvaluator(
         "must be precomputed before being retrieved");
   }
   for (auto output : expr->outputs()) {
-    expr_evaluator.bind(
-        output, expr_evaluator.evaluate(output), /*evaluate_validate=*/true);
+    expr_evaluator_.bind(
+        output, expr_evaluator_.evaluate(output), /*evaluate_validate=*/true);
   }
-}
-
-} // namespace
-
-void HostIrExecutor::handle(SliceOp* slice_op) {
-  return handleWithExpressionEvaluator(slice_op, expr_evaluator_);
-}
-
-void HostIrExecutor::handle(MatmulOp* matmul_op) {
-  return handleWithExpressionEvaluator(matmul_op, expr_evaluator_);
-}
-
-void HostIrExecutor::handle(SelectOp* select_op) {
-  return handleWithExpressionEvaluator(select_op, expr_evaluator_);
 }
 
 } // namespace hir

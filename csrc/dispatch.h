@@ -111,7 +111,8 @@ class Val;
   f(SdpaFwdOp);                   \
   f(SdpaBwdOp);                   \
   f(Communication);               \
-  f(ForLoop);
+  f(ForLoop);                     \
+  f(P2PCommunication);
 #define DISPATCH_FOR_ALL_KIR_EXPRS(f) \
   f(Allocate);                        \
   f(Asm);                             \
@@ -143,7 +144,9 @@ class Val;
   f(PostOnStream);                    \
   f(SetCurrentStream);                \
   f(Wait);                            \
-  f(Synchronize);
+  f(Synchronize);                     \
+  f(StartCoalescing);                 \
+  f(EndCoalescing);
 
 // Forward declarations for all Val and Expr types
 

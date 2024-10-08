@@ -53,7 +53,6 @@ class TestMatmul(NVFuserTest):
         m = 24
         n = 16
         k = 8
-        bias0d = torch.tensor(3.14, device="cuda", dtype=torch.float16)
         bias1d = torch.randn(n, device="cuda", dtype=torch.float16)
 
         inputs_mk_nk = [
@@ -92,17 +91,15 @@ class TestMatmul(NVFuserTest):
             fd.add_output(t_out)
 
         in_tensors = [inputs_mk_nk, inputs_mk_kn, inputs_km_nk, inputs_km_kn]
-        use_bias = [None, bias0d, bias1d]
-        for [inp, wt], use_bias in list(itertools.product(in_tensors, use_bias)):
-            with self.subTest(inp=inp, wt=wt, use_bias=use_bias):
-                input_tensors = (
-                    (inp, wt, use_bias) if use_bias is not None else (inp, wt)
-                )
+        bias = [None, bias1d]
+        for [inp, wt], bias in list(itertools.product(in_tensors, bias)):
+            with self.subTest(inp=inp, wt=wt, bias=bias):
+                input_tensors = (inp, wt, bias) if bias is not None else (inp, wt)
                 nvf_out, _ = self.exec_nvfuser(
-                    partial(fusion_func, inp=inp, wt=wt, bias=use_bias),
+                    partial(fusion_func, inp=inp, wt=wt, bias=bias),
                     input_tensors,
                 )
-                eager_out = F.linear(input=inp, weight=wt, bias=use_bias)
+                eager_out = F.linear(inp, wt, bias)
                 fp16_nvf_out = nvf_out[0]
                 torch.testing.assert_close(fp16_nvf_out, eager_out, atol=1e-3, rtol=0)
 
@@ -141,7 +138,7 @@ class TestMatmul(NVFuserTest):
             fd.add_output(T2)
             fd.add_output(T4)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        self.exec_nvfuser(fusion_func, inputs)
 
     # Tests broadcast reduction axis in matmul: Issue #2532.
     def test_repro_issue2532(self):
@@ -174,7 +171,7 @@ class TestMatmul(NVFuserTest):
                 (1025, 1, 1024), (1024, 1024, 1)
             ),
         ]
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        self.exec_nvfuser(fusion_func, inputs)
 
     def test_linear_slice(self):
         def fusion_func(fd: FusionDefinition) -> None:
