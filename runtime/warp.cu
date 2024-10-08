@@ -88,4 +88,58 @@ __device__ void warpReduceTIDX(
   }
 }
 
+template <int BDIMX, int BDIMY, bool Aligned, typename T, typename Func>
+__device__ void warpReduceTIDXY(
+    T& out,
+    const T& inp_val,
+    Func reduction_op,
+    T* shared_mem,
+    bool read_write_pred,
+    T init_val) {
+  constexpr int WARP_SIZE = 32;
+  constexpr int num_of_warps = BDIMX * BDIMY / WARP_SIZE;
+
+  // Assume input padded to multiples of a warp
+  T reduce_val = init_val;
+
+  // Do warp reduction
+  if (read_write_pred) {
+    reduce_val = inp_val;
+  }
+
+  // Reduce within each warp
+  for (int i = 16; i >= 1; i /= 2) {
+    reduction_op(reduce_val, shfl_xor(reduce_val, i, WARP_SIZE));
+  }
+
+  // Reduce across warp if needed
+  // Load value to shared mem
+  if (num_of_warps > 1) {
+    unsigned int idx = threadIdx.x + threadIdx.y * BDIMX;
+    unsigned int warp_idx = idx / WARP_SIZE;
+    unsigned int lane_idx = idx % WARP_SIZE;
+    block_sync::sync<Aligned>();
+    if (lane_idx == 0) {
+      shared_mem[warp_idx] = reduce_val;
+    }
+    block_sync::sync<Aligned>();
+
+    if (warp_idx == 0) {
+      reduce_val = lane_idx < num_of_warps ? shared_mem[lane_idx] : init_val;
+      // Reduce within warp 0
+      for (int i = 16; i >= 1; i /= 2) {
+        reduction_op(reduce_val, shfl_xor(reduce_val, i, 32));
+      }
+    }
+
+    if (lane_idx == 0) {
+      reduction_op(out, reduce_val);
+    }
+    // needs sync, otherwise other warps may access shared memory before this
+    // reduction is done.
+    block_sync::sync<Aligned>();
+  } else {
+    reduction_op(out, reduce_val);
+  }
+}
 } // namespace warp

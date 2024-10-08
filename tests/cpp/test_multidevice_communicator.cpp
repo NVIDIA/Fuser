@@ -48,7 +48,7 @@ TEST_P(CommunicatorTest, Barrier) {
 INSTANTIATE_TEST_SUITE_P(
     ,
     CommunicatorTest,
-    testing::Values(CommunicatorBackend::nccl, CommunicatorBackend::ucc),
+    testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
     testing::PrintToStringParamName());
 
 } // namespace nvfuser

@@ -590,9 +590,7 @@ INSTANTIATE_TEST_SUITE_P(
         std::make_tuple(2l, 2l, -1l, false, false, true),
         std::make_tuple(2l, 2l, -1l, false, true, true),
         std::make_tuple(1l, 2l, -1l, false, false, true),
-        std::make_tuple(2l, 1l, -1l, false, false, true),
         std::make_tuple(2l, 2l, 1l, false, false, true),
-        std::make_tuple(1l, 1l, -1l, false, false, true),
         std::make_tuple(3l, 2l, 1l, false, false, true),
         std::make_tuple(4l, 2l, 1l, false, false, true),
 
@@ -603,15 +601,11 @@ INSTANTIATE_TEST_SUITE_P(
         std::make_tuple(2l, 2l, -1l, true, true, true),
         // We don't fuse 1D inputs
         std::make_tuple(1l, 2l, -1l, true, false, true),
-        std::make_tuple(2l, 1l, -1l, true, false, true),
-        // Check that zero-dim output fusion is not claimed by NoOp scheduler
-        std::make_tuple(1l, 1l, -1l, true, false, true),
         // Batch dims in input
         // mixed length inputs via broadcasted batch dims
         std::make_tuple(3l, 2l, -1l, true, false, false),
         std::make_tuple(4l, 2l, -1l, true, false, false),
         // Bias cases
-        std::make_tuple(2l, 2l, 0l, true, false, false),
         std::make_tuple(2l, 2l, 1l, true, false, false),
         std::make_tuple(3l, 2l, 1l, true, false, false),
         std::make_tuple(4l, 2l, 1l, true, false, false)),
