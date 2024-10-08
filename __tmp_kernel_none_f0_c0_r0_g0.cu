@@ -10818,6 +10818,8 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
   __syncthreads();
   float T2[128];
   ((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))).set(0);
+  asm volatile("wgmma.fence.sync.aligned;\n");
+  asm volatile("fence.proxy.async;\n");
   #pragma unroll
   for(nvfuser_index_t i21 = 0; i21 < 3; ++i21) {
     nvfuser_index_t i22;
