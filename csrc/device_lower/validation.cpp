@@ -440,7 +440,11 @@ class VectorizeValidator : public OptInDispatch {
           : graph.inputGroups(expr_g);
 
       if (expr->isOneOf<Swizzle, Swizzle2D>()) {
-        // Not supported
+        // Not supported.
+        // TODO: Checking the outputs too since that is what
+        // VectorizeValidator::handle(Swizzle*) and
+        // VectorizeValidator::handle(Swizzle2D*) do, but unclear
+        // why.
         if (std::find(inputs.begin(), inputs.end(), cur_group) !=
                 inputs.end() ||
             std::find(outputs.begin(), outputs.end(), cur_group) !=
