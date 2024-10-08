@@ -171,6 +171,9 @@ class OverlapTest : public MultiDeviceTest {
   }
 
   void TearDown() override {
+    if (!communicator_->is_available()) {
+      return;
+    }
     validate();
     MultiDeviceTest::TearDown();
   }
@@ -181,6 +184,9 @@ class CollectiveBasedOverlapTest : public OverlapTest {
   at::Tensor tc_locally_reduced_;
   void SetUp() override {
     OverlapTest::SetUp();
+    if (!communicator_->is_available()) {
+      return;
+    }
 
     std::vector<int64_t> tc_locally_reduced_sizes = {
         std::min(params.S, params.number_of_streams),
@@ -410,6 +416,9 @@ class RingBasedOverlapTest : public OverlapTest {
 
   void SetUp() override {
     OverlapTest::SetUp();
+    if (!communicator_->is_available()) {
+      return;
+    }
 
     ASSERT_EQ(params.S % num_devices_, 0);
     number_of_steps_per_ring_ = num_devices_;
