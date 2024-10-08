@@ -2627,22 +2627,12 @@ void scheduleStmatrixOutput(TensorView* tv, int tile_m, int tile_n) {
   // (16x16):  [8, 32(TIDX), 2, 2, 2]
   tv->axis(1)->parallelize(ParallelType::TIDx);
 
-  if (tile_m == 8 && tile_n == 8) {
-    // (8x8):  [32, 32(TIDX), 1(Mma), 1(Mma), 2(vec)]
-    tv->axis(2)->parallelize(ParallelType::Mma);
-    tv->axis(3)->parallelize(ParallelType::Mma);
-    tv->axis(4)->parallelize(ParallelType::Vectorize);
-  } else if (tile_m == 16 && tile_n == 8) {
-    // (16x8): [16, 32(TIDX), 1(Mma), 4(Vec)]
-    tv->axis(2)->parallelize(ParallelType::Mma);
-    tv->merge(3);
-    tv->axis(3)->parallelize(ParallelType::Vectorize);
-  } else if (tile_m == 16 && tile_n == 16) {
-    // (16x16):  [8, 32(TIDX), 8(Vec)]
-    tv->merge(2);
-    tv->merge(2);
-    tv->axis(2)->parallelize(ParallelType::Vectorize);
-  }
+  // (8x8):  [32, 32(TIDX), 1*1*2(vec)]
+  // (16x8): [16, 32(TIDX), 1*2*2(Vec)]
+  // (16x16):  [8, 32(TIDX), 2*2*2(Vec)]
+  tv->merge(2);
+  tv->merge(2);
+  tv->axis(2)->parallelize(ParallelType::Vectorize);
 }
 
 TEST_P(StMatrixSingleTileTest, Regular) {
