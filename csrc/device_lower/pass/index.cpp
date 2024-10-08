@@ -160,10 +160,6 @@ void IndexLowering::handle(const ForLoop* for_loop) {
   active_scope_ = prev_scope;
 }
 
-void IndexLowering::handle(const kir::Asm* asm_) {
-  pushBack(asm_);
-}
-
 void IndexLowering::handle(const RNGOp* rop) {
   // Write random tensor indices into the consumer
   //  tensor index if the output is a tensor.
@@ -2100,6 +2096,11 @@ void IndexLowering::handle(const BroadcastOp* bop) {
 
   pushBack(grid_broadcast);
   GpuLower::current()->propagateExprInfo(bop, back());
+}
+
+void IndexLowering::handle(const kir::Asm* asm_) {
+  // TODO(kir): remove the need for const_cast
+  pushBack(const_cast<kir::Allocate*>(asm_)); // NOLINT
 }
 
 void IndexLowering::handle(const kir::Allocate* allocate) {
