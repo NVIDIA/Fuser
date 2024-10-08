@@ -2100,7 +2100,7 @@ void IndexLowering::handle(const BroadcastOp* bop) {
 
 void IndexLowering::handle(const kir::Asm* asm_) {
   // TODO(kir): remove the need for const_cast
-  pushBack(const_cast<kir::Allocate*>(asm_)); // NOLINT
+  pushBack(const_cast<kir::Asm*>(asm_)); // NOLINT
 }
 
 void IndexLowering::handle(const kir::Allocate* allocate) {
