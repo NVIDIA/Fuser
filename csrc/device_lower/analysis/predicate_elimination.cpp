@@ -58,9 +58,8 @@ bool isExactParallelSharedMemAccess(TensorView* tv) {
       } else {
         NVF_ERROR(
             used_tids_map.erase(id->getParallelType()) == 1,
-            "Exact parallel shared mem access: TID ",
             id->getParallelType(),
-            " not used in the fusion.");
+            " is used in this tv but doesn't exist in parallel dim map.");
       }
     }
   }
