@@ -521,7 +521,7 @@ class AllgatherOverlapTest : public MultiDeviceTest {
 
     num_devices_ = communicator_->size();
     my_device_index_ = communicator_->deviceId();
-    ASSERT_EQ(params.M  % (num_devices_ * params.S), 0);
+    ASSERT_EQ(params.M % (num_devices_ * params.S), 0);
 
     // Setup the world communicators
     std::vector<int64_t> devices(num_devices_);
@@ -565,8 +565,9 @@ class AllgatherOverlapTest : public MultiDeviceTest {
     }
   }
 
-  // Each rank calls uniform_ and gets the same values for ta_ and tb_ because the random seed is initialized the same
-  // Therefore, we do not need to have one rank generate ta_ and tb_ and broadcast it to the rest of the ranks
+  // Each rank calls uniform_ and gets the same values for ta_ and tb_ because
+  // the random seed is initialized the same Therefore, we do not need to have
+  // one rank generate ta_ and tb_ and broadcast it to the rest of the ranks
   void initializeIO() {
     ta_unsharded_.uniform_();
     tb_unsharded_.uniform_();
@@ -575,8 +576,10 @@ class AllgatherOverlapTest : public MultiDeviceTest {
 
   void validate() {
     // compute the expected output for data correctness validation
-    auto tc_unsharded_expected_ = torch::matmul(ta_unsharded_, tb_unsharded_.cpu());
-    EXPECT_TRUE(tc_unsharded_.cpu().allclose(tc_unsharded_expected_, 1e-1, 1e-1))
+    auto tc_unsharded_expected_ =
+        torch::matmul(ta_unsharded_, tb_unsharded_.cpu());
+    EXPECT_TRUE(
+        tc_unsharded_.cpu().allclose(tc_unsharded_expected_, 1e-1, 1e-1))
         << "Unexpected results, obtained: " << tc_unsharded_
         << "expected: " << tc_unsharded_expected_;
   }
@@ -602,14 +605,23 @@ TEST_F(AllgatherOverlapTest, AllgatherBasedPipeliningATenImplementation) {
       setCurrentCUDAStream(streams.at(stream_index));
 
       // communication
-      auto ta_j = ta_.select(0, j); // params.M / (num_devices_ * params.S), params.K
+      auto ta_j =
+          ta_.select(0, j); // params.M / (num_devices_ * params.S), params.K
       auto ta_allgathered_j = ta_allgathered_.select(0, j);
-      world_communicator_->_allgather_base(ta_allgathered_j, ta_j) // num_devices_, params.M / (num_devices_ * params.S), params.K
+      world_communicator_
+          ->_allgather_base(
+              ta_allgathered_j, ta_j) // num_devices_, params.M / (num_devices_
+                                      // * params.S), params.K
           ->wait();
 
       // local compute
-      auto tc_j = tc_unsharded_.select(0, j); // num_devices_, params.M / (num_devices_ * params.S), params.N
-      torch::matmul_out(tc_j, ta_allgathered_j, tb_unsharded_); // num_devices_, params.M / (num_devices_ * params.S), params.N
+      auto tc_j = tc_unsharded_.select(
+          0, j); // num_devices_, params.M / (num_devices_ * params.S), params.N
+      torch::matmul_out(
+          tc_j,
+          ta_allgathered_j,
+          tb_unsharded_); // num_devices_, params.M / (num_devices_ * params.S),
+                          // params.N
     }
 
     synchronizeStreams(streams);
