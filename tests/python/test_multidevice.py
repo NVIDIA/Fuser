@@ -122,10 +122,10 @@ def test_linear(mpi_test):
 )
 @pytest.mark.mpi
 def test_sdpa(mpi_test):
-    d, b, s, a, h = mpi_test.size, 2, 1024, 12, 768
+    d, b, s, h, e = mpi_test.size, 2, 1024, 12, 768
 
-    if a % d != 0:
-        pytest.skip(f"We only support even split, so {a} has to be divisible by {d}.")
+    if h % d != 0:
+        pytest.skip(f"We only support even split, so {h} has to be divisible by {d}.")
 
     class Model(FusionDefinition):
         def definition(self) -> None:
@@ -163,7 +163,7 @@ def test_sdpa(mpi_test):
     torch.cuda.set_device(mpi_test.local_rank)
     torch.manual_seed(0)
     q, k, v = [
-        torch.randn(b, a, s, h // a, dtype=torch.bfloat16, device="cuda")
+        torch.randn(b, h, s, e // h, dtype=torch.bfloat16, device="cuda")
         for _ in range(3)
     ]
 
@@ -181,8 +181,8 @@ def test_sdpa(mpi_test):
 
     # Head-parallelize Q, K, V or the attention output of an SDPA.
     def head_parallelize(t: torch.Tensor) -> torch.Tensor:
-        assert t.shape == torch.Size([b, a, s, h // a])
-        return t.view([b, d, a // d, s, h // a]).transpose(0, 1)[rank : rank + 1]
+        assert t.shape == torch.Size([b, h, s, e // h])
+        return t.view([b, d, h // d, s, e // h]).transpose(0, 1)[rank : rank + 1]
 
     fd = Model()
     attn = fd.execute([head_parallelize(q), head_parallelize(k), head_parallelize(v)])[
