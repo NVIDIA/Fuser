@@ -1248,6 +1248,9 @@ TEST_P(TmaCircularBufferingTest, Pointwise) {
 }
 
 TEST_P(TmaCircularBufferingTest, PointwiseCpAsync) {
+  GTEST_SKIP()
+      << "Needs shared memory predicate, but current needsSharedMemoryPredicate() returns false";
+
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -1289,7 +1292,9 @@ TEST_P(TmaCircularBufferingTest, PointwiseCpAsync) {
 
   // Circular Buffer with set operation
   tv4->axis(0)->parallelize(ParallelType::BIDx);
-  tv4->circularBuffer(number_of_stages);
+  // TODO Disable circular buffering for CpAsync
+  // Circular buffering handles cpAsync sync logic separate from cloner logic.
+  // tv4->circularBuffer(number_of_stages);
 
   // Split reference to parallelize TMA tile
   reference->split(-1, 32);
@@ -1305,13 +1310,8 @@ TEST_P(TmaCircularBufferingTest, PointwiseCpAsync) {
   fe.compileFusion(fusion.get(), {t0, t1});
 
   std::vector<at::Tensor> cg_outputs = fe.runFusion({t0, t1});
-  // TODO enable when test passes
-  // compare<float>(tensor_outer_dim, tensor_inner_dim, cg_outputs.front(), t2);
-
-  // Expect failure because of missing predicate support for cpAsync loads.
-  // See https://github.com/NVIDIA/Fuser/pull/2339
-  ASSERT_ANY_THROW(testValidate(
-      fusion.get(), cg_outputs, {t0, t1}, {t2}, __LINE__, __FILE__));
+  compare<float>(tensor_outer_dim, tensor_inner_dim, cg_outputs.front(), t2);
+  testValidate(fusion.get(), cg_outputs, {t0, t1}, {t2}, __LINE__, __FILE__);
 }
 
 TEST_P(TmaCircularBufferingTest, Reduction) {

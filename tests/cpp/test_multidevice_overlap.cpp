@@ -48,7 +48,7 @@ struct OverlapTestParams {
   int64_t S = std::pow(2, 3);
 
   // network backend type
-  CommunicatorBackend backend_type = CommunicatorBackend::nccl;
+  CommunicatorBackend backend_type = CommunicatorBackend::kNccl;
 
   // Overlap optimization parameters
   // fill input with new random values and repeat the operation

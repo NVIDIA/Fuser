@@ -151,7 +151,7 @@ void PipelineTest::executeAndValidate(bool validate_with_prescribed_values) {
 
 PipelineTest::PipelineTest() {
   fusion = std::make_unique<Fusion>();
-  communicator_->setDefaultBackend(CommunicatorBackend::nccl);
+  communicator_->setDefaultBackend(CommunicatorBackend::kNccl);
 }
 
 // To run the following tests on several devices, pytorch must be installed with
@@ -322,7 +322,7 @@ TEST_P(PipelineTestTwoStages, Communication) {
 
 namespace {
 auto all_backends =
-    testing::Values(CommunicatorBackend::nccl, CommunicatorBackend::ucc);
+    testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc);
 
 DeviceMesh mesh_null;
 DeviceMesh mesh0({0});
@@ -340,7 +340,7 @@ INSTANTIATE_TEST_SUITE_P(
     Gather,
     PipelineTestTwoStages,
     testing::Combine(
-        testing::Values(CommunicatorBackend::nccl, CommunicatorBackend::ucc),
+        testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
         all_meshes,
         all_meshes,
         testing::Values(true),
@@ -353,7 +353,7 @@ INSTANTIATE_TEST_SUITE_P(
     Scatter,
     PipelineTestTwoStages,
     testing::Combine(
-        testing::Values(CommunicatorBackend::nccl, CommunicatorBackend::ucc),
+        testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
         all_meshes,
         all_meshes,
         testing::Values(false),
@@ -366,7 +366,7 @@ INSTANTIATE_TEST_SUITE_P(
     Bcast,
     PipelineTestTwoStages,
     testing::Combine(
-        testing::Values(CommunicatorBackend::nccl, CommunicatorBackend::ucc),
+        testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
         all_meshes,
         all_meshes,
         testing::Values(false),
@@ -379,8 +379,8 @@ INSTANTIATE_TEST_SUITE_P(
     Bcast_sharded,
     PipelineTestTwoStages,
     testing::Combine(
-        // TODO(#2794): add back CommunicatorBackend::ucc
-        testing::Values(CommunicatorBackend::nccl),
+        // TODO(#2794): add back CommunicatorBackend::kUcc
+        testing::Values(CommunicatorBackend::kNccl),
         testing::Values(mesh3, mesh4),
         testing::Values(mesh3, mesh4),
         testing::Values(true),
@@ -393,7 +393,7 @@ INSTANTIATE_TEST_SUITE_P(
     Bcast_sharded_same_mesh,
     PipelineTestTwoStages,
     testing::Combine(
-        testing::Values(CommunicatorBackend::nccl, CommunicatorBackend::ucc),
+        testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
         testing::Values(mesh0, mesh1),
         testing::Values(mesh_null), // the same mesh is used for all tensors
         testing::Values(true),
@@ -406,7 +406,7 @@ INSTANTIATE_TEST_SUITE_P(
     Reduce,
     PipelineTestTwoStages,
     testing::Combine(
-        testing::Values(CommunicatorBackend::nccl, CommunicatorBackend::ucc),
+        testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
         all_nontrivial_meshes,
         all_meshes,
         testing::Values(true),
@@ -419,7 +419,7 @@ INSTANTIATE_TEST_SUITE_P(
     ReduceScatter,
     PipelineTestTwoStages,
     testing::Combine(
-        testing::Values(CommunicatorBackend::nccl, CommunicatorBackend::ucc),
+        testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
         all_nontrivial_meshes,
         testing::Values(mesh_null), // the same mesh is used for all tensors
         testing::Values(true),
@@ -434,7 +434,7 @@ INSTANTIATE_TEST_SUITE_P(
     DISABLED_FusionExecutorCache_Reduce,
     PipelineTestTwoStages,
     testing::Combine(
-        testing::Values(CommunicatorBackend::nccl, CommunicatorBackend::ucc),
+        testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
         all_nontrivial_meshes,
         all_meshes,
         testing::Values(true),
@@ -447,7 +447,7 @@ INSTANTIATE_TEST_SUITE_P(
     DISABLED_FusionExecutorCache_ReduceScatter,
     PipelineTestTwoStages,
     testing::Combine(
-        testing::Values(CommunicatorBackend::nccl, CommunicatorBackend::ucc),
+        testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
         all_nontrivial_meshes,
         testing::Values(mesh_null), // the same mesh is used for all tensors
         testing::Values(true),

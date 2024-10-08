@@ -81,6 +81,8 @@ class HostIrExecutor final : public OptOutDispatch {
   void handle(P2PCommunication* communication) override;
   void handle(Wait* wait) override;
   void handle(ForLoop* for_loop) override;
+  void handle(StartCoalescing* start_coalescing) override;
+  void handle(EndCoalescing* end_coalescing) override;
   void unhandled(Statement* stmt) override;
 
   c10::cuda::CUDAStream getCUDAStream(Stream* stream);
