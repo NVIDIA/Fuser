@@ -93,6 +93,8 @@ TEST_F(LoopDomainSchedulingTest, ReshapeSplitThenMerge) {
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
 
+// Test loop domain scheduling with slice. More test cases can also be
+// found in test_resize.cpp
 TEST_F(LoopDomainSchedulingTest, Slice) {
   Fusion fusion;
   FusionGuard fg(&fusion);

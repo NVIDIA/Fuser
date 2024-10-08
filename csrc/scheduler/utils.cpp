@@ -29,10 +29,7 @@
 #include <ATen/cuda/CUDAContext.h>
 
 #include <algorithm>
-#include <functional>
 #include <queue>
-
-#include <fstream>
 
 namespace nvfuser {
 namespace scheduler_utils {
@@ -2774,7 +2771,7 @@ class LoopDomainScheduler {
   // Create the loop domain of a given tensor as specified by the
   // reference. The new loop domain is connected to the existing IDs of
   // the tensor by replaying exprs found in the ValGraph.
-  void schedule(TensorView* tv);
+  void schedule(TensorView* tv) const;
 
  private:
   ValGraph& graph() const {
@@ -2823,7 +2820,7 @@ class LoopDomainScheduler {
   ValGroups all_ancestors_of_ref_;
 };
 
-void LoopDomainScheduler::schedule(TensorView* tv) {
+void LoopDomainScheduler::schedule(TensorView* tv) const {
   // Quick shortcut
   if (ref_id_groups_ == graph().toGroups(tv->getLoopDomain())) {
     // No need to change the current loop domain
