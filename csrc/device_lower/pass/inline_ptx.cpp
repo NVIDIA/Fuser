@@ -196,22 +196,6 @@ class LowerToInlinePtx : public kir::ExprMutator {
     // Reference:
     // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#asynchronous-warpgroup-level-matrix-multiply-accumulate-instructions
 
-    // Sync between the generic proxy and the async proxy
-
-    // Reference:
-    // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#asynchronous-warpgroup-level-matrix-async-proxy
-
-    // TODO: we should not insert sync here. We should keep the lowerToInlinePtx
-    // pass only do simple translations, instead of inserting syncs. This will
-    // be fixed in a future PR.
-    registerInsertBefore(
-        mma,
-        IrBuilder::create<kir::Asm>(
-            "wgmma.fence.sync.aligned",
-            std::vector<Val*>{},
-            std::vector<Val*>{},
-            kir::Asm::Options{/*volatile=*/true}));
-
     // Do MMA
     std::stringstream inst_ss;
     inst_ss << "wgmma.mma_async.sync.aligned.m" << mma->m() << "n" << mma->n()
