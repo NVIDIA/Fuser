@@ -4,6 +4,7 @@
 
 import os
 import pytest
+import torch
 
 from mpi4py import MPI
 
@@ -13,6 +14,8 @@ class MpiTest:
         self._communicator = MPI.COMM_WORLD
         self._local_size = int(os.environ["OMPI_COMM_WORLD_LOCAL_SIZE"])
         self._local_rank = int(os.environ["OMPI_COMM_WORLD_LOCAL_RANK"])
+        # So individual tests can create tensors on the right device by default.
+        torch.cuda.set_device(self._local_rank)
 
     @property
     def size(self):
