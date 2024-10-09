@@ -642,7 +642,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
         createMbarrierWait(ldst, epilogue_compute_stage);
 
     // If last cloned scope is the cloned_top_level_loop body, then add
-    // mbarrier::arriveExpectTx, new loadStoreOp, and mbarrier_wait
+    // mbarrier_wait
     int64_t active_for_loops = std::count_if(
         for_loop_stack_.begin(), for_loop_stack_.end(), [](ForLoop* fl) {
           return fl->iter_domain()->getParallelType() == ParallelType::Serial;
