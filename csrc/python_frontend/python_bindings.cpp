@@ -157,6 +157,23 @@ Tensor broadcast_in_dim_fn(
 }
 
 template <class ShapeType>
+Tensor expand_fn(
+    FusionDefinition::Operators& op,
+    Tensor arg,
+    ShapeType generic_output_shape) {
+  FUSER_PERF_SCOPE("Operators.expand");
+  FusionDefinition* fd = op.fusion_definition;
+  NVF_CHECK(op.validUse(), "Attempting to add to a completed definition!");
+  Vector output_shape = SequenceAsVector(generic_output_shape, *fd);
+
+  Tensor output = fd->defineTensor(output_shape.size);
+  fd->defineRecord(new ExpandOpRecord(
+      {fd->recordingState(arg()), fd->recordingState(output_shape())},
+      {fd->recordingState(output())}));
+  return output;
+}
+
+template <class ShapeType>
 Tensor full_op_fn(
     FusionDefinition::Operators& self,
     ShapeType generic_output_shape,
@@ -2529,6 +2546,26 @@ void initNvFuserPythonBindings(PyObject* module) {
       },
       py::arg("tensors"),
       py::arg("dim") = 0,
+      py::return_value_policy::reference);
+  nvf_ops.def(
+      "expand",
+      expand_fn<Vector>,
+      py::arg("arg"),
+      py::arg("shape"),
+      py::return_value_policy::reference);
+  nvf_ops.def(
+      "expand",
+      expand_fn<py::list>,
+      py::arg("arg"),
+      py::arg("shape"),
+      py::return_value_policy::reference);
+  // NOTE: Tuple support was added to facilitate the direct usage of Pytorch's
+  // Tensor.size() function that returns a child class of a Tuple.
+  nvf_ops.def(
+      "expand",
+      expand_fn<py::tuple>,
+      py::arg("arg"),
+      py::arg("shape"),
       py::return_value_policy::reference);
   nvf_ops.def(
       "index_select",

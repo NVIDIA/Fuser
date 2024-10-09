@@ -2098,6 +2098,11 @@ void IndexLowering::handle(const BroadcastOp* bop) {
   GpuLower::current()->propagateExprInfo(bop, back());
 }
 
+void IndexLowering::handle(const kir::Asm* asm_) {
+  // TODO(kir): remove the need for const_cast
+  pushBack(const_cast<kir::Asm*>(asm_)); // NOLINT
+}
+
 void IndexLowering::handle(const kir::Allocate* allocate) {
   // TODO(kir): remove the need for const_cast
   pushBack(const_cast<kir::Allocate*>(allocate)); // NOLINT
