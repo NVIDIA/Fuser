@@ -196,25 +196,6 @@ class LowerToInlinePtx : public kir::ExprMutator {
     // Reference:
     // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#asynchronous-warpgroup-level-matrix-multiply-accumulate-instructions
 
-    // Sync between the generic proxy and the async proxy
-
-    // Reference:
-    // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#asynchronous-warpgroup-level-matrix-async-proxy
-
-    // TODO: is this fence.proxy.async necessary? The above links say we need
-    // it, but seems that CUTLASS is not using it? Wouldn't wgmma.fence itself
-    // make sure registers are available to the async proxy? And would
-    // __syncthreads() make sure smem is available to the async proxy?
-    // Reference:
-    // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-membar-fence
-    registerInsertBefore(
-        mma,
-        IrBuilder::create<kir::Asm>(
-            "fence.proxy.async",
-            std::vector<Val*>{},
-            std::vector<Val*>{},
-            kir::Asm::Options{/*volatile=*/true}));
-
     // Do MMA
     std::stringstream inst_ss;
     inst_ss << "wgmma.mma_async.sync.aligned.m" << mma->m() << "n" << mma->n()
