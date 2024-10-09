@@ -1537,11 +1537,6 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
 }
 
 void IndexLowering::handleCpAsyncBulkStore(const LoadStoreOp* ldst) {
-  pushBack(IrBuilder::create<kir::Asm>(
-      "fence.proxy.async",
-      std::vector<Val*>{},
-      std::vector<Val*>{},
-      kir::Asm::Options{/*volatile=*/true}));
   auto in = lowerSrcIndex(ldst->in(), ldst->out(), {}, true);
   auto [out, _] =
       Index::getCpAsyncBulkGmemIndex(ldst, nullptr, for_loops_, rotated_loop_);
@@ -1550,11 +1545,6 @@ void IndexLowering::handleCpAsyncBulkStore(const LoadStoreOp* ldst) {
           ->withPredicate(ldst->predicate());
   pushBack(new_ldst);
   GpuLower::current()->propagateExprInfo(ldst, back());
-  // Waits on all the prior bulk async-groups to complete.
-  // TODO: we should not insert sync here. We should move this to
-  // insertRawThreadSynchronization or insertWarThreadSynchronization.
-  pushBack(IrBuilder::create<kir::AsyncCommit>(AsyncOpType::CpAsyncBulk));
-  pushBack(IrBuilder::create<kir::AsyncWait>(AsyncOpType::CpAsyncBulk, 0));
 }
 
 static DataType getMmaInputAType(MmaMacro macro) {
@@ -2035,13 +2025,6 @@ void IndexLowering::handle(const MmaOp* mma) {
       IrBuilder::create<MmaOp>(out, a, b, mma->init(), mma->macro());
   pushBack(mma_indexed);
   GpuLower::current()->propagateExprInfo(mma, back());
-  if (mma->isHopper()) {
-    // Waits on all the prior bulk async-groups to complete.
-    // TODO: we should not insert sync here. We should move this to
-    // insertRawThreadSynchronization or insertWarThreadSynchronization.
-    pushBack(IrBuilder::create<kir::AsyncCommit>(AsyncOpType::WgMma));
-    pushBack(IrBuilder::create<kir::AsyncWait>(AsyncOpType::WgMma, 0));
-  }
 }
 
 void IndexLowering::handle(const BroadcastOp* bop) {
@@ -2121,6 +2104,16 @@ void IndexLowering::handle(const kir::GridSync* sync) {
 void IndexLowering::handle(const kir::AsyncWait* wait) {
   // TODO(kir): remove the need for const_cast
   pushBack(const_cast<kir::AsyncWait*>(wait)); // NOLINT
+}
+
+void IndexLowering::handle(const kir::FenceAsyncProxy* fence) {
+  // TODO(kir): remove the need for const_cast
+  pushBack(const_cast<kir::FenceAsyncProxy*>(fence)); // NOLINT
+}
+
+void IndexLowering::handle(const kir::WgMmaFence* fence) {
+  // TODO(kir): remove the need for const_cast
+  pushBack(const_cast<kir::WgMmaFence*>(fence)); // NOLINT
 }
 
 void IndexLowering::handle(const kir::AsyncCommit* commit) {
