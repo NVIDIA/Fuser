@@ -167,18 +167,11 @@ void UnrollPass::dispatch(Expr* expr) {
       }
     }
 
-    // Try to use inline predicate if possible.
-    // If don't need shared memory predicate, just use inline predicate.
-    // otherwise, also need to add IfThenElse predicate to avoid illegal memory
-    // access. see test FusionCpAsyncPredicateAvoidIllegalMemoryAccess
+    // use inline predicate
     if (lower_utils::supportInlinePredicate(expr)) {
       expr_with_predicate = expr_with_predicate->withPredicate(pred);
-      // if (!GpuLower::current()
-      //          ->predicateElimination()
-      //          .needsSharedMemoryPredicate(expr)) {
-        registerReplace(expr, expr_with_predicate);
-        return;
-      // }
+      registerReplace(expr, expr_with_predicate);
+      return;
     }
 
     // If we need a predicate, put expr inside an if then else

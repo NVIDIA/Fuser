@@ -137,22 +137,24 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
       // fill zero. We can just invert the predicate and use it as `ignore-src`.
       if (ir_utils::isCpAsyncOp(expr)) {
         auto local_pred = expr->predicate()->value();
-        if(parent_unswitched_ite_){
+        if (parent_unswitched_ite_) {
           auto unswitched_pred = parent_unswitched_ite_->predicate()->value();
-            local_pred = SimplifyingIrBuilder::logicalAndExpr(
-                local_pred, unswitched_pred);
-          parent_unswitched_ite_->predicate()->setValue(IrBuilder::create<Val>(true, DataType::Bool));
-          Val* local_pred_inverted = SimplifyingIrBuilder::logicalNotExpr(local_pred);
-          local_pred_inverted =
-              GpuLower::current()->commonScalarMap().hoistScalar(local_pred_inverted, for_loops_);
-          expr->predicate()->setValue(local_pred_inverted);          
+          local_pred =
+              SimplifyingIrBuilder::logicalAndExpr(local_pred, unswitched_pred);
+          parent_unswitched_ite_->predicate()->setValue(
+              IrBuilder::create<Val>(true, DataType::Bool));
         }
+        Val* local_pred_inverted =
+            SimplifyingIrBuilder::logicalNotExpr(local_pred);
+        local_pred_inverted =
+            GpuLower::current()->commonScalarMap().hoistScalar(
+                local_pred_inverted, for_loops_);
+        expr->predicate()->setValue(local_pred_inverted);
       }
     }
 
     kir::ExprMutator::dispatch(expr);
   }
-  
 
   void setWritePredicate(Expr* expr) {
     if (expr->writePredicate() != nullptr) {
@@ -193,8 +195,6 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
       rotated_loop_.insert(for_loops_.back());
     }
 
-
-
     // If ite already has Bool conditional, handle internal expressions
     // Otherwise, generate conditional and update predicate
     if (!ite->predicate()->hasValue()) {
@@ -208,7 +208,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
       NVF_ERROR(ite->predicate()->value() != nullptr);
     }
     // mark the parent unswitched ite
-    if(ite->predicate()->predicate_type() == PredicateType::Unswitch) {
+    if (ite->predicate()->predicate_type() == PredicateType::Unswitch) {
       parent_unswitched_ite_ = ite;
     }
 
@@ -218,9 +218,9 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
       rotated_loop_.erase(for_loops_.back());
     }
     // unmark the parent unswitched ite
-    if(ite->predicate()->predicate_type() == PredicateType::Unswitch) {
+    if (ite->predicate()->predicate_type() == PredicateType::Unswitch) {
       parent_unswitched_ite_ = nullptr;
-    }    
+    }
   }
 
   // Generate conditional according to PredicateType
