@@ -377,6 +377,36 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       return;
     }
 
+    if (auto mma = dynamic_cast<MmaOp*>(expr)) {
+      if (mma->isHopper()) {
+        auto scope = scope_.empty() ? nullptr : scope_.back();
+        auto commit = IrBuilder::create<kir::AsyncCommit>(AsyncOpType::WgMma);
+        auto wait = IrBuilder::create<kir::AsyncWait>(AsyncOpType::WgMma, 0);
+        registerInsertAfter(expr, wait, scope);
+        registerInsertAfter(expr, commit, scope);
+        if (!lower_utils::allMmaInputsGuardedByMBarrier(mma)) {
+          // Makes sure that writes to operands in the generic proxy are visible
+          // to the async proxy
+          auto wgmma_fence = IrBuilder::create<kir::WgMmaFence>();
+          registerInsertBefore(expr, wgmma_fence, scope);
+          auto fence_async = IrBuilder::create<kir::FenceAsyncProxy>();
+          registerInsertBefore(expr, fence_async, scope);
+        }
+      }
+    }
+
+    if (ir_utils::isCpAsyncBulkStore(expr)) {
+      auto scope = scope_.empty() ? nullptr : scope_.back();
+      auto fence_proxy = IrBuilder::create<kir::FenceAsyncProxy>();
+      auto commit =
+          IrBuilder::create<kir::AsyncCommit>(AsyncOpType::CpAsyncBulk);
+      auto wait =
+          IrBuilder::create<kir::AsyncWait>(AsyncOpType::CpAsyncBulk, 0);
+      registerInsertBefore(expr, fence_proxy, scope);
+      registerInsertAfter(expr, wait, scope);
+      registerInsertAfter(expr, commit, scope);
+    }
+
     // An identical but separate flow of timing for cpasync_wait.
     //  The insertion and tracking mechanism is the same as RAW
     //  sync insertion since cp.async only writes smem.

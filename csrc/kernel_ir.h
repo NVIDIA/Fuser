@@ -39,6 +39,8 @@ class Allocate;
 class Asm;
 class BlockSync;
 class GridSync;
+class FenceAsyncProxy;
+class WgMmaFence;
 class MBarrierInit;
 class MBarrierInvalidate;
 class MBarrierArrive;
@@ -430,6 +432,40 @@ class NVF_API GridSync final : public Expr {
   Val* syncBuffer() const {
     return attributeVal(1);
   }
+};
+
+// PTX: fence.proxy.async
+class NVF_API FenceAsyncProxy final : public Expr {
+ public:
+  using Expr::Expr;
+
+  explicit FenceAsyncProxy(IrBuilderPasskey passkey);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "FenceAsyncProxy";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+};
+
+// PTX: wgmma.fence.sync.aligned
+class NVF_API WgMmaFence final : public Expr {
+ public:
+  using Expr::Expr;
+
+  explicit WgMmaFence(IrBuilderPasskey passkey);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "WgMmaFence";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
 };
 
 class NVF_API MBarrierInit final : public Expr {
