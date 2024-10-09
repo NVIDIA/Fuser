@@ -385,8 +385,8 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
         registerInsertAfter(expr, commit, scope);
         registerInsertAfter(expr, wait, scope);
         if (!lower_utils::allMmaInputsGuardedByMBarrier(mma)) {
-          // Makes sure that writes to register operand A in the general proxy
-          // are visible to the async proxy
+          // Makes sure that writes to operands in the generic proxy are visible
+          // to the async proxy
           auto wgmma_fence = IrBuilder::create<kir::WgMmaFence>();
           registerInsertBefore(expr, wgmma_fence, scope);
           auto fence_async = IrBuilder::create<kir::FenceAsyncProxy>();
