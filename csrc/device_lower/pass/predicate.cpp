@@ -146,7 +146,6 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
           local_pred_inverted =
               GpuLower::current()->commonScalarMap().hoistScalar(local_pred_inverted, for_loops_);
           expr->predicate()->setValue(local_pred_inverted);          
-          expr->predicate()->setValue(local_pred);
         }
       }
     }

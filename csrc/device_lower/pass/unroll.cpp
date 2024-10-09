@@ -112,7 +112,6 @@ void UnrollPass::dispatch(Expr* expr) {
     if (unswitched_loop_) {
       DEBUG_LOG("thread predicate in unswitched loop");
       thread_pred_expr = IrBuilder::create<kir::Predicate>(thread_pred);
-      std::cout << "unswitched_loop_ thread_pred_expr: " << thread_pred_expr->toString() << std::endl;
     }
 
     non_trivial_pred_found_ = true;
@@ -163,7 +162,6 @@ void UnrollPass::dispatch(Expr* expr) {
       pred = unswitched_loop_ ? thread_pred_expr
                               : IrBuilder::create<kir::Predicate>(
                                     PredicateType::Inline, expr, thread_pred);
-      std::cout << "unswitched_loop_ pred: " << pred->toString() << std::endl;
       if (!unswitched_loop_) {
         DEBUG_LOG("Inline predicate.");
       }
@@ -178,9 +176,7 @@ void UnrollPass::dispatch(Expr* expr) {
       // if (!GpuLower::current()
       //          ->predicateElimination()
       //          .needsSharedMemoryPredicate(expr)) {
-        std::cout << "expr: " << expr_with_predicate->toString() << std::endl;
         registerReplace(expr, expr_with_predicate);
-        std::cout << "expr: " << expr_with_predicate->toString() << std::endl;
         return;
       // }
     }
