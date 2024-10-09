@@ -1236,7 +1236,7 @@ void movePersistentBufferToSmem(
       // data path from gmem to shared memory (smem) follows this sequence: gmem
       // -> L1 cache -> register -> smem.
       int hw_major = at::cuda::getCurrentDeviceProperties()->major;
-      if (is_cached_input && hw_major >= 8) {
+      if (rparams->combined_inner_outer && is_cached_input && hw_major >= 8) {
         tv->definition()->as<LoadStoreOp>()->setOpType(
             LoadStoreOpType::CpAsync);
         tv->definition()->as<LoadStoreOp>()->setCacheOp(CacheOp::Unspecified);
