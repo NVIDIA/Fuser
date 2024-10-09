@@ -384,9 +384,12 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
         auto wait = IrBuilder::create<kir::AsyncWait>(AsyncOpType::WgMma, 0);
         registerInsertAfter(expr, commit, scope);
         registerInsertAfter(expr, wait, scope);
-        auto a = ir_utils::getTv(mma->inA());
-        bool guarded_by_mbarrier = ir_utils::isCpAsyncBulkLoad(a->definition());
-        if (!guarded_by_mbarrier) {
+        bool inputs_guarded_by_mbarrier =
+            ir_utils::isCpAsyncBulkLoad(
+                ir_utils::getTv(mma->inA())->definition()) &&
+            ir_utils::isCpAsyncBulkLoad(
+                ir_utils::getTv(mma->inB())->definition());
+        if (!inputs_guarded_by_mbarrier) {
           // Makes sure that writes to register operand A in the general proxy
           // are visible to the async proxy
           auto wgmma_fence = IrBuilder::create<kir::WgMmaFence>();
