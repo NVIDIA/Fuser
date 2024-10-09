@@ -399,16 +399,9 @@ class AllocationInserter : public kir::ExprMutator {
         }
         alloc_domains.push_back(info.buffer->axis(axis_i));
       }
+
       auto extent = concrete_id->extent();
-      // CpAsync only uses inline predicate, allow enough space to avoid
-      // out of bound access
-      if (info.buffer->axis(axis_i)->hasPaddingToMultipleOfWarp() &&
-          ir_utils::isCpAsyncOp(info.buffer->definition())) {
-        auto warp_size =
-            IrBuilder::create<Val>(32, GpuLower::current()->indexType());
-        extent = IrBuilder::ceilDivExpr(extent, warp_size);
-        extent = IrBuilder::mulExpr(extent, warp_size);
-      }
+
       alloc_dims.push_back(extent);
       info.allocation_domains->push_back(local_id);
     }
