@@ -12,10 +12,10 @@
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
-#include <abstract_tensor.h>
 #include <fusion.h>
 #include <ir/builder.h>
 #include <ops/all_ops.h>
+#include <scheduler/tools/abstract_tensor.h>
 #include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
 

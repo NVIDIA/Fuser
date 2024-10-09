@@ -5,7 +5,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <abstract_tensor.h>
 #include <device_lower/analysis/circular_buffer.h>
 #include <disjoint_set.h>
 #include <id_model/schedule.h>
@@ -16,6 +15,7 @@
 #include <scheduler/matmul.h>
 #include <scheduler/matmul_utils.h>
 #include <scheduler/mma_utils.h>
+#include <scheduler/tools/abstract_tensor.h>
 #include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
 #include <val_graph.h>
