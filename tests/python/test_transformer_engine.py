@@ -23,6 +23,21 @@ class ComputeType(Enum):
     BACKWARD = auto()
 
 
+@pytest.fixture(scope="module")
+def process_group(mpi_test) -> None:
+    os.environ["MASTER_ADDR"] = "localhost"
+    # The default port as used by https://github.com/pytorch/pytorch/blob/45a8b5682eb69d865cbf68c7f2f689b56b4efd53/torch/csrc/distributed/c10d/TCPStore.hpp#L51.
+    os.environ["MASTER_PORT"] = "29500"
+    dist.init_process_group(
+        backend="nccl",
+        init_method="env://",
+        world_size=mpi_test.size,
+        rank=mpi_test.rank,
+    )
+    yield
+    dist.destroy_process_group()
+
+
 # This benchmark is instrumented with cudaProfilerStart/Stop. Therefore, one
 # can collect stats of the first few non-warmup benchmark iterations using
 #
@@ -35,7 +50,7 @@ class ComputeType(Enum):
     [ComputeType.FORWARD, ComputeType.BACKWARD],
     ids=["forward", "backward"],
 )
-def test_transformer_layer(mpi_test, benchmark, compute_type):
+def test_transformer_layer(mpi_test, process_group, benchmark, compute_type):
     # Hyperparameters for GPT-3
     hidden_size = 12288
     num_heads = 96
@@ -48,15 +63,6 @@ def test_transformer_layer(mpi_test, benchmark, compute_type):
     rank = mpi_test.rank
 
     torch.cuda.set_device(rank)
-    os.environ["MASTER_ADDR"] = "localhost"
-    # The default port as used by https://github.com/pytorch/pytorch/blob/45a8b5682eb69d865cbf68c7f2f689b56b4efd53/torch/csrc/distributed/c10d/TCPStore.hpp#L51.
-    os.environ["MASTER_PORT"] = "29500"
-    dist.init_process_group(
-        backend="nccl",
-        init_method="env://",
-        world_size=size,
-        rank=rank,
-    )
     tp_group = dist.new_group()
 
     transformer_layer = te.TransformerLayer(
@@ -129,4 +135,4 @@ def test_transformer_layer(mpi_test, benchmark, compute_type):
                 rounds=5,
             )
 
-    dist.destroy_process_group()
+    dist.destroy_process_group(group=tp_group)
