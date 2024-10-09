@@ -465,7 +465,7 @@ std::string FenceAsyncProxy::toInlineString(int indent_size) const {
   NVF_CHECK(false, "FenceAsyncProxy can not be printed inline");
 }
 
-NVFUSER_DEFINE_CLONE_AND_CREATE(AsyncWait)
+NVFUSER_DEFINE_CLONE_AND_CREATE(FenceAsyncProxy)
 
 MBarrierInit::MBarrierInit(
     IrBuilderPasskey passkey,
