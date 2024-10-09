@@ -367,6 +367,9 @@ struct IterDomainDependencySorter {
   const IterDomain* kernel_scope_domain_ = nullptr;
 };
 
+// Check if all the inputs of the given MmaOp is guarded by mbarrier
+bool allMmaInputsGuardedByMBarrier(const MmaOp* mma);
+
 } // namespace lower_utils
 
 } // namespace nvfuser

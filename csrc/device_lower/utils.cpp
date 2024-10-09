@@ -1982,6 +1982,12 @@ IterDomain* getConcreteLoopID(IterDomain* id) {
   }
 }
 
+bool allMmaInputsGuardedByMBarrier(const MmaOp* mma) {
+  return ir_utils::isCpAsyncBulkLoad(
+             ir_utils::getTv(mma->inA())->definition()) &&
+      ir_utils::isCpAsyncBulkLoad(ir_utils::getTv(mma->inB())->definition());
+}
+
 } // namespace lower_utils
 
 } // namespace nvfuser
