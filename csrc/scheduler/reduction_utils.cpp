@@ -160,6 +160,15 @@ TensorView* scheduleReductionTV(
           rparams->block_dim_inner_reduction_extra,
           rparams->lparams.bdimy());
     }
+    if (!rparams->combined_inner_outer) {
+      NVF_ERROR(
+          rparams->static_bdimx,
+          "blockDim.x must be static for inner persistent");
+      inner_parallel_static(
+          inner_reduce_axis,
+          rparams->block_dim_inner_reduction,
+          rparams->lparams.bdimx());
+    }
     auto outer_i = inner_reduce_axis;
     if (rparams->cross_grid_inner_reduction) {
       outer_parallel(outer_i++, rparams->grid_dim_inner_reduction);
@@ -175,12 +184,8 @@ TensorView* scheduleReductionTV(
       outer_unroll(outer_i++, rparams->unroll_factor_inner_reduction);
     }
 
-    if (rparams->combined_inner_outer && !rparams->multiple_reds_per_blk) {
-      reduction_tv->axis(outer_i)->parallelize(ParallelType::TIDz);
-    } else {
-      reduction_tv->axis(outer_i)->parallelize(
-          rparams->block_dim_inner_reduction);
-    }
+    reduction_tv->axis(outer_i)->parallelize(ParallelType::TIDz);
+
     if (rparams->pad_inner_reduction_to_warp) {
       reduction_tv->axis(outer_i)->padToMultipleOfWarp();
     }
