@@ -576,6 +576,9 @@ class AllocationInserter : public kir::ExprMutator {
               // instruction. For this case, we need to insert these fences
               // after the initialization of the accumulator, so that the
               // inilization is visible to the async proxy.
+              // When all inputs are guarded by mbarrier, we will insert these
+              // fences before each mma instruction, so there is no need to
+              // insert them after the initialization of the accumulator here.
               auto wgmma_fence = IrBuilder::create<kir::WgMmaFence>();
               registerInsertBefore(
                   allocation.init_place_before, wgmma_fence, scope);
