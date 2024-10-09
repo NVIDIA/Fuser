@@ -467,6 +467,23 @@ std::string FenceAsyncProxy::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(FenceAsyncProxy)
 
+WgMmaFence::WgMmaFence(IrBuilderPasskey passkey) : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
+      passkey.ir_container_->isA<kir::Kernel>(),
+      "IR type only valid for Kernel container.");
+}
+
+std::string WgMmaFence::toString(int indent_size) const {
+  return "fence.proxy.async\n";
+}
+
+std::string WgMmaFence::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "WgMmaFence can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(WgMmaFence)
+
 MBarrierInit::MBarrierInit(
     IrBuilderPasskey passkey,
     Val* mbarrier,

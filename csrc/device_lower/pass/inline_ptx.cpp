@@ -262,6 +262,16 @@ class LowerToInlinePtx : public kir::ExprMutator {
             std::vector<Val*>{},
             kir::Asm::Options{/*volatile=*/true}));
   }
+
+  void handle(kir::WgMmaFence* fence) final {
+    registerReplace(
+        fence,
+        IrBuilder::create<kir::Asm>(
+              "wgmma.fence.sync.aligned",
+              std::vector<Val*>{},
+              std::vector<Val*>{},
+              kir::Asm::Options{/*volatile=*/true}));
+  }
 };
 
 std::vector<Expr*> lowerToInlinePtx(const std::vector<Expr*>& exprs) {

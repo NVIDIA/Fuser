@@ -2111,6 +2111,11 @@ void IndexLowering::handle(const kir::FenceAsyncProxy* fence) {
   pushBack(const_cast<kir::FenceAsyncProxy*>(fence)); // NOLINT
 }
 
+void IndexLowering::handle(const kir::WgMmaFence* fence) {
+  // TODO(kir): remove the need for const_cast
+  pushBack(const_cast<kir::WgMmaFence*>(fence)); // NOLINT
+}
+
 void IndexLowering::handle(const kir::AsyncCommit* commit) {
   // TODO(kir): remove the need for const_cast
   pushBack(const_cast<kir::AsyncCommit*>(commit)); // NOLINT

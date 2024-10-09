@@ -388,11 +388,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
             MemoryType::Register) {
           // Makes sure that writes to register operand A in the general proxy
           // are visible to the async proxy
-          auto wgmma_fence = IrBuilder::create<kir::Asm>(
-              "wgmma.fence.sync.aligned",
-              std::vector<Val*>{},
-              std::vector<Val*>{},
-              kir::Asm::Options{/*volatile=*/true});
+          auto wgmma_fence = IrBuilder::create<kir::WgMmaFence>();
           registerInsertBefore(expr, wgmma_fence, scope);
           auto fence_async = IrBuilder::create<kir::FenceAsyncProxy>();
           registerInsertBefore(expr, fence_async, scope);
