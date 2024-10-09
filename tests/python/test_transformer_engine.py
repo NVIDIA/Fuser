@@ -25,12 +25,10 @@ class ComputeType(Enum):
 
 @pytest.fixture(scope="module")
 def setup_process_group(mpi_test) -> None:
-    os.environ["MASTER_ADDR"] = "localhost"
     # The default port as used by https://github.com/pytorch/pytorch/blob/45a8b5682eb69d865cbf68c7f2f689b56b4efd53/torch/csrc/distributed/c10d/TCPStore.hpp#L51.
-    os.environ["MASTER_PORT"] = "29500"
     dist.init_process_group(
         backend="nccl",
-        init_method="env://",
+        init_method="tcp://localhost:29500",
         world_size=mpi_test.size,
         rank=mpi_test.rank,
     )
