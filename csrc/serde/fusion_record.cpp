@@ -748,6 +748,7 @@ void RecordFunctorFactory::setupFunctionMaps() {
   NVFUSER_UNARY_TV_OP("floor", floor)
   NVFUSER_UNARY_TV_OP("frac", frac)
   NVFUSER_UNARY_TV_OP("lgamma", lgamma)
+  NVFUSER_UNARY_TV_OP("logical_not", logical_not)
   NVFUSER_UNARY_TV_OP("log", log)
   NVFUSER_UNARY_TV_OP("log10", log10)
   NVFUSER_UNARY_TV_OP("log1p", log1p)

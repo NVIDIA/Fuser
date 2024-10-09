@@ -5,9 +5,11 @@
 
 from functools import partial
 import itertools
+import io
 import math
 import re
 import random
+import sys
 from typing import List
 
 import torch
@@ -1062,7 +1064,7 @@ class TestNvFuserFrontend(NVFuserTest):
             ncf,
             ncd,
             nb,
-        ), _ = self.exec_nvfuser(fusion_func, inputs)
+        ), _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
 
         eager_out = torch.where(inputs[0], 3.0, 5.0)
 
@@ -1098,8 +1100,10 @@ class TestNvFuserFrontend(NVFuserTest):
         assert n.dtype == torch.complex64
 
     def test_where_op(self):
+        # nvfuser_where is a decorator function. It takes the input arguments
+        # and creates a function that builds a FusionDefinition.
         def nvfuser_where(pred, a, b):
-            with FusionDefinition() as fd:
+            def fusion_func(fd: FusionDefinition):
                 nv_pred = fd.define_tensor(
                     sizes=pred.shape, strides=pred.stride(), dtype=DataType.Bool
                 )
@@ -1115,19 +1119,24 @@ class TestNvFuserFrontend(NVFuserTest):
                 )
                 result = fd.ops.where(nv_pred, nv_a, nv_b)
                 fd.add_output(result)
-            return fd.execute((pred, a, b))[0]
 
-        pred = torch.testing.make_tensor((5,), device="cuda", dtype=torch.bool)
+            return fusion_func
+
+        # get list of dtypes to test with
         list_of_dtype = [torch.float16, torch.float32]
         if not is_pre_ampere():
             list_of_dtype.append(torch.bfloat16)
-        for atype in list_of_dtype:
-            for btype in list_of_dtype:
-                a = torch.randn((5,), device="cuda", dtype=atype)
-                b = torch.randn((5,), device="cuda", dtype=btype)
-                nv_result = nvfuser_where(pred, a, b)
-                torch_result = torch.where(pred, a, b)
-                self.assertEqual(nv_result, torch_result)
+
+        pred = torch.testing.make_tensor((5,), device="cuda", dtype=torch.bool)
+        for atype, btype in itertools.product(list_of_dtype, list_of_dtype):
+            a = torch.randn((5,), device="cuda", dtype=atype)
+            b = torch.randn((5,), device="cuda", dtype=btype)
+            fusion_func = nvfuser_where(pred, a, b)
+            nv_result, _ = self.exec_nvfuser(
+                fusion_func, [pred, a, b], is_clonable=True
+            )
+            torch_result = torch.where(pred, a, b)
+            self.assertEqual(nv_result[0], torch_result)
 
     def test_iota(self):
         inputs = [
@@ -4275,6 +4284,117 @@ class TestNvFuserFrontend(NVFuserTest):
             ),
         ):
             nvf_out = fd.execute([tensor_inp, 2.0 + 1.0j])
+
+    def test_repro_script_generation(self):
+        expected_str = """
+import torch
+from nvfuser import FusionDefinition, DataType
+
+def nvfuser_fusion_id0(fd : FusionDefinition) -> None :
+    T0 = fd.define_tensor(shape=[-1, -1], contiguity=[True, True], dtype=DataType.Float, is_cpu=False, stride_order=[1, 0])
+    T1 = fd.define_tensor(shape=[-1, -1], contiguity=[True, True], dtype=DataType.Float, is_cpu=False, stride_order=[1, 0])
+    T2 = fd.ops.mul(T0, T1)
+    fd.add_output(T2)
+
+with FusionDefinition() as fd:
+    nvfuser_fusion_id0(fd)
+
+inputs = [
+    torch.randn(16, dtype=torch.float32, device='cuda:0').as_strided((4, 4), (4, 1)),
+    torch.randn(16, dtype=torch.float32, device='cuda:0').as_strided((4, 4), (4, 1)),
+]
+fd.execute(inputs)
+"""
+
+        inputs = [
+            torch.randn(4, 4, device="cuda:0"),
+            torch.randn(4, 4, device="cuda:0"),
+        ]
+
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.from_pytorch(inputs[1])
+            t2 = fd.ops.mul(t0, t1)
+            fd.add_output(t2)
+
+        with FusionDefinition() as fd:
+            fusion_func(fd)
+
+        # Strip white space before and after script
+        expected_str = expected_str.strip()
+        expected_lines = expected_str.split("\n")
+
+        # Test fd.execute(inputs, print_repro=True)
+        old_stdout = sys.stdout
+        test_stdout = sys.stdout = io.StringIO()
+
+        fd.execute(inputs, print_repro=True)
+
+        sys.stdout = old_stdout
+
+        def canonicalize(input):
+            lines = None
+            if isinstance(input, str):
+                comp_str = input.strip()
+                lines = comp_str.split("\n")
+            else:
+                lines = input
+            new_lines = []
+            # Enable skipping the repro header that might change due to number of
+            # or software version.
+            for line in lines:
+                if re.match(r"^# .*", line):
+                    continue
+                elif re.fullmatch(
+                    r"^def nvfuser_fusion_id\d+\(fd : FusionDefinition\) -> None :",
+                    line,
+                ):
+                    new_lines += [
+                        "def nvfuser_fusion_id0(fd : FusionDefinition) -> None :"
+                    ]
+                elif re.fullmatch(r"^    nvfuser_fusion_id\d+\(fd\)", line):
+                    new_lines += ["    nvfuser_fusion_id0(fd)"]
+                else:
+                    new_lines += [line]
+            return new_lines
+
+        comp_lines = canonicalize(test_stdout.getvalue())
+
+        assert len(expected_lines) == len(
+            comp_lines
+        ), "Reproduction script does not have the expected number of lines! Expected: {} Actual: {}".format(
+            len(expected_lines), len(comp_lines)
+        )
+        # Don't compare the first 5 lines as they may be device and cuda specific
+        assert (
+            expected_lines == comp_lines
+        ), "Reproduction script does not match expected output!"
+
+        # Test fd.execute(inputs, save_repro_inputs=True) ; fd.last_repro_script()
+        fd.execute(inputs, save_repro_inputs=True)
+
+        comp_lines = canonicalize(fd.last_repro_script())
+
+        assert len(expected_lines) == len(
+            comp_lines
+        ), "Reproduction script does not have the expected number of lines! Expected: {} Actual: {}".format(
+            len(expected_lines), len(comp_lines)
+        )
+        assert (
+            expected_lines == comp_lines
+        ), "Reproduction script does not match expected output!"
+
+        comp_lines = canonicalize(fd.last_repro_script())
+
+        # Make sure that the fake_tensors are properly saved for repeated query
+        assert len(expected_lines) == len(
+            comp_lines
+        ), "The second query of the eproduction script does not have the expected number of lines! Expected: {} Actual: {}".format(
+            len(expected_lines), len(comp_lines)
+        )
+        assert (
+            expected_lines == comp_lines
+        ), "The second query of the reproduction script does not match expected output!"
 
     # Test that replaced sizes using input tensor metadata are successfully computed
     # See https://github.com/NVIDIA/Fuser/pull/2714 which surfaced this in
