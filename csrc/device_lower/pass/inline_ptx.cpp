@@ -19,14 +19,6 @@
 namespace nvfuser {
 
 class LowerToInlinePtx : public kir::ExprMutator {
- private:
-  // create a new predicate with the inverted value, used for cpAsync
-  kir::Predicate* invertedPredicate(const kir::Predicate* predicate) {
-    auto pred = predicate->value();
-    Val* invert = SimplifyingIrBuilder::logicalNotExpr(pred);
-    return IrBuilder::create<kir::Predicate>(invert);
-  }
-
  protected:
   using ExprMutator::handle;
 
@@ -117,7 +109,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
                   ldst->out(),
                   ldst->in(),
                   IrBuilder::create<Val>(vec_size),
-                  invertedPredicate(ldst->predicate())},
+                  ldst->predicate()},
               kir::Asm::Options{/*volatile=*/true}));
     }
   }

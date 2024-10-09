@@ -399,8 +399,8 @@ class AllocationInserter : public kir::ExprMutator {
         }
         alloc_domains.push_back(info.buffer->axis(axis_i));
       }
-
       auto extent = concrete_id->extent();
+      std::cout << "alloc_dims: " << extent->toInlineString() << std::endl;
 
       alloc_dims.push_back(extent);
       info.allocation_domains->push_back(local_id);
