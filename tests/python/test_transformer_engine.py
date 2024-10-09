@@ -63,14 +63,13 @@ def test_transformer_layer(mpi_test, setup_process_group, benchmark, compute_typ
     rank = mpi_test.rank
 
     torch.cuda.set_device(rank)
-    tp_group = dist.new_group()
 
     transformer_layer = te.TransformerLayer(
         hidden_size,
         ffn_hidden_size,
         num_heads,
         set_parallel_mode=True,
-        tp_group=tp_group,
+        tp_group=dist.group.WORLD,
     )
     transformer_layer.to(dtype).to("cuda")
 
@@ -134,5 +133,3 @@ def test_transformer_layer(mpi_test, setup_process_group, benchmark, compute_typ
                 setup=partial(setup_fn, True),
                 rounds=5,
             )
-
-    dist.destroy_process_group(group=tp_group)
