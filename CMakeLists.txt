@@ -145,7 +145,6 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/id_model/transform_replay.cpp
   ${NVFUSER_SRCS_DIR}/id_model/validation_utils.cpp
   ${NVFUSER_SRCS_DIR}/index_compute.cpp
-  ${NVFUSER_SRCS_DIR}/inlining.cpp
   ${NVFUSER_SRCS_DIR}/instrumentation.cpp
   ${NVFUSER_SRCS_DIR}/ir/base_nodes.cpp
   ${NVFUSER_SRCS_DIR}/ir/builder.cpp
@@ -226,6 +225,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/registry_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/runtime_info.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/scheduler_types.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/tools/inlining.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/transpose.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/vectorize_helper.cpp

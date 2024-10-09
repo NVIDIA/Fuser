@@ -19,10 +19,10 @@
 #include <id_model/indexing_utils.h>
 #include <id_model/to_string.h>
 #include <id_model/utils.h>
-#include <inlining.h>
 #include <ir/builder.h>
 #include <kernel_ir_dispatch.h>
 #include <ops/all_ops.h>
+#include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
 
 #include <algorithm>

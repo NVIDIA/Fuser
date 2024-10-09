@@ -12,6 +12,7 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
+#include <scheduler/tools/inlining.h>
 #include <transform_iter.h>
 
 #include <c10/util/irange.h>

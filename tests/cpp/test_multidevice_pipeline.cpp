@@ -18,7 +18,6 @@
 #include <expr_evaluator.h>
 #include <fusion.h>
 #include <fusion_segmenter.h>
-#include <inlining.h>
 #include <ir/all_nodes.h>
 #include <ir/graphviz.h>
 #include <ir/iostream.h>
@@ -33,6 +32,7 @@
 #include <runtime/fusion_executor_cache.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_utils.h>
+#include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
 #include <tests/cpp/multidevice.h>
 #include <transform_replay.h>

@@ -10,9 +10,9 @@
 
 #include <abstract_tensor.h>
 #include <device_lower/analysis/bank_conflict.h>
-#include <inlining.h>
 #include <ops/all_ops.h>
 #include <runtime/fusion_executor_cache.h>
+#include <scheduler/tools/inlining.h>
 #include <swizzle.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>

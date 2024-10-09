@@ -6,10 +6,10 @@
  */
 // clang-format on
 #include <id_model/utils.h>
-#include <inlining.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <logical_domain_map.h>
+#include <scheduler/tools/inlining.h>
 #include <transform_iter.h>
 
 #include <utility>

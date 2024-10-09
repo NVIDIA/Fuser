@@ -18,7 +18,6 @@
 #include <fusion.h>
 #include <fusion_profiler.h>
 #include <fusion_segmenter.h>
-#include <inlining.h>
 #include <ir/all_nodes.h>
 #include <ir/graphviz.h>
 #include <ir/iostream.h>
@@ -37,6 +36,7 @@
 #include <scheduler/matmul.h>
 #include <scheduler/mma_utils.h>
 #include <scheduler/reduction_utils.h>
+#include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
 #include <sys_utils.h>
 #include <tests/cpp/utils.h>

@@ -10,13 +10,13 @@
 #include <gtest/gtest.h>
 
 #include <fusion.h>
-#include <inlining.h>
 #include <ops/all_ops.h>
 #include <preseg_passes/mark_aliases_prepare.h>
 #include <preseg_passes/optimization_pass.h>
 #include <runtime/executor.h>
 #include <runtime/executor_utils.h>
 #include <runtime/fusion_executor_cache.h>
+#include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>

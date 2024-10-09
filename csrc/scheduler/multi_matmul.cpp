@@ -9,7 +9,6 @@
 #include <device_lower/analysis/circular_buffer.h>
 #include <disjoint_set.h>
 #include <id_model/schedule.h>
-#include <inlining.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
 #include <multidevice/utils.h>
@@ -17,6 +16,7 @@
 #include <scheduler/matmul.h>
 #include <scheduler/matmul_utils.h>
 #include <scheduler/mma_utils.h>
+#include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
 #include <val_graph.h>
 #include <val_graph_visitor.h>

@@ -8,7 +8,6 @@
 
 #include <ATen/cuda/CUDAContext.h>
 #include <debug.h>
-#include <inlining.h>
 #include <instrumentation.h>
 #include <multidevice/utils.h>
 #include <scheduler/cache_policy_refiner.h>
@@ -18,6 +17,7 @@
 #include <scheduler/reduction_utils.h>
 #include <scheduler/registry_utils.h>
 #include <scheduler/runtime_info.h>
+#include <scheduler/tools/inlining.h>
 #include <scheduler/transpose.h>
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>

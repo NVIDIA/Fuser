@@ -14,9 +14,9 @@
 
 #include <abstract_tensor.h>
 #include <fusion.h>
-#include <inlining.h>
 #include <ir/builder.h>
 #include <ops/all_ops.h>
+#include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
 
 namespace nvfuser {
