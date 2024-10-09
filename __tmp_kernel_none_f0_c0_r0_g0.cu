@@ -11022,7 +11022,7 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
        "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[127])
       :"l"((4611686293305294848ULL | ((262143ULL & (uint64_t)(i34)) >> 4ULL))),
        "l"((4611686293313683456ULL | ((262143ULL & (uint64_t)(i35)) >> 4ULL))),
-       "r"((uint32_t)(i28 > 0)),
+       "r"((uint32_t)(true)),
        "n"(1),
        "n"(1),
        "n"(1),
