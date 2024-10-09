@@ -30,7 +30,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
  protected:
   using ExprMutator::handle;
 
-  void handle(kir::AsyncCommit* commit) override {
+  void handle(kir::AsyncCommit* commit) final {
     registerReplace(
         commit,
         IrBuilder::create<kir::Asm>(
@@ -40,7 +40,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
             kir::Asm::Options{/*volatile=*/true}));
   }
 
-  void handle(kir::AsyncWait* wait) override {
+  void handle(kir::AsyncWait* wait) final {
     if (wait->asyncOpType() == AsyncOpType::CpAsync &&
         wait->keepStages() == 0) {
       // cp.async uses wait_all for zero keep stages, other instructions uses a
@@ -63,7 +63,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
     }
   }
 
-  void handle(LoadStoreOp* ldst) override {
+  void handle(LoadStoreOp* ldst) final {
     if (ir_utils::isLdMatrixOp(ldst)) {
       std::stringstream ss;
       ss << "ldmatrix.sync.aligned.x"
@@ -243,7 +243,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
     registerRemove(mma);
   }
 
-  void handle(MmaOp* mma) override {
+  void handle(MmaOp* mma) final {
     if (mma->isTuring() || mma->isAmpere()) {
       handleTuringOrAmpereMma(mma);
     } else if (mma->isHopper()) {
@@ -251,6 +251,16 @@ class LowerToInlinePtx : public kir::ExprMutator {
     } else {
       NVF_THROW("Unsupported MMA architecture");
     }
+  }
+
+  void handle(kir::FenceAsyncProxy* fence) final {
+    registerReplace(
+        fence,
+        IrBuilder::create<kir::Asm>(
+            "fence.proxy.async",
+            std::vector<Val*>{},
+            std::vector<Val*>{},
+            kir::Asm::Options{/*volatile=*/true}));
   }
 };
 

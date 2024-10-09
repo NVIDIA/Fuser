@@ -394,11 +394,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
               std::vector<Val*>{},
               kir::Asm::Options{/*volatile=*/true});
           registerInsertBefore(expr, wgmma_fence, scope);
-          auto fence_async = IrBuilder::create<kir::Asm>(
-              "fence.proxy.async",
-              std::vector<Val*>{},
-              std::vector<Val*>{},
-              kir::Asm::Options{/*volatile=*/true});
+          auto fence_async = IrBuilder::create<kir::FenceAsyncProxy>();
           registerInsertBefore(expr, fence_async, scope);
         }
       }
@@ -406,11 +402,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
 
     if (ir_utils::isCpAsyncBulkStore(expr)) {
       auto scope = scope_.empty() ? nullptr : scope_.back();
-      auto fence_proxy = IrBuilder::create<kir::Asm>(
-          "fence.proxy.async",
-          std::vector<Val*>{},
-          std::vector<Val*>{},
-          kir::Asm::Options{/*volatile=*/true});
+      auto fence_proxy = IrBuilder::create<kir::FenceAsyncProxy>();
       auto commit =
           IrBuilder::create<kir::AsyncCommit>(AsyncOpType::CpAsyncBulk);
       auto wait =
