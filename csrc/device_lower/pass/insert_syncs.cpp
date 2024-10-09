@@ -377,7 +377,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       return;
     }
 
-    if (auto mma = dynamic_cast<kir::MmaOp*>(expr)) {
+    if (auto mma = dynamic_cast<MmaOp*>(expr)) {
       if (mma->isHopper()) {
         auto scope = scope_.empty() ? nullptr : scope_.back();
         auto commit = IrBuilder::create<kir::AsyncCommit>(AsyncOpType::WgMma);
