@@ -185,11 +185,11 @@ TEST_F(LoopDomainSchedulingTest, ReshapeTraversalDirection) {
   auto tv9 = add(tv6, tv8);
   fusion.addOutput(tv9);
 
-  // Consider a case where the loop domain of tv4 is scheduled using
+  // Consider a case where the loop domain of tv5 is scheduled using
   // tv7 as the reference. From the
-  // tv7 loop domain to tv4, the shortest path goes
+  // tv7 loop domain to tv5, the shortest path goes
   // through the logical domain of tv8 (and also tv6 and
-  // tv9). However, that path cannot be used sicne that would result
+  // tv9). However, that path cannot be used since that would result
   // in multi-definition iter domains. Instead,
   // scheduleLoopDomainsLike should use the path
   // from tv7 through tv1: backward split (tv7 reshape) -> forward
@@ -243,6 +243,74 @@ TEST_F(LoopDomainSchedulingTest, ReshapeTraversalDirection) {
           tv5_loop_to_logical.at(3).first,
           tv4->getLogicalDomain().at(0)->definition()) &&
       tv5_loop_to_logical.at(3).second == Direction::Forward);
+}
+
+// Using the same fusion as ReshapeTraversalDirection, try each one of
+// the tensors as a reference
+TEST_F(LoopDomainSchedulingTest, ManyReshape) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({12});
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+
+  auto tv2 = reshape(tv1, {12}, {3, 4});
+  auto tv3 = reshape(tv2, {3, 4}, {3, 2, 2});
+  auto tv4 = reshape(tv3, {3, 2, 2}, {6, 2});
+  auto tv5 = set(tv4);
+  auto tv6 = reshape(tv5, {6, 2}, {12});
+
+  auto tv7 = reshape(tv1, {12}, {4, 3});
+  auto tv8 = reshape(tv7, {4, 3}, {12});
+
+  auto tv9 = add(tv6, tv8);
+  fusion.addOutput(tv9);
+
+  // Try each of the tensors as a reference
+  for (const auto i : c10::irange(fusion.allTvs().size())) {
+    Fusion fusion_copy = fusion;
+    FusionGuard fg_copy(&fusion_copy);
+
+    TensorView* ref_tv = fusion_copy.allTvs().at(i);
+    std::vector<IterDomain*> ref_loop = ref_tv->getLogicalDomain();
+    scheduler_utils::scheduleLoopDomainsLike(fusion_copy.allTvs(), ref_loop);
+
+    IdModel id_model(&fusion_copy, /*build_models=*/false);
+    const auto& exact_graph = id_model.buildExactGraph();
+
+    for (const auto tv : fusion_copy.allTvs()) {
+      EXPECT_EQ(tv->getLoopDomain().size(), ref_loop.size());
+      for (const auto i : c10::irange(ref_loop.size())) {
+        EXPECT_TRUE(exact_graph.disjointValSets().strictAreMapped(
+            tv->getLoopDomain().at(i), ref_loop.at(i)))
+            << "Expected exact mapping of loop domains: "
+            << tv->getLoopDomain().at(i)->toString() << ", "
+            << ref_loop.at(i)->toString();
+      }
+    }
+
+    inlineMost();
+
+    // All tensors, except for the inputs, should be fully inlined
+    for (const auto tv : fusion_copy.allTvs()) {
+      if (tv->isFusionInput()) {
+        continue;
+      }
+      EXPECT_EQ(tv->getComputeAtPosition(), tv->getLoopDomain().size());
+    }
+
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+    auto t0 = at::randn({12}, options);
+    std::vector<c10::IValue> aten_inputs({t0});
+
+    FusionExecutor fe;
+    fe.compileFusion(&fusion, aten_inputs);
+    auto cg_outputs = fe.runFusion(aten_inputs);
+
+    auto ref = t0 * 2;
+    EXPECT_TRUE(ref.equal(cg_outputs[0]));
+  }
 }
 
 } // namespace nvfuser
