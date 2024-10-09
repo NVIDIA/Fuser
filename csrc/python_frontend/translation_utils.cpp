@@ -283,7 +283,7 @@ std::string getString(const ReductionOp* rop) {
       return "sum";
       break;
     case BinaryOpType::Mul:
-      return "mul";
+      return "prod";
       break;
     case BinaryOpType::Max:
       return "max";
