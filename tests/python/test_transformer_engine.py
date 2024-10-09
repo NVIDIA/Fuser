@@ -24,7 +24,7 @@ class ComputeType(Enum):
 
 
 @pytest.fixture(scope="module")
-def process_group(mpi_test) -> None:
+def setup_process_group(mpi_test) -> None:
     os.environ["MASTER_ADDR"] = "localhost"
     # The default port as used by https://github.com/pytorch/pytorch/blob/45a8b5682eb69d865cbf68c7f2f689b56b4efd53/torch/csrc/distributed/c10d/TCPStore.hpp#L51.
     os.environ["MASTER_PORT"] = "29500"
@@ -50,7 +50,7 @@ def process_group(mpi_test) -> None:
     [ComputeType.FORWARD, ComputeType.BACKWARD],
     ids=["forward", "backward"],
 )
-def test_transformer_layer(mpi_test, process_group, benchmark, compute_type):
+def test_transformer_layer(mpi_test, setup_process_group, benchmark, compute_type):
     # Hyperparameters for GPT-3
     hidden_size = 12288
     num_heads = 96
