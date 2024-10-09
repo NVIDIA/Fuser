@@ -579,6 +579,13 @@ class AllocationInserter : public kir::ExprMutator {
                 kir::Asm::Options{/*volatile=*/true});
             registerInsertBefore(
                 allocation.init_place_before, wgmma_fence, scope);
+            auto fence_async = IrBuilder::create<kir::Asm>(
+                "fence.proxy.async",
+                std::vector<Val*>{},
+                std::vector<Val*>{},
+                kir::Asm::Options{/*volatile=*/true});
+            registerInsertBefore(
+                allocation.init_place_before, fence_async, scope);
           }
         }
       }
