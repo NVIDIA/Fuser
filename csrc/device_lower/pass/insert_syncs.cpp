@@ -377,6 +377,49 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       return;
     }
 
+    if (auto mma = dynamic_cast<kir::MmaOp*>(expr)) {
+      if (mma->isHopper()) {
+        auto scope = scope_.empty() ? nullptr : scope_.back();
+        auto commit = IrBuilder::create<kir::AsyncCommit>(AsyncOpType::WgMma);
+        auto wait = IrBuilder::create<kir::AsyncWait>(AsyncOpType::WgMma, 0);
+        registerInsertAfter(expr, commit, scope);
+        registerInsertAfter(expr, wait, scope);
+        if (ir_utils::getTv(mma->inA())->getMemoryType() ==
+            MemoryType::Register) {
+          // Makes sure that writes to register operand A in the general proxy
+          // are visible to the async proxy
+          auto wgmma_fence = IrBuilder::create<kir::Asm>(
+              "wgmma.fence.sync.aligned",
+              std::vector<Val*>{},
+              std::vector<Val*>{},
+              kir::Asm::Options{/*volatile=*/true});
+          registerInsertBefore(expr, wgmma_fence, scope);
+          auto fence_async = IrBuilder::create<kir::Asm>(
+              "fence.proxy.async",
+              std::vector<Val*>{},
+              std::vector<Val*>{},
+              kir::Asm::Options{/*volatile=*/true});
+          registerInsertBefore(expr, fence_async, scope);
+        }
+      }
+    }
+
+    if (ir_utils::isCpAsyncBulkStore(expr)) {
+      auto scope = scope_.empty() ? nullptr : scope_.back();
+      auto fence_proxy = IrBuilder::create<kir::Asm>(
+          "fence.proxy.async",
+          std::vector<Val*>{},
+          std::vector<Val*>{},
+          kir::Asm::Options{/*volatile=*/true});
+      auto commit =
+          IrBuilder::create<kir::AsyncCommit>(AsyncOpType::CpAsyncBulk);
+      auto wait =
+          IrBuilder::create<kir::AsyncWait>(AsyncOpType::CpAsyncBulk, 0);
+      registerInsertBefore(expr, fence_proxy, scope);
+      registerInsertAfter(expr, commit, scope);
+      registerInsertAfter(expr, wait, scope);
+    }
+
     // An identical but separate flow of timing for cpasync_wait.
     //  The insertion and tracking mechanism is the same as RAW
     //  sync insertion since cp.async only writes smem.
