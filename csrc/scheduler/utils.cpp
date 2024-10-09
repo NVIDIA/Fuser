@@ -14,6 +14,7 @@
 #include <contiguity.h>
 #include <expr_evaluator.h>
 #include <id_model/id_model.h>
+#include <id_model/schedule.h>
 #include <instrumentation.h>
 #include <ir/builder.h>
 #include <ir/utils.h>
@@ -2901,7 +2902,7 @@ void LoopDomainScheduler::schedule(TensorView* tv) const {
 
       // No need to force exact mapping since this clone is going to
       // be connected with tv
-      auto clone = output_g->front()->as<IterDomain>()->cloneWithoutRFactor();
+      auto clone = representativeId(output_g)->cloneWithoutRFactor();
       all_id_groups.pushBack(output_g);
       group_to_id.emplace(output_g, clone);
     }
@@ -2941,8 +2942,8 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(TensorView* tv) const {
   // forward paths to the logical domain in the ValGraph. For example,
   //
   // t0 = [i0]
-  // t1 = reshape(t0, {i0}, [i0/4, 4})
-  // t2 = reshape(t1, {i0/4, 4], {i0})
+  // t1 = reshape(t0, {i0}, {i0/4, 4})
+  // t2 = reshape(t1, {i0/4, 4}, {i0})
   // t3 = reshape(t0, {i0}, {i0/8, 8})
   // t4 = reshape(t3, {i0/8, 8}, {i0})
   // t5 = t2 + t4
