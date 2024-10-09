@@ -279,6 +279,8 @@ TEST_F(LoopDomainSchedulingTest, ManyReshape) {
     IdModel id_model(&fusion_copy, /*build_models=*/false);
     const auto& exact_graph = id_model.buildExactGraph();
 
+    // The new loop domain of each tensor should be exactly mapped
+    // with the reference loop domain
     for (const auto tv : fusion_copy.allTvs()) {
       EXPECT_EQ(tv->getLoopDomain().size(), ref_loop.size());
       for (const auto i : c10::irange(ref_loop.size())) {
