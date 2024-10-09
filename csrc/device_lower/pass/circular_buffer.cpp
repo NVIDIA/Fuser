@@ -638,8 +638,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
     NVF_ERROR(
         mbarrier_wait_ == nullptr,
         "Expected mbarrier_wait to inactive for current TMA operation");
-    mbarrier_wait_ =
-        createMbarrierWait(ldst, epilogue_compute_stage);
+    mbarrier_wait_ = createMbarrierWait(ldst, epilogue_compute_stage);
 
     // If last cloned scope is the cloned_top_level_loop body, then add
     // mbarrier_wait
