@@ -3919,6 +3919,8 @@ TEST_F(ResizeTest, SliceThenConcat) {
   std::vector<IterDomain*> ref_loop = tv0->getLogicalDomain();
   scheduler_utils::scheduleLoopDomainsLike(fusion.allTvs(), ref_loop);
 
+  fusion.print();
+
   for (auto tv : {tv1, tv2, tv3, tv4, tv5, tv6}) {
     tv->split(0, 32);
   }
@@ -4583,134 +4585,143 @@ TEST_F(ResizeTest, ReshapeSliceSliceRotateConcat) {
 
   fusion.addOutput(tv13);
 
-  tv1->split(0, 4, false);
+  fusion.print();
 
-  tv3->setLoopDomain(tv3->getRootDomain());
+  if (getenv("MANUAL")) {
+    tv1->split(0, 4, false);
 
-  // tv4
-  {
-    auto outer_root = tv3->getRootDomain().at(0)->cloneWithoutRFactor();
-    // Replay tv3 root-to-logical resize
-    IrBuilder::create<Resize>(
-        tv4->getMaybeRootDomain().at(0),
-        outer_root,
-        fusion.zeroVal(),
-        IrBuilder::create<Val>(-shape2[0] + 1, DataType::Index));
-    if (getenv("INNER")) {
-      // This doesn't work
-      tv4->setLoopDomain({outer_root, tv4->getRootDomain().at(1)});
-    } else {
-      tv4->setLoopDomain({outer_root, tv4->getLogicalDomain().at(1)});
+    tv3->setLoopDomain(tv3->getRootDomain());
+
+    // tv4
+    {
+      auto outer_root = tv3->getRootDomain().at(0)->cloneWithoutRFactor();
+      // Replay tv3 root-to-logical resize
+      IrBuilder::create<Resize>(
+          tv4->getMaybeRootDomain().at(0),
+          outer_root,
+          fusion.zeroVal(),
+          IrBuilder::create<Val>(-shape2[0] + 1, DataType::Index));
+      if (getenv("INNER")) {
+        // This doesn't work
+        tv4->setLoopDomain({outer_root, tv4->getRootDomain().at(1)});
+      } else {
+        tv4->setLoopDomain({outer_root, tv4->getLogicalDomain().at(1)});
+      }
     }
+
+    // tv5
+    {
+      auto outer_root = tv3->getRootDomain().at(0)->cloneWithoutRFactor();
+      // Replay tv3 root-to-logical resize
+      IrBuilder::create<Resize>(
+          tv5->getMaybeRootDomain().at(0),
+          outer_root,
+          fusion.zeroVal(),
+          IrBuilder::create<Val>(-shape2[0] + 1, DataType::Index));
+      tv5->setLoopDomain({outer_root, tv5->getLogicalDomain().at(1)});
+    }
+
+    // tv6
+    {
+      auto outer_root = tv3->getRootDomain().at(0)->cloneWithoutRFactor();
+      // Replay tv3 root-to-logical resize
+      IrBuilder::create<Resize>(
+          tv6->getMaybeRootDomain().at(0),
+          outer_root,
+          fusion.zeroVal(),
+          IrBuilder::create<Val>(-shape2[0] + 1, DataType::Index));
+      tv6->setLoopDomain({outer_root, tv6->getLogicalDomain().at(1)});
+    }
+
+    // tv7
+    {
+      auto outer_root = tv3->getRootDomain().at(0)->cloneWithoutRFactor();
+      // Replay tv3 root-to-logical resize
+      IrBuilder::create<Resize>(
+          tv7->getMaybeRootDomain().at(0),
+          outer_root,
+          fusion.zeroVal(),
+          IrBuilder::create<Val>(-shape2[0] + 1, DataType::Index));
+      tv7->setLoopDomain({outer_root, tv7->getLogicalDomain().at(1)});
+    }
+
+    // tv8
+    {
+      auto outer_root = tv3->getRootDomain().at(0)->cloneWithoutRFactor();
+      // Replay tv3 root-to-logical resize
+      IrBuilder::create<Resize>(
+          tv8->getMaybeRootDomain().at(0),
+          outer_root,
+          fusion.zeroVal(),
+          IrBuilder::create<Val>(-shape2[0] + 1, DataType::Index));
+      tv8->setLoopDomain({outer_root, tv8->getLogicalDomain().at(1)});
+    }
+
+    // tv9
+    {
+      auto outer_root = tv3->getRootDomain().at(0)->cloneWithoutRFactor();
+      // Replay tv3 root-to-logical resize
+      IrBuilder::create<Resize>(
+          tv9->getMaybeRootDomain().at(0),
+          outer_root,
+          fusion.zeroVal(),
+          IrBuilder::create<Val>(-shape2[0] + 1, DataType::Index));
+      tv9->setLoopDomain({outer_root, tv9->getLogicalDomain().at(1)});
+    }
+
+    // tv10
+    tv10->setLoopDomain(tv10->getRootDomain());
+
+    // tv11
+    {
+      auto outer_root = tv10->getRootDomain().at(0)->cloneWithoutRFactor();
+      // Replay tv10 root-to-logical resize
+      IrBuilder::create<Resize>(
+          tv11->getMaybeRootDomain().at(0),
+          outer_root,
+          IrBuilder::create<Val>(-1, DataType::Index),
+          fusion.zeroVal());
+      tv11->setLoopDomain({outer_root, tv11->getLogicalDomain().at(1)});
+    }
+
+    // tv12
+    {
+      auto outer_root = tv3->getRootDomain().at(0)->cloneWithoutRFactor();
+      // Replay tv3 root-to-logical resize
+      auto sliced_root = IterDomain::resize(
+          outer_root,
+          fusion.zeroVal(),
+          IrBuilder::create<Val>(-shape2[0] + 1, DataType::Index));
+      IrBuilder::create<Resize>(
+          tv12->getMaybeRootDomain().at(0),
+          sliced_root,
+          fusion.zeroVal(),
+          IrBuilder::create<Val>(shape2[0] - 1, DataType::Index));
+      tv12->setLoopDomain({outer_root, tv12->getLogicalDomain().at(1)});
+    }
+
+    // tv13
+    {
+      auto outer_root = tv3->getRootDomain().at(0)->cloneWithoutRFactor();
+      // Replay tv3 root-to-logical resize
+      auto sliced_root = IterDomain::resize(
+          outer_root,
+          fusion.zeroVal(),
+          IrBuilder::create<Val>(-shape2[0] + 1, DataType::Index));
+      IrBuilder::create<Resize>(
+          tv13->getMaybeRootDomain().at(0),
+          sliced_root,
+          fusion.zeroVal(),
+          IrBuilder::create<Val>(shape2[0] - 1, DataType::Index));
+      tv13->setLoopDomain({outer_root, tv13->getRootDomain().at(1)});
+    }
+  } else {
+    std::vector<IterDomain*> ref_loop = tv2->getLogicalDomain();
+    scheduler_utils::scheduleLoopDomainsLike(fusion.allTvs(), ref_loop, 1);
   }
 
-  // tv5
-  {
-    auto outer_root = tv3->getRootDomain().at(0)->cloneWithoutRFactor();
-    // Replay tv3 root-to-logical resize
-    IrBuilder::create<Resize>(
-        tv5->getMaybeRootDomain().at(0),
-        outer_root,
-        fusion.zeroVal(),
-        IrBuilder::create<Val>(-shape2[0] + 1, DataType::Index));
-    tv5->setLoopDomain({outer_root, tv5->getLogicalDomain().at(1)});
-  }
-
-  // tv6
-  {
-    auto outer_root = tv3->getRootDomain().at(0)->cloneWithoutRFactor();
-    // Replay tv3 root-to-logical resize
-    IrBuilder::create<Resize>(
-        tv6->getMaybeRootDomain().at(0),
-        outer_root,
-        fusion.zeroVal(),
-        IrBuilder::create<Val>(-shape2[0] + 1, DataType::Index));
-    tv6->setLoopDomain({outer_root, tv6->getLogicalDomain().at(1)});
-  }
-
-  // tv7
-  {
-    auto outer_root = tv3->getRootDomain().at(0)->cloneWithoutRFactor();
-    // Replay tv3 root-to-logical resize
-    IrBuilder::create<Resize>(
-        tv7->getMaybeRootDomain().at(0),
-        outer_root,
-        fusion.zeroVal(),
-        IrBuilder::create<Val>(-shape2[0] + 1, DataType::Index));
-    tv7->setLoopDomain({outer_root, tv7->getLogicalDomain().at(1)});
-  }
-
-  // tv8
-  {
-    auto outer_root = tv3->getRootDomain().at(0)->cloneWithoutRFactor();
-    // Replay tv3 root-to-logical resize
-    IrBuilder::create<Resize>(
-        tv8->getMaybeRootDomain().at(0),
-        outer_root,
-        fusion.zeroVal(),
-        IrBuilder::create<Val>(-shape2[0] + 1, DataType::Index));
-    tv8->setLoopDomain({outer_root, tv8->getLogicalDomain().at(1)});
-  }
-
-  // tv9
-  {
-    auto outer_root = tv3->getRootDomain().at(0)->cloneWithoutRFactor();
-    // Replay tv3 root-to-logical resize
-    IrBuilder::create<Resize>(
-        tv9->getMaybeRootDomain().at(0),
-        outer_root,
-        fusion.zeroVal(),
-        IrBuilder::create<Val>(-shape2[0] + 1, DataType::Index));
-    tv9->setLoopDomain({outer_root, tv9->getLogicalDomain().at(1)});
-  }
-
-  // tv10
-  tv10->setLoopDomain(tv10->getRootDomain());
-
-  // tv11
-  {
-    auto outer_root = tv10->getRootDomain().at(0)->cloneWithoutRFactor();
-    // Replay tv10 root-to-logical resize
-    IrBuilder::create<Resize>(
-        tv11->getMaybeRootDomain().at(0),
-        outer_root,
-        IrBuilder::create<Val>(-1, DataType::Index),
-        fusion.zeroVal());
-    tv11->setLoopDomain({outer_root, tv11->getLogicalDomain().at(1)});
-  }
-
-  // tv12
-  {
-    auto outer_root = tv3->getRootDomain().at(0)->cloneWithoutRFactor();
-    // Replay tv3 root-to-logical resize
-    auto sliced_root = IterDomain::resize(
-        outer_root,
-        fusion.zeroVal(),
-        IrBuilder::create<Val>(-shape2[0] + 1, DataType::Index));
-    IrBuilder::create<Resize>(
-        tv12->getMaybeRootDomain().at(0),
-        sliced_root,
-        fusion.zeroVal(),
-        IrBuilder::create<Val>(shape2[0] - 1, DataType::Index));
-    tv12->setLoopDomain({outer_root, tv12->getLogicalDomain().at(1)});
-  }
-
-  // tv13
-  {
-    auto outer_root = tv3->getRootDomain().at(0)->cloneWithoutRFactor();
-    // Replay tv3 root-to-logical resize
-    auto sliced_root = IterDomain::resize(
-        outer_root,
-        fusion.zeroVal(),
-        IrBuilder::create<Val>(-shape2[0] + 1, DataType::Index));
-    IrBuilder::create<Resize>(
-        tv13->getMaybeRootDomain().at(0),
-        sliced_root,
-        fusion.zeroVal(),
-        IrBuilder::create<Val>(shape2[0] - 1, DataType::Index));
-    tv13->setLoopDomain({outer_root, tv13->getRootDomain().at(1)});
-  }
-
+  fusion.printMath();
+#if 1
   for (auto tv : fusion.allTvs()) {
     if (tv->nDims() == 2) {
       tv->axis(0)->parallelize(ParallelType::TIDx);
@@ -4727,9 +4738,9 @@ TEST_F(ResizeTest, ReshapeSliceSliceRotateConcat) {
   }
 
   tv1->axis(-1)->parallelize(ParallelType::Vectorize);
-
-  fusion.print();
-  fusion.printKernel();
+#endif
+  // fusion.print();
+  // fusion.printKernel();
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);

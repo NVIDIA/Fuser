@@ -706,7 +706,8 @@ void moveNonConcretizedBroadcastInnermost(
 // each tensor by replaying exprs found in the Exact ValGraph.
 void scheduleLoopDomainsLike(
     const std::vector<TensorView*>& tvs,
-    const std::vector<IterDomain*>& ref_loop_dom);
+    const std::vector<IterDomain*>& ref_loop_dom,
+    int64_t pos = -1);
 
 } // namespace scheduler_utils
 } // namespace nvfuser

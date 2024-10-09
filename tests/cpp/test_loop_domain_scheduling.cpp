@@ -245,4 +245,67 @@ TEST_F(LoopDomainSchedulingTest, ReshapeTraversalDirection) {
       tv5_loop_to_logical.at(3).second == Direction::Forward);
 }
 
+TEST_F(LoopDomainSchedulingTest, ReshapeSplitThenMerge2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // One split reshape and then merge reshape. Schedule the loop
+  // domains of all tensors with the initial pre-reshape domain.
+
+  auto tv0 = makeConcreteTensor({10, 4});
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = reshape(tv1, {10, 4}, {2, 5, 2, 2});
+  fusion.addOutput(tv2);
+
+  std::vector<IterDomain*> ref = tv0->getLogicalDomain();
+  scheduler_utils::scheduleLoopDomainsLike(fusion.allTvs(), ref, 1);
+
+  fusion.print();
+#if 0
+  for (auto tv : fusion.allTvs()) {
+    tv->split(0, 3);
+  }
+
+  inlineMost();
+
+  IdModel id_model(&fusion);
+
+  ref = tv1->getLoopDomain();
+  for (auto tv : fusion.allTvs()) {
+    EXPECT_EQ(ref.size(), tv->getLoopDomain().size());
+
+    if (!tv->isFusionInput()) {
+      EXPECT_EQ(tv->getComputeAtPosition(), 2) << tv->toString();
+    }
+
+    for (const auto i : c10::irange(ref.size())) {
+      EXPECT_TRUE(id_model.idGraph(IdMappingMode::EXACT)
+                      .disjointValSets()
+                      .strictAreMapped(ref.at(i), tv->getLoopDomain().at(i)))
+          << "Not mapped: " << ref.at(i)->toString() << ", "
+          << tv->getLoopDomain().at(i)->toString() << ", " << tv->toString();
+      // Except for the input, they should be mapped in the loop graph too
+      if (!tv->isFusionInput()) {
+        EXPECT_TRUE(id_model.idGraph(IdMappingMode::LOOP)
+                        .disjointValSets()
+                        .strictAreMapped(ref.at(i), tv->getLoopDomain().at(i)))
+            << "Not mapped: " << ref.at(i)->toString() << ", "
+            << tv->getLoopDomain().at(i)->toString() << ", " << tv->toString();
+      }
+    }
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({10}, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, inputs);
+  auto outputs = fe.runFusion(inputs);
+
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+#endif
+}
+
 } // namespace nvfuser
