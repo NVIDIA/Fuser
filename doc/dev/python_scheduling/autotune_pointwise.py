@@ -6,7 +6,7 @@
 import torch
 import itertools
 import random
-from nvfuser import FusionDefinition, SchedulerType
+from nvfuser import FusionCache, FusionDefinition, SchedulerType
 
 # ============================ Description ============================
 
@@ -34,7 +34,8 @@ from nvfuser import FusionDefinition, SchedulerType
 
 # Settings for input tensor generation
 num_dimensions = 2
-shapes = [2**i for i in range(5, 10)]
+outer_shapes = [512]
+inner_shapes = [2**i for i in range(5, 15)]
 
 # For pointwise scheduler, we test the cartesian product of vectorization and
 # unroll factors.
@@ -91,7 +92,7 @@ def custom_pointwise_scheduler(fd, config):
             schedule_params.unroll_factor = unroll_factor
 
         # Schedule fusion
-        fd.sched.schedule(SchedulerType.pointwise, schedule_params)
+        fd.sched.schedule()
 
     fd.schedule = inner_fn
     return fd
@@ -137,8 +138,7 @@ def find_best_parameters(predictor, input_shape, parameter_configurations):
 parameters = []
 performance = []
 
-per_dim_shapes = [shapes] * num_dimensions
-for shape in itertools.product(*per_dim_shapes):
+for shape in itertools.product(outer_shapes, inner_shapes):
     print(shape)
     inputs = [
         torch.randn(*shape, device="cuda"),
@@ -257,9 +257,8 @@ print("=====================================================================")
 import matplotlib.pyplot as plt
 import numpy as np
 
+FusionCache.reset()
 est_perfs = []
-nvf_perfs = []
-
 for hidden_shape in empirical_hidden_sizes:
     inputs = [
         torch.randn(empirical_batch_size, hidden_shape, device="cuda"),
@@ -273,12 +272,25 @@ for hidden_shape in empirical_hidden_sizes:
         create_fusion_func(inputs)(presched_fd)
 
     _, est_time_ms = run_profile(presched_fd, inputs, estimate_config)
-    _, nvf_time_ms = run_profile(presched_fd, inputs)
     est_perfs.append(est_time_ms)
-    nvf_perfs.append(nvf_time_ms)
     print(
-        f"{empirical_batch_size}, {hidden_shape}, {est_time_ms:.3f}, {nvf_time_ms:.3f}"
+        f"{empirical_batch_size}, {hidden_shape}, {estimate_config}, {est_time_ms:.3f}"
     )
+
+FusionCache.reset()
+nvf_perfs = []
+for hidden_shape in empirical_hidden_sizes:
+    inputs = [
+        torch.randn(empirical_batch_size, hidden_shape, device="cuda"),
+        torch.randn(empirical_batch_size, hidden_shape, device="cuda"),
+    ]
+
+    with FusionDefinition() as presched_fd:
+        create_fusion_func(inputs)(presched_fd)
+
+    _, nvf_time_ms = run_profile(presched_fd, inputs)
+    nvf_perfs.append(nvf_time_ms)
+    print(f"{empirical_batch_size}, {hidden_shape}, {nvf_time_ms:.3f}")
 
 # Get mean speed-up from nvfuser to empirical configurations across all input shapes.
 # Negative value mean empirical configurations are slower than nvfuser.

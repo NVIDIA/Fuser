@@ -210,9 +210,11 @@ std::tuple<bool, std::string> UserSchedule::canScheduleDebug(
   return std::make_tuple(can_schedule, ss.str());
 }
 
-std::unique_ptr<HeuristicParams> UserSchedule::computeHeuristics(
-    SchedulerType scheduler_type) {
-  auto scheduler = SchedulerEntry::makeSchedulerInstance(scheduler_type);
+HeuristicParams* UserSchedule::computeHeuristics(SchedulerType scheduler_type) {
+  NVF_CHECK(
+      scheduler == nullptr,
+      "Scheduler is already defined for this UserSchedule");
+  scheduler = SchedulerEntry::makeSchedulerInstance(scheduler_type);
   SchedulerRuntimeInfo& runtime_info_ref = *runtimeInfo();
 
   NVF_ERROR(
@@ -221,38 +223,27 @@ std::unique_ptr<HeuristicParams> UserSchedule::computeHeuristics(
       "Could not schedule fusion with ",
       scheduler_type,
       " scheduler.");
-  return scheduler->computeHeuristics(fusion(), runtime_info_ref);
-}
 
-void UserSchedule::scheduleWithType(SchedulerType scheduler_type) {
   NVF_CHECK(
       heuristic_params == nullptr,
       "Heuristic Scheduler is already defined for this UserSchedule");
-  auto scheduler = SchedulerEntry::makeSchedulerInstance(scheduler_type);
-  SchedulerRuntimeInfo& runtime_info_ref = *runtimeInfo();
-  NVF_ERROR(
-      scheduler->canScheduleCompileTime(fusion()) &&
-          scheduler->canScheduleRunTime(fusion(), runtime_info_ref),
-      "Could not schedule fusion with ",
-      scheduler_type,
-      " scheduler.");
   heuristic_params = scheduler->computeHeuristics(fusion(), runtime_info_ref);
+  return heuristic_params.get();
+}
+
+void UserSchedule::schedule() {
+  NVF_CHECK(
+      scheduler != nullptr, "Scheduler is not defined for this UserSchedule");
+  NVF_CHECK(
+      heuristic_params != nullptr,
+      "Heuristic Scheduler is not defined for this UserSchedule");
   scheduler->schedule(fusion(), heuristic_params.get());
 }
 
-void UserSchedule::scheduleWithType(
-    SchedulerType scheduler_type,
-    HeuristicParams* heuristic_params) {
-  auto scheduler = SchedulerEntry::makeSchedulerInstance(scheduler_type);
-  SchedulerRuntimeInfo& runtime_info_ref = *runtimeInfo();
-
-  NVF_ERROR(
-      scheduler->canScheduleCompileTime(fusion()) &&
-          scheduler->canScheduleRunTime(fusion(), runtime_info_ref),
-      "Could not schedule fusion with ",
-      scheduler_type,
-      " scheduler.");
-  scheduler->schedule(fusion(), heuristic_params);
+void UserSchedule::scheduleWithType(SchedulerType scheduler_type) {
+  // Get default heuristics for scheduler and then schedule fusion.
+  computeHeuristics(scheduler_type);
+  schedule();
 }
 
 FusionSchedules::FusionSchedules(int64_t fusion_id)

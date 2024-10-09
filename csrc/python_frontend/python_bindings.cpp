@@ -3558,33 +3558,25 @@ void initNvFuserPythonBindings(PyObject* module) {
         sched->scheduleWithType(scheduler_type);
       },
       py::arg("heuristic"));
-  nvf_sched.def(
-      "schedule",
-      [](FusionDefinition::SchedOperators& self,
-         const SchedulerType& scheduler_type,
-         HeuristicParams& heuristic_params) {
-        NVF_CHECK(
-            self.validUse(),
-            "Attempting to use a SchedOperators Op prior to definition!");
-        UserSchedule* sched = self.fusion_definition->userSchedule();
-        auto&& [can_schedule, error_msg] =
-            sched->canScheduleDebug(scheduler_type);
-        NVF_CHECK(can_schedule, error_msg);
-        sched->scheduleWithType(scheduler_type, &heuristic_params);
-      },
-      py::arg("heuristic"),
-      py::arg("parameters"));
+  nvf_sched.def("schedule", [](FusionDefinition::SchedOperators& self) {
+    NVF_CHECK(
+        self.validUse(),
+        "Attempting to use a SchedOperators Op prior to definition!");
+    UserSchedule* sched = self.fusion_definition->userSchedule();
+    sched->schedule();
+  });
   nvf_sched.def(
       "compute_pointwise_heuristics",
-      [](FusionDefinition::SchedOperators& self) {
+      [](FusionDefinition::SchedOperators& self) -> PointwiseParams& {
         NVF_CHECK(
             self.validUse(),
             "Attempting to use a SchedOperators Op prior to definition!");
         UserSchedule* sched = self.fusion_definition->userSchedule();
-        std::unique_ptr<HeuristicParams> parameters =
+        HeuristicParams* parameters =
             sched->computeHeuristics(SchedulerType::PointWise);
         return *parameters->as<PointwiseParams>();
-      });
+      },
+      py::return_value_policy::reference);
 }
 
 void cleanup() {
