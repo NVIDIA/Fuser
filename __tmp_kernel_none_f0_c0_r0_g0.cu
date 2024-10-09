@@ -10817,9 +10817,9 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
   }
   __syncthreads();
   float T2[128];
-  // ((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))).set(0);
-  // asm volatile("wgmma.fence.sync.aligned;\n");
-  // asm volatile("fence.proxy.async;\n");
+  ((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))).set(0);
+  asm volatile("wgmma.fence.sync.aligned;\n");
+  asm volatile("fence.proxy.async;\n");
   #pragma unroll
   for(nvfuser_index_t i21 = 0; i21 < 3; ++i21) {
     nvfuser_index_t i22;
@@ -11019,8 +11019,8 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
        "n"(1),
        "n"(1)
     );
-    asm volatile("wgmma.wait_group.sync.aligned %0;\n"::"n"(0LL):"memory");
     asm volatile("wgmma.commit_group.sync.aligned;\n");
+    asm volatile("wgmma.wait_group.sync.aligned %0;\n"::"n"(0LL):"memory");
   }
   #pragma unroll 1
   for(nvfuser_index_t i34 = (i2 - 3); i34 < i2; ++i34) {
@@ -11174,8 +11174,8 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
        "n"(1),
        "n"(1)
     );
-    asm volatile("wgmma.wait_group.sync.aligned %0;\n"::"n"(0LL):"memory");
     asm volatile("wgmma.commit_group.sync.aligned;\n");
+    asm volatile("wgmma.wait_group.sync.aligned %0;\n"::"n"(0LL):"memory");
   }
   #pragma unroll
   for(nvfuser_index_t i38 = 0; i38 < 4; ++i38) {
