@@ -438,7 +438,7 @@ class NVF_API FenceAsyncProxy final : public Expr {
  public:
   using Expr::Expr;
 
-  explicit FenceAsyncProxy();
+  explicit FenceAsyncProxy(IrBuilderPasskey passkey);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
