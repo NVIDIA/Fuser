@@ -50,7 +50,7 @@ def setup_process_group(mpi_test) -> None:
     [ComputeType.FORWARD, ComputeType.BACKWARD],
     ids=["forward", "backward"],
 )
-def test_transformer_layer(mpi_test, setup_process_group, benchmark, compute_type):
+def test_transformer_layer(setup_process_group, benchmark, compute_type):
     # Hyperparameters for GPT-3
     hidden_size = 12288
     num_heads = 96
@@ -59,8 +59,8 @@ def test_transformer_layer(mpi_test, setup_process_group, benchmark, compute_typ
     sequence_length = 2048
     dtype = torch.bfloat16
 
-    size = mpi_test.size
-    rank = mpi_test.rank
+    size = dist.get_world_size()
+    rank = dist.get_rank()
 
     torch.cuda.set_device(rank)
 
