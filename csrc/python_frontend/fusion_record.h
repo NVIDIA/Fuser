@@ -716,6 +716,10 @@ struct SqueezeOpRecord : RecordFunctor {
 
   void operator()(FusionState& fd) final {
     auto arg = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
+    // In pytorch, the squeeze operation cannot remove expanded dimensions.
+    // In nvfuser, for reduction operations, we apply squeeze to remove
+    // broadcast and expanded iterDomains. The squeeze_expanded_ flag bypasses
+    // assertion used to match pytorch's behavior.
     auto output = squeeze(arg, dims_, squeeze_expanded_);
     fd.setFusionState(outputs_.at(0).index, output);
   }
