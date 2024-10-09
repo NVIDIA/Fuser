@@ -3716,6 +3716,32 @@ std::vector<IterDomain*> TensorDomain::allIDs() const {
   return sorted_ids.vector();
 }
 
+std::vector<Expr*> TensorDomain::allExprs() const {
+  auto all_ids = allIDs();
+  std::unordered_set<Val*> all_id_set{all_ids.begin(), all_ids.end()};
+
+  VectorOfUniqueEntries<Expr*> exprs;
+  for (auto id : all_ids) {
+    auto def = id->definition();
+    if (def == nullptr) {
+      continue;
+    }
+
+    if (std::all_of(def->inputs().begin(), def->inputs().end(), [&](Val* inp) {
+          return all_id_set.find(inp) != all_id_set.end();
+        })) {
+      exprs.pushBack(def);
+    } else {
+      NVF_ERROR(std::none_of(
+          def->inputs().begin(), def->inputs().end(), [&](Val* inp) {
+            return all_id_set.find(inp) != all_id_set.end();
+          }));
+    }
+  }
+
+  return exprs.vector();
+}
+
 Split::Split(
     IrBuilderPasskey passkey,
     IterDomain* outer,
