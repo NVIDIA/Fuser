@@ -83,8 +83,6 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
 
   void dispatch(Expr* expr) final {
     if (expr != nullptr && expr->predicate() != nullptr) {
-      std::cout << "\nexpr "  << expr->toString() << std::endl;
-      std::cout << "is within a unswitch? "  << (parent_unswitched_ite_ != nullptr) << std::endl;
       // Replace expr predicate with bool conditional
       auto conditional = generateConditional(expr->predicate());
 
@@ -128,11 +126,9 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
         }
       }
       NVF_ERROR(conditional != nullptr);
-      std::cout << "general predicate_type "  << expr->predicate()->predicate_type() << std::endl;
       conditional = GpuLower::current()->commonScalarMap().hoistScalar(
           conditional, for_loops_);
       expr->predicate()->setValue(conditional);
-      std::cout << "general predicate "  << expr->predicate() << std::endl;
       NVF_ERROR(expr->predicate()->value() != nullptr);
       setWritePredicate(expr);
       // According to:
