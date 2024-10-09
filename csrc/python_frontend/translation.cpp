@@ -802,28 +802,19 @@ class FusionTranslator : public OptInConstDispatch {
         {fd_->recordingState(output())}));
   }
 
-  // Map ExpandOp to broadcastInDimOp
+  // Map ExpandOp to python frontend
   void handle(const ExpandOp* eop) final {
     TensorView* in_tv = eop->in()->as<TensorView>();
     TensorView* out_tv = eop->out()->as<TensorView>();
-
-    // broadcastInDimOp is decomposed into a broadcast and expand expression.
-    // Since the broadcastOp is handled separately, the broadcast_dims argument
-    // is [0, ..., output_ndims] where output_ndims == input_ndims;
     NVF_ERROR(in_tv->nDims() == out_tv->nDims());
-    std::vector<int64_t> broadcast_dims(out_tv->nDims());
-    std::iota(broadcast_dims.begin(), broadcast_dims.end(), 0);
-
     Vector new_shape = getShape(out_tv);
 
     Tensor output = fd_->defineTensor(out_tv->nDims());
     map_val_to_fd_index_.emplace(out_tv, output());
-    fd_->defineRecord(new BroadcastInDimOpRecord(
+    fd_->defineRecord(new ExpandOpRecord(
         {fd_->recordingState(map_val_to_fd_index_.at(eop->in())),
          fd_->recordingState(new_shape())},
-        {fd_->recordingState(output())},
-        out_tv->nDims(),
-        broadcast_dims));
+        {fd_->recordingState(output())}));
   }
 
   // Map SliceOp to python frontend

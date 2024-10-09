@@ -834,6 +834,61 @@ struct BroadcastOpRecord : RecordFunctor {
   std::vector<bool> is_broadcast_dim_;
 };
 
+//! Specialized Record Functor for the FusionState's expand op.
+struct ExpandOpRecord : RecordFunctor {
+  ExpandOpRecord(std::vector<State> _args, std::vector<State> _outputs)
+      : RecordFunctor(
+            std::move(_args),
+            std::move(_outputs),
+            "ops.expand",
+            serde::RecordType::ExpandOp) {
+    arg_names_[1] = "shape";
+  }
+  ~ExpandOpRecord() override = default;
+  RecordFunctor* clone() final {
+    return new ExpandOpRecord(*this);
+  }
+
+  //! Child specific hash function in lower 32 bits.
+  //! | 31 ---------------------------------------  0 |
+  //! | None                                          |
+  size_t hash() const final {
+    return RecordFunctor::hash();
+  }
+
+  bool operator==(const RecordFunctor& other) const final {
+    auto result = false;
+    if (dynamic_cast<const ExpandOpRecord*>(&other)) {
+      result = RecordFunctor::operator==(other);
+    }
+    return result;
+  }
+
+  void operator()(FusionState& fd) final {
+    auto arg = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
+    const std::vector<Val*>& output_shape =
+        fd.getFusionStateVector(args_.at(1).index);
+
+    size_t arg_ndims = arg->domain()->noReductions().size();
+    NVF_CHECK(
+        output_shape.size() == arg_ndims,
+        "The new shape is expected to be equal to the input: ",
+        output_shape.size(),
+        " vs ",
+        arg_ndims);
+    auto expanded_output = expand(arg, output_shape);
+
+    fd.setFusionState(outputs_.at(0).index, expanded_output);
+  }
+
+  void print(std::ostream& os, bool close_function = true) const final {
+    RecordFunctor::print(os, false);
+    if (close_function) {
+      os << ")";
+    }
+  }
+};
+
 template <class OutType, class ArgType>
 struct CastOpRecord : RecordFunctor {
   CastOpRecord(
