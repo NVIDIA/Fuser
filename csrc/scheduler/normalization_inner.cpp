@@ -415,7 +415,7 @@ void innerPersistentHeuristic2D(
   // Inner reduction domain
   rparams->cross_block_inner_reduction = true;
   rparams->block_dim_inner_reduction = ParallelType::TIDx;
-  rparams->pad_inner_reduction_to_warp = best_heuristic.is_pad_bdimx;
+  rparams->static_bdimx = true;
   rparams->batches_per_block_inner_reduction =
       best_heuristic.persistent_batch_size;
 
@@ -445,7 +445,8 @@ void innerPersistentHeuristic2D(
       gdimx,
       LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL,
-      LaunchParams::UNINITIALIZED_VAL,
+      best_heuristic.is_pad_bdimx ? best_heuristic.padded_bdimx
+                                  : best_heuristic.bdimx,
       best_heuristic.bdimy,
       LaunchParams::UNINITIALIZED_VAL);
 }
@@ -471,9 +472,14 @@ void innerPersistentHeuristicSharedMemory(
       bdimx);
   int64_t persistent_batch =
       ceilDiv(properties.total_reduction_numel, vectorize_factor * bdimx);
+  bdimx = ceilDiv(
+      properties.total_reduction_numel / vectorize_factor, persistent_batch);
+  bdimx = bdimx % dev_prop->warpSize == 0
+      ? bdimx
+      : bdimx + (dev_prop->warpSize - bdimx % dev_prop->warpSize);
+  rparams->static_bdimx = true;
   rparams->cross_block_inner_reduction = true;
   rparams->block_dim_inner_reduction = ParallelType::TIDx;
-  rparams->pad_inner_reduction_to_warp = true;
   rparams->batches_per_block_inner_reduction = persistent_batch;
   rparams->unroll_factor_inner_reduction = vectorize_factor;
   rparams->vectorize_inner_reduction = vectorize_factor > 1;
@@ -486,7 +492,7 @@ void innerPersistentHeuristicSharedMemory(
       LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL,
-      LaunchParams::UNINITIALIZED_VAL,
+      bdimx,
       LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL);
 }
