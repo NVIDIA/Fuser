@@ -168,7 +168,8 @@ std::vector<at::Tensor> scheduleCompileAndRun(
   }
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-        tv2->getLoopDomain());
+                 AbstractTensor(tv2->getLoopDomain()).emplaceBack())
+                 .strip();
     tv2->setLoopDomain(s.as<IterDomain*>());
   }
 
@@ -678,7 +679,8 @@ TEST_P(HopperRS, SingleTileTransposed) {
   }
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-        tv2->getLoopDomain());
+                 AbstractTensor(tv2->getLoopDomain()).emplaceBack())
+                 .strip();
     tv2->setLoopDomain(s.as<IterDomain*>());
   }
 
@@ -763,7 +765,8 @@ TEST_P(HopperRS, SingleTileWithTMALoad) {
   }
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-        tv2->getLoopDomain());
+                 AbstractTensor(tv2->getLoopDomain()).emplaceBack())
+                 .strip();
     tv2->setLoopDomain(s.as<IterDomain*>());
   }
 
@@ -857,7 +860,8 @@ TEST_P(HopperRS, SingleTileWithTMALoadStore) {
   }
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-        tv2->getLoopDomain());
+                 AbstractTensor(tv2->getLoopDomain()).emplaceBack())
+                 .strip();
     tv2->setLoopDomain(s.as<IterDomain*>());
   }
 
@@ -991,7 +995,8 @@ TEST_P(HopperRS, MultipleTile) {
     // [Mo, Mi, No, Ni] -> [Mo, No, Mi, Ni]
     tv2->reorder({{-3, -2}});
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-        tv2->getLoopDomain());
+                 AbstractTensor(tv2->getLoopDomain()).emplaceBack())
+                 .strip();
     tv2->setLoopDomain(s.as<IterDomain*>());
   }
 
@@ -1166,7 +1171,8 @@ TEST_P(HopperSS, SingleTile) {
   }
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-        tv2->getLoopDomain());
+                 AbstractTensor(tv2->getLoopDomain()).emplaceBack())
+                 .strip();
     tv2->setLoopDomain(s.as<IterDomain*>());
   }
 
@@ -1592,7 +1598,8 @@ TEST_P(HopperSS, SingleTileWithTMALoad) {
   }
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-        tv2->getLoopDomain());
+                 AbstractTensor(tv2->getLoopDomain()).emplaceBack())
+                 .strip();
     tv2->setLoopDomain(s.as<IterDomain*>());
   }
 

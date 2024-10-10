@@ -740,7 +740,8 @@ TEST_F(MatmulTest, MatmulMatmulAmpere) {
   }
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-        tv4->getLoopDomain());
+                 AbstractTensor(tv4->getLoopDomain()).emplaceBack())
+                 .strip();
     tv4->setLoopDomain(s.as<IterDomain*>());
   }
 
@@ -811,17 +812,20 @@ TEST_F(MatmulTest, MatmulMatmulAmpere) {
   }
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-        tv3cw->getLoopDomain());
+                 AbstractTensor(tv3cw->getLoopDomain()).emplaceBack())
+                 .strip();
     tv3cw->setLoopDomain(s.as<IterDomain*>());
   }
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-        tv3h->getLoopDomain());
+                 AbstractTensor(tv3h->getLoopDomain()).emplaceBack())
+                 .strip();
     tv3h->setLoopDomain(s.as<IterDomain*>());
   }
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-        tv3->getLoopDomain());
+                 AbstractTensor(tv3->getLoopDomain()).emplaceBack())
+                 .strip();
     tv3->setLoopDomain(s.as<IterDomain*>());
   }
   tv3cw->setMemoryType(MemoryType::Shared);
@@ -1052,7 +1056,8 @@ TEST_F(MatmulTest, MatmulSoftmaxMatmulAmpere) {
   }
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-        tv4->getLoopDomain());
+                 AbstractTensor(tv4->getLoopDomain()).emplaceBack())
+                 .strip();
     tv4->setLoopDomain(s.as<IterDomain*>());
   }
 
@@ -1132,7 +1137,8 @@ TEST_F(MatmulTest, MatmulSoftmaxMatmulAmpere) {
   }
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-        tv3->getLoopDomain());
+                 AbstractTensor(tv3->getLoopDomain()).emplaceBack())
+                 .strip();
     tv3->setLoopDomain(s.as<IterDomain*>());
   }
 
@@ -1410,7 +1416,8 @@ TEST_F(MatmulTest, AmpereMatmulTNCpAsync) {
   }
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-        tv2->getLoopDomain());
+                 AbstractTensor(tv2->getLoopDomain()).emplaceBack())
+                 .strip();
     tv2->setLoopDomain(s.as<IterDomain*>());
   }
 
@@ -1578,7 +1585,8 @@ TEST_F(MatmulTest, AmpereStridedBatchedMatmulTN) {
   }
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-        tv2->getLoopDomain());
+                 AbstractTensor(tv2->getLoopDomain()).emplaceBack())
+                 .strip();
     tv2->setLoopDomain(s.as<IterDomain*>());
   }
 
@@ -1747,7 +1755,8 @@ TEST_F(MatmulTest, AmpereViewMatmulTN) {
   }
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-        tv2->getLoopDomain());
+                 AbstractTensor(tv2->getLoopDomain()).emplaceBack())
+                 .strip();
     tv2->setLoopDomain(s.as<IterDomain*>());
   }
 
@@ -1934,7 +1943,8 @@ TEST_F(MatmulTest, AmpereMatmulTNSwizzled) {
   }
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-        tv2->getLoopDomain());
+                 AbstractTensor(tv2->getLoopDomain()).emplaceBack())
+                 .strip();
     tv2->setLoopDomain(s.as<IterDomain*>());
   }
 
