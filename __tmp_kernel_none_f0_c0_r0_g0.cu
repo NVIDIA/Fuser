@@ -10770,42 +10770,42 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
   ptr4 = &var0;
   nvfuser_index_t i5;
   i5 = 192 * ((nvfuser_index_t)blockIdx.x);
-  __half* T5 = reinterpret_cast<__half*>(array + smem_offset + 16512);
+  __half* T5 = reinterpret_cast<__half*>(array + smem_offset + 24704);
   unsigned i6;
   i6 = toSmem(T5);
   const TensorMap* ptr7;
   ptr7 = &var1;
   nvfuser_index_t i8;
-  i8 = 128 * ((nvfuser_index_t)blockIdx.y);
+  i8 = 192 * ((nvfuser_index_t)blockIdx.y);
   __half* T4 = reinterpret_cast<__half*>(array + smem_offset + 128);
   unsigned i9;
   i9 = toSmem(T4);
-  nvfuser_index_t i10;
-  i10 = ((nvfuser_index_t)threadIdx.x) / 4;
+  unsigned i10;
+  i10 = i9 + (2048 * ((nvfuser_index_t)threadIdx.y));
   nvfuser_index_t i11;
-  i11 = 2 * (((nvfuser_index_t)threadIdx.x) % 4);
+  i11 = ((nvfuser_index_t)threadIdx.x) / 4;
   nvfuser_index_t i12;
-  i12 = i10 / 8;
+  i12 = 2 * (((nvfuser_index_t)threadIdx.x) % 4);
   nvfuser_index_t i13;
-  i13 = i10 % 8;
+  i13 = i11 / 8;
   nvfuser_index_t i14;
-  i14 = (((i11 + ((16 * T1.logical_size[2LL]) * i12)) + (T1.logical_size[2LL] * i13)) + i5) + ((128 * T1.logical_size[2LL]) * ((nvfuser_index_t)blockIdx.y));
+  i14 = i11 % 8;
   nvfuser_index_t i15;
-  i15 = 64 * T1.logical_size[2LL];
+  i15 = ((((i12 + ((16 * T1.logical_size[2LL]) * i13)) + (T1.logical_size[2LL] * i14)) + ((64 * T1.logical_size[2LL]) * ((nvfuser_index_t)threadIdx.y))) + i5) + ((192 * T1.logical_size[2LL]) * ((nvfuser_index_t)blockIdx.y));
   nvfuser_index_t i16;
   i16 = 8 * T1.logical_size[2LL];
   bool b17;
   b17 = (((((nvfuser_index_t)threadIdx.x) < 32ULL) && (((nvfuser_index_t)threadIdx.y) == 0ULL)) && (((nvfuser_index_t)threadIdx.z) == 0ULL)) && Hopper::electSync(4294967295U);
   nvfuser_index_t i18;
-  i18 = ((1 - T1.logical_size[2LL]) + i11) + i5;
+  i18 = ((1 - T1.logical_size[2LL]) + i12) + i5;
   nvfuser_index_t i19;
-  i19 = (((-T0.logical_size[1LL]) + (16 * i12)) + i13) + i8;
+  i19 = ((((-T0.logical_size[1LL]) + (16 * i13)) + i14) + (64 * ((nvfuser_index_t)threadIdx.y))) + i8;
   uint64_t* T8 = reinterpret_cast<uint64_t*>(array + smem_offset + 0);
   uint64_t* T7 = reinterpret_cast<uint64_t*>(array + smem_offset + 32);
   #pragma unroll
   for(nvfuser_index_t i20 = 0; i20 < 4; ++i20) {
     if (b17) {
-      mbarrier::init(toSmem((&T7[i20])), 128U);
+      mbarrier::init(toSmem((&T7[i20])), 384U);
     }
   }
   __syncthreads();
@@ -10814,42 +10814,41 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
   #pragma unroll
   for(nvfuser_index_t i21 = 0; i21 < 4; ++i21) {
     if (b17) {
-      mbarrier::init(toSmem((&T9[i21])), 128U);
+      mbarrier::init(toSmem((&T9[i21])), 384U);
     }
   }
   __syncthreads();
-  float T2[192];
-  #pragma unroll
-  for(nvfuser_index_t i22 = 0; i22 < 2; ++i22) {
-    ((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))).set(0);
-  }
+  float T2[96];
+  ((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))).set(0);
   asm volatile("wgmma.fence.sync.aligned;\n");
   asm volatile("fence.proxy.async;\n");
   #pragma unroll
-  for(nvfuser_index_t i23 = 0; i23 < 3; ++i23) {
+  for(nvfuser_index_t i22 = 0; i22 < 3; ++i22) {
+    nvfuser_index_t i23;
+    i23 = 16 * i22;
     nvfuser_index_t i24;
-    i24 = 16 * i23;
+    i24 = 6144 * i22;
     unsigned i25;
-    i25 = i6 + (6144 * i23);
+    i25 = i6 + i24;
     unsigned i26;
-    i26 = i9 + (4096 * i23);
+    i26 = i9 + i24;
     if (b17) {
-      T8[i23] = mbarrier::arriveExpectTX(toSmem((&T7[i23])), 6144U);
+      T8[i22] = mbarrier::arriveExpectTX(toSmem((&T7[i22])), 6144U);
       #pragma unroll
       for(nvfuser_index_t i27 = 0; i27 < 3; ++i27) {
-        Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr4, (Array<nvfuser_index_t, 2, 1>{(i5 + (64 * i27)), i24}), toSmem((&T7[i23])) }), (i25 + (2048 * i27)));
+        Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr4, (Array<nvfuser_index_t, 2, 1>{(i5 + (64 * i27)), i23}), toSmem((&T7[i22])) }), (i25 + (2048 * i27)));
       }
     } else {
-      T8[i23] = mbarrier::arrive(toSmem((&T7[i23])));
+      T8[i22] = mbarrier::arrive(toSmem((&T7[i22])));
     }
     if (b17) {
-      T10[i23] = mbarrier::arriveExpectTX(toSmem((&T9[i23])), 4096U);
+      T10[i22] = mbarrier::arriveExpectTX(toSmem((&T9[i22])), 6144U);
       #pragma unroll
-      for(nvfuser_index_t i28 = 0; i28 < 2; ++i28) {
-        Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr7, (Array<nvfuser_index_t, 2, 1>{(i8 + (64 * i28)), i24}), toSmem((&T9[i23])) }), (i26 + (2048 * i28)));
+      for(nvfuser_index_t i28 = 0; i28 < 3; ++i28) {
+        Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr7, (Array<nvfuser_index_t, 2, 1>{(i8 + (64 * i28)), i23}), toSmem((&T9[i22])) }), (i26 + (2048 * i28)));
       }
     } else {
-      T10[i23] = mbarrier::arrive(toSmem((&T9[i23])));
+      T10[i22] = mbarrier::arrive(toSmem((&T9[i22])));
     }
   }
   #pragma unroll 1
@@ -10857,23 +10856,21 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
     nvfuser_index_t i30;
     i30 = 48 + (16 * i29);
     nvfuser_index_t i31;
-    i31 = (3 + i29) % 4;
+    i31 = 6144 * ((3 + i29) % 4);
     unsigned i32;
-    i32 = i6 + (6144 * i31);
+    i32 = i6 + i31;
     unsigned i33;
-    i33 = i9 + (4096 * i31);
+    i33 = i9 + i31;
     nvfuser_index_t i34;
-    i34 = i29 % 4;
+    i34 = 6144 * (i29 % 4);
     unsigned i35;
-    i35 = i9 + (4096 * i34);
+    i35 = i10 + i34;
     unsigned i36;
-    i36 = i6 + (6144 * i34);
-    uint64_t i37;
-    i37 = 4611686293313683456ULL | ((262143ULL & (uint64_t)(i36)) >> 4ULL);
+    i36 = i6 + i34;
+    nvfuser_index_t i37;
+    i37 = i29 % 4;
     nvfuser_index_t i38;
-    i38 = i29 % 4;
-    nvfuser_index_t i39;
-    i39 = (i29 + (4 - 1)) % 4;
+    i38 = (i29 + (4 - 1)) % 4;
     if (b17) {
       T8[((3 + i29) % 4)] = mbarrier::arriveExpectTX(toSmem((&T7[((3 + i29) % 4)])), 6144U);
       #pragma unroll
@@ -10883,310 +10880,289 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
     } else {
       T8[((3 + i29) % 4)] = mbarrier::arrive(toSmem((&T7[((3 + i29) % 4)])));
     }
-    mbarrier::wait(toSmem((&T7[i38])), T8[i38]);
+    mbarrier::wait(toSmem((&T7[i37])), T8[i37]);
     if (b17) {
-      T10[((3 + i29) % 4)] = mbarrier::arriveExpectTX(toSmem((&T9[((3 + i29) % 4)])), 4096U);
+      T10[((3 + i29) % 4)] = mbarrier::arriveExpectTX(toSmem((&T9[((3 + i29) % 4)])), 6144U);
       #pragma unroll
-      for(nvfuser_index_t i28 = 0; i28 < 2; ++i28) {
+      for(nvfuser_index_t i28 = 0; i28 < 3; ++i28) {
         Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr7, (Array<nvfuser_index_t, 2, 1>{(i8 + (64 * i28)), i30}), toSmem((&T9[((3 + i29) % 4)])) }), (i33 + (2048 * i28)));
       }
     } else {
       T10[((3 + i29) % 4)] = mbarrier::arrive(toSmem((&T9[((3 + i29) % 4)])));
     }
-    mbarrier::wait(toSmem((&T9[i38])), T10[i38]);
-    #pragma unroll
-    for(nvfuser_index_t i22 = 0; i22 < 2; ++i22) {
-      unsigned i40;
-      i40 = i35 + (2048 * i22);
-      asm volatile(
-        "{\n"
-        "  .reg .pred p0; \n"
-        "  setp.ne.b32 p0, %98, 0;\n"
-        "  wgmma.mma_async.sync.aligned.m64n192k16.f32.f16.f16 {%0, %1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16, %17, %18, %19, %20, %21, %22, %23, %24, %25, %26, %27, %28, %29, %30, %31, %32, %33, %34, %35, %36, %37, %38, %39, %40, %41, %42, %43, %44, %45, %46, %47, %48, %49, %50, %51, %52, %53, %54, %55, %56, %57, %58, %59, %60, %61, %62, %63, %64, %65, %66, %67, %68, %69, %70, %71, %72, %73, %74, %75, %76, %77, %78, %79, %80, %81, %82, %83, %84, %85, %86, %87, %88, %89, %90, %91, %92, %93, %94, %95}, %96, %97, p0, %99, %100, %101, %102;\n"
-        "}\n"
-        :"+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[0]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[1]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[2]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[3]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[4]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[5]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[6]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[7]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[8]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[9]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[10]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[11]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[12]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[13]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[14]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[15]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[16]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[17]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[18]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[19]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[20]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[21]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[22]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[23]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[24]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[25]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[26]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[27]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[28]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[29]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[30]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[31]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[32]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[33]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[34]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[35]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[36]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[37]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[38]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[39]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[40]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[41]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[42]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[43]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[44]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[45]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[46]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[47]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[48]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[49]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[50]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[51]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[52]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[53]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[54]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[55]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[56]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[57]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[58]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[59]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[60]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[61]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[62]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[63]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[64]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[65]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[66]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[67]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[68]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[69]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[70]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[71]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[72]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[73]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[74]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[75]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[76]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[77]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[78]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[79]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[80]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[81]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[82]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[83]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[84]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[85]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[86]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[87]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[88]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[89]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[90]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[91]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[92]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[93]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[94]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[95])
-        :"l"((4611686293305294848ULL | ((262143ULL & (uint64_t)(i40)) >> 4ULL))),
-         "l"(i37),
-         "n"((uint32_t)(false)),
-         "n"(1),
-         "n"(1),
-         "n"(1),
-         "n"(1)
-      );
-    }
+    mbarrier::wait(toSmem((&T9[i37])), T10[i37]);
+    asm volatile(
+      "{\n"
+      "  .reg .pred p0; \n"
+      "  setp.ne.b32 p0, %98, 0;\n"
+      "  wgmma.mma_async.sync.aligned.m64n192k16.f32.f16.f16 {%0, %1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16, %17, %18, %19, %20, %21, %22, %23, %24, %25, %26, %27, %28, %29, %30, %31, %32, %33, %34, %35, %36, %37, %38, %39, %40, %41, %42, %43, %44, %45, %46, %47, %48, %49, %50, %51, %52, %53, %54, %55, %56, %57, %58, %59, %60, %61, %62, %63, %64, %65, %66, %67, %68, %69, %70, %71, %72, %73, %74, %75, %76, %77, %78, %79, %80, %81, %82, %83, %84, %85, %86, %87, %88, %89, %90, %91, %92, %93, %94, %95}, %96, %97, p0, %99, %100, %101, %102;\n"
+      "}\n"
+      :"+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[0]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[1]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[2]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[3]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[4]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[5]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[6]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[7]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[8]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[9]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[10]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[11]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[12]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[13]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[14]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[15]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[16]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[17]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[18]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[19]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[20]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[21]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[22]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[23]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[24]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[25]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[26]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[27]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[28]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[29]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[30]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[31]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[32]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[33]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[34]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[35]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[36]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[37]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[38]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[39]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[40]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[41]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[42]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[43]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[44]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[45]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[46]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[47]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[48]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[49]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[50]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[51]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[52]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[53]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[54]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[55]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[56]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[57]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[58]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[59]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[60]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[61]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[62]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[63]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[64]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[65]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[66]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[67]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[68]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[69]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[70]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[71]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[72]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[73]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[74]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[75]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[76]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[77]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[78]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[79]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[80]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[81]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[82]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[83]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[84]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[85]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[86]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[87]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[88]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[89]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[90]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[91]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[92]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[93]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[94]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[95])
+      :"l"((4611686293305294848ULL | ((262143ULL & (uint64_t)(i35)) >> 4ULL))),
+       "l"((4611686293313683456ULL | ((262143ULL & (uint64_t)(i36)) >> 4ULL))),
+       "n"((uint32_t)(true)),
+       "n"(1),
+       "n"(1),
+       "n"(1),
+       "n"(1)
+    );
+    asm volatile("wgmma.commit_group.sync.aligned;\n");
+    asm volatile("wgmma.wait_group.sync.aligned %0;\n"::"n"(0LL):"memory");
     __syncthreads();
-    // asm volatile("wgmma.commit_group.sync.aligned;\n");
-    // asm volatile("wgmma.wait_group.sync.aligned %0;\n"::"n"(0LL):"memory");
   }
   #pragma unroll 1
-  for(nvfuser_index_t i41 = (i2 - 3); i41 < i2; ++i41) {
-    nvfuser_index_t i42;
-    i42 = i41 % 4;
-    unsigned i43;
-    i43 = i9 + (4096 * i42);
-    unsigned i44;
-    i44 = i6 + (6144 * i42);
-    uint64_t i45;
-    i45 = 4611686293313683456ULL | ((262143ULL & (uint64_t)(i44)) >> 4ULL);
-    mbarrier::wait(toSmem((&T7[(i41 % 4)])), T8[(i41 % 4)]);
-    mbarrier::wait(toSmem((&T9[(i41 % 4)])), T10[(i41 % 4)]);
-    #pragma unroll
-    for(nvfuser_index_t i22 = 0; i22 < 2; ++i22) {
-      unsigned i46;
-      i46 = i43 + (2048 * i22);
-      asm volatile(
-        "{\n"
-        "  .reg .pred p0; \n"
-        "  setp.ne.b32 p0, %98, 0;\n"
-        "  wgmma.mma_async.sync.aligned.m64n192k16.f32.f16.f16 {%0, %1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16, %17, %18, %19, %20, %21, %22, %23, %24, %25, %26, %27, %28, %29, %30, %31, %32, %33, %34, %35, %36, %37, %38, %39, %40, %41, %42, %43, %44, %45, %46, %47, %48, %49, %50, %51, %52, %53, %54, %55, %56, %57, %58, %59, %60, %61, %62, %63, %64, %65, %66, %67, %68, %69, %70, %71, %72, %73, %74, %75, %76, %77, %78, %79, %80, %81, %82, %83, %84, %85, %86, %87, %88, %89, %90, %91, %92, %93, %94, %95}, %96, %97, p0, %99, %100, %101, %102;\n"
-        "}\n"
-        :"+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[0]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[1]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[2]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[3]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[4]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[5]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[6]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[7]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[8]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[9]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[10]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[11]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[12]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[13]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[14]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[15]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[16]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[17]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[18]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[19]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[20]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[21]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[22]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[23]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[24]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[25]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[26]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[27]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[28]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[29]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[30]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[31]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[32]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[33]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[34]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[35]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[36]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[37]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[38]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[39]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[40]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[41]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[42]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[43]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[44]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[45]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[46]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[47]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[48]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[49]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[50]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[51]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[52]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[53]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[54]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[55]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[56]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[57]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[58]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[59]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[60]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[61]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[62]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[63]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[64]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[65]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[66]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[67]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[68]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[69]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[70]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[71]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[72]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[73]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[74]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[75]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[76]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[77]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[78]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[79]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[80]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[81]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[82]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[83]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[84]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[85]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[86]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[87]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[88]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[89]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[90]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[91]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[92]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[93]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[94]),
-         "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[(96 * i22)]))[95])
-        :"l"((4611686293305294848ULL | ((262143ULL & (uint64_t)(i46)) >> 4ULL))),
-         "l"(i45),
-         "n"((uint32_t)(false)),
-         "n"(1),
-         "n"(1),
-         "n"(1),
-         "n"(1)
-      );
-      __syncthreads();
-      // asm volatile("wgmma.commit_group.sync.aligned;\n");
-      // asm volatile("wgmma.wait_group.sync.aligned %0;\n"::"n"(0LL):"memory");
-    }
+  for(nvfuser_index_t i39 = (i2 - 3); i39 < i2; ++i39) {
+    nvfuser_index_t i40;
+    i40 = 6144 * (i39 % 4);
+    unsigned i41;
+    i41 = i10 + i40;
+    unsigned i42;
+    i42 = i6 + i40;
+    mbarrier::wait(toSmem((&T7[(i39 % 4)])), T8[(i39 % 4)]);
+    mbarrier::wait(toSmem((&T9[(i39 % 4)])), T10[(i39 % 4)]);
+    asm volatile(
+      "{\n"
+      "  .reg .pred p0; \n"
+      "  setp.ne.b32 p0, %98, 0;\n"
+      "  wgmma.mma_async.sync.aligned.m64n192k16.f32.f16.f16 {%0, %1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16, %17, %18, %19, %20, %21, %22, %23, %24, %25, %26, %27, %28, %29, %30, %31, %32, %33, %34, %35, %36, %37, %38, %39, %40, %41, %42, %43, %44, %45, %46, %47, %48, %49, %50, %51, %52, %53, %54, %55, %56, %57, %58, %59, %60, %61, %62, %63, %64, %65, %66, %67, %68, %69, %70, %71, %72, %73, %74, %75, %76, %77, %78, %79, %80, %81, %82, %83, %84, %85, %86, %87, %88, %89, %90, %91, %92, %93, %94, %95}, %96, %97, p0, %99, %100, %101, %102;\n"
+      "}\n"
+      :"+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[0]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[1]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[2]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[3]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[4]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[5]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[6]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[7]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[8]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[9]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[10]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[11]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[12]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[13]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[14]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[15]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[16]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[17]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[18]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[19]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[20]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[21]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[22]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[23]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[24]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[25]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[26]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[27]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[28]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[29]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[30]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[31]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[32]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[33]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[34]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[35]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[36]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[37]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[38]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[39]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[40]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[41]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[42]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[43]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[44]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[45]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[46]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[47]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[48]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[49]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[50]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[51]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[52]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[53]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[54]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[55]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[56]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[57]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[58]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[59]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[60]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[61]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[62]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[63]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[64]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[65]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[66]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[67]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[68]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[69]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[70]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[71]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[72]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[73]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[74]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[75]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[76]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[77]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[78]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[79]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[80]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[81]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[82]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[83]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[84]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[85]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[86]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[87]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[88]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[89]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[90]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[91]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[92]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[93]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[94]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[95])
+      :"l"((4611686293305294848ULL | ((262143ULL & (uint64_t)(i41)) >> 4ULL))),
+       "l"((4611686293313683456ULL | ((262143ULL & (uint64_t)(i42)) >> 4ULL))),
+       "n"((uint32_t)(true)),
+       "n"(1),
+       "n"(1),
+       "n"(1),
+       "n"(1)
+    );
+    asm volatile("wgmma.commit_group.sync.aligned;\n");
+    asm volatile("wgmma.wait_group.sync.aligned %0;\n"::"n"(0LL):"memory");
+    __syncthreads();
   }
   #pragma unroll
-  for(nvfuser_index_t i47 = 0; i47 < 4; ++i47) {
+  for(nvfuser_index_t i43 = 0; i43 < 4; ++i43) {
     if (b17) {
-      mbarrier::inval(toSmem((&T9[i47])));
+      mbarrier::inval(toSmem((&T9[i43])));
     }
   }
   #pragma unroll
-  for(nvfuser_index_t i48 = 0; i48 < 4; ++i48) {
+  for(nvfuser_index_t i44 = 0; i44 < 4; ++i44) {
     if (b17) {
-      mbarrier::inval(toSmem((&T7[i48])));
+      mbarrier::inval(toSmem((&T7[i44])));
     }
   }
   #pragma unroll
-  for(nvfuser_index_t i49 = 0; i49 < 2; ++i49) {
-    nvfuser_index_t i50;
-    i50 = 96 * i49;
-    nvfuser_index_t i51;
-    i51 = i14 + (i15 * i49);
-    nvfuser_index_t i52;
-    i52 = -(64 * i49);
+  for(nvfuser_index_t i45 = 0; i45 < 24; ++i45) {
+    nvfuser_index_t i46;
+    i46 = 4 * i45;
+    nvfuser_index_t i47;
+    i47 = 8 * i45;
+    nvfuser_index_t i48;
+    i48 = i15 + i47;
+    bool b49;
+    b49 = i18 < (-i47);
     #pragma unroll
-    for(nvfuser_index_t i53 = 0; i53 < 24; ++i53) {
-      nvfuser_index_t i54;
-      i54 = i50 + (4 * i53);
-      nvfuser_index_t i55;
-      i55 = 8 * i53;
-      nvfuser_index_t i56;
-      i56 = i51 + i55;
-      bool b57;
-      b57 = i18 < (-i55);
+    for(nvfuser_index_t i50 = 0; i50 < 2; ++i50) {
+      nvfuser_index_t i51;
+      i51 = i46 + (2 * i50);
+      Array<__half, 2, 2> T6;
       #pragma unroll
-      for(nvfuser_index_t i58 = 0; i58 < 2; ++i58) {
-        nvfuser_index_t i59;
-        i59 = i54 + (2 * i58);
-        Array<__half, 2, 2> T6;
-        #pragma unroll
-        for(nvfuser_index_t i60 = 0; i60 < 2; ++i60) {
-          T6[i60]
-             = __float2half(T2[(i59 + i60)]);
-        }
-        if ((b57 && (i19 < (i52 - (8 * i58))))) {
-          loadLocalToGlobal<__half, /*vec_size=*/2, /*is_volatile=*/false>( &T3[(i56 + (i16 * i58))], &T6[0]);
-        }
+      for(nvfuser_index_t i52 = 0; i52 < 2; ++i52) {
+        T6[i52]
+           = __float2half(T2[(i51 + i52)]);
+      }
+      if ((b49 && (i19 < (-(8 * i50))))) {
+        loadLocalToGlobal<__half, /*vec_size=*/2, /*is_volatile=*/false>( &T3[(i48 + (i16 * i50))], &T6[0]);
       }
     }
   }
