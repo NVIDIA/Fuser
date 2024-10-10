@@ -78,7 +78,7 @@ __device__ inline void waitParity(uint32_t smem_barrier_ptr, uint32_t parity) {
       "{\n"
       ".reg .pred                complete;\n"
       "waitLoop:\n"
-      "mbarrier.try_wait.shared.b64 complete, [%0], %1;\n"
+      "mbarrier.try_wait.parity.shared.b64 complete, [%0], %1;\n"
       "@!complete bra waitLoop;\n"
       "}\n" ::"r"(smem_barrier_ptr),
       "r"(parity));
@@ -87,7 +87,7 @@ __device__ inline void waitParity(uint32_t smem_barrier_ptr, uint32_t parity) {
       "{\n"
       ".reg .pred                P1;\n"
       "LAB_WAIT:\n"
-      "mbarrier.test_wait.shared.b64 P1, [%0], %1;\n"
+      "mbarrier.test_wait.parity.shared.b64 P1, [%0], %1;\n"
       "@P1                       bra.uni DONE;\n"
       "nanosleep.u32 20;\n"
       "bra.uni                   LAB_WAIT;\n"
