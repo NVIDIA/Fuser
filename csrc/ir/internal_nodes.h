@@ -2401,13 +2401,15 @@ class ForLoop final : public Expr {
       bool vectorize,
       Val* vectorize_shift,
       bool unroll_required,
-      CircularBufferLoopStage circular_buffer_loop_stage);
+      CircularBufferLoopStage circular_buffer_loop_stage,
+      int64_t circular_buffer_loop_stage_depth);
 
   ForLoop(
       IrBuilderPasskey passkey,
       IterDomain* iter_domain,
       Val* index,
-      CircularBufferLoopStage circular_buffer_loop_stage);
+      CircularBufferLoopStage circular_buffer_loop_stage,
+      int64_t circular_buffer_loop_stage_depth);
 
   ForLoop(IrBuilderPasskey passkey, IterDomain* iter_domain);
 
@@ -2450,11 +2452,11 @@ class ForLoop final : public Expr {
 
   // TODO: Return pointer instead of reference to be more consistent
   Scope& body() {
-    return attribute<Scope>(7);
+    return attribute<Scope>(8);
   }
 
   const Scope& body() const {
-    return attribute<Scope>(7);
+    return attribute<Scope>(8);
   }
 
   bool empty() const {
@@ -2490,6 +2492,9 @@ class ForLoop final : public Expr {
   //!  that this for loop materializes.
   auto circularBufferLoopStage() const {
     return attribute<CircularBufferLoopStage>(6);
+  }
+  auto circularBufferLoopStageDepth() const {
+    return attribute<int64_t>(7);
   }
 
  private:
