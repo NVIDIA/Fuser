@@ -4623,7 +4623,7 @@ ForLoop::ForLoop(
     Val* vectorize_shift,
     bool unroll_required,
     CircularBufferLoopStage circular_buffer_loop_stage,
-      int64_t circular_buffer_loop_stage_depth)
+    int64_t circular_buffer_loop_stage_depth)
     : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
@@ -4671,7 +4671,7 @@ ForLoop::ForLoop(
     IterDomain* iter_domain,
     Val* index,
     CircularBufferLoopStage circular_buffer_loop_stage,
-      int64_t circular_buffer_loop_stage_depth)
+    int64_t circular_buffer_loop_stage_depth)
     : ForLoop(
           passkey,
           iter_domain,
@@ -4683,7 +4683,8 @@ ForLoop::ForLoop(
               isParallelTypeVectorize(iter_domain->getParallelType()),
           nullptr,
           false,
-          circular_buffer_loop_stage) {}
+          circular_buffer_loop_stage,
+          circular_buffer_loop_stage_depth) {}
 
 ForLoop::ForLoop(IrBuilderPasskey passkey, IterDomain* iter_domain)
     : ForLoop(
