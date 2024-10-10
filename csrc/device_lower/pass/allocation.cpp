@@ -610,20 +610,22 @@ class AllocationInserter : public kir::ExprMutator {
 
         kir::Allocate* mbarrier_alloc =
             IrBuilder::create<kir::Allocate>(mbarrier, MemoryType::Shared);
+        auto parity_dtype = ArrayType{
+            std::make_shared<DataType>(DataType::UInt32),
+            (size_t)circular_buffer_depth};
+        Val* mbarrier_parities = IrBuilder::create<Val>(parity_dtype);
+        Val* mbarrier_parities_init_val = IrBuilder::create<Val>(
+            std::vector<int64_t>(circular_buffer_depth, 0), parity_dtype);
 
-        // For circular buffers we need to prepare a placeholder for the
-        // tokens created by 'MBarrierArriveExpectTx' IR node. The tokens are
-        // placed in shared memory and used by threads in a block.
-        TensorView* mbarrier_tokens =
-            TensorViewBuilder()
-                .shape(std::vector<int64_t>{circular_buffer_depth})
-                .dtype(DataType::UInt)
-                .contiguity(true)
-                .build();
-        mbarrier_tokens->setMemoryType(MemoryType::Shared);
-
-        kir::Allocate* mbarrier_tokens_alloc = IrBuilder::create<kir::Allocate>(
-            mbarrier_tokens, MemoryType::Shared);
+        kir::Allocate* mbarrier_parities_alloc =
+            IrBuilder::create<kir::Allocate>(
+                mbarrier_parities,
+                MemoryType::Local,
+                GpuLower::current()->kernel()->oneVal());
+        LoadStoreOp* mbarrier_parities_init = IrBuilder::create<LoadStoreOp>(
+            LoadStoreOpType::Set,
+            mbarrier_parities,
+            mbarrier_parities_init_val);
 
         NVF_ERROR(ir_utils::isCpAsyncBulkLoad(expr));
         LoadStoreOp* ldst = expr->as<LoadStoreOp>();
@@ -641,10 +643,10 @@ class AllocationInserter : public kir::ExprMutator {
         // Block sync is necessary to finish mbarrier initialization.
         kir::BlockSync* sync = IrBuilder::create<kir::BlockSync>(false);
 
-        // Add tokens, mbarriers, init, and inval operations around tma
+        // Add parities, mbarriers, init, and inval operations around tma
         // expression like this:
         //
-        // __shared__ tokens[num_stages];
+        // uint32_t parities[num_stages] = {0, ...};
         // __shared__ mbarrier[num_stages];
         // for (circular_buffer_stage) {
         //   init(mbarrier[stage]);
@@ -669,7 +671,11 @@ class AllocationInserter : public kir::ExprMutator {
             (scope_iter == scope_.begin()) ? nullptr : *(scope_iter - 1);
         registerInsertBefore(
             circular_buffer_loop,
-            mbarrier_tokens_alloc,
+            mbarrier_parities_alloc,
+            scope_containing_circular_buffer_loop);
+        registerInsertBefore(
+            circular_buffer_loop,
+            mbarrier_parities_init,
             scope_containing_circular_buffer_loop);
         registerInsertBefore(
             circular_buffer_loop,
@@ -690,15 +696,10 @@ class AllocationInserter : public kir::ExprMutator {
         // Map LoadStoreOp expression to ir nodes created in this pass
         GpuLower::current()->ldstMBarrierMap()[expr] = mbarrier;
 
-        // Register tokens placeholder for cpAsyncBulk, MBarrierInit and
-        // MBarrierInvalidate. It is needed to manage lifetime of shared memory
-        // buffer in alias memory pass.
-        GpuLower::current()->tmaCircularBufferInfo().recordMBarrierToken(
-            expr, mbarrier_tokens);
-        GpuLower::current()->tmaCircularBufferInfo().recordMBarrierToken(
-            mbarrier_init, mbarrier_tokens);
-        GpuLower::current()->tmaCircularBufferInfo().recordMBarrierToken(
-            mbarrier_inval, mbarrier_tokens);
+        // Register parities for cpAsyncBulk, to be used in the circular buffer
+        // pass.
+        GpuLower::current()->tmaCircularBufferInfo().recordMBarrierParity(
+            expr, mbarrier_parities);
       } else {
         // create and allocate a memory barrier
         TensorView* mbarrier = TensorViewBuilder()

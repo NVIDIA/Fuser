@@ -3270,6 +3270,15 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     indent() << call << ";\n";
   }
 
+  void handle(const kir::MBarrierWaitParity* wait) final {
+    auto call = genCall(
+        "mbarrier::waitParity",
+        ArgumentBuilder()
+            .arg(genInline(wait->mbarrier()))
+            .arg(genInline(wait->parity())));
+    indent() << call << ";\n";
+  }
+
   void handle(const kir::BlockSerializeWait* sync) final {
     // Use a custom synchronization method if enabled
     bool bidx = sync->syncDims().get(ParallelType::BIDx);

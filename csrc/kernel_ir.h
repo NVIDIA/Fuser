@@ -46,6 +46,7 @@ class MBarrierInvalidate;
 class MBarrierArrive;
 class MBarrierArriveExpectTx;
 class MBarrierWait;
+class MBarrierWaitParity;
 class BlockSerializeWait;
 class BlockSerializeRelease;
 class AsyncWait;
@@ -590,6 +591,32 @@ class NVF_API MBarrierWait final : public Expr {
   }
 
   Val* state() const {
+    return input(1);
+  }
+};
+
+class NVF_API MBarrierWaitParity final : public Expr {
+ public:
+  using Expr::Expr;
+  explicit MBarrierWaitParity(
+      IrBuilderPasskey passkey,
+      Val* mbarrier,
+      Val* parity);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "MBarrierWaitParity";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* mbarrier() const {
+    return input(0);
+  }
+
+  Val* parity() const {
     return input(1);
   }
 };
