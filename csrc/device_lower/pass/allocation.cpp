@@ -670,10 +670,6 @@ class AllocationInserter : public kir::ExprMutator {
 
         // Map LoadStoreOp expression to ir nodes created in this pass
         GpuLower::current()->ldstMBarrierMap()[expr] = mbarrier;
-
-        // Register parities for cpAsyncBulk, to be used in the circular buffer
-        // pass.
-        GpuLower::current()->tmaCircularBufferInfo().recordMBarrier(expr);
       } else {
         // create and allocate a memory barrier
         TensorView* mbarrier = TensorViewBuilder()
