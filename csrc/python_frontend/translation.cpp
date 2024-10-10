@@ -715,7 +715,7 @@ class FusionTranslator : public OptInConstDispatch {
     }
 
     // Skip set unary operation
-    int64_t input_fid = map_val_to_fd_index_.at(lsop->in());
+    size_t input_fid = map_val_to_fd_index_.at(lsop->in());
     map_val_to_fd_index_.emplace(lsop->out(), input_fid);
   }
 
@@ -801,7 +801,7 @@ class FusionTranslator : public OptInConstDispatch {
 
   // Map SliceOp to python frontend
   void handle(const SliceOp* sop) final {
-    const std::vector<nvfuser::Slice>& slices = sop->getRanges();
+    std::vector<nvfuser::Slice> slices = sop->getRanges();
 
     std::vector<Val*> start_indices;
     start_indices.reserve(slices.size());

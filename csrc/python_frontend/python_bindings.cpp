@@ -515,6 +515,20 @@ void clone(FusionDefinition& from, FusionDefinition& to) {
   translate(from.preschedFusion(), &to);
 }
 
+namespace {
+void verifyShape(const std::vector<int64_t>& shape) {
+  for (size_t i = 0; i < shape.size(); ++i) {
+    NVF_CHECK(
+        shape[i] >= -1,
+        "The value ",
+        shape[i],
+        " at index ",
+        i,
+        " was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1).");
+  }
+}
+} // namespace
+
 void initNvFuserPythonBindings(PyObject* module) {
   auto nvfuser = py::handle(module).cast<py::module>();
 
@@ -1005,34 +1019,17 @@ void initNvFuserPythonBindings(PyObject* module) {
           "define_tensor",
           [](FusionDefinition& self,
              const std::vector<int64_t>& shape,
-             std::vector<std::optional<bool>> contiguity = {},
+             const std::vector<std::optional<bool>>& contiguity,
              const PrimDataType dtype = DataType::Float,
              const bool is_cpu = false,
-             std::vector<int64_t> stride_order = {}) -> Tensor {
-            FUSER_PERF_SCOPE("FusionDefinition.define_tensor (default)");
+             const std::vector<int64_t>& stride_order = {}) -> Tensor {
+            FUSER_PERF_SCOPE(
+                "FusionDefinition.define_tensor (contiguity as vector)");
             NVF_CHECK(
                 !self.completed(),
                 "Attempting to add to a completed definition!");
 
-            for (size_t i = 0; i < shape.size(); ++i) {
-              NVF_CHECK(
-                  shape[i] >= -1,
-                  "The value ",
-                  shape[i],
-                  " at index ",
-                  i,
-                  " was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1).");
-            }
-
-            if (contiguity.empty()) {
-              for (const auto dim_size : shape) {
-                if (dim_size == 1) {
-                  contiguity.emplace_back(std::nullopt);
-                } else {
-                  contiguity.emplace_back(false);
-                }
-              }
-            }
+            verifyShape(shape);
 
             Tensor out = self.defineTensor(shape.size());
             self.defineRecord(new TensorRecord(
@@ -1046,7 +1043,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             return out;
           },
           py::arg("shape"),
-          py::arg("contiguity") = py::list(),
+          py::arg("contiguity"),
           py::arg("dtype") = DataType::Float,
           py::arg("is_cpu") = false,
           py::arg("stride_order") = py::list(),
@@ -1054,11 +1051,55 @@ void initNvFuserPythonBindings(PyObject* module) {
       .def(
           "define_tensor",
           [](FusionDefinition& self,
-             std::vector<int64_t>& sizes,
-             std::vector<int64_t>& strides,
-             PrimDataType dtype = DataType::Float,
-             bool static_sizes = false,
-             bool is_cpu = false) -> Tensor {
+             const std::vector<int64_t>& shape,
+             // Contiguity for non-broadcast dimensions.
+             const bool contiguity = false,
+             const PrimDataType dtype = DataType::Float,
+             const bool is_cpu = false,
+             const std::vector<int64_t>& stride_order = {}) -> Tensor {
+            FUSER_PERF_SCOPE(
+                "FusionDefinition.define_tensor (contiguity as bool)");
+            NVF_CHECK(
+                !self.completed(),
+                "Attempting to add to a completed definition!");
+
+            verifyShape(shape);
+
+            std::vector<std::optional<bool>> contiguity_vec;
+            contiguity_vec.reserve(shape.size());
+            for (const auto dim_size : shape) {
+              if (dim_size == 1) {
+                contiguity_vec.emplace_back(std::nullopt);
+              } else {
+                contiguity_vec.emplace_back(contiguity);
+              }
+            }
+
+            Tensor out = self.defineTensor(shape.size());
+            self.defineRecord(new TensorRecord(
+                {self.recordingState(out())},
+                shape,
+                contiguity_vec,
+                dtype,
+                is_cpu,
+                stride_order));
+
+            return out;
+          },
+          py::arg("shape"),
+          py::arg("contiguity") = false,
+          py::arg("dtype") = DataType::Float,
+          py::arg("is_cpu") = false,
+          py::arg("stride_order") = py::list(),
+          py::return_value_policy::reference)
+      .def(
+          "define_tensor",
+          [](FusionDefinition& self,
+             const std::vector<int64_t>& sizes,
+             const std::vector<int64_t>& strides,
+             const PrimDataType dtype = DataType::Float,
+             const bool static_sizes = false,
+             const bool is_cpu = false) -> Tensor {
             FUSER_PERF_SCOPE("FusionDefinition.define_tensor (integration)");
             NVF_CHECK(
                 !self.completed(),
