@@ -13,8 +13,8 @@
 #include <fusion.h>
 #include <ir/all_nodes.h>
 #include <ir/cloner.h>
-#include <maxinfo_propagator.h>
 #include <scheduler/reduction_heuristic.h>
+#include <scheduler/tools/maxinfo_propagator.h>
 #include <visibility.h>
 
 namespace nvfuser {

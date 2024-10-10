@@ -10,11 +10,11 @@
 #include <expr_evaluator.h>
 #include <ir/cloner.h>
 #include <ir/utils.h>
-#include <maxinfo_propagator.h>
 #include <multidevice/utils.h>
 #include <ops/arith.h>
 #include <scheduler/registry.h>
 #include <scheduler/tools/inlining.h>
+#include <scheduler/tools/maxinfo_propagator.h>
 #include <scheduler/utils.h>
 #include <transform_replay.h>
 
