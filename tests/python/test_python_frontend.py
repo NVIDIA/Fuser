@@ -2341,7 +2341,7 @@ class TestNvFuserFrontend(NVFuserTest):
 
             def fusion_func(fd: FusionDefinition):
                 t0 = fd.from_pytorch(current_input)
-                c0 = fd.define_constant(3)
+                c0 = fd.define_scalar(3)
                 t1 = fd.ops.logical_right_shift(t0, c0)
                 fd.add_output(t1)
 
@@ -3638,7 +3638,6 @@ class TestNvFuserFrontend(NVFuserTest):
             torch.ones(2**20 + 1, device="cuda")[1:],  # cannot vectorize
             torch.ones(2**20, device="cuda"),
         ]
-        print(inputs[0].data_ptr(), inputs[0].data_ptr() % 16)
 
         def fusion_func(fd: FusionDefinition):
             t0 = fd.from_pytorch(inputs[0])
