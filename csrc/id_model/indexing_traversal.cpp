@@ -43,4 +43,69 @@ IndexingTraversal::IndexingTraversal(
   }
 }
 
+bool IndexingTraversal::excludeFromTraversal(const NodeType& group) const {
+  const ExprGroup* eg = std::get_if<ExprGroup>(&group);
+  if (eg == nullptr || (*eg)->empty()) {
+    return false;
+  }
+
+  auto resize = dynamic_cast<Resize*>((*eg)->front());
+  if (resize == nullptr) {
+    return false;
+  }
+
+  auto is_included_resize = [&](const ExprGroup& eg) -> bool {
+    auto resize = dynamic_cast<Resize*>(eg->front());
+    if (resize == nullptr) {
+      return false;
+    }
+
+    return std::any_of(eg->begin(), eg->end(), [&](Expr* expr) -> bool {
+      return resize_paths_.find(expr->as<Resize>()) != resize_paths_.end();
+    });
+  };
+
+  if (is_included_resize(*eg)) {
+    return false;
+  }
+
+  bool is_forward = isVisited(inputs_(*eg).at(0));
+
+  ValGroup inp = is_forward ? inputs_(*eg).at(0) : outputs_(*eg).at(0);
+
+  const ExprGroups& uses_of_inp = uses_(inp);
+  const ExprGroups& defs_of_inp = definition_(inp);
+
+  // If there's any other resize op that's in the resize path, exclude
+  // this resize
+#if 0
+  std::cerr << "Checking if any other op is included. is_forward: "
+            << is_forward << "\n"
+            << resize->toString();
+#endif
+  for (const auto& use_or_def : {uses_of_inp, defs_of_inp}) {
+    for (const ExprGroup& expr_g : use_or_def) {
+      if (expr_g == *eg) {
+        continue;
+      }
+      // Don't care if already visited
+      if (isVisited(expr_g)) {
+        continue;
+      }
+      auto resize = dynamic_cast<Resize*>((expr_g)->front());
+      if (resize != nullptr) {
+        // std::cerr << "Other resize: " << resize->toString();
+        if (is_included_resize(expr_g)) {
+          // std::cerr << "Other resize included\n";
+          return true;
+        }
+        // std::cerr << "Other resize not included\n";
+      }
+    }
+  }
+
+  // std::cerr << "Not exluding: " << resize->toString();
+  return false;
+}
+
 } // namespace nvfuser

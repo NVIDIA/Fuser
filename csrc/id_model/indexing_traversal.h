@@ -45,26 +45,7 @@ class IndexingTraversal : public ValGraphBFS {
 
   using ValGraphBFS::isVisited;
 
-  bool excludeFromTraversal(const NodeType& group) const override {
-    if (const ExprGroup* eg = std::get_if<ExprGroup>(&group)) {
-      if ((*eg)->empty()) {
-        return false;
-      }
-      auto resize = dynamic_cast<Resize*>((*eg)->front());
-      if (resize == nullptr) {
-        return false;
-      }
-      if (std::none_of((*eg)->begin(), (*eg)->end(), [&](Expr* expr) -> bool {
-            return resize_paths_.find(expr->as<Resize>()) !=
-                resize_paths_.end();
-          })) {
-        // This resize node should never be traversed for indexing of
-        // the given expr
-        return true;
-      }
-    }
-    return false;
-  }
+  bool excludeFromTraversal(const NodeType& group) const override;
 
  private:
   std::unordered_set<Resize*> resize_paths_;

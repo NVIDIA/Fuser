@@ -416,7 +416,8 @@ void GpuLower::analysis(Fusion* fusion) {
   // functionality should be affected. New IterDomains may be created,
   // so it is expected that generated code may use diffrent variable
   // names
-  if (this->requiresIdModel() || isOptionEnabled(EnableOption::IdModel)) {
+  if (true || this->requiresIdModel() ||
+      isOptionEnabled(EnableOption::IdModel)) {
     // Enable validation in the DEBUG build mode
     id_model_ = std::make_unique<IdModel>(
         fusion_,
