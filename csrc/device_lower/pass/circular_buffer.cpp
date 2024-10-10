@@ -1029,6 +1029,7 @@ class CircularBufferInserter : private kir::ExprMutator {
     //  - arrive_expect_tx and tma load operations
     ForLoop* prologue_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
         circular_buffer_loop, loads, CircularBufferLoopStage::Prolog);
+    std::cout << "prologue_loop: " << prologue_loop->toString() << std::endl;
     registerInsertBefore(circular_buffer_loop, prologue_loop);
 
     // Main loop:
@@ -1036,6 +1037,7 @@ class CircularBufferInserter : private kir::ExprMutator {
     //  - arrive_expect_tx, tma load operations, and mbarrier_wait)
     ForLoop* main_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
         circular_buffer_loop, loads, CircularBufferLoopStage::Main);
+    std::cout << "main_loop: " << main_loop->toString() << std::endl;
     registerReplace(circular_buffer_loop, main_loop);
 
     // We can use exclude argument in CloneTmaCircularBufferLoopAndInsertSync
@@ -1051,6 +1053,7 @@ class CircularBufferInserter : private kir::ExprMutator {
         loads,
         CircularBufferLoopStage::Epilog,
         expressions_allocated_in_main_loop);
+    std::cout << "epilogue_loop: " << epilogue_loop->toString() << std::endl;
     registerInsertAfter(circular_buffer_loop, epilogue_loop);
   }
 
