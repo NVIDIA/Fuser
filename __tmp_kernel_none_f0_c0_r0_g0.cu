@@ -10878,7 +10878,7 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
     }
     mbarrier::wait(toSmem((&T9[i32])), T10[i32]);
     __syncthreads();
-    // continue;
+    continue;
     asm volatile(
       "{\n"
       "  .reg .pred p0; \n"
@@ -11035,7 +11035,7 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
     mbarrier::wait(toSmem((&T7[(i34 % 4)])), T8[(i34 % 4)]);
     mbarrier::wait(toSmem((&T9[(i34 % 4)])), T10[(i34 % 4)]);
     __syncthreads();
-    // continue;
+    continue;
     asm volatile(
       "{\n"
       "  .reg .pred p0; \n"
