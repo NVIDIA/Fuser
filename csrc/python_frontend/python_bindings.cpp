@@ -515,6 +515,7 @@ void clone(FusionDefinition& from, FusionDefinition& to) {
   translate(from.preschedFusion(), &to);
 }
 
+namespace {
 void verifyShape(const std::vector<int64_t>& shape) {
   for (size_t i = 0; i < shape.size(); ++i) {
     NVF_CHECK(
@@ -526,6 +527,7 @@ void verifyShape(const std::vector<int64_t>& shape) {
         " was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1).");
   }
 }
+} // namespace
 
 void initNvFuserPythonBindings(PyObject* module) {
   auto nvfuser = py::handle(module).cast<py::module>();
@@ -1028,12 +1030,6 @@ void initNvFuserPythonBindings(PyObject* module) {
                 "Attempting to add to a completed definition!");
 
             verifyShape(shape);
-
-            NVF_CHECK(
-                shape.size() == contiguity.size(),
-                shape.size(),
-                " vs ",
-                contiguity.size());
 
             Tensor out = self.defineTensor(shape.size());
             self.defineRecord(new TensorRecord(
