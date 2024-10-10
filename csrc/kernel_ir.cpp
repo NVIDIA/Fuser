@@ -542,8 +542,7 @@ MBarrierArrive::MBarrierArrive(
 
 std::string MBarrierArrive::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "MBarrierArrive(" << mbarrier()->toString() << ", "
-                          << state()->toString() << ")\n";
+  indent(ss, indent_size) << "MBarrierArrive(" << mbarrier()->toString() << ")\n";
   return ss.str();
 }
 
