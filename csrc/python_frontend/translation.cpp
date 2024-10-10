@@ -760,7 +760,7 @@ class FusionTranslator : public OptInConstDispatch {
 
   // Map SliceOp to python frontend
   void handle(const SliceOp* sop) final {
-    const std::vector<nvfuser::Slice>& slices = sop->getRanges();
+    std::vector<nvfuser::Slice> slices = sop->getRanges();
 
     std::vector<Val*> start_indices;
     start_indices.reserve(slices.size());
