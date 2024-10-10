@@ -131,6 +131,26 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
       expr->predicate()->setValue(conditional);
       NVF_ERROR(expr->predicate()->value() != nullptr);
       setWritePredicate(expr);
+      // According to:
+      // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#data-movement-and-conversion-instructions-cp-async
+      // cp.async has a built-in mechanism `ignore-src` to ignore the source and
+      // fill zero. We can just invert the predicate and use it as `ignore-src`.
+      if (ir_utils::isCpAsyncOp(expr)) {
+        auto local_pred = expr->predicate()->value();
+        if (parent_unswitched_ite_) {
+          auto unswitched_pred = parent_unswitched_ite_->predicate()->value();
+          local_pred =
+              SimplifyingIrBuilder::logicalAndExpr(local_pred, unswitched_pred);
+          parent_unswitched_ite_->predicate()->setValue(
+              IrBuilder::create<Val>(true, DataType::Bool));
+        }
+        Val* local_pred_inverted =
+            SimplifyingIrBuilder::logicalNotExpr(local_pred);
+        local_pred_inverted =
+            GpuLower::current()->commonScalarMap().hoistScalar(
+                local_pred_inverted, for_loops_);
+        expr->predicate()->setValue(local_pred_inverted);
+      }
     }
 
     kir::ExprMutator::dispatch(expr);
@@ -187,10 +207,19 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
       ite->predicate()->setValue(conditional);
       NVF_ERROR(ite->predicate()->value() != nullptr);
     }
+    // mark the parent unswitched ite
+    if (ite->predicate()->predicate_type() == PredicateType::Unswitch) {
+      parent_unswitched_ite_ = ite;
+    }
+
     kir::ExprMutator::handle(ite);
 
     if (ite->predicate()->predicate_type() == PredicateType::LoopRotation) {
       rotated_loop_.erase(for_loops_.back());
+    }
+    // unmark the parent unswitched ite
+    if (ite->predicate()->predicate_type() == PredicateType::Unswitch) {
+      parent_unswitched_ite_ = nullptr;
     }
   }
 
@@ -264,6 +293,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
 
   // Keep track of the loop in which the currently visiting expr is a rotated.
   std::unordered_set<ForLoop*> rotated_loop_;
+  kir::IfThenElse* parent_unswitched_ite_ = nullptr;
 };
 
 } // namespace
