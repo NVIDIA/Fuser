@@ -2906,6 +2906,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         loop->circularBufferLoopStage() == CircularBufferLoopStage::Main) {
       indent() << "#pragma unroll " << loop->circularBufferLoopStageDepth()
                << "\n";
+    } else if (
+        loop->circularBufferLoopStage() == CircularBufferLoopStage::Epilog) {
+      indent() << "#pragma unroll " << loop->circularBufferLoopStageDepth() - 1
+               << "\n";
     } else {
       indent() << "#pragma unroll 1\n";
     }
