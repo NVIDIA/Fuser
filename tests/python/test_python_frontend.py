@@ -203,6 +203,25 @@ class TestNvFuserFrontend(NVFuserTest):
         )
         self.assertEqual(eager_out, nvf_out[0])
 
+    def test_expand(self):
+        inputs = [
+            torch.randn(1, 1, 4, device="cuda"),
+            torch.randn(2, 3, 4, device="cuda"),
+        ]
+
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.from_pytorch(inputs[1])
+
+            t0_b = fd.ops.expand(t0, inputs[1].size())
+            t2 = fd.ops.add(t0_b, t1)
+
+            fd.add_output(t2)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        eager_out = inputs[0].expand(inputs[1].size()) + inputs[1]
+        self.assertEqual(eager_out, nvf_out[0])
+
     def test_broadcast_mixing(self):
         inputs = [
             torch.randn(3, 1, device="cuda"),
@@ -1064,7 +1083,7 @@ class TestNvFuserFrontend(NVFuserTest):
             ncf,
             ncd,
             nb,
-        ), _ = self.exec_nvfuser(fusion_func, inputs)
+        ), _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
 
         eager_out = torch.where(inputs[0], 3.0, 5.0)
 
@@ -1100,8 +1119,10 @@ class TestNvFuserFrontend(NVFuserTest):
         assert n.dtype == torch.complex64
 
     def test_where_op(self):
+        # nvfuser_where is a decorator function. It takes the input arguments
+        # and creates a function that builds a FusionDefinition.
         def nvfuser_where(pred, a, b):
-            with FusionDefinition() as fd:
+            def fusion_func(fd: FusionDefinition):
                 nv_pred = fd.define_tensor(
                     sizes=pred.shape, strides=pred.stride(), dtype=DataType.Bool
                 )
@@ -1117,19 +1138,24 @@ class TestNvFuserFrontend(NVFuserTest):
                 )
                 result = fd.ops.where(nv_pred, nv_a, nv_b)
                 fd.add_output(result)
-            return fd.execute((pred, a, b))[0]
 
-        pred = torch.testing.make_tensor((5,), device="cuda", dtype=torch.bool)
+            return fusion_func
+
+        # get list of dtypes to test with
         list_of_dtype = [torch.float16, torch.float32]
         if not is_pre_ampere():
             list_of_dtype.append(torch.bfloat16)
-        for atype in list_of_dtype:
-            for btype in list_of_dtype:
-                a = torch.randn((5,), device="cuda", dtype=atype)
-                b = torch.randn((5,), device="cuda", dtype=btype)
-                nv_result = nvfuser_where(pred, a, b)
-                torch_result = torch.where(pred, a, b)
-                self.assertEqual(nv_result, torch_result)
+
+        pred = torch.testing.make_tensor((5,), device="cuda", dtype=torch.bool)
+        for atype, btype in itertools.product(list_of_dtype, list_of_dtype):
+            a = torch.randn((5,), device="cuda", dtype=atype)
+            b = torch.randn((5,), device="cuda", dtype=btype)
+            fusion_func = nvfuser_where(pred, a, b)
+            nv_result, _ = self.exec_nvfuser(
+                fusion_func, [pred, a, b], is_clonable=True
+            )
+            torch_result = torch.where(pred, a, b)
+            self.assertEqual(nv_result[0], torch_result)
 
     def test_iota(self):
         inputs = [

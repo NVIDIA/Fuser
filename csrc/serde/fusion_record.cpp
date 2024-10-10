@@ -381,6 +381,12 @@ void RecordFunctorFactory::registerAllParsers() {
   };
   registerParser(RecordType::BroadcastInDim, deserializeBroadcastInDimRecord);
 
+  auto deserializeExpandRecord = [](const RecordFunctor* buffer) {
+    return new python_frontend::ExpandOpRecord(
+        parseStateArgs(buffer->args()), parseStateArgs(buffer->outputs()));
+  };
+  registerParser(RecordType::ExpandOp, deserializeExpandRecord);
+
   auto deserializeCastTvRecord = [](const RecordFunctor* buffer) {
     std::function<TensorView*(nvfuser::DataType, TensorView*)> fusion_op =
         static_cast<TensorView* (*)(nvfuser::DataType, TensorView*)>(castOp);
@@ -748,6 +754,7 @@ void RecordFunctorFactory::setupFunctionMaps() {
   NVFUSER_UNARY_TV_OP("floor", floor)
   NVFUSER_UNARY_TV_OP("frac", frac)
   NVFUSER_UNARY_TV_OP("lgamma", lgamma)
+  NVFUSER_UNARY_TV_OP("logical_not", logical_not)
   NVFUSER_UNARY_TV_OP("log", log)
   NVFUSER_UNARY_TV_OP("log10", log10)
   NVFUSER_UNARY_TV_OP("log1p", log1p)

@@ -145,7 +145,6 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/id_model/transform_replay.cpp
   ${NVFUSER_SRCS_DIR}/id_model/validation_utils.cpp
   ${NVFUSER_SRCS_DIR}/index_compute.cpp
-  ${NVFUSER_SRCS_DIR}/inlining.cpp
   ${NVFUSER_SRCS_DIR}/instrumentation.cpp
   ${NVFUSER_SRCS_DIR}/ir/base_nodes.cpp
   ${NVFUSER_SRCS_DIR}/ir/builder.cpp
@@ -162,7 +161,6 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/kernel_ir.cpp
   ${NVFUSER_SRCS_DIR}/kernel_ir_dispatch.cpp
   ${NVFUSER_SRCS_DIR}/logical_domain_map.cpp
-  ${NVFUSER_SRCS_DIR}/maxinfo_propagator.cpp
   ${NVFUSER_SRCS_DIR}/mma_type.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/communication.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/communicator.cpp
@@ -226,6 +224,9 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/registry_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/runtime_info.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/scheduler_types.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/tools/inlining.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/tools/loop_domain_scheduler.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/tools/maxinfo_propagator.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/transpose.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/vectorize_helper.cpp
@@ -519,6 +520,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_alias_analysis.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_allocation_domain.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_allocation_order_inference.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_bfs.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_ca_root_domain_map.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_combined_inner_outer_reduction.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_circular_buffering.cpp
@@ -541,6 +543,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_indexing_advanced.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_iter_visitor.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_linked_hash_map.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_loop_domain_scheduling.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_loop_rotation.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_mbarrier.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_memory.cpp

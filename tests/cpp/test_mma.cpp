@@ -12,12 +12,12 @@
 
 #include <exceptions.h>
 #include <fusion.h>
-#include <inlining.h>
 #include <ir/all_nodes.h>
 #include <ops/all_ops.h>
 #include <runtime/executor.h>
 #include <scheduler/matmul_utils.h>
 #include <scheduler/mma_utils.h>
+#include <scheduler/tools/inlining.h>
 #include <algorithm>
 #include <iterator>
 #include <unordered_map>

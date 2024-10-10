@@ -11,7 +11,6 @@
 #include <device_lower/lower2device.h>
 #include <exceptions.h>
 #include <fusion.h>
-#include <inlining.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ir/cloner.h>
@@ -22,6 +21,7 @@
 #include <ir/utils.h>
 #include <ops/arith.h>
 #include <scheduler/mma_utils.h>
+#include <scheduler/tools/inlining.h>
 
 // Cleanup
 #include <transform_iter.h>

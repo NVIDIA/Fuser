@@ -12,7 +12,7 @@
 #include <exceptions.h>
 #include <fusion.h>
 #include <ir/all_nodes.h>
-#include <maxinfo_propagator.h>
+#include <scheduler/tools/maxinfo_propagator.h>
 #include <visibility.h>
 // TODO: Move to cpp file.
 #include <ir/builder.h>

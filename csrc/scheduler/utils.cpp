@@ -10,10 +10,13 @@
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>
 
+#include <bfs.h>
 #include <contiguity.h>
 #include <expr_evaluator.h>
 #include <id_model/id_model.h>
+#include <id_model/schedule.h>
 #include <instrumentation.h>
+#include <ir/builder.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
 #include <multidevice/utils.h>
@@ -22,6 +25,7 @@
 #include <scheduler/runtime_info.h>
 #include <transform_iter.h>
 #include <transform_replay.h>
+#include <val_graph_visitor.h>
 
 #include <ATen/cuda/CUDAContext.h>
 

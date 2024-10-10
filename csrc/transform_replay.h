@@ -9,7 +9,7 @@
 
 #include <exceptions.h>
 #include <ir/internal_nodes.h>
-#include <maxinfo_propagator.h>
+#include <scheduler/tools/maxinfo_propagator.h>
 #include <visibility.h>
 
 #include <algorithm>

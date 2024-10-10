@@ -12,17 +12,17 @@
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
-#include <abstract_tensor.h>
 #include <fusion.h>
 #include <id_model/id_model.h>
 #include <id_model/indexing.h>
 #include <id_model/indexing_utils.h>
 #include <id_model/to_string.h>
 #include <id_model/utils.h>
-#include <inlining.h>
 #include <ir/builder.h>
 #include <kernel_ir_dispatch.h>
 #include <ops/all_ops.h>
+#include <scheduler/tools/abstract_tensor.h>
+#include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
 
 #include <algorithm>
