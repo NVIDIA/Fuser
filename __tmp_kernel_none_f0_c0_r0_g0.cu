@@ -10818,6 +10818,7 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
     }
   }
   __syncthreads();
+  uint32_t parity[4] = {0, 0, 0, 0};
   float T2[96];
   ((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))).set(0);
   asm volatile("wgmma.fence.sync.aligned;\n");
@@ -10833,22 +10834,22 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
     unsigned i26;
     i26 = i9 + i24;
     if (b17) {
-      T8[i22] = mbarrier::arriveExpectTX(toSmem((&T7[i22])), 6144U);
+      mbarrier::arriveExpectTX(toSmem((&T7[i22])), 6144U);
       #pragma unroll
       for(nvfuser_index_t i27 = 0; i27 < 3; ++i27) {
         Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr4, (Array<nvfuser_index_t, 2, 1>{(i5 + (64 * i27)), i23}), toSmem((&T7[i22])) }), (i25 + (2048 * i27)));
       }
     } else {
-      T8[i22] = mbarrier::arrive(toSmem((&T7[i22])));
+      mbarrier::arrive(toSmem((&T7[i22])));
     }
     if (b17) {
-      T10[i22] = mbarrier::arriveExpectTX(toSmem((&T9[i22])), 6144U);
+      mbarrier::arriveExpectTX(toSmem((&T9[i22])), 6144U);
       #pragma unroll
       for(nvfuser_index_t i28 = 0; i28 < 3; ++i28) {
         Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr7, (Array<nvfuser_index_t, 2, 1>{(i8 + (64 * i28)), i23}), toSmem((&T9[i22])) }), (i26 + (2048 * i28)));
       }
     } else {
-      T10[i22] = mbarrier::arrive(toSmem((&T9[i22])));
+      mbarrier::arrive(toSmem((&T9[i22])));
     }
   }
   #pragma unroll 1
@@ -10872,25 +10873,25 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
     nvfuser_index_t i38;
     i38 = (i29 + (4 - 1)) % 4;
     if (b17) {
-      T8[((3 + i29) % 4)] = mbarrier::arriveExpectTX(toSmem((&T7[((3 + i29) % 4)])), 6144U);
+      mbarrier::arriveExpectTX(toSmem((&T7[((3 + i29) % 4)])), 6144U);
       #pragma unroll
       for(nvfuser_index_t i27 = 0; i27 < 3; ++i27) {
         Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr4, (Array<nvfuser_index_t, 2, 1>{(i5 + (64 * i27)), i30}), toSmem((&T7[((3 + i29) % 4)])) }), (i32 + (2048 * i27)));
       }
     } else {
-      T8[((3 + i29) % 4)] = mbarrier::arrive(toSmem((&T7[((3 + i29) % 4)])));
+      mbarrier::arrive(toSmem((&T7[((3 + i29) % 4)])));
     }
-    mbarrier::wait(toSmem((&T7[i37])), T8[i37]);
+    mbarrier::wait(toSmem((&T7[i37])), parity[i37]);
     if (b17) {
-      T10[((3 + i29) % 4)] = mbarrier::arriveExpectTX(toSmem((&T9[((3 + i29) % 4)])), 6144U);
+      mbarrier::arriveExpectTX(toSmem((&T9[((3 + i29) % 4)])), 6144U);
       #pragma unroll
       for(nvfuser_index_t i28 = 0; i28 < 3; ++i28) {
         Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr7, (Array<nvfuser_index_t, 2, 1>{(i8 + (64 * i28)), i30}), toSmem((&T9[((3 + i29) % 4)])) }), (i33 + (2048 * i28)));
       }
     } else {
-      T10[((3 + i29) % 4)] = mbarrier::arrive(toSmem((&T9[((3 + i29) % 4)])));
+      mbarrier::arrive(toSmem((&T9[((3 + i29) % 4)])));
     }
-    mbarrier::wait(toSmem((&T9[i37])), T10[i37]);
+    mbarrier::wait(toSmem((&T9[i37])), parity[i37]);
     asm volatile(
       "{\n"
       "  .reg .pred p0; \n"
@@ -11003,7 +11004,8 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
     );
     asm volatile("wgmma.commit_group.sync.aligned;\n");
     asm volatile("wgmma.wait_group.sync.aligned %0;\n"::"n"(0LL):"memory");
-    __syncthreads();
+    // __syncthreads();
+    parity[i37] = 1 - parity[i37];
   }
   #pragma unroll 1
   for(nvfuser_index_t i39 = (i2 - 3); i39 < i2; ++i39) {
@@ -11013,8 +11015,8 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
     i41 = i10 + i40;
     unsigned i42;
     i42 = i6 + i40;
-    mbarrier::wait(toSmem((&T7[(i39 % 4)])), T8[(i39 % 4)]);
-    mbarrier::wait(toSmem((&T9[(i39 % 4)])), T10[(i39 % 4)]);
+    mbarrier::wait(toSmem((&T7[(i39 % 4)])), parity[(i39 % 4)]);
+    mbarrier::wait(toSmem((&T9[(i39 % 4)])), parity[(i39 % 4)]);
     asm volatile(
       "{\n"
       "  .reg .pred p0; \n"
