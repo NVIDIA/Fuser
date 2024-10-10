@@ -691,22 +691,16 @@ class CloneTmaCircularBufferLoopAndInsertSync
     kir::IfThenElse* if_expr = IrBuilder::create<kir::IfThenElse>(
         IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
 
-    std::cout << "mbarrier_arrive_tx_: " << mbarrier_arrive_tx_->toString() << std::endl;
-
     // A single thread issues arriveExpectTx with expected transactions and
     // launches the TMA load.
     if_expr->thenBody().push_back(mbarrier_arrive_tx_);
     if_expr->thenBody().push_back(expr);
-    std::cout << "if_expr: " << if_expr->toString() << std::endl;
 
     // The other threads issue arriveExpectTx without any expected transactions.
     kir::MBarrierArrive* thread_arrive = IrBuilder::create<kir::MBarrierArrive>(
         nullptr, mbarrier_arrive_tx_->mbarrier());
-    std::cout << "thread_arrive: " << thread_arrive->toString() << std::endl;
     if_expr->elseBody().push_back(thread_arrive);
     for_loop_stack_.back()->body().push_back(if_expr);
-
-    std::cout << "if_expr: " << if_expr->toString() << std::endl;
 
     mbarrier_arrive_tx_ = nullptr;
   }
@@ -772,9 +766,6 @@ class CloneTmaCircularBufferLoopAndInsertSync
     kir::MBarrierArriveExpectTx* mbarrier_arrive_tx =
         IrBuilder::create<kir::MBarrierArriveExpectTx>(
             nullptr, stage_mbarrier, tx_count);
-    std::cout << "stage_mbarrier: " << stage_mbarrier->toString() << std::endl;
-    std::cout << "mbarrier_arrive_tx: " << mbarrier_arrive_tx->toString()
-              << std::endl;
 
     return mbarrier_arrive_tx;
   }
@@ -1035,7 +1026,6 @@ class CircularBufferInserter : private kir::ExprMutator {
     //  - arrive_expect_tx and tma load operations
     ForLoop* prologue_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
         circular_buffer_loop, loads, CircularBufferLoopStage::Prolog);
-    std::cout << "prologue_loop: " << prologue_loop->toString() << std::endl;
     registerInsertBefore(circular_buffer_loop, prologue_loop);
 
     // Main loop:
@@ -1043,7 +1033,6 @@ class CircularBufferInserter : private kir::ExprMutator {
     //  - arrive_expect_tx, tma load operations, and mbarrier_wait)
     ForLoop* main_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
         circular_buffer_loop, loads, CircularBufferLoopStage::Main);
-    std::cout << "main_loop: " << main_loop->toString() << std::endl;
     registerReplace(circular_buffer_loop, main_loop);
 
     // We can use exclude argument in CloneTmaCircularBufferLoopAndInsertSync
@@ -1059,7 +1048,6 @@ class CircularBufferInserter : private kir::ExprMutator {
         loads,
         CircularBufferLoopStage::Epilog,
         expressions_allocated_in_main_loop);
-    std::cout << "epilogue_loop: " << epilogue_loop->toString() << std::endl;
     registerInsertAfter(circular_buffer_loop, epilogue_loop);
   }
 
