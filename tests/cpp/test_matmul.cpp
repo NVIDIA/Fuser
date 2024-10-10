@@ -3613,7 +3613,7 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
   constexpr auto swizzle = MmaInputSmemSwizzle::B128;
   const auto dtype = DataType::Half;
 
-  constexpr int64_t stages = 4;
+  constexpr int64_t stages = 8;
   const int64_t cta_m = 3 * getM(macro);
   const int64_t cta_n = 1 * getN(macro);
 
