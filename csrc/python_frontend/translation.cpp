@@ -758,6 +758,39 @@ class FusionTranslator : public OptInConstDispatch {
         {fd_->recordingState(output())}));
   }
 
+  // Map SliceOp to python frontend
+  void handle(const SliceOp* sop) final {
+    std::vector<nvfuser::Slice> slices = sop->getRanges();
+
+    std::vector<Val*> start_indices;
+    start_indices.reserve(slices.size());
+
+    std::vector<Val*> stop_indices;
+    stop_indices.reserve(slices.size());
+
+    std::vector<Val*> strides;
+    strides.reserve(slices.size());
+
+    for (const nvfuser::Slice& s : slices) {
+      start_indices.push_back(s.start);
+      stop_indices.push_back(s.stop);
+      strides.push_back(s.step);
+    }
+
+    Vector new_start = createVector(start_indices);
+    Vector new_stop = createVector(stop_indices);
+    Vector new_strides = createVector(strides);
+
+    Tensor output = fd_->defineTensor(sop->out()->as<TensorView>()->nDims());
+    map_val_to_fd_index_.emplace(sop->out(), output());
+    fd_->defineRecord(new SliceOpRecord(
+        {fd_->recordingState(map_val_to_fd_index_.at(sop->in())),
+         fd_->recordingState(new_start()),
+         fd_->recordingState(new_stop()),
+         fd_->recordingState(new_strides())},
+        {fd_->recordingState(output())}));
+  }
+
  private:
   //! The reference CPP fusion to be translated.
   Fusion* fusion_ = nullptr;

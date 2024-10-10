@@ -2171,6 +2171,7 @@ class TestNvFuserFrontend(NVFuserTest):
                         partial(check, acts=inp),
                         inp,
                         new_fusion_expected=(first_check or debug_serde),
+                        is_clonable=True,
                     )
                 else:
                     # When a fusion definition with errors is deserialized, it is recreated, triggering an error.
@@ -4512,6 +4513,6 @@ fd.execute(inputs)
 
         inputs = [x, *offset, *x.shape]
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
         for out in nvf_out:
             self.assertTrue(out.allclose(x[:, 1:, 2:]))

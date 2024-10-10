@@ -2055,6 +2055,7 @@ class SliceOp : public Expr {
     return input(0)->as<TensorView>();
   }
 
+  //! Get normalized ranges for SliceOp.
   std::vector<Slice> getRanges() const;
 
  private:
