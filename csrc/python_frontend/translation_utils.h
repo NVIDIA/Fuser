@@ -264,6 +264,32 @@ template <>
 std::function<Val*(Val*, Val*, Val*)> getFunction<Val*, Val*, Val*, Val*>(
     const TernaryOp* top);
 
+// Get std::function for ReductionOp
+template <typename ResultType, typename... ArgTypes>
+std::function<ResultType(ArgTypes...)> getFunction(const ReductionOp* rop) {
+  switch (rop->getReductionOpType()) {
+    case BinaryOpType::Add:
+      return sum;
+      break;
+    case BinaryOpType::Mul:
+      return prod;
+      break;
+    case BinaryOpType::Max:
+      return max;
+      break;
+    case BinaryOpType::Min:
+      return min;
+      break;
+    default:
+      NVF_CHECK(
+          false,
+          "Unexpected reduction operator type: ",
+          rop->getReductionOpType(),
+          " in ",
+          rop->toString());
+  }
+}
+
 // Get string name for UnaryOp
 std::string getString(const UnaryOp* uop);
 
@@ -272,5 +298,11 @@ std::string getString(const BinaryOp* bop);
 
 // Get string name for TernaryOp
 std::string getString(const TernaryOp* bop);
+
+// Get string name for ReductionOp
+std::string getString(const ReductionOp* rop);
+
+// Get serde record type for ReductionOp
+serde::RecordType getSerdeType(const ReductionOp* rop);
 
 } // namespace nvfuser::python_frontend
