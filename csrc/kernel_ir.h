@@ -529,7 +529,7 @@ class NVF_API MBarrierArrive final : public Expr {
   std::string toInlineString(int indent_size = 0) const override;
 
   Val* state() const {
-    if (outputs().size() > 0) {
+    if (!outputs().empty()) {
       return output(0);
     }
     return nullptr;
@@ -563,7 +563,7 @@ class NVF_API MBarrierArriveExpectTx final : public Expr {
   std::string toInlineString(int indent_size = 0) const override;
 
   Val* state() const {
-    if (outputs().size() > 0) {
+    if (!outputs().empty()) {
       return output(0);
     }
     return nullptr;
