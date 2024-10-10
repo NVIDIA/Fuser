@@ -7,6 +7,7 @@
 // clang-format on
 //
 #include <dispatch.h>
+#include <ir/utils.h>
 #include <ops/all_ops.h>
 #include <python_frontend/translation.h>
 #include <python_frontend/translation_utils.h>
@@ -680,7 +681,7 @@ class FusionTranslator : public OptInConstDispatch {
       }
     }
 
-    // The min and max reduction operations expect the dtype argument to by
+    // The min and max reduction operations expect the dtype argument to be
     // PrimDataType::Null
     PrimDataType dtype = (rop->getReductionOpType() == BinaryOpType::Min ||
                           rop->getReductionOpType() == BinaryOpType::Max)
@@ -721,20 +722,17 @@ class FusionTranslator : public OptInConstDispatch {
 
   void handlePermute(const LoadStoreOp* lsop) {
     TensorView* out_tv = lsop->out()->as<TensorView>();
-    const std::vector<IterDomain*>& root_domain = out_tv->domain()->root();
-    std::vector<int64_t> new2old;
-    new2old.reserve(root_domain.size());
-    for (IterDomain* id : out_tv->domain()->logical()) {
-      auto root_id_iter = std::find(root_domain.begin(), root_domain.end(), id);
-      new2old.push_back(std::distance(root_domain.begin(), root_id_iter));
-    }
+
+    std::optional<std::vector<int64_t>> new2old = ir_utils::computePermutation(
+        out_tv->getRootDomain(), out_tv->getLogicalDomain());
+    NVF_ERROR(new2old.has_value(), "Expected permutation");
 
     Tensor output = fd_->defineTensor(out_tv->nDims());
     map_val_to_fd_index_.emplace(out_tv, output());
     fd_->defineRecord(new DimsOpRecord<serde::RecordType::PermuteOp>(
         {fd_->recordingState(map_val_to_fd_index_.at(lsop->in()))},
         {fd_->recordingState(output())},
-        std::move(new2old),
+        std::move(new2old.value()),
         "ops.permute"));
   }
 
