@@ -167,16 +167,6 @@ namespace nvfuser {
 
 class TmaCircularBufferInfo {
  public:
-  // Map cpAsyncBulk, MBarrierInit, and MBarrierInvalidate to its mbarrier
-  // parities
-  void recordMBarrierParity(const Expr* expr, Val* mbarrier_parities);
-
-  // Check if expression has mbarrier parities
-  bool existsMBarrierParity(const Expr* expr) const;
-
-  // Get mbarrier parities for expression
-  Val* getMBarrierParity(const Expr* expr);
-
   // Map cpAsyncBulk to its tensor index
   void recordTensorIndex(const Expr* expr, kir::TensorIndex* index);
 
@@ -187,10 +177,6 @@ class TmaCircularBufferInfo {
   kir::TensorIndex* getTensorIndex(const Expr* expr);
 
  private:
-  // Track of mbarrier parities returned by arrive and arriveExpectTx
-  // mbarrier operations for each load operation
-  std::unordered_map<const Expr*, Val*> ldst_mbarrier_parity_map_;
-
   // Track mbarrier used for cpAsyncBulk load operation. Required by indexing
   // pass.
   std::unordered_map<const Expr*, kir::TensorIndex*> ldst_mbarrier_index_map_;

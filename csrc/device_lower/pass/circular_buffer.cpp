@@ -226,7 +226,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
 //
 // Loop Structure Overview:
 // Pre-prologue loop:
-// - Allocate shared memory for mbarriers and mbarrier parities
+// - Allocate shared memory for mbarriers
 // - Initialize mbarrier for all stages
 //
 // Prologue loop:
@@ -262,7 +262,6 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
 //   mbarrier:wait.
 //
 // __shared__ __mbarrier_t barriers[num_stages];
-// uint32_t parities[num_stages] = { 0, 0, ... };
 // if (warp_id == 0 && electSync()()) {
 //   for (int64_t loop_index : irange(stages)) {
 //     int64_t number_of_arrive_threads = blockDim.x * blockDim.y * blockDim.z;
@@ -283,7 +282,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
 // }
 //
 // Main loop:
-// for (int64_t loop_index : irange(N-(stages-1))) {
+// for (int64_t loop_index : irange(N-(stage_depth-1))) {
 //   current_stage = loop_index % stage_depth
 //   load_stage = (loop_index + (stage_depth - 1)) % stage_depth)
 //   if (warp_id == 0 && electSync()()) {
@@ -294,7 +293,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
 //   } else {
 //     mbarrier::arrive(mbarrier[load_stage]);
 //   }
-//   mbarrier::waitParity(parities[current_stage]);
+//   mbarrier::waitParity((loop_index / stage_depth) % 2);
 //
 //   Clone remaining operations
 // }
@@ -302,7 +301,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
 // Epilogue loop:
 // for (int64_t loop_index : irange(N-(stages-1), N)) {
 //   current_stage = loop_index % stage_depth
-//   mbarrier::waitParity(parities[current_stage]);
+//   mbarrier::waitParity((loop_index / stage_depth) % 2);
 //
 //   Clone remaining operations
 // }
@@ -394,35 +393,26 @@ class CloneTmaCircularBufferLoopAndInsertSync
 
     // mbarrier::wait occurs in Main and Epilogue loops.
     if (mbarrier_wait_ != nullptr && for_loop_stack_.size() == 1) {
-      NVF_ERROR(update_parity_ != nullptr);
       NVF_ERROR(for_loop_stack_.back() == cloned_top_level_loop_);
       cloned_top_level_loop_->body().push_back(mbarrier_wait_);
-      cloned_top_level_loop_->body().push_back(update_parity_);
       mbarrier_wait_ = nullptr;
-      update_parity_ = nullptr;
     }
   }
 
   void processExpr(Expr* expr) final {
-    // A mbarrier parity exists if the TensorView output for cpAsyncBulk load
-    // has circular buffering depth > 1. ldstMBarrierParityMap maps
-    // mbarrier_init, mbarrier_inval, and cpAsynBulk to the same mbarrier
-    // parity.
-    bool mbarrier_parity_exists =
-        GpuLower::current()->tmaCircularBufferInfo().existsMBarrierParity(expr);
+    TensorView* out_tv = ir_utils::getTvOutput(expr);
+    bool is_circular_buffer_load_expr = std::any_of(
+        circular_buffer_load_exprs_.begin(),
+        circular_buffer_load_exprs_.end(),
+        [out_tv](Expr* load_expr) {
+          TensorView* circular_buffer_tv = ir_utils::getTvOutput(load_expr);
+          NVF_ERROR(circular_buffer_tv != nullptr);
+          return out_tv == circular_buffer_tv;
+        });
 
     // Handle Short-Circuit conditions
     switch (loop_type_) {
       case CircularBufferLoopStage::Prolog: {
-        TensorView* out_tv = ir_utils::getTvOutput(expr);
-        bool is_circular_buffer_load_expr = std::any_of(
-            circular_buffer_load_exprs_.begin(),
-            circular_buffer_load_exprs_.end(),
-            [out_tv](Expr* load_expr) {
-              TensorView* circular_buffer_tv = ir_utils::getTvOutput(load_expr);
-              NVF_ERROR(circular_buffer_tv != nullptr);
-              return out_tv == circular_buffer_tv;
-            });
         // Short-circuit: skip expression if it is not circular buffer load
         // expression.
         if (!is_circular_buffer_load_expr) {
@@ -431,7 +421,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
 
         // Short-circuit: There can be circular buffered loads without
         // cpAsyncBulk load expressions.
-        if (!mbarrier_parity_exists) {
+        if (!ir_utils::isCpAsyncBulkLoad(expr)) {
           for_loop_stack_.back()->body().push_back(expr);
           return;
         }
@@ -441,7 +431,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
       case CircularBufferLoopStage::Epilog: {
         // Short-circuit: Add expression if not circular-buffered load store
         // operation.
-        if (!expr->isA<LoadStoreOp>() || !mbarrier_parity_exists) {
+        if (!is_circular_buffer_load_expr) {
           for_loop_stack_.back()->body().push_back(expr);
           return;
         }
@@ -522,7 +512,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
     for_loop_stack_.back()->body().push_back(new_ldst);
   }
 
-  // Handle cpAsyncBulk type LoadStoreOp that is registered with parity
+  // Handle cpAsyncBulk type LoadStoreOp that is a circular buffer load
   //
   // compute_stage = loop_index % stage_depth
   // load_stage = (loop_index + (stage_depth - 1)) % stage_depth)
@@ -536,7 +526,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
   //   } else {
   //     mbarrier::arrive(mbarrier[load_stage]);
   //   }
-  //   mbarrier::wait(parities[current_stage]);
+  //   mbarrier::wait((loop_index / stage_depth) % 2);
   //
   // Where mbarrier are shared memory arrays bound to the LoadStoreOp
   void handleMainLoop(Expr* expr) {
@@ -599,11 +589,10 @@ class CloneTmaCircularBufferLoopAndInsertSync
     NVF_ERROR(
         mbarrier_wait_ == nullptr,
         "Expected mbarrier_wait to inactive for current TMA operation");
-    NVF_ERROR(
-        update_parity_ == nullptr,
-        "Expected update_parity to inactive for current TMA operation");
-    mbarrier_wait_ = createMbarrierWait(ldst, current_compute_stage_);
-    update_parity_ = createUpdateParity(ldst, current_compute_stage_);
+    mbarrier_wait_ = createMbarrierWait(
+        ldst,
+        current_compute_stage_,
+        cloned_top_level_loop_->indexOrStartIfTrivial());
 
     // If last cloned scope is the cloned_top_level_loop body, then add
     // mbarrier::arriveExpectTx, new loadStoreOp, and mbarrier_wait
@@ -614,11 +603,8 @@ class CloneTmaCircularBufferLoopAndInsertSync
     if (active_for_loops == 1) {
       addTmaLoadBlock(ldst);
       NVF_ERROR(mbarrier_wait_ != nullptr);
-      NVF_ERROR(update_parity_ != nullptr);
       for_loop_stack_.back()->body().push_back(mbarrier_wait_);
-      for_loop_stack_.back()->body().push_back(update_parity_);
       mbarrier_wait_ = nullptr;
-      update_parity_ = nullptr;
       return;
     }
 
@@ -642,11 +628,10 @@ class CloneTmaCircularBufferLoopAndInsertSync
     NVF_ERROR(
         mbarrier_wait_ == nullptr,
         "Expected mbarrier_wait to inactive for current TMA operation");
-    NVF_ERROR(
-        update_parity_ == nullptr,
-        "Expected update_parity to inactive for current TMA operation");
-    mbarrier_wait_ = createMbarrierWait(ldst, epilogue_compute_stage);
-    update_parity_ = createUpdateParity(ldst, epilogue_compute_stage);
+    mbarrier_wait_ = createMbarrierWait(
+        ldst,
+        epilogue_compute_stage,
+        cloned_top_level_loop_->indexOrStartIfTrivial());
 
     // If last cloned scope is the cloned_top_level_loop body, then add
     // mbarrier_wait
@@ -656,11 +641,8 @@ class CloneTmaCircularBufferLoopAndInsertSync
         });
     if (active_for_loops == 1) {
       NVF_ERROR(mbarrier_wait_ != nullptr);
-      NVF_ERROR(update_parity_ != nullptr);
       for_loop_stack_.back()->body().push_back(mbarrier_wait_);
-      for_loop_stack_.back()->body().push_back(update_parity_);
       mbarrier_wait_ = nullptr;
-      update_parity_ = nullptr;
       return;
     }
   }
@@ -774,20 +756,27 @@ class CloneTmaCircularBufferLoopAndInsertSync
   // circular buffer stage.
   kir::MBarrierWaitParity* createMbarrierWait(
       LoadStoreOp* ldst,
+      Val* stage,
       Val* loop_index) {
     NVF_ERROR(ldst != nullptr);
     NVF_ERROR(loop_index != nullptr);
 
+    int64_t stage_depth =
+        GpuLower::current()->circularBufferInfo().getStageDepthFor(
+            circular_buffer_loop_->iter_domain());
+
     // Get mbarrier for this circular buffer stage.
     TensorView* all_mbarriers = GpuLower::current()->ldstMBarrierMap().at(ldst);
     kir::TensorIndex* stage_mbarrier =
-        IrBuilder::create<kir::TensorIndex>(all_mbarriers, loop_index);
+        IrBuilder::create<kir::TensorIndex>(all_mbarriers, stage);
 
     // Get mbarrier_parity for this circular buffer stage.
-    Val* all_mbarrier_parities =
-        GpuLower::current()->tmaCircularBufferInfo().getMBarrierParity(ldst);
-    Val* stage_parity =
-        IrBuilder::getItemExpr(all_mbarrier_parities, loop_index);
+    auto depth = IrBuilder::create<Val>(stage_depth, DataType::UInt32);
+    auto two = IrBuilder::create<Val>(2, DataType::UInt32);
+    Val* stage_parity = SimplifyingIrBuilder::modExpr(
+        SimplifyingIrBuilder::divExpr(
+            IrBuilder::maybeCastExpr(DataType::UInt32, loop_index), depth),
+        two);
 
     kir::MBarrierWaitParity* mbarrier_wait =
         IrBuilder::create<kir::MBarrierWaitParity>(
@@ -795,34 +784,9 @@ class CloneTmaCircularBufferLoopAndInsertSync
     return mbarrier_wait;
   }
 
-  // This function creates parities[loop_index] = 1 - parities[loop_index]
-  // expression to update the parity for the given circular buffer stage.
-  LoadStoreOp* createUpdateParity(LoadStoreOp* ldst, Val* loop_index) {
-    NVF_ERROR(ldst != nullptr);
-    NVF_ERROR(loop_index != nullptr);
-
-    // Get mbarrier_parity for this circular buffer stage.
-    Val* all_mbarrier_parities =
-        GpuLower::current()->tmaCircularBufferInfo().getMBarrierParity(ldst);
-    Val* stage_parity =
-        IrBuilder::getItemExpr(all_mbarrier_parities, loop_index);
-
-    // Create 1 - parities[loop_index] expression
-    Val* one = ldst->fusion()->oneVal(DataType::UInt32);
-    Val* updated_parity = IrBuilder::subExpr(one, stage_parity);
-
-    // Create parities[loop_index] = 1 - parities[loop_index] expression
-    LoadStoreOp* update_parity = IrBuilder::create<LoadStoreOp>(
-        LoadStoreOpType::Set, stage_parity, updated_parity);
-    return update_parity;
-  }
-
  private:
   // Mbarrier_Wait to add to cloned_top_level_loop
   kir::MBarrierWaitParity* mbarrier_wait_ = nullptr;
-
-  // Update parity x -> 1 - x
-  LoadStoreOp* update_parity_ = nullptr;
 
   // Mbarrier_ArriveExpectTx to add to cloned_top_level_loop
   kir::MBarrierArriveExpectTx* mbarrier_arrive_tx_ = nullptr;
@@ -1228,27 +1192,6 @@ class CircularBufferInserter : private kir::ExprMutator {
 };
 
 } // namespace
-
-void TmaCircularBufferInfo::recordMBarrierParity(
-    const Expr* expr,
-    Val* mbarrier_parities) {
-  NVF_ERROR(ir_utils::isCpAsyncBulkLoad(expr));
-  NVF_ERROR(ldst_mbarrier_parity_map_.count(expr) == 0);
-  ldst_mbarrier_parity_map_.emplace(expr, mbarrier_parities);
-}
-
-bool TmaCircularBufferInfo::existsMBarrierParity(const Expr* expr) const {
-  return ldst_mbarrier_parity_map_.count(expr) != 0;
-}
-
-Val* TmaCircularBufferInfo::getMBarrierParity(const Expr* expr) {
-  NVF_ERROR(ir_utils::isCpAsyncBulkLoad(expr));
-  // short-circuit: expr does not have mbarrier parity.
-  if (ldst_mbarrier_parity_map_.count(expr) == 0) {
-    return nullptr;
-  }
-  return ldst_mbarrier_parity_map_.at(expr);
-}
 
 void TmaCircularBufferInfo::recordTensorIndex(
     const Expr* expr,
