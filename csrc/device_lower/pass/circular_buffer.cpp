@@ -431,7 +431,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
       case CircularBufferLoopStage::Epilog: {
         // Short-circuit: Add expression if not circular-buffered load store
         // operation.
-        if (!is_circular_buffer_load_expr) {
+        if (!is_circular_buffer_load_expr || !ir_utils::isCpAsyncBulk(expr)) {
           for_loop_stack_.back()->body().push_back(expr);
           return;
         }
