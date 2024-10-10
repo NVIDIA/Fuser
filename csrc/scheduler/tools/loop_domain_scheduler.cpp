@@ -13,6 +13,8 @@
 #include <scheduler/tools/loop_domain_scheduler.h>
 #include <val_graph_visitor.h>
 
+#include <unordered_map>
+
 namespace nvfuser {
 namespace scheduler_tools {
 
