@@ -199,7 +199,9 @@ bool FusionDefinition::existSchedule(const at::ArrayRef<c10::IValue>& inputs) {
   return fusionCache()->existUserSchedule(scheds, inputs, device);
 }
 
-void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
+void FusionDefinition::setupSchedule(
+    const at::ArrayRef<c10::IValue>& inputs,
+    bool overwrite_existing_schedule) {
   FUSER_PERF_SCOPE("FusionDefinition::setupSchedule");
   NVF_CHECK(id().has_value(), "FusionDefinition definition does not exist!");
   FusionSchedules* scheds = fusionCache()->queryFusionSchedules(id().value());
@@ -216,7 +218,8 @@ void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
     recording_state_.pop_back();
   }
 
-  user_sched_ = fusionCache()->createUserSchedule(scheds, inputs, device);
+  user_sched_ = fusionCache()->createUserSchedule(
+      scheds, inputs, device, overwrite_existing_schedule);
 
   // Building a new Fusion container for scheduling with definition such that
   // the definition's tensor data members refer to the corresponding IR objects
