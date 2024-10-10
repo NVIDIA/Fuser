@@ -764,8 +764,10 @@ class CloneTmaCircularBufferLoopAndInsertSync
         IrBuilder::create<kir::TensorIndex>(all_mbarriers, loop_index);
 
     // Get mbarrier_parity for this circular buffer stage.
+    auto depth = IrBuilder::create<Val>(stage_depth, DataType::UInt32);
+    auto two = IrBuilder::create<Val>(2, DataType::UInt32);
     Val* stage_parity = SimplifyingIrBuilder::modExpr(
-        SimplifyingIrBuilder::divExpr(loop_index, stage_depth), 2);
+        SimplifyingIrBuilder::divExpr(loop_index, depth), two);
 
     kir::MBarrierWaitParity* mbarrier_wait =
         IrBuilder::create<kir::MBarrierWaitParity>(
