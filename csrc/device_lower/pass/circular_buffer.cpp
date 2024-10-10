@@ -767,7 +767,9 @@ class CloneTmaCircularBufferLoopAndInsertSync
     auto depth = IrBuilder::create<Val>(stage_depth, DataType::UInt32);
     auto two = IrBuilder::create<Val>(2, DataType::UInt32);
     Val* stage_parity = SimplifyingIrBuilder::modExpr(
-        SimplifyingIrBuilder::divExpr(loop_index, depth), two);
+        SimplifyingIrBuilder::divExpr(
+            IrBuilder::maybeCastExpr(DataType::UInt32, loop_index), depth),
+        two);
 
     kir::MBarrierWaitParity* mbarrier_wait =
         IrBuilder::create<kir::MBarrierWaitParity>(
