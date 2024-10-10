@@ -691,6 +691,8 @@ class CloneTmaCircularBufferLoopAndInsertSync
     kir::IfThenElse* if_expr = IrBuilder::create<kir::IfThenElse>(
         IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
 
+    std::cout << "mbarrier_arrive_tx_: " << mbarrier_arrive_tx_->toString() << std::endl;
+
     // A single thread issues arriveExpectTx with expected transactions and
     // launches the TMA load.
     if_expr->thenBody().push_back(mbarrier_arrive_tx_);
