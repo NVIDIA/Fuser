@@ -123,7 +123,8 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
         /*vectorize=*/false,
         /*vectorize_shift=*/nullptr,
         circular_buffer_loop_->isUnrollRequired(),
-        loop_type_);
+        loop_type_,
+        /*circular_buffer_loop_stage_depth=*/stage_depth);
 
     handle(circular_buffer_loop_);
   }

@@ -4623,7 +4623,8 @@ ForLoop::ForLoop(
     bool vectorize,
     Val* vectorize_shift,
     bool unroll_required,
-    CircularBufferLoopStage circular_buffer_loop_stage)
+    CircularBufferLoopStage circular_buffer_loop_stage,
+    int64_t circular_buffer_loop_stage_depth)
     : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
@@ -4660,6 +4661,7 @@ ForLoop::ForLoop(
   addAttribute(vectorize_shift);
   addDataAttribute(unroll_required);
   addDataAttribute(circular_buffer_loop_stage);
+  addDataAttribute(circular_buffer_loop_stage_depth);
   // Storing IR nodes as Attribute is not safe with IrCloner, but
   // fortunately kernel IR does not need this feature.
   addDataAttribute(Scope(this));
@@ -4669,7 +4671,8 @@ ForLoop::ForLoop(
     IrBuilderPasskey passkey,
     IterDomain* iter_domain,
     Val* index,
-    CircularBufferLoopStage circular_buffer_loop_stage)
+    CircularBufferLoopStage circular_buffer_loop_stage,
+    int64_t circular_buffer_loop_stage_depth)
     : ForLoop(
           passkey,
           iter_domain,
@@ -4681,14 +4684,16 @@ ForLoop::ForLoop(
               isParallelTypeVectorize(iter_domain->getParallelType()),
           nullptr,
           false,
-          circular_buffer_loop_stage) {}
+          circular_buffer_loop_stage,
+          circular_buffer_loop_stage_depth) {}
 
 ForLoop::ForLoop(IrBuilderPasskey passkey, IterDomain* iter_domain)
     : ForLoop(
           passkey,
           iter_domain,
           GpuLower::current()->getLoopIndexVariable(iter_domain),
-          CircularBufferLoopStage::NotApplicable) {}
+          CircularBufferLoopStage::NotApplicable,
+          0) {}
 
 ForLoop::ForLoop(IrBuilderPasskey passkey, const ForLoop* other)
     : ForLoop(
@@ -4701,7 +4706,8 @@ ForLoop::ForLoop(IrBuilderPasskey passkey, const ForLoop* other)
           other->vectorize(),
           other->vectorize_shift(),
           other->isUnrollRequired(),
-          other->circularBufferLoopStage()) {}
+          other->circularBufferLoopStage(),
+          other->circularBufferLoopStageDepth()) {}
 
 std::string ForLoop::toString(int indent_size) const {
   std::stringstream ss;
