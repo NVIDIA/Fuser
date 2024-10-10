@@ -11,8 +11,8 @@
 
 #include <dynamic_transform.h>
 #include <expr_evaluator.h>
-#include <inlining.h>
 #include <ops/all_ops.h>
+#include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>

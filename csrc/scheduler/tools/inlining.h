@@ -10,7 +10,7 @@
 #include <exceptions.h>
 #include <id_model/id_model.h>
 #include <ir/interface_nodes.h>
-#include <maxinfo_propagator.h>
+#include <scheduler/tools/maxinfo_propagator.h>
 #include <transform_replay.h>
 #include <visibility.h>
 

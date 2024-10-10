@@ -5,7 +5,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <inlining.h>
 #include <instrumentation.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/normalization_inner_outer.h>
@@ -13,6 +12,7 @@
 #include <scheduler/reduction_utils.h>
 #include <scheduler/registry_utils.h>
 #include <scheduler/runtime_info.h>
+#include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
 
 #include <ATen/cuda/CUDAContext.h>

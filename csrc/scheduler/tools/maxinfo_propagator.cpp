@@ -6,7 +6,7 @@
  */
 // clang-format on
 #include <logical_domain_map.h>
-#include <maxinfo_propagator.h>
+#include <scheduler/tools/maxinfo_propagator.h>
 
 namespace nvfuser {
 

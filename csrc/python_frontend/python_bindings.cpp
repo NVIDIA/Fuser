@@ -11,7 +11,6 @@
 #include <c10/util/irange.h>
 #include <debug.h>
 #include <fusion_profiler.h>
-#include <inlining.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
@@ -25,6 +24,7 @@
 #include <runtime/fusion_kernel_runtime.h>
 #include <scheduler/registry.h>
 #include <scheduler/scheduler_types.h>
+#include <scheduler/tools/inlining.h>
 #include <torch/csrc/jit/python/pybind_utils.h>
 #include <transform_replay.h>
 #include <iostream>

@@ -9,9 +9,9 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <inlining.h>
 #include <ops/all_ops.h>
-#include <scheduler/utils.h>
+#include <scheduler/tools/inlining.h>
+#include <scheduler/tools/loop_domain_scheduler.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
@@ -47,7 +47,7 @@ TEST_F(LoopDomainSchedulingTest, ReshapeSplitThenMerge) {
   fusion.addOutput(tv5);
 
   std::vector<IterDomain*> ref = tv0->getLogicalDomain();
-  scheduler_utils::scheduleLoopDomainsLike(fusion.allTvs(), ref);
+  scheduler_tools::scheduleLoopDomainsLike(fusion.allTvs(), ref);
 
   for (auto tv : fusion.allTvs()) {
     tv->split(0, 3);
@@ -113,7 +113,7 @@ TEST_F(LoopDomainSchedulingTest, Slice) {
   fusion.addOutput(tv2);
 
   std::vector<IterDomain*> ref_loop = tv0->getLogicalDomain();
-  scheduler_utils::scheduleLoopDomainsLike(fusion.allTvs(), ref_loop);
+  scheduler_tools::scheduleLoopDomainsLike(fusion.allTvs(), ref_loop);
 
   for (auto tv : fusion.allTvs()) {
     tv->split(0, 32);
@@ -197,7 +197,7 @@ TEST_F(LoopDomainSchedulingTest, ReshapeTraversalDirection) {
   // merge (tv4 reshape).
 
   std::vector<IterDomain*> ref = tv7->getLogicalDomain();
-  scheduler_utils::scheduleLoopDomainsLike({tv5}, ref);
+  scheduler_tools::scheduleLoopDomainsLike({tv5}, ref);
 
   ASSERT_EQ(tv5->getLogicalDomain().size(), ref.size())
       << "Unexpected number of dimensions: "
@@ -274,7 +274,7 @@ TEST_F(LoopDomainSchedulingTest, ManyReshape) {
 
     TensorView* ref_tv = fusion_copy.allTvs().at(i);
     std::vector<IterDomain*> ref_loop = ref_tv->getLogicalDomain();
-    scheduler_utils::scheduleLoopDomainsLike(fusion_copy.allTvs(), ref_loop);
+    scheduler_tools::scheduleLoopDomainsLike(fusion_copy.allTvs(), ref_loop);
 
     IdModel id_model(&fusion_copy, /*build_models=*/false);
     const auto& exact_graph = id_model.buildExactGraph();
