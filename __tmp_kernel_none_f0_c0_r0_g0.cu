@@ -10759,10 +10759,7 @@ __device__ __inline__ void ParallelReduce<
 }
 
 } // namespace fused_reduction
-
-__global__ void
-__cluster_dims__(2, 1, 1)
-nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, const __grid_constant__ TensorMap var0, const __grid_constant__ TensorMap var1, Tensor<__half, 2, 2> T3) {
+__global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, const __grid_constant__ TensorMap var0, const __grid_constant__ TensorMap var1, Tensor<__half, 2, 2> T3) {
   alignas(16) extern __shared__ char array[];
   const unsigned smem_offset = 0;
   nvfuser_index_t i2;
@@ -10820,9 +10817,9 @@ nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, const
   }
   __syncthreads();
   float T2[128];
-  // ((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))).set(0);
-  // asm volatile("wgmma.fence.sync.aligned;\n");
-  // asm volatile("fence.proxy.async;\n");
+  ((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))).set(0);
+  asm volatile("wgmma.fence.sync.aligned;\n");
+  asm volatile("fence.proxy.async;\n");
   #pragma unroll
   for(nvfuser_index_t i21 = 0; i21 < 3; ++i21) {
     nvfuser_index_t i22;
@@ -10880,8 +10877,6 @@ nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, const
       T10[((3 + i25) % 4)] = mbarrier::arrive(toSmem((&T9[((3 + i25) % 4)])));
     }
     mbarrier::wait(toSmem((&T9[i32])), T10[i32]);
-    __syncthreads();
-    continue;
     asm volatile(
       "{\n"
       "  .reg .pred p0; \n"
@@ -11018,7 +11013,7 @@ nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, const
        "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[127])
       :"l"((4611686293305294848ULL | ((262143ULL & (uint64_t)(i30)) >> 4ULL))),
        "l"((4611686293313683456ULL | ((262143ULL & (uint64_t)(i31)) >> 4ULL))),
-       "r"((uint32_t)(false)),
+       "n"((uint32_t)(true)),
        "n"(1),
        "n"(1),
        "n"(1),
@@ -11037,8 +11032,6 @@ nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, const
     i37 = i6 + (8192 * i35);
     mbarrier::wait(toSmem((&T7[(i34 % 4)])), T8[(i34 % 4)]);
     mbarrier::wait(toSmem((&T9[(i34 % 4)])), T10[(i34 % 4)]);
-    __syncthreads();
-    continue;
     asm volatile(
       "{\n"
       "  .reg .pred p0; \n"
@@ -11175,7 +11168,7 @@ nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, const
        "+f"((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))[127])
       :"l"((4611686293305294848ULL | ((262143ULL & (uint64_t)(i36)) >> 4ULL))),
        "l"((4611686293313683456ULL | ((262143ULL & (uint64_t)(i37)) >> 4ULL))),
-       "n"((uint32_t)(false)),
+       "n"((uint32_t)(true)),
        "n"(1),
        "n"(1),
        "n"(1),
