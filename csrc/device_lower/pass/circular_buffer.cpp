@@ -589,7 +589,10 @@ class CloneTmaCircularBufferLoopAndInsertSync
     NVF_ERROR(
         mbarrier_wait_ == nullptr,
         "Expected mbarrier_wait to inactive for current TMA operation");
-    mbarrier_wait_ = createMbarrierWait(ldst, current_compute_stage_);
+    mbarrier_wait_ = createMbarrierWait(
+        ldst,
+        current_compute_stage_,
+        cloned_top_level_loop_->indexOrStartIfTrivial());
 
     // If last cloned scope is the cloned_top_level_loop body, then add
     // mbarrier::arriveExpectTx, new loadStoreOp, and mbarrier_wait
@@ -625,7 +628,10 @@ class CloneTmaCircularBufferLoopAndInsertSync
     NVF_ERROR(
         mbarrier_wait_ == nullptr,
         "Expected mbarrier_wait to inactive for current TMA operation");
-    mbarrier_wait_ = createMbarrierWait(ldst, epilogue_compute_stage);
+    mbarrier_wait_ = createMbarrierWait(
+        ldst,
+        epilogue_compute_stage,
+        cloned_top_level_loop_->indexOrStartIfTrivial());
 
     // If last cloned scope is the cloned_top_level_loop body, then add
     // mbarrier_wait
@@ -750,6 +756,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
   // circular buffer stage.
   kir::MBarrierWaitParity* createMbarrierWait(
       LoadStoreOp* ldst,
+      Val* stage,
       Val* loop_index) {
     NVF_ERROR(ldst != nullptr);
     NVF_ERROR(loop_index != nullptr);
@@ -761,7 +768,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
     // Get mbarrier for this circular buffer stage.
     TensorView* all_mbarriers = GpuLower::current()->ldstMBarrierMap().at(ldst);
     kir::TensorIndex* stage_mbarrier =
-        IrBuilder::create<kir::TensorIndex>(all_mbarriers, loop_index);
+        IrBuilder::create<kir::TensorIndex>(all_mbarriers, stage);
 
     // Get mbarrier_parity for this circular buffer stage.
     auto depth = IrBuilder::create<Val>(stage_depth, DataType::UInt32);
