@@ -10871,7 +10871,6 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
     } else {
       mbarrier::arrive(toSmem((&T7[((3 + i25) % 4)])));
     }
-    mbarrier::wait(toSmem((&T7[i32])), parity[i32]);
     if (b16) {
       mbarrier::arriveExpectTX(toSmem((&T9[((3 + i25) % 4)])), 2048U);
       Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr7, (Array<nvfuser_index_t, 2, 1>{i8, i26}), toSmem((&T9[((3 + i25) % 4)])) }), (i9 + (2048 * i27)));
@@ -11034,7 +11033,6 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
     unsigned i37;
     i37 = i6 + (8192 * i35);
     mbarrier::wait(toSmem((&T7[(i34 % 4)])), parity[(i34 % 4)]);
-    mbarrier::wait(toSmem((&T9[(i34 % 4)])), parity[(i34 % 4)]);
     asm volatile(
       "{\n"
       "  .reg .pred p0; \n"
