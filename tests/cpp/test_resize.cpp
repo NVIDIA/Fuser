@@ -11,14 +11,14 @@
 
 #include <fusion.h>
 #include <fusion_profiler.h>
-#include <inlining.h>
 #include <ops/all_ops.h>
 #include <preseg_passes/mark_aliases_prepare.h>
 #include <preseg_passes/optimization_pass.h>
 #include <runtime/executor.h>
 #include <runtime/executor_utils.h>
 #include <runtime/fusion_executor_cache.h>
-#include <scheduler/utils.h>
+#include <scheduler/tools/inlining.h>
+#include <scheduler/tools/loop_domain_scheduler.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 #include <val_graph_visitor.h>
@@ -3698,7 +3698,7 @@ TEST_F(ResizeTest, SliceScheduledLikeProducer) {
   fusion.addOutput(tv2);
 
   std::vector<IterDomain*> ref_loop = tv0->getLogicalDomain();
-  scheduler_utils::scheduleLoopDomainsLike(fusion.allTvs(), ref_loop);
+  scheduler_tools::scheduleLoopDomainsLike(fusion.allTvs(), ref_loop);
 
   for (auto tv : {tv1, tv2}) {
     tv->split(0, 32);
@@ -3746,7 +3746,7 @@ TEST_F(ResizeTest, PadScheduledLikeConsumer) {
   fusion.addOutput(tv3);
 
   std::vector<IterDomain*> ref_loop = tv2->getLogicalDomain();
-  scheduler_utils::scheduleLoopDomainsLike(fusion.allTvs(), ref_loop);
+  scheduler_tools::scheduleLoopDomainsLike(fusion.allTvs(), ref_loop);
 
   for (auto tv : {tv1, tv2, tv3}) {
     tv->split(0, 32);
@@ -3798,7 +3798,7 @@ TEST_F(ResizeTest, SliceThenPadLeftHalf) {
   fusion.addOutput(tv3);
 
   std::vector<IterDomain*> ref_loop = tv0->getLogicalDomain();
-  scheduler_utils::scheduleLoopDomainsLike(fusion.allTvs(), ref_loop);
+  scheduler_tools::scheduleLoopDomainsLike(fusion.allTvs(), ref_loop);
 
   for (auto tv : {tv1, tv2, tv3}) {
     tv->split(0, 32);
@@ -3853,7 +3853,7 @@ TEST_F(ResizeTest, SliceThenPadRightHalf) {
   fusion.addOutput(tv3);
 
   std::vector<IterDomain*> ref_loop = tv0->getLogicalDomain();
-  scheduler_utils::scheduleLoopDomainsLike(fusion.allTvs(), ref_loop);
+  scheduler_tools::scheduleLoopDomainsLike(fusion.allTvs(), ref_loop);
 
   for (auto tv : {tv1, tv2, tv3}) {
     tv->split(0, 32);
@@ -3917,7 +3917,7 @@ TEST_F(ResizeTest, SliceThenConcat) {
   fusion.addOutput(tv6);
 
   std::vector<IterDomain*> ref_loop = tv0->getLogicalDomain();
-  scheduler_utils::scheduleLoopDomainsLike(fusion.allTvs(), ref_loop);
+  scheduler_tools::scheduleLoopDomainsLike(fusion.allTvs(), ref_loop);
 
   for (auto tv : {tv1, tv2, tv3, tv4, tv5, tv6}) {
     tv->split(0, 32);
@@ -4004,7 +4004,7 @@ TEST_F(ResizeTest, SliceSliceConcatConcat) {
   fusion.addOutput(tv13);
 
   std::vector<IterDomain*> ref_loop = tv0->getLogicalDomain();
-  scheduler_utils::scheduleLoopDomainsLike(fusion.allTvs(), ref_loop);
+  scheduler_tools::scheduleLoopDomainsLike(fusion.allTvs(), ref_loop);
 
   for (auto tv : fusion.allTvs()) {
     if (tv->isFusionInput()) {
@@ -4715,7 +4715,7 @@ TEST_F(ResizeTest, ReshapeSliceSliceRotateConcat) {
     }
   } else {
     std::vector<IterDomain*> ref_loop = tv2->getLogicalDomain();
-    scheduler_utils::scheduleLoopDomainsLike(fusion.allTvs(), ref_loop, 1);
+    scheduler_tools::scheduleLoopDomainsLike(fusion.allTvs(), ref_loop, 1);
   }
 
   fusion.printMath();

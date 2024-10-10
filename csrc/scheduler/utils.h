@@ -13,8 +13,8 @@
 #include <fusion.h>
 #include <ir/all_nodes.h>
 #include <ir/cloner.h>
-#include <maxinfo_propagator.h>
 #include <scheduler/reduction_heuristic.h>
+#include <scheduler/tools/maxinfo_propagator.h>
 #include <visibility.h>
 
 namespace nvfuser {
@@ -700,14 +700,6 @@ bool isResharding(Fusion* fusion);
 void moveNonConcretizedBroadcastInnermost(
     Fusion* fusion,
     const std::unordered_set<TensorView*>& ignored_tvs = {});
-
-// Create the loop domain of given tensors as specified by the
-// reference. The new loop domain is connected to the existing IDs of
-// each tensor by replaying exprs found in the Exact ValGraph.
-void scheduleLoopDomainsLike(
-    const std::vector<TensorView*>& tvs,
-    const std::vector<IterDomain*>& ref_loop_dom,
-    int64_t pos = -1);
 
 } // namespace scheduler_utils
 } // namespace nvfuser
