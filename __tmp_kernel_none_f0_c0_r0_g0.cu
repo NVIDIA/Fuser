@@ -10817,7 +10817,7 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
     }
   }
   __syncthreads();
-  uint32_t parity[4];
+  uint32_t parity[4] = {0, 0, 0, 0};
   float T2[128];
   ((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))).set(0);
   asm volatile("wgmma.fence.sync.aligned;\n");
