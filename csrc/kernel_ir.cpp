@@ -533,9 +533,9 @@ MBarrierArrive::MBarrierArrive(
     Val* mbarrier)
     : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
-  NVF_CHECK(state->dtype() == DataType::UInt);
   addInput(mbarrier);
   if (state != nullptr) {
+    NVF_CHECK(state->dtype() == DataType::UInt);
     addOutput(state);
   }
 }
@@ -564,6 +564,7 @@ MBarrierArriveExpectTx::MBarrierArriveExpectTx(
   addInput(mbarrier);
   addInput(tx_count);
   if (state != nullptr) {
+    NVF_CHECK(state->dtype() == DataType::UInt);
     addOutput(state);
   }
 }
