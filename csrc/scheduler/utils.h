@@ -701,12 +701,5 @@ void moveNonConcretizedBroadcastInnermost(
     Fusion* fusion,
     const std::unordered_set<TensorView*>& ignored_tvs = {});
 
-// Create the loop domain of given tensors as specified by the
-// reference. The new loop domain is connected to the existing IDs of
-// each tensor by replaying exprs found in the Exact ValGraph.
-void scheduleLoopDomainsLike(
-    const std::vector<TensorView*>& tvs,
-    const std::vector<IterDomain*>& ref_loop_dom);
-
 } // namespace scheduler_utils
 } // namespace nvfuser
