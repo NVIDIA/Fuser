@@ -766,6 +766,9 @@ class CloneTmaCircularBufferLoopAndInsertSync
     kir::MBarrierArriveExpectTx* mbarrier_arrive_tx =
         IrBuilder::create<kir::MBarrierArriveExpectTx>(
             nullptr, stage_mbarrier, tx_count);
+    std::cout << "stage_mbarrier: " << stage_mbarrier->toString() << std::endl;
+    std::cout << "mbarrier_arrive_tx: " << mbarrier_arrive_tx->toString()
+              << std::endl;
 
     return mbarrier_arrive_tx;
   }
