@@ -3235,7 +3235,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   void handle(const kir::MBarrierArrive* arrive) final {
     if (!print_inline_) {
-      indent() << gen(arrive->state()) << " = ";
+      indent();
+    }
+    if (arrive->state() != nullptr) {
+      code_ << gen(arrive->state()) << " = ";
     }
     auto call = genCall(
         "mbarrier::arrive",
@@ -3248,7 +3251,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   void handle(const kir::MBarrierArriveExpectTx* arrive) final {
     if (!print_inline_) {
-      indent() << gen(arrive->state()) << " = ";
+      indent();
+    }
+    if (arrive->state() != nullptr) {
+      code_ << gen(arrive->state()) << " = ";
     }
     auto call = genCall(
         "mbarrier::arriveExpectTX",
@@ -3267,6 +3273,15 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         ArgumentBuilder()
             .arg(genInline(wait->mbarrier()))
             .arg(genInline(wait->state())));
+    indent() << call << ";\n";
+  }
+
+  void handle(const kir::MBarrierWaitParity* wait) final {
+    auto call = genCall(
+        "mbarrier::waitParity",
+        ArgumentBuilder()
+            .arg(genInline(wait->mbarrier()))
+            .arg(genInline(wait->parity())));
     indent() << call << ";\n";
   }
 
