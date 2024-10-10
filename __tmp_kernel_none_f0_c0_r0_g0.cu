@@ -10804,7 +10804,7 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
   #pragma unroll
   for(nvfuser_index_t i19 = 0; i19 < 4; ++i19) {
     if (b16) {
-      mbarrier::init(toSmem((&T7[i19])), 256U);
+      mbarrier::init(toSmem((&T7[i19])), 2U);
     }
   }
   __syncthreads();
@@ -10828,13 +10828,13 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
         Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr4, (Array<nvfuser_index_t, 2, 1>{(i5 + (64 * i24)), i22}), toSmem((&T7[i21])) }), (i23 + (2048 * i24)));
       }
     } else {
-      mbarrier::arrive(toSmem((&T7[i21])));
+      // mbarrier::arrive(toSmem((&T7[i21])));
     }
     if (b16) {
       mbarrier::arriveExpectTX(toSmem((&T7[i21])), 2048U);
       Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr7, (Array<nvfuser_index_t, 2, 1>{i8, i22}), toSmem((&T7[i21])) }), (i9 + (2048 * i21)));
     } else {
-      mbarrier::arrive(toSmem((&T7[i21])));
+      // mbarrier::arrive(toSmem((&T7[i21])));
     }
   }
   #pragma unroll 4
@@ -10862,13 +10862,13 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
         Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr4, (Array<nvfuser_index_t, 2, 1>{(i5 + (64 * i24)), i26}), toSmem((&T7[((3 + i25) % 4)])) }), (i28 + (2048 * i24)));
       }
     } else {
-      mbarrier::arrive(toSmem((&T7[((3 + i25) % 4)])));
+      // mbarrier::arrive(toSmem((&T7[((3 + i25) % 4)])));
     }
     if (b16) {
       mbarrier::arriveExpectTX(toSmem((&T7[((3 + i25) % 4)])), 2048U);
       Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr7, (Array<nvfuser_index_t, 2, 1>{i8, i26}), toSmem((&T7[((3 + i25) % 4)])) }), (i9 + (2048 * i27)));
     } else {
-      mbarrier::arrive(toSmem((&T7[((3 + i25) % 4)])));
+      // mbarrier::arrive(toSmem((&T7[((3 + i25) % 4)])));
     }
     mbarrier::wait(toSmem((&T7[i32])), parity[i32]);
     asm volatile(
