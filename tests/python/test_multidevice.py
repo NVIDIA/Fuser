@@ -475,7 +475,7 @@ class TransformerForwardFusion(FusionDefinition):
     reason="Flash Attention is only supported on Ampere and newer devices.",
 )
 @pytest.mark.mpi
-def test_transformer_forward(mpi_test):
+def test_transformer_forward(mpi_test, benchmark):
     d = mpi_test.size
     rank = mpi_test.rank
 
@@ -518,7 +518,20 @@ def test_transformer_forward(mpi_test):
 
     fd = TransformerForwardFusion(d, b, s, h, e)
 
-    outs = fd.execute(ins)
+    def benchmark_fn(profile):
+        if profile:
+            torch.cuda.cudart().cudaProfilerStart()
+
+        outs = fd.execute(ins)
+        torch.cuda.synchronize()
+
+        if profile:
+            torch.cuda.cudart().cudaProfilerStop()
+
+        return outs
+
+    # Warm up and validate.
+    outs = benchmark_fn(False)
     (
         layernorm0_avg,
         layernorm0_invstd,
@@ -547,3 +560,7 @@ def test_transformer_forward(mpi_test):
     assert_shape_is(layernorm1_avg, [b, s])
     assert_shape_is(layernorm1_invstd, [b, s, 1])
     assert_shape_is(output, [b, s, e])
+
+    # Benchmark and profile. The profile can be collected and displayed using
+    # `nsys`. See instructions in test_transformer_engine.py.
+    benchmark.pedantic(benchmark_fn, args=(True,), rounds=5)
