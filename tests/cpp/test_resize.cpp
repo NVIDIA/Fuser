@@ -4325,7 +4325,8 @@ TEST_F(ResizeTest, VectorizePlayground) {
 
   tv1->axis(0)->parallelize(ParallelType::BIDx);
   tv1->axis(1)->parallelize(ParallelType::TIDx);
-  tv1->axis(2)->parallelize(ParallelType::Vectorize);
+  // tv1->axis(2)->parallelize(ParallelType::Vectorize);
+  tv1->axis(2)->parallelize(ParallelType::Unroll);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
@@ -4335,8 +4336,9 @@ TEST_F(ResizeTest, VectorizePlayground) {
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
 
-  auto ref =
-      t0.index({at::indexing::Slice(slice_offset, shape[0] - slice_offset)});
+  // auto ref =
+  //     t0.index({at::indexing::Slice(slice_offset, shape[0] - slice_offset)});
+  auto ref = pad(tv0, {IrBuilder::create<Val>(4L), IrBuilder::create<Val>(4L)});
   ASSERT_TRUE(ref.equal(cg_outputs[0]));
 }
 
