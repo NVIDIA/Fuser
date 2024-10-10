@@ -37,10 +37,10 @@ def setup_process_group(mpi_test) -> None:
 
 # This benchmark is instrumented with cudaProfilerStart/Stop. Therefore, one
 # can collect stats of the first few non-warmup benchmark iterations using
-#
 # ```bash
 # mpirun -np <processes> nsys profile --capture-range=cudaProfilerApi --capture-range-end=repeat:<iterations> pytest tests/python/test_transformer_engine.py -k <filter> --only-mpi
 # ```
+# and then display the status using e.g. `nsys stats --report=cuda_gpu_kernel_sum report1.nsys-rep`.
 @pytest.mark.mpi
 @pytest.mark.parametrize(
     "compute_type",
