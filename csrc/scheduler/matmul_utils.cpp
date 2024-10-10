@@ -339,6 +339,15 @@ std::string isMatmulFusionDefinitionSupported(
       }
     }
   }
+
+  // TODO: Lift this requirement once we properly handle output allocation
+  // domain
+  for (Val* outp : fusion->outputs()) {
+    if (auto tv = dynamic_cast<TensorView*>(outp);
+        tv && !ir_utils::hasTrivialAllocationDomain(tv)) {
+      return "detected output TV with non-trivial allocation domain";
+    }
+  }
   return "";
 }
 
