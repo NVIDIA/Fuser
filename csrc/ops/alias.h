@@ -50,7 +50,10 @@ NVF_API TensorView* flatten(
 //!
 //! NOTE: This function throws an error when encountering an unsqueezable
 //! dimension. This behavior differs from PyTorch.
-NVF_API TensorView* squeeze(TensorView* x, const std::vector<int64_t>& dims);
+NVF_API TensorView* squeeze(
+    TensorView* x,
+    const std::vector<int64_t>& dims,
+    bool squeeze_expanded = false);
 
 TensorView* squeeze(TensorView* x, std::initializer_list<int64_t> dims);
 

@@ -11,7 +11,6 @@
 #include <c10/util/irange.h>
 #include <debug.h>
 #include <fusion_profiler.h>
-#include <inlining.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
@@ -25,6 +24,7 @@
 #include <runtime/fusion_kernel_runtime.h>
 #include <scheduler/registry.h>
 #include <scheduler/scheduler_types.h>
+#include <scheduler/tools/inlining.h>
 #include <torch/csrc/jit/python/pybind_utils.h>
 #include <transform_replay.h>
 #include <iostream>
@@ -2870,7 +2870,8 @@ void initNvFuserPythonBindings(PyObject* module) {
       "squeeze",
       [](FusionDefinition::Operators& self,
          Tensor arg,
-         std::vector<int64_t>& dims) -> Tensor {
+         std::vector<int64_t>& dims,
+         bool squeeze_expanded) -> Tensor {
         FUSER_PERF_SCOPE("Operators.squeeze");
         NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
@@ -2879,11 +2880,13 @@ void initNvFuserPythonBindings(PyObject* module) {
         fd->defineRecord(new SqueezeOpRecord(
             {fd->recordingState(arg())},
             {fd->recordingState(output())},
-            std::move(dims)));
+            std::move(dims),
+            squeeze_expanded));
         return output;
       },
       py::arg("arg"),
       py::arg("dims"),
+      py::arg("squeeze_expanded") = false,
       py::return_value_policy::reference);
   nvf_ops.def(
       "tensor_sizes",

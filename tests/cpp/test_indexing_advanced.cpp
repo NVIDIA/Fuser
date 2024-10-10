@@ -13,8 +13,8 @@
 #include <tests/cpp/validator.h>
 
 #include <fusion.h>
-#include <inlining.h>
 #include <ops/all_ops.h>
+#include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
 
 namespace nvfuser {

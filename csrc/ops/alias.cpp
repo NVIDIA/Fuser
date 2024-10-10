@@ -230,7 +230,10 @@ TensorView* flatten(TensorView* x, int64_t start_dim, int64_t end_dim) {
   return out;
 }
 
-TensorView* squeeze(TensorView* x, const std::vector<int64_t>& dims) {
+TensorView* squeeze(
+    TensorView* x,
+    const std::vector<int64_t>& dims,
+    bool squeeze_expanded) {
   NVF_ERROR(x != nullptr, "Input is invalid.");
   auto x_dom = x->domain()->noReductions();
   const auto ndims = static_cast<int64_t>(x_dom.size());
@@ -258,7 +261,7 @@ TensorView* squeeze(TensorView* x, const std::vector<int64_t>& dims) {
     to_squeeze[dim] = true;
   }
 
-  return squeeze(x, to_squeeze);
+  return squeeze(x, to_squeeze, squeeze_expanded);
 }
 
 TensorView* squeeze(TensorView* x, std::initializer_list<int64_t> dims) {
