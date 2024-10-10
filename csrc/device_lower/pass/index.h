@@ -67,6 +67,7 @@ class IndexLowering : private OptOutConstDispatch {
   void handle(const SliceOp*) final;
   void handle(const CatOp*) final;
 
+  void handle(const kir::Asm*) final;
   void handle(const ForLoop*) final;
   void handle(const kir::IfThenElse*) final;
   void handle(const kir::Allocate*) final;
