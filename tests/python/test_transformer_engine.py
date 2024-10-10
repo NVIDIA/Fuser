@@ -2,7 +2,6 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 
-import os
 import pytest
 import torch
 import torch.distributed as dist
