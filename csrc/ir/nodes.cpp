@@ -4092,19 +4092,12 @@ SliceOp::SliceOp(
     IrBuilderPasskey passkey,
     TensorView* out,
     TensorView* inp,
-    const std::vector<Slice>& ranges,
-    const std::vector<Slice>& original_ranges)
+    const std::vector<Slice>& ranges)
     : Expr(passkey) {
   size_t ndims = TensorDomain::noReductions(inp->getLogicalDomain()).size();
   NVF_ERROR(
       ndims == ranges.size(),
       "The range vector must have the same number of Slice descriptors. Given: ",
-      ranges.size(),
-      ", Expected: ",
-      ndims);
-  NVF_ERROR(
-      ndims == original_ranges.size(),
-      "The original range vector must have the same number of Slice descriptors. Given: ",
       ranges.size(),
       ", Expected: ",
       ndims);
@@ -4118,11 +4111,6 @@ SliceOp::SliceOp(
     addInput(range.start);
     addInput(range.stop);
     addInput(range.step);
-  }
-  for (const auto& range : original_ranges) {
-    addAttribute(range.start);
-    addAttribute(range.stop);
-    addAttribute(range.step);
   }
 }
 
@@ -4164,20 +4152,6 @@ std::vector<Slice> SliceOp::getRanges() const {
         .stop = *(range_val_it + 1),
         .step = *(range_val_it + 2)};
     range_val_it += 3;
-  }
-  return ranges;
-}
-
-std::vector<Slice> SliceOp::getOriginalRanges() const {
-  size_t ndims = TensorDomain::noReductions(in()->getLogicalDomain()).size();
-  std::vector<Slice> ranges(ndims);
-  int64_t range_val_pos = 0;
-  for (const auto i : c10::irange(ndims)) {
-    ranges.at(i) = Slice{
-        .start = attributeVal(range_val_pos),
-        .stop = attributeVal(range_val_pos + 1),
-        .step = attributeVal(range_val_pos + 2)};
-    range_val_pos += 3;
   }
   return ranges;
 }

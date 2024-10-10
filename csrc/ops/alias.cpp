@@ -822,7 +822,7 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
           TensorDomain::getContiguityFilledWith(logical_ids, true)),
       *inp->getDataType());
 
-  IrBuilder::create<SliceOp>(out, inp, normalized_ranges, ranges);
+  IrBuilder::create<SliceOp>(out, inp, normalized_ranges);
   return out;
 }
 
