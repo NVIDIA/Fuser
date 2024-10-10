@@ -702,6 +702,8 @@ class CloneTmaCircularBufferLoopAndInsertSync
     if_expr->elseBody().push_back(thread_arrive);
     for_loop_stack_.back()->body().push_back(if_expr);
 
+    std::cout << "if_expr: " << if_expr->toString() << std::endl;
+
     mbarrier_arrive_tx_ = nullptr;
   }
 
