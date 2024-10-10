@@ -1248,9 +1248,6 @@ TEST_P(TmaCircularBufferingTest, Pointwise) {
 }
 
 TEST_P(TmaCircularBufferingTest, PointwiseCpAsync) {
-  GTEST_SKIP()
-      << "Needs shared memory predicate, but current needsSharedMemoryPredicate() returns false";
-
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
