@@ -602,7 +602,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
   float T1[2LL];
   T1[0LL]
      = T4[0LL];
-  #pragma unroll 1
+  #pragma unroll 5
   for(nvfuser_index_t i7 = 0LL; i7 < T0.logical_size[0LL]; ++i7) {
     float* ptr8;
     ptr8 = ptr1 + (T0.alloc_stride[0LL] * i7);
