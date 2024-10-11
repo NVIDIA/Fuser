@@ -101,12 +101,14 @@ class LoopDomainSchedulerReplayTransform : OptInConstDispatch {
 class LoopDomainScheduler {
  public:
   LoopDomainScheduler(std::vector<IterDomain*> ref_loop_dom, int64_t pos)
-      : ref_loop_ids_(std::move(ref_loop_dom)), pos_(pos) {
+      : ref_loop_dom_(std::move(ref_loop_dom)),
+        pos_(pos),
+        ref_loop_ids_(ref_loop_dom_.begin(), ref_loop_dom_.begin() + pos_) {
     NVF_ERROR(!ref_loop_ids_.empty());
     NVF_ERROR(pos_ > 0 && pos_ <= ref_loop_ids_.size());
 
-    ref_loop_ids_ = std::vector<IterDomain*>{
-        ref_loop_ids_.begin(), ref_loop_ids_.begin() + pos_};
+    std::cerr << "Ref loop dom: " << toDelimitedString(ref_loop_dom_) << "\n";
+    std::cerr << "Ref loop IDs: " << toDelimitedString(ref_loop_ids_) << "\n";
 
     // For now, ref must not be a broadcast domain
     NVF_ERROR(
@@ -142,7 +144,7 @@ class LoopDomainScheduler {
       TensorView* tv,
       const std::vector<ValGroup>& ref_id_groups) const;
 
-  int64_t findMatchingPos(
+  std::vector<IterDomain*> findMatchingPos(
       TensorView* tv,
       const std::vector<ValGroup>& ref_id_groups) const;
 
@@ -182,8 +184,9 @@ class LoopDomainScheduler {
   }
 
  private:
-  std::vector<IterDomain*> ref_loop_ids_;
+  const std::vector<IterDomain*> ref_loop_dom_;
   int64_t pos_;
+  const std::vector<IterDomain*> ref_loop_ids_;
   std::unique_ptr<IdModel> id_model_;
   ValGroups ref_id_groups_;
   // ValGroups all_ancestors_of_ref_;
@@ -202,20 +205,18 @@ void LoopDomainScheduler::schedule(TensorView* tv) const {
 
   const auto [new_loop_ids, ref_id_groups] = replayReference(tv);
 
-  int64_t matching_pos = findMatchingPos(tv, ref_id_groups);
+  // int64_t matching_pos = findMatchingPos(tv, ref_id_groups);
+  auto remaining_ids = findMatchingPos(tv, ref_id_groups);
 
   std::cerr << "New loop IDs: " << toDelimitedString(new_loop_ids) << "\n";
 
   std::vector<IterDomain*> new_loop_domain;
-  new_loop_domain.reserve(
-      new_loop_ids.size() + (tv->getLoopDomain().size() - matching_pos));
+  new_loop_domain.reserve(new_loop_ids.size() + remaining_ids.size());
 
   new_loop_domain.insert(
       new_loop_domain.end(), new_loop_ids.begin(), new_loop_ids.end());
   new_loop_domain.insert(
-      new_loop_domain.end(),
-      tv->getLoopDomain().begin() + matching_pos,
-      tv->getLoopDomain().end());
+      new_loop_domain.end(), remaining_ids.begin(), remaining_ids.end());
 
   std::cerr << "New loop domain: " << toDelimitedString(new_loop_domain)
             << "\n";
@@ -225,6 +226,7 @@ void LoopDomainScheduler::schedule(TensorView* tv) const {
 
 std::vector<ValGroup> LoopDomainScheduler::getComplimentedReferenceGroups(
     TensorView* tv) const {
+#if 1
   const auto& graph = id_model_->idGraph(IdMappingMode::EXACT);
   const auto ref_id_groups = graph.toGroups(ref_loop_ids_);
 
@@ -232,8 +234,10 @@ std::vector<ValGroup> LoopDomainScheduler::getComplimentedReferenceGroups(
 
   const auto logical_groups = graph.toGroups(tv->getLogicalDomain());
 
+  std::cerr << "Logical groups: " << nvfuser::toString(logical_groups) << "\n";
+
   auto path_to_ref =
-      ValGraphBFS::getExprsBetween(graph, logical_groups, ref_id_groups);
+      ValGraphBFS::getExprsBetween(graph, logical_groups, ref_id_groups, false);
 
   for (const auto& [expr_g, dir] : path_to_ref) {
     std::cerr << "To ref " << dir << " " << nvfuser::toString(expr_g) << " "
@@ -256,9 +260,58 @@ std::vector<ValGroup> LoopDomainScheduler::getComplimentedReferenceGroups(
     std::cerr << nvfuser::toString(g) << ": " << g->front()->toString() << "\n";
   }
   return complimented_ref_groups;
+#else
+  const auto& graph = id_model_->idGraph(IdMappingMode::BROADCAST);
+  std::cerr << "ref_loop_dom_: " << toDelimitedString(ref_loop_dom_) << "\n";
+  const auto ref_id_groups = graph.toGroups(ref_loop_dom_);
+
+  std::cerr << "Ref id groups:\n";
+  for (const auto& idg : ref_id_groups) {
+    std::cerr << "\t" << nvfuser::toString(idg) << "\n";
+  }
+
+  const auto logical_groups = graph.toGroups(tv->getLogicalDomain());
+
+  std::cerr << "Logical groups:\n";
+  for (const auto& idg : logical_groups) {
+    std::cerr << "\t" << nvfuser::toString(idg) << "\n";
+  }
+
+  auto path_from_ref = ValGraphBFS::getExprsBetween(
+      graph,
+      ref_id_groups,
+      logical_groups,
+      /*require_all_to_visited=*/true);
+
+  for (const auto& [expr_g, dir] : path_from_ref) {
+    std::cerr << "From ref " << dir << " " << nvfuser::toString(expr_g) << " "
+              << expr_g->front()->toString();
+  }
+
+  auto inputs_of_path_to = getInputsOfExprPath(graph, path_from_ref);
+  std::cerr << "Inputs: " << nvfuser::toString(inputs_of_path_to) << "\n";
+  // Get Exact groups
+  std::vector<ValGroup> complimented_ref_groups =
+      id_model_->idGraph(IdMappingMode::EXACT).toGroups(ref_loop_ids_).vector();
+  const auto ref_loop_id_groups = graph.toGroups(ref_loop_ids_);
+  for (const auto& inp : inputs_of_path_to) {
+    if (!ref_loop_id_groups.has(inp)) {
+      // missing ref ID
+      complimented_ref_groups.push_back(
+          id_model_->idGraph(IdMappingMode::EXACT).toGroup(inp->front()));
+    }
+  }
+  std::cerr << "Complimented ref id groups:\n";
+  for (const auto& idg : complimented_ref_groups) {
+    std::cerr << "\t" << nvfuser::toString(idg) << "\n";
+  }
+
+  return complimented_ref_groups;
+#endif
 }
 
-int64_t LoopDomainScheduler::findMatchingPos(
+// int64_t LoopDomainScheduler::findMatchingPos(
+std::vector<IterDomain*> LoopDomainScheduler::findMatchingPos(
     TensorView* tv,
     const std::vector<ValGroup>& ref_id_groups) const {
   // Need to use the Broadcast graph, but the graph is built before
@@ -276,35 +329,17 @@ int64_t LoopDomainScheduler::findMatchingPos(
   auto reachable_loop_groups = ValGraphBFS::getReachableValsFrom(
       broadcast_graph, new_loop_id_groups, current_loop_groups);
 
-  // Reachable loop groups must be outermost
-  auto reachable_loop_groups_it = reachable_loop_groups.begin();
-  int64_t matching_pos = 0;
-  bool mismatch_found = false;
-  for (const auto& loop_group : current_loop_groups) {
-    if (reachable_loop_groups_it != reachable_loop_groups.end() &&
-        loop_group == *reachable_loop_groups_it) {
-      NVF_ERROR(
-          !mismatch_found,
-          "Nonadjacent matching loop group found: ",
-          nvfuser::toString(loop_group));
-      ++reachable_loop_groups_it;
-      ++matching_pos;
-    } else {
-      mismatch_found = true;
+  std::vector<IterDomain*> remaining_loop_ids;
+  for (const auto i : c10::irange(current_loop_groups.size())) {
+    if (reachable_loop_groups.has(current_loop_groups.at(i))) {
+      continue;
     }
+    remaining_loop_ids.push_back(tv->getLoopDomain().at(i));
   }
 
-  std::cerr << "Matching outermost loop IDs: "
-            << toDelimitedString(
-                   tv->getLoopDomain().begin(),
-                   tv->getLoopDomain().begin() + matching_pos)
-            << "\n";
   std::cerr << "Remaining innermost loop IDs: "
-            << toDelimitedString(
-                   tv->getLoopDomain().begin() + matching_pos,
-                   tv->getLoopDomain().end())
-            << "\n";
-  return matching_pos;
+            << toDelimitedString(remaining_loop_ids) << "\n";
+  return remaining_loop_ids;
 }
 
 // TODO: Refactor this as ValGraphReplay?
@@ -339,8 +374,7 @@ std::pair<std::vector<IterDomain*>, std::vector<ValGroup>> LoopDomainScheduler::
       // Need to create a new ID for the loop ID
       has_missing_ids = true;
       // TODO: Don't force mapping at this point since that may not be necessary
-      auto clone =
-            representativeId(ref_id_group)->cloneWithoutRFactor(true);
+      auto clone = representativeId(ref_id_group)->cloneWithoutRFactor(true);
       loop_ids.push_back(clone);
       group_to_id.emplace(ref_id_group, clone);
       all_id_groups.pushBack(ref_id_group);

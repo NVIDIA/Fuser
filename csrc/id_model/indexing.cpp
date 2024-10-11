@@ -424,21 +424,34 @@ class AllocationDomainSetup : private kir::IrVisitor {
   std::optional<std::vector<IterDomain*>> reorderAllocationDomains(
       const TensorView* tv,
       const std::vector<IterDomain*>& allocation_domains) const {
+#if 0
+    // This doesn't work with setLoopDomain. For example, RoPE4
+    // without inlining but with merge and split transformations
+    // should fail.
     auto exprs = DependencyCheck::getAllExprsBetween(
         {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()},
         {allocation_domains.begin(), allocation_domains.end()});
+#else
+    auto path = IRBFS::getExprsBetween(
+        {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()},
+        {allocation_domains.begin(), allocation_domains.end()},
+        /*require_all_to_visited=*/false);
+    for (const auto& [expr, dir] : path) {
+      std::cerr << dir << " " << expr->toString();
+    }
+#endif
 
-    if (exprs.empty()) {
+    if (path.empty()) {
       return std::nullopt;
     }
 
     // Replay exprs from the logical domain to get the non-reordered
     // domains
     auto ordered_domains = tv->getLogicalDomain();
-    for (auto expr : exprs) {
+    for (const auto& [expr, dir] : path) {
       // Find the position to insert the outputs.
       int64_t insertion_pos = -1;
-      for (auto inp : expr->inputs()) {
+      for (auto inp : inputs(expr, dir)) {
         auto it =
             std::find(ordered_domains.begin(), ordered_domains.end(), inp);
         if (it == ordered_domains.end()) {
@@ -457,13 +470,13 @@ class AllocationDomainSetup : private kir::IrVisitor {
           " in ",
           tv->toString());
       // Insert the outputs
-      for (auto out : expr->outputs()) {
+      for (auto out : outputs(expr, dir)) {
         ordered_domains.insert(
             ordered_domains.begin() + insertion_pos, out->as<IterDomain>());
         ++insertion_pos;
       }
       // Delete the inputs
-      for (auto inp : expr->inputs()) {
+      for (auto inp : inputs(expr, dir)) {
         auto it =
             std::find(ordered_domains.begin(), ordered_domains.end(), inp);
         if (it == ordered_domains.end()) {
@@ -473,39 +486,40 @@ class AllocationDomainSetup : private kir::IrVisitor {
       }
     }
 
-    // At this point, all domains of allocation_domains must exist in
-    // domains.
-    for (auto alloc_dom : allocation_domains) {
-      auto it =
-          std::find(ordered_domains.begin(), ordered_domains.end(), alloc_dom);
-      NVF_ERROR(
-          it != ordered_domains.end(),
-          "Missing allocation domain: ",
-          alloc_dom->toString(),
-          ", domains: ",
-          toDelimitedString(ordered_domains));
+    // Pick only the allocation domains from the ordered domains
+    std::vector<IterDomain*> ordered_allocation_domains;
+    ordered_allocation_domains.reserve(allocation_domains.size());
+
+    for (auto id : ordered_domains) {
+      if (std::find(allocation_domains.begin(), allocation_domains.end(), id) !=
+          allocation_domains.end()) {
+        ordered_allocation_domains.push_back(id);
+      }
     }
 
-    // Pick only the allocation domains from the ordered domains
-    std::vector<IterDomain*> reordered_allocation_domains;
-    reordered_allocation_domains.reserve(allocation_domains.size());
+    auto ordered_allocation_domains_it = ordered_allocation_domains.begin();
 
-    for (auto dom : ordered_domains) {
-      auto it =
-          std::find(allocation_domains.begin(), allocation_domains.end(), dom);
-      if (it == allocation_domains.end()) {
-        continue;
+    std::vector<IterDomain*> all_allocation_domains;
+    all_allocation_domains.reserve(allocation_domains.size());
+
+    for (const auto i : c10::irange(allocation_domains.size())) {
+      auto id = allocation_domains.at(i);
+      if (std::find(ordered_domains.begin(), ordered_domains.end(), id) !=
+          ordered_domains.end()) {
+        all_allocation_domains.push_back(*ordered_allocation_domains_it);
+        ++ordered_allocation_domains_it;
+      } else {
+        all_allocation_domains.push_back(id);
       }
-      reordered_allocation_domains.push_back(dom);
     }
 
     // If it's the same order, just return nullopt to tell nothing
     // needs to be reordered
-    if (reordered_allocation_domains == allocation_domains) {
+    if (allocation_domains == all_allocation_domains) {
       return std::nullopt;
     }
 
-    return reordered_allocation_domains;
+    return all_allocation_domains;
   }
 
   // Transpose with shared memory may need to change the ordering of
