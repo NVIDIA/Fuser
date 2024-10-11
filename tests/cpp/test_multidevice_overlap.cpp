@@ -321,7 +321,8 @@ TEST_F(
       /*vectorize=*/false,
       /*vectorize_shift=*/nullptr,
       /*unroll_required=*/false,
-      CircularBufferLoopStage::NotApplicable);
+      CircularBufferLoopStage::NotApplicable,
+      /*circular_buffer_loop_stage_depth=*/0);
 
   auto* stream_index = mod(j, IrBuilder::create<Val>(params.number_of_streams));
   auto* set_stream = IrBuilder::create<hir::SetCurrentStream>(
@@ -386,7 +387,8 @@ TEST_F(
       /*vectorize=*/false,
       /*vectorize_shift=*/nullptr,
       /*unroll_required=*/false,
-      CircularBufferLoopStage::NotApplicable);
+      CircularBufferLoopStage::NotApplicable,
+      /*circular_buffer_loop_stage_depth=*/0);
   auto* sync_stream = IrBuilder::create<hir::Synchronize>(
       IrBuilder::create<hir::Stream>(i_stream));
   for_loop_stream->body().push_back(sync_stream);

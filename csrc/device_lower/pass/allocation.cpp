@@ -43,7 +43,8 @@ ForLoop* createStageDepthForLoop(ForLoop* circular_buffer_loop) {
       /*vectorize=*/false,
       /*vectorize_shift=*/nullptr,
       /*unroll_required=*/false,
-      CircularBufferLoopStage::NotApplicable);
+      CircularBufferLoopStage::NotApplicable,
+      /*circular_buffer_loop_stage_depth=*/0);
 
   return loop;
 }

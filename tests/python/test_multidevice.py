@@ -36,8 +36,6 @@ def test_pointwise(mpi_test):
 
     torch.cuda.set_device(mpi_test.local_rank)
 
-    # Just so each rank receives the same unsharded input.
-    torch.manual_seed(0)
     unsharded_input = torch.randn(num_devices, 4, device="cuda")
     sharded_input = unsharded_input[rank : rank + 1]
 
@@ -93,7 +91,6 @@ def test_linear(mpi_test):
     torch.cuda.set_device(mpi_test.local_rank)
 
     b, s, e = 2, 1024, 768
-    torch.manual_seed(0)
     inp_tensor = torch.randn(b, s, e, device="cuda")
     unsharded_weight_tensor = torch.randn(d * e, e, device="cuda")
     weight_tensor = unsharded_weight_tensor.view([d, e, e])[rank : rank + 1]
@@ -131,17 +128,17 @@ def test_sdpa(mpi_test):
         def definition(self) -> None:
             self.q = self.define_tensor(
                 shape=[d, -1, -1, -1, -1],
-                contiguity=[True if d > 1 else None, True, True, True, True],
+                contiguity=True,
                 dtype=DataType.BFloat16,
             )
             self.k = self.define_tensor(
                 shape=[d, -1, -1, -1, -1],
-                contiguity=[True if d > 1 else None, True, True, True, True],
+                contiguity=True,
                 dtype=DataType.BFloat16,
             )
             self.v = self.define_tensor(
                 shape=[d, -1, -1, -1, -1],
-                contiguity=[True if d > 1 else None, True, True, True, True],
+                contiguity=True,
                 dtype=DataType.BFloat16,
             )
             # TODO(#3123): support sharded dropout and change this to a
@@ -161,7 +158,6 @@ def test_sdpa(mpi_test):
                 self.sched.parallelize(t, 0, nvfuser.ParallelType.mesh_x)
 
     torch.cuda.set_device(mpi_test.local_rank)
-    torch.manual_seed(0)
     q, k, v = [
         torch.randn(b, h, s, e // h, dtype=torch.bfloat16, device="cuda")
         for _ in range(3)
@@ -224,67 +220,67 @@ class TransformerForwardFusion(FusionDefinition):
         mlp_dropout_rng_seed = self.define_scalar(None, dtype=DataType.Int)
         self.input = self.define_tensor(
             shape=[b, s, e],
-            contiguity=[True if b > 1 else None, True, True],
+            contiguity=True,
             dtype=DataType.BFloat16,
         )
         self.layernorm0_weight = self.define_tensor(
             shape=[e],
-            contiguity=[True],
+            contiguity=True,
             dtype=DataType.BFloat16,
         )
         self.layernorm0_bias = self.define_tensor(
             shape=[e],
-            contiguity=[True],
+            contiguity=True,
             dtype=DataType.BFloat16,
         )
         self.mha_linear0_weight = self.define_tensor(
             shape=[e * 3, e],
-            contiguity=[True, True],
+            contiguity=True,
             dtype=DataType.BFloat16,
         )
         self.mha_linear0_bias = self.define_tensor(
             shape=[e * 3],
-            contiguity=[True],
+            contiguity=True,
             dtype=DataType.BFloat16,
         )
         self.mha_linear1_weight = self.define_tensor(
             shape=[e, e],
-            contiguity=[True, True],
+            contiguity=True,
             dtype=DataType.BFloat16,
         )
         self.mha_linear1_bias = self.define_tensor(
             shape=[e],
-            contiguity=[True],
+            contiguity=True,
             dtype=DataType.BFloat16,
         )
         self.layernorm1_weight = self.define_tensor(
             shape=[e],
-            contiguity=[True],
+            contiguity=True,
             dtype=DataType.BFloat16,
         )
         self.layernorm1_bias = self.define_tensor(
             shape=[e],
-            contiguity=[True],
+            contiguity=True,
             dtype=DataType.BFloat16,
         )
         self.mlp_linear0_weight = self.define_tensor(
             shape=[d, e * 4 // d, e],
-            contiguity=[True if d > 1 else None, True, True],
+            contiguity=True,
             dtype=DataType.BFloat16,
         )
         self.mlp_linear0_bias = self.define_tensor(
             shape=[d, e * 4 // d],
-            contiguity=[True if d > 1 else None, True],
+            contiguity=True,
             dtype=DataType.BFloat16,
         )
         self.mlp_linear1_weight = self.define_tensor(
             shape=[d, e, e * 4 // d],
-            contiguity=[True if d > 1 else None, True, True],
+            contiguity=True,
             dtype=DataType.BFloat16,
         )
         self.mlp_linear1_bias = self.define_tensor(
             shape=[e],
-            contiguity=[True],
+            contiguity=True,
             dtype=DataType.BFloat16,
         )
         S17 = self.define_scalar(0.00000, dtype=DataType.Double)
