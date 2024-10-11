@@ -1477,8 +1477,18 @@ void IndexLowering::handle(const kir::MBarrierWait* mwait) {
       IrBuilder::create<kir::MBarrierWait>(smem_address_ptr, mwait->state()));
 }
 
+void IndexLowering::handle(const kir::MBarrierWaitParity* mwait) {
+  NVF_ERROR(
+      mwait->mbarrier()->isA<kir::TensorIndex>(),
+      "Expected kir::TensorIndex in MBarrierWaitParity");
+  Val* smem_address_ptr = lower_utils::u32IndexScalarSmemTv(
+      mwait->mbarrier()->as<kir::TensorIndex>());
+  pushBack(IrBuilder::create<kir::MBarrierWaitParity>(
+      smem_address_ptr, mwait->parity()));
+}
+
 void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
-  // If LoadStoreOp has a smem TV in ldstMBarrierTokenMap, then it is a part
+  // If LoadStoreOp has a smem TV in ldstMBarrierParityMap, then it is a part
   // of a circular buffer loop. The kir nodes for arrive_expect_tx and
   // mbarrier_wait are added by the circular buffer pass. Otherwise, those
   // nodes are added here.

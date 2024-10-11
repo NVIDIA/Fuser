@@ -125,6 +125,7 @@ class Val;
   f(MBarrierArrive);                  \
   f(MBarrierArriveExpectTx);          \
   f(MBarrierWait);                    \
+  f(MBarrierWaitParity);              \
   f(BlockSerializeWait);              \
   f(BlockSerializeRelease);           \
   f(AsyncWait);                       \
