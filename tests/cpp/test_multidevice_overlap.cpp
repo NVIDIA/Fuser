@@ -647,11 +647,13 @@ TEST_F(
   FusionGuard::setCurFusion(hic.get());
 
   TensorView* tva = makeSymbolicTensor(ta_.dim());
-  TensorView* tvb = makeSymbolicTensor(tb_.dim());
-  TensorView* tvc = makeSymbolicTensor(tc_.dim());
+  TensorView* tva_allgathered = makeSymbolicTensor(ta_allgathered_.dim());
+  TensorView* tvb = makeSymbolicTensor(tb_unsharded_.dim());
+  TensorView* tvc = makeSymbolicTensor(tc_unsharded_.dim());
   hic->addInput(tva);
   hic->addInput(tvb);
   hic->addInput(tvc);
+  hic->addInput(tva_allgathered);
 
   auto* j =
       IrBuilder::create<Val>(DataType::Index); // running index of the for-loop
@@ -674,27 +676,27 @@ TEST_F(
       IrBuilder::create<hir::Stream>(stream_index));
 
   TensorView* tva_j = select(tva, 0, j);
-  TensorView* tvc_j = select(tvc, 0, j);
-  TensorView* tvc_locally_reduced_j =
-      matmul(tva_j, tvb); // ideally we should use the preallocated global
-                          // buffer tc_locally_reduced, but ExpressionEvaluator
-                          // do not support preallocated output buffer.
+  TensorView* tva_allgathered_j = select(tva_allgathered, 0, j);
 
   // Setting the DeviceMesh of the communication's I/O is artificial but
   // required at this point
   DeviceMesh full_mesh(all_devices_);
-  tvc_j->setDeviceMesh(full_mesh);
-  tvc_locally_reduced_j->setDeviceMesh(full_mesh);
+  tva_allgathered_j->setDeviceMesh(full_mesh);
+  tva_j->setDeviceMesh(full_mesh);
 
   auto* communication = IrBuilder::create<Communication>(
-      CommunicationType::ReduceScatter,
-      /*out=*/tvc_j,
-      /*in=*/tvc_locally_reduced_j,
+      CommunicationType::Allgather,
+      /*out=*/tva_allgathered_j,
+      /*in=*/tva_j,
       /*team=*/all_devices_,
       /*(unused)root=*/-1,
       RedOpType::SUM,
       /*scattered_axis=*/0);
   auto* wait = IrBuilder::create<hir::Wait>(communication);
+
+  TensorView* tvc_j = select(tvc, 0, j);
+  TensorView* mm_out = matmul(tva_allgathered_j, tvb);
+  TensorView* set_tvc_j_mm_out = set();
 
   // Slice and MatmulOp are present directly as Host IRs in the HostIrContainer.
   // It means that they are going to be executed at the host level (actually,
@@ -705,7 +707,7 @@ TEST_F(
   std::vector<Expr*> loop_body = {
       set_stream,
       tva_j->definition(),
-      tvc_j->definition(),
+      tva_allgathered_j->definition(),
       tvc_locally_reduced_j->definition(),
       communication,
       wait};
