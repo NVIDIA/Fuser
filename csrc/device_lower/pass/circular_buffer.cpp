@@ -994,15 +994,25 @@ class CircularBufferInserter : private kir::ExprMutator {
     insertion_info_.erase(loop);
   }
 
+  bool hasPrefetch(ForLoop* circular_buffer_loop) {
+    int64_t prefetch_distance =
+        GpuLower::current()->circularBufferInfo().getPrefetchDistanceFor(
+            circular_buffer_loop->iter_domain());
+    return prefetch_distance > 0;
+  }
+
   void insertTma(
       ForLoop* circular_buffer_loop,
       const std::vector<Expr*>& loads) {
     // Prologue loop:
     //  - launch only
     //  - arrive_expect_tx and tma load operations
-    ForLoop* prologue_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
-        circular_buffer_loop, loads, CircularBufferLoopStage::Prolog);
-    registerInsertBefore(circular_buffer_loop, prologue_loop);
+    if (hasPrefetch(circular_buffer_loop)) {
+      // If there is no prefetch, then we don't need a prologue loop.
+      ForLoop* prologue_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
+          circular_buffer_loop, loads, CircularBufferLoopStage::Prolog);
+      registerInsertBefore(circular_buffer_loop, prologue_loop);
+    }
 
     // Main loop:
     //  - Launch and wait
@@ -1010,6 +1020,11 @@ class CircularBufferInserter : private kir::ExprMutator {
     ForLoop* main_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
         circular_buffer_loop, loads, CircularBufferLoopStage::Main);
     registerReplace(circular_buffer_loop, main_loop);
+
+    if (!hasPrefetch(circular_buffer_loop)) {
+      // If there is no prefetch, then we don't need a epilogue loop.
+      return;
+    }
 
     // We can use exclude argument in CloneTmaCircularBufferLoopAndInsertSync
     // clone to avoid duplicating allocations if main loop is trivial.
@@ -1028,9 +1043,13 @@ class CircularBufferInserter : private kir::ExprMutator {
   }
 
   void insert(ForLoop* circular_buffer_loop, const std::vector<Expr*>& loads) {
-    ForLoop* prologue_loop = CircularBufferLoopCloner::clone(
-        circular_buffer_loop, loads, CircularBufferLoopStage::Prolog);
-    registerInsertBefore(circular_buffer_loop, prologue_loop);
+    ForLoop* prologue_loop = nullptr;
+    if (hasPrefetch(circular_buffer_loop)) {
+      // If there is no prefetch, then we don't need a prologue loop.
+      prologue_loop = CircularBufferLoopCloner::clone(
+          circular_buffer_loop, loads, CircularBufferLoopStage::Prolog);
+      registerInsertBefore(circular_buffer_loop, prologue_loop);
+    }
 
     bool write_to_smem =
         std::any_of(loads.begin(), loads.end(), [](const Expr* expr) {
@@ -1048,7 +1067,8 @@ class CircularBufferInserter : private kir::ExprMutator {
       // If any of the circular buffered tensor in this circular buffer
       //  loop is async copy. We want to wait for the gmem loads to
       //  finish before synchronizing the block.
-      if (std::any_of(loads.begin(), loads.end(), ir_utils::isCpAsyncOp)) {
+      if (prologue_loop != nullptr &&
+          std::any_of(loads.begin(), loads.end(), ir_utils::isCpAsyncOp)) {
         int64_t prefetch_distance =
             GpuLower::current()->circularBufferInfo().getPrefetchDistanceFor(
                 circular_buffer_loop->iter_domain());
@@ -1121,6 +1141,11 @@ class CircularBufferInserter : private kir::ExprMutator {
       kir::AsyncWait* cp_async_wait_all =
           IrBuilder::create<kir::AsyncWait>(AsyncOpType::CpAsync, 0);
       registerInsertAfter(circular_buffer_loop, cp_async_wait_all);
+    }
+
+    if (!hasPrefetch(circular_buffer_loop)) {
+      // If there is no prefetch, then we don't need a epilogue loop.
+      return;
     }
 
     if (requireEpilogue(loads)) {
