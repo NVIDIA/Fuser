@@ -380,7 +380,7 @@ INSTANTIATE_TEST_SUITE_P(
     PipelineTestTwoStages,
     testing::Combine(
         // TODO(#2794): add back CommunicatorBackend::kUcc
-        testing::Values(CommunicatorBackend::kNccl),
+        testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
         testing::Values(mesh3, mesh4),
         testing::Values(mesh3, mesh4),
         testing::Values(true),
