@@ -49,21 +49,22 @@ TensorView* index_select(
   DataType dtype = lookup_tv->getDataType().value();
   NVF_CHECK(
       dtype != DataType::Null, "Invalid datatype provided for new value.");
-  std::vector<IterDomain*> lookup_dom =
+  std::vector<IterDomain*> lookup_domain =
       TensorDomain::noReductions(lookup_tv->getLogicalDomain());
-  std::vector<IterDomain*> index_dom =
+  std::vector<IterDomain*> index_domain =
       TensorDomain::noReductions(index_tv->getLogicalDomain());
-  int64_t n_dims = (int64_t)lookup_dom.size();
+  int64_t n_dims = (int64_t)lookup_domain.size();
   dim = wrapDim(dim, n_dims);
   NVF_CHECK(n_dims > 0, "index_select can not be applied to 0d tensor.");
   bool is_already_broadcast =
-      ops::isIndexAlreadyBroadcast(index_dom, dim, n_dims);
+      ops::isIndexAlreadyBroadcast(index_domain, dim, n_dims);
   NVF_CHECK(
-      is_already_broadcast || index_dom.size() <= 1,
-      "index array must be 1d or scalar tensor.");
+      is_already_broadcast || index_domain.size() <= 1,
+      "index_tv must be broadcasted to have the same rank as lookup_tv or is ",
+      "a 1d or scalar tensor.");
 
-  if (index_dom.empty()) {
-    auto select_tv = select(lookup_tv, dim, index_tv);
+  if (index_domain.empty()) {
+    TensorView* select_tv = select(lookup_tv, dim, index_tv);
     return unsqueeze(select_tv, dim);
   }
 
@@ -72,11 +73,13 @@ TensorView* index_select(
 
   for (auto i : c10::irange(n_dims)) {
     if (i != dim) {
-      new_logical.emplace_back(lookup_dom[i]->cloneWithoutRFactor());
-    } else if (is_already_broadcast) {
-      new_logical.emplace_back(index_dom[i]->cloneWithoutRFactor());
+      new_logical.emplace_back(lookup_domain[i]->cloneWithoutRFactor());
     } else {
-      new_logical.emplace_back(index_dom[0]->cloneWithoutRFactor());
+      // For 1-D tensor, select the first index. Otherwise, select the index
+      // for desired dimension.
+      int64_t index_domain_dim = (is_already_broadcast) ? dim : 0;
+      new_logical.emplace_back(
+          index_domain[index_domain_dim]->cloneWithoutRFactor());
     }
   }
 
