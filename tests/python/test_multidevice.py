@@ -533,17 +533,20 @@ def test_transformer_forward(mpi_test):
         output,
     ) = outs
 
-    def assert_shape_is(t: torch.Tensor, sizes: list[int]) -> None:
-        assert t.shape == torch.Size(sizes)
+    # TODO(#2962): validate the numbers as well. Currently, the numbers are off
+    # by a lot, making comparison infeasible.
+    def assert_shape_dtype(t: torch.Tensor, expected_sizes: list[int], expected_dtype: torch.dtype) -> None:
+        assert t.shape == torch.Size(expected_sizes)
+        assert t.dtype == expected_dtype
 
-    assert_shape_is(layernorm0_avg, [b, s])
-    assert_shape_is(layernorm0_invstd, [b, s, 1])
-    assert_shape_is(mha_linear0, [b, s, e * 3])
-    assert_shape_is(sdpa_out, [b, h, s, e // h])
-    assert_shape_is(sdpa_logsum_exp, [b, h, s])
-    assert_shape_is(sdpa_seed, [])
-    assert_shape_is(sdpa_offset, [])
-    assert_shape_is(mha_dropout, [b, s, e])
-    assert_shape_is(layernorm1_avg, [b, s])
-    assert_shape_is(layernorm1_invstd, [b, s, 1])
-    assert_shape_is(output, [b, s, e])
+    assert_shape_dtype(layernorm0_avg, [b, s], torch.float32)
+    assert_shape_dtype(layernorm0_invstd, [b, s, 1], torch.float32)
+    assert_shape_dtype(mha_linear0, [b, s, e * 3], torch.bfloat16)
+    assert_shape_dtype(sdpa_out, [b, h, s, e // h], torch.bfloat16)
+    assert_shape_dtype(sdpa_logsum_exp, [b, h, s], torch.float32)
+    assert_shape_dtype(sdpa_seed, [], torch.int64)
+    assert_shape_dtype(sdpa_offset, [], torch.int64)
+    assert_shape_dtype(mha_dropout, [b, s, e], torch.float32)
+    assert_shape_dtype(layernorm1_avg, [b, s], torch.float32)
+    assert_shape_dtype(layernorm1_invstd, [b, s, 1], torch.float32)
+    assert_shape_dtype(output, [b, s, e], torch.bfloat16)
