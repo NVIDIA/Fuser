@@ -343,7 +343,8 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
 std::pair<int64_t, int64_t> getBufferBatchSizeAndThreadsPerBlock(
     const int64_t inner_dim_numel,
     const int64_t outer_dim_numel,
-    const int64_t persistent_buffer_size,
+    const int64_t register_buffer_size,
+    const int64_t shared_memory_buffer_size,
     const int64_t vectorize_factor,
     const int64_t warp_size) {
   // if inner_dim_numel <= 1024, we are doing multiple reductions per block
@@ -384,7 +385,7 @@ std::pair<int64_t, int64_t> getBufferBatchSizeAndThreadsPerBlock(
   // of inputs and outputs.
   auto getMaximumInnerOuterPersistentBufferBatch = [&]() -> int64_t {
     int64_t register_per_batch = ceilDiv(
-        persistent_buffer_size / inner_dim_numel * vectorize_factor,
+        register_buffer_size / inner_dim_numel * vectorize_factor,
         scheduler_utils::bytes_per_register);
     return scheduler_utils::safeDiv(
         scheduler_utils::max_registers_per_thread -
@@ -407,12 +408,20 @@ std::pair<int64_t, int64_t> getBufferBatchSizeAndThreadsPerBlock(
   // reaches batch_min.
   int64_t threads_per_block = threads_per_block_min;
   int64_t inner_batch = ceilDiv(after_vectorization, threads_per_block);
-  while (inner_batch > batch_max &&
-         threads_per_block + warp_size <= threads_per_block_max &&
-         ceilDiv(after_vectorization, threads_per_block + warp_size) >=
-             batch_min) {
-    threads_per_block += warp_size;
-    inner_batch = ceilDiv(after_vectorization, threads_per_block);
+  if (shared_memory_buffer_size > 0) {
+    while (inner_batch > batch_max &&
+           threads_per_block * 2 <= threads_per_block_max &&
+           ceilDiv(after_vectorization, threads_per_block * 2) >= batch_min) {
+      threads_per_block *= 2;
+      inner_batch = ceilDiv(after_vectorization, threads_per_block);
+    }
+  }else{
+    while (inner_batch > batch_max &&
+          threads_per_block + warp_size <= threads_per_block_max &&
+          ceilDiv(after_vectorization, threads_per_block  + warp_size) >= batch_min) {
+      threads_per_block  += warp_size;
+      inner_batch = ceilDiv(after_vectorization, threads_per_block);
+    }
   }
   return std::make_pair(inner_batch, threads_per_block);
 }
@@ -524,6 +533,7 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
           inner_dim_numel,
           outer_dim_numel,
           regs_buffer_size,
+          smem_buffer_size,
           iop.inner_vect,
           dev_prop->warpSize);
   iop.inner_batch = persistent_batch;
