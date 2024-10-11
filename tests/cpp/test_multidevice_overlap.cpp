@@ -303,6 +303,8 @@ TEST_F(
   TensorView* tva = makeSymbolicTensor(ta_.dim());
   TensorView* tvb = makeSymbolicTensor(tb_.dim());
   TensorView* tvc = makeSymbolicTensor(tc_.dim());
+  TensorView* tvc_locally_reduced =
+      makeSymbolicTensor(tc_locally_reduced_.dim());
   hic->addInput(tva);
   hic->addInput(tvb);
   hic->addInput(tvc);
@@ -331,9 +333,8 @@ TEST_F(
   TensorView* tva_j = select(tva, 0, j);
   TensorView* tvc_j = select(tvc, 0, j);
   TensorView* tvc_locally_reduced_j =
-      matmul(tva_j, tvb); // ideally we should use the preallocated global
-                          // buffer tc_locally_reduced, but ExpressionEvaluator
-                          // do not support preallocated output buffer.
+      select(tvc_locally_reduced, 0, stream_index);
+  auto matmul = IrBuilder::create<MatmulOp>(tvc_locally_reduced_j, tva_j, tvb);
 
   // Setting the DeviceMesh of the communication's I/O is artificial but
   // required at this point
@@ -362,6 +363,7 @@ TEST_F(
       tva_j->definition(),
       tvc_j->definition(),
       tvc_locally_reduced_j->definition(),
+      matmul,
       communication,
       wait};
   for (Expr* expr : loop_body) {
@@ -404,7 +406,10 @@ TEST_F(
        c10::irange(params.number_of_iterations)) {
     initializeIO();
     std::unordered_map<Val*, c10::IValue> inputs = {
-        {tva, ta_}, {tvb, tb_}, {tvc, tc_}};
+        {tva, ta_},
+        {tvb, tb_},
+        {tvc, tc_},
+        {tvc_locally_reduced, tc_locally_reduced_}};
 
     hie.runWithInput(std::move(inputs));
   }
