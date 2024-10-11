@@ -193,18 +193,8 @@ void CircularBufferInfo::setCircularBufferAxis(
     const TensorView* tv,
     IterDomain* axis) {
   getTvInfo(tv).circular_buffer_axis = axis;
-
-  // Also validate the stage consistency with CA map.
-  int64_t stage_depth = 0;
-  if (tv->isCircularBuffered()) {
-    stage_depth = tv->circularBufferDepth();
-  } else {
-    // Double buffer is a circular buffer with depth 2.
-    stage_depth = 2;
-  }
-
   // Set and validate the new stage depth.
-  setStageDepth(axis, stage_depth);
+  setStageDepth(axis, tv->circularBufferDepth());
 }
 
 void CircularBufferInfo::setStageDepth(IterDomain* id, int64_t stage_depth) {
