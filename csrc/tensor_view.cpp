@@ -112,7 +112,6 @@ TensorView::TensorView(const TensorView* src, IrCloner* ir_cloner)
       compute_at_pos_(src->compute_at_pos_),
       max_producer_pos_(src->max_producer_pos_),
       memory_type_(src->memory_type_),
-      is_circular_buffered_(src->is_circular_buffered_),
       circular_buffer_stage_(src->circular_buffer_stage_),
       cpu_scalar_(src->cpu_scalar_),
       has_swizzle_op_(src->has_swizzle_op_),
@@ -1324,7 +1323,6 @@ void TensorView::circularBuffer(int64_t number_of_stages) {
   // be finalized until lowering.
   NVF_ERROR(number_of_stages > 1, "Unsupported stage number");
   validateCircularBufferedTensor(this);
-  is_circular_buffered_ = true;
   circular_buffer_stage_ = number_of_stages;
 }
 
