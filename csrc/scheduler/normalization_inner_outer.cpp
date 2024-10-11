@@ -265,6 +265,8 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   // and shared memory are updated accordingly. Break if required register and
   // shared memory are lower than limit or shared memory exceeds the limit.
   int64_t n_smem_buffer = -1;
+  int64_t register_smem_diff =
+      buffer_params.regs_buffer_size - buffer_params.smem_buffer_size;
   const int n_buffers = (int)buffers.size();
   for (int i = 0; i < n_buffers; i++) {
     auto current_tv = buffers[i];
@@ -286,15 +288,26 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
         dev_prop->warpSize);
     buffer_params.smem_buffer_size += tv_buffer_size_smem;
 
-    // The first-i buffers to are moved from register to shared memory
+    // The first-i buffers are moved from register to shared memory
     // If both the register buffer size and shared memory buffer size are within
     // the allowable limit, we found a good configuration. Record the number of
-    // buffers to be moved to shared memory and break the loop.
+    // buffers to be moved to shared memory. Instead of break from the loop, we
+    // keep looping to find a better configuration where the difference between
+    // register buffer size and shared memory buffer size is minimized with the
+    // constraint that register buffer size is still larger than shared memory
+    // buffer size.
     if (buffer_params.regs_buffer_size <= available_regs &&
         buffer_params.smem_buffer_size <= available_smem) {
-      n_smem_buffer = i + 1;
-      break;
+      int64_t diff =
+          buffer_params.regs_buffer_size - buffer_params.smem_buffer_size;
+      if (diff > 0 && diff < register_smem_diff) {
+        n_smem_buffer = i + 1;
+        register_smem_diff = diff;
+      } else {
+        break;
+      }
     }
+
     // shared memory buffer size exceeds the limit, not a good configuration.
     // break the loop, n_smem_buffer remains [-1] indicating a bad
     // configuration.
