@@ -11008,7 +11008,7 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
     );
     asm volatile("wgmma.commit_group.sync.aligned;\n");
     asm volatile("wgmma.wait_group.sync.aligned %0;\n"::"n"(1LL):"memory");
-    __syncthreads();
+    // __syncthreads();
     if (b17) {
       mbarrier::arriveExpectTX(toSmem((&T7[((3 + i29) % 4)])), 6144U);
       #pragma unroll
