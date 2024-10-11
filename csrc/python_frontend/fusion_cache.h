@@ -26,14 +26,22 @@ struct UserSchedule {
 
   //! Runtime information for schedulers
   std::unique_ptr<SchedulerRuntimeInfo> runtime_info;
+
   //! The scheduler heuristic for this UserSchedule
+  std::unique_ptr<SchedulerEntry> scheduler;
+
+  //! The parameters for scheduler heuristic.
   std::unique_ptr<HeuristicParams> heuristic_params;
+
   //! Concretized, Scheduled Fusion IR
   std::unique_ptr<Fusion> scheduled_fusion;
+
   //! Generated kernel container
   std::unique_ptr<FusionExecutor> executor;
+
   //! ID of fusion in python frontend fusion cache
   int64_t fusion_id_ = -1;
+
   //! device ID for this user schedule
   int64_t device_id_ = -1;
 
@@ -61,7 +69,13 @@ struct UserSchedule {
   std::tuple<bool, std::string> canScheduleDebug(
       const SchedulerType& scheduler_type);
 
-  //! Schedule fusion with heuristic
+  //! Create scheduler and get heuristic parameters for fusion.
+  HeuristicParams* computeHeuristics(SchedulerType scheduler_type);
+
+  //! Schedule fusion with selected heuristics and scheduler.
+  void schedule();
+
+  //! Schedule fusion with heuristic.
   void scheduleWithType(SchedulerType scheduler_type);
 };
 
@@ -224,7 +238,8 @@ class FusionCache {
   UserSchedule* createUserSchedule(
       FusionSchedules* scheds,
       const at::ArrayRef<c10::IValue>& inputs,
-      int device);
+      int device,
+      bool overwrite_existing_schedule = false);
   //! Get the root Trie ptr
   NVF_API TrieNode* rootTriePtr();
 
