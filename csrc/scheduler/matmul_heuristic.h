@@ -22,7 +22,7 @@ namespace nvfuser {
 class MatmulParams : public HeuristicParams {
  public:
   MatmulParams()
-      : HeuristicParams(SchedulerType::Matmul), supported_vec_size(){};
+      : HeuristicParams(SchedulerType::Matmul), supported_vec_size() {};
   //! A list of possible strategies used to define along which axis
   //!  parallelization will be done.
   enum class TileRasterizationOrder { RowMajor = 0, ColumnMajor = 1 };
