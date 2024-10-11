@@ -1067,8 +1067,9 @@ class CircularBufferInserter : private kir::ExprMutator {
       // If any of the circular buffered tensor in this circular buffer
       //  loop is async copy. We want to wait for the gmem loads to
       //  finish before synchronizing the block.
-      if (prologue_loop != nullptr &&
-          std::any_of(loads.begin(), loads.end(), ir_utils::isCpAsyncOp)) {
+      has_cpasync =
+          std::any_of(loads.begin(), loads.end(), ir_utils::isCpAsyncOp);
+      if (prologue_loop != nullptr && has_cpasync) {
         int64_t prefetch_distance =
             GpuLower::current()->circularBufferInfo().getPrefetchDistanceFor(
                 circular_buffer_loop->iter_domain());
@@ -1077,7 +1078,6 @@ class CircularBufferInserter : private kir::ExprMutator {
         prologue_loop->body().push_back(
             IrBuilder::create<kir::AsyncCommit>(AsyncOpType::CpAsync));
         registerInsertBefore(circular_buffer_loop, cp_async_wait);
-        has_cpasync = true;
       }
 
       // Insert the initial block sync before entering main loop.
