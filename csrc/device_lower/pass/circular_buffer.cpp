@@ -681,7 +681,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
 
     // The other threads issue arriveExpectTx without any expected transactions.
     kir::MBarrierArrive* thread_arrive = IrBuilder::create<kir::MBarrierArrive>(
-        nullptr, mbarrier_arrive_tx_->mbarrier());
+        /*state=*/nullptr, mbarrier_arrive_tx_->mbarrier());
     if_expr->elseBody().push_back(thread_arrive);
     for_loop_stack_.back()->body().push_back(if_expr);
 
@@ -748,7 +748,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
         getSizeOfTmaLoad(ldst), for_loop_stack_);
     kir::MBarrierArriveExpectTx* mbarrier_arrive_tx =
         IrBuilder::create<kir::MBarrierArriveExpectTx>(
-            nullptr, stage_mbarrier, tx_count);
+            /*state=*/nullptr, stage_mbarrier, tx_count);
 
     return mbarrier_arrive_tx;
   }
@@ -771,7 +771,14 @@ class CloneTmaCircularBufferLoopAndInsertSync
     kir::TensorIndex* stage_mbarrier =
         IrBuilder::create<kir::TensorIndex>(all_mbarriers, stage);
 
-    // Get mbarrier_parity for this circular buffer stage.
+    // The mbarrier_parity for this circular buffer stage is:
+    //   (loop_index / stage_depth) % 2
+    // We have an mbarrier for each circular buffer stage, so loop_index /
+    // stage_depth is loop_index_per_stage. The valid values of phaseParity
+    // operand are 0 and 1, so we take the modulo of loop_index_per_stage with a
+    // divisor of 2. See:
+    // https://docs.nvidia.com/cuda/parallel-thread-execution/#parallel-synchronization-and-communication-instructions-mbarrier-test-wait-mbarrier-try-wait
+    // for reference.
     auto depth = IrBuilder::create<Val>(stage_depth, DataType::UInt32);
     auto two = IrBuilder::create<Val>(2, DataType::UInt32);
     Val* stage_parity = SimplifyingIrBuilder::modExpr(
