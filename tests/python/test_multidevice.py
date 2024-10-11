@@ -535,7 +535,9 @@ def test_transformer_forward(mpi_test):
 
     # TODO(#2962): validate the numbers as well. Currently, the numbers are off
     # by a lot, making comparison infeasible.
-    def assert_shape_dtype(t: torch.Tensor, expected_sizes: list[int], expected_dtype: torch.dtype) -> None:
+    def assert_shape_dtype(
+        t: torch.Tensor, expected_sizes: list[int], expected_dtype: torch.dtype
+    ) -> None:
         assert t.shape == torch.Size(expected_sizes)
         assert t.dtype == expected_dtype
 
