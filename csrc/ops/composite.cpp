@@ -425,6 +425,32 @@ TensorView* matmul(TensorView* tv_a, TensorView* tv_b) {
   return out;
 }
 
+TensorView* matmul_out(TensorView* out, TensorView* tv_a, TensorView* tv_b) {
+  NVF_CHECK(
+      tv_a->nDims() > 0 && tv_b->nDims() > 0,
+      "Expected inputs to be atleast 1D, got: ",
+      tv_a->nDims(),
+      " and ",
+      tv_b->nDims());
+
+  // Note: torch.matmul reference does not restrict the inputs to the same
+  // dtype, but it fails for different input dtypes.
+  //       This condition may potentially be modified. The following condition
+  //       should change accordingly.
+  NVF_CHECK(
+      tv_a->dtype() == tv_b->dtype(),
+      "Expected A and B dtypes to have the same dtype, got: ",
+      tv_a->dtype(),
+      " and ",
+      tv_b->dtype());
+
+  // Make sure out has the correct dims for a matmul of a and b
+  //NVF_CHECK(out ...);
+
+  IrBuilder::create<MatmulOp>(out, tv_a, tv_b);
+  return out;
+}
+
 SdpfaFwdResult sdpfa_fwd(
     TensorView* query,
     TensorView* key,

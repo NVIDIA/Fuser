@@ -695,8 +695,7 @@ TEST_F(
   auto* wait = IrBuilder::create<hir::Wait>(communication);
 
   TensorView* tvc_j = select(tvc, 0, j);
-  TensorView* mm_out = matmul(tva_allgathered_j, tvb);
-  TensorView* set_tvc_j_mm_out = set();
+  matmul_out(tvc_j, tva_allgathered_j, tvb); // returns tvc_j, ignore since we already have it
 
   // Slice and MatmulOp are present directly as Host IRs in the HostIrContainer.
   // It means that they are going to be executed at the host level (actually,
@@ -708,9 +707,9 @@ TEST_F(
       set_stream,
       tva_j->definition(),
       tva_allgathered_j->definition(),
-      tvc_locally_reduced_j->definition(),
       communication,
-      wait};
+      wait,
+      tvc_j->definition()};
   for (Expr* expr : loop_body) {
     for_loop->body().push_back(expr);
   }
@@ -741,8 +740,8 @@ TEST_F(
   hic->pushBackTopLevelExprs(for_loop_stream);
 
   // The following line is artificial but necessary to make
-  // tva_j->isProducerOf(tvc_locally_reduced_j) == true
-  hic->addOutput(tvc_locally_reduced_j);
+  // tva_j->isProducerOf(tvc_j) == true
+  hic->addOutput(tvc_j);
 
   hir::HostIrExecutor hie(std::move(hic), communicator_);
 
@@ -750,7 +749,7 @@ TEST_F(
        c10::irange(params.number_of_iterations)) {
     initializeIO();
     std::unordered_map<Val*, c10::IValue> inputs = {
-        {tva, ta_}, {tvb, tb_}, {tvc, tc_}};
+        {tva, ta_}, {tva_allgathered, ta_allgathered_}, {tvb, tb_unsharded_}, {tvc, tc_unsharded_}};
 
     hie.runWithInput(std::move(inputs));
   }
