@@ -1036,7 +1036,8 @@ TEST_F(MultiDeviceTutorial, HostIrKernekPipelining) {
       /*vectorize=*/false,
       /*vectorize_shift=*/nullptr,
       /*unroll_required=*/false,
-      CircularBufferLoopStage::NotApplicable);
+      CircularBufferLoopStage::NotApplicable,
+      /*circular_buffer_loop_stage_depth=*/0);
 
   // We select a new stream in a round-robin fashion
   auto* stream_index = mod(index, IrBuilder::create<Val>(kNumberOfStreams));
