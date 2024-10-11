@@ -281,6 +281,25 @@ void HostIrExecutor::handle(EndCoalescing* end_coalescing) {
   works_[end_coalescing] = backend->endCoalescing();
 }
 
+void HostIrExecutor::handle(MatmulOp* matmul) {
+  TensorView* a = matmul->inA();
+  TensorView* b = matmul->inB();
+  TensorView* out = matmul->out();
+  NVF_ERROR(
+      expr_evaluator_.isKnown(a) && expr_evaluator_.isKnown(b),
+      "Inputs of the matmul ",
+      matmul->toString(),
+      "must be precomputed before being retrieved");
+  if (expr_evaluator_.isKnown(out)) {
+    auto t_a = expr_evaluator_.evaluate(a).as<at::Tensor>();
+    auto t_b = expr_evaluator_.evaluate(b).as<at::Tensor>();
+    auto t_out = expr_evaluator_.evaluate(out).as<at::Tensor>();
+    at::matmul_out(t_out, t_a, t_b);
+  } else {
+    unhandled(matmul);
+  }
+}
+
 void HostIrExecutor::unhandled(Statement* stmt) {
   NVF_ERROR(stmt->isA<Expr>(), stmt, " must be an Expr");
   auto* expr = stmt->as<Expr>();
