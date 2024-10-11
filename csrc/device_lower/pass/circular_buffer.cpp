@@ -73,9 +73,9 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
   void duplicate() {
     // Cloning the circular buffer loop as follows:
     //
-    // Prologue: 0 to 1
-    // Main: 0 to (extent-1)
-    // Epilogue: (extent-1) to extent
+    // Prologue: 0 to prefetch_distance
+    // Main: 0 to (extent-prefetch_distance)
+    // Epilogue: (extent-prefetch_distance) to extent
 
     Val* index = GpuLower::current()->getLoopIndexVariable(
         circular_buffer_loop_->iter_domain(), loop_type_);
@@ -84,12 +84,15 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
     int64_t stage_depth =
         GpuLower::current()->circularBufferInfo().getStageDepthFor(
             circular_buffer_loop_->iter_domain());
+    int64_t prefetch_distance =
+        GpuLower::current()->circularBufferInfo().getPrefetchDistanceFor(
+            circular_buffer_loop_->iter_domain());
 
     switch (loop_type_) {
       case CircularBufferLoopStage::Prolog: {
         NVF_ERROR(start->isZeroInt());
         stop = SimplifyingIrBuilder::create<Val>(
-            int64_t(stage_depth - 1), DataType::Index);
+            prefetch_distance, DataType::Index);
         break;
       }
       case CircularBufferLoopStage::Main: {
@@ -97,7 +100,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
           stop = IrBuilder::subExpr(
               circular_buffer_loop_->stop(),
               SimplifyingIrBuilder::create<Val>(
-                  stage_depth - 1, DataType::Index));
+                  prefetch_distance, DataType::Index));
         }
         break;
       }
@@ -106,7 +109,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
         start = IrBuilder::subExpr(
             circular_buffer_loop_->stop(),
             SimplifyingIrBuilder::create<Val>(
-                stage_depth - 1, DataType::Index));
+                prefetch_distance, DataType::Index));
         break;
       }
       case CircularBufferLoopStage::NotApplicable: {
@@ -271,7 +274,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
 // }
 //
 // Prologue loop:
-// for (int64_t loop_index : irange(stages-1)) {
+// for (int64_t loop_index : irange(prefetch_distance)) {
 //   if (warp_id == 0 && electSync()()) {
 //     mbarrier::arriveExpectTx(mbarrier[loop_index], expected_bytes);
 //     for (...) {
@@ -283,9 +286,9 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
 // }
 //
 // Main loop:
-// for (int64_t loop_index : irange(N-(stage_depth-1))) {
+// for (int64_t loop_index : irange(N-prefetch_distance)) {
 //   current_stage = loop_index % stage_depth
-//   load_stage = (loop_index + (stage_depth - 1)) % stage_depth)
+//   load_stage = (loop_index + prefetch_distance) % stage_depth)
 //   if (warp_id == 0 && electSync()()) {
 //     mbarrier::arriveExpectTx(mbarrier[load_stage], expected_bytes);
 //     for (...) {
@@ -300,7 +303,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
 // }
 //
 // Epilogue loop:
-// for (int64_t loop_index : irange(N-(stages-1), N)) {
+// for (int64_t loop_index : irange(N-prefetch_distance, N)) {
 //   current_stage = loop_index % stage_depth
 //   mbarrier::waitParity((loop_index / stage_depth) % 2);
 //
@@ -516,7 +519,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
   // Handle cpAsyncBulk type LoadStoreOp that is a circular buffer load
   //
   // compute_stage = loop_index % stage_depth
-  // load_stage = (loop_index + (stage_depth - 1)) % stage_depth)
+  // load_stage = (loop_index + prefetch_distance) % stage_depth)
   //
   // Replace LoadStoreOp with:
   //   if (warp_id == 0 && electSync()()) {
@@ -535,6 +538,9 @@ class CloneTmaCircularBufferLoopAndInsertSync
 
     int64_t stage_depth =
         GpuLower::current()->circularBufferInfo().getStageDepthFor(
+            circular_buffer_loop_->iter_domain());
+    int64_t prefetch_distance =
+        GpuLower::current()->circularBufferInfo().getPrefetchDistanceFor(
             circular_buffer_loop_->iter_domain());
 
     if (current_compute_stage_ == nullptr) {
@@ -556,9 +562,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
       current_load_stage_ = IrBuilder::modExpr(
           IrBuilder::addExpr(
               cloned_top_level_loop_->indexOrStartIfTrivial(),
-              IrBuilder::subExpr(
-                  IrBuilder::create<Val>(stage_depth, PrimDataType::Index),
-                  IrBuilder::create<Val>(1L, PrimDataType::Index))),
+              IrBuilder::create<Val>(prefetch_distance, PrimDataType::Index)),
           IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
       kir::Allocate* current_load_stage_alloc =
           IrBuilder::create<kir::Allocate>(
@@ -1045,11 +1049,11 @@ class CircularBufferInserter : private kir::ExprMutator {
       //  loop is async copy. We want to wait for the gmem loads to
       //  finish before synchronizing the block.
       if (std::any_of(loads.begin(), loads.end(), ir_utils::isCpAsyncOp)) {
-        int64_t stage_depth =
-            GpuLower::current()->circularBufferInfo().getStageDepthFor(
+        int64_t prefetch_distance =
+            GpuLower::current()->circularBufferInfo().getPrefetchDistanceFor(
                 circular_buffer_loop->iter_domain());
         kir::AsyncWait* cp_async_wait = IrBuilder::create<kir::AsyncWait>(
-            AsyncOpType::CpAsync, stage_depth - 2);
+            AsyncOpType::CpAsync, prefetch_distance - 1);
         prologue_loop->body().push_back(
             IrBuilder::create<kir::AsyncCommit>(AsyncOpType::CpAsync));
         registerInsertBefore(circular_buffer_loop, cp_async_wait);
@@ -1157,13 +1161,13 @@ class CircularBufferInserter : private kir::ExprMutator {
     //  inserted so would need to be updated if we re-order the
     //  passes. Cleanups suggested in [Circular Buffer Sync]
     //  would resolve this dependency on pass ordering.
-    int64_t stage_depth =
-        GpuLower::current()->circularBufferInfo().getStageDepthFor(
+    int64_t prefetch_distance =
+        GpuLower::current()->circularBufferInfo().getPrefetchDistanceFor(
             main_loop->iter_domain());
     kir::AsyncCommit* cp_async_commit =
         IrBuilder::create<kir::AsyncCommit>(AsyncOpType::CpAsync);
     kir::AsyncWait* cp_async_wait = IrBuilder::create<kir::AsyncWait>(
-        AsyncOpType::CpAsync, stage_depth - 2);
+        AsyncOpType::CpAsync, prefetch_distance - 1);
 
     // Find the last circular buffer load in the main loop, and insert
     // cp.async.commit after it.

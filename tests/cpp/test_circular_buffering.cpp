@@ -815,8 +815,8 @@ auto StagesAndPrefetches() {
 }
 
 std::string nonTMAName(const testing::TestParamInfo<StageAndPrefetch>& info) {
-  return "stage_" + std::to_string(info.param.first) +
-      "_prefetch_" + std::to_string(info.param.second);
+  return "stage_" + std::to_string(info.param.first) + "_prefetch_" +
+      std::to_string(info.param.second);
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -1775,10 +1775,10 @@ auto tmaCircularBufferingParams() {
 
 std::string tmaName(
     const testing::TestParamInfo<TmaCircularBufferingParams>& info) {
-  return "stage_" + std::to_string(std::get<0>(info.param)) +
-      "_prefetch_" + std::to_string(std::get<1>(info.param)) +
-      "_M_" + std::to_string(std::get<2>(info.param)) +
-      "_N_" + std::to_string(std::get<3>(info.param));
+  return "stage_" + std::to_string(std::get<0>(info.param)) + "_prefetch_" +
+      std::to_string(std::get<1>(info.param)) + "_M_" +
+      std::to_string(std::get<2>(info.param)) + "_N_" +
+      std::to_string(std::get<3>(info.param));
 }
 
 INSTANTIATE_TEST_SUITE_P(

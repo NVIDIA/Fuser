@@ -499,8 +499,9 @@ class NVF_API TensorView : public Val {
 
   void setMemoryType(MemoryType mt);
 
-  // Apply circular buffering transformation
-  void circularBuffer(int64_t number_of_stages, int64_t prefetch_distance=-1);
+  // Apply circular buffering transformation. Negative prefetch_distance
+  // means "all but", for example, -1 means number_of_stages - 1.
+  void circularBuffer(int64_t number_of_stages, int64_t prefetch_distance = -1);
 
   // Returns true if this tensor is circular buffered.
   bool isCircularBuffered() const {
