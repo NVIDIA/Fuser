@@ -24,6 +24,8 @@ namespace ops {
 
 TensorView* maybe_broadcast_inner_to_rank(TensorView* t, size_t rank);
 
+// A utility function that broadcasts index TensorView to the rank of the other
+// TensorView.
 TensorView* maybeBroadcastIndexTv(TensorView* t, size_t dim, size_t rank);
 
 // A utility function that checks if index tv is already broadcasted to correct

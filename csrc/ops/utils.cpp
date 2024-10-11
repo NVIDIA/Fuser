@@ -43,11 +43,11 @@ TensorView* maybeBroadcastIndexTv(TensorView* t, size_t dim, size_t rank) {
       " >= ",
       rank);
   std::vector<bool> bcast_dims(rank, false);
-  // broadcast output on input to match rank with other.
+  // outer broadcast on input to match rank with other.
   if (dim + 1 < rank) {
     std::fill(bcast_dims.begin() + (int64_t)dim + 1, bcast_dims.end(), true);
   }
-  // broadcast inner on inp to match rank with other.
+  // inner broadcast on input to match rank with other.
   if (dim > 0) {
     std::fill(bcast_dims.begin(), bcast_dims.begin() + (int64_t)dim, true);
   }
@@ -57,13 +57,11 @@ TensorView* maybeBroadcastIndexTv(TensorView* t, size_t dim, size_t rank) {
   return t;
 }
 
-// A utility function that checks if index tv is already broadcasted to correct
-// shape for index_select
 bool isIndexAlreadyBroadcast(
     const std::vector<IterDomain*>& index_domain,
     size_t dim,
     size_t rank) {
-  // short-circuit: expected index domain to be same size as lookup domain
+  // short-circuit: Expected index domain to be same size as lookup domain
   if (index_domain.size() != rank) {
     return false;
   }
