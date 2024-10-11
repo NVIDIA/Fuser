@@ -1192,7 +1192,7 @@ class CircularBufferInserter : private kir::ExprMutator {
     kir::AsyncCommit* cp_async_commit =
         IrBuilder::create<kir::AsyncCommit>(AsyncOpType::CpAsync);
     kir::AsyncWait* cp_async_wait = IrBuilder::create<kir::AsyncWait>(
-        AsyncOpType::CpAsync, prefetch_distance - 1);
+        AsyncOpType::CpAsync, std::max(0L, prefetch_distance - 1));
 
     // Find the last circular buffer load in the main loop, and insert
     // cp.async.commit after it.
@@ -1206,20 +1206,26 @@ class CircularBufferInserter : private kir::ExprMutator {
     std::vector<Expr*>::const_iterator commit_it = main_loop->body().insert(
         last_circular_buffer_load + 1, cp_async_commit);
 
-    // Check if a sync has been inserted by WAR sync pass.
-    auto rend = std::make_reverse_iterator(commit_it);
-    auto block_sync_it =
-        std::find_if(exprs.rbegin(), rend, [](const Expr* expr) {
-          return expr->isA<kir::BlockSync>();
-        });
-    if (block_sync_it == rend) {
-      // If there's no sync, i.e. no tensor needs cross thread communication. We
-      // still need a wait but it can just be anywhere after the cp.async.commit
-      // in the loop. Chose to place at the end arbitrarily.
-      main_loop->body().insert_after(exprs.back(), cp_async_wait);
+    if (prefetch_distance == 0) {
+      // If there is no prefetch, we must wait immediately after the commit
+      // because the consumption of the data is immediate.
+      main_loop->body().insert_after(cp_async_commit, cp_async_wait);
     } else {
-      // If a sync has been inserted, wait needs to be placed before the sync.
-      main_loop->body().insert_before(*block_sync_it, cp_async_wait);
+      // Check if a sync has been inserted by WAR sync pass.
+      auto rend = std::make_reverse_iterator(commit_it);
+      auto block_sync_it =
+          std::find_if(exprs.rbegin(), rend, [](const Expr* expr) {
+            return expr->isA<kir::BlockSync>();
+          });
+      if (block_sync_it == rend) {
+        // If there's no sync, i.e. no tensor needs cross thread communication.
+        // We still need a wait but it can just be anywhere after the
+        // cp.async.commit in the loop. Chose to place at the end arbitrarily.
+        main_loop->body().insert_after(exprs.back(), cp_async_wait);
+      } else {
+        // If a sync has been inserted, wait needs to be placed before the sync.
+        main_loop->body().insert_before(*block_sync_it, cp_async_wait);
+      }
     }
   }
 

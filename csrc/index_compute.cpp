@@ -1167,9 +1167,6 @@ indexMapFromTV(
     }
 
     if (loop == circular_buffer_loop) {
-      const int64_t stage_depth =
-          GpuLower::current()->circularBufferInfo().getStageDepthFor(
-              loop->iter_domain());
       const int64_t prefetch_distance =
           GpuLower::current()->circularBufferInfo().getPrefetchDistanceFor(
               loop->iter_domain());
