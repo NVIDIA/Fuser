@@ -73,6 +73,110 @@ namespace ir_utils {
 class TVDomainGuard;
 }
 
+// [Circular buffering]
+//
+// A non-circle-buffered loop looks like below (assuming both the load and the
+// compute are async ops):
+//   for i in range(data.size):
+//     load data[i] to buffer
+//     wait buffer to be ready (RAW sync)
+//     compute buffer
+//     wait compute to be done (WAR sync)
+//
+// Circular buffering allows removing RAW and WAR hazards to maximize
+// overlapping of memory load and compute. Both the load and compute operations
+// are pipelined. In order to pipeline the load operations, the RAW hazards need
+// to be removed, so that at every iteration, the data needed for computation is
+// already prefetched a few iterations ago. In order to pipeline the compute,
+// WAR hazards need to be removed, so that each iterations's compute is not
+// required to be completed immediately in this iteration to avoid next
+// iteration's load overwriting the current iteration's operand for the compute
+// operation.
+//
+// With circular buffering, we want to prefetch a few iterations ahead of the
+// compute, and defer the load to the just-used buffer a few iterations, so that
+// both the load and the compute can be pipelined, minimizing the idle time.
+//
+// Circular buffering is controlled by two parameters: stage and prefetch. The
+// stage parameter determines the size of the circular buffer, and the prefetch
+// parameter determines how many iterations ahead of the compute the data is
+// prefetched. Note that prefetch must be < stage. Both the removal of RAW and
+// WAR hazards require additional storage space. The prefetch parameter
+// determines how buffers are partitioned between RAW and WAR hazards. If we are
+// not interested in pipelining the compute, then use prefetch = stage - 1, so
+// that all buffers are used for RAW removal.
+//
+// The figure below illustrates the timeline of a circular buffered loop, where
+// each row represents an iteration:
+
+// clang-format off
+
+//
+//                 /load 0;\                 \.
+//                / load 1; [prefetch = 3]    | [prologue]
+//          [stage] load 2;/                 /'
+//          [ = 6 ] load 3;  wait load 0;  compute 0;                  \.
+//                \ load 4;  wait load 1;  compute 1;                   |
+//                 \load 5;  wait load 2;  compute 2;  wait compute 0;  |
+//                  load 0;  wait load 3;  compute 3;  wait compute 1;  |
+//                  load 1;  wait load 4;  compute 4;  wait compute 2;  |
+//                  load 2;  wait load 5;  compute 5;  wait compute 3;  |
+//                  load 3;  wait load 0;  compute 0;  wait compute 4;  |
+//                  load 4;  wait load 1;  compute 1;  wait compute 5;  | [main]
+//                  load 5;  wait load 2;  compute 2;  wait compute 0;  | [loop]
+//                  ..................................................  |
+//                  ..................................................  |
+//                  ..................................................  |
+//                  load  ;  wait load  ;  compute  ;  wait compute  ;  |
+//                  load  ;  wait load  ;  compute  ;  wait compute  ;  |
+//                  load  ;  wait load  ;  compute  ;  wait compute  ;  |
+//                  load  ;  wait load  ;  compute  ;                  /'
+//                          /wait load  ;  compute  ;                      \.
+// [same number as prefetch] wait load  ;  compute  ;                       | [epilogue]
+//                          \wait load  ;  compute  ;  wait all computes;  /'
+
+// clang-format on
+
+// In the above figure, we have:
+// storage required = stage * tile_size
+// load pipeline depth = prefetch + 1
+// compute pipeline depth = stage - prefetch
+//
+// The above timeline can be implemented as the following loop structure:
+//
+// Prologue loop:
+//   for i in range(prefetch):
+//     load data[i] to buffer[i]
+//
+// Main loop:
+//   for i in range(data.size - prefetch):
+//     load data[i + prefetch] to buffer[(i + prefetch) % stage]
+//     wait buffer[i % stage] to be ready
+//     compute buffer[i % stage]
+//     wait until the first compute in the queue is done
+//       (i.e. stage - prefetch - 1 in flight computes remaining)
+//
+// Epilogue loop:
+//   for i in range(data.size - prefetch, data.size):
+//     wait buffer[i % stage] to be ready
+//     compute buffer[i % stage]
+//   wait until all computes are done
+//
+// Note that in the above loop structure, the "wait compute" in the first
+// stage - prefetch - 1 iterations and last iteration of the main loop is
+// redundant. We can remove them to further optimize the performance, but
+// we decide to keep them for simplicity.
+
+struct CircularBufferOptions {
+  int64_t stage = 0; // Size of the circular buffer (number of buffers)
+  int64_t prefetch = 0; // Number of iterations ahead of the compute to
+                        // prefetch, can only be < stage.
+
+  bool isEnable() const {
+    return stage > 1;
+  }
+};
+
 //! TensorView is our primitive Tensor Type used in code generation. It can be
 //! thought of as representing physical memory, however, its dimensionality is
 //! modifed as split/merge/computeAt functions are called. The history of
@@ -396,17 +500,21 @@ class NVF_API TensorView : public Val {
   void setMemoryType(MemoryType mt);
 
   // Apply circular buffering transformation
-  void circularBuffer(int64_t number_of_stages);
+  void circularBuffer(int64_t number_of_stages, int64_t prefetch_distance=-1);
 
   // Returns true if this tensor is circular buffered.
   bool isCircularBuffered() const {
-    return is_circular_buffered_;
+    return circular_buffer_options_.isEnable();
   }
 
   // Returns the depth of circular buffering if applicable.
   int64_t circularBufferDepth() const {
-    NVF_ERROR(is_circular_buffered_, toString(), "not circular buffered");
-    return circular_buffer_stage_;
+    return circular_buffer_options_.stage;
+  }
+
+  // Returns the prefetch of circular buffering if applicable.
+  int64_t circularBufferPrefetchDistance() const {
+    return circular_buffer_options_.prefetch;
   }
 
   //! Transforms the innermost iterdomains according to the given mma swizzle,
@@ -581,11 +689,8 @@ class NVF_API TensorView : public Val {
   int64_t max_producer_pos_ = 0;
   MemoryType memory_type_ = MemoryType::Local;
 
-  //! Indicates if the tensor is circular buffered.
-  bool is_circular_buffered_ = false;
-
-  //! Indicates the circular buffering stage depth if applicable.
-  int64_t circular_buffer_stage_ = 0;
+  //! Indicates the circular buffering options if applicable.
+  CircularBufferOptions circular_buffer_options_;
 
   // special handling for CPU based zero-dim tensors (i.e. CPU Tensors that
   // only have one value). This is only used if on an input value, otherwise
