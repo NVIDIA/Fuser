@@ -10876,8 +10876,7 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
   }
   // #pragma unroll 4
   for(nvfuser_index_t ii29 = 0; ii29 < i3; ii29 += 4) {
-    {
-      nvfuser_index_t i29 = ii29;
+    if (nvfuser_index_t i29 = ii29; i29 < i3) {
       nvfuser_index_t i30;
       i30 = 48 + (16 * i29);
       nvfuser_index_t i31;
@@ -11031,8 +11030,7 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
       __syncthreads();
     }
 
-    {
-      nvfuser_index_t i29 = ii29 + 1;
+    if (nvfuser_index_t i29 = ii29 + 1; i29 < i3) {
       nvfuser_index_t i30;
       i30 = 48 + (16 * i29);
       nvfuser_index_t i31;
@@ -11186,8 +11184,7 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
       __syncthreads();
     }
 
-    {
-      nvfuser_index_t i29 = ii29 + 2;
+    if (nvfuser_index_t i29 = ii29 + 2; i29 < i3) {
       nvfuser_index_t i30;
       i30 = 48 + (16 * i29);
       nvfuser_index_t i31;
@@ -11341,8 +11338,7 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
       __syncthreads();
     }
 
-    {
-      nvfuser_index_t i29 = ii29 + 3;
+    if (nvfuser_index_t i29 = ii29 + 3; i29 < i3) {
       nvfuser_index_t i30;
       i30 = 48 + (16 * i29);
       nvfuser_index_t i31;
