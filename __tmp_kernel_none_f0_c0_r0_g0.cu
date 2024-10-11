@@ -10894,6 +10894,7 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
     i37 = i29 % 4;
     nvfuser_index_t i38;
     i38 = (i29 + (4 - 1)) % 4;
+    mbarrier::waitParity(toSmem((&T7[i37])), (((uint32_t)(i29) / 4U) % 2U));
     mbarrier::waitParity(toSmem((&T8[i37])), (((uint32_t)(i29) / 4U) % 2U));
     asm volatile(
       "{\n"
@@ -11017,7 +11018,6 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
     } else {
       mbarrier::arrive(toSmem((&T7[((3 + i29) % 4)])));
     }
-    mbarrier::waitParity(toSmem((&T7[i37])), (((uint32_t)(i29) / 4U) % 2U));
     if (b17) {
       mbarrier::arriveExpectTX(toSmem((&T8[((3 + i29) % 4)])), 6144U);
       #pragma unroll
