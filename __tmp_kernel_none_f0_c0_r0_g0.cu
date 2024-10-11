@@ -11496,7 +11496,7 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
       __syncthreads();
     }
   }
-  for(nvfuser_index_t i29 = i2 - 6; i29 < i3; ++i29) {
+  for(nvfuser_index_t i29 = (i2 - 6) / 4 * 4; i29 < i3; ++i29) {
     nvfuser_index_t i30;
     i30 = 48 + (16 * i29);
     nvfuser_index_t i31;
