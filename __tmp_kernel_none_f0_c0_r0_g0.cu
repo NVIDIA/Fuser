@@ -11043,7 +11043,7 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
        "n"(1)
     );
     asm volatile("wgmma.commit_group.sync.aligned;\n");
-    asm volatile("wgmma.wait_group.sync.aligned %0;\n"::"n"(4LL):"memory");
+    asm volatile("wgmma.wait_group.sync.aligned %0;\n"::"n"(3LL):"memory");
   }
   #pragma unroll 7
   for(nvfuser_index_t i34 = (i2 - 4); i34 < i2; ++i34) {
