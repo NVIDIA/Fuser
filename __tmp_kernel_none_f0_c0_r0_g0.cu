@@ -10892,13 +10892,13 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
     } else {
       mbarrier::arrive(toSmem((&T7[((3 + i25) % 5)])));
     }
-    mbarrier::waitParity(toSmem((&T7[i32])), (((uint32_t)(i25) / 5U) % 2U));
     if (b16) {
       mbarrier::arriveExpectTX(toSmem((&T8[((3 + i25) % 5)])), 2048U);
       Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr7, (Array<nvfuser_index_t, 2, 1>{i8, i26}), toSmem((&T8[((3 + i25) % 5)])) }), (i9 + (2048 * i27)));
     } else {
       mbarrier::arrive(toSmem((&T8[((3 + i25) % 5)])));
     }
+    mbarrier::waitParity(toSmem((&T7[i32])), (((uint32_t)(i25) / 5U) % 2U));
     mbarrier::waitParity(toSmem((&T8[i32])), (((uint32_t)(i25) / 5U) % 2U));
     asm volatile(
       "{\n"
