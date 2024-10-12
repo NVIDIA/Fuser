@@ -10,6 +10,7 @@
 #include <id_model/id_model.h>
 #include <id_model/schedule.h>
 #include <ir/internal_nodes.h>
+#include <ir/utils.h>
 #include <scheduler/tools/loop_domain_scheduler.h>
 #include <val_graph_visitor.h>
 
@@ -221,6 +222,20 @@ void LoopDomainScheduler::schedule(TensorView* tv) const {
   std::cerr << "New loop domain: " << toDelimitedString(new_loop_domain)
             << "\n";
 
+  std::vector<IterDomain*> remaining_and_compliment_ids{
+      new_loop_domain.begin() + pos_, new_loop_domain.end()};
+
+  if (auto reordered_ids = ir_utils::reorderIDs(
+          remaining_and_compliment_ids, tv->getLoopDomain());
+      reordered_ids.has_value()) {
+    remaining_and_compliment_ids = reordered_ids.value();
+    for (const auto i : c10::irange(pos_, new_loop_domain.size())) {
+      new_loop_domain.at(i) = remaining_and_compliment_ids.at(i - pos_);
+    }
+    std::cerr << "Ordered new loop domain: "
+              << toDelimitedString(new_loop_domain) << "\n";
+  }
+
   tv->setLoopDomain(new_loop_domain);
 }
 
@@ -337,8 +352,6 @@ std::vector<IterDomain*> LoopDomainScheduler::findMatchingPos(
     remaining_loop_ids.push_back(tv->getLoopDomain().at(i));
   }
 
-  std::cerr << "Remaining innermost loop IDs: "
-            << toDelimitedString(remaining_loop_ids) << "\n";
   return remaining_loop_ids;
 }
 

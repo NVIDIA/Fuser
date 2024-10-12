@@ -2900,8 +2900,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     } else {
       step_code << gen_index << " += " << gen_step;
     }
-    if (loop->isUnrolled()) {
-      indent() << "#pragma unroll 1\n";
+    if (loop->isUnrolled() && !getenv("DISABLE_UNROLL")) {
+      indent() << "#pragma unroll\n";
     } else {
       indent() << "#pragma unroll 1\n";
     }

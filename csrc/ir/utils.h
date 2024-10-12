@@ -715,4 +715,8 @@ bool hasRootToLoopLinearTransformations(const TensorView* tv);
 //! also checks the loop domain has any extra domain
 bool isLoopDomainFullyDerivedFromLogicalDomain(TensorView* tv);
 
+std::optional<std::vector<IterDomain*>> reorderIDs(
+    const std::vector<IterDomain*>& ids_to_reorder,
+    const std::vector<IterDomain*>& reference);
+
 } // namespace nvfuser::ir_utils

@@ -6192,11 +6192,28 @@ TEST_F(ResizeTest, RoPEFull2) {
   }
 
   // Reorder back to the original order
-#if 0
   for (auto tv : fusion.allTvs()) {
-    tv->reorder({{-2, -1}});
+    tv->reorder({{3, -1}});
+
+    // Parallelize the innermost domain
+    tv->split(-1, 4);
+    tv->axis(-2)->parallelize(ParallelType::TIDx);
+    if (tv == tv3) {
+      tv->axis(-1)->parallelize(ParallelType::Vectorize);
+    }
+
+    // Schedule the outermost three loops
+    tv->merge(0)->merge(0);
+    // TODO: If TIDx is small, use TIDy as well
+    int64_t vec_factor = 4;
+    int64_t bdimx = rope_n_elem / 2 / vec_factor;
+    if (bdimx < 128) {
+      tv->split(0, ceilDiv(128, bdimx));
+      tv->axis(1)->parallelize(ParallelType::TIDy);
+    }
+    tv->axis(0)->parallelize(ParallelType::BIDx);
   }
-#endif
+
   fusion.printMath();
 
   fusion.printKernel();
@@ -6215,7 +6232,30 @@ TEST_F(ResizeTest, RoPEFull2) {
 
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 
-  // auto qkv = at::randn(shape1, options);
+  if (getenv("BENCHMARK")) {
+    int64_t mem_size = sizeof(float);
+    for (const auto s : shape1) {
+      mem_size *= s;
+    }
+    mem_size *= 2;
+
+    // When only q is computed
+    mem_size = mem_size / total_qkv * q_per_kv;
+
+    ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
+    for (int i = 0; i < 10; ++i) {
+      clearL2Cache();
+      FusionProfiler::start();
+      FusionProfiler::createSegments(1);
+      cg_outputs = fe.runFusion(aten_inputs);
+      FusionProfiler::stop();
+      auto t = FusionProfiler::profile().kernel_time_ms;
+      std::cout << "Elapsed time (us): " << (t * 1000) << "\n";
+      std::cout << "Bandwidth (GB/s): "
+                << ((float)mem_size * 0.001 * 0.001 * 0.001 / (t * 0.001))
+                << "\n";
+    }
+  }
 }
 
 } // namespace nvfuser

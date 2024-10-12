@@ -502,6 +502,9 @@ class AllocationDomainSetup : private kir::IrVisitor {
     std::vector<IterDomain*> all_allocation_domains;
     all_allocation_domains.reserve(allocation_domains.size());
 
+    // Put all allocation domains that are reachable from the logical
+    // domain first as ordered like the logical domain. Put the
+    // remaining domains after the ordered domains
     for (const auto i : c10::irange(allocation_domains.size())) {
       auto id = allocation_domains.at(i);
       if (std::find(ordered_domains.begin(), ordered_domains.end(), id) !=
