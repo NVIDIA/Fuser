@@ -1074,12 +1074,14 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
     ForLoop* unswitched_loop) const {
   const auto& zero_val = tv->fusion()->zeroVal();
 
-  if (getenv("DEBUG")) {
+  bool debug = tv->name() == 43;
+
+  if (debug) {
     std::cerr << "getPredicates: " << tv->toString() << "\n";
   }
 
   const std::vector<IterDomain*>& predicate_domains =
-      getPredicateDomains(tv, expr);
+      getPredicateDomains(tv, expr, getLoopDomains(expr), traversalGraph());
 
   const IndexingInfo& index_info = computeIndex(
       expr, traversalGraph().toGroups(predicate_domains), for_loops);
@@ -1141,6 +1143,10 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
 
   // Follow the same approach as Index::getReferenceRootPredicates.
   for (const auto& predicate_domain : predicate_domains) {
+    if (debug) {
+      std::cerr << "Predicate domain: " << predicate_domain->toString() << "\n";
+    }
+
     const auto& predicate_domain_group =
         traversalGraph().toGroup(predicate_domain);
     IterDomain* actual_predicate_domain = predicate_domain;
@@ -1198,6 +1204,10 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
     info.stop_predicate_ = SimplifyingIrBuilder::ltExpr(
         SimplifyingIrBuilder::addExpr(stop_idx, info.stop_offset_),
         actual_predicate_domain->extent());
+
+    if (debug) {
+      std::cerr << "stop pred: " << info.stop_predicate_->toString() << "\n";
+    }
 
     info.predicated_domains_ = actual_predicate_domains;
 

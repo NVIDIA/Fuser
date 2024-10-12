@@ -5584,6 +5584,12 @@ TEST_F(ResizeTest, RoPEFull) {
       rotation_num_splits,
       rope_n_elem / rotation_num_splits};
 
+  bool has_rope_reshape = head_size != rope_n_elem;
+
+  if (!has_rope_reshape) {
+    shape2.erase(shape2.begin() + 4);
+  }
+
   std::cerr << "shape1: " << shape1 << "\n";
   std::cerr << "shape2: " << shape2 << "\n";
 
@@ -5718,14 +5724,19 @@ TEST_F(ResizeTest, RoPEFull) {
       slice_arg.push_back(arg);
     }
 
-    auto x_rope_slice_arg = slice_arg;
-    x_rope_slice_arg.at(rope_n_elem_slice_dim).stop = one;
-    auto x_rope = slice(x, x_rope_slice_arg);
+    TensorView* x_rope = x;
+    if (has_rope_reshape) {
+      auto x_rope_slice_arg = slice_arg;
+      x_rope_slice_arg.at(rope_n_elem_slice_dim).stop = one;
+      x_rope = slice(x, x_rope_slice_arg);
+    }
 
     // x1
     NVF_ERROR(rotation_num_splits == 2);
     auto x1_slice_arg = slice_arg;
-    x1_slice_arg.at(rope_n_elem_slice_dim).stop = one;
+    if (has_rope_reshape) {
+      x1_slice_arg.at(rope_n_elem_slice_dim).stop = one;
+    }
     x1_slice_arg.at(rotation_dim).stop = one;
     auto x1 = slice(x_rope, x1_slice_arg);
     std::cerr << "x1: " << x1->toString() << "\n";
@@ -5734,17 +5745,21 @@ TEST_F(ResizeTest, RoPEFull) {
     // x2
     auto x2_slice_arg = slice_arg;
     NVF_ERROR(rotation_num_splits == 2);
-    x1_slice_arg.at(rope_n_elem_slice_dim).stop = one;
+    if (has_rope_reshape) {
+      x1_slice_arg.at(rope_n_elem_slice_dim).stop = one;
+    }
     x2_slice_arg.at(rotation_dim).start = one;
     auto x2 = slice(x_rope, x2_slice_arg);
     std::cerr << "x2: " << x2->toString() << "\n";
     auto x2_padded = pad(x2, {zero, zero, zero, one});
 
     auto rotated = add(x2_padded, x1_padded);
-    std::vector<bool> bcast_flags(3 + cos->nDims(), false);
+    std::vector<bool> bcast_flags(x->nDims(), false);
     bcast_flags[0] = true;
     bcast_flags[1] = true;
-    bcast_flags[3] = true;
+    if (has_rope_reshape) {
+      bcast_flags[3] = true;
+    }
     auto cos_broadcast = broadcast(cos, bcast_flags);
     auto sin_broadcast = broadcast(sin, bcast_flags);
     std::cerr << "x_rope: " << x_rope->toString() << "\n";
@@ -5752,31 +5767,28 @@ TEST_F(ResizeTest, RoPEFull) {
     auto apply_rope_result =
         add(mul(x_rope, cos_broadcast), mul(rotated, sin_broadcast));
     std::cerr << "apply_rope_result: " << apply_rope_result->toString() << "\n";
-    auto padded_apply_rope_result =
-        pad(apply_rope_result,
-            {zero,
-             zero,
-             zero,
-             zero,
-             zero,
-             IrBuilder::create<Val>(shape2.at(4) - 1)});
+    TensorView* padded_apply_rope_result = apply_rope_result;
+    if (has_rope_reshape) {
+      padded_apply_rope_result =
+          pad(apply_rope_result,
+              {zero,
+               zero,
+               zero,
+               zero,
+               zero,
+               IrBuilder::create<Val>(shape2.at(4) - 1)});
+    }
     std::cerr << "Padded: " << padded_apply_rope_result->toString() << "\n";
 
     auto out = padded_apply_rope_result;
 
-    if (head_size != rope_n_elem) {
+    if (has_rope_reshape) {
       // [..., rope_n_elem:]
       auto x_remaining_slice_arg = slice_arg;
       x_remaining_slice_arg.at(rope_n_elem_slice_dim).start = one;
       auto x_remaining = slice(x, x_remaining_slice_arg);
-      auto padded_x_remaining = pad(x_remaining,
-        {
-            zero,
-            zero,
-            zero,
-            zero,
-            one,
-            zero});
+      auto padded_x_remaining =
+          pad(x_remaining, {zero, zero, zero, zero, one, zero});
       out = add(out, padded_x_remaining);
     }
 
@@ -5788,41 +5800,405 @@ TEST_F(ResizeTest, RoPEFull) {
   // Not used but just for clarity
   v = apply_rope(v);
 
+  std::vector<int64_t> reverse_reshape_input_shape;
+  reverse_reshape_input_shape.reserve(q->nDims());
+  reverse_reshape_input_shape.push_back(batches);
+  reverse_reshape_input_shape.push_back(n_query_groups * q_per_kv);
+  reverse_reshape_input_shape.push_back(seq_length);
+  if (has_rope_reshape) {
+    reverse_reshape_input_shape.push_back(head_size / rope_n_elem);
+  }
+  reverse_reshape_input_shape.push_back(rotation_num_splits);
+  reverse_reshape_input_shape.push_back(rope_n_elem / rotation_num_splits);
+
   auto q_original_shape = reshape(
       q,
-      {batches,
-       n_query_groups * q_per_kv,
-       seq_length,
-       head_size / rope_n_elem,
-       rotation_num_splits,
-       rope_n_elem / rotation_num_splits},
-      {batches, n_query_groups, seq_length, -1});
+      reverse_reshape_input_shape,
+      {batches, n_query_groups * q_per_kv, seq_length, -1});
 
-  auto k_original_shape = reshape(
+  reverse_reshape_input_shape[1] = n_query_groups;
+  [[maybe_unused]] auto k_original_shape = reshape(
       k,
-      {batches,
-       n_query_groups,
-       seq_length,
-       head_size / rope_n_elem,
-       rotation_num_splits,
-       rope_n_elem / rotation_num_splits},
+      reverse_reshape_input_shape,
       {batches, n_query_groups, seq_length, -1});
 
-  auto v_original_shape = reshape(
+  [[maybe_unused]] auto v_original_shape = reshape(
       v,
-      {batches,
-       n_query_groups,
-       seq_length,
-       head_size / rope_n_elem,
-       rotation_num_splits,
-       rope_n_elem / rotation_num_splits},
+      reverse_reshape_input_shape,
       {batches, n_query_groups, seq_length, -1});
 
   fusion.addOutput(q_original_shape);
-  fusion.addOutput(k_original_shape);
-  fusion.addOutput(v_original_shape);
+  // Disabled for now
+  // fusion.addOutput(k_original_shape);
+  // fusion.addOutput(v_original_shape);
 
   fusion.printMath();
+
+  std::vector<IterDomain*> ref_loop = qkv->getLogicalDomain();
+  std::swap(ref_loop.at(ref_loop.size() - 1), ref_loop.at(ref_loop.size() - 2));
+  scheduler_tools::scheduleLoopDomainsLike(fusion.allTvs(), ref_loop, -2);
+
+  fusion.printMath();
+
+  IdModel id_model(&fusion, /*build_models=*/false);
+  const auto& exact_graph = id_model.buildExactGraph();
+
+  for (auto tv : fusion.allTvs()) {
+    for (const auto i : c10::irange(ref_loop.size() - 1)) {
+      auto loop_id = tv->getLoopDomain().at(i);
+      EXPECT_TRUE(exact_graph.disjointValSets().strictAreMapped(
+          loop_id, ref_loop.at(i)));
+    }
+  }
+
+  // Reorder back to the original order
+#if 0
+  for (auto tv : fusion.allTvs()) {
+    tv->reorder({{-2, -1}});
+  }
+#endif
+  fusion.printMath();
+
+  fusion.printKernel();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape1, options);
+  auto t1 = at::randn({seq_length, rope_n_elem}, options);
+  auto t2 = at::randn({seq_length, rope_n_elem}, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1, t2});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  std::cerr << "Finished running\n";
+
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+
+  // auto qkv = at::randn(shape1, options);
+}
+
+TEST_F(ResizeTest, RoPEFull2) {
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // Llama-2-7b-hf
+  int64_t n_head = 32;
+  int64_t head_size = 128;
+  int64_t n_query_groups = 32;
+  int64_t rope_n_elem = 128;
+  int64_t batches = 2;
+  int64_t seq_length = 4096;
+
+  int64_t q_per_kv = n_head / n_query_groups;
+  int64_t total_qkv = q_per_kv + 2;
+
+  int64_t rotation_num_splits = 2;
+
+  if (getenv("SMALL")) {
+    n_head = 4;
+    n_query_groups = 4;
+    seq_length = 8;
+    head_size = 16;
+    rope_n_elem = 16;
+  }
+
+  std::vector<int64_t> shape1{
+      batches, n_query_groups, total_qkv, seq_length, head_size};
+
+  // head_size is assumed to be divisible by rope_n_elem, but it's
+  // likely this can be lifted
+  std::vector<int64_t> shape2{
+      batches,
+      n_query_groups,
+      total_qkv,
+      seq_length,
+      head_size / rope_n_elem,
+      rotation_num_splits,
+      rope_n_elem / rotation_num_splits};
+
+  bool has_rope_reshape = head_size != rope_n_elem;
+
+  if (!has_rope_reshape) {
+    shape2.erase(shape2.begin() + 4);
+  }
+
+  std::cerr << "shape1: " << shape1 << "\n";
+  std::cerr << "shape2: " << shape2 << "\n";
+
+  // qkv after permutation
+  auto tv0 = makeContigConcreteTensor(shape1);
+  fusion.addInput(tv0);
+
+  std::cerr << "Input: " << tv0->toString() << "\n";
+
+  // cos
+  auto tv1 = makeContigConcreteTensor({seq_length, rope_n_elem});
+  fusion.addInput(tv1);
+  auto cos = tv1;
+
+  // sin
+  auto tv2 = makeContigConcreteTensor({seq_length, rope_n_elem});
+  fusion.addInput(tv2);
+  auto sin = tv2;
+
+  auto tv3 = set(tv0);
+  auto tv4 = reshape(tv3, shape1, shape2);
+  // Due to the broadcast, there will be tv5
+  auto tv5 = tv4;
+
+  auto qkv = tv5;
+
+  std::cerr << "qkv: " << qkv->toString() << "\n";
+
+  cos = reshape(
+      cos,
+      {seq_length, rope_n_elem},
+      {seq_length, rotation_num_splits, rope_n_elem / rotation_num_splits});
+
+  std::cerr << "cos: " << cos->toString() << "\n";
+
+  sin = reshape(
+      sin,
+      {seq_length, rope_n_elem},
+      {seq_length, rotation_num_splits, rope_n_elem / rotation_num_splits});
+
+  std::cerr << "sin: " << sin->toString() << "\n";
+
+  auto zero = fusion.zeroVal();
+  auto one = fusion.oneVal();
+
+  std::vector<Slice> slice_default_arg;
+  slice_default_arg.reserve(shape2.size());
+  for (const auto s : shape2) {
+    slice_default_arg.push_back(Slice{zero, IrBuilder::create<Val>(s)});
+  }
+
+  int64_t qkv_slice_dim = 2;
+
+  // tv5 (q)
+  TensorView* tv6 = nullptr;
+  {
+    auto slice_arg = slice_default_arg;
+    slice_arg[qkv_slice_dim].stop = IrBuilder::create<Val>(total_qkv - 2);
+    tv6 = slice(qkv, slice_arg);
+  }
+  auto q = tv6;
+
+  // tv6 (k)
+  TensorView* tv7 = nullptr;
+  {
+    auto slice_arg = slice_default_arg;
+    slice_arg[qkv_slice_dim].start = IrBuilder::create<Val>(q_per_kv);
+    slice_arg[qkv_slice_dim].stop = IrBuilder::create<Val>(total_qkv - 1);
+    tv7 = slice(qkv, slice_arg);
+  }
+  auto k = tv7;
+
+  // tv6 (v)
+  TensorView* tv8 = nullptr;
+  {
+    auto slice_arg = slice_default_arg;
+    slice_arg[qkv_slice_dim].start = IrBuilder::create<Val>(q_per_kv + 1);
+    tv8 = slice(qkv, slice_arg);
+  }
+  auto v = tv8;
+
+  TensorView* tv9 = nullptr;
+  {
+    auto cur_shape = shape2;
+    cur_shape[qkv_slice_dim] = q_per_kv;
+    std::vector<int64_t> new_shape;
+    new_shape.push_back(batches);
+    new_shape.push_back(-1);
+    new_shape.insert(new_shape.end(), shape2.begin() + 3, shape2.end());
+    tv9 = reshape(q, cur_shape, new_shape);
+  }
+  q = tv9;
+
+  TensorView* tv10 = nullptr;
+  {
+    auto cur_shape = shape2;
+    cur_shape[qkv_slice_dim] = 1;
+    std::vector<int64_t> new_shape;
+    new_shape.push_back(batches);
+    new_shape.push_back(-1);
+    new_shape.insert(new_shape.end(), shape2.begin() + 3, shape2.end());
+    tv10 = reshape(k, cur_shape, new_shape);
+  }
+  k = tv10;
+
+  TensorView* tv11 = nullptr;
+  {
+    auto cur_shape = shape2;
+    cur_shape[qkv_slice_dim] = 1;
+    std::vector<int64_t> new_shape;
+    new_shape.push_back(batches);
+    new_shape.push_back(-1);
+    new_shape.insert(new_shape.end(), shape2.begin() + 3, shape2.end());
+    tv11 = reshape(v, cur_shape, new_shape);
+  }
+  v = tv11;
+
+  // x: q, k or v
+  // 1. take [..., :rope_n_elem]
+  // 2. apply_rope
+  // 3. concat apply_rope and [..., rope_n_elem:]
+  auto apply_rope = [&](TensorView* x) -> TensorView* {
+    const int64_t rope_n_elem_slice_dim = (int64_t)x->nDims() - 3;
+    const int64_t rotation_dim = (int64_t)x->nDims() - 2;
+
+    std::vector<Slice> slice_arg;
+    slice_arg.reserve(x->nDims());
+    for (const auto id : x->getLogicalDomain()) {
+      Slice arg;
+      arg.start = zero;
+      arg.stop = id->extent();
+      slice_arg.push_back(arg);
+    }
+
+    TensorView* x_rope = x;
+    if (has_rope_reshape) {
+      auto x_rope_slice_arg = slice_arg;
+      x_rope_slice_arg.at(rope_n_elem_slice_dim).stop = one;
+      x_rope = slice(x, x_rope_slice_arg);
+    }
+
+    // x1
+    NVF_ERROR(rotation_num_splits == 2);
+    auto x1_slice_arg = slice_arg;
+    if (has_rope_reshape) {
+      x1_slice_arg.at(rope_n_elem_slice_dim).stop = one;
+    }
+    x1_slice_arg.at(rotation_dim).stop = one;
+    auto x1 = slice(x_rope, x1_slice_arg);
+    std::cerr << "x1: " << x1->toString() << "\n";
+    auto x1_padded = pad(x1, {zero, zero, one, zero});
+
+    // x2
+    auto x2_slice_arg = slice_arg;
+    NVF_ERROR(rotation_num_splits == 2);
+    if (has_rope_reshape) {
+      x1_slice_arg.at(rope_n_elem_slice_dim).stop = one;
+    }
+    x2_slice_arg.at(rotation_dim).start = one;
+    auto x2 = slice(x_rope, x2_slice_arg);
+    std::cerr << "x2: " << x2->toString() << "\n";
+    auto x2_padded = pad(x2, {zero, zero, zero, one});
+
+    auto rotated = add(x2_padded, x1_padded);
+    std::vector<bool> bcast_flags(x->nDims(), false);
+    bcast_flags[0] = true;
+    bcast_flags[1] = true;
+    if (has_rope_reshape) {
+      bcast_flags[3] = true;
+    }
+    auto cos_broadcast = broadcast(cos, bcast_flags);
+    auto sin_broadcast = broadcast(sin, bcast_flags);
+    std::cerr << "x_rope: " << x_rope->toString() << "\n";
+    std::cerr << "cos_bc: " << cos_broadcast->toString() << "\n";
+    auto apply_rope_result =
+        add(mul(x_rope, cos_broadcast), mul(rotated, sin_broadcast));
+    std::cerr << "apply_rope_result: " << apply_rope_result->toString() << "\n";
+    TensorView* padded_apply_rope_result = apply_rope_result;
+    if (has_rope_reshape) {
+      padded_apply_rope_result =
+          pad(apply_rope_result,
+              {zero,
+               zero,
+               zero,
+               zero,
+               zero,
+               IrBuilder::create<Val>(shape2.at(4) - 1)});
+    }
+    std::cerr << "Padded: " << padded_apply_rope_result->toString() << "\n";
+
+    auto out = padded_apply_rope_result;
+
+    if (has_rope_reshape) {
+      // [..., rope_n_elem:]
+      auto x_remaining_slice_arg = slice_arg;
+      x_remaining_slice_arg.at(rope_n_elem_slice_dim).start = one;
+      auto x_remaining = slice(x, x_remaining_slice_arg);
+      auto padded_x_remaining =
+          pad(x_remaining, {zero, zero, zero, zero, one, zero});
+      out = add(out, padded_x_remaining);
+    }
+
+    return out;
+  };
+
+  q = apply_rope(q);
+  k = apply_rope(k);
+  // Not used but just for clarity
+  v = apply_rope(v);
+
+  std::vector<int64_t> reverse_reshape_input_shape;
+  reverse_reshape_input_shape.reserve(q->nDims());
+  reverse_reshape_input_shape.push_back(batches);
+  reverse_reshape_input_shape.push_back(n_query_groups * q_per_kv);
+  reverse_reshape_input_shape.push_back(seq_length);
+  if (has_rope_reshape) {
+    reverse_reshape_input_shape.push_back(head_size / rope_n_elem);
+  }
+  reverse_reshape_input_shape.push_back(rotation_num_splits);
+  reverse_reshape_input_shape.push_back(rope_n_elem / rotation_num_splits);
+
+  auto q_original_shape = reshape(
+      q,
+      reverse_reshape_input_shape,
+      {batches, n_query_groups * q_per_kv, seq_length, -1});
+
+  reverse_reshape_input_shape[1] = n_query_groups;
+  [[maybe_unused]] auto k_original_shape = reshape(
+      k,
+      reverse_reshape_input_shape,
+      {batches, n_query_groups, seq_length, -1});
+
+  [[maybe_unused]] auto v_original_shape = reshape(
+      v,
+      reverse_reshape_input_shape,
+      {batches, n_query_groups, seq_length, -1});
+
+  fusion.addOutput(q_original_shape);
+  // Disabled for now
+  // fusion.addOutput(k_original_shape);
+  // fusion.addOutput(v_original_shape);
+
+  fusion.printMath();
+
+  std::vector<IterDomain*> ref_loop = qkv->getLogicalDomain();
+  std::swap(ref_loop.at(ref_loop.size() - 1), ref_loop.at(ref_loop.size() - 2));
+  for (const auto i : c10::irange(2, ref_loop.size() - 2)) {
+    std::swap(ref_loop.at(i), ref_loop.at(i + 1));
+  }
+  std::cerr << "Ref domain: " << toDelimitedString(ref_loop) << "\n";
+  scheduler_tools::scheduleLoopDomainsLike(fusion.allTvs(), ref_loop, -3);
+
+  fusion.printMath();
+
+  IdModel id_model(&fusion, /*build_models=*/false);
+  const auto& exact_graph = id_model.buildExactGraph();
+
+  for (auto tv : fusion.allTvs()) {
+    for (const auto i : c10::irange(ref_loop.size() - 2)) {
+      auto loop_id = tv->getLoopDomain().at(i);
+      EXPECT_TRUE(exact_graph.disjointValSets().strictAreMapped(
+          loop_id, ref_loop.at(i)));
+    }
+  }
+
+  // Reorder back to the original order
+#if 0
+  for (auto tv : fusion.allTvs()) {
+    tv->reorder({{-2, -1}});
+  }
+#endif
+  fusion.printMath();
+
   fusion.printKernel();
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);

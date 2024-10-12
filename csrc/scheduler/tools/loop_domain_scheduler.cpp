@@ -500,18 +500,24 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(
   const auto all_ancestors_of_ref = ValGraphBFS::getReachableValsFrom(
       graph(), ref_id_groups, all_val_groups, Direction::Backward);
 
+  std::cerr << "getReplayPath: Targets: "
+            << nvfuser::toString(tv_target_domains) << "\n";
+
   std::cerr << "All ancestors: " << nvfuser::toString(all_ancestors_of_ref)
             << "\n";
 
   // If all the target domains are an ancestor of the reference
   // domains, just a single backward BFS should be enough to find a
   // valid path
-  if (std::all_of(
-          tv_target_domains.begin(),
-          tv_target_domains.end(),
-          [&](const ValGroup& tv_target_domain) {
-            return all_ancestors_of_ref.has(tv_target_domain);
-          })) {
+  ValGroups ancestor_targets;
+  for (const auto& target : tv_target_domains) {
+    if (all_ancestors_of_ref.has(target)) {
+      ancestor_targets.pushBack(target);
+    }
+  }
+
+  if (ancestor_targets.size() == tv_target_domains.size()) {
+    std::cerr << "All target domains are ancestors\n";
     return ValGraphBFS::getExprsBetween(
         graph(),
         ref_id_groups,
@@ -533,10 +539,12 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(
   // Find the path from the ref to the forward path.
   auto inputs_of_forward_path = getInputsOfExprPath(graph(), forward_path);
 
+  ancestor_targets.pushBack(inputs_of_forward_path);
+
   auto backward_path = ValGraphBFS::getExprsBetween(
       graph(),
       ref_id_groups,
-      inputs_of_forward_path,
+      ancestor_targets,
       /*require_all_to_visited=*/true,
       Direction::Backward);
 
