@@ -10790,12 +10790,12 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
   nvfuser_index_t i2;
   i2 = ceilDiv(T0.logical_size[0LL], 16);
   nvfuser_index_t i3;
-  i3 = -4 + i2;
+  i3 = -3 + i2;
   const TensorMap* ptr4;
   ptr4 = &var0;
   nvfuser_index_t i5;
   i5 = 256 * ((nvfuser_index_t)blockIdx.x);
-  __half* T5 = reinterpret_cast<__half*>(array + smem_offset + 16512);
+  __half* T5 = reinterpret_cast<__half*>(array + smem_offset + 12416);
   unsigned i6;
   i6 = toSmem(T5);
   const TensorMap* ptr7;
@@ -10825,15 +10825,15 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
   i18 = (((-T0.logical_size[1LL]) + (16 * i12)) + i13) + i8;
   uint64_t* T7 = reinterpret_cast<uint64_t*>(array + smem_offset + 0);
   #pragma unroll
-  for(nvfuser_index_t i19 = 0; i19 < 8; ++i19) {
+  for(nvfuser_index_t i19 = 0; i19 < 6; ++i19) {
     if (b16) {
       mbarrier::init(toSmem((&T7[i19])), 128U);
     }
   }
   __syncthreads();
-  uint64_t* T8 = reinterpret_cast<uint64_t*>(array + smem_offset + 64);
+  uint64_t* T8 = reinterpret_cast<uint64_t*>(array + smem_offset + 48);
   #pragma unroll
-  for(nvfuser_index_t i20 = 0; i20 < 8; ++i20) {
+  for(nvfuser_index_t i20 = 0; i20 < 6; ++i20) {
     if (b16) {
       mbarrier::init(toSmem((&T8[i20])), 128U);
     }
@@ -10844,7 +10844,7 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
   asm volatile("wgmma.fence.sync.aligned;\n");
   asm volatile("fence.proxy.async;\n");
   #pragma unroll
-  for(nvfuser_index_t i21 = 0; i21 < 4; ++i21) {
+  for(nvfuser_index_t i21 = 0; i21 < 3; ++i21) {
     nvfuser_index_t i22;
     i22 = 16 * i21;
     unsigned i23;
@@ -10865,41 +10865,41 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
       mbarrier::arrive(toSmem((&T8[i21])));
     }
   }
-  #pragma unroll 8
+  #pragma unroll 6
   for(nvfuser_index_t i25 = 0; i25 < i3; ++i25) {
     nvfuser_index_t i26;
-    i26 = 64 + (16 * i25);
+    i26 = 48 + (16 * i25);
     nvfuser_index_t i27;
-    i27 = (4 + i25) % 8;
+    i27 = (3 + i25) % 6;
     unsigned i28;
     i28 = i6 + (8192 * i27);
     nvfuser_index_t i29;
-    i29 = i25 % 8;
+    i29 = i25 % 6;
     unsigned i30;
     i30 = i9 + (2048 * i29);
     unsigned i31;
     i31 = i6 + (8192 * i29);
     nvfuser_index_t i32;
-    i32 = i25 % 8;
+    i32 = i25 % 6;
     nvfuser_index_t i33;
-    i33 = (i25 + 4) % 8;
+    i33 = (i25 + 3) % 6;
     if (b16) {
-      mbarrier::arriveExpectTX(toSmem((&T7[((4 + i25) % 8)])), 8192U);
+      mbarrier::arriveExpectTX(toSmem((&T7[((3 + i25) % 6)])), 8192U);
       #pragma unroll
       for(nvfuser_index_t i24 = 0; i24 < 4; ++i24) {
-        Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr4, (Array<nvfuser_index_t, 2, 1>{(i5 + (64 * i24)), i26}), toSmem((&T7[((4 + i25) % 8)])) }), (i28 + (2048 * i24)));
+        Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr4, (Array<nvfuser_index_t, 2, 1>{(i5 + (64 * i24)), i26}), toSmem((&T7[((3 + i25) % 6)])) }), (i28 + (2048 * i24)));
       }
     } else {
-      mbarrier::arrive(toSmem((&T7[((4 + i25) % 8)])));
+      mbarrier::arrive(toSmem((&T7[((3 + i25) % 6)])));
     }
-    mbarrier::waitParity(toSmem((&T7[i32])), (((uint32_t)(i25) / 8U) % 2U));
+    mbarrier::waitParity(toSmem((&T7[i32])), (((uint32_t)(i25) / 6U) % 2U));
     if (b16) {
-      mbarrier::arriveExpectTX(toSmem((&T8[((4 + i25) % 8)])), 2048U);
-      Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr7, (Array<nvfuser_index_t, 2, 1>{i8, i26}), toSmem((&T8[((4 + i25) % 8)])) }), (i9 + (2048 * i27)));
+      mbarrier::arriveExpectTX(toSmem((&T8[((3 + i25) % 6)])), 2048U);
+      Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr7, (Array<nvfuser_index_t, 2, 1>{i8, i26}), toSmem((&T8[((3 + i25) % 6)])) }), (i9 + (2048 * i27)));
     } else {
-      mbarrier::arrive(toSmem((&T8[((4 + i25) % 8)])));
+      mbarrier::arrive(toSmem((&T8[((3 + i25) % 6)])));
     }
-    mbarrier::waitParity(toSmem((&T8[i32])), (((uint32_t)(i25) / 8U) % 2U));
+    mbarrier::waitParity(toSmem((&T8[i32])), (((uint32_t)(i25) / 6U) % 2U));
     asm volatile(
       "{\n"
       "  .reg .pred p0; \n"
@@ -11043,18 +11043,18 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
        "n"(1)
     );
     asm volatile("wgmma.commit_group.sync.aligned;\n");
-    asm volatile("wgmma.wait_group.sync.aligned %0;\n"::"n"(3LL):"memory");
+    asm volatile("wgmma.wait_group.sync.aligned %0;\n"::"n"(0LL):"memory");
   }
-  #pragma unroll 7
-  for(nvfuser_index_t i34 = (i2 - 4); i34 < i2; ++i34) {
+  #pragma unroll 5
+  for(nvfuser_index_t i34 = (i2 - 3); i34 < i2; ++i34) {
     nvfuser_index_t i35;
-    i35 = i34 % 8;
+    i35 = i34 % 6;
     unsigned i36;
     i36 = i9 + (2048 * i35);
     unsigned i37;
     i37 = i6 + (8192 * i35);
-    mbarrier::waitParity(toSmem((&T7[(i34 % 8)])), (((uint32_t)(i34) / 8U) % 2U));
-    mbarrier::waitParity(toSmem((&T8[(i34 % 8)])), (((uint32_t)(i34) / 8U) % 2U));
+    mbarrier::waitParity(toSmem((&T7[(i34 % 6)])), (((uint32_t)(i34) / 6U) % 2U));
+    mbarrier::waitParity(toSmem((&T8[(i34 % 6)])), (((uint32_t)(i34) / 6U) % 2U));
     asm volatile(
       "{\n"
       "  .reg .pred p0; \n"
@@ -11197,17 +11197,17 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
        "n"(1),
        "n"(1)
     );
+    asm volatile("wgmma.commit_group.sync.aligned;\n");
+    asm volatile("wgmma.wait_group.sync.aligned %0;\n"::"n"(0LL):"memory");
   }
-  asm volatile("wgmma.commit_group.sync.aligned;\n");
-  asm volatile("wgmma.wait_group.sync.aligned %0;\n"::"n"(0LL):"memory");
   #pragma unroll
-  for(nvfuser_index_t i38 = 0; i38 < 8; ++i38) {
+  for(nvfuser_index_t i38 = 0; i38 < 6; ++i38) {
     if (b16) {
       mbarrier::inval(toSmem((&T8[i38])));
     }
   }
   #pragma unroll
-  for(nvfuser_index_t i39 = 0; i39 < 8; ++i39) {
+  for(nvfuser_index_t i39 = 0; i39 < 6; ++i39) {
     if (b16) {
       mbarrier::inval(toSmem((&T7[i39])));
     }
