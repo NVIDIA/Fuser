@@ -204,21 +204,21 @@ void CircularBufferInfo::setStageDepthAndPrefetchDistance(
     int64_t prefetch_distance) {
   auto concrete_loop_id = lower_utils::getConcreteLoopID(id);
 
-  auto maybe_exisiting_depth_it =
+  auto maybe_existing_depth_it =
       circular_buffer_options_.find(concrete_loop_id);
-  if (maybe_exisiting_depth_it == circular_buffer_options_.end()) {
+  if (maybe_existing_depth_it == circular_buffer_options_.end()) {
     circular_buffer_options_[concrete_loop_id].stage = stage_depth;
     circular_buffer_options_[concrete_loop_id].prefetch = prefetch_distance;
   } else {
     NVF_ERROR(
-        stage_depth == maybe_exisiting_depth_it->second.stage &&
-            prefetch_distance == maybe_exisiting_depth_it->second.prefetch,
+        stage_depth == maybe_existing_depth_it->second.stage &&
+            prefetch_distance == maybe_existing_depth_it->second.prefetch,
         "Unsupported multiple depth/prefetch pipelining, was set to (",
-        maybe_exisiting_depth_it->second.stage,
+        maybe_existing_depth_it->second.stage,
         ",",
-        maybe_exisiting_depth_it->second.prefetch,
+        maybe_existing_depth_it->second.prefetch,
         ") by ",
-        maybe_exisiting_depth_it->first->toString(),
+        maybe_existing_depth_it->first->toString(),
         " and then set to (",
         stage_depth,
         ",",
