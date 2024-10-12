@@ -352,11 +352,12 @@ std::optional<std::pair<IterDomain*, IterDomain*>> getMaybeWarpReductionDim(
   }
 
   // reduction only in xdim.
-  if (!reduction_on_ydim && !reduction_on_zdim) {
+  if (reduction_on_xdim && reduction_on_zdim) {
+    // special case used in inner persistent scheduler where bdimx is
+    // constant and bdimz is always 1.
     if (reduction_on_xdim->hasPaddingToMultipleOfWarp()) {
       return std::make_pair(reduction_on_xdim, nullptr);
     }
-
     if (reduction_on_xdim->extent()->isConstInt()) {
       auto extent_value = reduction_on_xdim->extent()->evaluate();
       if (extent_value % at::cuda::warp_size() == 0) {
