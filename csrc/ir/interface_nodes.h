@@ -400,12 +400,11 @@ class NVF_API TensorView : public Val {
 
   // Returns true if this tensor is circular buffered.
   bool isCircularBuffered() const {
-    return is_circular_buffered_;
+    return circular_buffer_stage_ > 1;
   }
 
   // Returns the depth of circular buffering if applicable.
   int64_t circularBufferDepth() const {
-    NVF_ERROR(is_circular_buffered_, toString(), "not circular buffered");
     return circular_buffer_stage_;
   }
 
@@ -580,9 +579,6 @@ class NVF_API TensorView : public Val {
   int64_t compute_at_pos_ = 0;
   int64_t max_producer_pos_ = 0;
   MemoryType memory_type_ = MemoryType::Local;
-
-  //! Indicates if the tensor is circular buffered.
-  bool is_circular_buffered_ = false;
 
   //! Indicates the circular buffering stage depth if applicable.
   int64_t circular_buffer_stage_ = 0;
