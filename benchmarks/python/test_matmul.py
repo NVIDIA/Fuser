@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
 from nvfuser import FusionDefinition
-from nvfuser.pytorch_utils import clear_cuda_cache
+from nvfuser.pytorch_utils import clear_cuda_cache, DEVICE_PROPERTIES
 from .core import run_benchmark
 import torch
 
@@ -36,8 +36,15 @@ def test_matmul_nvf_benchmark(
     disable_validation: bool,
     disable_benchmarking: bool,
 ):
-    clear_cuda_cache()
     m, n, k, layout = config
+
+    operands_and_output_gmem_bytes = ((m + n) * k + m * n) * torch.tensor(
+        [], dtype=dtype
+    ).element_size()
+    if operands_and_output_gmem_bytes >= 0.9 * DEVICE_PROPERTIES["gpu_gmem_bytes"]:
+        pytest.skip("Operands and outputs will take up over 90% of global memory")
+
+    clear_cuda_cache()
     a = torch.randn(m, k, device="cuda", dtype=dtype)
     b = torch.randn(k, n, device="cuda", dtype=dtype)
 
