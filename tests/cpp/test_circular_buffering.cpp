@@ -807,7 +807,7 @@ TEST_P(CircularBufferingTest, NoSync) {
 auto StagesAndPrefetches() {
   std::vector<StageAndPrefetch> values;
   for (int64_t i : c10::irange(2, 10)) {
-    for (int64_t j : c10::irange(i)) {
+    for (int64_t j : c10::irange(-i, i)) {
       values.emplace_back(i, j);
     }
   }
@@ -815,8 +815,15 @@ auto StagesAndPrefetches() {
 }
 
 std::string nonTMAName(const testing::TestParamInfo<StageAndPrefetch>& info) {
+  auto prefetch_distance = std::get<1>(info.param);
+  std::string prefetch_distance_str;
+  if (prefetch_distance < 0) {
+    prefetch_distance_str = "neg" + std::to_string(-prefetch_distance);
+  } else {
+    prefetch_distance_str = std::to_string(prefetch_distance);
+  }
   return "stage_" + std::to_string(info.param.first) + "_prefetch_" +
-      std::to_string(info.param.second);
+      prefetch_distance_str;
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -1762,7 +1769,7 @@ TEST_P(TmaCircularBufferingTest, MatmulWithBroadcastedInput) {
 auto tmaCircularBufferingParams() {
   std::vector<TmaCircularBufferingParams> values;
   for (int64_t i : c10::irange(2, 5)) {
-    for (int64_t j : c10::irange(i)) {
+    for (int64_t j : c10::irange(-i, i)) {
       for (int64_t m : {128, 500, 1024}) {
         for (int64_t n : {128, 1024}) {
           values.emplace_back(i, j, m, n);
@@ -1775,10 +1782,16 @@ auto tmaCircularBufferingParams() {
 
 std::string tmaName(
     const testing::TestParamInfo<TmaCircularBufferingParams>& info) {
+  auto prefetch_distance = std::get<1>(info.param);
+  std::string prefetch_distance_str;
+  if (prefetch_distance < 0) {
+    prefetch_distance_str = "neg" + std::to_string(-prefetch_distance);
+  } else {
+    prefetch_distance_str = std::to_string(prefetch_distance);
+  }
   return "stage_" + std::to_string(std::get<0>(info.param)) + "_prefetch_" +
-      std::to_string(std::get<1>(info.param)) + "_M_" +
-      std::to_string(std::get<2>(info.param)) + "_N_" +
-      std::to_string(std::get<3>(info.param));
+      prefetch_distance_str + "_M_" + std::to_string(std::get<2>(info.param)) +
+      "_N_" + std::to_string(std::get<3>(info.param));
 }
 
 INSTANTIATE_TEST_SUITE_P(
