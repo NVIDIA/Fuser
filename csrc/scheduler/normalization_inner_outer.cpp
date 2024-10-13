@@ -570,7 +570,8 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
 
     // If not divisible, last batch has unused threads
     int64_t unused_threads = -1;
-    int64_t register_per_thread = -1;
+    int64_t required_regs = -1;
+    int64_t avilable_regs = -1;
     int64_t warps_per_sm = -1;
 
     void verify() {
@@ -591,7 +592,7 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
          << ", bdimx: " << bdimx << ", bdimy: " << bdimy
          << ", unused_threads: " << unused_threads << ", gdimy: " << gdimy
          << ", tmp_gmem_write_vect: " << tmp_gmem_write_vect
-         << ", register_per_thread: " << register_per_thread
+         << ", register_per_thread: " << required_regs
          << ", warps_per_sm: " << warps_per_sm
          << ", vectorization_factor_outer: " << vectorization_factor_outer;
       return ss.str();
@@ -616,20 +617,30 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
 
     iop.unused_threads =
         getUnusedThreads(iop.inner_vect, threads_per_block, iop.inner_batch);
-    iop.register_per_thread = getEstimatedRegisterUsage(iop.inner_batch * iop.inner_vect);
-    iop.warps_per_sm = iop.gdimy * threads_per_block/ warp_size;
+    iop.required_regs =
+        getEstimatedRegisterUsage(iop.inner_batch * iop.inner_vect);
+    iop.avilable_regs = getRegPerThreadGivenThreadsPerSM(
+        threads_per_block * iop.gdimy / sm_count);
+    iop.warps_per_sm = iop.gdimy * threads_per_block / warp_size;
     return iop;
   };
 
   const int64_t max_vect_factor = (int64_t)vectorize_factor;
   std::vector<int64_t> vect_candidates = {max_vect_factor};
   const int64_t after_vect = inner_dim_numel / max_vect_factor;
-  std::vector<int64_t> threads_candidates = after_vect > 128 ? std::vector<int64_t>{128, 256} : std::vector<int64_t>{after_vect};
+  std::vector<int64_t> threads_candidates;
+  if (after_vect > 256) {
+    threads_candidates = std::vector<int64_t>{128, 256, 512};
+  } else if (after_vect > 128) {
+    threads_candidates = std::vector<int64_t>{128, 256};
+  } else {
+    threads_candidates = std::vector<int64_t>{after_vect};
+  }
 
   std::vector<InnerOuterParams> iop_candidates;
   for (auto vect : vect_candidates) {
     for (auto threads : threads_candidates) {
-        iop_candidates.emplace_back(getInnerOuterParams(vect, threads));
+      iop_candidates.emplace_back(getInnerOuterParams(vect, threads));
     }
   }
   if (iop_candidates.size() > 1) {
@@ -638,20 +649,25 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
         iop_candidates.end(),
         [](const InnerOuterParams& a, const InnerOuterParams& b) {
           // register based sorting
-          const int64_t max_reg = 255;
-          if(a.register_per_thread <= max_reg && b.register_per_thread > max_reg) {
+          if (a.required_regs <= a.avilable_regs &&
+              b.required_regs > b.avilable_regs) {
             return true;
-          }else if(b.register_per_thread <= max_reg && a.register_per_thread > max_reg){
+          } else if (
+              b.required_regs <= b.avilable_regs &&
+              a.required_regs > a.avilable_regs) {
             return false;
-          }else if(a.register_per_thread > max_reg && b.register_per_thread > max_reg && abs(a.register_per_thread - b.register_per_thread) > 16){
-            return a.register_per_thread < b.register_per_thread;
-          }          
+          } else if (
+              a.required_regs > a.avilable_regs &&
+              b.required_regs > b.avilable_regs) {
+            return a.required_regs - a.avilable_regs <
+                b.required_regs - b.avilable_regs;
+          }
           // occupancy
           if (a.warps_per_sm != b.warps_per_sm) {
             return a.warps_per_sm > b.warps_per_sm;
           }
-          // // prefer divisible split, may be slower, e.g. at 17K uses batch size of 17.
-          // if ((a.unused_threads == 0 && b.unused_threads != 0) ||
+          // // prefer divisible split, may be slower, e.g. at 17K uses batch
+          // size of 17. if ((a.unused_threads == 0 && b.unused_threads != 0) ||
           //     (a.unused_threads != 0 && b.unused_threads == 0)) {
           //   return a.unused_threads < b.unused_threads;
           // }
@@ -671,12 +687,11 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
     auto threads = std::stoi(std::getenv("THREADS"));
     auto vect = std::stoi(std::getenv("VECT"));
     iop = getInnerOuterParams(vect, threads);
-  }else{
+  } else {
     for (auto iop : iop_candidates) {
       std::cout << iop.toString() << std::endl;
     }
   }
-
 
   // std::min(8L, ceilDiv(iop.gdimy, iop.bdimy));
   // Step-5, special case, when inner_dim_numel <= 1024, bdimx is usually small
@@ -712,6 +727,9 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
         ceilDiv(inner_dim_numel, iop.vectorization_factor_outer * iop.gdimy));
     iop.bdimy = std::min(threads_per_block_mrpb / iop.bdimx, bdimy_tmp);
 
+    iop.avilable_regs = getRegPerThreadGivenThreadsPerSM(
+        iop.bdimx * iop.bdimy * iop.gdimy / sm_count);
+    iop.warps_per_sm = iop.gdimy * iop.bdimx * iop.bdimy / warp_size;
     // Step-4, OuterParams, Reduction dim: bdimx (already done)
 
     if (iop.bdimx % dev_prop->warpSize == 0) {
@@ -730,7 +748,6 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
   }
   NVF_ERROR(iop.bdimz == 1, "bdimz must be 1.");
 
-
   // check all the parameters in InnerOuterParams are set.
   iop.verify();
   rparams->combined_outer_reduction_static_bdimy = true;
@@ -742,8 +759,7 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
   // so the maximum vectorization factor is 4.
   rparams->vectorization_factor_outer = iop.vectorization_factor_outer;
   rparams->vectorization_factor_tmp_gmem_write = iop.tmp_gmem_write_vect;
-  rparams->cparams.maxrregcount =getRegPerThreadGivenThreadsPerSM(
-      iop.bdimx * iop.bdimy * iop.gdimy / sm_count);
+  rparams->cparams.maxrregcount = iop.avilable_regs;
   rparams->unroll_factor_inner_reduction = iop.inner_vect;
   rparams->batches_per_block_inner_reduction = iop.inner_batch;
   rparams->block_dim_inner_reduction = ParallelType::TIDx;
