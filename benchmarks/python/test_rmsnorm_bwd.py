@@ -92,8 +92,7 @@ def test_rmsnorm_bwd_nvf_benchmark(
     eps: float = 1e-5,
 ):
     clear_cuda_cache()
-    if compile:
-        clear_dynamo_cache()
+
     inputs = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
     grads = torch.randn(size, device="cuda", dtype=dtype)
     weights = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
@@ -125,7 +124,8 @@ def test_rmsnorm_bwd_baseline_benchmark(
     compile: bool,
 ):
     clear_cuda_cache()
-
+    if compile:
+        clear_dynamo_cache()
     inputs = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
     grads = torch.randn(size, device="cuda", dtype=dtype)
     weights = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)

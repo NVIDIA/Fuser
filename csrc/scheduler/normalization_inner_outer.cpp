@@ -245,10 +245,10 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
 
   // (2) If the available register is larger than current register buffer size,
   // no need to move buffers to shared memory, return early.
-  if (buffer_params.regs_buffer_size <= available_regs) {
-    buffer_params.has_enough_regs_and_smem = true;
-    return buffer_params;
-  }
+  // if (buffer_params.regs_buffer_size <= available_regs) {
+  //   buffer_params.has_enough_regs_and_smem = true;
+  //   return buffer_params;
+  // }
 
   // (3) Relocate buffers to shared memory until the buffer size in registers is
   // within the allowable limit.
@@ -411,7 +411,7 @@ std::pair<int64_t, int64_t> getBufferBatchSizeAndThreadsPerBlock(
   // reaches batch_min.
   int64_t threads_per_block = threads_per_block_min;
   int64_t inner_batch = ceilDiv(after_vectorization, threads_per_block);
-  if (shared_memory_buffer_size > 0) {
+  if (true || shared_memory_buffer_size > 0) {
     while (inner_batch > batch_max &&
            threads_per_block * 2 <= threads_per_block_max &&
            ceilDiv(after_vectorization, threads_per_block * 2) >= batch_min) {
@@ -561,6 +561,10 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
       (smem_overhead + smem_buffer_size);
   int64_t blocks_per_sm =
       std::min(max_blocks_per_sm_regs, max_blocks_per_sm_smem);
+  std::cout << "max_blocks_per_sm_regs: " << max_blocks_per_sm_regs
+            << std::endl;
+  std::cout << "max_blocks_per_sm_smem: " << max_blocks_per_sm_smem
+            << std::endl;
   NVF_ERROR(
       blocks_per_sm > 0,
       "blocks_per_sm must be greater than 0. smem buffer size: ",
@@ -599,11 +603,20 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
   while (threads_per_block % iop.bdimx) {
     iop.bdimx = std::min(iop.bdimx + 8, threads_per_block);
   }
-  // Step-4, set OuterParams Reduction dim: bdimy.
+  // Step-4, set OuterParams Reduction dim: bdimy * serial
   iop.bdimy = threads_per_block / iop.bdimx;
   NVF_ERROR(
       iop.bdimy * iop.bdimx == threads_per_block,
       " threads_per_block must be divisible by bdimx and bdimy.");
+  // final outer reduction has a fixed reduction size of [gdimy]
+  // and split into bdimy and serial reduction.
+  // If serial reduction is large, avoid using static bdimy since it leads
+  // to fully unrolled loops which requires a large register array.
+  rparams->combined_outer_reduction_static_bdimy = true;
+  rparams->unroll_factor_outer_reduction = 1;
+  rparams->cparams.enable_magic_zero = true;
+
+  // std::min(8L, ceilDiv(iop.gdimy, iop.bdimy));
   // Step-5, special case, when inner_dim_numel <= 1024, bdimx is usually small
   // after divide by inner_vect and inner_batch. In this case, bdimy is used to
   // parallelize outer_dim instead of inner_dim. This pattern is named multi
@@ -684,7 +697,6 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
       iop.bdimx,
       iop.bdimy,
       LaunchParams::UNINITIALIZED_VAL);
-
   if (!rparams->smem_persistent_buffers.empty()) {
     rparams->tag =
         "InnerOuter Register and Shared Memory Persistent Heuristic.\n";
@@ -885,8 +897,23 @@ void scheduleReductionCombinedOuter(
 
     } else {
       // reduction domain
-      outer_reduction_tv->split(0, rparams->lparams.bdimy());
-      outer_reduction_tv->axis(1)->parallelize(ParallelType::TIDy);
+      if (rparams->combined_outer_reduction_static_bdimy) {
+        outer_reduction_tv->split(0, rparams->lparams.bdimy());
+        outer_reduction_tv->axis(1)->parallelize(ParallelType::TIDy);
+      } else {
+        outer_reduction_tv->split(
+            0, NamedScalar::getParallelDim(ParallelType::TIDy));
+        outer_reduction_tv->axis(1)->parallelize(ParallelType::TIDy);
+
+        // [I/TIDy, TIDy]
+        if (rparams->unroll_factor_outer_reduction > 1) {
+          outer_reduction_tv->split(0, rparams->unroll_factor_outer_reduction);
+          outer_reduction_tv->axis(1)->parallelize(ParallelType::Unroll);
+          // [I/TIDy/Unroll, Unroll, TIDy]
+          outer_reduction_tv->split(0, 1);
+          outer_reduction_tv->axis(1)->parallelize(ParallelType::Unswitch);
+        }
+      }
 
       // iteration domain
       int axisID = -1;
@@ -908,6 +935,8 @@ void scheduleReductionCombinedOuter(
 
       outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::BIDy);
     }
+    std::cout << "outer_reduction_tv: " << outer_reduction_tv->toString()
+              << std::endl;
     auto outer_reference_tv =
         reduction_scheduler_utils::sortAndRFactor(outer_reduction_tv);
     outer_reference_tvs.emplace_back(outer_reference_tv);
@@ -922,7 +951,8 @@ void scheduleInnerOuterPersistentKernel(
 
   // Grab the reduction, input, and output tensor views. dummy_outputs are
   // helper tensors for persistent buffer projection.
-  std::vector<TensorView*> dummy_outputs, cached_inputs, reduction_tvs;
+  std::vector<TensorView*> dummy_outputs, cached_inputs, reduction_tvs,
+      smem_consumers;
   std::vector<std::pair<TensorView*, TensorView*>> cached_outputs;
   normalization_scheduler_utils::beforeSchedule(
       fusion,
@@ -930,6 +960,7 @@ void scheduleInnerOuterPersistentKernel(
       dummy_outputs,
       cached_inputs,
       reduction_tvs,
+      smem_consumers,
       cached_outputs);
 
   // split reduction_tvs into inner and outer reduction_tvs
@@ -1003,6 +1034,7 @@ void scheduleInnerOuterPersistentKernel(
       inner_reduction_tvs,
       cached_inputs,
       cached_outputs,
+      smem_consumers,
       {selected_tvs_inner.begin(), selected_tvs_inner.end()});
 
   // Propagate outer reduction. Each outer reduction is connected with its
@@ -1012,6 +1044,8 @@ void scheduleInnerOuterPersistentKernel(
   // boundaryNodesSet. Thus, we need a loop to initiate the propagation from
   // each outer reduction. Don't allow parallelization propagation goes
   // through cached_gmem, see issue 246.
+  // don't do grouped reduction for now since it uses more registers.
+  bool is_grouped_reduction = false; //! rparams->tidx_for_outer_reduction;
   for (long unsigned int i = 0; i < outer_reference_tvs.size(); i++) {
     const auto& selected_tvs_outer = scheduler_utils::getAllTvsFrom(
         {outer_reduction_tvs[i]}, {cached_gmem[i]});
@@ -1023,10 +1057,11 @@ void scheduleInnerOuterPersistentKernel(
         outer_reference_tvs[i],
         unroll,
         vectorize,
-        is_outer_grid_persistence,
+        is_grouped_reduction,
         outer_reduction_tvs,
         cached_inputs,
         cached_outputs,
+        smem_consumers,
         {selected_tvs_outer.begin(), selected_tvs_outer.end()});
   }
 
@@ -1063,6 +1098,16 @@ void scheduleInnerOuterPersistentKernel(
           {ParallelType::Vectorize});
     }
   }
+
+  // // vectorize cached shared memory buffers
+  // if (vectorize) {
+  //   for (auto cached_smem_buffer : smem_consumers) {
+  //     NVF_ERROR(
+  //         cached_smem_buffer->definition()->isA<LoadStoreOp>(),
+  //         "Expected a vectorizable expression");
+  //     cached_smem_buffer->axis(-1)->parallelize(ParallelType::Vectorize);
+  //   }
+  // }
 
   // Remove dummy outputs as they can inadvertently affect CA positions
   for (auto output : dummy_outputs) {

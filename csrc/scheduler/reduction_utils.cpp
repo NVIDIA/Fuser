@@ -293,6 +293,7 @@ TensorView* scheduleReductionTV(
       }
     }
   }
+  std::cout << "Reduction TV: " << reduction_tv->toString() << std::endl;
 
   auto reduction_rf_tv = sortAndRFactor(reduction_tv);
 
@@ -351,7 +352,8 @@ void multiReductionInliner(
     std::vector<TensorView*> reduction_tvs,
     std::vector<TensorView*> cached_inputs,
     std::vector<std::pair<TensorView*, TensorView*>> cached_outputs,
-    std::vector<TensorView*> dummy_outputs) {
+    std::vector<TensorView*> smem_persistent_buffer_consumers,
+        std::vector<TensorView*> dummy_outputs) {
   // Propagate transformations before we rfactor the other reductions
   propagateTransformation(reference_tv);
   // If reduction_tv is rfactored, rfactor all reductions.
@@ -368,7 +370,8 @@ void multiReductionInliner(
       use_grouped_reduction,
       reduction_tvs,
       cached_inputs,
-      cached_outputs);
+      cached_outputs,
+      smem_persistent_buffer_consumers);
 
   // Remove dummy outputs as they can inadvertently affect CA positions
   for (auto output : dummy_outputs) {
@@ -434,6 +437,7 @@ void propagateParallelization(
     const std::vector<TensorView*>& reduction_tvs,
     const std::vector<TensorView*>& cached_inputs,
     const std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs,
+    const std::vector<TensorView*>& smem_persistent_buffer_consumers,
     const std::vector<TensorView*>& selected_tvs) {
   // Propagate parallelization except vectorization and unrolling
   scheduler_utils::parallelizeAllLike(
@@ -485,6 +489,22 @@ void propagateParallelization(
         }
       } else {
         are_unrolled.emplace(output);
+      }
+    }
+
+    if (vectorize) {
+      for (auto cached_smem_buffer : smem_persistent_buffer_consumers) {
+        // cached_smem_buffer is added in schedule process
+        // movePersistentBufferToSmem() using cacheAfter(), so it should be a
+        // LoadStoreOp.
+        std::cout << "cached_smem_buffer: " << cached_smem_buffer->toString()
+                  << std::endl;
+          std::cout << "cached_smem_buffer: " << cached_smem_buffer->definition()->toString()
+                  << std::endl;      
+        NVF_ERROR(
+            vectorizable_expr(cached_smem_buffer->definition()),
+            "Expected a vectorizable expression");
+        are_unrolled.emplace(cached_smem_buffer);
       }
     }
 
