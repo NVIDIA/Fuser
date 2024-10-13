@@ -5909,25 +5909,11 @@ TEST_F(ResizeTest, RoPEFull2) {
   std::vector<int64_t> shape1{
       batches, n_query_groups, total_qkv, seq_length, head_size};
 
-  // head_size is assumed to be divisible by rope_n_elem, but it's
-  // likely this can be lifted
-  std::vector<int64_t> shape2{
-      batches,
-      n_query_groups,
-      total_qkv,
-      seq_length,
-      head_size / rope_n_elem,
-      rotation_num_splits,
-      rope_n_elem / rotation_num_splits};
-
-  bool has_rope_reshape = head_size != rope_n_elem;
-
-  if (!has_rope_reshape) {
-    shape2.erase(shape2.begin() + 4);
-  }
+  const bool has_rope_reshape = head_size != rope_n_elem;
 
   std::cerr << "shape1: " << shape1 << "\n";
-  std::cerr << "shape2: " << shape2 << "\n";
+
+  std::unordered_set<TensorView*> tvs_to_vectorize;
 
   // qkv after permutation
   auto tv0 = makeContigConcreteTensor(shape1);
@@ -5945,12 +5931,7 @@ TEST_F(ResizeTest, RoPEFull2) {
   fusion.addInput(tv2);
   auto sin = tv2;
 
-  auto tv3 = set(tv0);
-  auto tv4 = reshape(tv3, shape1, shape2);
-  // Due to the broadcast, there will be tv5
-  auto tv5 = tv4;
-
-  auto qkv = tv5;
+  auto qkv = tv0;
 
   std::cerr << "qkv: " << qkv->toString() << "\n";
 
@@ -5972,8 +5953,8 @@ TEST_F(ResizeTest, RoPEFull2) {
   auto one = fusion.oneVal();
 
   std::vector<Slice> slice_default_arg;
-  slice_default_arg.reserve(shape2.size());
-  for (const auto s : shape2) {
+  slice_default_arg.reserve(shape1.size());
+  for (const auto s : shape1) {
     slice_default_arg.push_back(Slice{zero, IrBuilder::create<Val>(s)});
   }
 
@@ -5985,6 +5966,8 @@ TEST_F(ResizeTest, RoPEFull2) {
     auto slice_arg = slice_default_arg;
     slice_arg[qkv_slice_dim].stop = IrBuilder::create<Val>(total_qkv - 2);
     tv6 = slice(qkv, slice_arg);
+    std::cerr << "q slice: " << tv6->definition()->toString();
+    tvs_to_vectorize.emplace(tv6);
   }
   auto q = tv6;
 
@@ -5995,6 +5978,7 @@ TEST_F(ResizeTest, RoPEFull2) {
     slice_arg[qkv_slice_dim].start = IrBuilder::create<Val>(q_per_kv);
     slice_arg[qkv_slice_dim].stop = IrBuilder::create<Val>(total_qkv - 1);
     tv7 = slice(qkv, slice_arg);
+    tvs_to_vectorize.emplace(tv7);
   }
   auto k = tv7;
 
@@ -6009,36 +5993,36 @@ TEST_F(ResizeTest, RoPEFull2) {
 
   TensorView* tv9 = nullptr;
   {
-    auto cur_shape = shape2;
+    auto cur_shape = shape1;
     cur_shape[qkv_slice_dim] = q_per_kv;
     std::vector<int64_t> new_shape;
     new_shape.push_back(batches);
     new_shape.push_back(-1);
-    new_shape.insert(new_shape.end(), shape2.begin() + 3, shape2.end());
+    new_shape.insert(new_shape.end(), shape1.begin() + 3, shape1.end());
     tv9 = reshape(q, cur_shape, new_shape);
   }
   q = tv9;
 
   TensorView* tv10 = nullptr;
   {
-    auto cur_shape = shape2;
+    auto cur_shape = shape1;
     cur_shape[qkv_slice_dim] = 1;
     std::vector<int64_t> new_shape;
     new_shape.push_back(batches);
     new_shape.push_back(-1);
-    new_shape.insert(new_shape.end(), shape2.begin() + 3, shape2.end());
+    new_shape.insert(new_shape.end(), shape1.begin() + 3, shape1.end());
     tv10 = reshape(k, cur_shape, new_shape);
   }
   k = tv10;
 
   TensorView* tv11 = nullptr;
   {
-    auto cur_shape = shape2;
+    auto cur_shape = shape1;
     cur_shape[qkv_slice_dim] = 1;
     std::vector<int64_t> new_shape;
     new_shape.push_back(batches);
     new_shape.push_back(-1);
-    new_shape.insert(new_shape.end(), shape2.begin() + 3, shape2.end());
+    new_shape.insert(new_shape.end(), shape1.begin() + 3, shape1.end());
     tv11 = reshape(v, cur_shape, new_shape);
   }
   v = tv11;
@@ -6047,7 +6031,27 @@ TEST_F(ResizeTest, RoPEFull2) {
   // 1. take [..., :rope_n_elem]
   // 2. apply_rope
   // 3. concat apply_rope and [..., rope_n_elem:]
-  auto apply_rope = [&](TensorView* x) -> TensorView* {
+  auto apply_rope = [&](TensorView* x, bool is_q) -> TensorView* {
+    // Insert reshape
+    std::vector<int64_t> current_shape{
+        batches, n_query_groups, seq_length, head_size};
+    if (is_q) {
+      current_shape[1] *= q_per_kv;
+    }
+
+    auto rope_n_elem_reshape_factor = head_size / rope_n_elem;
+    std::vector<int64_t> new_shape = has_rope_reshape
+        ? std::vector<
+              int64_t>{batches, n_query_groups, seq_length, rope_n_elem_reshape_factor, rotation_num_splits, rope_n_elem / rotation_num_splits}
+        : std::vector<int64_t>{
+              batches,
+              n_query_groups,
+              seq_length,
+              rotation_num_splits,
+              rope_n_elem / rotation_num_splits};
+
+    x = reshape(x, current_shape, new_shape);
+
     const int64_t rope_n_elem_slice_dim = (int64_t)x->nDims() - 3;
     const int64_t rotation_dim = (int64_t)x->nDims() - 2;
 
@@ -6112,7 +6116,7 @@ TEST_F(ResizeTest, RoPEFull2) {
                zero,
                zero,
                zero,
-               IrBuilder::create<Val>(shape2.at(4) - 1)});
+               IrBuilder::create<Val>(rope_n_elem_reshape_factor - 1)});
     }
     std::cerr << "Padded: " << padded_apply_rope_result->toString() << "\n";
 
@@ -6128,55 +6132,39 @@ TEST_F(ResizeTest, RoPEFull2) {
       out = add(out, padded_x_remaining);
     }
 
+    // Reverse reshape
+    out = reshape(out, new_shape, current_shape);
+
     return out;
   };
 
-  q = apply_rope(q);
-  k = apply_rope(k);
+  auto q_out = apply_rope(q, true);
+  q_out = set(q_out);
+  [[maybe_unused]] auto k_out = apply_rope(k, false);
+  k_out = set(k_out);
   // Not used but just for clarity
-  v = apply_rope(v);
+  [[maybe_unused]] auto v_out = apply_rope(v, false);
 
-  std::vector<int64_t> reverse_reshape_input_shape;
-  reverse_reshape_input_shape.reserve(q->nDims());
-  reverse_reshape_input_shape.push_back(batches);
-  reverse_reshape_input_shape.push_back(n_query_groups * q_per_kv);
-  reverse_reshape_input_shape.push_back(seq_length);
-  if (has_rope_reshape) {
-    reverse_reshape_input_shape.push_back(head_size / rope_n_elem);
-  }
-  reverse_reshape_input_shape.push_back(rotation_num_splits);
-  reverse_reshape_input_shape.push_back(rope_n_elem / rotation_num_splits);
-
-  auto q_original_shape = reshape(
-      q,
-      reverse_reshape_input_shape,
-      {batches, n_query_groups * q_per_kv, seq_length, -1});
-
-  reverse_reshape_input_shape[1] = n_query_groups;
-  [[maybe_unused]] auto k_original_shape = reshape(
-      k,
-      reverse_reshape_input_shape,
-      {batches, n_query_groups, seq_length, -1});
-
-  [[maybe_unused]] auto v_original_shape = reshape(
-      v,
-      reverse_reshape_input_shape,
-      {batches, n_query_groups, seq_length, -1});
-
-  fusion.addOutput(q_original_shape);
+  fusion.addOutput(q_out);
+  tvs_to_vectorize.emplace(q_out);
   // Disabled for now
-  // fusion.addOutput(k_original_shape);
+  fusion.addOutput(k_out);
+  tvs_to_vectorize.emplace(k_out);
   // fusion.addOutput(v_original_shape);
 
   fusion.printMath();
 
-  std::vector<IterDomain*> ref_loop = qkv->getLogicalDomain();
+  NVF_ERROR(q->uses().size() == 1);
+  NVF_ERROR(q->uses().at(0)->isA<ViewOp>());
+  auto ref_tv = q->uses().at(0)->output(0)->as<TensorView>();
+
+  std::vector<IterDomain*> ref_loop = ref_tv->getLogicalDomain();
   std::swap(ref_loop.at(ref_loop.size() - 1), ref_loop.at(ref_loop.size() - 2));
-  for (const auto i : c10::irange(2, ref_loop.size() - 2)) {
-    std::swap(ref_loop.at(i), ref_loop.at(i + 1));
-  }
+  // for (const auto i : c10::irange(2, ref_loop.size() - 2)) {
+  // std::swap(ref_loop.at(i), ref_loop.at(i + 1));
+  // }
   std::cerr << "Ref domain: " << toDelimitedString(ref_loop) << "\n";
-  scheduler_tools::scheduleLoopDomainsLike(fusion.allTvs(), ref_loop, -3);
+  scheduler_tools::scheduleLoopDomainsLike(fusion.allTvs(), ref_loop, -2);
 
   fusion.printMath();
 
@@ -6193,18 +6181,23 @@ TEST_F(ResizeTest, RoPEFull2) {
 
   // Reorder back to the original order
   for (auto tv : fusion.allTvs()) {
+    std::cerr << "Before: " << tv->toString() << "\n";
     tv->reorder({{3, -1}});
+    std::cerr << "Reordered: " << tv->toString() << "\n";
 
     // Parallelize the innermost domain
     tv->split(-1, 4);
+    std::cerr << "Vec split: " << tv->toString() << "\n";
     tv->axis(-2)->parallelize(ParallelType::TIDx);
-    if (tv == tv3) {
+    std::cerr << "TIDx parallelized: " << tv->toString() << "\n";
+
+    if (tvs_to_vectorize.find(tv) != tvs_to_vectorize.end()) {
       tv->axis(-1)->parallelize(ParallelType::Vectorize);
     }
 
     // Schedule the outermost three loops
     tv->merge(0)->merge(0);
-    // TODO: If TIDx is small, use TIDy as well
+    // If TIDx is small, use TIDy as well
     int64_t vec_factor = 4;
     int64_t bdimx = rope_n_elem / 2 / vec_factor;
     if (bdimx < 128) {
@@ -6239,8 +6232,8 @@ TEST_F(ResizeTest, RoPEFull2) {
     }
     mem_size *= 2;
 
-    // When only q is computed
-    mem_size = mem_size / total_qkv * q_per_kv;
+    // Only q and k are computed
+    mem_size = mem_size / total_qkv * (q_per_kv + 1);
 
     ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
     for (int i = 0; i < 10; ++i) {
