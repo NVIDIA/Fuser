@@ -245,10 +245,11 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
 
   // (2) If the available register is larger than current register buffer size,
   // no need to move buffers to shared memory, return early.
-  // if (buffer_params.regs_buffer_size <= available_regs) {
-  //   buffer_params.has_enough_regs_and_smem = true;
-  //   return buffer_params;
-  // }
+  bool use_register_only = std::getenv("USE_OLD") != nullptr;
+  if (use_register_only && buffer_params.regs_buffer_size <= available_regs) {
+    buffer_params.has_enough_regs_and_smem = true;
+    return buffer_params;
+  }
 
   // (3) Relocate buffers to shared memory until the buffer size in registers is
   // within the allowable limit.
@@ -302,7 +303,8 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
       int64_t diff = regs_buffer_size - smem_buffer_size;
       // if we don't have a valid configuration yet or a better configuration
       // is found, then use it
-      if (n_smem_buffer == -1 || (diff > 0 && diff < register_smem_diff)) {
+      if (true || n_smem_buffer == -1 ||
+          ((diff > 0 && diff < register_smem_diff))) {
         n_smem_buffer = i + 1;
         register_smem_diff = diff;
         buffer_params.regs_buffer_size = regs_buffer_size;
@@ -390,10 +392,11 @@ std::pair<int64_t, int64_t> getBufferBatchSizeAndThreadsPerBlock(
     int64_t register_per_batch = ceilDiv(
         register_buffer_size / inner_dim_numel * vectorize_factor,
         scheduler_utils::bytes_per_register);
-    return scheduler_utils::safeDiv(
+    int64_t max_persistent_batch = scheduler_utils::safeDiv(
         scheduler_utils::max_registers_per_thread -
             scheduler_utils::register_overhead,
         register_per_batch);
+    return std::min(14L, max_persistent_batch);
   };
 
   const int64_t after_vectorization = inner_dim_numel / vectorize_factor;
@@ -411,21 +414,11 @@ std::pair<int64_t, int64_t> getBufferBatchSizeAndThreadsPerBlock(
   // reaches batch_min.
   int64_t threads_per_block = threads_per_block_min;
   int64_t inner_batch = ceilDiv(after_vectorization, threads_per_block);
-  if (true || shared_memory_buffer_size > 0) {
-    while (inner_batch > batch_max &&
-           threads_per_block * 2 <= threads_per_block_max &&
-           ceilDiv(after_vectorization, threads_per_block * 2) >= batch_min) {
-      threads_per_block *= 2;
-      inner_batch = ceilDiv(after_vectorization, threads_per_block);
-    }
-  } else {
-    while (inner_batch > batch_max &&
-           threads_per_block + warp_size <= threads_per_block_max &&
-           ceilDiv(after_vectorization, threads_per_block + warp_size) >=
-               batch_min) {
-      threads_per_block += warp_size;
-      inner_batch = ceilDiv(after_vectorization, threads_per_block);
-    }
+  while (inner_batch > batch_max &&
+         threads_per_block * 2 <= threads_per_block_max &&
+         ceilDiv(after_vectorization, threads_per_block * 2) >= batch_min) {
+    threads_per_block *= 2;
+    inner_batch = ceilDiv(after_vectorization, threads_per_block);
   }
   return std::make_pair(inner_batch, threads_per_block);
 }
