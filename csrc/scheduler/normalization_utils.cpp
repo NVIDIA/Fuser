@@ -1369,8 +1369,6 @@ void schedulePersistentKernel(
       smem_consumers,
       cached_outputs);
 
-  fusion->printMath();
-
   TensorView* reference_tv =
       scheduleReductionGeneral(fusion, rparams, reduction_tvs, scheduler_type);
 

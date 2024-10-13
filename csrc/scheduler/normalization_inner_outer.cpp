@@ -614,7 +614,6 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
   // to fully unrolled loops which requires a large register array.
   rparams->combined_outer_reduction_static_bdimy = true;
   rparams->unroll_factor_outer_reduction = 1;
-  rparams->cparams.enable_magic_zero = true;
 
   // std::min(8L, ceilDiv(iop.gdimy, iop.bdimy));
   // Step-5, special case, when inner_dim_numel <= 1024, bdimx is usually small
@@ -935,8 +934,6 @@ void scheduleReductionCombinedOuter(
 
       outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::BIDy);
     }
-    std::cout << "outer_reduction_tv: " << outer_reduction_tv->toString()
-              << std::endl;
     auto outer_reference_tv =
         reduction_scheduler_utils::sortAndRFactor(outer_reduction_tv);
     outer_reference_tvs.emplace_back(outer_reference_tv);
@@ -1098,16 +1095,6 @@ void scheduleInnerOuterPersistentKernel(
           {ParallelType::Vectorize});
     }
   }
-
-  // // vectorize cached shared memory buffers
-  // if (vectorize) {
-  //   for (auto cached_smem_buffer : smem_consumers) {
-  //     NVF_ERROR(
-  //         cached_smem_buffer->definition()->isA<LoadStoreOp>(),
-  //         "Expected a vectorizable expression");
-  //     cached_smem_buffer->axis(-1)->parallelize(ParallelType::Vectorize);
-  //   }
-  // }
 
   // Remove dummy outputs as they can inadvertently affect CA positions
   for (auto output : dummy_outputs) {
