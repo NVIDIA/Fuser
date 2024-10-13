@@ -112,6 +112,8 @@ class LoopDomainScheduler {
     std::cerr << "Ref loop IDs: " << toDelimitedString(ref_loop_ids_) << "\n";
 
     // For now, ref must not be a broadcast domain
+    // TODO: Only allow broadcast produced by resize
+#if 0
     NVF_ERROR(
         std::none_of(
             ref_loop_ids_.begin(),
@@ -119,6 +121,7 @@ class LoopDomainScheduler {
             [](IterDomain* id) { return id->isBroadcast(); }),
         "Broadcast referene not supported: ",
         toDelimitedString(ref_loop_ids_));
+#endif
 
     Fusion* fusion = ref_loop_ids_.front()->fusion();
     id_model_ = std::make_unique<IdModel>(fusion, /*build_graphs=*/false);
