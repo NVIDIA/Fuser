@@ -661,451 +661,454 @@ class TransformerBackwardFusion(FusionDefinition):
 
     def definition(self) -> None:
         T0 = self.define_tensor(
-            shape=[1, 2048, 12288],
-            contiguity=[None, True, True],
+            shape=[1, 96, 2048, 128],
+            contiguity=[None, True, True, True],
             dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[3, 1, 2, 0],
         )
-        T1 = self.define_tensor(
-            shape=[1, 2048, 12288],
-            contiguity=[None, True, True],
-            dtype=DataType.Float,
-        )
-        T2 = self.define_tensor(
-            shape=[12288, 49152],
+        S1 = self.define_scalar(None, dtype=DataType.Int)
+        S2 = self.define_scalar(None, dtype=DataType.Int)
+        T3 = self.define_tensor(
+            shape=[12288, 12288],
             contiguity=[True, True],
             dtype=DataType.BFloat16,
-        )
-        T3 = self.define_tensor(
-            shape=[1, 2048, 49152],
-            contiguity=[None, True, True],
-            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[1, 0],
         )
         T4 = self.define_tensor(
-            shape=[1, 2048, 49152],
-            contiguity=[None, True, True],
-            dtype=DataType.Float,
+            shape=[12288],
+            contiguity=[True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[0],
         )
         T5 = self.define_tensor(
-            shape=[1, 2048, 49152],
-            contiguity=[None, True, True],
+            shape=[1, 2048],
+            contiguity=[None, True],
             dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[1, 0],
         )
         T6 = self.define_tensor(
-            shape=[1, 2048, 49152],
+            shape=[1, 2048, 12288],
             contiguity=[None, True, True],
-            dtype=DataType.Float,
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[2, 1, 0],
         )
         T7 = self.define_tensor(
-            shape=[1, 2048, 49152],
-            contiguity=[None, True, True],
-            dtype=DataType.Float,
+            shape=[12288],
+            contiguity=[True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[0],
         )
         T8 = self.define_tensor(
-            shape=[1, 2048, 49152],
-            contiguity=[None, True, True],
-            dtype=DataType.Float,
-        )
-        T9 = self.define_tensor(
-            shape=[49152, 12288],
-            contiguity=[True, True],
-            dtype=DataType.BFloat16,
-        )
-        T10 = self.define_tensor(
-            shape=[1, 2048, 12288],
-            contiguity=[None, True, True],
-            dtype=DataType.BFloat16,
-        )
-        T11 = self.define_tensor(
-            shape=[1, 2048, 12288],
-            contiguity=[None, None, True],
-            dtype=DataType.Float,
-        )
-        T12 = self.define_tensor(
-            shape=[1, 2048, 12288],
-            contiguity=[None, True, True],
-            dtype=DataType.Float,
-        )
-        T13 = self.define_tensor(
-            shape=[1, 2048, 12288],
-            contiguity=[None, True, None],
-            dtype=DataType.Float,
-        )
-        T14 = self.define_tensor(
-            shape=[1, 2048, 12288],
-            contiguity=[None, True, True],
-            dtype=DataType.Float,
-        )
-        T15 = self.define_tensor(
             shape=[1, 2048, 1],
             contiguity=[None, True, None],
             dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[2, 1, 0],
+        )
+        T9 = self.define_tensor(
+            shape=[12288],
+            contiguity=[True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[0],
+        )
+        T10 = self.define_tensor(
+            shape=[49152, 12288],
+            contiguity=[True, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        T11 = self.define_tensor(
+            shape=[49152],
+            contiguity=[True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[0],
+        )
+        S12 = self.define_scalar(None, dtype=DataType.Int)
+        S13 = self.define_scalar(None, dtype=DataType.Int)
+        T14 = self.define_tensor(
+            shape=[1, 2048, 12288],
+            contiguity=[None, True, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[2, 1, 0],
+        )
+        T15 = self.define_tensor(
+            shape=[12288, 49152],
+            contiguity=[True, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[1, 0],
         )
         T16 = self.define_tensor(
             shape=[1, 2048],
             contiguity=[None, True],
             dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[1, 0],
         )
         T17 = self.define_tensor(
-            shape=[1, 2048, 12288],
-            contiguity=[None, True, True],
-            dtype=DataType.Float,
+            shape=[12288],
+            contiguity=[True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[0],
         )
         T18 = self.define_tensor(
-            shape=[1, 2048, 12288],
-            contiguity=[None, True, True],
-            dtype=DataType.Float,
-        )
-        T19 = self.define_tensor(
-            shape=[12288, 12288],
-            contiguity=[True, True],
-            dtype=DataType.BFloat16,
-        )
-        T20 = self.define_tensor(
-            shape=[1, 2048, 12288],
-            contiguity=[None, True, True],
-            dtype=DataType.BFloat16,
-        )
-        T21 = self.define_tensor(
-            shape=[1, 96, 2048, 128],
-            contiguity=[None, False, True, True],
-            dtype=DataType.BFloat16,
-            stride_order=[3, 1, 2, 0],
-        )
-        T22 = self.define_tensor(
-            shape=[1, 96, 2048, 128],
-            contiguity=[None, False, True, True],
-            dtype=DataType.BFloat16,
-            stride_order=[3, 1, 2, 0],
-        )
-        T23 = self.define_tensor(
-            shape=[1, 96, 2048, 128],
-            contiguity=[None, False, True, True],
-            dtype=DataType.BFloat16,
-            stride_order=[3, 1, 2, 0],
-        )
-        T24 = self.define_tensor(
-            shape=[1, 96, 2048, 128],
-            contiguity=[None, True, True, True],
-            dtype=DataType.BFloat16,
-            stride_order=[3, 1, 2, 0],
-        )
-        T25 = self.define_tensor(
-            shape=[1, 96, 2048],
-            contiguity=[None, True, True],
-            dtype=DataType.Float,
-        )
-        T26 = self.define_tensor(
-            shape=[], contiguity=[], dtype=DataType.Int, is_cpu=True
-        )
-        T27 = self.define_tensor(
-            shape=[], contiguity=[], dtype=DataType.Int, is_cpu=True
-        )
-        T28 = self.define_tensor(
-            shape=[36864, 12288],
-            contiguity=[True, True],
-            dtype=DataType.BFloat16,
-        )
-        T29 = self.define_tensor(
-            shape=[1, 2048, 12288],
-            contiguity=[None, True, True],
-            dtype=DataType.BFloat16,
-        )
-        T30 = self.define_tensor(
-            shape=[1, 2048, 12288],
-            contiguity=[None, None, True],
-            dtype=DataType.Float,
-        )
-        T31 = self.define_tensor(
-            shape=[1, 2048, 12288],
-            contiguity=[None, True, True],
-            dtype=DataType.Float,
-        )
-        T32 = self.define_tensor(
-            shape=[1, 2048, 12288],
-            contiguity=[None, True, None],
-            dtype=DataType.Float,
-        )
-        T33 = self.define_tensor(
-            shape=[1, 2048, 12288],
-            contiguity=[None, True, True],
-            dtype=DataType.Float,
-        )
-        T34 = self.define_tensor(
             shape=[1, 2048, 1],
             contiguity=[None, True, None],
             dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[2, 1, 0],
         )
-        T35 = self.define_tensor(
-            shape=[1, 2048],
-            contiguity=[None, True],
-            dtype=DataType.Float,
+        T19 = self.define_tensor(
+            shape=[12288],
+            contiguity=[True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[0],
         )
-        T36 = self.define_tensor(
-            shape=[1, 2048, 12288],
+        T20 = self.define_tensor(
+            shape=[36864, 12288],
+            contiguity=[True, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        T21 = self.define_tensor(
+            shape=[36864],
+            contiguity=[True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[0],
+        )
+        T22 = self.define_tensor(
+            shape=[1, 96, 2048],
             contiguity=[None, True, True],
             dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[2, 1, 0],
         )
-        T37 = self.ops.cast(T0, dtype=DataType.Float)
-        S38 = self.define_scalar(1.11111, dtype=DataType.Double)
-        T39 = self.ops.mul(S38, T37)
-        T40 = self.ops.mul(T1, T39)
-        T41 = self.ops.cast(T40, dtype=DataType.BFloat16)
-        T45 = self.ops.reshape(T41, new_shape=[2048, 12288])
-        T46 = self.ops.matmul(T45, T2)
-        T51 = self.ops.reshape(T46, new_shape=[1, 2048, 49152])
-        T52 = self.ops.permute(T45, dims=[1, 0])
-        T56 = self.ops.reshape(T3, new_shape=[2048, 49152])
-        T57 = self.ops.matmul(T52, T56)
-        T58 = self.ops.sum(T40, dims=[0, 1], keepdim=False, dtype=DataType.Null)
-        T59 = self.ops.cast(T58, dtype=DataType.BFloat16)
-        T60 = self.ops.cast(T51, dtype=DataType.Float)
-        T61 = self.ops.mul(T4, T60)
-        T62 = self.ops.mul(T5, T60)
-        T63 = self.ops.mul(T6, T6)
-        S64 = self.define_scalar(1.00000, dtype=DataType.Double)
-        T65 = self.ops.sub(S64, T63)
-        T66 = self.ops.mul(T62, T65)
-        S67 = self.define_scalar(0.797885, dtype=DataType.Double)
-        T68 = self.ops.mul(S67, T66)
-        S69 = self.define_scalar(0.0447150, dtype=DataType.Double)
-        T70 = self.ops.mul(S69, T68)
-        S71 = self.define_scalar(0.500000, dtype=DataType.Double)
-        T72 = self.ops.mul(S71, T61)
-        T73 = self.ops.add(T68, T72)
-        T74 = self.ops.mul(T7, T70)
-        T75 = self.ops.mul(T8, T70)
-        T76 = self.ops.add(T73, T75)
-        T77 = self.ops.mul(T7, T74)
-        T78 = self.ops.add(T76, T77)
+        T23 = self.define_tensor(
+            shape=[], contiguity=[], dtype=DataType.Int, is_cpu=True
+        )
+        T24 = self.define_tensor(
+            shape=[], contiguity=[], dtype=DataType.Int, is_cpu=True
+        )
+        T25 = self.ops.permute(T0, dims=[0, 2, 1, 3])
+        T26 = self.ops.stride_order(T25, stride_order=[3, 2, 1, 0])
+        S27 = self.define_scalar(0.00000, dtype=DataType.Double)
+        S28 = self.define_scalar(1.00000, dtype=DataType.Double)
+        T33 = self.ops.uniform(
+            S27,
+            S28,
+            shape=[1, 2048, 12288],
+            rng_seed=S2,
+            rng_offset=S1,
+            dtype=DataType.BFloat16,
+        )
+        T38 = self.ops.reshape(T26, new_shape=[1, 2048, 12288])
+        S39 = self.define_scalar(0.900000, dtype=DataType.Double)
+        T40 = self.ops.lt(T33, S39)
+        T41 = self.ops.linear(T38, T3, T4)
+        T42 = self.ops.cast(T40, dtype=DataType.Float)
+        T43 = self.ops.cast(T41, dtype=DataType.Float)
+        T44 = self.ops.mul(T43, T42)
+        T49 = self.ops.broadcast_in_dim(T5, shape=[1, 2048, 1], broadcast_dims=[0, 1])
+        S50 = self.define_scalar(1.11111, dtype=DataType.Double)
+        T51 = self.ops.mul(T44, S50)
+        T52 = self.ops.cast(T6, dtype=DataType.Float)
+        T57 = self.ops.broadcast_in_dim(
+            T49, shape=[1, 2048, 12288], broadcast_dims=[0, 1, 2]
+        )
+        T58 = self.ops.add(T52, T51)
+        T63 = self.ops.broadcast_in_dim(T7, shape=[1, 2048, 12288], broadcast_dims=[2])
+        T68 = self.ops.broadcast_in_dim(
+            T8, shape=[1, 2048, 12288], broadcast_dims=[0, 1, 2]
+        )
+        T69 = self.ops.sub(T58, T57)
+        T74 = self.ops.broadcast_in_dim(T9, shape=[1, 2048, 12288], broadcast_dims=[2])
+        T75 = self.ops.cast(T63, dtype=DataType.Float)
+        T76 = self.ops.mul(T69, T68)
+        T77 = self.ops.cast(T74, dtype=DataType.Float)
+        T78 = self.ops.mul(T76, T75)
         T79 = self.ops.add(T78, T77)
         T80 = self.ops.cast(T79, dtype=DataType.BFloat16)
-        T84 = self.ops.reshape(T80, new_shape=[2048, 49152])
-        T85 = self.ops.matmul(T84, T9)
-        T90 = self.ops.reshape(T85, new_shape=[1, 2048, 12288])
-        T91 = self.ops.permute(T84, dims=[1, 0])
-        T95 = self.ops.reshape(T10, new_shape=[2048, 12288])
-        T96 = self.ops.matmul(T91, T95)
-        T97 = self.ops.sum(T79, dims=[0, 1], keepdim=False, dtype=DataType.Null)
-        T98 = self.ops.cast(T97, dtype=DataType.BFloat16)
-        T99 = self.ops.cast(T90, dtype=DataType.Float)
-        T100 = self.ops.sum(T99, dims=[0, 1], keepdim=False, dtype=DataType.Null)
-        T101 = self.ops.cast(T100, dtype=DataType.BFloat16)
-        T102 = self.ops.mul(T11, T99)
-        T103 = self.ops.mul(T12, T99)
-        T104 = self.ops.sum(T103, dims=[0, 1], keepdim=False, dtype=DataType.Null)
-        T105 = self.ops.cast(T104, dtype=DataType.BFloat16)
-        T106 = self.ops.mul(T13, T102)
-        T107 = self.ops.mul(T14, T102)
-        T108 = self.ops.sum(T107, dims=[0, 2], keepdim=False, dtype=DataType.Null)
-        S109 = self.define_scalar(1, dtype=DataType.Int)
-        S110 = self.define_scalar(2048, dtype=DataType.Int)
-        S111 = self.define_scalar(1, dtype=DataType.Int)
-        T113 = self.ops.broadcast_in_dim(
-            T108, shape=[S109, S110, S111], broadcast_dims=[1]
+        T81 = self.ops.linear(T80, T10, T11)
+        S82 = self.define_scalar(0.00000, dtype=DataType.Double)
+        S83 = self.define_scalar(1.00000, dtype=DataType.Double)
+        T88 = self.ops.uniform(
+            S82,
+            S83,
+            shape=[1, 2048, 12288],
+            rng_seed=S13,
+            rng_offset=S12,
+            dtype=DataType.BFloat16,
         )
-        T114 = self.ops.neg(T106)
-        T115 = self.ops.sum(T114, dims=[0, 2], keepdim=False, dtype=DataType.Null)
-        S116 = self.define_scalar(1, dtype=DataType.Int)
-        S117 = self.define_scalar(2048, dtype=DataType.Int)
-        S118 = self.define_scalar(1, dtype=DataType.Int)
-        T120 = self.ops.broadcast_in_dim(
-            T115, shape=[S116, S117, S118], broadcast_dims=[1]
+        T89 = self.ops.cast(T81, dtype=DataType.Float)
+        T90 = self.ops.cast(T14, dtype=DataType.Float)
+        S91 = self.define_scalar(0.900000, dtype=DataType.Double)
+        T92 = self.ops.lt(T88, S91)
+        T93 = self.ops.mul(T89, T89)
+        S94 = self.define_scalar(1.11111, dtype=DataType.Double)
+        T95 = self.ops.mul(S94, T90)
+        T96 = self.ops.cast(T92, dtype=DataType.Float)
+        T97 = self.ops.mul(T93, T89)
+        T98 = self.ops.mul(T96, T95)
+        S99 = self.define_scalar(0.0447150, dtype=DataType.Double)
+        T100 = self.ops.mul(S99, T97)
+        T101 = self.ops.cast(T98, dtype=DataType.BFloat16)
+        T102 = self.ops.add(T89, T100)
+        T106 = self.ops.reshape(T101, new_shape=[2048, 12288])
+        S107 = self.define_scalar(0.797885, dtype=DataType.Double)
+        T108 = self.ops.mul(S107, T102)
+        T109 = self.ops.matmul(T106, T15)
+        T110 = self.ops.tanh(T108)
+        T115 = self.ops.reshape(T109, new_shape=[1, 2048, 49152])
+        T116 = self.ops.mul(T110, T110)
+        T117 = self.ops.cast(T115, dtype=DataType.Float)
+        S118 = self.define_scalar(0.500000, dtype=DataType.Double)
+        T119 = self.ops.mul(S118, T89)
+        S120 = self.define_scalar(1.00000, dtype=DataType.Double)
+        T121 = self.ops.sub(S120, T116)
+        T122 = self.ops.mul(T119, T117)
+        T123 = self.ops.mul(T122, T121)
+        S124 = self.define_scalar(1.00000, dtype=DataType.Double)
+        T125 = self.ops.add(S124, T110)
+        S126 = self.define_scalar(0.797885, dtype=DataType.Double)
+        T127 = self.ops.mul(S126, T123)
+        T128 = self.ops.mul(T125, T117)
+        S129 = self.define_scalar(0.0447150, dtype=DataType.Double)
+        T130 = self.ops.mul(S129, T127)
+        S131 = self.define_scalar(0.500000, dtype=DataType.Double)
+        T132 = self.ops.mul(S131, T128)
+        T133 = self.ops.mul(T89, T130)
+        T134 = self.ops.mul(T93, T130)
+        T135 = self.ops.add(T127, T132)
+        T136 = self.ops.mul(T89, T133)
+        T137 = self.ops.add(T135, T134)
+        T138 = self.ops.add(T137, T136)
+        T139 = self.ops.add(T138, T136)
+        T140 = self.ops.cast(T139, dtype=DataType.BFloat16)
+        T144 = self.ops.reshape(T140, new_shape=[2048, 49152])
+        T145 = self.ops.matmul(T144, T10)
+        T150 = self.ops.reshape(T145, new_shape=[1, 2048, 12288])
+        T151 = self.ops.cast(T150, dtype=DataType.Float)
+        T152 = self.ops.mul(T75, T151)
+        T153 = self.ops.mul(T69, T152)
+        T154 = self.ops.sum(T153, dims=[0, 2], keepdim=False, dtype=DataType.Null)
+        T159 = self.ops.broadcast_in_dim(T154, shape=[1, 2048, 1], broadcast_dims=[1])
+        S160 = self.define_scalar(3.00000, dtype=DataType.Double)
+        T161 = self.ops.pow(T8, S160)
+        S162 = self.define_scalar(-0.500000, dtype=DataType.Double)
+        T163 = self.ops.mul(S162, T159)
+        T164 = self.ops.mul(T68, T152)
+        T165 = self.ops.mul(T163, T161)
+        T166 = self.ops.neg(T164)
+        T167 = self.ops.sum(T165, dims=[0, 2], keepdim=False, dtype=DataType.Null)
+        T168 = self.ops.sum(T166, dims=[0, 2], keepdim=False, dtype=DataType.Null)
+        T172 = self.ops.broadcast_in_dim(T167, shape=[1, 2048], broadcast_dims=[1])
+        T177 = self.ops.broadcast_in_dim(T168, shape=[1, 2048, 1], broadcast_dims=[1])
+        T182 = self.ops.broadcast_in_dim(T5, shape=[1, 2048, 1], broadcast_dims=[0, 1])
+        T187 = self.ops.broadcast_in_dim(
+            T172, shape=[1, 2048, 1], broadcast_dims=[0, 1]
         )
-        S121 = self.define_scalar(-0.500000, dtype=DataType.Double)
-        T122 = self.ops.mul(S121, T113)
-        S123 = self.define_scalar(3.00000, dtype=DataType.Double)
-        T124 = self.ops.pow(T15, S123)
-        T125 = self.ops.mul(T122, T124)
-        T126 = self.ops.sum(T120, dims=[0, 2], keepdim=False, dtype=DataType.Null)
-        S127 = self.define_scalar(1, dtype=DataType.Int)
-        S128 = self.define_scalar(2048, dtype=DataType.Int)
-        T130 = self.ops.broadcast_in_dim(T126, shape=[S127, S128], broadcast_dims=[1])
-        T131 = self.ops.sum(T125, dims=[0, 2], keepdim=False, dtype=DataType.Null)
-        S132 = self.define_scalar(1, dtype=DataType.Int)
-        S133 = self.define_scalar(2048, dtype=DataType.Int)
-        T135 = self.ops.broadcast_in_dim(T131, shape=[S132, S133], broadcast_dims=[1])
-        S136 = self.define_scalar(1, dtype=DataType.Int)
-        S137 = self.define_scalar(2048, dtype=DataType.Int)
-        S138 = self.define_scalar(1, dtype=DataType.Int)
-        T140 = self.ops.broadcast_in_dim(
-            T130, shape=[S136, S137, S138], broadcast_dims=[0, 1]
+        T188 = self.ops.sum(T177, dims=[0, 2], keepdim=False, dtype=DataType.Null)
+        T193 = self.ops.broadcast_in_dim(
+            T182, shape=[1, 2048, 12288], broadcast_dims=[0, 1, 2]
         )
-        S141 = self.define_scalar(1, dtype=DataType.Int)
-        S142 = self.define_scalar(2048, dtype=DataType.Int)
-        S143 = self.define_scalar(12288, dtype=DataType.Int)
-        T145 = self.ops.broadcast_in_dim(
-            T140, shape=[S141, S142, S143], broadcast_dims=[0, 1, 2]
+        T198 = self.ops.broadcast_in_dim(
+            T187, shape=[1, 2048, 12288], broadcast_dims=[0, 1, 2]
         )
-        S146 = self.define_scalar(8.13802e-05, dtype=DataType.Double)
-        T147 = self.ops.mul(S146, T145)
-        S148 = self.define_scalar(1, dtype=DataType.Int)
-        S149 = self.define_scalar(2048, dtype=DataType.Int)
-        S150 = self.define_scalar(1, dtype=DataType.Int)
-        T152 = self.ops.broadcast_in_dim(
-            T135, shape=[S148, S149, S150], broadcast_dims=[0, 1]
+        T202 = self.ops.broadcast_in_dim(T188, shape=[1, 2048], broadcast_dims=[1])
+        T203 = self.ops.sub(T58, T193)
+        S204 = self.define_scalar(2.00000, dtype=DataType.Double)
+        T205 = self.ops.mul(S204, T198)
+        T210 = self.ops.broadcast_in_dim(
+            T202, shape=[1, 2048, 1], broadcast_dims=[0, 1]
         )
-        S153 = self.define_scalar(1, dtype=DataType.Int)
-        S154 = self.define_scalar(2048, dtype=DataType.Int)
-        S155 = self.define_scalar(12288, dtype=DataType.Int)
-        T157 = self.ops.broadcast_in_dim(
-            T152, shape=[S153, S154, S155], broadcast_dims=[0, 1, 2]
+        T211 = self.ops.mul(T205, T203)
+        T216 = self.ops.broadcast_in_dim(
+            T210, shape=[1, 2048, 12288], broadcast_dims=[0, 1, 2]
         )
-        S158 = self.define_scalar(1, dtype=DataType.Int)
-        S159 = self.define_scalar(2048, dtype=DataType.Int)
-        S160 = self.define_scalar(1, dtype=DataType.Int)
-        T162 = self.ops.broadcast_in_dim(
-            T16, shape=[S158, S159, S160], broadcast_dims=[0, 1]
+        S217 = self.define_scalar(12288.0, dtype=DataType.Double)
+        S218 = self.ops.reciprocal(S217)
+        T219 = self.ops.mul(T211, S218)
+        S220 = self.define_scalar(8.13802e-05, dtype=DataType.Double)
+        T221 = self.ops.mul(S220, T216)
+        T226 = self.ops.broadcast_in_dim(T16, shape=[1, 2048, 1], broadcast_dims=[0, 1])
+        T227 = self.ops.add(T221, T219)
+        T232 = self.ops.broadcast_in_dim(
+            T226, shape=[1, 2048, 12288], broadcast_dims=[0, 1, 2]
         )
-        S163 = self.define_scalar(1, dtype=DataType.Int)
-        S164 = self.define_scalar(2048, dtype=DataType.Int)
-        S165 = self.define_scalar(12288, dtype=DataType.Int)
-        T167 = self.ops.broadcast_in_dim(
-            T162, shape=[S163, S164, S165], broadcast_dims=[0, 1, 2]
+        T233 = self.ops.add(T164, T227)
+        T238 = self.ops.broadcast_in_dim(
+            T17, shape=[1, 2048, 12288], broadcast_dims=[2]
         )
-        S168 = self.define_scalar(2.00000, dtype=DataType.Double)
-        T169 = self.ops.mul(S168, T157)
-        T170 = self.ops.sub(T17, T167)
-        T171 = self.ops.mul(T169, T170)
-        S172 = self.define_scalar(12288.0, dtype=DataType.Double)
-        S173 = self.ops.reciprocal(S172)
-        T174 = self.ops.mul(T171, S173)
-        T175 = self.ops.add(T147, T174)
-        T176 = self.ops.add(T106, T175)
-        T177 = self.ops.add(T37, T176)
-        S178 = self.define_scalar(1.11111, dtype=DataType.Double)
-        T179 = self.ops.mul(S178, T177)
-        T180 = self.ops.mul(T18, T179)
-        T181 = self.ops.cast(T180, dtype=DataType.BFloat16)
-        T185 = self.ops.reshape(T181, new_shape=[2048, 12288])
-        T186 = self.ops.matmul(T185, T19)
-        T191 = self.ops.reshape(T186, new_shape=[1, 2048, 12288])
-        T192 = self.ops.permute(T185, dims=[1, 0])
-        T196 = self.ops.reshape(T20, new_shape=[2048, 12288])
-        T197 = self.ops.matmul(T192, T196)
-        T198 = self.ops.sum(T180, dims=[0, 1], keepdim=False, dtype=DataType.Null)
-        T199 = self.ops.cast(T198, dtype=DataType.BFloat16)
-        T205 = self.ops.reshape(T191, new_shape=[1, 2048, 96, 128])
-        T206 = self.ops.permute(T205, dims=[0, 2, 1, 3])
-        S207 = self.define_scalar(0.100000, dtype=DataType.Double)
-        S208 = self.define_scalar(True, dtype=DataType.Bool)
-        T209, T210, T211 = self.ops.sdpfa_bwd(
-            T206, T21, T22, T23, T24, T25, S207, S208, T26, T27, None
+        T243 = self.ops.broadcast_in_dim(
+            T18, shape=[1, 2048, 12288], broadcast_dims=[0, 1, 2]
         )
-        T212 = self.ops.permute(T211, dims=[0, 2, 1, 3])
-        T217 = self.ops.reshape(T212, new_shape=[1, 2048, 12288])
-        T218 = self.ops.permute(T209, dims=[0, 2, 1, 3])
-        T223 = self.ops.reshape(T218, new_shape=[1, 2048, 12288])
-        T224 = self.ops.permute(T210, dims=[0, 2, 1, 3])
-        T229 = self.ops.reshape(T224, new_shape=[1, 2048, 12288])
-        T230 = self.ops.cat([T223, T229, T217], dim=2)
-        T234 = self.ops.reshape(T230, new_shape=[2048, 36864])
-        T235 = self.ops.matmul(T234, T28)
-        T240 = self.ops.reshape(T235, new_shape=[1, 2048, 12288])
-        T241 = self.ops.permute(T234, dims=[1, 0])
-        T245 = self.ops.reshape(T29, new_shape=[2048, 12288])
-        T246 = self.ops.matmul(T241, T245)
-        T247 = self.ops.cast(T230, dtype=DataType.Float)
-        T248 = self.ops.sum(T247, dims=[0, 1], keepdim=False, dtype=DataType.Null)
-        T249 = self.ops.cast(T248, dtype=DataType.BFloat16)
-        T250 = self.ops.cast(T240, dtype=DataType.Float)
-        T251 = self.ops.sum(T250, dims=[0, 1], keepdim=False, dtype=DataType.Null)
-        T252 = self.ops.cast(T251, dtype=DataType.BFloat16)
-        T253 = self.ops.mul(T30, T250)
-        T254 = self.ops.mul(T31, T250)
-        T255 = self.ops.sum(T254, dims=[0, 1], keepdim=False, dtype=DataType.Null)
-        T256 = self.ops.cast(T255, dtype=DataType.BFloat16)
-        T257 = self.ops.mul(T32, T253)
-        T258 = self.ops.mul(T33, T253)
-        T259 = self.ops.sum(T258, dims=[0, 2], keepdim=False, dtype=DataType.Null)
-        S260 = self.define_scalar(1, dtype=DataType.Int)
-        S261 = self.define_scalar(2048, dtype=DataType.Int)
-        S262 = self.define_scalar(1, dtype=DataType.Int)
-        T264 = self.ops.broadcast_in_dim(
-            T259, shape=[S260, S261, S262], broadcast_dims=[1]
+        T244 = self.ops.sub(T52, T232)
+        T245 = self.ops.add(T90, T233)
+        T250 = self.ops.broadcast_in_dim(
+            T19, shape=[1, 2048, 12288], broadcast_dims=[2]
         )
-        T265 = self.ops.neg(T257)
-        T266 = self.ops.sum(T265, dims=[0, 2], keepdim=False, dtype=DataType.Null)
-        S267 = self.define_scalar(1, dtype=DataType.Int)
-        S268 = self.define_scalar(2048, dtype=DataType.Int)
-        S269 = self.define_scalar(1, dtype=DataType.Int)
-        T271 = self.ops.broadcast_in_dim(
-            T266, shape=[S267, S268, S269], broadcast_dims=[1]
+        T251 = self.ops.cast(T238, dtype=DataType.Float)
+        T252 = self.ops.mul(T244, T243)
+        S253 = self.define_scalar(1.11111, dtype=DataType.Double)
+        T254 = self.ops.mul(S253, T245)
+        T255 = self.ops.cast(T250, dtype=DataType.Float)
+        T256 = self.ops.mul(T252, T251)
+        T257 = self.ops.mul(T42, T254)
+        T258 = self.ops.add(T256, T255)
+        T259 = self.ops.cast(T257, dtype=DataType.BFloat16)
+        T260 = self.ops.cast(T258, dtype=DataType.BFloat16)
+        T264 = self.ops.reshape(T259, new_shape=[2048, 12288])
+        T265 = self.ops.linear(T260, T20, T21)
+        T266 = self.ops.matmul(T264, T3)
+        T279 = self.ops.slice(
+            T265,
+            start_indices=[0, 0, 24576],
+            end_indices=[1, 2048, 36864],
+            strides=[1, 1, 1],
         )
-        S272 = self.define_scalar(-0.500000, dtype=DataType.Double)
-        T273 = self.ops.mul(S272, T264)
-        S274 = self.define_scalar(3.00000, dtype=DataType.Double)
-        T275 = self.ops.pow(T34, S274)
-        T276 = self.ops.mul(T273, T275)
-        T277 = self.ops.sum(T271, dims=[0, 2], keepdim=False, dtype=DataType.Null)
-        S278 = self.define_scalar(1, dtype=DataType.Int)
-        S279 = self.define_scalar(2048, dtype=DataType.Int)
-        T281 = self.ops.broadcast_in_dim(T277, shape=[S278, S279], broadcast_dims=[1])
-        T282 = self.ops.sum(T276, dims=[0, 2], keepdim=False, dtype=DataType.Null)
-        S283 = self.define_scalar(1, dtype=DataType.Int)
-        S284 = self.define_scalar(2048, dtype=DataType.Int)
-        T286 = self.ops.broadcast_in_dim(T282, shape=[S283, S284], broadcast_dims=[1])
-        S287 = self.define_scalar(1, dtype=DataType.Int)
-        S288 = self.define_scalar(2048, dtype=DataType.Int)
-        S289 = self.define_scalar(1, dtype=DataType.Int)
-        T291 = self.ops.broadcast_in_dim(
-            T281, shape=[S287, S288, S289], broadcast_dims=[0, 1]
+        T292 = self.ops.slice(
+            T265,
+            start_indices=[0, 0, 12288],
+            end_indices=[1, 2048, 24576],
+            strides=[1, 1, 1],
         )
-        S292 = self.define_scalar(1, dtype=DataType.Int)
-        S293 = self.define_scalar(2048, dtype=DataType.Int)
-        S294 = self.define_scalar(12288, dtype=DataType.Int)
-        T296 = self.ops.broadcast_in_dim(
-            T291, shape=[S292, S293, S294], broadcast_dims=[0, 1, 2]
+        T305 = self.ops.slice(
+            T265,
+            start_indices=[0, 0, 0],
+            end_indices=[1, 2048, 12288],
+            strides=[1, 1, 1],
         )
-        S297 = self.define_scalar(8.13802e-05, dtype=DataType.Double)
-        T298 = self.ops.mul(S297, T296)
-        S299 = self.define_scalar(1, dtype=DataType.Int)
-        S300 = self.define_scalar(2048, dtype=DataType.Int)
-        S301 = self.define_scalar(1, dtype=DataType.Int)
-        T303 = self.ops.broadcast_in_dim(
-            T286, shape=[S299, S300, S301], broadcast_dims=[0, 1]
+        T310 = self.ops.reshape(T266, new_shape=[1, 2048, 12288])
+        T316 = self.ops.reshape(T279, new_shape=[1, 2048, 96, 128])
+        T322 = self.ops.reshape(T292, new_shape=[1, 2048, 96, 128])
+        T328 = self.ops.reshape(T305, new_shape=[1, 2048, 96, 128])
+        T334 = self.ops.reshape(T310, new_shape=[1, 2048, 96, 128])
+        T335 = self.ops.permute(T316, dims=[0, 2, 1, 3])
+        T336 = self.ops.permute(T322, dims=[0, 2, 1, 3])
+        T337 = self.ops.permute(T328, dims=[0, 2, 1, 3])
+        T338 = self.ops.permute(T334, dims=[0, 2, 1, 3])
+        S339 = self.define_scalar(0.100000, dtype=DataType.Double)
+        S340 = self.define_scalar(True, dtype=DataType.Bool)
+        T341, T342, T343 = self.ops.sdpfa_bwd(
+            T338, T337, T336, T335, T0, T22, S339, S340, T23, T24, None
         )
-        S304 = self.define_scalar(1, dtype=DataType.Int)
-        S305 = self.define_scalar(2048, dtype=DataType.Int)
-        S306 = self.define_scalar(12288, dtype=DataType.Int)
-        T308 = self.ops.broadcast_in_dim(
-            T303, shape=[S304, S305, S306], broadcast_dims=[0, 1, 2]
+        T344 = self.ops.permute(T343, dims=[0, 2, 1, 3])
+        T345 = self.ops.permute(T342, dims=[0, 2, 1, 3])
+        T346 = self.ops.permute(T341, dims=[0, 2, 1, 3])
+        T351 = self.ops.reshape(T344, new_shape=[1, 2048, 12288])
+        T356 = self.ops.reshape(T345, new_shape=[1, 2048, 12288])
+        T361 = self.ops.reshape(T346, new_shape=[1, 2048, 12288])
+        T362 = self.ops.cat([T361, T356, T351], dim=2)
+        T366 = self.ops.reshape(T362, new_shape=[2048, 36864])
+        T367 = self.ops.matmul(T366, T20)
+        T372 = self.ops.reshape(T367, new_shape=[1, 2048, 12288])
+        T373 = self.ops.cast(T372, dtype=DataType.Float)
+        T374 = self.ops.mul(T251, T373)
+        T375 = self.ops.mul(T244, T374)
+        T376 = self.ops.sum(T375, dims=[0, 2], keepdim=False, dtype=DataType.Null)
+        T381 = self.ops.broadcast_in_dim(T376, shape=[1, 2048, 1], broadcast_dims=[1])
+        S382 = self.define_scalar(3.00000, dtype=DataType.Double)
+        T383 = self.ops.pow(T18, S382)
+        S384 = self.define_scalar(-0.500000, dtype=DataType.Double)
+        T385 = self.ops.mul(S384, T381)
+        T386 = self.ops.mul(T243, T374)
+        T387 = self.ops.mul(T385, T383)
+        T388 = self.ops.neg(T386)
+        T389 = self.ops.sum(T387, dims=[0, 2], keepdim=False, dtype=DataType.Null)
+        T390 = self.ops.sum(T388, dims=[0, 2], keepdim=False, dtype=DataType.Null)
+        T394 = self.ops.broadcast_in_dim(T389, shape=[1, 2048], broadcast_dims=[1])
+        T399 = self.ops.broadcast_in_dim(T390, shape=[1, 2048, 1], broadcast_dims=[1])
+        T404 = self.ops.broadcast_in_dim(T16, shape=[1, 2048, 1], broadcast_dims=[0, 1])
+        T409 = self.ops.broadcast_in_dim(
+            T394, shape=[1, 2048, 1], broadcast_dims=[0, 1]
         )
-        S309 = self.define_scalar(1, dtype=DataType.Int)
-        S310 = self.define_scalar(2048, dtype=DataType.Int)
-        S311 = self.define_scalar(1, dtype=DataType.Int)
-        T313 = self.ops.broadcast_in_dim(
-            T35, shape=[S309, S310, S311], broadcast_dims=[0, 1]
+        T410 = self.ops.sum(T399, dims=[0, 2], keepdim=False, dtype=DataType.Null)
+        T415 = self.ops.broadcast_in_dim(
+            T404, shape=[1, 2048, 12288], broadcast_dims=[0, 1, 2]
         )
-        S314 = self.define_scalar(1, dtype=DataType.Int)
-        S315 = self.define_scalar(2048, dtype=DataType.Int)
-        S316 = self.define_scalar(12288, dtype=DataType.Int)
-        T318 = self.ops.broadcast_in_dim(
-            T313, shape=[S314, S315, S316], broadcast_dims=[0, 1, 2]
+        T420 = self.ops.broadcast_in_dim(
+            T409, shape=[1, 2048, 12288], broadcast_dims=[0, 1, 2]
         )
-        S319 = self.define_scalar(2.00000, dtype=DataType.Double)
-        T320 = self.ops.mul(S319, T308)
-        T321 = self.ops.sub(T36, T318)
-        T322 = self.ops.mul(T320, T321)
-        S323 = self.define_scalar(12288.0, dtype=DataType.Double)
-        S324 = self.ops.reciprocal(S323)
-        T325 = self.ops.mul(T322, S324)
-        T326 = self.ops.add(T298, T325)
-        T327 = self.ops.add(T257, T326)
-        T328 = self.ops.add(T177, T327)
-        T329 = self.ops.cast(T328, dtype=DataType.BFloat16)
-        self.add_output(T57)
-        self.add_output(T59)
-        self.add_output(T96)
-        self.add_output(T98)
-        self.add_output(T101)
-        self.add_output(T105)
-        self.add_output(T197)
-        self.add_output(T199)
-        self.add_output(T246)
-        self.add_output(T249)
-        self.add_output(T252)
-        self.add_output(T256)
-        self.add_output(T329)
+        T424 = self.ops.broadcast_in_dim(T410, shape=[1, 2048], broadcast_dims=[1])
+        T425 = self.ops.sub(T52, T415)
+        S426 = self.define_scalar(2.00000, dtype=DataType.Double)
+        T427 = self.ops.mul(S426, T420)
+        T432 = self.ops.broadcast_in_dim(
+            T424, shape=[1, 2048, 1], broadcast_dims=[0, 1]
+        )
+        T433 = self.ops.mul(T427, T425)
+        T438 = self.ops.broadcast_in_dim(
+            T432, shape=[1, 2048, 12288], broadcast_dims=[0, 1, 2]
+        )
+        S439 = self.define_scalar(12288.0, dtype=DataType.Double)
+        S440 = self.ops.reciprocal(S439)
+        T441 = self.ops.mul(T433, S440)
+        S442 = self.define_scalar(8.13802e-05, dtype=DataType.Double)
+        T443 = self.ops.mul(S442, T438)
+        T444 = self.ops.add(T443, T441)
+        T445 = self.ops.mul(T119, T125)
+        T446 = self.ops.add(T386, T444)
+        T447 = self.ops.mul(T252, T373)
+        T448 = self.ops.cast(T362, dtype=DataType.Float)
+        T449 = self.ops.mul(T76, T151)
+        T450 = self.ops.cast(T445, dtype=DataType.BFloat16)
+        T451 = self.ops.add(T245, T446)
+        T452 = self.ops.sum(T447, dims=[0, 1], keepdim=False, dtype=DataType.Null)
+        T453 = self.ops.sum(T373, dims=[0, 1], keepdim=False, dtype=DataType.Null)
+        T454 = self.ops.sum(T448, dims=[0, 1], keepdim=False, dtype=DataType.Null)
+        T458 = self.ops.reshape(T260, new_shape=[2048, 12288])
+        T459 = self.ops.permute(T366, dims=[1, 0])
+        T460 = self.ops.sum(T257, dims=[0, 1], keepdim=False, dtype=DataType.Null)
+        T464 = self.ops.reshape(T38, new_shape=[2048, 12288])
+        T465 = self.ops.permute(T264, dims=[1, 0])
+        T466 = self.ops.sum(T449, dims=[0, 1], keepdim=False, dtype=DataType.Null)
+        T467 = self.ops.sum(T151, dims=[0, 1], keepdim=False, dtype=DataType.Null)
+        T468 = self.ops.sum(T139, dims=[0, 1], keepdim=False, dtype=DataType.Null)
+        T472 = self.ops.reshape(T80, new_shape=[2048, 12288])
+        T473 = self.ops.permute(T144, dims=[1, 0])
+        T474 = self.ops.sum(T98, dims=[0, 1], keepdim=False, dtype=DataType.Null)
+        T478 = self.ops.reshape(T450, new_shape=[2048, 49152])
+        T479 = self.ops.permute(T106, dims=[1, 0])
+        T480 = self.ops.cast(T451, dtype=DataType.BFloat16)
+        T481 = self.ops.cast(T452, dtype=DataType.BFloat16)
+        T482 = self.ops.cast(T453, dtype=DataType.BFloat16)
+        T483 = self.ops.cast(T454, dtype=DataType.BFloat16)
+        T484 = self.ops.matmul(T459, T458)
+        T485 = self.ops.cast(T460, dtype=DataType.BFloat16)
+        T486 = self.ops.matmul(T465, T464)
+        T487 = self.ops.cast(T466, dtype=DataType.BFloat16)
+        T488 = self.ops.cast(T467, dtype=DataType.BFloat16)
+        T489 = self.ops.cast(T468, dtype=DataType.BFloat16)
+        T490 = self.ops.matmul(T473, T472)
+        T491 = self.ops.cast(T474, dtype=DataType.BFloat16)
+        T492 = self.ops.matmul(T479, T478)
+        self.add_output(T492)
+        self.add_output(T491)
+        self.add_output(T490)
+        self.add_output(T489)
+        self.add_output(T488)
+        self.add_output(T487)
+        self.add_output(T486)
+        self.add_output(T485)
+        self.add_output(T484)
+        self.add_output(T483)
+        self.add_output(T482)
+        self.add_output(T481)
+        self.add_output(T480)
 
 
 @pytest.mark.skipif(
@@ -1124,103 +1127,45 @@ def test_transformer_backward(mpi_test):
     torch.cuda.set_device(mpi_test.local_rank)
 
     ins = [
+        torch.randn(25165824, dtype=torch.bfloat16, device="cuda:0").as_strided(
+            (1, 96, 2048, 128), (25165824, 128, 12288, 1)
+        ),
+        29,
+        2644496055549444,
+        torch.testing.make_tensor(
+            (12288, 12288), dtype=torch.bfloat16, device="cuda:0"
+        ),
+        torch.testing.make_tensor((12288,), dtype=torch.bfloat16, device="cuda:0"),
+        torch.testing.make_tensor((1, 2048), dtype=torch.float32, device="cuda:0"),
         torch.testing.make_tensor(
             (1, 2048, 12288), dtype=torch.bfloat16, device="cuda:0"
         ),
+        torch.testing.make_tensor((12288,), dtype=torch.bfloat16, device="cuda:0"),
+        torch.testing.make_tensor((1, 2048, 1), dtype=torch.float32, device="cuda:0"),
+        torch.testing.make_tensor((12288,), dtype=torch.bfloat16, device="cuda:0"),
         torch.testing.make_tensor(
-            (1, 2048, 12288), dtype=torch.float32, device="cuda:0"
+            (49152, 12288), dtype=torch.bfloat16, device="cuda:0"
+        ),
+        torch.testing.make_tensor((49152,), dtype=torch.bfloat16, device="cuda:0"),
+        30,
+        2644496055549444,
+        torch.testing.make_tensor(
+            (1, 2048, 12288), dtype=torch.bfloat16, device="cuda:0"
         ),
         torch.testing.make_tensor(
             (12288, 49152), dtype=torch.bfloat16, device="cuda:0"
         ),
-        torch.testing.make_tensor(
-            (1, 2048, 49152), dtype=torch.bfloat16, device="cuda:0"
-        ),
-        torch.testing.make_tensor(
-            (1, 2048, 49152), dtype=torch.float32, device="cuda:0"
-        ),
-        torch.testing.make_tensor(
-            (1, 2048, 49152), dtype=torch.float32, device="cuda:0"
-        ),
-        torch.testing.make_tensor(
-            (1, 2048, 49152), dtype=torch.float32, device="cuda:0"
-        ),
-        torch.testing.make_tensor(
-            (1, 2048, 49152), dtype=torch.float32, device="cuda:0"
-        ),
-        torch.testing.make_tensor(
-            (1, 2048, 49152), dtype=torch.float32, device="cuda:0"
-        ),
-        torch.testing.make_tensor(
-            (49152, 12288), dtype=torch.bfloat16, device="cuda:0"
-        ),
-        torch.testing.make_tensor(
-            (1, 2048, 12288), dtype=torch.bfloat16, device="cuda:0"
-        ),
-        torch.randn(12288, dtype=torch.float32, device="cuda:0").as_strided(
-            (1, 2048, 12288), (12288, 0, 1)
-        ),
-        torch.testing.make_tensor(
-            (1, 2048, 12288), dtype=torch.float32, device="cuda:0"
-        ),
-        torch.randn(2048, dtype=torch.float32, device="cuda:0").as_strided(
-            (1, 2048, 12288), (2048, 1, 0)
-        ),
-        torch.testing.make_tensor(
-            (1, 2048, 12288), dtype=torch.float32, device="cuda:0"
-        ),
-        torch.testing.make_tensor((1, 2048, 1), dtype=torch.float32, device="cuda:0"),
         torch.testing.make_tensor((1, 2048), dtype=torch.float32, device="cuda:0"),
-        torch.testing.make_tensor(
-            (1, 2048, 12288), dtype=torch.float32, device="cuda:0"
-        ),
-        torch.testing.make_tensor(
-            (1, 2048, 12288), dtype=torch.float32, device="cuda:0"
-        ),
-        torch.testing.make_tensor(
-            (12288, 12288), dtype=torch.bfloat16, device="cuda:0"
-        ),
-        torch.testing.make_tensor(
-            (1, 2048, 12288), dtype=torch.bfloat16, device="cuda:0"
-        ),
-        torch.randn(75472896, dtype=torch.bfloat16, device="cuda:0").as_strided(
-            (1, 96, 2048, 128), (75497472, 128, 36864, 1)
-        ),
-        torch.randn(75472896, dtype=torch.bfloat16, device="cuda:0").as_strided(
-            (1, 96, 2048, 128), (75497472, 128, 36864, 1)
-        ),
-        torch.randn(75472896, dtype=torch.bfloat16, device="cuda:0").as_strided(
-            (1, 96, 2048, 128), (75497472, 128, 36864, 1)
-        ),
-        torch.randn(25165824, dtype=torch.bfloat16, device="cuda:0").as_strided(
-            (1, 96, 2048, 128), (25165824, 128, 12288, 1)
-        ),
-        torch.testing.make_tensor((1, 96, 2048), dtype=torch.float32, device="cuda:0"),
-        torch.testing.make_tensor((), dtype=torch.int64, device="cpu"),
-        torch.testing.make_tensor((), dtype=torch.int64, device="cpu"),
+        torch.testing.make_tensor((12288,), dtype=torch.bfloat16, device="cuda:0"),
+        torch.testing.make_tensor((1, 2048, 1), dtype=torch.float32, device="cuda:0"),
+        torch.testing.make_tensor((12288,), dtype=torch.bfloat16, device="cuda:0"),
         torch.testing.make_tensor(
             (36864, 12288), dtype=torch.bfloat16, device="cuda:0"
         ),
-        torch.testing.make_tensor(
-            (1, 2048, 12288), dtype=torch.bfloat16, device="cuda:0"
-        ),
-        torch.randn(12288, dtype=torch.float32, device="cuda:0").as_strided(
-            (1, 2048, 12288), (12288, 0, 1)
-        ),
-        torch.testing.make_tensor(
-            (1, 2048, 12288), dtype=torch.float32, device="cuda:0"
-        ),
-        torch.randn(2048, dtype=torch.float32, device="cuda:0").as_strided(
-            (1, 2048, 12288), (2048, 1, 0)
-        ),
-        torch.testing.make_tensor(
-            (1, 2048, 12288), dtype=torch.float32, device="cuda:0"
-        ),
-        torch.testing.make_tensor((1, 2048, 1), dtype=torch.float32, device="cuda:0"),
-        torch.testing.make_tensor((1, 2048), dtype=torch.float32, device="cuda:0"),
-        torch.testing.make_tensor(
-            (1, 2048, 12288), dtype=torch.float32, device="cuda:0"
-        ),
+        torch.testing.make_tensor((36864,), dtype=torch.bfloat16, device="cuda:0"),
+        torch.testing.make_tensor((1, 96, 2048), dtype=torch.float32, device="cuda:0"),
+        torch.testing.make_tensor((), dtype=torch.int64, device="cpu"),
+        torch.testing.make_tensor((), dtype=torch.int64, device="cpu"),
     ]
 
     fd = TransformerBackwardFusion(d, b, s, h, e)
