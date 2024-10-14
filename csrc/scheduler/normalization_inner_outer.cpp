@@ -654,6 +654,7 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
       iop.bdimx,
       iop.bdimy,
       LaunchParams::UNINITIALIZED_VAL);
+
   if (!rparams->smem_persistent_buffers.empty()) {
     rparams->tag =
         "InnerOuter Register and Shared Memory Persistent Heuristic.\n";
@@ -749,6 +750,7 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
       "Persistent scheduler requires persistent buffers.");
   auto buffer_params = getPersistentBufferStorageParams(
       fusion, runtime_info, data_cache, reduction_tvs, vectorize_factor);
+      
   std::unique_ptr<ReductionParams> rparams = innerOuterPersistentHeuristic(
       properties.total_iteration_numel,
       properties.total_reduction_numel,
