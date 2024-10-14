@@ -664,7 +664,6 @@ class TransformerBackwardFusion(FusionDefinition):
             shape=[1, 96, 2048, 128],
             contiguity=[None, True, True, True],
             dtype=DataType.BFloat16,
-            is_cpu=False,
             stride_order=[3, 1, 2, 0],
         )
         S1 = self.define_scalar(None, dtype=DataType.Int)
@@ -673,64 +672,46 @@ class TransformerBackwardFusion(FusionDefinition):
             shape=[12288, 12288],
             contiguity=[True, True],
             dtype=DataType.BFloat16,
-            is_cpu=False,
-            stride_order=[1, 0],
         )
         T4 = self.define_tensor(
             shape=[12288],
             contiguity=[True],
             dtype=DataType.BFloat16,
-            is_cpu=False,
-            stride_order=[0],
         )
         T5 = self.define_tensor(
             shape=[1, 2048],
             contiguity=[None, True],
             dtype=DataType.Float,
-            is_cpu=False,
-            stride_order=[1, 0],
         )
         T6 = self.define_tensor(
             shape=[1, 2048, 12288],
             contiguity=[None, True, True],
             dtype=DataType.BFloat16,
-            is_cpu=False,
-            stride_order=[2, 1, 0],
         )
         T7 = self.define_tensor(
             shape=[12288],
             contiguity=[True],
             dtype=DataType.BFloat16,
-            is_cpu=False,
-            stride_order=[0],
         )
         T8 = self.define_tensor(
             shape=[1, 2048, 1],
             contiguity=[None, True, None],
             dtype=DataType.Float,
-            is_cpu=False,
-            stride_order=[2, 1, 0],
         )
         T9 = self.define_tensor(
             shape=[12288],
             contiguity=[True],
             dtype=DataType.BFloat16,
-            is_cpu=False,
-            stride_order=[0],
         )
         T10 = self.define_tensor(
             shape=[49152, 12288],
             contiguity=[True, True],
             dtype=DataType.BFloat16,
-            is_cpu=False,
-            stride_order=[1, 0],
         )
         T11 = self.define_tensor(
             shape=[49152],
             contiguity=[True],
             dtype=DataType.BFloat16,
-            is_cpu=False,
-            stride_order=[0],
         )
         S12 = self.define_scalar(None, dtype=DataType.Int)
         S13 = self.define_scalar(None, dtype=DataType.Int)
@@ -738,64 +719,46 @@ class TransformerBackwardFusion(FusionDefinition):
             shape=[1, 2048, 12288],
             contiguity=[None, True, True],
             dtype=DataType.BFloat16,
-            is_cpu=False,
-            stride_order=[2, 1, 0],
         )
         T15 = self.define_tensor(
             shape=[12288, 49152],
             contiguity=[True, True],
             dtype=DataType.BFloat16,
-            is_cpu=False,
-            stride_order=[1, 0],
         )
         T16 = self.define_tensor(
             shape=[1, 2048],
             contiguity=[None, True],
             dtype=DataType.Float,
-            is_cpu=False,
-            stride_order=[1, 0],
         )
         T17 = self.define_tensor(
             shape=[12288],
             contiguity=[True],
             dtype=DataType.BFloat16,
-            is_cpu=False,
-            stride_order=[0],
         )
         T18 = self.define_tensor(
             shape=[1, 2048, 1],
             contiguity=[None, True, None],
             dtype=DataType.Float,
-            is_cpu=False,
-            stride_order=[2, 1, 0],
         )
         T19 = self.define_tensor(
             shape=[12288],
             contiguity=[True],
             dtype=DataType.BFloat16,
-            is_cpu=False,
-            stride_order=[0],
         )
         T20 = self.define_tensor(
             shape=[36864, 12288],
             contiguity=[True, True],
             dtype=DataType.BFloat16,
-            is_cpu=False,
-            stride_order=[1, 0],
         )
         T21 = self.define_tensor(
             shape=[36864],
             contiguity=[True],
             dtype=DataType.BFloat16,
-            is_cpu=False,
-            stride_order=[0],
         )
         T22 = self.define_tensor(
             shape=[1, 96, 2048],
             contiguity=[None, True, True],
             dtype=DataType.Float,
-            is_cpu=False,
-            stride_order=[2, 1, 0],
         )
         T23 = self.define_tensor(
             shape=[], contiguity=[], dtype=DataType.Int, is_cpu=True
