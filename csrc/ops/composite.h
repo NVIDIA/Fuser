@@ -75,7 +75,6 @@ NVF_API TensorView* view_as_real(TensorView* x);
 // A[*, M, K] / A[K] and B[*, K, N] / B[K], but the tensors may have different
 // layouts via strides. This has the same functionality as torch.matmul
 TensorView* matmul(TensorView* tv_a, TensorView* tv_b);
-TensorView* matmul_out(TensorView* out, TensorView* tv_a, TensorView* tv_b);
 
 // Scaled Dot Product Flash Attention Forward Result
 struct SdpfaFwdResult {

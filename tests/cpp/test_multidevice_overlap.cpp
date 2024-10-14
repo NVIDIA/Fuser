@@ -698,7 +698,7 @@ TEST_F(
   auto* wait = IrBuilder::create<hir::Wait>(communication);
 
   TensorView* tvc_j = select(tvc, 0, j);
-  matmul_out(tvc_j, tva_allgathered_j, tvb); // returns tvc_j, ignore since we already have it
+  auto* mm = IrBuilder::create<MatmulOp>(tvc_j, tva_allgathered_j, tvb);
 
   // Slice and MatmulOp are present directly as Host IRs in the HostIrContainer.
   // It means that they are going to be executed at the host level (actually,
@@ -712,7 +712,8 @@ TEST_F(
       tva_allgathered_j->definition(),
       communication,
       wait,
-      tvc_j->definition()};
+      tvc_j->definition(),
+      mm};
   for (Expr* expr : loop_body) {
     for_loop->body().push_back(expr);
   }
@@ -756,6 +757,7 @@ TEST_F(
         {tva, ta_}, {tva_allgathered, ta_allgathered_}, {tvb, tb_unsharded_}, {tvc, tc_unsharded_}};
 
     hie.runWithInput(std::move(inputs));
+    validate();
   }
 }
 
