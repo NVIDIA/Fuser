@@ -243,24 +243,15 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   buffer_params.regs_buffer_size = total_buffer_size;
   buffer_params.smem_buffer_size = 0;
 
-  // (2) If the available register is larger than current register buffer size,
-  // no need to move buffers to shared memory, return early.
-  bool use_register_only = std::getenv("USE_OLD") != nullptr;
-  if (use_register_only && buffer_params.regs_buffer_size <= available_regs) {
-    buffer_params.has_enough_regs_and_smem = true;
-    return buffer_params;
-  }
-
-  // (3) Relocate buffers to shared memory until the buffer size in registers is
-  // within the allowable limit.
-  // (3.1) Sort the candidate persistent buffers
+  // (2) Relocate buffers to shared memory until all are moved or there are not
+  // enough shared memories. (2.1) Sort the candidate persistent buffers
   const auto buffers = buffer_params.project_to_input
       ? sortProjectableBufferInputs(
             persistent_buffer_info.projectable_buffer_inputs,
             outer_broadcast_tvs)
       : persistent_buffer_info.persistent_buffers;
 
-  // (3.2) Before this loop, all buffers are in registers.
+  // (2.2) Before this loop, all buffers are in registers.
   // Try to move buffer from register to shared memroy.
   // After one buffer is moved to shared memory, the buffer size in registers
   // and shared memory are updated accordingly. Break if required register and
@@ -268,7 +259,6 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   int64_t n_smem_buffer = -1;
   int64_t regs_buffer_size = buffer_params.regs_buffer_size;
   int64_t smem_buffer_size = buffer_params.smem_buffer_size;
-  int64_t register_smem_diff = regs_buffer_size - smem_buffer_size;
   const int n_buffers = (int)buffers.size();
   for (int i = 0; i < n_buffers; i++) {
     auto current_tv = buffers[i];
@@ -291,27 +281,11 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
     smem_buffer_size += tv_buffer_size_smem;
 
     // The first-i buffers are moved from register to shared memory
-    // If both the register buffer size and shared memory buffer size are within
-    // the allowable limit, we found a good configuration. Record the number of
-    // buffers to be moved to shared memory. Instead of break from the loop, we
-    // keep looping to find a better configuration where the difference between
-    // register buffer size and shared memory buffer size is minimized with the
-    // constraint that register buffer size is still larger than shared memory
-    // buffer size.
     if (regs_buffer_size <= available_regs &&
         smem_buffer_size <= available_smem) {
-      int64_t diff = regs_buffer_size - smem_buffer_size;
-      // if we don't have a valid configuration yet or a better configuration
-      // is found, then use it
-      if (true || n_smem_buffer == -1 ||
-          ((diff > 0 && diff < register_smem_diff))) {
-        n_smem_buffer = i + 1;
-        register_smem_diff = diff;
-        buffer_params.regs_buffer_size = regs_buffer_size;
-        buffer_params.smem_buffer_size = smem_buffer_size;
-      } else {
-        break;
-      }
+      n_smem_buffer = i + 1;
+      buffer_params.regs_buffer_size = regs_buffer_size;
+      buffer_params.smem_buffer_size = smem_buffer_size;
     }
     // shared memory buffer size exceeds the limit, not a good configuration.
     // break the loop, n_smem_buffer remains [-1] indicating a bad
@@ -396,6 +370,10 @@ std::pair<int64_t, int64_t> getBufferBatchSizeAndThreadsPerBlock(
         scheduler_utils::max_registers_per_thread -
             scheduler_utils::register_overhead,
         register_per_batch);
+    // temporarally set a maximum batch size of 14 to avoid large batch size
+    // with small block sizes, this is a temporary solution and should be
+    // removed after heuristic is tuned. Added to avoid regression of RMS norm
+    // backward.
     return std::min(14L, max_persistent_batch);
   };
 
@@ -596,19 +574,12 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
   while (threads_per_block % iop.bdimx) {
     iop.bdimx = std::min(iop.bdimx + 8, threads_per_block);
   }
-  // Step-4, set OuterParams Reduction dim: bdimy * serial
+  // Step-4, set OuterParams Reduction dim: bdimy
   iop.bdimy = threads_per_block / iop.bdimx;
   NVF_ERROR(
       iop.bdimy * iop.bdimx == threads_per_block,
       " threads_per_block must be divisible by bdimx and bdimy.");
-  // final outer reduction has a fixed reduction size of [gdimy]
-  // and split into bdimy and serial reduction.
-  // If serial reduction is large, avoid using static bdimy since it leads
-  // to fully unrolled loops which requires a large register array.
-  rparams->combined_outer_reduction_static_bdimy = true;
-  rparams->unroll_factor_outer_reduction = 1;
 
-  // std::min(8L, ceilDiv(iop.gdimy, iop.bdimy));
   // Step-5, special case, when inner_dim_numel <= 1024, bdimx is usually small
   // after divide by inner_vect and inner_batch. In this case, bdimy is used to
   // parallelize outer_dim instead of inner_dim. This pattern is named multi
@@ -889,23 +860,8 @@ void scheduleReductionCombinedOuter(
 
     } else {
       // reduction domain
-      if (rparams->combined_outer_reduction_static_bdimy) {
-        outer_reduction_tv->split(0, rparams->lparams.bdimy());
-        outer_reduction_tv->axis(1)->parallelize(ParallelType::TIDy);
-      } else {
-        outer_reduction_tv->split(
-            0, NamedScalar::getParallelDim(ParallelType::TIDy));
-        outer_reduction_tv->axis(1)->parallelize(ParallelType::TIDy);
-
-        // [I/TIDy, TIDy]
-        if (rparams->unroll_factor_outer_reduction > 1) {
-          outer_reduction_tv->split(0, rparams->unroll_factor_outer_reduction);
-          outer_reduction_tv->axis(1)->parallelize(ParallelType::Unroll);
-          // [I/TIDy/Unroll, Unroll, TIDy]
-          outer_reduction_tv->split(0, 1);
-          outer_reduction_tv->axis(1)->parallelize(ParallelType::Unswitch);
-        }
-      }
+      outer_reduction_tv->split(0, rparams->lparams.bdimy());
+      outer_reduction_tv->axis(1)->parallelize(ParallelType::TIDy);
 
       // iteration domain
       int axisID = -1;
@@ -1035,7 +991,6 @@ void scheduleInnerOuterPersistentKernel(
   // each outer reduction. Don't allow parallelization propagation goes
   // through cached_gmem, see issue 246.
   // don't do grouped reduction for now since it uses more registers.
-  bool is_grouped_reduction = false; //! rparams->tidx_for_outer_reduction;
   for (long unsigned int i = 0; i < outer_reference_tvs.size(); i++) {
     const auto& selected_tvs_outer = scheduler_utils::getAllTvsFrom(
         {outer_reduction_tvs[i]}, {cached_gmem[i]});
@@ -1047,7 +1002,7 @@ void scheduleInnerOuterPersistentKernel(
         outer_reference_tvs[i],
         unroll,
         vectorize,
-        is_grouped_reduction,
+        is_outer_grid_persistence,
         outer_reduction_tvs,
         cached_inputs,
         cached_outputs,

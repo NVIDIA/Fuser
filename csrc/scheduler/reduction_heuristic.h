@@ -132,10 +132,6 @@ class ReductionParams : public HeuristicParams {
   // in outer reduction part of inner-outer persistent scheduler, may further
   // split inner dim by grid
   bool combined_split_grid_inner_dim = false;
-
-  // if true, final outer reduction uses static bdimy, equivalent to unrolling
-  // since reduction elements is also static and equals to gdimy.
-  bool combined_outer_reduction_static_bdimy = false;
   // partial result of outer reduction is written to gmem then read back in a
   // different parallel pattern set the vectorization factor of its read and
   // write
