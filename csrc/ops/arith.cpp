@@ -1738,17 +1738,6 @@ TensorView* expand_as(TensorView* inp, TensorView* other) {
   return out_tensor;
 }
 
-std::vector<Val*> tensor_sizes(TensorView* inp) {
-  auto iter_domains = TensorDomain::noReductions(inp->getLogicalDomain());
-  std::vector<Val*> sizes(iter_domains.size(), nullptr);
-
-  for (auto idx : c10::irange(iter_domains.size())) {
-    sizes[idx] = iter_domains[idx]->getMaybeExpandedExtent();
-  }
-
-  return sizes;
-}
-
 std::vector<Val*> shape(TensorView* inp) {
   auto iter_domains = TensorDomain::noReductions(inp->getLogicalDomain());
   std::vector<Val*> shape;
