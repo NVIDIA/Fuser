@@ -34,7 +34,7 @@ from nvfuser import FusionCache, FusionDefinition, SchedulerType
 
 # Settings for input tensor generation
 num_dimensions = 2
-outer_shapes = [512]
+outer_shapes = [512, 1024, 16384]
 inner_shapes = [2**i for i in range(5, 15)]
 
 # For pointwise scheduler, we test the cartesian product of vectorization and
@@ -292,6 +292,6 @@ plt.title(
     f"Batch Size = {empirical_batch_size}, Compare Decision Tree Heuristic vs NvFuser"
 )
 plt.legend(["decision_tree", "nvfuser"], loc="lower right")
-plt.savefig(f"pointwise_empirical_batchsize{empirical_batch_size}.png")
+plt.savefig(f"pointwise_direct_batchsize{empirical_batch_size}.png")
 
 # =============================================================================
