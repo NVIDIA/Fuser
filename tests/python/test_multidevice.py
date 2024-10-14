@@ -1124,8 +1124,6 @@ def test_transformer_backward(mpi_test):
 
     b, s, h, e = 2, 2048, 96, 12288
 
-    # FIXME: skip if certain dimensions are not divisible by d.
-
     torch.cuda.set_device(mpi_test.local_rank)
 
     ins = [
