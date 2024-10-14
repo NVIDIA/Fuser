@@ -1581,62 +1581,112 @@ static inline DataType getMmaOutType(TensorView* mma_out) {
 }
 
 namespace {
-std::pair<Val*, Val*> hardCodedIndexGenerationForStMatrix(
+// Helper function to compute the index of the output of stmatrix (in shared
+// memory). We have two special cases (1) Handle tiles of size 8x8 and 16x8 and
+// (2) tiles of size 16x16. Each of these two cases has further two special
+// cases, (1) there is exactly one tile, (2) mulitple tiles thus multiple
+// stmatrix calls are issued in a for-loop. Please note that in a 16x16 tile,
+// the 4 8x8 tiles are stores/accessed in a m/column-major fasion. When we
+// mulitple tiles (whether it be 8x8, 18x6 or 16x16), the tiles are stored in a
+// m/column-major fashion.
+Val* hardCodedIndexGenerationForStMatrix(
     const LoadStoreOp* ldst,
-    const int64_t output_m_extent,
-    const int64_t output_n_extent) {
+    const ForLoop* outer_loop,
+    const int64_t m_tile,
+    const int64_t n_tile,
+    const int64_t m,
+    const int64_t n) {
   NVF_ERROR(
-      (output_m_extent == 8 && output_n_extent == 8) ||
-          (output_m_extent == 16 && output_n_extent == 8) ||
-          (output_m_extent == 16 && output_n_extent == 16),
+      (m_tile == 8 && n_tile == 8) || (m_tile == 16 && n_tile == 8) ||
+          (m_tile == 16 && n_tile == 16),
       "size not currently supported for stmatrix");
 
-  auto num_regs = (output_m_extent) / 8 * (output_n_extent) / 8;
-  auto as_type = ArrayType{
-      std::make_shared<DataType>(DataType::UInt32),
-      static_cast<size_t>(num_regs)};
-
-  Val* in = IrBuilder::create<kir::TensorIndex>(
-      dynamic_cast<TensorView*>(ldst->in()),
-      IrBuilder::create<Val>(0, DataType::Index),
-      as_type);
+  auto m_tiles = m / m_tile;
 
   Val* out_index = nullptr;
-  // This will hanlde 8x8 and 16x8.
-  if (output_n_extent == 8) {
-    // T_shared[toSmem(T_shared) + 16 * tidx.x]
-    out_index = IrBuilder::addExpr(
-        IrBuilder::baseAddressExpr(dynamic_cast<TensorView*>(ldst->out())),
-        IrBuilder::mulExpr(
-            IrBuilder::create<Val>(16, DataType::Index),
-            IrBuilder::create<NamedScalar>("threadIdx.x", DataType::Index)));
-  } else if (output_n_extent == 16) {
-    // This will hanlde 16x16
-    // T_shared[toSmem(T_shared) + 16 * (tidx.x / 16) +  32 * (tidx.x%16)  +
 
-    // 16 * (tidx.x / 16)
-    auto expr0 = IrBuilder::mulExpr(
+  // For example: M=32, N=64, m_tile=16, n_tile=8.
+  // So m_tiles == 32/16 == 2; n_tiles == 8
+  // This is computed by getting the loop index say L, then mod the
+  // number of tiles in the m-dimension, then multiplying by n (*2 for Half)
+  // into the size of the tile in the n-dimension.
+  //  (L % m_tiles) * m_tile * n * 2
+  auto tile_offset_m = IrBuilder::mulExpr(
+      IrBuilder::modExpr(
+          outer_loop->index(),
+          IrBuilder::create<Val>(m_tiles, DataType::Index)),
+      IrBuilder::create<Val>(m_tile * n * 2, DataType::Index));
+
+  // Offset of the tile in the n-dim.
+  // (L / m_tiles) * n_tile * 2
+  auto tile_offset_n = IrBuilder::mulExpr(
+      IrBuilder::divExpr(
+          outer_loop->index(),
+          IrBuilder::create<Val>(m_tiles, DataType::Index)),
+      IrBuilder::create<Val>(n_tile * 2, DataType::Index));
+
+  // This will hanlde 8x8 and 16x8.
+  if (n_tile == 8) {
+    // tidx.x * n * 2(dtype = Half)
+    auto offset_in_tile = IrBuilder::mulExpr(
+        IrBuilder::create<Val>(n * 2, DataType::Index),
+        IrBuilder::create<NamedScalar>("threadIdx.x", DataType::Index));
+
+    // If it's a single tile we don't need to add the tile offsets.
+    if (m_tile == m && n_tile == n) {
+      out_index = IrBuilder::addExpr(
+          IrBuilder::baseAddressExpr(dynamic_cast<TensorView*>(ldst->out())),
+          offset_in_tile);
+
+    } else {
+      out_index = IrBuilder::addExpr(
+          IrBuilder::baseAddressExpr(dynamic_cast<TensorView*>(ldst->out())),
+          IrBuilder::addExpr(
+              offset_in_tile,
+              IrBuilder::addExpr(tile_offset_m, tile_offset_n)));
+    }
+
+  } else if (n_tile == 16) {
+    // This will hanlde 16x16
+
+    // 2 is for dtype Half
+    // (tidx.x /  (8 * 2)) * 16
+    // This gives the offset in the n-dim
+    auto offset_in_tile_n = IrBuilder::mulExpr(
         IrBuilder::create<Val>(16, DataType::Index),
         IrBuilder::divExpr(
             IrBuilder::create<NamedScalar>("threadIdx.x", DataType::Index),
-            IrBuilder::create<Val>(16, DataType::Index)));
+            IrBuilder::create<Val>(8 * 2, DataType::Index)));
 
-    // 32 * (tidx.x%16)
-    auto expr1 = IrBuilder::mulExpr(
+    // (tidx.x%16) * n * 2
+    // This gives the offset inside the 16x16 tile in the m-dim.
+    auto offset_in_tile_m = IrBuilder::mulExpr(
         IrBuilder::modExpr(
             IrBuilder::create<NamedScalar>("threadIdx.x", DataType::Index),
             IrBuilder::create<Val>(16, DataType::Index)),
-        IrBuilder::create<Val>(32, DataType::Index));
+        IrBuilder::create<Val>(n * 2, DataType::Index));
 
-    out_index = IrBuilder::addExpr(
-        IrBuilder::baseAddressExpr(ir_utils::getTvOutput(ldst)),
-        IrBuilder::addExpr(expr0, expr1));
+    // If it's a single tile we don't need to add the tile offsets.
+    if (m_tile == m && n_tile == n) {
+      out_index = IrBuilder::addExpr(
+          IrBuilder::baseAddressExpr(ir_utils::getTvOutput(ldst)),
+          IrBuilder::addExpr(offset_in_tile_n, offset_in_tile_m));
+    } else {
+      out_index = IrBuilder::addExpr(
+          IrBuilder::baseAddressExpr(ir_utils::getTvOutput(ldst)),
+          IrBuilder::addExpr(
+              offset_in_tile_n,
+              IrBuilder::addExpr(
+                  offset_in_tile_m,
+                  IrBuilder::addExpr(tile_offset_m, tile_offset_n))));
+    }
   }
   Val* out = IrBuilder::create<kir::TensorIndex>(
       dynamic_cast<TensorView*>(ldst->out()), out_index);
 
-  return {in, out};
+  return out;
 }
+
 } // namespace
 
 void IndexLowering::handle(const LoadStoreOp* ldst) {
@@ -1662,23 +1712,29 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
           ldst->out()->as<TensorView>()->getLogicalDomain().size() == 2,
           "We only support 2D inputs stmatrix");
 
-      auto output_m_extent = ldst->out()
-                                 ->as<TensorView>()
-                                 ->getLogicalDomain()[0]
-                                 ->extent()
-                                 ->evaluate()
-                                 .as<int64_t>();
-      auto output_n_extent = ldst->out()
-                                 ->as<TensorView>()
-                                 ->getLogicalDomain()[1]
-                                 ->extent()
-                                 ->evaluate()
-                                 .as<int64_t>();
+      NVF_ERROR(
+          ldst->fusion()->hasManaged("st_matrix_m_tile") &&
+              ldst->fusion()->hasManaged("st_matrix_n_tile") &&
+              ldst->fusion()->hasManaged("st_matrix_m") &&
+              ldst->fusion()->hasManaged("st_matrix_n"),
+          "We support stmatrix only when tiling information is passed via fusion managed cache");
+      auto m_tile = ldst->fusion()->getManaged<int64_t>("st_matrix_m_tile");
+      auto n_tile = ldst->fusion()->getManaged<int64_t>("st_matrix_n_tile");
+      auto m = ldst->fusion()->getManaged<int64_t>("st_matrix_m");
+      auto n = ldst->fusion()->getManaged<int64_t>("st_matrix_n");
 
-      auto [in_idx, out_idx] = hardCodedIndexGenerationForStMatrix(
-          ldst, output_m_extent, output_n_extent);
-      in = in_idx;
-      out = out_idx;
+      // Get the index for the output of stmatrix.
+      out = hardCodedIndexGenerationForStMatrix(
+          ldst, for_loops_[0], m_tile, n_tile, m, n);
+
+      auto num_regs = (m_tile) / 8 * (n_tile) / 8;
+      auto as_type = ArrayType{
+          std::make_shared<DataType>(DataType::UInt32),
+          static_cast<size_t>(num_regs)};
+
+      // Get the index for the input of stmatrix.
+      in = lowerSrcIndex(ldst->in(), ldst->out(), {}, false, as_type);
+
     } else if (ldst->out()->definition()->isA<MmaOp>()) {
       // For MMA accumulator initialization
       as_type = getMmaOutType(ldst->out()->as<TensorView>());
