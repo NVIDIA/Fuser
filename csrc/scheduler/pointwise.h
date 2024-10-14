@@ -100,7 +100,7 @@ namespace nvfuser {
  * If we pick [i0 | i1, i2], then we'll get:
  * We'll perfect reuse across TIDy on T1 and T2 on b0
  * Some reuse on T0 and T1 on b1 across BIDx if i2 is relatively small and BIDx
- * is bound to the RHS of the 2D schedule Perfect reuse on T1 and T2 on b0
+ * is bound to the RHS of the 2D schedule. Perfect reuse on T1 and T2 on b0
  * across BIDx if BIDx is bound to the LHS of the 2D schedule
  *
  * Materializing these benefits is dependent on the decisions the scheduler
@@ -135,7 +135,7 @@ namespace nvfuser {
  * simplification/assumption and in reality it may be harder/easier to take
  * advantage of broadcast on the inner or outer dimension. This is a reasonable
  * way to make relative decisions on break points, however, this computation is
- * ont doing an effective estimate of actual DRAM transfers which it should be
+ * not doing an effective estimate of actual DRAM transfers which it should be
  * modified to do so.
  *
  * For view schedules there can be some incoherent break points for example:
