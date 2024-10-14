@@ -750,7 +750,7 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
       "Persistent scheduler requires persistent buffers.");
   auto buffer_params = getPersistentBufferStorageParams(
       fusion, runtime_info, data_cache, reduction_tvs, vectorize_factor);
-      
+
   std::unique_ptr<ReductionParams> rparams = innerOuterPersistentHeuristic(
       properties.total_iteration_numel,
       properties.total_reduction_numel,
