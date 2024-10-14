@@ -380,10 +380,10 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
     if (auto mma = dynamic_cast<MmaOp*>(expr)) {
       if (mma->isHopper()) {
         auto scope = scope_.empty() ? nullptr : scope_.back();
-        auto commit = IrBuilder::create<kir::AsyncCommit>(AsyncOpType::WgMma);
-        auto wait = IrBuilder::create<kir::AsyncWait>(AsyncOpType::WgMma, 0);
-        registerInsertAfter(expr, wait, scope);
-        registerInsertAfter(expr, commit, scope);
+        // auto commit = IrBuilder::create<kir::AsyncCommit>(AsyncOpType::WgMma);
+        // auto wait = IrBuilder::create<kir::AsyncWait>(AsyncOpType::WgMma, 0);
+        // registerInsertAfter(expr, wait, scope);
+        // registerInsertAfter(expr, commit, scope);
         if (!lower_utils::allMmaInputsGuardedByMBarrier(mma)) {
           // Makes sure that writes to operands in the generic proxy are visible
           // to the async proxy
@@ -393,6 +393,19 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
           registerInsertBefore(expr, fence_async, scope);
         }
       }
+    }
+
+    std::unordered_set<Expr*> input_mma_ops;
+    for (auto inp : expr->inputs()) {
+      if (auto mma = dynamic_cast<MmaOp*>(inp->definition())) {
+        input_mma_ops.insert(mma);
+      }
+    }
+    if (!input_mma_ops.empty()) {
+      auto commit = IrBuilder::create<kir::AsyncCommit>(AsyncOpType::WgMma);
+      auto wait = IrBuilder::create<kir::AsyncWait>(AsyncOpType::WgMma, 0);
+      insertSyncExpr(input_mma_ops, expr, commit, nullptr);
+      insertSyncExpr(input_mma_ops, expr, wait, nullptr);
     }
 
     if (ir_utils::isCpAsyncBulkStore(expr)) {
@@ -413,8 +426,9 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
     // Currently the only interaction which is realized by the
     //  ordering in this function is that in the case when we need both a
     //  cpasync wait and a block sync before the same expr, we want
-    //  to place the wait before the block sync, since currently there shouldn't
-    //  be any normal case where we explicitly want the wait after a block sync.
+    //  to place the wait before the block sync, since currently there
+    //  shouldn't be any normal case where we explicitly want the wait after a
+    //  block sync.
     if (!cpasync_wait_before_.empty() && cpasync_wait_before_.front() == expr) {
       cpasync_wait_before_.pop_front();
       auto last_writes = last_cpasync_writes_.front();
