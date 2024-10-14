@@ -80,9 +80,9 @@ Val* getLoopIndexOffsetForProducerOfCircularBuffer(
     return nullptr;
   }
 
-  auto stage_depth = (int64_t)info.getStageDepthFor(for_loop->iter_domain());
+  auto prefetch_distance = info.getPrefetchDistanceFor(for_loop->iter_domain());
 
-  return IrBuilder::create<Val>(stage_depth - 1L, DataType::Index);
+  return IrBuilder::create<Val>(prefetch_distance, DataType::Index);
 }
 
 Val* getOffsetForCircularBufferTensor(
@@ -115,6 +115,9 @@ Val* getOffsetForCircularBufferTensor(
   const auto stage_depth =
       (int64_t)gpu_lower->circularBufferInfo().getStageDepthFor(
           circular_buffer_loop->iter_domain());
+  const auto prefetch_distance =
+      gpu_lower->circularBufferInfo().getPrefetchDistanceFor(
+          circular_buffer_loop->iter_domain());
 
   // If this appears as a consumer, it should be either prologue or
   // main. If it's producer, it should be main or epilogue
@@ -135,7 +138,7 @@ Val* getOffsetForCircularBufferTensor(
   if (as_consumer && is_main) {
     offset = SimplifyingIrBuilder::addExpr(
         offset,
-        SimplifyingIrBuilder::create<Val>(stage_depth - 1, DataType::Index));
+        SimplifyingIrBuilder::create<Val>(prefetch_distance, DataType::Index));
   }
 
   // Add "offset % num_stages", except when it's in prologue

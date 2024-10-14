@@ -112,7 +112,7 @@ TensorView::TensorView(const TensorView* src, IrCloner* ir_cloner)
       compute_at_pos_(src->compute_at_pos_),
       max_producer_pos_(src->max_producer_pos_),
       memory_type_(src->memory_type_),
-      circular_buffer_stage_(src->circular_buffer_stage_),
+      circular_buffer_options_(src->circular_buffer_options_),
       cpu_scalar_(src->cpu_scalar_),
       has_swizzle_op_(src->has_swizzle_op_),
       compute_with_consumers_(ir_cloner->clone(src->compute_with_consumers_)),
@@ -1317,13 +1317,22 @@ void TensorView::clearReductionIterDomains() {
   }
 }
 
-void TensorView::circularBuffer(int64_t number_of_stages) {
+void TensorView::circularBuffer(
+    int64_t number_of_stages,
+    int64_t prefetch_distance) {
   // Early correctness checking. May miss eventual errors as the
   // checks depend on memory types and parallelization, which may not
   // be finalized until lowering.
-  NVF_ERROR(number_of_stages > 1, "Unsupported stage number");
+  NVF_CHECK(number_of_stages > 1, "Unsupported stage number");
+  if (prefetch_distance < 0) {
+    prefetch_distance += number_of_stages;
+  }
+  NVF_CHECK(
+      prefetch_distance >= 0 && prefetch_distance < number_of_stages,
+      "Invalid prefetch distance");
   validateCircularBufferedTensor(this);
-  circular_buffer_stage_ = number_of_stages;
+  circular_buffer_options_.stage = number_of_stages;
+  circular_buffer_options_.prefetch = prefetch_distance;
 }
 
 bool TensorView::isEmptyTensor() const {

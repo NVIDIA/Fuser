@@ -404,10 +404,6 @@ NVF_API TensorView* isreal(TensorView*);
 NVF_API Val* print(Val*);
 NVF_API TensorView* print(TensorView*);
 
-// This is a function used to give the symbolic sizes of a tensor for use
-// with functions like broadcast_in_size that take in a vector of sizes
-// to use to expand an input tensor
-NVF_API std::vector<Val*> tensor_sizes(TensorView* inp);
 // This is a function used to give the symbolic shape of a tensor for use
 // with functions like broadcast_in_dim that take a shape vector
 // to use to expand an input tensor

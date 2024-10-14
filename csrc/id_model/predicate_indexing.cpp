@@ -248,12 +248,13 @@ std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
     if (fl->circularBufferLoopStage() == CircularBufferLoopStage::Prolog) {
       return nullptr;
     } else {
-      auto stage_depth =
-          (int64_t)GpuLower::current()->circularBufferInfo().getStageDepthFor(
+      auto prefetch_distance =
+          GpuLower::current()->circularBufferInfo().getPrefetchDistanceFor(
               fl->iter_domain());
       return SimplifyingIrBuilder::addExpr(
           original_index,
-          SimplifyingIrBuilder::create<Val>(stage_depth - 1L, DataType::Index));
+          SimplifyingIrBuilder::create<Val>(
+              prefetch_distance, DataType::Index));
     }
   };
 
