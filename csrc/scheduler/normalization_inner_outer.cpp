@@ -573,6 +573,10 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
     int64_t required_regs = -1;
     int64_t avilable_regs = -1;
     int64_t warps_per_sm = -1;
+    // kernel uses [gdimy] blocks, each block needs to process [outer dim /
+    // gdimy] rows.
+    int64_t rows_per_block = -1;
+    float inner_reduction_cost = .0f;
 
     void verify() {
       NVF_ERROR(inner_vect != -1, "inner_vect is not set.");
@@ -623,6 +627,8 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
     iop.avilable_regs = getRegPerThreadGivenThreadsPerSM(
         threads_per_block * iop.gdimy / sm_count);
     iop.warps_per_sm = iop.gdimy * threads_per_block / warp_size;
+    iop.rows_per_block = ceilDiv(outer_dim_numel, iop.gdimy);
+    iop.inner_reduction_cost = iop.rows_per_block * iop.inner_batch;
     return iop;
   };
 
@@ -667,15 +673,17 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
           if (a.warps_per_sm != b.warps_per_sm) {
             return a.warps_per_sm > b.warps_per_sm;
           }
-          // // prefer divisible split, may be slower, e.g. at 17K uses batch
-          // size of 17. if ((a.unused_threads == 0 && b.unused_threads != 0) ||
-          //     (a.unused_threads != 0 && b.unused_threads == 0)) {
-          //   return a.unused_threads < b.unused_threads;
-          // }
 
-          // persistent batch size
-          if (a.inner_batch != b.inner_batch) {
-            return a.inner_batch < b.inner_batch;
+          // prefer divisible split, may be slower, e.g. at 17K uses batch
+          // size of 17.
+          if ((a.unused_threads == 0 && b.unused_threads != 0) ||
+              (a.unused_threads != 0 && b.unused_threads == 0)) {
+            return a.unused_threads < b.unused_threads;
+          }
+
+          // serial loops over outer dim
+          if (a.rows_per_block != b.rows_per_block) {
+            return a.rows_per_block < b.rows_per_block;
           }
           NVF_ERROR(false, "sort idp_candidates failed.");
           return false;
