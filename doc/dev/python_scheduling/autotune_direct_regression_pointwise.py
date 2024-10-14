@@ -111,6 +111,7 @@ def run_profile(presched_fd, inputs, config=None):
     time = prof.kernel_profiles[0].time_ms
     return bandwidth, time
 
+
 def max(map_config_to_perf):
     best_perf = -1
     best_config = None
@@ -120,15 +121,15 @@ def max(map_config_to_perf):
             best_config = config
     return best_config, best_perf
 
+
 def argmax(map_config_to_perf):
     return max(map_config_to_perf)[0]
 
 
-# Given a prediction model, input_shape, and set of parameter configurations,
-# find the best parameters
+# Given a prediction model and input_shape, find the best parameters
 def find_best_parameters(predictor, input_shape):
     result = predictor.predict([input_shape])
-    vectorize_factor, unroll_factor, perf_metric = result[0,:]
+    vectorize_factor, unroll_factor, perf_metric = result[0, :]
     return (round(vectorize_factor), round(unroll_factor))
 
 
@@ -204,7 +205,7 @@ print("===================== measure performance rmse ========================")
 import numpy as np
 
 # last output is performance metric
-test_pred_perf = test_pred[:,-1]
+test_pred_perf = test_pred[:, -1]
 test_perf = np.array(test_perf)
 print(
     "Test prediction error (RMSE)",
@@ -212,25 +213,6 @@ print(
 )
 print("Test performance", test_perf)
 print("Test prediction", test_pred_perf)
-
-print("======================= compare configurations  =======================")
-# Find best configuration for test_shapes
-print(
-    "input shape, estimate_config:(vectorization, unroll), actual_config:(vectorization, unroll), correct"
-)
-correctness_count = 0
-mismatch_configs = []
-for shape in test_shapes:
-    estimate_config = find_best_parameters(clf, shape)
-
-    match_config = estimate_config == best_test_config[shape]
-    if not match_config:
-        mismatch_configs.append((shape, estimate_config))
-
-    correctness_count += int(match_config)
-    print(f"{shape}, {estimate_config}, {best_test_config[shape]}, {match_config}")
-print("% of predictions match nvfuser parameters", correctness_count / len(test_shapes))
-print(correctness_count, "out of", len(test_shapes))
 
 print("=====================================================================")
 

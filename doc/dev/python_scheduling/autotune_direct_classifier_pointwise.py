@@ -142,8 +142,7 @@ def map_regression_outputs_to_classes(outputs):
     )
 
 
-# Given a prediction model, input_shape, and set of parameter configurations,
-# find the best parameters
+# Given a prediction model and input_shape, find the best parameters
 def predict_best_parameters(predictor, input_shape):
     result = predictor.predict([input_shape])
     vectorize_factor_class, unroll_factor, perf_metric = result[0, :]
