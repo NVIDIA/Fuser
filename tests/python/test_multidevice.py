@@ -1109,8 +1109,6 @@ class TransformerBackwardFusion(FusionDefinition):
             self.mha_linear0_weight,
             self.mha_linear0_bias,
             self.mha_log_sumexp,
-            self.mha_sdpa_seed,
-            self.mha_sdpa_offset,
         ]:
             self.sched._set_device_mesh(in_tv, mesh)
 
