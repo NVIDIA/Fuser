@@ -1095,6 +1095,33 @@ class TransformerBackwardFusion(FusionDefinition):
         self.add_output(ln0_weight)
         self.add_output(inp_grad)
 
+    def multidevice_schedule(self):
+        mesh = self.sched._create_device_mesh(range(self._num_devices))
+        for in_tv in [
+            self.sdpa_out,
+            self.mha_linear1_weight,
+            self.mha_linear1_bias,
+            self.ln1_mean,
+            self.inp,
+            self.ln1_weight,
+            self.ln1_rstd,
+            self.ln1_bias,
+            self.mlp_linear0_weight,
+            self.mlp_linear0_bias,
+            self.out_grad,
+            self.mlp_linear1_weight,
+            self.ln0_mean,
+            self.ln0_weight,
+            self.ln0_rstd,
+            self.ln0_bias,
+            self.mha_linear0_weight,
+            self.mha_linear0_bias,
+            self.mha_log_sumexp,
+            self.mha_sdpa_seed,
+            self.mha_sdpa_offset,
+        ]:
+            self.sched._set_device_mesh(in_tv, mesh)
+
 
 @pytest.mark.skipif(
     utils.is_pre_ampere(),
