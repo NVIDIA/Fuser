@@ -532,6 +532,15 @@ class TransformerForwardFusion(FusionDefinition):
             self.sched.parallelize(in_tv, 0, nvfuser.ParallelType.mesh_x)
 
 
+# TODO(#2962): validate the numbers as well. Currently, the numbers are off
+# by a lot, making comparison infeasible.
+def _assert_shape_dtype(
+    t: torch.Tensor, expected_sizes: list[int], expected_dtype: torch.dtype
+) -> None:
+    assert t.shape == torch.Size(expected_sizes)
+    assert t.dtype == expected_dtype
+
+
 @pytest.mark.skipif(
     utils.is_pre_ampere(),
     reason="Flash Attention is only supported on Ampere and newer devices.",
@@ -624,26 +633,18 @@ def test_transformer_forward(mpi_test, benchmark):
         out,
     ) = outs
 
-    # TODO(#2962): validate the numbers as well. Currently, the numbers are off
-    # by a lot, making comparison infeasible.
-    def assert_shape_dtype(
-        t: torch.Tensor, expected_sizes: list[int], expected_dtype: torch.dtype
-    ) -> None:
-        assert t.shape == torch.Size(expected_sizes)
-        assert t.dtype == expected_dtype
-
-    assert_shape_dtype(layernorm0_mean, [b, s], torch.float32)
-    assert_shape_dtype(layernorm0_rstd, [b, s, 1], torch.float32)
-    assert_shape_dtype(mha_linear0_out, [1, b, s, e * 3 // d], torch.bfloat16)
-    assert_shape_dtype(sdpa_out, [1, b, h // d, s, e // h], torch.bfloat16)
-    assert_shape_dtype(sdpa_logsum_exp, [1, b, h // d, s], torch.float32)
-    assert_shape_dtype(sdpa_seed, [], torch.int64)
-    assert_shape_dtype(sdpa_offset, [], torch.int64)
-    assert_shape_dtype(mha_linear1_out, [b, s, e], torch.bfloat16)
-    assert_shape_dtype(layernorm1_mean, [b, s], torch.float32)
-    assert_shape_dtype(layernorm1_rstd, [b, s, 1], torch.float32)
-    assert_shape_dtype(mlp_linear0_out, [1, b, s, e * 4 // d], torch.bfloat16)
-    assert_shape_dtype(out, [b, s, e], torch.bfloat16)
+    _assert_shape_dtype(layernorm0_mean, [b, s], torch.float32)
+    _assert_shape_dtype(layernorm0_rstd, [b, s, 1], torch.float32)
+    _assert_shape_dtype(mha_linear0_out, [1, b, s, e * 3 // d], torch.bfloat16)
+    _assert_shape_dtype(sdpa_out, [1, b, h // d, s, e // h], torch.bfloat16)
+    _assert_shape_dtype(sdpa_logsum_exp, [1, b, h // d, s], torch.float32)
+    _assert_shape_dtype(sdpa_seed, [], torch.int64)
+    _assert_shape_dtype(sdpa_offset, [], torch.int64)
+    _assert_shape_dtype(mha_linear1_out, [b, s, e], torch.bfloat16)
+    _assert_shape_dtype(layernorm1_mean, [b, s], torch.float32)
+    _assert_shape_dtype(layernorm1_rstd, [b, s, 1], torch.float32)
+    _assert_shape_dtype(mlp_linear0_out, [1, b, s, e * 4 // d], torch.bfloat16)
+    _assert_shape_dtype(out, [b, s, e], torch.bfloat16)
 
     # Benchmark and profile. The profile can be collected and displayed using
     # `nsys`. See instructions in test_transformer_engine.py.
@@ -1183,5 +1184,31 @@ def test_transformer_backward(mpi_test):
     fd = TransformerBackwardFusion(d, b, s, h, e)
 
     outs = fd.execute(ins)
-    for out in outs:
-        print(out.shape, out.dtype)
+    (
+        mlp_linear1_weight_grad,
+        mlp_linear1_bias_grad,
+        mlp_linear0_weight_grad,
+        mlp_linear0_bias_grad,
+        ln1_bias,
+        ln1_weight,
+        mha_linear1_weight_grad,
+        mha_linear1_bias_grad,
+        mha_linear0_weight_grad,
+        mha_linear0_bias_grad,
+        ln0_bias,
+        ln0_weight,
+        inp_grad,
+    ) = outs
+    _assert_shape_dtype(mlp_linear1_weight_grad, [12288, 49152], torch.bfloat16)
+    _assert_shape_dtype(mlp_linear1_bias_grad, [12288], torch.bfloat16)
+    _assert_shape_dtype(mlp_linear0_weight_grad, [49152, 12288], torch.bfloat16)
+    _assert_shape_dtype(mlp_linear0_bias_grad, [49152], torch.bfloat16)
+    _assert_shape_dtype(ln1_bias, [12288], torch.bfloat16)
+    _assert_shape_dtype(ln1_weight, [12288], torch.bfloat16)
+    _assert_shape_dtype(mha_linear1_weight_grad, [12288, 12288], torch.bfloat16)
+    _assert_shape_dtype(mha_linear1_bias_grad, [12288], torch.bfloat16)
+    _assert_shape_dtype(mha_linear0_weight_grad, [36864, 12288], torch.bfloat16)
+    _assert_shape_dtype(mha_linear0_bias_grad, [36864], torch.bfloat16)
+    _assert_shape_dtype(ln0_bias, [12288], torch.bfloat16)
+    _assert_shape_dtype(ln0_weight, [12288], torch.bfloat16)
+    _assert_shape_dtype(inp_grad, [1, 2048, 12288], torch.bfloat16)
