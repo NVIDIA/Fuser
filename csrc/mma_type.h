@@ -88,19 +88,14 @@ struct MatMulTileOptions {
 enum class MmaMacro : uint64_t;
 
 struct MmaMacroEncode {
-  enum class Arch { NoMma, Volta, Turing, Ampere, Hopper } arch : 16;
-  unsigned m : 16;
-  unsigned n : 16;
-  unsigned k : 16;
+  enum class Arch : uint16_t { NoMma, Volta, Turing, Ampere, Hopper } arch;
+  uint16_t m;
+  uint16_t n;
+  uint16_t k;
 
   constexpr operator uint64_t() {
-#if IS_CPP20 && !defined(__clang__)
-    // std::bit_cast for bit field is not supported by clang yet
-    return std::bit_cast<uint64_t>(*this);
-#else
     return (uint64_t)arch << 48 | (uint64_t)m << 32 | (uint64_t)n << 16 |
         (uint64_t)k;
-#endif
   }
 
   constexpr operator MmaMacro();
