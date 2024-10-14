@@ -592,7 +592,8 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
          << ", bdimx: " << bdimx << ", bdimy: " << bdimy
          << ", unused_threads: " << unused_threads << ", gdimy: " << gdimy
          << ", tmp_gmem_write_vect: " << tmp_gmem_write_vect
-         << ", register_per_thread: " << required_regs
+         << ", required_regs: " << required_regs
+         << ", avilable_regs: " << avilable_regs
          << ", warps_per_sm: " << warps_per_sm
          << ", vectorization_factor_outer: " << vectorization_factor_outer;
       return ss.str();
