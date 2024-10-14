@@ -257,8 +257,6 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   // and shared memory are updated accordingly. Break if required register and
   // shared memory are lower than limit or shared memory exceeds the limit.
   int64_t n_smem_buffer = -1;
-  int64_t regs_buffer_size = buffer_params.regs_buffer_size;
-  int64_t smem_buffer_size = buffer_params.smem_buffer_size;
   const int n_buffers = (int)buffers.size();
   for (int i = 0; i < n_buffers; i++) {
     auto current_tv = buffers[i];
@@ -267,7 +265,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
     int64_t tv_buffer_size_regs =
         scheduler_utils::getPersistentBufferSizeOfTensor(
             current_tv, runtime_info, persistent_buffer_info);
-    regs_buffer_size -= tv_buffer_size_regs;
+    buffer_params.regs_buffer_size -= tv_buffer_size_regs;
 
     // round up the buffer size to shared memory & increase the shared memory
     // buffer size
@@ -278,19 +276,20 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
         InnerOuterPersistentKernelScheduler::threads_per_block_min,
         InnerOuterPersistentKernelScheduler::threads_per_block_max,
         dev_prop->warpSize);
-    smem_buffer_size += tv_buffer_size_smem;
+    buffer_params.smem_buffer_size += tv_buffer_size_smem;
 
-    // The first-i buffers are moved from register to shared memory
-    if (regs_buffer_size <= available_regs &&
-        smem_buffer_size <= available_smem) {
+    // The first-i buffers to are moved from register to shared memory
+    // If both the register buffer size and shared memory buffer size are within
+    // the allowable limit, we found a good configuration. Record the number of
+    // buffers to be moved to shared memory and continue to check moving more.
+    if (buffer_params.regs_buffer_size <= available_regs &&
+        buffer_params.smem_buffer_size <= available_smem) {
       n_smem_buffer = i + 1;
-      buffer_params.regs_buffer_size = regs_buffer_size;
-      buffer_params.smem_buffer_size = smem_buffer_size;
     }
     // shared memory buffer size exceeds the limit, not a good configuration.
     // break the loop, n_smem_buffer remains [-1] indicating a bad
     // configuration.
-    if (smem_buffer_size > available_smem) {
+    if (buffer_params.smem_buffer_size > available_smem) {
       break;
     }
   }
@@ -532,10 +531,6 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
       (smem_overhead + smem_buffer_size);
   int64_t blocks_per_sm =
       std::min(max_blocks_per_sm_regs, max_blocks_per_sm_smem);
-  std::cout << "max_blocks_per_sm_regs: " << max_blocks_per_sm_regs
-            << std::endl;
-  std::cout << "max_blocks_per_sm_smem: " << max_blocks_per_sm_smem
-            << std::endl;
   NVF_ERROR(
       blocks_per_sm > 0,
       "blocks_per_sm must be greater than 0. smem buffer size: ",
@@ -574,12 +569,11 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
   while (threads_per_block % iop.bdimx) {
     iop.bdimx = std::min(iop.bdimx + 8, threads_per_block);
   }
-  // Step-4, set OuterParams Reduction dim: bdimy
+  // Step-4, set OuterParams Reduction dim: bdimy.
   iop.bdimy = threads_per_block / iop.bdimx;
   NVF_ERROR(
       iop.bdimy * iop.bdimx == threads_per_block,
       " threads_per_block must be divisible by bdimx and bdimy.");
-
   // Step-5, special case, when inner_dim_numel <= 1024, bdimx is usually small
   // after divide by inner_vect and inner_batch. In this case, bdimy is used to
   // parallelize outer_dim instead of inner_dim. This pattern is named multi
