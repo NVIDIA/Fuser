@@ -660,113 +660,113 @@ class TransformerBackwardFusion(FusionDefinition):
         self._hidden = hidden
 
     def definition(self) -> None:
-        T0 = self.define_tensor(
+        sdpa_out = self.define_tensor(
             shape=[1, 96, 2048, 128],
             contiguity=[None, True, True, True],
             dtype=DataType.BFloat16,
             stride_order=[3, 1, 2, 0],
         )
-        S1 = self.define_scalar(None, dtype=DataType.Int)
-        S2 = self.define_scalar(None, dtype=DataType.Int)
-        T3 = self.define_tensor(
+        mha_dropout_offset = self.define_scalar(None, dtype=DataType.Int)
+        mha_dropout_seed = self.define_scalar(None, dtype=DataType.Int)
+        mha_linear1_weight = self.define_tensor(
             shape=[12288, 12288],
             contiguity=[True, True],
             dtype=DataType.BFloat16,
         )
-        T4 = self.define_tensor(
+        mha_linear1_bias = self.define_tensor(
             shape=[12288],
             contiguity=[True],
             dtype=DataType.BFloat16,
         )
-        T5 = self.define_tensor(
+        ln1_mean = self.define_tensor(
             shape=[1, 2048],
             contiguity=[None, True],
             dtype=DataType.Float,
         )
-        T6 = self.define_tensor(
+        inp = self.define_tensor(
             shape=[1, 2048, 12288],
             contiguity=[None, True, True],
             dtype=DataType.BFloat16,
         )
-        T7 = self.define_tensor(
+        ln1_weight = self.define_tensor(
             shape=[12288],
             contiguity=[True],
             dtype=DataType.BFloat16,
         )
-        T8 = self.define_tensor(
+        ln1_rstd = self.define_tensor(
             shape=[1, 2048, 1],
             contiguity=[None, True, None],
             dtype=DataType.Float,
         )
-        T9 = self.define_tensor(
+        ln1_bias = self.define_tensor(
             shape=[12288],
             contiguity=[True],
             dtype=DataType.BFloat16,
         )
-        T10 = self.define_tensor(
+        mlp_linear0_weight = self.define_tensor(
             shape=[49152, 12288],
             contiguity=[True, True],
             dtype=DataType.BFloat16,
         )
-        T11 = self.define_tensor(
+        mlp_linear0_bias = self.define_tensor(
             shape=[49152],
             contiguity=[True],
             dtype=DataType.BFloat16,
         )
-        S12 = self.define_scalar(None, dtype=DataType.Int)
-        S13 = self.define_scalar(None, dtype=DataType.Int)
-        T14 = self.define_tensor(
+        mlp_dropout_offset = self.define_scalar(None, dtype=DataType.Int)
+        mlp_dropout_seed = self.define_scalar(None, dtype=DataType.Int)
+        out_grad = self.define_tensor(
             shape=[1, 2048, 12288],
             contiguity=[None, True, True],
             dtype=DataType.BFloat16,
         )
-        T15 = self.define_tensor(
+        mlp_linear1_weight = self.define_tensor(
             shape=[12288, 49152],
             contiguity=[True, True],
             dtype=DataType.BFloat16,
         )
-        T16 = self.define_tensor(
+        ln0_mean = self.define_tensor(
             shape=[1, 2048],
             contiguity=[None, True],
             dtype=DataType.Float,
         )
-        T17 = self.define_tensor(
+        ln0_weight = self.define_tensor(
             shape=[12288],
             contiguity=[True],
             dtype=DataType.BFloat16,
         )
-        T18 = self.define_tensor(
+        ln0_rstd = self.define_tensor(
             shape=[1, 2048, 1],
             contiguity=[None, True, None],
             dtype=DataType.Float,
         )
-        T19 = self.define_tensor(
+        ln0_bias = self.define_tensor(
             shape=[12288],
             contiguity=[True],
             dtype=DataType.BFloat16,
         )
-        T20 = self.define_tensor(
+        mha_linear0_weight = self.define_tensor(
             shape=[36864, 12288],
             contiguity=[True, True],
             dtype=DataType.BFloat16,
         )
-        T21 = self.define_tensor(
+        mha_linear0_bias = self.define_tensor(
             shape=[36864],
             contiguity=[True],
             dtype=DataType.BFloat16,
         )
-        T22 = self.define_tensor(
+        mha_log_sumexp = self.define_tensor(
             shape=[1, 96, 2048],
             contiguity=[None, True, True],
             dtype=DataType.Float,
         )
-        T23 = self.define_tensor(
+        mha_sdpa_seed = self.define_tensor(
             shape=[], contiguity=[], dtype=DataType.Int, is_cpu=True
         )
-        T24 = self.define_tensor(
+        mha_sdpa_offset = self.define_tensor(
             shape=[], contiguity=[], dtype=DataType.Int, is_cpu=True
         )
-        T25 = self.ops.permute(T0, dims=[0, 2, 1, 3])
+        T25 = self.ops.permute(sdpa_out, dims=[0, 2, 1, 3])
         T26 = self.ops.stride_order(T25, stride_order=[3, 2, 1, 0])
         S27 = self.define_scalar(0.00000, dtype=DataType.Double)
         S28 = self.define_scalar(1.00000, dtype=DataType.Double)
@@ -774,50 +774,56 @@ class TransformerBackwardFusion(FusionDefinition):
             S27,
             S28,
             shape=[1, 2048, 12288],
-            rng_seed=S2,
-            rng_offset=S1,
+            rng_seed=mha_dropout_seed,
+            rng_offset=mha_dropout_offset,
             dtype=DataType.BFloat16,
         )
         T38 = self.ops.reshape(T26, new_shape=[1, 2048, 12288])
         S39 = self.define_scalar(0.900000, dtype=DataType.Double)
         T40 = self.ops.lt(T33, S39)
-        T41 = self.ops.linear(T38, T3, T4)
+        T41 = self.ops.linear(T38, mha_linear1_weight, mha_linear1_bias)
         T42 = self.ops.cast(T40, dtype=DataType.Float)
         T43 = self.ops.cast(T41, dtype=DataType.Float)
         T44 = self.ops.mul(T43, T42)
-        T49 = self.ops.broadcast_in_dim(T5, shape=[1, 2048, 1], broadcast_dims=[0, 1])
+        T49 = self.ops.broadcast_in_dim(
+            ln1_mean, shape=[1, 2048, 1], broadcast_dims=[0, 1]
+        )
         S50 = self.define_scalar(1.11111, dtype=DataType.Double)
         T51 = self.ops.mul(T44, S50)
-        T52 = self.ops.cast(T6, dtype=DataType.Float)
+        T52 = self.ops.cast(inp, dtype=DataType.Float)
         T57 = self.ops.broadcast_in_dim(
             T49, shape=[1, 2048, 12288], broadcast_dims=[0, 1, 2]
         )
         T58 = self.ops.add(T52, T51)
-        T63 = self.ops.broadcast_in_dim(T7, shape=[1, 2048, 12288], broadcast_dims=[2])
+        T63 = self.ops.broadcast_in_dim(
+            ln1_weight, shape=[1, 2048, 12288], broadcast_dims=[2]
+        )
         T68 = self.ops.broadcast_in_dim(
-            T8, shape=[1, 2048, 12288], broadcast_dims=[0, 1, 2]
+            ln1_rstd, shape=[1, 2048, 12288], broadcast_dims=[0, 1, 2]
         )
         T69 = self.ops.sub(T58, T57)
-        T74 = self.ops.broadcast_in_dim(T9, shape=[1, 2048, 12288], broadcast_dims=[2])
+        T74 = self.ops.broadcast_in_dim(
+            ln1_bias, shape=[1, 2048, 12288], broadcast_dims=[2]
+        )
         T75 = self.ops.cast(T63, dtype=DataType.Float)
         T76 = self.ops.mul(T69, T68)
         T77 = self.ops.cast(T74, dtype=DataType.Float)
         T78 = self.ops.mul(T76, T75)
         T79 = self.ops.add(T78, T77)
         T80 = self.ops.cast(T79, dtype=DataType.BFloat16)
-        T81 = self.ops.linear(T80, T10, T11)
+        T81 = self.ops.linear(T80, mlp_linear0_weight, mlp_linear0_bias)
         S82 = self.define_scalar(0.00000, dtype=DataType.Double)
         S83 = self.define_scalar(1.00000, dtype=DataType.Double)
         T88 = self.ops.uniform(
             S82,
             S83,
             shape=[1, 2048, 12288],
-            rng_seed=S13,
-            rng_offset=S12,
+            rng_seed=mlp_dropout_seed,
+            rng_offset=mlp_dropout_offset,
             dtype=DataType.BFloat16,
         )
         T89 = self.ops.cast(T81, dtype=DataType.Float)
-        T90 = self.ops.cast(T14, dtype=DataType.Float)
+        T90 = self.ops.cast(out_grad, dtype=DataType.Float)
         S91 = self.define_scalar(0.900000, dtype=DataType.Double)
         T92 = self.ops.lt(T88, S91)
         T93 = self.ops.mul(T89, T89)
@@ -833,7 +839,7 @@ class TransformerBackwardFusion(FusionDefinition):
         T106 = self.ops.reshape(T101, new_shape=[2048, 12288])
         S107 = self.define_scalar(0.797885, dtype=DataType.Double)
         T108 = self.ops.mul(S107, T102)
-        T109 = self.ops.matmul(T106, T15)
+        T109 = self.ops.matmul(T106, mlp_linear1_weight)
         T110 = self.ops.tanh(T108)
         T115 = self.ops.reshape(T109, new_shape=[1, 2048, 49152])
         T116 = self.ops.mul(T110, T110)
@@ -862,7 +868,7 @@ class TransformerBackwardFusion(FusionDefinition):
         T139 = self.ops.add(T138, T136)
         T140 = self.ops.cast(T139, dtype=DataType.BFloat16)
         T144 = self.ops.reshape(T140, new_shape=[2048, 49152])
-        T145 = self.ops.matmul(T144, T10)
+        T145 = self.ops.matmul(T144, mlp_linear0_weight)
         T150 = self.ops.reshape(T145, new_shape=[1, 2048, 12288])
         T151 = self.ops.cast(T150, dtype=DataType.Float)
         T152 = self.ops.mul(T75, T151)
@@ -870,7 +876,7 @@ class TransformerBackwardFusion(FusionDefinition):
         T154 = self.ops.sum(T153, dims=[0, 2], keepdim=False, dtype=DataType.Null)
         T159 = self.ops.broadcast_in_dim(T154, shape=[1, 2048, 1], broadcast_dims=[1])
         S160 = self.define_scalar(3.00000, dtype=DataType.Double)
-        T161 = self.ops.pow(T8, S160)
+        T161 = self.ops.pow(ln1_rstd, S160)
         S162 = self.define_scalar(-0.500000, dtype=DataType.Double)
         T163 = self.ops.mul(S162, T159)
         T164 = self.ops.mul(T68, T152)
@@ -880,7 +886,9 @@ class TransformerBackwardFusion(FusionDefinition):
         T168 = self.ops.sum(T166, dims=[0, 2], keepdim=False, dtype=DataType.Null)
         T172 = self.ops.broadcast_in_dim(T167, shape=[1, 2048], broadcast_dims=[1])
         T177 = self.ops.broadcast_in_dim(T168, shape=[1, 2048, 1], broadcast_dims=[1])
-        T182 = self.ops.broadcast_in_dim(T5, shape=[1, 2048, 1], broadcast_dims=[0, 1])
+        T182 = self.ops.broadcast_in_dim(
+            ln1_mean, shape=[1, 2048, 1], broadcast_dims=[0, 1]
+        )
         T187 = self.ops.broadcast_in_dim(
             T172, shape=[1, 2048, 1], broadcast_dims=[0, 1]
         )
@@ -907,22 +915,24 @@ class TransformerBackwardFusion(FusionDefinition):
         T219 = self.ops.mul(T211, S218)
         S220 = self.define_scalar(8.13802e-05, dtype=DataType.Double)
         T221 = self.ops.mul(S220, T216)
-        T226 = self.ops.broadcast_in_dim(T16, shape=[1, 2048, 1], broadcast_dims=[0, 1])
+        T226 = self.ops.broadcast_in_dim(
+            ln0_mean, shape=[1, 2048, 1], broadcast_dims=[0, 1]
+        )
         T227 = self.ops.add(T221, T219)
         T232 = self.ops.broadcast_in_dim(
             T226, shape=[1, 2048, 12288], broadcast_dims=[0, 1, 2]
         )
         T233 = self.ops.add(T164, T227)
         T238 = self.ops.broadcast_in_dim(
-            T17, shape=[1, 2048, 12288], broadcast_dims=[2]
+            ln0_weight, shape=[1, 2048, 12288], broadcast_dims=[2]
         )
         T243 = self.ops.broadcast_in_dim(
-            T18, shape=[1, 2048, 12288], broadcast_dims=[0, 1, 2]
+            ln0_rstd, shape=[1, 2048, 12288], broadcast_dims=[0, 1, 2]
         )
         T244 = self.ops.sub(T52, T232)
         T245 = self.ops.add(T90, T233)
         T250 = self.ops.broadcast_in_dim(
-            T19, shape=[1, 2048, 12288], broadcast_dims=[2]
+            ln0_bias, shape=[1, 2048, 12288], broadcast_dims=[2]
         )
         T251 = self.ops.cast(T238, dtype=DataType.Float)
         T252 = self.ops.mul(T244, T243)
@@ -935,8 +945,8 @@ class TransformerBackwardFusion(FusionDefinition):
         T259 = self.ops.cast(T257, dtype=DataType.BFloat16)
         T260 = self.ops.cast(T258, dtype=DataType.BFloat16)
         T264 = self.ops.reshape(T259, new_shape=[2048, 12288])
-        T265 = self.ops.linear(T260, T20, T21)
-        T266 = self.ops.matmul(T264, T3)
+        T265 = self.ops.linear(T260, mha_linear0_weight, mha_linear0_bias)
+        T266 = self.ops.matmul(T264, mha_linear1_weight)
         T279 = self.ops.slice(
             T265,
             start_indices=[0, 0, 24576],
@@ -967,7 +977,17 @@ class TransformerBackwardFusion(FusionDefinition):
         S339 = self.define_scalar(0.100000, dtype=DataType.Double)
         S340 = self.define_scalar(True, dtype=DataType.Bool)
         T341, T342, T343 = self.ops.sdpfa_bwd(
-            T338, T337, T336, T335, T0, T22, S339, S340, T23, T24, None
+            T338,
+            T337,
+            T336,
+            T335,
+            sdpa_out,
+            mha_log_sumexp,
+            S339,
+            S340,
+            mha_sdpa_seed,
+            mha_sdpa_offset,
+            None,
         )
         T344 = self.ops.permute(T343, dims=[0, 2, 1, 3])
         T345 = self.ops.permute(T342, dims=[0, 2, 1, 3])
@@ -977,7 +997,7 @@ class TransformerBackwardFusion(FusionDefinition):
         T361 = self.ops.reshape(T346, new_shape=[1, 2048, 12288])
         T362 = self.ops.cat([T361, T356, T351], dim=2)
         T366 = self.ops.reshape(T362, new_shape=[2048, 36864])
-        T367 = self.ops.matmul(T366, T20)
+        T367 = self.ops.matmul(T366, mha_linear0_weight)
         T372 = self.ops.reshape(T367, new_shape=[1, 2048, 12288])
         T373 = self.ops.cast(T372, dtype=DataType.Float)
         T374 = self.ops.mul(T251, T373)
@@ -985,7 +1005,7 @@ class TransformerBackwardFusion(FusionDefinition):
         T376 = self.ops.sum(T375, dims=[0, 2], keepdim=False, dtype=DataType.Null)
         T381 = self.ops.broadcast_in_dim(T376, shape=[1, 2048, 1], broadcast_dims=[1])
         S382 = self.define_scalar(3.00000, dtype=DataType.Double)
-        T383 = self.ops.pow(T18, S382)
+        T383 = self.ops.pow(ln0_rstd, S382)
         S384 = self.define_scalar(-0.500000, dtype=DataType.Double)
         T385 = self.ops.mul(S384, T381)
         T386 = self.ops.mul(T243, T374)
@@ -995,7 +1015,9 @@ class TransformerBackwardFusion(FusionDefinition):
         T390 = self.ops.sum(T388, dims=[0, 2], keepdim=False, dtype=DataType.Null)
         T394 = self.ops.broadcast_in_dim(T389, shape=[1, 2048], broadcast_dims=[1])
         T399 = self.ops.broadcast_in_dim(T390, shape=[1, 2048, 1], broadcast_dims=[1])
-        T404 = self.ops.broadcast_in_dim(T16, shape=[1, 2048, 1], broadcast_dims=[0, 1])
+        T404 = self.ops.broadcast_in_dim(
+            ln0_mean, shape=[1, 2048, 1], broadcast_dims=[0, 1]
+        )
         T409 = self.ops.broadcast_in_dim(
             T394, shape=[1, 2048, 1], broadcast_dims=[0, 1]
         )
@@ -1046,32 +1068,32 @@ class TransformerBackwardFusion(FusionDefinition):
         T474 = self.ops.sum(T98, dims=[0, 1], keepdim=False, dtype=DataType.Null)
         T478 = self.ops.reshape(T450, new_shape=[2048, 49152])
         T479 = self.ops.permute(T106, dims=[1, 0])
-        T480 = self.ops.cast(T451, dtype=DataType.BFloat16)
-        T481 = self.ops.cast(T452, dtype=DataType.BFloat16)
-        T482 = self.ops.cast(T453, dtype=DataType.BFloat16)
-        T483 = self.ops.cast(T454, dtype=DataType.BFloat16)
-        T484 = self.ops.matmul(T459, T458)
-        T485 = self.ops.cast(T460, dtype=DataType.BFloat16)
-        T486 = self.ops.matmul(T465, T464)
-        T487 = self.ops.cast(T466, dtype=DataType.BFloat16)
-        T488 = self.ops.cast(T467, dtype=DataType.BFloat16)
-        T489 = self.ops.cast(T468, dtype=DataType.BFloat16)
-        T490 = self.ops.matmul(T473, T472)
-        T491 = self.ops.cast(T474, dtype=DataType.BFloat16)
-        T492 = self.ops.matmul(T479, T478)
-        self.add_output(T492)
-        self.add_output(T491)
-        self.add_output(T490)
-        self.add_output(T489)
-        self.add_output(T488)
-        self.add_output(T487)
-        self.add_output(T486)
-        self.add_output(T485)
-        self.add_output(T484)
-        self.add_output(T483)
-        self.add_output(T482)
-        self.add_output(T481)
-        self.add_output(T480)
+        inp_grad = self.ops.cast(T451, dtype=DataType.BFloat16)
+        ln0_weight = self.ops.cast(T452, dtype=DataType.BFloat16)
+        ln0_bias = self.ops.cast(T453, dtype=DataType.BFloat16)
+        mha_linear0_bias_grad = self.ops.cast(T454, dtype=DataType.BFloat16)
+        mha_linear0_weight_grad = self.ops.matmul(T459, T458)
+        mha_linear1_bias_grad = self.ops.cast(T460, dtype=DataType.BFloat16)
+        mha_linear1_weight_grad = self.ops.matmul(T465, T464)
+        ln1_weight = self.ops.cast(T466, dtype=DataType.BFloat16)
+        ln1_bias = self.ops.cast(T467, dtype=DataType.BFloat16)
+        mlp_linear0_bias_grad = self.ops.cast(T468, dtype=DataType.BFloat16)
+        mlp_linear0_weight_grad = self.ops.matmul(T473, T472)
+        mlp_linear1_bias_grad = self.ops.cast(T474, dtype=DataType.BFloat16)
+        mlp_linear1_weight_grad = self.ops.matmul(T479, T478)
+        self.add_output(mlp_linear1_weight_grad)
+        self.add_output(mlp_linear1_bias_grad)
+        self.add_output(mlp_linear0_weight_grad)
+        self.add_output(mlp_linear0_bias_grad)
+        self.add_output(ln1_bias)
+        self.add_output(ln1_weight)
+        self.add_output(mha_linear1_weight_grad)
+        self.add_output(mha_linear1_bias_grad)
+        self.add_output(mha_linear0_weight_grad)
+        self.add_output(mha_linear0_bias_grad)
+        self.add_output(ln0_bias)
+        self.add_output(ln0_weight)
+        self.add_output(inp_grad)
 
 
 @pytest.mark.skipif(
