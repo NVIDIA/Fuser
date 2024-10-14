@@ -664,7 +664,7 @@ class TransformerBackwardFusion(FusionDefinition):
         b, s, h, e = self._batch, self._sequence, self._head, self._hidden
         self.sdpa_out = self.define_tensor(
             shape=[b, h, s, e // h],
-            contiguity=[True, True, True, True],
+            contiguity=True,
             dtype=DataType.BFloat16,
             stride_order=[3, 1, 2, 0],
         )
@@ -672,101 +672,101 @@ class TransformerBackwardFusion(FusionDefinition):
         self.mha_dropout_seed = self.define_scalar(None, dtype=DataType.Int)
         self.mha_linear1_weight = self.define_tensor(
             shape=[e, e],
-            contiguity=[True, True],
+            contiguity=True,
             dtype=DataType.BFloat16,
         )
         self.mha_linear1_bias = self.define_tensor(
             shape=[e],
-            contiguity=[True],
+            contiguity=True,
             dtype=DataType.BFloat16,
         )
         self.ln1_mean = self.define_tensor(
             shape=[b, s],
-            contiguity=[True, True],
+            contiguity=True,
             dtype=DataType.Float,
         )
         self.inp = self.define_tensor(
             shape=[b, s, e],
-            contiguity=[True, True, True],
+            contiguity=True,
             dtype=DataType.BFloat16,
         )
         self.ln1_weight = self.define_tensor(
             shape=[e],
-            contiguity=[True],
+            contiguity=True,
             dtype=DataType.BFloat16,
         )
         self.ln1_rstd = self.define_tensor(
             shape=[b, s, 1],
-            contiguity=[True, True, None],
+            contiguity=True,
             dtype=DataType.Float,
         )
         self.ln1_bias = self.define_tensor(
             shape=[e],
-            contiguity=[True],
+            contiguity=True,
             dtype=DataType.BFloat16,
         )
         self.mlp_linear0_weight = self.define_tensor(
             shape=[e * 4, e],
-            contiguity=[True, True],
+            contiguity=True,
             dtype=DataType.BFloat16,
         )
         self.mlp_linear0_bias = self.define_tensor(
             shape=[e * 4],
-            contiguity=[True],
+            contiguity=True,
             dtype=DataType.BFloat16,
         )
         self.mlp_dropout_offset = self.define_scalar(None, dtype=DataType.Int)
         self.mlp_dropout_seed = self.define_scalar(None, dtype=DataType.Int)
         self.out_grad = self.define_tensor(
             shape=[b, s, e],
-            contiguity=[True, True, True],
+            contiguity=True,
             dtype=DataType.BFloat16,
         )
         self.mlp_linear1_weight = self.define_tensor(
             shape=[e, e * 4],
-            contiguity=[True, True],
+            contiguity=True,
             dtype=DataType.BFloat16,
         )
         self.ln0_mean = self.define_tensor(
             shape=[b, s],
-            contiguity=[True, True],
+            contiguity=True,
             dtype=DataType.Float,
         )
         self.ln0_weight = self.define_tensor(
             shape=[e],
-            contiguity=[True],
+            contiguity=True,
             dtype=DataType.BFloat16,
         )
         self.ln0_rstd = self.define_tensor(
             shape=[b, s, 1],
-            contiguity=[True, True, None],
+            contiguity=True,
             dtype=DataType.Float,
         )
         self.ln0_bias = self.define_tensor(
             shape=[e],
-            contiguity=[True],
+            contiguity=True,
             dtype=DataType.BFloat16,
         )
         self.mha_linear0_weight = self.define_tensor(
             shape=[e * 3, e],
-            contiguity=[True, True],
+            contiguity=True,
             dtype=DataType.BFloat16,
         )
         self.mha_linear0_bias = self.define_tensor(
             shape=[e * 3],
-            contiguity=[True],
+            contiguity=True,
             dtype=DataType.BFloat16,
         )
         self.mha_log_sumexp = self.define_tensor(
             shape=[b, h, s],
-            contiguity=[True, True, True],
+            contiguity=True,
             dtype=DataType.Float,
         )
         self.mha_sdpa_seed = self.define_tensor(
-            shape=[], contiguity=[], dtype=DataType.Int, is_cpu=True
+            shape=[], dtype=DataType.Int, is_cpu=True
         )
         self.mha_sdpa_offset = self.define_tensor(
-            shape=[], contiguity=[], dtype=DataType.Int, is_cpu=True
+            shape=[], dtype=DataType.Int, is_cpu=True
         )
         T25 = self.ops.permute(self.sdpa_out, dims=[0, 2, 1, 3])
         T26 = self.ops.stride_order(T25, stride_order=[3, 2, 1, 0])
@@ -793,9 +793,7 @@ class TransformerBackwardFusion(FusionDefinition):
         S50 = self.define_scalar(1.11111, dtype=DataType.Double)
         T51 = self.ops.mul(T44, S50)
         T52 = self.ops.cast(self.inp, dtype=DataType.Float)
-        T57 = self.ops.broadcast_in_dim(
-            T49, shape=[b, s, e], broadcast_dims=[0, 1, 2]
-        )
+        T57 = self.ops.broadcast_in_dim(T49, shape=[b, s, e], broadcast_dims=[0, 1, 2])
         T58 = self.ops.add(T52, T51)
         T63 = self.ops.broadcast_in_dim(
             self.ln1_weight, shape=[b, s, e], broadcast_dims=[2]
@@ -891,9 +889,7 @@ class TransformerBackwardFusion(FusionDefinition):
         T182 = self.ops.broadcast_in_dim(
             self.ln1_mean, shape=[b, s, 1], broadcast_dims=[0, 1]
         )
-        T187 = self.ops.broadcast_in_dim(
-            T172, shape=[b, s, 1], broadcast_dims=[0, 1]
-        )
+        T187 = self.ops.broadcast_in_dim(T172, shape=[b, s, 1], broadcast_dims=[0, 1])
         T188 = self.ops.sum(T177, dims=[0, 2], keepdim=False, dtype=DataType.Null)
         T193 = self.ops.broadcast_in_dim(
             T182, shape=[b, s, e], broadcast_dims=[0, 1, 2]
@@ -905,9 +901,7 @@ class TransformerBackwardFusion(FusionDefinition):
         T203 = self.ops.sub(T58, T193)
         S204 = self.define_scalar(2.00000, dtype=DataType.Double)
         T205 = self.ops.mul(S204, T198)
-        T210 = self.ops.broadcast_in_dim(
-            T202, shape=[b, s, 1], broadcast_dims=[0, 1]
-        )
+        T210 = self.ops.broadcast_in_dim(T202, shape=[b, s, 1], broadcast_dims=[0, 1])
         T211 = self.ops.mul(T205, T203)
         T216 = self.ops.broadcast_in_dim(
             T210, shape=[b, s, e], broadcast_dims=[0, 1, 2]
@@ -1020,9 +1014,7 @@ class TransformerBackwardFusion(FusionDefinition):
         T404 = self.ops.broadcast_in_dim(
             self.ln0_mean, shape=[b, s, 1], broadcast_dims=[0, 1]
         )
-        T409 = self.ops.broadcast_in_dim(
-            T394, shape=[b, s, 1], broadcast_dims=[0, 1]
-        )
+        T409 = self.ops.broadcast_in_dim(T394, shape=[b, s, 1], broadcast_dims=[0, 1])
         T410 = self.ops.sum(T399, dims=[0, 2], keepdim=False, dtype=DataType.Null)
         T415 = self.ops.broadcast_in_dim(
             T404, shape=[b, s, e], broadcast_dims=[0, 1, 2]
@@ -1034,9 +1026,7 @@ class TransformerBackwardFusion(FusionDefinition):
         T425 = self.ops.sub(T52, T415)
         S426 = self.define_scalar(2.00000, dtype=DataType.Double)
         T427 = self.ops.mul(S426, T420)
-        T432 = self.ops.broadcast_in_dim(
-            T424, shape=[b, s, 1], broadcast_dims=[0, 1]
-        )
+        T432 = self.ops.broadcast_in_dim(T424, shape=[b, s, 1], broadcast_dims=[0, 1])
         T433 = self.ops.mul(T427, T425)
         T438 = self.ops.broadcast_in_dim(
             T432, shape=[b, s, e], broadcast_dims=[0, 1, 2]
@@ -1146,36 +1136,24 @@ def test_transformer_backward(mpi_test):
         ),
         29,
         2644496055549444,
-        torch.testing.make_tensor(
-            (e, e), dtype=torch.bfloat16, device="cuda:0"
-        ),
+        torch.testing.make_tensor((e, e), dtype=torch.bfloat16, device="cuda:0"),
         torch.testing.make_tensor((e,), dtype=torch.bfloat16, device="cuda:0"),
         torch.testing.make_tensor((b, s), dtype=torch.float32, device="cuda:0"),
-        torch.testing.make_tensor(
-            (b, s, e), dtype=torch.bfloat16, device="cuda:0"
-        ),
+        torch.testing.make_tensor((b, s, e), dtype=torch.bfloat16, device="cuda:0"),
         torch.testing.make_tensor((e,), dtype=torch.bfloat16, device="cuda:0"),
         torch.testing.make_tensor((b, s, 1), dtype=torch.float32, device="cuda:0"),
         torch.testing.make_tensor((e,), dtype=torch.bfloat16, device="cuda:0"),
-        torch.testing.make_tensor(
-            (e * 4, e), dtype=torch.bfloat16, device="cuda:0"
-        ),
+        torch.testing.make_tensor((e * 4, e), dtype=torch.bfloat16, device="cuda:0"),
         torch.testing.make_tensor((e * 4,), dtype=torch.bfloat16, device="cuda:0"),
         30,
         2644496055549444,
-        torch.testing.make_tensor(
-            (b, s, e), dtype=torch.bfloat16, device="cuda:0"
-        ),
-        torch.testing.make_tensor(
-            (e, e * 4), dtype=torch.bfloat16, device="cuda:0"
-        ),
+        torch.testing.make_tensor((b, s, e), dtype=torch.bfloat16, device="cuda:0"),
+        torch.testing.make_tensor((e, e * 4), dtype=torch.bfloat16, device="cuda:0"),
         torch.testing.make_tensor((b, s), dtype=torch.float32, device="cuda:0"),
         torch.testing.make_tensor((e,), dtype=torch.bfloat16, device="cuda:0"),
         torch.testing.make_tensor((b, s, 1), dtype=torch.float32, device="cuda:0"),
         torch.testing.make_tensor((e,), dtype=torch.bfloat16, device="cuda:0"),
-        torch.testing.make_tensor(
-            (e * 3, e), dtype=torch.bfloat16, device="cuda:0"
-        ),
+        torch.testing.make_tensor((e * 3, e), dtype=torch.bfloat16, device="cuda:0"),
         torch.testing.make_tensor((e * 3,), dtype=torch.bfloat16, device="cuda:0"),
         torch.testing.make_tensor((b, h, s), dtype=torch.float32, device="cuda:0"),
         torch.testing.make_tensor((), dtype=torch.int64, device="cpu"),
