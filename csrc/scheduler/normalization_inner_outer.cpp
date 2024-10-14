@@ -257,6 +257,8 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   // and shared memory are updated accordingly. Break if required register and
   // shared memory are lower than limit or shared memory exceeds the limit.
   int64_t n_smem_buffer = -1;
+  int64_t regs_buffer_size = buffer_params.regs_buffer_size;
+  int64_t smem_buffer_size = buffer_params.smem_buffer_size;
   const int n_buffers = (int)buffers.size();
   for (int i = 0; i < n_buffers; i++) {
     auto current_tv = buffers[i];
@@ -265,7 +267,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
     int64_t tv_buffer_size_regs =
         scheduler_utils::getPersistentBufferSizeOfTensor(
             current_tv, runtime_info, persistent_buffer_info);
-    buffer_params.regs_buffer_size -= tv_buffer_size_regs;
+    regs_buffer_size -= tv_buffer_size_regs;
 
     // round up the buffer size to shared memory & increase the shared memory
     // buffer size
@@ -276,23 +278,29 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
         InnerOuterPersistentKernelScheduler::threads_per_block_min,
         InnerOuterPersistentKernelScheduler::threads_per_block_max,
         dev_prop->warpSize);
-    buffer_params.smem_buffer_size += tv_buffer_size_smem;
+    smem_buffer_size += tv_buffer_size_smem;
 
     // The first-i buffers to are moved from register to shared memory
     // If both the register buffer size and shared memory buffer size are within
     // the allowable limit, we found a good configuration. Record the number of
     // buffers to be moved to shared memory and continue to check moving more.
-    if (buffer_params.regs_buffer_size <= available_regs &&
-        buffer_params.smem_buffer_size <= available_smem) {
+    if (regs_buffer_size <= available_regs &&
+        smem_buffer_size <= available_smem) {
       n_smem_buffer = i + 1;
+      buffer_params.regs_buffer_size = regs_buffer_size;
+      buffer_params.smem_buffer_size = smem_buffer_size;
     }
     // shared memory buffer size exceeds the limit, not a good configuration.
     // break the loop, n_smem_buffer remains [-1] indicating a bad
     // configuration.
-    if (buffer_params.smem_buffer_size > available_smem) {
+    if (smem_buffer_size > available_smem) {
       break;
     }
   }
+
+  std::cout << "available_smem: " << available_smem << std::endl;
+  std::cout << "smem_buffer_size: " << buffer_params.smem_buffer_size
+            << std::endl;
 
   // n_smem_buffer > 0, has_enough_regs_and_smem = true, move the
   // first n_smem_buffer buffers to shared memory. otherwise, we
