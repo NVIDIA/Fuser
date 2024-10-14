@@ -525,16 +525,26 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
   int64_t threads_per_sm = getThreadsPerSMGivenRegPerThread(reg_per_thread);
   int64_t max_blocks_per_sm_regs =
       getBlocksPerSM(threads_per_sm, threads_per_block, dev_prop->warpSize);
-  // check shared memory limitation on blocks per sm
-  int64_t max_blocks_per_sm_smem =
-      (int64_t)dev_prop->sharedMemPerMultiprocessor /
-      (smem_overhead + smem_buffer_size);
+
+  // Estimate the maximum number of blocks per SM based on shared memory usage.
+  // Allocation granularity is 128 bytes as indicated in the deprecated
+  // occupancy calculator sheet.
+  int64_t max_blocks_per_sm_smem = -1;
+  int64_t smem_alloc_granularity = 128;
+  int64_t smem_per_block =
+      ceilDiv(smem_overhead + smem_buffer_size, smem_alloc_granularity) *
+      smem_alloc_granularity;
+  max_blocks_per_sm_smem =
+      (int64_t)dev_prop->sharedMemPerMultiprocessor / smem_per_block;
+
   int64_t blocks_per_sm =
       std::min(max_blocks_per_sm_regs, max_blocks_per_sm_smem);
   NVF_ERROR(
       blocks_per_sm > 0,
-      "blocks_per_sm must be greater than 0. smem buffer size: ",
-      smem_buffer_size);
+      "blocks_per_sm must be greater than 0. device smem size: ",
+      dev_prop->sharedMemPerMultiprocessor,
+      " request smem size: ",
+      smem_overhead + smem_buffer_size);
   iop.gdimy = blocks_per_sm * device_multiprocessor_count;
   const int64_t outer_iter_min = 8;
   const int64_t gdimy_max = scheduler_utils::roundUpToN(

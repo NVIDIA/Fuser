@@ -2576,7 +2576,15 @@ int64_t getSharedMemoryOverheadPerBlock(
 
   // (2) part-2, space reserved by the CUDA driver
   int64_t smem_overhead_driver = (int64_t)dev_prop->reservedSharedMemPerBlock;
-  return reduction_broadcast_workspace + smem_overhead_driver;
+
+  // (3) part-3, heuristics may use magic-0. Without considering this extra
+  // space, RMS Bwd fp32 failed at hidden size of 9472 on A100. The estimated blocks
+  // per sm is exactly 2, but we can't launch 2 blocks per sm due to this small
+  // extra usage. Disable magic-0, the kernel can launch 2 blocks per sm, and
+  // about 5% faster. Leave this for future optimization.
+  int64_t smem_nvfuser_magic_zero = 4;
+  return reduction_broadcast_workspace + smem_overhead_driver +
+      smem_nvfuser_magic_zero;
 }
 
 bool isResharding(Fusion* fusion) {
