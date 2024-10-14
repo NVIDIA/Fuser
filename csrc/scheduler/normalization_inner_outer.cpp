@@ -449,6 +449,7 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
     const int64_t regs_buffer_size,
     const int64_t smem_buffer_size,
     const int64_t smem_overhead,
+    const int64_t n_inner_reductions,
     const int64_t n_outer_reductions,
     const size_t tmp_gmem_dtype_size,
     const size_t vectorize_factor,
@@ -670,26 +671,27 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
             return a.required_regs - a.avilable_regs <
                 b.required_regs - b.avilable_regs;
           }
-          // occupancy
-          if (a.warps_per_sm != b.warps_per_sm) {
-            return a.warps_per_sm > b.warps_per_sm;
-          }
 
-          // if more than 1 outer reductions, needs more register to store
-          // partial reduction results, prefer divisible split to minimize
-          // wasted threads.This is important for layer norm backward which 
-          // has 2 outer reductions.
-          if (n_outer_reductions > 1) {
-            if ((a.unused_threads == 0 && b.unused_threads != 0) ||
-                (a.unused_threads != 0 && b.unused_threads == 0)) {
-              return a.unused_threads < b.unused_threads;
+          // if more than 1 inner reductions. This is important for layer norm
+          // backward which has 2 inner reductions.
+          if (n_inner_reductions > 1) {
+            if (a.inner_batch != b.inner_batch) {
+              return a.inner_batch > b.inner_batch;
+            }
+            // occupancy
+            if (a.warps_per_sm != b.warps_per_sm) {
+              return a.warps_per_sm > b.warps_per_sm;
+            }
+          } else {
+            // occupancy
+            if (a.warps_per_sm != b.warps_per_sm) {
+              return a.warps_per_sm > b.warps_per_sm;
+            }
+            if (a.inner_batch != b.inner_batch) {
+              return a.inner_batch < b.inner_batch;
             }
           }
 
-          // serial loops over outer dim
-          if (a.rows_per_block != b.rows_per_block) {
-            return a.rows_per_block < b.rows_per_block;
-          }
           NVF_ERROR(false, "sort idp_candidates failed.");
           return false;
         });
@@ -837,10 +839,12 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
   // Get dtype used to store partial outer reduction
   // Get the first inner reduction tv and use it as the reference tv
   int64_t max_outer_reduction_dtype_size = 1;
+  int64_t n_inner_reductions = 0;
   int64_t n_outer_reductions = 0;
   TensorView* first_inner_reduction_tv = nullptr;
   for (auto tv : reduction_tvs) {
     if (scheduler_utils::isFastestDimReduction(tv)) {
+      n_inner_reductions++;
       first_inner_reduction_tv = tv;
     } else {
       n_outer_reductions++;
@@ -891,6 +895,7 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
       buffer_params.regs_buffer_size,
       buffer_params.smem_buffer_size,
       buffer_params.smem_overhead,
+      n_inner_reductions,
       n_outer_reductions,
       max_outer_reduction_dtype_size,
       vectorize_factor,
