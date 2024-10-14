@@ -1236,8 +1236,10 @@ std::vector<TensorView*> movePersistentBufferToSmem(
       // path of gmem -> smem to reduce temporary register usage. Otherwise, the
       // data path from gmem to shared memory (smem) follows this sequence: gmem
       // -> L1 cache -> register -> smem.
+      // Only supported after device 8.0 and requires vectorized load.
       int hw_major = at::cuda::getCurrentDeviceProperties()->major;
-      if (is_cached_input && hw_major >= 8) {
+      if (rparams->vectorize_inner_reduction && is_cached_input &&
+          hw_major >= 8) {
         tv->definition()->as<LoadStoreOp>()->setOpType(
             LoadStoreOpType::CpAsync);
         tv->definition()->as<LoadStoreOp>()->setCacheOp(CacheOp::Unspecified);

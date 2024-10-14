@@ -493,12 +493,13 @@ void propagateParallelization(
 
     if (vectorize) {
       for (auto cached_smem_buffer : smem_persistent_buffer_consumers) {
-        // cached_smem_buffer is added in schedule process
+        // cached_smem_buffer was added in schedule process
         // movePersistentBufferToSmem() using cacheAfter(), so it should be a
         // LoadStoreOp.
         NVF_ERROR(
             vectorizable_expr(cached_smem_buffer->definition()),
-            "Expected a vectorizable expression");
+            "Expected a vectorizable expression, but got: ",
+            cached_smem_buffer->definition()->toString());
         are_unrolled.emplace(cached_smem_buffer);
       }
     }
