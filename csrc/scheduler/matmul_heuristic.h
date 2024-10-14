@@ -238,7 +238,7 @@ class MatmulParams : public HeuristicParams {
       return false;
     }
 
-    return other->mma_macro == mma_macro &&
+    return other->cparams == cparams && other->mma_macro == mma_macro &&
         other->async_gmem_load_operands == async_gmem_load_operands &&
         other->rotate_ldmatrix_out_of_main_loop ==
         rotate_ldmatrix_out_of_main_loop &&
