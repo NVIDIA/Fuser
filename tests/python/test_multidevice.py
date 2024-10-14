@@ -651,6 +651,15 @@ def test_transformer_forward(mpi_test, benchmark):
     benchmark.pedantic(benchmark_fn, args=(True,), rounds=5)
 
 
+# This is ported over from
+# https://github.com/NVIDIA/Fuser/blob/1c282931d655cb3290106f3d6a7a5c1626a10912/benchmarks/python/test_transformer.py#L364.
+# The major changes are:
+# 1. Replace magic values with variables for flexibility and readability.
+# 2. Rename the inputs and outputs for readability.
+# 3. Assign device meshes to input TensorViews.
+#
+# All tensors are replicated to all devices at this moment; future PRs will try
+# to shard them.
 class TransformerBackwardFusion(FusionDefinition):
     def __init__(self, num_devices, batch, sequence, head, hidden):
         super().__init__()
@@ -1122,6 +1131,10 @@ def test_transformer_backward(mpi_test):
     d = mpi_test.size
     rank = mpi_test.rank
 
+    # I made the batch size 2 to harden the test. It caught several mistakes
+    # where I forgot to multiply a dimension size by `b`. When the sharded
+    # implementation is ready, I'll reset the batch size to one, to reflect the
+    # benchmark workload.
     b, s, h, e = 2, 2048, 96, 12288
 
     torch.cuda.set_device(mpi_test.local_rank)
