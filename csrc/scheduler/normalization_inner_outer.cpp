@@ -449,6 +449,7 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
     const int64_t regs_buffer_size,
     const int64_t smem_buffer_size,
     const int64_t smem_overhead,
+    const int64_t n_outer_reductions,
     const size_t tmp_gmem_dtype_size,
     const size_t vectorize_factor,
     const bool project_to_input,
@@ -654,7 +655,7 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
     std::stable_sort(
         iop_candidates.begin(),
         iop_candidates.end(),
-        [](const InnerOuterParams& a, const InnerOuterParams& b) {
+        [&](const InnerOuterParams& a, const InnerOuterParams& b) {
           // register based sorting
           if (a.required_regs <= a.avilable_regs &&
               b.required_regs > b.avilable_regs) {
@@ -674,11 +675,15 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
             return a.warps_per_sm > b.warps_per_sm;
           }
 
-          // prefer divisible split, may be slower, e.g. at 17K uses batch
-          // size of 17.
-          if ((a.unused_threads == 0 && b.unused_threads != 0) ||
-              (a.unused_threads != 0 && b.unused_threads == 0)) {
-            return a.unused_threads < b.unused_threads;
+          // if more than 1 outer reductions, needs more register to store
+          // partial reduction results, prefer divisible split to minimize
+          // wasted threads.This is important for layer norm backward which 
+          // has 2 outer reductions.
+          if (n_outer_reductions > 1) {
+            if ((a.unused_threads == 0 && b.unused_threads != 0) ||
+                (a.unused_threads != 0 && b.unused_threads == 0)) {
+              return a.unused_threads < b.unused_threads;
+            }
           }
 
           // serial loops over outer dim
@@ -832,11 +837,13 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
   // Get dtype used to store partial outer reduction
   // Get the first inner reduction tv and use it as the reference tv
   int64_t max_outer_reduction_dtype_size = 1;
+  int64_t n_outer_reductions = 0;
   TensorView* first_inner_reduction_tv = nullptr;
   for (auto tv : reduction_tvs) {
     if (scheduler_utils::isFastestDimReduction(tv)) {
       first_inner_reduction_tv = tv;
     } else {
+      n_outer_reductions++;
       max_outer_reduction_dtype_size = std::max(
           max_outer_reduction_dtype_size,
           dataTypeSize(tv->getDataType().value()));
@@ -884,6 +891,7 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
       buffer_params.regs_buffer_size,
       buffer_params.smem_buffer_size,
       buffer_params.smem_overhead,
+      n_outer_reductions,
       max_outer_reduction_dtype_size,
       vectorize_factor,
       buffer_params.project_to_input,
