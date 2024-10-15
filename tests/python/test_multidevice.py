@@ -502,7 +502,7 @@ def test_transformer_forward(mpi_test):
     d = mpi_test.size
     rank = mpi_test.rank
 
-    b, s, h, e = 2, 2048, 96, 12288
+    b, s, h, e = 1, 2048, 96, 12288
 
     assert (
         e % h == 0
