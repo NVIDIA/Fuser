@@ -5798,7 +5798,7 @@ TEST_F(ResizeTest, RoPEFull) {
   q = apply_rope(q);
   k = apply_rope(k);
   // Not used but just for clarity
-  v = apply_rope(v);
+  //v = apply_rope(v);
 
   std::vector<int64_t> reverse_reshape_input_shape;
   reverse_reshape_input_shape.reserve(q->nDims());
@@ -7284,6 +7284,381 @@ TEST_F(ResizeTest, RotationInSmem) {
   auto cg_outputs = fe.runFusion(aten_inputs);
 
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+}
+
+TEST_F(ResizeTest, RoPEFullBF16PermuteShmem) {
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // Llama-2-7b-hf
+  int64_t n_head = 32;
+  int64_t head_size = 128;
+  int64_t n_query_groups = 32;
+  int64_t rope_n_elem = 128;
+  int64_t batches = 2;
+  int64_t seq_length = 4096;
+
+  int64_t q_per_kv = n_head / n_query_groups;
+  int64_t total_qkv = q_per_kv + 2;
+
+  int64_t rotation_num_splits = 2;
+
+  if (getenv("SMALL")) {
+    n_head = 4;
+    n_query_groups = 4;
+    seq_length = 8;
+    head_size = 16;
+    rope_n_elem = 16;
+  }
+
+  std::vector<int64_t> input_shape{
+      batches, seq_length, head_size * (n_head + 2 * n_query_groups)};
+  std::vector<int64_t> shape_before_permutation{
+      batches, seq_length, n_query_groups, total_qkv, head_size};
+  std::vector<int64_t> shape1{
+      batches, n_query_groups, total_qkv, seq_length, head_size};
+
+  std::cerr << "shape1: " << shape1 << "\n";
+
+  std::unordered_set<TensorView*> tvs_to_vectorize;
+
+  // qkv after permutation
+  auto tv0 = makeContigConcreteTensor(input_shape, DataType::BFloat16);
+  fusion.addInput(tv0);
+
+  std::cerr << "Input: " << tv0->toString() << "\n";
+
+  // cos
+  auto tv1 =
+      makeContigConcreteTensor({seq_length, rope_n_elem}, DataType::BFloat16);
+  fusion.addInput(tv1);
+  auto cos = tv1;
+
+  // sin
+  auto tv2 =
+      makeContigConcreteTensor({seq_length, rope_n_elem}, DataType::BFloat16);
+  fusion.addInput(tv2);
+  auto sin = tv2;
+
+  auto zero = fusion.zeroVal();
+  [[maybe_unused]] auto one = fusion.oneVal();
+
+  auto get_qkv = [&]() {
+    TensorView* qkv = nullptr;
+    // Permute and reshape
+    auto tv = tv0;
+    tv = set(tv); // vectorization
+    tvs_to_vectorize.emplace(tv);
+    tv = reshape(tv, input_shape, shape_before_permutation);
+    tv = permute(tv, {0, 2, 3, 1, 4});
+    qkv = tv;
+    std::cerr << "qkv: " << qkv->toString() << "\n";
+    return qkv;
+  };
+
+  std::vector<Slice> slice_default_arg;
+  slice_default_arg.reserve(shape1.size());
+  for (const auto s : shape1) {
+    slice_default_arg.push_back(Slice{zero, IrBuilder::create<Val>(s)});
+  }
+
+  int64_t qkv_slice_dim = 2;
+
+  // tv5 (q)
+  TensorView* tv6 = nullptr;
+  {
+    auto qkv = get_qkv();
+    auto slice_arg = slice_default_arg;
+    slice_arg[qkv_slice_dim].stop = IrBuilder::create<Val>(total_qkv - 2);
+    tv6 = slice(qkv, slice_arg);
+    std::cerr << "q slice: " << tv6->definition()->toString();
+  }
+  const auto initial_q = tv6;
+  auto q = tv6;
+
+  // tv6 (k)
+  TensorView* tv7 = nullptr;
+  {
+    auto qkv = get_qkv();
+    auto slice_arg = slice_default_arg;
+    slice_arg[qkv_slice_dim].start = IrBuilder::create<Val>(q_per_kv);
+    slice_arg[qkv_slice_dim].stop = IrBuilder::create<Val>(total_qkv - 1);
+    tv7 = slice(qkv, slice_arg);
+  }
+  const auto initial_k = tv7;
+  auto k = tv7;
+
+  // tv6 (v)
+  TensorView* tv8 = nullptr;
+  {
+    auto qkv = get_qkv();
+    auto slice_arg = slice_default_arg;
+    slice_arg[qkv_slice_dim].start = IrBuilder::create<Val>(q_per_kv + 1);
+    tv8 = slice(qkv, slice_arg);
+  }
+  const auto initial_v = tv8;
+  auto v = tv8;
+
+  TensorView* tv9 = nullptr;
+  {
+    auto cur_shape = shape1;
+    cur_shape[qkv_slice_dim] = q_per_kv;
+    std::vector<int64_t> new_shape;
+    new_shape.push_back(batches);
+    new_shape.push_back(-1);
+    new_shape.insert(new_shape.end(), shape1.begin() + 3, shape1.end());
+    tv9 = reshape(q, cur_shape, new_shape);
+  }
+  q = tv9;
+
+  TensorView* tv10 = nullptr;
+  {
+    auto cur_shape = shape1;
+    cur_shape[qkv_slice_dim] = 1;
+    std::vector<int64_t> new_shape;
+    new_shape.push_back(batches);
+    new_shape.push_back(-1);
+    new_shape.insert(new_shape.end(), shape1.begin() + 3, shape1.end());
+    tv10 = reshape(k, cur_shape, new_shape);
+  }
+  k = tv10;
+
+  TensorView* tv11 = nullptr;
+  {
+    auto cur_shape = shape1;
+    cur_shape[qkv_slice_dim] = 1;
+    std::vector<int64_t> new_shape;
+    new_shape.push_back(batches);
+    new_shape.push_back(-1);
+    new_shape.insert(new_shape.end(), shape1.begin() + 3, shape1.end());
+    tv11 = reshape(v, cur_shape, new_shape);
+  }
+  v = tv11;
+
+  // x: q, k or v
+  // 1. take [..., :rope_n_elem]
+  // 2. apply_rope
+  // 3. concat apply_rope and [..., rope_n_elem:]
+  auto apply_rope = [&](TensorView* x, bool is_q) -> TensorView* {
+    std::vector<Slice> slice_arg;
+    slice_arg.reserve(x->nDims());
+    for (const auto id : x->getLogicalDomain()) {
+      Slice arg;
+      arg.start = zero;
+      arg.stop = id->extent();
+      slice_arg.push_back(arg);
+    }
+
+    TensorView* x_rope = x;
+
+    // x1
+    auto x1_slice_arg = slice_arg;
+    x1_slice_arg.back().stop = IrBuilder::create<Val>(rope_n_elem / rotation_num_splits);
+    auto x1 = slice(x_rope, x1_slice_arg);
+    std::cerr << "x1: " << x1->definition()->toString() << "\n";
+
+    // x2
+    auto x2_slice_arg = slice_arg;
+    x2_slice_arg.back().start = IrBuilder::create<Val>(rope_n_elem / rotation_num_splits);
+    auto x2 = slice(x_rope, x2_slice_arg);
+    std::cerr << "x2: " << x2->definition()->toString() << "\n";
+
+    TensorView* rotated = cat({x2, x1}, -1);
+
+    std::vector<bool> bcast_flags(x->nDims(), false);
+    // The innermost two dimensions are concrete
+    for (const auto i : c10::irange(x->nDims() - 2)) {
+      bcast_flags.at(i) = true;
+    }
+
+    auto cos_broadcast = broadcast(cos, bcast_flags);
+    auto sin_broadcast = broadcast(sin, bcast_flags);
+    std::cerr << "x_rope: " << x_rope->toString() << "\n";
+    std::cerr << "cos_bc: " << cos_broadcast->toString() << "\n";
+    auto out =
+        add(mul(x_rope, cos_broadcast), mul(rotated, sin_broadcast));
+    std::cerr << "apply_rope_result: " << out->toString() << "\n";
+
+    return out;
+  };
+
+  auto q_out = apply_rope(q, true);
+  q_out = castOp(DataType::BFloat16, q_out);
+  q_out = set(q_out);
+  [[maybe_unused]] auto k_out = apply_rope(k, false);
+  k_out = castOp(DataType::BFloat16, k_out);
+  k_out = set(k_out);
+  // Not used but just for clarity
+  //[[maybe_unused]] auto v_out = apply_rope(v, false);
+
+  fusion.addOutput(q_out);
+  tvs_to_vectorize.emplace(q_out);
+  // Disabled for now
+  fusion.addOutput(k_out);
+  tvs_to_vectorize.emplace(k_out);
+  // fusion.addOutput(v_original_shape);
+
+  fusion.printMath();
+
+  if (!getenv("DISABLE_SCHEDULE")) {
+    NVF_ERROR(q->uses().size() == 1);
+    NVF_ERROR(q->uses().at(0)->isA<ViewOp>());
+    auto ref_tv = q->uses().at(0)->output(0)->as<TensorView>();
+
+    std::cerr << "Reference tensor: " << ref_tv->toString() << "\n";
+
+    std::vector<IterDomain*> ref_loop = ref_tv->getLogicalDomain();
+    std::swap(
+        ref_loop.at(ref_loop.size() - 1), ref_loop.at(ref_loop.size() - 2));
+    std::cerr << "Ref domain: " << toDelimitedString(ref_loop) << "\n";
+    std::vector<TensorView*> tvs;
+    auto excluded_tvs = DependencyCheck::getAllValsBetween(
+        {fusion.inputs().begin(), fusion.inputs().end()},
+        {initial_q, initial_k, initial_v});
+    std::cerr << "Excluded: " << toDelimitedString(excluded_tvs) << "\n";
+    for (auto tv : fusion.allTvs()) {
+      if (tv->isFusionInput()) {
+        continue;
+      }
+
+      if (std::find(excluded_tvs.begin(), excluded_tvs.end(), tv) !=
+          excluded_tvs.end() &&
+          tv != initial_q && tv != initial_k && tv != initial_v) {
+        continue;
+      }
+
+      tvs.push_back(tv);
+    }
+
+    scheduler_tools::scheduleLoopDomainsLike(tvs, ref_loop, -2);
+
+    fusion.printMath();
+
+    // q inputs
+    {
+      auto inputs = DependencyCheck::getAllValsBetween(
+          {fusion.inputs().begin(), fusion.inputs().end()}, {initial_q});
+      auto input_tvs = ir_utils::filterByType<TensorView>(inputs).vector();
+      std::vector<IterDomain*> ref_loop = initial_q->getLoopDomain();
+      std::cerr << "Ref for Q: " << toDelimitedString(ref_loop) << "\n";
+      scheduler_tools::scheduleLoopDomainsLike(input_tvs, ref_loop, -1);
+
+      for (auto tv : input_tvs) {
+        if (tv->isFusionInput()) {
+          continue;
+        }
+        std::cerr << "After: " << tv->toString() << "\n";
+      }
+    }
+
+    // k inputs
+    {
+      auto inputs = DependencyCheck::getAllValsBetween(
+          {fusion.inputs().begin(), fusion.inputs().end()}, {initial_k});
+      auto input_tvs = ir_utils::filterByType<TensorView>(inputs).vector();
+      std::vector<IterDomain*> ref_loop = initial_k->getLoopDomain();
+      std::cerr << "Ref for K: " << toDelimitedString(ref_loop) << "\n";
+      scheduler_tools::scheduleLoopDomainsLike(input_tvs, ref_loop, -1);
+
+      for (auto tv : input_tvs) {
+        if (tv->isFusionInput()) {
+          continue;
+        }
+        std::cerr << "After: " << tv->toString() << "\n";
+      }
+    }
+
+    fusion.printMath();
+
+#if 0
+    IdModel id_model(&fusion, /*build_models=*/false);
+    const auto& exact_graph = id_model.buildExactGraph();
+    for (auto tv : fusion.allTvs()) {
+      for (const auto i : c10::irange(ref_loop.size() - 2)) {
+        auto loop_id = tv->getLoopDomain().at(i);
+        EXPECT_TRUE(exact_graph.disjointValSets().strictAreMapped(
+            loop_id, ref_loop.at(i)));
+      }
+    }
+#endif
+
+    for (auto tv : fusion.allTvs()) {
+      if (tv->isFusionInput()) {
+        continue;
+      }
+
+      std::cerr << "Before: " << tv->toString() << "\n";
+      tv->reorder({{3, -1}});
+      std::cerr << "Reordered: " << tv->toString() << "\n";
+
+      // Parallelize the innermost domain
+      tv->split(-1, 8);
+      std::cerr << "Vec split: " << tv->toString() << "\n";
+      tv->axis(-2)->parallelize(ParallelType::TIDx);
+
+      if (tvs_to_vectorize.find(tv) != tvs_to_vectorize.end()) {
+        tv->axis(-1)->parallelize(ParallelType::Vectorize);
+      }
+
+      // Schedule the outermost three loops
+      tv->merge(0)->merge(0);
+      // If TIDx is small, use TIDy as well
+      int64_t vec_factor = 4;
+      int64_t bdimx = rope_n_elem / 2 / vec_factor;
+      if (bdimx < 128) {
+        tv->split(0, ceilDiv(128, bdimx));
+        tv->axis(1)->parallelize(ParallelType::TIDy);
+      }
+      tv->axis(0)->parallelize(ParallelType::BIDx);
+    }
+  }
+
+  fusion.printMath();
+  fusion.printKernel();
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+  auto t1 = at::randn({seq_length, rope_n_elem}, options);
+  auto t2 = at::randn({seq_length, rope_n_elem}, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1, t2});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+
+  if (getenv("BENCHMARK")) {
+    int64_t mem_size = 1;
+    for (const auto s : shape1) {
+      mem_size *= s;
+    }
+    // read and write
+    mem_size *= 2;
+    // Only q and k are computed
+    mem_size = mem_size / total_qkv * (q_per_kv + 1);
+    // sin and cos
+    mem_size += seq_length * rope_n_elem * 2;
+    // BFloat16
+    mem_size *= 2;
+
+    ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
+    for (int i = 0; i < 10; ++i) {
+      clearL2Cache();
+      FusionProfiler::start();
+      FusionProfiler::createSegments(1);
+      cg_outputs = fe.runFusion(aten_inputs);
+      FusionProfiler::stop();
+      auto t = FusionProfiler::profile().kernel_time_ms;
+      std::cout << "Elapsed time (us): " << (t * 1000) << "\n";
+      std::cout << "Bandwidth (GB/s): "
+                << ((float)mem_size * 0.001 * 0.001 * 0.001 / (t * 0.001))
+                << "\n";
+    }
+  }
 }
 
 } // namespace nvfuser
