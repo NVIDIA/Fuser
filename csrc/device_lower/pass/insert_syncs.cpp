@@ -776,7 +776,9 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
   }
 
   std::unordered_set<Val*> openScope() {
-    return std::move(async_inputs_in_current_scope_);
+    std::unordered_set<Val*> result;
+    std::swap(result, async_inputs_in_current_scope_);
+    return result;
   }
 
   auto closeScope(std::unordered_set<Val*>& prev_async_inputs) {

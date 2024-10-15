@@ -1485,7 +1485,8 @@ TEST_F(TMAMiscTest, StoreSyncInsertion) {
     EXPECT_TRUE(is_wait(*std::next(commit_it)));
     EXPECT_EQ((*std::next(commit_it))->input(0)->value(), 0);
 
-    auto flattened_exprs = ir_utils::flattenScopedExprs(kernel->topLevelExprs());
+    auto flattened_exprs =
+        ir_utils::flattenScopedExprs(kernel->topLevelExprs());
     EXPECT_EQ(
         std::count_if(
             flattened_exprs.begin(), flattened_exprs.end(), is_commit),
