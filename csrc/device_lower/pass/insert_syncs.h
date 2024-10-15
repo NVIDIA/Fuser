@@ -29,4 +29,6 @@ std::vector<Expr*> insertWarThreadSynchronization(
 std::vector<Expr*> insertRawThreadSynchronization(
     const std::vector<Expr*>& exprs);
 
+//! TODO comment
+std::vector<Expr*> insertWarAsyncWait(const std::vector<Expr*>& exprs);
 } // namespace nvfuser

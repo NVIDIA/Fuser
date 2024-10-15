@@ -374,10 +374,6 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
     if (auto mma = dynamic_cast<MmaOp*>(expr)) {
       if (mma->isHopper()) {
         auto scope = scope_.empty() ? nullptr : scope_.back();
-        // auto commit = IrBuilder::create<kir::AsyncCommit>(AsyncOpType::WgMma);
-        // auto wait = IrBuilder::create<kir::AsyncWait>(AsyncOpType::WgMma, 0);
-        // registerInsertAfter(expr, wait, scope);
-        // registerInsertAfter(expr, commit, scope);
         if (!lower_utils::allMmaInputsGuardedByMBarrier(mma)) {
           // Makes sure that writes to operands in the generic proxy are visible
           // to the async proxy
@@ -389,17 +385,21 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       }
     }
 
-    std::unordered_set<Expr*> input_mma_ops;
+    std::unordered_map<AsyncOpType, std::unordered_set<Expr*>> input_async_ops;
     for (auto inp : expr->inputs()) {
-      if (auto mma = dynamic_cast<MmaOp*>(inp->definition())) {
-        input_mma_ops.insert(mma);
+      auto def = inp->definition();
+      auto async_type = ir_utils::getAsyncOpType(def);
+      // TODO: unify this with cp.async
+      if (async_type != AsyncOpType::NotAsync &&
+          async_type != AsyncOpType::CpAsync) {
+        input_async_ops[async_type].insert(def);
       }
     }
-    if (!input_mma_ops.empty()) {
-      auto commit = IrBuilder::create<kir::AsyncCommit>(AsyncOpType::WgMma);
-      auto wait = IrBuilder::create<kir::AsyncWait>(AsyncOpType::WgMma, 0);
-      insertSyncExpr(input_mma_ops, expr, commit, nullptr);
-      insertSyncExpr(input_mma_ops, expr, wait, nullptr);
+    for (const auto& [async_type, ops] : input_async_ops) {
+      auto commit = IrBuilder::create<kir::AsyncCommit>(async_type);
+      auto wait = IrBuilder::create<kir::AsyncWait>(async_type, 0);
+      insertSyncExpr(ops, expr, commit, nullptr);
+      insertSyncExpr(ops, expr, wait, nullptr);
     }
 
     if (ir_utils::isCpAsyncBulkStore(expr)) {
@@ -725,6 +725,177 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
   }
 };
 
+class WarAsyncWaitInserter : private kir::ExprMutator {
+ public:
+  static std::vector<Expr*> insert(const std::vector<Expr*>& exprs) {
+    WarAsyncWaitInserter inserter(exprs);
+    return inserter.exprs_;
+  }
+
+ private:
+  //! Is there a loop nest that has a non-trivial iteration (extent != 1) and
+  //! not bound to a block/thread. This indicates if a WAR sync is necessary,
+  //! otherwise the Expr is not in an iterating for loop.
+  bool within_iter_loop_ = false;
+
+  //! Inputs of async ops in the current scope. For example:
+  //!  for i: (loop 1)
+  //!    for j: (loop 2)
+  //!      A = ...
+  //!    for k: (loop 3)
+  //!      ...
+  //! Assume that A is used by an async op later, then when in loop 1 and loop
+  //! 2, async_inputs_in_current_scope_ will contain A. But when in loop 3, it
+  //! will not contain A.
+  std::unordered_set<Val*> async_inputs_in_current_scope_;
+
+  std::unordered_set<Expr*> async_exprs_to_protect_;
+
+ private:
+  WarAsyncWaitInserter(const std::vector<Expr*>& exprs) {
+    kir::ExprMutator::traverseAndInsert(exprs);
+  }
+
+  std::unordered_set<AsyncOpType> getUseAsyncOpTypes(Val* v) {
+    std::unordered_set<AsyncOpType> async_ops;
+    for (auto use : v->uses()) {
+      auto type = ir_utils::getAsyncOpType(use);
+      if (type != AsyncOpType::NotAsync) {
+        async_ops.insert(type);
+      }
+    }
+    return async_ops;
+  }
+
+  void dispatch(Expr* expr) final {
+    // If not a tensor view expression continue with dispatch
+    if (!ir_utils::isTvOp(expr)) {
+      kir::ExprMutator::dispatch(expr);
+      return;
+    }
+
+    for (auto output : expr->outputs()) {
+      auto use_async_ops = getUseAsyncOpTypes(output);
+      if (!use_async_ops.empty()) {
+        async_inputs_in_current_scope_.emplace(output);
+      }
+    }
+
+    auto async_op_type = ir_utils::getAsyncOpType(expr);
+    if (async_op_type != AsyncOpType::NotAsync) {
+      async_exprs_to_protect_.insert(expr);
+    }
+  }
+
+  std::unordered_set<Val*> openScope() {
+    return std::move(async_inputs_in_current_scope_);
+  }
+
+  auto closeScope(std::unordered_set<Val*>& prev_async_inputs) {
+    std::transform(
+        async_inputs_in_current_scope_.begin(),
+        async_inputs_in_current_scope_.end(),
+        std::inserter(prev_async_inputs, prev_async_inputs.end()),
+        [](const auto& entry) { return entry; });
+    async_inputs_in_current_scope_ = std::move(prev_async_inputs);
+  }
+
+  void handle(kir::IfThenElse* ite) final {
+    auto prev_async_inputs = openScope();
+    kir::ExprMutator::handle(ite);
+    closeScope(prev_async_inputs);
+  }
+
+  int64_t getPendingOpsFor(Expr* expr, ForLoop* current_loop) {
+    const auto gpu_lower = GpuLower::current();
+    int64_t pending_ops = std::numeric_limits<int64_t>::max();
+    for (auto inp : expr->inputs()) {
+      if (async_inputs_in_current_scope_.count(inp) == 0) {
+        continue;
+      }
+      auto tv = dynamic_cast<TensorView*>(inp);
+      if (tv == nullptr) {
+        continue;
+      };
+      if (!tv->isCircularBuffered()) {
+        return 0;
+      }
+      auto circular_buffer_loop =
+          gpu_lower->circularBufferInfo().getCircularBufferLoop(tv, for_loops_);
+      if (circular_buffer_loop != current_loop) {
+        return 0;
+      }
+      auto stage = circular_buffer_loop->circularBufferLoopStage();
+      NVF_ERROR(
+          stage == CircularBufferLoopStage::Main,
+          "Only main circular buffer loop needs WAR async wait, ",
+          "so the code should not reach here. Stage:",
+          stage);
+      const auto stage_depth = gpu_lower->circularBufferInfo().getStageDepthFor(
+          circular_buffer_loop->iter_domain());
+      const auto prefetch_distance =
+          gpu_lower->circularBufferInfo().getPrefetchDistanceFor(
+              circular_buffer_loop->iter_domain());
+      pending_ops = std::min(pending_ops, stage_depth - prefetch_distance - 1);
+    }
+    return pending_ops;
+  }
+
+  void handle(ForLoop* for_loop) final {
+    // Push loop scope information
+    auto prev_within_iter_loop_ = within_iter_loop_;
+    within_iter_loop_ = within_iter_loop_ || !for_loop->isTrivial();
+    auto prev_async_inputs = openScope();
+
+    // Process the expressions in the for loop
+    kir::ExprMutator::handle(for_loop);
+
+    // Insert async wait at the end of this for loop
+    if (within_iter_loop_) {
+      std::unordered_map<AsyncOpType, int64_t> types_and_pending_ops_to_protect;
+      std::cout << "async_exprs_to_protect_ size: "
+                << async_exprs_to_protect_.size() << std::endl;
+      for (auto it = async_exprs_to_protect_.begin();
+           it != async_exprs_to_protect_.end();) {
+        auto expr = *it;
+        std::cout << "expr: " << expr->toString() << std::endl;
+        // If the input of the async op is not in the current scope, then this
+        // async op is not related, so nothing to protect.
+        if (std::none_of(
+                expr->inputs().begin(), expr->inputs().end(), [&](Val* val) {
+                  return async_inputs_in_current_scope_.count(val);
+                })) {
+          it++;
+          continue;
+        }
+        int64_t pending_ops = getPendingOpsFor(expr, for_loop);
+        auto type = ir_utils::getAsyncOpType(expr);
+        if (types_and_pending_ops_to_protect.count(type)) {
+          auto& pending_ops_to_protect = types_and_pending_ops_to_protect[type];
+          pending_ops_to_protect =
+              std::min(pending_ops_to_protect, pending_ops);
+        } else {
+          types_and_pending_ops_to_protect.emplace(type, pending_ops);
+        }
+        it = async_exprs_to_protect_.erase(it);
+      }
+
+      for (auto [type, pending_ops] : types_and_pending_ops_to_protect) {
+        auto commit = IrBuilder::create<kir::AsyncCommit>(type);
+        auto wait = IrBuilder::create<kir::AsyncWait>(type, pending_ops);
+        registerInsertAfter(
+            for_loop->body().exprs().back(), commit, &for_loop->body());
+        registerInsertAfter(
+            for_loop->body().exprs().back(), wait, &for_loop->body());
+      }
+    }
+
+    // Pop for loop scope information
+    within_iter_loop_ = prev_within_iter_loop_;
+    closeScope(prev_async_inputs);
+  }
+};
+
 } // namespace
 
 std::vector<Expr*> insertRawThreadSynchronization(
@@ -738,4 +909,10 @@ std::vector<Expr*> insertWarThreadSynchronization(
   FUSER_PERF_SCOPE("GpuLower::Lower::insertWarThreadSynchronization");
   return WarSyncInserter::insert(exprs);
 }
+
+std::vector<Expr*> insertWarAsyncWait(const std::vector<Expr*>& exprs) {
+  FUSER_PERF_SCOPE("GpuLower::Lower::insertWarAsyncWait");
+  return WarAsyncWaitInserter::insert(exprs);
+}
+
 } // namespace nvfuser

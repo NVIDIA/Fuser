@@ -113,7 +113,7 @@ Val* getOffsetForCircularBufferTensor(
   auto loop_index = circular_buffer_loop->indexOrStartIfTrivial();
 
   const auto stage_depth =
-      (int64_t)gpu_lower->circularBufferInfo().getStageDepthFor(
+      gpu_lower->circularBufferInfo().getStageDepthFor(
           circular_buffer_loop->iter_domain());
   const auto prefetch_distance =
       gpu_lower->circularBufferInfo().getPrefetchDistanceFor(
