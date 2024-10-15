@@ -190,6 +190,45 @@ def test_sdpa(mpi_test):
     )
 
 
+def _sharded_linear_all_reduce(
+    fd: FusionDefinition,
+    inp: nvfuser.Tensor,
+    weight: nvfuser.Tensor,
+    bias: nvfuser.Tensor,
+    d: int,
+    b: int,
+    s: int,
+    e_in: int,
+    e_out: int,
+) -> nvfuser.Tensor:
+    assert inp.ndim == 4
+    assert weight.ndim == 3
+    assert bias.ndim == 1
+
+    # TODO(#3125): nvFuser is missing an API to construct a sharded linear
+    # like this. Therefore, I decomposed it by hand.
+    #
+    # inp: [d,b,s,e_in]
+    # weight: [d,e_out,e_in]
+    # bias: [e_out]
+    # out: [d,b,s,e_out] = ops.linear(inp, weight, bias)
+    local_matmul = fd.ops.matmul(
+        inp,
+        fd.ops.broadcast_in_dim(
+            fd.ops.permute(weight, [0, 2, 1]),
+            [d, 1, e_in, e_out],
+            [0, 2, 3],
+        ),
+    )
+    matmul = fd.ops.sum(local_matmul, [0])  # allreduce
+    biasadd = fd.ops.add(
+        matmul,
+        fd.ops.broadcast_in_dim(bias, [1, 1, e_out], [2]),
+    )
+    out = fd.ops.cast(biasadd, dtype=DataType.BFloat16)
+    return out
+
+
 # The following two benchmarks micro-benchmarks the forward pass and the
 # backprop of a sharded Transformer block used in GPT-3.
 #
@@ -365,24 +404,17 @@ class TransformerForwardFusion(FusionDefinition):
         T127 = self.ops.permute(sdpa_out, dims=[0, 1, 3, 2, 4])
         T128 = self.ops.stride_order(T127, stride_order=[4, 3, 2, 1, 0])
         T133 = self.ops.reshape(T128, new_shape=[d, b, s, e // d])
-        # TODO(#3125): nvFuser is missing an API to construct a sharded linear
-        # like this. Therefore, I decomposed it by hand.
-        # mha_linear1_out = self.ops.linear(T133, self.mha_linear1_weight, self.mha_linear1_bias)
-        #    [b,s,e]                 [d,b,s,e/d]        [d,e,e/d]                 [e]
-        mha_linear1_local_matmul = self.ops.matmul(
+        mha_linear1_out = _sharded_linear_all_reduce(
+            self,
             T133,
-            self.ops.broadcast_in_dim(
-                self.ops.permute(self.mha_linear1_weight, [0, 2, 1]),
-                [d, 1, e // d, e],
-                [0, 2, 3],
-            ),
+            self.mha_linear1_weight,
+            self.mha_linear1_bias,
+            d,
+            b,
+            s,
+            e // d,
+            e,
         )
-        mha_linear1_matmul = self.ops.sum(mha_linear1_local_matmul, [0])  # allreduce
-        mha_linear1_biasadd = self.ops.add(
-            mha_linear1_matmul,
-            self.ops.broadcast_in_dim(self.mha_linear1_bias, [1, 1, e], [2]),
-        )
-        mha_linear1_out = self.ops.cast(mha_linear1_biasadd, dtype=DataType.BFloat16)
         S135 = self.define_scalar(0.00000, dtype=DataType.Double)
         S136 = self.define_scalar(1.00000, dtype=DataType.Double)
         T141 = self.ops.uniform(
@@ -448,23 +480,17 @@ class TransformerForwardFusion(FusionDefinition):
         T205 = self.ops.add(S204, T203)
         T206 = self.ops.mul(T197, T205)
         T207 = self.ops.cast(T206, dtype=DataType.BFloat16)
-        # TODO(#3125): same as mha_linear1.
-        # T208 = self.ops.linear(T207, self.mlp_linear1_weight, self.mlp_linear1_bias)
-        # [b,s,e]        [d,b,s,4h/d]        [d,e,4h/d]                  [e]
-        T208_local_matmul = self.ops.matmul(
+        T208 = _sharded_linear_all_reduce(
+            self,
             T207,
-            self.ops.broadcast_in_dim(
-                self.ops.permute(self.mlp_linear1_weight, [0, 2, 1]),
-                [d, 1, e * 4 // d, e],
-                [0, 2, 3],
-            ),
+            self.mlp_linear1_weight,
+            self.mlp_linear1_bias,
+            d,
+            b,
+            s,
+            e * 4 // d,
+            e,
         )
-        T208_matmul = self.ops.sum(T208_local_matmul, [0])
-        T208_biasadd = self.ops.add(
-            T208_matmul,
-            self.ops.broadcast_in_dim(self.mlp_linear1_bias, [1, 1, e], [2]),
-        )
-        T208 = self.ops.cast(T208_biasadd, dtype=DataType.BFloat16)
         S209 = self.define_scalar(0.00000, dtype=DataType.Double)
         S210 = self.define_scalar(1.00000, dtype=DataType.Double)
         T215 = self.ops.uniform(
