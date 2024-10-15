@@ -98,12 +98,18 @@ struct MmaMacroEncode {
         (uint64_t)k;
   }
 
-  constexpr operator MmaMacro();
+  constexpr operator MmaMacro() {
+    return static_cast<MmaMacro>(static_cast<uint64_t>(*this));
+  }
 
-  constexpr MmaMacroEncode(MmaMacro macro);
+  constexpr MmaMacroEncode(MmaMacro macro)
+      : arch(Arch(toUnderlying(macro) >> 48)),
+        m((toUnderlying(macro) >> 32) & 0xFFFF),
+        n((toUnderlying(macro) >> 16) & 0xFFFF),
+        k(toUnderlying(macro) & 0xFFFF) {}
 
-  constexpr MmaMacroEncode(Arch arch, unsigned m, unsigned n, unsigned k)
-      : arch(arch), m(m), n(n), k(k) {}
+  constexpr MmaMacroEncode(Arch arch_, uint16_t m_, uint16_t n_, uint16_t k_)
+      : arch(arch_), m(m_), n(n_), k(k_) {}
 };
 
 static_assert(sizeof(MmaMacroEncode) == sizeof(uint64_t));
@@ -167,29 +173,6 @@ enum class MmaMacro : uint64_t {
 };
 
 #undef MACRO
-
-constexpr MmaMacroEncode::operator MmaMacro() {
-#if IS_CPP20 && !defined(__clang__)
-  // std::bit_cast for bit field is not supported by clang yet
-  return std::bit_cast<MmaMacro>(*this);
-#else
-  return static_cast<MmaMacro>(static_cast<uint64_t>(*this));
-#endif
-}
-
-constexpr MmaMacroEncode::MmaMacroEncode(MmaMacro macro)
-#if IS_CPP20 && !defined(__clang__)
-{
-  // std::bit_cast for bit field is not supported by clang yet
-  *this = std::bit_cast<MmaMacroEncode>(macro);
-}
-#else
-    : arch((Arch)(toUnderlying(macro) >> 48)),
-      m((toUnderlying(macro) >> 32) & 0xFFFF),
-      n((toUnderlying(macro) >> 16) & 0xFFFF),
-      k(toUnderlying(macro) & 0xFFFF) {
-}
-#endif
 
 //! [Operand Layout Convention]
 //! Operand layout, T=transposed/row_major, N=normal/col_major
