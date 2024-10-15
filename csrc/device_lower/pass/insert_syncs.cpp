@@ -795,6 +795,8 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
   }
 
   int64_t getPendingOpsFor(Expr* expr, ForLoop* current_loop) {
+    auto for_loops_including_current = for_loops_;
+    for_loops_including_current.push_back(current_loop);
     const auto gpu_lower = GpuLower::current();
     int64_t pending_ops = std::numeric_limits<int64_t>::max();
     for (auto inp : expr->inputs()) {
@@ -809,7 +811,8 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
         return 0;
       }
       auto circular_buffer_loop =
-          gpu_lower->circularBufferInfo().getCircularBufferLoop(tv, for_loops_);
+          gpu_lower->circularBufferInfo().getCircularBufferLoop(
+              tv, for_loops_including_current);
       if (circular_buffer_loop != current_loop) {
         return 0;
       }
