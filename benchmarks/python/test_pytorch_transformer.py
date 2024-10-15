@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 """
-Benchmarks Tensor parallel NanoGPT block using Pytorch TP API.
+Benchmarks Tensor parallel NanoGPT block using Pytorch TP API for eager and torch.compile
 
 Usage: torchrun --nproc-per-node=<number of processes> test_pytorch_transformer.py <--compile>
 
@@ -84,24 +84,6 @@ def benchmark_loop(model, input, profile):
     return forward_time, backward_time
 
 
-def benchmark_model(use_torch_compile, profile):
-    if rank != 0:
-        return
-    config = GPTConfig()
-    model = Block(config).to(dtype).to("cuda")
-    if use_torch_compile:
-        model = torch.compile(model)
-
-    input = torch.rand(
-        batch_size, sequence_length, config.n_embd, dtype=dtype, device="cuda"
-    )
-
-    forward_time, backward_time = benchmark_loop(model, input, profile)
-    print(
-        f"torch.compile {not use_torch_compile}, Average forward time {forward_time}ms, backward time {backward_time}ms"
-    )
-
-
 def benchmark_tensor_parallel(use_torch_compile, profile):
     config = GPTConfig()
     config.n_devices = world_size
@@ -127,27 +109,29 @@ def benchmark_tensor_parallel(use_torch_compile, profile):
 
     forward_time, backward_time = benchmark_loop(tp_model, input, profile)
     print(
-        f"{rank}: torch.compile {use_torch_compile}, Average tensor parallel forward time {forward_time}ms, backward time {backward_time}ms"
+        f"{rank}: Average tensor parallel forward time {forward_time} ms, backward time {backward_time} ms"
     )
 
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--compile",
+        dest="compile",
+        default=False,
+        action="store_true",
+        help="Use torch.compile",
+    )
+    parser.add_argument(
+        "--profile",
+        dest="profile",
+        default=False,
+        action="store_true",
+        help="Adds cuda profiling ranges",
+    )
+    args = parser.parse_args()
 
-parser = argparse.ArgumentParser()
-parser.add_argument(
-    "--compile",
-    dest="compile",
-    default=False,
-    action="store_true",
-    help="Use torch.compile",
-)
-parser.add_argument(
-    "--profile",
-    dest="profile",
-    default=False,
-    action="store_true",
-    help="Adds cuda profiling ranges",
-)
-args = parser.parse_args()
-
-# benchmark_model(args.compile)
-benchmark_tensor_parallel(args.compile, args.profile)
-dist.destroy_process_group()
+    if rank == 0:
+        mode = 'torch.compile' if args.compile else 'eager'
+        print(f'Benchmarking PyTorch TP using {mode}')
+    benchmark_tensor_parallel(args.compile, args.profile)
+    dist.destroy_process_group()
