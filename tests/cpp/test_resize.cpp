@@ -7220,4 +7220,62 @@ TEST_F(ResizeTest, Permute) {
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
+TEST_F(ResizeTest, RotationInSmem) {
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({32});
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0); // shmem cache
+
+  auto zero = fusion.zeroVal();
+  auto c16 = IrBuilder::create<Val>(16L);
+  auto c32 = IrBuilder::create<Val>(32L);
+
+  auto tv2 = slice(tv1, {{zero, c16}});
+  auto tv3 = pad(tv2, {c16, zero});
+
+  auto tv4 = slice(tv1, {{c16, c32}});
+  auto tv5 = pad(tv4, {zero, c16});
+
+  auto tv6 = add(tv5, tv3);
+  auto tv7 = add(tv1, tv6);
+
+  fusion.addOutput(tv7);
+
+  fusion.printMath();
+
+  scheduler_tools::scheduleLoopDomainsLike({tv2}, tv3->getLoopDomain(), -1);
+
+  scheduler_tools::scheduleLoopDomainsLike({tv4}, tv5->getLoopDomain(), -1);
+
+  fusion.print();
+
+  for (auto tv : {tv1, tv2, tv3, tv4, tv5, tv6, tv7}) {
+    tv->axis(0)->parallelize(ParallelType::TIDx);
+  }
+
+  tv1->setMemoryType(MemoryType::Shared);
+  // tv1->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::CpAsync);
+  // tv1->definition()->as<LoadStoreOp>()->setCacheOp(CacheOp::Global);
+
+  fusion.printMath();
+
+  fusion.printKernel();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({32}, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser

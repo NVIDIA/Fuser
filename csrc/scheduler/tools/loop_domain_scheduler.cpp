@@ -148,6 +148,10 @@ class LoopDomainScheduler {
       TensorView* tv,
       const std::vector<ValGroup>& ref_id_groups) const;
 
+  std::optional<ValGraphBFS::ExprPath> getForwardReplayPath(
+      TensorView* tv,
+      const std::vector<ValGroup>& ref_id_groups) const;
+
   std::vector<IterDomain*> findMatchingPos(
       TensorView* tv,
       const std::vector<ValGroup>& ref_id_groups) const;
@@ -363,21 +367,36 @@ std::pair<std::vector<IterDomain*>, std::vector<ValGroup>> LoopDomainScheduler::
     replayReference(TensorView* tv) const {
   std::cerr << "Replaying on " << tv->toString() << "\n";
 
-  // All of the existing IDs are reused as much as possible to
-  // minimize creating new IDs.
-  auto all_ids = tv->domain()->allIDs();
-  std::unordered_map<ValGroup, IterDomain*> group_to_id;
-  ValGroups all_id_groups;
-  for (auto id : all_ids) {
-    const auto& group = graph().toGroup(id);
-    group_to_id.emplace(group, id);
-    all_id_groups.pushBack(group);
-  }
-
   const auto ref_id_groups = getComplimentedReferenceGroups(tv);
 
   // New loop domain to set for the tv
   std::vector<IterDomain*> loop_ids;
+
+  // All of the existing IDs are reused as much as possible to
+  // minimize creating new IDs.
+  auto all_ids = tv->domain()->allIDs();
+  std::unordered_map<ValGroup, IterDomain*> group_to_id;
+
+  ValGroups all_id_groups;
+
+  std::optional<ValGraphBFS::ExprPath> path_from_ref =
+      getForwardReplayPath(tv, ref_id_groups);
+  if (path_from_ref.has_value()) {
+    std::cerr << "Backward-only path\n";
+    // Only use the logical IDs. This is a WAR. Any IDs between the
+    // logical domain and the refenrence should be usable.
+    for (auto id : tv->getLogicalDomain()) {
+      const auto& group = graph().toGroup(id);
+      group_to_id.emplace(group, id);
+      all_id_groups.pushBack(group);
+    }
+  } else {
+    for (auto id : all_ids) {
+      const auto& group = graph().toGroup(id);
+      group_to_id.emplace(group, id);
+      all_id_groups.pushBack(group);
+    }
+  }
 
   bool has_missing_ids = false;
   for (const auto& ref_id_group : ref_id_groups) {
@@ -403,15 +422,19 @@ std::pair<std::vector<IterDomain*>, std::vector<ValGroup>> LoopDomainScheduler::
 
   // If no new ID is created, no expr replay is necessary
   if (!has_missing_ids) {
+    std::cerr << "No missing ID\n";
     return {loop_ids, ref_id_groups};
   }
 
-  const auto path_from_ref = getReplayPath(tv, ref_id_groups);
+  if (!path_from_ref.has_value()) {
+    path_from_ref = getReplayPath(tv, ref_id_groups);
+  }
+
   const ExprGroups all_existing_expr_groups =
       graph().toGroups(tv->domain()->allExprs());
 
   // Replay the path on the target tensor
-  for (const auto& [expr_g, dir] : path_from_ref) {
+  for (const auto& [expr_g, dir] : path_from_ref.value()) {
     std::cerr << "Replaying " << dir << " " << nvfuser::toString(expr_g) << " "
               << expr_g->front()->toString();
 
@@ -526,9 +549,19 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(
   // domains, just a single backward BFS should be enough to find a
   // valid path
   ValGroups ancestor_targets;
-  for (const auto& target : tv_target_domains) {
+  // To check with the ancestors, the logical domain should be used
+  // instead of the root domain. Think of a case where a consumer
+  // domain is used as a reference.
+  // for (const auto& target :
+  // graph().toGroups(tv->getLogicalDomain())) {
+  for (const auto i : c10::irange(tv->getLogicalDomain().size())) {
+    auto logical_id = tv->getLogicalDomain().at(i);
+    const auto& target = graph().toGroup(logical_id);
     if (all_ancestors_of_ref.has(target)) {
       ancestor_targets.pushBack(target);
+    } else {
+      std::cerr << "Logical ID not found in ancestor set: "
+                << logical_id->toString() << "\n";
     }
   }
 
@@ -537,7 +570,7 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(
     return ValGraphBFS::getExprsBetween(
         graph(),
         ref_id_groups,
-        tv_target_domains,
+        graph().toGroups(tv->getLogicalDomain()),
         /*require_all_to_visited=*/true,
         Direction::Backward);
   }
@@ -573,6 +606,53 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(
       replay_path.end(), forward_path.begin(), forward_path.end());
 
   return replay_path;
+}
+
+std::optional<ValGraphBFS::ExprPath> LoopDomainScheduler::getForwardReplayPath(
+    TensorView* tv,
+    const std::vector<ValGroup>& ref_id_groups) const {
+  ValGroups tv_target_domains = graph().toGroups(tv->getLogicalDomain());
+
+  // Get all ancestors of the reference loop domain. Used in
+  // getReplayPath.
+  const auto& all_val_groups = graph().disjointValSets().disjointSets();
+  const auto all_ancestors_of_ref = ValGraphBFS::getReachableValsFrom(
+      graph(), ref_id_groups, all_val_groups, Direction::Backward);
+
+  std::cerr << "getReplayPath: Targets: "
+            << nvfuser::toString(tv_target_domains) << "\n";
+
+  std::cerr << "All ancestors: " << nvfuser::toString(all_ancestors_of_ref)
+            << "\n";
+
+  // If all the target domains are an ancestor of the reference
+  // domains, just a single backward BFS should be enough to find a
+  // valid path
+  ValGroups ancestor_targets;
+  // To check with the ancestors, the logical domain should be used
+  // instead of the root domain. Think of a case where a consumer
+  // domain is used as a reference.
+  // for (const auto& target :
+  // graph().toGroups(tv->getLogicalDomain())) {
+  for (const auto i : c10::irange(tv->getLogicalDomain().size())) {
+    auto logical_id = tv->getLogicalDomain().at(i);
+    const auto& target = graph().toGroup(logical_id);
+    if (all_ancestors_of_ref.has(target)) {
+      ancestor_targets.pushBack(target);
+    } else {
+      std::cerr << "Logical ID not found in ancestor set: "
+                << logical_id->toString() << "\n";
+      return std::nullopt;
+    }
+  }
+
+  std::cerr << "All target domains are ancestors\n";
+  return ValGraphBFS::getExprsBetween(
+      graph(),
+      ref_id_groups,
+      graph().toGroups(tv->getLogicalDomain()),
+      /*require_all_to_visited=*/true,
+      Direction::Backward);
 }
 
 } // namespace
