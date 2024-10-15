@@ -39,12 +39,12 @@ num_dimensions = 2
 outer_shapes = [256, 1024, 4096, 16384]
 inner_shapes = [2**i for i in range(10, 15)]
 
+vectorize_range = [1, 2, 4, 8]
+threads_per_cta_range = list(range(128, 288, 32))
+
 # For pointwise scheduler, we test the cartesian product of vectorization and
 # cta_size factors.
-parameter_configurations = [
-    vectorize_range := [1, 2, 4, 8],
-    threads_per_cta_range := list(range(128, 288, 32)),
-]
+parameter_configurations = [vectorize_range, threads_per_cta_range]
 
 # We profile a range of input shapes with various configurations.
 # This argument determines how much of the profiled data to keep as a test set.
@@ -251,7 +251,9 @@ def predict_best_parameters(predictor, input_shape):
 
     nearest_log_vectorize_factor = round(log(vectorize_factor_pred) / log(2))
     nearest_vectorize_factor = 2**nearest_log_vectorize_factor
-    vectorize_factor = max(min(nearest_vectorize_factor, 4), 1)
+    vectorize_factor = max(
+        min(nearest_vectorize_factor, max(vectorize_range)), min(vectorize_range)
+    )
 
     return vectorize_factor, threads_per_cta
 
@@ -391,6 +393,6 @@ plt.title(
     f"Batch Size = {empirical_batch_size}, Compare Decision Tree Heuristic vs NvFuser"
 )
 plt.legend(["decision_tree", "nvfuser"], loc="lower right")
-plt.savefig(f"persistent_inner_outer_empirical_batchsize{empirical_batch_size}.png")
+plt.savefig(f"persistent_inner_outer_direct_batchsize{empirical_batch_size}.png")
 
 # =============================================================================
