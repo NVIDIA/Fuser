@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
 from nvfuser import FusionDefinition
-from nvfuser.pytorch_utils import clear_cuda_cache, DEVICE_PROPERTIES
+from nvfuser.pytorch_utils import clear_cuda_cache
 from .core import run_benchmark
 import torch
 
