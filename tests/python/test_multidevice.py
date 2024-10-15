@@ -190,16 +190,33 @@ def test_sdpa(mpi_test):
     )
 
 
-# This is ported over from https://github.com/NVIDIA/Fuser/blob/0d33366bf69393bfcc626e28d15dc830609aae2d/benchmarks/python/test_transformer.py#L306. The major changes are:
+# The following two benchmarks micro-benchmarks the forward pass and the
+# backprop of a sharded Transformer block used in GPT-3.
+#
+# The single-GPU nvFusions are
+# dumped from Thunder. To regenerate the nvFusions and the inputs, run the
+# following:
+#
+# 1. `git clone https://github.com/Lightning-AI/lightning-thunder.git`
+# 2. `git fetch origin wjy/sharded`
+# 3. `git checkout wjy/sharded`
+#    This branch adds the GPT-3 block benchmark, turns on certain knobs so the
+#    entire Transformer block fits into one nvFusion, and prints out the repro.
+# 4. `pytest thunder/benchmarks/targets.py -k 'test_nanogpt_block[backward-thunder]' -s`
+#
+# In stdout, you'll find the forward nvFusion executed once followed by the
+# backward nvFusion executed many times.
+#
+# For future reference, the nvFusions below are generated with Thunder version
+# https://github.com/Lightning-AI/lightning-thunder/commit/30e4aa1e67005c58219d7f06b46836eedb74b27a.
+# The Thunder traces are
+# https://gist.github.com/wujingyue/b111aa8b8d92067fc6004f5d0488dd27.
+#
+# Based on the single-GPU nvFusions, more changes are applied to generate the multi-GPU nvFusions.
 # 1. Replace magic values with variables for flexibility and readability.
 # 2. Split device dimensions and parallelize them.
 # 3. Decompose the second linear layer in MLP so the matmul result can be allreduced.
-# 4. Rename the receiving variables for `define_scalar`s and `define_tensor`s for readability.
-
-
-# torch version: 2.6.0a0+git0eba7e5
-# cuda version: 12.6
-# nvfuser version: 0.2.15+gitf3a2087
+# 4. Rename the inputs and outputs for readability.
 class TransformerForwardFusion(FusionDefinition):
     def __init__(self, num_devices, batch, sequence, head, hidden):
         super().__init__()
