@@ -211,7 +211,11 @@ def _sharded_linear_all_reduce(
     # inp: [d,b,s,e_in]
     # weight: [d,e_out,e_in]
     # bias: [e_out]
-    # out: [d,b,s,e_out] = ops.linear(inp, weight, bias)
+    # out: [b,s,e_out] = ops.linear(inp, weight, bias)
+    if d == 1:
+        # Fast path where allreduce isn't needed.
+        return fd.ops.linear(fd.ops.squeeze(inp, [0]), fd.ops.squeeze(weight, [0]), bias)
+
     local_matmul = fd.ops.matmul(
         inp,
         fd.ops.broadcast_in_dim(
@@ -225,8 +229,7 @@ def _sharded_linear_all_reduce(
         matmul,
         fd.ops.broadcast_in_dim(bias, [1, 1, e_out], [2]),
     )
-    out = fd.ops.cast(biasadd, dtype=DataType.BFloat16)
-    return out
+    return fd.ops.cast(biasadd, dtype=DataType.BFloat16)
 
 
 # The following two benchmarks micro-benchmarks the forward pass and the
