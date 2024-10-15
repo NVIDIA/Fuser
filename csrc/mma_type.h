@@ -16,9 +16,6 @@
 #include <cstring>
 #include <ostream>
 
-#if IS_CPP20
-#include <bit>
-#endif
 #include <cstdint>
 
 namespace nvfuser {
