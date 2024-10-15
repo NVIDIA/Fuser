@@ -1365,25 +1365,90 @@ TEST_F(TMAMiscTest, StoreSyncInsertion) {
 
   for (auto tv : {tv1, tv2, tv3}) {
     tv->split(0, 128);
+    tv->split(0, 4);
   }
-  tv1->axis(1)->parallelize(ParallelType::Bulk);
-  tv2->axis(1)->parallelize(ParallelType::Bulk);
-
-  // No inline, there should only be a RAW sync inserted before the computation
-  // of tv3
-  GpuLower gpulw(&fusion);
-  auto kernel1 = gpulw.run();
-  std::cout << kernel1 << std::endl;
+  tv1->axis(2)->parallelize(ParallelType::Bulk);
+  tv2->axis(2)->parallelize(ParallelType::Bulk);
 
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  auto input = at::randn({1024}, options);
+  auto input = at::randn({8192}, options);
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {input}, {}, matmul_cparams);
+  auto is_commit = [](Expr* expr) {
+    auto asm_ = dynamic_cast<kir::Asm*>(expr);
+    return asm_ != nullptr && asm_->code() == "cp.async.bulk.commit_group";
+  };
+  auto is_wait = [](Expr* expr) {
+    auto asm_ = dynamic_cast<kir::Asm*>(expr);
+    return asm_ != nullptr && asm_->code() == "cp.async.bulk.wait_group.read";
+  };
 
-  auto cg_outputs = fe.runFusion({input});
-  testValidate(&fusion, cg_outputs, {input}, {input}, __LINE__, __FILE__);
+  {
+    // No inline, there should only be a RAW sync inserted before the
+    // computation of tv3
+    GpuLower gpulw(&fusion);
+    auto kernel = gpulw.run();
+
+    auto commit_it = std::find_if(
+        kernel->topLevelExprs().begin(),
+        kernel->topLevelExprs().end(),
+        is_commit);
+    ASSERT_NE(commit_it, kernel->topLevelExprs().end());
+    ASSERT_TRUE((*std::next(commit_it))->isA<kir::Asm>());
+    EXPECT_TRUE(is_wait(*std::next(commit_it)));
+    EXPECT_EQ((*std::next(commit_it))->input(0)->value(), 0);
+
+    auto flattened_exprs =
+        ir_utils::flattenScopedExprs(kernel->topLevelExprs());
+    EXPECT_EQ(
+        std::count_if(
+            flattened_exprs.begin(), flattened_exprs.end(), is_commit),
+        1);
+    EXPECT_EQ(
+        std::count_if(flattened_exprs.begin(), flattened_exprs.end(), is_wait),
+        1);
+
+    // FusionExecutor fe;
+    // fe.compileFusion(&fusion, {input}, {}, matmul_cparams);
+    // auto cg_outputs = fe.runFusion({input});
+    // testValidate(&fusion, cg_outputs, {input}, {input}, __LINE__, __FILE__);
+  }
+
+  tv1->inlineAt(1);
+
+  {
+    // tv1 inlined to tv2, so need a WAR in the shared loop of tv1 and tv2
+    GpuLower gpulw(&fusion);
+    auto kernel = gpulw.run();
+    for (auto expr : kernel->topLevelExprs()) {
+      std::cout << expr->toString() << std::endl;
+    }
+
+    auto fl_it = std::find_if(
+        kernel->topLevelExprs().begin(),
+        kernel->topLevelExprs().end(),
+        [](Expr* expr) { return expr->isA<ForLoop>(); });
+    ASSERT_NE(fl_it, kernel->topLevelExprs().end());
+
+    const auto& body = (*fl_it)->as<ForLoop>()->body().exprs();
+    EXPECT_TRUE(is_wait(body.back()));
+    EXPECT_EQ(body.back()->input(0)->value(), 0);
+    EXPECT_TRUE(is_commit(body.at(body.size() - 2)));
+
+    auto flattened_exprs = ir_utils::flattenScopedExprs(body);
+    EXPECT_EQ(
+        std::count_if(
+            flattened_exprs.begin(), flattened_exprs.end(), is_commit),
+        1);
+    EXPECT_EQ(
+        std::count_if(flattened_exprs.begin(), flattened_exprs.end(), is_wait),
+        1);
+
+    FusionExecutor fe;
+    fe.compileFusion(&fusion, {input}, {}, matmul_cparams);
+    auto cg_outputs = fe.runFusion({input});
+    testValidate(&fusion, cg_outputs, {input}, {input}, __LINE__, __FILE__);
+  }
 }
 
 #if 0

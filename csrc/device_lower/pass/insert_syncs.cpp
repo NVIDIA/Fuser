@@ -402,18 +402,6 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       insertSyncExpr(ops, expr, wait, nullptr);
     }
 
-    if (ir_utils::isCpAsyncBulkStore(expr)) {
-      auto scope = scope_.empty() ? nullptr : scope_.back();
-      auto fence_proxy = IrBuilder::create<kir::FenceAsyncProxy>();
-      auto commit =
-          IrBuilder::create<kir::AsyncCommit>(AsyncOpType::CpAsyncBulk);
-      auto wait =
-          IrBuilder::create<kir::AsyncWait>(AsyncOpType::CpAsyncBulk, 0);
-      registerInsertBefore(expr, fence_proxy, scope);
-      registerInsertAfter(expr, wait, scope);
-      registerInsertAfter(expr, commit, scope);
-    }
-
     // An identical but separate flow of timing for cpasync_wait.
     //  The insertion and tracking mechanism is the same as RAW
     //  sync insertion since cp.async only writes smem.
@@ -881,9 +869,9 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
         auto commit = IrBuilder::create<kir::AsyncCommit>(type);
         auto wait = IrBuilder::create<kir::AsyncWait>(type, pending_ops);
         registerInsertAfter(
-            for_loop->body().exprs().back(), commit, &for_loop->body());
-        registerInsertAfter(
             for_loop->body().exprs().back(), wait, &for_loop->body());
+        registerInsertAfter(
+            for_loop->body().exprs().back(), commit, &for_loop->body());
       }
     }
 
