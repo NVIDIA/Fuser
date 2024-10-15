@@ -318,6 +318,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   }
   return buffer_params;
 }
+
 // Calculate the persistent buffer batches and threads per block.
 // Start from a large value of inner_dim_numel / (inner_vect * warpSize/4),
 // gradually reduce to small values but not smaller than a threshold determined
@@ -984,7 +985,6 @@ void scheduleInnerOuterPersistentKernel(
   // boundaryNodesSet. Thus, we need a loop to initiate the propagation from
   // each outer reduction. Don't allow parallelization propagation goes
   // through cached_gmem, see issue 246.
-  // don't do grouped reduction for now since it uses more registers.
   for (long unsigned int i = 0; i < outer_reference_tvs.size(); i++) {
     const auto& selected_tvs_outer = scheduler_utils::getAllTvsFrom(
         {outer_reduction_tvs[i]}, {cached_gmem[i]});
