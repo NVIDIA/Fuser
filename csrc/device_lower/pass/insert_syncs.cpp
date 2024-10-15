@@ -853,12 +853,9 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
     // Insert async wait at the end of this for loop
     if (within_iter_loop_) {
       std::unordered_map<AsyncOpType, int64_t> types_and_pending_ops_to_protect;
-      std::cout << "async_exprs_to_protect_ size: "
-                << async_exprs_to_protect_.size() << std::endl;
       for (auto it = async_exprs_to_protect_.begin();
            it != async_exprs_to_protect_.end();) {
         auto expr = *it;
-        std::cout << "expr: " << expr->toString() << std::endl;
         // If the input of the async op is not in the current scope, then this
         // async op is not related, so nothing to protect.
         if (std::none_of(

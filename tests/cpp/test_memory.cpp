@@ -176,15 +176,7 @@ TEST_F(MemoryTest, RefineCachePolicy) {
 
 // Begin TMA tests
 
-class TMATest : public NVFuserTest {
- protected:
-  void SetUp() override {
-    if (cudaArchGuardShouldSkip(9, 0)) {
-      GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
-    }
-    NVFuserTest::SetUp();
-  }
-};
+using TMATest = HopperBase;
 
 // Check that there is an xor "^" somewhere in the kernel
 class XorFinder : private kir::IrVisitor {
@@ -1348,6 +1340,50 @@ TEST_F(TMAMiscTest, Repro1977) {
 
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(TMAMiscTest, StoreSyncInsertion) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const DataType dtype = DataType::Float;
+
+  auto tv0 = makeContigTensor(1, dtype);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv2->setMemoryType(MemoryType::Global);
+
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  for (auto tv : {tv1, tv2, tv3}) {
+    tv->split(0, 128);
+  }
+  tv1->axis(1)->parallelize(ParallelType::Bulk);
+  tv2->axis(1)->parallelize(ParallelType::Bulk);
+
+  // No inline, there should only be a RAW sync inserted before the computation
+  // of tv3
+  GpuLower gpulw(&fusion);
+  auto kernel1 = gpulw.run();
+  std::cout << kernel1 << std::endl;
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto input = at::randn({1024}, options);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {input}, {}, matmul_cparams);
+
+  auto cg_outputs = fe.runFusion({input});
+  testValidate(&fusion, cg_outputs, {input}, {input}, __LINE__, __FILE__);
 }
 
 #if 0
