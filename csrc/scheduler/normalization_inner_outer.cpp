@@ -329,8 +329,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
 std::pair<int64_t, int64_t> getBufferBatchSizeAndThreadsPerBlock(
     const int64_t inner_dim_numel,
     const int64_t outer_dim_numel,
-    const int64_t register_buffer_size,
-    const int64_t shared_memory_buffer_size,
+    const int64_t persistent_buffer_size,
     const int64_t vectorize_factor,
     const int64_t warp_size) {
   // if inner_dim_numel <= 1024, we are doing multiple reductions per block
@@ -371,7 +370,7 @@ std::pair<int64_t, int64_t> getBufferBatchSizeAndThreadsPerBlock(
   // of inputs and outputs.
   auto getMaximumInnerOuterPersistentBufferBatch = [&]() -> int64_t {
     int64_t register_per_batch = ceilDiv(
-        register_buffer_size / inner_dim_numel * vectorize_factor,
+        persistent_buffer_size / inner_dim_numel * vectorize_factor,
         scheduler_utils::bytes_per_register);
     return scheduler_utils::safeDiv(
         scheduler_utils::max_registers_per_thread -
@@ -395,9 +394,10 @@ std::pair<int64_t, int64_t> getBufferBatchSizeAndThreadsPerBlock(
   int64_t threads_per_block = threads_per_block_min;
   int64_t inner_batch = ceilDiv(after_vectorization, threads_per_block);
   while (inner_batch > batch_max &&
-         threads_per_block * 2 <= threads_per_block_max &&
-         ceilDiv(after_vectorization, threads_per_block * 2) >= batch_min) {
-    threads_per_block *= 2;
+         threads_per_block + warp_size <= threads_per_block_max &&
+         ceilDiv(after_vectorization, threads_per_block + warp_size) >=
+             batch_min) {
+    threads_per_block += warp_size;
     inner_batch = ceilDiv(after_vectorization, threads_per_block);
   }
   return std::make_pair(inner_batch, threads_per_block);
@@ -510,7 +510,6 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
           inner_dim_numel,
           outer_dim_numel,
           regs_buffer_size,
-          smem_buffer_size,
           iop.inner_vect,
           dev_prop->warpSize);
   iop.inner_batch = persistent_batch;
@@ -528,26 +527,12 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
   int64_t threads_per_sm = getThreadsPerSMGivenRegPerThread(reg_per_thread);
   int64_t max_blocks_per_sm_regs =
       getBlocksPerSM(threads_per_sm, threads_per_block, dev_prop->warpSize);
-
-  // Estimate the maximum number of blocks per SM based on shared memory usage.
-  // Allocation granularity is 128 bytes as indicated in the deprecated
-  // occupancy calculator sheet.
-  int64_t max_blocks_per_sm_smem = -1;
-  int64_t smem_alloc_granularity = 128;
-  int64_t smem_per_block =
-      ceilDiv(smem_overhead + smem_buffer_size, smem_alloc_granularity) *
-      smem_alloc_granularity;
-  max_blocks_per_sm_smem =
-      (int64_t)dev_prop->sharedMemPerMultiprocessor / smem_per_block;
-
+  // check shared memory limitation on blocks per sm
+  int64_t max_blocks_per_sm_smem =
+      (int64_t)dev_prop->sharedMemPerMultiprocessor /
+      (smem_overhead + smem_buffer_size);
   int64_t blocks_per_sm =
       std::min(max_blocks_per_sm_regs, max_blocks_per_sm_smem);
-  NVF_ERROR(
-      blocks_per_sm > 0,
-      "blocks_per_sm must be greater than 0. device smem size: ",
-      dev_prop->sharedMemPerMultiprocessor,
-      " request smem size: ",
-      smem_overhead + smem_buffer_size);
   iop.gdimy = blocks_per_sm * device_multiprocessor_count;
   const int64_t outer_iter_min = 8;
   const int64_t gdimy_max = scheduler_utils::roundUpToN(
