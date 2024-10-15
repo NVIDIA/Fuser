@@ -802,7 +802,7 @@ TEST_F(MatmulHostIrTest, HostIrMatmulOut) {
   TensorView* a = makeContigTensor(3);
   TensorView* b = makeContigTensor(3);
   TensorView* c = makeContigTensor(3);
-  auto matmul = IrBuilder::create<MatmulOp>(c, a, b);
+  auto* matmul = IrBuilder::create<MatmulOp>(c, a, b);
 
   hic->addInput(a);
   hic->addInput(b);
