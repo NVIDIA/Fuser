@@ -801,7 +801,7 @@ std::string sanitizeTestName(const std::string& name) {
 }
 
 bool isVectorized(TensorView* tv) {
-  for(auto id : tv->getLoopDomain()) {
+  for (auto id : tv->getLoopDomain()) {
     if (id->getParallelType() == ParallelType::Vectorize) {
       return true;
     }
