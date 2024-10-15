@@ -62,7 +62,8 @@ class IdGraphIndexCompute : public OptOutDispatch {
   }
 
   void setIndex(IterDomain* id, Val* idx) {
-    index_map_.emplace(toGroup(id), idx);
+    // index_map_.emplace(toGroup(id), idx);
+    index_map_[toGroup(id)] = idx;
   }
 
   const ValGroup& toGroup(IterDomain* id) const {

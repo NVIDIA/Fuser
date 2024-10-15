@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <id_model/id_model.h>
 #include <id_model/indexing_traversal.h>
 
 namespace nvfuser {
@@ -106,6 +107,75 @@ bool IndexingTraversal::excludeFromTraversal(const NodeType& group) const {
 
   // std::cerr << "Not exluding: " << resize->toString();
   return false;
+}
+
+IndexingTraversal::ExprPath IndexingTraversal::getExprsBetween(
+    const Expr* expr,
+    const ValGraph& graph,
+    const ValGroups& from_groups,
+    const ValGroups& to_groups) {
+  IndexingTraversal traversal(
+      expr,
+      graph,
+      {from_groups.vector().begin(), from_groups.vector().end()},
+      {to_groups.vector().begin(), to_groups.vector().end()});
+  traversal.traverse();
+  return traversal.getShortestExprPath();
+}
+
+IndexingTraversal::ExprPath IndexingTraversal::getExprsBetween(
+    const Expr* expr,
+    const ValGraph& graph,
+    const std::vector<IterDomain*>& from_domains,
+    const std::vector<IterDomain*>& to_domains) {
+  auto consumer_tv = ir_utils::getTvOutput(expr);
+  NVF_ERROR(consumer_tv != nullptr);
+
+  // WAR
+  {
+    if (consumer_tv->hasRoot()) {
+      auto root_to_logical_exprs = DependencyCheck::getAllExprsBetween(
+          {consumer_tv->getRootDomain().begin(),
+           consumer_tv->getRootDomain().end()},
+          {consumer_tv->getLogicalDomain().begin(),
+           consumer_tv->getLogicalDomain().end()});
+
+      if (std::any_of(
+              root_to_logical_exprs.begin(),
+              root_to_logical_exprs.end(),
+              [](Expr* expr) { return expr->isA<Resize>(); })) {
+        std::cerr << "Resize WAR: " << expr->toString();
+        IdModel local_model(
+            std::vector<Expr*>{consumer_tv->definition()},
+            /*additional_tvs=*/{},
+            /*build_graphs=*/false);
+        const auto& local_graph = local_model.buildAlmostExactGraph();
+        auto from_groups = local_graph.toGroups(from_domains);
+        auto to_groups = local_graph.toGroups(to_domains);
+
+        IndexingTraversal traversal(
+            expr,
+            local_graph,
+            {from_groups.vector().begin(), from_groups.vector().end()},
+            {to_groups.vector().begin(), to_groups.vector().end()});
+        traversal.traverse();
+        auto p = traversal.getShortestExprPath();
+        std::cerr << "Path lengh: " << p.size() << "\n";
+        return p;
+      }
+    }
+  }
+
+  auto from_groups = graph.toGroups(from_domains);
+  auto to_groups = graph.toGroups(to_domains);
+
+  IndexingTraversal traversal(
+      expr,
+      graph,
+      {from_groups.vector().begin(), from_groups.vector().end()},
+      {to_groups.vector().begin(), to_groups.vector().end()});
+  traversal.traverse();
+  return traversal.getShortestExprPath();
 }
 
 } // namespace nvfuser

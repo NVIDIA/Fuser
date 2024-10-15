@@ -853,11 +853,13 @@ std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
 std::vector<Val*> TensorIndexer::getIndexFor(
     const Expr* expr,
     bool as_consumer,
-    const ValGroups& index_groups,
+    const std::vector<IterDomain*>& index_domains,
     const std::vector<ForLoop*>& for_loops) const {
-  auto info = computeIndex(expr, index_groups, for_loops);
+  auto info = computeIndex(expr, index_domains, for_loops);
   const auto& replacement_map = getIndexReplacementMap(
       expr, as_consumer, info.loop_domains, for_loops, info.index_map);
+
+  const auto index_groups = traversalGraph().toGroups(index_domains);
 
   std::vector<Val*> result;
   result.reserve(index_groups.size());
@@ -873,7 +875,7 @@ std::vector<Val*> TensorIndexer::getIndexFor(
 
 Val* TensorIndexer::getLinearIndex(
     TensorView* tv,
-    const Expr* expr,
+    Expr* expr,
     const std::vector<ForLoop*>& for_loops) const {
   NVF_ERROR(tv != nullptr);
   NVF_ERROR(expr != nullptr);
@@ -938,18 +940,19 @@ std::vector<IterDomain*> TensorIndexer::getLoopDomains(const Expr* expr) const {
 
 IndexingInfo TensorIndexer::computeIndex(
     const Expr* expr,
-    const ValGroups& index_groups,
+    const std::vector<IterDomain*>& index_domains,
     const std::vector<ForLoop*>& for_loops) const {
   const auto loop_domains = getLoopDomains(expr);
+  const auto index_groups = traversalGraph().toGroups(index_domains);
 
   const ValGroups loop_groups = traversalGraph().toGroups(loop_domains);
   if (getenv("DEBUG")) {
     std::cerr << "computeIndex getExprsBetween: "
-              << nvfuser::toString(loop_groups) << " -> "
-              << nvfuser::toString(index_groups) << "\n";
+              << toDelimitedString(loop_domains) << " -> "
+              << toDelimitedString(index_domains) << "\n";
   }
   const ExprPath<ExprGroup> traversal_path = IndexingTraversal::getExprsBetween(
-      expr, traversalGraph(), loop_groups, index_groups);
+      expr, traversalGraph(), loop_domains, index_domains);
 
   const std::unordered_map<ValGroup, Val*> initial_index_map =
       getInitialIndexMap(loop_domains, for_loops);
@@ -1086,8 +1089,8 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
   const std::vector<IterDomain*>& predicate_domains =
       getPredicateDomains(tv, expr, getLoopDomains(expr), traversalGraph());
 
-  const IndexingInfo& index_info = computeIndex(
-      expr, traversalGraph().toGroups(predicate_domains), for_loops);
+  const IndexingInfo& index_info =
+      computeIndex(expr, predicate_domains, for_loops);
 
   const auto& index_map = index_info.index_map;
 
@@ -1328,7 +1331,7 @@ std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
         const IndexingAllocationInfo& alloc_info,
         const std::vector<ForLoop*>& for_loops) const {
   const auto& index_groups = traversalGraph().toGroups(alloc_info.domains);
-  auto index_info = computeIndex(expr, index_groups, for_loops);
+  auto index_info = computeIndex(expr, alloc_info.domains, for_loops);
   const auto& index_map = index_info.index_map;
   const auto& replacement_map = getIndexReplacementMap(
       expr, as_consumer, index_info.loop_domains, for_loops, index_map);

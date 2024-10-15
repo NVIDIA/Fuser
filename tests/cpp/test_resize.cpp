@@ -7050,7 +7050,7 @@ TEST_F(ResizeTest, RoPEFullBF16Permute) {
 
   fusion.printMath();
 
-#if 0  
+#if 0
   IdModel id_model(&fusion, /*build_models=*/false);
   const auto& exact_graph = id_model.buildExactGraph();
   for (auto tv : fusion.allTvs()) {
@@ -7255,13 +7255,21 @@ TEST_F(ResizeTest, RotationInSmem) {
 
   fusion.print();
 
-  for (auto tv : {tv1, tv2, tv3, tv4, tv5, tv6, tv7}) {
-    tv->axis(0)->parallelize(ParallelType::TIDx);
+  // tv1 and the rest need to have different loop domains to trigger
+  // synchronization.
+
+  tv1->split(0, 4);
+  tv1->axis(-2)->parallelize(ParallelType::TIDx);
+  tv1->axis(-1)->parallelize(ParallelType::Vectorize);
+
+  for (auto tv : {tv2, tv3, tv4, tv5, tv6, tv7}) {
+    tv->split(0, 2);
+    tv->axis(-2)->parallelize(ParallelType::TIDx);
   }
 
   tv1->setMemoryType(MemoryType::Shared);
-  // tv1->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::CpAsync);
-  // tv1->definition()->as<LoadStoreOp>()->setCacheOp(CacheOp::Global);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::CpAsync);
+  tv1->definition()->as<LoadStoreOp>()->setCacheOp(CacheOp::Global);
 
   fusion.printMath();
 
