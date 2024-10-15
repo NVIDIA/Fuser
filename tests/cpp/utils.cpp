@@ -800,4 +800,13 @@ std::string sanitizeTestName(const std::string& name) {
   return std::regex_replace(name, std::regex("[^a-zA-Z0-9]"), "_");
 }
 
+bool isVectorized(TensorView* tv) {
+  for(auto id : tv->getLoopDomain()) {
+    if (id->getParallelType() == ParallelType::Vectorize) {
+      return true;
+    }
+  }
+  return false;
+}
+
 } // namespace nvfuser
