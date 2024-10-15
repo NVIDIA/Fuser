@@ -149,14 +149,14 @@ IndexingParameters getLinearIndexParameters(
             GpuLower::current()->caMap()->getConcreteMappedID(
                 loop_id, IdMappingMode::EXACT);
 
-        auto stage_depth =
-            (int64_t)GpuLower::current()->circularBufferInfo().getStageDepthFor(
+        auto prefetch_distance =
+            GpuLower::current()->circularBufferInfo().getPrefetchDistanceFor(
                 loop->iter_domain());
         index_parameters.initial_concrete_id_index[concrete_loop_id] =
             SimplifyingIrBuilder::addExpr(
                 index_parameters.initial_concrete_id_index[concrete_loop_id],
                 SimplifyingIrBuilder::create<Val>(
-                    stage_depth - 1L, DataType::Index));
+                    prefetch_distance, DataType::Index));
       }
     }
   }
@@ -416,9 +416,10 @@ IndexingParameters getPredicateInitialIndexParameters(
       // be true that that index has been modified to support
       // unswitch. In that case, it is not necessary to move ahead the
       // index for circular buffering.
-      auto stage_depth =
-          (int64_t)GpuLower::current()->circularBufferInfo().getStageDepthFor(
-              db_loop->iter_domain());
+      auto prefetch_distance =
+          (int64_t)GpuLower::current()
+              ->circularBufferInfo()
+              .getPrefetchDistanceFor(db_loop->iter_domain());
       bool is_same =
           (rotated_loops.count(db_loop)
                ? cur_index->sameAs(SimplifyingIrBuilder::addExpr(
@@ -428,7 +429,7 @@ IndexingParameters getPredicateInitialIndexParameters(
         loop_to_ind_map[db_loop] = SimplifyingIrBuilder::addExpr(
             cur_index,
             SimplifyingIrBuilder::create<Val>(
-                stage_depth - 1L, DataType::Index));
+                prefetch_distance, DataType::Index));
       }
     }
   }

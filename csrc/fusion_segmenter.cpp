@@ -15,6 +15,7 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <multidevice/utils.h>
+#include <ops/alias.h>
 #include <ops/arith.h>
 #include <options.h>
 #include <scheduler/debug_utils.h>
