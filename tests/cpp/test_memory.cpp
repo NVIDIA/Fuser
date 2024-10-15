@@ -1420,16 +1420,12 @@ TEST_F(TMAMiscTest, StoreSyncInsertion) {
     // tv1 inlined to tv2, so need a WAR in the shared loop of tv1 and tv2
     GpuLower gpulw(&fusion);
     auto kernel = gpulw.run();
-    for (auto expr : kernel->topLevelExprs()) {
-      std::cout << expr->toString() << std::endl;
-    }
 
     auto fl_it = std::find_if(
         kernel->topLevelExprs().begin(),
         kernel->topLevelExprs().end(),
         [](Expr* expr) { return expr->isA<ForLoop>(); });
     ASSERT_NE(fl_it, kernel->topLevelExprs().end());
-
     const auto& body = (*fl_it)->as<ForLoop>()->body().exprs();
     EXPECT_TRUE(is_wait(body.back()));
     EXPECT_EQ(body.back()->input(0)->value(), 0);
@@ -1443,6 +1439,60 @@ TEST_F(TMAMiscTest, StoreSyncInsertion) {
     EXPECT_EQ(
         std::count_if(flattened_exprs.begin(), flattened_exprs.end(), is_wait),
         1);
+
+    // TODO: For this case, the WAR sync is already sufficient to cover the RAW.
+    // However, we are still inserting a RAW sync because at the time when the
+    // RAW sync is inserted, the WAR pass has not run yet. We should be able to
+    // remove the RAW sync by adding a cleanup pass.
+
+    // FusionExecutor fe;
+    // fe.compileFusion(&fusion, {input}, {}, matmul_cparams);
+    // auto cg_outputs = fe.runFusion({input});
+    // testValidate(&fusion, cg_outputs, {input}, {input}, __LINE__, __FILE__);
+  }
+
+  tv1->circularBuffer(/*stage=*/10, /*prefetch=*/4);
+
+  {
+    // tv1 inlined to tv2 and circular buffered, so need a WAR in the main loop,
+    // and a RAW before the loop of tv3
+    GpuLower gpulw(&fusion);
+    auto kernel = gpulw.run();
+    for (auto expr : kernel->topLevelExprs()) {
+      std::cout << expr->toString() << std::endl;
+    }
+
+    auto fl_it = std::find_if(
+        kernel->topLevelExprs().begin(),
+        kernel->topLevelExprs().end(),
+        [](Expr* expr) {
+          auto fl = dynamic_cast<ForLoop*>(expr);
+          return fl != nullptr &&
+              fl->circularBufferLoopStage() == CircularBufferLoopStage::Main;
+        });
+    ASSERT_NE(fl_it, kernel->topLevelExprs().end());
+    const auto& body = (*fl_it)->as<ForLoop>()->body().exprs();
+    EXPECT_TRUE(is_wait(body.back()));
+    EXPECT_EQ(body.back()->input(0)->value(), 5);
+    EXPECT_TRUE(is_commit(body.at(body.size() - 2)));
+
+    auto commit_it = std::find_if(
+        kernel->topLevelExprs().begin(),
+        kernel->topLevelExprs().end(),
+        is_commit);
+    ASSERT_NE(commit_it, kernel->topLevelExprs().end());
+    ASSERT_TRUE((*std::next(commit_it))->isA<kir::Asm>());
+    EXPECT_TRUE(is_wait(*std::next(commit_it)));
+    EXPECT_EQ((*std::next(commit_it))->input(0)->value(), 0);
+
+    auto flattened_exprs = ir_utils::flattenScopedExprs(kernel->topLevelExprs());
+    EXPECT_EQ(
+        std::count_if(
+            flattened_exprs.begin(), flattened_exprs.end(), is_commit),
+        2);
+    EXPECT_EQ(
+        std::count_if(flattened_exprs.begin(), flattened_exprs.end(), is_wait),
+        2);
 
     FusionExecutor fe;
     fe.compileFusion(&fusion, {input}, {}, matmul_cparams);
