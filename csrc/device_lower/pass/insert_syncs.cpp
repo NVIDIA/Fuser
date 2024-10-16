@@ -918,6 +918,30 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
     closeScope(prev_async_inputs);
   }
 
+  // The wait for async ops, for example, wgmma.wait_group.sync.aligned,
+  // generally takes an argument "pending_ops" to specify how many pending
+  // transactions are allowed to remain unfinished. For example, if we have:
+  //   wgmma 1;
+  //   wgmma 2;
+  //   wgmma.commit;
+  //   wgmma 3;
+  //   wgmma.commit;
+  //   wgmma 4;
+  //   wgmma 5;
+  //   wgmma.commit;
+  // Then at this point, we have 3 pending transactions:
+  //   transaction 1: wgmma 1, wgmma 2
+  //   transaction 2: wgmma 3
+  //   transaction 3: wgmma 4, wgmma 5
+  // If we do wgmma.wait_group.sync.aligned 1, then we will wait until there is
+  // at most 1 pending transaction. In this case, we will wait until transaction
+  // 1 and transaction 2 is finished. This function calculates the "pending_ops".
+  // Typically, the "pending_ops" is just 0, i.e., wait until all pending ops
+  // are finished. But in some cases, especially for the expression that consumes
+  // the circular buffered tensor, the "pending_ops" can be larger than 0, depending
+  // on the prefetch distance and the stage depth of the circular buffer loop.
+  // When the prefetch distance is smaller than stage_depth - 1, we have have buffers
+  // for eliminating WAR harzards, so we can allow more pending transactions.
   int64_t getPendingOpsFor(Expr* expr, ForLoop* current_loop) {
     auto for_loops_including_current = for_loops_;
     for_loops_including_current.push_back(current_loop);
