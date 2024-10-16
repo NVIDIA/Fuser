@@ -10894,6 +10894,7 @@ nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, const
       }
     }
     mbarrier::waitParity(toSmem((&T7[i37])), (((uint32_t)(i29) / 4U) % 2U));
+    continue;
     asm volatile(
       "{\n"
       "  .reg .pred p0; \n"
