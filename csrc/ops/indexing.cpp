@@ -41,8 +41,8 @@ TensorView* select(TensorView* tv, int64_t dim, Val* index) {
   return out;
 }
 
-// index_select
-TensorView* index_select(
+// torch.index_select
+TensorView* indexSelect(
     TensorView* lookup_tv,
     int64_t dim,
     TensorView* index_tv) {

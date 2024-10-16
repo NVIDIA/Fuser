@@ -145,7 +145,7 @@ std::string IndexSelectOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << output(0)->toString() << "\n";
   indent_size++;
-  indent(ss, indent_size) << " = index_select( ";
+  indent(ss, indent_size) << " = indexSelect( ";
   ss << input(0)->toString() << ", dim = " << dim() << ", "
      << input(1)->toString() << " )\n";
   return ss.str();
