@@ -371,6 +371,19 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       return;
     }
 
+    auto async_type = ir_utils::getAsyncOpType(expr);
+    if (async_type != AsyncOpType::NotAsync &&
+        std::any_of(
+            expr->outputs().begin(), expr->outputs().end(), [](Val* val) {
+              return val->isFusionOutput() && val->uses().empty();
+            })) {
+      // Typically, we insert waits before the first read of the output of an
+      // async op. However, if the output is a terminating fusion output, there
+      // will be no first read, but still, we need to wait for it to complete
+      // before exiting the kernel.
+      async_exprs_writing_fusion_output_.insert(expr);
+    }
+
     if (auto mma = dynamic_cast<MmaOp*>(expr)) {
       if (mma->isHopper()) {
         auto scope = scope_.empty() ? nullptr : scope_.back();
@@ -396,13 +409,14 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       }
     }
     for (const auto& [async_type, ops] : input_async_ops) {
-      auto commit = IrBuilder::create<kir::AsyncCommit>(async_type);
-      auto wait = IrBuilder::create<kir::AsyncWait>(async_type, 0);
-      insertSyncExpr(ops, expr, commit, nullptr);
-      insertSyncExpr(ops, expr, wait, nullptr);
-      if (async_type == AsyncOpType::CpAsyncBulk) {
-        auto fence_async = IrBuilder::create<kir::FenceAsyncProxy>();
-        insertSyncExpr(ops, expr, fence_async, nullptr);
+      auto sync_exprs = lower_utils::getSyncExprs(async_type, 0);
+      for (auto sync_expr : sync_exprs) {
+        insertSyncExpr(ops, expr, sync_expr, nullptr);
+      }
+      for (auto op : ops) {
+        // Already waited for the write to complete, so no need to wait again
+        // before exiting the kernel.
+        async_exprs_writing_fusion_output_.erase(op);
       }
     }
 
@@ -687,6 +701,12 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
 
     kir::ExprMutator::traverseAndInsert(_exprs);
 
+    for (auto expr : async_exprs_writing_fusion_output_) {
+      auto async_type = ir_utils::getAsyncOpType(expr);
+      auto sync_exprs = lower_utils::getSyncExprs(async_type, 0);
+      exprs_.insert(exprs_.end(), sync_exprs.begin(), sync_exprs.end());
+    }
+
     NVF_ERROR(sync_before_.empty(), "Didn't place all required syncs.");
   }
 
@@ -709,6 +729,8 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
   //! Keep track of write expressions that must be placed before
   //! cp.async wait.
   std::deque<std::unordered_set<Expr*>> last_cpasync_writes_;
+
+  std::vector<Expr*> async_exprs_writing_fusion_output_;
 
  public:
   static std::vector<Expr*> insert(const std::vector<Expr*>& loop_nests) {
