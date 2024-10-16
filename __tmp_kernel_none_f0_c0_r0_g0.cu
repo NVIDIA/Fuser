@@ -10785,7 +10785,7 @@ __device__ __inline__ void ParallelReduce<
 
 } // namespace fused_reduction
 __global__ void
-// __cluster_dims__(2, 1, 1)
+__cluster_dims__(2, 1, 1)
 nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, const __grid_constant__ TensorMap var0, const __grid_constant__ TensorMap var1, Tensor<__half, 2, 2> T3) {
   alignas(16) extern __shared__ char array[];
   const unsigned smem_offset = 0;
