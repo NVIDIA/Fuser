@@ -921,6 +921,10 @@ Val* TensorIndexer::getLinearIndex(
         SimplifyingIrBuilder::addExpr(linear_index, circular_buffer_offset);
   }
 
+  if (getenv("DEBUG")) {
+    std::cerr << "Linear index: " << linear_index->toInlineString() << "\n";
+  }
+
   return linear_index;
 }
 
@@ -1011,12 +1015,23 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
     const std::unordered_map<ValGroup, Val*>& index_map) const {
   std::unordered_map<Val*, Val*> replacement_map;
 
+  const std::unordered_map<ValGroup, Val*> initial_index_map =
+      getInitialIndexMap(loop_domains, for_loops);
+
   for (const auto loop_id : loop_domains) {
     const ValGroup& loop_group = traversalGraph().toGroup(loop_id);
     auto index_it = index_map.find(loop_group);
     NVF_ERROR(index_it != index_map.end());
     Val* cur_index = index_it->second;
     NVF_ERROR(cur_index != nullptr);
+
+    auto initial_index_it = initial_index_map.find(loop_group);
+    NVF_ERROR(index_it != index_map.end());
+    Val* initial_index = initial_index_it->second;
+    NVF_ERROR(initial_index != nullptr);
+
+    // TODO: This should be fine but needs to be tested
+    cur_index = initial_index;
 
     Val* replacement_index = nullptr;
     // Replace the index of a vectorized/bulk domain with zero. Note that

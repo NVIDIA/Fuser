@@ -7345,7 +7345,7 @@ TEST_F(ResizeTest, RoPEFullBF16PermuteShmem) {
   auto tv2 =
       makeContigConcreteTensor({seq_length, rope_n_elem}, DataType::BFloat16);
   fusion.addInput(tv2);
-  auto sin = tv2;
+  [[maybe_unused]] auto sin = tv2;
 
   auto zero = fusion.zeroVal();
   [[maybe_unused]] auto one = fusion.oneVal();
@@ -7408,20 +7408,18 @@ TEST_F(ResizeTest, RoPEFullBF16PermuteShmem) {
       slice_arg.push_back(arg);
     }
 
-    TensorView* x_rope = x;
-
     // x1
     auto x1_slice_arg = slice_arg;
     x1_slice_arg.back().stop =
         IrBuilder::create<Val>(rope_n_elem / rotation_num_splits);
-    auto x1 = slice(x_rope, x1_slice_arg);
+    auto x1 = slice(x, x1_slice_arg);
     std::cerr << "x1: " << x1->definition()->toString() << "\n";
 
     // x2
     auto x2_slice_arg = slice_arg;
     x2_slice_arg.back().start =
         IrBuilder::create<Val>(rope_n_elem / rotation_num_splits);
-    auto x2 = slice(x_rope, x2_slice_arg);
+    auto x2 = slice(x, x2_slice_arg);
     std::cerr << "x2: " << x2->definition()->toString() << "\n";
 
     TensorView* rotated = cat({x2, x1}, -1);
@@ -7429,9 +7427,8 @@ TEST_F(ResizeTest, RoPEFullBF16PermuteShmem) {
     std::vector<bool> bcast_flags{true, false, true, true, false};
     auto cos_broadcast = broadcast(cos, bcast_flags);
     auto sin_broadcast = broadcast(sin, bcast_flags);
-    std::cerr << "x_rope: " << x_rope->toString() << "\n";
-    std::cerr << "cos_bc: " << cos_broadcast->toString() << "\n";
-    auto out = add(mul(x_rope, cos_broadcast), mul(rotated, sin_broadcast));
+    auto x_cache = set(x);
+    auto out = add(mul(x_cache, cos_broadcast), mul(rotated, sin_broadcast));
     std::cerr << "apply_rope_result: " << out->toString() << "\n";
 
     std::vector<int64_t> cur_shape = input_shape;
@@ -7443,15 +7440,19 @@ TEST_F(ResizeTest, RoPEFullBF16PermuteShmem) {
     return out;
   };
 
-  auto q_out = apply_rope(q, true);
+  [[maybe_unused]] auto q_out = apply_rope(q, true);
   q_out = set(q_out);
-  fusion.addOutput(q_out);
-  tvs_to_vectorize.emplace(q_out);
+  if (!getenv("NO_Q")) {
+    fusion.addOutput(q_out);
+    tvs_to_vectorize.emplace(q_out);
+  }
 
   [[maybe_unused]] auto k_out = apply_rope(k, false);
   k_out = set(k_out);
-  fusion.addOutput(k_out);
-  tvs_to_vectorize.emplace(k_out);
+  if (!getenv("NO_K")) {
+    fusion.addOutput(k_out);
+    tvs_to_vectorize.emplace(k_out);
+  }
 
   // Not used but just for clarity
   //[[maybe_unused]] auto v_out = apply_rope(v, false);
@@ -7464,6 +7465,12 @@ TEST_F(ResizeTest, RoPEFullBF16PermuteShmem) {
 
   if (!getenv("DISABLE_SCHEDULE")) {
     for (auto tv : {q, k}) {
+      if (tv == q && !q_out->isFusionOutput()) {
+        continue;
+      }
+      if (tv == k && !k_out->isFusionOutput()) {
+        continue;
+      }
       for (const auto tv_use : tv->uses()) {
         SliceOp* slice = dynamic_cast<SliceOp*>(tv_use);
         if (slice == nullptr) {
@@ -7487,8 +7494,11 @@ TEST_F(ResizeTest, RoPEFullBF16PermuteShmem) {
     }
 
     // Reorder
-    scheduler_tools::scheduleLoopDomainsLike(
-        fusion.allTvs(), q->getLogicalDomain(), 3);
+    {
+      auto ref = q_out->isFusionOutput() ? q : k;
+      scheduler_tools::scheduleLoopDomainsLike(
+          fusion.allTvs(), ref->getLogicalDomain(), 3);
+    }
 
     fusion.printMath();
 
@@ -7536,6 +7546,20 @@ TEST_F(ResizeTest, RoPEFullBF16PermuteShmem) {
       std::cerr << "After: " << tv->toString() << "\n";
     }
 
+    for (auto tv : fusion.allTvs()) {
+      if (tv->getMemoryType() == MemoryType::Shared) {
+        // Vectorize the uses as well
+        for (const auto smem_use : tv->uses()) {
+          std::cerr << "Smem cache use: " << smem_use->toString();
+          NVF_ERROR(smem_use->isA<LoadStoreOp>() || smem_use->isA<SliceOp>());
+          auto out_tv = ir_utils::getTvOutput(smem_use);
+          if (getenv("VEC_USER")) {
+            out_tv->axis(-1)->parallelize(ParallelType::Vectorize);
+          }
+        }
+      }
+    }
+
     // Inlining
     for (auto tv : fusion.allTvs()) {
       if (tv->isFusionInput()) {
@@ -7575,8 +7599,15 @@ TEST_F(ResizeTest, RoPEFullBF16PermuteShmem) {
     }
     // read and write
     mem_size *= 2;
-    // Only q and k are computed
-    mem_size = mem_size / total_qkv * (q_per_kv + 1);
+    mem_size = mem_size / total_qkv;
+    int64_t qkv_factor = 0;
+    if (!getenv("NO_Q")) {
+      qkv_factor += q_per_kv;
+    }
+    if (!getenv("NO_K")) {
+      qkv_factor += 1;
+    }
+    mem_size *= qkv_factor;
     // sin and cos
     mem_size += seq_length * rope_n_elem * 2;
     // BFloat16
