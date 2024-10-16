@@ -101,8 +101,7 @@ void FusionState::buildFusionIr(Fusion* fusion) {
       std::stringstream ss;
       record->print(ss);
 
-      NVF_ERROR(
-          false,
+      NVF_THROW(
           "\nDetected exception while building Fusion Ir. The failing RecordFunctor is: ",
           ss.str(),
           "\nNvFuser error message is: ",
