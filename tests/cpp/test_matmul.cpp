@@ -3614,7 +3614,7 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
   const auto dtype = DataType::Half;
 
   constexpr int64_t stages = 4;
-  constexpr int64_t prefetch = 2;
+  constexpr int64_t prefetch = 3;
   const int64_t cta_m = 1 * getM(macro);
   const int64_t cta_n = 1 * getN(macro);
 
