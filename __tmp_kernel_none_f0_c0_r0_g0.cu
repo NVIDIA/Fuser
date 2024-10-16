@@ -11138,7 +11138,6 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
        "n"(1),
        "n"(1)
     );
-    __syncthreads();
   }
   #pragma unroll
   for(nvfuser_index_t i43 = 0; i43 < 4; ++i43) {
