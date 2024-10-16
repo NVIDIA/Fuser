@@ -331,37 +331,18 @@ std::vector<TensorView*> mlp(
   return {linear0, gelu, linear1, dropout_result};
 }
 
-std::vector<TensorView*> mha_qkv(
+struct MHAQKVResult {
+  TensorView* linear0;
+  std::vector<TensorView*> qkv;
+};
+
+MHAQKVResult mha_qkv(
     TensorView* x,
     TensorView* w0,
     TensorView* b0,
     const DeviceMesh& mesh) {
   DataType dtype = w0->dtype();
   const auto D = w0->axis(0)->extent()->value().as<int64_t>();
-  // compute linear 0, q, k, and v
-  TensorView* linear0 = linear(x, w0, b0);
-  TensorView* qkv_cat =
-      reshape(linear0, {D, B * S, 3 * E / D}, {D, B, S, 3 * E / D});
-  std::vector<TensorView*> qkv = chunk(qkv_cat, 3, -1);
-  for (auto i : c10::irange(3)) {
-    qkv[i] = reshape(qkv[i], {D, B, S, E / D}, {D, B, S, H / D, E / H});
-    qkv[i] = transpose(qkv[i], 2, 3);
-    // Explicitly shard q, k, and v before calling SDPA node
-    qkv[i]->setDeviceMesh(mesh);
-    qkv[i]->axis(0)->parallelize(ParallelType::DIDx);
-  }
-  return qkv;
-}
-
-std::vector<TensorView*> mha(
-    TensorView* x,
-    TensorView* w0,
-    TensorView* b0,
-    TensorView* w1,
-    TensorView* b1,
-    const DeviceMesh& mesh) {
-  const auto D = w0->axis(0)->extent()->value().as<int64_t>();
-  auto dtype = w0->dtype();
   TensorView* linear0 = linear(x, w0, b0);
   TensorView* linear0_float = castOp(DataType::Float, linear0);
   // TensorView* matmul0 = matmul(x, transpose(w0, 1, 2));
@@ -379,11 +360,26 @@ std::vector<TensorView*> mha(
     qkv[i]->setDeviceMesh(mesh);
     qkv[i]->axis(0)->parallelize(ParallelType::DIDx);
   }
+  return {linear0, qkv};
+}
+
+std::vector<TensorView*> mha(
+    TensorView* x,
+    TensorView* w0,
+    TensorView* b0,
+    TensorView* w1,
+    TensorView* b1,
+    const DeviceMesh& mesh) {
+  const auto D = w0->axis(0)->extent()->value().as<int64_t>();
+  auto dtype = w0->dtype();
+  // Linear 0 + q, k, v vector formation
+  auto qkv_results = mha_qkv(x, w0, b0, mesh);
+  auto linear0 = qkv_results.linear0;
   // SDPA
   SdpfaFwdResult sdpa = sdpfa_fwd(
-      qkv[0],
-      qkv[1],
-      qkv[2],
+      qkv_results.qkv[0],
+      qkv_results.qkv[1],
+      qkv_results.qkv[2],
       IrBuilder::create<Val>(kSdpaProb),
       IrBuilder::create<Val>(true),
       IrBuilder::create<Val>(kSdpaScale));
@@ -393,7 +389,6 @@ std::vector<TensorView*> mha(
   TensorView* sdpa_reshape =
       reshape(sdpa_transpose, {D, B, S, H / D, E / H}, {D, B * S, E / D});
   TensorView* local_matmul1 = matmul(sdpa_reshape, transpose(w1, 1, 2));
-  std::cout << "Data type of matmul " << local_matmul1->toString() << std::endl;
   local_matmul1 = castOp(DataType::Float, local_matmul1);
   TensorView* matmul1 = sum(local_matmul1, {0}); // allreduce
   TensorView* linear1 = add(matmul1, broadcast(b1, {true, false}));
@@ -882,7 +877,7 @@ TEST_P(DistributedTransformerTest, MHA_Backward) {
   fusion->addInput(tvsdpa_seed);
   fusion->addInput(tvsdpa_offset);
 
-  auto qkv = mha_qkv(tvx, tvw0, tvb0, mesh);
+  auto qkv = mha_qkv(tvx, tvw0, tvb0, mesh).qkv;
   auto tvouts = mha_backwards(
       tvx,
       tvw0,
@@ -1144,7 +1139,7 @@ TEST_P(DistributedTransformerTest, Backward) {
   auto ln_0 = layer_norm_with_cached_statistics(
       x, ln0_mean, ln0_rstd, norm_shape, ln0_w, ln0_b);
   auto mha_in = castOp(dtype, ln_0);
-  auto qkv = mha_qkv(mha_in, mha_w0, mha_b0, mesh);
+  auto qkv = mha_qkv(mha_in, mha_w0, mha_b0, mesh).qkv;
 
   Val* dropout_scale = IrBuilder::create<Val>(1.0 / (1.0 - kDropoutProb));
   // Use input mha_mask to implement dropout
