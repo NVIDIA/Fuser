@@ -10850,22 +10850,15 @@ nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, const
     unsigned i26;
     i26 = i9 + i24;
     if (b17) {
-      mbarrier::arriveExpectTX(toSmem((&T7[i22])), 6144U);
+      mbarrier::arriveExpectTX(toSmem((&T7[i22])), 6144U + 6144U);
       #pragma unroll
       for(nvfuser_index_t i27 = 0; i27 < 3; ++i27) {
         Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr4, (Array<nvfuser_index_t, 2, 1>{(i5 + (64 * i27)), i23}), toSmem((&T7[i22])) }), (i25 + (2048 * i27)));
       }
-    } else {
-      // mbarrier::arrive(toSmem((&T7[i22])));
-    }
-    if (b17) {
-      mbarrier::arriveExpectTX(toSmem((&T7[i22])), 6144U);
       #pragma unroll
       for(nvfuser_index_t i28 = 0; i28 < 3; ++i28) {
         Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr7, (Array<nvfuser_index_t, 2, 1>{(i8 + (64 * i28)), i23}), toSmem((&T7[i22])) }), (i26 + (2048 * i28)));
       }
-    } else {
-      // mbarrier::arrive(toSmem((&T7[i22])));
     }
   }
   #pragma unroll 4
@@ -10899,8 +10892,6 @@ nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, const
       for(nvfuser_index_t i28 = 0; i28 < 3; ++i28) {
         Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr7, (Array<nvfuser_index_t, 2, 1>{(i8 + (64 * i28)), i30}), toSmem((&T7[((3 + i29) % 4)])) }), (i33 + (2048 * i28)));
       }
-    } else {
-      // mbarrier::arrive(toSmem((&T7[((3 + i29) % 4)])));
     }
     mbarrier::waitParity(toSmem((&T7[i37])), (((uint32_t)(i29) / 4U) % 2U));
     asm volatile(
@@ -10944,7 +10935,7 @@ nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, const
        "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[32]),
        "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[33]),
        "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[34]),
-       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[*384U0]))[35]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[35]),
        "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[36]),
        "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[37]),
        "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[38]),
@@ -11125,7 +11116,7 @@ nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, const
        "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[90]),
        "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[91]),
        "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[92]),
-       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[*384U0]))[93]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[93]),
        "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[94]),
        "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[95])
       :"l"((4611686293305294848ULL | ((262143ULL & (uint64_t)(i41)) >> 4ULL))),
