@@ -1367,8 +1367,9 @@ TEST_F(TMAMiscTest, StoreSyncInsertion) {
     tv->split(0, 128);
     tv->split(0, 4);
   }
-  tv1->axis(2)->parallelize(ParallelType::Bulk);
-  tv2->axis(2)->parallelize(ParallelType::Bulk);
+  tv1->axis(-1)->parallelize(ParallelType::Bulk);
+  tv2->axis(-1)->parallelize(ParallelType::Bulk);
+  tv3->axis(-1)->parallelize(ParallelType::TIDx);
 
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
