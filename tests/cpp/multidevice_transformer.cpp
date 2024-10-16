@@ -279,8 +279,7 @@ std::vector<TensorView*> DistributedTransformer::mha_backwards(
   TensorView* dropout_grad = dropout_backward(grad, mask, dropout_scale);
 
   // linear1 backwards
-  TensorView* sdpa_output_reshape =
-      transpose(sdpa_output, 2, 3);
+  TensorView* sdpa_output_reshape = transpose(sdpa_output, 2, 3);
   sdpa_output_reshape =
       reshape(sdpa_output_reshape, {D, B, S, H / D, E / H}, {D, B * S, E / D});
   auto linear1_grads =

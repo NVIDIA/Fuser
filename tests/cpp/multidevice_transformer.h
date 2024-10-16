@@ -5,7 +5,7 @@
 // clang-format on
 #pragma once
 
-#include <stdint.h>
+#include <cstdint>
 
 #include <runtime/fusion_executor_cache.h>
 
@@ -33,57 +33,56 @@ class DistributedTransformer {
   std::unique_ptr<FusionExecutorCache> backward(DataType dtype);
 
   std::vector<TensorView*> mlp(
-    TensorView* x,
-    TensorView* w0,
-    TensorView* b0,
-    TensorView* w1,
-    TensorView* b1,
-    const DeviceMesh& mesh);
+      TensorView* x,
+      TensorView* w0,
+      TensorView* b0,
+      TensorView* w1,
+      TensorView* b1,
+      const DeviceMesh& mesh);
 
-std::vector<TensorView*> mha(
-    TensorView* x,
-    TensorView* w0,
-    TensorView* b0,
-    TensorView* w1,
-    TensorView* b1,
-    const DeviceMesh& mesh);
+  std::vector<TensorView*> mha(
+      TensorView* x,
+      TensorView* w0,
+      TensorView* b0,
+      TensorView* w1,
+      TensorView* b1,
+      const DeviceMesh& mesh);
 
-// Backwards MLP block. Recomputes linear0 and gelu
-// if either isn't provided as input.
-std::vector<TensorView*> mlp_backwards(
-    TensorView* grad,
-    TensorView* x,
-    TensorView* mask,
-    TensorView* w0,
-    TensorView* b0,
-    TensorView* w1,
-    const DeviceMesh& mesh,
-    TensorView* linear0 = nullptr,
-    TensorView* gelu = nullptr);
+  // Backwards MLP block. Recomputes linear0 and gelu
+  // if either isn't provided as input.
+  std::vector<TensorView*> mlp_backwards(
+      TensorView* grad,
+      TensorView* x,
+      TensorView* mask,
+      TensorView* w0,
+      TensorView* b0,
+      TensorView* w1,
+      const DeviceMesh& mesh,
+      TensorView* linear0 = nullptr,
+      TensorView* gelu = nullptr);
 
-std::vector<TensorView*> mha_backwards(
-    TensorView* x,
-    TensorView* w0,
-    TensorView* b0,
-    TensorView* w1,
-    TensorView* mask,
-    TensorView* sdpa_output,
-    TensorView* sdpa_log_sumexp,
-    TensorView* sdpa_seed,
-    TensorView* sdpa_offset,
-    TensorView* grad,
-    const std::vector<TensorView*>& qkv,
-    const DeviceMesh& mesh);
+  std::vector<TensorView*> mha_backwards(
+      TensorView* x,
+      TensorView* w0,
+      TensorView* b0,
+      TensorView* w1,
+      TensorView* mask,
+      TensorView* sdpa_output,
+      TensorView* sdpa_log_sumexp,
+      TensorView* sdpa_seed,
+      TensorView* sdpa_offset,
+      TensorView* grad,
+      const std::vector<TensorView*>& qkv,
+      const DeviceMesh& mesh);
 
-MHAQKVResult mha_qkv(
-    TensorView* x,
-    TensorView* w0,
-    TensorView* b0,
-    const DeviceMesh& mesh);
+  MHAQKVResult mha_qkv(
+      TensorView* x,
+      TensorView* w0,
+      TensorView* b0,
+      const DeviceMesh& mesh);
 
   int64_t D, B, E, H, S;
-  static constexpr double kDropoutProb = 0.1, kParamScale = 0.02, kSdpaProb = 0.0,
-                   kSdpaScale = 1e-3;
-
+  static constexpr double kDropoutProb = 0.1, kParamScale = 0.02,
+                          kSdpaProb = 0.0, kSdpaScale = 1e-3;
 };
 } // namespace nvfuser

@@ -110,97 +110,97 @@ class DistributedTransformerTest
       at::Tensor w0,
       at::Tensor b0,
       at::Tensor w1) {
-  auto at_dtype = w0.dtype();
-  // recompute up to sdpa
-  auto linear0 = at::linear(x, w0, b0).view({B, S, 3 * E});
-  auto qkv = linear0.split(E, /*dim=*/-1);
-  for (auto i = 0; i < 3; i++) {
-    qkv[i] = qkv[i].reshape({B, S, H, E / H}).transpose(1, 2).to(at_dtype);
+    auto at_dtype = w0.dtype();
+    // recompute up to sdpa
+    auto linear0 = at::linear(x, w0, b0).view({B, S, 3 * E});
+    auto qkv = linear0.split(E, /*dim=*/-1);
+    for (auto i = 0; i < 3; i++) {
+      qkv[i] = qkv[i].reshape({B, S, H, E / H}).transpose(1, 2).to(at_dtype);
+    }
+    auto
+        [sdpa_output,
+         log_sumexp,
+         cum_seq_q,
+         cum_seq_k,
+         query_seq_len,
+         key_seq_len,
+         philox_seed,
+         philox_offset,
+         debug_attn_mask] =
+            at::_scaled_dot_product_flash_attention(
+                qkv[0],
+                qkv[1],
+                qkv[2],
+                /*dropout_p=*/kSdpaProb,
+                /*is_causal=*/true,
+                /*return_debug_mask=*/false,
+                /*scale=*/kSdpaScale);
+
+    // backwards pass
+    auto dropout_grad =
+        at::native_dropout_backward(y_grad, mask, 1.0 / (1.0 - kDropoutProb));
+    auto dropout_grad_q = dropout_grad.to(at_dtype);
+    auto linear1_x_grad = at::matmul(dropout_grad_q, w1);
+    auto sdpa_output_reshape = sdpa_output.transpose(1, 2).view({B * S, E});
+    auto linear1_w_grad =
+        at::matmul(dropout_grad_q.transpose(0, 1), sdpa_output_reshape);
+    auto linear1_b_grad = at::sum(dropout_grad, {0});
+
+    auto [q_grad, k_grad, v_grad] =
+        at::_scaled_dot_product_flash_attention_backward(
+            linear1_x_grad.view({B, S, H, E / H}).transpose(1, 2),
+            qkv[0],
+            qkv[1],
+            qkv[2],
+            sdpa_output,
+            log_sumexp,
+            cum_seq_q,
+            cum_seq_k,
+            /*max_q=*/*query_seq_len.maybe_as_int(),
+            /*max_k=*/*key_seq_len.maybe_as_int(),
+            /*dropout_p=*/kSdpaProb,
+            /*is_causal=*/true,
+            philox_seed,
+            philox_offset,
+            /*scale=*/kSdpaScale);
+    auto qkv_grad = at::cat(
+        {q_grad.transpose(1, 2).view({B * S, E}),
+         k_grad.transpose(1, 2).view({B * S, E}),
+         v_grad.transpose(1, 2).view({B * S, E})},
+        -1);
+    auto linear0_b_grad = at::sum(qkv_grad.to(at::kFloat), {0});
+    auto linear0_x_grad = at::matmul(qkv_grad, w0);
+    auto linear0_w_grad = at::matmul(qkv_grad.transpose(0, 1), x);
+
+    // Note: sdpa_output, sdpa_logsumexp are saved for the backwards pass
+    // and become inputs to the nvfuser mha backwards pass
+    std::vector<at::Tensor> tensors = {
+        sdpa_output,
+        log_sumexp,
+        philox_seed,
+        philox_offset,
+        dropout_grad,
+        linear1_w_grad,
+        linear1_b_grad,
+        q_grad,
+        k_grad,
+        v_grad,
+        linear0_w_grad,
+        linear0_b_grad,
+        linear0_x_grad};
+    return tensors;
   }
-  auto
-      [sdpa_output,
-       log_sumexp,
-       cum_seq_q,
-       cum_seq_k,
-       query_seq_len,
-       key_seq_len,
-       philox_seed,
-       philox_offset,
-       debug_attn_mask] =
-          at::_scaled_dot_product_flash_attention(
-              qkv[0],
-              qkv[1],
-              qkv[2],
-              /*dropout_p=*/kSdpaProb,
-              /*is_causal=*/true,
-              /*return_debug_mask=*/false,
-              /*scale=*/kSdpaScale);
 
-  // backwards pass
-  auto dropout_grad =
-      at::native_dropout_backward(y_grad, mask, 1.0 / (1.0 - kDropoutProb));
-  auto dropout_grad_q = dropout_grad.to(at_dtype);
-  auto linear1_x_grad = at::matmul(dropout_grad_q, w1);
-  auto sdpa_output_reshape = sdpa_output.transpose(1, 2).view({B * S, E});
-  auto linear1_w_grad =
-      at::matmul(dropout_grad_q.transpose(0, 1), sdpa_output_reshape);
-  auto linear1_b_grad = at::sum(dropout_grad, {0});
-
-  auto [q_grad, k_grad, v_grad] =
-      at::_scaled_dot_product_flash_attention_backward(
-          linear1_x_grad.view({B, S, H, E / H}).transpose(1, 2),
-          qkv[0],
-          qkv[1],
-          qkv[2],
-          sdpa_output,
-          log_sumexp,
-          cum_seq_q,
-          cum_seq_k,
-          /*max_q=*/*query_seq_len.maybe_as_int(),
-          /*max_k=*/*key_seq_len.maybe_as_int(),
-          /*dropout_p=*/kSdpaProb,
-          /*is_causal=*/true,
-          philox_seed,
-          philox_offset,
-          /*scale=*/kSdpaScale);
-  auto qkv_grad = at::cat(
-      {q_grad.transpose(1, 2).view({B * S, E}),
-       k_grad.transpose(1, 2).view({B * S, E}),
-       v_grad.transpose(1, 2).view({B * S, E})},
-      -1);
-  auto linear0_b_grad = at::sum(qkv_grad.to(at::kFloat), {0});
-  auto linear0_x_grad = at::matmul(qkv_grad, w0);
-  auto linear0_w_grad = at::matmul(qkv_grad.transpose(0, 1), x);
-
-  // Note: sdpa_output, sdpa_logsumexp are saved for the backwards pass
-  // and become inputs to the nvfuser mha backwards pass
-  std::vector<at::Tensor> tensors = {
-      sdpa_output,
-      log_sumexp,
-      philox_seed,
-      philox_offset,
-      dropout_grad,
-      linear1_w_grad,
-      linear1_b_grad,
-      q_grad,
-      k_grad,
-      v_grad,
-      linear0_w_grad,
-      linear0_b_grad,
-      linear0_x_grad};
-  return tensors;
-}
-
-const int64_t D; // number of devices
-int64_t B = 2, E = 768, H = 16, S = 128;
-// Note parameters scaled by kParamScale following weight initialization
-// recommendations:
-// https://huggingface.co/docs/transformers/en/model_doc/gpt2#transformers.GPT2Config.initializer_range
-// Note: Sdpa probability is set to 0. Since the dropout mask is sharded it
-// throws off the seed offset between the sharded nvFuser program and the
-// unsharded reference.
-static constexpr double kDropoutProb = 0.1, kParamScale = 0.02, kSdpaProb = 0.0,
-                        kSdpaScale = 1e-3;
+  const int64_t D; // number of devices
+  int64_t B = 2, E = 768, H = 16, S = 128;
+  // Note parameters scaled by kParamScale following weight initialization
+  // recommendations:
+  // https://huggingface.co/docs/transformers/en/model_doc/gpt2#transformers.GPT2Config.initializer_range
+  // Note: Sdpa probability is set to 0. Since the dropout mask is sharded it
+  // throws off the seed offset between the sharded nvFuser program and the
+  // unsharded reference.
+  static constexpr double kDropoutProb = 0.1, kParamScale = 0.02,
+                          kSdpaProb = 0.0, kSdpaScale = 1e-3;
 };
 
 namespace {
@@ -271,7 +271,7 @@ void validate(
                expected_outputs[i], outputs[i], atol, rtol);
   }
 }
-} // namsespace
+} // namespace
 
 TEST_P(DistributedTransformerTest, MLP_Layer) {
   if ((4 * E) % D != 0) {

@@ -5,17 +5,17 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <nvToolsExt.h>
 #include <cuda_profiler_api.h>
+#include <nvToolsExt.h>
 
-#include <fusion.h>
-#include <ops/all_ops.h>
-#include <utils.h>
-#include <multidevice/utils.h>
 #include <benchmarks/cpp/utils.h>
-#include <tests/cpp/utils.h>
+#include <fusion.h>
+#include <multidevice/utils.h>
+#include <ops/all_ops.h>
 #include <tests/cpp/multidevice.h>
 #include <tests/cpp/multidevice_transformer.h>
+#include <tests/cpp/utils.h>
+#include <utils.h>
 
 using namespace nvfuser;
 
@@ -71,8 +71,10 @@ void forward_transformer(Communicator* communicator_, bool profile) {
       x_,
       ln0_w_,
       ln0_b_,
-      shardTensor(mha_w0_.view({3, E, E}), 1, mesh, communicator_).view({1, 3 * E / D, E}),
-      shardTensor(mha_b0_.view({3, E}), 1, mesh, communicator_).view({1, 3 * E / D}),
+      shardTensor(mha_w0_.view({3, E, E}), 1, mesh, communicator_)
+          .view({1, 3 * E / D, E}),
+      shardTensor(mha_b0_.view({3, E}), 1, mesh, communicator_)
+          .view({1, 3 * E / D}),
       shardTensor(mha_w1_, 1, mesh, communicator_),
       mha_b1_,
       ln1_w_,
@@ -99,9 +101,10 @@ void forward_transformer(Communicator* communicator_, bool profile) {
     }
     auto outputs = fec->runFusionWithInputs(inputs);
     cudaDeviceSynchronize();
-    // cudaDeviceSynchronize is not blocking until kernels are finished on all devices except 0
+    // cudaDeviceSynchronize is not blocking until kernels are finished on all
+    // devices except 0
     // TODO: are we not waiting until all kernels are appended to the stream?
-    std::cout << outputs[0][0][0] << std::endl; 
+    std::cout << outputs[0][0][0] << std::endl;
 
     if (i > warmup_itrs && profile) {
       nvtxRangePop();
@@ -109,8 +112,12 @@ void forward_transformer(Communicator* communicator_, bool profile) {
   }
   auto end = std::chrono::high_resolution_clock::now();
 
-  double foward_time = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() / (double) num_itrs / 1000.0;
-  std::cout << communicator_->deviceId() << ": Average forward time " << foward_time << "ms" << std::endl;
+  double foward_time =
+      std::chrono::duration_cast<std::chrono::microseconds>(end - start)
+          .count() /
+      (double)num_itrs / 1000.0;
+  std::cout << communicator_->deviceId() << ": Average forward time "
+            << foward_time << "ms" << std::endl;
 }
 
 void backward_transformer(Communicator* communicator_, bool profile) {
@@ -139,21 +146,23 @@ void backward_transformer(Communicator* communicator_, bool profile) {
   // Recomputed tensors
   auto mlp_dropout_mask = at::rand({B * S, E}, options).lt(1.0 - 0.1);
   auto mha_dropout_mask = at::rand({B * S, E}, options).lt(1.0 - 0.1);
-  auto sdpa_output = at::randn({B, H, S, E/H}, options);
+  auto sdpa_output = at::randn({B, H, S, E / H}, options);
   auto sdpa_logsum_exp = at::randn({B, H, S}, options).to(at::kFloat);
   auto sdpa_seed = at::scalar_tensor(1, at::kLong);
   auto sdpa_offset = at::scalar_tensor(1, at::kLong);
-  auto ln0_mean = at::randn({B*S, 1}, options).to(at::kFloat);
-  auto ln0_rstd = at::randn({B*S, 1}, options).to(at::kFloat);
-  auto ln1_mean = at::randn({B*S, 1}, options).to(at::kFloat);
-  auto ln1_rstd = at::randn({B*S, 1}, options).to(at::kFloat);
-  auto mha_linear1 = at::rand({B*S, E}, options).to(at::kFloat);
+  auto ln0_mean = at::randn({B * S, 1}, options).to(at::kFloat);
+  auto ln0_rstd = at::randn({B * S, 1}, options).to(at::kFloat);
+  auto ln1_mean = at::randn({B * S, 1}, options).to(at::kFloat);
+  auto ln1_rstd = at::randn({B * S, 1}, options).to(at::kFloat);
+  auto mha_linear1 = at::rand({B * S, E}, options).to(at::kFloat);
 
   std::vector<c10::IValue> inputs = {
       x_,
       grad_,
-      shardTensor(mha_w0_.view({3, E, E}), 1, mesh, communicator_).view({1, 3 * E / D, E}),
-      shardTensor(mha_b0_.view({3, E}), 1, mesh, communicator_).view({1, 3 * E / D}),
+      shardTensor(mha_w0_.view({3, E, E}), 1, mesh, communicator_)
+          .view({1, 3 * E / D, E}),
+      shardTensor(mha_b0_.view({3, E}), 1, mesh, communicator_)
+          .view({1, 3 * E / D}),
       shardTensor(mha_w1_, 1, mesh, communicator_),
       shardTensor(mlp_w0_, 0, mesh, communicator_),
       shardTensor(mlp_b0_, 0, mesh, communicator_),
@@ -173,8 +182,7 @@ void backward_transformer(Communicator* communicator_, bool profile) {
       ln0_b_,
       ln0_mean,
       ln0_rstd,
-      mha_linear1
-  };
+      mha_linear1};
 
   DistributedTransformer model = DistributedTransformer(D, B, E, H, S);
   auto fec = model.backward(dtype);
@@ -191,9 +199,10 @@ void backward_transformer(Communicator* communicator_, bool profile) {
     }
     outputs = fec->runFusionWithInputs(inputs);
     cudaDeviceSynchronize();
-    // cudaDeviceSynchronize is not blocking until kernels are finished on all devices except 0
+    // cudaDeviceSynchronize is not blocking until kernels are finished on all
+    // devices except 0
     // TODO: are we not waiting until all kernels are appended to the stream?
-    std::cout << outputs[0][0][0][0] << std::endl; 
+    std::cout << outputs[0][0][0][0] << std::endl;
 
     if (i > warmup_itrs && profile) {
       nvtxRangePop();
@@ -204,9 +213,12 @@ void backward_transformer(Communicator* communicator_, bool profile) {
     cudaProfilerStop();
   }
 
-  double backward_time = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() / (double) num_itrs / 1000.0;
-  std::cout << communicator_->deviceId() << ": Average backward time " << backward_time << "ms" << std::endl;
-
+  double backward_time =
+      std::chrono::duration_cast<std::chrono::microseconds>(end - start)
+          .count() /
+      (double)num_itrs / 1000.0;
+  std::cout << communicator_->deviceId() << ": Average backward time "
+            << backward_time << "ms" << std::endl;
 }
 
 int main(int argc, char** argv) {
