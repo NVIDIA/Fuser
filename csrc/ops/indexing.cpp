@@ -83,9 +83,11 @@ TensorView* indexSelect(
     if (i != dim) {
       new_logical.emplace_back(lookup_domain.at(i)->cloneWithoutRFactor());
     } else {
-      // Select the index for desired dimension.
+      // Get new domain because maybeBroadcastIndexTv could have create a new
+      // TensorView.
       std::vector<IterDomain*> index_domain =
           TensorDomain::noReductions(index_tv->getLogicalDomain());
+      // Select the index for desired dimension.
       new_logical.emplace_back(index_domain.at(dim)->cloneWithoutRFactor());
     }
   }
