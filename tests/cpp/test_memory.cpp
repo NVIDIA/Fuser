@@ -1434,18 +1434,18 @@ TEST_F(TMAMiscTest, StoreSyncInsertion) {
   {
     // tv1 inlined to tv2, the kernel should look like:
     //   for N/128/4: (loop 1)
-    //     for 4: (loop 1.1)
+    //     for 4:
     //       for 128:
     //         TMA load;
-    //     for 4: (loop 1.2)
+    //     for 4:
     //       for 128:
     //         TMA store;
-    //   for N/128/4: (loop 3)
+    //   for N/128/4: (loop 2)
     //     for 4:
     //       for 128:
     //         gmem->gmem copy;
     // There must be a WAR async wait at the end of loop 1. In theory,
-    // We do not need a RAW async wait before loop 3, because in this example
+    // We do not need a RAW async wait before loop 2, because in this example
     // the WAR async wait should helped RAW as well. But we are not smartly
     // enough right now to avoid this RAW async wait.
     GpuLower gpulw(&fusion);
@@ -1484,8 +1484,28 @@ TEST_F(TMAMiscTest, StoreSyncInsertion) {
   tv1->circularBuffer(/*stage=*/10, /*prefetch=*/4);
 
   {
-    // tv1 inlined to tv2 and circular buffered, so need a WAR in the main loop,
-    // and a RAW before the loop of tv3
+    // tv1 inlined to tv2 and circular buffered, the kernel should look like:
+    //   for N/128/4: (loop 1.prologue)
+    //     for 4:
+    //       for 128:
+    //         TMA load;
+    //   for N/128/4: (loop 1.main)
+    //     for 4:
+    //       for 128:
+    //         TMA load;
+    //     for 4:
+    //       for 128:
+    //         TMA store;
+    //   for N/128/4: (loop 1.epilogue)
+    //     for 4:
+    //       for 128:
+    //         TMA store;
+    //   for N/128/4: (loop 2)
+    //     for 4:
+    //       for 128:
+    //         gmem->gmem copy;
+    // We need a WAR async wait at the end of loop 1.main, and a RAW async wait
+    // before loop.
     GpuLower gpulw(&fusion);
     auto kernel = gpulw.run();
 
