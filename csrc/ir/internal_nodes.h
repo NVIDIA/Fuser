@@ -2057,6 +2057,25 @@ class SliceOp : public Expr {
 
   std::vector<Slice> getRanges() const;
 
+  LoadStoreOpType opType() const {
+    return attribute<LoadStoreOpType>(0);
+  }
+
+  CacheOp cacheOp() const {
+    return attribute<CacheOp>(1);
+  }
+
+  void setOpType(LoadStoreOpType op) {
+    attribute<LoadStoreOpType>(0) = op;
+    if (op != LoadStoreOpType::Set && op != LoadStoreOpType::CpAsync) {
+      attribute<CacheOp>(1) = CacheOp::Unspecified;
+    }
+  }
+
+  void setCacheOp(CacheOp cache_op) {
+    attribute<CacheOp>(1) = cache_op;
+  }
+
  private:
   //! Offset of ranges input in the input vector
   int getRangeInputOffset() const {

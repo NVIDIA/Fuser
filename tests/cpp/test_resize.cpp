@@ -5798,7 +5798,7 @@ TEST_F(ResizeTest, RoPEFull) {
   q = apply_rope(q);
   k = apply_rope(k);
   // Not used but just for clarity
-  //v = apply_rope(v);
+  // v = apply_rope(v);
 
   std::vector<int64_t> reverse_reshape_input_shape;
   reverse_reshape_input_shape.reserve(q->nDims());
@@ -7316,8 +7316,8 @@ TEST_F(ResizeTest, RoPEFullBF16PermuteShmem) {
 
   // Not possible to have this reshape yet. This is necessary before
   // the x1/x2 slice. This could be solved by a native alias support.
-  //std::vector<int64_t> input_shape{
-  //batches, seq_length, head_size * (n_head + 2 * n_query_groups)};
+  // std::vector<int64_t> input_shape{
+  // batches, seq_length, head_size * (n_head + 2 * n_query_groups)};
   std::vector<int64_t> shape_before_permutation{
       batches, seq_length, n_query_groups, total_qkv, head_size};
   std::vector<int64_t> shape1{
@@ -7349,7 +7349,6 @@ TEST_F(ResizeTest, RoPEFullBF16PermuteShmem) {
 
   auto zero = fusion.zeroVal();
   [[maybe_unused]] auto one = fusion.oneVal();
-
 
   std::vector<Slice> slice_default_arg;
   slice_default_arg.reserve(input_shape.size());
@@ -7413,13 +7412,15 @@ TEST_F(ResizeTest, RoPEFullBF16PermuteShmem) {
 
     // x1
     auto x1_slice_arg = slice_arg;
-    x1_slice_arg.back().stop = IrBuilder::create<Val>(rope_n_elem / rotation_num_splits);
+    x1_slice_arg.back().stop =
+        IrBuilder::create<Val>(rope_n_elem / rotation_num_splits);
     auto x1 = slice(x_rope, x1_slice_arg);
     std::cerr << "x1: " << x1->definition()->toString() << "\n";
 
     // x2
     auto x2_slice_arg = slice_arg;
-    x2_slice_arg.back().start = IrBuilder::create<Val>(rope_n_elem / rotation_num_splits);
+    x2_slice_arg.back().start =
+        IrBuilder::create<Val>(rope_n_elem / rotation_num_splits);
     auto x2 = slice(x_rope, x2_slice_arg);
     std::cerr << "x2: " << x2->definition()->toString() << "\n";
 
@@ -7430,8 +7431,7 @@ TEST_F(ResizeTest, RoPEFullBF16PermuteShmem) {
     auto sin_broadcast = broadcast(sin, bcast_flags);
     std::cerr << "x_rope: " << x_rope->toString() << "\n";
     std::cerr << "cos_bc: " << cos_broadcast->toString() << "\n";
-    auto out =
-        add(mul(x_rope, cos_broadcast), mul(rotated, sin_broadcast));
+    auto out = add(mul(x_rope, cos_broadcast), mul(rotated, sin_broadcast));
     std::cerr << "apply_rope_result: " << out->toString() << "\n";
 
     std::vector<int64_t> cur_shape = input_shape;
@@ -7463,14 +7463,15 @@ TEST_F(ResizeTest, RoPEFullBF16PermuteShmem) {
   q->setMemoryType(MemoryType::Shared);
 
   if (!getenv("DISABLE_SCHEDULE")) {
-    for (auto tv: {q, k}) {
-      for (const auto tv_use: tv->uses()) {
+    for (auto tv : {q, k}) {
+      for (const auto tv_use : tv->uses()) {
         SliceOp* slice = dynamic_cast<SliceOp*>(tv_use);
         if (slice == nullptr) {
           continue;
         }
         TensorView* slice_out = slice->output(0)->as<TensorView>();
-        auto padded_tv = slice->output(0)->uses().at(0)->output(0)->as<TensorView>();
+        auto padded_tv =
+            slice->output(0)->uses().at(0)->output(0)->as<TensorView>();
         NVF_ERROR(padded_tv->definition()->isA<PadOp>());
         auto ref_tv = padded_tv;
         std::cerr << "Reference tensor: " << ref_tv->toString() << "\n";
@@ -7486,7 +7487,8 @@ TEST_F(ResizeTest, RoPEFullBF16PermuteShmem) {
     }
 
     // Reorder
-    scheduler_tools::scheduleLoopDomainsLike(fusion.allTvs(), q->getLogicalDomain(), 3);
+    scheduler_tools::scheduleLoopDomainsLike(
+        fusion.allTvs(), q->getLogicalDomain(), 3);
 
     fusion.printMath();
 
@@ -7517,6 +7519,9 @@ TEST_F(ResizeTest, RoPEFullBF16PermuteShmem) {
         tv->axis(-1)->parallelize(ParallelType::Vectorize);
         if (!tv->isFusionOutput()) {
           tv->setMemoryType(MemoryType::Shared);
+          tv->definition()->as<SliceOp>()->setOpType(LoadStoreOpType::CpAsync);
+          tv->definition()->as<SliceOp>()->setCacheOp(CacheOp::Global);
+
           // Dummy split
           tv->split(-2, 2);
           tv->merge(-3, -2);
@@ -7593,7 +7598,6 @@ TEST_F(ResizeTest, RoPEFullBF16PermuteShmem) {
   }
 
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
-
 }
 
 } // namespace nvfuser
