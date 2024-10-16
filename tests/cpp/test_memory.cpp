@@ -1428,7 +1428,7 @@ TEST_F(TMAMiscTest, StoreSyncInsertion) {
     ASSERT_NE(fl_it, kernel->topLevelExprs().end());
     const auto& body = (*fl_it)->as<ForLoop>()->body().exprs();
     EXPECT_TRUE(is_wait(body.at(body.size() - 2)));
-    EXPECT_EQ(body.at(body.size() - 2))->input(0)->value(), 0);
+    EXPECT_EQ(body.at(body.size() - 2)->input(0)->value(), 0);
     EXPECT_TRUE(is_commit(body.at(body.size() - 3)));
 
     auto flattened_exprs = ir_utils::flattenScopedExprs(body);
@@ -1473,7 +1473,7 @@ TEST_F(TMAMiscTest, StoreSyncInsertion) {
     ASSERT_NE(fl_it, kernel->topLevelExprs().end());
     const auto& body = (*fl_it)->as<ForLoop>()->body().exprs();
     EXPECT_TRUE(is_wait(body.at(body.size() - 2))));
-    EXPECT_EQ(body.at(body.size() - 2))->input(0)->value(), 5);
+    EXPECT_EQ(body.at(body.size() - 2)->input(0)->value(), 5);
     EXPECT_TRUE(is_commit(body.at(body.size() - 3)));
 
     auto commit_it = std::find_if(
