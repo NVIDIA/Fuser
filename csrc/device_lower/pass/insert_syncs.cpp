@@ -813,7 +813,23 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
   //!      for 4:
   //!        ... = async_op(A, ...)
   //! In the above example, during traversal of ... = async_op(A, ...), we will
-  //! add async_op to async_exprs_to_protect_.
+  //! add async_op to async_exprs_to_protect_. But we will not insert the wait
+  //! expression immediately after async_op, because there is no input buffer
+  //! to protect in that scope. This async_op will remain in
+  //! async_exprs_to_protect_ until we exit the handle of loop 4 and return to
+  //! the handle of loop 2. At that point, we will insert the wait expression
+  //! for async_op at the end of loop 2, because we do have an input buffer to
+  //! protect (A) in that scope. Once we insert the wait expression, we will
+  //! remove async_op from async_exprs_to_protect_, because it has already been
+  //! protected, and there is no need to insert the wait expression again at the
+  //! end of loop 1.
+  //! Example 2:
+  //!  for 1:
+  //!    for 2:
+  //!      for 3:
+  //!        A = ...
+  //!      for 4:
+  //!        ... = async_op(A, ...)
   std::unordered_set<Expr*> async_exprs_to_protect_;
 
  private:
