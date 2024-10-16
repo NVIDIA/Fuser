@@ -53,7 +53,8 @@ void validate(
     const std::vector<at::Tensor>& outputs,
     const std::vector<double>& atols) {
   for (auto i : c10::irange(expected_outputs.size())) {
-    std::cout << i << " " << outputs[i].sizes() << " " << expected_outputs[i].sizes() << std::endl;
+    std::cout << i << " " << outputs[i].sizes() << " "
+              << expected_outputs[i].sizes() << std::endl;
   }
 
   using testing::SizeIs;
@@ -84,6 +85,23 @@ void validate(
       default:
         rtol = 0.0;
         break;
+    }
+
+    if (true) {
+      auto error =
+          (outputs[i].to(expected_outputs[i].dtype()) - expected_outputs[i])
+              .abs();
+      auto max_error = error.max().item().to<double>();
+      auto max_relative_error =
+          (max_error / expected_outputs[i].abs().max()).item();
+      auto error_count =
+          at::sum(error >= (atol + expected_outputs[i].abs() * rtol)).item();
+      std::cout << "output[" << i << "] max error: " << max_error << std::endl;
+      std::cout << "          max relative error: " << max_relative_error
+                << std::endl;
+      std::cout << "          failing elements: " << error_count << ", "
+                << error_count.to<float>() / at::numel(outputs[i]) * 100.0
+                << "\% of tensor" << std::endl;
     }
 
     auto generate_comparison_details = [](at::Tensor expected_out,
@@ -124,7 +142,7 @@ std::vector<at::Tensor> reference_mlp(
     at::Tensor b1) {
   auto at_dtype = w0.dtype();
   auto linear0 = at::linear(x, w0, b0);
-  auto gelu = at::gelu(linear0, "tanh").to(at_dtype);
+  auto gelu = at::gelu(linear0.to(at::kFloat), "tanh").to(at_dtype);
   auto linear1 = at::linear(gelu, w1, b1).to(at::kFloat);
   auto [dropout, mask] = at::native_dropout(linear1, kDropoutProb, true);
   return {linear0, gelu, linear1, dropout, mask};
@@ -136,8 +154,8 @@ std::vector<at::Tensor> reference_mha(
     at::Tensor b0,
     at::Tensor w1,
     at::Tensor b1) {
-  auto linear0 = at::linear(x, w0, b0).view({B, S, 3 * E});
-  auto qkv = linear0.split(E, 2);
+  auto linear0 = at::linear(x, w0, b0);
+  auto qkv = linear0.view({B, S, 3 * E}).split(E, 2);
   for (auto i = 0; i < 3; i++) {
     qkv[i] = qkv[i].reshape({B, S, H, E / H}).transpose(1, 2);
   }
@@ -146,10 +164,10 @@ std::vector<at::Tensor> reference_mha(
   auto sdpa = std::get<0>(sdpa_out);
   // Reassemble heads (B, H, S, E/H) to (B, S, H, E/H) to (B, S, E)
   auto y = sdpa.transpose(1, 2).reshape({B * S, E});
-  auto linear1 = at::matmul(y, w1.transpose(0,1)).to(at::kFloat) + b1;
+  auto matmul1 = at::matmul(y, w1.transpose(0, 1));
+  auto linear1 = (matmul1 + b1).to(at::kFloat);
   // auto linear1 = at::linear(y, w1, b1).to(at::kFloat);
-  auto [dropout, mask] =
-      at::native_dropout(linear1, kDropoutProb, true);
+  auto [dropout, mask] = at::native_dropout(linear1, kDropoutProb, true);
   return {linear0, sdpa, linear1, dropout, mask};
 }
 
@@ -172,17 +190,13 @@ std::vector<at::Tensor> reference_mlp_backwards(
   auto matmul1_grad = at::matmul(dropout_grad_q, w1);
   auto matmul1_grad_w =
       at::matmul(dropout_grad_q.transpose(0, 1), gelu.to(at_dtype));
-  std::cout << "w1 " << w1.sizes() << " grad sizes " << matmul1_grad_w.sizes() << std::endl;
   auto matmul1_grad_b = at::sum(dropout_grad, {0});
   auto gelu_grad =
       at::gelu_backward(matmul1_grad.to(at::kFloat), linear0, "tanh");
   auto gelu_grad_q = gelu_grad.to(at_dtype);
   auto matmul0_grad_b = at::sum(gelu_grad, {0});
   auto matmul0_grad = at::matmul(gelu_grad_q, w0);
-  auto matmul0_grad_w =
-      at::matmul(gelu_grad_q.transpose(0, 1), x);
-    std::cout << "w10 " << w1.sizes() << " grad sizes " << matmul0_grad_w.sizes() << std::endl;
-
+  auto matmul0_grad_w = at::matmul(gelu_grad_q.transpose(0, 1), x);
 
   std::vector<at::Tensor> grads = {
       dropout_grad,
@@ -204,9 +218,7 @@ std::vector<at::Tensor> reference_mha_backwards(
     at::Tensor w1) {
   auto at_dtype = w0.dtype();
   // recompute up to sdpa
-  std::cout << "MHA x, w0 " << x.sizes() << " " << w0.sizes() << std::endl;
   auto linear0 = at::linear(x, w0, b0).view({B, S, 3 * E});
-  std::cout << "Out " << linear0.sizes() << std::endl;
   auto qkv = linear0.split(E, /*dim=*/-1);
   for (auto i = 0; i < 3; i++) {
     qkv[i] = qkv[i].reshape({B, S, H, E / H}).transpose(1, 2).to(at_dtype);
@@ -234,7 +246,6 @@ std::vector<at::Tensor> reference_mha_backwards(
   auto dropout_grad =
       at::native_dropout_backward(y_grad, mask, 1.0 / (1.0 - kDropoutProb));
   auto dropout_grad_q = dropout_grad.to(at_dtype);
-  std::cout << "Linear1xgrad " << dropout_grad_q.sizes() << " " << w1.sizes() << std::endl;
   auto linear1_x_grad = at::matmul(dropout_grad_q, w1);
   auto sdpa_output_reshape = sdpa_output.transpose(1, 2).view({B * S, E});
   auto linear1_w_grad =
@@ -264,7 +275,6 @@ std::vector<at::Tensor> reference_mha_backwards(
        v_grad.transpose(1, 2).view({B * S, E})},
       -1);
   auto linear0_b_grad = at::sum(qkv_grad.to(at::kFloat), {0});
-  std::cout << "Linear0xgrad " << qkv_grad.sizes() << " " << w0.sizes() << std::endl;
   auto linear0_x_grad = at::matmul(qkv_grad, w0);
   auto linear0_w_grad = at::matmul(qkv_grad.transpose(0, 1), x);
 
@@ -335,7 +345,7 @@ std::vector<TensorView*> mha_qkv(
   std::vector<TensorView*> qkv = chunk(qkv_cat, 3, -1);
   for (auto i : c10::irange(3)) {
     qkv[i] = reshape(qkv[i], {D, B, S, E / D}, {D, B, S, H / D, E / H});
-    qkv[i] = castOp(dtype, transpose(qkv[i], 2, 3));
+    qkv[i] = transpose(qkv[i], 2, 3);
     // Explicitly shard q, k, and v before calling SDPA node
     qkv[i]->setDeviceMesh(mesh);
     qkv[i]->axis(0)->parallelize(ParallelType::DIDx);
@@ -353,13 +363,18 @@ std::vector<TensorView*> mha(
   const auto D = w0->axis(0)->extent()->value().as<int64_t>();
   auto dtype = w0->dtype();
   TensorView* linear0 = linear(x, w0, b0);
+  TensorView* linear0_float = castOp(DataType::Float, linear0);
+  // TensorView* matmul0 = matmul(x, transpose(w0, 1, 2));
+  // TensorView* linear0 = add(matmul0, broadcast(b0, {false, true, false}));
+  // linear0 = castOp(dtype, linear0);
   // Forming the q,k,v vectors:
   TensorView* qkv_cat =
-      reshape(linear0, {D, B * S, 3 * E / D}, {D, B, S, 3 * E / D});
+      reshape(linear0_float, {D, B * S, 3 * E / D}, {D, B, S, 3 * E / D});
   std::vector<TensorView*> qkv = chunk(qkv_cat, 3, -1);
   for (auto i : c10::irange(3)) {
     qkv[i] = reshape(qkv[i], {D, B, S, E / D}, {D, B, S, H / D, E / H});
     qkv[i] = transpose(qkv[i], 2, 3);
+    qkv[i] = castOp(dtype, qkv[i]);
     // Explicitly shard q, k, and v before calling SDPA node
     qkv[i]->setDeviceMesh(mesh);
     qkv[i]->axis(0)->parallelize(ParallelType::DIDx);
@@ -378,6 +393,8 @@ std::vector<TensorView*> mha(
   TensorView* sdpa_reshape =
       reshape(sdpa_transpose, {D, B, S, H / D, E / H}, {D, B * S, E / D});
   TensorView* local_matmul1 = matmul(sdpa_reshape, transpose(w1, 1, 2));
+  std::cout << "Data type of matmul " << local_matmul1->toString() << std::endl;
+  local_matmul1 = castOp(DataType::Float, local_matmul1);
   TensorView* matmul1 = sum(local_matmul1, {0}); // allreduce
   TensorView* linear1 = add(matmul1, broadcast(b1, {true, false}));
   // Dropout
@@ -416,12 +433,10 @@ LinearBackwardsResult linear_backwards(
   DataType dtype = w->dtype();
   TensorView* grad_f = maybeCastOp(DataType::Float, grad);
   TensorView* grad_q = maybeCastOp(dtype, grad);
-  // TensorView* w_t = transpose(w, 1, 2);
   TensorView* grad_x_partials = matmul(grad_q, w);
   TensorView* grad_x = sum(grad_x_partials, {0}); // allreduce
   TensorView* grad_q_t = transpose(grad_q, 1, 2);
   TensorView* grad_w = matmul(grad_q_t, x);
-  // TensorView* grad_w = transpose(grad_w_t, 1, 2);
   TensorView* grad_b = sum(grad_f, {1});
 
   return {grad_x, grad_w, grad_b};
@@ -439,11 +454,9 @@ LinearBackwardsResult sharded_linear_backwards(
     TensorView* grad) {
   DataType dtype = w->dtype();
   TensorView* grad_q = castOp(dtype, grad);
-  // TensorView* w_t = transpose(w, 1, 2);
   TensorView* grad_x = matmul(grad_q, w);
   TensorView* grad_t = transpose(grad_q, 0, 1);
   TensorView* grad_w = matmul(grad_t, x);
-  // TensorView* grad_w = transpose(grad_w_t, 1, 2);
   TensorView* grad_b = sum(grad, {0});
 
   return {grad_x, grad_w, grad_b};
@@ -501,8 +514,6 @@ std::vector<TensorView*> mlp_backwards(
   TensorView* dropout_grad = dropout_backward(grad, mask, dropout_scale);
 
   auto linear1_grads = sharded_linear_backwards(gelu, w1, dropout_grad);
-  std::cout << "w1 " << w1->toString() << std::endl;
-  std::cout << "w1 grad " << linear1_grads.grad_w->toString() << std::endl;
 
   TensorView* matmul1_grad_x_ = castOp(DataType::Float, linear1_grads.grad_x);
   TensorView* gelu_grad = tanh_gelu_backward(matmul1_grad_x_, linear0);
@@ -634,7 +645,7 @@ std::vector<TensorView*> mha_backwards(
       sdpa_grad.grad_query,
       sdpa_grad.grad_key,
       sdpa_grad.grad_value,
-      linear0_grads.grad_w,
+      linear0_grads.grad_w, // todo failing point tolerance wise
       linear0_grads.grad_b,
       linear0_grads.grad_x};
 }
@@ -908,7 +919,6 @@ TEST_P(DistributedTransformerTest, MHA_Backward) {
 
   at::manual_seed(getATenRandomSeed());
   auto reference_outs = reference_mha_backwards(grad, x, mask, w0, b0, w1);
-  std::cout << "Reference done " << std::endl;
   std::vector<c10::IValue> inputs = {
       x,
       shardTensor(w0.view({3, E, E}), 1, mesh).view({1, 3 * E / D, E}),
@@ -920,8 +930,6 @@ TEST_P(DistributedTransformerTest, MHA_Backward) {
       shardTensor(reference_outs[1], 1, mesh), // sdpa.log_sumexp
       reference_outs[2],
       reference_outs[3]};
-  std::cout << "Done with inputs " << std::endl;
-  std::cout << "reference out 10 " << reference_outs[10].sizes() << " " << reference_outs[11].sizes() << std::endl;
   std::vector<at::Tensor> expected_outputs = {
       reference_outs[4], // dropout grad
       shardTensor(reference_outs[5], 1, mesh), // linear1 weight grad
@@ -934,7 +942,6 @@ TEST_P(DistributedTransformerTest, MHA_Backward) {
       shardTensor(reference_outs[11].view({3, E}), 1, mesh)
           .view({1, 3 * E / D}), // linear0 bias grad
       reference_outs[12]};
-  std::cout << "Done with outputs " << std::endl;
 
   FusionExecutorCache fec(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
@@ -998,7 +1005,7 @@ TEST_P(DistributedTransformerTest, Forward) {
   auto resid1 = add(resid0, mlp_out);
 
   fusion->addOutput(ln0.output);
-  fusion->addOutput(mha_out);
+  fusion->addOutput(mha_out); // failing starting here
   fusion->addOutput(ln1.output);
   fusion->addOutput(mlp_out);
   fusion->addOutput(resid1);
@@ -1288,20 +1295,16 @@ TEST_P(DistributedTransformerTest, Backward) {
   auto [ln0_, ln0_mean_, ln0_rstd_] =
       at::native_layer_norm(x_, norm_shape, ln0_w_, ln0_b_, kEps);
   auto mha_in_ = ln0_.to(at_dtype);
-  std::cout << "1" << std::endl;
   auto mha_out_ = reference_mha(mha_in_, mha_w0_, mha_b0_, mha_w1_, mha_b1_);
-  std::cout << "2" << std::endl;
   auto resid0_ = mha_out_[3] + x_;
   auto [ln1_, ln1_mean_, ln1_rstd_] =
       at::native_layer_norm(resid0_, norm_shape, ln1_w_, ln1_b_, kEps);
   auto mlp_in_ = ln1_.to(at_dtype);
   auto mlp_out_ = reference_mlp(mlp_in_, mlp_w0_, mlp_b0_, mlp_w1_, mlp_b1_);
-  std::cout << "3" << std::endl;
 
   // Backwards pass
   auto mlp_grads_ = reference_mlp_backwards(
       grad_, mlp_in_, mlp_out_[4], mlp_w0_, mlp_b0_, mlp_w1_);
-  std::cout << "4" << std::endl;
   auto [ln1_x_grad_, ln1_w_grad_, ln1_b_grad_] = at::native_layer_norm_backward(
       mlp_grads_[6].to(at::kFloat),
       resid0_,
@@ -1312,7 +1315,6 @@ TEST_P(DistributedTransformerTest, Backward) {
       ln1_b_,
       {true, true, true});
   auto resid1_grad_ = ln1_x_grad_ + grad_;
-  std::cout << "5" << std::endl;
   auto mha_grads_ = reference_mha_backwards(
       resid1_grad_, mha_in_, mha_out_[4], mha_w0_, mha_b0_, mha_w1_);
   auto [ln0_x_grad_, ln0_w_grad_, ln0_b_grad_] = at::native_layer_norm_backward(
@@ -1324,9 +1326,7 @@ TEST_P(DistributedTransformerTest, Backward) {
       ln0_w_,
       ln0_b_,
       {true, true, true});
-  std::cout << "6" << std::endl;
   auto dx_ = ln0_x_grad_ + resid1_grad_;
-  std::cout << "done" << std::endl;
 
   auto expected_outputs = {
       shardTensor(mlp_grads_[1], 1, mesh), // mlp_linear1_weight_grad
@@ -1337,7 +1337,8 @@ TEST_P(DistributedTransformerTest, Backward) {
       ln1_b_grad_,
       shardTensor(mha_grads_[5], 1, mesh), // mha linear1 weight grad
       mha_grads_[6], // mha linear1 bias grad
-      shardTensor(mha_grads_[10].view({3, E, E}), 1, mesh)
+      shardTensor(
+          mha_grads_[10].view({3, E, E}), 1, mesh) // failing starting here
           .view({1, 3 * E / D, E}), // mha linear0 bias grad
       shardTensor(mha_grads_[11].view({3, E}), 1, mesh)
           .view({1, 3 * E / D}), // mha linear0 bias grad
@@ -1372,17 +1373,9 @@ TEST_P(DistributedTransformerTest, Backward) {
       mha_out_[2].to(at::kFloat) // mha linear1
   };
 
-  // FusionExecutorCache fec(std::move(fusion));
-  hir::HostIrExecutorParams executor_params_{
-      .use_fusion_executor_cache = true,
-      .skip_auto_scheduling = false,
-      .cache_fusion_executor = false};
-  MultiDeviceExecutor runtime(
-      std::move(fusion), *communicator_, executor_params_);
-
+  FusionExecutorCache fec(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
-  auto outputs = runtime.runWithInput(inputs);
-  // auto outputs = fec.runFusionWithInputs(inputs);
+  auto outputs = fec.runFusionWithInputs(inputs);
   validate(
       expected_outputs,
       outputs,
