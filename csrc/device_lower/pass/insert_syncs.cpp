@@ -397,16 +397,23 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
         }
       }
     } else if (ir_utils::isCpAsyncBulkStore(expr)) {
+      // Add a fence before TMA store so that writes in the generic proxy is
+      // visible to the async proxy.
       auto scope = scope_.empty() ? nullptr : scope_.back();
       auto fence_async = IrBuilder::create<kir::FenceAsyncProxy>();
       registerInsertBefore(expr, fence_async, scope);
     }
 
+    // Insert sync exprs before async ops. For example, insert
+    //   wgmma.commit_group.sync.aligned
+    //   wgmma.wait_group.sync.aligned 0
+    // before the use of mma results. Note that cp.async is not handled
+    // here.
+    // TODO: unify the handle of cp.async
     std::unordered_map<AsyncOpType, std::unordered_set<Expr*>> input_async_ops;
     for (auto inp : expr->inputs()) {
       auto def = inp->definition();
       auto async_type = ir_utils::getAsyncOpType(def);
-      // TODO: unify this with cp.async
       if (async_type != AsyncOpType::NotAsync &&
           async_type != AsyncOpType::CpAsync) {
         input_async_ops[async_type].insert(def);
