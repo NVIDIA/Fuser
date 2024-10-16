@@ -1432,7 +1432,22 @@ TEST_F(TMAMiscTest, StoreSyncInsertion) {
   tv1->inlineAt(1);
 
   {
-    // tv1 inlined to tv2, so need a WAR in the shared loop of tv1 and tv2
+    // tv1 inlined to tv2, the kernel should look like:
+    //   for N/128/4: (loop 1)
+    //     for 4: (loop 1.1)
+    //       for 128:
+    //         TMA load;
+    //     for 4: (loop 1.2)
+    //       for 128:
+    //         TMA store;
+    //   for N/128/4: (loop 3)
+    //     for 4:
+    //       for 128:
+    //         gmem->gmem copy;
+    // There must be a WAR async wait at the end of loop 1. In theory,
+    // We do not need a RAW async wait before loop 3, because in this example
+    // the WAR async wait should helped RAW as well. But we are not smartly
+    // enough right now to avoid this RAW async wait.
     GpuLower gpulw(&fusion);
     auto kernel = gpulw.run();
 
