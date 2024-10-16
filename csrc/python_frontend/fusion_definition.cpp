@@ -95,6 +95,7 @@ void FusionDefinition::finalizeDefinition() {
       }
 
       buildFusionIr(preschedFusion());
+      verifyTensorDimensions();
     } catch (const std::exception& e) {
       // Exception thrown after fusionCache()->createChild wouldn't be visible
       // by fusion cache, if the exception is suppressed on the python side. We
@@ -186,6 +187,23 @@ void FusionDefinition::updateSymbolicStates(
 
     // Update symbolic states with new concretized values
     setFusionState(s.index, symbolic_to_concretized_map.at(old_value));
+  }
+}
+
+void FusionDefinition::verifyTensorDimensions() {
+  NVF_CHECK(id().has_value(), "Invalid fusion id!");
+
+  std::vector<Tensor> all_tensors = tensors();
+  for (Tensor& t : all_tensors) {
+    Val* v = getFusionState(t.index);
+    NVF_ERROR(v->isA<TensorView>());
+    TensorView* tv = v->as<TensorView>();
+    NVF_ERROR(
+        tv->nDims() == (int64_t)t.dims,
+        "Expected TensorView to have same number of dimensions as Tensor but got: ",
+        tv->nDims(),
+        " and ",
+        t.dims);
   }
 }
 
