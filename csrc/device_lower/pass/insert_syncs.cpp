@@ -830,6 +830,11 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
   //!        A = ...
   //!      for 4:
   //!        ... = async_op(A, ...)
+  //!    ... = async_op2(A, ...)
+  //! Similar to example 1, we will insert the wait expression for async_op at
+  //! the end of loop 2. But after we return to the handle of loop 1, we will
+  //! then insert async_op2 to async_exprs_to_protect_, which will make us to
+  //! insert the wait expression for async_op2 at the end of loop 1.
   std::unordered_set<Expr*> async_exprs_to_protect_;
 
  private:
