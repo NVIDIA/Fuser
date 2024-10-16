@@ -10831,14 +10831,6 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
     }
   }
   __syncthreads();
-  uint64_t* T8 = reinterpret_cast<uint64_t*>(array + smem_offset + 32);
-  #pragma unroll
-  for(nvfuser_index_t i20 = 0; i20 < 4; ++i20) {
-    if (b16) {
-      mbarrier::init(toSmem((&T7[i20])), 128U);
-    }
-  }
-  __syncthreads();
   float T2[128];
   ((*reinterpret_cast<Array<float, 128, 1>*>(&T2[0]))).set(0);
   asm volatile("wgmma.fence.sync.aligned;\n");
@@ -11200,12 +11192,6 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
   for(nvfuser_index_t i38 = 0; i38 < 4; ++i38) {
     if (b16) {
       mbarrier::inval(toSmem((&T7[i38])));
-    }
-  }
-  #pragma unroll
-  for(nvfuser_index_t i39 = 0; i39 < 4; ++i39) {
-    if (b16) {
-      mbarrier::inval(toSmem((&T7[i39])));
     }
   }
   asm volatile("wgmma.commit_group.sync.aligned;\n");
