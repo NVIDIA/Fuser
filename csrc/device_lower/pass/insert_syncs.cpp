@@ -396,6 +396,10 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
           registerInsertBefore(expr, fence_async, scope);
         }
       }
+    } else if (ir_utils::isCpAsyncBulkStore(expr)) {
+      auto scope = scope_.empty() ? nullptr : scope_.back();
+      auto fence_async = IrBuilder::create<kir::FenceAsyncProxy>();
+      registerInsertBefore(expr, fence_async, scope);
     }
 
     std::unordered_map<AsyncOpType, std::unordered_set<Expr*>> input_async_ops;
