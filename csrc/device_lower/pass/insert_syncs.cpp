@@ -842,6 +842,7 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
     kir::ExprMutator::traverseAndInsert(exprs);
   }
 
+  // Get the async op types of the use expressions of a value.
   std::unordered_set<AsyncOpType> getUseAsyncOpTypes(Val* v) {
     std::unordered_set<AsyncOpType> async_ops;
     for (auto use : v->uses()) {
@@ -883,18 +884,25 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
       }
     }
 
+    // If the current expression is an async op, then we add it to
+    // async_exprs_to_protect_ so that we know we need to protect it.
     auto async_op_type = ir_utils::getAsyncOpType(expr);
     if (async_op_type != AsyncOpType::NotAsync) {
       async_exprs_to_protect_.insert(expr);
     }
   }
 
+  // Open a scope, update the context of the "current" scope, and return the
+  // context of the previous scope that will be saved on the stack of function
+  // call frames for restoration later.
   std::unordered_set<Val*> openScope() {
     std::unordered_set<Val*> result;
     std::swap(result, async_inputs_in_current_scope_);
     return result;
   }
 
+  // Restore the context of the previous scope that was saved on the stack of
+  // function call frames.
   auto closeScope(std::unordered_set<Val*>& prev_async_inputs) {
     std::transform(
         async_inputs_in_current_scope_.begin(),
