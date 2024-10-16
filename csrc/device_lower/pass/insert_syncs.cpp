@@ -790,10 +790,10 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
   bool within_iter_loop_ = false;
 
   //! Inputs of async ops in the current scope. For example:
-  //!  for i: (loop 1)
-  //!    for j: (loop 2)
+  //!  for 1:
+  //!    for 2:
   //!      A = ...
-  //!    for k: (loop 3)
+  //!    for 3:
   //!      ... = async_op(A, ...)
   //! When in loop 1 and loop 2, async_inputs_in_current_scope_ will contain A.
   //! But when in loop 3, it will not contain A. We are only interested in
@@ -803,6 +803,17 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
   //! waiting at the end of loop 1 is sufficient and cheaper.
   std::unordered_set<Val*> async_inputs_in_current_scope_;
 
+  //! Async expressions that need to be protected by a wait expression, but we
+  //! have not inserted the wait expression yet.
+  //! Example 1:
+  //!  for 1:
+  //!    for 2:
+  //!      for 3:
+  //!        A = ...
+  //!      for 4:
+  //!        ... = async_op(A, ...)
+  //! In the above example, during traversal of ... = async_op(A, ...), we will
+  //! add async_op to async_exprs_to_protect_.
   std::unordered_set<Expr*> async_exprs_to_protect_;
 
  private:
@@ -842,7 +853,8 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
     // iterations of i is not accessing the same elements of T1, so there is no
     // WAR hazard. Today, we just ignore such case and conservatively protect
     // it. This is functionally correct but may not be performant. We need to
-    // improve this if in the future, we want to use compute-with with async ops.
+    // improve this if in the future, we want to use compute-with with async
+    // ops.
     for (auto output : expr->outputs()) {
       auto use_async_ops = getUseAsyncOpTypes(output);
       if (!use_async_ops.empty()) {
