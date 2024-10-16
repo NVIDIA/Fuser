@@ -602,9 +602,9 @@ class NVFuserTest : public ::testing::Test {
 class HopperBase : public NVFuserTest {
  protected:
   void SetUp() override {
-    // if (cudaArchGuardShouldSkip(9, 0)) {
-    //   GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
-    // }
+    if (cudaArchGuardShouldSkip(9, 0)) {
+      GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
+    }
     NVFuserTest::SetUp();
   }
 };

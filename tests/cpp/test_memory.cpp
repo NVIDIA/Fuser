@@ -1408,10 +1408,10 @@ TEST_F(TMAMiscTest, StoreSyncInsertion) {
         std::count_if(flattened_exprs.begin(), flattened_exprs.end(), is_wait),
         1);
 
-    // FusionExecutor fe;
-    // fe.compileFusion(&fusion, {input}, {}, matmul_cparams);
-    // auto cg_outputs = fe.runFusion({input});
-    // testValidate(&fusion, cg_outputs, {input}, {input}, __LINE__, __FILE__);
+    FusionExecutor fe;
+    fe.compileFusion(&fusion, {input}, {}, matmul_cparams);
+    auto cg_outputs = fe.runFusion({input});
+    testValidate(&fusion, cg_outputs, {input}, {input}, __LINE__, __FILE__);
   }
 
   tv1->inlineAt(1);
@@ -1445,10 +1445,10 @@ TEST_F(TMAMiscTest, StoreSyncInsertion) {
     // RAW sync is inserted, the WAR pass has not run yet. We should be able to
     // remove the RAW sync by adding a cleanup pass.
 
-    // FusionExecutor fe;
-    // fe.compileFusion(&fusion, {input}, {}, matmul_cparams);
-    // auto cg_outputs = fe.runFusion({input});
-    // testValidate(&fusion, cg_outputs, {input}, {input}, __LINE__, __FILE__);
+    FusionExecutor fe;
+    fe.compileFusion(&fusion, {input}, {}, matmul_cparams);
+    auto cg_outputs = fe.runFusion({input});
+    testValidate(&fusion, cg_outputs, {input}, {input}, __LINE__, __FILE__);
   }
 
   tv1->circularBuffer(/*stage=*/10, /*prefetch=*/4);
