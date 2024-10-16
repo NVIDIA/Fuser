@@ -10821,8 +10821,6 @@ nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, const
   i15 = ((((i12 + ((16 * T1.logical_size[2LL]) * i13)) + (T1.logical_size[2LL] * i14)) + ((64 * T1.logical_size[2LL]) * ((nvfuser_index_t)threadIdx.y))) + i5) + ((192 * T1.logical_size[2LL]) * ((nvfuser_index_t)blockIdx.y));
   nvfuser_index_t i16;
   i16 = 8 * T1.logical_size[2LL];
-  bool b17;
-  b17 = (((((nvfuser_index_t)threadIdx.x) < 32ULL) && (((nvfuser_index_t)threadIdx.y) == 0ULL)) && (((nvfuser_index_t)threadIdx.z) == 0ULL)) && Hopper::electSync(4294967295U);
   nvfuser_index_t i18;
   i18 = ((1 - T1.logical_size[2LL]) + i12) + i5;
   nvfuser_index_t i19;
@@ -10830,7 +10828,7 @@ nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, const
   uint64_t* T7 = reinterpret_cast<uint64_t*>(array + smem_offset + 0);
   #pragma unroll
   for(nvfuser_index_t i20 = 0; i20 < 4; ++i20) {
-    if (b17) {
+    if ((((((nvfuser_index_t)threadIdx.x) < 32ULL) && (((nvfuser_index_t)threadIdx.y) == 0ULL)) && (((nvfuser_index_t)threadIdx.z) == 0ULL)) && Hopper::electSync(4294967295U)) {
       mbarrier::init(toSmem((&T7[i20])), 1U);
     }
   }
@@ -10849,7 +10847,7 @@ nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, const
     i25 = i6 + i24;
     unsigned i26;
     i26 = i9 + i24;
-    if (b17) {
+    if ((((((nvfuser_index_t)threadIdx.x) < 32ULL) && (((nvfuser_index_t)threadIdx.y) == 0ULL)) && (((nvfuser_index_t)threadIdx.z) == 0ULL)) && Hopper::electSync(4294967295U)) {
       mbarrier::arriveExpectTX(toSmem((&T7[i22])), 6144U + 6144U);
       #pragma unroll
       for(nvfuser_index_t i27 = 0; i27 < 3; ++i27) {
@@ -10881,7 +10879,7 @@ nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, const
     i37 = i29 % 4;
     nvfuser_index_t i38;
     i38 = (i29 + 3) % 4;
-    if (b17) {
+    if ((((((nvfuser_index_t)threadIdx.x) < 32ULL) && (((nvfuser_index_t)threadIdx.y) == 0ULL)) && (((nvfuser_index_t)threadIdx.z) == 0ULL)) && Hopper::electSync(4294967295U)) {
       mbarrier::arriveExpectTX(toSmem((&T7[((3 + i29) % 4)])), 6144U + 6144U);
       #pragma unroll
       for(nvfuser_index_t i27 = 0; i27 < 3; ++i27) {
@@ -10932,7 +10930,8 @@ nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, const
        "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[29]),
        "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[30]),
        "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[31]),
-       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[32]),
+       "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[32]),        const DataType in_var[NumVals],
+       nvfuser_index_t in_N,
        "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[33]),
        "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[34]),
        "+f"((*reinterpret_cast<Array<float, 96, 1>*>(&T2[0]))[35]),
@@ -11130,7 +11129,7 @@ nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, const
   }
   #pragma unroll
   for(nvfuser_index_t i43 = 0; i43 < 4; ++i43) {
-    if (b17) {
+    if ((((((nvfuser_index_t)threadIdx.x) < 32ULL) && (((nvfuser_index_t)threadIdx.y) == 0ULL)) && (((nvfuser_index_t)threadIdx.z) == 0ULL)) && Hopper::electSync(4294967295U)) {
       mbarrier::inval(toSmem((&T7[i43])));
     }
   }
