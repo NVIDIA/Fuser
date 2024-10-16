@@ -351,7 +351,7 @@ void multiReductionInliner(
     std::vector<TensorView*> reduction_tvs,
     std::vector<TensorView*> cached_inputs,
     std::vector<std::pair<TensorView*, TensorView*>> cached_outputs,
-    std::vector<TensorView*> smem_persistent_buffer_consumers,
+    std::vector<TensorView*> cached_smem_buffer,
     std::vector<TensorView*> dummy_outputs) {
   // Propagate transformations before we rfactor the other reductions
   propagateTransformation(reference_tv);
@@ -360,17 +360,19 @@ void multiReductionInliner(
     propagateRFactor(reference_tv, reduction_tv, reduction_tvs);
   }
 
+  const auto& unroll_vectorizable_cached_tvs = getUnrollVectorizableCachedTvs(
+      reference_tv,
+      vectorize,
+      cached_inputs,
+      cached_outputs,
+      cached_smem_buffer);
   reduction_scheduler_utils::propagateParallelization(
-      fusion,
       reduction_tv,
       reference_tv,
       unroll,
-      vectorize,
       use_grouped_reduction,
       reduction_tvs,
-      cached_inputs,
-      cached_outputs,
-      smem_persistent_buffer_consumers);
+      unroll_vectorizable_cached_tvs);
 
   // Remove dummy outputs as they can inadvertently affect CA positions
   for (auto output : dummy_outputs) {
@@ -425,7 +427,7 @@ void propagateRFactor(
     }
   }
 }
-namespace {
+
 std::unordered_set<TensorView*> getUnrollVectorizableCachedTvs(
     TensorView* reference_tv,
     bool vectorize,
@@ -487,6 +489,7 @@ std::unordered_set<TensorView*> getUnrollVectorizableCachedTvs(
   return are_unrolled;
 }
 
+namespace {
 void reductionTvUnrollVectorizationGroup(
     TensorView* reduction_tv,
     TensorView* reference_tv,
@@ -534,16 +537,12 @@ void reductionTvUnrollVectorizationGroup(
 } // namespace
 
 void propagateParallelization(
-    Fusion* fusion,
     TensorView* reduction_tv,
     TensorView* reference_tv,
     const bool unroll,
-    const bool vectorize,
     const bool use_grouped_reduction,
     const std::vector<TensorView*>& reduction_tvs,
-    const std::vector<TensorView*>& cached_inputs,
-    const std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs,
-    const std::vector<TensorView*>& cached_smem_buffer,
+    const std::unordered_set<TensorView*>& unroll_vectorizable_cached_tvs,
     const std::vector<TensorView*>& selected_tvs) {
   // Propagate parallelization except vectorization and unrolling
   scheduler_utils::parallelizeAllLike(
@@ -556,26 +555,17 @@ void propagateParallelization(
            ParallelType::MisalignedVectorize}));
 
   if (unroll) {
-    // Find all tensor views that should have unroll or vectorization
-    // Inlcudes cached inputs and outputs, cached smem persistent buffer.
-    const auto& are_unrolled = getUnrollVectorizableCachedTvs(
-        reference_tv,
-        vectorize,
-        cached_inputs,
-        cached_outputs,
-        cached_smem_buffer);
-
-    if (!are_unrolled.empty()) {
+    if (!unroll_vectorizable_cached_tvs.empty()) {
       // Propagate vectorization/unrolling to those tensors that need it
       scheduler_utils::parallelizeAllLike(
           reference_tv,
           -1,
-          {are_unrolled.begin(), are_unrolled.end()},
+          {unroll_vectorizable_cached_tvs.begin(),
+           unroll_vectorizable_cached_tvs.end()},
           {ParallelType::Unroll,
            ParallelType::Vectorize,
            ParallelType::MisalignedVectorize});
     }
-
     // If reference shouldn't be unrolled, clear that parallel type.
     // In the case of outer grid persistence, replace Vector with Group
     reductionTvUnrollVectorizationGroup(
@@ -583,7 +573,7 @@ void propagateParallelization(
         reference_tv,
         use_grouped_reduction,
         reduction_tvs,
-        are_unrolled);
+        unroll_vectorizable_cached_tvs);
   }
 }
 
