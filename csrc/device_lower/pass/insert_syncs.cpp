@@ -794,10 +794,13 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
   //!    for j: (loop 2)
   //!      A = ...
   //!    for k: (loop 3)
-  //!      ...
-  //! Assume that A is used by an async op later, then when in loop 1 and loop
-  //! 2, async_inputs_in_current_scope_ will contain A. But when in loop 3, it
-  //! will not contain A.
+  //!      ... = async_op(A, ...)
+  //! When in loop 1 and loop 2, async_inputs_in_current_scope_ will contain A.
+  //! But when in loop 3, it will not contain A. We are only interested in
+  //! protecting the inputs of async ops that is in the current scope. For
+  //! example, in the above example, we do not want to add an async wait at the
+  //! end of loop 3 because, although waiting there is functionally correct,
+  //! waiting at the end of loop 1 is sufficient and cheaper.
   std::unordered_set<Val*> async_inputs_in_current_scope_;
 
   std::unordered_set<Expr*> async_exprs_to_protect_;
@@ -825,6 +828,20 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
       return;
     }
 
+    // If the output of the current expression is used by an async op, then we
+    // add the output to the async_inputs_in_current_scope_ so that we know we
+    // need to protect it.
+    // TODO: due to compute-with, we may have code like below:
+    //   float T1[4][8];
+    //   for i in range(4):
+    //     for j in range(8):
+    //       T1[i][j] = ...
+    //     for j in range(8):
+    //       ... = async_op(T1[i][j], ...)
+    // For this case, there is no need to protect T1 because different
+    // iterations of i is not accessing the same elements of T1, so there is no
+    // WAR hazard. Today, we just ignore such case and conservatively protect
+    // it.
     for (auto output : expr->outputs()) {
       auto use_async_ops = getUseAsyncOpTypes(output);
       if (!use_async_ops.empty()) {
