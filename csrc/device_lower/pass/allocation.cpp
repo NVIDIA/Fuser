@@ -699,7 +699,9 @@ class AllocationInserter : public kir::ExprMutator {
       registerInsertAfter(fl, post_epilogue_inval, current_scope);
 
       // Map LoadStoreOp expression to ir nodes created in this pass
-      GpuLower::current()->ldstMBarrierMap()[expr] = mbarrier;
+      for (auto tv : circular_buffer_tvs) {
+        GpuLower::current()->ldstMBarrierMap()[tv->definition()] = mbarrier;
+      }
     }
   }
 
