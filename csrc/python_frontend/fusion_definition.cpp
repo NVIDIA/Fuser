@@ -197,11 +197,11 @@ void FusionDefinition::verifyTensorDimensions() {
   for (Tensor& t : all_tensors) {
     Val* v = getFusionState(t.index);
     NVF_ERROR(v->isA<TensorView>());
-    TensorView* tv = v->as<TensorView>();
+    int64_t tv_ndims = v->as<TensorView>()->nDims();
     NVF_ERROR(
-        tv->nDims() == (int64_t)t.dims,
+        tv_ndims == (int64_t)t.dims,
         "Expected TensorView to have same number of dimensions as Tensor but got: ",
-        tv->nDims(),
+        tv_ndims,
         " and ",
         t.dims);
   }
