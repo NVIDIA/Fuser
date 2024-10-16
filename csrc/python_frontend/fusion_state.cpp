@@ -103,9 +103,9 @@ void FusionState::buildFusionIr(Fusion* fusion) {
 
       NVF_ERROR(
           false,
-          "Detected exception while building Fusion Ir. The failing RecordFunctor is ",
+          "\nDetected exception while building Fusion Ir. The failing RecordFunctor is: ",
           ss.str(),
-          "\nNvFuser error message is printed below.\n",
+          "\nNvFuser error message is: ",
           e.what());
     }
   }
