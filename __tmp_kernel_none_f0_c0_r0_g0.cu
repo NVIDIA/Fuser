@@ -10829,15 +10829,7 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
   #pragma unroll
   for(nvfuser_index_t i20 = 0; i20 < 4; ++i20) {
     if (b17) {
-      mbarrier::init(toSmem((&T7[i20])), 384U);
-    }
-  }
-  __syncthreads();
-  uint64_t* T8 = reinterpret_cast<uint64_t*>(array + smem_offset + 32);
-  #pragma unroll
-  for(nvfuser_index_t i21 = 0; i21 < 4; ++i21) {
-    if (b17) {
-      mbarrier::init(toSmem((&T8[i21])), 384U);
+      mbarrier::init(toSmem((&T7[i20])), 2U*384U);
     }
   }
   __syncthreads();
@@ -10865,13 +10857,13 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
       mbarrier::arrive(toSmem((&T7[i22])));
     }
     if (b17) {
-      mbarrier::arriveExpectTX(toSmem((&T8[i22])), 6144U);
+      mbarrier::arriveExpectTX(toSmem((&T7[i22])), 6144U);
       #pragma unroll
       for(nvfuser_index_t i28 = 0; i28 < 3; ++i28) {
-        Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr7, (Array<nvfuser_index_t, 2, 1>{(i8 + (64 * i28)), i23}), toSmem((&T8[i22])) }), (i26 + (2048 * i28)));
+        Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr7, (Array<nvfuser_index_t, 2, 1>{(i8 + (64 * i28)), i23}), toSmem((&T7[i22])) }), (i26 + (2048 * i28)));
       }
     } else {
-      mbarrier::arrive(toSmem((&T8[i22])));
+      mbarrier::arrive(toSmem((&T7[i22])));
     }
   }
   #pragma unroll 4
@@ -10903,17 +10895,16 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
     } else {
       mbarrier::arrive(toSmem((&T7[((3 + i29) % 4)])));
     }
-    mbarrier::waitParity(toSmem((&T7[i37])), (((uint32_t)(i29) / 4U) % 2U));
     if (b17) {
-      mbarrier::arriveExpectTX(toSmem((&T8[((3 + i29) % 4)])), 6144U);
+      mbarrier::arriveExpectTX(toSmem((&T7[((3 + i29) % 4)])), 6144U);
       #pragma unroll
       for(nvfuser_index_t i28 = 0; i28 < 3; ++i28) {
-        Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr7, (Array<nvfuser_index_t, 2, 1>{(i8 + (64 * i28)), i30}), toSmem((&T8[((3 + i29) % 4)])) }), (i33 + (2048 * i28)));
+        Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr7, (Array<nvfuser_index_t, 2, 1>{(i8 + (64 * i28)), i30}), toSmem((&T7[((3 + i29) % 4)])) }), (i33 + (2048 * i28)));
       }
     } else {
-      mbarrier::arrive(toSmem((&T8[((3 + i29) % 4)])));
+      mbarrier::arrive(toSmem((&T7[((3 + i29) % 4)])));
     }
-    mbarrier::waitParity(toSmem((&T8[i37])), (((uint32_t)(i29) / 4U) % 2U));
+    mbarrier::waitParity(toSmem((&T7[i37])), (((uint32_t)(i29) / 4U) % 2U));
     asm volatile(
       "{\n"
       "  .reg .pred p0; \n"
@@ -11037,7 +11028,6 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
     unsigned i42;
     i42 = i6 + i40;
     mbarrier::waitParity(toSmem((&T7[(i39 % 4)])), (((uint32_t)(i39) / 4U) % 2U));
-    mbarrier::waitParity(toSmem((&T8[(i39 % 4)])), (((uint32_t)(i39) / 4U) % 2U));
     asm volatile(
       "{\n"
       "  .reg .pred p0; \n"
@@ -11153,13 +11143,7 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
   #pragma unroll
   for(nvfuser_index_t i43 = 0; i43 < 4; ++i43) {
     if (b17) {
-      mbarrier::inval(toSmem((&T8[i43])));
-    }
-  }
-  #pragma unroll
-  for(nvfuser_index_t i44 = 0; i44 < 4; ++i44) {
-    if (b17) {
-      mbarrier::inval(toSmem((&T7[i44])));
+      mbarrier::inval(toSmem((&T7[i43])));
     }
   }
   asm volatile("wgmma.commit_group.sync.aligned;\n");
