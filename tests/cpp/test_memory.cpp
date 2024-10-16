@@ -1458,9 +1458,6 @@ TEST_F(TMAMiscTest, StoreSyncInsertion) {
     // and a RAW before the loop of tv3
     GpuLower gpulw(&fusion);
     auto kernel = gpulw.run();
-    for (auto expr : kernel->topLevelExprs()) {
-      std::cout << expr->toString() << std::endl;
-    }
 
     auto fl_it = std::find_if(
         kernel->topLevelExprs().begin(),
