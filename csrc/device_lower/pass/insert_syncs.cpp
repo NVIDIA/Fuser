@@ -841,7 +841,8 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
     // For this case, there is no need to protect T1 because different
     // iterations of i is not accessing the same elements of T1, so there is no
     // WAR hazard. Today, we just ignore such case and conservatively protect
-    // it.
+    // it. This is functionally correct but may not be performant. We need to
+    // improve this if in the future, we want to use compute-with with async ops.
     for (auto output : expr->outputs()) {
       auto use_async_ops = getUseAsyncOpTypes(output);
       if (!use_async_ops.empty()) {
