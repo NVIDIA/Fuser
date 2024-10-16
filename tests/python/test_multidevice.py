@@ -670,8 +670,8 @@ class TransformerBackwardFusion(FusionDefinition):
             dtype=DataType.BFloat16,
             stride_order=[3, 1, 2, 0],
         )
-        self.mha_dropout_offset = self.define_scalar(None, dtype=DataType.Int)
-        self.mha_dropout_seed = self.define_scalar(None, dtype=DataType.Int)
+        mha_dropout_offset = self.define_scalar(None, dtype=DataType.Int)
+        mha_dropout_seed = self.define_scalar(None, dtype=DataType.Int)
         self.mha_linear1_weight = self.define_tensor(
             shape=[e, e],
             contiguity=True,
@@ -717,8 +717,8 @@ class TransformerBackwardFusion(FusionDefinition):
             contiguity=True,
             dtype=DataType.BFloat16,
         )
-        self.mlp_dropout_offset = self.define_scalar(None, dtype=DataType.Int)
-        self.mlp_dropout_seed = self.define_scalar(None, dtype=DataType.Int)
+        mlp_dropout_offset = self.define_scalar(None, dtype=DataType.Int)
+        mlp_dropout_seed = self.define_scalar(None, dtype=DataType.Int)
         self.out_grad = self.define_tensor(
             shape=[b, s, e],
             contiguity=True,
@@ -764,10 +764,10 @@ class TransformerBackwardFusion(FusionDefinition):
             contiguity=True,
             dtype=DataType.Float,
         )
-        self.mha_sdpa_seed = self.define_tensor(
+        mha_sdpa_seed = self.define_tensor(
             shape=[], dtype=DataType.Int, is_cpu=True
         )
-        self.mha_sdpa_offset = self.define_tensor(
+        mha_sdpa_offset = self.define_tensor(
             shape=[], dtype=DataType.Int, is_cpu=True
         )
         T25 = self.ops.permute(self.sdpa_out, dims=[0, 2, 1, 3])
@@ -778,8 +778,8 @@ class TransformerBackwardFusion(FusionDefinition):
             S27,
             S28,
             shape=[b, s, e],
-            rng_seed=self.mha_dropout_seed,
-            rng_offset=self.mha_dropout_offset,
+            rng_seed=mha_dropout_seed,
+            rng_offset=mha_dropout_offset,
             dtype=DataType.BFloat16,
         )
         T38 = self.ops.reshape(T26, new_shape=[b, s, e])
@@ -820,8 +820,8 @@ class TransformerBackwardFusion(FusionDefinition):
             S82,
             S83,
             shape=[b, s, e],
-            rng_seed=self.mlp_dropout_seed,
-            rng_offset=self.mlp_dropout_offset,
+            rng_seed=mlp_dropout_seed,
+            rng_offset=mlp_dropout_offset,
             dtype=DataType.BFloat16,
         )
         T89 = self.ops.cast(T81, dtype=DataType.Float)
@@ -983,8 +983,8 @@ class TransformerBackwardFusion(FusionDefinition):
             self.mha_log_sumexp,
             S339,
             S340,
-            self.mha_sdpa_seed,
-            self.mha_sdpa_offset,
+            mha_sdpa_seed,
+            mha_sdpa_offset,
             None,
         )
         T344 = self.ops.permute(T343, dims=[0, 2, 1, 3])
