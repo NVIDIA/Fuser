@@ -1194,7 +1194,7 @@ std::vector<TensorView*> movePersistentBufferToSmem(
   // housed in smem_persistent_buffers. If a candidate tensor is input, move its
   // associated cached tensors.
   if (rparams->smem_persistent_buffers.empty()) {
-    return smem_consumers;
+    return {};
   }
   const auto& persistent_buffers =
       scheduler_utils::persistentBuffers(fusion).persistent_buffers;
