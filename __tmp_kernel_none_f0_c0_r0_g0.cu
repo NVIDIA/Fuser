@@ -10827,7 +10827,7 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
   #pragma unroll
   for(nvfuser_index_t i19 = 0; i19 < 4; ++i19) {
     if (b16) {
-      mbarrier::init(toSmem((&T7[i19])), 128U);
+      mbarrier::init(toSmem((&T7[i19])), 256U);
     }
   }
   __syncthreads();
