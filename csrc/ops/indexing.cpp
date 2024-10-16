@@ -55,7 +55,8 @@ TensorView* indexSelect(
 
   int64_t n_dims = (int64_t)lookup_domain.size();
   dim = wrapDim(dim, n_dims);
-  NVF_CHECK(n_dims > 0, "index_select can not be applied to 0-D tensor.");
+  NVF_CHECK(
+      n_dims > 0, "lookup_tv argument for indexSelect cannot be a 0-D tensor.");
 
   std::vector<IterDomain*> original_index_domain =
       TensorDomain::noReductions(index_tv->getLogicalDomain());
