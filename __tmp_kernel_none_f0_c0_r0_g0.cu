@@ -10831,7 +10831,7 @@ nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half, 3, 3> T1, const
   #pragma unroll
   for(nvfuser_index_t i20 = 0; i20 < 4; ++i20) {
     if (b17) {
-      mbarrier::init(toSmem((&T7[i20])), 2U);
+      mbarrier::init(toSmem((&T7[i20])), 1U);
     }
   }
   __syncthreads();
