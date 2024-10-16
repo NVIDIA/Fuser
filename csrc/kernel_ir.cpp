@@ -533,15 +533,17 @@ MBarrierArrive::MBarrierArrive(
     Val* mbarrier)
     : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
-  NVF_CHECK(state->dtype() == DataType::UInt);
   addInput(mbarrier);
-  addOutput(state);
+  if (state != nullptr) {
+    NVF_CHECK(state->dtype() == DataType::UInt);
+    addOutput(state);
+  }
 }
 
 std::string MBarrierArrive::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "MBarrierArrive(" << mbarrier()->toString() << ", "
-                          << state()->toString() << ")\n";
+  indent(ss, indent_size) << "MBarrierArrive(" << mbarrier()->toString()
+                          << ")\n";
   return ss.str();
 }
 
@@ -561,7 +563,10 @@ MBarrierArriveExpectTx::MBarrierArriveExpectTx(
   NVF_CHECK(tx_count->dtype() == DataType::UInt32);
   addInput(mbarrier);
   addInput(tx_count);
-  addOutput(state);
+  if (state != nullptr) {
+    NVF_CHECK(state->dtype() == DataType::UInt);
+    addOutput(state);
+  }
 }
 
 std::string MBarrierArriveExpectTx::toString(int indent_size) const {
@@ -597,6 +602,30 @@ std::string MBarrierWait::toInlineString(int indent_size) const {
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(MBarrierWait)
+
+MBarrierWaitParity::MBarrierWaitParity(
+    IrBuilderPasskey passkey,
+    Val* mbarrier,
+    Val* parity)
+    : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_CHECK(parity->dtype() == DataType::UInt32);
+  addInput(mbarrier);
+  addInput(parity);
+}
+
+std::string MBarrierWaitParity::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "MBarrierWaitParity(" << mbarrier()->toString()
+                          << ", " << parity()->toString() << ")\n";
+  return ss.str();
+}
+
+std::string MBarrierWaitParity::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "MBarrierWaitParity can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(MBarrierWaitParity)
 
 BlockSerializeWait::BlockSerializeWait(
     IrBuilderPasskey passkey,

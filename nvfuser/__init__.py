@@ -6,7 +6,7 @@ import logging
 import os
 import re
 import sys
-from typing import Optional, Union, List  # noqa: F401
+from typing import Callable, Optional, Union, List  # noqa: F401
 
 import torch
 
@@ -67,20 +67,6 @@ class FusionDefinition(_C._FusionDefinition):
 
     def definition(self):
         raise NotImplementedError("definition() should be implemented by child class!")
-
-    # Unlike `schedule`, `multidevice_schedule` is designed for inter-device
-    # scheduling, The scheduling is done before concretization and therefore
-    # before pre-segmentation. `schedule` however assumes the FusionDefinition
-    # has been concretized and pre-segmented, and therefore requires
-    # `_setup_schedule` and `_finalize_schedule` to be called before and after.
-    #
-    # Note: there's a plan to embed multidevice schedules into FusionDefinition
-    # as annotating nodes. This may eventually replace `multidevice_schedule`.
-    def multidevice_schedule(self):
-        pass
-
-    def schedule(self):
-        raise NotImplementedError("schedule() should be implemented by child class!")
 
     def execute(
         self,
@@ -154,23 +140,35 @@ class FusionDefinition(_C._FusionDefinition):
             self.definition()
             self._finalize_definition()
 
-        defined_multidevice_schedule = (
-            type(self).multidevice_schedule != FusionDefinition.multidevice_schedule
+        defined_multidevice_schedule = hasattr(
+            self, "multidevice_schedule"
+        ) and isinstance(self.multidevice_schedule, Callable)
+        defined_schedule = hasattr(self, "schedule") and isinstance(
+            self.schedule, Callable
         )
-        defined_schedule = type(self).schedule != FusionDefinition.schedule
         assert not (
             defined_multidevice_schedule and defined_schedule
         ), "I haven't tested what if both are defined. We don't plan to support this use case although it may just work."
 
         if defined_multidevice_schedule:
+            # Unlike `schedule`, `multidevice_schedule` is designed for inter-device
+            # scheduling, The scheduling is done before concretization and therefore
+            # before pre-segmentation. `schedule` however assumes the FusionDefinition
+            # has been concretized and pre-segmented, and therefore requires
+            # `_setup_schedule` and `_finalize_schedule` to be called before and after.
+            #
+            # Note: there's a plan to embed multidevice schedules into FusionDefinition
+            # as annotating nodes. This may eventually replace `multidevice_schedule`.
             self.multidevice_schedule()
 
         # If schedule is defined by child class and schedule is not defined for
         # inputs, make a schedule.
-        if defined_schedule and not self._exist_schedule(inputs):
-            self._setup_schedule(inputs)
-            self.schedule()
-            self._finalize_schedule(inputs)
+        if defined_schedule:
+            # Schedule fusion if it does not exist yet or profiling fusion
+            if profile or not self._exist_schedule(inputs):
+                self._setup_schedule(inputs, overwrite_existing_schedule=profile)
+                self.schedule()
+                self._finalize_schedule(inputs)
 
         if save_repro_inputs:
             from torch._subclasses.fake_tensor import FakeTensorMode
@@ -367,24 +365,27 @@ class FusionDefinition(_C._FusionDefinition):
             msg += "\ninputs = [\n"
             for i in inputs:
                 if isinstance(i, torch.Tensor):
-                    # max linear index determines number of elements to generate
-                    sz = 1
-                    for szi, stri in zip(i.size(), i.stride()):
-                        if szi == 0:
-                            sz = 0
-                            break
-                        sz += (szi - 1) * stri
-                    if i.dtype.is_floating_point:
-                        msg += (
-                            f"    torch.randn({sz}, dtype={i.dtype}, device='{i.device}')"
-                            f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
-                        )
+                    if i.is_contiguous():
+                        msg += f"    torch.testing.make_tensor({tuple(i.size())}, dtype={i.dtype}, device='{i.device}'),\n"
                     else:
-                        upper_bound = 2 if i.dtype == torch.bool else 10
-                        msg += (
-                            f"    torch.randint(0, {upper_bound}, ({sz},), dtype={i.dtype}, device='{i.device}')"
-                            f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
-                        )
+                        # max linear index determines number of elements to generate
+                        sz = 1
+                        for szi, stri in zip(i.size(), i.stride()):
+                            if szi == 0:
+                                sz = 0
+                                break
+                            sz += (szi - 1) * stri
+                        if i.dtype.is_floating_point:
+                            msg += (
+                                f"    torch.randn({sz}, dtype={i.dtype}, device='{i.device}')"
+                                f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
+                            )
+                        else:
+                            upper_bound = 2 if i.dtype == torch.bool else 10
+                            msg += (
+                                f"    torch.randint(0, {upper_bound}, ({sz},), dtype={i.dtype}, device='{i.device}')"
+                                f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
+                            )
                 else:
                     input_as_string = str(i)
                     # `nan` and `inf` are stringified as is, which are not

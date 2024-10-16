@@ -145,7 +145,7 @@ class WarSyncInserter : private kir::ExprMutator {
     kir::ExprMutator::handle(ite);
   }
 
-  void handle(kir::BlockSync* sync) final {
+  void handleSync() {
     // Register the sync for the active for loop
     sync_hit_.back() = true;
     // Run through the active allocations, if a read was hit, register there was
@@ -159,18 +159,12 @@ class WarSyncInserter : private kir::ExprMutator {
     }
   }
 
-  void handle(kir::GridSync* sync) final {
-    // Register the sync for the active for loop
-    sync_hit_.back() = true;
-    // Run through the active allocations, if a read was hit, register there was
-    // a sync after the read. If there's subsequent reads on this buffer the
-    // sync_after_read will be cleared.
-    for (auto& entry : smem_allocations_) {
-      auto& alloc_stack = entry.second;
-      if (alloc_stack.back().read_hit) {
-        alloc_stack.back().sync_after_read = true;
-      }
-    }
+  void handle(kir::BlockSync*) final {
+    handleSync();
+  }
+
+  void handle(kir::GridSync*) final {
+    handleSync();
   }
 
   // Checks if fl or loops within it have hit a sync
@@ -668,7 +662,8 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
         // here, except for the initial load part, which is taken care
         // separately by CircularBufferInserter.
         if (tv->getMemoryType() == MemoryType::Shared &&
-            !tv->isCircularBuffered()) {
+            (!tv->isCircularBuffered() ||
+             tv->circularBufferPrefetchDistance() == 0)) {
           smem[tv] = expr;
 
           // only keep track of async writes in smem_async

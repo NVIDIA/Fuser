@@ -644,6 +644,54 @@ void initNvFuserPythonBindings(PyObject* module) {
         return ss.str();
       });
 
+  // Base class for scheduler parameters
+  py::class_<HeuristicParams> heuristic_params(nvfuser, "HeuristicParams");
+  heuristic_params.def(
+      "__repr__", [](const HeuristicParams& self) { return self.toString(); });
+
+  // Pointwise scheduler parameters
+  py::class_<PointwiseParams, HeuristicParams> pointwise_config(
+      nvfuser, "PointwiseParams");
+  pointwise_config.def(py::init());
+  pointwise_config.def_property(
+      "breakpoint",
+      [](PointwiseParams& self) { return self.break_point; },
+      [](PointwiseParams& self, int64_t break_point_) {
+        self.break_point = break_point_;
+      });
+  pointwise_config.def_property(
+      "split_block",
+      [](PointwiseParams& self) { return self.split_block; },
+      [](PointwiseParams& self, bool split_block_) {
+        self.split_block = split_block_;
+      });
+  pointwise_config.def_property(
+      "split_grid_y_dim",
+      [](PointwiseParams& self) { return self.split_grid_y_dim; },
+      [](PointwiseParams& self, bool split_grid_y_dim_) {
+        self.split_grid_y_dim = split_grid_y_dim_;
+      });
+  pointwise_config.def_property(
+      "flip_grid_binding",
+      [](PointwiseParams& self) { return self.flip_grid_binding; },
+      [](PointwiseParams& self, bool flip_grid_binding_) {
+        self.flip_grid_binding = flip_grid_binding_;
+      });
+  pointwise_config.def_property(
+      "vectorization_factor",
+      [](PointwiseParams& self) { return self.vectorization_factor; },
+      [](PointwiseParams& self, int64_t vectorization_factor_) {
+        self.vectorization_factor = vectorization_factor_;
+      });
+  pointwise_config.def_property(
+      "unroll_factor",
+      [](PointwiseParams& self) { return self.unroll_factor; },
+      [](PointwiseParams& self, int64_t unroll_factor_) {
+        self.unroll_factor = unroll_factor_;
+      });
+  pointwise_config.def(
+      "__repr__", [](const PointwiseParams& self) { return self.toString(); });
+
   //! KernelProfiles are encapsulated in FusionProfiles where each KP
   //! is associated with a segment.
   py::class_<KernelProfile> kernel_prof(nvfuser, "KernelProfile");
@@ -707,7 +755,7 @@ void initNvFuserPythonBindings(PyObject* module) {
     return self.kernel_time_ms;
   });
   fusion_prof.def_property_readonly(
-      "effective_bandwith_gbs",
+      "effective_bandwidth_gbs",
       [](FusionProfile& self) { return self.effective_bandwidth_gbs; });
   fusion_prof.def_property_readonly(
       "percentage_peak_bandwith",
@@ -799,15 +847,20 @@ void initNvFuserPythonBindings(PyObject* module) {
           })
       .def(
           "_setup_schedule",
-          [](FusionDefinition& self, const py::iterable& iter) {
+          [](FusionDefinition& self,
+             const py::iterable& iter,
+             bool overwrite_existing_schedule) {
             // Instrumentation to mark the beginning of a schedule
             inst::Trace::instance()->beginEvent("FusionDefinition Schedule");
             std::vector<c10::IValue> inputs;
             for (py::handle obj : iter) {
               inputs.push_back(torch::jit::toIValue(obj, c10::AnyType::get()));
             }
-            self.setupSchedule(inputs);
-          })
+            self.setupSchedule(inputs, overwrite_existing_schedule);
+          },
+          py::arg("inputs"),
+          py::kw_only(),
+          py::arg("overwrite_existing_schedule") = false)
       .def(
           "_finalize_schedule",
           [](FusionDefinition& self, const py::iterable& iter) {
@@ -2911,13 +2964,13 @@ void initNvFuserPythonBindings(PyObject* module) {
       "squeeze",
       [](FusionDefinition::Operators& self,
          Tensor arg,
-         std::vector<int64_t>& dims,
-         bool squeeze_expanded) -> Tensor {
+         std::vector<int64_t> dims,
+         const bool squeeze_expanded) -> Tensor {
         FUSER_PERF_SCOPE("Operators.squeeze");
         NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;
-        Tensor output = fd->defineTensor(arg.dims - 1);
+        Tensor output = fd->defineTensor(arg.dims - dims.size());
         fd->defineRecord(new SqueezeOpRecord(
             {fd->recordingState(arg())},
             {fd->recordingState(output())},
@@ -3587,6 +3640,25 @@ void initNvFuserPythonBindings(PyObject* module) {
         sched->scheduleWithType(scheduler_type);
       },
       py::arg("heuristic"));
+  nvf_sched.def("schedule", [](FusionDefinition::SchedOperators& self) {
+    NVF_CHECK(
+        self.validUse(),
+        "Attempting to use a SchedOperators Op prior to definition!");
+    UserSchedule* sched = self.fusion_definition->userSchedule();
+    sched->schedule();
+  });
+  nvf_sched.def(
+      "compute_pointwise_heuristics",
+      [](FusionDefinition::SchedOperators& self) -> PointwiseParams& {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        UserSchedule* sched = self.fusion_definition->userSchedule();
+        HeuristicParams* parameters =
+            sched->computeHeuristics(SchedulerType::PointWise);
+        return *parameters->as<PointwiseParams>();
+      },
+      py::return_value_policy::reference);
 }
 
 void cleanup() {

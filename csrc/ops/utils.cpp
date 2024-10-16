@@ -10,7 +10,7 @@
 
 #include <ir/builder.h>
 #include <ir/utils.h>
-#include <ops/arith.h>
+#include <ops/alias.h>
 #include <ops/utils.h>
 
 namespace nvfuser {
