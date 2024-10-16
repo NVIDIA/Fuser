@@ -95,7 +95,19 @@ void FusionState::buildFusionIr(Fusion* fusion) {
   auto fusion_guard = FusionGuard(fusion);
   for (auto& record : recording_) {
     auto functor = record.get();
-    (*functor)(*this);
+    try {
+      (*functor)(*this);
+    } catch (const std::exception& e) {
+      std::stringstream ss;
+      record->print(ss);
+
+      NVF_ERROR(
+          false,
+          "Detected exception while building Fusion Ir. The failing RecordFunctor is ",
+          ss.str(),
+          "\nNvFuser error message is printed below.\n",
+          e.what());
+    }
   }
 }
 
