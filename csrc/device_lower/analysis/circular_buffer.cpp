@@ -62,6 +62,14 @@ int64_t getCircularBufferAxisPosition(const TensorView* tv) {
   return valid_pos;
 }
 
+IterDomain* getCircularBufferAxis(const TensorView* tv) {
+  int64_t cb_axis = getCircularBufferAxisPosition(tv);
+  if (cb_axis == (int64_t)tv->getLoopDomain().size()) {
+    return nullptr;
+  }
+  return tv->axis(cb_axis);
+}
+
 // Initial inspection of a fusion to find and validate circular buffered tensors
 class CircularBufferFusionInspector : private IterVisitor {
  public:
@@ -81,19 +89,12 @@ class CircularBufferFusionInspector : private IterVisitor {
     NVF_ERROR(
         tv->definition(), "Fusion input shouldn't be circular buffered.", tv);
 
-    validateCircularBufferedTensor(tv);
-
-    IterDomain* cb_axis = getCircularBufferAxis(tv);
-    NVF_ERROR(cb_axis != nullptr);
-
-    db_info_.setCircularBufferAxis(tv, cb_axis);
+    db_info_.setCircularBufferAxis(tv);
   }
 
  private:
   CircularBufferInfo& db_info_;
 };
-
-} // namespace
 
 void validateCircularBufferedTensor(const TensorView* tv) {
   int64_t circular_buffer_pos = getCircularBufferAxisPosition(tv);
@@ -151,6 +152,8 @@ void validateCircularBufferedTensor(const TensorView* tv) {
   return;
 }
 
+} // namespace
+
 void CircularBufferInfo::build(Fusion* fusion) {
   CircularBufferFusionInspector inspector(fusion, *this);
 
@@ -189,10 +192,14 @@ const CircularBufferInfo::TvInfo& CircularBufferInfo::getTvInfo(
   return map_.at(tv);
 }
 
-void CircularBufferInfo::setCircularBufferAxis(
-    const TensorView* tv,
-    IterDomain* axis) {
+void CircularBufferInfo::setCircularBufferTv(const TensorView* tv) {
+  IterDomain* cb_axis = getCircularBufferAxis(tv);
+  NVF_ERROR(cb_axis != nullptr);
+
+  validateCircularBufferedTensor(tv);
+
   getTvInfo(tv).circular_buffer_axis = axis;
+  circular_buffer_tvs_[axis].push_back(tv);
   // Set and validate the new stage depth.
   setStageDepthAndPrefetchDistance(
       axis, tv->circularBufferDepth(), tv->circularBufferPrefetchDistance());
@@ -294,6 +301,22 @@ ForLoop* CircularBufferInfo::getCircularBufferLoop(
   return getCircularBufferLoop(axis, loops, ignore_prologue);
 }
 
+std::vector<TensorView*>& CircularBufferInfo::getCircularBufferTvs(ForLoop* axis) const {
+  return getCircularBufferTvs(axis->iter_domain());
+}
+
+std::vector<TensorView*>& CircularBufferInfo::getCircularBufferTvs(IterDomain* axis) const {
+  auto concrete_id = lower_utils::getConcreteLoopID(axis);
+
+  auto maybe_tvs_it = circular_buffer_tvs_.find(concrete_id);
+
+  if (maybe_tvs_it == circular_buffer_tvs_.end()) {
+    return {};
+  }
+
+  return maybe_tvs_it->second;
+}
+
 void CircularBufferInfo::setOriginalAllocSize(
     const TensorView* tv,
     Val* original_alloc_size) {
@@ -317,14 +340,6 @@ std::vector<const TensorView*> CircularBufferInfo::getCircularBufferTvs()
         return pair.first;
       });
   return keys;
-}
-
-IterDomain* getCircularBufferAxis(const TensorView* tv) {
-  int64_t cb_axis = getCircularBufferAxisPosition(tv);
-  if (cb_axis == (int64_t)tv->getLoopDomain().size()) {
-    return nullptr;
-  }
-  return tv->axis(cb_axis);
 }
 
 } // namespace nvfuser
