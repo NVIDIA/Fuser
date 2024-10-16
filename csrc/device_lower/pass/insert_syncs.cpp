@@ -381,7 +381,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       // async op. However, if the output is a terminating fusion output, there
       // will be no first read, but still, we need to wait for it to complete
       // before exiting the kernel.
-      async_exprs_writing_fusion_output_.insert(expr);
+      async_exprs_writing_fusion_output_.push_back(expr);
     }
 
     if (auto mma = dynamic_cast<MmaOp*>(expr)) {
@@ -416,7 +416,13 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       for (auto op : ops) {
         // Already waited for the write to complete, so no need to wait again
         // before exiting the kernel.
-        async_exprs_writing_fusion_output_.erase(op);
+        auto it = std::find(
+            async_exprs_writing_fusion_output_.begin(),
+            async_exprs_writing_fusion_output_.end(),
+            op);
+        if (it != async_exprs_writing_fusion_output_.end()) {
+          async_exprs_writing_fusion_output_.erase(it);
+        }
       }
     }
 
