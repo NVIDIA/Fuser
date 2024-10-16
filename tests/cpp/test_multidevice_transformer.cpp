@@ -52,11 +52,6 @@ void validate(
     const std::vector<at::Tensor>& expected_outputs,
     const std::vector<at::Tensor>& outputs,
     const std::vector<double>& atols) {
-  for (auto i : c10::irange(expected_outputs.size())) {
-    std::cout << i << " " << outputs[i].sizes() << " "
-              << expected_outputs[i].sizes() << std::endl;
-  }
-
   using testing::SizeIs;
   const auto num_outputs = outputs.size();
   ASSERT_THAT(expected_outputs, SizeIs(num_outputs));
