@@ -718,6 +718,9 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
 
     kir::ExprMutator::traverseAndInsert(_exprs);
 
+    // If there are async exprs writing to fusion output that is not
+    // being waited yet, we need to insert the wait before exiting the
+    // kernel.
     for (auto expr : async_exprs_writing_fusion_output_) {
       auto async_type = ir_utils::getAsyncOpType(expr);
       auto sync_exprs = lower_utils::getSyncExprs(async_type, 0);
@@ -747,6 +750,11 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
   //! cp.async wait.
   std::deque<std::unordered_set<Expr*>> last_cpasync_writes_;
 
+  //! Async expressions writing to non-terminating fusion outputs.
+  //! These expressions need special logic to handle because typically, we
+  //! insert waits before the first read. However, for the output of these
+  //! expressions, there is no "first read", but still, to be waited before
+  //! exiting the kernel.
   std::vector<Expr*> async_exprs_writing_fusion_output_;
 
  public:
@@ -756,6 +764,18 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
   }
 };
 
+// Insert wait expressions for WAR harzard for async operations such as wgmma
+// and tma store. To do so, we find the structure like the following example:
+//   for 1
+//     for 2
+//       for 3
+//         T1 = async_op(...)
+//     for 4
+//       for 5
+//         T2 = expr(T1, ...)
+// In the above example, we need to insert a wait expression for T1 at the end
+// of loop 1, because otherwise, the T1 = async_op(...) in the next iteration
+// will overwrite the operand of the T2 = expr(T1, ...).
 class WarAsyncWaitInserter : private kir::ExprMutator {
  public:
   static std::vector<Expr*> insert(const std::vector<Expr*>& exprs) {
