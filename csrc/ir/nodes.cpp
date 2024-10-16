@@ -4094,7 +4094,7 @@ SliceOp::SliceOp(
     TensorView* inp,
     const std::vector<Slice>& ranges)
     : Expr(passkey) {
-  const auto ndims = TensorDomain::noReductions(inp->getLogicalDomain()).size();
+  size_t ndims = TensorDomain::noReductions(inp->getLogicalDomain()).size();
   NVF_ERROR(
       ndims == ranges.size(),
       "The range vector must have the same number of Slice descriptors. Given: ",
@@ -4526,7 +4526,8 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
               /*return_debug_mask=*/false,
               scale);
 
-  // If the inputs were padded, slice the output to restore the original size
+  // If the inputs were padded, slice the output to restore the original
+  // size
   if (output.size(-1) != last_dim_size) {
     output = output.slice(-1, 0, last_dim_size);
   }
@@ -4539,8 +4540,8 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
 
   // We ignore cum_seq_q/k outputs since they are undefined tensors for
   // non-nested tensors. We do not store query/key_seq_len since they can be
-  // computed in non-nested tensor directly. debug_attn_mask is ignored since
-  // `return_debug_mask=false`.
+  // computed in non-nested tensor directly. debug_attn_mask is ignored
+  // since `return_debug_mask=false`.
   return {output, log_sumexp, philox_seed, philox_offset};
 }
 
@@ -4625,7 +4626,8 @@ ForLoop::ForLoop(
     bool vectorize,
     Val* vectorize_shift,
     bool unroll_required,
-    CircularBufferLoopStage circular_buffer_loop_stage)
+    CircularBufferLoopStage circular_buffer_loop_stage,
+    int64_t circular_buffer_loop_stage_depth)
     : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
@@ -4662,8 +4664,9 @@ ForLoop::ForLoop(
   addAttribute(vectorize_shift);
   addDataAttribute(unroll_required);
   addDataAttribute(circular_buffer_loop_stage);
-  // Storing IR nodes as Attribute is not safe with IrCloner, but fortunately
-  // kernel IR does not need this feature.
+  addDataAttribute(circular_buffer_loop_stage_depth);
+  // Storing IR nodes as Attribute is not safe with IrCloner, but
+  // fortunately kernel IR does not need this feature.
   addDataAttribute(Scope(this));
 }
 
@@ -4671,7 +4674,8 @@ ForLoop::ForLoop(
     IrBuilderPasskey passkey,
     IterDomain* iter_domain,
     Val* index,
-    CircularBufferLoopStage circular_buffer_loop_stage)
+    CircularBufferLoopStage circular_buffer_loop_stage,
+    int64_t circular_buffer_loop_stage_depth)
     : ForLoop(
           passkey,
           iter_domain,
@@ -4683,14 +4687,16 @@ ForLoop::ForLoop(
               isParallelTypeVectorize(iter_domain->getParallelType()),
           nullptr,
           false,
-          circular_buffer_loop_stage) {}
+          circular_buffer_loop_stage,
+          circular_buffer_loop_stage_depth) {}
 
 ForLoop::ForLoop(IrBuilderPasskey passkey, IterDomain* iter_domain)
     : ForLoop(
           passkey,
           iter_domain,
           GpuLower::current()->getLoopIndexVariable(iter_domain),
-          CircularBufferLoopStage::NotApplicable) {}
+          CircularBufferLoopStage::NotApplicable,
+          0) {}
 
 ForLoop::ForLoop(IrBuilderPasskey passkey, const ForLoop* other)
     : ForLoop(
@@ -4703,7 +4709,8 @@ ForLoop::ForLoop(IrBuilderPasskey passkey, const ForLoop* other)
           other->vectorize(),
           other->vectorize_shift(),
           other->isUnrollRequired(),
-          other->circularBufferLoopStage()) {}
+          other->circularBufferLoopStage(),
+          other->circularBufferLoopStageDepth()) {}
 
 std::string ForLoop::toString(int indent_size) const {
   std::stringstream ss;
@@ -4973,9 +4980,8 @@ std::string SdpaBwdOp::toInlineString(int indent_size) const {
 std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-  // Backward tensor inputs: grad_input, query, key, value, output, logsumexp,
-  // max_q/k
-  // Temporary handling of DID parallelization. See
+  // Backward tensor inputs: grad_input, query, key, value, output,
+  // logsumexp, max_q/k Temporary handling of DID parallelization. See
   // https://github.com/NVIDIA/Fuser/issues/2563
   bool first_dim_is_did = this->key()->as<TensorView>()->axis(0)->isDeviceDim();
   std::vector<at::Tensor> bwd_inputs;

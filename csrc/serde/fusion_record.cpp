@@ -541,7 +541,8 @@ void RecordFunctorFactory::registerAllParsers() {
     return new python_frontend::SqueezeOpRecord(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
-        parseVector(data->squeeze_dims()));
+        parseVector(data->squeeze_dims()),
+        data->squeeze_expanded());
   };
   registerParser(RecordType::SqueezeOp, deserializeSqueezeRecord);
 

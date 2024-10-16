@@ -1167,12 +1167,13 @@ indexMapFromTV(
     }
 
     if (loop == circular_buffer_loop) {
-      const int64_t stage_depth =
-          GpuLower::current()->circularBufferInfo().getStageDepthFor(
+      const int64_t prefetch_distance =
+          GpuLower::current()->circularBufferInfo().getPrefetchDistanceFor(
               loop->iter_domain());
       idx = SimplifyingIrBuilder::addExpr(
           idx,
-          SimplifyingIrBuilder::create<Val>(stage_depth - 1L, DataType::Index));
+          SimplifyingIrBuilder::create<Val>(
+              prefetch_distance, DataType::Index));
     }
 
     loop_to_ind_map[loop] = idx;
@@ -2027,6 +2028,9 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
         consumer_tv, loops);
     int64_t stage_depth = gpu_lower->circularBufferInfo().getStageDepthFor(
         db_loop->iter_domain());
+    int64_t prefetch_distance =
+        gpu_lower->circularBufferInfo().getPrefetchDistanceFor(
+            db_loop->iter_domain());
     bool is_circular_buffer_loop = stage_depth > 2;
     bool is_prolog =
         db_loop->circularBufferLoopStage() == CircularBufferLoopStage::Prolog;
@@ -2057,7 +2061,7 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
             SimplifyingIrBuilder::addExpr(
                 loop_index,
                 SimplifyingIrBuilder::create<Val>(
-                    stage_depth - 1, DataType::Index)),
+                    prefetch_distance, DataType::Index)),
             SimplifyingIrBuilder::create<Val>(stage_depth, DataType::Index));
       }
 

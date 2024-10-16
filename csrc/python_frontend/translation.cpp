@@ -7,6 +7,8 @@
 // clang-format on
 //
 #include <dispatch.h>
+#include <ir/utils.h>
+#include <ops/all_ops.h>
 #include <python_frontend/translation.h>
 #include <python_frontend/translation_utils.h>
 
@@ -356,6 +358,31 @@ class FusionTranslator : public OptInConstDispatch {
     createScalar(v);
   }
 
+  // Create python_frontend Vector from a vector of CPP scalar values.
+  Vector createVector(std::vector<Val*> scalars) {
+    // Add CPP values to Fusion Definition if necessary
+    std::for_each(scalars.begin(), scalars.end(), [this](const Val* v) {
+      OptOutConstDispatch::dispatch(v);
+    });
+
+    // Get corresponding index for CPP values
+    std::vector<State> inputs;
+    std::transform(
+        scalars.begin(),
+        scalars.end(),
+        std::back_inserter(inputs),
+        [&](Val* v) {
+          return fd_->recordingState(map_val_to_fd_index_.at(v));
+        });
+
+    // NOTE There is not an equivalent CPP class for python-frontend vector,
+    // so we do not add it to map_val_to_fd_index_.
+    Vector output = fd_->defineVector(inputs.size());
+    fd_->defineRecord(new VectorRecord(
+        inputs, {fd_->recordingState(output())}, DataType::Int));
+    return output;
+  }
+
   // Add Tensor value to Fusion Definition
   void handle(const TensorView* tv) final {
     // short-circuit: value already exists in FusionDefinition
@@ -384,6 +411,24 @@ class FusionTranslator : public OptInConstDispatch {
         std::get<PrimDataType>(tv->dtype().type),
         tv->isCpuScalar(),
         tv->domain()->strideOrder()));
+  }
+
+  // =================================================================================
+  // Utility functions
+
+  // Create a vector for the logical domain of TensorView.
+  // Used with ViewOp and ExpandOp handlers
+  Vector getShape(TensorView* tv) {
+    const std::vector<IterDomain*>& logical_out_domain =
+        tv->domain()->logical();
+    std::vector<Val*> logical_domain_extents;
+    // Use expanded extent if available for IterDomain.
+    std::transform(
+        logical_out_domain.begin(),
+        logical_out_domain.end(),
+        std::back_inserter(logical_domain_extents),
+        [](IterDomain* id) { return id->getMaybeExpandedExtent(); });
+    return createVector(logical_domain_extents);
   }
 
   // =================================================================================
@@ -623,6 +668,74 @@ class FusionTranslator : public OptInConstDispatch {
     }
   }
 
+  // Map ReductionOp to python frontend
+  void handle(const ReductionOp* rop) final {
+    TensorView* out_tv = rop->out()->as<TensorView>();
+
+    std::vector<int64_t> axes;
+    const std::vector<IterDomain*>& logical_domain =
+        out_tv->domain()->logical();
+    for (int64_t dim : c10::irange((int64_t)logical_domain.size())) {
+      if (logical_domain.at(dim)->isReduction()) {
+        axes.push_back(dim);
+      }
+    }
+
+    // The min and max reduction operations expect the dtype argument to be
+    // PrimDataType::Null
+    PrimDataType dtype = (rop->getReductionOpType() == BinaryOpType::Min ||
+                          rop->getReductionOpType() == BinaryOpType::Max)
+        ? PrimDataType::Null
+        : std::get<PrimDataType>(rop->out()->dtype().type);
+
+    Tensor output = fd_->defineTensor(out_tv->nDims());
+    map_val_to_fd_index_.emplace(rop->out(), output());
+    fd_->defineRecord(new ReductionOpRecord(
+        {fd_->recordingState(map_val_to_fd_index_.at(rop->in()))},
+        {fd_->recordingState(output())},
+        "ops." + getString(rop),
+        getSerdeType(rop),
+        getFunction<
+            TensorView*,
+            TensorView*,
+            const std::vector<int64_t>&,
+            bool,
+            DataType>(rop),
+        axes,
+        /*keep_dim=*/false,
+        dtype));
+  }
+
+  // If input and output values share the same type, a LoadStoreOp will be
+  // created instead of a CastOp.
+  void handle(const LoadStoreOp* lsop) final {
+    // short-circuit: lsop is a permutation.
+    if (lsop->out()->isA<TensorView>() &&
+        lsop->out()->as<TensorView>()->hasRoot()) {
+      return handlePermute(lsop);
+    }
+
+    // Skip set unary operation
+    size_t input_fid = map_val_to_fd_index_.at(lsop->in());
+    map_val_to_fd_index_.emplace(lsop->out(), input_fid);
+  }
+
+  void handlePermute(const LoadStoreOp* lsop) {
+    TensorView* out_tv = lsop->out()->as<TensorView>();
+
+    std::optional<std::vector<int64_t>> new2old = ir_utils::computePermutation(
+        out_tv->getRootDomain(), out_tv->getLogicalDomain());
+    NVF_ERROR(new2old.has_value(), "Expected permutation");
+
+    Tensor output = fd_->defineTensor(out_tv->nDims());
+    map_val_to_fd_index_.emplace(out_tv, output());
+    fd_->defineRecord(new DimsOpRecord<serde::RecordType::PermuteOp>(
+        {fd_->recordingState(map_val_to_fd_index_.at(lsop->in()))},
+        {fd_->recordingState(output())},
+        std::move(new2old.value()),
+        "ops.permute"));
+  }
+
   // Add Broadcast operation to FusionDefinition
   void handle(const BroadcastOp* bcast_op) final {
     Tensor output =
@@ -633,6 +746,217 @@ class FusionTranslator : public OptInConstDispatch {
         "ops.broadcast",
         bcast_op->getBroadcastDimFlags()));
     map_val_to_fd_index_.emplace(bcast_op->out(), output());
+  }
+
+  // Map SqueezeOp to python frontend
+  void handle(const SqueezeOp* sop) final {
+    std::vector<int64_t> squeeze_dims;
+    const std::vector<bool>& is_squeeze_dims = sop->getSqueezeDimFlags();
+    for (int64_t dim : c10::irange((int64_t)is_squeeze_dims.size())) {
+      if (is_squeeze_dims.at(dim)) {
+        squeeze_dims.push_back(dim);
+      }
+    }
+
+    // Always squeeze_expanded dimensions
+    Tensor output = fd_->defineTensor(sop->out()->as<TensorView>()->nDims());
+    map_val_to_fd_index_.emplace(sop->out(), output());
+    fd_->defineRecord(new SqueezeOpRecord(
+        {fd_->recordingState(map_val_to_fd_index_.at(sop->in()))},
+        {fd_->recordingState(output())},
+        squeeze_dims,
+        /*squeeze_expanded=*/true));
+  }
+
+  // Map ViewOp to python frontend
+  void handle(const ViewOp* vop) final {
+    // Get extent's for output's logical domain
+    TensorView* out_tv = vop->out()->as<TensorView>();
+    Vector new_shape = getShape(out_tv);
+
+    Tensor output = fd_->defineTensor(out_tv->nDims());
+    map_val_to_fd_index_.emplace(out_tv, output());
+    fd_->defineRecord(new ReshapeOpRecord(
+        {fd_->recordingState(map_val_to_fd_index_.at(vop->in())),
+         fd_->recordingState(new_shape())},
+        {fd_->recordingState(output())}));
+  }
+
+  // Map ExpandOp to python frontend
+  void handle(const ExpandOp* eop) final {
+    TensorView* in_tv = eop->in()->as<TensorView>();
+    TensorView* out_tv = eop->out()->as<TensorView>();
+    NVF_ERROR(in_tv->nDims() == out_tv->nDims());
+    Vector new_shape = getShape(out_tv);
+
+    Tensor output = fd_->defineTensor(out_tv->nDims());
+    map_val_to_fd_index_.emplace(out_tv, output());
+    fd_->defineRecord(new ExpandOpRecord(
+        {fd_->recordingState(map_val_to_fd_index_.at(eop->in())),
+         fd_->recordingState(new_shape())},
+        {fd_->recordingState(output())}));
+  }
+
+  // Map SliceOp to python frontend
+  void handle(const SliceOp* sop) final {
+    std::vector<nvfuser::Slice> slices = sop->getRanges();
+
+    std::vector<Val*> start_indices;
+    start_indices.reserve(slices.size());
+
+    std::vector<Val*> stop_indices;
+    stop_indices.reserve(slices.size());
+
+    std::vector<Val*> strides;
+    strides.reserve(slices.size());
+
+    for (const nvfuser::Slice& s : slices) {
+      start_indices.push_back(s.start);
+      stop_indices.push_back(s.stop);
+      strides.push_back(s.step);
+    }
+
+    Vector new_start = createVector(start_indices);
+    Vector new_stop = createVector(stop_indices);
+    Vector new_strides = createVector(strides);
+
+    Tensor output = fd_->defineTensor(sop->out()->as<TensorView>()->nDims());
+    map_val_to_fd_index_.emplace(sop->out(), output());
+    fd_->defineRecord(new SliceOpRecord(
+        {fd_->recordingState(map_val_to_fd_index_.at(sop->in())),
+         fd_->recordingState(new_start()),
+         fd_->recordingState(new_stop()),
+         fd_->recordingState(new_strides())},
+        {fd_->recordingState(output())}));
+  }
+
+  // Map RNGOp to RandomDistOpRecord
+  void handle(const RNGOp* rop) final {
+    TensorView* out_tv = rop->output(0)->as<TensorView>();
+    Tensor output = fd_->defineTensor(out_tv->nDims());
+    map_val_to_fd_index_.emplace(out_tv, output());
+
+    std::vector<State> arg_states;
+
+    // arg1 and arg2 are minval and maxval for uniform.
+    // arg1 and arg2 are mean and std for normal.
+    std::vector<Val*> params = rop->getParameters();
+    if (params.empty()) {
+      // Default arg1 and arg2 is (0, 1) for both uniform and normal.
+      Scalar zero_value = createScalar(fusion_->zeroVal());
+      Scalar one_value = createScalar(fusion_->oneVal());
+      arg_states.push_back(fd_->recordingState(zero_value()));
+      arg_states.push_back(fd_->recordingState(one_value()));
+    } else {
+      NVF_ERROR(
+          params.size() == 2,
+          "Expect only two parameters for uniform and normal random ops.");
+      std::transform(
+          params.begin(),
+          params.end(),
+          std::back_inserter(arg_states),
+          [&](Val* v) {
+            return fd_->recordingState(map_val_to_fd_index_.at(v));
+          });
+    }
+
+    Vector out_shape = createVector(rop->getShape());
+    arg_states.push_back(fd_->recordingState(out_shape()));
+
+    // The philox seed and offset are optional.
+    if (rop->getRNGSeedVal() != nullptr) {
+      arg_states.push_back(
+          fd_->recordingState(map_val_to_fd_index_.at(rop->getRNGSeedVal())));
+    }
+    if (rop->getRNGOffsetVal() != nullptr) {
+      arg_states.push_back(
+          fd_->recordingState(map_val_to_fd_index_.at(rop->getRNGOffsetVal())));
+    }
+
+    switch (rop->getRNGOpType()) {
+      case RNGOpType::Uniform:
+      case RNGOpType::UniformRange:
+        fd_->defineRecord(
+            new RandomDistOpRecord<serde::RecordType::UniformDistOp>(
+                arg_states,
+                {fd_->recordingState(output())},
+                std::get<PrimDataType>(out_tv->dtype().type)));
+        break;
+      case RNGOpType::NormalStandard:
+      case RNGOpType::NormalGeneral:
+        fd_->defineRecord(
+            new RandomDistOpRecord<serde::RecordType::NormalDistOp>(
+                arg_states,
+                {fd_->recordingState(output())},
+                std::get<PrimDataType>(out_tv->dtype().type)));
+        break;
+      default:
+        NVF_ERROR(false, "Unsupported RNGOpType.");
+    }
+  }
+
+  // Map LinearOp to python frontend
+  void handle(const LinearOp* lop) final {
+    TensorView* out_tv = lop->out()->as<TensorView>();
+    Tensor output = fd_->defineTensor(out_tv->nDims());
+    map_val_to_fd_index_.emplace(out_tv, output());
+
+    if (lop->bias() != nullptr) {
+      fd_->defineRecord(
+          new OpRecord<TensorView*, TensorView*, TensorView*, TensorView*>(
+              {fd_->recordingState(map_val_to_fd_index_.at(lop->inA())),
+               fd_->recordingState(map_val_to_fd_index_.at(lop->inB())),
+               fd_->recordingState(map_val_to_fd_index_.at(lop->bias()))},
+              {fd_->recordingState(output())},
+              ("ops.linear"),
+              serde::RecordType::Ternary_TV,
+              static_cast<
+                  TensorView* (*)(TensorView*, TensorView*, TensorView*)>(
+                  linear)));
+    } else {
+      fd_->defineRecord(new OpRecord<TensorView*, TensorView*, TensorView*>(
+          {fd_->recordingState(map_val_to_fd_index_.at(lop->inA())),
+           fd_->recordingState(map_val_to_fd_index_.at(lop->inB()))},
+          {fd_->recordingState(output())},
+          ("ops.linear"),
+          serde::RecordType::Binary_TV,
+          static_cast<TensorView* (*)(TensorView*, TensorView*)>(linear)));
+    }
+  }
+
+  // Map FullOp to python frontend
+  void handle(const FullOp* fop) final {
+    TensorView* out_tv = fop->output(0)->as<TensorView>();
+    Vector tensor_shape = getShape(out_tv);
+
+    Scalar fill_value = createScalar(fop->getFillValue());
+
+    Tensor output = fd_->defineTensor(out_tv->nDims());
+    map_val_to_fd_index_.emplace(out_tv, output());
+
+    fd_->defineRecord(new FullOpRecord(
+        {fd_->recordingState(tensor_shape()),
+         fd_->recordingState(fill_value())},
+        {fd_->recordingState(output())},
+        std::get<PrimDataType>(out_tv->dtype().type)));
+  }
+
+  // Map IotaOp to python frontend
+  void handle(const IotaOp* iop) final {
+    TensorView* out_tv = iop->output(0)->as<TensorView>();
+    Tensor output = fd_->defineTensor(out_tv->nDims());
+    map_val_to_fd_index_.emplace(out_tv, output());
+
+    Scalar length = createScalar(iop->length());
+    Scalar start = createScalar(iop->start());
+    Scalar step = createScalar(iop->step());
+
+    fd_->defineRecord(new IotaOpRecord(
+        {fd_->recordingState(length()),
+         fd_->recordingState(start()),
+         fd_->recordingState(step())},
+        {fd_->recordingState(output())},
+        std::get<PrimDataType>(iop->dtype().type)));
   }
 
  private:
