@@ -635,7 +635,7 @@ std::vector<TensorView*> mha_backwards(
       sdpa_grad.grad_query,
       sdpa_grad.grad_key,
       sdpa_grad.grad_value,
-      linear0_grads.grad_w, // todo failing point tolerance wise
+      linear0_grads.grad_w,
       linear0_grads.grad_b,
       linear0_grads.grad_x};
 }
@@ -995,7 +995,7 @@ TEST_P(DistributedTransformerTest, Forward) {
   auto resid1 = add(resid0, mlp_out);
 
   fusion->addOutput(ln0.output);
-  fusion->addOutput(mha_out); // failing starting here
+  fusion->addOutput(mha_out);
   fusion->addOutput(ln1.output);
   fusion->addOutput(mlp_out);
   fusion->addOutput(resid1);
