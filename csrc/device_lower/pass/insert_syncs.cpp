@@ -935,13 +935,14 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
   //   transaction 3: wgmma 4, wgmma 5
   // If we do wgmma.wait_group.sync.aligned 1, then we will wait until there is
   // at most 1 pending transaction. In this case, we will wait until transaction
-  // 1 and transaction 2 is finished. This function calculates the "pending_ops".
-  // Typically, the "pending_ops" is just 0, i.e., wait until all pending ops
-  // are finished. But in some cases, especially for the expression that consumes
-  // the circular buffered tensor, the "pending_ops" can be larger than 0, depending
-  // on the prefetch distance and the stage depth of the circular buffer loop.
-  // When the prefetch distance is smaller than stage_depth - 1, we have have buffers
-  // for eliminating WAR harzards, so we can allow more pending transactions.
+  // 1 and transaction 2 is finished. This function calculates the
+  // "pending_ops". Typically, the "pending_ops" is just 0, i.e., wait until all
+  // pending ops are finished. But in some cases, especially for the expression
+  // that consumes the circular buffered tensor, the "pending_ops" can be larger
+  // than 0, depending on the prefetch distance and the stage depth of the
+  // circular buffer loop. When the prefetch distance is smaller than
+  // stage_depth - 1, we have have buffers for eliminating WAR harzards, so we
+  // can allow more pending transactions.
   int64_t getPendingOpsFor(Expr* expr, ForLoop* current_loop) {
     auto for_loops_including_current = for_loops_;
     for_loops_including_current.push_back(current_loop);
@@ -992,6 +993,8 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
     // Insert async wait at the end of this for loop
     if (within_iter_loop_) {
       std::unordered_map<AsyncOpType, int64_t> types_and_pending_ops_to_protect;
+
+      // Gather the information on what wait expressions we should insert.
       for (auto it = async_exprs_to_protect_.begin();
            it != async_exprs_to_protect_.end();) {
         auto expr = *it;
@@ -1006,6 +1009,9 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
         }
         int64_t pending_ops = getPendingOpsFor(expr, for_loop);
         auto type = ir_utils::getAsyncOpType(expr);
+        // If there are multiple async ops of the same type to protect, we will
+        // only insert a single wait expressions with the smallest
+        // "pending_ops".
         if (types_and_pending_ops_to_protect.count(type)) {
           auto& pending_ops_to_protect = types_and_pending_ops_to_protect[type];
           pending_ops_to_protect =
@@ -1016,6 +1022,7 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
         it = async_exprs_to_protect_.erase(it);
       }
 
+      // Actually insert these wait expressions.
       for (auto [type, pending_ops] : types_and_pending_ops_to_protect) {
         auto sync_exprs = lower_utils::getSyncExprs(type, pending_ops);
         while (!sync_exprs.empty()) {
