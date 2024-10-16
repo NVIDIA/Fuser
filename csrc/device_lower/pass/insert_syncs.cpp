@@ -897,17 +897,14 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
       }
 
       for (auto [type, pending_ops] : types_and_pending_ops_to_protect) {
-        auto commit = IrBuilder::create<kir::AsyncCommit>(type);
-        auto wait = IrBuilder::create<kir::AsyncWait>(type, pending_ops);
-        if (type == AsyncOpType::CpAsyncBulk) {
-          auto fence_async = IrBuilder::create<kir::FenceAsyncProxy>();
+        auto sync_exprs = lower_utils::getSyncExprs(type, pending_ops);
+        while (!sync_exprs.empty()) {
           registerInsertAfter(
-              for_loop->body().exprs().back(), fence_async, &for_loop->body());
+              for_loop->body().exprs().back(),
+              sync_exprs.back(),
+              &for_loop->body());
+          sync_exprs.pop_back();
         }
-        registerInsertAfter(
-            for_loop->body().exprs().back(), wait, &for_loop->body());
-        registerInsertAfter(
-            for_loop->body().exprs().back(), commit, &for_loop->body());
       }
     }
 

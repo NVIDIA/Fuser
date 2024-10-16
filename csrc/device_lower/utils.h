@@ -375,7 +375,9 @@ bool allMmaInputsGuardedByMBarrier(const MmaOp* mma);
 // will be:
 //   wgmma.commit_group.sync.aligned
 //   wgmma.wait_group.sync.aligned
-std::vector<Expr*> getSyncExprs(AsyncOpType op_type, int64_t keep_stages = 0);
+std::vector<Expr*> getSyncExprs(
+    AsyncOpType async_type,
+    int64_t keep_stages = 0);
 
 } // namespace lower_utils
 
