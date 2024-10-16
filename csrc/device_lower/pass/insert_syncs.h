@@ -29,6 +29,11 @@ std::vector<Expr*> insertWarThreadSynchronization(
 std::vector<Expr*> insertRawThreadSynchronization(
     const std::vector<Expr*>& exprs);
 
-//! TODO comment
+//! Insert wait expressions such as wgmma.wait_group.sync.aligned at end of
+//! for-loops for async expressions to prevent write-after-read race condition.
+//!
+//! WAR race condition occurs when the next iteration of the loop overwrites
+//! the buffer before a previous async expression has finished reading it.
 std::vector<Expr*> insertWarAsyncWait(const std::vector<Expr*>& exprs);
+
 } // namespace nvfuser
