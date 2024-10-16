@@ -398,13 +398,12 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
     for (const auto& [async_type, ops] : input_async_ops) {
       auto commit = IrBuilder::create<kir::AsyncCommit>(async_type);
       auto wait = IrBuilder::create<kir::AsyncWait>(async_type, 0);
-      if (async_type == AsyncOpType::CpAsyncBulk) {
-        auto fence_async = IrBuilder::create<kir::FenceAsyncProxy>();
-        registerInsertAfter(
-            for_loop->body().exprs().back(), fence_async, &for_loop->body());
-      }
       insertSyncExpr(ops, expr, commit, nullptr);
       insertSyncExpr(ops, expr, wait, nullptr);
+      if (async_type == AsyncOpType::CpAsyncBulk) {
+        auto fence_async = IrBuilder::create<kir::FenceAsyncProxy>();
+        insertSyncExpr(ops, expr, fence_async, nullptr);
+      }
     }
 
     // An identical but separate flow of timing for cpasync_wait.
