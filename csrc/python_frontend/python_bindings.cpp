@@ -2964,13 +2964,13 @@ void initNvFuserPythonBindings(PyObject* module) {
       "squeeze",
       [](FusionDefinition::Operators& self,
          Tensor arg,
-         std::vector<int64_t>& dims,
-         bool squeeze_expanded) -> Tensor {
+         std::vector<int64_t> dims,
+         const bool squeeze_expanded) -> Tensor {
         FUSER_PERF_SCOPE("Operators.squeeze");
         NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;
-        Tensor output = fd->defineTensor(arg.dims - 1);
+        Tensor output = fd->defineTensor(arg.dims - dims.size());
         fd->defineRecord(new SqueezeOpRecord(
             {fd->recordingState(arg())},
             {fd->recordingState(output())},

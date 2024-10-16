@@ -310,6 +310,9 @@ TensorView* squeeze(
       IrBuilder::create<TensorDomain>(
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
       *x->getDataType());
+  if (x->hasDeviceMesh()) {
+    out->setDeviceMesh(x->getDeviceMesh());
+  }
 
   if (std::none_of(
           to_squeeze.begin(), to_squeeze.end(), [](bool b) { return b; })) {
@@ -924,12 +927,15 @@ TensorView* broadcast(
     ibdim++;
   }
 
-  TensorView* out_tensor = IrBuilder::create<TensorView>(
+  TensorView* out = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
       inp->getDataType().value());
-  IrBuilder::create<BroadcastOp>(out_tensor, inp, is_broadcast_dim);
-  return out_tensor;
+  if (inp->hasDeviceMesh()) {
+    out->setDeviceMesh(inp->getDeviceMesh());
+  }
+  IrBuilder::create<BroadcastOp>(out, inp, is_broadcast_dim);
+  return out;
 }
 
 TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
