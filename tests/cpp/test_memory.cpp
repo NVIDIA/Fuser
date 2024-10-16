@@ -1342,6 +1342,7 @@ TEST_F(TMAMiscTest, Repro1977) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
+// Test that if the async wait expressions for TMA store is inserted correctly
 TEST_F(TMAMiscTest, StoreSyncInsertion) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -1355,6 +1356,7 @@ TEST_F(TMAMiscTest, StoreSyncInsertion) {
   auto tv3 = set(tv2);
   fusion.addOutput(tv3);
 
+  // gmem -> smem -> gmem -> gmem copy kernel
   tv1->setMemoryType(MemoryType::Shared);
   tv2->setMemoryType(MemoryType::Global);
 
@@ -1385,8 +1387,20 @@ TEST_F(TMAMiscTest, StoreSyncInsertion) {
   };
 
   {
-    // No inline, there should only be a RAW sync inserted before the
-    // computation of tv3
+    // No inline, the kernel should look like:
+    //   for N/128/4: (loop 1)
+    //     for 4:
+    //       for 128:
+    //         TMA load;
+    //   for N/128/4: (loop 2)
+    //     for 4:
+    //       for 128:
+    //         TMA store;
+    //   for N/128/4: (loop 3)
+    //     for 4:
+    //       for 128:
+    //         gmem->gmem copy;
+    // There should only be a RAW sync inserted before loop 3
     GpuLower gpulw(&fusion);
     auto kernel = gpulw.run();
 
