@@ -194,10 +194,10 @@ void FusionDefinition::verifyTensorDimensions() {
   NVF_CHECK(id().has_value(), "Invalid fusion id!");
 
   std::vector<Tensor> all_tensors = tensors();
-  for (Tensor& t : all_tensors) {
+  for (const Tensor& t : all_tensors) {
     Val* v = getFusionState(t.index);
-    NVF_ERROR(v->isA<TensorView>());
-    int64_t tv_ndims = v->as<TensorView>()->nDims();
+    NVF_ERROR(v->isA<TensorView>(), v->toString());
+    const int64_t tv_ndims = v->as<TensorView>()->nDims();
     NVF_ERROR(
         tv_ndims == (int64_t)t.dims,
         "Expected TensorView to have same number of dimensions as Tensor but got: ",
