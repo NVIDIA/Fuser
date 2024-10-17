@@ -252,7 +252,7 @@ def _sharded_linear_all_reduce(
 # backward nvFusion executed many times.
 #
 # For future reference, the nvFusions below are generated with Thunder version
-# https://github.com/Lightning-AI/lightning-thunder/commit/30e4aa1e67005c58219d7f06b46836eedb74b27a.
+# https://github.com/Lightning-AI/lightning-thunder/commit/953a91477cec792b6e694650cd2466b871af812d.
 # The Thunder traces are
 # https://gist.github.com/wujingyue/b111aa8b8d92067fc6004f5d0488dd27.
 #
