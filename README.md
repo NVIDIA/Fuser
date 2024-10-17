@@ -3,7 +3,7 @@
  * All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
 -->
-
+try ci
 # Fuser
 
 A Fusion Code Generator for NVIDIA GPUs (commonly known as "nvFuser")
