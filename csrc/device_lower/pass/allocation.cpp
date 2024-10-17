@@ -78,7 +78,7 @@ std::pair<ForLoop*, kir::MBarrierInit*> initializeMbarrier(
       bdimx, SimplifyingIrBuilder::mulExpr(bdimy, bdimz));
 
   Val* num_of_tvs_guarded = IrBuilder::create<Val>(
-      GpuLower::current()->circularBufferInfo()
+      (int64_t)GpuLower::current()->circularBufferInfo()
           ->getCircularBufferTvs(circular_buffer_loop)
           .size(),
       DataType::UInt32);
