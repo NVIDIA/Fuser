@@ -462,10 +462,10 @@ IterDomain* getIndexedProducerID(const Expr* expr);
 // indirectly accessed.
 IterDomain* getConsumerOfIndexedProducerID(const Expr* expr);
 
-// Check if the given tv is first argment of indexSelect(lookup, dim, indices)
+// Check if the given tv is first argment of index_select(lookup, dim, indices)
 bool isIndexSelectLookupTv(const TensorView* tv);
 
-// Check if the given tv is third argment of indexSelect(lookup, dim, indices)
+// Check if the given tv is third argment of index_select(lookup, dim, indices)
 bool isIndexSelectIndicesTv(const TensorView* tv);
 
 bool isTorchGatherLookupTv(const Val* tv);
@@ -714,5 +714,13 @@ bool hasRootToLoopLinearTransformations(const TensorView* tv);
 //! In addition to the above hasRootToLoopLinearTransformations, it
 //! also checks the loop domain has any extra domain
 bool isLoopDomainFullyDerivedFromLogicalDomain(TensorView* tv);
+
+//! If the given statement is nullptr, return "nullptr", otherwise return its
+//! toString()
+std::string nullOrToString(const Statement* stmt);
+
+//! If the given statement is nullptr, return "nullptr", otherwise return its
+//! toInlineString()
+std::string nullOrToInlineString(const Statement* stmt);
 
 } // namespace nvfuser::ir_utils
