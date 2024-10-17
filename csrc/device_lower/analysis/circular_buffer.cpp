@@ -62,14 +62,6 @@ int64_t getCircularBufferAxisPosition(const TensorView* tv) {
   return valid_pos;
 }
 
-IterDomain* getCircularBufferAxis(const TensorView* tv) {
-  int64_t cb_axis = getCircularBufferAxisPosition(tv);
-  if (cb_axis == (int64_t)tv->getLoopDomain().size()) {
-    return nullptr;
-  }
-  return tv->axis(cb_axis);
-}
-
 // Initial inspection of a fusion to find and validate circular buffered tensors
 class CircularBufferFusionInspector : private IterVisitor {
  public:
@@ -95,6 +87,8 @@ class CircularBufferFusionInspector : private IterVisitor {
  private:
   CircularBufferInfo& db_info_;
 };
+
+} // namespace
 
 void validateCircularBufferedTensor(const TensorView* tv) {
   int64_t circular_buffer_pos = getCircularBufferAxisPosition(tv);
@@ -151,8 +145,6 @@ void validateCircularBufferedTensor(const TensorView* tv) {
 
   return;
 }
-
-} // namespace
 
 void CircularBufferInfo::build(Fusion* fusion) {
   CircularBufferFusionInspector inspector(fusion, *this);
@@ -342,6 +334,14 @@ std::vector<const TensorView*> CircularBufferInfo::getCircularBufferTvs()
         return pair.first;
       });
   return keys;
+}
+
+IterDomain* getCircularBufferAxis(const TensorView* tv) {
+  int64_t cb_axis = getCircularBufferAxisPosition(tv);
+  if (cb_axis == (int64_t)tv->getLoopDomain().size()) {
+    return nullptr;
+  }
+  return tv->axis(cb_axis);
 }
 
 } // namespace nvfuser

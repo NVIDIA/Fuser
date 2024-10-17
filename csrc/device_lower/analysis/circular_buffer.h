@@ -15,6 +15,10 @@
 
 namespace nvfuser {
 
+IterDomain* getCircularBufferAxis(const TensorView* tv);
+
+void validateCircularBufferedTensor(const TensorView* tv);
+
 class CircularBufferInfo {
   // Lowering information of circular buffered tensors.
   struct TvInfo {
