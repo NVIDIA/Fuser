@@ -22,12 +22,14 @@ class DistributedTransformer {
       int64_t batch_size,
       int64_t embedding_size,
       int64_t number_heads,
-      int64_t sequence_length)
+      int64_t sequence_length,
+      double sdpa_dropout_prob = 0.1)
       : D(num_devices),
         B(batch_size),
         E(embedding_size),
         H(number_heads),
-        S(sequence_length) {}
+        S(sequence_length)
+        kSdpaProc(sdpa_dropout_prob) {}
 
   std::unique_ptr<FusionExecutorCache> forward(DataType dtype);
   std::unique_ptr<FusionExecutorCache> backward(DataType dtype);
@@ -81,8 +83,8 @@ class DistributedTransformer {
       TensorView* b0,
       const DeviceMesh& mesh);
 
-  int64_t D, B, E, H, S;
-  static constexpr double kDropoutProb = 0.1, kParamScale = 0.02,
-                          kSdpaProb = 0.0, kSdpaScale = 1e-3;
+  const int64_t D, B, E, H, S;
+  static constexpr double kDropoutProb = 0.1, kParamScale = 0.02, kSdpaScale = 1e-3;
+  const double kSdpaProb;
 };
 } // namespace nvfuser
