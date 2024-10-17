@@ -89,7 +89,7 @@ class CircularBufferFusionInspector : private IterVisitor {
     NVF_ERROR(
         tv->definition(), "Fusion input shouldn't be circular buffered.", tv);
 
-    db_info_.setCircularBufferAxis(tv);
+    db_info_.setCircularBufferTv(tv);
   }
 
  private:
