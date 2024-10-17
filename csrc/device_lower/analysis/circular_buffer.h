@@ -53,8 +53,10 @@ class CircularBufferInfo {
       bool ignore_prologue = false);
 
   //! Get the circular-buffered tensors for the given loop/axis.
-  std::vector<const TensorView*> getCircularBufferTvs(ForLoop* axis) const;
-  std::vector<const TensorView*> getCircularBufferTvs(IterDomain* axis) const;
+  std::unordered_set<const TensorView*> getCircularBufferTvs(
+      ForLoop* axis) const;
+  std::unordered_set<const TensorView*> getCircularBufferTvs(
+      IterDomain* axis) const;
 
   void setOriginalAllocSize(const TensorView* tv, Val* size);
 
@@ -104,7 +106,7 @@ class CircularBufferInfo {
 
   //! Keeps track of circular buffer tvs for each disjoint set of loop mapped
   //! iterdomains.
-  std::unordered_map<IterDomain*, std::vector<const TensorView*>>
+  std::unordered_map<IterDomain*, std::unordered_set<const TensorView*>>
       circular_buffer_tvs_;
 };
 
