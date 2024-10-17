@@ -333,19 +333,21 @@ class TransformerForwardFusion(FusionDefinition):
         T57 = self.ops.cast(T56, dtype=DataType.Float)
         T58 = self.ops.add(T51, T57)
         T59 = self.ops.cast(T58, dtype=DataType.BFloat16)
-        T60 = self.ops.linear(T59, self.mha_linear0_weight, self.mha_linear0_bias)
+        mha_linear0_out = self.ops.linear(
+            T59, self.mha_linear0_weight, self.mha_linear0_bias
+        )
         T73 = self.ops.slice(
-            T60,
+            mha_linear0_out,
             start_indices=[0, 0, 0, 0],
             end_indices=[d, b, s, e // d],
         )
         T86 = self.ops.slice(
-            T60,
+            mha_linear0_out,
             start_indices=[0, 0, 0, e // d],
             end_indices=[d, b, s, e * 2 // d],
         )
         T99 = self.ops.slice(
-            T60,
+            mha_linear0_out,
             start_indices=[0, 0, 0, e * 2 // d],
             end_indices=[d, b, s, e * 3 // d],
         )
@@ -365,9 +367,9 @@ class TransformerForwardFusion(FusionDefinition):
         T133 = self.ops.reshape(T128, new_shape=[d, b, s, e // d])
         # TODO(#3125): nvFuser is missing an API to construct a sharded linear
         # like this. Therefore, I decomposed it by hand.
-        # T134 = self.ops.linear(T133, self.mha_linear1_weight, self.mha_linear1_bias)
-        #                   [d,b,s,e/d]        [d,e,e/d]                 [e]
-        T134_local_matmul = self.ops.matmul(
+        # mha_linear1_out = self.ops.linear(T133, self.mha_linear1_weight, self.mha_linear1_bias)
+        #    [b,s,e]                 [d,b,s,e/d]        [d,e,e/d]                 [e]
+        mha_linear1_local_matmul = self.ops.matmul(
             T133,
             self.ops.broadcast_in_dim(
                 self.ops.permute(self.mha_linear1_weight, [0, 2, 1]),
@@ -375,12 +377,12 @@ class TransformerForwardFusion(FusionDefinition):
                 [0, 2, 3],
             ),
         )
-        T134_matmul = self.ops.sum(T134_local_matmul, [0])  # allreduce
-        T134_biasadd = self.ops.add(
-            T134_matmul,
+        mha_linear1_matmul = self.ops.sum(mha_linear1_local_matmul, [0])  # allreduce
+        mha_linear1_biasadd = self.ops.add(
+            mha_linear1_matmul,
             self.ops.broadcast_in_dim(self.mha_linear1_bias, [1, 1, e], [2]),
         )
-        T134 = self.ops.cast(T134_biasadd, dtype=DataType.BFloat16)
+        mha_linear1_out = self.ops.cast(mha_linear1_biasadd, dtype=DataType.BFloat16)
         S135 = self.define_scalar(0.00000, dtype=DataType.Double)
         S136 = self.define_scalar(1.00000, dtype=DataType.Double)
         T141 = self.ops.uniform(
@@ -393,7 +395,7 @@ class TransformerForwardFusion(FusionDefinition):
         )
         S142 = self.define_scalar(0.900000, dtype=DataType.Double)
         T143 = self.ops.lt(T141, S142)
-        T144 = self.ops.cast(T134, dtype=DataType.Float)
+        T144 = self.ops.cast(mha_linear1_out, dtype=DataType.Float)
         T145 = self.ops.cast(T143, dtype=DataType.Float)
         T146 = self.ops.mul(T144, T145)
         S147 = self.define_scalar(1.11111, dtype=DataType.Double)
@@ -428,8 +430,10 @@ class TransformerForwardFusion(FusionDefinition):
         T189 = self.ops.cast(T188, dtype=DataType.Float)
         T190 = self.ops.add(T183, T189)
         T191 = self.ops.cast(T190, dtype=DataType.BFloat16)
-        T192 = self.ops.linear(T191, self.mlp_linear0_weight, self.mlp_linear0_bias)
-        T193 = self.ops.cast(T192, dtype=DataType.Float)
+        mlp_linear0_out = self.ops.linear(
+            T191, self.mlp_linear0_weight, self.mlp_linear0_bias
+        )
+        T193 = self.ops.cast(mlp_linear0_out, dtype=DataType.Float)
         T194 = self.ops.mul(T193, T193)
         T195 = self.ops.mul(T194, T193)
         S196 = self.define_scalar(0.500000, dtype=DataType.Double)
@@ -480,14 +484,18 @@ class TransformerForwardFusion(FusionDefinition):
         T222 = self.ops.mul(T220, S221)
         T223 = self.ops.add(T149, T222)
         out = self.ops.cast(T223, dtype=DataType.BFloat16)
+
         self.add_output(layernorm0_mean)
         self.add_output(layernorm0_rstd)
+        self.add_output(mha_linear0_out)
         self.add_output(sdpa_out)
         self.add_output(sdpa_logsum_exp)
         self.add_output(sdpa_seed)
         self.add_output(sdpa_offset)
+        self.add_output(mha_linear1_out)
         self.add_output(layernorm1_mean)
         self.add_output(layernorm1_rstd)
+        self.add_output(mlp_linear0_out)
         self.add_output(out)
 
     def multidevice_schedule(self):
@@ -591,12 +599,15 @@ def test_transformer_forward(mpi_test):
     (
         layernorm0_mean,
         layernorm0_rstd,
+        mha_linear0_out,
         sdpa_out,
         sdpa_logsum_exp,
         sdpa_seed,
         sdpa_offset,
+        mha_linear1_out,
         layernorm1_mean,
         layernorm1_rstd,
+        mlp_linear0_out,
         out,
     ) = outs
 
@@ -610,10 +621,13 @@ def test_transformer_forward(mpi_test):
 
     assert_shape_dtype(layernorm0_mean, [b, s], torch.float32)
     assert_shape_dtype(layernorm0_rstd, [b, s, 1], torch.float32)
+    assert_shape_dtype(mha_linear0_out, [1, b, s, e * 3 // d], torch.bfloat16)
     assert_shape_dtype(sdpa_out, [1, b, h // d, s, e // h], torch.bfloat16)
     assert_shape_dtype(sdpa_logsum_exp, [1, b, h // d, s], torch.float32)
     assert_shape_dtype(sdpa_seed, [], torch.int64)
     assert_shape_dtype(sdpa_offset, [], torch.int64)
+    assert_shape_dtype(mha_linear1_out, [b, s, e], torch.bfloat16)
     assert_shape_dtype(layernorm1_mean, [b, s], torch.float32)
     assert_shape_dtype(layernorm1_rstd, [b, s, 1], torch.float32)
+    assert_shape_dtype(mlp_linear0_out, [1, b, s, e * 4 // d], torch.bfloat16)
     assert_shape_dtype(out, [b, s, e], torch.bfloat16)
