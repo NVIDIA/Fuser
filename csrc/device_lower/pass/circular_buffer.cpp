@@ -397,13 +397,6 @@ class CloneTmaCircularBufferLoopAndInsertSync
         addTmaLoadBlock(cloned_loop);
       }
     }
-
-    // mbarrier::wait occurs in Main and Epilogue loops.
-    if (mbarrier_wait_ != nullptr && for_loop_stack_.size() == 1) {
-      NVF_ERROR(for_loop_stack_.back() == cloned_top_level_loop_);
-      cloned_top_level_loop_->body().push_back(mbarrier_wait_);
-      mbarrier_wait_ = nullptr;
-    }
   }
 
   // Check if there is only one serial for-loop in the stack
@@ -626,7 +619,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
         ldst, mbarrier_arrive_tx_->mbarrier()->as<kir::TensorIndex>());
 
     // If last cloned scope is the cloned_top_level_loop body, then add
-    // mbarrier::arriveExpectTx, new loadStoreOp, and mbarrier_wait
+    // mbarrier::arriveExpectTx, new loadStoreOp
     if (onlyOneSerialForLoopOnStack()) {
       return addTmaLoadBlock(ldst);
     }
