@@ -648,7 +648,7 @@ class AllocationInserter : public kir::ExprMutator {
     bool circular_buffer_load_is_tma = std::any_of(
         circular_buffer_tvs.begin(),
         circular_buffer_tvs.end(),
-        [](TensorView* tv) {
+        [](const TensorView* tv) {
           return ir_utils::isCpAsyncBulkLoad(tv->definition());
         });
 
