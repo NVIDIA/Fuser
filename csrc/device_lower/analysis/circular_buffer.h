@@ -98,7 +98,7 @@ class CircularBufferInfo {
 
   //! Keeps track of circular buffer tvs for each disjoint set of loop mapped
   //! iterdomains.
-  std::unordered_map<IterDomain*, std::vector<TensorView*>>
+  std::unordered_map<IterDomain*, std::vector<const TensorView*>>
       circular_buffer_tvs_;
 };
 
