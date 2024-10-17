@@ -744,7 +744,8 @@ class CloneTmaCircularBufferLoopAndInsertSync
         loop_index, for_loop_stack_);
 
     // Get mbarrier for this circular buffer stage.
-    TensorView* all_mbarriers = GpuLower::current()->ldstMBarrierMap().at(ldst);
+    TensorView* all_mbarriers =
+        GpuLower::current()->ldstMBarrierMap().at(ir_utils::getTvOutput(ldst));
     kir::TensorIndex* stage_mbarrier =
         IrBuilder::create<kir::TensorIndex>(all_mbarriers, loop_index);
 
@@ -771,7 +772,8 @@ class CloneTmaCircularBufferLoopAndInsertSync
             circular_buffer_loop_->iter_domain());
 
     // Get mbarrier for this circular buffer stage.
-    TensorView* all_mbarriers = GpuLower::current()->ldstMBarrierMap().at(ldst);
+    TensorView* all_mbarriers = GpuLower::current()->ldstMBarrierMap().at(
+        ir_utils::getTvOutput(ldst));
     kir::TensorIndex* stage_mbarrier =
         IrBuilder::create<kir::TensorIndex>(all_mbarriers, stage);
 
