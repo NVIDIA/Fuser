@@ -636,15 +636,13 @@ class AllocationInserter : public kir::ExprMutator {
   void handle(ForLoop* fl) final {
     ExprMutator::handle(fl);
 
-    std::cout << "handle(ForLoop* fl)" << std::endl;
-    std::cout << "fl->iter_domain() = " << fl->iter_domain() << std::endl;
-    std::cout << fl->toString() << std::endl;
-
     auto circular_buffer_tvs =
         GpuLower::current()->circularBufferInfo().getCircularBufferTvs(fl);
 
     bool circular_buffer_load_is_tma = false;
     for (auto tv : circular_buffer_tvs) {
+      std::cout << "circular_buffer_tvs" << std::endl;
+      std::cout << tv->toString() << std::endl;
       if (ir_utils::isCpAsyncBulkLoad(tv->definition())) {
         circular_buffer_load_is_tma = true;
         break;
