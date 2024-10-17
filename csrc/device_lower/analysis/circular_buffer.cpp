@@ -198,11 +198,11 @@ void CircularBufferInfo::setCircularBufferTv(const TensorView* tv) {
 
   validateCircularBufferedTensor(tv);
 
-  getTvInfo(tv).circular_buffer_axis = axis;
-  circular_buffer_tvs_[axis].push_back(tv);
+  getTvInfo(tv).circular_buffer_axis = cb_axis;
+  circular_buffer_tvs_[cb_axis].push_back(tv);
   // Set and validate the new stage depth.
   setStageDepthAndPrefetchDistance(
-      axis, tv->circularBufferDepth(), tv->circularBufferPrefetchDistance());
+      cb_axis, tv->circularBufferDepth(), tv->circularBufferPrefetchDistance());
 }
 
 void CircularBufferInfo::setStageDepthAndPrefetchDistance(
@@ -301,11 +301,13 @@ ForLoop* CircularBufferInfo::getCircularBufferLoop(
   return getCircularBufferLoop(axis, loops, ignore_prologue);
 }
 
-std::vector<TensorView*>& CircularBufferInfo::getCircularBufferTvs(ForLoop* axis) const {
+std::vector<TensorView*>& CircularBufferInfo::getCircularBufferTvs(
+    ForLoop* axis) const {
   return getCircularBufferTvs(axis->iter_domain());
 }
 
-std::vector<TensorView*>& CircularBufferInfo::getCircularBufferTvs(IterDomain* axis) const {
+std::vector<TensorView*>& CircularBufferInfo::getCircularBufferTvs(
+    IterDomain* axis) const {
   auto concrete_id = lower_utils::getConcreteLoopID(axis);
 
   auto maybe_tvs_it = circular_buffer_tvs_.find(concrete_id);
