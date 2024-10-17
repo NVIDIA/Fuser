@@ -243,28 +243,22 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   buffer_params.regs_buffer_size = total_buffer_size;
   buffer_params.smem_buffer_size = 0;
 
-  // (2) If the available register is larger than current register buffer size,
-  // no need to move buffers to shared memory, return early.
-  if (buffer_params.regs_buffer_size <= available_regs) {
-    buffer_params.has_enough_regs_and_smem = true;
-    return buffer_params;
-  }
-
-  // (3) Relocate buffers to shared memory until the buffer size in registers is
-  // within the allowable limit.
-  // (3.1) Sort the candidate persistent buffers
+  // (2) Relocate buffers to shared memory until all are moved or there are not
+  // enough shared memories. (2.1) Sort the candidate persistent buffers
   const auto buffers = buffer_params.project_to_input
       ? sortProjectableBufferInputs(
             persistent_buffer_info.projectable_buffer_inputs,
             outer_broadcast_tvs)
       : persistent_buffer_info.persistent_buffers;
 
-  // (3.2) Before this loop, all buffers are in registers.
+  // (2.2) Before this loop, all buffers are in registers.
   // Try to move buffer from register to shared memroy.
   // After one buffer is moved to shared memory, the buffer size in registers
   // and shared memory are updated accordingly. Break if required register and
   // shared memory are lower than limit or shared memory exceeds the limit.
   int64_t n_smem_buffer = -1;
+  int64_t regs_buffer_size = buffer_params.regs_buffer_size;
+  int64_t smem_buffer_size = buffer_params.smem_buffer_size;
   const int n_buffers = (int)buffers.size();
   for (int i = 0; i < n_buffers; i++) {
     auto current_tv = buffers[i];
@@ -273,7 +267,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
     int64_t tv_buffer_size_regs =
         scheduler_utils::getPersistentBufferSizeOfTensor(
             current_tv, runtime_info, persistent_buffer_info);
-    buffer_params.regs_buffer_size -= tv_buffer_size_regs;
+    regs_buffer_size -= tv_buffer_size_regs;
 
     // round up the buffer size to shared memory & increase the shared memory
     // buffer size
@@ -284,24 +278,29 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
         InnerOuterPersistentKernelScheduler::threads_per_block_min,
         InnerOuterPersistentKernelScheduler::threads_per_block_max,
         dev_prop->warpSize);
-    buffer_params.smem_buffer_size += tv_buffer_size_smem;
+    smem_buffer_size += tv_buffer_size_smem;
 
     // The first-i buffers to are moved from register to shared memory
     // If both the register buffer size and shared memory buffer size are within
     // the allowable limit, we found a good configuration. Record the number of
-    // buffers to be moved to shared memory and break the loop.
-    if (buffer_params.regs_buffer_size <= available_regs &&
-        buffer_params.smem_buffer_size <= available_smem) {
+    // buffers to be moved to shared memory and continue to check moving more.
+    if (regs_buffer_size <= available_regs &&
+        smem_buffer_size <= available_smem) {
       n_smem_buffer = i + 1;
-      break;
+      buffer_params.regs_buffer_size = regs_buffer_size;
+      buffer_params.smem_buffer_size = smem_buffer_size;
     }
     // shared memory buffer size exceeds the limit, not a good configuration.
     // break the loop, n_smem_buffer remains [-1] indicating a bad
     // configuration.
-    if (buffer_params.smem_buffer_size > available_smem) {
+    if (smem_buffer_size > available_smem) {
       break;
     }
   }
+
+  std::cout << "available_smem: " << available_smem << std::endl;
+  std::cout << "smem_buffer_size: " << buffer_params.smem_buffer_size
+            << std::endl;
 
   // n_smem_buffer > 0, has_enough_regs_and_smem = true, move the
   // first n_smem_buffer buffers to shared memory. otherwise, we
@@ -330,7 +329,8 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
 std::pair<int64_t, int64_t> getBufferBatchSizeAndThreadsPerBlock(
     const int64_t inner_dim_numel,
     const int64_t outer_dim_numel,
-    const int64_t persistent_buffer_size,
+    const int64_t register_buffer_size,
+    const int64_t shared_memory_buffer_size,
     const int64_t vectorize_factor,
     const int64_t warp_size) {
   // if inner_dim_numel <= 1024, we are doing multiple reductions per block
@@ -371,12 +371,17 @@ std::pair<int64_t, int64_t> getBufferBatchSizeAndThreadsPerBlock(
   // of inputs and outputs.
   auto getMaximumInnerOuterPersistentBufferBatch = [&]() -> int64_t {
     int64_t register_per_batch = ceilDiv(
-        persistent_buffer_size / inner_dim_numel * vectorize_factor,
+        register_buffer_size / inner_dim_numel * vectorize_factor,
         scheduler_utils::bytes_per_register);
-    return scheduler_utils::safeDiv(
+    int64_t max_persistent_batch = scheduler_utils::safeDiv(
         scheduler_utils::max_registers_per_thread -
             scheduler_utils::register_overhead,
         register_per_batch);
+    // temporarally set a maximum batch size of 14 to avoid large batch size
+    // with small block sizes, this is a temporary solution and should be
+    // removed after heuristic is tuned. Added to avoid regression of RMS norm
+    // backward.
+    return std::min(14L, max_persistent_batch);
   };
 
   const int64_t after_vectorization = inner_dim_numel / vectorize_factor;
@@ -395,10 +400,9 @@ std::pair<int64_t, int64_t> getBufferBatchSizeAndThreadsPerBlock(
   int64_t threads_per_block = threads_per_block_min;
   int64_t inner_batch = ceilDiv(after_vectorization, threads_per_block);
   while (inner_batch > batch_max &&
-         threads_per_block + warp_size <= threads_per_block_max &&
-         ceilDiv(after_vectorization, threads_per_block + warp_size) >=
-             batch_min) {
-    threads_per_block += warp_size;
+         threads_per_block * 2 <= threads_per_block_max &&
+         ceilDiv(after_vectorization, threads_per_block * 2) >= batch_min) {
+    threads_per_block *= 2;
     inner_batch = ceilDiv(after_vectorization, threads_per_block);
   }
   return std::make_pair(inner_batch, threads_per_block);
@@ -511,6 +515,7 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
           inner_dim_numel,
           outer_dim_numel,
           regs_buffer_size,
+          smem_buffer_size,
           iop.inner_vect,
           dev_prop->warpSize);
   iop.inner_batch = persistent_batch;
@@ -528,12 +533,26 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
   int64_t threads_per_sm = getThreadsPerSMGivenRegPerThread(reg_per_thread);
   int64_t max_blocks_per_sm_regs =
       getBlocksPerSM(threads_per_sm, threads_per_block, dev_prop->warpSize);
-  // check shared memory limitation on blocks per sm
-  int64_t max_blocks_per_sm_smem =
-      (int64_t)dev_prop->sharedMemPerMultiprocessor /
-      (smem_overhead + smem_buffer_size);
+
+  // Estimate the maximum number of blocks per SM based on shared memory usage.
+  // Allocation granularity is 128 bytes as indicated in the deprecated
+  // occupancy calculator sheet.
+  int64_t max_blocks_per_sm_smem = -1;
+  int64_t smem_alloc_granularity = 128;
+  int64_t smem_per_block =
+      ceilDiv(smem_overhead + smem_buffer_size, smem_alloc_granularity) *
+      smem_alloc_granularity;
+  max_blocks_per_sm_smem =
+      (int64_t)dev_prop->sharedMemPerMultiprocessor / smem_per_block;
+
   int64_t blocks_per_sm =
       std::min(max_blocks_per_sm_regs, max_blocks_per_sm_smem);
+  NVF_ERROR(
+      blocks_per_sm > 0,
+      "blocks_per_sm must be greater than 0. device smem size: ",
+      dev_prop->sharedMemPerMultiprocessor,
+      " request smem size: ",
+      smem_overhead + smem_buffer_size);
   iop.gdimy = blocks_per_sm * device_multiprocessor_count;
   const int64_t outer_iter_min = 8;
   const int64_t gdimy_max = scheduler_utils::roundUpToN(
@@ -892,7 +911,8 @@ void scheduleInnerOuterPersistentKernel(
 
   // Grab the reduction, input, and output tensor views. dummy_outputs are
   // helper tensors for persistent buffer projection.
-  std::vector<TensorView*> dummy_outputs, cached_inputs, reduction_tvs;
+  std::vector<TensorView*> dummy_outputs, cached_inputs, reduction_tvs,
+      smem_consumers;
   std::vector<std::pair<TensorView*, TensorView*>> cached_outputs;
   normalization_scheduler_utils::beforeSchedule(
       fusion,
@@ -900,6 +920,7 @@ void scheduleInnerOuterPersistentKernel(
       dummy_outputs,
       cached_inputs,
       reduction_tvs,
+      smem_consumers,
       cached_outputs);
 
   // split reduction_tvs into inner and outer reduction_tvs
@@ -973,6 +994,7 @@ void scheduleInnerOuterPersistentKernel(
       inner_reduction_tvs,
       cached_inputs,
       cached_outputs,
+      smem_consumers,
       {selected_tvs_inner.begin(), selected_tvs_inner.end()});
 
   // Propagate outer reduction. Each outer reduction is connected with its
@@ -982,6 +1004,7 @@ void scheduleInnerOuterPersistentKernel(
   // boundaryNodesSet. Thus, we need a loop to initiate the propagation from
   // each outer reduction. Don't allow parallelization propagation goes
   // through cached_gmem, see issue 246.
+  // don't do grouped reduction for now since it uses more registers.
   for (long unsigned int i = 0; i < outer_reference_tvs.size(); i++) {
     const auto& selected_tvs_outer = scheduler_utils::getAllTvsFrom(
         {outer_reduction_tvs[i]}, {cached_gmem[i]});
@@ -997,6 +1020,7 @@ void scheduleInnerOuterPersistentKernel(
         outer_reduction_tvs,
         cached_inputs,
         cached_outputs,
+        smem_consumers,
         {selected_tvs_outer.begin(), selected_tvs_outer.end()});
   }
 

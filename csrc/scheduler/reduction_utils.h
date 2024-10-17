@@ -38,6 +38,7 @@ void multiReductionInliner(
     std::vector<TensorView*> reduction_tvs,
     std::vector<TensorView*> cached_inputs,
     std::vector<std::pair<TensorView*, TensorView*>> cached_outputs,
+    std::vector<TensorView*> smem_persistent_buffer_consumers = {},
     std::vector<TensorView*> dummy_outputs = {});
 
 // Propagate transformations with internal cutoff boundary at boundaryNodesSet
@@ -70,6 +71,7 @@ NVF_API void propagateParallelization(
     const std::vector<TensorView*>& reduction_tvs,
     const std::vector<TensorView*>& cached_inputs,
     const std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs,
+    const std::vector<TensorView*>& smem_persistent_buffer_consumers = {},
     const std::vector<TensorView*>& selected_tvs = {});
 
 // Sort and rfactor the reference tv in a consistent way for reduction inliner.
