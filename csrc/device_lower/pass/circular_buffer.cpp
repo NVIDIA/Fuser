@@ -415,6 +415,15 @@ class CloneTmaCircularBufferLoopAndInsertSync
                }) == 1;
   }
 
+  Val* currentComputeStage() const {
+    int64_t stage_depth =
+        GpuLower::current()->circularBufferInfo().getStageDepthFor(
+            circular_buffer_loop_->iter_domain());
+    return IrBuilder::modExpr(
+        cloned_top_level_loop_->indexOrStartIfTrivial(),
+        IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
+  }
+
   void processExpr(Expr* expr) final {
     TensorView* out_tv = ir_utils::getTvOutput(expr);
     bool is_circular_buffer_load_expr = std::any_of(
@@ -438,7 +447,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
             NVF_ERROR(ldst != nullptr);
             mbarrier_wait_ = createMbarrierWait(
                 ldst,
-                current_compute_stage_,
+                currentComputeStage(),
                 cloned_top_level_loop_->indexOrStartIfTrivial());
             break;
           }
@@ -572,21 +581,6 @@ class CloneTmaCircularBufferLoopAndInsertSync
     int64_t prefetch_distance =
         GpuLower::current()->circularBufferInfo().getPrefetchDistanceFor(
             circular_buffer_loop_->iter_domain());
-
-    if (current_compute_stage_ == nullptr) {
-      current_compute_stage_ = IrBuilder::modExpr(
-          cloned_top_level_loop_->indexOrStartIfTrivial(),
-          IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
-      kir::Allocate* current_compute_stage_alloc =
-          IrBuilder::create<kir::Allocate>(
-              current_compute_stage_,
-              MemoryType::Local,
-              IrBuilder::create<Val>(1L, PrimDataType::Index),
-              /*zero_init=*/false);
-      cloned_top_level_loop_->body().push_back(current_compute_stage_alloc);
-      cloned_top_level_loop_->body().push_back(
-          current_compute_stage_->definition());
-    }
 
     if (current_load_stage_ == nullptr) {
       current_load_stage_ = IrBuilder::modExpr(
@@ -786,9 +780,6 @@ class CloneTmaCircularBufferLoopAndInsertSync
 
   // Mbarrier_ArriveExpectTx to add to cloned_top_level_loop
   kir::MBarrierArriveExpectTx* mbarrier_arrive_tx_ = nullptr;
-
-  // current_stage_index = (loop_index % stages)
-  Val* current_compute_stage_ = nullptr;
 
   // next_stage_index = (loop_index + (stages-1)) % stages
   Val* current_load_stage_ = nullptr;
