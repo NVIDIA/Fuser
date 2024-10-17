@@ -126,68 +126,92 @@ def test_sdpa(mpi_test):
 
     class Model(FusionDefinition):
         def definition(self) -> None:
-            self.q = self.define_tensor(
-                shape=[d, -1, -1, -1, -1],
-                contiguity=True,
-                dtype=DataType.BFloat16,
-            )
-            self.k = self.define_tensor(
-                shape=[d, -1, -1, -1, -1],
-                contiguity=True,
-                dtype=DataType.BFloat16,
-            )
-            self.v = self.define_tensor(
-                shape=[d, -1, -1, -1, -1],
-                contiguity=True,
-                dtype=DataType.BFloat16,
-            )
+            self.q, self.k, self.v, self.out_grad = [
+                self.define_tensor(
+                    shape=[d, b, h // d, s, e // h],
+                    contiguity=True,
+                    dtype=DataType.BFloat16,
+                )
+                for _ in range(4)
+            ]
+
             # TODO(#3123): support sharded dropout and change this to a
             # positive probability.
             dropout_p = self.define_scalar(0.0, dtype=DataType.Double)
             is_causal = self.define_scalar(True, dtype=DataType.Bool)
-            sdpa_result = self.ops.sdpfa_fwd(
+            attn, log_sumexp, seed, offset = self.ops.sdpfa_fwd(
                 self.q, self.k, self.v, dropout_p, is_causal, scale=None
             )
-            attn = sdpa_result[0]
+
+            q_grad, k_grad, v_grad = self.ops.sdpfa_bwd(
+                self.out_grad,
+                self.q,
+                self.k,
+                self.v,
+                attn,
+                log_sumexp,
+                dropout_p,
+                is_causal,
+                seed,
+                offset,
+                scale=None,
+            )
+
             self.add_output(attn)
+            for grad in [q_grad, k_grad, v_grad]:
+                self.add_output(grad)
 
         def multidevice_schedule(self) -> None:
             mesh = self.sched._create_device_mesh(range(d))
-            for t in [self.q, self.k, self.v]:
+            for t in [self.q, self.k, self.v, self.out_grad]:
                 self.sched._set_device_mesh(t, mesh)
                 self.sched.parallelize(t, 0, nvfuser.ParallelType.mesh_x)
 
     torch.cuda.set_device(mpi_test.local_rank)
     q, k, v = [
-        torch.randn(b, h, s, e // h, dtype=torch.bfloat16, device="cuda")
+        torch.randn(
+            b, h, s, e // h, dtype=torch.bfloat16, device="cuda", requires_grad=True
+        )
         for _ in range(3)
     ]
+    out_grad = torch.randn(b, h, s, e // h, dtype=torch.bfloat16, device="cuda")
 
     with torch.nn.attention.sdpa_kernel(SDPBackend.FLASH_ATTENTION):
-        expected_attn = torch.nn.functional.scaled_dot_product_attention(
-            q,
-            k,
-            v,
-            dropout_p=0.0,
-            is_causal=True,
-            scale=None,
+        torch.manual_seed(0)
+        expected_out = torch.nn.functional.scaled_dot_product_attention(
+            q, k, v, dropout_p=0.0, is_causal=True, scale=None
         )
+        expected_out.backward(out_grad)
+        expected_q_grad, expected_k_grad, expected_v_grad = q.grad, k.grad, v.grad
 
     rank = mpi_test.rank
 
     # Head-parallelize Q, K, V or the attention output of an SDPA.
     def head_parallelize(t: torch.Tensor) -> torch.Tensor:
         assert t.shape == torch.Size([b, h, s, e // h])
-        return t.view([b, d, h // d, s, e // h]).transpose(0, 1)[rank : rank + 1]
+        return (
+            t.view([b, d, h // d, s, e // h])
+            .transpose(0, 1)
+            .contiguous()[rank : rank + 1]
+        )
 
     fd = Model()
-    attn = fd.execute([head_parallelize(q), head_parallelize(k), head_parallelize(v)])[
-        0
-    ]
+    outs = fd.execute(
+        [
+            head_parallelize(q),
+            head_parallelize(k),
+            head_parallelize(v),
+            head_parallelize(out_grad),
+        ]
+    )
+    out, q_grad, k_grad, v_grad = outs
     # Use the default rtol for bfloat16 and a relaxed atol.
     torch.testing.assert_close(
-        attn, head_parallelize(expected_attn), rtol=1.6e-2, atol=1e-3
+        out, head_parallelize(expected_out), rtol=1.6e-2, atol=1e-3
     )
+    torch.testing.assert_close(q_grad, head_parallelize(expected_q_grad))
+    torch.testing.assert_close(k_grad, head_parallelize(expected_k_grad))
+    torch.testing.assert_close(v_grad, head_parallelize(expected_v_grad))
 
 
 # The following two benchmarks micro-benchmarks the forward pass and the
