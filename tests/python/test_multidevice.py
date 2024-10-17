@@ -214,7 +214,9 @@ def _sharded_linear_all_reduce(
     # out: [b,s,e_out] = ops.linear(inp, weight, bias)
     if d == 1:
         # Fast path where allreduce isn't needed.
-        return fd.ops.linear(fd.ops.squeeze(inp, [0]), fd.ops.squeeze(weight, [0]), bias)
+        return fd.ops.linear(
+            fd.ops.squeeze(inp, [0]), fd.ops.squeeze(weight, [0]), bias
+        )
 
     local_matmul = fd.ops.matmul(
         inp,
