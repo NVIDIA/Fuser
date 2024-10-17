@@ -745,7 +745,7 @@ class TestNvFuserFrontend(NVFuserTest):
                 t4 = fd.ops.gather(t3, t2, dim)
                 fd.add_output(t4)
 
-            nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+            nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
 
             eager_out = torch.gather(inputs[0] + inputs[1], dim, inputs[2])
             self.assertEqual(eager_out, nvf_out[0])
@@ -769,7 +769,7 @@ class TestNvFuserFrontend(NVFuserTest):
                 t4 = fd.ops.take_along_axis(t3, t2, dim)
                 fd.add_output(t4)
 
-            nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+            nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
 
             eager_out = torch.gather(inputs[0] + inputs[1], dim, inputs[2])
             self.assertEqual(eager_out, nvf_out[0])
