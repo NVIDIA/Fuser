@@ -70,6 +70,8 @@ class CircularBufferInfo {
   int64_t getStageDepthFor(IterDomain* circular_buffered_id) const;
   int64_t getPrefetchDistanceFor(IterDomain* circular_buffered_id) const;
 
+  std::string toString() const;
+
  private:
   const TvInfo& getTvInfo(const TensorView* tv) const;
 

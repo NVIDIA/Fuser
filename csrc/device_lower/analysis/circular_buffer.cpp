@@ -159,6 +159,8 @@ void CircularBufferInfo::build(Fusion* fusion) {
     concrete_circular_buffered_loop_id_.insert(
         lower_utils::getConcreteLoopID(circular_buffer_axis));
   }
+
+  std::cout << toString() << std::endl;
 }
 
 bool CircularBufferInfo::isCircularBufferedIterDomain(IterDomain* id) {
@@ -334,6 +336,37 @@ std::vector<const TensorView*> CircularBufferInfo::getCircularBufferTvs()
         return pair.first;
       });
   return keys;
+}
+
+std::string CircularBufferInfo::toString() const {
+  std::stringstream ss;
+  ss << "CircularBufferInfo: {" << std::endl;
+  ss << "\tmap_:" << std::endl;
+  for (const auto& pair : map_) {
+    ss << "\t\t" << pair.first->toString() << " -> { circular_buffer_axis="
+       << pair.second.circular_buffer_axis->toString()
+       << ", original_alloc_size="
+       << pair.second.original_alloc_size->toInlineString() << " }"
+       << std::endl;
+  }
+  ss << "\tconcrete_circular_buffered_loop_id_:" << std::endl;
+  ss << "\t\t" << ir_utils::toString(concrete_circular_buffered_loop_id_)
+     << std::endl;
+  ss << "\tcircular_buffer_options_:" << std::endl;
+  for (const auto& pair : circular_buffer_options_) {
+    ss << "\t\t" << pair.first->toString()
+       << " -> { stage=" << pair.second.stage
+       << ", prefetch=" << pair.second.prefetch << " }" << std::endl;
+  }
+  ss << "\tcircular_buffer_tvs_:" << std::endl;
+  for (const auto& pair : circular_buffer_tvs_) {
+    ss << "\t\t" << pair.first->toString() << " -> { ";
+    for (const auto tv : pair.second) {
+      ss << tv->toString() << ", ";
+    }
+    ss << " }" << std::endl;
+  }
+  return ss.str();
 }
 
 IterDomain* getCircularBufferAxis(const TensorView* tv) {
