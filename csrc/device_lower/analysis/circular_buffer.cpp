@@ -344,9 +344,9 @@ std::string CircularBufferInfo::toString() const {
   ss << "\tmap_:" << std::endl;
   for (const auto& pair : map_) {
     ss << "\t\t" << pair.first->toString() << " -> { circular_buffer_axis="
-       << pair.second.circular_buffer_axis->toString()
+       << ir_utils::nullOrToString(pair.second.circular_buffer_axis)
        << ", original_alloc_size="
-       << pair.second.original_alloc_size->toInlineString() << " }"
+       << ir_utils::nullOrToInlineString(pair.second.original_alloc_size) << " }"
        << std::endl;
   }
   ss << "\tconcrete_circular_buffered_loop_id_:" << std::endl;
