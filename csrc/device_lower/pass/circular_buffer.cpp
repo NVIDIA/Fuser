@@ -424,19 +424,14 @@ class CloneTmaCircularBufferLoopAndInsertSync
         IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
   }
 
-  void processExpr(Expr* expr) final {
-    TensorView* out_tv = ir_utils::getTvOutput(expr);
-    bool is_circular_buffer_load_expr = std::any_of(
-        circular_buffer_load_exprs_.begin(),
-        circular_buffer_load_exprs_.end(),
-        [out_tv](Expr* load_expr) {
-          TensorView* circular_buffer_tv = ir_utils::getTvOutput(load_expr);
-          NVF_ERROR(circular_buffer_tv != nullptr);
-          return out_tv == circular_buffer_tv;
-        });
-
-    // Add mbarrier::wait to the cloned loop body before the first read of the
-    // circular buffered TensorView.
+  // Check if the given expr is the first read of a circular buffered TensorView
+  // and if so, insert mbarrier::wait before it.
+  void insertMBarrierWaitBeforeFirstRead(Expr* expr) {
+    if (loop_type_ == CircularBufferLoopStage::Prolog) {
+      // If we are in the prologue loop, we won't clone expr, so we don't need
+      // to insert mbarrier::wait.
+      return;
+    }
     if (!protected_by_mbarrier_wait_) {
       // Create mbarrier::wait when we encounter the first read of the circular
       // buffered TensorView.
@@ -460,6 +455,22 @@ class CloneTmaCircularBufferLoopAndInsertSync
         protected_by_mbarrier_wait_ = true;
       }
     }
+  }
+
+  void processExpr(Expr* expr) final {
+    TensorView* out_tv = ir_utils::getTvOutput(expr);
+    bool is_circular_buffer_load_expr = std::any_of(
+        circular_buffer_load_exprs_.begin(),
+        circular_buffer_load_exprs_.end(),
+        [out_tv](Expr* load_expr) {
+          TensorView* circular_buffer_tv = ir_utils::getTvOutput(load_expr);
+          NVF_ERROR(circular_buffer_tv != nullptr);
+          return out_tv == circular_buffer_tv;
+        });
+
+    // If expr is the first read of the circular buffered TensorView, insert
+    // mbarrier::wait before it.
+    insertMBarrierWaitBeforeFirstRead(expr);
 
     // Handle Short-Circuit conditions
     switch (loop_type_) {
