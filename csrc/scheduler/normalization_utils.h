@@ -262,6 +262,7 @@ void beforeSchedule(
     std::vector<TensorView*>& dummy_outputs,
     std::vector<TensorView*>& cached_inputs,
     std::vector<TensorView*>& reduction_tvs,
+    std::vector<TensorView*>& smem_consumers,
     std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs);
 
 // schedule a reduction tv, used by all persistent schedulers.
@@ -320,9 +321,12 @@ bool isProjectBufferToInputs(
     const bool can_use_smem_persistent,
     const bool check_projected_buffer_size = true);
 
-// move persistent buffer marked in rparams->smem_persistent_buffers from
-// register to smem
-void movePersistentBufferToSmem(
+// Set memory type of persistent buffer marked in
+// rparams->smem_persistent_buffers as shared memory. Return a vector of the
+// consumers of the shared memory tensors, they are cached after the smem
+// tensors and will be vectorized by the scheduler if possible to avoid shared
+// memory bank conflicts.
+std::vector<TensorView*> movePersistentBufferToSmem(
     Fusion* fusion,
     const ReductionParams* rparams,
     const std::vector<TensorView*>& cached_inputs);

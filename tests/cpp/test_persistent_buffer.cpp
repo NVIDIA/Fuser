@@ -8,6 +8,7 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
+#include <device_lower/analysis/bank_conflict.h>
 #include <logical_domain_map.h>
 #include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>
@@ -1298,6 +1299,21 @@ TEST_F(PersistentBufferTest, SmemPersistent2DReduction) {
   // Run the fusion and validate the results
   FusionExecutor fe;
   fe.compileFusion(fusion.get(), aten_inputs);
+  // Shared memory access should be vectorized.
+  // getBankConflictInfo(fe.kernel()) triggers error "std::get: wrong index for
+  // variant" when trying to evaluate index with:
+  // `expr_eval.evaluate(ti->index()).as<int64_t>();`
+  for (auto tv : fusion->allTvs()) {
+    if (tv->getMemoryType() == MemoryType::Shared) {
+      // check self
+      EXPECT_TRUE(isVectorized(tv));
+      // check consumers
+      for (auto consumer : ir_utils::consumerTvsOf(tv)) {
+        std::cout << consumer->toString() << std::endl;
+        EXPECT_TRUE(isVectorized(consumer));
+      }
+    }
+  }
   auto cg_outputs = fe.runFusion(
       aten_inputs, heuristic_params->as<ReductionParams>()->lparams);
   auto t1 = t0 / t0.sum({1, 2, 3}, true);
