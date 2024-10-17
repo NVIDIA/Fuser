@@ -488,8 +488,9 @@ class CloneTmaCircularBufferLoopAndInsertSync
         // operation.
         if (!is_circular_buffer_load_expr || !ir_utils::isCpAsyncBulk(expr)) {
           for_loop_stack_.back()->body().push_back(expr);
+          return;
         }
-        return;
+        break;
       }
       case CircularBufferLoopStage::NotApplicable: {
         NVF_THROW("Unsupported loop mode, got: ", loop_type_);
@@ -503,6 +504,9 @@ class CloneTmaCircularBufferLoopAndInsertSync
       }
       case CircularBufferLoopStage::Main: {
         return handleMainLoop(expr);
+      }
+      case CircularBufferLoopStage::Epilog: {
+        return;
       }
       default: {
         NVF_THROW("Unsupported loop mode, got: ", loop_type_);
