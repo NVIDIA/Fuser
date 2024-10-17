@@ -426,11 +426,13 @@ class CloneTmaCircularBufferLoopAndInsertSync
           return out_tv == circular_buffer_tv;
         });
 
+    // Add mbarrier::wait to the cloned loop body before the first read of the
+    // circular buffered TensorView.
     if (!protected_by_mbarrier_wait_) {
       // Create mbarrier::wait when we encounter the first read of the circular
       // buffered TensorView.
       if (mbarrier_wait_ == nullptr) {
-        for (auto tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
+        for (auto tv : ir_utils::filterByType<TensorView>(expr->inputs())) {
           if (circular_buffer_load_tvs_.count(tv) > 0) {
             LoadStoreOp* ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
             NVF_ERROR(ldst != nullptr);
@@ -443,8 +445,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
         }
       }
 
-      // Add mbarrier::wait to the cloned loop body before the first read of the
-      // circular buffered TensorView.
+      // Add mbarrier::wait to the top-level loop body
       if (mbarrier_wait_ != nullptr && onlyOneSerialForLoopOnStack()) {
         for_loop_stack_.back()->body().push_back(mbarrier_wait_);
         protected_by_mbarrier_wait_ = true;
