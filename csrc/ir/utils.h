@@ -462,10 +462,10 @@ IterDomain* getIndexedProducerID(const Expr* expr);
 // indirectly accessed.
 IterDomain* getConsumerOfIndexedProducerID(const Expr* expr);
 
-// Check if the given tv is first argment of index_select(lookup, dim, indices)
+// Check if the given tv is first argment of indexSelect(lookup, dim, indices)
 bool isIndexSelectLookupTv(const TensorView* tv);
 
-// Check if the given tv is third argment of index_select(lookup, dim, indices)
+// Check if the given tv is third argment of indexSelect(lookup, dim, indices)
 bool isIndexSelectIndicesTv(const TensorView* tv);
 
 bool isTorchGatherLookupTv(const Val* tv);
