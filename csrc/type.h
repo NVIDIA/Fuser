@@ -1030,6 +1030,6 @@ constexpr auto toUnderlying(E e) noexcept {
   return static_cast<std::underlying_type_t<E>>(e);
 }
 
-enum class AsyncOpType { CpAsync, CpAsyncBulk, WgMma };
+enum class AsyncOpType { NotAsync, CpAsync, CpAsyncBulk, WgMma };
 
 } // namespace nvfuser
