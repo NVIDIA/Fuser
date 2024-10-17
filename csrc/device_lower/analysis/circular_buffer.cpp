@@ -159,8 +159,6 @@ void CircularBufferInfo::build(Fusion* fusion) {
     concrete_circular_buffered_loop_id_.insert(
         lower_utils::getConcreteLoopID(circular_buffer_axis));
   }
-
-  std::cout << toString() << std::endl;
 }
 
 bool CircularBufferInfo::isCircularBufferedIterDomain(IterDomain* id) {
@@ -189,11 +187,13 @@ const CircularBufferInfo::TvInfo& CircularBufferInfo::getTvInfo(
 void CircularBufferInfo::setCircularBufferTv(const TensorView* tv) {
   IterDomain* cb_axis = nvfuser::getCircularBufferAxis(tv);
   NVF_ERROR(cb_axis != nullptr);
+  auto concrete_loop_id = lower_utils::getConcreteLoopID(cb_axis);
+  NVF_ERROR(concrete_loop_id != nullptr);
 
   validateCircularBufferedTensor(tv);
 
   getTvInfo(tv).circular_buffer_axis = cb_axis;
-  circular_buffer_tvs_[cb_axis].push_back(tv);
+  circular_buffer_tvs_[concrete_loop_id].push_back(tv);
   // Set and validate the new stage depth.
   setStageDepthAndPrefetchDistance(
       cb_axis, tv->circularBufferDepth(), tv->circularBufferPrefetchDistance());
@@ -366,6 +366,7 @@ std::string CircularBufferInfo::toString() const {
     }
     ss << " }" << std::endl;
   }
+  ss << "}" << std::endl;
   return ss.str();
 }
 
