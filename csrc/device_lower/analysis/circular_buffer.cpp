@@ -185,7 +185,7 @@ const CircularBufferInfo::TvInfo& CircularBufferInfo::getTvInfo(
 }
 
 void CircularBufferInfo::setCircularBufferTv(const TensorView* tv) {
-  IterDomain* cb_axis = ::getCircularBufferAxis(tv);
+  IterDomain* cb_axis = nvfuser::getCircularBufferAxis(tv);
   NVF_ERROR(cb_axis != nullptr);
 
   validateCircularBufferedTensor(tv);
