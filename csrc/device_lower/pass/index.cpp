@@ -2314,11 +2314,19 @@ void IndexLowering::handle(const PadOp* pad) {
 void IndexLowering::handle(const SliceOp* slice) {
   // TODO: Consider converting SliceOp to Set at the beginning of
   // lowering
-  const auto in = lowerSrcIndex(slice->in(), slice->out());
-  const auto out = lowerDstIndex(slice->out());
+  const auto in = lowerSrcIndex(
+      slice->in(), slice->out(), {}, ir_utils::isCpAsyncOp(slice));
+  const auto out =
+      lowerDstIndex(slice->out(), {}, ir_utils::isCpAsyncOp(slice));
 
-  pushBack(IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, in));
+  auto ldst = IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, in)
+                  ->withPredicate(slice->predicate())
+                  ->as<LoadStoreOp>();
+  pushBack(ldst);
   GpuLower::current()->propagateExprInfo(slice, back());
+
+  ldst->setOpType(slice->opType());
+  ldst->setCacheOp(slice->cacheOp());
 }
 
 void IndexLowering::handle(const CatOp* cat) {

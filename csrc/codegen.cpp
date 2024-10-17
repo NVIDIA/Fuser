@@ -2900,7 +2900,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     } else {
       step_code << gen_index << " += " << gen_step;
     }
-    if (loop->isUnrolled()) {
+    if (loop->isUnrolled() && !getenv("DISABLE_UNROLL")) {
       indent() << "#pragma unroll\n";
     } else if (
         loop->circularBufferLoopStage() == CircularBufferLoopStage::Main) {

@@ -195,6 +195,8 @@ bool isStMatrixOp(const Expr* expr) {
 bool isCpAsyncOp(const Expr* expr) {
   if (auto ldst = dynamic_cast<const LoadStoreOp*>(expr)) {
     return ldst->opType() == LoadStoreOpType::CpAsync;
+  } else if (auto slice = dynamic_cast<const SliceOp*>(expr)) {
+    return slice->opType() == LoadStoreOpType::CpAsync;
   }
   return false;
 }

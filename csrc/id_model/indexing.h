@@ -66,7 +66,7 @@ class TensorIndexer {
   // The actual for-loops are required for handling circular buffering
   Val* getLinearIndex(
       TensorView* tv,
-      const Expr* expr,
+      Expr* expr,
       const std::vector<ForLoop*>& loops) const;
 
   // Get the index of a loop domain. Intended to be used only for testing.
@@ -76,7 +76,7 @@ class TensorIndexer {
   std::vector<Val*> getIndexFor(
       const Expr* expr,
       bool as_consumer,
-      const ValGroups& index_groups,
+      const std::vector<IterDomain*>& index_domains,
       const std::vector<ForLoop*>& loops) const;
 
   // Get the contig indices of the given ID groups with their strides
@@ -137,7 +137,7 @@ class TensorIndexer {
   // getIndexFor.
   IndexingInfo computeIndex(
       const Expr* expr,
-      const ValGroups& index_groups,
+      const std::vector<IterDomain*>& index_domains,
       const std::vector<ForLoop*>& for_loops) const;
 
   // Propagate the loop indices of a given list of loop domains to the

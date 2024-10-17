@@ -33,38 +33,17 @@ class IndexingTraversal : public ValGraphBFS {
       const Expr* expr,
       const ValGraph& graph,
       const ValGroups& from_groups,
-      const ValGroups& to_groups) {
-    IndexingTraversal traversal(
-        expr,
-        graph,
-        {from_groups.vector().begin(), from_groups.vector().end()},
-        {to_groups.vector().begin(), to_groups.vector().end()});
-    traversal.traverse();
-    return traversal.getShortestExprPath();
-  }
+      const ValGroups& to_groups);
+
+  static ExprPath getExprsBetween(
+      const Expr* expr,
+      const ValGraph& graph,
+      const std::vector<IterDomain*>& from_domains,
+      const std::vector<IterDomain*>& to_domains);
 
   using ValGraphBFS::isVisited;
 
-  bool excludeFromTraversal(const NodeType& group) const override {
-    if (const ExprGroup* eg = std::get_if<ExprGroup>(&group)) {
-      if ((*eg)->empty()) {
-        return false;
-      }
-      auto resize = dynamic_cast<Resize*>((*eg)->front());
-      if (resize == nullptr) {
-        return false;
-      }
-      if (std::none_of((*eg)->begin(), (*eg)->end(), [&](Expr* expr) -> bool {
-            return resize_paths_.find(expr->as<Resize>()) !=
-                resize_paths_.end();
-          })) {
-        // This resize node should never be traversed for indexing of
-        // the given expr
-        return true;
-      }
-    }
-    return false;
-  }
+  bool excludeFromTraversal(const NodeType& group) const override;
 
  private:
   std::unordered_set<Resize*> resize_paths_;

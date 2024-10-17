@@ -101,14 +101,32 @@ namespace {
 // so, the full promotion analysis should not be necessary.
 bool isLoopGraphUniform(const IdModel& id_model) {
   const auto& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
-  return std::all_of(
+  if (std::all_of(
       loop_graph.disjointValSets().disjointSets().begin(),
       loop_graph.disjointValSets().disjointSets().end(),
       [&](const ValGroup& loop_group) -> bool {
         return id_model.idGraph(IdMappingMode::EXACT)
                    .toGroups(*loop_group)
                    .size() == 1;
-      });
+      })) {
+    return true;
+  }
+
+  for (const auto tv: id_model.tvs()) {
+    for (const auto loop_id : tv->getLoopDomain()) {
+      const auto& loop_group = id_model.idGraph(IdMappingMode::LOOP)
+          .toGroup(loop_id);
+      const auto all_exact_groups = id_model.idGraph(IdMappingMode::EXACT)
+          .toGroups(*loop_group);
+      if (all_exact_groups.size() > 1) {
+        std::cerr << "Multiple exact groups merged: " << nvfuser::toString(loop_group) << " of " << loop_id->toString() << "\n";
+        std::cerr << "Exact groups: " << nvfuser::toString(all_exact_groups) << "\n";
+        return false;
+      }
+    }
+  }
+  
+  return true;
 }
 
 } // namespace
@@ -166,6 +184,13 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
   std::unordered_map<ValGroup, IterDomain*> iel_promotion_map =
       buildInlineRootResolutionMap(iel_graph, inlining_info_);
 
+  if (getenv("DEBUG")) {
+    std::cerr << "Step 1:\n";
+    for (const auto& [g, i] : iel_promotion_map) {
+      std::cerr << nvfuser::toString(g) << " -> " << i->toString() << "\n";
+    }
+  }
+
   if (callback_) {
     callback_->postStep1(iel_promotion_map, iel_graph);
   }
@@ -178,6 +203,13 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
 
   if (callback_) {
     callback_->postStep2(iel_promotion_map, iel_graph);
+  }
+
+  if (getenv("DEBUG")) {
+    std::cerr << "Step 2:\n";
+    for (const auto& [g, i] : iel_promotion_map) {
+      std::cerr << nvfuser::toString(g) << " -> " << i->toString() << "\n";
+    }
   }
 
   // Step 3: Determine the promotion of each loop graph based on the
