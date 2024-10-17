@@ -40,6 +40,11 @@ def test_matmul_nvf_benchmark(
 
     clear_cuda_cache()
 
+    # disable half-precision split-K reduction in cuBLAS since we do not
+    # support this in nvFuser
+    torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = False
+    torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = False
+
     try:
         a = torch.randn(m, k, device="cuda", dtype=dtype)
         b = torch.randn(k, n, device="cuda", dtype=dtype)
