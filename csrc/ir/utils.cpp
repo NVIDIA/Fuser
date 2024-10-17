@@ -1166,7 +1166,7 @@ std::string nullOrToString(const Statement* val) {
 }
 
 std::string nullOrToInlineString(const Statement* id) {
-  return id ? id->nullOrToInlineString() : "nullptr";
+  return id ? id->toInlineString() : "nullptr";
 }
 
 } // namespace nvfuser::ir_utils
