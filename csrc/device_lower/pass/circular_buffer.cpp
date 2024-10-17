@@ -578,6 +578,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
   // Where mbarrier are shared memory arrays bound to the LoadStoreOp
   void handleMainLoop(Expr* expr) {
     NVF_ERROR(expr != nullptr && expr->isA<LoadStoreOp>());
+    std::cout << "main loop: " << expr->toString() << std::endl;
 
     int64_t stage_depth =
         GpuLower::current()->circularBufferInfo().getStageDepthFor(
