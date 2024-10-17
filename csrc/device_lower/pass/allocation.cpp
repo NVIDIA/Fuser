@@ -649,6 +649,7 @@ class AllocationInserter : public kir::ExprMutator {
     }
 
     if (circular_buffer_load_is_tma) {
+      std::cout << "circular_buffer_load_is_tma" << std::endl;
       // Create and allocate a memory barrier. If this is a circular buffer,
       // then allocate an array of mbarier objects. mbarrier::init and
       // mbarrier::inval will be updated in circular buffering pass, but we
