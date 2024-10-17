@@ -41,57 +41,61 @@ TensorView* select(TensorView* tv, int64_t dim, Val* index) {
   return out;
 }
 
-// index_select
-TensorView* index_select(
+// torch.index_select
+TensorView* indexSelect(
     TensorView* lookup_tv,
     int64_t dim,
     TensorView* index_tv) {
   DataType dtype = lookup_tv->getDataType().value();
   NVF_CHECK(
       dtype != DataType::Null, "Invalid datatype provided for new value.");
+
   std::vector<IterDomain*> lookup_domain =
       TensorDomain::noReductions(lookup_tv->getLogicalDomain());
-  std::vector<IterDomain*> index_domain =
-      TensorDomain::noReductions(index_tv->getLogicalDomain());
+
   int64_t n_dims = (int64_t)lookup_domain.size();
   dim = wrapDim(dim, n_dims);
-  NVF_CHECK(n_dims > 0, "index_select can not be applied to 0d tensor.");
-  bool is_already_broadcast =
-      ops::isIndexAlreadyBroadcast(index_domain, dim, n_dims);
   NVF_CHECK(
-      is_already_broadcast || index_domain.size() <= 1,
-      "index_tv must be broadcasted to have the same rank as lookup_tv or is ",
-      "a 1d or scalar tensor.");
+      n_dims > 0, "lookup_tv argument for indexSelect cannot be a 0-D tensor.");
 
-  if (index_domain.empty()) {
+  std::vector<IterDomain*> original_index_domain =
+      TensorDomain::noReductions(index_tv->getLogicalDomain());
+
+  // short-circuit: index_tv is a scalar tensor.
+  if (original_index_domain.empty()) {
     TensorView* select_tv = select(lookup_tv, dim, index_tv);
     return unsqueeze(select_tv, dim);
   }
 
-  std::vector<IterDomain*> new_logical;
-  new_logical.reserve(n_dims);
-
-  for (auto i : c10::irange(n_dims)) {
-    if (i != dim) {
-      new_logical.emplace_back(lookup_domain[i]->cloneWithoutRFactor());
-    } else {
-      // For 1-D tensor, select the first index. Otherwise, select the index
-      // for desired dimension.
-      int64_t index_domain_dim = (is_already_broadcast) ? dim : 0;
-      new_logical.emplace_back(
-          index_domain[index_domain_dim]->cloneWithoutRFactor());
-    }
+  if (!ops::isIndexAlreadyBroadcast(original_index_domain, dim, n_dims)) {
+    // Broadcast index to lookup's rank.
+    NVF_CHECK(
+        original_index_domain.size() <= 1,
+        "index_tv must be a 1d or scalar tensor.");
+    index_tv =
+        ops::maybeBroadcastIndexTv(index_tv->as<TensorView>(), dim, n_dims);
   }
 
+  // create logical domain for output tensorview.
+  std::vector<IterDomain*> new_logical;
+  new_logical.reserve(n_dims);
+  for (auto i : c10::irange(n_dims)) {
+    if (i != dim) {
+      new_logical.emplace_back(lookup_domain.at(i)->cloneWithoutRFactor());
+    } else {
+      // Get new domain because maybeBroadcastIndexTv could have create a new
+      // TensorView.
+      std::vector<IterDomain*> index_domain =
+          TensorDomain::noReductions(index_tv->getLogicalDomain());
+      // Select the index for desired dimension.
+      new_logical.emplace_back(index_domain.at(dim)->cloneWithoutRFactor());
+    }
+  }
   auto td = IrBuilder::create<TensorDomain>(
       new_logical, TensorDomain::getContiguityFilledWith(new_logical, true));
   auto out = IrBuilder::create<TensorView>(td, dtype);
 
-  // broadcast index to lookup's rank.
-  if (!is_already_broadcast) {
-    index_tv =
-        ops::maybeBroadcastIndexTv(index_tv->as<TensorView>(), dim, n_dims);
-  }
+  // create index_select expression
   IrBuilder::create<IndexSelectOp>(out, lookup_tv, dim, index_tv);
   return out;
 }

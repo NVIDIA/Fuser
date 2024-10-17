@@ -190,11 +190,33 @@ def test_sdpa(mpi_test):
     )
 
 
-# This is ported over from https://github.com/NVIDIA/Fuser/blob/0d33366bf69393bfcc626e28d15dc830609aae2d/benchmarks/python/test_transformer.py#L306. The major changes are:
+# The following two benchmarks micro-benchmarks the forward pass and the
+# backprop of a sharded Transformer block used in GPT-3.
+#
+# The single-GPU nvFusions are
+# dumped from Thunder. To regenerate the nvFusions and the inputs, run the
+# following:
+#
+# 1. `git clone https://github.com/Lightning-AI/lightning-thunder.git`
+# 2. `git fetch origin wjy/sharded`
+# 3. `git checkout wjy/sharded`
+#    This branch adds the GPT-3 block benchmark, turns on certain knobs so the
+#    entire Transformer block fits into one nvFusion, and prints out the repro.
+# 4. `pytest thunder/benchmarks/targets.py -k 'test_nanogpt_block[backward-thunder]' -s`
+#
+# In stdout, you'll find the forward nvFusion executed once followed by the
+# backward nvFusion executed many times.
+#
+# For future reference, the nvFusions below are generated with Thunder version
+# https://github.com/Lightning-AI/lightning-thunder/commit/30e4aa1e67005c58219d7f06b46836eedb74b27a.
+# The Thunder traces are
+# https://gist.github.com/wujingyue/b111aa8b8d92067fc6004f5d0488dd27.
+#
+# Based on the single-GPU nvFusions, more changes are applied to generate the multi-GPU nvFusions.
 # 1. Replace magic values with variables for flexibility and readability.
 # 2. Split device dimensions and parallelize them.
 # 3. Decompose the second linear layer in MLP so the matmul result can be allreduced.
-# 4. Rename the receiving variables for `define_scalar`s and `define_tensor`s for readability.
+# 4. Rename the inputs and outputs for readability.
 class TransformerForwardFusion(FusionDefinition):
     def __init__(self, num_devices, batch, sequence, head, hidden):
         super().__init__()
@@ -214,11 +236,7 @@ class TransformerForwardFusion(FusionDefinition):
             self._hidden,
         )
 
-        mha_dropout_rng_offset = self.define_scalar(None, dtype=DataType.Int)
-        mha_dropout_rng_seed = self.define_scalar(None, dtype=DataType.Int)
-        mlp_dropout_rng_offset = self.define_scalar(None, dtype=DataType.Int)
-        mlp_dropout_rng_seed = self.define_scalar(None, dtype=DataType.Int)
-        self.input = self.define_tensor(
+        self.inp = self.define_tensor(
             shape=[b, s, e],
             contiguity=True,
             dtype=DataType.BFloat16,
@@ -234,17 +252,17 @@ class TransformerForwardFusion(FusionDefinition):
             dtype=DataType.BFloat16,
         )
         self.mha_linear0_weight = self.define_tensor(
-            shape=[e * 3, e],
+            shape=[d, e * 3 // d, e],
             contiguity=True,
             dtype=DataType.BFloat16,
         )
         self.mha_linear0_bias = self.define_tensor(
-            shape=[e * 3],
+            shape=[d, e * 3 // d],
             contiguity=True,
             dtype=DataType.BFloat16,
         )
         self.mha_linear1_weight = self.define_tensor(
-            shape=[e, e],
+            shape=[d, e, e // d],
             contiguity=True,
             dtype=DataType.BFloat16,
         )
@@ -253,6 +271,8 @@ class TransformerForwardFusion(FusionDefinition):
             contiguity=True,
             dtype=DataType.BFloat16,
         )
+        mha_dropout_offset = self.define_scalar(None, dtype=DataType.Int)
+        mha_dropout_seed = self.define_scalar(None, dtype=DataType.Int)
         self.layernorm1_weight = self.define_tensor(
             shape=[e],
             contiguity=True,
@@ -283,173 +303,207 @@ class TransformerForwardFusion(FusionDefinition):
             contiguity=True,
             dtype=DataType.BFloat16,
         )
-        S17 = self.define_scalar(0.00000, dtype=DataType.Double)
-        S18 = self.define_scalar(1.00000, dtype=DataType.Double)
-        T23 = self.ops.uniform(
-            S17,
-            S18,
-            shape=[b, s, e],
-            rng_seed=mha_dropout_rng_seed,
-            rng_offset=mha_dropout_rng_offset,
-            dtype=DataType.BFloat16,
+        mlp_dropout_offset = self.define_scalar(None, dtype=DataType.Int)
+        mlp_dropout_seed = self.define_scalar(None, dtype=DataType.Int)
+        T17 = self.ops.cast(self.inp, dtype=DataType.Float)
+        T18, layernorm0_mean = self.ops.var_mean(
+            T17, dims=[2], correction=0, keepdim=False
         )
-        S24 = self.define_scalar(0.00000, dtype=DataType.Double)
-        S25 = self.define_scalar(1.00000, dtype=DataType.Double)
-        T30 = self.ops.uniform(
-            S24,
-            S25,
-            shape=[b, s, e],
-            rng_seed=mlp_dropout_rng_seed,
-            rng_offset=mlp_dropout_rng_offset,
-            dtype=DataType.BFloat16,
+        T24 = self.ops.broadcast_in_dim(T18, shape=[b, s, 1], broadcast_dims=[0, 1])
+        T29 = self.ops.broadcast_in_dim(
+            layernorm0_mean, shape=[b, s, 1], broadcast_dims=[0, 1]
         )
-        T31 = self.ops.cast(self.input, dtype=DataType.Float)
-        S32 = self.define_scalar(0.900000, dtype=DataType.Double)
-        T33 = self.ops.lt(T23, S32)
-        S34 = self.define_scalar(0.900000, dtype=DataType.Double)
-        T35 = self.ops.lt(T30, S34)
-        T36, T37 = self.ops.var_mean(T31, dims=[2], correction=0, keepdim=False)
-        T42 = self.ops.broadcast_in_dim(T36, shape=[b, s, 1], broadcast_dims=[0, 1])
-        T47 = self.ops.broadcast_in_dim(T37, shape=[b, s, 1], broadcast_dims=[0, 1])
-        S48 = self.define_scalar(1.00000e-05, dtype=DataType.Double)
-        T49 = self.ops.add(T42, S48)
-        T54 = self.ops.broadcast_in_dim(T47, shape=[b, s, e], broadcast_dims=[0, 1, 2])
-        T55 = self.ops.rsqrt(T49)
-        T56 = self.ops.sub(T31, T54)
-        T61 = self.ops.broadcast_in_dim(T55, shape=[b, s, e], broadcast_dims=[0, 1, 2])
-        T62 = self.ops.mul(T56, T61)
-        T67 = self.ops.broadcast_in_dim(
+        S30 = self.define_scalar(1.00000e-05, dtype=DataType.Double)
+        T31 = self.ops.add(T24, S30)
+        layernorm0_rstd = self.ops.rsqrt(T31)
+        T37 = self.ops.broadcast_in_dim(T29, shape=[b, s, e], broadcast_dims=[0, 1, 2])
+        T38 = self.ops.sub(T17, T37)
+        T43 = self.ops.broadcast_in_dim(
+            layernorm0_rstd, shape=[b, s, e], broadcast_dims=[0, 1, 2]
+        )
+        T44 = self.ops.mul(T38, T43)
+        T49 = self.ops.broadcast_in_dim(
             self.layernorm0_weight, shape=[b, s, e], broadcast_dims=[2]
         )
-        T68 = self.ops.cast(T67, dtype=DataType.Float)
-        T69 = self.ops.mul(T62, T68)
-        T74 = self.ops.broadcast_in_dim(
+        T50 = self.ops.cast(T49, dtype=DataType.Float)
+        T51 = self.ops.mul(T44, T50)
+        T56 = self.ops.broadcast_in_dim(
             self.layernorm0_bias, shape=[b, s, e], broadcast_dims=[2]
         )
-        T75 = self.ops.cast(T74, dtype=DataType.Float)
-        T76 = self.ops.add(T69, T75)
-        T77 = self.ops.cast(T76, dtype=DataType.BFloat16)
-        T78 = self.ops.linear(T77, self.mha_linear0_weight, self.mha_linear0_bias)
-        T91 = self.ops.slice(
-            T78,
-            start_indices=[0, 0, 0],
-            end_indices=[b, s, e],
-            strides=[1, 1, 1],
+        T57 = self.ops.cast(T56, dtype=DataType.Float)
+        T58 = self.ops.add(T51, T57)
+        T59 = self.ops.cast(T58, dtype=DataType.BFloat16)
+        mha_linear0_out = self.ops.linear(
+            T59, self.mha_linear0_weight, self.mha_linear0_bias
         )
-        T104 = self.ops.slice(
-            T78,
-            start_indices=[0, 0, e],
-            end_indices=[b, s, e * 2],
-            strides=[1, 1, 1],
+        T73 = self.ops.slice(
+            mha_linear0_out,
+            start_indices=[0, 0, 0, 0],
+            end_indices=[d, b, s, e // d],
         )
-        T117 = self.ops.slice(
-            T78,
-            start_indices=[0, 0, e * 2],
-            end_indices=[b, s, e * 3],
-            strides=[1, 1, 1],
+        T86 = self.ops.slice(
+            mha_linear0_out,
+            start_indices=[0, 0, 0, e // d],
+            end_indices=[d, b, s, e * 2 // d],
         )
-        T123 = self.ops.reshape(T104, new_shape=[b, s, h, e // h])
-        T124 = self.ops.permute(T123, dims=[0, 2, 1, 3])
-        T130 = self.ops.reshape(T91, new_shape=[b, s, h, e // h])
-        T131 = self.ops.permute(T130, dims=[0, 2, 1, 3])
-        T137 = self.ops.reshape(T117, new_shape=[b, s, h, e // h])
-        T138 = self.ops.permute(T137, dims=[0, 2, 1, 3])
-        S139 = self.define_scalar(0.100000, dtype=DataType.Double)
-        S140 = self.define_scalar(True, dtype=DataType.Bool)
-        T141, T142, T143, T144 = self.ops.sdpfa_fwd(T131, T124, T138, S139, S140, None)
-        T145 = self.ops.permute(T141, dims=[0, 2, 1, 3])
-        T146 = self.ops.stride_order(T145, stride_order=[3, 2, 1, 0])
-        T151 = self.ops.reshape(T146, new_shape=[b, s, e])
-        T152 = self.ops.linear(T151, self.mha_linear1_weight, self.mha_linear1_bias)
-        T153 = self.ops.cast(T152, dtype=DataType.Float)
-        T154 = self.ops.cast(T33, dtype=DataType.Float)
-        T155 = self.ops.mul(T153, T154)
-        S156 = self.define_scalar(1.11111, dtype=DataType.Double)
-        T157 = self.ops.mul(T155, S156)
-        T158 = self.ops.add(T31, T157)
-        T159, T160 = self.ops.var_mean(T158, dims=[2], correction=0, keepdim=False)
-        T165 = self.ops.broadcast_in_dim(T159, shape=[b, s, 1], broadcast_dims=[0, 1])
-        T170 = self.ops.broadcast_in_dim(T160, shape=[b, s, 1], broadcast_dims=[0, 1])
-        S171 = self.define_scalar(1.00000e-05, dtype=DataType.Double)
-        T172 = self.ops.add(T165, S171)
-        T177 = self.ops.broadcast_in_dim(
-            T170, shape=[b, s, e], broadcast_dims=[0, 1, 2]
+        T99 = self.ops.slice(
+            mha_linear0_out,
+            start_indices=[0, 0, 0, e * 2 // d],
+            end_indices=[d, b, s, e * 3 // d],
         )
-        T178 = self.ops.rsqrt(T172)
-        T179 = self.ops.sub(T158, T177)
-        T184 = self.ops.broadcast_in_dim(
-            T178, shape=[b, s, e], broadcast_dims=[0, 1, 2]
+        T105 = self.ops.reshape(T86, new_shape=[d, b, s, h // d, e // h])
+        T106 = self.ops.permute(T105, dims=[0, 1, 3, 2, 4])
+        T112 = self.ops.reshape(T73, new_shape=[d, b, s, h // d, e // h])
+        T113 = self.ops.permute(T112, dims=[0, 1, 3, 2, 4])
+        T119 = self.ops.reshape(T99, new_shape=[d, b, s, h // d, e // h])
+        T120 = self.ops.permute(T119, dims=[0, 1, 3, 2, 4])
+        S121 = self.define_scalar(0.100000, dtype=DataType.Double)
+        S122 = self.define_scalar(True, dtype=DataType.Bool)
+        sdpa_out, sdpa_logsum_exp, sdpa_seed, sdpa_offset = self.ops.sdpfa_fwd(
+            T113, T106, T120, S121, S122, None
         )
-        T185 = self.ops.mul(T179, T184)
-        T190 = self.ops.broadcast_in_dim(
-            self.layernorm1_weight, shape=[b, s, e], broadcast_dims=[2]
-        )
-        T191 = self.ops.cast(T190, dtype=DataType.Float)
-        T192 = self.ops.mul(T185, T191)
-        T197 = self.ops.broadcast_in_dim(
-            self.layernorm1_bias, shape=[b, s, e], broadcast_dims=[2]
-        )
-        T198 = self.ops.cast(T197, dtype=DataType.Float)
-        T199 = self.ops.add(T192, T198)
-        T200 = self.ops.cast(T199, dtype=DataType.BFloat16)
-        T201 = self.ops.linear(T200, self.mlp_linear0_weight, self.mlp_linear0_bias)
-        T202 = self.ops.cast(T201, dtype=DataType.Float)
-        T203 = self.ops.mul(T202, T202)
-        T204 = self.ops.mul(T203, T202)
-        S205 = self.define_scalar(0.0447150, dtype=DataType.Double)
-        T206 = self.ops.mul(S205, T204)
-        T207 = self.ops.add(T202, T206)
-        S208 = self.define_scalar(0.797885, dtype=DataType.Double)
-        T209 = self.ops.mul(S208, T207)
-        T210 = self.ops.tanh(T209)
-        S211 = self.define_scalar(0.500000, dtype=DataType.Double)
-        T212 = self.ops.mul(S211, T202)
-        S213 = self.define_scalar(1.00000, dtype=DataType.Double)
-        T214 = self.ops.add(S213, T210)
-        T215 = self.ops.mul(T212, T214)
-        T216 = self.ops.cast(T215, dtype=DataType.BFloat16)
+        T127 = self.ops.permute(sdpa_out, dims=[0, 1, 3, 2, 4])
+        T128 = self.ops.stride_order(T127, stride_order=[4, 3, 2, 1, 0])
+        T133 = self.ops.reshape(T128, new_shape=[d, b, s, e // d])
         # TODO(#3125): nvFuser is missing an API to construct a sharded linear
         # like this. Therefore, I decomposed it by hand.
-        # T217 = self.ops.linear(T216, self.mlp_linear1_weight, self.mlp_linear1_bias)
+        # mha_linear1_out = self.ops.linear(T133, self.mha_linear1_weight, self.mha_linear1_bias)
+        #    [b,s,e]                 [d,b,s,e/d]        [d,e,e/d]                 [e]
+        mha_linear1_local_matmul = self.ops.matmul(
+            T133,
+            self.ops.broadcast_in_dim(
+                self.ops.permute(self.mha_linear1_weight, [0, 2, 1]),
+                [d, 1, e // d, e],
+                [0, 2, 3],
+            ),
+        )
+        mha_linear1_matmul = self.ops.sum(mha_linear1_local_matmul, [0])  # allreduce
+        mha_linear1_biasadd = self.ops.add(
+            mha_linear1_matmul,
+            self.ops.broadcast_in_dim(self.mha_linear1_bias, [1, 1, e], [2]),
+        )
+        mha_linear1_out = self.ops.cast(mha_linear1_biasadd, dtype=DataType.BFloat16)
+        S135 = self.define_scalar(0.00000, dtype=DataType.Double)
+        S136 = self.define_scalar(1.00000, dtype=DataType.Double)
+        T141 = self.ops.uniform(
+            S135,
+            S136,
+            shape=[b, s, e],
+            rng_seed=mha_dropout_seed,
+            rng_offset=mha_dropout_offset,
+            dtype=DataType.BFloat16,
+        )
+        S142 = self.define_scalar(0.900000, dtype=DataType.Double)
+        T143 = self.ops.lt(T141, S142)
+        T144 = self.ops.cast(mha_linear1_out, dtype=DataType.Float)
+        T145 = self.ops.cast(T143, dtype=DataType.Float)
+        T146 = self.ops.mul(T144, T145)
+        S147 = self.define_scalar(1.11111, dtype=DataType.Double)
+        T148 = self.ops.mul(T146, S147)
+        T149 = self.ops.add(T17, T148)
+        T150, layernorm1_mean = self.ops.var_mean(
+            T149, dims=[2], correction=0, keepdim=False
+        )
+        T156 = self.ops.broadcast_in_dim(T150, shape=[b, s, 1], broadcast_dims=[0, 1])
+        T161 = self.ops.broadcast_in_dim(
+            layernorm1_mean, shape=[b, s, 1], broadcast_dims=[0, 1]
+        )
+        S162 = self.define_scalar(1.00000e-05, dtype=DataType.Double)
+        T163 = self.ops.add(T156, S162)
+        layernorm1_rstd = self.ops.rsqrt(T163)
+        T169 = self.ops.broadcast_in_dim(
+            T161, shape=[b, s, e], broadcast_dims=[0, 1, 2]
+        )
+        T170 = self.ops.sub(T149, T169)
+        T175 = self.ops.broadcast_in_dim(
+            layernorm1_rstd, shape=[b, s, e], broadcast_dims=[0, 1, 2]
+        )
+        T176 = self.ops.mul(T170, T175)
+        T181 = self.ops.broadcast_in_dim(
+            self.layernorm1_weight, shape=[b, s, e], broadcast_dims=[2]
+        )
+        T182 = self.ops.cast(T181, dtype=DataType.Float)
+        T183 = self.ops.mul(T176, T182)
+        T188 = self.ops.broadcast_in_dim(
+            self.layernorm1_bias, shape=[b, s, e], broadcast_dims=[2]
+        )
+        T189 = self.ops.cast(T188, dtype=DataType.Float)
+        T190 = self.ops.add(T183, T189)
+        T191 = self.ops.cast(T190, dtype=DataType.BFloat16)
+        mlp_linear0_out = self.ops.linear(
+            T191, self.mlp_linear0_weight, self.mlp_linear0_bias
+        )
+        T193 = self.ops.cast(mlp_linear0_out, dtype=DataType.Float)
+        T194 = self.ops.mul(T193, T193)
+        T195 = self.ops.mul(T194, T193)
+        S196 = self.define_scalar(0.500000, dtype=DataType.Double)
+        T197 = self.ops.mul(S196, T193)
+        S198 = self.define_scalar(0.0447150, dtype=DataType.Double)
+        T199 = self.ops.mul(S198, T195)
+        T200 = self.ops.add(T193, T199)
+        S201 = self.define_scalar(0.797885, dtype=DataType.Double)
+        T202 = self.ops.mul(S201, T200)
+        T203 = self.ops.tanh(T202)
+        S204 = self.define_scalar(1.00000, dtype=DataType.Double)
+        T205 = self.ops.add(S204, T203)
+        T206 = self.ops.mul(T197, T205)
+        T207 = self.ops.cast(T206, dtype=DataType.BFloat16)
+        # TODO(#3125): same as mha_linear1.
+        # T208 = self.ops.linear(T207, self.mlp_linear1_weight, self.mlp_linear1_bias)
         # [b,s,e]        [d,b,s,4h/d]        [d,e,4h/d]                  [e]
-        T217_local_matmul = self.ops.matmul(
-            T216,
+        T208_local_matmul = self.ops.matmul(
+            T207,
             self.ops.broadcast_in_dim(
                 self.ops.permute(self.mlp_linear1_weight, [0, 2, 1]),
                 [d, 1, e * 4 // d, e],
                 [0, 2, 3],
             ),
         )
-        T217_matmul = self.ops.sum(T217_local_matmul, [0])
-        T217_biasadd = self.ops.add(
-            T217_matmul,
+        T208_matmul = self.ops.sum(T208_local_matmul, [0])
+        T208_biasadd = self.ops.add(
+            T208_matmul,
             self.ops.broadcast_in_dim(self.mlp_linear1_bias, [1, 1, e], [2]),
         )
-        T217 = self.ops.cast(T217_biasadd, dtype=DataType.BFloat16)
-        T218 = self.ops.cast(T217, dtype=DataType.Float)
-        T219 = self.ops.cast(T35, dtype=DataType.Float)
+        T208 = self.ops.cast(T208_biasadd, dtype=DataType.BFloat16)
+        S209 = self.define_scalar(0.00000, dtype=DataType.Double)
+        S210 = self.define_scalar(1.00000, dtype=DataType.Double)
+        T215 = self.ops.uniform(
+            S209,
+            S210,
+            shape=[b, s, e],
+            rng_seed=mlp_dropout_seed,
+            rng_offset=mlp_dropout_offset,
+            dtype=DataType.BFloat16,
+        )
+        S216 = self.define_scalar(0.900000, dtype=DataType.Double)
+        T217 = self.ops.lt(T215, S216)
+        T218 = self.ops.cast(T208, dtype=DataType.Float)
+        T219 = self.ops.cast(T217, dtype=DataType.Float)
         T220 = self.ops.mul(T218, T219)
         S221 = self.define_scalar(1.11111, dtype=DataType.Double)
         T222 = self.ops.mul(T220, S221)
-        T223 = self.ops.add(T158, T222)
-        T224 = self.ops.cast(T223, dtype=DataType.BFloat16)
-        # See the caller of this FusionDefinition for what these outputs mean.
-        self.add_output(T37)
-        self.add_output(T55)
-        self.add_output(T78)
-        self.add_output(T141)
-        self.add_output(T142)
-        self.add_output(T143)
-        self.add_output(T144)
-        self.add_output(T158)
-        self.add_output(T160)
-        self.add_output(T178)
-        self.add_output(T224)
+        T223 = self.ops.add(T149, T222)
+        out = self.ops.cast(T223, dtype=DataType.BFloat16)
+
+        self.add_output(layernorm0_mean)
+        self.add_output(layernorm0_rstd)
+        self.add_output(mha_linear0_out)
+        self.add_output(sdpa_out)
+        self.add_output(sdpa_logsum_exp)
+        self.add_output(sdpa_seed)
+        self.add_output(sdpa_offset)
+        self.add_output(mha_linear1_out)
+        self.add_output(layernorm1_mean)
+        self.add_output(layernorm1_rstd)
+        self.add_output(mlp_linear0_out)
+        self.add_output(out)
 
     def multidevice_schedule(self):
         mesh = self.sched._create_device_mesh(range(self._num_devices))
+        # Assign the mesh to inputs and weights. nvFuser will propagate it to
+        # downstream tensors.
         for in_tv in [
-            self.input,
+            self.inp,
             self.layernorm0_weight,
             self.layernorm0_bias,
             self.mha_linear0_weight,
@@ -465,9 +519,17 @@ class TransformerForwardFusion(FusionDefinition):
         ]:
             self.sched._set_device_mesh(in_tv, mesh)
 
-        self.sched.parallelize(self.mlp_linear0_weight, 0, nvfuser.ParallelType.mesh_x)
-        self.sched.parallelize(self.mlp_linear0_bias, 0, nvfuser.ParallelType.mesh_x)
-        self.sched.parallelize(self.mlp_linear1_weight, 0, nvfuser.ParallelType.mesh_x)
+        # Parallelize the device dimension of certain weights. nvFuser will try
+        # to propagate shardings to downstream tensors.
+        for in_tv in [
+            self.mha_linear0_weight,
+            self.mha_linear0_bias,
+            self.mha_linear1_weight,
+            self.mlp_linear0_weight,
+            self.mlp_linear0_bias,
+            self.mlp_linear1_weight,
+        ]:
+            self.sched.parallelize(in_tv, 0, nvfuser.ParallelType.mesh_x)
 
 
 @pytest.mark.skipif(
@@ -475,75 +537,114 @@ class TransformerForwardFusion(FusionDefinition):
     reason="Flash Attention is only supported on Ampere and newer devices.",
 )
 @pytest.mark.mpi
-def test_transformer_forward(mpi_test):
+def test_transformer_forward(mpi_test, benchmark):
     d = mpi_test.size
     rank = mpi_test.rank
 
-    b, s, h, e = 2, 2048, 96, 12288
+    b, s, h, e = 1, 2048, 96, 12288
 
-    if e * 4 % d != 0:
+    assert (
+        e % h == 0
+    ), f"The hidden size ({e}) has to be divisible by the number of heads ({h})."
+
+    if h % d != 0:
         pytest.skip(
-            f"We only support even split, so {e} * 4 has to be divisible by {d}."
+            f"We only support even DID split, so the number of heads ({h}) has to be divisible by the number of GPUs ({d})."
         )
+
+    assert e * 4 % d == 0, (
+        "This is required to evenly DID split MLP. This condition is implied "
+        "by the previous two checks; a fail would indicate a programming "
+        "error. So I use `assert` instead of `pytest.skip`."
+    )
 
     torch.cuda.set_device(mpi_test.local_rank)
 
     # To reduce memory footprint, create unsharded data on CPU and copy only
     # the needed slice to GPU.
+    mha_linear0_weight = torch.randn(d, e * 3 // d, e, dtype=torch.bfloat16)
+    mha_linear0_bias = torch.randn(d, e * 3 // d, dtype=torch.bfloat16)
+    mha_linear1_weight = torch.randn(d, e, e // d, dtype=torch.bfloat16)
+    mha_linear1_bias = torch.randn(e, dtype=torch.bfloat16, device="cuda")
     mlp_linear0_weight = torch.randn(d, e * 4 // d, e, dtype=torch.bfloat16)
     mlp_linear0_bias = torch.randn(d, e * 4 // d, dtype=torch.bfloat16)
     mlp_linear1_weight = torch.randn(d, e, e * 4 // d, dtype=torch.bfloat16)
+    mlp_linear1_bias = torch.randn(e, dtype=torch.bfloat16, device="cuda")
     # See TransformerForwardFusion.definition for the meanings of these
     # arguments. They are passed in in the same order as the `define_scalar`s
     # and `define_tensor`s.
     ins = [
+        torch.testing.make_tensor((b, s, e), dtype=torch.bfloat16, device="cuda"),
+        torch.testing.make_tensor((e,), dtype=torch.bfloat16, device="cuda"),
+        torch.testing.make_tensor((e,), dtype=torch.bfloat16, device="cuda"),
+        mha_linear0_weight[rank : rank + 1].cuda(),
+        mha_linear0_bias[rank : rank + 1].cuda(),
+        mha_linear1_weight[rank : rank + 1].cuda(),
+        mha_linear1_bias,
         29,
-        2142642406458297,
-        30,
-        2142642406458297,
-        torch.randn(b, s, e, dtype=torch.bfloat16, device="cuda"),
-        torch.randn(e, dtype=torch.bfloat16, device="cuda"),
-        torch.randn(e, dtype=torch.bfloat16, device="cuda"),
-        torch.randn(e * 3, e, dtype=torch.bfloat16, device="cuda"),
-        torch.randn(e * 3, dtype=torch.bfloat16, device="cuda"),
-        torch.randn(e, e, dtype=torch.bfloat16, device="cuda"),
-        torch.randn(e, dtype=torch.bfloat16, device="cuda"),
-        torch.randn(e, dtype=torch.bfloat16, device="cuda"),
-        torch.randn(e, dtype=torch.bfloat16, device="cuda"),
+        8338718769759788,
+        torch.testing.make_tensor((e,), dtype=torch.bfloat16, device="cuda"),
+        torch.testing.make_tensor((e,), dtype=torch.bfloat16, device="cuda"),
         mlp_linear0_weight[rank : rank + 1].cuda(),
         mlp_linear0_bias[rank : rank + 1].cuda(),
         mlp_linear1_weight[rank : rank + 1].cuda(),
-        torch.randn(e, dtype=torch.bfloat16, device="cuda"),
+        mlp_linear1_bias,
+        30,
+        8338718769759788,
     ]
 
     fd = TransformerForwardFusion(d, b, s, h, e)
 
-    outs = fd.execute(ins)
+    def benchmark_fn(profile):
+        if profile:
+            torch.cuda.cudart().cudaProfilerStart()
+
+        outs = fd.execute(ins)
+        torch.cuda.synchronize()
+
+        if profile:
+            torch.cuda.cudart().cudaProfilerStop()
+
+        return outs
+
+    # Warm up and validate.
+    outs = benchmark_fn(False)
     (
-        layernorm0_avg,
-        layernorm0_invstd,
-        mha_linear0,
+        layernorm0_mean,
+        layernorm0_rstd,
+        mha_linear0_out,
         sdpa_out,
         sdpa_logsum_exp,
         sdpa_seed,
         sdpa_offset,
-        mha_dropout,
-        layernorm1_avg,
-        layernorm1_invstd,
-        output,
+        mha_linear1_out,
+        layernorm1_mean,
+        layernorm1_rstd,
+        mlp_linear0_out,
+        out,
     ) = outs
 
-    def assert_shape_is(t: torch.Tensor, sizes: list[int]) -> None:
-        assert t.shape == torch.Size(sizes)
+    # TODO(#2962): validate the numbers as well. Currently, the numbers are off
+    # by a lot, making comparison infeasible.
+    def assert_shape_dtype(
+        t: torch.Tensor, expected_sizes: list[int], expected_dtype: torch.dtype
+    ) -> None:
+        assert t.shape == torch.Size(expected_sizes)
+        assert t.dtype == expected_dtype
 
-    assert_shape_is(layernorm0_avg, [b, s])
-    assert_shape_is(layernorm0_invstd, [b, s, 1])
-    assert_shape_is(mha_linear0, [b, s, e * 3])
-    assert_shape_is(sdpa_out, [b, h, s, e // h])
-    assert_shape_is(sdpa_logsum_exp, [b, h, s])
-    assert_shape_is(sdpa_seed, [])
-    assert_shape_is(sdpa_offset, [])
-    assert_shape_is(mha_dropout, [b, s, e])
-    assert_shape_is(layernorm1_avg, [b, s])
-    assert_shape_is(layernorm1_invstd, [b, s, 1])
-    assert_shape_is(output, [b, s, e])
+    assert_shape_dtype(layernorm0_mean, [b, s], torch.float32)
+    assert_shape_dtype(layernorm0_rstd, [b, s, 1], torch.float32)
+    assert_shape_dtype(mha_linear0_out, [1, b, s, e * 3 // d], torch.bfloat16)
+    assert_shape_dtype(sdpa_out, [1, b, h // d, s, e // h], torch.bfloat16)
+    assert_shape_dtype(sdpa_logsum_exp, [1, b, h // d, s], torch.float32)
+    assert_shape_dtype(sdpa_seed, [], torch.int64)
+    assert_shape_dtype(sdpa_offset, [], torch.int64)
+    assert_shape_dtype(mha_linear1_out, [b, s, e], torch.bfloat16)
+    assert_shape_dtype(layernorm1_mean, [b, s], torch.float32)
+    assert_shape_dtype(layernorm1_rstd, [b, s, 1], torch.float32)
+    assert_shape_dtype(mlp_linear0_out, [1, b, s, e * 4 // d], torch.bfloat16)
+    assert_shape_dtype(out, [b, s, e], torch.bfloat16)
+
+    # Benchmark and profile. The profile can be collected and displayed using
+    # `nsys`. See instructions in test_transformer_engine.py.
+    benchmark.pedantic(benchmark_fn, args=(True,), rounds=5)

@@ -4340,8 +4340,8 @@ with FusionDefinition() as fd:
     nvfuser_fusion_id0(fd)
 
 inputs = [
-    torch.randn(16, dtype=torch.float32, device='cuda:0').as_strided((4, 4), (4, 1)),
-    torch.randn(16, dtype=torch.float32, device='cuda:0').as_strided((4, 4), (4, 1)),
+    torch.testing.make_tensor((4, 4), dtype=torch.float32, device='cuda:0'),
+    torch.testing.make_tensor((4, 4), dtype=torch.float32, device='cuda:0'),
 ]
 fd.execute(inputs)
 """

@@ -377,9 +377,9 @@ TEST_F(MatmulSASSTest, AmpereModifiersSharedMemoryEpilogue) {
     bool found_LDGDEPBAR = false;
     bool found_DEPBAR = false; // kAllSupportedMmaLayout;
     int BAR_COUNT = 0;
-    // we have at least three shared memory barriers in the kernel if
-    // use_shared_epilogue. If promote_prologue_smem_reuse, then 4
-    const int EXPECTED_BAR_COUNT = promote_prologue_smem_reuse ? 4 : 3;
+    // we have at least 6 shared memory barriers in the kernel if
+    // use_shared_epilogue. If promote_prologue_smem_reuse, then 8
+    const int EXPECTED_BAR_COUNT = promote_prologue_smem_reuse ? 8 : 6;
     sass::Container sass;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
         8,

@@ -1220,15 +1220,27 @@ void movePersistentBufferToSmem(
     // isSharedMemoryPersistent() twice, one for the buffer iteself and the
     // other for the buffer's input tensor if the buffer is a cached input
     // and it is not in [smem_persistent_buffers].
+    bool is_cached_input = false;
     bool use_smem = isSharedMemoryPersistent(tv);
     if (!use_smem &&
         std::find(cached_inputs.begin(), cached_inputs.end(), tv) !=
             cached_inputs.end()) {
       auto input_tv = ir_utils::producerTvsOf(tv).at(0);
       use_smem = isSharedMemoryPersistent(input_tv);
+      is_cached_input = true;
     }
     if (use_smem) {
       tv->setMemoryType(MemoryType::Shared);
+      // When loading from global memory (gmem), use CpAsync with a short data
+      // path of gmem -> smem to reduce temporary register usage. Otherwise, the
+      // data path from gmem to shared memory (smem) follows this sequence: gmem
+      // -> L1 cache -> register -> smem.
+      int hw_major = at::cuda::getCurrentDeviceProperties()->major;
+      if (is_cached_input && hw_major >= 8) {
+        tv->definition()->as<LoadStoreOp>()->setOpType(
+            LoadStoreOpType::CpAsync);
+        tv->definition()->as<LoadStoreOp>()->setCacheOp(CacheOp::Unspecified);
+      }
     }
   }
 }
