@@ -144,12 +144,17 @@ IndexingTraversal::ExprPath IndexingTraversal::getExprsBetween(
               root_to_logical_exprs.begin(),
               root_to_logical_exprs.end(),
               [](Expr* expr) { return expr->isA<Resize>(); })) {
-        //std::cerr << "Resize WAR: " << expr->toString();
+#if 0
+        std::cerr << "Resize WAR: " << expr->toString();
+        std::cerr << "From: " << toDelimitedString(from_domains) << "\n";
+        std::cerr << "To: " << toDelimitedString(to_domains) << "\n";
+#endif
         IdModel local_model(
             std::vector<Expr*>{consumer_tv->definition()},
             /*additional_tvs=*/{},
             /*build_graphs=*/false);
         const auto& local_graph = local_model.buildAlmostExactGraph();
+        // std::cerr << "Local graph: " << local_graph.toString() << "\n";
         auto from_groups = local_graph.toGroups(from_domains);
         auto to_groups = local_graph.toGroups(to_domains);
 
@@ -160,6 +165,10 @@ IndexingTraversal::ExprPath IndexingTraversal::getExprsBetween(
             {to_groups.vector().begin(), to_groups.vector().end()});
         traversal.traverse();
         auto p = traversal.getShortestExprPath();
+        std::cerr << "Resize indexing path\n";
+        for (const auto& [g, d] : p) {
+          std::cerr << "\t" << d << g->front()->toString();
+        }
         return p;
       }
     }

@@ -399,6 +399,7 @@ std::pair<std::vector<IterDomain*>, std::vector<ValGroup>> LoopDomainScheduler::
   }
 
   bool has_missing_ids = false;
+  std::vector<std::pair<IterDomain*, IterDomain*>> clone_pairs;
   for (const auto& ref_id_group : ref_id_groups) {
     if (all_id_groups.has(ref_id_group)) {
       // This loop ID already exists.
@@ -408,13 +409,14 @@ std::pair<std::vector<IterDomain*>, std::vector<ValGroup>> LoopDomainScheduler::
     } else {
       // Need to create a new ID for the loop ID
       has_missing_ids = true;
-      // TODO: Don't force mapping at this point since that may not be necessary
-      auto clone = representativeId(ref_id_group)->cloneWithoutRFactor(true);
+      auto clone = representativeId(ref_id_group)->cloneWithoutRFactor(false);
+      clone_pairs.emplace_back(representativeId(ref_id_group), clone);
       loop_ids.push_back(clone);
       group_to_id.emplace(ref_id_group, clone);
       all_id_groups.pushBack(ref_id_group);
       std::cerr << "New clone: " << clone->toString()
-                << ", original: " << ref_id_group->front()->toString() << "\n";
+                << ", original: " << representativeId(ref_id_group)->toString()
+                << "\n";
     }
   }
 
@@ -428,6 +430,22 @@ std::pair<std::vector<IterDomain*>, std::vector<ValGroup>> LoopDomainScheduler::
 
   if (!path_from_ref.has_value()) {
     path_from_ref = getReplayPath(tv, ref_id_groups);
+  }
+
+  const auto path_inputs = getInputsOfExprPath(graph(), path_from_ref.value());
+  for (const auto& [original, clone] : clone_pairs) {
+    if (std::find_if(
+            path_inputs.begin(),
+            path_inputs.end(),
+            [&](const ValGroup& path_input) {
+              return path_input->has(original);
+            }) != path_inputs.end()) {
+      continue;
+    }
+
+    std::cerr << "Forcing mapping of " << original->toString() << " and "
+              << clone->toString() << "\n";
+    original->fusion()->registerExactMapping(original, clone);
   }
 
   const ExprGroups all_existing_expr_groups =

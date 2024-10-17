@@ -402,6 +402,8 @@ void ValGraph::mapVals(Val* val0, Val* val1) {
     return;
   }
 
+  // std::cerr << "mapVals: " << val0->name() << ", " << val1->name() << "\n";
+
   // Definitions and uses are based on the groups of id0 and id1, don't merge
   // them into a single group until we grab all definitions and uses for later
   // processing.
@@ -438,6 +440,8 @@ void ValGraph::mapVals(Val* val0, Val* val1) {
         }
         Expr* use0 = use_group_0->front();
         Expr* use1 = use_group_1->front();
+        // std::cerr << "maybeMapThrough uses: " << use0->toString() << "and "
+        // << use1->toString();
         maybeMapThroughExprs(use0, use1, true);
       }
     }
@@ -456,6 +460,8 @@ void ValGraph::mapVals(Val* val0, Val* val1) {
         }
         auto def0 = def_group_0->front();
         auto def1 = def_group_1->front();
+        // std::cerr << "maybeMapThrough defs: " << def0->toString() << "and "
+        // << def1->toString();
         maybeMapThroughExprs(def0, def1, false);
       }
     }

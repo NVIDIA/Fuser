@@ -301,6 +301,8 @@ ValGraph& IdModel::buildExactGraph() {
       for (auto c_id :
            getSortedKeys(exact_c2p_logical_map, Statement::lessThan)) {
         auto p_id = exact_c2p_logical_map.at(c_id);
+        // std::cerr << "mapping: " << c_id->name() << ", " << p_id->name() <<
+        // "\n";
         graph.mapVals(c_id, p_id);
       }
     }
@@ -355,6 +357,8 @@ ValGraph& IdModel::buildExactGraph() {
           if (registerd_id == nullptr) {
             registerd_id = id;
           } else {
+            std::cerr << "Mapping additional id: " << registerd_id->name()
+                      << ", " << id->name() << "\n";
             graph.mapVals(registerd_id, id);
           }
         }

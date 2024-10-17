@@ -7559,7 +7559,10 @@ TEST_F(ResizeTest, RoPEFullBF16PermuteShmem) {
         // Vectorize the uses as well
         for (const auto smem_use : tv->uses()) {
           std::cerr << "Smem cache use: " << smem_use->toString();
-          NVF_ERROR(smem_use->isA<LoadStoreOp>() || smem_use->isA<SliceOp>(), "Unexpected op: ", smem_use->toString());
+          NVF_ERROR(
+              smem_use->isA<LoadStoreOp>() || smem_use->isA<SliceOp>(),
+              "Unexpected op: ",
+              smem_use->toString());
           auto out_tv = ir_utils::getTvOutput(smem_use);
           if (getenv("VEC_USER")) {
             out_tv->axis(-1)->parallelize(ParallelType::Vectorize);
@@ -7722,7 +7725,7 @@ TEST_F(ResizeTest, RoPEFullBF16Global) {
   [[maybe_unused]] auto slice_arg_q = slice_default_arg;
   slice_arg_q[qkv_slice_dim].stop = IrBuilder::create<Val>(total_qkv - 2);
 
-  [[maybe_unused]] auto slice_arg_k = slice_default_arg;  
+  [[maybe_unused]] auto slice_arg_k = slice_default_arg;
   slice_arg_k[qkv_slice_dim].start = IrBuilder::create<Val>(q_per_kv);
   slice_arg_k[qkv_slice_dim].stop = IrBuilder::create<Val>(total_qkv - 1);
 
@@ -7742,13 +7745,16 @@ TEST_F(ResizeTest, RoPEFullBF16Global) {
   // 1. take [..., :rope_n_elem]
   // 2. apply_rope
   // 3. concat apply_rope and [..., rope_n_elem:]
-  auto apply_rope = [&](TensorView* x, bool is_q, std::vector<Slice> slice_arg) -> TensorView* {
+  auto apply_rope = [&](TensorView* x,
+                        bool is_q,
+                        std::vector<Slice> slice_arg) -> TensorView* {
     // x1
     auto x1_slice_arg = slice_arg;
     x1_slice_arg.back().stop =
         IrBuilder::create<Val>(rope_n_elem / rotation_num_splits);
     auto x1 = slice(x, x1_slice_arg);
     std::cerr << "x1: " << x1->definition()->toString() << "\n";
+    tvs_to_vectorize.emplace(x1);
 
     // x2
     auto x2_slice_arg = slice_arg;
@@ -7756,13 +7762,16 @@ TEST_F(ResizeTest, RoPEFullBF16Global) {
         IrBuilder::create<Val>(rope_n_elem / rotation_num_splits);
     auto x2 = slice(x, x2_slice_arg);
     std::cerr << "x2: " << x2->definition()->toString() << "\n";
+    tvs_to_vectorize.emplace(x2);
 
     TensorView* rotated = cat({x2, x1}, -1);
 
     std::vector<bool> bcast_flags{true, false, true, true, false};
     auto cos_broadcast = broadcast(cos, bcast_flags);
     auto sin_broadcast = broadcast(sin, bcast_flags);
-    auto x_cache = set(x); // vec
+    auto x_cache = slice(x, slice_arg); // vec
+    tvs_to_vectorize.emplace(x_cache);
+
     auto out = add(mul(x_cache, cos_broadcast), mul(rotated, sin_broadcast));
     std::cerr << "apply_rope_result: " << out->toString() << "\n";
 
@@ -7794,33 +7803,33 @@ TEST_F(ResizeTest, RoPEFullBF16Global) {
 
   // fusion.addOutput(v_original_shape);
 
-  fusion.printMath();
+  fusion.print();
 
   if (!getenv("DISABLE_SCHEDULE")) {
-    for (auto qkv_use: qkv->uses()) {
+    for (auto qkv_use : qkv->uses()) {
       SliceOp* slice = dynamic_cast<SliceOp*>(qkv_use);
       if (slice == nullptr) {
         continue;
       }
 
-      std::cerr << "Scheduling slice: " << slice->toString();
       TensorView* slice_out = slice->output(0)->as<TensorView>();
-      auto padded_tv =
-          slice->output(0)->uses().at(0)->output(0)->as<TensorView>();
-      NVF_ERROR(padded_tv->definition()->isA<PadOp>());
+      if (!slice_out->uses().at(0)->isA<PadOp>()) {
+        continue;
+      }
+      auto padded_tv = slice_out->uses().at(0)->output(0)->as<TensorView>();
+
+      std::cerr << "Scheduling slice: " << slice->toString();
       auto ref_tv = padded_tv;
       std::cerr << "Reference tensor: " << ref_tv->toString() << "\n";
       std::vector<IterDomain*> ref_loop = ref_tv->getLogicalDomain();
       std::cerr << "Ref domain: " << toDelimitedString(ref_loop) << "\n";
       scheduler_tools::scheduleLoopDomainsLike({slice_out}, ref_loop, -1);
       std::cerr << "Slice out: " << slice_out->toString() << "\n";
-      
-      break;
     }
 
-    //for (auto tv : fusion.allTvs()) {
-    //ASSERT_EQ(tv->getLoopDomain().back()->extent()->evaluate(), rope_n_elem);
-    //}
+    // for (auto tv : fusion.allTvs()) {
+    // ASSERT_EQ(tv->getLoopDomain().back()->extent()->evaluate(), rope_n_elem);
+    // }
 
     [[maybe_unused]] auto cos_cache = cos->cacheAfter();
     std::cerr << "cos cache: " << cos_cache->toString() << "\n";
@@ -7831,13 +7840,13 @@ TEST_F(ResizeTest, RoPEFullBF16Global) {
     tvs_to_vectorize.emplace(sin_cache);
 
     // Reorder
-#if 0    
     {
-      auto ref = q_out->isFusionOutput() ? q : k;
+      auto ref = qkv;
+
       scheduler_tools::scheduleLoopDomainsLike(
           fusion.allTvs(), ref->getLogicalDomain(), 3);
+      std::cerr << "Reordered\n";
     }
-#endif
     fusion.printMath();
 
 #if 0
@@ -7851,7 +7860,7 @@ TEST_F(ResizeTest, RoPEFullBF16Global) {
       }
     }
 #endif
-#if 0
+
     for (auto tv : fusion.allTvs()) {
       if (tv->isFusionInput()) {
         continue;
@@ -7865,15 +7874,6 @@ TEST_F(ResizeTest, RoPEFullBF16Global) {
       if (tvs_to_vectorize.find(tv) != tvs_to_vectorize.end()) {
         std::cerr << "Vec split: " << tv->toString() << "\n";
         tv->axis(-1)->parallelize(ParallelType::Vectorize);
-        if (!tv->isFusionOutput() && tv != cos_cache && tv != sin_cache) {
-          tv->setMemoryType(MemoryType::Shared);
-          tv->definition()->as<SliceOp>()->setOpType(LoadStoreOpType::CpAsync);
-          tv->definition()->as<SliceOp>()->setCacheOp(CacheOp::Global);
-
-          // Dummy split
-          tv->split(-2, 2);
-          tv->merge(-3, -2);
-        }
       }
 
       tv->axis(-2)->parallelize(ParallelType::TIDx);
@@ -7882,20 +7882,6 @@ TEST_F(ResizeTest, RoPEFullBF16Global) {
       tv->merge(0)->merge(0);
 
       std::cerr << "After: " << tv->toString() << "\n";
-    }
-
-    for (auto tv : fusion.allTvs()) {
-      if (tv->getMemoryType() == MemoryType::Shared) {
-        // Vectorize the uses as well
-        for (const auto smem_use : tv->uses()) {
-          std::cerr << "Smem cache use: " << smem_use->toString();
-          NVF_ERROR(smem_use->isA<LoadStoreOp>() || smem_use->isA<SliceOp>(), "Unexpected op: ", smem_use->toString());
-          auto out_tv = ir_utils::getTvOutput(smem_use);
-          if (getenv("VEC_USER")) {
-            out_tv->axis(-1)->parallelize(ParallelType::Vectorize);
-          }
-        }
-      }
     }
 
     // Inlining
@@ -7915,7 +7901,6 @@ TEST_F(ResizeTest, RoPEFullBF16Global) {
       }
       tv->axis(0)->parallelize(ParallelType::BIDx);
     }
-#endif
   }
 
   fusion.printMath();
@@ -8097,13 +8082,12 @@ TEST_F(ResizeTest, BandwidthTest) {
   // 3. concat apply_rope and [..., rope_n_elem:]
   auto apply_rope = [&](TensorView* x, bool is_q) -> TensorView* {
     std::vector<bool> bcast_flags{true, false, true, true, false};
-    auto x_cache = set(x);    
+    auto x_cache = set(x);
     TensorView* out = nullptr;
     if (!getenv("NO_COS")) {
       auto cos_broadcast = broadcast(cos, bcast_flags);
       auto sin_broadcast = broadcast(sin, bcast_flags);
-      out = add(mul(x_cache, cos_broadcast), mul(x_cache,
-                                                 sin_broadcast));
+      out = add(mul(x_cache, cos_broadcast), mul(x_cache, sin_broadcast));
     } else {
       out = mul(x_cache, x_cache);
     }
@@ -8176,7 +8160,7 @@ TEST_F(ResizeTest, BandwidthTest) {
 
     [[maybe_unused]] TensorView* cos_cache = nullptr;
     [[maybe_unused]] TensorView* sin_cache = nullptr;
-    
+
     if (!getenv("NO_COS")) {
       cos_cache = cos->cacheAfter();
       std::cerr << "cos cache: " << cos_cache->toString() << "\n";
@@ -8308,16 +8292,16 @@ TEST_F(ResizeTest, BandwidthTest) {
     // BFloat16
     mem_size *= 2;
 
-    //ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
+    // ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
     for (int i = 0; i < 10; ++i) {
       clearL2Cache();
-      //FusionProfiler::start();
-      //FusionProfiler::createSegments(1);
+      // FusionProfiler::start();
+      // FusionProfiler::createSegments(1);
       cg_outputs = fe.runFusion(aten_inputs);
-      //FusionProfiler::stop();
-      //auto t = FusionProfiler::profile().kernel_time_ms;
-      //std::cout << "Elapsed time (us): " << (t * 1000) << "\n";
-      //std::cout << "Bandwidth (GB/s): "
+      // FusionProfiler::stop();
+      // auto t = FusionProfiler::profile().kernel_time_ms;
+      // std::cout << "Elapsed time (us): " << (t * 1000) << "\n";
+      // std::cout << "Bandwidth (GB/s): "
       //<< ((float)mem_size * 0.001 * 0.001 * 0.001 / (t * 0.001))
       //<< "\n";
     }
@@ -8447,13 +8431,12 @@ TEST_F(ResizeTest, BandwidthTest2) {
   // 3. concat apply_rope and [..., rope_n_elem:]
   auto apply_rope = [&](TensorView* x, bool is_q) -> TensorView* {
     std::vector<bool> bcast_flags{true, false, true, true, false};
-    auto x_cache = set(x);    
+    auto x_cache = set(x);
     TensorView* out = nullptr;
     if (!getenv("NO_COS")) {
       auto cos_broadcast = broadcast(cos, bcast_flags);
       auto sin_broadcast = broadcast(sin, bcast_flags);
-      out = add(mul(x_cache, cos_broadcast), mul(x_cache,
-                                                 sin_broadcast));
+      out = add(mul(x_cache, cos_broadcast), mul(x_cache, sin_broadcast));
     } else {
       out = mul(x_cache, x_cache);
     }
@@ -8490,8 +8473,6 @@ TEST_F(ResizeTest, BandwidthTest2) {
 
   fusion.printMath();
 
-  // q->setMemoryType(MemoryType::Shared);
-
   if (!getenv("DISABLE_SCHEDULE")) {
     for (auto tv : {q, k}) {
       if (tv == q && !q_out->isFusionOutput()) {
@@ -8527,7 +8508,7 @@ TEST_F(ResizeTest, BandwidthTest2) {
 
     [[maybe_unused]] TensorView* cos_cache = nullptr;
     [[maybe_unused]] TensorView* sin_cache = nullptr;
-    
+
     if (!getenv("NO_COS")) {
       cos_cache = cos->cacheAfter();
       std::cerr << "cos cache: " << cos_cache->toString() << "\n";
@@ -8621,7 +8602,7 @@ TEST_F(ResizeTest, BandwidthTest2) {
       int64_t bdimx = rope_n_elem / vec_factor / 2;
       if (bdimx < 128 && !getenv("NO_TIDY")) {
         tv->split(0, ceilDiv(128, bdimx));
-        //tv->split(0, 4);
+        // tv->split(0, 4);
         tv->axis(1)->parallelize(ParallelType::TIDy);
       }
       tv->axis(0)->parallelize(ParallelType::BIDx);
@@ -8662,16 +8643,16 @@ TEST_F(ResizeTest, BandwidthTest2) {
     // BFloat16
     mem_size *= 2;
 
-    //ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
+    // ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
     for (int i = 0; i < 10; ++i) {
       clearL2Cache();
-      //FusionProfiler::start();
-      //FusionProfiler::createSegments(1);
+      // FusionProfiler::start();
+      // FusionProfiler::createSegments(1);
       cg_outputs = fe.runFusion(aten_inputs);
-      //FusionProfiler::stop();
-      //auto t = FusionProfiler::profile().kernel_time_ms;
-      //std::cout << "Elapsed time (us): " << (t * 1000) << "\n";
-      //std::cout << "Bandwidth (GB/s): "
+      // FusionProfiler::stop();
+      // auto t = FusionProfiler::profile().kernel_time_ms;
+      // std::cout << "Elapsed time (us): " << (t * 1000) << "\n";
+      // std::cout << "Bandwidth (GB/s): "
       //<< ((float)mem_size * 0.001 * 0.001 * 0.001 / (t * 0.001))
       //<< "\n";
     }
