@@ -341,7 +341,10 @@ class CloneTmaCircularBufferLoopAndInsertSync
             circular_buffer_loop,
             circular_buffer_load_exprs,
             loop_type,
-            exclude) {}
+            exclude),
+        circular_buffer_load_tvs_(
+            GpuLower::current()->circularBufferInfo().getCircularBufferTvs(
+                circular_buffer_loop)) {}
 
   // For TmaCircularBufferLoop, we have an mbarrier for each Tensorview and
   // each circular buffer stage, but not for each individual TMA load
@@ -394,12 +397,56 @@ class CloneTmaCircularBufferLoopAndInsertSync
         addTmaLoadBlock(cloned_loop);
       }
     }
+  }
 
-    // mbarrier::wait occurs in Main and Epilogue loops.
-    if (mbarrier_wait_ != nullptr && for_loop_stack_.size() == 1) {
-      NVF_ERROR(for_loop_stack_.back() == cloned_top_level_loop_);
-      cloned_top_level_loop_->body().push_back(mbarrier_wait_);
-      mbarrier_wait_ = nullptr;
+  // Check if there is only one serial for-loop in the stack
+  bool onlyOneSerialForLoopOnStack() const {
+    return std::count_if(
+               for_loop_stack_.begin(), for_loop_stack_.end(), [](ForLoop* fl) {
+                 return fl->iter_domain()->getParallelType() ==
+                     ParallelType::Serial;
+               }) == 1;
+  }
+
+  Val* currentComputeStage() const {
+    int64_t stage_depth =
+        GpuLower::current()->circularBufferInfo().getStageDepthFor(
+            circular_buffer_loop_->iter_domain());
+    return IrBuilder::modExpr(
+        cloned_top_level_loop_->indexOrStartIfTrivial(),
+        IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
+  }
+
+  // Check if the given expr is the first read of a circular buffered TensorView
+  // and if so, insert mbarrier::wait before it.
+  void insertMBarrierWaitBeforeFirstRead(Expr* expr) {
+    if (loop_type_ == CircularBufferLoopStage::Prolog) {
+      // If we are in the prologue loop, we won't clone expr, so we don't need
+      // to insert mbarrier::wait.
+      return;
+    }
+    if (!protected_by_mbarrier_wait_) {
+      // Create mbarrier::wait when we encounter the first read of the circular
+      // buffered TensorView.
+      if (mbarrier_wait_ == nullptr) {
+        for (auto tv : ir_utils::filterByType<TensorView>(expr->inputs())) {
+          if (circular_buffer_load_tvs_.count(tv) > 0) {
+            LoadStoreOp* ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
+            NVF_ERROR(ldst != nullptr);
+            mbarrier_wait_ = createMbarrierWait(
+                ldst,
+                currentComputeStage(),
+                cloned_top_level_loop_->indexOrStartIfTrivial());
+            break;
+          }
+        }
+      }
+
+      // Add mbarrier::wait to the top-level loop body
+      if (mbarrier_wait_ != nullptr && onlyOneSerialForLoopOnStack()) {
+        for_loop_stack_.back()->body().push_back(mbarrier_wait_);
+        protected_by_mbarrier_wait_ = true;
+      }
     }
   }
 
@@ -413,6 +460,10 @@ class CloneTmaCircularBufferLoopAndInsertSync
           NVF_ERROR(circular_buffer_tv != nullptr);
           return out_tv == circular_buffer_tv;
         });
+
+    // If expr is the first read of the circular buffered TensorView, insert
+    // mbarrier::wait before it.
+    insertMBarrierWaitBeforeFirstRead(expr);
 
     // Handle Short-Circuit conditions
     switch (loop_type_) {
@@ -442,7 +493,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
         break;
       }
       case CircularBufferLoopStage::NotApplicable: {
-        NVF_ERROR(false, "Unsupported loop mode, got: ", loop_type_);
+        NVF_THROW("Unsupported loop mode, got: ", loop_type_);
       }
     }
 
@@ -455,10 +506,10 @@ class CloneTmaCircularBufferLoopAndInsertSync
         return handleMainLoop(expr);
       }
       case CircularBufferLoopStage::Epilog: {
-        return handleEpilogLoop(expr);
+        return;
       }
-      case CircularBufferLoopStage::NotApplicable: {
-        NVF_ERROR(false, "Unsupported loop mode, got: ", loop_type_);
+      default: {
+        NVF_THROW("Unsupported loop mode, got: ", loop_type_);
       }
     }
   }
@@ -503,11 +554,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
 
     // If last cloned scope is the cloned_top_level_loop body, then add
     // mbarrier::arriveExpectTx and new loadStoreOp.
-    int64_t active_for_loops = std::count_if(
-        for_loop_stack_.begin(), for_loop_stack_.end(), [](ForLoop* fl) {
-          return fl->iter_domain()->getParallelType() == ParallelType::Serial;
-        });
-    if (active_for_loops == 1) {
+    if (onlyOneSerialForLoopOnStack()) {
       return addTmaLoadBlock(new_ldst);
     }
 
@@ -535,6 +582,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
   // Where mbarrier are shared memory arrays bound to the LoadStoreOp
   void handleMainLoop(Expr* expr) {
     NVF_ERROR(expr != nullptr && expr->isA<LoadStoreOp>());
+    std::cout << "main loop: " << expr->toString() << std::endl;
 
     int64_t stage_depth =
         GpuLower::current()->circularBufferInfo().getStageDepthFor(
@@ -542,21 +590,6 @@ class CloneTmaCircularBufferLoopAndInsertSync
     int64_t prefetch_distance =
         GpuLower::current()->circularBufferInfo().getPrefetchDistanceFor(
             circular_buffer_loop_->iter_domain());
-
-    if (current_compute_stage_ == nullptr) {
-      current_compute_stage_ = IrBuilder::modExpr(
-          cloned_top_level_loop_->indexOrStartIfTrivial(),
-          IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
-      kir::Allocate* current_compute_stage_alloc =
-          IrBuilder::create<kir::Allocate>(
-              current_compute_stage_,
-              MemoryType::Local,
-              IrBuilder::create<Val>(1L, PrimDataType::Index),
-              /*zero_init=*/false);
-      cloned_top_level_loop_->body().push_back(current_compute_stage_alloc);
-      cloned_top_level_loop_->body().push_back(
-          current_compute_stage_->definition());
-    }
 
     if (current_load_stage_ == nullptr) {
       current_load_stage_ = IrBuilder::modExpr(
@@ -590,66 +623,15 @@ class CloneTmaCircularBufferLoopAndInsertSync
     GpuLower::current()->tmaCircularBufferInfo().recordTensorIndex(
         ldst, mbarrier_arrive_tx_->mbarrier()->as<kir::TensorIndex>());
 
-    // Construct mBarrier::wait for current stage
-    NVF_ERROR(
-        mbarrier_wait_ == nullptr,
-        "Expected mbarrier_wait to inactive for current TMA operation");
-    mbarrier_wait_ = createMbarrierWait(
-        ldst,
-        current_compute_stage_,
-        cloned_top_level_loop_->indexOrStartIfTrivial());
-
     // If last cloned scope is the cloned_top_level_loop body, then add
-    // mbarrier::arriveExpectTx, new loadStoreOp, and mbarrier_wait
-    int64_t active_for_loops = std::count_if(
-        for_loop_stack_.begin(), for_loop_stack_.end(), [](ForLoop* fl) {
-          return fl->iter_domain()->getParallelType() == ParallelType::Serial;
-        });
-    if (active_for_loops == 1) {
-      addTmaLoadBlock(ldst);
-      NVF_ERROR(mbarrier_wait_ != nullptr);
-      for_loop_stack_.back()->body().push_back(mbarrier_wait_);
-      mbarrier_wait_ = nullptr;
-      return;
+    // mbarrier::arriveExpectTx, new loadStoreOp
+    if (onlyOneSerialForLoopOnStack()) {
+      return addTmaLoadBlock(ldst);
     }
 
     // Otherwise, we are in a nested for-loop and should wait until we
     // return to top-level for loop.
     for_loop_stack_.back()->body().push_back(ldst);
-  }
-
-  void handleEpilogLoop(Expr* expr) {
-    NVF_ERROR(expr != nullptr && expr->isA<LoadStoreOp>());
-
-    // Construct mBarrier::wait for epilogue
-    LoadStoreOp* ldst = expr->as<LoadStoreOp>();
-    int64_t stage_depth =
-        GpuLower::current()->circularBufferInfo().getStageDepthFor(
-            circular_buffer_loop_->iter_domain());
-    Val* epilogue_compute_stage = IrBuilder::modExpr(
-        cloned_top_level_loop_->indexOrStartIfTrivial(),
-        IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
-
-    NVF_ERROR(
-        mbarrier_wait_ == nullptr,
-        "Expected mbarrier_wait to inactive for current TMA operation");
-    mbarrier_wait_ = createMbarrierWait(
-        ldst,
-        epilogue_compute_stage,
-        cloned_top_level_loop_->indexOrStartIfTrivial());
-
-    // If last cloned scope is the cloned_top_level_loop body, then add
-    // mbarrier_wait
-    int64_t active_for_loops = std::count_if(
-        for_loop_stack_.begin(), for_loop_stack_.end(), [](ForLoop* fl) {
-          return fl->iter_domain()->getParallelType() == ParallelType::Serial;
-        });
-    if (active_for_loops == 1) {
-      NVF_ERROR(mbarrier_wait_ != nullptr);
-      for_loop_stack_.back()->body().push_back(mbarrier_wait_);
-      mbarrier_wait_ = nullptr;
-      return;
-    }
   }
 
   // This function selects a single thread to launch tma load and mbarrier
@@ -800,14 +782,17 @@ class CloneTmaCircularBufferLoopAndInsertSync
   // Mbarrier_Wait to add to cloned_top_level_loop
   kir::MBarrierWaitParity* mbarrier_wait_ = nullptr;
 
+  // Whether we already inserted a mbarrier wait for the current loop
+  bool protected_by_mbarrier_wait_ = false;
+
   // Mbarrier_ArriveExpectTx to add to cloned_top_level_loop
   kir::MBarrierArriveExpectTx* mbarrier_arrive_tx_ = nullptr;
 
-  // current_stage_index = (loop_index % stages)
-  Val* current_compute_stage_ = nullptr;
-
   // next_stage_index = (loop_index + (stages-1)) % stages
   Val* current_load_stage_ = nullptr;
+
+  // The circular buffered TVs for the loop being cloned
+  std::unordered_set<const TensorView*> circular_buffer_load_tvs_;
 };
 
 using InsertionInfo = std::unordered_map<ForLoop*, std::vector<Expr*>>;
