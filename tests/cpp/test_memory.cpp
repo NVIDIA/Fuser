@@ -2719,6 +2719,9 @@ TEST_P(StMatrixTest, Regular) {
   tv2->setMemoryType(MemoryType::Shared);
   // tv2 (shared) -> tv3(global)
   auto tv3 = set(tv2);
+  // TMA store back to global memory.
+  tv3->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
   fusion.addOutput(tv3);
 
   tv0->merge(0);
@@ -2736,9 +2739,8 @@ TEST_P(StMatrixTest, Regular) {
 
   scheduleStmatrixOutput(tv2, tile_m, tile_n);
 
-  tv3->merge(0);
-  tv3->split(0, 32);
-  tv3->axis(1)->parallelize(ParallelType::TIDx);
+  // Schedule the TMA store to global memory.
+  mma_utils::scheduleTMAStoreForMmaOutput(tv3, sizeM, sizeN);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   auto t0 = at::randn({sizeM, sizeN}, options);
