@@ -641,8 +641,6 @@ class AllocationInserter : public kir::ExprMutator {
 
     bool circular_buffer_load_is_tma = false;
     for (auto tv : circular_buffer_tvs) {
-      std::cout << "circular_buffer_tvs" << std::endl;
-      std::cout << tv->toString() << std::endl;
       if (ir_utils::isCpAsyncBulkLoad(tv->definition())) {
         circular_buffer_load_is_tma = true;
         break;
@@ -650,7 +648,6 @@ class AllocationInserter : public kir::ExprMutator {
     }
 
     if (circular_buffer_load_is_tma) {
-      std::cout << "circular_buffer_load_is_tma" << std::endl;
       // Create and allocate a memory barrier. If this is a circular buffer,
       // then allocate an array of mbarier objects. mbarrier::init and
       // mbarrier::inval will be updated in circular buffering pass, but we
