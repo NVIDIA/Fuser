@@ -715,6 +715,8 @@ bool hasRootToLoopLinearTransformations(const TensorView* tv);
 //! also checks the loop domain has any extra domain
 bool isLoopDomainFullyDerivedFromLogicalDomain(TensorView* tv);
 
+AsyncOpType getAsyncOpType(const Expr* expr);
+
 //! If the given statement is nullptr, return "nullptr", otherwise return its
 //! toString()
 std::string nullOrToString(const Statement* stmt);
