@@ -342,7 +342,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
             circular_buffer_load_exprs,
             loop_type,
             exclude),
-        mbarriers_to_wait_(createWaitExprsForAllMbarriersOf()),
+        mbarriers_to_wait_(getAllMbarriersToWaitFor()),
         circular_buffer_load_tvs_(getCircularBufferTvs()) {}
 
   // For TmaCircularBufferLoop, we have an mbarrier for each Tensorview and
@@ -665,7 +665,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
   // each mbarrier that is used to wait for the loading of circular buffers in
   // this loop.
   std::unordered_map<TensorView*, kir::MBarrierWaitParity*>
-  createWaitExprsForAllMbarriersOf() {
+  getAllMbarriersToWaitFor() {
     const auto& ldst_mbarrier_map = GpuLower::current()->ldstMBarrierMap();
     auto circular_buffer_tvs =
         GpuLower::current()->circularBufferInfo().getCircularBufferTvs(
