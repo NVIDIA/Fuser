@@ -25,14 +25,18 @@ def load_matmul_problems():
         return list((int(m), int(n), int(k), layout) for m, n, k, layout in reader)
 
 
+@pytest.mark.parametrize("eager", [False, True], ids=["nvfuser", "eager"])
+@pytest.mark.parametrize("half_reduction", [False, True])
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
 @pytest.mark.parametrize(
     "config", load_matmul_problems(), ids=lambda val: "_".join(str(v) for v in val)
 )
-@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
 def test_matmul_nvf_benchmark(
     benchmark,
+    eager: bool,
     config: tuple,
     dtype: torch.dtype,
+    half_reduction: bool,
     disable_validation: bool,
     disable_benchmarking: bool,
 ):
@@ -40,10 +44,12 @@ def test_matmul_nvf_benchmark(
 
     clear_cuda_cache()
 
-    # disable half-precision split-K reduction in cuBLAS since we do not
-    # support this in nvFuser
-    torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = False
-    torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = False
+    torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = half_reduction
+    torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = half_reduction
+
+    if half_reduction and not eager:
+        # See https://github.com/NVIDIA/Fuser/pull/1719
+        pytest.skip("Reduced precision reduction not implemented in nvFuser")
 
     try:
         a = torch.randn(m, k, device="cuda", dtype=dtype)
@@ -62,7 +68,11 @@ def test_matmul_nvf_benchmark(
             fd.validate([a, b], [eager_output])
 
         if not disable_benchmarking:
-            run_benchmark(benchmark, fd.execute, [a, b])
+            run_benchmark(
+                benchmark,
+                (lambda inps: torch.matmul(*inps)) if eager else fd.execute,
+                [a, b],
+            )
 
     except torch.OutOfMemoryError:
         pytest.skip("Test failed due to OutOfMemoryError")
