@@ -972,6 +972,19 @@ class FusionTranslator : public OptInConstDispatch {
         isop->dim()));
   }
 
+  // Map SelectOp to IndexSelectOpRecord
+  void handle(const SelectOp* sop) final {
+    TensorView* out_tv = sop->output(0)->as<TensorView>();
+    Tensor output = fd_->defineTensor(out_tv->nDims());
+    map_val_to_fd_index_.emplace(out_tv, output());
+
+    fd_->defineRecord(new SelectOpRecord(
+        {fd_->recordingState(map_val_to_fd_index_.at(sop->lookupTv())),
+         fd_->recordingState(map_val_to_fd_index_.at(sop->input(1)))},
+        {fd_->recordingState(output())},
+        sop->dim()));
+  }
+
   // Map TorchGatherOp to python frontend
   void handle(const TorchGatherOp* gop) final {
     TensorView* out_tv = gop->output(0)->as<TensorView>();

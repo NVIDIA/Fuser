@@ -2693,6 +2693,30 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("dim"),
       py::return_value_policy::reference);
   nvf_ops.def(
+      "select",
+      [](FusionDefinition::Operators& self,
+         Tensor arg,
+         Scalar index,
+         int64_t dim) -> Tensor {
+        FUSER_PERF_SCOPE("Operators.select");
+        NVF_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        Tensor output = fd->defineTensor(arg.dims);
+        fd->defineRecord(new SelectOpRecord(
+            {
+                fd->recordingState(arg()),
+                fd->recordingState(index()),
+            },
+            {fd->recordingState(output())},
+            dim));
+        return output;
+      },
+      py::arg("arg"),
+      py::arg("index"),
+      py::arg("dim"),
+      py::return_value_policy::reference);
+  nvf_ops.def(
       "gather",
       [](FusionDefinition::Operators& self,
          Tensor arg1,
