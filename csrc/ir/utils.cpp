@@ -1174,6 +1174,14 @@ AsyncOpType getAsyncOpType(const Expr* expr) {
   return AsyncOpType::NotAsync;
 }
 
+std::string nullOrToString(const Statement* val) {
+  return val ? val->toString() : "nullptr";
+}
+
+std::string nullOrToInlineString(const Statement* id) {
+  return id ? id->toInlineString() : "nullptr";
+}
+
 } // namespace nvfuser::ir_utils
 
 namespace nvfuser::MmaOpUtils {
