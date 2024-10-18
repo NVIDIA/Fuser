@@ -1177,9 +1177,16 @@ std::vector<Val*> IRBFS::getValsBetween(
       IRBFS::getExprsBetween(from, to, /*require_all_to_visited=*/false);
 
   VectorOfUniqueEntries<Val*> unique_vals;
-  for (auto [expr, _] : path) {
-    unique_vals.pushBack(expr->outputs());
-    unique_vals.pushBack(expr->inputs());
+  // To avoid adding outputs that are not actually visited, do not add
+  // them to unique_vals yet.
+  std::unordered_set<Val*> all_outputs;
+  for (const auto& [expr, dir] : path) {
+    const auto& inputs =
+        dir == Direction::Forward ? expr->inputs() : expr->outputs();
+    unique_vals.pushBack(inputs);
+    const auto& outputs =
+        dir == Direction::Forward ? expr->outputs() : expr->inputs();
+    all_outputs.insert(outputs.begin(), outputs.end());
   }
 
   // If a val in from is found in to, just copy it to the returned val
@@ -1187,6 +1194,13 @@ std::vector<Val*> IRBFS::getValsBetween(
   for (auto from_val : from) {
     if (std::find(to.begin(), to.end(), from_val) != to.end()) {
       unique_vals.pushBack(from_val);
+    }
+  }
+
+  // Final outputs are not added yet
+  for (const auto& to_val : to) {
+    if (all_outputs.count(to_val)) {
+      unique_vals.pushBack(to_val);
     }
   }
 

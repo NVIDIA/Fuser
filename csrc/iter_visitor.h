@@ -639,4 +639,12 @@ class IRBFS
       const std::vector<Val*>& to);
 };
 
+inline std::vector<Val*> inputs(Expr* expr, Direction dir) {
+  return dir == Direction::Forward ? expr->inputs() : expr->outputs();
+}
+
+inline std::vector<Val*> outputs(Expr* expr, Direction dir) {
+  return dir == Direction::Forward ? expr->outputs() : expr->inputs();
+}
+
 } // namespace nvfuser

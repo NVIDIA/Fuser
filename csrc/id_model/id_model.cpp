@@ -22,6 +22,7 @@
 #include <transform_iter.h>
 #include <val_graph_visitor.h>
 
+#include <fstream>
 #include <memory>
 #include <tuple>
 #include <utility>
@@ -300,6 +301,8 @@ ValGraph& IdModel::buildExactGraph() {
       for (auto c_id :
            getSortedKeys(exact_c2p_logical_map, Statement::lessThan)) {
         auto p_id = exact_c2p_logical_map.at(c_id);
+        // std::cerr << "mapping: " << c_id->name() << ", " << p_id->name() <<
+        // "\n";
         graph.mapVals(c_id, p_id);
       }
     }
@@ -354,6 +357,8 @@ ValGraph& IdModel::buildExactGraph() {
           if (registerd_id == nullptr) {
             registerd_id = id;
           } else {
+            std::cerr << "Mapping additional id: " << registerd_id->name()
+                      << ", " << id->name() << "\n";
             graph.mapVals(registerd_id, id);
           }
         }
@@ -362,6 +367,13 @@ ValGraph& IdModel::buildExactGraph() {
   }
 
   graph.validateConsistency();
+
+  if (isDebugDumpEnabled(DebugDumpOption::IndexingVerbose)) {
+    std::ofstream ofs("exact_graph.dot", std::ofstream::trunc);
+    auto dot_string = graph.toGraphvizDotGraph();
+    ofs << dot_string;
+    ofs.close();
+  }
 
   return graph;
 }
@@ -781,6 +793,16 @@ void IdModel::buildAllGraphs() {
   }
 
   buildLoopGraph();
+
+  if (getenv("DEBUG")) {
+    std::cerr << "Exact graph\n"
+              << idGraph(IdMappingMode::EXACT).toString() << "\n";
+    std::cerr << "loop promotion:\n";
+    for (const auto& [loop_group, promotion] : loop_promotion_map_) {
+      std::cerr << nvfuser::toString(loop_group) << " -> "
+                << promotion->toString() << "\n";
+    }
+  }
 }
 
 void IdModel::buildGraph(IdMappingMode mode) {

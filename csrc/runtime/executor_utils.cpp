@@ -1135,6 +1135,8 @@ std::unique_ptr<CompiledKernel> compileSource(
     NvrtcCompileDriver& nvrtc_compile) {
   std::stringstream log;
 
+  std::cerr << "compileSource\n";
+
   nvrtcProgram program; // NOLINT(cppcoreguidelines-init-variables)
   torch::jit::ResourceGuard holdProgram([&] {
     FUSER_PERF_SCOPE("executor_utils::NvrtcDestroyProgram");
@@ -1169,6 +1171,7 @@ std::unique_ptr<CompiledKernel> compileSource(
     }
   }
 
+  std::cerr << "compileSource done\n";
   return compiled_kernel;
 }
 

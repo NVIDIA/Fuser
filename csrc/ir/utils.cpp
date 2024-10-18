@@ -1161,6 +1161,86 @@ bool isLoopDomainFullyDerivedFromLogicalDomain(TensorView* tv) {
            .dom0_has_unreachable_ids;
 }
 
+std::optional<std::vector<IterDomain*>> reorderIDs(
+    const std::vector<IterDomain*>& ids_to_reorder,
+    const std::vector<IterDomain*>& reference) {
+  auto path = IRBFS::getExprsBetween(
+      {reference.begin(), reference.end()},
+      {ids_to_reorder.begin(), ids_to_reorder.end()},
+      /*require_all_to_visited=*/false);
+
+  for (const auto& [expr, dir] : path) {
+    std::cerr << dir << " " << expr->toString();
+  }
+
+  if (path.empty()) {
+    return std::nullopt;
+  }
+
+  // Replay exprs from reference to get the non-reordered
+  // domains
+  auto replayed_reference = reference;
+  for (const auto& [expr, dir] : path) {
+    // Find the position to insert the outputs.
+    int64_t insertion_pos = -1;
+    for (auto inp : inputs(expr, dir)) {
+      auto it =
+          std::find(replayed_reference.begin(), replayed_reference.end(), inp);
+      if (it == replayed_reference.end()) {
+        continue;
+      }
+      // Insert right after the input
+      int64_t pos = std::distance(replayed_reference.begin(), it) + 1;
+      if (insertion_pos == -1 || pos > insertion_pos) {
+        insertion_pos = pos;
+      }
+    }
+    NVF_ERROR(insertion_pos >= 0, "Failed to replay: ", expr->toString());
+    // Insert the outputs
+    for (auto out : outputs(expr, dir)) {
+      replayed_reference.insert(
+          replayed_reference.begin() + insertion_pos, out->as<IterDomain>());
+      ++insertion_pos;
+    }
+    // Delete the inputs
+    for (auto inp : inputs(expr, dir)) {
+      auto it =
+          std::find(replayed_reference.begin(), replayed_reference.end(), inp);
+      if (it == replayed_reference.end()) {
+        continue;
+      }
+      replayed_reference.erase(it);
+    }
+  }
+
+  // Pick only the relevant domains from the ordered domains
+  std::vector<IterDomain*> ordered_ids;
+  ordered_ids.reserve(ids_to_reorder.size());
+
+  for (auto replayed_id : replayed_reference) {
+    if (std::find(ids_to_reorder.begin(), ids_to_reorder.end(), replayed_id) !=
+        ids_to_reorder.end()) {
+      ordered_ids.push_back(replayed_id);
+    }
+  }
+
+  // Append the remaining IDs
+  for (auto id_to_reorder : ids_to_reorder) {
+    if (std::find(ordered_ids.begin(), ordered_ids.end(), id_to_reorder) ==
+        ordered_ids.end()) {
+      ordered_ids.push_back(id_to_reorder);
+    }
+  }
+
+  // If it's the same order, just return nullopt to tell nothing
+  // needs to be reordered
+  if (ids_to_reorder == ordered_ids) {
+    return std::nullopt;
+  }
+
+  return ordered_ids;
+}
+
 } // namespace nvfuser::ir_utils
 
 namespace nvfuser::MmaOpUtils {

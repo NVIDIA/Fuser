@@ -4116,6 +4116,9 @@ SliceOp::SliceOp(
     addInput(range.stop);
     addInput(range.step);
   }
+
+  addDataAttribute(LoadStoreOpType::Set);
+  addDataAttribute(CacheOp::Streaming);
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(SliceOp)
