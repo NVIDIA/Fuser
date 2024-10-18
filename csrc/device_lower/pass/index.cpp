@@ -2328,32 +2328,37 @@ void IndexLowering::handle(const CatOp* cat) {
   // genereated here.
 
   const auto out = lowerDstIndex(cat->output(0));
-  auto out_indices = Index::getConsumerPerDimLogicalIndex(
-      cat->output(0)->as<TensorView>(), for_loops_, getRotatedLoop());
-  auto concatenated_dim_idx = out_indices.at(cat->concatenatedDim());
 
   std::vector<Val*> inputs(cat->inputs().size());
-  std::vector<Val*> preds(cat->inputs().size());
-  Val* cur_extent = GpuLower::current()->kernel()->zeroVal();
 
+  DataType dt = out->dtype();
+  bool use_bitwise_or = dt == DataType::Half || dt == DataType::BFloat16 ||
+      dt == DataType::Float8_e4m3fn || dt == DataType::Float8_e5m2;
+  BinaryOpType op_type =
+      use_bitwise_or ? BinaryOpType::BitwiseOr : BinaryOpType::Add;
+
+  NVF_ERROR(cat->inputs().size() > 1);
+
+  Val* result = nullptr;
+  BinaryOp* expr = nullptr;
   for (const auto i : c10::irange(cat->inputs().size())) {
-    const auto inp = lowerSrcIndex(cat->input(i), cat->output(0));
-    inputs.at(i) = inp;
-
-    // Note the original extent is the extent of the root domain not
-    // logical domain
-    auto inp_concat_id = TensorDomain::noReductions(
-                             cat->input(i)->as<TensorView>()->getRootDomain())
-                             .at(cat->concatenatedDim());
-    cur_extent = add(cur_extent, inp_concat_id->getMaybeExpandedExtent());
-    preds.at(i) = IrBuilder::ltExpr(concatenated_dim_idx, cur_extent);
+    auto inp = lowerSrcIndex(cat->input(i), cat->output(0));
+    if (result == nullptr) {
+      result = inp;
+    } else {
+      auto new_result = (i == cat->inputs().size() - 1)
+          ? out
+          : IrBuilder::IrBuilder::create<Val>(dt);
+      expr = IrBuilder::create<BinaryOp>(op_type, new_result, result, inp);
+      result = new_result;
+    }
   }
 
-  auto lowered = IrBuilder::create<CatOp>(
-      out, inputs, cat->concatenatedDim(), concatenated_dim_idx, preds);
+  NVF_ERROR(result != nullptr);
+  NVF_ERROR(expr != nullptr);
 
-  pushBack(lowered);
-  GpuLower::current()->propagateExprInfo(cat, lowered);
+  pushBack(expr);
+  GpuLower::current()->propagateExprInfo(cat, expr);
 }
 
 } // namespace nvfuser
