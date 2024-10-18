@@ -328,7 +328,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
 std::pair<int64_t, int64_t> getBufferBatchSizeAndThreadsPerBlock(
     const int64_t inner_dim_numel,
     const int64_t outer_dim_numel,
-    const int64_t persistent_buffer_size,
+    const int64_t regs_buffer_size,
     const int64_t vectorize_factor,
     const int64_t warp_size) {
   // if inner_dim_numel <= 1024, we are doing multiple reductions per block
@@ -360,43 +360,51 @@ std::pair<int64_t, int64_t> getBufferBatchSizeAndThreadsPerBlock(
     }
     return 1l;
   };
-  // Each thread can use a maximum of 255 registers, and assume 40 of them are
-  // reserved for indexing and other purposes. So, each thread can use up to
-  // 215 registers for persistent buffer. Calculate number of buffer batches
-  // using these 215 registers. total_buffer_bytes is the total size of
-  // persistent buffers in bytes. reduction_elements is the number of elements
-  // in the reduction domain. vectorization_factor is the vectorization factor
-  // of inputs and outputs.
-  auto getMaximumInnerOuterPersistentBufferBatch = [&]() -> int64_t {
-    int64_t register_per_batch = ceilDiv(
-        persistent_buffer_size / inner_dim_numel * vectorize_factor,
-        scheduler_utils::bytes_per_register);
-    return scheduler_utils::safeDiv(
-        scheduler_utils::max_registers_per_thread -
-            scheduler_utils::register_overhead,
-        register_per_batch);
+
+  auto getEstimatedRegisterUsage = [&](int64_t batch_mul_vect) {
+    constexpr int64_t bytes_per_register = 4;
+    const int64_t persistent_buffer_size =
+        regs_buffer_size / inner_dim_numel * batch_mul_vect;
+    const int64_t estimated_register_count =
+        persistent_buffer_size / bytes_per_register +
+        scheduler_utils::register_overhead;
+    return std::min(
+        estimated_register_count, scheduler_utils::max_registers_per_thread);
   };
 
   const int64_t after_vectorization = inner_dim_numel / vectorize_factor;
   const int64_t threads_per_block_min = std::min(
       after_vectorization,
       InnerOuterPersistentKernelScheduler::threads_per_block_min);
-  const int64_t threads_per_block_max =
-      InnerOuterPersistentKernelScheduler::threads_per_block_max;
-  const int64_t batch_min = getMinimumBatch();
-  const int64_t batch_max = getMaximumInnerOuterPersistentBufferBatch();
 
-  // Start from the smallest threads_per_block. If the corresponding batch size
-  // is larger than batch_max, try increase threads per block until
-  // the threads_per_block reaches threads_per_block_max or the batch size
-  // reaches batch_min.
-  int64_t threads_per_block = threads_per_block_min;
+  // Assuming persistent batch is 1, calculate max threads per block without
+  // register spills, e.g. 512 for ln bwd & rms norm bwd.
+  const int64_t register_per_thread =
+      getEstimatedRegisterUsage(vectorize_factor);
+  const int64_t threads_per_block_max = std::min(
+      getThreadsPerSMGivenRegPerThread(register_per_thread),
+      InnerOuterPersistentKernelScheduler::threads_per_block_max);
+  const int64_t batch_min = getMinimumBatch();
+
+  // start from largest threads per block, ensure batch size is not too small.
+  int64_t threads_per_block =
+      std::min(threads_per_block_max, ceilDiv(after_vectorization, batch_min));
+  threads_per_block = scheduler_utils::roundUpPow2(threads_per_block);
   int64_t inner_batch = ceilDiv(after_vectorization, threads_per_block);
-  while (inner_batch > batch_max &&
-         threads_per_block * 2 <= threads_per_block_max &&
-         ceilDiv(after_vectorization, threads_per_block * 2) >= batch_min) {
-    threads_per_block *= 2;
-    inner_batch = ceilDiv(after_vectorization, threads_per_block);
+  // If not divisible, try to reduce threads per block by half.
+  // e.g. 13K = 8 x 512 x 3.25 is not changed.
+  // e.g. 14K = 8 x 512 x 3.50 is changed to 14K = 8 x 256 x 7
+  // e.g. 15K = 8 x 512 x 3.75 is not changed.
+  std::cout << "register_per_thread: " << register_per_thread << std::endl;
+  std::cout << "threads_per_block_max: " << threads_per_block_max << std::endl;
+  std::cout << "threads_per_block: " << threads_per_block << std::endl;
+  if (after_vectorization % threads_per_block != 0) {
+    int reduced_threads_per_block = threads_per_block / 2;
+    if (after_vectorization % reduced_threads_per_block == 0 &&
+        reduced_threads_per_block >= threads_per_block_min) {
+      threads_per_block = reduced_threads_per_block;
+      inner_batch = after_vectorization / threads_per_block;
+    }
   }
   return std::make_pair(inner_batch, threads_per_block);
 }
