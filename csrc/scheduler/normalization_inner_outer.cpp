@@ -243,29 +243,23 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   buffer_params.regs_buffer_size = total_buffer_size;
   buffer_params.smem_buffer_size = 0;
 
-  // (2) If the available register is larger than current register buffer size,
-  // no need to move buffers to shared memory, return early.
-  if (buffer_params.regs_buffer_size <= available_regs) {
-    buffer_params.has_enough_regs_and_smem = true;
-    return buffer_params;
-  }
-
-  // (3) Relocate buffers to shared memory until the buffer size in registers is
+  // (2) Relocate buffers to shared memory until the buffer size in registers is
   // within the allowable limit.
-  // (3.1) Sort the candidate persistent buffers
+  // (2.1) Sort the candidate persistent buffers
   const auto buffers = buffer_params.project_to_input
       ? sortProjectableBufferInputs(
             persistent_buffer_info.projectable_buffer_inputs,
             outer_broadcast_tvs)
       : persistent_buffer_info.persistent_buffers;
 
-  // (3.2) Before this loop, all buffers are in registers.
+  // (2.2) Before this loop, all buffers are in registers.
   // Try to move buffer from register to shared memroy.
   // After one buffer is moved to shared memory, the buffer size in registers
-  // and shared memory are updated accordingly. Break if required register and
-  // shared memory are lower than limit or shared memory exceeds the limit.
+  // and shared memory are updated accordingly.
   int64_t n_smem_buffer = -1;
   const int n_buffers = (int)buffers.size();
+  int64_t regs_buffer_size = buffer_params.regs_buffer_size;
+  int64_t smem_buffer_size = buffer_params.smem_buffer_size;
   for (int i = 0; i < n_buffers; i++) {
     auto current_tv = buffers[i];
 
@@ -273,7 +267,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
     int64_t tv_buffer_size_regs =
         scheduler_utils::getPersistentBufferSizeOfTensor(
             current_tv, runtime_info, persistent_buffer_info);
-    buffer_params.regs_buffer_size -= tv_buffer_size_regs;
+    regs_buffer_size -= tv_buffer_size_regs;
 
     // round up the buffer size to shared memory & increase the shared memory
     // buffer size
@@ -284,21 +278,25 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
         InnerOuterPersistentKernelScheduler::threads_per_block_min,
         InnerOuterPersistentKernelScheduler::threads_per_block_max,
         dev_prop->warpSize);
-    buffer_params.smem_buffer_size += tv_buffer_size_smem;
+    smem_buffer_size += tv_buffer_size_smem;
 
     // The first-i buffers to are moved from register to shared memory
     // If both the register buffer size and shared memory buffer size are within
     // the allowable limit, we found a good configuration. Record the number of
-    // buffers to be moved to shared memory and break the loop.
-    if (buffer_params.regs_buffer_size <= available_regs &&
-        buffer_params.smem_buffer_size <= available_smem) {
+    // buffers to be moved to shared memory and continue checking if we can move
+    // more. Moving more buffers to shared memory reduces the usage of
+    // registers, the comipler can uses more register to optimize the kernel for
+    // better instruction level parallelism and leads to better performance.
+    if (regs_buffer_size <= available_regs &&
+        smem_buffer_size <= available_smem) {
+      buffer_params.regs_buffer_size = regs_buffer_size;
+      buffer_params.smem_buffer_size = smem_buffer_size;
       n_smem_buffer = i + 1;
-      break;
     }
     // shared memory buffer size exceeds the limit, not a good configuration.
     // break the loop, n_smem_buffer remains [-1] indicating a bad
     // configuration.
-    if (buffer_params.smem_buffer_size > available_smem) {
+    if (smem_buffer_size > available_smem) {
       break;
     }
   }
@@ -330,7 +328,8 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
 std::pair<int64_t, int64_t> getBufferBatchSizeAndThreadsPerBlock(
     const int64_t inner_dim_numel,
     const int64_t outer_dim_numel,
-    const int64_t persistent_buffer_size,
+    const int64_t n_inner_reductions,
+    const int64_t regs_buffer_size,
     const int64_t vectorize_factor,
     const int64_t warp_size) {
   // if inner_dim_numel <= 1024, we are doing multiple reductions per block
@@ -369,38 +368,70 @@ std::pair<int64_t, int64_t> getBufferBatchSizeAndThreadsPerBlock(
   // persistent buffers in bytes. reduction_elements is the number of elements
   // in the reduction domain. vectorization_factor is the vectorization factor
   // of inputs and outputs.
-  auto getMaximumInnerOuterPersistentBufferBatch = [&]() -> int64_t {
+  auto getMaximumBatch = [&]() -> int64_t {
     int64_t register_per_batch = ceilDiv(
-        persistent_buffer_size / inner_dim_numel * vectorize_factor,
+        regs_buffer_size / inner_dim_numel * vectorize_factor,
         scheduler_utils::bytes_per_register);
-    return scheduler_utils::safeDiv(
+    int64_t max_persistent_batch = scheduler_utils::safeDiv(
         scheduler_utils::max_registers_per_thread -
             scheduler_utils::register_overhead,
         register_per_batch);
+    return max_persistent_batch;
+  };
+
+  auto getEstimatedRegisterUsage = [&](int64_t batch_mul_vect) {
+    constexpr int64_t bytes_per_register = 4;
+    const int64_t persistent_buffer_size =
+        regs_buffer_size / inner_dim_numel * batch_mul_vect;
+    const int64_t estimated_register_count =
+        persistent_buffer_size / bytes_per_register +
+        scheduler_utils::register_overhead;
+    return std::min(
+        estimated_register_count, scheduler_utils::max_registers_per_thread);
   };
 
   const int64_t after_vectorization = inner_dim_numel / vectorize_factor;
   const int64_t threads_per_block_min = std::min(
       after_vectorization,
       InnerOuterPersistentKernelScheduler::threads_per_block_min);
-  const int64_t threads_per_block_max =
-      InnerOuterPersistentKernelScheduler::threads_per_block_max;
-  const int64_t batch_min = getMinimumBatch();
-  const int64_t batch_max = getMaximumInnerOuterPersistentBufferBatch();
 
-  // Start from the smallest threads_per_block. If the corresponding batch size
-  // is larger than batch_max, try increase threads per block by a warp until
-  // the threads_per_block reaches threads_per_block_max or the batch size
-  // reaches batch_min.
-  int64_t threads_per_block = threads_per_block_min;
-  int64_t inner_batch = ceilDiv(after_vectorization, threads_per_block);
-  while (inner_batch > batch_max &&
-         threads_per_block + warp_size <= threads_per_block_max &&
-         ceilDiv(after_vectorization, threads_per_block + warp_size) >=
-             batch_min) {
-    threads_per_block += warp_size;
+  // Assuming persistent batch is 1, calculate max threads per block without
+  // register spills, e.g. 512 for ln bwd & rms norm bwd.
+  const int64_t register_per_thread =
+      getEstimatedRegisterUsage(vectorize_factor);
+  const int64_t threads_per_block_max = std::min(
+      getThreadsPerSMGivenRegPerThread(register_per_thread),
+      InnerOuterPersistentKernelScheduler::threads_per_block_max);
+  const int64_t batch_min = getMinimumBatch();
+  const int64_t batch_max = getMaximumBatch();
+  int64_t inner_batch, threads_per_block;
+  if (n_inner_reductions == 1) {
+    // Only one inner reduction (RMS norm bwd), start from max threads per
+    // block, decrease if can change from non-divisible to divisible. Ensure
+    // batch size is smaller than batch_max.
+    threads_per_block = std::min(
+        threads_per_block_max, ceilDiv(after_vectorization, batch_min));
+    threads_per_block = scheduler_utils::roundUpPow2(threads_per_block);
+    inner_batch = ceilDiv(after_vectorization, threads_per_block);
+    if (after_vectorization % threads_per_block != 0) {
+      int64_t reduced_threads_per_block = threads_per_block / 2L;
+      if (after_vectorization % reduced_threads_per_block == 0 &&
+          reduced_threads_per_block >= threads_per_block_min) {
+        threads_per_block = reduced_threads_per_block;
+        inner_batch = after_vectorization / threads_per_block;
+      }
+    }
+  } else {
+    // Multiple inner reductions (layer norm bwd), inter-thread communication
+    // cost should be considered. Start from min threads per block. Ensure
+    // threads per block is smaller than threads_per_block_max.
+    threads_per_block = std::max(
+        threads_per_block_min, ceilDiv(after_vectorization, batch_max));
+    threads_per_block = scheduler_utils::roundUpPow2(threads_per_block);
+    threads_per_block = std::min(threads_per_block, threads_per_block_max);
     inner_batch = ceilDiv(after_vectorization, threads_per_block);
   }
+
   return std::make_pair(inner_batch, threads_per_block);
 }
 
@@ -427,6 +458,7 @@ std::pair<int64_t, int64_t> getBufferBatchSizeAndThreadsPerBlock(
 std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
     const int64_t outer_dim_numel,
     const int64_t inner_dim_numel,
+    const int64_t n_inner_reductions,
     const int64_t regs_buffer_size,
     const int64_t smem_buffer_size,
     const int64_t smem_overhead,
@@ -510,6 +542,7 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
       getBufferBatchSizeAndThreadsPerBlock(
           inner_dim_numel,
           outer_dim_numel,
+          n_inner_reductions,
           regs_buffer_size,
           iop.inner_vect,
           dev_prop->warpSize);
@@ -703,9 +736,11 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
   // Get dtype used to store partial outer reduction
   // Get the first inner reduction tv and use it as the reference tv
   int64_t max_outer_reduction_dtype_size = 1;
+  int64_t n_inner_reductions = 0;
   TensorView* first_inner_reduction_tv = nullptr;
   for (auto tv : reduction_tvs) {
     if (scheduler_utils::isFastestDimReduction(tv)) {
+      n_inner_reductions++;
       first_inner_reduction_tv = tv;
     } else {
       max_outer_reduction_dtype_size = std::max(
@@ -753,6 +788,7 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
   std::unique_ptr<ReductionParams> rparams = innerOuterPersistentHeuristic(
       properties.total_iteration_numel,
       properties.total_reduction_numel,
+      n_inner_reductions,
       buffer_params.regs_buffer_size,
       buffer_params.smem_buffer_size,
       buffer_params.smem_overhead,
