@@ -314,7 +314,10 @@ class RotateLoop : kir::ExprMutator {
     // of start < end, so no predicate here. In the future, if we decide that
     // we need to predicate this, then we should add an kir::IfThenElse here.
     auto prologue = IrBuilder::create<ForLoop>(
-        fl->iter_domain(), fl->start(), fl->circularBufferLoopStage());
+        fl->iter_domain(),
+        fl->start(),
+        fl->circularBufferLoopStage(),
+        fl->circularBufferLoopStageDepth());
     std::vector<Expr*> lifted_alloc;
     for (auto expr : fl->body().exprs()) {
       if (selection_.count(expr) == 0) {

@@ -601,6 +601,9 @@ class TensorDomain : public Val {
   // unique.
   std::vector<IterDomain*> allIDs() const;
 
+  // Similar to allIDs but returns all ID expressions.
+  std::vector<Expr*> allExprs() const;
+
   const std::vector<IterDomain*>& maybeAllocation() const {
     return hasAllocation() ? allocation_domain_ : logical();
   };

@@ -7,9 +7,118 @@
  */
 // clang-format on
 //
+#include <ops/all_ops.h>
 #include <python_frontend/translation_utils.h>
 
 namespace nvfuser::python_frontend {
+
+std::string getString(const UnaryOp* uop) {
+  switch (uop->getUnaryOpType()) {
+    case UnaryOpType::Abs:
+      return "abs";
+    case UnaryOpType::Acos:
+      return "acos";
+    case UnaryOpType::Acosh:
+      return "acosh";
+    case UnaryOpType::Asin:
+      return "asin";
+    case UnaryOpType::Asinh:
+      return "asinh";
+    case UnaryOpType::Atan:
+      return "atan";
+    case UnaryOpType::Atanh:
+      return "atanh";
+    case UnaryOpType::Ceil:
+      return "ceil";
+    case UnaryOpType::Cos:
+      return "cos";
+    case UnaryOpType::Cosh:
+      return "cosh";
+    case UnaryOpType::Exp:
+      return "exp";
+    case UnaryOpType::Exp2:
+      return "exp2";
+    case UnaryOpType::Expm1:
+      return "expm1";
+    case UnaryOpType::Erf:
+      return "erf";
+    case UnaryOpType::Erfc:
+      return "erfc";
+    case UnaryOpType::Erfinv:
+      return "erfinv";
+    case UnaryOpType::Erfcinv:
+      return "erfcinv";
+    case UnaryOpType::Floor:
+      return "floor";
+    case UnaryOpType::Frac:
+      return "frac";
+    case UnaryOpType::Lgamma:
+      return "lgamma";
+    case UnaryOpType::Log:
+      return "log";
+    case UnaryOpType::Log10:
+      return "log10";
+    case UnaryOpType::Log1p:
+      return "log1p";
+    case UnaryOpType::Log2:
+      return "log2";
+    case UnaryOpType::Neg:
+      return "neg";
+    case UnaryOpType::LogicalNot:
+      return "logical_not";
+    case UnaryOpType::BitwiseNot:
+      return "bitwise_not";
+    case UnaryOpType::Reciprocal:
+      return "reciprocal";
+    case UnaryOpType::Relu:
+      return "relu";
+    case UnaryOpType::Rsqrt:
+      return "rsqrt";
+    case UnaryOpType::Round:
+      return "round";
+    case UnaryOpType::Sigmoid:
+      return "sigmoid";
+    case UnaryOpType::Signbit:
+      return "signbit";
+    case UnaryOpType::Silu:
+      return "silu";
+    case UnaryOpType::Sin:
+      return "sin";
+    case UnaryOpType::Sinh:
+      return "sinh";
+    case UnaryOpType::Sqrt:
+      return "sqrt";
+    case UnaryOpType::Tan:
+      return "tan";
+    case UnaryOpType::Tanh:
+      return "tanh";
+    case UnaryOpType::Trunc:
+      return "trunc";
+    case UnaryOpType::IsFinite:
+      return "isfinite";
+    case UnaryOpType::IsInf:
+      return "isinf";
+    case UnaryOpType::IsNan:
+      return "isnan";
+    case UnaryOpType::IsNegInf:
+      return "isneginf";
+    case UnaryOpType::IsPosInf:
+      return "isposinf";
+    case UnaryOpType::IsReal:
+      return "isreal";
+    case UnaryOpType::Real:
+      return "real";
+    case UnaryOpType::Imag:
+      return "imag";
+    default:
+      NVF_CHECK(
+          false,
+          "Unexpected operator type: ",
+          uop->getUnaryOpType(),
+          " in ",
+          uop->toString());
+  }
+}
 
 std::string getString(const BinaryOp* bop) {
   switch (bop->getBinaryOpType()) {
@@ -101,6 +210,118 @@ std::string getString(const BinaryOp* bop) {
           bop->getBinaryOpType(),
           " in ",
           bop->toString());
+  }
+}
+
+std::string getString(const TernaryOp* top) {
+  switch (top->getTernaryOpType()) {
+    case TernaryOpType::Clamp:
+      return "clamp";
+      break;
+    case TernaryOpType::Lerp:
+      return "lerp";
+      break;
+    case TernaryOpType::Threshold:
+      return "threshold";
+      break;
+    case TernaryOpType::Where:
+      return "where";
+      break;
+    default:
+      NVF_CHECK(
+          false,
+          "Unexpected operator type: ",
+          top->getTernaryOpType(),
+          " in ",
+          top->toString());
+  }
+}
+
+#define GET_FUNCTION_TERNARY_SPECIALIZATION_DEFINITION(                      \
+    ResultType, InType1, InType2, InType3)                                   \
+  template <>                                                                \
+  std::function<ResultType(InType1, InType2, InType3)>                       \
+  getFunction<ResultType, InType1, InType2, InType3>(const TernaryOp* top) { \
+    auto wrap_function = [](ResultType (*fn)(InType1, InType2, InType3)) {   \
+      return fn;                                                             \
+    };                                                                       \
+                                                                             \
+    switch (top->getTernaryOpType()) {                                       \
+      case TernaryOpType::Clamp:                                             \
+        return wrap_function(clamp);                                         \
+        break;                                                               \
+      case TernaryOpType::Lerp:                                              \
+        return wrap_function(lerp);                                          \
+        break;                                                               \
+      case TernaryOpType::Threshold:                                         \
+        return wrap_function(threshold);                                     \
+        break;                                                               \
+      case TernaryOpType::Where:                                             \
+        return wrap_function(where);                                         \
+        break;                                                               \
+      default:                                                               \
+        NVF_CHECK(                                                           \
+            false,                                                           \
+            "Unexpected operator type: ",                                    \
+            top->getTernaryOpType(),                                         \
+            " in ",                                                          \
+            top->toString());                                                \
+    }                                                                        \
+  }
+
+// Fully specialized template functions to create std::function for TernaryOp.
+GET_FUNCTION_TERNARY_SPECIALIZATION_DEFINITION(
+    TensorView*,
+    TensorView*,
+    Val*,
+    Val*)
+GET_FUNCTION_TERNARY_SPECIALIZATION_DEFINITION(Val*, Val*, Val*, Val*)
+
+std::string getString(const ReductionOp* rop) {
+  switch (rop->getReductionOpType()) {
+    case BinaryOpType::Add:
+      return "sum";
+      break;
+    case BinaryOpType::Mul:
+      return "prod";
+      break;
+    case BinaryOpType::Max:
+      return "max";
+      break;
+    case BinaryOpType::Min:
+      return "min";
+      break;
+    default:
+      NVF_CHECK(
+          false,
+          "Unexpected reduction operator type: ",
+          rop->getReductionOpType(),
+          " in ",
+          rop->toString());
+  }
+}
+
+serde::RecordType getSerdeType(const ReductionOp* rop) {
+  switch (rop->getReductionOpType()) {
+    case BinaryOpType::Add:
+      return serde::RecordType::ReductionSum;
+      break;
+    case BinaryOpType::Mul:
+      return serde::RecordType::ReductionProd;
+      break;
+    case BinaryOpType::Max:
+      return serde::RecordType::ReductionMax;
+      break;
+    case BinaryOpType::Min:
+      return serde::RecordType::ReductionMin;
+      break;
+    default:
+      NVF_CHECK(
+          false,
+          "Unexpected reduction operator type: ",
+          rop->getReductionOpType(),
+          " in ",
+          rop->toString());
   }
 }
 

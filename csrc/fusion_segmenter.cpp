@@ -15,6 +15,7 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <multidevice/utils.h>
+#include <ops/alias.h>
 #include <ops/arith.h>
 #include <options.h>
 #include <scheduler/debug_utils.h>
@@ -3603,7 +3604,7 @@ class PreferredMergeCandidatePicker {
   }
 
   //! Prefer merging groups with select-like exprs with producer
-  //! groups, including index_select, torch_gather and take_along_axis
+  //! groups, including indexSelect, torchGather and takeAlongAxis
   //! where only one element is selected/gathered/taken, producing a
   //! broadcast domain. Fusing these exprs with producers is
   //! straightforward, but may not be always possible with consumers as
@@ -3613,11 +3614,11 @@ class PreferredMergeCandidatePicker {
   //! these exprs as the segment output tensors would become smaller.
   //!
   //! A motivating example is cross-entropy loss, where softmax is
-  //! followed by take_along_axis, and then is followed by a
+  //! followed by takeAlongAxis, and then is followed by a
   //! reduction. Currently, it's not possible to fuse the softmax and
   //! the reduction, so it must be segmented to two groups, and we
-  //! want to segment the fusion between the take_along_axis and the
-  //! reduction, not between the softmax and take_along_axis.
+  //! want to segment the fusion between the takeAlongAxis and the
+  //! reduction, not between the softmax and takeAlongAxis.
   std::optional<SegmentedGroup::NeighborGroup> mergeSelectLikeOpsWithProducers(
       SegmentedGroup* group) const;
 

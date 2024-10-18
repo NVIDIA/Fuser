@@ -400,7 +400,8 @@ TEST_P(HostIrTest, ForLoops) {
       /*vectorize=*/false,
       /*vectorize_shift=*/nullptr,
       /*unroll_required=*/false,
-      CircularBufferLoopStage::NotApplicable);
+      CircularBufferLoopStage::NotApplicable,
+      /*circular_buffer_loop_stage_depth=*/0);
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -788,6 +789,44 @@ TEST_F(MatmulHostIrTest, HostIr) {
   auto ref_output = at::matmul(a_tensor, b_tensor);
 
   EXPECT_TRUE(ref_output.allclose(output));
+}
+
+TEST_F(MatmulHostIrTest, HostIrMatmulOut) {
+  constexpr int64_t H = 32;
+  constexpr int64_t M = 64;
+  constexpr int64_t K = 128;
+  constexpr int64_t N = 256;
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  TensorView* a = makeContigTensor(3);
+  TensorView* b = makeContigTensor(3);
+  TensorView* c = makeContigTensor(3);
+  auto* matmul = IrBuilder::create<MatmulOp>(c, a, b);
+
+  hic->addInput(a);
+  hic->addInput(b);
+  hic->addInput(c);
+  hic->addOutput(c);
+
+  hic->pushBackTopLevelExprs(matmul);
+
+  HostIrExecutor hie(std::move(hic));
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
+  at::Tensor a_tensor = at::randn({H, M, K}, options);
+  at::Tensor b_tensor = at::randn({H, K, N}, options);
+  at::Tensor c_tensor = at::randn({H, M, N}, options);
+  std::unordered_map<Val*, c10::IValue> concrete_input_buffers = {
+      {a, a_tensor}, {b, b_tensor}, {c, c_tensor}};
+
+  hie.runWithInput(concrete_input_buffers);
+
+  // validate
+  auto ref_output = at::matmul(a_tensor, b_tensor);
+
+  EXPECT_TRUE(ref_output.allclose(c_tensor));
 }
 
 using SelectHostIrTestParams = bool;
