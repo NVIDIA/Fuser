@@ -35,12 +35,13 @@ namespace nvfuser::preseg_passes {
 namespace {
 void insertSegmentSet(Fusion* fusion) {
   std::vector<TensorView*> aliased_tvs;
-  std::vector<BroadcastOp*> bcast;
 
-  // Find all tensorviews which are used in inplace updates
-  for (TensorView* tv : fusion->allTvs()) {
-    if (fusion->getOutputAlias(tv).type == AllocationType::ReuseBuffer) {
-      aliased_tvs.push_back(tv);
+  // Find all tensorviews which are used in inplace updates.
+  // Aliases will always be fusion outputs.
+  for (Val* out : fusion->outputs()) {
+    if (fusion->getOutputAlias(out->as<TensorView>()).type ==
+        AllocationType::ReuseBuffer) {
+      aliased_tvs.push_back(out->as<TensorView>());
     }
   }
 
@@ -102,8 +103,7 @@ void insertSegmentSet(Fusion* fusion) {
 
   // Use permissive IdModel graph to identify any concretized broadcast
   // iterdomain in any aliased input.
-  auto id_model =
-      IdModel(fusion, /*build_graphs=*/false, /*allow_self_mapping=*/true);
+  auto id_model = IdModel(fusion, /*build_graphs=*/false);
   id_model.buildPermissiveGraph();
   const ValGraph& permissive_graph =
       id_model.idGraph(IdMappingMode::PERMISSIVE);
