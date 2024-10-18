@@ -470,6 +470,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
       }
       if (onlyOneSerialForLoopOnStack()) {
         for_loop_stack_.back()->body().push_back(wait_it->second);
+        mbarriers_to_wait_.erase(wait_it);
       }
     }
   }
