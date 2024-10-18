@@ -257,9 +257,6 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   // After one buffer is moved to shared memory, the buffer size in registers
   // and shared memory are updated accordingly.
   int64_t n_smem_buffer = -1;
-  int64_t regs_buffer_size = buffer_params.regs_buffer_size;
-  int64_t smem_buffer_size = buffer_params.smem_buffer_size;
-  int64_t register_smem_diff = regs_buffer_size - smem_buffer_size;
   const int n_buffers = (int)buffers.size();
   int64_t regs_buffer_size = buffer_params.regs_buffer_size;
   int64_t smem_buffer_size = buffer_params.smem_buffer_size;
