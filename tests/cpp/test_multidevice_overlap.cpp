@@ -704,7 +704,7 @@ TEST_F(
   // It means that they are going to be executed at the host level (actually,
   // through ExpressionEvaluator). Alternatively, they could be embedded in a
   // separate Fusion and be added to the HostIrConainter through
-  // PostOnStrean(HostUnit(.)), in which case the ops would be codegen-ed and
+  // PostOnStream(HostUnit(.)), in which case the ops would be codegen-ed and
   // compiled.
   std::vector<Expr*> loop_body = {
       set_stream,
