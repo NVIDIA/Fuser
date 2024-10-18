@@ -7,9 +7,9 @@
 // clang-format on
 
 #include <dynamic_transform.h>
-#include <runtime/executor_kernel_arg.h>
 #include <host_ir/executor.h>
 #include <ir/utils.h>
+#include <runtime/executor_kernel_arg.h>
 #include <runtime/fusion_kernel_runtime.h>
 
 namespace nvfuser {
