@@ -341,9 +341,10 @@ class CloneTmaCircularBufferLoopAndInsertSync
             circular_buffer_loop,
             circular_buffer_load_exprs,
             loop_type,
-            exclude),
-        mbarriers_to_wait_(createWaitExprsForAllMbarriersOf()),
-        circular_buffer_load_tvs_(getCircularBufferTvs()) {}
+            exclude) {
+    mbarriers_to_wait_ = createWaitExprsForAllMbarriersOf();
+    circular_buffer_load_tvs_ = getCircularBufferTvs();
+  }
 
   // For TmaCircularBufferLoop, we have an mbarrier for each Tensorview and
   // each circular buffer stage, but not for each individual TMA load
