@@ -1309,7 +1309,6 @@ TEST_F(PersistentBufferTest, SmemPersistent2DReduction) {
       EXPECT_TRUE(isVectorized(tv));
       // check consumers
       for (auto consumer : ir_utils::consumerTvsOf(tv)) {
-        std::cout << consumer->toString() << std::endl;
         EXPECT_TRUE(isVectorized(consumer));
       }
     }
