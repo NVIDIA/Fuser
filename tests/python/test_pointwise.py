@@ -372,6 +372,7 @@ def test_multi_inplace():
     torch.testing.assert_close(inputs[1], ref_out[0])
     torch.testing.assert_close(inputs[2], ref_out[1])
 
+
 # Example 4 for Issue 2664: There is no explicit broadcast. However, the aliased input has a broadcast dimension that is concretized in the fusion.
 # T0 has a implicit broadcast which is used in add(T3) and neg (T4). T4 is used to inplace update T0, which causes RW race.
 def test_implicit_bcast_inplace():
