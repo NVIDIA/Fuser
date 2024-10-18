@@ -129,15 +129,18 @@ class NVFBenchmark:
         """
         try:
             self.prof.stop()
-            prof_averages = self.prof.key_averages()
-            elapsed_cuda_time = self._get_kernel_time(prof_averages)
-            self._increment_global_time(elapsed_cuda_time)
-            # Clear the internal profiler object to avoid accumulating function events and then restart the profiler
-            # See PR: https://github.com/pytorch/pytorch/pull/125510
-            self.prof.profiler = None
-            self.prof.start()
         except AssertionError:
             self.prof.start()
+            return self.current_time
+
+        prof_averages = self.prof.key_averages()
+        elapsed_cuda_time = self._get_kernel_time(prof_averages)
+        self._increment_global_time(elapsed_cuda_time)
+        # Clear the internal profiler object to avoid accumulating function events and then restart the profiler
+        # See PR: https://github.com/pytorch/pytorch/pull/125510
+        self.prof.profiler = None
+        self.prof.start()
+
         return self.current_time
 
     def fusionprofile_timer(self) -> float:
@@ -157,22 +160,20 @@ class NVFBenchmark:
         Returns:
             time_value: Elapsed CUDA time in seconds.
         """
-        elapsed_cuda_time = (
-            sum(
-                [
-                    # Re: torch profiler API changes in https://github.com/pytorch/pytorch/pull/123247
-                    (
-                        event.self_device_time_total
-                        if hasattr(event, "self_device_time_total")
-                        else event.self_cuda_time_total
-                    )
-                    for event in prof_averages
-                    if event.device_type == DeviceType.CUDA
-                ]
+        elapsed_cuda_time = 0
+        has_cuda_event = False
+        for event in prof_averages:
+            if event.device_type != DeviceType.CUDA:
+                continue
+            has_cuda_event = True
+            # Re: torch profiler API changes in https://github.com/pytorch/pytorch/pull/123247
+            elapsed_cuda_time = (
+                elapsed_cuda_time + event.self_device_time_total
+                if hasattr(event, "self_device_time_total")
+                else event.self_cuda_time_total
             )
-            / 1e6
-        )
-        return elapsed_cuda_time
+        assert has_cuda_event, "No CUDA events found"
+        return elapsed_cuda_time / 1e6
 
     def _increment_global_time(self, elapsed_time: float) -> None:
         self.current_time += elapsed_time
