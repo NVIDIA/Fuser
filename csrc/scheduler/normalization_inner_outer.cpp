@@ -423,13 +423,13 @@ std::pair<int64_t, int64_t> getBufferBatchSizeAndThreadsPerBlock(
     }
   } else {
     // Multiple inner reductions (layer norm bwd), inter-thread communication
-    // cost should be considered. Start from min threads per block. Ensure batch
-    // size is smaller than batch_max. Ensure threads per block is smaller than
-    // threads_per_block_max.
+    // cost should be considered. Start from min threads per block. Ensure
+    // threads per block is smaller than threads_per_block_max.
     threads_per_block = std::max(
         threads_per_block_min, ceilDiv(after_vectorization, batch_max));
     threads_per_block = scheduler_utils::roundUpPow2(threads_per_block);
     threads_per_block = std::min(threads_per_block, threads_per_block_max);
+    inner_batch = ceilDiv(after_vectorization, threads_per_block);
   }
 
   return std::make_pair(inner_batch, threads_per_block);
