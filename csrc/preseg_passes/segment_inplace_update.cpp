@@ -130,7 +130,7 @@ void insertSegmentSet(Fusion* fusion) {
   };
 
   // For all aliased tensorviews:
-  // 1) if that tv or the correspodning aliased input is a producer/consumer of
+  // 1) if that tv or the corresponding aliased input is a producer/consumer of
   // a broadcast op, or 2) the aliased input has a concretized broadcast, insert
   // a (segment_set + set) to force the inplace update into a separate copy
   // kernel. NOTE: We cannot use a segment_set alone. Since, there will be no
