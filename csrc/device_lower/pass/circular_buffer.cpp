@@ -779,8 +779,9 @@ class CloneTmaCircularBufferLoopAndInsertSync
   }
 
  private:
-  // Mbarrier_Wait to add to cloned_top_level_loop
-  kir::MBarrierWaitParity* mbarrier_wait_ = nullptr;
+  // Mbarriers whose wait is not inserted to the loop yet, and its corresponding
+  // wait expression.
+  std::unordered_map<TensorView*, kir::MBarrierWaitParity*> mbarriers_to_wait_;
 
   // Mbarrier_ArriveExpectTx to add to cloned_top_level_loop
   kir::MBarrierArriveExpectTx* mbarrier_arrive_tx_ = nullptr;
