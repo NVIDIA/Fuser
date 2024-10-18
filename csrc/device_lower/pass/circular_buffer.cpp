@@ -371,7 +371,10 @@ class CloneTmaCircularBufferLoopAndInsertSync
       return;
     }
 
-    // mbarrier::wait occurs in Main and Epilogue loops.
+    // If any of the mbarrier wait expressions is not nullptr, this indicates
+    // that the `cloned_loop` is the loop containing the first read of a
+    // circular buffered TensorView. We need to insert that wait expression
+    // before `cloned_loop`.
     if (onlyOneSerialForLoopOnStack()) {
       for (auto it = mbarriers_to_wait_.begin();
            it != mbarriers_to_wait_.end();) {
@@ -460,8 +463,11 @@ class CloneTmaCircularBufferLoopAndInsertSync
         stage_parity, for_loop_stack_);
   }
 
-  // Check if the given expr is the first read of a circular buffered TensorView
-  // and if so, insert mbarrier::wait before it.
+  // Check if the given expr is the first read of a circular buffered
+  // TensorView. If so, create the mbarrier::wait expression for the
+  // corresponding buffer. And if the given expr is on the top-level of the
+  // cloned loop, insert the newly created mbarrier::wait expression before the
+  // given expr.
   void insertMBarrierWaitBeforeFirstRead(Expr* expr) {
     if (loop_type_ == CircularBufferLoopStage::Prolog) {
       // If we are in the prologue loop, we won't clone expr, so we don't need
@@ -830,7 +836,21 @@ class CloneTmaCircularBufferLoopAndInsertSync
 
  private:
   // Mbarriers whose wait is not inserted to the loop yet, and its corresponding
-  // wait expression.
+  // wait expression. This map is initialized as:
+  //   mbarrier1 -> nullptr
+  //   mbarrier2 -> nullptr
+  //   ...
+  //   mbarrierN -> nullptr
+  // Indicating that: In the cloned loop, we need to wait for "mbarrier1",
+  // "mbarrier2", ..., "mbarrierN"; however, the wait expressions are not
+  // created yet.
+  //
+  // As we run the traversal, when we encounter a first read of a circular
+  // buffered tensor, we create mbarrier::wait by replacing nullptr with the
+  // actual wait expression. These wait expressions will be inserted to the
+  // cloned loop before the first read, and after insertion, the entry will be
+  // removed from this map indicating that this mbarrier is already waited, and
+  // we don't need to wait for it again.
   std::unordered_map<TensorView*, kir::MBarrierWaitParity*> mbarriers_to_wait_;
 
   // Mbarrier_ArriveExpectTx to add to cloned_top_level_loop
