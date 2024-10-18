@@ -243,27 +243,19 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   buffer_params.regs_buffer_size = total_buffer_size;
   buffer_params.smem_buffer_size = 0;
 
-  // (2) If the available register is larger than current register buffer size,
-  // no need to move buffers to shared memory, return early.
-  if (buffer_params.regs_buffer_size <= available_regs) {
-    buffer_params.has_enough_regs_and_smem = true;
-    return buffer_params;
-  }
-
-  // (3) Relocate buffers to shared memory until the buffer size in registers is
+  // (2) Relocate buffers to shared memory until the buffer size in registers is
   // within the allowable limit.
-  // (3.1) Sort the candidate persistent buffers
+  // (2.1) Sort the candidate persistent buffers
   const auto buffers = buffer_params.project_to_input
       ? sortProjectableBufferInputs(
             persistent_buffer_info.projectable_buffer_inputs,
             outer_broadcast_tvs)
       : persistent_buffer_info.persistent_buffers;
 
-  // (3.2) Before this loop, all buffers are in registers.
+  // (2.2) Before this loop, all buffers are in registers.
   // Try to move buffer from register to shared memroy.
   // After one buffer is moved to shared memory, the buffer size in registers
-  // and shared memory are updated accordingly. Break if required register and
-  // shared memory are lower than limit or shared memory exceeds the limit.
+  // and shared memory are updated accordingly.
   int64_t n_smem_buffer = -1;
   const int n_buffers = (int)buffers.size();
   int64_t regs_buffer_size = buffer_params.regs_buffer_size;
@@ -395,7 +387,7 @@ std::pair<int64_t, int64_t> getBufferBatchSizeAndThreadsPerBlock(
   const int64_t batch_max = getMaximumInnerOuterPersistentBufferBatch();
 
   // Start from the smallest threads_per_block. If the corresponding batch size
-  // is larger than batch_max, try increase threads per block by a warp until
+  // is larger than batch_max, try increase threads per block until
   // the threads_per_block reaches threads_per_block_max or the batch size
   // reaches batch_min.
   int64_t threads_per_block = threads_per_block_min;
