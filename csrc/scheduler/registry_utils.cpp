@@ -170,7 +170,7 @@ bool rejectScheduleForMemoryPromotion(
   for (auto expr : fusion->exprs()) {
     if (expr->isOneOf<SelectOp, IndexSelectOp, TorchGatherOp>()) {
       // For now, only relax the input requirement when it's
-      // take_along_axis. Also since this would require memory
+      // takeAlongAxis. Also since this would require memory
       // promotion, i.e., persistent global sync in the case of
       // block-parallel ops, it needs to be explictly enabled.
       if (expr->isA<TorchGatherOp>() &&

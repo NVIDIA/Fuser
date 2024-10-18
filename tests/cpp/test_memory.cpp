@@ -14,6 +14,7 @@
 #include <debug.h>
 #include <fusion.h>
 #include <ir/utils.h>
+#include <mma_type.h>
 #include <ops/alias.h>
 #include <ops/arith.h>
 #include <ops/utils.h>
@@ -24,6 +25,7 @@
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 #include <type.h>
+#include <utils.h>
 
 namespace nvfuser {
 
@@ -2561,7 +2563,10 @@ TEST_P(LdMatrixTest, Regular) {
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
-class StMatrixTest : public NVFuserFixtureParamTest<std::vector<int>> {
+// Test for Stmatrix instruction to store 8x8, 16x8 and 16x16
+// piece of memory with a single call (.x1, .x2 and .x4).
+class StMatrixSingleTileTest
+    : public NVFuserFixtureParamTest<std::vector<int>> {
  protected:
   void SetUp() override {
     if (cudaArchGuardShouldSkip(9, 0)) {
@@ -2571,37 +2576,166 @@ class StMatrixTest : public NVFuserFixtureParamTest<std::vector<int>> {
   }
 };
 
-TEST_P(StMatrixTest, Regular) {
+// We get shapes M and N from MmaMacrao. The vector of ints are
+// the tile_m and tile_n factors (8x8, 16x8 and 16x16).
+using StMatrixTestParams = std::tuple<MmaMacro, std::vector<int>>;
+
+class StMatrixTest : public NVFuserFixtureParamTest<StMatrixTestParams> {
+ protected:
+  void SetUp() override {
+    if (cudaArchGuardShouldSkip(9, 0)) {
+      GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
+    }
+    NVFuserTest::SetUp();
+  }
+};
+
+// This tile a larger piece of memory to 8x8, 16x8 or 16x16 tiles. This helps
+// break down a store to multiple stmatrix calls.
+void tileInnerStmatrixCall(TensorView* tv, int tile_m, int tile_n) {
+  // [M, N] -> [M, no, tile_n]
+  tv->split(-1, tile_n);
+  // [M, no, tile_n] -> [mo, tile_m, no, tile_n]
+  tv->split(0, tile_m);
+  // [mo, tile_m, no, tile_n] -> [no, mo, tile_m, tile_n]
+  tv->reorder({{-2, -4}});
+  // [no, mo, tile_m, tile_n] -> [no*mo, tile_m, tile_n]
+  tv->merge(0);
+};
+
+void scheduleSwizzleHelper(TensorView* tv) {
+  // [no*mo, t_m, t_n] -> [no*mo, t_m/8, 8, t_n]
+  tv->split(-2, 8);
+  // [no*mo, t_m/8, 8, t_n] -> [no*mo, t_m/8, 8, t_n/2, 2]
+  tv->split(-1, 2);
+  // [no*mo, t_m/8, 8, t_n/2, 2] -> [no*mo, t_m/8, 8, (t_n/2)/4, 4, 2]
+  tv->split(-2, 4);
+  // [no*mo, t_m/8, 8, (t_n/2)/4, 4, 2] ->
+  // [no*mo, 8, 4, (t_n/2)/4, t_m/8, 2]
+  tv->reorder({{-4, -5}, {-5, -2}, {-2, -4}});
+}
+
+void scheduleStmatrixOutput(TensorView* tv, int tile_m, int tile_n) {
+  // We can run through this with an example shape: [32, 64]
+  // (8x8): [32, 64] -> [32, 8, 4, 1, 1, 2] (after swizzle)
+  // (16x8): [32, 64] -> [16, 8, 4, 1, 2, 2]
+  // (16x16): [32, 64] ->  [8, 8, 4, 2, 2, 2]
+  scheduleSwizzleHelper(tv);
+  tv->merge(1);
+  // (8x8):  [32, 32(TIDX), 1, 1, 2]
+  // (16x8): [16, 32(TIDX), 1, 2, 2]
+  // (16x16):  [8, 32(TIDX), 2, 2, 2]
+  tv->axis(1)->parallelize(ParallelType::TIDx);
+
+  // (8x8):  [32, 32(TIDX), 1*1*2(vec)]
+  // (16x8): [16, 32(TIDX), 1*2*2(Vec)]
+  // (16x16):  [8, 32(TIDX), 2*2*2(Vec)]
+  tv->merge(2);
+  tv->merge(2);
+  tv->axis(2)->parallelize(ParallelType::Vectorize);
+}
+
+TEST_P(StMatrixSingleTileTest, Regular) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto operand = MmaOperand::A;
   auto sizes = GetParam();
   int sizeM = sizes.at(0);
   int sizeN = sizes.at(1);
 
+  fusion.manage("st_matrix_m_tile", sizeM);
+  fusion.manage("st_matrix_n_tile", sizeN);
+  fusion.manage("st_matrix_m", sizeM);
+  fusion.manage("st_matrix_n", sizeN);
+
   auto tv0 = makeContigConcreteTensor({sizeM, sizeN}, DataType::Half);
   fusion.addInput(tv0);
-  // tv0 (global) -> tv1 (shared)
+  // tv0 (global) -> tv1 (registers)
   auto tv1 = set(tv0);
-  tv1->setMemoryType(MemoryType::Shared);
+  // tv1 (registers) -> tv2 (shared)
   auto tv2 = set(tv1);
-  // tv1 (shared) -> tv2 (registers)
-  // tv2 (registers) -> tv3 (shared)
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StMatrix);
+  tv2->setMemoryType(MemoryType::Shared);
+  // tv2 (shared) -> tv3(global)
   auto tv3 = set(tv2);
-  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StMatrix);
-  tv3->setMemoryType(MemoryType::Shared);
-  // tv3 (shared) -> tv4(global)
-  auto tv4 = set(tv3);
-  fusion.addOutput(tv4);
+  fusion.addOutput(tv3);
 
-  tv2->applyMmaSwizzle(operand);
-  tv2->setAllocationDomain(tv2->getLoopDomain(), true);
+  tv0->merge(0);
+  tv0->split(0, 32);
+  tv0->axis(1)->parallelize(ParallelType::TIDx);
+
+  tileInnerStmatrixCall(tv1, sizeM, sizeN);
+  tileInnerStmatrixCall(tv2, sizeM, sizeN);
+
+  scheduleSwizzleHelper(tv1);
+  tv1->setAllocationDomain(tv1->getLoopDomain(), true);
   // // Get 32 threads out to parallelize over.
-  tv2->merge(1);
-  tv2->axis(1)->parallelize(ParallelType::TIDx);
+  tv1->merge(1);
+  tv1->axis(1)->parallelize(ParallelType::TIDx);
 
-  // We do not really schedule tv3 as yet, this is just for parllel codegen.
+  scheduleStmatrixOutput(tv2, sizeM, sizeN);
+
+  tv3->merge(0);
+  tv3->split(0, 32);
+  tv3->axis(1)->parallelize(ParallelType::TIDx);
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  auto t0 = at::randn({sizeM, sizeN}, options);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0}, LaunchParams(), matmul_cparams);
+  auto cg_outputs = fe.runFusion({t0});
+
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
+}
+
+TEST_P(StMatrixTest, Regular) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto macro = std::get<0>(GetParam());
+  auto tile_sizes = std::get<1>(GetParam());
+  auto sizeM = getM(macro);
+  auto sizeN = getN(macro);
+  auto tile_m = tile_sizes.at(0);
+  auto tile_n = tile_sizes.at(1);
+
+  if (sizeM % tile_m || sizeN % tile_n) {
+    GTEST_SKIP() << "Fractional tiling is not supported/tested";
+  }
+
+  fusion.manage("st_matrix_m_tile", tile_m);
+  fusion.manage("st_matrix_n_tile", tile_n);
+  fusion.manage("st_matrix_m", sizeM);
+  fusion.manage("st_matrix_n", sizeN);
+
+  auto tv0 = makeContigConcreteTensor({sizeM, sizeN}, DataType::Half);
+  fusion.addInput(tv0);
+  // tv0 (global) -> tv1 (registers)
+  auto tv1 = set(tv0);
+  // tv1 (register) -> tv2 (shared)
+  auto tv2 = set(tv1);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StMatrix);
+  tv2->setMemoryType(MemoryType::Shared);
+  // tv2 (shared) -> tv3(global)
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  tv0->merge(0);
+  tv0->split(0, 32);
+  tv0->axis(1)->parallelize(ParallelType::TIDx);
+
+  tileInnerStmatrixCall(tv1, tile_m, tile_n);
+  tileInnerStmatrixCall(tv2, tile_m, tile_n);
+
+  scheduleSwizzleHelper(tv1);
+  tv1->setAllocationDomain(tv1->getLoopDomain(), true);
+  // // Get 32 threads out to parallelize over.
+  tv1->merge(1);
+  tv1->axis(1)->parallelize(ParallelType::TIDx);
+
+  scheduleStmatrixOutput(tv2, tile_m, tile_n);
+
   tv3->merge(0);
   tv3->split(0, 32);
   tv3->axis(1)->parallelize(ParallelType::TIDx);
@@ -2618,12 +2752,39 @@ TEST_P(StMatrixTest, Regular) {
 
 INSTANTIATE_TEST_SUITE_P(
     ,
-    StMatrixTest,
+    StMatrixSingleTileTest,
     testing::Values(
         // M, N
         std::vector<int>{8, 8},
         std::vector<int>{16, 8},
         std::vector<int>{16, 16}));
+
+std::string testNameStMatrixTest(
+    const testing::TestParamInfo<StMatrixTestParams>& info) {
+  std::ostringstream os;
+  auto macro = std::get<0>(info.param);
+  auto tile_sizes = std::get<1>(info.param);
+  auto sizeM = getM(macro);
+  auto sizeN = getN(macro);
+  auto tile_m = tile_sizes.at(0);
+  auto tile_n = tile_sizes.at(1);
+
+  os << "m_" << sizeM << "_n_" << sizeN << "_tile_m_" << tile_m << "_tile_n_"
+     << tile_n;
+  return os.str();
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    StMatrixTest,
+    testing::Combine(
+        kAllHopperMacros,
+        testing::Values(
+            // tile_m, tile_n
+            std::vector<int>{8, 8},
+            std::vector<int>{16, 8},
+            std::vector<int>{16, 16})),
+    testNameStMatrixTest);
 
 TEST_P(LdMatrixTest, Transpose) {
   Fusion fusion;

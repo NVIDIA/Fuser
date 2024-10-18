@@ -9,6 +9,7 @@
 #include <dynamic_transform.h>
 #include <host_ir/executor.h>
 #include <ir/utils.h>
+#include <runtime/executor_kernel_arg.h>
 #include <runtime/fusion_kernel_runtime.h>
 
 namespace nvfuser {
@@ -65,7 +66,7 @@ std::vector<at::Tensor> HostIrExecutor::runWithInput(
     std::unordered_map<Val*, c10::IValue> val_to_IValue) {
   // process input values
   for (const auto& [val, ivalue] : val_to_IValue) {
-    expr_evaluator_.bind(val, ivalue.toTensor());
+    expr_evaluator_.bind(val, IValueToPolymorphicValue(ivalue));
   }
 
   // Interpret each instruction in an "eager" way by iterate over the Host Ir
@@ -279,6 +280,35 @@ void HostIrExecutor::handle(EndCoalescing* end_coalescing) {
       backend->getBackendName() == "nccl",
       "ProcessGroupUCC does not implement coalescence");
   works_[end_coalescing] = backend->endCoalescing();
+}
+
+void HostIrExecutor::handle(kir::IfThenElse* if_then_else) {
+  auto predicate =
+      expr_evaluator_.evaluate(if_then_else->predicate()->value()).as<bool>();
+  const auto& scope =
+      predicate ? if_then_else->thenBody() : if_then_else->elseBody();
+  for (Expr* expr : scope.exprs()) {
+    dispatch(expr);
+  }
+}
+
+void HostIrExecutor::handle(MatmulOp* matmul) {
+  TensorView* a = matmul->inA();
+  TensorView* b = matmul->inB();
+  TensorView* out = matmul->out();
+  NVF_ERROR(
+      expr_evaluator_.isKnown(a) && expr_evaluator_.isKnown(b),
+      "Inputs of the matmul ",
+      matmul->toString(),
+      "must be precomputed before being retrieved");
+  if (expr_evaluator_.isKnown(out)) {
+    auto t_a = expr_evaluator_.evaluate(a).as<at::Tensor>();
+    auto t_b = expr_evaluator_.evaluate(b).as<at::Tensor>();
+    auto t_out = expr_evaluator_.evaluate(out).as<at::Tensor>();
+    at::matmul_out(t_out, t_a, t_b);
+  } else {
+    unhandled(matmul);
+  }
 }
 
 void HostIrExecutor::unhandled(Statement* stmt) {

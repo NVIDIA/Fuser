@@ -1562,7 +1562,7 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
 
   for (auto input_tv :
        ir_utils::filterByType<TensorView>(reference_tv->fusion()->inputs())) {
-    // for index_select(lookup_tv, dim, index_tv) op
+    // for indexSelect(lookup_tv, dim, index_tv) op
     // ignore it's lookup_tv.
     if (ir_utils::isTorchGatherLookupTv(input_tv) ||
         ir_utils::isIndexSelectLookupTv(input_tv)) {
@@ -2576,6 +2576,7 @@ int64_t getSharedMemoryOverheadPerBlock(
 
   // (2) part-2, space reserved by the CUDA driver
   int64_t smem_overhead_driver = (int64_t)dev_prop->reservedSharedMemPerBlock;
+
   return reduction_broadcast_workspace + smem_overhead_driver;
 }
 

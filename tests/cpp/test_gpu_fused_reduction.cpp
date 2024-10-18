@@ -2519,7 +2519,7 @@ TEST_F(NVFuserTest, FusionCrossEntropyGatherPattern_CUDA) {
   fusion.addInput(labels);
 
   auto tv2 = broadcast(labels, {false, true});
-  auto tv3 = torch_gather(log_probs, 1, tv2);
+  auto tv3 = torchGather(log_probs, 1, tv2);
   auto tv4 = squeeze(tv3, std::vector<bool>({false, true}));
 
   fusion.addOutput(tv4);

@@ -29,7 +29,7 @@ class CircularBufferInfo {
  public:
   void build(Fusion* fusion);
 
-  void setCircularBufferAxis(const TensorView* tv, IterDomain* id);
+  void setCircularBufferTv(const TensorView* tv);
 
   IterDomain* getCircularBufferAxis(const TensorView* tv) const;
 
@@ -52,6 +52,12 @@ class CircularBufferInfo {
       const std::vector<ForLoop*>& loops,
       bool ignore_prologue = false);
 
+  //! Get the circular-buffered tensors for the given loop/axis.
+  std::unordered_set<const TensorView*> getCircularBufferTvs(
+      ForLoop* axis) const;
+  std::unordered_set<const TensorView*> getCircularBufferTvs(
+      IterDomain* axis) const;
+
   void setOriginalAllocSize(const TensorView* tv, Val* size);
 
   Val* getOriginalAllocSize(const TensorView* tv);
@@ -60,22 +66,28 @@ class CircularBufferInfo {
   //!  as a circular buffer loop.
   bool isCircularBufferedIterDomain(IterDomain* id);
 
-  //! Get the number of circular buffer stages for the given axis.
-  //! The number of stages will be 2 in the case of double buffer loop.
+  //! Get the number of circular buffer stages and the prefetch distance for the
+  //! given axis. The number of stages will be 2 in the case of double buffer
+  //! loop.
   int64_t getStageDepthFor(IterDomain* circular_buffered_id) const;
+  int64_t getPrefetchDistanceFor(IterDomain* circular_buffered_id) const;
+
+  std::string toString() const;
 
  private:
   const TvInfo& getTvInfo(const TensorView* tv) const;
 
   TvInfo& getTvInfo(const TensorView* tv);
 
-  //! Set the number of circular buffer stages for the given
-  //! circular_buffered_id.
-  //!  Current code generation only supports one stage depth per loop disjoint
-  //!  set,
-  //! so this function will throw an error if trying to set different stage
-  //! numbers to iterdomains that are loop mapped.
-  void setStageDepth(IterDomain* circular_buffered_id, int64_t stage_depth);
+  //! Set the number of circular buffer stages and the prefetch distance for the
+  //! given circular_buffered_id. Current code generation only supports one
+  //! stage depth and prefetch distance per loop disjoint set, so this function
+  //! will throw an error if trying to set different stage numbers to
+  //! iterdomains that are loop mapped.
+  void setStageDepthAndPrefetchDistance(
+      IterDomain* circular_buffered_id,
+      int64_t stage_depth,
+      int64_t prefetch_distance);
 
  private:
   //! Keeps track of information for lowering circular buffered tensors
@@ -85,11 +97,17 @@ class CircularBufferInfo {
   //!  iterdomains.
   std::unordered_set<const IterDomain*> concrete_circular_buffered_loop_id_;
 
-  //! Keeps track of circular buffer loop stage depth.
+  //! Keeps track of circular buffer loop stage depth and prefetch distance.
   //! Currently for each disjoint set of loop mapped iterdomains,
-  //! Only one stage depth is supported, so that the loops can indeed
-  //! shared with the same prolog extent and main loop offset.
-  std::unordered_map<IterDomain*, int64_t> stage_depth_;
+  //! Only one stage depth and prefetch distance is supported, so that the loops
+  //! can indeed shared with the same prolog extent and main loop offset.
+  std::unordered_map<IterDomain*, CircularBufferOptions>
+      circular_buffer_options_;
+
+  //! Keeps track of circular buffer tvs for each disjoint set of loop mapped
+  //! iterdomains.
+  std::unordered_map<IterDomain*, std::unordered_set<const TensorView*>>
+      circular_buffer_tvs_;
 };
 
 } // namespace nvfuser

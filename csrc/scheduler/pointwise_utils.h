@@ -46,7 +46,7 @@ class DomainMap {
       IterDomain* out_id) const;
 
   // Check if in_ids are mapped to ids through any root domain as
-  // well as indirectly accessed domains with ops like torch_gather
+  // well as indirectly accessed domains with ops like torchGather
   void eraseifInputMappedThroughRootDomainAndIndexing(
       std::unordered_set<IterDomain*>& in_ids,
       const std::vector<IterDomain*>& ids) const;

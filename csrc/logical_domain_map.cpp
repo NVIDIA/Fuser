@@ -315,7 +315,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     // Conditions to check:
     // 1. Indirectly accessed IDs (e.g., select)
     // 2. IDs that may have different extents (e.g., non indexed
-    //  domains of torch_gather)
+    //  domains of torchGather)
     // 3. Squeeze and unsqueeze
 
     // Condition 1: when the producer ID is the dim of a select-like op

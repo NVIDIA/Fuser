@@ -39,7 +39,7 @@ class MpiTest:
         self._communicator.barrier()
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def mpi_test():
     fixture = MpiTest()
     yield fixture

@@ -843,6 +843,13 @@ const FusionProfile& FusionProfiler::profile() {
   return get()->profile_;
 }
 
+double FusionProfiler::lastKernelTime() {
+  const auto& fprof = profile();
+  NVF_CHECK(
+      !fprof.kernel_profiles.empty(), "There are no kernel profiles to query!");
+  return fprof.kernel_profiles.back().time_ms;
+}
+
 void FusionProfiler::recordAsyncCorrIdActivity(
     uint32_t seg_id,
     uint32_t corr_id) {

@@ -1194,7 +1194,7 @@ std::vector<TensorView*> movePersistentBufferToSmem(
   // housed in smem_persistent_buffers. If a candidate tensor is input, move its
   // associated cached tensors.
   if (rparams->smem_persistent_buffers.empty()) {
-    return smem_consumers;
+    return {};
   }
   const auto& persistent_buffers =
       scheduler_utils::persistentBuffers(fusion).persistent_buffers;
@@ -1207,6 +1207,22 @@ std::vector<TensorView*> movePersistentBufferToSmem(
           // smem_persistent_buffers are from a cloned fusion.
           return tv->name() == lookup_tv->name();
         });
+  };
+  auto supportCpAsync = [rparams](const TensorView* smem_tv) {
+    // Only supported after device 8.0
+    int hw_major = at::cuda::getCurrentDeviceProperties()->major;
+    if (hw_major < 8) {
+      return false;
+    }
+    // requires 4, 8, or 16 loading bytes.
+    int vect_factor = rparams->vectorize_inner_reduction
+        ? (int)rparams->unroll_factor_inner_reduction
+        : 1;
+    size_t loading_size =
+        dataTypeSize(smem_tv->getDataType().value()) * vect_factor;
+    bool is_supported_bytes =
+        (loading_size == 4 || loading_size == 8 || loading_size == 16);
+    return is_supported_bytes;
   };
   for (auto tv : persistent_buffers) {
     // Persistent buffers are categorized into two types:
@@ -1236,15 +1252,23 @@ std::vector<TensorView*> movePersistentBufferToSmem(
       // path of gmem -> smem to reduce temporary register usage. Otherwise, the
       // data path from gmem to shared memory (smem) follows this sequence: gmem
       // -> L1 cache -> register -> smem.
-      int hw_major = at::cuda::getCurrentDeviceProperties()->major;
-      if (is_cached_input && hw_major >= 8) {
+      if (supportCpAsync(tv) && is_cached_input) {
         tv->definition()->as<LoadStoreOp>()->setOpType(
             LoadStoreOpType::CpAsync);
         tv->definition()->as<LoadStoreOp>()->setCacheOp(CacheOp::Unspecified);
       }
-      // T4_s_float = CpAsync(T0_g_float)
-      // do a register cache for all the uses of this smem tv
+      // do a register cache for all the uses of this smem tv.
+      // The load from smem to register cache will then be vectorized to avoid
+      // bank conflicts. The determination of bank conflicts is made per
+      // transaction, with 16 bytes vectorized load, each warp needs 4
+      // transactions (32 threads * 16 bytes per thread / 128 bytes per
+      // transaction). In each transaction, different banks are visited, e.g.
+      // transaction-1, threads 0-7 visit banks 0-31
       auto cached_tv = tv->cacheAfter();
+      // At this point, if cached_tv has multiple uses,  it becomes the
+      // persistent buffer instead of tv due to the way the persistent buffer
+      // selector works. To make tv remain as the persistent buffer, all of the
+      // uses must be privatized.
       const auto& consumers = ir_utils::consumerTvsOf(cached_tv);
       smem_consumers.push_back(cached_tv);
       for (auto i = 1; i < (int)consumers.size(); i++) {

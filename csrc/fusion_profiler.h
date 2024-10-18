@@ -251,6 +251,11 @@ class FusionProfiler {
   static void inputBytesAccessed(int64_t bytes);
   static void outputBytesAccessed(int64_t bytes);
   NVF_API static const FusionProfile& profile();
+  // An API to query the last kernel time measured that is convenient
+  // for profile a single kernel from the Fusion Executor.  Note, there
+  // may be other kernels profiles as a code generated kernel requires
+  // allocated outputs.
+  NVF_API static double lastKernelTime();
   static SegmentProfiler& segment(size_t idx);
 
   //! Methods to capture Asynchronous CUPTI activity that get called from

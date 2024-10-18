@@ -243,33 +243,26 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   buffer_params.regs_buffer_size = total_buffer_size;
   buffer_params.smem_buffer_size = 0;
 
-  // (2) If the available register is larger than current register buffer size,
-  // no need to move buffers to shared memory, return early.
-  bool use_register_only = std::getenv("USE_OLD") != nullptr;
-  if (use_register_only && buffer_params.regs_buffer_size <= available_regs) {
-    buffer_params.has_enough_regs_and_smem = true;
-    return buffer_params;
-  }
-
-  // (3) Relocate buffers to shared memory until the buffer size in registers is
+  // (2) Relocate buffers to shared memory until the buffer size in registers is
   // within the allowable limit.
-  // (3.1) Sort the candidate persistent buffers
+  // (2.1) Sort the candidate persistent buffers
   const auto buffers = buffer_params.project_to_input
       ? sortProjectableBufferInputs(
             persistent_buffer_info.projectable_buffer_inputs,
             outer_broadcast_tvs)
       : persistent_buffer_info.persistent_buffers;
 
-  // (3.2) Before this loop, all buffers are in registers.
+  // (2.2) Before this loop, all buffers are in registers.
   // Try to move buffer from register to shared memroy.
   // After one buffer is moved to shared memory, the buffer size in registers
-  // and shared memory are updated accordingly. Break if required register and
-  // shared memory are lower than limit or shared memory exceeds the limit.
+  // and shared memory are updated accordingly.
   int64_t n_smem_buffer = -1;
   int64_t regs_buffer_size = buffer_params.regs_buffer_size;
   int64_t smem_buffer_size = buffer_params.smem_buffer_size;
   int64_t register_smem_diff = regs_buffer_size - smem_buffer_size;
   const int n_buffers = (int)buffers.size();
+  int64_t regs_buffer_size = buffer_params.regs_buffer_size;
+  int64_t smem_buffer_size = buffer_params.smem_buffer_size;
   for (int i = 0; i < n_buffers; i++) {
     auto current_tv = buffers[i];
 
@@ -293,25 +286,15 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
     // The first-i buffers are moved from register to shared memory
     // If both the register buffer size and shared memory buffer size are within
     // the allowable limit, we found a good configuration. Record the number of
-    // buffers to be moved to shared memory. Instead of break from the loop, we
-    // keep looping to find a better configuration where the difference between
-    // register buffer size and shared memory buffer size is minimized with the
-    // constraint that register buffer size is still larger than shared memory
-    // buffer size.
+    // buffers to be moved to shared memory and continue checking if we can move
+    // more. Moving more buffers to shared memory reduces the usage of
+    // registers, the comipler can uses more register to optimize the kernel for
+    // better instruction level parallelism and leads to better performance.
     if (regs_buffer_size <= available_regs &&
         smem_buffer_size <= available_smem) {
-      int64_t diff = regs_buffer_size - smem_buffer_size;
-      // if we don't have a valid configuration yet or a better configuration
-      // is found, then use it
-      if (true || n_smem_buffer == -1 ||
-          ((diff > 0 && diff < register_smem_diff))) {
-        n_smem_buffer = i + 1;
-        register_smem_diff = diff;
-        buffer_params.regs_buffer_size = regs_buffer_size;
-        buffer_params.smem_buffer_size = smem_buffer_size;
-      } else {
-        break;
-      }
+      buffer_params.regs_buffer_size = regs_buffer_size;
+      buffer_params.smem_buffer_size = smem_buffer_size;
+      n_smem_buffer = i + 1;
     }
     // shared memory buffer size exceeds the limit, not a good configuration.
     // break the loop, n_smem_buffer remains [-1] indicating a bad
@@ -409,7 +392,7 @@ std::pair<int64_t, int64_t> getBufferBatchSizeAndThreadsPerBlock(
   const int64_t batch_max = getMaximumInnerOuterPersistentBufferBatch();
 
   // Start from the smallest threads_per_block. If the corresponding batch size
-  // is larger than batch_max, try increase threads per block by a warp until
+  // is larger than batch_max, try increase threads per block until
   // the threads_per_block reaches threads_per_block_max or the batch size
   // reaches batch_min.
   int64_t threads_per_block = threads_per_block_min;

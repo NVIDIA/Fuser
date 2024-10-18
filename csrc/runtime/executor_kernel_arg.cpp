@@ -37,8 +37,6 @@ KernelArgumentHolder KernelArgumentHolder::createKernelArgumentHolder(
   return args;
 }
 
-namespace {
-
 PolymorphicValue IValueToPolymorphicValue(const c10::IValue& val) {
   if (val.isTensor()) {
     return val.toTensor();
@@ -58,6 +56,8 @@ PolymorphicValue IValueToPolymorphicValue(const c10::IValue& val) {
       NVF_THROW("Can not convert IValue to PolymorphicValue");
   }
 }
+
+namespace {
 
 PrimDataType getSmallestIndexType(const at::Tensor& tensor) {
   KernelIndexTypeCompute index_type_helper;
