@@ -603,8 +603,6 @@ class AllocationInserter : public kir::ExprMutator {
     //    cp.async.bulk
     //    inval mbarrier
     //    block_sync
-    // Note that this is only a temporary solution, we should remove this after
-    // we have a better way to handle synchronizations for cp.async.bulk.
     //
     // The circular buffer case is handled in handle(ForLoop* fl) and the
     // circular buffering pass.
@@ -646,7 +644,7 @@ class AllocationInserter : public kir::ExprMutator {
     //    alloc mbarrier
     //    init mbarrier
     //    block_sync
-    //    fl
+    //    for-loop with cpAsyncBulk expression (the `fl` parameter)
     //    inval mbarrier
 
     auto circular_buffer_tvs =
