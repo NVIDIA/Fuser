@@ -949,8 +949,8 @@ void scheduleInnerOuterPersistentKernel(
     fusion->addOutput(output);
   }
 
-  const bool unroll = rparams->isUnrolled();
-  const bool vectorize =
+  const bool is_unroll_or_vectorization = rparams->isUnrolled();
+  const bool is_vectorize =
       rparams->vectorize_inner_reduction || rparams->vectorize_iter_dom;
   const bool is_outer_grid_persistence = rparams->persistent_kernel &&
       rparams->cross_grid_inner_reduction && !rparams->fastest_dim;
@@ -968,14 +968,14 @@ void scheduleInnerOuterPersistentKernel(
   const auto& unroll_vectorizable_cached_tvs =
       reduction_scheduler_utils::getUnrollVectorizableCachedTvs(
           inner_reference_tv,
-          vectorize,
+          is_vectorize,
           cached_inputs,
           cached_outputs,
           smem_consumers);
   reduction_scheduler_utils::propagateParallelization(
       inner_reduction_tvs[0],
       inner_reference_tv,
-      unroll,
+      is_unroll_or_vectorization,
       is_outer_grid_persistence,
       inner_reduction_tvs,
       unroll_vectorizable_cached_tvs,
@@ -996,14 +996,14 @@ void scheduleInnerOuterPersistentKernel(
     const auto& unroll_vectorizable_cached_tvs =
         reduction_scheduler_utils::getUnrollVectorizableCachedTvs(
             outer_reference_tvs[i],
-            vectorize,
+            is_vectorize,
             cached_inputs,
             cached_outputs,
             smem_consumers);
     reduction_scheduler_utils::propagateParallelization(
         outer_reduction_tvs[i],
         outer_reference_tvs[i],
-        unroll,
+        is_unroll_or_vectorization,
         is_outer_grid_persistence,
         outer_reduction_tvs,
         unroll_vectorizable_cached_tvs,

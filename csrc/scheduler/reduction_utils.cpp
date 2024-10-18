@@ -345,7 +345,7 @@ void multiReductionInliner(
     Fusion* fusion,
     TensorView* reduction_tv,
     TensorView* reference_tv,
-    const bool unroll,
+    const bool is_unroll_or_vectorization,
     const bool vectorize,
     const bool use_grouped_reduction,
     std::vector<TensorView*> reduction_tvs,
@@ -369,7 +369,7 @@ void multiReductionInliner(
   reduction_scheduler_utils::propagateParallelization(
       reduction_tv,
       reference_tv,
-      unroll,
+      is_unroll_or_vectorization,
       use_grouped_reduction,
       reduction_tvs,
       unroll_vectorizable_cached_tvs);
@@ -539,7 +539,7 @@ void reductionTvUnrollVectorizationGroup(
 void propagateParallelization(
     TensorView* reduction_tv,
     TensorView* reference_tv,
-    const bool unroll,
+    const bool is_unroll_or_vectorization,
     const bool use_grouped_reduction,
     const std::vector<TensorView*>& reduction_tvs,
     const std::unordered_set<TensorView*>& unroll_vectorizable_cached_tvs,
@@ -554,7 +554,7 @@ void propagateParallelization(
            ParallelType::Vectorize,
            ParallelType::MisalignedVectorize}));
 
-  if (unroll) {
+  if (is_unroll_or_vectorization) {
     if (!unroll_vectorizable_cached_tvs.empty()) {
       // Propagate vectorization/unrolling to those tensors that need it
       scheduler_utils::parallelizeAllLike(
