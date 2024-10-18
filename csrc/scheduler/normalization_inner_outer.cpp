@@ -328,6 +328,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
 std::pair<int64_t, int64_t> getBufferBatchSizeAndThreadsPerBlock(
     const int64_t inner_dim_numel,
     const int64_t outer_dim_numel,
+    const int64_t n_inner_reductions,
     const int64_t regs_buffer_size,
     const int64_t vectorize_factor,
     const int64_t warp_size) {
@@ -386,26 +387,37 @@ std::pair<int64_t, int64_t> getBufferBatchSizeAndThreadsPerBlock(
       InnerOuterPersistentKernelScheduler::threads_per_block_max);
   const int64_t batch_min = getMinimumBatch();
 
-  // start from largest threads per block, ensure batch size is not too small.
-  int64_t threads_per_block =
-      std::min(threads_per_block_max, ceilDiv(after_vectorization, batch_min));
-  threads_per_block = scheduler_utils::roundUpPow2(threads_per_block);
-  int64_t inner_batch = ceilDiv(after_vectorization, threads_per_block);
-  // If not divisible, try to reduce threads per block by half.
-  // e.g. 13K = 8 x 512 x 3.25 is not changed.
-  // e.g. 14K = 8 x 512 x 3.50 is changed to 14K = 8 x 256 x 7
-  // e.g. 15K = 8 x 512 x 3.75 is not changed.
-  std::cout << "register_per_thread: " << register_per_thread << std::endl;
-  std::cout << "threads_per_block_max: " << threads_per_block_max << std::endl;
-  std::cout << "threads_per_block: " << threads_per_block << std::endl;
-  if (after_vectorization % threads_per_block != 0) {
-    int reduced_threads_per_block = threads_per_block / 2;
-    if (after_vectorization % reduced_threads_per_block == 0 &&
-        reduced_threads_per_block >= threads_per_block_min) {
-      threads_per_block = reduced_threads_per_block;
-      inner_batch = after_vectorization / threads_per_block;
+  if (n_inner_reductions == 1) {
+    // start from largest threads per block, ensure batch size is not too small.
+    int64_t threads_per_block = std::min(
+        threads_per_block_max, ceilDiv(after_vectorization, batch_min));
+    threads_per_block = scheduler_utils::roundUpPow2(threads_per_block);
+    int64_t inner_batch = ceilDiv(after_vectorization, threads_per_block);
+    // Only one inner reduction (RMS norm bwd), start from max threads per
+    // block, decrease if can change from non-divisible to divisible. e.g. 13K =
+    // 8 x 512 x 3.25 is not changed. e.g. 14K = 8 x 512 x 3.50 is changed to
+    // 14K = 8 x 256 x 7 e.g. 15K = 8 x 512 x 3.75 is not changed.
+    if (after_vectorization % threads_per_block != 0) {
+      int reduced_threads_per_block = threads_per_block / 2;
+      if (after_vectorization % reduced_threads_per_block == 0 &&
+          reduced_threads_per_block >= threads_per_block_min) {
+        threads_per_block = reduced_threads_per_block;
+        inner_batch = after_vectorization / threads_per_block;
+      }
+    }
+  } else {
+    // Multiple inner reductions (layer norm bwd), inter-thread communication
+    // cost should be considered. Start from min threads per block, increase
+    // when split is divisible.
+    int64_t threads_per_block = threads_per_block_min;
+    int64_t inner_batch = ceilDiv(after_vectorization, threads_per_block);
+    while (after_vectorization % threads_per_block == 0 &&
+           inner_batch % 2 == 0) {
+      inner_batch /= 2;
+      threads_per_block *= 2;
     }
   }
+
   return std::make_pair(inner_batch, threads_per_block);
 }
 
@@ -432,6 +444,7 @@ std::pair<int64_t, int64_t> getBufferBatchSizeAndThreadsPerBlock(
 std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
     const int64_t outer_dim_numel,
     const int64_t inner_dim_numel,
+    const int64_t n_inner_reductions,
     const int64_t regs_buffer_size,
     const int64_t smem_buffer_size,
     const int64_t smem_overhead,
@@ -515,6 +528,7 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
       getBufferBatchSizeAndThreadsPerBlock(
           inner_dim_numel,
           outer_dim_numel,
+          n_inner_reductions,
           regs_buffer_size,
           iop.inner_vect,
           dev_prop->warpSize);
@@ -708,9 +722,11 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
   // Get dtype used to store partial outer reduction
   // Get the first inner reduction tv and use it as the reference tv
   int64_t max_outer_reduction_dtype_size = 1;
+  int64_t n_inner_reductions = 0;
   TensorView* first_inner_reduction_tv = nullptr;
   for (auto tv : reduction_tvs) {
     if (scheduler_utils::isFastestDimReduction(tv)) {
+      n_inner_reductions++;
       first_inner_reduction_tv = tv;
     } else {
       max_outer_reduction_dtype_size = std::max(
@@ -758,6 +774,7 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
   std::unique_ptr<ReductionParams> rparams = innerOuterPersistentHeuristic(
       properties.total_iteration_numel,
       properties.total_reduction_numel,
+      n_inner_reductions,
       buffer_params.regs_buffer_size,
       buffer_params.smem_buffer_size,
       buffer_params.smem_overhead,
