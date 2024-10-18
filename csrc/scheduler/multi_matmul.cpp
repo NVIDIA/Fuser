@@ -610,6 +610,11 @@ class MultipleMatmulScheduler {
     // NOTE: for Hopper matmul, we should segment such that there is no prologue
     // and the input is already broadcasted (see canSchedulCompileTime in
     // matmul_utils.cpp).
+    // TODO: since we translate MatmulOp and LinearOp _after_ segmentation, this
+    // could cause a problem for Hopper since the translation will include a
+    // BroadcastOp. One alternative is to not require broadcast dimensions in
+    // the inputs and instead track the M, N, and K dimensions for each operand
+    // as attributes in MmaOp...
 
     schedulePrologues(/*use_tma=*/true);
 
