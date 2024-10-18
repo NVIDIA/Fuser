@@ -1892,7 +1892,7 @@ struct TorchGatherOpRecord : RecordFunctor {
     auto arg1 = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
     auto arg3 = fd.getFusionState(args_.at(1).index)->template as<TensorView>();
 
-    Val* output = torch_gather(arg1, dim_, arg3);
+    Val* output = torchGather(arg1, dim_, arg3);
     fd.setFusionState(outputs_.at(0).index, output);
   }
 
@@ -1946,7 +1946,7 @@ struct TakeAlongAxisOpRecord : RecordFunctor {
     auto arg1 = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
     auto arg3 = fd.getFusionState(args_.at(1).index)->template as<TensorView>();
 
-    Val* output = take_along_axis(arg1, arg3, dim_);
+    Val* output = takeAlongAxis(arg1, arg3, dim_);
     fd.setFusionState(outputs_.at(0).index, output);
   }
 

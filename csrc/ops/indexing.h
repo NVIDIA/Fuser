@@ -24,7 +24,7 @@ NVF_API TensorView* indexSelect(
     TensorView* index);
 
 // torch.gather
-NVF_API TensorView* torch_gather(
+NVF_API TensorView* torchGather(
     TensorView* input,
     int64_t dim,
     TensorView* index);
@@ -46,8 +46,8 @@ NVF_API TensorView* scatter(
 //! numpy.take_along_axis
 //! (https://numpy.org/doc/stable/reference/generated/numpy.take_along_axis.html)
 //! Note the order of the parameters follows the numpy order, which is
-//! different from torch_gather.
-NVF_API TensorView* take_along_axis(
+//! different from torchGather.
+NVF_API TensorView* takeAlongAxis(
     TensorView* input,
     TensorView* index,
     int64_t dim);
