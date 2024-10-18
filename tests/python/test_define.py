@@ -19,7 +19,6 @@ class TestDefine(NVFuserTest):
         out_tensors, _ = self.exec_nvfuser(fusion_func, [in_tensor])
         torch.testing.assert_close(out_tensors[0], in_tensor * 2)
 
-
     def test_noncontiguous(self):
         def fusion_func(fd: FusionDefinition):
             inp = fd.define_tensor([2, 3])
@@ -29,7 +28,6 @@ class TestDefine(NVFuserTest):
         in_tensor = torch.randn(8, device="cuda").as_strided([2, 3], [4, 1])
         out_tensors, _ = self.exec_nvfuser(fusion_func, [in_tensor])
         torch.testing.assert_close(out_tensors[0], in_tensor * 2)
-
 
     def test_broadcast(self):
         def fusion_func(fd: FusionDefinition):
