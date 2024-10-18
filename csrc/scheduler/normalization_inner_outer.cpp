@@ -401,10 +401,9 @@ std::pair<int64_t, int64_t> getBufferBatchSizeAndThreadsPerBlock(
   int64_t threads_per_block = threads_per_block_min;
   int64_t inner_batch = ceilDiv(after_vectorization, threads_per_block);
   while (inner_batch > batch_max &&
-         threads_per_block + warp_size <= threads_per_block_max &&
-         ceilDiv(after_vectorization, threads_per_block + warp_size) >=
-             batch_min) {
-    threads_per_block += warp_size;
+         threads_per_block * 2 <= threads_per_block_max &&
+         ceilDiv(after_vectorization, threads_per_block * 2) >= batch_min) {
+    threads_per_block *= 2;
     inner_batch = ceilDiv(after_vectorization, threads_per_block);
   }
   return std::make_pair(inner_batch, threads_per_block);
