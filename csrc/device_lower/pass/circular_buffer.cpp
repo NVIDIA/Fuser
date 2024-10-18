@@ -450,6 +450,26 @@ class CloneTmaCircularBufferLoopAndInsertSync
     }
   }
 
+  // Check if there is only one serial for-loop in the stack
+  bool onlyOneSerialForLoopOnStack() const {
+    return std::count_if(
+               for_loop_stack_.begin(), for_loop_stack_.end(), [](ForLoop* fl) {
+                 return fl->iter_domain()->getParallelType() ==
+                     ParallelType::Serial;
+               }) == 1;
+  }
+
+  Val* currentComputeStage() const {
+    int64_t stage_depth =
+        GpuLower::current()->circularBufferInfo().getStageDepthFor(
+            circular_buffer_loop_->iter_domain());
+    Val* result = IrBuilder::modExpr(
+        cloned_top_level_loop_->indexOrStartIfTrivial(),
+        IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
+    return GpuLower::current()->commonScalarMap().hoistScalar(
+        result, for_loop_stack_);
+  }
+
   void processExpr(Expr* expr) final {
     TensorView* out_tv = ir_utils::getTvOutput(expr);
     bool is_circular_buffer_load_expr = std::any_of(
@@ -743,7 +763,6 @@ class CloneTmaCircularBufferLoopAndInsertSync
   // circular buffer stage.
   kir::MBarrierWaitParity* createMbarrierWait(
       LoadStoreOp* ldst,
-      Val* stage,
       Val* loop_index) {
     NVF_ERROR(ldst != nullptr);
     NVF_ERROR(loop_index != nullptr);
@@ -754,8 +773,8 @@ class CloneTmaCircularBufferLoopAndInsertSync
 
     // Get mbarrier for this circular buffer stage.
     TensorView* all_mbarriers = GpuLower::current()->ldstMBarrierMap().at(ldst);
-    kir::TensorIndex* stage_mbarrier =
-        IrBuilder::create<kir::TensorIndex>(all_mbarriers, stage);
+    kir::TensorIndex* stage_mbarrier = IrBuilder::create<kir::TensorIndex>(
+        all_mbarriers, currentComputeStage());
 
     // The mbarrier_parity for this circular buffer stage is:
     //   (loop_index / stage_depth) % 2

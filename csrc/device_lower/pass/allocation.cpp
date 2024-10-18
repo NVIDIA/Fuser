@@ -57,7 +57,7 @@ ForLoop* createStageDepthForLoop(ForLoop* circular_buffer_loop) {
 //     mbarrier::init(...);
 //   }
 // }
-std::pair<ForLoop*, kir::MBarrierInit*> initializeMbarrier(
+Expr* initializeMbarrier(
     ForLoop* circular_buffer_loop,
     TensorView* all_mbarriers) {
   NVF_ERROR(circular_buffer_loop != nullptr);
@@ -98,7 +98,7 @@ std::pair<ForLoop*, kir::MBarrierInit*> initializeMbarrier(
   Expr* pred_mbarrier_init = mbarrier_init->withPredicate(
       IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
   loop->body().push_back(pred_mbarrier_init);
-  return {loop, pred_mbarrier_init->as<kir::MBarrierInit>()};
+  return loop;
 }
 
 // This helper function invalidates mbarrier for all circular buffer stage after
@@ -110,7 +110,7 @@ std::pair<ForLoop*, kir::MBarrierInit*> initializeMbarrier(
 //     mbarrier::inval(...);
 //   }
 // }
-std::pair<ForLoop*, kir::MBarrierInvalidate*> invalidateMbarrier(
+Expr* invalidateMbarrier(
     ForLoop* circular_buffer_loop,
     TensorView* all_mbarriers) {
   NVF_ERROR(circular_buffer_loop != nullptr);
@@ -128,7 +128,7 @@ std::pair<ForLoop*, kir::MBarrierInvalidate*> invalidateMbarrier(
       IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
 
   loop->body().push_back(pred_mbarrier_inval);
-  return {loop, pred_mbarrier_inval->as<kir::MBarrierInvalidate>()};
+  return loop;
 }
 
 class AllocationInserter : public kir::ExprMutator {
