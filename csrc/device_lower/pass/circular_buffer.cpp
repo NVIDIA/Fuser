@@ -675,9 +675,9 @@ class CloneTmaCircularBufferLoopAndInsertSync
     for_loop_stack_.back()->body().push_back(ldst);
   }
 
-  // For a given circular buffer loop, create a mbarrier_wait expressions for
-  // each mbarrier that is used to wait for the loading of circular buffers in
-  // this loop.
+  // For each mbarrier that is used to wait for the loading of circular buffers
+  // in the given loop, create a placeholder (nullptr) for mbarrier_wait
+  // expressions
   std::unordered_map<TensorView*, kir::MBarrierWaitParity*>
   getAllMbarriersToWaitFor() {
     const auto& ldst_mbarrier_map = GpuLower::current()->ldstMBarrierMap();
