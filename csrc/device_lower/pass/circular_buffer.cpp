@@ -343,7 +343,9 @@ class CloneTmaCircularBufferLoopAndInsertSync
             loop_type,
             exclude),
         mbarriers_to_wait_(getAllMbarriersToWaitFor()),
-        circular_buffer_load_tvs_(getCircularBufferTvs()) {}
+        circular_buffer_load_tvs_(
+            GpuLower::current()->circularBufferInfo().getCircularBufferTvs(
+                circular_buffer_loop_)) {}
 
   // For TmaCircularBufferLoop, we have an mbarrier for each Tensorview and
   // each circular buffer stage, but not for each individual TMA load
@@ -703,14 +705,6 @@ class CloneTmaCircularBufferLoopAndInsertSync
       wait_exprs[mbarrier] = nullptr;
     }
     return wait_exprs;
-  }
-
-  std::unordered_set<const TensorView*> getCircularBufferTvs() {
-    auto vec = GpuLower::current()->circularBufferInfo().getCircularBufferTvs(
-        circular_buffer_loop_);
-    std::unordered_set<const TensorView*> circular_buffer_tvs(
-        vec.begin(), vec.end());
-    return circular_buffer_tvs;
   }
 
   // This function selects a single thread to launch tma load and mbarrier
