@@ -412,7 +412,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
         GpuLower::current()->circularBufferInfo().getStageDepthFor(
             circular_buffer_loop_->iter_domain());
     Val* result = IrBuilder::modExpr(
-        cloned_top_level_loop_->indexOrStartIfTrivial(),
+        circular_buffer_loop_->indexOrStartIfTrivial(),
         IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
     return GpuLower::current()->commonScalarMap().hoistScalar(
         result, for_loop_stack_);
@@ -437,7 +437,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
         SimplifyingIrBuilder::divExpr(
             IrBuilder::maybeCastExpr(
                 DataType::UInt32,
-                cloned_top_level_loop_->indexOrStartIfTrivial()),
+                circular_buffer_loop_->indexOrStartIfTrivial()),
             depth),
         two);
     return GpuLower::current()->commonScalarMap().hoistScalar(
