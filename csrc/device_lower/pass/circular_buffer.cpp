@@ -412,6 +412,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
                }) == 1;
   }
 
+  // Current compute stage: loop_index % stages
   Val* currentComputeStage() const {
     int64_t stage_depth =
         GpuLower::current()->circularBufferInfo().getStageDepthFor(
@@ -421,6 +422,24 @@ class CloneTmaCircularBufferLoopAndInsertSync
         IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
     return GpuLower::current()->commonScalarMap().hoistScalar(
         result, for_loop_stack_);
+  }
+
+  // Current load stage (for main loop): (loop_index + (stages-1)) % stages
+  Val* currentLoadStage() const {
+    int64_t stage_depth =
+        GpuLower::current()->circularBufferInfo().getStageDepthFor(
+            circular_buffer_loop_->iter_domain());
+    int64_t prefetch_distance =
+        GpuLower::current()->circularBufferInfo().getPrefetchDistanceFor(
+            circular_buffer_loop_->iter_domain());
+
+    auto current_load_stage = IrBuilder::modExpr(
+        IrBuilder::addExpr(
+            cloned_top_level_loop_->indexOrStartIfTrivial(),
+            IrBuilder::create<Val>(prefetch_distance, PrimDataType::Index)),
+        IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
+    return GpuLower::current()->commonScalarMap().hoistScalar(
+        current_load_stage, for_loop_stack_);
   }
 
   void processExpr(Expr* expr) final {
@@ -552,30 +571,6 @@ class CloneTmaCircularBufferLoopAndInsertSync
   void handleMainLoop(Expr* expr) {
     NVF_ERROR(expr != nullptr && expr->isA<LoadStoreOp>());
 
-    int64_t stage_depth =
-        GpuLower::current()->circularBufferInfo().getStageDepthFor(
-            circular_buffer_loop_->iter_domain());
-    int64_t prefetch_distance =
-        GpuLower::current()->circularBufferInfo().getPrefetchDistanceFor(
-            circular_buffer_loop_->iter_domain());
-
-    if (current_load_stage_ == nullptr) {
-      current_load_stage_ = IrBuilder::modExpr(
-          IrBuilder::addExpr(
-              cloned_top_level_loop_->indexOrStartIfTrivial(),
-              IrBuilder::create<Val>(prefetch_distance, PrimDataType::Index)),
-          IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
-      kir::Allocate* current_load_stage_alloc =
-          IrBuilder::create<kir::Allocate>(
-              current_load_stage_,
-              MemoryType::Local,
-              IrBuilder::create<Val>(1L, PrimDataType::Index),
-              /*zero_init=*/false);
-      cloned_top_level_loop_->body().push_back(current_load_stage_alloc);
-      cloned_top_level_loop_->body().push_back(
-          current_load_stage_->definition());
-    }
-
     LoadStoreOp* ldst = expr->as<LoadStoreOp>();
 
     // There is a single mbarrier_arrive_tx_ for each cpAsyncBulk load
@@ -583,7 +578,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
     // should not be active.
     NVF_ERROR(mbarrier_arrive_tx_ == nullptr);
     mbarrier_arrive_tx_ =
-        createMbarrierArriveExpectTx(ldst, current_load_stage_);
+        createMbarrierArriveExpectTx(ldst, currentLoadStage());
 
     // Register mbarrier object to be used with LoadStoreOp
     //  from main loop
@@ -784,9 +779,6 @@ class CloneTmaCircularBufferLoopAndInsertSync
 
   // Mbarrier_ArriveExpectTx to add to cloned_top_level_loop
   kir::MBarrierArriveExpectTx* mbarrier_arrive_tx_ = nullptr;
-
-  // next_stage_index = (loop_index + (stages-1)) % stages
-  Val* current_load_stage_ = nullptr;
 };
 
 using InsertionInfo = std::unordered_map<ForLoop*, std::vector<Expr*>>;
