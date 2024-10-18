@@ -9,30 +9,30 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <abstract_tensor.h>
 #include <codegen.h>
 #include <device_lower/analysis/divisible_split.h>
 #include <device_lower/lower2device.h>
 #include <disjoint_set.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
-#include <fusion_executor/executor.h>
-#include <fusion_executor/executor_params.h>
 #include <fusion_segmenter.h>
-#include <inlining.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ir/graphviz.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
-#include <kernel_cache.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
 #include <logical_domain_map.h>
 #include <ops/all_ops.h>
+#include <runtime/executor.h>
+#include <runtime/executor_params.h>
+#include <runtime/fusion_executor_cache.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_utils.h>
+#include <scheduler/tools/abstract_tensor.h>
+#include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
@@ -1705,10 +1705,7 @@ TEST_F(GpuViewTest, FusionReshapeMagicSchedule6) {
   NVF_CHECK(
       executor_cache.getMostRecentExecutorInfo()
           .params->as<PointwiseParams>()
-          ->vectorize &&
-      executor_cache.getMostRecentExecutorInfo()
-          .params->as<PointwiseParams>()
-          ->unroll_factor);
+          ->vectorization_factor > 1);
 
   testValidate(&fusion, cg_outputs, {t0, t3}, __LINE__, __FILE__);
 }

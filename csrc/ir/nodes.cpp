@@ -145,7 +145,7 @@ std::string IndexSelectOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << output(0)->toString() << "\n";
   indent_size++;
-  indent(ss, indent_size) << " = index_select( ";
+  indent(ss, indent_size) << " = indexSelect( ";
   ss << input(0)->toString() << ", dim = " << dim() << ", "
      << input(1)->toString() << " )\n";
   return ss.str();
@@ -3242,6 +3242,29 @@ void TensorDomain::setContiguity(
   contiguity_ = contig;
 }
 
+std::vector<int64_t> TensorDomain::strideOrder() const {
+  // short-circuit: no allocation domain; default stride-order
+  if (allocation_domain_.empty()) {
+    return {};
+  }
+
+  std::vector<int64_t> stride_order;
+  stride_order.reserve(logical_domain_.size());
+
+  for (size_t logical_idx : c10::irange(logical_domain_.size())) {
+    IterDomain* logical_id = logical_domain_.at(logical_idx);
+    auto alloc_iter = std::find(
+        allocation_domain_.begin(), allocation_domain_.end(), logical_id);
+    NVF_ERROR(
+        alloc_iter != allocation_domain_.end(),
+        "Unable to find logical IterDomain in allocation domain.");
+    int64_t alloc_idx = std::distance(allocation_domain_.begin(), alloc_iter);
+    stride_order.push_back((int64_t)logical_domain_.size() - 1 - alloc_idx);
+  }
+
+  return stride_order;
+}
+
 bool TensorDomain::hasBlockReduction() const {
   return std::any_of(
       loop_domain_.begin(), loop_domain_.end(), [](IterDomain* id) {
@@ -3693,6 +3716,32 @@ std::vector<IterDomain*> TensorDomain::allIDs() const {
   return sorted_ids.vector();
 }
 
+std::vector<Expr*> TensorDomain::allExprs() const {
+  auto all_ids = allIDs();
+  std::unordered_set<Val*> all_id_set{all_ids.begin(), all_ids.end()};
+
+  VectorOfUniqueEntries<Expr*> exprs;
+  for (auto id : all_ids) {
+    auto def = id->definition();
+    if (def == nullptr) {
+      continue;
+    }
+
+    if (std::all_of(def->inputs().begin(), def->inputs().end(), [&](Val* inp) {
+          return all_id_set.find(inp) != all_id_set.end();
+        })) {
+      exprs.pushBack(def);
+    } else {
+      NVF_ERROR(std::none_of(
+          def->inputs().begin(), def->inputs().end(), [&](Val* inp) {
+            return all_id_set.find(inp) != all_id_set.end();
+          }));
+    }
+  }
+
+  return exprs.vector();
+}
+
 Split::Split(
     IrBuilderPasskey passkey,
     IterDomain* outer,
@@ -4045,7 +4094,7 @@ SliceOp::SliceOp(
     TensorView* inp,
     const std::vector<Slice>& ranges)
     : Expr(passkey) {
-  const auto ndims = TensorDomain::noReductions(inp->getLogicalDomain()).size();
+  size_t ndims = TensorDomain::noReductions(inp->getLogicalDomain()).size();
   NVF_ERROR(
       ndims == ranges.size(),
       "The range vector must have the same number of Slice descriptors. Given: ",
@@ -4303,14 +4352,42 @@ std::string LinearOp::toInlineString(int indent_size) const {
 std::vector<PolymorphicValue> LinearOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-  const auto a = inputs.at(0).as<at::Tensor>();
-  const auto b = inputs.at(1).as<at::Tensor>();
+  const auto in = inputs.at(0).as<at::Tensor>();
+  auto weight = inputs.at(1).as<at::Tensor>();
 
+  auto squeeze_device_dims = [](at::Tensor& t,
+                                int64_t num_device_dims) -> void {
+    // Record the initial shape for the error message.
+    std::vector<int64_t> shape = t.sizes().vec();
+    for ([[maybe_unused]] auto _ : c10::irange(num_device_dims)) {
+      NVF_CHECK(
+          t.size(0) == 1,
+          "When the weight is >2D, expect its preceding dimensions and "
+          "the bias's preceding dimensions to "
+          "be DID-parallel and therefore size-1: ",
+          shape);
+      t = t.squeeze(0);
+    }
+  };
+
+  // The squeezes and unsqueezes are currently required to support a sharded
+  // linear layer. Remove them after #2563.
+  auto num_device_dims = weight.dim() - 2;
+  squeeze_device_dims(weight, num_device_dims);
+
+  at::Tensor out;
   if (has_bias()) {
-    const auto bias = inputs.at(2).as<at::Tensor>();
-    return {at::linear(a, b, bias)};
+    auto bias = inputs.at(2).as<at::Tensor>();
+    squeeze_device_dims(bias, num_device_dims);
+    out = at::linear(in, weight, bias);
+  } else {
+    out = at::linear(in, weight);
   }
-  return {at::linear(a, b)};
+
+  for ([[maybe_unused]] auto _ : c10::irange(num_device_dims)) {
+    out = out.unsqueeze(0);
+  }
+  return {out};
 }
 
 SdpaFwdOp::SdpaFwdOp(
@@ -4379,8 +4456,26 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
   // https://github.com/NVIDIA/Fuser/issues/2563
   bool handle_device_dim = false;
   if (query.dim() == 5) {
-    NVF_CHECK(key.dim() == 5 && value.dim() == 5);
     handle_device_dim = true;
+
+    NVF_CHECK(key.dim() == 5 && value.dim() == 5);
+
+    auto query_domain =
+        TensorDomain::noReductions(this->query()->getLogicalDomain());
+    auto key_domain =
+        TensorDomain::noReductions(this->key()->getLogicalDomain());
+    auto value_domain =
+        TensorDomain::noReductions(this->value()->getLogicalDomain());
+    NVF_CHECK(
+        query_domain.front()->isDeviceDim(),
+        "Only support DID parallelization on outermost axis");
+    NVF_CHECK(
+        key_domain.front()->isDeviceDim(),
+        "Only support DID parallelization on outermost axis");
+    NVF_CHECK(
+        value_domain.front()->isDeviceDim(),
+        "Only support DID parallelization on outermost axis");
+
     query = query.squeeze(0);
     key = key.squeeze(0);
     value = value.squeeze(0);
@@ -4428,7 +4523,8 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
               /*return_debug_mask=*/false,
               scale);
 
-  // If the inputs were padded, slice the output to restore the original size
+  // If the inputs were padded, slice the output to restore the original
+  // size
   if (output.size(-1) != last_dim_size) {
     output = output.slice(-1, 0, last_dim_size);
   }
@@ -4441,8 +4537,8 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
 
   // We ignore cum_seq_q/k outputs since they are undefined tensors for
   // non-nested tensors. We do not store query/key_seq_len since they can be
-  // computed in non-nested tensor directly. debug_attn_mask is ignored since
-  // `return_debug_mask=false`.
+  // computed in non-nested tensor directly. debug_attn_mask is ignored
+  // since `return_debug_mask=false`.
   return {output, log_sumexp, philox_seed, philox_offset};
 }
 
@@ -4527,7 +4623,8 @@ ForLoop::ForLoop(
     bool vectorize,
     Val* vectorize_shift,
     bool unroll_required,
-    CircularBufferLoopStage circular_buffer_loop_stage)
+    CircularBufferLoopStage circular_buffer_loop_stage,
+    int64_t circular_buffer_loop_stage_depth)
     : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
@@ -4564,8 +4661,9 @@ ForLoop::ForLoop(
   addAttribute(vectorize_shift);
   addDataAttribute(unroll_required);
   addDataAttribute(circular_buffer_loop_stage);
-  // Storing IR nodes as Attribute is not safe with IrCloner, but fortunately
-  // kernel IR does not need this feature.
+  addDataAttribute(circular_buffer_loop_stage_depth);
+  // Storing IR nodes as Attribute is not safe with IrCloner, but
+  // fortunately kernel IR does not need this feature.
   addDataAttribute(Scope(this));
 }
 
@@ -4573,7 +4671,8 @@ ForLoop::ForLoop(
     IrBuilderPasskey passkey,
     IterDomain* iter_domain,
     Val* index,
-    CircularBufferLoopStage circular_buffer_loop_stage)
+    CircularBufferLoopStage circular_buffer_loop_stage,
+    int64_t circular_buffer_loop_stage_depth)
     : ForLoop(
           passkey,
           iter_domain,
@@ -4585,14 +4684,16 @@ ForLoop::ForLoop(
               isParallelTypeVectorize(iter_domain->getParallelType()),
           nullptr,
           false,
-          circular_buffer_loop_stage) {}
+          circular_buffer_loop_stage,
+          circular_buffer_loop_stage_depth) {}
 
 ForLoop::ForLoop(IrBuilderPasskey passkey, IterDomain* iter_domain)
     : ForLoop(
           passkey,
           iter_domain,
-          GpuLower::current()->caMap()->getIndexVariable(iter_domain),
-          CircularBufferLoopStage::NotApplicable) {}
+          GpuLower::current()->getLoopIndexVariable(iter_domain),
+          CircularBufferLoopStage::NotApplicable,
+          0) {}
 
 ForLoop::ForLoop(IrBuilderPasskey passkey, const ForLoop* other)
     : ForLoop(
@@ -4605,7 +4706,8 @@ ForLoop::ForLoop(IrBuilderPasskey passkey, const ForLoop* other)
           other->vectorize(),
           other->vectorize_shift(),
           other->isUnrollRequired(),
-          other->circularBufferLoopStage()) {}
+          other->circularBufferLoopStage(),
+          other->circularBufferLoopStageDepth()) {}
 
 std::string ForLoop::toString(int indent_size) const {
   std::stringstream ss;
@@ -4875,9 +4977,8 @@ std::string SdpaBwdOp::toInlineString(int indent_size) const {
 std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-  // Backward tensor inputs: grad_input, query, key, value, output, logsumexp,
-  // max_q/k
-  // Temporary handling of DID parallelization. See
+  // Backward tensor inputs: grad_input, query, key, value, output,
+  // logsumexp, max_q/k Temporary handling of DID parallelization. See
   // https://github.com/NVIDIA/Fuser/issues/2563
   bool first_dim_is_did = this->key()->as<TensorView>()->axis(0)->isDeviceDim();
   std::vector<at::Tensor> bwd_inputs;

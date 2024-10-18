@@ -104,6 +104,7 @@ abs_opinfo = OpInfo(
     "abs",
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.abs),
+    is_clonable=True,
 )
 unary_ops.append(abs_opinfo)
 
@@ -113,6 +114,7 @@ acos_opinfo = OpInfo(
     domain=Domain(-1, 1),
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.acos),
+    is_clonable=True,
 )
 unary_ops.append(acos_opinfo)
 
@@ -122,6 +124,7 @@ acosh_opinfo = OpInfo(
     domain=Domain(-1, math.inf),
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.acosh),
+    is_clonable=True,
 )
 unary_ops.append(acosh_opinfo)
 
@@ -131,6 +134,7 @@ asin_opinfo = OpInfo(
     domain=Domain(-1, 1),
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.asin),
+    is_clonable=True,
 )
 unary_ops.append(asin_opinfo)
 
@@ -139,6 +143,7 @@ asinh_opinfo = OpInfo(
     "asinh",
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.asinh),
+    is_clonable=True,
 )
 unary_ops.append(asinh_opinfo)
 
@@ -147,6 +152,7 @@ atan_opinfo = OpInfo(
     "atan",
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.atan),
+    is_clonable=True,
 )
 unary_ops.append(atan_opinfo)
 
@@ -156,6 +162,7 @@ atanh_opinfo = OpInfo(
     domain=Domain(-1 + eps, 1 + eps),
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.atanh),
+    is_clonable=True,
 )
 unary_ops.append(atanh_opinfo)
 
@@ -165,6 +172,7 @@ bitwise_not_opinfo = OpInfo(
     dtypes=bool_int_dtypes,
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.bitwise_not),
+    is_clonable=True,
 )
 unary_ops.append(bitwise_not_opinfo)
 
@@ -175,6 +183,7 @@ ceil_opinfo = OpInfo(
     dtypes=full_precision_float_dtypes,
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.ceil),
+    is_clonable=True,
 )
 unary_ops.append(ceil_opinfo)
 
@@ -183,6 +192,7 @@ cos_opinfo = OpInfo(
     "cos",
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.cos),
+    is_clonable=True,
 )
 unary_ops.append(cos_opinfo)
 
@@ -191,6 +201,7 @@ cosh_opinfo = OpInfo(
     "cosh",
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.cosh),
+    is_clonable=True,
 )
 unary_ops.append(cosh_opinfo)
 
@@ -200,6 +211,7 @@ erf_opinfo = OpInfo(
     dtypes=int_float_dtypes,
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.erf),
+    is_clonable=True,
 )
 unary_ops.append(erf_opinfo)
 
@@ -209,6 +221,7 @@ erfc_opinfo = OpInfo(
     dtypes=int_float_dtypes,
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.erfc),
+    is_clonable=True,
 )
 unary_ops.append(erfc_opinfo)
 
@@ -222,6 +235,7 @@ erfcinv_opinfo = OpInfo(
     domain=Domain(0.3, 0.7),
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(lambda x: torch.erfinv(1 - x)),
+    is_clonable=True,
 )
 unary_ops.append(erfcinv_opinfo)
 
@@ -232,6 +246,7 @@ erfinv_opinfo = OpInfo(
     domain=Domain(-1, 1),
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.erfinv),
+    is_clonable=True,
 )
 unary_ops.append(erfinv_opinfo)
 
@@ -240,6 +255,7 @@ exp_opinfo = OpInfo(
     "exp",
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.exp),
+    is_clonable=True,
 )
 unary_ops.append(exp_opinfo)
 
@@ -249,6 +265,7 @@ exp2_opinfo = OpInfo(
     dtypes=int_float_dtypes,
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.exp2),
+    is_clonable=True,
 )
 unary_ops.append(exp2_opinfo)
 
@@ -258,6 +275,7 @@ expm1_opinfo = OpInfo(
     dtypes=int_float_dtypes,
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.expm1),
+    is_clonable=True,
 )
 unary_ops.append(expm1_opinfo)
 
@@ -268,6 +286,7 @@ floor_opinfo = OpInfo(
     dtypes=full_precision_float_dtypes,
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.floor),
+    is_clonable=True,
 )
 unary_ops.append(floor_opinfo)
 
@@ -277,6 +296,7 @@ frac_opinfo = OpInfo(
     dtypes=full_precision_float_dtypes,
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.frac),
+    is_clonable=True,
 )
 unary_ops.append(frac_opinfo)
 
@@ -285,6 +305,7 @@ isfinite_opinfo = OpInfo(
     "isfinite",
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.isfinite),
+    is_clonable=True,
 )
 unary_ops.append(isfinite_opinfo)
 
@@ -293,6 +314,7 @@ isinf_opinfo = OpInfo(
     "isinf",
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.isinf),
+    is_clonable=True,
 )
 unary_ops.append(isinf_opinfo)
 
@@ -301,6 +323,7 @@ isnan_opinfo = OpInfo(
     "isnan",
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.isnan),
+    is_clonable=True,
 )
 unary_ops.append(isnan_opinfo)
 
@@ -311,6 +334,7 @@ isneginf_opinfo = OpInfo(
     dtypes=full_precision_float_dtypes,
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.isneginf),
+    is_clonable=True,
 )
 unary_ops.append(isneginf_opinfo)
 
@@ -321,6 +345,7 @@ isposinf_opinfo = OpInfo(
     dtypes=full_precision_float_dtypes,
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.isposinf),
+    is_clonable=True,
 )
 unary_ops.append(isposinf_opinfo)
 
@@ -329,6 +354,7 @@ isreal_opinfo = OpInfo(
     "isreal",
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.isreal),
+    is_clonable=True,
 )
 unary_ops.append(isreal_opinfo)
 
@@ -339,6 +365,7 @@ lgamma_opinfo = OpInfo(
     domain=Domain(-1.0 + eps, math.inf),
     sample_input_generator=partial(elementwise_unary_generator, exclude_zero=True),
     reference=_elementwise_unary_torch(torch.lgamma),
+    is_clonable=True,
 )
 unary_ops.append(lgamma_opinfo)
 
@@ -348,6 +375,7 @@ log_opinfo = OpInfo(
     domain=Domain(0, math.inf),
     sample_input_generator=partial(elementwise_unary_generator, exclude_zero=True),
     reference=_elementwise_unary_torch(torch.log),
+    is_clonable=True,
 )
 unary_ops.append(log_opinfo)
 
@@ -358,6 +386,7 @@ log10_opinfo = OpInfo(
     domain=Domain(0, math.inf),
     sample_input_generator=partial(elementwise_unary_generator, exclude_zero=True),
     reference=_elementwise_unary_torch(torch.log10),
+    is_clonable=True,
 )
 unary_ops.append(log10_opinfo)
 
@@ -368,6 +397,7 @@ log1p_opinfo = OpInfo(
     domain=Domain(-1 + eps, math.inf),
     sample_input_generator=partial(elementwise_unary_generator, exclude_zero=True),
     reference=_elementwise_unary_torch(torch.log1p),
+    is_clonable=True,
 )
 unary_ops.append(log1p_opinfo)
 
@@ -377,6 +407,7 @@ log2_opinfo = OpInfo(
     domain=Domain(0, math.inf),
     sample_input_generator=partial(elementwise_unary_generator, exclude_zero=True),
     reference=_elementwise_unary_torch(torch.log2),
+    is_clonable=True,
 )
 unary_ops.append(log2_opinfo)
 
@@ -385,6 +416,7 @@ neg_opinfo = OpInfo(
     "neg",
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.neg),
+    is_clonable=True,
 )
 unary_ops.append(neg_opinfo)
 
@@ -399,6 +431,7 @@ reciprocal_opinfo = OpInfo(
         exclude_zero=True,
     ),
     reference=_elementwise_unary_torch(torch.reciprocal),
+    is_clonable=True,
 )
 unary_ops.append(reciprocal_opinfo)
 
@@ -409,6 +442,7 @@ round_opinfo = OpInfo(
     dtypes=full_precision_float_dtypes,
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.round),
+    is_clonable=True,
 )
 unary_ops.append(round_opinfo)
 
@@ -423,6 +457,7 @@ rsqrt_opinfo = OpInfo(
         exclude_zero=True,
     ),
     reference=_elementwise_unary_torch(torch.rsqrt),
+    is_clonable=True,
 )
 unary_ops.append(rsqrt_opinfo)
 
@@ -431,6 +466,7 @@ sigmoid_opinfo = OpInfo(
     "sigmoid",
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.sigmoid),
+    is_clonable=True,
 )
 unary_ops.append(sigmoid_opinfo)
 
@@ -440,6 +476,7 @@ signbit_opinfo = OpInfo(
     dtypes=int_float_dtypes,
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.signbit),
+    is_clonable=True,
 )
 unary_ops.append(signbit_opinfo)
 
@@ -448,6 +485,7 @@ sin_opinfo = OpInfo(
     "sin",
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.sin),
+    is_clonable=True,
 )
 unary_ops.append(sin_opinfo)
 
@@ -456,6 +494,7 @@ sinh_opinfo = OpInfo(
     "sinh",
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.sinh),
+    is_clonable=True,
 )
 unary_ops.append(sinh_opinfo)
 
@@ -465,6 +504,7 @@ sqrt_opinfo = OpInfo(
     domain=Domain(0, math.inf),
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.sqrt),
+    is_clonable=True,
 )
 unary_ops.append(sqrt_opinfo)
 
@@ -474,6 +514,7 @@ tan_opinfo = OpInfo(
     dtypes=int_float_dtypes,
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.tan),
+    is_clonable=True,
 )
 unary_ops.append(tan_opinfo)
 
@@ -483,6 +524,7 @@ tanh_opinfo = OpInfo(
     dtypes=int_float_dtypes,
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.tanh),
+    is_clonable=True,
 )
 unary_ops.append(tanh_opinfo)
 
@@ -493,6 +535,7 @@ trunc_opinfo = OpInfo(
     dtypes=full_precision_float_dtypes,
     sample_input_generator=elementwise_unary_generator,
     reference=_elementwise_unary_torch(torch.trunc),
+    is_clonable=True,
 )
 unary_ops.append(trunc_opinfo)
 
@@ -523,6 +566,7 @@ add_opinfo = OpInfo(
         elementwise_binary_generator, enable_extremal_value_testing=False
     ),
     reference=_elementwise_binary_torch(torch.add),
+    is_clonable=True,
 )
 binary_ops.append(add_opinfo)
 
@@ -533,6 +577,7 @@ atan2_opinfo = OpInfo(
     dtypes=int_float_dtypes,
     sample_input_generator=elementwise_binary_generator,
     reference=_elementwise_binary_torch(torch.atan2),
+    is_clonable=True,
 )
 binary_ops.append(atan2_opinfo)
 
@@ -542,6 +587,7 @@ bitwise_and_opinfo = OpInfo(
     dtypes=bool_int_dtypes,
     sample_input_generator=elementwise_binary_generator,
     reference=_elementwise_binary_torch(torch.bitwise_and),
+    is_clonable=True,
 )
 binary_ops.append(bitwise_and_opinfo)
 
@@ -551,6 +597,7 @@ bitwise_left_shift_opinfo = OpInfo(
     dtypes=int_dtypes,
     sample_input_generator=elementwise_binary_generator,
     reference=_elementwise_binary_torch(torch.bitwise_left_shift),
+    is_clonable=True,
 )
 binary_ops.append(bitwise_left_shift_opinfo)
 
@@ -560,6 +607,7 @@ bitwise_or_opinfo = OpInfo(
     dtypes=bool_int_dtypes,
     sample_input_generator=elementwise_binary_generator,
     reference=_elementwise_binary_torch(torch.bitwise_or),
+    is_clonable=True,
 )
 binary_ops.append(bitwise_or_opinfo)
 
@@ -569,6 +617,7 @@ bitwise_right_shift_opinfo = OpInfo(
     dtypes=int_dtypes,
     sample_input_generator=elementwise_binary_generator,
     reference=_elementwise_binary_torch(torch.bitwise_right_shift),
+    is_clonable=True,
 )
 binary_ops.append(bitwise_right_shift_opinfo)
 
@@ -578,6 +627,7 @@ bitwise_xor_opinfo = OpInfo(
     dtypes=bool_int_dtypes,
     sample_input_generator=elementwise_binary_generator,
     reference=_elementwise_binary_torch(torch.bitwise_xor),
+    is_clonable=True,
 )
 binary_ops.append(bitwise_xor_opinfo)
 
@@ -587,6 +637,7 @@ div_opinfo = OpInfo(
     dtypes=float_complex_dtypes,
     sample_input_generator=div_input_generator,
     reference=_elementwise_binary_torch(torch.div),
+    is_clonable=True,
 )
 binary_ops.append(div_opinfo)
 
@@ -595,6 +646,7 @@ eq_opinfo = OpInfo(
     "eq",
     sample_input_generator=elementwise_binary_generator,
     reference=_elementwise_binary_torch(torch.eq),
+    is_clonable=True,
 )
 binary_ops.append(eq_opinfo)
 
@@ -604,6 +656,7 @@ fmod_opinfo = OpInfo(
     dtypes=int_float_dtypes,
     sample_input_generator=partial(elementwise_binary_generator, exclude_zero=True),
     reference=_elementwise_binary_torch(torch.fmod),
+    is_clonable=True,
 )
 binary_ops.append(fmod_opinfo)
 
@@ -613,6 +666,7 @@ ge_opinfo = OpInfo(
     dtypes=int_float_dtypes,
     sample_input_generator=elementwise_binary_generator,
     reference=_elementwise_binary_torch(torch.ge),
+    is_clonable=True,
 )
 binary_ops.append(ge_opinfo)
 
@@ -622,6 +676,7 @@ gt_opinfo = OpInfo(
     dtypes=int_float_dtypes,
     sample_input_generator=elementwise_binary_generator,
     reference=_elementwise_binary_torch(torch.gt),
+    is_clonable=True,
 )
 binary_ops.append(gt_opinfo)
 
@@ -631,6 +686,7 @@ le_opinfo = OpInfo(
     dtypes=int_float_dtypes,
     sample_input_generator=elementwise_binary_generator,
     reference=_elementwise_binary_torch(torch.le),
+    is_clonable=True,
 )
 binary_ops.append(le_opinfo)
 
@@ -649,6 +705,7 @@ logical_right_shift_opinfo = OpInfo(
     ),
     reference=jax.lax.shift_right_logical if JAX_AVAILABLE else None,
     reference_type=ReferenceType.Jax,
+    is_clonable=True,
 )
 binary_ops.append(logical_right_shift_opinfo)
 
@@ -658,6 +715,7 @@ lt_opinfo = OpInfo(
     dtypes=int_float_dtypes,
     sample_input_generator=elementwise_binary_generator,
     reference=_elementwise_binary_torch(torch.lt),
+    is_clonable=True,
 )
 binary_ops.append(lt_opinfo)
 
@@ -667,6 +725,7 @@ minimum_opinfo = OpInfo(
     dtypes=int_float_dtypes,
     sample_input_generator=elementwise_binary_generator,
     reference=_elementwise_binary_torch(torch.minimum),
+    is_clonable=True,
 )
 binary_ops.append(minimum_opinfo)
 
@@ -676,6 +735,7 @@ maximum_opinfo = OpInfo(
     dtypes=int_float_dtypes,
     sample_input_generator=elementwise_binary_generator,
     reference=_elementwise_binary_torch(torch.maximum),
+    is_clonable=True,
 )
 binary_ops.append(maximum_opinfo)
 
@@ -690,6 +750,7 @@ mod_opinfo = OpInfo(
     # Matlab rem (Remainder after Division) function
     # For more details, see https://www.mathworks.com/help/matlab/ref/rem.html
     reference=lambda a, b: a - b * torch.trunc(a / b).to(a.dtype),
+    is_clonable=True,
 )
 binary_ops.append(mod_opinfo)
 
@@ -700,6 +761,7 @@ mul_opinfo = OpInfo(
         elementwise_binary_generator, enable_extremal_value_testing=False
     ),
     reference=_elementwise_binary_torch(torch.mul),
+    is_clonable=True,
 )
 binary_ops.append(mul_opinfo)
 
@@ -708,6 +770,7 @@ ne_opinfo = OpInfo(
     "ne",
     sample_input_generator=elementwise_binary_generator,
     reference=_elementwise_binary_torch(torch.ne),
+    is_clonable=True,
 )
 binary_ops.append(ne_opinfo)
 
@@ -717,6 +780,7 @@ nextafter_opinfo = OpInfo(
     dtypes=full_precision_float_dtypes,
     sample_input_generator=elementwise_binary_generator,
     reference=_elementwise_binary_torch(torch.nextafter),
+    is_clonable=True,
 )
 binary_ops.append(nextafter_opinfo)
 
@@ -727,6 +791,7 @@ pow_opinfo = OpInfo(
     dtypes=int_float_dtypes,
     sample_input_generator=elementwise_binary_generator,
     reference=_elementwise_binary_torch(torch.pow),
+    is_clonable=True,
 )
 binary_ops.append(pow_opinfo)
 
@@ -740,6 +805,7 @@ remainder_opinfo = OpInfo(
         enable_extremal_value_testing=False,
     ),
     reference=_elementwise_binary_torch(torch.remainder),
+    is_clonable=True,
 )
 binary_ops.append(remainder_opinfo)
 
@@ -750,6 +816,7 @@ sub_opinfo = OpInfo(
         elementwise_binary_generator, enable_extremal_value_testing=False
     ),
     reference=_elementwise_binary_torch(torch.sub),
+    is_clonable=True,
 )
 binary_ops.append(sub_opinfo)
 
@@ -758,6 +825,7 @@ truediv_opinfo = OpInfo(
     "truediv",
     sample_input_generator=div_input_generator,
     reference=_elementwise_binary_torch(torch.true_divide),
+    is_clonable=True,
 )
 binary_ops.append(truediv_opinfo)
 
@@ -773,6 +841,7 @@ trunc_div_opinfo = OpInfo(
         exclude_zero=True,
     ),
     reference=_elementwise_binary_torch(partial(torch.div, rounding_mode="trunc")),
+    is_clonable=True,
 )
 binary_ops.append(trunc_div_opinfo)
 

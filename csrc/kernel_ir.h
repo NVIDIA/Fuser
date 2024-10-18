@@ -39,11 +39,14 @@ class Allocate;
 class Asm;
 class BlockSync;
 class GridSync;
+class FenceAsyncProxy;
+class WgMmaFence;
 class MBarrierInit;
 class MBarrierInvalidate;
 class MBarrierArrive;
 class MBarrierArriveExpectTx;
 class MBarrierWait;
+class MBarrierWaitParity;
 class BlockSerializeWait;
 class BlockSerializeRelease;
 class AsyncWait;
@@ -432,6 +435,40 @@ class NVF_API GridSync final : public Expr {
   }
 };
 
+// PTX: fence.proxy.async
+class NVF_API FenceAsyncProxy final : public Expr {
+ public:
+  using Expr::Expr;
+
+  explicit FenceAsyncProxy(IrBuilderPasskey passkey);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "FenceAsyncProxy";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+};
+
+// PTX: wgmma.fence.sync.aligned
+class NVF_API WgMmaFence final : public Expr {
+ public:
+  using Expr::Expr;
+
+  explicit WgMmaFence(IrBuilderPasskey passkey);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "WgMmaFence";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+};
+
 class NVF_API MBarrierInit final : public Expr {
  public:
   using Expr::Expr;
@@ -492,7 +529,10 @@ class NVF_API MBarrierArrive final : public Expr {
   std::string toInlineString(int indent_size = 0) const override;
 
   Val* state() const {
-    return output(0);
+    if (!outputs().empty()) {
+      return output(0);
+    }
+    return nullptr;
   }
 
   Val* mbarrier() const {
@@ -523,7 +563,10 @@ class NVF_API MBarrierArriveExpectTx final : public Expr {
   std::string toInlineString(int indent_size = 0) const override;
 
   Val* state() const {
-    return output(0);
+    if (!outputs().empty()) {
+      return output(0);
+    }
+    return nullptr;
   }
 
   Val* mbarrier() const {
@@ -554,6 +597,32 @@ class NVF_API MBarrierWait final : public Expr {
   }
 
   Val* state() const {
+    return input(1);
+  }
+};
+
+class NVF_API MBarrierWaitParity final : public Expr {
+ public:
+  using Expr::Expr;
+  explicit MBarrierWaitParity(
+      IrBuilderPasskey passkey,
+      Val* mbarrier,
+      Val* parity);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "MBarrierWaitParity";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* mbarrier() const {
+    return input(0);
+  }
+
+  Val* parity() const {
     return input(1);
   }
 };

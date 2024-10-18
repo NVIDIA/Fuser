@@ -8,7 +8,6 @@
 #include <gtest/gtest.h>
 
 #include <fusion.h>
-#include <fusion_executor/executor_kernel_arg.h>
 #include <fusion_segmenter.h>
 #include <host_ir/container.h>
 #include <host_ir/executor.h>
@@ -17,6 +16,7 @@
 #include <multidevice/lower_communication.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
+#include <runtime/executor_kernel_arg.h>
 #include <tests/cpp/utils.h>
 
 #include <algorithm>
@@ -400,7 +400,8 @@ TEST_P(HostIrTest, ForLoops) {
       /*vectorize=*/false,
       /*vectorize_shift=*/nullptr,
       /*unroll_required=*/false,
-      CircularBufferLoopStage::NotApplicable);
+      CircularBufferLoopStage::NotApplicable,
+      /*circular_buffer_loop_stage_depth=*/0);
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -852,6 +853,68 @@ INSTANTIATE_TEST_SUITE_P(
       ss << "InTopLevelExpr";
       return ss.str();
     });
+
+using ViewTest = NVFuserTest;
+
+TEST_F(ViewTest, SimpleReshape) {
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  auto input = makeContigTensor(2);
+  Val* x = input->axis(0)->extent();
+  Val* y = input->axis(1)->extent();
+  Val* xy = mul(x, y);
+  auto flattened_input = reshape(input, {xy});
+  auto transposed_intput = reshape(flattened_input, {y, x});
+
+  hic->addInput(input);
+  hic->addOutput(flattened_input);
+  hic->addOutput(transposed_intput);
+  hic->pushBackTopLevelExprs(flattened_input->definition());
+  hic->pushBackTopLevelExprs(transposed_intput->definition());
+
+  HostIrExecutor hie(std::move(hic));
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
+  constexpr int64_t kX = 32;
+  constexpr int64_t kY = 64;
+  auto input_aten = at::randn({kX, kY}, options);
+  std::unordered_map<Val*, c10::IValue> concrete_input_buffers = {
+      {input, input_aten}};
+
+  auto outputs = hie.runWithInput(concrete_input_buffers);
+
+  // validate
+  EXPECT_TRUE(outputs[0].equal(at::reshape(input_aten, {kX * kY})));
+  EXPECT_TRUE(outputs[1].equal(at::reshape(input_aten, {kY, kX})));
+}
+
+using ReductionHostIrTest = NVFuserTest;
+
+TEST_F(ReductionHostIrTest, Sum) {
+  constexpr int64_t kTensorSize = 32;
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  TensorView* a = makeContigTensor(1);
+  TensorView* b = sum(a, {0});
+
+  hic->addInput(a);
+  hic->addOutput(b);
+  hic->pushBackTopLevelExprs(b->definition());
+
+  HostIrExecutor hie(std::move(hic));
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
+  auto a_aten = at::randn({kTensorSize}, options);
+  std::unordered_map<Val*, c10::IValue> concrete_input_buffers = {{a, a_aten}};
+
+  auto outputs = hie.runWithInput(concrete_input_buffers);
+
+  // validate
+  EXPECT_TRUE(outputs[0].equal(at::sum(a_aten, 0)));
+}
 
 using IfThenElseTest = NVFuserTest;
 

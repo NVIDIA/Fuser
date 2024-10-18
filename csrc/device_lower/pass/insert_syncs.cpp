@@ -145,7 +145,7 @@ class WarSyncInserter : private kir::ExprMutator {
     kir::ExprMutator::handle(ite);
   }
 
-  void handle(kir::BlockSync* sync) final {
+  void handleSync() {
     // Register the sync for the active for loop
     sync_hit_.back() = true;
     // Run through the active allocations, if a read was hit, register there was
@@ -159,18 +159,12 @@ class WarSyncInserter : private kir::ExprMutator {
     }
   }
 
-  void handle(kir::GridSync* sync) final {
-    // Register the sync for the active for loop
-    sync_hit_.back() = true;
-    // Run through the active allocations, if a read was hit, register there was
-    // a sync after the read. If there's subsequent reads on this buffer the
-    // sync_after_read will be cleared.
-    for (auto& entry : smem_allocations_) {
-      auto& alloc_stack = entry.second;
-      if (alloc_stack.back().read_hit) {
-        alloc_stack.back().sync_after_read = true;
-      }
-    }
+  void handle(kir::BlockSync*) final {
+    handleSync();
+  }
+
+  void handle(kir::GridSync*) final {
+    handleSync();
   }
 
   // Checks if fl or loops within it have hit a sync
@@ -375,6 +369,36 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
     if (!ir_utils::isTvOp(expr) || expr->isA<kir::Allocate>()) {
       kir::ExprMutator::dispatch(expr);
       return;
+    }
+
+    if (auto mma = dynamic_cast<MmaOp*>(expr)) {
+      if (mma->isHopper()) {
+        auto scope = scope_.empty() ? nullptr : scope_.back();
+        auto commit = IrBuilder::create<kir::AsyncCommit>(AsyncOpType::WgMma);
+        auto wait = IrBuilder::create<kir::AsyncWait>(AsyncOpType::WgMma, 0);
+        registerInsertAfter(expr, wait, scope);
+        registerInsertAfter(expr, commit, scope);
+        if (!lower_utils::allMmaInputsGuardedByMBarrier(mma)) {
+          // Makes sure that writes to operands in the generic proxy are visible
+          // to the async proxy
+          auto wgmma_fence = IrBuilder::create<kir::WgMmaFence>();
+          registerInsertBefore(expr, wgmma_fence, scope);
+          auto fence_async = IrBuilder::create<kir::FenceAsyncProxy>();
+          registerInsertBefore(expr, fence_async, scope);
+        }
+      }
+    }
+
+    if (ir_utils::isCpAsyncBulkStore(expr)) {
+      auto scope = scope_.empty() ? nullptr : scope_.back();
+      auto fence_proxy = IrBuilder::create<kir::FenceAsyncProxy>();
+      auto commit =
+          IrBuilder::create<kir::AsyncCommit>(AsyncOpType::CpAsyncBulk);
+      auto wait =
+          IrBuilder::create<kir::AsyncWait>(AsyncOpType::CpAsyncBulk, 0);
+      registerInsertBefore(expr, fence_proxy, scope);
+      registerInsertAfter(expr, wait, scope);
+      registerInsertAfter(expr, commit, scope);
     }
 
     // An identical but separate flow of timing for cpasync_wait.
@@ -638,7 +662,8 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
         // here, except for the initial load part, which is taken care
         // separately by CircularBufferInserter.
         if (tv->getMemoryType() == MemoryType::Shared &&
-            !tv->isCircularBuffered()) {
+            (!tv->isCircularBuffered() ||
+             tv->circularBufferPrefetchDistance() == 0)) {
           smem[tv] = expr;
 
           // only keep track of async writes in smem_async

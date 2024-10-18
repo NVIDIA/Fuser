@@ -16,7 +16,6 @@
 #include <kernel_ir.h>
 #include <parallel_type_bitmap.h>
 #include <val_graph.h>
-#include <val_graph_visitor.h>
 
 #include <bitset>
 #include <map>
@@ -107,7 +106,7 @@ TensorView* getTvInput(const Expr*);
 //! Returns the iterdomain that maps to the thread dimension grouped
 //!  to warps. Returns nullopt if the reduction is not to be lowered to
 //!  a warp reduction.
-std::optional<IterDomain*> getMaybeWarpReductionDim(
+std::optional<std::pair<IterDomain*, IterDomain*>> getMaybeWarpReductionDim(
     const Val* output,
     const Val* input);
 
@@ -367,6 +366,9 @@ struct IterDomainDependencySorter {
       concrete_id_dependencies_;
   const IterDomain* kernel_scope_domain_ = nullptr;
 };
+
+// Check if all the inputs of the given MmaOp is guarded by mbarrier
+bool allMmaInputsGuardedByMBarrier(const MmaOp* mma);
 
 } // namespace lower_utils
 

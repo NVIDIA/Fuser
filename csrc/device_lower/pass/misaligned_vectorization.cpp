@@ -406,7 +406,8 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
           vectorize && has_vectorize_op,
           vectorize_shift,
           fl->isUnrollRequired(),
-          fl->circularBufferLoopStage());
+          fl->circularBufferLoopStage(),
+          fl->circularBufferLoopStageDepth());
 
       auto body = &new_loop->body();
 

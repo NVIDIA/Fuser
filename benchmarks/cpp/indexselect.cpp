@@ -10,9 +10,9 @@
 
 #include <device_lower/lower2device.h>
 #include <fusion.h>
-#include <fusion_executor/executor.h>
 #include <ir/builder.h>
 #include <ops/arith.h>
+#include <runtime/executor.h>
 #include <scheduler/all_schedulers.h>
 
 #include <benchmark/benchmark.h>
@@ -36,7 +36,7 @@ static void setupFusion(Fusion* fusion) {
   auto t_idx = makeContigTensor(1, DataType::Int);
   fusion->addInput(t_idx);
 
-  auto t2 = index_select(t0, 0, t_idx); // select at dim=0
+  auto t2 = indexSelect(t0, 0, t_idx); // select at dim=0
   auto t3 = mul(t1, t2);
   auto t4 = add(t3, IrBuilder::create<Val>(17.0));
 
@@ -196,7 +196,7 @@ static void setupIndexSelectSimple(
   auto t_idx = makeContigTensor(1, DataType::Int);
   fusion->addInput(t_idx);
 
-  auto t2 = index_select(t0, select_dim, t_idx); // select at dim=0
+  auto t2 = indexSelect(t0, select_dim, t_idx); // select at dim=0
   if (is_fp16) {
     t2 = castOp(DataType::Half, t2);
   }
@@ -221,7 +221,7 @@ static void setupIndexSelect(Fusion* fusion, DataType dtype, int select_dim) {
   auto t_idx = makeContigTensor(1, DataType::Int);
   fusion->addInput(t_idx);
 
-  auto t2 = index_select(t0, select_dim, t_idx); // select at dim=0
+  auto t2 = indexSelect(t0, select_dim, t_idx); // select at dim=0
   auto t3 = mul(t1, t2);
   auto t4 = add(t3, IrBuilder::create<Val>(17.0));
 

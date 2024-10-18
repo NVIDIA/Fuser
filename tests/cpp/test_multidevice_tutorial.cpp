@@ -107,7 +107,8 @@ TEST_F(MultiDeviceTutorial, CommunicatorAndC10d) {
       0); // all_devices = [0,1,..., communicator->size()-1]
   const Team& team = all_devices;
   // - (optionally) the backend type, between UCC and NCCL
-  auto backend_type = CommunicatorBackend::nccl; // or CommunicatorBackend::ucc
+  auto backend_type =
+      CommunicatorBackend::kNccl; // or CommunicatorBackend::kUcc
   // the backend_type is an optional argument. By default it will choose nccl if
   // available, ucc otherwise. We can check that the requested backend is indeed
   // available
@@ -1035,7 +1036,8 @@ TEST_F(MultiDeviceTutorial, HostIrKernekPipelining) {
       /*vectorize=*/false,
       /*vectorize_shift=*/nullptr,
       /*unroll_required=*/false,
-      CircularBufferLoopStage::NotApplicable);
+      CircularBufferLoopStage::NotApplicable,
+      /*circular_buffer_loop_stage_depth=*/0);
 
   // We select a new stream in a round-robin fashion
   auto* stream_index = mod(index, IrBuilder::create<Val>(kNumberOfStreams));

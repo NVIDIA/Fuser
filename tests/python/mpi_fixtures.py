@@ -4,15 +4,20 @@
 
 import os
 import pytest
+import torch
 
 from mpi4py import MPI
 
 
-class MultideviceTest:
+class MpiTest:
     def __init__(self):
         self._communicator = MPI.COMM_WORLD
         self._local_size = int(os.environ["OMPI_COMM_WORLD_LOCAL_SIZE"])
         self._local_rank = int(os.environ["OMPI_COMM_WORLD_LOCAL_RANK"])
+
+        # This way, when individual tests create unsharded input, each rank
+        # receives the same data.
+        torch.manual_seed(0)
 
     @property
     def size(self):
@@ -34,9 +39,9 @@ class MultideviceTest:
         self._communicator.barrier()
 
 
-@pytest.fixture
-def multidevice_test():
-    fixture = MultideviceTest()
+@pytest.fixture(scope="session")
+def mpi_test():
+    fixture = MpiTest()
     yield fixture
     # Sync all ranks after each test for isolation.
     fixture.barrier()

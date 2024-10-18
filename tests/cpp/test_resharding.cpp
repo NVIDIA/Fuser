@@ -9,7 +9,6 @@
 #include <gtest/gtest.h>
 
 #include <fusion.h>
-#include <fusion_executor/executor_kernel_arg.h>
 #include <fusion_segmenter.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
@@ -19,6 +18,7 @@
 #include <ops/all_ops.h>
 #include <preseg_passes/insert_reshardings.h>
 #include <preseg_passes/reorder_sharded_axis.h>
+#include <runtime/executor_kernel_arg.h>
 #include <tests/cpp/utils.h>
 
 #include <algorithm>

@@ -5,7 +5,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <inlining.h>
 #include <instrumentation.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/normalization_inner_outer.h>
@@ -13,6 +12,7 @@
 #include <scheduler/reduction_utils.h>
 #include <scheduler/registry_utils.h>
 #include <scheduler/runtime_info.h>
+#include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
 
 #include <ATen/cuda/CUDAContext.h>
@@ -450,6 +450,7 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
     int64_t inner_batch = -1;
     int64_t bdimx = -1;
     int64_t bdimy = -1;
+    int64_t bdimz = -1;
     int64_t gdimy = -1;
     int64_t tmp_gmem_write_vect = -1;
     int64_t vectorization_factor_outer = -1;
@@ -609,8 +610,21 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
       rparams->pad_outer_reduction_to_warp = true;
     }
     rparams->block_dim_iter_dom = ParallelType::TIDy;
+    rparams->combined_split_grid_inner_dim =
+        iop.vectorization_factor_outer * iop.bdimy * iop.gdimy <
+        inner_dim_numel;
   } else {
     rparams->block_dim_inner_reduction_extra = ParallelType::TIDy;
+    rparams->combined_split_grid_inner_dim =
+        iop.vectorization_factor_outer * iop.bdimx * iop.gdimy <
+        inner_dim_numel;
+    rparams->static_bdimx = true;
+    rparams->static_bdimy = true;
+    iop.bdimz = ceilDiv(
+        ceilDiv(
+            ceilDiv(inner_dim_numel / iop.inner_vect, iop.bdimx), iop.bdimy),
+        iop.inner_batch);
+    NVF_ERROR(iop.bdimz == 1, "bdimz must be 1.");
   }
 
   // check all the parameters in InnerOuterParams are set.
@@ -631,6 +645,7 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
   rparams->vectorize_inner_reduction = iop.inner_vect > 1;
   rparams->split_grid_dim_iter_dom_outer = true;
   rparams->grid_dim_iter_dom = ParallelType::BIDy;
+
   rparams->lparams = LaunchParams(
       LaunchParams::UNINITIALIZED_VAL,
       iop.gdimy,
@@ -781,14 +796,18 @@ void scheduleReductionCombinedOuter(
     if (rparams->multiple_reds_per_blk) {
       outer_reduction_tv->split(
           0, NamedScalar::getParallelDim(rparams->block_dim_iter_dom));
+      outer_reduction_tv->split(
+          0, NamedScalar::getParallelDim(rparams->grid_dim_iter_dom), false);
+    } else {
+      outer_reduction_tv->split(0, rparams->lparams.gdimy());
     }
-    outer_reduction_tv->split(
-        0, NamedScalar::getParallelDim(rparams->grid_dim_iter_dom), false);
 
     if (rparams->multiple_reds_per_blk) {
       outer_reduction_tv->rFactor({1});
     }
-    TensorView* partialResult = outer_reduction_tv->rFactor({1});
+    TensorView* partialResult = rparams->multiple_reds_per_blk
+        ? outer_reduction_tv->rFactor({1})
+        : outer_reduction_tv->rFactor({0});
     partialResult->cacheBefore();
     partialResult->setMemoryType(MemoryType::Global);
     TensorView* partialResultReload = partialResult->cacheAfter();
@@ -828,15 +847,15 @@ void scheduleReductionCombinedOuter(
             axisID, NamedScalar::getParallelDim(ParallelType::TIDx));
         outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::TIDx);
       }
-
-      outer_reduction_tv->split(
-          axisID, NamedScalar::getParallelDim(ParallelType::BIDy));
+      if (rparams->combined_split_grid_inner_dim) {
+        outer_reduction_tv->split(
+            axisID, NamedScalar::getParallelDim(ParallelType::BIDy));
+      }
       outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::BIDy);
 
     } else {
       // reduction domain
-      outer_reduction_tv->split(
-          0, NamedScalar::getParallelDim(ParallelType::TIDy));
+      outer_reduction_tv->split(0, rparams->lparams.bdimy());
       outer_reduction_tv->axis(1)->parallelize(ParallelType::TIDy);
 
       // iteration domain
@@ -848,13 +867,14 @@ void scheduleReductionCombinedOuter(
       }
 
       if (rparams->lparams.bdimx() > 1) {
-        outer_reduction_tv->split(
-            axisID, NamedScalar::getParallelDim(ParallelType::TIDx));
+        outer_reduction_tv->split(axisID, rparams->lparams.bdimx());
         outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::TIDx);
       }
 
-      outer_reduction_tv->split(
-          axisID, NamedScalar::getParallelDim(ParallelType::BIDy));
+      if (rparams->combined_split_grid_inner_dim) {
+        outer_reduction_tv->split(
+            axisID, NamedScalar::getParallelDim(ParallelType::BIDy));
+      }
 
       outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::BIDy);
     }

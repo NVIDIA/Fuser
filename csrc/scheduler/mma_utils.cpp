@@ -8,7 +8,6 @@
 
 #include <ATen/cuda/CUDAContext.h>
 
-#include <abstract_tensor.h>
 #include <device_lower/utils.h>
 #include <id_model/id_model.h>
 #include <ir/printer.h>
@@ -17,6 +16,7 @@
 #include <ops/all_ops.h>
 #include <ops/utils.h>
 #include <scheduler/mma_utils.h>
+#include <scheduler/tools/abstract_tensor.h>
 #include <scheduler/utils.h>
 #include <val_graph.h>
 #include <variant>
@@ -802,8 +802,10 @@ std::unordered_set<IterDomain*> getMmaDomainSet(
 // from K, but while going back up the DAG we end up with a non-K ID. Eg: (K, M)
 // -> Merge -> () -> Split -> (K, M) -> Reorder -> (M , K) -> Split -> M, K_o,
 // K_in. If we start with K_in we can end up with M.
-IterDomain* getIDinConsumerRoot(IterDomain* id) {
-  while (Expr* expr = id->definition()) {
+IterDomain* getIDinConsumerRoot(IterDomain* id, TensorView* tv) {
+  while (!tv->domain()->isMaybeRoot(id)) {
+    Expr* expr = id->definition();
+    NVF_ERROR(expr != nullptr);
     NVF_CHECK(expr->isA<Merge>() || expr->isA<Split>());
     if (expr->isA<Split>()) {
       NVF_CHECK(
@@ -837,8 +839,8 @@ bool isLdMatrixTranspose(const LoadStoreOp* ldst) {
   const auto producer = ir_utils::getTvInput(ldst);
 
   // Get the innermost ID and go back up the DAG to the root domain.
-  auto corresponding_id_in_consumer_root =
-      getIDinConsumerRoot(consumer->getMaybeAllocationDomain().back());
+  auto corresponding_id_in_consumer_root = getIDinConsumerRoot(
+      consumer->getMaybeAllocationDomain().back(), consumer);
 
   // This gives us the ID in the consumer root domain.
   // We'll later map this ID to one in the producer.
@@ -927,14 +929,9 @@ void MmaSwizzler::parallelizeAsBulkSkippingFirstIDs(
   }
 }
 
-// Please note that we currently do not fully support
-// not splitting the outer dimension. This only works when
-// the inner-dimension is not split, that is the inner dim
-// is less or equal to the swizzle size (in bytes).
 void MmaSwizzler::scheduleTMALoadForMma(
     TensorView* tv,
-    MmaInputSmemSwizzle swizzle,
-    bool permute_outer_dim) {
+    MmaInputSmemSwizzle swizzle) {
   // In the comments below I have kept K as the outer dimension. That is
   // just to have a concrete running example - it can be inner or outer.
 
@@ -966,16 +963,7 @@ void MmaSwizzler::scheduleTMALoadForMma(
     // [NO, K, NI] ->
     // [NO, KO(2), KIO(2), KII(4), NIO(2), NII(8)]
     tv->swizzleTMABox(swizzle);
-
-    // If the outer dim is split, then we pull out KO to be outside NO
-    // and KO and NO are both not marked bulk parallel, else NO is outer
-    // and only NO is not marked bulk parallel.
-    if (permute_outer_dim) {
-      // [NO, KO(2), KIO(2), KII(4), NIO(2), NII(8)] ->
-      // [KO(2), NO(2), KIO(2), KII(4), NIO(2), NII(8)]
-      tv->reorder({{-6, -5}});
-    }
-    num_ids_to_skip += permute_outer_dim ? 2 : 1;
+    num_ids_to_skip += 1;
   }
 
   parallelizeAsBulkSkippingFirstIDs(tv, num_ids_to_skip);

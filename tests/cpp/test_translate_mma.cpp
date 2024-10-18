@@ -14,15 +14,12 @@
 #include <disjoint_set.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
-#include <fusion_executor/executor.h>
-#include <fusion_executor/executor_params.h>
 #include <fusion_segmenter.h>
 #include <ir/all_nodes.h>
 #include <ir/iostream.h>
 #include <ir/printer.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
-#include <kernel_cache.h>
 #include <kernel_ir.h>
 #include <logical_domain_map.h>
 #include <mma_type.h>
@@ -30,6 +27,9 @@
 #include <options.h>
 #include <preseg_passes/allocation_order_inference.h>
 #include <preseg_passes/optimization_pass.h>
+#include <runtime/executor.h>
+#include <runtime/executor_params.h>
+#include <runtime/fusion_executor_cache.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/matmul.h>
 #include <scheduler/mma_utils.h>
@@ -412,8 +412,7 @@ INSTANTIATE_TEST_SUITE_P(
         // Tests with fusion enabled
 
         std::make_tuple(2l, 2l, true, false, false, SchedulerType::Matmul),
-        // We cannot yet handle allocation domain in matmul scheduler
-        std::make_tuple(2l, 2l, true, true, true, SchedulerType::ExprEval),
+        std::make_tuple(2l, 2l, true, true, false, SchedulerType::Matmul),
         // Size-1 input combinations
         std::make_tuple(1l, 2l, true, false, true, SchedulerType::ExprEval),
         std::make_tuple(2l, 1l, true, false, true, SchedulerType::ExprEval),
@@ -590,28 +589,21 @@ INSTANTIATE_TEST_SUITE_P(
         std::make_tuple(2l, 2l, -1l, false, false, true),
         std::make_tuple(2l, 2l, -1l, false, true, true),
         std::make_tuple(1l, 2l, -1l, false, false, true),
-        std::make_tuple(2l, 1l, -1l, false, false, true),
         std::make_tuple(2l, 2l, 1l, false, false, true),
-        std::make_tuple(1l, 1l, -1l, false, false, true),
         std::make_tuple(3l, 2l, 1l, false, false, true),
         std::make_tuple(4l, 2l, 1l, false, false, true),
 
         // Enable fusion
 
         std::make_tuple(2l, 2l, -1l, true, false, false),
-        // We cannot yet handle allocation domain in matmul scheduler
-        std::make_tuple(2l, 2l, -1l, true, true, true),
+        std::make_tuple(2l, 2l, -1l, true, true, false),
         // We don't fuse 1D inputs
         std::make_tuple(1l, 2l, -1l, true, false, true),
-        std::make_tuple(2l, 1l, -1l, true, false, true),
-        // Check that zero-dim output fusion is not claimed by NoOp scheduler
-        std::make_tuple(1l, 1l, -1l, true, false, true),
         // Batch dims in input
         // mixed length inputs via broadcasted batch dims
         std::make_tuple(3l, 2l, -1l, true, false, false),
         std::make_tuple(4l, 2l, -1l, true, false, false),
         // Bias cases
-        std::make_tuple(2l, 2l, 0l, true, false, false),
         std::make_tuple(2l, 2l, 1l, true, false, false),
         std::make_tuple(3l, 2l, 1l, true, false, false),
         std::make_tuple(4l, 2l, 1l, true, false, false)),

@@ -5,11 +5,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <abstract_tensor.h>
 #include <device_lower/analysis/circular_buffer.h>
 #include <disjoint_set.h>
 #include <id_model/schedule.h>
-#include <inlining.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
 #include <multidevice/utils.h>
@@ -17,13 +15,15 @@
 #include <scheduler/matmul.h>
 #include <scheduler/matmul_utils.h>
 #include <scheduler/mma_utils.h>
+#include <scheduler/tools/abstract_tensor.h>
+#include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
 #include <val_graph.h>
 #include <val_graph_visitor.h>
 
 // NOTE: included to avoid compilation error caused by missing destructor in
 // 'SchedulerRuntimeInfo'
-#include <fusion_executor/executor_utils.h>
+#include <runtime/executor_utils.h>
 #include "mma_type.h"
 
 namespace nvfuser {
@@ -590,7 +590,11 @@ class MultipleMatmulScheduler {
     TensorView* mma_result = patterns_.front().output;
     num_device_dims_ = numDeviceDims(mma_result);
     for (const auto& it : id_roles_) {
-      if (it.second == MatmulDimRole::Batch) {
+      if (it.second == MatmulDimRole::Batch &&
+          // Skip device dims
+          !std::any_of(it.first->begin(), it.first->end(), [](Val* v) {
+            return v->as<IterDomain>()->isDeviceDim();
+          })) {
         // All batch dims will be merged into one, if any exist
         num_local_batch_dims_ = 1;
       }

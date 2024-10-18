@@ -9,7 +9,6 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <abstract_tensor.h>
 #include <codegen.h>
 #include <debug.h>
 #include <device_lower/lower2device.h>
@@ -18,25 +17,26 @@
 #include <disjoint_set.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
-#include <fusion_executor/executor.h>
-#include <fusion_executor/executor_params.h>
 #include <fusion_segmenter.h>
 #include <grouped_reduction.h>
 #include <id_model/id_model.h>
-#include <inlining.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ir/graphviz.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
-#include <kernel_cache.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
 #include <logical_domain_map.h>
 #include <ops/all_ops.h>
+#include <runtime/executor.h>
+#include <runtime/executor_params.h>
+#include <runtime/fusion_executor_cache.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_utils.h>
+#include <scheduler/tools/abstract_tensor.h>
+#include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
@@ -3763,39 +3763,6 @@ TEST_F(NVFuserTest, FusionScheduleTransposeRepro1_CUDA) {
       scheduleAndRun(&fusion, SchedulerType::Transpose, {input0, input1}, false)
           .outputs;
   testValidate(&fusion, cg_outputs, {input0, input1}, __LINE__, __FILE__);
-}
-
-// Repro for issue #1873
-TEST_F(NVFuserTest, FusionInlineBroadcastIndexing0_CUDA) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  auto tv0 = makeContigTensor(1);
-  auto tv1 = makeContigTensor(2);
-  fusion.addInput(tv0);
-  fusion.addInput(tv1);
-  auto tv2 = set(tv0);
-  auto tv3 = broadcast(tv2, {true, false});
-  auto tv4 = add(tv3, tv1);
-  fusion.addOutput(tv4);
-
-  tv4->merge(0);
-  tv4->split(0, 32);
-
-  tv0->computeAt(tv4, 1);
-
-  tv2->split(-1, 8);
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({123}, options);
-  at::Tensor t1 = at::randn({3, 123}, options);
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0, t1});
-
-  auto outputs = fe.runFusion({t0, t1});
-
-  testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionPredicateUnshare_CUDA) {
@@ -8025,16 +7992,14 @@ TEST_F(NVFuserTest, ReverseMerge) {
   ASSERT_TRUE(t0.equal(cg_outputs.at(0)));
 }
 
-// Can't use CpAsync with shared memory predicate.
-// https://github.com/NVIDIA/Fuser/issues/2346
-TEST_F(NVFuserTest, FusionCpAsyncPredicateError) {
+TEST_F(NVFuserTest, FusionCpAsyncPredicateAvoidIllegalMemoryAccess) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
   int m = 33, n = 48;
   TensorView* tv0 = makeContigTensor(2);
   fusion.addInput(tv0);
-  auto tv1 = exp(tv0);
+  auto tv1 = set(tv0);
   fusion.addOutput(tv1);
 
   auto tvs = tv0->cacheAfter(LoadStoreOpType::CpAsync);
@@ -8052,10 +8017,9 @@ TEST_F(NVFuserTest, FusionCpAsyncPredicateError) {
   at::Tensor t0 = at::randn({m, n}, options);
 
   FusionExecutor fe;
-  EXPECT_THAT(
-      [&]() { fe.compileFusion(&fusion, {t0}); },
-      ::testing::ThrowsMessage<nvfuser::nvfError>(
-          ::testing::HasSubstr("unsupported use case of cp.async")));
+  fe.compileFusion(&fusion, {t0});
+  auto cg_outputs = fe.runFusion({t0});
+  ASSERT_TRUE(t0.equal(cg_outputs.at(0)));
 }
 
 TEST_F(NVFuserTest, DecoupledDomains1) {
@@ -8853,159 +8817,6 @@ TEST_F(NVFuserTest, RAWSync) {
       [&]() { GpuLower(&fusion).run(); },
       testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
           "Producer is required to be in Global or Shared Memory based on parallelization strategy. RAW flags: (threadIdx.x)")));
-}
-
-// Testing IRBFS::getReachableValsFrom with a resize fusion
-TEST_F(NVFuserTest, IRBFSGetReachableValsFrom) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  std::vector<int64_t> shape({10, 20});
-
-  // concrete shapes to avoid dynamic Fusion
-  auto tv0 = makeConcreteTensor(shape);
-  fusion.addInput(tv0);
-
-  // Slice the inner domain
-  auto tv1 = slice(
-      tv0,
-      {{fusion.zeroVal(), fusion.zeroVal()},
-       {IrBuilder::create<Val>(1L), IrBuilder::create<Val>(99)}});
-
-  auto tv2 = set(tv1);
-
-  fusion.addOutput(tv2);
-
-  tv1->setLoopDomain(tv1->getRootDomain());
-
-  auto tv2_loop_id = tv0->getLoopDomain().at(1)->cloneWithoutRFactor();
-
-  IrBuilder::create<Resize>(
-      tv2->getLogicalDomain().at(1),
-      tv2_loop_id,
-      IrBuilder::create<Val>(-1, DataType::Index),
-      IrBuilder::create<Val>(-1, DataType::Index));
-
-  tv2->setLoopDomain({tv2->getLogicalDomain().at(0), tv2_loop_id});
-
-  // Just between iter domains in the same tensor. Unlike
-  // DependencyCheck, the direction doesn't matter
-  {
-    auto reachable_vals = IRBFS::getReachableValsFrom(
-        {tv1->getLogicalDomain().begin(), tv1->getLogicalDomain().end()},
-        {tv1->getRootDomain().begin(), tv1->getRootDomain().end()});
-    std::vector<Val*> ref{
-        tv1->getRootDomain().begin(), tv1->getRootDomain().end()};
-    EXPECT_EQ(reachable_vals, ref)
-        << "Root domain not reachable: " << tv1->toString();
-  }
-
-  // The tv2 loop domain is reachable from its logical domain
-  {
-    auto reachable_vals = IRBFS::getReachableValsFrom(
-        {tv2->getLogicalDomain().begin(), tv2->getLogicalDomain().end()},
-        {tv2->getLoopDomain().begin(), tv2->getLoopDomain().end()});
-    std::vector<Val*> ref{
-        tv2->getLoopDomain().begin(), tv2->getLoopDomain().end()};
-    EXPECT_EQ(reachable_vals, ref)
-        << "Loop domain not reachable: " << tv2->toString();
-  }
-
-  // If only one of the logical domain is given, only the domain that
-  // is dervied from it is returned
-  {
-    auto reachable_vals = IRBFS::getReachableValsFrom(
-        {tv2->getLogicalDomain().at(0)},
-        {tv2->getLoopDomain().begin(), tv2->getLoopDomain().end()});
-    std::vector<Val*> ref{tv2->getLoopDomain().at(0)};
-    EXPECT_EQ(reachable_vals, ref)
-        << "Loop domain not reachable: " << tv2->toString();
-  }
-}
-
-// Testing IRBFS::getValsBetween with a reshape fusion
-TEST_F(NVFuserTest, IRBFSGetValsBetween) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  std::vector<int64_t> shape({10, 20});
-
-  // concrete shapes to avoid dynamic Fusion
-  auto tv0 = makeConcreteTensor(shape);
-  fusion.addInput(tv0);
-
-  auto tv1 = reshape(tv0, shape, {shape[0] * shape[1]});
-
-  auto tv2 = reshape(tv1, {shape[0] * shape[1]}, {shape[1], shape[0]});
-
-  fusion.addOutput(tv2);
-
-  // Use the input 2D domain as the loop domain of all tensors
-  tv1->setLoopDomain(tv1->getRootDomain());
-  std::vector<IterDomain*> tv2_loop_domain{
-      tv0->getLoopDomain().at(0)->cloneWithoutRFactor(),
-      tv0->getLoopDomain().at(1)->cloneWithoutRFactor()};
-
-  IrBuilder::create<Merge>(
-      tv2->getRootDomain().at(0), tv2_loop_domain[0], tv2_loop_domain[1]);
-  tv2->setLoopDomain(tv2_loop_domain);
-
-  // Unlike DependencyCheck::getAllValsBetween, the direction doesn't
-  // matter.
-  {
-    auto all_vals = IRBFS::getValsBetween(
-        {tv2->getLogicalDomain().begin(), tv2->getLogicalDomain().end()},
-        {tv2->getLoopDomain().begin(), tv2->getLoopDomain().end()});
-    std::vector<Val*> ref;
-    for (auto id : tv2->getLogicalDomain()) {
-      ref.push_back(id);
-    }
-    for (auto id : tv2->getRootDomain()) {
-      ref.push_back(id);
-    }
-    for (auto id : tv2->getLoopDomain()) {
-      ref.push_back(id);
-    }
-    EXPECT_EQ(all_vals, ref);
-  }
-
-  // Since only one of the logical domain is given, it doesn't reach
-  // anywhere, returning an empty vector
-  {
-    auto all_vals = IRBFS::getValsBetween(
-        {tv2->getLogicalDomain().at(0)},
-        {tv2->getLoopDomain().begin(), tv2->getLoopDomain().end()});
-    EXPECT_TRUE(all_vals.empty());
-  }
-}
-
-TEST_F(NVFuserTest, FindDependencyWithIRBFSGetValsBetween) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  auto tv0 = makeSymbolicTensor(4);
-  fusion.addInput(tv0);
-
-  auto tv1 = set(tv0);
-
-  fusion.addOutput(tv1);
-
-  // [i0, i1, i2, i3]
-  tv1->merge(0, 2);
-  // [i0*i2, i1, i3]
-  tv1->merge(1, 2);
-  // [i0*i2, i1*i3]
-  tv1->reorder({{0, 1}});
-  // [i1*i3, i0*i2]
-
-  auto all_deps = IRBFS::getDependenciesTo(
-      {tv1->getLogicalDomain().begin(), tv1->getLogicalDomain().end()},
-      {tv1->axis(0)});
-
-  std::vector<Val*> ref{
-      tv1->getLogicalDomain().at(1), tv1->getLogicalDomain().at(3)};
-
-  EXPECT_EQ(all_deps, ref);
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.
