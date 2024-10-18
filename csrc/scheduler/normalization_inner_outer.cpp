@@ -414,7 +414,7 @@ std::pair<int64_t, int64_t> getBufferBatchSizeAndThreadsPerBlock(
     threads_per_block = scheduler_utils::roundUpPow2(threads_per_block);
     inner_batch = ceilDiv(after_vectorization, threads_per_block);
     if (after_vectorization % threads_per_block != 0) {
-      int reduced_threads_per_block = threads_per_block / 2;
+      int64_t reduced_threads_per_block = threads_per_block / 2L;
       if (after_vectorization % reduced_threads_per_block == 0 &&
           reduced_threads_per_block >= threads_per_block_min) {
         threads_per_block = reduced_threads_per_block;
