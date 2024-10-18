@@ -460,7 +460,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
         continue;
       }
       auto ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
-      auto mbarrier_it = ldst_mbarrier_map.find();
+      auto mbarrier_it = ldst_mbarrier_map.find(ldst);
       if (mbarrier_it == ldst_mbarrier_map.end()) {
         continue;
       }
