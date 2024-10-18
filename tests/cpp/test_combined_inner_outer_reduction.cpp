@@ -603,27 +603,22 @@ TEST_F(CombinedSchedulerTest, CombinedReduction) {
     tv->split(-1, 4);
     tv->axis(-1)->parallelize(ParallelType::Vectorize);
   }
-
   reduction_scheduler_utils::propagateParallelization(
-      &fusion,
       inner_reduction_tv,
       reference_tv_inner,
       true,
-      true,
       false,
       inner_reduction_tvs,
-      cached_inputs,
-      cached_outputs);
+      reduction_scheduler_utils::getUnrollVectorizableCachedTvs(
+          reference_tv_inner, true, cached_inputs, cached_outputs, {}));
   reduction_scheduler_utils::propagateParallelization(
-      &fusion,
       outer_reduction_tv,
       reference_tv_outer,
       true,
-      true,
       false,
       outer_reduction_tvs,
-      cached_inputs,
-      cached_outputs);
+      reduction_scheduler_utils::getUnrollVectorizableCachedTvs(
+          reference_tv_outer, true, cached_inputs, cached_outputs, {}));
 
   inlineMost();
   LaunchParams launch_constraints;
@@ -772,16 +767,13 @@ TEST_F(CombinedSchedulerTest, CombinedReductionMultiPerBlock) {
   const auto& selected_tvs_inner = scheduler_utils::getAllTvsFrom(
       inner_reduction_tvs, {partialResultReload});
   reduction_scheduler_utils::propagateParallelization(
-      &fusion,
       inner_reduction_tv,
       reference_tv_inner,
       true,
-      true,
       false,
       inner_reduction_tvs,
-      cached_inputs,
-      cached_outputs,
-      smem_consumers,
+      reduction_scheduler_utils::getUnrollVectorizableCachedTvs(
+          reference_tv_inner, true, cached_inputs, cached_outputs, {}),
       {selected_tvs_inner.begin(), selected_tvs_inner.end()});
 
   const auto& selected_tvs_outer =
@@ -789,16 +781,13 @@ TEST_F(CombinedSchedulerTest, CombinedReductionMultiPerBlock) {
   reduction_scheduler_utils::propagateTransformation(
       reference_tv_outer, {partialResultReload});
   reduction_scheduler_utils::propagateParallelization(
-      &fusion,
       outer_reduction_tv,
       reference_tv_outer,
       true,
-      true,
       false,
       outer_reduction_tvs,
-      cached_inputs,
-      cached_outputs,
-      smem_consumers,
+      reduction_scheduler_utils::getUnrollVectorizableCachedTvs(
+          reference_tv_outer, true, cached_inputs, cached_outputs, {}),
       {selected_tvs_outer.begin(), selected_tvs_outer.end()});
 
   std::vector<TensorView*> cached_gmem_temp{partialResult};
