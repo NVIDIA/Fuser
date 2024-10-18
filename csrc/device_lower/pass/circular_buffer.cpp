@@ -373,6 +373,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
     if (onlyOneSerialForLoopOnStack()) {
       for (auto it = mbarriers_to_wait_.begin();
            it != mbarriers_to_wait_.end();) {
+        auto wait = it->second;
         if (wait == nullptr) {
           ++it;
           continue;
