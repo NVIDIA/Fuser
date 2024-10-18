@@ -60,19 +60,23 @@ def test_matmul_nvf_benchmark(
         if layout == "TN" or layout == "NN":
             b = b.as_strided(size=[k, n], stride=[1, k])
 
-        with FusionDefinition() as fd:
-            matmul_fusion(fd, [a, b])
-
-        if not disable_validation:
-            eager_output = torch.matmul(a, b)
-            fd.validate([a, b], [eager_output])
-
-        if not disable_benchmarking:
+        if eager:
+            # NOTE: we never need to validate eager, as it is our baseline
             run_benchmark(
                 benchmark,
-                (lambda inps: torch.matmul(*inps)) if eager else fd.execute,
+                lambda ab: torch.matmul(*ab),
                 [a, b],
             )
+        else:
+            with FusionDefinition() as fd:
+                matmul_fusion(fd, [a, b])
+
+            if not disable_validation:
+                eager_output = torch.matmul(a, b)
+                fd.validate([a, b], [eager_output])
+
+            if not disable_benchmarking:
+                run_benchmark(benchmark, fd.execute, [a, b])
 
     except torch.OutOfMemoryError:
         pytest.skip("Test failed due to OutOfMemoryError")
