@@ -36,22 +36,28 @@ def test_matmul_nvf_benchmark(
     disable_validation: bool,
     disable_benchmarking: bool,
 ):
-    clear_cuda_cache()
     m, n, k, layout = config
-    a = torch.randn(m, k, device="cuda", dtype=dtype)
-    b = torch.randn(k, n, device="cuda", dtype=dtype)
 
-    if layout == "NT" or layout == "NN":
-        a = a.as_strided(size=[m, k], stride=[1, m])
-    if layout == "TN" or layout == "NN":
-        b = b.as_strided(size=[k, n], stride=[1, k])
+    clear_cuda_cache()
 
-    with FusionDefinition() as fd:
-        matmul_fusion(fd, [a, b])
+    try:
+        a = torch.randn(m, k, device="cuda", dtype=dtype)
+        b = torch.randn(k, n, device="cuda", dtype=dtype)
 
-    if not disable_validation:
-        eager_output = torch.matmul(a, b)
-        fd.validate([a, b], [eager_output])
+        if layout == "NT" or layout == "NN":
+            a = a.as_strided(size=[m, k], stride=[1, m])
+        if layout == "TN" or layout == "NN":
+            b = b.as_strided(size=[k, n], stride=[1, k])
 
-    if not disable_benchmarking:
-        run_benchmark(benchmark, fd.execute, [a, b])
+        with FusionDefinition() as fd:
+            matmul_fusion(fd, [a, b])
+
+        if not disable_validation:
+            eager_output = torch.matmul(a, b)
+            fd.validate([a, b], [eager_output])
+
+        if not disable_benchmarking:
+            run_benchmark(benchmark, fd.execute, [a, b])
+
+    except torch.OutOfMemoryError:
+        pytest.skip("Test failed due to OutOfMemoryError")

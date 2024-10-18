@@ -803,7 +803,7 @@ TEST_F(MatmulHostIrTest, HostIrMatmulOut) {
   TensorView* a = makeContigTensor(3);
   TensorView* b = makeContigTensor(3);
   TensorView* c = makeContigTensor(3);
-  auto matmul = IrBuilder::create<MatmulOp>(c, a, b);
+  auto* matmul = IrBuilder::create<MatmulOp>(c, a, b);
 
   hic->addInput(a);
   hic->addInput(b);
@@ -952,6 +952,64 @@ TEST_F(ReductionHostIrTest, Sum) {
 
   // validate
   EXPECT_TRUE(outputs[0].equal(at::sum(a_aten, 0)));
+}
+
+using IfThenElseTest = NVFuserTest;
+
+TEST_F(IfThenElseTest, HostIr) {
+  auto create_fusion_add_one = []() -> std::unique_ptr<Fusion> {
+    auto fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
+    auto input = makeContigTensor(1);
+    auto output = add(input, fusion->oneVal());
+    fusion->addInput(input);
+    fusion->addOutput(output);
+    fusion->aliasOutputToInput(output, input, AllocationType::ReuseBuffer);
+    return fusion;
+  };
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  auto* input_bool = IrBuilder::create<Val>(DataType::Bool);
+  auto* predicate = IrBuilder::create<kir::Predicate>(input_bool);
+  auto* if_then_else = IrBuilder::create<kir::IfThenElse>(predicate);
+
+  std::vector<Val*> shape = {hic->oneVal()};
+  auto* input_buffer = makeContigTensor(1);
+  auto* output_buffer = makeContigTensor(1);
+
+  auto add_one_to_buffer = IrBuilder::create<PostOnStream>(
+      IrBuilder::create<HostUnit>(create_fusion_add_one()),
+      std::vector<Val*>({input_buffer}),
+      std::vector<Val*>({output_buffer}));
+
+  if_then_else->thenBody().push_back(add_one_to_buffer);
+  if_then_else->thenBody().push_back(add_one_to_buffer);
+  if_then_else->elseBody().push_back(add_one_to_buffer);
+
+  hic->addInput(input_bool);
+  hic->addOutput(input_buffer);
+  hic->addOutput(output_buffer);
+  hic->pushBackTopLevelExprs(if_then_else);
+
+  HostIrExecutor hie(std::move(hic));
+
+  for (auto boolean : {true, false}) {
+    c10::IValue input_bool_c10 = c10::ivalue::from(boolean);
+    auto options =
+        at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
+    c10::IValue input_buffer_c10 = at::ones(1, options);
+    std::unordered_map<Val*, c10::IValue> concrete_inputs = {
+        {input_bool, input_bool_c10}, {input_buffer, input_buffer_c10}};
+
+    auto outputs = hie.runWithInput(concrete_inputs);
+
+    // validate
+    auto ref_output =
+        at::ones_like(input_buffer_c10.toTensor()) + (1 + (int)boolean);
+    EXPECT_TRUE(outputs.at(0).equal(ref_output));
+  }
 }
 
 } // namespace hir

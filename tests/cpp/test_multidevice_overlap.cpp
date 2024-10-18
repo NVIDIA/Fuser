@@ -334,7 +334,7 @@ TEST_F(
   TensorView* tvc_j = select(tvc, 0, j);
   TensorView* tvc_locally_reduced_j =
       select(tvc_locally_reduced, 0, stream_index);
-  auto matmul = IrBuilder::create<MatmulOp>(tvc_locally_reduced_j, tva_j, tvb);
+  auto* matmul = IrBuilder::create<MatmulOp>(tvc_locally_reduced_j, tva_j, tvb);
 
   // Setting the DeviceMesh of the communication's I/O is artificial but
   // required at this point

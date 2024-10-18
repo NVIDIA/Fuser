@@ -73,9 +73,9 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
   void duplicate() {
     // Cloning the circular buffer loop as follows:
     //
-    // Prologue: 0 to 1
-    // Main: 0 to (extent-1)
-    // Epilogue: (extent-1) to extent
+    // Prologue: 0 to prefetch_distance
+    // Main: 0 to (extent-prefetch_distance)
+    // Epilogue: (extent-prefetch_distance) to extent
 
     Val* index = GpuLower::current()->getLoopIndexVariable(
         circular_buffer_loop_->iter_domain(), loop_type_);
@@ -84,12 +84,15 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
     int64_t stage_depth =
         GpuLower::current()->circularBufferInfo().getStageDepthFor(
             circular_buffer_loop_->iter_domain());
+    int64_t prefetch_distance =
+        GpuLower::current()->circularBufferInfo().getPrefetchDistanceFor(
+            circular_buffer_loop_->iter_domain());
 
     switch (loop_type_) {
       case CircularBufferLoopStage::Prolog: {
         NVF_ERROR(start->isZeroInt());
         stop = SimplifyingIrBuilder::create<Val>(
-            int64_t(stage_depth - 1), DataType::Index);
+            prefetch_distance, DataType::Index);
         break;
       }
       case CircularBufferLoopStage::Main: {
@@ -97,7 +100,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
           stop = IrBuilder::subExpr(
               circular_buffer_loop_->stop(),
               SimplifyingIrBuilder::create<Val>(
-                  stage_depth - 1, DataType::Index));
+                  prefetch_distance, DataType::Index));
         }
         break;
       }
@@ -106,7 +109,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
         start = IrBuilder::subExpr(
             circular_buffer_loop_->stop(),
             SimplifyingIrBuilder::create<Val>(
-                stage_depth - 1, DataType::Index));
+                prefetch_distance, DataType::Index));
         break;
       }
       case CircularBufferLoopStage::NotApplicable: {
@@ -271,7 +274,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
 // }
 //
 // Prologue loop:
-// for (int64_t loop_index : irange(stages-1)) {
+// for (int64_t loop_index : irange(prefetch_distance)) {
 //   if (warp_id == 0 && electSync()()) {
 //     mbarrier::arriveExpectTx(mbarrier[loop_index], expected_bytes);
 //     for (...) {
@@ -283,9 +286,9 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
 // }
 //
 // Main loop:
-// for (int64_t loop_index : irange(N-(stage_depth-1))) {
+// for (int64_t loop_index : irange(N-prefetch_distance)) {
 //   current_stage = loop_index % stage_depth
-//   load_stage = (loop_index + (stage_depth - 1)) % stage_depth)
+//   load_stage = (loop_index + prefetch_distance) % stage_depth)
 //   if (warp_id == 0 && electSync()()) {
 //     mbarrier::arriveExpectTx(mbarrier[load_stage], expected_bytes);
 //     for (...) {
@@ -300,7 +303,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
 // }
 //
 // Epilogue loop:
-// for (int64_t loop_index : irange(N-(stages-1), N)) {
+// for (int64_t loop_index : irange(N-prefetch_distance, N)) {
 //   current_stage = loop_index % stage_depth
 //   mbarrier::waitParity((loop_index / stage_depth) % 2);
 //
@@ -398,6 +401,26 @@ class CloneTmaCircularBufferLoopAndInsertSync
       cloned_top_level_loop_->body().push_back(mbarrier_wait_);
       mbarrier_wait_ = nullptr;
     }
+  }
+
+  // Check if there is only one serial for-loop in the stack
+  bool onlyOneSerialForLoopOnStack() const {
+    return std::count_if(
+               for_loop_stack_.begin(), for_loop_stack_.end(), [](ForLoop* fl) {
+                 return fl->iter_domain()->getParallelType() ==
+                     ParallelType::Serial;
+               }) == 1;
+  }
+
+  Val* currentComputeStage() const {
+    int64_t stage_depth =
+        GpuLower::current()->circularBufferInfo().getStageDepthFor(
+            circular_buffer_loop_->iter_domain());
+    Val* result = IrBuilder::modExpr(
+        cloned_top_level_loop_->indexOrStartIfTrivial(),
+        IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
+    return GpuLower::current()->commonScalarMap().hoistScalar(
+        result, for_loop_stack_);
   }
 
   void processExpr(Expr* expr) final {
@@ -500,11 +523,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
 
     // If last cloned scope is the cloned_top_level_loop body, then add
     // mbarrier::arriveExpectTx and new loadStoreOp.
-    int64_t active_for_loops = std::count_if(
-        for_loop_stack_.begin(), for_loop_stack_.end(), [](ForLoop* fl) {
-          return fl->iter_domain()->getParallelType() == ParallelType::Serial;
-        });
-    if (active_for_loops == 1) {
+    if (onlyOneSerialForLoopOnStack()) {
       return addTmaLoadBlock(new_ldst);
     }
 
@@ -516,7 +535,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
   // Handle cpAsyncBulk type LoadStoreOp that is a circular buffer load
   //
   // compute_stage = loop_index % stage_depth
-  // load_stage = (loop_index + (stage_depth - 1)) % stage_depth)
+  // load_stage = (loop_index + prefetch_distance) % stage_depth)
   //
   // Replace LoadStoreOp with:
   //   if (warp_id == 0 && electSync()()) {
@@ -536,29 +555,15 @@ class CloneTmaCircularBufferLoopAndInsertSync
     int64_t stage_depth =
         GpuLower::current()->circularBufferInfo().getStageDepthFor(
             circular_buffer_loop_->iter_domain());
-
-    if (current_compute_stage_ == nullptr) {
-      current_compute_stage_ = IrBuilder::modExpr(
-          cloned_top_level_loop_->indexOrStartIfTrivial(),
-          IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
-      kir::Allocate* current_compute_stage_alloc =
-          IrBuilder::create<kir::Allocate>(
-              current_compute_stage_,
-              MemoryType::Local,
-              IrBuilder::create<Val>(1L, PrimDataType::Index),
-              /*zero_init=*/false);
-      cloned_top_level_loop_->body().push_back(current_compute_stage_alloc);
-      cloned_top_level_loop_->body().push_back(
-          current_compute_stage_->definition());
-    }
+    int64_t prefetch_distance =
+        GpuLower::current()->circularBufferInfo().getPrefetchDistanceFor(
+            circular_buffer_loop_->iter_domain());
 
     if (current_load_stage_ == nullptr) {
       current_load_stage_ = IrBuilder::modExpr(
           IrBuilder::addExpr(
               cloned_top_level_loop_->indexOrStartIfTrivial(),
-              IrBuilder::subExpr(
-                  IrBuilder::create<Val>(stage_depth, PrimDataType::Index),
-                  IrBuilder::create<Val>(1L, PrimDataType::Index))),
+              IrBuilder::create<Val>(prefetch_distance, PrimDataType::Index)),
           IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
       kir::Allocate* current_load_stage_alloc =
           IrBuilder::create<kir::Allocate>(
@@ -591,17 +596,11 @@ class CloneTmaCircularBufferLoopAndInsertSync
         mbarrier_wait_ == nullptr,
         "Expected mbarrier_wait to inactive for current TMA operation");
     mbarrier_wait_ = createMbarrierWait(
-        ldst,
-        current_compute_stage_,
-        cloned_top_level_loop_->indexOrStartIfTrivial());
+        ldst, cloned_top_level_loop_->indexOrStartIfTrivial());
 
     // If last cloned scope is the cloned_top_level_loop body, then add
     // mbarrier::arriveExpectTx, new loadStoreOp, and mbarrier_wait
-    int64_t active_for_loops = std::count_if(
-        for_loop_stack_.begin(), for_loop_stack_.end(), [](ForLoop* fl) {
-          return fl->iter_domain()->getParallelType() == ParallelType::Serial;
-        });
-    if (active_for_loops == 1) {
+    if (onlyOneSerialForLoopOnStack()) {
       addTmaLoadBlock(ldst);
       NVF_ERROR(mbarrier_wait_ != nullptr);
       for_loop_stack_.back()->body().push_back(mbarrier_wait_);
@@ -619,28 +618,16 @@ class CloneTmaCircularBufferLoopAndInsertSync
 
     // Construct mBarrier::wait for epilogue
     LoadStoreOp* ldst = expr->as<LoadStoreOp>();
-    int64_t stage_depth =
-        GpuLower::current()->circularBufferInfo().getStageDepthFor(
-            circular_buffer_loop_->iter_domain());
-    Val* epilogue_compute_stage = IrBuilder::modExpr(
-        cloned_top_level_loop_->indexOrStartIfTrivial(),
-        IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
 
     NVF_ERROR(
         mbarrier_wait_ == nullptr,
         "Expected mbarrier_wait to inactive for current TMA operation");
     mbarrier_wait_ = createMbarrierWait(
-        ldst,
-        epilogue_compute_stage,
-        cloned_top_level_loop_->indexOrStartIfTrivial());
+        ldst, cloned_top_level_loop_->indexOrStartIfTrivial());
 
     // If last cloned scope is the cloned_top_level_loop body, then add
     // mbarrier_wait
-    int64_t active_for_loops = std::count_if(
-        for_loop_stack_.begin(), for_loop_stack_.end(), [](ForLoop* fl) {
-          return fl->iter_domain()->getParallelType() == ParallelType::Serial;
-        });
-    if (active_for_loops == 1) {
+    if (onlyOneSerialForLoopOnStack()) {
       NVF_ERROR(mbarrier_wait_ != nullptr);
       for_loop_stack_.back()->body().push_back(mbarrier_wait_);
       mbarrier_wait_ = nullptr;
@@ -757,7 +744,6 @@ class CloneTmaCircularBufferLoopAndInsertSync
   // circular buffer stage.
   kir::MBarrierWaitParity* createMbarrierWait(
       LoadStoreOp* ldst,
-      Val* stage,
       Val* loop_index) {
     NVF_ERROR(ldst != nullptr);
     NVF_ERROR(loop_index != nullptr);
@@ -768,8 +754,8 @@ class CloneTmaCircularBufferLoopAndInsertSync
 
     // Get mbarrier for this circular buffer stage.
     TensorView* all_mbarriers = GpuLower::current()->ldstMBarrierMap().at(ldst);
-    kir::TensorIndex* stage_mbarrier =
-        IrBuilder::create<kir::TensorIndex>(all_mbarriers, stage);
+    kir::TensorIndex* stage_mbarrier = IrBuilder::create<kir::TensorIndex>(
+        all_mbarriers, currentComputeStage());
 
     // The mbarrier_parity for this circular buffer stage is:
     //   (loop_index / stage_depth) % 2
@@ -798,9 +784,6 @@ class CloneTmaCircularBufferLoopAndInsertSync
 
   // Mbarrier_ArriveExpectTx to add to cloned_top_level_loop
   kir::MBarrierArriveExpectTx* mbarrier_arrive_tx_ = nullptr;
-
-  // current_stage_index = (loop_index % stages)
-  Val* current_compute_stage_ = nullptr;
 
   // next_stage_index = (loop_index + (stages-1)) % stages
   Val* current_load_stage_ = nullptr;
@@ -990,15 +973,25 @@ class CircularBufferInserter : private kir::ExprMutator {
     insertion_info_.erase(loop);
   }
 
+  bool hasPrefetch(ForLoop* circular_buffer_loop) {
+    int64_t prefetch_distance =
+        GpuLower::current()->circularBufferInfo().getPrefetchDistanceFor(
+            circular_buffer_loop->iter_domain());
+    return prefetch_distance > 0;
+  }
+
   void insertTma(
       ForLoop* circular_buffer_loop,
       const std::vector<Expr*>& loads) {
     // Prologue loop:
     //  - launch only
     //  - arrive_expect_tx and tma load operations
-    ForLoop* prologue_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
-        circular_buffer_loop, loads, CircularBufferLoopStage::Prolog);
-    registerInsertBefore(circular_buffer_loop, prologue_loop);
+    if (hasPrefetch(circular_buffer_loop)) {
+      // If there is no prefetch, then we don't need a prologue loop.
+      ForLoop* prologue_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
+          circular_buffer_loop, loads, CircularBufferLoopStage::Prolog);
+      registerInsertBefore(circular_buffer_loop, prologue_loop);
+    }
 
     // Main loop:
     //  - Launch and wait
@@ -1006,6 +999,11 @@ class CircularBufferInserter : private kir::ExprMutator {
     ForLoop* main_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
         circular_buffer_loop, loads, CircularBufferLoopStage::Main);
     registerReplace(circular_buffer_loop, main_loop);
+
+    if (!hasPrefetch(circular_buffer_loop)) {
+      // If there is no prefetch, then we don't need a epilogue loop.
+      return;
+    }
 
     // We can use exclude argument in CloneTmaCircularBufferLoopAndInsertSync
     // clone to avoid duplicating allocations if main loop is trivial.
@@ -1024,9 +1022,13 @@ class CircularBufferInserter : private kir::ExprMutator {
   }
 
   void insert(ForLoop* circular_buffer_loop, const std::vector<Expr*>& loads) {
-    ForLoop* prologue_loop = CircularBufferLoopCloner::clone(
-        circular_buffer_loop, loads, CircularBufferLoopStage::Prolog);
-    registerInsertBefore(circular_buffer_loop, prologue_loop);
+    ForLoop* prologue_loop = nullptr;
+    if (hasPrefetch(circular_buffer_loop)) {
+      // If there is no prefetch, then we don't need a prologue loop.
+      prologue_loop = CircularBufferLoopCloner::clone(
+          circular_buffer_loop, loads, CircularBufferLoopStage::Prolog);
+      registerInsertBefore(circular_buffer_loop, prologue_loop);
+    }
 
     bool write_to_smem =
         std::any_of(loads.begin(), loads.end(), [](const Expr* expr) {
@@ -1044,16 +1046,17 @@ class CircularBufferInserter : private kir::ExprMutator {
       // If any of the circular buffered tensor in this circular buffer
       //  loop is async copy. We want to wait for the gmem loads to
       //  finish before synchronizing the block.
-      if (std::any_of(loads.begin(), loads.end(), ir_utils::isCpAsyncOp)) {
-        int64_t stage_depth =
-            GpuLower::current()->circularBufferInfo().getStageDepthFor(
+      has_cpasync =
+          std::any_of(loads.begin(), loads.end(), ir_utils::isCpAsyncOp);
+      if (prologue_loop != nullptr && has_cpasync) {
+        int64_t prefetch_distance =
+            GpuLower::current()->circularBufferInfo().getPrefetchDistanceFor(
                 circular_buffer_loop->iter_domain());
         kir::AsyncWait* cp_async_wait = IrBuilder::create<kir::AsyncWait>(
-            AsyncOpType::CpAsync, stage_depth - 2);
+            AsyncOpType::CpAsync, prefetch_distance - 1);
         prologue_loop->body().push_back(
             IrBuilder::create<kir::AsyncCommit>(AsyncOpType::CpAsync));
         registerInsertBefore(circular_buffer_loop, cp_async_wait);
-        has_cpasync = true;
       }
 
       // Insert the initial block sync before entering main loop.
@@ -1119,6 +1122,11 @@ class CircularBufferInserter : private kir::ExprMutator {
       registerInsertAfter(circular_buffer_loop, cp_async_wait_all);
     }
 
+    if (!hasPrefetch(circular_buffer_loop)) {
+      // If there is no prefetch, then we don't need a epilogue loop.
+      return;
+    }
+
     if (requireEpilogue(loads)) {
       // In the case where the main loop is trivial (for example, ldmatrix in
       // matmul kernel), we need to be careful when copying epilog loop. For
@@ -1157,13 +1165,13 @@ class CircularBufferInserter : private kir::ExprMutator {
     //  inserted so would need to be updated if we re-order the
     //  passes. Cleanups suggested in [Circular Buffer Sync]
     //  would resolve this dependency on pass ordering.
-    int64_t stage_depth =
-        GpuLower::current()->circularBufferInfo().getStageDepthFor(
+    int64_t prefetch_distance =
+        GpuLower::current()->circularBufferInfo().getPrefetchDistanceFor(
             main_loop->iter_domain());
     kir::AsyncCommit* cp_async_commit =
         IrBuilder::create<kir::AsyncCommit>(AsyncOpType::CpAsync);
     kir::AsyncWait* cp_async_wait = IrBuilder::create<kir::AsyncWait>(
-        AsyncOpType::CpAsync, stage_depth - 2);
+        AsyncOpType::CpAsync, std::max(0L, prefetch_distance - 1));
 
     // Find the last circular buffer load in the main loop, and insert
     // cp.async.commit after it.
@@ -1177,20 +1185,26 @@ class CircularBufferInserter : private kir::ExprMutator {
     std::vector<Expr*>::const_iterator commit_it = main_loop->body().insert(
         last_circular_buffer_load + 1, cp_async_commit);
 
-    // Check if a sync has been inserted by WAR sync pass.
-    auto rend = std::make_reverse_iterator(commit_it);
-    auto block_sync_it =
-        std::find_if(exprs.rbegin(), rend, [](const Expr* expr) {
-          return expr->isA<kir::BlockSync>();
-        });
-    if (block_sync_it == rend) {
-      // If there's no sync, i.e. no tensor needs cross thread communication. We
-      // still need a wait but it can just be anywhere after the cp.async.commit
-      // in the loop. Chose to place at the end arbitrarily.
-      main_loop->body().insert_after(exprs.back(), cp_async_wait);
+    if (prefetch_distance == 0) {
+      // If there is no prefetch, we must wait immediately after the commit
+      // because the consumption of the data is immediate.
+      main_loop->body().insert_after(cp_async_commit, cp_async_wait);
     } else {
-      // If a sync has been inserted, wait needs to be placed before the sync.
-      main_loop->body().insert_before(*block_sync_it, cp_async_wait);
+      // Check if a sync has been inserted by WAR sync pass.
+      auto rend = std::make_reverse_iterator(commit_it);
+      auto block_sync_it =
+          std::find_if(exprs.rbegin(), rend, [](const Expr* expr) {
+            return expr->isA<kir::BlockSync>();
+          });
+      if (block_sync_it == rend) {
+        // If there's no sync, i.e. no tensor needs cross thread communication.
+        // We still need a wait but it can just be anywhere after the
+        // cp.async.commit in the loop. Chose to place at the end arbitrarily.
+        main_loop->body().insert_after(exprs.back(), cp_async_wait);
+      } else {
+        // If a sync has been inserted, wait needs to be placed before the sync.
+        main_loop->body().insert_before(*block_sync_it, cp_async_wait);
+      }
     }
   }
 

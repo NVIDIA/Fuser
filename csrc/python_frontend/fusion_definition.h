@@ -264,6 +264,9 @@ class NVF_API FusionDefinition : public FusionState {
   //! Update Symbolic FusionStates after DynamicTransform pass
   void updateSymbolicStates(
       const std::unordered_map<Val*, Val*>& symbolic_to_concretized_map);
+  // Check that the NvFuser TensorView and the Python Tensor dimensions match.
+  // Apply after buildFusionIr
+  void verifyTensorDimensions();
 
   //! Holds the defined maximum length of a FusionDefinition in order to
   //! prevent a run away error. The user should feel free to increase this
