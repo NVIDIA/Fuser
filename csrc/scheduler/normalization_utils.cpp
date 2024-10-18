@@ -1265,6 +1265,7 @@ std::vector<TensorView*> movePersistentBufferToSmem(
       // transaction). In each transaction, different banks are visited, e.g.
       // transaction-1, threads 0-7 visit banks 0-31
       auto cached_tv = tv->cacheAfter();
+      // At this point, if cached_tv has multiple uses,  it becomes the persistent buffer instead of tv due to the way the persistent buffer selector works. To make tv remain as the persistent buffer, all of the uses must be privatized.
       const auto& consumers = ir_utils::consumerTvsOf(cached_tv);
       smem_consumers.push_back(cached_tv);
       for (auto i = 1; i < (int)consumers.size(); i++) {
