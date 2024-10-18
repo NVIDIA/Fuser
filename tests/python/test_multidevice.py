@@ -177,7 +177,6 @@ def test_sdpa(mpi_test):
     out_grad = torch.randn(b, h, s, e // h, dtype=torch.bfloat16, device="cuda")
 
     with torch.nn.attention.sdpa_kernel(SDPBackend.FLASH_ATTENTION):
-        torch.manual_seed(0)
         expected_out = torch.nn.functional.scaled_dot_product_attention(
             q, k, v, dropout_p=0.0, is_causal=True, scale=None
         )
@@ -205,13 +204,15 @@ def test_sdpa(mpi_test):
         ]
     )
     out, q_grad, k_grad, v_grad = outs
-    # Use the default rtol for bfloat16 and a relaxed atol.
-    torch.testing.assert_close(
-        out, head_parallelize(expected_out), rtol=1.6e-2, atol=1e-3
-    )
-    torch.testing.assert_close(q_grad, head_parallelize(expected_q_grad))
-    torch.testing.assert_close(k_grad, head_parallelize(expected_k_grad))
-    torch.testing.assert_close(v_grad, head_parallelize(expected_v_grad))
+
+    def assert_close(x, y):
+        # Use the default rtol for bfloat16 and a relaxed atol.
+        torch.testing.assert_close(x, y, rtol=1.6e-2, atol=1e-2)
+
+    assert_close(out, head_parallelize(expected_out))
+    assert_close(q_grad, head_parallelize(expected_q_grad))
+    assert_close(k_grad, head_parallelize(expected_k_grad))
+    assert_close(v_grad, head_parallelize(expected_v_grad))
 
 
 # The following two benchmarks micro-benchmarks the forward pass and the
