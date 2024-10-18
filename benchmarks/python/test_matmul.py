@@ -25,11 +25,11 @@ def load_matmul_problems():
         return list((int(m), int(n), int(k), layout) for m, n, k, layout in reader)
 
 
+@pytest.mark.parametrize("half_reduction", [False, True], ids=["fullred", "halfred"])
 @pytest.mark.parametrize("eager", [False, True], ids=["nvfuser", "eager"])
-@pytest.mark.parametrize("half_reduction", [False, True])
-@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16], ids=["fp16", "bf16"])
 @pytest.mark.parametrize(
-    "config", load_matmul_problems(), ids=lambda val: "_".join(str(v) for v in val)
+    "config", load_matmul_problems(), ids=lambda val: "-".join(str(v) for v in val)
 )
 def test_matmul_nvf_benchmark(
     benchmark,
