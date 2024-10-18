@@ -5,46 +5,48 @@
 import torch
 
 from nvfuser import FusionDefinition
+from utils import NVFuserTest
 
 
-def test_define_tensor_contiguous():
-    with FusionDefinition() as fd:
-        inp = fd.define_tensor([2, 3], contiguity=True)
-        out = fd.ops.add(inp, inp)
-        fd.add_output(out)
+class TestDefine(NVFuserTest):
+    def test_contiguous(self):
+        def fusion_func(fd: FusionDefinition):
+            inp = fd.define_tensor([2, 3], contiguity=True)
+            out = fd.ops.add(inp, inp)
+            fd.add_output(out)
 
-    inp_tensor = torch.randn(2, 3, device="cuda")
-    out_tensor = fd.execute([inp_tensor])[0]
-    torch.testing.assert_close(out_tensor, inp_tensor * 2)
-
-
-def test_define_tensor_noncontiguous():
-    with FusionDefinition() as fd:
-        inp = fd.define_tensor([2, 3])
-        out = fd.ops.add(inp, inp)
-        fd.add_output(out)
-
-    inp_tensor = torch.randn(8, device="cuda").as_strided([2, 3], [4, 1])
-    out_tensor = fd.execute([inp_tensor])[0]
-    torch.testing.assert_close(out_tensor, inp_tensor * 2)
+        in_tensor = torch.randn(2, 3, device="cuda")
+        out_tensors, _ = self.exec_nvfuser(fusion_func, [in_tensor])
+        torch.testing.assert_close(out_tensors[0], in_tensor * 2)
 
 
-def test_define_tensor_broadcast():
-    with FusionDefinition() as fd:
-        inp = fd.define_tensor([1, 2, 1], contiguity=True)
-        out = fd.ops.add(inp, inp)
-        fd.add_output(out)
+    def test_noncontiguous(self):
+        def fusion_func(fd: FusionDefinition):
+            inp = fd.define_tensor([2, 3])
+            out = fd.ops.add(inp, inp)
+            fd.add_output(out)
 
-    inp_tensor = torch.randn(1, 2, 1, device="cuda").as_strided([1, 2, 1], [0, 1, 0])
-    out_tensor = fd.execute([inp_tensor])[0]
-    torch.testing.assert_close(out_tensor, inp_tensor * 2)
+        in_tensor = torch.randn(8, device="cuda").as_strided([2, 3], [4, 1])
+        out_tensors, _ = self.exec_nvfuser(fusion_func, [in_tensor])
+        torch.testing.assert_close(out_tensors[0], in_tensor * 2)
 
-def test_define_tensor_stride_order():
-    with FusionDefinition() as fd:
-        inp = fd.define_tensor([1, 2], contiguity=True, stride_order=[0, 1])
-        out = fd.ops.add(inp, inp)
-        fd.add_output(out)
 
-    inp_tensor = torch.randn(1, 2, device="cuda")
-    out_tensor = fd.execute([inp_tensor])[0]
-    torch.testing.assert_close(out_tensor, inp_tensor * 2)
+    def test_broadcast(self):
+        def fusion_func(fd: FusionDefinition):
+            inp = fd.define_tensor([1, 2, 1], contiguity=True)
+            out = fd.ops.add(inp, inp)
+            fd.add_output(out)
+
+        in_tensor = torch.randn(1, 2, 1, device="cuda").as_strided([1, 2, 1], [0, 1, 0])
+        out_tensors, _ = self.exec_nvfuser(fusion_func, [in_tensor])
+        torch.testing.assert_close(out_tensors[0], in_tensor * 2)
+
+    def test_contiguity_with_stride_order(self):
+        def fusion_func(fd: FusionDefinition):
+            inp = fd.define_tensor([1, 2], contiguity=True, stride_order=[0, 1])
+            out = fd.ops.add(inp, inp)
+            fd.add_output(out)
+
+        in_tensor = torch.randn(1, 2, device="cuda")
+        out_tensors, _ = self.exec_nvfuser(fusion_func, [in_tensor])
+        torch.testing.assert_close(out_tensors[0], in_tensor * 2)
