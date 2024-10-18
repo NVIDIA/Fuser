@@ -425,6 +425,23 @@ TensorView* matmul(TensorView* tv_a, TensorView* tv_b) {
   return out;
 }
 
+namespace {
+template <typename T>
+void checkAllEqual(std::initializer_list<T> elements) {
+  for (const auto& element : elements) {
+    NVF_CHECK(
+        element == *elements.begin(),
+        "Expected all elements to be equal, but found ",
+        element,
+        " and ",
+        *elements.begin(),
+        " in [",
+        toDelimitedString(elements),
+        "]");
+  }
+}
+} // namespace
+
 SdpfaFwdResult sdpfa_fwd(
     TensorView* query,
     TensorView* key,
@@ -432,28 +449,12 @@ SdpfaFwdResult sdpfa_fwd(
     Val* dropout_p,
     Val* is_causal,
     Val* scale) {
-  NVF_CHECK(
-      query->dtype() == key->dtype() && query->dtype() == value->dtype(),
-      "Expected query, key, and value to have the same dtype but got: ",
-      query->dtype(),
-      " ",
-      key->dtype(),
-      " ,and ",
-      value->dtype());
+  checkAllEqual({query->dtype(), key->dtype(), value->dtype()});
 
   auto query_domain = TensorDomain::noReductions(query->getLogicalDomain());
   auto key_domain = TensorDomain::noReductions(key->getLogicalDomain());
   auto value_domain = TensorDomain::noReductions(value->getLogicalDomain());
-  NVF_CHECK(
-      query_domain.size() == key_domain.size(),
-      query_domain,
-      " vs ",
-      key_domain);
-  NVF_CHECK(
-      query_domain.size() == value_domain.size(),
-      query_domain,
-      " vs ",
-      value_domain);
+  checkAllEqual({query_domain.size(), key_domain.size(), value_domain.size()});
   NVF_CHECK(
       query_domain.size() == 4 || query_domain.size() == 5,
       "Expect Q/K/V to be either 4D or 5D. If 5D, the first dimension is "
@@ -533,20 +534,6 @@ SdpfaFwdResult sdpfa_fwd(
       scale);
   return {output, log_sumexp, philox_seed, philox_offset};
 }
-
-namespace {
-template <typename T>
-void checkAllEqual(std::initializer_list<T> elements) {
-  for (const auto& element : elements) {
-    NVF_CHECK(
-        element == *elements.begin(),
-        "Expected all elements to be equal, but found ",
-        element,
-        " and ",
-        *elements.begin());
-  }
-}
-} // namespace
 
 SdpfaBwdResult sdpfa_bwd(
     TensorView* grad_output,
