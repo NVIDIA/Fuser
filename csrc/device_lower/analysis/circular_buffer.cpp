@@ -295,12 +295,12 @@ ForLoop* CircularBufferInfo::getCircularBufferLoop(
   return getCircularBufferLoop(axis, loops, ignore_prologue);
 }
 
-std::unordered_set<const TensorView*> CircularBufferInfo::getCircularBufferTvs(
+std::vector<const TensorView*> CircularBufferInfo::getCircularBufferTvs(
     ForLoop* axis) const {
   return getCircularBufferTvs(axis->iter_domain());
 }
 
-std::unordered_set<const TensorView*> CircularBufferInfo::getCircularBufferTvs(
+std::vector<const TensorView*> CircularBufferInfo::getCircularBufferTvs(
     IterDomain* axis) const {
   auto concrete_id = lower_utils::getConcreteLoopID(axis);
 
