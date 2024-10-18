@@ -645,9 +645,7 @@ TEST_F(AllgatherOverlapTest, AllgatherBasedPipeliningATenImplementation) {
   }
 }
 
-TEST_F(
-    AllgatherOverlapTest,
-    AllgatherBasedPipeliningHostIrImplementation) {
+TEST_F(AllgatherOverlapTest, AllgatherBasedPipeliningHostIrImplementation) {
   auto hic = std::make_unique<hir::HostIrContainer>();
   FusionGuard::setCurFusion(hic.get());
 
@@ -754,7 +752,10 @@ TEST_F(
        c10::irange(params.number_of_iterations)) {
     initializeIO();
     std::unordered_map<Val*, c10::IValue> inputs = {
-        {tva, ta_}, {tva_allgathered, ta_allgathered_}, {tvb, tb_unsharded_}, {tvc, tc_unsharded_}};
+        {tva, ta_},
+        {tva_allgathered, ta_allgathered_},
+        {tvb, tb_unsharded_},
+        {tvc, tc_unsharded_}};
 
     hie.runWithInput(std::move(inputs));
     validate();
