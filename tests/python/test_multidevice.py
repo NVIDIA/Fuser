@@ -15,18 +15,19 @@ from nvfuser import DataType, FusionDefinition
 mpi_test = mpi_fixtures.mpi_test
 
 
-@pytest.mark.mpi
-def test_sizes_and_ranks(mpi_test):
-    size, rank, local_size, local_rank = (
-        mpi_test.size,
-        mpi_test.rank,
-        mpi_test.local_size,
-        mpi_test.local_rank,
-    )
-    assert size > 0
-    assert rank >= 0 and rank < size
-    assert local_size > 0
-    assert local_rank >= 0 and local_rank < local_size
+class TestMultidevice(utils.NVFuserTest):
+    @pytest.mark.mpi
+    def test_sizes_and_ranks(self, mpi_test):
+        size, rank, local_size, local_rank = (
+            mpi_test.size,
+            mpi_test.rank,
+            mpi_test.local_size,
+            mpi_test.local_rank,
+        )
+        assert size > 0
+        assert rank >= 0 and rank < size
+        assert local_size > 0
+        assert local_rank >= 0 and local_rank < local_size
 
 
 @pytest.mark.mpi
