@@ -412,7 +412,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
         GpuLower::current()->circularBufferInfo().getStageDepthFor(
             circular_buffer_loop_->iter_domain());
     Val* result = IrBuilder::modExpr(
-        circular_buffer_loop_->indexOrStartIfTrivial(),
+        cloned_top_level_loop_->indexOrStartIfTrivial(),
         IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
     return GpuLower::current()->commonScalarMap().hoistScalar(
         result, for_loop_stack_);
@@ -437,7 +437,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
         SimplifyingIrBuilder::divExpr(
             IrBuilder::maybeCastExpr(
                 DataType::UInt32,
-                circular_buffer_loop_->indexOrStartIfTrivial()),
+                cloned_top_level_loop_->indexOrStartIfTrivial()),
             depth),
         two);
     return GpuLower::current()->commonScalarMap().hoistScalar(
@@ -467,6 +467,10 @@ class CloneTmaCircularBufferLoopAndInsertSync
       auto wait_it = mbarriers_to_wait_.find(mbarrier);
       if (wait_it == mbarriers_to_wait_.end()) {
         continue;
+      }
+      auto &wait = wait_it->second;
+      if (wait == nullptr) {
+        wait = createMbarrierWait(ldst);
       }
       if (onlyOneSerialForLoopOnStack()) {
         for_loop_stack_.back()->body().push_back(wait_it->second);
@@ -681,8 +685,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
         // expression for this mbarrier.
         continue;
       }
-      auto wait = createMbarrierWait(ldst);
-      wait_exprs[mbarrier] = wait;
+      wait_exprs[mbarrier] = nullptr;
     }
     return wait_exprs;
   }
