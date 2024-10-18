@@ -702,12 +702,6 @@ class CloneTmaCircularBufferLoopAndInsertSync
         continue;
       }
       auto mbarrier = mbarrier_it->second;
-      if (wait_exprs.count(mbarrier) > 0) {
-        // It is possible that multiple TMA load operations share the same
-        // mbarrier. In this case, we only need to create a single wait
-        // expression for this mbarrier.
-        continue;
-      }
       wait_exprs[mbarrier] = nullptr;
     }
     return wait_exprs;
@@ -851,6 +845,11 @@ class CloneTmaCircularBufferLoopAndInsertSync
   // cloned loop before the first read, and after insertion, the entry will be
   // removed from this map indicating that this mbarrier is already waited, and
   // we don't need to wait for it again.
+  //
+  // Note that we intentionally design this map as a mbarrier -> wait, instead
+  // of ldst -> wait or tv -> wait, because multiple buffers and TMA load
+  // operations can share the same mbarrier. In this case, we only want to
+  // create a single wait expression to wait for all of them.
   std::unordered_map<TensorView*, kir::MBarrierWaitParity*> mbarriers_to_wait_;
 
   // Mbarrier_ArriveExpectTx to add to cloned_top_level_loop
