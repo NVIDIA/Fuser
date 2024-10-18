@@ -807,7 +807,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
     // Get mbarrier for this circular buffer stage.
     TensorView* all_mbarriers = GpuLower::current()->ldstMBarrierMap().at(ldst);
     kir::TensorIndex* stage_mbarrier = IrBuilder::create<kir::TensorIndex>(
-        all_mbarriers, currentComputeStage(loop_index));
+        all_mbarriers, currentComputeStage());
 
     kir::MBarrierWaitParity* mbarrier_wait =
         IrBuilder::create<kir::MBarrierWaitParity>(
