@@ -326,6 +326,14 @@ def cat_error_generator(op, dtype=torch.float32, requires_grad: bool = False, **
         yield SampleInput([make_arg(s) for s in shapes], dim), ex_type, ex_str
 
 
+def define_tensor_generator(op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs):
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+
+    yield SampleInput(make_arg([1, 2]), shape=[1, 2], contiguity=True, stride_order=[0, 1])
+
+
 def define_tensor_error_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
 ):

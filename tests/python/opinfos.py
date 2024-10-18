@@ -20,6 +20,7 @@ from opinfo_input_generators import (
     cat_error_generator,
     div_input_generator,
     define_tensor_error_generator,
+    define_tensor_generator,
     define_vector_constant_error_generator,
     elementwise_binary_generator,
     _elementwise_binary_torch,
@@ -78,6 +79,8 @@ fusion_input_ops = []
 define_tensor_opinfo = OpInfo(
     lambda fd: fd.define_tensor,
     "define_tensor",
+    sample_input_generator=define_tensor_generator,
+    fd_correctness_fn=tensor_input_fd_fn,
     error_input_generator=define_tensor_error_generator,
     fd_error_input_fn=tensor_input_fd_fn,
 )
