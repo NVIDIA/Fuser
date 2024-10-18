@@ -26,6 +26,9 @@
 #include <runtime/executor_utils.h>
 #include "mma_type.h"
 
+// TODO: This is only needed temporarily to check arch of current device
+#include "ATen/cuda/CUDAContext.h"
+
 namespace nvfuser {
 
 namespace {
@@ -542,6 +545,37 @@ class MultipleMatmulScheduler {
     // This also collects mma_results_
     defineOperandCaches();
 
+    // NOTE: In the future we should be able to simply check the generation of
+    // the macro instead of looking at the device properties here. However,
+    // until we have Hopper mma ready, we will be using Ampere macros on Hopper
+    // machines for testing. This means in order to trigger Hopper code, we need
+    // to look at the device instead of the macro for now. See commented
+    // conditions below.
+    const auto device_prop = at::cuda::getCurrentDeviceProperties();
+    const int cc = device_prop->major * 10 + device_prop->minor;
+    // wmma was introduced in sm_70 but ldmatrix was introduced in sm_75. We
+    // only support 7.5+
+    NVF_ERROR(
+        cc >= 75, "Only Turing and new (cc 7.5+) is supported but found ", cc);
+    // if (isAmpere(params_->mma_macro) || isTuring(params_->mma_macro)) {
+    if (cc >= 75 && cc < 90) {
+      scheduleAmpere();
+      //} else if (isHopper(params_->mma_macro)) {
+    } else if (cc < 100) {
+      scheduleHopper();
+    } else {
+      NVF_THROW("Unsupported MMA macro: ", toString(params_->mma_macro));
+    }
+
+    setUpInlining();
+
+    // set up circular buffering. This must come after everything up to
+    // mma_result is scheduled, since everything in the main loop will need to
+    // be rotated
+    setUpCircularBuffering();
+  }
+
+  void scheduleAmpere() {
     // Schedules:
     //   - global->smem (cp.async)
     //   - smem->register (ldmatrix)
@@ -557,13 +591,36 @@ class MultipleMatmulScheduler {
 
     // schedule splitk_sum
     scheduleSplitKSum();
+  }
 
-    setUpInlining();
+  // Ampere follows the pattern
+  //   gmem -> smem (cp.async) -> register (ldmatrix) -> mma op -> register ->
+  //                                                  epilogue -> smem -> gmem
+  //
+  // Hopper follows a different pattern from Ampere
+  //   gmem -> smem (TMA) -> mma op (async) -> register ->
+  //                                 epilogue -> smem (stmatrix) -> gmem (TMA)
+  // Because of the use of TMA, stmatrix, and async mma we must schedule much of
+  // the fusion differently for Hopper
+  void scheduleHopper() {
+    // TODO: ensure that there is only a single cached tensor between the gmem
+    // input and the mma instruction (unless there is a prologue).
+    // See https://github.com/NVIDIA/Fuser/issues/1628 for more information on
+    // this issue.
+    // NOTE: for Hopper matmul, we should segment such that there is no prologue
+    // and the input is already broadcasted (see canSchedulCompileTime in
+    // matmul_utils.cpp).
 
-    // set up circular buffering. This must come after everything up to
-    // mma_result is scheduled, since everything in the main loop will need to
-    // be rotated
-    setUpCircularBuffering();
+    schedulePrologues(/*use_tma=*/true);
+
+    // schedule mma instruction output (mma_result)
+    scheduleMmaResults();
+
+    // schedule epilogue
+    scheduleEpilogue();
+
+    // schedule splitk_sum
+    scheduleSplitKSum();
   }
 
  private:
@@ -984,7 +1041,8 @@ class MultipleMatmulScheduler {
   //! Starting from the basic tiled schedule, we swizzle the operand memory.
   //! Note that the cache op and LoadStoreOpType are already set during
   //! defineOperandCaches().
-  void scheduleOperandSmemStores() {
+  void scheduleOperandSmemStores(bool use_tma = false) {
+    NVF_ERROR(!use_tma, "TMA scheduling is not yet implemented");
     auto scheduleBranch = [&](const std::vector<TensorView*>& gmem_operands,
                               const std::vector<TensorView*>& smem_operands,
                               const int64_t vec_size) {
@@ -1203,9 +1261,9 @@ class MultipleMatmulScheduler {
     }
   }
 
-  void schedulePrologues() {
+  void schedulePrologues(bool use_tma = false) {
     // schedule all transfers from gmem to smem (acw_smems_ and bcw_smems_)
-    scheduleOperandSmemStores();
+    scheduleOperandSmemStores(use_tma);
 
     // Hold this vector so we can use it as a boundary to propagate backward
     // from each mma input.
