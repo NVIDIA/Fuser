@@ -665,7 +665,6 @@ TEST_F(
   }
 }
 
-
 class AllgatherOverlapTest : public MultiDeviceTest {
  protected:
   OverlapTestParams params;
