@@ -54,11 +54,11 @@ getIndexedConsumerToProducerMap(Fusion* fusion, const ComputeAtMap& ca_map) {
 }
 
 // Check if a root ID of a fusion input tensor that is indirectly
-// accessed by ops such as torch_gather needs to be mapped with
+// accessed by ops such as torchGather needs to be mapped with
 // a reference tensor. Select has a similar effect as squeeze as the
 // indexed domain is removed, so the domain does not need to be mapped
 // as long as the tensor is a fusion input. Similarly, in index_select
-// and torch_gather, if the output domain is a broadcast, it does not
+// and torchGather, if the output domain is a broadcast, it does not
 // need to be mapped if not resolved.
 bool canIgnoreIndexedInputDomainID(
     TensorView* input_tv,
@@ -83,9 +83,9 @@ bool canIgnoreIndexedInputDomainID(
         return false;
       }
     } else if (auto gather = dynamic_cast<TorchGatherOp*>(use)) {
-      // TODO: Remove this. Once slice is used for torch_gather, this
+      // TODO: Remove this. Once slice is used for torchGather, this
       // should not be necessary. For now, it is necessary to not
-      // break the existing torch_gather tests
+      // break the existing torchGather tests
       if (!gather->exactSizes()) {
         continue;
       }
