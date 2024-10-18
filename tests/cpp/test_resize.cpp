@@ -7884,7 +7884,6 @@ TEST_F(ResizeTest, RoPEFullBF16Global) {
       std::cerr << "After: " << tv->toString() << "\n";
     }
 
-    // Inlining
     for (auto tv : fusion.allTvs()) {
       if (tv->isFusionInput()) {
         continue;
@@ -7900,6 +7899,81 @@ TEST_F(ResizeTest, RoPEFullBF16Global) {
         tv->axis(1)->parallelize(ParallelType::TIDy);
       }
       tv->axis(0)->parallelize(ParallelType::BIDx);
+    }
+
+    std::cout << "Before inlining\n";
+    fusion.printMath();
+    std::cout << std::endl;
+
+    // Inlining
+    for (auto tv : fusion.allTvs()) {
+      if (tv->isFusionInput() || tv->isFusionOutput()) {
+        continue;
+      }
+
+      if (tv == cos_cache || tv == sin_cache) {
+        continue;
+      }
+
+      // Move broadcast inner
+      std::unordered_map<int64_t, int64_t> reorder;
+      int64_t pos = tv->getLoopDomain().size() - 1;
+      for (auto it = tv->getLoopDomain().rbegin() + 1;
+           it != tv->getLoopDomain().rend();
+           ++it) {
+        auto loop_id = *it;
+        if (loop_id->isBroadcast()) {
+          NVF_ERROR(pos > 0);
+          reorder.emplace(
+              tv->getLoopDomain().size() - 1 -
+                  std::distance(tv->getLoopDomain().rbegin(), it),
+              pos);
+          --pos;
+        }
+      }
+
+      if (!reorder.empty()) {
+        std::cerr << "Move broadcast inner:\n";
+        for (const auto& [k, v] : reorder) {
+          std::cerr << k << " -> " << v << "\n";
+        }
+        tv->reorder(reorder);
+        std::cerr << tv->toString() << "\n";
+      }
+    }
+
+    for (auto tv : fusion.allTvs()) {
+      if (tv->isFusionInput() || tv->isFusionOutput()) {
+        continue;
+      }
+
+      if (tv == cos_cache || tv == sin_cache) {
+        continue;
+      }
+
+      int64_t ca_pos = 4;
+
+      auto consumer_tvs = ir_utils::consumerTvsOf(tv);
+      for (auto consumer_tv : consumer_tvs) {
+        if (consumer_tv->axis(-1)->getParallelType() ==
+            ParallelType::Vectorize) {
+          --ca_pos;
+          tv->inlineAt(ca_pos);
+          std::cerr << tv->toString() << "\n";
+          continue;
+        }
+      }
+
+      auto def = tv->definition();
+      if (def->isA<SliceOp>()) {
+        --ca_pos;
+        tv->inlineAt(ca_pos);
+        std::cerr << tv->toString() << "\n";
+        continue;
+      }
+
+      tv->inlineAt(ca_pos);
+      std::cerr << tv->toString() << "\n";
     }
   }
 

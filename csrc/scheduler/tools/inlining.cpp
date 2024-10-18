@@ -170,6 +170,7 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
       ir_utils::isLoopDomainFullyDerivedFromLogicalDomain(consumer);
 
   if (may_need_forwarding) {
+    // std::cerr << "getMaxPosProd: forwarding\n";
     auto pairwise_logical_map = PairwiseLogicalDomainMap(producer, consumer);
     auto replay_CasP = BestEffortReplay::replayCasP(
         consumer, producer, -1, pairwise_logical_map);
@@ -193,6 +194,7 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
     }
     return producer->nDims();
   } else {
+    // std::cerr << "getMaxPosProd: non-forwarding\n";
     auto consumer_it = consumer->getLoopDomain().begin();
     for (const auto producer_pos : c10::irange(producer->nDims())) {
       auto p_id = producer->getLoopDomain().at(producer_pos);
@@ -228,9 +230,12 @@ size_t MaxPosCalculator::getMaxPosAll(
     bool best_effort,
     bool check_siblings) {
   auto max_pos = getMaxPosSelf(tv, best_effort, false, false, false);
+  std::cerr << "maxPosSelf of " << tv->toString() << " -> " << max_pos << "\n";
   for (auto consumer_tv : ir_utils::consumerTvsOf(tv)) {
     max_pos = std::min<size_t>(
         max_pos, getMaxProducerPosFromConsumer(tv, consumer_tv, best_effort));
+    std::cerr << "maxPosProd of " << consumer_tv->toString() << " -> "
+              << max_pos << "\n";
   }
   if (check_siblings) {
     for (auto sibling_tv : ir_utils::siblingTvsOf(tv)) {

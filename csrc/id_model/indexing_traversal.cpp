@@ -144,7 +144,7 @@ IndexingTraversal::ExprPath IndexingTraversal::getExprsBetween(
               root_to_logical_exprs.begin(),
               root_to_logical_exprs.end(),
               [](Expr* expr) { return expr->isA<Resize>(); })) {
-#if 0
+#if 1
         std::cerr << "Resize WAR: " << expr->toString();
         std::cerr << "From: " << toDelimitedString(from_domains) << "\n";
         std::cerr << "To: " << toDelimitedString(to_domains) << "\n";
@@ -154,8 +154,26 @@ IndexingTraversal::ExprPath IndexingTraversal::getExprsBetween(
             /*additional_tvs=*/{},
             /*build_graphs=*/false);
         const auto& local_graph = local_model.buildAlmostExactGraph();
-        // std::cerr << "Local graph: " << local_graph.toString() << "\n";
-        auto from_groups = local_graph.toGroups(from_domains);
+        // std::cerr << "Local graph: " << local_graph.toString() <<
+        // "\n";
+
+        // from_domains are loop domains, which are representative
+        // domains of loop groups and not necessarily domains of any
+        // of the producer and the consumer
+        std::vector<IterDomain*> consumer_from_domains(from_domains.size());
+        for (const auto i : c10::irange(from_domains.size())) {
+          auto consumer_id = consumer_tv->getLoopDomain().at(i);
+          auto from_id = from_domains.at(i);
+          NVF_ERROR(
+              graph.disjointValSets().strictAreMapped(consumer_id, from_id),
+              "Expected strict mapping: ",
+              consumer_id->toString(),
+              ", ",
+              from_id->toString());
+          consumer_from_domains.at(i) = consumer_id;
+        }
+
+        auto from_groups = local_graph.toGroups(consumer_from_domains);
         auto to_groups = local_graph.toGroups(to_domains);
 
         IndexingTraversal traversal(
