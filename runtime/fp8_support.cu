@@ -195,6 +195,10 @@ __device__ __inline__ __bfloat __e4m32bfloat(const __e4m3 h) {
   return val;
 }
 
+__device__ __inline__ __e4m3 operator|(const __e4m3 x, const __e4m3 y) {
+  return x.raw() | y.raw();
+}
+
 struct __e5m2;
 __device__ __inline__ __e5m2 __float2e5m2(const float);
 
@@ -382,4 +386,8 @@ __device__ __inline__ __bfloat __e5m22bfloat(const __e5m2 h) {
       : "h"(_tmp_buffer));
 
   return val;
+}
+
+__device__ __inline__ __e5m2 operator|(const __e5m2 x, const __e5m2 y) {
+  return x.raw() | y.raw();
 }

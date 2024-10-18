@@ -302,3 +302,11 @@ __device__ __inline__ bool __heq(const __bfloat a, const __bfloat b) {
 #endif
   return (val != 0U) ? true : false;
 }
+
+__device__ __inline__ __bfloat operator|(const __bfloat x, const __bfloat y) {
+  __bfloat val;
+  asm("{  or.b16 %0, %1, %2;}\n"
+      : "=h"(__NVFUSER_BFLOAT_TO_US(val))
+      : "h"(__NVFUSER_BFLOAT_TO_CUS(x)), "h"(__NVFUSER_BFLOAT_TO_CUS(y)));
+  return val;
+}
