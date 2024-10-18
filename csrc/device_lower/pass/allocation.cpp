@@ -76,22 +76,24 @@ Expr* initializeMbarrier(
       GpuLower::current()->parallelDimensionMap().get(ParallelType::TIDz);
   Val* all_threads_in_cta = SimplifyingIrBuilder::mulExpr(
       bdimx, SimplifyingIrBuilder::mulExpr(bdimy, bdimz));
-  if (all_threads_in_cta != nullptr) {
-    all_threads_in_cta = SimplifyingIrBuilder::maybeCastExpr(
-        DataType::UInt32, all_threads_in_cta);
-  } else {
-    // If all_threads_in_cta is nullptr, then this kernel is not parallelized
-    // on any of the thread dimensions.
-    all_threads_in_cta =
-        GpuLower::current()->kernel()->oneVal(DataType::UInt32);
-  }
+
+  Val* num_of_tvs_guarded = IrBuilder::create<Val>(
+      (int64_t)GpuLower::current()
+          ->circularBufferInfo()
+          .getCircularBufferTvs(circular_buffer_loop)
+          .size(),
+      DataType::UInt32);
+  Val* num_of_arrives =
+      SimplifyingIrBuilder::mulExpr(num_of_tvs_guarded, all_threads_in_cta);
+  num_of_arrives =
+      SimplifyingIrBuilder::maybeCastExpr(DataType::UInt32, num_of_arrives);
 
   // Initialize mbarrier for each circular buffer stage. Use the thread
   // count from the MBarrierInit created in the allocation pass. The wait
   // condition for mbarrier is a all threads in CTA and the expected number
   // of transaction bytes
   kir::MBarrierInit* mbarrier_init =
-      IrBuilder::create<kir::MBarrierInit>(stage_mbarrier, all_threads_in_cta);
+      IrBuilder::create<kir::MBarrierInit>(stage_mbarrier, num_of_arrives);
 
   Expr* pred_mbarrier_init = mbarrier_init->withPredicate(
       IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
@@ -595,121 +597,110 @@ class AllocationInserter : public kir::ExprMutator {
       }
     }
 
-    // Allocate mbarrier for cp.async.bulk, for non-circular buffered cases by
-    // lowering a single cp.async.bulk as:
-    //    alloc mbarrier
-    //    init mbarrier
-    //    block_sync
-    //    cp.async.bulk
-    //    inval mbarrier
-    //    block_sync
-    // Note that this is only a temporary solution, we should remove this after
-    // we have a better way to handle synchronizations for cp.async.bulk.
-    //
-    // The circular buffer case is handled in handle(ForLoop* fl) and the
-    // circular buffering pass.
-    if (ir_utils::isCpAsyncBulkLoad(expr) && circular_buffer_depth == 1) {
-      // create and allocate a memory barrier
-      TensorView* mbarrier = TensorViewBuilder()
-                                 .shape(std::vector<int64_t>{})
-                                 .dtype(DataType::UInt)
-                                 .contiguity(true)
-                                 .build();
-      mbarrier->setMemoryType(MemoryType::Shared);
-      auto mbarrier_init = IrBuilder::create<kir::MBarrierInit>(
-          mbarrier,
-          simplifyExpr(SimplifyingIrBuilder::maybeCastExpr(
-              DataType::UInt32,
-              lower_utils::getNumThreadsInTensorView(
-                  expr->output(0)->as<TensorView>()))));
-      auto sync_init = IrBuilder::create<kir::BlockSync>();
-      auto mbarrier_inval =
-          IrBuilder::create<kir::MBarrierInvalidate>(mbarrier);
-      auto sync_inval = IrBuilder::create<kir::BlockSync>();
+    // Allocate mbarrier for cp.async.bulk, note that this is only a temporary
+    // solution, we should remove this after we have a better way to handle
+    // synchronizations for cp.async.bulk.
+    if (ir_utils::isCpAsyncBulkLoad(expr)) {
+      if (circular_buffer_depth == 1) {
+        // create and allocate a memory barrier
+        TensorView* mbarrier = TensorViewBuilder()
+                                   .shape(std::vector<int64_t>{})
+                                   .dtype(DataType::UInt)
+                                   .contiguity(true)
+                                   .build();
+        mbarrier->setMemoryType(MemoryType::Shared);
+        auto mbarrier_init = IrBuilder::create<kir::MBarrierInit>(
+            mbarrier,
+            simplifyExpr(SimplifyingIrBuilder::maybeCastExpr(
+                DataType::UInt32,
+                lower_utils::getNumThreadsInTensorView(
+                    expr->output(0)->as<TensorView>()))));
+        auto sync_init = IrBuilder::create<kir::BlockSync>();
+        auto mbarrier_inval =
+            IrBuilder::create<kir::MBarrierInvalidate>(mbarrier);
+        auto sync_inval = IrBuilder::create<kir::BlockSync>();
 
-      kir::Allocate* mbarrier_alloc =
-          IrBuilder::create<kir::Allocate>(mbarrier, MemoryType::Shared);
-      Scope* expr_scope = scope_.empty() ? nullptr : scope_.back();
-      registerInsertBefore(expr, mbarrier_alloc, expr_scope);
-      registerInsertBefore(expr, mbarrier_init, expr_scope);
-      registerInsertBefore(expr, sync_init, expr_scope);
-      registerInsertAfter(expr, mbarrier_inval, expr_scope);
-      registerInsertAfter(expr, sync_inval, expr_scope);
-      GpuLower::current()->ldstMBarrierMap()[expr] = mbarrier;
+        kir::Allocate* mbarrier_alloc =
+            IrBuilder::create<kir::Allocate>(mbarrier, MemoryType::Shared);
+        Scope* expr_scope = scope_.empty() ? nullptr : scope_.back();
+        registerInsertBefore(expr, mbarrier_alloc, expr_scope);
+        registerInsertBefore(expr, mbarrier_init, expr_scope);
+        registerInsertBefore(expr, sync_init, expr_scope);
+        registerInsertAfter(expr, mbarrier_inval, expr_scope);
+        registerInsertAfter(expr, sync_inval, expr_scope);
+        GpuLower::current()->ldstMBarrierMap()[expr] = mbarrier;
+      }
     }
   }
 
   void handle(ForLoop* fl) final {
     ExprMutator::handle(fl);
 
-    // If fl is a circular buffered loop, the we should lowering the loop as:
-    //    alloc mbarrier
-    //    init mbarrier
-    //    block_sync
-    //    fl
-    //    inval mbarrier
-
     auto circular_buffer_tvs =
         GpuLower::current()->circularBufferInfo().getCircularBufferTvs(fl);
 
-    bool circular_buffer_load_is_tma = std::any_of(
-        circular_buffer_tvs.begin(),
-        circular_buffer_tvs.end(),
-        [](const TensorView* tv) {
-          return ir_utils::isCpAsyncBulkLoad(tv->definition());
-        });
+    bool circular_buffer_load_is_tma = false;
+    for (auto tv : circular_buffer_tvs) {
+      if (ir_utils::isCpAsyncBulkLoad(tv->definition())) {
+        circular_buffer_load_is_tma = true;
+        break;
+      }
+    }
 
     if (circular_buffer_load_is_tma) {
+      // Create and allocate a memory barrier. If this is a circular buffer,
+      // then allocate an array of mbarier objects. mbarrier::init and
+      // mbarrier::inval will be updated in circular buffering pass, but we
+      // add them here to handle shared memory correctly in alias memory pass.
+      int64_t circular_buffer_depth =
+          GpuLower::current()->circularBufferInfo().getStageDepthFor(
+              fl->iter_domain());
+
+      TensorView* mbarrier =
+          TensorViewBuilder()
+              .shape(std::vector<int64_t>{circular_buffer_depth})
+              .dtype(DataType::UInt)
+              .contiguity(true)
+              .build();
+      mbarrier->setMemoryType(MemoryType::Shared);
+
+      kir::Allocate* mbarrier_alloc =
+          IrBuilder::create<kir::Allocate>(mbarrier, MemoryType::Shared);
+
+      auto&& [pre_prologue_init, mbarrier_init] =
+          initializeMbarrier(fl, mbarrier);
+
+      auto&& [post_epilogue_inval, mbarrier_inval] =
+          invalidateMbarrier(fl, mbarrier);
+
+      // Block sync is necessary to finish mbarrier initialization.
+      kir::BlockSync* sync = IrBuilder::create<kir::BlockSync>(false);
+
+      // Add mbarriers, init, and inval operations around tma expression like
+      // this:
+      //
+      // __shared__ mbarrier[num_stages];
+      // for (circular_buffer_stage) {
+      //   init(mbarrier[stage]);
+      // }
+      // block_sync();
+      //
+      // for (circular_buffer_loop) {
+      //   cp.async.bulk(data, mbarrier);
+      // }
+      //
+      // for (circular_buffer_stage) {
+      //   inval(mbarrier[stage]);
+      // }
+      //
+      Scope* current_scope = scope_.empty() ? nullptr : scope_.back();
+      registerInsertBefore(fl, mbarrier_alloc, current_scope);
+      registerInsertBefore(fl, pre_prologue_init, current_scope);
+      registerInsertBefore(fl, sync, current_scope);
+      registerInsertAfter(fl, post_epilogue_inval, current_scope);
+
+      // Map LoadStoreOp expression to ir nodes created in this pass
       for (auto tv : circular_buffer_tvs) {
-        // Create and allocate a memory barrier. If this is a circular buffer,
-        // then allocate an array of mbarier objects. mbarrier::init and
-        // mbarrier::inval will be updated in circular buffering pass, but we
-        // add them here to handle shared memory correctly in alias memory pass.
-        int64_t circular_buffer_depth =
-            GpuLower::current()->circularBufferInfo().getStageDepthFor(
-                fl->iter_domain());
-
-        TensorView* mbarrier =
-            TensorViewBuilder()
-                .shape(std::vector<int64_t>{circular_buffer_depth})
-                .dtype(DataType::UInt)
-                .contiguity(true)
-                .build();
-        mbarrier->setMemoryType(MemoryType::Shared);
-
-        kir::Allocate* mbarrier_alloc =
-            IrBuilder::create<kir::Allocate>(mbarrier, MemoryType::Shared);
-
-        auto mbarrier_init = initializeMbarrier(fl, mbarrier);
-        auto mbarrier_inval = invalidateMbarrier(fl, mbarrier);
-
-        // Block sync is necessary to finish mbarrier initialization.
-        kir::BlockSync* sync = IrBuilder::create<kir::BlockSync>(false);
-
-        // Add mbarriers, init, and inval operations around tma expression like
-        // this:
-        //
-        // __shared__ mbarrier[num_stages];
-        // for (circular_buffer_stage) {
-        //   init(mbarrier[stage]);
-        // }
-        // block_sync();
-        //
-        // for (circular_buffer_loop) {
-        //   cp.async.bulk(data, mbarrier);
-        // }
-        //
-        // for (circular_buffer_stage) {
-        //   inval(mbarrier[stage]);
-        // }
-        //
-        Scope* current_scope = scope_.empty() ? nullptr : scope_.back();
-        registerInsertBefore(fl, mbarrier_alloc, current_scope);
-        registerInsertBefore(fl, mbarrier_init, current_scope);
-        registerInsertBefore(fl, sync, current_scope);
-        registerInsertAfter(fl, mbarrier_inval, current_scope);
-
-        // Map LoadStoreOp expression to ir nodes created in this pass
         GpuLower::current()->ldstMBarrierMap()[tv->definition()] = mbarrier;
       }
     }
