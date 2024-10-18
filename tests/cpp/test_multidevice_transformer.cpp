@@ -341,7 +341,6 @@ std::vector<TensorView*> mha(
   TensorView* sdpa_reshape =
       reshape(sdpa_transpose, {D, B, S, H / D, E / H}, {D, B * S, E / D});
   TensorView* local_matmul1 = matmul(sdpa_reshape, transpose(w1, 1, 2));
-  local_matmul1 = castOp(DataType::Float, local_matmul1);
   TensorView* matmul1 = sum(local_matmul1, {0}); // allreduce
   TensorView* linear1 = add(matmul1, broadcast(b1, {true, false}));
   // Dropout
