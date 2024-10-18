@@ -93,7 +93,9 @@ bool isReplaceableExpr(Expr* expr) {
 AxisOps setToAxisOps(LoadStoreOp* ldst) {
   NVF_ERROR(isSimpleTVSet(ldst));
   return AxisOps(
-      ldst->in()->as<TensorView>()->getLogicalDomain().size(),
+      TensorDomain::noReductions(
+          ldst->in()->as<TensorView>()->getLogicalDomain())
+          .size(),
       AxisOp::PRESERVE);
 }
 

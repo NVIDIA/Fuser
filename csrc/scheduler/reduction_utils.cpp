@@ -8,13 +8,13 @@
 #include <scheduler/reduction_utils.h>
 
 #include <expr_evaluator.h>
-#include <inlining.h>
 #include <ir/cloner.h>
 #include <ir/utils.h>
-#include <maxinfo_propagator.h>
 #include <multidevice/utils.h>
 #include <ops/arith.h>
 #include <scheduler/registry.h>
+#include <scheduler/tools/inlining.h>
+#include <scheduler/tools/maxinfo_propagator.h>
 #include <scheduler/utils.h>
 #include <transform_replay.h>
 
@@ -351,6 +351,7 @@ void multiReductionInliner(
     std::vector<TensorView*> reduction_tvs,
     std::vector<TensorView*> cached_inputs,
     std::vector<std::pair<TensorView*, TensorView*>> cached_outputs,
+    std::vector<TensorView*> smem_persistent_buffer_consumers,
     std::vector<TensorView*> dummy_outputs) {
   // Propagate transformations before we rfactor the other reductions
   propagateTransformation(reference_tv);
@@ -368,7 +369,8 @@ void multiReductionInliner(
       use_grouped_reduction,
       reduction_tvs,
       cached_inputs,
-      cached_outputs);
+      cached_outputs,
+      smem_persistent_buffer_consumers);
 
   // Remove dummy outputs as they can inadvertently affect CA positions
   for (auto output : dummy_outputs) {
@@ -434,6 +436,7 @@ void propagateParallelization(
     const std::vector<TensorView*>& reduction_tvs,
     const std::vector<TensorView*>& cached_inputs,
     const std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs,
+    const std::vector<TensorView*>& smem_persistent_buffer_consumers,
     const std::vector<TensorView*>& selected_tvs) {
   // Propagate parallelization except vectorization and unrolling
   scheduler_utils::parallelizeAllLike(
@@ -485,6 +488,19 @@ void propagateParallelization(
         }
       } else {
         are_unrolled.emplace(output);
+      }
+    }
+
+    if (vectorize) {
+      for (auto cached_smem_buffer : smem_persistent_buffer_consumers) {
+        // cached_smem_buffer was added in schedule process
+        // movePersistentBufferToSmem() using cacheAfter(), so it should be a
+        // LoadStoreOp.
+        NVF_ERROR(
+            vectorizable_expr(cached_smem_buffer->definition()),
+            "Expected a vectorizable expression, but got: ",
+            cached_smem_buffer->definition()->toString());
+        are_unrolled.emplace(cached_smem_buffer);
       }
     }
 

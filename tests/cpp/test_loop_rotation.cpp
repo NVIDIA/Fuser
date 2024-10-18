@@ -7,8 +7,8 @@
 // clang-format on
 #include <gtest/gtest.h>
 
-#include <inlining.h>
 #include <ops/all_ops.h>
+#include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
@@ -335,7 +335,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
        = T1[i6];
   }
   NVFUSER_UPDATE_MAGIC_ZERO;
-  #pragma unroll 1
+  #pragma unroll 5
   for(nvfuser_index_t i7 = 0LL; i7 < T0.logical_size[0LL]; ++i7) {
     nvfuser_index_t i8;
     i8 = 4LL + i7;
@@ -474,7 +474,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
        = T1[i8];
   }
   NVFUSER_UPDATE_MAGIC_ZERO;
-  #pragma unroll 1
+  #pragma unroll 5
   for(nvfuser_index_t i9 = 0LL; i9 < T0.logical_size[0LL]; ++i9) {
     nvfuser_index_t i10;
     i10 = 3LL * i9;
@@ -602,7 +602,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
   float T1[2LL];
   T1[0LL]
      = T4[0LL];
-  #pragma unroll 1
+  #pragma unroll 5
   for(nvfuser_index_t i7 = 0LL; i7 < T0.logical_size[0LL]; ++i7) {
     float* ptr8;
     ptr8 = ptr1 + (T0.alloc_stride[0LL] * i7);

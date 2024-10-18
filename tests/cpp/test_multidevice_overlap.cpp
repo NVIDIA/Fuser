@@ -171,6 +171,9 @@ class OverlapTest : public MultiDeviceTest {
   }
 
   void TearDown() override {
+    if (!communicator_->is_available()) {
+      return;
+    }
     validate();
     MultiDeviceTest::TearDown();
   }
@@ -181,6 +184,9 @@ class CollectiveBasedOverlapTest : public OverlapTest {
   at::Tensor tc_locally_reduced_;
   void SetUp() override {
     OverlapTest::SetUp();
+    if (!communicator_->is_available()) {
+      return;
+    }
 
     std::vector<int64_t> tc_locally_reduced_sizes = {
         std::min(params.S, params.number_of_streams),
@@ -297,6 +303,8 @@ TEST_F(
   TensorView* tva = makeSymbolicTensor(ta_.dim());
   TensorView* tvb = makeSymbolicTensor(tb_.dim());
   TensorView* tvc = makeSymbolicTensor(tc_.dim());
+  TensorView* tvc_locally_reduced =
+      makeSymbolicTensor(tc_locally_reduced_.dim());
   hic->addInput(tva);
   hic->addInput(tvb);
   hic->addInput(tvc);
@@ -315,7 +323,8 @@ TEST_F(
       /*vectorize=*/false,
       /*vectorize_shift=*/nullptr,
       /*unroll_required=*/false,
-      CircularBufferLoopStage::NotApplicable);
+      CircularBufferLoopStage::NotApplicable,
+      /*circular_buffer_loop_stage_depth=*/0);
 
   auto* stream_index = mod(j, IrBuilder::create<Val>(params.number_of_streams));
   auto* set_stream = IrBuilder::create<hir::SetCurrentStream>(
@@ -324,9 +333,8 @@ TEST_F(
   TensorView* tva_j = select(tva, 0, j);
   TensorView* tvc_j = select(tvc, 0, j);
   TensorView* tvc_locally_reduced_j =
-      matmul(tva_j, tvb); // ideally we should use the preallocated global
-                          // buffer tc_locally_reduced, but ExpressionEvaluator
-                          // do not support preallocated output buffer.
+      select(tvc_locally_reduced, 0, stream_index);
+  auto* matmul = IrBuilder::create<MatmulOp>(tvc_locally_reduced_j, tva_j, tvb);
 
   // Setting the DeviceMesh of the communication's I/O is artificial but
   // required at this point
@@ -355,6 +363,7 @@ TEST_F(
       tva_j->definition(),
       tvc_j->definition(),
       tvc_locally_reduced_j->definition(),
+      matmul,
       communication,
       wait};
   for (Expr* expr : loop_body) {
@@ -380,7 +389,8 @@ TEST_F(
       /*vectorize=*/false,
       /*vectorize_shift=*/nullptr,
       /*unroll_required=*/false,
-      CircularBufferLoopStage::NotApplicable);
+      CircularBufferLoopStage::NotApplicable,
+      /*circular_buffer_loop_stage_depth=*/0);
   auto* sync_stream = IrBuilder::create<hir::Synchronize>(
       IrBuilder::create<hir::Stream>(i_stream));
   for_loop_stream->body().push_back(sync_stream);
@@ -396,7 +406,10 @@ TEST_F(
        c10::irange(params.number_of_iterations)) {
     initializeIO();
     std::unordered_map<Val*, c10::IValue> inputs = {
-        {tva, ta_}, {tvb, tb_}, {tvc, tc_}};
+        {tva, ta_},
+        {tvb, tb_},
+        {tvc, tc_},
+        {tvc_locally_reduced, tc_locally_reduced_}};
 
     hie.runWithInput(std::move(inputs));
   }
@@ -410,6 +423,9 @@ class RingBasedOverlapTest : public OverlapTest {
 
   void SetUp() override {
     OverlapTest::SetUp();
+    if (!communicator_->is_available()) {
+      return;
+    }
 
     ASSERT_EQ(params.S % num_devices_, 0);
     number_of_steps_per_ring_ = num_devices_;
@@ -492,6 +508,140 @@ TEST_F(
     }
     synchronizeStreams(streams);
     torch::sum_out(tc_reshaped_, dst_buffer_, 0);
+  }
+}
+
+class AllgatherOverlapTest : public MultiDeviceTest {
+ protected:
+  OverlapTestParams params;
+
+  int64_t num_devices_;
+  int64_t my_device_index_;
+  std::vector<int64_t> all_devices_;
+  at::Tensor ta_unsharded_, tb_unsharded_, tc_unsharded_;
+  at::Tensor ta_, ta_allgathered_;
+  // stores the backend
+  c10d::Backend* world_communicator_;
+
+  // Define I/O and intermediate Tensor shapes
+  // A has shape (S, sharded(D), M/(S*D), K)
+  // B(K,N)
+  // C has shape (S, M/S, N)
+  std::vector<int64_t> ta_unsharded_sizes;
+  std::vector<int64_t> tb_unsharded_sizes;
+  std::vector<int64_t> tc_unsharded_sizes;
+  std::vector<int64_t> ta_sizes;
+
+  void SetUp() {
+    MultiDeviceTest::SetUp();
+
+    num_devices_ = communicator_->size();
+    my_device_index_ = communicator_->deviceId();
+    ASSERT_EQ(params.M % (num_devices_ * params.S), 0);
+
+    // Setup the world communicators
+    std::vector<int64_t> devices(num_devices_);
+    std::iota(devices.begin(), devices.end(), 0);
+    all_devices_ = std::move(devices);
+    world_communicator_ =
+        communicator_->getBackendForTeam(all_devices_, params.backend_type);
+
+    // Debug print
+    if (communicator_->deviceId() == 0 && debug_print) {
+      debug() << params << std::endl;
+    }
+
+    ta_unsharded_sizes = std::vector<int64_t>{
+        params.S, num_devices_, params.M / (num_devices_ * params.S), params.K};
+    tb_unsharded_sizes = std::vector<int64_t>{params.K, params.N};
+    tc_unsharded_sizes = std::vector<int64_t>{
+        params.S, num_devices_, params.M / (num_devices_ * params.S), params.N};
+    ta_sizes = std::vector<int64_t>{
+        params.S, params.M / (num_devices_ * params.S), params.K};
+
+    // Set up input tensors. We create the full unsharded tensors and define the
+    // actual input as the shard corresponding to the current device. Having the
+    // full unsharded input on each rank makes it possible to compute the
+    // expected result locally, hence, this way of doing is convenient for
+    // validating data correctness.
+    auto cpu_options = at::TensorOptions().dtype(at::kFloat);
+    at::TensorOptions gpu_options = cpu_options.device(communicator_->device());
+
+    ta_unsharded_ = at::empty(ta_unsharded_sizes, cpu_options);
+    tb_unsharded_ = at::empty(tb_unsharded_sizes, gpu_options);
+    tc_unsharded_ = at::empty(tc_unsharded_sizes, gpu_options);
+    ta_ = at::empty(ta_sizes, gpu_options);
+    ta_allgathered_ = at::empty(ta_unsharded_sizes, gpu_options);
+
+    // Debug print
+    if (communicator_->deviceId() == 0 && debug_print) {
+      debug() << "ta_unsharded_sizes()=" << ta_unsharded_.sizes() << std::endl
+              << "tb_unsharded_sizes()=" << tb_unsharded_.sizes() << std::endl
+              << "tc_unsharded_sizes()=" << tc_unsharded_.sizes() << std::endl;
+    }
+  }
+
+  // Each rank calls uniform_ and gets the same values for ta_ and tb_ because
+  // the random seed is initialized the same Therefore, we do not need to have
+  // one rank generate ta_ and tb_ and broadcast it to the rest of the ranks
+  void initializeIO() {
+    ta_unsharded_.uniform_();
+    tb_unsharded_.uniform_();
+    ta_.copy_(ta_unsharded_.select(1, my_device_index_));
+  }
+
+  void validate() {
+    // compute the expected output for data correctness validation
+    auto tc_unsharded_expected_ =
+        torch::matmul(ta_unsharded_, tb_unsharded_.cpu());
+    EXPECT_TRUE(
+        tc_unsharded_.cpu().allclose(tc_unsharded_expected_, 1e-1, 1e-1))
+        << "Unexpected results, obtained: " << tc_unsharded_
+        << "expected: " << tc_unsharded_expected_;
+  }
+};
+// This test implements an allgather-based pipelining overlapping technique,
+// similar to the above reduce-scattered based pipelining overlapping technique
+TEST_F(AllgatherOverlapTest, AllgatherBasedPipeliningATenImplementation) {
+  std::vector<c10::cuda::CUDAStream> streams;
+  std::generate_n(
+      std::back_inserter(streams),
+      params.number_of_streams,
+      [my_device_index = my_device_index_]() {
+        return c10::cuda::getStreamFromPool(
+            /*isHighPriority=*/false, my_device_index);
+      });
+
+  for ([[maybe_unused]] const auto& _ :
+       c10::irange(params.number_of_iterations)) {
+    initializeIO();
+
+    for (auto j : c10::irange(params.S)) {
+      int64_t stream_index = j % streams.size();
+      setCurrentCUDAStream(streams.at(stream_index));
+
+      // communication
+      auto ta_j =
+          ta_.select(0, j); // params.M / (num_devices_ * params.S), params.K
+      auto ta_allgathered_j = ta_allgathered_.select(0, j);
+      world_communicator_
+          ->_allgather_base(
+              ta_allgathered_j, ta_j) // num_devices_, params.M / (num_devices_
+                                      // * params.S), params.K
+          ->wait();
+
+      // local compute
+      auto tc_j = tc_unsharded_.select(
+          0, j); // num_devices_, params.M / (num_devices_ * params.S), params.N
+      torch::matmul_out(
+          tc_j,
+          ta_allgathered_j,
+          tb_unsharded_); // num_devices_, params.M / (num_devices_ * params.S),
+                          // params.N
+    }
+
+    synchronizeStreams(streams);
+    validate();
   }
 }
 

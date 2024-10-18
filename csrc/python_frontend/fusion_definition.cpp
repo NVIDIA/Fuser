@@ -95,6 +95,7 @@ void FusionDefinition::finalizeDefinition() {
       }
 
       buildFusionIr(preschedFusion());
+      verifyTensorDimensions();
     } catch (const std::exception& e) {
       // Exception thrown after fusionCache()->createChild wouldn't be visible
       // by fusion cache, if the exception is suppressed on the python side. We
@@ -189,6 +190,23 @@ void FusionDefinition::updateSymbolicStates(
   }
 }
 
+void FusionDefinition::verifyTensorDimensions() {
+  NVF_CHECK(id().has_value(), "Invalid fusion id!");
+
+  std::vector<Tensor> all_tensors = tensors();
+  for (const Tensor& t : all_tensors) {
+    Val* v = getFusionState(t.index);
+    NVF_ERROR(v->isA<TensorView>(), v->toString());
+    const int64_t tv_ndims = v->as<TensorView>()->nDims();
+    NVF_ERROR(
+        tv_ndims == (int64_t)t.dims,
+        "Expected TensorView to have same number of dimensions as Tensor but got: ",
+        tv_ndims,
+        " and ",
+        t.dims);
+  }
+}
+
 bool FusionDefinition::existSchedule(const at::ArrayRef<c10::IValue>& inputs) {
   FUSER_PERF_SCOPE("FusionDefinition::existsSchedule");
   NVF_CHECK(id().has_value(), "FusionDefinition definition does not exist!");
@@ -199,7 +217,9 @@ bool FusionDefinition::existSchedule(const at::ArrayRef<c10::IValue>& inputs) {
   return fusionCache()->existUserSchedule(scheds, inputs, device);
 }
 
-void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
+void FusionDefinition::setupSchedule(
+    const at::ArrayRef<c10::IValue>& inputs,
+    bool overwrite_existing_schedule) {
   FUSER_PERF_SCOPE("FusionDefinition::setupSchedule");
   NVF_CHECK(id().has_value(), "FusionDefinition definition does not exist!");
   FusionSchedules* scheds = fusionCache()->queryFusionSchedules(id().value());
@@ -216,7 +236,8 @@ void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
     recording_state_.pop_back();
   }
 
-  user_sched_ = fusionCache()->createUserSchedule(scheds, inputs, device);
+  user_sched_ = fusionCache()->createUserSchedule(
+      scheds, inputs, device, overwrite_existing_schedule);
 
   // Building a new Fusion container for scheduling with definition such that
   // the definition's tensor data members refer to the corresponding IR objects

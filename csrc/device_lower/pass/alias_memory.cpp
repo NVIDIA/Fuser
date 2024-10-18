@@ -894,29 +894,11 @@ class AllocationInfoMap : private kir::IrVisitor {
           ? init->mbarrier()->as<kir::TensorIndex>()->view()
           : init->mbarrier()->as<TensorView>();
       mark_liveness(tv, /*is_write=*/true);
-
-      // Register start of lifetime for a mbarrier token returned by
-      // MBarrierArriveExpectTx and MBarrierArrive.
-      if (GpuLower::current()->tmaCircularBufferInfo().existsMBarrierToken(
-              expr)) {
-        mark_liveness(
-            GpuLower::current()->tmaCircularBufferInfo().getMBarrierToken(expr),
-            /*is_write=*/true);
-      }
     } else if (auto inval = dynamic_cast<kir::MBarrierInvalidate*>(expr)) {
       TensorView* tv = (inval->mbarrier()->isA<kir::TensorIndex>())
           ? inval->mbarrier()->as<kir::TensorIndex>()->view()
           : inval->mbarrier()->as<TensorView>();
       mark_liveness(tv, /*is_write=*/false);
-
-      // Register end of lifetime for a mbarrier token returned by
-      // returned by MBarrierArriveExpectTx and MBarrierArrive
-      if (GpuLower::current()->tmaCircularBufferInfo().existsMBarrierToken(
-              expr)) {
-        mark_liveness(
-            GpuLower::current()->tmaCircularBufferInfo().getMBarrierToken(expr),
-            /*is_write=*/false);
-      }
     }
   }
 

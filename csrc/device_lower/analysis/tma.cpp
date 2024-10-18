@@ -5,12 +5,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <abstract_tensor.h>
 #include <device_lower/analysis/tma.h>
 #include <device_lower/lower2device.h>
 #include <id_model/id_model.h>
 #include <id_model/schedule.h>
 #include <ir/utils.h>
+#include <scheduler/tools/abstract_tensor.h>
 #include <val_graph.h>
 #include <val_graph_visitor.h>
 

@@ -43,6 +43,7 @@ enum RecordType: int {
     CastVal,
     CatOp,
     End,
+    ExpandOp,
     FullOp,
     IotaOp,
     IndexSelectOp,
@@ -306,6 +307,7 @@ table Slice {
 // Data for SqueezeOpRecord
 table Squeeze {
   squeeze_dims: [long];
+  squeeze_expanded: bool;
 }
 
 // Data for TensorRecord

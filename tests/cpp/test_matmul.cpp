@@ -18,7 +18,6 @@
 #include <fusion.h>
 #include <fusion_profiler.h>
 #include <fusion_segmenter.h>
-#include <inlining.h>
 #include <ir/all_nodes.h>
 #include <ir/graphviz.h>
 #include <ir/iostream.h>
@@ -37,6 +36,7 @@
 #include <scheduler/matmul.h>
 #include <scheduler/mma_utils.h>
 #include <scheduler/reduction_utils.h>
+#include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
 #include <sys_utils.h>
 #include <tests/cpp/utils.h>
@@ -3613,6 +3613,11 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
   constexpr auto swizzle = MmaInputSmemSwizzle::B128;
   const auto dtype = DataType::Half;
 
+  constexpr int64_t stages = 4;
+  constexpr int64_t prefetch = 3;
+  const int64_t cta_m = 1 * getM(macro);
+  const int64_t cta_n = 1 * getN(macro);
+
   auto tv0 = makeContigConcreteTensor({-1, -1, 1}, dtype);
   auto tv1 = makeContigConcreteTensor({-1, 1, -1}, dtype);
   fusion.addInput(tv0);
@@ -3651,8 +3656,8 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
   // register [M, N, rK] -cast-> register [M, N] -set-> gmem [M, N]
 
   // Create tiles
-  tv2->split(-3, getM(macro));
-  tv2->split(-2, getN(macro));
+  tv2->split(-3, cta_m);
+  tv2->split(-2, cta_n);
   tv2->split(-1, getK(macro));
   // [Mo, Mi, No, Ni, Ko, Ki] -> [Mo, No, Ko, Mi, Ni, Ki]
   tv2->reorder({{-5, -3}, {-3, -2}});
@@ -3669,6 +3674,23 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
   // [..., Mi, Ni, Ki] -> [..., Mi, Ki, Ni]
   tv1c->reorder({{-1, -2}});
   tv1c->applyMmaSwizzleForTMALoad(swizzle);
+
+  {
+    tv2->split(-3, getM(macro));
+    tv2->split(-2, getN(macro));
+    // [Mo, No, Ko, Mio, Mii, Nio, Nii, Ki]
+    // -> [Mo, No, Ko, Mio, Nio, Mii, Nii, Ki]
+    tv2->reorder({{-4, -3}});
+    tv2->merge(-5);
+    tv2->axis(-4)->parallelize(ParallelType::TIDy);
+    scheduler_utils::BoundedDirectionalTransformPropagator::forward(
+        tv2,
+        -1,
+        {tv3},
+        scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+            .propagateParallelType()
+            .propagateToBoundary());
+  }
 
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
@@ -3688,8 +3710,8 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
 
   inlineMost();
 
-  tv0c->circularBuffer(/*number_of_stages=*/4);
-  tv1c->circularBuffer(/*number_of_stages=*/4);
+  tv0c->circularBuffer(stages, prefetch);
+  tv1c->circularBuffer(stages, prefetch);
 
   auto inputs =
       matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));

@@ -367,6 +367,18 @@ struct IterDomainDependencySorter {
   const IterDomain* kernel_scope_domain_ = nullptr;
 };
 
+// Check if all the inputs of the given MmaOp is guarded by mbarrier
+bool allMmaInputsGuardedByMBarrier(const MmaOp* mma);
+
+// Create a list of expressions that will be used to wait for async operations.
+// For example, if op_type is AsyncOpType::WgMma, then the returned expressions
+// will be:
+//   wgmma.commit_group.sync.aligned
+//   wgmma.wait_group.sync.aligned
+std::vector<Expr*> getSyncExprs(
+    AsyncOpType async_type,
+    int64_t keep_stages = 0);
+
 } // namespace lower_utils
 
 } // namespace nvfuser

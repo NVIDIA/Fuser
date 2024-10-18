@@ -67,16 +67,20 @@ class IndexLowering : private OptOutConstDispatch {
   void handle(const SliceOp*) final;
   void handle(const CatOp*) final;
 
+  void handle(const kir::Asm*) final;
   void handle(const ForLoop*) final;
   void handle(const kir::IfThenElse*) final;
   void handle(const kir::Allocate*) final;
   void handle(const kir::BlockSync*) final;
   void handle(const kir::GridSync*) final;
+  void handle(const kir::FenceAsyncProxy*) final;
+  void handle(const kir::WgMmaFence*) final;
   void handle(const kir::MBarrierInit*) final;
   void handle(const kir::MBarrierInvalidate*) final;
   void handle(const kir::MBarrierArrive*) final;
   void handle(const kir::MBarrierArriveExpectTx*) final;
   void handle(const kir::MBarrierWait*) final;
+  void handle(const kir::MBarrierWaitParity*) final;
   void handle(const kir::AsyncWait*) final;
   void handle(const kir::AsyncCommit*) final;
   void handle(const kir::BlockSerializeWait*) final;

@@ -5,7 +5,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <inlining.h>
 #include <instrumentation.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/normalization_inner_outer.h>
@@ -13,6 +12,7 @@
 #include <scheduler/reduction_utils.h>
 #include <scheduler/registry_utils.h>
 #include <scheduler/runtime_info.h>
+#include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
 
 #include <ATen/cuda/CUDAContext.h>
@@ -892,7 +892,8 @@ void scheduleInnerOuterPersistentKernel(
 
   // Grab the reduction, input, and output tensor views. dummy_outputs are
   // helper tensors for persistent buffer projection.
-  std::vector<TensorView*> dummy_outputs, cached_inputs, reduction_tvs;
+  std::vector<TensorView*> dummy_outputs, cached_inputs, reduction_tvs,
+      smem_consumers;
   std::vector<std::pair<TensorView*, TensorView*>> cached_outputs;
   normalization_scheduler_utils::beforeSchedule(
       fusion,
@@ -900,6 +901,7 @@ void scheduleInnerOuterPersistentKernel(
       dummy_outputs,
       cached_inputs,
       reduction_tvs,
+      smem_consumers,
       cached_outputs);
 
   // split reduction_tvs into inner and outer reduction_tvs
@@ -973,6 +975,7 @@ void scheduleInnerOuterPersistentKernel(
       inner_reduction_tvs,
       cached_inputs,
       cached_outputs,
+      smem_consumers,
       {selected_tvs_inner.begin(), selected_tvs_inner.end()});
 
   // Propagate outer reduction. Each outer reduction is connected with its
@@ -997,6 +1000,7 @@ void scheduleInnerOuterPersistentKernel(
         outer_reduction_tvs,
         cached_inputs,
         cached_outputs,
+        smem_consumers,
         {selected_tvs_outer.begin(), selected_tvs_outer.end()});
   }
 

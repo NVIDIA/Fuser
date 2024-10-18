@@ -10,13 +10,13 @@
 #include <gtest/gtest.h>
 
 #include <grouped_reduction.h>
-#include <inlining.h>
 #include <ir/utils.h>
 #include <ops/all_ops.h>
 #include <runtime/fusion_executor_cache.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/normalization_utils.h>
 #include <scheduler/reduction_utils.h>
+#include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
@@ -764,6 +764,9 @@ TEST_F(CombinedSchedulerTest, CombinedReductionMultiPerBlock) {
     std::cout << "reference_tv_outer " << reference_tv_outer->toString()
               << std::endl;
 
+  // empty in this test
+  std::vector<TensorView*> smem_consumers;
+
   reduction_scheduler_utils::propagateTransformation(
       reference_tv_inner, {partialResultReload});
   const auto& selected_tvs_inner = scheduler_utils::getAllTvsFrom(
@@ -778,6 +781,7 @@ TEST_F(CombinedSchedulerTest, CombinedReductionMultiPerBlock) {
       inner_reduction_tvs,
       cached_inputs,
       cached_outputs,
+      smem_consumers,
       {selected_tvs_inner.begin(), selected_tvs_inner.end()});
 
   const auto& selected_tvs_outer =
@@ -794,6 +798,7 @@ TEST_F(CombinedSchedulerTest, CombinedReductionMultiPerBlock) {
       outer_reduction_tvs,
       cached_inputs,
       cached_outputs,
+      smem_consumers,
       {selected_tvs_outer.begin(), selected_tvs_outer.end()});
 
   std::vector<TensorView*> cached_gmem_temp{partialResult};

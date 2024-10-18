@@ -7,12 +7,12 @@
 // clang-format on
 #pragma once
 
-#include <abstract_tensor.h>
 #include <exceptions.h>
 #include <fusion.h>
 #include <id_model/id_model.h>
 #include <mma_type.h>
 #include <scheduler/matmul_heuristic.h>
+#include <scheduler/tools/abstract_tensor.h>
 #include <val_graph.h>
 #include <visibility.h>
 

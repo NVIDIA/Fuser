@@ -118,11 +118,14 @@ class Val;
   f(Asm);                             \
   f(BlockSync);                       \
   f(GridSync);                        \
+  f(FenceAsyncProxy);                 \
+  f(WgMmaFence);                      \
   f(MBarrierInit);                    \
   f(MBarrierInvalidate);              \
   f(MBarrierArrive);                  \
   f(MBarrierArriveExpectTx);          \
   f(MBarrierWait);                    \
+  f(MBarrierWaitParity);              \
   f(BlockSerializeWait);              \
   f(BlockSerializeRelease);           \
   f(AsyncWait);                       \

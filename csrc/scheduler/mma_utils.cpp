@@ -8,7 +8,6 @@
 
 #include <ATen/cuda/CUDAContext.h>
 
-#include <abstract_tensor.h>
 #include <device_lower/utils.h>
 #include <id_model/id_model.h>
 #include <ir/printer.h>
@@ -17,6 +16,7 @@
 #include <ops/all_ops.h>
 #include <ops/utils.h>
 #include <scheduler/mma_utils.h>
+#include <scheduler/tools/abstract_tensor.h>
 #include <scheduler/utils.h>
 #include <val_graph.h>
 #include <variant>
