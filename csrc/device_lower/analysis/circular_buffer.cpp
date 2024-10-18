@@ -193,7 +193,7 @@ void CircularBufferInfo::setCircularBufferTv(const TensorView* tv) {
   validateCircularBufferedTensor(tv);
 
   getTvInfo(tv).circular_buffer_axis = cb_axis;
-  circular_buffer_tvs_[concrete_loop_id].insert(tv);
+  circular_buffer_tvs_[concrete_loop_id].push_back(tv);
   // Set and validate the new stage depth.
   setStageDepthAndPrefetchDistance(
       cb_axis, tv->circularBufferDepth(), tv->circularBufferPrefetchDistance());
