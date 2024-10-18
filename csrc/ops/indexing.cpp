@@ -101,7 +101,7 @@ TensorView* indexSelect(
 }
 
 // torch.gather
-TensorView* torch_gather(TensorView* inp, int64_t dim, TensorView* index) {
+TensorView* torchGather(TensorView* inp, int64_t dim, TensorView* index) {
   auto inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
   auto idx_domain = TensorDomain::noReductions(index->getLogicalDomain());
   NVF_CHECK(
@@ -178,7 +178,7 @@ TensorView* scatter(
   return scatterOp(ScatterOpType::Set, self, dim, index, src);
 }
 
-TensorView* take_along_axis(TensorView* inp, TensorView* index, int64_t dim) {
+TensorView* takeAlongAxis(TensorView* inp, TensorView* index, int64_t dim) {
   const auto inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
   const auto idx_domain = TensorDomain::noReductions(index->getLogicalDomain());
 

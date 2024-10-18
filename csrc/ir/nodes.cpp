@@ -196,7 +196,7 @@ std::string TorchGatherOp::toString(int indent_size) const {
   indent(ss, indent_size) << output(0)->toString() << "\n";
   indent_size++;
   indent(ss, indent_size) << " = "
-                          << (exactSizes() ? "take_along_axis" : "torch_gather")
+                          << (exactSizes() ? "takeAlongAxis" : "torchGather")
                           << "( " << input(0)->toString();
   if (exactSizes()) {
     ss << ", " << input(1)->toString() << ", dim = " << dim() << " )\n";
@@ -2922,7 +2922,11 @@ void validateContiguity(
     NVF_CHECK(
         expect_null != contiguity.at(i).has_value(),
         "The contiguity of a broadcast/reduction dimension must be None. "
-        "The contiguity of a non-broadcast/reduction dimension must be true/false");
+        "The contiguity of a non-broadcast/reduction dimension must be true/false. alloation_domain=[",
+        toDelimitedString(allocation_domain),
+        "], contiguity=[",
+        toDelimitedString(contiguity),
+        "]");
   }
 }
 
