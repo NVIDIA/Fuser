@@ -38,3 +38,13 @@ def test_define_tensor_broadcast():
     inp_tensor = torch.randn(1, 2, 1, device="cuda").as_strided([1, 2, 1], [0, 1, 0])
     out_tensor = fd.execute([inp_tensor])[0]
     torch.testing.assert_close(out_tensor, inp_tensor * 2)
+
+def test_define_tensor_stride_order():
+    with FusionDefinition() as fd:
+        inp = fd.define_tensor([1, 2], contiguity=True, stride_order=[0, 1])
+        out = fd.ops.add(inp, inp)
+        fd.add_output(out)
+
+    inp_tensor = torch.randn(1, 2, device="cuda")
+    out_tensor = fd.execute([inp_tensor])[0]
+    torch.testing.assert_close(out_tensor, inp_tensor * 2)
