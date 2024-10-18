@@ -361,6 +361,23 @@ std::pair<int64_t, int64_t> getBufferBatchSizeAndThreadsPerBlock(
     }
     return 1l;
   };
+  // Each thread can use a maximum of 255 registers, and assume 40 of them are
+  // reserved for indexing and other purposes. So, each thread can use up to
+  // 215 registers for persistent buffer. Calculate number of buffer batches
+  // using these 215 registers. total_buffer_bytes is the total size of
+  // persistent buffers in bytes. reduction_elements is the number of elements
+  // in the reduction domain. vectorization_factor is the vectorization factor
+  // of inputs and outputs.
+  auto getMaximumBatch = [&]() -> int64_t {
+    int64_t register_per_batch = ceilDiv(
+        regs_buffer_size / inner_dim_numel * vectorize_factor,
+        scheduler_utils::bytes_per_register);
+    int64_t max_persistent_batch = scheduler_utils::safeDiv(
+        scheduler_utils::max_registers_per_thread -
+            scheduler_utils::register_overhead,
+        register_per_batch);
+    return max_persistent_batch;
+  };
 
   auto getEstimatedRegisterUsage = [&](int64_t batch_mul_vect) {
     constexpr int64_t bytes_per_register = 4;
@@ -386,17 +403,16 @@ std::pair<int64_t, int64_t> getBufferBatchSizeAndThreadsPerBlock(
       getThreadsPerSMGivenRegPerThread(register_per_thread),
       InnerOuterPersistentKernelScheduler::threads_per_block_max);
   const int64_t batch_min = getMinimumBatch();
-
+  const int64_t batch_max = getMaximumBatch();
+  int64_t inner_batch, threads_per_block;
   if (n_inner_reductions == 1) {
-    // start from largest threads per block, ensure batch size is not too small.
-    int64_t threads_per_block = std::min(
+    // Only one inner reduction (RMS norm bwd), start from max threads per
+    // block, decrease if can change from non-divisible to divisible. Ensure
+    // batch size is smaller than batch_max.
+    threads_per_block = std::min(
         threads_per_block_max, ceilDiv(after_vectorization, batch_min));
     threads_per_block = scheduler_utils::roundUpPow2(threads_per_block);
-    int64_t inner_batch = ceilDiv(after_vectorization, threads_per_block);
-    // Only one inner reduction (RMS norm bwd), start from max threads per
-    // block, decrease if can change from non-divisible to divisible. e.g. 13K =
-    // 8 x 512 x 3.25 is not changed. e.g. 14K = 8 x 512 x 3.50 is changed to
-    // 14K = 8 x 256 x 7 e.g. 15K = 8 x 512 x 3.75 is not changed.
+    inner_batch = ceilDiv(after_vectorization, threads_per_block);
     if (after_vectorization % threads_per_block != 0) {
       int reduced_threads_per_block = threads_per_block / 2;
       if (after_vectorization % reduced_threads_per_block == 0 &&
@@ -408,11 +424,16 @@ std::pair<int64_t, int64_t> getBufferBatchSizeAndThreadsPerBlock(
   } else {
     // Multiple inner reductions (layer norm bwd), inter-thread communication
     // cost should be considered. Start from min threads per block, increase
-    // when split is divisible.
-    int64_t threads_per_block = threads_per_block_min;
-    int64_t inner_batch = ceilDiv(after_vectorization, threads_per_block);
+    // when split is divisible. Ensure batch size is smaller than batch_max.
+    // Ensure threads per block is smaller than threads_per_block_max.
+    threads_per_block = std::max(
+        threads_per_block_min, ceilDiv(after_vectorization, batch_max));
+    threads_per_block = scheduler_utils::roundUpPow2(threads_per_block);
+    threads_per_block = std::min(threads_per_block, threads_per_block_max);
+    inner_batch = ceilDiv(after_vectorization, threads_per_block);
     while (after_vectorization % threads_per_block == 0 &&
-           inner_batch % 2 == 0) {
+           inner_batch % 2 == 0 && inner_batch / 2 >= batch_min &&
+           threads_per_block * 2 <= threads_per_block_max) {
       inner_batch /= 2;
       threads_per_block *= 2;
     }
