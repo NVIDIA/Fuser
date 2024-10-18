@@ -14,6 +14,7 @@
 #include <ops/all_ops.h>
 #include <preseg_passes/optimization_pass.h>
 #include <preseg_passes/pre_segmenter.h>
+#include <preseg_passes/remove_bcast_squeeze.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
@@ -375,6 +376,23 @@ TEST_F(RemoveBcastSqueezeTest, SqueezeBcastSetBcast) {
       fusion.get());
   EXPECT_FALSE(ir_utils::hasOpsOfType<BroadcastOp>(fusion.get()));
   EXPECT_FALSE(ir_utils::hasOpsOfType<SqueezeOp>(fusion.get()));
+}
+
+// Test that reduction axes are ignored in input to LoadStoreOp
+// See https://github.com/NVIDIA/Fuser/pull/3189
+TEST_F(RemoveBcastSqueezeTest, SumSetBcast) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeSymbolicTensor(3);
+  fusion->addInput(tv0);
+  auto tv1 = sum(tv0, {2});
+  auto tv2 = set(tv1);
+  auto tv3 = broadcast(tv2, std::vector<bool>{false, false, true});
+  fusion->addOutput(tv3);
+
+  preseg_passes::OptimizationPass<preseg_passes::RemoveBcastSqueeze>::runPass(
+      fusion.get());
+  EXPECT_FALSE(ir_utils::hasOpsOfType<LoadStoreOp>(fusion.get()));
 }
 
 } // namespace nvfuser
