@@ -8,6 +8,10 @@ from nvfuser import FusionDefinition
 from utils import NVFuserTest
 
 
+# I tried to merge the tests to opinfo and
+# [failed](https://github.com/NVIDIA/Fuser/commit/b0ccb481a7d60f944abf4b6b164f625fec31d147).
+# There seems to be a bug in opinfo causing the generated test to pass fewer
+# arguments than parameters.
 class TestDefine(NVFuserTest):
     def test_contiguous(self):
         def fusion_func(fd: FusionDefinition):
