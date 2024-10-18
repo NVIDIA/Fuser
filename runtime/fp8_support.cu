@@ -8,6 +8,7 @@
 
 struct __e4m3;
 __device__ __inline__ __e4m3 __float2e4m3(const float);
+__device__ __inline__ __e4m3 __double2e4m3(const double);
 
 struct __align__(1) __e4m3 {
   __e4m3() = default;
@@ -67,6 +68,17 @@ struct __align__(1) __e4m3 {
   __device__ __e4m3(const float f) {
     __x = __float2e4m3(f).__x;
   }
+
+  __device__ __e4m3(const double f) {
+    __x = __double2e4m3(f).__x;
+  }
+
+  __device__ __e4m3(const int x): __x(x) {}
+
+  __device__ __e4m3(const uint8_t x): __x(x) {}
+
+  __device__ __e4m3(const uint16_t x): __x(x) {}
+
 
   __device__ uint8_t raw() const {
     return __x;
@@ -196,11 +208,18 @@ __device__ __inline__ __bfloat __e4m32bfloat(const __e4m3 h) {
 }
 
 __device__ __inline__ __e4m3 operator|(const __e4m3 x, const __e4m3 y) {
-  return x.raw() | y.raw();
+  unsigned short val;
+  unsigned short x_val = x.raw();
+  unsigned short y_val = y.raw();
+  asm("{  or.b16 %0, %1, %2;}\n"
+      : "=h"(val)
+      : "h"(x_val), "h"(y_val));
+  return __e4m3(val);
 }
 
 struct __e5m2;
 __device__ __inline__ __e5m2 __float2e5m2(const float);
+__device__ __inline__ __e5m2 __double2e5m2(const double);
 
 struct __align__(1) __e5m2 {
   __e5m2() = default;
@@ -260,6 +279,16 @@ struct __align__(1) __e5m2 {
   __device__ __e5m2(const float f) {
     __x = __float2e5m2(f).__x;
   }
+
+  __device__ __e5m2(const double f) {
+    __x = __double2e5m2(f).__x;
+  }
+
+  __device__ __e5m2(const int x): __x(x) {}
+
+  __device__ __e5m2(const uint8_t x): __x(x) {}
+
+  __device__ __e5m2(const uint16_t x): __x(x) {}
 
   __device__ uint8_t raw() const {
     return __x;
@@ -389,5 +418,11 @@ __device__ __inline__ __bfloat __e5m22bfloat(const __e5m2 h) {
 }
 
 __device__ __inline__ __e5m2 operator|(const __e5m2 x, const __e5m2 y) {
-  return x.raw() | y.raw();
+  unsigned short val;
+  unsigned short x_val = x.raw();
+  unsigned short y_val = y.raw();
+  asm("{  or.b16 %0, %1, %2;}\n"
+      : "=h"(val)
+      : "h"(x_val), "h"(y_val));
+  return __e5m2(val);
 }
