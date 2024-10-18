@@ -648,14 +648,14 @@ class CloneTmaCircularBufferLoopAndInsertSync
         continue;
       }
       auto mbarrier = mbarrier_it->second;
-      if (wait_exprs.count(tv) > 0) {
+      if (wait_exprs.count(mbarrier) > 0) {
         // It is possible that multiple TMA load operations share the same
         // mbarrier. In this case, we only need to create a single wait
         // expression for this mbarrier.
         continue;
       }
       auto wait = createMbarrierWait(ldst);
-      wait_exprs[tv] = wait;
+      wait_exprs[mbarrier] = wait;
     }
     return wait_exprs;
   }
