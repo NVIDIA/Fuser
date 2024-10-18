@@ -403,6 +403,15 @@ class CloneTmaCircularBufferLoopAndInsertSync
     }
   }
 
+  // Check if there is only one serial for-loop in the stack
+  bool onlyOneSerialForLoopOnStack() const {
+    return std::count_if(
+               for_loop_stack_.begin(), for_loop_stack_.end(), [](ForLoop* fl) {
+                 return fl->iter_domain()->getParallelType() ==
+                     ParallelType::Serial;
+               }) == 1;
+  }
+
   Val* currentComputeStage() const {
     int64_t stage_depth =
         GpuLower::current()->circularBufferInfo().getStageDepthFor(
@@ -514,11 +523,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
 
     // If last cloned scope is the cloned_top_level_loop body, then add
     // mbarrier::arriveExpectTx and new loadStoreOp.
-    int64_t active_for_loops = std::count_if(
-        for_loop_stack_.begin(), for_loop_stack_.end(), [](ForLoop* fl) {
-          return fl->iter_domain()->getParallelType() == ParallelType::Serial;
-        });
-    if (active_for_loops == 1) {
+    if (onlyOneSerialForLoopOnStack()) {
       return addTmaLoadBlock(new_ldst);
     }
 
@@ -595,11 +600,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
 
     // If last cloned scope is the cloned_top_level_loop body, then add
     // mbarrier::arriveExpectTx, new loadStoreOp, and mbarrier_wait
-    int64_t active_for_loops = std::count_if(
-        for_loop_stack_.begin(), for_loop_stack_.end(), [](ForLoop* fl) {
-          return fl->iter_domain()->getParallelType() == ParallelType::Serial;
-        });
-    if (active_for_loops == 1) {
+    if (onlyOneSerialForLoopOnStack()) {
       addTmaLoadBlock(ldst);
       NVF_ERROR(mbarrier_wait_ != nullptr);
       for_loop_stack_.back()->body().push_back(mbarrier_wait_);
@@ -626,11 +627,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
 
     // If last cloned scope is the cloned_top_level_loop body, then add
     // mbarrier_wait
-    int64_t active_for_loops = std::count_if(
-        for_loop_stack_.begin(), for_loop_stack_.end(), [](ForLoop* fl) {
-          return fl->iter_domain()->getParallelType() == ParallelType::Serial;
-        });
-    if (active_for_loops == 1) {
+    if (onlyOneSerialForLoopOnStack()) {
       NVF_ERROR(mbarrier_wait_ != nullptr);
       for_loop_stack_.back()->body().push_back(mbarrier_wait_);
       mbarrier_wait_ = nullptr;
