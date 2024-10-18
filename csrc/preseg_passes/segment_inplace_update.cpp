@@ -55,7 +55,7 @@ void insertSegmentSet(Fusion* fusion) {
   auto all_bcast_ops = ir_utils::filterByType<BroadcastOp>(all_exprs);
 
   // Traverse and store all direct/indirect consumer tensorviews of these
-  // broadcast nodes If the tensorview has been visited, return --> this means
+  // broadcast nodes. If the tensorview has been visited, return --> this means
   // that we have already traversed that branch
   std::unordered_set<TensorView*> visited_tvs;
   for (auto bcast_op : all_bcast_ops) {
