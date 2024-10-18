@@ -1118,13 +1118,15 @@ void initNvFuserPythonBindings(PyObject* module) {
 
             verifyShape(shape);
 
-            std::vector<std::optional<bool>> contiguity_vec;
-            contiguity_vec.reserve(shape.size());
-            for (const auto dim_size : shape) {
-              if (dim_size == 1) {
-                contiguity_vec.emplace_back(std::nullopt);
+            const auto rank = static_cast<int64_t>(shape.size());
+            std::vector<std::optional<bool>> contiguity_vec(rank);
+            for (const auto index : c10::irange(rank)) {
+              const auto contig_index =
+                  stride_order.empty() ? index : rank - 1 - stride_order[index];
+              if (shape[index] == 1) {
+                contiguity_vec[contig_index] = std::nullopt;
               } else {
-                contiguity_vec.emplace_back(contiguity);
+                contiguity_vec[contig_index] = contiguity;
               }
             }
 
