@@ -9,7 +9,7 @@ from utils import NVFuserTest
 
 
 class TestAlias(NVFuserTest):
-    def test_squeeze(self):
+    def test_squeeze_issue_3192(self):
         def fusion_func(fd: FusionDefinition):
             inp = fd.define_tensor([1, 1, 2], contiguity=True)
             out = fd.ops.squeeze(inp, [0, 1])

@@ -1562,7 +1562,7 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
 
   for (auto input_tv :
        ir_utils::filterByType<TensorView>(reference_tv->fusion()->inputs())) {
-    // for index_select(lookup_tv, dim, index_tv) op
+    // for indexSelect(lookup_tv, dim, index_tv) op
     // ignore it's lookup_tv.
     if (ir_utils::isTorchGatherLookupTv(input_tv) ||
         ir_utils::isIndexSelectLookupTv(input_tv)) {
