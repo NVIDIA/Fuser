@@ -73,12 +73,11 @@ struct __align__(1) __e4m3 {
     __x = __double2e4m3(f).__x;
   }
 
-  __device__ __e4m3(const int x): __x(x) {}
+  __device__ __e4m3(const int x) : __x(x) {}
 
-  __device__ __e4m3(const uint8_t x): __x(x) {}
+  __device__ __e4m3(const uint8_t x) : __x(x) {}
 
-  __device__ __e4m3(const uint16_t x): __x(x) {}
-
+  __device__ __e4m3(const uint16_t x) : __x(x) {}
 
   __device__ uint8_t raw() const {
     return __x;
@@ -211,9 +210,7 @@ __device__ __inline__ __e4m3 operator|(const __e4m3 x, const __e4m3 y) {
   unsigned short val;
   unsigned short x_val = x.raw();
   unsigned short y_val = y.raw();
-  asm("{  or.b16 %0, %1, %2;}\n"
-      : "=h"(val)
-      : "h"(x_val), "h"(y_val));
+  asm("{  or.b16 %0, %1, %2;}\n" : "=h"(val) : "h"(x_val), "h"(y_val));
   return __e4m3(val);
 }
 
@@ -284,11 +281,11 @@ struct __align__(1) __e5m2 {
     __x = __double2e5m2(f).__x;
   }
 
-  __device__ __e5m2(const int x): __x(x) {}
+  __device__ __e5m2(const int x) : __x(x) {}
 
-  __device__ __e5m2(const uint8_t x): __x(x) {}
+  __device__ __e5m2(const uint8_t x) : __x(x) {}
 
-  __device__ __e5m2(const uint16_t x): __x(x) {}
+  __device__ __e5m2(const uint16_t x) : __x(x) {}
 
   __device__ uint8_t raw() const {
     return __x;
@@ -421,8 +418,6 @@ __device__ __inline__ __e5m2 operator|(const __e5m2 x, const __e5m2 y) {
   unsigned short val;
   unsigned short x_val = x.raw();
   unsigned short y_val = y.raw();
-  asm("{  or.b16 %0, %1, %2;}\n"
-      : "=h"(val)
-      : "h"(x_val), "h"(y_val));
+  asm("{  or.b16 %0, %1, %2;}\n" : "=h"(val) : "h"(x_val), "h"(y_val));
   return __e5m2(val);
 }
