@@ -1820,6 +1820,8 @@ struct IndexSelectOpRecord : RecordFunctor {
   int64_t dim_;
 };
 
+// TODO Merge IndexSelectOpRecord and SelectOpRecord for cleaner interface.
+// If the index TensorView is a scalar, then use select operation.
 struct SelectOpRecord : RecordFunctor {
   SelectOpRecord(
       std::vector<State> _args,
