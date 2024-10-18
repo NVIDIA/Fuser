@@ -156,9 +156,9 @@ class PairwiseLogicalDomainMap : public LogicalDomainMap {
   //! match. Note that this is off by default, in which case they are mapped
   //! only if their extents match.
   bool map_symbolic_ = false;
-  //! Map domains that may have different extents, e.g., torch_gather
+  //! Map domains that may have different extents, e.g., torchGather
   bool map_different_extents_ = false;
-  //! Map domains that are indirectly accessed, e.g., index_select
+  //! Map domains that are indirectly accessed, e.g., indexSelect
   bool map_indexed_domains_ = false;
 };
 

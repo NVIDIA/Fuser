@@ -793,7 +793,7 @@ class TestNvFuserFrontend(NVFuserTest):
                 t4 = fd.ops.index_select(t3, t2, dim)
                 fd.add_output(t4)
 
-            nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+            nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
 
             eager_out = torch.index_select(inputs[0] + inputs[1], dim, inputs[2])
             self.assertEqual(eager_out, nvf_out[0])
@@ -2603,7 +2603,7 @@ class TestNvFuserFrontend(NVFuserTest):
             T3 = fd.ops.index_select(T1, T2, dim=1)
             fd.add_output(T3)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
         torch_ref = torch.index_select(inputs[0], 1, inputs[1])
         self.assertEqual(nvf_out[0], torch_ref)
 
@@ -2642,7 +2642,7 @@ class TestNvFuserFrontend(NVFuserTest):
             T10 = fd.ops.reshape(T5, new_shape=V9)
             fd.add_output(T10)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
         torch_ref = torch.reshape(
             torch.index_select(inputs[1], 0, torch.reshape(inputs[0], [25])), [5, 5, 64]
         )
@@ -4319,8 +4319,8 @@ with FusionDefinition() as fd:
     nvfuser_fusion_id0(fd)
 
 inputs = [
-    torch.randn(16, dtype=torch.float32, device='cuda:0').as_strided((4, 4), (4, 1)),
-    torch.randn(16, dtype=torch.float32, device='cuda:0').as_strided((4, 4), (4, 1)),
+    torch.testing.make_tensor((4, 4), dtype=torch.float32, device='cuda:0'),
+    torch.testing.make_tensor((4, 4), dtype=torch.float32, device='cuda:0'),
 ]
 fd.execute(inputs)
 """
