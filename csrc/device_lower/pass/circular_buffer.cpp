@@ -369,6 +369,19 @@ class CloneTmaCircularBufferLoopAndInsertSync
       return;
     }
 
+    // mbarrier::wait occurs in Main and Epilogue loops.
+    if (onlyOneSerialForLoopOnStack()) {
+      for (auto it = mbarriers_to_wait_.begin();
+           it != mbarriers_to_wait_.end();) {
+        if (wait == nullptr) {
+          ++it;
+          continue;
+        }
+        for_loop_stack_.back()->body().push_back(wait);
+        it = mbarriers_to_wait_.erase(it);
+      }
+    }
+
     if (!cloned_loop->body().empty()) {
       // mbarrier_arrive_tx_ is active when we encounter a cpAsyncBulk load
       // operation on a circular buffer TensorView in IrVisitor. A single
@@ -469,7 +482,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
       if (wait_it == mbarriers_to_wait_.end()) {
         continue;
       }
-      auto &wait = wait_it->second;
+      auto& wait = wait_it->second;
       if (wait == nullptr) {
         wait = createMbarrierWait(ldst);
       }
