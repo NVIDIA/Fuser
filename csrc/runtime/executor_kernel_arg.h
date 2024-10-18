@@ -135,4 +135,6 @@ std::vector<std::byte> getKernelArgument(
     Val* parameter,
     PrimDataType index_type);
 
+PolymorphicValue IValueToPolymorphicValue(const c10::IValue& val);
+
 } // namespace nvfuser
