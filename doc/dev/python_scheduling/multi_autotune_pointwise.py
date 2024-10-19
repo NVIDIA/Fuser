@@ -170,10 +170,9 @@ def create_fusion_definition(num_operations, mufu_indices, input_shapes):
 # ============================ Run Experiments  ================================
 
 # Collect data for decision tree
-parameters = []
-performance = []
+data = []
 
-full_tensor_shape = [10, 256]
+full_tensor_shape = [16, 256]
 for fusion_config in create_fusion_state(full_tensor_shape, max_number_operations):
     num_ops, mufu_indices, input_shapes = fusion_config
     presched_fd, input_tensors = create_fusion_definition(*fusion_config)
@@ -181,6 +180,35 @@ for fusion_config in create_fusion_state(full_tensor_shape, max_number_operation
     print(fusion_config)
     # unroll and vectorization configurations
     for config in itertools.product(vectorize_range, unroll_range):
-        perf_metric, _ = run_profile(presched_fd, input_tensors, config)
-        parameters.append((*input_shapes, num_ops, len(mufu_indices), *config))
-        performance.append(perf_metric)
+        effective_bandwidth, kernel_time_ms = run_profile(
+            presched_fd, input_tensors, config
+        )
+        entry = [
+            input_shapes,
+            num_ops,
+            len(mufu_indices),
+            *config,
+            effective_bandwidth,
+            kernel_time_ms,
+        ]
+        data.append(entry)
+
+# ============================ Save Pandas DataFrame ============================
+
+import pandas as pd
+
+df = pd.DataFrame(
+    data,
+    columns=[
+        "input_shapes",
+        "number_of_operations",
+        "number_of_mufu_operations",
+        "vectorization",
+        "unroll_factor",
+        "effective_bandwidth",
+        "kernel_time_ms",
+    ],
+)
+
+df.to_csv("pointwise.csv", index=True)
+print("Finished creating {len(data)} entries")
