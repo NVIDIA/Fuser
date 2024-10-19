@@ -403,6 +403,15 @@ class CloneTmaCircularBufferLoopAndInsertSync
     }
   }
 
+  // Check if there is only one serial for-loop in the stack
+  bool onlyOneSerialForLoopOnStack() const {
+    return std::count_if(
+               for_loop_stack_.begin(), for_loop_stack_.end(), [](ForLoop* fl) {
+                 return fl->iter_domain()->getParallelType() ==
+                     ParallelType::Serial;
+               }) == 1;
+  }
+
   Val* currentComputeStage() const {
     int64_t stage_depth =
         GpuLower::current()->circularBufferInfo().getStageDepthFor(
@@ -412,6 +421,32 @@ class CloneTmaCircularBufferLoopAndInsertSync
         IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
     return GpuLower::current()->commonScalarMap().hoistScalar(
         result, for_loop_stack_);
+  }
+
+  // The mbarrier_parity for the current circular buffer stage is:
+  //   (loop_index / stage_depth) % 2
+  // We have an mbarrier for each circular buffer stage, so loop_index /
+  // stage_depth is loop_index_per_stage. The valid values of phaseParity
+  // operand are 0 and 1, so we take the modulo of loop_index_per_stage with a
+  // divisor of 2. See:
+  // https://docs.nvidia.com/cuda/parallel-thread-execution/#parallel-synchronization-and-communication-instructions-mbarrier-test-wait-mbarrier-try-wait
+  // for reference.
+  Val* currentParity() const {
+    int64_t stage_depth =
+        GpuLower::current()->circularBufferInfo().getStageDepthFor(
+            circular_buffer_loop_->iter_domain());
+
+    auto depth = IrBuilder::create<Val>(stage_depth, DataType::UInt32);
+    auto two = IrBuilder::create<Val>(2, DataType::UInt32);
+    Val* stage_parity = SimplifyingIrBuilder::modExpr(
+        SimplifyingIrBuilder::divExpr(
+            IrBuilder::maybeCastExpr(
+                DataType::UInt32,
+                cloned_top_level_loop_->indexOrStartIfTrivial()),
+            depth),
+        two);
+    return GpuLower::current()->commonScalarMap().hoistScalar(
+        stage_parity, for_loop_stack_);
   }
 
   void processExpr(Expr* expr) final {
@@ -514,11 +549,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
 
     // If last cloned scope is the cloned_top_level_loop body, then add
     // mbarrier::arriveExpectTx and new loadStoreOp.
-    int64_t active_for_loops = std::count_if(
-        for_loop_stack_.begin(), for_loop_stack_.end(), [](ForLoop* fl) {
-          return fl->iter_domain()->getParallelType() == ParallelType::Serial;
-        });
-    if (active_for_loops == 1) {
+    if (onlyOneSerialForLoopOnStack()) {
       return addTmaLoadBlock(new_ldst);
     }
 
@@ -590,16 +621,11 @@ class CloneTmaCircularBufferLoopAndInsertSync
     NVF_ERROR(
         mbarrier_wait_ == nullptr,
         "Expected mbarrier_wait to inactive for current TMA operation");
-    mbarrier_wait_ = createMbarrierWait(
-        ldst, cloned_top_level_loop_->indexOrStartIfTrivial());
+    mbarrier_wait_ = createMbarrierWait(ldst);
 
     // If last cloned scope is the cloned_top_level_loop body, then add
     // mbarrier::arriveExpectTx, new loadStoreOp, and mbarrier_wait
-    int64_t active_for_loops = std::count_if(
-        for_loop_stack_.begin(), for_loop_stack_.end(), [](ForLoop* fl) {
-          return fl->iter_domain()->getParallelType() == ParallelType::Serial;
-        });
-    if (active_for_loops == 1) {
+    if (onlyOneSerialForLoopOnStack()) {
       addTmaLoadBlock(ldst);
       NVF_ERROR(mbarrier_wait_ != nullptr);
       for_loop_stack_.back()->body().push_back(mbarrier_wait_);
@@ -621,16 +647,11 @@ class CloneTmaCircularBufferLoopAndInsertSync
     NVF_ERROR(
         mbarrier_wait_ == nullptr,
         "Expected mbarrier_wait to inactive for current TMA operation");
-    mbarrier_wait_ = createMbarrierWait(
-        ldst, cloned_top_level_loop_->indexOrStartIfTrivial());
+    mbarrier_wait_ = createMbarrierWait(ldst);
 
     // If last cloned scope is the cloned_top_level_loop body, then add
     // mbarrier_wait
-    int64_t active_for_loops = std::count_if(
-        for_loop_stack_.begin(), for_loop_stack_.end(), [](ForLoop* fl) {
-          return fl->iter_domain()->getParallelType() == ParallelType::Serial;
-        });
-    if (active_for_loops == 1) {
+    if (onlyOneSerialForLoopOnStack()) {
       NVF_ERROR(mbarrier_wait_ != nullptr);
       for_loop_stack_.back()->body().push_back(mbarrier_wait_);
       mbarrier_wait_ = nullptr;
@@ -745,39 +766,17 @@ class CloneTmaCircularBufferLoopAndInsertSync
 
   // This function creates kir::MBarrierWaitParity for given LoadStoreOp and
   // circular buffer stage.
-  kir::MBarrierWaitParity* createMbarrierWait(
-      LoadStoreOp* ldst,
-      Val* loop_index) {
+  kir::MBarrierWaitParity* createMbarrierWait(LoadStoreOp* ldst) {
     NVF_ERROR(ldst != nullptr);
-    NVF_ERROR(loop_index != nullptr);
-
-    int64_t stage_depth =
-        GpuLower::current()->circularBufferInfo().getStageDepthFor(
-            circular_buffer_loop_->iter_domain());
 
     // Get mbarrier for this circular buffer stage.
     TensorView* all_mbarriers = GpuLower::current()->ldstMBarrierMap().at(ldst);
     kir::TensorIndex* stage_mbarrier = IrBuilder::create<kir::TensorIndex>(
         all_mbarriers, currentComputeStage());
 
-    // The mbarrier_parity for this circular buffer stage is:
-    //   (loop_index / stage_depth) % 2
-    // We have an mbarrier for each circular buffer stage, so loop_index /
-    // stage_depth is loop_index_per_stage. The valid values of phaseParity
-    // operand are 0 and 1, so we take the modulo of loop_index_per_stage with a
-    // divisor of 2. See:
-    // https://docs.nvidia.com/cuda/parallel-thread-execution/#parallel-synchronization-and-communication-instructions-mbarrier-test-wait-mbarrier-try-wait
-    // for reference.
-    auto depth = IrBuilder::create<Val>(stage_depth, DataType::UInt32);
-    auto two = IrBuilder::create<Val>(2, DataType::UInt32);
-    Val* stage_parity = SimplifyingIrBuilder::modExpr(
-        SimplifyingIrBuilder::divExpr(
-            IrBuilder::maybeCastExpr(DataType::UInt32, loop_index), depth),
-        two);
-
     kir::MBarrierWaitParity* mbarrier_wait =
         IrBuilder::create<kir::MBarrierWaitParity>(
-            stage_mbarrier, stage_parity);
+            stage_mbarrier, currentParity());
     return mbarrier_wait;
   }
 

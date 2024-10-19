@@ -76,8 +76,15 @@ Expr* initializeMbarrier(
       GpuLower::current()->parallelDimensionMap().get(ParallelType::TIDz);
   Val* all_threads_in_cta = SimplifyingIrBuilder::mulExpr(
       bdimx, SimplifyingIrBuilder::mulExpr(bdimy, bdimz));
-  all_threads_in_cta =
-      SimplifyingIrBuilder::maybeCastExpr(DataType::UInt32, all_threads_in_cta);
+  if (all_threads_in_cta != nullptr) {
+    all_threads_in_cta = SimplifyingIrBuilder::maybeCastExpr(
+        DataType::UInt32, all_threads_in_cta);
+  } else {
+    // If all_threads_in_cta is nullptr, then this kernel is not parallelized
+    // on any of the thread dimensions.
+    all_threads_in_cta =
+        GpuLower::current()->kernel()->oneVal(DataType::UInt32);
+  }
 
   // Initialize mbarrier for each circular buffer stage. Use the thread
   // count from the MBarrierInit created in the allocation pass. The wait

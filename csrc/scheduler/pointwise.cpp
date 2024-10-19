@@ -781,15 +781,15 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
           unswitch_pos = 3;
         }
       } else {
-        // [BIDx | BIDy | Unswitch, Unroll, TIDx, vect]
+        // [BIDx | BIDy | Unswitch, Unroll, TIDx, Vect]
         reference_tv->axis(0)->parallelize(ParallelType::BIDx);
         if (pparams->split_grid_y_dim) {
-          // [BIDx | i-remainder, BIDy{65535} | Unswitch, Unroll, TIDx, vect]
+          // [BIDx | i-remainder, BIDy{65535} | Unswitch, Unroll, TIDx, Vect]
           reference_tv->split(1, 65535);
           reference_tv->axis(2)->parallelize(ParallelType::BIDy);
           unswitch_pos = 4;
         } else {
-          // [BIDx | BIDy | Unswitch, Unroll, TIDx, vect]
+          // [BIDx | BIDy | Unswitch, Unroll, TIDx, Vect]
           reference_tv->axis(1)->parallelize(ParallelType::BIDy);
           unswitch_pos = 3;
         }
