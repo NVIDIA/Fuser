@@ -1520,7 +1520,7 @@ void initNvFuserPythonBindings(PyObject* module) {
         NVF_CHECK(                                                             \
             self.validUse(), "Attempting to add to a completed definition!");  \
         FusionDefinition* fd = self.fusion_definition;                         \
-        Tensor output = fd->defineTensor(arg1.dims);                           \
+        Tensor output = fd->defineTensor(std::max(arg1.dims, arg2.dims));      \
         fd->defineRecord(new OpRecord<TensorView*, TensorView*, TensorView*>(  \
             {fd->recordingState(arg1()), fd->recordingState(arg2())},          \
             {fd->recordingState(output())},                                    \
