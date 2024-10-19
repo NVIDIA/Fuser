@@ -149,36 +149,41 @@ parameter_configurations = [
 # maximum number of operation in fusion
 max_number_operations = 3
 
-full_tensor_shape = [16, 256]
+# Settings for input tensor generation
+num_dimensions = 2
+outer_shapes = [512]
+inner_shapes = [2**i for i in range(5, 15)]
 
 # ============================ Run Experiments  ================================
 
 # Collect data for decision tree
 data = []
 
-for fusion_config in create_fusion_state(full_tensor_shape, max_number_operations):
-    num_ops, mufu_indices, input_shapes = fusion_config
-    presched_fd, input_tensors = create_fusion_definition(*fusion_config)
+for full_tensor_shape in itertools.product(outer_shapes, inner_shapes):
+    print(full_tensor_shape)
+    for fusion_config in create_fusion_state(full_tensor_shape, max_number_operations):
+        num_ops, mufu_indices, input_shapes = fusion_config
+        presched_fd, input_tensors = create_fusion_definition(*fusion_config)
 
-    print(fusion_config)
-    # unroll and vectorization configurations
-    for config in itertools.product(vectorize_range, unroll_range):
-        grid, block, registers, smem, bandwidth, time = run_profile(
-            presched_fd, input_tensors, config
-        )
-        entry = [
-            input_shapes,
-            num_ops,
-            len(mufu_indices),
-            *config,
-            grid,
-            block,
-            registers,
-            smem,
-            bandwidth,
-            time,
-        ]
-        data.append(entry)
+        print(fusion_config)
+        # unroll and vectorization configurations
+        for config in itertools.product(vectorize_range, unroll_range):
+            grid, block, registers, smem, bandwidth, time = run_profile(
+                presched_fd, input_tensors, config
+            )
+            entry = [
+                input_shapes,
+                num_ops,
+                len(mufu_indices),
+                *config,
+                grid,
+                block,
+                registers,
+                smem,
+                bandwidth,
+                time,
+            ]
+            data.append(entry)
 
 # ============================ Save Pandas DataFrame ============================
 
