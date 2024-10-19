@@ -95,7 +95,7 @@ NVF_API std::unordered_set<TensorView*> getUnrollVectorizableCachedTvs(
 //   unroll_vectorizable_cached_tvs: Cached TensorViews that are both unrollable
 //                                   and vectorizable.
 //
-//   selected_tvs: TensorViews selected for parallelization.
+//   selected_tvs: TensorViews selected for parallelization, default is all Tvs.
 NVF_API void propagateParallelization(
     TensorView* reduction_tv,
     TensorView* reference_tv,

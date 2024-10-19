@@ -490,16 +490,38 @@ std::unordered_set<TensorView*> getCachedTvsToUnrollOrVectorize(
 }
 
 namespace {
-void reductionTvUnrollVectorizationGroup(
+
+// Clears unroll or vectorization parallelization for reduction_tv and
+// reference_tv if they shouldn't be unrolled or vectorized.
+// When group reduction is used, convert vectorization to group parallelization
+// and propagate group parallelization to other reduction tvs.
+
+// Parameters:
+//   reduction_tv: The reduction TensorView being scheduled and parallelized.
+//                 Needs to clear its vectorization or convert to grouped
+//                 reduction.
+
+//   reference_tv: The reference TensorView being scheduled and parallelized,
+//                 Needs to clear its vectorization.
+
+//   use_grouped_reduction: Indicates if group reduction is used in the
+//                          scheduler.
+
+//   reduction_tvs: All reduction TensorViews in the fusion. May add grouped
+//                  parallelization.
+//
+//   unroll_vectorizable_cached_tvs: Cached TensorViews that are both unrollable
+//                                   and vectorizable.
+void clearUnrollVectorizationAddGroupReduction(
     TensorView* reduction_tv,
     TensorView* reference_tv,
     const bool use_grouped_reduction,
     const std::vector<TensorView*>& reduction_tvs,
-    const std::unordered_set<TensorView*>& are_unrolled) {
+    const std::unordered_set<TensorView*>& unroll_vectorizable_cached_tvs) {
   std::vector<TensorView*> rfactor_and_reduction_tvs = {
       reference_tv, reduction_tv};
   for (auto tv : rfactor_and_reduction_tvs) {
-    if (are_unrolled.count(tv) == 0) {
+    if (unroll_vectorizable_cached_tvs.count(tv) == 0) {
       for (const auto i : c10::irange(tv->nDims())) {
         auto id = tv->axis(i);
         if (use_grouped_reduction &&
@@ -568,7 +590,7 @@ void propagateParallelization(
     }
     // If reference shouldn't be unrolled, clear that parallel type.
     // In the case of outer grid persistence, replace Vector with Group
-    reductionTvUnrollVectorizationGroup(
+    clearUnrollVectorizationAddGroupReduction(
         reduction_tv,
         reference_tv,
         use_grouped_reduction,
