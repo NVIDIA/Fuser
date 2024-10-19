@@ -96,7 +96,9 @@ class ExpensiveOpInfo {
   }
 
   int64_t getComputationFactor() const {
-    return f_tanh_ * n_tanh_ + f_exp_ * n_exp_ + f_reciprocal_ * n_reciprocal_;
+    auto factor =
+        n_tanh_ * f_tanh_ + n_exp_ * f_exp_ + n_reciprocal_ * f_reciprocal_;
+    return std::max(factor, 1);
   }
 
  private:
@@ -137,7 +139,10 @@ int64_t getTargetUnrollFactor(Fusion* fusion, std::vector<TensorView*> io_tvs) {
   // (4) Results: gelu: 2 * 4 / 1 = 8, silu: 2 * 2 / 2 = 2, mul: 2
   int64_t unroll_factor = base_factor * computation_factor / input_factor;
   unroll_factor = std::max(unroll_factor, 1L);
-  return base_factor * computation_factor / n_inputs;
+  std::cout << "n_inputs: " << n_inputs << std::endl;
+  std::cout << "computation_factor: " << computation_factor << std::endl;
+  std::cout << "unroll_factor: " << unroll_factor << std::endl;
+  return unroll_factor;
 }
 
 } // namespace
@@ -173,8 +178,10 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
   NVF_ERROR(largest_out != nullptr);
 
+  const auto dev_prop = at::cuda::getCurrentDeviceProperties();
+
   const int64_t device_multiprocessor_count =
-      (int64_t)at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+      (int64_t)dev_prop->multiProcessorCount;
 
   // TODO: Set to 1?
   int64_t max_input_dtype_size = 2;
@@ -262,8 +269,11 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
                 largest_out, true, true));
       });
 
-  auto max_vect_unroll_factor =
+  constexpr int64_t kSixteen = 16; // clang tidy
+  auto max_vect_factor = kSixteen / max_input_dtype_size;
+  auto max_unroll_factor =
       getTargetUnrollFactor(fusion, vectorizable_inputs_outputs_entry.get());
+  auto max_vect_unroll_factor = max_vect_factor * max_unroll_factor;
 
   // Don't unroll at the cost of getting a full wave on the GPU
   if (n_elems < device_multiprocessor_count * kThreadX &&
@@ -272,10 +282,6 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
         max_vect_unroll_factor,
         ceilDiv(n_elems, device_multiprocessor_count * kThreadX));
   }
-
-  constexpr int64_t kSixteen = 16; // clang tidy
-  auto max_vect_factor =
-      std::min(kSixteen / max_input_dtype_size, max_vect_unroll_factor);
 
   // See pointwise.h to understand what we're doing for this 2D analysis.
   // Ideal break point location
@@ -435,6 +441,24 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
           data_cache,
           break_point,
           logical_reorder_map));
+
+  // For 2D scheduler, try to avoid undivisible split by adjust bdimx, e.g. when
+  // right elem count is 1280, vectorized by 8, up to now, 2 blocks each with
+  // 128 threads is used, divisible split is achived if use 1 block with 160
+  // threads (160 x 8 = 1280). On H100, perf increased from 68% SOL to 91% SOL.
+  // Set a max bimx to leave at least 2 blocks per SM to switch between each
+  // other when one block is stalled.
+  if (gdim_right > 1 &&
+      right_elem_count % (bdimx * params->vectorization_factor) != 0) {
+    const int64_t max_bimdx = dev_prop->maxThreadsPerBlock / 2;
+    int64_t divisible_bimdx = right_elem_count / params->vectorization_factor;
+    divisible_bimdx = scheduler_utils::roundUpToN(divisible_bimdx, 32);
+    bdimx = divisible_bimdx > max_bimdx ? bdimx : divisible_bimdx;
+    gdim_right =
+        ceilDiv(right_elem_count / params->vectorization_factor, bdimx);
+  }
+  std::cout << "gdim_left: " << gdim_left << std::endl;
+  std::cout << "gdim_right: " << gdim_right << std::endl;
 
   params->unroll_factor = scheduler_utils::safeDiv(
       max_vect_unroll_factor, params->vectorization_factor);
