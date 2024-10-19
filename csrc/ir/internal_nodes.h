@@ -1998,6 +1998,9 @@ class PadOp : public Expr {
   //! dimensions
   std::pair<Val*, Val*> getPadWidths(int64_t axis) const;
 
+  //! Return pad widths in their original order.
+  std::vector<Val*> getOriginalPadWidths() const;
+
   //! Return the pad widths of all dimensions, including non-padded ones
   std::vector<Val*> getPadWidths() const;
 
