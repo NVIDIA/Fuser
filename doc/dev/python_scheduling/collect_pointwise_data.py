@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2024-present NVIDIA CORPORATION & AFFILIATES.
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 # Owner(s): ["module: nvfuser"]
@@ -12,25 +12,28 @@ from nvfuser import FusionCache, FusionDefinition, SchedulerType
 
 # ============================ Description ============================
 
-# 1. Define a nvfuser fusion and its pytorch eager mode reference.
-#
-# 2. Profile the CUDA kernel performance by iterating over a set of input
-# arguments and scheduler configurations.
-#
-# 3. Train a regression model to predict the desired performance metric given
-# some input arguments and a scheduler configuration.
-#
-# 4. Measure the performance of the regression model.
-#  - Calculate RMSE of predicted and actual performance on test set.
-#  - Find the configuration with the best performance using regression model.
-#    Then, compare against the heuristic configuration selected by nvfuser.
-#  - For a specific batch size, gather performance across a range of hidden
-#    sizes. Calculate performance for best predicted and nvfuser
-#    configurations. Plot a chart comparing performance using matplotlib.
+# Run through a shmoo of pointwise fusion configurations.
+# Apply different vectorization and unroll factor settings.
+# Profile several metrics for each fusion and scheduler combination.
+# Create Pandas DataFrame
+# Save results to csv file.
 
-# The selected performance metric is effective_bandwidth_gbs. The empirical
-# scheduler selects the configuration that has the highest predicted
-# effective_bandwidth_gbs.
+# Fusion Configurations:
+# Binary Math Operation is add.
+# MUFU Operation is exp.
+#
+# Vertical composition: Number of math operations, order of mufu operations
+#
+# Horizontal composition: Number and size of tensor dimensions, order of
+# broadcast dimensions.
+
+# Performance Metrics:
+# 1. Number of Registers
+# 2. Shared memory usage - static and dynamic
+# 3. Grid shape
+# 4. Block shape
+# 5. Effective Bandwidth (GB/s)
+# 6. Kernel Runtime (ms)
 
 # ============================ Function Definitions ============================
 
