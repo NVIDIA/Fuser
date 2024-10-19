@@ -60,6 +60,86 @@ class DomainMap : public pointwise_utils::DomainMap {
   }
 };
 
+// Class to handle expensive operations information and calculation of unroll
+// factors
+class ExpensiveOpInfo {
+ public:
+  ExpensiveOpInfo() : n_tanh_(0), n_exp_(0), n_reciprocal_(0) {}
+
+  void analyzeFusion(Fusion* fusion) {
+    for (auto expr : fusion->exprs()) {
+      if (auto unary = dynamic_cast<UnaryOp*>(expr)) {
+        switch (unary->getUnaryOpType()) {
+          case UnaryOpType::Tanh:
+            n_tanh_++;
+            break;
+          case UnaryOpType::Exp:
+            n_exp_++;
+            break;
+          case UnaryOpType::Reciprocal:
+            n_reciprocal_++;
+            break;
+          default:
+            break;
+        }
+      }
+    }
+  }
+
+  std::string toString() const {
+    std::stringstream ss;
+    ss << "ExpensiveOpInfo: {";
+    ss << "n_tanh: " << n_tanh_ << ", ";
+    ss << "n_exp: " << n_exp_ << ", ";
+    ss << "n_reciprocal: " << n_reciprocal_ << "}";
+    return ss.str();
+  }
+
+  int64_t getComputationFactor() const {
+    return f_tanh_ * n_tanh_ + f_exp_ * n_exp_ + f_reciprocal_ * n_reciprocal_;
+  }
+
+ private:
+  // Number of each expensive operation in the fusion
+  int n_tanh_;
+  int n_exp_;
+  int n_reciprocal_;
+
+  // Empirical factors to consider the cost of each operation
+  static constexpr int f_tanh_ = 4;
+  static constexpr int f_exp_ = 1;
+  static constexpr int f_reciprocal_ = 1;
+};
+
+int64_t getTargetUnrollFactor(Fusion* fusion, std::vector<TensorView*> io_tvs) {
+  // Multiple loading instructions are issued if there are multiple input tvs,
+  // so we should reduce unroll factor.
+  int64_t n_inputs = 0;
+  for (auto tv : io_tvs) {
+    if (tv->isFusionInput()) {
+      n_inputs++;
+    }
+  }
+
+  // Analyze the fusion to determine the number of expensive operations
+  // When computation is expensive, increase unroll to have more overlap between
+  // computation and memory access.
+  ExpensiveOpInfo eops;
+  eops.analyzeFusion(fusion);
+  std::cout << "Expensive operations: " << eops.toString() << std::endl;
+  // Empirical model based on experiment of pointwise gelu, silu, and mul.
+  // (1) start with 2
+  int64_t base_factor = 2;
+  // (2) increase unroll factor if computation is expensive
+  int64_t computation_factor = eops.getComputationFactor();
+  // (3) decrease unroll factor if there are multiple input tensors
+  int64_t input_factor = scheduler_utils::lastPow2(n_inputs);
+  // (4) Results: gelu: 2 * 4 / 1 = 8, silu: 2 * 2 / 2 = 2, mul: 2
+  int64_t unroll_factor = base_factor * computation_factor / input_factor;
+  unroll_factor = std::max(unroll_factor, 1L);
+  return base_factor * computation_factor / n_inputs;
+}
+
 } // namespace
 
 std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
@@ -182,18 +262,8 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
                 largest_out, true, true));
       });
 
-  constexpr int64_t kSixteen = 16; // clang tidy
-
-  auto max_vect_unroll_factor = ceilDiv(
-      // Available unrolling based on size of data type
-      (int64_t)kSixteen / max_input_dtype_size,
-      // Reduce max unrolling factor if we have many inputs/outputs to unroll
-      // as it could start consuming a lot of registers.
-      std::max(
-          (scheduler_utils::lastPow2(
-               (int64_t)vectorizable_inputs_outputs_entry.get().size()) >>
-           2),
-          (int64_t)1));
+  auto max_vect_unroll_factor =
+      getTargetUnrollFactor(fusion, vectorizable_inputs_outputs_entry.get());
 
   // Don't unroll at the cost of getting a full wave on the GPU
   if (n_elems < device_multiprocessor_count * kThreadX &&
@@ -203,6 +273,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
         ceilDiv(n_elems, device_multiprocessor_count * kThreadX));
   }
 
+  constexpr int64_t kSixteen = 16; // clang tidy
   auto max_vect_factor =
       std::min(kSixteen / max_input_dtype_size, max_vect_unroll_factor);
 
@@ -318,7 +389,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
         // Need to be able to parallelize, don't use break if there's not
         // at least an unrolled warp.
-        if (ceilDiv(cur_right_elem_count, max_vect_unroll_factor) <=
+        if (ceilDiv(cur_right_elem_count, max_vect_factor) <=
             at::cuda::getCurrentDeviceProperties()->warpSize) {
           continue;
         }
@@ -334,8 +405,8 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
           flip_grid_binding = false;
         }
         // Min transfer found, start setting values
-        bdimx = std::min(
-            ceilDiv(cur_right_elem_count, max_vect_unroll_factor), kThreadX);
+        bdimx =
+            std::min(ceilDiv(cur_right_elem_count, max_vect_factor), kThreadX);
         bdimy = 1;
         // Put remainder in bdimy if there's at least a wave of grid level
         // parallelism.
@@ -344,7 +415,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
         }
         auto remainder_left = ceilDiv(cur_left_elem_count, bdimy);
         auto remainder_right =
-            ceilDiv(cur_right_elem_count, bdimx * max_vect_unroll_factor);
+            ceilDiv(cur_right_elem_count, bdimx * max_vect_factor);
         // Use this break point
         break_point = static_cast<int>(break_point_i);
         min_total_transfer = cur_transfer_size;
@@ -365,13 +436,8 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
           break_point,
           logical_reorder_map));
 
-  // preserve the old heuristic where unroll is used only when vectorization is
-  // not used. should allow to use both unroll and vectorization together in
-  // heuristics tuning.
-  if (params->vectorization_factor == 1) {
-    params->unroll_factor = scheduler_utils::safeDiv(
-        max_vect_unroll_factor, params->vectorization_factor);
-  }
+  params->unroll_factor = scheduler_utils::safeDiv(
+      max_vect_unroll_factor, params->vectorization_factor);
 
   NVF_ERROR(right_elem_count > 0 || break_point == 0);
   NVF_ERROR(!(bdimy > 1 && gdim_right > 1));
