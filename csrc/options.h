@@ -250,6 +250,8 @@ NVF_API std::unordered_map<EnableOption, std::vector<std::string>> Options<
 
 using EnableOptions = Options<EnableOption>;
 
+std::optional<EnableOption> stringToEnableOption(const std::string& enable_option);
+
 bool isOptionEnabled(EnableOption option);
 
 const std::vector<std::string>& getEnableOptionArguments(EnableOption option);

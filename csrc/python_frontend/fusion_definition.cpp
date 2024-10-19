@@ -337,7 +337,8 @@ std::vector<at::Tensor> FusionDefinition::execute(
     std::optional<int8_t> selected_device,
     bool override_user_schedule,
     bool capture_debug_output,
-    bool profile) const {
+    bool profile,
+    std::vector<std::string> enable_options) const {
   debug_output_ = std::nullopt;
   std::stringstream debug_ss;
   DebugStreamGuard dsg(capture_debug_output ? debug_ss : std::cout);
@@ -349,6 +350,13 @@ std::vector<at::Tensor> FusionDefinition::execute(
   std::vector<at::Tensor> outputs;
   if (profile) {
     ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
+  }
+
+  EnableOptionsGuard enable_opt_guard;
+  for (auto enable_option : enable_options) {
+    std::optional<EnableOption> opt = stringToEnableOption(enable_option);
+    NVF_CHECK(opt.has_value(), "Unrecognized enable_option: ", enable_option);
+    EnableOptionsGuard::getCurOptions().set(opt.value());
   }
 
   if (!override_user_schedule) {

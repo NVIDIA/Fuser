@@ -148,9 +148,7 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
   return parseEnvOptions("DUMP", available_options);
 }
 
-template <>
-std::unordered_map<EnableOption, std::vector<std::string>> Options<
-    EnableOption>::getOptionsFromEnv() {
+const std::unordered_map<std::string, EnableOption>& getEnableOptions() {
   const std::unordered_map<std::string, EnableOption> available_options = {
       {"fuse_matmul", EnableOption::FuseMatmul},
       {"fuse_multiple_matmuls", EnableOption::FuseMultipleMatmuls},
@@ -165,8 +163,23 @@ std::unordered_map<EnableOption, std::vector<std::string>> Options<
       {"kernel_debug", EnableOption::KernelDebug},
       {"kernel_lineinfo", EnableOption::KernelLineInfo},
   };
+  return available_options;
+}
 
+template <>
+std::unordered_map<EnableOption, std::vector<std::string>> Options<
+    EnableOption>::getOptionsFromEnv() {
+  auto available_options = getEnableOptions();
   return parseEnvOptions("ENABLE", available_options);
+}
+
+std::optional<EnableOption> stringToEnableOption(const std::string& enable_option) {
+  const auto& opts = getEnableOptions();
+  auto it = opts.find(enable_option);
+  if (it != opts.end()) {
+    return it->second;
+  }
+  return std::nullopt;
 }
 
 template <>

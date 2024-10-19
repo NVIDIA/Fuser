@@ -77,6 +77,7 @@ class FusionDefinition(_C._FusionDefinition):
         print_repro=False,
         profile=False,
         save_repro_inputs=False,
+        enable_options: list[str] = []
     ):
         """
         Executes an nvFuser set of kernels for a given Fusion
@@ -176,6 +177,7 @@ class FusionDefinition(_C._FusionDefinition):
             self.fake_inputs = [fake_mode.from_tensor(inp) for inp in inputs]
 
         results = None
+        
         try:
             if print_repro:
                 print(self.repro_script_for(inputs))
@@ -185,6 +187,7 @@ class FusionDefinition(_C._FusionDefinition):
                 override_user_schedule=override_user_schedule,
                 capture_debug_output=capture_debug_output,
                 profile=profile,
+                enable_options=enable_options
             )
             return results
         except Exception as err:
