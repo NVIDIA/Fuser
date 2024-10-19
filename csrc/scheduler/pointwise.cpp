@@ -704,16 +704,19 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
       if (pparams->vectorization_factor > 1) {
         reference_tv->split(1, pparams->vectorization_factor);
       }
-      // [outer | inner/vect, vect]
+      // [outer | i-remainder, Vect]
       reference_tv->split(1, NamedScalar::getParallelDim(ParallelType::TIDx));
-      // [outer | inner/vect/TIDx, TIDx, vect]
-      reference_tv->split(1, pparams->unroll_factor);
-      // [outer | inner/vect/TIDx/unroll, unroll, TIDx, vect]
+      // [outer | i-remainder, TIDx, Vect]
+
+      reference_tv->split(0, pparams->unroll_factor);
+      // [o-remainder, Unroll| i-remainder, TIDx, Vect]
 
       reference_tv->split(0, 1);
-      // [outer, unswitch | inner/vect/TIDx/unroll, unroll, TIDx, vect]
-      reference_tv->reorder({{1, 2}});
-      // [outer, i-remainder, unswitch, unroll, TIDx, vect]
+      // [o-remainder, Unswitch, Unroll | i-remainder, TIDx, Vect]
+
+      reference_tv->reorder({{3, 1}});
+      // [o-remainder, i-remainder, Unswitch, Unroll, TIDx, Vect]
+
       reference_tv->axis(2)->parallelize(ParallelType::Unswitch);
       // Here we do not set axis(3)->parallelize(Unroll) because we do not want
       // it to be propagated. We manually unroll by splitting the inline
@@ -724,21 +727,22 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
       if (pparams->vectorization_factor > 1) {
         vectorize_id = reference_tv->axis(5);
       }
-      //[outer | i-remainder, Unswitch, Unroll, TIDx, vect]
+      // [o-remainder, i-remainder, Unswitch, Unroll, TIDx, Vect]
     }
 
     // Move out of the way to furthest left point
     reference_tv->reorder({{1, 0}});
-
-    //[i-remainder | outer | Unswitch, Unroll, TIDx, vect]
+    // [i-remainder, o-remainder, Unswitch, Unroll, TIDx, Vect]
     if (pparams->split_block) {
       reference_tv->split(1, NamedScalar::getParallelDim(ParallelType::TIDy));
+      // [i-remainder, o-remainder, TIDy, Unswitch, Unroll, TIDx, Vect]
       if (pparams->flip_grid_binding) {
-        // [BIDy | BIDx, TIDy | Unswitch, Unroll, TIDx, vect]
+        // [BIDy | BIDx, TIDy | Unswitch, Unroll, TIDx, Vect]
         reference_tv->axis(1)->parallelize(ParallelType::BIDx);
         reference_tv->axis(2)->parallelize(ParallelType::TIDy);
         if (pparams->split_grid_y_dim) {
-          // [i-remainder, BIDy{65535} | BIDx, TIDy | Unswitch, Unroll, TIDx]
+          // [i-remainder, BIDy{65535} | BIDx, TIDy | Unswitch, Unroll, TIDx,
+          // Vect]
           reference_tv->split(0, 65535);
           reference_tv->axis(1)->parallelize(ParallelType::BIDy);
           unswitch_pos = 5;
@@ -747,11 +751,12 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
           unswitch_pos = 4;
         }
       } else {
-        // [BIDx | BIDy TIDy | Unswitch, Unroll, TIDx]
+        // [BIDx | BIDy TIDy | Unswitch, Unroll, TIDx, Vect]
         reference_tv->axis(0)->parallelize(ParallelType::BIDx);
         reference_tv->axis(2)->parallelize(ParallelType::TIDy);
         if (pparams->split_grid_y_dim) {
-          // [BIDx | i-remainder, BIDy{65535}, TIDy | Unswitch, Unroll, TIDx]
+          // [BIDx | i-remainder, BIDy{65535}, TIDy | Unswitch, Unroll, TIDx,
+          // Vect]
           reference_tv->split(1, 65535);
           reference_tv->axis(2)->parallelize(ParallelType::BIDy);
           unswitch_pos = 5;
@@ -761,9 +766,9 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
         }
       }
     } else {
-      // [BIDy | BIDx | Unswitch, Unroll, TIDx]
+      // [BIDy | BIDx | Unswitch, Unroll, TIDx, Vect]
       if (pparams->flip_grid_binding) {
-        // [BIDy | BIDx | Unswitch, Unroll, TIDx]
+        // [BIDy | BIDx | Unswitch, Unroll, TIDx, Vect]
         reference_tv->axis(1)->parallelize(ParallelType::BIDx);
         if (pparams->split_grid_y_dim) {
           // [i-remainder, BIDy{65535} | BIDx | Unswitch, Unroll, TIDx]
@@ -771,18 +776,20 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
           reference_tv->axis(1)->parallelize(ParallelType::BIDy);
           unswitch_pos = 4;
         } else {
+          // [BIDy | BIDx | Unswitch, Unroll, TIDx, Vect]
           reference_tv->axis(0)->parallelize(ParallelType::BIDy);
           unswitch_pos = 3;
         }
       } else {
-        // [BIDx | BIDy | Unswitch, Unroll, TIDx]
+        // [BIDx | BIDy | Unswitch, Unroll, TIDx, Vect]
         reference_tv->axis(0)->parallelize(ParallelType::BIDx);
         if (pparams->split_grid_y_dim) {
-          // [BIDx | i-remainder, BIDy{65535} | Unswitch, Unroll, TIDx]
+          // [BIDx | i-remainder, BIDy{65535} | Unswitch, Unroll, TIDx, Vect]
           reference_tv->split(1, 65535);
           reference_tv->axis(2)->parallelize(ParallelType::BIDy);
           unswitch_pos = 4;
         } else {
+          // [BIDx | BIDy | Unswitch, Unroll, TIDx, Vect]
           reference_tv->axis(1)->parallelize(ParallelType::BIDy);
           unswitch_pos = 3;
         }
