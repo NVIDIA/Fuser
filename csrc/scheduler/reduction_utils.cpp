@@ -428,7 +428,7 @@ void propagateRFactor(
   }
 }
 
-std::unordered_set<TensorView*> getUnrollVectorizableCachedTvs(
+std::unordered_set<TensorView*> getCachedTvsToUnrollOrVectorize(
     TensorView* reference_tv,
     bool vectorize,
     const std::vector<TensorView*>& cached_inputs,
