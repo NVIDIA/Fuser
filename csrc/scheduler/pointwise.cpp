@@ -789,7 +789,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
           reference_tv->axis(2)->parallelize(ParallelType::BIDy);
           unswitch_pos = 4;
         } else {
-          // [BIDx | BIDy | Unswitch, Unroll, TIDx, vect]
+          // [BIDx | BIDy | Unswitch, Unroll, TIDx, Vect]
           reference_tv->axis(1)->parallelize(ParallelType::BIDy);
           unswitch_pos = 3;
         }
