@@ -9,6 +9,7 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <debug.h>
 #include <instrumentation.h>
+#include <ir/printer.h>
 #include <multidevice/utils.h>
 #include <scheduler/cache_policy_refiner.h>
 #include <scheduler/debug_utils.h>
@@ -595,9 +596,20 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
 
     // Make sure lhs and rhs groups are disjoint.
     for (auto lhs_val : lhs_all_vals) {
-      NVF_ERROR(
-          rhs_all_vals_set.count(lhs_val) == 0,
-          "Error in pointwise scheduler. LHS and RHS of the 2D scheduler are not disjoint.");
+      if (rhs_all_vals_set.count(lhs_val) != 0) {
+        std::ostringstream os;
+        IrTransformPrinter printer(os);
+        printer.printTransforms(reference_tv);
+        NVF_THROW(
+            "Error in pointwise scheduler. LHS and RHS of the 2D scheduler are not disjoint. ",
+            lhs_val->toString(),
+            " belongs to both. device_aware_break_point = ",
+            device_aware_break_point,
+            ". reference_tv = ",
+            reference_tv->toString(),
+            " and its transforms are:\n",
+            os.str());
+      }
     }
     NVF_ERROR(
         !rhs_all_vals.empty(),
