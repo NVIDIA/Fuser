@@ -144,8 +144,28 @@ def create_fusion_state(full_tensor_shape, maximum_number_operations):
 
 
 def create_fusion_definition(num_operations, mufu_indices, input_shapes):
-    return [num_operations, mufu_indices, input_shapes]
+    input_tensors = [torch.randn(shape, device="cuda") for shape in input_shapes]
+
+    with FusionDefinition() as fd:
+        output = None
+        output_tensor = None
+        input_tensor_idx = 0
+        for idx in range(num_operations):
+            if output is None:
+                output = fd.from_pytorch(input_tensors[input_tensor_idx])
+                input_tensor_idx += 1
+
+            if idx in mufu_indices:
+                output = fd.ops.exp(output)
+            else:
+                other = fd.from_pytorch(input_tensors[input_tensor_idx])
+                input_tensor_idx += 1
+                output = fd.ops.add(output, other)
+        fd.add_output(output)
+
+    return fd, input_tensors
 
 
-for r in create_fusion_state([10, 50], max_number_operations):
-    print(r)
+full_tensor_shape = [10, 50]
+for fd, input_tensors in create_fusion_state(full_tensor_shape, max_number_operations):
+    output = fd.execute(input_tensors)
