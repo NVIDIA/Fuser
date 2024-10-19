@@ -32,25 +32,6 @@ from nvfuser import FusionCache, FusionDefinition, SchedulerType
 # scheduler selects the configuration that has the highest predicted
 # effective_bandwidth_gbs.
 
-# ============================ Configurations ============================
-
-# For pointwise scheduler, we test the cartesian product of vectorization and
-# unroll factors.
-parameter_configurations = [
-    vectorize_range := [1, 2, 4],
-    unroll_range := list(range(1, 10)),
-]
-
-# We profile a range of input shapes with various configurations.
-# This argument determines how much of the profiled data to keep as a test set.
-test_data_percentage = 0.1
-
-# The selected batch size for empirical and nvfuser comparison.
-empirical_batch_size = 512
-
-# maximum number of operation in fusion
-max_number_operations = 3
-
 # ============================ Function Definitions ============================
 
 
@@ -86,32 +67,18 @@ def run_profile(presched_fd, inputs, config=None):
     # assert torch.allclose(nvf_outputs[0], eager_reference(inputs))
 
     prof = scheduled_fd.profile()
+
+    num_registers = prof.kernel_profiles[0].registers
+    smem = prof.kernel_profiles[0].shared_mem_str
+    grid_shape = prof.kernel_profiles[0].grid_str
+    block_shape = prof.kernel_profiles[0].block_str
     bandwidth = prof.kernel_profiles[0].effective_bandwidth_gbs
     time = prof.kernel_profiles[0].time_ms
-    return bandwidth, time
+
+    return grid_shape, block_shape, num_registers, smem, bandwidth, time
 
 
-def argmax(map_config_to_perf):
-    best_perf = -1
-    best_config = None
-    for config, perf in map_config_to_perf.items():
-        if perf > best_perf:
-            best_perf = perf
-            best_config = config
-    return best_config
-
-
-# Given a prediction model, input_shape, and set of parameter configurations,
-# find the best parameters
-def find_best_parameters(predictor, input_shape, parameter_configurations):
-    map_config_to_performance = {
-        config: predictor.predict([[*input_shape, *config]])
-        for config in itertools.product(*parameter_configurations)
-    }
-    return argmax(map_config_to_performance)
-
-
-# ============================ Run Experiments  ================================
+# ============================ Create Fusion  ================================
 
 
 def generate_shapes_with_bcast(tensor_shape):
@@ -167,12 +134,25 @@ def create_fusion_definition(num_operations, mufu_indices, input_shapes):
     return fd, input_tensors
 
 
+# ============================ Configurations ============================
+
+# For pointwise scheduler, we test the cartesian product of vectorization and
+# unroll factors.
+parameter_configurations = [
+    vectorize_range := [1, 2, 4],
+    unroll_range := list(range(1, 10)),
+]
+
+# maximum number of operation in fusion
+max_number_operations = 3
+
+full_tensor_shape = [16, 256]
+
 # ============================ Run Experiments  ================================
 
 # Collect data for decision tree
 data = []
 
-full_tensor_shape = [16, 256]
 for fusion_config in create_fusion_state(full_tensor_shape, max_number_operations):
     num_ops, mufu_indices, input_shapes = fusion_config
     presched_fd, input_tensors = create_fusion_definition(*fusion_config)
@@ -180,7 +160,7 @@ for fusion_config in create_fusion_state(full_tensor_shape, max_number_operation
     print(fusion_config)
     # unroll and vectorization configurations
     for config in itertools.product(vectorize_range, unroll_range):
-        effective_bandwidth, kernel_time_ms = run_profile(
+        grid, block, registers, smem, bandwidth, time = run_profile(
             presched_fd, input_tensors, config
         )
         entry = [
@@ -188,8 +168,12 @@ for fusion_config in create_fusion_state(full_tensor_shape, max_number_operation
             num_ops,
             len(mufu_indices),
             *config,
-            effective_bandwidth,
-            kernel_time_ms,
+            grid,
+            block,
+            registers,
+            smem,
+            bandwidth,
+            time,
         ]
         data.append(entry)
 
@@ -205,10 +189,14 @@ df = pd.DataFrame(
         "number_of_mufu_operations",
         "vectorization",
         "unroll_factor",
+        "grid",
+        "block",
+        "number_of_registers",
+        "shared_memory_usage",
         "effective_bandwidth",
         "kernel_time_ms",
     ],
 )
 
 df.to_csv("pointwise.csv", index=True)
-print("Finished creating {len(data)} entries")
+print(f"Finished creating {len(data)} entries")
