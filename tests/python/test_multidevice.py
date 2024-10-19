@@ -1232,7 +1232,7 @@ def test_transformer_backward(mpi_test, benchmark):
     d = mpi_test.size
     rank = mpi_test.rank
 
-    b, s, h, e = 2, 2048, 96, 12288
+    b, s, h, e = 1, 2048, 96, 12288
 
     torch.cuda.set_device(mpi_test.local_rank)
 
