@@ -1384,4 +1384,77 @@ INSTANTIATE_TEST_SUITE_P(
     testing::Values(DataType::Half, DataType::BFloat16),
     testing::PrintToStringParamName());
 
+TEST_F(DistributedTransformerTest, Issue3194) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto dtype = DataType::BFloat16;
+  const auto mesh = DeviceMesh::createForNumDevices(D);
+  at::ScalarType at_dtype = data_type_to_aten(dtype);
+
+  TensorView* x = makeContigConcreteTensor({D, B * S, 3 * E / D}, dtype);
+  TensorView* w1 = makeContigConcreteTensor({D, E, E / D}, dtype);
+  for (auto tv : {x, w1}) {
+    tv->setDeviceMesh(mesh);
+    tv->axis(0)->parallelize(ParallelType::DIDx);
+  }
+
+  fusion->addInput(x);
+  fusion->addInput(w1);
+
+  // x = castOp(DataType::Float, x);
+  TensorView* qkv_cat = reshape(x, {D, B * S, 3 * E / D}, {D, B, S, 3 * E / D});
+  std::vector<TensorView*> qkv = chunk(qkv_cat, 3, -1);
+  for (auto i : c10::irange(3)) {
+    qkv[i] = reshape(qkv[i], {D, B, S, E / D}, {D, B, S, H / D, E / H});
+    qkv[i] = transpose(qkv[i], 2, 3);
+    qkv[i] = castOp(dtype, qkv[i]);
+    qkv[i]->setDeviceMesh(mesh);
+    qkv[i]->axis(0)->parallelize(ParallelType::DIDx);
+  }
+  SdpfaFwdResult sdpa = sdpfa_fwd(
+      qkv[0],
+      qkv[1],
+      qkv[2],
+      IrBuilder::create<Val>(0.0),
+      IrBuilder::create<Val>(true),
+      IrBuilder::create<Val>(kSdpaScale));
+  TensorView* sdpa_output = sdpa.output;
+  TensorView* sdpa_transpose = transpose(sdpa_output, 2, 3);
+  TensorView* sdpa_reshape =
+      reshape(sdpa_transpose, {D, B, S, H / D, E / H}, {D, B * S, E / D});
+  TensorView* local_matmul1 = matmul(sdpa_reshape, transpose(w1, 1, 2));
+  TensorView* matmul1 = sum(local_matmul1, {0});
+
+  fusion->addOutput(sdpa_output);
+  fusion->addOutput(matmul1);
+
+  const auto options =
+      at::TensorOptions().dtype(at_dtype).device(communicator_->device());
+  auto x_ = at::randn({B * S, 3 * E}, options) * kParamScale;
+  auto w1_ = at::randn({E, E}, options) * kParamScale;
+
+  at::manual_seed(getATenRandomSeed());
+  auto qkv_ = x_.view({B, S, 3 * E}).split(E, 2);
+  for (auto i = 0; i < 3; i++) {
+    qkv_[i] = qkv_[i].reshape({B, S, H, E / H}).transpose(1, 2);
+  }
+  auto sdpa_out_ = at::_scaled_dot_product_flash_attention(
+      qkv_[0], qkv_[1], qkv_[2], 0.0, true, false, kSdpaScale);
+  auto sdpa_ = std::get<0>(sdpa_out_);
+  auto y_ = sdpa_.transpose(1, 2).reshape({B * S, E});
+  auto matmul1_ = at::matmul(y_, w1_.transpose(0, 1));
+
+  std::vector<c10::IValue> inputs = {
+      shardTensor(x_.view({B * S, 3, E}), 2, mesh).view({1, B * S, 3 * E / D}),
+      shardTensor(w1_, 1, mesh)};
+
+  std::vector<at::Tensor> expected_outputs = {
+      shardTensor(sdpa_, 1, mesh), matmul1_};
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::manual_seed(getATenRandomSeed());
+  auto outputs = fec.runFusionWithInputs(inputs);
+  validate(expected_outputs, outputs, {0.02, 0.02});
+}
+
 } // namespace nvfuser
