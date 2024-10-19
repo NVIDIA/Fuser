@@ -360,7 +360,7 @@ void multiReductionInliner(
     propagateRFactor(reference_tv, reduction_tv, reduction_tvs);
   }
 
-  const auto& unroll_vectorizable_cached_tvs = getUnrollVectorizableCachedTvs(
+  const auto& unroll_vectorizable_cached_tvs = getCachedTvsToUnrollOrVectorize(
       reference_tv,
       vectorize,
       cached_inputs,

@@ -966,7 +966,7 @@ void scheduleInnerOuterPersistentKernel(
   const auto& selected_tvs_inner =
       scheduler_utils::getAllTvsFrom(inner_reduction_tvs, boundaryNodesSet);
   const auto& unroll_vectorizable_cached_tvs =
-      reduction_scheduler_utils::getUnrollVectorizableCachedTvs(
+      reduction_scheduler_utils::getCachedTvsToUnrollOrVectorize(
           inner_reference_tv,
           is_vectorize,
           cached_inputs,
@@ -994,7 +994,7 @@ void scheduleInnerOuterPersistentKernel(
     reduction_scheduler_utils::propagateTransformation(
         outer_reference_tvs[i], boundaryNodesSet);
     const auto& unroll_vectorizable_cached_tvs =
-        reduction_scheduler_utils::getUnrollVectorizableCachedTvs(
+        reduction_scheduler_utils::getCachedTvsToUnrollOrVectorize(
             outer_reference_tvs[i],
             is_vectorize,
             cached_inputs,

@@ -609,7 +609,7 @@ TEST_F(CombinedSchedulerTest, CombinedReduction) {
       true,
       false,
       inner_reduction_tvs,
-      reduction_scheduler_utils::getUnrollVectorizableCachedTvs(
+      reduction_scheduler_utils::getCachedTvsToUnrollOrVectorize(
           reference_tv_inner, true, cached_inputs, cached_outputs, {}));
   reduction_scheduler_utils::propagateParallelization(
       outer_reduction_tv,
@@ -617,7 +617,7 @@ TEST_F(CombinedSchedulerTest, CombinedReduction) {
       true,
       false,
       outer_reduction_tvs,
-      reduction_scheduler_utils::getUnrollVectorizableCachedTvs(
+      reduction_scheduler_utils::getCachedTvsToUnrollOrVectorize(
           reference_tv_outer, true, cached_inputs, cached_outputs, {}));
 
   inlineMost();
@@ -772,7 +772,7 @@ TEST_F(CombinedSchedulerTest, CombinedReductionMultiPerBlock) {
       true,
       false,
       inner_reduction_tvs,
-      reduction_scheduler_utils::getUnrollVectorizableCachedTvs(
+      reduction_scheduler_utils::getCachedTvsToUnrollOrVectorize(
           reference_tv_inner, true, cached_inputs, cached_outputs, {}),
       {selected_tvs_inner.begin(), selected_tvs_inner.end()});
 
@@ -786,7 +786,7 @@ TEST_F(CombinedSchedulerTest, CombinedReductionMultiPerBlock) {
       true,
       false,
       outer_reduction_tvs,
-      reduction_scheduler_utils::getUnrollVectorizableCachedTvs(
+      reduction_scheduler_utils::getCachedTvsToUnrollOrVectorize(
           reference_tv_outer, true, cached_inputs, cached_outputs, {}),
       {selected_tvs_outer.begin(), selected_tvs_outer.end()});
 
