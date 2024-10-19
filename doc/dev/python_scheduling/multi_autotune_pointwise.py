@@ -82,7 +82,8 @@ def run_profile(presched_fd, inputs, config=None):
     nvf_outputs = scheduled_fd.execute(inputs, profile=True)
 
     # validate correctness
-    assert torch.allclose(nvf_outputs[0], eager_reference(inputs))
+    # TODO use thunder to compile torch eager to nvfuser fusion
+    # assert torch.allclose(nvf_outputs[0], eager_reference(inputs))
 
     prof = scheduled_fd.profile()
     bandwidth = prof.kernel_profiles[0].effective_bandwidth_gbs
@@ -140,7 +141,7 @@ def create_fusion_state(full_tensor_shape, maximum_number_operations):
             )
             shapes_for_all_tensors = [tensor_shapes_with_bcast] * num_tensors
             for input_shapes in itertools.product(*shapes_for_all_tensors):
-                yield create_fusion_definition(num_ops, mufu_indices, input_shapes)
+                yield (num_ops, mufu_indices, input_shapes)
 
 
 def create_fusion_definition(num_operations, mufu_indices, input_shapes):
@@ -166,6 +167,20 @@ def create_fusion_definition(num_operations, mufu_indices, input_shapes):
     return fd, input_tensors
 
 
-full_tensor_shape = [10, 50]
-for fd, input_tensors in create_fusion_state(full_tensor_shape, max_number_operations):
-    output = fd.execute(input_tensors)
+# ============================ Run Experiments  ================================
+
+# Collect data for decision tree
+parameters = []
+performance = []
+
+full_tensor_shape = [10, 256]
+for fusion_config in create_fusion_state(full_tensor_shape, max_number_operations):
+    num_ops, mufu_indices, input_shapes = fusion_config
+    presched_fd, input_tensors = create_fusion_definition(*fusion_config)
+
+    print(fusion_config)
+    # unroll and vectorization configurations
+    for config in itertools.product(vectorize_range, unroll_range):
+        perf_metric, _ = run_profile(presched_fd, input_tensors, config)
+        parameters.append((*input_shapes, num_ops, len(mufu_indices), *config))
+        performance.append(perf_metric)
