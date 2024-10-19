@@ -437,7 +437,7 @@ std::unordered_set<TensorView*> getCachedTvsToUnrollOrVectorize(
 
   auto vectorizable_expr = [](Expr* e) { return e->isA<LoadStoreOp>(); };
 
-  std::unordered_set<TensorView*> are_unrolled;
+  std::unordered_set<TensorView*> unroll_vectorizable_tvs;
   for (auto cached_input : cached_inputs) {
     if (vectorize) {
       auto producer_tvs = ir_utils::producerTvsOf(cached_input);
@@ -447,10 +447,10 @@ std::unordered_set<TensorView*> getCachedTvsToUnrollOrVectorize(
               vectorizable_inputs_outputs.begin(),
               vectorizable_inputs_outputs.end(),
               producer_tvs[0]) != vectorizable_inputs_outputs.end()) {
-        are_unrolled.emplace(cached_input);
+        unroll_vectorizable_tvs.emplace(cached_input);
       }
     } else {
-      are_unrolled.emplace(cached_input);
+      unroll_vectorizable_tvs.emplace(cached_input);
     }
   }
 
@@ -462,15 +462,15 @@ std::unordered_set<TensorView*> getCachedTvsToUnrollOrVectorize(
               vectorizable_inputs_outputs.begin(),
               vectorizable_inputs_outputs.end(),
               output) != vectorizable_inputs_outputs.end()) {
-        are_unrolled.emplace(output);
+        unroll_vectorizable_tvs.emplace(output);
       }
     } else {
-      are_unrolled.emplace(output);
+      unroll_vectorizable_tvs.emplace(output);
     }
   }
 
   if (vectorize) {
-    for (auto cached_smem : cached_smem_buffer) {
+    for (auto cached_smem : smem_consumers) {
       // cached_smem_buffer was added in schedule process
       // movePersistentBufferToSmem() using cacheAfter(), so it should be a
       // LoadStoreOp.
@@ -478,11 +478,11 @@ std::unordered_set<TensorView*> getCachedTvsToUnrollOrVectorize(
           vectorizable_expr(cached_smem->definition()),
           "Expected a vectorizable expression, but got: ",
           cached_smem->definition()->toString());
-      are_unrolled.emplace(cached_smem);
+      unroll_vectorizable_tvs.emplace(cached_smem);
     }
   }
 
-  return are_unrolled;
+  return unroll_vectorizable_tvs;
 }
 
 namespace {
