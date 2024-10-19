@@ -93,8 +93,8 @@ NVF_API std::unordered_set<TensorView*> getCachedTvsToUnrollOrVectorize(
 //   reduction_tvs: All reduction TensorViews in the fusion. May add grouped
 //                  parallelization.
 //
-//   unroll_vectorizable_cached_tvs: Cached TensorViews that are both unrollable
-//                                   and vectorizable.
+//   unroll_vectorizable_cached_tvs: Cached TensorViews that are unrollable
+//                                   or vectorizable.
 //
 //   selected_tvs: TensorViews selected for parallelization, default is all Tvs.
 NVF_API void propagateParallelization(

@@ -351,7 +351,7 @@ void multiReductionInliner(
     std::vector<TensorView*> reduction_tvs,
     std::vector<TensorView*> cached_inputs,
     std::vector<std::pair<TensorView*, TensorView*>> cached_outputs,
-    std::vector<TensorView*> cached_smem_buffer,
+    std::vector<TensorView*> smem_consumers,
     std::vector<TensorView*> dummy_outputs) {
   // Propagate transformations before we rfactor the other reductions
   propagateTransformation(reference_tv);
@@ -361,11 +361,7 @@ void multiReductionInliner(
   }
 
   const auto& unroll_vectorizable_cached_tvs = getCachedTvsToUnrollOrVectorize(
-      reference_tv,
-      vectorize,
-      cached_inputs,
-      cached_outputs,
-      cached_smem_buffer);
+      reference_tv, vectorize, cached_inputs, cached_outputs, smem_consumers);
   reduction_scheduler_utils::propagateParallelization(
       reduction_tv,
       reference_tv,
@@ -433,7 +429,7 @@ std::unordered_set<TensorView*> getCachedTvsToUnrollOrVectorize(
     bool vectorize,
     const std::vector<TensorView*>& cached_inputs,
     const std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs,
-    const std::vector<TensorView*>& cached_smem_buffer) {
+    const std::vector<TensorView*>& smem_consumers) {
   auto reduced_tv = ir_utils::getSoleProducerTv(reference_tv);
   // Grab all tensor views that should be vectorized
   auto vectorizable_inputs_outputs =
@@ -491,7 +487,7 @@ std::unordered_set<TensorView*> getCachedTvsToUnrollOrVectorize(
 
 namespace {
 
-// Clears unroll or vectorization parallelization for reduction_tv and
+// Clear unroll or vectorization parallelization for reduction_tv and
 // reference_tv if they shouldn't be unrolled or vectorized.
 // When group reduction is used, convert vectorization to group parallelization
 // and propagate group parallelization to other reduction tvs.
@@ -510,8 +506,8 @@ namespace {
 //   reduction_tvs: All reduction TensorViews in the fusion. May add grouped
 //                  parallelization.
 //
-//   unroll_vectorizable_cached_tvs: Cached TensorViews that are both unrollable
-//                                   and vectorizable.
+//   unroll_vectorizable_cached_tvs: Cached TensorViews that are unrollable
+//                                   or vectorizable.
 void clearUnrollVectorizationAddGroupReduction(
     TensorView* reduction_tv,
     TensorView* reference_tv,
@@ -589,7 +585,7 @@ void propagateParallelization(
            ParallelType::MisalignedVectorize});
     }
     // If reference shouldn't be unrolled, clear that parallel type.
-    // In the case of outer grid persistence, replace Vector with Group
+    // In the case of outer grid persistence, replace Vector with Group.
     clearUnrollVectorizationAddGroupReduction(
         reduction_tv,
         reference_tv,
