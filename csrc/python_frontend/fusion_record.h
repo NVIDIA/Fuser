@@ -1040,27 +1040,36 @@ struct CatOpRecord : RecordFunctor {
   CatOpRecord(
       std::vector<State> _args,
       std::vector<State> _outputs,
-      int64_t dim)
+      int64_t dim,
+      bool manual_padding)
       : RecordFunctor(
             std::move(_args),
             std::move(_outputs),
             "ops.cat",
             serde::RecordType::CatOp),
-        dim_(dim) {}
+        dim_(dim),
+        manual_padding_(manual_padding) {}
   ~CatOpRecord() override = default;
   RecordFunctor* clone() final {
     return new CatOpRecord(*this);
   }
 
+  //! Child specific hash function in lower 32 bits.
+  //! |       31        | 30  ------------------------  0 |
+  //! | manual_padding? |              dim                |
   size_t hash() const final {
     auto result = RecordFunctor::hash();
-    return result | (static_cast<size_t>(dim_) & 0xffff);
+    result |= ((static_cast<size_t>(manual_padding_) & 0x1) << 31);
+    result |= (static_cast<size_t>(dim_) & 0x7fff);
+    return result;
   }
 
   bool operator==(const RecordFunctor& other) const final {
     auto result = false;
     if (auto child_ptr = dynamic_cast<const CatOpRecord*>(&other)) {
-      result = RecordFunctor::operator==(other) && dim_ == child_ptr->dim_;
+      result = RecordFunctor::operator==(other);
+      result = result && (dim_ == child_ptr->dim_);
+      result = result && (manual_padding_ == child_ptr->manual_padding_);
     }
     return result;
   }
@@ -1072,7 +1081,8 @@ struct CatOpRecord : RecordFunctor {
       input_tvs.push_back(
           fd.getFusionState(a.index)->template as<TensorView>());
     }
-    auto output = cat(input_tvs, dim_);
+    auto output =
+        cat(input_tvs, dim_, /*iter_type_opt=*/std::nullopt, manual_padding_);
     fd.setFusionState(outputs_.at(0).index, output);
   }
 
@@ -1107,6 +1117,7 @@ struct CatOpRecord : RecordFunctor {
       os << arg;
     }
     os << "], dim=" << dim_;
+    os << ", manual_padding=" << manual_padding_;
     if (close_function) {
       os << ")";
     }
@@ -1115,13 +1126,15 @@ struct CatOpRecord : RecordFunctor {
   std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
-        serde::RecordData::Dimension,
-        serde::CreateDimension(builder, dim_).Union()};
+        serde::RecordData::Cat,
+        serde::CreateCat(builder, dim_, manual_padding_).Union()};
   }
 
  private:
   //! The dimension along which we will concatenate
   int64_t dim_;
+  //! A flag to skip the pad operation in the cat composite operation.
+  bool manual_padding_;
 };
 
 //! Specialized Record Functor for recording FusionState End.

@@ -936,7 +936,8 @@ class FusionTranslator : public OptInConstDispatch {
     fd_->defineRecord(new CatOpRecord(
         tensor_states,
         {fd_->recordingState(output())},
-        cat_op->concatenatedDim()));
+        cat_op->concatenatedDim(),
+        /*manual_padding=*/true));
   }
 
   // Map RNGOp to RandomDistOpRecord
