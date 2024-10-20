@@ -3134,7 +3134,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       "welford",
       [](FusionDefinition::Operators& self,
          Tensor arg,
-         std::vector<int64_t>& axes) -> decltype(auto) {
+         const std::vector<int64_t>& dims) -> decltype(auto) {
         FUSER_PERF_SCOPE("Operators.welford");
         NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
@@ -3148,7 +3148,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             {fd->recordingState(avg()),
              fd->recordingState(var_sum()),
              fd->recordingState(n())},
-            std::move(axes)));
+            dims));
         return std::make_tuple(avg, var_sum, n);
       },
       py::arg("arg"),
