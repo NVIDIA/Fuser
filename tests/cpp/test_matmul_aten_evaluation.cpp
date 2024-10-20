@@ -236,7 +236,7 @@ TEST_P(LinearNodeParametrizedTest, LinearNodeConcrete) {
     out = fec.runFusionWithInputs({t0, t1});
   }
 
-  const std::vector<FusionExecutor>& executors =
+  const std::vector<KernelExecutor>& executors =
       fec.getMostRecentKernelRuntime()->executors();
   EXPECT_EQ(executors.size(), 1);
   // Verify that fusion compilation was skipped.
@@ -287,7 +287,7 @@ TEST_P(LinearNodeParametrizedTest, LinearNodeSymbolic) {
     out = fec.runFusionWithInputs({t0, t1});
   }
 
-  const std::vector<FusionExecutor>& executors =
+  const std::vector<KernelExecutor>& executors =
       fec.getMostRecentKernelRuntime()->executors();
   EXPECT_EQ(executors.size(), 1);
   // Verify that fusion compilation was skipped.

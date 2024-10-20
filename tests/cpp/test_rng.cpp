@@ -116,7 +116,7 @@ TEST_F(RNGTest, ManualScheduleValidateWithCURand) {
   auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
   at::Tensor t0 = at::zeros({size}, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(fusion, {t0});
 
   at::manual_seed(0);
@@ -154,7 +154,7 @@ TEST_F(RNGTest, ManualScheduleValidateWithCURand2) {
       /*maybe_symbolic=*/false);
   fusion->addOutput(tv0);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(fusion, {10, 10, 10, 10});
 
   at::manual_seed(0);
@@ -287,7 +287,7 @@ TEST_F(RNGTest, BroadcastingRNGSmemNonSquareTile) {
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Transpose)
       ->schedule(fusion, &tparams);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(fusion, {t0, t1});
   auto cg_outputs = fe.runFusion({t0, t1});
   auto out = cg_outputs[0];

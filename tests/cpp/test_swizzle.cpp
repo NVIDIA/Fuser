@@ -54,7 +54,7 @@ TEST_F(LegacySwizzleTest, SimpleSwizzle0) {
   auto str = ir_utils::toString(exprs);
   NVF_CHECK(str.find("where") != std::string::npos);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -93,7 +93,7 @@ TEST_F(LegacySwizzleTest, SimpleSwizzle1) {
   // Inlining a producer into a swizzled consumer is ok
   tv1->computeAt(tv2, -1);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -150,7 +150,7 @@ TEST_F(LegacySwizzleTest, SimpleSwizzle2) {
     }
   }
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -279,7 +279,7 @@ TEST_F(LegacySwizzleTest, LoopSwizzle0) {
 
   tv0->computeAt(tv2, -1);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -314,7 +314,7 @@ TEST_F(LegacySwizzleTest, LoopSwizzle1) {
   tv2->axis(0)->parallelize(ParallelType::BIDx);
   tv2->axis(1)->parallelize(ParallelType::BIDy);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -349,7 +349,7 @@ TEST_F(LegacySwizzleTest, LoopSwizzleCheck0) {
 
   tv0->computeAt(tv2, -1);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   ASSERT_ANY_THROW(fe.compileFusion(&fusion));
 }
 
@@ -381,7 +381,7 @@ TEST_F(LegacySwizzleTest, LoopSwizzleCheck1) {
   // Make tv2 swizzled and partially-inlined (unsupported).
   tv0->computeAt(tv3, -2);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   ASSERT_ANY_THROW(fe.compileFusion(&fusion));
 }
 
@@ -615,7 +615,7 @@ TEST_F(LegacySwizzleTest, SwizzleIndexing170) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t = at::randn({64, 64}, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion);
   auto outputs = fe.runFusion({t});
 
@@ -678,7 +678,7 @@ TEST_F(LegacySwizzleTest, SwizzleInProducerProjection) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t = at::randn({32, 64}, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(fusion.get());
   auto outputs = fe.runFusion({t});
 
@@ -735,7 +735,7 @@ TEST_F(SwizzleTest, Transpose1) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t = at::randn({10240, 10240}, options);
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {t});
   EXPECT_TRUE(getBankConflictInfo(fe.kernel()).empty());
   std::vector<at::Tensor> outputs = fe.runFusion({t});

@@ -182,7 +182,7 @@ TEST_F(AliasAnalysisTest, View_ForwardExpandedBroadcast) {
   EXPECT_EQ(analysis.getRoot(out), in);
 
   // Verify the last dimension isn't expanded physically.
-  FusionExecutor fe;
+  KernelExecutor fe;
   at::Tensor in_tensor =
       at::randn({4, 5}).cuda().as_strided({4, 5, 6}, {5, 1, 0});
   fe.compileFusion(&fusion, {in_tensor});

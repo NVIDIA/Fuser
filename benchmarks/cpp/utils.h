@@ -48,7 +48,7 @@ int64_t runBenchmarkIterations(
 //! kernel time is added to benchmark_state.
 int64_t runBenchmarkIterations(
     benchmark::State& benchmark_state,
-    FusionExecutor* fe,
+    KernelExecutor* fe,
     std::vector<c10::IValue>& aten_inputs,
     const LaunchParams& launch_constraints = LaunchParams(),
     CompileParams compile_params = CompileParams());

@@ -332,12 +332,12 @@ class NVF_API Allocate final : public Expr {
   //! hold counters starting at zero. Typically, each participating thread would
   //! increment the counter and the last thread would leave the counter in a
   //! non-zeroed state. The next time that kernel is run, it can no longer
-  //! re-use the non-zero semaphore buffer, so FusionExecutor will launch
+  //! re-use the non-zero semaphore buffer, so KernelExecutor will launch
   //! at::zeroes to allocate a new buffer, resulting in a memset kernel launch.
   //!
   //! Instead, if the last thread resets the counter to zero, then the buffer
   //! can be re-used, and at::zeroes need only be run at the first kernel
-  //! launch. If resetsToZero() is true, then FusionExecutor will use
+  //! launch. If resetsToZero() is true, then KernelExecutor will use
   //! contigZeroedTensor() and releaseZeroedMemory() from global_allocator.h to
   //! reuse zeroed memory avoiding the additional kernel launch.
   //!
@@ -840,7 +840,7 @@ class NVF_API IfThenElse final : public Expr {
 //! This node is used only after lowering a fusion to explicitly mark a grid
 //! reduction and the buffer allocation needed to do it.
 //!
-//! This node provides FusionExecutor the information it needs to allocate the
+//! This node provides KernelExecutor the information it needs to allocate the
 //! reduction and sync buffers.
 class GridReduction final : public ReductionOp {
   static constexpr int num_reduction_op_attr = 4;
@@ -1004,7 +1004,7 @@ class NVF_API GroupedGridReduction final : public GroupedReductionOp {
 //! This node is used only after lowering a fusion to explicitly mark a grid
 //! broadcast and the buffer allocation needed to do it.
 //!
-//! This node provides FusionExecutor the information it needs to allocate the
+//! This node provides KernelExecutor the information it needs to allocate the
 //! broadcast and sync buffers.
 class NVF_API GridBroadcast final : public Expr {
  public:
@@ -1043,7 +1043,7 @@ class NVF_API GridBroadcast final : public Expr {
 //! This node is used only after lowering a fusion to explicitly mark a grid
 //! reduction and the buffer allocation needed to do it.
 //!
-//! This node provides FusionExecutor the information it needs to allocate the
+//! This node provides KernelExecutor the information it needs to allocate the
 //! reduction and sync buffers.
 //!
 //! TODO: Make this a subclass of WelfordOp

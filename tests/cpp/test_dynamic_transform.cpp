@@ -1215,7 +1215,7 @@ TEST_F(NVFuserTest, OptOutMutatorMutatedOutput) {
 
   inlineMost();
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(fusion);
 
   auto outputs = fe.runFusion({t0});
@@ -1252,7 +1252,7 @@ TEST_F(NVFuserTest, OptOutMutatorRedefinedConstant) {
 
   inlineMost();
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(fusion);
 
   auto outputs = fe.runFusion({3L});

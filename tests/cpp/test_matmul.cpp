@@ -122,7 +122,7 @@ TEST_P(MatmulTestWithLayout, AmpereMatmul) {
 
   auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
       8,
       0,
@@ -176,7 +176,7 @@ TEST_P(MatmulTestWithLayout, AmperePrologueFusionBroadcast) {
 
   auto inputs = matmulAtInput2D(M, N, K, layout);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
       8,
       0,
@@ -235,7 +235,7 @@ TEST_P(MatmulTestWithLayout, AmpereProloguePointwise) {
 
   auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
       8,
       0,
@@ -294,7 +294,7 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulBFloat16) {
 
   auto inputs = matmulAtInput3DTuring(M, N, K, layout, at::kBFloat16);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
       8,
       0,
@@ -355,7 +355,7 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulPipelineGmem) {
 
     auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
-    FusionExecutor fe;
+    KernelExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
         8,
         0,
@@ -437,7 +437,7 @@ TEST_P(MatmulTestWithLayout, AmpereSwizzle) {
       FusionProfiler::createSegments(1);
     }
 
-    FusionExecutor fe;
+    KernelExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
         8,
         0,
@@ -563,7 +563,7 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulRegCircularBuffer) {
 
     auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
-    FusionExecutor fe;
+    KernelExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
         8,
         0,
@@ -855,7 +855,7 @@ TEST_F(MatmulTest, MatmulMatmulAmpere) {
                   .matmul(t1.t().to(at::kFloat))
                   .matmul(t2.t().to(at::kFloat));
 
-  FusionExecutor fe;
+  KernelExecutor fe;
 
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
       8,
@@ -1235,7 +1235,7 @@ TEST_F(MatmulTest, MatmulSoftmaxMatmulAmpere) {
   auto t1 = at::randn({N1, K1}, options);
   auto t2 = at::randn({N2, K2}, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
 
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
       8,
@@ -1288,7 +1288,7 @@ TEST_P(MatmulTestWithLayout, TuringMatmul) {
 
   auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
       7, 5, fe.compileFusion(&fusion, {inputs.first, inputs.second}));
   ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
@@ -1432,7 +1432,7 @@ TEST_F(MatmulTest, AmpereMatmulTNCpAsync) {
   auto t0 = at::randn({M, K}, options);
   auto t1 = at::randn({N, K}, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
       8,
       0,
@@ -1600,7 +1600,7 @@ TEST_F(MatmulTest, AmpereStridedBatchedMatmulTN) {
   auto t0 = at::randn({B0, M, B1, K}, options);
   auto t1 = at::randn({B0, N, B1, K}, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
 
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
       8,
@@ -1773,7 +1773,7 @@ TEST_F(MatmulTest, AmpereViewMatmulTN) {
   auto t0 = at::randn({M, Ko, Ki}, options);
   auto t1 = at::randn({N, K}, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
 
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
       8,
@@ -1961,7 +1961,7 @@ TEST_F(MatmulTest, AmpereMatmulTNSwizzled) {
   auto t0 = at::randn({M, K}, options);
   auto t1 = at::randn({N, K}, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams);
   auto cg_outputs = fe.runFusion({t0, t1});
   ASSERT_FALSE(
@@ -2010,7 +2010,7 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulLargeLoad) {
 
   auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
       8,
       0,
@@ -2064,7 +2064,7 @@ TEST_P(MatmulTestWithLayout, TuringMatmulLargeLoad) {
 
   auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
       7,
       5,
@@ -2134,7 +2134,7 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulTileCheck4warp) {
 
       auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
-      FusionExecutor fe;
+      KernelExecutor fe;
       NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
           8,
           0,
@@ -2213,7 +2213,7 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulTileCheck8warp) {
 
         auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
-        FusionExecutor fe;
+        KernelExecutor fe;
         NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
             8,
             0,
@@ -2282,7 +2282,7 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulTileCheck6warp) {
 
     auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
-    FusionExecutor fe;
+    KernelExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
         8,
         0,
@@ -2340,7 +2340,7 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulLargeLoadLargeK) {
 
   auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
       8,
       0,
@@ -2396,7 +2396,7 @@ TEST_P(MatmulTestWithLayout, AmpereSplitKLikeStridedBatchedMatmul) {
   auto t0 = matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K, B);
   auto t1 = matmulAtInput2D(layout, TensorMatmulPos::B, at::kHalf, M, N, K, B);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
       8,
       0,
@@ -2485,7 +2485,7 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulSmemEpilogue) {
     at::manual_seed(0);
     auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
-    FusionExecutor fe;
+    KernelExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
         8,
         0,
@@ -2619,13 +2619,13 @@ TEST_F(MatmulTest, AmpereMatmulSmemEpiloguePromotionRequiredA100) {
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(&fusion, &mparams);
 
-  // FusionExecutor::compileFusion would fail otherwise.
+  // KernelExecutor::compileFusion would fail otherwise.
   SKIP_IF_INSUFFICIENT_SMEM(&mparams, data_types);
 
   at::manual_seed(0);
   auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
       8,
       0,
@@ -2725,7 +2725,7 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulSmemEpilogueCast) {
   at::manual_seed(0);
   auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
       8,
       0,
@@ -2821,7 +2821,7 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulSmemEpilogueRelu) {
   at::manual_seed(0);
   auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
       8,
       0,
@@ -2913,7 +2913,7 @@ TEST_P(MatmulTestWithLayout, FusionAmpereMatmulSplitK_CUDA) {
 
       auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
-      FusionExecutor fe;
+      KernelExecutor fe;
       NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
           7, 5, fe.compileFusion(&fusion, {inputs.first, inputs.second}));
       EXPECT_TRUE(getBankConflictInfo(fe.kernel()).empty());
@@ -2981,7 +2981,7 @@ TEST_P(MatmulTestWithLayout, FusionAmpereMatmulSplitKBias_CUDA) {
       at::Tensor aten_bias = at::randn({M}, aten_a.options());
       std::vector<c10::IValue> inputs = {aten_a, aten_b, aten_bias};
 
-      FusionExecutor fe;
+      KernelExecutor fe;
       NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
           7, 5, fe.compileFusion(&fusion, inputs));
       EXPECT_TRUE(getBankConflictInfo(fe.kernel()).empty());
@@ -3047,7 +3047,7 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulBatchSplitK) {
 
       std::vector<c10::IValue> inputs = {aten_a, aten_b};
 
-      FusionExecutor fe;
+      KernelExecutor fe;
       NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
           7, 5, fe.compileFusion(&fusion, inputs));
       ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
@@ -3117,7 +3117,7 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulBatchSplitKBias) {
 
       std::vector<c10::IValue> inputs = {aten_a, aten_b, aten_bias};
 
-      FusionExecutor fe;
+      KernelExecutor fe;
       NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
           7, 5, fe.compileFusion(&fusion, inputs));
       ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
@@ -3176,7 +3176,7 @@ TEST_F(MatmulTest, ReproIssue1808) {
 
   auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
       8,
       0,
@@ -3331,7 +3331,7 @@ TEST_P(MatmulTestWithLayout, MisalignedVectorization) {
         SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
             ->schedule(fusion.get(), &mparams);
 
-        FusionExecutor fe;
+        KernelExecutor fe;
         NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
             8,
             0,
@@ -3391,7 +3391,7 @@ TEST_F(MatmulTest, MultipleConsecutiveDims) {
   at::Tensor B = at::randn({N1, N2, K}, options);
   std::vector<c10::IValue> inputs{A, B};
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
       8, 0, fe.compileFusion(&fusion, inputs, LaunchParams(), matmul_cparams));
   ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
@@ -3457,7 +3457,7 @@ TEST_F(MatmulTest, DISABLED_MultipleNonConsecutiveMDims) {
   at::Tensor B = at::randn({N, K}, options);
   std::vector<c10::IValue> inputs{A, B};
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
       8, 0, fe.compileFusion(&fusion, inputs, LaunchParams(), matmul_cparams));
   ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
@@ -3523,7 +3523,7 @@ TEST_F(MatmulTest, DISABLED_MultipleNonConsecutiveNDims) {
   at::Tensor B = at::randn({N1, K, N2}, options);
   std::vector<c10::IValue> inputs{A, B};
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
       8, 0, fe.compileFusion(&fusion, inputs, LaunchParams(), matmul_cparams));
   ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
@@ -3581,7 +3581,7 @@ TEST_F(MatmulTest, MultipleMDimsBatch) {
   at::Tensor B = at::randn({Batch, N, K}, options);
   std::vector<c10::IValue> inputs{A, B};
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
       8, 0, fe.compileFusion(&fusion, inputs, LaunchParams(), matmul_cparams));
   ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
@@ -3715,7 +3715,7 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
   auto inputs =
       matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
   auto cg_outputs = fe.runFusion({inputs.first, inputs.second});

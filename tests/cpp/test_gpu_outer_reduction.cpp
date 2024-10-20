@@ -115,7 +115,7 @@ TEST_F(OuterReductionTest, GroupedGridWelfordOuterOpt) {
     auto t0 = at::randn(input_shape, options);
     std::vector<c10::IValue> aten_inputs = {t0};
 
-    FusionExecutor fe;
+    KernelExecutor fe;
     fe.compileFusion(&fusion, aten_inputs);
 
     NVF_CHECK(
@@ -638,7 +638,7 @@ void grid_persistent_reduction_outer_norm_like(
   const std::vector<int64_t> input_shape{N, HW, HW, C};
   auto t0 = at::randn(input_shape, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {t0});
 
   auto bidy = ceilDiv(ceilDiv(N * HW * HW, params.tidy), params.pb);
@@ -737,7 +737,7 @@ void grid_persistent_welford_outer_norm_like(
   const std::vector<int64_t> input_shape{N, HW, HW, C};
   auto t0 = at::randn(input_shape, options_half);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {t0});
 
   auto bidy = ceilDiv(ceilDiv(N * HW * HW, params.tidy), params.pb);
@@ -898,7 +898,7 @@ void grid_persistent_batchnorm_manual(
   std::vector<c10::IValue> aten_inputs(
       {at_input_nvfuser, at_weight, at_bias, at_running_mean, at_running_var});
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(fusion_ptr.get(), aten_inputs);
 
   auto bidy = ceilDiv(ceilDiv(N * HW * HW, params.tidy), params.pb);
@@ -1037,7 +1037,7 @@ void grid_persistent_reduction_outer_norm_bwd_like(
   auto t1 = at::randn(input_shape, options);
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
 
   auto bidy = ceilDiv(ceilDiv(N * HW * HW, params.tidy), params.pb);
@@ -1224,7 +1224,7 @@ void grid_persistent_batchnorm_bwd_manual(
 
   std::vector<at::Tensor> cg_outputs;
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(fusion_ptr.get(), aten_inputs);
 
   auto bidy = ceilDiv(ceilDiv(N * HW * HW, params.tidy), params.pb);
@@ -2181,7 +2181,7 @@ TEST_F(OuterReductionTest, IterGroupedBlockReduction) {
   rparams->unroll_factor_iter_dom = vect_factor;
 
   scheduler->schedule(&fusion, rparams);
-  FusionExecutor fusion_executor;
+  KernelExecutor fusion_executor;
   fusion_executor.compileFusion(
       &fusion, aten_inputs, heuristic_params->lparams);
   auto cg_outputs =
@@ -2292,7 +2292,7 @@ void shmooTestsOfIterGroupedBlockOrGridReduction(
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, aten_inputs, lparams);
   auto cg_outputs = fe.runFusion(aten_inputs, lparams);
 
@@ -2543,7 +2543,7 @@ TEST_F(OuterReductionTest, IterGroupedMultipleReductions) {
       << "Expect 2 Iteration domain grouped grid reductions, got: "
       << num_iter_grouped_reductions;
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   std::vector<int64_t> shape({redu_dim, iter_dim});
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);

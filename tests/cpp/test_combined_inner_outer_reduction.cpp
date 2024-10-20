@@ -639,7 +639,7 @@ TEST_F(CombinedSchedulerTest, CombinedReduction) {
 
   at::Tensor qv_cg_output = at::empty({dim1}, options);
   auto qv_aten_output = tv_input.to(at::kFloat).sum({0});
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {tv_input}, launch_constraints, compile_params);
   fe.runFusion(
       {tv_input},
@@ -817,7 +817,7 @@ TEST_F(CombinedSchedulerTest, CombinedReductionMultiPerBlock) {
   at::Tensor qv_cg_output = at::empty({dim1}, options);
   at::Tensor tv_input2 = at::ones({dim0, dim1}, options);
   auto qv_aten_output = tv_input2.to(at::kFloat).sum({0});
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {tv_input}, launch_constraints, compile_params);
   fe.runFusion(
       {tv_input},

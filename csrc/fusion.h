@@ -403,7 +403,7 @@ class NVF_API Fusion : public IrContainer {
   static IrCloner copy(const Fusion* from, Fusion* to);
 
   //! During scheduling, this can be set to a non-negative value. If done, then
-  //! during execution by FusionExecutor, we will check that this value matches
+  //! during execution by KernelExecutor, we will check that this value matches
   //! the corresponding value in LaunchParams.
   int64_t expectedDynamicSmemBytes() const {
     return expected_dynamic_smem_bytes_;

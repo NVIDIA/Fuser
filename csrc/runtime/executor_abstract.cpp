@@ -9,8 +9,7 @@
 #include <runtime/executor_abstract.h>
 
 namespace nvfuser {
-namespace {
-} // namespace
+namespace {} // namespace
 
-    // FusionExecutorAbstract::FusionExecutorAbstract(){}
+// FusionExecutorAbstract::FusionExecutorAbstract(){}
 } // namespace nvfuser

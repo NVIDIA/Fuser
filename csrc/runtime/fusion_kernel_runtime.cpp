@@ -125,7 +125,7 @@ FusionKernelRuntime::FusionKernelRuntime(
   //  would go directly to kernel launch.
   prepareRuntimeOrder(segmented_fusion_.get(), runtime_workspace_);
 
-  executors_ = std::vector<FusionExecutor>(segmented_fusion_->groups().size());
+  executors_ = std::vector<KernelExecutor>(segmented_fusion_->groups().size());
   if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
     segmented_fusion_->print();
   }
@@ -159,8 +159,8 @@ flatbuffers::Offset<serde::FusionKernelRuntime> FusionKernelRuntime::serialize(
     flatbuffers::FlatBufferBuilder& builder) const {
   // See table definition for FusionKernelRuntime in serde/fusion_cache.fbs
 
-  // 1. Serialize FusionExecutor objects
-  std::vector<flatbuffers::Offset<serde::FusionExecutor>> executors_fb;
+  // 1. Serialize KernelExecutor objects
+  std::vector<flatbuffers::Offset<serde::KernelExecutor>> executors_fb;
   executors_fb.reserve(executors_.size());
   for (auto& executor : executors_) {
     executors_fb.push_back(executor.serialize(builder));
@@ -198,7 +198,7 @@ void FusionKernelRuntime::deserialize(
       runtime_id_ == buffer->runtime_id(),
       "Expected FusionKernelRuntime runtime_id to match serde runtime_id.");
 
-  // 1. Deserialize FusionExecutor objects
+  // 1. Deserialize KernelExecutor objects
   for (auto idx : c10::irange(buffer->executors()->size())) {
     auto sg = runtime_workspace_.group_run_order.at(idx);
 
@@ -497,7 +497,7 @@ void FusionKernelRuntime::updateHeuristicsLaunchParams(
   }
 }
 
-const std::vector<FusionExecutor>& FusionKernelRuntime::executors() const {
+const std::vector<KernelExecutor>& FusionKernelRuntime::executors() const {
   return executors_;
 }
 

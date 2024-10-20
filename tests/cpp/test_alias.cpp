@@ -335,15 +335,15 @@ TEST_F(AliasTest, DuplicateOutputsSegmentedFusion) {
 namespace {
 
 // Returns the only executor in the most recent runtime.
-const FusionExecutor& onlyExecutorInMostRecentRuntime(
+const KernelExecutor& onlyExecutorInMostRecentRuntime(
     const FusionExecutorCache& fec) {
-  const std::vector<FusionExecutor>& executors =
+  const std::vector<KernelExecutor>& executors =
       fec.getMostRecentKernelRuntime()->executors();
   EXPECT_EQ(executors.size(), 1);
   return executors.front();
 }
 
-bool storesToOutput(const FusionExecutor& fe, const int64_t out_index) {
+bool storesToOutput(const KernelExecutor& fe, const int64_t out_index) {
   // Get the variable name from the `kir::Kernel` not the input fusion, because
   // they are not always the same.
   std::string var_name = ir_utils::varName(fe.kernel()->outputs()[out_index]);
@@ -392,7 +392,7 @@ TEST_F(AliasTest, NotAllOutputsAlias_Pointwise) {
 
   for (SegmentedGroup* group : runtime->fusionSegments()->groups()) {
     if (group->schedulerType() == SchedulerType::PointWise) {
-      const FusionExecutor& fe = runtime->executors().at(group->groupId());
+      const KernelExecutor& fe = runtime->executors().at(group->groupId());
       int num_stores = 0;
       for (auto i : c10::irange(group->outputs().size())) {
         if (storesToOutput(fe, i)) {
@@ -467,7 +467,7 @@ TEST_F(AliasTest, Issue1452) {
 
   for (SegmentedGroup* group : runtime->fusionSegments()->groups()) {
     if (group->schedulerType() == SchedulerType::PointWise) {
-      const FusionExecutor& fe = runtime->executors().at(group->groupId());
+      const KernelExecutor& fe = runtime->executors().at(group->groupId());
       int num_stores = 0;
       for (auto i : c10::irange(group->outputs().size())) {
         if (storesToOutput(fe, i)) {
@@ -502,7 +502,7 @@ TEST_F(AliasTest, AliasOutputBeforeNonAliasOutput) {
   at::Tensor slice_out_tensor = out_tensors[0];
   EXPECT_TRUE(slice_out_tensor.is_alias_of(in_tensor));
 
-  const FusionExecutor& fe = onlyExecutorInMostRecentRuntime(fec);
+  const KernelExecutor& fe = onlyExecutorInMostRecentRuntime(fec);
   EXPECT_FALSE(storesToOutput(fe, /*out_index=*/0))
       << "The generated CUDA kernel shouldn't store data to output 0:"
       << std::endl
@@ -970,7 +970,7 @@ TEST_F(AliasTest, ReuseBuffer_FusionExecutor) {
   auto tensor = at::randn({10}, options);
   auto expected_tensor = tensor + 1.0;
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {tensor});
   fe.runFusion({tensor}, {tensor});
   EXPECT_TRUE(tensor.allclose(expected_tensor));
@@ -1141,8 +1141,8 @@ TEST_F(AliasTest, NoKernelsAreLaunched) {
 }
 
 // While most use cases go through FusionExecutorCache, nvFuser also supports
-// evaluating an alias via FusionExecutor.
-TEST_F(AliasTest, FusionExecutor) {
+// evaluating an alias via KernelExecutor.
+TEST_F(AliasTest, KernelExecutor) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1155,11 +1155,11 @@ TEST_F(AliasTest, FusionExecutor) {
   AliasAnalysisResult analysis = findAliases(&fusion);
   EXPECT_EQ(analysis.getRoot(out), in);
 
-  // Mark them alias so FusionExecutor::runFusion expression-evaluates the
+  // Mark them alias so KernelExecutor::runFusion expression-evaluates the
   // output on the host instead of launching a CUDA kernel.
   fusion.aliasOutputToInput(out, in, AllocationType::Evaluate);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor in_tensor = at::randn({10, 10}, options);
   fe.compileFusion(&fusion, {in_tensor});

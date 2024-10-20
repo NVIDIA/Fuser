@@ -172,7 +172,7 @@ std::vector<at::Tensor> scheduleCompileAndRun(
     tv2->setLoopDomain(s.as<IterDomain*>());
   }
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(
       fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
   return fe.runFusion({inputs.first, inputs.second});
@@ -388,7 +388,7 @@ TEST_P(HopperRS, SingleTile) {
   auto inputs = matmulAtInput3DHopperRS(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
 
@@ -484,7 +484,7 @@ TEST_P(HopperRS, SingleTileWithTMALoadStore) {
   auto inputs = matmulAtInput3DHopperRS(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
 
@@ -650,7 +650,7 @@ TEST_P(HopperSS, SingleTile) {
   auto inputs = matmulAtInput3DHopperSS(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
   auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
@@ -779,7 +779,7 @@ TEST_P(HopperSS, SingleTileTransposed) {
   auto inputs = matmulAtInput3DHopperSS(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
   auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
@@ -958,7 +958,7 @@ TEST_P(HopperSS, MultipleTile) {
       layout,
       data_type_to_aten(dtype));
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
   auto cg_outputs = fe.runFusion({inputs.first, inputs.second});

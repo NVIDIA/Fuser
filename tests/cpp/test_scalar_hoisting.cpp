@@ -213,7 +213,7 @@ TEST_F(ScalarHoistTest, IndexHoist1) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({15, 17}, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {t0});
   auto cg_outputs = fe.runFusion({t0});
 
@@ -257,7 +257,7 @@ TEST_F(ScalarHoistTest, IndexHoist2) {
   auto t0 = at::randn({16}, options);
   auto t1 = at::randn({16}, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {t0, t1});
   auto cg_outputs = fe.runFusion({t0, t1});
 
@@ -290,7 +290,7 @@ TEST_F(ScalarHoistTest, IndexHoist3) {
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::arange(10000, options).view({100, 100});
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(fusion.get(), {t0});
   auto cg_outputs = fe.runFusion({t0});
 
@@ -369,7 +369,7 @@ TEST_F(ScalarHoistTest, ARange) {
 
   int64_t start = 0, end = 100, step = 1;
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(fusion.get(), {start, end, step});
   auto cg_outputs = fe.runFusion({start, end, step});
 

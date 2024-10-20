@@ -224,7 +224,7 @@ class CompileTimeInfoBase : public PolymorphicBase {
 //! Compile-time information cache for `canSchedule` and `getHeuristics`
 //! interfaces. Each cache instance stores information that could be inferred at
 //! compile time in a fusion and therefore corresponds to an instance of
-//! FusionExecutor.
+//! KernelExecutor.
 class HeuristicDataCache {
   using EntryOwningPtr =
       std::unique_ptr<HeuristicCompileTime::CompileTimeInfoBase>;

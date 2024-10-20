@@ -24,7 +24,7 @@ CGResultsPackage scheduleAndRun(
     bool validate_scheduler) {
   auto heuristic_params = SchedulerEntry::scheduleWith(
       fusion, scheduler_type, runtime_inputs, validate_scheduler);
-  auto fe = std::make_unique<FusionExecutor>();
+  auto fe = std::make_unique<KernelExecutor>();
   fe->compileFusion(fusion, runtime_inputs, heuristic_params->lparams);
   auto cg_outputs = fe->runFusion(runtime_inputs, heuristic_params->lparams);
   CGResultsPackage results = {

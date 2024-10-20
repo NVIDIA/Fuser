@@ -116,7 +116,7 @@ TEST_F(SerialGridReductionTest, Scheduling) {
 
         inlineMost();
 
-        FusionExecutor fe;
+        KernelExecutor fe;
         if (serial) {
           tv3->definition()->as<ReductionOp>()->requestSerialGridReduction();
         }

@@ -547,7 +547,7 @@ TEST_F(TransposeTest, FusionManualScheduleTransposeComplexDAG1) {
   at::Tensor input1 = at::randn({1024, 512, 256}, options);
   at::Tensor input2 = at::randn({512, 256, 1024}, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion, {input0, input1, input2});
   auto outputs = fe.runFusion({input0, input1, input2});
 
@@ -987,7 +987,7 @@ TEST_F(TransposeTest, FusionTransposeBankConflict9) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input = at::randn({32, 32, 2}, options);
 
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(&fusion);
   auto outputs = fe.runFusion({input});
 

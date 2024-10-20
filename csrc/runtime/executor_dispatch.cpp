@@ -9,6 +9,5 @@
 #include <runtime/executor_dispatch.h>
 
 namespace nvfuser {
-namespace {
-} // namespace
+namespace {} // namespace
 } // namespace nvfuser

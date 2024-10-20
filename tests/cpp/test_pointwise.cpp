@@ -549,7 +549,7 @@ TEST_F(PointwiseTest, ShardedPointwise) {
         unsharded_pparams->flip_grid_binding);
 
     pwise_scheduler->schedule(&sharded_fusion, sharded_params.get());
-    FusionExecutor fe;
+    KernelExecutor fe;
     fe.compileFusion(&sharded_fusion, sharded_inputs, sharded_params->lparams);
     auto cg_outputs = fe.runFusion(sharded_inputs, sharded_params->lparams);
     testValidate(
@@ -697,7 +697,7 @@ TEST_F(PointwiseTest, UnrollOnTopOfVectorize) {
 
   // schedule, compile, run, validate
   scheduler_instance->schedule(fusion.get(), pparams);
-  FusionExecutor fe;
+  KernelExecutor fe;
   fe.compileFusion(fusion.get(), runtime_inputs, pparams->lparams);
   auto cg_outputs = fe.runFusion(runtime_inputs, pparams->lparams);
   testValidate(fusion.get(), cg_outputs, runtime_inputs, __LINE__, __FILE__);

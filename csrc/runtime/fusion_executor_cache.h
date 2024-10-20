@@ -63,7 +63,7 @@ enum class PrimDataType;
 //! properties might: rank, DataType, contiguity, stride order, size (whether a
 //! dimension has size=1). When all of these properties are repeated, there is
 //! an opportunity to reduce the latency of producing a compiled Fusion and
-//! launch params (a FusionExecutor). Given inputs, we first compute an ID using
+//! launch params (a KernelExecutor). Given inputs, we first compute an ID using
 //! InputsIdLookup::lookupId that encodes tensor properties along with values of
 //! any integer-valued input scalars that might affect concretization. This ID
 //! is guaranteed not to conflict unless the inputs can be executed by the same
@@ -124,7 +124,7 @@ class FusionExecutorCache {
       int64_t fusion_id = 0,
       bool auto_schedule = true);
 
-  //! Execute fusion graph with given inputs, create `FusionExecutor` as needed
+  //! Execute fusion graph with given inputs, create `KernelExecutor` as needed
   //! Note this function also handles permutation & input update outside of
   //! codegen.
   //!
@@ -242,7 +242,7 @@ class FusionExecutorCache {
 
  private:
   //! evict cached short cut entry in `code_to_fe_lookup_` as well as cached
-  //! entry in `FusionExecutor`
+  //! entry in `KernelExecutor`
   void evictCache(size_t cache_id);
 
   //! The index type of forced_index_type is used to get a kernel
