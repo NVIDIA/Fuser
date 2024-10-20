@@ -216,7 +216,8 @@ Tensor pad_fn(
   NVF_CHECK(self.validUse(), "Attempting to add to a completed definition!");
 
   FusionDefinition* fd = self.fusion_definition;
-  Vector pad_widths = SequenceAsVector(generic_pad_widths, *fd);
+  Vector pad_widths =
+      SequenceAsVector(generic_pad_widths, *fd, /*shape_check=*/false);
 
   NVF_CHECK(
       pad_widths.size <= 2 * arg.dims,
