@@ -3139,7 +3139,7 @@ void initNvFuserPythonBindings(PyObject* module) {
         NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;
-        size_t ndims = (arg.dims - axes.size());
+        size_t ndims = (arg.dims - dims.size());
         Tensor avg = fd->defineTensor(ndims);
         Tensor var_sum = fd->defineTensor(ndims);
         Tensor n = fd->defineTensor(ndims);
