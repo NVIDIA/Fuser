@@ -395,7 +395,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
         // Need to be able to parallelize, don't use break if there's not
         // at least an unrolled warp.
-        if (ceilDiv(cur_right_elem_count, max_vect_factor) <=
+        if (ceilDiv(cur_right_elem_count, max_vect_factor) <
             at::cuda::getCurrentDeviceProperties()->warpSize) {
           continue;
         }
@@ -414,11 +414,11 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
         bdimx =
             std::min(ceilDiv(cur_right_elem_count, max_vect_factor), kThreadX);
         bdimy = 1;
-        // Put remainder in bdimy if there's at least a wave of grid level
-        // parallelism.
-        if (cur_left_elem_count > device_multiprocessor_count) {
-          bdimy = kThreadX / bdimx;
-        }
+        // // Put remainder in bdimy if there's at least a wave of grid level
+        // // parallelism.
+        // if (cur_left_elem_count > device_multiprocessor_count) {
+        //   bdimy = kThreadX / bdimx;
+        // }
         auto remainder_left = ceilDiv(cur_left_elem_count, bdimy);
         auto remainder_right =
             ceilDiv(cur_right_elem_count, bdimx * max_vect_factor);
@@ -433,7 +433,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     }
   }
 
-  params->vectorization_factor = std::min(
+  int64_t vectorization_factor = std::min(
       max_vect_factor,
       vectorize_helper::getVectorizationFactor(
           runtime_info,
@@ -441,16 +441,21 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
           data_cache,
           break_point,
           logical_reorder_map));
-
+  // // when right size is small, decrease vectorization
+  // while(bdimx * 2 <= kThreadX && vectorization_factor / 2 >= 2 ) {
+  //   vectorization_factor /= 2;
+  //   bdimx *= 2;
+  // }
+  params->vectorization_factor = vectorization_factor;
   // For 2D scheduler, try to avoid undivisible split by adjust bdimx, e.g. when
   // right elem count is 1280, vectorized by 8, up to now, 2 blocks each with
   // 128 threads is used, divisible split is achived if use 1 block with 160
   // threads (160 x 8 = 1280). On H100, perf increased from 68% SOL to 91% SOL.
-  // Set a max bimx to leave at least 2 blocks per SM to switch between each
+  // Set a max bimx to leave at least 4 blocks per SM to switch between each
   // other when one block is stalled.
   if (gdim_right > 1 &&
       right_elem_count % (bdimx * params->vectorization_factor) != 0) {
-    const int64_t max_bimdx = dev_prop->maxThreadsPerBlock / 2;
+    const int64_t max_bimdx = dev_prop->maxThreadsPerBlock / 4;
     int64_t divisible_bimdx = right_elem_count / params->vectorization_factor;
     divisible_bimdx = scheduler_utils::roundUpToN(divisible_bimdx, 32);
     bdimx = divisible_bimdx > max_bimdx ? bdimx : divisible_bimdx;
