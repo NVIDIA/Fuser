@@ -866,6 +866,16 @@ class FusionTranslator : public OptInConstDispatch {
 
   // Map PadOp to python frontend
   void handle(const PadOp* pad_op) final {
+    TensorView* tv = pad_op->out()->as<TensorView>();
+
+    // Short-circuit: The cat composite operation is composed of the PadOp and
+    // CatOp expressions. In this case, skip translating the PadOp.
+    if (tv->uses().size() == 1 && tv->uses().front()->isA<CatOp>()) {
+      size_t input_fid = map_val_to_fd_index_.at(pad_op->in());
+      map_val_to_fd_index_.emplace(pad_op->out(), input_fid);
+      return;
+    }
+
     Tensor output = fd_->defineTensor(pad_op->out()->as<TensorView>()->nDims());
     map_val_to_fd_index_.emplace(pad_op->out(), output());
 
