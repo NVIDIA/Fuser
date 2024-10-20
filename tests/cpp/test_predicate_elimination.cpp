@@ -389,8 +389,9 @@ TEST_F(PredicateEliminationTest, 8) {
   const auto& compiled_executors =
       fec.getMostRecentKernelRuntime()->executors();
   NVF_CHECK(compiled_executors.size() == 1, "Unexpected scheduling");
+  auto& fe = compiled_executors.at(0);
   NVF_CHECK(
-      !PredicatedChecker::isPredicated(tv6, compiled_executors.at(0).kernel()),
+      !PredicatedChecker::isPredicated(tv6, fe.kernel()),
       "T6 should not be predicated");
 }
 

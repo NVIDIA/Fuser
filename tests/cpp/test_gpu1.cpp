@@ -5307,11 +5307,9 @@ TEST_F(NVFuserTest, FusionReductionSchedulerMultiDimNonFastest_CUDA) {
 
   auto heuristic_params = SchedulerEntry::scheduleWith(
       &fusion, SchedulerType::Reduction, {aten_input});
-  FusionExecutor fusion_executor;
-  fusion_executor.compileFusion(
-      &fusion, {aten_input}, heuristic_params->lparams);
-  fusion_executor.runFusion(
-      {aten_input}, {cg_output}, heuristic_params->lparams);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {aten_input}, heuristic_params->lparams);
+  fe.runFusion({aten_input}, {cg_output}, heuristic_params->lparams);
 
   testValidate(
       &fusion,

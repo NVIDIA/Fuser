@@ -155,8 +155,8 @@ static void NvFuserScheduler_LstmCell_Compile(
       &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
 
   for (auto _ : benchmark_state) {
-    FusionExecutor executor;
-    executor.compileFusion(&fusion, inputs);
+    FusionExecutor fe;
+    fe.compileFusion(&fusion, inputs);
   }
 }
 
@@ -182,13 +182,13 @@ static void NvFuserScheduler_LstmCell_RunFusion(
   auto heuristic_params = SchedulerEntry::scheduleWith(
       &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
 
-  FusionExecutor executor;
-  executor.compileFusion(&fusion, inputs);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, inputs);
 
   C10_CUDA_CHECK(cudaDeviceSynchronize());
 
   for (auto _ : benchmark_state) {
-    outputs = executor.runFusion(
+    outputs = fe.runFusion(
         c10::ArrayRef<c10::IValue>(inputs), heuristic_params->lparams);
     C10_CUDA_CHECK(cudaDeviceSynchronize());
   }
@@ -220,11 +220,11 @@ static void NvFuserScheduler_LstmCell_RunFusion_GpuOnly(
   auto heuristic_params = SchedulerEntry::scheduleWith(
       &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
 
-  FusionExecutor executor;
-  executor.compileFusion(&fusion, inputs);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, inputs);
 
   runBenchmarkIterations(
-      benchmark_state, &executor, inputs, heuristic_params->lparams);
+      benchmark_state, &fe, inputs, heuristic_params->lparams);
 }
 
 BENCHMARK_CAPTURE(NvFuserScheduler_LstmCell_RunFusion_GpuOnly, Small, 512, 64)
@@ -259,12 +259,12 @@ static void NvFuserScheduler_LstmCell_RunFusion_CpuOnly(
   auto heuristic_params = SchedulerEntry::scheduleWith(
       &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
 
-  FusionExecutor executor;
-  executor.setExecuteKernelFlag(false);
-  executor.compileFusion(&fusion, inputs);
+  FusionExecutor fe;
+  fe.setExecuteKernelFlag(false);
+  fe.compileFusion(&fusion, inputs);
 
   for (auto _ : benchmark_state) {
-    outputs = executor.runFusion(
+    outputs = fe.runFusion(
         c10::ArrayRef<c10::IValue>(inputs), heuristic_params->lparams);
   }
 }

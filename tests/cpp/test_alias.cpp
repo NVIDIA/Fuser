@@ -343,13 +343,12 @@ const FusionExecutor& onlyExecutorInMostRecentRuntime(
   return executors.front();
 }
 
-bool storesToOutput(const FusionExecutor& executor, const int64_t out_index) {
+bool storesToOutput(const FusionExecutor& fe, const int64_t out_index) {
   // Get the variable name from the `kir::Kernel` not the input fusion, because
   // they are not always the same.
-  std::string var_name =
-      ir_utils::varName(executor.kernel()->outputs()[out_index]);
+  std::string var_name = ir_utils::varName(fe.kernel()->outputs()[out_index]);
   std::regex store_to_output(R"(\b)" + var_name + R"(\[)");
-  return std::regex_search(executor.kernelString(), store_to_output);
+  return std::regex_search(fe.kernelString(), store_to_output);
 }
 
 } // namespace

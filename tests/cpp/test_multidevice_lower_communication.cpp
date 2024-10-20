@@ -21,8 +21,8 @@ void assertIsCompiledToHostIrContainer(const FusionExecutorCache& fec) {
   FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
   const std::vector<FusionExecutor>& executors = runtime->executors();
   EXPECT_THAT(executors, testing::SizeIs(1));
-  for (const auto& executor : executors) {
-    EXPECT_TRUE(executor.fusion()->isA<hir::HostIrContainer>())
+  for (const auto& fe : executors) {
+    EXPECT_TRUE(fe.fusion()->isA<hir::HostIrContainer>())
         << "failed to compile to a HostIrContainer with Communications";
   }
 }

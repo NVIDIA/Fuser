@@ -212,8 +212,8 @@ void FusionKernelRuntime::deserialize(
     FusionGuard fg(fusion_to_run.get());
     SchedulerEntry::makeSchedulerInstance(heuristic_params->scheduler_type)
         ->schedule(fusion_to_run.get(), heuristic_params);
-
-    executors_.at(group_id).deserialize(
+    auto& fe = executors_.at(group_id);
+    fe.deserialize(
         buffer->executors()->Get(group_id),
         fusion_to_run.get(),
         device_index,
@@ -582,20 +582,20 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
   auto [launch_params, compile_params] = getKernelConfig(args, sg);
   auto group_id = sg->groupId();
   auto heuristic_params = schedulers().at(group_id).get();
-  auto& executor = executors_.at(group_id);
+  auto& fe = executors_.at(group_id);
 
   if (profiling_) {
-    most_recent_executor_log_.fusion_executor = &executor;
+    most_recent_executor_log_.fusion_executor = &fe;
     most_recent_executor_log_.params = heuristic_params->clone();
   }
 
   // TODO: This is a work around for the fallback execution path where a kernel
   // is not compiled. Perhaps the gorup/segment Id needs to be specified to the
   // executor at its constructor.  Currently, initialization is ad hoc.
-  if (executor.groupId() < 0) {
-    executor.setGroupId(group_id);
+  if (fe.groupId() < 0) {
+    fe.setGroupId(group_id);
   }
-  auto outputs = executor.runFusion(args, launch_params, compile_params);
+  auto outputs = fe.runFusion(args, launch_params, compile_params);
 
   return outputs;
 }
@@ -609,7 +609,8 @@ void FusionKernelRuntime::compileKernel(
 
   // Check that the heuristics are matched, in the case of segmented fusion
   NVF_ERROR(!sg || heuristic_params->scheduler_type == sg->schedulerType());
-  NVF_ERROR(!executors_.at(group_id).isCompiled());
+  auto& fe = executors_.at(group_id);
+  NVF_ERROR(!fe.isCompiled());
 
   // Running a segment group as a single kernel,
   // make a fusion to run from segmented fusion
@@ -625,7 +626,7 @@ void FusionKernelRuntime::compileKernel(
   NVF_ERROR(
       heuristic_params->cparams.index_type.has_value(),
       "Kernel index type is not defined.");
-  executors_.at(group_id).compileFusion(
+  fe.compileFusion(
       fusion_to_run.get(),
       args,
       heuristic_params->lparams,

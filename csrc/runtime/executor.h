@@ -16,6 +16,8 @@
 #include <ir/printer.h>
 #include <multidevice/communicator.h>
 #include <runtime/allocations.h>
+#include <runtime/executor_abstract.h>
+#include <runtime/executor_kernel_arg.h>
 #include <runtime/executor_params.h>
 #include <runtime/executor_utils.h>
 #include <scheduler/scheduler_types.h>
@@ -34,10 +36,59 @@ struct CompileOptions {
   c10::Device device = c10::Device(c10::DeviceType::CUDA, 0);
 };
 
-class FusionExecutor : public NonCopyable {
+class HostIRExecutor : public FusionExecutorAbstract {
+ public:
+  HostIRExecutor();
+  static bool supported(Fusion* fusion);
+
+  void compile(Fusion* fusion);
+
+  NVF_API std::vector<at::Tensor> run(
+      KernelArgumentHolder& args,
+      std::vector<at::Tensor> outputs = {});
+
+  const std::unique_ptr<hir::HostIrContainer>& hostContainer() {
+    return host_ir_container_;
+  }
+
+ private:
+  std::unique_ptr<hir::HostIrContainer> host_ir_container_;
+  Communicator* communicator_;
+};
+
+class ExprEvalExecutor : public FusionExecutorAbstract {
+ public:
+  // Returns true if all fusion outputs are expression evaluated.
+  static bool supported(Fusion* fusion);
+
+  void compile(Fusion* fusion);
+
+  NVF_API std::vector<at::Tensor> run(
+      KernelArgumentHolder& args,
+      std::vector<at::Tensor> outputs = {});
+
+  const std::unique_ptr<Fusion>& fusion() {
+    return fusion_;
+  }
+
+ private:
+  // TODO: Set properly
+  int64_t group_id_ = -1;
+  std::unique_ptr<Fusion> fusion_;
+};
+
+class FusionExecutor : public FusionExecutorAbstract {
  public:
   // NVF_API was added for nvfuser_extension. See examples/sinh_extension.
-  NVF_API FusionExecutor();
+  NVF_API FusionExecutor() = default;
+
+  // TODO: What rules should be in this check? Right now host and expr eval are
+  // checked first then its assumed it's a kernel if neither is selected.
+  static bool supported(Fusion* fusion) {
+    return !(
+        HostIRExecutor::supported(fusion) ||
+        ExprEvalExecutor::supported(fusion));
+  }
 
   //! To compile a fusion with the 32-bit index type, CompileParams
   //! must be passed in. There used to be an index type associated
@@ -83,11 +134,6 @@ class FusionExecutor : public NonCopyable {
         fusion_id,
         concrete_id);
   }
-
-  //! Computes fusion outputs through expression evaluator.
-  std::vector<at::Tensor> evaluateFusionOutputs(
-      std::vector<at::Tensor> outputs,
-      ExpressionEvaluator& expr_eval);
 
   // TODO: args shouldn't come in a reference here because we will append the
   // outputs to be able to send it to the kernel. For now none of the users are
@@ -231,12 +277,6 @@ class FusionExecutor : public NonCopyable {
   int getKernelRegisterSpills() const {
     return compiled_kernel_->register_spills;
   }
-  //! Returns the input bytes accessed for a kernel
-  //! \note It is important to sample the args struct prior to adding the
-  // 1    output to the args struct
-  int64_t inputBytesProcessed(const KernelArgumentHolder& args);
-  //! Returns the output bytes accessed for a kernel
-  int64_t outputBytesProcessed(const std::vector<at::Tensor>& outputs);
 
   //! Returns the launch parameters from the last kernel execution
   LaunchParams lastLaunchParams() const {
@@ -568,8 +608,6 @@ class FusionExecutor : public NonCopyable {
   // Post-lowering hooks that are called to modify the kernel after lowering.
   // The main use case is for unit tests to modify the kernel.
   std::vector<std::function<void(kir::Kernel*)>> post_lowering_hooks_;
-
-  Communicator* communicator_;
 };
 
 } // namespace nvfuser
