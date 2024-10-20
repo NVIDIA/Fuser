@@ -462,6 +462,7 @@ struct PadOpRecord : RecordFunctor {
     if (args_.at(2).stype == serde::StateType::Scalar) {
       output = pad(arg, val_widths, fd.getFusionState(args_.at(2).index));
     } else { // default: None
+      NVF_ERROR(args_.at(2).stype == serde::StateType::None);
       output = pad(arg, val_widths);
     }
 
