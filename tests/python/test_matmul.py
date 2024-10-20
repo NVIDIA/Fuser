@@ -44,7 +44,9 @@ class TestMatmul(NVFuserTest):
             fd.add_output(t2)
 
         for inps in [inputs_tt, inputs_tn, inputs_nt, inputs_nn]:
-            nvf_out, _ = self.exec_nvfuser(partial(fusion_func, inps=inps), inps)
+            nvf_out, _ = self.exec_nvfuser(
+                partial(fusion_func, inps=inps), inps, is_clonable=True
+            )
             eager_out = torch.matmul(inps[0], inps[1])
             fp16_nvf_out = nvf_out[0]
             self.assertEqual(eager_out, fp16_nvf_out)
@@ -98,6 +100,7 @@ class TestMatmul(NVFuserTest):
                 nvf_out, _ = self.exec_nvfuser(
                     partial(fusion_func, inp=inp, wt=wt, bias=bias),
                     input_tensors,
+                    is_clonable=True,
                 )
                 eager_out = F.linear(inp, wt, bias)
                 fp16_nvf_out = nvf_out[0]
@@ -138,7 +141,7 @@ class TestMatmul(NVFuserTest):
             fd.add_output(T2)
             fd.add_output(T4)
 
-        self.exec_nvfuser(fusion_func, inputs)
+        self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
 
     # Tests broadcast reduction axis in matmul: Issue #2532.
     def test_repro_issue2532(self):
@@ -171,7 +174,7 @@ class TestMatmul(NVFuserTest):
                 (1025, 1, 1024), (1024, 1024, 1)
             ),
         ]
-        self.exec_nvfuser(fusion_func, inputs)
+        self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
 
     def test_linear_slice(self):
         def fusion_func(fd: FusionDefinition) -> None:
@@ -185,4 +188,4 @@ class TestMatmul(NVFuserTest):
             torch.randn(1, 2, 3, device="cuda:0"),
             torch.randn(4, 3, device="cuda:0"),
         ]
-        self.exec_nvfuser(fusion_func, inputs)
+        self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
