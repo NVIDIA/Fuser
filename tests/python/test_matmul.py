@@ -186,3 +186,18 @@ class TestMatmul(NVFuserTest):
             torch.randn(4, 3, device="cuda:0"),
         ]
         self.exec_nvfuser(fusion_func, inputs)
+
+    def test_2d_x_3d(self):
+        def fusion_func(fd: FusionDefinition) -> None:
+            a = fd.define_tensor([2, 3])
+            b = fd.define_tensor([7, 3, 5])
+            c = fd.ops.matmul(a, b)
+            assert c.ndim == 3
+            fd.add_output(c)
+
+        inputs = [
+            torch.testing.make_tensor(2, 3, dtype=torch.float32, device="cuda"),
+            torch.testing.make_tensor(7, 3, 5, dtype=torch.float32, device="cuda"),
+        ]
+        outputs, _ = self.exec_nvfuser(fusion_func, inputs)
+        assert outputs[0].ndim == 3

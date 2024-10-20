@@ -175,7 +175,9 @@ class NVF_API FusionDefinition : public FusionState {
   NVF_API bool existSchedule(const at::ArrayRef<c10::IValue>& inputs);
   //! Setup user scheduling of a fusion
   //! Copies fusion object and sets up FusionGuard
-  NVF_API void setupSchedule(const at::ArrayRef<c10::IValue>& inputs);
+  NVF_API void setupSchedule(
+      const at::ArrayRef<c10::IValue>& inputs,
+      bool overwrite_existing_schedule = false);
   //! Finalized use scheduling of a fusion
   //! resets FusionGuard, lowers IR to a kernel, compiles kernel
   NVF_API void finalizeSchedule(const at::ArrayRef<c10::IValue>& inputs);
@@ -262,6 +264,9 @@ class NVF_API FusionDefinition : public FusionState {
   //! Update Symbolic FusionStates after DynamicTransform pass
   void updateSymbolicStates(
       const std::unordered_map<Val*, Val*>& symbolic_to_concretized_map);
+  // Check that the NvFuser TensorView and the Python Tensor dimensions match.
+  // Apply after buildFusionIr
+  void verifyTensorDimensions();
 
   //! Holds the defined maximum length of a FusionDefinition in order to
   //! prevent a run away error. The user should feel free to increase this

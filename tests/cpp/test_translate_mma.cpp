@@ -412,8 +412,7 @@ INSTANTIATE_TEST_SUITE_P(
         // Tests with fusion enabled
 
         std::make_tuple(2l, 2l, true, false, false, SchedulerType::Matmul),
-        // We cannot yet handle allocation domain in matmul scheduler
-        std::make_tuple(2l, 2l, true, true, true, SchedulerType::ExprEval),
+        std::make_tuple(2l, 2l, true, true, false, SchedulerType::Matmul),
         // Size-1 input combinations
         std::make_tuple(1l, 2l, true, false, true, SchedulerType::ExprEval),
         std::make_tuple(2l, 1l, true, false, true, SchedulerType::ExprEval),
@@ -597,8 +596,7 @@ INSTANTIATE_TEST_SUITE_P(
         // Enable fusion
 
         std::make_tuple(2l, 2l, -1l, true, false, false),
-        // We cannot yet handle allocation domain in matmul scheduler
-        std::make_tuple(2l, 2l, -1l, true, true, true),
+        std::make_tuple(2l, 2l, -1l, true, true, false),
         // We don't fuse 1D inputs
         std::make_tuple(1l, 2l, -1l, true, false, true),
         // Batch dims in input

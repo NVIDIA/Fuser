@@ -2902,6 +2902,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
     if (loop->isUnrolled()) {
       indent() << "#pragma unroll\n";
+    } else if (
+        loop->circularBufferLoopStage() == CircularBufferLoopStage::Main) {
+      indent() << "#pragma unroll " << loop->circularBufferLoopStageDepth()
+               << "\n";
+    } else if (
+        loop->circularBufferLoopStage() == CircularBufferLoopStage::Epilog) {
+      indent() << "#pragma unroll " << loop->circularBufferLoopStageDepth() - 1
+               << "\n";
     } else {
       indent() << "#pragma unroll 1\n";
     }
@@ -3235,7 +3243,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   void handle(const kir::MBarrierArrive* arrive) final {
     if (!print_inline_) {
-      indent() << gen(arrive->state()) << " = ";
+      indent();
+    }
+    if (arrive->state() != nullptr) {
+      code_ << gen(arrive->state()) << " = ";
     }
     auto call = genCall(
         "mbarrier::arrive",
@@ -3248,7 +3259,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   void handle(const kir::MBarrierArriveExpectTx* arrive) final {
     if (!print_inline_) {
-      indent() << gen(arrive->state()) << " = ";
+      indent();
+    }
+    if (arrive->state() != nullptr) {
+      code_ << gen(arrive->state()) << " = ";
     }
     auto call = genCall(
         "mbarrier::arriveExpectTX",
@@ -3267,6 +3281,15 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         ArgumentBuilder()
             .arg(genInline(wait->mbarrier()))
             .arg(genInline(wait->state())));
+    indent() << call << ";\n";
+  }
+
+  void handle(const kir::MBarrierWaitParity* wait) final {
+    auto call = genCall(
+        "mbarrier::waitParity",
+        ArgumentBuilder()
+            .arg(genInline(wait->mbarrier()))
+            .arg(genInline(wait->parity())));
     indent() << call << ";\n";
   }
 
@@ -3340,41 +3363,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   void handle(const kir::UpdateMagicZero*) final {
     indent() << "NVFUSER_UPDATE_MAGIC_ZERO;\n";
-  }
-
-  void handle(const CatOp* cat) final {
-    auto out = gen(cat->output(0));
-
-    // Generate code like:
-    // if (consumer_idx < producer_0_extent) {
-    //   consumer[consumer_idx] = produce_0[producer_idx0];
-    // } else if (consumer_idx < producer_1_extent) {
-    //   consumer[consumer_idx] = produce_1[producer_idx1];
-    // } else if (consumer_idx < producer_2_extent) {
-    //   consumer[consumer_idx] = produce_2[producer_idx2];
-    // } else {
-    //   consumer[consumer_idx] = produce_3[producer_idx3];
-    // }
-
-    for (const auto i : c10::irange(cat->inputs().size())) {
-      auto inp = cat->input(i)->as<kir::TensorIndex>();
-      auto inp_str = gen(inp);
-      if (i < cat->inputs().size() - 1) {
-        if (i == 0) {
-          indent() << "if (";
-        } else {
-          indent() << "} else if (";
-        }
-        code_ << gen(cat->getPred((int)i)) << ") {\n";
-      } else {
-        // last case doesn't need to be predicated
-        indent() << "} else {\n";
-      }
-
-      indent() << kTab << out << " = " << gen(inp) << ";\n";
-    }
-
-    indent() << "}\n";
   }
 
  private:

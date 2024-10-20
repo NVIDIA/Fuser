@@ -62,7 +62,7 @@ class TestNvFuserFrontend(NVFuserTest):
 
         # Create a new fusion with the same definition, it should hit the cache!
         nvf_out2, fd2 = self.exec_nvfuser(
-            fusion_func, inputs, new_fusion_expected=False
+            fusion_func, inputs, new_fusion_expected=False, is_clonable=True
         )
 
         # Create a fusion from a fusion id and make sure it executes!
@@ -93,7 +93,7 @@ class TestNvFuserFrontend(NVFuserTest):
             fd.add_output(t5)
 
         # Expected Output is a tensor of 48's
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
         eager_out = torch.sum((inputs[0] + inputs[1]) * 3.0, dim=-1)
         self.assertEqual(eager_out, nvf_out[0])
 
@@ -176,7 +176,7 @@ class TestNvFuserFrontend(NVFuserTest):
 
             fd.add_output(t2)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
         eager_out = refs.add(
             prims.broadcast_in_dim(inputs[0], inputs[1].size(), [1]), inputs[1]
         )
@@ -218,7 +218,7 @@ class TestNvFuserFrontend(NVFuserTest):
 
             fd.add_output(t2)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
         eager_out = inputs[0].expand(inputs[1].size()) + inputs[1]
         self.assertEqual(eager_out, nvf_out[0])
 
@@ -237,7 +237,7 @@ class TestNvFuserFrontend(NVFuserTest):
 
             fd.add_output(t2)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
         eager_out = refs.add(inputs[0], prims.broadcast_in_dim(inputs[1], [3, 3], [0]))
         self.assertEqual(eager_out, nvf_out[0])
 
@@ -256,7 +256,7 @@ class TestNvFuserFrontend(NVFuserTest):
 
             fd.add_output(t2)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
         eager_out = refs.add(
             prims.broadcast_in_dim(inputs[0], inputs[1].size(), [1]), inputs[1]
         )
@@ -745,7 +745,7 @@ class TestNvFuserFrontend(NVFuserTest):
                 t4 = fd.ops.gather(t3, t2, dim)
                 fd.add_output(t4)
 
-            nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+            nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
 
             eager_out = torch.gather(inputs[0] + inputs[1], dim, inputs[2])
             self.assertEqual(eager_out, nvf_out[0])
@@ -769,7 +769,7 @@ class TestNvFuserFrontend(NVFuserTest):
                 t4 = fd.ops.take_along_axis(t3, t2, dim)
                 fd.add_output(t4)
 
-            nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+            nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
 
             eager_out = torch.gather(inputs[0] + inputs[1], dim, inputs[2])
             self.assertEqual(eager_out, nvf_out[0])
@@ -793,7 +793,7 @@ class TestNvFuserFrontend(NVFuserTest):
                 t4 = fd.ops.index_select(t3, t2, dim)
                 fd.add_output(t4)
 
-            nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+            nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
 
             eager_out = torch.index_select(inputs[0] + inputs[1], dim, inputs[2])
             self.assertEqual(eager_out, nvf_out[0])
@@ -814,9 +814,30 @@ class TestNvFuserFrontend(NVFuserTest):
                 t2 = fd.ops.index_select(t0, t1, dim)
                 fd.add_output(t2)
 
-            nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+            nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
 
             eager_out = torch.index_select(inputs[0], dim, inputs[1])
+            self.assertEqual(eager_out, nvf_out[0])
+
+        test_fn(0)
+        test_fn(1)
+
+    def test_select(self):
+        inputs = [
+            torch.randn(8, 16, device="cuda"),
+            index := 2,
+        ]
+
+        def test_fn(dim):
+            def fusion_func(fd: FusionDefinition):
+                t0 = fd.from_pytorch(inputs[0])
+                s1 = fd.define_scalar(dtype=DataType.Int)
+                t1 = fd.ops.select(t0, s1, dim)
+                fd.add_output(t1)
+
+            nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
+
+            eager_out = torch.select(inputs[0], dim, inputs[1])
             self.assertEqual(eager_out, nvf_out[0])
 
         test_fn(0)
@@ -843,7 +864,7 @@ class TestNvFuserFrontend(NVFuserTest):
             t7 = fd.ops.mul(t6, t5)
             fd.add_output(t7)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
 
         v1 = torch.sum(inputs[1], [0, -1])
         v2 = torch.sum(inputs[2], [0, 1])
@@ -955,7 +976,7 @@ class TestNvFuserFrontend(NVFuserTest):
             t1 = fd.ops.normal(s_mean, s_std, t0.shape(), dtype=DataType.Double)
             fd.add_output(t1)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
 
         # Is there a better way to test distribution?!
         self.assertTrue(
@@ -992,7 +1013,7 @@ class TestNvFuserFrontend(NVFuserTest):
             t1 = fd.ops.uniform(s_lo, s_hi, t0.shape(), dtype=DataType.Double)
             fd.add_output(t1)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
 
         # Is there a better way to test distribution?!
         self.assertTrue(
@@ -1175,7 +1196,7 @@ class TestNvFuserFrontend(NVFuserTest):
                 t3 = fd.ops.iota(c0, c1, c2, dt)
                 fd.add_output(t3)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, [])
+        nvf_out, _ = self.exec_nvfuser(fusion_func, [], is_clonable=True)
 
         eager_out1 = torch.tensor([0, 2], dtype=torch.long, device="cuda")
         eager_out2 = torch.tensor([100, 101, 102], dtype=torch.int, device="cuda")
@@ -1217,7 +1238,7 @@ class TestNvFuserFrontend(NVFuserTest):
                 )
                 fd.add_output(t1)
 
-            nvf_out1, _ = self.exec_nvfuser(fusion_func, inputs)
+            nvf_out1, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
             eager_out = torch.sum(inputs[0], dim=-1)
             self.assertEqual(eager_out, nvf_out1[0])
 
@@ -2053,7 +2074,7 @@ class TestNvFuserFrontend(NVFuserTest):
         ]
 
         for nvf_func, torch_func in tests:
-            nvf_out, _ = self.exec_nvfuser(nvf_func, inputs)
+            nvf_out, _ = self.exec_nvfuser(nvf_func, inputs, is_clonable=True)
             eager_out = torch_func(*inputs, 1024, 16)
             for idx in range(len(eager_out)):
                 self.assertEqual(eager_out[idx], nvf_out[idx])
@@ -2171,6 +2192,7 @@ class TestNvFuserFrontend(NVFuserTest):
                         partial(check, acts=inp),
                         inp,
                         new_fusion_expected=(first_check or debug_serde),
+                        is_clonable=True,
                     )
                 else:
                     # When a fusion definition with errors is deserialized, it is recreated, triggering an error.
@@ -2341,7 +2363,7 @@ class TestNvFuserFrontend(NVFuserTest):
 
             def fusion_func(fd: FusionDefinition):
                 t0 = fd.from_pytorch(current_input)
-                c0 = fd.define_constant(3)
+                c0 = fd.define_scalar(3)
                 t1 = fd.ops.logical_right_shift(t0, c0)
                 fd.add_output(t1)
 
@@ -2602,7 +2624,7 @@ class TestNvFuserFrontend(NVFuserTest):
             T3 = fd.ops.index_select(T1, T2, dim=1)
             fd.add_output(T3)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
         torch_ref = torch.index_select(inputs[0], 1, inputs[1])
         self.assertEqual(nvf_out[0], torch_ref)
 
@@ -2641,7 +2663,7 @@ class TestNvFuserFrontend(NVFuserTest):
             T10 = fd.ops.reshape(T5, new_shape=V9)
             fd.add_output(T10)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
         torch_ref = torch.reshape(
             torch.index_select(inputs[1], 0, torch.reshape(inputs[0], [25])), [5, 5, 64]
         )
@@ -2732,7 +2754,7 @@ class TestNvFuserFrontend(NVFuserTest):
             fd.add_output(T24)
             fd.add_output(T11)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
         t2 = inputs[1].type(torch.float32)
         t4 = torch.full([5, 0], 1.0, dtype=torch.bfloat16, device="cuda")
         t5 = t4.type(torch.float32)
@@ -3638,7 +3660,6 @@ class TestNvFuserFrontend(NVFuserTest):
             torch.ones(2**20 + 1, device="cuda")[1:],  # cannot vectorize
             torch.ones(2**20, device="cuda"),
         ]
-        print(inputs[0].data_ptr(), inputs[0].data_ptr() % 16)
 
         def fusion_func(fd: FusionDefinition):
             t0 = fd.from_pytorch(inputs[0])
@@ -4023,7 +4044,7 @@ class TestNvFuserFrontend(NVFuserTest):
             T5 = fd.ops.reshape(T0, new_shape=V4)
             fd.add_output(T5)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
 
     # Test that the range of generated uniform values spans the proper range
     # https://github.com/NVIDIA/Fuser/issues/1653
@@ -4319,8 +4340,8 @@ with FusionDefinition() as fd:
     nvfuser_fusion_id0(fd)
 
 inputs = [
-    torch.randn(16, dtype=torch.float32, device='cuda:0').as_strided((4, 4), (4, 1)),
-    torch.randn(16, dtype=torch.float32, device='cuda:0').as_strided((4, 4), (4, 1)),
+    torch.testing.make_tensor((4, 4), dtype=torch.float32, device='cuda:0'),
+    torch.testing.make_tensor((4, 4), dtype=torch.float32, device='cuda:0'),
 ]
 fd.execute(inputs)
 """
@@ -4513,6 +4534,6 @@ fd.execute(inputs)
 
         inputs = [x, *offset, *x.shape]
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
         for out in nvf_out:
             self.assertTrue(out.allclose(x[:, 1:, 2:]))

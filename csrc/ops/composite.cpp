@@ -425,6 +425,23 @@ TensorView* matmul(TensorView* tv_a, TensorView* tv_b) {
   return out;
 }
 
+namespace {
+template <typename T>
+void checkAllEqual(std::initializer_list<T> elements) {
+  for (const auto& element : elements) {
+    NVF_CHECK(
+        element == *elements.begin(),
+        "Expected all elements to be equal, but found ",
+        element,
+        " and ",
+        *elements.begin(),
+        " in [",
+        toDelimitedString(elements),
+        "]");
+  }
+}
+} // namespace
+
 SdpfaFwdResult sdpfa_fwd(
     TensorView* query,
     TensorView* key,
@@ -432,28 +449,12 @@ SdpfaFwdResult sdpfa_fwd(
     Val* dropout_p,
     Val* is_causal,
     Val* scale) {
-  NVF_CHECK(
-      query->dtype() == key->dtype() && query->dtype() == value->dtype(),
-      "Expected query, key, and value to have the same dtype but got: ",
-      query->dtype(),
-      " ",
-      key->dtype(),
-      " ,and ",
-      value->dtype());
+  checkAllEqual({query->dtype(), key->dtype(), value->dtype()});
 
   auto query_domain = TensorDomain::noReductions(query->getLogicalDomain());
   auto key_domain = TensorDomain::noReductions(key->getLogicalDomain());
   auto value_domain = TensorDomain::noReductions(value->getLogicalDomain());
-  NVF_CHECK(
-      query_domain.size() == key_domain.size(),
-      query_domain,
-      " vs ",
-      key_domain);
-  NVF_CHECK(
-      query_domain.size() == value_domain.size(),
-      query_domain,
-      " vs ",
-      value_domain);
+  checkAllEqual({query_domain.size(), key_domain.size(), value_domain.size()});
   NVF_CHECK(
       query_domain.size() == 4 || query_domain.size() == 5,
       "Expect Q/K/V to be either 4D or 5D. If 5D, the first dimension is "
@@ -546,48 +547,39 @@ SdpfaBwdResult sdpfa_bwd(
     TensorView* philox_seed,
     TensorView* philox_offset,
     Val* scale) {
-  NVF_CHECK(
-      query->dtype() == key->dtype() && query->dtype() == value->dtype(),
-      "Expected query, key, and value to have the same dtype but got: ",
-      query->dtype(),
-      " ",
-      key->dtype(),
-      " ,and ",
-      value->dtype());
+  checkAllEqual(
+      {grad_output->dtype(),
+       query->dtype(),
+       key->dtype(),
+       value->dtype(),
+       output->dtype()});
 
+  auto grad_output_domain =
+      TensorDomain::noReductions(grad_output->getLogicalDomain());
   auto query_domain = TensorDomain::noReductions(query->getLogicalDomain());
   auto key_domain = TensorDomain::noReductions(key->getLogicalDomain());
   auto value_domain = TensorDomain::noReductions(value->getLogicalDomain());
-
-  // Temporary handling of DID parallelization see
-  // https://github.com/NVIDIA/Fuser/issues/2563
-  bool has_device_dim = (query_domain.size() == 5);
-  if (has_device_dim) {
-    auto check_first_is_did = [](const std::vector<IterDomain*>& ids) -> void {
-      NVF_CHECK(
-          ids[0]->isDeviceDim(),
-          "Only support DID parallelization on outermost axis");
-    };
-    check_first_is_did(query_domain);
-    check_first_is_did(key_domain);
-    check_first_is_did(value_domain);
-    check_first_is_did(grad_output->getLogicalDomain());
-    check_first_is_did(output->getLogicalDomain());
-  }
-
-  auto concrete_query_size = TensorDomain::noDevices(query_domain).size();
-  auto concrete_key_size = TensorDomain::noDevices(key_domain).size();
-  auto concrete_value_size = TensorDomain::noDevices(value_domain).size();
-
+  auto output_domain = TensorDomain::noReductions(output->getLogicalDomain());
+  checkAllEqual(
+      {grad_output_domain.size(),
+       query_domain.size(),
+       key_domain.size(),
+       value_domain.size(),
+       output_domain.size()});
   NVF_CHECK(
-      concrete_query_size == 4 && concrete_key_size == 4 &&
-          concrete_value_size == 4,
-      "Expected query, key, and value to be 4D but got: ",
-      concrete_query_size,
-      " ",
-      concrete_key_size,
-      " ,and ",
-      concrete_value_size);
+      query_domain.size() == 4 || query_domain.size() == 5,
+      "Expect Q/K/V to be either 4D or 5D. If 5D, the first dimension is "
+      "expected to be device parallel during expression evaluation: ",
+      query_domain);
+
+  auto log_sumexp_domain =
+      TensorDomain::noReductions(log_sumexp->getLogicalDomain());
+  NVF_CHECK(
+      log_sumexp_domain.size() == query_domain.size() - 1,
+      "Expected log_sumexp to have one less dimension than Q/K/V: ",
+      log_sumexp_domain.size(),
+      " vs ",
+      query_domain.size());
 
   NVF_CHECK(
       !dropout_p || dropout_p->isScalar(),

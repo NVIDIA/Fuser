@@ -47,6 +47,7 @@ enum RecordType: int {
     FullOp,
     IotaOp,
     IndexSelectOp,
+    SelectOp,
     TorchGatherOp,
     TakeAlongAxisOp,
     Unary_TV,
@@ -307,6 +308,7 @@ table Slice {
 // Data for SqueezeOpRecord
 table Squeeze {
   squeeze_dims: [long];
+  squeeze_expanded: bool;
 }
 
 // Data for TensorRecord

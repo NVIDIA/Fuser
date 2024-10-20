@@ -6,6 +6,7 @@
  */
 // clang-format on
 #pragma once
+
 #include <c10/util/complex.h>
 #include <debug.h>
 #include <exceptions.h>
@@ -678,28 +679,31 @@ struct SqueezeOpRecord : RecordFunctor {
   SqueezeOpRecord(
       std::vector<State> _args,
       std::vector<State> _outputs,
-      std::vector<int64_t> dims)
+      std::vector<int64_t> dims,
+      bool squeeze_expanded = false)
       : RecordFunctor(
             std::move(_args),
             std::move(_outputs),
             "ops.squeeze",
             serde::RecordType::SqueezeOp),
-        dims_(std::move(dims)) {}
+        dims_(std::move(dims)),
+        squeeze_expanded_(squeeze_expanded) {}
   ~SqueezeOpRecord() override = default;
   RecordFunctor* clone() final {
     return new SqueezeOpRecord(*this);
   }
 
   //! Child specific hash function in lower 32 bits.
-  //! | 31 -------------------------------------  0 |
-  //! | Squeeze Dim hash                            |
+  //! | 31 | 30 --------------------------------  0 |
+  //! | squeeze_expanded? | Squeeze Dim hash        |
   size_t hash() const final {
     auto result = RecordFunctor::hash();
     size_t squeeze_dims_hash = 0;
     for (auto dim : dims_) {
       squeeze_dims_hash ^= static_cast<size_t>(dim);
     }
-    result = result | (squeeze_dims_hash & 0xffffffff);
+    result = result | (squeeze_dims_hash & 0x7fffffff);
+    result |= ((static_cast<size_t>(squeeze_expanded_) & 0x1) << 31);
     return result;
   }
 
@@ -713,7 +717,11 @@ struct SqueezeOpRecord : RecordFunctor {
 
   void operator()(FusionState& fd) final {
     auto arg = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
-    auto output = squeeze(arg, dims_);
+    // In pytorch, the squeeze operation cannot remove expanded dimensions.
+    // In nvfuser, for reduction operations, we apply squeeze to remove
+    // broadcast and expanded iterDomains. The squeeze_expanded_ flag bypasses
+    // assertion used to match pytorch's behavior.
+    auto output = squeeze(arg, dims_, squeeze_expanded_);
     fd.setFusionState(outputs_.at(0).index, output);
   }
 
@@ -729,7 +737,7 @@ struct SqueezeOpRecord : RecordFunctor {
       }
       os << dim;
     }
-    os << "]";
+    os << "], squeeze_expanded=" << (squeeze_expanded_ ? "True" : "False");
     if (close_function) {
       os << ")";
     }
@@ -739,12 +747,14 @@ struct SqueezeOpRecord : RecordFunctor {
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
         serde::RecordData::Squeeze,
-        serde::CreateSqueezeDirect(builder, &dims_).Union()};
+        serde::CreateSqueezeDirect(builder, &dims_, squeeze_expanded_).Union()};
   }
 
  private:
   //! Dimension to squeeze.
   std::vector<int64_t> dims_;
+  //! Option to remove expanded dimensions
+  bool squeeze_expanded_;
 };
 
 //! Specialized Record Functor for the FusionState's broadcast_in_dim op.
@@ -1786,7 +1796,61 @@ struct IndexSelectOpRecord : RecordFunctor {
     auto arg1 = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
     auto arg3 = fd.getFusionState(args_.at(1).index)->template as<TensorView>();
 
-    Val* output = index_select(arg1, dim_, arg3);
+    Val* output = indexSelect(arg1, dim_, arg3);
+    fd.setFusionState(outputs_.at(0).index, output);
+  }
+
+  void print(std::ostream& os, bool close_function = true) const final {
+    RecordFunctor::print(os, false);
+    os << ", dim=" << dim_;
+    if (close_function) {
+      os << ")";
+    }
+  }
+
+  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+      flatbuffers::FlatBufferBuilder& builder) const final {
+    return {
+        serde::RecordData::Dimension,
+        serde::CreateDimension(builder, dim_).Union()};
+  }
+
+ private:
+  //! Dimension to select.
+  int64_t dim_;
+};
+
+// TODO Merge IndexSelectOpRecord and SelectOpRecord for cleaner interface.
+// If the index TensorView is a scalar, then use select operation.
+struct SelectOpRecord : RecordFunctor {
+  SelectOpRecord(
+      std::vector<State> _args,
+      std::vector<State> _outputs,
+      int64_t dim)
+      : RecordFunctor(
+            std::move(_args),
+            std::move(_outputs),
+            "ops.select",
+            serde::RecordType::SelectOp),
+        dim_(dim) {}
+  ~SelectOpRecord() override = default;
+  RecordFunctor* clone() final {
+    return new SelectOpRecord(*this);
+  }
+
+  bool operator==(const RecordFunctor& other) const final {
+    auto result = false;
+    if (auto child_ptr = dynamic_cast<const SelectOpRecord*>(&other)) {
+      result = RecordFunctor::operator==(other) && dim_ == child_ptr->dim_;
+    }
+    return result;
+  }
+
+  void operator()(FusionState& fd) final {
+    auto arg1 = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
+    auto arg3 = fd.getFusionState(args_.at(1).index)->template as<TensorView>();
+
+    Val* output = select(arg1, dim_, arg3);
     fd.setFusionState(outputs_.at(0).index, output);
   }
 
@@ -1830,7 +1894,7 @@ struct TorchGatherOpRecord : RecordFunctor {
     auto arg1 = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
     auto arg3 = fd.getFusionState(args_.at(1).index)->template as<TensorView>();
 
-    Val* output = torch_gather(arg1, dim_, arg3);
+    Val* output = torchGather(arg1, dim_, arg3);
     fd.setFusionState(outputs_.at(0).index, output);
   }
 
@@ -1884,7 +1948,7 @@ struct TakeAlongAxisOpRecord : RecordFunctor {
     auto arg1 = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
     auto arg3 = fd.getFusionState(args_.at(1).index)->template as<TensorView>();
 
-    Val* output = take_along_axis(arg1, arg3, dim_);
+    Val* output = takeAlongAxis(arg1, arg3, dim_);
     fd.setFusionState(outputs_.at(0).index, output);
   }
 
@@ -2368,7 +2432,7 @@ struct TensorSizesRecord : RecordFunctor {
 
   void operator()(FusionState& fd) final {
     auto arg = fd.getFusionState(args_.at(0).index)->as<TensorView>();
-    auto sizes = tensor_sizes(arg);
+    auto sizes = shape(arg);
     for (const auto idx : c10::irange(sizes.size())) {
       fd.setFusionState(outputs_.at(idx).index, sizes[idx]);
     }
