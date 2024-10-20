@@ -209,6 +209,7 @@ HostIRExecutor::HostIRExecutor()
     : communicator_(&Communicator::getInstance()) {}
 
 bool HostIRExecutor::supported(Fusion* fusion) {
+  FUSER_PERF_SCOPE("HostIRExecutor::supported");
   std::vector<Expr*> exprs = fusion->exprs();
   if (std::any_of(exprs.begin(), exprs.end(), [](Expr* e) {
         return isResharding(e) && isLowerableToCommunication(e);
@@ -227,6 +228,7 @@ bool HostIRExecutor::supported(Fusion* fusion) {
 }
 
 void HostIRExecutor::compile(Fusion* fusion) {
+  FUSER_PERF_SCOPE("HostIRExecutor::compile");
   NVF_ERROR(
       supported(fusion),
       "HostIRExecutor does not support the Fusion provided.");
@@ -261,8 +263,8 @@ at::Tensor findBufferForFusionOutput(
 std::vector<at::Tensor> HostIRExecutor::run(
     KernelArgumentHolder& args,
     std::vector<at::Tensor> outputs) {
+  FUSER_PERF_SCOPE("HostIRExecutor::run");
   NVF_ERROR(host_ir_container_, "Need to compile before you can run.");
-  FUSER_PERF_SCOPE("KernelExecutor::runFusion::host_ir_evaluate");
   // Bind fusion inputs
   auto expr_eval = executor_utils::bindInputs(args, host_ir_container_.get());
 
@@ -301,6 +303,7 @@ std::vector<at::Tensor> HostIRExecutor::run(
 }
 
 bool ExprEvalExecutor::supported(Fusion* fusion) {
+  FUSER_PERF_SCOPE("ExprEvalExecutor::supported");
   return std::all_of(
       fusion->outputs().begin(), fusion->outputs().end(), [&fusion](Val* out) {
         return fusion->getOutputAlias(out).type == AllocationType::Evaluate;
@@ -308,6 +311,7 @@ bool ExprEvalExecutor::supported(Fusion* fusion) {
 }
 
 void ExprEvalExecutor::compile(Fusion* fusion) {
+  FUSER_PERF_SCOPE("ExprEvalExecutor::compile");
   NVF_ERROR(
       supported(fusion),
       "ExprEvalExecutor does not support the Fusion provided.");
@@ -317,11 +321,11 @@ void ExprEvalExecutor::compile(Fusion* fusion) {
 std::vector<at::Tensor> ExprEvalExecutor::run(
     KernelArgumentHolder& args,
     std::vector<at::Tensor> outputs) {
+  FUSER_PERF_SCOPE("ExprEvalExecutor::run");
   NVF_ERROR(fusion_, "Need to compile before you can run.");
   // Bind fusion inputs
   auto expr_eval = executor_utils::bindInputs(args, fusion_.get());
   {
-    FUSER_PERF_SCOPE("KernelExecutor::runFusion::evaluateFusionOutputs");
     NVF_ERROR(
         outputs.empty(),
         "Fusion executor is using expression evaluator,",
@@ -355,6 +359,7 @@ void KernelExecutor::compileFusion(
     int64_t concrete_id,
     int64_t runtime_id,
     int64_t group_id) {
+  FUSER_PERF_SCOPE("KernelExecutor::compileFusion");
   // Temporary for refactoring as future users should use a dispatch or check
   // isSupported before trying to compile
   if (!supported(fusion)) {
@@ -366,7 +371,6 @@ void KernelExecutor::compileFusion(
   NVF_ERROR(
       supported(fusion),
       "KernelExecutor does not support the Fusion provided.");
-  FUSER_PERF_SCOPE("KernelExecutor::compileFusion");
 
   NVF_ERROR(
       !fusion->outputs().empty(), "No output found for this kernel, aborting.");
