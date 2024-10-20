@@ -4047,7 +4047,6 @@ TEST_F(ResizeTest, VectorizePlayground) {
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
 
-  const int64_t slice_offset = 4;
   const std::vector<int64_t> shape({1024L * 1024L});
 
   // Using a concrete tensor to avoid dynamic reshape
@@ -4055,6 +4054,7 @@ TEST_F(ResizeTest, VectorizePlayground) {
   fusion.addInput(tv0);
 
   auto tv1 = pad(tv0, {IrBuilder::create<Val>(4L), IrBuilder::create<Val>(4L)});
+  // const int64_t slice_offset = 4;
   // auto tv1 = slice(
   //     tv0,
   //     {{IrBuilder::create<Val>(slice_offset),
@@ -4079,7 +4079,7 @@ TEST_F(ResizeTest, VectorizePlayground) {
 
   // auto ref =
   //     t0.index({at::indexing::Slice(slice_offset, shape[0] - slice_offset)});
-  auto ref = pad(tv0, {IrBuilder::create<Val>(4L), IrBuilder::create<Val>(4L)});
+  auto ref = at::pad(tv0, {IrBuilder::create<Val>(4L), IrBuilder::create<Val>(4L)});
   ASSERT_TRUE(ref.equal(cg_outputs[0]));
 }
 
