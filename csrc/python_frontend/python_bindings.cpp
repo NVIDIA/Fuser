@@ -3138,7 +3138,30 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("correction") = 1,
       py::arg("keepdim") = false,
       py::return_value_policy::reference);
-
+  nvf_ops.def(
+      "welford",
+      [](FusionDefinition::Operators& self,
+         Tensor arg,
+         const std::vector<int64_t>& dims) -> decltype(auto) {
+        FUSER_PERF_SCOPE("Operators.welford");
+        NVF_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        size_t ndims = (arg.dims - dims.size());
+        Tensor avg = fd->defineTensor(ndims);
+        Tensor var_sum = fd->defineTensor(ndims);
+        Tensor n = fd->defineTensor(ndims);
+        fd->defineRecord(new WelfordOpRecord(
+            {fd->recordingState(arg())},
+            {fd->recordingState(avg()),
+             fd->recordingState(var_sum()),
+             fd->recordingState(n())},
+            dims));
+        return std::make_tuple(avg, var_sum, n);
+      },
+      py::arg("arg"),
+      py::arg("dims"),
+      py::return_value_policy::reference);
   nvf_ops.def(
       "sdpfa_bwd",
       [](FusionDefinition::Operators& self,

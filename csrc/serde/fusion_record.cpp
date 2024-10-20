@@ -634,6 +634,14 @@ void RecordFunctorFactory::registerAllParsers() {
         mapToNvfuserDtype(data->dtype()));
   };
   registerParser(RecordType::Vector, deserializeVectorRecord);
+
+  auto deserializeWelfordRecord = [](const RecordFunctor* buffer) {
+    return new python_frontend::WelfordOpRecord(
+        parseStateArgs(buffer->args()),
+        parseStateArgs(buffer->outputs()),
+        parseVector(buffer->data_as_Welford()->axes()));
+  };
+  registerParser(RecordType::WelfordOp, deserializeWelfordRecord);
 }
 
 void RecordFunctorFactory::setupFunctionMaps() {
