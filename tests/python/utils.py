@@ -404,7 +404,7 @@ class NVFuserTest(TestCase):
         *,
         new_fusion_expected=True,
         device=None,
-        is_clonable=False,
+        is_clonable=True,
     ):
         fc = FusionCache.get()
         before_fusions = fc.num_fusions()
