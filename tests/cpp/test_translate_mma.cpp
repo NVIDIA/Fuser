@@ -269,12 +269,8 @@ TEST_P(CombineMulSumAsMmaTestWithLayout, UseMatmulScheduler) {
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
   // Ensure there's a mma op.
   // If there's no mma op present, then stop the test.
-  ASSERT_FALSE(
-      ir_utils::getOpsOfType<MmaOp>(executor_cache.getMostRecentKernelRuntime()
-                                        ->executors()
-                                        .at(0)
-                                        .kernel())
-          .empty());
+  const auto* ke = onlyKernelExecutorInMostRecentRuntime(executor_cache);
+  ASSERT_FALSE(ir_utils::getOpsOfType<MmaOp>(ke->kernel()).empty());
 
   // Ensure that the matmul scheduler ran.
   EXPECT_TRUE(
@@ -392,9 +388,9 @@ TEST_P(MatmulNodeTranslationTest, AutomaticSchedulerMatmulNode) {
 
   if (scheduler_type == SchedulerType::Matmul) {
     // Ensure there's an MmaOp.
-    EXPECT_FALSE(
-        ir_utils::getOpsOfType<MmaOp>(runtime->executors().at(0).kernel())
-            .empty());
+
+    const auto* ke = onlyKernelExecutorInMostRecentRuntime(executor_cache);
+    ASSERT_FALSE(ir_utils::getOpsOfType<MmaOp>(ke->kernel()).empty());
   }
 
   testValidate(
@@ -572,9 +568,8 @@ TEST_P(LinearNodeTranslationTest, AutomaticSchedulerLinearNode) {
     // do if ExprEval accepts the segment.
     ASSERT_EQ(scheduler_type, SchedulerType::Matmul);
     // Ensure there's an MmaOp.
-    EXPECT_FALSE(
-        ir_utils::getOpsOfType<MmaOp>(runtime->executors().at(0).kernel())
-            .empty());
+    const auto* ke = onlyKernelExecutorInMostRecentRuntime(executor_cache);
+    ASSERT_FALSE(ir_utils::getOpsOfType<MmaOp>(ke->kernel()).empty());
   }
 
   testValidate(

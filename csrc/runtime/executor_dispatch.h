@@ -14,7 +14,7 @@ namespace nvfuser {
 
 // Simple stateless dispatch system for KernelExecutor, HostIRExecutor, and
 // ExprEvalExecutor
-class FusionDispatch {
+class ExecutorDispatch {
  public:
   // Iterates through executors in priority order creating the first executor
   // that returns true when checking their "supported" method
@@ -35,6 +35,8 @@ class FusionDispatch {
       int64_t concrete_id = 0,
       int64_t runtime_id = 0,
       int64_t group_id = 0);
+
+  static bool isCompiled(const std::unique_ptr<ExecutorAbstract>& executor);
 
   static std::vector<at::Tensor> run(
       std::unique_ptr<ExecutorAbstract>& executor,

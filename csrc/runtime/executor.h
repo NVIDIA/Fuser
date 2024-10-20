@@ -43,6 +43,8 @@ class HostIRExecutor : public ExecutorAbstract {
 
   void compile(Fusion* fusion);
 
+  bool isCompiled() const;
+
   NVF_API std::vector<at::Tensor> run(
       KernelArgumentHolder& args,
       std::vector<at::Tensor> outputs = {});
@@ -62,6 +64,8 @@ class ExprEvalExecutor : public ExecutorAbstract {
   static bool supported(Fusion* fusion);
 
   void compile(Fusion* fusion);
+
+  bool isCompiled() const;
 
   NVF_API std::vector<at::Tensor> run(
       KernelArgumentHolder& args,

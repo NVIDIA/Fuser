@@ -5364,10 +5364,10 @@ TEST_F(NVFuserTest, FusionBNBackwardRepro_CUDA) {
   at::Tensor input6 = at::randn_like(input0);
   at::Tensor input7 = at::randn_like(input0);
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
   std::vector<c10::IValue> inputs = {
       input0, input1, input2, input3, input4, input5, input6, input7};
-  auto outputs = fec.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
 }
 
 // TODO: We only changed inputs, merge this with the test above.
@@ -5432,10 +5432,10 @@ TEST_F(NVFuserTest, FusionBNBackwardRepro2_CUDA) {
   at::Tensor input6 = at::randn_like(input0);
   at::Tensor input7 = at::randn_like(input0);
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
   std::vector<c10::IValue> inputs = {
       input0, input1, input2, input3, input4, input5, input6, input7};
-  auto outputs = fec.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
 }
 
 TEST_F(NVFuserTest, FusionBNRepro_CUDA) {
@@ -5494,10 +5494,10 @@ TEST_F(NVFuserTest, FusionBNRepro_CUDA) {
   auto input4_ref = input4.clone();
   auto input5_ref = input5.clone();
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
   std::vector<c10::IValue> aten_inputs = {
       input1, input2, input3, input4, input5};
-  auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   auto at_results = at::native_batch_norm(
       input1_ref,
@@ -5563,9 +5563,9 @@ TEST_F(NVFuserTest, FusionBNRepro2_CUDA) {
   at::Tensor weight;
   at::Tensor bias;
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
   std::vector<c10::IValue> aten_inputs = {input1};
-  auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -5894,8 +5894,8 @@ TEST_F(NVFuserTest, FusionSegmentIslands_CUDA) {
   at::Tensor t0 = at::randn({16, 16}, options);
   at::Tensor t1 = at::randn({16, 16}, options);
 
-  FusionExecutorCache fusion_executor_cache(std::move(fusion));
-  fusion_executor_cache.runFusionWithInputs({t0, t1});
+  FusionExecutorCache executor_cache(std::move(fusion));
+  executor_cache.runFusionWithInputs({t0, t1});
 }
 
 TEST_F(NVFuserTest, FusionBackOffInnerBroadcast_CUDA) {
@@ -6458,9 +6458,9 @@ TEST_F(NVFuserTest, FusionSegfaultReduction_CUDA) {
   at::Tensor input0 = at::randn({batch, c, h, w}, options);
   at::Tensor input1 = at::randn({batch, c, h, w}, options);
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
   std::vector<c10::IValue> inputs = {input0, input1};
-  auto outputs = fec.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
 
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }

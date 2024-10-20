@@ -635,11 +635,12 @@ TEST_F(PresegTest, ReplaceOutput) {
   TensorView* y = add(x, x);
   fusion->replaceOutput(x, y);
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({10}, at::device(at::kCUDA));
-  at::Tensor out_tensor = fec.runFusionWithInputs({in_tensor})[0];
+  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
 
-  testValidate(fec.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
+  testValidate(
+      executor_cache.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
 }
 
 TEST_F(PresegTest, ExtentSubstitution) {

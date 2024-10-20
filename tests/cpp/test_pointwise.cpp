@@ -23,8 +23,8 @@ using PointwiseTest = NVFuserTest;
 
 namespace {
 
-int64_t getVecSizeForPointwise(const FusionExecutorCache& fec) {
-  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+int64_t getVecSizeForPointwise(const FusionExecutorCache& executor_cache) {
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   NVF_CHECK(!runtime->isSegmented());
   const PointwiseParams* params = runtime->schedulerHeuristics()
                                       ->heuristicsList()
@@ -62,7 +62,7 @@ TEST_F(PointwiseTest, VectorizeStrideContiguity2D) {
   auto tv1 = add(tv0, tv0);
   fusion->addOutput(tv1);
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
 
   std::vector<std::pair<int, int>> size_and_vec{{17, 1}, {18, 2}, {32, 4}};
 
@@ -71,9 +71,9 @@ TEST_F(PointwiseTest, VectorizeStrideContiguity2D) {
     auto vec = pair.second;
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     at::Tensor input0 = at::randn({1000000, size}, options).narrow(1, 0, 16);
-    auto cg_outputs = fec.runFusionWithInputs({input0});
+    auto cg_outputs = executor_cache.runFusionWithInputs({input0});
 
-    EXPECT_EQ(getVecSizeForPointwise(fec), vec);
+    EXPECT_EQ(getVecSizeForPointwise(executor_cache), vec);
 
     testValidate(fusion, cg_outputs, {input0}, __LINE__, __FILE__);
   }
@@ -90,7 +90,7 @@ TEST_F(PointwiseTest, VectorizeStrideContiguity3D) {
   auto tv1 = add(tv0, tv0);
   fusion->addOutput(tv1);
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
 
   std::vector<std::pair<int, int>> size_and_vec{{17, 1}, {10, 2}, {16, 4}};
 
@@ -99,9 +99,9 @@ TEST_F(PointwiseTest, VectorizeStrideContiguity3D) {
     auto vec = pair.second;
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     at::Tensor input0 = at::randn({1000000, size, 3}, options).narrow(1, 0, 8);
-    auto cg_outputs = fec.runFusionWithInputs({input0});
+    auto cg_outputs = executor_cache.runFusionWithInputs({input0});
 
-    EXPECT_EQ(getVecSizeForPointwise(fec), vec);
+    EXPECT_EQ(getVecSizeForPointwise(executor_cache), vec);
 
     testValidate(fusion, cg_outputs, {input0}, __LINE__, __FILE__);
   }
@@ -120,7 +120,7 @@ TEST_F(PointwiseTest, VectorizeStrideContiguity5D) {
   auto tv1 = add(tv0, tv0);
   fusion->addOutput(tv1);
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
@@ -134,9 +134,9 @@ TEST_F(PointwiseTest, VectorizeStrideContiguity5D) {
     at::Tensor input0 = at::randn({4, size1, 12345, size2, 3}, options)
                             .narrow(1, 0, 8)
                             .narrow(3, 0, 4);
-    auto cg_outputs = fec.runFusionWithInputs({input0});
+    auto cg_outputs = executor_cache.runFusionWithInputs({input0});
 
-    EXPECT_EQ(getVecSizeForPointwise(fec), vec);
+    EXPECT_EQ(getVecSizeForPointwise(executor_cache), vec);
 
     testValidate(fusion, cg_outputs, {input0}, __LINE__, __FILE__);
   }
@@ -158,7 +158,7 @@ TEST_F(PointwiseTest, VectorizeStrideMisalignedBase) {
   auto tv1 = add(tv0, tv0);
   fusion->addOutput(tv1);
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
@@ -195,8 +195,8 @@ TEST_F(PointwiseTest, VectorizeStrideMisalignedBase) {
     at::Tensor flat = at::randn({alloc_size}, options);
     at::Tensor input0 =
         flat.as_strided(shape, stride, /*storage_offset=*/align);
-    auto cg_outputs = fec.runFusionWithInputs({input0});
-    EXPECT_EQ(getVecSizeForPointwise(fec), vec);
+    auto cg_outputs = executor_cache.runFusionWithInputs({input0});
+    EXPECT_EQ(getVecSizeForPointwise(executor_cache), vec);
     testValidate(fusion, cg_outputs, {input0}, __LINE__, __FILE__);
   }
 }
@@ -214,7 +214,7 @@ TEST_F(PointwiseTest, VectorizeStrideContiguitySelfOverlapping) {
   auto tv1 = add(tv0, tv0);
   fusion->addOutput(tv1);
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
@@ -241,8 +241,8 @@ TEST_F(PointwiseTest, VectorizeStrideContiguitySelfOverlapping) {
         stride1, (int64_t)stride2 * 12345, (int64_t)stride2, 3, 1};
     at::Tensor input0 = at::empty_strided(shape, stride, options);
     input0.random_();
-    auto cg_outputs = fec.runFusionWithInputs({input0});
-    EXPECT_EQ(getVecSizeForPointwise(fec), vec);
+    auto cg_outputs = executor_cache.runFusionWithInputs({input0});
+    EXPECT_EQ(getVecSizeForPointwise(executor_cache), vec);
     testValidate(fusion, cg_outputs, {input0}, __LINE__, __FILE__);
   }
 }
@@ -262,13 +262,13 @@ TEST_F(PointwiseTest, VectorizeAllocationDomain) {
   tv1->setAllocationDomain({tv1->axis(0), tv1->axis(2), tv1->axis(1)}, true);
   fusion->addOutput(tv1);
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input0 =
       at::empty_strided({1024, 128, 25}, {128 * 25, 1, 128}, options);
-  auto cg_outputs = fec.runFusionWithInputs({input0});
-  EXPECT_EQ(getVecSizeForPointwise(fec), 4);
+  auto cg_outputs = executor_cache.runFusionWithInputs({input0});
+  EXPECT_EQ(getVecSizeForPointwise(executor_cache), 4);
   testValidate(fusion, cg_outputs, {input0}, __LINE__, __FILE__);
 }
 
@@ -407,7 +407,7 @@ TEST_F(PointwiseTest, Issue1567VectorizationFactorAnalysisCase2) {
   auto tv3 = transpose(tv2, 0, 1);
   fusion->addOutput(tv3);
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input0 = at::randn({1024, 1, 2}, options);
@@ -444,7 +444,7 @@ TEST_F(PointwiseTest, VIssue1567ectorizationFactorAnalysisCase3) {
   auto tv3 = transpose(tv2, 0, 1);
   fusion->addOutput(tv3);
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input0 = at::randn({1, 1024, 2}, options);
@@ -659,11 +659,12 @@ TEST_F(PointwiseTest, VectorizeWithExpandedBroadcast) {
   auto in_tensor =
       at::randn({kTensorSize}, options).as_strided({2, kTensorSize}, {0, 1});
 
-  FusionExecutorCache fec(std::move(fusion));
-  auto out_tensors = fec.runFusionWithInputs({in_tensor});
-  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+  testValidate(
+      executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
-  EXPECT_GT(getVecSizeForPointwise(fec), 1);
+  EXPECT_GT(getVecSizeForPointwise(executor_cache), 1);
 }
 
 TEST_F(PointwiseTest, UnrollOnTopOfVectorize) {

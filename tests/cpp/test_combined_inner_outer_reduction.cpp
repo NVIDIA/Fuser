@@ -104,10 +104,10 @@ TEST_P(CombinedSchedulerTest, LayerNormBackward) {
   auto aten_mean = std::get<1>(aten_results);
   auto aten_rstd = std::get<2>(aten_results);
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
   std::vector<c10::IValue> aten_inputs = {
       aten_grad_out, aten_input, aten_mean, aten_rstd, aten_weight, aten_bias};
-  auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   auto aten_gradients = at::native_layer_norm_backward(
       aten_grad_out,
@@ -120,7 +120,7 @@ TEST_P(CombinedSchedulerTest, LayerNormBackward) {
       {true, true, true});
 
   testValidate(
-      fec.fusion(),
+      executor_cache.fusion(),
       {cg_outputs[0], cg_outputs[1], cg_outputs[2]},
       aten_inputs,
       {std::get<0>(aten_gradients),
@@ -261,7 +261,7 @@ TEST_F(CombinedSchedulerTest, SharedConsumer) {
     auto aten_mean = std::get<1>(aten_results);
     auto aten_rstd = std::get<2>(aten_results);
 
-    FusionExecutorCache fec(std::move(fusion_ptr));
+    FusionExecutorCache executor_cache(std::move(fusion_ptr));
     std::vector<c10::IValue> aten_inputs = {
         aten_grad_out,
         aten_input,
@@ -269,7 +269,7 @@ TEST_F(CombinedSchedulerTest, SharedConsumer) {
         aten_rstd,
         aten_weight,
         aten_bias};
-    auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
+    auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
     auto aten_gradients = at::native_layer_norm_backward(
         aten_grad_out.to(at::kDouble),
@@ -287,7 +287,8 @@ TEST_F(CombinedSchedulerTest, SharedConsumer) {
     if (!link_inner_outer) {
       aten_out_linked = aten_out_linked.mul(0.5);
     }
-    bool is_segmented = fec.getMostRecentKernelRuntime()->isSegmented();
+    bool is_segmented =
+        executor_cache.getMostRecentKernelRuntime()->isSegmented();
     NVF_CHECK(is_segmented, "Fusion is not segmented");
 
     testValidate(
@@ -443,7 +444,7 @@ TEST_F(CombinedSchedulerTest, SharedProducer) {
     auto aten_mean = std::get<1>(aten_results);
     auto aten_rstd = std::get<2>(aten_results);
 
-    FusionExecutorCache fec(std::move(fusion_ptr));
+    FusionExecutorCache executor_cache(std::move(fusion_ptr));
     std::vector<c10::IValue> aten_inputs = {
         aten_grad_out,
         aten_input,
@@ -451,9 +452,9 @@ TEST_F(CombinedSchedulerTest, SharedProducer) {
         aten_rstd,
         aten_weight,
         aten_bias};
-    auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
+    auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-    FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+    FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
     switch (case_id) {
       case 0:
       case 1:
@@ -856,10 +857,11 @@ TEST_F(CombinedSchedulerTest, InnerOuterMismatch) {
     at::Tensor t0 = at::randn({x, y, z}, options);
     std::vector<c10::IValue> aten_inputs = {t0};
 
-    FusionExecutorCache fec(std::move(fusion_ptr));
-    auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
+    FusionExecutorCache executor_cache(std::move(fusion_ptr));
+    auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-    bool is_segmented = fec.getMostRecentKernelRuntime()->isSegmented();
+    bool is_segmented =
+        executor_cache.getMostRecentKernelRuntime()->isSegmented();
     if (outer_reduction_axis.size() == 2) {
       NVF_ERROR(!is_segmented, "Fusion should NOT be segmented!");
     } else {

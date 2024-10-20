@@ -245,6 +245,10 @@ void HostIRExecutor::compile(Fusion* fusion) {
   return;
 }
 
+bool HostIRExecutor::isCompiled() const {
+  return host_ir_container_ != nullptr;
+}
+
 namespace {
 // Host IR specific function, returns the at:Tensor (ordered list) associated
 // with the provdied Fusion output tv
@@ -316,6 +320,10 @@ void ExprEvalExecutor::compile(Fusion* fusion) {
       supported(fusion),
       "ExprEvalExecutor does not support the Fusion provided.");
   fusion_ = std::make_unique<Fusion>(*fusion);
+}
+
+bool ExprEvalExecutor::isCompiled() const {
+  return fusion_ != nullptr;
 }
 
 std::vector<at::Tensor> ExprEvalExecutor::run(

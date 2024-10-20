@@ -80,18 +80,23 @@ TEST_F(RNGTest, ValidateWithCURand) {
   fusion->addOutput(tv0);
   fusion->addOutput(tv1);
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
 
   for (int64_t size : {16, 1024, 10001, 10002, 10003, 100000, 10000001}) {
     at::manual_seed(0);
-    auto cg_outputs = fec.runFusionWithInputs({size});
+    auto cg_outputs = executor_cache.runFusionWithInputs({size});
 
     at::manual_seed(0);
     auto ref0 = generate_uniform(size, at::kFloat);
     auto ref1 = generate_uniform(size, at::kDouble);
 
     testValidate(
-        fec.fusion(), cg_outputs, {size}, {ref0, ref1}, __LINE__, __FILE__);
+        executor_cache.fusion(),
+        cg_outputs,
+        {size},
+        {ref0, ref1},
+        __LINE__,
+        __FILE__);
   }
 }
 
@@ -182,13 +187,13 @@ TEST_F(RNGTest, BroadcastingRNG) {
     auto tv4 = add(tv0, tv3);
     fusion->addOutput(tv4);
 
-    FusionExecutorCache fec(std::move(fusion_ptr));
+    FusionExecutorCache executor_cache(std::move(fusion_ptr));
 
     auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
     at::Tensor t0 = at::zeros({5, 1}, options);
     at::Tensor t1 = at::zeros({5, 5}, options);
 
-    auto cg_outputs = fec.runFusionWithInputs({t0, t1});
+    auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
     auto out = cg_outputs[0];
     NVF_CHECK((out.select(1, 0) == out.select(1, 1)).all().item<bool>())
     NVF_CHECK((out.select(1, 0) == out.select(1, 2)).all().item<bool>())
@@ -212,20 +217,21 @@ TEST_F(RNGTest, BroadcastingRNG2) {
       auto tv3 = add(tv1, tv2);
       fusion->addOutput(tv3);
 
-      FusionExecutorCache fec(std::move(fusion_ptr));
+      FusionExecutorCache executor_cache(std::move(fusion_ptr));
 
       auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
       at::Tensor t0 = at::zeros({1}, options);
       at::Tensor t1 = at::zeros({size}, options);
 
       at::manual_seed(0);
-      auto cg_outputs = fec.runFusionWithInputs({t0, t1});
+      auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
       auto out = cg_outputs[0];
 
       at::manual_seed(0);
       auto ref = generate_uniform(1, dtype).expand_as(t1);
 
-      testValidate(fec.fusion(), {out}, {t0, t1}, {ref}, __LINE__, __FILE__);
+      testValidate(
+          executor_cache.fusion(), {out}, {t0, t1}, {ref}, __LINE__, __FILE__);
     }
   }
 }
@@ -314,18 +320,18 @@ TEST_F(RNGTest, Uniform) {
   fusion->addOutput(tv0);
   fusion->addOutput(tv1);
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
 
   for (int64_t size : {16, 1024, 10001, 10002, 10003, 100000, 10000001}) {
     at::manual_seed(0);
-    auto cg_outputs = fec.runFusionWithInputs({size, -1.0, 1.0});
+    auto cg_outputs = executor_cache.runFusionWithInputs({size, -1.0, 1.0});
 
     at::manual_seed(0);
     auto ref0 = generate_uniform(size, at::kFloat) * 2 - 1;
     auto ref1 = generate_uniform(size, at::kDouble) * 2 - 1;
 
     testValidate(
-        fec.fusion(),
+        executor_cache.fusion(),
         cg_outputs,
         {size, -1.0, 1.0},
         {ref0, ref1},
@@ -354,11 +360,11 @@ TEST_F(RNGTest, Normal) {
   fusion->addOutput(tv2);
   fusion->addOutput(tv3);
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
 
   for (int64_t size : {16, 1024, 10001, 10002, 10003, 100000, 10000001}) {
     at::manual_seed(0);
-    auto cg_outputs = fec.runFusionWithInputs({size, 1.0, 0.5});
+    auto cg_outputs = executor_cache.runFusionWithInputs({size, 1.0, 0.5});
 
     at::manual_seed(0);
     auto ref0 = generate_normal(size, at::kFloat) * 0.5f + 1.0f;
@@ -367,7 +373,7 @@ TEST_F(RNGTest, Normal) {
     auto ref3 = generate_normal(size, at::kDouble);
 
     testValidate(
-        fec.fusion(),
+        executor_cache.fusion(),
         cg_outputs,
         {size, 1.0, 0.5},
         {ref0, ref1, ref2, ref3},
@@ -389,13 +395,13 @@ TEST_F(RNGTest, RandLikeReduction) {
   auto tv3 = add(tv1, tv2);
   fusion->addOutput(tv3);
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
 
   auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
   at::Tensor t0 = at::zeros({2, 3}, options);
 
   at::manual_seed(0);
-  auto cg_outputs = fec.runFusionWithInputs({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
   auto out = cg_outputs[0];
 
   at::manual_seed(0);
@@ -403,7 +409,7 @@ TEST_F(RNGTest, RandLikeReduction) {
   auto t2 = generate_uniform(3, dtype).expand_as(t1);
   auto t3 = t1.add(t2);
 
-  testValidate(fec.fusion(), {out}, {t0}, {t3}, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), {out}, {t0}, {t3}, __LINE__, __FILE__);
 }
 
 //! This is the same as the Uniform test, but we compare against
@@ -447,7 +453,7 @@ TEST_F(RNGTest, FunctionalUniform) {
     fusion->addOutput(tv2);
     fusion->addOutput(tv3);
 
-    FusionExecutorCache fec(std::move(fusion_ptr));
+    FusionExecutorCache executor_cache(std::move(fusion_ptr));
 
     for (int64_t size : {16, 1024, 10001, 10002, 10003, 100000, 10000001}) {
       at::manual_seed(0);
@@ -465,7 +471,7 @@ TEST_F(RNGTest, FunctionalUniform) {
       std::vector<c10::IValue> aten_inputs({size, -1.0, 1.0, 0, 0});
 
       at::manual_seed(0);
-      auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
+      auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
       std::vector<at::Tensor> aten_outputs;
       if (do_stochastic) {
@@ -475,7 +481,7 @@ TEST_F(RNGTest, FunctionalUniform) {
       }
 
       testValidate(
-          fec.fusion(),
+          executor_cache.fusion(),
           cg_outputs,
           aten_inputs,
           aten_outputs,
@@ -514,7 +520,7 @@ TEST_F(RNGTest, DifferentOffsets) {
     fusion->addOutput(tv0);
   }
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
 
   std::unique_ptr<Fusion> fusion_ptr2 = std::make_unique<Fusion>();
   {
@@ -533,7 +539,7 @@ TEST_F(RNGTest, DifferentOffsets) {
   for (int64_t size : {1, 4}) {
     at::manual_seed(0);
     EXPECT_TRUE(get_current_offset() == 0);
-    auto r1 = fec.runFusionWithInputs({size}).at(0);
+    auto r1 = executor_cache.runFusionWithInputs({size}).at(0);
     EXPECT_TRUE(get_current_offset() == 4);
     auto r23 = fec2.runFusionWithInputs({size});
     auto r2 = r23.at(0);

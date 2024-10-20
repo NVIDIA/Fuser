@@ -186,10 +186,11 @@ TEST_F(NoOpTest, View) {
   TensorView* out = reshape(in, in_shape, out_shape);
   fusion->addOutput(out);
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor =
       at::randn({2, 3, 4}, at::dtype(at::kFloat).device(at::kCUDA, 0));
-  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  std::vector<at::Tensor> out_tensors =
+      executor_cache.runFusionWithInputs({in_tensor});
   ASSERT_EQ(out_tensors.size(), 1);
   at::Tensor out_tensor = out_tensors[0];
 
@@ -198,7 +199,7 @@ TEST_F(NoOpTest, View) {
 
   // Verify the NoOp scheduler was kicked in.
   const std::vector<SegmentedGroup*>& groups =
-      fec.getMostRecentKernelRuntime()->fusionSegments()->groups();
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
   ASSERT_EQ(groups.size(), 1);
   SegmentedGroup* group = groups[0];
   EXPECT_EQ(group->schedulerType(), SchedulerType::NoOp);
@@ -220,17 +221,17 @@ TEST_F(NoOpTest, ExpandedReduction) {
   out = segment_set(out);
   fusion->addOutput(out);
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::ones({}).cuda().as_strided({2, 3}, {0, 0});
-  at::Tensor out_tensor = fec.runFusionWithInputs({in_tensor})[0];
-  testValidate(fec.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
+  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
+  testValidate(
+      executor_cache.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
 
-  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   EXPECT_THAT(
       runtime->fusionSegments()->groups(),
       UnorderedElementsAre(HeuristicIs(SchedulerType::NoOp)));
-  const auto& executor = runtime->executors().front();
-  EXPECT_THAT(executor.kernel()->summary().global_allocations, IsEmpty());
+  EXPECT_TRUE(runtime->executors().front()->isA<ExprEvalExecutor>());
 }
 
 } // namespace nvfuser

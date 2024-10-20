@@ -2595,10 +2595,10 @@ TEST_F(NVFuserTest, SmallOuterBlockReductionIssue2766) {
   auto t0 = at::randn({shape[0] * shape[1], shape[2]}, options);
   std::vector<c10::IValue> inputs({t0});
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto outputs = fec.runFusionWithInputs(inputs);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
 
-  testValidate(fec.fusion(), outputs, inputs, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

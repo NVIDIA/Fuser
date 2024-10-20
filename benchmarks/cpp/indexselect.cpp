@@ -235,7 +235,7 @@ static void setupIndexSelect(Fusion* fusion, DataType dtype, int select_dim) {
 
 static void NvFuserScheduler_IndexSelectSimple(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     DataType dtype,
     int select_dim) {
   auto elem_size = benchmark_state.range(0);
@@ -257,7 +257,7 @@ static void NvFuserScheduler_IndexSelectSimple(
 
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  runBenchmarkIterations(benchmark_state, fusion_executor_cache, aten_inputs);
+  runBenchmarkIterations(benchmark_state, executor_cache, aten_inputs);
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
@@ -267,7 +267,7 @@ static void NvFuserScheduler_IndexSelectSimple(
 
 static void NvFuserScheduler_IndexSelect(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     DataType dtype,
     int select_dim) {
   auto elem_size = benchmark_state.range(0);
@@ -289,7 +289,7 @@ static void NvFuserScheduler_IndexSelect(
 
   std::vector<c10::IValue> aten_inputs = {t2, t0, t1};
 
-  runBenchmarkIterations(benchmark_state, fusion_executor_cache, aten_inputs);
+  runBenchmarkIterations(benchmark_state, executor_cache, aten_inputs);
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *

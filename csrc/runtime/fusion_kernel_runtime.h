@@ -143,7 +143,7 @@ class FusionKernelRuntime {
   //!  for kernel launch for a new input dimension but same heuristics
   void updateHeuristicsLaunchParams(HeuristicParamsList* update_heuristics);
 
-  const std::vector<KernelExecutor>& executors() const;
+  const std::vector<std::unique_ptr<ExecutorAbstract>>& executors() const;
 
  private:
   //! Runs each fusion segment given arguments. The outputs for a fusion are
@@ -176,7 +176,7 @@ class FusionKernelRuntime {
  private:
   //! Entries indexed by groupID:
   //! Executors holding compiled kernels
-  std::vector<KernelExecutor> executors_;
+  std::vector<std::unique_ptr<ExecutorAbstract>> executors_;
 
   // A metadata copy of initial arguments used to contruct this
   // FusionKernelRuntime. Used during deserialization to schedule the fusion
