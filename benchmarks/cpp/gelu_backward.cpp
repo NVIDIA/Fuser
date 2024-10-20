@@ -162,8 +162,8 @@ static void NvFuserScheduler_GeluBackward_Compile(
       &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
 
   for (auto _ : benchmark_state) {
-    KernelExecutor fe;
-    fe.compileFusion(&fusion, inputs, heuristic_params->lparams);
+    KernelExecutor ke;
+    ke.compileFusion(&fusion, inputs, heuristic_params->lparams);
   }
 }
 
@@ -187,13 +187,13 @@ static void NvFuserScheduler_GeluBackward_RunFusion(
   auto heuristic_params = SchedulerEntry::scheduleWith(
       &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
 
-  KernelExecutor fe;
-  fe.compileFusion(&fusion, inputs, heuristic_params->lparams);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, inputs, heuristic_params->lparams);
 
   C10_CUDA_CHECK(cudaDeviceSynchronize());
 
   for (auto _ : benchmark_state) {
-    outputs = fe.runFusion(
+    outputs = ke.runFusion(
         c10::ArrayRef<c10::IValue>(inputs), heuristic_params->lparams);
     C10_CUDA_CHECK(cudaDeviceSynchronize());
     clearL2Cache();
@@ -218,11 +218,11 @@ static void NvFuserScheduler_GeluBackward_RunFusion_GpuOnly(
   auto heuristic_params = SchedulerEntry::scheduleWith(
       &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
 
-  KernelExecutor fe;
-  fe.compileFusion(&fusion, inputs, heuristic_params->lparams);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, inputs, heuristic_params->lparams);
 
   runBenchmarkIterations(
-      benchmark_state, &fe, inputs, heuristic_params->lparams);
+      benchmark_state, &ke, inputs, heuristic_params->lparams);
 }
 
 BENCHMARK(NvFuserScheduler_GeluBackward_RunFusion_GpuOnly)
@@ -247,12 +247,12 @@ static void NvFuserScheduler_GeluBackward_RunFusion_CpuOnly(
   auto heuristic_params = SchedulerEntry::scheduleWith(
       &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
 
-  KernelExecutor fe;
-  fe.setExecuteKernelFlag(false);
-  fe.compileFusion(&fusion, inputs, heuristic_params->lparams);
+  KernelExecutor ke;
+  ke.setExecuteKernelFlag(false);
+  ke.compileFusion(&fusion, inputs, heuristic_params->lparams);
 
   for (auto _ : benchmark_state) {
-    outputs = fe.runFusion(
+    outputs = ke.runFusion(
         c10::ArrayRef<c10::IValue>(inputs), heuristic_params->lparams);
   }
 }

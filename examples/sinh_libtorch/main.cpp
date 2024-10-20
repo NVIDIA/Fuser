@@ -31,9 +31,9 @@ at::Tensor sinh_nvfuser(const at::Tensor& input) {
   auto heuristic_params = SchedulerEntry::scheduleWith(
       &fusion, SchedulerType::PointWise, {input});
 
-  KernelExecutor fe;
-  fe.compileFusion(&fusion, {input}, heuristic_params->lparams);
-  auto outputs = fe.runFusion({input}, heuristic_params->lparams);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, {input}, heuristic_params->lparams);
+  auto outputs = ke.runFusion({input}, heuristic_params->lparams);
 
   return outputs[0];
 }
