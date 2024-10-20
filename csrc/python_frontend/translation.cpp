@@ -1108,6 +1108,21 @@ class FusionTranslator : public OptInConstDispatch {
         gop->dim()));
   }
 
+  // Map MatmulOp to TensorView-Only OpRecord
+  void handle(const MatmulOp* matmul_op) final {
+    Tensor output =
+        fd_->defineTensor(matmul_op->out()->as<TensorView>()->nDims());
+    map_val_to_fd_index_.emplace(matmul_op->out(), output());
+
+    fd_->defineRecord(new OpRecord<TensorView*, TensorView*, TensorView*>(
+        {fd_->recordingState(map_val_to_fd_index_.at(matmul_op->inA())),
+         fd_->recordingState(map_val_to_fd_index_.at(matmul_op->inB()))},
+        {fd_->recordingState(output())},
+        ("ops.matmul"),
+        serde::RecordType::Binary_TV,
+        static_cast<TensorView* (*)(TensorView*, TensorView*)>(matmul)));
+  }
+
  private:
   //! The reference CPP fusion to be translated.
   Fusion* fusion_ = nullptr;
