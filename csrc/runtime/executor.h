@@ -36,7 +36,7 @@ struct CompileOptions {
   c10::Device device = c10::Device(c10::DeviceType::CUDA, 0);
 };
 
-class HostIRExecutor : public FusionExecutorAbstract {
+class HostIRExecutor : public ExecutorAbstract {
  public:
   HostIRExecutor();
   static bool supported(Fusion* fusion);
@@ -56,7 +56,7 @@ class HostIRExecutor : public FusionExecutorAbstract {
   Communicator* communicator_;
 };
 
-class ExprEvalExecutor : public FusionExecutorAbstract {
+class ExprEvalExecutor : public ExecutorAbstract {
  public:
   // Returns true if all fusion outputs are expression evaluated.
   static bool supported(Fusion* fusion);
@@ -77,7 +77,7 @@ class ExprEvalExecutor : public FusionExecutorAbstract {
   std::unique_ptr<Fusion> fusion_;
 };
 
-class KernelExecutor : public FusionExecutorAbstract {
+class KernelExecutor : public ExecutorAbstract {
  public:
   // NVF_API was added for nvfuser_extension. See examples/sinh_extension.
   NVF_API KernelExecutor() = default;

@@ -15,10 +15,10 @@
 
 namespace nvfuser {
 
-class FusionExecutorAbstract : public PolymorphicBase, public NonCopyable {
+class ExecutorAbstract : public PolymorphicBase, public NonCopyable {
  public:
   //   // NVF_API was added for nvfuser_extension. See examples/sinh_extension.
-  //   NVF_API FusionExecutorAbstract();
+  //   NVF_API ExecutorAbstract();
 
   //   //! To compile a fusion with the 32-bit index type, CompileParams
   //   //! must be passed in. There used to be an index type associated

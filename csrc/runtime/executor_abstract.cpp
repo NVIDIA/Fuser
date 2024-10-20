@@ -11,5 +11,5 @@
 namespace nvfuser {
 namespace {} // namespace
 
-// FusionExecutorAbstract::FusionExecutorAbstract(){}
+// ExecutorAbstract::ExecutorAbstract(){}
 } // namespace nvfuser
