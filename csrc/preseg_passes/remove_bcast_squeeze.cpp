@@ -362,18 +362,25 @@ TensorView* maybeDoReplacement(TensorView* orig) {
       replacement->toString(),
       " has different dimension than original ",
       orig->toString());
+  bool resharded = false;
   for (size_t i : c10::irange(old_loop.size())) {
     if (old_loop[i]->getParallelType() != new_loop[i]->getParallelType()) {
       NVF_ERROR(
           old_loop[i]->isDeviceDim() || new_loop[i]->isDeviceDim(),
           "Before scheduling, we expect the only parallelized ",
           "dimensions to be device dims");
-      return orig;
+      resharded = true;
+      break;
     }
   }
 
-  ir_utils::replaceValInAllExprInputsAndFusionOutputs(orig, replacement);
-  return replacement;
+  if (resharded) {
+    IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, orig, replacement);
+    return orig;
+  } else {
+    ir_utils::replaceValInAllExprInputsAndFusionOutputs(orig, replacement);
+    return replacement;
+  }
 }
 
 // Remove broadcast-squeeze and squeeze-broadcast patterns
