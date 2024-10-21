@@ -113,7 +113,6 @@ union RecordData {
   Dtype,
   Norm,
   Output,
-  Pad,
   Dims,
   Slice,
   Squeeze,
@@ -276,11 +275,6 @@ table Norm {
 // Data for OutputRecord
 table Output {
   stride_order: [long];
-}
-
-// Data for PadOpRecord
-table Pad {
-  pad_widths: [long];
 }
 
 // Data for DimsOpRecord
