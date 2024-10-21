@@ -4079,7 +4079,7 @@ TEST_F(ResizeTest, VectorizePlayground) {
 
   // auto ref =
   //     t0.index({at::indexing::Slice(slice_offset, shape[0] - slice_offset)});
-  auto ref = at::pad(t0, {IrBuilder::create<Val>(4L), IrBuilder::create<Val>(4L)});
+  auto ref = at::pad(t0, {4, 4});
   ASSERT_TRUE(ref.equal(cg_outputs[0]));
 }
 
