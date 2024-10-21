@@ -23,6 +23,7 @@
 #include <transform_view.h>
 #include <type.h>
 
+#include <c10/macros/Macros.h>
 #include <c10/util/irange.h>
 
 #include <complex>
