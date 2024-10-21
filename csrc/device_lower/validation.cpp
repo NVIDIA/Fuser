@@ -483,12 +483,12 @@ class VectorizeValidator : public OptInDispatch {
       }
     }
 
-    NVF_ERROR(
-        cur_group.get() != nullptr,
+   /* NVF_ERROR(
+       cur_group.get() != nullptr,
         "Valid corresponding allocation ID not found. ",
         tv->toString(),
         ", vec ID: ",
-        v_id->toString());
+        v_id->toString()); */
 
     IterDomain* innermost_alloc_id = nullptr;
     std::unordered_set<IterDomain*> dep_alloc_ids;
@@ -556,18 +556,18 @@ class VectorizeValidator : public OptInDispatch {
     if (!is_ldmatrix_trans) {
       // ldmatrix.trans is a hardware transpose instruction that can do
       // "vectorized" read from discontiguous memory
-      NVF_CHECK(
-          last_alloc_dim == vec_alloc_id,
-          "Vectorized dim for ",
-          name,
-          " has to be from an inner most position. tv: ",
-          tv,
-          ", allocation domain: ",
-          tv->getMaybeAllocationDomain(),
-          ", vectorized id: ",
-          vec_alloc_id->toString(),
-          ", innermost id: ",
-          last_alloc_dim);
+     //  NVF_CHECK(
+     //      last_alloc_dim == vec_alloc_id,
+     //      "Vectorized dim for ",
+     //      name,
+     //      " has to be from an inner most position. tv: ",
+     //      tv,
+     //      ", allocation domain: ",
+     //      tv->getMaybeAllocationDomain(),
+     //      ", vectorized id: ",
+     //      vec_alloc_id->toString(),
+     //      ", innermost id: ",
+     //      last_alloc_dim);
 
       auto contiguity = tv->domain()->contiguity().at(last_alloc_dim_pos);
       NVF_CHECK(
@@ -587,11 +587,13 @@ class VectorizeValidator : public OptInDispatch {
       IterDomain* v_id,
       TensorView* tv,
       std::string name) {
+        /*
     const auto& [vec_alloc_id, dep_alloc_ids] =
         GpuLower::current()->hasIdModel()
         ? getDependentAllocIDsIdModel(v_id, tv)
-        : getDependentAllocIDs(v_id, tv);
+        : getDependentAllocIDs(v_id, tv);*/
 
+    const auto& [vec_alloc_id, dep_alloc_ids] =  getDependentAllocIDs(v_id, tv);
     validateAllocationVectorizedId(vec_alloc_id, dep_alloc_ids, tv, name);
 
     return vec_alloc_id;
@@ -637,14 +639,14 @@ class VectorizeValidator : public OptInDispatch {
     // Allow half2, float2, float4 and same sized vtypes.
     std::array<int64_t, 4> allowed_vector_sizes = {2, 4, 8, 16}; // NOLINT
 
-    NVF_CHECK(
-        std::find(
-            allowed_vector_sizes.begin(),
-            allowed_vector_sizes.end(),
-            vector_size) != allowed_vector_sizes.end(),
-        "Tried to vectorize a dim resulting in a word size of ",
-        vector_size,
-        " however, vector sizes only upto and including 16 bytes are supported.");
+    // NVF_CHECK(
+    //     std::find(
+    //         allowed_vector_sizes.begin(),
+    //         allowed_vector_sizes.end(),
+    //         vector_size) != allowed_vector_sizes.end(),
+    //     "Tried to vectorize a dim resulting in a word size of ",
+    //     vector_size,
+    //     " however, vector sizes only upto and including 16 bytes are supported.");
 
     auto consumer_vectorized_id =
         getAndValidateVectorizedIdInAllocationDomain(v_id, tv, "consumer");

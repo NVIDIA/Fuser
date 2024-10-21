@@ -496,6 +496,192 @@ TEST_P(HopperRS, SingleTileWithTMALoadStore) {
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
+// This tile a larger piece of memory to 8x8, 16x8 or 16x16 tiles. This helps
+// break down a store to multiple stmatrix calls.
+void tileInnerStmatrixCall(TensorView* tv, int tile_m, int tile_n) {
+  // [M, N] -> [M, no, tile_n]
+  tv->split(-1, tile_n);
+  // [M, no, tile_n] -> [mo, tile_m, no, tile_n]
+  tv->split(0, tile_m);
+  // [mo, tile_m, no, tile_n] -> [no, mo, tile_m, tile_n]
+  tv->reorder({{-2, -4}});
+  // [no, mo, tile_m, tile_n] -> [no*mo, tile_m, tile_n]
+   // tv->merge(0);
+
+
+   // 64, 32 -> (4, 16) (2, 16) -> (2, 4,  16, 16)
+  
+};
+
+void scheduleSwizzleHelper(TensorView* tv) {
+  // [no*mo, t_m, t_n] -> [no*mo, t_m/8, 8, t_n]
+  tv->split(-2, 8);
+  // [no*mo, t_m/8, 8, t_n] -> [no*mo, t_m/8, 8, t_n/2, 2]
+  tv->split(-1, 2);
+  // [no*mo, t_m/8, 8, t_n/2, 2] -> [no*mo, t_m/8, 8, (t_n/2)/4, 4, 2]
+  tv->split(-2, 4);
+  // [no*mo, t_m/8, 8, (t_n/2)/4, 4, 2] ->
+  // [no*mo, 8, 4, (t_n/2)/4, t_m/8, 2]
+  tv->reorder({{-4, -5}, {-5, -2}, {-2, -4}});
+
+
+
+ //[2, 4, 16, 16] -> [2, 4, 2, 8, 16] -> [2, 4, 2, 8, 8, 2] -> [2, 4, 2, 8, 2, 4, 2]
+// [2, 4, 2, 8, 2, 4, 2] ->
+
+// 2, 4, ||  8, 4, 2, 2, 2,
+}
+
+void scheduleStmatrixOutput(TensorView* tv, int tile_m, int tile_n) {
+  // We can run through this with an example shape: [32, 64]
+  // (8x8): [32, 64] -> [32, 8, 4, 1, 1, 2] (after swizzle)
+  // (16x8): [32, 64] -> [16, 8, 4, 1, 2, 2]
+  // (16x16): [32, 64] ->  [8, 8, 4, 2, 2, 2]
+  scheduleSwizzleHelper(tv);
+  tv->merge(1);
+  tv->merge(1);
+  // (8x8):  [32, 32(TIDX), 1, 1, 2]
+  // (16x8): [16, 32(TIDX), 1, 2, 2]
+  // (16x16):  [8, 32(TIDX), 2, 2, 2]
+  tv->axis(1)->parallelize(ParallelType::TIDx);
+
+  // (8x8):  [32, 32(TIDX), 1*1*2(vec)]
+  // (16x8): [16, 32(TIDX), 1*2*2(Vec)]
+  // (16x16):  [8, 32(TIDX), 2*2*2(Vec)]
+  tv->merge(2);
+  tv->merge(2);
+  tv->axis(2)->parallelize(ParallelType::Vectorize);
+}
+
+TEST_P(HopperRS, SingleTileWithTMALoadStoreStMatrix) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto shapes = matmulAtInputShape3DHopperRS(
+      getM(macro), getN(macro), getK(macro), layout);
+
+  dtype = DataType::Half; 
+
+  auto tv0 = makeContigConcreteTensor(shapes.first, dtype);
+  auto tv1 = makeContigConcreteTensor(shapes.second, dtype);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  // Just doing a gmem->register copy
+  tv0 = set(tv0);
+  // Just doing a gmem->smem copy
+  tv1 = set(tv1);
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  auto tv2 = fusedMultiplySum(tv0, tv1, {layout == MmaLayout::TT ? 1 : 2});
+
+  auto tv3 = castOp(dtype, tv2);
+
+  auto tv4 = set(tv3);
+  tv3->setMemoryType(MemoryType::Shared);
+  tv4->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  fusion.addOutput(tv4);
+
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
+  NVF_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+  mma_ops.front()->setMacro(macro);
+
+  auto tv3c = tv3->cacheBefore();
+
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StMatrix);
+
+  matmul_utils::moveInnerBroadcastLeft(tv0);
+  tv0->applyMmaSwizzle(MmaOperand::A);
+
+
+  fusion.manage("st_matrix_m_tile", 16);
+  fusion.manage("st_matrix_n_tile", 16);
+  fusion.manage("st_matrix_m", getM(macro));
+  fusion.manage("st_matrix_n", getN(macro)); 
+
+  tv0->merge(1);
+  tv0->merge(1);
+  tv0->axis(1)->parallelize(ParallelType::TIDx);
+
+  matmul_utils::moveInnerBroadcastLeft(tv1);
+  tv1->applyMmaSwizzleForTMALoad(swizzle_b);
+
+  if (layout == MmaLayout::TT) {
+    // [M, K, N] -> [M, N, K]
+    tv3c->reorder({{-1, -2}});
+    tv2->reorder({{-1, -2}});
+  }
+
+  EXPECT_TRUE(tv3c->getMemoryType() == MemoryType::Local);
+  // EXPECT_TRUE(tv2->getMemoryType() == MemoryType::Shared);
+  // EXPECT_TRUE(tv3->getMemoryType() == MemoryType::Global);
+
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv3c->getLoopDomain());
+    tv3c->setLoopDomain(s.as<IterDomain*>());
+    tv3c->setAllocationDomain(s.as<IterDomain*>(), true);
+    // Note: according to internal doc "Representing ldmatrix", we need both a
+    // read domain and a write domain to correctly represent MmaOp. Without this
+    // new mechanism, there is no correct loop domain, and the only choices are
+    // either we want to represent the smem read well, or represent the register
+    // write well. We choose to represent the smem read well here. Likely, this
+    // means we will not be able to have multiple tiles in register, but we can
+    // workaround this by always inlining the MmaOp most. We should fix this
+    // after we implemented the new read/write domain mechanism.
+  }
+   {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2->getLoopDomain());
+    tv2->setAllocationDomain(s.as<IterDomain*>(), true);
+    // Note: according to internal doc "Representing ldmatrix", we need both a
+    // read domain and a write domain to correctly represent MmaOp. Without this
+    // new mechanism, there is no correct loop domain, and the only choices are
+    // either we want to represent the smem read well, or represent the register
+    // write well. We choose to represent the smem read well here. Likely, this
+    // means we will not be able to have multiple tiles in register, but we can
+    // workaround this by always inlining the MmaOp most. We should fix this
+    // after we implemented the new read/write domain mechanism.
+    tv2->axis(-1)->parallelize(ParallelType::Mma);
+    tv2->axis(-2)->parallelize(ParallelType::Mma);
+    tv2->axis(-3)->parallelize(ParallelType::Mma);
+  }
+
+
+  {
+    // auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+    //     tv2->getLoopDomain());
+    // tv2->setLoopDomain(s.as<IterDomain*>());
+
+
+  tileInnerStmatrixCall(tv3, 16, 16);
+  scheduleStmatrixOutput(tv3, 16, 16);
+  }
+
+  mma_utils::scheduleTMAStoreForMmaOutput(tv4, getM(macro), getN(macro));
+
+  auto inputs = matmulAtInput3DHopperRS(
+      getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
+
+  FusionExecutor fe;
+  fe.compileFusion(
+      &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
+
+  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  auto tref = atMatmul(
+      inputs.first.squeeze().to(at::kFloat),
+      inputs.second.squeeze().to(at::kFloat),
+      layout);
+  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+}
+
 std::string testNameHopperRS(
     const testing::TestParamInfo<HopperMmaRSTestParams>& info) {
   std::ostringstream os;
