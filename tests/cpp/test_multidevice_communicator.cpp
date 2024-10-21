@@ -18,6 +18,14 @@ class CommunicatorTest
     : public MultiDeviceTest,
       public testing::WithParamInterface<CommunicatorBackend> {};
 
+namespace {
+template <typename Duration>
+double toSeconds(const Duration& d) {
+  // By default, std::chrono::duration uses ratio 1, which means seconds.
+  return std::chrono::duration_cast<std::chrono::duration<double>>(d).count();
+}
+} // namespace
+
 // A regression test for #2499.
 TEST_P(CommunicatorTest, Barrier) {
   using clock = std::chrono::high_resolution_clock;
@@ -38,10 +46,16 @@ TEST_P(CommunicatorTest, Barrier) {
 
   const auto expected_duration = kUnitDuration * (communicator_->size() - 1);
   for (int i = 1; i < kNumIterations; i++) {
-    const auto duration = end_times[i] - end_times[i - 1];
-    // Expects `duration` to be close enoguh to `expected_duration`.
-    EXPECT_LE(duration, expected_duration + kUnitDuration / 2);
-    EXPECT_GE(duration, expected_duration - kUnitDuration / 2);
+    // Expect `duration` to be close enoguh to `expected_duration`. Convert to
+    // seconds before comparison for a better error message. EXPECT_ has
+    // problems printing a duration.
+    const double duration = toSeconds(end_times[i] - end_times[i - 1]);
+    const double expected_upper =
+        toSeconds(expected_duration + kUnitDuration / 2);
+    const double expected_lower =
+        toSeconds(expected_duration - kUnitDuration / 2);
+    EXPECT_LE(duration, expected_upper);
+    EXPECT_GE(duration, expected_lower);
   }
 }
 
