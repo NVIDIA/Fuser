@@ -1820,6 +1820,60 @@ struct IndexSelectOpRecord : RecordFunctor {
   int64_t dim_;
 };
 
+// TODO Merge IndexSelectOpRecord and SelectOpRecord for cleaner interface.
+// If the index TensorView is a scalar, then use select operation.
+struct SelectOpRecord : RecordFunctor {
+  SelectOpRecord(
+      std::vector<State> _args,
+      std::vector<State> _outputs,
+      int64_t dim)
+      : RecordFunctor(
+            std::move(_args),
+            std::move(_outputs),
+            "ops.select",
+            serde::RecordType::SelectOp),
+        dim_(dim) {}
+  ~SelectOpRecord() override = default;
+  RecordFunctor* clone() final {
+    return new SelectOpRecord(*this);
+  }
+
+  bool operator==(const RecordFunctor& other) const final {
+    auto result = false;
+    if (auto child_ptr = dynamic_cast<const SelectOpRecord*>(&other)) {
+      result = RecordFunctor::operator==(other) && dim_ == child_ptr->dim_;
+    }
+    return result;
+  }
+
+  void operator()(FusionState& fd) final {
+    auto arg1 = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
+    auto arg3 = fd.getFusionState(args_.at(1).index)->template as<TensorView>();
+
+    Val* output = select(arg1, dim_, arg3);
+    fd.setFusionState(outputs_.at(0).index, output);
+  }
+
+  void print(std::ostream& os, bool close_function = true) const final {
+    RecordFunctor::print(os, false);
+    os << ", dim=" << dim_;
+    if (close_function) {
+      os << ")";
+    }
+  }
+
+  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+      flatbuffers::FlatBufferBuilder& builder) const final {
+    return {
+        serde::RecordData::Dimension,
+        serde::CreateDimension(builder, dim_).Union()};
+  }
+
+ private:
+  //! Dimension to select.
+  int64_t dim_;
+};
+
 struct TorchGatherOpRecord : RecordFunctor {
   TorchGatherOpRecord(
       std::vector<State> _args,
@@ -2263,6 +2317,88 @@ struct VarianceMeanOpRecord : NormOpRecord {
     fd.setFusionState(outputs_.at(0).index, output.var);
     fd.setFusionState(outputs_.at(1).index, output.mean);
   }
+};
+
+struct WelfordOpRecord : RecordFunctor {
+  WelfordOpRecord(
+      std::vector<State> _args,
+      std::vector<State> _outputs,
+      std::vector<int64_t> axes)
+      : RecordFunctor(
+            std::move(_args),
+            std::move(_outputs),
+            "ops.welford",
+            serde::RecordType::WelfordOp),
+        axes_(std::move(axes)) {}
+  ~WelfordOpRecord() override = default;
+  RecordFunctor* clone() final {
+    return new WelfordOpRecord(*this);
+  }
+
+  size_t hash() const final {
+    auto result = RecordFunctor::hash();
+    size_t axes_hash = 0;
+    for (auto axis : axes_) {
+      hashCombine(axes_hash, static_cast<size_t>(axis));
+    }
+    return result | (axes_hash & 0xffff);
+  }
+
+  bool operator==(const RecordFunctor& other) const final {
+    auto result = false;
+    if (auto child_ptr = dynamic_cast<const WelfordOpRecord*>(&other)) {
+      result = RecordFunctor::operator==(other);
+      if (result) {
+        result = (axes_.size() == child_ptr->axes_.size());
+        if (result) {
+          for (size_t i = 0; i < axes_.size(); ++i) {
+            if (axes_[i] != child_ptr->axes_[i]) {
+              result = false;
+              break;
+            }
+          }
+        }
+      }
+    }
+    return result;
+  }
+
+  void operator()(FusionState& fd) final {
+    auto arg = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
+    auto output = WelfordRaw(arg, axes_);
+    fd.setFusionState(outputs_.at(0).index, output.avg);
+    fd.setFusionState(outputs_.at(1).index, output.var_sum);
+    fd.setFusionState(outputs_.at(2).index, output.n);
+  }
+
+  void print(std::ostream& os, bool close_function = true) const final {
+    RecordFunctor::print(os, false);
+    os << ", dims=[";
+    bool first_arg = true;
+    for (auto axis : axes_) {
+      if (first_arg) {
+        first_arg = false;
+      } else {
+        os << ", ";
+      }
+      os << axis;
+    }
+    os << "]";
+    if (close_function) {
+      os << ")";
+    }
+  }
+
+  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+      flatbuffers::FlatBufferBuilder& builder) const final {
+    return {
+        serde::RecordData::Welford,
+        serde::CreateWelfordDirect(builder, &axes_).Union()};
+  }
+
+ private:
+  //! The tensor dimensions to reduce
+  std::vector<int64_t> axes_;
 };
 
 struct BatchNormOpRecord : RecordFunctor {
