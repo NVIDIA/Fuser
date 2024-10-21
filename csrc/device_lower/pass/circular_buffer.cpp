@@ -444,6 +444,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
 
   // Current load stage (for main loop): (loop_index + (stages-1)) % stages
   Val* currentLoadStage() const {
+    NVF_ERROR(loop_type_ == CircularBufferLoopStage::Main);
     int64_t stage_depth =
         GpuLower::current()->circularBufferInfo().getStageDepthFor(
             circular_buffer_loop_->iter_domain());
