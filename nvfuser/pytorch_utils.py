@@ -2,11 +2,13 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 import torch
-from typing import Type, Union, Tuple
-import ctypes
-import gc
 
 from ._C import DataType
+
+import ctypes
+import functools
+import gc
+from typing import Type, Union, Tuple
 
 NumberTypeType = Union[Type[bool], Type[int], Type[float], Type[complex]]
 
@@ -169,13 +171,29 @@ if torch.cuda.is_available():
     DEVICE_PROPERTIES = get_device_properties()
 
 
-def clear_cuda_cache() -> None:
-    """
-    Utility function to clear CUDA cache before running a test.
-    """
-    if (
-        torch.cuda.memory_allocated()
-        or torch.cuda.memory_reserved() > 0.8 * DEVICE_PROPERTIES["gpu_gmem_bytes"]
-    ):
+def retry_on_oom_or_skip_test(func):
+    """Decorator: upon torch.OutOfMemoryError clear the cache and retry test"""
+
+    @functools.wraps(func)
+    def retried_func(*args, **kwargs):
+        try:
+            output = func(*args, **kwargs)
+        except torch.OutOfMemoryError:
+            pass
+        else:
+            return output
+
+        # We have hit an OOM error, so clear the cache and retry
         gc.collect()
         torch.cuda.empty_cache()
+
+        try:
+            output = func(*args, **kwargs)
+        except torch.OutOfMemoryError:
+            # If we hit an OOM this time, then skip the test
+            pytest.skip("Test failed due to OutOfMemoryError")
+            return
+
+        return output
+
+    return retried_func

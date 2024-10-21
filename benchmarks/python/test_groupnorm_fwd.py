@@ -3,7 +3,10 @@
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
 from nvfuser import FusionDefinition, DataType
-from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype, clear_cuda_cache
+from nvfuser.pytorch_utils import (
+    torch_dtype_to_nvfuser_dtype,
+    retry_on_oom_or_skip_test,
+)
 from .core import run_benchmark, clear_dynamo_cache
 import torch
 import thunder
@@ -103,6 +106,7 @@ def groupnorm_fwd(inputs: list):  # [in_tensor, weights, bias, n_groups]
 @pytest.mark.parametrize("size", generate_input_sizes(dims=4))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 @pytest.mark.inner_persistent
+@retry_on_oom_or_skip_test
 def test_groupnorm_fwd_nvf_benchmark(
     benchmark,
     size: tuple,
@@ -111,8 +115,6 @@ def test_groupnorm_fwd_nvf_benchmark(
     disable_benchmarking: bool,
     eps: float = 1e-5,
 ):
-    clear_cuda_cache()
-
     N, C, H, W = size
     x = torch.randn(size, device="cuda", dtype=dtype)
     weight = torch.randn(C, device="cuda", dtype=dtype)
@@ -132,12 +134,12 @@ def test_groupnorm_fwd_nvf_benchmark(
 
 @pytest.mark.parametrize("size", generate_input_sizes(dims=4))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+@retry_on_oom_or_skip_test
 def test_groupnorm_fwd_thunder_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
 ):
-    clear_cuda_cache()
     N, C, H, W = size
     x = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
     weight = torch.randn(C, device="cuda", dtype=dtype, requires_grad=True)
@@ -153,13 +155,13 @@ def test_groupnorm_fwd_thunder_benchmark(
 @pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
 @pytest.mark.parametrize("size", generate_input_sizes(dims=4))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+@retry_on_oom_or_skip_test
 def test_groupnorm_fwd_baseline_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
     compile: bool,
 ):
-    clear_cuda_cache()
     if compile:
         clear_dynamo_cache()
     N, C, H, W = size

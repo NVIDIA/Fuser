@@ -3,7 +3,10 @@
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
 from nvfuser import FusionDefinition, DataType
-from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype, clear_cuda_cache
+from nvfuser.pytorch_utils import (
+    torch_dtype_to_nvfuser_dtype,
+    retry_on_oom_or_skip_test,
+)
 from .core import run_benchmark, clear_dynamo_cache, unary_bwd_torch
 import torch
 from .global_params import generate_attn_inputs, FLOAT_DTYPES, PROMOTE_DTYPES
@@ -84,6 +87,7 @@ def nanogpt_attn_bwd_iobytes(size: tuple, dtype: torch.dtype):
 
 @pytest.mark.parametrize("size", generate_attn_inputs())
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+@retry_on_oom_or_skip_test
 def test_nanogpt_attn_bwd_nvf_benchmark(
     benchmark,
     size: tuple,
@@ -91,7 +95,6 @@ def test_nanogpt_attn_bwd_nvf_benchmark(
     disable_validation: bool,
     disable_benchmarking: bool,
 ):
-    clear_cuda_cache()
     batch_size, seq_len, nh, n_embd = size
     hs = n_embd // nh
     dropout_p = 0.2
@@ -128,13 +131,13 @@ def test_nanogpt_attn_bwd_nvf_benchmark(
 @pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
 @pytest.mark.parametrize("size", generate_attn_inputs())
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+@retry_on_oom_or_skip_test
 def test_nanogpt_attn_bwd_baseline_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
     compile: bool,
 ):
-    clear_cuda_cache()
     if compile:
         clear_dynamo_cache()
     batch_size, seq_len, nh, n_embd = size

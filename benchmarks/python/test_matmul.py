@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
 from nvfuser import FusionDefinition
-from nvfuser.pytorch_utils import clear_cuda_cache
+from nvfuser.pytorch_utils import retry_on_oom_or_skip_test
 from .core import run_benchmark
 import torch
 
@@ -29,6 +29,7 @@ def load_matmul_problems():
     "config", load_matmul_problems(), ids=lambda val: "_".join(str(v) for v in val)
 )
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
+@retry_on_oom_or_skip_test
 def test_matmul_nvf_benchmark(
     benchmark,
     config: tuple,
@@ -37,8 +38,6 @@ def test_matmul_nvf_benchmark(
     disable_benchmarking: bool,
 ):
     m, n, k, layout = config
-
-    clear_cuda_cache()
 
     try:
         a = torch.randn(m, k, device="cuda", dtype=dtype)

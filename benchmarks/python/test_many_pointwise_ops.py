@@ -3,7 +3,10 @@
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
 from nvfuser import FusionDefinition, DataType
-from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype, clear_cuda_cache
+from nvfuser.pytorch_utils import (
+    torch_dtype_to_nvfuser_dtype,
+    retry_on_oom_or_skip_test,
+)
 from .core import run_benchmark
 import torch
 from .global_params import PROMOTE_DTYPES
@@ -32,6 +35,7 @@ def pointwise_ops_fusion(fd: FusionDefinition, dtype: DataType, num_iters: int):
 # NOTE: num_iters restricted due to issue #1234.
 @pytest.mark.parametrize("num_iters", [2, 4, 8, 16])
 @pytest.mark.parametrize("host_bench_mode", ["compile", "steady", "dynamic"])
+@retry_on_oom_or_skip_test
 def test_pointwise_ops_benchmark(
     benchmark,
     num_iters: int,
@@ -39,8 +43,6 @@ def test_pointwise_ops_benchmark(
     disable_validation: bool,
     disable_benchmarking: bool,
 ):
-    clear_cuda_cache()
-
     inputs = [torch.randn(13, device="cuda", dtype=torch.float16) for _ in range(2)]
 
     # Generate multiple inputs to measure dynamic shape overhead.

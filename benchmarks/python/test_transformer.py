@@ -40,7 +40,7 @@ backward nvFusion executed many times.
 
 from nvfuser import FusionDefinition, DataType
 from .core import run_benchmark
-from nvfuser.pytorch_utils import clear_cuda_cache
+from nvfuser.pytorch_utils import retry_on_oom_or_skip_test
 import torch
 
 
@@ -303,11 +303,10 @@ def transformer_forward_fusion(fd: FusionDefinition) -> None:
     fd.add_output(T224)
 
 
+@retry_on_oom_or_skip_test
 def test_transformer_forward(
     benchmark, disable_validation: bool, disable_benchmarking: bool
 ):
-    clear_cuda_cache()
-
     with FusionDefinition() as fd:
         transformer_forward_fusion(fd)
 
@@ -990,11 +989,10 @@ def transformer_backward_fusion(fd: FusionDefinition) -> None:
     fd.add_output(T456)  # dx output grad
 
 
+@retry_on_oom_or_skip_test
 def test_transformer_backward(
     benchmark, disable_validation: bool, disable_benchmarking: bool
 ):
-    clear_cuda_cache()
-
     with FusionDefinition() as fd:
         transformer_backward_fusion(fd)
 
