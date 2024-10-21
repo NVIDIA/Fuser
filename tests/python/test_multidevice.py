@@ -149,13 +149,19 @@ def test_matmul_allreduce(mpi_test):
     unsharded_weight = torch.testing.make_tensor(
         d * e, e, dtype=torch.half, device="cpu"
     )
-    expected_in_grad = (unsharded_out_grad @ unsharded_weight).view([b, s, e]).to(torch.float32)
+    expected_in_grad = (
+        (unsharded_out_grad @ unsharded_weight).view([b, s, e]).to(torch.float32)
+    )
 
-    out_grad = unsharded_out_grad.view([b * s, d, e]).permute([1, 0, 2]).contiguous()[rank : rank + 1]
+    out_grad = (
+        unsharded_out_grad.view([b * s, d, e])
+        .permute([1, 0, 2])
+        .contiguous()[rank : rank + 1]
+    )
     weight = unsharded_weight.view([d, e, e])[rank : rank + 1]
 
     fd = Model()
-    in_grad, = fd.execute([out_grad.cuda(), weight.cuda()])
+    (in_grad,) = fd.execute([out_grad.cuda(), weight.cuda()])
     torch.testing.assert_close(in_grad.cpu(), expected_in_grad, rtol=1e-3, atol=1e-5)
 
 
