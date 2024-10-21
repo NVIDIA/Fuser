@@ -158,7 +158,9 @@ def test_matmul_allreduce(mpi_test):
 
     fd = Model()
     (in_grad,) = fd.execute([out_grad.cuda(), weight.cuda()])
-    torch.testing.assert_close(in_grad.cpu(), expected_in_grad, rtol=1e-3, atol=1e-5)
+    # Use the default rtol for half because the output, although being float32,
+    # is a straight cast from half.
+    torch.testing.assert_close(in_grad.cpu(), expected_in_grad, rtol=1e-3, atol=1e-2)
 
 
 @pytest.mark.skipif(
