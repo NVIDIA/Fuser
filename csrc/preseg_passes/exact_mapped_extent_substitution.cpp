@@ -23,7 +23,7 @@ namespace {
 // we may need to skip or modify validateDomainEquivalence.
 inline bool isNonSubstitutableID(const IterDomain* id) {
   return (id->isBroadcast() && !id->hasExpandedExtent()) || id->definition() ||
-      id->getMaybeExpandedExtent()->definition();
+      id->extent()->definition();
 }
 
 void exactMappedExtentSubstitution(Fusion* fusion) {
@@ -47,21 +47,22 @@ void exactMappedExtentSubstitution(Fusion* fusion) {
       if (id == nullptr || isNonSubstitutableID(id)) {
         continue;
       }
-      // find the const extent, if already seen, check if they are the same
-      if (id->getMaybeExpandedExtent()->isConstScalar()) {
+      // find the const extent, if already seen, check if they are the same.
+      // Here extent is used instead of expanded exent since a bcast dim may
+      // be expanded to different extents, e.g. issue-3227.
+      if (id->extent()->isConstScalar()) {
         if (const_extent) {
           NVF_CHECK(
-              const_extent->sameAs(id->getMaybeExpandedExtent()),
+              const_extent->sameAs(id->extent()),
               "Found two different const extents in the same set: ",
               set_ptr->toString());
         } else {
-          const_extent = id->getMaybeExpandedExtent();
+          const_extent = id->extent();
         }
       }
       // find the lowest name
-      if (!lowest_val ||
-          id->getMaybeExpandedExtent()->name() < lowest_val->name()) {
-        lowest_val = id->getMaybeExpandedExtent();
+      if (!lowest_val || id->extent()->name() < lowest_val->name()) {
+        lowest_val = id->extent();
       }
     }
     // replace with const extents.
@@ -72,8 +73,7 @@ void exactMappedExtentSubstitution(Fusion* fusion) {
         continue;
       }
       replacement_map.emplace(
-          id->getMaybeExpandedExtent(),
-          const_extent ? const_extent : lowest_val);
+          id->extent(), const_extent ? const_extent : lowest_val);
     }
   }
 
