@@ -75,6 +75,8 @@ struct __align__(1) __e4m3 {
 
   __device__ __e4m3(const int x) : __x(x) {}
 
+  __device__ __e4m3(const long long x) : __x(x) {}
+
   __device__ __e4m3(const uint8_t x) : __x(x) {}
 
   __device__ __e4m3(const uint16_t x) : __x(x) {}
@@ -282,6 +284,8 @@ struct __align__(1) __e5m2 {
   }
 
   __device__ __e5m2(const int x) : __x(x) {}
+
+  __device__ __e5m2(const long long x) : __x(x) {}
 
   __device__ __e5m2(const uint8_t x) : __x(x) {}
 
