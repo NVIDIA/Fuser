@@ -470,15 +470,14 @@ std::unordered_set<TensorView*> getCachedTvsToUnrollOrVectorize(
   }
 
   if (vectorize) {
-    for (auto cached_smem : smem_consumers) {
-      // cached_smem_buffer was added in schedule process
-      // movePersistentBufferToSmem() using cacheAfter(), so it should be a
-      // LoadStoreOp.
+    for (auto tv : smem_consumers) {
+      // smem_consumers were added in schedule process
+      // movePersistentBufferToSmem() using cacheAfter()
       NVF_ERROR(
-          vectorizable_expr(cached_smem->definition()),
+          vectorizable_expr(tv->definition()),
           "Expected a vectorizable expression, but got: ",
-          cached_smem->definition()->toString());
-      unroll_vectorizable_tvs.emplace(cached_smem);
+          tv->definition()->toString());
+      unroll_vectorizable_tvs.emplace(tv);
     }
   }
 
