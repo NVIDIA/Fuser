@@ -215,6 +215,24 @@ def test_sdpa(mpi_test):
     assert_close(v_grad, head_parallelize(expected_v_grad))
 
 
+def get_benchmark_fn(func, /, profile: bool):
+    def wrapper(*args, **kwargs):
+        if profile:
+            torch.cuda.cudart().cudaProfilerStart()
+        result = func(*args, **kwargs)
+        torch.cuda.synchronize()
+        if profile:
+            torch.cuda.cudart().cudaProfilerStop()
+        return result
+
+    return wrapper
+
+
+# Returns two functors, one with profiler off and the other with profiler on.
+def get_benchmark_fns(func):
+    return get_benchmark_fn(func, profile=False), get_benchmark_fn(func, profile=True)
+
+
 # The following two benchmarks micro-benchmarks the forward pass and the
 # backprop of a sharded Transformer block used in GPT-3.
 #
@@ -629,20 +647,10 @@ def test_transformer_forward(mpi_test, benchmark):
 
     fd = TransformerForwardFusion(d, b, s, h, e)
 
-    def benchmark_fn(profile):
-        if profile:
-            torch.cuda.cudart().cudaProfilerStart()
-
-        outs = fd.execute(ins)
-        torch.cuda.synchronize()
-
-        if profile:
-            torch.cuda.cudart().cudaProfilerStop()
-
-        return outs
+    warmup_fn, benchmark_fn = get_benchmark_fns(lambda: fd.execute(ins))
 
     # Warm up and validate.
-    outs = benchmark_fn(False)
+    outs = warmup_fn()
     (
         layernorm0_mean,
         layernorm0_rstd,
@@ -673,7 +681,7 @@ def test_transformer_forward(mpi_test, benchmark):
 
     # Benchmark and profile. The profile can be collected and displayed using
     # `nsys`. See instructions in test_transformer_engine.py.
-    benchmark.pedantic(benchmark_fn, args=(True,), rounds=5)
+    benchmark.pedantic(benchmark_fn, rounds=5)
 
 
 # All tensors are replicated to all devices at this moment; future PRs will try
@@ -1138,7 +1146,7 @@ class TransformerBackwardFusion(FusionDefinition):
     reason="Flash Attention is only supported on Ampere and newer devices.",
 )
 @pytest.mark.mpi
-def test_transformer_backward(mpi_test):
+def test_transformer_backward(mpi_test, benchmark):
     d = mpi_test.size
     rank = mpi_test.rank
 
@@ -1182,7 +1190,9 @@ def test_transformer_backward(mpi_test):
 
     fd = TransformerBackwardFusion(d, b, s, h, e)
 
-    outs = fd.execute(ins)
+    warmup_fn, benchmark_fn = get_benchmark_fns(lambda: fd.execute(ins))
+
+    outs = warmup_fn()
     (
         mlp_linear1_weight_grad,
         mlp_linear1_bias_grad,
@@ -1211,3 +1221,5 @@ def test_transformer_backward(mpi_test):
     _assert_shape_dtype(layernorm0_bias_grad, [e], torch.bfloat16)
     _assert_shape_dtype(layernorm0_weight_grad, [e], torch.bfloat16)
     _assert_shape_dtype(inp_grad, [b, s, e], torch.bfloat16)
+
+    benchmark.pedantic(benchmark_fn, rounds=5)
