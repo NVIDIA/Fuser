@@ -115,17 +115,12 @@ def test_linear(mpi_test):
 
 @pytest.mark.mpi
 def test_matmul_allreduce(mpi_test):
+    d, b, s, e = mpi_test.size, 1, 4, 8
+
     class Model(FusionDefinition):
-        def __init__(self, num_devices, batch, sequence, hidden):
-            super().__init__()
-            self._num_devices = num_devices
-            self._batch = batch
-            self._sequence = sequence
-            self._hidden = hidden
-
         def definition(self) -> None:
-            d, b, s, e = self._num_devices, self._batch, self._sequence, self._hidden
-
+            # A pattern appeared in the backprop of the first linear layer in
+            # Transformer's MLP.
             self.out_grad = self.define_tensor(
                 [d, b * s, e], contiguity=True, dtype=DataType.Half
             )
@@ -144,20 +139,24 @@ def test_matmul_allreduce(mpi_test):
                 self.sched._set_device_mesh(t, mesh)
                 self.sched.parallelize(t, 0, nvfuser.ParallelType.mesh_x)
 
-    d, b, s, e = mpi_test.size, 1, 1024, 768
     rank = mpi_test.rank
 
     torch.cuda.set_device(mpi_test.local_rank)
 
     unsharded_out_grad = torch.testing.make_tensor(
-        d, b * s, e, dtype=torch.half, device="cuda"
+        b * s, d * e, dtype=torch.half, device="cpu"
     )
     unsharded_weight = torch.testing.make_tensor(
-        d, e, e, dtype=torch.half, device="cuda"
+        d * e, e, dtype=torch.half, device="cpu"
     )
+    expected_in_grad = (unsharded_out_grad @ unsharded_weight).view([b, s, e]).to(torch.float32)
 
-    fd = Model(d, b, s, e)
-    fd.execute([unsharded_out_grad[rank : rank + 1], unsharded_weight[rank : rank + 1]])
+    out_grad = unsharded_out_grad.view([b * s, d, e]).permute([1, 0, 2]).contiguous()[rank : rank + 1]
+    weight = unsharded_weight.view([d, e, e])[rank : rank + 1]
+
+    fd = Model()
+    in_grad, = fd.execute([out_grad.cuda(), weight.cuda()])
+    torch.testing.assert_close(in_grad.cpu(), expected_in_grad, rtol=1e-3, atol=1e-5)
 
 
 @pytest.mark.skipif(
