@@ -511,6 +511,160 @@ TEST_F(
   }
 }
 
+TEST_F(
+    RingBasedOverlapTest,
+    ReduceScatterRingBasedPipeliningHostIrImplementation) {
+  auto hic = std::make_unique<hir::HostIrContainer>();
+  FusionGuard::setCurFusion(hic.get());
+
+  TensorView* tva_reshaped = makeSymbolicTensor(ta_reshaped_.dim());
+  TensorView* tvb = makeSymbolicTensor(tb_.dim());
+  TensorView* tv_dst_buffer = makeSymbolicTensor(dst_buffer_.dim());
+  hic->addInput(tva_reshaped);
+  hic->addInput(tvb);
+  hic->addInput(tv_dst_buffer);
+
+  auto* i =
+      IrBuilder::create<Val>(DataType::Index); // running index of the for-loop
+  auto* start_i = hic->zeroVal();
+  auto* stop_i = tva_reshaped->axis(1)->extent();
+  auto* step_i = hic->oneVal();
+  auto* for_loop_i = IrBuilder::create<ForLoop>(
+      /*IterDomain=*/tva_reshaped->axis(1),
+      /*index=*/i,
+      start_i,
+      stop_i,
+      step_i,
+      /*vectorize=*/false,
+      /*vectorize_shift=*/nullptr,
+      /*unroll_required=*/false,
+      CircularBufferLoopStage::NotApplicable,
+      /*circular_buffer_loop_stage_depth=*/0);
+
+  auto* j =
+      IrBuilder::create<Val>(DataType::Index); // running index of the for-loop
+  auto* start_j = hic->zeroVal();
+  auto* stop_j = tva_reshaped->axis(0)->extent();
+  auto* step_j = hic->oneVal();
+  auto* for_loop_j = IrBuilder::create<ForLoop>(
+      /*IterDomain=*/tva_reshaped->axis(0),
+      /*index=*/j,
+      start_j,
+      stop_j,
+      step_j,
+      /*vectorize=*/false,
+      /*vectorize_shift=*/nullptr,
+      /*unroll_required=*/false,
+      CircularBufferLoopStage::NotApplicable,
+      /*circular_buffer_loop_stage_depth=*/0);
+
+  auto* stream_index =
+      mod(add(i, j), IrBuilder::create<Val>(params.number_of_streams));
+  auto* set_stream = IrBuilder::create<hir::SetCurrentStream>(
+      IrBuilder::create<hir::Stream>(stream_index));
+
+  auto* j_plus_one = add(j, hic->oneVal());
+  auto* my_device_index_val = IrBuilder::create<Val>(my_device_index_);
+  auto* number_of_steps_per_ring_val =
+      IrBuilder::create<Val>(number_of_steps_per_ring_);
+
+  auto* send_rank =
+      mod(add(my_device_index_val, j_plus_one), number_of_steps_per_ring_val);
+  auto* recv_rank = mod(
+      add(number_of_steps_per_ring_val, sub(my_device_index_val, j_plus_one)),
+      number_of_steps_per_ring_val);
+
+  TensorView* tva_j = select(tva_reshaped, 0, send_rank);
+  TensorView* tva_ij = select(tva_j, 0, i);
+  TensorView* dst_buffer_j = select(tv_dst_buffer, 0, j);
+  TensorView* dst_buffer_ij = select(dst_buffer_j, 0, i);
+
+  TensorView* src_buffer_ij =
+      matmul(tva_ij, tvb); // ideally we should use the preallocated global
+                           // src_buffer_ij, but ExpressionEvaluator
+                           // do not support preallocated output buffer.
+
+  auto* start_coalescing = IrBuilder::create<hir::StartCoalescing>();
+  auto* send = IrBuilder::create<P2PCommunication>(
+      P2PCommunicationType::SEND, src_buffer_ij, send_rank);
+  auto* recv = IrBuilder::create<P2PCommunication>(
+      P2PCommunicationType::RECV, dst_buffer_ij, recv_rank);
+  auto* end_coalescing = IrBuilder::create<hir::EndCoalescing>();
+  auto* wait = IrBuilder::create<hir::Wait>(end_coalescing);
+
+  std::vector<Expr*> loop_j_body = {
+      set_stream,
+      tva_j->definition(),
+      tva_ij->definition(),
+      dst_buffer_j->definition(),
+      dst_buffer_ij->definition(),
+      src_buffer_ij->definition(),
+      start_coalescing,
+      send,
+      recv,
+      end_coalescing,
+      wait};
+  for (Expr* expr : loop_j_body) {
+    for_loop_j->body().push_back(expr);
+  }
+  for_loop_i->body().push_back(for_loop_j);
+
+  hic->pushBackTopLevelExprs(for_loop_i);
+
+  // Synchronize all streams
+  auto* i_stream =
+      IrBuilder::create<Val>(DataType::Index); // running index of the for-loop
+  auto* start_stream = hic->zeroVal();
+  auto* stop_stream =
+      IrBuilder::create<Val>(params.number_of_streams, DataType::Index);
+  auto* step_stream = hic->oneVal();
+  auto* for_loop_stream = IrBuilder::create<ForLoop>(
+      /*IterDomain=*/makeContigConcreteTensor({params.number_of_streams})
+          ->axis(0),
+      /*index=*/i_stream,
+      start_stream,
+      stop_stream,
+      step_stream,
+      /*vectorize=*/false,
+      /*vectorize_shift=*/nullptr,
+      /*unroll_required=*/false,
+      CircularBufferLoopStage::NotApplicable,
+      /*circular_buffer_loop_stage_depth=*/0);
+  auto* sync_stream = IrBuilder::create<hir::Synchronize>(
+      IrBuilder::create<hir::Stream>(i_stream));
+  for_loop_stream->body().push_back(sync_stream);
+  hic->pushBackTopLevelExprs(for_loop_stream);
+
+  auto* tvc_reshaped =
+      sum(tv_dst_buffer,
+          {0}); // here also, we do not use the preallocated buffer. A fix here
+                // would be to compile execute a reduction fusion instead of
+                // relying on ExpressionEvaluator and at::sum
+  hic->pushBackTopLevelExprs(tvc_reshaped->definition());
+
+  // The following line is artificial but necessary to make
+  // tva_j->isProducerOf(dst_buffer_ij) == true, etc.
+  hic->addOutput(tvc_reshaped);
+  hic->addOutput(dst_buffer_ij);
+  hic->addOutput(src_buffer_ij);
+
+  hir::HostIrExecutor hie(std::move(hic), communicator_);
+
+  for ([[maybe_unused]] const auto& _ :
+       c10::irange(params.number_of_iterations)) {
+    // I don't know why but this seems necessary...
+    at::manual_seed(getATenRandomSeed());
+    initializeIO();
+    std::unordered_map<Val*, c10::IValue> inputs = {
+        {tva_reshaped, ta_reshaped_}, {tvb, tb_}, {tv_dst_buffer, dst_buffer_}};
+
+    auto outputs = hie.runWithInput(std::move(inputs));
+    tc_ = at::reshape(
+        outputs.at(0),
+        {params.S, params.M / (params.S * num_devices_), params.N});
+  }
+}
+
 class AllgatherOverlapTest : public MultiDeviceTest {
  protected:
   OverlapTestParams params;

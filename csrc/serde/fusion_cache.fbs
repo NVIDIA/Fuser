@@ -47,6 +47,7 @@ enum RecordType: int {
     FullOp,
     IotaOp,
     IndexSelectOp,
+    SelectOp,
     TorchGatherOp,
     TakeAlongAxisOp,
     Unary_TV,
@@ -83,6 +84,8 @@ enum RecordType: int {
     ReductionSum,
     ReshapeOp,
     Scalar,
+    SdpaFwdOp,
+    SdpaBwdOp,
     ShapeOp,
     SizeOp,
     SliceOp,
@@ -94,8 +97,7 @@ enum RecordType: int {
     VarianceOp,
     VarianceMeanOp,
     Vector,
-    SdpaFwdOp,
-    SdpaBwdOp
+    WelfordOp,
 }
 
 // =====================================================================================
@@ -121,6 +123,7 @@ union RecordData {
   Tensor,
   TensorCreationSymbolic,
   Vector,
+  Welford,
 }
 
 // The PolymorphicValueData union holds the attribute information for each PolymorphicValue.
@@ -328,6 +331,11 @@ table TensorCreationSymbolic {
 // Data for Vector
 table Vector {
   dtype: long;
+}
+
+// Data for WelfordOpRecord
+table Welford {
+  axes: [long];
 }
 
 // =====================================================================================
