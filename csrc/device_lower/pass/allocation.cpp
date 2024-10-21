@@ -97,8 +97,6 @@ Expr* initializeMbarrier(
       });
   Val* n = IrBuilder::create<Val>(num_of_tvs_loaded_by_tma, DataType::UInt32);
   Val* num_of_arrives = SimplifyingIrBuilder::mulExpr(n, all_threads_in_cta);
-  num_of_arrives =
-      SimplifyingIrBuilder::maybeCastExpr(DataType::UInt32, num_of_arrives);
 
   // Initialize mbarrier for each circular buffer stage. Use the thread
   // count from the MBarrierInit created in the allocation pass. The wait
