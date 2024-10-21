@@ -379,6 +379,10 @@ class CloneTmaCircularBufferLoopAndInsertSync
       for (auto it = mbarriers_to_wait_.begin();
            it != mbarriers_to_wait_.end();) {
         auto wait = it->second;
+        // short-circuit: wait expression does not exist yet for mbarrier.
+        // This means: the mbarrier is used by the circular buffer loop for
+        // waiting for its loads, but we have not encountered the first read of
+        // the circular buffer yet, so no need to wait right now.
         if (wait == nullptr) {
           ++it;
           continue;
@@ -478,16 +482,24 @@ class CloneTmaCircularBufferLoopAndInsertSync
     const auto& ldst_mbarrier_map = GpuLower::current()->ldstMBarrierMap();
 
     for (auto tv : ir_utils::filterByType<TensorView>(expr->inputs())) {
+      // short-circuit: The TensorView input for current expression is not
+      // defined by a circular buffered TMA load. So it is unrelated here.
+      // Here, we are only interested in inserting mbarrier::wait for the
+      // circular buffered TMA loads.
       if (circular_buffer_load_tvs_.count(tv) == 0) {
         continue;
       }
       auto ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
       auto mbarrier_it = ldst_mbarrier_map.find(ldst);
+      // short-circuit: Failed to find mbarrier for given TMA load. This could
+      // happen when a TV is circular buffered, but not using TMA to load.
       if (mbarrier_it == ldst_mbarrier_map.end()) {
         continue;
       }
       auto mbarrier = mbarrier_it->second;
       auto wait_it = mbarriers_to_wait_.find(mbarrier);
+      // short-circuit: mbarrier does not exist in mbarriers_to_wait_, so its
+      // corresponding wait expression was already inserted.
       if (wait_it == mbarriers_to_wait_.end()) {
         continue;
       }

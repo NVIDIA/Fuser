@@ -659,6 +659,7 @@ class AllocationInserter : public kir::ExprMutator {
 
     if (circular_buffer_load_is_tma) {
       for (auto tv : circular_buffer_tvs) {
+        // short-circuit: circular buffered tv is not defined with TMA load.
         if (!ir_utils::isCpAsyncBulkLoad(tv->definition())) {
           continue;
         }
