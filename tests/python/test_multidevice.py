@@ -126,68 +126,111 @@ def test_sdpa(mpi_test):
 
     class Model(FusionDefinition):
         def definition(self) -> None:
-            self.q = self.define_tensor(
-                shape=[d, -1, -1, -1, -1],
-                contiguity=True,
-                dtype=DataType.BFloat16,
-            )
-            self.k = self.define_tensor(
-                shape=[d, -1, -1, -1, -1],
-                contiguity=True,
-                dtype=DataType.BFloat16,
-            )
-            self.v = self.define_tensor(
-                shape=[d, -1, -1, -1, -1],
-                contiguity=True,
-                dtype=DataType.BFloat16,
-            )
+            self.q, self.k, self.v, self.out_grad = [
+                self.define_tensor(
+                    shape=[d, b, h // d, s, e // h],
+                    contiguity=True,
+                    dtype=DataType.BFloat16,
+                )
+                for _ in range(4)
+            ]
+
             # TODO(#3123): support sharded dropout and change this to a
             # positive probability.
             dropout_p = self.define_scalar(0.0, dtype=DataType.Double)
             is_causal = self.define_scalar(True, dtype=DataType.Bool)
-            sdpa_result = self.ops.sdpfa_fwd(
+            attn, log_sumexp, seed, offset = self.ops.sdpfa_fwd(
                 self.q, self.k, self.v, dropout_p, is_causal, scale=None
             )
-            attn = sdpa_result[0]
+
+            q_grad, k_grad, v_grad = self.ops.sdpfa_bwd(
+                self.out_grad,
+                self.q,
+                self.k,
+                self.v,
+                attn,
+                log_sumexp,
+                dropout_p,
+                is_causal,
+                seed,
+                offset,
+                scale=None,
+            )
+
             self.add_output(attn)
+            for grad in [q_grad, k_grad, v_grad]:
+                self.add_output(grad)
 
         def multidevice_schedule(self) -> None:
             mesh = self.sched._create_device_mesh(range(d))
-            for t in [self.q, self.k, self.v]:
+            for t in [self.q, self.k, self.v, self.out_grad]:
                 self.sched._set_device_mesh(t, mesh)
                 self.sched.parallelize(t, 0, nvfuser.ParallelType.mesh_x)
 
     torch.cuda.set_device(mpi_test.local_rank)
     q, k, v = [
-        torch.randn(b, h, s, e // h, dtype=torch.bfloat16, device="cuda")
+        torch.randn(
+            b, h, s, e // h, dtype=torch.bfloat16, device="cuda", requires_grad=True
+        )
         for _ in range(3)
     ]
+    out_grad = torch.randn(b, h, s, e // h, dtype=torch.bfloat16, device="cuda")
 
     with torch.nn.attention.sdpa_kernel(SDPBackend.FLASH_ATTENTION):
-        expected_attn = torch.nn.functional.scaled_dot_product_attention(
-            q,
-            k,
-            v,
-            dropout_p=0.0,
-            is_causal=True,
-            scale=None,
+        expected_out = torch.nn.functional.scaled_dot_product_attention(
+            q, k, v, dropout_p=0.0, is_causal=True, scale=None
         )
+        expected_out.backward(out_grad)
+        expected_q_grad, expected_k_grad, expected_v_grad = q.grad, k.grad, v.grad
 
     rank = mpi_test.rank
 
     # Head-parallelize Q, K, V or the attention output of an SDPA.
     def head_parallelize(t: torch.Tensor) -> torch.Tensor:
         assert t.shape == torch.Size([b, h, s, e // h])
-        return t.view([b, d, h // d, s, e // h]).transpose(0, 1)[rank : rank + 1]
+        return (
+            t.view([b, d, h // d, s, e // h])
+            .transpose(0, 1)
+            .contiguous()[rank : rank + 1]
+        )
 
     fd = Model()
-    attn = fd.execute([head_parallelize(q), head_parallelize(k), head_parallelize(v)])[
-        0
-    ]
-    # Use the default rtol for bfloat16 and a relaxed atol.
-    torch.testing.assert_close(
-        attn, head_parallelize(expected_attn), rtol=1.6e-2, atol=1e-3
+    outs = fd.execute(
+        [
+            head_parallelize(q),
+            head_parallelize(k),
+            head_parallelize(v),
+            head_parallelize(out_grad),
+        ]
     )
+    out, q_grad, k_grad, v_grad = outs
+
+    def assert_close(x, y):
+        # Use the default rtol for bfloat16 and a relaxed atol.
+        torch.testing.assert_close(x, y, rtol=1.6e-2, atol=1e-2)
+
+    assert_close(out, head_parallelize(expected_out))
+    assert_close(q_grad, head_parallelize(expected_q_grad))
+    assert_close(k_grad, head_parallelize(expected_k_grad))
+    assert_close(v_grad, head_parallelize(expected_v_grad))
+
+
+def get_benchmark_fn(func, /, profile: bool):
+    def wrapper(*args, **kwargs):
+        if profile:
+            torch.cuda.cudart().cudaProfilerStart()
+        result = func(*args, **kwargs)
+        torch.cuda.synchronize()
+        if profile:
+            torch.cuda.cudart().cudaProfilerStop()
+        return result
+
+    return wrapper
+
+
+# Returns two functors, one with profiler off and the other with profiler on.
+def get_benchmark_fns(func):
+    return get_benchmark_fn(func, profile=False), get_benchmark_fn(func, profile=True)
 
 
 # The following two benchmarks micro-benchmarks the forward pass and the
@@ -604,20 +647,10 @@ def test_transformer_forward(mpi_test, benchmark):
 
     fd = TransformerForwardFusion(d, b, s, h, e)
 
-    def benchmark_fn(profile):
-        if profile:
-            torch.cuda.cudart().cudaProfilerStart()
-
-        outs = fd.execute(ins)
-        torch.cuda.synchronize()
-
-        if profile:
-            torch.cuda.cudart().cudaProfilerStop()
-
-        return outs
+    warmup_fn, benchmark_fn = get_benchmark_fns(lambda: fd.execute(ins))
 
     # Warm up and validate.
-    outs = benchmark_fn(False)
+    outs = warmup_fn()
     (
         layernorm0_mean,
         layernorm0_rstd,
@@ -648,7 +681,7 @@ def test_transformer_forward(mpi_test, benchmark):
 
     # Benchmark and profile. The profile can be collected and displayed using
     # `nsys`. See instructions in test_transformer_engine.py.
-    benchmark.pedantic(benchmark_fn, args=(True,), rounds=5)
+    benchmark.pedantic(benchmark_fn, rounds=5)
 
 
 # All tensors are replicated to all devices at this moment; future PRs will try
@@ -1113,7 +1146,7 @@ class TransformerBackwardFusion(FusionDefinition):
     reason="Flash Attention is only supported on Ampere and newer devices.",
 )
 @pytest.mark.mpi
-def test_transformer_backward(mpi_test):
+def test_transformer_backward(mpi_test, benchmark):
     d = mpi_test.size
     rank = mpi_test.rank
 
@@ -1157,7 +1190,9 @@ def test_transformer_backward(mpi_test):
 
     fd = TransformerBackwardFusion(d, b, s, h, e)
 
-    outs = fd.execute(ins)
+    warmup_fn, benchmark_fn = get_benchmark_fns(lambda: fd.execute(ins))
+
+    outs = warmup_fn()
     (
         mlp_linear1_weight_grad,
         mlp_linear1_bias_grad,
@@ -1186,3 +1221,5 @@ def test_transformer_backward(mpi_test):
     _assert_shape_dtype(layernorm0_bias_grad, [e], torch.bfloat16)
     _assert_shape_dtype(layernorm0_weight_grad, [e], torch.bfloat16)
     _assert_shape_dtype(inp_grad, [b, s, e], torch.bfloat16)
+
+    benchmark.pedantic(benchmark_fn, rounds=5)

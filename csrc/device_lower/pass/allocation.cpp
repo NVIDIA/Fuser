@@ -76,8 +76,15 @@ Expr* initializeMbarrier(
       GpuLower::current()->parallelDimensionMap().get(ParallelType::TIDz);
   Val* all_threads_in_cta = SimplifyingIrBuilder::mulExpr(
       bdimx, SimplifyingIrBuilder::mulExpr(bdimy, bdimz));
-  all_threads_in_cta =
-      SimplifyingIrBuilder::maybeCastExpr(DataType::UInt32, all_threads_in_cta);
+  if (all_threads_in_cta != nullptr) {
+    all_threads_in_cta = SimplifyingIrBuilder::maybeCastExpr(
+        DataType::UInt32, all_threads_in_cta);
+  } else {
+    // If all_threads_in_cta is nullptr, then this kernel is not parallelized
+    // on any of the thread dimensions.
+    all_threads_in_cta =
+        GpuLower::current()->kernel()->oneVal(DataType::UInt32);
+  }
 
   // Initialize mbarrier for each circular buffer stage. Use the thread
   // count from the MBarrierInit created in the allocation pass. The wait
@@ -596,8 +603,6 @@ class AllocationInserter : public kir::ExprMutator {
     //    cp.async.bulk
     //    inval mbarrier
     //    block_sync
-    // Note that this is only a temporary solution, we should remove this after
-    // we have a better way to handle synchronizations for cp.async.bulk.
     //
     // The circular buffer case is handled in handle(ForLoop* fl) and the
     // circular buffering pass.
@@ -639,7 +644,7 @@ class AllocationInserter : public kir::ExprMutator {
     //    alloc mbarrier
     //    init mbarrier
     //    block_sync
-    //    fl
+    //    for-loop with cpAsyncBulk expression (the `fl` parameter)
     //    inval mbarrier
 
     auto circular_buffer_tvs =
@@ -654,6 +659,10 @@ class AllocationInserter : public kir::ExprMutator {
 
     if (circular_buffer_load_is_tma) {
       for (auto tv : circular_buffer_tvs) {
+        // short-circuit: circular buffered tv is not defined with TMA load.
+        if (!ir_utils::isCpAsyncBulkLoad(tv->definition())) {
+          continue;
+        }
         // Create and allocate a memory barrier. If this is a circular buffer,
         // then allocate an array of mbarier objects. mbarrier::init and
         // mbarrier::inval will be updated in circular buffering pass, but we
