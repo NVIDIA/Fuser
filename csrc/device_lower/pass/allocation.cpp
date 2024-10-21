@@ -603,8 +603,6 @@ class AllocationInserter : public kir::ExprMutator {
     //    cp.async.bulk
     //    inval mbarrier
     //    block_sync
-    // Note that this is only a temporary solution, we should remove this after
-    // we have a better way to handle synchronizations for cp.async.bulk.
     //
     // The circular buffer case is handled in handle(ForLoop* fl) and the
     // circular buffering pass.
@@ -646,7 +644,7 @@ class AllocationInserter : public kir::ExprMutator {
     //    alloc mbarrier
     //    init mbarrier
     //    block_sync
-    //    fl
+    //    for-loop with cpAsyncBulk expression (the `fl` parameter)
     //    inval mbarrier
 
     auto circular_buffer_tvs =
@@ -661,6 +659,10 @@ class AllocationInserter : public kir::ExprMutator {
 
     if (circular_buffer_load_is_tma) {
       for (auto tv : circular_buffer_tvs) {
+        // short-circuit: circular buffered tv is not defined with TMA load.
+        if (!ir_utils::isCpAsyncBulkLoad(tv->definition())) {
+          continue;
+        }
         // Create and allocate a memory barrier. If this is a circular buffer,
         // then allocate an array of mbarier objects. mbarrier::init and
         // mbarrier::inval will be updated in circular buffering pass, but we

@@ -1510,7 +1510,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_UNARY_OP_SPECIAL("neg", neg)
 #undef NVFUSER_PYTHON_BINDING_UNARY_OP_SPECIAL
 
-#define NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY(op_str, op_name)         \
+#define NVFUSER_PYTHON_BINDING_MATMUL_OP(op_str, op_name)                      \
   nvf_ops.def(                                                                 \
       op_str,                                                                  \
       [](FusionDefinition::Operators& self,                                    \
@@ -1520,7 +1520,15 @@ void initNvFuserPythonBindings(PyObject* module) {
         NVF_CHECK(                                                             \
             self.validUse(), "Attempting to add to a completed definition!");  \
         FusionDefinition* fd = self.fusion_definition;                         \
-        Tensor output = fd->defineTensor(arg1.dims);                           \
+        /* Per https://pytorch.org/docs/stable/generated/torch.matmul.html */  \
+        size_t out_ndims;                                                      \
+        if (arg1.dims <= 2 && arg2.dims <= 2) {                                \
+          out_ndims = arg1.dims + arg2.dims - 2;                               \
+        } else {                                                               \
+          /* batch matmul */                                                   \
+          out_ndims = std::max(arg1.dims, arg2.dims);                          \
+        }                                                                      \
+        Tensor output = fd->defineTensor(out_ndims);                           \
         fd->defineRecord(new OpRecord<TensorView*, TensorView*, TensorView*>(  \
             {fd->recordingState(arg1()), fd->recordingState(arg2())},          \
             {fd->recordingState(output())},                                    \
@@ -1530,8 +1538,8 @@ void initNvFuserPythonBindings(PyObject* module) {
         return output;                                                         \
       },                                                                       \
       py::return_value_policy::reference);
-  NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY("matmul", matmul)
-#undef NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY
+  NVFUSER_PYTHON_BINDING_MATMUL_OP("matmul", matmul)
+#undef NVFUSER_PYTHON_BINDING_MATMUL_OP
 
   nvf_ops.def(
       "linear",
@@ -3130,7 +3138,30 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("correction") = 1,
       py::arg("keepdim") = false,
       py::return_value_policy::reference);
-
+  nvf_ops.def(
+      "welford",
+      [](FusionDefinition::Operators& self,
+         Tensor arg,
+         const std::vector<int64_t>& dims) -> decltype(auto) {
+        FUSER_PERF_SCOPE("Operators.welford");
+        NVF_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        size_t ndims = (arg.dims - dims.size());
+        Tensor avg = fd->defineTensor(ndims);
+        Tensor var_sum = fd->defineTensor(ndims);
+        Tensor n = fd->defineTensor(ndims);
+        fd->defineRecord(new WelfordOpRecord(
+            {fd->recordingState(arg())},
+            {fd->recordingState(avg()),
+             fd->recordingState(var_sum()),
+             fd->recordingState(n())},
+            dims));
+        return std::make_tuple(avg, var_sum, n);
+      },
+      py::arg("arg"),
+      py::arg("dims"),
+      py::return_value_policy::reference);
   nvf_ops.def(
       "sdpfa_bwd",
       [](FusionDefinition::Operators& self,
