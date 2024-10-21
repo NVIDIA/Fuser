@@ -114,10 +114,13 @@ NVF_API TensorView* pad(
     std::optional<IterType> iter_type_opt = std::nullopt);
 
 //! Concatenate tensors in the given dimension
+//! manual_padding is a flag to skip the pad operation in the cat composite
+//! operation.
 NVF_API TensorView* cat(
     const std::vector<TensorView*>& inputs,
     int64_t dim,
-    std::optional<IterType> iter_type_opt = std::nullopt);
+    std::optional<IterType> iter_type_opt = std::nullopt,
+    bool manual_padding = false);
 
 //! Return a tensor where each dimension is sliced as specified by the
 //! ranges parameter. Stepping must be one at this moment. The semantics of

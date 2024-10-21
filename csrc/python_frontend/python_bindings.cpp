@@ -2665,7 +2665,8 @@ void initNvFuserPythonBindings(PyObject* module) {
       "cat",
       [](FusionDefinition::Operators& self,
          std::vector<Tensor> tensors,
-         int64_t dim) -> Tensor {
+         int64_t dim,
+         bool manual_padding) -> Tensor {
         NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;
@@ -2678,11 +2679,15 @@ void initNvFuserPythonBindings(PyObject* module) {
           tensor_states.push_back(fd->recordingState(t()));
         }
         self.fusion_definition->defineRecord(new CatOpRecord(
-            tensor_states, {fd->recordingState(output())}, dim));
+            tensor_states,
+            {fd->recordingState(output())},
+            dim,
+            manual_padding));
         return output;
       },
       py::arg("tensors"),
       py::arg("dim") = 0,
+      py::arg("manual_padding") = false,
       py::return_value_policy::reference);
   nvf_ops.def(
       "expand",

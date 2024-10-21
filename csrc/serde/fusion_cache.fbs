@@ -109,6 +109,7 @@ union RecordData {
   BatchNorm,
   Broadcast,
   BroadcastInDim,
+  Cat,
   Dimension,
   Dtype,
   Norm,
@@ -253,6 +254,12 @@ table Broadcast {
 table BroadcastInDim {
   output_size: ulong;
   broadcast_dims: [long];
+}
+
+// Data for CatOpRecord
+table Cat {
+  dim: long;
+  manual_padding: bool;
 }
 
 // Data for CastOpRecord, ScalarRecord, and IotaOpRecord
