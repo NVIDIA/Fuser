@@ -86,12 +86,26 @@ Expr* initializeMbarrier(
         GpuLower::current()->kernel()->oneVal(DataType::UInt32);
   }
 
+  auto circular_buffered_tvs =
+      GpuLower::current()->circularBufferInfo().getCircularBufferTvs(
+          circular_buffer_loop);
+  int64_t num_of_tvs_loaded_by_tma = std::count_if(
+      circular_buffered_tvs.begin(),
+      circular_buffered_tvs.end(),
+      [](const TensorView* tv) {
+        return ir_utils::isCpAsyncBulkLoad(tv->definition());
+      });
+  Val* n = IrBuilder::create<Val>(num_of_tvs_loaded_by_tma, DataType::UInt32);
+  Val* num_of_arrives = SimplifyingIrBuilder::mulExpr(n, all_threads_in_cta);
+  num_of_arrives =
+      SimplifyingIrBuilder::maybeCastExpr(DataType::UInt32, num_of_arrives);
+
   // Initialize mbarrier for each circular buffer stage. Use the thread
   // count from the MBarrierInit created in the allocation pass. The wait
   // condition for mbarrier is a all threads in CTA and the expected number
   // of transaction bytes
   kir::MBarrierInit* mbarrier_init =
-      IrBuilder::create<kir::MBarrierInit>(stage_mbarrier, all_threads_in_cta);
+      IrBuilder::create<kir::MBarrierInit>(stage_mbarrier, num_of_arrives);
 
   Expr* pred_mbarrier_init = mbarrier_init->withPredicate(
       IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
