@@ -1801,7 +1801,7 @@ class TestNvFuserFrontend(NVFuserTest):
             t6 = fd.ops.pad(t0, [2, 3, 0, 0, 0, 0])
             fd.add_output(t6)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
 
         self.assertEqual(F.pad(inputs[0], [1, 1, 1, 1]), nvf_out[0])
         self.assertEqual(F.pad(inputs[0], [0, 0, 2, 3]), nvf_out[1])
@@ -1809,6 +1809,27 @@ class TestNvFuserFrontend(NVFuserTest):
         self.assertEqual(F.pad(inputs[0], [2, 3]), nvf_out[3])
         self.assertEqual(F.pad(inputs[0], [2, 3], "constant", 2.0), nvf_out[4])
         self.assertEqual(F.pad(inputs[0], [2, 3, 0, 0, 0, 0]), nvf_out[5])
+
+    def test_pad_dynamic(self):
+        inputs = [
+            torch.testing.make_tensor((1, 2, 3), dtype=torch.float32, device="cuda"),
+        ]
+
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+
+            S10 = fd.define_scalar(2.5, dtype=DataType.Float)
+            S13 = fd.define_scalar(7, dtype=DataType.Int)
+            S15 = fd.ops.mul(S10, S13)
+            S16 = fd.ops.cast(S15, dtype=DataType.Int)
+            V18 = fd.define_vector([S16, S16, S16, S16], dtype=DataType.Int)
+
+            t1 = fd.ops.pad(t0, V18)
+            fd.add_output(t1)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
+
+        self.assertEqual(F.pad(inputs[0], [17, 17, 17, 17]), nvf_out[0])
 
     def test_pad_cache(self):
         """Test that using different pad widths causes a cache miss.
@@ -1825,9 +1846,11 @@ class TestNvFuserFrontend(NVFuserTest):
             fd.add_output(t1)
 
         nvf_out1, _ = self.exec_nvfuser(
-            fusion_func_pad1, inputs, new_fusion_expected=True
+            fusion_func_pad1, inputs, new_fusion_expected=True, is_clonable=True
         )
-        _ = self.exec_nvfuser(fusion_func_pad1, inputs, new_fusion_expected=False)
+        _ = self.exec_nvfuser(
+            fusion_func_pad1, inputs, new_fusion_expected=False, is_clonable=True
+        )
 
         def fusion_func_pad2(fd: FusionDefinition):
             t0 = fd.from_pytorch(inputs[0])
@@ -1835,7 +1858,7 @@ class TestNvFuserFrontend(NVFuserTest):
             fd.add_output(t1)
 
         nvf_out2, _ = self.exec_nvfuser(
-            fusion_func_pad2, inputs, new_fusion_expected=True
+            fusion_func_pad2, inputs, new_fusion_expected=True, is_clonable=True
         )
 
         def fusion_func_pad3(fd: FusionDefinition):
@@ -1845,7 +1868,7 @@ class TestNvFuserFrontend(NVFuserTest):
             fd.add_output(t1)
 
         nvf_out3, _ = self.exec_nvfuser(
-            fusion_func_pad3, inputs, new_fusion_expected=True
+            fusion_func_pad3, inputs, new_fusion_expected=True, is_clonable=True
         )
         _ = self.exec_nvfuser(fusion_func_pad3, inputs, new_fusion_expected=False)
 
@@ -2581,7 +2604,7 @@ class TestNvFuserFrontend(NVFuserTest):
             T2 = fd.ops.pad(T0, [0, 0, 1, 1, 1, 0], S1)
             fd.add_output(T2)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
 
         torch_ref = F.pad(inputs[0], (0, 0, 1, 1, 1, 0), "constant", -3.70753)
 
