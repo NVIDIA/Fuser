@@ -833,7 +833,9 @@ struct BroadcastInDimOpRecord : RecordFunctor {
         "The broadcast dimensions should match the input dimensions: ",
         arg_ndims,
         " vs ",
-        broadcast_dims_.size());
+        broadcast_dims_.size(),
+        ". arg = ",
+        arg->toString());
 
     std::vector<bool> is_broadcast_dim(output_ndims_, true);
     for (const auto idx : c10::irange(broadcast_dims_.size())) {
