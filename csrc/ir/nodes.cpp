@@ -23,7 +23,6 @@
 #include <transform_view.h>
 #include <type.h>
 
-#include <c10/macros/Macros.h>
 #include <c10/util/irange.h>
 
 #include <complex>
@@ -4594,7 +4593,7 @@ std::vector<Expr*>::iterator Scope::insert(size_t pos, Expr* expr) {
 
 void Scope::erase(std::vector<Expr*>::const_iterator pos) {
   // Remove the scope of the expr if this is the scope
-  C10_UNUSED auto expr = *pos;
+  [[maybe_unused]] auto expr = *pos;
   exprs_.erase(pos);
 }
 
