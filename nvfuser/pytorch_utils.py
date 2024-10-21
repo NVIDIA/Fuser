@@ -189,9 +189,11 @@ def retry_on_oom_or_skip_test(func):
 
         try:
             output = func(*args, **kwargs)
-        except torch.OutOfMemoryError:
+        except torch.OutOfMemoryError as e:
             # If we hit an OOM this time, then skip the test
-            pytest.skip("Test failed due to OutOfMemoryError")
+            import pytest
+
+            pytest.skip(f"Test failed due to OutOfMemoryError: {e}")
             return
 
         return output
