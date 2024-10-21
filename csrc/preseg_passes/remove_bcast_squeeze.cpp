@@ -351,7 +351,7 @@ TensorView* maybeDoReplacement(TensorView* orig) {
     }
   }
   NVF_ERROR(replacement != orig, "Expected non-trivial replacement");
-  ir_utils::replaceValInAllExprInputsAndFusionOutputs(orig, replacement);
+
   std::vector<IterDomain*> old_loop =
       TensorDomain::noReductions(orig->getLoopDomain());
   std::vector<IterDomain*> new_loop =
@@ -362,18 +362,46 @@ TensorView* maybeDoReplacement(TensorView* orig) {
       replacement->toString(),
       " has different dimension than original ",
       orig->toString());
+  // Replacing `orig` with `replacement` can introduce resharding on the
+  // consumer of `orig`, e.g., the `cast` in the following example.
+  //
+  // [bDID{1}, i0]: replacement
+  //      |
+  //      | squeeze
+  //      v
+  //     [i0]
+  //      |
+  //      | broadcast
+  //      v
+  //  [b{1}, i0]: orig
+  //      |
+  //      | cast
+  //      v
+  //  [b{1}, i0]
+  //
+  // Such resharding expressions won't be resolved by `insert_reshardings`
+  // because `insert_reshardings` runs before `remove_bcast_squeeze`.
+  // Therefore, if resharding is needed, instead of replacing `orig` with
+  // `replacement`, we link them with a resharding `set`.
+  bool needs_resharding = false;
   for (size_t i : c10::irange(old_loop.size())) {
-    if (old_loop[i]->isParallelized()) {
+    if (old_loop[i]->getParallelType() != new_loop[i]->getParallelType()) {
       NVF_ERROR(
-          old_loop[i]->isDeviceDim(),
+          old_loop[i]->isDeviceDim() || new_loop[i]->isDeviceDim(),
           "Before scheduling, we expect the only parallelized ",
           "dimensions to be device dims");
-      // In particular, we might have a Device dimension parallelized for the
-      // output, which we need to preserve.
-      new_loop[i]->parallelize(old_loop[i]->getParallelType());
+      needs_resharding = true;
+      break;
     }
   }
-  return replacement;
+
+  if (needs_resharding) {
+    IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, orig, replacement);
+    return orig;
+  } else {
+    ir_utils::replaceValInAllExprInputsAndFusionOutputs(orig, replacement);
+    return replacement;
+  }
 }
 
 // Remove broadcast-squeeze and squeeze-broadcast patterns
