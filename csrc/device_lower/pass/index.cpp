@@ -2314,13 +2314,9 @@ void IndexLowering::handle(const PadOp* pad) {
   auto new_ite = IrBuilder::create<kir::IfThenElse>(IrBuilder::create<kir::Predicate>(pred));
   pushBack(new_ite);
   active_scope_ = &new_ite->thenBody();
-  for (auto expr : ite->thenBody().exprs()) {
-    pushBack(IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, in));
-  }
+  pushBack(IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, in));
   active_scope_ = &new_ite->elseBody();
-  for (auto expr : ite->elseBody().exprs()) {
-    pushBack(IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, pad_val));
-  }
+  pushBack(IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, pad_val));
   active_scope_ = prev_scope;
 
   GpuLower::current()->propagateExprInfo(pad, back());
