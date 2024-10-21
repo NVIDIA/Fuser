@@ -96,7 +96,10 @@ class ExpensiveOpInfo {
   }
 
   int64_t getComputationFactor() const {
-    return f_tanh_ * n_tanh_ + f_exp_ * n_exp_ + f_reciprocal_ * n_reciprocal_;
+    auto factor =
+        n_tanh_ * f_tanh_ + n_exp_ * f_exp_ + n_reciprocal_ * f_reciprocal_;
+    factor = std::max(factor, 1);
+    return factor;
   }
 
  private:
@@ -150,7 +153,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
   // Incase any buffer is of type DataType::Index
   const auto index_type = runtime_info.getIndexType();
-
+  const auto dev_prop = at::cuda::getCurrentDeviceProperties();
   auto params = std::make_unique<PointwiseParams>();
   params->tag = "Pointwise heuristics";
   params->cparams.index_type = index_type;
@@ -262,9 +265,11 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
                 largest_out, true, true));
       });
 
-  auto max_vect_unroll_factor =
+  constexpr int64_t kSixteen = 16; // clang tidy
+  auto max_vect_factor = kSixteen / max_input_dtype_size;
+  auto max_unroll_factor =
       getTargetUnrollFactor(fusion, vectorizable_inputs_outputs_entry.get());
-
+  auto max_vect_unroll_factor = max_vect_factor * max_unroll_factor;
   // Don't unroll at the cost of getting a full wave on the GPU
   if (n_elems < device_multiprocessor_count * kThreadX &&
       max_vect_unroll_factor > 1) {
@@ -272,10 +277,6 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
         max_vect_unroll_factor,
         ceilDiv(n_elems, device_multiprocessor_count * kThreadX));
   }
-
-  constexpr int64_t kSixteen = 16; // clang tidy
-  auto max_vect_factor =
-      std::min(kSixteen / max_input_dtype_size, max_vect_unroll_factor);
 
   // See pointwise.h to understand what we're doing for this 2D analysis.
   // Ideal break point location
@@ -436,8 +437,36 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
           break_point,
           logical_reorder_map));
 
-  params->unroll_factor = scheduler_utils::safeDiv(
+  // limit unroll factor when n_elems is small (e.g. less than 16K x 4K on H100)
+  // to use at least 8 waves to benefit from Thread-Level-Parallelism. Ideally,
+  // target wave depends on hardware, when computation latency is close to
+  // memory latency a smaller wave can be used.
+  const int64_t target_waves = 8L;
+  int64_t max_block_per_sm =
+      (int64_t)dev_prop->maxThreadsPerMultiProcessor / kThreadX;
+  int64_t total_blocks = break_point > 0
+      ? gdim_left * gdim_right
+      : ceilDiv(n_elems / max_vect_factor, kThreadX);
+  int64_t n_waves_wo_unroll =
+      ceilDiv(total_blocks, max_block_per_sm * device_multiprocessor_count);
+  int64_t n_elems_limited_unroll = ceilDiv(n_waves_wo_unroll, target_waves);
+  int64_t resource_limited_unroll = scheduler_utils::safeDiv(
       max_vect_unroll_factor, params->vectorization_factor);
+  // don't unroll if unroll is input size limited and split is not divisible
+  if (n_elems_limited_unroll < resource_limited_unroll) {
+    bool divisible_split = break_point > 0
+        ? (right_elem_count % (params->vectorization_factor * bdimx) == 0)
+        : (n_elems % (params->vectorization_factor * kThreadX) == 0);
+    n_elems_limited_unroll = divisible_split ? n_elems_limited_unroll : 1;
+  }
+  std::cout << "n_elems_limited_unroll: " << n_elems_limited_unroll
+            << ", resource limited unroll: " << resource_limited_unroll
+            << std::endl;
+  params->unroll_factor =
+      std::min(n_elems_limited_unroll, resource_limited_unroll);
+
+// params->unroll_factor =scheduler_utils::safeDiv(
+//       max_vect_unroll_factor, params->vectorization_factor);
 
   NVF_ERROR(right_elem_count > 0 || break_point == 0);
   NVF_ERROR(!(bdimy > 1 && gdim_right > 1));
