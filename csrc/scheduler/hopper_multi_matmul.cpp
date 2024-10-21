@@ -486,8 +486,8 @@ void HopperMultipleMatmulScheduler::run() {
   defineOperandCaches();
 
   // Schedules:
-  //   - global->smem (cp.async)
-  //   - smem->register (ldmatrix)
+  //   - global->smem (cp.async.bulk)
+  //   - smem->register (set)
   //   - prologue computation in registers, including broadcast to e.g.
   //   ab=[iM, bN, iK]
   schedulePrologues();
@@ -615,10 +615,10 @@ void HopperMultipleMatmulScheduler::findRoles() {
 // Currently the support is for a, b, c and d as fusion inputs/outputs
 //  aka. no prolog fusion yet.
 void HopperMultipleMatmulScheduler::defineOperandCaches() {
-  cacheOperandsToSmem(as_, acw_smems_, params_->supported_vec_size.a);
+  cacheOperandsToSmem(as_, acw_smems_);
   addSetsForCacheReads(acw_smems_, acrs_);
 
-  cacheOperandsToSmem(bs_, bcw_smems_, params_->supported_vec_size.b);
+  cacheOperandsToSmem(bs_, bcw_smems_);
   addSetsForCacheReads(bcw_smems_, bcrs_);
 
   // Now that we are finished possibly redefining the inputs to the MmaOps,
@@ -632,35 +632,18 @@ void HopperMultipleMatmulScheduler::defineOperandCaches() {
 
 void HopperMultipleMatmulScheduler::cacheOperandsToSmem(
     const std::vector<TensorView*>& operands,
-    std::vector<TensorView*>& smem_operands,
-    int64_t vec_size) {
-  // Use cp.async as requested in scheduler params.
+    std::vector<TensorView*>& smem_operands) {
+  // Use cp.async.bulk (tma) as requested in scheduler params.
   smem_operands.resize(operands.size(), nullptr);
   for (size_t i : c10::irange(operands.size())) {
     TensorView* operand = operands[i];
     CacheOp cache_op = CacheOp::Unspecified;
-    if (params_->async_gmem_load_operands) {
-      int64_t vec_bytes = vec_size * dataTypeSize(operand->dtype());
-      NVF_CHECK(
-          vec_bytes == 4LL || vec_bytes == 8LL || vec_bytes == 16LL,
-          "Unsupported async vectorization size ",
-          vec_size,
-          " = ",
-          vec_bytes,
-          " bytes for operand ",
-          operand->toString(),
-          " which has data type ",
-          operand->dtype(),
-          ". Size must be 4, 8, or 16 bytes. ",
-          "MatmulParams::async_gmem_load_operands should be set to false in this case.");
-      cache_op = vec_bytes == 16LL ? CacheOp::Global : CacheOp::AllLevels;
-    };
 
     NVF_ERROR(operand->uses().size() == 1);
     smem_operands[i] = ir_utils::consumerTvsOf(operand).at(0);
 
     LoadStoreOpType load_op = params_->async_gmem_load_operands
-        ? LoadStoreOpType::CpAsync
+        ? LoadStoreOpType::CpAsyncBulkTensorTile
         : LoadStoreOpType::Set;
 
     smem_operands[i]->definition()->as<LoadStoreOp>()->setOpType(load_op);
@@ -691,11 +674,10 @@ void HopperMultipleMatmulScheduler::addSetsForCacheReads(
     if (auto ldst = dynamic_cast<LoadStoreOp*>(tv_smem->uses().at(0));
         ldst && tv_smem->uses().size() == 1) {
       tv_r = ldst->out()->as<TensorView>();
-      ldst->setOpType(LoadStoreOpType::LdMatrix);
     } else {
       tv_r = cacheAfter(
           tv_smem,
-          LoadStoreOpType::LdMatrix,
+          LoadStoreOpType::Set,
           CacheOp::Unspecified,
           /*propagate_allocation_domain=*/false);
     }
@@ -1153,12 +1135,11 @@ void HopperMultipleMatmulScheduler::schedulePrologues() {
 
   // Now for each operand, we load from smem to registers and compute a
   // prologue (generally) in registers. We typically refer to the register
-  // buffer that is loaded from operand A's smem buffer using ldmatrix as
-  // "acr". This is the beginning of the register prologue region for that
-  // operand. The end of that region is the first input to the MmaOp
-  // expression, which we typically refer to as "ab". There is some special
-  // handling of acr but otherwise we schedule ab and propagate backward
-  // along this prologue region.
+  // buffer that is loaded from operand A's smem buffer as "acr". This is the
+  // beginning of the register prologue region for that operand. The end of
+  // that region is the first input to the MmaOp expression, which we typically
+  // refer to as "ab". There is some special handling of acr but otherwise we
+  // schedule ab and propagate backward along this prologue region.
   auto schedulePrologueBranch = [&](const std::vector<TensorView*>& smem_stores,
                                     const std::vector<TensorView*>& smem_loads,
                                     std::vector<TensorView*>& mma_inputs,
@@ -1214,7 +1195,7 @@ void HopperMultipleMatmulScheduler::schedulePrologues() {
         //  -5  -4   -3   -2   -1
         //[8mi, 4k, 2ko, 2mo, 2ki]
         smem_load->setAllocationDomain(smem_load->getLoopDomain(), true);
-        mma_utils::MmaSwizzler::scheduleLdMatrix(smem_load, operand_type);
+        // mma_utils::MmaSwizzler::scheduleLdMatrix(smem_load, operand_type);
       }
     }
     for (TensorView* mma_input : mma_inputs) {
