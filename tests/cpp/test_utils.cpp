@@ -1115,16 +1115,16 @@ TEST_F(NVFuserTest, FusionSASSDumpError) {
 
   at::Tensor t0 = at::randn({8}, options);
 
-  KernelExecutor fe;
-  fe.compileFusion(&fusion, {t0});
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, {t0});
 
   EXPECT_THAT(
-      [&]() { fe.disassembledKernelSASS(); },
+      [&]() { ke.disassembledKernelSASS(); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(
           ::testing::HasSubstr("I am fake")));
 
-  auto cg_outputs = fe.runFusion({t0});
-  testValidate(fe.kernel(), cg_outputs, {t0}, __LINE__, __FILE__);
+  auto cg_outputs = ke.runFusion({t0});
+  testValidate(ke.kernel(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, ProveLinearAndGetStride) {

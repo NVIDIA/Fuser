@@ -549,9 +549,9 @@ TEST_F(PointwiseTest, ShardedPointwise) {
         unsharded_pparams->flip_grid_binding);
 
     pwise_scheduler->schedule(&sharded_fusion, sharded_params.get());
-    KernelExecutor fe;
-    fe.compileFusion(&sharded_fusion, sharded_inputs, sharded_params->lparams);
-    auto cg_outputs = fe.runFusion(sharded_inputs, sharded_params->lparams);
+    KernelExecutor ke;
+    ke.compileFusion(&sharded_fusion, sharded_inputs, sharded_params->lparams);
+    auto cg_outputs = ke.runFusion(sharded_inputs, sharded_params->lparams);
     testValidate(
         &sharded_fusion, cg_outputs, sharded_inputs, __LINE__, __FILE__);
   }
@@ -698,9 +698,9 @@ TEST_F(PointwiseTest, UnrollOnTopOfVectorize) {
 
   // schedule, compile, run, validate
   scheduler_instance->schedule(fusion.get(), pparams);
-  KernelExecutor fe;
-  fe.compileFusion(fusion.get(), runtime_inputs, pparams->lparams);
-  auto cg_outputs = fe.runFusion(runtime_inputs, pparams->lparams);
+  KernelExecutor ke;
+  ke.compileFusion(fusion.get(), runtime_inputs, pparams->lparams);
+  auto cg_outputs = ke.runFusion(runtime_inputs, pparams->lparams);
   testValidate(fusion.get(), cg_outputs, runtime_inputs, __LINE__, __FILE__);
 }
 } // namespace nvfuser

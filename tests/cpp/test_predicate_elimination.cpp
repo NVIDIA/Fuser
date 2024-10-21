@@ -77,9 +77,9 @@ TEST_F(PredicateEliminationTest, 2) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
 
-  KernelExecutor fe;
-  fe.compileFusion(&fusion, {t0});
-  auto cg_outputs = fe.runFusion({t0});
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, {t0});
+  auto cg_outputs = ke.runFusion({t0});
 
   auto ref = (t0 + 1).sum({1}) + 1;
 
@@ -127,9 +127,9 @@ TEST_F(PredicateEliminationTest, 3) {
   for (auto size : {1, 2, 999, 1001, 1234, 10000}) {
     auto t0 = at::randn({size}, options);
 
-    KernelExecutor fe;
-    fe.compileFusion(&fusion, {t0});
-    auto cg_outputs = fe.runFusion({t0});
+    KernelExecutor ke;
+    ke.compileFusion(&fusion, {t0});
+    auto cg_outputs = ke.runFusion({t0});
 
     auto ref = sum(t0) + 1;
     testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
@@ -180,9 +180,9 @@ TEST_F(PredicateEliminationTest, 4) {
     for (auto s1 : sizes) {
       auto t0 = at::randn({s0, s1}, options);
 
-      KernelExecutor fe;
-      fe.compileFusion(&fusion, {t0});
-      auto cg_outputs = fe.runFusion({t0});
+      KernelExecutor ke;
+      ke.compileFusion(&fusion, {t0});
+      auto cg_outputs = ke.runFusion({t0});
 
       auto t1 = t0.sum({1});
       auto t3 = t1.sum({0}) + 1;
@@ -228,9 +228,9 @@ TEST_F(PredicateEliminationTest, 5) {
   for (auto s0 : sizes) {
     auto t0 = at::randn({s0}, options);
 
-    KernelExecutor fe;
-    fe.compileFusion(&fusion, {t0});
-    auto cg_outputs = fe.runFusion({t0});
+    KernelExecutor ke;
+    ke.compileFusion(&fusion, {t0});
+    auto cg_outputs = ke.runFusion({t0});
 
     auto ref = t0.mean({0});
 
@@ -277,9 +277,9 @@ TEST_F(PredicateEliminationTest, 6) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({2, 3}, options);
 
-  KernelExecutor fe;
-  fe.compileFusion(&fusion, {t0});
-  auto cg_outputs = fe.runFusion({t0});
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, {t0});
+  auto cg_outputs = ke.runFusion({t0});
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -313,9 +313,9 @@ TEST_F(PredicateEliminationTest, 7) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({123}, options);
 
-  KernelExecutor fe;
-  fe.compileFusion(&fusion, {t0});
-  auto cg_outputs = fe.runFusion({t0});
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, {t0});
+  auto cg_outputs = ke.runFusion({t0});
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -429,9 +429,9 @@ TEST_F(PredicateEliminationTest, 9) {
   //  with TIDx in this tensor
   EXPECT_TRUE(PredicatedChecker::isPredicated(tv1, gpulw));
 
-  KernelExecutor fe;
-  fe.compileFusion(fusion.get(), {t0});
-  auto cg_outputs = fe.runFusion({t0});
+  KernelExecutor ke;
+  ke.compileFusion(fusion.get(), {t0});
+  auto cg_outputs = ke.runFusion({t0});
   testValidate(fusion.get(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
@@ -468,16 +468,16 @@ TEST_F(PredicateEliminationTest, ExtentEqualToMaxParallelTypeExtent) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({10 * 32}, options);
-  KernelExecutor fe;
-  fe.registerLoweringHook([&](GpuLower* lower) {
+  KernelExecutor ke;
+  ke.registerLoweringHook([&](GpuLower* lower) {
     lower->passes().insert(
         lower->passes().begin(),
         {"validate_smem_predicate_elimination",
          validate_smem_predicate_elimination});
   });
-  fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+  ke.compileFusion(&fusion, {t0}, {}, matmul_cparams);
 
-  auto cg_outputs = fe.runFusion({t0});
+  auto cg_outputs = ke.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 

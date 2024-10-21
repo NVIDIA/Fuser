@@ -134,9 +134,9 @@ TEST_F(GpuViewTest, FusionViewAsRealOutput) {
   at::Tensor at_y = at::randn(output_shape, out_options);
   std::vector<c10::IValue> aten_inputs = {at_x, at_bias, at_y};
 
-  KernelExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
+  auto outputs = ke.runFusion(aten_inputs);
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -637,9 +637,9 @@ TEST_F(GpuViewTest, FusionReshapeConcreteDomain) {
   auto t0 = at::randn({2, 3}, options);
   auto t1 = at::randn({1, 6}, options);
 
-  KernelExecutor fe;
-  fe.compileFusion(&fusion, {t0, t1});
-  auto cg_outputs = fe.runFusion({t0, t1});
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, {t0, t1});
+  auto cg_outputs = ke.runFusion({t0, t1});
 
   testValidate(&fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
@@ -850,9 +850,9 @@ TEST_F(GpuViewTest, FusionFlattenAfterUnsqueezeOutput) {
   x_add_bias->computeAt(x_reshape, 1);
   x_reshape->axis(0)->parallelize(ParallelType::TIDx);
 
-  KernelExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto outputs = fe.runFusion(aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
+  auto outputs = ke.runFusion(aten_inputs);
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -914,15 +914,15 @@ TEST_F(GpuViewTest, FusionExpandRepro) {
   at::Tensor at_y = at::randn(input_shape2, options);
   std::vector<c10::IValue> aten_inputs = {at_x, at_y};
 
-  KernelExecutor fe;
-  fe.compileFusion(&fusion);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion);
   LaunchParams l_params;
-  auto outputs = fe.runFusion(aten_inputs, {}, l_params, {});
+  auto outputs = ke.runFusion(aten_inputs, {}, l_params, {});
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 
   // second run to verify cached output allocation
-  outputs = fe.runFusion(aten_inputs, {}, l_params, {});
+  outputs = ke.runFusion(aten_inputs, {}, l_params, {});
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
@@ -1349,9 +1349,9 @@ TEST_F(GpuViewTest, FusionPwiseViewSchedule) {
   at::Tensor t0 = at::randn({x, y, z}, options);
   at::Tensor t3 = at::randn({x, y, z}, options);
 
-  KernelExecutor fe;
-  fe.compileFusion(&fusion, {t0, t3});
-  auto cg_outputs = fe.runFusion({t0, t3});
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, {t0, t3});
+  auto cg_outputs = ke.runFusion({t0, t3});
 
   testValidate(&fusion, cg_outputs, {t0, t3}, __LINE__, __FILE__);
 }
@@ -1415,9 +1415,9 @@ TEST_F(GpuViewTest, FusionSumViewSchedule) {
   auto t5 = t4.sum({1});
   auto t6 = t0 + t3;
 
-  KernelExecutor fe;
-  fe.compileFusion(&fusion, {t0, t3});
-  auto cg_outputs = fe.runFusion({t0, t3});
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, {t0, t3});
+  auto cg_outputs = ke.runFusion({t0, t3});
 
   testValidate(&fusion, cg_outputs, {t0, t3}, {t2, t5, t6}, __LINE__, __FILE__);
 }
@@ -1944,9 +1944,9 @@ TEST_F(GpuViewTest, FusionReshapeMapping) {
   at::Tensor t0 = at::randn({w, x, y * z}, options);
   at::Tensor t3 = at::randn({w, x * y, z}, options);
 
-  KernelExecutor fe;
-  fe.compileFusion(&fusion, {t0, t3});
-  auto cg_outputs = fe.runFusion({t0, t3});
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, {t0, t3});
+  auto cg_outputs = ke.runFusion({t0, t3});
 
   testValidate(&fusion, cg_outputs, {t0, t3}, __LINE__, __FILE__);
 }
@@ -2318,9 +2318,9 @@ TEST_F(GpuViewTest, ExpandedBroadcast) {
   at::Tensor in_tensor =
       at::randn({4, 5}, at::dtype(at::kFloat).device(at::kCUDA, 0));
 
-  KernelExecutor fe;
-  fe.compileFusion(&fusion, {in_tensor});
-  at::Tensor actual_out_tensor = fe.runFusion({in_tensor})[0];
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, {in_tensor});
+  at::Tensor actual_out_tensor = ke.runFusion({in_tensor})[0];
 
   testValidate(&fusion, {actual_out_tensor}, {in_tensor}, __LINE__, __FILE__);
 }
@@ -2697,9 +2697,9 @@ TEST_F(GpuViewTest, FusionMismatchingReshape) {
   // TODO: use larger tensor size once we are able to successfully parallelize
   // this fusion.
   at::Tensor t0 = at::randn({2, 3, 5}).to(options);
-  KernelExecutor fe;
-  fe.compileFusion(&fusion, {t0});
-  auto cg_outputs = fe.runFusion({t0});
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, {t0});
+  auto cg_outputs = ke.runFusion({t0});
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }

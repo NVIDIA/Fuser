@@ -586,10 +586,10 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorPointwise1) {
   auto t1 = at::randint(0, shape[1], {shape[0]}, options_i);
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  KernelExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
 
-  auto outputs = fe.runFusion(aten_inputs);
+  auto outputs = ke.runFusion(aten_inputs);
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
@@ -1293,10 +1293,10 @@ TEST_F(ScatterGatherTest, GatherIterGoupedReduction) {
       " grouped iterations, found ",
       gpulw.kernel()->summary().num_grouped_iterations);
 
-  KernelExecutor fe;
+  KernelExecutor ke;
   auto lparams = rparams->lparams;
-  fe.compileFusion(&fusion, aten_inputs, lparams);
-  auto cg_outputs = fe.runFusion(aten_inputs, lparams);
+  ke.compileFusion(&fusion, aten_inputs, lparams);
+  auto cg_outputs = ke.runFusion(aten_inputs, lparams);
 
   auto t_gather = at::gather(input, dim, input_idx);
   testValidate(

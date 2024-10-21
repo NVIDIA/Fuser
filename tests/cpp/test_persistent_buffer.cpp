@@ -1297,9 +1297,9 @@ TEST_F(PersistentBufferTest, SmemPersistent2DReduction) {
   scheduler->schedule(fusion.get(), heuristic_params.get());
 
   // Run the fusion and validate the results
-  KernelExecutor fe;
-  fe.compileFusion(fusion.get(), aten_inputs);
-  auto cg_outputs = fe.runFusion(
+  KernelExecutor ke;
+  ke.compileFusion(fusion.get(), aten_inputs);
+  auto cg_outputs = ke.runFusion(
       aten_inputs, heuristic_params->as<ReductionParams>()->lparams);
   auto t1 = t0 / t0.sum({1, 2, 3}, true);
   testValidate(fusion.get(), cg_outputs, aten_inputs, {t1}, __LINE__, __FILE__);

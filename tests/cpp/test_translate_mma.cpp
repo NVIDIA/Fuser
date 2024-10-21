@@ -229,11 +229,11 @@ TEST_P(CombineMulSumAsMmaTestWithLayout, AmpereMulSumToMatmul_Schedule) {
 
   auto inputs = matmulAtInput2D(M, N, K, layout);
 
-  KernelExecutor fe;
-  fe.compileFusion(
+  KernelExecutor ke;
+  ke.compileFusion(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
-  ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
-  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  ASSERT_TRUE(getBankConflictInfo(ke.kernel()).empty());
+  auto cg_outputs = ke.runFusion({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));

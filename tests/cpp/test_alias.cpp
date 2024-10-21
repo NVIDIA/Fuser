@@ -1016,9 +1016,9 @@ TEST_F(AliasTest, ReuseBuffer_FusionExecutor) {
   auto tensor = at::randn({10}, options);
   auto expected_tensor = tensor + 1.0;
 
-  KernelExecutor fe;
-  fe.compileFusion(&fusion, {tensor});
-  fe.runFusion({tensor}, {tensor});
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, {tensor});
+  ke.runFusion({tensor}, {tensor});
   EXPECT_TRUE(tensor.allclose(expected_tensor));
 }
 
@@ -1216,11 +1216,11 @@ TEST_F(AliasTest, KernelExecutor) {
   // output on the host instead of launching a CUDA kernel.
   fusion.aliasOutputToInput(out, in, AllocationType::Evaluate);
 
-  KernelExecutor fe;
+  KernelExecutor ke;
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor in_tensor = at::randn({10, 10}, options);
-  fe.compileFusion(&fusion, {in_tensor});
-  at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
+  ke.compileFusion(&fusion, {in_tensor});
+  at::Tensor out_tensor = ke.runFusion({in_tensor})[0];
   EXPECT_EQ(out_tensor.data_ptr(), in_tensor.data_ptr());
 }
 

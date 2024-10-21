@@ -94,7 +94,7 @@ class HostIrExecutor final : public OptOutDispatch {
   // Stores concrete computed values
   ExpressionEvaluator expr_evaluator_;
   // Cache Fusions, KernelExecutors
-  std::unordered_map<HostUnit*, KernelExecutor> fe_;
+  std::unordered_map<HostUnit*, KernelExecutor> ke_;
   std::unordered_map<HostUnit*, FusionExecutorCache> fec_;
   using StreamKey = std::variant<int64_t, Stream*>;
   std::unordered_map<StreamKey, c10::cuda::CUDAStream> streams_;

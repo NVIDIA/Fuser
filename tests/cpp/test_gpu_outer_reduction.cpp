@@ -115,11 +115,11 @@ TEST_F(OuterReductionTest, GroupedGridWelfordOuterOpt) {
     auto t0 = at::randn(input_shape, options);
     std::vector<c10::IValue> aten_inputs = {t0};
 
-    KernelExecutor fe;
-    fe.compileFusion(&fusion, aten_inputs);
+    KernelExecutor ke;
+    ke.compileFusion(&fusion, aten_inputs);
 
     NVF_CHECK(
-        fe.kernel()->summary().has_outer_grouped_grid_welford ==
+        ke.kernel()->summary().has_outer_grouped_grid_welford ==
             params.should_use_opt,
         (params.should_use_opt ? "Failed to use the optimized implementation"
                                : "Should not use the optimized implementation"),
@@ -132,7 +132,7 @@ TEST_F(OuterReductionTest, GroupedGridWelfordOuterOpt) {
         ", ",
         params.bidx);
 
-    auto cg_outputs = fe.runFusion(aten_inputs);
+    auto cg_outputs = ke.runFusion(aten_inputs);
 
     auto t1 = t0;
     auto t2 = params.dtype == DataType::Half ? t1.to(at::kFloat) : t1;
@@ -638,8 +638,8 @@ void grid_persistent_reduction_outer_norm_like(
   const std::vector<int64_t> input_shape{N, HW, HW, C};
   auto t0 = at::randn(input_shape, options);
 
-  KernelExecutor fe;
-  fe.compileFusion(&fusion, {t0});
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, {t0});
 
   auto bidy = ceilDiv(ceilDiv(N * HW * HW, params.tidy), params.pb);
 
@@ -648,12 +648,12 @@ void grid_persistent_reduction_outer_norm_like(
                  << params.bidx * bidy << ", available: " << deviceSMCount();
   }
 
-  auto cg_outputs = fe.runFusion({t0});
+  auto cg_outputs = ke.runFusion({t0});
 
   if (benchmark_mode) {
     for (int i = 0; i < 10; ++i) {
       clearL2Cache();
-      cg_outputs = fe.runFusion({t0});
+      cg_outputs = ke.runFusion({t0});
     }
   }
 
@@ -737,8 +737,8 @@ void grid_persistent_welford_outer_norm_like(
   const std::vector<int64_t> input_shape{N, HW, HW, C};
   auto t0 = at::randn(input_shape, options_half);
 
-  KernelExecutor fe;
-  fe.compileFusion(&fusion, {t0});
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, {t0});
 
   auto bidy = ceilDiv(ceilDiv(N * HW * HW, params.tidy), params.pb);
 
@@ -747,12 +747,12 @@ void grid_persistent_welford_outer_norm_like(
                  << params.bidx * bidy << ", available: " << deviceSMCount();
   }
 
-  auto cg_outputs = fe.runFusion({t0});
+  auto cg_outputs = ke.runFusion({t0});
 
   if (benchmark_mode) {
     for (int i = 0; i < 10; ++i) {
       clearL2Cache();
-      cg_outputs = fe.runFusion({t0});
+      cg_outputs = ke.runFusion({t0});
     }
   }
 
@@ -898,8 +898,8 @@ void grid_persistent_batchnorm_manual(
   std::vector<c10::IValue> aten_inputs(
       {at_input_nvfuser, at_weight, at_bias, at_running_mean, at_running_var});
 
-  KernelExecutor fe;
-  fe.compileFusion(fusion_ptr.get(), aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(fusion_ptr.get(), aten_inputs);
 
   auto bidy = ceilDiv(ceilDiv(N * HW * HW, params.tidy), params.pb);
 
@@ -908,7 +908,7 @@ void grid_persistent_batchnorm_manual(
                  << params.bidx * bidy << ", available: " << deviceSMCount();
   }
 
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  auto cg_outputs = ke.runFusion(aten_inputs);
   cg_outputs.at(2) = cg_outputs.at(2).permute({0, 3, 1, 2});
 
   auto at_output = at::batch_norm(
@@ -923,7 +923,7 @@ void grid_persistent_batchnorm_manual(
       true);
 
   testValidate(
-      fe.kernel(),
+      ke.kernel(),
       {cg_outputs.at(2)},
       aten_inputs,
       {at_output},
@@ -934,7 +934,7 @@ void grid_persistent_batchnorm_manual(
   if (benchmark_mode) {
     for (int i = 0; i < 10; ++i) {
       clearL2Cache();
-      cg_outputs = fe.runFusion(aten_inputs);
+      cg_outputs = ke.runFusion(aten_inputs);
     }
   }
 }
@@ -1037,8 +1037,8 @@ void grid_persistent_reduction_outer_norm_bwd_like(
   auto t1 = at::randn(input_shape, options);
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  KernelExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs);
 
   auto bidy = ceilDiv(ceilDiv(N * HW * HW, params.tidy), params.pb);
 
@@ -1047,12 +1047,12 @@ void grid_persistent_reduction_outer_norm_bwd_like(
                  << params.bidx * bidy << ", available: " << deviceSMCount();
   }
 
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  auto cg_outputs = ke.runFusion(aten_inputs);
 
   if (benchmark_mode) {
     for (int i = 0; i < 10; ++i) {
       clearL2Cache();
-      cg_outputs = fe.runFusion(aten_inputs);
+      cg_outputs = ke.runFusion(aten_inputs);
     }
   }
 
@@ -1224,8 +1224,8 @@ void grid_persistent_batchnorm_bwd_manual(
 
   std::vector<at::Tensor> cg_outputs;
 
-  KernelExecutor fe;
-  fe.compileFusion(fusion_ptr.get(), aten_inputs);
+  KernelExecutor ke;
+  ke.compileFusion(fusion_ptr.get(), aten_inputs);
 
   auto bidy = ceilDiv(ceilDiv(N * HW * HW, params.tidy), params.pb);
 
@@ -1234,7 +1234,7 @@ void grid_persistent_batchnorm_bwd_manual(
                  << params.bidx * bidy << ", available: " << deviceSMCount();
   }
 
-  cg_outputs = fe.runFusion(aten_inputs);
+  cg_outputs = ke.runFusion(aten_inputs);
   // Permute grad_input output
   cg_outputs.at(0) = cg_outputs.at(0).permute({0, 3, 1, 2});
 
@@ -1251,7 +1251,7 @@ void grid_persistent_batchnorm_bwd_manual(
       {true, true, true});
 
   testValidate(
-      fe.kernel(),
+      ke.kernel(),
       cg_outputs,
       aten_inputs,
       {std::get<0>(at_output), std::get<1>(at_output), std::get<2>(at_output)},
@@ -1262,7 +1262,7 @@ void grid_persistent_batchnorm_bwd_manual(
   if (benchmark_mode) {
     for (int i = 0; i < 10; ++i) {
       clearL2Cache();
-      cg_outputs = fe.runFusion(aten_inputs);
+      cg_outputs = ke.runFusion(aten_inputs);
     }
   }
 }
@@ -2292,9 +2292,9 @@ void shmooTestsOfIterGroupedBlockOrGridReduction(
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
 
-  KernelExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs, lparams);
-  auto cg_outputs = fe.runFusion(aten_inputs, lparams);
+  KernelExecutor ke;
+  ke.compileFusion(&fusion, aten_inputs, lparams);
+  auto cg_outputs = ke.runFusion(aten_inputs, lparams);
 
   testValidate(
       &fusion,
@@ -2543,15 +2543,15 @@ TEST_F(OuterReductionTest, IterGroupedMultipleReductions) {
       << "Expect 2 Iteration domain grouped grid reductions, got: "
       << num_iter_grouped_reductions;
 
-  KernelExecutor fe;
+  KernelExecutor ke;
   std::vector<int64_t> shape({redu_dim, iter_dim});
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
   auto t1 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0, t1});
 
-  fe.compileFusion(&fusion, aten_inputs, lparams);
-  auto cg_outputs = fe.runFusion(aten_inputs, lparams);
+  ke.compileFusion(&fusion, aten_inputs, lparams);
+  auto cg_outputs = ke.runFusion(aten_inputs, lparams);
 
   testValidate(
       &fusion,
