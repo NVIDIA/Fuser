@@ -113,6 +113,53 @@ def test_linear(mpi_test):
     )
 
 
+@pytest.mark.mpi
+def test_matmul_allreduce(mpi_test):
+    class Model(FusionDefinition):
+        def __init__(self, num_devices, batch, sequence, hidden):
+            super().__init__()
+            self._num_devices = num_devices
+            self._batch = batch
+            self._sequence = sequence
+            self._hidden = hidden
+
+        def definition(self) -> None:
+            d, b, s, e = self._num_devices, self._batch, self._sequence, self._hidden
+
+            self.out_grad = self.define_tensor(
+                [d, b * s, e], contiguity=True, dtype=DataType.Half
+            )
+            self.weight = self.define_tensor(
+                [d, e, e], contiguity=True, dtype=DataType.Half
+            )
+            in_grad = self.ops.matmul(self.out_grad, self.weight)
+            in_grad = self.ops.sum(in_grad, [0])
+            in_grad = self.ops.reshape(in_grad, [b, s, e])
+            in_grad = self.ops.cast(in_grad, dtype=DataType.Float)
+            self.add_output(in_grad)
+
+        def multidevice_schedule(self) -> None:
+            mesh = self.sched._create_device_mesh(range(d))
+            for t in [self.out_grad, self.weight]:
+                self.sched._set_device_mesh(t, mesh)
+                self.sched.parallelize(t, 0, nvfuser.ParallelType.mesh_x)
+
+    d, b, s, e = mpi_test.size, 1, 1024, 768
+    rank = mpi_test.rank
+
+    torch.cuda.set_device(mpi_test.local_rank)
+
+    unsharded_out_grad = torch.testing.make_tensor(
+        d, b * s, e, dtype=torch.half, device="cuda"
+    )
+    unsharded_weight = torch.testing.make_tensor(
+        d, e, e, dtype=torch.half, device="cuda"
+    )
+
+    fd = Model(d, b, s, e)
+    fd.execute([unsharded_out_grad[rank : rank + 1], unsharded_weight[rank : rank + 1]])
+
+
 @pytest.mark.skipif(
     utils.is_pre_ampere(),
     reason="Flash Attention is only supported on Ampere and newer devices.",
