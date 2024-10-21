@@ -173,9 +173,6 @@ def clear_cuda_cache() -> None:
     """
     Utility function to clear CUDA cache before running a test.
     """
-    if (
-        torch.cuda.memory_allocated()
-        or torch.cuda.memory_reserved() > 0.8 * DEVICE_PROPERTIES["gpu_gmem_bytes"]
-    ):
+    if torch.cuda.memory_reserved() > 0.8 * DEVICE_PROPERTIES["gpu_gmem_bytes"]:
         gc.collect()
         torch.cuda.empty_cache()
