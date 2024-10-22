@@ -10891,7 +10891,7 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
   #pragma unroll
   for(nvfuser_index_t i20 = 0; i20 < 4; ++i20) {
     if (b17) {
-      mbarrier::init(toSmem((&T7[i20])), 512U);
+      mbarrier::init(toSmem((&T7[i20])), 2U);
     }
   }
   __syncthreads();
@@ -10909,8 +10909,6 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
       for(nvfuser_index_t i25 = 0; i25 < 4; ++i25) {
         Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr4, (Array<nvfuser_index_t, 2, 1>{(i5 + (64 * i25)), i22}), toSmem((&T7[i21])) }), (i23 + (2048 * i25)));
       }
-    } else {
-      mbarrier::arrive(toSmem((&T7[i21])));
     }
     if (b17) {
       mbarrier::arriveExpectTX(toSmem((&T7[i21])), 4096U);
@@ -10918,8 +10916,6 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
       for(nvfuser_index_t i26 = 0; i26 < 2; ++i26) {
         Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr7, (Array<nvfuser_index_t, 2, 1>{(i8 + (64 * i26)), i22}), toSmem((&T7[i21])) }), (i24 + (2048 * i26)));
       }
-    } else {
-      mbarrier::arrive(toSmem((&T7[i21])));
     }
   }
   #pragma unroll 4
@@ -10944,8 +10940,6 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
       for(nvfuser_index_t i25 = 0; i25 < 4; ++i25) {
         Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr4, (Array<nvfuser_index_t, 2, 1>{(i5 + (64 * i25)), i28}), toSmem((&T7[((3 + i27) % 4)])) }), (i30 + (2048 * i25)));
       }
-    } else {
-      mbarrier::arrive(toSmem((&T7[((3 + i27) % 4)])));
     }
     if (b17) {
       mbarrier::arriveExpectTX(toSmem((&T7[((3 + i27) % 4)])), 4096U);
@@ -10953,8 +10947,6 @@ __global__ void nvfuser_none_f0_c0_r0_g0(Tensor<__half, 3, 3> T0, Tensor<__half,
       for(nvfuser_index_t i26 = 0; i26 < 2; ++i26) {
         Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr7, (Array<nvfuser_index_t, 2, 1>{(i8 + (64 * i26)), i28}), toSmem((&T7[((3 + i27) % 4)])) }), (i31 + (2048 * i26)));
       }
-    } else {
-      mbarrier::arrive(toSmem((&T7[((3 + i27) % 4)])));
     }
     mbarrier::waitParity(toSmem((&T7[(i27 % 4)])), (((uint32_t)(i27) / 4U) % 2U));
     asm volatile(
