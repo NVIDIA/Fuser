@@ -726,7 +726,13 @@ void initNvFuserPythonBindings(PyObject* module) {
   CBPARAM(bool, circular_buffer_smem_read)
   CBPARAM(int, smem_circular_buffer_stage)
 #undef CBPARAM
+  PARAM(matmul_config, MatmulParams, bool, async_gmem_load_operands)
+  PARAM(matmul_config, MatmulParams, bool, rotate_ldmatrix_out_of_main_loop)
+  PARAM(matmul_config, MatmulParams, int, grid_swizzle_factor)
+  PARAM(matmul_config, MatmulParams, bool, use_smem_epilogue)
+  PARAM(matmul_config, MatmulParams, bool, promote_prologue_smem_reuse)
   PARAM(matmul_config, MatmulParams, int, splitk_factor)
+  // TODO: supported_vec_size, macro, cta_order
 
 #undef PARAM
 #undef INITPARAMS
