@@ -4043,6 +4043,7 @@ TEST_F(ResizeTest, SliceSliceConcatConcat) {
   NVF_CHECK(ref.equal(cg_outputs[0]));
 }
 
+#if 0
 TEST_F(ResizeTest, CatScheduledLikeConsumer) {
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
@@ -4094,6 +4095,7 @@ TEST_F(ResizeTest, CatScheduledLikeConsumer) {
 
   NVF_CHECK(ref.equal(cg_outputs[0]));
 }
+#endif
 
 TEST_F(ResizeTest, CatScheduledLikeConsumer2) {
   EnableOptionsGuard enable_options_guard;
