@@ -98,7 +98,8 @@ class ExpensiveOpInfo {
   int64_t getComputationFactor() const {
     auto factor =
         n_tanh_ * f_tanh_ + n_exp_ * f_exp_ + n_reciprocal_ * f_reciprocal_;
-    return std::max(factor, 1);
+    factor = std::max(factor, 1);
+    return factor;
   }
 
  private:
@@ -139,10 +140,7 @@ int64_t getTargetUnrollFactor(Fusion* fusion, std::vector<TensorView*> io_tvs) {
   // (4) Results: gelu: 2 * 4 / 1 = 8, silu: 2 * 2 / 2 = 2, mul: 2
   int64_t unroll_factor = base_factor * computation_factor / input_factor;
   unroll_factor = std::max(unroll_factor, 1L);
-  std::cout << "n_inputs: " << n_inputs << std::endl;
-  std::cout << "computation_factor: " << computation_factor << std::endl;
-  std::cout << "unroll_factor: " << unroll_factor << std::endl;
-  return unroll_factor;
+  return base_factor * computation_factor / n_inputs;
 }
 
 } // namespace
@@ -155,7 +153,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
   // Incase any buffer is of type DataType::Index
   const auto index_type = runtime_info.getIndexType();
-
+  const auto dev_prop = at::cuda::getCurrentDeviceProperties();
   auto params = std::make_unique<PointwiseParams>();
   params->tag = "Pointwise heuristics";
   params->cparams.index_type = index_type;
@@ -178,10 +176,8 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
   NVF_ERROR(largest_out != nullptr);
 
-  const auto dev_prop = at::cuda::getCurrentDeviceProperties();
-
   const int64_t device_multiprocessor_count =
-      (int64_t)dev_prop->multiProcessorCount;
+      (int64_t)at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
 
   // TODO: Set to 1?
   int64_t max_input_dtype_size = 2;
@@ -274,7 +270,6 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   auto max_unroll_factor =
       getTargetUnrollFactor(fusion, vectorizable_inputs_outputs_entry.get());
   auto max_vect_unroll_factor = max_vect_factor * max_unroll_factor;
-
   // Don't unroll at the cost of getting a full wave on the GPU
   if (n_elems < device_multiprocessor_count * kThreadX &&
       max_vect_unroll_factor > 1) {
@@ -366,6 +361,11 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
           continue;
         }
 
+        std::cout << "break_point_i: " << break_point_i
+                  << ", cur_left_elem_count: " << cur_left_elem_count
+                  << ", cur_right_elem_count: " << cur_right_elem_count
+                  << std::endl;
+
         auto lhs_byte_multiple =
             broadcast_byte_multiples[break_point_i].lhs_multiple;
         auto rhs_byte_multiple =
@@ -373,18 +373,24 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
         // Estimate transfer cost with this break point
         int64_t cur_transfer_size = 1;
+        int64_t left_transfer_size = 1;
         int64_t right_transfer_size = 1;
 
         for (const auto left_i : c10::irange(break_point_i)) {
-          cur_transfer_size =
-              cur_transfer_size * elem_counts[left_i] * lhs_byte_multiple;
+          left_transfer_size =
+              left_transfer_size * elem_counts[left_i] * lhs_byte_multiple;
         }
 
         for (const auto right_i : c10::irange(break_point_i, ref_root.size())) {
           right_transfer_size =
               right_transfer_size * elem_counts[right_i] * rhs_byte_multiple;
         }
-        cur_transfer_size *= right_transfer_size;
+        cur_transfer_size = left_transfer_size * right_transfer_size;
+
+        std::cout << "left_transfer_size: " << left_transfer_size
+                  << ", right_transfer_size: " << right_transfer_size
+                  << ", cur_transfer_size: " << cur_transfer_size
+                  << ", transfer_size_1d: " << transfer_size_1d << std::endl;
 
         //  Continue if this break point doesn't save at least 10% of 1D
         //  scheduling or isn't better than previous break_points found.
@@ -395,11 +401,10 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
         // Need to be able to parallelize, don't use break if there's not
         // at least an unrolled warp.
-        if (ceilDiv(cur_right_elem_count, max_vect_factor) <
+        if (ceilDiv(cur_right_elem_count, max_vect_factor) <=
             at::cuda::getCurrentDeviceProperties()->warpSize) {
           continue;
         }
-
         // If outer broadcast, or balanced broadcast:
         if (lhs_byte_multiple <= rhs_byte_multiple &&
             // If right transfer size is bigger than half of L2
@@ -414,11 +419,11 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
         bdimx =
             std::min(ceilDiv(cur_right_elem_count, max_vect_factor), kThreadX);
         bdimy = 1;
-        // // Put remainder in bdimy if there's at least a wave of grid level
-        // // parallelism.
-        // if (cur_left_elem_count > device_multiprocessor_count) {
-        //   bdimy = kThreadX / bdimx;
-        // }
+        // Put remainder in bdimy if there's at least a wave of grid level
+        // parallelism.
+        if (cur_left_elem_count > device_multiprocessor_count) {
+          bdimy = kThreadX / bdimx;
+        }
         auto remainder_left = ceilDiv(cur_left_elem_count, bdimy);
         auto remainder_right =
             ceilDiv(cur_right_elem_count, bdimx * max_vect_factor);
@@ -433,7 +438,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     }
   }
 
-  int64_t vectorization_factor = std::min(
+  params->vectorization_factor = std::min(
       max_vect_factor,
       vectorize_helper::getVectorizationFactor(
           runtime_info,
@@ -441,32 +446,41 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
           data_cache,
           break_point,
           logical_reorder_map));
-  // // when right size is small, decrease vectorization
-  // while(bdimx * 2 <= kThreadX && vectorization_factor / 2 >= 2 ) {
-  //   vectorization_factor /= 2;
-  //   bdimx *= 2;
-  // }
-  params->vectorization_factor = vectorization_factor;
-  // For 2D scheduler, try to avoid undivisible split by adjust bdimx, e.g. when
-  // right elem count is 1280, vectorized by 8, up to now, 2 blocks each with
-  // 128 threads is used, divisible split is achived if use 1 block with 160
-  // threads (160 x 8 = 1280). On H100, perf increased from 68% SOL to 91% SOL.
-  // Set a max bimx to leave at least 4 blocks per SM to switch between each
-  // other when one block is stalled.
-  if (gdim_right > 1 &&
-      right_elem_count % (bdimx * params->vectorization_factor) != 0) {
-    const int64_t max_bimdx = dev_prop->maxThreadsPerBlock / 4;
-    int64_t divisible_bimdx = right_elem_count / params->vectorization_factor;
-    divisible_bimdx = scheduler_utils::roundUpToN(divisible_bimdx, 32);
-    bdimx = divisible_bimdx > max_bimdx ? bdimx : divisible_bimdx;
-    gdim_right =
-        ceilDiv(right_elem_count / params->vectorization_factor, bdimx);
-  }
-  std::cout << "gdim_left: " << gdim_left << std::endl;
-  std::cout << "gdim_right: " << gdim_right << std::endl;
 
-  params->unroll_factor = scheduler_utils::safeDiv(
+  // limit unroll factor when n_elems is small (e.g. less than 16K x 4K on H100)
+  // to use at least 8 waves to benefit from Thread-Level-Parallelism. Ideally,
+  // target wave depends on hardware, when computation latency is close to
+  // memory latency a smaller wave can be used.
+  const int64_t target_waves = 8L;
+  int64_t max_block_per_sm =
+      (int64_t)dev_prop->maxThreadsPerMultiProcessor / kThreadX;
+  int64_t total_blocks = break_point > 0
+      ? gdim_left * gdim_right
+      : ceilDiv(n_elems / max_vect_factor, kThreadX);
+  int64_t n_waves_wo_unroll =
+      ceilDiv(total_blocks, max_block_per_sm * device_multiprocessor_count);
+  int64_t n_elems_limited_unroll = ceilDiv(n_waves_wo_unroll, target_waves);
+  int64_t resource_limited_unroll = scheduler_utils::safeDiv(
       max_vect_unroll_factor, params->vectorization_factor);
+  // don't unroll if unroll is input size limited and split is not divisible
+  if (n_elems_limited_unroll < resource_limited_unroll) {
+    bool divisible_split = break_point > 0
+        ? (right_elem_count % (params->vectorization_factor * bdimx) == 0)
+        : (n_elems % (params->vectorization_factor * kThreadX) == 0);
+    n_elems_limited_unroll = divisible_split ? n_elems_limited_unroll : 1;
+  }
+  std::cout << "n_elems_limited_unroll: " << n_elems_limited_unroll
+            << ", resource limited unroll: " << resource_limited_unroll
+            << std::endl;
+  int64_t target_unroll_factor =
+      std::min(n_elems_limited_unroll, resource_limited_unroll);
+
+  // int64_t =scheduler_utils::safeDiv(
+  //       max_vect_unroll_factor, params->vectorization_factor);
+
+
+  params->unroll_factor_outer = 2;
+  params->unroll_factor_inner = 3;
 
   NVF_ERROR(right_elem_count > 0 || break_point == 0);
   NVF_ERROR(!(bdimy > 1 && gdim_right > 1));
@@ -489,7 +503,8 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
             << "num_elems: " << n_elems << "\n"
             << "elem_counts: " << elem_counts << "\n"
             << "max_input_dtype_size: " << max_input_dtype_size << "\n"
-            << "unroll_factor: " << params->unroll_factor << std::endl
+            << "unroll_factor_outer: " << params->unroll_factor_outer
+            << std::endl
             << "vectorize_factor: " << params->vectorization_factor << std::endl
             << "\n"
             << "logical_reorder_map: ";
@@ -780,7 +795,9 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     reference_tv->reorder({{lhs_i, 0}, {-1, 1}});
 
     // vectorization without unroll
-    if (pparams->unroll_factor == 1 && pparams->vectorization_factor > 1) {
+    if (pparams->unroll_factor_outer == 1 &&
+        pparams->unroll_factor_inner == 1 &&
+        pparams->vectorization_factor > 1) {
       reference_tv->split(1, pparams->vectorization_factor);
       reference_tv->split(1, NamedScalar::getParallelDim(ParallelType::TIDx));
       reference_tv->split(0, 1);
@@ -803,14 +820,24 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
       reference_tv->split(1, NamedScalar::getParallelDim(ParallelType::TIDx));
       // [outer | i-remainder, TIDx, Vect]
 
-      reference_tv->split(0, pparams->unroll_factor);
-      // [o-remainder, Unroll| i-remainder, TIDx, Vect]
+      std::cout << "reference_tv: " << reference_tv->toString() << std::endl;
+      if (pparams->unroll_factor_outer > 1) {
+        reference_tv->split(0, pparams->unroll_factor_outer);
+      std::cout << "reference_tv: " << reference_tv->toString() << std::endl;
+      }
+      if (pparams->unroll_factor_inner > 1) {
+        reference_tv->split(-3, pparams->unroll_factor_inner);
+      std::cout << "reference_tv: " << reference_tv->toString() << std::endl;
+      }
+      // [o-remainder, o-Unroll| i-remainder, i-Unroll, TIDx, Vect]
 
       reference_tv->split(0, 1);
-      // [o-remainder, Unswitch, Unroll | i-remainder, TIDx, Vect]
+      // [o-remainder, Unswitch, o-Unroll| i-remainder, i-Unroll, TIDx, Vect]
 
-      reference_tv->reorder({{3, 1}});
-      // [o-remainder, i-remainder, Unswitch, Unroll, TIDx, Vect]
+      int i_remainder_pos = pparams->unroll_factor_outer > 1 ? 3 : 2;
+      reference_tv->reorder({{i_remainder_pos, 1}});
+      // [o-remainder, i-remainder, Unswitch, o-Unroll, i-Unroll, TIDx, Vect]
+      std::cout << "reference_tv: " << reference_tv->toString() << std::endl;
 
       reference_tv->axis(2)->parallelize(ParallelType::Unswitch);
       // Here we do not set axis(3)->parallelize(Unroll) because we do not want
@@ -818,11 +845,13 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
       // propagation process into two steps:
       // step 1: inline at the unswitch position for cached inputs and outputs
       // step 2: inline at the inner most dim for the rest of the graph
-      reference_tv->axis(4)->parallelize(ParallelType::TIDx);
+      int tidx_pos = pparams->vectorization_factor > 1 ? -2 : -1;
+      reference_tv->axis(tidx_pos)->parallelize(ParallelType::TIDx);
       if (pparams->vectorization_factor > 1) {
-        vectorize_id = reference_tv->axis(5);
+        vectorize_id = reference_tv->axis(-1);
       }
-      // [o-remainder, i-remainder, Unswitch, Unroll, TIDx, Vect]
+      std::cout << "reference_tv: " << reference_tv->toString() << std::endl;
+      // [o-remainder, i-remainder, Unswitch, o-Unroll, i-Unroll, TIDx, Vect]
     }
 
     // Move out of the way to furthest left point
@@ -899,7 +928,8 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     // unmerged...]
     reference_tv->reorder({{-1, 0}});
 
-    if (pparams->unroll_factor == 1 && pparams->vectorization_factor > 1) {
+    if (pparams->unroll_factor_inner == 1 &&
+        pparams->vectorization_factor > 1) {
       // Vectorize
       reference_tv->split(0, pparams->vectorization_factor);
       // Unswitch
@@ -911,7 +941,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
       reference_tv->axis(1)->parallelize(ParallelType::TIDx);
       reference_tv->axis(2)->parallelize(ParallelType::Unswitch);
       // Vectorization are propagated separately
-      vectorize_id = reference_tv->axis(3);
+      vectorize_id = reference_tv->axis(-1);
 
       //[BIDx, TIDx, Unswitch, Vectorization]
       // To make consistent with unrolling:
@@ -925,7 +955,9 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
       // Threads
       reference_tv->split(0, kThreadX);
       // Unroll
-      reference_tv->split(0, pparams->unroll_factor);
+      if (pparams->unroll_factor_inner > 1) {
+        reference_tv->split(0, pparams->unroll_factor_inner);
+      }
       // Unswitch
       reference_tv->split(0, 1);
 
@@ -938,9 +970,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
       // step 1: inline at the unswitch position for cached inputs and outputs
       // step 2: inline at the inner most dim for the rest of the graph
       reference_tv->axis(3)->parallelize(ParallelType::TIDx);
-      if (pparams->vectorization_factor > 1) {
-        vectorize_id = reference_tv->axis(4);
-      }
+      vectorize_id = reference_tv->axis(-1);
     }
     unswitch_pos = 2;
   }

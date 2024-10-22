@@ -695,15 +695,17 @@ TEST_F(PointwiseTest, UnrollOnTopOfVectorize) {
 
   // modify heuristics to enforce unroll on top of vectorization
   pparams->vectorization_factor = 4;
-  pparams->unroll_factor = 2;
+  pparams->unroll_factor_outer = 2;
+  pparams->unroll_factor_inner = 2;
 
   // schedule, compile, run, validate
   scheduler_instance->schedule(fusion.get(), pparams);
+  fusion->printMath();
   FusionExecutor fe;
   fe.compileFusion(fusion.get(), runtime_inputs, pparams->lparams);
   auto cg_outputs = fe.runFusion(runtime_inputs, pparams->lparams);
   const auto& lparams = fe.lastLaunchParams();
-  ASSERT_EQ(lparams.gdimy(), dim0 / pparams->unroll_factor);
+  ASSERT_EQ(lparams.gdimy(), dim0 / pparams->unroll_factor_outer);
   testValidate(fusion.get(), cg_outputs, runtime_inputs, __LINE__, __FILE__);
 }
 } // namespace nvfuser
