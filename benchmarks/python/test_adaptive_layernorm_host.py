@@ -63,8 +63,9 @@ def adaptive_layernorm_fwd_fusion(fd: FusionDefinition, eps: float = 1e-6) -> No
     fd.add_output(T59)
 
 
-# This benchmark is to particularly track nvFuser host overhead
-# for shape change (dynamic shape support) in the adapative layernorm case.
+# This benchmark is to particularly track nvFuser host overhead for shape
+# change (dynamic shape support) in the adapative layernorm case. Running a
+# new shape on this fusion without recompiling a new kernel can have significant overhead.
 @pytest.mark.parametrize("host_bench_mode", ["compile", "steady", "dynamic"])
 def test_adaptive_layernorm_fwd_benchmark(
     benchmark,
