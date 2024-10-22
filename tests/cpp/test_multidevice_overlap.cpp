@@ -799,4 +799,121 @@ TEST_F(AllgatherOverlapTest, AllgatherBasedPipeliningATenImplementation) {
   }
 }
 
+TEST_F(AllgatherOverlapTest, AllgatherBasedPipeliningHostIrImplementation) {
+  auto hic = std::make_unique<hir::HostIrContainer>();
+  FusionGuard::setCurFusion(hic.get());
+
+  TensorView* tva = makeSymbolicTensor(ta_.dim());
+  TensorView* tva_allgathered = makeSymbolicTensor(ta_allgathered_.dim());
+  TensorView* tvb = makeSymbolicTensor(tb_unsharded_.dim());
+  TensorView* tvc = makeSymbolicTensor(tc_unsharded_.dim());
+  hic->addInput(tva);
+  hic->addInput(tvb);
+  hic->addInput(tvc);
+  hic->addInput(tva_allgathered);
+
+  auto* j =
+      IrBuilder::create<Val>(DataType::Index); // running index of the for-loop
+  auto* start = hic->zeroVal();
+  auto* stop = IrBuilder::create<Val>(params.S, DataType::Index);
+  auto* step = hic->oneVal();
+  auto* for_loop = IrBuilder::create<ForLoop>(
+      /*IterDomain=*/tva->axis(0),
+      /*index=*/j,
+      start,
+      stop,
+      step,
+      /*vectorize=*/false,
+      /*vectorize_shift=*/nullptr,
+      /*unroll_required=*/false,
+      CircularBufferLoopStage::NotApplicable,
+      /*circular_buffer_loop_stage_depth=*/0);
+
+  auto* stream_index = mod(j, IrBuilder::create<Val>(params.number_of_streams));
+  auto* set_stream = IrBuilder::create<hir::SetCurrentStream>(
+      IrBuilder::create<hir::Stream>(stream_index));
+
+  TensorView* tva_j = select(tva, 0, j);
+  TensorView* tva_allgathered_j = select(tva_allgathered, 0, j);
+
+  // Setting the DeviceMesh of the communication's I/O is artificial but
+  // required at this point
+  DeviceMesh full_mesh(all_devices_);
+  tva_allgathered_j->setDeviceMesh(full_mesh);
+  tva_j->setDeviceMesh(full_mesh);
+
+  auto* communication = IrBuilder::create<Communication>(
+      CommunicationType::Allgather,
+      /*out=*/tva_allgathered_j,
+      /*in=*/tva_j,
+      /*team=*/all_devices_);
+  auto* wait = IrBuilder::create<hir::Wait>(communication);
+
+  TensorView* tvc_j = select(tvc, 0, j);
+  auto* mm = IrBuilder::create<MatmulOp>(tvc_j, tva_allgathered_j, tvb);
+
+  // Slice and MatmulOp are present directly as Host IRs in the HostIrContainer.
+  // It means that they are going to be executed at the host level (actually,
+  // through ExpressionEvaluator). Alternatively, they could be embedded in a
+  // separate Fusion and be added to the HostIrConainter through
+  // PostOnStream(HostUnit(.)), in which case the ops would be codegen-ed and
+  // compiled.
+  std::vector<Expr*> loop_body = {
+      set_stream,
+      tva_j->definition(),
+      tva_allgathered_j->definition(),
+      communication,
+      wait,
+      tvc_j->definition(),
+      mm};
+  for (Expr* expr : loop_body) {
+    for_loop->body().push_back(expr);
+  }
+
+  hic->pushBackTopLevelExprs(for_loop);
+
+  // Synchronize all streams
+  auto* i_stream =
+      IrBuilder::create<Val>(DataType::Index); // running index of the for-loop
+  auto* start_stream = hic->zeroVal();
+  auto* stop_stream =
+      IrBuilder::create<Val>(params.number_of_streams, DataType::Index);
+  auto* step_stream = hic->oneVal();
+  auto* for_loop_stream = IrBuilder::create<ForLoop>(
+      /*IterDomain=*/makeContigConcreteTensor({params.number_of_streams})
+          ->axis(0),
+      /*index=*/i_stream,
+      start_stream,
+      stop_stream,
+      step_stream,
+      /*vectorize=*/false,
+      /*vectorize_shift=*/nullptr,
+      /*unroll_required=*/false,
+      CircularBufferLoopStage::NotApplicable,
+      /*circular_buffer_loop_stage_depth=*/0);
+  auto* sync_stream = IrBuilder::create<hir::Synchronize>(
+      IrBuilder::create<hir::Stream>(i_stream));
+  for_loop_stream->body().push_back(sync_stream);
+  hic->pushBackTopLevelExprs(for_loop_stream);
+
+  // The following line is artificial but necessary to make
+  // tva_j->isProducerOf(tvc_j) == true
+  hic->addOutput(tvc_j);
+
+  hir::HostIrExecutor hie(std::move(hic), communicator_);
+
+  for ([[maybe_unused]] const auto& _ :
+       c10::irange(params.number_of_iterations)) {
+    initializeIO();
+    std::unordered_map<Val*, c10::IValue> inputs = {
+        {tva, ta_},
+        {tva_allgathered, ta_allgathered_},
+        {tvb, tb_unsharded_},
+        {tvc, tc_unsharded_}};
+
+    hie.runWithInput(std::move(inputs));
+    validate();
+  }
+}
+
 } // namespace nvfuser
