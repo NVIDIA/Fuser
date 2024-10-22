@@ -165,13 +165,14 @@ bool haveDifferentShardings(
       continue;
     }
 
-    auto c_id = i->second;
-    if (p_id->isBroadcast() || c_id->isBroadcast()) {
-      // TODO: This seems to just be for a producer
-      // Broadcast dimensions aren't materialized at this point.
+    if (p_id->isBroadcast()) {
+      // Broadcast axes do not affect the sharding.
+      // This avoids marking expressions where p_id is a broadcast and c_id is a
+      // device parallelized (e.g. [bi0 ...] + [DIDx(i0)]) as resharding
       continue;
     }
 
+    auto c_id = i->second;
     if (p_id->getParallelType() != c_id->getParallelType() &&
         (p_id->isDeviceDim() || c_id->isDeviceDim())) {
       // Mismatch found
@@ -358,9 +359,9 @@ void reorderDIDToFront(TensorView* tv) {
   }
 
   std::cout << "Reorder before " << tv->toString() << std::endl;
-  for (const auto & [ key, value ] : order_map) {
+  for (const auto& [key, value] : order_map) {
     std::cout << key << ": " << value << std::endl;
-}
+  }
   tv->reorder(order_map);
   std::cout << "Reorder after " << tv->toString() << std::endl;
 }
