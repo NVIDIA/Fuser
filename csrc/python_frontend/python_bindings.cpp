@@ -699,6 +699,33 @@ void initNvFuserPythonBindings(PyObject* module) {
 
   // Matmul scheduler parameters
   INITPARAMS(matmul_config, MatmulParams)
+#define TILEPARAM(tile_name)                                                   \
+  matmul_config.def_property(                                                  \
+      #tile_name "_m",                                                         \
+      [](MatmulParams& self) { return self.tile_sizes.tile_name.m; },          \
+      [](MatmulParams& self, int64_t x) { self.tile_sizes.tile_name.m = x; }); \
+  matmul_config.def_property(                                                  \
+      #tile_name "_n",                                                         \
+      [](MatmulParams& self) { return self.tile_sizes.tile_name.n; },          \
+      [](MatmulParams& self, int64_t x) { self.tile_sizes.tile_name.n = x; }); \
+  matmul_config.def_property(                                                  \
+      #tile_name "_k",                                                         \
+      [](MatmulParams& self) { return self.tile_sizes.tile_name.k; },          \
+      [](MatmulParams& self, int64_t x) { self.tile_sizes.tile_name.n = x; });
+  TILEPARAM(cta_tile)
+  TILEPARAM(warp_tile)
+#undef TILEPARAM
+#define CBPARAM(type, name)                                                 \
+  matmul_config.def_property(                                               \
+      #name,                                                                \
+      [](MatmulParams& self) { return self.circular_buffer_options.name; }, \
+      [](MatmulParams& self, type x) {                                      \
+        self.circular_buffer_options.name = x;                              \
+      });
+  CBPARAM(bool, circular_buffer_smem_write)
+  CBPARAM(bool, circular_buffer_smem_read)
+  CBPARAM(int, smem_circular_buffer_stage)
+#undef CBPARAM
   PARAM(matmul_config, MatmulParams, int, splitk_factor)
 
 #undef PARAM
@@ -3725,6 +3752,18 @@ void initNvFuserPythonBindings(PyObject* module) {
         HeuristicParams* parameters =
             sched->computeHeuristics(SchedulerType::PointWise);
         return *parameters->as<PointwiseParams>();
+      },
+      py::return_value_policy::reference);
+  nvf_sched.def(
+      "compute_matmul_heuristics",
+      [](FusionDefinition::SchedOperators& self) -> MatmulParams& {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        UserSchedule* sched = self.fusion_definition->userSchedule();
+        HeuristicParams* parameters =
+            sched->computeHeuristics(SchedulerType::Matmul);
+        return *parameters->as<MatmulParams>();
       },
       py::return_value_policy::reference);
 }
