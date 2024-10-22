@@ -2306,10 +2306,7 @@ void IndexLowering::handle(const PadOp* pad) {
 
   pred = GpuLower::current()->commonScalarMap().hoistScalar(pred, for_loops_);
 
-  // pushBack(IrBuilder::create<TernaryOp>(
-  //     TernaryOpType::Where, out, pred, in, pad_val));
-  // GpuLower::current()->propagateExprInfo(pad, back());
-
+#if 0
   const auto prev_scope = active_scope_;
   auto new_ite = IrBuilder::create<kir::IfThenElse>(IrBuilder::create<kir::Predicate>(pred));
   pushBack(new_ite);
@@ -2320,6 +2317,11 @@ void IndexLowering::handle(const PadOp* pad) {
   active_scope_ = prev_scope;
 
   GpuLower::current()->propagateExprInfo(pad, back());
+#else
+  pushBack(IrBuilder::create<TernaryOp>(
+      TernaryOpType::Where, out, pred, in, pad_val));
+  GpuLower::current()->propagateExprInfo(pad, back());
+#endif
 }
 
 void IndexLowering::handle(const SliceOp* slice) {

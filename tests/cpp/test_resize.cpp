@@ -4066,8 +4066,8 @@ TEST_F(ResizeTest, VectorizePlayground) {
 
   tv1->axis(0)->parallelize(ParallelType::BIDx);
   tv1->axis(1)->parallelize(ParallelType::TIDx);
-  // tv1->axis(2)->parallelize(ParallelType::Vectorize);
-  tv1->axis(2)->parallelize(ParallelType::Unroll);
+  tv1->axis(2)->parallelize(ParallelType::Vectorize);
+  // tv1->axis(2)->parallelize(ParallelType::Unroll);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
