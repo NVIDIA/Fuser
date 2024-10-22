@@ -516,7 +516,9 @@ void clearUnrollVectorizationAddGroupReduction(
   std::vector<TensorView*> rfactor_and_reduction_tvs = {
       reference_tv, reduction_tv};
   for (auto tv : rfactor_and_reduction_tvs) {
-    if (unroll_vectorizable_cached_tvs.count(tv) == 0) {
+    if (unroll_vectorizable_cached_tvs.count(tv) != 0) {
+      continue;
+    }
       for (const auto i : c10::irange(tv->nDims())) {
         auto id = tv->axis(i);
         if (use_grouped_reduction &&
