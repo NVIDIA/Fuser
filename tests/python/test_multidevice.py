@@ -710,7 +710,8 @@ def test_transformer_forward(mpi_test, benchmark):
     warmup_fn, benchmark_fn = get_benchmark_fns(lambda: fd.execute(ins))
 
     # Warm up and validate.
-    outs = warmup_fn()
+    for _ in range(5):
+        outs = warmup_fn()
     (
         layernorm0_mean,
         layernorm0_rstd,
@@ -1290,7 +1291,8 @@ def test_transformer_backward(mpi_test, benchmark):
 
     warmup_fn, benchmark_fn = get_benchmark_fns(lambda: fd.execute(ins))
 
-    outs = warmup_fn()
+    for _ in range(5):
+        outs = warmup_fn()
     (
         mlp_linear1_weight_grad,
         mlp_linear1_bias_grad,

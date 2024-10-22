@@ -65,6 +65,7 @@ def test_transformer_layer(setup_process_group, benchmark, compute_type):
         hidden_size,
         ffn_hidden_size,
         num_heads,
+        attn_input_format="bshd",
         set_parallel_mode=True,
         tp_group=dist.group.WORLD,
     )
@@ -122,8 +123,9 @@ def test_transformer_layer(setup_process_group, benchmark, compute_type):
                     torch.cuda.cudart().cudaProfilerStop()
 
             # Warmup.
-            args, kwargs = setup_fn(False)
-            benchmark_fn(*args, **kwargs)
+            for _ in range(5):
+                args, kwargs = setup_fn(False)
+                benchmark_fn(*args, **kwargs)
 
             benchmark.pedantic(
                 benchmark_fn,
