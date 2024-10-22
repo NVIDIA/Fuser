@@ -84,3 +84,76 @@ def test_cpu_add():
         fusion_func(fd)
     nvf_out = fd.execute(inputs)
     torch.testing.assert_close(nvf_out[0], inputs[0] + inputs[1])
+
+
+# Test bcast to different extents, issue-3227.
+def test_bcast_different_extent():
+    def nvfuser_fusion(fd: FusionDefinition) -> None:
+        T0 = fd.define_tensor(
+            shape=[1, 4, 2, 3],
+            contiguity=[None, True, True, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[3, 2, 1, 0],
+        )
+        T1 = fd.define_tensor(
+            shape=[1, 5, 2, 3],
+            contiguity=[None, True, True, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[3, 2, 1, 0],
+        )
+        T2 = fd.define_tensor(
+            shape=[1, 2, 3],
+            contiguity=[None, True, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[2, 1, 0],
+        )
+        S1 = fd.define_scalar(1, dtype=DataType.Int)
+        S2 = fd.define_scalar(1, dtype=DataType.Int)
+        S3 = fd.define_scalar(2, dtype=DataType.Int)
+        S4 = fd.define_scalar(3, dtype=DataType.Int)
+        T3 = fd.ops.broadcast_in_dim(
+            T2, shape=[S1, S2, S3, S4], broadcast_dims=[1, 2, 3]
+        )
+        # bcast T2 to [1, 4, 2, 3]
+        S5 = fd.define_scalar(1, dtype=DataType.Int)
+        S6 = fd.define_scalar(4, dtype=DataType.Int)
+        S7 = fd.define_scalar(2, dtype=DataType.Int)
+        S8 = fd.define_scalar(3, dtype=DataType.Int)
+        T4 = fd.ops.broadcast_in_dim(
+            T3, shape=[S5, S6, S7, S8], broadcast_dims=[0, 1, 2, 3]
+        )
+        # bcast T2 to [1, 5, 2, 3]
+        S9 = fd.define_scalar(1, dtype=DataType.Int)
+        S10 = fd.define_scalar(5, dtype=DataType.Int)
+        S11 = fd.define_scalar(2, dtype=DataType.Int)
+        S12 = fd.define_scalar(3, dtype=DataType.Int)
+        T5 = fd.ops.broadcast_in_dim(
+            T3, shape=[S9, S10, S11, S12], broadcast_dims=[0, 1, 2, 3]
+        )
+        # add with T0
+        T6 = fd.ops.add(T4, T0)
+        # add with T1
+        T7 = fd.ops.add(T5, T1)
+        fd.add_output(T6)
+        fd.add_output(T7)
+
+    with FusionDefinition() as fd:
+        nvfuser_fusion(fd)
+
+    inputs = [
+        torch.rand(24, dtype=torch.float32, device="cuda:0").as_strided(
+            (1, 4, 2, 3), (24, 6, 3, 1)
+        ),
+        torch.rand(30, dtype=torch.float32, device="cuda:0").as_strided(
+            (1, 5, 2, 3), (30, 6, 3, 1)
+        ),
+        torch.rand(6, dtype=torch.float32, device="cuda:0").as_strided(
+            (1, 2, 3), (6, 3, 1)
+        ),
+    ]
+    nvf_out = fd.execute(inputs)
+    torch.testing.assert_close(nvf_out[0], inputs[0] + inputs[2])
+    torch.testing.assert_close(nvf_out[1], inputs[1] + inputs[2])
