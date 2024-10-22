@@ -103,7 +103,7 @@ class LoopDomainScheduler {
   LoopDomainScheduler(std::vector<IterDomain*> ref_loop_dom)
       : ref_loop_dom_(std::move(ref_loop_dom)) {
     NVF_ERROR(!ref_loop_dom_.empty());
-
+#if 0
     // For now, ref must not be a broadcast domain
     NVF_ERROR(
         std::none_of(
@@ -112,7 +112,7 @@ class LoopDomainScheduler {
             [](IterDomain* id) { return id->isBroadcast(); }),
         "Broadcast referene not supported: ",
         toDelimitedString(ref_loop_dom_));
-
+#endif
     Fusion* fusion = ref_loop_dom_.front()->fusion();
     id_model_ = std::make_unique<IdModel>(fusion, /*build_graphs=*/false);
     id_model_->buildExactGraph();

@@ -42,6 +42,11 @@ class DomainMap : public pointwise_utils::DomainMap {
     int64_t max_dims = -1;
     for (auto output_tv :
          ir_utils::filterByType<TensorView>(fusion_->outputs())) {
+      std::cerr << "findRef. " << output_tv->toString()
+                << ": isValidReference: " << isValidReference(output_tv)
+                << ", hasMinimum: "
+                << hasMinimumSize(output_tv, minimum_num_axes)
+                << ", !isInput:" << !output_tv->isFusionInput() << "\n";
       if (isValidReference(output_tv) &&
           hasMinimumSize(output_tv, minimum_num_axes) &&
           !output_tv->isFusionInput()) {
@@ -486,6 +491,7 @@ bool PointWiseScheduler::canScheduleRunTime(
     SchedulerRuntimeInfo& runtime_info,
     HeuristicDataCache* data_cache) {
   FUSER_PERF_SCOPE("PointWiseScheduler::canScheduleRunTime");
+  std::cerr << "PW: canScheduleRunTime\n";
   auto can_schedule_transpose_entry =
       HeuristicDataCacheEntry<HeuristicCompileTime::CanScheduleTranspose>(
           data_cache, [fusion]() {
@@ -496,7 +502,7 @@ bool PointWiseScheduler::canScheduleRunTime(
     return !TransposeScheduler().canScheduleRunTime(
         fusion, runtime_info, data_cache);
   }
-
+  std::cerr << "PW: canScheduleRunTime done\n";
   return true;
 }
 
@@ -508,6 +514,11 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   // Make sure we don't have global memory set on intermediate tensors from
   // fusion segmentation
   scheduler_utils::clearMemorySpace(fusion);
+
+  std::cout << std::endl;
+  std::cerr << "schedulePointwise\n";
+  fusion->printMath();
+  std::cout << std::endl;
 
   // Cache inputs
   auto cached_inputs = scheduler_utils::cacheInputs(fusion, true);

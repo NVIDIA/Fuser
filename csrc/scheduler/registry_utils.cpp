@@ -201,6 +201,12 @@ bool rejectScheduleForMemoryPromotion(
           }
         }
       }
+      if (expr->isA<SliceOp>()) {
+        scheduler_debug_utils::canScheduleRejectReason(
+            scheduler_type,
+            "SliceOp not supported unless memory promotion is enabled");
+        return true;
+      }
       if (rejectScheduleFusionInputRequirement(expr, scheduler_type)) {
         return true;
       }

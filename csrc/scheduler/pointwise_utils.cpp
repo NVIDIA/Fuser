@@ -130,6 +130,8 @@ bool DomainMap::areAllInputIdsMappedTo(TensorView* input_tv, TensorView* tv)
         ca_map_.getConcreteMappedID(in_id, IdMappingMode::PERMISSIVE);
 
     if (!concrete->isBroadcast() && !in_id->isReduction()) {
+      std::cerr << "In ID: " << in_id->toString()
+                << ", concrete: " << concrete->toString() << "\n";
       in_concrete_ids.insert(concrete);
     }
   }
@@ -139,6 +141,10 @@ bool DomainMap::areAllInputIdsMappedTo(TensorView* input_tv, TensorView* tv)
   eraseifInputMappedThroughRootDomainAndIndexing(
       in_concrete_ids, tv->getLogicalDomain());
 
+  if (!in_concrete_ids.empty()) {
+    std::cerr << "Remaining IDs: " << toDelimitedString(in_concrete_ids)
+              << "\n";
+  }
   return in_concrete_ids.empty();
 }
 
@@ -242,6 +248,9 @@ bool DomainMap::isValidReference(TensorView* tv) const {
     // TODO: Same backward traversal from tv is done for all input
     // tvs. Consider doing the analysis one for all inputs
     if (!areAllInputIdsMappedTo(input_tv, tv)) {
+      std::cerr << "Not all of the IDs of Input are mapped for "
+                << tv->toString() << ", input: " << input_tv->toString()
+                << "\n";
       return false;
     }
   }

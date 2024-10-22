@@ -53,6 +53,8 @@ bool propagateResizeToCatInputs(CatOp* cat_op) {
 
   DisjointSets<TensorView*> input_sets;
 
+  std::cerr << "propagateResizeToCatInputs: " << cat_op->toString();
+
   for (auto inp_tv : ir_utils::filterByType<TensorView>(cat_op->inputs())) {
     std::cerr << "Cat input: " << inp_tv->toString() << "\n";
     if (input_sets.mappingExists(inp_tv)) {
