@@ -317,6 +317,8 @@ std::vector<TensorView*> mha(
   auto dtype = w0->dtype();
 
   TensorView* linear0 = linear(x, w0, b0);
+  // Note: Remove linear0 and qkv[i] casts
+  // when https://github.com/NVIDIA/Fuser/issues/3194 is resolved
   TensorView* linear0_temp = castOp(DataType::Float, linear0);
   // Forming the q,k,v vectors:
   TensorView* qkv_cat =
