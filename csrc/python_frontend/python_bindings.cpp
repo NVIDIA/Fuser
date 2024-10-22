@@ -732,7 +732,17 @@ void initNvFuserPythonBindings(PyObject* module) {
   PARAM(matmul_config, MatmulParams, bool, use_smem_epilogue)
   PARAM(matmul_config, MatmulParams, bool, promote_prologue_smem_reuse)
   PARAM(matmul_config, MatmulParams, int, splitk_factor)
-  // TODO: supported_vec_size, macro, cta_order
+  py::enum_<MatmulParams::TileRasterizationOrder>(
+      nvfuser, "MatmulTileRasterizationOrder")
+      .value("ColumnMajor", MatmulParams::TileRasterizationOrder::ColumnMajor)
+      .value("RowMajor", MatmulParams::TileRasterizationOrder::RowMajor);
+  matmul_config.def_property(
+      "cta_order",
+      [](MatmulParams& self) { return self.cta_order; },
+      [](MatmulParams& self, MatmulParams::TileRasterizationOrder cta_order_) {
+        self.cta_order = cta_order_;
+      });
+  // TODO: macro
 
 #undef PARAM
 #undef INITPARAMS
