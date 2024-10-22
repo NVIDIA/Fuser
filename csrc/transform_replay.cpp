@@ -1037,7 +1037,7 @@ void TransformPropagator::propagateC2P(TensorView* from, TensorView* to) {
   // Note on resize: When propagating transformations, resize is just
   // skipped, or forwarded, so the matching here is done by skipping it.
   int64_t new_pos =
-      TransformReplay::getMatchedLeafPosWithoutReplayPasC(to, from, pos, false);
+      TransformReplay::getMatchedLeafPosWithoutReplayPasC(to, from, pos, true);
   bool debug_print = isDebugDumpEnabled(DebugDumpOption::TransformPropagator);
   if (debug_print) {
     debug() << "TransformPropagator::propagateC2P" << std::endl;
@@ -1046,10 +1046,7 @@ void TransformPropagator::propagateC2P(TensorView* from, TensorView* to) {
   }
   if (new_pos < 0) {
     auto replay = TransformReplay::replayPasC(
-        to,
-        from,
-        pos,
-        TransformReplayOptions().skipTargetSwizzle().replayResize());
+        to, from, pos, TransformReplayOptions().skipTargetSwizzle());
     NVF_ERROR(
         validateDomain(to, replay.first),
         "Tried to set the domain of ",
@@ -1072,7 +1069,7 @@ void TransformPropagator::propagateP2C(TensorView* from, TensorView* to) {
   int64_t pos = replayed_pos_.at(from);
   // See note [Using multiple TransformPropagators]
   int64_t new_pos =
-      TransformReplay::getMatchedLeafPosWithoutReplayCasP(to, from, pos, false);
+      TransformReplay::getMatchedLeafPosWithoutReplayCasP(to, from, pos, true);
   bool debug_print = isDebugDumpEnabled(DebugDumpOption::TransformPropagator);
   if (debug_print) {
     debug() << "TransformPropagator::propagateP2C" << std::endl;
@@ -1081,10 +1078,7 @@ void TransformPropagator::propagateP2C(TensorView* from, TensorView* to) {
   }
   if (new_pos < 0) {
     auto replay = TransformReplay::replayCasP(
-        to,
-        from,
-        pos,
-        TransformReplayOptions().skipTargetSwizzle().replayResize());
+        to, from, pos, TransformReplayOptions().skipTargetSwizzle());
     NVF_ERROR(
         validateDomain(to, replay.first),
         "Tried to set the domain of ",
@@ -1141,7 +1135,7 @@ void MostInlinedTransformPropagator::propagateC2P(
   int64_t pos = (int64_t)from->nDims();
   // See note [Using multiple TransformPropagators]
   int64_t new_pos =
-      TransformReplay::getMatchedLeafPosWithoutReplayPasC(to, from, pos, false);
+      TransformReplay::getMatchedLeafPosWithoutReplayPasC(to, from, pos, true);
   bool debug_print = isDebugDumpEnabled(DebugDumpOption::TransformPropagator);
   if (debug_print) {
     debug() << "MostInlinedTransformPropagator::propagateC2P" << std::endl;
@@ -1150,10 +1144,7 @@ void MostInlinedTransformPropagator::propagateC2P(
   }
   if (new_pos < 0) {
     auto replay = TransformReplay::replayPasC(
-        to,
-        from,
-        pos,
-        TransformReplayOptions().skipTargetSwizzle().replayResize());
+        to, from, pos, TransformReplayOptions().skipTargetSwizzle());
     NVF_ERROR(
         validateDomain(to, replay.first),
         "Tried to set the domain of ",
@@ -1185,10 +1176,7 @@ void MostInlinedTransformPropagator::propagateP2C(
   }
   if (new_pos < 0) {
     auto replay = TransformReplay::replayCasP(
-        to,
-        from,
-        pos,
-        TransformReplayOptions().skipTargetSwizzle().replayResize());
+        to, from, pos, TransformReplayOptions().skipTargetSwizzle());
     NVF_ERROR(
         validateDomain(to, replay.first),
         "Tried to set the domain of ",
