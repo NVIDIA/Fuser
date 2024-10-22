@@ -18,6 +18,7 @@
 #include <runtime/fusion_executor_cache.h>
 #include <scheduler/tools/inlining.h>
 #include <scheduler/tools/loop_domain_scheduler.h>
+#include <scheduler/tools/resize_utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
@@ -4165,6 +4166,81 @@ TEST_F(ResizeTest, CatScheduledLikeConsumer2) {
   auto ref = at::cat({t0, t1}, 1);
 
   NVF_CHECK(ref.equal(cg_outputs[0]));
+}
+
+TEST_F(ResizeTest, CatScheduledLikeConsumer3) {
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape0({4, 32});
+  std::vector<int64_t> shape1({4, 32});
+
+  auto tv0 = makeContigConcreteTensor(shape0);
+  fusion.addInput(tv0);
+
+  auto tv1 = makeContigConcreteTensor(shape1);
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv0);
+  auto tv3 = set(tv1);
+
+  auto tv4 = cat({tv2, tv3}, 1);
+  fusion.addOutput(tv4);
+
+  scheduler_tools::propagateResizeToCatInputs(tv4->definition()->as<CatOp>());
+
+  fusion.print();
+
+  for (auto tv : fusion.allTvs()) {
+    tv->split(-1, 4);
+    if (tv == tv2 || tv == tv3) {
+      tv->axis(-1)->parallelize(ParallelType::Vectorize);
+    }
+    tv->axis(-2)->parallelize(ParallelType::TIDx);
+  }
+
+  inlineMost();
+
+  fusion.print();
+  fusion.printKernel();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto t0 = at::randn(shape0, options);
+  auto t1 = at::randn(shape1, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto ref = at::cat({t0, t1}, 1);
+
+  NVF_CHECK(ref.equal(cg_outputs[0]));
+}
+
+TEST_F(ResizeTest, CatScheduledLikeConsumerInvalid) {
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape0({4, 32});
+
+  auto tv0 = makeContigConcreteTensor(shape0);
+  fusion.addInput(tv0);
+
+  auto tv2 = set(tv0);
+  auto tv3 = set(tv0);
+
+  auto tv4 = cat({tv2, tv3}, 1);
+  fusion.addOutput(tv4);
+
+  scheduler_tools::propagateResizeToCatInputs(tv4->definition()->as<CatOp>());
 }
 
 } // namespace nvfuser
