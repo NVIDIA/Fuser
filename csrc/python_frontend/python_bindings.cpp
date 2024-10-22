@@ -207,6 +207,34 @@ Tensor reshape_fn(
   return output;
 }
 
+template <class ShapeType>
+Tensor pad_fn(
+    FusionDefinition::Operators& self,
+    Tensor arg,
+    ShapeType generic_pad_widths,
+    std::optional<Scalar> value) {
+  NVF_CHECK(self.validUse(), "Attempting to add to a completed definition!");
+
+  FusionDefinition* fd = self.fusion_definition;
+  Vector pad_widths =
+      SequenceAsVector(generic_pad_widths, *fd, /*shape_check=*/false);
+
+  NVF_CHECK(
+      pad_widths.size <= 2 * arg.dims,
+      "Number of pad widths must be at most twice the input dimension");
+
+  State value_state = value.has_value() ? fd->recordingState(value.value()())
+                                        : State(0, serde::StateType::None);
+
+  Tensor output = fd->defineTensor(arg.dims);
+  fd->defineRecord(new PadOpRecord(
+      {fd->recordingState(arg()),
+       fd->recordingState(pad_widths()),
+       value_state},
+      {fd->recordingState(output())}));
+  return output;
+}
+
 template <class ShapeType, serde::RecordType RType>
 Tensor random_dist_op_fn(
     FusionDefinition::Operators& self,
@@ -1118,13 +1146,20 @@ void initNvFuserPythonBindings(PyObject* module) {
 
             verifyShape(shape);
 
-            std::vector<std::optional<bool>> contiguity_vec;
-            contiguity_vec.reserve(shape.size());
-            for (const auto dim_size : shape) {
-              if (dim_size == 1) {
-                contiguity_vec.emplace_back(std::nullopt);
+            const auto rank = static_cast<int64_t>(shape.size());
+            std::vector<std::optional<bool>> contiguity_vec(rank);
+            // This duplicates some code around
+            // https://github.com/NVIDIA/Fuser/blob/b60f2341bbe2ec276b1fe60f4f25a4a5b093faa9/csrc/python_frontend/fusion_record.h#L1370.
+            // Alternatively, I can extend TensorRecord to allow contiguity as
+            // a boolean. If you think it's worth doing, I'm happy to pursue it
+            // in a separate PR.
+            for (const auto index : c10::irange(rank)) {
+              const auto contig_index =
+                  stride_order.empty() ? index : rank - 1 - stride_order[index];
+              if (shape[index] == 1) {
+                contiguity_vec[contig_index] = std::nullopt;
               } else {
-                contiguity_vec.emplace_back(contiguity);
+                contiguity_vec[contig_index] = contiguity;
               }
             }
 
@@ -1503,7 +1538,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_UNARY_OP_SPECIAL("neg", neg)
 #undef NVFUSER_PYTHON_BINDING_UNARY_OP_SPECIAL
 
-#define NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY(op_str, op_name)         \
+#define NVFUSER_PYTHON_BINDING_MATMUL_OP(op_str, op_name)                      \
   nvf_ops.def(                                                                 \
       op_str,                                                                  \
       [](FusionDefinition::Operators& self,                                    \
@@ -1513,7 +1548,15 @@ void initNvFuserPythonBindings(PyObject* module) {
         NVF_CHECK(                                                             \
             self.validUse(), "Attempting to add to a completed definition!");  \
         FusionDefinition* fd = self.fusion_definition;                         \
-        Tensor output = fd->defineTensor(arg1.dims);                           \
+        /* Per https://pytorch.org/docs/stable/generated/torch.matmul.html */  \
+        size_t out_ndims;                                                      \
+        if (arg1.dims <= 2 && arg2.dims <= 2) {                                \
+          out_ndims = arg1.dims + arg2.dims - 2;                               \
+        } else {                                                               \
+          /* batch matmul */                                                   \
+          out_ndims = std::max(arg1.dims, arg2.dims);                          \
+        }                                                                      \
+        Tensor output = fd->defineTensor(out_ndims);                           \
         fd->defineRecord(new OpRecord<TensorView*, TensorView*, TensorView*>(  \
             {fd->recordingState(arg1()), fd->recordingState(arg2())},          \
             {fd->recordingState(output())},                                    \
@@ -1523,8 +1566,8 @@ void initNvFuserPythonBindings(PyObject* module) {
         return output;                                                         \
       },                                                                       \
       py::return_value_policy::reference);
-  NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY("matmul", matmul)
-#undef NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY
+  NVFUSER_PYTHON_BINDING_MATMUL_OP("matmul", matmul)
+#undef NVFUSER_PYTHON_BINDING_MATMUL_OP
 
   nvf_ops.def(
       "linear",
@@ -2686,6 +2729,30 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("dim"),
       py::return_value_policy::reference);
   nvf_ops.def(
+      "select",
+      [](FusionDefinition::Operators& self,
+         Tensor arg,
+         Scalar index,
+         int64_t dim) -> Tensor {
+        FUSER_PERF_SCOPE("Operators.select");
+        NVF_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        Tensor output = fd->defineTensor(arg.dims);
+        fd->defineRecord(new SelectOpRecord(
+            {
+                fd->recordingState(arg()),
+                fd->recordingState(index()),
+            },
+            {fd->recordingState(output())},
+            dim));
+        return output;
+      },
+      py::arg("arg"),
+      py::arg("index"),
+      py::arg("dim"),
+      py::return_value_policy::reference);
+  nvf_ops.def(
       "gather",
       [](FusionDefinition::Operators& self,
          Tensor arg1,
@@ -2749,27 +2816,21 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::return_value_policy::reference);
   nvf_ops.def(
       "pad",
-      [](FusionDefinition::Operators& self,
-         Tensor arg,
-         std::vector<int64_t>& pad_widths,
-         std::optional<Scalar> value) -> Tensor {
-        FUSER_PERF_SCOPE("Operators.pad");
-        NVF_CHECK(
-            self.validUse(), "Attempting to add to a completed definition!");
-        NVF_CHECK(
-            pad_widths.size() <= 2 * arg.dims,
-            "Number of pad widths must be at most twice the input dimension");
-        FusionDefinition* fd = self.fusion_definition;
-        Tensor output = fd->defineTensor(arg.dims);
-        auto value_state = value.has_value()
-            ? fd->recordingState(value.value()())
-            : State(0, serde::StateType::None);
-        fd->defineRecord(new PadOpRecord(
-            {fd->recordingState(arg()), value_state},
-            {fd->recordingState(output())},
-            std::move(pad_widths)));
-        return output;
-      },
+      pad_fn<Vector>,
+      py::arg("arg"),
+      py::arg("pad_widths"),
+      py::arg("value") = py::none(),
+      py::return_value_policy::reference);
+  nvf_ops.def(
+      "pad",
+      pad_fn<py::list>,
+      py::arg("arg"),
+      py::arg("pad_widths"),
+      py::arg("value") = py::none(),
+      py::return_value_policy::reference);
+  nvf_ops.def(
+      "pad",
+      pad_fn<py::tuple>,
       py::arg("arg"),
       py::arg("pad_widths"),
       py::arg("value") = py::none(),
@@ -3099,7 +3160,30 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("correction") = 1,
       py::arg("keepdim") = false,
       py::return_value_policy::reference);
-
+  nvf_ops.def(
+      "welford",
+      [](FusionDefinition::Operators& self,
+         Tensor arg,
+         const std::vector<int64_t>& dims) -> decltype(auto) {
+        FUSER_PERF_SCOPE("Operators.welford");
+        NVF_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        size_t ndims = (arg.dims - dims.size());
+        Tensor avg = fd->defineTensor(ndims);
+        Tensor var_sum = fd->defineTensor(ndims);
+        Tensor n = fd->defineTensor(ndims);
+        fd->defineRecord(new WelfordOpRecord(
+            {fd->recordingState(arg())},
+            {fd->recordingState(avg()),
+             fd->recordingState(var_sum()),
+             fd->recordingState(n())},
+            dims));
+        return std::make_tuple(avg, var_sum, n);
+      },
+      py::arg("arg"),
+      py::arg("dims"),
+      py::return_value_policy::reference);
   nvf_ops.def(
       "sdpfa_bwd",
       [](FusionDefinition::Operators& self,

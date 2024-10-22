@@ -113,6 +113,56 @@ def test_linear(mpi_test):
     )
 
 
+@pytest.mark.mpi
+def test_matmul_allreduce(mpi_test):
+    d, b, s, e = mpi_test.size, 1, 4, 8
+
+    class Model(FusionDefinition):
+        def definition(self) -> None:
+            # A pattern appeared in the backprop of the first linear layer in
+            # Transformer's MLP.
+            self.out_grad = self.define_tensor(
+                [d, b * s, e], contiguity=True, dtype=DataType.Half
+            )
+            self.weight = self.define_tensor(
+                [d, e, e], contiguity=True, dtype=DataType.Half
+            )
+            in_grad = self.ops.matmul(self.out_grad, self.weight)
+            in_grad = self.ops.sum(in_grad, [0])
+            in_grad = self.ops.reshape(in_grad, [b, s, e])
+            in_grad = self.ops.cast(in_grad, dtype=DataType.Float)
+            self.add_output(in_grad)
+
+        def multidevice_schedule(self) -> None:
+            mesh = self.sched._create_device_mesh(range(d))
+            for t in [self.out_grad, self.weight]:
+                self.sched._set_device_mesh(t, mesh)
+                self.sched.parallelize(t, 0, nvfuser.ParallelType.mesh_x)
+
+    rank = mpi_test.rank
+
+    torch.cuda.set_device(mpi_test.local_rank)
+
+    unsharded_out_grad = torch.randn(b * s, d * e, dtype=torch.half, device="cpu")
+    unsharded_weight = torch.randn(d * e, e, dtype=torch.half, device="cpu")
+    expected_in_grad = (
+        (unsharded_out_grad @ unsharded_weight).view([b, s, e]).to(torch.float32)
+    )
+
+    out_grad = (
+        unsharded_out_grad.view([b * s, d, e])
+        .permute([1, 0, 2])
+        .contiguous()[rank : rank + 1]
+    )
+    weight = unsharded_weight.view([d, e, e])[rank : rank + 1]
+
+    fd = Model()
+    (in_grad,) = fd.execute([out_grad.cuda(), weight.cuda()])
+    # Use the default rtol for half because the output, although being float32,
+    # is a straight cast from half.
+    torch.testing.assert_close(in_grad.cpu(), expected_in_grad, rtol=1e-3, atol=1e-2)
+
+
 @pytest.mark.skipif(
     utils.is_pre_ampere(),
     reason="Flash Attention is only supported on Ampere and newer devices.",
@@ -213,6 +263,24 @@ def test_sdpa(mpi_test):
     assert_close(q_grad, head_parallelize(expected_q_grad))
     assert_close(k_grad, head_parallelize(expected_k_grad))
     assert_close(v_grad, head_parallelize(expected_v_grad))
+
+
+def get_benchmark_fn(func, /, profile: bool):
+    def wrapper(*args, **kwargs):
+        if profile:
+            torch.cuda.cudart().cudaProfilerStart()
+        result = func(*args, **kwargs)
+        torch.cuda.synchronize()
+        if profile:
+            torch.cuda.cudart().cudaProfilerStop()
+        return result
+
+    return wrapper
+
+
+# Returns two functors, one with profiler off and the other with profiler on.
+def get_benchmark_fns(func):
+    return get_benchmark_fn(func, profile=False), get_benchmark_fn(func, profile=True)
 
 
 # The following two benchmarks micro-benchmarks the forward pass and the
@@ -629,20 +697,10 @@ def test_transformer_forward(mpi_test, benchmark):
 
     fd = TransformerForwardFusion(d, b, s, h, e)
 
-    def benchmark_fn(profile):
-        if profile:
-            torch.cuda.cudart().cudaProfilerStart()
-
-        outs = fd.execute(ins)
-        torch.cuda.synchronize()
-
-        if profile:
-            torch.cuda.cudart().cudaProfilerStop()
-
-        return outs
+    warmup_fn, benchmark_fn = get_benchmark_fns(lambda: fd.execute(ins))
 
     # Warm up and validate.
-    outs = benchmark_fn(False)
+    outs = warmup_fn()
     (
         layernorm0_mean,
         layernorm0_rstd,
@@ -673,7 +731,7 @@ def test_transformer_forward(mpi_test, benchmark):
 
     # Benchmark and profile. The profile can be collected and displayed using
     # `nsys`. See instructions in test_transformer_engine.py.
-    benchmark.pedantic(benchmark_fn, args=(True,), rounds=5)
+    benchmark.pedantic(benchmark_fn, rounds=5)
 
 
 # All tensors are replicated to all devices at this moment; future PRs will try
@@ -1138,7 +1196,7 @@ class TransformerBackwardFusion(FusionDefinition):
     reason="Flash Attention is only supported on Ampere and newer devices.",
 )
 @pytest.mark.mpi
-def test_transformer_backward(mpi_test):
+def test_transformer_backward(mpi_test, benchmark):
     d = mpi_test.size
     rank = mpi_test.rank
 
@@ -1182,7 +1240,9 @@ def test_transformer_backward(mpi_test):
 
     fd = TransformerBackwardFusion(d, b, s, h, e)
 
-    outs = fd.execute(ins)
+    warmup_fn, benchmark_fn = get_benchmark_fns(lambda: fd.execute(ins))
+
+    outs = warmup_fn()
     (
         mlp_linear1_weight_grad,
         mlp_linear1_bias_grad,
@@ -1211,3 +1271,5 @@ def test_transformer_backward(mpi_test):
     _assert_shape_dtype(layernorm0_bias_grad, [e], torch.bfloat16)
     _assert_shape_dtype(layernorm0_weight_grad, [e], torch.bfloat16)
     _assert_shape_dtype(inp_grad, [b, s, e], torch.bfloat16)
+
+    benchmark.pedantic(benchmark_fn, rounds=5)
