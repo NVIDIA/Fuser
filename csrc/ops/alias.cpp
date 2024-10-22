@@ -630,17 +630,18 @@ TensorView* cat(
     return set(inputs.at(0));
   }
 
-  // short-circuit: If all inputs are already padded, assume correctness and cat
-  // them without padding. FusionTranslation adds the padOp for each tensor
+  // short-circuit: If manual_padding is true, check that all inputs are already
+  // padded. Assume the padding is correct and create the catOp immediately.
+  // Primarily used for FusionTranslation, which adds the padOp for each tensor
   // separately.
-  bool all_padded =
-      std::all_of(inputs.begin(), inputs.end(), [](TensorView* tv) {
-        return tv->definition()->isA<PadOp>();
-      });
-  NVF_ERROR(
-      !manual_padding || all_padded,
-      "Expected all inputs to be padded when manual_padding is True.");
-  if (all_padded) {
+  if (manual_padding) {
+    bool all_padded =
+        std::all_of(inputs.begin(), inputs.end(), [](TensorView* tv) {
+          return tv->definition()->isA<PadOp>();
+        });
+    NVF_ERROR(
+        all_padded,
+        "Expected all inputs to be padded when manual_padding is True.");
     std::vector<Val*> input_vals(inputs.begin(), inputs.end());
     auto out = ops::newOutputTV(input_vals, dtype);
     IrBuilder::create<CatOp>(out, input_vals, cat_dim);
