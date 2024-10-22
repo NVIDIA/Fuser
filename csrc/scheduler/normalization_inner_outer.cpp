@@ -240,8 +240,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   int64_t available_regs = scheduler_utils::register_file_size_56k;
   buffer_params.smem_overhead = smem_overhead;
 
-  // (1) If the available register is larger than current register buffer size,
-  // put all the persistent tensors in registers and return.
+  // (1) Try to put all the buffers into registers.
   if (total_buffer_size <= available_regs) {
     buffer_params.regs_buffer_size = total_buffer_size;
     buffer_params.smem_buffer_size = 0;
@@ -249,15 +248,16 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
     return buffer_params;
   }
 
-  // (2) Consider using both register and shared memory persistent.
-  // Start with all the cached input buffers in shared memory and outer
-  // reduction buffers in registers. The loading from global memory uses
-  // async copy which bypasses L1 cache. Outer reduction buffers are used to
-  // accumulate partial results of the outer reduction. They are not loaded from
-  // global memory and requires frequent read/write. So, they are always stored
-  // in registers. We may move them to shared memory to avoid segmentation when
-  // there are many outer reductions in the fusion, but these applications are
-  // rare and not considered here.
+  // (2) Consider using both register and shared memory.
+  // Start with all the cached input buffers in shared memory, they are loaded
+  // from global memory uses async copy which bypasses L1 cache. Outer reduction
+  // buffers are used to accumulate partial results of the outer reduction. They
+  // are not loaded from global memory and requires frequent read/write. So,
+  // they are always stored in registers.
+  // TODO: We may also move outer reduction buffers to shared
+  // memory to avoid segmentation when there are many outer reductions and
+  // hardware has larger shared memory, but these applications are rare and not
+  // considered here.
   buffer_params.smem_buffer_size = cached_input_buffer_size;
   buffer_params.regs_buffer_size = outer_reduction_buffer_size;
   if (buffer_params.regs_buffer_size <= available_regs &&
