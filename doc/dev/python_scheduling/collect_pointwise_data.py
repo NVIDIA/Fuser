@@ -184,9 +184,10 @@ def get_broadcast_multiple(input_tensors, output_tensors, breakpoint_dim):
 # ============================ Configurations ============================
 
 # For pointwise scheduler, we test the cartesian product of vectorization and
-# unroll factors.
+# unroll factors. Limit vectorization factor to 4 instead of 8 because pointwise
+# configurations cast float16 and bfloat16 to float32.
 parameter_configurations = [
-    vectorize_range := [1, 2, 4, 8],
+    vectorize_range := [1, 2, 4],
     unroll_range := list(range(1, 10)),
 ]
 
