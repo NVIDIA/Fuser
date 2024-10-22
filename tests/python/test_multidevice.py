@@ -143,12 +143,8 @@ def test_matmul_allreduce(mpi_test):
 
     torch.cuda.set_device(mpi_test.local_rank)
 
-    unsharded_out_grad = torch.testing.make_tensor(
-        b * s, d * e, dtype=torch.half, device="cpu"
-    )
-    unsharded_weight = torch.testing.make_tensor(
-        d * e, e, dtype=torch.half, device="cpu"
-    )
+    unsharded_out_grad = torch.randn(b * s, d * e, dtype=torch.half, device="cpu")
+    unsharded_weight = torch.randn(d * e, e, dtype=torch.half, device="cpu")
     expected_in_grad = (
         (unsharded_out_grad @ unsharded_weight).view([b, s, e]).to(torch.float32)
     )
@@ -162,7 +158,9 @@ def test_matmul_allreduce(mpi_test):
 
     fd = Model()
     (in_grad,) = fd.execute([out_grad.cuda(), weight.cuda()])
-    torch.testing.assert_close(in_grad.cpu(), expected_in_grad, rtol=1e-3, atol=1e-5)
+    # Use the default rtol for half because the output, although being float32,
+    # is a straight cast from half.
+    torch.testing.assert_close(in_grad.cpu(), expected_in_grad, rtol=1e-3, atol=1e-2)
 
 
 @pytest.mark.skipif(

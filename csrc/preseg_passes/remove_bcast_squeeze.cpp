@@ -362,19 +362,40 @@ TensorView* maybeDoReplacement(TensorView* orig) {
       replacement->toString(),
       " has different dimension than original ",
       orig->toString());
-  bool resharded = false;
+  // Replacing `orig` with `replacement` can introduce resharding on the
+  // consumer of `orig`, e.g., the `cast` in the following example.
+  //
+  // [bDID{1}, i0]: replacement
+  //      |
+  //      | squeeze
+  //      v
+  //     [i0]
+  //      |
+  //      | broadcast
+  //      v
+  //  [b{1}, i0]: orig
+  //      |
+  //      | cast
+  //      v
+  //  [b{1}, i0]
+  //
+  // Such resharding expressions won't be resolved by `insert_reshardings`
+  // because `insert_reshardings` runs before `remove_bcast_squeeze`.
+  // Therefore, if resharding is needed, instead of replacing `orig` with
+  // `replacement`, we link them with a resharding `set`.
+  bool needs_resharding = false;
   for (size_t i : c10::irange(old_loop.size())) {
     if (old_loop[i]->getParallelType() != new_loop[i]->getParallelType()) {
       NVF_ERROR(
           old_loop[i]->isDeviceDim() || new_loop[i]->isDeviceDim(),
           "Before scheduling, we expect the only parallelized ",
           "dimensions to be device dims");
-      resharded = true;
+      needs_resharding = true;
       break;
     }
   }
 
-  if (resharded) {
+  if (needs_resharding) {
     IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, orig, replacement);
     return orig;
   } else {
