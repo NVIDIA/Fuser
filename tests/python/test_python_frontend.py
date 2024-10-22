@@ -1912,6 +1912,30 @@ class TestNvFuserFrontend(NVFuserTest):
         self.assertEqual(torch.cat([inputs[0], inputs[2]], dim=0), nvf_out[1])
         # self.assertEqual(torch.cat([inputs[0], inputs[3]], dim=0), nvf_out[2])
 
+    def test_pad_prior_cat(self):
+        inputs = [
+            torch.randn(2, 4, device="cuda"),
+            torch.randn(3, 3, device="cuda"),
+        ]
+
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.from_pytorch(inputs[1])
+
+            # pad tensors t0 and t1, so their first dimension are size 10.
+            t0_pad = fd.ops.pad(t0, [0, 0, 0, 8])
+            t1_pad = fd.ops.pad(t1, [0, 0, 0, 7])
+
+            t3 = fd.ops.cat([t0_pad, t1_pad], 1)
+            fd.add_output(t3)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
+
+        # pad tensors t0 and t1, so their first dimension are size 10.
+        pad_input0 = torch.nn.functional.pad(inputs[0], [0, 0, 0, 8])
+        pad_input1 = torch.nn.functional.pad(inputs[1], [0, 0, 0, 7])
+        self.assertEqual(torch.cat([pad_input0, pad_input1], dim=1), nvf_out[0])
+
     def test_nextafter(self):
         inputs = [
             # torch.nextafter is only defined for float{32,64} tensor inputs
