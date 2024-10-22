@@ -23,8 +23,6 @@ void PrintTo(const std::chrono::duration<double>& d, ostream* os) {
 } // namespace chrono
 } // namespace std
 
-namespace {} // namespace
-
 namespace nvfuser {
 
 using testing::PrintToString;
