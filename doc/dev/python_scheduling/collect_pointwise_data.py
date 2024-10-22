@@ -148,6 +148,18 @@ def create_fusion_definition(num_operations, mufu_indices, input_shapes):
     return fd, input_tensors
 
 
+# ============================ Utilities  ============================
+
+
+# Find largest datatype in input tensors.
+# Calculate largest factor given 128B vectorize memory operation.
+# Return if current vectorize factor <= max_vectorize_factor
+def valid_vectorize_factor(input_tensors, vectorize_factor):
+    max_dtype_size = max([t.dtype.itemsize for t in input_tensors])
+    max_vectorize_factor = 16 // max_dtype_size
+    return vectorize_factor <= max_vectorize_factor
+
+
 # ============================ Metrics  ============================
 
 
@@ -200,6 +212,12 @@ for full_tensor_shape in itertools.product(outer_shapes, inner_shapes):
         print(fusion_config)
         # unroll and vectorization configurations
         for config in itertools.product(vectorize_range, unroll_range):
+            vectorize_factor, unroll_factor = config
+
+            # short-circuit: skip if vectorization factor is incompatible with input tensors
+            if not valid_vectorize_factor(input_tensors, vectorize_factor):
+                continue
+
             try:
                 output_tensors, metrics = run_profile(
                     presched_fd, input_tensors, config
