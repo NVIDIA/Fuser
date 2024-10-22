@@ -139,8 +139,7 @@ int64_t getTargetUnrollFactor(Fusion* fusion, std::vector<TensorView*> io_tvs) {
   int64_t input_factor = std::max(scheduler_utils::lastPow2(n_inputs), 1L);
   // (4) Results: gelu: 2 * 4 / 1 = 8, silu: 2 * 2 / 2 = 2, mul: 2
   int64_t unroll_factor = base_factor * computation_factor / input_factor;
-  unroll_factor = std::max(unroll_factor, 1L);
-  return base_factor * computation_factor / input_factor;
+  return std::max(unroll_factor, 1L);
 }
 
 } // namespace
