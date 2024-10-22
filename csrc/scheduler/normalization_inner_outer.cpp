@@ -151,7 +151,7 @@ struct PersistentBufferStorageParams {
   bool project_to_input = false;
 };
 
-// Prioritize moving buffers used by outer broadcast tensors to shared memory
+// Prioritize keeping buffers used by outer broadcast tensors to shared memory
 // because:
 // (1) They are reused in every iteration of the outer loop, has lower IO.
 // (2) Load occurs before the outer loop. Temporary register usage won't
@@ -176,7 +176,7 @@ std::vector<TensorView*> sortProjectableBufferInputs(
       sorted_buffer.begin(),
       sorted_buffer.end(),
       [&](TensorView* a, TensorView* b) {
-        return is_used_by_outer_bcast[a] && !is_used_by_outer_bcast[b];
+        return !is_used_by_outer_bcast[a] && is_used_by_outer_bcast[b];
       });
   return sorted_buffer;
 }
@@ -222,11 +222,13 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
           /*can_use_smem_persistent=*/true,
           outer_broadcast_tvs.empty());
 
-  auto total_buffer_size = buffer_params.project_to_input
+  auto cached_input_buffer_size = buffer_params.project_to_input
       ? persistent_buffer_size_info.projected_persistent_buffer_size
       : persistent_buffer_size_info.persistent_buffer_size;
-  total_buffer_size +=
+  auto outer_reduction_buffer_size =
       partialOuterReductionBufferSize(reduction_tvs, runtime_info);
+  auto total_buffer_size =
+      cached_input_buffer_size + outer_reduction_buffer_size;
 
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
   int64_t smem_overhead = scheduler_utils::getSharedMemoryOverheadPerBlock(
@@ -238,20 +240,43 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   int64_t available_regs = scheduler_utils::register_file_size_56k;
   buffer_params.smem_overhead = smem_overhead;
 
-  // (1) init the buffer_params by putting all the persistent tensors in
-  // registers
-  buffer_params.regs_buffer_size = total_buffer_size;
-  buffer_params.smem_buffer_size = 0;
-
-  // (2) If the available register is larger than current register buffer size,
-  // no need to move buffers to shared memory, return early.
-  if (buffer_params.regs_buffer_size <= available_regs) {
+  // (1) If the available register is larger than current register buffer size,
+  // put all the persistent tensors in registers and return.
+  if (total_buffer_size <= available_regs) {
+    buffer_params.regs_buffer_size = total_buffer_size;
+    buffer_params.smem_buffer_size = 0;
     buffer_params.has_enough_regs_and_smem = true;
     return buffer_params;
   }
 
-  // (3) Relocate buffers to shared memory until the buffer size in registers is
-  // within the allowable limit.
+  // (2) Consider using both register and shared memory persistent.
+  // Start with all the cached input buffers in shared memory and outer
+  // reduction buffers in registers. The loading from global memory uses
+  // async copy which bypasses L1 cache. Outer reduction buffers are used to
+  // accumulate partial results of the outer reduction. They are not loaded from
+  // global memory and requires frequent read/write. So, they are always stored
+  // in registers. We may move them to shared memory to avoid segmentation when
+  // there are many outer reductions in the fusion, but these applications are
+  // rare and not considered here.
+  buffer_params.smem_buffer_size = cached_input_buffer_size;
+  buffer_params.regs_buffer_size = outer_reduction_buffer_size;
+  if (buffer_params.regs_buffer_size <= available_regs &&
+      buffer_params.smem_buffer_size <= available_smem) {
+    buffer_params.smem_persistent_buffers = buffer_params.project_to_input
+        ? persistent_buffer_info.projectable_buffer_inputs
+        : persistent_buffer_info.persistent_buffers;
+    buffer_params.has_enough_regs_and_smem = true;
+    return buffer_params;
+  }
+
+  // Moving outer reduction buffer to shared memory is not considered yet,
+  // set to false if the outer reduction buffer size exceeds the register size.
+  if (buffer_params.regs_buffer_size > available_regs) {
+    buffer_params.has_enough_regs_and_smem = false;
+    return buffer_params;
+  }
+
+  // (3) Now, shared memory is overused, try to move some buffers to registers.
   // (3.1) Sort the candidate persistent buffers
   const auto buffers = buffer_params.project_to_input
       ? sortProjectableBufferInputs(
@@ -259,15 +284,10 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
             outer_broadcast_tvs)
       : persistent_buffer_info.persistent_buffers;
 
-  // (3.2) Before this loop, all buffers are in registers.
-  // Try to move buffer from register to shared memroy.
-  // After one buffer is moved to shared memory, the buffer size in registers
-  // and shared memory are updated accordingly. Break if required register and
-  // shared memory are lower than limit or shared memory exceeds the limit.
-  int64_t n_smem_buffer = -1;
+  // (3.2) Before this loop, all cached input buffers are in shared memory.
+  // Try to move buffer from shared memroy to register.
+  int64_t n_regs_buffer = -1;
   const int n_buffers = (int)buffers.size();
-  int64_t regs_buffer_size = buffer_params.regs_buffer_size;
-  int64_t smem_buffer_size = buffer_params.smem_buffer_size;
   for (int i = 0; i < n_buffers; i++) {
     auto current_tv = buffers[i];
 
@@ -275,7 +295,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
     int64_t tv_buffer_size_regs =
         scheduler_utils::getPersistentBufferSizeOfTensor(
             current_tv, runtime_info, persistent_buffer_info);
-    regs_buffer_size -= tv_buffer_size_regs;
+    buffer_params.regs_buffer_size += tv_buffer_size_regs;
 
     // round up the buffer size to shared memory & increase the shared memory
     // buffer size
@@ -286,38 +306,35 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
         InnerOuterPersistentKernelScheduler::threads_per_block_min,
         InnerOuterPersistentKernelScheduler::threads_per_block_max,
         dev_prop->warpSize);
-    smem_buffer_size += tv_buffer_size_smem;
+    buffer_params.smem_buffer_size -= tv_buffer_size_smem;
 
-    // The first-i buffers to are moved from register to shared memory
+    // The first-i buffers to are moved from shared memory to register
     // If both the register buffer size and shared memory buffer size are within
-    // the allowable limit, we found a good configuration. Record the number of
-    // buffers to be moved to shared memory and continue checking if we can move
-    // more. Moving more buffers to shared memory reduces the usage of
-    // registers, the comipler can uses more register to optimize the kernel for
-    // better instruction level parallelism and leads to better performance.
-    if (regs_buffer_size <= available_regs &&
-        smem_buffer_size <= available_smem) {
-      buffer_params.regs_buffer_size = regs_buffer_size;
-      buffer_params.smem_buffer_size = smem_buffer_size;
-      n_smem_buffer = i + 1;
+    // the allowable limit, we found a good configuration.
+    if (buffer_params.regs_buffer_size <= available_regs &&
+        buffer_params.smem_buffer_size <= available_smem) {
+      n_regs_buffer = i + 1;
+      break;
     }
-    // shared memory buffer size exceeds the limit, not a good configuration.
-    // break the loop, n_smem_buffer remains [-1] indicating a bad
-    // configuration.
-    if (smem_buffer_size > available_smem) {
+    // Register buffer size exceeds the limit, can't move more to registers.
+    // Break the loop.
+    if (buffer_params.regs_buffer_size > available_regs) {
       break;
     }
   }
 
-  // n_smem_buffer > 0, has_enough_regs_and_smem = true, move the
-  // first n_smem_buffer buffers to shared memory. otherwise, we
-  // don't have enough shared memory and registers to accommodate all persistent
-  // buffers, has_enough_regs_and_smem = false.
-  if (n_smem_buffer > 0) {
+  // n_regs_buffer > 0, has_enough_regs_and_smem = true, the
+  // first n_regs_buffer buffers are stored in registers and last [n_buffers -
+  // n_regs_buffer] are stored in shared memory. otherwise, we don't have enough
+  // shared memory and registers to accommodate all persistent buffers,
+  // has_enough_regs_and_smem = false.
+  if (n_regs_buffer > 0) {
     buffer_params.has_enough_regs_and_smem = true;
+    auto n_smem_buffer = n_buffers - n_regs_buffer;
     buffer_params.smem_persistent_buffers.reserve(n_smem_buffer);
     for (int i = 0; i < n_smem_buffer; i++) {
-      buffer_params.smem_persistent_buffers.emplace_back(buffers[i]);
+      buffer_params.smem_persistent_buffers.emplace_back(
+          buffers[n_buffers - 1 - i]);
     }
   } else {
     buffer_params.has_enough_regs_and_smem = false;
