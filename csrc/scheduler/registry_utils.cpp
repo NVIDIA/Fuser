@@ -192,6 +192,15 @@ bool rejectScheduleForMemoryPromotion(
               return output->isA<TensorView>() &&
                   ir_utils::hasResizedRfactor(output->as<TensorView>());
             })) {
+      if (scheduler_type == SchedulerType::PointWise) {
+        if (expr->isA<PadOp>()) {
+          auto uses = expr->output(0)->uses();
+          if (uses.size() == 1 && uses.at(0)->isA<CatOp>()) {
+            std::cerr << "Allowing pad for cat: " << expr->toString();
+            continue;
+          }
+        }
+      }
       if (rejectScheduleFusionInputRequirement(expr, scheduler_type)) {
         return true;
       }

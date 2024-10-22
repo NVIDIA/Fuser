@@ -19,6 +19,7 @@
 #include <scheduler/registry_utils.h>
 #include <scheduler/runtime_info.h>
 #include <scheduler/tools/inlining.h>
+#include <scheduler/tools/resize_utils.h>
 #include <scheduler/transpose.h>
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>
@@ -513,6 +514,14 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
 
   // Cache and fork outputs
   auto cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, true);
+
+  {
+    std::vector<CatOp*> representative_cats =
+        scheduler_tools::getRepresentativeCatOps(fusion);
+    for (auto cat : representative_cats) {
+      scheduler_tools::propagateResizeToCatInputs(cat);
+    }
+  }
 
   scheduler_utils::prepareForMemoryTypePromotion(fusion);
 

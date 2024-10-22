@@ -4254,7 +4254,7 @@ TEST_F(ResizeTest, SliceSliceConcatConcat2) {
   FusionGuard fg(fusion_ptr.get());
   Fusion& fusion = *fusion_ptr;
 
-  const int64_t i0 = 128;
+  const int64_t i0 = 128 * 128;
   const int64_t rope_size = 32;
 
   EnableOptionsGuard enable_options_guard;
