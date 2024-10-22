@@ -134,6 +134,8 @@ TEST_P(ResizeTest, Pad3) {
 
   inlineMost();
 
+  fusion.print();
+
   // TransformPropagator and inlineMost do not inline tv2, so it can't
   // be on Local memory. It should be possible to expand tv2 such that
   // it has the same extent as tv3, allowing it to be inlined.
@@ -2282,7 +2284,9 @@ TEST_F(ResizeTest, FusionSqueezeSymbolic) {
   NVF_CHECK(ref0.equal(cg_outputs[0]));
 
   EXPECT_THAT(
-      [&]() { fec.runFusionWithInputs({t0, 10}); },
+      [&]() {
+        fec.runFusionWithInputs({t0, 10});
+      },
       ThrowsMessage<nvfError>(
           HasSubstr("must concretize to IterType::Broadcast but found")));
 }
@@ -4037,6 +4041,114 @@ TEST_F(ResizeTest, SliceSliceConcatConcat) {
        at::slice(t0, 0, rope_size / 2, rope_size) + 2,
        at::slice(t0, 0, rope_size)},
       0);
+
+  NVF_CHECK(ref.equal(cg_outputs[0]));
+}
+
+TEST_F(ResizeTest, CatScheduledLikeConsumer) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape0({4, 32});
+  std::vector<int64_t> shape1({4, 32});
+
+  auto tv0 = makeContigConcreteTensor(shape0);
+  fusion.addInput(tv0);
+
+  auto tv1 = makeContigConcreteTensor(shape1);
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv0);
+  auto tv3 = set(tv1);
+
+  auto tv4 = cat({tv2, tv3}, 1);
+  fusion.addOutput(tv4);
+
+  tv4->split(-1, 4);
+
+  TransformPropagator propagator(tv4);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
+
+  tv4->axis(-2)->parallelize(ParallelType::TIDx);
+
+  tv2->axis(-1)->parallelize(ParallelType::Vectorize);
+  tv3->axis(-1)->parallelize(ParallelType::Vectorize);
+
+  inlineMost();
+
+  fusion.printMath();
+  fusion.printKernel();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto t0 = at::randn(shape0, options);
+  auto t1 = at::randn(shape1, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto ref = at::cat({t0, t1}, 1);
+
+  NVF_CHECK(ref.equal(cg_outputs[0]));
+}
+
+TEST_F(ResizeTest, CatScheduledLikeConsumer2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape0({4, 32});
+  std::vector<int64_t> shape1({4, 32});
+
+  auto tv0 = makeConcreteTensor(shape0);
+  fusion.addInput(tv0);
+
+  auto tv1 = makeConcreteTensor(shape1);
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv0);
+  auto tv3 = set(tv1);
+
+  auto tv4 = cat({tv2, tv3}, 1);
+  fusion.addOutput(tv4);
+
+  for (auto cat_inp : tv4->definition()->inputs()) {
+    auto cat_inp_tv = cat_inp->as<TensorView>();
+    auto inputs = DependencyCheck::getAllValsBetween(
+        {fusion.inputs().begin(), fusion.inputs().end()}, {cat_inp_tv});
+    std::vector<TensorView*> input_tvs;
+    for (const auto inp : inputs) {
+      if (inp == cat_inp_tv) {
+        continue;
+      }
+      input_tvs.push_back(inp->as<TensorView>());
+    }
+
+    std::cerr << "Scheduling loop domains of " << toDelimitedString(input_tvs)
+              << " as " << cat_inp_tv->toString() << "\n";
+    scheduler_tools::scheduleLoopDomainsLike(
+        input_tvs, cat_inp_tv->getLogicalDomain());
+  }
+
+  fusion.print();
+
+  inlineMost();
+
+  fusion.print();
+  fusion.printKernel();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto t0 = at::randn(shape0, options);
+  auto t1 = at::randn(shape1, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto ref = at::cat({t0, t1}, 1);
 
   NVF_CHECK(ref.equal(cg_outputs[0]));
 }
