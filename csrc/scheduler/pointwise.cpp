@@ -130,18 +130,17 @@ int64_t getTargetUnrollFactor(Fusion* fusion, std::vector<TensorView*> io_tvs) {
   // computation and memory access.
   ExpensiveOpInfo eops;
   eops.analyzeFusion(fusion);
-  std::cout << "Expensive operations: " << eops.toString() << std::endl;
   // Empirical model based on experiment of pointwise gelu, silu, and mul.
   // (1) start with 2
   int64_t base_factor = 2;
   // (2) increase unroll factor if computation is expensive
   int64_t computation_factor = eops.getComputationFactor();
   // (3) decrease unroll factor if there are multiple input tensors
-  int64_t input_factor = scheduler_utils::lastPow2(n_inputs);
+  int64_t input_factor = std::max(scheduler_utils::lastPow2(n_inputs), 1L);
   // (4) Results: gelu: 2 * 4 / 1 = 8, silu: 2 * 2 / 2 = 2, mul: 2
   int64_t unroll_factor = base_factor * computation_factor / input_factor;
   unroll_factor = std::max(unroll_factor, 1L);
-  return base_factor * computation_factor / n_inputs;
+  return base_factor * computation_factor / input_factor;
 }
 
 } // namespace
@@ -271,12 +270,15 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   auto max_unroll_factor =
       getTargetUnrollFactor(fusion, vectorizable_inputs_outputs_entry.get());
   auto max_vect_unroll_factor = max_vect_factor * max_unroll_factor;
-  // Don't unroll at the cost of getting a full wave on the GPU
+  // Don't unroll or vectorize at the cost of getting a full wave on the GPU
+  // Don't need to adjust max_unroll_factor since it will be calculated using
+  // max_vect_unroll_factor and max_vect_factor
   if (n_elems < device_multiprocessor_count * kThreadX &&
       max_vect_unroll_factor > 1) {
     max_vect_unroll_factor = std::min(
         max_vect_unroll_factor,
         ceilDiv(n_elems, device_multiprocessor_count * kThreadX));
+    max_vect_factor = std::min(max_vect_factor, max_vect_unroll_factor);
   }
 
   // See pointwise.h to understand what we're doing for this 2D analysis.
@@ -460,14 +462,8 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
         : (n_elems % (params->vectorization_factor * kThreadX) == 0);
     n_elems_limited_unroll = divisible_split ? n_elems_limited_unroll : 1;
   }
-  std::cout << "n_elems_limited_unroll: " << n_elems_limited_unroll
-            << ", resource limited unroll: " << resource_limited_unroll
-            << std::endl;
   params->unroll_factor =
       std::min(n_elems_limited_unroll, resource_limited_unroll);
-
-// params->unroll_factor =scheduler_utils::safeDiv(
-//       max_vect_unroll_factor, params->vectorization_factor);
 
   NVF_ERROR(right_elem_count > 0 || break_point == 0);
   NVF_ERROR(!(bdimy > 1 && gdim_right > 1));
