@@ -4194,8 +4194,14 @@ TEST_F(ResizeTest, CatScheduledLikeConsumer3) {
 
   fusion.print();
 
+  tv4->split(-1, 4);
+
+  TransformPropagator propagator(tv4);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
+
+  fusion.printMath();
+
   for (auto tv : fusion.allTvs()) {
-    tv->split(-1, 4);
     if (tv == tv2 || tv == tv3) {
       tv->axis(-1)->parallelize(ParallelType::Vectorize);
     }
@@ -4241,6 +4247,120 @@ TEST_F(ResizeTest, CatScheduledLikeConsumerInvalid) {
   fusion.addOutput(tv4);
 
   scheduler_tools::propagateResizeToCatInputs(tv4->definition()->as<CatOp>());
+}
+
+TEST_F(ResizeTest, SliceSliceConcatConcat2) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  const int64_t i0 = 128;
+  const int64_t rope_size = 32;
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto zero = fusion.zeroVal();
+
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeContigConcreteTensor({i0});
+  fusion.addInput(tv0);
+
+  // [i0]
+  auto tv1 = set(tv0);
+
+  // [rope_size]
+  auto tv2 = slice(tv1, {{zero, IrBuilder::create<Val>(rope_size)}});
+
+  auto rope_size_half = IrBuilder::create<Val>(rope_size / 2);
+
+  // first half
+  // [0:rope_size/2]
+  auto tv3 = slice(tv2, {{zero, rope_size_half}});
+  // do some uop
+  auto tv4 = add(tv3, IrBuilder::create<Val>(1));
+
+  // Pad back
+  // [0:rope_size]
+  // auto tv5 = pad(tv4, {zero, rope_size_half});
+
+  // second half
+  // [rope_size/2:]
+  auto tv6 = slice(tv2, {{rope_size_half, IrBuilder::create<Val>(rope_size)}});
+
+  // do some uop
+  auto tv7 = add(tv6, IrBuilder::create<Val>(2));
+
+  // Pad back
+  // [rope_size]
+  // auto tv8 = pad(tv7, {rope_size_half, zero});
+
+  // [rope_size]
+  auto tv9 = cat({tv4, tv7}, -1);
+
+  // [i0]
+  // auto tv10 = pad(tv9, {zero, IrBuilder::create<Val>(i0 - rope_size)});
+
+  // [rope_size:]
+  auto tv11 = slice(
+      tv1, {{IrBuilder::create<Val>(rope_size), IrBuilder::create<Val>(i0)}});
+  // [i0]
+  // auto tv12 = pad(tv11, {IrBuilder::create<Val>(rope_size), zero});
+
+  // auto tv13 = add(tv10, tv12);
+  auto tv13 = cat({tv9, tv11}, -1);
+
+  fusion.addOutput(tv13);
+
+  fusion.printMath();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({i0}, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto outputs = fec.runFusionWithInputs(inputs);
+
+#if 0
+  std::vector<IterDomain*> ref_loop = tv0->getLogicalDomain();
+  scheduler_tools::scheduleLoopDomainsLike(fusion.allTvs(), ref_loop);
+
+  for (auto tv : fusion.allTvs()) {
+    if (tv->isFusionInput()) {
+      continue;
+    }
+    tv->split(0, 4);
+    tv->split(0, 16);
+  }
+
+  inlineMost();
+
+  for (auto tv : fusion.allTvs()) {
+    if (tv->isFusionInput()) {
+      continue;
+    }
+    EXPECT_EQ(tv->getComputeAtPosition(), 3)
+        << "Invalid computeAt position: " << tv->toString();
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(1)->parallelize(ParallelType::TIDx);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({i0}, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto ref = at::concat(
+      {at::slice(t0, 0, 0, rope_size / 2) + 1,
+       at::slice(t0, 0, rope_size / 2, rope_size) + 2,
+       at::slice(t0, 0, rope_size)},
+      0);
+
+  NVF_CHECK(ref.equal(cg_outputs[0]));
+#endif
 }
 
 } // namespace nvfuser
