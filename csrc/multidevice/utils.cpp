@@ -358,12 +358,7 @@ void reorderDIDToFront(TensorView* tv) {
     }
   }
 
-  std::cout << "Reorder before " << tv->toString() << std::endl;
-  for (const auto& [key, value] : order_map) {
-    std::cout << key << ": " << value << std::endl;
-  }
   tv->reorder(order_map);
-  std::cout << "Reorder after " << tv->toString() << std::endl;
 }
 
 } // namespace nvfuser
