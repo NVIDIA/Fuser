@@ -1092,7 +1092,7 @@ TEST_P(DistributedTransformerTest, Backward) {
   fusion->addInput(mha_linear1);
   fusion->addInput(mlp_linear0);
 
-  // Activation recomputation: mlp gelu, dropouts, and 
+  // Activation recomputation: mlp gelu, dropouts, and
   // partially recompute layer norms using cached statistics.
   auto ln0_in = castOp(DataType::Float, x);
   auto ln0 = layer_norm_with_cached_statistics(
