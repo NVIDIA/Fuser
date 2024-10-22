@@ -63,7 +63,7 @@ def custom_pointwise_scheduler(fd, config):
 # Apply schedule decorator, run fusion, and profile performance
 def run_profile(presched_fd, inputs, config=None):
     scheduled_fd = custom_pointwise_scheduler(presched_fd, config)
-    nvf_outputs = scheduled_fd.execute(inputs, profile=True)
+    outputs = scheduled_fd.execute(inputs, profile=True)
 
     # validate correctness
     # TODO use thunder to compile torch eager to nvfuser fusion
@@ -78,7 +78,7 @@ def run_profile(presched_fd, inputs, config=None):
     bandwidth = prof.kernel_profiles[0].effective_bandwidth_gbs
     time = prof.kernel_profiles[0].time_ms
 
-    return grid_shape, block_shape, num_registers, smem, bandwidth, time
+    return outputs, (grid_shape, block_shape, num_registers, smem, bandwidth, time)
 
 
 # ============================ Create Fusion  ================================
@@ -137,6 +137,28 @@ def create_fusion_definition(num_operations, mufu_indices, input_shapes):
     return fd, input_tensors
 
 
+# ============================ Metrics  ============================
+
+
+# Broadcast multiples is a matrix of size [ndims, 2]. Each entry [i] is the
+# number of inputs and output tensors that have a non-broadcast dimension
+# mapped to the same dimension. Broadcast multiples is multiplied by data type
+# size of each tensor.
+def get_broadcast_multiple(input_tensors, output_tensors, breakpoint_dim):
+    lhs = 0
+    rhs = 0
+    from itertools import chain
+
+    for t in chain(input_tensors, output_tensors):
+        for idx, dim_size in enumerate(t.shape):
+            value = t.dtype.itemsize if dim_size > 1 else 0
+            if idx < breakpoint_dim:
+                lhs += value
+            else:
+                rhs += value
+    return lhs, rhs
+
+
 # ============================ Configurations ============================
 
 # For pointwise scheduler, we test the cartesian product of vectorization and
@@ -168,13 +190,34 @@ for full_tensor_shape in itertools.product(outer_shapes, inner_shapes):
         print(fusion_config)
         # unroll and vectorization configurations
         for config in itertools.product(vectorize_range, unroll_range):
-            grid, block, registers, smem, bandwidth, time = run_profile(
-                presched_fd, input_tensors, config
-            )
+            try:
+                output_tensors, metrics = run_profile(
+                    presched_fd, input_tensors, config
+                )
+            except KeyboardInterrupt:
+                import sys
+
+                sys.exit()
+            except:
+                print(
+                    f"Warning: failed to run fusion given {input_tensors} and configuration {config}"
+                )
+                continue
+
+            # collect extra metrics
+            broadcast_multiples = [
+                get_broadcast_multiple(input_tensors, output_tensors, idx)
+                for idx in range(len(full_tensor_shape) + 1)
+            ]
+            grid, block, registers, smem, bandwidth, time = metrics
+
+            # create data entry
             entry = [
                 input_shapes,
+                [list(t.shape) for t in output_tensors],
                 num_ops,
                 len(mufu_indices),
+                broadcast_multiples,
                 *config,
                 grid,
                 block,
@@ -193,8 +236,10 @@ df = pd.DataFrame(
     data,
     columns=[
         "input_shapes",
+        "output_shapes",
         "number_of_operations",
         "number_of_mufu_operations",
+        "broadcast_multiples",
         "vectorization",
         "unroll_factor",
         "grid",
@@ -206,5 +251,6 @@ df = pd.DataFrame(
     ],
 )
 
-df.to_csv("pointwise.csv", index=True)
+major, minor = torch.cuda.get_device_capability()
+df.to_csv("pointwise_data_device_{major}_{minor}.csv", index=True)
 print(f"Finished creating {len(data)} entries")
