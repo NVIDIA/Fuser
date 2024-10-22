@@ -2284,9 +2284,7 @@ TEST_F(ResizeTest, FusionSqueezeSymbolic) {
   NVF_CHECK(ref0.equal(cg_outputs[0]));
 
   EXPECT_THAT(
-      [&]() {
-        fec.runFusionWithInputs({t0, 10});
-      },
+      [&]() { fec.runFusionWithInputs({t0, 10}); },
       ThrowsMessage<nvfError>(
           HasSubstr("must concretize to IterType::Broadcast but found")));
 }
@@ -4046,6 +4044,9 @@ TEST_F(ResizeTest, SliceSliceConcatConcat) {
 }
 
 TEST_F(ResizeTest, CatScheduledLikeConsumer) {
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -4095,16 +4096,19 @@ TEST_F(ResizeTest, CatScheduledLikeConsumer) {
 }
 
 TEST_F(ResizeTest, CatScheduledLikeConsumer2) {
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
   Fusion fusion;
   FusionGuard fg(&fusion);
 
   std::vector<int64_t> shape0({4, 32});
   std::vector<int64_t> shape1({4, 32});
 
-  auto tv0 = makeConcreteTensor(shape0);
+  auto tv0 = makeContigConcreteTensor(shape0);
   fusion.addInput(tv0);
 
-  auto tv1 = makeConcreteTensor(shape1);
+  auto tv1 = makeContigConcreteTensor(shape1);
   fusion.addInput(tv1);
 
   auto tv2 = set(tv0);
@@ -4132,6 +4136,14 @@ TEST_F(ResizeTest, CatScheduledLikeConsumer2) {
   }
 
   fusion.print();
+
+  for (auto tv : fusion.allTvs()) {
+    tv->split(-1, 4);
+    if (tv == tv2 || tv == tv3) {
+      tv->axis(-1)->parallelize(ParallelType::Vectorize);
+    }
+    tv->axis(-2)->parallelize(ParallelType::TIDx);
+  }
 
   inlineMost();
 
