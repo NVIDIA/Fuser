@@ -6,13 +6,28 @@
  */
 // clang-format on
 #include <chrono>
+#include <ostream>
 
+#include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
 #include <multidevice/communicator.h>
 #include <tests/cpp/multidevice.h>
 
+namespace std {
+namespace chrono {
+// Without this, EXPECT_* would print duration as bytes.
+void PrintTo(const std::chrono::duration<double>& d, ostream* os) {
+  *os << d.count() << " seconds";
+}
+} // namespace chrono
+} // namespace std
+
+namespace {} // namespace
+
 namespace nvfuser {
+
+using testing::PrintToString;
 
 class CommunicatorTest
     : public MultiDeviceTest,
@@ -20,9 +35,18 @@ class CommunicatorTest
 
 namespace {
 template <typename Duration>
-double toSeconds(const Duration& d) {
+auto toSeconds(const Duration& d) {
   // By default, std::chrono::duration uses ratio 1, which means seconds.
-  return std::chrono::duration_cast<std::chrono::duration<double>>(d).count();
+  return std::chrono::duration_cast<std::chrono::duration<double>>(d);
+}
+
+MATCHER_P2(
+    IsBetween,
+    lower,
+    upper,
+    std::string(negation ? "isn't" : "is") + " between " +
+        PrintToString(lower) + " and " + PrintToString(upper)) {
+  return lower <= arg && arg <= upper;
 }
 } // namespace
 
@@ -47,15 +71,14 @@ TEST_P(CommunicatorTest, Barrier) {
   const auto expected_duration = kUnitDuration * (communicator_->size() - 1);
   for (int i = 1; i < kNumIterations; i++) {
     // Expect `duration` to be close enoguh to `expected_duration`. Convert to
-    // seconds before comparison for a better error message. EXPECT_ has
-    // problems printing a duration.
-    const double duration = toSeconds(end_times[i] - end_times[i - 1]);
-    const double expected_upper =
+    // duration<double> (and thus seconds) before comparison for a better error
+    // message.
+    const auto duration = toSeconds(end_times[i] - end_times[i - 1]);
+    const auto expected_upper =
         toSeconds(expected_duration + kUnitDuration / 2);
-    const double expected_lower =
+    const auto expected_lower =
         toSeconds(expected_duration - kUnitDuration / 2);
-    EXPECT_LE(duration, expected_upper);
-    EXPECT_GE(duration, expected_lower);
+    EXPECT_THAT(duration, IsBetween(expected_lower, expected_upper));
   }
 }
 
