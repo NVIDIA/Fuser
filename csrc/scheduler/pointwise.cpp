@@ -564,15 +564,15 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     // Propagate reshape transforms through the graph, expecially the reference.
     scheduler_utils::propagateReshapeTransforms(fusion, ca_map);
 
-    // Reorder so that DeviceDims are in front
-    reorderDIDToFront(reference_tv);
-    std::cout << "Reference tv is reordered DID to front? " << reference_tv->toString() << std::endl;
-    std::cout << "Device aware break point " << device_aware_break_point << " num device dims " << num_device_dims << std::endl;
-
     // Reorder reference_tv after propagating the view operation. This will
     // reorder for better merging.
     reference_tv->reorder(
         scheduler_utils::domainReorderAsLogicalMap(reference_tv));
+
+    // Reorder so that DeviceDims are in front
+    reorderDIDToFront(reference_tv);
+    std::cout << "Reference tv is reordered DID to front? " << reference_tv->toString() << std::endl;
+    std::cout << "Device aware break point " << device_aware_break_point << " num device dims " << num_device_dims << std::endl;
 
     // Break point is relative to logical domain, find the loop domain ID's in
     // the left/right side, we really need the values in domain, but easiest way
@@ -595,6 +595,23 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
 
     std::unordered_set<Val*> rhs_all_vals_set(
         rhs_all_vals.begin(), rhs_all_vals.end());
+
+    std::cout << "Loop domain ";
+    for (auto i : reference_tv->getLoopDomain()) {
+      std::cout << i->toString() << " ";
+    }
+    std::cout << std::endl;
+
+    std::cout << "LHS: ";
+    for (auto lhs_val : lhs_all_vals) {
+      std::cout << lhs_val->toString() << " ";
+    }
+
+    std::cout << std::endl << "RHS: ";
+    for (auto rhs_val : rhs_all_vals) {
+      std::cout << rhs_val->toString() << " ";
+    }
+    std::cout << std::endl;
 
     // Make sure lhs and rhs groups are disjoint.
     for (auto lhs_val : lhs_all_vals) {
