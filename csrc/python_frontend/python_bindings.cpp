@@ -677,48 +677,31 @@ void initNvFuserPythonBindings(PyObject* module) {
   heuristic_params.def(
       "__repr__", [](const HeuristicParams& self) { return self.toString(); });
 
+#define INITPARAMS(cfg, internal_type)                                     \
+  py::class_<internal_type, HeuristicParams> cfg(nvfuser, #internal_type); \
+  cfg.def(py::init());                                                     \
+  cfg.def(                                                                 \
+      "__repr__", [](const internal_type& self) { return self.toString(); });
+#define PARAM(cfg, internal_type, type, name)        \
+  cfg.def_property(                                  \
+      #name,                                         \
+      [](internal_type& self) { return self.name; }, \
+      [](internal_type& self, type name_) { self.name = name_; });
+
   // Pointwise scheduler parameters
-  py::class_<PointwiseParams, HeuristicParams> pointwise_config(
-      nvfuser, "PointwiseParams");
-  pointwise_config.def(py::init());
-  pointwise_config.def_property(
-      "breakpoint",
-      [](PointwiseParams& self) { return self.break_point; },
-      [](PointwiseParams& self, int64_t break_point_) {
-        self.break_point = break_point_;
-      });
-  pointwise_config.def_property(
-      "split_block",
-      [](PointwiseParams& self) { return self.split_block; },
-      [](PointwiseParams& self, bool split_block_) {
-        self.split_block = split_block_;
-      });
-  pointwise_config.def_property(
-      "split_grid_y_dim",
-      [](PointwiseParams& self) { return self.split_grid_y_dim; },
-      [](PointwiseParams& self, bool split_grid_y_dim_) {
-        self.split_grid_y_dim = split_grid_y_dim_;
-      });
-  pointwise_config.def_property(
-      "flip_grid_binding",
-      [](PointwiseParams& self) { return self.flip_grid_binding; },
-      [](PointwiseParams& self, bool flip_grid_binding_) {
-        self.flip_grid_binding = flip_grid_binding_;
-      });
-  pointwise_config.def_property(
-      "vectorization_factor",
-      [](PointwiseParams& self) { return self.vectorization_factor; },
-      [](PointwiseParams& self, int64_t vectorization_factor_) {
-        self.vectorization_factor = vectorization_factor_;
-      });
-  pointwise_config.def_property(
-      "unroll_factor",
-      [](PointwiseParams& self) { return self.unroll_factor; },
-      [](PointwiseParams& self, int64_t unroll_factor_) {
-        self.unroll_factor = unroll_factor_;
-      });
-  pointwise_config.def(
-      "__repr__", [](const PointwiseParams& self) { return self.toString(); });
+  INITPARAMS(pointwise_config, PointwiseParams)
+  PARAM(pointwise_config, PointwiseParams, int64_t, break_point)
+  PARAM(pointwise_config, PointwiseParams, bool, split_block)
+  PARAM(pointwise_config, PointwiseParams, bool, split_grid_y_dim)
+  PARAM(pointwise_config, PointwiseParams, bool, flip_grid_binding)
+  PARAM(pointwise_config, PointwiseParams, int64_t, vectorization_factor)
+  PARAM(pointwise_config, PointwiseParams, int64_t, unroll_factor)
+
+  // Matmul scheduler parameters
+  INITPARAMS(matmul_config, MatmulParams)
+  PARAM(matmul_config, MatmulParams, int, splitk_factor)
+
+#undef PARAM
 
   //! KernelProfiles are encapsulated in FusionProfiles where each KP
   //! is associated with a segment.
