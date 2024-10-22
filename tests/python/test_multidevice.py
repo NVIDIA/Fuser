@@ -113,6 +113,56 @@ def test_linear(mpi_test):
     )
 
 
+@pytest.mark.mpi
+def test_matmul_allreduce(mpi_test):
+    d, b, s, e = mpi_test.size, 1, 4, 8
+
+    class Model(FusionDefinition):
+        def definition(self) -> None:
+            # A pattern appeared in the backprop of the first linear layer in
+            # Transformer's MLP.
+            self.out_grad = self.define_tensor(
+                [d, b * s, e], contiguity=True, dtype=DataType.Half
+            )
+            self.weight = self.define_tensor(
+                [d, e, e], contiguity=True, dtype=DataType.Half
+            )
+            in_grad = self.ops.matmul(self.out_grad, self.weight)
+            in_grad = self.ops.sum(in_grad, [0])
+            in_grad = self.ops.reshape(in_grad, [b, s, e])
+            in_grad = self.ops.cast(in_grad, dtype=DataType.Float)
+            self.add_output(in_grad)
+
+        def multidevice_schedule(self) -> None:
+            mesh = self.sched._create_device_mesh(range(d))
+            for t in [self.out_grad, self.weight]:
+                self.sched._set_device_mesh(t, mesh)
+                self.sched.parallelize(t, 0, nvfuser.ParallelType.mesh_x)
+
+    rank = mpi_test.rank
+
+    torch.cuda.set_device(mpi_test.local_rank)
+
+    unsharded_out_grad = torch.randn(b * s, d * e, dtype=torch.half, device="cpu")
+    unsharded_weight = torch.randn(d * e, e, dtype=torch.half, device="cpu")
+    expected_in_grad = (
+        (unsharded_out_grad @ unsharded_weight).view([b, s, e]).to(torch.float32)
+    )
+
+    out_grad = (
+        unsharded_out_grad.view([b * s, d, e])
+        .permute([1, 0, 2])
+        .contiguous()[rank : rank + 1]
+    )
+    weight = unsharded_weight.view([d, e, e])[rank : rank + 1]
+
+    fd = Model()
+    (in_grad,) = fd.execute([out_grad.cuda(), weight.cuda()])
+    # Use the default rtol for half because the output, although being float32,
+    # is a straight cast from half.
+    torch.testing.assert_close(in_grad.cpu(), expected_in_grad, rtol=1e-3, atol=1e-2)
+
+
 @pytest.mark.skipif(
     utils.is_pre_ampere(),
     reason="Flash Attention is only supported on Ampere and newer devices.",
