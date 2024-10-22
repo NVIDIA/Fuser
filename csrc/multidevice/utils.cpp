@@ -166,6 +166,12 @@ bool haveDifferentShardings(
     }
 
     auto c_id = i->second;
+    if (p_id->isBroadcast() || c_id->isBroadcast()) {
+      // TODO: This seems to just be for a producer
+      // Broadcast dimensions aren't materialized at this point.
+      continue;
+    }
+
     if (p_id->getParallelType() != c_id->getParallelType() &&
         (p_id->isDeviceDim() || c_id->isDeviceDim())) {
       // Mismatch found

@@ -81,6 +81,7 @@ void ReorderShardedAxisPass::runPass(Fusion* fusion) {
     //                    [DIDx(i2) i0 r1] -> [i0 DIDx(i2)]
     // Note that reduction axis shifts from axis=1 to axis=2.
     else if (!shard_additions.empty() && isInnerResharding(expr)) {
+      std::cout << "Scatter like operation " << expr->toString() << std::endl;
       IterDomain* shard_added_id = shard_additions[0];
       int sharding_axis =
           static_cast<int>(output->domain()->rootPosOf(shard_added_id));

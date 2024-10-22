@@ -60,7 +60,7 @@ TensorView* reshape(
   NVF_ERROR(x != nullptr, "Input is invalid.");
   NVF_ERROR(
       TensorDomain::noReductions(x->getLogicalDomain()).size() ==
-      original_sizes.size());
+      original_sizes.size(), x->toString());
 
   // handle empty reshapes by converting to full
   if (std::any_of(original_sizes.begin(), original_sizes.end(), [](int64_t s) {
