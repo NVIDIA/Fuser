@@ -734,8 +734,8 @@ void initNvFuserPythonBindings(PyObject* module) {
   PARAM(matmul_config, MatmulParams, int, splitk_factor)
   py::enum_<MatmulParams::TileRasterizationOrder>(
       nvfuser, "MatmulTileRasterizationOrder")
-      .value("ColumnMajor", MatmulParams::TileRasterizationOrder::ColumnMajor)
-      .value("RowMajor", MatmulParams::TileRasterizationOrder::RowMajor);
+      .value("column_major", MatmulParams::TileRasterizationOrder::ColumnMajor)
+      .value("row_major", MatmulParams::TileRasterizationOrder::RowMajor);
   matmul_config.def_property(
       "cta_order",
       [](MatmulParams& self) { return self.cta_order; },
