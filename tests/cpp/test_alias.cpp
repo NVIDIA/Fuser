@@ -1017,8 +1017,11 @@ TEST_F(AliasTest, ReuseBuffer_AliasAcrossSegments) {
   testValidate(
       fec.fusion(), outputs, {original_t0, t1, t2}, __LINE__, __FILE__);
 
+  // https://github.com/NVIDIA/Fuser/pull/2999 will cause 3 segments instead of
+  // the optimal 2 segments. Change back to 2 segments once
+  // https://github.com/NVIDIA/Fuser/issues/3251 is resolved.
   EXPECT_EQ(
-      fec.getMostRecentKernelRuntime()->fusionSegments()->groups().size(), 2)
+      fec.getMostRecentKernelRuntime()->fusionSegments()->groups().size(), 3)
       << "segmentation didn't happen as expected";
 
   auto t3 = original_t0.add(1.0);
