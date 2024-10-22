@@ -1090,10 +1090,8 @@ TEST_P(DistributedTransformerTest, Backward) {
   fusion->addInput(mha_linear1);
   fusion->addInput(mlp_linear0);
 
-  // Recomputation: Recompute, mha linear0, qkv, mlp linear0, and mlp gelu.
-  // Partially recompute layer norms using cached statistics.
-  // Note: The thunder trace recompute mha linear1, but this would result in 3
-  // AllReduces in the backwards pass.
+  // Activation recomputation: mlp gelu, dropouts, and 
+  // partially recompute layer norms using cached statistics.
   auto ln0_in = castOp(DataType::Float, x);
   auto ln0 = layer_norm_with_cached_statistics(
       ln0_in, ln0_mean, ln0_rstd, norm_shape, ln0_w, ln0_b);
