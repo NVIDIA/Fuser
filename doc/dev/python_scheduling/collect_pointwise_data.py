@@ -5,10 +5,8 @@
 
 import torch
 import itertools
-import random
 import numpy as np
-import itertools
-from nvfuser import FusionCache, FusionDefinition, SchedulerType
+from nvfuser import FusionDefinition, SchedulerType
 
 # ============================ Description ============================
 
@@ -147,9 +145,8 @@ def create_fusion_definition(num_operations, mufu_indices, input_shapes):
 def get_broadcast_multiple(input_tensors, output_tensors, breakpoint_dim):
     lhs = 0
     rhs = 0
-    from itertools import chain
 
-    for t in chain(input_tensors, output_tensors):
+    for t in itertools.chain(input_tensors, output_tensors):
         for idx, dim_size in enumerate(t.shape):
             value = t.dtype.itemsize if dim_size > 1 else 0
             if idx < breakpoint_dim:
@@ -198,7 +195,7 @@ for full_tensor_shape in itertools.product(outer_shapes, inner_shapes):
                 import sys
 
                 sys.exit()
-            except:
+            except AssertionError:
                 print(
                     f"Warning: failed to run fusion given {input_tensors} and configuration {config}"
                 )
