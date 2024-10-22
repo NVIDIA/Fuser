@@ -702,6 +702,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   PARAM(matmul_config, MatmulParams, int, splitk_factor)
 
 #undef PARAM
+#undef INITPARAMS
 
   //! KernelProfiles are encapsulated in FusionProfiles where each KP
   //! is associated with a segment.
