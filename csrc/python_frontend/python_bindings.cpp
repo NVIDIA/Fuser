@@ -686,7 +686,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   cfg.def_property(                                  \
       #name,                                         \
       [](internal_type& self) { return self.name; }, \
-      [](internal_type& self, type name_) { self.name = name_; });
+      [](internal_type& self, type x) { self.name = x; });
 
   // Pointwise scheduler parameters
   INITPARAMS(pointwise_config, PointwiseParams)
