@@ -82,7 +82,7 @@ TEST_F(PresegTest, FusionCyclicGraph) {
     EXPECT_THAT(
         [&]() { StmtSort::getStmtsBetween({}, fusion->outputs()); },
         ::testing::ThrowsMessage<nvfuser::nvfError>(
-            ::testing::HasSubstr("cycle detected")));
+            ::testing::HasSubstr("Statements found in the cycle")));
   }
 
   {
@@ -120,7 +120,7 @@ TEST_F(PresegTest, FusionCyclicGraph) {
     EXPECT_THAT(
         [&]() { StmtSort::getStmtsBetween({}, to); },
         ::testing::ThrowsMessage<nvfuser::nvfError>(
-            ::testing::HasSubstr("cycle detected")));
+            ::testing::HasSubstr("Statements found in the cycle")));
 
     // check for proper size of cycle detected
     NVF_CHECK(
