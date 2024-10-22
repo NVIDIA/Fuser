@@ -519,28 +519,28 @@ void clearUnrollVectorizationAddGroupReduction(
     if (unroll_vectorizable_cached_tvs.count(tv) != 0) {
       continue;
     }
-      for (const auto i : c10::irange(tv->nDims())) {
-        auto id = tv->axis(i);
-        if (use_grouped_reduction &&
-            std::find(reduction_tvs.begin(), reduction_tvs.end(), tv) !=
-                reduction_tvs.end() &&
-            id->getParallelType() == ParallelType::Vectorize) {
-          tv->axis(i)->parallelize(ParallelType::Group);
-          for (auto sibling : ir_utils::siblingTvsOf(tv)) {
-            sibling->axis(i)->parallelize(ParallelType::Group);
-          }
-        } else if (
-            id->getParallelType() == ParallelType::Unroll ||
-            id->getParallelType() == ParallelType::Vectorize ||
-            id->getParallelType() == ParallelType::MisalignedVectorize) {
-          tv->axis(i)->parallelize(ParallelType::Serial);
-          for (auto sibling : ir_utils::siblingTvsOf(tv)) {
-            sibling->axis(i)->parallelize(ParallelType::Serial);
-          }
+    for (const auto i : c10::irange(tv->nDims())) {
+      auto id = tv->axis(i);
+      if (use_grouped_reduction &&
+          std::find(reduction_tvs.begin(), reduction_tvs.end(), tv) !=
+              reduction_tvs.end() &&
+          id->getParallelType() == ParallelType::Vectorize) {
+        tv->axis(i)->parallelize(ParallelType::Group);
+        for (auto sibling : ir_utils::siblingTvsOf(tv)) {
+          sibling->axis(i)->parallelize(ParallelType::Group);
+        }
+      } else if (
+          id->getParallelType() == ParallelType::Unroll ||
+          id->getParallelType() == ParallelType::Vectorize ||
+          id->getParallelType() == ParallelType::MisalignedVectorize) {
+        tv->axis(i)->parallelize(ParallelType::Serial);
+        for (auto sibling : ir_utils::siblingTvsOf(tv)) {
+          sibling->axis(i)->parallelize(ParallelType::Serial);
         }
       }
     }
   }
+  
   // Propagate group to other reduction tvs
   if (use_grouped_reduction && reduction_tvs.size() > 1) {
     std::vector<TensorView*> other_reduction_tvs;
