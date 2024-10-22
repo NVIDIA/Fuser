@@ -17,6 +17,7 @@ from nvfuser import FusionDefinition, SchedulerType
 # Save results to csv file.
 
 # Fusion Configurations:
+# Tensor DataType
 # Binary Math Operation is add.
 # MUFU Operation is exp.
 #
@@ -94,9 +95,16 @@ def generate_shapes_with_bcast(tensor_shape):
 
 
 def create_fusion_state(full_tensor_shape, maximum_number_operations):
-    # vertical composition: number of operations, order of mufu operations
-    # horizontal composition: number and size of tensor dimensions, order of
-    # broadcast dimensions.
+    # vertical composition:
+    # * number of operations
+    # * order of mufu operations
+    #
+    # horizontal composition:
+    # * number, dtype, and size of tensor dimensions
+    # * order of broadcast dimensions.
+
+    # Data types for tensors
+    tensor_data_types = [torch.float64, torch.float32, torch.bfloat16, torch.float16]
 
     for num_ops in range(1, maximum_number_operations + 1):
         for num_mufu in range(num_ops + 1):
@@ -107,13 +115,18 @@ def create_fusion_state(full_tensor_shape, maximum_number_operations):
             tensor_shapes_with_bcast = list(
                 generate_shapes_with_bcast(full_tensor_shape)
             )
-            shapes_for_all_tensors = [tensor_shapes_with_bcast] * num_tensors
+            tensor_shapes_with_bcast_and_dtype = list(
+                itertools.product(tensor_shapes_with_bcast, tensor_data_types)
+            )
+            shapes_for_all_tensors = [tensor_shapes_with_bcast_and_dtype] * num_tensors
             for input_shapes in itertools.product(*shapes_for_all_tensors):
                 yield (num_ops, mufu_indices, input_shapes)
 
 
 def create_fusion_definition(num_operations, mufu_indices, input_shapes):
-    input_tensors = [torch.randn(shape, device="cuda") for shape in input_shapes]
+    input_tensors = [
+        torch.randn(shape, dtype=dtype, device="cuda") for shape, dtype in input_shapes
+    ]
 
     with FusionDefinition() as fd:
         output = None
@@ -161,7 +174,7 @@ def get_broadcast_multiple(input_tensors, output_tensors, breakpoint_dim):
 # For pointwise scheduler, we test the cartesian product of vectorization and
 # unroll factors.
 parameter_configurations = [
-    vectorize_range := [1, 2, 4],
+    vectorize_range := [1, 2, 4, 8],
     unroll_range := list(range(1, 10)),
 ]
 
@@ -195,7 +208,7 @@ for full_tensor_shape in itertools.product(outer_shapes, inner_shapes):
                 import sys
 
                 sys.exit()
-            except AssertionError:
+            except (AssertionError, RuntimeError):
                 print(
                     f"Warning: failed to run fusion given {input_tensors} and configuration {config}"
                 )
@@ -210,8 +223,8 @@ for full_tensor_shape in itertools.product(outer_shapes, inner_shapes):
 
             # create data entry
             entry = [
-                input_shapes,
-                [list(t.shape) for t in output_tensors],
+                [[shape, dtype.itemsize] for shape, dtype in input_shapes],
+                [list(t.shape) + [t.itemsize] for t in output_tensors],
                 num_ops,
                 len(mufu_indices),
                 broadcast_multiples,
