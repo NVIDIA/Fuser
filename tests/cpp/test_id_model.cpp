@@ -18,9 +18,9 @@
 #include <id_model/loop_promotion.h>
 #include <id_model/schedule.h>
 #include <id_model/to_string.h>
-#include <inlining.h>
 #include <ir/graphviz.h>
 #include <ops/all_ops.h>
+#include <scheduler/tools/inlining.h>
 #include <transform_iter.h>
 #include <val_graph_visitor.h>
 
@@ -2171,222 +2171,6 @@ TEST_F(IdModelTest, PermutedDifferently) {
   EXPECT_TRUE(iterDomainsAreMapped(id_model, s1->axis(2), t1->axis(2)));
 }
 
-// BFS traversal test with a simple exact graph
-TEST_F(IdModelTest, ValGraphBFS1) {
-  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  auto tv0 = makeSymbolicTensor(2);
-  fusion->addInput(tv0);
-  auto tv1 = set(tv0);
-  auto tv2 = set(tv1);
-  fusion->addOutput(tv2);
-
-  // tv0: [i0, i1]
-  // tv1: [i0, i1]
-  // tv2: [i0, i1]
-
-  // Schedule tv0 and tv1 in the same way
-  tv0->merge(0, 1)->split(0, 4);
-  tv1->merge(0, 1)->split(0, 4);
-  // Schedule tv1 similarly but with a reordered merge
-  tv2->merge(1, 0)->split(0, 4);
-
-  // tv0: [i0*i1/4, 4]
-  // tv1: [i0*i1/4, 4]
-  // tv2: [i1*i0/4, 4]
-
-  const IdModel id_model(fusion.get());
-  const ValGraph& graph = id_model.idGraph(IdMappingMode::EXACT);
-
-  ValGroups tv0_loop_groups = graph.toGroups(tv0->getLoopDomain());
-  ValGroups tv1_loop_groups = graph.toGroups(tv1->getLoopDomain());
-  ValGroups tv2_loop_groups = graph.toGroups(tv2->getLoopDomain());
-
-  // Since the loop domains of tv0 and tv1 are grouped together, the
-  // path between them is empty
-  ExprPath<ExprGroup> tv1_to_tv0 =
-      ValGraphBFS::getExprsBetween(graph, tv1_loop_groups, tv0_loop_groups);
-  EXPECT_TRUE(tv1_to_tv0.empty());
-
-  // Traversal should fail if not all dependencies are met
-  ValGroups incomplete_tv1_loop_groups;
-  incomplete_tv1_loop_groups.pushBack(
-      graph.toGroup(tv1->getLoopDomain().at(0)));
-  EXPECT_THAT(
-      [&]() {
-        ValGraphBFS::getExprsBetween(
-            graph, incomplete_tv1_loop_groups, tv0_loop_groups);
-      },
-      ::testing::ThrowsMessage<nvfuser::nvfError>(
-          ::testing::HasSubstr("BFS traversal could not visit some nodes")));
-
-  // On the other hand, the loop domains of tv2 are produced through
-  // the reverse merge, so they aren't mapped with the tv1 loop
-  // domains. The path between them should look like traversing from
-  // tv2 loop domain backward to its root and then forward from tv1 root to
-  // tv1 loop domain.
-  ExprPath<ExprGroup> tv2_to_tv1 =
-      ValGraphBFS::getExprsBetween(graph, tv2_loop_groups, tv1_loop_groups);
-
-  ExprPath<ExprGroup> tv2_to_tv1_ref;
-  tv2_to_tv1_ref.emplace_back(
-      graph.toGroup(tv2->axis(0)->definition()), Direction::Backward);
-  tv2_to_tv1_ref.emplace_back(
-      graph.toGroup(tv2->axis(0)->definition()->input(0)->definition()),
-      Direction::Backward);
-  tv2_to_tv1_ref.emplace_back(
-      graph.toGroup(tv1->axis(0)->definition()->input(0)->definition()),
-      Direction::Forward);
-  tv2_to_tv1_ref.emplace_back(
-      graph.toGroup(tv1->axis(0)->definition()), Direction::Forward);
-
-  EXPECT_EQ(tv2_to_tv1, tv2_to_tv1_ref);
-}
-
-// Traversal to partial reachable nodes. See also the comment in
-// ValGraphBFS::getShortestExprPath<ExprGroup>.
-TEST_F(IdModelTest, ValGraphBFS2) {
-  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  auto tv0 = makeSymbolicTensor(3);
-  fusion->addInput(tv0);
-  auto tv1 = set(tv0);
-  fusion->addOutput(tv1);
-
-  // tv1: [i0, i1, i2]
-  // tv1: [i0, i1, i2]
-
-  tv1->merge(1, 2)->merge(0, 1);
-
-  // tv0: [i0, i1, i2]
-  // tv1: [i0*(i1*i2)]
-
-  const IdModel id_model(fusion.get());
-  const ValGraph& graph = id_model.idGraph(IdMappingMode::EXACT);
-
-  ValGroups tv0_loop_groups = graph.toGroups(tv0->getLoopDomain());
-  ValGroups tv1_loop_groups = graph.toGroups(tv1->getLoopDomain());
-
-  // Since the loop domains of tv0 and tv1 are grouped together, the
-  // path between them is empty
-  ExprPath<ExprGroup> tv1_to_tv0 =
-      ValGraphBFS::getExprsBetween(graph, tv1_loop_groups, tv0_loop_groups);
-
-  ExprPath<ExprGroup> tv1_to_tv0_ref;
-  tv1_to_tv0_ref.emplace_back(
-      graph.toGroup(tv1->axis(0)->definition()), Direction::Backward);
-  tv1_to_tv0_ref.emplace_back(
-      graph.toGroup(tv1->axis(0)->definition()->input(1)->definition()),
-      Direction::Backward);
-
-  EXPECT_EQ(tv1_to_tv0, tv1_to_tv0_ref);
-
-  // Grab the path from tv1 to only the i1 and i2 domains of tv0
-  // without i0. The path should still be the same.
-  ValGroups tv0_partial_groups;
-  tv0_partial_groups.pushBack(graph.toGroup(tv0->axis(1)));
-  tv0_partial_groups.pushBack(graph.toGroup(tv0->axis(2)));
-  ExprPath<ExprGroup> tv1_to_tv0_partial =
-      ValGraphBFS::getExprsBetween(graph, tv1_loop_groups, tv0_partial_groups);
-
-  EXPECT_EQ(tv1_to_tv0_partial, tv1_to_tv0_ref);
-}
-
-// Check if a shorter path is taken
-TEST_F(IdModelTest, ValGraphBFS3) {
-  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  auto tv0 = makeConcreteTensor({16});
-  fusion->addInput(tv0);
-
-  // shorter path
-  auto tv1 = reshape(tv0, {16}, {4, 4});
-
-  // longer path
-  auto tv2 = reshape(tv0, {16}, {8, 2});
-  auto tv3 = reshape(tv2, {8, 2}, {4, 4});
-
-  auto tv4 = add(tv1, tv3);
-
-  fusion->addOutput(tv4);
-
-  // tv0: [i0]
-  // tv1: [i0/4, 4]
-  // tv2: [i0/8, 2]
-  // tv3: [i0/8*2/4, 4]
-  // tv4: [i0/4, 4]
-
-  // Traversal from tv4 to tv0 can be {tv4 -> tv1 -> tv0} or {tv4 ->
-  // tv3 -> tv2 -> tv0}. The former should be seletected as it's shorter
-
-  const IdModel id_model(fusion.get());
-  const ValGraph& graph = id_model.idGraph(IdMappingMode::EXACT);
-
-  ValGroups tv4_groups = graph.toGroups(tv4->getLoopDomain());
-  ValGroups tv0_groups = graph.toGroups(tv0->getLoopDomain());
-
-  ExprPath<ExprGroup> tv4_to_tv0 =
-      ValGraphBFS::getExprsBetween(graph, tv4_groups, tv0_groups);
-  ExprPath<ExprGroup> tv4_to_tv0_ref;
-  tv4_to_tv0_ref.emplace_back(
-      graph.toGroup(tv1->axis(0)->definition()), Direction::Backward);
-
-  ASSERT_EQ(tv4_to_tv0, tv4_to_tv0_ref);
-}
-
-// BFS traversal of a graph with a cycle
-TEST_F(IdModelTest, ValGraphBFS4) {
-  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  auto tv0 = makeConcreteTensor({2, 8});
-  fusion->addInput(tv0);
-
-  auto tv1 = reshape(tv0, {2, 8}, {16});
-  auto tv2 = reshape(tv1, {16}, {4, 4});
-  auto tv3 = reshape(tv2, {4, 4}, {16});
-  auto tv4 = add(tv1, tv3);
-
-  fusion->addOutput(tv4);
-
-  // tv0: [i0, i1]
-  // tv1: [i2] // i2 = merge(i0, i1)
-  // tv2: [i3, i4] // i3, i4 = split(i2)
-  // tv3: [i5] // merge(i3, i4)
-  // tv4: [i6] // i6 = i5
-
-  // The tv4 addition makes the sole domain of tv4 mapped with those of
-  // tv3 and tv1, i.e., these domains are grouped together:
-  //
-  // i2, i5, i6
-  //
-  // Since there's a path from i2 to i5 (a merge and a split), this
-  // means the graph is no longer a DAG.
-
-  // Make sure the BFS traversal should still work even with a cycle.
-
-  const IdModel id_model(fusion.get());
-  const ValGraph& graph = id_model.idGraph(IdMappingMode::EXACT);
-
-  ValGroups tv4_groups = graph.toGroups(tv4->getLoopDomain());
-  ValGroups tv0_groups = graph.toGroups(tv0->getLoopDomain());
-
-  // Traversal from tv4 to tv0 can go through the reshape ops of tv2
-  // and tv3, but the shortest path should be just one merge for tv1
-
-  ExprPath<ExprGroup> tv4_to_tv0 =
-      ValGraphBFS::getExprsBetween(graph, tv4_groups, tv0_groups);
-
-  ExprPath<ExprGroup> tv4_to_tv0_ref;
-  tv4_to_tv0_ref.emplace_back(
-      graph.toGroup(tv1->axis(0)->definition()), Direction::Backward);
-
-  ASSERT_EQ(tv4_to_tv0, tv4_to_tv0_ref);
-}
-
 // Make sure domains of sibling tensors are all mapped together in the
 // LOOP graph even when those tensors are not inlined.
 TEST_F(IdModelTest, LoopGraphWithSibling) {
@@ -2736,6 +2520,161 @@ TEST_F(IdModelTest, MappingClonedIDs) {
                         tv2->getLoopDomain().at(i), tv4->getLoopDomain().at(i)))
         << "Exact mapping expected: " << tv2->getLoopDomain().at(i)->toString()
         << ", " << tv4->getLoopDomain().at(i)->toString();
+  }
+}
+
+TEST_F(IdModelTest, LoopPromotionWithCyclicGraph) {
+  // This test includes multiple cases. Each one is a fairly trivial
+  // test, so they are all put in one test.
+
+  // Test with reshape
+  {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+
+    auto tv0 = makeConcreteTensor({10});
+    fusion.addInput(tv0);
+    auto tv1 = reshape(tv0, {10}, {2, 5});
+    auto tv2 = reshape(tv1, {2, 5}, {10});
+    auto tv3 = add(tv0, tv2);
+    fusion.addOutput(tv3);
+
+    IdModel id_model(&fusion, /*build_graphs=*/false);
+    id_model.buildExactGraph();
+
+    // The exact graph is cyclic, but the loop promotion should be
+    // generated successfully as this fusion should not require the full
+    // promotion analysis.
+    EXPECT_TRUE(isCyclic(id_model.idGraph(IdMappingMode::EXACT)));
+
+    id_model.buildLoopGraph();
+    EXPECT_TRUE(!id_model.loopPromotionMap().empty());
+  }
+
+  // Test with slice and pad
+  {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+
+    auto tv0 = makeConcreteTensor({10});
+    fusion.addInput(tv0);
+    auto tv1 = slice(tv0, {{fusion.zeroVal(), IrBuilder::create<Val>(5)}});
+    auto tv2 = pad(tv1, {fusion.zeroVal(), IrBuilder::create<Val>(5)});
+    auto tv3 = add(tv0, tv2);
+    fusion.addOutput(tv3);
+
+    IdModel id_model(&fusion, /*build_graphs=*/false);
+    id_model.buildExactGraph();
+
+    // The exact graph is cyclic, but the loop promotion should be
+    // generated successfully as this fusion should not require the full
+    // promotion analysis.
+    EXPECT_TRUE(isCyclic(id_model.idGraph(IdMappingMode::EXACT)));
+
+    id_model.buildLoopGraph();
+    EXPECT_TRUE(!id_model.loopPromotionMap().empty());
+  }
+
+  // Test with reshape that requires the full promotion analysis
+  {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+
+    auto tv0 = makeConcreteTensor({10});
+    fusion.addInput(tv0);
+    auto tv1 = makeConcreteTensor({2});
+    fusion.addInput(tv1);
+    auto tv2 = reshape(tv0, {10}, {2, 5});
+    auto tv3 = reshape(tv2, {2, 5}, {10});
+    auto tv4 = add(tv0, tv3);
+    fusion.addOutput(tv4);
+    auto tv5 = broadcast(tv1, {false, true});
+    auto tv6 = add(tv2, tv5);
+    fusion.addOutput(tv6);
+
+    IdModel id_model(&fusion, /*build_graphs=*/false);
+    id_model.buildExactGraph();
+
+    std::ofstream ofs("exact_graph.dot", std::ofstream::trunc);
+    auto dot_string =
+        id_model.idGraph(IdMappingMode::EXACT).toGraphvizDotGraph();
+    ofs << dot_string;
+    ofs.close();
+
+    // The exact graph is cyclic
+    EXPECT_TRUE(isCyclic(id_model.idGraph(IdMappingMode::EXACT)));
+
+    // While the fusion has a broadcast, since it's never merged with
+    // a non-concrete domain, it should not require the full promotion
+    // analysis.
+    id_model.buildLoopGraph();
+    EXPECT_TRUE(!id_model.loopPromotionMap().empty());
+
+    // However, if the broadcast domain gets inlined, it should not
+    // follow the shortcut path and because of the cycle, the loop
+    // promotion analysis should fail.
+    tv5->flatten();
+    tv6->flatten();
+    tv5->inlineAt(1);
+
+    IdModel id_model2(&fusion, /*build_graphs=*/false);
+    EXPECT_THAT(
+        [&]() { id_model2.buildLoopGraph(); },
+        ::testing::ThrowsMessage<nvfuser::nvfError>(
+            ::testing::HasSubstr("Cyclic exact graph is not supported")));
+  }
+}
+
+TEST_F(IdModelTest, LoopGraphWithSetLoopDomain) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(1);
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv1);
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 = add(tv0, tv3);
+  fusion.addOutput(tv4);
+
+  {
+    std::vector<IterDomain*> loop_domain{
+        tv2->getLogicalDomain().at(0),
+        tv3->getLogicalDomain().at(1)->cloneWithoutRFactor(true)};
+    tv2->setLoopDomain(loop_domain);
+  }
+
+  for (auto tv : fusion.allTvs()) {
+    tv->flatten();
+    tv->split(0, 32);
+  }
+
+  inlineMost();
+
+  IdModel id_model(&fusion);
+
+  // Make sure that:
+  // - all loop IDs of tv2, tv3 and tv4 are grouped together.
+  // - Promotion should still pick the most concrete one
+  const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+  const auto& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
+  const auto& loop_promotion_map = id_model.loopPromotionMap();
+  for (const auto i : c10::irange(tv2->getLoopDomain().size())) {
+    const auto& loop_group = loop_graph.toGroup(tv2->getLoopDomain().at(i));
+    for (auto tv : {tv3, tv4}) {
+      EXPECT_TRUE(loop_group->has(tv->getLoopDomain().at(i)))
+          << "Loop ID not mapped with tv2 loop ID: "
+          << tv->getLoopDomain().at(i)->toString()
+          << ", tv2 loop ID: " << tv2->getLoopDomain().at(i)->toString();
+    }
+
+    auto loop_promotion_map_it = loop_promotion_map.find(loop_group);
+    ASSERT_NE(loop_promotion_map_it, loop_promotion_map.end());
+    auto promotion = loop_promotion_map_it->second;
+    EXPECT_TRUE(exact_graph.disjointValSets().strictAreMapped(
+        promotion, tv4->getLoopDomain().at(i)));
   }
 }
 

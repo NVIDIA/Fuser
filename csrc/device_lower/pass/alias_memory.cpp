@@ -102,8 +102,8 @@ bool isSerialBroadcastResolution(
   for (auto for_loop : for_loops) {
     // ForLoop::iter_domain() should be the concrete domain, but just
     // in case.
-    auto concrete_loop_id = GpuLower::current()->caMap()->getConcreteMappedID(
-        for_loop->iter_domain(), IdMappingMode::LOOP);
+    auto concrete_loop_id =
+        lower_utils::getConcreteLoopID(for_loop->iter_domain());
 
     // Check for any serial loop id with non-trivial extent. If the
     // concrete ID is a broadcast, it shouldn't materialize an actual
@@ -562,6 +562,7 @@ struct AllocationInfo {
   const kir::Allocate* alias_to = nullptr;
   bool is_inner_alias = false;
   bool should_try_alias = true;
+  bool is_cp_async_bulk = false;
   MemoryType mem_type = MemoryType::Local;
   DataType data_type = DataType::Float;
   std::string size_expr;
@@ -840,6 +841,9 @@ class AllocationInfoMap : private kir::IrVisitor {
     alloc_info->size_expr = size_print;
     alloc_info->loop_info = current_stack_.back();
     alloc_info->should_try_alias = should_try_alias;
+    alloc_info->is_cp_async_bulk =
+        (tv->definition() != nullptr &&
+         ir_utils::isCpAsyncBulk(tv->definition()));
 
     // record short cuts
     allocation_info_map_[alloc] = alloc_info;
@@ -886,25 +890,15 @@ class AllocationInfoMap : private kir::IrVisitor {
     // The liveness of the mbarrier and its token are mapped together.
     // The token is the mbarrier state of the last phase.
     if (auto init = dynamic_cast<kir::MBarrierInit*>(expr)) {
-      mark_liveness(init->mbarrier()->as<TensorView>(), /*is_write=*/true);
-
-      // Register start of lifetime for a mbarrier token returned by
-      // MBarrierArriveExpectTx and MBarrierArrive.
-      if (GpuLower::current()->ldstMBarrierTokenMap().count(expr) > 0) {
-        mark_liveness(
-            GpuLower::current()->ldstMBarrierTokenMap()[expr],
-            /*is_write=*/true);
-      }
+      TensorView* tv = (init->mbarrier()->isA<kir::TensorIndex>())
+          ? init->mbarrier()->as<kir::TensorIndex>()->view()
+          : init->mbarrier()->as<TensorView>();
+      mark_liveness(tv, /*is_write=*/true);
     } else if (auto inval = dynamic_cast<kir::MBarrierInvalidate*>(expr)) {
-      mark_liveness(inval->mbarrier()->as<TensorView>(), /*is_write=*/false);
-
-      // Register end of lifetime for a mbarrier token returned by
-      // returned by MBarrierArriveExpectTx and MBarrierArrive
-      if (GpuLower::current()->ldstMBarrierTokenMap().count(expr) > 0) {
-        mark_liveness(
-            GpuLower::current()->ldstMBarrierTokenMap()[expr],
-            /*is_write=*/false);
-      }
+      TensorView* tv = (inval->mbarrier()->isA<kir::TensorIndex>())
+          ? inval->mbarrier()->as<kir::TensorIndex>()->view()
+          : inval->mbarrier()->as<TensorView>();
+      mark_liveness(tv, /*is_write=*/false);
     }
   }
 
@@ -1761,7 +1755,10 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
       auto top_size = allocSizeBytes(top_alloc);
       auto unaligned_address =
           SimplifyingIrBuilder::addExpr(top_alloc->address(), top_size);
-      auto aligned_address = alignExpr(unaligned_address);
+      // Shared memory allocations must by 128B aligned for cpAsyncBulk
+      // operations to avoid CUDA_ERROR_MISALIGNED_ADDRESS.
+      auto aligned_address = alignExpr(
+          unaligned_address, (alloc_info->is_cp_async_bulk) ? 128 : 16);
       // TODO: hoisting of addresses using for_loops_ recorded at first write
       alloc->setAddress(aligned_address);
     }

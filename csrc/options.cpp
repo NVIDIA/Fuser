@@ -191,7 +191,8 @@ std::unordered_map<DisableOption, std::vector<std::string>> Options<
       {"var_name_remapping", DisableOption::VarNameRemapping},
       {"welford_vectorization", DisableOption::WelfordVectorization},
       {"reuse_mismatched_type_registers",
-       DisableOption::ReuseMismatchedTypeRegisters}};
+       DisableOption::ReuseMismatchedTypeRegisters},
+      {"multidevice", DisableOption::Multidevice}};
 
   auto options = parseEnvOptions("DISABLE", available_options);
 

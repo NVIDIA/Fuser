@@ -10,13 +10,13 @@
 #include <gtest/gtest.h>
 
 #include <grouped_reduction.h>
-#include <inlining.h>
 #include <ir/utils.h>
-#include <kernel_cache.h>
 #include <ops/all_ops.h>
+#include <runtime/fusion_executor_cache.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/normalization_utils.h>
 #include <scheduler/reduction_utils.h>
+#include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
@@ -764,6 +764,9 @@ TEST_F(CombinedSchedulerTest, CombinedReductionMultiPerBlock) {
     std::cout << "reference_tv_outer " << reference_tv_outer->toString()
               << std::endl;
 
+  // empty in this test
+  std::vector<TensorView*> smem_consumers;
+
   reduction_scheduler_utils::propagateTransformation(
       reference_tv_inner, {partialResultReload});
   const auto& selected_tvs_inner = scheduler_utils::getAllTvsFrom(
@@ -778,6 +781,7 @@ TEST_F(CombinedSchedulerTest, CombinedReductionMultiPerBlock) {
       inner_reduction_tvs,
       cached_inputs,
       cached_outputs,
+      smem_consumers,
       {selected_tvs_inner.begin(), selected_tvs_inner.end()});
 
   const auto& selected_tvs_outer =
@@ -794,6 +798,7 @@ TEST_F(CombinedSchedulerTest, CombinedReductionMultiPerBlock) {
       outer_reduction_tvs,
       cached_inputs,
       cached_outputs,
+      smem_consumers,
       {selected_tvs_outer.begin(), selected_tvs_outer.end()});
 
   std::vector<TensorView*> cached_gmem_temp{partialResult};
@@ -910,18 +915,13 @@ TEST_F(CombinedSchedulerTest, InnerOuterNoOuterBroadcastTv) {
   at::Tensor t0 = at::randn({dim0, dim1}, options);
   std::vector<c10::IValue> aten_inputs = {t0};
 
-  auto heuristic =
-      getInnerOuterPersistentHeuristics(fusion_ptr.get(), aten_inputs);
-  NVF_CHECK(heuristic, "InnerOuterPersistentHeuristics was not generated!");
-  NVF_CHECK(
-      !heuristic->project_persistent_buffers,
-      "Shouldn't project persistent buffers to inputs!");
+  auto cg_results =
+      scheduleAndRun(&fusion, SchedulerType::InnerOuterPersistent, aten_inputs);
 
-  scheduleInnerOuterPersistentKernel(fusion_ptr.get(), *heuristic);
-  auto lparams = heuristic->lparams;
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs, lparams);
-  auto cg_outputs = fe.runFusion(aten_inputs, lparams);
+  auto persistent_params = cg_results.heuristic_params->as<ReductionParams>();
+  NVF_CHECK(
+      !persistent_params->project_persistent_buffers,
+      "Shouldn't project persistent buffers to inputs!");
 
   auto t1 = t0.sum({1});
   auto t2 = t1.unsqueeze(-1);
@@ -929,12 +929,12 @@ TEST_F(CombinedSchedulerTest, InnerOuterNoOuterBroadcastTv) {
   auto t4 = t0.sum({0});
   testValidate(
       &fusion,
-      cg_outputs,
+      cg_results.outputs,
       aten_inputs,
       {t3, t4},
       __LINE__,
       __FILE__,
       "",
-      lparams);
+      persistent_params->lparams);
 }
 } // namespace nvfuser

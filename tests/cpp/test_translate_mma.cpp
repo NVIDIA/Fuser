@@ -14,15 +14,12 @@
 #include <disjoint_set.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
-#include <fusion_executor/executor.h>
-#include <fusion_executor/executor_params.h>
 #include <fusion_segmenter.h>
 #include <ir/all_nodes.h>
 #include <ir/iostream.h>
 #include <ir/printer.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
-#include <kernel_cache.h>
 #include <kernel_ir.h>
 #include <logical_domain_map.h>
 #include <mma_type.h>
@@ -30,6 +27,9 @@
 #include <options.h>
 #include <preseg_passes/allocation_order_inference.h>
 #include <preseg_passes/optimization_pass.h>
+#include <runtime/executor.h>
+#include <runtime/executor_params.h>
+#include <runtime/fusion_executor_cache.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/matmul.h>
 #include <scheduler/mma_utils.h>
@@ -216,15 +216,16 @@ TEST_P(CombineMulSumAsMmaTestWithLayout, AmpereMulSumToMatmul_Schedule) {
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-  MatmulParams params;
-  params.supported_vec_size = {8, 8, 4};
-  params.mma_macro = MmaMacro::Ampere_16_8_16;
-  params.tile_sizes = gemm_tile;
-  params.async_gmem_load_operands = true;
-  params.circular_buffer_options.circular_buffer_smem_write = true;
-  params.circular_buffer_options.circular_buffer_smem_read = true;
-  params.circular_buffer_options.smem_circular_buffer_stage = 4;
-  scheduleMatmul(&fusion, params);
+  MatmulParams mparams;
+  mparams.supported_vec_size = {8, 8, 4};
+  mparams.mma_macro = MmaMacro::Ampere_16_8_16;
+  mparams.tile_sizes = gemm_tile;
+  mparams.async_gmem_load_operands = true;
+  mparams.circular_buffer_options.circular_buffer_smem_write = true;
+  mparams.circular_buffer_options.circular_buffer_smem_read = true;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
 
   auto inputs = matmulAtInput2D(M, N, K, layout);
 
@@ -274,14 +275,14 @@ TEST_P(CombineMulSumAsMmaTestWithLayout, UseMatmulScheduler) {
                                         .at(0)
                                         .kernel())
           .empty());
+
   // Ensure that the matmul scheduler ran.
   EXPECT_TRUE(
-      dynamic_cast<MatmulScheduler*>(
-          executor_cache.getMostRecentKernelRuntime()
-              ->schedulerHeuristics()
-              ->heuristicsList()
-              .at(0)
-              .get()) != nullptr);
+      executor_cache.getMostRecentKernelRuntime()
+          ->schedulerHeuristics()
+          ->heuristicsList()
+          .at(0)
+          ->scheduler_type == SchedulerType::Matmul);
 
   EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 
@@ -290,9 +291,9 @@ TEST_P(CombineMulSumAsMmaTestWithLayout, UseMatmulScheduler) {
 }
 
 // Parameters: [A_dim, B_dim, enable_fusion, transpose_a_alloc,
-// expect_segmented, SchedulerHeuristic]
+// expect_segmented, SchedulerType]
 using MatmulNodeTranslationTestParams =
-    std::tuple<int64_t, int64_t, bool, bool, bool, ScheduleHeuristic>;
+    std::tuple<int64_t, int64_t, bool, bool, bool, SchedulerType>;
 using MatmulNodeTranslationTest =
     NVFuserFixtureParamTest<MatmulNodeTranslationTestParams>;
 
@@ -305,7 +306,7 @@ TEST_P(MatmulNodeTranslationTest, AutomaticSchedulerMatmulNode) {
   const bool enable_fusion = std::get<2>(GetParam());
   const bool transpose_a_alloc = std::get<3>(GetParam());
   const bool expect_segmented = std::get<4>(GetParam());
-  const ScheduleHeuristic expected_heuristic = std::get<5>(GetParam());
+  const SchedulerType expected_heuristic = std::get<5>(GetParam());
 
   // CombineMulSumAsMmaTest disabled MatmulExprEval, but we need it enabled
   DisableOptionsGuard dog;
@@ -385,11 +386,11 @@ TEST_P(MatmulNodeTranslationTest, AutomaticSchedulerMatmulNode) {
     EXPECT_FALSE(runtime->isSegmented());
   }
 
-  ScheduleHeuristic heuristic =
-      runtime->schedulerHeuristics()->heuristicsList().front()->heuristic();
-  EXPECT_EQ(heuristic, expected_heuristic);
+  SchedulerType scheduler_type =
+      runtime->schedulerHeuristics()->heuristicsList().front()->scheduler_type;
+  EXPECT_EQ(scheduler_type, expected_heuristic);
 
-  if (heuristic == ScheduleHeuristic::Matmul) {
+  if (scheduler_type == SchedulerType::Matmul) {
     // Ensure there's an MmaOp.
     EXPECT_FALSE(
         ir_utils::getOpsOfType<MmaOp>(runtime->executors().at(0).kernel())
@@ -405,35 +406,32 @@ INSTANTIATE_TEST_SUITE_P(
     MatmulNodeTranslationTest,
     ::testing::Values(
         // Tests without fusion enabled
-        std::
-            make_tuple(2l, 2l, false, false, true, ScheduleHeuristic::ExprEval),
-        std::make_tuple(2l, 2l, false, true, true, ScheduleHeuristic::ExprEval),
+        std::make_tuple(2l, 2l, false, false, true, SchedulerType::ExprEval),
+        std::make_tuple(2l, 2l, false, true, true, SchedulerType::ExprEval),
 
         // Tests with fusion enabled
 
-        std::make_tuple(2l, 2l, true, false, false, ScheduleHeuristic::Matmul),
-        // We cannot yet handle allocation domain in matmul scheduler
-        std::make_tuple(2l, 2l, true, true, true, ScheduleHeuristic::ExprEval),
+        std::make_tuple(2l, 2l, true, false, false, SchedulerType::Matmul),
+        std::make_tuple(2l, 2l, true, true, false, SchedulerType::Matmul),
         // Size-1 input combinations
-        std::make_tuple(1l, 2l, true, false, true, ScheduleHeuristic::ExprEval),
-        std::make_tuple(2l, 1l, true, false, true, ScheduleHeuristic::ExprEval),
-        std::make_tuple(1l, 1l, true, false, true, ScheduleHeuristic::ExprEval),
+        std::make_tuple(1l, 2l, true, false, true, SchedulerType::ExprEval),
+        std::make_tuple(2l, 1l, true, false, true, SchedulerType::ExprEval),
+        std::make_tuple(1l, 1l, true, false, true, SchedulerType::ExprEval),
         // Batch dims
 
         // mat-vec handled by ExprEval
-        std::make_tuple(3l, 1l, true, false, true, ScheduleHeuristic::ExprEval),
-        std::make_tuple(3l, 3l, true, false, false, ScheduleHeuristic::Matmul),
+        std::make_tuple(3l, 1l, true, false, true, SchedulerType::ExprEval),
+        std::make_tuple(3l, 3l, true, false, false, SchedulerType::Matmul),
 
-        std::make_tuple(3l, 2l, true, false, false, ScheduleHeuristic::Matmul),
-        std::make_tuple(4l, 4l, true, false, false, ScheduleHeuristic::Matmul),
+        std::make_tuple(3l, 2l, true, false, false, SchedulerType::Matmul),
+        std::make_tuple(4l, 4l, true, false, false, SchedulerType::Matmul),
 
         // TODO: mixed length inputs via broadcasted batch dims
         // When different numbers of M or N dimensions exist, they must be
         // consecutive. However, these examples lead to [M, B, M, K] and [N, B,
         // N, K] patterns which we don't yet support.
-        std::make_tuple(2l, 3l, true, false, true, ScheduleHeuristic::ExprEval),
-        std::
-            make_tuple(3l, 4l, true, false, true, ScheduleHeuristic::ExprEval)),
+        std::make_tuple(2l, 3l, true, false, true, SchedulerType::ExprEval),
+        std::make_tuple(3l, 4l, true, false, true, SchedulerType::ExprEval)),
 
     [](const testing::TestParamInfo<MatmulNodeTranslationTestParams>& info) {
       std::ostringstream os;
@@ -564,15 +562,15 @@ TEST_P(LinearNodeTranslationTest, AutomaticSchedulerLinearNode) {
     EXPECT_FALSE(runtime->isSegmented());
   }
 
-  ScheduleHeuristic heuristic =
-      runtime->schedulerHeuristics()->heuristicsList().front()->heuristic();
+  SchedulerType scheduler_type =
+      runtime->schedulerHeuristics()->heuristicsList().front()->scheduler_type;
   if (expect_aten_eval) {
-    EXPECT_EQ(heuristic, ScheduleHeuristic::ExprEval);
+    EXPECT_EQ(scheduler_type, SchedulerType::ExprEval);
   } else {
     // Ensure that the Matmul scheduler ran.
     // Assert here since we will inspect the kernel next, which we can't
     // do if ExprEval accepts the segment.
-    ASSERT_EQ(heuristic, ScheduleHeuristic::Matmul);
+    ASSERT_EQ(scheduler_type, SchedulerType::Matmul);
     // Ensure there's an MmaOp.
     EXPECT_FALSE(
         ir_utils::getOpsOfType<MmaOp>(runtime->executors().at(0).kernel())
@@ -591,28 +589,21 @@ INSTANTIATE_TEST_SUITE_P(
         std::make_tuple(2l, 2l, -1l, false, false, true),
         std::make_tuple(2l, 2l, -1l, false, true, true),
         std::make_tuple(1l, 2l, -1l, false, false, true),
-        std::make_tuple(2l, 1l, -1l, false, false, true),
         std::make_tuple(2l, 2l, 1l, false, false, true),
-        std::make_tuple(1l, 1l, -1l, false, false, true),
         std::make_tuple(3l, 2l, 1l, false, false, true),
         std::make_tuple(4l, 2l, 1l, false, false, true),
 
         // Enable fusion
 
         std::make_tuple(2l, 2l, -1l, true, false, false),
-        // We cannot yet handle allocation domain in matmul scheduler
-        std::make_tuple(2l, 2l, -1l, true, true, true),
+        std::make_tuple(2l, 2l, -1l, true, true, false),
         // We don't fuse 1D inputs
         std::make_tuple(1l, 2l, -1l, true, false, true),
-        std::make_tuple(2l, 1l, -1l, true, false, true),
-        // Check that zero-dim output fusion is not claimed by NoOp scheduler
-        std::make_tuple(1l, 1l, -1l, true, false, true),
         // Batch dims in input
         // mixed length inputs via broadcasted batch dims
         std::make_tuple(3l, 2l, -1l, true, false, false),
         std::make_tuple(4l, 2l, -1l, true, false, false),
         // Bias cases
-        std::make_tuple(2l, 2l, 0l, true, false, false),
         std::make_tuple(2l, 2l, 1l, true, false, false),
         std::make_tuple(3l, 2l, 1l, true, false, false),
         std::make_tuple(4l, 2l, 1l, true, false, false)),

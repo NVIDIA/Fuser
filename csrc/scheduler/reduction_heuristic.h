@@ -21,6 +21,10 @@ class TensorView;
 // are equivelent!
 class ReductionParams : public HeuristicParams {
  public:
+  // Note that heuristictype can be different from SchedulerType::Reduction
+  // since ReductionParams is also used by, e.g., normalization schedulers.
+  ReductionParams(SchedulerType scheduler_type = SchedulerType::Reduction)
+      : HeuristicParams(scheduler_type) {};
   // Reducing inner most dimension?
   bool fastest_dim = false;
 
@@ -125,6 +129,9 @@ class ReductionParams : public HeuristicParams {
   bool tidx_for_outer_reduction = false;
   // pad outer reduction to warp
   bool pad_outer_reduction_to_warp = false;
+  // in outer reduction part of inner-outer persistent scheduler, may further
+  // split inner dim by grid
+  bool combined_split_grid_inner_dim = false;
   // partial result of outer reduction is written to gmem then read back in a
   // different parallel pattern set the vectorization factor of its read and
   // write
@@ -149,53 +156,53 @@ class ReductionParams : public HeuristicParams {
   using HeuristicParams::HeuristicParams;
 
   // Warning: Does not check launch parameters!
-  bool sameAs(
-      const std::shared_ptr<HeuristicParams>& other_base) const override {
-    auto other_casted = std::dynamic_pointer_cast<ReductionParams>(other_base);
-    if (other_casted == nullptr) {
+  bool sameAs(const HeuristicParams* other_base) const override {
+    auto other = dynamic_cast<const ReductionParams*>(other_base);
+    if (other == nullptr) {
       return false;
     }
-    const ReductionParams& other = *other_casted;
-    bool attr_equal = other.cparams == cparams &&
-        other.fastest_dim == fastest_dim &&
-        other.persistent_kernel == persistent_kernel &&
-        other.project_persistent_buffers == project_persistent_buffers &&
-        other.schedule_3D == schedule_3D && other.flip_grid == flip_grid &&
-        other.cross_block_inner_reduction == cross_block_inner_reduction &&
-        other.cross_grid_inner_reduction == cross_grid_inner_reduction &&
-        other.unroll_factor_inner_reduction == unroll_factor_inner_reduction &&
-        other.vectorize_inner_reduction == vectorize_inner_reduction &&
-        other.split_grid_dim_inner_reduction ==
+
+    bool attr_equal = other->cparams == cparams &&
+        other->fastest_dim == fastest_dim &&
+        other->persistent_kernel == persistent_kernel &&
+        other->project_persistent_buffers == project_persistent_buffers &&
+        other->schedule_3D == schedule_3D && other->flip_grid == flip_grid &&
+        other->cross_block_inner_reduction == cross_block_inner_reduction &&
+        other->cross_grid_inner_reduction == cross_grid_inner_reduction &&
+        other->unroll_factor_inner_reduction == unroll_factor_inner_reduction &&
+        other->vectorize_inner_reduction == vectorize_inner_reduction &&
+        other->split_grid_dim_inner_reduction ==
             split_grid_dim_inner_reduction &&
-        other.pad_inner_reduction_to_warp == pad_inner_reduction_to_warp &&
-        other.batches_per_block_inner_reduction ==
+        other->pad_inner_reduction_to_warp == pad_inner_reduction_to_warp &&
+        other->batches_per_block_inner_reduction ==
             batches_per_block_inner_reduction &&
-        other.multiple_reds_per_blk == multiple_reds_per_blk &&
-        other.unroll_factor_iter_dom == unroll_factor_iter_dom &&
-        other.vectorize_iter_dom == vectorize_iter_dom &&
-        other.split_grid_dim_iter_dom_inner == split_grid_dim_iter_dom_inner &&
-        other.split_grid_dim_iter_dom_outer == split_grid_dim_iter_dom_outer &&
-        other.cross_block_outer_reduction == cross_block_outer_reduction &&
-        other.cross_grid_outer_reduction == cross_grid_outer_reduction &&
-        other.unroll_factor_outer_reduction == unroll_factor_outer_reduction &&
-        other.split_grid_dim_outer_reduction ==
+        other->multiple_reds_per_blk == multiple_reds_per_blk &&
+        other->unroll_factor_iter_dom == unroll_factor_iter_dom &&
+        other->vectorize_iter_dom == vectorize_iter_dom &&
+        other->split_grid_dim_iter_dom_inner == split_grid_dim_iter_dom_inner &&
+        other->split_grid_dim_iter_dom_outer == split_grid_dim_iter_dom_outer &&
+        other->cross_block_outer_reduction == cross_block_outer_reduction &&
+        other->cross_grid_outer_reduction == cross_grid_outer_reduction &&
+        other->unroll_factor_outer_reduction == unroll_factor_outer_reduction &&
+        other->split_grid_dim_outer_reduction ==
             split_grid_dim_outer_reduction &&
-        other.batches_per_block_outer_reduction ==
+        other->batches_per_block_outer_reduction ==
             batches_per_block_outer_reduction &&
-        other.compute_persistent_buffer_with_first_consumer ==
+        other->compute_persistent_buffer_with_first_consumer ==
             compute_persistent_buffer_with_first_consumer &&
-        other.combined_inner_outer == combined_inner_outer &&
-        other.tidx_for_outer_reduction == tidx_for_outer_reduction &&
-        other.pad_outer_reduction_to_warp == pad_outer_reduction_to_warp &&
-        other.vectorization_factor_outer == vectorization_factor_outer &&
-        other.vectorization_factor_tmp_gmem_write ==
+        other->combined_inner_outer == combined_inner_outer &&
+        other->tidx_for_outer_reduction == tidx_for_outer_reduction &&
+        other->pad_outer_reduction_to_warp == pad_outer_reduction_to_warp &&
+        other->vectorization_factor_outer == vectorization_factor_outer &&
+        other->combined_split_grid_inner_dim == combined_split_grid_inner_dim &&
+        other->vectorization_factor_tmp_gmem_write ==
             vectorization_factor_tmp_gmem_write;
 
-    if (other.static_bdimy || static_bdimy) {
-      attr_equal = attr_equal && other.lparams.bdimy() == lparams.bdimy();
+    if (other->static_bdimy || static_bdimy) {
+      attr_equal = attr_equal && other->lparams.bdimy() == lparams.bdimy();
     }
-    if (other.static_bdimx || static_bdimx) {
-      attr_equal = attr_equal && other.lparams.bdimx() == lparams.bdimx();
+    if (other->static_bdimx || static_bdimx) {
+      attr_equal = attr_equal && other->lparams.bdimx() == lparams.bdimx();
     }
     return attr_equal;
   }
@@ -317,9 +324,8 @@ class ReductionParams : public HeuristicParams {
     return attr_hash;
   }
 
-  std::shared_ptr<HeuristicParams> clone() const override {
-    auto ptr = std::make_shared<ReductionParams>(*this);
-    return std::static_pointer_cast<HeuristicParams>(ptr);
+  std::unique_ptr<HeuristicParams> clone() const override {
+    return std::make_unique<ReductionParams>(*this);
   }
 };
 

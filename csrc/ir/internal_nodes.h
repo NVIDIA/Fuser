@@ -1645,6 +1645,7 @@ class NVF_API Split : public Expr {
   Val* factor() const {
     return attributeVal(0);
   }
+  Val* isDivisible() const;
 
   bool innerSplit() const {
     return attribute<bool>(1);
@@ -2054,6 +2055,7 @@ class SliceOp : public Expr {
     return input(0)->as<TensorView>();
   }
 
+  //! Get normalized ranges for SliceOp.
   std::vector<Slice> getRanges() const;
 
  private:
@@ -2137,16 +2139,16 @@ class MatmulOp : public Expr {
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
-  Val* out() const {
-    return output(0);
+  TensorView* out() const {
+    return output(0)->as<TensorView>();
   }
 
-  Val* inA() const {
-    return input(0);
+  TensorView* inA() const {
+    return input(0)->as<TensorView>();
   }
 
-  Val* inB() const {
-    return input(1);
+  TensorView* inB() const {
+    return input(1)->as<TensorView>();
   }
 
   std::vector<PolymorphicValue> evaluate(
@@ -2255,20 +2257,20 @@ class SdpaFwdOp : public Expr {
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
-  Val* attn_out() const {
-    return output(0);
+  TensorView* attn_out() const {
+    return output(0)->as<TensorView>();
   }
 
-  Val* query() const {
-    return input(0);
+  TensorView* query() const {
+    return input(0)->as<TensorView>();
   }
 
-  Val* key() const {
-    return input(1);
+  TensorView* key() const {
+    return input(1)->as<TensorView>();
   }
 
-  Val* value() const {
-    return input(2);
+  TensorView* value() const {
+    return input(2)->as<TensorView>();
   }
 
   Val* dropout_p() const {
@@ -2400,13 +2402,15 @@ class ForLoop final : public Expr {
       bool vectorize,
       Val* vectorize_shift,
       bool unroll_required,
-      CircularBufferLoopStage circular_buffer_loop_stage);
+      CircularBufferLoopStage circular_buffer_loop_stage,
+      int64_t circular_buffer_loop_stage_depth);
 
   ForLoop(
       IrBuilderPasskey passkey,
       IterDomain* iter_domain,
       Val* index,
-      CircularBufferLoopStage circular_buffer_loop_stage);
+      CircularBufferLoopStage circular_buffer_loop_stage,
+      int64_t circular_buffer_loop_stage_depth);
 
   ForLoop(IrBuilderPasskey passkey, IterDomain* iter_domain);
 
@@ -2449,11 +2453,11 @@ class ForLoop final : public Expr {
 
   // TODO: Return pointer instead of reference to be more consistent
   Scope& body() {
-    return attribute<Scope>(7);
+    return attribute<Scope>(8);
   }
 
   const Scope& body() const {
-    return attribute<Scope>(7);
+    return attribute<Scope>(8);
   }
 
   bool empty() const {
@@ -2489,6 +2493,9 @@ class ForLoop final : public Expr {
   //!  that this for loop materializes.
   auto circularBufferLoopStage() const {
     return attribute<CircularBufferLoopStage>(6);
+  }
+  auto circularBufferLoopStageDepth() const {
+    return attribute<int64_t>(7);
   }
 
  private:

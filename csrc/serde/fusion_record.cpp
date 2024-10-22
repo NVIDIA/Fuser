@@ -381,6 +381,12 @@ void RecordFunctorFactory::registerAllParsers() {
   };
   registerParser(RecordType::BroadcastInDim, deserializeBroadcastInDimRecord);
 
+  auto deserializeExpandRecord = [](const RecordFunctor* buffer) {
+    return new python_frontend::ExpandOpRecord(
+        parseStateArgs(buffer->args()), parseStateArgs(buffer->outputs()));
+  };
+  registerParser(RecordType::ExpandOp, deserializeExpandRecord);
+
   auto deserializeCastTvRecord = [](const RecordFunctor* buffer) {
     std::function<TensorView*(nvfuser::DataType, TensorView*)> fusion_op =
         static_cast<TensorView* (*)(nvfuser::DataType, TensorView*)>(castOp);
@@ -456,6 +462,14 @@ void RecordFunctorFactory::registerAllParsers() {
   };
   registerParser(RecordType::IndexSelectOp, deserializeIndexSelectRecord);
 
+  auto deserializeSelectRecord = [](const RecordFunctor* buffer) {
+    return new python_frontend::SelectOpRecord(
+        parseStateArgs(buffer->args()),
+        parseStateArgs(buffer->outputs()),
+        buffer->data_as_Dimension()->dim());
+  };
+  registerParser(RecordType::SelectOp, deserializeSelectRecord);
+
   auto deserializeOutputTvRecord = [](const RecordFunctor* buffer) {
     auto data = buffer->data_as_Output();
     return new python_frontend::OutputRecord<TensorView>(
@@ -476,9 +490,7 @@ void RecordFunctorFactory::registerAllParsers() {
 
   auto deserializePadRecord = [](const RecordFunctor* buffer) {
     return new python_frontend::PadOpRecord(
-        parseStateArgs(buffer->args()),
-        parseStateArgs(buffer->outputs()),
-        parseVector(buffer->data_as_Pad()->pad_widths()));
+        parseStateArgs(buffer->args()), parseStateArgs(buffer->outputs()));
   };
   registerParser(RecordType::PadOp, deserializePadRecord);
 
@@ -535,7 +547,8 @@ void RecordFunctorFactory::registerAllParsers() {
     return new python_frontend::SqueezeOpRecord(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
-        parseVector(data->squeeze_dims()));
+        parseVector(data->squeeze_dims()),
+        data->squeeze_expanded());
   };
   registerParser(RecordType::SqueezeOp, deserializeSqueezeRecord);
 
@@ -619,6 +632,14 @@ void RecordFunctorFactory::registerAllParsers() {
         mapToNvfuserDtype(data->dtype()));
   };
   registerParser(RecordType::Vector, deserializeVectorRecord);
+
+  auto deserializeWelfordRecord = [](const RecordFunctor* buffer) {
+    return new python_frontend::WelfordOpRecord(
+        parseStateArgs(buffer->args()),
+        parseStateArgs(buffer->outputs()),
+        parseVector(buffer->data_as_Welford()->axes()));
+  };
+  registerParser(RecordType::WelfordOp, deserializeWelfordRecord);
 }
 
 void RecordFunctorFactory::setupFunctionMaps() {
@@ -748,6 +769,7 @@ void RecordFunctorFactory::setupFunctionMaps() {
   NVFUSER_UNARY_TV_OP("floor", floor)
   NVFUSER_UNARY_TV_OP("frac", frac)
   NVFUSER_UNARY_TV_OP("lgamma", lgamma)
+  NVFUSER_UNARY_TV_OP("logical_not", logical_not)
   NVFUSER_UNARY_TV_OP("log", log)
   NVFUSER_UNARY_TV_OP("log10", log10)
   NVFUSER_UNARY_TV_OP("log1p", log1p)
@@ -807,6 +829,8 @@ void RecordFunctorFactory::setupFunctionMaps() {
   NVFUSER_BINARY_TV_OP("bitwise_and", bitwise_and)
   NVFUSER_BINARY_TV_OP("bitwise_or", bitwise_or)
   NVFUSER_BINARY_TV_OP("bitwise_xor", bitwise_xor)
+  NVFUSER_BINARY_TV_OP("logical_and", logical_and)
+  NVFUSER_BINARY_TV_OP("logical_or", logical_or)
   NVFUSER_BINARY_TV_OP("bitwise_left_shift", bitwise_left_shift)
   NVFUSER_BINARY_TV_OP("bitwise_right_shift", bitwise_right_shift)
   NVFUSER_BINARY_TV_OP("logical_right_shift", logical_right_shift)

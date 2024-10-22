@@ -10,9 +10,9 @@
 
 #include <device_lower/lower2device.h>
 #include <fusion.h>
-#include <fusion_executor/executor.h>
 #include <ir/builder.h>
 #include <ops/arith.h>
+#include <runtime/executor.h>
 #include <scheduler/all_schedulers.h>
 
 #include <benchmark/benchmark.h>
@@ -36,7 +36,7 @@ static void setupFusion(Fusion* fusion) {
   auto t_idx = makeContigTensor(1, DataType::Int);
   fusion->addInput(t_idx);
 
-  auto t2 = index_select(t0, 0, t_idx); // select at dim=0
+  auto t2 = indexSelect(t0, 0, t_idx); // select at dim=0
   auto t3 = mul(t1, t2);
   auto t4 = add(t3, IrBuilder::create<Val>(17.0));
 
@@ -86,7 +86,8 @@ static void NvFuserScheduler_IndexSelect_AutoSchedule(
     benchmark_state.ResumeTiming();
 
     // Auto-schedule
-    schedulePointwise(&fusion, c10::ArrayRef<c10::IValue>(inputs));
+    SchedulerEntry::scheduleWith(
+        &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
   }
 }
 
@@ -105,7 +106,8 @@ static void NvFuserScheduler_IndexSelect_Lower(
   // inputs
   std::vector<c10::IValue> inputs = setupInputs();
 
-  schedulePointwise(&fusion, c10::ArrayRef<c10::IValue>(inputs));
+  SchedulerEntry::scheduleWith(
+      &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
 
   for (auto _ : benchmark_state) {
     GpuLower(&fusion).run();
@@ -126,12 +128,13 @@ static void NvFuserScheduler_IndexSelect_Compile(
   // inputs
   std::vector<c10::IValue> inputs = setupInputs();
 
-  auto lparams = schedulePointwise(&fusion, c10::ArrayRef<c10::IValue>(inputs));
+  auto heuristic_params = SchedulerEntry::scheduleWith(
+      &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
 
   for (auto _ : benchmark_state) {
     FusionExecutor executor;
     executor.compileFusion(
-        &fusion, c10::ArrayRef<c10::IValue>(inputs), lparams);
+        &fusion, c10::ArrayRef<c10::IValue>(inputs), heuristic_params->lparams);
   }
 }
 
@@ -149,17 +152,22 @@ static void NvFuserScheduler_IndexSelect_RunFusion(
   // inputs
   std::vector<c10::IValue> inputs = setupInputs();
 
-  auto lparams = schedulePointwise(&fusion, c10::ArrayRef<c10::IValue>(inputs));
+  auto heuristic_params = SchedulerEntry::scheduleWith(
+      &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
 
   FusionExecutor executor;
-  executor.compileFusion(&fusion, c10::ArrayRef<c10::IValue>(inputs), lparams);
+  executor.compileFusion(
+      &fusion, c10::ArrayRef<c10::IValue>(inputs), heuristic_params->lparams);
 
   C10_CUDA_CHECK(cudaDeviceSynchronize());
 
   at::Tensor output = at::empty_like(inputs[0].toTensor());
 
   for (auto _ : benchmark_state) {
-    executor.runFusion(c10::ArrayRef<c10::IValue>(inputs), {output}, lparams);
+    executor.runFusion(
+        c10::ArrayRef<c10::IValue>(inputs),
+        {output},
+        heuristic_params->lparams);
     C10_CUDA_CHECK(cudaDeviceSynchronize());
     clearL2Cache();
   }
@@ -188,7 +196,7 @@ static void setupIndexSelectSimple(
   auto t_idx = makeContigTensor(1, DataType::Int);
   fusion->addInput(t_idx);
 
-  auto t2 = index_select(t0, select_dim, t_idx); // select at dim=0
+  auto t2 = indexSelect(t0, select_dim, t_idx); // select at dim=0
   if (is_fp16) {
     t2 = castOp(DataType::Half, t2);
   }
@@ -213,7 +221,7 @@ static void setupIndexSelect(Fusion* fusion, DataType dtype, int select_dim) {
   auto t_idx = makeContigTensor(1, DataType::Int);
   fusion->addInput(t_idx);
 
-  auto t2 = index_select(t0, select_dim, t_idx); // select at dim=0
+  auto t2 = indexSelect(t0, select_dim, t_idx); // select at dim=0
   auto t3 = mul(t1, t2);
   auto t4 = add(t3, IrBuilder::create<Val>(17.0));
 

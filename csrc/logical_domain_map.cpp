@@ -315,7 +315,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     // Conditions to check:
     // 1. Indirectly accessed IDs (e.g., select)
     // 2. IDs that may have different extents (e.g., non indexed
-    //  domains of torch_gather)
+    //  domains of torchGather)
     // 3. Squeeze and unsqueeze
 
     // Condition 1: when the producer ID is the dim of a select-like op
@@ -742,7 +742,7 @@ bool ComputeAtLogicalDomainMap::canMap(
     const TensorDomain* td_b,
     const IterDomain* id_b) const {
   NVF_ERROR(
-      id_b->definition() == nullptr || id_b->isRFactorProduct(),
+      td_b->isLogical(id_b) || td_b->isRoot(id_b),
       "Non-root domain is not supported: ",
       id_b);
 

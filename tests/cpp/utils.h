@@ -12,12 +12,14 @@
 #include <device_lower/lower2device.h>
 #include <device_lower/pass/magic_zero.h>
 #include <expr_evaluator.h>
-#include <fusion_executor/allocations.h>
-#include <fusion_executor/executor.h>
 #include <id_model/id_model.h>
 #include <ir/all_nodes.h>
-#include <kernel_cache.h>
 #include <kernel_ir_dispatch.h>
+#include <runtime/allocations.h>
+#include <runtime/executor.h>
+#include <runtime/fusion_executor_cache.h>
+#include <runtime/fusion_kernel_runtime.h>
+#include <scheduler/registry.h>
 #include <transform_replay.h>
 
 #include <ATen/Context.h>
@@ -34,6 +36,24 @@
 #include <vector>
 
 namespace nvfuser {
+
+struct CGResultsPackage {
+  std::vector<at::Tensor> outputs;
+  std::unique_ptr<HeuristicParams> heuristic_params;
+  std::unique_ptr<FusionExecutor> fusion_executor;
+};
+
+// Grabs heuristics and schedules with the provided scheduler type, compiles and
+// runs with Fuion executor, returns a struct containing the outputs,
+// heuristic_params, and FusionExecutor. These structures are for convenience in
+// testing. If validate_scheduler is set to false the scheduler check will still
+// be run but it will be ignored. Otherwise canScheduler returning false will
+// throw.
+CGResultsPackage scheduleAndRun(
+    Fusion* fusion,
+    SchedulerType scheduler_type,
+    const at::ArrayRef<c10::IValue>& runtime_inputs,
+    bool validate_scheduler = true);
 
 // Make s Stack used for TorchScript execution
 inline torch::jit::Stack createStack(std::vector<at::Tensor>&& list) {
@@ -147,6 +167,33 @@ class PredicatedChecker : public kir::IrVisitor {
 
   static bool isPredicated(TensorView* tv, kir::Kernel* kernel) {
     return isPredicated(tv->name(), kernel);
+  }
+
+  static bool isPredicatedByIfThenElse(
+      StmtNameType tv_name,
+      kir::Kernel* kernel) {
+    PredicatedChecker checker(tv_name, kernel->topLevelExprs());
+    return checker.predicated_ite_;
+  }
+
+  // If CpAsync from gmem to smem, then loaded from smem to registers using
+  // ldmatrix, then it is used in mma and should not use if-then-else predicate.
+  // If just CpAsync from gmem to smem, without further copy to register, then
+  // it is not used in mma and can use if-then-else predicate.
+  static bool isCpAsyncMmaPredicatedByIfThenElse(kir::Kernel* kernel) {
+    for (auto tv : kernel->allTvs()) {
+      if (tv->definition() != nullptr &&
+          ir_utils::isCpAsyncOp(tv->definition())) {
+        const auto& consumers = ir_utils::consumerTvsOf(tv);
+        if (std::any_of(
+                consumers.begin(), consumers.end(), [&](TensorView* tv) {
+                  return ir_utils::isLdMatrixOp(tv->definition());
+                })) {
+          return isPredicatedByIfThenElse(tv->name(), kernel);
+        }
+      }
+    }
+    return false;
   }
 
  private:
@@ -700,6 +747,58 @@ at::Tensor matmulAtInput2D(
     const int64_t B = 0,
     const int64_t device = 0);
 
+inline std::pair<std::vector<int64_t>, std::vector<int64_t>>
+matmulAtInputShape3DHopperRS(int M, int N, int K, MmaLayout layout) {
+  switch (layout) {
+    case MmaLayout::TT:
+      return {{M, K, 1}, {1, K, N}};
+    case MmaLayout::TN:
+      return {{M, 1, K}, {1, N, K}};
+    default:
+      NVF_CHECK(false, "unsupported data layout.");
+  }
+}
+
+inline std::pair<at::Tensor, at::Tensor> matmulAtInput3DHopperRS(
+    int M,
+    int N,
+    int K,
+    MmaLayout layout,
+    c10::ScalarType dtype) {
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  auto shapes = matmulAtInputShape3DHopperRS(M, N, K, layout);
+  return std::make_pair(
+      at::randn(shapes.first, options), at::randn(shapes.second, options));
+}
+
+inline std::pair<std::vector<int64_t>, std::vector<int64_t>>
+matmulAtInputShape3DHopperSS(int M, int N, int K, MmaLayout layout) {
+  switch (layout) {
+    case MmaLayout::TT:
+      return {{M, K, 1}, {1, K, N}};
+    case MmaLayout::TN:
+      return {{M, 1, K}, {1, N, K}};
+    case MmaLayout::NT:
+      return {{K, M, 1}, {K, 1, N}};
+    case MmaLayout::NN:
+      return {{1, K, M}, {N, K, 1}};
+    default:
+      NVF_CHECK(false, "unsupported data layout.");
+  }
+}
+
+inline std::pair<at::Tensor, at::Tensor> matmulAtInput3DHopperSS(
+    int M,
+    int N,
+    int K,
+    MmaLayout layout,
+    c10::ScalarType dtype) {
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  auto shapes = matmulAtInputShape3DHopperSS(M, N, K, layout);
+  return std::make_pair(
+      at::randn(shapes.first, options), at::randn(shapes.second, options));
+}
+
 // Given a tensor view created by matmulAtInput2D or matmulAtInput3DTuring,
 // insert permute/BroadcastOp as needed to make it [B, M, N, K]. The returned
 // tensor view can be directly used as input to fusedMultiplySum.
@@ -718,7 +817,7 @@ TensorView* canonicalizeInputToBMNK(
 // been used
 bool isSchedulerInUse(
     const nvfuser::FusionKernelRuntime* kernel_rt,
-    const ScheduleHeuristic& scheduler);
+    const SchedulerType& scheduler_type);
 
 // Disable magic zero
 constexpr CompileParams matmul_cparams{DataType::Int32, 255, false};
@@ -752,4 +851,6 @@ std::string sanitizeTestName(const std::string& name);
 constexpr std::array<int64_t, 21> Pow2Vals1to1Million = {
     1,    2,    4,    8,     16,    32,    64,     128,    256,    512,    1024,
     2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288, 1048576};
+
+bool isVectorized(TensorView* tv);
 } // namespace nvfuser

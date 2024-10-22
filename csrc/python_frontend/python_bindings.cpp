@@ -11,7 +11,6 @@
 #include <c10/util/irange.h>
 #include <debug.h>
 #include <fusion_profiler.h>
-#include <inlining.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
@@ -21,8 +20,11 @@
 #include <python_frontend/fusion_definition.h>
 #include <python_frontend/fusion_record.h>
 #include <python_frontend/python_bindings.h>
-#include <scheduler/heuristic_types.h>
+#include <python_frontend/translation.h>
+#include <runtime/fusion_kernel_runtime.h>
 #include <scheduler/registry.h>
+#include <scheduler/scheduler_types.h>
+#include <scheduler/tools/inlining.h>
 #include <torch/csrc/jit/python/pybind_utils.h>
 #include <transform_replay.h>
 #include <iostream>
@@ -155,6 +157,23 @@ Tensor broadcast_in_dim_fn(
 }
 
 template <class ShapeType>
+Tensor expand_fn(
+    FusionDefinition::Operators& op,
+    Tensor arg,
+    ShapeType generic_output_shape) {
+  FUSER_PERF_SCOPE("Operators.expand");
+  FusionDefinition* fd = op.fusion_definition;
+  NVF_CHECK(op.validUse(), "Attempting to add to a completed definition!");
+  Vector output_shape = SequenceAsVector(generic_output_shape, *fd);
+
+  Tensor output = fd->defineTensor(output_shape.size);
+  fd->defineRecord(new ExpandOpRecord(
+      {fd->recordingState(arg()), fd->recordingState(output_shape())},
+      {fd->recordingState(output())}));
+  return output;
+}
+
+template <class ShapeType>
 Tensor full_op_fn(
     FusionDefinition::Operators& self,
     ShapeType generic_output_shape,
@@ -184,6 +203,34 @@ Tensor reshape_fn(
   Tensor output = fd->defineTensor(new_shape.size);
   fd->defineRecord(new ReshapeOpRecord(
       {fd->recordingState(arg()), fd->recordingState(new_shape())},
+      {fd->recordingState(output())}));
+  return output;
+}
+
+template <class ShapeType>
+Tensor pad_fn(
+    FusionDefinition::Operators& self,
+    Tensor arg,
+    ShapeType generic_pad_widths,
+    std::optional<Scalar> value) {
+  NVF_CHECK(self.validUse(), "Attempting to add to a completed definition!");
+
+  FusionDefinition* fd = self.fusion_definition;
+  Vector pad_widths =
+      SequenceAsVector(generic_pad_widths, *fd, /*shape_check=*/false);
+
+  NVF_CHECK(
+      pad_widths.size <= 2 * arg.dims,
+      "Number of pad widths must be at most twice the input dimension");
+
+  State value_state = value.has_value() ? fd->recordingState(value.value()())
+                                        : State(0, serde::StateType::None);
+
+  Tensor output = fd->defineTensor(arg.dims);
+  fd->defineRecord(new PadOpRecord(
+      {fd->recordingState(arg()),
+       fd->recordingState(pad_widths()),
+       value_state},
       {fd->recordingState(output())}));
   return output;
 }
@@ -486,8 +533,34 @@ computeTensorDescriptor(
   return std::make_pair(contiguity_vec, stride_order_vec);
 }
 
+// Copy definition from a FusionDefinion's pre-scheduled CPP fusion to a blank
+// FusionDefinition. Primarily for testing purposes to check that the
+// translation from CPP fusion is correct.
+void clone(FusionDefinition& from, FusionDefinition& to) {
+  NVF_CHECK(from.completed(), "FusionDefinition definition does not exist!");
+  NVF_ERROR(
+      !to.completed(), "Expected an incomplete definition before translation.");
+  translate(from.preschedFusion(), &to);
+}
+
+namespace {
+void verifyShape(const std::vector<int64_t>& shape) {
+  for (size_t i = 0; i < shape.size(); ++i) {
+    NVF_CHECK(
+        shape[i] >= -1,
+        "The value ",
+        shape[i],
+        " at index ",
+        i,
+        " was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1).");
+  }
+}
+} // namespace
+
 void initNvFuserPythonBindings(PyObject* module) {
   auto nvfuser = py::handle(module).cast<py::module>();
+
+  nvfuser.def("clone", clone);
 
   //! DataTypes supported by nvFuser in the FusionDefinition
   py::enum_<PrimDataType>(nvfuser, "DataType")
@@ -541,17 +614,17 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("global", MemoryType::Global);
 
   //! Scheduler Type for scheduling
-  py::enum_<ScheduleHeuristic>(nvfuser, "SchedulerHeuristic")
-      .value("none", ScheduleHeuristic::None)
-      .value("no_op", ScheduleHeuristic::NoOp)
-      .value("pointwise", ScheduleHeuristic::PointWise)
-      .value("matmul", ScheduleHeuristic::Matmul)
-      .value("reduction", ScheduleHeuristic::Reduction)
-      .value("inner_persistent", ScheduleHeuristic::InnerPersistent)
-      .value("inner_outer_persistent", ScheduleHeuristic::InnerOuterPersistent)
-      .value("outer_persistent", ScheduleHeuristic::OuterPersistent)
-      .value("transpose", ScheduleHeuristic::Transpose)
-      .value("expr_eval", ScheduleHeuristic::ExprEval);
+  py::enum_<SchedulerType>(nvfuser, "SchedulerType")
+      .value("none", SchedulerType::None)
+      .value("no_op", SchedulerType::NoOp)
+      .value("pointwise", SchedulerType::PointWise)
+      .value("matmul", SchedulerType::Matmul)
+      .value("reduction", SchedulerType::Reduction)
+      .value("inner_persistent", SchedulerType::InnerPersistent)
+      .value("inner_outer_persistent", SchedulerType::InnerOuterPersistent)
+      .value("outer_persistent", SchedulerType::OuterPersistent)
+      .value("transpose", SchedulerType::Transpose)
+      .value("expr_eval", SchedulerType::ExprEval);
 
   nvfuser.def("compute_contiguity", computeContiguity);
   nvfuser.def("compute_tensor_descriptor", computeTensorDescriptor);
@@ -598,6 +671,54 @@ void initNvFuserPythonBindings(PyObject* module) {
         self.stats(ss);
         return ss.str();
       });
+
+  // Base class for scheduler parameters
+  py::class_<HeuristicParams> heuristic_params(nvfuser, "HeuristicParams");
+  heuristic_params.def(
+      "__repr__", [](const HeuristicParams& self) { return self.toString(); });
+
+  // Pointwise scheduler parameters
+  py::class_<PointwiseParams, HeuristicParams> pointwise_config(
+      nvfuser, "PointwiseParams");
+  pointwise_config.def(py::init());
+  pointwise_config.def_property(
+      "breakpoint",
+      [](PointwiseParams& self) { return self.break_point; },
+      [](PointwiseParams& self, int64_t break_point_) {
+        self.break_point = break_point_;
+      });
+  pointwise_config.def_property(
+      "split_block",
+      [](PointwiseParams& self) { return self.split_block; },
+      [](PointwiseParams& self, bool split_block_) {
+        self.split_block = split_block_;
+      });
+  pointwise_config.def_property(
+      "split_grid_y_dim",
+      [](PointwiseParams& self) { return self.split_grid_y_dim; },
+      [](PointwiseParams& self, bool split_grid_y_dim_) {
+        self.split_grid_y_dim = split_grid_y_dim_;
+      });
+  pointwise_config.def_property(
+      "flip_grid_binding",
+      [](PointwiseParams& self) { return self.flip_grid_binding; },
+      [](PointwiseParams& self, bool flip_grid_binding_) {
+        self.flip_grid_binding = flip_grid_binding_;
+      });
+  pointwise_config.def_property(
+      "vectorization_factor",
+      [](PointwiseParams& self) { return self.vectorization_factor; },
+      [](PointwiseParams& self, int64_t vectorization_factor_) {
+        self.vectorization_factor = vectorization_factor_;
+      });
+  pointwise_config.def_property(
+      "unroll_factor",
+      [](PointwiseParams& self) { return self.unroll_factor; },
+      [](PointwiseParams& self, int64_t unroll_factor_) {
+        self.unroll_factor = unroll_factor_;
+      });
+  pointwise_config.def(
+      "__repr__", [](const PointwiseParams& self) { return self.toString(); });
 
   //! KernelProfiles are encapsulated in FusionProfiles where each KP
   //! is associated with a segment.
@@ -662,7 +783,7 @@ void initNvFuserPythonBindings(PyObject* module) {
     return self.kernel_time_ms;
   });
   fusion_prof.def_property_readonly(
-      "effective_bandwith_gbs",
+      "effective_bandwidth_gbs",
       [](FusionProfile& self) { return self.effective_bandwidth_gbs; });
   fusion_prof.def_property_readonly(
       "percentage_peak_bandwith",
@@ -754,15 +875,20 @@ void initNvFuserPythonBindings(PyObject* module) {
           })
       .def(
           "_setup_schedule",
-          [](FusionDefinition& self, const py::iterable& iter) {
+          [](FusionDefinition& self,
+             const py::iterable& iter,
+             bool overwrite_existing_schedule) {
             // Instrumentation to mark the beginning of a schedule
             inst::Trace::instance()->beginEvent("FusionDefinition Schedule");
             std::vector<c10::IValue> inputs;
             for (py::handle obj : iter) {
               inputs.push_back(torch::jit::toIValue(obj, c10::AnyType::get()));
             }
-            self.setupSchedule(inputs);
-          })
+            self.setupSchedule(inputs, overwrite_existing_schedule);
+          },
+          py::arg("inputs"),
+          py::kw_only(),
+          py::arg("overwrite_existing_schedule") = false)
       .def(
           "_finalize_schedule",
           [](FusionDefinition& self, const py::iterable& iter) {
@@ -974,34 +1100,17 @@ void initNvFuserPythonBindings(PyObject* module) {
           "define_tensor",
           [](FusionDefinition& self,
              const std::vector<int64_t>& shape,
-             std::vector<std::optional<bool>> contiguity = {},
+             const std::vector<std::optional<bool>>& contiguity,
              const PrimDataType dtype = DataType::Float,
              const bool is_cpu = false,
-             std::vector<int64_t> stride_order = {}) -> Tensor {
-            FUSER_PERF_SCOPE("FusionDefinition.define_tensor (default)");
+             const std::vector<int64_t>& stride_order = {}) -> Tensor {
+            FUSER_PERF_SCOPE(
+                "FusionDefinition.define_tensor (contiguity as vector)");
             NVF_CHECK(
                 !self.completed(),
                 "Attempting to add to a completed definition!");
 
-            for (size_t i = 0; i < shape.size(); ++i) {
-              NVF_CHECK(
-                  shape[i] >= -1,
-                  "The value ",
-                  shape[i],
-                  " at index ",
-                  i,
-                  " was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1).");
-            }
-
-            if (contiguity.empty()) {
-              for (const auto dim_size : shape) {
-                if (dim_size == 1) {
-                  contiguity.emplace_back(std::nullopt);
-                } else {
-                  contiguity.emplace_back(false);
-                }
-              }
-            }
+            verifyShape(shape);
 
             Tensor out = self.defineTensor(shape.size());
             self.defineRecord(new TensorRecord(
@@ -1015,7 +1124,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             return out;
           },
           py::arg("shape"),
-          py::arg("contiguity") = py::list(),
+          py::arg("contiguity"),
           py::arg("dtype") = DataType::Float,
           py::arg("is_cpu") = false,
           py::arg("stride_order") = py::list(),
@@ -1023,11 +1132,62 @@ void initNvFuserPythonBindings(PyObject* module) {
       .def(
           "define_tensor",
           [](FusionDefinition& self,
-             std::vector<int64_t>& sizes,
-             std::vector<int64_t>& strides,
-             PrimDataType dtype = DataType::Float,
-             bool static_sizes = false,
-             bool is_cpu = false) -> Tensor {
+             const std::vector<int64_t>& shape,
+             // Contiguity for non-broadcast dimensions.
+             const bool contiguity = false,
+             const PrimDataType dtype = DataType::Float,
+             const bool is_cpu = false,
+             const std::vector<int64_t>& stride_order = {}) -> Tensor {
+            FUSER_PERF_SCOPE(
+                "FusionDefinition.define_tensor (contiguity as bool)");
+            NVF_CHECK(
+                !self.completed(),
+                "Attempting to add to a completed definition!");
+
+            verifyShape(shape);
+
+            const auto rank = static_cast<int64_t>(shape.size());
+            std::vector<std::optional<bool>> contiguity_vec(rank);
+            // This duplicates some code around
+            // https://github.com/NVIDIA/Fuser/blob/b60f2341bbe2ec276b1fe60f4f25a4a5b093faa9/csrc/python_frontend/fusion_record.h#L1370.
+            // Alternatively, I can extend TensorRecord to allow contiguity as
+            // a boolean. If you think it's worth doing, I'm happy to pursue it
+            // in a separate PR.
+            for (const auto index : c10::irange(rank)) {
+              const auto contig_index =
+                  stride_order.empty() ? index : rank - 1 - stride_order[index];
+              if (shape[index] == 1) {
+                contiguity_vec[contig_index] = std::nullopt;
+              } else {
+                contiguity_vec[contig_index] = contiguity;
+              }
+            }
+
+            Tensor out = self.defineTensor(shape.size());
+            self.defineRecord(new TensorRecord(
+                {self.recordingState(out())},
+                shape,
+                contiguity_vec,
+                dtype,
+                is_cpu,
+                stride_order));
+
+            return out;
+          },
+          py::arg("shape"),
+          py::arg("contiguity") = false,
+          py::arg("dtype") = DataType::Float,
+          py::arg("is_cpu") = false,
+          py::arg("stride_order") = py::list(),
+          py::return_value_policy::reference)
+      .def(
+          "define_tensor",
+          [](FusionDefinition& self,
+             const std::vector<int64_t>& sizes,
+             const std::vector<int64_t>& strides,
+             const PrimDataType dtype = DataType::Float,
+             const bool static_sizes = false,
+             const bool is_cpu = false) -> Tensor {
             FUSER_PERF_SCOPE("FusionDefinition.define_tensor (integration)");
             NVF_CHECK(
                 !self.completed(),
@@ -1378,7 +1538,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_UNARY_OP_SPECIAL("neg", neg)
 #undef NVFUSER_PYTHON_BINDING_UNARY_OP_SPECIAL
 
-#define NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY(op_str, op_name)         \
+#define NVFUSER_PYTHON_BINDING_MATMUL_OP(op_str, op_name)                      \
   nvf_ops.def(                                                                 \
       op_str,                                                                  \
       [](FusionDefinition::Operators& self,                                    \
@@ -1388,7 +1548,15 @@ void initNvFuserPythonBindings(PyObject* module) {
         NVF_CHECK(                                                             \
             self.validUse(), "Attempting to add to a completed definition!");  \
         FusionDefinition* fd = self.fusion_definition;                         \
-        Tensor output = fd->defineTensor(arg1.dims);                           \
+        /* Per https://pytorch.org/docs/stable/generated/torch.matmul.html */  \
+        size_t out_ndims;                                                      \
+        if (arg1.dims <= 2 && arg2.dims <= 2) {                                \
+          out_ndims = arg1.dims + arg2.dims - 2;                               \
+        } else {                                                               \
+          /* batch matmul */                                                   \
+          out_ndims = std::max(arg1.dims, arg2.dims);                          \
+        }                                                                      \
+        Tensor output = fd->defineTensor(out_ndims);                           \
         fd->defineRecord(new OpRecord<TensorView*, TensorView*, TensorView*>(  \
             {fd->recordingState(arg1()), fd->recordingState(arg2())},          \
             {fd->recordingState(output())},                                    \
@@ -1398,8 +1566,8 @@ void initNvFuserPythonBindings(PyObject* module) {
         return output;                                                         \
       },                                                                       \
       py::return_value_policy::reference);
-  NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY("matmul", matmul)
-#undef NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY
+  NVFUSER_PYTHON_BINDING_MATMUL_OP("matmul", matmul)
+#undef NVFUSER_PYTHON_BINDING_MATMUL_OP
 
   nvf_ops.def(
       "linear",
@@ -1411,7 +1579,8 @@ void initNvFuserPythonBindings(PyObject* module) {
         NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;
-        Tensor output = fd->defineTensor(arg1.dims);
+        // See newForLinear for how the output rank is computed.
+        Tensor output = fd->defineTensor(arg1.dims + arg2.dims - 2);
 
         if (bias.has_value()) {
           fd->defineRecord(
@@ -2516,6 +2685,26 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("dim") = 0,
       py::return_value_policy::reference);
   nvf_ops.def(
+      "expand",
+      expand_fn<Vector>,
+      py::arg("arg"),
+      py::arg("shape"),
+      py::return_value_policy::reference);
+  nvf_ops.def(
+      "expand",
+      expand_fn<py::list>,
+      py::arg("arg"),
+      py::arg("shape"),
+      py::return_value_policy::reference);
+  // NOTE: Tuple support was added to facilitate the direct usage of Pytorch's
+  // Tensor.size() function that returns a child class of a Tuple.
+  nvf_ops.def(
+      "expand",
+      expand_fn<py::tuple>,
+      py::arg("arg"),
+      py::arg("shape"),
+      py::return_value_policy::reference);
+  nvf_ops.def(
       "index_select",
       [](FusionDefinition::Operators& self,
          Tensor arg,
@@ -2527,6 +2716,30 @@ void initNvFuserPythonBindings(PyObject* module) {
         FusionDefinition* fd = self.fusion_definition;
         Tensor output = fd->defineTensor(arg.dims);
         fd->defineRecord(new IndexSelectOpRecord(
+            {
+                fd->recordingState(arg()),
+                fd->recordingState(index()),
+            },
+            {fd->recordingState(output())},
+            dim));
+        return output;
+      },
+      py::arg("arg"),
+      py::arg("index"),
+      py::arg("dim"),
+      py::return_value_policy::reference);
+  nvf_ops.def(
+      "select",
+      [](FusionDefinition::Operators& self,
+         Tensor arg,
+         Scalar index,
+         int64_t dim) -> Tensor {
+        FUSER_PERF_SCOPE("Operators.select");
+        NVF_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        Tensor output = fd->defineTensor(arg.dims);
+        fd->defineRecord(new SelectOpRecord(
             {
                 fd->recordingState(arg()),
                 fd->recordingState(index()),
@@ -2603,27 +2816,21 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::return_value_policy::reference);
   nvf_ops.def(
       "pad",
-      [](FusionDefinition::Operators& self,
-         Tensor arg,
-         std::vector<int64_t>& pad_widths,
-         std::optional<Scalar> value) -> Tensor {
-        FUSER_PERF_SCOPE("Operators.pad");
-        NVF_CHECK(
-            self.validUse(), "Attempting to add to a completed definition!");
-        NVF_CHECK(
-            pad_widths.size() <= 2 * arg.dims,
-            "Number of pad widths must be at most twice the input dimension");
-        FusionDefinition* fd = self.fusion_definition;
-        Tensor output = fd->defineTensor(arg.dims);
-        auto value_state = value.has_value()
-            ? fd->recordingState(value.value()())
-            : State(0, serde::StateType::None);
-        fd->defineRecord(new PadOpRecord(
-            {fd->recordingState(arg()), value_state},
-            {fd->recordingState(output())},
-            std::move(pad_widths)));
-        return output;
-      },
+      pad_fn<Vector>,
+      py::arg("arg"),
+      py::arg("pad_widths"),
+      py::arg("value") = py::none(),
+      py::return_value_policy::reference);
+  nvf_ops.def(
+      "pad",
+      pad_fn<py::list>,
+      py::arg("arg"),
+      py::arg("pad_widths"),
+      py::arg("value") = py::none(),
+      py::return_value_policy::reference);
+  nvf_ops.def(
+      "pad",
+      pad_fn<py::tuple>,
       py::arg("arg"),
       py::arg("pad_widths"),
       py::arg("value") = py::none(),
@@ -2818,20 +3025,23 @@ void initNvFuserPythonBindings(PyObject* module) {
       "squeeze",
       [](FusionDefinition::Operators& self,
          Tensor arg,
-         std::vector<int64_t>& dims) -> Tensor {
+         std::vector<int64_t> dims,
+         const bool squeeze_expanded) -> Tensor {
         FUSER_PERF_SCOPE("Operators.squeeze");
         NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;
-        Tensor output = fd->defineTensor(arg.dims - 1);
+        Tensor output = fd->defineTensor(arg.dims - dims.size());
         fd->defineRecord(new SqueezeOpRecord(
             {fd->recordingState(arg())},
             {fd->recordingState(output())},
-            std::move(dims)));
+            std::move(dims),
+            squeeze_expanded));
         return output;
       },
       py::arg("arg"),
       py::arg("dims"),
+      py::arg("squeeze_expanded") = false,
       py::return_value_policy::reference);
   nvf_ops.def(
       "tensor_sizes",
@@ -2950,7 +3160,30 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("correction") = 1,
       py::arg("keepdim") = false,
       py::return_value_policy::reference);
-
+  nvf_ops.def(
+      "welford",
+      [](FusionDefinition::Operators& self,
+         Tensor arg,
+         const std::vector<int64_t>& dims) -> decltype(auto) {
+        FUSER_PERF_SCOPE("Operators.welford");
+        NVF_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        size_t ndims = (arg.dims - dims.size());
+        Tensor avg = fd->defineTensor(ndims);
+        Tensor var_sum = fd->defineTensor(ndims);
+        Tensor n = fd->defineTensor(ndims);
+        fd->defineRecord(new WelfordOpRecord(
+            {fd->recordingState(arg())},
+            {fd->recordingState(avg()),
+             fd->recordingState(var_sum()),
+             fd->recordingState(n())},
+            dims));
+        return std::make_tuple(avg, var_sum, n);
+      },
+      py::arg("arg"),
+      py::arg("dims"),
+      py::return_value_policy::reference);
   nvf_ops.def(
       "sdpfa_bwd",
       [](FusionDefinition::Operators& self,
@@ -3451,45 +3684,65 @@ void initNvFuserPythonBindings(PyObject* module) {
   nvf_sched.def(
       "can_schedule",
       [](FusionDefinition::SchedOperators& self,
-         const ScheduleHeuristic& heuristic) {
+         const SchedulerType& scheduler_type) {
         NVF_CHECK(
             self.validUse(),
             "Attempting to use a SchedOperators Op prior to definition!");
         return self.fusion_definition->userSchedule()->canScheduleDebug(
-            heuristic);
+            scheduler_type);
       },
-      py::arg("heuristic"));
+      py::arg("scheduler_type"));
   nvf_sched.def(
       "find_compatible_schedulers", [](FusionDefinition::SchedOperators& self) {
         NVF_CHECK(
             self.validUse(),
             "Attempting to use a SchedOperators Op prior to definition!");
 
-        std::vector<ScheduleHeuristic> valid_heuristics;
-        valid_heuristics.reserve(all_heuristics_in_priority_order.size());
+        std::vector<SchedulerType> valid_scheduler_types;
+        valid_scheduler_types.reserve(all_heuristics_in_priority_order.size());
         std::copy_if(
             all_heuristics_in_priority_order.begin(),
             all_heuristics_in_priority_order.end(),
-            std::back_inserter(valid_heuristics),
+            std::back_inserter(valid_scheduler_types),
             [sched = self.fusion_definition->userSchedule()](
-                ScheduleHeuristic heuristic) {
-              return sched->canSchedule(heuristic);
+                SchedulerType scheduler_type) {
+              return sched->canSchedule(scheduler_type);
             });
-        return valid_heuristics;
+        return valid_scheduler_types;
       });
   nvf_sched.def(
       "schedule",
       [](FusionDefinition::SchedOperators& self,
-         const ScheduleHeuristic& heuristic) {
+         const SchedulerType& scheduler_type) {
         NVF_CHECK(
             self.validUse(),
             "Attempting to use a SchedOperators Op prior to definition!");
         UserSchedule* sched = self.fusion_definition->userSchedule();
-        auto&& [can_schedule, error_msg] = sched->canScheduleDebug(heuristic);
+        auto&& [can_schedule, error_msg] =
+            sched->canScheduleDebug(scheduler_type);
         NVF_CHECK(can_schedule, error_msg);
-        sched->scheduleWithHeuristic(heuristic);
+        sched->scheduleWithType(scheduler_type);
       },
       py::arg("heuristic"));
+  nvf_sched.def("schedule", [](FusionDefinition::SchedOperators& self) {
+    NVF_CHECK(
+        self.validUse(),
+        "Attempting to use a SchedOperators Op prior to definition!");
+    UserSchedule* sched = self.fusion_definition->userSchedule();
+    sched->schedule();
+  });
+  nvf_sched.def(
+      "compute_pointwise_heuristics",
+      [](FusionDefinition::SchedOperators& self) -> PointwiseParams& {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        UserSchedule* sched = self.fusion_definition->userSchedule();
+        HeuristicParams* parameters =
+            sched->computeHeuristics(SchedulerType::PointWise);
+        return *parameters->as<PointwiseParams>();
+      },
+      py::return_value_policy::reference);
 }
 
 void cleanup() {

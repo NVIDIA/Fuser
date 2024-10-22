@@ -50,7 +50,10 @@ NVF_API TensorView* flatten(
 //!
 //! NOTE: This function throws an error when encountering an unsqueezable
 //! dimension. This behavior differs from PyTorch.
-NVF_API TensorView* squeeze(TensorView* x, const std::vector<int64_t>& dims);
+NVF_API TensorView* squeeze(
+    TensorView* x,
+    const std::vector<int64_t>& dims,
+    bool squeeze_expanded = false);
 
 TensorView* squeeze(TensorView* x, std::initializer_list<int64_t> dims);
 
@@ -143,5 +146,30 @@ NVF_API TensorView* slice(
 // can't precompute the number of positive-size chunks when the dimension size
 // is symbolic.
 std::vector<TensorView*> chunk(TensorView* in, int64_t chunks, int64_t dim);
+
+// Broadcasts inp based on bool vector. Size of broadcast bool vector should be
+// the number of dims desired in the broadcasted tensor. This vector should be
+// true if output dim should be a broadcasted dim, and false if it is not a
+// broadcasted dim. Number of false entires must match the number of input dims.
+NVF_API TensorView* broadcast(
+    TensorView* inp,
+    const std::vector<bool>& is_broadcast_dim);
+
+// Expands input based on provided sizes. expand_sizes should be larger than
+// the input's root domain (really rfactor) and will broadcast on inner
+// dimensions. expand_sizes should be -1 for any dimension that should remain a
+// symbolic size. For dimensions that remain broadcast after the expand should
+// be set to 1, any dimension being expanded must be marked as a broadcast in
+// the input and will be expanded to the provided constant size. Any dimension
+// that's symbolic in the input but specified as a non -1 value will be set to
+// that constant value.
+NVF_API TensorView* expand(
+    TensorView* inp,
+    const std::vector<Val*>& expanded_sizes);
+
+// Expands input based on other. For dimensions in inp that are broadcast with a
+// matching entry in other that's either a broadcast with expanded extent or a
+// non broadcasted iter domain, inp will be expanded to other's size.
+NVF_API TensorView* expand_as(TensorView* inp, TensorView* other);
 
 } // namespace nvfuser

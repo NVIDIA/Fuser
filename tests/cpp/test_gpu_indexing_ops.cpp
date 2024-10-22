@@ -8,8 +8,8 @@
 #include <csrc/exceptions.h>
 #include <gtest/gtest.h>
 
-#include <kernel_cache.h>
 #include <ops/all_ops.h>
+#include <runtime/fusion_executor_cache.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
@@ -137,7 +137,7 @@ TEST_F(NVFuserTest, FusionIndexSelectSimple_CUDA) {
 
     fusion.addInput(tv0);
     fusion.addInput(tv_idx);
-    TensorView* tv_sel = index_select(tv0, 0, tv_idx);
+    TensorView* tv_sel = indexSelect(tv0, 0, tv_idx);
     fusion.addOutput(tv_sel);
 
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -172,7 +172,7 @@ TEST_F(NVFuserTest, FusionIndexSelect_CUDA) {
   fusion.addInput(tv1);
   fusion.addInput(tv0);
   fusion.addInput(tv_idx);
-  TensorView* tv_sel = index_select(tv0, 0, tv_idx);
+  TensorView* tv_sel = indexSelect(tv0, 0, tv_idx);
   TensorView* tv2 = mul(tv1, tv_sel);
   TensorView* tv3 = add(IrBuilder::create<Val>(17.0), tv2);
   fusion.addOutput(tv3);
@@ -210,7 +210,7 @@ TEST_F(NVFuserTest, FusionIndexSelect1DSch_CUDA) {
   fusion.addInput(tv1);
   fusion.addInput(tv0);
   fusion.addInput(tv_idx);
-  TensorView* tv_sel = index_select(tv0, 0, tv_idx);
+  TensorView* tv_sel = indexSelect(tv0, 0, tv_idx);
   TensorView* tv2 = mul(tv1, tv_sel);
   TensorView* tv3 = add(IrBuilder::create<Val>(17.0), tv2);
   fusion.addOutput(tv3);
@@ -247,7 +247,7 @@ TEST_F(NVFuserTest, FusionIndexSelect3DTv_CUDA) {
   fusion.addInput(tv1);
   fusion.addInput(tv0);
   fusion.addInput(tv_idx);
-  TensorView* tv_sel = index_select(tv0, 0, tv_idx);
+  TensorView* tv_sel = indexSelect(tv0, 0, tv_idx);
   TensorView* tv2 = mul(tv1, tv_sel);
   TensorView* tv3 = add(IrBuilder::create<Val>(27.0), tv2);
   fusion.addOutput(tv3);
@@ -289,7 +289,7 @@ TEST_F(NVFuserTest, FusionIndexSelectCanSch_CUDA) {
   fusion_fail.addInput(tv0);
   fusion_fail.addInput(tv_idx);
   TensorView* tv_t = mul(tv0, tv_pre);
-  TensorView* tv_sel = index_select(tv_t, 0, tv_idx);
+  TensorView* tv_sel = indexSelect(tv_t, 0, tv_idx);
   TensorView* tv2 = mul(tv1, tv_sel);
   TensorView* tv3 = add(IrBuilder::create<Val>(17.0), tv2);
   // Register your outputs
@@ -308,8 +308,8 @@ TEST_F(NVFuserTest, FusionIndexSelectCanSch_CUDA) {
 
   // Schedule through magic scheduler
   SchedulerRuntimeInfo runtime_info(&fusion_fail, aten_inputs);
-  auto sch_fail = SchedulerEntry::canSchedule(
-      ScheduleHeuristic::PointWise, &fusion_fail, runtime_info);
+  auto sch_fail = Schedule::canSchedule(
+      SchedulerType::PointWise, &fusion_fail, runtime_info);
 
   // Negative Case II
   // lookup tv of index select cannot become conumser of other OP
@@ -326,7 +326,7 @@ TEST_F(NVFuserTest, FusionIndexSelectCanSch_CUDA) {
   fusion_sum_fail.addInput(tv_sum_0);
   fusion_sum_fail.addInput(tv_sum_idx);
   TensorView* tv_sum_t = mul(tv_sum_0, tv_sum_pre);
-  TensorView* tv_sum_sel = index_select(tv_sum_t, 0, tv_sum_idx);
+  TensorView* tv_sum_sel = indexSelect(tv_sum_t, 0, tv_sum_idx);
   TensorView* tv_sum_2 = mul(tv_sum_1, tv_sum_sel);
   TensorView* tv_sum_add = add(IrBuilder::create<Val>(17.0), tv_sum_2);
   auto tv_sum_3 = sum(tv_sum_add, {1});
@@ -336,8 +336,8 @@ TEST_F(NVFuserTest, FusionIndexSelectCanSch_CUDA) {
       input_pre, input1, input0, input_idx};
   // Schedule through magic scheduler
   SchedulerRuntimeInfo runtime_sum_info(&fusion_sum_fail, aten_sum_inputs);
-  auto sch_sum_fail = SchedulerEntry::canSchedule(
-      ScheduleHeuristic::Reduction, &fusion_sum_fail, runtime_sum_info);
+  auto sch_sum_fail = Schedule::canSchedule(
+      SchedulerType::Reduction, &fusion_sum_fail, runtime_sum_info);
 
   // Positive  Case I
   Fusion fusion_pass;
@@ -349,7 +349,7 @@ TEST_F(NVFuserTest, FusionIndexSelectCanSch_CUDA) {
   fusion_pass.addInput(tv1_p);
   fusion_pass.addInput(tv0_p);
   fusion_pass.addInput(tv_idx_p);
-  TensorView* tv_sel_p = index_select(tv0_p, 0, tv_idx_p);
+  TensorView* tv_sel_p = indexSelect(tv0_p, 0, tv_idx_p);
   TensorView* tv2_p = mul(tv1_p, tv_sel_p);
   TensorView* tv3_p = add(IrBuilder::create<Val>(17.0), tv2_p);
   // Register your outputs
@@ -357,8 +357,8 @@ TEST_F(NVFuserTest, FusionIndexSelectCanSch_CUDA) {
   // Schedule through magic scheduler
   std::vector<c10::IValue> aten_inputs_pass = {input1, input0, input_idx};
   SchedulerRuntimeInfo runtime_info_pass(&fusion_pass, aten_inputs_pass);
-  auto sch_pass = SchedulerEntry::canSchedule(
-      ScheduleHeuristic::PointWise, &fusion_pass, runtime_info_pass);
+  auto sch_pass = Schedule::canSchedule(
+      SchedulerType::PointWise, &fusion_pass, runtime_info_pass);
 
   NVF_CHECK(sch_pass == true && sch_fail == false && sch_sum_fail == false);
 }
@@ -379,7 +379,7 @@ TEST_F(NVFuserTest, FusionIndexSelect_Sum_CUDA) {
   fusion.addInput(tv1);
   fusion.addInput(tv0);
   fusion.addInput(tv_idx);
-  TensorView* tv_sel = index_select(tv0, 0, tv_idx);
+  TensorView* tv_sel = indexSelect(tv0, 0, tv_idx);
   TensorView* tv2 = mul(tv1, tv_sel);
   TensorView* tv_add = add(IrBuilder::create<Val>(17.0), tv2);
   auto tv3 = sum(tv_add, {1});
@@ -391,22 +391,21 @@ TEST_F(NVFuserTest, FusionIndexSelect_Sum_CUDA) {
       at::randn({nElem_select, nFeat}, options); // output&elemwise
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   at::Tensor input_idx = at::randint(0, nElem, (nElem_select), options_i);
-  at::Tensor output = at::zeros({nElem_select}, options);
+  at::Tensor cg_output = at::zeros({nElem_select}, options);
 
   std::vector<c10::IValue> aten_inputs = {input1, input0, input_idx};
-  auto reduction_params = getReductionHeuristics(&fusion, aten_inputs);
-  scheduleReduction(&fusion, *reduction_params);
-  auto lparams = reduction_params->lparams;
+  auto heuristic_params = SchedulerEntry::scheduleWith(
+      &fusion, SchedulerType::Reduction, aten_inputs);
   FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs, lparams);
-  fe.runFusion(aten_inputs, {output}, lparams);
+  fe.compileFusion(&fusion, aten_inputs, heuristic_params->lparams);
+  fe.runFusion(aten_inputs, {cg_output}, heuristic_params->lparams);
 
   auto tv0_ref = at::index_select(input0, 0, input_idx);
   at::Tensor tv2_ref = tv0_ref * input1;
   at::Tensor output_add = tv2_ref + 17.0;
   at::Tensor output_ref = output_add.sum({1});
 
-  NVF_CHECK(output_ref.allclose(output));
+  NVF_CHECK(output_ref.allclose(cg_output));
 }
 
 TEST_F(NVFuserTest, FusionIndexSelectIdxTvFuseable_CUDA) {
@@ -429,7 +428,7 @@ TEST_F(NVFuserTest, FusionIndexSelectIdxTvFuseable_CUDA) {
   fusion.addInput(tv_idx);
   fusion.addInput(tv_idx_pre);
   TensorView* tv_idx_ret = add(tv_idx, tv_idx_pre);
-  TensorView* tv_sel = index_select(tv0, 0, tv_idx_ret);
+  TensorView* tv_sel = indexSelect(tv0, 0, tv_idx_ret);
   TensorView* tv2 = mul(tv1, tv_sel);
   TensorView* tv3 = add(IrBuilder::create<Val>(17.0), tv2);
   fusion.addOutput(tv3);
@@ -472,7 +471,7 @@ TEST_F(NVFuserTest, FusionIndexSelectDim1InRank2_CUDA) {
     fusion.addInput(tv1);
     fusion.addInput(tv0);
     fusion.addInput(tv_idx);
-    TensorView* tv_sel = index_select(tv0, 1, tv_idx);
+    TensorView* tv_sel = indexSelect(tv0, 1, tv_idx);
     TensorView* tv2 = mul(tv1, tv_sel);
     TensorView* tv3 = add(IrBuilder::create<Val>(17.0), tv2);
     fusion.addOutput(tv3);
@@ -510,7 +509,7 @@ TEST_F(NVFuserTest, FusionIndexSelectDim2InRank3_CUDA) {
   fusion.addInput(tv1);
   fusion.addInput(tv0);
   fusion.addInput(tv_idx);
-  TensorView* tv_sel = index_select(tv0, 2, tv_idx);
+  TensorView* tv_sel = indexSelect(tv0, 2, tv_idx);
   TensorView* tv2 = mul(tv1, tv_sel);
   TensorView* tv3 = add(IrBuilder::create<Val>(17.0), tv2);
   fusion.addOutput(tv3);
@@ -547,7 +546,7 @@ TEST_F(NVFuserTest, FusionIndexSelectDim1InRank3_CUDA) {
   fusion.addInput(tv1);
   fusion.addInput(tv0);
   fusion.addInput(tv_idx);
-  TensorView* tv_sel = index_select(tv0, 1, tv_idx);
+  TensorView* tv_sel = indexSelect(tv0, 1, tv_idx);
   TensorView* tv2 = mul(tv1, tv_sel);
   TensorView* tv3 = add(IrBuilder::create<Val>(17.0), tv2);
   fusion.addOutput(tv3);
@@ -585,7 +584,7 @@ TEST_F(NVFuserTest, FusionIndexSelectDim2InRank4_CUDA) {
   fusion.addInput(tv1);
   fusion.addInput(tv0);
   fusion.addInput(tv_idx);
-  TensorView* tv_sel = index_select(tv0, 1, tv_idx);
+  TensorView* tv_sel = indexSelect(tv0, 1, tv_idx);
   TensorView* tv2 = mul(tv1, tv_sel);
   TensorView* tv3 = add(IrBuilder::create<Val>(17.0), tv2);
   fusion.addOutput(tv3);
@@ -616,7 +615,7 @@ TEST_F(NVFuserTest, IndexSelectBroadcastIndex_CUDA) {
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
-  auto tv2 = index_select(tv1, 0, tv0);
+  auto tv2 = indexSelect(tv1, 0, tv0);
   fusion.addOutput(tv2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -646,8 +645,8 @@ TEST_F(NVFuserTest, MultipleIndexSelectIssue_CUDA) {
   auto tv2 = makeContigTensor(1, DataType::Int);
   fusion.addInput(tv2);
 
-  auto tv3 = index_select(tv0, 0, tv2);
-  auto tv4 = index_select(tv1, 0, tv2);
+  auto tv3 = indexSelect(tv0, 0, tv2);
+  auto tv4 = indexSelect(tv1, 0, tv2);
   auto tv5 = add(tv3, tv4);
   fusion.addOutput(tv5);
 

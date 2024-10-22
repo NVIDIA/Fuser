@@ -11,7 +11,6 @@
 #include <device_lower/lower2device.h>
 #include <disjoint_set.h>
 #include <fusion.h>
-#include <fusion_executor/executor_params.h>
 #include <fusion_segmenter.h>
 #include <host_ir/container.h>
 #include <instrumentation.h>
@@ -23,6 +22,7 @@
 #include <kernel.h>
 #include <ops/alias.h>
 #include <ops/arith.h>
+#include <runtime/executor_params.h>
 
 #include <iterator>
 

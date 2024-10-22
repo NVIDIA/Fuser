@@ -8,11 +8,11 @@
 #include <c10/util/irange.h>
 
 // Extract size and strides
-#include <kernel_cache.h>
+#include <runtime/fusion_executor_cache.h>
 
-#include <fusion_executor/executor_kernel_arg.h>
 #include <instrumentation.h>
 #include <polymorphic_value.h>
+#include <runtime/executor_kernel_arg.h>
 #include <serde/polymorphic_value.h>
 #include <tensor_metadata.h>
 
@@ -37,8 +37,6 @@ KernelArgumentHolder KernelArgumentHolder::createKernelArgumentHolder(
   return args;
 }
 
-namespace {
-
 PolymorphicValue IValueToPolymorphicValue(const c10::IValue& val) {
   if (val.isTensor()) {
     return val.toTensor();
@@ -58,6 +56,8 @@ PolymorphicValue IValueToPolymorphicValue(const c10::IValue& val) {
       NVF_THROW("Can not convert IValue to PolymorphicValue");
   }
 }
+
+namespace {
 
 PrimDataType getSmallestIndexType(const at::Tensor& tensor) {
   KernelIndexTypeCompute index_type_helper;

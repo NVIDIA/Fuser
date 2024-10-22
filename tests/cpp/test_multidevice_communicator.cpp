@@ -6,17 +6,47 @@
  */
 // clang-format on
 #include <chrono>
+#include <ostream>
 
+#include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
 #include <multidevice/communicator.h>
 #include <tests/cpp/multidevice.h>
 
+namespace std {
+namespace chrono {
+// Without this, EXPECT_* would print duration as bytes.
+void PrintTo(const std::chrono::duration<double>& d, ostream* os) {
+  *os << d.count() << " seconds";
+}
+} // namespace chrono
+} // namespace std
+
 namespace nvfuser {
+
+using testing::PrintToString;
 
 class CommunicatorTest
     : public MultiDeviceTest,
       public testing::WithParamInterface<CommunicatorBackend> {};
+
+namespace {
+template <typename Duration>
+auto toSeconds(const Duration& d) {
+  // By default, std::chrono::duration uses ratio 1, which means seconds.
+  return std::chrono::duration_cast<std::chrono::duration<double>>(d);
+}
+
+MATCHER_P2(
+    IsBetween,
+    lower,
+    upper,
+    std::string(negation ? "isn't" : "is") + " between " +
+        PrintToString(lower) + " and " + PrintToString(upper)) {
+  return lower <= arg && arg <= upper;
+}
+} // namespace
 
 // A regression test for #2499.
 TEST_P(CommunicatorTest, Barrier) {
@@ -38,17 +68,22 @@ TEST_P(CommunicatorTest, Barrier) {
 
   const auto expected_duration = kUnitDuration * (communicator_->size() - 1);
   for (int i = 1; i < kNumIterations; i++) {
-    const auto duration = end_times[i] - end_times[i - 1];
-    // Expects `duration` to be close enoguh to `expected_duration`.
-    EXPECT_LE(duration, expected_duration + kUnitDuration / 2);
-    EXPECT_GE(duration, expected_duration - kUnitDuration / 2);
+    // Expect `duration` to be close enoguh to `expected_duration`. Convert to
+    // duration<double> (and thus seconds) before comparison for a better error
+    // message.
+    const auto duration = toSeconds(end_times[i] - end_times[i - 1]);
+    const auto expected_upper =
+        toSeconds(expected_duration + kUnitDuration / 2);
+    const auto expected_lower =
+        toSeconds(expected_duration - kUnitDuration / 2);
+    EXPECT_THAT(duration, IsBetween(expected_lower, expected_upper));
   }
 }
 
 INSTANTIATE_TEST_SUITE_P(
     ,
     CommunicatorTest,
-    testing::Values(CommunicatorBackend::nccl, CommunicatorBackend::ucc),
+    testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
     testing::PrintToStringParamName());
 
 } // namespace nvfuser

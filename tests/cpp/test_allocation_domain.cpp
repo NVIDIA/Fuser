@@ -8,10 +8,10 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <fusion_executor/executor.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ops/all_ops.h>
+#include <runtime/executor.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/registry.h>
 
@@ -1260,7 +1260,7 @@ TEST_F(AllocationDomainTest, Issue1290_ContiguityWasMissing) {
       fec.getMostRecentKernelRuntime()->fusionSegments()->groups();
   ASSERT_EQ(groups.size(), 1);
   SegmentedGroup* group = groups[0];
-  EXPECT_EQ(group->heuristic(), ScheduleHeuristic::PointWise);
+  EXPECT_EQ(group->schedulerType(), SchedulerType::PointWise);
 }
 
 TEST_F(AllocationDomainTest, Issue1290_ReplayCasPFailedDueToDifferentRanks) {

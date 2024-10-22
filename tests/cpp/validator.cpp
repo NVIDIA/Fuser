@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <runtime/fusion_kernel_runtime.h>
 #include <tests/cpp/validator.h>
 
 #include <validator_utils.h>
@@ -171,7 +172,7 @@ void testValidate(
 
 void validateSegmentation(
     FusionKernelRuntime* runtime,
-    const std::vector<ScheduleHeuristic>& expected_heuristics) {
+    const std::vector<SchedulerType>& expected_heuristics) {
   const auto& segment_groups = runtime->fusionSegments()->groups();
 
   NVF_CHECK(
@@ -188,11 +189,11 @@ void validateSegmentation(
   for (auto& group : segment_groups) {
     int64_t segment_order = group->producer_edges.empty() ? 0 : 1;
     NVF_CHECK(
-        group->heuristic() == expected_heuristics.at(segment_order),
+        group->schedulerType() == expected_heuristics.at(segment_order),
         "Expected to use the ",
         expected_heuristics.at(segment_order),
         " scheduler but ",
-        group->heuristic(),
+        group->schedulerType(),
         " was used");
   }
 }

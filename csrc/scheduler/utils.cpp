@@ -10,17 +10,22 @@
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>
 
+#include <bfs.h>
 #include <contiguity.h>
 #include <expr_evaluator.h>
 #include <id_model/id_model.h>
+#include <id_model/schedule.h>
 #include <instrumentation.h>
+#include <ir/builder.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <scheduler/mma_utils.h>
+#include <scheduler/runtime_info.h>
 #include <transform_iter.h>
 #include <transform_replay.h>
+#include <val_graph_visitor.h>
 
 #include <ATen/cuda/CUDAContext.h>
 
@@ -968,7 +973,7 @@ PersistentBufferSizeReturn persistentBufferSize(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     const PersistentBufferInfo& persistent_buffer_info,
-    HeuristicSummary* data_cache) {
+    HeuristicDataCache* data_cache) {
   FUSER_PERF_SCOPE("scheduler_utils::persistentBufferSize");
 
   if (persistent_buffer_info.persistent_buffers.empty()) {
@@ -1048,7 +1053,7 @@ PersistentBufferSizeReturn persistentBufferSize(
   };
 
   auto persistent_buffer_info_entry =
-      HeuristicSummaryEntry<HeuristicCompileTime::ScopePersistentFactorInfo>(
+      HeuristicDataCacheEntry<HeuristicCompileTime::ScopePersistentFactorInfo>(
           data_cache, [&fusion, &persistent_buffer_info]() {
             return getScopePersistenceFactors(fusion, persistent_buffer_info);
           });
@@ -1557,7 +1562,7 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
 
   for (auto input_tv :
        ir_utils::filterByType<TensorView>(reference_tv->fusion()->inputs())) {
-    // for index_select(lookup_tv, dim, index_tv) op
+    // for indexSelect(lookup_tv, dim, index_tv) op
     // ignore it's lookup_tv.
     if (ir_utils::isTorchGatherLookupTv(input_tv) ||
         ir_utils::isIndexSelectLookupTv(input_tv)) {
@@ -2571,6 +2576,7 @@ int64_t getSharedMemoryOverheadPerBlock(
 
   // (2) part-2, space reserved by the CUDA driver
   int64_t smem_overhead_driver = (int64_t)dev_prop->reservedSharedMemPerBlock;
+
   return reduction_broadcast_workspace + smem_overhead_driver;
 }
 

@@ -443,11 +443,11 @@ bool isSqueezeInput(const TensorView* tv);
 bool isSqueezedID(const TensorView* tv, const IterDomain* id);
 
 // Test if the given ID in the given tensor is indirectly accessed by,
-// e.g., index_select, torch_gather and scatter
+// e.g., indexSelect, torchGather and scatter
 bool isIndexedID(const TensorView* tv, const IterDomain* id);
 
 // Test if the given ID in the given tensor is indirectly read by,
-// e.g., index_select and torch_gather
+// e.g., indexSelect and torchGather
 bool isIndexedProducerID(const TensorView* tv, const IterDomain* id);
 
 // Test if the given ID in the given tensor is indirectly written to by,
@@ -455,17 +455,17 @@ bool isIndexedProducerID(const TensorView* tv, const IterDomain* id);
 bool isIndexedConsumerID(const TensorView* tv, const IterDomain* id);
 
 // Return a producer ID, if any, that is indirectly accessed by, e.g.,
-// index_select and torch_gather.
+// indexSelect and torchGather.
 IterDomain* getIndexedProducerID(const Expr* expr);
 
 // Return the corresponding consumer if of a producer ID that is
 // indirectly accessed.
 IterDomain* getConsumerOfIndexedProducerID(const Expr* expr);
 
-// Check if the given tv is first argment of index_select(lookup, dim, indices)
+// Check if the given tv is first argment of indexSelect(lookup, dim, indices)
 bool isIndexSelectLookupTv(const TensorView* tv);
 
-// Check if the given tv is third argment of index_select(lookup, dim, indices)
+// Check if the given tv is third argment of indexSelect(lookup, dim, indices)
 bool isIndexSelectIndicesTv(const TensorView* tv);
 
 bool isTorchGatherLookupTv(const Val* tv);
@@ -512,7 +512,8 @@ struct CompareDomainResult {
 CompareDomainResult compareDomains(
     std::vector<IterDomain*> dom0,
     const std::vector<IterDomain*>& dom1,
-    const std::vector<IterDomain*>& additional_ids = {});
+    const std::vector<IterDomain*>& additional_ids = {},
+    bool ignore_broadcast = true);
 
 //! Validate dom0 and dom1 are equivalent
 void validateDomainEquivalence(
@@ -704,5 +705,24 @@ inline bool isMemorySharedAcross(
       NVF_THROW("Unknown MemoryType: ", memory_type);
   }
 }
+
+//! Check if the given tv has a root domain -> loop domain linear
+//! transformation. This is a temporary check used to incrementally enable
+//! IdModel. Eventually, this should be removed.
+bool hasRootToLoopLinearTransformations(const TensorView* tv);
+
+//! In addition to the above hasRootToLoopLinearTransformations, it
+//! also checks the loop domain has any extra domain
+bool isLoopDomainFullyDerivedFromLogicalDomain(TensorView* tv);
+
+AsyncOpType getAsyncOpType(const Expr* expr);
+
+//! If the given statement is nullptr, return "nullptr", otherwise return its
+//! toString()
+std::string nullOrToString(const Statement* stmt);
+
+//! If the given statement is nullptr, return "nullptr", otherwise return its
+//! toInlineString()
+std::string nullOrToInlineString(const Statement* stmt);
 
 } // namespace nvfuser::ir_utils

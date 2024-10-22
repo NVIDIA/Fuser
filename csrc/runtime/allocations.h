@@ -31,7 +31,7 @@ struct GlobalBufferInfo {
 //! Notes: 1. This API should ignore aliased outputs instead of
 //! pushing scalar int 0 as a place-holder.
 //! 2. This API does not allocate output in memory, but only returns the
-//! inferred output sizes. Used in kernel_cache.cpp.
+//! inferred output sizes. Used in runtime/fusion_executor_cache.cpp.
 KernelArgumentHolder inferOutputSizes(
     Fusion* fusion,
     const KernelArgumentHolder& args,

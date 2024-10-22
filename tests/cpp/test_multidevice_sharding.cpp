@@ -5,15 +5,19 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
 #include <fusion.h>
-#include <kernel_cache.h>
 #include <ops/all_ops.h>
+#include <runtime/fusion_executor_cache.h>
 #include <tests/cpp/multidevice.h>
 #include <tests/cpp/validator.h>
 
 namespace nvfuser {
+
+using testing::ElementsAre;
+using testing::UnorderedElementsAre;
 
 // params: concrete vs symbolic input, sharded axis
 class MultiDeviceReductionTest
@@ -116,6 +120,34 @@ INSTANTIATE_TEST_SUITE_P(
       return os.str();
     });
 
+TEST_F(MultiDeviceTest, Reduction) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto mesh = DeviceMesh::createForNumDevices(communicator_->size());
+
+  TensorView* in = makeContigTensor(2);
+  TensorView* out = sum(in, {0});
+
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  in->setDeviceMesh(mesh);
+  in->axis(0)->parallelize(ParallelType::DIDx);
+
+  auto unsharded_in_tensor = at::randn({mesh.size(), 4}, tensor_options);
+  auto in_tensor = shardTensor(unsharded_in_tensor, in);
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(
+      fec.fusion(),
+      out_tensors,
+      {in_tensor},
+      {unsharded_in_tensor.sum(0)},
+      __LINE__,
+      __FILE__);
+}
+
 TEST_F(MultiDeviceTest, Slice) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -149,6 +181,36 @@ TEST_F(MultiDeviceTest, Slice) {
       {shardTensor(expected_out[0], x), shardTensor(expected_out[1], x)},
       __LINE__,
       __FILE__);
+}
+
+TEST_F(MultiDeviceTest, BackpropMeshes) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto num_devices = communicator_->size();
+
+  TensorView* x = makeContigConcreteTensor({num_devices, -1});
+  TensorView* y = uniform(
+      shape(x),
+      fusion->zeroVal(DataType::Float),
+      fusion->oneVal(DataType::Float),
+      DataType::Float);
+  TensorView* z = add(x, y);
+  fusion->addInput(x);
+  fusion->addOutput(z);
+
+  auto mesh = DeviceMesh::createForNumDevices(num_devices);
+  x->setDeviceMesh(mesh);
+  x->axis(0)->parallelize(ParallelType::DIDx);
+
+  at::Tensor unsharded_x_tensor = at::randn({num_devices, 4}, tensor_options);
+  at::Tensor x_tensor = shardTensor(unsharded_x_tensor, x);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor z_tensor = fec.runFusionWithInputs({x_tensor})[0];
+  EXPECT_THAT(z_tensor.sizes(), ElementsAre(1, 4))
+      << "Due to sharding propagation, z is supposed to "
+      << "be sharded in the same way as x.";
 }
 
 TEST_F(MultiDeviceTest, LayerNorm) {
@@ -229,6 +291,46 @@ TEST_F(MultiDeviceTest, Issue2758) {
       {expected_out_tensor},
       __LINE__,
       __FILE__);
+}
+
+TEST_F(MultiDeviceTest, Transpose) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto num_devices = communicator_->size();
+  auto mesh = DeviceMesh::createForNumDevices(num_devices);
+
+  TensorView* in = makeContigConcreteTensor({num_devices, -1, -1});
+  in->setDeviceMesh(mesh);
+  in->axis(0)->parallelize(ParallelType::DIDx);
+  TensorView* out = transpose(in, 1, 2);
+  out->setAllocationDomain({out->axis(0), out->axis(1), out->axis(2)}, true);
+
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  // Sizes need to be large enough to trigger the transpose scheduler.
+  at::Tensor unsharded_in_tensor =
+      at::randn({num_devices, 1024, 1024}, tensor_options);
+  at::Tensor in_tensor = shardTensor(unsharded_in_tensor, in);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor out_tensor = fec.runFusionWithInputs({in_tensor})[0];
+
+  at::Tensor expected_out_tensor =
+      shardTensor(unsharded_in_tensor.transpose(1, 2), out);
+  testValidate(
+      fec.fusion(),
+      {out_tensor},
+      {in_tensor},
+      {expected_out_tensor},
+      __LINE__,
+      __FILE__);
+
+  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      UnorderedElementsAre(HeuristicIs(SchedulerType::Transpose)));
 }
 
 class MultiDeviceBroadcastTest : public MultiDeviceTest,

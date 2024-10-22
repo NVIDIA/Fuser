@@ -478,6 +478,14 @@ class TensorDomain : public Val {
     return contiguity_;
   }
 
+  // The python frontend has a stride_order argument in the define_tensor
+  // function. This argument allows the user to specify the allocation domain
+  // for the TensorView. When translating the CPP Fusion into a Python
+  // FusionDefinition, the stride_order argument is required if this
+  // TensorDomain's allocation domain is a permutation of the logical domain.
+  // This function generates the stride_order argument for this TensorDomain.
+  std::vector<int64_t> strideOrder() const;
+
   NVF_API void setContiguity(const std::vector<std::optional<bool>>& contig);
 
   std::string getContiguityString() const {
@@ -539,6 +547,10 @@ class TensorDomain : public Val {
         std::find(root().begin(), root().end(), id) != root().end();
   }
 
+  bool isMaybeRoot(const IterDomain* id) const {
+    return (hasRoot() && isRoot(id)) || (!hasRoot() && isLogical(id));
+  }
+
   // The output logical domain.
   const std::vector<IterDomain*>& logical() const {
     return logical_domain_;
@@ -568,9 +580,19 @@ class TensorDomain : public Val {
     return loop_domain_;
   }
 
+  const std::vector<IterDomain*>& initialLoop() const {
+    return initial_loop_domain_;
+  }
+
   // Check if id is a loop ID.
   bool isLoop(const IterDomain* id) const {
     return std::find(loop().begin(), loop().end(), id) != loop().end();
+  }
+
+  // Check if id is an intial loop ID.
+  bool isInitialLoop(const IterDomain* id) const {
+    return std::find(initialLoop().begin(), initialLoop().end(), id) !=
+        loop().end();
   }
 
   // Get all IDs that is on the shortest path between any of the domains
@@ -578,6 +600,9 @@ class TensorDomain : public Val {
   // definition and uses path. Return values are topologically ordered and
   // unique.
   std::vector<IterDomain*> allIDs() const;
+
+  // Similar to allIDs but returns all ID expressions.
+  std::vector<Expr*> allExprs() const;
 
   const std::vector<IterDomain*>& maybeAllocation() const {
     return hasAllocation() ? allocation_domain_ : logical();
@@ -695,6 +720,10 @@ class TensorDomain : public Val {
   const std::vector<IterDomain*> logical_domain_;
   std::vector<IterDomain*> allocation_domain_;
   std::vector<IterDomain*> loop_domain_;
+  // Initial loop domain. Loop domain is updated with transformations
+  // such as split, but the initial loop domain can only change with
+  // setLoopDomain
+  std::vector<IterDomain*> initial_loop_domain_;
   std::vector<IterDomain*> additional_ids_;
 
   std::vector<IterDomain*> no_bcast_domain_;

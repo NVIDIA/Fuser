@@ -10,14 +10,14 @@
 #include <gtest/gtest.h>
 
 #include <fusion.h>
-#include <fusion_executor/executor.h>
-#include <fusion_executor/executor_utils.h>
-#include <inlining.h>
-#include <kernel_cache.h>
 #include <ops/all_ops.h>
 #include <preseg_passes/mark_aliases_prepare.h>
 #include <preseg_passes/optimization_pass.h>
-#include <scheduler/utils.h>
+#include <runtime/executor.h>
+#include <runtime/executor_utils.h>
+#include <runtime/fusion_executor_cache.h>
+#include <scheduler/tools/inlining.h>
+#include <scheduler/tools/loop_domain_scheduler.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
@@ -2127,7 +2127,7 @@ TEST_F(ResizeTest, ResizePermuteAndSlice) {
 
   EXPECT_THAT(
       executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups(),
-      UnorderedElementsAre(HeuristicIs(ScheduleHeuristic::Transpose)));
+      UnorderedElementsAre(HeuristicIs(SchedulerType::Transpose)));
 }
 
 // When scheduling this test, the pointwise scheduler attempt to replay a Split
@@ -2365,8 +2365,8 @@ TEST_F(ResizeTest, SliceVectorization) {
 
   std::vector<c10::IValue> inputs = {t0, t1};
 
-  auto lparams = schedulePointwise(&fusion, inputs);
-
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, inputs).outputs;
   // check that we vectorize 4
   bool found_vectorize = false;
   for (auto id : fusion.outputs().at(0)->as<TensorView>()->getLoopDomain()) {
@@ -2377,10 +2377,6 @@ TEST_F(ResizeTest, SliceVectorization) {
     }
   }
   EXPECT_TRUE(found_vectorize);
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, inputs, lparams);
-  auto cg_outputs = fe.runFusion(inputs, lparams);
 
   auto ref = t0.narrow(0, 1, N) + t1;
 
@@ -3460,11 +3456,11 @@ TEST_F(ResizeTest, AvoidVectorization) {
 
   // The pointwise scheduler should tell the vectorization factor is
   // 4.
-  auto params = getPointwiseHeuristics(&fusion, inputs);
-  ASSERT_TRUE(params->vectorize) << "Vectorization is expected to be possible";
-  ASSERT_EQ(params->unroll_factor, 4) << "Unexpected factor of vectorization";
+  auto cg_results = scheduleAndRun(&fusion, SchedulerType::PointWise, inputs);
+  auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
 
-  schedulePointwise(&fusion, *params);
+  ASSERT_EQ(pparams->vectorization_factor, 4)
+      << "Unexpected factor of vectorization";
 
   // Make sure tv1 is not vectorized, i.e., no loop IterDomains are vectorized.
   EXPECT_THAT(
@@ -3480,10 +3476,7 @@ TEST_F(ResizeTest, AvoidVectorization) {
       Contains(Property(&IterDomain::getParallelType, ParallelType::Vectorize)))
       << "Failed to vectorize: " << tv2;
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, inputs, params->lparams);
-  auto outputs = fe.runFusion(inputs, params->lparams);
-  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  testValidate(&fusion, cg_results.outputs, inputs, __LINE__, __FILE__);
 }
 
 // MemoryPromotion generates code with volatile T. This test ensures that our
@@ -3688,6 +3681,9 @@ TEST_F(ResizeTest, SliceScheduledLikeProducer) {
 
   std::vector<int64_t> shape({100});
 
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
   // concrete shapes to avoid dynamic Fusion
   auto tv0 = makeConcreteTensor(shape);
   fusion.addInput(tv0);
@@ -3699,20 +3695,18 @@ TEST_F(ResizeTest, SliceScheduledLikeProducer) {
 
   fusion.addOutput(tv2);
 
-  tv1->setLoopDomain(tv1->getRootDomain());
-
-  auto tv2_loop_id = tv0->getLoopDomain().at(0)->cloneWithoutRFactor();
-
-  IrBuilder::create<Resize>(
-      tv2->getLogicalDomain().at(0),
-      tv2_loop_id,
-      IrBuilder::create<Val>(-1, DataType::Index),
-      IrBuilder::create<Val>(-1, DataType::Index));
-
-  tv2->setLoopDomain({tv2_loop_id});
+  std::vector<IterDomain*> ref_loop = tv0->getLogicalDomain();
+  scheduler_tools::scheduleLoopDomainsLike(fusion.allTvs(), ref_loop);
 
   for (auto tv : {tv1, tv2}) {
     tv->split(0, 32);
+  }
+
+  inlineMost();
+
+  for (auto tv : {tv1, tv2}) {
+    EXPECT_EQ(tv->getComputeAtPosition(), 2)
+        << "Invalid computeAt position: " << tv->toString();
     tv->axis(0)->parallelize(ParallelType::BIDx);
     tv->axis(1)->parallelize(ParallelType::TIDx);
   }
@@ -3720,9 +3714,6 @@ TEST_F(ResizeTest, SliceScheduledLikeProducer) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
-
-  EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
@@ -3739,6 +3730,9 @@ TEST_F(ResizeTest, PadScheduledLikeConsumer) {
 
   std::vector<int64_t> shape({100});
 
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
   // concrete shapes to avoid dynamic Fusion
   auto tv0 = makeConcreteTensor(shape);
   fusion.addInput(tv0);
@@ -3749,14 +3743,18 @@ TEST_F(ResizeTest, PadScheduledLikeConsumer) {
   auto tv3 = add(tv2, IrBuilder::create<Val>(1));
   fusion.addOutput(tv3);
 
-  auto tv1_padded = IterDomain::resize(
-      tv1->getLoopDomain().at(0),
-      IrBuilder::create<Val>(1, DataType::Index),
-      IrBuilder::create<Val>(1, DataType::Index));
-  tv1->setLoopDomain({tv1_padded});
+  std::vector<IterDomain*> ref_loop = tv2->getLogicalDomain();
+  scheduler_tools::scheduleLoopDomainsLike(fusion.allTvs(), ref_loop);
 
   for (auto tv : {tv1, tv2, tv3}) {
     tv->split(0, 32);
+  }
+
+  inlineMost();
+
+  for (auto tv : {tv1, tv2, tv3}) {
+    EXPECT_EQ(tv->getComputeAtPosition(), 2)
+        << "Invalid computeAt position: " << tv->toString();
     tv->axis(0)->parallelize(ParallelType::BIDx);
     tv->axis(1)->parallelize(ParallelType::TIDx);
   }
@@ -3764,9 +3762,6 @@ TEST_F(ResizeTest, PadScheduledLikeConsumer) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
-
-  EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
@@ -3784,6 +3779,9 @@ TEST_F(ResizeTest, SliceThenPadLeftHalf) {
 
   std::vector<int64_t> shape({100});
 
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
   // concrete shapes to avoid dynamic Fusion
   auto tv0 = makeContigConcreteTensor(shape);
   fusion.addInput(tv0);
@@ -3797,22 +3795,18 @@ TEST_F(ResizeTest, SliceThenPadLeftHalf) {
 
   fusion.addOutput(tv3);
 
-  tv2->setLoopDomain(tv2->getRootDomain());
-
-  std::vector<IterDomain*> tv3_loop{
-      tv2->getRootDomain()[0]->cloneWithoutRFactor(),
-  };
-
-  IrBuilder::create<Resize>(
-      tv3->getRootDomain().at(0),
-      tv3_loop.at(0),
-      fusion.zeroVal(),
-      IrBuilder::create<Val>(-shape[0] / 2, DataType::Index));
-
-  tv3->setLoopDomain(tv3_loop);
+  std::vector<IterDomain*> ref_loop = tv0->getLogicalDomain();
+  scheduler_tools::scheduleLoopDomainsLike(fusion.allTvs(), ref_loop);
 
   for (auto tv : {tv1, tv2, tv3}) {
     tv->split(0, 32);
+  }
+
+  inlineMost();
+
+  for (auto tv : {tv1, tv2, tv3}) {
+    EXPECT_EQ(tv->getComputeAtPosition(), 2)
+        << "Invalid computeAt position: " << tv->toString();
     tv->axis(0)->parallelize(ParallelType::BIDx);
     tv->axis(1)->parallelize(ParallelType::TIDx);
   }
@@ -3820,9 +3814,6 @@ TEST_F(ResizeTest, SliceThenPadLeftHalf) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
-
-  EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
@@ -3841,6 +3832,9 @@ TEST_F(ResizeTest, SliceThenPadRightHalf) {
 
   std::vector<int64_t> shape({100});
 
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
   // concrete shapes to avoid dynamic Fusion
   auto tv0 = makeContigConcreteTensor(shape);
   fusion.addInput(tv0);
@@ -3856,22 +3850,18 @@ TEST_F(ResizeTest, SliceThenPadRightHalf) {
 
   fusion.addOutput(tv3);
 
-  tv2->setLoopDomain(tv2->getRootDomain());
-
-  std::vector<IterDomain*> tv3_loop{
-      tv2->getRootDomain()[0]->cloneWithoutRFactor(),
-  };
-
-  IrBuilder::create<Resize>(
-      tv3->getRootDomain().at(0),
-      tv3_loop.at(0),
-      IrBuilder::create<Val>(-shape[0] / 2, DataType::Index),
-      fusion.zeroVal());
-
-  tv3->setLoopDomain(tv3_loop);
+  std::vector<IterDomain*> ref_loop = tv0->getLogicalDomain();
+  scheduler_tools::scheduleLoopDomainsLike(fusion.allTvs(), ref_loop);
 
   for (auto tv : {tv1, tv2, tv3}) {
     tv->split(0, 32);
+  }
+
+  inlineMost();
+
+  for (auto tv : {tv1, tv2, tv3}) {
+    EXPECT_EQ(tv->getComputeAtPosition(), 2)
+        << "Invalid computeAt position: " << tv->toString();
     tv->axis(0)->parallelize(ParallelType::BIDx);
     tv->axis(1)->parallelize(ParallelType::TIDx);
   }
@@ -3879,9 +3869,6 @@ TEST_F(ResizeTest, SliceThenPadRightHalf) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
-
-  EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
@@ -3899,6 +3886,9 @@ TEST_F(ResizeTest, SliceThenConcat) {
   FusionGuard fg(&fusion);
 
   std::vector<int64_t> shape({100});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   // concrete shapes to avoid dynamic Fusion
   auto tv0 = makeContigConcreteTensor(shape);
@@ -3924,52 +3914,18 @@ TEST_F(ResizeTest, SliceThenConcat) {
 
   fusion.addOutput(tv6);
 
-  tv2->setLoopDomain(tv2->getRootDomain());
-
-  {
-    std::vector<IterDomain*> tv3_loop{
-        tv2->getRootDomain()[0]->cloneWithoutRFactor(),
-    };
-    IrBuilder::create<Resize>(
-        tv3->getRootDomain().at(0),
-        tv3_loop.at(0),
-        fusion.zeroVal(),
-        IrBuilder::create<Val>(-shape[0] / 2, DataType::Index));
-    tv3->setLoopDomain(tv3_loop);
-  }
-
-  tv4->setLoopDomain(tv4->getRootDomain());
-
-  {
-    std::vector<IterDomain*> tv5_loop{
-        tv4->getRootDomain()[0]->cloneWithoutRFactor(),
-    };
-    IrBuilder::create<Resize>(
-        tv5->getRootDomain().at(0),
-        tv5_loop.at(0),
-        IrBuilder::create<Val>(-shape[0] / 2, DataType::Index),
-        fusion.zeroVal());
-    tv5->setLoopDomain(tv5_loop);
-  }
-
-  {
-    std::vector<IterDomain*> tv6_loop{
-        tv2->getRootDomain()[0]->cloneWithoutRFactor(),
-    };
-    auto left_half = IterDomain::resize(
-        tv6_loop[0],
-        fusion.zeroVal(),
-        IrBuilder::create<Val>(-shape[0] / 2, DataType::Index));
-    IrBuilder::create<Resize>(
-        tv6->getLogicalDomain().at(0),
-        left_half,
-        fusion.zeroVal(),
-        IrBuilder::create<Val>(shape[0] / 2, DataType::Index));
-    tv6->setLoopDomain(tv6_loop);
-  }
+  std::vector<IterDomain*> ref_loop = tv0->getLogicalDomain();
+  scheduler_tools::scheduleLoopDomainsLike(fusion.allTvs(), ref_loop);
 
   for (auto tv : {tv1, tv2, tv3, tv4, tv5, tv6}) {
     tv->split(0, 32);
+  }
+
+  inlineMost();
+
+  for (auto tv : {tv1, tv2, tv3, tv4, tv5, tv6}) {
+    EXPECT_EQ(tv->getComputeAtPosition(), 2)
+        << "Invalid computeAt position: " << tv->toString();
     tv->axis(0)->parallelize(ParallelType::BIDx);
     tv->axis(1)->parallelize(ParallelType::TIDx);
   }
@@ -3977,9 +3933,6 @@ TEST_F(ResizeTest, SliceThenConcat) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
   std::vector<c10::IValue> aten_inputs({t0});
-
-  EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
@@ -3995,6 +3948,9 @@ TEST_F(ResizeTest, SliceSliceConcatConcat) {
 
   const int64_t i0 = 128;
   const int64_t rope_size = 32;
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   auto zero = fusion.zeroVal();
 
@@ -4045,200 +4001,25 @@ TEST_F(ResizeTest, SliceSliceConcatConcat) {
 
   fusion.addOutput(tv13);
 
-  auto ref_loop = tv0->getLogicalDomain()[0];
-
-  // tv2
-  // std::vector<IterDomain*> tv2_loop = tv2->getRootDomain();
-  tv2->setLoopDomain(tv2->getRootDomain());
-
-  // tv3
-  {
-    auto loop_id = ref_loop->cloneWithoutRFactor();
-    // Connect to tv3 root
-    IrBuilder::create<Resize>(
-        tv3->getRootDomain().at(0),
-        loop_id,
-        zero,
-        IrBuilder::create<Val>(-(i0 - rope_size), DataType::Index));
-    tv3->setLoopDomain({loop_id});
-  }
-
-  // tv4
-  {
-    auto loop_id = ref_loop->cloneWithoutRFactor();
-    auto root_id = tv3->getRootDomain().at(0)->cloneWithoutRFactor();
-    // Connect to tv3 root
-    IrBuilder::create<Resize>(
-        root_id,
-        loop_id,
-        zero,
-        IrBuilder::create<Val>(-(i0 - rope_size), DataType::Index));
-    // Connect to tv4 logical
-    IrBuilder::create<Resize>(
-        tv4->getLogicalDomain().at(0),
-        root_id,
-        zero,
-        IrBuilder::create<Val>(-rope_size / 2, DataType::Index));
-    tv4->setLoopDomain({loop_id});
-  }
-
-  // tv5
-  {
-    auto loop_id = ref_loop->cloneWithoutRFactor();
-    auto root_id = tv3->getRootDomain().at(0)->cloneWithoutRFactor();
-    // Connect to tv3 root
-    IrBuilder::create<Resize>(
-        root_id,
-        loop_id,
-        zero,
-        IrBuilder::create<Val>(-(i0 - rope_size), DataType::Index));
-    // Connect to tv5 root
-    IrBuilder::create<Resize>(
-        tv5->getRootDomain().at(0),
-        root_id,
-        zero,
-        IrBuilder::create<Val>(-rope_size / 2, DataType::Index));
-    tv5->setLoopDomain({loop_id});
-  }
-
-  // tv6
-  {
-    auto loop_id = ref_loop->cloneWithoutRFactor();
-    // Connect to tv6 root
-    IrBuilder::create<Resize>(
-        tv6->getRootDomain().at(0),
-        loop_id,
-        zero,
-        IrBuilder::create<Val>(-(i0 - rope_size), DataType::Index));
-    tv6->setLoopDomain({loop_id});
-  }
-
-  // tv7
-  {
-    auto loop_id = ref_loop->cloneWithoutRFactor();
-    auto root_id = tv6->getRootDomain().at(0)->cloneWithoutRFactor();
-    // Connect to tv6 root
-    IrBuilder::create<Resize>(
-        root_id,
-        loop_id,
-        zero,
-        IrBuilder::create<Val>(-(i0 - rope_size), DataType::Index));
-    // Connect to tv7 logical
-    IrBuilder::create<Resize>(
-        tv7->getLogicalDomain().at(0),
-        root_id,
-        IrBuilder::create<Val>(-rope_size / 2, DataType::Index),
-        zero);
-    tv7->setLoopDomain({loop_id});
-  }
-
-  // tv8
-  {
-    auto loop_id = ref_loop->cloneWithoutRFactor();
-    auto root_id = tv6->getRootDomain().at(0)->cloneWithoutRFactor();
-    // Connect to tv6 root
-    IrBuilder::create<Resize>(
-        root_id,
-        loop_id,
-        zero,
-        IrBuilder::create<Val>(-(i0 - rope_size), DataType::Index));
-    // Connect to tv8 root
-    IrBuilder::create<Resize>(
-        tv8->getRootDomain().at(0),
-        root_id,
-        IrBuilder::create<Val>(-rope_size / 2, DataType::Index),
-        zero);
-    tv8->setLoopDomain({loop_id});
-  }
-
-  // tv9
-  {
-    // Create a path from ref through the left-half path. The
-    // right-half path should work too.
-    auto loop_id = ref_loop->cloneWithoutRFactor();
-    auto tv2_logical_id = tv2->getLogicalDomain()[0]->cloneWithoutRFactor();
-    IrBuilder::create<Resize>(
-        tv2_logical_id,
-        loop_id,
-        zero,
-        IrBuilder::create<Val>(-(i0 - rope_size), DataType::Index));
-    auto tv3_logical_id = tv3->getLogicalDomain()[0]->cloneWithoutRFactor();
-    IrBuilder::create<Resize>(
-        tv3_logical_id,
-        tv2_logical_id,
-        zero,
-        IrBuilder::create<Val>(-rope_size / 2, DataType::Index));
-    IrBuilder::create<Resize>(
-        tv9->getLogicalDomain()[0],
-        tv3_logical_id,
-        zero,
-        IrBuilder::create<Val>(rope_size / 2, DataType::Index));
-    tv9->setLoopDomain({loop_id});
-  }
-
-  // tv10
-  {
-    // Create a path from ref through the left-half path. The
-    // right-half path should work too.
-    auto loop_id = ref_loop->cloneWithoutRFactor();
-    auto tv2_logical_id = tv2->getLogicalDomain()[0]->cloneWithoutRFactor();
-    IrBuilder::create<Resize>(
-        tv2_logical_id,
-        loop_id,
-        zero,
-        IrBuilder::create<Val>(-(i0 - rope_size), DataType::Index));
-    auto tv3_logical_id = tv3->getLogicalDomain()[0]->cloneWithoutRFactor();
-    IrBuilder::create<Resize>(
-        tv3_logical_id,
-        tv2_logical_id,
-        zero,
-        IrBuilder::create<Val>(-rope_size / 2, DataType::Index));
-    IrBuilder::create<Resize>(
-        tv10->getRootDomain()[0],
-        tv3_logical_id,
-        zero,
-        IrBuilder::create<Val>(rope_size / 2, DataType::Index));
-    tv10->setLoopDomain({loop_id});
-  }
-
-  // tv11
-  tv11->setLoopDomain(tv11->getRootDomain());
-
-  // tv12
-  {
-    auto loop_id = ref_loop->cloneWithoutRFactor();
-    IrBuilder::create<Resize>(
-        tv12->getRootDomain().at(0),
-        loop_id,
-        IrBuilder::create<Val>(-rope_size, DataType::Index),
-        zero);
-    tv12->setLoopDomain({loop_id});
-  }
-
-  // tv13
-  {
-    auto loop_id = ref_loop->cloneWithoutRFactor();
-    auto tv12_id = tv11->getLogicalDomain().at(0)->cloneWithoutRFactor();
-    IrBuilder::create<Resize>(
-        tv12_id,
-        loop_id,
-        IrBuilder::create<Val>(-rope_size, DataType::Index),
-        zero);
-    IrBuilder::create<Resize>(
-        tv13->getLogicalDomain().at(0),
-        tv12_id,
-        IrBuilder::create<Val>(rope_size, DataType::Index),
-        zero);
-    tv13->setLoopDomain({loop_id});
-  }
+  std::vector<IterDomain*> ref_loop = tv0->getLogicalDomain();
+  scheduler_tools::scheduleLoopDomainsLike(fusion.allTvs(), ref_loop);
 
   for (auto tv : fusion.allTvs()) {
     if (tv->isFusionInput()) {
       continue;
     }
-
     tv->split(0, 4);
     tv->split(0, 16);
+  }
+
+  inlineMost();
+
+  for (auto tv : fusion.allTvs()) {
+    if (tv->isFusionInput()) {
+      continue;
+    }
+    EXPECT_EQ(tv->getComputeAtPosition(), 3)
+        << "Invalid computeAt position: " << tv->toString();
     tv->axis(0)->parallelize(ParallelType::BIDx);
     tv->axis(1)->parallelize(ParallelType::TIDx);
   }
@@ -4246,9 +4027,6 @@ TEST_F(ResizeTest, SliceSliceConcatConcat) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({i0}, options);
   std::vector<c10::IValue> aten_inputs({t0});
-
-  EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);

@@ -9,8 +9,8 @@
 #include <exceptions.h>
 #include <visibility.h>
 
-#include <kernel_cache.h>
 #include <python_frontend/fusion_record.h>
+#include <runtime/fusion_executor_cache.h>
 #include <scheduler/registry.h>
 
 #include <memory>
@@ -26,14 +26,22 @@ struct UserSchedule {
 
   //! Runtime information for schedulers
   std::unique_ptr<SchedulerRuntimeInfo> runtime_info;
+
   //! The scheduler heuristic for this UserSchedule
-  std::unique_ptr<SchedulerEntry> heuristic_scheduler;
+  std::unique_ptr<SchedulerEntry> scheduler;
+
+  //! The parameters for scheduler heuristic.
+  std::unique_ptr<HeuristicParams> heuristic_params;
+
   //! Concretized, Scheduled Fusion IR
-  std::unique_ptr<Fusion> schedule;
+  std::unique_ptr<Fusion> scheduled_fusion;
+
   //! Generated kernel container
   std::unique_ptr<FusionExecutor> executor;
+
   //! ID of fusion in python frontend fusion cache
   int64_t fusion_id_ = -1;
+
   //! device ID for this user schedule
   int64_t device_id_ = -1;
 
@@ -48,20 +56,27 @@ struct UserSchedule {
   //! Get Fusion for UserSchedule
   Fusion* fusion() {
     NVF_ERROR(
-        schedule != nullptr, "Requires Fusion to use heuristic schedulers");
-    return schedule.get();
+        scheduled_fusion != nullptr,
+        "Requires Fusion to use heuristic schedulers");
+    return scheduled_fusion.get();
   }
 
   //! Return if we can schedule FusionDefinition with heuristic.
-  bool canSchedule(const ScheduleHeuristic& heuristic);
+  bool canSchedule(const SchedulerType& heuristic);
 
   //! Return if we can schedule FusionDefinition with heuristic along with any
   //! debug messages from canScheduleRejectReason.
   std::tuple<bool, std::string> canScheduleDebug(
-      const ScheduleHeuristic& heuristic);
+      const SchedulerType& scheduler_type);
 
-  //! Schedule fusion with heuristic
-  void scheduleWithHeuristic(const ScheduleHeuristic& heuristic);
+  //! Create scheduler and get heuristic parameters for fusion.
+  HeuristicParams* computeHeuristics(SchedulerType scheduler_type);
+
+  //! Schedule fusion with selected heuristics and scheduler.
+  void schedule();
+
+  //! Schedule fusion with heuristic.
+  void scheduleWithType(SchedulerType scheduler_type);
 };
 
 //! \struct FusionSchedules
@@ -223,7 +238,8 @@ class FusionCache {
   UserSchedule* createUserSchedule(
       FusionSchedules* scheds,
       const at::ArrayRef<c10::IValue>& inputs,
-      int device);
+      int device,
+      bool overwrite_existing_schedule = false);
   //! Get the root Trie ptr
   NVF_API TrieNode* rootTriePtr();
 

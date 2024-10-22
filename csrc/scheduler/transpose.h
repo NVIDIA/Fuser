@@ -84,60 +84,31 @@ namespace nvfuser {
 //   FusionManualScheduleTransposeComplexDAG1_CUDA
 
 class SchedulerRuntimeInfo;
-class HeuristicSummary;
-
-std::shared_ptr<TransposeParams> getTransposeHeuristics(
-    Fusion* fusion,
-    const at::ArrayRef<c10::IValue>& runtime_inputs,
-    HeuristicSummary* data_cache = nullptr);
-
-std::shared_ptr<TransposeParams> getTransposeHeuristics(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache = nullptr);
-
-NVF_API void scheduleTranspose(Fusion* fusion, TransposeParams params);
-
-NVF_API LaunchParams scheduleTranspose(
-    Fusion* fusion,
-    const at::ArrayRef<c10::IValue>& runtime_inputs);
+class HeuristicDataCache;
 
 //! Utility for canSchedule interface to check if this fusion has at least two
 //! groups, each with a fully broadcasted reference tensor.
 NVF_API bool hasAtLeastTwoValidGroups(Fusion* fusion);
 
-// If can schedule at runtime, returns empty string, otherwise returns the
-// reason why we should not schedule at runtime.
-std::string getTransposeRuntimeRejectReason(
-    Fusion* fusion,
-    HeuristicSummary* data_cache,
-    SchedulerRuntimeInfo& runtime_info);
-
 class TransposeScheduler : public SchedulerEntry {
  public:
-  explicit TransposeScheduler(
+  bool canScheduleCompileTime(Fusion* fusion) override;
+
+  bool canScheduleRunTime(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
+      HeuristicDataCache* data_cache = nullptr) override;
 
-  static bool canScheduleCompileTime(Fusion* fusion);
-
-  static bool canScheduleRunTime(
+  std::unique_ptr<HeuristicParams> computeHeuristics(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
+      HeuristicDataCache* data_cache) override;
 
-  constexpr static ScheduleHeuristic heuristicType() {
-    return ScheduleHeuristic::Transpose;
+  void schedule(Fusion* fusion, const HeuristicParams* params) override;
+
+  constexpr static SchedulerType schedulerType() {
+    return SchedulerType::Transpose;
   }
-
-  void schedule(Fusion* fusion) override;
-
- private:
-  void computeHeuristics(
-      Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
 };
 
 } // namespace nvfuser

@@ -13,8 +13,8 @@
 #include <vector>
 
 #include <fusion.h>
-#include <kernel_cache.h>
-#include <scheduler/heuristic_types.h>
+#include <runtime/fusion_executor_cache.h>
+#include <scheduler/scheduler_types.h>
 #include <validator_utils.h>
 
 namespace nvfuser {
@@ -57,13 +57,13 @@ void testValidate(
 
 // A gmock matcher for matching heuristics.
 MATCHER_P(HeuristicIs, heuristic, "") {
-  return arg->heuristic() == heuristic;
+  return arg->schedulerType() == heuristic;
 }
 
 // Validate that the fusion is segmented with desired scheduler, currently only
 // supporting two segments
 void validateSegmentation(
     FusionKernelRuntime* runtime,
-    const std::vector<ScheduleHeuristic>& expected_heuristics);
+    const std::vector<SchedulerType>& expected_heuristics);
 
 } // namespace nvfuser

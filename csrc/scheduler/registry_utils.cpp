@@ -5,9 +5,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <fusion_executor/executor_kernel_arg.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
+#include <runtime/executor_kernel_arg.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/registry_utils.h>
 #include <scheduler/utils.h>
@@ -87,10 +87,10 @@ std::deque<std::deque<TensorView*>> tvChains(
 
 bool rejectScheduleFusionInputRequirement(
     Expr* expr,
-    ScheduleHeuristic schedule_stragety) {
+    SchedulerType scheduler_type) {
   if (!expr->input(0)->isFusionInput()) {
     scheduler_debug_utils::canScheduleRejectReason(
-        schedule_stragety,
+        scheduler_type,
         "First input of ",
         expr->getOpString(),
         " must be fusion input.");
@@ -166,11 +166,11 @@ PrimDataType getTensorIndexType(TensorView* tv, ExpressionEvaluator& ee) {
 // TODO: remove this requirement entirely
 bool rejectScheduleForMemoryPromotion(
     Fusion* fusion,
-    ScheduleHeuristic schedule_strategy) {
+    SchedulerType scheduler_type) {
   for (auto expr : fusion->exprs()) {
     if (expr->isOneOf<SelectOp, IndexSelectOp, TorchGatherOp>()) {
       // For now, only relax the input requirement when it's
-      // take_along_axis. Also since this would require memory
+      // takeAlongAxis. Also since this would require memory
       // promotion, i.e., persistent global sync in the case of
       // block-parallel ops, it needs to be explictly enabled.
       if (expr->isA<TorchGatherOp>() &&
@@ -178,7 +178,7 @@ bool rejectScheduleForMemoryPromotion(
           isOptionEnabled(EnableOption::MemoryPromotion)) {
         continue;
       }
-      if (rejectScheduleFusionInputRequirement(expr, schedule_strategy)) {
+      if (rejectScheduleFusionInputRequirement(expr, scheduler_type)) {
         return true;
       }
     }
@@ -192,7 +192,7 @@ bool rejectScheduleForMemoryPromotion(
               return output->isA<TensorView>() &&
                   ir_utils::hasResizedRfactor(output->as<TensorView>());
             })) {
-      if (rejectScheduleFusionInputRequirement(expr, schedule_strategy)) {
+      if (rejectScheduleFusionInputRequirement(expr, scheduler_type)) {
         return true;
       }
     }

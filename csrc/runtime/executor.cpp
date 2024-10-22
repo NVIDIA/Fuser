@@ -6,15 +6,12 @@
  */
 // clang-format on
 
-#include <fusion_executor/executor.h>
+#include <runtime/executor.h>
 
 #include <codegen.h>
 #include <debug.h>
 #include <device_lower/analysis/bank_conflict.h>
 #include <driver_api.h>
-#include <fusion_executor/allocations.h>
-#include <fusion_executor/executor_kernel_arg.h>
-#include <fusion_executor/executor_utils.h>
 #include <fusion_profiler.h>
 #include <global_allocator.h>
 #include <instrumentation.h>
@@ -28,6 +25,9 @@
 #include <multidevice/utils.h>
 #include <options.h>
 #include <polymorphic_value.h>
+#include <runtime/allocations.h>
+#include <runtime/executor_kernel_arg.h>
+#include <runtime/executor_utils.h>
 #include <serde/utils.h>
 #include <tensor_metadata.h>
 #include <utils.h>
@@ -190,7 +190,7 @@ void FusionExecutor::compileFusion(
     const KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
     CompileParams compile_params,
-    ScheduleHeuristic heuristic,
+    SchedulerType scheduler_type,
     int64_t fusion_id,
     int64_t concrete_id,
     int64_t runtime_id,
@@ -335,7 +335,7 @@ void FusionExecutor::compileFusion(
   for (const auto& hook : post_lowering_hooks_) {
     hook(kernel);
   }
-  createKernelId(heuristic, fusion_id, concrete_id, runtime_id, group_id);
+  createKernelId(scheduler_type, fusion_id, concrete_id, runtime_id, group_id);
   setUsedTVs();
 
   if (isDebugDumpEnabled(DebugDumpOption::KernelIr)) {
@@ -999,10 +999,7 @@ void FusionExecutor::recomputeArgs(
 void FusionExecutor::recompileKernel(
     const LaunchParams& new_launch_params,
     const CompileParams& new_compile_params) {
-  if (new_launch_params.nThreads() <= block_size_high_water_mark_ &&
-      new_compile_params.maxrregcount == maxrregcount_high_water_mark_) {
-    return;
-  }
+  FUSER_PERF_SCOPE("FusionExecutor::runFusion::recompileKernel");
 
   const auto structured_code = getStructuredCode();
   block_size_high_water_mark_ = new_launch_params.nThreads();
@@ -1154,7 +1151,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
         group_id_);
     SegmentProfiler& sprof = FusionProfiler::segment(group_id_);
     sprof.inputBytesAccessed(inputBytesProcessed(args));
-    sprof.scheduler(toString(heuristic_));
+    sprof.scheduler(toString(scheduler_type_));
     sprof.startKernel(args.getDeviceIndex());
   }
 
@@ -1168,6 +1165,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   auto expr_eval = executor_utils::bindInputs(args, fusion());
 
   if (isExpressionEvaluated(fusion())) {
+    FUSER_PERF_SCOPE("FusionExecutor::runFusion::evaluate_with_ExprEval");
     outputs = evaluateFusionOutputs(outputs, expr_eval);
     if (isProfilerEnabled()) {
       auto& sprof = FusionProfiler::segment(group_id_);
@@ -1178,6 +1176,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   }
 
   if (host_ir_container_ != nullptr) {
+    FUSER_PERF_SCOPE("FusionExecutor::runFusion::host_ir_evaluate");
     if (outputs.empty()) {
       std::vector<GlobalBufferInfo> output_info = getBufferInfos(
           expr_eval, PrimDataType::Int, host_ir_container_->outputs());
@@ -1243,7 +1242,11 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
         kernel()->indexType());
   }
 
-  recompileKernel(executor_entry->launch_params, compile_params);
+  if (!(executor_entry->launch_params.nThreads() <=
+            block_size_high_water_mark_ &&
+        compile_params.maxrregcount == maxrregcount_high_water_mark_)) {
+    recompileKernel(executor_entry->launch_params, compile_params);
+  }
 
   // TODO: Why does this need to be stored in the class?
   launch_params_ = executor_entry->launch_params;
@@ -1273,6 +1276,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   std::vector<at::Tensor> intermediates;
   at::Tensor profile_buffer;
   {
+    FUSER_PERF_SCOPE("FusionExecutor::runFusion::intermediates");
     for (const auto i : c10::irange(executor_entry->intermediates.size())) {
       const auto& buf_info = executor_entry->intermediates.at(i);
       bool has_expansion = false;
@@ -1352,6 +1356,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   executor_utils::CudaKernelTimer timer(stream);
 
   if (execute_kernel_ && !kernel()->topLevelExprs().empty()) {
+    FUSER_PERF_SCOPE("FusionExecutor::runFusion::execute_kernel");
     ensureAvailableDynamicSmemSize(executor_entry->launch_params.smem());
 
     recomputeArgs(*executor_entry, expr_eval, kernel());
@@ -1568,7 +1573,7 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
       block_size_high_water_mark_,
       maxrregcount_high_water_mark_,
       warp_size_,
-      toUnderlying(heuristic_),
+      toUnderlying(scheduler_type_),
       fusion_id_,
       concrete_id_,
       runtime_id_,
@@ -1701,7 +1706,7 @@ void FusionExecutor::deserialize(
     Fusion* fusion,
     int8_t device_index,
     CompileParams compile_params,
-    ScheduleHeuristic heuristic,
+    SchedulerType heuristic,
     int64_t fusion_id,
     int64_t concrete_id,
     int64_t runtime_id,

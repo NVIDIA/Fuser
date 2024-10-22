@@ -9,14 +9,14 @@
 #include <dynamic_transform.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
-#include <fusion_executor/executor_kernel_arg.h>
-#include <fusion_executor/executor_utils.h>
 #include <ir/cloner.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
 #include <ops/alias.h>
 #include <ops/arith.h>
 #include <ops/utils.h>
+#include <runtime/executor_kernel_arg.h>
+#include <runtime/executor_utils.h>
 #include <transform_iter.h>
 #include <transform_view.h>
 #include <utils.h>

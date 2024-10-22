@@ -9,6 +9,8 @@
 #include <dynamic_transform.h>
 #include <host_ir/executor.h>
 #include <ir/utils.h>
+#include <runtime/executor_kernel_arg.h>
+#include <runtime/fusion_kernel_runtime.h>
 
 namespace nvfuser {
 
@@ -64,7 +66,7 @@ std::vector<at::Tensor> HostIrExecutor::runWithInput(
     std::unordered_map<Val*, c10::IValue> val_to_IValue) {
   // process input values
   for (const auto& [val, ivalue] : val_to_IValue) {
-    expr_evaluator_.bind(val, ivalue.toTensor());
+    expr_evaluator_.bind(val, IValueToPolymorphicValue(ivalue));
   }
 
   // Interpret each instruction in an "eager" way by iterate over the Host Ir
@@ -77,8 +79,7 @@ std::vector<at::Tensor> HostIrExecutor::runWithInput(
   return getKnownTensorOrUndefined(container_->outputs(), expr_evaluator_);
 }
 
-void HostIrExecutor::handle(SetCurrentStream* set_current_stream) {
-  Stream* stream = set_current_stream->stream();
+c10::cuda::CUDAStream HostIrExecutor::getCUDAStream(Stream* stream) {
   StreamKey stream_key = stream;
   // if stream points to an index, it represents the dynamic value of that index
   if (Val* index = stream->index(); index != nullptr) {
@@ -95,7 +96,15 @@ void HostIrExecutor::handle(SetCurrentStream* set_current_stream) {
          c10::cuda::getStreamFromPool(
              /*isHighPriority=*/false, static_cast<c10::DeviceIndex>(i))});
   }
-  setCurrentCUDAStream(streams_.at(stream_key));
+  return streams_.at(stream_key);
+}
+
+void HostIrExecutor::handle(SetCurrentStream* set_current_stream) {
+  setCurrentCUDAStream(getCUDAStream(set_current_stream->stream()));
+}
+
+void HostIrExecutor::handle(Synchronize* synchronize) {
+  getCUDAStream(synchronize->stream()).synchronize();
 }
 
 void HostIrExecutor::handle(PostOnStream* post_ir) {
@@ -183,8 +192,24 @@ void HostIrExecutor::handle(Communication* communication) {
       output_tensor);
 }
 
+void HostIrExecutor::handle(P2PCommunication* communication) {
+  NVF_ERROR(
+      communicator_ != nullptr && communicator_->is_available(),
+      "A valid communicator must be provided");
+
+  at::Tensor buffer =
+      getKnownTensorOrUndefined(communication->buffer(), expr_evaluator_);
+
+  works_[communication] = postSingleCommunication(
+      communication,
+      communicator_->deviceId(),
+      expr_evaluator_.evaluate(communication->peer()).as<int64_t>(),
+      communicator_->getWorld(),
+      buffer);
+}
+
 void HostIrExecutor::handle(Wait* wait) {
-  Communication* communication = wait->communication();
+  Expr* communication = wait->communication();
   NVF_ERROR(works_.find(communication) != works_.end(), "no wait req");
   auto& work = works_.at(communication);
   if (work != nullptr) {
@@ -241,14 +266,57 @@ void HostIrExecutor::handle(ForLoop* for_loop) {
   }
 }
 
-namespace {
+void HostIrExecutor::handle(StartCoalescing* start_coalescing) {
+  auto backend = communicator_->getWorld();
+  NVF_ERROR(
+      backend->getBackendName() == "nccl",
+      "ProcessGroupUCC does not implement coalescence");
+  backend->startCoalescing();
+}
 
-void handleWithExpressionEvaluator(
-    Expr* expr,
-    ExpressionEvaluator& expr_evaluator) {
+void HostIrExecutor::handle(EndCoalescing* end_coalescing) {
+  auto backend = communicator_->getWorld();
+  NVF_ERROR(
+      backend->getBackendName() == "nccl",
+      "ProcessGroupUCC does not implement coalescence");
+  works_[end_coalescing] = backend->endCoalescing();
+}
+
+void HostIrExecutor::handle(kir::IfThenElse* if_then_else) {
+  auto predicate =
+      expr_evaluator_.evaluate(if_then_else->predicate()->value()).as<bool>();
+  const auto& scope =
+      predicate ? if_then_else->thenBody() : if_then_else->elseBody();
+  for (Expr* expr : scope.exprs()) {
+    dispatch(expr);
+  }
+}
+
+void HostIrExecutor::handle(MatmulOp* matmul) {
+  TensorView* a = matmul->inA();
+  TensorView* b = matmul->inB();
+  TensorView* out = matmul->out();
+  NVF_ERROR(
+      expr_evaluator_.isKnown(a) && expr_evaluator_.isKnown(b),
+      "Inputs of the matmul ",
+      matmul->toString(),
+      "must be precomputed before being retrieved");
+  if (expr_evaluator_.isKnown(out)) {
+    auto t_a = expr_evaluator_.evaluate(a).as<at::Tensor>();
+    auto t_b = expr_evaluator_.evaluate(b).as<at::Tensor>();
+    auto t_out = expr_evaluator_.evaluate(out).as<at::Tensor>();
+    at::matmul_out(t_out, t_a, t_b);
+  } else {
+    unhandled(matmul);
+  }
+}
+
+void HostIrExecutor::unhandled(Statement* stmt) {
+  NVF_ERROR(stmt->isA<Expr>(), stmt, " must be an Expr");
+  auto* expr = stmt->as<Expr>();
   for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
     NVF_ERROR(
-        expr_evaluator.isKnown(input),
+        expr_evaluator_.isKnown(input),
         "input ",
         input->toString(),
         " of the expression ",
@@ -256,23 +324,9 @@ void handleWithExpressionEvaluator(
         "must be precomputed before being retrieved");
   }
   for (auto output : expr->outputs()) {
-    expr_evaluator.bind(
-        output, expr_evaluator.evaluate(output), /*evaluate_validate=*/true);
+    expr_evaluator_.bind(
+        output, expr_evaluator_.evaluate(output), /*evaluate_validate=*/true);
   }
-}
-
-} // namespace
-
-void HostIrExecutor::handle(SliceOp* slice_op) {
-  return handleWithExpressionEvaluator(slice_op, expr_evaluator_);
-}
-
-void HostIrExecutor::handle(MatmulOp* matmul_op) {
-  return handleWithExpressionEvaluator(matmul_op, expr_evaluator_);
-}
-
-void HostIrExecutor::handle(SelectOp* select_op) {
-  return handleWithExpressionEvaluator(select_op, expr_evaluator_);
 }
 
 } // namespace hir

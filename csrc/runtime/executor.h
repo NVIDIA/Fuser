@@ -10,15 +10,15 @@
 #include <exceptions.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
-#include <fusion_executor/allocations.h>
-#include <fusion_executor/executor_params.h>
-#include <fusion_executor/executor_utils.h>
 #include <host_ir/container.h>
 #include <ir/all_nodes.h>
 #include <ir/cloner.h>
 #include <ir/printer.h>
 #include <multidevice/communicator.h>
-#include <scheduler/heuristic_types.h>
+#include <runtime/allocations.h>
+#include <runtime/executor_params.h>
+#include <runtime/executor_utils.h>
+#include <scheduler/scheduler_types.h>
 #include <serde/fusion_cache_generated.h>
 #include <utils.h>
 #include <atomic>
@@ -47,7 +47,7 @@ class FusionExecutor : public NonCopyable {
       const KernelArgumentHolder& args,
       const LaunchParams& launch_constraints,
       CompileParams compile_params,
-      ScheduleHeuristic heuristic = ScheduleHeuristic::None,
+      SchedulerType sceduler_type = SchedulerType::None,
       int64_t fusion_id = 0,
       int64_t concrete_id = 0,
       int64_t runtime_id = 0,
@@ -79,7 +79,7 @@ class FusionExecutor : public NonCopyable {
         args,
         LaunchParams(),
         CompileParams(),
-        ScheduleHeuristic::None,
+        SchedulerType::None,
         fusion_id,
         concrete_id);
   }
@@ -294,7 +294,7 @@ class FusionExecutor : public NonCopyable {
   }
 
   void createKernelId(
-      ScheduleHeuristic heuristic = ScheduleHeuristic::None,
+      SchedulerType scheduler_type = SchedulerType::None,
       int64_t fusion_id = 0,
       int64_t concrete_id = 0,
       int64_t runtime_id = 0,
@@ -304,7 +304,7 @@ class FusionExecutor : public NonCopyable {
     NVF_ERROR(runtime_id > -1, "Invalid runtime_id.");
     NVF_ERROR(group_id > -1, "Invalid group_id");
 
-    heuristic_ = heuristic;
+    scheduler_type_ = scheduler_type;
     fusion_id_ = fusion_id;
     concrete_id_ = concrete_id;
     runtime_id_ = runtime_id;
@@ -315,7 +315,7 @@ class FusionExecutor : public NonCopyable {
     if (isOptionEnabled(EnableOption::StaticFusionCount)) {
       ss << global_fusion_count_.load();
     } else {
-      ss << toString(heuristic_);
+      ss << toString(scheduler_type_);
       ss << "_f" << fusion_id_;
       ss << "_c" << concrete_id_;
       ss << "_r" << runtime_id_;
@@ -364,7 +364,7 @@ class FusionExecutor : public NonCopyable {
       Fusion* fusion,
       int8_t device_index,
       CompileParams compile_params,
-      ScheduleHeuristic heuristic,
+      SchedulerType scheduler_type,
       int64_t fusion_id,
       int64_t concrete_id,
       int64_t runtime_id,
@@ -510,7 +510,7 @@ class FusionExecutor : public NonCopyable {
   inline static std::atomic<int64_t> global_fusion_count_;
 
   // Scheduling Heuristic for this Fusion
-  ScheduleHeuristic heuristic_ = ScheduleHeuristic::None;
+  SchedulerType scheduler_type_ = SchedulerType::None;
 
   // Kernel name for fusion executor
   std::string kernel_id_;

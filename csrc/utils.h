@@ -336,6 +336,15 @@ std::string toDelimitedString(
 
 template <typename Printable>
 std::string toDelimitedString(
+    std::initializer_list<Printable> list,
+    std::string delim = ", ") {
+  // toDelimitedString(list.begin(), list.end(), delim) doesn't work out of the
+  // box, because list.begin() returns a Printable* not an iterator.
+  return toDelimitedString(std::vector<Printable>(list), delim);
+}
+
+template <typename Printable>
+std::string toDelimitedString(
     const std::deque<Printable>& dq,
     std::string delim = ", ") {
   return toDelimitedString(dq.begin(), dq.end(), delim);
@@ -443,8 +452,6 @@ class DebugPrintScope {
   int64_t line_ = -1;
 };
 
-#ifndef NDEBUG
-
 // Debug printing the entering and leaving of a function. The given arguments
 // will be printed when entering the function.
 //
@@ -480,15 +487,6 @@ class DebugPrintScope {
     _debug_print_scope->setReturn(ret, __FILE__, __LINE__); \
   }                                                         \
   return ret
-
-#else
-
-#define DEBUG_PRINT_SCOPE_NAME(name, ...)
-#define DEBUG_PRINT_SCOPE(...)
-#define DEBUG_LOG(...)
-#define RECORD_AND_RETURN(ret) return ret
-
-#endif
 
 // Computes the index type required.
 // Made into a class w/ state to allow reuse with
@@ -590,5 +588,9 @@ T pow(T a, T b) {
     return result;
   }
 }
+
+template <typename T>
+using MaybeUniqueOwningPtr = dynamic_type::
+    DynamicType<dynamic_type::NoContainers, T*, std::unique_ptr<T>>;
 
 } // namespace nvfuser

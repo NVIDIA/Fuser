@@ -17,7 +17,7 @@ from torch.testing._internal.common_utils import TestCase
 # flake8 complains about DataType being unused in this file but it is necessary
 # to run captured fusion definition.
 # flake8: noqa
-from nvfuser import FusionCache, FusionDefinition, DataType
+from nvfuser import FusionCache, FusionDefinition, DataType, clone
 
 try:
     # flake8: noqa
@@ -240,6 +240,40 @@ def check_captured_python_definition(reference_outputs, fd, inputs, device=None)
         raise err
 
 
+# Run original FusionDefinition
+# Clone FusionDefinition
+# Run cloned python definition
+# Check that the result of cloned python definition matches original results
+def check_cpp_translation(reference_outputs, fd, inputs, device=None):
+    try:
+        torch.manual_seed(0)
+        cloned_fd = FusionDefinition()
+        clone(fd, cloned_fd)
+        print(fd)
+        print(cloned_fd)
+        cloned_outputs = cloned_fd.execute(inputs, device=device)
+
+        # Make sure the results of original and cloned definitions match.
+        # torch.allclose does not work with fp8 datatype, so cast to fp64.
+        return all(
+            [
+                torch.allclose(
+                    ref_out.to(torch.float64),
+                    cloned_outputs[idx].to(torch.float64),
+                    equal_nan=True,
+                )
+                for idx, ref_out in enumerate(reference_outputs)
+            ]
+        )
+    except Exception as err:
+        print("\nException For CPP Translation:")
+        print(
+            "(A failure here suggests a mismatch in functionality between the original and cloned definitions.)"
+        )
+        print(fd.getReproErrorString("executing", inputs))
+        raise err
+
+
 # This DEBUG_SERDE environment flag is used to debug serialization failures.
 #
 # 1) It disables automatically saving FusionCache upon program exit. Therefore,
@@ -366,13 +400,21 @@ class NVFuserTest(TestCase):
     # original definition
     @nvfusertest_serde_check
     def exec_nvfuser(
-        self, fusion_func, inputs, *, new_fusion_expected=True, device=None
+        self,
+        fusion_func,
+        inputs,
+        *,
+        new_fusion_expected=True,
+        device=None,
+        is_clonable=False,
     ):
         fc = FusionCache.get()
         before_fusions = fc.num_fusions()
         # Copy inputs because aliased outputs can modify inputs when running
         # FusionDefinition
-        inputs_cap = deepcopy(inputs)
+        inputs_captured = deepcopy(inputs)
+        if is_clonable:
+            inputs_cloned = deepcopy(inputs)
 
         # Execute a fusion function and capture the string python definition
         with FusionDefinition() as fd:
@@ -380,7 +422,12 @@ class NVFuserTest(TestCase):
         torch.manual_seed(0)
         out = fd.execute(inputs, device=device)
 
-        self.assertTrue(check_captured_python_definition(out, fd, inputs_cap, device))
+        self.assertTrue(
+            check_captured_python_definition(out, fd, inputs_captured, device)
+        )
 
         self.assertEqual(fc.num_fusions() - before_fusions, int(new_fusion_expected))
+
+        if is_clonable:
+            self.assertTrue(check_cpp_translation(out, fd, inputs_cloned))
         return out, fd

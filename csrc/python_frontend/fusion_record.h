@@ -6,6 +6,7 @@
  */
 // clang-format on
 #pragma once
+
 #include <c10/util/complex.h>
 #include <debug.h>
 #include <exceptions.h>
@@ -389,7 +390,7 @@ struct SliceOpRecord : RecordFunctor {
     const std::vector<Val*>& stride =
         fd.getFusionStateVector(args_.at(3).index);
     std::vector<Slice> vec_slice;
-    for (const auto idx : c10::irange(arg->nDims())) {
+    for (const auto idx : c10::irange(arg->domain()->noReductions().size())) {
       // NOTE: there's an extra move, we can use emplace_back if we go write
       // some constructors for Slice.
       Val* start_idx = start.at(idx);
@@ -441,114 +442,32 @@ struct ReshapeOpRecord : RecordFunctor {
 };
 
 struct PadOpRecord : RecordFunctor {
-  PadOpRecord(
-      std::vector<State> _args,
-      std::vector<State> _outputs,
-      std::vector<int64_t>&& pad_widths)
+  PadOpRecord(std::vector<State> _args, std::vector<State> _outputs)
       : RecordFunctor(
             std::move(_args),
             std::move(_outputs),
             "ops.pad",
-            serde::RecordType::PadOp),
-        pad_widths_(std::move(pad_widths)) {}
+            serde::RecordType::PadOp) {}
   ~PadOpRecord() override = default;
   RecordFunctor* clone() final {
     return new PadOpRecord(*this);
   }
 
-  //! Child specific hash function in lower 32 bits.
-  //! | 31 ------------------------------ 0 |
-  //! |          pad_widths                 |
-  size_t hash() const final {
-    auto result = RecordFunctor::hash();
-    size_t widths_hash = 0;
-    for (size_t i = 0; i < pad_widths_.size(); ++i) {
-      auto w = pad_widths_.at(i);
-      // Circular shift the lower 32 bits of w by 4 * i
-      // This reduces collisions by only directly xor-ing every 8th argument.
-      // Since many shifts will occupy less than 4 bits, we will have no
-      // collisions for most pads of up to 4 trailing dimensions.
-      size_t shift = (i * 4) % 32;
-      w = w << shift | w >> (32 - shift);
-      widths_hash ^= w << i;
-    }
-    return result | (widths_hash & 0xffffffff);
-  }
-
-  bool operator==(const RecordFunctor& other) const final {
-    if (auto child_ptr = dynamic_cast<const PadOpRecord*>(&other)) {
-      if (!RecordFunctor::operator==(other)) {
-        return false;
-      }
-      if (pad_widths_.size() != child_ptr->pad_widths_.size()) {
-        return false;
-      }
-      for (size_t i = 0; i < pad_widths_.size(); ++i) {
-        if (pad_widths_.at(i) != child_ptr->pad_widths_.at(i)) {
-          return false;
-        }
-      }
-      return true;
-    }
-    return false;
-  }
-
   void operator()(FusionState& fd) final {
     auto arg = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
-    std::vector<Val*> val_widths;
-    val_widths.reserve(pad_widths_.size());
-    for (auto p : pad_widths_) {
-      auto pval = IrBuilder::create<nvfuser::Val>(p);
-      val_widths.push_back(pval);
-    }
+    const std::vector<Val*>& val_widths =
+        fd.getFusionStateVector(args_.at(1).index);
 
     TensorView* output = nullptr;
-    if (args_.at(1).stype == serde::StateType::Scalar) {
-      output = pad(arg, val_widths, fd.getFusionState(args_.at(1).index));
+    if (args_.at(2).stype == serde::StateType::Scalar) {
+      output = pad(arg, val_widths, fd.getFusionState(args_.at(2).index));
     } else { // default: None
+      NVF_ERROR(args_.at(2).stype == serde::StateType::None);
       output = pad(arg, val_widths);
     }
 
     fd.setFusionState(outputs_.at(0).index, output);
   }
-
-  void print(std::ostream& os, bool close_function = true) const final {
-    // pad_widths is the second (required) argument, but the fill value is a
-    // Scalar, so it would be printed first by the default printer, so we
-    // implement our own print() here
-    os << outputs_.at(0);
-    os << " = "
-       << "fd." << name_ << "(";
-    os << args_.at(0); // unpadded tensor
-    os << ", [";
-    bool first_arg = true;
-    for (auto w : pad_widths_) {
-      if (first_arg) {
-        first_arg = false;
-      } else {
-        os << ", ";
-      }
-      os << w;
-    }
-    os << "]";
-    if (args_.at(1).stype == serde::StateType::Scalar) {
-      // fill value was given
-      os << ", " << args_.at(1);
-    }
-    os << ")";
-  }
-
-  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
-      flatbuffers::FlatBufferBuilder& builder) const final {
-    return {
-        serde::RecordData::Pad,
-        serde::CreatePadDirect(builder, &pad_widths_).Union()};
-  }
-
- private:
-  //! Pairs of non-negative integers indicating the amount to pad the front and
-  //! back of each dimension.
-  std::vector<int64_t> pad_widths_;
 };
 
 template <serde::RecordType op_type>
@@ -678,28 +597,31 @@ struct SqueezeOpRecord : RecordFunctor {
   SqueezeOpRecord(
       std::vector<State> _args,
       std::vector<State> _outputs,
-      std::vector<int64_t> dims)
+      std::vector<int64_t> dims,
+      bool squeeze_expanded = false)
       : RecordFunctor(
             std::move(_args),
             std::move(_outputs),
             "ops.squeeze",
             serde::RecordType::SqueezeOp),
-        dims_(std::move(dims)) {}
+        dims_(std::move(dims)),
+        squeeze_expanded_(squeeze_expanded) {}
   ~SqueezeOpRecord() override = default;
   RecordFunctor* clone() final {
     return new SqueezeOpRecord(*this);
   }
 
   //! Child specific hash function in lower 32 bits.
-  //! | 31 -------------------------------------  0 |
-  //! | Squeeze Dim hash                            |
+  //! | 31 | 30 --------------------------------  0 |
+  //! | squeeze_expanded? | Squeeze Dim hash        |
   size_t hash() const final {
     auto result = RecordFunctor::hash();
     size_t squeeze_dims_hash = 0;
     for (auto dim : dims_) {
       squeeze_dims_hash ^= static_cast<size_t>(dim);
     }
-    result = result | (squeeze_dims_hash & 0xffffffff);
+    result = result | (squeeze_dims_hash & 0x7fffffff);
+    result |= ((static_cast<size_t>(squeeze_expanded_) & 0x1) << 31);
     return result;
   }
 
@@ -713,7 +635,11 @@ struct SqueezeOpRecord : RecordFunctor {
 
   void operator()(FusionState& fd) final {
     auto arg = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
-    auto output = squeeze(arg, dims_);
+    // In pytorch, the squeeze operation cannot remove expanded dimensions.
+    // In nvfuser, for reduction operations, we apply squeeze to remove
+    // broadcast and expanded iterDomains. The squeeze_expanded_ flag bypasses
+    // assertion used to match pytorch's behavior.
+    auto output = squeeze(arg, dims_, squeeze_expanded_);
     fd.setFusionState(outputs_.at(0).index, output);
   }
 
@@ -729,7 +655,7 @@ struct SqueezeOpRecord : RecordFunctor {
       }
       os << dim;
     }
-    os << "]";
+    os << "], squeeze_expanded=" << (squeeze_expanded_ ? "True" : "False");
     if (close_function) {
       os << ")";
     }
@@ -739,12 +665,14 @@ struct SqueezeOpRecord : RecordFunctor {
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
         serde::RecordData::Squeeze,
-        serde::CreateSqueezeDirect(builder, &dims_).Union()};
+        serde::CreateSqueezeDirect(builder, &dims_, squeeze_expanded_).Union()};
   }
 
  private:
   //! Dimension to squeeze.
   std::vector<int64_t> dims_;
+  //! Option to remove expanded dimensions
+  bool squeeze_expanded_;
 };
 
 //! Specialized Record Functor for the FusionState's broadcast_in_dim op.
@@ -823,7 +751,9 @@ struct BroadcastInDimOpRecord : RecordFunctor {
         "The broadcast dimensions should match the input dimensions: ",
         arg_ndims,
         " vs ",
-        broadcast_dims_.size());
+        broadcast_dims_.size(),
+        ". arg = ",
+        arg->toString());
 
     std::vector<bool> is_broadcast_dim(output_ndims_, true);
     for (const auto idx : c10::irange(broadcast_dims_.size())) {
@@ -959,6 +889,61 @@ struct BroadcastOpRecord : RecordFunctor {
  private:
   //! Communicates which dimensions in the output are broadcasted.
   std::vector<bool> is_broadcast_dim_;
+};
+
+//! Specialized Record Functor for the FusionState's expand op.
+struct ExpandOpRecord : RecordFunctor {
+  ExpandOpRecord(std::vector<State> _args, std::vector<State> _outputs)
+      : RecordFunctor(
+            std::move(_args),
+            std::move(_outputs),
+            "ops.expand",
+            serde::RecordType::ExpandOp) {
+    arg_names_[1] = "shape";
+  }
+  ~ExpandOpRecord() override = default;
+  RecordFunctor* clone() final {
+    return new ExpandOpRecord(*this);
+  }
+
+  //! Child specific hash function in lower 32 bits.
+  //! | 31 ---------------------------------------  0 |
+  //! | None                                          |
+  size_t hash() const final {
+    return RecordFunctor::hash();
+  }
+
+  bool operator==(const RecordFunctor& other) const final {
+    auto result = false;
+    if (dynamic_cast<const ExpandOpRecord*>(&other)) {
+      result = RecordFunctor::operator==(other);
+    }
+    return result;
+  }
+
+  void operator()(FusionState& fd) final {
+    auto arg = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
+    const std::vector<Val*>& output_shape =
+        fd.getFusionStateVector(args_.at(1).index);
+
+    size_t arg_ndims = arg->domain()->noReductions().size();
+    NVF_CHECK(
+        output_shape.size() == arg_ndims,
+        "The new shape is expected to be equal to the input: ",
+        output_shape.size(),
+        " vs ",
+        arg_ndims);
+    auto expanded_output = expand(arg, output_shape);
+
+    fd.setFusionState(outputs_.at(0).index, expanded_output);
+  }
+
+  void print(std::ostream& os, bool close_function = true) const final {
+    RecordFunctor::print(os, false);
+    if (close_function) {
+      os << ")";
+    }
+  }
 };
 
 template <class OutType, class ArgType>
@@ -1731,7 +1716,61 @@ struct IndexSelectOpRecord : RecordFunctor {
     auto arg1 = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
     auto arg3 = fd.getFusionState(args_.at(1).index)->template as<TensorView>();
 
-    Val* output = index_select(arg1, dim_, arg3);
+    Val* output = indexSelect(arg1, dim_, arg3);
+    fd.setFusionState(outputs_.at(0).index, output);
+  }
+
+  void print(std::ostream& os, bool close_function = true) const final {
+    RecordFunctor::print(os, false);
+    os << ", dim=" << dim_;
+    if (close_function) {
+      os << ")";
+    }
+  }
+
+  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+      flatbuffers::FlatBufferBuilder& builder) const final {
+    return {
+        serde::RecordData::Dimension,
+        serde::CreateDimension(builder, dim_).Union()};
+  }
+
+ private:
+  //! Dimension to select.
+  int64_t dim_;
+};
+
+// TODO Merge IndexSelectOpRecord and SelectOpRecord for cleaner interface.
+// If the index TensorView is a scalar, then use select operation.
+struct SelectOpRecord : RecordFunctor {
+  SelectOpRecord(
+      std::vector<State> _args,
+      std::vector<State> _outputs,
+      int64_t dim)
+      : RecordFunctor(
+            std::move(_args),
+            std::move(_outputs),
+            "ops.select",
+            serde::RecordType::SelectOp),
+        dim_(dim) {}
+  ~SelectOpRecord() override = default;
+  RecordFunctor* clone() final {
+    return new SelectOpRecord(*this);
+  }
+
+  bool operator==(const RecordFunctor& other) const final {
+    auto result = false;
+    if (auto child_ptr = dynamic_cast<const SelectOpRecord*>(&other)) {
+      result = RecordFunctor::operator==(other) && dim_ == child_ptr->dim_;
+    }
+    return result;
+  }
+
+  void operator()(FusionState& fd) final {
+    auto arg1 = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
+    auto arg3 = fd.getFusionState(args_.at(1).index)->template as<TensorView>();
+
+    Val* output = select(arg1, dim_, arg3);
     fd.setFusionState(outputs_.at(0).index, output);
   }
 
@@ -1775,7 +1814,7 @@ struct TorchGatherOpRecord : RecordFunctor {
     auto arg1 = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
     auto arg3 = fd.getFusionState(args_.at(1).index)->template as<TensorView>();
 
-    Val* output = torch_gather(arg1, dim_, arg3);
+    Val* output = torchGather(arg1, dim_, arg3);
     fd.setFusionState(outputs_.at(0).index, output);
   }
 
@@ -1829,7 +1868,7 @@ struct TakeAlongAxisOpRecord : RecordFunctor {
     auto arg1 = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
     auto arg3 = fd.getFusionState(args_.at(1).index)->template as<TensorView>();
 
-    Val* output = take_along_axis(arg1, arg3, dim_);
+    Val* output = takeAlongAxis(arg1, arg3, dim_);
     fd.setFusionState(outputs_.at(0).index, output);
   }
 
@@ -2200,6 +2239,88 @@ struct VarianceMeanOpRecord : NormOpRecord {
   }
 };
 
+struct WelfordOpRecord : RecordFunctor {
+  WelfordOpRecord(
+      std::vector<State> _args,
+      std::vector<State> _outputs,
+      std::vector<int64_t> axes)
+      : RecordFunctor(
+            std::move(_args),
+            std::move(_outputs),
+            "ops.welford",
+            serde::RecordType::WelfordOp),
+        axes_(std::move(axes)) {}
+  ~WelfordOpRecord() override = default;
+  RecordFunctor* clone() final {
+    return new WelfordOpRecord(*this);
+  }
+
+  size_t hash() const final {
+    auto result = RecordFunctor::hash();
+    size_t axes_hash = 0;
+    for (auto axis : axes_) {
+      hashCombine(axes_hash, static_cast<size_t>(axis));
+    }
+    return result | (axes_hash & 0xffff);
+  }
+
+  bool operator==(const RecordFunctor& other) const final {
+    auto result = false;
+    if (auto child_ptr = dynamic_cast<const WelfordOpRecord*>(&other)) {
+      result = RecordFunctor::operator==(other);
+      if (result) {
+        result = (axes_.size() == child_ptr->axes_.size());
+        if (result) {
+          for (size_t i = 0; i < axes_.size(); ++i) {
+            if (axes_[i] != child_ptr->axes_[i]) {
+              result = false;
+              break;
+            }
+          }
+        }
+      }
+    }
+    return result;
+  }
+
+  void operator()(FusionState& fd) final {
+    auto arg = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
+    auto output = WelfordRaw(arg, axes_);
+    fd.setFusionState(outputs_.at(0).index, output.avg);
+    fd.setFusionState(outputs_.at(1).index, output.var_sum);
+    fd.setFusionState(outputs_.at(2).index, output.n);
+  }
+
+  void print(std::ostream& os, bool close_function = true) const final {
+    RecordFunctor::print(os, false);
+    os << ", dims=[";
+    bool first_arg = true;
+    for (auto axis : axes_) {
+      if (first_arg) {
+        first_arg = false;
+      } else {
+        os << ", ";
+      }
+      os << axis;
+    }
+    os << "]";
+    if (close_function) {
+      os << ")";
+    }
+  }
+
+  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+      flatbuffers::FlatBufferBuilder& builder) const final {
+    return {
+        serde::RecordData::Welford,
+        serde::CreateWelfordDirect(builder, &axes_).Union()};
+  }
+
+ private:
+  //! The tensor dimensions to reduce
+  std::vector<int64_t> axes_;
+};
+
 struct BatchNormOpRecord : RecordFunctor {
   BatchNormOpRecord(
       std::vector<State> args,
@@ -2313,7 +2434,7 @@ struct TensorSizesRecord : RecordFunctor {
 
   void operator()(FusionState& fd) final {
     auto arg = fd.getFusionState(args_.at(0).index)->as<TensorView>();
-    auto sizes = tensor_sizes(arg);
+    auto sizes = shape(arg);
     for (const auto idx : c10::irange(sizes.size())) {
       fd.setFusionState(outputs_.at(idx).index, sizes[idx]);
     }

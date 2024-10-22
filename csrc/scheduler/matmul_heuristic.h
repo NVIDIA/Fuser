@@ -21,6 +21,8 @@ namespace nvfuser {
 // Parameters of the matmul heuristic to describe the optimial schedule.
 class MatmulParams : public HeuristicParams {
  public:
+  MatmulParams()
+      : HeuristicParams(SchedulerType::Matmul), supported_vec_size() {};
   //! A list of possible strategies used to define along which axis
   //!  parallelization will be done.
   enum class TileRasterizationOrder { RowMajor = 0, ColumnMajor = 1 };
@@ -230,30 +232,28 @@ class MatmulParams : public HeuristicParams {
     return attr_hash;
   }
 
-  bool sameAs(
-      const std::shared_ptr<HeuristicParams>& other_base) const override {
-    auto other_casted = std::dynamic_pointer_cast<MatmulParams>(other_base);
-    if (other_casted == nullptr) {
+  bool sameAs(const HeuristicParams* other_base) const override {
+    auto other = dynamic_cast<const MatmulParams*>(other_base);
+    if (other == nullptr) {
       return false;
     }
 
-    return other_casted->mma_macro == mma_macro &&
-        other_casted->async_gmem_load_operands == async_gmem_load_operands &&
-        other_casted->rotate_ldmatrix_out_of_main_loop ==
+    return other->cparams == cparams && other->mma_macro == mma_macro &&
+        other->async_gmem_load_operands == async_gmem_load_operands &&
+        other->rotate_ldmatrix_out_of_main_loop ==
         rotate_ldmatrix_out_of_main_loop &&
-        other_casted->tile_sizes == tile_sizes &&
-        other_casted->circular_buffer_options == circular_buffer_options &&
-        other_casted->supported_vec_size == supported_vec_size &&
-        other_casted->cta_order == cta_order &&
-        other_casted->grid_swizzle_factor == grid_swizzle_factor &&
-        other_casted->use_smem_epilogue == use_smem_epilogue &&
-        other_casted->promote_prologue_smem_reuse ==
-        promote_prologue_smem_reuse &&
-        other_casted->splitk_factor == splitk_factor;
+        other->tile_sizes == tile_sizes &&
+        other->circular_buffer_options == circular_buffer_options &&
+        other->supported_vec_size == supported_vec_size &&
+        other->cta_order == cta_order &&
+        other->grid_swizzle_factor == grid_swizzle_factor &&
+        other->use_smem_epilogue == use_smem_epilogue &&
+        other->promote_prologue_smem_reuse == promote_prologue_smem_reuse &&
+        other->splitk_factor == splitk_factor;
   }
 
-  std::shared_ptr<HeuristicParams> clone() const override {
-    return std::make_shared<MatmulParams>(*this);
+  std::unique_ptr<HeuristicParams> clone() const override {
+    return std::make_unique<MatmulParams>(*this);
   }
 };
 

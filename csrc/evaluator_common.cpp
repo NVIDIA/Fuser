@@ -10,9 +10,9 @@
 #include <debug.h>
 #include <device_lower/lower2device.h>
 #include <expr_evaluator.h>
-#include <fusion_executor/executor_kernel_arg.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
+#include <runtime/executor_kernel_arg.h>
 #include <tensor_metadata.h>
 
 #include <optional>
@@ -130,6 +130,7 @@ std::vector<Val*> collectRuntimeUsedValues(Fusion* fusion) {
 } // namespace
 
 PrecomputedValues::PrecomputedValues(Fusion* fusion) : fusion_(fusion) {
+  FUSER_PERF_SCOPE("PrecomputedValues::PrecomputedValues");
   loadSymbols(collectRuntimeUsedValues(fusion));
   initializeValueList(symbols());
   initializeNamedScalars();
@@ -172,6 +173,7 @@ void PrecomputedValues::bindConcreteParallelTypeValue(
 }
 
 void PrecomputedValues::bindInputs(const KernelArgumentHolder& args) {
+  FUSER_PERF_SCOPE("PrecomputedValues::bindInputs");
   if (hasValidValues()) {
     invalidate();
   }

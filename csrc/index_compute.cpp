@@ -16,7 +16,7 @@
 #include <device_lower/pass/circular_buffer.h>
 #include <device_lower/pass/magic_zero.h>
 #include <device_lower/pass/unroll.h>
-#include <device_lower/utils.h>
+// #include <device_lower/utils.h>
 #include <device_lower/validation.h>
 #include <expr_simplifier.h>
 #include <id_model/utils.h>
@@ -1167,12 +1167,13 @@ indexMapFromTV(
     }
 
     if (loop == circular_buffer_loop) {
-      const int64_t stage_depth =
-          GpuLower::current()->circularBufferInfo().getStageDepthFor(
+      const int64_t prefetch_distance =
+          GpuLower::current()->circularBufferInfo().getPrefetchDistanceFor(
               loop->iter_domain());
       idx = SimplifyingIrBuilder::addExpr(
           idx,
-          SimplifyingIrBuilder::create<Val>(stage_depth - 1L, DataType::Index));
+          SimplifyingIrBuilder::create<Val>(
+              prefetch_distance, DataType::Index));
     }
 
     loop_to_ind_map[loop] = idx;
@@ -1617,7 +1618,7 @@ std::vector<Val*> Index::getConsumerPerDimLogicalIndex(
     TensorView* consumer_tv,
     const std::vector<ForLoop*>& loops,
     const std::unordered_set<ForLoop*>& rotated_loops) {
-  if (!lower_utils::hasRootToLoopLinearTransformations(consumer_tv) ||
+  if (!ir_utils::hasRootToLoopLinearTransformations(consumer_tv) ||
       (isIdModelOptionEnabled(IdModelEnableOption::ConsumerIndex) &&
        GpuLower::current()->isTensorIndexerEnabled())) {
     const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
@@ -1643,7 +1644,7 @@ std::vector<Val*> Index::getProducerPerDimLogicalIndex(
     const std::vector<ForLoop*>& loops,
     const std::unordered_set<ForLoop*>& rotated_loops,
     const std::unordered_map<IterDomain*, Val*>& override_index) {
-  if (!lower_utils::hasRootToLoopLinearTransformations(producer_tv) ||
+  if (!ir_utils::hasRootToLoopLinearTransformations(producer_tv) ||
       (isIdModelOptionEnabled(IdModelEnableOption::ProducerIndex) &&
        GpuLower::current()->isTensorIndexerEnabled())) {
     const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
@@ -2031,6 +2032,9 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
         consumer_tv, loops);
     int64_t stage_depth = gpu_lower->circularBufferInfo().getStageDepthFor(
         db_loop->iter_domain());
+    int64_t prefetch_distance =
+        gpu_lower->circularBufferInfo().getPrefetchDistanceFor(
+            db_loop->iter_domain());
     bool is_circular_buffer_loop = stage_depth > 2;
     bool is_prolog =
         db_loop->circularBufferLoopStage() == CircularBufferLoopStage::Prolog;
@@ -2061,7 +2065,7 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
             SimplifyingIrBuilder::addExpr(
                 loop_index,
                 SimplifyingIrBuilder::create<Val>(
-                    stage_depth - 1, DataType::Index)),
+                    prefetch_distance, DataType::Index)),
             SimplifyingIrBuilder::create<Val>(stage_depth, DataType::Index));
       }
 
@@ -2128,7 +2132,7 @@ kir::TensorIndex* Index::getProducerIndex(
     DataType as_type) {
   Val* index = nullptr;
 
-  if (!lower_utils::hasRootToLoopLinearTransformations(producer) ||
+  if (!ir_utils::hasRootToLoopLinearTransformations(producer) ||
       (consumer->definition()->isA<MmaOp>() &&
        isHopper(consumer->definition()->as<MmaOp>()->macro())) ||
       (isIdModelOptionEnabled(IdModelEnableOption::ProducerIndex) &&
@@ -2233,7 +2237,7 @@ kir::TensorIndex* Index::getConsumerIndex(
     bool generate_pointer,
     DataType as_type) {
   Val* index = nullptr;
-  if (!lower_utils::hasRootToLoopLinearTransformations(consumer) ||
+  if (!ir_utils::hasRootToLoopLinearTransformations(consumer) ||
       (isIdModelOptionEnabled(IdModelEnableOption::ConsumerIndex) &&
        GpuLower::current()->isTensorIndexerEnabled())) {
     index = GpuLower::current()->tensorIndexer().getLinearIndex(

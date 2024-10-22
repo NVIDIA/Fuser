@@ -11,7 +11,6 @@
 #include <device_lower/lower2device.h>
 #include <exceptions.h>
 #include <fusion.h>
-#include <inlining.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ir/cloner.h>
@@ -22,6 +21,7 @@
 #include <ir/utils.h>
 #include <ops/arith.h>
 #include <scheduler/mma_utils.h>
+#include <scheduler/tools/inlining.h>
 
 // Cleanup
 #include <transform_iter.h>
@@ -112,8 +112,7 @@ TensorView::TensorView(const TensorView* src, IrCloner* ir_cloner)
       compute_at_pos_(src->compute_at_pos_),
       max_producer_pos_(src->max_producer_pos_),
       memory_type_(src->memory_type_),
-      is_circular_buffered_(src->is_circular_buffered_),
-      circular_buffer_stage_(src->circular_buffer_stage_),
+      circular_buffer_options_(src->circular_buffer_options_),
       cpu_scalar_(src->cpu_scalar_),
       has_swizzle_op_(src->has_swizzle_op_),
       compute_with_consumers_(ir_cloner->clone(src->compute_with_consumers_)),
@@ -216,26 +215,55 @@ int64_t getConsumerPosAlignedToProducerCA(
   // have the mapping iS22{( 3 * 1 )} <- iS1{3} We need the latter. Refer to
   // NVFuserTest.FusionComplexBCast1_CUDA
 
-  auto disjoint_sets =
-      BestEffortReplay::replayPasC(
-          producer, consumer, -1, PairwiseLogicalDomainMap(producer, consumer))
-          .getIterDomainEquivalence();
-
-  // Find the innermost position of consumer that has
-  //  been mapped within the producer ca axis.
   int64_t consumer_pos = consumer->nDims();
-  while (consumer_pos > 0) {
-    auto consumer_id = consumer->axis(consumer_pos - 1);
-    auto p_dom = producer->getLoopDomain();
-    if (std::any_of(
-            p_dom.begin(),
-            p_dom.begin() + producer_pos,
-            [&consumer_id, &disjoint_sets](IterDomain* p_id) {
-              return disjoint_sets.permissiveAreMapped(consumer_id, p_id);
-            })) {
-      break;
+
+  const bool may_need_forwarding =
+      ir_utils::isLoopDomainFullyDerivedFromLogicalDomain(producer) &&
+      ir_utils::isLoopDomainFullyDerivedFromLogicalDomain(consumer);
+
+  if (may_need_forwarding) {
+    auto disjoint_sets = BestEffortReplay::replayPasC(
+                             producer,
+                             consumer,
+                             -1,
+                             PairwiseLogicalDomainMap(producer, consumer))
+                             .getIterDomainEquivalence();
+
+    // Find the innermost position of consumer that has
+    //  been mapped within the producer ca axis.
+
+    while (consumer_pos > 0) {
+      auto consumer_id = consumer->axis(consumer_pos - 1);
+      const auto& p_dom = producer->getLoopDomain();
+      if (std::any_of(
+              p_dom.begin(),
+              p_dom.begin() + producer_pos,
+              [&consumer_id, &disjoint_sets](IterDomain* p_id) {
+                return disjoint_sets.permissiveAreMapped(consumer_id, p_id);
+              })) {
+        break;
+      }
+      consumer_pos--;
     }
-    consumer_pos--;
+  } else {
+    IdModel id_model({consumer->definition()}, {}, false);
+    id_model.buildBroadcastGraph();
+    const auto& inlining_graph = id_model.idGraph(IdMappingMode::BROADCAST);
+
+    while (consumer_pos > 0) {
+      auto consumer_id = consumer->axis(consumer_pos - 1);
+      const auto& p_dom = producer->getLoopDomain();
+      if (std::any_of(
+              p_dom.begin(),
+              p_dom.begin() + producer_pos,
+              [&consumer_id, &inlining_graph](IterDomain* p_id) {
+                return inlining_graph.disjointValSets().strictAreMapped(
+                    consumer_id, p_id);
+              })) {
+        break;
+      }
+      consumer_pos--;
+    }
   }
 
   return consumer_pos;
@@ -1289,14 +1317,22 @@ void TensorView::clearReductionIterDomains() {
   }
 }
 
-void TensorView::circularBuffer(int64_t number_of_stages) {
+void TensorView::circularBuffer(
+    int64_t number_of_stages,
+    int64_t prefetch_distance) {
   // Early correctness checking. May miss eventual errors as the
   // checks depend on memory types and parallelization, which may not
   // be finalized until lowering.
-  NVF_ERROR(number_of_stages > 1, "Unsupported stage number");
+  NVF_CHECK(number_of_stages > 1, "Unsupported stage number");
+  if (prefetch_distance < 0) {
+    prefetch_distance += number_of_stages;
+  }
+  NVF_CHECK(
+      prefetch_distance >= 0 && prefetch_distance < number_of_stages,
+      "Invalid prefetch distance");
   validateCircularBufferedTensor(this);
-  is_circular_buffered_ = true;
-  circular_buffer_stage_ = number_of_stages;
+  circular_buffer_options_.stage = number_of_stages;
+  circular_buffer_options_.prefetch = prefetch_distance;
 }
 
 bool TensorView::isEmptyTensor() const {
@@ -1359,9 +1395,7 @@ void TensorView::swizzleTMABox(MmaInputSmemSwizzle swizzle) {
   this->swizzle(SwizzleType::XOR, -4, -2);
 }
 
-void TensorView::applyMmaSwizzleForTMALoad(
-    MmaInputSmemSwizzle swizzle,
-    bool permute_outer_dim) {
+void TensorView::applyMmaSwizzleForTMALoad(MmaInputSmemSwizzle swizzle) {
   NVF_ERROR(
       getMemoryType() == MemoryType::Shared,
       "Shared memory swizzle is only supported for shared memory");
@@ -1369,8 +1403,7 @@ void TensorView::applyMmaSwizzleForTMALoad(
       definition()->as<LoadStoreOp>()->opType() ==
           LoadStoreOpType::CpAsyncBulkTensorTile,
       "Operation requires a TMA operation");
-  mma_utils::MmaSwizzler::scheduleTMALoadForMma(
-      this, swizzle, permute_outer_dim);
+  mma_utils::MmaSwizzler::scheduleTMALoadForMma(this, swizzle);
 }
 
 void TensorView::commitLeafToLogical() {

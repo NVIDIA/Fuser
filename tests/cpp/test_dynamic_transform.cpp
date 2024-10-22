@@ -11,8 +11,8 @@
 
 #include <dynamic_transform.h>
 #include <expr_evaluator.h>
-#include <inlining.h>
 #include <ops/all_ops.h>
+#include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
@@ -1090,7 +1090,7 @@ TEST_F(NVFuserTest, DynamicTransformIssue418_CUDA) {
   auto s0 = IrBuilder::create<Val>(DataType::Int);
   fusion->addInput(s0);
 
-  auto sh = tensor_sizes(tv0);
+  auto sh = shape(tv0);
   auto tv1 = reshape(tv0, {sh[0], div(sh[1], s0), s0, sh[2], sh[3]});
   // Reducing along axis 2 in tv1 is equivalent to a partial reduction across
   // axis 1 of tv0.

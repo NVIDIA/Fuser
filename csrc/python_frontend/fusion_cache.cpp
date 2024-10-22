@@ -12,6 +12,7 @@
 #include <instrumentation.h>
 #include <options.h>
 #include <python_frontend/fusion_cache.h>
+#include <runtime/fusion_kernel_runtime.h>
 #include <serde/fusion_record.h>
 #include <utils.h>
 
@@ -185,17 +186,17 @@ void serialize() {
 std::mutex FusionCache::singleton_lock_;
 FusionCache* FusionCache::singleton_ = nullptr;
 
-UserSchedule::UserSchedule() : schedule(nullptr), executor(nullptr) {
-  schedule = std::make_unique<Fusion>();
+UserSchedule::UserSchedule() : scheduled_fusion(nullptr), executor(nullptr) {
+  scheduled_fusion = std::make_unique<Fusion>();
   executor = std::make_unique<FusionExecutor>();
 }
 
-bool UserSchedule::canSchedule(const ScheduleHeuristic& heuristic) {
-  return SchedulerEntry::canSchedule(heuristic, fusion(), *runtimeInfo());
+bool UserSchedule::canSchedule(const SchedulerType& scheduler_type) {
+  return Schedule::canSchedule(scheduler_type, fusion(), *runtimeInfo());
 }
 
 std::tuple<bool, std::string> UserSchedule::canScheduleDebug(
-    const ScheduleHeuristic& heuristic) {
+    const SchedulerType& scheduler_type) {
   // Enable collection of messages from canScheduleRejectReason
   DebugDumpOptionsGuard debug_dump_options_guard;
   DebugDumpOptionsGuard::getCurOptions().set(
@@ -205,17 +206,44 @@ std::tuple<bool, std::string> UserSchedule::canScheduleDebug(
   std::stringstream ss;
   DebugStreamGuard dsg(ss);
 
-  bool can_schedule = canSchedule(heuristic);
+  bool can_schedule = canSchedule(scheduler_type);
   return std::make_tuple(can_schedule, ss.str());
 }
 
-void UserSchedule::scheduleWithHeuristic(const ScheduleHeuristic& heuristic) {
+HeuristicParams* UserSchedule::computeHeuristics(SchedulerType scheduler_type) {
   NVF_CHECK(
-      heuristic_scheduler == nullptr,
+      scheduler == nullptr,
+      "Scheduler is already defined for this UserSchedule");
+  scheduler = SchedulerEntry::makeSchedulerInstance(scheduler_type);
+  SchedulerRuntimeInfo& runtime_info_ref = *runtimeInfo();
+
+  NVF_ERROR(
+      scheduler->canScheduleCompileTime(fusion()) &&
+          scheduler->canScheduleRunTime(fusion(), runtime_info_ref),
+      "Could not schedule fusion with ",
+      scheduler_type,
+      " scheduler.");
+
+  NVF_CHECK(
+      heuristic_params == nullptr,
       "Heuristic Scheduler is already defined for this UserSchedule");
-  heuristic_scheduler =
-      SchedulerEntry::makeEntry(heuristic, fusion(), *runtimeInfo());
-  heuristic_scheduler->schedule(fusion());
+  heuristic_params = scheduler->computeHeuristics(fusion(), runtime_info_ref);
+  return heuristic_params.get();
+}
+
+void UserSchedule::schedule() {
+  NVF_CHECK(
+      scheduler != nullptr, "Scheduler is not defined for this UserSchedule");
+  NVF_CHECK(
+      heuristic_params != nullptr,
+      "Heuristic Scheduler is not defined for this UserSchedule");
+  scheduler->schedule(fusion(), heuristic_params.get());
+}
+
+void UserSchedule::scheduleWithType(SchedulerType scheduler_type) {
+  // Get default heuristics for scheduler and then schedule fusion.
+  computeHeuristics(scheduler_type);
+  schedule();
 }
 
 FusionSchedules::FusionSchedules(int64_t fusion_id)
@@ -556,7 +584,8 @@ TrieNode* FusionCache::createChild(TrieNode* node, RecordFunctor* rec) {
 UserSchedule* FusionCache::createUserSchedule(
     FusionSchedules* scheds,
     const at::ArrayRef<c10::IValue>& inputs,
-    int device) {
+    int device,
+    bool overwrite_existing_schedule) {
   FUSER_PERF_SCOPE("FusionCache::createUserSchedule");
   std::lock_guard<std::mutex> guard(scheds->scheds_lock);
   auto& user_scheds = scheds->user_def_schedules;
@@ -568,8 +597,10 @@ UserSchedule* FusionCache::createUserSchedule(
     if (static_cast<size_t>(device) >= user_scheds[input_id.id].size()) {
       user_scheds[input_id.id].resize(device + 1);
     } else {
-      TORCH_WARN(
-          "You are overwriting the current user schedule for a definition!");
+      if (!overwrite_existing_schedule) {
+        TORCH_WARN(
+            "You are overwriting the current user schedule for a definition!");
+      }
       user_scheds[input_id.id].at(device) = UserSchedule();
     }
   }
