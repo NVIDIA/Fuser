@@ -1027,7 +1027,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           kernel_->summary().sync_map->needsRawSync(in_tv).hasBID();
       
       indent() << gen(top->in1()) << "\n";
-      indent() << "? ";
+      indent() << kTab << "? ";
 
       if (localToGlobal) {
         code_ << "loadLocalToGlobal<" << top->out()->dtype()
@@ -1063,7 +1063,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
       code_ << "\n";
       // TODO: handle the local buffer. checkout LoadStoreOp
-      indent() << " : " << "arraySet<" << out_tv->getDataType().value() << ", " << vector_word_size << ">(&" << gen(top->out()) << ", (" << out_tv->getDataType().value() << ")" << gen(top->in3()) << ");\n";
+      indent() << kTab << ": " << "arraySet<" << out_tv->getDataType().value() << ", " << vector_word_size << ">(&" << gen(top->out()) << ", (" << out_tv->getDataType().value() << ")" << gen(top->in3()) << ");\n";
       return;
     }
 
