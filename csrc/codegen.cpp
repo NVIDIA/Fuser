@@ -997,6 +997,75 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void handle(const TernaryOp* top) final {
+    // Get vectorization information
+    auto out_tv = top->out()->as<kir::TensorIndex>()->view();
+    int64_t vector_word_size = ir_utils::getVectorizeSize(out_tv);
+    bool is_vector_op = vectorize_scope_ && vector_word_size != 1; 
+
+    if (is_vector_op) {
+      NVF_CHECK(!top->in2()->isScalar(), "input2 should be a tensor");
+      NVF_CHECK(top->in3()->isScalar(), "input3 should be a scalar");
+      NVF_CHECK(!top->out()->isScalar(), "scalar output in vectorization isn't supported");
+      NVF_CHECK(top->getTernaryOpType() == TernaryOpType::Where, "vectorization only works on TernaryOp::where");
+
+      auto in_tv = top->in2()->as<kir::TensorIndex>()->view();
+
+      bool localToGlobal = out_tv->getMemoryType() == MemoryType::Global &&
+          in_tv->getMemoryType() == MemoryType::Local;
+      
+      bool globalToLocal = out_tv->getMemoryType() == MemoryType::Local &&
+          in_tv->getMemoryType() == MemoryType::Global;
+      
+      bool globalToGlobal = out_tv->getMemoryType() == MemoryType::Global &&
+          in_tv->getMemoryType() == MemoryType::Global;
+      
+      bool is_volatile_to = out_tv->getMemoryType() == MemoryType::Global &&
+          kernel_->summary().sync_map->needsRawSync(out_tv).hasBID();
+      
+      bool is_volatile_from =
+          in_tv->getMemoryType() == MemoryType::Global &&
+          kernel_->summary().sync_map->needsRawSync(in_tv).hasBID();
+      
+      code_ << gen(top->in1()) << " ? ";
+
+      if (localToGlobal) {
+        indent() << "loadLocalToGlobal<" << top->out()->dtype()
+                 << ", /*vec_size=*/" << vector_word_size
+                 << ", /*is_volatile=*/"
+                 << (is_volatile_to ? "true" : "false") << ">(";
+        code_ << " &" << gen(top->out()) << ", &" << gen(top->in2())
+              << ");\n";
+      } else if (globalToLocal) {
+        indent() << "loadGlobalToLocal<" << top->out()->dtype()
+                 << ", /*vec_size=*/" << vector_word_size
+                 << ", /*is_volatile=*/"
+                 << (is_volatile_from ? "true" : "false") << ", "
+                 // << "CacheOp::" << ldst->cacheOp() << ">(&"
+                 << "CacheOp::Streaming>(&"
+                 << gen(top->out()) << ", ";
+        code_ << " &" << gen(top->in2()) << ");\n";
+      } else if (globalToGlobal) {
+        indent() << "loadGlobalToGlobal<" << top->out()->dtype()
+                 << ", /*vec_size=*/" << vector_word_size
+                 << ", /*is_volatile_to=*/"
+                 << (is_volatile_to ? "true" : "false")
+                 << ", /*is_volatile_from=*/"
+                 << (is_volatile_from ? "true" : "false") << ">(";
+        code_ << " &" << gen(top->out()) << ", ";
+        code_ << " &" << gen(top->in2()) << ");\n";
+      } else {
+        indent() << "loadGeneric<" << top->out()->dtype() << ", "
+                 << vector_word_size << ">(";
+        code_ << " &" << gen(top->out()) << ", ";
+        code_ << " &" << gen(top->in2()) << ");\n";
+      }
+
+      auto cast = scalarCast(top->in2(), top->in3());
+      code_ << " : " << gen(top->out()) << ".set(" << cast << gen(top->in3()) << ";\n";
+      return;
+    }
+
+
     if (!print_inline_) {
       indent() << gen(top->out());
       if (!top->out()->isScalar()) {
