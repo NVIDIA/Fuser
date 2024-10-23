@@ -1063,7 +1063,20 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
       code_ << "\n";
       // TODO: handle the local buffer. checkout LoadStoreOp
-      indent() << kTab << ": " << "arraySet<" << out_tv->getDataType().value() << ", " << vector_word_size << ">(&" << gen(top->out()) << ", (" << out_tv->getDataType().value() << ")" << gen(top->in3()) << ");\n";
+
+      if (out_tv->getMemoryType() == MemoryType::Local &&
+          !out_tv->isCircularBuffered()) {
+        // Vectorized initialization, explicit type conversion is needed for
+        // complex numbers
+        indent() << kTab << ": " << genVariableName(out_tv) << ".set("
+                 << genCall(out_tv->dtype(), gen(top->in3())) << ");\n";
+      } else {
+        // Note: currently arraySet option is not vectorized, so it will
+        //  rely on auto vectorization pass of cuda compiler.
+        indent() << kTab << ": " << "arraySet<" << out_tv->getDataType().value() << ", " << vector_word_size << ">(&" << gen(top->out()) << ", (" << out_tv->getDataType().value() << ")" << gen(top->in3()) << ");\n";
+      }
+ 
+
       return;
     }
 
