@@ -164,6 +164,10 @@ class IdModel : public PolymorphicBase {
     return tvs_.empty();
   }
 
+  const std::vector<TensorView*> tvs() const {
+    return tvs_;
+  }
+
   Fusion* fusion() const {
     return fusion_;
   }
