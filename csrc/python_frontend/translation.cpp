@@ -1108,6 +1108,104 @@ class FusionTranslator : public OptInConstDispatch {
         gop->dim()));
   }
 
+  // Map MatmulOp to TensorView-Only OpRecord
+  void handle(const MatmulOp* matmul_op) final {
+    Tensor output =
+        fd_->defineTensor(matmul_op->out()->as<TensorView>()->nDims());
+    map_val_to_fd_index_.emplace(matmul_op->out(), output());
+
+    fd_->defineRecord(new OpRecord<TensorView*, TensorView*, TensorView*>(
+        {fd_->recordingState(map_val_to_fd_index_.at(matmul_op->inA())),
+         fd_->recordingState(map_val_to_fd_index_.at(matmul_op->inB()))},
+        {fd_->recordingState(output())},
+        ("ops.matmul"),
+        serde::RecordType::Binary_TV,
+        static_cast<TensorView* (*)(TensorView*, TensorView*)>(matmul)));
+  }
+
+  // Map SdpaFwdOp to SdpaFwdOpRecord
+  void handle(const SdpaFwdOp* sdpa_fwd_op) final {
+    // Create outputs for this RecordFunctor
+    std::vector<State> fd_outputs;
+    fd_outputs.reserve(sdpa_fwd_op->outputs().size());
+    std::transform(
+        sdpa_fwd_op->outputs().begin(),
+        sdpa_fwd_op->outputs().end(),
+        std::back_inserter(fd_outputs),
+        [&](Val* v) {
+          NVF_ERROR(v->isA<TensorView>());
+          Tensor output = fd_->defineTensor(v->as<TensorView>()->nDims());
+          map_val_to_fd_index_.emplace(v, output());
+          return fd_->recordingState(output());
+        });
+
+    State dropout_p_state = (sdpa_fwd_op->dropout_p() != nullptr)
+        ? fd_->recordingState(map_val_to_fd_index_.at(sdpa_fwd_op->dropout_p()))
+        : State(/*_index=*/0, /*_stype=*/serde::StateType::None);
+
+    State is_causal_state = (sdpa_fwd_op->is_causal() != nullptr)
+        ? fd_->recordingState(map_val_to_fd_index_.at(sdpa_fwd_op->is_causal()))
+        : State(/*_index=*/0, /*_stype=*/serde::StateType::None);
+
+    State scale_state = (sdpa_fwd_op->scale() != nullptr)
+        ? fd_->recordingState(map_val_to_fd_index_.at(sdpa_fwd_op->scale()))
+        : State(/*_index=*/0, /*_stype=*/serde::StateType::None);
+
+    fd_->defineRecord(new SdpaFwdOpRecord(
+        {fd_->recordingState(map_val_to_fd_index_.at(sdpa_fwd_op->query())),
+         fd_->recordingState(map_val_to_fd_index_.at(sdpa_fwd_op->key())),
+         fd_->recordingState(map_val_to_fd_index_.at(sdpa_fwd_op->value())),
+         dropout_p_state,
+         is_causal_state,
+         scale_state},
+        fd_outputs));
+  }
+
+  // Map SdpaBwdOp to SdpaBwdOpRecord
+  void handle(const SdpaBwdOp* sdpa_bwd_op) final {
+    // Create outputs for this RecordFunctor
+    std::vector<State> fd_outputs;
+    fd_outputs.reserve(sdpa_bwd_op->outputs().size());
+    std::transform(
+        sdpa_bwd_op->outputs().begin(),
+        sdpa_bwd_op->outputs().end(),
+        std::back_inserter(fd_outputs),
+        [&](Val* v) {
+          NVF_ERROR(v->isA<TensorView>());
+          Tensor output = fd_->defineTensor(v->as<TensorView>()->nDims());
+          map_val_to_fd_index_.emplace(v, output());
+          return fd_->recordingState(output());
+        });
+
+    State dropout_p_state = (sdpa_bwd_op->dropout_p() != nullptr)
+        ? fd_->recordingState(map_val_to_fd_index_.at(sdpa_bwd_op->dropout_p()))
+        : State(/*_index=*/0, /*_stype=*/serde::StateType::None);
+
+    State is_causal_state = (sdpa_bwd_op->is_causal() != nullptr)
+        ? fd_->recordingState(map_val_to_fd_index_.at(sdpa_bwd_op->is_causal()))
+        : State(/*_index=*/0, /*_stype=*/serde::StateType::None);
+
+    State scale_state = (sdpa_bwd_op->scale() != nullptr)
+        ? fd_->recordingState(map_val_to_fd_index_.at(sdpa_bwd_op->scale()))
+        : State(/*_index=*/0, /*_stype=*/serde::StateType::None);
+
+    fd_->defineRecord(new SdpaBwdOpRecord(
+        {fd_->recordingState(map_val_to_fd_index_.at(sdpa_bwd_op->grad_attn())),
+         fd_->recordingState(map_val_to_fd_index_.at(sdpa_bwd_op->query())),
+         fd_->recordingState(map_val_to_fd_index_.at(sdpa_bwd_op->key())),
+         fd_->recordingState(map_val_to_fd_index_.at(sdpa_bwd_op->value())),
+         fd_->recordingState(map_val_to_fd_index_.at(sdpa_bwd_op->attn_out())),
+         fd_->recordingState(map_val_to_fd_index_.at(sdpa_bwd_op->logsumexp())),
+         dropout_p_state,
+         is_causal_state,
+         fd_->recordingState(
+             map_val_to_fd_index_.at(sdpa_bwd_op->philox_seed())),
+         fd_->recordingState(
+             map_val_to_fd_index_.at(sdpa_bwd_op->philox_offset())),
+         scale_state},
+        fd_outputs));
+  }
+
  private:
   //! The reference CPP fusion to be translated.
   Fusion* fusion_ = nullptr;
