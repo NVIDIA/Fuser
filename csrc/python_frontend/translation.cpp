@@ -861,7 +861,8 @@ class FusionTranslator : public OptInConstDispatch {
          fd_->recordingState(new_start()),
          fd_->recordingState(new_stop()),
          fd_->recordingState(new_strides())},
-        {fd_->recordingState(output())}));
+        {fd_->recordingState(output())},
+        /*manual_normalization=*/true));
   }
 
   // Map PadOp to python frontend

@@ -732,7 +732,10 @@ TensorView* cat(
   return out;
 }
 
-TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
+TensorView* slice(
+    TensorView* inp,
+    const std::vector<Slice>& ranges,
+    bool manual_normalization) {
   const auto inp_dom = TensorDomain::noReductions(inp->getLogicalDomain());
   const int64_t ndims = static_cast<int64_t>(inp_dom.size());
 
@@ -743,7 +746,8 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
       ", Expected: ",
       ndims);
 
-  const auto normalize_slice_range = [](Slice range, Val* extent) -> Slice {
+  const auto normalize_slice_range =
+      [](Slice range, Val* extent, bool manual_normalization) -> Slice {
     auto cast_extent =
         SimplifyingIrBuilder::maybeCastExpr(DataType::Index, extent);
 
@@ -755,12 +759,14 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
     } else if (!range.start->isZeroInt()) {
       range.start =
           SimplifyingIrBuilder::maybeCastExpr(DataType::Index, range.start);
-      range.start = SimplifyingIrBuilder::maxExpr(
-          zero,
-          SimplifyingIrBuilder::whereExpr(
-              SimplifyingIrBuilder::ltExpr(range.start, zero),
-              SimplifyingIrBuilder::addExpr(range.start, cast_extent),
-              range.start));
+      if (!manual_normalization) {
+        range.start = SimplifyingIrBuilder::maxExpr(
+            zero,
+            SimplifyingIrBuilder::whereExpr(
+                SimplifyingIrBuilder::ltExpr(range.start, zero),
+                SimplifyingIrBuilder::addExpr(range.start, cast_extent),
+                range.start));
+      }
     }
 
     // norm_stop = max(norm_start, min(extent, stop < 0 ? stop + extent : stop)
@@ -769,14 +775,16 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
     } else if (!range.stop->sameAs(extent)) {
       range.stop =
           SimplifyingIrBuilder::maybeCastExpr(DataType::Index, range.stop);
-      range.stop = SimplifyingIrBuilder::maxExpr(
-          range.start,
-          SimplifyingIrBuilder::minExpr(
-              cast_extent,
-              SimplifyingIrBuilder::whereExpr(
-                  SimplifyingIrBuilder::ltExpr(range.stop, zero),
-                  SimplifyingIrBuilder::addExpr(range.stop, cast_extent),
-                  range.stop)));
+      if (!manual_normalization) {
+        range.stop = SimplifyingIrBuilder::maxExpr(
+            range.start,
+            SimplifyingIrBuilder::minExpr(
+                cast_extent,
+                SimplifyingIrBuilder::whereExpr(
+                    SimplifyingIrBuilder::ltExpr(range.stop, zero),
+                    SimplifyingIrBuilder::addExpr(range.stop, cast_extent),
+                    range.stop)));
+      }
     }
 
     // Ensure step is of type Index
@@ -806,7 +814,8 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
   for (const auto idx : c10::irange(ndims)) {
     IterDomain* inp_root_id = inp_dom[idx];
     Val* inp_root_size = inp_root_id->getMaybeExpandedExtent();
-    Slice range = normalize_slice_range(ranges.at(idx), inp_root_size);
+    Slice range = normalize_slice_range(
+        ranges.at(idx), inp_root_size, manual_normalization);
     normalized_ranges.at(idx) = range;
     IterDomain* out_root_id = nullptr;
     IterDomain* out_rf_id = nullptr;
