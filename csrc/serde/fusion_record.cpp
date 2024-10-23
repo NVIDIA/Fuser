@@ -364,10 +364,12 @@ void RecordFunctorFactory::registerAllParsers() {
   registerParser(RecordType::BroadcastOp, deserializeBroadcastRecord);
 
   auto deserializeCatRecord = [](const RecordFunctor* buffer) {
+    auto data = buffer->data_as_Cat();
     return new python_frontend::CatOpRecord(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
-        buffer->data_as_Dimension()->dim());
+        data->dim(),
+        data->manual_padding());
   };
   registerParser(RecordType::CatOp, deserializeCatRecord);
 
@@ -462,6 +464,14 @@ void RecordFunctorFactory::registerAllParsers() {
   };
   registerParser(RecordType::IndexSelectOp, deserializeIndexSelectRecord);
 
+  auto deserializeSelectRecord = [](const RecordFunctor* buffer) {
+    return new python_frontend::SelectOpRecord(
+        parseStateArgs(buffer->args()),
+        parseStateArgs(buffer->outputs()),
+        buffer->data_as_Dimension()->dim());
+  };
+  registerParser(RecordType::SelectOp, deserializeSelectRecord);
+
   auto deserializeOutputTvRecord = [](const RecordFunctor* buffer) {
     auto data = buffer->data_as_Output();
     return new python_frontend::OutputRecord<TensorView>(
@@ -482,9 +492,7 @@ void RecordFunctorFactory::registerAllParsers() {
 
   auto deserializePadRecord = [](const RecordFunctor* buffer) {
     return new python_frontend::PadOpRecord(
-        parseStateArgs(buffer->args()),
-        parseStateArgs(buffer->outputs()),
-        parseVector(buffer->data_as_Pad()->pad_widths()));
+        parseStateArgs(buffer->args()), parseStateArgs(buffer->outputs()));
   };
   registerParser(RecordType::PadOp, deserializePadRecord);
 
@@ -626,6 +634,14 @@ void RecordFunctorFactory::registerAllParsers() {
         mapToNvfuserDtype(data->dtype()));
   };
   registerParser(RecordType::Vector, deserializeVectorRecord);
+
+  auto deserializeWelfordRecord = [](const RecordFunctor* buffer) {
+    return new python_frontend::WelfordOpRecord(
+        parseStateArgs(buffer->args()),
+        parseStateArgs(buffer->outputs()),
+        parseVector(buffer->data_as_Welford()->axes()));
+  };
+  registerParser(RecordType::WelfordOp, deserializeWelfordRecord);
 }
 
 void RecordFunctorFactory::setupFunctionMaps() {
