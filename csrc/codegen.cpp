@@ -1053,7 +1053,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         } else if (globalToGlobal) {
           code_ << "loadGlobalToGlobal<" << top->out()->dtype()
                 << ", /*vec_size=*/" << vector_word_size
-                << ", /*is_volatile_to=*/" << (is_volatile_to ? "true" : "false")
+                << ", /*is_volatile_to=*/"
+                << (is_volatile_to ? "true" : "false")
                 << ", /*is_volatile_from=*/"
                 << (is_volatile_from ? "true" : "false") << ">(";
           code_ << " &" << gen(top->out()) << ", ";
