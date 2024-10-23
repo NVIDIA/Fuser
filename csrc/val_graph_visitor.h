@@ -286,4 +286,21 @@ inline ValGroups getOutputsOfExprPath(
   return getInputsOfExprPath(graph, reverse(path));
 }
 
+inline ValGroups getValsOfExprPath(
+    const ValGraph& graph,
+    const ValGraphBFS::ExprPath& path) {
+  ValGroups vals;
+
+  for (const auto& [expr_g, dir] : path) {
+    for (const auto& inp : inputGroups(graph, expr_g, dir)) {
+      vals.pushBack(inp);
+    }
+    for (const auto& out : outputGroups(graph, expr_g, dir)) {
+      vals.pushBack(out);
+    }
+  }
+
+  return vals;
+}
+
 } // namespace nvfuser

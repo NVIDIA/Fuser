@@ -199,14 +199,18 @@ bool rejectScheduleForMemoryPromotion(
             std::cerr << "Allowing pad for cat: " << expr->toString();
             continue;
           }
+        } else if (expr->isA<SliceOp>()) {
+          continue;
         }
       }
+#if 0
       if (expr->isA<SliceOp>()) {
         scheduler_debug_utils::canScheduleRejectReason(
             scheduler_type,
             "SliceOp not supported unless memory promotion is enabled");
         return true;
       }
+#endif
       if (rejectScheduleFusionInputRequirement(expr, scheduler_type)) {
         return true;
       }

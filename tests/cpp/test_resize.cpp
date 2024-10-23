@@ -4268,7 +4268,8 @@ TEST_F(ResizeTest, SliceSliceConcatConcat2) {
   fusion.addInput(tv0);
 
   // [i0]
-  auto tv1 = set(tv0);
+  // auto tv1 = set(tv0);
+  auto tv1 = tv0;
 
   // [rope_size]
   auto tv2 = slice(tv1, {{zero, IrBuilder::create<Val>(rope_size)}});
@@ -4322,46 +4323,13 @@ TEST_F(ResizeTest, SliceSliceConcatConcat2) {
   FusionExecutorCache fec(std::move(fusion_ptr));
   auto outputs = fec.runFusionWithInputs(inputs);
 
-#if 0
-  std::vector<IterDomain*> ref_loop = tv0->getLogicalDomain();
-  scheduler_tools::scheduleLoopDomainsLike(fusion.allTvs(), ref_loop);
-
-  for (auto tv : fusion.allTvs()) {
-    if (tv->isFusionInput()) {
-      continue;
-    }
-    tv->split(0, 4);
-    tv->split(0, 16);
-  }
-
-  inlineMost();
-
-  for (auto tv : fusion.allTvs()) {
-    if (tv->isFusionInput()) {
-      continue;
-    }
-    EXPECT_EQ(tv->getComputeAtPosition(), 3)
-        << "Invalid computeAt position: " << tv->toString();
-    tv->axis(0)->parallelize(ParallelType::BIDx);
-    tv->axis(1)->parallelize(ParallelType::TIDx);
-  }
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({i0}, options);
-  std::vector<c10::IValue> aten_inputs({t0});
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
-
   auto ref = at::concat(
       {at::slice(t0, 0, 0, rope_size / 2) + 1,
        at::slice(t0, 0, rope_size / 2, rope_size) + 2,
        at::slice(t0, 0, rope_size)},
       0);
 
-  NVF_CHECK(ref.equal(cg_outputs[0]));
-#endif
+  NVF_CHECK(ref.equal(outputs[0]));
 }
 
 TEST_F(ResizeTest, RoPEFullBF16Global) {
@@ -4519,180 +4487,6 @@ TEST_F(ResizeTest, RoPEFullBF16Global) {
   //[[maybe_unused]] auto v_out = apply_rope(v, false);
 
   // fusion.addOutput(v_original_shape);
-
-  fusion.print();
-
-  if (!getenv("DISABLE_SCHEDULE")) {
-    for (auto qkv_use : qkv->uses()) {
-      SliceOp* slice = dynamic_cast<SliceOp*>(qkv_use);
-      if (slice == nullptr) {
-        continue;
-      }
-
-      TensorView* slice_out = slice->output(0)->as<TensorView>();
-      if (!slice_out->uses().at(0)->isA<PadOp>()) {
-        continue;
-      }
-      auto padded_tv = slice_out->uses().at(0)->output(0)->as<TensorView>();
-
-      std::cerr << "Scheduling slice: " << slice->toString();
-      auto ref_tv = padded_tv;
-      std::cerr << "Reference tensor: " << ref_tv->toString() << "\n";
-      std::vector<IterDomain*> ref_loop = ref_tv->getLogicalDomain();
-      std::cerr << "Ref domain: " << toDelimitedString(ref_loop) << "\n";
-      // scheduler_tools::scheduleLoopDomainsLike({slice_out}, ref_loop, -1);
-      std::cerr << "Slice out: " << slice_out->toString() << "\n";
-    }
-
-    // for (auto tv : fusion.allTvs()) {
-    // ASSERT_EQ(tv->getLoopDomain().back()->extent()->evaluate(), rope_n_elem);
-    // }
-
-    [[maybe_unused]] auto cos_cache = cos->cacheAfter();
-    std::cerr << "cos cache: " << cos_cache->toString() << "\n";
-    [[maybe_unused]] auto sin_cache = sin->cacheAfter();
-    std::cerr << "sin cache: " << sin_cache->toString() << "\n";
-
-    tvs_to_vectorize.emplace(cos_cache);
-    tvs_to_vectorize.emplace(sin_cache);
-
-    // Reorder
-    {
-      [[maybe_unused]] auto ref = qkv;
-
-      // scheduler_tools::scheduleLoopDomainsLike(
-      // fusion.allTvs(), ref->getLogicalDomain(), 3);
-      std::cerr << "Reordered\n";
-    }
-    fusion.printMath();
-
-#if 0
-    IdModel id_model(&fusion, /*build_models=*/false);
-    const auto& exact_graph = id_model.buildExactGraph();
-    for (auto tv : fusion.allTvs()) {
-      for (const auto i : c10::irange(ref_loop.size() - 2)) {
-        auto loop_id = tv->getLoopDomain().at(i);
-        EXPECT_TRUE(exact_graph.disjointValSets().strictAreMapped(
-            loop_id, ref_loop.at(i)));
-      }
-    }
-#endif
-
-    for (auto tv : fusion.allTvs()) {
-      if (tv->isFusionInput()) {
-        continue;
-      }
-
-      std::cerr << "Before: " << tv->toString() << "\n";
-
-      // Parallelize the innermost domain
-      tv->split(-1, 8);
-
-      if (tvs_to_vectorize.find(tv) != tvs_to_vectorize.end()) {
-        std::cerr << "Vec split: " << tv->toString() << "\n";
-        tv->axis(-1)->parallelize(ParallelType::Vectorize);
-      }
-
-      tv->axis(-2)->parallelize(ParallelType::TIDx);
-
-      // Schedule the outermost three loops
-      tv->merge(0)->merge(0);
-
-      std::cerr << "After: " << tv->toString() << "\n";
-    }
-
-    for (auto tv : fusion.allTvs()) {
-      if (tv->isFusionInput()) {
-        continue;
-      }
-      // This doesn't work. TODO: Investigate
-      // tv->inlineAt(1);
-
-      // If TIDx is small, use TIDy as well
-      int64_t vec_factor = 8;
-      int64_t bdimx = rope_n_elem / vec_factor;
-      if (bdimx < 128) {
-        tv->split(0, ceilDiv(128, bdimx));
-        tv->axis(1)->parallelize(ParallelType::TIDy);
-      }
-      tv->axis(0)->parallelize(ParallelType::BIDx);
-    }
-
-    std::cout << "Before inlining\n";
-    fusion.printMath();
-    std::cout << std::endl;
-
-    // Inlining
-    for (auto tv : fusion.allTvs()) {
-      if (tv->isFusionInput() || tv->isFusionOutput()) {
-        continue;
-      }
-
-      if (tv == cos_cache || tv == sin_cache) {
-        continue;
-      }
-
-      // Move broadcast inner
-      std::unordered_map<int64_t, int64_t> reorder;
-      int64_t pos = tv->getLoopDomain().size() - 1;
-      for (auto it = tv->getLoopDomain().rbegin() + 1;
-           it != tv->getLoopDomain().rend();
-           ++it) {
-        auto loop_id = *it;
-        if (loop_id->isBroadcast()) {
-          NVF_ERROR(pos > 0);
-          reorder.emplace(
-              tv->getLoopDomain().size() - 1 -
-                  std::distance(tv->getLoopDomain().rbegin(), it),
-              pos);
-          --pos;
-        }
-      }
-
-      if (!reorder.empty()) {
-        std::cerr << "Move broadcast inner:\n";
-        for (const auto& [k, v] : reorder) {
-          std::cerr << k << " -> " << v << "\n";
-        }
-        tv->reorder(reorder);
-        std::cerr << tv->toString() << "\n";
-      }
-    }
-
-    for (auto tv : fusion.allTvs()) {
-      if (tv->isFusionInput() || tv->isFusionOutput()) {
-        continue;
-      }
-
-      if (tv == cos_cache || tv == sin_cache) {
-        continue;
-      }
-
-      int64_t ca_pos = 4;
-
-      auto consumer_tvs = ir_utils::consumerTvsOf(tv);
-      for (auto consumer_tv : consumer_tvs) {
-        if (consumer_tv->axis(-1)->getParallelType() ==
-            ParallelType::Vectorize) {
-          --ca_pos;
-          tv->inlineAt(ca_pos);
-          std::cerr << tv->toString() << "\n";
-          continue;
-        }
-      }
-
-      auto def = tv->definition();
-      if (def->isA<SliceOp>()) {
-        --ca_pos;
-        tv->inlineAt(ca_pos);
-        std::cerr << tv->toString() << "\n";
-        continue;
-      }
-
-      tv->inlineAt(ca_pos);
-      std::cerr << tv->toString() << "\n";
-    }
-  }
 
   fusion.printMath();
 

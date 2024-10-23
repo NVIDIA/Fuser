@@ -144,6 +144,7 @@ bool DomainMap::areAllInputIdsMappedTo(TensorView* input_tv, TensorView* tv)
   if (!in_concrete_ids.empty()) {
     std::cerr << "Remaining IDs: " << toDelimitedString(in_concrete_ids)
               << "\n";
+    return true;
   }
   return in_concrete_ids.empty();
 }

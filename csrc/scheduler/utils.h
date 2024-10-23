@@ -701,5 +701,7 @@ void moveNonConcretizedBroadcastInnermost(
     Fusion* fusion,
     const std::unordered_set<TensorView*>& ignored_tvs = {});
 
+//void insertMissingBroadcastDomains(Fusion* fusoin);
+
 } // namespace scheduler_utils
 } // namespace nvfuser

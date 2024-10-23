@@ -527,12 +527,31 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   auto cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, true);
 
   {
+    // TODO: Propagate slice first. DO it manually for now. Or use
+    // scheduleLoopDomain in a forward fashion. It should be possible
+    // to reverse the setting.
+
+    std::cout << "Before broadcast insertion" << std::endl;
+    fusion->printMath();
+    std::cout << std::endl;    
+    //scheduler_utils::insertMissingBroadcastDomains(fusion);
+    //std::cout << "After broadcast insertion" << std::endl;
+    //fusion->printMath();
+    //std::cout << std::endl;
     std::vector<CatOp*> representative_cats =
         scheduler_tools::getRepresentativeCatOps(fusion);
     for (auto cat : representative_cats) {
-      scheduler_tools::propagateResizeToCatInputs(cat);
+      NVF_ERROR(
+          scheduler_tools::propagateResizeToCatInputs(cat),
+          "cat propagation failed: ", cat->toString());
+      fusion->print();
+      std::cout << std::endl;
     }
   }
+
+  std::cout << "scheduilng done\n";
+  fusion->printMath();
+  std::cout << std::endl;
 
   scheduler_utils::prepareForMemoryTypePromotion(fusion);
 
@@ -566,6 +585,11 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   }
 
   TensorView* reference_tv = getReferenceTensorView(fusion);
+
+  std::cerr << "Reference: " << reference_tv->toString() << "\n";
+  
+  fusion->printMath();
+  std::cout << std::endl;
 
   NVF_ERROR(
       reference_tv != nullptr,

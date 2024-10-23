@@ -2328,6 +2328,11 @@ getNonPointwiseProducerConsumerPairs(Fusion* fusion) {
                 [](const auto& path_node) {
                   return path_node.first->front()->template isA<Resize>();
                 })) {
+          std::cerr << "Resize detected between " << producer->toString() << " and " << consumer->toString() << "\n";
+          for (const auto& [eg, dir] : producer_consumer_exprs) {
+            std::cerr << dir << ": " << eg->front()->toString();
+          }
+            
           tvs.emplace_back(producer, consumer);
         }
       }
@@ -2679,7 +2684,37 @@ void moveNonConcretizedBroadcastInnermost(
     tv->reorder(old2new);
   }
 }
+#if 0
+void insertMissingBroadcastDomains(TensorView* reference) {
+  Fusion* fusion = reference->fusion();
+  
+  // Consider reusing IdModels
+  IdModel id_model(fusion, /*build_models=*/false);
+  const auto& graph = id_model.buildBroadcastGraph();
 
+  ValGroups ref_groups = graph.toGroups(reference->getLoopDomain());  
+  
+  for (auto tv : fusion->allTvs()) {
+    const auto& loop_domain = tv->getLoopDomain();
+    ValGroups loop_groups = graph.toGroups(loop_domain);
+
+    const auto reachable_ref_groups =
+        ValGraphBFS::getReachableValsFrom(graph, loop_groups, ref_groups);
+
+    std::unordered_set<ValGroup> missing_ref_groups;
+    for (const auto& ref_group : ref_groups) {
+      if (!reachable_ref_groups.has(ref_group)) {
+        missing_ref_groups.emplace(ref_group);
+      }
+    }
+
+    for (const auto i : c10::irange(ref_groups.size())) {
+      if (reachable_ref_groups.has(ref_group)) {
+      }        
+    }
+  }
+}
+#endif
 } // namespace scheduler_utils
 
 } // namespace nvfuser
