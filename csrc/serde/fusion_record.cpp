@@ -364,10 +364,12 @@ void RecordFunctorFactory::registerAllParsers() {
   registerParser(RecordType::BroadcastOp, deserializeBroadcastRecord);
 
   auto deserializeCatRecord = [](const RecordFunctor* buffer) {
+    auto data = buffer->data_as_Cat();
     return new python_frontend::CatOpRecord(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
-        buffer->data_as_Dimension()->dim());
+        data->dim(),
+        data->manual_padding());
   };
   registerParser(RecordType::CatOp, deserializeCatRecord);
 
