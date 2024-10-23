@@ -540,7 +540,9 @@ void RecordFunctorFactory::registerAllParsers() {
 
   auto deserializeSliceRecord = [](const RecordFunctor* buffer) {
     return new python_frontend::SliceOpRecord(
-        parseStateArgs(buffer->args()), parseStateArgs(buffer->outputs()));
+        parseStateArgs(buffer->args()),
+        parseStateArgs(buffer->outputs()),
+        buffer->data_as_Slice()->manual_normalization());
   };
   registerParser(RecordType::SliceOp, deserializeSliceRecord);
 

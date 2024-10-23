@@ -126,7 +126,10 @@ NVF_API TensorView* cat(
 //! ranges parameter. Stepping must be one at this moment. The semantics of
 //! slicing with negative values and values >= extent follow those of numpy and
 //! PyTorch.
-NVF_API TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges);
+NVF_API TensorView* slice(
+    TensorView* inp,
+    const std::vector<Slice>& ranges,
+    bool manual_normalization = false);
 
 //! A variant of the above `slice` function. This is closer to the Python API.
 NVF_API TensorView* slice(
