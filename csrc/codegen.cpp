@@ -194,6 +194,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   std::string getLiteralSuffix(DataType dtype) {
     switch (std::get<PrimDataType>(dtype.type)) {
       case DataType::Float:
+      case DataType::Half:
+      case DataType::BFloat16:
+      case DataType::Float8_e4m3fn:
+      case DataType::Float8_e5m2:
         return "f";
       case DataType::Int:
         // We use the LL suffix for int64_t literals
