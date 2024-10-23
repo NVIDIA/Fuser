@@ -1026,41 +1026,44 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           in_tv->getMemoryType() == MemoryType::Global &&
           kernel_->summary().sync_map->needsRawSync(in_tv).hasBID();
       
-      code_ << gen(top->in1()) << " ? ";
+      indent() << gen(top->in1()) << "\n";
+      indent() << "? ";
 
       if (localToGlobal) {
-        indent() << "loadLocalToGlobal<" << top->out()->dtype()
-                 << ", /*vec_size=*/" << vector_word_size
-                 << ", /*is_volatile=*/"
-                 << (is_volatile_to ? "true" : "false") << ">(";
+        code_ << "loadLocalToGlobal<" << top->out()->dtype()
+              << ", /*vec_size=*/" << vector_word_size
+              << ", /*is_volatile=*/"
+              << (is_volatile_to ? "true" : "false") << ">(";
         code_ << " &" << gen(top->out()) << ", &" << gen(top->in2())
               << ")";
       } else if (globalToLocal) {
-        indent() << "loadGlobalToLocal<" << top->out()->dtype()
-                 << ", /*vec_size=*/" << vector_word_size
-                 << ", /*is_volatile=*/"
-                 << (is_volatile_from ? "true" : "false") << ", "
-                 // << "CacheOp::" << ldst->cacheOp() << ">(&"
-                 << "CacheOp::Streaming>(&"
-                 << gen(top->out()) << ", ";
+        code_ << "loadGlobalToLocal<" << top->out()->dtype()
+              << ", /*vec_size=*/" << vector_word_size
+              << ", /*is_volatile=*/"
+              << (is_volatile_from ? "true" : "false") << ", "
+              // << "CacheOp::" << ldst->cacheOp() << ">(&"
+              << "CacheOp::Streaming>(&"
+              << gen(top->out()) << ", ";
         code_ << " &" << gen(top->in2()) << ")";
       } else if (globalToGlobal) {
-        indent() << "loadGlobalToGlobal<" << top->out()->dtype()
-                 << ", /*vec_size=*/" << vector_word_size
-                 << ", /*is_volatile_to=*/"
-                 << (is_volatile_to ? "true" : "false")
-                 << ", /*is_volatile_from=*/"
-                 << (is_volatile_from ? "true" : "false") << ">(";
+        code_ << "loadGlobalToGlobal<" << top->out()->dtype()
+              << ", /*vec_size=*/" << vector_word_size
+              << ", /*is_volatile_to=*/"
+              << (is_volatile_to ? "true" : "false")
+              << ", /*is_volatile_from=*/"
+              << (is_volatile_from ? "true" : "false") << ">(";
         code_ << " &" << gen(top->out()) << ", ";
         code_ << " &" << gen(top->in2()) << ")";
       } else {
-        indent() << "loadGeneric<" << top->out()->dtype() << ", "
-                 << vector_word_size << ">(";
+        code_ << "loadGeneric<" << top->out()->dtype() << ", "
+              << vector_word_size << ">(";
         code_ << " &" << gen(top->out()) << ", ";
         code_ << " &" << gen(top->in2()) << ")";
       }
 
-      code_ << " : " << "arraySet<" << out_tv->getDataType().value() << ", " << vector_word_size << ">(&" << gen(top->out()) << ", (" << out_tv->getDataType().value() << ")" << gen(top->in3()) << ");\n";
+      code_ << "\n";
+      // TODO: handle the local buffer. checkout LoadStoreOp
+      indent() << " : " << "arraySet<" << out_tv->getDataType().value() << ", " << vector_word_size << ">(&" << gen(top->out()) << ", (" << out_tv->getDataType().value() << ")" << gen(top->in3()) << ");\n";
       return;
     }
 
