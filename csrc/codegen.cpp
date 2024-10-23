@@ -1034,7 +1034,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                  << ", /*is_volatile=*/"
                  << (is_volatile_to ? "true" : "false") << ">(";
         code_ << " &" << gen(top->out()) << ", &" << gen(top->in2())
-              << ");\n";
+              << ")";
       } else if (globalToLocal) {
         indent() << "loadGlobalToLocal<" << top->out()->dtype()
                  << ", /*vec_size=*/" << vector_word_size
@@ -1043,7 +1043,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                  // << "CacheOp::" << ldst->cacheOp() << ">(&"
                  << "CacheOp::Streaming>(&"
                  << gen(top->out()) << ", ";
-        code_ << " &" << gen(top->in2()) << ");\n";
+        code_ << " &" << gen(top->in2()) << ")";
       } else if (globalToGlobal) {
         indent() << "loadGlobalToGlobal<" << top->out()->dtype()
                  << ", /*vec_size=*/" << vector_word_size
@@ -1052,12 +1052,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                  << ", /*is_volatile_from=*/"
                  << (is_volatile_from ? "true" : "false") << ">(";
         code_ << " &" << gen(top->out()) << ", ";
-        code_ << " &" << gen(top->in2()) << ");\n";
+        code_ << " &" << gen(top->in2()) << ")";
       } else {
         indent() << "loadGeneric<" << top->out()->dtype() << ", "
                  << vector_word_size << ">(";
         code_ << " &" << gen(top->out()) << ", ";
-        code_ << " &" << gen(top->in2()) << ");\n";
+        code_ << " &" << gen(top->in2()) << ")";
       }
 
       auto cast = scalarCast(top->in2(), top->in3());
