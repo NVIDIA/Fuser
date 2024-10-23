@@ -962,8 +962,8 @@ void scheduleInnerOuterPersistentKernel(
     fusion->addOutput(output);
   }
 
-  const bool unroll = rparams->isUnrolled();
-  const bool vectorize =
+  const bool is_unroll_or_vectorization = rparams->isUnrolled();
+  const bool is_vectorize =
       rparams->vectorize_inner_reduction || rparams->vectorize_iter_dom;
   const bool is_outer_grid_persistence = rparams->persistent_kernel &&
       rparams->cross_grid_inner_reduction && !rparams->fastest_dim;
@@ -978,17 +978,20 @@ void scheduleInnerOuterPersistentKernel(
   // Don't allow parallelization propagation goes through boundaryNodesSet
   const auto& selected_tvs_inner =
       scheduler_utils::getAllTvsFrom(inner_reduction_tvs, boundaryNodesSet);
+  const auto& unroll_vectorizable_cached_tvs =
+      reduction_scheduler_utils::getCachedTvsToUnrollOrVectorize(
+          inner_reference_tv,
+          is_vectorize,
+          cached_inputs,
+          cached_outputs,
+          smem_consumers);
   reduction_scheduler_utils::propagateParallelization(
-      fusion,
       inner_reduction_tvs[0],
       inner_reference_tv,
-      unroll,
-      vectorize,
+      is_unroll_or_vectorization,
       is_outer_grid_persistence,
       inner_reduction_tvs,
-      cached_inputs,
-      cached_outputs,
-      smem_consumers,
+      unroll_vectorizable_cached_tvs,
       {selected_tvs_inner.begin(), selected_tvs_inner.end()});
 
   // Propagate outer reduction. Each outer reduction is connected with its
@@ -1003,17 +1006,20 @@ void scheduleInnerOuterPersistentKernel(
         {outer_reduction_tvs[i]}, {cached_gmem[i]});
     reduction_scheduler_utils::propagateTransformation(
         outer_reference_tvs[i], boundaryNodesSet);
+    const auto& unroll_vectorizable_cached_tvs =
+        reduction_scheduler_utils::getCachedTvsToUnrollOrVectorize(
+            outer_reference_tvs[i],
+            is_vectorize,
+            cached_inputs,
+            cached_outputs,
+            smem_consumers);
     reduction_scheduler_utils::propagateParallelization(
-        fusion,
         outer_reduction_tvs[i],
         outer_reference_tvs[i],
-        unroll,
-        vectorize,
+        is_unroll_or_vectorization,
         is_outer_grid_persistence,
         outer_reduction_tvs,
-        cached_inputs,
-        cached_outputs,
-        smem_consumers,
+        unroll_vectorizable_cached_tvs,
         {selected_tvs_outer.begin(), selected_tvs_outer.end()});
   }
 
