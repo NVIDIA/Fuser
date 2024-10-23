@@ -14,6 +14,7 @@
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
+#include <mma_type.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <python_frontend/fusion_cache.h>
@@ -714,6 +715,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       [](MatmulParams& self, int64_t x) { self.tile_sizes.tile_name.n = x; });
   TILEPARAM(cta_tile)
   TILEPARAM(warp_tile)
+  TILEPARAM(instruction_tile)
 #undef TILEPARAM
 #define CBPARAM(type, name)                                                 \
   matmul_config.def_property(                                               \
@@ -736,13 +738,28 @@ void initNvFuserPythonBindings(PyObject* module) {
       nvfuser, "MatmulTileRasterizationOrder")
       .value("column_major", MatmulParams::TileRasterizationOrder::ColumnMajor)
       .value("row_major", MatmulParams::TileRasterizationOrder::RowMajor);
-  matmul_config.def_property(
-      "cta_order",
-      [](MatmulParams& self) { return self.cta_order; },
-      [](MatmulParams& self, MatmulParams::TileRasterizationOrder cta_order_) {
-        self.cta_order = cta_order_;
-      });
-  // TODO: macro
+  PARAM(
+      matmul_config,
+      MatmulParams,
+      MatmulParams::TileRasterizationOrder,
+      cta_order);
+  py::enum_<MmaMacroEncode::Arch>(nvfuser, "MmaMacroArch")
+      .value("no_mma", MmaMacroEncode::Arch::NoMma)
+      .value("volta", MmaMacroEncode::Arch::Volta)
+      .value("turing", MmaMacroEncode::Arch::Turing)
+      .value("ampere", MmaMacroEncode::Arch::Ampere)
+      .value("hopper", MmaMacroEncode::Arch::Hopper);
+  py::class_<MmaMacro> mma_macro(nvfuser, "MmaMacro");
+  mma_macro.def_property_readonly(
+      "arch", [](MmaMacro& self) { return MmaMacroEncode(self).arch; });
+  mma_macro.def_property_readonly(
+      "m", [](MmaMacro& self) -> uint16_t { return MmaMacroEncode(self).m; });
+  mma_macro.def_property_readonly(
+      "n", [](MmaMacro& self) -> uint16_t { return MmaMacroEncode(self).n; });
+  mma_macro.def_property_readonly(
+      "k", [](MmaMacro& self) -> uint16_t { return MmaMacroEncode(self).k; });
+  mma_macro.def("__repr__", [](MmaMacro& self) { return toString(self); });
+  PARAM(matmul_config, MatmulParams, MmaMacroEncode, mma_macro);
 
 #undef PARAM
 #undef INITPARAMS
