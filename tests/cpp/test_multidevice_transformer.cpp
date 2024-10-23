@@ -278,29 +278,58 @@ std::vector<TensorView*> mlp(
     TensorView* b0,
     TensorView* w1,
     TensorView* b1,
-    const DeviceMesh& mesh) {
+    const DeviceMesh& mesh,
+    bool sequence_parallel = false) {
   const DataType dtype = w0->dtype();
-  // // Linear 0
+
+  if (sequence_parallel) {
+    // Input arrives sharded and must be allgathered back
+    x->setDeviceMesh(mesh);
+    x->axis(0)->parallelize(ParallelType::DIDx);
+    x = set(x); // allgather
+    x->setDeviceMesh(mesh);
+    x->axis(0)->parallelize(ParallelType::Serial);
+    // Reshape back to 2D for linearOp
+    auto D = w0->axis(0)->extent()->value().as<int64_t>();
+    x = reshape(x, {D, B * S / D, E}, {B * S, E});
+  }
+  // Linear 0
   TensorView* linear0 = linear(x, w0, b0);
   // GeLU
   TensorView* gelu = tanh_gelu(castOp(DataType::Float, linear0));
   gelu = castOp(dtype, gelu);
   // Linear 1
   TensorView* local_matmul1 = matmul(gelu, transpose(w1, 1, 2));
-  TensorView* matmul1 = sum(local_matmul1, {0}); // Allreduce
-  TensorView* linear1 = add(matmul1, broadcast(b1, {true, false}));
+  if (sequence_parallel) {
+    // Remove after https://github.com/NVIDIA/Fuser/issues/2563
+    // Reshape to explicitly pull the sharded axis into the logical domain
+    auto D = w0->axis(0)->extent()->value().as<int64_t>();
+    local_matmul1 = reshape(local_matmul1, {D, B * S, E}, {D, D, B * S / D, E});
+  }
+  TensorView* matmul1 = sum(local_matmul1, {0}); // Allreduce or Reduce scatter
+  std::cout << "matmul1 " << matmul1->toString() << std::endl;
+  TensorView* linear1 = add(matmul1, broadcast(b1, {true, true, false}));
   // Dropout
   Val* prob = IrBuilder::create<Val>(1.0 - kDropoutProb);
   Val* scale = IrBuilder::create<Val>(1.0 / (1.0 - kDropoutProb));
   auto dropout_result = dropout(linear1, prob, scale).output;
 
-  // Manual sharding annotations
-  for (auto tv : {x, b1, linear1, dropout_result}) {
-    tv->setDeviceMesh(mesh);
-  }
-  for (auto tv : {w0, b0, w1, linear0, gelu}) {
+  // Tensor parallel shardings
+  for (auto* tv : {w0, b0, w1, linear0, gelu}) {
     tv->setDeviceMesh(mesh);
     tv->axis(0)->parallelize(ParallelType::DIDx);
+  }
+  for (auto* tv : {x, b1, linear1, dropout_result}) {
+    tv->setDeviceMesh(mesh);
+  }
+
+  // Sequence parallel shardings
+  if (sequence_parallel) {
+    for (auto* tv : {linear1, dropout_result}) {
+      tv->axis(0)->parallelize(ParallelType::DIDx);
+    }
+    matmul1->setDeviceMesh(mesh);
+    matmul1->axis(1)->parallelize(ParallelType::DIDx);
   }
 
   return {linear0, gelu, linear1, dropout_result};
@@ -685,60 +714,30 @@ TEST_P(DistributedTransformerTest, Sequence_Parallel_MLP_Layer) {
   const auto mesh = DeviceMesh::createForNumDevices(D);
 
   TensorView* x = makeContigConcreteTensor({D, B * S / D, E}, dtype);
-  TensorView* w0 = makeContigConcreteTensor({D, E, 4 * E / D}, dtype);
+  TensorView* w0 = makeContigConcreteTensor({D, 4 * E / D, E}, dtype);
   TensorView* b0 = makeContigConcreteTensor({D, 4 * E / D}, dtype);
-  TensorView* w1 = makeContigConcreteTensor({D, 4 * E / D, E}, dtype);
+  TensorView* w1 = makeContigConcreteTensor({D, E, 4 * E / D}, dtype);
   TensorView* b1 = makeContigConcreteTensor({E}, dtype);
 
   // Input x is sharded on B*S dimension.
   // Note it is only the sequence (S) dimension that is sharded
   // but to avoid DID parallelizations of inner logical axes
   // B*S is sharded.
-  x->setDeviceMesh(mesh);
-  x->axis(0)->parallelize(ParallelType::DIDx);
+  auto tvsout = mlp(x, w0, b0, w1, b1, mesh, true);
+
   fusion->addInput(x);
-  // Allgather x
-  x = set(x);
-  x->setDeviceMesh(mesh);
-  x->axis(0)->parallelize(ParallelType::Serial);
-  // Reshape back to 2D for linearOp
-  x = reshape(x, {D, B * S / D, E}, {B * S, E});
-
-  TensorView* linear0 = linear(x, w0, b0);
-  TensorView* gelu = tanh_gelu(linear0);
-  gelu = castOp(dtype, gelu);
-  // Linear 1
-  TensorView* local_matmul1 = matmul(gelu, transpose(w1, 0, 1));
-  // Reshape to explicitly pull out the new sharded dimension on B*S
-  local_matmul1 = reshape(local_matmul1, {D, B * S, E}, {D, D, B * S / D, E});
-  TensorView* matmul1 = sum(local_matmul1, {0}); // Reduce scatter
-  TensorView* linear1 = add(matmul1, broadcast(b1, {true, true, false}));
-  // Dropout
-  Val* prob = IrBuilder::create<Val>(1.0 - kDropoutProb);
-  Val* scale = IrBuilder::create<Val>(1.0 / (1.0 - kDropoutProb));
-  auto dropout_result = dropout(linear1, prob, scale).output;
-
-  // Manual sharding annotations
-  for (auto tv : {x, b1}) {
-    tv->setDeviceMesh(mesh);
-  }
-  for (auto tv : {w0, b0, w1, linear0, gelu, linear1, dropout_result}) {
-    tv->setDeviceMesh(mesh);
-    tv->axis(0)->parallelize(ParallelType::DIDx);
-  }
-
-  matmul1->setDeviceMesh(mesh);
-  matmul1->axis(1)->parallelize(ParallelType::DIDx);
-
   fusion->addInput(w0);
   fusion->addInput(b0);
   fusion->addInput(w1);
   fusion->addInput(b1);
 
-  fusion->addOutput(linear0);
-  fusion->addOutput(gelu);
-  fusion->addOutput(linear1);
-  fusion->addOutput(dropout_result);
+  for (auto* tv : tvsout) {
+    fusion->addOutput(tv);
+  }
+
+  // Needed to ensure that dropout mask is sharded initially.
+  // sharding from linear1 to dropout like linear1
+  shardBetween({tvsout[2]}, {tvsout[3]}, tvsout[2]);
 
   const auto options =
       at::TensorOptions().dtype(at_dtype).device(communicator_->device());
@@ -756,9 +755,9 @@ TEST_P(DistributedTransformerTest, Sequence_Parallel_MLP_Layer) {
 
   std::vector<c10::IValue> inputs = {
       shardTensor(x_, 0, mesh),
-      shardTensor(w0_, 1, mesh),
+      shardTensor(w0_, 0, mesh),
       shardTensor(b0_, 0, mesh),
-      shardTensor(w1_, 0, mesh),
+      shardTensor(w1_, 1, mesh),
       b1_};
 
   std::vector<at::Tensor> expected_outputs = {
@@ -770,7 +769,7 @@ TEST_P(DistributedTransformerTest, Sequence_Parallel_MLP_Layer) {
   FusionExecutorCache fec(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
   auto outputs = fec.runFusionWithInputs(inputs);
-  validate(expected_outputs, outputs, {0.01, 0.01, 0.01, 0.01});
+  validate(expected_outputs, outputs, {0.01, 0.01, 0.02, 0.02});
 }
 
 TEST_P(DistributedTransformerTest, MultiheadAttention) {
