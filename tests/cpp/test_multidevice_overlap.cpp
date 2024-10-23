@@ -15,6 +15,7 @@
 #include <ir/utils.h>
 #include <ops/all_ops.h>
 #include <tests/cpp/multidevice.h>
+#include <cuda_runtime.h>
 
 namespace nvfuser {
 
@@ -39,6 +40,108 @@ void synchronizeStreams(const std::vector<c10::cuda::CUDAStream>& streams) {
 }
 
 } // namespace
+
+using OverlapBenchmarkParams = std::tuple<
+    CommunicatorBackend,
+    /*S=*/int64_t,
+    /*M=*/int64_t,
+    /*K=*/int64_t,
+    /*N=*/int64_t,
+    /*number_of_streams=*/int64_t>;
+
+class OverlapBenchmark : public MultiDeviceTest, public testing::WithParamInterface<OverlapBenchmarkParams> {
+ protected:
+  static std::unordered_map<std::string, float> times;
+
+  static void TearDownTestSuite() {
+    auto rank = Communicator::getInstance().deviceId();
+    for (auto it: times) {
+      std::cout << "rank " << rank << ": " << it.first << ": " << it.second << std::endl;
+    }
+  }
+};
+
+std::unordered_map<std::string, float> OverlapBenchmark::times = {};
+
+TEST_P(OverlapBenchmark, DummyBenchmark) {
+  constexpr int64_t number_of_warmups = 120;
+  constexpr int64_t number_of_iterations = 500;
+  const int64_t D = communicator_->size();
+  auto [backend,
+        S,
+        M,
+        K,
+        N,
+        number_of_streams] = GetParam();
+
+  GTEST_ASSERT_EQ(M % S, 0);
+
+  auto world = communicator_->getWorld(backend);
+
+  std::vector<c10::cuda::CUDAStream> streams =
+      createStreams(number_of_streams, communicator_->deviceId());
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
+  auto ta = at::randn({S, M/S,K}, options);
+  auto ta_unsharded = at::empty({S, D, M/S,K}, options);
+  auto tb = at::randn({K,N}, options);
+
+  cudaEvent_t start, stop;
+  cudaEventCreate(&start);
+  cudaEventCreate(&stop);
+
+  for (const auto& iteration :
+       c10::irange(number_of_warmups + number_of_iterations)) {
+    if (iteration == number_of_warmups) {
+      cudaEventRecord(start);
+    }
+    for (auto j : c10::irange(S)) {
+      int64_t stream_index = j % streams.size();
+      setCurrentCUDAStream(streams.at(stream_index));
+
+      auto ta_j = ta.select(0, j);
+      auto ta_unsharded_j = ta_unsharded.select(0, j);
+
+      // communication
+      world->_allgather_base(ta_unsharded_j, ta_j)->wait();
+      // compute
+      auto tc_j = torch::matmul(ta_unsharded_j,tb);
+    }
+    setCurrentCUDAStream(c10::cuda::getDefaultCUDAStream(communicator_->deviceId()));
+    synchronizeStreams(streams);
+  }
+  cudaEventRecord(stop);
+  cudaEventSynchronize(stop);
+  float milliseconds = 0;
+  cudaEventElapsedTime(&milliseconds, start, stop);
+  milliseconds /= number_of_iterations;
+
+  std::string test_name = ::testing::UnitTest::GetInstance()->current_test_info()->name();
+  times.insert({test_name, milliseconds});
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    OverlapBenchmark,
+    testing::Combine(
+    testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
+    /*S=*/testing::Values(1,2,4,8),
+    /*M=*/testing::Values(pow(2,10), pow(2,15)),
+    /*K=*/testing::Values(pow(2,10), pow(2,15)),
+    /*N=*/testing::Values(pow(2,10)),
+    /*number_of_streams=*/testing::Values(3, 8)),
+    [](const testing::TestParamInfo<OverlapBenchmarkParams>& info)
+        -> std::string {
+      std::ostringstream os;
+      os << /*backend*/std::get<0>(info.param) << "_"
+         << "S" << std::get<1>(info.param) << "_"
+         << "M" << std::get<2>(info.param) << "_"
+         << "K" << std::get<3>(info.param) << "_"
+         << "N" << std::get<4>(info.param) << "_"
+         << "Streams" << std::get<5>(info.param);
+      return os.str();
+    });
+
 
 struct OverlapTestParams {
   // Tensors sizes
