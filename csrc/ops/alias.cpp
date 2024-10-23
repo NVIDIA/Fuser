@@ -588,7 +588,8 @@ TensorView* pad(
 TensorView* cat(
     const std::vector<TensorView*>& inputs,
     int64_t cat_dim,
-    std::optional<IterType> iter_type_opt) {
+    std::optional<IterType> iter_type_opt,
+    bool manual_padding) {
   NVF_CHECK(!inputs.empty(), "No input tensor given");
 
   const auto dtype = inputs.at(0)->getDataType().value();
@@ -627,6 +628,24 @@ TensorView* cat(
   // Special handling for the case where there's only one input
   if (inputs.size() == 1) {
     return set(inputs.at(0));
+  }
+
+  // short-circuit: If manual_padding is true, check that all inputs are already
+  // padded. Assume the padding is correct and create the catOp immediately.
+  // Primarily used for FusionTranslation, which adds the padOp for each tensor
+  // separately.
+  if (manual_padding) {
+    bool all_padded =
+        std::all_of(inputs.begin(), inputs.end(), [](TensorView* tv) {
+          return tv->definition()->isA<PadOp>();
+        });
+    NVF_ERROR(
+        all_padded,
+        "Expected all inputs to be padded when manual_padding is True.");
+    std::vector<Val*> input_vals(inputs.begin(), inputs.end());
+    auto out = ops::newOutputTV(input_vals, dtype);
+    IrBuilder::create<CatOp>(out, input_vals, cat_dim);
+    return out;
   }
 
   Val* concat_ext = nullptr;
