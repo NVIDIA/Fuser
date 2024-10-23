@@ -1060,8 +1060,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         code_ << " &" << gen(top->in2()) << ")";
       }
 
-      auto cast = scalarCast(top->in2(), top->in3());
-      code_ << " : " << gen(top->out()) << ".set(" << cast << gen(top->in3()) << ";\n";
+      code_ << " : " << "arraySet<" << out_tv->getDataType().value() << ", " << vector_word_size << ">(&" << gen(top->out()) << ", (" << out_tv->getDataType().value() << ")" << gen(top->in3()) << ");\n";
       return;
     }
 
