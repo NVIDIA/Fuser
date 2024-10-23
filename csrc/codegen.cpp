@@ -1002,8 +1002,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   void handle(const TernaryOp* top) final {
     // Get vectorization information
-    if (auto out_ti = top->out()->as<kir::TensorIndex>()) {
-      auto out_tv = out_ti->view();
+    if (auto out_ti = top->out()->isA<kir::TensorIndex>()) {
+      auto out_tv = top->out()->as<kir::TensorIndex>()->view();
       int64_t vector_word_size = ir_utils::getVectorizeSize(out_tv);
       bool is_vector_op = vectorize_scope_ && vector_word_size != 1;
 
