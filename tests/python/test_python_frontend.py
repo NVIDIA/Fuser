@@ -1906,11 +1906,35 @@ class TestNvFuserFrontend(NVFuserTest):
             # t5 = fd.ops.cat([t0, t3], 0)
             # fd.add_output(t5)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
 
         self.assertEqual(torch.cat([inputs[0], inputs[1]], dim=1), nvf_out[0])
         self.assertEqual(torch.cat([inputs[0], inputs[2]], dim=0), nvf_out[1])
         # self.assertEqual(torch.cat([inputs[0], inputs[3]], dim=0), nvf_out[2])
+
+    def test_pad_prior_cat(self):
+        inputs = [
+            torch.randn(2, 4, device="cuda"),
+            torch.randn(3, 3, device="cuda"),
+        ]
+
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.from_pytorch(inputs[1])
+
+            # pad tensors t0 and t1, so their first dimension are size 10.
+            t0_pad = fd.ops.pad(t0, [0, 0, 0, 8])
+            t1_pad = fd.ops.pad(t1, [0, 0, 0, 7])
+
+            t3 = fd.ops.cat([t0_pad, t1_pad], 1)
+            fd.add_output(t3)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
+
+        # pad tensors t0 and t1, so their first dimension are size 10.
+        pad_input0 = torch.nn.functional.pad(inputs[0], [0, 0, 0, 8])
+        pad_input1 = torch.nn.functional.pad(inputs[1], [0, 0, 0, 7])
+        self.assertEqual(torch.cat([pad_input0, pad_input1], dim=1), nvf_out[0])
 
     def test_nextafter(self):
         inputs = [
@@ -3242,7 +3266,7 @@ class TestNvFuserFrontend(NVFuserTest):
             fd.add_output(T27)
             fd.add_output(T28)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
 
         t12 = inputs[1] * inputs[-2]
         t13 = torch.permute(t12, [0, 1, 3, 2])
@@ -3868,7 +3892,7 @@ class TestNvFuserFrontend(NVFuserTest):
 
             fd.add_output(T88)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
 
     # See https://github.com/NVIDIA/Fuser/issues/2275
     @pytest.mark.skipif(
@@ -3914,7 +3938,7 @@ class TestNvFuserFrontend(NVFuserTest):
             T101 = fd.ops.cat([T7, T100], dim=-1)
             fd.add_output(T101)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
 
     # See https://github.com/NVIDIA/Fuser/issues/2317
     @pytest.mark.skipif(
@@ -4293,7 +4317,7 @@ class TestNvFuserFrontend(NVFuserTest):
             fd.add_output(T18)
             fd.add_output(T16)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
 
     def test_returning_aliased_outputs(self):
         inputs = [torch.randn((1, 2, 3, 4), dtype=torch.float32, device="cuda:0")]
