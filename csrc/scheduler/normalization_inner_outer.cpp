@@ -258,7 +258,30 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   // memory to avoid segmentation when there are many outer reductions and
   // hardware has larger shared memory, but these applications are rare and not
   // considered here.
-  buffer_params.smem_buffer_size = cached_input_buffer_size;
+  auto buffers = buffer_params.project_to_input
+      ? persistent_buffer_info.projectable_buffer_inputs
+      : persistent_buffer_info.persistent_buffers;
+  // Needs to use rounded shared memory size to avoid over usage.
+  // key : buffer tv.
+  // val : register size and rounded shared memory size
+  std::unordered_map<TensorView*, std::pair<int64_t, int64_t>>
+      required_size_regs_smem_map;
+  int64_t total_smem_buffer_size = 0;
+  for (auto buffer : buffers) {
+    int64_t buffer_size_regs = scheduler_utils::getPersistentBufferSizeOfTensor(
+        buffer, runtime_info, persistent_buffer_info);
+    int64_t buffer_size_smem = roundUpSharedMemory(
+        buffer_size_regs,
+        dataTypeSize(buffer->getDataType().value()),
+        vectorize_factor,
+        InnerOuterPersistentKernelScheduler::threads_per_block_min,
+        InnerOuterPersistentKernelScheduler::threads_per_block_max,
+        dev_prop->warpSize);
+    required_size_regs_smem_map[buffer] =
+        std::make_pair(buffer_size_regs, buffer_size_smem);
+    total_smem_buffer_size += buffer_size_smem;
+  }
+  buffer_params.smem_buffer_size = total_smem_buffer_size;
   buffer_params.regs_buffer_size = outer_reduction_buffer_size;
   if (buffer_params.regs_buffer_size <= available_regs &&
       buffer_params.smem_buffer_size <= available_smem) {
@@ -278,35 +301,19 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
 
   // (3) Now, shared memory is overused, try to move some buffers to registers.
   // (3.1) Sort the candidate persistent buffers
-  const auto buffers = buffer_params.project_to_input
-      ? sortProjectableBufferInputs(
-            persistent_buffer_info.projectable_buffer_inputs,
-            outer_broadcast_tvs)
-      : persistent_buffer_info.persistent_buffers;
-
+  if (buffer_params.project_to_input) {
+    buffers = sortProjectableBufferInputs(buffers, outer_broadcast_tvs);
+  }
   // (3.2) Before this loop, all cached input buffers are in shared memory.
   // Try to move buffer from shared memroy to register.
   int64_t n_regs_buffer = -1;
   const int n_buffers = (int)buffers.size();
   for (int i = 0; i < n_buffers; i++) {
     auto current_tv = buffers[i];
-
-    // calculate the size of this buffer & reduce the register buffer size
-    int64_t tv_buffer_size_regs =
-        scheduler_utils::getPersistentBufferSizeOfTensor(
-            current_tv, runtime_info, persistent_buffer_info);
-    buffer_params.regs_buffer_size += tv_buffer_size_regs;
-
-    // round up the buffer size to shared memory & increase the shared memory
-    // buffer size
-    int64_t tv_buffer_size_smem = roundUpSharedMemory(
-        tv_buffer_size_regs,
-        dataTypeSize(current_tv->getDataType().value()),
-        vectorize_factor,
-        InnerOuterPersistentKernelScheduler::threads_per_block_min,
-        InnerOuterPersistentKernelScheduler::threads_per_block_max,
-        dev_prop->warpSize);
-    buffer_params.smem_buffer_size -= tv_buffer_size_smem;
+    auto [buffer_size_regs, buffer_size_smem] =
+        required_size_regs_smem_map.at(current_tv);
+    buffer_params.regs_buffer_size += buffer_size_regs;
+    buffer_params.smem_buffer_size -= buffer_size_smem;
 
     // The first-i buffers to are moved from shared memory to register
     // If both the register buffer size and shared memory buffer size are within
