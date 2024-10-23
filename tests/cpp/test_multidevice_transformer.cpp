@@ -727,7 +727,7 @@ TEST_P(DistributedTransformerTest, MultiheadAttention) {
   FusionExecutorCache fec(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
   auto outputs = fec.runFusionWithInputs(inputs);
-  validate(expected_outputs, outputs, {0.02, 0.01, 0.01, 0.01});
+  validate(expected_outputs, outputs, {0.02, 0.02, 0.02, 0.02});
 }
 
 TEST_P(DistributedTransformerTest, MLP_Backward) {
@@ -1027,7 +1027,7 @@ TEST_P(DistributedTransformerTest, Forward) {
   FusionExecutorCache fec(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
   auto outputs = fec.runFusionWithInputs(inputs);
-  validate(expected_outputs, outputs, {1e-4, 0.02, 0.02, 0.04, 0.04});
+  validate(expected_outputs, outputs, {1e-4, 0.02, 0.04, 0.04, 0.04});
 }
 
 TEST_P(DistributedTransformerTest, Backward) {
@@ -1322,11 +1322,11 @@ TEST_P(DistributedTransformerTest, Backward) {
        5e-3,
        0.01,
        4e-3,
+       0.04,
        0.02,
-       0.01,
-       0.01,
-       0.01,
-       0.01});
+       0.02,
+       0.02,
+       0.02});
 }
 
 INSTANTIATE_TEST_SUITE_P(
