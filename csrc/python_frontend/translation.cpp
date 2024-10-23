@@ -29,6 +29,27 @@ namespace {
 // _C._FusionDefinition class created by pybind11. It is easier to operate on
 // the child class directly than to create a new child instance from parent
 // instance.
+//
+// How to add support for an expression not yet overriden by FusionTranslator?
+//  1. Create handle function for expression.
+//     a. void handle(const SomeOp* op) final
+//
+//  2. Add RecordFunctor corresponding to Statement to FusionDefinition.
+//     a. fd_->defineRecord(new RecordFunctor(inputs, outputs)
+//
+//  3. If input argument already exists in FusionDefinition, map expressions
+//  input values to FusionDefinition State.
+//     a. map_val_to_fd_index_ maps CPP Val to fusion definition index.
+//     b. fd_->recordingState(map_val_to_fd_index_.at(op->inputs(...)))
+//
+//  4. If input argument is a vector, use createVector function.
+//
+//  5. If input argument is a scalar constant, use createScalar function.
+//
+//  6. Create output states expressions inputs.
+//     a. Tensor output = fd_->defineTensor(v->as<TensorView>()->nDims())
+//
+//  7. Add CPP Val and output state pair to map_val_to_fd_index_.
 class FusionTranslator : public OptInConstDispatch {
  public:
   // Returns a map from the values in the CPP fusion to its corresponding
