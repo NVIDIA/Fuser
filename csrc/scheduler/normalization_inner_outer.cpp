@@ -222,12 +222,6 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
           /*can_use_smem_persistent=*/true,
           outer_broadcast_tvs.empty());
 
-  auto cached_input_buffer_size = buffer_params.project_to_input
-      ? persistent_buffer_size_info.projected_persistent_buffer_size
-      : persistent_buffer_size_info.persistent_buffer_size;
-  auto outer_reduction_buffer_size =
-      partialOuterReductionBufferSize(reduction_tvs, runtime_info);
-
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
   int64_t smem_overhead = scheduler_utils::getSharedMemoryOverheadPerBlock(
       fusion,
@@ -251,6 +245,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   auto buffers = buffer_params.project_to_input
       ? persistent_buffer_info.projectable_buffer_inputs
       : persistent_buffer_info.persistent_buffers;
+
   // Needs to use rounded shared memory size to avoid over usage.
   // key : buffer tv.
   // val : register size and rounded shared memory size
@@ -272,7 +267,8 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
     total_smem_buffer_size += buffer_size_smem;
   }
   buffer_params.smem_buffer_size = total_smem_buffer_size;
-  buffer_params.regs_buffer_size = outer_reduction_buffer_size;
+  buffer_params.regs_buffer_size =
+      partialOuterReductionBufferSize(reduction_tvs, runtime_info);
   if (buffer_params.regs_buffer_size <= available_regs &&
       buffer_params.smem_buffer_size <= available_smem) {
     buffer_params.smem_persistent_buffers = buffer_params.project_to_input
