@@ -205,8 +205,13 @@ std::string KernelExecutor::getStructuredCode() const {
   return getStructuredCode(kernelString(), kernel()->indexType());
 }
 
-HostIRExecutor::HostIRExecutor()
-    : communicator_(&Communicator::getInstance()) {}
+HostIRExecutor::HostIRExecutor(
+    int64_t fusion_id,
+    int64_t concrete_id,
+    int64_t runtime_id,
+    int64_t group_id)
+    : ExecutorAbstract(fusion_id, concrete_id, runtime_id, group_id),
+      communicator_(&Communicator::getInstance()) {}
 
 bool HostIRExecutor::supported(Fusion* fusion) {
   FUSER_PERF_SCOPE("HostIRExecutor::supported");
@@ -232,6 +237,9 @@ void HostIRExecutor::compile(Fusion* fusion) {
   NVF_ERROR(
       supported(fusion),
       "HostIRExecutor does not support the Fusion provided.");
+  if (isProfilerEnabled()) {
+    FusionProfiler::segment(group_id_).startCompile();
+  }
   std::vector<Expr*> exprs = fusion->exprs();
   host_ir_container_ = std::make_unique<hir::HostIrContainer>();
   IrCloner cloner = Fusion::copy(fusion, host_ir_container_.get());
@@ -242,7 +250,9 @@ void HostIRExecutor::compile(Fusion* fusion) {
       host_ir_container_->pushBackTopLevelExprs(communication);
     }
   }
-  return;
+  if (isProfilerEnabled()) {
+    FusionProfiler::segment(group_id_).stopCompile();
+  }
 }
 
 bool HostIRExecutor::isCompiled() const {
@@ -268,6 +278,16 @@ std::vector<at::Tensor> HostIRExecutor::run(
     KernelArgumentHolder& args,
     std::vector<at::Tensor> outputs) {
   FUSER_PERF_SCOPE("HostIRExecutor::run");
+  if (isProfilerEnabled()) {
+    NVF_CHECK(
+        group_id_ >= 0,
+        "An invalid segment id is passed to FusionProfiler!:",
+        group_id_);
+    SegmentProfiler& sprof = FusionProfiler::segment(group_id_);
+    sprof.inputBytesAccessed(inputBytesProcessed(args));
+    sprof.scheduler(toString(SchedulerType::ExprEval));
+    sprof.startKernel();
+  }
   NVF_ERROR(host_ir_container_, "Need to compile before you can run.");
   // Bind fusion inputs
   auto expr_eval = executor_utils::bindInputs(args, host_ir_container_.get());
@@ -278,9 +298,7 @@ std::vector<at::Tensor> HostIRExecutor::run(
     outputs = allocateOutputs(
         host_ir_container_.get(),
         output_info,
-        c10::Device(c10::DeviceType::CUDA, args.getDeviceIndex())
-
-            ,
+        c10::Device(c10::DeviceType::CUDA, args.getDeviceIndex()),
         expr_eval);
   }
 
@@ -303,6 +321,10 @@ std::vector<at::Tensor> HostIRExecutor::run(
       work->wait();
     }
   }
+  if (isProfilerEnabled()) {
+    FusionProfiler::segment(group_id_).setDevice(args.getDeviceIndex());
+    FusionProfiler::segment(group_id_).stopKernel();
+  }
   return outputs;
 }
 
@@ -316,10 +338,16 @@ bool ExprEvalExecutor::supported(Fusion* fusion) {
 
 void ExprEvalExecutor::compile(Fusion* fusion) {
   FUSER_PERF_SCOPE("ExprEvalExecutor::compile");
+  if (isProfilerEnabled()) {
+    FusionProfiler::segment(group_id_).startCompile();
+  }
   NVF_ERROR(
       supported(fusion),
       "ExprEvalExecutor does not support the Fusion provided.");
   fusion_ = std::make_unique<Fusion>(*fusion);
+  if (isProfilerEnabled()) {
+    FusionProfiler::segment(group_id_).stopCompile();
+  }
 }
 
 bool ExprEvalExecutor::isCompiled() const {
@@ -330,6 +358,18 @@ std::vector<at::Tensor> ExprEvalExecutor::run(
     KernelArgumentHolder& args,
     std::vector<at::Tensor> outputs) {
   FUSER_PERF_SCOPE("ExprEvalExecutor::run");
+
+  if (isProfilerEnabled()) {
+    NVF_CHECK(
+        group_id_ >= 0,
+        "An invalid segment id is passed to FusionProfiler!:",
+        group_id_);
+    SegmentProfiler& sprof = FusionProfiler::segment(group_id_);
+    sprof.inputBytesAccessed(inputBytesProcessed(args));
+    sprof.scheduler(toString(SchedulerType::ExprEval));
+    sprof.startKernel();
+  }
+
   NVF_ERROR(fusion_, "Need to compile before you can run.");
   // Bind fusion inputs
   auto expr_eval = executor_utils::bindInputs(args, fusion_.get());
@@ -347,12 +387,9 @@ std::vector<at::Tensor> ExprEvalExecutor::run(
       }
     }
   }
-  return outputs;
-
   if (isProfilerEnabled()) {
-    auto& sprof = FusionProfiler::segment(group_id_);
-    sprof.stopKernel();
-    sprof.outputBytesAccessed(outputBytesProcessed(outputs));
+    FusionProfiler::segment(group_id_).stopKernel();
+    FusionProfiler::segment(group_id_).setDevice(args.getDeviceIndex());
   }
   return outputs;
 }
@@ -362,11 +399,7 @@ void KernelExecutor::compileFusion(
     const KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
     CompileParams compile_params,
-    SchedulerType scheduler_type,
-    int64_t fusion_id,
-    int64_t concrete_id,
-    int64_t runtime_id,
-    int64_t group_id) {
+    SchedulerType scheduler_type) {
   FUSER_PERF_SCOPE("KernelExecutor::compileFusion");
   // Temporary for refactoring as future users should use a dispatch or check
   // isSupported before trying to compile
@@ -386,14 +419,13 @@ void KernelExecutor::compileFusion(
   // TODO: refactor the options_ passed through
   options_.device = c10::Device(c10::DeviceType::CUDA, args.getDeviceIndex());
 
-  // NOTE: Profiling needs to be started below the isExpressionEvaluated query
-  // given the conditional can exit early from compilation.
   if (isProfilerEnabled()) {
     NVF_CHECK(
-        group_id >= 0,
+        group_id_ >= 0,
         "An invalid segment id is passed to FusionProfiler!:",
-        group_id);
-    FusionProfiler::segment(group_id).startCompile(args.getDeviceIndex());
+        group_id_);
+    FusionProfiler::segment(group_id_).setDevice(args.getDeviceIndex());
+    FusionProfiler::segment(group_id_).startCompile();
   }
 
   for (auto out : fusion->outputs()) {
@@ -498,7 +530,8 @@ void KernelExecutor::compileFusion(
   for (const auto& hook : post_lowering_hooks_) {
     hook(kernel);
   }
-  createKernelId(scheduler_type, fusion_id, concrete_id, runtime_id, group_id);
+  createKernelId(
+      scheduler_type, fusion_id_, concrete_id_, runtime_id_, group_id_);
   setUsedTVs();
 
   if (isDebugDumpEnabled(DebugDumpOption::KernelIr)) {
@@ -634,7 +667,7 @@ void KernelExecutor::compileFusion(
     debug() << disassembledKernelSASS() << std::endl;
   }
   if (isProfilerEnabled()) {
-    FusionProfiler::segment(group_id).stopCompile();
+    FusionProfiler::segment(group_id_).stopCompile();
   }
 }
 
@@ -1281,7 +1314,7 @@ std::vector<at::Tensor> KernelExecutor::runFusion(
     SegmentProfiler& sprof = FusionProfiler::segment(group_id_);
     sprof.inputBytesAccessed(inputBytesProcessed(args));
     sprof.scheduler(toString(scheduler_type_));
-    sprof.startKernel(args.getDeviceIndex());
+    sprof.startKernel();
   }
 
   NVF_ERROR(isCompiled());
@@ -1786,17 +1819,12 @@ void KernelExecutor::deserialize(
     int64_t runtime_id,
     int64_t group_id) {
   // See table definition for KernelExecutor in serde/fusion_cache.fbs
+  fusion_id_ = fusion_id;
+  concrete_id_ = concrete_id;
+  runtime_id_ = runtime_id;
+  group_id_ = group_id;
 
   NVF_ERROR(buffer != nullptr, "serde::KernelExecutor is nullptr.");
-
-  // TODO Should we set fusion_id, concrete_id, runtime_id, and group_id when we
-  // skip compilation?
-  // TODO: Fix, and support host_ir_container
-  if (ExprEvalExecutor::supported(fusion)) {
-    fusion_ = std::make_unique<Fusion>(*fusion);
-    NVF_ERROR(!hasCompiledKernel(), "Failed to deserialize KernelExecutor");
-    return;
-  }
 
   NVF_ERROR(
       fusion_id == buffer->fusion_id(),

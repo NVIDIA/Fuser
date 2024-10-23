@@ -345,10 +345,12 @@ std::vector<at::Tensor> FusionDefinition::execute(
         // Manual schedule
         if (!user_sched.executor->isCompiled()) {
           user_sched.executor->compileFusion(
-              user_sched.scheduled_fusion.get(),
-              inputs,
-              user_sched.fusion_id_,
-              user_sched.device_id_);
+              user_sched.scheduled_fusion.get(), inputs
+              // TODO: Fix, this is difficult because this function is const and
+              // ids should be passed as constructor of the executor
+              // ,user_sched.fusion_id_,
+              // user_sched.device_id_
+          );
         }
         outputs = user_sched.executor->runFusion(inputs);
       } else {
@@ -361,9 +363,12 @@ std::vector<at::Tensor> FusionDefinition::execute(
                   inputs, getCommonDeviceCUDA(inputs)),
               user_sched.heuristic_params->lparams,
               user_sched.heuristic_params->cparams,
-              user_sched.heuristic_params->scheduler_type,
-              user_sched.fusion_id_,
-              user_sched.device_id_);
+              user_sched.heuristic_params->scheduler_type
+              // TODO: Fix, this is difficult because this function is const and
+              // ids should be passed as constructor of the executor
+              // ,user_sched.fusion_id_,
+              // user_sched.device_id_
+          );
         }
         outputs = user_sched.executor->runFusion(
             inputs,

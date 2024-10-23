@@ -82,10 +82,12 @@ class TraceScope : public NonCopyable {
  public:
   explicit TraceScope(const char* event_name) : event_name_(event_name) {
     Trace::instance()->beginEvent(event_name_);
+    // std::cout << "Enter: " << event_name_ << std::endl;
   }
 
   ~TraceScope() {
     Trace::instance()->endEvent(event_name_);
+    // std::cout << "Leave: " << event_name_ << std::endl;
   }
 
  private:

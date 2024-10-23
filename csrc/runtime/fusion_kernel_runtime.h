@@ -61,7 +61,7 @@ class FusionKernelRuntime {
   void evictCache(size_t input_id);
 
   //! query if we have already attempted compilation
-  bool isCompiled();
+  bool isCompiled() const;
 
   //! Serialize Fusion Kernel Runtime using flatbuffers
   flatbuffers::Offset<serde::FusionKernelRuntime> serialize(
@@ -215,7 +215,7 @@ class FusionKernelRuntime {
 
   //! something to do with parallel compilation, not sure what it's actually
   //! being used to protect.
-  std::mutex mutex_;
+  mutable std::mutex mutex_;
 
   // ID of fusion in python frontend fusion cache, which maps to a single
   // FusionExecutorCache.

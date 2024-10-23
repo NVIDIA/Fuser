@@ -220,7 +220,7 @@ TEST_F(NoOpTest, ExpandedReduction) {
   TensorView* out = sum(in, {0});
   out = segment_set(out);
   fusion->addOutput(out);
-
+  fusion->print();
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::ones({}).cuda().as_strided({2, 3}, {0, 0});
   at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];

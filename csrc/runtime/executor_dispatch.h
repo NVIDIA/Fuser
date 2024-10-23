@@ -18,7 +18,12 @@ class ExecutorDispatch {
  public:
   // Iterates through executors in priority order creating the first executor
   // that returns true when checking their "supported" method
-  static std::unique_ptr<ExecutorAbstract> makeExecutor(Fusion* fusion);
+  static std::unique_ptr<ExecutorAbstract> makeExecutor(
+      Fusion* fusion,
+      int64_t fusion_id = -1,
+      int64_t concrete_id = -1,
+      int64_t runtime_id = -1,
+      int64_t group_id = -1);
 
   static void compile(
       std::unique_ptr<ExecutorAbstract>& executor,
@@ -30,11 +35,7 @@ class ExecutorDispatch {
       const KernelArgumentHolder& args,
       const LaunchParams& launch_constraints,
       CompileParams compile_params,
-      SchedulerType scheduler_type = SchedulerType::None,
-      int64_t fusion_id = 0,
-      int64_t concrete_id = 0,
-      int64_t runtime_id = 0,
-      int64_t group_id = 0);
+      SchedulerType scheduler_type = SchedulerType::None);
 
   static bool isCompiled(const std::unique_ptr<ExecutorAbstract>& executor);
 

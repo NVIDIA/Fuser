@@ -38,12 +38,17 @@ struct CompileOptions {
 
 class HostIRExecutor : public ExecutorAbstract {
  public:
-  HostIRExecutor();
+  HostIRExecutor(
+      int64_t fusion_id = 0,
+      int64_t concrete_id = 0,
+      int64_t runtime_id = 0,
+      int64_t group_id = 0);
+
   static bool supported(Fusion* fusion);
 
   void compile(Fusion* fusion);
 
-  bool isCompiled() const;
+  bool isCompiled() const override;
 
   NVF_API std::vector<at::Tensor> run(
       KernelArgumentHolder& args,
@@ -60,12 +65,19 @@ class HostIRExecutor : public ExecutorAbstract {
 
 class ExprEvalExecutor : public ExecutorAbstract {
  public:
+  ExprEvalExecutor(
+      int64_t fusion_id = 0,
+      int64_t concrete_id = 0,
+      int64_t runtime_id = 0,
+      int64_t group_id = 0)
+      : ExecutorAbstract(fusion_id, concrete_id, runtime_id, group_id) {}
+
   // Returns true if all fusion outputs are expression evaluated.
   static bool supported(Fusion* fusion);
 
   void compile(Fusion* fusion);
 
-  bool isCompiled() const;
+  bool isCompiled() const override;
 
   NVF_API std::vector<at::Tensor> run(
       KernelArgumentHolder& args,
@@ -77,15 +89,18 @@ class ExprEvalExecutor : public ExecutorAbstract {
 
  private:
   // TODO: Set properly
-  int64_t group_id_ = -1;
   std::unique_ptr<Fusion> fusion_;
 };
 
 class KernelExecutor : public ExecutorAbstract {
  public:
   // NVF_API was added for nvfuser_extension. See examples/sinh_extension.
-  NVF_API KernelExecutor() = default;
-
+  NVF_API KernelExecutor(
+      int64_t fusion_id = 0,
+      int64_t concrete_id = 0,
+      int64_t runtime_id = 0,
+      int64_t group_id = 0)
+      : ExecutorAbstract(fusion_id, concrete_id, runtime_id, group_id) {}
   // TODO: What rules should be in this check? Right now host and expr eval are
   // checked first then its assumed it's a kernel if neither is selected.
   static bool supported(Fusion* fusion) {
@@ -102,11 +117,7 @@ class KernelExecutor : public ExecutorAbstract {
       const KernelArgumentHolder& args,
       const LaunchParams& launch_constraints,
       CompileParams compile_params,
-      SchedulerType sceduler_type = SchedulerType::None,
-      int64_t fusion_id = 0,
-      int64_t concrete_id = 0,
-      int64_t runtime_id = 0,
-      int64_t group_id = 0);
+      SchedulerType sceduler_type = SchedulerType::None);
 
   // TODO: merge it with the overload above.
   //! This API is merely here so we don't have to go back and update all cpp
@@ -119,24 +130,6 @@ class KernelExecutor : public ExecutorAbstract {
     KernelArgumentHolder args =
         KernelArgumentHolder::createKernelArgumentHolder(inputs);
     compileFusion(fusion, args, launch_constraints, compile_params);
-  }
-
-  //! Used by user defined schedules in python frontend
-  void compileFusion(
-      Fusion* fusion,
-      const at::ArrayRef<c10::IValue>& inputs,
-      int64_t fusion_id,
-      int64_t concrete_id) {
-    KernelArgumentHolder args =
-        KernelArgumentHolder::createKernelArgumentHolder(inputs);
-    compileFusion(
-        fusion,
-        args,
-        LaunchParams(),
-        CompileParams(),
-        SchedulerType::None,
-        fusion_id,
-        concrete_id);
   }
 
   // TODO: args shouldn't come in a reference here because we will append the
@@ -186,7 +179,7 @@ class KernelExecutor : public ExecutorAbstract {
   }
 
   // Function to query whether compilation was attempted for a `KernelExecutor`
-  bool isCompiled() const {
+  bool isCompiled() const override {
     int num_compiled_artifacts = (fusion_ != nullptr) + (lowered_ != nullptr) +
         (host_ir_container_ != nullptr);
     NVF_ERROR(num_compiled_artifacts <= 1);
@@ -537,19 +530,6 @@ class KernelExecutor : public ExecutorAbstract {
 
   // TensorViews actually used in the kernel.
   std::vector<TensorView*> used_tvs_;
-
-  // ID of fusion in python frontend fusion cache, which maps to a single
-  // FusionExecutorCache.
-  int64_t fusion_id_ = -1;
-
-  // ID of (device, concrete_info) key in FusionExecutorCache
-  int64_t concrete_id_ = -1;
-
-  // ID of FusionKernelRuntime given (device, concrete_info) key
-  int64_t runtime_id_ = -1;
-
-  // ID of segment in FusionKernelRuntime
-  int64_t group_id_ = -1;
 
   inline static std::atomic<int64_t> global_fusion_count_;
 

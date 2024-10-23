@@ -56,22 +56,17 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
   if (isProfilerEnabled()) {
     FusionProfiler::start(!isProfilerEnabledWithCupti());
   }
-
   KernelArgumentHolder args = prepareInputs(inputs, selected_device);
   auto kernel_runtime = getKernelRuntimeFor(args, forced_index_type);
-
   if (isProfilerEnabled()) {
     FusionProfiler::createSegments(kernel_runtime->executors().size());
   }
-
   if (!kernel_runtime->isCompiled()) {
     kernel_runtime->compileFusionParallel(args);
   }
-
   most_recent_runtime_ = kernel_runtime;
 
   auto fusion = kernel_runtime->fusionSegments()->completeFusion();
-
   // Make sure the forced index type is indeed used
   if (forced_index_type.has_value()) {
     NVF_ERROR(
@@ -80,7 +75,6 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
         forced_index_type.value(),
         " failed");
   }
-
   int seq_id = 0;
   // Record kernel input and output tensors so profiler can construct
   // the data flow graph
