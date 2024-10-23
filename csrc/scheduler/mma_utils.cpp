@@ -1280,6 +1280,28 @@ void scheduleTMAStoreForMmaOutput(TensorView* tv, int64_t m, int64_t n) {
   mma_utils::MmaSwizzler::parallelizeAsBulkSkippingFirstIDs(tv, 2);
 }
 
+void scheduleStMatrixForMmaOutput(
+    TensorView* tv,
+    int64_t tile_m,
+    int64_t tile_n) {
+  NVF_ERROR(
+      ((tile_m == 16 && tile_n == 16) || (tile_m == 16 && tile_n == 8)),
+      "We only support 16x16 and 16x16 stmatrix now");
+  auto s =
+      mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(tv->getLoopDomain());
+  tv->setLoopDomain(s.as<IterDomain*>());
+  if (tile_m == 16 && tile_n == 16) {
+    tv->split(-3, 2);
+    tv->reorder({{-4, -5}});
+    tv->merge(2);
+    tv->merge(2);
+  } else if (tile_m == 16 && tile_n == 8) {
+    tv->reorder({{-3, -4}});
+    tv->merge(2);
+  }
+  tv->axis(-1)->parallelize(ParallelType::Vectorize);
+}
+
 MatmulOperandInnerDimsOpt getOperandInnerDims(Fusion* fusion) {
   const std::vector<MatmulPattern> patterns = findMatmulPatterns(fusion);
   if (patterns.size() != 1) {

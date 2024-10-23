@@ -1589,6 +1589,7 @@ namespace {
 // the 4 8x8 tiles are stores/accessed in a m/column-major fasion. When we
 // mulitple tiles (whether it be 8x8, 18x6 or 16x16), the tiles are stored in a
 // m/column-major fashion.
+#if 0
 Val* hardCodedIndexGenerationForStMatrix(
     const LoadStoreOp* ldst,
     const ForLoop* outer_loop,
@@ -1681,6 +1682,122 @@ Val* hardCodedIndexGenerationForStMatrix(
                   IrBuilder::addExpr(tile_offset_m, tile_offset_n))));
     }
   }
+  Val* out = IrBuilder::create<kir::TensorIndex>(
+      dynamic_cast<TensorView*>(ldst->out()), out_index);
+
+  return out;
+}
+#endif
+
+Val* hardCodedIndexGenerationForStMatrix(
+    const LoadStoreOp* ldst,
+    const ForLoop* outer_loop,
+    const int64_t m_tile,
+    const int64_t n_tile,
+    const int64_t m,
+    const int64_t n) {
+  NVF_ERROR(
+      (m_tile == 8 && n_tile == 8) || (m_tile == 16 && n_tile == 8) ||
+          (m_tile == 16 && n_tile == 16),
+      "size not currently supported for stmatrix");
+  Val* out_index = nullptr;
+
+  // A tile_box can be 16x16, 16x8. 8x8
+  // A warp group (128 threads) can work on a number of tile boxes.
+  int64_t max_tile_boxes_in_warp_group_box = 4;
+
+  // These two variables gives the shape of the warp group in terms of tile
+  // boxes. Think of a tile box as a stmatrix call.
+  auto tiles_in_warp_group_m =
+      std::max(m / m_tile, max_tile_boxes_in_warp_group_box);
+  auto tiles_in_warp_group_n =
+      max_tile_boxes_in_warp_group_box / tiles_in_warp_group_m;
+
+  auto warp_group_box_size_m = tiles_in_warp_group_m * m_tile;
+
+  // each iteration of the for-loop compute a warp-group worth of stmatrix
+  auto warp_groups_m = m / warp_group_box_size_m;
+
+  // With iteration we work on a different warp-group box.
+  auto warp_group_box_offset_m = IrBuilder::mulExpr(
+      IrBuilder::modExpr(
+          outer_loop->index(),
+          IrBuilder::create<Val>(warp_groups_m, DataType::Index)),
+      IrBuilder::create<Val>(
+          tiles_in_warp_group_m * m_tile * n * 2, DataType::Index));
+
+  auto warp_group_box_offset_n = IrBuilder::mulExpr(
+      IrBuilder::divExpr(
+          outer_loop->index(),
+          IrBuilder::create<Val>(warp_groups_m, DataType::Index)),
+      IrBuilder::create<Val>(
+          tiles_in_warp_group_n * n_tile * 2, DataType::Index));
+
+  auto warp_group_box_offset =
+      IrBuilder::addExpr(warp_group_box_offset_m, warp_group_box_offset_n);
+
+  auto tile_box_id = IrBuilder::divExpr(
+      IrBuilder::create<NamedScalar>("threadIdx.x", DataType::Index),
+      IrBuilder::create<Val>(/* each warp gets a box */ 32, DataType::Index));
+
+  auto tile_box_id_m = IrBuilder::modExpr(
+      tile_box_id,
+      IrBuilder::create<Val>(tiles_in_warp_group_m, DataType::Index));
+
+  auto tile_box_id_n = IrBuilder::divExpr(
+      tile_box_id,
+      IrBuilder::create<Val>(tiles_in_warp_group_m, DataType::Index));
+
+  auto tile_box_id_m_offset = IrBuilder::mulExpr(
+      tile_box_id_m, IrBuilder::create<Val>(m_tile * n * 2, DataType::Index));
+
+  auto tile_box_id_n_offset = IrBuilder::mulExpr(
+      tile_box_id_n, IrBuilder::create<Val>(n_tile * 2, DataType::Index));
+
+  auto tile_box_offset =
+      IrBuilder::addExpr(tile_box_id_m_offset, tile_box_id_n_offset);
+
+  auto cum_offset = IrBuilder::addExpr(warp_group_box_offset, tile_box_offset);
+  // For example M=64, N=8. There's no for-loop.
+  if (n == n_tile) {
+    cum_offset = tile_box_offset;
+  }
+
+  // Offset inside the tile.
+  auto effective_tidx = IrBuilder::modExpr(
+      IrBuilder::create<NamedScalar>("threadIdx.x", DataType::Index),
+      IrBuilder::create<Val>(32, DataType::Index));
+
+  if (m_tile == 16 && n_tile == 16) {
+    // 2 is for dtype Half
+    // (tidx.x /  (8 * 2)) * 16
+    // This gives the offset in the n-dim
+    auto offset_in_tile_n = IrBuilder::mulExpr(
+        IrBuilder::create<Val>(16, DataType::Index),
+        IrBuilder::divExpr(
+            effective_tidx, IrBuilder::create<Val>(8 * 2, DataType::Index)));
+
+    // (tidx.x%16) * n * 2
+    // This gives the offset inside the 16x16 tile in the m-dim.
+    auto offset_in_tile_m = IrBuilder::mulExpr(
+        IrBuilder::modExpr(
+            effective_tidx, IrBuilder::create<Val>(16, DataType::Index)),
+        IrBuilder::create<Val>(n * 2, DataType::Index));
+
+    out_index = IrBuilder::addExpr(
+        IrBuilder::baseAddressExpr(ir_utils::getTvOutput(ldst)),
+        IrBuilder::addExpr(
+            cum_offset,
+            IrBuilder::addExpr(offset_in_tile_m, offset_in_tile_n)));
+  } else if (m_tile == 16 && n_tile == 8) {
+    auto offset_in_tile = IrBuilder::mulExpr(
+        IrBuilder::create<Val>(n * 2, DataType::Index), effective_tidx);
+
+    out_index = IrBuilder::addExpr(
+        IrBuilder::baseAddressExpr(dynamic_cast<TensorView*>(ldst->out())),
+        IrBuilder::addExpr(offset_in_tile, cum_offset));
+  }
+
   Val* out = IrBuilder::create<kir::TensorIndex>(
       dynamic_cast<TensorView*>(ldst->out()), out_index);
 
