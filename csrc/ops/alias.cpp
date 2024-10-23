@@ -747,8 +747,8 @@ TensorView* slice(
       ", Expected: ",
       ndims);
 
-  const auto normalize_slice_range =
-      [](Slice range, Val* extent, bool manual_normalization) -> Slice {
+  const auto normalize_slice_range = [&manual_normalization](
+                                         Slice range, Val* extent) -> Slice {
     auto cast_extent =
         SimplifyingIrBuilder::maybeCastExpr(DataType::Index, extent);
 
@@ -815,8 +815,7 @@ TensorView* slice(
   for (const auto idx : c10::irange(ndims)) {
     IterDomain* inp_root_id = inp_dom[idx];
     Val* inp_root_size = inp_root_id->getMaybeExpandedExtent();
-    Slice range = normalize_slice_range(
-        ranges.at(idx), inp_root_size, manual_normalization);
+    Slice range = normalize_slice_range(ranges.at(idx), inp_root_size);
     normalized_ranges.at(idx) = range;
     IterDomain* out_root_id = nullptr;
     IterDomain* out_rf_id = nullptr;
