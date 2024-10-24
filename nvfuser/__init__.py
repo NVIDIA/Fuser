@@ -179,7 +179,7 @@ class FusionDefinition(_C._FusionDefinition):
             self.fake_inputs = [fake_mode.from_tensor(inp) for inp in inputs]
 
         results = None
-        
+
         try:
             results = self._execute(
                 inputs,
@@ -188,7 +188,7 @@ class FusionDefinition(_C._FusionDefinition):
                 capture_debug_output=capture_debug_output,
                 profile=profile,
                 enable_options=enable_options,
-                disable_options=disable_options
+                disable_options=disable_options,
             )
             if print_repro:
                 print(self.repro_script_for(inputs))

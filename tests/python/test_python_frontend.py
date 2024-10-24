@@ -4600,7 +4600,7 @@ fd.execute(inputs)
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
         for out in nvf_out:
             self.assertTrue(out.allclose(x[:, 1:, 2:]))
-    
+
     def test_enable_disable_options(self):
         m = 24
         n = 16
@@ -4618,14 +4618,19 @@ fd.execute(inputs)
 
         with FusionDefinition() as fd:
             fusion_func(fd, inps=inps)
-        
-        nvf_out = fd.execute(inps, enable_options=["fuse_matmul"], disable_options=["matmul_expr_eval"], profile=True)
+
+        nvf_out = fd.execute(
+            inps,
+            enable_options=["fuse_matmul"],
+            disable_options=["matmul_expr_eval"],
+            profile=True,
+        )
         prof = fd.profile()
         self.assertEqual(len(prof.kernel_profiles), 1)
-        
+
         # By default, matmul will be be run through expr_eval scheduler.
-        # Through setting the enable and disable options as above, 
+        # Through setting the enable and disable options as above,
         # we can execute it through matmul scheduler.
-        self.assertEqual(prof.kernel_profiles[0].scheduler, 'matmul') 
+        self.assertEqual(prof.kernel_profiles[0].scheduler, "matmul")
         eager_out = torch.matmul(inps[0], inps[1])
         self.assertEqual(eager_out, nvf_out[0])
