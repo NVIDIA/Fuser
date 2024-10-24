@@ -303,7 +303,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
     buffer_params.smem_persistent_buffers.reserve(n_smem_buffer);
     // copy buffers in range [n_regs_buffer, n_buffers) to shared memory, keep
     // the original order to avoid confusions in unit test.
-    for (int i = n_regs_buffer; i < n_buffers; i++) {
+    for (auto i = n_regs_buffer; i < n_buffers; i++) {
       buffer_params.smem_persistent_buffers.emplace_back(buffers[i]);
     }
   } else {
