@@ -124,6 +124,9 @@ removecudafiles() {
 date > "$testdir/date"
 stdoutfile="$testdir/incomplete-stdout"
 stderrfile="$testdir/incomplete-stderr"
+fusioncachedir=/tmp/nvfuser_kernel_db
+fusioncachedirbackup=${fusioncachedir}-backup
+mv "$fusioncachedir" "$fusioncachedirbackup"
 cleanup() {
     numcu=$(find . -maxdepth 1 -name '__tmp_kernel*.cu' | wc -l)
     numptx=$(find . -maxdepth 1 -name '__tmp_kernel*.ptx' | wc -l)
@@ -141,6 +144,9 @@ cleanup() {
     then
         mv "$stderrfile" "$testdir/stderr" 2> /dev/null
     fi
+    # remove the serialized fusion cache and reinstate the original one
+    rm -rf "$fusioncachedir"
+    mv "$fusioncachedirbackup" "$fusioncachedir"
 }
 trap "cleanup" EXIT
 
