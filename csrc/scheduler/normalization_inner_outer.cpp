@@ -609,7 +609,7 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
   auto getGdimy = [&](int64_t inner_vect,
                       int64_t threads_per_block,
                       int64_t inner_batch) {
-    // Step-2, set InnerParams Iteration dim: gdimy. reg_per_thread is estimated
+    // Set InnerParams Iteration dim: gdimy. reg_per_thread is estimated
     // from buffer size, then it is used to calculate threads_per_sm and gdimy.
     // gdimy_max ensures each block processes at least 8 rows to
     // reduce the workload of the final outer reduction.
@@ -644,7 +644,7 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
         max_gmem_vect_access_bytes / (int64_t)tmp_gmem_dtype_size, inner_vect);
     int64_t tmp_gmem_write_vect = max_tmp_gmem_vect_factor;
 
-    // Step-3, set OuterParams Iteration dim: vectorization_factor_outer, bdimx,
+    // Set OuterParams Iteration dim: vectorization_factor_outer, bdimx,
     // gdimy (already done) The partial outer reduction result is stored in tmp
     // gmem, set the vectorization factor for write and read
     const int64_t workload_per_thread = inner_dim_numel >= 4096 ? 4l : 2l;
@@ -666,7 +666,7 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
     while (threads_per_block % bdimx) {
       bdimx = std::min(bdimx + 8, threads_per_block);
     }
-    // Step-4, set OuterParams Reduction dim: bdimy.
+    // Set OuterParams Reduction dim: bdimy.
     int64_t bdimy = threads_per_block / bdimx;
     NVF_ERROR(
         bdimy * bdimx == threads_per_block,
@@ -712,10 +712,12 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
   // End at 512 threads per block but avoid using very small batch sizes which
   // lead to large reduction overhread and non-divisible splits.
   int64_t threads_per_block_max = threads_per_block_min;
-  threads_per_block_max = std::max(threads_per_block_max, ceilDiv(after_vect, batch_min));
+  threads_per_block_max =
+      std::max(threads_per_block_max, ceilDiv(after_vect, batch_min));
   threads_per_block_max = scheduler_utils::roundUpPow2(threads_per_block_max);
-  threads_per_block_max = std::min(threads_per_block_max, InnerOuterPersistentKernelScheduler::threads_per_block_max);
-  std::cout << "threads_per_block_min: " << threads_per_block_min << ", threads_per_block_max: " << threads_per_block_max << std::endl;
+  threads_per_block_max = std::min(
+      threads_per_block_max,
+      InnerOuterPersistentKernelScheduler::threads_per_block_max);
   std::vector<InnerOuterParams> iop_candidates;
 
   for (auto threads_per_block = threads_per_block_max;
@@ -743,18 +745,13 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
         if (a.warps_per_sm < 16 || b.warps_per_sm < 16) {
           return a.warps_per_sm > b.warps_per_sm;
         }
-        // same occupancy, selecte small threads_per_block leads to higher
-        // register usage may
-        return a.gdimy > b.gdimy;
+        // smaller threads_per_block to reduce communication overhead
+        return a.threads_per_block < b.threads_per_block;
       });
-
-  for (auto iop : iop_candidates) {
-    std::cout << iop.toString() << std::endl;
-  }
 
   InnerOuterParams iop = iop_candidates.front();
 
-  // Step-5, special case, when inner_dim_numel <= 1024, bdimx is usually small
+  // Special case, when inner_dim_numel <= 1024, bdimx is usually small
   // after divide by inner_vect and inner_batch. In this case, bdimy is used to
   // parallelize outer_dim instead of inner_dim. This pattern is named multi
   // reductions per block (mrpb).
