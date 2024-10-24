@@ -207,6 +207,34 @@ Tensor reshape_fn(
   return output;
 }
 
+template <class ShapeType>
+Tensor pad_fn(
+    FusionDefinition::Operators& self,
+    Tensor arg,
+    ShapeType generic_pad_widths,
+    std::optional<Scalar> value) {
+  NVF_CHECK(self.validUse(), "Attempting to add to a completed definition!");
+
+  FusionDefinition* fd = self.fusion_definition;
+  Vector pad_widths =
+      SequenceAsVector(generic_pad_widths, *fd, /*shape_check=*/false);
+
+  NVF_CHECK(
+      pad_widths.size <= 2 * arg.dims,
+      "Number of pad widths must be at most twice the input dimension");
+
+  State value_state = value.has_value() ? fd->recordingState(value.value()())
+                                        : State(0, serde::StateType::None);
+
+  Tensor output = fd->defineTensor(arg.dims);
+  fd->defineRecord(new PadOpRecord(
+      {fd->recordingState(arg()),
+       fd->recordingState(pad_widths()),
+       value_state},
+      {fd->recordingState(output())}));
+  return output;
+}
+
 template <class ShapeType, serde::RecordType RType>
 Tensor random_dist_op_fn(
     FusionDefinition::Operators& self,
@@ -266,7 +294,8 @@ Tensor slice_fn(
     Tensor arg,
     ShapeType start,
     ShapeType end,
-    std::optional<ShapeType> strides) {
+    std::optional<ShapeType> strides,
+    bool manual_normalization) {
   NVF_CHECK(self.validUse(), "Attempting to add to a completed definition!");
 
   FusionDefinition* fd = self.fusion_definition;
@@ -328,7 +357,8 @@ Tensor slice_fn(
        fd->recordingState(new_start()),
        fd->recordingState(new_end()),
        fd->recordingState(stride_index)},
-      {fd->recordingState(output())}));
+      {fd->recordingState(output())},
+      manual_normalization));
   return output;
 }
 
@@ -2637,7 +2667,8 @@ void initNvFuserPythonBindings(PyObject* module) {
       "cat",
       [](FusionDefinition::Operators& self,
          std::vector<Tensor> tensors,
-         int64_t dim) -> Tensor {
+         int64_t dim,
+         bool manual_padding) -> Tensor {
         NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;
@@ -2650,11 +2681,15 @@ void initNvFuserPythonBindings(PyObject* module) {
           tensor_states.push_back(fd->recordingState(t()));
         }
         self.fusion_definition->defineRecord(new CatOpRecord(
-            tensor_states, {fd->recordingState(output())}, dim));
+            tensor_states,
+            {fd->recordingState(output())},
+            dim,
+            manual_padding));
         return output;
       },
       py::arg("tensors"),
       py::arg("dim") = 0,
+      py::arg("manual_padding") = false,
       py::return_value_policy::reference);
   nvf_ops.def(
       "expand",
@@ -2788,27 +2823,21 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::return_value_policy::reference);
   nvf_ops.def(
       "pad",
-      [](FusionDefinition::Operators& self,
-         Tensor arg,
-         std::vector<int64_t>& pad_widths,
-         std::optional<Scalar> value) -> Tensor {
-        FUSER_PERF_SCOPE("Operators.pad");
-        NVF_CHECK(
-            self.validUse(), "Attempting to add to a completed definition!");
-        NVF_CHECK(
-            pad_widths.size() <= 2 * arg.dims,
-            "Number of pad widths must be at most twice the input dimension");
-        FusionDefinition* fd = self.fusion_definition;
-        Tensor output = fd->defineTensor(arg.dims);
-        auto value_state = value.has_value()
-            ? fd->recordingState(value.value()())
-            : State(0, serde::StateType::None);
-        fd->defineRecord(new PadOpRecord(
-            {fd->recordingState(arg()), value_state},
-            {fd->recordingState(output())},
-            std::move(pad_widths)));
-        return output;
-      },
+      pad_fn<Vector>,
+      py::arg("arg"),
+      py::arg("pad_widths"),
+      py::arg("value") = py::none(),
+      py::return_value_policy::reference);
+  nvf_ops.def(
+      "pad",
+      pad_fn<py::list>,
+      py::arg("arg"),
+      py::arg("pad_widths"),
+      py::arg("value") = py::none(),
+      py::return_value_policy::reference);
+  nvf_ops.def(
+      "pad",
+      pad_fn<py::tuple>,
       py::arg("arg"),
       py::arg("pad_widths"),
       py::arg("value") = py::none(),
@@ -2982,6 +3011,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("start_indices"),
       py::arg("end_indices"),
       py::arg("strides") = py::none(),
+      py::arg("manual_normalization") = false,
       py::return_value_policy::reference);
   nvf_ops.def(
       "slice",
@@ -2990,6 +3020,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("start_indices"),
       py::arg("end_indices"),
       py::arg("strides") = py::none(),
+      py::arg("manual_normalization") = false,
       py::return_value_policy::reference);
   nvf_ops.def(
       "slice",
@@ -2998,6 +3029,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("start_indices"),
       py::arg("end_indices"),
       py::arg("strides") = py::none(),
+      py::arg("manual_normalization") = false,
       py::return_value_policy::reference);
   nvf_ops.def(
       "squeeze",
