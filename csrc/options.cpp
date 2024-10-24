@@ -149,20 +149,21 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
 }
 
 const std::unordered_map<std::string, EnableOption>& getEnableOptions() {
-  static const std::unordered_map<std::string, EnableOption> available_options = {
-      {"fuse_matmul", EnableOption::FuseMatmul},
-      {"fuse_multiple_matmuls", EnableOption::FuseMultipleMatmuls},
-      {"id_model", EnableOption::IdModel},
-      {"kernel_db", EnableOption::KernelDb},
-      {"kernel_profile", EnableOption::KernelProfile},
-      {"memory_promotion", EnableOption::MemoryPromotion},
-      {"reuse_zeroed_memory", EnableOption::ReuseZeroedMemory},
-      {"static_fusion_count", EnableOption::StaticFusionCount},
-      {"warn_register_spill", EnableOption::WarnRegisterSpill},
-      {"io_to_lower_precision", EnableOption::IoToLowerPrecision},
-      {"kernel_debug", EnableOption::KernelDebug},
-      {"kernel_lineinfo", EnableOption::KernelLineInfo},
-  };
+  static const std::unordered_map<std::string, EnableOption> available_options =
+      {
+          {"fuse_matmul", EnableOption::FuseMatmul},
+          {"fuse_multiple_matmuls", EnableOption::FuseMultipleMatmuls},
+          {"id_model", EnableOption::IdModel},
+          {"kernel_db", EnableOption::KernelDb},
+          {"kernel_profile", EnableOption::KernelProfile},
+          {"memory_promotion", EnableOption::MemoryPromotion},
+          {"reuse_zeroed_memory", EnableOption::ReuseZeroedMemory},
+          {"static_fusion_count", EnableOption::StaticFusionCount},
+          {"warn_register_spill", EnableOption::WarnRegisterSpill},
+          {"io_to_lower_precision", EnableOption::IoToLowerPrecision},
+          {"kernel_debug", EnableOption::KernelDebug},
+          {"kernel_lineinfo", EnableOption::KernelLineInfo},
+      };
   return available_options;
 }
 
@@ -173,7 +174,8 @@ std::unordered_map<EnableOption, std::vector<std::string>> Options<
   return parseEnvOptions("ENABLE", available_options);
 }
 
-std::optional<EnableOption> stringToEnableOption(const std::string& enable_option) {
+std::optional<EnableOption> stringToEnableOption(
+    const std::string& enable_option) {
   const auto& opts = getEnableOptions();
   auto it = opts.find(enable_option);
   if (it != opts.end()) {
@@ -183,28 +185,29 @@ std::optional<EnableOption> stringToEnableOption(const std::string& enable_optio
 }
 
 const std::unordered_map<std::string, DisableOption>& getDisableOptions() {
-  static const std::unordered_map<std::string, DisableOption> available_options = {
-      {"compile_to_sass", DisableOption::CompileToSass},
-      {"contig_indexing", DisableOption::ContigIndexing},
-      {"expr_simplify", DisableOption::ExprSimplify},
-      {"fallback", DisableOption::Fallback},
-      {"fma", DisableOption::Fma},
-      {"grouped_grid_welford_outer_opt",
-       DisableOption::GroupedGridWelfordOuterOpt},
-      {"index_hoist", DisableOption::IndexHoist},
-      {"magic_zero", DisableOption::MagicZero},
-      {"matmul_expr_eval", DisableOption::MatmulExprEval},
-      {"nvtx", DisableOption::Nvtx},
-      {"parallel_compile", DisableOption::ParallelCompile},
-      {"parallel_serde", DisableOption::ParallelSerde},
-      {"predicate_elimination", DisableOption::PredicateElimination},
-      {"python_inline_definitions", DisableOption::PythonInlineDefinitions},
-      {"kernel_reuse", DisableOption::KernelReuse},
-      {"var_name_remapping", DisableOption::VarNameRemapping},
-      {"welford_vectorization", DisableOption::WelfordVectorization},
-      {"reuse_mismatched_type_registers",
-       DisableOption::ReuseMismatchedTypeRegisters},
-      {"multidevice", DisableOption::Multidevice}};
+  static const std::unordered_map<std::string, DisableOption>
+      available_options = {
+          {"compile_to_sass", DisableOption::CompileToSass},
+          {"contig_indexing", DisableOption::ContigIndexing},
+          {"expr_simplify", DisableOption::ExprSimplify},
+          {"fallback", DisableOption::Fallback},
+          {"fma", DisableOption::Fma},
+          {"grouped_grid_welford_outer_opt",
+           DisableOption::GroupedGridWelfordOuterOpt},
+          {"index_hoist", DisableOption::IndexHoist},
+          {"magic_zero", DisableOption::MagicZero},
+          {"matmul_expr_eval", DisableOption::MatmulExprEval},
+          {"nvtx", DisableOption::Nvtx},
+          {"parallel_compile", DisableOption::ParallelCompile},
+          {"parallel_serde", DisableOption::ParallelSerde},
+          {"predicate_elimination", DisableOption::PredicateElimination},
+          {"python_inline_definitions", DisableOption::PythonInlineDefinitions},
+          {"kernel_reuse", DisableOption::KernelReuse},
+          {"var_name_remapping", DisableOption::VarNameRemapping},
+          {"welford_vectorization", DisableOption::WelfordVectorization},
+          {"reuse_mismatched_type_registers",
+           DisableOption::ReuseMismatchedTypeRegisters},
+          {"multidevice", DisableOption::Multidevice}};
   return available_options;
 }
 
@@ -222,7 +225,8 @@ std::unordered_map<DisableOption, std::vector<std::string>> Options<
   return options;
 }
 
-std::optional<DisableOption> stringToDisableOption(const std::string& disable_option) {
+std::optional<DisableOption> stringToDisableOption(
+    const std::string& disable_option) {
   const auto& opts = getDisableOptions();
   auto it = opts.find(disable_option);
   if (it != opts.end()) {

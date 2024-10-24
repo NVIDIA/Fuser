@@ -361,7 +361,7 @@ std::vector<at::Tensor> FusionDefinition::execute(
   }
 
   DisableOptionsGuard disable_opt_guard;
-  for (auto disable_option: disable_options) {
+  for (auto disable_option : disable_options) {
     std::optional<DisableOption> opt = stringToDisableOption(disable_option);
     NVF_CHECK(opt.has_value(), "Unrecognized disable_option: ", disable_option);
     DisableOptionsGuard::getCurOptions().set(opt.value());
