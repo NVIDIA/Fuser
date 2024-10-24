@@ -535,7 +535,8 @@ void replaceCat(Fusion* fusion) {
   // sanitizing CatOp with series of binary add
   for (auto* cat : ir_utils::filterByType<CatOp>(exprs)) {
     if (std::any_of(cat->inputs().begin(), cat->inputs().end(), [](Val* val) {
-          return !val->definition()->isA<PadOp>();
+          return val->definition() == nullptr ||
+              !val->definition()->isA<PadOp>();
         })) {
       Val* res = replaceCatOpWithBinaryOp(cat->inputs());
 
