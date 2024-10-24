@@ -926,4 +926,55 @@ TEST_F(CombinedSchedulerTest, InnerOuterNoOuterBroadcastTv) {
       "",
       persistent_params->lparams);
 }
+
+TEST_F(CombinedSchedulerTest, InnerOuterSharedMemoryRegisterPersistent) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  const auto dev_prop = at::cuda::getCurrentDeviceProperties();
+  int64_t available_smem = (int64_t)dev_prop->sharedMemPerMultiprocessor;
+  // set to 1/3 of the available shared memory, so smem can't store all of
+  // the 3 buffers after considering the overhead.
+  // tv0 is a outer bcast tv, it stays in shared memory, so tv1 will be moved
+  // to register. tv2 and tv0 stays in shared memory.
+  int64_t dim1 = ceilDiv(available_smem / sizeof(float), 3);
+  int64_t dim0 = 1024;
+  auto tv0 = makeContigTensor(1);
+  auto tv1 = makeContigTensor(2);
+  auto tv2 = makeContigTensor(2);
+  // These 3 inputs are persistent buffers
+  // Shared memory can't store all of them, so tv0 is moved to registers
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  fusion.addInput(tv2);
+  auto tv3 = broadcast(tv0, {true, false});
+  auto tv4 = add(tv1, tv2);
+  auto tv5 = add(tv3, tv4);
+  // Here tv5 is a inner normalization buffer but projected back to inputs
+  auto tv6 = sum(tv5, {1});
+  auto tv7 = broadcast(tv6, {false, true});
+  auto tv8 = add(tv7, tv5);
+  // Needs a outer reduction buffer in register
+  auto tv9 = sum(tv0, {0});
+  fusion.addOutput(tv8);
+  fusion.addOutput(tv9);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({dim1}, options);
+  at::Tensor t1 = at::randn({dim0, dim1}, options);
+  at::Tensor t2 = at::randn({dim0, dim1}, options);
+  std::vector<c10::IValue> aten_inputs = {t0, t1, t2};
+  SchedulerRuntimeInfo runtime_info(&fusion, aten_inputs);
+
+  const int64_t vectorize_factor = 4;
+  HeuristicDataCache* data_cache = nullptr;
+  const auto& reduction_tvs = scheduler_utils::getReductionTvs(&fusion);
+  auto buffer_params =
+      inner_outer_scheduler_utils::getPersistentBufferStorageParams(
+          &fusion, runtime_info, data_cache, reduction_tvs, vectorize_factor);
+  EXPECT_TRUE(buffer_params.project_to_input);
+  EXPECT_TRUE(buffer_params.has_enough_regs_and_smem);
+  // order matters, tv0 should be the last one since it is an outer bcast tv
+  EXPECT_THAT(
+      buffer_params.smem_persistent_buffers, testing::ElementsAre(tv2, tv0));
+}
 } // namespace nvfuser
