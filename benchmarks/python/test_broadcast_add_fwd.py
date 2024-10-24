@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
 from nvfuser import FusionDefinition, DataType
-from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype, clear_cuda_cache
+from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import run_benchmark, clear_dynamo_cache
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
@@ -65,8 +65,6 @@ def test_bcast_add_nvf_benchmark(
     disable_validation: bool,
     disable_benchmarking: bool,
 ):
-    clear_cuda_cache()
-
     bias = torch.randn(size[1 - bcast_axis], dtype=dtype, device="cuda")
 
     input_shape = size if contiguous else (size[1], size[0])
@@ -105,7 +103,6 @@ def test_bcast_add_baseline_benchmark(
     contiguous: bool,
     compile: bool,
 ):
-    clear_cuda_cache()
     if compile:
         clear_dynamo_cache()
     bias = torch.randn(size[1 - bcast_axis], dtype=dtype, device="cuda")

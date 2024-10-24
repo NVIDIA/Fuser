@@ -3,7 +3,6 @@
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
 from nvfuser import FusionDefinition, DataType
-from nvfuser.pytorch_utils import clear_cuda_cache
 from .core import run_benchmark
 import torch
 
@@ -128,8 +127,6 @@ def rope_without_cat_fusion(
 def test_rope_benchmark(
     benchmark, use_cat: bool, disable_validation: bool, disable_benchmarking: bool
 ):
-    clear_cuda_cache()
-
     batch_size = 32
     seq_len = 4096
     num_heads = 32
