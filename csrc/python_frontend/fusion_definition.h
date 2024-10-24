@@ -189,7 +189,9 @@ class NVF_API FusionDefinition : public FusionState {
       std::optional<int8_t> device,
       bool override_user_schedule,
       bool capture_debug_output,
-      bool profile) const;
+      bool profile,
+      std::vector<std::string> enable_options,
+      std::vector<std::string> disable_options) const;
   //! Return debugging output captured through exeuction with
   //! capture_debug_output=true
   std::optional<std::string> getDebugOutput() const {
