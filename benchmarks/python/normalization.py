@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 from nvfuser import FusionDefinition, DataType
 from .global_params import PROMOTE_DTYPES
-from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
+from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype, clear_cuda_cache
 import torch
 from .core import run_benchmark, unary_bwd_torch, clear_dynamo_cache
 import numpy as np
@@ -205,6 +205,9 @@ def norm_fwd_nvf_benchmark(
     """
     Common benchmark setup for batchnorm/instance forward call in training mode.
     """
+
+    clear_cuda_cache()
+
     assert norm in ["batch_norm", "instance_norm"], NotImplementedError
 
     # Size is assumed to be in the order N, C, ...
@@ -289,6 +292,8 @@ def norm_bwd_nvf_benchmark(
     """
     Common benchmark setup for batchnorm/instance forward call in training mode.
     """
+
+    clear_cuda_cache()
 
     assert norm in ["batch_norm", "instance_norm"], NotImplementedError
 
@@ -435,6 +440,7 @@ def norm_fwd_baseline_benchmark(
     compile: bool,
     norm: str,
 ):
+    clear_cuda_cache()
     if compile:
         clear_dynamo_cache()
 
@@ -469,6 +475,7 @@ def norm_bwd_baseline_benchmark(
     compile: bool,
     norm: str,
 ):
+    clear_cuda_cache()
     if compile:
         clear_dynamo_cache()
 

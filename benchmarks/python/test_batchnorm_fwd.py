@@ -3,7 +3,6 @@
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
 import torch
-from nvfuser.pytorch_utils import retry_on_oom_or_skip_test
 from .global_params import generate_input_sizes, FLOAT_DTYPES
 from .normalization import norm_fwd_nvf_benchmark, norm_fwd_baseline_benchmark
 
@@ -11,7 +10,6 @@ from .normalization import norm_fwd_nvf_benchmark, norm_fwd_baseline_benchmark
 @pytest.mark.parametrize("size", generate_input_sizes(dims=4))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 @pytest.mark.parametrize("channels_last", [True, False])
-@retry_on_oom_or_skip_test
 def test_batchnorm_fwd_nvf_benchmark(
     benchmark,
     size: tuple,
@@ -37,7 +35,6 @@ def test_batchnorm_fwd_nvf_benchmark(
 @pytest.mark.parametrize("size", generate_input_sizes(dims=4))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 @pytest.mark.parametrize("channels_last", [True, False])
-@retry_on_oom_or_skip_test
 def test_batchnorm_fwd_baseline_benchmark(
     benchmark, size: tuple, dtype: torch.dtype, channels_last: bool, compile: bool
 ):

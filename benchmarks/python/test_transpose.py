@@ -3,10 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
 from nvfuser import FusionDefinition, DataType
-from nvfuser.pytorch_utils import (
-    torch_dtype_to_nvfuser_dtype,
-    retry_on_oom_or_skip_test,
-)
+from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype, clear_cuda_cache
 from .core import run_benchmark, clear_dynamo_cache
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
@@ -50,7 +47,6 @@ def transpose_fwd_fn(inputs: list):  # [input1, input2, dim0, dim1]
 @pytest.mark.parametrize("size", generate_input_sizes(dims=3))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 @pytest.mark.parametrize("axes", [(0, 1), (0, 2), (1, 2)])
-@retry_on_oom_or_skip_test
 def test_transpose_nvf_benchmark(
     benchmark,
     size: tuple,
@@ -59,6 +55,8 @@ def test_transpose_nvf_benchmark(
     disable_validation: bool,
     disable_benchmarking: bool,
 ):
+    clear_cuda_cache()
+
     input1 = torch.randn(size, device="cuda", dtype=dtype)
     input2 = torch.randn(size, device="cuda", dtype=dtype)
     permute_axes = list(range(len(size)))
@@ -82,7 +80,6 @@ def test_transpose_nvf_benchmark(
 @pytest.mark.parametrize("size", generate_input_sizes(dims=3))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 @pytest.mark.parametrize("axes", [(0, 1), (0, 2), (1, 2)])
-@retry_on_oom_or_skip_test
 def test_transpose_baseline_benchmark(
     benchmark,
     size: tuple,
@@ -90,6 +87,7 @@ def test_transpose_baseline_benchmark(
     axes: list,
     compile: bool,
 ):
+    clear_cuda_cache()
     if compile:
         clear_dynamo_cache()
     input1 = torch.randn(size, device="cuda", dtype=dtype)

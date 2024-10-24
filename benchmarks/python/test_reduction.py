@@ -3,10 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
 from nvfuser import FusionDefinition, DataType
-from nvfuser.pytorch_utils import (
-    torch_dtype_to_nvfuser_dtype,
-    retry_on_oom_or_skip_test,
-)
+from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype, clear_cuda_cache
 from .core import run_benchmark, clear_dynamo_cache
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
@@ -35,7 +32,6 @@ def reduction_fwd_fn(inputs: list):  # in_tensor, reduction_axis
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 @pytest.mark.parametrize("reduction_axis", [0, 1])
-@retry_on_oom_or_skip_test
 def test_reduction_nvf_benchmark(
     benchmark,
     size: tuple,
@@ -44,6 +40,8 @@ def test_reduction_nvf_benchmark(
     disable_validation: bool,
     disable_benchmarking: bool,
 ):
+    clear_cuda_cache()
+
     inputs = [torch.randn(*size, device="cuda", dtype=dtype)]
 
     with FusionDefinition() as fd:
@@ -61,7 +59,6 @@ def test_reduction_nvf_benchmark(
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 @pytest.mark.parametrize("reduction_axis", [0, 1])
-@retry_on_oom_or_skip_test
 def test_reduction_baseline_benchmark(
     benchmark,
     size: tuple,
@@ -69,6 +66,7 @@ def test_reduction_baseline_benchmark(
     reduction_axis: int,
     compile: bool,
 ):
+    clear_cuda_cache()
     if compile:
         clear_dynamo_cache()
     input = torch.randn(size, device="cuda", dtype=dtype)
