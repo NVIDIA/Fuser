@@ -246,6 +246,16 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
       ? persistent_buffer_info.projectable_buffer_inputs
       : persistent_buffer_info.persistent_buffers;
 
+  // Add buffers that are inputs to the fusion. They are not included in
+  // projectable_buffer_inputs since they are not projectable.
+  if (buffer_params.project_to_input) {
+    for (auto tv : persistent_buffer_info.persistent_buffers) {
+      if (tv->isFusionInput()) {
+        buffers.push_back(tv);
+      }
+    }
+  }
+
   // Needs to use rounded shared memory size to avoid over usage.
   // key : buffer tv.
   // val : register size and rounded shared memory size
@@ -271,9 +281,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
       partialOuterReductionBufferSize(reduction_tvs, runtime_info);
   if (buffer_params.regs_buffer_size <= available_regs &&
       buffer_params.smem_buffer_size <= available_smem) {
-    buffer_params.smem_persistent_buffers = buffer_params.project_to_input
-        ? persistent_buffer_info.projectable_buffer_inputs
-        : persistent_buffer_info.persistent_buffers;
+    buffer_params.smem_persistent_buffers = buffers;
     buffer_params.has_enough_regs_and_smem = true;
     return buffer_params;
   }
@@ -286,8 +294,9 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   }
 
   // (2) Now, shared memory is overused, move some buffers to registers.
-  // (2.1) Sort the candidate persistent buffers
-  if (buffer_params.project_to_input) {
+  // (2.1) Sort the candidate persistent buffers. No need to sort since the
+  // sorting is based on whether the buffer is used by outer broadcast tensors.
+  if (!outer_broadcast_tvs.empty()) {
     buffers = sortProjectableBufferInputs(buffers, outer_broadcast_tvs);
   }
   // (2.2) Before this loop, all cached input buffers are in shared memory. Move
