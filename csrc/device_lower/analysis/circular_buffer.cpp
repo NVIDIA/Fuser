@@ -81,12 +81,7 @@ class CircularBufferFusionInspector : private IterVisitor {
     NVF_ERROR(
         tv->definition(), "Fusion input shouldn't be circular buffered.", tv);
 
-    validateCircularBufferedTensor(tv);
-
-    IterDomain* cb_axis = getCircularBufferAxis(tv);
-    NVF_ERROR(cb_axis != nullptr);
-
-    db_info_.setCircularBufferAxis(tv, cb_axis);
+    db_info_.setCircularBufferTv(tv);
   }
 
  private:
@@ -189,13 +184,19 @@ const CircularBufferInfo::TvInfo& CircularBufferInfo::getTvInfo(
   return map_.at(tv);
 }
 
-void CircularBufferInfo::setCircularBufferAxis(
-    const TensorView* tv,
-    IterDomain* axis) {
-  getTvInfo(tv).circular_buffer_axis = axis;
+void CircularBufferInfo::setCircularBufferTv(const TensorView* tv) {
+  IterDomain* cb_axis = nvfuser::getCircularBufferAxis(tv);
+  NVF_ERROR(cb_axis != nullptr);
+  auto concrete_loop_id = lower_utils::getConcreteLoopID(cb_axis);
+  NVF_ERROR(concrete_loop_id != nullptr);
+
+  validateCircularBufferedTensor(tv);
+
+  getTvInfo(tv).circular_buffer_axis = cb_axis;
+  circular_buffer_tvs_[concrete_loop_id].insert(tv);
   // Set and validate the new stage depth.
   setStageDepthAndPrefetchDistance(
-      axis, tv->circularBufferDepth(), tv->circularBufferPrefetchDistance());
+      cb_axis, tv->circularBufferDepth(), tv->circularBufferPrefetchDistance());
 }
 
 void CircularBufferInfo::setStageDepthAndPrefetchDistance(
@@ -294,6 +295,24 @@ ForLoop* CircularBufferInfo::getCircularBufferLoop(
   return getCircularBufferLoop(axis, loops, ignore_prologue);
 }
 
+std::unordered_set<const TensorView*> CircularBufferInfo::getCircularBufferTvs(
+    ForLoop* axis) const {
+  return getCircularBufferTvs(axis->iter_domain());
+}
+
+std::unordered_set<const TensorView*> CircularBufferInfo::getCircularBufferTvs(
+    IterDomain* axis) const {
+  auto concrete_id = lower_utils::getConcreteLoopID(axis);
+
+  auto maybe_tvs_it = circular_buffer_tvs_.find(concrete_id);
+
+  if (maybe_tvs_it == circular_buffer_tvs_.end()) {
+    return {};
+  }
+
+  return maybe_tvs_it->second;
+}
+
 void CircularBufferInfo::setOriginalAllocSize(
     const TensorView* tv,
     Val* original_alloc_size) {
@@ -317,6 +336,38 @@ std::vector<const TensorView*> CircularBufferInfo::getCircularBufferTvs()
         return pair.first;
       });
   return keys;
+}
+
+std::string CircularBufferInfo::toString() const {
+  std::stringstream ss;
+  ss << "CircularBufferInfo: {" << std::endl;
+  ss << "\tmap_:" << std::endl;
+  for (const auto& pair : map_) {
+    ss << "\t\t" << pair.first->toString() << " -> { circular_buffer_axis="
+       << ir_utils::nullOrToString(pair.second.circular_buffer_axis)
+       << ", original_alloc_size="
+       << ir_utils::nullOrToInlineString(pair.second.original_alloc_size)
+       << " }" << std::endl;
+  }
+  ss << "\tconcrete_circular_buffered_loop_id_:" << std::endl;
+  ss << "\t\t" << ir_utils::toString(concrete_circular_buffered_loop_id_)
+     << std::endl;
+  ss << "\tcircular_buffer_options_:" << std::endl;
+  for (const auto& pair : circular_buffer_options_) {
+    ss << "\t\t" << pair.first->toString()
+       << " -> { stage=" << pair.second.stage
+       << ", prefetch=" << pair.second.prefetch << " }" << std::endl;
+  }
+  ss << "\tcircular_buffer_tvs_:" << std::endl;
+  for (const auto& pair : circular_buffer_tvs_) {
+    ss << "\t\t" << pair.first->toString() << " -> { ";
+    for (const auto tv : pair.second) {
+      ss << tv->toString() << ", ";
+    }
+    ss << " }" << std::endl;
+  }
+  ss << "}" << std::endl;
+  return ss.str();
 }
 
 IterDomain* getCircularBufferAxis(const TensorView* tv) {

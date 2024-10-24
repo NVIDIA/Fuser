@@ -41,7 +41,10 @@ class PointwiseParams : public HeuristicParams {
 
   // vectorization factor
   int64_t vectorization_factor = 1;
-  // Unroll factor
+
+  // Unroll on top of vectorization
+  // In the 2D scheduler, unroll the outer dimension to reuse loaded data across
+  // rows, reducing loaded bytes by the unroll factor.
   int64_t unroll_factor = 1;
 
   using HeuristicParams::HeuristicParams;

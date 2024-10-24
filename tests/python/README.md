@@ -24,7 +24,7 @@
 * `opinfo_fusion_definitions.py` (Less Frequent): A specific operation might need a unique `FusionDefinition` function in order to test the new operation and that function would be added in this file.
 
 ### Structural Code Used By All Tests
-* `opinfo_core.py`: Contains the defintion of the `Opinfo` object.
+* `opinfo_core.py`: Contains the definition of the `Opinfo` object.
 * `opinfo_framework.py`: Contains the decorator template to iterate over all ops for a given test case.
 * `test_ops.py`: Defines correctness and error tests for `FusionDefinition` `definition` operations.
 

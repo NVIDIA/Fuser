@@ -145,7 +145,7 @@ std::string IndexSelectOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << output(0)->toString() << "\n";
   indent_size++;
-  indent(ss, indent_size) << " = index_select( ";
+  indent(ss, indent_size) << " = indexSelect( ";
   ss << input(0)->toString() << ", dim = " << dim() << ", "
      << input(1)->toString() << " )\n";
   return ss.str();
@@ -196,7 +196,7 @@ std::string TorchGatherOp::toString(int indent_size) const {
   indent(ss, indent_size) << output(0)->toString() << "\n";
   indent_size++;
   indent(ss, indent_size) << " = "
-                          << (exactSizes() ? "take_along_axis" : "torch_gather")
+                          << (exactSizes() ? "takeAlongAxis" : "torchGather")
                           << "( " << input(0)->toString();
   if (exactSizes()) {
     ss << ", " << input(1)->toString() << ", dim = " << dim() << " )\n";
@@ -2922,7 +2922,11 @@ void validateContiguity(
     NVF_CHECK(
         expect_null != contiguity.at(i).has_value(),
         "The contiguity of a broadcast/reduction dimension must be None. "
-        "The contiguity of a non-broadcast/reduction dimension must be true/false");
+        "The contiguity of a non-broadcast/reduction dimension must be true/false. alloation_domain=[",
+        toDelimitedString(allocation_domain),
+        "], contiguity=[",
+        toDelimitedString(contiguity),
+        "]");
   }
 }
 
@@ -4589,7 +4593,7 @@ std::vector<Expr*>::iterator Scope::insert(size_t pos, Expr* expr) {
 
 void Scope::erase(std::vector<Expr*>::const_iterator pos) {
   // Remove the scope of the expr if this is the scope
-  C10_UNUSED auto expr = *pos;
+  [[maybe_unused]] auto expr = *pos;
   exprs_.erase(pos);
 }
 
@@ -4981,6 +4985,13 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
   // logsumexp, max_q/k Temporary handling of DID parallelization. See
   // https://github.com/NVIDIA/Fuser/issues/2563
   bool first_dim_is_did = this->key()->as<TensorView>()->axis(0)->isDeviceDim();
+  auto out_grad = inputs[0].as<at::Tensor>();
+  if (first_dim_is_did) {
+    NVF_CHECK(out_grad.dim() == 5, "Expected 5D but found ", out_grad.sizes());
+  } else {
+    NVF_CHECK(out_grad.dim() == 4, "Expected 4D but found ", out_grad.sizes());
+  }
+
   std::vector<at::Tensor> bwd_inputs;
   for (auto idx : c10::irange(6)) {
     auto in_tensor = inputs.at(idx).as<at::Tensor>();

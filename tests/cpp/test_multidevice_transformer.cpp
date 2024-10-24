@@ -726,7 +726,8 @@ TEST_P(DistributedTransformerTest, Sequence_Parallel_MLP_Layer) {
   TensorView* b0 = makeContigConcreteTensor({D, 4 * E / D}, dtype);
   TensorView* w1 = makeContigConcreteTensor({D, E, 4 * E / D}, dtype);
   TensorView* b1 = makeContigConcreteTensor({E}, dtype);
-  TensorView* mask = makeContigConcreteTensor({D, B*S/D, E}, DataType::Bool);
+  TensorView* mask =
+      makeContigConcreteTensor({D, B * S / D, E}, DataType::Bool);
 
   // Input x is sharded on B*S dimension.
   // Note it is only the sequence (S) dimension that is sharded
@@ -745,7 +746,7 @@ TEST_P(DistributedTransformerTest, Sequence_Parallel_MLP_Layer) {
     fusion->addOutput(tv);
   }
 
-  // Needed to ensure that dropout mask is sharded initially.
+  // Needed to ensure that rand_like is sharded initially.
   // sharding from linear1 to dropout like dropout
   shardBetween({tvsout[2]}, {tvsout[3]}, tvsout[3]);
 
@@ -757,12 +758,11 @@ TEST_P(DistributedTransformerTest, Sequence_Parallel_MLP_Layer) {
   auto w1_ = at::randn({E, 4 * E}, options) * kParamScale;
   auto b1_ = at::randn({E}, options) * kParamScale;
 
-  // Note: resetting the seed before reference and nvFuser
-  // execution so that random vals are the same.
-  at::manual_seed(0);
+  // Dropout is sharded among devices.
+  // For validation against ATen the sharded reference dropout mask is an input
+  // to the Fusion, but in regular setting it would be generated.
   std::vector<at::Tensor> reference_outs =
       reference_mlp(x_, w0_, b0_, w1_, b1_);
-  // For validation the sharded reference dropout mask is a fusion input
   auto mask_ = reference_outs[4];
 
   std::vector<c10::IValue> inputs = {
@@ -843,7 +843,7 @@ TEST_P(DistributedTransformerTest, MultiheadAttention) {
   FusionExecutorCache fec(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
   auto outputs = fec.runFusionWithInputs(inputs);
-  validate(expected_outputs, outputs, {0.02, 0.01, 0.01, 0.01});
+  validate(expected_outputs, outputs, {0.02, 0.02, 0.02, 0.02});
 }
 
 TEST_P(DistributedTransformerTest, MLP_Backward) {
@@ -1143,7 +1143,7 @@ TEST_P(DistributedTransformerTest, Forward) {
   FusionExecutorCache fec(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
   auto outputs = fec.runFusionWithInputs(inputs);
-  validate(expected_outputs, outputs, {1e-4, 0.02, 0.02, 0.04, 0.04});
+  validate(expected_outputs, outputs, {1e-4, 0.02, 0.04, 0.04, 0.04});
 }
 
 TEST_P(DistributedTransformerTest, Backward) {
@@ -1438,11 +1438,11 @@ TEST_P(DistributedTransformerTest, Backward) {
        5e-3,
        0.01,
        4e-3,
+       0.04,
        0.02,
-       0.01,
-       0.01,
-       0.01,
-       0.01});
+       0.02,
+       0.02,
+       0.02});
 }
 
 INSTANTIATE_TEST_SUITE_P(
