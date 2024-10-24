@@ -51,4 +51,44 @@ class InnerOuterPersistentKernelScheduler : public SchedulerEntry {
       HeuristicDataCache* data_cache) override;
 };
 
+namespace inner_outer_scheduler_utils {
+// Decide where to store persistent buffers.
+// By default, they reside in registers.
+// If register space runs low but there's ample shared memory,
+// move one or more buffers to shared memory until the register space is
+// sufficient.
+struct PersistentBufferStorageParams {
+  // representing buffers that are stored in shared memory, other buffers are
+  // stored in registers.
+  std::vector<TensorView*> smem_persistent_buffers;
+
+  // Total number of bytes occupied by all persistent buffers stored in shared
+  // memory.
+  int64_t smem_buffer_size = -1;
+
+  // Total number of bytes occupied by all persistent buffers stored in
+  // registers.
+  int64_t regs_buffer_size = -1;
+
+  // Additional shared memory usage per block that is not associated with
+  // persistent buffers. This includes memory for driver overhead and workspace
+  // for reductions.
+  int64_t smem_overhead = -1;
+
+  // Flag indicating whether there are sufficient registers and shared memory
+  // available to accommodate all persistent buffers as required for efficient
+  // execution.
+  bool has_enough_regs_and_smem = false;
+
+  // Flag indicating whether the persistent buffers are recomputed using inputs.
+  bool project_to_input = false;
+};
+
+PersistentBufferStorageParams getPersistentBufferStorageParams(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicDataCache* data_cache,
+    const std::vector<TensorView*>& reduction_tvs,
+    const int64_t vectorize_factor);
+} // namespace inner_outer_scheduler_utils
 } // namespace nvfuser
