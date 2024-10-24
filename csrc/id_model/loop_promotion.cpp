@@ -112,18 +112,22 @@ bool isLoopGraphUniform(const IdModel& id_model) {
     return true;
   }
 
-  for (const auto tv: id_model.tvs()) {
+  for (const auto tv : id_model.tvs()) {
+    if (tv->isFusionInput()) {
+      continue;
+    }
     for (const auto loop_id : tv->getLoopDomain()) {
-      const auto& loop_group = id_model.idGraph(IdMappingMode::LOOP)
-          .toGroup(loop_id);
-      const auto all_exact_groups = id_model.idGraph(IdMappingMode::EXACT)
-          .toGroups(*loop_group);
+      const auto& loop_group =
+          id_model.idGraph(IdMappingMode::LOOP).toGroup(loop_id);
+      const auto all_exact_groups =
+          id_model.idGraph(IdMappingMode::EXACT).toGroups(*loop_group);
       if (all_exact_groups.size() > 1) {
         std::cerr << "Multiple exact groups merged: "
                   << nvfuser::toString(loop_group) << " of "
                   << loop_id->toString() << "\n";
         std::cerr << "TV: " << tv->toString() << "\n";
-        std::cerr << "Exact groups: " << nvfuser::toString(all_exact_groups) << "\n";
+        std::cerr << "Exact groups: " << nvfuser::toString(all_exact_groups)
+                  << "\n";
         return false;
       }
     }

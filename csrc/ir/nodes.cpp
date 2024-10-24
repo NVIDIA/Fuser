@@ -3358,13 +3358,17 @@ int64_t TensorDomain::rootPosOf(IterDomain* id) const {
   return std::distance(maybeRoot().begin(), it);
 }
 
-void TensorDomain::broadcast(int64_t axis, Val* extent) {
+void TensorDomain::broadcast(int64_t axis, Val* extent, bool predicate) {
   axis = nvfuser::wrapDim(axis, nDims() + 1);
   IterDomain* id = IterDomainBuilder(fusion()->zeroVal(), extent)
                        .iter_type(IterType::Broadcast)
                        .build();
   loop_domain_.insert(loop_domain_.begin() + axis, id);
   additional_ids_.push_back(id);
+
+  if (predicate) {
+    additional_predicate_ids_.push_back(id);
+  }
 }
 
 void TensorDomain::split(int64_t axis, Val* factor, bool inner_split) {

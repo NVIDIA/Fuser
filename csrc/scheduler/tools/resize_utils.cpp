@@ -50,7 +50,7 @@ std::vector<CatOp*> getRepresentativeCatOps(Fusion* fusion) {
   return representative_vec;
 #else
   std::vector<CatOp*> cat_ops;
-  for (auto expr: exprs) {
+  for (auto expr : exprs) {
     if (expr->isA<CatOp>()) {
       cat_ops.push_back(expr->as<CatOp>());
     }
@@ -66,7 +66,7 @@ bool propagateResizeToCatInputs(CatOp* cat_op) {
 
   std::cerr << "propagateResizeToCatInputs: " << cat_op->toString();
 
-  auto get_inputs = [&] (Val* tv) -> std::vector<Val*> {
+  auto get_inputs = [&](Val* tv) -> std::vector<Val*> {
     auto dep_inputs = DependencyCheck::getAllValsBetween(
         {fusion->inputs().begin(), fusion->inputs().end()}, {tv});
     dep_inputs.erase(
@@ -80,8 +80,7 @@ bool propagateResizeToCatInputs(CatOp* cat_op) {
     return dep_inputs;
   };
 
-  auto privatize_cat_input =
-      [&](TensorView* cat_input) -> TensorView* {
+  auto privatize_cat_input = [&](TensorView* cat_input) -> TensorView* {
     auto private_copy = RecomputeTv::recompute(cat_input);
     DisjointSets<TensorView*>::DisjointSet& input_set =
         input_sets.initializeSet(private_copy).first->second;
@@ -107,10 +106,11 @@ bool propagateResizeToCatInputs(CatOp* cat_op) {
         input_sets.initializeSet(cat_input).first->second;
     auto dep_inputs = DependencyCheck::getAllValsBetween(
         {fusion->inputs().begin(), fusion->inputs().end()}, {cat_input});
-    dep_inputs.erase(std::remove_if(
-        dep_inputs.begin(), dep_inputs.end(), [&](Val* tv) {
-          return tv == cat_input || tv->isFusionInput();
-        }),
+    dep_inputs.erase(
+        std::remove_if(
+            dep_inputs.begin(),
+            dep_inputs.end(),
+            [&](Val* tv) { return tv == cat_input || tv->isFusionInput(); }),
         dep_inputs.end());
     std::cerr << "Dep input: " << toDelimitedString(dep_inputs) << "\n";
     for (auto tv : ir_utils::filterByType<TensorView>(dep_inputs)) {
@@ -135,22 +135,35 @@ bool propagateResizeToCatInputs(CatOp* cat_op) {
 
   auto updated_cat_op = cat_op;
   for (const auto& [original, clone] : replaement_map) {
-    std::cerr << "Replacing " << original->toString() << " with " << clone->toString() << "\n";
+    std::cerr << "Replacing " << original->toString() << " with "
+              << clone->toString() << "\n";
     updated_cat_op =
-        ir_utils::replaceValInExprInputs(updated_cat_op, original, clone)->as<CatOp>();
+        ir_utils::replaceValInExprInputs(updated_cat_op, original, clone)
+            ->as<CatOp>();
   }
 
   std::cerr << "New cat op: " << updated_cat_op->toString();
-  
+
   std::cerr << "Num disjoint sets: " << input_sets.size() << "\n";
 
   std::cerr << "Propagating cat resizes to each disjoint set\n";
 
-  for (auto inp_tv : ir_utils::filterByType<TensorView>(updated_cat_op->inputs())) {
+  for (auto inp_tv :
+       ir_utils::filterByType<TensorView>(updated_cat_op->inputs())) {
     std::cerr << "Cat input: " << inp_tv->toString() << "\n";
     const auto& inp_dep_set = input_sets.getDisjointSetOf(inp_tv);
-    scheduler_tools::scheduleLoopDomainsLike(
-        inp_dep_set.vector(), inp_tv->getLogicalDomain());
+    std::cerr << "Dep: " << toDelimitedString(inp_dep_set.vector()) << "\n";
+    IterDomain* cat_id =
+        inp_tv->getLogicalDomain().at(updated_cat_op->concatenatedDim());
+    std::vector<TensorView*> tvs_to_schedule;
+    tvs_to_schedule.reserve(inp_dep_set.size() - 1);
+    std::copy_if(
+        inp_dep_set.vector().begin(),
+        inp_dep_set.vector().end(),
+        std::back_inserter(tvs_to_schedule),
+        [inp_tv](TensorView* tv) { return tv != inp_tv; });
+    std::cerr << "Scheduling: " << toDelimitedString(tvs_to_schedule) << "\n";
+    scheduler_tools::scheduleLoopDomainsLike(tvs_to_schedule, cat_id);
   }
 
   return true;

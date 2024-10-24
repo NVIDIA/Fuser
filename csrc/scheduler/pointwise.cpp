@@ -19,6 +19,7 @@
 #include <scheduler/registry_utils.h>
 #include <scheduler/runtime_info.h>
 #include <scheduler/tools/inlining.h>
+#include <scheduler/tools/loop_domain_scheduler.h>
 #include <scheduler/tools/resize_utils.h>
 #include <scheduler/transpose.h>
 #include <scheduler/utils.h>
@@ -533,17 +534,18 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
 
     std::cout << "Before broadcast insertion" << std::endl;
     fusion->printMath();
-    std::cout << std::endl;    
-    //scheduler_utils::insertMissingBroadcastDomains(fusion);
-    //std::cout << "After broadcast insertion" << std::endl;
-    //fusion->printMath();
-    //std::cout << std::endl;
+    std::cout << std::endl;
+    // scheduler_utils::insertMissingBroadcastDomains(fusion);
+    // std::cout << "After broadcast insertion" << std::endl;
+    // fusion->printMath();
+    // std::cout << std::endl;
     std::vector<CatOp*> representative_cats =
         scheduler_tools::getRepresentativeCatOps(fusion);
     for (auto cat : representative_cats) {
       NVF_ERROR(
           scheduler_tools::propagateResizeToCatInputs(cat),
-          "cat propagation failed: ", cat->toString());
+          "cat propagation failed: ",
+          cat->toString());
       fusion->print();
       std::cout << std::endl;
     }
@@ -585,9 +587,20 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   }
 
   TensorView* reference_tv = getReferenceTensorView(fusion);
-
   std::cerr << "Reference: " << reference_tv->toString() << "\n";
-  
+
+  if (false) {
+    auto all_tvs = fusion->allTvs();
+    std::vector<TensorView*> all_tvs_except_for_inputs;
+    std::copy_if(
+        all_tvs.begin(),
+        all_tvs.end(),
+        std::back_inserter(all_tvs_except_for_inputs),
+        [](TensorView* tv) { return !tv->isFusionInput(); });
+    scheduler_tools::scheduleLoopDomainsLike(
+        all_tvs_except_for_inputs, reference_tv->getLoopDomain());
+  }
+
   fusion->printMath();
   std::cout << std::endl;
 

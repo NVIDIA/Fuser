@@ -315,4 +315,31 @@ TEST_F(LoopDomainSchedulingTest, ManyReshape) {
   }
 }
 
+TEST_F(LoopDomainSchedulingTest, TMP1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(1);
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv1);
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 = add(tv0, tv3);
+  fusion.addOutput(tv4);
+
+  fusion.print();
+
+  std::vector<IterDomain*> ref = tv4->getLogicalDomain();
+  scheduler_tools::scheduleLoopDomainsLike({tv2}, ref);
+
+  std::cerr << tv2->toString() << "\n";
+
+  IdModel id_model(&fusion, /*build_graphs=*/false);
+  const auto& exact_graph = id_model.buildExactGraph();
+
+  std::cerr << "Exact graph: " << exact_graph.toString() << "\n";
+}
+
 } // namespace nvfuser
