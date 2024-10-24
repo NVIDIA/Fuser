@@ -19,6 +19,8 @@
 #include <scheduler/registry_utils.h>
 #include <scheduler/runtime_info.h>
 #include <scheduler/tools/inlining.h>
+#include <scheduler/tools/loop_domain_scheduler.h>
+#include <scheduler/tools/resize_utils.h>
 #include <scheduler/transpose.h>
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>
@@ -41,6 +43,11 @@ class DomainMap : public pointwise_utils::DomainMap {
     int64_t max_dims = -1;
     for (auto output_tv :
          ir_utils::filterByType<TensorView>(fusion_->outputs())) {
+      std::cerr << "findRef. " << output_tv->toString()
+                << ": isValidReference: " << isValidReference(output_tv)
+                << ", hasMinimum: "
+                << hasMinimumSize(output_tv, minimum_num_axes)
+                << ", !isInput:" << !output_tv->isFusionInput() << "\n";
       if (isValidReference(output_tv) &&
           hasMinimumSize(output_tv, minimum_num_axes) &&
           !output_tv->isFusionInput()) {
@@ -485,6 +492,7 @@ bool PointWiseScheduler::canScheduleRunTime(
     SchedulerRuntimeInfo& runtime_info,
     HeuristicDataCache* data_cache) {
   FUSER_PERF_SCOPE("PointWiseScheduler::canScheduleRunTime");
+  std::cerr << "PW: canScheduleRunTime\n";
   auto can_schedule_transpose_entry =
       HeuristicDataCacheEntry<HeuristicCompileTime::CanScheduleTranspose>(
           data_cache, [fusion]() {
@@ -495,7 +503,7 @@ bool PointWiseScheduler::canScheduleRunTime(
     return !TransposeScheduler().canScheduleRunTime(
         fusion, runtime_info, data_cache);
   }
-
+  std::cerr << "PW: canScheduleRunTime done\n";
   return true;
 }
 
@@ -508,11 +516,60 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   // fusion segmentation
   scheduler_utils::clearMemorySpace(fusion);
 
+  std::cout << std::endl;
+  std::cerr << "schedulePointwise\n";
+  fusion->printMath();
+  std::cout << std::endl;
+
   // Cache inputs
   auto cached_inputs = scheduler_utils::cacheInputs(fusion, true);
 
   // Cache and fork outputs
   auto cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, true);
+
+  // Reference for ordering
+  TensorView* reference_order_tv = nullptr;
+  {
+    // TODO: Propagate slice first. DO it manually for now. Or use
+    // scheduleLoopDomain in a forward fashion. It should be possible
+    // to reverse the setting.
+
+    std::cout << "Before resize scheduling" << std::endl;
+    fusion->printMath();
+    std::cout << std::endl;
+    scheduler_tools::propagateCatToInputs(fusion);
+    scheduler_tools::propagateSliceToOutputs(fusion);
+
+    for (auto input_tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
+      if (reference_order_tv == nullptr) {
+        reference_order_tv = input_tv;
+        continue;
+      }
+
+      if (input_tv->getLogicalDomain().size() >
+          reference_order_tv->getLogicalDomain().size()) {
+        reference_order_tv = input_tv;
+        continue;
+      }
+
+      if (TensorDomain::noBroadcasts(input_tv->getLogicalDomain()).size() >
+          TensorDomain::noBroadcasts(reference_order_tv->getLogicalDomain())
+              .size()) {
+        reference_order_tv = input_tv;
+        continue;
+      }
+    }
+
+    std::cerr << "Reference order TV: " << reference_order_tv->toString()
+              << ", allocation: "
+              << toDelimitedString(
+                     reference_order_tv->getMaybeAllocationDomain())
+              << "\n";
+  }
+
+  std::cout << "scheduilng done\n";
+  fusion->printMath();
+  std::cout << std::endl;
 
   scheduler_utils::prepareForMemoryTypePromotion(fusion);
 
@@ -546,6 +603,34 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   }
 
   TensorView* reference_tv = getReferenceTensorView(fusion);
+  std::cerr << "Reference: " << reference_tv->toString() << "\n";
+
+  // Make sure reference is ordered properly
+  {
+    IdModel id_model(fusion, /*build_models=*/false);
+    const auto& graph = id_model.buildExactGraph();
+    const auto ordered_domains =
+        scheduler_utils::getIterationDomainsOrderedLike(
+            graph,
+            graph.toGroups(reference_tv->getLoopDomain()),
+            graph.toGroups(reference_order_tv->getMaybeAllocationDomain()));
+    std::unordered_map<int64_t, int64_t> old2new;
+    for (const auto i : c10::irange(reference_tv->getLoopDomain().size())) {
+      const auto& loop_group =
+          graph.toGroup(reference_tv->getLoopDomain().at(i));
+      auto it =
+          std::find(ordered_domains.begin(), ordered_domains.end(), loop_group);
+      NVF_ERROR(it != ordered_domains.end());
+      auto new_pos = (int64_t)std::distance(ordered_domains.begin(), it);
+      old2new.emplace((int64_t)i, new_pos);
+    }
+
+    reference_tv->reorder(old2new);
+    std::cerr << "Reordered reference: " << reference_tv->toString() << "\n";
+  }
+
+  fusion->printMath();
+  std::cout << std::endl;
 
   NVF_ERROR(
       reference_tv != nullptr,
@@ -862,10 +947,30 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     unswitch_pos = 2;
   }
 
+  std::cout << "Scheduled reference:\n";
+  reference_tv->printTransforms();
+  std::cout << std::endl;
+
+#if 0
   TransformPropagator propagator(reference_tv);
   MaxLogicalDomainInfoSpanningTree spanning_tree(reference_tv);
   spanning_tree.traverse(&propagator);
   scheduler_utils::parallelizeAllLike(reference_tv);
+#else
+  scheduler_tools::scheduleLoopDomainsLike(
+      fusion->allTvs(), reference_tv->getLoopDomain());
+#endif
+
+  std::cout << "Scheduling done\n";
+  fusion->printMath();
+  fusion->print();
+  std::cout << std::endl;
+
+  {
+    IdModel id_model(fusion);
+    std::cout << id_model.idGraph(IdMappingMode::EXACT).toString();
+    std::cout << std::endl;
+  }
 
   if (pparams->vectorization_factor > 1) {
     // Grab all tensor views that should be vectorized
@@ -927,6 +1032,10 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   // fusion (which has fewer expressions) can potentially find a better
   // scheduler and we need to call markAliases only in NoOpScheduler.
   markAliases(fusion);
+
+  std::cout << "All done\n";
+  fusion->printMath();
+  std::cout << std::endl;
 }
 
 std::unique_ptr<HeuristicParams> PointWiseScheduler::computeHeuristics(

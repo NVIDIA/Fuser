@@ -23,5 +23,9 @@ void scheduleLoopDomainsLike(
     const std::vector<TensorView*>& tvs,
     const std::vector<IterDomain*>& ref_loop_dom);
 
+void scheduleLoopDomainsLike(
+    const std::vector<TensorView*>& tvs,
+    IterDomain* ref_loop_id);
+
 } // namespace scheduler_tools
 } // namespace nvfuser
