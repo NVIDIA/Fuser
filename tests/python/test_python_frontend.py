@@ -4731,6 +4731,10 @@ fd.execute(inputs)
         nvf_out = fd.execute(inps, enable_options=["fuse_matmul"], disable_options=["matmul_expr_eval"], profile=True)
         prof = fd.profile()
         self.assertEqual(len(prof.kernel_profiles), 1)
+        
+        # By default, matmul will be be run through expr_eval scheduler.
+        # Through setting the enable and disable options as above, 
+        # we can execute it through matmul scheduler.
         self.assertEqual(prof.kernel_profiles[0].scheduler, 'matmul') 
         eager_out = torch.matmul(inps[0], inps[1])
         self.assertEqual(eager_out, nvf_out[0])
