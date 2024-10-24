@@ -699,8 +699,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   PARAM(pointwise_config, PointwiseParams, int64_t, unroll_factor)
 
   // Matmul scheduler parameters
-  INITPARAMS(matmul_config, MatmulParams)
-#define TILEPARAM(tile_name)                                                   \
+#define MATMULTILEPARAM(tile_name)                                             \
   matmul_config.def_property(                                                  \
       #tile_name "_m",                                                         \
       [](MatmulParams& self) { return self.tile_sizes.tile_name.m; },          \
@@ -713,36 +712,17 @@ void initNvFuserPythonBindings(PyObject* module) {
       #tile_name "_k",                                                         \
       [](MatmulParams& self) { return self.tile_sizes.tile_name.k; },          \
       [](MatmulParams& self, int64_t x) { self.tile_sizes.tile_name.n = x; });
-  TILEPARAM(cta_tile)
-  TILEPARAM(warp_tile)
-  TILEPARAM(instruction_tile)
-#undef TILEPARAM
-#define CBPARAM(type, name)                                                 \
+#define MATMULCBPARAM(type, name)                                           \
   matmul_config.def_property(                                               \
       #name,                                                                \
       [](MatmulParams& self) { return self.circular_buffer_options.name; }, \
       [](MatmulParams& self, type x) {                                      \
         self.circular_buffer_options.name = x;                              \
       });
-  CBPARAM(bool, circular_buffer_smem_write)
-  CBPARAM(bool, circular_buffer_smem_read)
-  CBPARAM(int, smem_circular_buffer_stage)
-#undef CBPARAM
-  PARAM(matmul_config, MatmulParams, bool, async_gmem_load_operands)
-  PARAM(matmul_config, MatmulParams, bool, rotate_ldmatrix_out_of_main_loop)
-  PARAM(matmul_config, MatmulParams, int, grid_swizzle_factor)
-  PARAM(matmul_config, MatmulParams, bool, use_smem_epilogue)
-  PARAM(matmul_config, MatmulParams, bool, promote_prologue_smem_reuse)
-  PARAM(matmul_config, MatmulParams, int, splitk_factor)
   py::enum_<MatmulParams::TileRasterizationOrder>(
       nvfuser, "MatmulTileRasterizationOrder")
       .value("column_major", MatmulParams::TileRasterizationOrder::ColumnMajor)
       .value("row_major", MatmulParams::TileRasterizationOrder::RowMajor);
-  PARAM(
-      matmul_config,
-      MatmulParams,
-      MatmulParams::TileRasterizationOrder,
-      cta_order);
   py::enum_<MmaMacroEncode::Arch>(nvfuser, "MmaMacroArch")
       .value("no_mma", MmaMacroEncode::Arch::NoMma)
       .value("volta", MmaMacroEncode::Arch::Volta)
@@ -750,6 +730,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("ampere", MmaMacroEncode::Arch::Ampere)
       .value("hopper", MmaMacroEncode::Arch::Hopper);
   py::class_<MmaMacro> mma_macro(nvfuser, "MmaMacro");
+  mma_macro.def("__repr__", [](MmaMacro& self) { return toString(self); });
   mma_macro.def_property_readonly(
       "arch", [](MmaMacro& self) { return MmaMacroEncode(self).arch; });
   mma_macro.def_property_readonly(
@@ -758,8 +739,27 @@ void initNvFuserPythonBindings(PyObject* module) {
       "n", [](MmaMacro& self) -> uint16_t { return MmaMacroEncode(self).n; });
   mma_macro.def_property_readonly(
       "k", [](MmaMacro& self) -> uint16_t { return MmaMacroEncode(self).k; });
-  mma_macro.def("__repr__", [](MmaMacro& self) { return toString(self); });
+  INITPARAMS(matmul_config, MatmulParams)
+  MATMULTILEPARAM(cta_tile)
+  MATMULTILEPARAM(warp_tile)
+  MATMULTILEPARAM(instruction_tile)
+  MATMULCBPARAM(bool, circular_buffer_smem_write)
+  MATMULCBPARAM(bool, circular_buffer_smem_read)
+  MATMULCBPARAM(int, smem_circular_buffer_stage)
+  PARAM(matmul_config, MatmulParams, bool, async_gmem_load_operands)
+  PARAM(matmul_config, MatmulParams, bool, rotate_ldmatrix_out_of_main_loop)
+  PARAM(matmul_config, MatmulParams, int, grid_swizzle_factor)
+  PARAM(matmul_config, MatmulParams, bool, use_smem_epilogue)
+  PARAM(matmul_config, MatmulParams, bool, promote_prologue_smem_reuse)
+  PARAM(matmul_config, MatmulParams, int, splitk_factor)
+  PARAM(
+      matmul_config,
+      MatmulParams,
+      MatmulParams::TileRasterizationOrder,
+      cta_order);
   PARAM(matmul_config, MatmulParams, MmaMacroEncode, mma_macro);
+#undef MATMULTILEPARAM
+#undef MATMULCBPARAM
 
 #undef PARAM
 #undef INITPARAMS
