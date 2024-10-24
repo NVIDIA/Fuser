@@ -608,7 +608,6 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
     if (!mappable) {
       // If there's unmappable dims from producer to consumer, producer is a
       // persistent buffer.
-      std::cout << "found persistent_buffers: " << producer->toString() << std::endl;
       persistent_buffer_info.persistent_buffers.emplace_back(producer);
     }
   }
@@ -656,7 +655,6 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
     // doing reduction.
     if (canProjectToInputsWithoutReduction(reduction_tvs, persistent_buffer)
             .first) {
-      std::cout << "Projectable buffer: " << persistent_buffer->toString() << std::endl;
       persistent_buffer_info.projectable_persistent_buffers.push_back(
           persistent_buffer);
     }
@@ -692,11 +690,8 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
         has_unmappable_dim = true;
       }
     }
-      std::cout << "checking input: " << input->toString() << " has_unmappable_dim: " << has_unmappable_dim << std::endl;
-
     if (has_unmappable_dim) {
       persistent_buffer_info.projectable_buffer_inputs.emplace_back(input);
-      std::cout << "Projectable buffer input: " << input->toString() << std::endl;
     }
   }
 

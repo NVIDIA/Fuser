@@ -275,13 +275,10 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
     required_size_regs_smem_map[buffer] =
         std::make_pair(buffer_size_regs, buffer_size_smem);
     total_smem_buffer_size += buffer_size_smem;
-    std::cout << "buffer: " << buffer->toString() << " buffer_size_regs: " << buffer_size_regs << " buffer_size_smem: " << buffer_size_smem << std::endl;
   }
   buffer_params.smem_buffer_size = total_smem_buffer_size;
   buffer_params.regs_buffer_size =
       partialOuterReductionBufferSize(reduction_tvs, runtime_info);
-  std::cout << "available_regs: " << available_regs << " available_smem: " << available_smem << std::endl;
-  std::cout << "smem_buffer_size: " << buffer_params.smem_buffer_size << " regs_buffer_size: " << buffer_params.regs_buffer_size << std::endl;
   if (buffer_params.regs_buffer_size <= available_regs &&
       buffer_params.smem_buffer_size <= available_smem) {
     buffer_params.smem_persistent_buffers = buffers;
