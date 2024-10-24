@@ -124,9 +124,21 @@ removecudafiles() {
 date > "$testdir/date"
 stdoutfile="$testdir/incomplete-stdout"
 stderrfile="$testdir/incomplete-stderr"
+
+# By default, nvfuser's python frontend will write a serialized FusionCache to
+# /tmp/nvfuser_kernel_db and it will load this FusionCache automatically when it
+# exists. This can interfere with counting and comparing kernels since
+# FusionDefinitions that are cache misses in the first invocation of a program
+# might become cache hits in subsequent invocations. Here we try to avoid this
+# by simply moving this directory out of the way then moving it back after we're
+# done.
 fusioncachedir=/tmp/nvfuser_kernel_db
 fusioncachedirbackup=${fusioncachedir}-backup
-mv "$fusioncachedir" "$fusioncachedirbackup"
+if [[ -f "$fusioncachedir" ]]
+then
+    mv "$fusioncachedir" "$fusioncachedirbackup"
+fi
+
 cleanup() {
     numcu=$(find . -maxdepth 1 -name '__tmp_kernel*.cu' | wc -l)
     numptx=$(find . -maxdepth 1 -name '__tmp_kernel*.ptx' | wc -l)
@@ -146,7 +158,10 @@ cleanup() {
     fi
     # remove the serialized fusion cache and reinstate the original one
     rm -rf "$fusioncachedir"
-    mv "$fusioncachedirbackup" "$fusioncachedir"
+    if [[ -f "$fusioncachedirbackup" ]]
+    then
+        mv "$fusioncachedirbackup" "$fusioncachedir"
+    fi
 }
 trap "cleanup" EXIT
 
