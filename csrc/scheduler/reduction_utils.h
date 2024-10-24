@@ -38,6 +38,7 @@ void multiReductionInliner(
     std::vector<TensorView*> reduction_tvs,
     std::vector<TensorView*> cached_inputs,
     std::vector<std::pair<TensorView*, TensorView*>> cached_outputs,
+    std::vector<TensorView*> smem_persistent_buffer_consumers = {},
     std::vector<TensorView*> dummy_outputs = {});
 
 // Propagate transformations with internal cutoff boundary at boundaryNodesSet
@@ -55,21 +56,54 @@ void propagateRFactor(
     TensorView* reduction_tv,
     const std::vector<TensorView*>& reduction_tvs);
 
-// Propagate Parallelization from reference TensorView to other TensorViews
-// Parallel types Unroll, Vectorize, and MisalignedVectorize are explicitly
-// handled for tensorviews in cached_inputs and cached_outputs.
-// If reduction_tv and reference_tv shouldn't be unrolled, clear that parallel
-// type. unroll and vectorize are members of ReductionParams
-NVF_API void propagateParallelization(
-    Fusion* fusion,
-    TensorView* reduction_tv,
+// Get all cached input/output and shared memory TensorViews that are
+// vectorizable and unrollable.
+//
+// Parameters:
+//   reference_tv: TensorView created during RFactor, used to find vectorizable
+//                 TensorViews.
+//   is_vectorize: Indicates if vectorization is applied in the scheduler.
+//   cached_inputs: Inputs cached in registers or shared memory.
+//   cached_outputs: Outputs cached in registers.
+//   smem_consumers: Consumers of shared memory persistent buffers, they are
+//                   register cached Tvs after the shared memory tv.
+NVF_API std::unordered_set<TensorView*> getCachedTvsToUnrollOrVectorize(
     TensorView* reference_tv,
-    const bool unroll,
-    const bool vectorize,
-    const bool use_grouped_reduction,
-    const std::vector<TensorView*>& reduction_tvs,
+    bool is_vectorize,
     const std::vector<TensorView*>& cached_inputs,
     const std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs,
+    const std::vector<TensorView*>& smem_consumers);
+
+// Propagate parallelization from the reference TensorView to other TensorViews.
+// Unroll, Vectorize, and MisalignedVectorize types are explicitly handled for
+// TensorViews in unroll_vectorizable_cached_tvs. Clears unroll parallelization
+// for reduction_tv and reference_tv if they shouldn't be unrolled.
+//
+// Parameters:
+//   reduction_tv: The reduction TensorView being scheduled and parallelized.
+//                 Needs to clear its vectorization or convert to grouped
+//                 reduction.
+//
+//   reference_tv: The reference TensorView being scheduled and parallelized,
+//                 propagates parallelization to other selected TensorViews.
+//
+//   is_unroll_or_vectorization: Indicates if unroll or vectorization is used in
+//                               the scheduler.
+//
+//   reduction_tvs: All reduction TensorViews in the fusion. May add grouped
+//                  parallelization.
+//
+//   unroll_vectorizable_cached_tvs: Cached TensorViews that are unrollable
+//                                   or vectorizable.
+//
+//   selected_tvs: TensorViews selected for parallelization, default is all Tvs.
+NVF_API void propagateParallelization(
+    TensorView* reduction_tv,
+    TensorView* reference_tv,
+    const bool is_unroll_or_vectorization,
+    const bool use_grouped_reduction,
+    const std::vector<TensorView*>& reduction_tvs,
+    const std::unordered_set<TensorView*>& unroll_vectorizable_cached_tvs,
     const std::vector<TensorView*>& selected_tvs = {});
 
 // Sort and rfactor the reference tv in a consistent way for reduction inliner.

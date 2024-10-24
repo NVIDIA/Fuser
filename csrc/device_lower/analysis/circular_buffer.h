@@ -29,7 +29,7 @@ class CircularBufferInfo {
  public:
   void build(Fusion* fusion);
 
-  void setCircularBufferAxis(const TensorView* tv, IterDomain* id);
+  void setCircularBufferTv(const TensorView* tv);
 
   IterDomain* getCircularBufferAxis(const TensorView* tv) const;
 
@@ -52,6 +52,12 @@ class CircularBufferInfo {
       const std::vector<ForLoop*>& loops,
       bool ignore_prologue = false);
 
+  //! Get the circular-buffered tensors for the given loop/axis.
+  std::unordered_set<const TensorView*> getCircularBufferTvs(
+      ForLoop* axis) const;
+  std::unordered_set<const TensorView*> getCircularBufferTvs(
+      IterDomain* axis) const;
+
   void setOriginalAllocSize(const TensorView* tv, Val* size);
 
   Val* getOriginalAllocSize(const TensorView* tv);
@@ -65,6 +71,8 @@ class CircularBufferInfo {
   //! loop.
   int64_t getStageDepthFor(IterDomain* circular_buffered_id) const;
   int64_t getPrefetchDistanceFor(IterDomain* circular_buffered_id) const;
+
+  std::string toString() const;
 
  private:
   const TvInfo& getTvInfo(const TensorView* tv) const;
@@ -95,6 +103,11 @@ class CircularBufferInfo {
   //! can indeed shared with the same prolog extent and main loop offset.
   std::unordered_map<IterDomain*, CircularBufferOptions>
       circular_buffer_options_;
+
+  //! Keeps track of circular buffer tvs for each disjoint set of loop mapped
+  //! iterdomains.
+  std::unordered_map<IterDomain*, std::unordered_set<const TensorView*>>
+      circular_buffer_tvs_;
 };
 
 } // namespace nvfuser
