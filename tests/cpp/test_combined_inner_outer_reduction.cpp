@@ -936,6 +936,7 @@ TEST_F(CombinedSchedulerTest, InnerOuterSharedMemoryRegisterPersistent) {
   // the 3 buffers after considering the overhead.
   // tv0 is a outer bcast tv, it stays in shared memory.
   int64_t dim1 = ceilDiv(available_smem / sizeof(float), 3);
+  dim1 = scheduler_utils::roundUpPow2Or8(dim1);
   int64_t dim0 = 1024;
   auto tv0 = makeContigTensor(1);
   auto tv1 = makeContigTensor(2);
