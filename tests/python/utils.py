@@ -249,6 +249,7 @@ def check_cpp_translation(reference_outputs, fd, inputs, device=None):
         torch.manual_seed(0)
         cloned_fd = FusionDefinition()
         clone(fd, cloned_fd)
+        cloned_fd.segment(inputs)
         cloned_outputs = cloned_fd.execute(inputs, device=device)
 
         # Make sure the results of original and cloned definitions match.
