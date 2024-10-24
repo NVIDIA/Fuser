@@ -194,6 +194,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   std::string getLiteralSuffix(DataType dtype) {
     switch (std::get<PrimDataType>(dtype.type)) {
       case DataType::Float:
+      case DataType::Half:
+      case DataType::BFloat16:
+      case DataType::Float8_e4m3fn:
+      case DataType::Float8_e5m2:
         return "f";
       case DataType::Int:
         // We use the LL suffix for int64_t literals
@@ -3363,41 +3367,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   void handle(const kir::UpdateMagicZero*) final {
     indent() << "NVFUSER_UPDATE_MAGIC_ZERO;\n";
-  }
-
-  void handle(const CatOp* cat) final {
-    auto out = gen(cat->output(0));
-
-    // Generate code like:
-    // if (consumer_idx < producer_0_extent) {
-    //   consumer[consumer_idx] = produce_0[producer_idx0];
-    // } else if (consumer_idx < producer_1_extent) {
-    //   consumer[consumer_idx] = produce_1[producer_idx1];
-    // } else if (consumer_idx < producer_2_extent) {
-    //   consumer[consumer_idx] = produce_2[producer_idx2];
-    // } else {
-    //   consumer[consumer_idx] = produce_3[producer_idx3];
-    // }
-
-    for (const auto i : c10::irange(cat->inputs().size())) {
-      auto inp = cat->input(i)->as<kir::TensorIndex>();
-      auto inp_str = gen(inp);
-      if (i < cat->inputs().size() - 1) {
-        if (i == 0) {
-          indent() << "if (";
-        } else {
-          indent() << "} else if (";
-        }
-        code_ << gen(cat->getPred((int)i)) << ") {\n";
-      } else {
-        // last case doesn't need to be predicated
-        indent() << "} else {\n";
-      }
-
-      indent() << kTab << out << " = " << gen(inp) << ";\n";
-    }
-
-    indent() << "}\n";
   }
 
  private:
