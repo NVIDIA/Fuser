@@ -26,14 +26,14 @@ def load_matmul_problems():
 
 
 @pytest.mark.parametrize("half_reduction", [False, True], ids=["fullred", "halfred"])
-@pytest.mark.parametrize("eager", [False, True], ids=["nvfuser", "eager"])
+@pytest.mark.parametrize("compile", [False], ids=["eager"])
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16], ids=["fp16", "bf16"])
 @pytest.mark.parametrize(
     "config", load_matmul_problems(), ids=lambda val: "-".join(str(v) for v in val)
 )
-def test_matmul_nvf_benchmark(
+def test_matmul_baseline_benchmark(
     benchmark,
-    eager: bool,
+    compile: bool,
     config: tuple,
     dtype: torch.dtype,
     half_reduction: bool,
@@ -47,7 +47,48 @@ def test_matmul_nvf_benchmark(
     torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = half_reduction
     torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = half_reduction
 
-    if half_reduction and not eager:
+    try:
+        a = torch.randn(m, k, device="cuda", dtype=dtype)
+        b = torch.randn(k, n, device="cuda", dtype=dtype)
+
+        if layout == "NT" or layout == "NN":
+            a = a.as_strided(size=[m, k], stride=[1, m])
+        if layout == "TN" or layout == "NN":
+            b = b.as_strided(size=[k, n], stride=[1, k])
+
+        # NOTE: we never need to validate eager, as it is our baseline
+        if not disable_benchmarking:
+            run_benchmark(
+                benchmark,
+                lambda ab: torch.matmul(*ab),
+                [a, b],
+            )
+
+    except torch.OutOfMemoryError:
+        pytest.skip("Test failed due to OutOfMemoryError")
+
+
+@pytest.mark.parametrize("half_reduction", [False, True], ids=["fullred", "halfred"])
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16], ids=["fp16", "bf16"])
+@pytest.mark.parametrize(
+    "config", load_matmul_problems(), ids=lambda val: "-".join(str(v) for v in val)
+)
+def test_matmul_nvf_benchmark(
+    benchmark,
+    config: tuple,
+    dtype: torch.dtype,
+    half_reduction: bool,
+    disable_validation: bool,
+    disable_benchmarking: bool,
+):
+    m, n, k, layout = config
+
+    clear_cuda_cache()
+
+    torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = half_reduction
+    torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = half_reduction
+
+    if half_reduction:
         # See https://github.com/NVIDIA/Fuser/pull/1719
         pytest.skip("Reduced precision reduction not implemented in nvFuser")
 
@@ -60,23 +101,15 @@ def test_matmul_nvf_benchmark(
         if layout == "TN" or layout == "NN":
             b = b.as_strided(size=[k, n], stride=[1, k])
 
-        if eager:
-            # NOTE: we never need to validate eager, as it is our baseline
-            run_benchmark(
-                benchmark,
-                lambda ab: torch.matmul(*ab),
-                [a, b],
-            )
-        else:
-            with FusionDefinition() as fd:
-                matmul_fusion(fd, [a, b])
+        with FusionDefinition() as fd:
+            matmul_fusion(fd, [a, b])
 
-            if not disable_validation:
-                eager_output = torch.matmul(a, b)
-                fd.validate([a, b], [eager_output])
+        if not disable_validation:
+            eager_output = torch.matmul(a, b)
+            fd.validate([a, b], [eager_output])
 
-            if not disable_benchmarking:
-                run_benchmark(benchmark, fd.execute, [a, b])
+        if not disable_benchmarking:
+            run_benchmark(benchmark, fd.execute, [a, b])
 
     except torch.OutOfMemoryError:
         pytest.skip("Test failed due to OutOfMemoryError")
