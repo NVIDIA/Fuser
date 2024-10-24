@@ -3,7 +3,6 @@
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
 from nvfuser import FusionDefinition
-from nvfuser.pytorch_utils import retry_on_oom_or_skip_test
 from .core import run_benchmark
 import torch
 
@@ -29,7 +28,6 @@ def load_matmul_problems():
     "config", load_matmul_problems(), ids=lambda val: "_".join(str(v) for v in val)
 )
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
-@retry_on_oom_or_skip_test
 def test_matmul_nvf_benchmark(
     benchmark,
     config: tuple,
@@ -39,24 +37,20 @@ def test_matmul_nvf_benchmark(
 ):
     m, n, k, layout = config
 
-    try:
-        a = torch.randn(m, k, device="cuda", dtype=dtype)
-        b = torch.randn(k, n, device="cuda", dtype=dtype)
+    a = torch.randn(m, k, device="cuda", dtype=dtype)
+    b = torch.randn(k, n, device="cuda", dtype=dtype)
 
-        if layout == "NT" or layout == "NN":
-            a = a.as_strided(size=[m, k], stride=[1, m])
-        if layout == "TN" or layout == "NN":
-            b = b.as_strided(size=[k, n], stride=[1, k])
+    if layout == "NT" or layout == "NN":
+        a = a.as_strided(size=[m, k], stride=[1, m])
+    if layout == "TN" or layout == "NN":
+        b = b.as_strided(size=[k, n], stride=[1, k])
 
-        with FusionDefinition() as fd:
-            matmul_fusion(fd, [a, b])
+    with FusionDefinition() as fd:
+        matmul_fusion(fd, [a, b])
 
-        if not disable_validation:
-            eager_output = torch.matmul(a, b)
-            fd.validate([a, b], [eager_output])
+    if not disable_validation:
+        eager_output = torch.matmul(a, b)
+        fd.validate([a, b], [eager_output])
 
-        if not disable_benchmarking:
-            run_benchmark(benchmark, fd.execute, [a, b])
-
-    except torch.OutOfMemoryError:
-        pytest.skip("Test failed due to OutOfMemoryError")
+    if not disable_benchmarking:
+        run_benchmark(benchmark, fd.execute, [a, b])
