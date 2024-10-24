@@ -15,6 +15,7 @@
 #include <ir/cloner.h>
 #include <scheduler/reduction_heuristic.h>
 #include <scheduler/tools/maxinfo_propagator.h>
+#include <val_graph.h>
 #include <visibility.h>
 
 namespace nvfuser {
@@ -701,7 +702,12 @@ void moveNonConcretizedBroadcastInnermost(
     Fusion* fusion,
     const std::unordered_set<TensorView*>& ignored_tvs = {});
 
-//void insertMissingBroadcastDomains(Fusion* fusoin);
+// void insertMissingBroadcastDomains(Fusion* fusoin);
+
+ValGroups getIterationDomainsOrderedLike(
+    const ValGraph& graph,
+    const ValGroups& domains_to_reorder,
+    const ValGroups& reference);
 
 } // namespace scheduler_utils
 } // namespace nvfuser

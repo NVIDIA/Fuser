@@ -6,60 +6,18 @@
  */
 // clang-format on
 
+#include <id_model/id_model.h>
 #include <ir/cloner.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <scheduler/tools/loop_domain_scheduler.h>
 #include <scheduler/tools/resize_utils.h>
+#include <val_graph_visitor.h>
 
 namespace nvfuser {
 namespace scheduler_tools {
 
-std::vector<CatOp*> getRepresentativeCatOps(Fusion* fusion) {
-  const auto& exprs = fusion->exprs();
-#if 0
-  std::unordered_set<Expr*> representative_set;
-
-  std::unordered_set<Val*> deps;
-
-  for (auto it = exprs.rbegin(); it != exprs.rend(); ++it) {
-    CatOp* cat = dynamic_cast<CatOp*>(*it);
-    if (cat == nullptr) {
-      continue;
-    }
-
-    if (deps.find(cat->output(0)) != deps.end()) {
-      continue;
-    }
-
-    representative_set.insert(cat);
-    auto all_inp_dep = DependencyCheck::getAllValsBetween(
-        {fusion->inputs().begin(), fusion->inputs().end()}, {cat->input(0)});
-    for (auto val : all_inp_dep) {
-      deps.insert(val);
-    }
-  }
-
-  std::vector<CatOp*> representative_vec;
-  for (auto expr : exprs) {
-    if (representative_set.find(expr) != representative_set.end()) {
-      representative_vec.push_back(expr->as<CatOp>());
-    }
-  }
-
-  return representative_vec;
-#else
-  std::vector<CatOp*> cat_ops;
-  for (auto expr : exprs) {
-    if (expr->isA<CatOp>()) {
-      cat_ops.push_back(expr->as<CatOp>());
-    }
-  }
-  return cat_ops;
-#endif
-}
-
-bool propagateResizeToCatInputs(CatOp* cat_op) {
+void propagateCatToInputs(CatOp* cat_op) {
   Fusion* fusion = cat_op->fusion();
 
   DisjointSets<TensorView*> input_sets;
@@ -165,7 +123,90 @@ bool propagateResizeToCatInputs(CatOp* cat_op) {
     std::cerr << "Scheduling: " << toDelimitedString(tvs_to_schedule) << "\n";
     scheduler_tools::scheduleLoopDomainsLike(tvs_to_schedule, cat_id);
   }
+}
 
+bool propagateCatToInputs(Fusion* fusion) {
+  const auto exprs = fusion->exprs();
+  for (auto expr : exprs) {
+    auto cat = dynamic_cast<CatOp*>(expr);
+    if (cat == nullptr) {
+      continue;
+    }
+
+    std::cerr << "propagate cat: " << cat->toString();
+    propagateCatToInputs(cat);
+  }
+
+  // TODO: do error check and return something else if failed
+  return true;
+}
+
+bool propagateSliceToOutputs(Fusion* fusion) {
+  IdModel id_model(fusion, /*build_models=*/false);
+  const auto& graph = id_model.buildExactGraph();
+
+  const auto exprs = fusion->exprs();
+  for (auto it = exprs.rbegin(); it != exprs.rend(); ++it) {
+    auto slice = dynamic_cast<SliceOp*>(*it);
+    if (slice == nullptr) {
+      continue;
+    }
+
+    std::cerr << "propagateSliceToOutputs: " << slice->toString();
+
+    TensorView* out = slice->out();
+
+    auto dep_outputs = DependencyCheck::getAllValsBetween(
+        {out}, {fusion->outputs().begin(), fusion->outputs().end()});
+
+    std::vector<TensorView*> tvs_to_schedule;
+    tvs_to_schedule.reserve(dep_outputs.size());
+    std::transform(
+        dep_outputs.begin(),
+        dep_outputs.end(),
+        std::back_inserter(tvs_to_schedule),
+        [](Val* val) { return val->as<TensorView>(); });
+
+    ValGroups cat_ids;
+    for (const auto tv : tvs_to_schedule) {
+      CatOp* cat_op = dynamic_cast<CatOp*>(tv->definition());
+      if (cat_op == nullptr) {
+        continue;
+      }
+
+      cat_ids.pushBack(graph.toGroup(
+          cat_op->output(0)->as<TensorView>()->getLogicalDomain().at(
+              cat_op->concatenatedDim())));
+    }
+
+    const auto logical_groups = graph.toGroups(out->getLogicalDomain());
+    for (const auto i : c10::irange(out->getLogicalDomain().size())) {
+      auto logical_id = out->getLogicalDomain().at(i);
+      auto resize = dynamic_cast<Resize*>(logical_id->definition());
+      if (resize == nullptr) {
+        continue;
+      }
+      auto root_id = resize->in();
+      std::cerr << "Slice ID: " << logical_id->toString() << ", "
+                << root_id->toString() << "\n";
+
+      auto path_to_reachable_cat_ids = ValGraphBFS::getExprsBetween(
+          graph, logical_groups, cat_ids, false, Direction::Forward);
+      if (!path_to_reachable_cat_ids.empty() &&
+          getInputsOfExprPath(graph, path_to_reachable_cat_ids)
+              .has(graph.toGroup(logical_id))) {
+        std::cerr << "Skipping as consumed by concat: "
+                  << logical_id->toString() << "\n";
+        continue;
+      }
+
+      std::cerr << "propagate slice: " << root_id->toString() << " of "
+                << slice->toString();
+      scheduler_tools::scheduleLoopDomainsLike(tvs_to_schedule, root_id);
+    }
+  }
+
+  // TODO: do error check and return something else if failed
   return true;
 }
 

@@ -4191,7 +4191,7 @@ TEST_F(ResizeTest, CatScheduledLikeConsumer3) {
   auto tv4 = cat({tv2, tv3}, 1);
   fusion.addOutput(tv4);
 
-  scheduler_tools::propagateResizeToCatInputs(tv4->definition()->as<CatOp>());
+  scheduler_tools::propagateCatToInputs(tv4->definition()->as<CatOp>());
 
   fusion.print();
 
@@ -4247,7 +4247,7 @@ TEST_F(ResizeTest, CatScheduledLikeConsumerInvalid) {
   auto tv4 = cat({tv2, tv3}, 1);
   fusion.addOutput(tv4);
 
-  scheduler_tools::propagateResizeToCatInputs(tv4->definition()->as<CatOp>());
+  scheduler_tools::propagateCatToInputs(tv4->definition()->as<CatOp>());
 }
 
 TEST_F(ResizeTest, SliceSliceConcatConcat2) {

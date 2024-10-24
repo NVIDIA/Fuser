@@ -527,28 +527,44 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   // Cache and fork outputs
   auto cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, true);
 
+  // Reference for ordering
+  TensorView* reference_order_tv = nullptr;
   {
     // TODO: Propagate slice first. DO it manually for now. Or use
     // scheduleLoopDomain in a forward fashion. It should be possible
     // to reverse the setting.
 
-    std::cout << "Before broadcast insertion" << std::endl;
+    std::cout << "Before resize scheduling" << std::endl;
     fusion->printMath();
     std::cout << std::endl;
-    // scheduler_utils::insertMissingBroadcastDomains(fusion);
-    // std::cout << "After broadcast insertion" << std::endl;
-    // fusion->printMath();
-    // std::cout << std::endl;
-    std::vector<CatOp*> representative_cats =
-        scheduler_tools::getRepresentativeCatOps(fusion);
-    for (auto cat : representative_cats) {
-      NVF_ERROR(
-          scheduler_tools::propagateResizeToCatInputs(cat),
-          "cat propagation failed: ",
-          cat->toString());
-      fusion->print();
-      std::cout << std::endl;
+    scheduler_tools::propagateCatToInputs(fusion);
+    scheduler_tools::propagateSliceToOutputs(fusion);
+
+    for (auto input_tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
+      if (reference_order_tv == nullptr) {
+        reference_order_tv = input_tv;
+        continue;
+      }
+
+      if (input_tv->getLogicalDomain().size() >
+          reference_order_tv->getLogicalDomain().size()) {
+        reference_order_tv = input_tv;
+        continue;
+      }
+
+      if (TensorDomain::noBroadcasts(input_tv->getLogicalDomain()).size() >
+          TensorDomain::noBroadcasts(reference_order_tv->getLogicalDomain())
+              .size()) {
+        reference_order_tv = input_tv;
+        continue;
+      }
     }
+
+    std::cerr << "Reference order TV: " << reference_order_tv->toString()
+              << ", allocation: "
+              << toDelimitedString(
+                     reference_order_tv->getMaybeAllocationDomain())
+              << "\n";
   }
 
   std::cout << "scheduilng done\n";
@@ -589,16 +605,28 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   TensorView* reference_tv = getReferenceTensorView(fusion);
   std::cerr << "Reference: " << reference_tv->toString() << "\n";
 
-  if (false) {
-    auto all_tvs = fusion->allTvs();
-    std::vector<TensorView*> all_tvs_except_for_inputs;
-    std::copy_if(
-        all_tvs.begin(),
-        all_tvs.end(),
-        std::back_inserter(all_tvs_except_for_inputs),
-        [](TensorView* tv) { return !tv->isFusionInput(); });
-    scheduler_tools::scheduleLoopDomainsLike(
-        all_tvs_except_for_inputs, reference_tv->getLoopDomain());
+  // Make sure reference is ordered properly
+  {
+    IdModel id_model(fusion, /*build_models=*/false);
+    const auto& graph = id_model.buildExactGraph();
+    const auto ordered_domains =
+        scheduler_utils::getIterationDomainsOrderedLike(
+            graph,
+            graph.toGroups(reference_tv->getLoopDomain()),
+            graph.toGroups(reference_order_tv->getMaybeAllocationDomain()));
+    std::unordered_map<int64_t, int64_t> old2new;
+    for (const auto i : c10::irange(reference_tv->getLoopDomain().size())) {
+      const auto& loop_group =
+          graph.toGroup(reference_tv->getLoopDomain().at(i));
+      auto it =
+          std::find(ordered_domains.begin(), ordered_domains.end(), loop_group);
+      NVF_ERROR(it != ordered_domains.end());
+      auto new_pos = (int64_t)std::distance(ordered_domains.begin(), it);
+      old2new.emplace((int64_t)i, new_pos);
+    }
+
+    reference_tv->reorder(old2new);
+    std::cerr << "Reordered reference: " << reference_tv->toString() << "\n";
   }
 
   fusion->printMath();
@@ -919,10 +947,30 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     unswitch_pos = 2;
   }
 
+  std::cout << "Scheduled reference:\n";
+  reference_tv->printTransforms();
+  std::cout << std::endl;
+
+#if 0
   TransformPropagator propagator(reference_tv);
   MaxLogicalDomainInfoSpanningTree spanning_tree(reference_tv);
   spanning_tree.traverse(&propagator);
   scheduler_utils::parallelizeAllLike(reference_tv);
+#else
+  scheduler_tools::scheduleLoopDomainsLike(
+      fusion->allTvs(), reference_tv->getLoopDomain());
+#endif
+
+  std::cout << "Scheduling done\n";
+  fusion->printMath();
+  fusion->print();
+  std::cout << std::endl;
+
+  {
+    IdModel id_model(fusion);
+    std::cout << id_model.idGraph(IdMappingMode::EXACT).toString();
+    std::cout << std::endl;
+  }
 
   if (pparams->vectorization_factor > 1) {
     // Grab all tensor views that should be vectorized
@@ -984,6 +1032,10 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   // fusion (which has fewer expressions) can potentially find a better
   // scheduler and we need to call markAliases only in NoOpScheduler.
   markAliases(fusion);
+
+  std::cout << "All done\n";
+  fusion->printMath();
+  std::cout << std::endl;
 }
 
 std::unique_ptr<HeuristicParams> PointWiseScheduler::computeHeuristics(

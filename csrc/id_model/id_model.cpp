@@ -22,6 +22,7 @@
 #include <transform_iter.h>
 #include <val_graph_visitor.h>
 
+#include <fstream>
 #include <memory>
 #include <tuple>
 #include <utility>
@@ -173,6 +174,9 @@ ValGraph& IdModel::idGraph(IdMappingMode mode) {
 void IdModel::buildIterDomainDefinitionsAndUses() {
   for (const auto tv : tvs_) {
     std::vector<IterDomain*> all_ids = tv->domain()->allIDs();
+
+    std::cerr << "TV: " << tv->toString() << ": " << toDelimitedString(all_ids)
+              << "\n";
 
     // Check if this domain is a consumer of a view-like operation
     const bool view_like_domain = tv->domain()->hasViewLikeRFactor();
@@ -362,6 +366,13 @@ ValGraph& IdModel::buildExactGraph() {
   }
 
   graph.validateConsistency();
+
+  {
+    std::ofstream ofs("exact_graph.dot", std::ofstream::trunc);
+    auto dot_string = graph.toGraphvizDotGraph();
+    ofs << dot_string;
+    ofs.close();
+  }
 
   return graph;
 }

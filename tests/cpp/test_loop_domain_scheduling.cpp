@@ -342,4 +342,27 @@ TEST_F(LoopDomainSchedulingTest, TMP1) {
   std::cerr << "Exact graph: " << exact_graph.toString() << "\n";
 }
 
+TEST_F(LoopDomainSchedulingTest, TMP2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv0);
+  auto tv3 = set(tv1);
+  fusion.addOutput(tv2);
+  fusion.addOutput(tv3);
+
+  fusion.print();
+
+  auto clone = tv0->axis(0)->cloneWithoutRFactor(true);
+  tv3->setLoopDomain({tv3->axis(0), tv3->axis(1), clone});
+  tv3->merge(0)->merge(0)->split(0, 4);
+  tv3->setLoopDomain(tv3->getLoopDomain());
+  std::cerr << tv3->toString() << "\n";
+}
+
 } // namespace nvfuser

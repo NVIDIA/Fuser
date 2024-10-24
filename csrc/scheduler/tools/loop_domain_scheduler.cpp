@@ -338,11 +338,22 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(
   // with the t4 merge reshape). This issue can be avoided by using the root
   // domain of tv2 as the target of path finding.
 
-  ValGroups tv_loop_domains =
-      graph().toGroups(TensorDomain::noBroadcasts(tv->getLoopDomain()));
+  std::cerr << "getReplayPath: " << tv->toString() << ", root; "
+            << toDelimitedString(tv->getMaybeRootDomain()) << ", loop; "
+            << toDelimitedString(tv->getLoopDomain()) << "\n";
+
+  // TODO: Should broadcast be ignored? If not all required to be
+  // visited, it shouldn't matter
+  ValGroups tv_loop_domains = graph().toGroups(
+      require_all_visited ? TensorDomain::noBroadcasts(tv->getLoopDomain())
+                          : tv->getLoopDomain());
+
+  std::cerr << "Loop: " << nvfuser::toString(tv_loop_domains) << "\n";
 
   ValGroups tv_root_domains =
       graph().toGroups(TensorDomain::noBroadcasts(tv->getMaybeRootDomain()));
+
+  std::cerr << "Root: " << nvfuser::toString(tv_root_domains) << "\n";
 
   // If all the target domains are an ancestor of the reference
   // domains, just a single backward BFS should be enough to find a
@@ -353,6 +364,7 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(
           [&](const ValGroup& tv_loop_domain) {
             return all_ancestors_of_ref_.has(tv_loop_domain);
           })) {
+    std::cerr << "Backward only path\n";
     return ValGraphBFS::getExprsBetween(
         graph(),
         ref_id_groups_,
@@ -372,6 +384,13 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(
   auto outputs_of_forward_path =
       getOutputsOfExprPath(graph(), forward_path_to_root);
 
+  // tv_root_domains may be included in all_ancestors_of_ref_
+  outputs_of_forward_path.pushBack(all_ancestors_of_ref_);
+
+  std::cerr << "Outputs for forward_path_to_root: "
+            << nvfuser::toString(outputs_of_forward_path)
+            << ", loop: " << nvfuser::toString(tv_loop_domains) << "\n";
+
   auto root_to_loop = ValGraphBFS::getExprsBetween(
       graph(),
       outputs_of_forward_path,
@@ -379,9 +398,17 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(
       /*require_all_to_visited=*/require_all_visited,
       Direction::Forward);
 
+  std::cerr << "Root to loop\n";
+  for (const auto& [eg, dir] : root_to_loop) {
+    std::cerr << dir << " " << eg->front()->toString();
+  }
+
+  ValGraphBFS::ExprPath ancestor_to_loop = forward_path_to_root;
+  ancestor_to_loop.insert(
+      ancestor_to_loop.end(), root_to_loop.begin(), root_to_loop.end());
+
   // Find the path from the ref to the forward path.
-  auto inputs_of_forward_path =
-      getInputsOfExprPath(graph(), forward_path_to_root);
+  auto inputs_of_forward_path = getInputsOfExprPath(graph(), ancestor_to_loop);
 
   auto backward_path_from_ref = ValGraphBFS::getExprsBetween(
       graph(),
@@ -393,19 +420,18 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(
   // Overall replay path = backward_path + forward_path_to_root +
   // forward_path_to_loop
   ValGraphBFS::ExprPath ref_to_loop;
-  ref_to_loop.reserve(
-      backward_path_from_ref.size() + forward_path_to_root.size() +
-      root_to_loop.size());
+  ref_to_loop.reserve(backward_path_from_ref.size() + ancestor_to_loop.size());
   ref_to_loop.insert(
       ref_to_loop.end(),
       backward_path_from_ref.begin(),
       backward_path_from_ref.end());
   ref_to_loop.insert(
-      ref_to_loop.end(),
-      forward_path_to_root.begin(),
-      forward_path_to_root.end());
-  ref_to_loop.insert(
-      ref_to_loop.end(), root_to_loop.begin(), root_to_loop.end());
+      ref_to_loop.end(), ancestor_to_loop.begin(), ancestor_to_loop.end());
+
+  std::cerr << "Path\n";
+  for (const auto& [eg, dir] : ref_to_loop) {
+    std::cerr << dir << " " << eg->front()->toString();
+  }
 
   return ref_to_loop;
 }
@@ -415,23 +441,31 @@ std::optional<ValGraphBFS::ExprPath> LoopDomainScheduler::
     getReplayPathForResize(TensorView* tv, bool require_all_visited) const {
   std::cerr << "getReplayPathForResize for " << tv->toString() << "\n";
 
-  std::vector<ValGraphBFS::NodeType> ref_definitions;
+  // This WAR only works when ref is logical
+  ValGroups ref_groups;
+  ValGraphBFS::ExprPath root_to_logial_resize_exprs;
   // ValGraphBFS::ExprPath path_to_parents;
-  for (const auto& ref_id_group : ref_id_groups_) {
-    for (const ExprGroup& eg : graph().getDefinitions(ref_id_group)) {
-      ref_definitions.emplace_back(eg);
-      // path_to_parents.emplace_back(eg, Direction::Backward);
+  for (const auto& ref_loop_id : ref_loop_dom_) {
+    const auto def = dynamic_cast<Resize*>(ref_loop_id->definition());
+    if (def != nullptr) {
+      ref_groups.pushBack(graph().toGroup(def->in()));
+      root_to_logial_resize_exprs.emplace_back(
+          graph().toGroup(def), Direction::Backward);
+    } else {
+      ref_groups.pushBack(graph().toGroup(ref_loop_id));
     }
   }
 
-  ValGroups tv_loop_domains =
-      graph().toGroups(TensorDomain::noBroadcasts(tv->getLoopDomain()));
+  // TODO: Should broadcast be ignored? If not all required to be
+  // visited, it shouldn't matter
+  ValGroups tv_loop_domains = graph().toGroups(
+      require_all_visited ? TensorDomain::noBroadcasts(tv->getLoopDomain())
+                          : tv->getLoopDomain());
 
   ValGraphBFS::ExprPath path = ValGraphBFS::getExprsBetween(
       graph(),
-      ref_definitions,
-      std::vector<ValGraphBFS::NodeType>{
-          tv_loop_domains.begin(), tv_loop_domains.end()},
+      ref_groups,
+      tv_loop_domains,
       /*require_all_to_visited=*/false,
       Direction::Backward);
 
@@ -443,10 +477,8 @@ std::optional<ValGraphBFS::ExprPath> LoopDomainScheduler::
   const auto path_vals = getValsOfExprPath(graph(), path);
 
   bool all_ref_used = std::all_of(
-      ref_id_groups_.begin(),
-      ref_id_groups_.end(),
-      [&](const ValGroup& ref_id_group) {
-        return path_vals.has(ref_id_group) || tv_loop_domains.has(ref_id_group);
+      ref_groups.begin(), ref_groups.end(), [&](const ValGroup& ref_group) {
+        return path_vals.has(ref_group) || tv_loop_domains.has(ref_group);
       });
 
   bool all_target_reached = std::all_of(
@@ -454,7 +486,7 @@ std::optional<ValGraphBFS::ExprPath> LoopDomainScheduler::
       tv_loop_domains.end(),
       [&](const ValGroup& tv_taget_domain) {
         return path_vals.has(tv_taget_domain) ||
-            ref_id_groups_.has(tv_taget_domain);
+            ref_groups.has(tv_taget_domain);
       });
 
   if (!all_ref_used && !all_target_reached) {
@@ -465,14 +497,21 @@ std::optional<ValGraphBFS::ExprPath> LoopDomainScheduler::
     NVF_ERROR(all_target_reached);
   }
 
+  ValGraphBFS::ExprPath ref_to_target;
+  ref_to_target.insert(
+      ref_to_target.end(),
+      root_to_logial_resize_exprs.begin(),
+      root_to_logial_resize_exprs.end());
+  ref_to_target.insert(ref_to_target.end(), path.begin(), path.end());
+
   // Valid path found. Append with upward_path
   std::cerr << "Resize WAR: taking a backward path for " << tv->toString()
             << "\n";
-  for (const auto& [eg, dir] : path) {
+  for (const auto& [eg, dir] : ref_to_target) {
     std::cerr << eg->front()->toString();
   }
 
-  return path;
+  return ref_to_target;
 }
 
 void LoopDomainScheduler::replaceAndAppend(TensorView* tv) const {
@@ -525,13 +564,6 @@ void LoopDomainScheduler::replaceAndAppend(TensorView* tv) const {
   auto path_inputs = getInputsOfExprPath(graph(), path_from_ref);
 
   auto path_outputs = getOutputsOfExprPath(graph(), path_from_ref);
-
-  ValGroups disconnected_ref_groups;
-  for (const auto& ref_id_group : ref_id_groups_) {
-    if (!path_inputs.has(ref_id_group)) {
-      disconnected_ref_groups.pushBack(ref_id_group);
-    }
-  }
 
   std::vector<IterDomain*> new_loop_domain;
 
@@ -611,6 +643,10 @@ void scheduleLoopDomainsLike(
   LoopDomainScheduler scheduler(ref_loop_dom);
 
   for (auto tv : tvs) {
+    // Loop domain of fusion inputs should have no meaning
+    if (tv->isFusionInput()) {
+      continue;
+    }
     scheduler.schedule(tv);
   }
 }
@@ -625,6 +661,10 @@ void scheduleLoopDomainsLike(
   LoopDomainScheduler scheduler({ref_loop_id});
 
   for (auto tv : tvs) {
+    // Loop domain of fusion inputs should have no meaning
+    if (tv->isFusionInput()) {
+      continue;
+    }
     scheduler.replaceAndAppend(tv);
   }
 }

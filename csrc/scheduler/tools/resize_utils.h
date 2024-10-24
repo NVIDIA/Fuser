@@ -13,12 +13,15 @@ namespace nvfuser {
 
 class CatOp;
 class Fusion;
+class SliceOp;
 
 namespace scheduler_tools {
 
-std::vector<CatOp*> getRepresentativeCatOps(Fusion* fusion);
+void propagateCatToInputs(CatOp* cat_op);
+bool propagateCatToInputs(Fusion* fusion);
 
-bool propagateResizeToCatInputs(CatOp* cat_op);
+void propagateSliceToOutputs(SliceOp* slice_op);
+bool propagateSliceToOutputs(Fusion* fusion);
 
 } // namespace scheduler_tools
 } // namespace nvfuser
