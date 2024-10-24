@@ -302,7 +302,7 @@ TEST_F(SegmentationTest, ForwardedExprsAreNotMergeable) {
   auto tv0 = makeSymbolicTensor(1);
   fusion->addInput(tv0);
   auto tv1 = neg(tv0);
-  auto tv2 = slice(tv1, {0}, {5});
+  auto tv2 = slice(tv1, std::vector<int64_t>({0}), std::vector<int64_t>({5}));
   fusion->addOutput(tv2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);

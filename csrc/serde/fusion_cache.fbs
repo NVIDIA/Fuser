@@ -303,9 +303,7 @@ table Size {
 
 // Data for SliceOpRecord
 table Slice {
-  start_indices: [long];
-  end_indices:[long];
-  strides: [long];
+  manual_normalization: bool;
 }
 
 // Data for SqueezeOpRecord
