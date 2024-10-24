@@ -77,7 +77,8 @@ class FusionDefinition(_C._FusionDefinition):
         print_repro=False,
         profile=False,
         save_repro_inputs=False,
-        enable_options: list[str] = []
+        enable_options: list[str] = [],
+        disable_options: list[str] = [],
     ):
         """
         Executes an nvFuser set of kernels for a given Fusion
@@ -187,7 +188,8 @@ class FusionDefinition(_C._FusionDefinition):
                 override_user_schedule=override_user_schedule,
                 capture_debug_output=capture_debug_output,
                 profile=profile,
-                enable_options=enable_options
+                enable_options=enable_options,
+                disable_options=disable_options
             )
             return results
         except Exception as err:

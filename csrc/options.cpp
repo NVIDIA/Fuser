@@ -149,7 +149,7 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
 }
 
 const std::unordered_map<std::string, EnableOption>& getEnableOptions() {
-  const std::unordered_map<std::string, EnableOption> available_options = {
+  static const std::unordered_map<std::string, EnableOption> available_options = {
       {"fuse_matmul", EnableOption::FuseMatmul},
       {"fuse_multiple_matmuls", EnableOption::FuseMultipleMatmuls},
       {"id_model", EnableOption::IdModel},
@@ -169,7 +169,7 @@ const std::unordered_map<std::string, EnableOption>& getEnableOptions() {
 template <>
 std::unordered_map<EnableOption, std::vector<std::string>> Options<
     EnableOption>::getOptionsFromEnv() {
-  auto available_options = getEnableOptions();
+  const auto& available_options = getEnableOptions();
   return parseEnvOptions("ENABLE", available_options);
 }
 
@@ -182,10 +182,8 @@ std::optional<EnableOption> stringToEnableOption(const std::string& enable_optio
   return std::nullopt;
 }
 
-template <>
-std::unordered_map<DisableOption, std::vector<std::string>> Options<
-    DisableOption>::getOptionsFromEnv() {
-  const std::unordered_map<std::string, DisableOption> available_options = {
+const std::unordered_map<std::string, DisableOption>& getDisableOptions() {
+  static const std::unordered_map<std::string, DisableOption> available_options = {
       {"compile_to_sass", DisableOption::CompileToSass},
       {"contig_indexing", DisableOption::ContigIndexing},
       {"expr_simplify", DisableOption::ExprSimplify},
@@ -207,7 +205,13 @@ std::unordered_map<DisableOption, std::vector<std::string>> Options<
       {"reuse_mismatched_type_registers",
        DisableOption::ReuseMismatchedTypeRegisters},
       {"multidevice", DisableOption::Multidevice}};
+  return available_options;
+}
 
+template <>
+std::unordered_map<DisableOption, std::vector<std::string>> Options<
+    DisableOption>::getOptionsFromEnv() {
+  const auto& available_options = getDisableOptions();
   auto options = parseEnvOptions("DISABLE", available_options);
 
   if (options.count(DisableOption::Fma)) {
@@ -216,6 +220,15 @@ std::unordered_map<DisableOption, std::vector<std::string>> Options<
   }
 
   return options;
+}
+
+std::optional<DisableOption> stringToDisableOption(const std::string& disable_option) {
+  const auto& opts = getDisableOptions();
+  auto it = opts.find(disable_option);
+  if (it != opts.end()) {
+    return it->second;
+  }
+  return std::nullopt;
 }
 
 template <>

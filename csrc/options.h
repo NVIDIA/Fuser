@@ -270,6 +270,8 @@ NVF_API std::unordered_map<DisableOption, std::vector<std::string>> Options<
 
 using DisableOptions = Options<DisableOption>;
 
+std::optional<DisableOption> stringToDisableOption(const std::string& disable_option);
+
 NVF_API bool isOptionDisabled(DisableOption option);
 
 const std::vector<std::string>& getDisableOptionArguments(DisableOption option);
