@@ -45,10 +45,6 @@
 
 namespace nvfuser {
 
-// TODO: we frequently use pairwise root mapping from consumers to producers.
-// This information is implicitly in the computeAtMaps, but there's no isolated
-// container for this information that we can reuse. Would be nice to generate
-// such a structure and propagate it through lowering.
 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
 class GpuLower : public NonCopyable {
   class KernelIrMapper;
