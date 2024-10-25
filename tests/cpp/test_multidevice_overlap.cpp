@@ -51,7 +51,7 @@ using OverlapBenchmarkParams = std::tuple<
 
 class OverlapBenchmark : public MultiDeviceTest, public testing::WithParamInterface<OverlapBenchmarkParams> {
  protected:
-  static std::unordered_map<std::string, float> times;
+  static std::map<std::string, float> times;
 
   static void TearDownTestSuite() {
     auto rank = Communicator::getInstance().deviceId();
@@ -61,11 +61,13 @@ class OverlapBenchmark : public MultiDeviceTest, public testing::WithParamInterf
   }
 };
 
-std::unordered_map<std::string, float> OverlapBenchmark::times = {};
+std::map<std::string, float> OverlapBenchmark::times = {};
 
 TEST_P(OverlapBenchmark, DummyBenchmark) {
-  constexpr int64_t number_of_warmups = 120;
-  constexpr int64_t number_of_iterations = 500;
+  int64_t number_of_warmups = 50;
+  constexpr int64_t number_of_iterations = 100;
+
+
   const int64_t D = communicator_->size();
   auto [backend,
         S,
@@ -118,6 +120,7 @@ TEST_P(OverlapBenchmark, DummyBenchmark) {
 
   std::string test_name = ::testing::UnitTest::GetInstance()->current_test_info()->name();
   times.insert({test_name, milliseconds});
+  std::cout << "rank " << communicator_->deviceId() << ", " << test_name << " : " << milliseconds << std::endl;
 }
 
 INSTANTIATE_TEST_SUITE_P(
