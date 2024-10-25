@@ -701,8 +701,8 @@ TEST_F(PointwiseTest, UnrollOnTopOfVectorize) {
   // schedule, compile, run, validate
   scheduler_instance->schedule(fusion.get(), pparams);
   KernelExecutor ke;
-  ke.compileFusion(fusion.get(), runtime_inputs, pparams->lparams);
-  auto cg_outputs = ke.runFusion(runtime_inputs, pparams->lparams);
+  ke.compile(fusion.get(), runtime_inputs, pparams->lparams);
+  auto cg_outputs = ke.run(runtime_inputs, pparams->lparams);
   const auto& lparams = ke.lastLaunchParams();
   ASSERT_EQ(lparams.gdimy(), dim0 / pparams->unroll_factor);
   testValidate(fusion.get(), cg_outputs, runtime_inputs, __LINE__, __FILE__);

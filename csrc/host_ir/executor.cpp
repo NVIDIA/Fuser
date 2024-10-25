@@ -414,7 +414,7 @@ void HostIrEvaluator::handle(EndCoalescing* end_coalescing) {
   works_[end_coalescing] = backend->endCoalescing();
 }
 
-void HostIrExecutor::handle(kir::IfThenElse* if_then_else) {
+void HostIrEvaluator::handle(kir::IfThenElse* if_then_else) {
   auto predicate =
       expr_evaluator_.evaluate(if_then_else->predicate()->value()).as<bool>();
   const auto& scope =
@@ -424,7 +424,7 @@ void HostIrExecutor::handle(kir::IfThenElse* if_then_else) {
   }
 }
 
-void HostIrExecutor::handle(MatmulOp* matmul) {
+void HostIrEvaluator::handle(MatmulOp* matmul) {
   TensorView* a = matmul->inA();
   TensorView* b = matmul->inB();
   TensorView* out = matmul->out();

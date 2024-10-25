@@ -993,7 +993,7 @@ TEST_F(IfThenElseTest, HostIr) {
   hic->addOutput(output_buffer);
   hic->pushBackTopLevelExprs(if_then_else);
 
-  HostIrExecutor hie(std::move(hic));
+  HostIrEvaluator hie(std::move(hic));
 
   for (auto boolean : {true, false}) {
     c10::IValue input_bool_c10 = c10::ivalue::from(boolean);
