@@ -705,7 +705,6 @@ TEST_P(PointwiseParamsTest, UnrollOnTopOfVectorize) {
 
   // Schedule, compile, run, validate
   scheduler_instance->schedule(fusion.get(), pparams);
-  fusion->print();
   FusionExecutor fe;
   fe.compileFusion(fusion.get(), runtime_inputs, pparams->lparams);
   auto cg_outputs = fe.runFusion(runtime_inputs, pparams->lparams);

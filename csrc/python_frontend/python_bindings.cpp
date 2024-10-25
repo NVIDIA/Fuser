@@ -719,6 +719,12 @@ void initNvFuserPythonBindings(PyObject* module) {
       [](PointwiseParams& self, int64_t unroll_factor_outer_) {
         self.unroll_factor_outer = unroll_factor_outer_;
       });
+  pointwise_config.def_property(
+      "unroll_factor_inner",
+      [](PointwiseParams& self) { return self.unroll_factor_inner; },
+      [](PointwiseParams& self, int64_t unroll_factor_inner_) {
+        self.unroll_factor_inner = unroll_factor_inner_;
+      });      
   pointwise_config.def(
       "__repr__", [](const PointwiseParams& self) { return self.toString(); });
 
