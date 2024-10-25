@@ -706,6 +706,7 @@ TEST_F(PointwiseTest, UnrollOnTopOfVectorize) {
   auto cg_outputs = fe.runFusion(runtime_inputs, pparams->lparams);
   const auto& lparams = fe.lastLaunchParams();
   ASSERT_EQ(lparams.gdimy(), dim0 / pparams->unroll_factor_outer);
+  ASSERT_EQ(lparams.gdimx(), dim1 / pparams->vectorization_factor / lparams.bdimx() / pparams->unroll_factor_outer);
   testValidate(fusion.get(), cg_outputs, runtime_inputs, __LINE__, __FILE__);
 }
 } // namespace nvfuser
