@@ -979,8 +979,6 @@ TEST_F(CombinedSchedulerTest, SharedMemoryPersistentVectFactor) {
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
 
-  fusion.printMath();
-
   for (auto tv : fusion.allTvs()) {
     if (tv->getMemoryType() == MemoryType::Shared) {
       for (auto consumer : ir_utils::consumerTvsOf(tv)) {
