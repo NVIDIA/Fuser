@@ -358,5 +358,16 @@ std::vector<TensorView*> movePersistentBufferToSmem(
 // PersistentBufferTest.GetResolutionIssue1123 for a concrete example
 std::vector<TensorView*> getResolutionPointsOf(TensorView* persistent_buffer);
 
+// Vectorization of smem consumers, they were created with cacheAfter() and
+// innermost dim has a constant extent equals to the vectorization factor set
+// for fusion inputs. However, can't directly use that vectorization factor due
+// to potential different data types, e.g. fp16 inputs and fp32 smem_consumers.
+// This may happen when persistent buffers are not projected to inputs.
+// TODO:
+// (1) writing to smem should be vectorized.
+// (2) Still has bank conflicts for float32 with innermost extent of 8.
+void sharedMemoryConsumerVectorization(
+    std::vector<TensorView*>& smem_consumers);
+
 } // namespace normalization_scheduler_utils
 } // namespace nvfuser

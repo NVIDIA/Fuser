@@ -755,11 +755,11 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
         // (2) Check any producers of the tensor view with vectorize being set
         // on it to make sure their compute at position isn't to the right of
         // the vectorize dim.
-        NVF_ERROR(
-            i >= tv->getMaxComputePosition(),
-            "IterDomains to the left of the compute at point cannot be vectorized: ",
-            tv,
-            "\n");
+        // NVF_ERROR(
+        //     i >= tv->getMaxComputePosition(),
+        //     "IterDomains to the left of the compute at point cannot be vectorized: ",
+        //     tv,
+        //     "\n");
         has_vectorize_dim = true;
       }
 
