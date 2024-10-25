@@ -351,7 +351,6 @@ void multiReductionInliner(
     std::vector<TensorView*> reduction_tvs,
     std::vector<TensorView*> cached_inputs,
     std::vector<std::pair<TensorView*, TensorView*>> cached_outputs,
-    std::vector<TensorView*> smem_consumers,
     std::vector<TensorView*> dummy_outputs) {
   // Propagate transformations before we rfactor the other reductions
   propagateTransformation(reference_tv);
@@ -361,7 +360,7 @@ void multiReductionInliner(
   }
 
   const auto& unroll_vectorizable_cached_tvs = getCachedTvsToUnrollOrVectorize(
-      reference_tv, vectorize, cached_inputs, cached_outputs, smem_consumers);
+      reference_tv, vectorize, cached_inputs, cached_outputs);
   reduction_scheduler_utils::propagateParallelization(
       reduction_tv,
       reference_tv,
@@ -428,8 +427,7 @@ std::unordered_set<TensorView*> getCachedTvsToUnrollOrVectorize(
     TensorView* reference_tv,
     bool vectorize,
     const std::vector<TensorView*>& cached_inputs,
-    const std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs,
-    const std::vector<TensorView*>& smem_consumers) {
+    const std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs) {
   auto reduced_tv = ir_utils::getSoleProducerTv(reference_tv);
   // Grab all tensor views that should be vectorized
   auto vectorizable_inputs_outputs =
@@ -466,18 +464,6 @@ std::unordered_set<TensorView*> getCachedTvsToUnrollOrVectorize(
       }
     } else {
       unroll_vectorizable_tvs.emplace(output);
-    }
-  }
-
-  if (vectorize) {
-    for (auto tv : smem_consumers) {
-      // smem_consumers were added in schedule process
-      // movePersistentBufferToSmem() using cacheAfter()
-      NVF_ERROR(
-          vectorizable_expr(tv->definition()),
-          "Expected a vectorizable expression, but got: ",
-          tv->definition()->toString());
-      unroll_vectorizable_tvs.emplace(tv);
     }
   }
 

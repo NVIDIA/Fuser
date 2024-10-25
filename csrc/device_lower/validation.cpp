@@ -644,7 +644,8 @@ class VectorizeValidator : public OptInDispatch {
             vector_size) != allowed_vector_sizes.end(),
         "Tried to vectorize a dim resulting in a word size of ",
         vector_size,
-        " however, vector sizes only upto and including 16 bytes are supported.");
+        " however, vector sizes only upto and including 16 bytes are supported. Tv: ",
+        tv->toString());
 
     auto consumer_vectorized_id =
         getAndValidateVectorizedIdInAllocationDomain(v_id, tv, "consumer");
