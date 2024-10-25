@@ -750,10 +750,17 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
       // propagation process into two steps:
       // step 1: inline at the unswitch position for cached inputs and outputs
       // step 2: inline at the inner most dim for the rest of the graph
-      int tidx_pos = pparams->vectorization_factor > 1 ? -2 : -1;
+      int tidx_pos = 3;
+      if (pparams->unroll_factor_inner > 1) {
+        tidx_pos++;
+      }
+      if (pparams->unroll_factor_outer > 1) {
+        tidx_pos++;
+      }
       reference_tv->axis(tidx_pos)->parallelize(ParallelType::TIDx);
       if (pparams->vectorization_factor > 1) {
-        vectorize_id = reference_tv->axis(-1);
+        // can't use {-1}, there may be deviceId
+        vectorize_id = reference_tv->axis(tidx_pos + 1);
       }
       // [o-remainder, i-remainder, Unswitch, o-Unroll, i-Unroll, TIDx, Vect]
     }
@@ -874,10 +881,10 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
       // propagation process into two steps:
       // step 1: inline at the unswitch position for cached inputs and outputs
       // step 2: inline at the inner most dim for the rest of the graph
-      int tidx_pos = pparams->vectorization_factor > 1 ? -2 : -1;
+      int tidx_pos = pparams->unroll_factor_inner > 1 ? 3 : 2;
       reference_tv->axis(tidx_pos)->parallelize(ParallelType::TIDx);
       if (pparams->vectorization_factor > 1) {
-        vectorize_id = reference_tv->axis(-1);
+        vectorize_id = reference_tv->axis(tidx_pos + 1);
       }
     }
     unswitch_pos = 2;
