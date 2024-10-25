@@ -560,52 +560,39 @@ void verifyShape(const std::vector<int64_t>& shape) {
 }
 
 void defineHeuristicParamBindings(py::module& nvfuser) {
-#define PARAM(cfg, internal_type, type, name)        \
-  cfg.def_property(                                  \
-      #name,                                         \
-      [](internal_type& self) { return self.name; }, \
-      [](internal_type& self, type x) { self.name = x; });
+#define DEFINECLASS(type) py::class_<type>(nvfuser, #type)
 
-  py::class_<GemmTile> gemm_tile(nvfuser, "GemmTile");
-  gemm_tile.def(
-      "__repr__", [](const GemmTile& self) { return toString(self); });
-#define GEMMTILEDIMPARAM(dim)                  \
-  gemm_tile.def_property(                      \
-      #dim,                                    \
-      [](GemmTile& self) { return self.dim; }, \
-      [](GemmTile& self, int64_t x) { self.dim = x; });
-  GEMMTILEDIMPARAM(m);
-  GEMMTILEDIMPARAM(n);
-  GEMMTILEDIMPARAM(k);
+#define TOSTRINGTOPLEVEL(type) \
+  def("__repr__", [](const type& self) { return toString(self); })
+#define TOSTRINGMETHOD(type) \
+  def("__repr__", [](const type& self) { return self.toString(); })
+
+#define PARAM(internal_type, name) def_readwrite(#name, &internal_type::name)
+
+  DEFINECLASS(GemmTile)
+      .PARAM(GemmTile, m)
+      .PARAM(GemmTile, n)
+      .PARAM(GemmTile, k)
+      .TOSTRINGTOPLEVEL(GemmTile);
+
 #undef GEMMTILEDIMPARAM
-  py::class_<MatMulTileOptions> tile_sizes(nvfuser, "MatMulTileOptions");
-  gemm_tile.def(
-      "__repr__", [](const GemmTile& self) { return toString(self); });
-  PARAM(tile_sizes, MatMulTileOptions, GemmTile, cta_tile)
-  PARAM(tile_sizes, MatMulTileOptions, GemmTile, warp_tile)
-  PARAM(tile_sizes, MatMulTileOptions, GemmTile, instruction_tile)
+  DEFINECLASS(MatMulTileOptions)
+      .PARAM(MatMulTileOptions, cta_tile)
+      .PARAM(MatMulTileOptions, warp_tile)
+      .PARAM(MatMulTileOptions, instruction_tile)
+      .TOSTRINGTOPLEVEL(MatMulTileOptions);
 
-  py::class_<MatmulParams::CircularBufferOptions> circular_buffer_options(
-      nvfuser, "CircularBufferOptions");
-  circular_buffer_options.def(
-      "__repr__", [](const MatmulParams::CircularBufferOptions& self) {
-        return self.toString();
-      });
-  PARAM(
-      circular_buffer_options,
-      MatmulParams::CircularBufferOptions,
-      bool,
-      circular_buffer_smem_read)
-  PARAM(
-      circular_buffer_options,
-      MatmulParams::CircularBufferOptions,
-      bool,
-      circular_buffer_smem_write)
-  PARAM(
-      circular_buffer_options,
-      MatmulParams::CircularBufferOptions,
-      int,
-      smem_circular_buffer_stage)
+  DEFINECLASS(MatmulParams::CircularBufferOptions)
+      .PARAM(MatmulParams::CircularBufferOptions, circular_buffer_smem_read)
+      .PARAM(MatmulParams::CircularBufferOptions, circular_buffer_smem_write)
+      .PARAM(MatmulParams::CircularBufferOptions, smem_circular_buffer_stage)
+      .TOSTRINGMETHOD(MatmulParams::CircularBufferOptions);
+
+  DEFINECLASS(MatmulParams::SupportedVectorization)
+      .PARAM(MatmulParams::SupportedVectorization, a)
+      .PARAM(MatmulParams::SupportedVectorization, b)
+      .PARAM(MatmulParams::SupportedVectorization, epilogue)
+      .TOSTRINGMETHOD(MatmulParams::SupportedVectorization);
 
   py::enum_<MatmulParams::TileRasterizationOrder>(
       nvfuser, "MatmulTileRasterizationOrder")
@@ -617,57 +604,57 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
       .value("turing", MmaMacroEncode::Arch::Turing)
       .value("ampere", MmaMacroEncode::Arch::Ampere)
       .value("hopper", MmaMacroEncode::Arch::Hopper);
-  py::class_<MmaMacro> mma_macro(nvfuser, "MmaMacro");
-  mma_macro.def("__repr__", [](MmaMacro& self) { return toString(self); });
-  mma_macro.def_property_readonly(
-      "arch", [](MmaMacro& self) { return MmaMacroEncode(self).arch; });
-  mma_macro.def_property_readonly(
-      "m", [](MmaMacro& self) -> uint16_t { return MmaMacroEncode(self).m; });
-  mma_macro.def_property_readonly(
-      "n", [](MmaMacro& self) -> uint16_t { return MmaMacroEncode(self).n; });
-  mma_macro.def_property_readonly(
-      "k", [](MmaMacro& self) -> uint16_t { return MmaMacroEncode(self).k; });
+  // NOTE: MmaMacro is a uint64_t. To modify it, we convert to and from
+  // MmaMacroEncode
+#define MMAMACROPROP(prop, type)                                      \
+  def_property(                                                       \
+      #prop,                                                          \
+      [](const MmaMacro& self) { return MmaMacroEncode(self).prop; }, \
+      [](MmaMacro& self, type x) {                                    \
+        auto enc = MmaMacroEncode(self);                              \
+        enc.prop = x;                                                 \
+        self = enc;                                                   \
+      })
+  DEFINECLASS(MmaMacro)
+      .MMAMACROPROP(arch, MmaMacroEncode::Arch)
+      .MMAMACROPROP(m, uint16_t)
+      .MMAMACROPROP(n, uint16_t)
+      .MMAMACROPROP(k, uint16_t)
+      .TOSTRINGTOPLEVEL(MmaMacro);
+#undef MMAMACROPROP
 
   // Base class for scheduler parameters
-  py::class_<HeuristicParams> heuristic_params(nvfuser, "HeuristicParams");
-  heuristic_params.def(
-      "__repr__", [](const HeuristicParams& self) { return self.toString(); });
+  DEFINECLASS(HeuristicParams).TOSTRINGMETHOD(HeuristicParams);
 
-#define INITHEURISTICPARAMS(cfg, internal_type)                            \
-  py::class_<internal_type, HeuristicParams> cfg(nvfuser, #internal_type); \
-  cfg.def(py::init());                                                     \
-  cfg.def(                                                                 \
-      "__repr__", [](const internal_type& self) { return self.toString(); });
-
-  // Matmul scheduler parameters
-  INITHEURISTICPARAMS(matmul_config, MatmulParams)
-  PARAM(matmul_config, MatmulParams, MatMulTileOptions, tile_sizes)
-  PARAM(
-      matmul_config,
-      MatmulParams,
-      MatmulParams::CircularBufferOptions,
-      circular_buffer_options)
-  PARAM(matmul_config, MatmulParams, bool, async_gmem_load_operands)
-  PARAM(matmul_config, MatmulParams, bool, rotate_ldmatrix_out_of_main_loop)
-  PARAM(matmul_config, MatmulParams, int, grid_swizzle_factor)
-  PARAM(matmul_config, MatmulParams, bool, use_smem_epilogue)
-  PARAM(matmul_config, MatmulParams, bool, promote_prologue_smem_reuse)
-  PARAM(matmul_config, MatmulParams, int, splitk_factor)
-  PARAM(
-      matmul_config,
-      MatmulParams,
-      MatmulParams::TileRasterizationOrder,
-      cta_order);
-  PARAM(matmul_config, MatmulParams, MmaMacroEncode, mma_macro);
+#define INITHEURISTICPARAMS(internal_type)                            \
+  py::class_<internal_type, HeuristicParams>(nvfuser, #internal_type) \
+      .def(py::init())                                                \
+      .def("__repr__", [](const internal_type& self) {                \
+        return self.toString();                                       \
+      })
 
   // Pointwise scheduler parameters
-  INITHEURISTICPARAMS(pointwise_config, PointwiseParams)
-  PARAM(pointwise_config, PointwiseParams, int64_t, break_point)
-  PARAM(pointwise_config, PointwiseParams, bool, split_block)
-  PARAM(pointwise_config, PointwiseParams, bool, split_grid_y_dim)
-  PARAM(pointwise_config, PointwiseParams, bool, flip_grid_binding)
-  PARAM(pointwise_config, PointwiseParams, int64_t, vectorization_factor)
-  PARAM(pointwise_config, PointwiseParams, int64_t, unroll_factor)
+  INITHEURISTICPARAMS(PointwiseParams)
+      .PARAM(PointwiseParams, break_point)
+      .PARAM(PointwiseParams, split_block)
+      .PARAM(PointwiseParams, split_grid_y_dim)
+      .PARAM(PointwiseParams, flip_grid_binding)
+      .PARAM(PointwiseParams, vectorization_factor)
+      .PARAM(PointwiseParams, unroll_factor);
+
+  // Matmul scheduler parameters
+  INITHEURISTICPARAMS(MatmulParams)
+      .PARAM(MatmulParams, tile_sizes)
+      .PARAM(MatmulParams, circular_buffer_options)
+      .PARAM(MatmulParams, supported_vec_size)
+      .PARAM(MatmulParams, async_gmem_load_operands)
+      .PARAM(MatmulParams, rotate_ldmatrix_out_of_main_loop)
+      .PARAM(MatmulParams, grid_swizzle_factor)
+      .PARAM(MatmulParams, use_smem_epilogue)
+      .PARAM(MatmulParams, promote_prologue_smem_reuse)
+      .PARAM(MatmulParams, splitk_factor)
+      .PARAM(MatmulParams, cta_order)
+      .PARAM(MatmulParams, mma_macro);
 
 #undef PARAM
 #undef INITPARAMS
