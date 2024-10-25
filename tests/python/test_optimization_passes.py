@@ -7,8 +7,6 @@ from nvfuser import FusionDefinition, DataType
 
 # this example hits a segfault in nvfuser::preseg_passes::MovePadPass::replaceCat, where the old optimization pass updates the fusion within the filterByType generator, causing a dynamic cast on a dangling pointer.
 def test_litgpt_variants_gpt_neox_like():
-    from nvfuser import FusionDefinition, DataType
-
     def nvfuser_fusion_id4(fd: FusionDefinition) -> None:
         T0 = fd.define_tensor(
             shape=[128, 16],
