@@ -679,9 +679,11 @@ TEST_F(PointwiseTest, UnrollOnTopOfVectorize) {
   auto tv3 = add(tv0, tv2);
   fusion->addOutput(tv3);
 
+  int dim0 = 1024;
+  int dim1 = 2048;
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({1024, 2048}, options);
-  auto t1 = at::randn({2048}, options);
+  auto t0 = at::randn({dim0, dim1}, options);
+  auto t1 = at::randn({dim1}, options);
   std::vector<c10::IValue> runtime_inputs{t0, t1};
 
   // generate heuristics
@@ -699,8 +701,10 @@ TEST_F(PointwiseTest, UnrollOnTopOfVectorize) {
   // schedule, compile, run, validate
   scheduler_instance->schedule(fusion.get(), pparams);
   KernelExecutor ke;
-  ke.compile(fusion.get(), runtime_inputs, pparams->lparams);
-  auto cg_outputs = ke.run(runtime_inputs, pparams->lparams);
+  ke.compileFusion(fusion.get(), runtime_inputs, pparams->lparams);
+  auto cg_outputs = ke.runFusion(runtime_inputs, pparams->lparams);
+  const auto& lparams = ke.lastLaunchParams();
+  ASSERT_EQ(lparams.gdimy(), dim0 / pparams->unroll_factor);
   testValidate(fusion.get(), cg_outputs, runtime_inputs, __LINE__, __FILE__);
 }
 } // namespace nvfuser

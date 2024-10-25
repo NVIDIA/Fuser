@@ -273,6 +273,7 @@ GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
            {"reuseMemoryAllocations", reuseMemoryAllocations},
            {"insertWarThreadSynchronization", insertWarThreadSynchronization},
            {"CircularBufferPass", CircularBufferPass::run},
+           {"insertWarAsyncWait", insertWarAsyncWait},
            {"rotateLoops", rotateLoops},
            {"UnrollPass", UnrollPass::runPass},
            {"processMisalignedVectorization", processMisalignedVectorization},

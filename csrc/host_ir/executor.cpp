@@ -16,6 +16,7 @@
 #include <multidevice/utils.h>
 #include <options.h>
 #include <runtime/allocations.h>
+#include <runtime/executor_kernel_arg.h>
 #include <runtime/fusion_kernel_runtime.h>
 
 namespace nvfuser {
@@ -195,7 +196,7 @@ std::vector<at::Tensor> HostIrEvaluator::runWithInput(
     std::unordered_map<Val*, c10::IValue> val_to_IValue) {
   // process input values
   for (const auto& [val, ivalue] : val_to_IValue) {
-    expr_evaluator_.bind(val, ivalue.toTensor());
+    expr_evaluator_.bind(val, IValueToPolymorphicValue(ivalue));
   }
 
   // Interpret each instruction in an "eager" way by iterate over the Host Ir
@@ -413,7 +414,17 @@ void HostIrEvaluator::handle(EndCoalescing* end_coalescing) {
   works_[end_coalescing] = backend->endCoalescing();
 }
 
-void HostIrEvaluator::handle(MatmulOp* matmul) {
+void HostIrExecutor::handle(kir::IfThenElse* if_then_else) {
+  auto predicate =
+      expr_evaluator_.evaluate(if_then_else->predicate()->value()).as<bool>();
+  const auto& scope =
+      predicate ? if_then_else->thenBody() : if_then_else->elseBody();
+  for (Expr* expr : scope.exprs()) {
+    dispatch(expr);
+  }
+}
+
+void HostIrExecutor::handle(MatmulOp* matmul) {
   TensorView* a = matmul->inA();
   TensorView* b = matmul->inB();
   TensorView* out = matmul->out();

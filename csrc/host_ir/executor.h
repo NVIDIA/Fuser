@@ -112,6 +112,7 @@ class HostIrEvaluator final : public OptOutDispatch {
   void handle(ForLoop* for_loop) override;
   void handle(StartCoalescing* start_coalescing) override;
   void handle(EndCoalescing* end_coalescing) override;
+  void handle(kir::IfThenElse* if_then_else) override;
   void handle(MatmulOp* matmul) override;
   void unhandled(Statement* stmt) override;
 

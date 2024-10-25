@@ -1161,6 +1161,27 @@ bool isLoopDomainFullyDerivedFromLogicalDomain(TensorView* tv) {
            .dom0_has_unreachable_ids;
 }
 
+AsyncOpType getAsyncOpType(const Expr* expr) {
+  if (auto mma = dynamic_cast<const MmaOp*>(expr)) {
+    if (mma->isHopper()) {
+      return AsyncOpType::WgMma;
+    }
+  } else if (ir_utils::isCpAsyncBulkStore(expr)) {
+    return AsyncOpType::CpAsyncBulk;
+  } else if (ir_utils::isCpAsyncOp(expr)) {
+    return AsyncOpType::CpAsync;
+  }
+  return AsyncOpType::NotAsync;
+}
+
+std::string nullOrToString(const Statement* val) {
+  return val ? val->toString() : "nullptr";
+}
+
+std::string nullOrToInlineString(const Statement* id) {
+  return id ? id->toInlineString() : "nullptr";
+}
+
 } // namespace nvfuser::ir_utils
 
 namespace nvfuser::MmaOpUtils {

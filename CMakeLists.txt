@@ -188,6 +188,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/preseg_passes/insert_reshardings.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/make_resharding_contiguous.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/mark_aliases_prepare.cpp
+  ${NVFUSER_SRCS_DIR}/preseg_passes/move_pad.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/move_split_cat.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/pre_segmenter.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/propagate_shardings.cpp
@@ -549,6 +550,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_mbarrier.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_memory.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_move_split_cat.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_move_pad.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_no_op.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_persistent_buffer.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_pointwise.cpp

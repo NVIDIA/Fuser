@@ -2576,6 +2576,7 @@ int64_t getSharedMemoryOverheadPerBlock(
 
   // (2) part-2, space reserved by the CUDA driver
   int64_t smem_overhead_driver = (int64_t)dev_prop->reservedSharedMemPerBlock;
+
   return reduction_broadcast_workspace + smem_overhead_driver;
 }
 
