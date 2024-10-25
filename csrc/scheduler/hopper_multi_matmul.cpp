@@ -19,9 +19,9 @@
 #include <scheduler/tools/abstract_tensor.h>
 #include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
+#include <utils.h>
 #include <val_graph.h>
 #include <val_graph_visitor.h>
-#include <utils.h>
 
 // NOTE: included to avoid compilation error caused by missing destructor in
 // 'SchedulerRuntimeInfo'
@@ -31,14 +31,6 @@
 namespace nvfuser {
 
 namespace {
-
-inline IterDomain* representativeId(const AbstractId& abs_id) {
-  if (abs_id.is<IterDomain*>()) {
-    return abs_id.as<IterDomain*>();
-  }
-  NVF_ERROR(abs_id.is<ValGroupAndItsGraph>());
-  return representativeId(abs_id.as<ValGroupAndItsGraph>().group);
-}
 
 // Utility to check concrete static size
 inline void checkConcreteStaticDim(const AbstractId& abs_id) {
