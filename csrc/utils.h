@@ -336,6 +336,15 @@ std::string toDelimitedString(
 
 template <typename Printable>
 std::string toDelimitedString(
+    std::initializer_list<Printable> list,
+    std::string delim = ", ") {
+  // toDelimitedString(list.begin(), list.end(), delim) doesn't work out of the
+  // box, because list.begin() returns a Printable* not an iterator.
+  return toDelimitedString(std::vector<Printable>(list), delim);
+}
+
+template <typename Printable>
+std::string toDelimitedString(
     const std::deque<Printable>& dq,
     std::string delim = ", ") {
   return toDelimitedString(dq.begin(), dq.end(), delim);

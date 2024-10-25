@@ -176,15 +176,7 @@ TEST_F(MemoryTest, RefineCachePolicy) {
 
 // Begin TMA tests
 
-class TMATest : public NVFuserTest {
- protected:
-  void SetUp() override {
-    if (cudaArchGuardShouldSkip(9, 0)) {
-      GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
-    }
-    NVFuserTest::SetUp();
-  }
-};
+using TMATest = HopperBase;
 
 // Check that there is an xor "^" somewhere in the kernel
 class XorFinder : private kir::IrVisitor {
@@ -1348,6 +1340,213 @@ TEST_F(TMAMiscTest, Repro1977) {
 
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
+// Test that if the async wait expressions for TMA store is inserted correctly
+TEST_F(TMAMiscTest, StoreSyncInsertion) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const DataType dtype = DataType::Float;
+
+  auto tv0 = makeContigTensor(1, dtype);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  // gmem -> smem -> gmem -> gmem copy kernel
+  tv1->setMemoryType(MemoryType::Shared);
+  tv2->setMemoryType(MemoryType::Global);
+
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  for (auto tv : {tv1, tv2, tv3}) {
+    tv->split(0, 128);
+    tv->split(0, 4);
+  }
+  tv1->axis(-1)->parallelize(ParallelType::Bulk);
+  tv2->axis(-1)->parallelize(ParallelType::Bulk);
+  tv3->axis(-1)->parallelize(ParallelType::TIDx);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto input = at::randn({8192}, options);
+
+  auto is_commit = [](Expr* expr) {
+    auto asm_ = dynamic_cast<kir::Asm*>(expr);
+    return asm_ != nullptr && asm_->code() == "cp.async.bulk.commit_group";
+  };
+  auto is_wait = [](Expr* expr) {
+    auto asm_ = dynamic_cast<kir::Asm*>(expr);
+    return asm_ != nullptr && asm_->code() == "cp.async.bulk.wait_group.read";
+  };
+
+  {
+    // No inline, the kernel should look like:
+    //   for N/128/4: (loop 1)
+    //     for 4:
+    //       for 128:
+    //         TMA load;
+    //   for N/128/4: (loop 2)
+    //     for 4:
+    //       for 128:
+    //         TMA store;
+    //   for N/128/4: (loop 3)
+    //     for 4:
+    //       for 128:
+    //         gmem->gmem copy;
+    // There should only be a RAW sync inserted before loop 3
+    GpuLower gpulw(&fusion);
+    auto kernel = gpulw.run();
+
+    auto commit_it = std::find_if(
+        kernel->topLevelExprs().begin(),
+        kernel->topLevelExprs().end(),
+        is_commit);
+    ASSERT_NE(commit_it, kernel->topLevelExprs().end());
+    ASSERT_TRUE((*std::next(commit_it))->isA<kir::Asm>());
+    EXPECT_TRUE(is_wait(*std::next(commit_it)));
+    EXPECT_EQ((*std::next(commit_it))->input(0)->value(), 0);
+
+    auto flattened_exprs =
+        ir_utils::flattenScopedExprs(kernel->topLevelExprs());
+    EXPECT_EQ(
+        std::count_if(
+            flattened_exprs.begin(), flattened_exprs.end(), is_commit),
+        1);
+    EXPECT_EQ(
+        std::count_if(flattened_exprs.begin(), flattened_exprs.end(), is_wait),
+        1);
+
+    FusionExecutor fe;
+    fe.compileFusion(&fusion, {input}, {}, matmul_cparams);
+    auto cg_outputs = fe.runFusion({input});
+    testValidate(&fusion, cg_outputs, {input}, {input}, __LINE__, __FILE__);
+  }
+
+  tv1->inlineAt(1);
+
+  {
+    // tv1 inlined to tv2, the kernel should look like:
+    //   for N/128/4: (loop 1)
+    //     for 4:
+    //       for 128:
+    //         TMA load;
+    //     for 4:
+    //       for 128:
+    //         TMA store;
+    //   for N/128/4: (loop 2)
+    //     for 4:
+    //       for 128:
+    //         gmem->gmem copy;
+    // There must be a WAR async wait at the end of loop 1. In theory,
+    // We do not need a RAW async wait before loop 2, because in this example
+    // the WAR async wait should helped RAW as well. But we are not smartly
+    // enough right now to avoid this RAW async wait.
+    GpuLower gpulw(&fusion);
+    auto kernel = gpulw.run();
+
+    auto fl_it = std::find_if(
+        kernel->topLevelExprs().begin(),
+        kernel->topLevelExprs().end(),
+        [](Expr* expr) { return expr->isA<ForLoop>(); });
+    ASSERT_NE(fl_it, kernel->topLevelExprs().end());
+    const auto& body = (*fl_it)->as<ForLoop>()->body().exprs();
+    EXPECT_TRUE(is_wait(body.back()));
+    EXPECT_EQ(body.back()->input(0)->value(), 0);
+    EXPECT_TRUE(is_commit(body.at(body.size() - 2)));
+
+    auto flattened_exprs = ir_utils::flattenScopedExprs(body);
+    EXPECT_EQ(
+        std::count_if(
+            flattened_exprs.begin(), flattened_exprs.end(), is_commit),
+        1);
+    EXPECT_EQ(
+        std::count_if(flattened_exprs.begin(), flattened_exprs.end(), is_wait),
+        1);
+
+    // TODO: For this case, the WAR sync is already sufficient to cover the RAW.
+    // However, we are still inserting a RAW sync because at the time when the
+    // RAW sync is inserted, the WAR pass has not run yet. We should be able to
+    // remove the RAW sync by adding a cleanup pass.
+
+    FusionExecutor fe;
+    fe.compileFusion(&fusion, {input}, {}, matmul_cparams);
+    auto cg_outputs = fe.runFusion({input});
+    testValidate(&fusion, cg_outputs, {input}, {input}, __LINE__, __FILE__);
+  }
+
+  tv1->circularBuffer(/*stage=*/10, /*prefetch=*/4);
+
+  {
+    // tv1 inlined to tv2 and circular buffered, the kernel should look like:
+    //   for N/128/4: (loop 1.prologue)
+    //     for 4:
+    //       for 128:
+    //         TMA load;
+    //   for N/128/4: (loop 1.main)
+    //     for 4:
+    //       for 128:
+    //         TMA load;
+    //     for 4:
+    //       for 128:
+    //         TMA store;
+    //   for N/128/4: (loop 1.epilogue)
+    //     for 4:
+    //       for 128:
+    //         TMA store;
+    //   for N/128/4: (loop 2)
+    //     for 4:
+    //       for 128:
+    //         gmem->gmem copy;
+    // We need a WAR async wait at the end of loop 1.main, and a RAW async wait
+    // before loop.
+    GpuLower gpulw(&fusion);
+    auto kernel = gpulw.run();
+
+    auto fl_it = std::find_if(
+        kernel->topLevelExprs().begin(),
+        kernel->topLevelExprs().end(),
+        [](Expr* expr) {
+          auto fl = dynamic_cast<ForLoop*>(expr);
+          return fl != nullptr &&
+              fl->circularBufferLoopStage() == CircularBufferLoopStage::Main;
+        });
+    ASSERT_NE(fl_it, kernel->topLevelExprs().end());
+    const auto& body = (*fl_it)->as<ForLoop>()->body().exprs();
+    EXPECT_TRUE(is_wait(body.back()));
+    EXPECT_EQ(body.back()->input(0)->value(), 5);
+    EXPECT_TRUE(is_commit(body.at(body.size() - 2)));
+
+    auto commit_it = std::find_if(
+        kernel->topLevelExprs().begin(),
+        kernel->topLevelExprs().end(),
+        is_commit);
+    ASSERT_NE(commit_it, kernel->topLevelExprs().end());
+    ASSERT_TRUE((*std::next(commit_it))->isA<kir::Asm>());
+    EXPECT_TRUE(is_wait(*std::next(commit_it)));
+    EXPECT_EQ((*std::next(commit_it))->input(0)->value(), 0);
+
+    auto flattened_exprs =
+        ir_utils::flattenScopedExprs(kernel->topLevelExprs());
+    EXPECT_EQ(
+        std::count_if(
+            flattened_exprs.begin(), flattened_exprs.end(), is_commit),
+        2);
+    EXPECT_EQ(
+        std::count_if(flattened_exprs.begin(), flattened_exprs.end(), is_wait),
+        2);
+
+    FusionExecutor fe;
+    fe.compileFusion(&fusion, {input}, {}, matmul_cparams);
+    auto cg_outputs = fe.runFusion({input});
+    testValidate(&fusion, cg_outputs, {input}, {input}, __LINE__, __FILE__);
+  }
 }
 
 #if 0

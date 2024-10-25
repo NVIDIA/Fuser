@@ -9,6 +9,7 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <debug.h>
 #include <instrumentation.h>
+#include <ir/printer.h>
 #include <multidevice/utils.h>
 #include <scheduler/cache_policy_refiner.h>
 #include <scheduler/debug_utils.h>
@@ -705,9 +706,20 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
 
     // Make sure lhs and rhs groups are disjoint.
     for (auto lhs_val : lhs_all_vals) {
-      NVF_ERROR(
-          rhs_all_vals_set.count(lhs_val) == 0,
-          "Error in pointwise scheduler. LHS and RHS of the 2D scheduler are not disjoint.");
+      if (rhs_all_vals_set.count(lhs_val) != 0) {
+        std::ostringstream os;
+        IrTransformPrinter printer(os);
+        printer.printTransforms(reference_tv);
+        NVF_THROW(
+            "Error in pointwise scheduler. LHS and RHS of the 2D scheduler are not disjoint. ",
+            lhs_val->toString(),
+            " belongs to both. device_aware_break_point = ",
+            device_aware_break_point,
+            ". reference_tv = ",
+            reference_tv->toString(),
+            " and its transforms are:\n",
+            os.str());
+      }
     }
     NVF_ERROR(
         !rhs_all_vals.empty(),
@@ -850,8 +862,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
       if (pparams->vectorization_factor > 1) {
         vectorize_id = reference_tv->axis(-1);
       }
-      std::cout << "reference_tv: " << reference_tv->toString() << std::endl;
-      // [o-remainder, i-remainder, Unswitch, o-Unroll, i-Unroll, TIDx, Vect]
+      // [o-remainder, i-remainder, Unswitch, Unroll, TIDx, Vect]
     }
 
     // Move out of the way to furthest left point
@@ -905,15 +916,15 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
           unswitch_pos = 3;
         }
       } else {
-        // [BIDx | BIDy | Unswitch, Unroll, TIDx, vect]
+        // [BIDx | BIDy | Unswitch, Unroll, TIDx, Vect]
         reference_tv->axis(0)->parallelize(ParallelType::BIDx);
         if (pparams->split_grid_y_dim) {
-          // [BIDx | i-remainder, BIDy{65535} | Unswitch, Unroll, TIDx, vect]
+          // [BIDx | i-remainder, BIDy{65535} | Unswitch, Unroll, TIDx, Vect]
           reference_tv->split(1, 65535);
           reference_tv->axis(2)->parallelize(ParallelType::BIDy);
           unswitch_pos = 4;
         } else {
-          // [BIDx | BIDy | Unswitch, Unroll, TIDx, vect]
+          // [BIDx | BIDy | Unswitch, Unroll, TIDx, Vect]
           reference_tv->axis(1)->parallelize(ParallelType::BIDy);
           unswitch_pos = 3;
         }
