@@ -85,7 +85,8 @@ namespace nvfuser::ir_utils {
 // Replace values in fusion using ValReplacementMutator
 void replaceValue(
     Fusion*,
-    const std::unordered_map<Val*, Val*>& replacement_map);
+    const std::unordered_map<Val*, Val*>& replacement_map,
+    bool replace_output = false);
 
 template <typename FilterType, typename Iterator>
 class FilterIterator {

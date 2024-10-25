@@ -547,7 +547,7 @@ void replaceCat(Fusion* fusion) {
       replacement_map[cat->output(0)] = res;
     }
   }
-  ir_utils::replaceValue(fusion, replacement_map);
+  ir_utils::replaceValue(fusion, replacement_map, /*replace_output=*/true);
 }
 
 } // namespace

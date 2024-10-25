@@ -169,10 +169,10 @@ void castOptimizationPass(Fusion* fusion) {
       if (starting_anchor->getDataType().value() == output_dtype) {
         // if output dtype is identical to starting_anchor dtype, we can't keep
         // the last cast op and will need to re-write all uses here
-        ir_utils::replaceValue(fusion, {{expr->output(0), starting_anchor}});
-        if (expr->output(0)->isFusionOutput()) {
-          fusion->replaceOutput(expr->output(0), starting_anchor);
-        }
+        ir_utils::replaceValue(
+            fusion,
+            {{expr->output(0), starting_anchor}},
+            /*replace_output=*/true);
       } else {
         replaceInputInCast(expr->output(0), starting_anchor);
       }

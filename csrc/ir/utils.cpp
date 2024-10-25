@@ -522,8 +522,16 @@ class ValReplacementMutator : private OptOutMutator {
 
 void replaceValue(
     Fusion* fusion,
-    const std::unordered_map<Val*, Val*>& replacement_map) {
+    const std::unordered_map<Val*, Val*>& replacement_map,
+    bool replace_output) {
   ValReplacementMutator(fusion, replacement_map);
+  if (replace_output) {
+    for (const auto& [old_v, new_v] : replacement_map) {
+      if (old_v->isFusionOutput()) {
+        fusion->replaceOutput(old_v, new_v);
+      }
+    }
+  }
 }
 
 Val* getReductionInitValOf(TensorView* tv) {
