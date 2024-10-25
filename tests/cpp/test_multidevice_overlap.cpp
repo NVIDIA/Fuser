@@ -128,11 +128,11 @@ INSTANTIATE_TEST_SUITE_P(
     OverlapBenchmark,
     testing::Combine(
     testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
-    /*S=*/testing::Values(1,2,4,8),
+    /*S=*/testing::Values(1,2,4,8, 16, 32),
     /*M=*/testing::Values(pow(2,10), pow(2,15)),
     /*K=*/testing::Values(pow(2,10), pow(2,15)),
     /*N=*/testing::Values(pow(2,10)),
-    /*number_of_streams=*/testing::Values(3, 8)),
+    /*number_of_streams=*/testing::Values(3, 8, 32)),
     [](const testing::TestParamInfo<OverlapBenchmarkParams>& info)
         -> std::string {
       std::ostringstream os;
