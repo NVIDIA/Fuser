@@ -38,7 +38,6 @@ void multiReductionInliner(
     std::vector<TensorView*> reduction_tvs,
     std::vector<TensorView*> cached_inputs,
     std::vector<std::pair<TensorView*, TensorView*>> cached_outputs,
-    std::vector<TensorView*> smem_persistent_buffer_consumers = {},
     std::vector<TensorView*> dummy_outputs = {});
 
 // Propagate transformations with internal cutoff boundary at boundaryNodesSet
@@ -65,14 +64,11 @@ void propagateRFactor(
 //   is_vectorize: Indicates if vectorization is applied in the scheduler.
 //   cached_inputs: Inputs cached in registers or shared memory.
 //   cached_outputs: Outputs cached in registers.
-//   smem_consumers: Consumers of shared memory persistent buffers, they are
-//                   register cached Tvs after the shared memory tv.
 NVF_API std::unordered_set<TensorView*> getCachedTvsToUnrollOrVectorize(
     TensorView* reference_tv,
     bool is_vectorize,
     const std::vector<TensorView*>& cached_inputs,
-    const std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs,
-    const std::vector<TensorView*>& smem_consumers);
+    const std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs);
 
 // Propagate parallelization from the reference TensorView to other TensorViews.
 // Unroll, Vectorize, and MisalignedVectorize types are explicitly handled for

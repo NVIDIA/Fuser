@@ -610,7 +610,7 @@ TEST_F(CombinedSchedulerTest, CombinedReduction) {
       false,
       inner_reduction_tvs,
       reduction_scheduler_utils::getCachedTvsToUnrollOrVectorize(
-          reference_tv_inner, true, cached_inputs, cached_outputs, {}));
+          reference_tv_inner, true, cached_inputs, cached_outputs));
   reduction_scheduler_utils::propagateParallelization(
       outer_reduction_tv,
       reference_tv_outer,
@@ -618,7 +618,7 @@ TEST_F(CombinedSchedulerTest, CombinedReduction) {
       false,
       outer_reduction_tvs,
       reduction_scheduler_utils::getCachedTvsToUnrollOrVectorize(
-          reference_tv_outer, true, cached_inputs, cached_outputs, {}));
+          reference_tv_outer, true, cached_inputs, cached_outputs));
 
   inlineMost();
   LaunchParams launch_constraints;
@@ -773,7 +773,7 @@ TEST_F(CombinedSchedulerTest, CombinedReductionMultiPerBlock) {
       false,
       inner_reduction_tvs,
       reduction_scheduler_utils::getCachedTvsToUnrollOrVectorize(
-          reference_tv_inner, true, cached_inputs, cached_outputs, {}),
+          reference_tv_inner, true, cached_inputs, cached_outputs),
       {selected_tvs_inner.begin(), selected_tvs_inner.end()});
 
   const auto& selected_tvs_outer =
@@ -787,7 +787,7 @@ TEST_F(CombinedSchedulerTest, CombinedReductionMultiPerBlock) {
       false,
       outer_reduction_tvs,
       reduction_scheduler_utils::getCachedTvsToUnrollOrVectorize(
-          reference_tv_outer, true, cached_inputs, cached_outputs, {}),
+          reference_tv_outer, true, cached_inputs, cached_outputs),
       {selected_tvs_outer.begin(), selected_tvs_outer.end()});
 
   std::vector<TensorView*> cached_gmem_temp{partialResult};
@@ -925,5 +925,70 @@ TEST_F(CombinedSchedulerTest, InnerOuterNoOuterBroadcastTv) {
       __FILE__,
       "",
       persistent_params->lparams);
+}
+
+// Reproduce error found in:
+// thunder/tests/test_torch_compile_executor.py::test_torch_compile_cat_nvfuser_phi2_tanh
+TEST_F(CombinedSchedulerTest, SharedMemoryPersistentVectFactor) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  // When the input is float16, the vectorization factor is set to 8.
+  // If the persistent buffer tv1 is stored in shared memory and is not
+  // projected to inputs, the scheduler adds a cacheAfter to load tv1 from
+  // shared memory to registers in a vectorized manner, avoiding bank conflicts.
+  // However, since tv1 is float32, we can't directly use the vectorization
+  // factor set for float16 inputs because the maximum allowed vectorization
+  // width is 16 bytes.
+  const int dim0 = 1024;
+  const int dim1 = 4096;
+  auto dtype = DataType::Half;
+  auto tv0 = makeContigTensor(2, dtype);
+  fusion.addInput(tv0);
+  auto tv1 = castOp(DataType::Float, tv0);
+  auto tv2 = sum(tv1, {1});
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 = add(tv3, tv1);
+  auto tv5 = sum(tv1, {0});
+  auto tv6 = castOp(DataType::Half, tv4);
+  auto tv7 = castOp(DataType::Half, tv5);
+  fusion.addOutput(tv6);
+  fusion.addOutput(tv7);
+
+  Fusion fusion_copy = fusion;
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({dim0, dim1}, options);
+  std::vector<c10::IValue> aten_inputs = {t0};
+
+  SchedulerRuntimeInfo runtime_info(&fusion, aten_inputs);
+  ASSERT_TRUE(Schedule::canSchedule(
+      SchedulerType::InnerOuterPersistent, &fusion, runtime_info));
+  auto scheduler = SchedulerEntry::makeSchedulerInstance(
+      SchedulerType::InnerOuterPersistent);
+  auto heuristic_params = scheduler->computeHeuristics(&fusion, runtime_info);
+
+  // disable projection to inputs
+  heuristic_params->as<ReductionParams>()->project_persistent_buffers = false;
+  // Set vectorization factor to 8
+  heuristic_params->as<ReductionParams>()->unroll_factor_inner_reduction = 8;
+  // replace existing shared memory buffer with tv1
+  heuristic_params->as<ReductionParams>()->smem_persistent_buffers =
+      std::vector<TensorView*>{tv1};
+  scheduler->schedule(&fusion, heuristic_params.get());
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+
+  fusion.printMath();
+
+  for (auto tv : fusion.allTvs()) {
+    if (tv->getMemoryType() == MemoryType::Shared) {
+      for (auto consumer : ir_utils::consumerTvsOf(tv)) {
+        EXPECT_TRUE(isVectorized(consumer));
+      }
+    }
+  }
+  auto cg_outputs = fe.runFusion(
+      aten_inputs, heuristic_params->as<ReductionParams>()->lparams);
+  testValidate(&fusion_copy, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 } // namespace nvfuser

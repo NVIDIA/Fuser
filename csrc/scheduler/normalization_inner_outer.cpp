@@ -967,11 +967,7 @@ void scheduleInnerOuterPersistentKernel(
       scheduler_utils::getAllTvsFrom(inner_reduction_tvs, boundaryNodesSet);
   const auto& unroll_vectorizable_cached_tvs =
       reduction_scheduler_utils::getCachedTvsToUnrollOrVectorize(
-          inner_reference_tv,
-          is_vectorize,
-          cached_inputs,
-          cached_outputs,
-          smem_consumers);
+          inner_reference_tv, is_vectorize, cached_inputs, cached_outputs);
   reduction_scheduler_utils::propagateParallelization(
       inner_reduction_tvs[0],
       inner_reference_tv,
@@ -998,8 +994,7 @@ void scheduleInnerOuterPersistentKernel(
             outer_reference_tvs[i],
             is_vectorize,
             cached_inputs,
-            cached_outputs,
-            smem_consumers);
+            cached_outputs);
     reduction_scheduler_utils::propagateParallelization(
         outer_reduction_tvs[i],
         outer_reference_tvs[i],
@@ -1041,6 +1036,30 @@ void scheduleInnerOuterPersistentKernel(
           -1,
           {cached_gmem_reload.begin(), cached_gmem_reload.end()},
           {ParallelType::Vectorize});
+    }
+  }
+
+  // Vectorization of smem consumers, they were created with cacheAfter().
+  // Can't directly use the vectorization factor set for inputs due to potential
+  // different data types, e.g. fp16 inputs and fp32 smem_consumers.
+  // When this happens, there are two additional optimizations should be done:
+  // (1) writing to smem should be vectorized.
+  // (2) when n_loads > 1, still has bank conflicts.
+  // See test SharedMemoryPersistentVectFactor.
+  if (is_vectorize) {
+    for (auto tv : smem_consumers) {
+      NVF_ERROR(
+          tv->definition()->isA<LoadStoreOp>(),
+          "smem consumers should be LoadStoreOp. Got: ",
+          tv->definition()->toString());
+      auto innermost_extent = tv->axis(-1)->extent()->evaluate().as<int64_t>();
+      auto dtype_bytes = dataTypeSize(tv->getDataType().value());
+      auto max_vect_factor =
+          SchedulerRuntimeInfo::max_alignment_size_in_byte / dtype_bytes;
+      if (innermost_extent > max_vect_factor) {
+        tv->split(-1, max_vect_factor);
+      }
+      tv->axis(-1)->parallelize(ParallelType::Vectorize);
     }
   }
 
