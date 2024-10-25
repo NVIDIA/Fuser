@@ -8,10 +8,7 @@
 #pragma once
 
 #include <ATen/cuda/CUDAContext.h>
-#include <scheduler/mma_utils.h>
 #include <scheduler/multi_matmul.h>
-#include <val_graph.h>
-#include <val_graph_visitor.h>
 
 namespace nvfuser {
 

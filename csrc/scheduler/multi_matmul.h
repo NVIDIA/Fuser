@@ -9,6 +9,9 @@
 
 #include <fusion.h>
 #include <scheduler/matmul_heuristic.h>
+#include <scheduler/mma_utils.h>
+#include <val_graph.h>
+#include <val_graph_visitor.h>
 #include <visibility.h>
 
 namespace nvfuser {
