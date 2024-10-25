@@ -102,7 +102,7 @@ std::string toString(const PointwiseParams* pparams) {
   }
   if (pparams->unroll_factor_inner > 1) {
     ss << "Inner Unroll, Factor: " << pparams->unroll_factor_inner << "\n";
-  }  
+  }
   return ss.str();
 }
 

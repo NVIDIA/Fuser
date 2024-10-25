@@ -666,7 +666,9 @@ TEST_F(PointwiseTest, VectorizeWithExpandedBroadcast) {
   EXPECT_GT(getVecSizeForPointwise(fec), 1);
 }
 
-TEST_F(PointwiseTest, UnrollOnTopOfVectorize) {
+using VectUnrollFactors = std::tuple<int64_t, int64_t, int64_t>;
+using PointwiseParamsTest = NVFuserFixtureParamTest<VectUnrollFactors>;
+TEST_P(PointwiseParamsTest, UnrollOnTopOfVectorize) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -685,7 +687,7 @@ TEST_F(PointwiseTest, UnrollOnTopOfVectorize) {
   auto t1 = at::randn({dim1}, options);
   std::vector<c10::IValue> runtime_inputs{t0, t1};
 
-  // generate heuristics
+  // Generate heuristics
   SchedulerRuntimeInfo runtime_info(fusion.get(), runtime_inputs);
   auto scheduler_instance =
       SchedulerEntry::makeSchedulerInstance(SchedulerType::PointWise);
@@ -693,20 +695,39 @@ TEST_F(PointwiseTest, UnrollOnTopOfVectorize) {
       scheduler_instance->computeHeuristics(fusion.get(), runtime_info);
   auto pparams = heuristic_params->as<PointwiseParams>();
 
-  // modify heuristics to enforce unroll on top of vectorization
-  pparams->vectorization_factor = 4;
-  pparams->unroll_factor_outer = 2;
-  pparams->unroll_factor_inner = 2;
+  // Modify heuristics to enforce unroll on top of vectorization
 
-  // schedule, compile, run, validate
+  // Set unroll factors from test parameters
+  auto [vect_factor, unroll_inner, unroll_outer] = GetParam();
+  pparams->unroll_factor_inner = unroll_inner;
+  pparams->unroll_factor_outer = unroll_outer;
+  pparams->vectorization_factor = vect_factor;
+
+  // Schedule, compile, run, validate
   scheduler_instance->schedule(fusion.get(), pparams);
-  fusion->printMath();
+  fusion->print();
   FusionExecutor fe;
   fe.compileFusion(fusion.get(), runtime_inputs, pparams->lparams);
   auto cg_outputs = fe.runFusion(runtime_inputs, pparams->lparams);
   const auto& lparams = fe.lastLaunchParams();
-  ASSERT_EQ(lparams.gdimy(), dim0 / pparams->unroll_factor_outer);
-  ASSERT_EQ(lparams.gdimx(), dim1 / pparams->vectorization_factor / lparams.bdimx() / pparams->unroll_factor_outer);
+  ASSERT_EQ(lparams.gdimy(), dim0 / unroll_outer);
+  ASSERT_EQ(
+      lparams.gdimx(), dim1 / vect_factor / lparams.bdimx() / unroll_inner);
   testValidate(fusion.get(), cg_outputs, runtime_inputs, __LINE__, __FILE__);
 }
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    PointwiseParamsTest,
+    ::testing::Combine(
+        testing::Values(1, 4), // vectorization factors
+        testing::Values(1, 2), // inner unroll factors
+        testing::Values(1, 2) // outer unroll factors
+        ),
+    [](const testing::TestParamInfo<VectUnrollFactors>& info) -> std::string {
+      std::stringstream ss;
+      ss << "vect_" << std::get<0>(info.param);
+      ss << "_inner_unroll_" << std::get<1>(info.param);
+      ss << "_outer_unroll_" << std::get<2>(info.param);
+      return sanitizeTestName(ss.str());
+    });
 } // namespace nvfuser
