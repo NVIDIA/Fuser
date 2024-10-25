@@ -182,7 +182,7 @@ class NVF_API Fusion : public IrContainer {
 
   //! Return a list of topologically sorted expressions. This only includes
   //! exprs required to generate registered outputs.
-  std::vector<Expr*> exprs() const;
+  const std::vector<Expr*>& exprs();
 
   //! Return a vector of fusion inputs that feed this Val
   std::vector<Val*> inputsOf(Val* val);
@@ -210,7 +210,7 @@ class NVF_API Fusion : public IrContainer {
   Expr* definition(const Val* val) const;
 
   //! Indicate to kernel to set itself up to generate random numbers
-  bool isStochastic() const;
+  bool isStochastic();
 
   //! Run fusion segmentation algorithm to create a segmented fusion
   std::unique_ptr<SegmentedFusion> segment(const KernelArgumentHolder& args);
@@ -461,6 +461,7 @@ class NVF_API Fusion : public IrContainer {
   //! the update).
   void invalidateTvsAndUses() {
     all_tv_uses_valid_ = false;
+    exprs_ptr_.reset();
     all_tvs_ptr_.reset();
   }
 
@@ -490,6 +491,8 @@ class NVF_API Fusion : public IrContainer {
   // the executor.
   int64_t expected_dynamic_smem_bytes_ = -1LL;
 
+  // These are used to cache exprs() and allTvs()
+  std::unique_ptr<std::vector<Expr*>> exprs_ptr_ = nullptr;
   std::unique_ptr<std::vector<TensorView*>> all_tvs_ptr_ = nullptr;
 
   inline static const std::string exact_mappings_key = "exact_mappings";
