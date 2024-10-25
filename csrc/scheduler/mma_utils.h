@@ -462,6 +462,9 @@ std::optional<std::pair<DimRolesMap, TensorRolesMap>> allPatternRoles(
     IdModel& id_model,
     const std::vector<MatmulPattern>& patterns);
 
+// Utility to check concrete static size
+inline void checkConcreteStaticDim(const AbstractId& abs_id);
+
 } // namespace mma_utils
 
 std::string toString(const mma_utils::AbstractMatmulTensor& abten);

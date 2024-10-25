@@ -2129,6 +2129,18 @@ std::optional<std::pair<DimRolesMap, TensorRolesMap>> allPatternRoles(
       id_roles, tensor_roles_opt.getData()};
 }
 
+inline void checkConcreteStaticDim(const AbstractId& abs_id) {
+  IterDomain* id = representativeId(abs_id);
+  NVF_ERROR(
+      !id->isBroadcast() && !id->isReduction(),
+      "no support for reduction or broadcast domains, but got ",
+      id->toString());
+  NVF_ERROR(
+      id->extent()->isConstInt(),
+      "swizzled dimension's extend must be known during scheduling, got ",
+      id->toString());
+}
+
 } // namespace mma_utils
 
 std::string toString(const mma_utils::AbstractMatmulTensor& abten) {

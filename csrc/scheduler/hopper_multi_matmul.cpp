@@ -32,19 +32,6 @@ namespace nvfuser {
 
 namespace {
 
-// Utility to check concrete static size
-inline void checkConcreteStaticDim(const AbstractId& abs_id) {
-  IterDomain* id = representativeId(abs_id);
-  NVF_ERROR(
-      !id->isBroadcast() && !id->isReduction(),
-      "no support for reduction or broadcast domains, but got ",
-      id->toString());
-  NVF_ERROR(
-      id->extent()->isConstInt(),
-      "swizzled dimension's extend must be known during scheduling, got ",
-      id->toString());
-}
-
 //! Automatically generates the shared memory swizzled data layout
 //!  for matmul mainloop and epilogue.
 //! The shared mem data layout is always 2D currently, and this utility
@@ -66,8 +53,8 @@ AbstractTensor swizzleSharedMemory(TensorView* shared_mem_tv) {
       (int64_t)swizzle_domain.size() >= 2,
       "At least 2D input (excluding consecutive reduction domains starting from the innermost dim) needed for swizzling, but get ",
       shared_mem_tv->toString());
-  checkConcreteStaticDim(swizzle_domain[-2]);
-  checkConcreteStaticDim(swizzle_domain[-1]);
+  mma_utils::checkConcreteStaticDim(swizzle_domain[-2]);
+  mma_utils::checkConcreteStaticDim(swizzle_domain[-1]);
 
   // Extract the constant sizes of the swizzled tile
   const int64_t tile_size_x =
@@ -1228,8 +1215,8 @@ void HopperMultipleMatmulScheduler::scheduleOutputTensor(TensorView* c) {
   const MatMulTileOptions& gemm_tile = params_->tile_sizes;
   const int64_t vectorization_factor = params_->supported_vec_size.epilogue;
   // input tensor is in the form of [Mo,No,cta_tile_m,cta_tile_n]
-  checkConcreteStaticDim(c->axis(-2));
-  checkConcreteStaticDim(c->axis(-1));
+  mma_utils::checkConcreteStaticDim(c->axis(-2));
+  mma_utils::checkConcreteStaticDim(c->axis(-1));
   const int64_t tile_size_m = c->axis(-2)->extent()->evaluate().as<int64_t>();
   const int64_t tile_size_n = c->axis(-1)->extent()->evaluate().as<int64_t>();
   NVF_ERROR(
