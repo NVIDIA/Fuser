@@ -3075,4 +3075,43 @@ TEST_F(MatmulSchedulerTest, OperandOrderIssue2434) {
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
 
+TEST_F(MatmulSchedulerTest, HSH_NT_128BSwizzle) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 10, 0);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto dtype = DataType::Half;
+  constexpr auto layout = MmaLayout::NT; // [K, M] x [K, N] -> [M, N]
+
+  auto tv0 = makeContigConcreteTensor({-1, -1, 1}, dtype);
+  auto tv1 = makeContigConcreteTensor({-1, 1, -1}, dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  auto tv2 = fusedMultiplySum(tv0, tv1, {0});
+
+  // Reorder the accumulator as [M, N, K]
+  // [K, M, N] -> [M, N, K]
+  tv2->reorder({{-3, -1}});
+  tv2->commitLeafToLogical();
+
+  auto tv3 = castOp(DataType::Half, tv2);
+
+  fusion->addOutput(tv3);
+
+  NVF_CHECK(
+      1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
+      "matmul fusion must have at least one MmaOp");
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  constexpr int64_t M = 1024 * 16, N = 1024 * 16, K = 1024;
+  auto inputs =
+      matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
+
+  auto cg_outputs =
+      executor_cache.runFusionWithInputs({inputs.first, inputs.second});
+  auto tref = atMatmul(inputs.first.squeeze(), inputs.second.squeeze(), layout);
+  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+}
+
 } // namespace nvfuser
