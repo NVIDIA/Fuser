@@ -524,6 +524,7 @@ void replaceValue(
     Fusion* fusion,
     const std::unordered_map<Val*, Val*>& replacement_map,
     bool replace_output) {
+  // NOLINTNEXTLINE(bugprone-unused-raii)
   ValReplacementMutator(fusion, replacement_map);
   if (replace_output) {
     for (const auto& [old_v, new_v] : replacement_map) {
