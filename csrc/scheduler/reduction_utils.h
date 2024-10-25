@@ -65,14 +65,11 @@ void propagateRFactor(
 //   is_vectorize: Indicates if vectorization is applied in the scheduler.
 //   cached_inputs: Inputs cached in registers or shared memory.
 //   cached_outputs: Outputs cached in registers.
-//   smem_consumers: Consumers of shared memory persistent buffers, they are
-//                   register cached Tvs after the shared memory tv.
 NVF_API std::unordered_set<TensorView*> getCachedTvsToUnrollOrVectorize(
     TensorView* reference_tv,
     bool is_vectorize,
     const std::vector<TensorView*>& cached_inputs,
-    const std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs,
-    const std::vector<TensorView*>& smem_consumers);
+    const std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs);
 
 // Propagate parallelization from the reference TensorView to other TensorViews.
 // Unroll, Vectorize, and MisalignedVectorize types are explicitly handled for
@@ -138,6 +135,17 @@ std::ostream& operator<<(std::ostream& os, ReductionType reduction_type);
 std::string toString(ReductionType reduction_type);
 ReductionType getReductionType(Fusion* fusion);
 ReductionType getReductionType(const std::vector<TensorView*>& reduction_tvs);
+
+// Vectorization of smem consumers, they were created with cacheAfter() and
+// innermost dim has a constant extent equals to the vectorization factor set
+// for fusion inputs. However, can't directly use that vectorization factor due
+// to potential different data types, e.g. fp16 inputs and fp32 smem_consumers.
+// This may happen when persistent buffers are not projected to inputs.
+// TODO:
+// (1) writing to smem should be vectorized.
+// (2) Still has bank conflicts for float32 with innermost extent of 8.
+void sharedMemoryConsumerVectorization(
+    std::vector<TensorView*>& smem_consumers);
 
 } // namespace reduction_scheduler_utils
 } // namespace nvfuser

@@ -5,18 +5,18 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <scheduler/reduction_utils.h>
-
 #include <expr_evaluator.h>
 #include <ir/cloner.h>
 #include <ir/utils.h>
 #include <multidevice/utils.h>
 #include <ops/arith.h>
+#include <scheduler/reduction_utils.h>
 #include <scheduler/registry.h>
 #include <scheduler/tools/inlining.h>
 #include <scheduler/tools/maxinfo_propagator.h>
 #include <scheduler/utils.h>
 #include <transform_replay.h>
+#include "scheduler/runtime_info.h"
 
 namespace nvfuser {
 
@@ -361,7 +361,7 @@ void multiReductionInliner(
   }
 
   const auto& unroll_vectorizable_cached_tvs = getCachedTvsToUnrollOrVectorize(
-      reference_tv, vectorize, cached_inputs, cached_outputs, smem_consumers);
+      reference_tv, vectorize, cached_inputs, cached_outputs);
   reduction_scheduler_utils::propagateParallelization(
       reduction_tv,
       reference_tv,
@@ -369,6 +369,13 @@ void multiReductionInliner(
       use_grouped_reduction,
       reduction_tvs,
       unroll_vectorizable_cached_tvs);
+
+  // Needs special handling of vectorized loading from shared memory due to
+  // potential different data types of inputs and shared memory tensor.
+  if (vectorize) {
+    reduction_scheduler_utils::sharedMemoryConsumerVectorization(
+        smem_consumers);
+  }
 
   // Remove dummy outputs as they can inadvertently affect CA positions
   for (auto output : dummy_outputs) {
@@ -428,8 +435,7 @@ std::unordered_set<TensorView*> getCachedTvsToUnrollOrVectorize(
     TensorView* reference_tv,
     bool vectorize,
     const std::vector<TensorView*>& cached_inputs,
-    const std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs,
-    const std::vector<TensorView*>& smem_consumers) {
+    const std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs) {
   auto reduced_tv = ir_utils::getSoleProducerTv(reference_tv);
   // Grab all tensor views that should be vectorized
   auto vectorizable_inputs_outputs =
@@ -466,18 +472,6 @@ std::unordered_set<TensorView*> getCachedTvsToUnrollOrVectorize(
       }
     } else {
       unroll_vectorizable_tvs.emplace(output);
-    }
-  }
-
-  if (vectorize) {
-    for (auto tv : smem_consumers) {
-      // smem_consumers were added in schedule process
-      // movePersistentBufferToSmem() using cacheAfter()
-      NVF_ERROR(
-          vectorizable_expr(tv->definition()),
-          "Expected a vectorizable expression, but got: ",
-          tv->definition()->toString());
-      unroll_vectorizable_tvs.emplace(tv);
     }
   }
 
@@ -1007,6 +1001,31 @@ std::string toString(ReductionType reduction_type) {
 std::ostream& operator<<(std::ostream& os, ReductionType reduction_type) {
   os << toString(reduction_type);
   return os;
+}
+
+void sharedMemoryConsumerVectorization(
+    std::vector<TensorView*>& smem_consumers) {
+  // Vectorization of smem consumers, they were created with cacheAfter().
+  // Can't directly use the vectorization factor set for inputs due to
+  // potential different data types, e.g. fp16 inputs and fp32 smem_consumers.
+  // When this happens, there are two additional optimizations should be done:
+  // (1) writing to smem should be vectorized.
+  // (2) when n_loads > 1, still has bank conflicts.
+  // See test SharedMemoryPersistentVectFactor.
+  for (auto tv : smem_consumers) {
+    NVF_ERROR(
+        tv->definition()->isA<LoadStoreOp>(),
+        "smem consumers should be LoadStoreOp. Got: ",
+        tv->definition()->toString());
+    auto innermost_extent = tv->axis(-1)->extent()->evaluate().as<int64_t>();
+    auto dtype_bytes = dataTypeSize(tv->getDataType().value());
+    auto max_vect_factor =
+        SchedulerRuntimeInfo::max_alignment_size_in_byte / dtype_bytes;
+    if (innermost_extent > max_vect_factor) {
+      tv->split(-1, max_vect_factor);
+    }
+    tv->axis(-1)->parallelize(ParallelType::Vectorize);
+  }
 }
 
 } // namespace reduction_scheduler_utils
