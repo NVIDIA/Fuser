@@ -53,6 +53,8 @@ inline void checkConcreteStaticDim(const AbstractId& abs_id) {
 //! Returns the domain with swizzle. For the case of legacy swizzle, this
 //! domain must be set as loop domain. For the case of new swizzle, this domain
 //! must be set as allocation domain.
+//!
+//! TODO: Refactor this for TMA loads
 template <bool legacy = true>
 AbstractTensor swizzleSharedMemory(TensorView* shared_mem_tv) {
   NVF_ERROR(shared_mem_tv->getMemoryType() == MemoryType::Shared);
