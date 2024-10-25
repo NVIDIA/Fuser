@@ -14,6 +14,7 @@
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
+#include <mma_type.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <python_frontend/fusion_cache.h>
@@ -679,48 +680,91 @@ void initNvFuserPythonBindings(PyObject* module) {
   heuristic_params.def(
       "__repr__", [](const HeuristicParams& self) { return self.toString(); });
 
+#define INITPARAMS(cfg, internal_type)                                     \
+  py::class_<internal_type, HeuristicParams> cfg(nvfuser, #internal_type); \
+  cfg.def(py::init());                                                     \
+  cfg.def(                                                                 \
+      "__repr__", [](const internal_type& self) { return self.toString(); });
+#define PARAM(cfg, internal_type, type, name)        \
+  cfg.def_property(                                  \
+      #name,                                         \
+      [](internal_type& self) { return self.name; }, \
+      [](internal_type& self, type x) { self.name = x; });
+
   // Pointwise scheduler parameters
-  py::class_<PointwiseParams, HeuristicParams> pointwise_config(
-      nvfuser, "PointwiseParams");
-  pointwise_config.def(py::init());
-  pointwise_config.def_property(
-      "breakpoint",
-      [](PointwiseParams& self) { return self.break_point; },
-      [](PointwiseParams& self, int64_t break_point_) {
-        self.break_point = break_point_;
+  INITPARAMS(pointwise_config, PointwiseParams)
+  PARAM(pointwise_config, PointwiseParams, int64_t, break_point)
+  PARAM(pointwise_config, PointwiseParams, bool, split_block)
+  PARAM(pointwise_config, PointwiseParams, bool, split_grid_y_dim)
+  PARAM(pointwise_config, PointwiseParams, bool, flip_grid_binding)
+  PARAM(pointwise_config, PointwiseParams, int64_t, vectorization_factor)
+  PARAM(pointwise_config, PointwiseParams, int64_t, unroll_factor)
+
+  // Matmul scheduler parameters
+#define MATMULTILEPARAM(tile_name)                                             \
+  matmul_config.def_property(                                                  \
+      #tile_name "_m",                                                         \
+      [](MatmulParams& self) { return self.tile_sizes.tile_name.m; },          \
+      [](MatmulParams& self, int64_t x) { self.tile_sizes.tile_name.m = x; }); \
+  matmul_config.def_property(                                                  \
+      #tile_name "_n",                                                         \
+      [](MatmulParams& self) { return self.tile_sizes.tile_name.n; },          \
+      [](MatmulParams& self, int64_t x) { self.tile_sizes.tile_name.n = x; }); \
+  matmul_config.def_property(                                                  \
+      #tile_name "_k",                                                         \
+      [](MatmulParams& self) { return self.tile_sizes.tile_name.k; },          \
+      [](MatmulParams& self, int64_t x) { self.tile_sizes.tile_name.n = x; });
+#define MATMULCBPARAM(type, name)                                           \
+  matmul_config.def_property(                                               \
+      #name,                                                                \
+      [](MatmulParams& self) { return self.circular_buffer_options.name; }, \
+      [](MatmulParams& self, type x) {                                      \
+        self.circular_buffer_options.name = x;                              \
       });
-  pointwise_config.def_property(
-      "split_block",
-      [](PointwiseParams& self) { return self.split_block; },
-      [](PointwiseParams& self, bool split_block_) {
-        self.split_block = split_block_;
-      });
-  pointwise_config.def_property(
-      "split_grid_y_dim",
-      [](PointwiseParams& self) { return self.split_grid_y_dim; },
-      [](PointwiseParams& self, bool split_grid_y_dim_) {
-        self.split_grid_y_dim = split_grid_y_dim_;
-      });
-  pointwise_config.def_property(
-      "flip_grid_binding",
-      [](PointwiseParams& self) { return self.flip_grid_binding; },
-      [](PointwiseParams& self, bool flip_grid_binding_) {
-        self.flip_grid_binding = flip_grid_binding_;
-      });
-  pointwise_config.def_property(
-      "vectorization_factor",
-      [](PointwiseParams& self) { return self.vectorization_factor; },
-      [](PointwiseParams& self, int64_t vectorization_factor_) {
-        self.vectorization_factor = vectorization_factor_;
-      });
-  pointwise_config.def_property(
-      "unroll_factor",
-      [](PointwiseParams& self) { return self.unroll_factor; },
-      [](PointwiseParams& self, int64_t unroll_factor_) {
-        self.unroll_factor = unroll_factor_;
-      });
-  pointwise_config.def(
-      "__repr__", [](const PointwiseParams& self) { return self.toString(); });
+  py::enum_<MatmulParams::TileRasterizationOrder>(
+      nvfuser, "MatmulTileRasterizationOrder")
+      .value("column_major", MatmulParams::TileRasterizationOrder::ColumnMajor)
+      .value("row_major", MatmulParams::TileRasterizationOrder::RowMajor);
+  py::enum_<MmaMacroEncode::Arch>(nvfuser, "MmaMacroArch")
+      .value("no_mma", MmaMacroEncode::Arch::NoMma)
+      .value("volta", MmaMacroEncode::Arch::Volta)
+      .value("turing", MmaMacroEncode::Arch::Turing)
+      .value("ampere", MmaMacroEncode::Arch::Ampere)
+      .value("hopper", MmaMacroEncode::Arch::Hopper);
+  py::class_<MmaMacro> mma_macro(nvfuser, "MmaMacro");
+  mma_macro.def("__repr__", [](MmaMacro& self) { return toString(self); });
+  mma_macro.def_property_readonly(
+      "arch", [](MmaMacro& self) { return MmaMacroEncode(self).arch; });
+  mma_macro.def_property_readonly(
+      "m", [](MmaMacro& self) -> uint16_t { return MmaMacroEncode(self).m; });
+  mma_macro.def_property_readonly(
+      "n", [](MmaMacro& self) -> uint16_t { return MmaMacroEncode(self).n; });
+  mma_macro.def_property_readonly(
+      "k", [](MmaMacro& self) -> uint16_t { return MmaMacroEncode(self).k; });
+  INITPARAMS(matmul_config, MatmulParams)
+  MATMULTILEPARAM(cta_tile)
+  MATMULTILEPARAM(warp_tile)
+  MATMULTILEPARAM(instruction_tile)
+  MATMULCBPARAM(bool, circular_buffer_smem_write)
+  MATMULCBPARAM(bool, circular_buffer_smem_read)
+  MATMULCBPARAM(int, smem_circular_buffer_stage)
+  PARAM(matmul_config, MatmulParams, bool, async_gmem_load_operands)
+  PARAM(matmul_config, MatmulParams, bool, rotate_ldmatrix_out_of_main_loop)
+  PARAM(matmul_config, MatmulParams, int, grid_swizzle_factor)
+  PARAM(matmul_config, MatmulParams, bool, use_smem_epilogue)
+  PARAM(matmul_config, MatmulParams, bool, promote_prologue_smem_reuse)
+  PARAM(matmul_config, MatmulParams, int, splitk_factor)
+  PARAM(
+      matmul_config,
+      MatmulParams,
+      MatmulParams::TileRasterizationOrder,
+      cta_order);
+  PARAM(matmul_config, MatmulParams, MmaMacroEncode, mma_macro);
+#undef MATMULTILEPARAM
+#undef MATMULCBPARAM
+
+#undef PARAM
+#undef INITPARAMS
 
   //! KernelProfiles are encapsulated in FusionProfiles where each KP
   //! is associated with a segment.
@@ -3751,6 +3795,18 @@ void initNvFuserPythonBindings(PyObject* module) {
         HeuristicParams* parameters =
             sched->computeHeuristics(SchedulerType::PointWise);
         return *parameters->as<PointwiseParams>();
+      },
+      py::return_value_policy::reference);
+  nvf_sched.def(
+      "compute_matmul_heuristics",
+      [](FusionDefinition::SchedOperators& self) -> MatmulParams& {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        UserSchedule* sched = self.fusion_definition->userSchedule();
+        HeuristicParams* parameters =
+            sched->computeHeuristics(SchedulerType::Matmul);
+        return *parameters->as<MatmulParams>();
       },
       py::return_value_policy::reference);
 }
