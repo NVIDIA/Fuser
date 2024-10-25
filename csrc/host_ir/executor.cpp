@@ -99,7 +99,7 @@ std::vector<at::Tensor> HostIrExecutor::run(
         "An invalid segment id is passed to FusionProfiler!:",
         group_id_);
     SegmentProfiler& sprof = FusionProfiler::segment(group_id_);
-    sprof.inputBytesAccessed(inputBytesProcessed(args));
+    sprof.inputBytesAccessed(computeBytes(args));
     sprof.scheduler(toString(SchedulerType::ExprEval));
     sprof.startKernel();
   }

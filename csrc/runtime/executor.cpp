@@ -215,7 +215,7 @@ std::vector<at::Tensor> ExprEvalExecutor::run(
         "An invalid segment id is passed to FusionProfiler!:",
         group_id_);
     SegmentProfiler& sprof = FusionProfiler::segment(group_id_);
-    sprof.inputBytesAccessed(inputBytesProcessed(args));
+    sprof.inputBytesAccessed(computeBytes(args));
     sprof.scheduler(toString(SchedulerType::ExprEval));
     sprof.startKernel();
   }
@@ -1154,7 +1154,7 @@ std::vector<at::Tensor> KernelExecutor::runFusion(
         "An invalid segment id is passed to FusionProfiler!:",
         group_id_);
     SegmentProfiler& sprof = FusionProfiler::segment(group_id_);
-    sprof.inputBytesAccessed(inputBytesProcessed(args));
+    sprof.inputBytesAccessed(computeBytes(args));
     sprof.scheduler(toString(scheduler_type_));
     sprof.startKernel();
   }
@@ -1393,7 +1393,7 @@ std::vector<at::Tensor> KernelExecutor::runFusion(
   if (isProfilerEnabled()) {
     auto& sprof = FusionProfiler::segment(group_id_);
     sprof.stopKernel();
-    sprof.outputBytesAccessed(outputBytesProcessed(outputs));
+    sprof.outputBytesAccessed(computeBytes(outputs));
   }
 
   return outputs;

@@ -135,8 +135,8 @@ std::vector<std::byte> getKernelArgument(
     Val* parameter,
     PrimDataType index_type);
 
-int64_t inputBytesProcessed(const KernelArgumentHolder& args);
+int64_t computeBytes(const KernelArgumentHolder& args);
 
-int64_t outputBytesProcessed(const std::vector<at::Tensor>& outputs);
+int64_t computeBytes(const std::vector<at::Tensor>& outputs);
 
 } // namespace nvfuser

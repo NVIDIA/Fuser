@@ -372,7 +372,7 @@ std::vector<std::byte> getKernelArgument(
   return polymorphicValueToBytes(pv, parameter->dtype(), index_type);
 }
 
-int64_t inputBytesProcessed(const KernelArgumentHolder& args) {
+int64_t computeBytes(const KernelArgumentHolder& args) {
   int64_t num_bytes = 0;
   // Figure how many bytes are inputs, outputs, and temporary buffers
   for (auto i : c10::irange(args.size())) {
@@ -384,7 +384,7 @@ int64_t inputBytesProcessed(const KernelArgumentHolder& args) {
   return num_bytes;
 }
 
-int64_t outputBytesProcessed(const std::vector<at::Tensor>& outputs) {
+int64_t computeBytes(const std::vector<at::Tensor>& outputs) {
   int64_t num_bytes = 0;
   for (auto i : c10::irange(outputs.size())) {
     const auto& output = outputs.at(i);
