@@ -475,6 +475,12 @@ class ValReplacementMutator : private OptOutMutator {
     for (auto stmt : more_stmts) {
       dispatchMutate(stmt);
     }
+
+    for (const auto& [old_v, new_v] : replacement_map_) {
+      if (old_v->isFusionOutput()) {
+        fusion->replaceOutput(old_v, new_v);
+      }
+    }
   }
 
  private:
@@ -522,17 +528,9 @@ class ValReplacementMutator : private OptOutMutator {
 
 void replaceValue(
     Fusion* fusion,
-    const std::unordered_map<Val*, Val*>& replacement_map,
-    bool replace_output) {
+    const std::unordered_map<Val*, Val*>& replacement_map) {
   // NOLINTNEXTLINE(bugprone-unused-raii)
   ValReplacementMutator(fusion, replacement_map);
-  if (replace_output) {
-    for (const auto& [old_v, new_v] : replacement_map) {
-      if (old_v->isFusionOutput()) {
-        fusion->replaceOutput(old_v, new_v);
-      }
-    }
-  }
 }
 
 Val* getReductionInitValOf(TensorView* tv) {

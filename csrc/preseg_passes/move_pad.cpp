@@ -549,7 +549,7 @@ void replaceCat(Fusion* fusion) {
   }
   // defer the update to after the for loop on a generator to avoid deleting
   // nodes in the replacement
-  ir_utils::replaceValue(fusion, replacement_map, /*replace_output=*/true);
+  ir_utils::replaceValue(fusion, replacement_map);
 }
 
 } // namespace
