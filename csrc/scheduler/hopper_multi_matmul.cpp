@@ -21,6 +21,7 @@
 #include <scheduler/utils.h>
 #include <val_graph.h>
 #include <val_graph_visitor.h>
+#include <utils.h>
 
 // NOTE: included to avoid compilation error caused by missing destructor in
 // 'SchedulerRuntimeInfo'
@@ -30,11 +31,6 @@
 namespace nvfuser {
 
 namespace {
-
-// Returns true if given number is power of 2
-constexpr bool isPowOf2(int64_t x) {
-  return x > 1 && (x & (x - 1)) == 0;
-}
 
 inline IterDomain* representativeId(const AbstractId& abs_id) {
   if (abs_id.is<IterDomain*>()) {
