@@ -49,9 +49,11 @@ def custom_matmul_scheduler(fd, config):
         # Modify original parameters
         if config is not None:
             splitk_factor, stages = config
-            schedule_params.circular_buffer_smem_write = stages > 1
+            schedule_params.circular_buffer_options.circular_buffer_smem_write = (
+                stages > 1
+            )
+            schedule_params.circular_buffer_options.smem_circular_buffer_stage = stages
             schedule_params.splitk_factor = splitk_factor
-            schedule_params.smem_circular_buffer_stage = stages
 
         # Schedule fusion
         fd.sched.schedule()

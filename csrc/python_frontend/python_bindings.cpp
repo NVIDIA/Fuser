@@ -585,13 +585,28 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
   PARAM(tile_sizes, MatMulTileOptions, GemmTile, warp_tile)
   PARAM(tile_sizes, MatMulTileOptions, GemmTile, instruction_tile)
 
-#define MATMULCBPARAM(type, name)                                           \
-  matmul_config.def_property(                                               \
-      #name,                                                                \
-      [](MatmulParams& self) { return self.circular_buffer_options.name; }, \
-      [](MatmulParams& self, type x) {                                      \
-        self.circular_buffer_options.name = x;                              \
+  py::class_<MatmulParams::CircularBufferOptions> circular_buffer_options(
+      nvfuser, "CircularBufferOptions");
+  circular_buffer_options.def(
+      "__repr__", [](const MatmulParams::CircularBufferOptions& self) {
+        return self.toString();
       });
+  PARAM(
+      circular_buffer_options,
+      MatmulParams::CircularBufferOptions,
+      bool,
+      circular_buffer_smem_read)
+  PARAM(
+      circular_buffer_options,
+      MatmulParams::CircularBufferOptions,
+      bool,
+      circular_buffer_smem_write)
+  PARAM(
+      circular_buffer_options,
+      MatmulParams::CircularBufferOptions,
+      int,
+      smem_circular_buffer_stage)
+
   py::enum_<MatmulParams::TileRasterizationOrder>(
       nvfuser, "MatmulTileRasterizationOrder")
       .value("column_major", MatmulParams::TileRasterizationOrder::ColumnMajor)
@@ -618,18 +633,20 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
   heuristic_params.def(
       "__repr__", [](const HeuristicParams& self) { return self.toString(); });
 
-#define INITPARAMS(cfg, internal_type)                                     \
+#define INITHEURISTICPARAMS(cfg, internal_type)                            \
   py::class_<internal_type, HeuristicParams> cfg(nvfuser, #internal_type); \
   cfg.def(py::init());                                                     \
   cfg.def(                                                                 \
       "__repr__", [](const internal_type& self) { return self.toString(); });
 
   // Matmul scheduler parameters
-  INITPARAMS(matmul_config, MatmulParams)
+  INITHEURISTICPARAMS(matmul_config, MatmulParams)
   PARAM(matmul_config, MatmulParams, MatMulTileOptions, tile_sizes)
-  MATMULCBPARAM(bool, circular_buffer_smem_write)
-  MATMULCBPARAM(bool, circular_buffer_smem_read)
-  MATMULCBPARAM(int, smem_circular_buffer_stage)
+  PARAM(
+      matmul_config,
+      MatmulParams,
+      MatmulParams::CircularBufferOptions,
+      circular_buffer_options)
   PARAM(matmul_config, MatmulParams, bool, async_gmem_load_operands)
   PARAM(matmul_config, MatmulParams, bool, rotate_ldmatrix_out_of_main_loop)
   PARAM(matmul_config, MatmulParams, int, grid_swizzle_factor)
@@ -643,10 +660,8 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
       cta_order);
   PARAM(matmul_config, MatmulParams, MmaMacroEncode, mma_macro);
 
-#undef MATMULCBPARAM
-
   // Pointwise scheduler parameters
-  INITPARAMS(pointwise_config, PointwiseParams)
+  INITHEURISTICPARAMS(pointwise_config, PointwiseParams)
   PARAM(pointwise_config, PointwiseParams, int64_t, break_point)
   PARAM(pointwise_config, PointwiseParams, bool, split_block)
   PARAM(pointwise_config, PointwiseParams, bool, split_grid_y_dim)
