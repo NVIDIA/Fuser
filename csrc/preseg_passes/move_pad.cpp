@@ -547,6 +547,8 @@ void replaceCat(Fusion* fusion) {
       replacement_map[cat->output(0)] = res;
     }
   }
+  // defer the update to after the for loop on a generator to avoid deleting
+  // nodes in the replacement
   ir_utils::replaceValue(fusion, replacement_map);
 }
 
