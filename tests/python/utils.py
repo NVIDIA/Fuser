@@ -249,8 +249,6 @@ def check_cpp_translation(reference_outputs, fd, inputs, device=None):
         torch.manual_seed(0)
         cloned_fd = FusionDefinition()
         clone(fd, cloned_fd)
-        print(fd)
-        print(cloned_fd)
         cloned_outputs = cloned_fd.execute(inputs, device=device)
 
         # Make sure the results of original and cloned definitions match.
@@ -406,7 +404,7 @@ class NVFuserTest(TestCase):
         *,
         new_fusion_expected=True,
         device=None,
-        is_clonable=False,
+        is_clonable=True,
     ):
         fc = FusionCache.get()
         before_fusions = fc.num_fusions()

@@ -391,7 +391,14 @@ class LogParserPyTest(LogParser):
 
         self.itemlist_re = re.compile(r"Running \d+ items in this shard: (.*)$")
 
-        self.wildcard_testname_re = re.compile(r"^(?P<testname>\S+::\S+) (?P<line>.*)$")
+        # match lines like these:
+        #  [2024-10-23 02:00:20] tests/python/test_python_frontend.py::TestNvFuserFrontend::test_nanogpt_split_mha_linears
+        #  tests/python/test_python_frontend.py::TestNvFuserFrontend::test_nanogpt_split_mha_linears
+        #  tests/python/test_python_frontend.py::TestNvFuserFrontend::test_nanogpt_split_mha_linears PASSED
+
+        self.wildcard_testname_re = re.compile(
+            r"^((?P<timestamp>\[[\d\-: ]+\]) )?(?P<testname>\S+\.py::\S+)\s?(?P<line>.*)$"
+        )
 
         self.extra_wildcard_testname_re = re.compile(
             r".*?(?P<testname>\S+::\S+) (?P<line>.*)$"
@@ -407,43 +414,11 @@ class LogParserPyTest(LogParser):
                 self.all_test_names = m.groups()[0].split(", ")
                 return True
 
-        if self.all_test_names is not None:
-            # Try to match a line like this:
-            #
-            #   python_tests/test_python_frontend.py::TestNvFuserFrontend::test_pad_expanded_empty PRINTING: __tmp_kernel5.cu
-            #
-            # The first column is the test name, which should not have spaces.
-            # After that is an ordinary line of STDOUT. In these cases we should
-            # mark the beginning of a new test, and process the remainder of the
-            # line as a separate line.
-            testrest = line.split(maxsplit=1)
-            if len(testrest) > 0:
-                if testrest[0] in self.all_test_names:
-                    self.current_test = testrest[0]
-                    if len(testrest) > 1:
-                        line = testrest[1]
-                    else:
-                        return True
-                else:
-                    # process cases with a time stamp, e.g.
-                    #
-                    # [2024-03-27 18:40:08] tests/python/test_schedule_ops.py::TestScheduleOps::test_reduction_factor_op
-                    #
-                    # Less reliable: match any line having at least one double colon
-                    # and interpret that as test name
-                    m = re.match(self.extra_wildcard_testname_re, line)
-                    if m is not None:
-                        d = m.groupdict()
-                        self.current_test = d["testname"]
-                        line = d["line"]
-        else:
-            # Less reliable: match any line having at least one double colon
-            # and interpret that as test name
-            m = re.match(self.wildcard_testname_re, line)
-            if m is not None:
-                d = m.groupdict()
-                self.current_test = d["testname"]
-                line = d["line"]
+        m = re.match(self.wildcard_testname_re, line)
+        if m is not None:
+            d = m.groupdict()
+            self.current_test = d["testname"]
+            line = d["line"]
 
         if line == "PASSED":
             self.finalize_test(True)

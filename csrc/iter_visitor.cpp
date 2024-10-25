@@ -264,8 +264,9 @@ void IterVisitor::traverseBetween(
                 })) {
           std::unordered_set<Statement*> from_stmt(from.begin(), from.end());
           auto cycle = ir_utils::checkCycle(fusion, from_stmt, to);
+          TORCH_WARN("A cycle is detected in the fusion.");
           std::stringstream ss;
-          ss << "cycle detected in fusion: " << std::endl;
+          ss << "Statements found in the cycle: " << std::endl;
           for (auto expr :
                ir_utils::filterByType<Expr>(cycle.begin(), cycle.end())) {
             ss << expr << std::endl;

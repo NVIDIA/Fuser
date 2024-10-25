@@ -364,10 +364,12 @@ void RecordFunctorFactory::registerAllParsers() {
   registerParser(RecordType::BroadcastOp, deserializeBroadcastRecord);
 
   auto deserializeCatRecord = [](const RecordFunctor* buffer) {
+    auto data = buffer->data_as_Cat();
     return new python_frontend::CatOpRecord(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
-        buffer->data_as_Dimension()->dim());
+        data->dim(),
+        data->manual_padding());
   };
   registerParser(RecordType::CatOp, deserializeCatRecord);
 
@@ -490,9 +492,7 @@ void RecordFunctorFactory::registerAllParsers() {
 
   auto deserializePadRecord = [](const RecordFunctor* buffer) {
     return new python_frontend::PadOpRecord(
-        parseStateArgs(buffer->args()),
-        parseStateArgs(buffer->outputs()),
-        parseVector(buffer->data_as_Pad()->pad_widths()));
+        parseStateArgs(buffer->args()), parseStateArgs(buffer->outputs()));
   };
   registerParser(RecordType::PadOp, deserializePadRecord);
 
@@ -540,7 +540,9 @@ void RecordFunctorFactory::registerAllParsers() {
 
   auto deserializeSliceRecord = [](const RecordFunctor* buffer) {
     return new python_frontend::SliceOpRecord(
-        parseStateArgs(buffer->args()), parseStateArgs(buffer->outputs()));
+        parseStateArgs(buffer->args()),
+        parseStateArgs(buffer->outputs()),
+        buffer->data_as_Slice()->manual_normalization());
   };
   registerParser(RecordType::SliceOp, deserializeSliceRecord);
 
