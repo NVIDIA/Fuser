@@ -8825,6 +8825,7 @@ TEST_F(NVFuserTest, RAWSync) {
 // This test checks pointer to bool is not treated as data type bool when
 // generating PTX code for kir::Asm, e.g. async copy.
 TEST_F(NVFuserTest, CpAsyncDataTypeBool) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
   Fusion fusion;
   FusionGuard fg(&fusion);
   auto dtype = DataType::Bool;
@@ -8849,26 +8850,28 @@ TEST_F(NVFuserTest, CpAsyncDataTypeBool) {
 
   inlineMost();
 
+  // randn doesn't support bool, ones is used instead
   auto at_dtype = data_type_to_aten(dtype);
   auto options = at::TensorOptions().dtype(at_dtype).device(at::kCUDA, 0);
-  // randn deosn't support bool type
   at::Tensor t0 = at::ones({m, n}, options);
 
+  // Expected asm code is:
+  // asm volatile(
+  //   "{\n"
+  //   "  .reg .pred p0; \n"
+  //   "  setp.ne.b32 p0, %3, 0;\n"
+  //   "  cp.async.ca.shared.global [%0], [%1], %2, p0;\n"
+  //   "}\n"
+  //   :
+  //   :"r"((uint32_t)((toSmem(T1) + i0))),
+  //    "l"(((T0.data + i0) + i1)),
+  //    "n"(4LL),
+  //    "r"((uint32_t)((!b3)))
+  // );
+  // If not correctly lowered, would trigger error in compile
   FusionExecutor fe;
-
-  // requires ampere+ GPU
-  if (!deviceMajorMinorCheck(8)) {
-    ASSERT_THAT(
-        [&]() { fe.compileFusion(&fusion, {t0}); },
-        testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
-            "Reason: LoadStoreOpType::CpAsync requires Ampere")));
-    GTEST_SKIP() << "skipping tests on pre-AMPERE GPUs";
-  } else {
-    fe.compileFusion(&fusion, {t0});
-  }
   fe.compileFusion(&fusion, {t0});
   auto cg_outputs = fe.runFusion({t0});
-
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 // Test file size should be up to 10K LoC. Create a new file for more tests.
