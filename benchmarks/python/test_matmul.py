@@ -57,12 +57,11 @@ def test_matmul_baseline_benchmark(
             b = b.as_strided(size=[k, n], stride=[1, k])
 
         # NOTE: we never need to validate eager, as it is our baseline
-        if not disable_benchmarking:
-            run_benchmark(
-                benchmark,
-                lambda ab: torch.matmul(*ab),
-                [a, b],
-            )
+        run_benchmark(
+            benchmark,
+            lambda ab: torch.matmul(*ab),
+            [a, b],
+        )
 
     except torch.OutOfMemoryError:
         pytest.skip("Test failed due to OutOfMemoryError")
