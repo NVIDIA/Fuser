@@ -1145,28 +1145,12 @@ void HopperMultipleMatmulScheduler::schedulePrologues() {
   // schedule all transfers from gmem to smem (acw_smems_ and bcw_smems_)
   scheduleOperandSmemStores();
 
-  // Hold this vector so we can use it as a boundary to propagate backward
-  // from each mma input.
-  std::vector<TensorView*> all_smem_stores = acw_smems_;
-  all_smem_stores.insert(
-      all_smem_stores.end(), bcw_smems_.begin(), bcw_smems_.end());
-
-  // Now for each operand, we load from smem to registers and compute a
-  // prologue (generally) in registers. We typically refer to the register
-  // buffer that is loaded from operand A's smem buffer using ldmatrix as
-  // "acr". This is the beginning of the register prologue region for that
-  // operand. The end of that region is the first input to the MmaOp
-  // expression, which we typically refer to as "ab". There is some special
-  // handling of acr but otherwise we schedule ab and propagate backward
-  // along this prologue region.
-  auto schedulePrologueBranch = [&](const std::vector<TensorView*>& smem_stores,
-                                    const std::vector<TensorView*>& smem_loads,
-                                    std::vector<TensorView*>& mma_inputs,
-                                    MmaOperand operand_type) {
-    NVF_ERROR(smem_stores.size() == smem_loads.size());
+  auto inspectPrologueBranch = [&](const std::vector<TensorView*>& smem_stores,
+                                   std::vector<TensorView*>& mma_inputs,
+                                   MmaOperand operand_type) {
     // TODO: we should not assume that each operand is used in only a single
     // mma op
-    NVF_ERROR(mma_results_.size() >= smem_loads.size());
+    NVF_ERROR(mma_results_.size() >= smem_stores.size());
     // We will save abs_ and bbs_ here for later use
     // TODO: save all register prologue tensors instead to a new vector called
     // prologue_register_tensors_
@@ -1184,54 +1168,22 @@ void HopperMultipleMatmulScheduler::schedulePrologues() {
       mma_inputs.push_back(mma_input);
     }
 
-    scheduleMmaOperands(mma_inputs, operand_type);
-
-    // Propagate backward from all mma_results to smem_stores
-
-    for (TensorView* mma_input : mma_inputs) {
-      // Schedule mma_input, since we know it has the broadcast dimension M or
-      // N, whereas the smem read might not
-      matmul_utils::moveInnerBroadcastLeft(mma_input);
-      mma_input->applyMmaSwizzle(operand_type);
-      scheduler_utils::BoundedDirectionalTransformPropagator::backward(
-          mma_input,
-          -1,
-          smem_stores,
-          scheduler_utils::BoundedDirectionalTransformPropagator::Options()
-              .propagateParallelType());
-    }
     // Find smem loads that are mma inputs and save them
-    std::unordered_set<TensorView*> smem_load_mma_inputs;
-    for (TensorView* smem_load : smem_loads) {
-      // Insert only if smem_load is also in mma_inputs
+    std::unordered_set<TensorView*> smem_store_mma_inputs;
+    for (TensorView* smem_store : smem_stores) {
+      // Insert only if smem_store is also in mma_inputs
       bool is_mma_input =
-          std::find(mma_inputs.begin(), mma_inputs.end(), smem_load) !=
+          std::find(mma_inputs.begin(), mma_inputs.end(), smem_store) !=
           mma_inputs.end();
       if (is_mma_input) {
-        smem_load_mma_inputs.insert(smem_load);
+        smem_store_mma_inputs.insert(smem_store);
       }
-      if (!is_mma_input) {
-        //  -5  -4   -3   -2   -1
-        //[8mi, 4k, 2ko, 2mo, 2ki]
-        smem_load->setAllocationDomain(smem_load->getLoopDomain(), true);
-        mma_utils::MmaSwizzler::scheduleLdMatrix(smem_load, operand_type);
-      }
-    }
-    for (TensorView* mma_input : mma_inputs) {
-      if (smem_load_mma_inputs.count(mma_input) == 0) {
-        mma_input->merge(-5);
-        mma_input->axis(-4)->parallelize(ParallelType::TIDx);
-        scheduler_utils::BoundedDirectionalTransformPropagator::backward(
-            mma_input,
-            -1,
-            smem_loads,
-            scheduler_utils::BoundedDirectionalTransformPropagator::Options()
-                .propagateParallelType());
-      }
+      // TODO: enable prologue by scheduling ldmatrix and stmatrix, propagating
+      NVF_ERROR(is_mma_input, "Smem store must be an MmaOp input for Hopper");
     }
   };
-  schedulePrologueBranch(acw_smems_, acrs_, abs_, MmaOperand::A);
-  schedulePrologueBranch(bcw_smems_, bcrs_, bbs_, MmaOperand::B);
+  inspectPrologueBranch(acw_smems_, abs_, MmaOperand::A);
+  inspectPrologueBranch(bcw_smems_, bbs_, MmaOperand::B);
 }
 
 void HopperMultipleMatmulScheduler::scheduleOutputTensor(TensorView* c) {
