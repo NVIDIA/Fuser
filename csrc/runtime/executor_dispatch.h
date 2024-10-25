@@ -12,7 +12,7 @@
 
 namespace nvfuser {
 
-// Simple stateless dispatch system for KernelExecutor, HostIRExecutor, and
+// Simple stateless dispatch system for KernelExecutor, HostIrExecutor, and
 // ExprEvalExecutor
 class ExecutorDispatch {
  public:

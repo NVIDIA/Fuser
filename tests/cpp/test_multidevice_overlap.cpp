@@ -400,7 +400,7 @@ TEST_F(
   // tva_j->isProducerOf(tvc_locally_reduced_j) == true
   hic->addOutput(tvc_locally_reduced_j);
 
-  hir::HostIrExecutor hie(std::move(hic), communicator_);
+  hir::HostIrEvaluator hie(std::move(hic), communicator_);
 
   for ([[maybe_unused]] const auto& _ :
        c10::irange(params.number_of_iterations)) {

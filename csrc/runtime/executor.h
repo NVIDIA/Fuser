@@ -10,14 +10,11 @@
 #include <exceptions.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
-#include <host_ir/container.h>
 #include <ir/all_nodes.h>
 #include <ir/cloner.h>
 #include <ir/printer.h>
-#include <multidevice/communicator.h>
 #include <runtime/allocations.h>
 #include <runtime/executor_abstract.h>
-#include <runtime/executor_kernel_arg.h>
 #include <runtime/executor_params.h>
 #include <runtime/executor_utils.h>
 #include <scheduler/scheduler_types.h>
@@ -34,33 +31,6 @@ namespace nvfuser {
 // TODO: Should this actually be in launch params?
 struct CompileOptions {
   c10::Device device = c10::Device(c10::DeviceType::CUDA, 0);
-};
-
-class HostIRExecutor : public ExecutorAbstract {
- public:
-  HostIRExecutor(
-      int64_t fusion_id = 0,
-      int64_t concrete_id = 0,
-      int64_t runtime_id = 0,
-      int64_t group_id = 0);
-
-  static bool supported(Fusion* fusion);
-
-  void compile(Fusion* fusion);
-
-  bool isCompiled() const override;
-
-  NVF_API std::vector<at::Tensor> run(
-      KernelArgumentHolder& args,
-      std::vector<at::Tensor> outputs = {});
-
-  const std::unique_ptr<hir::HostIrContainer>& hostContainer() {
-    return host_ir_container_;
-  }
-
- private:
-  std::unique_ptr<hir::HostIrContainer> host_ir_container_;
-  Communicator* communicator_;
 };
 
 class ExprEvalExecutor : public ExecutorAbstract {
@@ -101,12 +71,10 @@ class KernelExecutor : public ExecutorAbstract {
       int64_t runtime_id = 0,
       int64_t group_id = 0)
       : ExecutorAbstract(fusion_id, concrete_id, runtime_id, group_id) {}
-  // TODO: What rules should be in this check? Right now host and expr eval are
-  // checked first then its assumed it's a kernel if neither is selected.
+
+  // TODO: What rules should be in this check?
   static bool supported(Fusion* fusion) {
-    return !(
-        HostIRExecutor::supported(fusion) ||
-        ExprEvalExecutor::supported(fusion));
+    return true;
   }
 
   //! To compile a fusion with the 32-bit index type, CompileParams
@@ -180,8 +148,7 @@ class KernelExecutor : public ExecutorAbstract {
 
   // Function to query whether compilation was attempted for a `KernelExecutor`
   bool isCompiled() const override {
-    int num_compiled_artifacts = (fusion_ != nullptr) + (lowered_ != nullptr) +
-        (host_ir_container_ != nullptr);
+    int num_compiled_artifacts = (fusion_ != nullptr) + (lowered_ != nullptr);
     NVF_ERROR(num_compiled_artifacts <= 1);
     return num_compiled_artifacts == 1;
   };
@@ -242,9 +209,6 @@ class KernelExecutor : public ExecutorAbstract {
     }
     if (lowered_ != nullptr) {
       return lowered_->kernel()->as<Fusion>();
-    }
-    if (host_ir_container_ != nullptr) {
-      return host_ir_container_->as<Fusion>();
     }
     NVF_THROW("unreachable because of the isCompiled check");
   }
@@ -543,8 +507,6 @@ class KernelExecutor : public ExecutorAbstract {
 
   // Initialized for non-compiled fusions
   std::unique_ptr<Fusion> fusion_;
-
-  std::unique_ptr<hir::HostIrContainer> host_ir_container_;
 
   // Track the block size this kernel was compiled with. If the block size
   // increases, recompile to adjust maxregister count.

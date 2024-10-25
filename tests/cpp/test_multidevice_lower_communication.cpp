@@ -22,7 +22,7 @@ void assertIsCompiledToHostIrContainer(
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   EXPECT_TRUE(runtime->executors().size() == 1);
   for (const auto& ea : runtime->executors()) {
-    EXPECT_TRUE(ea->isA<HostIRExecutor>())
+    EXPECT_TRUE(ea->isA<HostIrExecutor>())
         << "failed to compile to a HostIrContainer with Communications";
   }
 }

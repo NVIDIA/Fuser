@@ -8,7 +8,9 @@
 
 #include <runtime/executor_dispatch.h>
 
+#include <host_ir/executor.h>
 #include <instrumentation.h>
+
 #include <typeinfo>
 
 namespace nvfuser {
@@ -22,8 +24,8 @@ std::unique_ptr<ExecutorAbstract> ExecutorDispatch::makeExecutor(
     int64_t runtime_id,
     int64_t group_id) {
   FUSER_PERF_SCOPE("ExecutorDispatch::makeExecutor");
-  if (HostIRExecutor::supported(fusion)) {
-    return std::make_unique<HostIRExecutor>(
+  if (HostIrExecutor::supported(fusion)) {
+    return std::make_unique<HostIrExecutor>(
         fusion_id, concrete_id, runtime_id, group_id);
   }
   if (ExprEvalExecutor::supported(fusion)) {
@@ -42,7 +44,7 @@ void ExecutorDispatch::compile(
     std::unique_ptr<ExecutorAbstract>& executor,
     Fusion* fusion) {
   FUSER_PERF_SCOPE("ExecutorDispatch::compile");
-  if (auto hire = dynamic_cast<HostIRExecutor*>(executor.get())) {
+  if (auto hire = dynamic_cast<HostIrExecutor*>(executor.get())) {
     hire->compile(fusion);
     return;
   }
@@ -66,7 +68,7 @@ void ExecutorDispatch::compile(
     SchedulerType scheduler_type) {
   FUSER_PERF_SCOPE("ExecutorDispatch::compile2");
 
-  if (auto hire = dynamic_cast<HostIRExecutor*>(executor.get())) {
+  if (auto hire = dynamic_cast<HostIrExecutor*>(executor.get())) {
     hire->compile(fusion);
     return;
   }
@@ -88,7 +90,7 @@ bool ExecutorDispatch::isCompiled(
     return false;
   }
   FUSER_PERF_SCOPE("ExecutorDispatch::isCompiled");
-  if (auto hire = dynamic_cast<HostIRExecutor*>(executor.get())) {
+  if (auto hire = dynamic_cast<HostIrExecutor*>(executor.get())) {
     return hire->isCompiled();
   }
   if (auto eee = dynamic_cast<ExprEvalExecutor*>(executor.get())) {
@@ -105,7 +107,7 @@ std::vector<at::Tensor> ExecutorDispatch::run(
     KernelArgumentHolder& args,
     std::vector<at::Tensor> outputs) {
   FUSER_PERF_SCOPE("ExecutorDispatch::run");
-  if (auto hire = dynamic_cast<HostIRExecutor*>(executor.get())) {
+  if (auto hire = dynamic_cast<HostIrExecutor*>(executor.get())) {
     return hire->run(args, outputs);
   }
   if (auto eee = dynamic_cast<ExprEvalExecutor*>(executor.get())) {
@@ -124,7 +126,7 @@ std::vector<at::Tensor> ExecutorDispatch::run(
     CompileParams compile_params,
     std::vector<at::Tensor> outputs) {
   FUSER_PERF_SCOPE("ExecutorDispatch::run2");
-  if (auto hire = dynamic_cast<HostIRExecutor*>(executor.get())) {
+  if (auto hire = dynamic_cast<HostIrExecutor*>(executor.get())) {
     return hire->run(args, outputs);
   }
   if (auto eee = dynamic_cast<ExprEvalExecutor*>(executor.get())) {

@@ -81,8 +81,8 @@ using HostIrTest = NVFuserFixtureParamTest<HostIrTestParams>;
    PostOnStream's I/O, which themselves were cloned from the Fusion's I/O. Note:
    this step could probably be automated from a data dependency analysis
 
-    8) We instantiate HostIrExecutor and run the Host program with concrete
-   inputs using HostIrExecutor::runWithInput
+    8) We instantiate HostIrEvaluator and run the Host program with concrete
+   inputs using HostIrEvaluator::runWithInput
 */
 
 TEST_P(HostIrTest, SingleFusion) {
@@ -125,11 +125,11 @@ TEST_P(HostIrTest, SingleFusion) {
   hic->addInput(post_on_stream->inputs().at(0));
   hic->addOutput(post_on_stream->outputs().at(0));
 
-  // [Step 8)] Execute the Host program
-  HostIrExecutorParams params;
+  // [Step 8)] Evaluate the Host program
+  HostIrEvaluatorParams params;
   auto [use_fusion_executor_cache] = GetParam();
   params.use_fusion_executor_cache = use_fusion_executor_cache;
-  HostIrExecutor hie(std::move(hic), nullptr, params);
+  HostIrEvaluator hie(std::move(hic), nullptr, params);
 
   // define concrete inputs and compute ref output for validation
   auto options = at::TensorOptions().device(at::kCUDA, 0);
@@ -222,11 +222,11 @@ TEST_P(HostIrTest, TwoFusions) {
   hic->addInput(post_on_stream_0->inputs().at(0));
   hic->addOutput(post_on_stream_1->outputs().at(0));
 
-  // [Step 8)] Execute the Host program
-  HostIrExecutorParams params;
+  // [Step 8)] Evaluate the Host program
+  HostIrEvaluatorParams params;
   auto [use_fusion_executor_cache] = GetParam();
   params.use_fusion_executor_cache = use_fusion_executor_cache;
-  HostIrExecutor hie(std::move(hic), nullptr, std::move(params));
+  HostIrEvaluator hie(std::move(hic), nullptr, std::move(params));
 
   // define concrete inputs and compute ref output for validation
   auto options = at::TensorOptions().device(at::kCUDA, 0);
@@ -344,13 +344,13 @@ TEST_P(HostIrTest, ThreeFusions) {
   hic->addInput(post_on_stream_0->inputs().at(0));
   hic->addOutput(post_on_stream_2->outputs().at(0));
 
-  // [Step 8)] Execute the Host program
-  HostIrExecutorParams params;
-  // we test two different modes of the HostIrExecutor: using KernelExecutor or
+  // [Step 8)] Evaluate the Host program
+  HostIrEvaluatorParams params;
+  // we test two different modes of the HostIrEvaluator: using KernelExecutor or
   // FusionExecutorCache
   auto [use_fusion_executor_cache] = GetParam();
   params.use_fusion_executor_cache = use_fusion_executor_cache;
-  HostIrExecutor hie(std::move(hic), nullptr, std::move(params));
+  HostIrEvaluator hie(std::move(hic), nullptr, std::move(params));
 
   // define concrete inputs and compute ref output for validation
   auto options = at::TensorOptions().device(at::kCUDA, 0);
@@ -439,10 +439,10 @@ TEST_P(HostIrTest, ForLoops) {
   hic->addInput(buffer_input);
   hic->pushBackTopLevelExprs(for_loop);
 
-  HostIrExecutorParams params;
+  HostIrEvaluatorParams params;
   auto [use_fusion_executor_cache] = GetParam();
   params.use_fusion_executor_cache = use_fusion_executor_cache;
-  HostIrExecutor hie(std::move(hic), /*communicator=*/nullptr, params);
+  HostIrEvaluator hie(std::move(hic), /*communicator=*/nullptr, params);
 
   auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   at::Tensor buffer_at = torch::tensor({kInitialValue}, options);
@@ -479,7 +479,7 @@ TEST_F(StreamTest, HostIrSetStream) {
   auto set_stream = IrBuilder::create<SetCurrentStream>(stream);
   hic->pushBackTopLevelExprs(set_stream);
 
-  HostIrExecutor hie(std::move(hic));
+  HostIrEvaluator hie(std::move(hic));
   setCurrentCUDAStream(c10::cuda::getDefaultCUDAStream(0));
   hie.runWithInput({});
   EXPECT_NE(
@@ -500,7 +500,7 @@ TEST_F(StreamTest, HostIrDefaultStream) {
     }
     auto set_stream = IrBuilder::create<SetCurrentStream>(stream);
     hic->pushBackTopLevelExprs(set_stream);
-    HostIrExecutor hie(std::move(hic));
+    HostIrEvaluator hie(std::move(hic));
     hie.runWithInput({});
   };
 
@@ -532,7 +532,7 @@ TEST_F(StreamTest, ByIndex) {
       IrBuilder::create<SetCurrentStream>(stream1_prime));
   hic->pushBackTopLevelExprs(IrBuilder::create<SetCurrentStream>(stream2));
 
-  HostIrExecutor hie(std::move(hic));
+  HostIrEvaluator hie(std::move(hic));
   hie.runWithInput({});
 
   const std::unordered_map<
@@ -632,10 +632,10 @@ TEST_P(StreamHostIrTest, SingleFusionMultipleStreams) {
     hic->addOutput(post_on_stream->outputs().at(0));
   }
 
-  // [Step 8)] Execute the Host program
-  HostIrExecutorParams params;
+  // [Step 8)] Evaluate the Host program
+  HostIrEvaluatorParams params;
   params.use_fusion_executor_cache = use_fusion_executor_cache;
-  HostIrExecutor hie(std::move(hic), nullptr, params);
+  HostIrEvaluator hie(std::move(hic), nullptr, params);
 
   // define concrete inputs and compute ref output for validation
   auto options = at::TensorOptions().device(at::kCUDA, 0);
@@ -717,7 +717,7 @@ TEST_P(SliceHostIrTest, SlicingTensor) {
     hic->pushBackTopLevelExprs(sliced_tv->definition());
   }
 
-  HostIrExecutor hie(std::move(hic));
+  HostIrEvaluator hie(std::move(hic));
 
   auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
   c10::IValue input = at::randn(input_sizes, options);
@@ -775,7 +775,7 @@ TEST_F(MatmulHostIrTest, HostIr) {
 
   hic->pushBackTopLevelExprs(c->definition());
 
-  HostIrExecutor hie(std::move(hic));
+  HostIrEvaluator hie(std::move(hic));
 
   auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
   at::Tensor a_tensor = at::randn({H, M, K}, options);
@@ -812,7 +812,7 @@ TEST_F(MatmulHostIrTest, HostIrMatmulOut) {
 
   hic->pushBackTopLevelExprs(matmul);
 
-  HostIrExecutor hie(std::move(hic));
+  HostIrEvaluator hie(std::move(hic));
 
   auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
   at::Tensor a_tensor = at::randn({H, M, K}, options);
@@ -858,7 +858,7 @@ TEST_P(SelectHostIrTest, SelectingTensor) {
     hic->pushBackTopLevelExprs(selected_tv->definition());
   }
 
-  HostIrExecutor hie(std::move(hic));
+  HostIrEvaluator hie(std::move(hic));
 
   auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
   c10::IValue input = at::randn(input_sizes, options);
@@ -911,7 +911,7 @@ TEST_F(ViewTest, SimpleReshape) {
   hic->pushBackTopLevelExprs(flattened_input->definition());
   hic->pushBackTopLevelExprs(transposed_intput->definition());
 
-  HostIrExecutor hie(std::move(hic));
+  HostIrEvaluator hie(std::move(hic));
 
   auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
   constexpr int64_t kX = 32;
@@ -942,7 +942,7 @@ TEST_F(ReductionHostIrTest, Sum) {
   hic->addOutput(b);
   hic->pushBackTopLevelExprs(b->definition());
 
-  HostIrExecutor hie(std::move(hic));
+  HostIrEvaluator hie(std::move(hic));
 
   auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
   auto a_aten = at::randn({kTensorSize}, options);
