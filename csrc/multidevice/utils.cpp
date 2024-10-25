@@ -165,13 +165,6 @@ bool haveDifferentShardings(
       continue;
     }
 
-    if (p_id->isBroadcast()) {
-      // Broadcast axes do not affect the sharding.
-      // This avoids marking expressions where p_id is a broadcast and c_id is a
-      // device parallelized (e.g. [bi0 ...] + [DIDx(i0)]) as resharding
-      continue;
-    }
-
     auto c_id = i->second;
     if (p_id->getParallelType() != c_id->getParallelType() &&
         (p_id->isDeviceDim() || c_id->isDeviceDim())) {
