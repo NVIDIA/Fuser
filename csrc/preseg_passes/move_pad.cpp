@@ -533,10 +533,8 @@ void replaceCat(Fusion* fusion) {
   std::vector<Expr*> exprs = fusion->exprs();
 
   // sanitizing CatOp with series of binary add
-  // NOTE: `.vector()` shouldn't be needed here. But we hit a segfault issue on
-  // a test build environment when iterating FilteredView. This allows us to WAR
-  // the segfault for now. Tracking the issue internally
-  for (auto* cat : ir_utils::filterByType<CatOp>(exprs).vector()) {
+  std::unordered_map<Val*, Val*> replacement_map;
+  for (auto* cat : ir_utils::filterByType<CatOp>(exprs)) {
     if (std::any_of(cat->inputs().begin(), cat->inputs().end(), [](Val* val) {
           NVF_ERROR(
               val->definition() != nullptr,
@@ -546,9 +544,10 @@ void replaceCat(Fusion* fusion) {
       Val* res = replaceCatOpWithBinaryOp(cat->inputs());
 
       // replace `CatOp` with the replay result.
-      ir_utils::replaceValInAllExprInputsAndFusionOutputs(cat->output(0), res);
+      replacement_map[cat->output(0)] = res;
     }
   }
+  ir_utils::replaceValue(fusion, replacement_map);
 }
 
 } // namespace
