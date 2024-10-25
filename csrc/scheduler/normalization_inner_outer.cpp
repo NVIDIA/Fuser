@@ -1042,7 +1042,7 @@ void scheduleInnerOuterPersistentKernel(
   // Needs special handling of vectorized loading from shared memory due to
   // potential different data types of inputs and shared memory tensor.
   if (is_vectorize) {
-    normalization_scheduler_utils::sharedMemoryConsumerVectorization(
+    reduction_scheduler_utils::sharedMemoryConsumerVectorization(
         smem_consumers);
   }
 

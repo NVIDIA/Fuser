@@ -644,8 +644,7 @@ class VectorizeValidator : public OptInDispatch {
             vector_size) != allowed_vector_sizes.end(),
         "Tried to vectorize a dim resulting in a word size of ",
         vector_size,
-        " however, vector sizes only upto and including 16 bytes are supported. Tv: ",
-        tv->toString());
+        " however, vector sizes only upto and including 16 bytes are supported.");
 
     auto consumer_vectorized_id =
         getAndValidateVectorizedIdInAllocationDomain(v_id, tv, "consumer");
@@ -755,11 +754,11 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
         // (2) Check any producers of the tensor view with vectorize being set
         // on it to make sure their compute at position isn't to the right of
         // the vectorize dim.
-        // NVF_ERROR(
-        //     i >= tv->getMaxComputePosition(),
-        //     "IterDomains to the left of the compute at point cannot be vectorized: ",
-        //     tv,
-        //     "\n");
+        NVF_ERROR(
+            i >= tv->getMaxComputePosition(),
+            "IterDomains to the left of the compute at point cannot be vectorized: ",
+            tv,
+            "\n");
         has_vectorize_dim = true;
       }
 

@@ -929,6 +929,7 @@ TEST_F(CombinedSchedulerTest, InnerOuterNoOuterBroadcastTv) {
 
 // Reproduce error found in:
 // thunder/tests/test_torch_compile_executor.py::test_torch_compile_cat_nvfuser_phi2_tanh
+// Only happens when shared memory persistent is used.
 TEST_F(CombinedSchedulerTest, SharedMemoryPersistentVectFactor) {
   Fusion fusion;
   FusionGuard fg(&fusion);

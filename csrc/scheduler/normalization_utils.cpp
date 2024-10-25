@@ -1286,31 +1286,6 @@ std::vector<TensorView*> movePersistentBufferToSmem(
   return smem_consumers;
 }
 
-void sharedMemoryConsumerVectorization(
-    std::vector<TensorView*>& smem_consumers) {
-  // Vectorization of smem consumers, they were created with cacheAfter().
-  // Can't directly use the vectorization factor set for inputs due to
-  // potential different data types, e.g. fp16 inputs and fp32 smem_consumers.
-  // When this happens, there are two additional optimizations should be done:
-  // (1) writing to smem should be vectorized.
-  // (2) when n_loads > 1, still has bank conflicts.
-  // See test SharedMemoryPersistentVectFactor.
-  for (auto tv : smem_consumers) {
-    NVF_ERROR(
-        tv->definition()->isA<LoadStoreOp>(),
-        "smem consumers should be LoadStoreOp. Got: ",
-        tv->definition()->toString());
-    auto innermost_extent = tv->axis(-1)->extent()->evaluate().as<int64_t>();
-    auto dtype_bytes = dataTypeSize(tv->getDataType().value());
-    auto max_vect_factor =
-        SchedulerRuntimeInfo::max_alignment_size_in_byte / dtype_bytes;
-    if (innermost_extent > max_vect_factor) {
-      tv->split(-1, max_vect_factor);
-    }
-    tv->axis(-1)->parallelize(ParallelType::Vectorize);
-  }
-}
-
 // common prepare for all persistent schedulers
 void beforeSchedule(
     Fusion* fusion,
@@ -1448,14 +1423,9 @@ void schedulePersistentKernel(
       reduction_tvs,
       cached_inputs,
       cached_outputs,
+      smem_consumers,
       dummy_outputs);
 
-  // Needs special handling of vectorized loading from shared memory due to
-  // potential different data types of inputs and shared memory tensor.
-  if (vectorize) {
-    sharedMemoryConsumerVectorization(smem_consumers);
-  }
-  fusion->printMath();
   if (rparams->compute_persistent_buffer_with_first_consumer) {
     NVF_ERROR(
         rparams->persistent_kernel,
@@ -1466,7 +1436,6 @@ void schedulePersistentKernel(
   }
 
   scheduler_utils::promoteProducerMemoryTypes(fusion, cached_inputs);
-  fusion->printMath();
 
   refineCachePolicy(fusion);
 }
