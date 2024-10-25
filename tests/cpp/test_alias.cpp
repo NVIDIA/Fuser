@@ -1017,8 +1017,8 @@ TEST_F(AliasTest, ReuseBuffer_FusionExecutor) {
   auto expected_tensor = tensor + 1.0;
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {tensor});
-  ke.runFusion({tensor}, {tensor});
+  ke.compile(&fusion, {tensor});
+  ke.run({tensor}, {tensor});
   EXPECT_TRUE(tensor.allclose(expected_tensor));
 }
 

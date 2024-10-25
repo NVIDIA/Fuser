@@ -116,8 +116,8 @@ TEST_F(NVFuserTest, FusionGridAllreduce1_CUDA) {
   auto t0 = at::randn({nx}, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0});
-  auto cg_outputs = ke.runFusion({t0});
+  ke.compile(&fusion, {t0});
+  auto cg_outputs = ke.run({t0});
 
   auto ref = sum(t0).unsqueeze(0) + t0;
 
@@ -165,8 +165,8 @@ TEST_F(NVFuserTest, FusionGridAllreduce2_CUDA) {
   auto t0 = at::randn({nx}, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0});
-  auto cg_outputs = ke.runFusion({t0});
+  ke.compile(&fusion, {t0});
+  auto cg_outputs = ke.run({t0});
 
   auto ref = sum(t0).unsqueeze(0) + t0;
 
@@ -213,8 +213,8 @@ TEST_F(NVFuserTest, FusionGridAllreduce3_CUDA) {
   auto t0 = at::randn({nx, ny}, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0});
-  auto cg_outputs = ke.runFusion({t0});
+  ke.compile(&fusion, {t0});
+  auto cg_outputs = ke.run({t0});
 
   auto ref = sum(t0, {1}).unsqueeze(-1) + t0;
 
@@ -258,8 +258,8 @@ TEST_F(NVFuserTest, FusionGridAllreduce4_CUDA) {
   auto t0 = at::randn({nx}, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0});
-  auto cg_outputs = ke.runFusion({t0});
+  ke.compile(&fusion, {t0});
+  auto cg_outputs = ke.run({t0});
 
   auto ref = (sum(t0) + 1).unsqueeze(0) + t0;
 
@@ -320,8 +320,8 @@ TEST_F(NVFuserTest, FusionGridAllreduce5_CUDA) {
   auto t5 = at::randn({bdimy, bdimx}, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0, t5});
-  auto cg_outputs = ke.runFusion({t0, t5});
+  ke.compile(&fusion, {t0, t5});
+  auto cg_outputs = ke.run({t0, t5});
 
   auto ref = (sum(t0, {1}) + 1).unsqueeze(-1) + t0;
 
@@ -372,8 +372,8 @@ TEST_F(NVFuserTest, FusionGridAllreduce6_CUDA) {
   auto t0 = at::randn(shape, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0});
-  auto outputs = ke.runFusion({t0});
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
 
   auto t0_double = t0.to(at::kDouble);
   auto ref = t0_double + t0_double.sum({0}).unsqueeze(0);
@@ -418,8 +418,8 @@ TEST_F(NVFuserTest, FusionGridAllreduceWelford1_CUDA) {
   auto t0 = at::randn({nx}, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0});
-  auto cg_outputs = ke.runFusion({t0});
+  ke.compile(&fusion, {t0});
+  auto cg_outputs = ke.run({t0});
 
   auto ref =
       (t0.mean({0}).unsqueeze(0) + t0) + t0.var({0}, false).unsqueeze(0) * nx;
@@ -468,8 +468,8 @@ TEST_F(NVFuserTest, FusionGridAllreduceWelford2_CUDA) {
   auto t0 = at::randn({nx, ny}, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0});
-  auto cg_outputs = ke.runFusion({t0});
+  ke.compile(&fusion, {t0});
+  auto cg_outputs = ke.run({t0});
 
   auto ref = (sum(t0, {1}) / ny).unsqueeze(-1) + t0;
 
@@ -588,8 +588,8 @@ TEST_F(NVFuserTest, FusionFusedReductionBatchnorm_CUDA) {
 
   KernelExecutor ke;
   LaunchParams launch_params(2, 2, -1, -1, -1, -1);
-  ke.compileFusion(&fusion, aten_inputs, launch_params);
-  auto cg_outputs = ke.runFusion(aten_inputs, launch_params);
+  ke.compile(&fusion, aten_inputs, launch_params);
+  auto cg_outputs = ke.run(aten_inputs, launch_params);
 
   auto t5 = t0.to(at::kFloat);
   auto t6 = t1.to(at::kFloat);
@@ -654,8 +654,8 @@ TEST_F(NVFuserTest, FusionGroupedReduction1_CUDA) {
   auto t0 = at::randn(shape, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0});
-  auto outputs = ke.runFusion({t0});
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
 
   auto ref = t0.sum({1}) * 2;
 
@@ -699,8 +699,8 @@ TEST_F(NVFuserTest, FusionGroupedReduction2_CUDA) {
   auto t0 = at::randn(shape, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0});
-  auto outputs = ke.runFusion({t0});
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
 
   auto ref = (t0 + 1).sum({1}) + std::get<0>((t0 + 2).max(1));
 
@@ -742,8 +742,8 @@ TEST_F(NVFuserTest, FusionGroupedReduction3_CUDA) {
   auto t0 = at::randn(shape, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0});
-  auto outputs = ke.runFusion({t0});
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
 
   auto ref = t0.sum({1}) + t0.to(c10::kDouble).sum({1}).to(c10::kFloat);
 
@@ -830,8 +830,8 @@ TEST_F(NVFuserTest, FusionGroupedReduction6_CUDA) {
   auto t0 = at::randn(shape, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0});
-  auto outputs = ke.runFusion({t0});
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
 
   testValidate(ke.kernel(), outputs, {t0}, __LINE__, __FILE__);
 }
@@ -893,8 +893,8 @@ TEST_F(NVFuserTest, FusionGroupedReductionRfactor1_CUDA) {
   auto t0 = at::randn(shape, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0});
-  auto outputs = ke.runFusion({t0});
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
 
   auto ref = t0.sum({0}) * 2;
 
@@ -938,8 +938,8 @@ TEST_F(NVFuserTest, FusionGroupedReductionRfactor2_CUDA) {
   auto t0 = at::randn(shape, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0});
-  auto outputs = ke.runFusion({t0});
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
 
   auto ref = t0.sum({0}) * 2;
 
@@ -984,8 +984,8 @@ TEST_F(NVFuserTest, FusionGroupedReductionAfterComputeAt_CUDA) {
   auto t0 = at::randn(shape, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0});
-  auto outputs = ke.runFusion({t0});
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
 
   auto ref = (t0 + 1).sum({1}) * 2;
 
@@ -1024,8 +1024,8 @@ TEST_F(NVFuserTest, FusionGroupAllreduce1_CUDA) {
   auto t0 = at::randn(shape, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0});
-  auto outputs = ke.runFusion({t0});
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
 
   auto t3 = t0.sum({0}).unsqueeze(-1);
   auto ref = t0 + t3 + t3;
@@ -1077,8 +1077,8 @@ TEST_F(NVFuserTest, FusionGroupAllreduce2_CUDA) {
   auto t0 = at::randn(shape, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0});
-  auto outputs = ke.runFusion({t0});
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
 
   auto t2 = t0.sum({1}).unsqueeze(-1);
   auto t6 = t0.to(c10::kDouble).sum({1}).unsqueeze(-1).to(c10::kFloat);
@@ -1125,8 +1125,8 @@ TEST_F(NVFuserTest, FusionGroupAllreduce3_CUDA) {
   auto t0 = at::randn(shape, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0});
-  auto outputs = ke.runFusion({t0});
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
 
   auto t3 = t0 / t0.sum({0}).unsqueeze(0);
   auto t6 = t0 / std::get<0>(t0.max(0)).unsqueeze(0);
@@ -1178,8 +1178,8 @@ TEST_F(NVFuserTest, FusionGroupAllreduce4_CUDA) {
   auto t0 = at::randn(shape, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0});
-  auto outputs = ke.runFusion({t0});
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
 
   at::Tensor ref = t0;
   for (int i = 0; i < num_reductions; ++i) {
@@ -1266,8 +1266,8 @@ TEST_F(NVFuserTest, FusionGroupAllreduce5_CUDA) {
   std::vector<at::indexing::TensorIndex> indices({at::indexing::Slice(0, 10)});
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, aten_inputs);
-  auto outputs = ke.runFusion(aten_inputs);
+  ke.compile(&fusion, aten_inputs);
+  auto outputs = ke.run(aten_inputs);
 
   auto t3 = t0 / t0.sum({0}).unsqueeze(0).to(at::kComplexDouble);
   auto t7 = t4 / t4.sum({0}).unsqueeze(0).to(at::kComplexDouble);
@@ -1429,13 +1429,13 @@ TEST_F(NVFuserTest, FusionPersistentBNBackwardAllreduce_CUDA) {
   validateNoParallelBroadcastExist(gpulw.run());
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, aten_inputs);
+  ke.compile(&fusion, aten_inputs);
 
   if (bidx * bidy > deviceSMCount()) {
     GTEST_SKIP() << "Not enough SMs to run this test";
   }
 
-  auto outputs = ke.runFusion(aten_inputs);
+  auto outputs = ke.run(aten_inputs);
 
   std::vector<int64_t> at_reduction_axes;
   std::copy(
@@ -1535,8 +1535,8 @@ TEST_F(NVFuserTest, FusionGroupedReductionReEntrant1_CUDA) {
   auto t0 = at::randn(shape, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0});
-  auto outputs = ke.runFusion({t0});
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
 
   auto t0_double = t0.to(at::kDouble);
   auto ref = (t0_double + 1).sum({0}) + (t0_double + 2).sum({0});
@@ -1650,8 +1650,8 @@ TEST_F(NVFuserTest, FusionGroupedReductionChannelsLastBatchNormLike_CUDA) {
   std::vector<c10::IValue> aten_inputs({t0, t1, t2});
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, aten_inputs);
-  auto outputs = ke.runFusion(aten_inputs);
+  ke.compile(&fusion, aten_inputs);
+  auto outputs = ke.run(aten_inputs);
 
   auto t0_double = t0.to(at::kDouble);
   auto t1_double = t1.to(at::kDouble);
@@ -1781,8 +1781,8 @@ TEST_F(
   std::vector<c10::IValue> aten_inputs({t0, t1, t2});
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, aten_inputs);
-  auto outputs = ke.runFusion(aten_inputs);
+  ke.compile(&fusion, aten_inputs);
+  auto outputs = ke.run(aten_inputs);
 
   auto t0_double = t0.to(at::kDouble);
   auto t1_double = t1.to(at::kDouble);
@@ -1869,8 +1869,8 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce1_CUDA) {
   auto t0 = at::randn(shape, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0});
-  auto outputs = ke.runFusion({t0});
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
 
   auto t0_double = t0.to(at::kDouble);
   auto ref = t0_double + t0_double.sum({0}).unsqueeze(0);
@@ -1947,8 +1947,8 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce2_CUDA) {
   auto t0 = at::randn(shape, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0});
-  auto outputs = ke.runFusion({t0});
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
 
   auto t0_double = t0.to(at::kDouble);
   auto ref = t0_double + t0_double.sum({0}).unsqueeze(0);
@@ -2031,8 +2031,8 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce3_CUDA) {
   auto t0 = at::randn(shape, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0});
-  auto outputs = ke.runFusion({t0});
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
 
   auto t0_double = t0.to(at::kDouble);
   auto t4 = t0_double + 1 + (t0_double + 1).sum({0}).unsqueeze(0);
@@ -2123,8 +2123,8 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce4_CUDA) {
   auto t0 = at::randn(shape, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0});
-  auto outputs = ke.runFusion({t0});
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
 
   auto t0_double = t0.to(at::kDouble);
   auto ref = t0_double + t0_double.sum({0}).unsqueeze(0);
@@ -2184,8 +2184,8 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelford1_CUDA) {
   auto t0 = at::randn(shape, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0});
-  auto outputs = ke.runFusion({t0});
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
 
   auto t0_double = t0.to(at::kDouble);
   auto ref = t0_double + t0_double.mean({0}).unsqueeze(0);
@@ -2249,8 +2249,8 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelford2_CUDA) {
   auto t0 = at::randn(shape, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0});
-  auto outputs = ke.runFusion({t0});
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
 
   auto t0_double = t0.to(at::kDouble);
   auto ref = t0_double + t0_double.mean({0}).unsqueeze(0);
@@ -2386,7 +2386,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelfordShmoo_CUDA) {
     auto t0 = at::randn(input_shape, options);
 
     KernelExecutor ke;
-    ke.compileFusion(&fusion, {t0});
+    ke.compile(&fusion, {t0});
 
     // Skip the rest of this test size if the required number of SMs
     // exceeds the available SM count
@@ -2397,7 +2397,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelfordShmoo_CUDA) {
       return;
     }
 
-    auto cg_outputs = ke.runFusion({t0});
+    auto cg_outputs = ke.run({t0});
 
     auto t1 = t0.to(at::kDouble);
     auto t2 = t1.mean({0, 1, 2}).unsqueeze(0).unsqueeze(0).unsqueeze(0);
@@ -2542,8 +2542,8 @@ TEST_F(NVFuserTest, FusionCrossEntropyGatherPattern_CUDA) {
   std::vector<c10::IValue> inputs = {at_log_probs, at_labels};
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, inputs);
-  auto cg_outputs = ke.runFusion(inputs);
+  ke.compile(&fusion, inputs);
+  auto cg_outputs = ke.run(inputs);
 
   auto ref = at::gather(at_log_probs, 1, at_labels.unsqueeze(1)).squeeze();
 

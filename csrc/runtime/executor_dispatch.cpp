@@ -77,7 +77,7 @@ void ExecutorDispatch::compile(
     return;
   }
   if (auto ke = dynamic_cast<KernelExecutor*>(executor.get())) {
-    ke->compileFusion(
+    ke->compile(
         fusion, args, launch_constraints, compile_params, scheduler_type);
     return;
   }
@@ -114,7 +114,7 @@ std::vector<at::Tensor> ExecutorDispatch::run(
     return eee->run(args, outputs);
   }
   if (auto ke = dynamic_cast<KernelExecutor*>(executor.get())) {
-    return ke->runFusion(args, LaunchParams(), CompileParams(), outputs);
+    return ke->run(args, LaunchParams(), CompileParams(), outputs);
   }
   NVF_THROW("Unsupported Executor detected.");
 }
@@ -133,7 +133,7 @@ std::vector<at::Tensor> ExecutorDispatch::run(
     return eee->run(args, outputs);
   }
   if (auto ke = dynamic_cast<KernelExecutor*>(executor.get())) {
-    return ke->runFusion(args, launch_constraints, compile_params, outputs);
+    return ke->run(args, launch_constraints, compile_params, outputs);
   }
   NVF_THROW("Unsupported Executor detected.");
 }

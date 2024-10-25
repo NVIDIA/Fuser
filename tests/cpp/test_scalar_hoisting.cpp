@@ -214,8 +214,8 @@ TEST_F(ScalarHoistTest, IndexHoist1) {
   auto t0 = at::randn({15, 17}, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0});
-  auto cg_outputs = ke.runFusion({t0});
+  ke.compile(&fusion, {t0});
+  auto cg_outputs = ke.run({t0});
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -258,8 +258,8 @@ TEST_F(ScalarHoistTest, IndexHoist2) {
   auto t1 = at::randn({16}, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t0, t1});
-  auto cg_outputs = ke.runFusion({t0, t1});
+  ke.compile(&fusion, {t0, t1});
+  auto cg_outputs = ke.run({t0, t1});
 
   testValidate(&fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
@@ -291,8 +291,8 @@ TEST_F(ScalarHoistTest, IndexHoist3) {
   at::Tensor t0 = at::arange(10000, options).view({100, 100});
 
   KernelExecutor ke;
-  ke.compileFusion(fusion.get(), {t0});
-  auto cg_outputs = ke.runFusion({t0});
+  ke.compile(fusion.get(), {t0});
+  auto cg_outputs = ke.run({t0});
 
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> T2) {
@@ -370,8 +370,8 @@ TEST_F(ScalarHoistTest, ARange) {
   int64_t start = 0, end = 100, step = 1;
 
   KernelExecutor ke;
-  ke.compileFusion(fusion.get(), {start, end, step});
-  auto cg_outputs = ke.runFusion({start, end, step});
+  ke.compile(fusion.get(), {start, end, step});
+  auto cg_outputs = ke.run({start, end, step});
 
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(int64_t i0, int64_t i1, int64_t i2, Tensor<int64_t, 1, 1> T0, Tensor<int64_t, 1, 1> T1) {

@@ -244,7 +244,7 @@ std::vector<at::Tensor> ExprEvalExecutor::run(
   return outputs;
 }
 
-void KernelExecutor::compileFusion(
+void KernelExecutor::compile(
     Fusion* fusion,
     const KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
@@ -1141,7 +1141,7 @@ void KernelExecutor::resetCompiledKernelProperties() {
   static_smem_size_.reset();
 }
 
-std::vector<at::Tensor> KernelExecutor::runFusion(
+std::vector<at::Tensor> KernelExecutor::run(
     KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
     CompileParams compile_params,

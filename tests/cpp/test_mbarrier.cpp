@@ -122,7 +122,7 @@ TEST_F(MBarrierTest, Simple) {
     top_level_exprs.push_back(invalidate);
   });
 
-  ke.compileFusion(&fusion);
+  ke.compile(&fusion);
 
   // Make sure that the post-lowering hook successfully inserted all mbarrier
   // operations
@@ -138,7 +138,7 @@ TEST_F(MBarrierTest, Simple) {
 
   auto input = at::randn(
       {32, 32}, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
-  auto outputs = ke.runFusion({input});
+  auto outputs = ke.run({input});
 
   testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
 }

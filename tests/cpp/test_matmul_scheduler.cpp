@@ -2812,9 +2812,9 @@ TEST_P(AllocationDomainTest, BasicMatmul) {
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
   KernelExecutor ke;
-  ke.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
+  ke.compile(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
 
-  auto cg_outputs = ke.runFusion({t0, t1});
+  auto cg_outputs = ke.run({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.to(at::kFloat));
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
@@ -2845,9 +2845,9 @@ TEST_P(AllocationDomainTest, BasicMatmulNoTranspose) {
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
   KernelExecutor ke;
-  ke.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
+  ke.compile(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
 
-  auto cg_outputs = ke.runFusion({t0, t1});
+  auto cg_outputs = ke.run({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.to(at::kFloat));
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
@@ -2881,9 +2881,9 @@ TEST_P(AllocationDomainTest, BasicMatmulWithPrologueSet) {
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
   KernelExecutor ke;
-  ke.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
+  ke.compile(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
 
-  auto cg_outputs = ke.runFusion({t0, t1});
+  auto cg_outputs = ke.run({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.to(at::kFloat));
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
@@ -2919,9 +2919,9 @@ TEST_P(AllocationDomainTest, BasicMatmulWithPrologueSetCastSin) {
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
   KernelExecutor ke;
-  ke.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
+  ke.compile(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
 
-  auto cg_outputs = ke.runFusion({t0, t1});
+  auto cg_outputs = ke.run({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.sin().to(at::kFloat));
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
@@ -2956,9 +2956,9 @@ TEST_P(AllocationDomainTest, BasicMatmulWithPrologueSetCastSinNoTranspose) {
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
   KernelExecutor ke;
-  ke.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
+  ke.compile(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
 
-  auto cg_outputs = ke.runFusion({t0, t1});
+  auto cg_outputs = ke.run({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.sin().to(at::kFloat));
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
@@ -2993,9 +2993,9 @@ TEST_P(AllocationDomainTest, BasicMatmulWithPrologueSetCastSinSetNoTranspose) {
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
   KernelExecutor ke;
-  ke.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
+  ke.compile(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
 
-  auto cg_outputs = ke.runFusion({t0, t1});
+  auto cg_outputs = ke.run({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.sin().to(at::kFloat));
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
@@ -3030,9 +3030,9 @@ TEST_P(AllocationDomainTest, MatmulWithPrologueSetCastSinTranspose) {
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
   KernelExecutor ke;
-  ke.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
+  ke.compile(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
 
-  auto cg_outputs = ke.runFusion({t0, t1});
+  auto cg_outputs = ke.run({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.sin().to(at::kFloat));
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }

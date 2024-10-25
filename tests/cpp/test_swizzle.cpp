@@ -55,11 +55,11 @@ TEST_F(LegacySwizzleTest, SimpleSwizzle0) {
   NVF_CHECK(str.find("where") != std::string::npos);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion);
+  ke.compile(&fusion);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({2, 32}, options);
-  auto cg_outputs = ke.runFusion({t0});
+  auto cg_outputs = ke.run({t0});
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -94,11 +94,11 @@ TEST_F(LegacySwizzleTest, SimpleSwizzle1) {
   tv1->computeAt(tv2, -1);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion);
+  ke.compile(&fusion);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({2, 32}, options);
-  auto cg_outputs = ke.runFusion({t0});
+  auto cg_outputs = ke.run({t0});
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -151,11 +151,11 @@ TEST_F(LegacySwizzleTest, SimpleSwizzle2) {
   }
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion);
+  ke.compile(&fusion);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({32, 32}, options);
-  auto cg_outputs = ke.runFusion({t0});
+  auto cg_outputs = ke.run({t0});
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -280,11 +280,11 @@ TEST_F(LegacySwizzleTest, LoopSwizzle0) {
   tv0->computeAt(tv2, -1);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion);
+  ke.compile(&fusion);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({2, 32}, options);
-  auto cg_outputs = ke.runFusion({t0});
+  auto cg_outputs = ke.run({t0});
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -315,11 +315,11 @@ TEST_F(LegacySwizzleTest, LoopSwizzle1) {
   tv2->axis(1)->parallelize(ParallelType::BIDy);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion);
+  ke.compile(&fusion);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({45, 77}, options);
-  auto cg_outputs = ke.runFusion({t0});
+  auto cg_outputs = ke.run({t0});
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -350,7 +350,7 @@ TEST_F(LegacySwizzleTest, LoopSwizzleCheck0) {
   tv0->computeAt(tv2, -1);
 
   KernelExecutor ke;
-  ASSERT_ANY_THROW(ke.compileFusion(&fusion));
+  ASSERT_ANY_THROW(ke.compile(&fusion));
 }
 
 // Test assertion in unsupported pattern: half-inlined loop swizzle.
@@ -382,7 +382,7 @@ TEST_F(LegacySwizzleTest, LoopSwizzleCheck1) {
   tv0->computeAt(tv3, -2);
 
   KernelExecutor ke;
-  ASSERT_ANY_THROW(ke.compileFusion(&fusion));
+  ASSERT_ANY_THROW(ke.compile(&fusion));
 }
 
 TEST_F(LegacySwizzleTest, SwizzleVectorize) {
@@ -616,8 +616,8 @@ TEST_F(LegacySwizzleTest, SwizzleIndexing170) {
   at::Tensor t = at::randn({64, 64}, options);
 
   KernelExecutor ke;
-  ke.compileFusion(&fusion);
-  auto outputs = ke.runFusion({t});
+  ke.compile(&fusion);
+  auto outputs = ke.run({t});
 
   testValidate(&fusion, outputs, {t}, __LINE__, __FILE__);
 }
@@ -679,8 +679,8 @@ TEST_F(LegacySwizzleTest, SwizzleInProducerProjection) {
   auto t = at::randn({32, 64}, options);
 
   KernelExecutor ke;
-  ke.compileFusion(fusion.get());
-  auto outputs = ke.runFusion({t});
+  ke.compile(fusion.get());
+  auto outputs = ke.run({t});
 
   auto expect = at::empty_like(t);
   for (auto i : c10::irange(t.size(0) / 8)) {
@@ -736,9 +736,9 @@ TEST_F(SwizzleTest, Transpose1) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t = at::randn({10240, 10240}, options);
   KernelExecutor ke;
-  ke.compileFusion(&fusion, {t});
+  ke.compile(&fusion, {t});
   EXPECT_TRUE(getBankConflictInfo(ke.kernel()).empty());
-  std::vector<at::Tensor> outputs = ke.runFusion({t});
+  std::vector<at::Tensor> outputs = ke.run({t});
   EXPECT_TRUE(at::equal(t.t(), outputs[0]));
 }
 
