@@ -202,6 +202,42 @@ TEST_F(LowerCollectiveTest, Allgather) {
   EXPECT_TRUE(at::equal(out_tensor, unsharded_tensor));
 }
 
+TEST_F(LowerCollectiveTest, Allgather_SplitLoop) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto num_devices = communicator_->size();
+  auto mesh = DeviceMesh::createForNumDevices(num_devices);
+
+  TensorView* in = makeContigTensor(1);
+  in->setDeviceMesh(mesh);
+  TensorView* out = set(in);
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  in->split(0, num_devices, /*inner_split=*/false);
+  in->axis(0)->parallelize(ParallelType::DIDx);
+  in->setAllocationDomain(in->getLoopDomain(), true);
+
+  out->split(0, num_devices, /*inner_split=*/false);
+  out->setAllocationDomain(out->getLoopDomain(), true);
+
+  at::Tensor unsharded_tensor =
+      at::randn({num_devices * kTensorSize}, at::kFloat);
+  at::Tensor in_tensor = unsharded_tensor
+                             .slice(
+                                 0,
+                                 communicator_->deviceId() * kTensorSize,
+                                 (communicator_->deviceId() + 1) * kTensorSize)
+                             .to(communicator_->device());
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor out_tensor = fec.runFusionWithInputs({in_tensor})[0];
+  assertIsCompiledToHostIrContainer(fec);
+
+  EXPECT_TRUE(at::equal(out_tensor.cpu(), unsharded_tensor));
+}
+
 TEST_F(LowerCollectiveTest, Broadcast) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
