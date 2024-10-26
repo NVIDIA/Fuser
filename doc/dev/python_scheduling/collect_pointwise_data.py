@@ -159,6 +159,20 @@ def create_fusion_definition(num_operations, mufu_indices, input_shapes):
     return fd, input_tensors
 
 
+# Get all tensor shape, fusion, and scheduler configurations
+def create_data_config():
+    for full_tensor_shape in itertools.product(
+        data_gen_config.outer_shapes, data_gen_config.inner_shapes
+    ):
+        for fusion_config in create_fusion_state(
+            full_tensor_shape, data_gen_config.max_number_operations
+        ):
+            for scheduler_config in itertools.product(
+                data_gen_config.vectorize_range, data_gen_config.unroll_range
+            ):
+                yield (full_tensor_shape, fusion_config, scheduler_config)
+
+
 # ============================ Utilities  ============================
 
 
@@ -172,7 +186,7 @@ def valid_vectorize_factor(input_tensors, vectorize_factor):
 
 
 # Create pandas dataframe then save it as a csv file to specified location
-def save(directory_path, data):
+def save(directory_path, data, interval=None):
     import pandas as pd
 
     df = pd.DataFrame(
@@ -198,7 +212,12 @@ def save(directory_path, data):
 
     base_directory = Path(directory_path)
     major, minor = torch.cuda.get_device_capability()
-    file_path_str = f"pointwise_data_device_{major}_{minor}.csv"
+
+    if interval is None:
+        file_path_str = f"pointwise_data_device_{major}_{minor}.csv"
+    else:
+        file_path_str = f"pointwise_data_pt{interval}_device_{major}_{minor}.csv"
+
     file_path = base_directory.joinpath(file_path_str)
     df.to_csv(file_path, index=True)
     print(f"Finished creating {len(data)} entries")
@@ -261,10 +280,10 @@ data_gen_config = DataGenerationConfiguration(
 # Run profiling on series of fusions to collect data.
 def run(args):
     data = []
-
     interval = 0
-    for full_tensor_shape in itertools.product(
-        data_gen_config.outer_shapes, data_gen_config.inner_shapes
+
+    for idx, (full_tensor_shape, fusion_config, scheduler_config) in enumerate(
+        create_data_config()
     ):
         # Save data based on interval
         if len(data) >= args.save_interval:
@@ -272,62 +291,55 @@ def run(args):
             interval += 1
             data.clear()
 
-        print(full_tensor_shape)
-        for fusion_config in create_fusion_state(
-            full_tensor_shape, data_gen_config.max_number_operations
-        ):
-            num_ops, mufu_indices, input_shapes = fusion_config
-            presched_fd, input_tensors = create_fusion_definition(*fusion_config)
+        num_ops, mufu_indices, input_shapes = fusion_config
+        vectorize_factor, unroll_factor = scheduler_config
 
-            print(fusion_config)
-            # unroll and vectorization configurations
-            for scheduler_config in itertools.product(
-                data_gen_config.vectorize_range, data_gen_config.unroll_range
-            ):
-                vectorize_factor, unroll_factor = scheduler_config
+        # create prescheduled fusion and input arguments
+        presched_fd, input_tensors = create_fusion_definition(*fusion_config)
 
-                # short-circuit: skip if vectorization factor is incompatible with input tensors
-                if not valid_vectorize_factor(input_tensors, vectorize_factor):
-                    continue
+        # short-circuit: skip if vectorization factor is incompatible with input tensors
+        if not valid_vectorize_factor(input_tensors, vectorize_factor):
+            continue
 
-                try:
-                    output_tensors, metrics = run_profile(
-                        presched_fd, input_tensors, scheduler_config
-                    )
-                except KeyboardInterrupt:
-                    import sys
+        # collect profiling data given fusion, input arguments, and scheduler configuration
+        try:
+            output_tensors, metrics = run_profile(
+                presched_fd, input_tensors, scheduler_config
+            )
+        except KeyboardInterrupt:
+            import sys
 
-                    sys.exit()
-                except (AssertionError, RuntimeError):
-                    print(
-                        f"Warning: failed to run fusion given {input_tensors} and configuration {config}"
-                    )
-                    continue
+            sys.exit()
+        except (AssertionError, RuntimeError):
+            print(
+                f"Warning: failed to run fusion given {input_tensors} and configuration {config}"
+            )
+            continue
 
-                # collect extra metrics
-                broadcast_multiples = [
-                    get_broadcast_multiple(input_tensors, output_tensors, idx)
-                    for idx in range(len(full_tensor_shape) + 1)
-                ]
-                grid, block, registers, smem, bandwidth, time = metrics
+        # collect extra metrics
+        broadcast_multiples = [
+            get_broadcast_multiple(input_tensors, output_tensors, idx)
+            for idx in range(len(full_tensor_shape) + 1)
+        ]
+        grid, block, registers, smem, bandwidth, time = metrics
 
-                # create data entry
-                entry = [
-                    [[shape, dtype.itemsize] for shape, dtype in input_shapes],
-                    [list(t.shape) + [t.itemsize] for t in output_tensors],
-                    num_ops,
-                    len(mufu_indices),
-                    broadcast_multiples,
-                    vectorize_factor,
-                    unroll_factor,
-                    grid,
-                    block,
-                    registers,
-                    smem,
-                    bandwidth,
-                    time,
-                ]
-                data.append(entry)
+        # create data entry
+        entry = [
+            [[shape, dtype.itemsize] for shape, dtype in input_shapes],
+            [list(t.shape) + [t.itemsize] for t in output_tensors],
+            num_ops,
+            len(mufu_indices),
+            broadcast_multiples,
+            vectorize_factor,
+            unroll_factor,
+            grid,
+            block,
+            registers,
+            smem,
+            bandwidth,
+            time,
+        ]
+        data.append(entry)
 
 
 if __name__ == "__main__":
@@ -336,7 +348,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Collect Data for Pointwise Scheduler."
     )
-    parser.add_argument("--save_path", help="the path to save data")
+    parser.add_argument("--save_path", default="", help="the path to save data")
     parser.add_argument(
         "--save_interval",
         default=1000,
