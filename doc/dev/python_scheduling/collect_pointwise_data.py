@@ -122,12 +122,14 @@ def create_fusion_state(full_tensor_shape, maximum_number_operations):
             )
 
             # Get all combinations of tensor shapes and tensor data types
-            tensor_shapes_with_bcast_and_dtype = list(
-                itertools.product(tensor_shapes_with_bcast, tensor_data_types)
+            tensor_shapes_with_bcast_and_dtype = itertools.product(
+                tensor_shapes_with_bcast, tensor_data_types
             )
 
             # Get all combinations for fusion's input tensors
-            shapes_for_all_tensors = [tensor_shapes_with_bcast_and_dtype] * num_tensors
+            shapes_for_all_tensors = itertools.tee(
+                tensor_shapes_with_bcast_and_dtype, num_tensors
+            )
             for input_shapes in itertools.product(*shapes_for_all_tensors):
                 yield (num_ops, mufu_indices, input_shapes)
 
