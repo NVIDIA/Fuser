@@ -218,7 +218,7 @@ def save(directory_path, data, interval=None):
 
     file_path = base_directory.joinpath(file_path_str)
     df.to_csv(file_path, index=True)
-    print(f"Finished creating {len(data)} entries")
+    print(f"Finished creating {len(data)} entries. Saved to {file_path_str}.")
 
 
 # ============================ Metrics  ============================
@@ -296,8 +296,6 @@ def run(args):
             interval += 1
             data.clear()
 
-        print(idx)
-
         num_ops, mufu_indices, input_shapes = fusion_config
         vectorize_factor, unroll_factor = scheduler_config
 
@@ -355,7 +353,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Collect Data for Pointwise Scheduler."
     )
-    parser.add_argument("--save_path", default="", help="The path to save data")
+    parser.add_argument(
+        "--save_path",
+        default="~/workspace/autotune/pointwise",
+        help="The path to save data",
+    )
     parser.add_argument(
         "--save_interval",
         default=1000,
