@@ -317,7 +317,7 @@ def run(args):
             sys.exit()
         except (AssertionError, RuntimeError):
             print(
-                f"Warning: failed to run fusion given {input_tensors} and configuration {config}"
+                f"Warning: failed to run fusion given {input_tensors} and configuration {scheduler_config}"
             )
             continue
 
