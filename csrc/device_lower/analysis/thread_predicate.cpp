@@ -10,10 +10,12 @@
 #include <debug.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
+#include <id_model/id_model.h>
 #include <instrumentation.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <ops/arith.h>
+#include <val_graph_visitor.h>
 
 #include <c10/util/irange.h>
 #include <algorithm>
@@ -24,7 +26,7 @@ namespace {
 
 Val* getPredicatePerParallelType(
     ParallelType pt,
-    const ThreadPredicateMap::PredicateInfo& pred_info) {
+    const ThreadPredicateInfo& pred_info) {
   auto pt_dim = GpuLower::current()->parallelDimensionMap().get(pt);
 
   // If pt is not used or is proven to be one, no need to predicate.
@@ -64,7 +66,7 @@ Val* getPredicatePerParallelType(
 } // namespace
 
 Val* ThreadPredicateMap::getPredicateFromPredicateInfo(
-    const ThreadPredicateMap::PredicateInfo& pred_info,
+    const ThreadPredicateInfo& pred_info,
     const ParallelTypeBitmap& mask) {
   const auto pred_types =
       (pred_info.limited_types | pred_info.redundant_types) & mask;
@@ -183,7 +185,7 @@ ParallelTypeBitmap avoidRedundantWrites(const TensorView* out_tv) {
 // global memory.
 ParallelTypeBitmap getReductionPredicateForUnusedParallelTypes(
     const TensorView* tv,
-    const ThreadPredicateMap::PredicateInfo& pred_info) {
+    const ThreadPredicateInfo& pred_info) {
   auto tv_def = tv->definition();
   if (!(tv_def && ir_utils::isReductionOp(tv_def) &&
         tv->getMemoryType() == MemoryType::Global)) {
@@ -332,6 +334,68 @@ void ThreadPredicateMap::updateBitSet(const Expr* expr) {
   for (auto* out_tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
     auto redundant_types = avoidRedundantWrites(out_tv);
     update(out_tv, output_preds, redundant_types);
+  }
+}
+
+void ThreadPredicateMap::trackSqueezedSlice(const Expr* expr) {
+  // IdModel is required.
+  if (!GpuLower::current()->hasIdModel()) {
+    // This isn't correct.
+    // TODO: Always enable IdModel by default
+    return;
+  }
+
+  const auto& exact_graph =
+      GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT);
+
+  // Propagate all input singular domains
+  ValGroups singular_domains;
+  for (const auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
+    singular_domains.pushBack(at(input).singular_domains);
+  }
+
+  // Add a new singular domain if this is a squeeze op of a slice output
+  if (auto squeeze = dynamic_cast<const SqueezeOp*>(expr)) {
+    auto inp_tv = squeeze->in()->as<TensorView>();
+    for (const auto i : c10::irange(inp_tv->getLogicalDomain().size())) {
+      if (!squeeze->isSqueezeDim(i)) {
+        continue;
+      }
+
+      auto squeezed_id = inp_tv->getLogicalDomain().at(i);
+      NVF_CHECK(squeezed_id->isBroadcast());
+      const ValGroup& squeezed_vg = exact_graph.toGroup(squeezed_id);
+
+      std::cerr << "Squeezed: " << squeezed_id->toString() << "\n";
+
+      // To find if this broadcast ID is produced by a resize,
+      // traverse the graph backward and find if a resize expr is
+      // reaceable.
+      auto all_exprs = ValGraphBFS::getExprsBetween(
+          exact_graph,
+          {squeezed_vg},
+          exact_graph.disjointValSets().disjointSets(),
+          /*require_all_to_visited=*/false,
+          Direction::Backward);
+      if (std::any_of(
+              all_exprs.begin(),
+              all_exprs.end(),
+              [](const auto& path_component) {
+                Expr* expr = path_component.first->front();
+                return expr->isA<Resize>();
+              })) {
+        std::cerr << "Squeezed slice detected: " << squeezed_id->toString()
+                  << "\n";
+        singular_domains.pushBack(squeezed_vg);
+      }
+    }
+  }
+
+  // Propagate the singular domains to all output tensors
+  for (const auto output :
+       ir_utils::filterByType<TensorView>(expr->outputs())) {
+    ThreadPredicateInfo& output_info = at(output);
+    output_info.singular_domains = singular_domains;
   }
 }
 
@@ -731,6 +795,7 @@ void ThreadPredicateMap::build(Fusion* fusion) {
   }
   for (auto expr : fusion->exprs()) {
     updateBitSet(expr);
+    trackSqueezedSlice(expr);
   }
 
   for (auto tv : fusion->allTvs()) {
@@ -751,26 +816,7 @@ void ThreadPredicateMap::populateRedundantUseMap(Fusion* fusion) {
   }
 }
 
-ThreadPredicateMap::const_iterator ThreadPredicateMap::find(
-    const TensorView* tv) const {
-  return thread_predicates_.find(tv);
-}
-
-ThreadPredicateMap::const_iterator ThreadPredicateMap::end() const {
-  return thread_predicates_.end();
-}
-
-const ThreadPredicateMap::PredicateInfo& ThreadPredicateMap::at(
-    const TensorView* tv) const {
-  return thread_predicates_.at(tv);
-}
-
-ThreadPredicateMap::PredicateInfo& ThreadPredicateMap::at(
-    const TensorView* tv) {
-  return thread_predicates_.at(tv);
-}
-
-ThreadPredicateMap::PredicateInfo ThreadPredicateMap::getPredicateInfo(
+ThreadPredicateInfo ThreadPredicateMap::getPredicateInfo(
     const TensorView* tv) const {
   auto pred_info = thread_predicates_.at(tv);
   // Do not predicate a paralell type if it is a parallel bcast domain
@@ -796,10 +842,10 @@ bool ThreadPredicateMap::update(
 
 bool ThreadPredicateMap::update(
     const TensorView* tv,
-    const PredicateInfo& pred_info) {
+    const ThreadPredicateInfo& pred_info) {
   auto existing_mapping_it = thread_predicates_.find(tv);
   if (existing_mapping_it != end()) {
-    PredicateInfo& existing_info = existing_mapping_it->second;
+    ThreadPredicateInfo& existing_info = existing_mapping_it->second;
     if (existing_info == pred_info) {
       return false;
     } else {
@@ -881,11 +927,18 @@ void ThreadPredicateMap::markAsUpdated(const TensorView* tv) {
 void ThreadPredicateMap::print() const {
   debug() << "\nThreadPredicateMap\n";
   debug() << "--------------------------------\n";
-  for (const auto& kv : thread_predicates_) {
-    debug() << "T" << kv.first->name();
-    debug() << " {" << kv.second.limited_types.toString() << "}\n";
-    debug() << "{" << kv.second.redundant_types.toString() << "}\n";
-    debug() << "{" << kv.second.redundant_use_types.toString() << "}\n";
+  if (thread_predicates_.empty()) {
+    return;
+  }
+  Fusion* fusion = thread_predicates_.begin()->first->fusion();
+  for (const auto& tv : fusion->allTvs()) {
+    const auto& info = at(tv);
+    debug() << "T" << tv->name()
+            << " limited types: " << info.limited_types.toString()
+            << ", redundant types: " << info.redundant_types.toString()
+            << ", redundant use types: " << info.redundant_use_types.toString()
+            << ", singular domains: "
+            << nvfuser::toString(info.singular_domains) << "\n";
   }
   debug() << "--------------------------------\n\n";
 }

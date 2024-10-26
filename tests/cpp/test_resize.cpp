@@ -4541,4 +4541,105 @@ TEST_F(ResizeTest, RoPEFullBF16Global) {
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
 
+TEST_F(ResizeTest, PredicatingSqueezedSlice) {
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  std::vector<int64_t> shape{4, 128};
+  auto tv0 = makeConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = slice(
+      tv1,
+      {{fusion.zeroVal(), IrBuilder::create<Val>(shape.at(0))},
+       {IrBuilder::create<Val>(33L), IrBuilder::create<Val>(34L)}});
+  auto tv3 = squeeze(tv2, {1});
+  auto tv4 = set(tv3);
+  fusion.addOutput(tv4);
+
+  auto tv5 = makeConcreteTensor({1});
+  fusion.addInput(tv5);
+  auto tv6 = squeeze(tv5, {0});
+
+  fusion.addOutput(tv6);
+
+  fusion.printMath();
+
+  scheduler_tools::propagateSliceToOutputs(&fusion);
+  scheduler_tools::scheduleLoopDomainsLike({tv2}, tv0->getLoopDomain());
+
+  if (getenv("PARALLELIZE")) {
+    tv1->axis(0)->parallelize(ParallelType::BIDx);
+    tv1->axis(1)->parallelize(ParallelType::TIDx);
+    tv2->axis(0)->parallelize(ParallelType::BIDx);
+    tv2->axis(1)->parallelize(ParallelType::TIDx);
+    tv3->axis(0)->parallelize(ParallelType::BIDx);
+
+    tv1->setMemoryType(MemoryType::Shared);
+  }
+
+  GpuLower lower(&fusion);
+  lower.threadPredMap().print();
+
+  fusion.printMath();
+  fusion.printKernel();
+
+  std::cout << std::endl;
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  auto t1 = at::randn({1}, options);
+  std::vector<c10::IValue> inputs({t0, t1});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, inputs);
+  auto outputs = fe.runFusion(inputs);
+
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
+TEST_F(ResizeTest, TMP3) {
+  // EnableOptionsGuard enable_options_guard;
+  // EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv0);
+  auto tv3 = sum(tv0, {0});
+  auto tv4 = set(tv3);
+
+  fusion.addOutput(tv2);
+  // fusion.addOutput(tv3);
+  fusion.addOutput(tv4);
+
+  tv2->split(1, 32, false);
+
+  tv3->split(1, 4);
+  tv3->split(1, 1);
+  tv4->split(0, 4);
+  tv4->split(0, 1);
+
+  tv2->axis(-1)->parallelize(ParallelType::TIDx);
+
+  tv3->axis(0)->parallelize(ParallelType::TIDy);
+
+  tv4->axis(-2)->parallelize(ParallelType::Unswitch);
+  tv4->axis(-1)->parallelize(ParallelType::TIDx);
+
+  fusion.printMath();
+  fusion.printKernel();
+}
+
 } // namespace nvfuser

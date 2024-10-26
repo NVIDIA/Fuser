@@ -45,7 +45,7 @@ class ParallelizedDomainPredicate {
    public:
     explicit PredicateInfo(ParallelType pt) : pt_(pt) {}
 
-    //! Adds a domain that is parallized by the same paralell type
+    //! Adds a domain that is parallized by the same parallel type
     bool addDomain(IterDomain* id);
 
     const std::vector<IterDomain*>& ids() const {
