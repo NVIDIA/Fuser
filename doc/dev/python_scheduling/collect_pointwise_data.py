@@ -281,13 +281,15 @@ data_gen_config = DataGenerationConfiguration(
 def run(args):
     data = []
     interval = args.start_interval
+    # The number of entries to skip before starting data collection.
+    fast_forward = args.start_interval * args.save_interval
 
     for idx, (full_tensor_shape, fusion_config, scheduler_config) in enumerate(
         create_data_config()
     ):
         # short-circuit: skip configurations based on fast-forward argument.
         # When resuming data collection, skip configurations we have already tested.
-        if idx < args.fast_forward:
+        if idx < fast_forward:
             continue
 
         # Save data based on interval
@@ -369,12 +371,6 @@ if __name__ == "__main__":
         default=0,
         type=int,
         help="The start interval for data parts.",
-    )
-    parser.add_argument(
-        "--fast_forward",
-        default=0,
-        type=int,
-        help="The number of entries to skip before starting data collection.",
     )
     args = parser.parse_args()
 
