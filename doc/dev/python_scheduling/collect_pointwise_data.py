@@ -83,6 +83,10 @@ def run_profile(presched_fd, inputs, config=None):
 # ============================ Create Fusion  ================================
 
 
+# A tensor can have a number of broadcast dimensions at any axis of tensor.
+# Given a number of dimension in a tensor, iterate through range of broadcast
+# axes. Given a number of broadcast axes, iterate through all combinations of
+# their placement in the tensor.
 def generate_shapes_with_bcast(tensor_shape):
     num_dims = len(tensor_shape)
     for num_bcast_dims in range(num_dims):
@@ -112,12 +116,17 @@ def create_fusion_state(full_tensor_shape, maximum_number_operations):
             mufu_indices = np.random.choice(num_ops, num_mufu, replace=False)
 
             num_tensors = 1 + num_ops - num_mufu
+            # Get all combinations of broadcast dimensions for a tensor
             tensor_shapes_with_bcast = list(
                 generate_shapes_with_bcast(full_tensor_shape)
             )
+
+            # Get all combinations of tensor shapes and tensor data types
             tensor_shapes_with_bcast_and_dtype = list(
                 itertools.product(tensor_shapes_with_bcast, tensor_data_types)
             )
+
+            # Get all combinations for fusion's input tensors
             shapes_for_all_tensors = [tensor_shapes_with_bcast_and_dtype] * num_tensors
             for input_shapes in itertools.product(*shapes_for_all_tensors):
                 yield (num_ops, mufu_indices, input_shapes)
