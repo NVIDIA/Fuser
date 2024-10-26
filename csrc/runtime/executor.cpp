@@ -19,10 +19,6 @@
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <kernel_ir.h>
-#include <multidevice/communication.h>
-#include <multidevice/communicator.h>
-#include <multidevice/lower_communication.h>
-#include <multidevice/utils.h>
 #include <options.h>
 #include <polymorphic_value.h>
 #include <runtime/allocations.h>
@@ -208,22 +204,6 @@ void FusionExecutor::compileFusion(
     return;
   }
 
-  const std::vector<Expr*>& exprs = fusion->exprs();
-  if (std::all_of(exprs.begin(), exprs.end(), [](Expr* e) {
-        return isResharding(e) && isLowerableToCommunication(e);
-      })) {
-    host_ir_container_ = std::make_unique<hir::HostIrContainer>();
-    IrCloner cloner = Fusion::copy(fusion, host_ir_container_.get());
-    for (Expr* e : exprs) {
-      std::vector<Communication*> communications =
-          lowerCommunication(cloner.clone(e));
-      for (auto* communication : communications) {
-        host_ir_container_->pushBackTopLevelExprs(communication);
-      }
-    }
-    return;
-  }
-
   // NOTE: Profiling needs to be started below the isExpressionEvaluated query
   // given the conditional can exit early from compilation.
   if (isProfilerEnabled()) {
@@ -272,6 +252,7 @@ void FusionExecutor::compileFusion(
 
   //! Force index_type to int and disable magic zero if we detect that the
   //! kernel contains any TMA memory operations.
+  auto exprs = fusion->exprs();
   bool has_cp_async_bulk = std::any_of(exprs.begin(), exprs.end(), [](Expr* e) {
     return ir_utils::isCpAsyncBulk(e);
   });
@@ -1171,35 +1152,6 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       auto& sprof = FusionProfiler::segment(group_id_);
       sprof.stopKernel();
       sprof.outputBytesAccessed(outputBytesProcessed(outputs));
-    }
-    return outputs;
-  }
-
-  if (host_ir_container_ != nullptr) {
-    FUSER_PERF_SCOPE("FusionExecutor::runFusion::host_ir_evaluate");
-    if (outputs.empty()) {
-      std::vector<GlobalBufferInfo> output_info = getBufferInfos(
-          expr_eval, PrimDataType::Int, host_ir_container_->outputs());
-      outputs = allocateOutputs(
-          host_ir_container_.get(), output_info, options_.device, expr_eval);
-    }
-    for (Expr* e : host_ir_container_->topLevelExprs()) {
-      NVF_ERROR(e->isA<Communication>());
-      auto* communication = e->as<Communication>();
-      c10d::Backend* backend =
-          communicator_->getBackendForTeam(communication->team(), std::nullopt);
-      auto in_tensor = expr_eval.evaluate(communication->in()).as<at::Tensor>();
-      at::Tensor out_tensor = findBufferForFusionOutput(
-          outputs, communication->out(), host_ir_container_.get());
-      c10::intrusive_ptr<c10d::Work> work = postSingleCommunication(
-          communication,
-          communicator_->deviceId(),
-          backend,
-          in_tensor,
-          out_tensor);
-      if (work != nullptr) {
-        work->wait();
-      }
     }
     return outputs;
   }

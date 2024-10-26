@@ -10,11 +10,9 @@
 #include <exceptions.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
-#include <host_ir/container.h>
 #include <ir/all_nodes.h>
 #include <ir/cloner.h>
 #include <ir/printer.h>
-#include <multidevice/communicator.h>
 #include <runtime/allocations.h>
 #include <runtime/executor_params.h>
 #include <runtime/executor_utils.h>
@@ -137,8 +135,7 @@ class FusionExecutor : public NonCopyable {
 
   // Function to query whether compilation was attempted for a `FusionExecutor`
   bool isCompiled() const {
-    int num_compiled_artifacts = (fusion_ != nullptr) + (lowered_ != nullptr) +
-        (host_ir_container_ != nullptr);
+    int num_compiled_artifacts = (fusion_ != nullptr) + (lowered_ != nullptr);
     NVF_ERROR(num_compiled_artifacts <= 1);
     return num_compiled_artifacts == 1;
   };
@@ -199,9 +196,6 @@ class FusionExecutor : public NonCopyable {
     }
     if (lowered_ != nullptr) {
       return lowered_->kernel()->as<Fusion>();
-    }
-    if (host_ir_container_ != nullptr) {
-      return host_ir_container_->as<Fusion>();
     }
     NVF_THROW("unreachable because of the isCompiled check");
   }
@@ -519,8 +513,6 @@ class FusionExecutor : public NonCopyable {
 
   // Initialized for non-compiled fusions
   std::unique_ptr<Fusion> fusion_;
-
-  std::unique_ptr<hir::HostIrContainer> host_ir_container_;
 
   // Track the block size this kernel was compiled with. If the block size
   // increases, recompile to adjust maxregister count.
