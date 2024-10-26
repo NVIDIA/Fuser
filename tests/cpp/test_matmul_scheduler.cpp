@@ -17,6 +17,7 @@
 #include <scheduler/matmul_heuristic_plugin.h>
 #include <scheduler/matmul_heuristic_plugin_api.h>
 #include <scheduler/mma_utils.h>
+#include <scheduler/tools/inlining.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
@@ -3112,6 +3113,55 @@ TEST_F(MatmulSchedulerTest, HSH_NT_128BSwizzle) {
       executor_cache.runFusionWithInputs({inputs.first, inputs.second});
   auto tref = atMatmul(inputs.first.squeeze(), inputs.second.squeeze(), layout);
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+}
+
+TEST_F(MatmulSchedulerTest, TmaSwizzle) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 10, 0);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto dtype = DataType::Half;
+
+  // K, M, b
+  auto tv0 = makeContigConcreteTensor({1, -1, -1}, dtype);
+  fusion->addInput(tv0);
+
+  auto tv1 = exp(tv0);
+
+  fusion->addOutput(tv1);
+
+  auto tv0_ca = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv0_ca->setMemoryType(MemoryType::Shared);
+
+  for (auto tv : fusion->allTvs()) {
+    tv->split(0, 32);
+    tv->split(2, 128);
+    tv->split(-1, 128);
+    // ko, ki, mo, mi, bo, bi
+
+    tv->reorder({{1, 3}, {2, 1}, {3, 4}, {4, 2}});
+    // ko, ki, mo, bo, mi, bi
+
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(1)->parallelize(ParallelType::BIDy);
+  }
+
+  MmaInputSmemSwizzle swizzle_type = MmaInputSmemSwizzle::B128;
+  tv0_ca->applyMmaSwizzleForTMALoad(swizzle_type);
+
+  inlineMost();
+
+  fusion->printMath();
+
+  constexpr int64_t M = 1024 * 16, K = 1024;
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({K, M, 1}, options);
+  at::Tensor aten_output = at::exp(t0);
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), {t0}, LaunchParams(), matmul_cparams);
+  auto cg_outputs = fe.runFusion({t0});
+  EXPECT_TRUE(at::allclose(cg_outputs[0], aten_output, 1e-5, 1e-5));
 }
 
 } // namespace nvfuser
