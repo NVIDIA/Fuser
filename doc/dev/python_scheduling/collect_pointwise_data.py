@@ -160,6 +160,39 @@ def valid_vectorize_factor(input_tensors, vectorize_factor):
     return vectorize_factor <= max_vectorize_factor
 
 
+# Create pandas dataframe then save it as a csv file to specified location
+def save(directory_path, data):
+    import pandas as pd
+
+    df = pd.DataFrame(
+        data,
+        columns=[
+            "input_shapes",
+            "output_shapes",
+            "number_of_operations",
+            "number_of_mufu_operations",
+            "broadcast_multiples",
+            "vectorization",
+            "unroll_factor",
+            "grid",
+            "block",
+            "number_of_registers",
+            "shared_memory_usage",
+            "effective_bandwidth",
+            "kernel_time_ms",
+        ],
+    )
+
+    from pathlib import Path
+
+    base_directory = Path(directory_path)
+    major, minor = torch.cuda.get_device_capability()
+    file_path_str = f"pointwise_data_device_{major}_{minor}.csv"
+    file_path = base_directory.joinpath(file_path_str)
+    df.to_csv(file_path, index=True)
+    print(f"Finished creating {len(data)} entries")
+
+
 # ============================ Metrics  ============================
 
 
@@ -257,29 +290,5 @@ for full_tensor_shape in itertools.product(outer_shapes, inner_shapes):
             ]
             data.append(entry)
 
-# ============================ Save Pandas DataFrame ============================
-
-import pandas as pd
-
-df = pd.DataFrame(
-    data,
-    columns=[
-        "input_shapes",
-        "output_shapes",
-        "number_of_operations",
-        "number_of_mufu_operations",
-        "broadcast_multiples",
-        "vectorization",
-        "unroll_factor",
-        "grid",
-        "block",
-        "number_of_registers",
-        "shared_memory_usage",
-        "effective_bandwidth",
-        "kernel_time_ms",
-    ],
-)
-
-major, minor = torch.cuda.get_device_capability()
-df.to_csv("pointwise_data_device_{major}_{minor}.csv", index=True)
-print(f"Finished creating {len(data)} entries")
+directory_path = ""
+save(directory_path, data)
