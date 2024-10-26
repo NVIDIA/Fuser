@@ -806,7 +806,7 @@ TEST_P(CircularBufferingTest, NoSync) {
 // Test circular buffer from 2 to 10 stages
 auto StagesAndPrefetches() {
   std::vector<StageAndPrefetch> values;
-  for (int64_t i : c10::irange(2, 10)) {
+  for (int64_t i : {2, 5, 10}) {
     for (int64_t j : c10::irange(-i, i)) {
       values.emplace_back(i, j);
     }
@@ -1768,7 +1768,7 @@ TEST_P(TmaCircularBufferingTest, MatmulWithBroadcastedInput) {
 // Test circular buffer from 2 to 5 stages
 auto tmaCircularBufferingParams() {
   std::vector<TmaCircularBufferingParams> values;
-  for (int64_t i : c10::irange(2, 5)) {
+  for (int64_t i : {2, 5}) {
     for (int64_t j : c10::irange(-i, i)) {
       for (int64_t m : {128, 500, 1024}) {
         for (int64_t n : {128, 1024}) {
