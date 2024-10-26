@@ -629,12 +629,7 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
     iop.bdimx = ceilDiv(inner_dim_numel, iop.inner_vect * iop.inner_batch);
 
     // Step-2, InnerParams, Iteration dim: gdimy, bdimy (in next step)
-    int64_t reg_per_thread =
-        getEstimatedRegisterUsage(iop.inner_vect * iop.inner_batch);
-    int64_t threads_per_sm = getThreadsPerSMGivenRegPerThread(reg_per_thread);
-    int64_t blocks_per_sm = getBlocksPerSM(
-        threads_per_sm, threads_per_block_mrpb, dev_prop->warpSize);
-    iop.gdimy = blocks_per_sm * device_multiprocessor_count;
+    iop.gdimy = getGdimy(iop.inner_vect, threads_per_block_mrpb, iop.inner_batch);
 
     // Step-3, OuterParams, Iteration dim: vectorization_factor_outer(reuse),
     // bdimy, gdimy (in previous step). We prefer bdimy to be larger enough to
@@ -646,6 +641,10 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
     iop.bdimy = std::min(threads_per_block_mrpb / iop.bdimx, bdimy_tmp);
 
     // Step-4, OuterParams, Reduction dim: bdimx (already done)
+    iop.warps_per_sm = (iop.bdimx*iop.bdimy) / dev_prop->warpSize * iop.gdimy /
+        device_multiprocessor_count;    
+    iop.avilable_register_per_thread =
+        getRegPerThreadGivenThreadsPerSM(dev_prop->warpSize * iop.warps_per_sm);
 
     if (iop.bdimx % dev_prop->warpSize == 0) {
       rparams->pad_inner_reduction_to_warp = true;
