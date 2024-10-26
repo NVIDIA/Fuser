@@ -259,12 +259,19 @@ data_gen_config = DataGenerationConfiguration(
 
 
 # Run profiling on series of fusions to collect data.
-def run():
+def run(args):
     data = []
 
+    interval = 0
     for full_tensor_shape in itertools.product(
         data_gen_config.outer_shapes, data_gen_config.inner_shapes
     ):
+        # Save data based on interval
+        if len(data) >= args.save_interval:
+            save(args.save_path, data, interval)
+            interval += 1
+            data.clear()
+
         print(full_tensor_shape)
         for fusion_config in create_fusion_state(
             full_tensor_shape, data_gen_config.max_number_operations
@@ -322,9 +329,20 @@ def run():
                 ]
                 data.append(entry)
 
-    directory_path = ""
-    save(directory_path, data)
-
 
 if __name__ == "__main__":
-    run()
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Collect Data for Pointwise Scheduler."
+    )
+    parser.add_argument("--save_path", help="the path to save data")
+    parser.add_argument(
+        "--save_interval",
+        default=1000,
+        type=int,
+        help="the number of entries to collect before saving results.",
+    )
+    args = parser.parse_args()
+
+    run(args)
