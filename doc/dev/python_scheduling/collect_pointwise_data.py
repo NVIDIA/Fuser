@@ -227,37 +227,57 @@ def get_broadcast_multiple(input_tensors, output_tensors, breakpoint_dim):
 
 # ============================ Configurations ============================
 
+from dataclasses import dataclass
+
+
+@dataclass
+class DataGenerationConfiguration:
+    # tensor configuration
+    num_dimensions: int
+    outer_shapes: [int]
+    inner_shapes: [int]
+
+    # maximum number of operation in fusion
+    max_number_operations: int
+
+    # pointwise scheduler parameters
+    vectorize_range: [int]
+    unroll_range: [int]
+
+
 # For pointwise scheduler, we test the cartesian product of vectorization and
 # unroll factors. Limit vectorization factor to 4 instead of 8 because pointwise
 # configurations cast float16 and bfloat16 to float32.
-parameter_configurations = [
-    vectorize_range := [1, 2, 4],
-    unroll_range := list(range(1, 10)),
-]
-
-# maximum number of operation in fusion
-max_number_operations = 3
-
-# Settings for input tensor generation
-num_dimensions = 2
-outer_shapes = [512]
-inner_shapes = [2**i for i in range(5, 15)]
+data_gen_config = DataGenerationConfiguration(
+    num_dimensions=2,
+    outer_shapes=[512],
+    inner_shapes=[2**i for i in range(5, 15)],
+    max_number_operations=3,
+    vectorize_range=[1, 2, 4],
+    unroll_range=list(range(1, 10)),
+)
 
 # ============================ Run Experiments  ================================
 
 # Collect data for decision tree
 data = []
 
-for full_tensor_shape in itertools.product(outer_shapes, inner_shapes):
+for full_tensor_shape in itertools.product(
+    data_gen_config.outer_shapes, data_gen_config.inner_shapes
+):
     print(full_tensor_shape)
-    for fusion_config in create_fusion_state(full_tensor_shape, max_number_operations):
+    for fusion_config in create_fusion_state(
+        full_tensor_shape, data_gen_config.max_number_operations
+    ):
         num_ops, mufu_indices, input_shapes = fusion_config
         presched_fd, input_tensors = create_fusion_definition(*fusion_config)
 
         print(fusion_config)
         # unroll and vectorization configurations
-        for config in itertools.product(vectorize_range, unroll_range):
-            vectorize_factor, unroll_factor = config
+        for scheduler_config in itertools.product(
+            data_gen_config.vectorize_range, data_gen_config.unroll_range
+        ):
+            vectorize_factor, unroll_factor = scheduler_config
 
             # short-circuit: skip if vectorization factor is incompatible with input tensors
             if not valid_vectorize_factor(input_tensors, vectorize_factor):
@@ -265,7 +285,7 @@ for full_tensor_shape in itertools.product(outer_shapes, inner_shapes):
 
             try:
                 output_tensors, metrics = run_profile(
-                    presched_fd, input_tensors, config
+                    presched_fd, input_tensors, scheduler_config
                 )
             except KeyboardInterrupt:
                 import sys
@@ -291,7 +311,8 @@ for full_tensor_shape in itertools.product(outer_shapes, inner_shapes):
                 num_ops,
                 len(mufu_indices),
                 broadcast_multiples,
-                *config,
+                vectorize_factor,
+                unroll_factor,
                 grid,
                 block,
                 registers,
