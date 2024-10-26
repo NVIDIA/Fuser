@@ -257,70 +257,74 @@ data_gen_config = DataGenerationConfiguration(
     unroll_range=list(range(1, 10)),
 )
 
-# ============================ Run Experiments  ================================
 
-# Collect data for decision tree
-data = []
+# Run profiling on series of fusions to collect data.
+def run():
+    data = []
 
-for full_tensor_shape in itertools.product(
-    data_gen_config.outer_shapes, data_gen_config.inner_shapes
-):
-    print(full_tensor_shape)
-    for fusion_config in create_fusion_state(
-        full_tensor_shape, data_gen_config.max_number_operations
+    for full_tensor_shape in itertools.product(
+        data_gen_config.outer_shapes, data_gen_config.inner_shapes
     ):
-        num_ops, mufu_indices, input_shapes = fusion_config
-        presched_fd, input_tensors = create_fusion_definition(*fusion_config)
-
-        print(fusion_config)
-        # unroll and vectorization configurations
-        for scheduler_config in itertools.product(
-            data_gen_config.vectorize_range, data_gen_config.unroll_range
+        print(full_tensor_shape)
+        for fusion_config in create_fusion_state(
+            full_tensor_shape, data_gen_config.max_number_operations
         ):
-            vectorize_factor, unroll_factor = scheduler_config
+            num_ops, mufu_indices, input_shapes = fusion_config
+            presched_fd, input_tensors = create_fusion_definition(*fusion_config)
 
-            # short-circuit: skip if vectorization factor is incompatible with input tensors
-            if not valid_vectorize_factor(input_tensors, vectorize_factor):
-                continue
+            print(fusion_config)
+            # unroll and vectorization configurations
+            for scheduler_config in itertools.product(
+                data_gen_config.vectorize_range, data_gen_config.unroll_range
+            ):
+                vectorize_factor, unroll_factor = scheduler_config
 
-            try:
-                output_tensors, metrics = run_profile(
-                    presched_fd, input_tensors, scheduler_config
-                )
-            except KeyboardInterrupt:
-                import sys
+                # short-circuit: skip if vectorization factor is incompatible with input tensors
+                if not valid_vectorize_factor(input_tensors, vectorize_factor):
+                    continue
 
-                sys.exit()
-            except (AssertionError, RuntimeError):
-                print(
-                    f"Warning: failed to run fusion given {input_tensors} and configuration {config}"
-                )
-                continue
+                try:
+                    output_tensors, metrics = run_profile(
+                        presched_fd, input_tensors, scheduler_config
+                    )
+                except KeyboardInterrupt:
+                    import sys
 
-            # collect extra metrics
-            broadcast_multiples = [
-                get_broadcast_multiple(input_tensors, output_tensors, idx)
-                for idx in range(len(full_tensor_shape) + 1)
-            ]
-            grid, block, registers, smem, bandwidth, time = metrics
+                    sys.exit()
+                except (AssertionError, RuntimeError):
+                    print(
+                        f"Warning: failed to run fusion given {input_tensors} and configuration {config}"
+                    )
+                    continue
 
-            # create data entry
-            entry = [
-                [[shape, dtype.itemsize] for shape, dtype in input_shapes],
-                [list(t.shape) + [t.itemsize] for t in output_tensors],
-                num_ops,
-                len(mufu_indices),
-                broadcast_multiples,
-                vectorize_factor,
-                unroll_factor,
-                grid,
-                block,
-                registers,
-                smem,
-                bandwidth,
-                time,
-            ]
-            data.append(entry)
+                # collect extra metrics
+                broadcast_multiples = [
+                    get_broadcast_multiple(input_tensors, output_tensors, idx)
+                    for idx in range(len(full_tensor_shape) + 1)
+                ]
+                grid, block, registers, smem, bandwidth, time = metrics
 
-directory_path = ""
-save(directory_path, data)
+                # create data entry
+                entry = [
+                    [[shape, dtype.itemsize] for shape, dtype in input_shapes],
+                    [list(t.shape) + [t.itemsize] for t in output_tensors],
+                    num_ops,
+                    len(mufu_indices),
+                    broadcast_multiples,
+                    vectorize_factor,
+                    unroll_factor,
+                    grid,
+                    block,
+                    registers,
+                    smem,
+                    bandwidth,
+                    time,
+                ]
+                data.append(entry)
+
+    directory_path = ""
+    save(directory_path, data)
+
+
+if __name__ == "__main__":
+    run()
