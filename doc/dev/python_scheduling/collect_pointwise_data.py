@@ -98,7 +98,7 @@ def generate_shapes_with_bcast(tensor_shape):
             ]
 
 
-def create_fusion_state(full_tensor_shape, maximum_number_operations):
+def create_fusion_state(full_tensor_shape, maximum_number_operations, tensor_datatypes):
     # vertical composition:
     # * number of operations
     # * order of mufu operations
@@ -106,10 +106,6 @@ def create_fusion_state(full_tensor_shape, maximum_number_operations):
     # horizontal composition:
     # * number, dtype, and size of tensor dimensions
     # * order of broadcast dimensions.
-
-    # Data types for tensors
-    tensor_data_types = [torch.float64, torch.float32, torch.bfloat16, torch.float16]
-
     for num_ops in range(1, maximum_number_operations + 1):
         for num_mufu in range(num_ops + 1):
             # Get a random subset of num_mufu indices from num_ops
@@ -123,7 +119,7 @@ def create_fusion_state(full_tensor_shape, maximum_number_operations):
 
             # Get all combinations of tensor shapes and tensor data types
             tensor_shapes_with_bcast_and_dtype = itertools.product(
-                tensor_shapes_with_bcast, tensor_data_types
+                tensor_shapes_with_bcast, tensor_datatypes
             )
 
             # Get all combinations for fusion's input tensors
@@ -165,7 +161,9 @@ def create_data_config():
         data_gen_config.outer_shapes, data_gen_config.inner_shapes
     ):
         for fusion_config in create_fusion_state(
-            full_tensor_shape, data_gen_config.max_number_operations
+            full_tensor_shape,
+            data_gen_config.max_number_operations,
+            data_gen_config.tensor_datatypes,
         ):
             for scheduler_config in itertools.product(
                 data_gen_config.vectorize_range, data_gen_config.unroll_range
@@ -255,6 +253,7 @@ class DataGenerationConfiguration:
     num_dimensions: int
     outer_shapes: [int]
     inner_shapes: [int]
+    tensor_datatypes: [torch.dtype]
 
     # maximum number of operation in fusion
     max_number_operations: int
@@ -270,7 +269,8 @@ class DataGenerationConfiguration:
 data_gen_config = DataGenerationConfiguration(
     num_dimensions=2,
     outer_shapes=[512],
-    inner_shapes=[2**i for i in range(5, 15)],
+    inner_shapes=[128, 512, 2048, 8192, 16384, 32768],
+    tensor_datatypes=[torch.float32, torch.bfloat16],
     max_number_operations=3,
     vectorize_range=[1, 2, 4],
     unroll_range=list(range(1, 10)),
@@ -280,16 +280,23 @@ data_gen_config = DataGenerationConfiguration(
 # Run profiling on series of fusions to collect data.
 def run(args):
     data = []
-    interval = 0
+    interval = args.start_interval
 
     for idx, (full_tensor_shape, fusion_config, scheduler_config) in enumerate(
         create_data_config()
     ):
+        # short-circuit: skip configurations based on fast-forward argument.
+        # When resuming data collection, skip configurations we have already tested.
+        if idx < args.fast_forward:
+            continue
+
         # Save data based on interval
         if len(data) >= args.save_interval:
             save(args.save_path, data, interval)
             interval += 1
             data.clear()
+
+        print(idx)
 
         num_ops, mufu_indices, input_shapes = fusion_config
         vectorize_factor, unroll_factor = scheduler_config
@@ -348,12 +355,24 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Collect Data for Pointwise Scheduler."
     )
-    parser.add_argument("--save_path", default="", help="the path to save data")
+    parser.add_argument("--save_path", default="", help="The path to save data")
     parser.add_argument(
         "--save_interval",
         default=1000,
         type=int,
-        help="the number of entries to collect before saving results.",
+        help="The number of entries to collect before saving results.",
+    )
+    parser.add_argument(
+        "--start_interval",
+        default=0,
+        type=int,
+        help="The start interval for data parts.",
+    )
+    parser.add_argument(
+        "--fast_forward",
+        default=0,
+        type=int,
+        help="The number of entries to skip before starting data collection.",
     )
     args = parser.parse_args()
 
