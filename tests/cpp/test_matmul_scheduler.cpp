@@ -3149,14 +3149,53 @@ TEST_F(MatmulSchedulerTest, TmaSwizzle) {
   MmaInputSmemSwizzle swizzle_type = MmaInputSmemSwizzle::B128;
   tv0_ca->applyMmaSwizzleForTMALoad(swizzle_type);
 
+  for (auto tv : fusion->allTvs()) {
+    if (tv->sameAs(tv0_ca)) {
+      continue;
+    }
+
+    tv->merge(-2);
+    tv->split(-1, 128);
+    tv->axis(-1)->parallelize(ParallelType::TIDx);
+  }
+
+  /*
+  for (auto tv : fusion->allTvs()) {
+    if (tv->sameAs(tv0_ca)) {
+      continue;
+    }
+
+    if (tv->dtype() == DataType::Half) {
+      continue;
+    }
+
+    if (tv->getMemoryType() == MemoryType::Global) {
+      continue;
+    }
+
+    AbstractTensor alloc_domain(tv->getLoopDomain());
+    alloc_domain.split(-1, getBytesFromSwizzle(swizzle_type) /
+  dataTypeSize(DataType::Half)); alloc_domain.reorder({{-2, -3}});
+    alloc_domain.split(-2, 8);
+    alloc_domain.split(-2, (128 / (getBytesFromSwizzle(swizzle_type))));
+    alloc_domain.split(-1, (core_matrix_width_bytes /
+  dataTypeSize(DataType::Half))); alloc_domain.swizzle(SwizzleType::XOR, -4,
+  -2); tv->setAllocationDomain(alloc_domain.as<IterDomain*>(), true);
+
+    tv->merge(-2);
+    tv->split(-1, 128);
+    tv->axis(-1)->parallelize(ParallelType::TIDx);
+  }
+  */
+
   inlineMost();
 
   fusion->printMath();
 
   constexpr int64_t M = 1024 * 16, K = 1024;
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({K, M, 1}, options);
-  at::Tensor aten_output = at::exp(t0);
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({1, K, M}, options);
+  at::Tensor aten_output = at::exp(t0.to(at::kFloat));
 
   FusionExecutor fe;
   fe.compileFusion(fusion.get(), {t0}, LaunchParams(), matmul_cparams);
