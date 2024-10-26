@@ -1798,6 +1798,8 @@ void HopperMultipleMatmulScheduler::setUpCircularBuffering() {
     }
   }
 
+  /*
+  // TODO Disable loop rotation because of extra register allocation
   if (params_->circular_buffer_options.circular_buffer_smem_read &&
       params_->circular_buffer_options.circular_buffer_smem_write) {
     // rotate Kg loop
@@ -1811,6 +1813,7 @@ void HopperMultipleMatmulScheduler::setUpCircularBuffering() {
         num_device_and_batch_dims_ + 2 + num_splitk_dims_,
         all_smem_loads);
   }
+  */
 }
 
 } // namespace nvfuser
