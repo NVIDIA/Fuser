@@ -236,9 +236,9 @@ TEST_P(LinearNodeParametrizedTest, LinearNodeConcrete) {
     out = executor_cache.runFusionWithInputs({t0, t1});
   }
 
-  const auto* ke = onlyKernelExecutorInMostRecentRuntime(executor_cache);
-  // Verify that fusion compilation was skipped.
-  EXPECT_FALSE(ke->hasCompiledKernel());
+  const auto& executors =
+      executor_cache.getMostRecentKernelRuntime()->executors();
+  EXPECT_FALSE(executors.front()->isA<KernelExecutor>());
 
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
@@ -284,9 +284,9 @@ TEST_P(LinearNodeParametrizedTest, LinearNodeSymbolic) {
     out = executor_cache.runFusionWithInputs({t0, t1});
   }
 
-  const auto* ke = onlyKernelExecutorInMostRecentRuntime(executor_cache);
-  // Verify that fusion compilation was skipped.
-  EXPECT_FALSE(ke->hasCompiledKernel());
+  const auto& executors =
+      executor_cache.getMostRecentKernelRuntime()->executors();
+  EXPECT_FALSE(executors.front()->isA<KernelExecutor>());
 
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
