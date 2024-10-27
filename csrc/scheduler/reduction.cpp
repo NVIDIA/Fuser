@@ -119,9 +119,9 @@ std::unique_ptr<ReductionParams> innerReductionHeuristic(
               (int64_t)1)),
       (int64_t)16);
 
-  // Take the smaller
-  const int64_t min_warp_size =
-      std::min(warp_size_based_on_l1, warp_size_based_on_l2);
+  // Take the smaller and round to pow2
+  const int64_t min_warp_size = scheduler_utils::lastPow2(
+      std::min(warp_size_based_on_l1, warp_size_based_on_l2));
 
   // Initialization
   int64_t target_blocks = 1;
@@ -227,13 +227,12 @@ std::unique_ptr<ReductionParams> innerReductionHeuristic(
 
   inner_reduction_unroll_factor =
       vectorize_factor > 1 ? (int64_t)vectorize_factor : 1;
-
-  // Grab what we can out of reduction domain, but don't go over a warp size yet
-  bdimx = std::min(
-      std::max(
-          ceilDiv(inner_most_dimension_numel, inner_reduction_unroll_factor),
-          (int64_t)min_warp_size),
-      target_threads_in_block);
+  auto after_vect =
+      ceilDiv(inner_most_dimension_numel, inner_reduction_unroll_factor);
+  while (bdimx * 2 <= target_threads_in_block && bdimx * 2 <= after_vect &&
+         after_vect % (bdimx * 2) == 0) {
+    bdimx *= 2;
+  }
 
   // If we're not just barely covering the dimension, round to a more friendly
   // number
@@ -310,10 +309,6 @@ std::unique_ptr<ReductionParams> innerReductionHeuristic(
       inner_most_dimension_numel,
       bdimx * inner_reduction_unroll_factor * target_iterations);
 
-  std::cout << "target_iterations: " << target_iterations
-            << " Remainder in inner dim: " << remainder_in_inner_dim
-            << std::endl;
-
   // If we haven't gotten to the max_unroll case, try to take it out of the
   // iteration domain
   if (inner_reduction_unroll_factor * outer_reduction_unroll_factor <
@@ -334,7 +329,7 @@ std::unique_ptr<ReductionParams> innerReductionHeuristic(
 
   // Clang tidy
   constexpr int64_t kEight = 8;
-  // Cross grid reduction if we haven't hit our target blocks, and we have manyr
+  // Cross grid reduction if we haven't hit our target blocks, and we have many
   // reduction elements.
   if ((godim < target_blocks && remainder_in_reduction >= 0) ||
       (remainder_in_reduction >= kEight)) {
