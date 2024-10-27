@@ -133,7 +133,6 @@ std::unique_ptr<ReductionParams> innerReductionHeuristic(
   // reduction.
   int64_t min_target_iterations =
       std::max((int64_t)32 / (int64_t)max_input_dtype_size, (int64_t)1);
-
   // Start trying to break parallelization up across threads,
   // unrolling/iterations, and blocks.
 
@@ -311,6 +310,10 @@ std::unique_ptr<ReductionParams> innerReductionHeuristic(
       inner_most_dimension_numel,
       bdimx * inner_reduction_unroll_factor * target_iterations);
 
+  std::cout << "target_iterations: " << target_iterations
+            << " Remainder in inner dim: " << remainder_in_inner_dim
+            << std::endl;
+
   // If we haven't gotten to the max_unroll case, try to take it out of the
   // iteration domain
   if (inner_reduction_unroll_factor * outer_reduction_unroll_factor <
@@ -386,7 +389,7 @@ std::unique_ptr<ReductionParams> innerReductionHeuristic(
   rparams->cross_grid_inner_reduction = gridim > 1;
   rparams->multiple_reds_per_blk = bdimy > 1;
   bool pad_bdimx = bdimx > 16 &&
-      bdimx * bdimy <
+      bdimx * bdimy <=
           (int64_t)at::cuda::getCurrentDeviceProperties()->maxThreadsPerBlock;
   rparams->pad_inner_reduction_to_warp = pad_bdimx;
 
