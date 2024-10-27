@@ -88,7 +88,7 @@ class PointwiseParams : public HeuristicParams {
         ss << "  Split y grid dim\n";
       }
     }
-    ss << "Vectorize, Factor: " << vectorization_factor << "\n";
+    ss << "vectorization_factor: " << vectorization_factor << "\n";
     ss << "unroll_factor_outer: " << unroll_factor_outer << "\n";
     ss << "unroll_factor_inner: " << unroll_factor_inner << "\n";
     if (flip_grid_binding) {
