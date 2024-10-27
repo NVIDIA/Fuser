@@ -752,8 +752,10 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
             return std::make_unique<scheduler_utils::SchedulerHyperParameters>(
                 /*vectorize_factor=*/vectorize_factor,
                 /*unroll_factor=*/1,
-                /*threads_per_block=*/
-                InnerOuterPersistentKernelScheduler::threads_per_block_min);
+                /*threads_per_block_min=*/
+                InnerOuterPersistentKernelScheduler::threads_per_block_min,
+                /*threads_per_block_max=*/
+                InnerOuterPersistentKernelScheduler::threads_per_block_max);
           });
   scheduler_utils::SchedulerHyperParameters& hp =
       scheduler_hyperparameters_entry.get();
@@ -768,8 +770,8 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
       data_cache,
       reduction_tvs,
       hp.vectorize_factor,
-      hp.threads_per_block,
-      InnerOuterPersistentKernelScheduler::threads_per_block_max);
+      hp.threads_per_block_min,
+      hp.threads_per_block_max);
 
   std::unique_ptr<ReductionParams> rparams = innerOuterPersistentHeuristic(
       properties.total_iteration_numel,
@@ -779,8 +781,8 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
       buffer_params.smem_overhead,
       max_outer_reduction_dtype_size,
       hp.vectorize_factor,
-      hp.threads_per_block,
-      InnerOuterPersistentKernelScheduler::threads_per_block_max,
+      hp.threads_per_block_min,
+      hp.threads_per_block_max,
       buffer_params.project_to_input,
       runtime_info.getIndexType());
 
@@ -1271,8 +1273,10 @@ bool InnerOuterPersistentKernelScheduler::canScheduleRunTime(
             return std::make_unique<scheduler_utils::SchedulerHyperParameters>(
                 /*vectorize_factor=*/vectorize_factor,
                 /*unroll_factor=*/1,
-                /*threads_per_block=*/
-                InnerOuterPersistentKernelScheduler::threads_per_block_min);
+                /*threads_per_block_min=*/
+                InnerOuterPersistentKernelScheduler::threads_per_block_min,
+                /*threads_per_block_max=*/
+                InnerOuterPersistentKernelScheduler::threads_per_block_max);
           });
   scheduler_utils::SchedulerHyperParameters& hp =
       scheduler_hyperparameters_entry.get();
@@ -1284,8 +1288,8 @@ bool InnerOuterPersistentKernelScheduler::canScheduleRunTime(
       data_cache,
       reduction_tvs,
       hp.vectorize_factor,
-      hp.threads_per_block,
-      InnerOuterPersistentKernelScheduler::threads_per_block_max);
+      hp.threads_per_block_min,
+      hp.threads_per_block_max);
 
   const int64_t device_multiprocessor_count =
       (int64_t)at::cuda::getCurrentDeviceProperties()->multiProcessorCount;

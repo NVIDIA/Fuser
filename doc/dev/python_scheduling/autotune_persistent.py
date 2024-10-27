@@ -200,7 +200,8 @@ def custom_persistent_scheduler(fd, config):
             hyperparameters = fd.sched.schedule_hyperparameters()
             vectorize_factor, threads_per_block = config
             hyperparameters.vectorize_factor = vectorize_factor
-            hyperparameters.threads_per_block = threads_per_block
+            hyperparameters.threads_per_block_min = threads_per_block
+            hyperparameters.threads_per_block_max = threads_per_block
 
         # Schedule fusion
         fd.sched.schedule(SchedulerType.inner_outer_persistent)

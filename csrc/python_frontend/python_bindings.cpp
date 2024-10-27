@@ -783,7 +783,7 @@ void initNvFuserPythonBindings(PyObject* module) {
 
   py::class_<scheduler_utils::SchedulerHyperParameters> hyperparameters(
       nvfuser, "SchedulerHyperParameters");
-  hyperparameters.def(py::init<int64_t, int64_t, int64_t>());
+  hyperparameters.def(py::init<int64_t, int64_t, int64_t, int64_t>());
   hyperparameters.def_property(
       "vectorize_factor",
       [](scheduler_utils::SchedulerHyperParameters& self) {
@@ -801,13 +801,22 @@ void initNvFuserPythonBindings(PyObject* module) {
       [](scheduler_utils::SchedulerHyperParameters& self,
          int64_t unroll_factor_) { self.unroll_factor = unroll_factor_; });
   hyperparameters.def_property(
-      "threads_per_block",
+      "threads_per_block_min",
       [](scheduler_utils::SchedulerHyperParameters& self) {
-        return self.threads_per_block;
+        return self.threads_per_block_min;
       },
       [](scheduler_utils::SchedulerHyperParameters& self,
-         int64_t threads_per_block_) {
-        self.threads_per_block = threads_per_block_;
+         int64_t threads_per_block_min_) {
+        self.threads_per_block_min = threads_per_block_min_;
+      });
+  hyperparameters.def_property(
+      "threads_per_block_max",
+      [](scheduler_utils::SchedulerHyperParameters& self) {
+        return self.threads_per_block_max;
+      },
+      [](scheduler_utils::SchedulerHyperParameters& self,
+         int64_t threads_per_block_max_) {
+        self.threads_per_block_max = threads_per_block_max_;
       });
 
   //! KernelProfiles are encapsulated in FusionProfiles where each KP
@@ -3868,7 +3877,8 @@ void initNvFuserPythonBindings(PyObject* module) {
                   scheduler_utils::SchedulerHyperParameters>(
                   /*vectorize_factor=*/1,
                   /*unroll_factor=*/1,
-                  /*threads_per_block=*/1);
+                  /*threads_per_block_min=*/1,
+                  /*threads_per_block_max=*/1);
             });
         return scheduler_hyperparameters_entry.get();
       },

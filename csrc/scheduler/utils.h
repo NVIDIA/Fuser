@@ -181,10 +181,12 @@ struct SchedulerHyperParameters {
   SchedulerHyperParameters(
       int64_t vectorize_factor_,
       int64_t unroll_factor_,
-      int64_t threads_per_block_)
+      int64_t threads_per_block_min_,
+      int64_t threads_per_block_max_)
       : vectorize_factor(vectorize_factor_),
         unroll_factor(unroll_factor_),
-        threads_per_block(threads_per_block_) {}
+        threads_per_block_min(threads_per_block_min_),
+        threads_per_block_max(threads_per_block_max_) {}
 
   //! Number of elements to load per vectorize load.
   int64_t vectorize_factor = 1;
@@ -192,8 +194,11 @@ struct SchedulerHyperParameters {
   //! Number of iterations to unroll for-loop.
   int64_t unroll_factor = 1;
 
-  //! Number of threads per block.
-  int64_t threads_per_block = 1;
+  //! Minimum number of threads per block.
+  int64_t threads_per_block_min = 1;
+
+  //! Maximum number of threads per block.
+  int64_t threads_per_block_max = 1;
 };
 
 struct PersistentBufferInfo {
