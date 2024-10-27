@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2024-present NVIDIA CORPORATION & AFFILIATES.
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 # Owner(s): ["module: nvfuser"]
@@ -60,8 +60,8 @@ empirical_hidden_sizes = list(range(1024, 28672, 256))
 # empirical_hidden_sizes = list(range(256, 22784, 256))
 
 
-# Create input arguments for nvfuser fusion and eager mode
 def create_inputs(shape):
+    """Create input arguments for nvfuser fusion and eager mode"""
     a = torch.randn(*shape, dtype=torch.bfloat16, device="cuda", requires_grad=True)
     grads = torch.randn(*shape, dtype=torch.bfloat16, device="cuda")
     weights = torch.randn(
@@ -364,6 +364,7 @@ print("=====================================================================")
 import matplotlib.pyplot as plt
 import numpy as np
 
+# Avoid reusing any cached, user-scheduled fusions to have a clean run.
 FusionCache.reset()
 est_perfs = []
 for hidden_shape in empirical_hidden_sizes:

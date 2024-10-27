@@ -174,7 +174,7 @@ inline void parallelizeAllLike(
 }
 
 // Common hyperparameters used in heuristic scheduler. These hyperparameters
-// are passed to SchedulerEntry::computeHeurisitcs through the
+// are passed to SchedulerEntry::computeHeuristics through the
 // HeuristicDataCache. These hyperparameters alter the generation of the
 // HeuristicParams for the scheduler.
 struct SchedulerHyperParameters {
