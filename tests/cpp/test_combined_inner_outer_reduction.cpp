@@ -926,4 +926,50 @@ TEST_F(CombinedSchedulerTest, InnerOuterNoOuterBroadcastTv) {
       "",
       persistent_params->lparams);
 }
+
+using InnerOuterReshapeTest = NVFuserFixtureParamTest<bool>;
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    InnerOuterReshapeTest,
+    testing::Bool(),
+    testing::PrintToStringParamName());
+TEST_P(InnerOuterReshapeTest, ReshapeOuterDimTrueOrFalse) {
+  auto reshape_outer_dim = GetParam();
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  // reshape a 3D input tensor to 2D
+  // [4, 1024, 4096] -> [4096, 4096]
+  // [4096, 4, 1024] -> [4096, 4096]
+  const int dim0 = reshape_outer_dim ? 4 : 4096;
+  const int dim1 = reshape_outer_dim ? 1024 : 4;
+  const int dim2 = reshape_outer_dim ? 4096 : 1024;
+  auto dtype = DataType::Half;
+  auto tv0 = makeContigTensor(3, dtype);
+  fusion.addInput(tv0);
+  auto tv1 = castOp(DataType::Float, tv0);
+
+  auto tv4 = reshape(tv1, {dim0, dim1, dim2}, {4096, 4096});
+
+  auto tv5 = sum(tv4, {1});
+  auto tv6 = broadcast(tv5, {false, true});
+  auto tv7 = add(tv6, tv4);
+  auto tv8 = sum(tv4, {0});
+  auto tv9 = castOp(DataType::Half, tv7);
+  auto tv10 = castOp(DataType::Half, tv8);
+  fusion.addOutput(tv9);
+  fusion.addOutput(tv10);
+
+  Fusion fusion_copy = fusion;
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({dim0, dim1, dim2}, options);
+  std::vector<c10::IValue> aten_inputs = {t0};
+  auto cg_results =
+      scheduleAndRun(&fusion, SchedulerType::InnerOuterPersistent, aten_inputs);
+  auto persistent_params = cg_results.heuristic_params->as<ReductionParams>();
+  ASSERT_FALSE(persistent_params->project_persistent_buffers);
+  testValidate(
+      &fusion_copy, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
