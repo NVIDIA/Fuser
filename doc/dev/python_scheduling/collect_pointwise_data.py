@@ -6,7 +6,7 @@
 import torch
 import itertools
 import numpy as np
-from nvfuser import FusionDefinition, SchedulerType
+from nvfuser import FusionCache, FusionDefinition, SchedulerType
 
 # ============================ Description ============================
 
@@ -297,6 +297,7 @@ def run(args):
             save(args.save_path, data, interval)
             interval += 1
             data.clear()
+            FusionCache.clear()
 
         num_ops, mufu_indices, input_shapes = fusion_config
         vectorize_factor, unroll_factor = scheduler_config
@@ -319,7 +320,7 @@ def run(args):
             sys.exit()
         except (AssertionError, RuntimeError):
             print(
-                f"Warning: failed to run fusion given {input_tensors} and configuration {scheduler_config}"
+                f"Warning: failed to run fusion given {input_shapes} and configuration {scheduler_config}"
             )
             continue
 
