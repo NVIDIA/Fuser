@@ -725,4 +725,6 @@ std::string nullOrToString(const Statement* stmt);
 //! toInlineString()
 std::string nullOrToInlineString(const Statement* stmt);
 
+std::vector<IterDomain*> getSqueezedSlices(Fusion* fusion);
+
 } // namespace nvfuser::ir_utils

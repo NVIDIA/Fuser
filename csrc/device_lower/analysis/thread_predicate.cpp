@@ -11,6 +11,8 @@
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
 #include <id_model/id_model.h>
+#include <id_model/indexing_traversal.h>
+#include <id_model/utils.h>
 #include <instrumentation.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
@@ -337,6 +339,40 @@ void ThreadPredicateMap::updateBitSet(const Expr* expr) {
   }
 }
 
+namespace {
+std::vector<IterDomain*> getUsedLoopIds(
+    TensorView* tv,
+    IterDomain* singular_id) {
+  const auto& id_model = GpuLower::current()->idModel();
+  const auto& index_graph =
+      id_model.idGraph(TensorIndexer::traversalGraphType());
+  ValGroups loop_groups;
+  for (const auto loop_id : tv->getLoopDomain()) {
+    loop_groups.pushBack(
+        index_graph.toGroup(getLoopPromotion(loop_id, id_model)));
+  }
+
+  ValGroups singular_group;
+  singular_group.pushBack(index_graph.toGroup(singular_id));
+
+  auto expr_path = IndexingTraversal::getExprsBetween(
+      tv->definition(), index_graph, loop_groups, singular_group);
+
+  auto expr_path_inputs = getInputsOfExprPath(index_graph, expr_path);
+
+  std::vector<IterDomain*> used_loop_ids;
+  for (const auto loop_id : tv->getLoopDomain()) {
+    const auto& loop_group =
+        index_graph.toGroup(getLoopPromotion(loop_id, id_model));
+    if (expr_path_inputs.has(loop_group)) {
+      used_loop_ids.push_back(loop_id);
+    }
+  }
+
+  return used_loop_ids;
+}
+} // namespace
+
 void ThreadPredicateMap::trackSqueezedSlice(const Expr* expr) {
   // IdModel is required.
   if (!GpuLower::current()->hasIdModel()) {
@@ -349,9 +385,23 @@ void ThreadPredicateMap::trackSqueezedSlice(const Expr* expr) {
       GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT);
 
   // Propagate all input singular domains
-  ValGroups singular_domains;
+  std::vector<SingularIdInfo> singular_ids;
+  std::unordered_map<IterDomain*, SingularIdInfo> info_map;
+  std::vector<IterDomain*> singular_id_order;
+
   for (const auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
-    singular_domains.pushBack(at(input).singular_domains);
+    const auto& inp_singular_ids = at(input).singular_ids;
+    for (const auto& info : inp_singular_ids) {
+      if (auto it = info_map.find(info.id); it != info_map.end()) {
+        // If the same ID is detecte, they should represent the same
+        // singular ID
+        NVF_ERROR(it->second == info, "Invalid singular id info");
+      } else {
+        singular_ids.push_back(info);
+        info_map.emplace(info.id, info);
+        singular_id_order.push_back(info.id);
+      }
+    }
   }
 
   // Add a new singular domain if this is a squeeze op of a slice output
@@ -377,25 +427,43 @@ void ThreadPredicateMap::trackSqueezedSlice(const Expr* expr) {
           exact_graph.disjointValSets().disjointSets(),
           /*require_all_to_visited=*/false,
           Direction::Backward);
-      if (std::any_of(
+      if (std::none_of(
               all_exprs.begin(),
               all_exprs.end(),
               [](const auto& path_component) {
                 Expr* expr = path_component.first->front();
                 return expr->isA<Resize>();
               })) {
-        std::cerr << "Squeezed slice detected: " << squeezed_id->toString()
-                  << "\n";
-        singular_domains.pushBack(squeezed_vg);
+        continue;
       }
+
+      std::cerr << "Squeezed slice detected: " << squeezed_id->toString()
+                << "\n";
+      // This should be a new singular ID
+      NVF_ERROR(
+          info_map.find(squeezed_id) == info_map.end(),
+          "ID is already a singular ID. ",
+          squeezed_id->toString());
+
+      auto used_loop_ids = getUsedLoopIds(inp_tv, squeezed_id);
+      SingularIdInfo info{squeezed_id, used_loop_ids};
+      singular_ids.emplace_back(info);
+      info_map.emplace(squeezed_id, info);
+      singular_id_order.push_back(squeezed_id);
     }
+  }
+
+  std::vector<SingularIdInfo> ordered_info;
+  ordered_info.reserve(singular_id_order.size());
+  for (IterDomain* ordered_singular_id : singular_id_order) {
+    ordered_info.emplace_back(info_map.at(ordered_singular_id));
   }
 
   // Propagate the singular domains to all output tensors
   for (const auto output :
        ir_utils::filterByType<TensorView>(expr->outputs())) {
     ThreadPredicateInfo& output_info = at(output);
-    output_info.singular_domains = singular_domains;
+    output_info.singular_ids = ordered_info;
   }
 }
 
@@ -933,12 +1001,18 @@ void ThreadPredicateMap::print() const {
   Fusion* fusion = thread_predicates_.begin()->first->fusion();
   for (const auto& tv : fusion->allTvs()) {
     const auto& info = at(tv);
-    debug() << "T" << tv->name()
-            << " limited types: " << info.limited_types.toString()
-            << ", redundant types: " << info.redundant_types.toString()
-            << ", redundant use types: " << info.redundant_use_types.toString()
-            << ", singular domains: "
-            << nvfuser::toString(info.singular_domains) << "\n";
+    std::stringstream ss;
+    ss << "T" << tv->name()
+       << " limited types: " << info.limited_types.toString()
+       << ", redundant types: " << info.redundant_types.toString()
+       << ", redundant use types: " << info.redundant_use_types.toString()
+       << ", singular ids:";
+    for (const auto& info : info.singular_ids) {
+      ss << " {" << info.id->toString() << ": "
+         << toDelimitedString(info.used_loop_ids) << "}";
+    }
+    ss << "\n";
+    debug() << ss.str();
   }
   debug() << "--------------------------------\n\n";
 }

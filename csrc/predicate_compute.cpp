@@ -477,7 +477,6 @@ Val* PredicateCompute::getInlinePredicate(
   preds.push_back(parallel_dom_pred);
 
   if (thread_pred != nullptr) {
-    std::cerr << "Thread predicate: " << thread_pred->toInlineString() << "\n";
     preds.push_back(thread_pred);
   }
 
@@ -665,8 +664,6 @@ void UnswitchPredicate::addParallelizedDomainPredicates(Expr* tv_expr) {
             .first->second;
     for (auto id : new_info.ids()) {
       if (predicated.addDomain(id)) {
-        std::cerr << "Parallel domain predicate: "
-                  << new_info.getPredicate()->toInlineString() << "\n";
         predicates_.push_back(new_info.getPredicate());
       }
     }

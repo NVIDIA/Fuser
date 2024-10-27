@@ -9,12 +9,15 @@
 #include <id_model/indexing_utils.h>
 #include <id_model/predicate_indexing.h>
 #include <id_model/utils.h>
+#include <val_graph_visitor.h>
 
 namespace nvfuser {
 
 std::vector<IterDomain*> getPredicateDomains(
     TensorView* consumer_tv,
-    const Expr* expr) {
+    const Expr* expr,
+    const std::vector<IterDomain*>& loop_ids,
+    const ValGraph& traversal_graph) {
   // Logical domains should be the domains to predicate as they define
   // the logical shape of a tensor. However, in the case of rfactored
   // reductions, rfactor splits may not be divisible, thus root
@@ -25,15 +28,47 @@ std::vector<IterDomain*> getPredicateDomains(
       ? consumer_tv->getMaybeRootDomain()
       : consumer_tv->getLogicalDomain();
 
+  // To index, it must be reachable within each tensor
+#if 0
+  auto reachable_vals = ValGraphBFS::getReachableValsFrom(
+      traversal_graph,
+      traversal_graph.toGroups(loop_ids),
+      traversal_graph.toGroups(predicate_domains));
+
   // Broadcast domains should not need to be predicated. Note that
-  // unlike indexing for TensorIndex, reduction doamins do need to be
+  // unlike indexing for TensorIndex, reduction domains do need to be
   // indexed to guard the access to the producer tensor
   predicate_domains.erase(
       std::remove_if(
           predicate_domains.begin(),
           predicate_domains.end(),
-          [](IterDomain* id) -> bool { return id->isBroadcast(); }),
+          [&](IterDomain* id) -> bool {
+            auto b = id->isBroadcast() &&
+                !reachable_vals.has(traversal_graph.toGroup(id));
+            return b;
+          }),
       predicate_domains.end());
+#else
+  auto reachable_vals = IRBFS::getReachableValsFrom(
+      {loop_ids.begin(), loop_ids.end()},
+      {predicate_domains.begin(), predicate_domains.end()});
+
+  // Broadcast domains should not need to be predicated. Note that
+  // unlike indexing for TensorIndex, reduction domains do need to be
+  // indexed to guard the access to the producer tensor
+  predicate_domains.erase(
+      std::remove_if(
+          predicate_domains.begin(),
+          predicate_domains.end(),
+          [&](IterDomain* id) -> bool {
+            auto b = id->isBroadcast() &&
+                std::find(reachable_vals.begin(), reachable_vals.end(), id) ==
+                    reachable_vals.end();
+            return b;
+          }),
+      predicate_domains.end());
+
+#endif
 
   // If this is an expr initializing a buffer for a reduction, the
   // reduction domains do not need to be predicated. In fact, if it's

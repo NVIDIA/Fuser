@@ -8,6 +8,8 @@
 #include <device_lower/utils.h>
 #include <expr_simplifier.h>
 #include <fusion.h>
+#include <id_model/id_model.h>
+#include <id_model/to_string.h>
 #include <ir/builder.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
@@ -822,6 +824,11 @@ CompareDomainResult compareDomains(
   auto exprs = IRBFS::getExprsBetween(
       {dom0.begin(), dom0.end()}, {dom1.begin(), dom1.end()}, false);
 
+  std::cerr << "Exrs:\n";
+  for (const auto& [expr, dir] : exprs) {
+    std::cerr << dir << " " << expr->toString();
+  }
+
   std::unordered_set<Val*> frontier(dom0.begin(), dom0.end());
 
   for (auto [expr, direction] : exprs) {
@@ -842,16 +849,20 @@ CompareDomainResult compareDomains(
       from = expr->outputs();
       to = expr->inputs();
     }
+#if 0
     if (std::all_of(from.begin(), from.end(), [&](Val* v) {
           return additional_ids_set.count(v);
         })) {
       additional_ids_set.insert(to.begin(), to.end());
       continue;
     }
+#endif
     for (auto v : to) {
+#if 0
       if (additional_ids_set.count(v)) {
         continue;
       }
+#endif
       NVF_ERROR(
           frontier.insert(v).second,
           "Invalid derived domain due to dependent expr: ",
@@ -948,8 +959,6 @@ CompareDomainResult compareDomains(
           !dom1_set.count(frontier_id)) {
         continue;
       }
-
-      std::cerr << "Not found: " << frontier_id->toString() << "\n";
 
       bool frontier_id_unreachable =
           IRBFS::getReachableValsFrom({dom1.begin(), dom1.end()}, {frontier_id})
@@ -1196,6 +1205,68 @@ std::string nullOrToString(const Statement* val) {
 
 std::string nullOrToInlineString(const Statement* id) {
   return id ? id->toInlineString() : "nullptr";
+}
+
+std::vector<IterDomain*> getSqueezedSlices(Fusion* fusion) {
+  IdModel id_model(fusion, /*build_graphs=*/false);
+  const auto& graph = id_model.buildExactGraph();
+
+  ValGroups slice_groups;
+  std::unordered_map<ValGroup, IterDomain*> slice_id_map;
+
+  std::vector<IterDomain*> squeezed_slices;
+
+  for (auto expr : fusion->exprs()) {
+    if (auto slice = dynamic_cast<SliceOp*>(expr)) {
+      auto output_tv = expr->output(0)->as<TensorView>();
+      for (const auto logical_id : output_tv->getLogicalDomain()) {
+        auto resize = dynamic_cast<Resize*>(logical_id->definition());
+        if (resize == nullptr) {
+          continue;
+        }
+
+        if (!resize->out()->isBroadcast()) {
+          continue;
+        }
+
+        // Can the input be a broadcast?
+        NVF_ERROR(
+            !resize->in()->isBroadcast(),
+            "Unexpected broadcast input: ",
+            resize->in()->toString());
+
+        auto slice_id = resize->out();
+        const auto& slice_group = graph.toGroup(slice_id);
+        std::cerr << "Registering slice: " << slice_id->toString() << ", "
+                  << nvfuser::toString(slice_group) << "\n";
+        slice_groups.pushBack(slice_group);
+        slice_id_map.emplace(slice_group, slice_id);
+      }
+    } else if (auto squeeze = dynamic_cast<SqueezeOp*>(expr)) {
+      auto input_tv = expr->input(0)->as<TensorView>();
+      for (const auto i : c10::irange(input_tv->getLogicalDomain().size())) {
+        if (!squeeze->isSqueezeDim(i)) {
+          continue;
+        }
+
+        auto squeezed_id = input_tv->getLogicalDomain().at(i);
+        NVF_CHECK(squeezed_id->isBroadcast());
+        const ValGroup& squeezed_group = graph.toGroup(squeezed_id);
+
+        if (slice_groups.has(squeezed_group)) {
+          auto slice_id_map_it = slice_id_map.find(squeezed_group);
+          NVF_CHECK(
+              slice_id_map_it != slice_id_map.end(),
+              "Cannot find the corresponding IterDomain for ",
+              nvfuser::toString(squeezed_group));
+
+          squeezed_slices.push_back(slice_id_map_it->second);
+        }
+      }
+    }
+  }
+
+  return squeezed_slices;
 }
 
 } // namespace nvfuser::ir_utils

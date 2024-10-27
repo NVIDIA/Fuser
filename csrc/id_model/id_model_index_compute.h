@@ -9,6 +9,7 @@
 
 #include <dispatch.h>
 #include <id_model/id_model.h>
+#include <id_model/to_string.h>
 
 namespace nvfuser {
 
@@ -62,7 +63,16 @@ class IdGraphIndexCompute : public OptOutDispatch {
   }
 
   void setIndex(IterDomain* id, Val* idx) {
-    index_map_.emplace(toGroup(id), idx);
+    const auto& group = toGroup(id);
+    if (auto it = index_map_.find(group); it != index_map_.end()) {
+      std::cerr << "Updating index for " << id->toString() << " ("
+                << nvfuser::toString(group) << "): " << idx->toInlineString()
+                << "\n";
+      it->second = idx;
+      NVF_ERROR(index_map_.at(group) == idx);
+    } else {
+      index_map_.emplace(toGroup(id), idx);
+    }
   }
 
   const ValGroup& toGroup(IterDomain* id) const {

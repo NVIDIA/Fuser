@@ -97,6 +97,9 @@ void IdGraphIndexCompute::handle(Resize* resize) {
     out_idx = SimplifyingIrBuilder::subExpr(in_idx, left_expand);
   }
 
+  std::cerr << "setIndex: " << out_id->toString() << ", "
+            << out_idx->toInlineString() << "\n";
+
   setIndex(out_id, out_idx);
 }
 

@@ -4374,8 +4374,6 @@ TEST_F(ResizeTest, RoPEFullBF16Global) {
 
   std::cerr << "input shape: " << input_shape << "\n";
 
-  std::unordered_set<TensorView*> tvs_to_vectorize;
-
   // qkv after permutation
   auto tv0 = makeContigConcreteTensor(input_shape, DataType::BFloat16);
   fusion.addInput(tv0);
@@ -4408,6 +4406,8 @@ TEST_F(ResizeTest, RoPEFullBF16Global) {
   int64_t qkv_slice_dim = 3;
 
   [[maybe_unused]] auto slice_arg_q = slice_default_arg;
+  // slice_arg_q[qkv_slice_dim].stop = IrBuilder::create<Val>(total_qkv
+  //- 2);
   slice_arg_q[qkv_slice_dim].stop = IrBuilder::create<Val>(total_qkv - 2);
 
   [[maybe_unused]] auto slice_arg_k = slice_default_arg;
@@ -4439,25 +4439,35 @@ TEST_F(ResizeTest, RoPEFullBF16Global) {
         IrBuilder::create<Val>(rope_n_elem / rotation_num_splits);
     auto x1 = slice(x, x1_slice_arg);
     std::cerr << "x1: " << x1->definition()->toString() << "\n";
-    tvs_to_vectorize.emplace(x1);
 
     // x2
     auto x2_slice_arg = slice_arg;
     x2_slice_arg.back().start =
         IrBuilder::create<Val>(rope_n_elem / rotation_num_splits);
-    auto x2 = slice(x, x2_slice_arg);
+    [[maybe_unused]] auto x2 = slice(x, x2_slice_arg);
     std::cerr << "x2: " << x2->definition()->toString() << "\n";
-    tvs_to_vectorize.emplace(x2);
 
-    TensorView* rotated = cat({x2, x1}, -1);
+    TensorView* rotated = nullptr;
+    if (getenv("NO_ROTATION")) {
+      rotated = cat({x1, x2}, -1);
+    } else {
+      rotated = cat({x2, x1}, -1);
+    }
 
-    std::vector<bool> bcast_flags{true, false, true, true, false};
-    auto cos_broadcast = broadcast(cos, bcast_flags);
-    auto sin_broadcast = broadcast(sin, bcast_flags);
-    auto x_cache = slice(x, slice_arg); // vec
-    tvs_to_vectorize.emplace(x_cache);
+    [[maybe_unused]] auto x_cache = slice(x, slice_arg);
 
-    auto out = add(mul(x_cache, cos_broadcast), mul(rotated, sin_broadcast));
+    [[maybe_unused]] std::vector<bool> bcast_flags{
+        true, false, true, true, false};
+    [[maybe_unused]] auto cos_broadcast = broadcast(cos, bcast_flags);
+    [[maybe_unused]] auto sin_broadcast = broadcast(sin, bcast_flags);
+
+    TensorView* out = nullptr;
+    if (getenv("NO_COS")) {
+      out = add(x_cache, rotated);
+    } else {
+      out = add(mul(x_cache, cos_broadcast), mul(rotated, sin_broadcast));
+    }
+
     std::cerr << "apply_rope_result: " << out->toString() << "\n";
 
     std::vector<int64_t> cur_shape = input_shape;
@@ -4470,17 +4480,13 @@ TEST_F(ResizeTest, RoPEFullBF16Global) {
   };
 
   [[maybe_unused]] auto q_out = apply_rope(qkv, true, slice_arg_q);
-  q_out = set(q_out);
   if (!getenv("NO_Q")) {
     fusion.addOutput(q_out);
-    tvs_to_vectorize.emplace(q_out);
   }
 
   [[maybe_unused]] auto k_out = apply_rope(qkv, false, slice_arg_k);
-  k_out = set(k_out);
   if (!getenv("NO_K")) {
     fusion.addOutput(k_out);
-    tvs_to_vectorize.emplace(k_out);
   }
 
   // Not used but just for clarity

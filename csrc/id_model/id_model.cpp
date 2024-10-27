@@ -175,9 +175,6 @@ void IdModel::buildIterDomainDefinitionsAndUses() {
   for (const auto tv : tvs_) {
     std::vector<IterDomain*> all_ids = tv->domain()->allIDs();
 
-    std::cerr << "TV: " << tv->toString() << ": " << toDelimitedString(all_ids)
-              << "\n";
-
     // Check if this domain is a consumer of a view-like operation
     const bool view_like_domain = tv->domain()->hasViewLikeRFactor();
 

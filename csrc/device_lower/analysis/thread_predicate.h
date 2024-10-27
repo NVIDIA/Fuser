@@ -20,6 +20,14 @@
 
 namespace nvfuser {
 
+struct SingularIdInfo {
+  IterDomain* id = nullptr;
+  std::vector<IterDomain*> used_loop_ids;
+  bool operator==(const SingularIdInfo& other) const {
+    return id == other.id && used_loop_ids == other.used_loop_ids;
+  }
+};
+
 //! Thread predicate information for each tensor
 struct ThreadPredicateInfo {
   // Parallel types where only one thread/block is valid.
@@ -51,7 +59,7 @@ struct ThreadPredicateInfo {
   ParallelTypeBitmap redundant_use_types;
 
   // TODO:
-  ValGroups singular_domains;
+  std::vector<SingularIdInfo> singular_ids;
 
   bool operator==(const ThreadPredicateInfo& other) const {
     return limited_types == other.limited_types &&

@@ -10,6 +10,7 @@
 #include <id_model/id_model.h>
 #include <id_model/schedule.h>
 #include <ir/internal_nodes.h>
+#include <ir/utils.h>
 #include <scheduler/tools/loop_domain_scheduler.h>
 #include <val_graph_visitor.h>
 
@@ -125,6 +126,18 @@ class LoopDomainScheduler {
         graph().disjointValSets().disjointSets();
     all_ancestors_of_ref_ = ValGraphBFS::getReachableValsFrom(
         graph(), ref_id_groups_, all_val_groups, Direction::Backward);
+
+    squeezed_slices_ =
+        ir_utils::getSqueezedSlices(ref_loop_dom_.front()->fusion());
+
+    for (auto squeezed_slice : squeezed_slices_) {
+      auto path = ValGraphBFS::getExprsBetween(
+          graph(),
+          ref_id_groups_,
+          graph().toGroups(std::vector<IterDomain*>{squeezed_slice}),
+          /*require_all_to_visited=*/false);
+      squeezed_slice_paths_.emplace(squeezed_slice, path);
+    }
   }
 
   // Create the loop domain of a given tensor as specified by the
@@ -185,6 +198,8 @@ class LoopDomainScheduler {
   std::unique_ptr<IdModel> id_model_;
   ValGroups ref_id_groups_;
   ValGroups all_ancestors_of_ref_;
+  std::vector<IterDomain*> squeezed_slices_;
+  std::unordered_map<IterDomain*, ValGraphBFS::ExprPath> squeezed_slice_paths_;
 };
 
 void LoopDomainScheduler::schedule(TensorView* tv) const {
@@ -555,7 +570,7 @@ void LoopDomainScheduler::replaceAndAppend(TensorView* tv) const {
     }
   }
 
-  const auto path_from_ref =
+  auto path_from_ref =
       resize_war ? resize_path_from_ref.value() : getReplayPath(tv, false);
 
   const ExprGroups all_existing_expr_groups =
@@ -582,6 +597,33 @@ void LoopDomainScheduler::replaceAndAppend(TensorView* tv) const {
     auto it = group_to_id.find(ref_id_group);
     NVF_ERROR(it != group_to_id.end());
     new_loop_domain.push_back(it->second);
+  }
+
+  std::unordered_map<IterDomain*, IterDomain*> squeezed_slice_new_id_map;
+  for (IterDomain* squeezed_slice : squeezed_slices_) {
+    if (path_outputs.has(graph().toGroup(squeezed_slice))) {
+      // Should be already included
+      continue;
+    }
+
+    // Need this squeezed_slice included in this tensor. Uncertain if
+    // using an additional broadcast is a good approach...
+    // Insert a broadcast at the innermost position
+    tv->broadcast(-1);
+    auto inserted_broadcast = tv->getLoopDomain().back();
+    std::cerr << "New inserted broadcast: " << inserted_broadcast->toString()
+              << "\n";
+    // tv->fusion()->registerExactMapping(squeezed_slice, inserted_broadcast);
+    NVF_ERROR(
+        squeezed_slice_new_id_map.emplace(squeezed_slice, inserted_broadcast)
+            .second);
+
+    const auto& path_to_squeezed_slice =
+        squeezed_slice_paths_.at(squeezed_slice);
+    path_from_ref.insert(
+        path_from_ref.end(),
+        path_to_squeezed_slice.begin(),
+        path_to_squeezed_slice.end());
   }
 
   // Replay the path on the target tensor
@@ -613,11 +655,26 @@ void LoopDomainScheduler::replaceAndAppend(TensorView* tv) const {
         continue;
       }
 
-      // No need to force exact mapping since this clone is going to
-      // be connected with tv
-      auto clone = representativeId(output_g)->cloneWithoutRFactor();
+      // If this is a squeezed slice, it may be available as an
+      // additional id
+      IterDomain* output_id = nullptr;
+
+      for (auto squeezed_slice : squeezed_slices_) {
+        if (!output_g->has(squeezed_slice)) {
+          continue;
+        }
+
+        output_id = squeezed_slice_new_id_map.at(squeezed_slice);
+      }
+
+      if (output_id == nullptr) {
+        // No need to force exact mapping since this clone is going to
+        // be connected with tv
+        output_id = representativeId(output_g)->cloneWithoutRFactor();
+      }
+
       all_id_groups.pushBack(output_g);
-      group_to_id.emplace(output_g, clone);
+      group_to_id.emplace(output_g, output_id);
     }
 
     std::cerr << "Replaying inputs: " << nvfuser::toString(input_groups)

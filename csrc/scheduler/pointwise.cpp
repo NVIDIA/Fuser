@@ -571,6 +571,19 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   fusion->printMath();
   std::cout << std::endl;
 
+  for (auto tv : fusion->allTvs()) {
+    std::cerr << "Scheduled TV: " << tv->toString() << "\n";
+    if (tv->hasRoot()) {
+      std::cerr << "Root: " << toDelimitedString(tv->getRootDomain()) << "\n";
+    }
+    std::cerr << "Logical: " << toDelimitedString(tv->getLogicalDomain())
+              << "\n";
+    std::cerr << "Loop: " << toDelimitedString(tv->getLoopDomain()) << "\n";
+    for (auto expr : tv->domain()->allExprs()) {
+      std::cerr << expr->toString();
+    }
+  }
+
   scheduler_utils::prepareForMemoryTypePromotion(fusion);
 
   refineCachePolicy(fusion);
@@ -773,6 +786,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
 
   int64_t unswitch_pos = 0;
   IterDomain* vectorize_id = nullptr;
+  std::cerr << "Break point: " << pparams->break_point << "\n";
   if (pparams->break_point) {
     // 2D parallelization scheme
     NVF_ERROR(rhs_i >= 0 && lhs_i >= 0);
@@ -787,7 +801,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
       reference_tv->split(1, NamedScalar::getParallelDim(ParallelType::TIDx));
       reference_tv->split(0, 1);
       // [outer, Unswitch | i-remainder, TIDx, Vectorization]
-      reference_tv->axis(1)->parallelize(ParallelType::Unswitch);
+      // reference_tv->axis(1)->parallelize(ParallelType::Unswitch);
       reference_tv->axis(3)->parallelize(ParallelType::TIDx);
       // Vectorization are propagated separately
       vectorize_id = reference_tv->axis(4);
@@ -814,15 +828,15 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
       reference_tv->reorder({{3, 1}});
       // [o-remainder, i-remainder, Unswitch, Unroll, TIDx, Vect]
 
-      reference_tv->axis(2)->parallelize(ParallelType::Unswitch);
-      // Here we do not set axis(3)->parallelize(Unroll) because we do not want
-      // it to be propagated. We manually unroll by splitting the inline
-      // propagation process into two steps:
-      // step 1: inline at the unswitch position for cached inputs and outputs
-      // step 2: inline at the inner most dim for the rest of the graph
+      // reference_tv->axis(2)->parallelize(ParallelType::Unswitch);
+      //  Here we do not set axis(3)->parallelize(Unroll) because we do not want
+      //  it to be propagated. We manually unroll by splitting the inline
+      //  propagation process into two steps:
+      //  step 1: inline at the unswitch position for cached inputs and outputs
+      //  step 2: inline at the inner most dim for the rest of the graph
       reference_tv->axis(4)->parallelize(ParallelType::TIDx);
       if (pparams->vectorization_factor > 1) {
-        vectorize_id = reference_tv->axis(5);
+        // vectorize_id = reference_tv->axis(5);
       }
       // [o-remainder, i-remainder, Unswitch, Unroll, TIDx, Vect]
     }
@@ -911,8 +925,8 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
 
       reference_tv->axis(0)->parallelize(ParallelType::BIDx);
       reference_tv->axis(1)->parallelize(ParallelType::TIDx);
-      reference_tv->axis(2)->parallelize(ParallelType::Unswitch);
-      // Vectorization are propagated separately
+      // reference_tv->axis(2)->parallelize(ParallelType::Unswitch);
+      //  Vectorization are propagated separately
       vectorize_id = reference_tv->axis(3);
 
       //[BIDx, TIDx, Unswitch, Vectorization]
@@ -933,12 +947,12 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
 
       // [BIDx, Unswitch, Unroll, TIDx, Vect]
       reference_tv->axis(0)->parallelize(ParallelType::BIDx);
-      reference_tv->axis(1)->parallelize(ParallelType::Unswitch);
-      // Here we do not set axis(2)->parallelize(Unroll) because we do not want
-      // it to be propagated. We manually unroll by splitting the inline
-      // propagation process into two steps:
-      // step 1: inline at the unswitch position for cached inputs and outputs
-      // step 2: inline at the inner most dim for the rest of the graph
+      // reference_tv->axis(1)->parallelize(ParallelType::Unswitch);
+      //  Here we do not set axis(2)->parallelize(Unroll) because we do not want
+      //  it to be propagated. We manually unroll by splitting the inline
+      //  propagation process into two steps:
+      //  step 1: inline at the unswitch position for cached inputs and outputs
+      //  step 2: inline at the inner most dim for the rest of the graph
       reference_tv->axis(3)->parallelize(ParallelType::TIDx);
       if (pparams->vectorization_factor > 1) {
         vectorize_id = reference_tv->axis(4);
@@ -961,10 +975,23 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
       fusion->allTvs(), reference_tv->getLoopDomain());
 #endif
 
-  std::cout << "Scheduling done\n";
+  std::cout << "Reference scheduling propagated\n";
   fusion->printMath();
   fusion->print();
   std::cout << std::endl;
+
+  for (auto tv : fusion->allTvs()) {
+    std::cerr << "Final scheduled TV: " << tv->toString() << "\n";
+    if (tv->hasRoot()) {
+      std::cerr << "Root: " << toDelimitedString(tv->getRootDomain()) << "\n";
+    }
+    std::cerr << "Logical: " << toDelimitedString(tv->getLogicalDomain())
+              << "\n";
+    std::cerr << "Loop: " << toDelimitedString(tv->getLoopDomain()) << "\n";
+    for (auto expr : tv->domain()->allExprs()) {
+      std::cerr << expr->toString();
+    }
+  }
 
   {
     IdModel id_model(fusion);
@@ -994,7 +1021,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     if (!vectorized_tvs.empty()) {
       // Aggressively mark with vectorized and cleanup later. That way we
       // don't have to manually specify parallelization outside the reference.
-      vectorize_id->parallelize(ParallelType::Vectorize);
+      // vectorize_id->parallelize(ParallelType::Vectorize);
       scheduler_utils::parallelizeAllLike(
           reference_tv, vectorized_tvs, {ParallelType::Vectorize});
       if (!should_vectorize_reference_tv) {

@@ -195,6 +195,14 @@ class BFS {
           }
         }
       }
+      ss << " (from: ";
+      for (const auto& from : from_) {
+        ss << " " << toString(from);
+        if (const ExprT* e = std::get_if<ExprT>(&from)) {
+          ss << " " << toString(*e);
+        }
+      }
+      ss << ")";
       NVF_THROW("BFS traversal could not visit some nodes: ", ss.str());
     }
   }
