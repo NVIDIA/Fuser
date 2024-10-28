@@ -5086,7 +5086,7 @@ TEST_F(ResizeTest, ReshapeBeforeSlice2) {
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
 
-TEST_F(ResizeTest, ReshapeSliceSlice) {
+TEST_F(ResizeTest, RoPEFull) {
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
@@ -5099,6 +5099,7 @@ TEST_F(ResizeTest, ReshapeSliceSlice) {
   int64_t head_size = 128;
   int64_t n_query_groups = 32;
   int64_t rope_n_elem = 128;
+  int64_t batches = 2;
   int64_t seq_length = 4096;
 
   int64_t q_per_kv = n_head / n_query_groups;
@@ -5115,13 +5116,13 @@ TEST_F(ResizeTest, ReshapeSliceSlice) {
   }
 
   std::vector<int64_t> shape_before_reshape{
-      seq_length, head_size * (n_head + 2 * n_query_groups)};
+      batches, seq_length, head_size * (n_head + 2 * n_query_groups)};
   std::vector<int64_t> shape_before_permutation{
-      seq_length, n_query_groups, total_qkv, head_size};
+      batches, seq_length, n_query_groups, total_qkv, head_size};
   std::vector<int64_t> shape_after_permutation{
-      n_query_groups, total_qkv, seq_length, head_size};
+      batches, n_query_groups, total_qkv, seq_length, head_size};
   std::vector<int64_t> shape_after_reshape{
-      n_query_groups * total_qkv, seq_length, head_size};
+      batches, n_query_groups * total_qkv, seq_length, head_size};
 
   std::vector<int64_t> input_shape = shape_before_reshape;
 
@@ -5149,7 +5150,7 @@ TEST_F(ResizeTest, ReshapeSliceSlice) {
   [[maybe_unused]] auto one = fusion.oneVal();
 
   auto qkv = reshape(tv0, shape_before_reshape, shape_before_permutation);
-  qkv = permute(qkv, {1, 2, 0, 3});
+  qkv = permute(qkv, {0, 2, 3, 1, 4});
 
   std::cerr << "qkv: " << qkv->toString() << "\n";
 
@@ -5159,7 +5160,7 @@ TEST_F(ResizeTest, ReshapeSliceSlice) {
     slice_default_arg.push_back(Slice{zero, IrBuilder::create<Val>(s)});
   }
 
-  int64_t qkv_slice_dim = 1;
+  int64_t qkv_slice_dim = 2;
 
   [[maybe_unused]] auto slice_arg_q = slice_default_arg;
   slice_arg_q[qkv_slice_dim].stop = IrBuilder::create<Val>(total_qkv - 2);
@@ -5167,18 +5168,6 @@ TEST_F(ResizeTest, ReshapeSliceSlice) {
   [[maybe_unused]] auto slice_arg_k = slice_default_arg;
   slice_arg_k[qkv_slice_dim].start = IrBuilder::create<Val>(q_per_kv);
   slice_arg_k[qkv_slice_dim].stop = IrBuilder::create<Val>(total_qkv - 1);
-
-#if 0
-  // tv6 (v)
-  TensorView* tv8 = nullptr;
-  {
-    auto qkv = tv0;
-    auto slice_arg = slice_default_arg;
-    slice_arg[qkv_slice_dim].start = IrBuilder::create<Val>(q_per_kv + 1);
-    tv8 = slice(qkv, slice_arg);
-  }
-  [[maybe_unused]] auto v = tv8;
-#endif
 
   auto apply_rope = [&](TensorView* x,
                         bool is_q,
@@ -5251,11 +5240,6 @@ TEST_F(ResizeTest, ReshapeSliceSlice) {
   if (!getenv("NO_K")) {
     fusion.addOutput(k_out);
   }
-
-  // Not used but just for clarity
-  //[[maybe_unused]] auto v_out = apply_rope(v, false);
-
-  // fusion.addOutput(v_original_shape);
 
   fusion.printMath();
 
