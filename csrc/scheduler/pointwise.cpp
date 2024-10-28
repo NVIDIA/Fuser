@@ -712,15 +712,15 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
       }
       // [outer| i-remainder, i-Unroll, TIDx, Vect]
 
-      if (pparams->unroll_factor_outer > 1) {
-        reference_tv->split(0, pparams->unroll_factor_outer);
-      }
+      // TODO: Only split when unroll factor is greater than 1
+      reference_tv->split(0, pparams->unroll_factor_outer);
       // [o-remainder, o-Unroll| i-remainder, i-Unroll, TIDx, Vect]
 
       reference_tv->split(0, 1);
       // [o-remainder, Unswitch, o-Unroll | i-remainder, i-Unroll, TIDx, Vect]
 
-      int i_remainder_pos = pparams->unroll_factor_outer > 1 ? 3 : 2;
+      // TODO: depends on unroll_factor_outer > 1 or not
+      int i_remainder_pos = 3;
       reference_tv->reorder({{i_remainder_pos, 1}});
       // [o-remainder, i-remainder, Unswitch, o-Unroll, i-Unroll, TIDx, Vect]
 
@@ -734,9 +734,8 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
       if (pparams->unroll_factor_inner > 1) {
         tidx_pos++;
       }
-      if (pparams->unroll_factor_outer > 1) {
-        tidx_pos++;
-      }
+      // TODO: only when unroll_factor_inner > 1
+      tidx_pos++;
       reference_tv->axis(tidx_pos)->parallelize(ParallelType::TIDx);
       if (pparams->vectorization_factor > 1) {
         // can't use {-1}, there may be deviceId
