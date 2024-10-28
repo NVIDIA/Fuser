@@ -190,16 +190,8 @@ std::string Val::toInlineString(int indent_size) const {
 }
 
 bool Val::isConstScalar() const {
-  if (!isScalar()) {
+  if (!isScalar() || !ir_utils::isFunctional(reference)) {
     return false;
-  }
-  // elect.sync ptx picks a leader thread from membermask.
-  // It cannot be evaluated at compile-time.
-  if (Expr* def = definition()) {
-    if (def->isA<UnaryOp>() &&
-        def->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::ElectSync) {
-      return false;
-    }
   }
   return ir_utils::dependenciesSatisfied(this);
 }

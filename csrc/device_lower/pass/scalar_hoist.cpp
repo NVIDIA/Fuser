@@ -116,27 +116,10 @@ ForLoop* getLoopAtPos(const std::vector<ForLoop*>& loops, int64_t position) {
   return loops.at(position);
 }
 
-// Check if the given value is functional. A functional value is one that
-// always returns the same result when called with the same inputs.
-bool isFunctional(Val* v) {
-  auto def = v->definition();
-  if (def == nullptr) {
-    return true;
-  }
-  if (auto uop = dynamic_cast<UnaryOp*>(def)) {
-    // ElectSync is not functional, it does not return the same value
-    // evry time it is called, so we do not want to reuse it.
-    if (uop->getUnaryOpType() == UnaryOpType::ElectSync) {
-      return false;
-    }
-  }
-  return std::all_of(def->inputs().begin(), def->inputs().end(), isFunctional);
-}
-
 // Check if in the definition of from, there is a subexpression equivalent to
 // reference. If found, then return this subexpression.
 Val* findRefAsSubexprOf(Val* from, Val* reference, bool exact) {
-  if (!isFunctional(reference)) {
+  if (!ir_utils::isFunctional(reference)) {
     return nullptr;
   }
   if (exact) {
@@ -289,7 +272,7 @@ std::pair<Val*, bool> CommonScalarMap::hoistScalarImpl(
     common_scalar_map_[my_loop].emplace_back(value);
     // We never hoist non-functional values because each call returns a
     // different value, therefore non-hoistable.
-    if (my_pos < parent_pos && isFunctional(value)) {
+    if (my_pos < parent_pos && ir_utils::isFunctional(value)) {
       hoisted_or_reused_.emplace(value);
     }
   }
