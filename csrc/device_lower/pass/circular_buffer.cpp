@@ -736,22 +736,8 @@ class CloneTmaCircularBufferLoopAndInsertSync
     NVF_ERROR(mbarrier_arrive_tx_ != nullptr);
     NVF_ERROR(expr != nullptr);
 
-    // Create the if-then-else with electSync() predicate for the arrive expect
-    // transaction.
-    kir::IfThenElse* if_expr = IrBuilder::create<kir::IfThenElse>(
-        IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
-
-    // A single thread issues arriveExpectTx with expected transactions and
-    // launches the TMA load.
-    if_expr->thenBody().push_back(mbarrier_arrive_tx_);
-    if_expr->thenBody().push_back(expr);
-
-    // The other threads issue arriveExpectTx without any expected transactions.
-    kir::MBarrierArrive* thread_arrive = IrBuilder::create<kir::MBarrierArrive>(
-        /*state=*/nullptr, mbarrier_arrive_tx_->mbarrier());
-    if_expr->elseBody().push_back(thread_arrive);
-    for_loop_stack_.back()->body().push_back(if_expr);
-
+    for_loop_stack_.back()->body().push_back(mbarrier_arrive_tx_);
+    for_loop_stack_.back()->body().push_back(expr);
     mbarrier_arrive_tx_ = nullptr;
   }
 
