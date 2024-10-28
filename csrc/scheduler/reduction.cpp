@@ -219,7 +219,8 @@ std::unique_ptr<ReductionParams> innerReductionHeuristic(
   int64_t bdimy = 1;
   // Threads for outer reduction dimension
   int64_t bdimz = 1;
-
+  int64_t bdimz_reduction_numel =
+      total_reduction_numel / inner_most_dimension_numel;
   // Unroll amount
   int64_t inner_reduction_unroll_factor = 1;
   int64_t outer_reduction_unroll_factor = 1;
@@ -229,26 +230,21 @@ std::unique_ptr<ReductionParams> innerReductionHeuristic(
       vectorize_factor > 1 ? (int64_t)vectorize_factor : 1;
   auto after_vect =
       ceilDiv(inner_most_dimension_numel, inner_reduction_unroll_factor);
+
+  // increase bdimx and ensure divisible splits.
+  // after this part, bdimx may equals 16, 32, 64, 128, 256, 512, e.g,
+  // after_vect = 5120 / 8 = 640, then bdimx = 128
+  // after_vect = 10240 / 8 = 1280, then bdimx = 256
   while (bdimx * 2 <= target_threads_in_block && bdimx * 2 <= after_vect &&
          after_vect % (bdimx * 2) == 0) {
     bdimx *= 2;
-  }
-
-  // If we're not just barely covering the dimension, round to a more friendly
-  // number
-  if (bdimx * inner_reduction_unroll_factor != inner_most_dimension_numel) {
-    // Round bdimx down to multiple of warp size or power 2
-    if (bdimx < min_warp_size) {
-      bdimx = scheduler_utils::lastPow2(bdimx);
-    } else {
-      bdimx = bdimx - bdimx % min_warp_size;
-    }
   }
 
   // Put everything else in bdimy for now
   bdimy = std::max(min_warp_size / bdimx, (int64_t)1);
 
   // If 3D fill the rest of the threads into bdimz
+
   bdimz = std::min(
       std::min(
           std::max(target_threads_in_block / (bdimx * bdimy), (int64_t)1),
@@ -257,6 +253,24 @@ std::unique_ptr<ReductionParams> innerReductionHeuristic(
 
   // If 3D doesn't fill out the threads, adjust to add to bdimy
   bdimy = std::max(target_threads_in_block / (bdimx * bdimz), (int64_t)1);
+
+  // Only use bdimy, when there are enough iterations to achieve target blocks
+  const int64_t target_blocks_pow2 = scheduler_utils::lastPow2(target_blocks);
+  while (bdimy > 1 && ceilDiv(total_iteration_numel, bdimy) < target_blocks_pow2) {
+    // move more threads to bdimx
+    if (ceilDiv(after_vect, bdimx) > 1) {
+      bdimy /= 2;
+      bdimx *= 2;
+    }
+    // move more threads to bdimz
+    else if (ceilDiv(bdimz_reduction_numel, bdimz) > 1) {
+      bdimy /= 2;
+      bdimz *= 2;
+    } else {
+      break;
+    }
+  }
+  std::cout << "target_blocks " << target_blocks << std::endl;
 
   // If we don't have a full warp and have an unroll factor, move unroll into
   // bdimx
