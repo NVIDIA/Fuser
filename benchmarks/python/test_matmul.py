@@ -3,7 +3,6 @@
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
 from nvfuser import FusionDefinition
-from nvfuser.pytorch_utils import clear_cuda_cache
 from .core import run_benchmark
 import torch
 
@@ -42,8 +41,6 @@ def test_matmul_baseline_benchmark(
 ):
     m, n, k, layout = config
 
-    clear_cuda_cache()
-
     torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = half_reduction
     torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = half_reduction
 
@@ -77,8 +74,6 @@ def test_matmul_nvf_benchmark(
     disable_benchmarking: bool,
 ):
     m, n, k, layout = config
-
-    clear_cuda_cache()
 
     torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = half_reduction
     torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = half_reduction
