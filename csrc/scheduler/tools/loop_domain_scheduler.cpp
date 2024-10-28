@@ -357,6 +357,8 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(
             << toDelimitedString(tv->getMaybeRootDomain()) << ", loop; "
             << toDelimitedString(tv->getLoopDomain()) << "\n";
 
+  std::cerr << "Ref IDs: " << nvfuser::toString(ref_id_groups_) << "\n";
+
   // TODO: Should broadcast be ignored? If not all required to be
   // visited, it shouldn't matter
   ValGroups tv_loop_domains = graph().toGroups(
@@ -396,6 +398,11 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(
       /*require_all_to_visited=*/require_all_visited,
       Direction::Forward);
 
+  std::cerr << "Forward path to root\n";
+  for (const auto& [eg, dir] : forward_path_to_root) {
+    std::cerr << dir << " " << eg->front()->toString();
+  }
+
   auto outputs_of_forward_path =
       getOutputsOfExprPath(graph(), forward_path_to_root);
 
@@ -425,12 +432,29 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(
   // Find the path from the ref to the forward path.
   auto inputs_of_forward_path = getInputsOfExprPath(graph(), ancestor_to_loop);
 
+  // If tv_root_domain itself is included in the ancestor set, there's
+  // no expr but the backward exprs from the reference to the ancestor
+  // are required.
+  for (const auto& tv_root_domain : tv_root_domains) {
+    if (all_ancestors_of_ref_.has(tv_root_domain)) {
+      inputs_of_forward_path.pushBack(tv_root_domain);
+    }
+  }
+
+  std::cerr << "Inputs of forward path: "
+            << nvfuser::toString(inputs_of_forward_path) << "\n";
+
   auto backward_path_from_ref = ValGraphBFS::getExprsBetween(
       graph(),
       ref_id_groups_,
       inputs_of_forward_path,
       /*require_all_to_visited=*/true,
       Direction::Backward);
+
+  std::cerr << "Backward path from ref\n";
+  for (const auto& [eg, dir] : backward_path_from_ref) {
+    std::cerr << dir << " " << eg->front()->toString();
+  }
 
   // Overall replay path = backward_path + forward_path_to_root +
   // forward_path_to_loop
@@ -443,7 +467,7 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(
   ref_to_loop.insert(
       ref_to_loop.end(), ancestor_to_loop.begin(), ancestor_to_loop.end());
 
-  std::cerr << "Path\n";
+  std::cerr << "Final path\n";
   for (const auto& [eg, dir] : ref_to_loop) {
     std::cerr << dir << " " << eg->front()->toString();
   }
@@ -505,6 +529,8 @@ std::optional<ValGraphBFS::ExprPath> LoopDomainScheduler::
       });
 
   if (!all_ref_used && !all_target_reached) {
+    std::cerr << "Not using getReplayPathForResize due to: " << all_ref_used
+              << " and " << all_target_reached << "\n";
     return std::nullopt;
   }
 
@@ -536,12 +562,26 @@ void LoopDomainScheduler::replaceAndAppend(TensorView* tv) const {
   const auto resize_path_from_ref = getReplayPathForResize(tv, false);
   bool resize_war = resize_path_from_ref.has_value();
 
+  const ValGroups inputs_of_resize_path_from_ref = resize_war
+      ? getInputsOfExprPath(graph(), *resize_path_from_ref)
+      : ValGroups{};
+
   // All of the existing IDs are reused as much as possible to
   // minimize creating new IDs.
-  auto all_ids = resize_war ? tv->getLoopDomain() : tv->domain()->allIDs();
+  const auto all_ids =
+      resize_war ? tv->getLoopDomain() : tv->domain()->allIDs();
   std::unordered_map<ValGroup, IterDomain*> group_to_id;
   ValGroups all_id_groups;
   for (auto id : all_ids) {
+    // Doesn't work due to the resize graph mapping
+    if (resize_war) {
+      // if it's used as an input, it means it's due to a cycle. It
+      // should not be reused.
+      if (inputs_of_resize_path_from_ref.has(graph().toGroup(id))) {
+        continue;
+      }
+    }
+
     const auto& group = graph().toGroup(id);
     group_to_id.emplace(group, id);
     all_id_groups.pushBack(group);
@@ -576,9 +616,9 @@ void LoopDomainScheduler::replaceAndAppend(TensorView* tv) const {
   const ExprGroups all_existing_expr_groups =
       graph().toGroups(tv->domain()->allExprs());
 
-  auto path_inputs = getInputsOfExprPath(graph(), path_from_ref);
+  const auto path_inputs = getInputsOfExprPath(graph(), path_from_ref);
 
-  auto path_outputs = getOutputsOfExprPath(graph(), path_from_ref);
+  const auto path_outputs = getOutputsOfExprPath(graph(), path_from_ref);
 
   std::vector<IterDomain*> new_loop_domain;
 
@@ -630,7 +670,7 @@ void LoopDomainScheduler::replaceAndAppend(TensorView* tv) const {
   for (const auto& [expr_g, dir] : path_from_ref) {
     std::cerr << "Visiting " << expr_g->front()->toString();
     // Skip if the tensor already has the expr
-    if (all_existing_expr_groups.has(expr_g)) {
+    if (!resize_war && all_existing_expr_groups.has(expr_g)) {
       continue;
     }
 
@@ -651,6 +691,26 @@ void LoopDomainScheduler::replaceAndAppend(TensorView* tv) const {
 
     // Clone outputs if not found
     for (const auto& output_g : output_groups) {
+      // In the case of resize war, if it's a target ID, don't look up
+      // in all_ids when the ID is also mapped with a path input
+      if (resize_war && path_outputs.has(output_g)) {
+        bool matching_loop_id_found = false;
+        for (auto loop_id : tv->getLoopDomain()) {
+          if (output_g->has(loop_id)) {
+            // Need to update group_to_id. Really ugly...
+            group_to_id[output_g] = loop_id;
+            matching_loop_id_found = true;
+            continue;
+          }
+        }
+        // Matching ID must exist in the loop domain
+        NVF_ERROR(
+            matching_loop_id_found,
+            tv->toString(),
+            ", ",
+            nvfuser::toString(output_g));
+      }
+
       if (all_id_groups.has(output_g)) {
         continue;
       }
@@ -667,6 +727,7 @@ void LoopDomainScheduler::replaceAndAppend(TensorView* tv) const {
         output_id = squeezed_slice_new_id_map.at(squeezed_slice);
       }
 
+      // Not found. Create a new one
       if (output_id == nullptr) {
         // No need to force exact mapping since this clone is going to
         // be connected with tv
@@ -679,6 +740,15 @@ void LoopDomainScheduler::replaceAndAppend(TensorView* tv) const {
 
     std::cerr << "Replaying inputs: " << nvfuser::toString(input_groups)
               << ", outputs: " << nvfuser::toString(output_groups) << "\n";
+    for (const auto& input_g : input_groups) {
+      std::cerr << "Input group: " << nvfuser::toString(input_g) << " -> "
+                << group_to_id.at(input_g)->toString() << "\n";
+    }
+    for (const auto& input_g : output_groups) {
+      std::cerr << "output group: " << nvfuser::toString(input_g) << " -> "
+                << group_to_id.at(input_g)->toString() << "\n";
+    }
+
     auto replayed_expr =
         replay(expr_g, dir, input_groups, output_groups, group_to_id);
     std::cerr << "Replayed: " << replayed_expr->toString();

@@ -85,7 +85,9 @@ void propagateCatToInputs(CatOp* cat_op) {
   std::vector<std::pair<TensorView*, TensorView*>> replaement_map;
   for (auto inp_tv : ir_utils::filterByType<TensorView>(cat_op->inputs())) {
     bool overlap = has_overlap(inp_tv);
-    if (overlap) {
+    // Needs to be privatized if dep tensors are used by non-cat
+    // consumers. For now, just always privatize
+    if (true || overlap) {
       auto private_copy = privatize_cat_input(inp_tv);
       replaement_map.emplace_back(inp_tv, private_copy);
     }

@@ -50,7 +50,8 @@ std::vector<IterDomain*> getPredicateDomains(
       predicate_domains.end());
 #else
   auto reachable_vals = IRBFS::getReachableValsFrom(
-      {loop_ids.begin(), loop_ids.end()},
+      {consumer_tv->getLoopDomain().begin(),
+       consumer_tv->getLoopDomain().end()},
       {predicate_domains.begin(), predicate_domains.end()});
 
   // Broadcast domains should not need to be predicated. Note that
@@ -64,6 +65,10 @@ std::vector<IterDomain*> getPredicateDomains(
             auto b = id->isBroadcast() &&
                 std::find(reachable_vals.begin(), reachable_vals.end(), id) ==
                     reachable_vals.end();
+            if (b) {
+              std::cerr << "Removing from predicate domains: " << id->toString()
+                        << " of " << consumer_tv->toString() << "\n";
+            }
             return b;
           }),
       predicate_domains.end());

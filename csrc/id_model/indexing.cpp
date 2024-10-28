@@ -878,8 +878,10 @@ Val* TensorIndexer::getLinearIndex(
       std::find(expr->outputs().begin(), expr->outputs().end(), tv) !=
       expr->outputs().end();
 
-  if (tv->name() == 0 && expr->outputs().at(0)->name() == 4) {
+  if (tv->name() == 0 && expr->outputs().at(0)->name() == 28) {
     _debug = true;
+    std::cerr << "getLinearIndex: " << tv->toString() << " for "
+              << expr->toString();
   }
 
   const auto alloc_info = getIndexingAllocationInfo(tv);
@@ -912,6 +914,8 @@ Val* TensorIndexer::getLinearIndex(
   if (tv->name() == 0) {
     std::cerr << "Linear index: " << linear_index->toInlineString() << "\n";
   }
+
+  _debug = false;
 
   return linear_index;
 }
