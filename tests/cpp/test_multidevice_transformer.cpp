@@ -288,7 +288,6 @@ std::vector<TensorView*> mlp(
     x->setDeviceMesh(mesh);
     x->axis(0)->parallelize(ParallelType::DIDx);
     x = set(x); // allgather
-    x->setDeviceMesh(mesh);
     x->axis(0)->parallelize(ParallelType::Serial);
     // Reshape back to 2D for linearOp
     auto D = w0->axis(0)->extent()->value().as<int64_t>();
