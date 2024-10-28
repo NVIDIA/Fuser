@@ -62,10 +62,7 @@ TEST_F(DistributedMatmulTest, MulSum_LayoutTN_NoComms) {
   // MmaLayout::TN A(T), B(N), C(T)
   // A and C are sharded on dimension M
   // Tests local matmul with no communication
-  auto dev_prop = at::cuda::getCurrentDeviceProperties();
-  if (dev_prop->major > 9) {
-    GTEST_SKIP() << "Require Ampere or Hopper for generated matmul";
-  }
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 10, 0);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   auto mesh = DeviceMesh::createForNumDevices(num_devices_);
