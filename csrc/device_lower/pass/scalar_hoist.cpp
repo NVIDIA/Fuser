@@ -247,6 +247,9 @@ std::pair<Val*, bool> CommonScalarMap::hoistScalarImpl(
   }
 
   for (auto existing_subexpr : seen_subexprs) {
+    if (!isFunctional(existing_subexpr)) {
+      continue;
+    }
     if (value->sameAs(existing_subexpr)) {
       common_scalar_map_[my_loop].emplace_back(existing_subexpr);
       hoisted_or_reused_.emplace(existing_subexpr);
