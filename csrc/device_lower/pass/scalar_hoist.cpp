@@ -8,6 +8,7 @@
 #include <device_lower/lower2device.h>
 #include <device_lower/pass/magic_zero.h>
 #include <expr_simplifier.h>
+#include <ir/utils.h>
 #include <iter_visitor.h>
 #include <kernel_ir_dispatch.h>
 #include <options.h>
