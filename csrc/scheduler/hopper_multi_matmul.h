@@ -118,8 +118,7 @@ class HopperMultipleMatmulScheduler : public MultipleMatmulScheduler {
 
   void cacheOperandsToSmem(
       const std::vector<TensorView*>& operands,
-      std::vector<TensorView*>& smem_operands,
-      int64_t vec_size);
+      std::vector<TensorView*>& smem_operands);
 
   // We add two LoadStore operators to the inputs of our fusions. The first
   // one is for a read from global memory and the second one (below) is for a
