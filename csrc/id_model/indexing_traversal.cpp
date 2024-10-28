@@ -129,6 +129,8 @@ IndexingTraversal::ExprPath IndexingTraversal::getExprsBetween(
   }
 #else
   {
+    std::cerr << "IndexingTraversal: trying resize war: "
+              << consumer_tv->toString() << "\n";
     IdModel local_model(
         std::vector<Expr*>{consumer_tv->definition()},
         /*additional_tvs=*/{},

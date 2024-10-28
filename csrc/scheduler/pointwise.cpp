@@ -89,12 +89,13 @@ TensorView* getAllocationReferenceTensor(Fusion* fusion) {
     }
   }
 
-  std::cerr << "Reference TV: " << reference->toString() << ", allocation: "
+  std::cerr << "Allocation reference TV: " << reference->toString()
+            << ", allocation: "
             << toDelimitedString(reference->getMaybeAllocationDomain()) << "\n";
   return reference;
 }
 
-TensorView* getReferenceTensor(Fusion* fusion) {
+TensorView* getReferenceTensor(Fusion* fusion, TensorView* largest_out) {
   TensorView* ref = nullptr;
   for (auto expr : fusion->exprs()) {
     auto cat = dynamic_cast<CatOp*>(expr);
@@ -109,7 +110,8 @@ TensorView* getReferenceTensor(Fusion* fusion) {
   }
 
   if (ref == nullptr) {
-    ref = getAllocationReferenceTensor(fusion);
+    // ref = getAllocationReferenceTensor(fusion);
+    ref = largest_out;
   }
 
   std::cerr << "Reference TV: " << ref->toString() << ", allocation: "
@@ -150,7 +152,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
   if (!getenv("USE_LARGEST_OUT")) {
     auto cur_ref = largest_out;
-    largest_out = getReferenceTensor(fusion);
+    largest_out = getReferenceTensor(fusion, largest_out);
     std::cerr << "Reference: Using " << largest_out->toString()
               << " instead of " << cur_ref->toString() << "\n";
   }
@@ -647,7 +649,8 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     return;
   }
 
-  TensorView* reference_tv = getReferenceTensor(fusion);
+  auto original_reference = getReferenceTensorView(fusion);
+  TensorView* reference_tv = getReferenceTensor(fusion, original_reference);
   std::cerr << "Reference: " << reference_tv->toString() << "\n";
 
   // Make sure reference is ordered properly
@@ -717,6 +720,8 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     std::cerr << "\tLogical: " << toDelimitedString(tv->getLogicalDomain())
               << "\n";
     std::cerr << "\tLoop: " << toDelimitedString(tv->getLoopDomain()) << "\n";
+    std::cerr << "\tAdditional ids: "
+              << toDelimitedString(tv->domain()->additionalIDs()) << "\n";
     for (auto expr : tv->domain()->allExprs()) {
       std::cerr << expr->toString();
     }

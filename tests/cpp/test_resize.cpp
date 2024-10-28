@@ -4789,7 +4789,7 @@ TEST_F(ResizeTest, ReshapeBeforeSlice) {
     std::vector<int64_t> cur_shape = shape_before_permutation;
     cur_shape[qkv_slice_dim] = is_q ? q_per_kv : 1;
     std::vector<int64_t> new_shape{batches, seq_length, -1, rope_n_elem};
-    // out = reshape(out, cur_shape, new_shape);
+    out = reshape(out, cur_shape, new_shape);
     // out = permute(out, {0, 2, 1, 3});
     out = castOp(DataType::BFloat16, out);
     return out;

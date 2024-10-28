@@ -1064,7 +1064,28 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
       GpuLower::current()->threadPredMap().getPredicateInfo(tv);
   for (const auto& singular_id_info : thread_pred_info.singular_ids) {
     if (!getenv("SKIP_SINGULAR")) {
-      predicate_and_singular_ids.push_back(singular_id_info.id);
+      auto singular_id = singular_id_info.id;
+      // Why thread_pred_info doesn't also have the corresponding ID
+      // of this tensor itself? Due to the resize war of the indexing
+      // traversal, need the ID of this tensor itself
+      IterDomain* own_id = nullptr;
+      for (const auto id : tv->domain()->allIDs()) {
+        if (id_model_.idGraph(IdMappingMode::EXACT)
+                .disjointValSets()
+                .strictAreMapped(id, singular_id)) {
+          own_id = id;
+          break;
+        }
+      }
+      NVF_ERROR(
+          own_id != nullptr,
+          "Corresponding ID not found for ",
+          singular_id->toString(),
+          ", tensor: ",
+          tv->toString());
+      std::cerr << "Adding singular predicate ID: " << own_id->toString()
+                << "\n";
+      predicate_and_singular_ids.push_back(own_id);
     }
   }
 

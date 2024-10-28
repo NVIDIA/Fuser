@@ -528,14 +528,27 @@ std::optional<ValGraphBFS::ExprPath> LoopDomainScheduler::
             ref_groups.has(tv_taget_domain);
       });
 
-  if (!all_ref_used && !all_target_reached) {
+  bool valid = false;
+  if (all_target_reached) {
+    valid = true;
+  } else if (all_ref_used) {
+    if (require_all_visited) {
+      for (const auto& id : tv_loop_domains) {
+        if (!path_vals.has(id) && !ref_groups.has(id)) {
+          std::cerr << "Not reached: " << id->toString() << "\n";
+        }
+      }
+    }
+    NVF_ERROR(!require_all_visited);
+    valid = true;
+  } else {
+    valid = false;
+  }
+
+  if (!valid) {
     std::cerr << "Not using getReplayPathForResize due to: " << all_ref_used
               << " and " << all_target_reached << "\n";
     return std::nullopt;
-  }
-
-  if (require_all_visited) {
-    NVF_ERROR(all_target_reached);
   }
 
   ValGraphBFS::ExprPath ref_to_target;
