@@ -653,6 +653,8 @@ void LoopDomainScheduler::replaceAndAppend(TensorView* tv) const {
   }
 
   std::unordered_map<IterDomain*, IterDomain*> squeezed_slice_new_id_map;
+  std::cerr << "Squeezed slices: " << toDelimitedString(squeezed_slices_)
+            << "\n";
   for (IterDomain* squeezed_slice : squeezed_slices_) {
     if (path_outputs.has(graph().toGroup(squeezed_slice))) {
       // Should be already included
@@ -665,7 +667,7 @@ void LoopDomainScheduler::replaceAndAppend(TensorView* tv) const {
     tv->broadcast(-1);
     auto inserted_broadcast = tv->getLoopDomain().back();
     std::cerr << "New inserted broadcast: " << inserted_broadcast->toString()
-              << "\n";
+              << ", " << squeezed_slice->toString() << "\n";
     // tv->fusion()->registerExactMapping(squeezed_slice, inserted_broadcast);
     NVF_ERROR(
         squeezed_slice_new_id_map.emplace(squeezed_slice, inserted_broadcast)

@@ -824,11 +824,6 @@ CompareDomainResult compareDomains(
   auto exprs = IRBFS::getExprsBetween(
       {dom0.begin(), dom0.end()}, {dom1.begin(), dom1.end()}, false);
 
-  std::cerr << "Exrs:\n";
-  for (const auto& [expr, dir] : exprs) {
-    std::cerr << dir << " " << expr->toString();
-  }
-
   std::unordered_set<Val*> frontier(dom0.begin(), dom0.end());
 
   for (auto [expr, direction] : exprs) {
@@ -1214,7 +1209,7 @@ std::vector<IterDomain*> getSqueezedSlices(Fusion* fusion) {
   ValGroups slice_groups;
   std::unordered_map<ValGroup, IterDomain*> slice_id_map;
 
-  std::vector<IterDomain*> squeezed_slices;
+  VectorOfUniqueEntries<IterDomain*> squeezed_slices;
 
   for (auto expr : fusion->exprs()) {
     if (auto slice = dynamic_cast<SliceOp*>(expr)) {
@@ -1238,7 +1233,8 @@ std::vector<IterDomain*> getSqueezedSlices(Fusion* fusion) {
         auto slice_id = resize->out();
         const auto& slice_group = graph.toGroup(slice_id);
         std::cerr << "Registering slice: " << slice_id->toString() << ", "
-                  << nvfuser::toString(slice_group) << "\n";
+                  << nvfuser::toString(slice_group) << ", "
+                  << slice->toString();
         slice_groups.pushBack(slice_group);
         slice_id_map.emplace(slice_group, slice_id);
       }
@@ -1260,13 +1256,14 @@ std::vector<IterDomain*> getSqueezedSlices(Fusion* fusion) {
               "Cannot find the corresponding IterDomain for ",
               nvfuser::toString(squeezed_group));
 
-          squeezed_slices.push_back(slice_id_map_it->second);
+          std::cerr << "Squeeze of slice detected: " << squeeze->toString();
+          squeezed_slices.pushBack(slice_id_map_it->second);
         }
       }
     }
   }
 
-  return squeezed_slices;
+  return squeezed_slices.vector();
 }
 
 } // namespace nvfuser::ir_utils
