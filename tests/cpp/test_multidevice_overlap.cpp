@@ -55,8 +55,11 @@ class OverlapBenchmark : public MultiDeviceTest, public testing::WithParamInterf
 
   static void TearDownTestSuite() {
     auto rank = Communicator::getInstance().deviceId();
+    if (rank != 0) {
+      return;
+    }
     for (auto it: times) {
-      std::cout << "rank " << rank << ": " << it.first << ": " << it.second << std::endl;
+      std::cout << "time " << rank << ": " << it.first << ": " << it.second << std::endl;
     }
   }
 };

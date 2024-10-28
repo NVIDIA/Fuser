@@ -1,2 +1,7 @@
+#!/bin/bash
 
+FILE="/opt/pytorch/Fuser/bench/logs/${1}/info"
 
+cat $FILE | grep "rank 0: "  #| awk '{print $4}'
+
+# | grep -E 'Streams32\b'

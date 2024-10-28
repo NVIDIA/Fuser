@@ -10,7 +10,7 @@ LOG_FILE_INFO="${LOGS}/info"
 echo "Writing to $LOG_FILE_INFO" | tee -a $LOG_FILE_INFO
 
 NP=8
-BACKEND=UCC
+BACKEND=NCCL
 S=*
 M=*
 K=*
