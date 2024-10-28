@@ -368,12 +368,16 @@ struct OpRecord : RecordFunctor {
 };
 
 struct SliceOpRecord : RecordFunctor {
-  SliceOpRecord(std::vector<State> _args, std::vector<State> _outputs)
+  SliceOpRecord(
+      std::vector<State> _args,
+      std::vector<State> _outputs,
+      bool manual_normalization)
       : RecordFunctor(
             std::move(_args),
             std::move(_outputs),
             "ops.slice",
-            serde::RecordType::SliceOp) {
+            serde::RecordType::SliceOp),
+        manual_normalization_(manual_normalization) {
     arg_names_[1] = "start_indices";
     arg_names_[2] = "end_indices";
     arg_names_[3] = "strides";
@@ -381,6 +385,25 @@ struct SliceOpRecord : RecordFunctor {
   ~SliceOpRecord() override = default;
   RecordFunctor* clone() final {
     return new SliceOpRecord(*this);
+  }
+
+  //! Child specific hash function in lower 32 bits.
+  //! |       31              | 30  ------------------------  0 |
+  //! | manual_normalization? |              other              |
+  size_t hash() const final {
+    auto result = RecordFunctor::hash();
+    result |= ((static_cast<size_t>(manual_normalization_) & 0x1) << 31);
+    return result;
+  }
+
+  bool operator==(const RecordFunctor& other) const final {
+    auto result = false;
+    if (auto child_ptr = dynamic_cast<const SliceOpRecord*>(&other)) {
+      result = RecordFunctor::operator==(other);
+      result =
+          result && (manual_normalization_ == child_ptr->manual_normalization_);
+    }
+    return result;
   }
 
   void operator()(FusionState& fd) final {
@@ -413,9 +436,28 @@ struct SliceOpRecord : RecordFunctor {
           "nvFuser Limitation: All slice operation strides must be of const size 1.");
       vec_slice.push_back({start_idx, end_idx, stride_idx});
     }
-    auto output = slice(arg, vec_slice);
+    auto output = slice(arg, vec_slice, manual_normalization_);
     fd.setFusionState(outputs_.at(0).index, output);
   }
+
+  void print(std::ostream& os, bool close_function = true) const final {
+    RecordFunctor::print(os, false);
+    os << ", manual_normalization=" << manual_normalization_;
+    if (close_function) {
+      os << ")";
+    }
+  }
+
+  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+      flatbuffers::FlatBufferBuilder& builder) const final {
+    return {
+        serde::RecordData::Slice,
+        serde::CreateSlice(builder, manual_normalization_).Union()};
+  }
+
+ private:
+  //! A flag to skip slice normalization step in composite operation.
+  bool manual_normalization_;
 };
 
 struct ReshapeOpRecord : RecordFunctor {
@@ -751,7 +793,9 @@ struct BroadcastInDimOpRecord : RecordFunctor {
         "The broadcast dimensions should match the input dimensions: ",
         arg_ndims,
         " vs ",
-        broadcast_dims_.size());
+        broadcast_dims_.size(),
+        ". arg = ",
+        arg->toString());
 
     std::vector<bool> is_broadcast_dim(output_ndims_, true);
     for (const auto idx : c10::irange(broadcast_dims_.size())) {
@@ -1040,27 +1084,36 @@ struct CatOpRecord : RecordFunctor {
   CatOpRecord(
       std::vector<State> _args,
       std::vector<State> _outputs,
-      int64_t dim)
+      int64_t dim,
+      bool manual_padding)
       : RecordFunctor(
             std::move(_args),
             std::move(_outputs),
             "ops.cat",
             serde::RecordType::CatOp),
-        dim_(dim) {}
+        dim_(dim),
+        manual_padding_(manual_padding) {}
   ~CatOpRecord() override = default;
   RecordFunctor* clone() final {
     return new CatOpRecord(*this);
   }
 
+  //! Child specific hash function in lower 32 bits.
+  //! |       31        | 30  ------------------------  0 |
+  //! | manual_padding? |              dim                |
   size_t hash() const final {
     auto result = RecordFunctor::hash();
-    return result | (static_cast<size_t>(dim_) & 0xffff);
+    result |= ((static_cast<size_t>(manual_padding_) & 0x1) << 31);
+    result |= (static_cast<size_t>(dim_) & 0x7fff);
+    return result;
   }
 
   bool operator==(const RecordFunctor& other) const final {
     auto result = false;
     if (auto child_ptr = dynamic_cast<const CatOpRecord*>(&other)) {
-      result = RecordFunctor::operator==(other) && dim_ == child_ptr->dim_;
+      result = RecordFunctor::operator==(other);
+      result = result && (dim_ == child_ptr->dim_);
+      result = result && (manual_padding_ == child_ptr->manual_padding_);
     }
     return result;
   }
@@ -1072,7 +1125,8 @@ struct CatOpRecord : RecordFunctor {
       input_tvs.push_back(
           fd.getFusionState(a.index)->template as<TensorView>());
     }
-    auto output = cat(input_tvs, dim_);
+    auto output =
+        cat(input_tvs, dim_, /*iter_type_opt=*/std::nullopt, manual_padding_);
     fd.setFusionState(outputs_.at(0).index, output);
   }
 
@@ -1107,6 +1161,7 @@ struct CatOpRecord : RecordFunctor {
       os << arg;
     }
     os << "], dim=" << dim_;
+    os << ", manual_padding=" << manual_padding_;
     if (close_function) {
       os << ")";
     }
@@ -1115,13 +1170,15 @@ struct CatOpRecord : RecordFunctor {
   std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
-        serde::RecordData::Dimension,
-        serde::CreateDimension(builder, dim_).Union()};
+        serde::RecordData::Cat,
+        serde::CreateCat(builder, dim_, manual_padding_).Union()};
   }
 
  private:
   //! The dimension along which we will concatenate
   int64_t dim_;
+  //! A flag to skip the pad operation in the cat composite operation.
+  bool manual_padding_;
 };
 
 //! Specialized Record Functor for recording FusionState End.

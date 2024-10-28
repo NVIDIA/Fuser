@@ -4991,6 +4991,13 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
   // logsumexp, max_q/k Temporary handling of DID parallelization. See
   // https://github.com/NVIDIA/Fuser/issues/2563
   bool first_dim_is_did = this->key()->as<TensorView>()->axis(0)->isDeviceDim();
+  auto out_grad = inputs[0].as<at::Tensor>();
+  if (first_dim_is_did) {
+    NVF_CHECK(out_grad.dim() == 5, "Expected 5D but found ", out_grad.sizes());
+  } else {
+    NVF_CHECK(out_grad.dim() == 4, "Expected 4D but found ", out_grad.sizes());
+  }
+
   std::vector<at::Tensor> bwd_inputs;
   for (auto idx : c10::irange(6)) {
     auto in_tensor = inputs.at(idx).as<at::Tensor>();

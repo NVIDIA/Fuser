@@ -545,26 +545,6 @@ bool PointWiseScheduler::canScheduleCompileTime(Fusion* fusion) {
   return true;
 }
 
-bool PointWiseScheduler::canScheduleRunTime(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicDataCache* data_cache) {
-  FUSER_PERF_SCOPE("PointWiseScheduler::canScheduleRunTime");
-  std::cerr << "PW: canScheduleRunTime\n";
-  auto can_schedule_transpose_entry =
-      HeuristicDataCacheEntry<HeuristicCompileTime::CanScheduleTranspose>(
-          data_cache, [fusion]() {
-            return std::make_unique<bool>(
-                TransposeScheduler().canScheduleCompileTime(fusion));
-          });
-  if (can_schedule_transpose_entry.get()) {
-    return !TransposeScheduler().canScheduleRunTime(
-        fusion, runtime_info, data_cache);
-  }
-  std::cerr << "PW: canScheduleRunTime done\n";
-  return true;
-}
-
 // TODO: Inline intermediate operations (avoid inlining unrolled/vectorized
 // input/output caches)
 void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
