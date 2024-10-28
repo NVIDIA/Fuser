@@ -596,8 +596,11 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     fusion->printMath();
     std::cout << std::endl;
     scheduler_tools::propagateCatToInputs(fusion);
-    scheduler_tools::propagateSliceToOutputs(fusion);
-
+    if (getenv("PROPAGATE_SLICE_TO_INPUTS")) {
+      scheduler_tools::propagateSliceToInputs(fusion);
+    } else {
+      scheduler_tools::propagateSliceToOutputs(fusion);
+    }
     reference_order_tv = getAllocationReferenceTensor(fusion);
   }
 

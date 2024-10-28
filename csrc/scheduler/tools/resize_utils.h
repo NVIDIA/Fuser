@@ -20,6 +20,9 @@ namespace scheduler_tools {
 void propagateCatToInputs(CatOp* cat_op);
 bool propagateCatToInputs(Fusion* fusion);
 
+void propagateSliceToInputs(SliceOp* slice_op);
+bool propagateSliceToInputs(Fusion* fusion);
+
 void propagateSliceToOutputs(SliceOp* slice_op);
 bool propagateSliceToOutputs(Fusion* fusion);
 

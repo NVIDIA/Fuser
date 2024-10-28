@@ -5102,18 +5102,25 @@ TEST_F(ResizeTest, RoPEFull) {
   int64_t batches = 2;
   int64_t seq_length = 4096;
 
-  int64_t q_per_kv = n_head / n_query_groups;
-  int64_t total_qkv = q_per_kv + 2;
-
-  int64_t rotation_num_splits = 2;
-
-  if (getenv("SMALL")) {
+  if (getenv("LLAMA3_8B")) {
+    n_head = 32;
+    head_size = 128;
+    n_query_groups = 8;
+    rope_n_elem = 128;
+    batches = 2;
+    seq_length = 8192;
+  } else if (getenv("SMALL")) {
     n_head = 4;
     n_query_groups = 4;
     seq_length = 8;
     head_size = 16;
     rope_n_elem = 16;
   }
+
+  int64_t q_per_kv = n_head / n_query_groups;
+  int64_t total_qkv = q_per_kv + 2;
+
+  int64_t rotation_num_splits = 2;
 
   std::vector<int64_t> shape_before_reshape{
       batches, seq_length, head_size * (n_head + 2 * n_query_groups)};
@@ -5178,9 +5185,13 @@ TEST_F(ResizeTest, RoPEFull) {
 
     std::vector<int64_t> cur_shape = shape_after_permutation;
     cur_shape[qkv_slice_dim] = is_q ? q_per_kv : 1;
-    std::cerr << "cur_shape: " << cur_shape << std::endl;
+    std::cerr << "cur_shape: " << cur_shape << "\n";
     std::vector<int64_t> new_shape{
-        cur_shape[0] * cur_shape[1], seq_length, rope_n_elem};
+        cur_shape[0],
+        n_query_groups * (is_q ? q_per_kv : 1),
+        seq_length,
+        rope_n_elem};
+    std::cerr << "new shape: " << new_shape << "\n";
     x_slice = reshape(x_slice, cur_shape, new_shape);
 
     std::cerr << "Reshaped x_slice: " << x_slice->toString() << "\n";
@@ -5212,7 +5223,12 @@ TEST_F(ResizeTest, RoPEFull) {
       rotated = cat({x2, x1}, -1);
     }
 
-    [[maybe_unused]] std::vector<bool> bcast_flags{true, false, false};
+    [[maybe_unused]] std::vector<bool> bcast_flags(new_shape.size(), false);
+    for (auto it = bcast_flags.begin();
+         it != bcast_flags.begin() + bcast_flags.size() - 2;
+         ++it) {
+      *it = true;
+    }
     [[maybe_unused]] auto cos_broadcast = broadcast(cos, bcast_flags);
     [[maybe_unused]] auto sin_broadcast = broadcast(sin, bcast_flags);
 
@@ -5287,11 +5303,59 @@ TEST_F(ResizeTest, RoPEFull) {
       //<< ((float)mem_size * 0.001 * 0.001 * 0.001 / (t * 0.001))
       //<< "\n";
     }
-
-    // std::cerr << FusionProfiler::profile() << "\n";
   }
 
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
+TEST_F(ResizeTest, NonFusionInputSlice) {
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  auto tv0 = makeConcreteTensor({128});
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = slice(
+      tv1, std::vector<Slice>{{fusion.oneVal(), IrBuilder::create<Val>(128L)}});
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  fusion.printMath();
+
+  scheduler_tools::propagateSliceToOutputs(&fusion);
+
+  fusion.print();
+  fusion.printKernel();
+}
+
+TEST_F(ResizeTest, NonFusionInputSlicePropagateToInputs) {
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  auto tv0 = makeConcreteTensor({128});
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = slice(
+      tv1, std::vector<Slice>{{fusion.oneVal(), IrBuilder::create<Val>(128L)}});
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  fusion.printMath();
+
+  scheduler_tools::propagateSliceToInputs(&fusion);
+
+  fusion.print();
+  fusion.printKernel();
 }
 
 } // namespace nvfuser

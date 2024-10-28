@@ -143,6 +143,127 @@ bool propagateCatToInputs(Fusion* fusion) {
   return true;
 }
 
+// Merge this with propagateCatToInputs?
+void propagateSliceToInputs(SliceOp* resize_op) {
+  Fusion* fusion = resize_op->fusion();
+
+  DisjointSets<TensorView*> input_sets;
+
+  std::cerr << "propagateSliceToInputs: " << resize_op->toString();
+
+  auto get_inputs = [&](Val* tv) -> std::vector<Val*> {
+    auto dep_inputs = DependencyCheck::getAllValsBetween(
+        {fusion->inputs().begin(), fusion->inputs().end()}, {tv});
+    dep_inputs.erase(
+        std::remove_if(
+            dep_inputs.begin(),
+            dep_inputs.end(),
+            [&](Val* dep_tv) {
+              return dep_tv == tv || dep_tv->isFusionInput();
+            }),
+        dep_inputs.end());
+    return dep_inputs;
+  };
+
+  auto privatize_input = [&](TensorView* input) -> TensorView* {
+    auto private_copy = RecomputeTv::recompute(input);
+    DisjointSets<TensorView*>::DisjointSet& input_set =
+        input_sets.initializeSet(private_copy).first->second;
+    std::stringstream ss;
+    ss << private_copy->toString();
+    for (auto val : get_inputs(private_copy)) {
+      ss << " " << val->toString();
+      input_sets.appendToSet(val->as<TensorView>(), input_set);
+    }
+    std::cerr << "recomputed: " << ss.str() << "\n";
+    return private_copy;
+  };
+
+  auto has_overlap = [&input_sets](TensorView* input) -> bool {
+    Fusion* fusion = input->fusion();
+    std::cerr << "Input: " << input->toString() << "\n";
+    if (input_sets.mappingExists(input)) {
+      // Overlapped inputs
+      std::cerr << "Overlapped input: " << input->toString() << "\n";
+      return true;
+    }
+    DisjointSets<TensorView*>::DisjointSet& input_set =
+        input_sets.initializeSet(input).first->second;
+    auto dep_inputs = DependencyCheck::getAllValsBetween(
+        {fusion->inputs().begin(), fusion->inputs().end()}, {input});
+    dep_inputs.erase(
+        std::remove_if(
+            dep_inputs.begin(),
+            dep_inputs.end(),
+            [&](Val* tv) { return tv->isFusionInput(); }),
+        dep_inputs.end());
+    std::cerr << "Dep input: " << toDelimitedString(dep_inputs) << "\n";
+    for (auto tv : ir_utils::filterByType<TensorView>(dep_inputs)) {
+      if (input_sets.mappingExists(tv)) {
+        // Overlapped cat inputs
+        std::cerr << "Overlapped input: " << tv->toString() << "\n";
+        return true;
+      }
+      input_sets.appendToSet(tv, input_set);
+    }
+    return false;
+  };
+
+  auto inp_tv = resize_op->input(0)->as<TensorView>();
+  std::cerr << "Input: " << inp_tv->toString() << "\n";
+
+  TensorView* original = inp_tv;
+  TensorView* clone = nullptr;
+  [[maybe_unused]] bool overlap = has_overlap(inp_tv);
+  // Needs to be privatized if dep tensors are used by non-cat
+  // consumers. For now, just always privatize
+  clone = privatize_input(inp_tv);
+
+  auto updated_op = resize_op;
+  std::cerr << "Replacing " << original->toString() << " with "
+            << clone->toString() << "\n";
+  updated_op = ir_utils::replaceValInExprInputs(updated_op, original, clone)
+                   ->as<SliceOp>();
+
+  std::cerr << "New op: " << updated_op->toString();
+  std::cerr << "Num disjoint sets: " << input_sets.size() << "\n";
+  std::cerr << "Propagating slice resizes to each disjoint set\n";
+
+  const auto& inp_dep_set = input_sets.getDisjointSetOf(inp_tv);
+  std::cerr << "Dep: " << toDelimitedString(inp_dep_set.vector()) << "\n";
+  auto out_tv = updated_op->output(0)->as<TensorView>();
+  for (const auto i : c10::irange(out_tv->getLogicalDomain().size())) {
+    auto slice_out_id = out_tv->getLogicalDomain().at(i);
+    auto slice = dynamic_cast<Resize*>(slice_out_id->definition());
+    if (slice == nullptr) {
+      continue;
+    }
+
+    auto tvs_to_schedule = inp_dep_set.vector();
+    for (auto& tv : tvs_to_schedule) {
+      if (tv == original) {
+        tv = clone;
+      }
+    }
+
+    std::cerr << "Scheduling " << toDelimitedString(tvs_to_schedule) << " with "
+              << slice_out_id->toString() << "\n";
+    scheduler_tools::scheduleLoopDomainsLike(tvs_to_schedule, slice_out_id);
+  }
+}
+
+bool propagateSliceToInputs(Fusion* fusion) {
+  const auto exprs = fusion->exprs();
+  for (auto expr : exprs) {
+    if (auto slice = dynamic_cast<SliceOp*>(expr)) {
+      propagateSliceToInputs(slice);
+    }
+  }
+
+  // TODO: do error check and return something else if failed
+  return true;
+}
+
 bool propagateSliceToOutputs(Fusion* fusion) {
   IdModel id_model(fusion, /*build_models=*/false);
   const auto& graph = id_model.buildExactGraph();
