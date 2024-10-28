@@ -725,8 +725,6 @@ class CloneTmaCircularBufferLoopAndInsertSync
   //    for (...) {
   //      cpAsyncBulk(mbarrier[next_stage], ...);
   //    }
-  //  } else {
-  //    mbarrier::arrive(mbarrier[next_stage]);
   //  }
   //
   //  The expr input argument can be a single cpAsyncBulk expression or a nested
@@ -745,12 +743,6 @@ class CloneTmaCircularBufferLoopAndInsertSync
     // launches the TMA load.
     if_expr->thenBody().push_back(mbarrier_arrive_tx_);
     if_expr->thenBody().push_back(expr);
-
-    // The other threads issue arriveExpectTx without any expected transactions.
-    kir::MBarrierArrive* thread_arrive = IrBuilder::create<kir::MBarrierArrive>(
-        /*state=*/nullptr, mbarrier_arrive_tx_->mbarrier());
-    if_expr->elseBody().push_back(thread_arrive);
-    for_loop_stack_.back()->body().push_back(if_expr);
 
     mbarrier_arrive_tx_ = nullptr;
   }
