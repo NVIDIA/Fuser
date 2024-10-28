@@ -3620,10 +3620,15 @@ TEST_P(MatmulTestWithLayout, HopperMatmul) {
   mparams.supported_vec_size = {8, 8, 4};
   mparams.mma_macro = MmaMacro::Hopper_64_256_16;
   mparams.tile_sizes = gemm_tile;
-  mparams.async_gmem_load_operands = true;
-  mparams.circular_buffer_options.circular_buffer_smem_write = true;
+
+  // TODO: Always use TMA loads on Hopper
+  mparams.async_gmem_load_operands = false;
+
+  // TODO: Since we do not block tile smem operands, it is difficult to see how
+  // we can circular buffer at this time
+  mparams.circular_buffer_options.circular_buffer_smem_write = false;
   mparams.circular_buffer_options.circular_buffer_smem_read = true;
-  mparams.circular_buffer_options.smem_circular_buffer_stage = 3;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 1;
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(&fusion, &mparams);
 

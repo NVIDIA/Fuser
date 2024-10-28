@@ -925,11 +925,14 @@ void HopperMultipleMatmulScheduler::scheduleOperandSmemStores() {
   auto scheduleBranch = [&](const std::vector<TensorView*>& gmem_operands,
                             const std::vector<TensorView*>& smem_operands,
                             const int64_t vec_size) {
-    blockTileTensors(smem_operands);
+    // We don't actually tile the operands...
+    // TODO: ... but we should merge consecutive inner dims.
+    // blockTileTensors(smem_operands);
     for (TensorView* tv : smem_operands) {
       if (params_->promote_prologue_smem_reuse) {
         tv->promoteReuse();
       }
+      /*
       mma_utils::orderTiledConcreteIdAsMaybeAllocationDomain(tv);
       auto swizzled_dom = swizzleSharedMemory(tv);
       tv->setLoopDomain(swizzled_dom.as<IterDomain*>());
@@ -938,7 +941,26 @@ void HopperMultipleMatmulScheduler::scheduleOperandSmemStores() {
       // NOTE: this splits and parallelizes the inner dimension as
       //   TIDz, TIDy, TIDx, V
       mma_utils::scheduleContiguousVectorLoad(
-          tv, params_->tile_sizes, vec_size, /*vectorize=*/vec_size > 1);
+          tv, params_->tile_sizes, vec_size, vec_size > 1);
+      */
+      matmul_utils::moveInnerBroadcastLeft(tv);
+
+      // Note that we do not split tv0 and tv1 by tile. We just directly swizzle
+      // the entire CTA. This means, the location of core matrices of each
+      // instruction will be discontiguous. For example, something like this:
+      //  it0 it0 it1 it1
+      //  it0 it0 it1 it1
+      //  it2 it2 it3 it3
+      //  it2 it2 it3 it3
+      // where itX refers to "instruction tile X".
+      //
+      // Being discontiguous is not a problem, as long as different core
+      // matrices are stored in a strided manner, and we will be able to infer
+      // the correct stride.
+      // TODO: mma input swizzles should be part of MatmulParams or inferred if
+      // possible
+      MmaInputSmemSwizzle swiz = MmaInputSmemSwizzle::None;
+      tv->applyMmaSwizzle(swiz);
     }
   };
   scheduleBranch(as_, acw_smems_, params_->supported_vec_size.a);
@@ -992,10 +1014,11 @@ void HopperMultipleMatmulScheduler::scheduleMmaResults() {
   auto all_merged_roles = blockTileTensors(mma_results_);
   for (size_t i : c10::irange(mma_results_.size())) {
     TensorView*& mma_result = mma_results_[i];
-    std::vector<MatmulDimRole>& merged_roles = all_merged_roles[i];
+    const std::vector<MatmulDimRole>& merged_roles = all_merged_roles[i];
 
     // do split-K rFactor to define splitk_sum and smem_epilogue
     if (params_->splitk_factor != 1) {
+      NVF_THROW("Hopper split-K is not yet tested");
       // Note that the split-K split is already done in blockTileTensors
       TensorView* splitk_sum = mma_result->rFactor({-4, -1});
       std::swap(splitk_sum, mma_result);
@@ -1033,71 +1056,55 @@ void HopperMultipleMatmulScheduler::scheduleMmaResults() {
       mma_result->merge(-3);
     }
 
-    // NOTE: this applies to either mma_result _or_ ab/bb since both have the
-    // same number of dimensions.
-    // TODO: use the version that uses merged_roles instead here
-    mma_utils::scheduleWarpTileWithReduction(mma_result, params_->tile_sizes);
+    // Test that mma_result logical is MNK
+    // TODO: This currently checks leaf domain only which does not necessarily
+    // match logical
+    // TODO: Lift this constraint. Use commitLeafToLogical if necessary. We
+    // might just want to match using id_roles_
+    NVF_ERROR(merged_roles.size() >= 3);
+    const auto checkSingleDimRole = [&merged_roles](
+                                        int pos, MatmulDimRole expected_role) {
+      if (pos < 0) {
+        pos += merged_roles.size();
+      }
+      NVF_ERROR(pos >= 0);
+      NVF_ERROR(pos < (int)merged_roles.size());
+      const auto& actual_role = merged_roles[(size_t)pos];
+      NVF_ERROR(actual_role == expected_role);
+    };
+    checkSingleDimRole(-3, MatmulDimRole::M);
+    checkSingleDimRole(-2, MatmulDimRole::N);
+    checkSingleDimRole(-1, MatmulDimRole::K);
 
-    // This does a split-reorder-merge swizzle of the last two M and N
-    // dimensions (and a possible final reduction dim). eg. [M64, N24, R]  ->
-    // [WarpGroup128, N3, M2, N2, Ro, R4, R2] Before
-    //   mma_result  [... iMo iNo (iKf) rKg rKwo iMwo iNwo iMw iNw iMin iNin
-    //   rKin]
-    // After
-    //   mma_result  [... iMo iNo (iKf) rKg rKwo iMwo iNwo iMw
-    //                              iNw iMino iNino iMin2 iNin2 rKino rKin4
-    //                              rKin2]
-    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-        mma_result->getLoopDomain());
-    mma_result->setLoopDomain(s.as<IterDomain*>());
-    mma_result->setAllocationDomain(s.as<IterDomain*>(), true);
-
-    // Parallelization strategy:
-    // Here the top two rows indicate how we can index each axis. The third
-    // row is what it represents: note that a suffix i means inner and o means
-    // outer here. The fourth row is the parallelization strategy:
-    //   - i means iterate (produce one value per element i.e. don't reduce)
-    //   - r means reduce this dimension
-    //   - B: block
-    //   - T: thread
-    //   - S: serial. This will become a for loop in the generated kernel
-    //   - iMMA: uncontracted axis in an MMA tensor core operation.
-    //   - rMMA: contract in an MMA tensor core operation.
-    //
-    // With split-K:
-    //   mma_result
-    //     nbatch +   1    2    3    4    5    6   7   8
-    //              -15  -14  -13  -12  -11  -10  -9  -8
-    //     [... iMo iNo (iKf) rKg rKwo iMwo iNwo iMw iNw     ...
-    //          iBx iBy  iBz   rS   rS  iTz  iTy  iS  iS
-    //                              9    10    11    12    13    14    15
-    //                             -7    -6    -5    -4    -3    -2    -1
-    //                    ...   iMino iNino iMin2 iNin2 rKino rKin4 rKin2]
-    //                            iTx  iMMA  iMMA  iMMA  rMMA  rMMA  rMMA
-    //   smem_epilogue   (unscheduled, same as original mma_result)
-    //   splitk_sum      (nullptr)
-    //
-    // Without split-K:
-    //   mma_result
-    //     nbatch +   1   2    3    4    5   6   7    8
-    //              -14 -13  -12  -11  -10  -9  -8   -7
-    //     [... iMo iNo rKg rKwo iMwo iNwo iMw iNw iMino
-    //    (iBz) iBx iBy  rS   rS  iTz  iTy  iS  iS  iTx
-    //                                   9    10    11     12    13    14
-    //                                  -6    -5    -4     -3    -2    -1
-    //                               iNino iMin2 iNin2  rKino rKin4 rKin2]
-    //                                iMMA  iMMA  iMMA   rMMA  rMMA  rMMA
-    //   smem_epilogue   (unscheduled, same as original mma_result)
-    //   splitk_sum
-    //     [... iMo iNo rKf  iMi  iNi]
-
-    // parallelize Mwo, Nwo by thread
-    mma_result->axis((int64_t)merged_roles.size() + num_splitk_dims_ + 1)
-        ->parallelize(ParallelType::TIDz);
-    mma_result->axis((int64_t)merged_roles.size() + num_splitk_dims_ + 2)
-        ->parallelize(ParallelType::TIDy);
+    {
+      // Split by tile
+      mma_result->split(-3, params_->tile_sizes.instruction_tile.m);
+      mma_result->split(-2, params_->tile_sizes.instruction_tile.n);
+      mma_result->split(-1, params_->tile_sizes.instruction_tile.k);
+      // [Mo, Mi, No, Ni, Ko, Ki] -> [Mo, No, Ko, Mi, Ni, Ki]
+      mma_result->reorder({{-5, -3}, {-3, -2}});
+      auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+          mma_result->getLoopDomain());
+      mma_result->setAllocationDomain(s.as<IterDomain*>(), true);
+      mma_result->axis(-1)->parallelize(ParallelType::Mma);
+      mma_result->axis(-2)->parallelize(ParallelType::Mma);
+      mma_result->axis(-3)->parallelize(ParallelType::Mma);
+    }
+    /*  tv2 below is the consumer of mma_result (cacheAfter)
+    {
+      // Split by tile
+      tv2->split(-2, getM(macro));
+      tv2->split(-1, getN(macro));
+      // [Mo, Mi, No, Ni] -> [Mo, No, Mi, Ni]
+      tv2->reorder({{-3, -2}});
+      auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+          tv2->getLoopDomain());
+      tv2->setLoopDomain(s.as<IterDomain*>());
+    }
+    */
 
     if (params_->use_smem_epilogue) {
+      NVF_THROW("Hopper smem epilogue is not yet tested");
       smem_epilogue->setMemoryType(MemoryType::Shared);
       auto swizzled_dom = swizzleSharedMemory<false>(smem_epilogue);
       smem_epilogue->setAllocationDomain(swizzled_dom.as<IterDomain*>(), true);
