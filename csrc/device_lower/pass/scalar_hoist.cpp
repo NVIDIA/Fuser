@@ -116,16 +116,28 @@ ForLoop* getLoopAtPos(const std::vector<ForLoop*>& loops, int64_t position) {
   return loops.at(position);
 }
 
-// Check if in the definition of from, there is a subexpression equivalent to
-// reference. If found, then return this subexpression.
-Val* findRefAsSubexprOf(Val* from, Val* reference, bool exact) {
-  auto def = from->definition();
+// Check if the given value is functional. A functional value is one that
+// always returns the same result when called with the same inputs.
+bool isFunctional(Val* v) {
+  auto def = v->definition();
+  if (def == nullptr) {
+    return true;
+  }
   if (auto uop = dynamic_cast<UnaryOp*>(def)) {
     // ElectSync is not functional, it does not return the same value
     // evry time it is called, so we do not want to reuse it.
     if (uop->getUnaryOpType() == UnaryOpType::ElectSync) {
-      return nullptr;
+      return false;
     }
+  }
+  return std::all_of(def->inputs().begin(), def->inputs().end(), isFunctional);
+}
+
+// Check if in the definition of from, there is a subexpression equivalent to
+// reference. If found, then return this subexpression.
+Val* findRefAsSubexprOf(Val* from, Val* reference, bool exact) {
+  if (!isFunctional(reference)) {
+    return nullptr;
   }
   if (exact) {
     if (from == reference) {
@@ -139,6 +151,7 @@ Val* findRefAsSubexprOf(Val* from, Val* reference, bool exact) {
   if (from->isOneOf<TensorView, kir::TensorIndex>()) {
     return nullptr;
   }
+  auto def = from->definition();
   if (def != nullptr) {
     for (auto input : def->inputs()) {
       auto common_subexpr = findRefAsSubexprOf(input, reference, exact);
