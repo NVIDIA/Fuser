@@ -738,8 +738,8 @@ class CloneTmaCircularBufferLoopAndInsertSync
 
     // Create the if-then-else with electSync() predicate for the arrive expect
     // transaction.
-    kir::IfThenElse* if_expr = IrBuilder::create<kir::IfThenElse>(
-        IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
+    kir::IfThenElse* if_expr =
+        IrBuilder::create<kir::IfThenElse>(expr->predicate());
 
     // A single thread issues arriveExpectTx with expected transactions and
     // launches the TMA load.
