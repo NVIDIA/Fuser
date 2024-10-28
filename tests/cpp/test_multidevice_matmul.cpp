@@ -63,7 +63,7 @@ TEST_F(DistributedMatmulTest, MulSum_LayoutTN_NoComms) {
   // A and C are sharded on dimension M
   // Tests local matmul with no communication
   auto dev_prop = at::cuda::getCurrentDeviceProperties();
-  if (dev_prop->major > 10) {
+  if (dev_prop->major > 9) {
     GTEST_SKIP() << "Require Ampere or Hopper for generated matmul";
   }
   auto fusion = std::make_unique<Fusion>();
