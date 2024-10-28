@@ -4681,7 +4681,7 @@ TEST_F(ResizeTest, ReshapeBeforeSlice) {
       batches, seq_length, head_size * (n_head + 2 * n_query_groups)};
   std::vector<int64_t> shape_before_permutation{
       batches, seq_length, n_query_groups, total_qkv, head_size};
-  std::vector<int64_t> shape1{
+  std::vector<int64_t> shape_after_permutation{
       batches, n_query_groups, total_qkv, seq_length, head_size};
 
   std::vector<int64_t> input_shape = shape_before_reshape;
@@ -4710,14 +4710,17 @@ TEST_F(ResizeTest, ReshapeBeforeSlice) {
   [[maybe_unused]] auto one = fusion.oneVal();
 
   auto qkv = reshape(tv0, shape_before_reshape, shape_before_permutation);
+  qkv = permute(qkv, {0, 2, 3, 1, 4});
+
+  std::cerr << "qkv: " << qkv->toString() << "\n";
 
   std::vector<Slice> slice_default_arg;
-  slice_default_arg.reserve(shape_before_permutation.size());
-  for (const auto s : shape_before_permutation) {
+  slice_default_arg.reserve(shape_after_permutation.size());
+  for (const auto s : shape_after_permutation) {
     slice_default_arg.push_back(Slice{zero, IrBuilder::create<Val>(s)});
   }
 
-  int64_t qkv_slice_dim = 3;
+  int64_t qkv_slice_dim = 2;
 
   [[maybe_unused]] auto slice_arg_q = slice_default_arg;
   // slice_arg_q[qkv_slice_dim].stop = IrBuilder::create<Val>(total_qkv
@@ -4771,7 +4774,7 @@ TEST_F(ResizeTest, ReshapeBeforeSlice) {
     [[maybe_unused]] auto x_cache = slice(x, slice_arg);
 
     [[maybe_unused]] std::vector<bool> bcast_flags{
-        true, false, true, true, false};
+        true, true, true, false, false};
     [[maybe_unused]] auto cos_broadcast = broadcast(cos, bcast_flags);
     [[maybe_unused]] auto sin_broadcast = broadcast(sin, bcast_flags);
 
@@ -4823,7 +4826,7 @@ TEST_F(ResizeTest, ReshapeBeforeSlice) {
 
   if (getenv("BENCHMARK")) {
     [[maybe_unused]] int64_t mem_size = 1;
-    for (const auto s : shape1) {
+    for (const auto s : input_shape) {
       mem_size *= s;
     }
     // read and write
