@@ -247,9 +247,6 @@ std::pair<Val*, bool> CommonScalarMap::hoistScalarImpl(
   }
 
   for (auto existing_subexpr : seen_subexprs) {
-    if (!isFunctional(existing_subexpr)) {
-      continue;
-    }
     if (value->sameAs(existing_subexpr)) {
       common_scalar_map_[my_loop].emplace_back(existing_subexpr);
       hoisted_or_reused_.emplace(existing_subexpr);
@@ -283,12 +280,15 @@ std::pair<Val*, bool> CommonScalarMap::hoistScalarImpl(
 
   // hoist subexpression to outer loop. If `value` depends on a tensor, then we
   // should never insert it into `common_scalar_map_`, because we can not
-  // allocate it at the beginning of the loop. If `value` is the given value to
+  // allocate it at the beginning of the loop. Also, we never insert
+  // non-functional values to `common_scalar_map_` because each call returns a
+  // different value, therefore non-hoistable. If `value` is the given value to
   // the public `hoistScalar`, then we should always insert it into
   // `common_scalar_map_` so that future `value` could consider reusing it. If
   // `value` is a subexpression of the given value, then we insert it into
   // `common_scalar_map_` only if it can be hoisted to outer loops.
-  if (!has_tensor_index_dependency && (is_given || my_pos < parent_pos)) {
+  if (!has_tensor_index_dependency && isFunctional(value) &&
+      (is_given || my_pos < parent_pos)) {
     common_scalar_map_[my_loop].emplace_back(value);
     if (my_pos < parent_pos) {
       hoisted_or_reused_.emplace(value);
