@@ -119,6 +119,14 @@ ForLoop* getLoopAtPos(const std::vector<ForLoop*>& loops, int64_t position) {
 // Check if in the definition of from, there is a subexpression equivalent to
 // reference. If found, then return this subexpression.
 Val* findRefAsSubexprOf(Val* from, Val* reference, bool exact) {
+  auto def = from->definition();
+  if (auto uop = dynamic_cast<UnaryOp*>(def)) {
+    // ElectSync is not functional, it does not return the same value
+    // evry time it is called, so we do not want to reuse it.
+    if (uop->getUnaryOpType() == UnaryOpType::ElectSync) {
+      return nullptr;
+    }
+  }
   if (exact) {
     if (from == reference) {
       return from;
@@ -131,7 +139,6 @@ Val* findRefAsSubexprOf(Val* from, Val* reference, bool exact) {
   if (from->isOneOf<TensorView, kir::TensorIndex>()) {
     return nullptr;
   }
-  auto def = from->definition();
   if (def != nullptr) {
     for (auto input : def->inputs()) {
       auto common_subexpr = findRefAsSubexprOf(input, reference, exact);
@@ -386,10 +393,10 @@ Val* CommonScalarMap::reuseScalarIfAlreadyComputed(Val* value, ForLoop* loop) {
   if (it != common_scalar_map_.end()) {
     auto& scalars = it->second;
     for (auto it = scalars.begin(); it != scalars.end(); it++) {
-      auto idx = *it;
-      auto common_subexpr = findRefAsSubexprOf(idx, value, false);
+      auto scalar = *it;
+      auto common_subexpr = findRefAsSubexprOf(scalar, value, false);
       if (common_subexpr != nullptr) {
-        if (common_subexpr != idx) {
+        if (common_subexpr != scalar) {
           // If the reuse is a subexpression instead of the complete
           // expression, we split this subexpression out and allocate it
           // separately.
