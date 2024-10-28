@@ -76,12 +76,13 @@ std::unique_ptr<ReductionParams> innerReductionHeuristic(
 
   // WARNING: At some point we may want to generate heuristics for another
   // device that is not the current device.
+  auto dev_prop = at::cuda::getCurrentDeviceProperties();
   const int64_t max_threads_per_sm =
-      (int64_t)at::cuda::getCurrentDeviceProperties()
-          ->maxThreadsPerMultiProcessor;
+      (int64_t)dev_prop->maxThreadsPerMultiProcessor;
 
   const int64_t device_multiprocessor_count =
-      (int64_t)at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+      (int64_t)dev_prop->multiProcessorCount;
+  const int64_t device_warp_size = (int64_t)dev_prop->warpSize;
 
   auto const max_unroll = ceilDiv(
       // Available unrolling based on size of data type
@@ -99,8 +100,8 @@ std::unique_ptr<ReductionParams> innerReductionHeuristic(
   // if data fits in l2 and we need more parallelization in the reduction dim,
   // we can use a smaller warp size. While thread local data fits in l1, and
   // reduction dim is really small, we can use <32 threads per warp.
-  const bool fits_in_l2 = n_elems * max_input_dtype_size * n_tensor_inputs <
-      at::cuda::getCurrentDeviceProperties()->l2CacheSize;
+  const bool fits_in_l2 =
+      n_elems * max_input_dtype_size * n_tensor_inputs < dev_prop->l2CacheSize;
 
   // If it fits in l2, we just want to make sure each warp uses 32Bytes. Set
   // minimum warp as 16 threads instead of 32 as if we have a small reduction
@@ -385,19 +386,21 @@ std::unique_ptr<ReductionParams> innerReductionHeuristic(
   rparams->block_dim_inner_reduction = ParallelType::TIDx;
   rparams->cross_grid_inner_reduction = gridim > 1;
   rparams->multiple_reds_per_blk = bdimy > 1;
-  bool pad_bdimx = bdimx > 16 &&
-      bdimx * bdimy <
-          (int64_t)at::cuda::getCurrentDeviceProperties()->maxThreadsPerBlock;
+
+  bool pad_bdimx =
+      bdimx > 16 && bdimx * bdimy < (int64_t)dev_prop->maxThreadsPerBlock;
   rparams->pad_inner_reduction_to_warp = pad_bdimx;
 
   if (rparams->pad_inner_reduction_to_warp) {
     // Adjust bdimx based on padding
-    auto min_warp_size =
-        (int64_t)at::cuda::getCurrentDeviceProperties()->warpSize;
+    auto min_warp_size = device_warp_size;
     bdimx = bdimx % min_warp_size == 0
         ? bdimx
         : bdimx + min_warp_size - bdimx % min_warp_size;
   }
+
+  rparams->static_bdimx = true;
+  rparams->static_bdimy = true;
 
   rparams->unroll_factor_inner_reduction = inner_reduction_unroll_factor;
   rparams->vectorize_inner_reduction = vectorize;
@@ -463,7 +466,7 @@ std::unique_ptr<ReductionParams> innerReductionHeuristic(
       gdimy,
       gdimz,
       bdimx,
-      bdimy > 1 ? bdimy : LaunchParams::UNINITIALIZED_VAL,
+      bdimy,
       bdimz > 1 ? bdimz : LaunchParams::UNINITIALIZED_VAL);
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
