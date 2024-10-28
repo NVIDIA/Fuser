@@ -12,11 +12,11 @@
 #include <ops/arith.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/registry.h>
+#include <scheduler/runtime_info.h>
 #include <scheduler/tools/inlining.h>
 #include <scheduler/tools/maxinfo_propagator.h>
 #include <scheduler/utils.h>
 #include <transform_replay.h>
-#include <scheduler/runtime_info.h>
 
 namespace nvfuser {
 
@@ -348,6 +348,7 @@ void multiReductionInliner(
     const bool is_unroll_or_vectorization,
     const bool vectorize,
     const bool use_grouped_reduction,
+    const int64_t vectorizatoin_factor,
     std::vector<TensorView*> reduction_tvs,
     std::vector<TensorView*> cached_inputs,
     std::vector<std::pair<TensorView*, TensorView*>> cached_outputs,
@@ -374,7 +375,7 @@ void multiReductionInliner(
   // potential different data types of inputs and shared memory tensor.
   if (vectorize) {
     reduction_scheduler_utils::sharedMemoryConsumerVectorization(
-        smem_consumers);
+        smem_consumers, vectorizatoin_factor);
   }
 
   // Remove dummy outputs as they can inadvertently affect CA positions
@@ -1004,23 +1005,32 @@ std::ostream& operator<<(std::ostream& os, ReductionType reduction_type) {
 }
 
 void sharedMemoryConsumerVectorization(
-    std::vector<TensorView*>& smem_consumers) {
-  // Vectorization of smem consumers, they were created with cacheAfter().
-  // Can't directly use the vectorization factor set for inputs due to
-  // potential different data types, e.g. fp16 inputs and fp32 smem_consumers.
-  // When this happens, there are two additional optimizations should be done:
-  // (1) writing to smem should be vectorized.
-  // (2) when n_loads > 1, still has bank conflicts.
-  // See test SharedMemoryPersistentVectFactor.
+    std::vector<TensorView*>& smem_consumers,
+    int64_t io_vectorization_factor) {
   for (auto tv : smem_consumers) {
+    // they were creatd with cacheAfter.
     NVF_ERROR(
         tv->definition()->isA<LoadStoreOp>(),
         "smem consumers should be LoadStoreOp. Got: ",
         tv->definition()->toString());
+    // they were transformed with innermost axis has extent equal to
+    // vectorization factor set for io tvs.
+    NVF_ERROR(
+        tv->axis(-1)->extent()->isConst(),
+        "Extent of the innermost axis of smem consumers should be constant. Got: ",
+        tv->toString());
     auto innermost_extent = tv->axis(-1)->extent()->evaluate().as<int64_t>();
+    NVF_ERROR(
+        innermost_extent == io_vectorization_factor,
+        "Extent of the innermost axis of smem consumers should be equal to the vectorization factor of fuion inputs and outputs. Got: ",
+        innermost_extent,
+        ", expected: ",
+        io_vectorization_factor);
     auto dtype_bytes = dataTypeSize(tv->getDataType().value());
     auto max_vect_factor =
         SchedulerRuntimeInfo::max_alignment_size_in_byte / dtype_bytes;
+    // additional split is added if the innermost extent is greater than max
+    // vectorization factor
     if (innermost_extent > max_vect_factor) {
       tv->split(-1, max_vect_factor);
     }

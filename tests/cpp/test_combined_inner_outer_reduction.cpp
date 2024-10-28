@@ -968,11 +968,15 @@ TEST_F(CombinedSchedulerTest, SharedMemoryPersistentVectFactor) {
       SchedulerType::InnerOuterPersistent);
   auto heuristic_params = scheduler->computeHeuristics(&fusion, runtime_info);
 
-  // disable projection to inputs
+  // disable projection to inputs, so shared memory buffer is using float32
   heuristic_params->as<ReductionParams>()->project_persistent_buffers = false;
-  // Set vectorization factor to 8
+  // Set vectorization factor to 8, so the exent of the innermost dimension
+  // exceed 16 bytes (8 x 4 = 32 bytes).
   heuristic_params->as<ReductionParams>()->unroll_factor_inner_reduction = 8;
-  // replace existing shared memory buffer with tv1
+  // when compute heuristics, the buffer is projected to inputs and the shared
+  // memory persistent buffer is the input, tv0. Then, we modified the
+  // heuristics to disable project to inputs, so needs to update the buffer
+  // being stored in shared memory to the original unprojected buffer, tv1.
   heuristic_params->as<ReductionParams>()->smem_persistent_buffers =
       std::vector<TensorView*>{tv1};
   scheduler->schedule(&fusion, heuristic_params.get());

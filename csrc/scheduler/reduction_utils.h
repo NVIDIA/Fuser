@@ -35,6 +35,7 @@ void multiReductionInliner(
     const bool unroll,
     const bool vectorize,
     const bool use_grouped_reduction,
+    const int64_t vectorizatoin_factor,
     std::vector<TensorView*> reduction_tvs,
     std::vector<TensorView*> cached_inputs,
     std::vector<std::pair<TensorView*, TensorView*>> cached_outputs,
@@ -136,16 +137,23 @@ std::string toString(ReductionType reduction_type);
 ReductionType getReductionType(Fusion* fusion);
 ReductionType getReductionType(const std::vector<TensorView*>& reduction_tvs);
 
-// Vectorization of smem consumers, they were created with cacheAfter() and
-// innermost dim has a constant extent equals to the vectorization factor set
-// for fusion inputs. However, can't directly use that vectorization factor due
-// to potential different data types, e.g. fp16 inputs and fp32 smem_consumers.
-// This may happen when persistent buffers are not projected to inputs.
-// TODO:
-// (1) writing to smem should be vectorized.
-// (2) Still has bank conflicts for float32 with innermost extent of 8.
+/**
+ * @brief Vectorize shared memory consumers
+ *
+ * Applies vectorization to shared memory consumers.
+ * If extent of the last dim multiples vectorization factor exceeds hardware
+ * limitations, additional split is added.
+ *
+ * @param smem_consumers Vector of TensorView pointers representing shared
+ * memory consumers
+ * @param io_vectorization_factor Vectorization factor set for fusion inputs and
+ * outputs
+ * @note TODO: Optimize writing to shared memory and address bank conflicts for
+ * float32 with innermost extent of 8
+ */
 void sharedMemoryConsumerVectorization(
-    std::vector<TensorView*>& smem_consumers);
+    std::vector<TensorView*>& smem_consumers,
+    const int64_t io_vectorization_factor);
 
 } // namespace reduction_scheduler_utils
 } // namespace nvfuser

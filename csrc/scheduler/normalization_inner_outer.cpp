@@ -1066,7 +1066,7 @@ void scheduleInnerOuterPersistentKernel(
   // potential different data types of inputs and shared memory tensor.
   if (is_vectorize) {
     reduction_scheduler_utils::sharedMemoryConsumerVectorization(
-        smem_consumers);
+        smem_consumers, rparams->unroll_factor_inner_reduction);
   }
 
   // Remove dummy outputs as they can inadvertently affect CA positions
