@@ -743,6 +743,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
     // launches the TMA load.
     if_expr->thenBody().push_back(mbarrier_arrive_tx_);
     if_expr->thenBody().push_back(expr);
+    for_loop_stack_.back()->body().push_back(if_expr);
 
     mbarrier_arrive_tx_ = nullptr;
   }
