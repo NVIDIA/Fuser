@@ -3664,7 +3664,7 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  constexpr int64_t M = 1024 * 16, N = 1024 * 16, K = 1024;
+  constexpr int64_t M = 2048, N = 2048, K = 8192;
   constexpr auto macro = MmaMacro::Hopper_64_256_16;
   constexpr auto layout = MmaLayout::NT; // [K, M] x [K, N] -> [M, N]
   constexpr auto swizzle = MmaInputSmemSwizzle::B128;
@@ -3672,7 +3672,7 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
 
   constexpr int64_t stages = 4;
   constexpr int64_t prefetch = 3;
-  const int64_t cta_m = 1 * getM(macro);
+  const int64_t cta_m = 2 * getM(macro);
   const int64_t cta_n = 1 * getN(macro);
 
   auto tv0 = makeContigConcreteTensor({-1, -1, 1}, dtype);
