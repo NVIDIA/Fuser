@@ -1423,6 +1423,7 @@ void schedulePersistentKernel(
       reduction_tvs,
       cached_inputs,
       cached_outputs,
+      smem_consumers,
       dummy_outputs);
 
   if (rparams->compute_persistent_buffer_with_first_consumer) {

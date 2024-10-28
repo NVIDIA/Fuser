@@ -1062,28 +1062,11 @@ void scheduleInnerOuterPersistentKernel(
     }
   }
 
-  // Vectorization of smem consumers, they were created with cacheAfter().
-  // Can't directly use the vectorization factor set for inputs due to potential
-  // different data types, e.g. fp16 inputs and fp32 smem_consumers.
-  // When this happens, there are two additional optimizations should be done:
-  // (1) writing to smem should be vectorized.
-  // (2) when n_loads > 1, still has bank conflicts.
-  // See test SharedMemoryPersistentVectFactor.
+  // Needs special handling of vectorized loading from shared memory due to
+  // potential different data types of inputs and shared memory tensor.
   if (is_vectorize) {
-    for (auto tv : smem_consumers) {
-      NVF_ERROR(
-          tv->definition()->isA<LoadStoreOp>(),
-          "smem consumers should be LoadStoreOp. Got: ",
-          tv->definition()->toString());
-      auto innermost_extent = tv->axis(-1)->extent()->evaluate().as<int64_t>();
-      auto dtype_bytes = dataTypeSize(tv->getDataType().value());
-      auto max_vect_factor =
-          SchedulerRuntimeInfo::max_alignment_size_in_byte / dtype_bytes;
-      if (innermost_extent > max_vect_factor) {
-        tv->split(-1, max_vect_factor);
-      }
-      tv->axis(-1)->parallelize(ParallelType::Vectorize);
-    }
+    reduction_scheduler_utils::sharedMemoryConsumerVectorization(
+        smem_consumers);
   }
 
   // Remove dummy outputs as they can inadvertently affect CA positions
