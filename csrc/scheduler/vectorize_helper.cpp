@@ -365,10 +365,35 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     distributePE(merge_or_split);
   };
 
-  auto clear_left_of = [&frontier](IterDomain* id) {
+  auto propagateResize = [&frontier](Resize* resize_op, bool p2c) {
+
+
+    // on top of the usual thing -> offset/size of tensor that could impact vectorization factor.
+    // slice -> check offset.
+    // pad -> check pad size.
+
+    // does index of the resize dimension matter?
+    // pad we can only support innermost dimensions. (Unless we lift the conditional).
+    // slice only impacts vectorization when it's in the collapsed innermost dimensions.
+
     auto it = std::find(frontier.begin(), frontier.end(), id);
-    if (it != frontier.end()) {
-      frontier.erase(frontier.begin(), it + 1);
+    if (it == frontier.end()) {
+      return;
+    }
+
+    // FIXME
+    bool compatible resize = true;
+    // I think we still needs to clear left of resize anyway, since vectorization factor can't go across resize.
+    frontier.erase(frontier.begin(), compatible_resize ? it + 1, it);
+    
+    // Nothing to do unless recording
+    if (!recording_) {
+      return;
+    }
+
+    if (p2c) {
+      addProjectedExtent(
+    } else {
     }
   };
 
@@ -391,8 +416,7 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     } else if (Merge* merge = dynamic_cast<Merge*>(expr)) {
       propagateDistribute(merge);
     } else if (Resize* resize = dynamic_cast<Resize*>(expr)) {
-      // Cannot vectorize through resize
-      clear_left_of(resize->out());
+      propagateResize(resize, false);
     } else {
       // TODO: I wonder if we should just remove all inputs instead of erroring.
       // Seems that would be safe.
@@ -415,8 +439,7 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     } else if (Split* split = dynamic_cast<Split*>(expr)) {
       propagateDistribute(split);
     } else if (Resize* resize = dynamic_cast<Resize*>(expr)) {
-      // Cannot vectorize through resize
-      clear_left_of(resize->in());
+      propagateResize(resize, true);
     } else {
       // TODO: I wonder if we should just remove all inputs instead of erroring.
       // Seems that would be safe.
