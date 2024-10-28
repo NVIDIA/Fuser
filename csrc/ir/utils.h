@@ -728,6 +728,6 @@ std::string nullOrToInlineString(const Statement* stmt);
 
 //! Check if the given value is functional. A functional value is one that
 //! always returns the same result when called with the same inputs.
-bool isFunctional(Val* v);
+bool isFunctional(const Val* v);
 
 } // namespace nvfuser::ir_utils

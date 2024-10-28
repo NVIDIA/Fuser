@@ -1189,7 +1189,7 @@ std::string nullOrToInlineString(const Statement* id) {
   return id ? id->toInlineString() : "nullptr";
 }
 
-bool isFunctional(Val* v) {
+bool isFunctional(const Val* v) {
   auto def = v->definition();
   if (def == nullptr) {
     return true;
