@@ -287,10 +287,10 @@ std::pair<Val*, bool> CommonScalarMap::hoistScalarImpl(
   // `common_scalar_map_` so that future `value` could consider reusing it. If
   // `value` is a subexpression of the given value, then we insert it into
   // `common_scalar_map_` only if it can be hoisted to outer loops.
-  if (!has_tensor_index_dependency && isFunctional(value) &&
+  if (!has_tensor_index_dependency &&
       (is_given || my_pos < parent_pos)) {
     common_scalar_map_[my_loop].emplace_back(value);
-    if (my_pos < parent_pos) {
+    if (my_pos < parent_pos && isFunctional(value)) {
       hoisted_or_reused_.emplace(value);
     }
   }
