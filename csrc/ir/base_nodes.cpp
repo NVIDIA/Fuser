@@ -190,7 +190,7 @@ std::string Val::toInlineString(int indent_size) const {
 }
 
 bool Val::isConstScalar() const {
-  if (!isScalar() || !ir_utils::isFunctional(reference)) {
+  if (!isScalar() || !ir_utils::isFunctional(this)) {
     return false;
   }
   return ir_utils::dependenciesSatisfied(this);
