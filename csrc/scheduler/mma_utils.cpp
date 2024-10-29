@@ -960,6 +960,7 @@ void MmaSwizzler::scheduleTMALoadForMma(
 
     // [NO, K, NI] - the TMA Box is [K, NI]
     tv->reorder({{-3, -4}});
+    tv->merge(-3);
 
     // [NO, K, NI] ->
     // [NO, KO(2), KIO(2), KII(4), NIO(2), NII(8)]
