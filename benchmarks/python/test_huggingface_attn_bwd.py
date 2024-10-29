@@ -126,7 +126,7 @@ def test_huggingface_attn_bwd_baseline_benchmark(
     attention_mask = torch.zeros(
         batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype
     )
-    
+
     def huggingface_attn_fwd():
         attn = (inputs + attention_mask).view(batch_size * nh, seq_len, seq_len)
         attn = torch.nn.functional.softmax(attn, dim=-1)

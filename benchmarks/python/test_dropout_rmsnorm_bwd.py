@@ -190,8 +190,8 @@ def test_dropout_rmsnorm_bwd_baseline_benchmark(
         x = input2 + torch.nn.functional.dropout(input1, p=dropout_p)
         output = weights * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + 1e-5)
         return output
-    
-    fwd_fn = torch.compile(dropout_rmsnorm_fwd) else dropout_rmsnorm_fwd
+
+    fwd_fn = torch.compile(dropout_rmsnorm_fwd) if compile else dropout_rmsnorm_fwd
     output = fwd_fn()
 
     run_benchmark(

@@ -207,7 +207,7 @@ def test_dropout_layernorm_bwd_baseline_benchmark(
     grads = torch.randn(size, device="cuda", dtype=dtype)
     weights = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
     bias = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
-    
+
     def dropout_layernorm_fwd():
         return torch.nn.functional.layer_norm(
             input2 + torch.nn.functional.dropout(input1, p=dropout_p),
@@ -215,11 +215,11 @@ def test_dropout_layernorm_bwd_baseline_benchmark(
             weight=weights,
             bias=bias,
         )
-    
+
     # Compile the fwd fn for torchcompile
     fwd_fn = torch.compile(dropout_layernorm_fwd) if compile else dropout_layernorm_fwd
     output = fwd_fn()
-    
+
     # Manually compute IOBytes: See PR #1725
     run_benchmark(
         benchmark,

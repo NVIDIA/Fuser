@@ -93,13 +93,14 @@ def test_silu_mul_bwd_baseline_benchmark(
     x = torch.randn(*size, device="cuda", dtype=dtype, requires_grad=True)
     y = torch.randn(*size, device="cuda", dtype=dtype, requires_grad=True)
     grads = torch.randn(*size, device="cuda", dtype=dtype)
-    
+
     def silu_mul_fwd():
         return torch.nn.functional.silu(x) * y
+
     # Compile the fwd fn for torchcompile
     fwd_fn = torch.compile(silu_mul_fwd) if compile else silu_mul_fwd
     eager_output = fwd_fn()
-    
+
     run_benchmark(
         benchmark,
         unary_bwd_torch,

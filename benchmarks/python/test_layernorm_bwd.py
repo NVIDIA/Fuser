@@ -170,9 +170,10 @@ def test_layernorm_bwd_baseline_benchmark(
             weight=weights,
             bias=bias,
         )
+
     fwd_fn = torch.compile(layernorm_fwd) if compile else layernorm_fwd
     output = fwd_fn()
-    
+
     # Manually compute IOBytes: See PR #1725
     run_benchmark(
         benchmark,

@@ -94,13 +94,14 @@ def test_sbr_bwd_baseline_benchmark(
     grads = torch.randn(*size, device="cuda", dtype=dtype)
     scale = torch.ones(size[-1], device="cuda", dtype=dtype)
     bias = torch.ones(size[-1], device="cuda", dtype=dtype)
-    
+
     def sbr_fwd():
         return torch.nn.functional.relu(inputs * scale + bias)
+
     # Compile the fwd fn for torchcompile
     fwd_fn = torch.compile(sbr_fwd) if compile else sbr_fwd
     eager_output = sbr_fwd()
-    
+
     run_benchmark(
         benchmark,
         unary_bwd_torch,

@@ -132,7 +132,7 @@ def test_rmsnorm_bwd_baseline_benchmark(
         rms_eps = torch.sqrt(squared_mean + 1e-5)
         output = weights * (inputs / rms_eps)
         return output
-    
+
     # Compile the fwd fn for torchcompile
     fwd_fn = torch.compile(rmsnorm_fwd) if compile else rmsnorm_fwd
     output = fwd_fn()

@@ -106,12 +106,13 @@ def test_softmax_bwd_baseline_benchmark(
         clear_dynamo_cache()
     input = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
     grads = torch.randn(size, device="cuda", dtype=dtype)
-    
+
     def softmax_fwd():
         return torch.nn.functional.softmax(input, dim=reduction_axis)
+
     fwd_fn = torch.compile(softmax_fwd) if compile else softmax_fwd
     output = fwd_fn()
-    
+
     run_benchmark(
         benchmark,
         unary_bwd_torch,
