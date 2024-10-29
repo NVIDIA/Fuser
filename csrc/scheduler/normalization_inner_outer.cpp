@@ -365,7 +365,6 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
 std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
     const int64_t outer_dim_numel,
     const int64_t inner_dim_numel,
-    const int64_t n_inner_reductions,
     const int64_t regs_buffer_size,
     const int64_t smem_buffer_size,
     const int64_t smem_overhead,
@@ -743,11 +742,9 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
   // Get dtype used to store partial outer reduction
   // Get the first inner reduction tv and use it as the reference tv
   int64_t max_outer_reduction_dtype_size = 1;
-  int64_t n_inner_reductions = 0;
   TensorView* first_inner_reduction_tv = nullptr;
   for (auto tv : reduction_tvs) {
     if (scheduler_utils::isFastestDimReduction(tv)) {
-      n_inner_reductions++;
       first_inner_reduction_tv = tv;
     } else {
       max_outer_reduction_dtype_size = std::max(
@@ -795,7 +792,6 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
   std::unique_ptr<ReductionParams> rparams = innerOuterPersistentHeuristic(
       properties.total_iteration_numel,
       properties.total_reduction_numel,
-      n_inner_reductions,
       buffer_params.regs_buffer_size,
       buffer_params.smem_buffer_size,
       buffer_params.smem_overhead,
