@@ -1420,6 +1420,7 @@ void schedulePersistentKernel(
       unroll,
       vectorize,
       is_outer_grid_persistence,
+      rparams->unroll_factor_inner_reduction,
       reduction_tvs,
       cached_inputs,
       cached_outputs,
