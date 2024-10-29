@@ -208,6 +208,8 @@ TensorView* scheduleReductionTV(
     if (!rparams->vectorize_inner_reduction &&
         rparams->unroll_factor_inner_reduction > 1) {
       inner_unroll(inner_reduce_axis, rparams->unroll_factor_inner_reduction);
+    }else if(rparams->unroll_factor_top_of_vectorization > 1){
+      inner_unroll(inner_reduce_axis, rparams->unroll_factor_top_of_vectorization);
     }
 
     inner_unswitch(inner_reduce_axis);
@@ -305,6 +307,9 @@ TensorView* scheduleReductionTV(
       }
     }
   }
+
+
+  std::cout << "Reduction TV: " << reduction_tv->toString() << std::endl;
 
   auto reduction_rf_tv = sortAndRFactor(reduction_tv);
 

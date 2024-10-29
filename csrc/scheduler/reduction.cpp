@@ -84,12 +84,19 @@ std::unique_ptr<ReductionParams> innerReductionHeuristic(
       (int64_t)dev_prop->multiProcessorCount;
   const int64_t device_warp_size = (int64_t)dev_prop->warpSize;
 
-  auto const max_unroll = ceilDiv(
+  int64_t max_unroll = ceilDiv(
       // Available unrolling based on size of data type
       (int64_t)16 / (int64_t)max_input_dtype_size,
       // Reduce unrolling if we have many inputs, start reduction at 4 inputs
       scheduler_utils::lastPow2(
           std::max((int64_t)n_tensor_inputs >> 2, (int64_t)1)));
+
+  if (std::getenv("EXTRA_UNROLL")) {
+    int64_t extra_unroll = std::stoi(std::getenv("EXTRA_UNROLL"));
+    max_unroll *= extra_unroll;
+    std::cout << "extra_unroll: " << extra_unroll
+              << " vectorize_factor: " << vectorize_factor << std::endl;
+  }
 
   // Conservative value, could be set to larger based on arch if necessary.
   constexpr int64_t l1_cache = (int64_t)32 * 1024;
@@ -226,16 +233,31 @@ std::unique_ptr<ReductionParams> innerReductionHeuristic(
   int64_t inner_reduction_unroll_factor = 1;
   int64_t outer_reduction_unroll_factor = 1;
   int64_t iter_unroll_factor = 1;
+  int64_t unroll_factor_top_of_vectorization = 1;
 
   inner_reduction_unroll_factor =
       vectorize_factor > 1 ? (int64_t)vectorize_factor : 1;
-
+  auto after_vect =
+      ceilDiv(inner_most_dimension_numel, inner_reduction_unroll_factor);
   // Grab what we can out of reduction domain, but don't go over a warp size yet
   bdimx = std::min(
       std::max(
           ceilDiv(inner_most_dimension_numel, inner_reduction_unroll_factor),
           (int64_t)min_warp_size),
       target_threads_in_block);
+  if (std::getenv("HEU1")) {
+    bdimx = 1;
+    // increase bdimx and ensure divisible splits.
+    // after this part, bdimx may equals 16, 32, 64, 128, 256, 512, e.g,
+    // after_vect = 512 / 8 = 64, then bdimx = 64
+    // after_vect = 5120 / 8 = 640, then bdimx = 128
+    // after_vect = 10240 / 8 = 1280, then bdimx = 256
+    const int64_t prefered_min_bdimx = 128;
+    while (bdimx * 2 <= target_threads_in_block && bdimx * 2 <= after_vect &&
+           (after_vect % (bdimx * 2) == 0 || bdimx * 2 <= prefered_min_bdimx)) {
+      bdimx *= 2;
+    }
+  }
 
   // If we're not just barely covering the dimension, round to a more friendly
   // number
@@ -247,6 +269,41 @@ std::unique_ptr<ReductionParams> innerReductionHeuristic(
       bdimx = bdimx - bdimx % min_warp_size;
     }
   }
+
+  if (std::getenv("MAX_BDIMX")) {
+    int64_t max_bdimx = std::stoi(std::getenv("MAX_BDIMX"));
+    bdimx = std::min(max_bdimx, bdimx);
+    std::cout << "MAX_BDIMX: " << max_bdimx << " bdimx: " << bdimx << std::endl;
+  }
+
+  auto after_vect_bdimx = ceilDiv(after_vect, bdimx);
+  if (after_vect_bdimx == 1 && bdimx > 128) {
+    bdimx /= 2;
+    unroll_factor_top_of_vectorization = 2;
+  } else if (after_vect_bdimx >= 2 && after_vect_bdimx % 2 == 0) {
+    unroll_factor_top_of_vectorization = 2;
+  } else if (after_vect_bdimx >= 3 && after_vect_bdimx % 3 == 0) {
+    unroll_factor_top_of_vectorization = 3;
+  } else if (after_vect_bdimx >= 5 && after_vect_bdimx % 5 == 0) {
+    unroll_factor_top_of_vectorization = 5;
+  } else if (after_vect_bdimx >= 7 && after_vect_bdimx % 7 == 0) {
+    unroll_factor_top_of_vectorization = 7;
+  }
+  std::cout << "after_vect_bdimx: " << after_vect_bdimx << "unroll_factor_top_of_vectorization: "
+            << unroll_factor_top_of_vectorization << std::endl;
+
+  // // Put some unrolling into the inner dim to fully saturate the memory
+  // // bandwidth
+  // if (inner_reduction_unroll_factor * unroll_factor_top_of_vectorization <
+  //     max_unroll) {
+  //   unroll_factor_top_of_vectorization = std::min(
+  //       max_unroll / inner_reduction_unroll_factor,
+  //       ceilDiv(
+  //           inner_most_dimension_numel / inner_reduction_unroll_factor,
+  //           bdimx));
+  //   std::cout << "unroll_factor_top_of_vectorization: "
+  //             << unroll_factor_top_of_vectorization << std::endl;
+  // }
 
   // Put everything else in bdimy for now
   bdimy = std::max(min_warp_size / bdimx, (int64_t)1);
@@ -296,11 +353,17 @@ std::unique_ptr<ReductionParams> innerReductionHeuristic(
 
   // Attempt to put some unrolling into the outer reduction if inner hasn't
   // taken the max unrolling
-  if (inner_reduction_unroll_factor < max_unroll) {
+  if (inner_reduction_unroll_factor * unroll_factor_top_of_vectorization *
+          unroll_factor_top_of_vectorization <
+      max_unroll) {
     outer_reduction_unroll_factor = std::min(
-        ceilDiv(max_unroll, inner_reduction_unroll_factor),
+        ceilDiv(
+            max_unroll,
+            inner_reduction_unroll_factor * unroll_factor_top_of_vectorization),
         ceilDiv(
             ceilDiv(total_reduction_numel, inner_most_dimension_numel), bdimz));
+    std::cout << "outer_reduction_unroll_factor: "
+              << outer_reduction_unroll_factor << std::endl;
   }
 
   int64_t remainder_in_reduction = ceilDiv(
@@ -314,12 +377,14 @@ std::unique_ptr<ReductionParams> innerReductionHeuristic(
 
   // If we haven't gotten to the max_unroll case, try to take it out of the
   // iteration domain
-  if (inner_reduction_unroll_factor * outer_reduction_unroll_factor <
+  if (inner_reduction_unroll_factor * outer_reduction_unroll_factor *
+          unroll_factor_top_of_vectorization <
       max_unroll) {
     // Don't go over a combined inner/outer unroll of max_unroll
     auto unroll_available = ceilDiv(
         max_unroll,
-        inner_reduction_unroll_factor * outer_reduction_unroll_factor);
+        inner_reduction_unroll_factor * outer_reduction_unroll_factor *
+            unroll_factor_top_of_vectorization);
 
     if (unroll_available > 1 && godim > 2 * device_multiprocessor_count) {
       unroll_available = std::min(
@@ -403,6 +468,8 @@ std::unique_ptr<ReductionParams> innerReductionHeuristic(
   rparams->static_bdimy = true;
 
   rparams->unroll_factor_inner_reduction = inner_reduction_unroll_factor;
+  rparams->unroll_factor_top_of_vectorization =
+      unroll_factor_top_of_vectorization;
   rparams->vectorize_inner_reduction = vectorize;
 
   if (rparams->multiple_reds_per_blk) {
