@@ -7,6 +7,7 @@ import os
 import re
 import sys
 from typing import Callable, Optional, Union, List  # noqa: F401
+import warnings
 
 import torch
 
@@ -123,7 +124,7 @@ class FusionDefinition(_C._FusionDefinition):
                 provide a provide a reproduction script.
             _enable_options/_disable_options (list): NVFUSER_ENABLE/DISABLE options to use.
                 This is an alternative to enviroment variables.
-                Note: Currently, we do not cache/store these options in the FusionCache which makes it 
+                Note: Currently, we do not cache/store these options in the FusionCache which makes it
                     plausible to reuse kernels when executing the same fusion definition with different sets of options.
                     Reset the FusionCache manually to avoid inadvertent kernel reuse when between different sets of options.
 
@@ -187,6 +188,11 @@ class FusionDefinition(_C._FusionDefinition):
         try:
             if print_repro:
                 print(self.repro_script_for(inputs))
+            if len(_enable_options) or len(_disable_options):
+                warnings.warn(
+                    "Reset the FusionCache manually to avoid reusing kernels when re-executing the fusion definition with different options."
+                )
+
             results = self._execute(
                 inputs,
                 device=device,
