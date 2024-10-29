@@ -937,4 +937,84 @@ TEST_F(AllgatherOverlapTest, AllgatherBasedPipeliningHostIrImplementation) {
   }
 }
 
+class RingAllgatherOverlapTest : public MultiDeviceTest {
+ protected:
+  int64_t number_of_steps_per_ring_, number_of_rings_;
+  at::Tensor src_buffer_, dst_buffer_;
+  at::Tensor ta_reshaped_, tc_reshaped_;
+
+  void SetUp() {
+    AllgatherOverlapTest::SetUp();
+    if (!communicator_->is_available()) {
+      return;
+    }
+
+    ASSERT_EQ(params.S % num_devices_, 0);
+    number_of_steps_per_ring_ = num_devices_;
+    number_of_rings_ = params.S / num_devices_;
+
+    ta_reshaped_ = at::reshape(
+        ta_,
+        {number_of_steps_per_ring_,
+         number_of_rings_,
+         params.M / params.S,
+         params.K / num_devices_});
+    tc_reshaped_ =
+        tc_.reshape({number_of_rings_, params.M / params.S, params.N});
+
+    std::vector<int64_t> buffer_sizes = {
+        number_of_steps_per_ring_,
+        number_of_rings_,
+        params.M / params.S,
+        params.N};
+    src_buffer_ = at::empty(buffer_sizes, gpu_options_);
+    dst_buffer_ = at::empty(buffer_sizes, gpu_options_);
+  }
+};
+
+TEST_F(RingAllgatherOverlapTest, RingAllgatherBasedPipeliningATenImplementation) {
+  std::vector<c10::cuda::CUDAStream> streams =
+      createStreams(params.number_of_streams, my_device_index_);
+
+  for ([[maybe_unused]] const auto& _ :
+       c10::irange(params.number_of_iterations)) {
+        
+    initializeIO();
+
+    for (auto i : c10::irange(number_of_rings_)) {
+      for (auto j : c10::irange(number_of_steps_per_ring_)) {
+        int64_t stream_index = (i + j) % streams.size();
+        setCurrentCUDAStream(streams.at(stream_index));
+
+        // define the sliced tensors
+        auto slice_index =
+            (my_device_index_ + j + 1) % number_of_steps_per_ring_;
+        auto ta_j = ta_reshaped_.select(0, slice_index).select(0, i);
+        auto src_buffer_j = src_buffer_.select(0, j).select(0, i);
+        auto dst_buffer_j = dst_buffer_.select(0, j).select(0, i);
+
+        // define the peer ranks
+        auto send_rank = slice_index;
+        auto recv_rank =
+            (number_of_steps_per_ring_ + my_device_index_ - (j + 1)) %
+            number_of_steps_per_ring_;
+
+        // local compute
+        torch::matmul_out(src_buffer_j, ta_j, tb_);
+        // communication
+        std::vector<at::Tensor> src = {src_buffer_j};
+        std::vector<at::Tensor> dst = {dst_buffer_j};
+
+        world_communicator_->startCoalescing();
+        // "tags" are not supported by nccl, so set it to 0
+        world_communicator_->send(src, send_rank, 0);
+        world_communicator_->recv(dst, recv_rank, 0);
+        world_communicator_->endCoalescing()->wait();
+      }
+    }
+    synchronizeStreams(streams);
+    torch::sum_out(tc_reshaped_, dst_buffer_, 0);
+  }
+}
+
 } // namespace nvfuser
