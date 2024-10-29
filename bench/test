@@ -1,35 +1,45 @@
 #!/bin/bash
-EXPERIMENT=tl_nccl
+EXPERIMENT=profile
 DATE=$(date +%Y%m%d-%H%M)
 LOG_BASE="/opt/pytorch/Fuser/bench/logs"
 
 export LOGS="${LOG_BASE}/${EXPERIMENT}_${DATE}"
 
 mkdir -p $LOGS
-LOG_FILE_INFO="${LOGS}/info"
+LOG_FILE_INFO="${LOGS}/info.txt"
 echo "Writing to $LOG_FILE_INFO" | tee -a $LOG_FILE_INFO
 
 NP=8
 BACKEND=NCCL
-S=*
-M=*
-K=*
-N=*
-Streams=*
-export GTEST_FILTER="OverlapBenchmark.DummyBenchmark/${BACKEND}_S${S}_M${M}_K${K}_N${N}_Streams${Streams}"
+S=4
+M=32768
+K=32768
+N=1024
+Streams=8
+GTEST_PREFIX="OverlapBenchmark.DummyBenchmark/"
+GTEST_POSTFIX="${BACKEND}_S${S}_M${M}_K${K}_N${N}_Streams${Streams}"
+export GTEST_FILTER="${GTEST_PREFIX}${GTEST_POSTFIX}"
 echo "gtest filter: $GTEST_FILTER" | tee -a $LOG_FILE_INFO
-
+``
 MPIFLAGS=" -np $NP"
 MPIFLAGS+=" -x UCX_NET_DEVICES=mlx5_0:1"
 # MPIFLAGS+=" -x UCC_CL_BASIC_TLS=^sharp,mlx5"
-# MPIFLAGS+=" -x UCC_COLL_TRACE=info"
+MPIFLAGS+=" -x UCC_COLL_TRACE=info"
 MPIFLAGS+=" -x UCC_CL_BASIC_TLS=nccl"
+# MPIFLAGS+=" -x NCCL_DEBUG=TRACE" #INFO
+MPIFLAGS+=" -x TORCH_NCCL_AVOID_RECORD_STREAMS=1"
 echo "mpi flags: $MPIFLAGS" | tee -a $LOG_FILE_INFO
 
 TEST_CMD="$BUILD_DIRECTORY/test_multidevice --gtest_filter=${GTEST_FILTER}"
 echo "test cmd: $TEST_CMD" | tee -a $LOG_FILE_INFO
 
-CMD="mpirun $MPIFLAGS $TEST_CMD"
-echo $CMD | tee -a $LOG_FILE_INFO
-$CMD | tee -a $LOG_FILE_INFO
+MPICMD="mpirun $MPIFLAGS $TEST_CMD"
+echo $MPICMD | tee -a $LOG_FILE_INFO
+
+NSYSCMD="nsys profile --stats=false -w true -t cublas,cuda,nvtx,osrt,mpi,ucx -o ${LOGS}/${GTEST_POSTFIX} --capture-range-end stop --capture-range=cudaProfilerApi --cudabacktrace=memory,sync,kernel,other"
+
+CMD="${NSYSCMD} ${MPICMD}"
+sudo /bin/sh -c "echo '1' > /proc/sys/kernel/perf_event_paranoid"
+echo $CMD | tee -a ${LOG_FILE_INFO}
+$CMD | tee -a ${LOG_FILE_INFO}
 

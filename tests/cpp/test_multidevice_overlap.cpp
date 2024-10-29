@@ -15,6 +15,7 @@
 #include <ir/utils.h>
 #include <ops/all_ops.h>
 #include <tests/cpp/multidevice.h>
+#include <cuda_profiler_api.h>
 #include <cuda_runtime.h>
 
 namespace nvfuser {
@@ -97,6 +98,9 @@ TEST_P(OverlapBenchmark, DummyBenchmark) {
 
   for (const auto& iteration :
        c10::irange(number_of_warmups + number_of_iterations)) {
+    if (iteration == 10) {
+      cudaProfilerStart();;
+    }
     if (iteration == number_of_warmups) {
       cudaEventRecord(start);
     }
@@ -114,6 +118,9 @@ TEST_P(OverlapBenchmark, DummyBenchmark) {
     }
     setCurrentCUDAStream(c10::cuda::getDefaultCUDAStream(communicator_->deviceId()));
     synchronizeStreams(streams);
+    if (iteration == 15) {
+      cudaProfilerStop();;
+    }
   }
   cudaEventRecord(stop);
   cudaEventSynchronize(stop);
