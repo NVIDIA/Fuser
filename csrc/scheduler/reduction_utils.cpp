@@ -1013,13 +1013,21 @@ void sharedMemoryConsumerVectorization(
         tv->definition()->isA<LoadStoreOp>(),
         "smem consumers should be LoadStoreOp. Got: ",
         tv->definition()->toString());
+
+    // non-concretized broadcast domains are moved to the innermost before
+    // transform propagation, should skip these axes.
+    int64_t vect_axis_pos = -1;
+    while (tv->axis(vect_axis_pos)->isBroadcast()) {
+      vect_axis_pos--;
+    }
     // they were transformed with innermost axis has extent equal to
     // vectorization factor set for io tvs.
     NVF_ERROR(
-        tv->axis(-1)->extent()->isConst(),
+        tv->axis(vect_axis_pos)->extent()->isConst(),
         "Extent of the innermost axis of smem consumers should be constant. Got: ",
         tv->toString());
-    auto innermost_extent = tv->axis(-1)->extent()->evaluate().as<int64_t>();
+    auto innermost_extent =
+        tv->axis(vect_axis_pos)->extent()->evaluate().as<int64_t>();
     NVF_ERROR(
         innermost_extent == io_vectorization_factor,
         "Extent of the innermost axis of smem consumers should be equal to the vectorization factor of fuion inputs and outputs. Got: ",
@@ -1030,11 +1038,11 @@ void sharedMemoryConsumerVectorization(
     auto max_vect_factor =
         SchedulerRuntimeInfo::max_alignment_size_in_byte / dtype_bytes;
     // additional split is added if the innermost extent is greater than max
-    // vectorization factor
+    // vectorization factor.
     if (innermost_extent > max_vect_factor) {
-      tv->split(-1, max_vect_factor);
+      tv->split(vect_axis_pos, max_vect_factor);
     }
-    tv->axis(-1)->parallelize(ParallelType::Vectorize);
+    tv->axis(vect_axis_pos)->parallelize(ParallelType::Vectorize);
   }
 }
 
