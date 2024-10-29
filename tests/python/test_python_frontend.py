@@ -4603,58 +4603,18 @@ fd.execute(inputs)
 
     def test_issue_3292(self):
         inputs = [
-            torch.testing.make_tensor((128, 64), dtype=torch.float32, device="cuda:0"),
-            torch.testing.make_tensor((128, 64), dtype=torch.float32, device="cuda:0"),
             torch.testing.make_tensor(
                 (5, 5, 576), dtype=torch.float32, device="cuda:0"
-            ),
-            torch.testing.make_tensor(
-                (5, 5, 1792), dtype=torch.float32, device="cuda:0"
             ),
         ]
 
         def fusion_func(fd: FusionDefinition) -> None:
-            T0 = fd.define_tensor(
-                shape=[128, 64],
-                contiguity=[True, True],
-                dtype=DataType.Float,
-                is_cpu=False,
-                stride_order=[1, 0],
-            )
-            T1 = fd.define_tensor(
-                shape=[128, 64],
-                contiguity=[True, True],
-                dtype=DataType.Float,
-                is_cpu=False,
-                stride_order=[1, 0],
-            )
             T2 = fd.define_tensor(
                 shape=[5, 5, 576],
                 contiguity=[True, True, True],
                 dtype=DataType.Float,
                 is_cpu=False,
                 stride_order=[2, 1, 0],
-            )
-            T3 = fd.define_tensor(
-                shape=[5, 5, 1792],
-                contiguity=[True, True, True],
-                dtype=DataType.Float,
-                is_cpu=False,
-                stride_order=[2, 1, 0],
-            )
-            T13 = fd.ops.slice(
-                T0,
-                start_indices=[0, 0],
-                end_indices=[5, 64],
-                strides=[1, 1],
-                manual_normalization=0,
-            )
-            T23 = fd.ops.slice(
-                T1,
-                start_indices=[0, 0],
-                end_indices=[5, 64],
-                strides=[1, 1],
-                manual_normalization=0,
             )
             T30 = fd.ops.reshape(T2, new_shape=[5, 5, 1, 9, 64])
             T31 = fd.ops.permute(T30, dims=[0, 2, 3, 1, 4])
@@ -4665,39 +4625,7 @@ fd.execute(inputs)
                 strides=[1, 1, 1, 1, 1],
                 manual_normalization=0,
             )
-            T69 = fd.ops.slice(
-                T31,
-                start_indices=[0, 0, 7, 0, 0],
-                end_indices=[5, 1, 8, 5, 64],
-                strides=[1, 1, 1, 1, 1],
-                manual_normalization=0,
-            )
-            T88 = fd.ops.slice(
-                T31,
-                start_indices=[0, 0, 8, 0, 0],
-                end_indices=[5, 1, 9, 5, 64],
-                strides=[1, 1, 1, 1, 1],
-                manual_normalization=0,
-            )
-            S89 = fd.define_scalar(5, dtype=DataType.Int)
-            S90 = fd.define_scalar(1, dtype=DataType.Int)
-            S91 = fd.define_scalar(7, dtype=DataType.Int)
-            S92 = fd.define_scalar(5, dtype=DataType.Int)
-            S93 = fd.define_scalar(64, dtype=DataType.Int)
-            T95 = fd.ops.broadcast_in_dim(
-                T69, shape=[S89, S90, S91, S92, S93], broadcast_dims=[0, 1, 2, 3, 4]
-            )
-            S96 = fd.define_scalar(5, dtype=DataType.Int)
-            S97 = fd.define_scalar(1, dtype=DataType.Int)
-            S98 = fd.define_scalar(7, dtype=DataType.Int)
-            S99 = fd.define_scalar(5, dtype=DataType.Int)
-            S100 = fd.define_scalar(64, dtype=DataType.Int)
-            T102 = fd.ops.broadcast_in_dim(
-                T88, shape=[S96, S97, S98, S99, S100], broadcast_dims=[0, 1, 2, 3, 4]
-            )
             T108 = fd.ops.reshape(T50, new_shape=[5, 7, 5, 64])
-            T114 = fd.ops.reshape(T95, new_shape=[5, 7, 5, 64])
-            T120 = fd.ops.reshape(T102, new_shape=[5, 7, 5, 64])
             T136 = fd.ops.slice(
                 T108,
                 start_indices=[0, 0, 0, 0],
@@ -4714,32 +4642,18 @@ fd.execute(inputs)
             )
             T153 = fd.ops.neg(T152)
             T154 = fd.ops.cat([T153, T136], dim=-1, manual_padding=0)
-            S155 = fd.define_scalar(5, dtype=DataType.Int)
-            S156 = fd.define_scalar(7, dtype=DataType.Int)
-            S157 = fd.define_scalar(5, dtype=DataType.Int)
-            S158 = fd.define_scalar(64, dtype=DataType.Int)
-            T160 = fd.ops.broadcast_in_dim(
-                T13, shape=[S155, S156, S157, S158], broadcast_dims=[2, 3]
-            )
-            T161 = fd.ops.mul(T108, T160)
-            S162 = fd.define_scalar(5, dtype=DataType.Int)
-            S163 = fd.define_scalar(7, dtype=DataType.Int)
-            S164 = fd.define_scalar(5, dtype=DataType.Int)
-            S165 = fd.define_scalar(64, dtype=DataType.Int)
-            T167 = fd.ops.broadcast_in_dim(
-                T23, shape=[S162, S163, S164, S165], broadcast_dims=[2, 3]
-            )
-            T168 = fd.ops.mul(T154, T167)
+            T161 = fd.ops.mul(T108, T108)
+            T168 = fd.ops.mul(T154, T154)
             T169 = fd.ops.add(T161, T168)
             T185 = fd.ops.slice(
-                T114,
+                T108,
                 start_indices=[0, 0, 0, 0],
                 end_indices=[5, 7, 5, 32],
                 strides=[1, 1, 1, 1],
                 manual_normalization=0,
             )
             T201 = fd.ops.slice(
-                T114,
+                T108,
                 start_indices=[0, 0, 0, 32],
                 end_indices=[5, 7, 5, 64],
                 strides=[1, 1, 1, 1],
@@ -4747,9 +4661,7 @@ fd.execute(inputs)
             )
             T202 = fd.ops.neg(T201)
             T203 = fd.ops.cat([T202, T185], dim=-1, manual_padding=0)
-            T204 = fd.ops.mul(T114, T160)
-            T205 = fd.ops.mul(T203, T167)
-            T206 = fd.ops.add(T204, T205)
+            T205 = fd.ops.mul(T203, T203)
             T222 = fd.ops.slice(
                 T108,
                 start_indices=[0, 0, 0, 0],
@@ -4758,34 +4670,7 @@ fd.execute(inputs)
                 manual_normalization=0,
             )
             T223 = fd.ops.cat([T169, T222], dim=-1, manual_padding=0)
-            T239 = fd.ops.slice(
-                T114,
-                start_indices=[0, 0, 0, 0],
-                end_indices=[5, 7, 5, 0],
-                strides=[1, 1, 1, 1],
-                manual_normalization=0,
-            )
-            T240 = fd.ops.cat([T206, T239], dim=-1, manual_padding=0)
-            S241 = fd.define_scalar(0.353553, dtype=DataType.Double)
-            T242 = fd.ops.mul(T223, S241)
-            T243 = fd.ops.permute(T240, dims=[0, 1, 3, 2])
-            S244 = fd.define_scalar(0.353553, dtype=DataType.Double)
-            T245 = fd.ops.mul(T243, S244)
-            S246 = fd.define_scalar(1.41421, dtype=DataType.Double)
-            S247 = fd.ops.reciprocal(S246)
-            T248 = fd.ops.mul(T3, S247)
-            T249 = fd.ops.erf(T248)
-            S250 = fd.define_scalar(0.500000, dtype=DataType.Double)
-            T251 = fd.ops.mul(S250, T249)
-            S252 = fd.define_scalar(0.500000, dtype=DataType.Double)
-            T253 = fd.ops.add(S252, T251)
-            T254 = fd.ops.mul(T3, T253)
-            fd.add_output(T120)
-            fd.add_output(T160)
-            fd.add_output(T167)
-            fd.add_output(T242)
-            fd.add_output(T245)
-            fd.add_output(T254)
+            fd.add_output(T223)
 
         # is_clonable=False is because translation fails with missing ceilDiv
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=False)
