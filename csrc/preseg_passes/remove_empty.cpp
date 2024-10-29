@@ -12,12 +12,12 @@
 #include <iter_visitor.h>
 #include <ops/alias.h>
 #include <ops/arith.h>
+#include <polymorphic_value.h>
 
 #include <algorithm>
 #include <limits>
 #include <unordered_set>
 #include <vector>
-#include <polymorphic_value.h>
 
 namespace nvfuser::preseg_passes {
 
