@@ -104,6 +104,11 @@ def pytest_collection_modifyitems(session, config, items):
     run_thunder = config.getoption("--benchmark-thunder")
     run_torchcompile = config.getoption("--benchmark-torchcompile")
 
+    from nvfuser.pytorch_utils import retry_on_oom_or_skip_test
+
+    for item in items:
+        item.obj = retry_on_oom_or_skip_test(item.obj)
+
     if not run_eager:
         skip_eager = pytest.mark.skip(reason="need --benchmark-eager option to run")
         for item in items:
