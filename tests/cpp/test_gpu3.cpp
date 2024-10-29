@@ -8819,6 +8819,61 @@ TEST_F(NVFuserTest, RAWSync) {
           "Producer is required to be in Global or Shared Memory based on parallelization strategy. RAW flags: (threadIdx.x)")));
 }
 
+// Test `DistributedTransformerTest.Backward/__bfloat` has bool type tensor
+// if copied to shared memory using async copy, will trigger a bug as described
+// in https://github.com/NVIDIA/Fuser/issues/3273
+// This test checks pointer to bool is not treated as data type bool when
+// generating PTX code for kir::Asm, e.g. async copy.
+TEST_F(NVFuserTest, CpAsyncDataTypeBool) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  auto dtype = DataType::Bool;
+  int m = 33, n = 128;
+  auto tv0 = makeContigConcreteTensor({m, n}, dtype);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::CpAsync);
+  tv1->definition()->as<LoadStoreOp>()->setCacheOp(CacheOp::Unspecified);
+  auto tv2 = castOp(DataType::Int32, tv1);
+  fusion.addOutput(tv2);
+
+  for (auto tv : {tv0, tv1, tv2}) {
+    tv->split(1, 4);
+  }
+  for (auto tv : {tv0, tv1, tv2}) {
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(1)->parallelize(ParallelType::TIDx);
+  }
+  tv1->axis(2)->parallelize(ParallelType::Vectorize);
+
+  inlineMost();
+
+  // randn doesn't support bool, ones is used instead
+  auto at_dtype = data_type_to_aten(dtype);
+  auto options = at::TensorOptions().dtype(at_dtype).device(at::kCUDA, 0);
+  at::Tensor t0 = at::ones({m, n}, options);
+
+  // Expected asm code is:
+  // asm volatile(
+  //   "{\n"
+  //   "  .reg .pred p0; \n"
+  //   "  setp.ne.b32 p0, %3, 0;\n"
+  //   "  cp.async.ca.shared.global [%0], [%1], %2, p0;\n"
+  //   "}\n"
+  //   :
+  //   :"r"((uint32_t)((toSmem(T1) + i0))),
+  //    "l"(((T0.data + i0) + i1)),
+  //    "n"(4LL),
+  //    "r"((uint32_t)((!b3)))
+  // );
+  // If not correctly lowered, would trigger error in compile
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0});
+  auto cg_outputs = fe.runFusion({t0});
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
+}
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

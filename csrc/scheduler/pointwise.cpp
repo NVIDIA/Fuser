@@ -19,7 +19,6 @@
 #include <scheduler/registry_utils.h>
 #include <scheduler/runtime_info.h>
 #include <scheduler/tools/inlining.h>
-#include <scheduler/transpose.h>
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>
 
@@ -475,25 +474,6 @@ bool PointWiseScheduler::canScheduleCompileTime(Fusion* fusion) {
         schedulerType(),
         "Broadcasting dimension might be broadcasting to multiple sizes.");
     return false;
-  }
-
-  return true;
-}
-
-bool PointWiseScheduler::canScheduleRunTime(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicDataCache* data_cache) {
-  FUSER_PERF_SCOPE("PointWiseScheduler::canScheduleRunTime");
-  auto can_schedule_transpose_entry =
-      HeuristicDataCacheEntry<HeuristicCompileTime::CanScheduleTranspose>(
-          data_cache, [fusion]() {
-            return std::make_unique<bool>(
-                TransposeScheduler().canScheduleCompileTime(fusion));
-          });
-  if (can_schedule_transpose_entry.get()) {
-    return !TransposeScheduler().canScheduleRunTime(
-        fusion, runtime_info, data_cache);
   }
 
   return true;
