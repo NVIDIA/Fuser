@@ -605,11 +605,11 @@ class ElectOneLock {
   }
 
   bool __device__ electOne() {
-    return atomicInc(mutex_, 256) == 0;
+    return atomicInc(&mutex_, 256) == 0;
   }
 
  private:
-  int mutex_;
+  unsigned int mutex_;
   friend class ElectOneGuard;
 };
 // ElectOneLock* elect_one_lock = new ((ElectOneLock*)(T7 + 4)) ElectOneLock;
