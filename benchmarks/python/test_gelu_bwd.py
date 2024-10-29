@@ -102,10 +102,15 @@ def test_gelu_bwd_baseline_benchmark(
     inputs = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
     bias = torch.ones(size[-1], device="cuda", dtype=dtype)
     grads = torch.randn(size, device="cuda", dtype=dtype)
-    eager_output = torch.nn.functional.gelu(inputs + bias, approximate="tanh")
+    
+    def gelu_fwd():
+        return torch.nn.functional.gelu(inputs + bias, approximate="tanh")
+    fwd_fn = torch.compile(gelu_fwd) if compile else gelu_fwd
+    eager_output = fwd_fn()
+    
     run_benchmark(
         benchmark,
-        torch.compile(unary_bwd_torch) if compile else unary_bwd_torch,
+        unary_bwd_torch,
         [eager_output, grads],
         iobytes=gelu_bwd_iobytes(size, dtype),
     )

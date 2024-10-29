@@ -127,14 +127,20 @@ def test_rmsnorm_bwd_baseline_benchmark(
     grads = torch.randn(size, device="cuda", dtype=dtype)
     weights = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
 
-    squared_mean = (inputs**2).mean(1, keepdim=True)
-    rms_eps = torch.sqrt(squared_mean + 1e-5)
-    output = weights * (inputs / rms_eps)
+    def rmsnorm_fwd():
+        squared_mean = (inputs**2).mean(1, keepdim=True)
+        rms_eps = torch.sqrt(squared_mean + 1e-5)
+        output = weights * (inputs / rms_eps)
+        return output
+    
+    # Compile the fwd fn for torchcompile
+    fwd_fn = torch.compile(rmsnorm_fwd) if compile else rmsnorm_fwd
+    output = fwd_fn()
 
     # Manually compute IOBytes: See PR #1725
     run_benchmark(
         benchmark,
-        torch.compile(unary_bwd_torch) if compile else unary_bwd_torch,
+        unary_bwd_torch,
         [output, grads],
         iobytes=rmsnorm_bwd_iobytes(size, dtype),
     )

@@ -489,12 +489,15 @@ def norm_bwd_baseline_benchmark(
         grads = grads.to(memory_format=torch.channels_last)
 
     norm_fwd_fn = batchnorm_fwd_fn if norm == "batch_norm" else instancenorm_fwd_fn
+    
+    # Compile the fwd fn for torchcompile
+    norm_fwd_fn = torch.compile(norm_fwd_fn) if compile else norm_fwd_fn
     output = norm_fwd_fn([inputs, weight, bias, running_mean, running_var])
 
     # Manually compute IOBytes: See PR #1725
     run_benchmark(
         benchmark,
-        torch.compile(unary_bwd_torch) if compile else unary_bwd_torch,
+        unary_bwd_torch,
         [output, grads],
         iobytes=norm_bwd_iobytes(size, dtype, norm),
     )
